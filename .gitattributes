@@ -1,0 +1,4 @@
+# git-crypt: encrypt everything except these control files
+* filter=git-crypt diff=git-crypt
+.gitattributes !filter !diff
+.gitignore !filter !diff
