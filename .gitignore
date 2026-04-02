@@ -4,3 +4,4 @@ dist-electron/
 *.local
 .env
 .env.*
+.superpowers/
