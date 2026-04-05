@@ -1,0 +1,71 @@
+name: Build Windows
+
+on:
+  workflow_dispatch:
+
+jobs:
+  decrypt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install git-crypt
+        run: sudo apt-get install -y git-crypt
+
+      - name: Decrypt repository
+        run: |
+          echo "$GIT_CRYPT_KEY" | base64 -d > /tmp/git-crypt-key
+          git-crypt unlock /tmp/git-crypt-key
+          rm /tmp/git-crypt-key
+        env:
+          GIT_CRYPT_KEY: ${{ secrets.GIT_CRYPT_KEY }}
+
+      - name: Upload decrypted source
+        uses: actions/upload-artifact@v4
+        with:
+          name: decrypted-source
+          path: |
+            .
+            !.git
+            !node_modules
+          retention-days: 1
+
+  build-windows:
+    needs: decrypt
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download decrypted source
+        uses: actions/download-artifact@v4
+        with:
+          name: decrypted-source
+          path: .
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate icon.ico (256x256+)
+        run: magick resources/icons/icon-256.png -define icon:auto-resize="256,128,64,48,32,16" resources/icons/icon.ico
+
+      - name: Build Windows
+        run: npm run package:win
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload to release v0.1.5
+        shell: bash
+        run: |
+          find dist -name "*.exe" | while read f; do
+            echo "Uploading $f"
+            gh release upload v0.1.5 "$f" --repo GeronimoDiClemente/raven-nest --clobber
+          done
+          find dist -name "latest.yml" -o -name "latest-win.yml" | while read f; do
+            gh release upload v0.1.5 "$f" --repo GeronimoDiClemente/raven-nest --clobber
+          done
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

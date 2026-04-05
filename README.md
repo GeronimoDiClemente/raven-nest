@@ -1,0 +1,69 @@
+# Raven Nest
+
+Multi-AI Terminal Workspace — abrí múltiples sesiones de Claude, Codex, Gemini y más en un solo workspace, cada una con su propia cuenta y configuración.
+
+---
+
+## Configuración de Claude por cuenta
+
+Cuando Nest crea una cuenta Claude, genera una carpeta `.claude` propia dentro del directorio de esa cuenta. Esto significa que cada terminal tiene su configuración aislada.
+
+Tenés dos opciones:
+
+---
+
+### Opción A — Cada cuenta con su propia config (comportamiento por defecto)
+
+No hace falta hacer nada. Cada cuenta en `.raven-nest/accounts/claude/<Nombre>/` tiene su propio `.claude` con settings, plugins e historial independientes.
+
+Útil si querés que cada terminal tenga un perfil distinto (distintos plugins, distinto modo de permisos, etc.).
+
+---
+
+### Opción B — Compartir la misma config en todas las cuentas
+
+Si querés que todas las terminales de Nest usen la misma configuración de Claude (mismos plugins, mismo `settings.json`, mismo historial), podés vincularlas a la config global de Claude en tu sistema.
+
+**Cómo funciona:**
+
+El script `scripts/link-claude-config.bat` crea un [NTFS Junction](https://learn.microsoft.com/en-us/windows/win32/fileio/hard-links-and-junctions) (enlace simbólico de directorio) desde el `.claude` de cada cuenta hacia `C:\Users\<tu-usuario>\.claude`.
+
+Esto hace que todas las cuentas lean y escriban en el mismo lugar, sin duplicar archivos.
+
+**Pasos:**
+
+1. Abrí Claude Code al menos una vez fuera de Nest para que genere `C:\Users\<tu-usuario>\.claude`.
+2. Ejecutá el script:
+
+```
+scripts\link-claude-config.bat
+```
+
+3. El script:
+   - Detecta tu usuario de Windows automáticamente
+   - Recorre todas las cuentas en `.raven-nest\accounts\claude\`
+   - Si la cuenta ya tiene junction → la salta
+   - Si tiene carpeta `.claude` real → la renombra a `.claude.bak` (backup) y crea el junction
+4. Reiniciá Nest.
+
+> Si el script falla, probá ejecutarlo como Administrador (clic derecho → "Ejecutar como administrador").
+
+**Resultado:**
+
+```
+.raven-nest/
+  accounts/
+    claude/
+      Gero Personal/
+        .claude  →  C:\Users\gerod\.claude  (junction)
+      Gero Lulea/
+        .claude  →  C:\Users\gerod\.claude  (junction)
+```
+
+Cualquier cuenta nueva que agregues al Nest necesita volver a correr el script para vincularse.
+
+---
+
+## Docs
+
+- [Roadmap](docs/ROADMAP.md)
