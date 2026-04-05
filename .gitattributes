@@ -2,3 +2,4 @@
 * filter=git-crypt diff=git-crypt
 .gitattributes !filter !diff
 .gitignore !filter !diff
+.github/workflows/*.yml !filter !diff
