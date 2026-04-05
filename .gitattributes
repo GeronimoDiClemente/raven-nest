@@ -3,3 +3,5 @@
 .gitattributes !filter !diff
 .gitignore !filter !diff
 .github/workflows/*.yml !filter !diff
+README.md !filter !diff
+scripts/link-claude-config.bat !filter !diff
