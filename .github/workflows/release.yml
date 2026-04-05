@@ -56,7 +56,7 @@ jobs:
           node-version: 20
 
       - name: Fix distutils for node-gyp
-        run: pip3 install setuptools
+        run: pip3 install setuptools --break-system-packages
 
       - run: npm ci
 
