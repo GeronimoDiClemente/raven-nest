@@ -5,20 +5,19 @@ on:
 
 jobs:
   build-windows:
-    runs-on: windows-latest
+    runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
 
       - name: Install git-crypt
-        run: choco install git-crypt -y
+        run: sudo apt-get install -y git-crypt
 
       - name: Decrypt repository
-        shell: bash
         run: |
-          echo "$GIT_CRYPT_KEY" | base64 -d > git-crypt-key
-          git-crypt unlock git-crypt-key
-          rm git-crypt-key
+          echo "$GIT_CRYPT_KEY" | base64 -d > /tmp/git-crypt-key
+          git-crypt unlock /tmp/git-crypt-key
+          rm /tmp/git-crypt-key
         env:
           GIT_CRYPT_KEY: ${{ secrets.GIT_CRYPT_KEY }}
 
@@ -27,8 +26,8 @@ jobs:
           node-version: 20
           cache: npm
 
-      - name: Install dependencies
-        run: npm ci
+      - name: Install dependencies (skip postinstall for cross-compile)
+        run: npm ci --ignore-scripts
 
       - name: Build Windows
         run: npm run package:win
@@ -36,7 +35,6 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload to release v0.1.5
-        shell: bash
         run: |
           find dist -name "*.exe" | while read f; do
             echo "Uploading $f"
