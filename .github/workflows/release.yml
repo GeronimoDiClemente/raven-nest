@@ -55,6 +55,9 @@ jobs:
         with:
           node-version: 20
 
+      - name: Fix distutils for node-gyp
+        run: pip3 install setuptools
+
       - run: npm ci
 
       - name: Build Mac
