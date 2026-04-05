@@ -33,6 +33,8 @@ jobs:
   build-windows:
     needs: decrypt
     runs-on: windows-latest
+    permissions:
+      contents: write
     steps:
       - name: Download decrypted source
         uses: actions/download-artifact@v4
