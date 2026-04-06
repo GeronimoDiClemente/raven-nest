@@ -61,11 +61,11 @@ jobs:
         shell: bash
         run: |
           VERSION=$(node -p "require('./package.json').version")
-          find dist -name "*.exe" | while read f; do
+          find dist -maxdepth 1 -name "*.exe" | while read f; do
             echo "Uploading $f"
             gh release upload "v$VERSION" "$f" --repo GeronimoDiClemente/raven-nest --clobber
           done
-          find dist -name "latest.yml" -o -name "latest-win.yml" | while read f; do
+          find dist -maxdepth 1 \( -name "latest.yml" -o -name "latest-win.yml" \) | while read f; do
             gh release upload "v$VERSION" "$f" --repo GeronimoDiClemente/raven-nest --clobber
           done
         env:
