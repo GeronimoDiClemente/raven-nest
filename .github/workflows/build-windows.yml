@@ -91,7 +91,7 @@ jobs:
         run: npm ci
 
       - name: Build Mac
-        run: electron-vite build && electron-builder --mac
+        run: npm run package:mac
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
