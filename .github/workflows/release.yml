@@ -1,0 +1,131 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  decrypt:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install git-crypt
+        run: sudo apt-get install -y git-crypt
+
+      - name: Decrypt repository
+        run: |
+          echo "$GIT_CRYPT_KEY" | base64 -d > /tmp/git-crypt-key
+          git-crypt unlock /tmp/git-crypt-key
+          rm /tmp/git-crypt-key
+        env:
+          GIT_CRYPT_KEY: ${{ secrets.GIT_CRYPT_KEY }}
+
+      - name: Get version
+        id: version
+        run: echo "version=$(node -p 'require("./package.json").version')" >> $GITHUB_OUTPUT
+
+      - name: Upload decrypted source
+        uses: actions/upload-artifact@v4
+        with:
+          name: decrypted-source
+          path: |
+            .
+            !.git
+            !node_modules
+          retention-days: 1
+
+  build-mac:
+    needs: decrypt
+    runs-on: macos-latest
+    steps:
+      - name: Download decrypted source
+        uses: actions/download-artifact@v4
+        with:
+          name: decrypted-source
+          path: .
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Fix distutils for node-gyp
+        run: pip3 install setuptools --break-system-packages
+
+      - run: npm ci
+
+      - name: Build Mac
+        run: npx electron-vite build && npx electron-builder --mac --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mac-artifacts
+          path: dist/*.dmg
+
+  build-win:
+    needs: decrypt
+    runs-on: windows-latest
+    steps:
+      - name: Download decrypted source
+        uses: actions/download-artifact@v4
+        with:
+          name: decrypted-source
+          path: .
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Generate icon.ico
+        run: magick resources/icons/icon-256.png -define icon:auto-resize="256,128,64,48,32,16" resources/icons/icon.ico
+
+      - run: npm ci
+
+      - name: Build Windows
+        run: npx electron-vite build && npx electron-builder --win --publish never
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: win-artifacts
+          path: dist/*.exe
+
+  release:
+    needs: [build-mac, build-win, decrypt]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download mac artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: mac-artifacts
+          path: artifacts/mac
+
+      - name: Download win artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: win-artifacts
+          path: artifacts/win
+
+      - name: Delete existing release and tag
+        run: gh release delete v${{ needs.decrypt.outputs.version }} --yes --cleanup-tag --repo GeronimoDiClemente/raven-nest || true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.decrypt.outputs.version }}
+          name: v${{ needs.decrypt.outputs.version }}
+          files: |
+            artifacts/mac/*.dmg
+            artifacts/win/*.exe
+          make_latest: true
+          token: ${{ secrets.GITHUB_TOKEN }}
+
