@@ -68,7 +68,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: mac-artifacts
-          path: dist/*.dmg
+          path: |
+            dist/*.dmg
+            dist/*.yml
 
   build-win:
     needs: decrypt
@@ -95,7 +97,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: win-artifacts
-          path: dist/*.exe
+          path: |
+            dist/*.exe
+            dist/*.yml
 
   release:
     needs: [build-mac, build-win, decrypt]
@@ -125,7 +129,9 @@ jobs:
           name: v${{ needs.decrypt.outputs.version }}
           files: |
             artifacts/mac/*.dmg
+            artifacts/mac/*.yml
             artifacts/win/*.exe
+            artifacts/win/*.yml
           make_latest: true
           token: ${{ secrets.GITHUB_TOKEN }}
 
