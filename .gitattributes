@@ -5,3 +5,12 @@
 .github/workflows/*.yml !filter !diff
 README.md !filter !diff
 scripts/link-claude-config.bat !filter !diff
+
+# Linguist: language overrides (files are encrypted but we declare their real language)
+*.ts linguist-language=TypeScript linguist-detectable=true
+*.tsx linguist-language=TypeScript linguist-detectable=true
+*.html linguist-language=HTML linguist-detectable=true
+*.css linguist-language=CSS linguist-detectable=true
+*.js linguist-language=JavaScript linguist-detectable=true
+*.mjs linguist-language=JavaScript linguist-detectable=true
+*.sql linguist-language=SQL linguist-detectable=true
