@@ -86,9 +86,6 @@ jobs:
         with:
           node-version: 20
 
-      - name: Generate icon.ico
-        run: magick resources/icons/icon-256.png -define icon:auto-resize="256,128,64,48,32,16" resources/icons/icon.ico
-
       - run: npm ci
 
       - name: Build Windows
@@ -100,6 +97,34 @@ jobs:
           path: |
             dist/*.exe
             dist/*.yml
+
+  deploy-functions:
+    needs: decrypt
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download decrypted source
+        uses: actions/download-artifact@v4
+        with:
+          name: decrypted-source
+          path: .
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Deploy edge functions
+        run: |
+          supabase functions deploy stripe-checkout --project-ref qkqlsytxtshgjxwmafpw
+          supabase functions deploy stripe-webhook --project-ref qkqlsytxtshgjxwmafpw
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Set Supabase function secrets
+        run: |
+          supabase secrets set STRIPE_SECRET_KEY=${{ secrets.STRIPE_SECRET_KEY }} --project-ref qkqlsytxtshgjxwmafpw
+          supabase secrets set STRIPE_WEBHOOK_SECRET=${{ secrets.STRIPE_WEBHOOK_SECRET }} --project-ref qkqlsytxtshgjxwmafpw
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
   release:
     needs: [build-mac, build-win, decrypt]
