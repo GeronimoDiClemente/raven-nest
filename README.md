@@ -65,10 +65,16 @@ Raven Nest supports voice-to-text input powered by [OpenAI Whisper](https://gith
 **Setup (one time):**
 
 ```bash
-pip install openai-whisper
+# 1. Install Whisper
+pip3 install openai-whisper
+
+# 2. Pre-download the model (recommended — avoids a long wait on first use)
+python3 -c "import whisper; whisper.load_model('base')"
 ```
 
-The first time you use it, Whisper will download the `tiny` model (~150 MB). After that it's instant.
+The `base` model is ~140 MB and only downloads once. After that, Raven Nest loads it in a few seconds on startup.
+
+**While the model loads**, the Voice button in the sidebar shows `Cargando…` with a spinner — just wait a moment before clicking it.
 
 > **Note:** If Whisper is not installed, the microphone button simply won't transcribe — no crash or error. You can install it at any time and it will start working immediately.
 
