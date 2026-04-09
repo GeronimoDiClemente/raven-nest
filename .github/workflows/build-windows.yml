@@ -98,7 +98,7 @@ jobs:
       - name: Upload to release
         run: |
           VERSION=$(node -p "require('./package.json').version")
-          find dist -name "*.dmg" | while read f; do
+          find dist -name "*.dmg" -o -name "*.zip" | while read f; do
             echo "Uploading $f"
             gh release upload "v$VERSION" "$f" --repo GeronimoDiClemente/raven-nest --clobber
           done
