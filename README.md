@@ -27,8 +27,50 @@ Instead of switching between tabs in different terminals, you get a flexible **g
 
 | Platform | Download |
 |----------|----------|
-| **macOS** (Apple Silicon) | [Nest-0.2.3-arm64.dmg](../../releases/latest) |
-| **Windows** | [Nest-Setup-0.2.3.exe](../../releases/latest) |
+| **macOS** (Apple Silicon) | [Nest-0.3.3-arm64.dmg](../../releases/latest) |
+| **Windows** | [Nest-Setup-0.3.3.exe](../../releases/latest) |
+
+---
+
+## Installing on macOS
+
+> Raven Nest is not yet code-signed or notarized. macOS will block it with a *"damaged and can't be opened"* message. Follow these steps to install it anyway.
+
+**1. Download the DMG** from the link above.
+
+**2. Remove the quarantine flag** before opening it:
+
+```bash
+xattr -dr com.apple.quarantine ~/Downloads/Nest-0.3.3-arm64.dmg
+```
+
+**3. Open the DMG** and drag **Nest.app** to your `/Applications` folder.
+
+**4. Remove the quarantine flag from the installed app:**
+
+```bash
+xattr -dr com.apple.quarantine /Applications/Nest.app
+```
+
+**5. Open Nest** from `/Applications` — it should launch normally.
+
+> **Why is this needed?** macOS Gatekeeper quarantines apps downloaded from the internet that aren't notarized by Apple. The `xattr` command removes that flag so macOS treats the app as trusted. This is safe to do for apps you trust.
+
+---
+
+## Voice Input (Microphone)
+
+Raven Nest supports voice-to-text input powered by [OpenAI Whisper](https://github.com/openai/whisper). The microphone button transcribes your speech and sends it to the active pane.
+
+**Setup (one time):**
+
+```bash
+pip install openai-whisper
+```
+
+The first time you use it, Whisper will download the `tiny` model (~150 MB). After that it's instant.
+
+> **Note:** If Whisper is not installed, the microphone button simply won't transcribe — no crash or error. You can install it at any time and it will start working immediately.
 
 ---
 
