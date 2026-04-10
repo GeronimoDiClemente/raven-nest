@@ -9,7 +9,7 @@ Open multiple Claude, Gemini, Codex, Copilot and more sessions — all in one fl
 [![Latest Release](https://img.shields.io/github/v/release/GeronimoDiClemente/raven-nest?style=flat-square&color=0055FF)](https://github.com/GeronimoDiClemente/raven-nest/releases/latest)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows-lightgrey?style=flat-square)](https://github.com/GeronimoDiClemente/raven-nest/releases/latest)
 
-[Download for macOS](#download) · [Download for Windows](#download) · [Feedback & Issues](../../issues) · [Discussions](../../discussions)
+[Website](https://landing-nest.vercel.app) · [Download for macOS](#download) · [Download for Windows](#download) · [Feedback & Issues](../../issues) · [Discussions](../../discussions)
 
 </div>
 
@@ -201,6 +201,28 @@ Organize your work across multiple tabs:
 
 ---
 
+### Block View
+
+Switch any pane to **Block View** to see AI responses as individual collapsible cards:
+
+- Each response is captured as a timestamped block
+- Expand/collapse long responses
+- Copy any block to clipboard instantly
+- Toggle between terminal and block view at any time
+
+---
+
+### Team Collaboration
+
+Create a team and collaborate with your workspace in real time (Team plan):
+
+- Invite members by email
+- Share snippets, saved workspaces, and MCP configs across the team
+- Switch between multiple teams
+- Accept or reject pending invites from the UI
+
+---
+
 ### Auto-Updater
 
 Raven Nest checks for updates in the background every 4 hours. When a new version is available, you'll get a notification and can install it on next quit — no manual downloads.
@@ -251,17 +273,22 @@ Run `scripts/link-claude-config.bat` to symlink all Claude accounts to your syst
 
 ## Plans
 
-| Feature | Free | Pro | Team |
-|---------|------|-----|------|
-| Grid size | 1×1 | 4×4 | 4×4 |
-| AI types | Claude only | All 7 | All 7 |
-| Accounts | Unlimited | Unlimited | Unlimited |
-| Workspaces | ✓ | ✓ | ✓ |
-| Snippets | ✓ | ✓ | ✓ |
-| MCP support | ✓ | ✓ | ✓ |
-| Team features | — | — | ✓ |
+|  | Free | Pro | Team |
+|--|------|-----|------|
+| **Price** | $0 | $20/mo · $17/mo annual | $35/mo · $29/mo annual |
+| **Grid size** | 2×2 | 4×4 | 4×4 |
+| **AI types** | All 7 | All 7 | All 7 |
+| **Accounts** | Unlimited | Unlimited | Unlimited |
+| **Broadcast mode** | — | ✓ | ✓ |
+| **Snippets** | — | ✓ | ✓ |
+| **Saved workspaces** | — | ✓ | ✓ |
+| **MCP panel** | ✓ | ✓ | ✓ |
+| **Shared snippets** | — | — | ✓ |
+| **Shared workspaces** | — | — | ✓ |
+| **Shared MCP configs** | — | — | ✓ |
+| **Team members & invites** | — | — | ✓ |
 
-Free plan includes a **30-day Pro trial** — no credit card required.
+Save ~15% with annual billing.
 
 ---
 
@@ -286,7 +313,7 @@ Free plan includes a **30-day Pro trial** — no credit card required.
 - [ ] Per-pane environment variables
 
 ### Phase 3 — Power Features
-- [ ] Block-based output view (like Warp)
+- [x] Block-based output view (like Warp)
 - [ ] Global hotkey to show/hide Nest
 - [ ] Natural language → shell command
 - [ ] Plugin system
