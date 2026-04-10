@@ -27,8 +27,8 @@ Instead of switching between tabs in different terminals, you get a flexible **g
 
 | Platform | Download |
 |----------|----------|
-| **macOS** (Apple Silicon) | [Nest-0.3.3-arm64.dmg](../../releases/latest) |
-| **Windows** | [Nest-Setup-0.3.3.exe](../../releases/latest) |
+| **macOS** (Apple Silicon) | [Nest-0.3.5-arm64.dmg](../../releases/latest) |
+| **Windows** | [Nest-Setup-0.3.5.exe](../../releases/latest) |
 
 ---
 
@@ -41,7 +41,7 @@ Instead of switching between tabs in different terminals, you get a flexible **g
 **2. Remove the quarantine flag** before opening it:
 
 ```bash
-xattr -dr com.apple.quarantine ~/Downloads/Nest-0.3.3-arm64.dmg
+xattr -dr com.apple.quarantine ~/Downloads/Nest-0.3.5-arm64.dmg
 ```
 
 **3. Open the DMG** and drag **Nest.app** to your `/Applications` folder.
@@ -159,6 +159,18 @@ Hit `⌘K` (or `Ctrl+K`) to open the command palette:
 
 ---
 
+### File Staging
+
+Send files and images directly to any AI pane:
+
+- **Drag & drop** files onto a pane to attach them
+- **Paste images** from clipboard directly into the terminal
+- Thumbnail preview bar appears before sending — add an optional message
+- Files are attached using Claude Code's `@"path"` syntax for multimodal support
+- Temp copies are cleaned up automatically on send, cancel, or remove
+
+---
+
 ### Git Integration
 
 Link a git repository to any workspace tab:
@@ -268,6 +280,7 @@ Free plan includes a **30-day Pro trial** — no credit card required.
 - [x] Git integration
 - [x] MCP panel
 - [x] Broadcast mode
+- [x] File staging — drag & drop and paste images/files into panes
 - [ ] AI error explain (select error → send to AI)
 - [ ] CWD detection via shell integration
 - [ ] Per-pane environment variables
