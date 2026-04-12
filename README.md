@@ -27,8 +27,8 @@ Instead of switching between tabs in different terminals, you get a flexible **g
 
 | Platform | Download |
 |----------|----------|
-| **macOS** (Apple Silicon) | [Nest-0.4.0-arm64.dmg](../../releases/latest) |
-| **Windows** | [Nest-Setup-0.4.0.exe](../../releases/latest) |
+| **macOS** (Apple Silicon) | [Nest-0.4.1-arm64.dmg](../../releases/latest) |
+| **Windows** | [Nest-Setup-0.4.1.exe](../../releases/latest) |
 
 ---
 
@@ -41,7 +41,7 @@ Instead of switching between tabs in different terminals, you get a flexible **g
 **2. Remove the quarantine flag** before opening it:
 
 ```bash
-xattr -dr com.apple.quarantine ~/Downloads/Nest-0.4.0-arm64.dmg
+xattr -dr com.apple.quarantine ~/Downloads/Nest-0.4.1-arm64.dmg
 ```
 
 **3. Open the DMG** and drag **Nest.app** to your `/Applications` folder.
