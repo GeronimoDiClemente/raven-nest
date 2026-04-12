@@ -316,24 +316,24 @@ Run `scripts/link-claude-config.bat` to symlink all Claude accounts to your syst
 |  | Free | Pro | Team |
 |--|------|-----|------|
 | **Price** | $0 | $20/mo · $17/mo annual | $35/mo · $29/mo annual |
-| **Grid size** | 2×2 | 4×4 | 4×4 |
-| **AI types** | All 7 | All 7 | All 7 |
-| **Accounts** | Unlimited | Unlimited | Unlimited |
+| **Grid size** | 2×2 | Up to 4×4 | Up to 4×4 |
+| **All 7 AIs** | ✓ | ✓ | ✓ |
+| **Persistent sessions** | ✓ | ✓ | ✓ |
+| **Command palette** | ✓ | ✓ | ✓ |
+| **MCP server panel** | ✓ | ✓ | ✓ |
 | **Broadcast mode** | — | ✓ | ✓ |
-| **Snippets** | — | ✓ | ✓ |
-| **Saved workspaces** | — | ✓ | ✓ |
-| **MCP panel** | ✓ | ✓ | ✓ |
+| **My Repos personal workspace** | — | ✓ | ✓ |
 | **GitHub integration** | — | ✓ | ✓ |
-| **My Repos workspace** | — | ✓ | ✓ |
-| **Activity Feed** | — | ✓ | ✓ |
-| **Daily Standup** | — | ✓ | ✓ |
-| **Git Status Panel** | — | ✓ | ✓ |
-| **Team Chat + Reactions** | — | — | ✓ |
+| **Git status panel** | — | ✓ | ✓ |
+| **Snippets & workspaces** | — | ✓ | ✓ |
+| **Daily standup** | — | ✓ | ✓ |
+| **Team Chat + reactions** | — | — | ✓ |
+| **Team Activity feed** | — | — | ✓ |
 | **Multi-leader roles** | — | — | ✓ |
-| **Shared snippets** | — | — | ✓ |
-| **Shared workspaces** | — | — | ✓ |
-| **Shared MCP configs** | — | — | ✓ |
-| **Team members & invites** | — | — | ✓ |
+| **Real-time team presence** | — | — | ✓ |
+| **Shared repos** | — | — | ✓ |
+| **Shared snippets & MCP** | — | — | ✓ |
+| **Priority support** | — | — | ✓ |
 
 Save ~15% with annual billing.
 
