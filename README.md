@@ -27,8 +27,8 @@ Instead of switching between tabs in different terminals, you get a flexible **g
 
 | Platform | Download |
 |----------|----------|
-| **macOS** (Apple Silicon) | [Nest-0.3.5-arm64.dmg](../../releases/latest) |
-| **Windows** | [Nest-Setup-0.3.5.exe](../../releases/latest) |
+| **macOS** (Apple Silicon) | [Nest-0.4.0-arm64.dmg](../../releases/latest) |
+| **Windows** | [Nest-Setup-0.4.0.exe](../../releases/latest) |
 
 ---
 
@@ -41,7 +41,7 @@ Instead of switching between tabs in different terminals, you get a flexible **g
 **2. Remove the quarantine flag** before opening it:
 
 ```bash
-xattr -dr com.apple.quarantine ~/Downloads/Nest-0.3.5-arm64.dmg
+xattr -dr com.apple.quarantine ~/Downloads/Nest-0.4.0-arm64.dmg
 ```
 
 **3. Open the DMG** and drag **Nest.app** to your `/Applications` folder.
@@ -181,6 +181,57 @@ Link a git repository to any workspace tab:
 
 ---
 
+### GitHub Integration (NEW)
+
+Connect your GitHub account and manage your repos directly from Raven Nest:
+
+- Connect your GitHub account via OAuth
+- Browse your repos visually from the app
+- Clone repos directly to `~/RavenProjects/` or link existing local folders
+- View Pull Requests, Issues, and CI status per repo
+- Open your GitHub profile from the app
+- All operations use YOUR GitHub credentials — push, pull, review, all native
+
+---
+
+### Teams — Real-time Collaboration (MAJOR UPDATE)
+
+Full team workspace with sidebar navigation: Activity, Chat, Repos, Issues, Members, Snippets, Workspaces, MCP Servers.
+
+- **Activity Feed**: real-time events from your team's GitHub repos (pushes, PRs, issues) with avatars
+- **Team Chat**: timeline mixing GitHub events + manual status messages + emoji reactions (👍 ❤️ 🔥 👀 🎉). Realtime via Supabase
+- **Repo management**: leaders add repos from GitHub, members clone/link locally and open terminals positioned in the repo
+- **Multi-leader roles**: flexible hierarchy — any member can be promoted to leader. Leaders can add/remove repos, invite members, manage configs
+- **Presence**: see who's online in your team right now
+- **Daily Standup**: auto-generated summary of the last 24h activity, copy to Slack/Discord
+- **Shared resources**: snippets, workspaces, and MCP configs shared across the team
+- Confirm dialogs on all destructive actions
+
+---
+
+### My Repos — Personal Workspace (NEW - Pro plan)
+
+Same powerful layout as Teams but for individual developers:
+
+- Sidebar with Activity, Repos, Issues, Standup sections
+- GitHub notifications bell with unread count
+- Clone or link repos, view PRs and Issues, open terminals in one click
+- Daily standup summary of your personal activity
+- Full control: add, remove, link/unlink repos
+
+---
+
+### Git Status Panel (NEW)
+
+Click "Estado" on any linked repo to see:
+
+- Current branch with green/orange dot (clean/dirty)
+- Ahead/behind counts relative to remote
+- List of changed files with color-coded status (Modified, Added, Deleted, Untracked)
+- Quick refresh button
+
+---
+
 ### MCP (Model Context Protocol)
 
 Built-in panel to manage MCP servers for Claude:
@@ -209,17 +260,6 @@ Switch any pane to **Block View** to see AI responses as individual collapsible 
 - Expand/collapse long responses
 - Copy any block to clipboard instantly
 - Toggle between terminal and block view at any time
-
----
-
-### Team Collaboration
-
-Create a team and collaborate with your workspace in real time (Team plan):
-
-- Invite members by email
-- Share snippets, saved workspaces, and MCP configs across the team
-- Switch between multiple teams
-- Accept or reject pending invites from the UI
 
 ---
 
@@ -283,6 +323,13 @@ Run `scripts/link-claude-config.bat` to symlink all Claude accounts to your syst
 | **Snippets** | — | ✓ | ✓ |
 | **Saved workspaces** | — | ✓ | ✓ |
 | **MCP panel** | ✓ | ✓ | ✓ |
+| **GitHub integration** | — | ✓ | ✓ |
+| **My Repos workspace** | — | ✓ | ✓ |
+| **Activity Feed** | — | ✓ | ✓ |
+| **Daily Standup** | — | ✓ | ✓ |
+| **Git Status Panel** | — | ✓ | ✓ |
+| **Team Chat + Reactions** | — | — | ✓ |
+| **Multi-leader roles** | — | — | ✓ |
 | **Shared snippets** | — | — | ✓ |
 | **Shared workspaces** | — | — | ✓ |
 | **Shared MCP configs** | — | — | ✓ |
@@ -308,12 +355,21 @@ Save ~15% with annual billing.
 - [x] MCP panel
 - [x] Broadcast mode
 - [x] File staging — drag & drop and paste images/files into panes
+- [x] GitHub OAuth integration
+- [x] Git status panel
+- [x] Clone/link repos from UI
 - [ ] AI error explain (select error → send to AI)
 - [ ] CWD detection via shell integration
 - [ ] Per-pane environment variables
+- [ ] Embedded terminal in Teams/My Repos workspace
+- [ ] Webhook-based event ingestion (replace polling)
 
 ### Phase 3 — Power Features
 - [x] Block-based output view (like Warp)
+- [x] Team Chat with reactions
+- [x] Multi-leader team roles
+- [x] My Repos personal workspace
+- [ ] Team activity analytics dashboard
 - [ ] Global hotkey to show/hide Nest
 - [ ] Natural language → shell command
 - [ ] Plugin system
