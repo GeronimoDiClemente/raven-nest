@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🪺 Raven Nest
+# 🪺 Nest by RAVEN
 
 **Multi-AI Terminal Workspace**
 
@@ -9,15 +9,15 @@ Open multiple Claude, Gemini, Codex, Copilot and more sessions — all in one fl
 [![Latest Release](https://img.shields.io/github/v/release/GeronimoDiClemente/raven-nest?style=flat-square&color=0055FF)](https://github.com/GeronimoDiClemente/raven-nest/releases/latest)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows-lightgrey?style=flat-square)](https://github.com/GeronimoDiClemente/raven-nest/releases/latest)
 
-[Website](https://landing-nest.vercel.app) · [Download for macOS](#download) · [Download for Windows](#download) · [Feedback & Issues](../../issues) · [Discussions](../../discussions)
+[Website](https://nestmux.com) · [Download for macOS](#download) · [Download for Windows](#download) · [Feedback & Issues](../../issues) · [Discussions](../../discussions)
 
 </div>
 
 ---
 
-## What is Raven Nest?
+## What is Nest by RAVEN?
 
-Raven Nest is a desktop app that lets you run **multiple AI CLI sessions side by side** in a single window. Think of it as a terminal multiplexer — but built specifically for AI agents.
+Nest by RAVEN is a desktop app that lets you run **multiple AI CLI sessions side by side** in a single window. Think of it as a terminal multiplexer — but built specifically for AI agents.
 
 Instead of switching between tabs in different terminals, you get a flexible **grid workspace** where each cell is an independent AI session with its own account, history, and environment.
 
@@ -27,21 +27,21 @@ Instead of switching between tabs in different terminals, you get a flexible **g
 
 | Platform | Download |
 |----------|----------|
-| **macOS** (Apple Silicon) | [Nest-0.4.1-arm64.dmg](../../releases/latest) |
-| **Windows** | [Nest-Setup-0.4.1.exe](../../releases/latest) |
+| **macOS** (Apple Silicon) | [Nest-0.4.2-arm64.dmg](../../releases/latest) |
+| **Windows** | [Nest-Setup-0.4.2.exe](../../releases/latest) |
 
 ---
 
 ## Installing on macOS
 
-> Raven Nest is not yet code-signed or notarized. macOS will block it with a *"damaged and can't be opened"* message. Follow these steps to install it anyway.
+> Nest by RAVEN is not yet code-signed or notarized. macOS will block it with a *"damaged and can't be opened"* message. Follow these steps to install it anyway.
 
 **1. Download the DMG** from the link above.
 
 **2. Remove the quarantine flag** before opening it:
 
 ```bash
-xattr -dr com.apple.quarantine ~/Downloads/Nest-0.4.1-arm64.dmg
+xattr -dr com.apple.quarantine ~/Downloads/Nest-0.4.2-arm64.dmg
 ```
 
 **3. Open the DMG** and drag **Nest.app** to your `/Applications` folder.
@@ -60,7 +60,7 @@ xattr -dr com.apple.quarantine /Applications/Nest.app
 
 ## Voice Input (Microphone)
 
-Raven Nest supports voice-to-text input powered by [OpenAI Whisper](https://github.com/openai/whisper). The microphone button transcribes your speech and sends it to the active pane.
+Nest by RAVEN supports voice-to-text input powered by [OpenAI Whisper](https://github.com/openai/whisper). The microphone button transcribes your speech and sends it to the active pane.
 
 **Setup (one time):**
 
@@ -72,9 +72,9 @@ pip3 install openai-whisper
 python3 -c "import whisper; whisper.load_model('base')"
 ```
 
-The `base` model is ~140 MB and only downloads once. After that, Raven Nest loads it in a few seconds on startup.
+The `base` model is ~140 MB and only downloads once. After that, Nest by RAVEN loads it in a few seconds on startup.
 
-**While the model loads**, the Voice button in the sidebar shows `Cargando…` with a spinner — just wait a moment before clicking it.
+**While the model loads**, the Voice button in the sidebar shows `Loading…` with a spinner — just wait a moment before clicking it.
 
 > **Note:** If Whisper is not installed, the microphone button simply won't transcribe — no crash or error. You can install it at any time and it will start working immediately.
 
@@ -133,7 +133,7 @@ Design a layout once, save it as a template, and load it instantly:
 
 ### Conversation History
 
-Raven Nest automatically captures AI responses:
+Nest by RAVEN automatically captures AI responses:
 
 - Saves outputs to `~/.raven-nest/conversations/` as markdown
 - Groups conversations by date, AI type, and account
@@ -183,7 +183,7 @@ Link a git repository to any workspace tab:
 
 ### GitHub Integration (NEW)
 
-Connect your GitHub account and manage your repos directly from Raven Nest:
+Connect your GitHub account and manage your repos directly from Nest by RAVEN:
 
 - Connect your GitHub account via OAuth
 - Browse your repos visually from the app
@@ -223,7 +223,7 @@ Same powerful layout as Teams but for individual developers:
 
 ### Git Status Panel (NEW)
 
-Click "Estado" on any linked repo to see:
+Click "Status" on any linked repo to see:
 
 - Current branch with green/orange dot (clean/dirty)
 - Ahead/behind counts relative to remote
@@ -265,7 +265,7 @@ Switch any pane to **Block View** to see AI responses as individual collapsible 
 
 ### Auto-Updater
 
-Raven Nest checks for updates in the background every 4 hours. When a new version is available, you'll get a notification and can install it on next quit — no manual downloads.
+Nest by RAVEN checks for updates in the background every 4 hours. When a new version is available, you'll get a notification and can install it on next quit — no manual downloads.
 
 ---
 
