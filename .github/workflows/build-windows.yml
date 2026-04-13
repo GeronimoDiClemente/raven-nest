@@ -1,0 +1,121 @@
+name: Build Windows & Mac
+
+on:
+  workflow_dispatch:
+
+jobs:
+  decrypt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install git-crypt
+        run: sudo apt-get install -y git-crypt
+
+      - name: Decrypt repository
+        run: |
+          echo "$GIT_CRYPT_KEY" | base64 -d > /tmp/git-crypt-key
+          git-crypt unlock /tmp/git-crypt-key
+          rm /tmp/git-crypt-key
+        env:
+          GIT_CRYPT_KEY: ${{ secrets.GIT_CRYPT_KEY }}
+
+      - name: Upload decrypted source
+        uses: actions/upload-artifact@v4
+        with:
+          name: decrypted-source
+          path: |
+            .
+            !.git
+            !node_modules
+          retention-days: 1
+
+  build-windows:
+    needs: decrypt
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download decrypted source
+        uses: actions/download-artifact@v4
+        with:
+          name: decrypted-source
+          path: .
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate icon.ico (from transparent icon.png)
+        run: magick resources/icons/icon.png -define icon:auto-resize="256,128,64,48,32,16" resources/icons/icon.ico
+
+      - name: Build Windows
+        run: npm run package:win
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          MAIN_VITE_GITHUB_CLIENT_ID: ${{ secrets.MAIN_VITE_GITHUB_CLIENT_ID }}
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+
+      - name: Upload to release
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          find dist -maxdepth 1 -name "*.exe" | while read f; do
+            echo "Uploading $f"
+            gh release upload "v$VERSION" "$f" --repo GeronimoDiClemente/raven-nest --clobber
+          done
+          find dist -maxdepth 1 \( -name "*.blockmap" \) | while read f; do
+            echo "Uploading $f"
+            gh release upload "v$VERSION" "$f" --repo GeronimoDiClemente/raven-nest --clobber
+          done
+          find dist -maxdepth 1 \( -name "latest.yml" -o -name "latest-win.yml" \) | while read f; do
+            gh release upload "v$VERSION" "$f" --repo GeronimoDiClemente/raven-nest --clobber
+          done
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-mac:
+    needs: decrypt
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download decrypted source
+        uses: actions/download-artifact@v4
+        with:
+          name: decrypted-source
+          path: .
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Mac
+        run: npm run package:mac
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          MAIN_VITE_GITHUB_CLIENT_ID: ${{ secrets.MAIN_VITE_GITHUB_CLIENT_ID }}
+
+      - name: Upload to release
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          find dist \( -name "*.dmg" -o -name "*.zip" -o -name "*.blockmap" \) | while read f; do
+            echo "Uploading $f"
+            gh release upload "v$VERSION" "$f" --repo GeronimoDiClemente/raven-nest --clobber
+          done
+          find dist -name "latest-mac.yml" | while read f; do
+            gh release upload "v$VERSION" "$f" --repo GeronimoDiClemente/raven-nest --clobber
+          done
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

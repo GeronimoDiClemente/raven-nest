@@ -1,0 +1,88 @@
+@echo off
+setlocal EnableDelayedExpansion
+
+:: ============================================================
+::  link-claude-config.bat  —  Raven Nest
+::
+::  Vincula todas las cuentas Claude del Nest a la config
+::  global del usuario (C:\Users\<tu-usuario>\.claude).
+::
+::  Ejecutar una vez despues de instalar Raven Nest.
+::  Requiere correr como Administrador si falla.
+:: ============================================================
+
+set "REAL_HOME=C:\Users\%USERNAME%"
+set "REAL_CLAUDE=%REAL_HOME%\.claude"
+set "NEST_CLAUDE=%REAL_HOME%\.raven-nest\accounts\claude"
+
+echo.
+echo  ========================================
+echo   Raven Nest — Vincular config de Claude
+echo  ========================================
+echo.
+echo  Config global : %REAL_CLAUDE%
+echo  Cuentas Nest  : %NEST_CLAUDE%
+echo.
+
+:: Verificar config global de Claude
+if not exist "%REAL_CLAUDE%\" (
+    echo  [ERROR] No se encontro: %REAL_CLAUDE%
+    echo          Abre Claude Code una vez para que genere la carpeta.
+    echo.
+    goto :end
+)
+
+:: Verificar directorio de cuentas Nest
+if not exist "%NEST_CLAUDE%\" (
+    echo  [ERROR] No se encontro: %NEST_CLAUDE%
+    echo          Instala Raven Nest antes de correr este script.
+    echo.
+    goto :end
+)
+
+set COUNT=0
+set SKIPPED=0
+
+for /D %%A in ("%NEST_CLAUDE%\*") do (
+    set "ACCOUNT=%%~nxA"
+    set "CLAUDE_DIR=%%A\.claude"
+    set "CLAUDE_BAK=%%A\.claude.bak"
+
+    echo  Cuenta: !ACCOUNT!
+
+    :: Detectar si ya es junction con "dir" buscando <JUNCTION>
+    set "IS_JUNCTION=0"
+    for /F "tokens=*" %%L in ('dir /AL "%%A" 2^>nul ^| findstr /I "<JUNCTION>"') do (
+        echo %%L | findstr /I ".claude" >nul && set "IS_JUNCTION=1"
+    )
+
+    if !IS_JUNCTION! == 1 (
+        echo    [OK] Ya tiene junction, omitiendo.
+        set /A SKIPPED+=1
+    ) else (
+        :: Backup si existe como carpeta real
+        if exist "!CLAUDE_DIR!\" (
+            if exist "!CLAUDE_BAK!\" rmdir /S /Q "!CLAUDE_BAK!"
+            rename "!CLAUDE_DIR!" ".claude.bak"
+            echo    Backup creado: .claude.bak
+        )
+
+        :: Crear junction
+        mklink /J "!CLAUDE_DIR!" "%REAL_CLAUDE%" >nul 2>&1
+        if !errorlevel! == 0 (
+            echo    [OK] Junction creado.
+            set /A COUNT+=1
+        ) else (
+            echo    [ERROR] No se pudo crear el junction.
+            echo            Intenta ejecutar como Administrador.
+        )
+    )
+    echo.
+)
+
+echo  Resultado: %COUNT% junction(s) nuevo(s), %SKIPPED% ya configurado(s).
+echo  Todas las cuentas Claude ahora comparten la misma config.
+echo.
+
+:end
+pause
