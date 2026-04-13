@@ -126,6 +126,7 @@ jobs:
           supabase functions deploy stripe-webhook --project-ref qkqlsytxtshgjxwmafpw
           supabase functions deploy on-signup --no-verify-jwt --project-ref qkqlsytxtshgjxwmafpw
           supabase functions deploy github-oauth --no-verify-jwt --project-ref qkqlsytxtshgjxwmafpw
+          supabase functions deploy send-invite-email --no-verify-jwt --project-ref qkqlsytxtshgjxwmafpw
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
