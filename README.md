@@ -227,11 +227,16 @@ Link a git repository to any workspace tab:
 
 Connect your GitHub account and manage your repos directly from Nest by RAVEN:
 
-- Connect your GitHub account via OAuth
-- Browse your repos visually from the app
-- Clone repos directly to `~/RavenProjects/` or link existing local folders
-- View Pull Requests, Issues, and CI status per repo
-- Open your GitHub profile from the app
+- **OAuth login** — connect once, all repos available instantly
+- **Browse repos** — visual list of your GitHub repositories
+- **Clone or link** — clone to `~/RavenProjects/` or link an existing local folder
+- **View PRs** — open, closed, with status indicators
+- **Create PRs** — title, head/base branch dropdowns, description, submit — all without leaving Nest
+- **AI Code Review** — one click sends the PR diff to Claude and shows an instant review summary
+- **View Issues** — browse open and closed issues per repo with full detail view
+- **Create branch from Issue** — open an issue, click "Create branch", and a feature branch is created on GitHub in one step
+- **Open terminal in repo** — after creating a branch from an issue, open a terminal already positioned in that repo's local folder
+- **CI status** — see build status per PR
 - All operations use YOUR GitHub credentials — push, pull, review, all native
 
 ---
