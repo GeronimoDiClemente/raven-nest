@@ -23,12 +23,28 @@ Instead of switching between tabs in different terminals, you get a flexible **g
 
 ---
 
+## Terminal Sharing (new in v0.5.0)
+
+Share an active terminal session with anyone — no SSH, no VPN, no port forwarding.
+
+- **8-character code**: generate a cryptographically random code for any pane. Share it however you like.
+- **Instant join**: the guest opens Nest, enters the code from the sidebar, and sees the host's terminal full-screen in real time.
+- **Interactive mode**: optionally let the guest type and execute commands on the host machine.
+- **Approval handshake**: the host gets a "Guest wants to connect" prompt and must click **Allow** before the guest can send any input. Nothing happens without explicit consent.
+- **Session survives workspace switches**: move between tabs or workspaces — the shared session stays alive.
+- **Hardened by default**: PTY input validation, sandbox mode, exponential backoff on reconnects, and OAuth origin checks on every handshake.
+
+Use it for pair programming, onboarding, quick help sessions, or showing a teammate what's happening in a live process.
+
+---
+
 ## Download
 
 | Platform | Download |
 |----------|----------|
-| **macOS** (Apple Silicon) | [Nest-0.4.2-arm64.dmg](../../releases/latest) |
-| **Windows** | [Nest-Setup-0.4.2.exe](../../releases/latest) |
+| **macOS** (Apple Silicon) | [Nest-0.5.0-arm64.dmg](../../releases/latest) |
+| **macOS** (Intel) | [Nest-0.5.0.dmg](../../releases/latest) |
+| **Windows** | [Nest-Setup-0.5.0.exe](../../releases/latest) |
 
 ---
 
@@ -41,7 +57,7 @@ Instead of switching between tabs in different terminals, you get a flexible **g
 **2. Remove the quarantine flag** before opening it:
 
 ```bash
-xattr -dr com.apple.quarantine ~/Downloads/Nest-0.4.2-arm64.dmg
+xattr -dr com.apple.quarantine ~/Downloads/Nest-0.5.0-arm64.dmg
 ```
 
 **3. Open the DMG** and drag **Nest.app** to your `/Applications` folder.
@@ -108,6 +124,32 @@ Arrange panes in a flexible **resizable grid** (up to 4×4):
 - Resize rows and columns freely
 - Zoom any pane to fullscreen (`Escape` to go back)
 - **Broadcast mode** — type once, send to all panes simultaneously
+
+---
+
+### Terminal Sharing
+
+Share any pane with an 8-character code. Guests join from the sidebar, see your terminal live, and — once you approve the handshake — can type commands that execute on your machine. See the dedicated section above for details.
+
+---
+
+### Repo Settings Panel
+
+Configure per-repo options without leaving Nest:
+
+- Choose the default **merge method** (merge, squash, rebase)
+- Define a **build/release workflow** that runs on demand
+- Settings are scoped to each linked repo and stored locally
+
+---
+
+### Command History Panel
+
+Every command you execute in a pane is captured automatically:
+
+- Searchable history in the sidebar
+- Re-run any past command with one click
+- Scoped to the active pane, with filters across tabs
 
 ---
 
@@ -181,7 +223,7 @@ Link a git repository to any workspace tab:
 
 ---
 
-### GitHub Integration (NEW)
+### GitHub Integration
 
 Connect your GitHub account and manage your repos directly from Nest by RAVEN:
 
@@ -194,7 +236,7 @@ Connect your GitHub account and manage your repos directly from Nest by RAVEN:
 
 ---
 
-### Teams — Real-time Collaboration (MAJOR UPDATE)
+### Teams — Real-time Collaboration
 
 Full team workspace with sidebar navigation: Activity, Chat, Repos, Issues, Members, Snippets, Workspaces, MCP Servers.
 
@@ -209,7 +251,7 @@ Full team workspace with sidebar navigation: Activity, Chat, Repos, Issues, Memb
 
 ---
 
-### My Repos — Personal Workspace (NEW - Pro plan)
+### My Repos — Personal Workspace (Pro plan)
 
 Same powerful layout as Teams but for individual developers:
 
@@ -221,7 +263,7 @@ Same powerful layout as Teams but for individual developers:
 
 ---
 
-### Git Status Panel (NEW)
+### Git Status Panel
 
 Click "Status" on any linked repo to see:
 
@@ -239,6 +281,7 @@ Built-in panel to manage MCP servers for Claude:
 - Read and write `~/.claude/settings.json`
 - Add, edit, or remove MCP server configs
 - Shared across all Claude accounts
+- Path validation on every entry to prevent malformed configs
 
 ---
 
@@ -276,6 +319,7 @@ Nest by RAVEN checks for updates in the background every 4 hours. When a new ver
 | `⌘T` / `Ctrl+T` | New pane |
 | `⌘K` / `Ctrl+K` | Command palette |
 | `⌘F` / `Ctrl+F` | Global search |
+| `⌘⇧S` / `Ctrl+Shift+S` | Share terminal (generate code) |
 | `⌘+` / `⌘-` / `⌘0` | Font size |
 | `⌘1–9` | Jump to Nth pane |
 | `⌘←` / `⌘→` | Navigate between panes |
@@ -322,6 +366,9 @@ Run `scripts/link-claude-config.bat` to symlink all Claude accounts to your syst
 | **Command palette** | ✓ | ✓ | ✓ |
 | **MCP server panel** | ✓ | ✓ | ✓ |
 | **Broadcast mode** | — | ✓ | ✓ |
+| **Terminal Sharing** | — | ✓ | ✓ |
+| **Command History panel** | — | ✓ | ✓ |
+| **Repo Settings panel** | — | ✓ | ✓ |
 | **My Repos personal workspace** | — | ✓ | ✓ |
 | **GitHub integration** | — | ✓ | ✓ |
 | **Git status panel** | — | ✓ | ✓ |
@@ -358,6 +405,9 @@ Save ~15% with annual billing.
 - [x] GitHub OAuth integration
 - [x] Git status panel
 - [x] Clone/link repos from UI
+- [x] Terminal Sharing with approval handshake
+- [x] Command History panel
+- [x] Repo Settings panel (merge method, build/release workflow)
 - [ ] AI error explain (select error → send to AI)
 - [ ] CWD detection via shell integration
 - [ ] Per-pane environment variables
