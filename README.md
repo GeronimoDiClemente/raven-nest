@@ -197,7 +197,10 @@ Hit `⌘K` (or `Ctrl+K`) to open the command palette:
 ### Snippets & Custom CLIs
 
 - **Snippets**: Save reusable prompts or code blocks, send them to any pane with one click
-- **Custom CLIs**: Define your own CLI commands with custom labels and colors
+- **Dynamic variables**: Snippets support `{{variable}}` placeholders — when you send a snippet, Nest prompts you to fill in each variable before dispatching
+- **Broadcast**: Send a snippet to all open panes simultaneously
+- **Team snippets**: Share snippets with your team so everyone can use and broadcast them
+- **Custom CLIs**: Define your own CLI commands with custom labels and accent colors
 
 ---
 
@@ -206,10 +209,28 @@ Hit `⌘K` (or `Ctrl+K`) to open the command palette:
 Send files and images directly to any AI pane:
 
 - **Drag & drop** files onto a pane to attach them
-- **Paste images** from clipboard directly into the terminal
-- Thumbnail preview bar appears before sending — add an optional message
+- **Paste images** from clipboard directly into the terminal — no temp file needed
+- Thumbnail preview bar appears before sending — review, remove individual files, add an optional message, then send
 - Files are attached using Claude Code's `@"path"` syntax for multimodal support
 - Temp copies are cleaned up automatically on send, cancel, or remove
+
+---
+
+### Pane Customization
+
+Fine-tune each terminal pane to match how you think:
+
+- **Border color** — pick from 12 accent colors to visually distinguish panes at a glance
+- **Pane note** — attach a short label (up to 60 characters) visible in the pane header ("Working on auth refactor", "Don't touch this one", etc.)
+- **Process restart** — when a PTY process exits, a "Restart" button re-launches it in the same pane without reconfiguring anything
+- **Desktop notifications** — if a terminal takes more than 2 seconds and the app is not focused, a native OS notification fires when it finishes
+
+---
+
+### In-Pane Search & Global Search
+
+- **In-pane search** — `Cmd+F` / `Ctrl+F` while a pane is focused opens a search bar within that terminal. Matches are highlighted; navigate with Enter / Shift+Enter
+- **Global search** — `Cmd+Shift+F` / `Ctrl+Shift+F` opens a floating panel that searches terminal output across all open panes simultaneously and shows result counts per pane
 
 ---
 
@@ -230,14 +251,34 @@ Connect your GitHub account and manage your repos directly from Nest by RAVEN:
 - **OAuth login** — connect once, all repos available instantly
 - **Browse repos** — visual list of your GitHub repositories
 - **Clone or link** — clone to `~/RavenProjects/` or link an existing local folder
-- **View PRs** — open, closed, with status indicators
-- **Create PRs** — title, head/base branch dropdowns, description, submit — all without leaving Nest
-- **AI Code Review** — one click sends the PR diff to Claude and shows an instant review summary
-- **View Issues** — browse open and closed issues per repo with full detail view
-- **Create branch from Issue** — open an issue, click "Create branch", and a feature branch is created on GitHub in one step
-- **Open terminal in repo** — after creating a branch from an issue, open a terminal already positioned in that repo's local folder
-- **CI status** — see build status per PR
-- All operations use YOUR GitHub credentials — push, pull, review, all native
+
+**Pull Requests:**
+- View open and closed PRs with CI status indicators
+- Create PRs — title, head/base branch dropdowns (auto-loaded), description, submit in-app
+- Full PR detail — diff view per file with line-level +/− highlighting
+- Submit reviews — Approve, Request Changes, or Comment
+- Merge PRs — uses the merge method configured in Repo Settings (merge / squash / rebase)
+- Update branch — one click when the PR is behind base
+- AI Code Review — sends the PR diff to Claude and shows a structured review summary
+- Stacked PRs — automatically detected and labeled when branches are chained
+
+**Issues:**
+- Browse open/closed issues filtered by All, Assigned to me, or Unassigned
+- Full issue detail with comments
+- Post comments directly from within the app
+- Open / close / reopen issues
+- Create branch from issue — one click creates a `issue-N-slug` branch on GitHub
+- Open terminal in repo — jump straight to a terminal positioned in the repo after branching
+
+**Notifications:**
+- GitHub notification bell with unread count badge
+- Notification panel lists PRs, issues, commits with type icons and relative timestamps
+- Mark notifications as read from within the app
+
+**After merge:**
+- Create a GitHub release — auto-increments version, optionally triggers a build workflow
+
+All operations use YOUR GitHub credentials — no personal access tokens needed.
 
 ---
 
@@ -319,16 +360,19 @@ Nest by RAVEN checks for updates in the background every 4 hours. When a new ver
 
 ## Keyboard Shortcuts
 
-| Shortcut | Action |
-|----------|--------|
+Most shortcuts are customizable from **Settings → Keybinds**. Click any row and press a new key to rebind it.
+
+| Shortcut (default) | Action |
+|--------------------|--------|
 | `⌘T` / `Ctrl+T` | New pane |
 | `⌘K` / `Ctrl+K` | Command palette |
-| `⌘F` / `Ctrl+F` | Global search |
+| `⌘F` / `Ctrl+F` | In-pane search |
+| `⌘⇧F` / `Ctrl+Shift+F` | Global search (all panes) |
 | `⌘⇧S` / `Ctrl+Shift+S` | Share terminal (generate code) |
-| `⌘+` / `⌘-` / `⌘0` | Font size |
+| `⌘+` / `⌘-` / `⌘0` | Font size +/−/reset |
 | `⌘1–9` | Jump to Nth pane |
 | `⌘←` / `⌘→` | Navigate between panes |
-| `Escape` | Exit fullscreen zoom |
+| `Escape` | Exit fullscreen zoom / close search |
 
 ---
 
