@@ -42,9 +42,9 @@ Use it for pair programming, onboarding, quick help sessions, or showing a teamm
 
 | Platform | Download |
 |----------|----------|
-| **macOS** (Apple Silicon) | [Nest-0.5.0-arm64.dmg](../../releases/latest) |
-| **macOS** (Intel) | [Nest-0.5.0.dmg](../../releases/latest) |
-| **Windows** | [Nest-Setup-0.5.0.exe](../../releases/latest) |
+| **macOS** (Apple Silicon) | [Nest-0.5.1-arm64.dmg](../../releases/latest) |
+| **macOS** (Intel) | [Nest-0.5.1.dmg](../../releases/latest) |
+| **Windows** | [Nest-Setup-0.5.1.exe](../../releases/latest) |
 
 ---
 
@@ -57,7 +57,7 @@ Use it for pair programming, onboarding, quick help sessions, or showing a teamm
 **2. Remove the quarantine flag** before opening it:
 
 ```bash
-xattr -dr com.apple.quarantine ~/Downloads/Nest-0.5.0-arm64.dmg
+xattr -dr com.apple.quarantine ~/Downloads/Nest-0.5.1-arm64.dmg
 ```
 
 **3. Open the DMG** and drag **Nest.app** to your `/Applications` folder.
