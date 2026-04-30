@@ -7,9 +7,9 @@
 Open multiple Claude, Gemini, Codex, Copilot and more sessions — all in one flexible grid workspace, each with its own account and configuration.
 
 [![Latest Release](https://img.shields.io/github/v/release/GeronimoDiClemente/raven-nest?style=flat-square&color=0055FF)](https://github.com/GeronimoDiClemente/raven-nest/releases/latest)
-[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows-lightgrey?style=flat-square)](https://github.com/GeronimoDiClemente/raven-nest/releases/latest)
+[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey?style=flat-square)](https://github.com/GeronimoDiClemente/raven-nest/releases/latest)
 
-[Website](https://nestmux.com) · [Download for macOS](#download) · [Download for Windows](#download) · [Feedback & Issues](../../issues) · [Discussions](../../discussions)
+[Website](https://nestmux.com) · [Download for macOS](#download) · [Download for Windows](#download) · [Download for Linux](#installing-on-linux) · [Feedback & Issues](../../issues) · [Discussions](../../discussions)
 
 </div>
 
@@ -23,7 +23,15 @@ Instead of switching between tabs in different terminals, you get a flexible **g
 
 ---
 
-## Terminal Sharing (new in v0.5.0)
+## Linux is here (new in v0.6.0)
+
+Nest by RAVEN now runs natively on Linux. Same flexible grid, same multi-AI workspace, same Teams collaboration — now available as **AppImage** (universal, runs on most distros) and **.deb** (Debian, Ubuntu, Mint, Pop!_OS).
+
+See [Installing on Linux](#installing-on-linux) below for instructions.
+
+---
+
+## Terminal Sharing (since v0.5.0)
 
 Share an active terminal session with anyone — no SSH, no VPN, no port forwarding.
 
@@ -42,9 +50,11 @@ Use it for pair programming, onboarding, quick help sessions, or showing a teamm
 
 | Platform | Download |
 |----------|----------|
-| **macOS** (Apple Silicon) | [Nest-0.5.1-arm64.dmg](../../releases/latest) |
-| **macOS** (Intel) | [Nest-0.5.1.dmg](../../releases/latest) |
-| **Windows** | [Nest-Setup-0.5.1.exe](../../releases/latest) |
+| **macOS** (Apple Silicon) | [Nest-0.6.0-arm64.dmg](../../releases/latest) |
+| **macOS** (Intel) | [Nest-0.6.0.dmg](../../releases/latest) |
+| **Windows** | [Nest-Setup-0.6.0.exe](../../releases/latest) |
+| **Linux** (universal) | [Nest-0.6.0.AppImage](../../releases/latest) |
+| **Linux** (Debian / Ubuntu) | [nest_0.6.0_amd64.deb](../../releases/latest) |
 
 ---
 
@@ -57,7 +67,7 @@ Use it for pair programming, onboarding, quick help sessions, or showing a teamm
 **2. Remove the quarantine flag** before opening it:
 
 ```bash
-xattr -dr com.apple.quarantine ~/Downloads/Nest-0.5.1-arm64.dmg
+xattr -dr com.apple.quarantine ~/Downloads/Nest-0.6.0-arm64.dmg
 ```
 
 **3. Open the DMG** and drag **Nest.app** to your `/Applications` folder.
@@ -71,6 +81,57 @@ xattr -dr com.apple.quarantine /Applications/Nest.app
 **5. Open Nest** from `/Applications` — it should launch normally.
 
 > **Why is this needed?** macOS Gatekeeper quarantines apps downloaded from the internet that aren't notarized by Apple. The `xattr` command removes that flag so macOS treats the app as trusted. This is safe to do for apps you trust.
+
+---
+
+## Installing on Linux
+
+Nest by RAVEN ships in two formats. Pick whichever fits your distro.
+
+### Option A — AppImage (universal, recommended)
+
+Works on virtually any Linux distribution (Ubuntu, Fedora, Arch, openSUSE, Mint, Pop!_OS, etc.) without installing anything system-wide.
+
+**1. Download** `Nest-0.6.0.AppImage` from the [latest release](../../releases/latest).
+
+**2. Make it executable:**
+
+```bash
+chmod +x ~/Downloads/Nest-0.6.0.AppImage
+```
+
+**3. Run it** — double-click the file in your file manager, or from terminal:
+
+```bash
+~/Downloads/Nest-0.6.0.AppImage
+```
+
+That's it. The AppImage is self-contained and includes all dependencies — no installation needed. To put it in your apps menu, integrate it via [AppImageLauncher](https://github.com/TheAssassin/AppImageLauncher) or move it to `~/Applications/`.
+
+### Option B — `.deb` (Debian, Ubuntu, Mint, Pop!_OS)
+
+Installs Nest system-wide with desktop entry and `nest://` deep link handler registered automatically.
+
+**1. Download** `nest_0.6.0_amd64.deb` from the [latest release](../../releases/latest).
+
+**2. Install** with `apt` (handles dependencies automatically) or `dpkg`:
+
+```bash
+# Recommended — apt resolves missing dependencies
+sudo apt install ~/Downloads/nest_0.6.0_amd64.deb
+
+# Or with dpkg + apt-get to fix deps if needed
+sudo dpkg -i ~/Downloads/nest_0.6.0_amd64.deb
+sudo apt-get install -f
+```
+
+**3. Launch Nest** from your application menu, or run `nest` from terminal.
+
+**Required system packages** (auto-installed by `apt`): `libgtk-3-0`, `libnotify4`, `libnss3`, `libxss1`, `libxtst6`, `libatspi2.0-0`, `libdrm2`, `libgbm1`, `libxcb-dri3-0`, `xdg-utils`. Most modern desktop distros already have them.
+
+### Voice Input on Linux
+
+Same as macOS/Windows — see [Voice Input](#voice-input-microphone) below. Make sure `python3` and `pip3` are installed (`sudo apt install python3-pip` on Debian/Ubuntu).
 
 ---
 

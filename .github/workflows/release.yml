@@ -106,6 +106,37 @@ jobs:
             dist/*.exe
             dist/*.yml
 
+  build-linux:
+    needs: decrypt
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download decrypted source
+        uses: actions/download-artifact@v4
+        with:
+          name: decrypted-source
+          path: .
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - run: npm ci
+
+      - name: Build Linux
+        run: npx electron-vite build && npx electron-builder --linux --publish never
+        env:
+          MAIN_VITE_GITHUB_CLIENT_ID: ${{ secrets.MAIN_VITE_GITHUB_CLIENT_ID }}
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-artifacts
+          path: |
+            dist/*.AppImage
+            dist/*.deb
+            dist/*.yml
+
   deploy-functions:
     needs: decrypt
     runs-on: ubuntu-latest
@@ -139,7 +170,7 @@ jobs:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
   release:
-    needs: [build-mac, build-win, decrypt]
+    needs: [build-mac, build-win, build-linux, decrypt]
     runs-on: ubuntu-latest
     steps:
       - name: Download mac artifacts
@@ -153,6 +184,12 @@ jobs:
         with:
           name: win-artifacts
           path: artifacts/win
+
+      - name: Download linux artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-artifacts
+          path: artifacts/linux
 
       - name: Delete existing release and tag
         run: gh release delete v${{ needs.decrypt.outputs.version }} --yes --cleanup-tag --repo GeronimoDiClemente/raven-nest || true
@@ -170,6 +207,9 @@ jobs:
             artifacts/mac/*.yml
             artifacts/win/*.exe
             artifacts/win/*.yml
+            artifacts/linux/*.AppImage
+            artifacts/linux/*.deb
+            artifacts/linux/*.yml
           make_latest: true
           token: ${{ secrets.GITHUB_TOKEN }}
 
