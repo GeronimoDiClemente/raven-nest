@@ -23,7 +23,13 @@ Instead of switching between tabs in different terminals, you get a flexible **g
 
 ---
 
-## Linux is here (new in v0.6.0)
+## What's new in v0.6.1
+
+- **Fix:** Shortcuts de navegación entre paneles (`Ctrl+←/→`) ahora funcionan correctamente en Linux.
+
+---
+
+## Linux is here (since v0.6.0)
 
 Nest by RAVEN now runs natively on Linux. Same flexible grid, same multi-AI workspace, same Teams collaboration — now available as **AppImage** (universal, runs on most distros) and **.deb** (Debian, Ubuntu, Mint, Pop!_OS).
 
@@ -50,11 +56,11 @@ Use it for pair programming, onboarding, quick help sessions, or showing a teamm
 
 | Platform | Download |
 |----------|----------|
-| **macOS** (Apple Silicon) | [Nest-0.6.0-arm64.dmg](../../releases/latest) |
-| **macOS** (Intel) | [Nest-0.6.0.dmg](../../releases/latest) |
-| **Windows** | [Nest-Setup-0.6.0.exe](../../releases/latest) |
-| **Linux** (universal) | [Nest-0.6.0.AppImage](../../releases/latest) |
-| **Linux** (Debian / Ubuntu) | [nest_0.6.0_amd64.deb](../../releases/latest) |
+| **macOS** (Apple Silicon) | [Nest-0.6.1-arm64.dmg](../../releases/latest) |
+| **macOS** (Intel) | [Nest-0.6.1.dmg](../../releases/latest) |
+| **Windows** | [Nest-Setup-0.6.1.exe](../../releases/latest) |
+| **Linux** (universal) | [Nest-0.6.1.AppImage](../../releases/latest) |
+| **Linux** (Debian / Ubuntu) | [nest_0.6.1_amd64.deb](../../releases/latest) |
 
 ---
 
@@ -67,7 +73,7 @@ Use it for pair programming, onboarding, quick help sessions, or showing a teamm
 **2. Remove the quarantine flag** before opening it:
 
 ```bash
-xattr -dr com.apple.quarantine ~/Downloads/Nest-0.6.0-arm64.dmg
+xattr -dr com.apple.quarantine ~/Downloads/Nest-0.6.1-arm64.dmg
 ```
 
 **3. Open the DMG** and drag **Nest.app** to your `/Applications` folder.
@@ -92,18 +98,18 @@ Nest by RAVEN ships in two formats. Pick whichever fits your distro.
 
 Works on virtually any Linux distribution (Ubuntu, Fedora, Arch, openSUSE, Mint, Pop!_OS, etc.) without installing anything system-wide.
 
-**1. Download** `Nest-0.6.0.AppImage` from the [latest release](../../releases/latest).
+**1. Download** `Nest-0.6.1.AppImage` from the [latest release](../../releases/latest).
 
 **2. Make it executable:**
 
 ```bash
-chmod +x ~/Downloads/Nest-0.6.0.AppImage
+chmod +x ~/Downloads/Nest-0.6.1.AppImage
 ```
 
 **3. Run it** — double-click the file in your file manager, or from terminal:
 
 ```bash
-~/Downloads/Nest-0.6.0.AppImage
+~/Downloads/Nest-0.6.1.AppImage
 ```
 
 That's it. The AppImage is self-contained and includes all dependencies — no installation needed. To put it in your apps menu, integrate it via [AppImageLauncher](https://github.com/TheAssassin/AppImageLauncher) or move it to `~/Applications/`.
@@ -112,16 +118,16 @@ That's it. The AppImage is self-contained and includes all dependencies — no i
 
 Installs Nest system-wide with desktop entry and `nest://` deep link handler registered automatically.
 
-**1. Download** `nest_0.6.0_amd64.deb` from the [latest release](../../releases/latest).
+**1. Download** `nest_0.6.1_amd64.deb` from the [latest release](../../releases/latest).
 
 **2. Install** with `apt` (handles dependencies automatically) or `dpkg`:
 
 ```bash
 # Recommended — apt resolves missing dependencies
-sudo apt install ~/Downloads/nest_0.6.0_amd64.deb
+sudo apt install ~/Downloads/nest_0.6.1_amd64.deb
 
 # Or with dpkg + apt-get to fix deps if needed
-sudo dpkg -i ~/Downloads/nest_0.6.0_amd64.deb
+sudo dpkg -i ~/Downloads/nest_0.6.1_amd64.deb
 sudo apt-get install -f
 ```
 
