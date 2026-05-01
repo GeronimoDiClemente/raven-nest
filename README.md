@@ -23,6 +23,16 @@ Instead of switching between tabs in different terminals, you get a flexible **g
 
 ---
 
+## What's new in v0.6.2
+
+- **Rename conversations** — double-click any entry in the history sidebar (or use the new pencil button) to give it a custom name. Stored in a sidecar index, the original `.md` files are untouched.
+- **Per-conversation icons** — pick a curated emoji for each saved conversation (`+` slot in the sidebar opens the picker).
+- **Zoom a cell with one keybind** — `⌘⇧Z` (macOS) / `Ctrl+Shift+Z` (Win/Linux) toggles the focused cell to fill the workspace and back. Configurable in Settings → Keybinds → Zoom cell.
+- **Cycle through tabs** — `Ctrl+Tab` / `Ctrl+Shift+Tab` jumps to next / previous workspace tab. Configurable in Settings → Keybinds.
+- **Voice tooltip** mentions the `F5` hotkey, and the README documents the full voice flow (local Whisper, language picker, output target).
+- **Fix — keybind recorder on Linux/X11**: chords like `Ctrl+Shift+T` recorded from a fresh start no longer get stuck on the first modifier. The recorder now waits for a non-modifier key and shows the accumulating chord while you hold modifiers.
+- **Fix — CLI detector on Linux & macOS launchers**: Claude/Gemini/Codex/Copilot CLIs installed in `~/.local/bin`, `/snap/bin`, `/opt/homebrew/bin`, or `~/.npm-global/bin` are now resolved correctly when Nest is launched from a `.desktop` file (elementary OS, GNOME, KDE) or `.app` (macOS Finder), so the "install X" prompt no longer appears for already-installed CLIs.
+
 ## What's new in v0.6.1
 
 - **Fix:** Shortcuts de navegación entre paneles (`Ctrl+←/→`) ahora funcionan correctamente en Linux.
