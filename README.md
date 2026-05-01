@@ -145,6 +145,13 @@ Same as macOS/Windows — see [Voice Input](#voice-input-microphone) below. Make
 
 Nest by RAVEN supports voice-to-text input powered by [OpenAI Whisper](https://github.com/openai/whisper). The microphone button transcribes your speech and sends it to the active pane.
 
+**How it works:**
+
+- Toggle on/off with the sidebar mic button or press **`F5`** (configurable in Settings → Keybinds).
+- Recording runs locally — audio never leaves your machine.
+- Choose the spoken language in **Settings → Voice language** (defaults to Spanish; English, Portuguese, French, German, Italian, Chinese, Japanese also supported).
+- Transcribed text is inserted at the prompt of the focused pane.
+
 **Setup (one time):**
 
 ```bash
