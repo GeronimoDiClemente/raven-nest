@@ -23,6 +23,27 @@ Instead of switching between tabs in different terminals, you get a flexible **g
 
 ---
 
+## What's new in v0.7.0
+
+- **Actions panel — see your CI runs without leaving Nest** — every repo in **My Repos** now has an inline accordion showing the last 5 GitHub Actions / GitLab CI runs (status, workflow, branch, commit message, author, duration). Click any run to open it in the browser. Auto-refresh adapts: 30s while a run is in progress, 2 min when stable. Manual `↻` button per accordion.
+- **Actions bar in the sidebar** — when a repo is linked to your active tab, the sidebar shows the latest run of the current branch at a glance. No clicks needed.
+- **GitLab integration** — full read access for My Repos, Issues, and Actions. Connect from Settings → Account → GitLab, or sign in with GitLab from the start (button next to GitHub on the login screen). When you sign in via GitLab, the integration is auto-linked — no second OAuth needed.
+- **Multi-provider repo browser** — when you have both GitHub and GitLab connected, repos in My Repos appear grouped by provider with a header for each section. Single-provider users see no extra chrome.
+- **User menu with avatar & plan** — the bottom of the sidebar now shows your Google/GitHub/GitLab avatar with a colored dot indicating your plan (gray free, blue Pro, gold Team, pulsing yellow when on trial). Click opens a popover with email, plan, trial countdown, upgrade CTA, and sign out.
+- **Sign in with GitHub & GitLab on the login screen** — alongside Google, with one-click auth and account-link conflict messaging if the email already exists with another provider.
+- **Settings icon → real gear** — the sidebar Settings icon and the modal header use a proper gear glyph instead of the "sun with rays" that some users mistook for a brightness toggle.
+- **Fix — `Ctrl+Tab` cycles tabs on Windows** — Windows reserves `Ctrl+Tab` as an accelerator and it never used to reach the renderer. Now intercepted from the main process and forwarded via IPC, so both `Ctrl+Tab` (next) and `Ctrl+Shift+Tab` (previous) work everywhere.
+
+## What's new in v0.6.2
+
+- **Rename conversations** — double-click any entry in the history sidebar (or use the new pencil button) to give it a custom name. Stored in a sidecar index, the original `.md` files are untouched.
+- **Per-conversation icons** — pick a curated emoji for each saved conversation (`+` slot in the sidebar opens the picker).
+- **Zoom a cell with one keybind** — `⌘⇧Z` (macOS) / `Ctrl+Shift+Z` (Win/Linux) toggles the focused cell to fill the workspace and back. Configurable in Settings → Keybinds → Zoom cell.
+- **Cycle through tabs** — `Ctrl+Tab` / `Ctrl+Shift+Tab` jumps to next / previous workspace tab. Configurable in Settings → Keybinds.
+- **Voice tooltip** mentions the `F5` hotkey, and the README documents the full voice flow (local Whisper, language picker, output target).
+- **Fix — keybind recorder on Linux/X11**: chords like `Ctrl+Shift+T` recorded from a fresh start no longer get stuck on the first modifier. The recorder now waits for a non-modifier key and shows the accumulating chord while you hold modifiers.
+- **Fix — CLI detector on Linux & macOS launchers**: Claude/Gemini/Codex/Copilot CLIs installed in `~/.local/bin`, `/snap/bin`, `/opt/homebrew/bin`, or `~/.npm-global/bin` are now resolved correctly when Nest is launched from a `.desktop` file (elementary OS, GNOME, KDE) or `.app` (macOS Finder), so the "install X" prompt no longer appears for already-installed CLIs.
+
 ## What's new in v0.6.1
 
 - **Fix:** Shortcuts de navegación entre paneles (`Ctrl+←/→`) ahora funcionan correctamente en Linux.
@@ -144,6 +165,13 @@ Same as macOS/Windows — see [Voice Input](#voice-input-microphone) below. Make
 ## Voice Input (Microphone)
 
 Nest by RAVEN supports voice-to-text input powered by [OpenAI Whisper](https://github.com/openai/whisper). The microphone button transcribes your speech and sends it to the active pane.
+
+**How it works:**
+
+- Toggle on/off with the sidebar mic button or press **`F5`** (configurable in Settings → Keybinds).
+- Recording runs locally — audio never leaves your machine.
+- Choose the spoken language in **Settings → Voice language** (defaults to Spanish; English, Portuguese, French, German, Italian, Chinese, Japanese also supported).
+- Transcribed text is inserted at the prompt of the focused pane.
 
 **Setup (one time):**
 
