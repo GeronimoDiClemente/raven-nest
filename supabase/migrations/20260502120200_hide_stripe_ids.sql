@@ -1,0 +1,22 @@
+-- 018: Hide stripe_customer_id and stripe_subscription_id from client SELECT
+--
+-- Problem: the SELECT policy on profiles allows the row owner to read every
+-- column, including stripe_customer_id and stripe_subscription_id. The client
+-- never needs these — it gets the plan / trial state via `useProfile`, and
+-- billing flows go through the stripe-checkout edge function. Exposing the
+-- IDs is unnecessary information leakage.
+--
+-- Fix: column-level REVOKE on SELECT for the two stripe IDs from the
+-- authenticated and anon roles. RLS is independent of GRANT/REVOKE; this
+-- adds a second layer that blocks the columns regardless of policies.
+--
+-- Verified safe: the client never references these columns explicitly. All
+-- profile reads in src/ filter columns:
+--   useProfile.ts        → select('plan, trial_started_at')
+--   useGitHub.ts         → select('github_login, github_token')
+--   useGitlab.ts         → select('gitlab_login, gitlab_token')
+-- Edge functions use service_role and bypass GRANTS/REVOKES.
+
+REVOKE SELECT (stripe_customer_id, stripe_subscription_id)
+  ON profiles
+  FROM authenticated, anon;

@@ -1,16 +1,16 @@
-# git-crypt: encrypt everything except these control files
-* filter=git-crypt diff=git-crypt
-.gitattributes !filter !diff
-.gitignore !filter !diff
-.github/workflows/*.yml !filter !diff
-README.md !filter !diff
-scripts/link-claude-config.bat !filter !diff
+# Normalize line endings on text files so Windows / macOS / Linux contributors
+# don't generate spurious LF↔CRLF diffs.
+* text=auto eol=lf
 
-# Linguist: language overrides (files are encrypted but we declare their real language)
-*.ts linguist-language=TypeScript linguist-detectable=true
-*.tsx linguist-language=TypeScript linguist-detectable=true
-*.html linguist-language=HTML linguist-detectable=true
-*.css linguist-language=CSS linguist-detectable=true
-*.js linguist-language=JavaScript linguist-detectable=true
-*.mjs linguist-language=JavaScript linguist-detectable=true
-*.sql linguist-language=SQL linguist-detectable=true
+# Common binaries — never normalize.
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.icns  binary
+*.dmg   binary
+*.zip   binary
+*.exe   binary
+*.AppImage binary
+*.deb   binary

@@ -7,3 +7,11 @@ dist-electron/
 !.env.example
 .superpowers/
 *.tsbuildinfo
+*.log
+
+# Personal scratchpads and internal notes — kept locally, not published
+SESSION.md
+docs/superpowers/
+
+# macOS noise
+.DS_Store

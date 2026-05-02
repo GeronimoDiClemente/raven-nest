@@ -1,0 +1,125 @@
+-- 017: Plan-based gates in RLS
+--
+-- Problem: prior to this migration, plan enforcement (Free vs Pro vs Team)
+-- lived only in the client. A free user with the Supabase anon key could
+-- directly INSERT into team-plan or pro-plan tables and bypass the UI:
+--   - teams.insert
+--   - shared_snippets.insert / shared_workspaces.insert / shared_mcp_configs.insert
+--   - user_repos.insert (My Repos = Pro feature)
+--
+-- Fix: gate INSERT policies on these tables by checking the user's plan via
+-- a SECURITY DEFINER helper function. Read/update/delete policies are kept
+-- as-is so that downgrading a user (Pro -> Free, Team -> Free) does not
+-- delete or hide their existing data — they just can't create new rows.
+--
+-- The helper runs SECURITY DEFINER so the inner SELECT against profiles
+-- bypasses the user's own RLS scope (which only sees their own row anyway,
+-- but this avoids any future scope changes breaking the check).
+
+-- ── Helper ─────────────────────────────────────────────────────────────
+
+CREATE OR REPLACE FUNCTION user_has_plan(uid uuid, allowed text[])
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM profiles
+    WHERE id = uid
+      AND plan = ANY(allowed)
+  );
+$$;
+
+GRANT EXECUTE ON FUNCTION user_has_plan(uuid, text[]) TO authenticated;
+
+-- ── teams: only Team plan can create ───────────────────────────────────
+
+DROP POLICY IF EXISTS "Authenticated users can create teams" ON teams;
+CREATE POLICY "Team plan users can create teams"
+  ON teams FOR INSERT
+  WITH CHECK (
+    auth.uid() = owner_id
+    AND user_has_plan(auth.uid(), ARRAY['team'])
+  );
+
+-- ── shared_snippets: split FOR ALL into INSERT/UPDATE/DELETE ───────────
+
+DROP POLICY IF EXISTS "Owner can manage their shared snippet" ON shared_snippets;
+
+CREATE POLICY "Pro/Team users can create shared snippets"
+  ON shared_snippets FOR INSERT
+  WITH CHECK (
+    owner_id = auth.uid()
+    AND user_has_plan(auth.uid(), ARRAY['pro', 'team'])
+  );
+
+CREATE POLICY "Owner can update their shared snippet"
+  ON shared_snippets FOR UPDATE
+  USING (owner_id = auth.uid());
+
+CREATE POLICY "Owner can delete their shared snippet"
+  ON shared_snippets FOR DELETE
+  USING (owner_id = auth.uid());
+
+-- ── shared_workspaces: same split ──────────────────────────────────────
+
+DROP POLICY IF EXISTS "Owner can manage their shared workspace" ON shared_workspaces;
+
+CREATE POLICY "Pro/Team users can create shared workspaces"
+  ON shared_workspaces FOR INSERT
+  WITH CHECK (
+    owner_id = auth.uid()
+    AND user_has_plan(auth.uid(), ARRAY['pro', 'team'])
+  );
+
+CREATE POLICY "Owner can update their shared workspace"
+  ON shared_workspaces FOR UPDATE
+  USING (owner_id = auth.uid());
+
+CREATE POLICY "Owner can delete their shared workspace"
+  ON shared_workspaces FOR DELETE
+  USING (owner_id = auth.uid());
+
+-- ── shared_mcp_configs: same split ─────────────────────────────────────
+
+DROP POLICY IF EXISTS "Owner can manage their shared mcp config" ON shared_mcp_configs;
+
+CREATE POLICY "Pro/Team users can create shared mcp"
+  ON shared_mcp_configs FOR INSERT
+  WITH CHECK (
+    owner_id = auth.uid()
+    AND user_has_plan(auth.uid(), ARRAY['pro', 'team'])
+  );
+
+CREATE POLICY "Owner can update their shared mcp"
+  ON shared_mcp_configs FOR UPDATE
+  USING (owner_id = auth.uid());
+
+CREATE POLICY "Owner can delete their shared mcp"
+  ON shared_mcp_configs FOR DELETE
+  USING (owner_id = auth.uid());
+
+-- ── user_repos (My Repos): Pro/Team only ───────────────────────────────
+
+DROP POLICY IF EXISTS "Users can manage their own repos" ON user_repos;
+
+CREATE POLICY "Pro/Team users can create their own repos"
+  ON user_repos FOR INSERT
+  WITH CHECK (
+    user_id = auth.uid()
+    AND user_has_plan(auth.uid(), ARRAY['pro', 'team'])
+  );
+
+CREATE POLICY "Users can read their own repos"
+  ON user_repos FOR SELECT
+  USING (user_id = auth.uid());
+
+CREATE POLICY "Users can update their own repos"
+  ON user_repos FOR UPDATE
+  USING (user_id = auth.uid());
+
+CREATE POLICY "Users can delete their own repos"
+  ON user_repos FOR DELETE
+  USING (user_id = auth.uid());

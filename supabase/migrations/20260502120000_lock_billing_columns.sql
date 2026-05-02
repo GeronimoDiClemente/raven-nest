@@ -1,0 +1,53 @@
+-- 016: Lock billing columns on profiles
+--
+-- Problem: migration 011 added a permissive UPDATE policy on profiles
+--   USING (auth.uid() = id) WITH CHECK (auth.uid() = id)
+-- Postgres does not support column-level RLS in policies. The 011 comment
+-- acknowledged this and stated that protection of `plan`,
+-- `stripe_customer_id`, `stripe_subscription_id`, `trial_started_at` was
+-- delegated to the application layer.
+--
+-- That delegation is unsafe: the Supabase anon key is shipped in every
+-- installed copy of Nest. A user with the anon key can bypass the client
+-- entirely and execute, for example:
+--   UPDATE profiles SET plan = 'team' WHERE id = auth.uid()
+-- and the RLS policy from 011 would allow it. They get Team plan for free.
+--
+-- Fix: a BEFORE UPDATE trigger that reverts any non-service_role write to
+-- the four protected columns to their previous values. service_role still
+-- writes freely (Edge Functions: stripe-webhook, on-signup, etc.).
+--
+-- Trigger > security-definer wrapper because it covers every existing call
+-- site without requiring client refactor. Existing client UPDATE calls
+-- (github_token, github_login, gitlab_token, gitlab_login, user_email)
+-- continue to work unchanged.
+
+CREATE OR REPLACE FUNCTION protect_profile_billing_columns()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, auth
+AS $$
+BEGIN
+  -- service_role (Edge Functions, webhooks, admin) can write anything.
+  IF auth.role() = 'service_role' THEN
+    RETURN NEW;
+  END IF;
+
+  -- Authenticated client: silently revert sensitive columns.
+  -- The UPDATE succeeds for whatever else the client touched, but
+  -- billing fields stay frozen.
+  NEW.plan                   := OLD.plan;
+  NEW.stripe_customer_id     := OLD.stripe_customer_id;
+  NEW.stripe_subscription_id := OLD.stripe_subscription_id;
+  NEW.trial_started_at       := OLD.trial_started_at;
+
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS protect_profile_billing ON profiles;
+CREATE TRIGGER protect_profile_billing
+  BEFORE UPDATE ON profiles
+  FOR EACH ROW
+  EXECUTE FUNCTION protect_profile_billing_columns();
