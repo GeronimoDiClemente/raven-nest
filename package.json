@@ -15,7 +15,10 @@
     "package:mac": "electron-vite build && electron-builder --mac --publish never",
     "package:linux": "electron-vite build && electron-builder --linux --publish never",
     "release:linux": "electron-vite build && electron-builder --linux --publish always",
-    "postinstall": "electron-rebuild -f -w node-pty"
+    "postinstall": "electron-rebuild -f -w node-pty",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:ui": "vitest --ui"
   },
   "build": {
     "appId": "com.somosraven.nest",
@@ -57,7 +60,10 @@
       "allowToChangeInstallationDirectory": true
     },
     "linux": {
-      "target": ["AppImage", "deb"],
+      "target": [
+        "AppImage",
+        "deb"
+      ],
       "icon": "resources/icons/icon.png",
       "category": "Development",
       "maintainer": "RAVEN <gerodc06@gmail.com>",
@@ -65,12 +71,25 @@
       "description": "Nest by RAVEN — Multi-AI Terminal Multiplexer"
     },
     "deb": {
-      "depends": ["libgtk-3-0", "libnotify4", "libnss3", "libxss1", "libxtst6", "xdg-utils", "libatspi2.0-0", "libdrm2", "libgbm1", "libxcb-dri3-0"]
+      "depends": [
+        "libgtk-3-0",
+        "libnotify4",
+        "libnss3",
+        "libxss1",
+        "libxtst6",
+        "xdg-utils",
+        "libatspi2.0-0",
+        "libdrm2",
+        "libgbm1",
+        "libxcb-dri3-0"
+      ]
     },
     "protocols": [
       {
         "name": "Nest Deep Link",
-        "schemes": ["nest"]
+        "schemes": [
+          "nest"
+        ]
       }
     ],
     "files": [
@@ -101,10 +120,12 @@
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
     "@vitejs/plugin-react": "^4.3.4",
+    "@vitest/ui": "^4.1.5",
     "electron": "^33.3.1",
     "electron-builder": "^25.1.8",
     "electron-vite": "^3.0.0",
     "typescript": "^5.7.2",
-    "vite": "^6.0.5"
+    "vite": "^6.0.5",
+    "vitest": "^4.1.5"
   }
 }
