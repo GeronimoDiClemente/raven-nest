@@ -10,6 +10,7 @@ import { PanelGroup, Panel, PanelResizeHandle } from 'react-resizable-panels'
 import TerminalPane from './components/TerminalPane'
 import NewPaneDialog from './components/NewPaneDialog'
 import TabBar from './components/TabBar'
+import { PortsBanner } from './components/PortsBanner'
 import ConfirmDialog from './components/ConfirmDialog'
 import ConversationSidebar from './components/ConversationSidebar'
 import Sidebar from './components/Sidebar'
@@ -755,6 +756,12 @@ export default function App() {
         onTabColorChange={handleTabColorChange}
         isWin={window.platform?.isWin ?? false}
         tabActivity={tabActivity}
+      />
+      <PortsBanner
+        rootRepoPath={activeTab.repoPath ?? null}
+        cells={activeTab.cells
+          .filter((c): c is NonNullable<typeof c> => c !== null && Boolean(c.repoPath))
+          .map((c) => ({ paneId: c.id, repoPath: c.repoPath as string }))}
       />
       {updateStatus?.type === 'downloading' && (
         <div className="update-banner update-banner--downloading">

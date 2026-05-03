@@ -204,6 +204,10 @@ contextBridge.exposeInMainWorld('worktree', {
     ipcRenderer.invoke('worktree:setPreset', worktreePath, presetId),
 })
 
+contextBridge.exposeInMainWorld('port', {
+  scan: (pid: number) => ipcRenderer.invoke('port:scan', pid),
+})
+
 contextBridge.exposeInMainWorld('preset', {
   list: (repoPath: string) => ipcRenderer.invoke('preset:list', repoPath),
   save: (repoPath: string, preset: unknown) => ipcRenderer.invoke('preset:save', repoPath, preset),

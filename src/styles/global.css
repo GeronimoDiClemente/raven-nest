@@ -6960,3 +6960,29 @@ button.ci-badge:hover {
   padding: 4px 10px; font-size: 11px; cursor: pointer;
 }
 .btn-danger:hover { background: rgba(255, 26, 26, 0.10); }
+
+/* === PortsBanner (Plan 3) === */
+.ports-banner {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
+  padding: 4px 12px; min-height: 32px;
+  background: var(--bg-app);
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+}
+.ports-group { display: flex; align-items: center; gap: 6px; }
+.ports-group-label {
+  color: var(--text-muted); font-family: 'JetBrains Mono', monospace;
+  white-space: nowrap;
+}
+.port-pill {
+  background: var(--bg-elevated); border: 1px solid var(--border);
+  border-radius: 4px; padding: 2px 8px;
+  color: var(--raven-blue); font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; cursor: pointer; transition: background 0.12s, border-color 0.12s;
+}
+.port-pill:hover {
+  background: rgba(0, 102, 255, 0.12); border-color: var(--raven-blue);
+}
+.port-pill-discovered {
+  border-style: dashed;
+}

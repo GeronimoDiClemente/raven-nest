@@ -312,6 +312,9 @@ declare global {
       onSetupState: (cb: (worktreePath: string, state: WorktreeMeta['setupState']) => void) => void
       removeListeners: () => void
     }
+    port: {
+      scan: (pid: number) => Promise<number[]>
+    }
     settings: {
       get: () => Promise<{
         keybindings: {

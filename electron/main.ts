@@ -34,6 +34,7 @@ import { WorkspaceStore } from './workspace-store'
 import { WorktreeStore } from './worktree-store'
 import { PresetStore } from './preset-store'
 import { SetupRunner } from './setup-runner'
+import { scanPid } from './port-monitor'
 import { MCPStore } from './mcp-store'
 import { SettingsStore } from './settings-store'
 import { transcribeAudio, checkWhisperAvailable, initWhisper, shutdownWhisper, setWhisperStatusCallback } from './whisper'
@@ -598,6 +599,13 @@ ipcMain.handle('preset:apply', async (_evt, worktreePath: string, presetId: stri
 ipcMain.handle('preset:cancel', async (_evt, worktreePath: string) => {
   if (!isAbsolute(worktreePath)) throw new Error('worktreePath must be absolute')
   setupRunner.cancel(worktreePath)
+})
+
+// === Port monitor handler (Plan 3 — v1.0) ===
+
+ipcMain.handle('port:scan', async (_evt, pid: number) => {
+  if (!Number.isFinite(pid) || pid <= 0) return []
+  return scanPid(pid)
 })
 
 // Session persistence
