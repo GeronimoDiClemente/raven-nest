@@ -6835,3 +6835,27 @@ button.ci-badge:hover {
   color: var(--text-muted); font-size: 9px; font-family: 'JetBrains Mono', monospace;
 }
 .wt-empty { padding: 6px 12px; color: var(--text-muted); font-size: 11px; font-style: italic; }
+
+/* ── NewWorktreeModal ────────────────────────────────────── */
+
+.new-worktree-modal { width: 480px; }
+.dialog-sub { color: var(--text-muted); font-size: 11px; margin-bottom: 16px; }
+.field-label {
+  display: block; font-size: 10px; color: var(--text-secondary);
+  text-transform: uppercase; letter-spacing: 0.4px; margin: 12px 0 4px;
+}
+.field-input {
+  width: 100%; box-sizing: border-box; background: var(--bg-elevated);
+  border: 1px solid var(--border); border-radius: 4px;
+  padding: 8px 10px; color: var(--text-primary);
+  font-size: 12px; font-family: 'JetBrains Mono', monospace;
+}
+.field-input:focus { outline: none; border-color: var(--raven-blue); }
+.modal-error {
+  margin-top: 12px; padding: 8px 10px; background: rgba(255, 26, 26, 0.10);
+  border: 1px solid rgba(255, 26, 26, 0.40); color: #FF6666;
+  font-size: 11px; border-radius: 4px;
+}
+.dialog-actions {
+  display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px;
+}
