@@ -194,3 +194,12 @@ contextBridge.exposeInMainWorld('gitlab', {
   },
   removeOAuthListener: () => ipcRenderer.removeAllListeners('gitlab-oauth-code'),
 })
+
+contextBridge.exposeInMainWorld('worktree', {
+  list: (repoPath: string) => ipcRenderer.invoke('worktree:list', repoPath),
+  create: (opts: unknown) => ipcRenderer.invoke('worktree:create', opts),
+  remove: (worktreePath: string) => ipcRenderer.invoke('worktree:remove', worktreePath),
+  get: (worktreePath: string) => ipcRenderer.invoke('worktree:get', worktreePath),
+  setPreset: (worktreePath: string, presetId: string | null) =>
+    ipcRenderer.invoke('worktree:setPreset', worktreePath, presetId),
+})
