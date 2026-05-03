@@ -45,14 +45,14 @@ A short look at what's on the bench. Nothing is shipped yet — these are the ne
 
 ## Download
 
-Latest: **v0.7.0**.
+Latest: **v0.7.1**.
 
 | Platform | Download |
 |----------|----------|
-| **macOS** (Apple Silicon) | [Nest-0.7.0-arm64.dmg](../../releases/latest) |
-| **Windows** | [Nest-Setup-0.7.0.exe](../../releases/latest) |
-| **Linux** (universal) | [Nest-0.7.0.AppImage](../../releases/latest) |
-| **Linux** (Debian / Ubuntu) | [nest_0.7.0_amd64.deb](../../releases/latest) |
+| **macOS** (Apple Silicon) | [Nest-0.7.1-arm64.dmg](../../releases/latest) |
+| **Windows** | [Nest-Setup-0.7.1.exe](../../releases/latest) |
+| **Linux** (universal) | [Nest-0.7.1.AppImage](../../releases/latest) |
+| **Linux** (Debian / Ubuntu) | [nest_0.7.1_amd64.deb](../../releases/latest) |
 
 > Nest auto-updates in the background — install once and you'll get future releases without re-downloading.
 
@@ -65,7 +65,7 @@ Nest by RAVEN is not yet notarized by Apple, so macOS Gatekeeper will block it o
 **1.** Download the DMG and remove the quarantine flag before opening it:
 
 ```bash
-xattr -dr com.apple.quarantine ~/Downloads/Nest-0.7.0-arm64.dmg
+xattr -dr com.apple.quarantine ~/Downloads/Nest-0.7.1-arm64.dmg
 ```
 
 **2.** Open the DMG, drag **Nest.app** to `/Applications`, then clear the flag on the installed app:
@@ -87,8 +87,8 @@ Two formats, pick whichever fits your distro.
 Works on Ubuntu, Fedora, Arch, openSUSE, Mint, Pop!_OS and most others. No system-wide install.
 
 ```bash
-chmod +x ~/Downloads/Nest-0.7.0.AppImage
-~/Downloads/Nest-0.7.0.AppImage
+chmod +x ~/Downloads/Nest-0.7.1.AppImage
+~/Downloads/Nest-0.7.1.AppImage
 ```
 
 To integrate it into your apps menu, use [AppImageLauncher](https://github.com/TheAssassin/AppImageLauncher) or move it to `~/Applications/`.
@@ -98,7 +98,7 @@ To integrate it into your apps menu, use [AppImageLauncher](https://github.com/T
 Installs system-wide, registers the desktop entry and the `nest://` deep link handler.
 
 ```bash
-sudo apt install ~/Downloads/nest_0.7.0_amd64.deb
+sudo apt install ~/Downloads/nest_0.7.1_amd64.deb
 ```
 
 Required packages (auto-installed by `apt`): `libgtk-3-0`, `libnotify4`, `libnss3`, `libxss1`, `libxtst6`, `libatspi2.0-0`, `libdrm2`, `libgbm1`, `libxcb-dri3-0`, `xdg-utils`.
