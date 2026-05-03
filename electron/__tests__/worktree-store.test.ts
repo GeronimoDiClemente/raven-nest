@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { WorktreeStore } from '../worktree-store'
 import { makeTmpDir, cleanupTmp } from './setup'
 import type { WorktreeMeta } from '../../src/types'
+import { execSync } from 'child_process'
 
 describe('WorktreeStore', () => {
   let storeDir: string
@@ -71,5 +72,25 @@ describe('WorktreeStore', () => {
     store.setMeta({ repoPath: '/a', rootRepoPath: '/r', branch: 'a', setupState: 'idle', declaredPorts: [], detectedPorts: [], createdAt: 1, updatedAt: 1 })
     store.setMeta({ repoPath: '/b', rootRepoPath: '/r', branch: 'b', setupState: 'idle', declaredPorts: [], detectedPorts: [], createdAt: 2, updatedAt: 2 })
     expect(store.list()).toHaveLength(2)
+  })
+
+  it('hydrates from git worktree list', () => {
+    const repoPath = makeTmpDir('git-repo-')
+    execSync(`git -C "${repoPath}" init -q`)
+    execSync(`git -C "${repoPath}" config user.email test@example.com`)
+    execSync(`git -C "${repoPath}" config user.name Test`)
+    execSync(`git -C "${repoPath}" commit -q --allow-empty -m initial`)
+    execSync(`git -C "${repoPath}" branch feat/test`)
+    const wtPath = `${repoPath}-wt-feat-test`
+    execSync(`git -C "${repoPath}" worktree add "${wtPath}" feat/test`)
+
+    const got = store.hydrateFromGit(repoPath)
+    expect(got.length).toBeGreaterThanOrEqual(1)
+    const featWt = got.find((m) => m.branch === 'feat/test')
+    expect(featWt).toBeDefined()
+    expect(featWt!.rootRepoPath).toBe(repoPath)
+
+    cleanupTmp(repoPath)
+    cleanupTmp(wtPath)
   })
 })
