@@ -242,6 +242,9 @@ declare global {
       isMac: boolean
       isLinux: boolean
     }
+    appFlags?: {
+      e2eBypass: boolean
+    }
     windowControls: {
       send: (action: 'minimize' | 'maximize' | 'close') => void
     }

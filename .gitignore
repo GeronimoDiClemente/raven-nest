@@ -15,3 +15,8 @@ docs/superpowers/
 
 # macOS noise
 .DS_Store
+
+# Playwright E2E
+test-results/
+playwright-report/
+e2e/.auth/

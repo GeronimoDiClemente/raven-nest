@@ -85,6 +85,10 @@ contextBridge.exposeInMainWorld('platform', {
   isLinux: process.platform === 'linux',
 })
 
+contextBridge.exposeInMainWorld('appFlags', {
+  e2eBypass: process.env.RAVEN_E2E === '1',
+})
+
 contextBridge.exposeInMainWorld('windowControls', {
   send: (action: 'minimize' | 'maximize' | 'close') =>
     ipcRenderer.send(`window:${action}`),
