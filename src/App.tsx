@@ -265,8 +265,25 @@ export default function App() {
 
   const [worktreeRefreshKey, setWorktreeRefreshKey] = useState(0)
 
-  const handleWorktreeSelect = useCallback((worktreePath: string) => {
+  const handleWorktreeSelect = useCallback(async (worktreePath: string) => {
     const focusedId = focusedPaneIdRef.current
+
+    // Push cd into running plain shells (mirror of handleRepoLink). AI panes
+    // are left alone. With focus → only that cell's shell. Without focus →
+    // all plain shells in the tab.
+    const isWin = window.platform.isWin
+    const quoted = isWin
+      ? `'${worktreePath.replace(/'/g, "''")}'`
+      : `'${worktreePath.replace(/'/g, "'\\''")}'`
+    const cdCmd = `${isWin ? 'Set-Location' : 'cd'} ${quoted}\r`
+    for (const cell of cellsRef.current) {
+      if (!cell || cell.cmd !== '') continue
+      if (focusedId && cell.id !== focusedId) continue
+      if (await window.pty.exists(cell.id)) {
+        window.pty.write(cell.id, cdCmd)
+      }
+    }
+
     updateActiveTab(t => {
       if (focusedId) {
         return {
