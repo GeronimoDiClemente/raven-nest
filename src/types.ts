@@ -19,6 +19,21 @@ export interface PaneNode {
   repoPath?: string     // cwd override: git repo directory
 }
 
+export interface WorktreeMeta {
+  repoPath: string                   // path absoluto canónico del worktree
+  rootRepoPath: string               // path del repo principal (igual a repoPath si es root)
+  branch: string                     // branch checked out
+  presetId?: string                  // opaco en Plan 1; consumido en Plan 2
+  setupState: 'idle' | 'running' | 'done' | 'failed' | 'cancelled' | 'orphaned'
+  setupLog?: string                  // últimas ~200 líneas
+  declaredPorts: number[]            // del preset (vacío en Plan 1)
+  detectedPorts: number[]            // discovered runtime (vacío en Plan 1)
+  devCmd?: string
+  devPid?: number
+  createdAt: number
+  updatedAt: number
+}
+
 export interface ConversationMeta {
   id: string
   aiType: string
@@ -267,6 +282,13 @@ declare global {
     }
     cli: {
       check: (cmd: string) => Promise<{ found: boolean; path: string }>
+    }
+    worktree: {
+      list: (repoPath: string) => Promise<WorktreeMeta[]>
+      create: (opts: { repoPath: string; branch: string; fromBranch?: string; path?: string; presetId?: string }) => Promise<WorktreeMeta>
+      remove: (worktreePath: string) => Promise<void>
+      get: (worktreePath: string) => Promise<WorktreeMeta | null>
+      setPreset: (worktreePath: string, presetId: string | null) => Promise<void>
     }
     settings: {
       get: () => Promise<{
