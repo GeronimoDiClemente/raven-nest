@@ -6799,3 +6799,39 @@ button.ci-badge:hover {
   0%   { background-position: 200% 0; }
   100% { background-position: -200% 0; }
 }
+
+/* === Worktrees Section (Plan 1) === */
+.worktrees-section { padding: 8px 0; border-top: 1px solid var(--border); }
+.wt-section-header {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 6px 12px; color: var(--text-muted); font-size: 10px;
+  text-transform: uppercase; letter-spacing: 0.5px; cursor: pointer;
+}
+.wt-section-header:hover { color: var(--text-secondary); }
+.wt-add-btn {
+  background: transparent; border: none; color: var(--raven-blue);
+  font-size: 14px; cursor: pointer; padding: 0 4px;
+}
+.wt-list { display: flex; flex-direction: column; }
+.wt-item {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 12px; cursor: pointer; font-size: 12px;
+  color: var(--text-secondary);
+}
+.wt-item:hover { background: #111; color: var(--text-primary); }
+.wt-item-active {
+  background: rgba(0, 102, 255, 0.10); color: var(--text-primary);
+  border-left: 2px solid var(--raven-blue); padding-left: 10px;
+}
+.wt-dot {
+  width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
+}
+.wt-dot-green { background: #00CC44; }
+.wt-dot-yellow { background: #FFB800; }
+.wt-dot-red { background: #FF1A1A; }
+.wt-dot-gray { background: #555; }
+.wt-branch { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wt-meta {
+  color: var(--text-muted); font-size: 9px; font-family: 'JetBrains Mono', monospace;
+}
+.wt-empty { padding: 6px 12px; color: var(--text-muted); font-size: 11px; font-style: italic; }
