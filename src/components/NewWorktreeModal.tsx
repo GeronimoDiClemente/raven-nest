@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { WorktreeMeta } from '../types'
 
 interface Props {
@@ -13,6 +13,15 @@ export function NewWorktreeModal({ open, repoPath, onClose, onCreated }: Props) 
   const [path, setPath] = useState('')
   const [creating, setCreating] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !creating) onClose()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [open, creating, onClose])
 
   if (!open) return null
 
@@ -38,7 +47,7 @@ export function NewWorktreeModal({ open, repoPath, onClose, onCreated }: Props) 
   }
 
   return (
-    <div className="dialog-overlay" onClick={onClose}>
+    <div className="dialog-overlay" onClick={creating ? undefined : onClose}>
       <div className="dialog new-worktree-modal" onClick={(e) => e.stopPropagation()}>
         <div className="dialog-title">New worktree</div>
         <div className="dialog-sub">{repoPath.split(/[\/\\]/).pop()}</div>
@@ -48,6 +57,9 @@ export function NewWorktreeModal({ open, repoPath, onClose, onCreated }: Props) 
           className="field-input"
           value={branch}
           onChange={(e) => setBranch(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !creating && branch.trim()) handleCreate()
+          }}
           placeholder="feat/billing"
           autoFocus
           disabled={creating}
@@ -58,6 +70,9 @@ export function NewWorktreeModal({ open, repoPath, onClose, onCreated }: Props) 
           className="field-input"
           value={path}
           onChange={(e) => setPath(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !creating && branch.trim()) handleCreate()
+          }}
           placeholder={suggestedPath}
           disabled={creating}
         />
