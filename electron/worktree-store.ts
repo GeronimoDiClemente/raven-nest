@@ -48,6 +48,16 @@ export class WorktreeStore {
     return Array.from(this.metas.values())
   }
 
+  reconcile(activeWorktreePaths: string[]): void {
+    const activeSet = new Set(activeWorktreePaths)
+    for (const [path, meta] of this.metas) {
+      if (!activeSet.has(path) && meta.setupState !== 'orphaned') {
+        this.metas.set(path, { ...meta, setupState: 'orphaned', updatedAt: Date.now() })
+      }
+    }
+    this.persist()
+  }
+
   hydrateFromGit(repoPath: string): WorktreeMeta[] {
     const normalizedInput = repoPath.replace(/\\/g, '/')
     let raw: string

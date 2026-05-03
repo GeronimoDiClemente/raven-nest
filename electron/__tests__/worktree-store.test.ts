@@ -93,4 +93,20 @@ describe('WorktreeStore', () => {
     cleanupTmp(repoPath)
     cleanupTmp(wtPath)
   })
+
+  it('marks orphaned metas (path no longer in git list)', () => {
+    // Set a meta for a path that does not exist on disk
+    store.setMeta({
+      repoPath: '/tmp/nonexistent-wt',
+      rootRepoPath: '/tmp/r',
+      branch: 'gone',
+      setupState: 'done',
+      declaredPorts: [],
+      detectedPorts: [],
+      createdAt: 1, updatedAt: 1,
+    })
+    // Reconcile against an empty git list (mock: empty array returned)
+    store.reconcile([])
+    expect(store.get('/tmp/nonexistent-wt')?.setupState).toBe('orphaned')
+  })
 })
