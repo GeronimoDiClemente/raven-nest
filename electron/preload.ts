@@ -208,6 +208,24 @@ contextBridge.exposeInMainWorld('port', {
   scan: (pid: number) => ipcRenderer.invoke('port:scan', pid),
 })
 
+contextBridge.exposeInMainWorld('browser', {
+  create: (paneId: string, url: string, partition: string) =>
+    ipcRenderer.invoke('browser:create', paneId, url, partition),
+  reposition: (paneId: string, bounds: unknown) =>
+    ipcRenderer.invoke('browser:reposition', paneId, bounds),
+  navigate: (paneId: string, url: string) =>
+    ipcRenderer.invoke('browser:navigate', paneId, url),
+  back: (paneId: string) => ipcRenderer.invoke('browser:back', paneId),
+  forward: (paneId: string) => ipcRenderer.invoke('browser:forward', paneId),
+  reload: (paneId: string) => ipcRenderer.invoke('browser:reload', paneId),
+  destroy: (paneId: string) => ipcRenderer.invoke('browser:destroy', paneId),
+  onNavigated: (cb: (paneId: string, url: string) => void) => {
+    ipcRenderer.removeAllListeners('browser:navigated')
+    ipcRenderer.on('browser:navigated', (_e, paneId, url) => cb(paneId, url))
+  },
+  removeListeners: () => ipcRenderer.removeAllListeners('browser:navigated'),
+})
+
 contextBridge.exposeInMainWorld('preset', {
   list: (repoPath: string) => ipcRenderer.invoke('preset:list', repoPath),
   save: (repoPath: string, preset: unknown) => ipcRenderer.invoke('preset:save', repoPath, preset),

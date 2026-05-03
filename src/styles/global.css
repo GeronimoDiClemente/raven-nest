@@ -6986,3 +6986,37 @@ button.ci-badge:hover {
 .port-pill-discovered {
   border-style: dashed;
 }
+
+/* === BrowserCell (Plan 4) === */
+.browser-cell {
+  display: flex; flex-direction: column;
+  height: 100%; width: 100%;
+  background: var(--bg-app);
+  border: 2px solid var(--raven-blue);
+  border-radius: 4px; overflow: hidden;
+}
+.browser-header {
+  display: flex; align-items: center; gap: 6px;
+  padding: 0 8px; background: var(--bg-surface);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.browser-btn {
+  background: transparent; border: 1px solid transparent;
+  color: var(--text-secondary); width: 26px; height: 24px;
+  border-radius: 3px; cursor: pointer; font-size: 14px;
+  display: flex; align-items: center; justify-content: center;
+}
+.browser-btn:hover { background: var(--bg-elevated); color: var(--text-primary); }
+.browser-btn-close { color: var(--text-muted); }
+.browser-btn-close:hover { background: rgba(255, 26, 26, 0.15); color: #FF6666; }
+.browser-url {
+  flex: 1; min-width: 0; background: var(--bg-elevated);
+  border: 1px solid var(--border); border-radius: 3px;
+  padding: 4px 8px; color: var(--text-primary);
+  font-size: 11px; font-family: 'JetBrains Mono', monospace;
+}
+.browser-url:focus { outline: none; border-color: var(--raven-blue); }
+.browser-placeholder {
+  flex: 1; min-height: 0; background: var(--bg-app);
+}

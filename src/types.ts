@@ -1,4 +1,4 @@
-export type AIType = 'claude' | 'gemini' | 'codex' | 'copilot' | 'opencode' | 'terminal' | 'custom'
+export type AIType = 'claude' | 'gemini' | 'codex' | 'copilot' | 'opencode' | 'terminal' | 'custom' | 'browser'
 
 export interface Account {
   name: string
@@ -17,6 +17,8 @@ export interface PaneNode {
   customColor?: string  // accent color for custom CLIs
   note?: string         // user-written note visible in header
   repoPath?: string     // cwd override: git repo directory
+  url?: string          // browser only: initial url
+  sessionPartition?: string  // browser only: persist:browser-<workspaceId>
 }
 
 export interface WorktreeMeta {
@@ -105,6 +107,7 @@ export const AI_CONFIG: Record<AIType, { label: string; color: string; bg: strin
   opencode: { label: 'OpenCode', color: '#FFFFFF', bg: '#111111', cmd: 'opencode', noAccount: true },
   terminal: { label: 'Terminal', color: '#888888', bg: '#1a1a1a', cmd: '',           noAccount: true },
   custom:   { label: 'Custom',   color: '#888888', bg: '#1a1a1a', cmd: '',           noAccount: true },
+  browser:  { label: 'Browser',  color: '#0066FF', bg: '#0a1428', cmd: '',           noAccount: true },
 }
 
 export interface SessionPane {
@@ -314,6 +317,17 @@ declare global {
     }
     port: {
       scan: (pid: number) => Promise<number[]>
+    }
+    browser: {
+      create: (paneId: string, url: string, partition: string) => Promise<void>
+      reposition: (paneId: string, bounds: { x: number; y: number; width: number; height: number }) => Promise<void>
+      navigate: (paneId: string, url: string) => Promise<void>
+      back: (paneId: string) => Promise<void>
+      forward: (paneId: string) => Promise<void>
+      reload: (paneId: string) => Promise<void>
+      destroy: (paneId: string) => Promise<void>
+      onNavigated: (cb: (paneId: string, url: string) => void) => void
+      removeListeners: () => void
     }
     settings: {
       get: () => Promise<{

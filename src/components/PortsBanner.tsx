@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import type { WorktreeMeta } from '../types'
 
 interface CellRef {
@@ -9,6 +9,7 @@ interface CellRef {
 interface Props {
   cells: CellRef[]
   rootRepoPath: string | null
+  onOpenInternal?: (url: string) => void
 }
 
 interface PortGroup {
@@ -24,7 +25,7 @@ async function safeListWorktrees(repoPath: string): Promise<WorktreeMeta[]> {
   try { return await window.worktree.list(repoPath) } catch { return [] }
 }
 
-export function PortsBanner({ cells, rootRepoPath }: Props) {
+export function PortsBanner({ cells, rootRepoPath, onOpenInternal }: Props) {
   const [groups, setGroups] = useState<PortGroup[]>([])
 
   // Map: worktreePath → set of paneIds (cells running there)
@@ -90,10 +91,10 @@ export function PortsBanner({ cells, rootRepoPath }: Props) {
             <span className="ports-group-label" title={g.worktreePath}>{g.branch}</span>
           )}
           {g.declared.map((p) => (
-            <PortPill key={`d-${p}`} port={p} kind="declared" />
+            <PortPill key={`d-${p}`} port={p} kind="declared" onOpenInternal={onOpenInternal} />
           ))}
           {g.detected.map((p) => (
-            <PortPill key={`x-${p}`} port={p} kind="discovered" />
+            <PortPill key={`x-${p}`} port={p} kind="discovered" onOpenInternal={onOpenInternal} />
           ))}
         </div>
       ))}
@@ -101,13 +102,24 @@ export function PortsBanner({ cells, rootRepoPath }: Props) {
   )
 }
 
-function PortPill({ port, kind }: { port: number; kind: 'declared' | 'discovered' }) {
+function PortPill({ port, kind, onOpenInternal }: {
+  port: number
+  kind: 'declared' | 'discovered'
+  onOpenInternal?: (url: string) => void
+}) {
   const url = `http://localhost:${port}`
+  const handleClick = (e: React.MouseEvent) => {
+    if (e.shiftKey || !onOpenInternal) {
+      window.electronShell.openExternal(url)
+    } else {
+      onOpenInternal(url)
+    }
+  }
   return (
     <button
       className={`port-pill port-pill-${kind}`}
-      onClick={() => window.electronShell.openExternal(url)}
-      title={`${url} · ${kind}`}
+      onClick={handleClick}
+      title={`${url} · ${kind} · click to open in Browser cell, shift+click for external`}
     >
       :{port}
     </button>

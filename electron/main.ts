@@ -35,6 +35,7 @@ import { WorktreeStore } from './worktree-store'
 import { PresetStore } from './preset-store'
 import { SetupRunner } from './setup-runner'
 import { scanPid } from './port-monitor'
+import { BrowserPaneManager } from './browser-pane-manager'
 import { MCPStore } from './mcp-store'
 import { SettingsStore } from './settings-store'
 import { transcribeAudio, checkWhisperAvailable, initWhisper, shutdownWhisper, setWhisperStatusCallback } from './whisper'
@@ -50,6 +51,7 @@ const workspaceStore = new WorkspaceStore()
 const worktreeStore = new WorktreeStore(pathJoin(homedir(), '.raven-nest'))
 const presetStore = new PresetStore()
 const setupRunner = new SetupRunner()
+const browserPanes = new BrowserPaneManager(() => BrowserWindow.getAllWindows()[0] ?? null)
 const mcpStore = new MCPStore()
 const settingsStore = new SettingsStore()
 
@@ -607,6 +609,38 @@ ipcMain.handle('port:scan', async (_evt, pid: number) => {
   if (!Number.isFinite(pid) || pid <= 0) return []
   return scanPid(pid)
 })
+
+// === Browser pane handlers (Plan 4 — v1.0) ===
+
+const SAFE_PARTITION_RE = /^persist:[a-zA-Z0-9_-]+$/
+
+function safeBrowserUrl(url: string): boolean {
+  return /^https?:\/\//i.test(url)
+}
+
+ipcMain.handle('browser:create', async (_evt, paneId: string, url: string, partition: string) => {
+  if (!paneId || typeof paneId !== 'string') throw new Error('paneId required')
+  if (!safeBrowserUrl(url)) throw new Error('url must be http(s)')
+  if (!SAFE_PARTITION_RE.test(partition)) throw new Error('invalid partition')
+  browserPanes.create(paneId, url, partition)
+})
+
+ipcMain.handle('browser:reposition', async (_evt, paneId: string, bounds: unknown) => {
+  if (!bounds || typeof bounds !== 'object') return
+  const b = bounds as { x: number; y: number; width: number; height: number }
+  if ([b.x, b.y, b.width, b.height].some((v) => !Number.isFinite(v))) return
+  browserPanes.reposition(paneId, b)
+})
+
+ipcMain.handle('browser:navigate', async (_evt, paneId: string, url: string) => {
+  if (!safeBrowserUrl(url)) throw new Error('url must be http(s)')
+  browserPanes.navigate(paneId, url)
+})
+
+ipcMain.handle('browser:back', async (_evt, paneId: string) => browserPanes.back(paneId))
+ipcMain.handle('browser:forward', async (_evt, paneId: string) => browserPanes.forward(paneId))
+ipcMain.handle('browser:reload', async (_evt, paneId: string) => browserPanes.reload(paneId))
+ipcMain.handle('browser:destroy', async (_evt, paneId: string) => browserPanes.destroy(paneId))
 
 // Session persistence
 const SESSION_PATH = join(app.getPath('home'), '.raven-nest', 'session.json')

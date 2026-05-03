@@ -8,6 +8,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { PaneNode, AIType, GridLayout, AI_CONFIG, SessionData, SessionPane, Workspace, WorkspaceTab, equalSizes } from './types'
 import { PanelGroup, Panel, PanelResizeHandle } from 'react-resizable-panels'
 import TerminalPane from './components/TerminalPane'
+import BrowserCell from './components/BrowserCell'
 import NewPaneDialog from './components/NewPaneDialog'
 import TabBar from './components/TabBar'
 import { PortsBanner } from './components/PortsBanner'
@@ -551,6 +552,40 @@ export default function App() {
     })
   }, [])
 
+  const openBrowserCell = useCallback((url: string) => {
+    const pane: PaneNode = {
+      id: generateId(),
+      aiType: 'browser',
+      accountName: 'browser',
+      accountDir: '',
+      borderColor: '#0066FF',
+      cmd: '',
+      url,
+      sessionPartition: `persist:browser-${activeTabId}`,
+    }
+    updateActiveTab((t) => {
+      const emptyIdx = t.cells.findIndex((c) => c === null)
+      if (emptyIdx !== -1) {
+        const next = [...t.cells]
+        next[emptyIdx] = pane
+        return { ...t, cells: next }
+      }
+      const newLayout = t.layout.cols <= t.layout.rows
+        ? { rows: t.layout.rows, cols: t.layout.cols + 1 }
+        : { rows: t.layout.rows + 1, cols: t.layout.cols }
+      const newTotal = newLayout.rows * newLayout.cols
+      const filled = [...t.cells, ...Array(newTotal - t.cells.length).fill(null)]
+      filled[newTotal - 1] = pane
+      return {
+        ...t,
+        layout: newLayout,
+        colSizes: Array.from({ length: newLayout.rows }, () => equalSizes(newLayout.cols)),
+        rowSizes: equalSizes(newLayout.rows),
+        cells: filled,
+      }
+    })
+  }, [activeTabId, updateActiveTab])
+
   // Open dialog for next empty cell, or expand grid if full
   const addNextPane = useCallback(() => {
     const emptyIdx = cells.findIndex((c) => c === null)
@@ -762,6 +797,7 @@ export default function App() {
         cells={activeTab.cells
           .filter((c): c is NonNullable<typeof c> => c !== null && Boolean(c.repoPath))
           .map((c) => ({ paneId: c.id, repoPath: c.repoPath as string }))}
+        onOpenInternal={openBrowserCell}
       />
       {updateStatus?.type === 'downloading' && (
         <div className="update-banner update-banner--downloading">
@@ -890,7 +926,15 @@ export default function App() {
                                 />
                               )}
                               <Panel defaultSize={rowColSizes[c]}>
-                                {pane ? (
+                                {pane && pane.aiType === 'browser' ? (
+                                  <BrowserCell
+                                    key={pane.id}
+                                    pane={pane}
+                                    cellId={String(i)}
+                                    borderColor={pane.borderColor}
+                                    onClose={() => { removePane(i); if (zoomedCell === i) { setZoomedCell(null); setZoomingOut(false) } }}
+                                  />
+                                ) : pane ? (
                                   <TerminalPane
                                     key={pane.id}
                                     cellId={String(i)}
