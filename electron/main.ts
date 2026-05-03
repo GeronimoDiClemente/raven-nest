@@ -436,6 +436,62 @@ ipcMain.handle('worktree:setPreset', async (_evt, worktreePath: string, presetId
   worktreeStore.setMeta({ ...meta, presetId: presetId ?? undefined })
 })
 
+ipcMain.handle('worktree:create', async (_evt, opts: {
+  repoPath: string
+  branch: string
+  fromBranch?: string
+  path?: string
+  presetId?: string
+}) => {
+  if (!isAbsolute(opts.repoPath)) throw new Error('repoPath must be absolute')
+  if (!opts.branch || !/^[a-zA-Z0-9._/\-]+$/.test(opts.branch)) {
+    throw new Error(`Invalid branch name: ${opts.branch}`)
+  }
+
+  const slug = opts.branch.replace(/[\/]/g, '-').replace(/[^a-zA-Z0-9._\-]/g, '')
+  const wtPath = opts.path ?? pathJoin(opts.repoPath, '.git', 'worktrees', slug)
+
+  // Check if branch exists
+  let branchExists = false
+  try {
+    execSync(`git -C "${opts.repoPath}" show-ref --verify --quiet "refs/heads/${opts.branch}"`, {
+      timeout: 3000,
+    })
+    branchExists = true
+  } catch { branchExists = false }
+
+  // Build git worktree add command
+  let cmd: string
+  if (branchExists) {
+    cmd = `git -C "${opts.repoPath}" worktree add "${wtPath}" "${opts.branch}"`
+  } else {
+    const from = opts.fromBranch ?? 'HEAD'
+    cmd = `git -C "${opts.repoPath}" worktree add -b "${opts.branch}" "${wtPath}" "${from}"`
+  }
+
+  try {
+    execSync(cmd, { encoding: 'utf8', timeout: 10000 })
+  } catch (err) {
+    throw new Error(`git worktree add failed: ${err instanceof Error ? err.message : String(err)}`)
+  }
+
+  // Persist meta
+  const now = Date.now()
+  const meta = {
+    repoPath: wtPath,
+    rootRepoPath: opts.repoPath,
+    branch: opts.branch,
+    presetId: opts.presetId,
+    setupState: 'idle' as const,
+    declaredPorts: [],
+    detectedPorts: [],
+    createdAt: now,
+    updatedAt: now,
+  }
+  worktreeStore.setMeta(meta)
+  return meta
+})
+
 // Session persistence
 const SESSION_PATH = join(app.getPath('home'), '.raven-nest', 'session.json')
 
