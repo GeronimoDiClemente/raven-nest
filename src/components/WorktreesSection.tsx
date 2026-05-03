@@ -43,6 +43,21 @@ export function WorktreesSection({ repoPath, activeRepoPath, onSelect, onNewClic
   }, [repoPath, refreshKey])
 
   useEffect(() => {
+    if (!repoPath) return
+    const onState = (worktreePath: string, state: string) => {
+      setWorktrees((prev) =>
+        prev.map((wt) =>
+          wt.repoPath === worktreePath
+            ? { ...wt, setupState: state as WorktreeMeta['setupState'] }
+            : wt
+        )
+      )
+    }
+    window.preset.onSetupState(onState)
+    return () => window.preset.removeListeners()
+  }, [repoPath])
+
+  useEffect(() => {
     if (!contextMenu) return
     const close = () => setContextMenu(null)
     window.addEventListener('click', close)
@@ -65,6 +80,12 @@ export function WorktreesSection({ repoPath, activeRepoPath, onSelect, onNewClic
     } catch (err) {
       alert(`Failed: ${err instanceof Error ? err.message : String(err)}`)
     }
+  }
+
+  const handleCancelSetup = async (wtPath: string) => {
+    try { await window.preset.cancel(wtPath) }
+    catch (err) { console.error(err) }
+    setContextMenu(null)
   }
 
   return (
@@ -107,21 +128,33 @@ export function WorktreesSection({ repoPath, activeRepoPath, onSelect, onNewClic
           )}
         </div>
       )}
-      {contextMenu && (
-        <div
-          className="wt-context-menu"
-          style={{ top: contextMenu.y, left: contextMenu.x }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          <button
-            className="wt-ctx-item"
-            onClick={handleRemove}
-            disabled={contextMenu.isRoot}
+      {contextMenu && (() => {
+        const wt = worktrees.find((w) => w.repoPath === contextMenu.worktreePath)
+        const isRunning = wt?.setupState === 'running'
+        return (
+          <div
+            className="wt-context-menu"
+            style={{ top: contextMenu.y, left: contextMenu.x }}
+            onClick={(e) => e.stopPropagation()}
           >
-            {contextMenu.isRoot ? 'Cannot remove root' : 'Remove worktree'}
-          </button>
-        </div>
-      )}
+            {isRunning && (
+              <button
+                className="wt-ctx-item"
+                onClick={() => handleCancelSetup(contextMenu.worktreePath)}
+              >
+                Cancel setup
+              </button>
+            )}
+            <button
+              className="wt-ctx-item"
+              onClick={handleRemove}
+              disabled={contextMenu.isRoot}
+            >
+              {contextMenu.isRoot ? 'Cannot remove root' : 'Remove worktree'}
+            </button>
+          </div>
+        )
+      })()}
     </div>
   )
 }

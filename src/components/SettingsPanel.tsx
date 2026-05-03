@@ -5,8 +5,9 @@ import { useSettings } from '../hooks/useSettings'
 import { useGitHub } from '../hooks/useGitHub'
 import { useGitlab } from '../hooks/useGitlab'
 import { formatBinding, eventToBinding, Keybindings } from '../lib/keybindings'
+import { PresetEditor } from './PresetEditor'
 
-type Tab = 'keybinds' | 'updates' | 'account'
+type Tab = 'keybinds' | 'presets' | 'updates' | 'account'
 
 interface KeybindRowProps {
   label: string
@@ -74,9 +75,10 @@ interface Props {
   updateState: 'idle' | 'checking' | 'up-to-date' | 'update-found' | 'error'
   onCheckUpdates: () => void
   userEmail: string
+  activeRepoPath?: string
 }
 
-export default function SettingsPanel({ updateState, onCheckUpdates, userEmail }: Props) {
+export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, activeRepoPath }: Props) {
   const [open, setOpen] = useState(false)
   const [tab, setTab] = useState<Tab>('keybinds')
   const { settings, updateKeybinding, updateVoiceLanguage } = useSettings()
@@ -134,7 +136,7 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail }
 
             {/* Tabs */}
             <div className="sp-tabs">
-              {(['keybinds', 'updates', 'account'] as Tab[]).map(t => (
+              {(['keybinds', 'presets', 'updates', 'account'] as Tab[]).map(t => (
                 <button
                   key={t}
                   className={`sp-tab${tab === t ? ' active' : ''}`}
@@ -177,6 +179,12 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail }
                       onUpdate={updateKeybinding}
                     />
                   ))}
+                </div>
+              )}
+
+              {tab === 'presets' && (
+                <div className="sp-section">
+                  <PresetEditor repoPath={activeRepoPath ?? null} />
                 </div>
               )}
 

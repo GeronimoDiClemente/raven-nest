@@ -203,3 +203,25 @@ contextBridge.exposeInMainWorld('worktree', {
   setPreset: (worktreePath: string, presetId: string | null) =>
     ipcRenderer.invoke('worktree:setPreset', worktreePath, presetId),
 })
+
+contextBridge.exposeInMainWorld('preset', {
+  list: (repoPath: string) => ipcRenderer.invoke('preset:list', repoPath),
+  save: (repoPath: string, preset: unknown) => ipcRenderer.invoke('preset:save', repoPath, preset),
+  delete: (repoPath: string, presetId: string) =>
+    ipcRenderer.invoke('preset:delete', repoPath, presetId),
+  apply: (worktreePath: string, presetId: string) =>
+    ipcRenderer.invoke('preset:apply', worktreePath, presetId),
+  cancel: (worktreePath: string) => ipcRenderer.invoke('preset:cancel', worktreePath),
+  onSetupProgress: (cb: (worktreePath: string, line: string) => void) => {
+    ipcRenderer.removeAllListeners('preset:setupProgress')
+    ipcRenderer.on('preset:setupProgress', (_e, wt, line) => cb(wt, line))
+  },
+  onSetupState: (cb: (worktreePath: string, state: string) => void) => {
+    ipcRenderer.removeAllListeners('preset:setupState')
+    ipcRenderer.on('preset:setupState', (_e, wt, state) => cb(wt, state))
+  },
+  removeListeners: () => {
+    ipcRenderer.removeAllListeners('preset:setupProgress')
+    ipcRenderer.removeAllListeners('preset:setupState')
+  },
+})

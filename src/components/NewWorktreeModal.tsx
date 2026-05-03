@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { WorktreeMeta } from '../types'
+import type { RavenPreset, WorktreeMeta } from '../types'
 
 interface Props {
   open: boolean
@@ -11,6 +11,8 @@ interface Props {
 export function NewWorktreeModal({ open, repoPath, onClose, onCreated }: Props) {
   const [branch, setBranch] = useState('')
   const [path, setPath] = useState('')
+  const [presets, setPresets] = useState<RavenPreset[]>([])
+  const [presetId, setPresetId] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -22,6 +24,11 @@ export function NewWorktreeModal({ open, repoPath, onClose, onCreated }: Props) 
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [open, creating, onClose])
+
+  useEffect(() => {
+    if (!open) return
+    void window.preset.list(repoPath).then(setPresets).catch(() => setPresets([]))
+  }, [open, repoPath])
 
   if (!open) return null
 
@@ -36,9 +43,10 @@ export function NewWorktreeModal({ open, repoPath, onClose, onCreated }: Props) 
         repoPath,
         branch: branch.trim(),
         path: path.trim() || undefined,
+        presetId: presetId ?? undefined,
       })
       onCreated(meta)
-      setBranch(''); setPath(''); onClose()
+      setBranch(''); setPath(''); setPresetId(null); onClose()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -76,6 +84,35 @@ export function NewWorktreeModal({ open, repoPath, onClose, onCreated }: Props) 
           placeholder={suggestedPath}
           disabled={creating}
         />
+
+        <label className="field-label">Preset</label>
+        <div className="preset-cards">
+          <button
+            type="button"
+            className={`preset-card ${presetId === null ? 'preset-card-selected' : ''}`}
+            onClick={() => setPresetId(null)}
+            disabled={creating}
+          >
+            <span className="preset-card-name">Empty</span>
+            <span className="preset-card-desc">No setup, no ports</span>
+          </button>
+          {presets.map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              className={`preset-card ${presetId === p.id ? 'preset-card-selected' : ''}`}
+              onClick={() => setPresetId(p.id)}
+              disabled={creating}
+              title={p.description}
+            >
+              <span className="preset-card-name">{p.name}</span>
+              <span className="preset-card-desc">
+                {p.ports?.length ? `:${p.ports.join(' :')}` : ''}
+                {p.dev ? ` · ${p.dev}` : ''}
+              </span>
+            </button>
+          ))}
+        </div>
 
         {error && <div className="modal-error">{error}</div>}
 

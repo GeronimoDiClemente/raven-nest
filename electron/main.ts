@@ -32,6 +32,8 @@ import { SnippetStore } from './snippet-store'
 import { ConversationStore } from './conversation-store'
 import { WorkspaceStore } from './workspace-store'
 import { WorktreeStore } from './worktree-store'
+import { PresetStore } from './preset-store'
+import { SetupRunner } from './setup-runner'
 import { MCPStore } from './mcp-store'
 import { SettingsStore } from './settings-store'
 import { transcribeAudio, checkWhisperAvailable, initWhisper, shutdownWhisper, setWhisperStatusCallback } from './whisper'
@@ -45,8 +47,32 @@ const snippetStore = new SnippetStore()
 const conversationStore = new ConversationStore()
 const workspaceStore = new WorkspaceStore()
 const worktreeStore = new WorktreeStore(pathJoin(homedir(), '.raven-nest'))
+const presetStore = new PresetStore()
+const setupRunner = new SetupRunner()
 const mcpStore = new MCPStore()
 const settingsStore = new SettingsStore()
+
+function broadcast(channel: string, ...args: unknown[]): void {
+  const win = BrowserWindow.getAllWindows()[0]
+  if (win) win.webContents.send(channel, ...args)
+}
+
+setupRunner.on('progress', (worktreePath: string, line: string) => {
+  broadcast('preset:setupProgress', worktreePath, line)
+  const meta = worktreeStore.get(worktreePath)
+  if (meta) {
+    const log = meta.setupLog ? `${meta.setupLog}\n${line}` : line
+    const lines = log.split('\n')
+    const trimmed = lines.length > 200 ? lines.slice(lines.length - 200).join('\n') : log
+    worktreeStore.setMeta({ ...meta, setupLog: trimmed })
+  }
+})
+
+setupRunner.on('state', (worktreePath: string, state: 'running' | 'done' | 'failed' | 'cancelled') => {
+  broadcast('preset:setupState', worktreePath, state)
+  const meta = worktreeStore.get(worktreePath)
+  if (meta) worktreeStore.setMeta({ ...meta, setupState: state })
+})
 
 function createWindow(): void {
   const iconPath = pathJoin(getIconsDir(), ICON_FILENAME)
@@ -447,6 +473,11 @@ ipcMain.handle('worktree:create', async (_evt, opts: {
   if (!opts.branch || !/^[a-zA-Z0-9._/\-]+$/.test(opts.branch)) {
     throw new Error(`Invalid branch name: ${opts.branch}`)
   }
+  if (opts.path !== undefined) {
+    if (!isAbsolute(opts.path) || opts.path.includes('..')) {
+      throw new Error('path must be absolute and not contain ".."')
+    }
+  }
 
   const slug = opts.branch.replace(/[\/]/g, '-').replace(/[^a-zA-Z0-9._\-]/g, '')
   const wtPath = opts.path ?? pathJoin(opts.repoPath, '.git', 'worktrees', slug)
@@ -477,18 +508,34 @@ ipcMain.handle('worktree:create', async (_evt, opts: {
 
   // Persist meta
   const now = Date.now()
+  let preset: import('../src/types').RavenPreset | null = null
+  if (opts.presetId) {
+    preset = presetStore.get(opts.repoPath, opts.presetId)
+  }
   const meta = {
     repoPath: wtPath,
     rootRepoPath: opts.repoPath,
     branch: opts.branch,
     presetId: opts.presetId,
     setupState: 'idle' as const,
-    declaredPorts: [],
+    declaredPorts: preset?.ports ?? [],
     detectedPorts: [],
+    devCmd: preset?.dev,
     createdAt: now,
     updatedAt: now,
   }
   worktreeStore.setMeta(meta)
+
+  // Auto-run setup in background (non-blocking)
+  if (preset) {
+    const commands = [...(preset.postCreate ?? []), ...(preset.setup ?? [])]
+    if (commands.length > 0) {
+      setupRunner
+        .run({ worktreePath: wtPath, presetId: preset.id, commands, env: preset.env ?? {} })
+        .catch((err) => console.error('[setup-runner]', err))
+    }
+  }
+
   return meta
 })
 
@@ -496,6 +543,8 @@ ipcMain.handle('worktree:remove', async (_evt, worktreePath: string) => {
   if (!isAbsolute(worktreePath)) throw new Error('worktreePath must be absolute')
   const meta = worktreeStore.get(worktreePath)
   if (!meta) throw new Error('Worktree not found in store')
+
+  if (setupRunner.isRunning(worktreePath)) setupRunner.cancel(worktreePath)
 
   try {
     execSync(`git -C "${meta.rootRepoPath}" worktree remove "${worktreePath}" --force`, {
@@ -507,6 +556,48 @@ ipcMain.handle('worktree:remove', async (_evt, worktreePath: string) => {
   }
 
   worktreeStore.remove(worktreePath)
+})
+
+// === Preset handlers (Plan 2 — v1.0) ===
+
+ipcMain.handle('preset:list', async (_evt, repoPath: string) => {
+  if (!isAbsolute(repoPath)) throw new Error('repoPath must be absolute')
+  return presetStore.list(repoPath)
+})
+
+ipcMain.handle('preset:save', async (_evt, repoPath: string, preset: import('../src/types').RavenPreset) => {
+  if (!isAbsolute(repoPath)) throw new Error('repoPath must be absolute')
+  return presetStore.save(repoPath, preset)
+})
+
+ipcMain.handle('preset:delete', async (_evt, repoPath: string, presetId: string) => {
+  if (!isAbsolute(repoPath)) throw new Error('repoPath must be absolute')
+  presetStore.delete(repoPath, presetId)
+})
+
+ipcMain.handle('preset:apply', async (_evt, worktreePath: string, presetId: string) => {
+  if (!isAbsolute(worktreePath)) throw new Error('worktreePath must be absolute')
+  const meta = worktreeStore.get(worktreePath)
+  if (!meta) throw new Error('Worktree not found')
+  const preset = presetStore.get(meta.rootRepoPath, presetId)
+  if (!preset) throw new Error(`Preset not found: ${presetId}`)
+  worktreeStore.setMeta({
+    ...meta,
+    presetId: preset.id,
+    declaredPorts: preset.ports ?? [],
+    devCmd: preset.dev,
+    setupLog: undefined,
+  })
+  const commands = [...(preset.postCreate ?? []), ...(preset.setup ?? [])]
+  if (commands.length === 0) return
+  setupRunner
+    .run({ worktreePath, presetId: preset.id, commands, env: preset.env ?? {} })
+    .catch((err) => console.error('[setup-runner]', err))
+})
+
+ipcMain.handle('preset:cancel', async (_evt, worktreePath: string) => {
+  if (!isAbsolute(worktreePath)) throw new Error('worktreePath must be absolute')
+  setupRunner.cancel(worktreePath)
 })
 
 // Session persistence

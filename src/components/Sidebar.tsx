@@ -487,6 +487,7 @@ export default function Sidebar({
           updateState={updateState}
           onCheckUpdates={handleCheckUpdates}
           userEmail={userEmail}
+          activeRepoPath={activeCellRepoPath}
         />
       </div>
 

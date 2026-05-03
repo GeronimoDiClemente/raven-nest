@@ -34,6 +34,18 @@ export interface WorktreeMeta {
   updatedAt: number
 }
 
+export interface RavenPreset {
+  id: string                  // slug, ej "nextjs-dev"
+  name: string
+  description?: string
+  setup?: string[]            // shell commands, sequential
+  dev?: string                // long-running dev command
+  ports?: number[]
+  env?: Record<string, string>
+  postCreate?: string[]       // run once after worktree creation, before setup
+  spotlightIgnore?: string[]
+}
+
 export interface ConversationMeta {
   id: string
   aiType: string
@@ -289,6 +301,16 @@ declare global {
       remove: (worktreePath: string) => Promise<void>
       get: (worktreePath: string) => Promise<WorktreeMeta | null>
       setPreset: (worktreePath: string, presetId: string | null) => Promise<void>
+    }
+    preset: {
+      list: (repoPath: string) => Promise<RavenPreset[]>
+      save: (repoPath: string, preset: RavenPreset) => Promise<void>
+      delete: (repoPath: string, presetId: string) => Promise<void>
+      apply: (worktreePath: string, presetId: string) => Promise<void>
+      cancel: (worktreePath: string) => Promise<void>
+      onSetupProgress: (cb: (worktreePath: string, line: string) => void) => void
+      onSetupState: (cb: (worktreePath: string, state: WorktreeMeta['setupState']) => void) => void
+      removeListeners: () => void
     }
     settings: {
       get: () => Promise<{
