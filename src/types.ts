@@ -36,6 +36,22 @@ export interface WorktreeMeta {
   updatedAt: number
 }
 
+export type DiffLineType = 'add' | 'del' | 'context' | 'meta'
+export interface DiffLine { type: DiffLineType; text: string; oldNum?: number; newNum?: number }
+export interface DiffHunk { header: string; lines: DiffLine[] }
+export interface DiffFile {
+  path: string
+  oldPath?: string
+  additions: number
+  deletions: number
+  binary: boolean
+  hunks: DiffHunk[]
+  oversized?: boolean
+}
+export interface DiffResult { base: string; files: DiffFile[] }
+
+export interface DetectedIDE { id: string; name: string; binPath: string }
+
 export interface RavenPreset {
   id: string                  // slug, ej "nextjs-dev"
   name: string
@@ -317,6 +333,14 @@ declare global {
     }
     port: {
       scan: (pid: number) => Promise<number[]>
+    }
+    diff: {
+      get: (worktreePath: string, base?: string) => Promise<DiffResult>
+    }
+    ide: {
+      detect: (force?: boolean) => Promise<DetectedIDE[]>
+      open: (binPath: string, worktreePath: string) => Promise<void>
+      clearCache: () => Promise<void>
     }
     spotlight: {
       start: (worktreePath: string) => Promise<void>

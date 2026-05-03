@@ -17,6 +17,7 @@ import ConversationSidebar from './components/ConversationSidebar'
 import Sidebar from './components/Sidebar'
 import { NewWorktreeModal } from './components/NewWorktreeModal'
 import { QuickWorktreePalette } from './components/QuickWorktreePalette'
+import { DiffViewerPanel } from './components/DiffViewerPanel'
 import GlobalSearch from './components/GlobalSearch'
 import CommandPalette from './components/CommandPalette'
 import { focusTerminal } from './terminal-registry'
@@ -306,6 +307,7 @@ export default function App() {
   const [showNewWorktree, setShowNewWorktree] = useState(false)
   const handleNewWorktree = useCallback(() => setShowNewWorktree(true), [])
   const [quickWorktreeOpen, setQuickWorktreeOpen] = useState(false)
+  const [diffViewerOpen, setDiffViewerOpen] = useState(false)
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -315,10 +317,15 @@ export default function App() {
         e.preventDefault()
         setQuickWorktreeOpen(true)
       }
+      if (isCmdShift && e.key.toLowerCase() === 'd') {
+        if (!activeCellRepoPath) return
+        e.preventDefault()
+        setDiffViewerOpen((v) => !v)
+      }
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
-  }, [activeTab.repoPath])
+  }, [activeTab.repoPath, activeCellRepoPath])
 
   const removePane = useCallback((cellIndex: number) => {
     const pane = cellsRef.current[cellIndex]
@@ -1110,6 +1117,12 @@ export default function App() {
           }}
         />
       )}
+
+      <DiffViewerPanel
+        open={diffViewerOpen}
+        worktreePath={activeCellRepoPath ?? null}
+        onClose={() => setDiffViewerOpen(false)}
+      />
     </div>
   )
 }

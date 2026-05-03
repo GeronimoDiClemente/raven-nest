@@ -38,6 +38,8 @@ import { scanPid } from './port-monitor'
 import { BrowserPaneManager } from './browser-pane-manager'
 import { SpotlightEngine } from './spotlight-engine'
 import { BenchmarkRecorder } from './benchmark-recorder'
+import { getDiff } from './diff-engine'
+import { detectIDEs, openInIDE, clearCache as clearIDECache } from './ide-launcher'
 import { MCPStore } from './mcp-store'
 import { SettingsStore } from './settings-store'
 import { transcribeAudio, checkWhisperAvailable, initWhisper, shutdownWhisper, setWhisperStatusCallback } from './whisper'
@@ -685,6 +687,25 @@ ipcMain.handle('benchmark:list', async () => benchmark.list())
 ipcMain.handle('benchmark:setMode', async (_evt, cellId: string, mode: 'setup' | 'spotlight' | 'idle') => {
   benchmark.setMode(cellId, mode)
 })
+
+// === Diff handlers (Plan 6 — v1.0) ===
+
+ipcMain.handle('diff:get', async (_evt, worktreePath: string, base?: string) => {
+  if (!isAbsolute(worktreePath)) throw new Error('worktreePath must be absolute')
+  return getDiff(worktreePath, base ?? 'HEAD')
+})
+
+// === IDE launcher handlers (Plan 6 — v1.0) ===
+
+ipcMain.handle('ide:detect', async (_evt, force?: boolean) => detectIDEs(Boolean(force)))
+
+ipcMain.handle('ide:open', async (_evt, binPath: string, worktreePath: string) => {
+  if (!isAbsolute(worktreePath)) throw new Error('worktreePath must be absolute')
+  if (typeof binPath !== 'string' || !binPath) throw new Error('binPath required')
+  openInIDE(binPath, worktreePath)
+})
+
+ipcMain.handle('ide:clearCache', async () => { clearIDECache() })
 
 // Session persistence
 const SESSION_PATH = join(app.getPath('home'), '.raven-nest', 'session.json')

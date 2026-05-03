@@ -208,6 +208,16 @@ contextBridge.exposeInMainWorld('port', {
   scan: (pid: number) => ipcRenderer.invoke('port:scan', pid),
 })
 
+contextBridge.exposeInMainWorld('diff', {
+  get: (worktreePath: string, base?: string) => ipcRenderer.invoke('diff:get', worktreePath, base),
+})
+
+contextBridge.exposeInMainWorld('ide', {
+  detect: (force?: boolean) => ipcRenderer.invoke('ide:detect', force),
+  open: (binPath: string, worktreePath: string) => ipcRenderer.invoke('ide:open', binPath, worktreePath),
+  clearCache: () => ipcRenderer.invoke('ide:clearCache'),
+})
+
 contextBridge.exposeInMainWorld('spotlight', {
   start: (worktreePath: string) => ipcRenderer.invoke('spotlight:start', worktreePath),
   stop: () => ipcRenderer.invoke('spotlight:stop'),

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { WorktreeMeta } from '../types'
+import { IDEPickerMenu } from './IDEPickerMenu'
 
 interface Props {
   repoPath: string | null
@@ -30,6 +31,7 @@ export function WorktreesSection({ repoPath, activeRepoPath, onSelect, onNewClic
   const [expanded, setExpanded] = useState(true)
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
   const [spotlightPath, setSpotlightPath] = useState<string | null>(null)
+  const [idePickerAt, setIdePickerAt] = useState<{ x: number; y: number; worktreePath: string } | null>(null)
 
   useEffect(() => {
     void window.spotlight.status().then((s) => {
@@ -151,6 +153,13 @@ export function WorktreesSection({ repoPath, activeRepoPath, onSelect, onNewClic
           )}
         </div>
       )}
+      {idePickerAt && (
+        <IDEPickerMenu
+          worktreePath={idePickerAt.worktreePath}
+          position={{ x: idePickerAt.x, y: idePickerAt.y }}
+          onClose={() => setIdePickerAt(null)}
+        />
+      )}
       {contextMenu && (() => {
         const wt = worktrees.find((w) => w.repoPath === contextMenu.worktreePath)
         const isRunning = wt?.setupState === 'running'
@@ -176,6 +185,15 @@ export function WorktreesSection({ repoPath, activeRepoPath, onSelect, onNewClic
                 {spotlightPath === contextMenu.worktreePath ? 'Stop Spotlight' : 'Start Spotlight'}
               </button>
             )}
+            <button
+              className="wt-ctx-item"
+              onClick={() => {
+                setIdePickerAt({ x: contextMenu.x, y: contextMenu.y, worktreePath: contextMenu.worktreePath })
+                setContextMenu(null)
+              }}
+            >
+              Open in IDE…
+            </button>
             <button
               className="wt-ctx-item"
               onClick={handleRemove}
