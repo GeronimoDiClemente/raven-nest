@@ -492,6 +492,23 @@ ipcMain.handle('worktree:create', async (_evt, opts: {
   return meta
 })
 
+ipcMain.handle('worktree:remove', async (_evt, worktreePath: string) => {
+  if (!isAbsolute(worktreePath)) throw new Error('worktreePath must be absolute')
+  const meta = worktreeStore.get(worktreePath)
+  if (!meta) throw new Error('Worktree not found in store')
+
+  try {
+    execSync(`git -C "${meta.rootRepoPath}" worktree remove "${worktreePath}" --force`, {
+      encoding: 'utf8',
+      timeout: 10000,
+    })
+  } catch (err) {
+    throw new Error(`git worktree remove failed: ${err instanceof Error ? err.message : String(err)}`)
+  }
+
+  worktreeStore.remove(worktreePath)
+})
+
 // Session persistence
 const SESSION_PATH = join(app.getPath('home'), '.raven-nest', 'session.json')
 
