@@ -31,6 +31,7 @@ import { CustomCLIStore } from './custom-cli-store'
 import { SnippetStore } from './snippet-store'
 import { ConversationStore } from './conversation-store'
 import { WorkspaceStore } from './workspace-store'
+import { WorktreeStore } from './worktree-store'
 import { MCPStore } from './mcp-store'
 import { SettingsStore } from './settings-store'
 import { transcribeAudio, checkWhisperAvailable, initWhisper, shutdownWhisper, setWhisperStatusCallback } from './whisper'
@@ -43,6 +44,7 @@ const customCLIStore = new CustomCLIStore()
 const snippetStore = new SnippetStore()
 const conversationStore = new ConversationStore()
 const workspaceStore = new WorkspaceStore()
+const worktreeStore = new WorktreeStore(pathJoin(homedir(), '.raven-nest'))
 const mcpStore = new MCPStore()
 const settingsStore = new SettingsStore()
 
@@ -412,6 +414,26 @@ ipcMain.handle('workspace:import', async () => {
   } catch {
     return null
   }
+})
+
+// === Worktree handlers (Plan 1 — v1.0) ===
+
+ipcMain.handle('worktree:list', async (_evt, repoPath: string) => {
+  if (!isAbsolute(repoPath)) throw new Error('repoPath must be absolute')
+  worktreeStore.hydrateFromGit(repoPath)
+  return worktreeStore.list().filter((m) => m.rootRepoPath === repoPath)
+})
+
+ipcMain.handle('worktree:get', async (_evt, worktreePath: string) => {
+  if (!isAbsolute(worktreePath)) throw new Error('worktreePath must be absolute')
+  return worktreeStore.get(worktreePath)
+})
+
+ipcMain.handle('worktree:setPreset', async (_evt, worktreePath: string, presetId: string | null) => {
+  if (!isAbsolute(worktreePath)) throw new Error('worktreePath must be absolute')
+  const meta = worktreeStore.get(worktreePath)
+  if (!meta) throw new Error('Worktree not found')
+  worktreeStore.setMeta({ ...meta, presetId: presetId ?? undefined })
 })
 
 // Session persistence
