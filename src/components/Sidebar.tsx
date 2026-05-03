@@ -7,6 +7,7 @@ import MCPPanel from './MCPPanel'
 import SettingsPanel from './SettingsPanel'
 import UserMenu from './UserMenu'
 import RepoActionsBar from './RepoActionsBar'
+import { WorktreesSection } from './WorktreesSection'
 import { useGitHub } from '../hooks/useGitHub'
 import { useGitlab } from '../hooks/useGitlab'
 import { GridLayout, Workspace } from '../types'
@@ -45,6 +46,10 @@ interface Props {
   onRepoLink: () => void
   onRepoUnlink: () => void
   onJoinTerminal: () => void
+  activeCellRepoPath?: string
+  onWorktreeSelect: (worktreePath: string) => void
+  onNewWorktree: () => void
+  worktreeRefreshKey?: number
 }
 
 export default function Sidebar({
@@ -52,7 +57,8 @@ export default function Sidebar({
   isListening, isTranscribing, isModelLoading, onMicToggle,
   layout, onLayoutChange, onNewPane, onHistoryOpen,
   onSnippetSend, onSnippetBroadcast, onCommandRun, onWorkspaceSave, onWorkspaceLoad, isWin,
-  isTrialActive, trialDaysLeft, profileLoading, onUpgrade, onTeamsOpen, onMyReposOpen, plan, repoPath, onRepoLink, onRepoUnlink, onJoinTerminal
+  isTrialActive, trialDaysLeft, profileLoading, onUpgrade, onTeamsOpen, onMyReposOpen, plan, repoPath, onRepoLink, onRepoUnlink, onJoinTerminal,
+  activeCellRepoPath, onWorktreeSelect, onNewWorktree, worktreeRefreshKey
 }: Props) {
   const { branch, githubUrl, isDirty } = useGitInfo(repoPath)
   const { githubToken } = useGitHub()
@@ -416,6 +422,16 @@ export default function Sidebar({
             branch={branch ?? undefined}
           />
         </div>
+      )}
+
+      {expanded && (
+        <WorktreesSection
+          repoPath={repoPath ?? null}
+          activeRepoPath={activeCellRepoPath}
+          onSelect={onWorktreeSelect}
+          onNewClick={onNewWorktree}
+          refreshKey={worktreeRefreshKey}
+        />
       )}
 
       {/* Layout */}

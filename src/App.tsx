@@ -81,6 +81,14 @@ export default function App() {
   const [broadcastMode, setBroadcastMode] = useState(false)
   const [focusedPaneId, setFocusedPaneId] = useState<string | null>(null)
   const focusedPaneIdRef = useRef<string | null>(null)
+
+  const activeCellRepoPath = (() => {
+    const focusedId = focusedPaneIdRef.current
+    if (!focusedId) return activeTab.repoPath
+    const cell = activeTab.cells.find(c => c?.id === focusedId)
+    return cell?.repoPath ?? activeTab.repoPath
+  })()
+
   const [convSidebarOpen, setConvSidebarOpen] = useState(false)
   const [globalSearchOpen, setGlobalSearchOpen] = useState(false)
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
@@ -254,6 +262,29 @@ export default function App() {
       cells: t.cells.map(c => c ? { ...c, repoPath: undefined } : null),
     }))
   }, [updateActiveTab])
+
+  const [worktreeRefreshKey, setWorktreeRefreshKey] = useState(0)
+
+  const handleWorktreeSelect = useCallback((worktreePath: string) => {
+    const focusedId = focusedPaneIdRef.current
+    setTabs(prev => prev.map(t => {
+      if (t.id !== activeTabId) return t
+      if (focusedId) {
+        return {
+          ...t,
+          cells: t.cells.map(c => c && c.id === focusedId ? { ...c, repoPath: worktreePath } : c),
+        }
+      }
+      return {
+        ...t,
+        repoPath: worktreePath,
+        cells: t.cells.map(c => c ? { ...c, repoPath: worktreePath } : null),
+      }
+    }))
+  }, [activeTabId])
+
+  const [showNewWorktree, setShowNewWorktree] = useState(false)
+  const handleNewWorktree = useCallback(() => setShowNewWorktree(true), [])
 
   const removePane = useCallback((cellIndex: number) => {
     const pane = cellsRef.current[cellIndex]
@@ -764,6 +795,10 @@ export default function App() {
         isModelLoading={isModelLoading}
         onMicToggle={toggleListening}
         onJoinTerminal={() => setShowJoinViewer(true)}
+        activeCellRepoPath={activeCellRepoPath}
+        onWorktreeSelect={handleWorktreeSelect}
+        onNewWorktree={handleNewWorktree}
+        worktreeRefreshKey={worktreeRefreshKey}
       />
       <div className="workspace">
         {isInitialState ? (
