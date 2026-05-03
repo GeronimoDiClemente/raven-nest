@@ -51,4 +51,25 @@ describe('WorktreeStore', () => {
     const reloaded = new WorktreeStore(storeDir)
     expect(reloaded.get('/tmp/repo/.git/worktrees/feat-y')).toEqual(meta)
   })
+
+  it('removes a meta', () => {
+    const meta: WorktreeMeta = {
+      repoPath: '/tmp/r/.git/worktrees/x',
+      rootRepoPath: '/tmp/r',
+      branch: 'x',
+      setupState: 'idle',
+      declaredPorts: [],
+      detectedPorts: [],
+      createdAt: 1, updatedAt: 1,
+    }
+    store.setMeta(meta)
+    store.remove('/tmp/r/.git/worktrees/x')
+    expect(store.get('/tmp/r/.git/worktrees/x')).toBeNull()
+  })
+
+  it('lists all metas', () => {
+    store.setMeta({ repoPath: '/a', rootRepoPath: '/r', branch: 'a', setupState: 'idle', declaredPorts: [], detectedPorts: [], createdAt: 1, updatedAt: 1 })
+    store.setMeta({ repoPath: '/b', rootRepoPath: '/r', branch: 'b', setupState: 'idle', declaredPorts: [], detectedPorts: [], createdAt: 2, updatedAt: 2 })
+    expect(store.list()).toHaveLength(2)
+  })
 })
