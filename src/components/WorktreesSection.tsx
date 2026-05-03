@@ -6,6 +6,7 @@ interface Props {
   activeRepoPath: string | undefined
   onSelect: (worktreePath: string) => void
   onNewClick: () => void
+  refreshKey?: number
 }
 
 const STATUS_DOT_CLASS: Record<WorktreeMeta['setupState'], string> = {
@@ -17,7 +18,7 @@ const STATUS_DOT_CLASS: Record<WorktreeMeta['setupState'], string> = {
   orphaned: 'wt-dot-gray',
 }
 
-export function WorktreesSection({ repoPath, activeRepoPath, onSelect, onNewClick }: Props) {
+export function WorktreesSection({ repoPath, activeRepoPath, onSelect, onNewClick, refreshKey }: Props) {
   const [worktrees, setWorktrees] = useState<WorktreeMeta[]>([])
   const [expanded, setExpanded] = useState(true)
 
@@ -26,9 +27,12 @@ export function WorktreesSection({ repoPath, activeRepoPath, onSelect, onNewClic
     let cancelled = false
     void window.worktree.list(repoPath).then((wts) => {
       if (!cancelled) setWorktrees(wts)
-    }).catch(() => { if (!cancelled) setWorktrees([]) })
+    }).catch((err) => {
+      console.error('worktree:list failed', err)
+      if (!cancelled) setWorktrees([])
+    })
     return () => { cancelled = true }
-  }, [repoPath])
+  }, [repoPath, refreshKey])
 
   if (!repoPath) return null
 
