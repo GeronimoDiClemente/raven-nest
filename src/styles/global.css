@@ -6876,3 +6876,18 @@ button.ci-badge:hover {
 }
 .qw-input:focus { outline: none; border-color: var(--raven-blue); }
 .qw-hint { color: var(--text-muted); font-size: 10px; margin-top: 8px; }
+
+/* === Worktrees context menu (Plan 1) === */
+.wt-context-menu {
+  position: fixed; background: var(--bg-elevated);
+  border: 1px solid var(--border); border-radius: 4px;
+  padding: 4px 0; min-width: 180px; z-index: 1000;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+}
+.wt-ctx-item {
+  display: block; width: 100%; text-align: left;
+  background: transparent; border: none; color: var(--text-primary);
+  padding: 6px 12px; font-size: 12px; cursor: pointer;
+}
+.wt-ctx-item:hover { background: rgba(0, 102, 255, 0.10); }
+.wt-ctx-item:disabled { color: var(--text-muted); cursor: not-allowed; }
