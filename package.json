@@ -2,6 +2,7 @@
   "name": "nest",
   "version": "0.7.0",
   "description": "Nest by RAVEN — Multi-AI Terminal Multiplexer",
+  "engines": { "node": ">=20.19" },
   "author": "RAVEN",
   "repository": "https://github.com/GeronimoDiClemente/raven-nest",
   "main": "dist-electron/main.js",
