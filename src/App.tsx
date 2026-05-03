@@ -14,6 +14,7 @@ import ConfirmDialog from './components/ConfirmDialog'
 import ConversationSidebar from './components/ConversationSidebar'
 import Sidebar from './components/Sidebar'
 import { NewWorktreeModal } from './components/NewWorktreeModal'
+import { QuickWorktreePalette } from './components/QuickWorktreePalette'
 import GlobalSearch from './components/GlobalSearch'
 import CommandPalette from './components/CommandPalette'
 import { focusTerminal } from './terminal-registry'
@@ -302,6 +303,20 @@ export default function App() {
 
   const [showNewWorktree, setShowNewWorktree] = useState(false)
   const handleNewWorktree = useCallback(() => setShowNewWorktree(true), [])
+  const [quickWorktreeOpen, setQuickWorktreeOpen] = useState(false)
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const isCmdShift = (e.metaKey || e.ctrlKey) && e.shiftKey
+      if (isCmdShift && e.key.toLowerCase() === 'w') {
+        if (!activeTab.repoPath) return
+        e.preventDefault()
+        setQuickWorktreeOpen(true)
+      }
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [activeTab.repoPath])
 
   const removePane = useCallback((cellIndex: number) => {
     const pane = cellsRef.current[cellIndex]
@@ -1026,6 +1041,18 @@ export default function App() {
           open={showNewWorktree}
           repoPath={activeTab.repoPath}
           onClose={() => setShowNewWorktree(false)}
+          onCreated={(meta) => {
+            setWorktreeRefreshKey(k => k + 1)
+            void handleWorktreeSelect(meta.repoPath)
+          }}
+        />
+      )}
+
+      {activeTab.repoPath && (
+        <QuickWorktreePalette
+          open={quickWorktreeOpen}
+          repoPath={activeTab.repoPath}
+          onClose={() => setQuickWorktreeOpen(false)}
           onCreated={(meta) => {
             setWorktreeRefreshKey(k => k + 1)
             void handleWorktreeSelect(meta.repoPath)

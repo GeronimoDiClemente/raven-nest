@@ -6859,3 +6859,20 @@ button.ci-badge:hover {
 .dialog-actions {
   display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px;
 }
+
+/* === QuickWorktreePalette (Plan 1) === */
+.quick-worktree {
+  position: fixed; top: 25%; left: 50%; transform: translateX(-50%);
+  background: var(--bg-surface); border: 1px solid var(--border);
+  border-radius: 8px; padding: 16px 20px; min-width: 480px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+.qw-label { color: var(--text-muted); font-size: 11px; margin-bottom: 8px; }
+.qw-input {
+  width: 100%; box-sizing: border-box; background: var(--bg-app);
+  border: 1px solid var(--border); border-radius: 4px;
+  padding: 10px 12px; color: var(--text-primary);
+  font-size: 14px; font-family: 'JetBrains Mono', monospace;
+}
+.qw-input:focus { outline: none; border-color: var(--raven-blue); }
+.qw-hint { color: var(--text-muted); font-size: 10px; margin-top: 8px; }
