@@ -36,6 +36,8 @@ import { PresetStore } from './preset-store'
 import { SetupRunner } from './setup-runner'
 import { scanPid } from './port-monitor'
 import { BrowserPaneManager } from './browser-pane-manager'
+import { SpotlightEngine } from './spotlight-engine'
+import { BenchmarkRecorder } from './benchmark-recorder'
 import { MCPStore } from './mcp-store'
 import { SettingsStore } from './settings-store'
 import { transcribeAudio, checkWhisperAvailable, initWhisper, shutdownWhisper, setWhisperStatusCallback } from './whisper'
@@ -52,6 +54,12 @@ const worktreeStore = new WorktreeStore(pathJoin(homedir(), '.raven-nest'))
 const presetStore = new PresetStore()
 const setupRunner = new SetupRunner()
 const browserPanes = new BrowserPaneManager(() => BrowserWindow.getAllWindows()[0] ?? null)
+const spotlight = new SpotlightEngine()
+const benchmark = new BenchmarkRecorder()
+
+spotlight.on('start', (wt: string) => broadcast('spotlight:status', { active: true, worktreePath: wt }))
+spotlight.on('stop', () => broadcast('spotlight:status', { active: false }))
+spotlight.on('warning', (msg: string) => broadcast('spotlight:warning', msg))
 const mcpStore = new MCPStore()
 const settingsStore = new SettingsStore()
 
@@ -641,6 +649,42 @@ ipcMain.handle('browser:back', async (_evt, paneId: string) => browserPanes.back
 ipcMain.handle('browser:forward', async (_evt, paneId: string) => browserPanes.forward(paneId))
 ipcMain.handle('browser:reload', async (_evt, paneId: string) => browserPanes.reload(paneId))
 ipcMain.handle('browser:destroy', async (_evt, paneId: string) => browserPanes.destroy(paneId))
+
+// === Spotlight handlers (Plan 5 — v1.0) ===
+
+ipcMain.handle('spotlight:start', async (_evt, worktreePath: string) => {
+  if (!isAbsolute(worktreePath)) throw new Error('worktreePath must be absolute')
+  const meta = worktreeStore.get(worktreePath)
+  if (!meta) throw new Error('Worktree not in store')
+  if (meta.repoPath === meta.rootRepoPath) throw new Error('Cannot spotlight the root worktree')
+  const preset = meta.presetId ? presetStore.get(meta.rootRepoPath, meta.presetId) : null
+  await spotlight.start(worktreePath, meta.rootRepoPath, preset?.spotlightIgnore ?? [])
+})
+
+ipcMain.handle('spotlight:stop', async () => spotlight.stop())
+
+ipcMain.handle('spotlight:status', async () => spotlight.status())
+
+// === Benchmark handlers (Plan 5 — v1.0) ===
+
+ipcMain.handle('benchmark:start', async (_evt, cellId: string, pid: number, mode: 'setup' | 'spotlight' | 'idle') => {
+  if (!Number.isFinite(pid) || pid <= 0) throw new Error('Invalid pid')
+  benchmark.start(cellId, pid, mode)
+})
+
+ipcMain.handle('benchmark:stop', async (_evt, cellId: string) => {
+  benchmark.stop(cellId)
+})
+
+ipcMain.handle('benchmark:get', async (_evt, cellId: string) => {
+  return benchmark.get(cellId)
+})
+
+ipcMain.handle('benchmark:list', async () => benchmark.list())
+
+ipcMain.handle('benchmark:setMode', async (_evt, cellId: string, mode: 'setup' | 'spotlight' | 'idle') => {
+  benchmark.setMode(cellId, mode)
+})
 
 // Session persistence
 const SESSION_PATH = join(app.getPath('home'), '.raven-nest', 'session.json')

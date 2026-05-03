@@ -6,8 +6,9 @@ import { useGitHub } from '../hooks/useGitHub'
 import { useGitlab } from '../hooks/useGitlab'
 import { formatBinding, eventToBinding, Keybindings } from '../lib/keybindings'
 import { PresetEditor } from './PresetEditor'
+import { BenchmarkDashboard } from './BenchmarkDashboard'
 
-type Tab = 'keybinds' | 'presets' | 'updates' | 'account'
+type Tab = 'keybinds' | 'presets' | 'benchmarks' | 'updates' | 'account'
 
 interface KeybindRowProps {
   label: string
@@ -136,7 +137,7 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
 
             {/* Tabs */}
             <div className="sp-tabs">
-              {(['keybinds', 'presets', 'updates', 'account'] as Tab[]).map(t => (
+              {(['keybinds', 'presets', 'benchmarks', 'updates', 'account'] as Tab[]).map(t => (
                 <button
                   key={t}
                   className={`sp-tab${tab === t ? ' active' : ''}`}
@@ -185,6 +186,12 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
               {tab === 'presets' && (
                 <div className="sp-section">
                   <PresetEditor repoPath={activeRepoPath ?? null} />
+                </div>
+              )}
+
+              {tab === 'benchmarks' && (
+                <div className="sp-section">
+                  <BenchmarkDashboard />
                 </div>
               )}
 

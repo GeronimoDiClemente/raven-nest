@@ -208,6 +208,32 @@ contextBridge.exposeInMainWorld('port', {
   scan: (pid: number) => ipcRenderer.invoke('port:scan', pid),
 })
 
+contextBridge.exposeInMainWorld('spotlight', {
+  start: (worktreePath: string) => ipcRenderer.invoke('spotlight:start', worktreePath),
+  stop: () => ipcRenderer.invoke('spotlight:stop'),
+  status: () => ipcRenderer.invoke('spotlight:status'),
+  onStatus: (cb: (status: { active: boolean; worktreePath?: string; events?: number }) => void) => {
+    ipcRenderer.removeAllListeners('spotlight:status')
+    ipcRenderer.on('spotlight:status', (_e, s) => cb(s))
+  },
+  onWarning: (cb: (msg: string) => void) => {
+    ipcRenderer.removeAllListeners('spotlight:warning')
+    ipcRenderer.on('spotlight:warning', (_e, msg) => cb(msg))
+  },
+  removeListeners: () => {
+    ipcRenderer.removeAllListeners('spotlight:status')
+    ipcRenderer.removeAllListeners('spotlight:warning')
+  },
+})
+
+contextBridge.exposeInMainWorld('benchmark', {
+  start: (cellId: string, pid: number, mode: string) => ipcRenderer.invoke('benchmark:start', cellId, pid, mode),
+  stop: (cellId: string) => ipcRenderer.invoke('benchmark:stop', cellId),
+  get: (cellId: string) => ipcRenderer.invoke('benchmark:get', cellId),
+  list: () => ipcRenderer.invoke('benchmark:list'),
+  setMode: (cellId: string, mode: string) => ipcRenderer.invoke('benchmark:setMode', cellId, mode),
+})
+
 contextBridge.exposeInMainWorld('browser', {
   create: (paneId: string, url: string, partition: string) =>
     ipcRenderer.invoke('browser:create', paneId, url, partition),

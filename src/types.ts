@@ -318,6 +318,21 @@ declare global {
     port: {
       scan: (pid: number) => Promise<number[]>
     }
+    spotlight: {
+      start: (worktreePath: string) => Promise<void>
+      stop: () => Promise<void>
+      status: () => Promise<{ active: boolean; worktreePath?: string; events?: number; errors?: number }>
+      onStatus: (cb: (status: { active: boolean; worktreePath?: string; events?: number }) => void) => void
+      onWarning: (cb: (msg: string) => void) => void
+      removeListeners: () => void
+    }
+    benchmark: {
+      start: (cellId: string, pid: number, mode: 'setup' | 'spotlight' | 'idle') => Promise<void>
+      stop: (cellId: string) => Promise<void>
+      get: (cellId: string) => Promise<unknown>
+      list: () => Promise<unknown[]>
+      setMode: (cellId: string, mode: 'setup' | 'spotlight' | 'idle') => Promise<void>
+    }
     browser: {
       create: (paneId: string, url: string, partition: string) => Promise<void>
       reposition: (paneId: string, bounds: { x: number; y: number; width: number; height: number }) => Promise<void>

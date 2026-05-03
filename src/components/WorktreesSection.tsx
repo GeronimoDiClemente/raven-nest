@@ -29,6 +29,18 @@ export function WorktreesSection({ repoPath, activeRepoPath, onSelect, onNewClic
   const [worktrees, setWorktrees] = useState<WorktreeMeta[]>([])
   const [expanded, setExpanded] = useState(true)
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
+  const [spotlightPath, setSpotlightPath] = useState<string | null>(null)
+
+  useEffect(() => {
+    void window.spotlight.status().then((s) => {
+      if (s.active && s.worktreePath) setSpotlightPath(s.worktreePath)
+      else setSpotlightPath(null)
+    })
+    window.spotlight.onStatus((s) => {
+      setSpotlightPath(s.active && s.worktreePath ? s.worktreePath : null)
+    })
+    return () => window.spotlight.removeListeners()
+  }, [])
 
   useEffect(() => {
     if (!repoPath) { setWorktrees([]); return }
@@ -88,6 +100,16 @@ export function WorktreesSection({ repoPath, activeRepoPath, onSelect, onNewClic
     setContextMenu(null)
   }
 
+  const handleToggleSpotlight = async (wtPath: string) => {
+    try {
+      if (spotlightPath === wtPath) await window.spotlight.stop()
+      else await window.spotlight.start(wtPath)
+    } catch (err) {
+      alert(`Spotlight: ${err instanceof Error ? err.message : String(err)}`)
+    }
+    setContextMenu(null)
+  }
+
   return (
     <div className="worktrees-section">
       <div className="wt-section-header" onClick={() => setExpanded(!expanded)}>
@@ -118,6 +140,7 @@ export function WorktreesSection({ repoPath, activeRepoPath, onSelect, onNewClic
             >
               <span className={`wt-dot ${STATUS_DOT_CLASS[wt.setupState]}`} />
               <span className="wt-branch">{wt.branch}</span>
+              {spotlightPath === wt.repoPath && <span className="wt-spotlight" title="Spotlight active">⚡</span>}
               <span className="wt-meta">
                 {wt.repoPath === wt.rootRepoPath ? 'root' : ''}
               </span>
@@ -143,6 +166,14 @@ export function WorktreesSection({ repoPath, activeRepoPath, onSelect, onNewClic
                 onClick={() => handleCancelSetup(contextMenu.worktreePath)}
               >
                 Cancel setup
+              </button>
+            )}
+            {!contextMenu.isRoot && (
+              <button
+                className="wt-ctx-item"
+                onClick={() => handleToggleSpotlight(contextMenu.worktreePath)}
+              >
+                {spotlightPath === contextMenu.worktreePath ? 'Stop Spotlight' : 'Start Spotlight'}
               </button>
             )}
             <button
