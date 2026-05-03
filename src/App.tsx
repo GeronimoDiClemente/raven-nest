@@ -267,8 +267,7 @@ export default function App() {
 
   const handleWorktreeSelect = useCallback((worktreePath: string) => {
     const focusedId = focusedPaneIdRef.current
-    setTabs(prev => prev.map(t => {
-      if (t.id !== activeTabId) return t
+    updateActiveTab(t => {
       if (focusedId) {
         return {
           ...t,
@@ -280,8 +279,8 @@ export default function App() {
         repoPath: worktreePath,
         cells: t.cells.map(c => c ? { ...c, repoPath: worktreePath } : null),
       }
-    }))
-  }, [activeTabId])
+    })
+  }, [updateActiveTab])
 
   const [showNewWorktree, setShowNewWorktree] = useState(false)
   const handleNewWorktree = useCallback(() => setShowNewWorktree(true), [])
