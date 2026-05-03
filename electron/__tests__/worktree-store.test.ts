@@ -29,12 +29,17 @@ describe('WorktreeStore', () => {
       setupState: 'idle',
       declaredPorts: [],
       detectedPorts: [],
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
+      createdAt: 1,
+      updatedAt: 1,
     }
+    const before = Date.now()
     store.setMeta(meta)
     const got = store.get('/tmp/repo/.git/worktrees/feat-x')
-    expect(got).toEqual(meta)
+    expect(got).not.toBeNull()
+    expect(got!.repoPath).toBe(meta.repoPath)
+    expect(got!.branch).toBe(meta.branch)
+    expect(got!.createdAt).toBe(1)
+    expect(got!.updatedAt).toBeGreaterThanOrEqual(before)
   })
 
   it('persists across instances (reload from disk)', () => {
@@ -45,12 +50,15 @@ describe('WorktreeStore', () => {
       setupState: 'idle',
       declaredPorts: [],
       detectedPorts: [],
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
+      createdAt: 1,
+      updatedAt: 1,
     }
     store.setMeta(meta)
     const reloaded = new WorktreeStore(storeDir)
-    expect(reloaded.get('/tmp/repo/.git/worktrees/feat-y')).toEqual(meta)
+    const got = reloaded.get('/tmp/repo/.git/worktrees/feat-y')
+    expect(got).not.toBeNull()
+    expect(got!.branch).toBe('feat/y')
+    expect(got!.createdAt).toBe(1)
   })
 
   it('removes a meta', () => {

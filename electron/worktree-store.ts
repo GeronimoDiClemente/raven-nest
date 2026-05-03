@@ -50,12 +50,14 @@ export class WorktreeStore {
 
   reconcile(activeWorktreePaths: string[]): void {
     const activeSet = new Set(activeWorktreePaths)
+    let mutated = false
     for (const [path, meta] of this.metas) {
       if (!activeSet.has(path) && meta.setupState !== 'orphaned') {
         this.metas.set(path, { ...meta, setupState: 'orphaned', updatedAt: Date.now() })
+        mutated = true
       }
     }
-    this.persist()
+    if (mutated) this.persist()
   }
 
   hydrateFromGit(repoPath: string): WorktreeMeta[] {
@@ -75,14 +77,16 @@ export class WorktreeStore {
     let rootRepoPath = ''
     for (const block of blocks) {
       const lines = block.split('\n')
-      const wtPath = (lines.find((l) => l.startsWith('worktree '))?.slice(9) ?? '').replace(/\\/g, '/')
-      const branchLine = lines.find((l) => l.startsWith('branch '))?.slice(7) ?? ''
+      if (lines.some((l) => l.trim() === 'bare')) continue  // skip bare repos
+      const wtPathRaw = lines.find((l) => l.startsWith('worktree '))?.slice(9).trim() ?? ''
+      const wtPath = wtPathRaw.replace(/\\/g, '/')
+      const branchLine = lines.find((l) => l.startsWith('branch '))?.slice(7).trim() ?? ''
       const branch = branchLine.replace(/^refs\/heads\//, '') || '(detached)'
       if (!wtPath) continue
       if (!rootRepoPath) rootRepoPath = repoPath  // first entry is the root; use original input path
       const existing = this.get(wtPath)
       const now = Date.now()
-      const meta: WorktreeMeta = existing ?? {
+      const base: WorktreeMeta = existing ?? {
         repoPath: wtPath,
         rootRepoPath,
         branch,
@@ -92,8 +96,12 @@ export class WorktreeStore {
         createdAt: now,
         updatedAt: now,
       }
-      meta.branch = branch
-      meta.rootRepoPath = rootRepoPath
+      const meta: WorktreeMeta = {
+        ...base,
+        branch,
+        rootRepoPath,
+        updatedAt: now,
+      }
       this.metas.set(wtPath, meta)
       result.push(meta)
     }
