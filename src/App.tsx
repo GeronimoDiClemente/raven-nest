@@ -13,6 +13,7 @@ import TabBar from './components/TabBar'
 import ConfirmDialog from './components/ConfirmDialog'
 import ConversationSidebar from './components/ConversationSidebar'
 import Sidebar from './components/Sidebar'
+import { NewWorktreeModal } from './components/NewWorktreeModal'
 import GlobalSearch from './components/GlobalSearch'
 import CommandPalette from './components/CommandPalette'
 import { focusTerminal } from './terminal-registry'
@@ -1017,6 +1018,18 @@ export default function App() {
           confirmDanger
           onConfirm={() => { closeTab(confirmClose.tabId); setConfirmClose(null) }}
           onCancel={() => setConfirmClose(null)}
+        />
+      )}
+
+      {activeTab.repoPath && (
+        <NewWorktreeModal
+          open={showNewWorktree}
+          repoPath={activeTab.repoPath}
+          onClose={() => setShowNewWorktree(false)}
+          onCreated={(meta) => {
+            setWorktreeRefreshKey(k => k + 1)
+            void handleWorktreeSelect(meta.repoPath)
+          }}
         />
       )}
     </div>
