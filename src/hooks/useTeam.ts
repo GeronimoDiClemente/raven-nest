@@ -14,17 +14,30 @@ export interface TeamMember {
   user_id: string | null
   email: string
   role: 'leader' | 'member'
-  status: 'pending' | 'active'
+  status: 'pending' | 'active' | 'requested'
   invited_by: string
   invited_at: string
   accepted_at: string | null
+}
+
+export interface PendingInvite {
+  memberId: string
+  team: Team
+  invitedAt: string
+}
+
+export interface PendingRequest {
+  memberId: string
+  team: Team
+  requestedAt: string
 }
 
 interface TeamState {
   teams: Team[]
   activeTeamId: string | null
   members: TeamMember[]
-  pendingInvite: { team: Team; memberId: string } | null
+  pendingInvites: PendingInvite[]
+  myPendingRequests: PendingRequest[]
   loading: boolean
   userId: string | null
   userEmail: string | null
@@ -38,7 +51,8 @@ export function useTeam() {
     teams: [],
     activeTeamId: null,
     members: [],
-    pendingInvite: null,
+    pendingInvites: [],
+    myPendingRequests: [],
     loading: true,
     userId: null,
     userEmail: null,
@@ -107,21 +121,44 @@ export function useTeam() {
 
     const members = activeTeamId ? await loadMembers(activeTeamId) : []
 
-    // Pending invite (first one)
-    const { data: pending } = await supabase
+    // All pending invites for this email
+    const { data: pendingRows } = await supabase
       .from('team_members')
-      .select('id, teams(*)')
+      .select('id, invited_at, teams(*)')
       .eq('email', user.email ?? '')
       .eq('status', 'pending')
-      .maybeSingle()
+      .order('invited_at', { ascending: true })
+
+    const pendingInvites: PendingInvite[] = (pendingRows ?? [])
+      .filter((r: { teams: unknown }) => r.teams)
+      .map((r: { id: string; invited_at: string; teams: unknown }) => ({
+        memberId: r.id,
+        team: r.teams as Team,
+        invitedAt: r.invited_at,
+      }))
+
+    // My pending join requests (status='requested', user_id=me)
+    const { data: requestRows } = await supabase
+      .from('team_members')
+      .select('id, invited_at, teams(*)')
+      .eq('user_id', user.id)
+      .eq('status', 'requested')
+      .order('invited_at', { ascending: true })
+
+    const myPendingRequests: PendingRequest[] = (requestRows ?? [])
+      .filter((r: { teams: unknown }) => r.teams)
+      .map((r: { id: string; invited_at: string; teams: unknown }) => ({
+        memberId: r.id,
+        team: r.teams as Team,
+        requestedAt: r.invited_at,
+      }))
 
     setState({
       teams,
       activeTeamId,
       members,
-      pendingInvite: pending
-        ? { team: (pending.teams as unknown as Team), memberId: pending.id }
-        : null,
+      pendingInvites,
+      myPendingRequests,
       loading: false,
       userId: user.id,
       userEmail: user.email ?? null,
@@ -141,19 +178,23 @@ export function useTeam() {
     await refresh()
   }, [state.userId, refresh])
 
-  const createTeam = useCallback(async (name: string): Promise<boolean> => {
+  const createTeam = useCallback(async (name: string): Promise<{ ok: boolean; error?: string }> => {
     const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return false
+    if (!user) return { ok: false, error: 'Not signed in' }
 
-    const { data: team, error } = await supabase
+    const { data: team, error: teamError } = await supabase
       .from('teams')
       .insert({ name, owner_id: user.id })
       .select()
       .single()
 
-    if (error || !team) return false
+    if (teamError) {
+      console.error('[createTeam] insert teams error:', teamError)
+      return { ok: false, error: teamError.message }
+    }
+    if (!team) return { ok: false, error: 'Team creation returned no row (RLS?)' }
 
-    await supabase.from('team_members').insert({
+    const { error: memberError } = await supabase.from('team_members').insert({
       team_id: team.id,
       user_id: user.id,
       email: user.email ?? '',
@@ -163,13 +204,20 @@ export function useTeam() {
       accepted_at: new Date().toISOString(),
     })
 
+    if (memberError) {
+      console.error('[createTeam] insert team_members error:', memberError)
+      // Roll back the team since we can't be a member
+      await supabase.from('teams').delete().eq('id', team.id)
+      return { ok: false, error: `Could not register you as team leader: ${memberError.message}` }
+    }
+
     localStorage.setItem(storageKey(user.id), team.id)
     supabase.from('user_preferences').upsert(
       { user_id: user.id, active_team_id: team.id, updated_at: new Date().toISOString() },
       { onConflict: 'user_id' }
     )
     await refresh()
-    return true
+    return { ok: true }
   }, [refresh])
 
   const inviteMember = useCallback(async (email: string): Promise<{ ok: boolean; error?: string }> => {
@@ -233,22 +281,53 @@ export function useTeam() {
     return { ok: true }
   }, [state.members, refresh])
 
-  const acceptInvite = useCallback(async (): Promise<boolean> => {
-    if (!state.pendingInvite || !state.userId) return false
-    const { error } = await supabase
-      .from('team_members')
-      .update({ status: 'active', accepted_at: new Date().toISOString(), user_id: state.userId })
-      .eq('id', state.pendingInvite.memberId)
-    if (error) return false
+  const acceptInvite = useCallback(async (memberId: string): Promise<{ ok: boolean; error?: string }> => {
+    if (!state.userId) return { ok: false, error: 'Not signed in' }
+    const { error } = await supabase.rpc('accept_invite', { p_member_id: memberId })
+    if (error) {
+      console.error('[acceptInvite] error:', error)
+      return { ok: false, error: error.message.replace(/^.*?:\s*/, '') }
+    }
     await refresh()
-    return true
-  }, [state.pendingInvite, state.userId, refresh])
+    return { ok: true }
+  }, [state.userId, refresh])
 
-  const rejectInvite = useCallback(async (): Promise<void> => {
-    if (!state.pendingInvite) return
-    await supabase.from('team_members').delete().eq('id', state.pendingInvite.memberId)
+  const rejectInvite = useCallback(async (memberId: string): Promise<void> => {
+    const { error } = await supabase.rpc('decline_invite', { p_member_id: memberId })
+    if (error) console.error('[rejectInvite] error:', error)
     await refresh()
-  }, [state.pendingInvite, refresh])
+  }, [refresh])
+
+  const requestJoin = useCallback(async (code: string): Promise<{ ok: boolean; teamName?: string; error?: string }> => {
+    const trimmed = code.trim().toUpperCase()
+    if (!trimmed) return { ok: false, error: 'Enter a code' }
+    const { data, error } = await supabase.rpc('request_team_join', { p_code: trimmed })
+    if (error) return { ok: false, error: error.message.replace(/^.*?:\s*/, '') }
+    await refresh()
+    const teamName = (data && typeof data === 'object' && 'team_name' in data) ? (data as { team_name: string }).team_name : undefined
+    return { ok: true, teamName }
+  }, [refresh])
+
+  const cancelRequest = useCallback(async (memberId: string): Promise<{ ok: boolean; error?: string }> => {
+    const { error } = await supabase.from('team_members').delete().eq('id', memberId)
+    if (error) return { ok: false, error: error.message }
+    await refresh()
+    return { ok: true }
+  }, [refresh])
+
+  const approveRequest = useCallback(async (memberId: string): Promise<{ ok: boolean; error?: string }> => {
+    const { error } = await supabase.rpc('approve_join_request', { p_member_id: memberId })
+    if (error) return { ok: false, error: error.message.replace(/^.*?:\s*/, '') }
+    await refresh()
+    return { ok: true }
+  }, [refresh])
+
+  const declineRequest = useCallback(async (memberId: string): Promise<{ ok: boolean; error?: string }> => {
+    const { error } = await supabase.rpc('decline_join_request', { p_member_id: memberId })
+    if (error) return { ok: false, error: error.message.replace(/^.*?:\s*/, '') }
+    await refresh()
+    return { ok: true }
+  }, [refresh])
 
   const leaveTeam = useCallback(async (): Promise<void> => {
     if (!state.userId || !activeTeam) return
@@ -277,7 +356,8 @@ export function useTeam() {
     activeTeam,
     activeTeamId: state.activeTeamId,
     members: state.members,
-    pendingInvite: state.pendingInvite,
+    pendingInvites: state.pendingInvites,
+    myPendingRequests: state.myPendingRequests,
     loading: state.loading,
     userId: state.userId,
     userEmail: state.userEmail,
@@ -290,6 +370,10 @@ export function useTeam() {
     demoteMember,
     acceptInvite,
     rejectInvite,
+    requestJoin,
+    cancelRequest,
+    approveRequest,
+    declineRequest,
     leaveTeam,
     deleteTeam,
   }

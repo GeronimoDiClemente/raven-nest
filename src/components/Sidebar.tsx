@@ -39,6 +39,7 @@ interface Props {
   profileLoading?: boolean
   onUpgrade?: () => void
   onTeamsOpen?: () => void
+  pendingInvitesCount?: number
   onMyReposOpen?: () => void
   plan?: 'free' | 'pro' | 'team'
   repoPath?: string
@@ -52,7 +53,7 @@ export default function Sidebar({
   isListening, isTranscribing, isModelLoading, onMicToggle,
   layout, onLayoutChange, onNewPane, onHistoryOpen,
   onSnippetSend, onSnippetBroadcast, onCommandRun, onWorkspaceSave, onWorkspaceLoad, isWin,
-  isTrialActive, trialDaysLeft, profileLoading, onUpgrade, onTeamsOpen, onMyReposOpen, plan, repoPath, onRepoLink, onRepoUnlink, onJoinTerminal
+  isTrialActive, trialDaysLeft, profileLoading, onUpgrade, onTeamsOpen, pendingInvitesCount = 0, onMyReposOpen, plan, repoPath, onRepoLink, onRepoUnlink, onJoinTerminal
 }: Props) {
   const { branch, githubUrl, isDirty } = useGitInfo(repoPath)
   const { githubToken } = useGitHub()
@@ -327,17 +328,42 @@ export default function Sidebar({
       {/* Team */}
       <div
         className="sidebar-item sidebar-item-panel sidebar-item-team"
-        style={{ cursor: 'pointer' }}
+        style={{ cursor: 'pointer', position: 'relative' }}
         onClick={onTeamsOpen}
-        title="Team"
+        title={pendingInvitesCount > 0 ? `Team — ${pendingInvitesCount} pending invite${pendingInvitesCount === 1 ? '' : 's'}` : 'Team'}
       >
-        <span className="sidebar-icon">
+        <span className="sidebar-icon" style={{ position: 'relative' }}>
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
             <circle cx="6" cy="5" r="2" stroke="currentColor" strokeWidth="1.3"/>
             <path d="M2 13c0-2.21 1.79-4 4-4s4 1.79 4 4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
             <circle cx="11.5" cy="5.5" r="1.5" stroke="currentColor" strokeWidth="1.2" opacity="0.7"/>
             <path d="M13.5 12.5c0-1.38-.9-2.55-2.14-2.87" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" opacity="0.7"/>
           </svg>
+          {pendingInvitesCount > 0 && (
+            <span
+              aria-label={`${pendingInvitesCount} pending invites`}
+              style={{
+                position: 'absolute',
+                top: -4,
+                right: -6,
+                minWidth: 14,
+                height: 14,
+                padding: '0 3px',
+                borderRadius: 7,
+                background: '#EF4444',
+                color: '#fff',
+                fontSize: 9,
+                fontWeight: 700,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                lineHeight: 1,
+                boxShadow: '0 0 0 1.5px var(--bg-primary, #0a0a0a)',
+              }}
+            >
+              {pendingInvitesCount > 9 ? '9+' : pendingInvitesCount}
+            </span>
+          )}
         </span>
         <span className="sidebar-label">Team</span>
       </div>

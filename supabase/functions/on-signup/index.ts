@@ -5,9 +5,24 @@ const supabase = createClient(
   Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
 )
 
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, content-type, apikey, x-client-info',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+}
+
+const jsonHeaders = { ...corsHeaders, 'Content-Type': 'application/json' }
+
 Deno.serve(async (req) => {
-  // Only allow POST from Supabase Auth hooks
-  if (req.method !== 'POST') return new Response('Method not allowed', { status: 405 })
+  // CORS preflight
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { status: 204, headers: corsHeaders })
+  }
+
+  // Only allow POST from Supabase Auth hooks / client SDK
+  if (req.method !== 'POST') {
+    return new Response('Method not allowed', { status: 405, headers: corsHeaders })
+  }
 
   const payload = await req.json()
   const userId: string = payload.user?.id
@@ -19,7 +34,7 @@ Deno.serve(async (req) => {
     req.headers.get('x-real-ip') ??
     null
 
-  if (!userId) return new Response('Missing user id', { status: 400 })
+  if (!userId) return new Response('Missing user id', { status: 400, headers: corsHeaders })
 
   // Check if another account with this IP already used a trial
   if (ip) {
@@ -45,7 +60,7 @@ Deno.serve(async (req) => {
       }
       return new Response(JSON.stringify({ message: 'ok' }), {
         status: 200,
-        headers: { 'Content-Type': 'application/json' },
+        headers: jsonHeaders,
       })
     }
   }
@@ -65,6 +80,6 @@ Deno.serve(async (req) => {
 
   return new Response(JSON.stringify({ message: 'ok' }), {
     status: 200,
-    headers: { 'Content-Type': 'application/json' },
+    headers: jsonHeaders,
   })
 })
