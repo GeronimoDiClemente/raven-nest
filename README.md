@@ -21,16 +21,15 @@ Think of it as a terminal multiplexer — but built specifically for AI agents. 
 
 ---
 
-## What's new in v0.7.0
+## What's new in v0.8.0
 
-- **Actions panel — CI runs without leaving Nest.** Every repo in **My Repos** and **Teams** has an inline accordion with the last 5 GitHub Actions / GitLab CI runs (status, workflow, branch, commit, author, duration). Click any run to open it. Polling adapts: 30s while a run is in progress, 2 min when stable.
-- **Sidebar Actions bar** — when a repo is linked to your active tab, the latest run for the current branch is visible at a glance.
-- **GitLab integration** — full read access for repos, issues and Actions. Connect from Settings → Account, or sign in with GitLab right from the login screen. Auto-linked when you sign in via GitLab.
-- **Multi-provider repo browser** — connect both GitHub and GitLab and your repos appear grouped per provider. Single-provider users see no extra chrome.
-- **User menu with plan & avatar** — bottom of the sidebar shows your provider avatar with a colored dot for your plan (gray Free, blue Pro, gold Team, pulsing yellow on trial). Click for email, plan, trial countdown and sign out.
-- **`Ctrl+Tab` fix on Windows** — Windows used to swallow `Ctrl+Tab`; now intercepted from the main process so both `Ctrl+Tab` and `Ctrl+Shift+Tab` cycle tabs everywhere.
+- **Teams — Join by code with leader approval.** Each team now has a rotatable 8-character code (visible to active members, regenerable by leaders). Anyone can paste the code from the Teams empty state or the team switcher to request to join — leaders see and approve the requests right in the Members tab.
+- **Multiple pending invites at once.** A user can hold pending invites to several teams and accept or decline each independently. The Sidebar Team icon shows a red badge with the pending count.
+- **Redesigned Teams empty state.** New welcome screen with `Join` / `Create` tabs: paste a code, accept an existing email invite, or create your team — all from the same place.
+- **Upgrade modal redesigned.** New hero, segmented Monthly/Annual toggle, three plan cards with grouped features ("Everything in Free, plus..."), and a `Most popular` badge on Pro. Plain-English feature copy across Free / Pro / Team.
+- **Edge function CORS fix.** The `on-signup` function now returns proper CORS headers, so the noisy preflight error in the dev console is gone.
 
-> Previous release notes for v0.6.x and earlier are in the [GitHub Releases](../../releases) page.
+> Previous release notes for v0.7.x and earlier are in the [GitHub Releases](../../releases) page.
 
 ---
 
@@ -45,14 +44,14 @@ A short look at what's on the bench. Nothing is shipped yet — these are the ne
 
 ## Download
 
-Latest: **v0.7.1**.
+Latest: **v0.8.0**.
 
 | Platform | Download |
 |----------|----------|
-| **macOS** (Apple Silicon) | [Nest-0.7.1-arm64.dmg](../../releases/latest) |
-| **Windows** | [Nest-Setup-0.7.1.exe](../../releases/latest) |
-| **Linux** (universal) | [Nest-0.7.1.AppImage](../../releases/latest) |
-| **Linux** (Debian / Ubuntu) | [nest_0.7.1_amd64.deb](../../releases/latest) |
+| **macOS** (Apple Silicon) | [Nest-0.8.0-arm64.dmg](../../releases/latest) |
+| **Windows** | [Nest-Setup-0.8.0.exe](../../releases/latest) |
+| **Linux** (universal) | [Nest-0.8.0.AppImage](../../releases/latest) |
+| **Linux** (Debian / Ubuntu) | [nest_0.8.0_amd64.deb](../../releases/latest) |
 
 > Nest auto-updates in the background — install once and you'll get future releases without re-downloading.
 
@@ -65,7 +64,7 @@ Nest by RAVEN is not yet notarized by Apple, so macOS Gatekeeper will block it o
 **1.** Download the DMG and remove the quarantine flag before opening it:
 
 ```bash
-xattr -dr com.apple.quarantine ~/Downloads/Nest-0.7.1-arm64.dmg
+xattr -dr com.apple.quarantine ~/Downloads/Nest-0.8.0-arm64.dmg
 ```
 
 **2.** Open the DMG, drag **Nest.app** to `/Applications`, then clear the flag on the installed app:
@@ -87,8 +86,8 @@ Two formats, pick whichever fits your distro.
 Works on Ubuntu, Fedora, Arch, openSUSE, Mint, Pop!_OS and most others. No system-wide install.
 
 ```bash
-chmod +x ~/Downloads/Nest-0.7.1.AppImage
-~/Downloads/Nest-0.7.1.AppImage
+chmod +x ~/Downloads/Nest-0.8.0.AppImage
+~/Downloads/Nest-0.8.0.AppImage
 ```
 
 To integrate it into your apps menu, use [AppImageLauncher](https://github.com/TheAssassin/AppImageLauncher) or move it to `~/Applications/`.
@@ -98,7 +97,7 @@ To integrate it into your apps menu, use [AppImageLauncher](https://github.com/T
 Installs system-wide, registers the desktop entry and the `nest://` deep link handler.
 
 ```bash
-sudo apt install ~/Downloads/nest_0.7.1_amd64.deb
+sudo apt install ~/Downloads/nest_0.8.0_amd64.deb
 ```
 
 Required packages (auto-installed by `apt`): `libgtk-3-0`, `libnotify4`, `libnss3`, `libxss1`, `libxtst6`, `libatspi2.0-0`, `libdrm2`, `libgbm1`, `libxcb-dri3-0`, `xdg-utils`.

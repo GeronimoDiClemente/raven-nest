@@ -7,40 +7,87 @@ interface Props {
   onClose: () => void
 }
 
-const PLANS = [
+interface FeatureGroup {
+  label?: string
+  items: string[]
+}
+
+interface PlanInfo {
+  id: Plan | 'free'
+  name: string
+  tagline: string
+  monthlyPrice: string
+  annualPrice: string
+  annualTotal: string
+  popular?: boolean
+  groups: FeatureGroup[]
+}
+
+const PLAN_LIST: PlanInfo[] = [
   {
-    id: 'pro' as Plan,
-    name: 'Pro',
-    monthlyPrice: '$20',
-    annualPrice: '$17',
-    annualTotal: '$204/year',
-    features: [
-      'Grid up to 4×4',
-      'All AIs',
-      'Broadcast mode',
-      'My Repos personal',
-      'GitHub integration',
-      'Git status panel',
-      'Snippets & workspaces',
-      'MCP server panel',
-      'Daily standup',
+    id: 'free',
+    name: 'Free',
+    tagline: 'Try Raven, no commitment',
+    monthlyPrice: '$0',
+    annualPrice: '$0',
+    annualTotal: '$0/year',
+    groups: [
+      {
+        items: [
+          'Grid 2×2 multi-pane',
+          'All AIs: Claude, Codex, Cursor, Gemini, Copilot',
+          'Persistent sessions across restarts',
+          'Command palette + keybindings',
+          'Global MCP server panel',
+          'Voice dictation offline',
+        ],
+      },
     ],
   },
   {
-    id: 'team' as Plan,
+    id: 'pro',
+    name: 'Pro',
+    tagline: 'Your personal workflow, unlimited',
+    monthlyPrice: '$20',
+    annualPrice: '$17',
+    annualTotal: '$204/year',
+    popular: true,
+    groups: [
+      {
+        label: 'Everything in Free, plus',
+        items: [
+          'Grid up to 4×4',
+          'Broadcast: one command, every pane',
+          'Personal My Repos with change detection',
+          'GitHub OAuth + Git status panel',
+          'Personal Snippets and Workspaces',
+          'Actions panel (GitHub + GitLab workflows)',
+          'Automatic daily standup',
+        ],
+      },
+    ],
+  },
+  {
+    id: 'team',
     name: 'Team',
+    tagline: 'Code with your team in real time',
     monthlyPrice: '$35',
     annualPrice: '$29',
     annualTotal: '$348/year',
-    features: [
-      'Everything in Pro',
-      'Team Chat + reactions',
-      'Team activity feed',
-      'Multi-leader roles',
-      'Real-time presence',
-      'Shared repos',
-      'Shared snippets & MCP',
-      'Priority support',
+    groups: [
+      {
+        label: 'Everything in Pro, plus',
+        items: [
+          'Real-time presence: see where everyone is',
+          'Team chat with reactions',
+          'Shared team activity feed',
+          'Multi-leader roles',
+          'Shared team repos',
+          'Shared snippets, workspaces and MCP',
+          'Join by code: no email needed',
+          'Priority support',
+        ],
+      },
     ],
   },
 ]
@@ -80,12 +127,21 @@ export default function UpgradeModal({ currentPlan, onClose }: Props) {
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="upgrade-modal" onClick={e => e.stopPropagation()}>
-        <div className="upgrade-modal-header">
-          <h2 className="upgrade-modal-title">Choose your plan</h2>
-          <button className="upgrade-modal-close" onClick={onClose}>×</button>
+        <button className="upgrade-modal-close" onClick={onClose} aria-label="Close">×</button>
+
+        <div className="upgrade-hero">
+          <div className="upgrade-hero-icon">
+            <svg width="22" height="22" viewBox="0 0 16 16" fill="none">
+              <path d="M2 11.5L4 5l2.5 4L8 4l1.5 5L12 5l2 6.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              <path d="M2.5 13.5h11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+            </svg>
+          </div>
+          <h2 className="upgrade-hero-title">Choose your plan</h2>
+          <p className="upgrade-hero-subtitle">
+            Upgrade to Pro for your personal workflow, or Team to collaborate in real time.
+          </p>
         </div>
 
-        {/* Billing toggle */}
         <div className="upgrade-billing-toggle">
           <button
             className={`upgrade-billing-btn${billing === 'monthly' ? ' active' : ''}`}
@@ -94,52 +150,85 @@ export default function UpgradeModal({ currentPlan, onClose }: Props) {
           <button
             className={`upgrade-billing-btn${billing === 'annual' ? ' active' : ''}`}
             onClick={() => setBilling('annual')}
-          >Annual <span className="upgrade-save-badge">Save ~15%</span></button>
+          >
+            Annual
+            <span className="upgrade-save-badge">Save 15%</span>
+          </button>
         </div>
 
         <div className="upgrade-plans">
-          {/* Free */}
-          <div className={`upgrade-plan${currentPlan === 'free' ? ' current' : ''}`}>
-            <div className="upgrade-plan-name">Free</div>
-            <div className="upgrade-plan-price">$0</div>
-            <ul className="upgrade-plan-features">
-              <li>Grid 2×2</li>
-              <li>All AIs</li>
-              <li>Persistent sessions</li>
-              <li>Command palette</li>
-              <li>MCP server panel</li>
-            </ul>
-            {currentPlan === 'free' && <span className="upgrade-plan-badge">Current plan</span>}
-          </div>
+          {PLAN_LIST.map(plan => {
+            const isCurrent = currentPlan === plan.id
+            const showAnnual = billing === 'annual' && plan.id !== 'free'
+            const price = billing === 'monthly' ? plan.monthlyPrice : plan.annualPrice
+            return (
+              <div
+                key={plan.id}
+                className={`upgrade-plan${isCurrent ? ' current' : ''}${plan.popular ? ' popular' : ''}`}
+              >
+                {plan.popular && !isCurrent && (
+                  <div className="upgrade-plan-popular-badge">Most popular</div>
+                )}
 
-          {PLANS.map(plan => (
-            <div key={plan.id} className={`upgrade-plan${currentPlan === plan.id ? ' current' : ' highlight'}`}>
-              <div className="upgrade-plan-name">{plan.name}</div>
-              <div className="upgrade-plan-price">
-                {billing === 'monthly' ? plan.monthlyPrice : plan.annualPrice}
-                <span className="upgrade-plan-period">/mo</span>
+                <div className="upgrade-plan-head">
+                  <div className="upgrade-plan-name">{plan.name}</div>
+                  <div className="upgrade-plan-tagline">{plan.tagline}</div>
+                </div>
+
+                <div className="upgrade-plan-pricing">
+                  <span className="upgrade-plan-price">{price}</span>
+                  {plan.id !== 'free' && <span className="upgrade-plan-period">/mo</span>}
+                </div>
+                {showAnnual && (
+                  <div className="upgrade-plan-annual">{plan.annualTotal}</div>
+                )}
+
+                <div className="upgrade-plan-feature-list">
+                  {plan.groups.map((group, gi) => (
+                    <div key={gi} className="upgrade-plan-feature-group">
+                      {group.label && (
+                        <div className="upgrade-plan-feature-group-label">{group.label}</div>
+                      )}
+                      <ul className="upgrade-plan-features">
+                        {group.items.map(item => (
+                          <li key={item}>
+                            <CheckIcon />
+                            <span>{item}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="upgrade-plan-cta">
+                  {isCurrent ? (
+                    <span className="upgrade-plan-badge">Current plan</span>
+                  ) : plan.id === 'free' ? (
+                    <button className="upgrade-plan-btn ghost" disabled>Free forever</button>
+                  ) : (
+                    <button
+                      className={`upgrade-plan-btn${plan.popular ? ' primary' : ''}`}
+                      onClick={() => handleUpgrade(plan.id as Plan)}
+                      disabled={!userId || loading === plan.id}
+                    >
+                      {loading === plan.id ? '…' : `Upgrade to ${plan.name}`}
+                    </button>
+                  )}
+                </div>
               </div>
-              {billing === 'annual' && (
-                <div className="upgrade-plan-annual">{plan.annualTotal}</div>
-              )}
-              <ul className="upgrade-plan-features">
-                {plan.features.map(f => <li key={f}>{f}</li>)}
-              </ul>
-              {currentPlan === plan.id ? (
-                <span className="upgrade-plan-badge">Current plan</span>
-              ) : (
-                <button
-                  className="upgrade-plan-btn"
-                  onClick={() => handleUpgrade(plan.id)}
-                  disabled={!userId || loading === plan.id}
-                >
-                  {loading === plan.id ? '…' : 'Subscribe'}
-                </button>
-              )}
-            </div>
-          ))}
+            )
+          })}
         </div>
       </div>
     </div>
+  )
+}
+
+function CheckIcon() {
+  return (
+    <svg className="upgrade-feature-check" width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path d="M3 8.5l3 3 7-7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+    </svg>
   )
 }

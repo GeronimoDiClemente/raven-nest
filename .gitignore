@@ -15,3 +15,7 @@ docs/superpowers/
 
 # macOS noise
 .DS_Store
+
+# Local seed/check helpers (contain service_role key, never commit)
+_seed-*.mjs
+_check-*.mjs

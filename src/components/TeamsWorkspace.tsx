@@ -26,15 +26,18 @@ import TeamChat from './TeamChat'
 import RepoStatusPanel from './RepoStatusPanel'
 import { useTeamChat } from '../hooks/useTeamChat'
 import ErrorBoundary from './ErrorBoundary'
+import JoinByCodeForm from './JoinByCodeForm'
+import TeamJoinCodePanel from './TeamJoinCodePanel'
 
 interface TeamsWorkspaceProps {
   onClose: () => void
   onLoad?: (ws: Workspace) => void
   onRequireUpgrade?: () => void
   onOpenRepoTerminal: (repoFullName: string, localPath: string) => void
+  onPendingInvitesChange?: () => void
 }
 
-type WorkspaceSection = 'activity' | 'chat' | 'repos' | 'issues' | 'members' | 'snippets' | 'workspaces' | 'mcp'
+type WorkspaceSection = 'activity' | 'chat' | 'repos' | 'issues' | 'members' | 'snippets' | 'workspaces' | 'mcp' | 'pendings'
 type ReposView = 'list' | 'prs' | 'pr-detail'
 type IssuesView = 'repo-select' | 'list' | 'detail'
 
@@ -43,8 +46,10 @@ const PRESENCE_COLORS = [
   '#00CCCC', '#FF2D78', '#4455FF', '#88FF00',
 ]
 
-export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal }: TeamsWorkspaceProps) {
+export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal, onPendingInvitesChange }: TeamsWorkspaceProps) {
   const [section, setSection] = useState<WorkspaceSection>('activity')
+  const [acceptError, setAcceptError] = useState<string | null>(null)
+  const [acceptingId, setAcceptingId] = useState<string | null>(null)
   const [showSwitcher, setShowSwitcher] = useState(false)
   const [creatingTeam, setCreatingTeam] = useState(false)
   const [newTeamName, setNewTeamName] = useState('')
@@ -54,6 +59,10 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal }: 
   const [terminalExpanded, setTerminalExpanded] = useState(false)
   const [activityView, setActivityView] = useState<'feed' | 'standup'>('feed')
   const [showNotifications, setShowNotifications] = useState(false)
+  const [emptyStateTab, setEmptyStateTab] = useState<'join' | 'create'>('join')
+  const [showJoinCodeModal, setShowJoinCodeModal] = useState(false)
+  const [joinRequestError, setJoinRequestError] = useState<string | null>(null)
+  const [actingRequestId, setActingRequestId] = useState<string | null>(null)
   const switcherRef = useRef<HTMLDivElement>(null)
   const notifRef = useRef<HTMLDivElement>(null)
 
@@ -70,11 +79,47 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal }: 
   const [selectedIssue, setSelectedIssue] = useState<GitHubIssue | null>(null)
 
   const {
-    teams, activeTeam, members, pendingInvite, loading, userId,
+    teams, activeTeam, members, pendingInvites, myPendingRequests, loading, userId,
     switchTeam, createTeam, inviteMember, removeMember,
     promoteMember, demoteMember,
-    acceptInvite, rejectInvite, leaveTeam, deleteTeam, refresh,
+    acceptInvite, rejectInvite,
+    requestJoin, cancelRequest, approveRequest, declineRequest,
+    leaveTeam, deleteTeam, refresh,
   } = useTeam()
+
+  const handleApproveRequest = async (memberId: string) => {
+    setJoinRequestError(null)
+    setActingRequestId(memberId)
+    const r = await approveRequest(memberId)
+    setActingRequestId(null)
+    if (!r.ok) setJoinRequestError(r.error ?? 'Could not approve')
+  }
+
+  const handleDeclineRequest = async (memberId: string) => {
+    setJoinRequestError(null)
+    setActingRequestId(memberId)
+    const r = await declineRequest(memberId)
+    setActingRequestId(null)
+    if (!r.ok) setJoinRequestError(r.error ?? 'Could not decline')
+  }
+
+  const handleAccept = async (memberId: string) => {
+    setAcceptError(null)
+    setAcceptingId(memberId)
+    const result = await acceptInvite(memberId)
+    setAcceptingId(null)
+    if (!result.ok) {
+      setAcceptError(result.error ?? 'Could not accept invite')
+    } else {
+      onPendingInvitesChange?.()
+    }
+  }
+
+  const handleReject = async (memberId: string) => {
+    setAcceptError(null)
+    await rejectInvite(memberId)
+    onPendingInvitesChange?.()
+  }
 
   const { githubLogin, githubToken, isConnected: githubConnected, connectGitHub } = useGitHub()
   const { gitlabLogin, gitlabToken, isConnected: gitlabConnected, connectGitlab } = useGitlab()
@@ -116,10 +161,21 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal }: 
     return () => document.removeEventListener('mousedown', handler)
   }, [])
 
+  const [createTeamError, setCreateTeamError] = useState<string | null>(null)
+  const [creatingTeamLoading, setCreatingTeamLoading] = useState(false)
+
   const handleCreateTeam = async () => {
     if (!newTeamName.trim()) return
-    const ok = await createTeam(newTeamName.trim())
-    if (ok) { setNewTeamName(''); setCreatingTeam(false) }
+    setCreateTeamError(null)
+    setCreatingTeamLoading(true)
+    const result = await createTeam(newTeamName.trim())
+    setCreatingTeamLoading(false)
+    if (result.ok) {
+      setNewTeamName('')
+      setCreatingTeam(false)
+    } else {
+      setCreateTeamError(result.error ?? 'Could not create team')
+    }
   }
 
   const handleInvite = async () => {
@@ -272,6 +328,11 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal }: 
       label: 'MCP Servers',
       icon: <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><rect x="1" y="2" width="8" height="10" rx="1.2" stroke="currentColor" strokeWidth="1.3"/><path d="M4 5h2M4 7.5h3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/><circle cx="11" cy="5" r="2" stroke="currentColor" strokeWidth="1.3"/><path d="M11 7v4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>,
     },
+    ...(pendingInvites.length > 0 ? [{
+      id: 'pendings' as WorkspaceSection,
+      label: `Pending invites (${pendingInvites.length})`,
+      icon: <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 4h10v8a1 1 0 01-1 1H4a1 1 0 01-1-1V4z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/><path d="M3 4l5 4 5-4" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/></svg>,
+    }] : []),
   ]
 
   // Presence: merge Supabase Realtime data with member list
@@ -318,7 +379,48 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal }: 
                       {t.name}
                     </button>
                   ))}
+                  {pendingInvites.length > 0 && (
+                    <>
+                      <div className="team-switcher-sep" />
+                      <button
+                        className="team-switcher-item"
+                        style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'space-between' }}
+                        onClick={() => { setShowSwitcher(false); setCreatingTeam(false); setSection('pendings') }}
+                        title="Review teams that invited you"
+                      >
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" style={{ flexShrink: 0 }}>
+                            <path d="M3 4h10v8a1 1 0 01-1 1H4a1 1 0 01-1-1V4z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/>
+                            <path d="M3 4l5 4 5-4" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/>
+                          </svg>
+                          Pending invites
+                        </span>
+                        <span
+                          style={{
+                            minWidth: 16, height: 16, padding: '0 5px', borderRadius: 8,
+                            background: '#EF4444', color: '#fff',
+                            fontSize: 10, fontWeight: 700,
+                            display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1,
+                          }}
+                        >
+                          {pendingInvites.length > 9 ? '9+' : pendingInvites.length}
+                        </span>
+                      </button>
+                    </>
+                  )}
                   <div className="team-switcher-sep" />
+                  <button
+                    className="team-switcher-item"
+                    style={{ display: 'flex', alignItems: 'center', gap: 8 }}
+                    onClick={() => { setShowSwitcher(false); setShowJoinCodeModal(true) }}
+                    title="Join an existing team using a code"
+                  >
+                    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" style={{ flexShrink: 0 }}>
+                      <circle cx="6" cy="10" r="3" stroke="currentColor" strokeWidth="1.3"/>
+                      <path d="M8.5 8L13 3.5M11 5.5L13 7.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+                    </svg>
+                    Join with code
+                  </button>
                   <button className="team-switcher-new" onClick={() => { setShowSwitcher(false); setCreatingTeam(true); setSection('members') }}>
                     ＋ New team
                   </button>
@@ -383,39 +485,114 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal }: 
           </div>
         )}
 
-        {!loading && teams.length === 0 && pendingInvite && (
-          <div className="teams-workspace-content" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <div className="team-invite-card">
-              <p style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 4 }}>You have been invited to join</p>
-              <p style={{ fontSize: 18, fontWeight: 600, marginBottom: 20 }}>{pendingInvite.team.name}</p>
-              <div className="snippet-form-actions" style={{ justifyContent: 'center' }}>
-                <button className="snippet-save-btn" onClick={acceptInvite}>Accept</button>
-                <button className="snippet-cancel-btn" onClick={rejectInvite}>Decline</button>
+        {!loading && teams.length === 0 && (
+          <div className="teams-workspace-content empty-state-wrap">
+            <div className="empty-state-shell">
+              <div className="empty-state-hero">
+                <div className="empty-state-hero-icon">
+                  <svg width="22" height="22" viewBox="0 0 16 16" fill="none">
+                    <circle cx="6" cy="5" r="2" stroke="currentColor" strokeWidth="1.4"/>
+                    <path d="M2 13c0-2.21 1.79-4 4-4s4 1.79 4 4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+                    <circle cx="11.5" cy="5.5" r="1.5" stroke="currentColor" strokeWidth="1.3" opacity="0.7"/>
+                    <path d="M13.5 12.5c0-1.38-.9-2.55-2.14-2.87" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" opacity="0.7"/>
+                  </svg>
+                </div>
+                <div className="empty-state-hero-title">Welcome to Teams</div>
+                <div className="empty-state-hero-subtitle">
+                  Join an existing team with a code or invite, or create your own to share snippets, workspaces and MCP configs.
+                </div>
               </div>
-            </div>
-          </div>
-        )}
-
-        {!loading && teams.length === 0 && !pendingInvite && (
-          <div className="teams-workspace-content" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <div className="team-invite-card">
-              <p style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Create your team</p>
-              <p style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 16 }}>
-                Share snippets, workspaces and MCP configs privately with your team.
-              </p>
-              <input
-                className="snippet-input"
-                style={{ width: '100%', marginBottom: 10 }}
-                placeholder="Team name…"
-                value={newTeamName}
-                onChange={e => setNewTeamName(e.target.value)}
-                autoFocus
-                onKeyDown={e => { if (e.key === 'Enter') handleCreateTeam() }}
-              />
-              <div className="snippet-form-actions" style={{ justifyContent: 'center' }}>
-                <button className="snippet-save-btn" onClick={handleCreateTeam} disabled={!newTeamName.trim()}>
-                  Create Team
+              <div className="empty-state-card">
+              <div className="empty-state-tabs" role="tablist">
+                <button
+                  role="tab"
+                  aria-selected={emptyStateTab === 'join'}
+                  className={`empty-state-tab${emptyStateTab === 'join' ? ' active' : ''}`}
+                  onClick={() => setEmptyStateTab('join')}
+                >
+                  Join
+                  {(pendingInvites.length + myPendingRequests.length) > 0 && (
+                    <span className="empty-state-tab-badge">
+                      {pendingInvites.length + myPendingRequests.length}
+                    </span>
+                  )}
                 </button>
+                <button
+                  role="tab"
+                  aria-selected={emptyStateTab === 'create'}
+                  className={`empty-state-tab${emptyStateTab === 'create' ? ' active' : ''}`}
+                  onClick={() => setEmptyStateTab('create')}
+                >
+                  Create
+                </button>
+              </div>
+
+              {emptyStateTab === 'join' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
+                  <JoinByCodeForm
+                    myPendingRequests={myPendingRequests}
+                    onRequestJoin={requestJoin}
+                    onCancelRequest={cancelRequest}
+                  />
+
+                  {pendingInvites.length > 0 && (
+                    <>
+                      <div className="empty-state-divider"><span>Or accept an invite</span></div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                        {pendingInvites.map(inv => (
+                          <div key={inv.memberId} className="team-pending-banner">
+                            <div>
+                              <div style={{ fontSize: 13, fontWeight: 600 }}>{inv.team.name}</div>
+                              <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>
+                                You have been invited to join
+                              </div>
+                            </div>
+                            <div style={{ display: 'flex', gap: 6 }}>
+                              <button
+                                className="snippet-save-btn"
+                                onClick={() => handleAccept(inv.memberId)}
+                                disabled={acceptingId === inv.memberId}
+                              >
+                                {acceptingId === inv.memberId ? '…' : 'Accept'}
+                              </button>
+                              <button className="snippet-cancel-btn" onClick={() => handleReject(inv.memberId)}>Decline</button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      {acceptError && <p className="join-code-message error">{acceptError}</p>}
+                    </>
+                  )}
+                </div>
+              )}
+
+              {emptyStateTab === 'create' && (
+                <div>
+                  <p style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Create your team</p>
+                  <p style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 16, lineHeight: 1.5 }}>
+                    Share snippets, workspaces and MCP configs privately with your team.
+                  </p>
+                  <input
+                    className="snippet-input"
+                    style={{ width: '100%', marginBottom: 12 }}
+                    placeholder="Team name…"
+                    value={newTeamName}
+                    onChange={e => { setNewTeamName(e.target.value); setCreateTeamError(null) }}
+                    onKeyDown={e => { if (e.key === 'Enter') handleCreateTeam() }}
+                    disabled={creatingTeamLoading}
+                  />
+                  {createTeamError && <p className="join-code-message error" style={{ marginBottom: 10 }}>{createTeamError}</p>}
+                  <div className="snippet-form-actions">
+                    <button
+                      className="snippet-save-btn"
+                      onClick={handleCreateTeam}
+                      disabled={!newTeamName.trim() || creatingTeamLoading}
+                    >
+                      {creatingTeamLoading ? '…' : 'Create Team'}
+                    </button>
+                  </div>
+                </div>
+              )}
               </div>
             </div>
           </div>
@@ -464,15 +641,23 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal }: 
               {creatingTeam && (
                 <div className="team-tab-pane" style={{ flexDirection: 'column', display: 'flex', alignItems: 'flex-start' }}>
                   <button style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: 11, cursor: 'pointer', marginBottom: 16, padding: 0 }}
-                    onClick={() => { setCreatingTeam(false); setNewTeamName('') }}>← Back</button>
+                    onClick={() => { setCreatingTeam(false); setNewTeamName(''); setCreateTeamError(null) }}>← Back</button>
                   <p style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Create new team</p>
                   <p style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 14 }}>You can belong to multiple teams and switch between them.</p>
                   <input className="snippet-input" style={{ width: '100%' }} placeholder="Team name…"
-                    value={newTeamName} onChange={e => setNewTeamName(e.target.value)} autoFocus
-                    onKeyDown={e => { if (e.key === 'Enter') handleCreateTeam() }} />
+                    value={newTeamName} onChange={e => { setNewTeamName(e.target.value); setCreateTeamError(null) }} autoFocus
+                    onKeyDown={e => { if (e.key === 'Enter') handleCreateTeam() }}
+                    disabled={creatingTeamLoading} />
+                  {createTeamError && <p className="join-code-message error" style={{ marginTop: 8 }}>{createTeamError}</p>}
                   <div className="snippet-form-actions" style={{ marginTop: 10 }}>
-                    <button className="snippet-save-btn" onClick={handleCreateTeam} disabled={!newTeamName.trim()}>Create Team</button>
-                    <button className="snippet-cancel-btn" onClick={() => { setCreatingTeam(false); setNewTeamName('') }}>Cancel</button>
+                    <button
+                      className="snippet-save-btn"
+                      onClick={handleCreateTeam}
+                      disabled={!newTeamName.trim() || creatingTeamLoading}
+                    >
+                      {creatingTeamLoading ? '…' : 'Create Team'}
+                    </button>
+                    <button className="snippet-cancel-btn" onClick={() => { setCreatingTeam(false); setNewTeamName(''); setCreateTeamError(null) }}>Cancel</button>
                   </div>
                 </div>
               )}
@@ -732,16 +917,76 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal }: 
                 </div>
               )}
 
+              {/* PENDINGS */}
+              {!creatingTeam && section === 'pendings' && (
+                <div className="team-tab-pane">
+                  {pendingInvites.length === 0 ? (
+                    <p className="snippet-empty">No pending invites.</p>
+                  ) : (
+                    <>
+                      <p style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 12 }}>
+                        Accept or decline invitations to other teams.
+                      </p>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                        {pendingInvites.map(inv => (
+                          <div key={inv.memberId} className="team-pending-banner" style={{ alignItems: 'center' }}>
+                            <div>
+                              <div style={{ fontSize: 13, fontWeight: 600 }}>{inv.team.name}</div>
+                              <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>
+                                Invited {new Date(inv.invitedAt).toLocaleDateString()}
+                              </div>
+                            </div>
+                            <div style={{ display: 'flex', gap: 6 }}>
+                              <button
+                                className="snippet-save-btn"
+                                style={{ fontSize: 11, padding: '3px 8px' }}
+                                onClick={() => handleAccept(inv.memberId)}
+                                disabled={acceptingId === inv.memberId}
+                              >
+                                {acceptingId === inv.memberId ? '…' : 'Accept'}
+                              </button>
+                              <button
+                                className="snippet-cancel-btn"
+                                style={{ fontSize: 11, padding: '3px 8px' }}
+                                onClick={() => handleReject(inv.memberId)}
+                              >Decline</button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      {acceptError && <p style={{ color: '#EF4444', fontSize: 11, marginTop: 10 }}>{acceptError}</p>}
+                    </>
+                  )}
+                </div>
+              )}
+
               {/* MEMBERS */}
               {!creatingTeam && section === 'members' && (
                 <div className="team-tab-pane">
-                  {pendingInvite && (
-                    <div className="team-pending-banner">
-                      <span>Invited to <strong>{pendingInvite.team.name}</strong></span>
+                  {pendingInvites.length > 0 && (
+                    <div
+                      className="team-pending-banner"
+                      style={{ cursor: 'pointer' }}
+                      onClick={() => setSection('pendings')}
+                      title="View all pending invites"
+                    >
+                      <span>
+                        {pendingInvites.length === 1
+                          ? <>Invited to <strong>{pendingInvites[0].team.name}</strong></>
+                          : <>You have <strong>{pendingInvites.length}</strong> pending invites</>}
+                      </span>
                       <div style={{ display: 'flex', gap: 6 }}>
-                        <button className="snippet-save-btn" style={{ fontSize: 11, padding: '3px 8px' }} onClick={acceptInvite}>Accept</button>
-                        <button className="snippet-cancel-btn" style={{ fontSize: 11, padding: '3px 8px' }} onClick={rejectInvite}>Decline</button>
+                        <button
+                          className="snippet-save-btn"
+                          style={{ fontSize: 11, padding: '3px 8px' }}
+                          onClick={(e) => { e.stopPropagation(); setSection('pendings') }}
+                        >View</button>
                       </div>
+                    </div>
+                  )}
+                  {activeTeam && (
+                    <div style={{ marginBottom: 14 }}>
+                      <TeamJoinCodePanel teamId={activeTeam.id} isLeader={isTeamLeader} />
                     </div>
                   )}
                   {isTeamLeader && (
@@ -756,6 +1001,7 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal }: 
                   )}
                   {inviteError && <p style={{ color: '#EF4444', fontSize: 11, marginBottom: 8 }}>{inviteError}</p>}
                   {memberActionError && <p style={{ color: '#EF4444', fontSize: 11, marginBottom: 8 }}>{memberActionError}</p>}
+                  {joinRequestError && <p style={{ color: '#EF4444', fontSize: 11, marginBottom: 8 }}>{joinRequestError}</p>}
                   {members.length === 0 ? (
                     <p className="snippet-empty">No members yet.</p>
                   ) : (
@@ -765,13 +1011,33 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal }: 
                           <div className="team-member-avatar">{m.email.charAt(0).toUpperCase()}</div>
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <div className="team-member-email">{m.email}</div>
-                            <div className={`team-member-status${m.status === 'pending' ? ' pending' : ''}`}>
+                            <div className={`team-member-status${m.status === 'pending' || m.status === 'requested' ? ' pending' : ''}`}>
                               {m.status === 'pending'
                                 ? 'Invite pending'
+                                : m.status === 'requested'
+                                ? 'Wants to join'
                                 : m.role === 'leader' ? 'Leader' : 'Member'}
                             </div>
                           </div>
                           <div className="snippet-item-actions">
+                            {isTeamLeader && m.status === 'requested' && (
+                              <>
+                                <button
+                                  className="snippet-save-btn"
+                                  style={{ fontSize: 10, padding: '2px 7px' }}
+                                  onClick={() => handleApproveRequest(m.id)}
+                                  disabled={actingRequestId === m.id}
+                                  title="Approve join request"
+                                >{actingRequestId === m.id ? '…' : 'Approve'}</button>
+                                <button
+                                  className="snippet-cancel-btn"
+                                  style={{ fontSize: 10, padding: '2px 7px' }}
+                                  onClick={() => handleDeclineRequest(m.id)}
+                                  disabled={actingRequestId === m.id}
+                                  title="Decline join request"
+                                >Decline</button>
+                              </>
+                            )}
                             {isTeamLeader && m.status === 'active' && m.role === 'member' && (
                               <button
                                 className="snippet-save-btn"
@@ -788,7 +1054,7 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal }: 
                                 title="Remove leader role"
                               >Remove leader</button>
                             )}
-                            {isTeamLeader && m.user_id !== userId && (
+                            {isTeamLeader && m.user_id !== userId && m.status !== 'requested' && (
                               <button
                                 className="snippet-delete-btn"
                                 onClick={() => setConfirmAction({
@@ -969,6 +1235,24 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal }: 
           onAdd={handlePickerAdd}
           onClose={() => setShowRepoPicker(false)}
         />
+      )}
+
+      {showJoinCodeModal && (
+        <div className="confirm-overlay" onMouseDown={e => { if (e.target === e.currentTarget) setShowJoinCodeModal(false) }}>
+          <div className="team-modal" style={{ width: 440 }}>
+            <div className="team-modal-header">
+              <span className="team-modal-title">Join a team with code</span>
+              <button className="team-modal-close" onClick={() => setShowJoinCodeModal(false)}>×</button>
+            </div>
+            <div className="team-modal-body" style={{ padding: '16px' }}>
+              <JoinByCodeForm
+                myPendingRequests={myPendingRequests}
+                onRequestJoin={requestJoin}
+                onCancelRequest={cancelRequest}
+              />
+            </div>
+          </div>
+        </div>
       )}
 
       {confirmAction && (
