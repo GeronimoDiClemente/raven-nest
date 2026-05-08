@@ -14,6 +14,7 @@ import ConfirmDialog from './ConfirmDialog'
 import RepoStatusPanel from './RepoStatusPanel'
 import RepoSettingsPanel from './RepoSettingsPanel'
 import RepoActionsAccordion from './RepoActionsAccordion'
+import RepoActionsMenu, { type RepoAction } from './RepoActionsMenu'
 import { useGitlab } from '../hooks/useGitlab'
 import { ProviderAvatarPill, providerAvatar } from './ProviderAvatar'
 
@@ -274,7 +275,7 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
                   if (glRepos.length > 0) groups.push({ provider: 'gitlab', label: 'GitLab', items: glRepos })
                   const showHeaders = groups.length > 1
                   return (
-                    <div className="snippet-list" style={{ maxHeight: 'none' }}>
+                    <div className="repo-list-scroll snippet-list" style={{ maxHeight: 'calc(100vh - 280px)' }}>
                       {groups.map(group => (
                         <div key={group.provider}>
                           {showHeaders && (
@@ -284,6 +285,52 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
                           )}
                           {group.items.map(repo => {
                             const repoProvider: 'github' | 'gitlab' = repo.provider ?? 'github'
+                            const overflow: RepoAction[] = []
+                            if (repo.local_path) {
+                              overflow.push({
+                                label: 'Git status',
+                                onClick: () => setStatusRepo(repo),
+                                icon: (
+                                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+                                    <circle cx="8" cy="8" r="5.5" stroke="currentColor" strokeWidth="1.4"/>
+                                    <path d="M8 5.5v3l2 1.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+                                  </svg>
+                                ),
+                              })
+                              overflow.push({
+                                label: 'Re-link folder',
+                                onClick: () => handleLinkExisting(repo),
+                                icon: (
+                                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+                                    <path d="M6.5 9.5l3-3M6 5.5h-1a2.5 2.5 0 000 5h1M10 10.5h1a2.5 2.5 0 000-5h-1" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+                                  </svg>
+                                ),
+                              })
+                            } else {
+                              overflow.push({
+                                label: 'Link existing folder',
+                                onClick: () => handleLinkExisting(repo),
+                                icon: (
+                                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+                                    <path d="M6.5 9.5l3-3M6 5.5h-1a2.5 2.5 0 000 5h1M10 10.5h1a2.5 2.5 0 000-5h-1" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+                                  </svg>
+                                ),
+                              })
+                            }
+                            overflow.push({
+                              label: 'Remove from list',
+                              danger: true,
+                              onClick: () => setConfirmAction({
+                                title: 'Remove repo',
+                                message: `Remove "${repo.repo_full_name}" from your list? The local folder will not be deleted.`,
+                                onConfirm: () => removeRepo(repo.id),
+                              }),
+                              icon: (
+                                <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+                                  <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                                </svg>
+                              ),
+                            })
                             return (
                               <div key={repo.id} className="snippet-item" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 6 }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -304,53 +351,28 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
                                       <RepoCIBadge repoFullName={repo.repo_full_name} githubToken={githubToken} />
                                     )}
                                     {repo.local_path ? (
-                                      <>
-                                        <button
-                                          className="repo-action-btn"
-                                          onClick={() => setStatusRepo(repo)}
-                                          title="Git status"
-                                        >
-                                          <svg className="ra-icon" width="11" height="11" viewBox="0 0 16 16" fill="none">
-                                            <circle cx="8" cy="8" r="5.5" stroke="currentColor" strokeWidth="1.4"/>
-                                            <path d="M8 5.5v3l2 1.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-                                          </svg>
-                                          Status
-                                        </button>
-                                        <button
-                                          className="repo-action-btn subtle-accent"
-                                          onClick={() => onOpenRepoTerminal(repo.repo_full_name, repo.local_path!)}
-                                          title="Open terminal in this repo"
-                                        >
-                                          <svg className="ra-icon" width="11" height="11" viewBox="0 0 16 16" fill="none">
-                                            <path d="M3 4l3 3-3 3M7.5 10.5h5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
-                                          </svg>
-                                          Terminal
-                                        </button>
-                                      </>
+                                      <button
+                                        className="repo-action-btn subtle-accent"
+                                        onClick={() => onOpenRepoTerminal(repo.repo_full_name, repo.local_path!)}
+                                        title="Open terminal in this repo"
+                                      >
+                                        <svg className="ra-icon" width="11" height="11" viewBox="0 0 16 16" fill="none">
+                                          <path d="M3 4l3 3-3 3M7.5 10.5h5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+                                        </svg>
+                                        Terminal
+                                      </button>
                                     ) : (
-                                      <>
-                                        <button
-                                          className="repo-action-btn"
-                                          onClick={() => handleLinkExisting(repo)}
-                                          title="Link to existing local folder"
-                                        >
-                                          <svg className="ra-icon" width="11" height="11" viewBox="0 0 16 16" fill="none">
-                                            <path d="M6.5 9.5l3-3M6 5.5h-1a2.5 2.5 0 000 5h1M10 10.5h1a2.5 2.5 0 000-5h-1" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-                                          </svg>
-                                          Link
-                                        </button>
-                                        <button
-                                          className="repo-action-btn"
-                                          onClick={() => handleCloneExisting(repo)}
-                                          title="Clone repository"
-                                          disabled={cloningRepoId === repo.id}
-                                        >
-                                          <svg className="ra-icon" width="11" height="11" viewBox="0 0 16 16" fill="none">
-                                            <path d="M8 2v8M5 7l3 3 3-3M3 13h10" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
-                                          </svg>
-                                          {cloningRepoId === repo.id ? 'Cloning…' : 'Clone'}
-                                        </button>
-                                      </>
+                                      <button
+                                        className="repo-action-btn subtle-accent"
+                                        onClick={() => handleCloneExisting(repo)}
+                                        title="Clone repository"
+                                        disabled={cloningRepoId === repo.id}
+                                      >
+                                        <svg className="ra-icon" width="11" height="11" viewBox="0 0 16 16" fill="none">
+                                          <path d="M8 2v8M5 7l3 3 3-3M3 13h10" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+                                        </svg>
+                                        {cloningRepoId === repo.id ? 'Cloning…' : 'Clone'}
+                                      </button>
                                     )}
                                     {repoProvider === 'github' && (
                                       <button
@@ -384,15 +406,7 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
                                         PRs
                                       </button>
                                     )}
-                                    <button
-                                      className="snippet-delete-btn"
-                                      onClick={() => setConfirmAction({
-                                        title: 'Remove repo',
-                                        message: `Remove "${repo.repo_full_name}" from your list? The local folder will not be deleted.`,
-                                        onConfirm: () => removeRepo(repo.id),
-                                      })}
-                                      title="Remove"
-                                    >×</button>
+                                    <RepoActionsMenu actions={overflow} />
                                   </div>
                                 </div>
                                 <RepoActionsAccordion

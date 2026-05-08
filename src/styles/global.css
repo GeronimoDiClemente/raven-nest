@@ -5411,6 +5411,86 @@ button.ci-badge:hover {
   border-color: #0052cc;
 }
 
+/* ── Repo actions overflow menu (⋯) ──────────────────────── */
+.repo-menu-wrap {
+  position: relative;
+  display: inline-flex;
+}
+.repo-menu-trigger {
+  width: 26px;
+  padding: 0;
+  color: var(--text-tertiary);
+}
+.repo-menu-trigger:hover {
+  color: var(--text-primary);
+}
+.repo-menu-pop {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 160px;
+  background: var(--bg-elevated, #1a1a1a);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+  z-index: 50;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.repo-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: transparent;
+  border: none;
+  text-align: left;
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-radius: 4px;
+  width: 100%;
+}
+.repo-menu-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-primary);
+}
+.repo-menu-item:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.repo-menu-item.danger {
+  color: #ef4444;
+}
+.repo-menu-item.danger:hover {
+  background: rgba(239, 68, 68, 0.1);
+}
+.repo-menu-icon {
+  display: inline-flex;
+  align-items: center;
+  width: 14px;
+  flex-shrink: 0;
+}
+
+/* ── Repo list scroll wrapper ────────────────────────────── */
+.repo-list-scroll {
+  max-height: calc(100vh - 280px);
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+  padding-right: 4px;
+}
+.repo-list-scroll::-webkit-scrollbar { width: 6px; }
+.repo-list-scroll::-webkit-scrollbar-track { background: transparent; }
+.repo-list-scroll::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+.repo-list-scroll::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
 /* ── Repo action buttons — unified system ────────────────── */
 .repo-action-btn {
   display: inline-flex;

@@ -18,6 +18,7 @@ import DailyStandup from './DailyStandup'
 import NotificationPanel from './NotificationPanel'
 import RepoCIBadge from './RepoCIBadge'
 import RepoActionsAccordion from './RepoActionsAccordion'
+import RepoActionsMenu, { type RepoAction } from './RepoActionsMenu'
 import { useGitlab } from '../hooks/useGitlab'
 import { ProviderAvatarPill, ProviderIcon } from './ProviderAvatar'
 import RepoPicker from './RepoPicker'
@@ -554,11 +555,40 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal }: 
                           <p style={{ fontSize: 12 }}>{isTeamLeader ? 'Click ＋ Add repo to pick one from GitHub' : 'Wait for a team leader to add repos'}</p>
                         </div>
                       ) : (
-                        <div className="snippet-list" style={{ maxHeight: 'none' }}>
+                        <div className="repo-list-scroll snippet-list" style={{ maxHeight: 'calc(100vh - 280px)' }}>
                           {repos.map(repo => {
                             const myPath = userLocalPaths?.[repo.id]
                             const repoProvider: 'github' | 'gitlab' =
                               ((repo as { provider?: 'github' | 'gitlab' }).provider) ?? 'github'
+                            const overflow: RepoAction[] = []
+                            if (myPath) {
+                              overflow.push({
+                                label: 'Git status',
+                                onClick: () => setStatusRepo(repo),
+                                icon: (
+                                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+                                    <circle cx="8" cy="8" r="5.5" stroke="currentColor" strokeWidth="1.4"/>
+                                    <path d="M8 5.5v3l2 1.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+                                  </svg>
+                                ),
+                              })
+                            }
+                            if (isTeamLeader) {
+                              overflow.push({
+                                label: 'Remove from team',
+                                danger: true,
+                                onClick: () => setConfirmAction({
+                                  title: 'Remove repo',
+                                  message: `Remove "${repo.repo_full_name}" from the team? All members will lose access. Local folder is not deleted.`,
+                                  onConfirm: () => removeRepo(repo.id),
+                                }),
+                                icon: (
+                                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+                                    <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                                  </svg>
+                                ),
+                              })
+                            }
                             return (
                             <div key={repo.id} className="snippet-item" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 6 }}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -578,19 +608,6 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal }: 
                                   {repoProvider === 'github' && (
                                     <RepoCIBadge repoFullName={repo.repo_full_name} githubToken={githubToken} />
                                   )}
-                                  {myPath ? (
-                                    <button
-                                      className="repo-action-btn"
-                                      onClick={() => setStatusRepo(repo)}
-                                      title="Git status"
-                                    >
-                                      <svg className="ra-icon" width="11" height="11" viewBox="0 0 16 16" fill="none">
-                                        <circle cx="8" cy="8" r="5.5" stroke="currentColor" strokeWidth="1.4"/>
-                                        <path d="M8 5.5v3l2 1.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-                                      </svg>
-                                      Status
-                                    </button>
-                                  ) : null}
                                   <button
                                     className="repo-action-btn subtle-accent"
                                     onClick={() => handleOpenTerminal(repo)}
@@ -617,17 +634,7 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal }: 
                                       PRs
                                     </button>
                                   )}
-                                  {isTeamLeader && (
-                                    <button
-                                      className="snippet-delete-btn"
-                                      onClick={() => setConfirmAction({
-                                        title: 'Remove repo',
-                                        message: `Remove "${repo.repo_full_name}" from the team? All members will lose access. Local folder is not deleted.`,
-                                        onConfirm: () => removeRepo(repo.id),
-                                      })}
-                                      title="Remove"
-                                    >×</button>
-                                  )}
+                                  <RepoActionsMenu actions={overflow} />
                                 </div>
                               </div>
                               <RepoActionsAccordion
