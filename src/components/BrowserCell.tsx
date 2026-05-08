@@ -48,11 +48,23 @@ export default function BrowserCell({ pane, cellId, onClose, borderColor }: Prop
     return () => window.browser.removeListeners()
   }, [pane.id])
 
-  // Reposition on resize/scroll
+  // Reposition on resize/scroll. Also collapses the WebContentsView to 0×0 when
+  // any in-renderer modal/overlay is open, since WebContentsView always paints
+  // above DOM content (no z-index) and would otherwise cover the dialog.
   useLayoutEffect(() => {
     const el = placeholderRef.current
     if (!el) return
+
+    // Selectors of every overlay that should hide the browser pane while open.
+    const OVERLAY_SELECTOR =
+      '.dialog-overlay, .confirm-overlay, .team-modal-overlay, .modal-overlay'
+
     const send = () => {
+      const overlayOpen = !!document.querySelector(OVERLAY_SELECTOR)
+      if (overlayOpen) {
+        void window.browser.reposition(pane.id, { x: 0, y: 0, width: 0, height: 0 })
+        return
+      }
       const rect = el.getBoundingClientRect()
       void window.browser.reposition(pane.id, {
         x: rect.left,
@@ -65,9 +77,13 @@ export default function BrowserCell({ pane, cellId, onClose, borderColor }: Prop
     const ro = new ResizeObserver(send)
     ro.observe(el)
     window.addEventListener('resize', send)
+    // Watch the body for overlay nodes appearing/disappearing.
+    const mo = new MutationObserver(send)
+    mo.observe(document.body, { childList: true, subtree: true })
     const interval = setInterval(send, 1000)  // catch parent layout shifts
     return () => {
       ro.disconnect()
+      mo.disconnect()
       window.removeEventListener('resize', send)
       clearInterval(interval)
     }
