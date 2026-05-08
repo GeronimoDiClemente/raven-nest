@@ -23,6 +23,7 @@ if (process.defaultApp) {
 import { join as pathJoin, join, isAbsolute } from 'path'
 import { readFileSync, writeFileSync, mkdirSync, statSync, copyFileSync, unlinkSync, rmSync } from 'fs'
 import { tmpdir, homedir } from 'os'
+import { ravenHome } from './raven-home'
 import { execSync, execFile, execFileSync } from 'child_process'
 import { randomBytes } from 'crypto'
 import { PtyManager } from './pty-manager'
@@ -52,7 +53,7 @@ const customCLIStore = new CustomCLIStore()
 const snippetStore = new SnippetStore()
 const conversationStore = new ConversationStore()
 const workspaceStore = new WorkspaceStore()
-const worktreeStore = new WorktreeStore(pathJoin(homedir(), '.raven-nest'))
+const worktreeStore = new WorktreeStore(pathJoin(ravenHome(), '.raven-nest'))
 const presetStore = new PresetStore()
 const setupRunner = new SetupRunner()
 const browserPanes = new BrowserPaneManager(() => BrowserWindow.getAllWindows()[0] ?? null)
@@ -253,7 +254,7 @@ ipcMain.handle('git:clone', async (_event, cloneUrl: string, repoName: string, p
   const folderName = parts[parts.length - 1]
   const baseDir = parentDir && isAbsolute(parentDir)
     ? parentDir
-    : pathJoin(app.getPath('home'), 'RavenProjects')
+    : pathJoin(ravenHome(), 'RavenProjects')
   try { mkdirSync(baseDir, { recursive: true }) } catch {}
   const dest = pathJoin(baseDir, folderName)
   try { if (statSync(dest).isDirectory()) return { ok: true, path: dest, alreadyExisted: true } } catch {}
@@ -298,7 +299,7 @@ ipcMain.handle('speech:transcribe', (_e, audio: Uint8Array, language?: string) =
 ipcMain.handle('mcp:read', (_event, filePath: string) => mcpStore.read(filePath))
 ipcMain.handle('mcp:write', (_event, filePath: string, servers: unknown) =>
   mcpStore.write(filePath, servers as Record<string, unknown>))
-ipcMain.handle('mcp:globalPath', () => pathJoin(app.getPath('home'), '.claude', 'settings.json'))
+ipcMain.handle('mcp:globalPath', () => pathJoin(ravenHome(), '.claude', 'settings.json'))
 
 // Snippet IPC handlers
 ipcMain.handle('snippets:list', () => snippetStore.list())
@@ -708,7 +709,7 @@ ipcMain.handle('ide:open', async (_evt, binPath: string, worktreePath: string) =
 ipcMain.handle('ide:clearCache', async () => { clearIDECache() })
 
 // Session persistence
-const SESSION_PATH = join(app.getPath('home'), '.raven-nest', 'session.json')
+const SESSION_PATH = join(ravenHome(), '.raven-nest', 'session.json')
 
 ipcMain.handle('session:load', () => {
   try {
@@ -720,7 +721,7 @@ ipcMain.handle('session:load', () => {
 
 ipcMain.handle('session:save', (_event, data: unknown) => {
   try {
-    mkdirSync(join(app.getPath('home'), '.raven-nest'), { recursive: true })
+    mkdirSync(join(ravenHome(), '.raven-nest'), { recursive: true })
     writeFileSync(SESSION_PATH, JSON.stringify(data))
   } catch {}
 })

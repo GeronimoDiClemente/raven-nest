@@ -1,8 +1,8 @@
 import { join } from 'path'
 import { readFileSync, writeFileSync, mkdirSync } from 'fs'
-import { homedir } from 'os'
+import { ravenHome } from './raven-home'
 
-const CONFIG_DIR = join(homedir(), '.raven-nest')
+const CONFIG_DIR = join(ravenHome(), '.raven-nest')
 const FILE = join(CONFIG_DIR, 'settings.json')
 
 export interface Keybindings {

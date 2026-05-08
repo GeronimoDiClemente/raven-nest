@@ -38,6 +38,10 @@ export async function launchHarness(opts?: { withRepo?: boolean }): Promise<Harn
   const env = { ...process.env }
   delete env.ELECTRON_RUN_AS_NODE
   env.RAVEN_E2E = '1'
+  // RAVEN_HOME is what the main process consults for persistent storage paths.
+  // HOME / USERPROFILE alone are not sufficient on Windows, where os.homedir()
+  // can read the user token rather than env vars.
+  env.RAVEN_HOME = homeDir
   env.HOME = homeDir
   env.USERPROFILE = homeDir
 
@@ -47,18 +51,44 @@ export async function launchHarness(opts?: { withRepo?: boolean }): Promise<Harn
     timeout: 30_000,
   })
 
-  const page = await app.firstWindow()
-  await page.waitForLoadState('domcontentloaded')
+  try {
+    const page = await app.firstWindow()
+    await page.waitForLoadState('domcontentloaded')
 
-  // Wait for the main UI to render (not the AuthScreen)
-  await expect(page.locator('.app, .empty-state, .titlebar, [data-app-ready], .sidebar'))
-    .toBeVisible({ timeout: 15_000 })
+    // .app is the root container rendered only when bypass succeeds (not on AuthScreen).
+    await expect(page.locator('.app')).toBeVisible({ timeout: 15_000 })
 
-  return { app, page, homeDir, repoDir }
+    return { app, page, homeDir, repoDir }
+  } catch (e) {
+    // Setup failed — kill Electron so the worker doesn't hang for 60s.
+    try { app.process()?.kill() } catch {}
+    try { rmSync(homeDir, { recursive: true, force: true }) } catch {}
+    if (repoDir) try { rmSync(repoDir, { recursive: true, force: true }) } catch {}
+    throw e
+  }
 }
 
 export async function teardown(h: Harness): Promise<void> {
-  try { await h.app.close() } catch {}
+  // app.close() hangs when background intervals (port polling, spotlight watchers)
+  // keep the event loop alive. Race against a hard kill so the worker exits.
+  const pid = h.app.process()?.pid
+  try {
+    await Promise.race([
+      h.app.close(),
+      new Promise<void>((resolve) => setTimeout(resolve, 3000)),
+    ])
+  } catch {}
+  // Force-kill the entire process tree — Node's default kill() on Windows
+  // does not propagate to children (Electron renderer, GPU process, etc.).
+  if (pid) {
+    try {
+      if (process.platform === 'win32') {
+        execSync(`taskkill /T /F /PID ${pid}`, { stdio: 'ignore' })
+      } else {
+        process.kill(pid, 'SIGKILL')
+      }
+    } catch {}
+  }
   for (const d of [h.homeDir, h.repoDir]) {
     if (!d) continue
     try { rmSync(d, { recursive: true, force: true }) } catch {}

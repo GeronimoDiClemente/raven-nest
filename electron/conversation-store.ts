@@ -1,8 +1,8 @@
 import { join } from 'path'
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, unlinkSync, existsSync } from 'fs'
-import { homedir } from 'os'
+import { ravenHome } from './raven-home'
 
-const CONV_DIR = join(homedir(), '.raven-nest', 'conversations')
+const CONV_DIR = join(ravenHome(), '.raven-nest', 'conversations')
 const INDEX_FILE = join(CONV_DIR, '_index.json')
 
 export interface ConversationMeta {

@@ -1,8 +1,8 @@
 import { join } from 'path'
 import { mkdirSync, readdirSync, rmSync, existsSync, lstatSync, symlinkSync, cpSync } from 'fs'
-import { homedir } from 'os'
+import { ravenHome } from './raven-home'
 
-const BASE_DIR = join(homedir(), '.raven-nest', 'accounts')
+const BASE_DIR = join(ravenHome(), '.raven-nest', 'accounts')
 
 const VALID_AI_TYPES = new Set(['claude', 'gemini', 'codex', 'copilot', 'opencode', 'terminal', 'custom'])
 
@@ -33,7 +33,7 @@ function isSymlink(p: string): boolean {
  * Skips items where the user already has their own real file/dir.
  */
 export function setupClaudeConfig(accountDir: string): void {
-  const globalClaude = join(homedir(), '.claude')
+  const globalClaude = join(ravenHome(), '.claude')
   const localClaude = join(accountDir, '.claude')
   mkdirSync(join(localClaude, 'plugins'), { recursive: true })
 
@@ -54,7 +54,7 @@ export function setupClaudeConfig(accountDir: string): void {
  * After this, edits to the account's config won't affect the global ~/.claude.
  */
 export function detachClaudeConfig(accountDir: string): void {
-  const globalClaude = join(homedir(), '.claude')
+  const globalClaude = join(ravenHome(), '.claude')
   const localClaude = join(accountDir, '.claude')
 
   for (const item of CLAUDE_SHARED_ITEMS) {

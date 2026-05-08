@@ -1,8 +1,8 @@
 import { join } from 'path'
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, unlinkSync, existsSync } from 'fs'
-import { homedir } from 'os'
+import { ravenHome } from './raven-home'
 
-const WS_DIR = join(homedir(), '.raven-nest', 'workspaces')
+const WS_DIR = join(ravenHome(), '.raven-nest', 'workspaces')
 
 export interface WorkspaceRecord {
   id: string

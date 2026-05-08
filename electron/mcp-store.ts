@@ -1,11 +1,11 @@
 import { readFileSync, writeFileSync, existsSync } from 'fs'
-import { app } from 'electron'
 import { resolve } from 'path'
+import { ravenHome } from './raven-home'
 
 export class MCPStore {
   read(filePath: string): Record<string, unknown> {
     try {
-      const home = app.getPath('home')
+      const home = ravenHome()
       const resolved = resolve(filePath)
       if (!resolved.startsWith(home)) return {}
       if (!existsSync(resolved)) return {}
@@ -19,7 +19,7 @@ export class MCPStore {
   }
 
   write(filePath: string, servers: Record<string, unknown>): void {
-    const home = app.getPath('home')
+    const home = ravenHome()
     const resolved = resolve(filePath)
     if (!resolved.startsWith(home)) {
       throw new Error(`Invalid filePath: must be within home directory`)
