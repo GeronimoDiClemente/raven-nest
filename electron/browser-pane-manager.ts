@@ -12,6 +12,23 @@ interface PaneEntry {
   url: string
 }
 
+// Replaces the default Chromium scrollbar inside the Browser cell with a thin,
+// translucent one that fades into the page. Overlay-style: it's still
+// scrollable with mouse wheel, trackpad and arrow keys — just visually quiet.
+// Inject on every load so SPAs that swap <html> still get it.
+const SCROLLBAR_CSS = `
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(128,128,128,0.35);
+    border-radius: 4px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(128,128,128,0.6); background-clip: padding-box; }
+  ::-webkit-scrollbar-corner { background: transparent; }
+`
+
 export class BrowserPaneManager {
   private panes = new Map<string, PaneEntry>()
   private hostWindowGetter: () => BrowserWindow | null
@@ -50,6 +67,13 @@ export class BrowserPaneManager {
       const e = this.panes.get(paneId)
       if (e) e.url = navUrl
       win.webContents.send('browser:navigated', paneId, navUrl)
+    })
+    // Inject thin/quiet scrollbar styling on every full load — including
+    // navigations to a different origin. insertCSS returns a key that we
+    // intentionally don't track: the styles are scoped to the document and
+    // get garbage-collected with it.
+    view.webContents.on('did-finish-load', () => {
+      void view.webContents.insertCSS(SCROLLBAR_CSS).catch(() => {})
     })
 
     this.panes.set(paneId, { view, url })

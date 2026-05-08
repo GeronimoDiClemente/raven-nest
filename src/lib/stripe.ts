@@ -27,7 +27,7 @@ export const PLAN_LIMITS: Record<Plan, PlanLimits> = {
   free: {
     maxRows: 2,
     maxCols: 2,
-    allowedAIs: ['claude', 'gemini', 'codex', 'copilot', 'opencode', 'terminal', 'custom'],
+    allowedAIs: ['claude', 'gemini', 'codex', 'copilot', 'opencode', 'terminal', 'custom', 'browser'],
     allowBroadcast: false,
     allowSnippets: false,
     allowWorkspaces: false,
@@ -36,7 +36,7 @@ export const PLAN_LIMITS: Record<Plan, PlanLimits> = {
   pro: {
     maxRows: 4,
     maxCols: 4,
-    allowedAIs: ['claude', 'gemini', 'codex', 'copilot', 'opencode', 'terminal', 'custom'],
+    allowedAIs: ['claude', 'gemini', 'codex', 'copilot', 'opencode', 'terminal', 'custom', 'browser'],
     allowBroadcast: true,
     allowSnippets: true,
     allowWorkspaces: true,
@@ -45,7 +45,7 @@ export const PLAN_LIMITS: Record<Plan, PlanLimits> = {
   team: {
     maxRows: 4,
     maxCols: 4,
-    allowedAIs: ['claude', 'gemini', 'codex', 'copilot', 'opencode', 'terminal', 'custom'],
+    allowedAIs: ['claude', 'gemini', 'codex', 'copilot', 'opencode', 'terminal', 'custom', 'browser'],
     allowBroadcast: true,
     allowSnippets: true,
     allowWorkspaces: true,
