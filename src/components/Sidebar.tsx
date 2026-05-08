@@ -130,6 +130,7 @@ export default function Sidebar({
         </span>
       </button>
 
+      <div className="sidebar-scroll">
       {/* Broadcast */}
       <button
         className={`sidebar-item${broadcastMode ? ' active' : ''}`}
@@ -462,7 +463,7 @@ export default function Sidebar({
         <span className="sidebar-label">New Terminal</span>
       </button>
 
-      <div style={{ flex: 1 }} />
+      </div>{/* /.sidebar-scroll */}
 
       {/* User menu — hidden while loading to avoid flash */}
       {!profileLoading && (

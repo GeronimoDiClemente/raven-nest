@@ -184,17 +184,27 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal }: 
 
   const [cloneTarget, setCloneTarget] = useState<TeamRepo | null>(null)
   const [cloning, setCloning] = useState(false)
+  const [cloneError, setCloneError] = useState<string | null>(null)
   const [terminalOpening, setTerminalOpening] = useState(false)
 
   const handleCloneTarget = async () => {
     if (!cloneTarget) return
     setCloning(true)
-    const result = await window.git.clone(`${cloneTarget.repo_url}.git`, cloneTarget.repo_full_name)
+    setCloneError(null)
+    const token = cloneTarget.provider === 'gitlab' ? gitlabToken : githubToken
+    const result = await window.git.clone(
+      `${cloneTarget.repo_url}.git`,
+      cloneTarget.repo_full_name,
+      undefined,
+      { provider: cloneTarget.provider, token: token ?? null },
+    )
     setCloning(false)
     if (result.ok && result.path) {
       await updateUserLocalPath(cloneTarget.id, result.path)
       setCloneTarget(null)
       onOpenRepoTerminal(cloneTarget.repo_full_name, result.path)
+    } else {
+      setCloneError(result.error ?? 'Clone failed')
     }
   }
 
@@ -996,31 +1006,38 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal }: 
       )}
 
       {cloneTarget && (
-        <div className="confirm-overlay" onMouseDown={e => { if (e.target === e.currentTarget) setCloneTarget(null) }}>
-          <div className="team-modal" style={{ width: 380 }}>
-            <div className="team-modal-header">
-              <span className="team-modal-title">Open terminal — {cloneTarget.repo_full_name}</span>
-              <button className="team-modal-close" onClick={() => setCloneTarget(null)}>×</button>
+        <div className="confirm-overlay" onMouseDown={e => { if (e.target === e.currentTarget) { setCloneTarget(null); setCloneError(null) } }}>
+          <div className="confirm-dialog" style={{ width: 360 }}>
+            <div className="confirm-title">{cloneTarget.repo_full_name}</div>
+            <div className="confirm-message">
+              No local folder for this repo on this machine. Choose how to continue:
             </div>
-            <div className="team-modal-body" style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <p style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 4 }}>
-                No local folder found for this repo on this machine. Choose an option:
-              </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 6 }}>
               <button
-                className="snippet-save-btn"
-                style={{ width: '100%', padding: '8px', fontSize: 12 }}
+                className="confirm-btn-ok"
+                style={{ padding: '7px 12px', textAlign: 'left' }}
                 onClick={handleCloneTarget}
                 disabled={cloning}
               >
-                {cloning ? 'Cloning…' : '⬇ Clone repo'}
+                {cloning ? 'Cloning…' : '⬇  Clone repo'}
               </button>
               <button
-                className="snippet-save-btn"
-                style={{ width: '100%', padding: '8px', fontSize: 12 }}
+                className="confirm-btn-cancel"
+                style={{ padding: '7px 12px', textAlign: 'left' }}
                 onClick={handleLinkTarget}
                 disabled={cloning}
               >
-                📁 Link existing folder
+                📁  Link existing folder
+              </button>
+            </div>
+            {cloneError && (
+              <div style={{ color: '#FF4444', fontSize: 11, marginTop: 4, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                {cloneError}
+              </div>
+            )}
+            <div className="confirm-actions">
+              <button className="confirm-btn-cancel" onClick={() => { setCloneTarget(null); setCloneError(null) }}>
+                Close
               </button>
             </div>
           </div>

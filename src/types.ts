@@ -283,7 +283,12 @@ declare global {
         ahead: number
         behind: number
       }>
-      clone: (cloneUrl: string, repoName: string, parentDir?: string) => Promise<{
+      clone: (
+        cloneUrl: string,
+        repoName: string,
+        parentDir?: string,
+        auth?: { provider: 'github' | 'gitlab'; token: string | null },
+      ) => Promise<{
         ok: boolean
         path?: string
         alreadyExisted?: boolean

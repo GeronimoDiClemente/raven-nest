@@ -97,22 +97,37 @@ export default function PRList({ repoFullName, githubToken, onSelectPR }: PRList
     setPrBody('')
     setPrHead('')
     setPrBase('')
+    setBranches([])
     setCreateError(null)
     try {
       const [repoRes, branchRes] = await Promise.all([
         fetch(`https://api.github.com/repos/${repoFullName}`, { headers: ghHeaders }),
         fetch(`https://api.github.com/repos/${repoFullName}/branches?per_page=100`, { headers: ghHeaders }),
       ])
+      if (!branchRes.ok) {
+        const errBody = await branchRes.json().catch(() => ({} as { message?: string }))
+        let msg = errBody.message || `GitHub /branches returned ${branchRes.status}`
+        if (branchRes.status === 403 && /oauth app/i.test(errBody.message ?? '')) {
+          const org = repoFullName.split('/')[0]
+          msg = `${msg} — autorizá la OAuth App en github.com/organizations/${org}/settings/oauth_application_policy`
+        } else if (branchRes.status === 404) {
+          msg = `${msg} — repo no visible con este token (privado y sin acceso, o nombre incorrecto)`
+        }
+        setCreateError(msg)
+        const repoData = repoRes.ok ? await repoRes.json() : {}
+        setPrBase(repoData.default_branch ?? 'main')
+        return
+      }
       const [branchData, repoData] = await Promise.all([
-        branchRes.ok ? branchRes.json() : Promise.resolve([]),
+        branchRes.json(),
         repoRes.ok ? repoRes.json() : Promise.resolve({}),
       ])
       const names: string[] = (branchData as { name: string }[]).map((b) => b.name)
       const defaultBranch: string = repoData.default_branch ?? names[0] ?? 'main'
       setBranches(names)
       setPrBase(defaultBranch)
-    } catch {
-      // branches list is optional
+    } catch (e) {
+      setCreateError(e instanceof Error ? e.message : 'Failed to load branches')
     }
   }
 

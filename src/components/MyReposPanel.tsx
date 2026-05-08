@@ -83,10 +83,26 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
     if (folder) await updateLocalPath(repo.id, folder)
   }
 
+  const [cloningRepoId, setCloningRepoId] = useState<string | null>(null)
+  const [cloneErrorMsg, setCloneErrorMsg] = useState<string | null>(null)
+
   const handleCloneExisting = async (repo: UserRepo) => {
-    const cloneUrl = `${repo.repo_url}.git`
-    const result = await window.git.clone(cloneUrl, repo.repo_full_name)
-    if (result.ok && result.path) await updateLocalPath(repo.id, result.path)
+    if (cloningRepoId) return
+    setCloningRepoId(repo.id)
+    setCloneErrorMsg(null)
+    const token = repo.provider === 'gitlab' ? gitlabToken : githubToken
+    const result = await window.git.clone(
+      `${repo.repo_url}.git`,
+      repo.repo_full_name,
+      undefined,
+      { provider: repo.provider, token: token ?? null },
+    )
+    setCloningRepoId(null)
+    if (result.ok && result.path) {
+      await updateLocalPath(repo.id, result.path)
+    } else {
+      setCloneErrorMsg(result.error ?? 'Clone failed')
+    }
   }
 
   const switchSection = (s: Section) => {
@@ -327,11 +343,12 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
                                           className="repo-action-btn"
                                           onClick={() => handleCloneExisting(repo)}
                                           title="Clone repository"
+                                          disabled={cloningRepoId === repo.id}
                                         >
                                           <svg className="ra-icon" width="11" height="11" viewBox="0 0 16 16" fill="none">
                                             <path d="M8 2v8M5 7l3 3 3-3M3 13h10" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
                                           </svg>
-                                          Clone
+                                          {cloningRepoId === repo.id ? 'Cloning…' : 'Clone'}
                                         </button>
                                       </>
                                     )}
@@ -540,6 +557,20 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
           }}
           onCancel={() => setConfirmAction(null)}
         />
+      )}
+
+      {cloneErrorMsg && (
+        <div className="confirm-overlay" onMouseDown={e => { if (e.target === e.currentTarget) setCloneErrorMsg(null) }}>
+          <div className="confirm-dialog" style={{ width: 380 }}>
+            <div className="confirm-title">Clone failed</div>
+            <div className="confirm-message" style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', color: '#FF4444' }}>
+              {cloneErrorMsg}
+            </div>
+            <div className="confirm-actions">
+              <button className="confirm-btn-cancel" onClick={() => setCloneErrorMsg(null)}>Close</button>
+            </div>
+          </div>
+        </div>
       )}
 
       {showRepoSettings && selectedRepo && githubToken && (

@@ -112,8 +112,12 @@ contextBridge.exposeInMainWorld('mcp', {
 contextBridge.exposeInMainWorld('git', {
   info: (repoPath: string) => ipcRenderer.invoke('git:info', repoPath),
   status: (repoPath: string) => ipcRenderer.invoke('git:status', repoPath),
-  clone: (cloneUrl: string, repoName: string, parentDir?: string) =>
-    ipcRenderer.invoke('git:clone', cloneUrl, repoName, parentDir),
+  clone: (
+    cloneUrl: string,
+    repoName: string,
+    parentDir?: string,
+    auth?: { provider: 'github' | 'gitlab'; token: string | null },
+  ) => ipcRenderer.invoke('git:clone', cloneUrl, repoName, parentDir, auth),
   pickRepoFolder: () => ipcRenderer.invoke('dialog:pickRepoFolder'),
 })
 

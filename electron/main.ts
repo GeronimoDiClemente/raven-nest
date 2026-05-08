@@ -227,7 +227,13 @@ ipcMain.handle('git:status', (_event, repoPath: string) => {
 })
 
 // Clone a GitHub or GitLab repo into ~/RavenProjects/<name> (or a chosen parent dir)
-ipcMain.handle('git:clone', async (_event, cloneUrl: string, repoName: string, parentDir?: string) => {
+ipcMain.handle('git:clone', async (
+  _event,
+  cloneUrl: string,
+  repoName: string,
+  parentDir?: string,
+  auth?: { provider: 'github' | 'gitlab'; token: string | null },
+) => {
   // Validate URL host. Even with strict validation we use execFile (no shell)
   // below — defense in depth against quoting bypasses on Windows cmd.exe.
   const validHost = typeof cloneUrl === 'string' && (
@@ -258,15 +264,34 @@ ipcMain.handle('git:clone', async (_event, cloneUrl: string, repoName: string, p
   try { mkdirSync(baseDir, { recursive: true }) } catch {}
   const dest = pathJoin(baseDir, folderName)
   try { if (statSync(dest).isDirectory()) return { ok: true, path: dest, alreadyExisted: true } } catch {}
+
+  // For private repos, inject the OAuth token into the URL just for the clone.
+  // After cloning we rewrite the remote to the clean URL so the token never
+  // lands in .git/config. Token is rejected if it contains anything other than
+  // the GitHub/GitLab token charset (no '@', '/', etc.) to keep the URL safe.
+  const tokenSafe = typeof auth?.token === 'string' && /^[A-Za-z0-9_\-.]+$/.test(auth.token)
+    ? auth.token
+    : null
+  let authedUrl = cloneUrl
+  if (tokenSafe && auth) {
+    const userPart = auth.provider === 'gitlab' ? 'oauth2' : 'x-access-token'
+    authedUrl = cloneUrl.replace(/^https:\/\//, `https://${userPart}:${tokenSafe}@`)
+  }
+
   try {
-    execFileSync('git', ['clone', cloneUrl, dest], {
+    execFileSync('git', ['clone', authedUrl, dest], {
       encoding: 'utf8',
       timeout: 120000,
       stdio: 'pipe',
     })
+    if (tokenSafe) {
+      try { execFileSync('git', ['-C', dest, 'remote', 'set-url', 'origin', cloneUrl], { stdio: 'pipe' }) } catch {}
+    }
     return { ok: true, path: dest, alreadyExisted: false }
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Clone failed'
+    let message = err instanceof Error ? err.message : 'Clone failed'
+    // Strip any leaked token from error messages before returning to renderer.
+    if (tokenSafe) message = message.replaceAll(tokenSafe, '***')
     return { ok: false, error: message }
   }
 })
