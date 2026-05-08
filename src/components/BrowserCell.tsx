@@ -24,7 +24,7 @@ export default function BrowserCell({ pane, cellId, onClose, borderColor }: Prop
   // Create the WebContentsView once per pane
   useEffect(() => {
     if (createdRef.current) return
-    const initialUrl = isHttpUrl(pane.url ?? '') ? pane.url! : 'https://duckduckgo.com'
+    const initialUrl = isHttpUrl(pane.url ?? '') ? pane.url! : 'http://localhost:3000'
     const partition = pane.sessionPartition ?? 'persist:browser-default'
     createdRef.current = true
     void window.browser.create(pane.id, initialUrl, partition).catch((err) => {
