@@ -2,11 +2,12 @@
 
 # 🪺 Nest by RAVEN
 
-**Multi-AI Terminal Workspace**
+**Multi-AI Terminal Workspace · v1.0 is here**
 
 Run Claude, Gemini, Codex, Copilot and more — side by side in a single window. Each pane is its own AI session, with its own account, history, and environment.
 
 [![Latest Release](https://img.shields.io/github/v/release/GeronimoDiClemente/raven-nest?style=flat-square&color=0066FF)](https://github.com/GeronimoDiClemente/raven-nest/releases/latest)
+[![v1.0](https://img.shields.io/badge/v1.0-official%20release-0066FF?style=flat-square)](#whats-new-in-v10)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey?style=flat-square)](https://github.com/GeronimoDiClemente/raven-nest/releases/latest)
 
 [Website](https://nestmux.com) · [Download](#download) · [Feedback](../../issues) · [Discussions](../../discussions)
@@ -17,42 +18,57 @@ Run Claude, Gemini, Codex, Copilot and more — side by side in a single window.
 
 ## What is Nest by RAVEN?
 
-Think of it as a terminal multiplexer — but built specifically for AI agents. Instead of juggling tabs and windows, you get a flexible **grid workspace** where every cell is an independent AI session, plus the integrations a developer actually needs: GitHub, GitLab, Teams, CI runs, and live terminal sharing.
+Think of it as a terminal multiplexer — but built specifically for AI agents and the way teams ship code. Instead of juggling tabs and windows, you get a flexible **grid workspace** where every cell is an independent AI session, on top of the things developers actually need every day: native **git worktrees**, a real **Teams workspace**, your personal **My Repos** dashboard, GitHub & GitLab integration, CI runs, and live terminal sharing.
+
+> **v1.0 is the first stable, non-beta release.** Auto-update is on by default — if you already have Nest installed, you'll get it shortly.
 
 ---
 
-## What's new in v0.7.0
+## What's new in v1.0
 
-- **Actions panel — CI runs without leaving Nest.** Every repo in **My Repos** and **Teams** has an inline accordion with the last 5 GitHub Actions / GitLab CI runs (status, workflow, branch, commit, author, duration). Click any run to open it. Polling adapts: 30s while a run is in progress, 2 min when stable.
-- **Sidebar Actions bar** — when a repo is linked to your active tab, the latest run for the current branch is visible at a glance.
-- **GitLab integration** — full read access for repos, issues and Actions. Connect from Settings → Account, or sign in with GitLab right from the login screen. Auto-linked when you sign in via GitLab.
-- **Multi-provider repo browser** — connect both GitHub and GitLab and your repos appear grouped per provider. Single-provider users see no extra chrome.
-- **User menu with plan & avatar** — bottom of the sidebar shows your provider avatar with a colored dot for your plan (gray Free, blue Pro, gold Team, pulsing yellow on trial). Click for email, plan, trial countdown and sign out.
-- **`Ctrl+Tab` fix on Windows** — Windows used to swallow `Ctrl+Tab`; now intercepted from the main process so both `Ctrl+Tab` and `Ctrl+Shift+Tab` cycle tabs everywhere.
+The headline of v1.0 is **branch-level isolation in the same window**: spawn a worktree per task, give each agent its own setup, and stop tripping over a single working tree. On top of that, Teams and My Repos are now the heart of the app.
 
-> Previous release notes for v0.6.x and earlier are in the [GitHub Releases](../../releases) page.
+### Worktrees + Spotlight (the new core)
+
+- **Native git worktrees inside Nest.** Create a worktree per branch from any repo cell — fully self-contained, with its own dependencies and dev server, so two agents can work on two branches without collisions. Per-account isolated `RAVEN_HOME` so worktrees from different Nest accounts on the same machine never see each other.
+- **Spotlight** — instead of a full worktree, mirror the active branch live to the repo root. Lighter than a real worktree, useful when you want a quick checkout without re-installing deps. Built-in **benchmark recorder** compares RAM, CPU and disk between modes so you can pick what fits.
+- **Diff viewer + IDE picker.** Browse a worktree's diff in-app and open the file in your IDE of choice (VS Code, Cursor, JetBrains, Zed, Sublime, etc. — auto-detected) at the exact line.
+- **Browser cell.** A cell that's a real Chromium browser (`WebContentsView`), not an iframe — preview your local dev server right next to the agent that's editing the code, with a working dev tools panel.
+- **Port forwarding banner.** When a pane spawns a server on a local port, a banner offers to expose it (or copy a URL) without leaving Nest.
+
+### Teams workspace, polished
+
+- **Per-user local paths** — each member of a team can have their own local clone path for shared repos; the team record stays clean, your machine stays your machine.
+- **Clone over HTTPS for private team repos** — Nest now passes your OAuth token to the clone (token never lands in `.git/config`), so onboarding a new teammate to a private repo is one click.
+- **Visible errors instead of silent failures** — every clone, branch fetch and remote action now surfaces what went wrong (status code, OAuth-app authorization hints) instead of failing quietly.
+- **Restyled clone modal + sidebar that scrolls** — small things, but on small windows or with many worktrees the sidebar now scrolls cleanly and modals stay compact.
+
+### Carried over from v0.7
+
+- **Actions panel** — last 5 CI runs (GitHub Actions / GitLab CI) inline in My Repos, Teams, and the sidebar.
+- **GitLab integration** — repos, issues, pipelines.
+- **Multi-provider** — both GitHub and GitLab connected at once.
+
+> Previous release notes for v0.x are on the [GitHub Releases](../../releases) page.
 
 ---
 
 ## What's coming next
 
-A short look at what's on the bench. Nothing is shipped yet — these are the next two horizons.
-
-- **v1.0 — Worktrees + Spotlight.** Native git worktree management inside Nest, with two modes per cell: a fully self-contained worktree (own deps, own dev server) or **Spotlight**, a live mirror of the active worktree to the repo root. A built-in benchmark dashboard compares RAM, CPU and disk so you can pick what fits your workflow.
 - **v1.1+ — Multi-agent co-edit.** A pub/sub layer (Supabase Realtime first, MQTT optional) on top of CRDTs (Yjs) so humans **and** AI agents can edit the same files in real time — Google-Docs style, multiplayer for code with agents in the channel, not just people.
 
 ---
 
 ## Download
 
-Latest: **v0.7.0**.
+Latest: **v1.0.0** — first stable release.
 
 | Platform | Download |
 |----------|----------|
-| **macOS** (Apple Silicon) | [Nest-0.7.0-arm64.dmg](../../releases/latest) |
-| **Windows** | [Nest-Setup-0.7.0.exe](../../releases/latest) |
-| **Linux** (universal) | [Nest-0.7.0.AppImage](../../releases/latest) |
-| **Linux** (Debian / Ubuntu) | [nest_0.7.0_amd64.deb](../../releases/latest) |
+| **macOS** (Apple Silicon) | [Nest-1.0.0-arm64.dmg](../../releases/latest) |
+| **Windows** | [Nest-Setup-1.0.0.exe](../../releases/latest) |
+| **Linux** (universal) | [Nest-1.0.0.AppImage](../../releases/latest) |
+| **Linux** (Debian / Ubuntu) | [nest_1.0.0_amd64.deb](../../releases/latest) |
 
 > Nest auto-updates in the background — install once and you'll get future releases without re-downloading.
 
@@ -65,7 +81,7 @@ Nest by RAVEN is not yet notarized by Apple, so macOS Gatekeeper will block it o
 **1.** Download the DMG and remove the quarantine flag before opening it:
 
 ```bash
-xattr -dr com.apple.quarantine ~/Downloads/Nest-0.7.0-arm64.dmg
+xattr -dr com.apple.quarantine ~/Downloads/Nest-1.0.0-arm64.dmg
 ```
 
 **2.** Open the DMG, drag **Nest.app** to `/Applications`, then clear the flag on the installed app:
@@ -87,8 +103,8 @@ Two formats, pick whichever fits your distro.
 Works on Ubuntu, Fedora, Arch, openSUSE, Mint, Pop!_OS and most others. No system-wide install.
 
 ```bash
-chmod +x ~/Downloads/Nest-0.7.0.AppImage
-~/Downloads/Nest-0.7.0.AppImage
+chmod +x ~/Downloads/Nest-1.0.0.AppImage
+~/Downloads/Nest-1.0.0.AppImage
 ```
 
 To integrate it into your apps menu, use [AppImageLauncher](https://github.com/TheAssassin/AppImageLauncher) or move it to `~/Applications/`.
@@ -98,7 +114,7 @@ To integrate it into your apps menu, use [AppImageLauncher](https://github.com/T
 Installs system-wide, registers the desktop entry and the `nest://` deep link handler.
 
 ```bash
-sudo apt install ~/Downloads/nest_0.7.0_amd64.deb
+sudo apt install ~/Downloads/nest_1.0.0_amd64.deb
 ```
 
 Required packages (auto-installed by `apt`): `libgtk-3-0`, `libnotify4`, `libnss3`, `libxss1`, `libxtst6`, `libatspi2.0-0`, `libdrm2`, `libgbm1`, `libxcb-dri3-0`, `xdg-utils`.
@@ -106,6 +122,30 @@ Required packages (auto-installed by `apt`): `libgtk-3-0`, `libnotify4`, `libnss
 ---
 
 ## Highlights
+
+### Worktrees + Spotlight
+
+Every repo cell can spawn a fully isolated **git worktree** — its own branch, its own deps, its own dev server. Two agents on two branches in the same window, never stepping on each other. Or use **Spotlight** to mirror the active branch live to the repo root if you want a lighter checkout. A built-in benchmark records RAM, CPU and disk so you can compare modes empirically. Each Nest account on a machine gets an isolated `RAVEN_HOME`, so worktrees from different accounts never collide.
+
+### Teams — real-time collaboration
+
+A full team workspace built on Supabase Realtime:
+
+- **Shared repos** with **per-user local paths** — each member can clone wherever they want; the team config stays clean.
+- **HTTPS clone with OAuth token** for private team repos — onboarding a teammate to a private repo is one click.
+- **Activity feed** of GitHub events, **Team Chat** with emoji reactions and presence.
+- **Shared snippets and MCP configs**, **multi-leader roles**.
+- Auto-generated **daily standup** you can paste into Slack or Discord.
+
+### My Repos (Pro)
+
+Your personal command center for everything outside Teams. Same patterns as the Teams workspace, just for one developer:
+
+- Browse, clone or link your GitHub & GitLab repos.
+- View, create, review, AI-review and **merge** Pull Requests (merge method configured per repo).
+- Browse Issues, comment, open/close, and **create a branch from any issue** that drops you straight into a terminal in the repo at that branch.
+- Activity feed, Standup and one-click terminals positioned inside any repo.
+- Inline **Actions panel** — last 5 CI runs (GitHub Actions / GitLab CI) per repo. No `cmd+tab` to the browser to know if it's green.
 
 ### Multi-AI grid
 
@@ -123,28 +163,9 @@ Run any combination of AI CLIs side by side in a resizable grid, up to **4×4**.
 
 **Broadcast mode** — type once, send to every pane at the same time.
 
-### GitHub & GitLab integration
+### Browser cell + diff viewer + IDE picker
 
-Connect via OAuth and operate from inside Nest:
-
-- Browse, clone or link repos from your account
-- View, create, review and **merge** Pull Requests (with the merge method configured per repo)
-- AI Code Review — sends the PR diff to Claude and shows a structured review
-- Issues — browse, comment, open/close, **create a branch from any issue** and jump straight into a terminal positioned in the repo
-- GitHub notifications bell with unread count
-- GitLab read access for repos, issues and pipelines
-
-### Actions panel (v0.7)
-
-CI runs from GitHub Actions and GitLab CI inline in **My Repos**, **Teams** and the sidebar. No more `cmd+tab` to a browser to check if a build is green.
-
-### Teams — real-time collaboration
-
-A full team workspace: **Activity feed** of GitHub events, **Team Chat** with emoji reactions and presence, **shared repos / snippets / MCP configs**, **multi-leader roles** and an auto-generated **daily standup** you can paste into Slack or Discord.
-
-### My Repos (Pro)
-
-The same workspace but for solo devs — Activity, PRs, Issues, Standup and one-click terminals positioned inside any repo.
+A repo cell can be a live **Chromium browser** (real `WebContentsView`, not an iframe — devtools work) so you can preview your dev server right next to the agent editing the code. The **diff viewer** shows what changed in any worktree, with a one-click **IDE picker** that opens the file at the right line in VS Code, Cursor, JetBrains, Zed, Sublime — auto-detected.
 
 ### Terminal Sharing
 
