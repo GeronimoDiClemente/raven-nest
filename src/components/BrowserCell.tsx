@@ -55,9 +55,11 @@ export default function BrowserCell({ pane, cellId, onClose, borderColor }: Prop
     const el = placeholderRef.current
     if (!el) return
 
-    // Selectors of every overlay that should hide the browser pane while open.
+    // Selectors of every overlay/full-screen view that should hide the browser
+    // pane while open. Modals + the Teams / My Repos full-screen workspaces
+    // (both render with the .teams-workspace root) all cover the grid area.
     const OVERLAY_SELECTOR =
-      '.dialog-overlay, .confirm-overlay, .team-modal-overlay, .modal-overlay'
+      '.dialog-overlay, .confirm-overlay, .team-modal-overlay, .modal-overlay, .teams-workspace'
 
     const send = () => {
       const overlayOpen = !!document.querySelector(OVERLAY_SELECTOR)
