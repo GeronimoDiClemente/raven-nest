@@ -76,6 +76,29 @@ export class BrowserPaneManager {
       void view.webContents.insertCSS(SCROLLBAR_CSS).catch(() => {})
     })
 
+    // Zoom shortcuts. Chromium only natively binds Ctrl+= for zoom-in, but the
+    // user's "Ctrl++" usually arrives as Ctrl+Shift+= on QWERTY layouts, so we
+    // accept both. Also handle Ctrl+- (zoom out), Ctrl+0 (reset) and the
+    // numeric-keypad variants.
+    view.webContents.on('before-input-event', (event, input) => {
+      if (input.type !== 'keyDown') return
+      if (!(input.control || input.meta)) return
+      const k = input.key
+      const isZoomIn = k === '+' || k === '=' || k === 'Add'
+      const isZoomOut = k === '-' || k === '_' || k === 'Subtract'
+      const isReset = k === '0'
+      if (!isZoomIn && !isZoomOut && !isReset) return
+      event.preventDefault()
+      const wc = view.webContents
+      if (isReset) {
+        wc.setZoomLevel(0)
+      } else {
+        const next = wc.getZoomLevel() + (isZoomIn ? 0.5 : -0.5)
+        // Match Chrome's range: roughly 25% — 500% (zoom level −7 to 7).
+        wc.setZoomLevel(Math.max(-7, Math.min(7, next)))
+      }
+    })
+
     this.panes.set(paneId, { view, url })
   }
 
