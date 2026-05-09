@@ -56,10 +56,27 @@ export default function BrowserCell({ pane, cellId, onClose, borderColor }: Prop
     if (!el) return
 
     // Selectors of every overlay/full-screen view that should hide the browser
-    // pane while open. Modals + the Teams / My Repos full-screen workspaces
-    // (both render with the .teams-workspace root) all cover the grid area.
-    const OVERLAY_SELECTOR =
-      '.dialog-overlay, .confirm-overlay, .team-modal-overlay, .modal-overlay, .teams-workspace'
+    // pane while open. WebContentsView always paints above DOM (no z-index),
+    // so any sidebar popover or modal must collapse this pane to avoid being
+    // covered. Includes: dialogs, full-screen workspaces, sidebar popovers,
+    // pane-level overlays.
+    const OVERLAY_SELECTOR = [
+      '.dialog-overlay',
+      '.confirm-overlay',
+      '.team-modal-overlay',
+      '.modal-overlay',
+      '.teams-workspace',
+      '.snippet-panel',
+      '.mcp-panel',
+      '.layout-popover',
+      '.notification-panel',
+      '.user-menu-popover',
+      '.cmd-panel',
+      '.diff-drawer',
+      '.repo-status-panel',
+      '.pane-color-popover',
+      '.ts-panel',
+    ].join(', ')
 
     const send = () => {
       const overlayOpen = !!document.querySelector(OVERLAY_SELECTOR)

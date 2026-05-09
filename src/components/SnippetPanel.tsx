@@ -3,6 +3,7 @@ import { Snippet } from '../types'
 import { useSharedSnippets } from '../hooks/useSharedSnippets'
 import { useProfile } from '../hooks/useProfile'
 import { useTeam } from '../hooks/useTeam'
+import { useFixedPopover } from '../hooks/useFixedPopover'
 import ConfirmDialog from './ConfirmDialog'
 
 interface Props {
@@ -39,6 +40,8 @@ export default function SnippetPanel({ onSend, onBroadcast, onRequireUpgrade }: 
   const [confirmDelete, setConfirmDelete] = useState<{ id: string; name: string; shared?: boolean } | null>(null)
   const [varModal, setVarModal] = useState<VarModal | null>(null)
   const panelRef = useRef<HTMLDivElement>(null)
+  const popoverRef = useRef<HTMLDivElement>(null)
+  const popPos = useFixedPopover(panelRef, open, popoverRef)
   const { team } = useTeam()
   const { items: shared, loading: sharedLoading, userId, refresh: refreshShared, share, remove: removeShared } = useSharedSnippets(team?.id)
   const { plan } = useProfile()
@@ -116,8 +119,8 @@ export default function SnippetPanel({ onSend, onBroadcast, onRequireUpgrade }: 
         Snippets
       </button>
 
-      {open && (
-        <div className="snippet-panel">
+      {open && popPos && (
+        <div ref={popoverRef} className="snippet-panel" style={{ position: 'fixed', top: popPos.top, left: popPos.left, right: 'auto' }}>
           <div className="snippet-panel-header">
             <div style={{ display: 'flex', gap: 8 }}>
               <button className={`workspace-tab-btn${tab === 'mine' ? ' active' : ''}`} onClick={() => setTab('mine')}>Mine</button>

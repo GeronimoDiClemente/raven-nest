@@ -3,6 +3,7 @@ import { Workspace, SessionPane, AI_CONFIG, equalSizes } from '../types'
 import { useSharedWorkspaces } from '../hooks/useSharedWorkspaces'
 import { useProfile } from '../hooks/useProfile'
 import { useTeam } from '../hooks/useTeam'
+import { useFixedPopover } from '../hooks/useFixedPopover'
 import ConfirmDialog from './ConfirmDialog'
 
 interface Props {
@@ -104,6 +105,8 @@ export default function WorkspacePanel({ onSave, onLoad, onRequireUpgrade }: Pro
   const [name, setName] = useState('')
   const [confirmDelete, setConfirmDelete] = useState<{ id: string; name: string; shared?: boolean } | null>(null)
   const panelRef = useRef<HTMLDivElement>(null)
+  const popoverRef = useRef<HTMLDivElement>(null)
+  const popPos = useFixedPopover(panelRef, open, popoverRef)
   const { team } = useTeam()
   const { items: shared, loading: sharedLoading, userId, refresh: refreshShared, share, remove: removeShared } = useSharedWorkspaces(team?.id)
   const { plan } = useProfile()
@@ -193,8 +196,8 @@ export default function WorkspacePanel({ onSave, onLoad, onRequireUpgrade }: Pro
         title="Workspaces"
       />
 
-      {open && (
-        <div className="snippet-panel workspace-panel">
+      {open && popPos && (
+        <div ref={popoverRef} className="snippet-panel workspace-panel" style={{ position: 'fixed', top: popPos.top, left: popPos.left, right: 'auto' }}>
           <div className="snippet-panel-header">
             <div style={{ display: 'flex', gap: 8 }}>
               <button

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { getHistory, subscribe } from '../lib/commandHistory'
+import { useFixedPopover } from '../hooks/useFixedPopover'
 
 interface Props {
   onRun?: (cmd: string) => void
@@ -10,6 +11,8 @@ export default function CommandHistoryPanel({ onRun }: Props) {
   const [history, setHistory] = useState(getHistory)
   const [search, setSearch] = useState('')
   const panelRef = useRef<HTMLDivElement>(null)
+  const popoverRef = useRef<HTMLDivElement>(null)
+  const popPos = useFixedPopover(panelRef, open, popoverRef)
 
   useEffect(() => subscribe(() => setHistory(getHistory())), [])
 
@@ -47,8 +50,8 @@ export default function CommandHistoryPanel({ onRun }: Props) {
         History
       </button>
 
-      {open && (
-        <div className="snippet-panel">
+      {open && popPos && (
+        <div ref={popoverRef} className="snippet-panel" style={{ position: 'fixed', top: popPos.top, left: popPos.left, right: 'auto' }}>
           <div className="snippet-panel-header">
             <span style={{ fontSize: 12, fontWeight: 600 }}>Command History</span>
           </div>

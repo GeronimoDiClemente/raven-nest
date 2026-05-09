@@ -10,6 +10,7 @@ import { useTerminalShare } from '../hooks/useTerminalShare'
 import { terminalShareService } from '../lib/terminalShareService'
 import { registerPane, unregisterPane } from '../pty-events'
 import { registerTerminalFocus, unregisterTerminalFocus } from '../terminal-registry'
+import { safeWriteText } from '../lib/clipboard'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 
@@ -169,7 +170,6 @@ export default function TerminalPane({ pane, cellId, isDragging, zoomed, zooming
       responseAccumRef.current += data
       isBusyRef.current = true
       setIsBusy(true)
-      setShowBlocks(false)
       onBusyChangeRef.current(pane.id, true)
       if (busyTimer.current) clearTimeout(busyTimer.current)
       busyTimer.current = setTimeout(() => {
@@ -220,7 +220,11 @@ export default function TerminalPane({ pane, cellId, isDragging, zoomed, zooming
         const buffer = await window.pty.getBuffer(pane.id)
         if (buffer) write(buffer)
       } else {
-        window.pty.create(pane.id, pane.cmd, pane.accountDir, pane.repoPath)
+        const res = await window.pty.create(pane.id, pane.cmd, pane.accountDir, pane.repoPath, pane.shellId)
+        if (!res.ok) {
+          write(`\r\n\x1b[31m── failed to start terminal: ${res.error} ──\x1b[0m\r\n`)
+          setProcessEnded(true)
+        }
       }
       // Sync PTY size with xterm's actual dimensions
       requestAnimationFrame(() => resize())
@@ -242,7 +246,6 @@ export default function TerminalPane({ pane, cellId, isDragging, zoomed, zooming
   }, [pane.id, pane.aiType, pane.accountDir])
 
   const handleToggleBlocks = useCallback(() => {
-    if (isBusyRef.current) return
     setShowBlocks(prev => !prev)
   }, [])
 
@@ -252,16 +255,20 @@ export default function TerminalPane({ pane, cellId, isDragging, zoomed, zooming
 
   const handleCopyLastResponse = useCallback(() => {
     if (lastResponseRef.current) {
-      navigator.clipboard.writeText(lastResponseRef.current)
+      void safeWriteText(lastResponseRef.current)
     }
   }, [])
 
-  const handleRestart = useCallback(() => {
+  const handleRestart = useCallback(async () => {
     setProcessEnded(false)
     convBuf.current = ''
     outputBuf.current = ''
-    window.pty.create(pane.id, pane.cmd, pane.accountDir, pane.repoPath)
-  }, [pane.id, pane.cmd, pane.accountDir, pane.repoPath])
+    const res = await window.pty.create(pane.id, pane.cmd, pane.accountDir, pane.repoPath, pane.shellId)
+    if (!res.ok) {
+      write(`\r\n\x1b[31m── failed to start terminal: ${res.error} ──\x1b[0m\r\n`)
+      setProcessEnded(true)
+    }
+  }, [pane.id, pane.cmd, pane.accountDir, pane.repoPath, pane.shellId, write])
 
   // File staging handlers
   const handleDragOver = useCallback((e: React.DragEvent) => {

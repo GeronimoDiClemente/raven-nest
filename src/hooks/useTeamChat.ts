@@ -76,10 +76,13 @@ export function useTeamChat({ teamId, userId, userEmail, githubLogin, githubToke
   const reposRef = useRef(repos)
   reposRef.current = repos
   const knownIdsRef = useRef<Set<string>>(new Set())
+  // Disabled when the server returns 403/permission errors so we stop hammering
+  // Supabase from a polling/realtime loop the user no longer has access to.
+  const disabledRef = useRef(false)
 
   // Initial load
   const load = useCallback(async () => {
-    if (!teamId) { setEvents([]); setMessages([]); setReactions([]); return }
+    if (!teamId || disabledRef.current) { setEvents([]); setMessages([]); setReactions([]); return }
     setLoading(true)
     setError(null)
     try {
@@ -101,6 +104,16 @@ export function useTeamChat({ teamId, userId, userEmail, githubLogin, githubToke
           .select('id, user_id, user_email, target_type, target_id, emoji')
           .eq('team_id', teamId),
       ])
+      // Detect RLS / permission denials and shut the loop down — repeated 403s
+      // mean the user is not (or no longer) a member of this team and retrying
+      // will never succeed.
+      const firstAuthErr = [evRes.error, msgRes.error, reactRes.error].find(
+        e => e && (e.code === '42501' || e.code === 'PGRST301' || /permission denied|not authorized/i.test(e.message ?? ''))
+      )
+      if (firstAuthErr) {
+        disabledRef.current = true
+        throw firstAuthErr
+      }
       if (evRes.error) throw evRes.error
       if (msgRes.error) throw msgRes.error
       if (reactRes.error) throw reactRes.error
@@ -127,6 +140,10 @@ export function useTeamChat({ teamId, userId, userEmail, githubLogin, githubToke
     }
   }, [teamId])
 
+  // Reset the kill-switch when the team changes — a different team may have
+  // valid permissions even if the previous one didn't.
+  useEffect(() => { disabledRef.current = false }, [teamId])
+
   useEffect(() => { load() }, [load])
 
   // Realtime subscription
@@ -136,13 +153,13 @@ export function useTeamChat({ teamId, userId, userEmail, githubLogin, githubToke
       .channel(`team_chat:${teamId}`)
       .on('postgres_changes',
         { event: '*', schema: 'public', table: 'team_chat_events', filter: `team_id=eq.${teamId}` },
-        () => load())
+        () => { if (!disabledRef.current) load() })
       .on('postgres_changes',
         { event: '*', schema: 'public', table: 'team_chat_messages', filter: `team_id=eq.${teamId}` },
-        () => load())
+        () => { if (!disabledRef.current) load() })
       .on('postgres_changes',
         { event: '*', schema: 'public', table: 'team_chat_reactions', filter: `team_id=eq.${teamId}` },
-        () => load())
+        () => { if (!disabledRef.current) load() })
       .subscribe()
     return () => { supabase.removeChannel(channel) }
   }, [teamId, load])

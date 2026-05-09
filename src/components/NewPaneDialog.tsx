@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
-import { AIType, AI_CONFIG, COLOR_PALETTE, CustomCLI } from '../types'
+import { AIType, AI_CONFIG, COLOR_PALETTE, CustomCLI, ShellInfo } from '../types'
+import { safeWriteText } from '../lib/clipboard'
 import { ClaudeLogo, GeminiLogo, CodexLogo, CopilotLogo, OpenCodeLogo } from './AILogos'
 import ConfirmDialog from './ConfirmDialog'
 
@@ -29,14 +30,15 @@ interface Props {
     borderColor: string,
     cmd: string,
     customLabel?: string,
-    customColor?: string
+    customColor?: string,
+    shellId?: string
   ) => void
   onCancel: () => void
   allowedAIs?: string[]
   onUpgrade?: () => void
 }
 
-type Step = 'select-ai' | 'select-account' | 'add-custom'
+type Step = 'select-ai' | 'select-account' | 'add-custom' | 'select-shell'
 
 function TerminalIcon({ size = 36, color = '#888' }: { size?: number; color?: string }) {
   return (
@@ -56,6 +58,14 @@ function CustomCLIIcon({ size = 36, color = '#888' }: { size?: number; color?: s
   )
 }
 
+const SHELL_COLORS: Record<string, string> = {
+  powershell: '#1976D2',  // PowerShell blue
+  cmd:        '#9CA3AF',  // neutral gray
+  pwsh:       '#3B82F6',  // brighter blue (modern)
+  gitbash:    '#F1502F',  // git orange-red
+  wsl:        '#FFCC00',  // Tux/Linux yellow
+}
+
 const CUSTOM_COLORS = ['#E07B54', '#4F9EFF', '#22C55E', '#A78BFA', '#F59E0B', '#EC4899', '#14B8A6', '#60A5FA', '#888888']
 
 export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgrade }: Props) {
@@ -72,6 +82,23 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
   const [confirmDelete, setConfirmDelete] = useState<{ type: 'account'; name: string } | { type: 'cli'; id: string; label: string; e: React.MouseEvent } | null>(null)
   const [cliFound, setCliFound] = useState<boolean | null>(null)
   const [copied, setCopied] = useState(false)
+  const [shells, setShells] = useState<ShellInfo[]>([])
+  const [shellsError, setShellsError] = useState<string | null>(null)
+  const isWindows = window.platform?.isWin ?? false
+
+  useEffect(() => {
+    window.shells?.detect()
+      .then((list) => { setShells(list); setShellsError(null) })
+      .catch((err) => {
+        console.error('[shells.detect] failed', err)
+        setShells([])
+        setShellsError(err instanceof Error ? err.message : String(err))
+      })
+  }, [])
+
+  function selectShell(shell: ShellInfo) {
+    onConfirm('terminal', 'default', '', SHELL_COLORS[shell.id] ?? '#888888', '', shell.label, SHELL_COLORS[shell.id] ?? '#888888', shell.id)
+  }
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onCancel() }
@@ -95,6 +122,12 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
     const cfg = AI_CONFIG[aiType]
     setSelectedAI(aiType)
     setBorderColor(cfg.color)
+    // Windows shell submenu: clicking "Terminal" on Windows with detected shells
+    // opens a sub-step to pick which shell, instead of cluttering the main grid.
+    if (aiType === 'terminal' && isWindows && shells.length > 0) {
+      setStep('select-shell')
+      return
+    }
     if (cfg.noAccount) {
       // Check CLI availability before opening — show a brief warning but don't block
       if (cfg.cmd) {
@@ -205,6 +238,19 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
         {step === 'select-ai' ? (
           <>
             <h2 className="dialog-title">Choose AI</h2>
+            {isWindows && shellsError && (
+              <div style={{
+                background: '#2a1a00',
+                border: '1px solid #f59e0b',
+                borderRadius: 6,
+                padding: '8px 12px',
+                marginBottom: 12,
+                fontSize: 11,
+                color: '#f59e0b',
+              }}>
+                ⚠ Couldn't detect Windows shells: {shellsError}
+              </div>
+            )}
             <div className="ai-grid">
               {(Object.keys(AI_CONFIG) as AIType[]).filter((t) => t !== 'custom').map((aiType) => {
                 const cfg = AI_CONFIG[aiType]
@@ -255,6 +301,42 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
                   <span style={{ fontSize: 24, color: 'var(--text-muted)' }}>+</span>
                 </div>
                 <span className="ai-card-label" style={{ color: 'var(--text-muted)' }}>Add CLI</span>
+              </button>
+            </div>
+            <button className="dialog-cancel" onClick={onCancel}>Cancel</button>
+          </>
+        ) : step === 'select-shell' ? (
+          <>
+            <button className="dialog-back" onClick={() => setStep('select-ai')}>← Back</button>
+            <h2 className="dialog-title">Choose shell</h2>
+            <div className="ai-grid">
+              {shells.map((shell) => {
+                const color = SHELL_COLORS[shell.id] ?? '#888888'
+                return (
+                  <button
+                    key={`shell-${shell.id}`}
+                    className="ai-card"
+                    style={{ '--ai-color': color, '--ai-bg': '#15171a' } as React.CSSProperties}
+                    onClick={() => selectShell(shell)}
+                    title={`Open ${shell.label}`}
+                  >
+                    <div className="ai-card-logo">
+                      <TerminalIcon size={36} color={color} />
+                    </div>
+                    <span className="ai-card-label">{shell.label}</span>
+                  </button>
+                )
+              })}
+              <button
+                className="ai-card"
+                style={{ '--ai-color': '#888888', '--ai-bg': '#1a1a1a' } as React.CSSProperties}
+                onClick={() => onConfirm('terminal', 'default', '', '#888888', '')}
+                title="System default shell"
+              >
+                <div className="ai-card-logo">
+                  <TerminalIcon size={36} color="#888888" />
+                </div>
+                <span className="ai-card-label">Default</span>
               </button>
             </div>
             <button className="dialog-cancel" onClick={onCancel}>Cancel</button>
@@ -311,9 +393,12 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
                       flexShrink: 0,
                     }}
                     onClick={() => {
-                      navigator.clipboard.writeText(CLI_INSTALL[selectedAI!]!.cmd)
-                      setCopied(true)
-                      setTimeout(() => setCopied(false), 2000)
+                      void safeWriteText(CLI_INSTALL[selectedAI!]!.cmd).then(ok => {
+                        if (ok) {
+                          setCopied(true)
+                          setTimeout(() => setCopied(false), 2000)
+                        }
+                      })
                     }}
                   >
                     {copied ? '✓' : 'Copy'}

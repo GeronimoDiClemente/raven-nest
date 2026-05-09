@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { GridLayout } from '../types'
+import { useFixedPopover } from '../hooks/useFixedPopover'
 
 const MAX_ROWS = 4
 const MAX_COLS = 4
@@ -13,6 +14,8 @@ export default function LayoutPicker({ current, onChange }: Props) {
   const [open, setOpen] = useState(false)
   const [hover, setHover] = useState({ rows: current.rows, cols: current.cols })
   const ref = useRef<HTMLDivElement>(null)
+  const popoverRef = useRef<HTMLDivElement>(null)
+  const popPos = useFixedPopover(ref, open, popoverRef)
 
   useEffect(() => {
     if (!open) return
@@ -39,8 +42,8 @@ export default function LayoutPicker({ current, onChange }: Props) {
         <span style={{ fontSize: 11, marginLeft: 4 }}>{current.rows}×{current.cols}</span>
       </button>
 
-      {open && (
-        <div className="layout-popover">
+      {open && popPos && (
+        <div ref={popoverRef} className="layout-popover" style={{ position: 'fixed', top: popPos.top, left: popPos.left, right: 'auto' }}>
           <p className="layout-popover-label">
             {hover.rows}×{hover.cols} grid
           </p>

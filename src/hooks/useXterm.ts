@@ -4,6 +4,7 @@ import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { SearchAddon } from '@xterm/addon-search'
 import { registerTerminal, unregisterTerminal } from '../terminal-instances'
+import { safeWriteText, safeReadText } from '../lib/clipboard'
 
 export function useXterm(paneId: string, onInput?: (data: string) => void, fontSize = 13, onResize?: (cols: number, rows: number) => void) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -83,11 +84,12 @@ export function useXterm(paneId: string, onInput?: (data: string) => void, fontS
     // Ctrl+V pastes from clipboard
     term.attachCustomKeyEventHandler((event: KeyboardEvent) => {
       if (event.ctrlKey && event.key === 'c' && term.hasSelection()) {
-        navigator.clipboard.writeText(term.getSelection())
+        void safeWriteText(term.getSelection())
         return false
       }
       if (event.ctrlKey && event.key === 'v') {
-        navigator.clipboard.readText().then(text => {
+        void safeReadText().then(text => {
+          if (text === null) return
           if (onInputRef.current) onInputRef.current(text)
           else window.pty.write(paneId, text)
         })
@@ -98,6 +100,57 @@ export function useXterm(paneId: string, onInput?: (data: string) => void, fontS
       // so xterm skips processing and the event bubbles up to App.tsx.
       if (!window.platform?.isMac && event.ctrlKey && (event.key === 'ArrowRight' || event.key === 'ArrowLeft')) {
         return false
+      }
+
+      // Edit-on-selection: when the user selects text in the active prompt line and
+      // presses Backspace/Delete or types a character, translate it into cursor-move
+      // + backspace sequences for the shell's readline. Replaces editor-style
+      // "select-and-overwrite" without making the user reach for the arrow keys.
+      // Limitations: only works on the cursor's visual row in shells with readline
+      // support (PowerShell PSReadLine, bash, zsh). TUI apps (vim, less) won't work.
+      if (event.type === 'keydown' && term.hasSelection()) {
+        const isBackspace = event.key === 'Backspace'
+        const isDelete = event.key === 'Delete'
+        const isPlainChar = event.key.length === 1 && !event.metaKey && !(event.ctrlKey && !event.altKey)
+        if (isBackspace || isDelete || isPlainChar) {
+          const buffer = term.buffer.active
+          // Skip in alternate-buffer mode (vim, less, fzf, etc). Those apps handle
+          // their own keys; injecting cursor-move + DEL would corrupt files.
+          if (buffer.type === 'alternate') return true
+          const sel = term.getSelectionPosition()
+          if (!sel) return true
+          // Single visual row only — multi-row selections cross wrap boundaries the
+          // shell can't reason about with simple cursor-move + backspace.
+          if (sel.start.y !== sel.end.y) return true
+          const cursorAbsY = buffer.baseY + buffer.cursorY
+          if (sel.start.y !== cursorAbsY) return true
+          // PSReadLine and bash render multi-line buffers as wrapped visual rows.
+          // If this row or the previous one is part of a wrapped logical line, the
+          // shell's "left arrow" doesn't map 1-to-1 with visual columns, so our
+          // cursor-move math would be off. Bail and let the shell handle the key.
+          const currentLine = buffer.getLine(cursorAbsY)
+          const prevLine = cursorAbsY > 0 ? buffer.getLine(cursorAbsY - 1) : undefined
+          if (currentLine?.isWrapped || prevLine?.isWrapped) return true
+          const length = sel.end.x - sel.start.x
+          if (length <= 0) return true
+
+          // Move readline cursor from its current X to the end-of-selection X, then
+          // erase `length` characters to the left, then optionally insert the typed
+          // char. \x7f is DEL (what readline treats as backspace); \x1b[C/D are
+          // right/left arrows.
+          const moveDelta = sel.end.x - buffer.cursorX
+          let seq = ''
+          if (moveDelta > 0) seq += '\x1b[C'.repeat(moveDelta)
+          else if (moveDelta < 0) seq += '\x1b[D'.repeat(-moveDelta)
+          seq += '\x7f'.repeat(length)
+          if (isPlainChar) seq += event.key
+
+          if (onInputRef.current) onInputRef.current(seq)
+          else window.pty.write(paneId, seq)
+          term.clearSelection()
+          event.preventDefault()
+          return false
+        }
       }
       return true
     })

@@ -15,6 +15,7 @@ import { supabase } from '../lib/supabase'
 import { terminalJoinService } from '../lib/terminalJoinService'
 import { basename } from '../lib/path'
 import { useGitInfo } from '../hooks/useGitInfo'
+import { useFixedPopover } from '../hooks/useFixedPopover'
 
 interface Props {
   expanded: boolean
@@ -80,6 +81,9 @@ export default function Sidebar({
   const [joinConnected, setJoinConnected] = useState(terminalJoinService.isConnected)
   const [, forceUpdate] = useState(0)
   const joinInputRef = useRef<HTMLInputElement>(null)
+  const joinAnchorRef = useRef<HTMLDivElement>(null)
+  const joinPopoverRef = useRef<HTMLDivElement>(null)
+  const joinPopPos = useFixedPopover(joinAnchorRef, joinOpen && !joinConnected, joinPopoverRef)
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
       setUserEmail(data.user?.email ?? '')
@@ -130,6 +134,7 @@ export default function Sidebar({
         </span>
       </button>
 
+      <div className="sidebar-scroll">
       {/* Broadcast */}
       <button
         className={`sidebar-item${broadcastMode ? ' active' : ''}`}
@@ -147,7 +152,7 @@ export default function Sidebar({
       </button>
 
       {/* Join Terminal — popover panel to the right, same pattern as other sidebar panels */}
-      <div className="sidebar-item-panel" style={{ position: 'relative' }}>
+      <div className="sidebar-item-panel" style={{ position: 'relative' }} ref={joinAnchorRef}>
         <button
           className={`sidebar-item${joinConnected ? ' active' : ''}`}
           style={{ color: joinConnected ? '#22c55e' : undefined }}
@@ -168,9 +173,9 @@ export default function Sidebar({
           <span className="sidebar-label">{joinConnected ? `● ${terminalJoinService.code}` : 'Join Terminal'}</span>
         </button>
 
-        {/* Popover panel — opens to the right */}
-        {joinOpen && !joinConnected && (
-          <div className="ts-panel" style={{ position: 'absolute', top: 0, left: 'calc(100% + 4px)', zIndex: 200, width: 260 }}>
+        {/* Popover panel — opens to the right (fixed so it escapes sidebar scroll clipping) */}
+        {joinOpen && !joinConnected && joinPopPos && (
+          <div ref={joinPopoverRef} className="ts-panel" style={{ position: 'fixed', top: joinPopPos.top, left: joinPopPos.left, right: 'auto', zIndex: 200, width: 260 }}>
             <div className="ts-panel-header">
               <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>Join Terminal</span>
               <button className="ts-close" onClick={() => { setJoinOpen(false); setJoinInput('') }}>×</button>
@@ -461,8 +466,7 @@ export default function Sidebar({
         </span>
         <span className="sidebar-label">New Terminal</span>
       </button>
-
-      <div style={{ flex: 1 }} />
+      </div>{/* /.sidebar-scroll */}
 
       {/* User menu — hidden while loading to avoid flash */}
       {!profileLoading && (

@@ -30,8 +30,8 @@ contextBridge.exposeInMainWorld('dialog', {
 })
 
 contextBridge.exposeInMainWorld('pty', {
-  create: (paneId: string, cmd: string, accountDir: string, repoPath?: string) =>
-    ipcRenderer.invoke('pty:create', paneId, cmd, accountDir, repoPath),
+  create: (paneId: string, cmd: string, accountDir: string, repoPath?: string, shellId?: string) =>
+    ipcRenderer.invoke('pty:create', paneId, cmd, accountDir, repoPath, shellId),
   write: (paneId: string, data: string) =>
     ipcRenderer.send('pty:write', paneId, data),
   resize: (paneId: string, cols: number, rows: number) =>
@@ -127,6 +127,10 @@ contextBridge.exposeInMainWorld('pathUtils', {
 
 contextBridge.exposeInMainWorld('cli', {
   check: (cmd: string) => ipcRenderer.invoke('cli:check', cmd),
+})
+
+contextBridge.exposeInMainWorld('shells', {
+  detect: () => ipcRenderer.invoke('shells:detect'),
 })
 
 contextBridge.exposeInMainWorld('settings', {

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useProfile } from '../hooks/useProfile'
 import { useTeam } from '../hooks/useTeam'
 import { useSharedMcpConfigs } from '../hooks/useSharedMcpConfigs'
+import { useFixedPopover } from '../hooks/useFixedPopover'
 import ConfirmDialog from './ConfirmDialog'
 
 interface Props {
@@ -51,6 +52,8 @@ export default function MCPPanel({ repoPath, onRequireUpgrade }: Props) {
   const [saveError, setSaveError] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<{ scope: 'global' | 'project'; name: string } | null>(null)
   const panelRef = useRef<HTMLDivElement>(null)
+  const popoverRef = useRef<HTMLDivElement>(null)
+  const popPos = useFixedPopover(panelRef, open, popoverRef)
   const { plan } = useProfile()
 
   const projectPath = repoPath ? `${repoPath}/.mcp.json` : null
@@ -361,8 +364,8 @@ export default function MCPPanel({ repoPath, onRequireUpgrade }: Props) {
         MCP
       </button>
 
-      {open && (
-        <div className="mcp-panel">
+      {open && popPos && (
+        <div ref={popoverRef} className="mcp-panel" style={{ position: 'fixed', top: popPos.top, left: popPos.left, right: 'auto' }}>
           {renderSection('global', globalServers)}
           <div className="mcp-divider" />
           {renderSection('project', projectServers, !projectPath)}

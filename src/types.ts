@@ -19,6 +19,12 @@ export interface PaneNode {
   repoPath?: string     // cwd override: git repo directory
   url?: string          // browser only: initial url
   sessionPartition?: string  // browser only: persist:browser-<workspaceId>
+  shellId?: string      // terminal panes only: which shell to spawn (Windows shell picker)
+}
+
+export interface ShellInfo {
+  id: string            // 'powershell' | 'cmd' | 'pwsh' | 'gitbash' | 'wsl'
+  label: string         // 'Windows PowerShell', 'Command Prompt', etc.
 }
 
 export interface WorktreeMeta {
@@ -135,6 +141,7 @@ export interface SessionPane {
   customLabel?: string
   customColor?: string
   note?: string
+  shellId?: string
 }
 
 export interface SessionData {
@@ -192,7 +199,7 @@ declare global {
       delete: (id: string) => Promise<void>
     }
     pty: {
-      create: (paneId: string, cmd: string, accountDir: string, repoPath?: string) => Promise<boolean>
+      create: (paneId: string, cmd: string, accountDir: string, repoPath?: string, shellId?: string) => Promise<{ ok: true } | { ok: false; error: string }>
       write: (paneId: string, data: string) => void
       resize: (paneId: string, cols: number, rows: number) => void
       kill: (paneId: string) => Promise<void>
@@ -321,6 +328,9 @@ declare global {
     }
     cli: {
       check: (cmd: string) => Promise<{ found: boolean; path: string }>
+    }
+    shells: {
+      detect: () => Promise<ShellInfo[]>
     }
     worktree: {
       list: (repoPath: string) => Promise<WorktreeMeta[]>

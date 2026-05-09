@@ -26,6 +26,7 @@ import ConfirmDialog from './ConfirmDialog'
 import TeamChat from './TeamChat'
 import RepoStatusPanel from './RepoStatusPanel'
 import { useTeamChat } from '../hooks/useTeamChat'
+import { safeWriteText } from '../lib/clipboard'
 import ErrorBoundary from './ErrorBoundary'
 
 interface TeamsWorkspaceProps {
@@ -904,7 +905,7 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal }: 
                           </span>
                         </div>
                         <div className="snippet-item-actions">
-                          <button className="snippet-send-btn" onClick={() => navigator.clipboard.writeText(JSON.stringify(mc.config, null, 2))}>Copy</button>
+                          <button className="snippet-send-btn" onClick={() => { void safeWriteText(JSON.stringify(mc.config, null, 2)) }}>Copy</button>
                           {mc.owner_id === mcpUserId && (
                             <button
                               className="snippet-delete-btn"

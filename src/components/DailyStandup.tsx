@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { safeWriteText } from '../lib/clipboard'
 
 interface GitHubEvent {
   id: string
@@ -233,9 +234,11 @@ export default function DailyStandup({ repos, githubToken, teamMembers }: DailyS
   const standupText = buildStandupText(actorMap, teamMembers, pendingPRs, dateLabel)
 
   const handleCopy = () => {
-    navigator.clipboard.writeText(standupText).then(() => {
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
+    void safeWriteText(standupText).then(ok => {
+      if (ok) {
+        setCopied(true)
+        setTimeout(() => setCopied(false), 2000)
+      }
     })
   }
 

@@ -27,6 +27,7 @@ import { ravenHome } from './raven-home'
 import { execSync, execFile, execFileSync } from 'child_process'
 import { randomBytes } from 'crypto'
 import { PtyManager } from './pty-manager'
+import { detectShells, getShellById } from './shell-detect'
 import { AccountStore, detachClaudeConfig } from './account-store'
 import { CustomCLIStore } from './custom-cli-store'
 import { SnippetStore } from './snippet-store'
@@ -285,7 +286,20 @@ ipcMain.handle('git:clone', async (
       stdio: 'pipe',
     })
     if (tokenSafe) {
-      try { execFileSync('git', ['-C', dest, 'remote', 'set-url', 'origin', cloneUrl], { stdio: 'pipe' }) } catch {}
+      try {
+        execFileSync('git', ['-C', dest, 'remote', 'set-url', 'origin', cloneUrl], { stdio: 'pipe' })
+      } catch (scrubErr: unknown) {
+        // CRITICAL: token is now persisted in .git/config. Try to remove the clone
+        // so the user doesn't unknowingly leak credentials. If even that fails,
+        // surface a hard error so they can scrub manually.
+        const scrubMsg = scrubErr instanceof Error ? scrubErr.message : String(scrubErr)
+        console.error('[git:clone] token scrub failed', { dest, error: scrubMsg })
+        try { rmSync(dest, { recursive: true, force: true }) } catch {}
+        return {
+          ok: false,
+          error: 'Cloned but failed to remove token from .git/config. The clone was deleted to avoid leaking credentials. Please retry, or run manually: git remote set-url origin <url>',
+        }
+      }
     }
     return { ok: true, path: dest, alreadyExisted: false }
   } catch (err: unknown) {
@@ -385,8 +399,14 @@ ipcMain.handle('customcli:save', (_event, cli) => customCLIStore.save(cli))
 ipcMain.handle('customcli:delete', (_event, id: string) => customCLIStore.delete(id))
 
 // PTY IPC handlers
-ipcMain.handle('pty:create', (_event, paneId: string, cmd: string, accountDir: string, repoPath?: string) => {
-  return ptyManager.create(paneId, cmd, accountDir, repoPath)
+ipcMain.handle('pty:create', (_event, paneId: string, cmd: string, accountDir: string, repoPath?: string, shellId?: string) => {
+  const shell = shellId ? getShellById(shellId) : undefined
+  return ptyManager.create(paneId, cmd, accountDir, repoPath, shell)
+})
+
+// Shell detection (Windows-only meaningful result; non-Windows returns [])
+ipcMain.handle('shells:detect', () => {
+  return detectShells().map((s) => ({ id: s.id, label: s.label }))
 })
 
 ipcMain.handle('dialog:openFolder', async () => {

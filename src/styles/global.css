@@ -285,12 +285,70 @@ body {
   z-index: 10;
 }
 
+/* Scrollable middle section of the sidebar — keeps top toggle and bottom user menu /
+   settings pinned while letting the rest scroll when the window is short. Popovers
+   inside scroll items use position:fixed (see useFixedPopover) to escape this clip. */
+.sidebar-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(128,128,128,0.3) transparent;
+  display: flex;
+  flex-direction: column;
+}
+/* Sidebar scrollbar: invisible by default, fades in on hover. Keeps the
+   sidebar visually clean while still allowing wheel/drag scroll. */
+.sidebar-scroll {
+  scrollbar-color: transparent transparent;
+}
+.sidebar-scroll:hover {
+  scrollbar-color: rgba(128,128,128,0.3) transparent;
+}
+.sidebar-scroll::-webkit-scrollbar { width: 6px; }
+.sidebar-scroll::-webkit-scrollbar-track { background: transparent; }
+.sidebar-scroll::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 3px;
+  transition: background 200ms ease;
+}
+.sidebar-scroll:hover::-webkit-scrollbar-thumb {
+  background: rgba(128,128,128,0.3);
+}
+.sidebar-scroll::-webkit-scrollbar-button { display: none; }
+
+/* ── Global scrollbar theme ─────────────────────────────────
+   Minimalist dark scrollbars: invisible by default, fade in when the user
+   hovers the scrollable area. Applies to every scrollable element in the
+   renderer (Chromium WebKit + Firefox). Specific containers can still
+   override via higher selector specificity. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+*:hover {
+  scrollbar-color: rgba(128,128,128,0.3) transparent;
+}
+*::-webkit-scrollbar { width: 6px; height: 6px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 3px;
+  transition: background 200ms ease;
+}
+*:hover::-webkit-scrollbar-thumb { background: rgba(128,128,128,0.3); }
+*::-webkit-scrollbar-thumb:hover { background: rgba(128,128,128,0.5); }
+*::-webkit-scrollbar-corner { background: transparent; }
+*::-webkit-scrollbar-button { display: none; }
+
 .sidebar.expanded {
   width: 200px;
 }
 
 .sidebar-item {
   height: 44px;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   padding: 0 14px;
@@ -1575,8 +1633,8 @@ body {
 }
 
 .layout-cell {
-  width: 32px;
-  height: 32px;
+  width: 24px;
+  height: 24px;
   border-radius: 4px;
   border: 1.5px solid var(--border);
   background: var(--bg-surface);
@@ -1595,8 +1653,8 @@ body {
 }
 
 .layout-presets {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
   gap: 4px;
   border-top: 1px solid var(--border);
   padding-top: 10px;
@@ -2357,7 +2415,6 @@ body {
   flex: 1;
   overflow-y: auto;
   scrollbar-width: thin;
-  scrollbar-color: var(--border) transparent;
 }
 
 .pr-state-msg {
@@ -2549,7 +2606,6 @@ body {
   overflow-y: auto;
   padding: 10px 14px;
   scrollbar-width: thin;
-  scrollbar-color: var(--border) transparent;
 }
 
 .pr-files-list {
@@ -2604,7 +2660,6 @@ body {
   overflow-x: auto;
   background: var(--bg-surface);
   scrollbar-width: thin;
-  scrollbar-color: var(--border) transparent;
 }
 
 .pr-diff-line {
@@ -2745,7 +2800,6 @@ body {
   flex: 1;
   overflow-y: auto;
   scrollbar-width: thin;
-  scrollbar-color: var(--border) transparent;
 }
 
 .issue-item {
@@ -2791,7 +2845,6 @@ body {
   flex-direction: column;
   gap: 12px;
   scrollbar-width: thin;
-  scrollbar-color: var(--border) transparent;
 }
 
 .issue-body-block {
@@ -2857,7 +2910,6 @@ body {
   flex-direction: column;
   overflow-y: auto;
   scrollbar-width: thin;
-  scrollbar-color: var(--border) transparent;
 }
 
 .feed-event {
@@ -3055,7 +3107,6 @@ body {
   flex-direction: column;
   gap: 6px;
   scrollbar-width: thin;
-  scrollbar-color: var(--border) transparent;
 }
 
 .blocks-view-empty {
@@ -5460,16 +5511,17 @@ button.ci-badge:hover {
   overflow-y: auto;
   overflow-x: hidden;
   scrollbar-width: thin;
-  scrollbar-color: var(--border) transparent;
   padding-right: 4px;
 }
 .repo-list-scroll::-webkit-scrollbar { width: 6px; }
 .repo-list-scroll::-webkit-scrollbar-track { background: transparent; }
 .repo-list-scroll::-webkit-scrollbar-thumb {
-  background: var(--border);
+  background: transparent;
   border-radius: 3px;
+  transition: background 200ms ease;
 }
-.repo-list-scroll::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+.repo-list-scroll:hover::-webkit-scrollbar-thumb { background: rgba(128,128,128,0.3); }
+.repo-list-scroll::-webkit-scrollbar-thumb:hover { background: rgba(128,128,128,0.5); }
 
 /* ── Repo action buttons — unified system ────────────────── */
 .repo-action-btn {
@@ -6132,7 +6184,6 @@ button.ci-badge:hover {
   overflow-y: auto;
   padding: 8px 0;
   scrollbar-width: thin;
-  scrollbar-color: var(--border) transparent;
 }
 
 .sp-section {

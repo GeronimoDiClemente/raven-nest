@@ -219,11 +219,11 @@ export default function App() {
 
   const addPane = useCallback((
     aiType: AIType, accountName: string, accountDir: string, borderColor: string,
-    cmd: string, customLabel?: string, customColor?: string
+    cmd: string, customLabel?: string, customColor?: string, shellId?: string
   ) => {
     if (addingToCell === null) return
     updateActiveTab(t => {
-      const pane: PaneNode = { id: generateId(), aiType, accountName, accountDir, borderColor, cmd, customLabel, customColor, repoPath: t.repoPath }
+      const pane: PaneNode = { id: generateId(), aiType, accountName, accountDir, borderColor, cmd, customLabel, customColor, repoPath: t.repoPath, shellId }
       const next = [...t.cells]
       next[addingToCell] = pane
       return { ...t, cells: next }
@@ -404,6 +404,7 @@ export default function App() {
         customLabel: c.customLabel,
         customColor: c.customColor,
         note: c.note,
+        shellId: c.shellId,
       } : null),
       resumeLastSession: false,
       createdAt: Date.now(),
@@ -661,8 +662,19 @@ export default function App() {
           rowSizes: tab.rowSizes ?? equalSizes(tab.layout.rows),
           cells: restoreCells(tab.cells, tab.layout.rows * tab.layout.cols),
         }))
-        setTabs(restoredTabs)
-        setActiveTabId(data.activeTabId ?? restoredTabs[0].id)
+        // Drop repoPath references to directories that no longer exist on disk —
+        // otherwise every new pane inherits a dead cwd and pty.spawn fails with
+        // ERROR_DIRECTORY (267) on Windows.
+        Promise.all(restoredTabs.map(async (t) => {
+          if (!t.repoPath) return t
+          const exists = await window.pathUtils.exists(t.repoPath)
+          if (exists) return t
+          console.warn('[session] dropping stale repoPath for tab', t.name, t.repoPath)
+          return { ...t, repoPath: undefined }
+        })).then((cleaned) => {
+          setTabs(cleaned)
+          setActiveTabId(data.activeTabId ?? cleaned[0].id)
+        })
       }
     })
   }, [])
@@ -683,6 +695,7 @@ export default function App() {
             aiType: c.aiType, accountName: c.accountName, accountDir: c.accountDir,
             borderColor: c.borderColor, cmd: c.cmd,
             customLabel: c.customLabel, customColor: c.customColor, note: c.note,
+            shellId: c.shellId,
           } : null),
         })),
         activeTabId,

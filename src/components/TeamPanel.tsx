@@ -5,6 +5,7 @@ import { useSharedWorkspaces } from '../hooks/useSharedWorkspaces'
 import { useSharedMcpConfigs } from '../hooks/useSharedMcpConfigs'
 import { useProfile } from '../hooks/useProfile'
 import { Workspace } from '../types'
+import { safeWriteText } from '../lib/clipboard'
 
 interface Props {
   onRequireUpgrade?: () => void
@@ -438,7 +439,7 @@ export default function TeamPanel({ onRequireUpgrade, onLoad }: Props) {
                               <div className="snippet-item-actions">
                                 <button
                                   className="snippet-send-btn"
-                                  onClick={() => navigator.clipboard.writeText(JSON.stringify(mc.config, null, 2))}
+                                  onClick={() => { void safeWriteText(JSON.stringify(mc.config, null, 2)) }}
                                 >Copy</button>
                                 {mc.owner_id === mcpUserId && (
                                   <button className="snippet-delete-btn" onClick={() => removeMcpConfig(mc.id)} title="Remove">×</button>

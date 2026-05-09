@@ -1,9 +1,14 @@
 import { EventEmitter } from 'events'
 import { join } from 'path'
-import { mkdirSync } from 'fs'
+import { mkdirSync, existsSync } from 'fs'
 import { homedir } from 'os'
 import * as pty from 'node-pty'
 import { SHELL, SHELL_ARGS, isWin } from './platform'
+
+export interface ShellOverride {
+  bin: string
+  args: string[]
+}
 
 const BUFFER_MAX_LINES = 10_000
 
@@ -11,8 +16,8 @@ export class PtyManager extends EventEmitter {
   private ptys = new Map<string, pty.IPty>()
   private buffers = new Map<string, string[]>()
 
-  create(paneId: string, cmd: string, accountDir: string, repoPath?: string): boolean {
-    if (this.ptys.has(paneId)) return true  // already running, don't recreate
+  create(paneId: string, cmd: string, accountDir: string, repoPath?: string, shell?: ShellOverride): { ok: true } | { ok: false; error: string } {
+    if (this.ptys.has(paneId)) return { ok: true }  // already running, don't recreate
 
     const env: Record<string, string> = {
       ...process.env as Record<string, string>,
@@ -45,13 +50,26 @@ export class PtyManager extends EventEmitter {
       mkdirSync(accountDir, { recursive: true })
     }
 
+    const spawnBin = shell?.bin ?? SHELL
+    const spawnArgs = shell?.args ?? SHELL_ARGS
+
+    // Resolve cwd with existence check. CreateProcess on Windows fails with
+    // ERROR_DIRECTORY (code 267) if cwd is missing — common when a tab persists
+    // a repoPath that was later deleted. Fall back to accountDir, then homedir.
+    let cwd = repoPath || accountDir || homedir()
+    if (!existsSync(cwd)) {
+      const fallback = (accountDir && existsSync(accountDir)) ? accountDir : homedir()
+      console.warn('[pty-manager] cwd does not exist, falling back', { paneId, requested: cwd, fallback })
+      cwd = fallback
+    }
+
     try {
-      const ptyProcess = pty.spawn(SHELL, SHELL_ARGS, {
+      const ptyProcess = pty.spawn(spawnBin, spawnArgs, {
         name: 'xterm-256color',
         cols: 120,
         rows: 30,
         env,
-        cwd: repoPath || accountDir || homedir()
+        cwd,
       })
 
       // Launch AI command after shell starts (skip if plain terminal)
@@ -79,9 +97,11 @@ export class PtyManager extends EventEmitter {
       })
 
       this.ptys.set(paneId, ptyProcess)
-      return true
-    } catch {
-      return false
+      return { ok: true }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      console.error('[pty-manager] spawn failed', { paneId, spawnBin, spawnArgs, error: message })
+      return { ok: false, error: message }
     }
   }
 

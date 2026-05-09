@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react'
 import { ResponseBlock, PaneNode, AI_CONFIG } from '../types'
+import { safeWriteText } from '../lib/clipboard'
 
 interface Props {
   blocks: ResponseBlock[]
@@ -36,9 +37,12 @@ function BlockCard({ block, accentColor }: { block: ResponseBlock; accentColor: 
   const displayText = expanded || !isLong ? block.content : lines.slice(0, PREVIEW_LINES).join('\n')
 
   const handleCopy = useCallback(() => {
-    navigator.clipboard.writeText(block.content)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
+    void safeWriteText(block.content).then(ok => {
+      if (ok) {
+        setCopied(true)
+        setTimeout(() => setCopied(false), 2000)
+      }
+    })
   }, [block.content])
 
   const time = new Date(block.timestamp).toLocaleTimeString([], {
