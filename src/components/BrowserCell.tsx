@@ -119,6 +119,7 @@ export default function BrowserCell({ pane, cellId, onClose, borderColor }: Prop
       '.ts-panel',
       '.resource-bar-popover',
       '.rb-overlay',
+      '.browser-port-dropdown',
     ].join(', ')
 
     const send = () => {
@@ -160,8 +161,10 @@ export default function BrowserCell({ pane, cellId, onClose, borderColor }: Prop
     void window.browser.navigate(pane.id, normalized)
   }
 
+  const portBtnRef = useRef<HTMLButtonElement>(null)
   const [portsOpen, setPortsOpen] = useState(false)
   const [openPorts, setOpenPorts] = useState<number[]>([])
+  const [portsAnchor, setPortsAnchor] = useState<{ top: number; right: number } | null>(null)
   const togglePorts = async () => {
     if (portsOpen) { setPortsOpen(false); return }
     try {
@@ -170,6 +173,8 @@ export default function BrowserCell({ pane, cellId, onClose, borderColor }: Prop
     } catch {
       setOpenPorts([])
     }
+    const rect = portBtnRef.current?.getBoundingClientRect()
+    if (rect) setPortsAnchor({ top: rect.bottom + 4, right: window.innerWidth - rect.right })
     setPortsOpen(true)
   }
   const goToPort = (port: number) => {
@@ -214,25 +219,28 @@ export default function BrowserCell({ pane, cellId, onClose, borderColor }: Prop
           placeholder="https://"
           spellCheck={false}
         />
-        <div className="browser-port-wrap">
-          <button
-            className="browser-btn browser-port-btn"
-            onClick={togglePorts}
-            title="Open listening ports"
-          >:</button>
-          {portsOpen && (
-            <div className="browser-port-dropdown" role="listbox">
-              {openPorts.length === 0 ? (
-                <div className="browser-port-empty">No listening ports</div>
-              ) : openPorts.map((port) => (
-                <button key={port} className="browser-port-item" onClick={() => goToPort(port)}>
-                  <span className="browser-port-num">:{port}</span>
-                  <span className="browser-port-host">localhost</span>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
+        <button
+          ref={portBtnRef}
+          className="browser-btn browser-port-btn"
+          onClick={togglePorts}
+          title="Open listening ports"
+        >:</button>
+        {portsOpen && portsAnchor && (
+          <div
+            className="browser-port-dropdown"
+            role="listbox"
+            style={{ position: 'fixed', top: portsAnchor.top, right: portsAnchor.right, zIndex: 100 }}
+          >
+            {openPorts.length === 0 ? (
+              <div className="browser-port-empty">No listening ports</div>
+            ) : openPorts.map((port) => (
+              <button key={port} className="browser-port-item" onClick={() => goToPort(port)}>
+                <span className="browser-port-num">:{port}</span>
+                <span className="browser-port-host">localhost</span>
+              </button>
+            ))}
+          </div>
+        )}
         <button
           className="browser-btn"
           onClick={() => window.electronShell.openExternal(url)}
