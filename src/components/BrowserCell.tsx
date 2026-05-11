@@ -117,6 +117,8 @@ export default function BrowserCell({ pane, cellId, onClose, borderColor }: Prop
       '.repo-status-panel',
       '.pane-color-popover',
       '.ts-panel',
+      '.resource-bar-popover',
+      '.rb-overlay',
     ].join(', ')
 
     const send = () => {

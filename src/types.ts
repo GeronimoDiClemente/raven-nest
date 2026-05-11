@@ -108,6 +108,9 @@ export interface MetricsPaneInput {
   // Tab name. Used to group panes that don't have a linked repo so they
   // still appear in the panel under their workspace's name.
   workspaceName?: string
+  // CSS color identifying the AI (or custom CLI). Drives the bullet color
+  // in the resource panel so the AI name doesn't have to be spelled out.
+  aiColor?: string
 }
 
 export interface RavenPreset {

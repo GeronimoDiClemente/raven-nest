@@ -39,6 +39,9 @@ export interface PaneMetric {
   pid: number
   cpuPercent: number
   memBytes: number
+  // CSS color for the AI bullet. Set by the renderer; falls back to a
+  // neutral gray when undefined (custom CLIs without a defined color).
+  aiColor?: string
 }
 
 export interface DiskBucket {
@@ -82,6 +85,7 @@ export interface PaneInput {
   // Tab name. Used to bucket panes that have no linked repoPath under their
   // workspace name so they still appear in the popover (instead of vanishing).
   workspaceName?: string
+  aiColor?: string
 }
 
 // Synthetic commonDir prefix for panes that belong to a tab with no linked
@@ -202,16 +206,18 @@ export class MetricsCollector {
       }
       // Skip panes that have no live PID — they'd just show 0/0 noise.
       if (r.pid > 0 && r.hasLiveStats) {
-        // The user-typed note is the most useful discriminator. Trim and
-        // cap at 32 chars so a verbose note doesn't blow up row width.
-        const trimmedNote = r.note?.trim().slice(0, 32)
-        const baseLabel = trimmedNote ? `${r.label} · ${trimmedNote}` : r.label
+        // The user-typed note is the only discriminator surfaced as text.
+        // The AI name itself isn't included — the renderer's coloured bullet
+        // identifies the agent. Trim and cap at 40 chars.
+        const trimmedNote = r.note?.trim().slice(0, 40)
+        const baseLabel = trimmedNote ?? ''
         agg.panes.push({
           paneId: r.paneId,
           label: baseLabel,
           pid: r.pid,
           cpuPercent: r.cpuPercent,
           memBytes: r.memBytes,
+          aiColor: r.aiColor,
         })
       }
     }

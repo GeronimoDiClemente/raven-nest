@@ -819,12 +819,12 @@ export default function App() {
         if (cell.aiType === 'browser') continue
         const label = cell.customLabel ?? AI_CONFIG[cell.aiType]?.label ?? 'Terminal'
         // The user-typed pane note is the most useful discriminator (e.g.
-        // "fixing auth", "running tests"). Falls back to nothing in the
-        // popover — accountName isn't surfaced because in practice every
-        // pane on a given setup uses the same account.
-        // workspaceName lets the collector group panes that don't have a
-        // linked repo so they still show up in the panel.
-        out.push({ paneId: cell.id, repoPath: cell.repoPath, label, note: cell.note, workspaceName: tab.name })
+        // "fixing auth", "running tests"). When empty the row shows only
+        // the AI-coloured bullet — the AI name itself is intentionally not
+        // rendered (the bullet's color identifies it). workspaceName lets
+        // the collector group panes with no linked repo under their tab.
+        const aiColor = cell.customColor ?? AI_CONFIG[cell.aiType]?.color ?? '#888888'
+        out.push({ paneId: cell.id, repoPath: cell.repoPath, label, note: cell.note, workspaceName: tab.name, aiColor })
       }
     }
     return out

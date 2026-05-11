@@ -372,22 +372,22 @@ function WorktreeNode({
   )
 }
 
-// PaneRow renders the label as 1 or 2 segments. The backend composes
-// `<label>` or `<label> · <note>` into PaneMetric.label. The pid lives in
-// pane.pid and is exposed through the kill button's title attribute — we
-// don't render it inline because the note alone is the more useful
-// discriminator. The middle-dot separator gets a muted color.
+// The AI is identified ONLY by the bullet's color (driven by pane.aiColor
+// from AI_CONFIG: claude #E07B54, gemini #4F9EFF, codex #aaaaaa, copilot
+// #7C5CFC, or the cell's customColor when set). The user's pane note is
+// the only text in the label — the AI name itself is intentionally
+// omitted because every row would otherwise repeat "Claude" / "Copilot"
+// for no information value.
 function renderPaneLabel(pane: PaneMetric): ReactNode {
-  const idx = pane.label.indexOf(' · ')
-  const head = idx >= 0 ? pane.label.slice(0, idx) : pane.label
-  const note = idx >= 0 ? pane.label.slice(idx + 3) : null
+  const noteText = pane.label.trim()
+  const color = pane.aiColor ?? '#888888'
   return (
     <>
-      <span className="rb-bullet">■</span> {head}
-      {note && (
+      <span className="rb-bullet" style={{ color }}>■</span>
+      {noteText && (
         <>
-          <span className="rb-label-sep"> · </span>
-          <span className="rb-label-account">{note}</span>
+          {' '}
+          <span className="rb-label-note">{noteText}</span>
         </>
       )}
     </>

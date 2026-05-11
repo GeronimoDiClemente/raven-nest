@@ -874,7 +874,7 @@ ipcMain.handle('benchmark:setMode', async (_evt, cellId: string, mode: 'setup' |
 
 ipcMain.handle('metrics:snapshot', async (
   _evt,
-  panes: Array<{ paneId: string; repoPath: string | undefined; label: string; note?: string; workspaceName?: string }>,
+  panes: Array<{ paneId: string; repoPath: string | undefined; label: string; note?: string; workspaceName?: string; aiColor?: string }>,
 ) => {
   // Resolve PIDs in main — renderer never sees raw OS PIDs in any other API
   // surface, so we keep that boundary here too. ptyManager.getPid() returns
@@ -888,6 +888,7 @@ ipcMain.handle('metrics:snapshot', async (
     repoPath: p.repoPath,
     note: p.note,
     workspaceName: p.workspaceName,
+    aiColor: p.aiColor,
   }))
   return metricsCollector.collect(inputs)
 })
