@@ -456,6 +456,8 @@ declare global {
     metrics: {
       snapshot: (panes: MetricsPaneInput[]) => Promise<MetricsSnapshot>
       refreshDisk: (worktreePaths: string[]) => Promise<Record<string, number>>
+      killPid: (pid: number) => Promise<{ ok: true } | { ok: false; error: string }>
+      portsByPids: (pids: number[]) => Promise<Record<number, number[]>>
     }
   }
 }

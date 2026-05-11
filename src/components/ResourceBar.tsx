@@ -41,7 +41,7 @@ export default function ResourceBar({ panes }: Props) {
     try { localStorage.setItem(STORAGE_KEY, next) } catch { /* private mode etc. */ }
   }, [])
 
-  const { snapshot, refreshDisk, isDiskRefreshing } = useMetrics(panes, open)
+  const { snapshot, ports, refreshDisk, refresh, isDiskRefreshing } = useMetrics(panes, open)
 
   // Close on Escape while open.
   useEffect(() => {
@@ -71,9 +71,11 @@ export default function ResourceBar({ panes }: Props) {
       {open && (
         <ResourceBarPopover
           snapshot={snapshot}
+          ports={ports}
           primary={primary}
           onPrimaryChange={setPrimary}
           onRefreshDisk={() => { void refreshDisk() }}
+          onRefresh={refresh}
           isDiskRefreshing={isDiskRefreshing}
           onClose={() => setOpen(false)}
         />

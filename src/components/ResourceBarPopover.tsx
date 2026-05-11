@@ -1,13 +1,15 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import type { MetricsSnapshot, RepoMetric, WorktreeMetricInfo, PaneMetric } from '../types'
 
 type PrimaryMetric = 'memory' | 'cpu'
 
 interface Props {
   snapshot: MetricsSnapshot | null
+  ports: Record<number, number[]>
   primary: PrimaryMetric
   onPrimaryChange: (next: PrimaryMetric) => void
   onRefreshDisk: () => void
+  onRefresh: () => Promise<void>
   isDiskRefreshing: boolean
   onClose: () => void
 }
@@ -34,11 +36,42 @@ function diskLabel(bytes: number | null): string {
   return bytes === null ? '—' : formatBytes(bytes)
 }
 
+// Thresholds for the "heaviest pane" callout. Fires when EITHER total RAM
+// share crosses 50% OR absolute memory crosses 6 GB — covers both small-RAM
+// laptops (16 GB user hits 50% sooner than 6 GB) and big rigs where 6 GB is
+// still meaningful in absolute terms even if it's a small share.
+const HEAVY_RAM_SHARE_PCT = 50
+const HEAVY_MEM_BYTES = 6 * 1024 * 1024 * 1024
+
+interface HeaviestPaneInfo {
+  pane: PaneMetric
+  repoName: string
+  branchLabel: string
+}
+
+function findHeaviestPane(snapshot: MetricsSnapshot): HeaviestPaneInfo | null {
+  let best: HeaviestPaneInfo | null = null
+  for (const repo of snapshot.repos) {
+    for (const wt of repo.worktrees) {
+      for (const pane of wt.panes) {
+        if (!Number.isFinite(pane.memBytes) || pane.memBytes <= 0) continue
+        if (best === null || pane.memBytes > best.pane.memBytes) {
+          best = { pane, repoName: repo.repoName, branchLabel: wt.branchLabel }
+        }
+      }
+    }
+  }
+  return best
+}
+
 export default function ResourceBarPopover({
-  snapshot, primary, onPrimaryChange, onRefreshDisk, isDiskRefreshing, onClose,
+  snapshot, ports, primary, onPrimaryChange, onRefreshDisk, onRefresh, isDiskRefreshing, onClose,
 }: Props) {
   const [collapsedRepos, setCollapsedRepos] = useState<Set<string>>(new Set())
   const [collapsedWorktrees, setCollapsedWorktrees] = useState<Set<string>>(new Set())
+  // Track which PID is mid-kill so we can disable the button and avoid a
+  // second confirm dialog landing while the first taskkill is still running.
+  const [killingPid, setKillingPid] = useState<number | null>(null)
 
   const toggleRepo = (key: string) => {
     setCollapsedRepos((prev) => {
@@ -55,6 +88,37 @@ export default function ResourceBarPopover({
       else next.add(key)
       return next
     })
+  }
+
+  const heaviestCallout = useMemo(() => {
+    if (!snapshot) return null
+    const overShare = snapshot.totals.ramSharePercent > HEAVY_RAM_SHARE_PCT
+    const overAbsolute = snapshot.totals.memBytes > HEAVY_MEM_BYTES
+    if (!overShare && !overAbsolute) return null
+    return findHeaviestPane(snapshot)
+  }, [snapshot])
+
+  const handleKill = async (pane: PaneMetric) => {
+    if (killingPid !== null) return
+    // Native confirm is sufficient per spec; matches what other in-app kill
+    // flows do (PaneHeader uses confirm() too). Keeping it synchronous and
+    // dependency-free.
+    const ok = window.confirm(`Kill ${pane.label} (PID ${pane.pid})?`)
+    if (!ok) return
+    setKillingPid(pane.pid)
+    try {
+      const res = await window.metrics.killPid(pane.pid)
+      if (!res.ok) {
+        console.warn('[ResourceBar] killPid failed', res.error)
+      }
+    } catch (err) {
+      console.warn('[ResourceBar] killPid threw', err)
+    } finally {
+      // Re-poll so the killed pane drops out of the tree without waiting for
+      // the next interval (would otherwise show 0%/0B for up to 2s).
+      try { await onRefresh() } catch {}
+      setKillingPid(null)
+    }
   }
 
   return (
@@ -86,6 +150,17 @@ export default function ResourceBarPopover({
 
         {snapshot ? (
           <>
+            {heaviestCallout && (
+              <div className="rb-heavy-banner" role="status">
+                <span className="rb-heavy-icon">⚠</span>
+                <span className="rb-heavy-text">
+                  Heaviest pane: <strong>{heaviestCallout.pane.label}</strong> using {formatBytes(heaviestCallout.pane.memBytes)}
+                  {' · '}
+                  <span className="rb-heavy-loc">{heaviestCallout.repoName}/{heaviestCallout.branchLabel}</span>
+                </span>
+              </div>
+            )}
+
             <div className="rb-totals">
               <div className="rb-total-item">
                 <span className="rb-total-label">CPU</span>
@@ -133,10 +208,13 @@ export default function ResourceBarPopover({
                 <RepoNode
                   key={repo.commonDir}
                   repo={repo}
+                  ports={ports}
+                  killingPid={killingPid}
                   collapsed={collapsedRepos.has(repo.commonDir)}
                   collapsedWorktrees={collapsedWorktrees}
                   onToggleRepo={() => toggleRepo(repo.commonDir)}
                   onToggleWorktree={toggleWorktree}
+                  onKill={handleKill}
                 />
               ))
             )}
@@ -169,13 +247,16 @@ function groupNestProcesses(processes: { type: 'Main' | 'Renderer' | 'Other'; cp
 }
 
 function RepoNode({
-  repo, collapsed, collapsedWorktrees, onToggleRepo, onToggleWorktree,
+  repo, ports, killingPid, collapsed, collapsedWorktrees, onToggleRepo, onToggleWorktree, onKill,
 }: {
   repo: RepoMetric
+  ports: Record<number, number[]>
+  killingPid: number | null
   collapsed: boolean
   collapsedWorktrees: Set<string>
   onToggleRepo: () => void
   onToggleWorktree: (key: string) => void
+  onKill: (pane: PaneMetric) => void
 }) {
   const arrow = collapsed ? '▸' : '▾'
   const disk = diskLabel(repo.diskBytes)
@@ -194,8 +275,11 @@ function RepoNode({
         <WorktreeNode
           key={wt.worktreePath}
           worktree={wt}
+          ports={ports}
+          killingPid={killingPid}
           collapsed={collapsedWorktrees.has(wt.worktreePath)}
           onToggle={() => onToggleWorktree(wt.worktreePath)}
+          onKill={onKill}
         />
       ))}
     </div>
@@ -203,19 +287,42 @@ function RepoNode({
 }
 
 function WorktreeNode({
-  worktree, collapsed, onToggle,
+  worktree, ports, killingPid, collapsed, onToggle, onKill,
 }: {
   worktree: WorktreeMetricInfo
+  ports: Record<number, number[]>
+  killingPid: number | null
   collapsed: boolean
   onToggle: () => void
+  onKill: (pane: PaneMetric) => void
 }) {
   const arrow = collapsed ? '▸' : '▾'
   const disk = diskLabel(worktree.diskBytes)
+  // Union of ports listened on by any pane in this worktree, deduped + sorted.
+  // We tolerate the case where ports[pid] is undefined (first poll, or pid
+  // with no listening sockets) — just skip it silently.
+  const worktreePorts: number[] = (() => {
+    const set = new Set<number>()
+    for (const pane of worktree.panes) {
+      const list = ports[pane.pid]
+      if (Array.isArray(list)) {
+        for (const p of list) set.add(p)
+      }
+    }
+    return Array.from(set).sort((a, b) => a - b)
+  })()
   return (
     <>
       <button className="rb-row rb-row--child rb-row--clickable" onClick={onToggle}>
         <span className="rb-row-label">
           <span className="rb-arrow">{arrow}</span> {worktree.branchLabel}
+          {worktreePorts.length > 0 && (
+            <span className="rb-port-chips">
+              {worktreePorts.map((port) => (
+                <span key={port} className="rb-port-chip">:{port}</span>
+              ))}
+            </span>
+          )}
         </span>
         <span className="rb-row-metric">
           {formatPct(worktree.cpuPercent)} / {formatBytes(worktree.memBytes)}
@@ -223,21 +330,46 @@ function WorktreeNode({
         </span>
       </button>
       {!collapsed && worktree.panes.map((pane) => (
-        <PaneRow key={pane.paneId} pane={pane} />
+        <PaneRow
+          key={pane.paneId}
+          pane={pane}
+          killing={killingPid === pane.pid}
+          killDisabled={killingPid !== null && killingPid !== pane.pid}
+          onKill={onKill}
+        />
       ))}
     </>
   )
 }
 
-function PaneRow({ pane }: { pane: PaneMetric }) {
+function PaneRow({
+  pane, killing, killDisabled, onKill,
+}: {
+  pane: PaneMetric
+  killing: boolean
+  killDisabled: boolean
+  onKill: (pane: PaneMetric) => void
+}) {
   return (
-    <div className="rb-row rb-row--grandchild">
+    <div className="rb-row rb-row--grandchild rb-row--has-kill">
       <span className="rb-row-label">
         <span className="rb-bullet">■</span> {pane.label}
       </span>
       <span className="rb-row-metric">
         {formatPct(pane.cpuPercent)} / {formatBytes(pane.memBytes)}
       </span>
+      <button
+        className="rb-kill-btn"
+        type="button"
+        onClick={(e) => { e.stopPropagation(); onKill(pane) }}
+        disabled={killing || killDisabled}
+        title={killing ? 'Killing…' : `Kill ${pane.label} (PID ${pane.pid})`}
+        aria-label={`Kill ${pane.label}`}
+      >
+        <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
+          <path d="M2.5 2.5 L9.5 9.5 M9.5 2.5 L2.5 9.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+        </svg>
+      </button>
     </div>
   )
 }

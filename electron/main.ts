@@ -892,6 +892,55 @@ ipcMain.handle('metrics:refreshDisk', async (_evt, worktreePaths: string[]) => {
   return metricsCollector.refreshDisk(valid)
 })
 
+// Kill a process by PID. On Windows we use `taskkill /F /T` to kill the whole
+// tree — a PowerShell pane has its dev server as a descendant and `process.kill`
+// would only signal the shell itself, leaving the actual server orphaned.
+// Falls back to `process.kill(pid)` if taskkill isn't available.
+ipcMain.handle('metrics:killPid', async (_evt, pid: number) => {
+  if (!Number.isFinite(pid) || pid <= 0) {
+    return { ok: false as const, error: 'Invalid pid' }
+  }
+  if (process.platform === 'win32') {
+    try {
+      execFileSync('taskkill', ['/F', '/T', '/PID', String(pid)], {
+        timeout: 5000,
+        stdio: 'pipe',
+      })
+      return { ok: true as const }
+    } catch (err) {
+      // taskkill missing or refused — fall through to process.kill
+      try {
+        process.kill(pid)
+        return { ok: true as const }
+      } catch (killErr) {
+        return { ok: false as const, error: killErr instanceof Error ? killErr.message : String(killErr) }
+      }
+    }
+  }
+  try {
+    process.kill(pid)
+    return { ok: true as const }
+  } catch (err) {
+    return { ok: false as const, error: err instanceof Error ? err.message : String(err) }
+  }
+})
+
+// Bulk port-scan for many pids in one IPC call. Used by the resource popover
+// so we can render port chips per worktree without N round-trips. Each pid is
+// resolved independently so one slow/dead pid doesn't block the rest.
+ipcMain.handle('metrics:portsByPids', async (_evt, pids: number[]) => {
+  if (!Array.isArray(pids)) return {} as Record<number, number[]>
+  const valid = pids.filter((p) => Number.isFinite(p) && p > 0)
+  const out: Record<number, number[]> = {}
+  const results = await Promise.allSettled(valid.map((p) => scanPid(p)))
+  results.forEach((res, idx) => {
+    if (res.status === 'fulfilled' && Array.isArray(res.value) && res.value.length > 0) {
+      out[valid[idx]!] = res.value
+    }
+  })
+  return out
+})
+
 // === Diff handlers (Plan 6 — v1.0) ===
 
 ipcMain.handle('diff:get', async (_evt, worktreePath: string, base?: string) => {
