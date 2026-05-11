@@ -948,6 +948,217 @@ ipcMain.handle('diff:get', async (_evt, worktreePath: string, base?: string) => 
   return getDiff(worktreePath, base ?? 'HEAD')
 })
 
+// Lightweight shortstat for the worktree sidebar chip. `git diff --shortstat`
+// returns one line — we parse it into totals. Defensive everywhere: any failure
+// returns zeros so the chip simply doesn't render (silent failure preferred).
+ipcMain.handle('git:shortstat', async (_evt, worktreePath: string, base?: string) => {
+  const empty = { additions: 0, deletions: 0, filesChanged: 0 }
+  if (!worktreePath || typeof worktreePath !== 'string' || !isAbsolute(worktreePath)) return empty
+  try { if (!statSync(worktreePath).isDirectory()) return empty } catch { return empty }
+
+  // Resolve a base ref. Caller may pass undefined — fall back to origin/HEAD,
+  // then main/master/develop. We compare base..HEAD (two-dot) so the chip shows
+  // the diff "ahead of base" rather than including base's own changes.
+  let baseRef = base
+  if (!baseRef) {
+    try {
+      const head = execSync(`git -C "${worktreePath}" symbolic-ref refs/remotes/origin/HEAD`, {
+        encoding: 'utf8', timeout: 3000, stdio: ['pipe', 'pipe', 'pipe'],
+      }).trim()
+      baseRef = head.replace(/^refs\/remotes\//, '')
+    } catch {
+      for (const candidate of ['origin/main', 'origin/master', 'origin/develop', 'main', 'master']) {
+        try {
+          execSync(`git -C "${worktreePath}" rev-parse --verify "${candidate}"`, {
+            timeout: 2000, stdio: 'pipe',
+          })
+          baseRef = candidate
+          break
+        } catch { /* try next */ }
+      }
+    }
+  }
+  if (!baseRef || /["`$;|&<>]/.test(baseRef)) return empty
+
+  let out = ''
+  try {
+    out = execSync(`git -C "${worktreePath}" diff --shortstat "${baseRef}"...HEAD`, {
+      encoding: 'utf8', timeout: 5000, stdio: ['pipe', 'pipe', 'pipe'],
+    })
+  } catch {
+    return empty
+  }
+
+  // Sample line: " 3 files changed, 27 insertions(+), 4 deletions(-)"
+  // Either insertions or deletions can be missing (pure-add or pure-delete).
+  const filesM = out.match(/(\d+)\s+files?\s+changed/)
+  const addM = out.match(/(\d+)\s+insertions?\(\+\)/)
+  const delM = out.match(/(\d+)\s+deletions?\(-\)/)
+  return {
+    filesChanged: filesM ? parseInt(filesM[1]!, 10) : 0,
+    additions: addM ? parseInt(addM[1]!, 10) : 0,
+    deletions: delM ? parseInt(delM[1]!, 10) : 0,
+  }
+})
+
+// List untracked files matching .env* (root-level or nested). Used by
+// NewWorktreeModal to warn the user before creating a worktree, since
+// `git worktree add` does NOT copy untracked files like .env / .env.local.
+ipcMain.handle('git:listUntrackedEnvFiles', async (_evt, repoPath: string) => {
+  if (!repoPath || typeof repoPath !== 'string' || !isAbsolute(repoPath)) return []
+  try { if (!statSync(repoPath).isDirectory()) return [] } catch { return [] }
+  let out: string
+  try {
+    out = execSync(`git -C "${repoPath}" ls-files --others --exclude-standard`, {
+      encoding: 'utf8', timeout: 5000, stdio: ['pipe', 'pipe', 'pipe'],
+    })
+  } catch {
+    return []
+  }
+  return out
+    .split('\n')
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .filter((p) => {
+      const base = p.split('/').pop() ?? ''
+      // Matches `.env`, `.env.local`, `.env.production`, ... at any depth.
+      return /^\.env(\.|$)/.test(base)
+    })
+})
+
+// PR lookup cache (per branch, 5 min TTL, max 200 entries). Lives in main so
+// it survives renderer remounts and isn't duplicated across windows.
+type PRChip = { number: number; url: string } | null
+const prCache = new Map<string, { value: PRChip; expiresAt: number }>()
+const PR_CACHE_TTL_MS = 5 * 60 * 1000
+const PR_CACHE_MAX = 200
+
+function prCacheGet(key: string): PRChip | undefined {
+  const hit = prCache.get(key)
+  if (!hit) return undefined
+  if (hit.expiresAt < Date.now()) { prCache.delete(key); return undefined }
+  return hit.value
+}
+function prCacheSet(key: string, value: PRChip): void {
+  // Drop oldest insertion when over capacity (Map iteration order is insertion order).
+  if (prCache.size >= PR_CACHE_MAX) {
+    const firstKey = prCache.keys().next().value
+    if (firstKey !== undefined) prCache.delete(firstKey)
+  }
+  prCache.set(key, { value, expiresAt: Date.now() + PR_CACHE_TTL_MS })
+}
+
+function parseRemoteOrigin(repoPath: string): {
+  provider: 'github' | 'gitlab'
+  ownerRepo: string
+} | null {
+  try {
+    const remote = execSync(`git -C "${repoPath}" remote get-url origin`, {
+      encoding: 'utf8', timeout: 3000, stdio: ['pipe', 'pipe', 'pipe'],
+    }).trim()
+    const gh = remote.match(/github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/i)
+    if (gh) return { provider: 'github', ownerRepo: gh[1]! }
+    const gl = remote.match(/gitlab\.com[:/]([^/]+(?:\/[^/]+)+?)(?:\.git)?$/i)
+    if (gl) return { provider: 'gitlab', ownerRepo: gl[1]! }
+  } catch { /* fallthrough */ }
+  return null
+}
+
+ipcMain.handle('git:findPRForBranch', async (
+  _evt,
+  repoPath: string,
+  branch: string,
+  tokens?: { github?: string | null; gitlab?: string | null },
+): Promise<PRChip> => {
+  if (!repoPath || !isAbsolute(repoPath)) return null
+  if (!branch || typeof branch !== 'string' || branch === 'HEAD') return null
+
+  const cacheKey = `${repoPath}::${branch}`
+  const cached = prCacheGet(cacheKey)
+  if (cached !== undefined) return cached
+
+  const remote = parseRemoteOrigin(repoPath)
+  if (!remote) { prCacheSet(cacheKey, null); return null }
+
+  try {
+    if (remote.provider === 'github') {
+      const [owner, repo] = remote.ownerRepo.split('/') as [string, string]
+      const url = `https://api.github.com/repos/${owner}/${repo}/pulls?head=${encodeURIComponent(`${owner}:${branch}`)}&state=open`
+      const headers: Record<string, string> = {
+        'Accept': 'application/vnd.github+json',
+        'User-Agent': 'raven-nest',
+      }
+      const tok = tokens?.github
+      if (typeof tok === 'string' && tok) headers['Authorization'] = `Bearer ${tok}`
+      const res = await fetch(url, { headers })
+      if (!res.ok) { prCacheSet(cacheKey, null); return null }
+      const arr = (await res.json()) as Array<{ number: number; html_url: string }>
+      if (!Array.isArray(arr) || arr.length === 0) { prCacheSet(cacheKey, null); return null }
+      const pr = { number: arr[0]!.number, url: arr[0]!.html_url }
+      prCacheSet(cacheKey, pr)
+      return pr
+    }
+    // gitlab
+    const encoded = encodeURIComponent(remote.ownerRepo)
+    const url = `https://gitlab.com/api/v4/projects/${encoded}/merge_requests?source_branch=${encodeURIComponent(branch)}&state=opened`
+    const headers: Record<string, string> = { 'User-Agent': 'raven-nest' }
+    const tok = tokens?.gitlab
+    if (typeof tok === 'string' && tok) headers['PRIVATE-TOKEN'] = tok
+    const res = await fetch(url, { headers })
+    if (!res.ok) { prCacheSet(cacheKey, null); return null }
+    const arr = (await res.json()) as Array<{ iid: number; web_url: string }>
+    if (!Array.isArray(arr) || arr.length === 0) { prCacheSet(cacheKey, null); return null }
+    const pr = { number: arr[0]!.iid, url: arr[0]!.web_url }
+    prCacheSet(cacheKey, pr)
+    return pr
+  } catch {
+    prCacheSet(cacheKey, null)
+    return null
+  }
+})
+
+// Copy a list of (untracked) files from the source repo to a new worktree path.
+// Used by the .env carry-over checkbox in NewWorktreeModal. Defensive: never
+// overwrites existing files at the destination, never escapes the destination
+// dir via traversal in `files` entries.
+ipcMain.handle('worktree:copyFiles', async (
+  _evt,
+  srcRepoPath: string,
+  dstWorktreePath: string,
+  files: string[],
+) => {
+  if (!isAbsolute(srcRepoPath) || !isAbsolute(dstWorktreePath)) {
+    return { copied: 0, skipped: 0, errors: [] as string[] }
+  }
+  if (!Array.isArray(files)) return { copied: 0, skipped: 0, errors: [] as string[] }
+
+  let copied = 0
+  let skipped = 0
+  const errors: string[] = []
+  for (const rel of files) {
+    if (typeof rel !== 'string' || !rel) continue
+    if (rel.includes('..') || isAbsolute(rel) || rel.includes('\0')) {
+      errors.push(`skip ${rel} (unsafe path)`)
+      continue
+    }
+    const src = pathJoin(srcRepoPath, rel)
+    const dst = pathJoin(dstWorktreePath, rel)
+    try {
+      if (existsSync(dst)) {
+        console.warn(`[worktree:copyFiles] destination exists, skipping: ${dst}`)
+        skipped++
+        continue
+      }
+      mkdirSync(dirname(dst), { recursive: true })
+      copyFileSync(src, dst)
+      copied++
+    } catch (err) {
+      errors.push(`${rel}: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
+  return { copied, skipped, errors }
+})
+
 // === IDE launcher handlers (Plan 6 — v1.0) ===
 
 ipcMain.handle('ide:detect', async (_evt, force?: boolean) => detectIDEs(Boolean(force)))

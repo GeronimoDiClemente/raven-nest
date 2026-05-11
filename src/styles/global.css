@@ -6970,7 +6970,7 @@ button.ci-badge:hover {
 }
 .wt-list { display: flex; flex-direction: column; }
 .wt-item {
-  display: flex; align-items: center; gap: 6px;
+  display: flex; flex-direction: column; align-items: stretch; gap: 2px;
   padding: 6px 12px; cursor: pointer; font-size: 12px;
   color: var(--text-secondary);
 }
@@ -6979,6 +6979,7 @@ button.ci-badge:hover {
   background: rgba(0, 102, 255, 0.10); color: var(--text-primary);
   border-left: 2px solid var(--raven-blue); padding-left: 10px;
 }
+.wt-item-main { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .wt-dot {
   width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
 }
@@ -6986,11 +6987,50 @@ button.ci-badge:hover {
 .wt-dot-yellow { background: #FFB800; }
 .wt-dot-red { background: #FF1A1A; }
 .wt-dot-gray { background: #555; }
-.wt-branch { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wt-branch { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .wt-meta {
   color: var(--text-muted); font-size: 9px; font-family: 'JetBrains Mono', monospace;
 }
 .wt-empty { padding: 6px 12px; color: var(--text-muted); font-size: 11px; font-style: italic; }
+
+/* Slug: directory basename under the branch line. Muted, monospace so it
+   reads as "this is where it lives on disk", not as content. */
+.wt-slug {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: var(--text-muted);
+  padding-left: 12px; /* visually nests under the branch text */
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* +X / -Y diff chip — green/red tones tuned to read on the dark sidebar. */
+.wt-diff-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-family: 'JetBrains Mono', monospace; font-size: 10px;
+  flex-shrink: 0;
+}
+.wt-diff-add { color: #4ade80; }
+.wt-diff-del { color: #f87171; }
+
+/* PR badge — subtle indigo so it doesn't compete with status dot or spotlight. */
+.wt-pr-chip {
+  display: inline-flex; align-items: center;
+  background: rgba(68, 85, 255, 0.12);
+  border: 1px solid rgba(68, 85, 255, 0.35);
+  color: #8fa3ff;
+  border-radius: 4px;
+  padding: 0 5px;
+  font-size: 10px;
+  font-family: 'JetBrains Mono', monospace;
+  cursor: pointer;
+  flex-shrink: 0;
+  line-height: 1.4;
+}
+.wt-pr-chip:hover {
+  background: rgba(68, 85, 255, 0.22);
+  border-color: rgba(68, 85, 255, 0.55);
+  color: #b6c2ff;
+}
 
 /* ── NewWorktreeModal ────────────────────────────────────── */
 
@@ -7012,6 +7052,41 @@ button.ci-badge:hover {
   border: 1px solid rgba(255, 26, 26, 0.40); color: #FF6666;
   font-size: 11px; border-radius: 4px;
 }
+
+/* .env carry-over warning in NewWorktreeModal — uses the same amber tone as
+   .pane-sync-cwd-btn and .rb-heavy-banner so all "watch out" hints look alike. */
+.wt-env-banner {
+  margin-top: 14px;
+  padding: 10px 12px;
+  background: #FFB80018;
+  border: 1px solid #FFB80066;
+  color: #FFB800;
+  border-radius: 6px;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.wt-env-banner-text { display: flex; align-items: center; gap: 6px; }
+.wt-env-banner-icon { font-size: 13px; }
+.wt-env-banner-text strong { color: #FFB800; font-weight: 600; }
+.wt-env-banner-list {
+  list-style: none;
+  margin: 6px 0 0 22px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: #FFB800cc;
+}
+.wt-env-banner-list li { line-height: 1.5; }
+.wt-env-banner-list li::before { content: '• '; }
+.wt-env-banner-copy {
+  display: flex; align-items: center; gap: 6px;
+  margin-top: 8px;
+  font-size: 11px;
+  color: #FFB800;
+  cursor: pointer;
+  user-select: none;
+}
+.wt-env-banner-copy input { cursor: pointer; }
+
 .dialog-actions {
   display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px;
 }

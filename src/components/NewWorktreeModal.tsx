@@ -17,6 +17,8 @@ export function NewWorktreeModal({ open, repoPath, onClose, onCreated }: Props) 
   const [error, setError] = useState<string | null>(null)
   const [branches, setBranches] = useState<string[]>([])
   const [fromBranch, setFromBranch] = useState<string>('')
+  const [envFiles, setEnvFiles] = useState<string[]>([])
+  const [copyEnvFiles, setCopyEnvFiles] = useState(true)
 
   useEffect(() => {
     if (!open) return
@@ -38,6 +40,9 @@ export function NewWorktreeModal({ open, repoPath, onClose, onCreated }: Props) 
       setBranches([])
       setFromBranch('')
     })
+    // Detect untracked .env* files so we can warn — git worktree add does not
+    // copy them, which silently breaks dev servers in the new worktree.
+    void window.git.listUntrackedEnvFiles(repoPath).then(setEnvFiles).catch(() => setEnvFiles([]))
   }, [open, repoPath])
 
   if (!open) return null
@@ -63,6 +68,15 @@ export function NewWorktreeModal({ open, repoPath, onClose, onCreated }: Props) 
         path: path.trim() || undefined,
         presetId: presetId ?? undefined,
       })
+      // Best-effort .env carry-over. Failures are logged but never abort the
+      // create flow — the worktree already exists at this point.
+      if (copyEnvFiles && envFiles.length > 0) {
+        try {
+          await window.worktree.copyFiles(repoPath, meta.repoPath, envFiles)
+        } catch (copyErr) {
+          console.warn('[NewWorktreeModal] env carry-over failed', copyErr)
+        }
+      }
       onCreated(meta)
       setBranch(''); setPath(''); setPresetId(null); onClose()
     } catch (err) {
@@ -149,6 +163,30 @@ export function NewWorktreeModal({ open, repoPath, onClose, onCreated }: Props) 
         </div>
 
         {error && <div className="modal-error">{error}</div>}
+
+        {envFiles.length > 0 && (
+          <div className="wt-env-banner">
+            <div className="wt-env-banner-text">
+              <span className="wt-env-banner-icon">⚠</span>
+              <strong>{envFiles.length}</strong> untracked .env file{envFiles.length === 1 ? '' : 's'} won't be copied to the new worktree.
+            </div>
+            <ul className="wt-env-banner-list">
+              {envFiles.slice(0, 6).map((f) => (
+                <li key={f}>{f}</li>
+              ))}
+              {envFiles.length > 6 && <li>…and {envFiles.length - 6} more</li>}
+            </ul>
+            <label className="wt-env-banner-copy">
+              <input
+                type="checkbox"
+                checked={copyEnvFiles}
+                onChange={(e) => setCopyEnvFiles(e.target.checked)}
+                disabled={creating}
+              />
+              Copy these files to the new worktree after creation
+            </label>
+          </div>
+        )}
 
         <div className="dialog-actions">
           <button className="dialog-cancel" onClick={onClose} disabled={creating}>Cancel</button>

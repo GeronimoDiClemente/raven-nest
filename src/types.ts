@@ -353,6 +353,16 @@ declare global {
         defaultBranch: string | null
       }>
       pickRepoFolder: () => Promise<string | null>
+      shortstat: (
+        worktreePath: string,
+        base?: string,
+      ) => Promise<{ additions: number; deletions: number; filesChanged: number }>
+      findPRForBranch: (
+        repoPath: string,
+        branch: string,
+        tokens?: { github?: string | null; gitlab?: string | null },
+      ) => Promise<{ number: number; url: string } | null>
+      listUntrackedEnvFiles: (repoPath: string) => Promise<string[]>
     }
     speech: {
       check: () => Promise<boolean>
@@ -389,6 +399,11 @@ declare global {
       remove: (worktreePath: string) => Promise<void>
       get: (worktreePath: string) => Promise<WorktreeMeta | null>
       setPreset: (worktreePath: string, presetId: string | null) => Promise<void>
+      copyFiles: (
+        srcRepoPath: string,
+        dstWorktreePath: string,
+        files: string[],
+      ) => Promise<{ copied: number; skipped: number; errors: string[] }>
     }
     preset: {
       list: (repoPath: string) => Promise<RavenPreset[]>

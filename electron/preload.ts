@@ -121,6 +121,15 @@ contextBridge.exposeInMainWorld('git', {
   pushBranch: (worktreePath: string) => ipcRenderer.invoke('git:pushBranch', worktreePath),
   listBranches: (repoPath: string) => ipcRenderer.invoke('git:listBranches', repoPath),
   pickRepoFolder: () => ipcRenderer.invoke('dialog:pickRepoFolder'),
+  shortstat: (worktreePath: string, base?: string) =>
+    ipcRenderer.invoke('git:shortstat', worktreePath, base),
+  findPRForBranch: (
+    repoPath: string,
+    branch: string,
+    tokens?: { github?: string | null; gitlab?: string | null },
+  ) => ipcRenderer.invoke('git:findPRForBranch', repoPath, branch, tokens),
+  listUntrackedEnvFiles: (repoPath: string) =>
+    ipcRenderer.invoke('git:listUntrackedEnvFiles', repoPath),
 })
 
 contextBridge.exposeInMainWorld('pathUtils', {
@@ -216,6 +225,8 @@ contextBridge.exposeInMainWorld('worktree', {
   get: (worktreePath: string) => ipcRenderer.invoke('worktree:get', worktreePath),
   setPreset: (worktreePath: string, presetId: string | null) =>
     ipcRenderer.invoke('worktree:setPreset', worktreePath, presetId),
+  copyFiles: (srcRepoPath: string, dstWorktreePath: string, files: string[]) =>
+    ipcRenderer.invoke('worktree:copyFiles', srcRepoPath, dstWorktreePath, files),
 })
 
 contextBridge.exposeInMainWorld('port', {

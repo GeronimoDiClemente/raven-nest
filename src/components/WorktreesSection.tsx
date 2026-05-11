@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import type { WorktreeMeta } from '../types'
 import { IDEPickerMenu } from './IDEPickerMenu'
+import { useGitHub } from '../hooks/useGitHub'
+import { useGitlab } from '../hooks/useGitlab'
 
 interface Props {
   repoPath: string | null
@@ -8,6 +10,16 @@ interface Props {
   onSelect: (worktreePath: string) => void
   onNewClick: () => void
   refreshKey?: number
+}
+
+interface DiffStat { additions: number; deletions: number }
+interface PRChipInfo { number: number; url: string }
+
+function basenameOf(p: string): string {
+  // Strip trailing separators, then take the last segment. Handles both `/` and `\`.
+  const trimmed = p.replace(/[\\/]+$/, '')
+  const idx = Math.max(trimmed.lastIndexOf('/'), trimmed.lastIndexOf('\\'))
+  return idx >= 0 ? trimmed.slice(idx + 1) : trimmed
 }
 
 const STATUS_DOT_CLASS: Record<WorktreeMeta['setupState'], string> = {
@@ -33,6 +45,12 @@ export function WorktreesSection({ repoPath, activeRepoPath, onSelect, onNewClic
   const [spotlightPath, setSpotlightPath] = useState<string | null>(null)
   const [idePickerAt, setIdePickerAt] = useState<{ x: number; y: number; worktreePath: string } | null>(null)
   const [pushingPath, setPushingPath] = useState<string | null>(null)
+  // Diff stats and PR chips are loaded asynchronously after the worktree list
+  // renders, so the sidebar never blocks on network or git calls.
+  const [diffStats, setDiffStats] = useState<Record<string, DiffStat>>({})
+  const [prChips, setPrChips] = useState<Record<string, PRChipInfo>>({})
+  const { githubToken } = useGitHub()
+  const { gitlabToken } = useGitlab()
 
   useEffect(() => {
     void window.spotlight.status().then((s) => {
@@ -71,6 +89,44 @@ export function WorktreesSection({ repoPath, activeRepoPath, onSelect, onNewClic
     window.preset.onSetupState(onState)
     return () => window.preset.removeListeners()
   }, [repoPath])
+
+  // Fetch diff stats for all non-root worktrees in parallel. Each result drops
+  // into state independently, so the list never waits for the slowest one.
+  useEffect(() => {
+    if (worktrees.length === 0) { setDiffStats({}); return }
+    let cancelled = false
+    setDiffStats({})
+    const targets = worktrees.filter((w) => w.repoPath !== w.rootRepoPath)
+    void Promise.allSettled(
+      targets.map(async (wt) => {
+        const res = await window.git.shortstat(wt.repoPath).catch(() => null)
+        if (cancelled || !res) return
+        if (res.additions === 0 && res.deletions === 0) return
+        setDiffStats((prev) => ({
+          ...prev,
+          [wt.repoPath]: { additions: res.additions, deletions: res.deletions },
+        }))
+      }),
+    )
+    return () => { cancelled = true }
+  }, [worktrees, refreshKey])
+
+  // Fetch PR chips for all non-root worktrees in parallel.
+  useEffect(() => {
+    if (worktrees.length === 0) { setPrChips({}); return }
+    let cancelled = false
+    setPrChips({})
+    const targets = worktrees.filter((w) => w.repoPath !== w.rootRepoPath && w.branch && w.branch !== 'HEAD')
+    const tokens = { github: githubToken, gitlab: gitlabToken }
+    void Promise.allSettled(
+      targets.map(async (wt) => {
+        const res = await window.git.findPRForBranch(wt.rootRepoPath, wt.branch, tokens).catch(() => null)
+        if (cancelled || !res) return
+        setPrChips((prev) => ({ ...prev, [wt.repoPath]: res }))
+      }),
+    )
+    return () => { cancelled = true }
+  }, [worktrees, refreshKey, githubToken, gitlabToken])
 
   useEffect(() => {
     if (!contextMenu) return
@@ -144,30 +200,60 @@ export function WorktreesSection({ repoPath, activeRepoPath, onSelect, onNewClic
       </div>
       {expanded && (
         <div className="wt-list">
-          {worktrees.map((wt) => (
-            <div
-              key={wt.repoPath}
-              className={`wt-item ${activeRepoPath === wt.repoPath ? 'wt-item-active' : ''}`}
-              onClick={() => onSelect(wt.repoPath)}
-              onContextMenu={(e) => {
-                e.preventDefault()
-                setContextMenu({
-                  x: e.clientX,
-                  y: e.clientY,
-                  worktreePath: wt.repoPath,
-                  isRoot: wt.repoPath === wt.rootRepoPath,
-                })
-              }}
-              title={wt.repoPath}
-            >
-              <span className={`wt-dot ${STATUS_DOT_CLASS[wt.setupState]}`} />
-              <span className="wt-branch">{wt.branch}</span>
-              {spotlightPath === wt.repoPath && <span className="wt-spotlight" title="Spotlight active">⚡</span>}
-              <span className="wt-meta">
-                {wt.repoPath === wt.rootRepoPath ? 'root' : ''}
-              </span>
-            </div>
-          ))}
+          {worktrees.map((wt) => {
+            const isRoot = wt.repoPath === wt.rootRepoPath
+            const stat = diffStats[wt.repoPath]
+            const pr = prChips[wt.repoPath]
+            const slug = basenameOf(wt.repoPath)
+            return (
+              <div
+                key={wt.repoPath}
+                className={`wt-item ${activeRepoPath === wt.repoPath ? 'wt-item-active' : ''}`}
+                onClick={() => onSelect(wt.repoPath)}
+                onContextMenu={(e) => {
+                  e.preventDefault()
+                  setContextMenu({
+                    x: e.clientX,
+                    y: e.clientY,
+                    worktreePath: wt.repoPath,
+                    isRoot,
+                  })
+                }}
+                title={wt.repoPath}
+              >
+                <div className="wt-item-main">
+                  <span className={`wt-dot ${STATUS_DOT_CLASS[wt.setupState]}`} />
+                  <span className="wt-branch">{wt.branch}</span>
+                  {!isRoot && stat && (stat.additions > 0 || stat.deletions > 0) && (
+                    <span className="wt-diff-chip" title="Lines changed vs base">
+                      {stat.additions > 0 && (
+                        <span className="wt-diff-add">+{stat.additions}</span>
+                      )}
+                      {stat.deletions > 0 && (
+                        <span className="wt-diff-del">-{stat.deletions}</span>
+                      )}
+                    </span>
+                  )}
+                  {!isRoot && pr && (
+                    <button
+                      type="button"
+                      className="wt-pr-chip"
+                      title={`Open PR ${pr.url}`}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        window.electronShell.openExternal(pr.url)
+                      }}
+                    >
+                      #{pr.number}
+                    </button>
+                  )}
+                  {spotlightPath === wt.repoPath && <span className="wt-spotlight" title="Spotlight active">⚡</span>}
+                  <span className="wt-meta">{isRoot ? 'root' : ''}</span>
+                </div>
+                <div className="wt-slug" title={wt.repoPath}>{slug}</div>
+              </div>
+            )
+          })}
           {worktrees.length === 0 && (
             <div className="wt-empty">No worktrees</div>
           )}
