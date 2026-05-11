@@ -50,6 +50,10 @@ import { createTray } from './tray'
 
 const ptyManager = new PtyManager()
 const accountStore = new AccountStore()
+// Ensure every existing Claude account has the shared config (CLAUDE.md,
+// settings.json, skills, etc.) linked from ~/.claude. Idempotent — only
+// fills in missing links, never replaces a user's real file or dir.
+accountStore.migrateClaudeAccounts()
 const customCLIStore = new CustomCLIStore()
 const snippetStore = new SnippetStore()
 const conversationStore = new ConversationStore()
@@ -898,6 +902,7 @@ ipcMain.handle('session:save', (_event, data: unknown) => {
 
 type UpdaterState = 'idle' | 'downloading' | 'ready'
 let updaterState: UpdaterState = 'idle'
+let updaterInterval: NodeJS.Timeout | null = null
 
 function safeCheckForUpdates(): void {
   if (updaterState !== 'idle') return
@@ -907,6 +912,12 @@ function safeCheckForUpdates(): void {
 function setupAutoUpdater(): void {
   // Only run in packaged app, not in dev
   if (process.env['ELECTRON_RENDERER_URL']) return
+
+  // Clear any previously attached listeners so repeated calls (e.g. HMR/reload)
+  // don't accumulate handlers and leak memory.
+  autoUpdater.removeAllListeners('update-available')
+  autoUpdater.removeAllListeners('update-downloaded')
+  autoUpdater.removeAllListeners('error')
 
   autoUpdater.autoDownload = true
   autoUpdater.autoInstallOnAppQuit = true
@@ -936,9 +947,12 @@ function setupAutoUpdater(): void {
     if (win) win.webContents.send('updater:status', 'error', shortMsg)
   })
 
-  // Check on launch, then every 4 hours
+  // Check on launch, then every 4 hours. Capture the handle so we can clear
+  // it on before-quit (otherwise the interval keeps the event loop alive past
+  // app exit and leaks across HMR reloads in dev).
   safeCheckForUpdates()
-  setInterval(safeCheckForUpdates, 4 * 60 * 60 * 1000)
+  if (updaterInterval) clearInterval(updaterInterval)
+  updaterInterval = setInterval(safeCheckForUpdates, 4 * 60 * 60 * 1000)
 }
 
 ipcMain.on('updater:install', () => {
@@ -1204,4 +1218,9 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   shutdownWhisper()
+  if (updaterInterval) {
+    clearInterval(updaterInterval)
+    updaterInterval = null
+  }
+  benchmark.stopAll()
 })

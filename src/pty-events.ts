@@ -37,3 +37,23 @@ export function subscribeToPtyData(cb: GlobalDataCallback): () => void {
   globalDataSubscribers.add(cb)
   return () => { globalDataSubscribers.delete(cb) }
 }
+
+/**
+ * Tear down the global IPC listeners and clear subscriber maps. Intended to
+ * run on window `beforeunload` so the renderer doesn't leak listeners (or
+ * keep stale callbacks alive) across reloads / window close.
+ */
+export function stopListening(): void {
+  window.pty.removeAllListeners()
+  dataCallbacks.clear()
+  exitCallbacks.clear()
+  globalDataSubscribers.clear()
+  ipcRegistered = false
+}
+
+// Attach at module load so cleanup happens regardless of which component
+// mounted first. Idempotent — `removeAllListeners` is a no-op if nothing
+// was registered yet.
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeunload', stopListening)
+}
