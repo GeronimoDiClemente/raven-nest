@@ -37,6 +37,11 @@ import { WorktreeStore } from './worktree-store'
 import { PresetStore } from './preset-store'
 import { SetupRunner } from './setup-runner'
 import { scanPid } from './port-monitor'
+// pidtree resolves a pid's full descendant tree. Used so port scans cover the
+// actual server (a child of the PowerShell shell), not just the shell itself.
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore
+import pidtree from 'pidtree'
 import { BrowserPaneManager } from './browser-pane-manager'
 import { SpotlightEngine } from './spotlight-engine'
 import { BenchmarkRecorder } from './benchmark-recorder'
@@ -869,7 +874,7 @@ ipcMain.handle('benchmark:setMode', async (_evt, cellId: string, mode: 'setup' |
 
 ipcMain.handle('metrics:snapshot', async (
   _evt,
-  panes: Array<{ paneId: string; repoPath: string | undefined; label: string }>,
+  panes: Array<{ paneId: string; repoPath: string | undefined; label: string; accountName?: string }>,
 ) => {
   // Resolve PIDs in main — renderer never sees raw OS PIDs in any other API
   // surface, so we keep that boundary here too. ptyManager.getPid() returns
@@ -881,6 +886,7 @@ ipcMain.handle('metrics:snapshot', async (
     pid: ptyManager.getPid(p.paneId) ?? 0,
     label: p.label,
     repoPath: p.repoPath,
+    accountName: p.accountName,
   }))
   return metricsCollector.collect(inputs)
 })
@@ -927,17 +933,37 @@ ipcMain.handle('metrics:killPid', async (_evt, pid: number) => {
 
 // Bulk port-scan for many pids in one IPC call. Used by the resource popover
 // so we can render port chips per worktree without N round-trips. Each pid is
-// resolved independently so one slow/dead pid doesn't block the rest.
+// expanded to its full process tree FIRST so we catch ports opened by child
+// processes (e.g. `node` under `npm run dev` under the PowerShell shell) —
+// the shell itself almost never listens on a port. The map key remains the
+// ORIGINAL input pid so the renderer can still look up ports by pane pid.
 ipcMain.handle('metrics:portsByPids', async (_evt, pids: number[]) => {
   if (!Array.isArray(pids)) return {} as Record<number, number[]>
   const valid = pids.filter((p) => Number.isFinite(p) && p > 0)
   const out: Record<number, number[]> = {}
-  const results = await Promise.allSettled(valid.map((p) => scanPid(p)))
-  results.forEach((res, idx) => {
-    if (res.status === 'fulfilled' && Array.isArray(res.value) && res.value.length > 0) {
-      out[valid[idx]!] = res.value
+  // 1. Resolve each pid's tree (pid + descendants). Failure → fall back to [pid].
+  const trees = await Promise.all(valid.map(async (p) => {
+    try {
+      const tree = await (pidtree(p, { root: true }) as Promise<number[]>)
+      return Array.isArray(tree) && tree.length > 0 ? tree : [p]
+    } catch {
+      return [p]
     }
-  })
+  }))
+  // 2. For each input pid, scan every pid in its tree and union the results.
+  await Promise.all(valid.map(async (p, idx) => {
+    const tree = trees[idx]!
+    const results = await Promise.allSettled(tree.map((tp) => scanPid(tp)))
+    const merged = new Set<number>()
+    for (const r of results) {
+      if (r.status === 'fulfilled' && Array.isArray(r.value)) {
+        for (const port of r.value) merged.add(port)
+      }
+    }
+    if (merged.size > 0) {
+      out[p] = Array.from(merged).sort((a, b) => a - b)
+    }
+  }))
   return out
 })
 

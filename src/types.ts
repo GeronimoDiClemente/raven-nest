@@ -72,12 +72,17 @@ export interface PaneMetric {
   cpuPercent: number
   memBytes: number
 }
+export interface DiskBucket {
+  name: string
+  size: number
+}
 export interface WorktreeMetricInfo {
   worktreePath: string
   branchLabel: string
   cpuPercent: number
   memBytes: number
   diskBytes: number | null
+  diskBuckets?: DiskBucket[]
   panes: PaneMetric[]
 }
 export interface RepoMetric {
@@ -86,6 +91,7 @@ export interface RepoMetric {
   cpuPercent: number
   memBytes: number
   diskBytes: number | null
+  diskBuckets?: DiskBucket[]
   worktrees: WorktreeMetricInfo[]
 }
 export interface MetricsSnapshot {
@@ -98,6 +104,7 @@ export interface MetricsPaneInput {
   paneId: string
   repoPath: string | undefined
   label: string
+  accountName?: string
 }
 
 export interface RavenPreset {
@@ -470,7 +477,7 @@ declare global {
     }
     metrics: {
       snapshot: (panes: MetricsPaneInput[]) => Promise<MetricsSnapshot>
-      refreshDisk: (worktreePaths: string[]) => Promise<Record<string, number>>
+      refreshDisk: (worktreePaths: string[]) => Promise<Record<string, { total: number; buckets: DiskBucket[] }>>
       killPid: (pid: number) => Promise<{ ok: true } | { ok: false; error: string }>
       portsByPids: (pids: number[]) => Promise<Record<number, number[]>>
     }

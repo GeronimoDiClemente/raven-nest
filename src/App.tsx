@@ -818,7 +818,9 @@ export default function App() {
         if (!cell) continue
         if (cell.aiType === 'browser') continue
         const label = cell.customLabel ?? AI_CONFIG[cell.aiType]?.label ?? 'Terminal'
-        out.push({ paneId: cell.id, repoPath: cell.repoPath, label })
+        // accountName lets the metrics popover distinguish 3 parallel "Claude"
+        // panes by which account each one is running under (e.g. "Claude · gero").
+        out.push({ paneId: cell.id, repoPath: cell.repoPath, label, accountName: cell.accountName })
       }
     }
     return out

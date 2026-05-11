@@ -10,6 +10,7 @@
   "main": "dist-electron/main.js",
   "scripts": {
     "dev": "electron-vite dev",
+    "dev:storage": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev-with-storage.ps1",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "release:win": "electron-vite build && electron-builder --win --config.npmRebuild=false --publish always",
@@ -115,6 +116,7 @@
     "@xterm/xterm": "^5.5.0",
     "electron-updater": "^6.8.3",
     "node-pty": "^1.1.0",
+    "pidtree": "^0.6.0",
     "pidusage": "^4.0.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",

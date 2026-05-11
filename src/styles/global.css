@@ -81,6 +81,7 @@ body {
   padding: 0 4px;
   flex-shrink: 0;
   -webkit-app-region: drag;
+  overflow: hidden;
 }
 
 .tabbar-traffic-lights {
@@ -96,6 +97,8 @@ body {
   -webkit-app-region: no-drag;
   overflow-x: auto;
   scrollbar-width: none;
+  min-width: 0;
+  flex-shrink: 1;
 }
 
 .tabbar-tabs::-webkit-scrollbar {
@@ -118,8 +121,9 @@ body {
   border-radius: 6px 6px 0 0;
   font-size: 12px;
   cursor: pointer;
-  flex-shrink: 0;
-  min-width: 160px;
+  flex-shrink: 1;
+  flex-basis: 200px;
+  min-width: 32px;
   max-width: 220px;
   color: var(--text-secondary);
   border: 1px solid transparent;
@@ -127,6 +131,18 @@ body {
   user-select: none;
   position: relative;
   overflow: hidden;
+}
+
+/* Keep the active tab readable a touch longer when the row gets crowded */
+.tab.active {
+  min-width: 64px;
+}
+
+/* When a tab shrinks below readable width, hide the close button so the
+   label has room. Hover still reveals it via the existing .tab:hover rule
+   on tabs that have enough space. */
+.tab .tab-close {
+  flex-shrink: 0;
 }
 
 .tab::before {
@@ -7366,31 +7382,53 @@ button.ci-badge:hover {
 
 /* ── Resource Usage (titlebar pill + popover) ────────────────── */
 
+/* Floats over the tabbar's right edge, before the Windows native titlebar
+   overlay (~138px reserved for min/max/close). Position fixed because the
+   tabbar's flex layout otherwise pushes the pill off-screen with many tabs.
+   The tabbar reserves padding-right (below) so tabs don't slide under it. */
 .resource-bar-wrap {
-  position: relative;
+  position: fixed;
+  top: 10px;
+  right: 152px;
+  z-index: 100;
   -webkit-app-region: no-drag;
   display: flex;
   align-items: center;
-  flex-shrink: 0;
 }
 
-/* Reserve space for Windows native titlebar overlay (min/max/close ~138px) */
-body.platform-win .resource-bar-wrap {
-  margin-right: 140px;
+body.platform-mac .resource-bar-wrap {
+  /* macOS traffic lights are on the LEFT, so no native overlay reserved here */
+  right: 12px;
 }
+
+/* Keep tabs from scrolling under the floating pill */
+body.platform-win .tabbar { padding-right: 256px; }
+body.platform-mac .tabbar { padding-right: 116px; }
 
 .resource-bar-pill {
-  background: rgba(0, 102, 255, 0.08);
-  border: 1px solid rgba(0, 102, 255, 0.35);
-  color: var(--text-primary);
-  font-size: 11px;
-  font-family: 'JetBrains Mono', ui-monospace, monospace;
-  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-variant-numeric: tabular-nums;
+  border-radius: 6px;
   padding: 4px 12px;
-  margin: 0 6px;
   cursor: pointer;
   white-space: nowrap;
   transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+
+.resource-bar-pill:hover {
+  color: var(--text-primary);
+  border-color: rgba(0, 102, 255, 0.4);
+  background: rgba(0, 102, 255, 0.06);
+}
+
+.resource-bar-pill--open {
+  color: var(--text-primary);
+  border-color: var(--raven-blue);
+  background: rgba(0, 102, 255, 0.1);
 }
 
 .resource-bar-pill:hover {
@@ -7708,5 +7746,71 @@ body.platform-win .resource-bar-wrap {
 .rb-kill-btn:disabled {
   cursor: default;
   opacity: 0.4;
+}
+
+/* Disk bucket rows shown under an expanded worktree — same grandchild indent
+   as panes, muted text + right-aligned monospace size so the eye lines up
+   the numbers across rows. No hover interaction (read-only breakdown). */
+.rb-bucket-row {
+  color: var(--text-secondary);
+  cursor: default;
+  font-size: 11px;
+}
+
+.rb-bucket-name {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  color: var(--text-secondary);
+}
+
+.rb-bucket-size {
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.rb-bucket-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 28px 4px 28px;
+  opacity: 0.5;
+}
+
+/* Inline bucket summary on the repo header (top 3) — collapses to dots when
+   tight, gets the muted treatment so it reads as metadata, not a metric. */
+.rb-bucket-inline {
+  margin-left: 4px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.rb-bucket-inline-item {
+  margin-left: 2px;
+}
+
+.rb-bucket-sep {
+  color: var(--text-muted);
+  margin-right: 2px;
+}
+
+/* 3-segment pane label separator. The middle dot stays muted so the eye can
+   pick out the segments (cli · account · pid) without the row looking like a
+   sentence. accountName uses text-secondary (slightly brighter than muted)
+   so two panes from the same CLI but different accounts pop visually. */
+.rb-label-sep {
+  color: var(--text-muted);
+}
+
+.rb-label-account {
+  color: var(--text-secondary);
+}
+
+.rb-label-pid {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
 }
 

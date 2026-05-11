@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react'
-import type { MetricsSnapshot, RepoMetric, WorktreeMetricInfo, PaneMetric } from '../types'
+import { useMemo, useState, type ReactNode } from 'react'
+import type { MetricsSnapshot, RepoMetric, WorktreeMetricInfo, PaneMetric, DiskBucket } from '../types'
 
 type PrimaryMetric = 'memory' | 'cpu'
 
@@ -246,6 +246,14 @@ function groupNestProcesses(processes: { type: 'Main' | 'Renderer' | 'Other'; cp
   })
 }
 
+// Top-N bucket preview for the inline repo header — keeps the header dense
+// without overwhelming it. 3 is the magic number where you still see the
+// dominant categories (node_modules + .git + dist usually).
+function topBuckets(buckets: DiskBucket[] | undefined, n: number): DiskBucket[] {
+  if (!Array.isArray(buckets) || buckets.length === 0) return []
+  return buckets.slice(0, n)
+}
+
 function RepoNode({
   repo, ports, killingPid, collapsed, collapsedWorktrees, onToggleRepo, onToggleWorktree, onKill,
 }: {
@@ -260,11 +268,21 @@ function RepoNode({
 }) {
   const arrow = collapsed ? '▸' : '▾'
   const disk = diskLabel(repo.diskBytes)
+  const inlineBuckets = topBuckets(repo.diskBuckets, 3)
   return (
     <div className="rb-section">
       <button className="rb-row rb-row--header rb-row--clickable" onClick={onToggleRepo}>
         <span className="rb-row-label">
           <span className="rb-arrow">{arrow}</span> {repo.repoName}
+          {inlineBuckets.length > 0 && (
+            <span className="rb-bucket-inline">
+              {inlineBuckets.map((b) => (
+                <span key={b.name} className="rb-bucket-inline-item">
+                  <span className="rb-bucket-sep">·</span> {b.name} {formatBytes(b.size)}
+                </span>
+              ))}
+            </span>
+          )}
         </span>
         <span className="rb-row-metric">
           {formatPct(repo.cpuPercent)} / {formatBytes(repo.memBytes)}
@@ -311,6 +329,7 @@ function WorktreeNode({
     }
     return Array.from(set).sort((a, b) => a - b)
   })()
+  const showBuckets = !collapsed && Array.isArray(worktree.diskBuckets) && worktree.diskBuckets.length > 0
   return (
     <>
       <button className="rb-row rb-row--child rb-row--clickable" onClick={onToggle}>
@@ -329,6 +348,17 @@ function WorktreeNode({
           <span className="rb-row-disk"> · disk {disk}</span>
         </span>
       </button>
+      {showBuckets && (
+        <>
+          {worktree.diskBuckets!.map((b) => (
+            <div key={b.name} className="rb-row rb-row--grandchild rb-bucket-row">
+              <span className="rb-row-label rb-bucket-name">{b.name}</span>
+              <span className="rb-row-metric rb-bucket-size">{formatBytes(b.size)}</span>
+            </div>
+          ))}
+          <div className="rb-bucket-divider" />
+        </>
+      )}
       {!collapsed && worktree.panes.map((pane) => (
         <PaneRow
           key={pane.paneId}
@@ -338,6 +368,32 @@ function WorktreeNode({
           onKill={onKill}
         />
       ))}
+    </>
+  )
+}
+
+// PaneRow renders the label as 2 or 3 segments. The backend composes
+// `<label>` or `<label> · <accountName>` into PaneMetric.label, and we always
+// append the pid here. The middle-dot separators get a muted color so the
+// segmentation is visible without being noisy.
+function renderPaneLabel(pane: PaneMetric): ReactNode {
+  // Split on the middle-dot the backend used. We only split on the FIRST
+  // separator so a future label that happens to contain "·" doesn't get
+  // shredded into 4 segments by mistake.
+  const idx = pane.label.indexOf(' · ')
+  const head = idx >= 0 ? pane.label.slice(0, idx) : pane.label
+  const account = idx >= 0 ? pane.label.slice(idx + 3) : null
+  return (
+    <>
+      <span className="rb-bullet">■</span> {head}
+      {account && (
+        <>
+          <span className="rb-label-sep"> · </span>
+          <span className="rb-label-account">{account}</span>
+        </>
+      )}
+      <span className="rb-label-sep"> · </span>
+      <span className="rb-label-pid">{pane.pid}</span>
     </>
   )
 }
@@ -353,7 +409,7 @@ function PaneRow({
   return (
     <div className="rb-row rb-row--grandchild rb-row--has-kill">
       <span className="rb-row-label">
-        <span className="rb-bullet">■</span> {pane.label}
+        {renderPaneLabel(pane)}
       </span>
       <span className="rb-row-metric">
         {formatPct(pane.cpuPercent)} / {formatBytes(pane.memBytes)}
