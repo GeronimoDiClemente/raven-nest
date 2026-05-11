@@ -56,10 +56,18 @@ export async function detectIDEs(force = false): Promise<DetectedIDE[]> {
 }
 
 export function openInIDE(binPath: string, worktreePath: string): void {
-  spawn(binPath, [worktreePath], {
+  // Windows: `code` resolves to `code.cmd`. Node's spawn won't find a .cmd
+  // shim without shell:true. Without it, spawn emits an async 'error' event
+  // that, if unhandled, crashes the main process (ENOENT uncaught exception).
+  const child = spawn(binPath, [worktreePath], {
     detached: true,
     stdio: 'ignore',
-  }).unref()
+    shell: process.platform === 'win32',
+  })
+  child.on('error', (err) => {
+    console.error('[ide-launcher] failed to spawn IDE', { binPath, error: err.message })
+  })
+  child.unref()
 }
 
 export function clearCache(): void { cache = null }
