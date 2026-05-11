@@ -405,6 +405,16 @@ function PaneAILogo({ aiType, color, size }: { aiType: string | undefined; color
     case 'codex':    return <CodexLogo size={size} color={color} />
     case 'copilot':  return <CopilotLogo size={size} />
     case 'opencode': return <OpenCodeLogo size={size} color={color} />
+    case 'external':
+      // Mini terminal box icon — signals "aggregated process group, not a
+      // single pane". Same stroke color as aiColor so the user can read it
+      // as "neutral, non-AI" alongside the colorful AI logos.
+      return (
+        <svg width={size} height={size} viewBox="0 0 12 12" aria-hidden="true">
+          <rect x="0.75" y="2" width="10.5" height="8" rx="1.5" fill="none" stroke={color} strokeWidth="1.2" />
+          <path d="M3 5.2 L5 6.5 L3 7.8 M6 8 L8.5 8" stroke={color} strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+        </svg>
+      )
     default:
       // Custom CLIs (or panes whose aiType isn't surfaced) → colored square.
       return <span style={{ display: 'inline-block', width: size, height: size, background: color, borderRadius: 2 }} />

@@ -3,6 +3,7 @@ import { execSync, execFile } from 'child_process'
 import { opendirSync, statSync } from 'fs'
 import { resolve, dirname, basename, join } from 'path'
 import { totalmem, cpus, platform as osPlatform } from 'os'
+import { listenPortsForPids } from './port-monitor'
 // pidusage ships no types — declare a minimal shape locally.
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore
@@ -782,11 +783,25 @@ export class MetricsCollector {
         }
       }
       if (memory === 0 && cpu === 0) continue
+
+      // Surface which ports (if any) the external tree is listening on —
+      // most useful "what is this?" hint for the user (e.g. ":5173" tells
+      // them it's their dev server). Single netstat pass over the tree.
+      let portSuffix = ''
+      try {
+        const ports = await listenPortsForPids(seen)
+        if (ports.length > 0) {
+          portSuffix = ' · ' + ports.slice(0, 3).map((p) => `:${p}`).join(' ')
+        }
+      } catch {
+        // best-effort — no port hint
+      }
+
       const wt = worktreesByPath.get(worktreePath)
       if (!wt) continue
       wt.panes.push({
         paneId: `external::${worktreePath}`,
-        label: `External · ${seen.size} proc${seen.size === 1 ? '' : 's'}`,
+        label: `External · ${seen.size} proc${seen.size === 1 ? '' : 's'}${portSuffix}`,
         pid: 0,  // sentinel — renderer hides the kill button when pid===0
         cpuPercent: cpu / CPU_COUNT,
         memBytes: memory,
