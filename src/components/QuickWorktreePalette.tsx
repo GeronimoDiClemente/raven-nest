@@ -11,6 +11,7 @@ interface Props {
 export function QuickWorktreePalette({ open, repoPath, onClose, onCreated }: Props) {
   const [branch, setBranch] = useState('')
   const [creating, setCreating] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -30,6 +31,7 @@ export function QuickWorktreePalette({ open, repoPath, onClose, onCreated }: Pro
 
   const handleCreate = async () => {
     if (!branch.trim()) return
+    setError(null)
     setCreating(true)
     try {
       const meta = await window.worktree.create({
@@ -40,7 +42,7 @@ export function QuickWorktreePalette({ open, repoPath, onClose, onCreated }: Pro
       setBranch('')
       onClose()
     } catch (err) {
-      console.error('worktree quick-create failed', err)
+      setError(err instanceof Error ? err.message : String(err))
     } finally {
       setCreating(false)
     }
@@ -54,11 +56,12 @@ export function QuickWorktreePalette({ open, repoPath, onClose, onCreated }: Pro
           ref={inputRef}
           className="qw-input"
           value={branch}
-          onChange={(e) => setBranch(e.target.value)}
+          onChange={(e) => { setBranch(e.target.value); if (error) setError(null) }}
           onKeyDown={(e) => { if (e.key === 'Enter') void handleCreate() }}
           placeholder="branch name (e.g. feat/billing)"
           disabled={creating}
         />
+        {error && <div className="modal-error" style={{ marginTop: 8 }}>{error}</div>}
         <div className="qw-hint">Enter to create · Esc to cancel</div>
       </div>
     </div>

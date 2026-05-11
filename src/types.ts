@@ -301,6 +301,14 @@ declare global {
         alreadyExisted?: boolean
         error?: string
       }>
+      pushBranch: (worktreePath: string) => Promise<
+        | { ok: true; branch: string; compareUrl?: string }
+        | { ok: false; error: string }
+      >
+      listBranches: (repoPath: string) => Promise<{
+        branches: string[]
+        defaultBranch: string | null
+      }>
       pickRepoFolder: () => Promise<string | null>
     }
     speech: {

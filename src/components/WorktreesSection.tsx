@@ -32,6 +32,7 @@ export function WorktreesSection({ repoPath, activeRepoPath, onSelect, onNewClic
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
   const [spotlightPath, setSpotlightPath] = useState<string | null>(null)
   const [idePickerAt, setIdePickerAt] = useState<{ x: number; y: number; worktreePath: string } | null>(null)
+  const [pushingPath, setPushingPath] = useState<string | null>(null)
 
   useEffect(() => {
     void window.spotlight.status().then((s) => {
@@ -100,6 +101,25 @@ export function WorktreesSection({ repoPath, activeRepoPath, onSelect, onNewClic
     try { await window.preset.cancel(wtPath) }
     catch (err) { console.error(err) }
     setContextMenu(null)
+  }
+
+  const handlePush = async (wtPath: string) => {
+    setContextMenu(null)
+    setPushingPath(wtPath)
+    try {
+      const res = await window.git.pushBranch(wtPath)
+      if (!res.ok) {
+        alert(`Push failed: ${res.error}`)
+        return
+      }
+      if (res.compareUrl && confirm(`Pushed ${res.branch} to origin. Open "Create PR" in your browser?`)) {
+        window.electronShell.openExternal(res.compareUrl)
+      }
+    } catch (err) {
+      alert(`Push failed: ${err instanceof Error ? err.message : String(err)}`)
+    } finally {
+      setPushingPath(null)
+    }
   }
 
   const handleToggleSpotlight = async (wtPath: string) => {
@@ -193,6 +213,13 @@ export function WorktreesSection({ repoPath, activeRepoPath, onSelect, onNewClic
               }}
             >
               Open in IDE…
+            </button>
+            <button
+              className="wt-ctx-item"
+              onClick={() => handlePush(contextMenu.worktreePath)}
+              disabled={pushingPath === contextMenu.worktreePath}
+            >
+              {pushingPath === contextMenu.worktreePath ? 'Pushing…' : 'Push to GitHub'}
             </button>
             <button
               className="wt-ctx-item"

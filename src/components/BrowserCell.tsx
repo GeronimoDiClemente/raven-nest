@@ -20,6 +20,8 @@ export default function BrowserCell({ pane, cellId, onClose, borderColor }: Prop
   const createdRef = useRef(false)
   const [url, setUrl] = useState<string>(pane.url ?? 'about:blank')
   const [draftUrl, setDraftUrl] = useState<string>(pane.url ?? '')
+  const [isUntouched, setIsUntouched] = useState<boolean>(!isHttpUrl(pane.url ?? ''))
+  const isUntouchedRef = useRef<boolean>(!isHttpUrl(pane.url ?? ''))
 
   // Create the WebContentsView once per pane
   useEffect(() => {
@@ -46,6 +48,45 @@ export default function BrowserCell({ pane, cellId, onClose, borderColor }: Prop
     }
     window.browser.onNavigated(cb)
     return () => window.browser.removeListeners()
+  }, [pane.id])
+
+  // Auto-navigate to localhost URLs detected in any terminal pane's output —
+  // only when this Browser cell is still untouched, and only if no other
+  // untouched Browser cell is spatially closer to the source pane.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      if (!isUntouchedRef.current) return
+      const ce = e as CustomEvent<{ paneId: string; cellId: string; url: string }>
+      const sourceEl = document.querySelector(`[data-cell-id="${ce.detail.cellId}"]`)
+      const myEl = containerRef.current
+      if (sourceEl && myEl) {
+        const sr = sourceEl.getBoundingClientRect()
+        const mr = myEl.getBoundingClientRect()
+        const cx = sr.left + sr.width / 2
+        const cy = sr.top + sr.height / 2
+        const myDist = Math.hypot(
+          mr.left + mr.width / 2 - cx,
+          mr.top + mr.height / 2 - cy,
+        )
+        const others = document.querySelectorAll('[data-browser-untouched="true"]')
+        for (const o of others) {
+          if (o === myEl) continue
+          const or = o.getBoundingClientRect()
+          const od = Math.hypot(
+            or.left + or.width / 2 - cx,
+            or.top + or.height / 2 - cy,
+          )
+          if (od < myDist) return
+        }
+      }
+      isUntouchedRef.current = false
+      setIsUntouched(false)
+      void window.browser.navigate(pane.id, ce.detail.url).catch((err) => {
+        console.error('browser:navigate failed', err)
+      })
+    }
+    window.addEventListener('nest:pty-url', handler as EventListener)
+    return () => window.removeEventListener('nest:pty-url', handler as EventListener)
   }, [pane.id])
 
   // Reposition on resize/scroll. Also collapses the WebContentsView to 0×0 when
@@ -112,6 +153,8 @@ export default function BrowserCell({ pane, cellId, onClose, borderColor }: Prop
     const next = draftUrl.trim()
     if (!next) return
     const normalized = isHttpUrl(next) ? next : `https://${next}`
+    isUntouchedRef.current = false
+    setIsUntouched(false)
     void window.browser.navigate(pane.id, normalized)
   }
 
@@ -122,6 +165,7 @@ export default function BrowserCell({ pane, cellId, onClose, borderColor }: Prop
       ref={containerRef}
       className="browser-cell"
       data-cell-id={cellId}
+      data-browser-untouched={isUntouched ? 'true' : undefined}
       style={{ borderColor: accent }}
     >
       <div className="browser-header" style={{ height: HEADER_HEIGHT }}>

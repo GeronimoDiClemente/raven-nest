@@ -3,6 +3,13 @@ import { mkdirSync, readFileSync, writeFileSync, existsSync, renameSync } from '
 import { execSync } from 'child_process'
 import type { WorktreeMeta } from '../src/types'
 
+// Keys in the store are always POSIX-style (forward slashes). Windows can
+// produce both `C:\dev\repo` and `C:/dev/repo` for the same physical path; if
+// we mix them, the same worktree shows up twice after a reload.
+function posixKey(p: string): string {
+  return p.replace(/\\/g, '/')
+}
+
 export class WorktreeStore {
   private storeFile: string
   private metas: Map<string, WorktreeMeta> = new Map()
@@ -18,7 +25,10 @@ export class WorktreeStore {
     try {
       const raw = readFileSync(this.storeFile, 'utf8')
       const arr = JSON.parse(raw) as WorktreeMeta[]
-      this.metas = new Map(arr.map((m) => [m.repoPath, m]))
+      this.metas = new Map(arr.map((m) => {
+        const key = posixKey(m.repoPath)
+        return [key, { ...m, repoPath: key }]
+      }))
     } catch {
       this.metas = new Map()
     }
@@ -31,16 +41,17 @@ export class WorktreeStore {
   }
 
   get(repoPath: string): WorktreeMeta | null {
-    return this.metas.get(repoPath) ?? null
+    return this.metas.get(posixKey(repoPath)) ?? null
   }
 
   setMeta(meta: WorktreeMeta): void {
-    this.metas.set(meta.repoPath, { ...meta, updatedAt: Date.now() })
+    const key = posixKey(meta.repoPath)
+    this.metas.set(key, { ...meta, repoPath: key, updatedAt: Date.now() })
     this.persist()
   }
 
   remove(repoPath: string): void {
-    this.metas.delete(repoPath)
+    this.metas.delete(posixKey(repoPath))
     this.persist()
   }
 
@@ -49,7 +60,7 @@ export class WorktreeStore {
   }
 
   reconcile(activeWorktreePaths: string[]): void {
-    const activeSet = new Set(activeWorktreePaths)
+    const activeSet = new Set(activeWorktreePaths.map(posixKey))
     let mutated = false
     for (const [path, meta] of this.metas) {
       if (!activeSet.has(path) && meta.setupState !== 'orphaned') {

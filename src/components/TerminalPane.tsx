@@ -20,6 +20,7 @@ const MAX_CONV_BUFFER = 500_000 // ~500KB
 const ANSI_RE = /\x1b\[[0-9;?]*[a-zA-Z]|\x1b[()][A-Z0-9]|\x1b[=>]|\x07|\r/g
 const stripAnsi = (s: string) => s.replace(ANSI_RE, '')
 const PROMPT_RE = /^\s*[\$\#\>❯➜]\s*$|^\s*$|^[0-9]+\s*$|\(base\)/
+const LOCAL_URL_RE = /https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\]):\d+(?:\/[^\s'"\x1b\x07]*)?/gi
 // Claude/Gemini UI chrome: status bars, keyboard hints, spinner lines
 const UI_CHROME_RE = /tab to cycle|shift\+tab|bypass|permission|esc to interrupt|working\.\.\.|thinking\.\.\.|⠋|⠙|⠹|⠸|⠼|⠴|⠦|⠧|⠇|⠏|\([^)]{0,40}to [^)]{0,30}\)/i
 
@@ -84,6 +85,8 @@ export default function TerminalPane({ pane, cellId, isDragging, zoomed, zooming
   const { setNodeRef, attributes, listeners, transform, transition, isOver } = useSortable({ id: cellId })
   const outputBuf = useRef('')       // notification buffer (last 2000 chars)
   const convBuf = useRef('')         // full conversation buffer
+  const urlScanBuf = useRef('')      // sliding window for localhost URL detection
+  const seenUrlsRef = useRef<Set<string>>(new Set())
   const busyTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const busyStartRef = useRef<number | null>(null)
   const lastResponseRef = useRef('')
@@ -162,6 +165,19 @@ export default function TerminalPane({ pane, cellId, isDragging, zoomed, zooming
 
       outputBuf.current = (outputBuf.current + data).slice(-2000)
       convBuf.current = (convBuf.current + data).slice(-MAX_CONV_BUFFER)
+
+      urlScanBuf.current = (urlScanBuf.current + data).slice(-1024)
+      const clean = urlScanBuf.current.replace(ANSI_RE, '')
+      LOCAL_URL_RE.lastIndex = 0
+      let m: RegExpExecArray | null
+      while ((m = LOCAL_URL_RE.exec(clean)) !== null) {
+        const detectedUrl = m[0]
+        if (seenUrlsRef.current.has(detectedUrl)) continue
+        seenUrlsRef.current.add(detectedUrl)
+        window.dispatchEvent(new CustomEvent('nest:pty-url', {
+          detail: { paneId: pane.id, cellId, url: detectedUrl }
+        }))
+      }
 
       if (!busyStartRef.current) {
         busyStartRef.current = Date.now()

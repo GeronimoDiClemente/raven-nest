@@ -535,7 +535,7 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal }: 
               {!creatingTeam && section === 'repos' && (
                 <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
                   {reposView === 'list' && (
-                    <div className="team-tab-pane">
+                    <div className="team-tab-pane" style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
                         <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
                           {repos.length} {repos.length === 1 ? 'repo' : 'repos'}
@@ -556,7 +556,7 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal }: 
                           <p style={{ fontSize: 12 }}>{isTeamLeader ? 'Click ＋ Add repo to pick one from GitHub' : 'Wait for a team leader to add repos'}</p>
                         </div>
                       ) : (
-                        <div className="repo-list-scroll snippet-list" style={{ maxHeight: 'calc(100vh - 280px)' }}>
+                        <div className="repo-list-scroll snippet-list" style={{ flex: 1, minHeight: 0, maxHeight: 'none' }}>
                           {repos.map(repo => {
                             const myPath = userLocalPaths?.[repo.id]
                             const repoProvider: 'github' | 'gitlab' =

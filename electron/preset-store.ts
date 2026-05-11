@@ -1,5 +1,5 @@
 import { join } from 'path'
-import { mkdirSync, readFileSync, writeFileSync, existsSync, readdirSync, unlinkSync, statSync } from 'fs'
+import { mkdirSync, readFileSync, writeFileSync, existsSync, readdirSync, unlinkSync, statSync, renameSync } from 'fs'
 import type { RavenPreset } from '../src/types'
 
 const SLUG_RE = /^[a-z0-9][a-z0-9._-]*$/
@@ -82,13 +82,7 @@ export class PresetStore {
     const file = join(dir, `${id}.json`)
     const tmp = `${file}.tmp`
     writeFileSync(tmp, JSON.stringify(normalized, null, 2))
-    // atomic rename
-    try {
-      writeFileSync(file, JSON.stringify(normalized, null, 2))
-      unlinkSync(tmp)
-    } catch {
-      // ignore tmp cleanup error
-    }
+    renameSync(tmp, file)
     return normalized
   }
 

@@ -245,7 +245,7 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
 
             {/* REPOS — list */}
             {(githubToken || gitlabToken) && section === 'repos' && reposView === 'list' && (
-              <div className="team-tab-pane">
+              <div className="team-tab-pane" style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
                   <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
                     {repos.length} {repos.length === 1 ? 'repo' : 'repos'}
@@ -275,7 +275,7 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
                   if (glRepos.length > 0) groups.push({ provider: 'gitlab', label: 'GitLab', items: glRepos })
                   const showHeaders = groups.length > 1
                   return (
-                    <div className="repo-list-scroll snippet-list" style={{ maxHeight: 'calc(100vh - 280px)' }}>
+                    <div className="repo-list-scroll snippet-list" style={{ flex: 1, minHeight: 0, maxHeight: 'none' }}>
                       {groups.map(group => (
                         <div key={group.provider}>
                           {showHeaders && (

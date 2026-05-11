@@ -20,8 +20,8 @@ if (process.defaultApp) {
 } else {
   app.setAsDefaultProtocolClient('nest')
 }
-import { join as pathJoin, join, isAbsolute } from 'path'
-import { readFileSync, writeFileSync, mkdirSync, statSync, copyFileSync, unlinkSync, rmSync } from 'fs'
+import { join as pathJoin, join, isAbsolute, basename, dirname } from 'path'
+import { readFileSync, writeFileSync, mkdirSync, statSync, copyFileSync, unlinkSync, rmSync, existsSync } from 'fs'
 import { tmpdir, homedir } from 'os'
 import { ravenHome } from './raven-home'
 import { execSync, execFile, execFileSync } from 'child_process'
@@ -225,6 +225,98 @@ ipcMain.handle('git:status', (_event, repoPath: string) => {
   const behind = behindRaw ? parseInt(behindRaw, 10) : 0
 
   return { files, ahead: isNaN(ahead) ? 0 : ahead, behind: isNaN(behind) ? 0 : behind }
+})
+
+// List local branches in a repo + detect the default branch. Used by the
+// NewWorktreeModal so the user can pick a base branch other than HEAD.
+ipcMain.handle('git:listBranches', async (_evt, repoPath: string) => {
+  if (!isAbsolute(repoPath)) throw new Error('repoPath must be absolute')
+  if (repoPath.includes('"')) throw new Error('repoPath contains invalid characters')
+
+  let branches: string[] = []
+  try {
+    const out = execSync(`git -C "${repoPath}" for-each-ref --format=%(refname:short) refs/heads/`, {
+      encoding: 'utf8',
+      timeout: 3000,
+    })
+    branches = out.split('\n').map((s) => s.trim()).filter(Boolean)
+  } catch {
+    return { branches: [], defaultBranch: null }
+  }
+
+  let defaultBranch: string | null = null
+  try {
+    const head = execSync(`git -C "${repoPath}" symbolic-ref refs/remotes/origin/HEAD`, {
+      encoding: 'utf8',
+      timeout: 3000,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }).trim()
+    defaultBranch = head.replace(/^refs\/remotes\/origin\//, '')
+  } catch {
+    // No origin/HEAD set — fall back to the usual suspects.
+    if (branches.includes('main')) defaultBranch = 'main'
+    else if (branches.includes('master')) defaultBranch = 'master'
+    else if (branches.includes('develop')) defaultBranch = 'develop'
+    else defaultBranch = branches[0] ?? null
+  }
+
+  return { branches, defaultBranch }
+})
+
+// Push the worktree's current branch to origin (with -u). Returns a compare
+// URL for GitHub so the renderer can offer "Open PR" after a successful push.
+ipcMain.handle('git:pushBranch', async (_event, worktreePath: string) => {
+  if (!isAbsolute(worktreePath)) throw new Error('worktreePath must be absolute')
+  if (worktreePath.includes('"')) throw new Error('worktreePath contains invalid characters')
+
+  if (!existsSync(worktreePath)) {
+    return { ok: false as const, error: `Worktree path no longer exists on disk: ${worktreePath}` }
+  }
+
+  // Read current branch. Capture stderr so the error message tells the user
+  // what's actually wrong (corrupt worktree, detached HEAD, not a git repo).
+  let branch: string
+  try {
+    branch = execSync(`git -C "${worktreePath}" rev-parse --abbrev-ref HEAD`, {
+      encoding: 'utf8',
+      timeout: 3000,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }).trim()
+  } catch (err) {
+    const raw = err instanceof Error ? err.message : String(err)
+    const fatalLine = raw.split('\n').find((l) => l.includes('fatal:'))?.trim()
+    const detail = fatalLine ?? raw.split('\n').slice(-2, -1)[0]?.trim() ?? 'unknown git error'
+    return { ok: false as const, error: `Failed to read current branch — ${detail}` }
+  }
+  if (!branch || branch === 'HEAD') {
+    return { ok: false as const, error: 'Detached HEAD — no branch to push' }
+  }
+
+  try {
+    execSync(`git -C "${worktreePath}" push -u origin "${branch}"`, {
+      encoding: 'utf8',
+      timeout: 60000,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    })
+  } catch (err) {
+    const raw = err instanceof Error ? err.message : String(err)
+    const fatalLine = raw.split('\n').find((l) => l.includes('fatal:') || l.includes('error:'))?.trim()
+    return { ok: false as const, error: fatalLine ?? raw }
+  }
+
+  let compareUrl: string | undefined
+  try {
+    const remote = execSync(`git -C "${worktreePath}" remote get-url origin`, {
+      encoding: 'utf8',
+      timeout: 3000,
+    }).trim()
+    const gh = remote.match(/github\.com[:/]([^/]+\/[^/.]+)/i)
+    const gl = remote.match(/gitlab\.com[:/]([^/]+\/[^/.]+)/i)
+    if (gh) compareUrl = `https://github.com/${gh[1]}/pull/new/${encodeURIComponent(branch)}`
+    else if (gl) compareUrl = `https://gitlab.com/${gl[1]}/-/merge_requests/new?merge_request[source_branch]=${encodeURIComponent(branch)}`
+  } catch {}
+
+  return { ok: true as const, branch, compareUrl }
 })
 
 // Clone a GitHub or GitLab repo into ~/RavenProjects/<name> (or a chosen parent dir)
@@ -529,17 +621,24 @@ ipcMain.handle('worktree:create', async (_evt, opts: {
   presetId?: string
 }) => {
   if (!isAbsolute(opts.repoPath)) throw new Error('repoPath must be absolute')
+  // Reject quotes — paths get interpolated into shell strings below, so a path
+  // containing `"` could escape the quoting and inject arbitrary commands.
+  if (opts.repoPath.includes('"')) throw new Error('repoPath contains invalid characters')
   if (!opts.branch || !/^[a-zA-Z0-9._/\-]+$/.test(opts.branch)) {
     throw new Error(`Invalid branch name: ${opts.branch}`)
   }
   if (opts.path !== undefined) {
-    if (!isAbsolute(opts.path) || opts.path.includes('..')) {
-      throw new Error('path must be absolute and not contain ".."')
+    if (!isAbsolute(opts.path) || opts.path.includes('..') || opts.path.includes('"')) {
+      throw new Error('path must be absolute and not contain ".." or quotes')
     }
   }
 
   const slug = opts.branch.replace(/[\/]/g, '-').replace(/[^a-zA-Z0-9._\-]/g, '')
-  const wtPath = opts.path ?? pathJoin(opts.repoPath, '.git', 'worktrees', slug)
+  // Default to a sibling directory next to the repo. Never place the working
+  // tree inside .git/worktrees — that's git's internal metadata folder and
+  // any worktree created there ends up corrupt (git worktree remove fails
+  // with "is not a working tree").
+  const wtPath = opts.path ?? pathJoin(dirname(opts.repoPath), `${basename(opts.repoPath)}-${slug}`)
 
   // Check if branch exists
   let branchExists = false
@@ -605,13 +704,39 @@ ipcMain.handle('worktree:remove', async (_evt, worktreePath: string) => {
 
   if (setupRunner.isRunning(worktreePath)) setupRunner.cancel(worktreePath)
 
+  let needsManualCleanup = false
   try {
     execSync(`git -C "${meta.rootRepoPath}" worktree remove "${worktreePath}" --force`, {
       encoding: 'utf8',
       timeout: 10000,
     })
   } catch (err) {
-    throw new Error(`git worktree remove failed: ${err instanceof Error ? err.message : String(err)}`)
+    // Legacy worktrees created before v1.0 sometimes ended up pointing inside
+    // .git/worktrees (git's metadata folder). Those aren't valid working trees
+    // so `git worktree remove` fails. Fall back to manual cleanup so the user
+    // can still get rid of them from the UI.
+    const msg = err instanceof Error ? err.message : String(err)
+    if (!/is not a working tree|is not a worktree|not a valid/i.test(msg)) {
+      throw new Error(`git worktree remove failed: ${msg}`)
+    }
+    needsManualCleanup = true
+  }
+
+  if (needsManualCleanup) {
+    // Order matters: delete the directory FIRST, then prune. With the dir
+    // gone, `git worktree prune` sees the metadata as dangling and drops the
+    // entry under .git/worktrees/<slug>/ too. If we pruned first, the metadata
+    // might still reference the very path we're about to delete.
+    try {
+      if (existsSync(worktreePath)) rmSync(worktreePath, { recursive: true, force: true })
+    } catch (e) {
+      console.warn('[worktree:remove] manual rmSync failed', e)
+    }
+    try {
+      execSync(`git -C "${meta.rootRepoPath}" worktree prune`, { encoding: 'utf8', timeout: 5000 })
+    } catch (e) {
+      console.warn('[worktree:remove] prune failed', e)
+    }
   }
 
   worktreeStore.remove(worktreePath)

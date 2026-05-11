@@ -11,7 +11,7 @@ export interface SetupRun {
 }
 
 interface ActiveRun {
-  child: ChildProcess
+  child: ChildProcess | null
   cancelled: boolean
   log: string[]
 }
@@ -38,8 +38,17 @@ export class SetupRunner extends EventEmitter {
     return new Promise((resolve) => {
       const log: string[] = []
       const queue = [...run.commands]
+      // One slot shared across all queued commands so that cancel() flips the
+      // same `cancelled` flag the next iteration's exit handler reads. The
+      // previous design created a new slot per command, so cancel() between
+      // commands toggled the old slot and the new spawn ran unchecked.
+      const slot: ActiveRun = { child: null, cancelled: false, log }
+      this.active.set(run.worktreePath, slot)
 
+      let finished = false
       const finish = (state: 'done' | 'failed' | 'cancelled') => {
+        if (finished) return
+        finished = true
         this.active.delete(run.worktreePath)
         this.emit('state', run.worktreePath, state)
         resolve({ state, log: log.join('\n') })
@@ -56,6 +65,10 @@ export class SetupRunner extends EventEmitter {
       }
 
       const runNext = () => {
+        if (slot.cancelled) {
+          finish('cancelled')
+          return
+        }
         const cmd = queue.shift()
         if (!cmd) {
           finish('done')
@@ -67,13 +80,15 @@ export class SetupRunner extends EventEmitter {
           ? spawn(cmd, { cwd: run.worktreePath, env, shell: true })
           : spawn('/bin/sh', ['-c', cmd], { cwd: run.worktreePath, env })
 
-        const slot: ActiveRun = { child, cancelled: false, log }
-        this.active.set(run.worktreePath, slot)
+        slot.child = child
 
         child.stdout?.on('data', (d) => pushLog(d.toString('utf8')))
         child.stderr?.on('data', (d) => pushLog(d.toString('utf8')))
         child.on('error', (err) => {
           pushLog(`error: ${err.message}`)
+          // Without this, a spawn failure (ENOENT, missing shell, etc.) leaves
+          // the runner stuck in `running` forever — `exit` may never fire.
+          finish(slot.cancelled ? 'cancelled' : 'failed')
         })
         child.on('exit', (code, signal) => {
           if (slot.cancelled) {
@@ -98,13 +113,15 @@ export class SetupRunner extends EventEmitter {
     const slot = this.active.get(worktreePath)
     if (!slot) return false
     slot.cancelled = true
+    const child = slot.child
+    if (!child) return true
     if (isWindows()) {
       try {
-        const pid = slot.child.pid
+        const pid = child.pid
         if (pid) spawn('taskkill', ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore' })
       } catch {}
     } else {
-      try { slot.child.kill('SIGTERM') } catch {}
+      try { child.kill('SIGTERM') } catch {}
     }
     return true
   }

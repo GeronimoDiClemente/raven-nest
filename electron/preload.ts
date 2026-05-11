@@ -118,6 +118,8 @@ contextBridge.exposeInMainWorld('git', {
     parentDir?: string,
     auth?: { provider: 'github' | 'gitlab'; token: string | null },
   ) => ipcRenderer.invoke('git:clone', cloneUrl, repoName, parentDir, auth),
+  pushBranch: (worktreePath: string) => ipcRenderer.invoke('git:pushBranch', worktreePath),
+  listBranches: (repoPath: string) => ipcRenderer.invoke('git:listBranches', repoPath),
   pickRepoFolder: () => ipcRenderer.invoke('dialog:pickRepoFolder'),
 })
 

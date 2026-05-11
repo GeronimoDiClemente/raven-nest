@@ -24,6 +24,7 @@ export function useRepoActions({
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const aliveRef = useRef(true)
+  const runsRef = useRef<NormalizedRun[]>([])
 
   const fetchOnce = useCallback(async () => {
     if (!repoFullName || !token) return
@@ -45,11 +46,13 @@ export function useRepoActions({
     return () => { aliveRef.current = false }
   }, [])
 
+  useEffect(() => { runsRef.current = runs }, [runs])
+
   useEffect(() => {
     if (!enabled) return
     fetchOnce()
     const tick = () => {
-      const hasInProgress = runs.some(r => r.status === 'in_progress' || r.status === 'queued')
+      const hasInProgress = runsRef.current.some(r => r.status === 'in_progress' || r.status === 'queued')
       return hasInProgress ? 30_000 : 120_000
     }
     let timer: ReturnType<typeof setTimeout>
@@ -61,7 +64,7 @@ export function useRepoActions({
     }
     schedule()
     return () => clearTimeout(timer)
-  }, [enabled, fetchOnce, runs])
+  }, [enabled, fetchOnce])
 
   const latestStatus: LatestStatus = (() => {
     const latest = runs[0]

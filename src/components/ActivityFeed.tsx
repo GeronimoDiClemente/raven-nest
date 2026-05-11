@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
+import { useGitHub } from '../hooks/useGitHub'
 
 interface GitHubEvent {
   id: string
@@ -106,6 +107,7 @@ export default function ActivityFeed({ repos, githubToken, teamMembers: _teamMem
   const [events, setEvents] = useState<GitHubEvent[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const { connectGitHub } = useGitHub()
 
   // Estabilizar la dependencia del useEffect — evita re-fetch si el array cambia de referencia pero no de contenido
   const repoNames = useMemo(() => repos.map(r => r.repo_full_name).join(','), [repos])
@@ -171,7 +173,7 @@ export default function ActivityFeed({ repos, githubToken, teamMembers: _teamMem
         <button
           className="snippet-save-btn"
           style={{ marginTop: 12 }}
-          onClick={() => (window as unknown as { github?: { openOAuth: () => void } }).github?.openOAuth()}
+          onClick={() => { void connectGitHub() }}
         >
           Connect GitHub
         </button>
