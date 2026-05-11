@@ -288,7 +288,7 @@ contextBridge.exposeInMainWorld('browser', {
 })
 
 contextBridge.exposeInMainWorld('metrics', {
-  snapshot: (panes: Array<{ paneId: string; repoPath: string | undefined; label: string; accountName?: string }>) =>
+  snapshot: (panes: Array<{ paneId: string; repoPath: string | undefined; label: string; note?: string }>) =>
     ipcRenderer.invoke('metrics:snapshot', panes),
   refreshDisk: (worktreePaths: string[]) =>
     ipcRenderer.invoke('metrics:refreshDisk', worktreePaths),

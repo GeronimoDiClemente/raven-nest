@@ -874,7 +874,7 @@ ipcMain.handle('benchmark:setMode', async (_evt, cellId: string, mode: 'setup' |
 
 ipcMain.handle('metrics:snapshot', async (
   _evt,
-  panes: Array<{ paneId: string; repoPath: string | undefined; label: string; accountName?: string }>,
+  panes: Array<{ paneId: string; repoPath: string | undefined; label: string; note?: string }>,
 ) => {
   // Resolve PIDs in main — renderer never sees raw OS PIDs in any other API
   // surface, so we keep that boundary here too. ptyManager.getPid() returns
@@ -886,7 +886,7 @@ ipcMain.handle('metrics:snapshot', async (
     pid: ptyManager.getPid(p.paneId) ?? 0,
     label: p.label,
     repoPath: p.repoPath,
-    accountName: p.accountName,
+    note: p.note,
   }))
   return metricsCollector.collect(inputs)
 })
@@ -941,15 +941,11 @@ ipcMain.handle('metrics:portsByPids', async (_evt, pids: number[]) => {
   if (!Array.isArray(pids)) return {} as Record<number, number[]>
   const valid = pids.filter((p) => Number.isFinite(p) && p > 0)
   const out: Record<number, number[]> = {}
-  // 1. Resolve each pid's tree (pid + descendants). Failure → fall back to [pid].
-  const trees = await Promise.all(valid.map(async (p) => {
-    try {
-      const tree = await (pidtree(p, { root: true }) as Promise<number[]>)
-      return Array.isArray(tree) && tree.length > 0 ? tree : [p]
-    } catch {
-      return [p]
-    }
-  }))
+  // 1. Resolve each pid's tree (pid + descendants). Routed through the
+  //    MetricsCollector so the Windows CIM snapshot is cached and shared
+  //    with collect()'s own tree resolution. On Windows `pidtree` shells
+  //    out to `wmic` (removed in Win11 22H2), so we never use it directly.
+  const trees = await Promise.all(valid.map((p) => metricsCollector.getTreeForPid(p)))
   // 2. For each input pid, scan every pid in its tree and union the results.
   await Promise.all(valid.map(async (p, idx) => {
     const tree = trees[idx]!

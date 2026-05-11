@@ -1,16 +1,21 @@
 import { app } from 'electron'
-import { execSync } from 'child_process'
+import { execSync, execFile } from 'child_process'
 import { opendirSync, statSync } from 'fs'
 import { resolve, dirname, basename, join } from 'path'
-import { totalmem, cpus } from 'os'
+import { totalmem, cpus, platform as osPlatform } from 'os'
 // pidusage ships no types — declare a minimal shape locally.
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore
 import pidusage from 'pidusage'
-// pidtree returns the descendant tree for a pid. Cross-platform, ~5KB.
+// pidtree works on macOS/Linux but uses `wmic` on Windows, which Microsoft
+// removed in Win11 22H2 (every call returns ENOENT). On Windows we fall back
+// to a single `Get-CimInstance Win32_Process` call and build the tree
+// ourselves — see resolveTreesViaWindowsCim() below.
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore
 import pidtree from 'pidtree'
+
+const IS_WIN = osPlatform() === 'win32'
 
 interface PidUsageStat {
   cpu: number
@@ -73,7 +78,7 @@ export interface PaneInput {
   pid: number
   label: string
   repoPath: string | undefined
-  accountName?: string
+  note?: string
 }
 
 interface WorktreeInfo {
@@ -173,11 +178,10 @@ export class MetricsCollector {
       }
       // Skip panes that have no live PID — they'd just show 0/0 noise.
       if (r.pid > 0 && r.hasLiveStats) {
-        // Compose a label that always includes the pid; the renderer renders
-        // accountName as a middle segment when present. Putting accountName
-        // and pid in the label keeps PaneMetric backward-compatible without
-        // adding fields the UI would need to thread through.
-        const baseLabel = r.accountName ? `${r.label} · ${r.accountName}` : r.label
+        // The user-typed note is the most useful discriminator. Trim and
+        // cap at 32 chars so a verbose note doesn't blow up row width.
+        const trimmedNote = r.note?.trim().slice(0, 32)
+        const baseLabel = trimmedNote ? `${r.label} · ${trimmedNote}` : r.label
         agg.panes.push({
           paneId: r.paneId,
           label: baseLabel,
@@ -298,15 +302,32 @@ export class MetricsCollector {
     })
   }
 
+  // PowerShell process snapshot cache. The CIM call costs ~500 ms; we only
+  // need fresh data once per polling cycle (2 s minimum). 1.5 s TTL keeps the
+  // popover responsive without re-running for every collect() back-to-back.
+  private winProcSnapshot: { ts: number; childrenByParent: Map<number, number[]> } | null = null
+
   /**
-   * For each pane PID, resolve the process tree (root + descendants). If
-   * pidtree fails (process died between snapshot and tree call), fall back
-   * to just the original pid so we still measure SOMETHING.
+   * For each pane PID, resolve the process tree (root + descendants).
+   *
+   * On macOS/Linux pidtree works directly. On Windows pidtree shells out to
+   * `wmic`, which Microsoft removed in Windows 11 22H2 — every call returns
+   * ENOENT and we end up only measuring the PowerShell host (~77 MB), not
+   * the AI agent it spawned. We use `Get-CimInstance Win32_Process` once per
+   * cycle to build a parent→children map and walk it.
    */
   private async collectPaneTrees(panes: PaneInput[]): Promise<Map<number, number[]>> {
     const out = new Map<number, number[]>()
     const validPanes = panes.filter((p) => Number.isFinite(p.pid) && p.pid > 0)
     if (validPanes.length === 0) return out
+
+    if (IS_WIN) {
+      const childrenByParent = await this.getWindowsChildrenMap()
+      for (const p of validPanes) {
+        out.set(p.pid, this.walkTree(p.pid, childrenByParent))
+      }
+      return out
+    }
 
     const results = await Promise.allSettled(
       validPanes.map((p) => pidtree(p.pid, { root: true }) as Promise<number[]>),
@@ -316,12 +337,81 @@ export class MetricsCollector {
       if (res.status === 'fulfilled' && Array.isArray(res.value) && res.value.length > 0) {
         out.set(pid, res.value)
       } else {
-        // pidtree failed — process likely just died. Use the original pid
-        // alone so the bulk call still has something to look up.
         out.set(pid, [pid])
       }
     })
     return out
+  }
+
+  /**
+   * Public single-pid tree resolver. Used by main.ts port scans so the
+   * Windows CIM snapshot cache (1.5 s) is shared with collect()'s own
+   * tree walk during the same poll cycle.
+   */
+  async getTreeForPid(pid: number): Promise<number[]> {
+    if (!Number.isFinite(pid) || pid <= 0) return []
+    if (IS_WIN) {
+      const map = await this.getWindowsChildrenMap()
+      return this.walkTree(pid, map)
+    }
+    try {
+      const tree = await (pidtree(pid, { root: true }) as Promise<number[]>)
+      return Array.isArray(tree) && tree.length > 0 ? tree : [pid]
+    } catch {
+      return [pid]
+    }
+  }
+
+  private walkTree(root: number, childrenByParent: Map<number, number[]>): number[] {
+    const tree = [root]
+    const stack = [root]
+    const seen = new Set<number>([root])  // guard against PPID loops (rare but real)
+    while (stack.length > 0) {
+      const p = stack.pop()!
+      const children = childrenByParent.get(p)
+      if (!children) continue
+      for (const c of children) {
+        if (seen.has(c)) continue
+        seen.add(c)
+        tree.push(c)
+        stack.push(c)
+      }
+    }
+    return tree
+  }
+
+  private async getWindowsChildrenMap(): Promise<Map<number, number[]>> {
+    const now = Date.now()
+    if (this.winProcSnapshot && now - this.winProcSnapshot.ts < 1500) {
+      return this.winProcSnapshot.childrenByParent
+    }
+    const csv = await new Promise<string>((resolveOut) => {
+      execFile(
+        'powershell.exe',
+        ['-NoProfile', '-NonInteractive', '-Command',
+          'Get-CimInstance Win32_Process | Select-Object ProcessId, ParentProcessId | ConvertTo-Csv -NoTypeInformation'],
+        { windowsHide: true, timeout: 4000, maxBuffer: 8 * 1024 * 1024 },
+        (err, stdout) => resolveOut(err ? '' : stdout),
+      )
+    })
+    const childrenByParent = new Map<number, number[]>()
+    const lines = csv.split(/\r?\n/)
+    // skip header line (index 0)
+    for (let i = 1; i < lines.length; i++) {
+      const line = lines[i]
+      if (!line) continue
+      // ConvertTo-Csv quotes every field. Strip quotes then split on comma.
+      const parts = line.replace(/"/g, '').split(',')
+      if (parts.length < 2) continue
+      const pid = parseInt(parts[0]!, 10)
+      const ppid = parseInt(parts[1]!, 10)
+      if (!Number.isFinite(pid) || !Number.isFinite(ppid)) continue
+      const arr = childrenByParent.get(ppid)
+      if (arr) arr.push(pid)
+      else childrenByParent.set(ppid, [pid])
+    }
+    this.winProcSnapshot = { ts: now, childrenByParent }
+    return childrenByParent
   }
 
   /**

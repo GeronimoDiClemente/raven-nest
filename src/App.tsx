@@ -818,9 +818,11 @@ export default function App() {
         if (!cell) continue
         if (cell.aiType === 'browser') continue
         const label = cell.customLabel ?? AI_CONFIG[cell.aiType]?.label ?? 'Terminal'
-        // accountName lets the metrics popover distinguish 3 parallel "Claude"
-        // panes by which account each one is running under (e.g. "Claude · gero").
-        out.push({ paneId: cell.id, repoPath: cell.repoPath, label, accountName: cell.accountName })
+        // The user-typed pane note is the most useful discriminator (e.g.
+        // "fixing auth", "running tests"). Falls back to nothing in the
+        // popover — accountName isn't surfaced because in practice every
+        // pane on a given setup uses the same account.
+        out.push({ paneId: cell.id, repoPath: cell.repoPath, label, note: cell.note })
       }
     }
     return out

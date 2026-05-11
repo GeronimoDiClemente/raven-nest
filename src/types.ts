@@ -104,7 +104,7 @@ export interface MetricsPaneInput {
   paneId: string
   repoPath: string | undefined
   label: string
-  accountName?: string
+  note?: string
 }
 
 export interface RavenPreset {
