@@ -44,6 +44,7 @@ import { getDiff } from './diff-engine'
 import { detectIDEs, openInIDE, clearCache as clearIDECache } from './ide-launcher'
 import { MCPStore } from './mcp-store'
 import { SettingsStore } from './settings-store'
+import { MetricsCollector, PaneInput } from './metrics-collector'
 import { transcribeAudio, checkWhisperAvailable, initWhisper, shutdownWhisper, setWhisperStatusCallback } from './whisper'
 import { getWindowOptions, getIconsDir, ICON_FILENAME, isMac } from './platform'
 import { createTray } from './tray'
@@ -64,6 +65,7 @@ const setupRunner = new SetupRunner()
 const browserPanes = new BrowserPaneManager(() => BrowserWindow.getAllWindows()[0] ?? null)
 const spotlight = new SpotlightEngine()
 const benchmark = new BenchmarkRecorder()
+const metricsCollector = new MetricsCollector()
 
 spotlight.on('start', (wt: string) => broadcast('spotlight:status', { active: true, worktreePath: wt }))
 spotlight.on('stop', () => broadcast('spotlight:status', { active: false }))
@@ -861,6 +863,33 @@ ipcMain.handle('benchmark:list', async () => benchmark.list())
 
 ipcMain.handle('benchmark:setMode', async (_evt, cellId: string, mode: 'setup' | 'spotlight' | 'idle') => {
   benchmark.setMode(cellId, mode)
+})
+
+// === Resource Usage metrics ===
+
+ipcMain.handle('metrics:snapshot', async (
+  _evt,
+  panes: Array<{ paneId: string; repoPath: string | undefined; label: string }>,
+) => {
+  // Resolve PIDs in main — renderer never sees raw OS PIDs in any other API
+  // surface, so we keep that boundary here too. ptyManager.getPid() returns
+  // undefined for panes that don't have a live PTY (browser cells, panes
+  // whose PTY hasn't spawned yet, panes that already exited).
+  const safePanes = Array.isArray(panes) ? panes : []
+  const inputs: PaneInput[] = safePanes.map((p) => ({
+    paneId: p.paneId,
+    pid: ptyManager.getPid(p.paneId) ?? 0,
+    label: p.label,
+    repoPath: p.repoPath,
+  }))
+  return metricsCollector.collect(inputs)
+})
+
+ipcMain.handle('metrics:refreshDisk', async (_evt, worktreePaths: string[]) => {
+  const valid = Array.isArray(worktreePaths)
+    ? worktreePaths.filter((p) => typeof p === 'string' && isAbsolute(p))
+    : []
+  return metricsCollector.refreshDisk(valid)
 })
 
 // === Diff handlers (Plan 6 — v1.0) ===

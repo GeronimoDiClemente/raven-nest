@@ -16,6 +16,7 @@ interface Props {
   onTabColorChange?: (tabId: string, color: string) => void
   isWin: boolean
   tabActivity?: Map<string, Set<number>>
+  rightSlot?: React.ReactNode
 }
 
 function SortableTab({
@@ -131,7 +132,7 @@ function SortableTab({
 }
 
 export default function TabBar({
-  tabs, activeTabId, onTabSelect, onTabClose, onTabNew, onTabRename, onTabReorder, onTabColorChange, isWin, tabActivity
+  tabs, activeTabId, onTabSelect, onTabClose, onTabNew, onTabRename, onTabReorder, onTabColorChange, isWin, tabActivity, rightSlot
 }: Props) {
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState('')
@@ -186,6 +187,7 @@ export default function TabBar({
       </button>
 
       <div className="tabbar-drag" />
+      {rightSlot}
     </div>
   )
 }

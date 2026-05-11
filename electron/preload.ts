@@ -276,6 +276,13 @@ contextBridge.exposeInMainWorld('browser', {
   removeListeners: () => ipcRenderer.removeAllListeners('browser:navigated'),
 })
 
+contextBridge.exposeInMainWorld('metrics', {
+  snapshot: (panes: Array<{ paneId: string; repoPath: string | undefined; label: string }>) =>
+    ipcRenderer.invoke('metrics:snapshot', panes),
+  refreshDisk: (worktreePaths: string[]) =>
+    ipcRenderer.invoke('metrics:refreshDisk', worktreePaths),
+})
+
 contextBridge.exposeInMainWorld('preset', {
   list: (repoPath: string) => ipcRenderer.invoke('preset:list', repoPath),
   save: (repoPath: string, preset: unknown) => ipcRenderer.invoke('preset:save', repoPath, preset),

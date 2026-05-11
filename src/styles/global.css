@@ -1831,6 +1831,31 @@ body {
   border-color: #0066FF88;
 }
 
+/* Sync cwd button — live pane cwd diverges from active repo */
+.pane-sync-cwd-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: #FFB80018;
+  border: 1px solid #FFB80066;
+  color: #FFB800;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+  flex-shrink: 0;
+  margin-left: 6px;
+}
+
+.pane-sync-cwd-btn:hover {
+  background: #FFB80033;
+  border-color: #FFB800aa;
+}
+
 .pane-zoom-btn {
   background: transparent;
   border: none;
@@ -7263,3 +7288,240 @@ button.ci-badge:hover {
 .ide-picker-path { font-size: 10px; color: var(--text-muted); font-family: 'JetBrains Mono', monospace; }
 .ide-picker-divider { height: 1px; background: var(--border); margin: 4px 0; }
 .ide-picker-redetect { color: var(--text-secondary); font-size: 11px; }
+
+/* ── Resource Usage (titlebar pill + popover) ────────────────── */
+
+.resource-bar-wrap {
+  position: relative;
+  -webkit-app-region: no-drag;
+  display: flex;
+  align-items: center;
+}
+
+.resource-bar-pill {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  border-radius: 999px;
+  padding: 4px 12px;
+  margin: 0 6px 6px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+
+.resource-bar-pill:hover {
+  color: var(--text-primary);
+  border-color: rgba(0, 102, 255, 0.4);
+  background: rgba(0, 102, 255, 0.08);
+}
+
+.resource-bar-pill--open {
+  color: var(--text-primary);
+  border-color: var(--raven-blue);
+  background: rgba(0, 102, 255, 0.12);
+}
+
+.rb-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: transparent;
+}
+
+.resource-bar-popover {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 201;
+  width: 460px;
+  max-width: 90vw;
+  max-height: 70vh;
+  overflow-y: auto;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.6);
+  color: var(--text-primary);
+  font-size: 12px;
+  padding: 14px 16px;
+}
+
+.rb-popover-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.rb-popover-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--text-secondary);
+}
+
+.rb-popover-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.rb-toggle {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  border-radius: 6px;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+  outline: none;
+}
+
+.rb-toggle:focus { border-color: var(--raven-blue); }
+
+.rb-refresh {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  border-radius: 6px;
+  width: 24px;
+  height: 24px;
+  font-size: 13px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.rb-refresh:hover:not(:disabled) {
+  color: var(--text-primary);
+  border-color: var(--raven-blue);
+}
+
+.rb-refresh:disabled { cursor: default; opacity: 0.6; }
+
+.rb-refresh--spinning {
+  animation: spin 1s linear infinite;
+}
+
+.rb-totals {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 10px;
+  padding-bottom: 4px;
+}
+
+.rb-total-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.rb-total-label {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
+.rb-total-value {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+}
+
+.rb-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 8px 0;
+}
+
+.rb-section { display: flex; flex-direction: column; }
+
+.rb-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 0;
+  font-size: 12px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+}
+
+.rb-row--header {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.rb-row--child {
+  color: var(--text-secondary);
+  padding-left: 14px;
+}
+
+.rb-row--grandchild {
+  color: var(--text-muted);
+  padding-left: 28px;
+}
+
+.rb-row--empty {
+  color: var(--text-muted);
+  font-style: italic;
+  padding: 6px 0;
+}
+
+.rb-row--clickable {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+  width: 100%;
+  color: inherit;
+}
+
+.rb-row--clickable:hover { color: var(--text-primary); }
+
+.rb-row-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.rb-row-metric {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.rb-row-disk {
+  color: var(--text-muted);
+  font-size: 11px;
+  margin-left: 4px;
+}
+
+.rb-arrow {
+  display: inline-block;
+  width: 12px;
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.rb-bullet {
+  display: inline-block;
+  width: 8px;
+  color: var(--raven-blue);
+  font-size: 8px;
+}
+

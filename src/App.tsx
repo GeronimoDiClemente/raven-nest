@@ -34,6 +34,8 @@ import { matchesBinding } from './lib/keybindings'
 import { useUserPreferences } from './hooks/useUserPreferences'
 import SharedTerminalViewer from './components/SharedTerminalViewer'
 import { terminalShareService } from './lib/terminalShareService'
+import ResourceBar from './components/ResourceBar'
+import type { MetricsPaneInput } from './types'
 
 
 let paneCounter = 0
@@ -351,6 +353,13 @@ export default function App() {
       if (next[cellIndex]) next[cellIndex] = { ...next[cellIndex]!, note }
       return { ...t, cells: next }
     })
+  }, [updateActiveTab])
+
+  const handlePtyStarted = useCallback((paneId: string, runningRepoPath: string | undefined) => {
+    updateActiveTab(t => ({
+      ...t,
+      cells: t.cells.map(c => c && c.id === paneId ? { ...c, runningRepoPath } : c),
+    }))
   }, [updateActiveTab])
 
   const handleDragStart = useCallback((e: DragStartEvent) => {
@@ -695,6 +704,7 @@ export default function App() {
             aiType: c.aiType, accountName: c.accountName, accountDir: c.accountDir,
             borderColor: c.borderColor, cmd: c.cmd,
             customLabel: c.customLabel, customColor: c.customColor, note: c.note,
+            repoPath: c.repoPath,
             shellId: c.shellId,
           } : null),
         })),
@@ -798,6 +808,22 @@ export default function App() {
   const hasAnyPane = cells.some((c) => c !== null)
   const isInitialState = !hasAnyPane && totalCells <= 1
 
+  // ResourceBar payload — flatten ALL tabs (not just active) so the panel
+  // reflects every running PTY in the app. Memoize on a structural key so the
+  // hook's ref doesn't churn when unrelated state (focus, drag) changes.
+  const activePanesPayload = useMemo<MetricsPaneInput[]>(() => {
+    const out: MetricsPaneInput[] = []
+    for (const tab of tabs) {
+      for (const cell of tab.cells) {
+        if (!cell) continue
+        if (cell.aiType === 'browser') continue
+        const label = cell.customLabel ?? AI_CONFIG[cell.aiType]?.label ?? 'Terminal'
+        out.push({ paneId: cell.id, repoPath: cell.repoPath, label })
+      }
+    }
+    return out
+  }, [tabs])
+
   return (
     <div className="app" style={{ '--tab-accent': activeTab.accentColor ?? 'var(--raven-blue)' } as React.CSSProperties}>
       <TabBar
@@ -811,6 +837,7 @@ export default function App() {
         onTabColorChange={handleTabColorChange}
         isWin={window.platform?.isWin ?? false}
         tabActivity={tabActivity}
+        rightSlot={<ResourceBar panes={activePanesPayload} />}
       />
       <PortsBanner
         rootRepoPath={activeTab.repoPath ?? null}
@@ -978,6 +1005,7 @@ export default function App() {
                                     onBusyChange={handleBusyChange}
                                     onActivity={(paneId, active) => handlePaneActivity(i, active)}
                                     onJoinRequest={(paneId) => setJoinRequest({ paneId, paneTitle: pane.customLabel ?? pane.accountName ?? 'Terminal' })}
+                                    onPtyStarted={handlePtyStarted}
                                   />
                                 ) : (
                                   <EmptyCell key={`empty-${i}`} cellId={String(i)} onClick={() => setAddingToCell(i)} />

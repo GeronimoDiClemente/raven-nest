@@ -17,6 +17,7 @@ export interface PaneNode {
   customColor?: string  // accent color for custom CLIs
   note?: string         // user-written note visible in header
   repoPath?: string     // cwd override: git repo directory
+  runningRepoPath?: string  // cwd the live PTY was actually spawned with — diverges from repoPath when the user picks a new worktree mid-session
   url?: string          // browser only: initial url
   sessionPartition?: string  // browser only: persist:browser-<workspaceId>
   shellId?: string      // terminal panes only: which shell to spawn (Windows shell picker)
@@ -57,6 +58,47 @@ export interface DiffFile {
 export interface DiffResult { base: string; files: DiffFile[] }
 
 export interface DetectedIDE { id: string; name: string; binPath: string }
+
+// === Resource usage metrics (kept in sync with electron/metrics-collector.ts) ===
+export interface NestProcessMetric {
+  type: 'Main' | 'Renderer' | 'Other'
+  cpuPercent: number
+  memBytes: number
+}
+export interface PaneMetric {
+  paneId: string
+  label: string
+  pid: number
+  cpuPercent: number
+  memBytes: number
+}
+export interface WorktreeMetricInfo {
+  worktreePath: string
+  branchLabel: string
+  cpuPercent: number
+  memBytes: number
+  diskBytes: number | null
+  panes: PaneMetric[]
+}
+export interface RepoMetric {
+  commonDir: string
+  repoName: string
+  cpuPercent: number
+  memBytes: number
+  diskBytes: number | null
+  worktrees: WorktreeMetricInfo[]
+}
+export interface MetricsSnapshot {
+  totalSystemMemBytes: number
+  totals: { cpuPercent: number; memBytes: number; ramSharePercent: number }
+  nest: { processes: NestProcessMetric[]; cpuPercent: number; memBytes: number }
+  repos: RepoMetric[]
+}
+export interface MetricsPaneInput {
+  paneId: string
+  repoPath: string | undefined
+  label: string
+}
 
 export interface RavenPreset {
   id: string                  // slug, ej "nextjs-dev"
@@ -141,6 +183,7 @@ export interface SessionPane {
   customLabel?: string
   customColor?: string
   note?: string
+  repoPath?: string
   shellId?: string
 }
 
@@ -409,6 +452,10 @@ declare global {
         }
       }>
       set: (data: unknown) => Promise<void>
+    }
+    metrics: {
+      snapshot: (panes: MetricsPaneInput[]) => Promise<MetricsSnapshot>
+      refreshDisk: (worktreePaths: string[]) => Promise<Record<string, number>>
     }
   }
 }
