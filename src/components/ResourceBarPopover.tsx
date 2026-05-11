@@ -419,6 +419,9 @@ function PaneRow({
   killDisabled: boolean
   onKill: (pane: PaneMetric) => void
 }) {
+  // Aggregated "External" rows use pid: 0 as a sentinel — they represent
+  // many child processes, not a single killable one. Hide the kill button.
+  const killable = pane.pid > 0
   return (
     <div className="rb-row rb-row--grandchild rb-row--has-kill">
       <span className="rb-row-label">
@@ -427,18 +430,20 @@ function PaneRow({
       <span className="rb-row-metric">
         {formatPct(pane.cpuPercent)} / {formatBytes(pane.memBytes)}
       </span>
-      <button
-        className="rb-kill-btn"
-        type="button"
-        onClick={(e) => { e.stopPropagation(); onKill(pane) }}
-        disabled={killing || killDisabled}
-        title={killing ? 'Killing…' : `Kill ${pane.label} (PID ${pane.pid})`}
-        aria-label={`Kill ${pane.label}`}
-      >
-        <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
-          <path d="M2.5 2.5 L9.5 9.5 M9.5 2.5 L2.5 9.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-        </svg>
-      </button>
+      {killable && (
+        <button
+          className="rb-kill-btn"
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onKill(pane) }}
+          disabled={killing || killDisabled}
+          title={killing ? 'Killing…' : `Kill ${pane.label} (PID ${pane.pid})`}
+          aria-label={`Kill ${pane.label}`}
+        >
+          <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
+            <path d="M2.5 2.5 L9.5 9.5 M9.5 2.5 L2.5 9.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+          </svg>
+        </button>
+      )}
     </div>
   )
 }

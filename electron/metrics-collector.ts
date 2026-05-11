@@ -227,6 +227,13 @@ export class MetricsCollector {
       }
     }
 
+    // External processes: anything running INSIDE a known worktree path that
+    // wasn't spawned through a Nest pane. Catches the child Nest's electron
+    // tree when the user runs `npm run dev` outside Nest, or any sibling
+    // tooling (storybook, jest watch, etc.). Attributed to its worktree as
+    // a single aggregated "External" row.
+    await this.appendExternalRows(panes, paneTrees, worktreesByPath)
+
     const reposByCommonDir = new Map<string, { repoName: string; worktrees: WorktreeMetric[] }>()
     for (const wt of worktreesByPath.values()) {
       const cpuSum = wt.panes.reduce((s, p) => s + p.cpuPercent, 0)
@@ -707,5 +714,85 @@ export class MetricsCollector {
       }
     }
     return total
+  }
+
+  /**
+   * For each real worktree in `worktreesByPath`, discover processes whose
+   * ExecutablePath or CommandLine lives inside the worktree but weren't
+   * spawned through a Nest pane (e.g. the user runs `npm run dev` from a
+   * native PowerShell). Aggregate cpu/mem of those + their descendants and
+   * push a single virtual "External" PaneMetric into the worktree group.
+   */
+  private async appendExternalRows(
+    _panes: PaneInput[],
+    paneTrees: Map<number, number[]>,
+    worktreesByPath: Map<string, { worktreePath: string; info: WorktreeInfo; panes: PaneMetric[] }>,
+  ): Promise<void> {
+    if (!IS_WIN) return
+
+    // Pids already accounted for via panes (and their descendant trees).
+    const accounted = new Set<number>()
+    for (const tree of paneTrees.values()) for (const p of tree) accounted.add(p)
+
+    // For each REAL worktree, discover external root pids under its path.
+    const externalRootsByPath = new Map<string, number[]>()
+    const candidates = Array.from(worktreesByPath.values())
+      .filter((wt) => !wt.worktreePath.startsWith(SYNTHETIC_WORKSPACE_PREFIX))
+    await Promise.all(candidates.map(async (wt) => {
+      const found = await this.findProcessesUnderPath(wt.worktreePath)
+      const fresh = found.filter((p) => !accounted.has(p))
+      if (fresh.length > 0) externalRootsByPath.set(wt.worktreePath, fresh)
+    }))
+    if (externalRootsByPath.size === 0) return
+
+    // Resolve each external root's tree (so node helpers/children also count).
+    const externalTrees = new Map<number, number[]>()
+    const rootList: number[] = []
+    for (const roots of externalRootsByPath.values()) for (const r of roots) rootList.push(r)
+    await Promise.all(rootList.map(async (root) => {
+      externalTrees.set(root, await this.getTreeForPid(root))
+    }))
+
+    // Single bulk pidusage for every external pid we'll need stats for.
+    const allExternalPids = new Set<number>()
+    for (const tree of externalTrees.values()) for (const p of tree) allExternalPids.add(p)
+    if (allExternalPids.size === 0) return
+
+    let stats: Record<number, PidUsageStat | null> = {}
+    try {
+      stats = await (pidusage(Array.from(allExternalPids)) as Promise<Record<number, PidUsageStat | null>>)
+    } catch {
+      // Bulk failed — partial data is fine, we just won't sum what we missed.
+    }
+
+    for (const [worktreePath, roots] of externalRootsByPath) {
+      let cpu = 0
+      let memory = 0
+      const seen = new Set<number>()
+      for (const root of roots) {
+        const tree = externalTrees.get(root) ?? [root]
+        for (const pid of tree) {
+          if (seen.has(pid)) continue
+          seen.add(pid)
+          const stat = stats[pid]
+          if (stat) {
+            cpu += stat.cpu
+            memory += stat.memory
+          }
+        }
+      }
+      if (memory === 0 && cpu === 0) continue
+      const wt = worktreesByPath.get(worktreePath)
+      if (!wt) continue
+      wt.panes.push({
+        paneId: `external::${worktreePath}`,
+        label: `External · ${seen.size} proc${seen.size === 1 ? '' : 's'}`,
+        pid: 0,  // sentinel — renderer hides the kill button when pid===0
+        cpuPercent: cpu / CPU_COUNT,
+        memBytes: memory,
+        aiColor: '#888888',
+        aiType: 'external',
+      })
+    }
   }
 }
