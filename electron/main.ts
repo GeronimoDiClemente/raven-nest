@@ -940,23 +940,43 @@ ipcMain.handle('metrics:killPid', async (_evt, pid: number) => {
 // processes (e.g. `node` under `npm run dev` under the PowerShell shell) —
 // the shell itself almost never listens on a port. The map key remains the
 // ORIGINAL input pid so the renderer can still look up ports by pane pid.
-// Aggregate every listening port across every live pane. Used by the
-// BrowserCell URL dropdown so the user can pick `:3000` from their `npm run
-// dev` without typing localhost. Returns a sorted, deduplicated port list.
+// All listening localhost-bindable ports on the system. Used by the
+// BrowserCell URL dropdown. We deliberately don't filter by "panes Nest
+// spawned" — many users start their dev server outside Nest and still want
+// to access `:5173` from a Browser cell.
 ipcMain.handle('ports:listAll', async () => {
-  const live = ptyManager.getAllPids()
-  if (live.length === 0) return [] as number[]
-  const trees = await Promise.all(live.map((p) => metricsCollector.getTreeForPid(p.pid)))
-  const flat = new Set<number>()
-  for (const tree of trees) for (const pid of tree) flat.add(pid)
-  const portArrays = await Promise.allSettled(Array.from(flat).map((pid) => scanPid(pid)))
-  const merged = new Set<number>()
-  for (const r of portArrays) {
-    if (r.status === 'fulfilled' && Array.isArray(r.value)) {
-      for (const port of r.value) merged.add(port)
-    }
+  if (process.platform === 'win32') {
+    return await new Promise<number[]>((res) => {
+      execFile('netstat', ['-ano'], { timeout: 5000, windowsHide: true, maxBuffer: 8 * 1024 * 1024 }, (err, stdout) => {
+        if (err || !stdout) return res([])
+        const ports = new Set<number>()
+        for (const line of stdout.split(/\r?\n/)) {
+          // `  TCP    0.0.0.0:5173    0.0.0.0:0    LISTENING    12708`
+          // `  TCP    [::]:5173       [::]:0       LISTENING    12708`
+          const m = line.match(/^\s*TCP\s+\S+:(\d+)\s+\S+\s+LISTENING\b/)
+          if (!m) continue
+          const port = parseInt(m[1]!, 10)
+          if (Number.isFinite(port)) ports.add(port)
+        }
+        res(Array.from(ports).sort((a, b) => a - b))
+      })
+    })
   }
-  return Array.from(merged).sort((a, b) => a - b)
+  // macOS / Linux: `lsof -nP -iTCP -sTCP:LISTEN` is the cleanest one-shot.
+  return await new Promise<number[]>((res) => {
+    execFile('lsof', ['-nP', '-iTCP', '-sTCP:LISTEN'], { timeout: 5000 }, (err, stdout) => {
+      if (err || !stdout) return res([])
+      const ports = new Set<number>()
+      for (const line of stdout.split(/\r?\n/)) {
+        const m = line.match(/:(\d+)\s+\(LISTEN\)\s*$/)
+        if (m) {
+          const port = parseInt(m[1]!, 10)
+          if (Number.isFinite(port)) ports.add(port)
+        }
+      }
+      res(Array.from(ports).sort((a, b) => a - b))
+    })
+  })
 })
 
 ipcMain.handle('metrics:portsByPids', async (_evt, pids: number[]) => {
