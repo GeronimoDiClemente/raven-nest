@@ -823,8 +823,12 @@ export default function App() {
         // the AI-coloured bullet — the AI name itself is intentionally not
         // rendered (the bullet's color identifies it). workspaceName lets
         // the collector group panes with no linked repo under their tab.
-        const aiColor = cell.customColor ?? AI_CONFIG[cell.aiType]?.color ?? '#888888'
-        out.push({ paneId: cell.id, repoPath: cell.repoPath, label, note: cell.note, workspaceName: tab.name, aiColor })
+        // Color priority: the user-picked borderColor (changed via the
+        // header's color picker) wins so the panel mirrors what they see
+        // in the pane header. Falls back to customColor (custom CLIs) and
+        // then to the AI's default color.
+        const aiColor = cell.borderColor ?? cell.customColor ?? AI_CONFIG[cell.aiType]?.color ?? '#888888'
+        out.push({ paneId: cell.id, repoPath: cell.repoPath, label, note: cell.note, workspaceName: tab.name, aiColor, aiType: cell.aiType })
       }
     }
     return out

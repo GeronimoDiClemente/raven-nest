@@ -39,9 +39,12 @@ export interface PaneMetric {
   pid: number
   cpuPercent: number
   memBytes: number
-  // CSS color for the AI bullet. Set by the renderer; falls back to a
-  // neutral gray when undefined (custom CLIs without a defined color).
+  // CSS color for the AI bullet (driven by borderColor → customColor → AI
+  // default). Falls back to neutral gray when undefined.
   aiColor?: string
+  // Which AI logo to render in the row prefix. Passed through unchanged
+  // from the renderer.
+  aiType?: string
 }
 
 export interface DiskBucket {
@@ -86,6 +89,7 @@ export interface PaneInput {
   // workspace name so they still appear in the popover (instead of vanishing).
   workspaceName?: string
   aiColor?: string
+  aiType?: string
 }
 
 // Synthetic commonDir prefix for panes that belong to a tab with no linked
@@ -218,6 +222,7 @@ export class MetricsCollector {
           cpuPercent: r.cpuPercent,
           memBytes: r.memBytes,
           aiColor: r.aiColor,
+          aiType: r.aiType,
         })
       }
     }

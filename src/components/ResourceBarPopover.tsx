@@ -1,5 +1,6 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import type { MetricsSnapshot, RepoMetric, WorktreeMetricInfo, PaneMetric, DiskBucket } from '../types'
+import { ClaudeLogo, GeminiLogo, CodexLogo, CopilotLogo, OpenCodeLogo } from './AILogos'
 
 type PrimaryMetric = 'memory' | 'cpu'
 
@@ -372,18 +373,21 @@ function WorktreeNode({
   )
 }
 
-// The AI is identified ONLY by the bullet's color (driven by pane.aiColor
-// from AI_CONFIG: claude #E07B54, gemini #4F9EFF, codex #aaaaaa, copilot
-// #7C5CFC, or the cell's customColor when set). The user's pane note is
-// the only text in the label — the AI name itself is intentionally
-// omitted because every row would otherwise repeat "Claude" / "Copilot"
-// for no information value.
+// AI identified by the same miniature logo used in the pane header
+// (claude/gemini/codex/copilot/opencode SVGs). aiColor drives the tint —
+// same color the user sees in the pane header's color dot, so changing
+// the color from the header propagates here on the next poll. Custom
+// CLIs without a known logo fall back to a colored square. The note is
+// the only text — the AI name is intentionally omitted to avoid the
+// redundant "Claude Claude Claude" stack in long worktrees.
 function renderPaneLabel(pane: PaneMetric): ReactNode {
   const noteText = pane.label.trim()
   const color = pane.aiColor ?? '#888888'
   return (
     <>
-      <span className="rb-bullet" style={{ color }}>■</span>
+      <span className="rb-bullet-logo" style={{ color }}>
+        <PaneAILogo aiType={pane.aiType} color={color} size={11} />
+      </span>
       {noteText && (
         <>
           {' '}
@@ -392,6 +396,19 @@ function renderPaneLabel(pane: PaneMetric): ReactNode {
       )}
     </>
   )
+}
+
+function PaneAILogo({ aiType, color, size }: { aiType: string | undefined; color: string; size: number }): ReactNode {
+  switch (aiType) {
+    case 'claude':   return <ClaudeLogo size={size} />
+    case 'gemini':   return <GeminiLogo size={size} />
+    case 'codex':    return <CodexLogo size={size} color={color} />
+    case 'copilot':  return <CopilotLogo size={size} />
+    case 'opencode': return <OpenCodeLogo size={size} color={color} />
+    default:
+      // Custom CLIs (or panes whose aiType isn't surfaced) → colored square.
+      return <span style={{ display: 'inline-block', width: size, height: size, background: color, borderRadius: 2 }} />
+  }
 }
 
 function PaneRow({

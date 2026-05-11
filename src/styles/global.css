@@ -7644,6 +7644,21 @@ body.platform-mac .tabbar { padding-right: 116px; }
   font-size: 8px;
 }
 
+.rb-bullet-logo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  margin-right: 4px;
+  vertical-align: middle;
+}
+
+.rb-bullet-logo > svg {
+  width: 11px;
+  height: 11px;
+}
+
 /* Heaviest-pane callout — same amber tone the .pane-sync-cwd-btn uses so the
    warning hue is consistent across the app. Sits above totals when fired. */
 .rb-heavy-banner {
