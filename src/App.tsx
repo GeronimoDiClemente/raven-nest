@@ -822,7 +822,9 @@ export default function App() {
         // "fixing auth", "running tests"). Falls back to nothing in the
         // popover — accountName isn't surfaced because in practice every
         // pane on a given setup uses the same account.
-        out.push({ paneId: cell.id, repoPath: cell.repoPath, label, note: cell.note })
+        // workspaceName lets the collector group panes that don't have a
+        // linked repo so they still show up in the panel.
+        out.push({ paneId: cell.id, repoPath: cell.repoPath, label, note: cell.note, workspaceName: tab.name })
       }
     }
     return out

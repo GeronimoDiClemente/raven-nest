@@ -105,6 +105,9 @@ export interface MetricsPaneInput {
   repoPath: string | undefined
   label: string
   note?: string
+  // Tab name. Used to group panes that don't have a linked repo so they
+  // still appear in the panel under their workspace's name.
+  workspaceName?: string
 }
 
 export interface RavenPreset {

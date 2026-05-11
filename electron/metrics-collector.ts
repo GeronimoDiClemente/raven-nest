@@ -79,7 +79,15 @@ export interface PaneInput {
   label: string
   repoPath: string | undefined
   note?: string
+  // Tab name. Used to bucket panes that have no linked repoPath under their
+  // workspace name so they still appear in the popover (instead of vanishing).
+  workspaceName?: string
 }
+
+// Synthetic commonDir prefix for panes that belong to a tab with no linked
+// repoPath. The renderer detects this prefix to skip rendering disk buckets
+// and the refresh button for these "workspace-only" groups.
+export const SYNTHETIC_WORKSPACE_PREFIX = '__workspace__:'
 
 interface WorktreeInfo {
   commonDir: string
@@ -157,7 +165,20 @@ export class MetricsCollector {
       const agg = aggregated.get(p.pid)
       const cpuPercent = agg ? agg.cpu / CPU_COUNT : 0
       const memBytes = agg ? agg.memory : 0
-      const worktreeInfo = p.repoPath ? this.getWorktreeInfo(p.repoPath) : null
+      let worktreeInfo = p.repoPath ? this.getWorktreeInfo(p.repoPath) : null
+      // Fall back to a synthetic group keyed on workspaceName so panes without
+      // a linked repo (e.g. a freshly-created tab where the user just ran
+      // `claude` from their home dir) still appear in the tree under their
+      // workspace's tab name. The renderer detects the synthetic prefix to
+      // skip disk rendering for these groups.
+      if (!worktreeInfo) {
+        const ws = (p.workspaceName ?? 'Workspace').trim() || 'Workspace'
+        worktreeInfo = {
+          commonDir: `${SYNTHETIC_WORKSPACE_PREFIX}${ws}`,
+          repoName: ws,
+          branchLabel: '(no repo)',
+        }
+      }
       return { ...p, cpuPercent, memBytes, worktreeInfo, hasLiveStats: !!agg }
     })
 
@@ -169,8 +190,11 @@ export class MetricsCollector {
     }
     const worktreesByPath = new Map<string, WorktreeAgg>()
     for (const r of resolved) {
-      if (!r.repoPath || !r.worktreeInfo) continue
-      const key = r.repoPath
+      if (!r.worktreeInfo) continue
+      // For real repos the key is the repoPath; for synthetic workspace
+      // groups (panes without a linked repoPath) the key is the synthetic
+      // commonDir so all such panes from the same tab cluster together.
+      const key = r.repoPath ?? r.worktreeInfo.commonDir
       let agg = worktreesByPath.get(key)
       if (!agg) {
         agg = { worktreePath: key, info: r.worktreeInfo, panes: [] }
@@ -271,6 +295,8 @@ export class MetricsCollector {
   async refreshDisk(worktreePaths: string[]): Promise<Record<string, DiskBreakdown>> {
     const result: Record<string, DiskBreakdown> = {}
     for (const p of worktreePaths) {
+      // Skip synthetic workspace groups — they have no real path on disk.
+      if (p.startsWith(SYNTHETIC_WORKSPACE_PREFIX)) continue
       try {
         const breakdown = this.walkDirWithBreakdown(p)
         this.diskCache.set(p, breakdown)
@@ -305,7 +331,28 @@ export class MetricsCollector {
   // PowerShell process snapshot cache. The CIM call costs ~500 ms; we only
   // need fresh data once per polling cycle (2 s minimum). 1.5 s TTL keeps the
   // popover responsive without re-running for every collect() back-to-back.
-  private winProcSnapshot: { ts: number; childrenByParent: Map<number, number[]> } | null = null
+  // Includes process name so port detail rendering can show "vite (node)" or
+  // similar without an additional process lookup.
+  private winProcSnapshot: {
+    ts: number
+    childrenByParent: Map<number, number[]>
+    nameByPid: Map<number, string>
+  } | null = null
+
+  /** Public: best-effort process name for a pid. Empty string when unknown. */
+  async getProcessName(pid: number): Promise<string> {
+    if (!Number.isFinite(pid) || pid <= 0) return ''
+    if (IS_WIN) {
+      const snap = await this.getWindowsSnapshot()
+      return snap.nameByPid.get(pid) ?? ''
+    }
+    return await new Promise<string>((res) => {
+      execFile('ps', ['-p', String(pid), '-o', 'comm='], { timeout: 1500 }, (err, stdout) => {
+        if (err || !stdout) return res('')
+        res(stdout.trim().split('/').pop() ?? '')
+      })
+    })
+  }
 
   /**
    * For each pane PID, resolve the process tree (root + descendants).
@@ -322,9 +369,9 @@ export class MetricsCollector {
     if (validPanes.length === 0) return out
 
     if (IS_WIN) {
-      const childrenByParent = await this.getWindowsChildrenMap()
+      const snap = await this.getWindowsSnapshot()
       for (const p of validPanes) {
-        out.set(p.pid, this.walkTree(p.pid, childrenByParent))
+        out.set(p.pid, this.walkTree(p.pid, snap.childrenByParent))
       }
       return out
     }
@@ -351,8 +398,8 @@ export class MetricsCollector {
   async getTreeForPid(pid: number): Promise<number[]> {
     if (!Number.isFinite(pid) || pid <= 0) return []
     if (IS_WIN) {
-      const map = await this.getWindowsChildrenMap()
-      return this.walkTree(pid, map)
+      const snap = await this.getWindowsSnapshot()
+      return this.walkTree(pid, snap.childrenByParent)
     }
     try {
       const tree = await (pidtree(pid, { root: true }) as Promise<number[]>)
@@ -380,38 +427,42 @@ export class MetricsCollector {
     return tree
   }
 
-  private async getWindowsChildrenMap(): Promise<Map<number, number[]>> {
+  private async getWindowsSnapshot(): Promise<{ childrenByParent: Map<number, number[]>; nameByPid: Map<number, string> }> {
     const now = Date.now()
     if (this.winProcSnapshot && now - this.winProcSnapshot.ts < 1500) {
-      return this.winProcSnapshot.childrenByParent
+      return { childrenByParent: this.winProcSnapshot.childrenByParent, nameByPid: this.winProcSnapshot.nameByPid }
     }
     const csv = await new Promise<string>((resolveOut) => {
       execFile(
         'powershell.exe',
         ['-NoProfile', '-NonInteractive', '-Command',
-          'Get-CimInstance Win32_Process | Select-Object ProcessId, ParentProcessId | ConvertTo-Csv -NoTypeInformation'],
+          'Get-CimInstance Win32_Process | Select-Object ProcessId, ParentProcessId, Name | ConvertTo-Csv -NoTypeInformation'],
         { windowsHide: true, timeout: 4000, maxBuffer: 8 * 1024 * 1024 },
         (err, stdout) => resolveOut(err ? '' : stdout),
       )
     })
     const childrenByParent = new Map<number, number[]>()
+    const nameByPid = new Map<number, string>()
     const lines = csv.split(/\r?\n/)
-    // skip header line (index 0)
     for (let i = 1; i < lines.length; i++) {
       const line = lines[i]
       if (!line) continue
-      // ConvertTo-Csv quotes every field. Strip quotes then split on comma.
+      // ConvertTo-Csv quotes every field, even when no comma. Strip quotes
+      // then split on comma. The Name field never contains commas in practice
+      // but if it did we'd see it as 4+ parts — guard for that.
       const parts = line.replace(/"/g, '').split(',')
-      if (parts.length < 2) continue
+      if (parts.length < 3) continue
       const pid = parseInt(parts[0]!, 10)
       const ppid = parseInt(parts[1]!, 10)
+      const name = parts.slice(2).join(',').trim()
       if (!Number.isFinite(pid) || !Number.isFinite(ppid)) continue
       const arr = childrenByParent.get(ppid)
       if (arr) arr.push(pid)
       else childrenByParent.set(ppid, [pid])
+      if (name) nameByPid.set(pid, name)
     }
-    this.winProcSnapshot = { ts: now, childrenByParent }
-    return childrenByParent
+    this.winProcSnapshot = { ts: now, childrenByParent, nameByPid }
+    return { childrenByParent, nameByPid }
   }
 
   /**

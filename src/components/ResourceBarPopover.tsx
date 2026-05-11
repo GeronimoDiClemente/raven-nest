@@ -372,28 +372,24 @@ function WorktreeNode({
   )
 }
 
-// PaneRow renders the label as 2 or 3 segments. The backend composes
-// `<label>` or `<label> · <accountName>` into PaneMetric.label, and we always
-// append the pid here. The middle-dot separators get a muted color so the
-// segmentation is visible without being noisy.
+// PaneRow renders the label as 1 or 2 segments. The backend composes
+// `<label>` or `<label> · <note>` into PaneMetric.label. The pid lives in
+// pane.pid and is exposed through the kill button's title attribute — we
+// don't render it inline because the note alone is the more useful
+// discriminator. The middle-dot separator gets a muted color.
 function renderPaneLabel(pane: PaneMetric): ReactNode {
-  // Split on the middle-dot the backend used. We only split on the FIRST
-  // separator so a future label that happens to contain "·" doesn't get
-  // shredded into 4 segments by mistake.
   const idx = pane.label.indexOf(' · ')
   const head = idx >= 0 ? pane.label.slice(0, idx) : pane.label
-  const account = idx >= 0 ? pane.label.slice(idx + 3) : null
+  const note = idx >= 0 ? pane.label.slice(idx + 3) : null
   return (
     <>
       <span className="rb-bullet">■</span> {head}
-      {account && (
+      {note && (
         <>
           <span className="rb-label-sep"> · </span>
-          <span className="rb-label-account">{account}</span>
+          <span className="rb-label-account">{note}</span>
         </>
       )}
-      <span className="rb-label-sep"> · </span>
-      <span className="rb-label-pid">{pane.pid}</span>
     </>
   )
 }
