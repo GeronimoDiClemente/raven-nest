@@ -7371,17 +7371,23 @@ button.ci-badge:hover {
   -webkit-app-region: no-drag;
   display: flex;
   align-items: center;
+  flex-shrink: 0;
+}
+
+/* Reserve space for Windows native titlebar overlay (min/max/close ~138px) */
+body.platform-win .resource-bar-wrap {
+  margin-right: 140px;
 }
 
 .resource-bar-pill {
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid var(--border);
-  color: var(--text-secondary);
+  background: rgba(0, 102, 255, 0.08);
+  border: 1px solid rgba(0, 102, 255, 0.35);
+  color: var(--text-primary);
   font-size: 11px;
   font-family: 'JetBrains Mono', ui-monospace, monospace;
   border-radius: 999px;
   padding: 4px 12px;
-  margin: 0 6px 6px;
+  margin: 0 6px;
   cursor: pointer;
   white-space: nowrap;
   transition: color 0.15s, border-color 0.15s, background 0.15s;
