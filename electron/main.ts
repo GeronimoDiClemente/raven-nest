@@ -940,6 +940,25 @@ ipcMain.handle('metrics:killPid', async (_evt, pid: number) => {
 // processes (e.g. `node` under `npm run dev` under the PowerShell shell) —
 // the shell itself almost never listens on a port. The map key remains the
 // ORIGINAL input pid so the renderer can still look up ports by pane pid.
+// Aggregate every listening port across every live pane. Used by the
+// BrowserCell URL dropdown so the user can pick `:3000` from their `npm run
+// dev` without typing localhost. Returns a sorted, deduplicated port list.
+ipcMain.handle('ports:listAll', async () => {
+  const live = ptyManager.getAllPids()
+  if (live.length === 0) return [] as number[]
+  const trees = await Promise.all(live.map((p) => metricsCollector.getTreeForPid(p.pid)))
+  const flat = new Set<number>()
+  for (const tree of trees) for (const pid of tree) flat.add(pid)
+  const portArrays = await Promise.allSettled(Array.from(flat).map((pid) => scanPid(pid)))
+  const merged = new Set<number>()
+  for (const r of portArrays) {
+    if (r.status === 'fulfilled' && Array.isArray(r.value)) {
+      for (const port of r.value) merged.add(port)
+    }
+  }
+  return Array.from(merged).sort((a, b) => a - b)
+})
+
 ipcMain.handle('metrics:portsByPids', async (_evt, pids: number[]) => {
   if (!Array.isArray(pids)) return {} as Record<number, number[]>
   const valid = pids.filter((p) => Number.isFinite(p) && p > 0)

@@ -7659,6 +7659,71 @@ body.platform-mac .tabbar { padding-right: 116px; }
   height: 11px;
 }
 
+/* Browser URL port picker — dropdown of listening ports detected
+   across every live pane's process tree. */
+.browser-port-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.browser-port-btn {
+  font-weight: 700;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+}
+
+.browser-port-dropdown {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
+  min-width: 180px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px;
+  z-index: 50;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+.browser-port-empty {
+  padding: 8px 10px;
+  color: var(--text-muted);
+  font-size: 11px;
+  text-align: center;
+}
+
+.browser-port-item {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  padding: 6px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  text-align: left;
+  font-size: 12px;
+}
+
+.browser-port-item:hover {
+  background: rgba(0, 102, 255, 0.1);
+}
+
+.browser-port-num {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  color: var(--raven-blue);
+  font-weight: 600;
+}
+
+.browser-port-host {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
 /* Heaviest-pane callout — same amber tone the .pane-sync-cwd-btn uses so the
    warning hue is consistent across the app. Sits above totals when fired. */
 .rb-heavy-banner {

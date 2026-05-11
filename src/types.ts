@@ -433,6 +433,7 @@ declare global {
     }
     port: {
       scan: (pid: number) => Promise<number[]>
+      listAll: () => Promise<number[]>
     }
     diff: {
       get: (worktreePath: string, base?: string) => Promise<DiffResult>

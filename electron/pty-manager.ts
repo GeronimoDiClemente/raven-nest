@@ -1,9 +1,9 @@
 import { EventEmitter } from 'events'
 import { join } from 'path'
 import { mkdirSync, existsSync } from 'fs'
-import { homedir } from 'os'
 import * as pty from 'node-pty'
 import { SHELL, SHELL_ARGS, isWin } from './platform'
+import { userHome } from './raven-home'
 
 export interface ShellOverride {
   bin: string
@@ -55,12 +55,14 @@ export class PtyManager extends EventEmitter {
 
     // Resolve cwd with existence check. CreateProcess on Windows fails with
     // ERROR_DIRECTORY (code 267) if cwd is missing — common when a tab persists
-    // a repoPath that was later deleted. Fall back to accountDir, then homedir.
-    let cwd = repoPath || accountDir || homedir()
+    // a repoPath that was later deleted. Fall back to the real user home via
+    // userHome() (which un-nests but ignores RAVEN_HOME — RAVEN_HOME is for
+    // storage redirection, not for cwd). Never accountDir — that's the AI's
+    // config dir, not a meaningful working directory.
+    let cwd = repoPath || userHome()
     if (!existsSync(cwd)) {
-      const fallback = (accountDir && existsSync(accountDir)) ? accountDir : homedir()
-      console.warn('[pty-manager] cwd does not exist, falling back', { paneId, requested: cwd, fallback })
-      cwd = fallback
+      console.warn('[pty-manager] cwd does not exist, falling back to userHome', { paneId, requested: cwd })
+      cwd = userHome()
     }
 
     try {
@@ -126,6 +128,21 @@ export class PtyManager extends EventEmitter {
 
   getPid(paneId: string): number | undefined {
     return this.ptys.get(paneId)?.pid
+  }
+
+  /**
+   * Snapshot of every live pane's PID. Used by the BrowserCell port dropdown
+   * to enumerate all listening ports across the whole app without depending
+   * on the renderer's view of which panes exist.
+   */
+  getAllPids(): Array<{ paneId: string; pid: number }> {
+    const out: Array<{ paneId: string; pid: number }> = []
+    for (const [paneId, pty] of this.ptys) {
+      if (Number.isFinite(pty.pid) && pty.pid > 0) {
+        out.push({ paneId, pid: pty.pid })
+      }
+    }
+    return out
   }
 
   getBuffer(paneId: string): string {

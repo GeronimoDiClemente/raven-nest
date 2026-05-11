@@ -160,6 +160,38 @@ export default function BrowserCell({ pane, cellId, onClose, borderColor }: Prop
     void window.browser.navigate(pane.id, normalized)
   }
 
+  const [portsOpen, setPortsOpen] = useState(false)
+  const [openPorts, setOpenPorts] = useState<number[]>([])
+  const togglePorts = async () => {
+    if (portsOpen) { setPortsOpen(false); return }
+    try {
+      const list = await window.port.listAll()
+      setOpenPorts(list)
+    } catch {
+      setOpenPorts([])
+    }
+    setPortsOpen(true)
+  }
+  const goToPort = (port: number) => {
+    const url = `http://localhost:${port}`
+    setDraftUrl(url)
+    isUntouchedRef.current = false
+    setIsUntouched(false)
+    setPortsOpen(false)
+    void window.browser.navigate(pane.id, url)
+  }
+
+  // Close ports dropdown on click outside
+  useEffect(() => {
+    if (!portsOpen) return
+    const onClick = (e: MouseEvent) => {
+      const el = (e.target as HTMLElement).closest('.browser-port-dropdown, .browser-port-btn')
+      if (!el) setPortsOpen(false)
+    }
+    document.addEventListener('mousedown', onClick)
+    return () => document.removeEventListener('mousedown', onClick)
+  }, [portsOpen])
+
   const accent = borderColor ?? '#0066FF'
 
   return (
@@ -182,6 +214,25 @@ export default function BrowserCell({ pane, cellId, onClose, borderColor }: Prop
           placeholder="https://"
           spellCheck={false}
         />
+        <div className="browser-port-wrap">
+          <button
+            className="browser-btn browser-port-btn"
+            onClick={togglePorts}
+            title="Open listening ports"
+          >:</button>
+          {portsOpen && (
+            <div className="browser-port-dropdown" role="listbox">
+              {openPorts.length === 0 ? (
+                <div className="browser-port-empty">No listening ports</div>
+              ) : openPorts.map((port) => (
+                <button key={port} className="browser-port-item" onClick={() => goToPort(port)}>
+                  <span className="browser-port-num">:{port}</span>
+                  <span className="browser-port-host">localhost</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
         <button
           className="browser-btn"
           onClick={() => window.electronShell.openExternal(url)}
