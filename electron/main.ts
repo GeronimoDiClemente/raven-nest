@@ -940,10 +940,43 @@ ipcMain.handle('metrics:killPid', async (_evt, pid: number) => {
 // processes (e.g. `node` under `npm run dev` under the PowerShell shell) —
 // the shell itself almost never listens on a port. The map key remains the
 // ORIGINAL input pid so the renderer can still look up ports by pane pid.
+// Listening ports filtered to the workspace the BrowserCell lives in.
+// Combines panes of the current tab (via paneIds) with "external" processes
+// whose ExecutablePath/CommandLine lives inside the workspace's repoPath
+// — that's how a `npm run dev` launched in a side terminal (or another
+// Nest instance) still surfaces here. Tree-scans each PID so children
+// (the actual `node` listening on :5173) are covered.
+ipcMain.handle('ports:listForWorkspace', async (_evt, opts: { repoPath?: string; paneIds?: string[] }) => {
+  const safe = opts && typeof opts === 'object' ? opts : { paneIds: [] as string[] }
+  const seedPids = new Set<number>()
+
+  for (const id of safe.paneIds ?? []) {
+    const p = ptyManager.getPid(id)
+    if (p && Number.isFinite(p) && p > 0) seedPids.add(p)
+  }
+  if (safe.repoPath) {
+    const external = await metricsCollector.findProcessesUnderPath(safe.repoPath)
+    for (const p of external) seedPids.add(p)
+  }
+  if (seedPids.size === 0) return [] as number[]
+
+  const trees = await Promise.all(Array.from(seedPids).map((p) => metricsCollector.getTreeForPid(p)))
+  const flat = new Set<number>()
+  for (const t of trees) for (const p of t) flat.add(p)
+  if (flat.size === 0) return [] as number[]
+
+  const portArrays = await Promise.allSettled(Array.from(flat).map((pid) => scanPid(pid)))
+  const merged = new Set<number>()
+  for (const r of portArrays) {
+    if (r.status === 'fulfilled' && Array.isArray(r.value)) {
+      for (const port of r.value) merged.add(port)
+    }
+  }
+  return Array.from(merged).sort((a, b) => a - b)
+})
+
 // All listening localhost-bindable ports on the system. Used by the
-// BrowserCell URL dropdown. We deliberately don't filter by "panes Nest
-// spawned" — many users start their dev server outside Nest and still want
-// to access `:5173` from a Browser cell.
+// BrowserCell URL dropdown when no workspace context is available.
 ipcMain.handle('ports:listAll', async () => {
   if (process.platform === 'win32') {
     return await new Promise<number[]>((res) => {

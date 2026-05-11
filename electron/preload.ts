@@ -232,6 +232,8 @@ contextBridge.exposeInMainWorld('worktree', {
 contextBridge.exposeInMainWorld('port', {
   scan: (pid: number) => ipcRenderer.invoke('port:scan', pid),
   listAll: () => ipcRenderer.invoke('ports:listAll'),
+  listForWorkspace: (opts: { repoPath?: string; paneIds?: string[] }) =>
+    ipcRenderer.invoke('ports:listForWorkspace', opts),
 })
 
 contextBridge.exposeInMainWorld('diff', {

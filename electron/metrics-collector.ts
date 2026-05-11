@@ -342,13 +342,42 @@ export class MetricsCollector {
   // PowerShell process snapshot cache. The CIM call costs ~500 ms; we only
   // need fresh data once per polling cycle (2 s minimum). 1.5 s TTL keeps the
   // popover responsive without re-running for every collect() back-to-back.
-  // Includes process name so port detail rendering can show "vite (node)" or
-  // similar without an additional process lookup.
+  // Includes process name + ExecutablePath + CommandLine so we can both
+  // render names AND attribute "external" processes (a dev server started
+  // outside Nest with cwd inside a worktree) to their worktree.
   private winProcSnapshot: {
     ts: number
     childrenByParent: Map<number, number[]>
     nameByPid: Map<number, string>
+    pathByPid: Map<number, string>
+    cmdByPid: Map<number, string>
   } | null = null
+
+  /**
+   * Find every PID whose ExecutablePath or CommandLine references files
+   * inside `rootPath`. Used to attribute dev-server / build processes that
+   * weren't spawned through a Nest pane (e.g. the user runs `npm run dev`
+   * from an external terminal) to their worktree's group.
+   * Windows-only for now; macOS/Linux returns [].
+   */
+  async findProcessesUnderPath(rootPath: string): Promise<number[]> {
+    if (!IS_WIN) return []
+    if (!rootPath || rootPath.startsWith(SYNTHETIC_WORKSPACE_PREFIX)) return []
+    const snap = await this.getWindowsSnapshot()
+    const norm = rootPath.toLowerCase().replace(/\\/g, '/').replace(/\/+$/, '')
+    const prefix = norm + '/'
+    const out = new Set<number>()
+    for (const [pid, path] of snap.pathByPid) {
+      const p = path.toLowerCase().replace(/\\/g, '/')
+      if (p.startsWith(prefix)) out.add(pid)
+    }
+    for (const [pid, cmd] of snap.cmdByPid) {
+      if (!cmd) continue
+      const c = cmd.toLowerCase().replace(/\\/g, '/')
+      if (c.includes(prefix)) out.add(pid)
+    }
+    return Array.from(out)
+  }
 
   /** Public: best-effort process name for a pid. Empty string when unknown. */
   async getProcessName(pid: number): Promise<string> {
@@ -438,42 +467,48 @@ export class MetricsCollector {
     return tree
   }
 
-  private async getWindowsSnapshot(): Promise<{ childrenByParent: Map<number, number[]>; nameByPid: Map<number, string> }> {
+  private async getWindowsSnapshot(): Promise<{ childrenByParent: Map<number, number[]>; nameByPid: Map<number, string>; pathByPid: Map<number, string>; cmdByPid: Map<number, string> }> {
     const now = Date.now()
     if (this.winProcSnapshot && now - this.winProcSnapshot.ts < 1500) {
-      return { childrenByParent: this.winProcSnapshot.childrenByParent, nameByPid: this.winProcSnapshot.nameByPid }
+      return {
+        childrenByParent: this.winProcSnapshot.childrenByParent,
+        nameByPid: this.winProcSnapshot.nameByPid,
+        pathByPid: this.winProcSnapshot.pathByPid,
+        cmdByPid: this.winProcSnapshot.cmdByPid,
+      }
     }
-    const csv = await new Promise<string>((resolveOut) => {
+    // ExecutablePath and CommandLine may contain commas, so we emit JSON
+    // instead of CSV — quoting is unambiguous and JSON.parse handles it.
+    const json = await new Promise<string>((resolveOut) => {
       execFile(
         'powershell.exe',
         ['-NoProfile', '-NonInteractive', '-Command',
-          'Get-CimInstance Win32_Process | Select-Object ProcessId, ParentProcessId, Name | ConvertTo-Csv -NoTypeInformation'],
-        { windowsHide: true, timeout: 4000, maxBuffer: 8 * 1024 * 1024 },
+          'Get-CimInstance Win32_Process | Select-Object ProcessId, ParentProcessId, Name, ExecutablePath, CommandLine | ConvertTo-Json -Compress'],
+        { windowsHide: true, timeout: 6000, maxBuffer: 16 * 1024 * 1024 },
         (err, stdout) => resolveOut(err ? '' : stdout),
       )
     })
     const childrenByParent = new Map<number, number[]>()
     const nameByPid = new Map<number, string>()
-    const lines = csv.split(/\r?\n/)
-    for (let i = 1; i < lines.length; i++) {
-      const line = lines[i]
-      if (!line) continue
-      // ConvertTo-Csv quotes every field, even when no comma. Strip quotes
-      // then split on comma. The Name field never contains commas in practice
-      // but if it did we'd see it as 4+ parts — guard for that.
-      const parts = line.replace(/"/g, '').split(',')
-      if (parts.length < 3) continue
-      const pid = parseInt(parts[0]!, 10)
-      const ppid = parseInt(parts[1]!, 10)
-      const name = parts.slice(2).join(',').trim()
+    const pathByPid = new Map<number, string>()
+    const cmdByPid = new Map<number, string>()
+    type Row = { ProcessId?: number; ParentProcessId?: number; Name?: string; ExecutablePath?: string | null; CommandLine?: string | null }
+    let rows: Row[] = []
+    try { rows = JSON.parse(json || '[]') } catch { rows = [] }
+    if (!Array.isArray(rows)) rows = []
+    for (const r of rows) {
+      const pid = typeof r.ProcessId === 'number' ? r.ProcessId : NaN
+      const ppid = typeof r.ParentProcessId === 'number' ? r.ParentProcessId : NaN
       if (!Number.isFinite(pid) || !Number.isFinite(ppid)) continue
       const arr = childrenByParent.get(ppid)
       if (arr) arr.push(pid)
       else childrenByParent.set(ppid, [pid])
-      if (name) nameByPid.set(pid, name)
+      if (r.Name) nameByPid.set(pid, r.Name)
+      if (r.ExecutablePath) pathByPid.set(pid, r.ExecutablePath)
+      if (r.CommandLine) cmdByPid.set(pid, r.CommandLine)
     }
-    this.winProcSnapshot = { ts: now, childrenByParent, nameByPid }
-    return { childrenByParent, nameByPid }
+    this.winProcSnapshot = { ts: now, childrenByParent, nameByPid, pathByPid, cmdByPid }
+    return { childrenByParent, nameByPid, pathByPid, cmdByPid }
   }
 
   /**

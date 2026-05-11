@@ -989,6 +989,8 @@ export default function App() {
                                     pane={pane}
                                     cellId={String(i)}
                                     borderColor={pane.borderColor}
+                                    siblingPaneIds={activeTab.cells.filter((c): c is PaneNode => !!c && c.id !== pane.id).map((c) => c.id)}
+                                    workspaceRepoPath={activeTab.repoPath ?? pane.repoPath}
                                     onClose={() => { removePane(i); if (zoomedCell === i) { setZoomedCell(null); setZoomingOut(false) } }}
                                   />
                                 ) : pane ? (

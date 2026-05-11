@@ -6,6 +6,13 @@ interface Props {
   cellId: string
   onClose: () => void
   borderColor?: string
+  // Other pane ids in the same workspace tab. Used to filter the port
+  // dropdown to "what's running in this workspace" instead of the whole OS.
+  siblingPaneIds?: string[]
+  // The workspace's linked repo/worktree path. When set, processes whose
+  // ExecutablePath/CommandLine reference this path are also included
+  // (catches dev servers launched outside Nest).
+  workspaceRepoPath?: string | undefined
 }
 
 const HEADER_HEIGHT = 36
@@ -14,7 +21,7 @@ function isHttpUrl(u: string): boolean {
   return /^https?:\/\//i.test(u)
 }
 
-export default function BrowserCell({ pane, cellId, onClose, borderColor }: Props) {
+export default function BrowserCell({ pane, cellId, onClose, borderColor, siblingPaneIds, workspaceRepoPath }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const placeholderRef = useRef<HTMLDivElement>(null)
   const createdRef = useRef(false)
@@ -168,7 +175,12 @@ export default function BrowserCell({ pane, cellId, onClose, borderColor }: Prop
   const togglePorts = async () => {
     if (portsOpen) { setPortsOpen(false); return }
     try {
-      const list = await window.port.listAll()
+      // Prefer the workspace-scoped query: ports of sibling panes + procs
+      // running under the workspace's linked repo. Falls back to listAll
+      // when the host didn't provide context.
+      const list = siblingPaneIds || workspaceRepoPath
+        ? await window.port.listForWorkspace({ repoPath: workspaceRepoPath, paneIds: siblingPaneIds ?? [] })
+        : await window.port.listAll()
       setOpenPorts(list)
     } catch {
       setOpenPorts([])
