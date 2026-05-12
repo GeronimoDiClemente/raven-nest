@@ -66,7 +66,10 @@ export default function BrowserCell({ pane, cellId, onClose, borderColor, siblin
   const placeholderRef = useRef<HTMLDivElement>(null)
   const createdRef = useRef(false)
   const [url, setUrl] = useState<string>(pane.url ?? 'about:blank')
-  const [draftUrl, setDraftUrl] = useState<string>(pane.url ?? '')
+  // Hide data: URLs (BLANK_PAGE placeholder) from the input — they're internal
+  // implementation, not navigable addresses the user typed or wants to share.
+  const initialDraft = pane.url && !pane.url.startsWith('data:') ? pane.url : ''
+  const [draftUrl, setDraftUrl] = useState<string>(initialDraft)
   const [isUntouched, setIsUntouched] = useState<boolean>(!isHttpUrl(pane.url ?? ''))
   const isUntouchedRef = useRef<boolean>(!isHttpUrl(pane.url ?? ''))
   // Set to the URL the user attempted to navigate to when it matches the
@@ -94,6 +97,14 @@ export default function BrowserCell({ pane, cellId, onClose, borderColor, siblin
   useEffect(() => {
     const cb = (paneId: string, navUrl: string) => {
       if (paneId !== pane.id) return
+      // The BLANK_PAGE placeholder is a data: URL — showing its encoded HTML
+      // in the input field is meaningless and ugly, so we keep internal state
+      // but leave the input empty so the "https://" placeholder is visible.
+      if (navUrl.startsWith('data:')) {
+        setUrl(navUrl)
+        setDraftUrl('')
+        return
+      }
       setUrl(navUrl)
       setDraftUrl(navUrl)
     }
@@ -252,13 +263,19 @@ export default function BrowserCell({ pane, cellId, onClose, borderColor, siblin
       // an empty siblingPaneIds list would mask the fallback — we check
       // length explicitly here.
       const useWorkspaceScope = !!workspaceRepoPath || (siblingPaneIds?.length ?? 0) > 0 || (siblingRepoPaths?.length ?? 0) > 0
-      const list = useWorkspaceScope
+      let list = useWorkspaceScope
         ? await window.port.listForWorkspace({
             repoPath: workspaceRepoPath,
             repoPaths: siblingRepoPaths ?? [],
             paneIds: siblingPaneIds ?? [],
           })
         : await window.port.listAll()
+      // Fall back to system-wide scan when the workspace-scoped query returns
+      // nothing — covers dev servers launched outside Nest (in another shell,
+      // VS Code, Docker, etc.) so the dropdown isn't useless.
+      if (list.length === 0 && useWorkspaceScope) {
+        list = await window.port.listAll()
+      }
       setOpenPorts(list)
     } catch {
       setOpenPorts([])
@@ -324,14 +341,66 @@ export default function BrowserCell({ pane, cellId, onClose, borderColor, siblin
           <div
             className="browser-port-dropdown"
             role="listbox"
-            style={{ position: 'fixed', top: portsAnchor.top, right: portsAnchor.right, zIndex: 100 }}
+            style={{
+              position: 'fixed',
+              top: portsAnchor.top,
+              right: portsAnchor.right,
+              zIndex: 100,
+              minWidth: 220,
+              maxWidth: 320,
+              background: 'rgba(22, 22, 24, 0.92)',
+              backdropFilter: 'blur(22px) saturate(180%)',
+              WebkitBackdropFilter: 'blur(22px) saturate(180%)',
+              border: '1px solid rgba(255, 255, 255, 0.09)',
+              borderRadius: 10,
+              padding: 6,
+              boxShadow: '0 1px 0 rgba(255, 255, 255, 0.05) inset, 0 12px 36px rgba(0, 0, 0, 0.6), 0 4px 10px rgba(0, 0, 0, 0.4)',
+              overflow: 'hidden',
+              animation: 'browser-port-dropdown-in 140ms cubic-bezier(0.16, 1, 0.3, 1)',
+            }}
           >
+            <div style={{
+              fontSize: 9.5,
+              fontWeight: 600,
+              letterSpacing: '0.12em',
+              textTransform: 'uppercase',
+              color: 'rgba(255, 255, 255, 0.4)',
+              padding: '6px 10px 6px',
+            }}>Listening ports</div>
             {openPorts.length === 0 ? (
-              <div className="browser-port-empty">No listening ports</div>
+              <div style={{ padding: '14px 12px', color: 'rgba(255, 255, 255, 0.4)', fontSize: 11.5, textAlign: 'center', letterSpacing: '0.01em' }}>
+                No listening ports
+              </div>
             ) : openPorts.map((port) => (
-              <button key={port} className="browser-port-item" onClick={() => goToPort(port)}>
-                <span className="browser-port-num">:{port}</span>
-                <span className="browser-port-host">localhost</span>
+              <button
+                key={port}
+                onClick={() => goToPort(port)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'baseline',
+                  justifyContent: 'flex-start',
+                  gap: 8,
+                  width: '100%',
+                  background: 'transparent',
+                  border: 0,
+                  outline: 0,
+                  color: '#fff',
+                  padding: '8px 12px',
+                  borderRadius: 7,
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  font: 'inherit',
+                  fontSize: 13,
+                  WebkitAppearance: 'none',
+                  appearance: 'none',
+                  marginTop: 1,
+                  transition: 'background 120ms ease',
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255, 255, 255, 0.06)' }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
+              >
+                <span style={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: 13, fontWeight: 400 }}>localhost</span>
+                <span style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace", color: '#0066FF', fontWeight: 600, fontSize: 13, letterSpacing: '0.02em' }}>:{port}</span>
               </button>
             ))}
           </div>

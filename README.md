@@ -65,14 +65,14 @@ The headline of v1.0 is **branch-level isolation in the same window**: spawn a w
 
 ## Download
 
-Latest: **v1.0.0** — first stable release.
+Latest: **v1.0.1** — bug fixes (Teams panel + Browser cell + kill button + EPIPE crash).
 
 | Platform | Download |
 |----------|----------|
-| **macOS** (Apple Silicon) | [Nest-1.0.0-arm64.dmg](../../releases/latest) |
-| **Windows** | [Nest-Setup-1.0.0.exe](../../releases/latest) |
-| **Linux** (universal) | [Nest-1.0.0.AppImage](../../releases/latest) |
-| **Linux** (Debian / Ubuntu) | [nest_1.0.0_amd64.deb](../../releases/latest) |
+| **macOS** (Apple Silicon) | [Nest-1.0.1-arm64.dmg](../../releases/latest) |
+| **Windows** | [Nest-Setup-1.0.1.exe](../../releases/latest) |
+| **Linux** (universal) | [Nest-1.0.1.AppImage](../../releases/latest) |
+| **Linux** (Debian / Ubuntu) | [nest_1.0.1_amd64.deb](../../releases/latest) |
 
 > Nest auto-updates in the background — install once and you'll get future releases without re-downloading.
 

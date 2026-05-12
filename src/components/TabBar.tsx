@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, memo } from 'react'
 import { WorkspaceTab } from '../types'
 import { basename } from '../lib/path'
 import { DndContext, DragEndEvent, PointerSensor, useSensor, useSensors, closestCenter } from '@dnd-kit/core'
@@ -19,10 +19,7 @@ interface Props {
   rightSlot?: React.ReactNode
 }
 
-function SortableTab({
-  tab, activeTabId, onTabSelect, onTabClose, onTabRename, renamingId, renameValue,
-  setRenamingId, setRenameValue, hasActivity, onTabColorChange
-}: {
+interface SortableTabProps {
   tab: WorkspaceTab
   activeTabId: string
   onTabSelect: (id: string) => void
@@ -34,7 +31,12 @@ function SortableTab({
   setRenameValue: (v: string) => void
   hasActivity: boolean
   onTabColorChange?: (tabId: string, color: string) => void
-}) {
+}
+
+const SortableTab = memo(function SortableTab({
+  tab, activeTabId, onTabSelect, onTabClose, onTabRename, renamingId, renameValue,
+  setRenamingId, setRenameValue, hasActivity, onTabColorChange
+}: SortableTabProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: tab.id })
   const renameInputRef = useRef<HTMLInputElement>(null)
   const colorInputRef = useRef<HTMLInputElement>(null)
@@ -60,9 +62,12 @@ function SortableTab({
 
   const tabAccent = tab.accentColor ?? '#0066FF'
 
+  // Only apply transition while actively dragging — otherwise React re-renders
+  // (from upstream metrics polling) re-attach the style and trigger CSS
+  // transitions on transform: none → none, which paints as a flicker.
   const style: React.CSSProperties = {
     transform: CSS.Translate.toString(transform),
-    transition,
+    transition: isDragging ? transition : undefined,
     opacity: isDragging ? 0.4 : 1,
     '--tab-accent': tabAccent,
   } as React.CSSProperties & { '--tab-accent': string }

@@ -1334,12 +1334,18 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal, on
 
       {showJoinCodeModal && (
         <div className="confirm-overlay" onMouseDown={e => { if (e.target === e.currentTarget) setShowJoinCodeModal(false) }}>
-          <div className="team-modal" style={{ width: 440 }}>
+          <div className="team-modal join-code-modal">
             <div className="team-modal-header">
-              <span className="team-modal-title">Join a team with code</span>
+              <div className="team-modal-header-left">
+                <svg className="jcf-title-icon" width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                  <circle cx="6" cy="10" r="3" stroke="currentColor" strokeWidth="1.4"/>
+                  <path d="M8.1 8.1L14 2.2M11.5 4.8l1.7 1.7M13 3.3l1.5 1.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+                <span className="team-modal-title">Join a team with code</span>
+              </div>
               <button className="team-modal-close" onClick={() => setShowJoinCodeModal(false)}>×</button>
             </div>
-            <div className="team-modal-body" style={{ padding: '16px' }}>
+            <div className="team-modal-body">
               <JoinByCodeForm
                 myPendingRequests={myPendingRequests}
                 onRequestJoin={requestJoin}

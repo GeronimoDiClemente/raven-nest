@@ -2,6 +2,16 @@ import { app, BrowserWindow, ipcMain, shell, nativeImage, dialog, session, safeS
 import { autoUpdater } from 'electron-updater'
 import { resolve as pathResolve } from 'path'
 
+// Swallow stdout EPIPE — happens when the parent terminal closes while the
+// app keeps running. A single console.log that writes to a closed stdout
+// would otherwise propagate as uncaughtException and kill the main process.
+process.stdout.on('error', (err) => { if ((err as NodeJS.ErrnoException).code !== 'EPIPE') throw err })
+process.stderr.on('error', (err) => { if ((err as NodeJS.ErrnoException).code !== 'EPIPE') throw err })
+process.on('uncaughtException', (err) => {
+  if ((err as NodeJS.ErrnoException).code === 'EPIPE') return
+  throw err
+})
+
 // Single instance lock — ensures deep links route to existing window
 const gotLock = app.requestSingleInstanceLock()
 if (!gotLock) { app.quit() }
@@ -139,8 +149,8 @@ function createWindow(): void {
       return
     }
 
-    // DevTools solo en dev (F12 y Cmd+Option+I / Ctrl+Alt+I)
-    if (!process.env['ELECTRON_RENDERER_URL']) return
+    // DevTools en dev y prod (F12 y Cmd+Option+I / Ctrl+Alt+I). Útil para
+    // diagnosticar problemas visuales sin tener que recompilar.
     if (input.key === 'F12') { win.webContents.openDevTools(); return }
     const trigger = isMac
       ? (input.meta && input.alt && input.key === 'i')
@@ -1156,12 +1166,6 @@ ipcMain.handle('ports:listForWorkspace', async (
     const external = await metricsCollector.findProcessesUnderPath(path)
     for (const p of external) seedPids.add(p)
   }
-  console.log('[ports:listForWorkspace] scan', {
-    pathsCount: pathsToScan.size,
-    paths: Array.from(pathsToScan),
-    paneIdCount: safe.paneIds?.length ?? 0,
-    seedPidsCount: seedPids.size,
-  })
   if (seedPids.size === 0) return [] as number[]
 
   const trees = await Promise.all(Array.from(seedPids).map((p) => metricsCollector.getTreeForPid(p)))

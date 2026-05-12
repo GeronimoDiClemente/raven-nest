@@ -1,6 +1,6 @@
 {
   "name": "nest",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Nest by RAVEN — Multi-AI Terminal Multiplexer",
   "engines": {
     "node": ">=20.19"

@@ -34,69 +34,84 @@ export default function TeamJoinCodePanel({ teamId, isLeader }: Props) {
 
   if (loading) return null
 
-  // No code yet
+  // No code yet, not a leader → nothing to show
+  if (!code && !isLeader) return null
+
+  // No code yet, leader → empty state
   if (!code) {
-    if (!isLeader) return null
     return (
-      <div className="team-join-code-panel empty">
-        <div className="team-join-code-panel-info">
-          <span className="team-join-code-label">
-            <KeyIcon />
-            Team join code
-          </span>
-          <span className="team-join-code-hint">
-            Generate a code so others can request to join.
-          </span>
+      <div className="tjcp-card tjcp-card--empty">
+        <div className="tjcp-header">
+          <div className="tjcp-header-left">
+            <span className="tjcp-icon-wrap" aria-hidden="true">
+              <KeyIcon />
+            </span>
+            <span className="tjcp-label">Team join code</span>
+          </div>
         </div>
-        <button
-          className="snippet-save-btn"
-          onClick={handleGenerate}
-          disabled={working}
-        >
-          {working ? '…' : 'Generate'}
-        </button>
+        <p className="tjcp-hint">
+          Generate a code so others can request to join.
+        </p>
+        <div className="tjcp-empty-actions">
+          <button
+            className="tjcp-primary-btn"
+            onClick={handleGenerate}
+            disabled={working}
+          >
+            {working ? 'Generating…' : 'Generate'}
+          </button>
+        </div>
       </div>
     )
   }
 
   return (
     <>
-      <div className="team-join-code-panel">
-        <div className="team-join-code-panel-info">
-          <span className="team-join-code-label">
-            <KeyIcon />
-            Team join code
-          </span>
-          <span className="team-join-code-value">{code}</span>
-          <span className="team-join-code-hint">
-            Share it with anyone who wants to join. Requests need a leader's approval.
-          </span>
-        </div>
-        <div className="team-join-code-actions">
-          <button
-            className={`team-join-code-icon-btn${copied ? ' copied' : ''}`}
-            onClick={handleCopy}
-            title={copied ? 'Copied' : 'Copy code'}
-            aria-label="Copy code"
-          >
-            {copied ? <CheckIcon /> : <CopyIcon />}
-          </button>
-          {isLeader && (
+      <div className="tjcp-card">
+        <div className="tjcp-header">
+          <div className="tjcp-header-left">
+            <span className="tjcp-icon-wrap" aria-hidden="true">
+              <KeyIcon />
+            </span>
+            <span className="tjcp-label">Team join code</span>
+          </div>
+          <div className="tjcp-actions">
             <button
-              className="team-join-code-icon-btn"
-              onClick={() => setConfirmRotate(true)}
-              disabled={working}
-              title="Rotate (invalidates the current code)"
-              aria-label="Rotate code"
+              className={`tjcp-icon-btn${copied ? ' tjcp-icon-btn--ok' : ''}`}
+              onClick={handleCopy}
+              title={copied ? 'Copied' : 'Copy code'}
+              aria-label="Copy code"
             >
-              <RotateIcon />
+              {copied ? <CheckIcon /> : <CopyIcon />}
             </button>
-          )}
+            {isLeader && (
+              <button
+                className="tjcp-icon-btn"
+                onClick={() => setConfirmRotate(true)}
+                disabled={working}
+                title="Rotate (invalidates the current code)"
+                aria-label="Rotate code"
+              >
+                <RotateIcon />
+              </button>
+            )}
+          </div>
         </div>
+
+        <div className="tjcp-code-row">
+          <span className="tjcp-code">{code}</span>
+        </div>
+
+        <p className="tjcp-hint">
+          Share it with anyone who wants to join. Requests need a leader's approval.
+        </p>
       </div>
 
       {confirmRotate && (
-        <div className="confirm-overlay" onMouseDown={e => { if (e.target === e.currentTarget) setConfirmRotate(false) }}>
+        <div
+          className="confirm-overlay"
+          onMouseDown={e => { if (e.target === e.currentTarget) setConfirmRotate(false) }}
+        >
           <div className="team-modal" style={{ width: 380, height: 'auto' }}>
             <div className="team-modal-header">
               <span className="team-modal-title">Rotate join code?</span>
@@ -120,35 +135,35 @@ export default function TeamJoinCodePanel({ teamId, isLeader }: Props) {
 
 function KeyIcon() {
   return (
-    <svg width="11" height="11" viewBox="0 0 16 16" fill="none">
-      <circle cx="6" cy="10" r="3" stroke="currentColor" strokeWidth="1.4"/>
-      <path d="M8.5 8L13 3.5M11 5.5L13 7.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor">
+      <circle cx="6" cy="10" r="3" strokeWidth="1.4" />
+      <path d="M8.5 8L13 3.5M11 5.5L13 7.5" strokeWidth="1.4" strokeLinecap="round" />
     </svg>
   )
 }
 
 function CopyIcon() {
   return (
-    <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
-      <rect x="5" y="5" width="9" height="9" rx="1.5" stroke="currentColor" strokeWidth="1.3"/>
-      <path d="M3 11V3a1 1 0 011-1h7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor">
+      <rect x="5" y="5" width="9" height="9" rx="1.5" strokeWidth="1.3" />
+      <path d="M3 11V3a1 1 0 011-1h7" strokeWidth="1.3" strokeLinecap="round" />
     </svg>
   )
 }
 
 function CheckIcon() {
   return (
-    <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
-      <path d="M3 8.5l3 3 7-7" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"/>
+    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor">
+      <path d="M3 8.5l3 3 7-7" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   )
 }
 
 function RotateIcon() {
   return (
-    <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
-      <path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-      <path d="M13.5 2.5v3h-3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor">
+      <path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9" strokeWidth="1.4" strokeLinecap="round" />
+      <path d="M13.5 2.5v3h-3" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   )
 }

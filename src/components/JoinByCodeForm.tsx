@@ -34,48 +34,79 @@ export default function JoinByCodeForm({ myPendingRequests, onRequestJoin, onCan
     setCancelingId(null)
   }
 
+  const canSubmit = code.trim().length > 0 && !submitting
+
   return (
-    <div className="join-code-form">
-      <div>
-        <label className="join-code-form-label">Invite code</label>
-        <div className="join-code-input-row">
-          <input
-            className="snippet-input join-code-input"
-            placeholder="XXXXXXXX"
-            value={code}
-            maxLength={8}
-            onChange={e => setCode(e.target.value.toUpperCase())}
-            onKeyDown={e => { if (e.key === 'Enter' && code.trim()) handleSubmit() }}
-            disabled={submitting}
-            spellCheck={false}
-            autoComplete="off"
-          />
-          <button
-            className="snippet-save-btn"
-            onClick={handleSubmit}
-            disabled={submitting || code.trim().length === 0}
-          >
-            {submitting ? '…' : 'Request to join'}
-          </button>
-        </div>
-        {error && <p className="join-code-message error">{error}</p>}
-        {success && <p className="join-code-message success">{success}</p>}
+    <div className="jcf-root">
+      <p className="jcf-subtitle">
+        Enter the 8-character code your team shared with you.
+      </p>
+
+      <div className="jcf-input-wrap">
+        <input
+          className="jcf-input"
+          placeholder="XXXXXXXX"
+          value={code}
+          maxLength={8}
+          onChange={e => setCode(e.target.value.toUpperCase().replace(/\s/g, ''))}
+          onKeyDown={e => { if (e.key === 'Enter' && canSubmit) handleSubmit() }}
+          disabled={submitting}
+          spellCheck={false}
+          autoComplete="off"
+          aria-label="Invite code"
+        />
       </div>
 
+      <button
+        className="jcf-submit-btn"
+        onClick={handleSubmit}
+        disabled={!canSubmit}
+      >
+        {submitting ? (
+          <span className="jcf-submit-spinner" aria-hidden="true" />
+        ) : (
+          <>
+            <span>Request to join</span>
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </>
+        )}
+      </button>
+
+      {(error || success) && (
+        <div className={`jcf-message ${error ? 'jcf-message-error' : 'jcf-message-success'}`}>
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            {error ? (
+              <>
+                <circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeWidth="1.4"/>
+                <path d="M8 5v3.5M8 10.5v.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+              </>
+            ) : (
+              <>
+                <circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeWidth="1.4"/>
+                <path d="M5 8.2l2.2 2.2L11 6.4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+              </>
+            )}
+          </svg>
+          <span>{error ?? success}</span>
+        </div>
+      )}
+
       {myPendingRequests.length > 0 && (
-        <div>
-          <p className="join-code-form-label">Your pending requests</p>
-          <div className="join-code-pending-list">
+        <div className="jcf-pending">
+          <div className="jcf-pending-label">Pending requests</div>
+          <div className="jcf-pending-list">
             {myPendingRequests.map(req => (
-              <div key={req.memberId} className="team-pending-banner">
-                <div>
-                  <div style={{ fontSize: 13, fontWeight: 600 }}>{req.team.name}</div>
-                  <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>
-                    Waiting for approval · sent {new Date(req.requestedAt).toLocaleDateString()}
+              <div key={req.memberId} className="jcf-pending-item">
+                <div className="jcf-pending-info">
+                  <div className="jcf-pending-name">{req.team.name}</div>
+                  <div className="jcf-pending-meta">
+                    Waiting for approval · {new Date(req.requestedAt).toLocaleDateString()}
                   </div>
                 </div>
                 <button
-                  className="snippet-cancel-btn"
+                  className="jcf-pending-cancel"
                   onClick={() => handleCancel(req.memberId)}
                   disabled={cancelingId === req.memberId}
                 >

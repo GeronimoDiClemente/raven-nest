@@ -587,25 +587,59 @@ function PaneRow({
   // Aggregated "External" rows use pid: 0 as a sentinel — they represent
   // many child processes, not a single killable one. Hide the kill button.
   const killable = pane.pid > 0
+  const [hover, setHover] = useState(false)
+  const [btnHover, setBtnHover] = useState(false)
   return (
-    <div className="rb-row rb-row--grandchild rb-row--has-kill">
+    <div
+      className="rb-row rb-row--grandchild rb-row--has-kill"
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      style={{ position: 'relative', paddingRight: 24 }}
+    >
       <span className="rb-row-label">
         {renderPaneLabel(pane)}
       </span>
       <span className="rb-row-metric">
         {formatPct(pane.cpuPercent)} / {formatBytes(pane.memBytes)}
       </span>
-      {killable && (
+      {killable && hover && (
         <button
-          className="rb-kill-btn"
           type="button"
           onClick={(e) => { e.stopPropagation(); onKill(pane) }}
           disabled={killing || killDisabled}
           title={killing ? 'Killing…' : `Kill ${pane.label} (PID ${pane.pid})`}
           aria-label={`Kill ${pane.label}`}
+          onMouseEnter={() => setBtnHover(true)}
+          onMouseLeave={() => setBtnHover(false)}
+          style={{
+            position: 'absolute',
+            right: 4,
+            top: '50%',
+            transform: 'translateY(-50%)',
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            width: 18,
+            height: 18,
+            padding: 0,
+            margin: 0,
+            border: 0,
+            outline: 0,
+            boxShadow: 'none',
+            background: btnHover ? 'rgba(255, 77, 77, 0.16)' : 'transparent',
+            color: btnHover ? '#ff5f5f' : 'rgba(255, 255, 255, 0.55)',
+            borderRadius: 5,
+            cursor: killing || killDisabled ? 'default' : 'pointer',
+            opacity: killing || killDisabled ? 0.4 : 1,
+            font: 'inherit',
+            WebkitAppearance: 'none',
+            appearance: 'none',
+            transition: 'background 120ms ease, color 120ms ease',
+          }}
         >
-          <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
-            <path d="M2.5 2.5 L9.5 9.5 M9.5 2.5 L2.5 9.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true" style={{ display: 'block', pointerEvents: 'none' }}>
+            <path d="M2 2L8 8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+            <path d="M8 2L2 8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
           </svg>
         </button>
       )}
