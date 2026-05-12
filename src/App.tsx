@@ -460,7 +460,9 @@ export default function App() {
 
   const openRepoInNewTab = useCallback((repoFullName: string, localPath: string) => {
     const id = generateTabId()
-    const folderName = repoFullName.includes('/') ? repoFullName.split('/')[1] : repoFullName
+    // H2: GitLab paths like `group/subgroup/repo` need the last segment, not [1].
+    // Using split('/')[1] would yield "subgroup" instead of "repo".
+    const folderName = repoFullName.includes('/') ? repoFullName.split('/').pop()! : repoFullName
     const newTab: WorkspaceTab = {
       id,
       name: folderName,
@@ -673,13 +675,28 @@ export default function App() {
         }))
         // Drop repoPath references to directories that no longer exist on disk —
         // otherwise every new pane inherits a dead cwd and pty.spawn fails with
-        // ERROR_DIRECTORY (267) on Windows.
+        // ERROR_DIRECTORY (267) on Windows. Applies to both tab.repoPath AND
+        // cell.repoPath (cells override tab scope when set).
         Promise.all(restoredTabs.map(async (t) => {
-          if (!t.repoPath) return t
-          const exists = await window.pathUtils.exists(t.repoPath)
-          if (exists) return t
-          console.warn('[session] dropping stale repoPath for tab', t.name, t.repoPath)
-          return { ...t, repoPath: undefined }
+          const pathsToCheck = new Set<string>()
+          if (t.repoPath) pathsToCheck.add(t.repoPath)
+          for (const c of t.cells) if (c?.repoPath) pathsToCheck.add(c.repoPath)
+          if (pathsToCheck.size === 0) return t
+
+          const existence = await Promise.all(
+            [...pathsToCheck].map(async (p) => [p, await window.pathUtils.exists(p)] as const)
+          )
+          const dead = new Set(existence.filter(([, ok]) => !ok).map(([p]) => p))
+          if (dead.size === 0) return t
+
+          for (const p of dead) console.warn('[session] dropping stale repoPath', p)
+          return {
+            ...t,
+            repoPath: t.repoPath && dead.has(t.repoPath) ? undefined : t.repoPath,
+            cells: t.cells.map((c) =>
+              c && c.repoPath && dead.has(c.repoPath) ? { ...c, repoPath: undefined } : c
+            ),
+          }
         })).then((cleaned) => {
           setTabs(cleaned)
           setActiveTabId(data.activeTabId ?? cleaned[0].id)
@@ -991,6 +1008,12 @@ export default function App() {
                                     borderColor={pane.borderColor}
                                     siblingPaneIds={activeTab.cells.filter((c): c is PaneNode => !!c && c.id !== pane.id).map((c) => c.id)}
                                     workspaceRepoPath={activeTab.repoPath ?? pane.repoPath}
+                                    siblingRepoPaths={Array.from(new Set(
+                                      activeTab.cells
+                                        .filter((c): c is PaneNode => !!c)
+                                        .map((c) => c.repoPath)
+                                        .filter((p): p is string => !!p)
+                                    ))}
                                     onClose={() => { removePane(i); if (zoomedCell === i) { setZoomedCell(null); setZoomingOut(false) } }}
                                   />
                                 ) : pane ? (

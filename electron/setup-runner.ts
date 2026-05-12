@@ -129,4 +129,15 @@ export class SetupRunner extends EventEmitter {
   isRunning(worktreePath: string): boolean {
     return this.active.has(worktreePath)
   }
+
+  /**
+   * Cancel every active setup run. Called from app `before-quit` so spawned
+   * children (npm install, pnpm i, etc.) don't outlive the parent process
+   * and stay orphaned on the user's machine.
+   */
+  cancelAll(): void {
+    for (const wt of Array.from(this.active.keys())) {
+      this.cancel(wt)
+    }
+  }
 }

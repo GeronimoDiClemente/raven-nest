@@ -1,6 +1,7 @@
-import { useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type FC, type ReactNode } from 'react'
 import type { MetricsSnapshot, RepoMetric, WorktreeMetricInfo, PaneMetric, DiskBucket } from '../types'
 import { ClaudeLogo, GeminiLogo, CodexLogo, CopilotLogo, OpenCodeLogo } from './AILogos'
+import { formatBytes, formatPct, diskLabel } from '../lib/formatMetrics'
 
 type PrimaryMetric = 'memory' | 'cpu'
 
@@ -13,28 +14,6 @@ interface Props {
   onRefresh: () => Promise<void>
   isDiskRefreshing: boolean
   onClose: () => void
-}
-
-function formatBytes(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B'
-  const units = ['B', 'KB', 'MB', 'GB', 'TB']
-  let idx = 0
-  let val = bytes
-  while (val >= 1024 && idx < units.length - 1) {
-    val /= 1024
-    idx += 1
-  }
-  const decimals = val < 10 ? 2 : val < 100 ? 1 : 0
-  return `${val.toFixed(decimals)} ${units[idx]}`
-}
-
-function formatPct(pct: number): string {
-  if (!Number.isFinite(pct) || pct < 0) return '0.0%'
-  return `${pct.toFixed(1)}%`
-}
-
-function diskLabel(bytes: number | null): string {
-  return bytes === null ? '—' : formatBytes(bytes)
 }
 
 // Thresholds for the "heaviest pane" callout. Fires when EITHER total RAM
@@ -65,31 +44,33 @@ function findHeaviestPane(snapshot: MetricsSnapshot): HeaviestPaneInfo | null {
   return best
 }
 
+function useToggleSet(): [Set<string>, (k: string) => void] {
+  const [set, setSet] = useState<Set<string>>(new Set())
+  const toggle = useCallback((k: string) => {
+    setSet((prev) => {
+      const next = new Set(prev)
+      if (next.has(k)) next.delete(k); else next.add(k)
+      return next
+    })
+  }, [])
+  return [set, toggle]
+}
+
 export default function ResourceBarPopover({
   snapshot, ports, primary, onPrimaryChange, onRefreshDisk, onRefresh, isDiskRefreshing, onClose,
 }: Props) {
-  const [collapsedRepos, setCollapsedRepos] = useState<Set<string>>(new Set())
-  const [collapsedWorktrees, setCollapsedWorktrees] = useState<Set<string>>(new Set())
+  const [collapsedRepos, toggleRepo] = useToggleSet()
+  const [collapsedWorktrees, toggleWorktree] = useToggleSet()
   // Track which PID is mid-kill so we can disable the button and avoid a
   // second confirm dialog landing while the first taskkill is still running.
   const [killingPid, setKillingPid] = useState<number | null>(null)
-
-  const toggleRepo = (key: string) => {
-    setCollapsedRepos((prev) => {
-      const next = new Set(prev)
-      if (next.has(key)) next.delete(key)
-      else next.add(key)
-      return next
-    })
-  }
-  const toggleWorktree = (key: string) => {
-    setCollapsedWorktrees((prev) => {
-      const next = new Set(prev)
-      if (next.has(key)) next.delete(key)
-      else next.add(key)
-      return next
-    })
-  }
+  // Guard setKillingPid() against the popover unmounting (e.g. user clicks the
+  // backdrop) while the killPid IPC await is in flight.
+  const mountedRef = useRef(true)
+  useEffect(() => {
+    mountedRef.current = true
+    return () => { mountedRef.current = false }
+  }, [])
 
   const heaviestCallout = useMemo(() => {
     if (!snapshot) return null
@@ -106,7 +87,7 @@ export default function ResourceBarPopover({
     // dependency-free.
     const ok = window.confirm(`Kill ${pane.label} (PID ${pane.pid})?`)
     if (!ok) return
-    setKillingPid(pane.pid)
+    if (mountedRef.current) setKillingPid(pane.pid)
     try {
       const res = await window.metrics.killPid(pane.pid)
       if (!res.ok) {
@@ -118,7 +99,7 @@ export default function ResourceBarPopover({
       // Re-poll so the killed pane drops out of the tree without waiting for
       // the next interval (would otherwise show 0%/0B for up to 2s).
       try { await onRefresh() } catch {}
-      setKillingPid(null)
+      if (mountedRef.current) setKillingPid(null)
     }
   }
 
@@ -320,7 +301,7 @@ function WorktreeNode({
   // Union of ports listened on by any pane in this worktree, deduped + sorted.
   // We tolerate the case where ports[pid] is undefined (first poll, or pid
   // with no listening sockets) — just skip it silently.
-  const worktreePorts: number[] = (() => {
+  const worktreePorts = useMemo<number[]>(() => {
     const set = new Set<number>()
     for (const pane of worktree.panes) {
       const list = ports[pane.pid]
@@ -329,7 +310,7 @@ function WorktreeNode({
       }
     }
     return Array.from(set).sort((a, b) => a - b)
-  })()
+  }, [worktree.panes, ports])
   const showBuckets = !collapsed && Array.isArray(worktree.diskBuckets) && worktree.diskBuckets.length > 0
   return (
     <>
@@ -398,6 +379,19 @@ function renderPaneLabel(pane: PaneMetric): ReactNode {
   )
 }
 
+// Each "external-*" kind is grouped server-side by classifyExternalProcess.
+// Logos are intentionally minimal — they need to read at 11px next to the
+// AI logos. Color comes from EXTERNAL_KIND_META in metrics-collector.ts.
+// The map key is whatever comes after the `external-` prefix in aiType; the
+// bare `external` aiType (and the legacy `external-external` value) both fall
+// back to ShellLogo via the `external` entry.
+const EXTERNAL_LOGOS: Record<string, FC<{ size: number; color: string }>> = {
+  node: NodeLogo, electron: ElectronLogo, python: PythonLogo, docker: DockerLogo,
+  postgres: PostgresLogo, redis: RedisLogo, mongo: MongoLogo, mysql: MysqlLogo,
+  java: JavaLogo, ruby: RubyLogo, php: PhpLogo, go: GoLogo, rust: RustLogo,
+  shell: ShellLogo, external: ShellLogo,
+}
+
 function PaneAILogo({ aiType, color, size }: { aiType: string | undefined; color: string; size: number }): ReactNode {
   switch (aiType) {
     case 'claude':   return <ClaudeLogo size={size} />
@@ -405,20 +399,181 @@ function PaneAILogo({ aiType, color, size }: { aiType: string | undefined; color
     case 'codex':    return <CodexLogo size={size} color={color} />
     case 'copilot':  return <CopilotLogo size={size} />
     case 'opencode': return <OpenCodeLogo size={size} color={color} />
-    case 'external':
-      // Mini terminal box icon — signals "aggregated process group, not a
-      // single pane". Same stroke color as aiColor so the user can read it
-      // as "neutral, non-AI" alongside the colorful AI logos.
-      return (
-        <svg width={size} height={size} viewBox="0 0 12 12" aria-hidden="true">
-          <rect x="0.75" y="2" width="10.5" height="8" rx="1.5" fill="none" stroke={color} strokeWidth="1.2" />
-          <path d="M3 5.2 L5 6.5 L3 7.8 M6 8 L8.5 8" stroke={color} strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-        </svg>
-      )
-    default:
-      // Custom CLIs (or panes whose aiType isn't surfaced) → colored square.
-      return <span style={{ display: 'inline-block', width: size, height: size, background: color, borderRadius: 2 }} />
   }
+
+  if (aiType === 'external' || aiType?.startsWith('external-')) {
+    const kind = aiType === 'external' ? 'external' : aiType.slice('external-'.length)
+    const Logo = EXTERNAL_LOGOS[kind] ?? ShellLogo
+    return <Logo size={size} color={color} />
+  }
+
+  // Custom CLIs (or panes whose aiType isn't surfaced) → colored square.
+  return <span style={{ display: 'inline-block', width: size, height: size, background: color, borderRadius: 2 }} />
+}
+
+// ── External kind logos ────────────────────────────────────────────────────
+// All sized to a 12×12 viewBox so they sit on the same baseline as AILogos.
+
+function NodeLogo({ size, color }: { size: number; color: string }) {
+  // Hexagon — Node.js' signature shape.
+  return (
+    <svg width={size} height={size} viewBox="0 0 12 12" aria-hidden="true">
+      <path d="M6 0.6 L11 3.3 L11 8.7 L6 11.4 L1 8.7 L1 3.3 Z" fill="none" stroke={color} strokeWidth="1.2" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+function ElectronLogo({ size, color }: { size: number; color: string }) {
+  // Two crossed orbits + nucleus — Electron's atom mark.
+  return (
+    <svg width={size} height={size} viewBox="0 0 12 12" aria-hidden="true">
+      <ellipse cx="6" cy="6" rx="5" ry="2" fill="none" stroke={color} strokeWidth="1" />
+      <ellipse cx="6" cy="6" rx="5" ry="2" fill="none" stroke={color} strokeWidth="1" transform="rotate(60 6 6)" />
+      <ellipse cx="6" cy="6" rx="5" ry="2" fill="none" stroke={color} strokeWidth="1" transform="rotate(-60 6 6)" />
+      <circle cx="6" cy="6" r="1" fill={color} />
+    </svg>
+  )
+}
+
+function PythonLogo({ size, color }: { size: number; color: string }) {
+  // Two interlocked rounded rectangles — Python's snake-pair shape, simplified.
+  return (
+    <svg width={size} height={size} viewBox="0 0 12 12" aria-hidden="true">
+      <rect x="2" y="1" width="6" height="6" rx="2" fill="none" stroke={color} strokeWidth="1.2" />
+      <rect x="4" y="5" width="6" height="6" rx="2" fill="none" stroke={color} strokeWidth="1.2" />
+      <circle cx="3.5" cy="2.6" r="0.5" fill={color} />
+      <circle cx="8.5" cy="9.4" r="0.5" fill={color} />
+    </svg>
+  )
+}
+
+function DockerLogo({ size, color }: { size: number; color: string }) {
+  // Stacked containers under a whale-fin curve.
+  return (
+    <svg width={size} height={size} viewBox="0 0 12 12" aria-hidden="true">
+      <rect x="2"   y="6" width="1.6" height="1.6" fill={color} />
+      <rect x="4"   y="6" width="1.6" height="1.6" fill={color} />
+      <rect x="6"   y="6" width="1.6" height="1.6" fill={color} />
+      <rect x="4"   y="4" width="1.6" height="1.6" fill={color} />
+      <rect x="6"   y="4" width="1.6" height="1.6" fill={color} />
+      <rect x="6"   y="2" width="1.6" height="1.6" fill={color} />
+      <path d="M1 8 Q3 10 6 10 Q9 10 10.5 8" fill="none" stroke={color} strokeWidth="1.2" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+function PostgresLogo({ size, color }: { size: number; color: string }) {
+  // Database cylinder — recognisable for any RDBMS, used here for Postgres.
+  return (
+    <svg width={size} height={size} viewBox="0 0 12 12" aria-hidden="true">
+      <ellipse cx="6" cy="2.5" rx="4" ry="1.3" fill="none" stroke={color} strokeWidth="1.2" />
+      <path d="M2 2.5 L2 9.5 Q2 10.8 6 10.8 Q10 10.8 10 9.5 L10 2.5" fill="none" stroke={color} strokeWidth="1.2" />
+      <path d="M2 5.5 Q2 6.8 6 6.8 Q10 6.8 10 5.5" fill="none" stroke={color} strokeWidth="1" />
+    </svg>
+  )
+}
+
+function RedisLogo({ size, color }: { size: number; color: string }) {
+  // Three stacked discs — Redis' tower mark, simplified.
+  return (
+    <svg width={size} height={size} viewBox="0 0 12 12" aria-hidden="true">
+      <ellipse cx="6" cy="3"   rx="4.5" ry="1.4" fill="none" stroke={color} strokeWidth="1.1" />
+      <ellipse cx="6" cy="6"   rx="4.5" ry="1.4" fill="none" stroke={color} strokeWidth="1.1" />
+      <ellipse cx="6" cy="9"   rx="4.5" ry="1.4" fill="none" stroke={color} strokeWidth="1.1" />
+    </svg>
+  )
+}
+
+function MongoLogo({ size, color }: { size: number; color: string }) {
+  // Leaf shape — Mongo's signature.
+  return (
+    <svg width={size} height={size} viewBox="0 0 12 12" aria-hidden="true">
+      <path d="M6 1 Q3 4 3 7 Q3 9.5 6 11 Q9 9.5 9 7 Q9 4 6 1 Z" fill="none" stroke={color} strokeWidth="1.2" strokeLinejoin="round" />
+      <path d="M6 2.5 L6 10.5" stroke={color} strokeWidth="1" />
+    </svg>
+  )
+}
+
+function MysqlLogo({ size, color }: { size: number; color: string }) {
+  // Dolphin-curve fin — MySQL's mark, very minimal.
+  return (
+    <svg width={size} height={size} viewBox="0 0 12 12" aria-hidden="true">
+      <path d="M1 9 Q4 2 11 3 Q6 4 4 10 Z" fill="none" stroke={color} strokeWidth="1.2" strokeLinejoin="round" />
+      <circle cx="8.5" cy="3.5" r="0.5" fill={color} />
+    </svg>
+  )
+}
+
+function JavaLogo({ size, color }: { size: number; color: string }) {
+  // Coffee cup with steam.
+  return (
+    <svg width={size} height={size} viewBox="0 0 12 12" aria-hidden="true">
+      <path d="M3 5 L9 5 L8.5 10 Q8.3 11 7 11 L5 11 Q3.7 11 3.5 10 Z" fill="none" stroke={color} strokeWidth="1.2" strokeLinejoin="round" />
+      <path d="M9 6 Q10.5 6 10.5 7.5 Q10.5 9 9 9" fill="none" stroke={color} strokeWidth="1.1" />
+      <path d="M5 3 Q5 1.5 6 1.5 M7 3 Q7 1.5 8 1.5" fill="none" stroke={color} strokeWidth="1" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+function RubyLogo({ size, color }: { size: number; color: string }) {
+  // Diamond/gem facets.
+  return (
+    <svg width={size} height={size} viewBox="0 0 12 12" aria-hidden="true">
+      <path d="M2 4 L6 1 L10 4 L6 11 Z" fill="none" stroke={color} strokeWidth="1.2" strokeLinejoin="round" />
+      <path d="M2 4 L10 4 M6 1 L6 11 M2 4 L6 4 M10 4 L6 4" stroke={color} strokeWidth="0.9" />
+    </svg>
+  )
+}
+
+function PhpLogo({ size, color }: { size: number; color: string }) {
+  // Oval with "P" letter — PHP's elephant logo doesn't read at 11px, the
+  // elongated oval is its other recognisable trait.
+  return (
+    <svg width={size} height={size} viewBox="0 0 12 12" aria-hidden="true">
+      <ellipse cx="6" cy="6" rx="5.3" ry="3.3" fill="none" stroke={color} strokeWidth="1.2" />
+      <text x="6" y="8.2" textAnchor="middle" fontFamily="sans-serif" fontSize="4.5" fontWeight="700" fill={color}>php</text>
+    </svg>
+  )
+}
+
+function GoLogo({ size, color }: { size: number; color: string }) {
+  // Gopher silhouette doesn't read; use the "GO" wordmark with the gopher's
+  // signature blue (caller-color) tone.
+  return (
+    <svg width={size} height={size} viewBox="0 0 12 12" aria-hidden="true">
+      <circle cx="4" cy="6" r="1.4" fill="none" stroke={color} strokeWidth="1.1" />
+      <path d="M5.5 6 L8.5 6 M7 6 L7 8 L9.5 8 L9.5 5 L7 5" fill="none" stroke={color} strokeWidth="1.1" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+function RustLogo({ size, color }: { size: number; color: string }) {
+  // Gear with letter — Rust's iconic cog.
+  const teeth = Array.from({ length: 8 }, (_, i) => {
+    const a = (i * Math.PI * 2) / 8
+    const x1 = 6 + Math.cos(a) * 4.6
+    const y1 = 6 + Math.sin(a) * 4.6
+    const x2 = 6 + Math.cos(a) * 5.6
+    const y2 = 6 + Math.sin(a) * 5.6
+    return <line key={i} x1={x1} y1={y1} x2={x2} y2={y2} stroke={color} strokeWidth="1.1" strokeLinecap="round" />
+  })
+  return (
+    <svg width={size} height={size} viewBox="0 0 12 12" aria-hidden="true">
+      {teeth}
+      <circle cx="6" cy="6" r="3.6" fill="none" stroke={color} strokeWidth="1.2" />
+      <path d="M4.5 4 L4.5 8 M4.5 4 L6.5 4 Q7.5 4 7.5 5 Q7.5 6 6.5 6 L4.5 6 M6 6 L7.6 8" fill="none" stroke={color} strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+function ShellLogo({ size, color }: { size: number; color: string }) {
+  // Mini terminal box — generic "uncategorised process" mark.
+  return (
+    <svg width={size} height={size} viewBox="0 0 12 12" aria-hidden="true">
+      <rect x="0.75" y="2" width="10.5" height="8" rx="1.5" fill="none" stroke={color} strokeWidth="1.2" />
+      <path d="M3 5.2 L5 6.5 L3 7.8 M6 8 L8.5 8" stroke={color} strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+    </svg>
+  )
 }
 
 function PaneRow({

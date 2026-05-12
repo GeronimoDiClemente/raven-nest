@@ -1,6 +1,7 @@
 import { join } from 'path'
 import { mkdirSync, readFileSync, writeFileSync, existsSync, renameSync } from 'fs'
-import { execSync } from 'child_process'
+import { execFileSync } from 'child_process'
+import { randomBytes } from 'crypto'
 import type { WorktreeMeta } from '../src/types'
 
 // Keys in the store are always POSIX-style (forward slashes). Windows can
@@ -35,7 +36,11 @@ export class WorktreeStore {
   }
 
   private persist(): void {
-    const tmpFile = `${this.storeFile}.tmp`
+    // Per-call tmp filename so two concurrent IPC handlers (e.g. setupState
+    // event + sibling worktree:create) don't clobber each other's tmp file
+    // and break the atomic rename. Without this, on Windows the second
+    // renameSync would EEXIST and the new state would be lost.
+    const tmpFile = `${this.storeFile}.${randomBytes(6).toString('hex')}.tmp`
     writeFileSync(tmpFile, JSON.stringify(Array.from(this.metas.values()), null, 2))
     renameSync(tmpFile, this.storeFile)
   }
@@ -75,14 +80,23 @@ export class WorktreeStore {
     const normalizedInput = repoPath.replace(/\\/g, '/')
     let raw: string
     try {
-      raw = execSync(`git -C "${normalizedInput}" worktree list --porcelain`, {
+      // execFileSync (no shell) — `repoPath` is validated `isAbsolute` upstream
+      // but execSync with interpolation would still leak `"`, `` ` ``, `$`,
+      // `\n`, etc.
+      raw = execFileSync('git', ['-C', normalizedInput, 'worktree', 'list', '--porcelain'], {
         encoding: 'utf8',
         timeout: 5000,
+        stdio: ['pipe', 'pipe', 'pipe'],
       })
     } catch {
       return []
     }
     // Parse porcelain: each entry is "worktree <path>\nHEAD <sha>\nbranch <ref>\n\n"
+    // The FIRST block is always the actual root repo, regardless of which
+    // worktree the caller passed via `-C`. Critical: we use that first block's
+    // `wtPath` as `rootRepoPath`, NOT the input — otherwise different tabs
+    // pointing at different worktrees of the same repo would each get a
+    // different rootRepoPath and the worktree:list filter would split them.
     const blocks = raw.trim().split(/\n\n+/)
     const result: WorktreeMeta[] = []
     let rootRepoPath = ''
@@ -94,7 +108,7 @@ export class WorktreeStore {
       const branchLine = lines.find((l) => l.startsWith('branch '))?.slice(7).trim() ?? ''
       const branch = branchLine.replace(/^refs\/heads\//, '') || '(detached)'
       if (!wtPath) continue
-      if (!rootRepoPath) rootRepoPath = repoPath  // first entry is the root; use original input path
+      if (!rootRepoPath) rootRepoPath = wtPath  // first porcelain entry IS the root
       const existing = this.get(wtPath)
       const now = Date.now()
       const base: WorktreeMeta = existing ?? {

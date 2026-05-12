@@ -104,6 +104,14 @@ interface WorktreeInfo {
   branchLabel: string
 }
 
+interface WinSnap {
+  ts: number
+  childrenByParent: Map<number, number[]>
+  nameByPid: Map<number, string>
+  pathByPid: Map<number, string>
+  cmdByPid: Map<number, string>
+}
+
 export interface DiskBreakdown {
   total: number
   buckets: DiskBucket[]
@@ -140,6 +148,13 @@ const KNOWN_HEAVY_DIRS: ReadonlySet<string> = new Set([
 ])
 
 const SOURCE_BUCKET = 'source'
+
+// Bound in-memory caches so a long-running session that touches many worktrees
+// (or that a user keeps open for days while switching repos) doesn't grow
+// these Maps without limit. Both caches are easily reconstructible on demand
+// so dropping the oldest entry has no correctness implications.
+const WT_CACHE_MAX = 200
+const DISK_CACHE_MAX = 200
 
 export class MetricsCollector {
   private wtCache = new Map<string, WorktreeInfo>()
@@ -295,8 +310,11 @@ export class MetricsCollector {
       r.worktrees.sort((a, b) => a.branchLabel.localeCompare(b.branchLabel))
     }
 
-    const panesCpu = resolved.reduce((s, p) => s + p.cpuPercent, 0)
-    const panesMem = resolved.reduce((s, p) => s + p.memBytes, 0)
+    // Sum from `repos` (not `resolved`) so the totals include External rows
+    // appended by `appendExternalRows`. Otherwise the top totals stay near 0
+    // while the per-repo rows show big numbers, which is confusing.
+    const panesCpu = repos.reduce((s, r) => s + r.cpuPercent, 0)
+    const panesMem = repos.reduce((s, r) => s + r.memBytes, 0)
     const totalCpu = nestCpu + panesCpu
     const totalMem = nestMem + panesMem
     const ramSharePercent = totalSystemMemBytes > 0
@@ -311,6 +329,19 @@ export class MetricsCollector {
     }
   }
 
+  /**
+   * Clear every in-memory cache. Called from app `before-quit` so the GC can
+   * reclaim the Maps immediately rather than waiting on the v8 isolate
+   * teardown — also defensively wipes a pending CIM snapshot promise so its
+   * `.finally` closure no longer keeps the collector reachable past quit.
+   */
+  dispose(): void {
+    this.wtCache.clear()
+    this.diskCache.clear()
+    this.winProcSnapshot = null
+    this.pendingSnapshot = null
+  }
+
   async refreshDisk(worktreePaths: string[]): Promise<Record<string, DiskBreakdown>> {
     const result: Record<string, DiskBreakdown> = {}
     for (const p of worktreePaths) {
@@ -318,6 +349,11 @@ export class MetricsCollector {
       if (p.startsWith(SYNTHETIC_WORKSPACE_PREFIX)) continue
       try {
         const breakdown = this.walkDirWithBreakdown(p)
+        // Drop oldest entry when over capacity (insertion-order eviction).
+        if (this.diskCache.size >= DISK_CACHE_MAX && !this.diskCache.has(p)) {
+          const oldest = this.diskCache.keys().next().value
+          if (oldest !== undefined) this.diskCache.delete(oldest)
+        }
         this.diskCache.set(p, breakdown)
         result[p] = breakdown
       } catch (err) {
@@ -353,13 +389,12 @@ export class MetricsCollector {
   // Includes process name + ExecutablePath + CommandLine so we can both
   // render names AND attribute "external" processes (a dev server started
   // outside Nest with cwd inside a worktree) to their worktree.
-  private winProcSnapshot: {
-    ts: number
-    childrenByParent: Map<number, number[]>
-    nameByPid: Map<number, string>
-    pathByPid: Map<number, string>
-    cmdByPid: Map<number, string>
-  } | null = null
+  private winProcSnapshot: WinSnap | null = null
+  // De-dupe concurrent CIM calls. Without this, two callers that both miss
+  // the 1.5 s cache spawn two PowerShell processes back-to-back (~500 ms each).
+  // Holding the promise here lets every concurrent caller share one in-flight
+  // request and wake up together when it resolves.
+  private pendingSnapshot: Promise<WinSnap> | null = null
 
   /**
    * Find every PID whose ExecutablePath or CommandLine references files
@@ -452,7 +487,8 @@ export class MetricsCollector {
     try {
       const tree = await (pidtree(pid, { root: true }) as Promise<number[]>)
       return Array.isArray(tree) && tree.length > 0 ? tree : [pid]
-    } catch {
+    } catch (err) {
+      console.warn('[metrics] pidtree failed for pid', pid, err instanceof Error ? err.message : err)
       return [pid]
     }
   }
@@ -475,34 +511,59 @@ export class MetricsCollector {
     return tree
   }
 
-  private async getWindowsSnapshot(): Promise<{ childrenByParent: Map<number, number[]>; nameByPid: Map<number, string>; pathByPid: Map<number, string>; cmdByPid: Map<number, string> }> {
+  private async getWindowsSnapshot(): Promise<WinSnap> {
     const now = Date.now()
+    // Return the cached snapshot object directly — callers only read specific
+    // keys, the extra `ts` field is harmless. Avoids re-allocating a wrapper
+    // object on every cache hit.
     if (this.winProcSnapshot && now - this.winProcSnapshot.ts < 1500) {
-      return {
-        childrenByParent: this.winProcSnapshot.childrenByParent,
-        nameByPid: this.winProcSnapshot.nameByPid,
-        pathByPid: this.winProcSnapshot.pathByPid,
-        cmdByPid: this.winProcSnapshot.cmdByPid,
-      }
+      return this.winProcSnapshot
     }
+    // Share an in-flight CIM call across concurrent misses. PowerShell costs
+    // ~500 ms; without this guard two simultaneous poll cycles would spawn
+    // two `powershell.exe` instances and stat them both.
+    if (this.pendingSnapshot) return this.pendingSnapshot
+
+    this.pendingSnapshot = this.refreshWindowsSnapshot(now).finally(() => {
+      this.pendingSnapshot = null
+    })
+    return this.pendingSnapshot
+  }
+
+  private async refreshWindowsSnapshot(now: number): Promise<WinSnap> {
     // ExecutablePath and CommandLine may contain commas, so we emit JSON
     // instead of CSV — quoting is unambiguous and JSON.parse handles it.
-    const json = await new Promise<string>((resolveOut) => {
+    // `execFile`'s callback err is an `ExecFileException` (Error + optional
+    // code/signal). We only consume code/message — pick a wider shape so this
+    // compiles without casting.
+    type CmdErr = Error & { code?: string | number }
+    const { json, error: psError } = await new Promise<{ json: string; error: CmdErr | null }>((resolveOut) => {
       execFile(
         'powershell.exe',
         ['-NoProfile', '-NonInteractive', '-Command',
           'Get-CimInstance Win32_Process | Select-Object ProcessId, ParentProcessId, Name, ExecutablePath, CommandLine | ConvertTo-Json -Compress'],
         { windowsHide: true, timeout: 6000, maxBuffer: 16 * 1024 * 1024 },
-        (err, stdout) => resolveOut(err ? '' : stdout),
+        (err, stdout) => resolveOut({ json: err ? '' : stdout, error: err ?? null }),
       )
     })
+    if (psError) {
+      // ENOENT (powershell missing), ETIMEDOUT, ERR_CHILD_PROCESS_STDIO_MAXBUFFER
+      // (>16 MB output, e.g. systems with thousands of processes) all land here.
+      // Without this warn, the rest of the snapshot silently collapses to zero.
+      console.warn('[metrics] Get-CimInstance failed', psError.code ?? psError.message)
+    }
     const childrenByParent = new Map<number, number[]>()
     const nameByPid = new Map<number, string>()
     const pathByPid = new Map<number, string>()
     const cmdByPid = new Map<number, string>()
     type Row = { ProcessId?: number; ParentProcessId?: number; Name?: string; ExecutablePath?: string | null; CommandLine?: string | null }
     let rows: Row[] = []
-    try { rows = JSON.parse(json || '[]') } catch { rows = [] }
+    try {
+      rows = JSON.parse(json || '[]')
+    } catch (err) {
+      console.warn('[metrics] CIM JSON parse failed (truncated?)', err instanceof Error ? err.message : err, 'len=', json.length)
+      rows = []
+    }
     if (!Array.isArray(rows)) rows = []
     for (const r of rows) {
       const pid = typeof r.ProcessId === 'number' ? r.ProcessId : NaN
@@ -515,8 +576,15 @@ export class MetricsCollector {
       if (r.ExecutablePath) pathByPid.set(pid, r.ExecutablePath)
       if (r.CommandLine) cmdByPid.set(pid, r.CommandLine)
     }
-    this.winProcSnapshot = { ts: now, childrenByParent, nameByPid, pathByPid, cmdByPid }
-    return { childrenByParent, nameByPid, pathByPid, cmdByPid }
+    const snap: WinSnap = { ts: now, childrenByParent, nameByPid, pathByPid, cmdByPid }
+    // Only cache the snapshot when CIM returned something usable. A poisoned
+    // cache with zero processes would hide the failure for 1.5 s and the next
+    // poll would re-cache it again — making "everything at 0%" the steady
+    // state even after PowerShell recovers.
+    if (rows.length > 0) {
+      this.winProcSnapshot = snap
+    }
+    return snap
   }
 
   /**
@@ -585,19 +653,23 @@ export class MetricsCollector {
   private getWorktreeInfo(worktreePath: string): WorktreeInfo | null {
     const cached = this.wtCache.get(worktreePath)
     if (cached) return cached
+    // Normalise path separators — on Windows, forward-slash paths from the
+    // renderer (`C:/Users/.../repo`) work with most Node APIs but `execSync`
+    // with `cwd` is finicky. Convert to the platform separator just for git.
+    const normalizedCwd = IS_WIN ? worktreePath.replace(/\//g, '\\') : worktreePath
     try {
       // --git-common-dir returns the path to the main repo's .git directory
       // (or "." if it's the main worktree). Resolve relative paths against
       // the worktree itself to get an absolute, canonical key.
       const rawCommon = execSync('git rev-parse --git-common-dir', {
-        cwd: worktreePath,
+        cwd: normalizedCwd,
         encoding: 'utf8',
         timeout: 3000,
         stdio: ['pipe', 'pipe', 'pipe'],
       }).trim()
-      const commonDir = resolve(worktreePath, rawCommon)
+      const commonDir = resolve(normalizedCwd, rawCommon)
       const rawBranch = execSync('git rev-parse --abbrev-ref HEAD', {
-        cwd: worktreePath,
+        cwd: normalizedCwd,
         encoding: 'utf8',
         timeout: 3000,
         stdio: ['pipe', 'pipe', 'pipe'],
@@ -607,9 +679,19 @@ export class MetricsCollector {
       // working tree of the main repo, whose basename is what users recognise.
       const repoName = basename(dirname(commonDir))
       const info: WorktreeInfo = { commonDir, repoName, branchLabel }
+      // Drop oldest entry when over capacity. Map iteration order is insertion
+      // order, so .keys().next() returns the oldest.
+      if (this.wtCache.size >= WT_CACHE_MAX) {
+        const oldest = this.wtCache.keys().next().value
+        if (oldest !== undefined) this.wtCache.delete(oldest)
+      }
       this.wtCache.set(worktreePath, info)
       return info
-    } catch {
+    } catch (err) {
+      // Without this warn, the popover silently falls back to a "(no repo)"
+      // synthetic group and the user has no idea why their linked tab won't
+      // group its panes under a real branch label.
+      console.warn('[metrics] getWorktreeInfo failed for', worktreePath, err instanceof Error ? err.message.split('\n')[0] : err)
       return null
     }
   }
@@ -762,36 +844,60 @@ export class MetricsCollector {
     let stats: Record<number, PidUsageStat | null> = {}
     try {
       stats = await (pidusage(Array.from(allExternalPids)) as Promise<Record<number, PidUsageStat | null>>)
-    } catch {
-      // Bulk failed — partial data is fine, we just won't sum what we missed.
+    } catch (err) {
+      // Replicate the per-pid fallback we use for pane stats. Without it, a
+      // single bad pid blanks every External row (filtered out by the
+      // `g.memory > 0 || g.cpu > 0` check downstream), which presents to the
+      // user as "External row disappeared" with no consoles indicating why.
+      console.warn('[metrics] external pidusage bulk failed, falling back per-pid', err instanceof Error ? err.message : err)
+      const pidList = Array.from(allExternalPids)
+      const results = await Promise.allSettled(
+        pidList.map((p) => pidusage(p) as Promise<PidUsageStat>),
+      )
+      results.forEach((res, idx) => {
+        if (res.status === 'fulfilled' && res.value) {
+          stats[pidList[idx]!] = res.value
+        }
+      })
     }
 
+    // We need the process Name to classify each external pid by type.
+    const snap = await this.getWindowsSnapshot()
+    const nameByPid = snap.nameByPid
+
     for (const [worktreePath, roots] of externalRootsByPath) {
-      let cpu = 0
-      let memory = 0
-      const seen = new Set<number>()
+      // Collect every pid in the trees of this worktree's external roots,
+      // dedup, then group by classified kind (node / electron / python / ...).
+      const allPidsForWt = new Set<number>()
       for (const root of roots) {
         const tree = externalTrees.get(root) ?? [root]
-        for (const pid of tree) {
-          if (seen.has(pid)) continue
-          seen.add(pid)
-          const stat = stats[pid]
-          if (stat) {
-            cpu += stat.cpu
-            memory += stat.memory
-          }
+        for (const pid of tree) allPidsForWt.add(pid)
+      }
+      if (allPidsForWt.size === 0) continue
+
+      // Group by kind. Each kind is rendered as its own row with its own logo.
+      interface Group { pids: Set<number>; cpu: number; memory: number }
+      const groups = new Map<string, Group>()
+      for (const pid of allPidsForWt) {
+        const kind = classifyExternalProcess(nameByPid.get(pid) ?? '')
+        let g = groups.get(kind)
+        if (!g) { g = { pids: new Set(), cpu: 0, memory: 0 }; groups.set(kind, g) }
+        g.pids.add(pid)
+        const stat = stats[pid]
+        if (stat) {
+          g.cpu += stat.cpu
+          g.memory += stat.memory
         }
       }
-      if (memory === 0 && cpu === 0) continue
 
-      // Surface which ports (if any) the external tree is listening on —
-      // most useful "what is this?" hint for the user (e.g. ":5173" tells
-      // them it's their dev server). Single netstat pass over the tree.
-      let portSuffix = ''
+      // Ports detected across the entire external tree of this worktree,
+      // shared across groups (so users see ":5173" wherever the dev server
+      // really lives — node or electron — without splitting it per row).
+      let sharedPortSuffix = ''
       try {
-        const ports = await listenPortsForPids(seen)
+        const ports = await listenPortsForPids(allPidsForWt)
         if (ports.length > 0) {
-          portSuffix = ' · ' + ports.slice(0, 3).map((p) => `:${p}`).join(' ')
+          sharedPortSuffix = ' · ' + ports.slice(0, 3).map((p) => `:${p}`).join(' ')
         }
       } catch {
         // best-effort — no port hint
@@ -799,15 +905,69 @@ export class MetricsCollector {
 
       const wt = worktreesByPath.get(worktreePath)
       if (!wt) continue
-      wt.panes.push({
-        paneId: `external::${worktreePath}`,
-        label: `External · ${seen.size} proc${seen.size === 1 ? '' : 's'}${portSuffix}`,
-        pid: 0,  // sentinel — renderer hides the kill button when pid===0
-        cpuPercent: cpu / CPU_COUNT,
-        memBytes: memory,
-        aiColor: '#888888',
-        aiType: 'external',
+
+      // Sort groups by memory desc so heavyweight kinds appear on top.
+      const sortedGroups = Array.from(groups.entries())
+        .filter(([, g]) => g.memory > 0 || g.cpu > 0)
+        .sort((a, b) => b[1].memory - a[1].memory)
+
+      // If only one kind, attach the port suffix to it. With multiple kinds
+      // only the FIRST (heaviest) row gets the port hint — others get the
+      // proc count alone, so the suffix doesn't repeat noisily on every row.
+      sortedGroups.forEach(([kind, g], idx) => {
+        const label = EXTERNAL_KIND_META[kind] ?? EXTERNAL_KIND_META.external!
+        const procText = `${g.pids.size} proc${g.pids.size === 1 ? '' : 's'}`
+        const suffix = idx === 0 ? sharedPortSuffix : ''
+        wt.panes.push({
+          paneId: `external::${kind}::${worktreePath}`,
+          label: `${label.title} · ${procText}${suffix}`,
+          pid: 0,  // sentinel — renderer hides the kill button when pid===0
+          cpuPercent: g.cpu / CPU_COUNT,
+          memBytes: g.memory,
+          aiColor: label.color,
+          aiType: `external-${kind}`,
+        })
       })
     }
   }
+}
+
+// Classify a Windows process Name to a UI "kind". Each kind has a logo and
+// color in ResourceBarPopover.tsx. Keep cheap (lowercase + contains).
+function classifyExternalProcess(name: string): string {
+  const n = name.toLowerCase()
+  if (n.includes('electron')) return 'electron'
+  if (n === 'node.exe' || n === 'node' || n.startsWith('node.')) return 'node'
+  if (n.startsWith('python') || n === 'py.exe' || n === 'py') return 'python'
+  if (n.includes('docker')) return 'docker'
+  if (n.includes('postgres') || n.startsWith('pg_')) return 'postgres'
+  if (n.startsWith('redis')) return 'redis'
+  if (n.startsWith('mongo')) return 'mongo'
+  if (n.startsWith('mysqld') || n === 'mysql.exe') return 'mysql'
+  if (n.startsWith('java')) return 'java'
+  if (n === 'ruby.exe' || n === 'ruby') return 'ruby'
+  if (n === 'php.exe' || n === 'php') return 'php'
+  if (n === 'go.exe' || n === 'go') return 'go'
+  if (n.startsWith('cargo') || n === 'rustc.exe') return 'rust'
+  if (n.startsWith('powershell') || n === 'pwsh.exe' || n === 'cmd.exe' || n.endsWith('bash.exe')) return 'shell'
+  return 'external'
+}
+
+// Display title + color per kind. The actual logo SVG is in the renderer.
+const EXTERNAL_KIND_META: Record<string, { title: string; color: string }> = {
+  node:     { title: 'Node',     color: '#3C873A' },
+  electron: { title: 'Electron', color: '#47848F' },
+  python:   { title: 'Python',   color: '#3776AB' },
+  docker:   { title: 'Docker',   color: '#2496ED' },
+  postgres: { title: 'Postgres', color: '#336791' },
+  redis:    { title: 'Redis',    color: '#DC382D' },
+  mongo:    { title: 'Mongo',    color: '#47A248' },
+  mysql:    { title: 'MySQL',    color: '#00758F' },
+  java:     { title: 'Java',     color: '#E76F00' },
+  ruby:     { title: 'Ruby',     color: '#CC342D' },
+  php:      { title: 'PHP',      color: '#777BB4' },
+  go:       { title: 'Go',       color: '#00ADD8' },
+  rust:     { title: 'Rust',     color: '#CE412B' },
+  shell:    { title: 'Shell',    color: '#888888' },
+  external: { title: 'External', color: '#888888' },
 }

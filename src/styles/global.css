@@ -213,12 +213,13 @@ body {
 }
 
 .tab-repo-badge {
+  display: inline-block;
   margin-left: 5px;
   font-size: 9px;
   color: var(--text-muted);
   opacity: 0.7;
   font-weight: 400;
-  max-width: 60px;
+  max-width: 80px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -631,6 +632,89 @@ body {
   top: 0;
   left: calc(100% + 4px);
   right: auto;
+}
+
+/* ── Sidebar Superset-style layout (v1.0) ──────────────────
+   Top: repo header. Middle: WorktreesSection (foco principal, flex-grow
+   con min-height grande para que no se achique cuando "More tools" abre).
+   Below: Teams + My Repos. Bottom: More tools (collapsible con scroll
+   interno) + New Terminal. */
+
+/* Wrap around WorktreesSection — toma todo el espacio sobrante del scroll
+   area pero NUNCA baja de un mínimo grande, para que el desplegable de
+   abajo no aplaste los worktrees. */
+.sidebar-worktrees-wrap {
+  flex: 1 1 auto;
+  min-height: 200px;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  padding-top: 4px;
+}
+
+/* Separador sutil entre la sección de worktrees y Teams/MyRepos. */
+.sidebar-section-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 6px 12px;
+  flex-shrink: 0;
+}
+
+/* Desplegable "More tools" — header siempre visible, contenido con scroll
+   interno cuando abierto. flex-shrink:0 + max-height en la lista hace que
+   no robe altura a la sección de worktrees. */
+.sidebar-more {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar-more-toggle {
+  color: var(--text-muted);
+  font-size: 12px;
+  height: 36px;
+}
+
+.sidebar-more-toggle:hover {
+  color: var(--text-primary);
+}
+
+.sidebar-more.open .sidebar-more-toggle {
+  color: var(--text-primary);
+}
+
+.sidebar-more-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 40vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  background: rgba(0,0,0,0.15);
+}
+
+/* New Terminal — acción primaria al fondo del scroll. Tipografía ligeramente
+   más destacada para que se lea como CTA. */
+.sidebar-new-terminal {
+  flex-shrink: 0;
+  color: var(--text-primary);
+}
+
+.sidebar-new-terminal:hover {
+  color: #0066FF;
+}
+
+/* En modo colapsado (sin .expanded) la sidebar es de 44px y los labels van
+   ocultos: aseguramos que las secciones nuevas también escondan separador
+   y borders sobrantes para no romper el look minimal. */
+.sidebar:not(.expanded) .sidebar-section-divider {
+  margin: 6px 8px;
+}
+
+.sidebar:not(.expanded) .sidebar-more-list {
+  border: none;
+  background: transparent;
 }
 
 /* ── Grid Workspace ─────────────────────────────────────── */
@@ -1216,6 +1300,12 @@ body {
 }
 
 .snippet-name {
+  /* MUST be block (or inline-block) so the ellipsis chain works — inline
+     elements ignore `overflow: hidden` and `text-overflow: ellipsis`. Without
+     `display: block` here, long repo names like "Sti-Project/sti-travel-console"
+     overflow visually past their container and render UNDERNEATH the action
+     buttons on the right. */
+  display: block;
   font-size: 13px;
   color: var(--text-primary);
   flex: 1;
@@ -7266,6 +7356,46 @@ button.ci-badge:hover {
 .browser-url:focus { outline: none; border-color: var(--raven-blue); }
 .browser-placeholder {
   flex: 1; min-height: 0; background: var(--bg-app);
+  position: relative;
+}
+
+/* Shown in place of the (now-collapsed) WebContentsView when the user
+   attempts to navigate to Nest's own dev/renderer origin — see isOwnOrigin
+   in BrowserCell.tsx. The matching selector in OVERLAY_SELECTOR collapses
+   the native WebContentsView so this DOM overlay isn't covered. */
+.browser-self-origin-overlay {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 10px; padding: 24px;
+  background: var(--bg-app); color: var(--text-secondary);
+  text-align: center;
+}
+.browser-self-origin-icon { color: var(--raven-blue); opacity: 0.85; }
+.browser-self-origin-title {
+  font-size: 14px; font-weight: 600; color: var(--text-primary);
+}
+.browser-self-origin-body {
+  font-size: 12px; line-height: 1.5; max-width: 480px;
+}
+.browser-self-origin-body code {
+  background: var(--bg-elevated); border: 1px solid var(--border);
+  padding: 1px 5px; border-radius: 3px; font-size: 11px;
+  color: var(--text-primary);
+}
+.browser-self-origin-actions {
+  display: flex; gap: 8px; margin-top: 6px;
+}
+.browser-self-origin-btn {
+  font-size: 12px; padding: 6px 14px; border-radius: 4px; cursor: pointer;
+  background: var(--bg-elevated); color: var(--text-secondary);
+  border: 1px solid var(--border);
+}
+.browser-self-origin-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+.browser-self-origin-btn--primary {
+  background: #1e2a3a; border-color: #0055FF44; color: #4488FF;
+}
+.browser-self-origin-btn--primary:hover {
+  background: #243246; color: #6699FF;
 }
 
 /* === Spotlight indicator (Plan 5) === */

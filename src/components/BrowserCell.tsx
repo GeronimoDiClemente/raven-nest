@@ -13,6 +13,11 @@ interface Props {
   // ExecutablePath/CommandLine reference this path are also included
   // (catches dev servers launched outside Nest).
   workspaceRepoPath?: string | undefined
+  // Per-pane repoPaths from every sibling cell. Critical when the dev
+  // server runs from a worktree that's a SIBLING of the tab's repo root —
+  // workspaceRepoPath alone would miss it. Each path is scanned for
+  // external processes independently.
+  siblingRepoPaths?: string[]
 }
 
 const HEADER_HEIGHT = 36
@@ -21,7 +26,42 @@ function isHttpUrl(u: string): boolean {
   return /^https?:\/\//i.test(u)
 }
 
-export default function BrowserCell({ pane, cellId, onClose, borderColor, siblingPaneIds, workspaceRepoPath }: Props) {
+// Dark placeholder loaded into the WebContentsView when the user hasn't
+// navigated anywhere yet. Replaces the default Chromium error page (white)
+// that used to show because we'd load `http://localhost:3000` blindly and
+// it'd fail with ERR_CONNECTION_REFUSED on machines without a dev server
+// there. Pure HTML data URL — no network, no preload needed.
+const BLANK_PAGE = 'data:text/html;charset=utf-8,' + encodeURIComponent(
+  `<!doctype html><html><head><meta charset="utf-8"><style>` +
+  `html,body{margin:0;height:100%;background:#0a0a0a;color:#666;` +
+  `font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;` +
+  `display:flex;align-items:center;justify-content:center;font-size:12px;` +
+  `letter-spacing:0.02em;text-align:center;padding:24px;box-sizing:border-box}` +
+  `.h{font-size:13px;color:#aaa;font-weight:500;margin-bottom:6px}` +
+  `kbd{background:#1a1a1a;border:1px solid #2a2a2a;border-radius:3px;` +
+  `padding:1px 5px;font-size:11px;color:#999;margin:0 2px}` +
+  `</style></head><body><div>` +
+  `<div class="h">Browser pane ready</div>` +
+  `Type a URL above, or click <kbd>:</kbd> to pick a listening port.` +
+  `</div></body></html>`
+)
+
+// Detects when a URL points at the renderer's own origin (Nest's vite dev
+// server in dev, `app://` in packaged builds). Loading the parent renderer
+// inside a child WebContentsView produces a blank page — the renderer's JS
+// expects Electron preload globals (`window.pty`, `window.electron`, etc.)
+// that a plain WebContentsView doesn't expose. We intercept the navigation
+// and show a friendly explanation instead.
+function isOwnOrigin(rawUrl: string): boolean {
+  try {
+    const u = new URL(rawUrl)
+    return u.origin === window.location.origin
+  } catch {
+    return false
+  }
+}
+
+export default function BrowserCell({ pane, cellId, onClose, borderColor, siblingPaneIds, workspaceRepoPath, siblingRepoPaths }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const placeholderRef = useRef<HTMLDivElement>(null)
   const createdRef = useRef(false)
@@ -29,11 +69,15 @@ export default function BrowserCell({ pane, cellId, onClose, borderColor, siblin
   const [draftUrl, setDraftUrl] = useState<string>(pane.url ?? '')
   const [isUntouched, setIsUntouched] = useState<boolean>(!isHttpUrl(pane.url ?? ''))
   const isUntouchedRef = useRef<boolean>(!isHttpUrl(pane.url ?? ''))
+  // Set to the URL the user attempted to navigate to when it matches the
+  // renderer's own origin. Renders a notice instead of letting the cell go
+  // blank (see `isOwnOrigin` above).
+  const [selfOriginAttempt, setSelfOriginAttempt] = useState<string | null>(null)
 
   // Create the WebContentsView once per pane
   useEffect(() => {
     if (createdRef.current) return
-    const initialUrl = isHttpUrl(pane.url ?? '') ? pane.url! : 'http://localhost:3000'
+    const initialUrl = isHttpUrl(pane.url ?? '') ? pane.url! : BLANK_PAGE
     const partition = pane.sessionPartition ?? 'persist:browser-default'
     createdRef.current = true
     void window.browser.create(pane.id, initialUrl, partition).catch((err) => {
@@ -88,6 +132,12 @@ export default function BrowserCell({ pane, cellId, onClose, borderColor, siblin
       }
       isUntouchedRef.current = false
       setIsUntouched(false)
+      if (isOwnOrigin(ce.detail.url)) {
+        setSelfOriginAttempt(ce.detail.url)
+        setDraftUrl(ce.detail.url)
+        return
+      }
+      setSelfOriginAttempt(null)
       void window.browser.navigate(pane.id, ce.detail.url).catch((err) => {
         console.error('browser:navigate failed', err)
       })
@@ -127,6 +177,10 @@ export default function BrowserCell({ pane, cellId, onClose, borderColor, siblin
       '.resource-bar-popover',
       '.rb-overlay',
       '.browser-port-dropdown',
+      '.browser-self-origin-overlay',
+      '.wt-context-menu',
+      '.ide-picker-menu',
+      '.repo-menu-pop',
     ].join(', ')
 
     const send = () => {
@@ -143,19 +197,31 @@ export default function BrowserCell({ pane, cellId, onClose, borderColor, siblin
         height: rect.height,
       })
     }
+    // MutationObserver fires on every xterm log line in sibling panes. Coalesce
+    // to one send() per animation frame so we don't saturate the main process
+    // with browser:reposition IPC when terminals are spammy.
+    let rafId: number | null = null
+    const sendDebounced = () => {
+      if (rafId !== null) return
+      rafId = requestAnimationFrame(() => { rafId = null; send() })
+    }
     send()
-    const ro = new ResizeObserver(send)
+    const ro = new ResizeObserver(sendDebounced)
     ro.observe(el)
     window.addEventListener('resize', send)
     // Watch the body for overlay nodes appearing/disappearing.
-    const mo = new MutationObserver(send)
+    const mo = new MutationObserver(sendDebounced)
     mo.observe(document.body, { childList: true, subtree: true })
-    const interval = setInterval(send, 1000)  // catch parent layout shifts
+    const interval = setInterval(sendDebounced, 1000)  // catch parent layout shifts
     return () => {
       ro.disconnect()
       mo.disconnect()
       window.removeEventListener('resize', send)
       clearInterval(interval)
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId)
+        rafId = null
+      }
     }
   }, [pane.id])
 
@@ -165,6 +231,11 @@ export default function BrowserCell({ pane, cellId, onClose, borderColor, siblin
     const normalized = isHttpUrl(next) ? next : `https://${next}`
     isUntouchedRef.current = false
     setIsUntouched(false)
+    if (isOwnOrigin(normalized)) {
+      setSelfOriginAttempt(normalized)
+      return
+    }
+    setSelfOriginAttempt(null)
     void window.browser.navigate(pane.id, normalized)
   }
 
@@ -177,9 +248,16 @@ export default function BrowserCell({ pane, cellId, onClose, borderColor, siblin
     try {
       // Prefer the workspace-scoped query: ports of sibling panes + procs
       // running under the workspace's linked repo. Falls back to listAll
-      // when the host didn't provide context.
-      const list = siblingPaneIds || workspaceRepoPath
-        ? await window.port.listForWorkspace({ repoPath: workspaceRepoPath, paneIds: siblingPaneIds ?? [] })
+      // when the host didn't provide context. Note: `[]` is truthy in JS, so
+      // an empty siblingPaneIds list would mask the fallback — we check
+      // length explicitly here.
+      const useWorkspaceScope = !!workspaceRepoPath || (siblingPaneIds?.length ?? 0) > 0 || (siblingRepoPaths?.length ?? 0) > 0
+      const list = useWorkspaceScope
+        ? await window.port.listForWorkspace({
+            repoPath: workspaceRepoPath,
+            repoPaths: siblingRepoPaths ?? [],
+            paneIds: siblingPaneIds ?? [],
+          })
         : await window.port.listAll()
       setOpenPorts(list)
     } catch {
@@ -195,6 +273,11 @@ export default function BrowserCell({ pane, cellId, onClose, borderColor, siblin
     isUntouchedRef.current = false
     setIsUntouched(false)
     setPortsOpen(false)
+    if (isOwnOrigin(url)) {
+      setSelfOriginAttempt(url)
+      return
+    }
+    setSelfOriginAttempt(null)
     void window.browser.navigate(pane.id, url)
   }
 
@@ -260,7 +343,33 @@ export default function BrowserCell({ pane, cellId, onClose, borderColor, siblin
         >↗</button>
         <button className="browser-btn browser-btn-close" onClick={onClose} title="Close">×</button>
       </div>
-      <div ref={placeholderRef} className="browser-placeholder" />
+      <div ref={placeholderRef} className="browser-placeholder">
+        {selfOriginAttempt && (
+          <div className="browser-self-origin-overlay" role="status">
+            <div className="browser-self-origin-icon" aria-hidden="true">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
+                <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="1.6" />
+                <path d="M12 7v6M12 16v.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+              </svg>
+            </div>
+            <div className="browser-self-origin-title">Can&apos;t load Nest&apos;s own URL here</div>
+            <div className="browser-self-origin-body">
+              <code>{selfOriginAttempt}</code> is Nest&apos;s own renderer. It expects the Electron preload
+              ({' '}<code>window.pty</code>, etc.) which isn&apos;t exposed to embedded browser panes.
+            </div>
+            <div className="browser-self-origin-actions">
+              <button
+                className="browser-self-origin-btn browser-self-origin-btn--primary"
+                onClick={() => { window.electronShell.openExternal(selfOriginAttempt); }}
+              >Open in external browser</button>
+              <button
+                className="browser-self-origin-btn"
+                onClick={() => { setSelfOriginAttempt(null); setDraftUrl('') }}
+              >Dismiss</button>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   )
 }

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 
 export interface CIRun {
   id: number
@@ -16,6 +16,12 @@ export function useRepoCI(repoFullName: string | null, githubToken: string | nul
   const [runs, setRuns] = useState<CIRun[]>([])
   const [loading, setLoading] = useState(false)
   const [latestStatus, setLatestStatus] = useState<CIStatus>('unknown')
+  const aliveRef = useRef(true)
+
+  useEffect(() => {
+    aliveRef.current = true
+    return () => { aliveRef.current = false }
+  }, [])
 
   const refresh = useCallback(async () => {
     if (!repoFullName || !githubToken) return
@@ -32,6 +38,7 @@ export function useRepoCI(repoFullName: string | null, githubToken: string | nul
       )
       if (!res.ok) return
       const data = await res.json()
+      if (!aliveRef.current) return
       const workflowRuns: CIRun[] = data.workflow_runs ?? []
       setRuns(workflowRuns)
 
@@ -50,7 +57,7 @@ export function useRepoCI(repoFullName: string | null, githubToken: string | nul
         setLatestStatus('unknown')
       }
     } finally {
-      setLoading(false)
+      if (aliveRef.current) setLoading(false)
     }
   }, [repoFullName, githubToken])
 

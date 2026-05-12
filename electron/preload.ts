@@ -120,7 +120,8 @@ contextBridge.exposeInMainWorld('git', {
   ) => ipcRenderer.invoke('git:clone', cloneUrl, repoName, parentDir, auth),
   pushBranch: (worktreePath: string) => ipcRenderer.invoke('git:pushBranch', worktreePath),
   listBranches: (repoPath: string) => ipcRenderer.invoke('git:listBranches', repoPath),
-  pickRepoFolder: () => ipcRenderer.invoke('dialog:pickRepoFolder'),
+  pickRepoFolder: (expectedRemote?: string) => ipcRenderer.invoke('dialog:pickRepoFolder', expectedRemote),
+  getRemoteUrl: (folder: string) => ipcRenderer.invoke('git:getRemoteUrl', folder),
   shortstat: (worktreePath: string, base?: string) =>
     ipcRenderer.invoke('git:shortstat', worktreePath, base),
   findPRForBranch: (
@@ -232,7 +233,7 @@ contextBridge.exposeInMainWorld('worktree', {
 contextBridge.exposeInMainWorld('port', {
   scan: (pid: number) => ipcRenderer.invoke('port:scan', pid),
   listAll: () => ipcRenderer.invoke('ports:listAll'),
-  listForWorkspace: (opts: { repoPath?: string; paneIds?: string[] }) =>
+  listForWorkspace: (opts: { repoPath?: string; repoPaths?: string[]; paneIds?: string[] }) =>
     ipcRenderer.invoke('ports:listForWorkspace', opts),
 })
 

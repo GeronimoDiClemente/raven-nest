@@ -98,7 +98,7 @@ function SortableTab({
           style={{ cursor: 'grab' }}
         >
           {tab.name}
-          {tab.repoPath && (
+          {tab.repoPath && basename(tab.repoPath) !== tab.name && (
             <span className="tab-repo-badge" title={tab.repoPath}>{basename(tab.repoPath)}</span>
           )}
         </span>

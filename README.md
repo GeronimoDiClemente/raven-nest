@@ -41,7 +41,8 @@ The headline of v1.0 is **branch-level isolation in the same window**: spawn a w
 - **Per-user local paths** — each member of a team can have their own local clone path for shared repos; the team record stays clean, your machine stays your machine.
 - **Clone over HTTPS for private team repos** — Nest now passes your OAuth token to the clone (token never lands in `.git/config`), so onboarding a new teammate to a private repo is one click.
 - **Visible errors instead of silent failures** — every clone, branch fetch and remote action now surfaces what went wrong (status code, OAuth-app authorization hints) instead of failing quietly.
-- **Restyled clone modal + sidebar that scrolls** — small things, but on small windows or with many worktrees the sidebar now scrolls cleanly and modals stay compact.
+- **Sidebar redesigned (Superset-style)** — worktrees front and center, secondary tools (Layout, Snippets, Workspaces, MCP, Voice, Broadcast, Join Terminal, History, Cmd Hist.) collapsed into a "More tools" dropdown so on small windows or with many worktrees the sidebar stays scannable. Tab names no longer duplicate the repo folder when they match; account name no longer crowds pane headers (hover to see it).
+- **Teams hardening (audit B12-B15)** — anti-spoof trigger on chat messages, server-side RPC for the GitHub event poller, scoped DELETE policies on team_members (excludes owner and self), and the Delete-team button only renders for the team owner.
 
 ### Carried over from v0.7
 

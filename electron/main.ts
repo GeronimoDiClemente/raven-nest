@@ -23,7 +23,7 @@ if (process.defaultApp) {
 import { join as pathJoin, join, isAbsolute, basename, dirname } from 'path'
 import { readFileSync, writeFileSync, mkdirSync, statSync, copyFileSync, unlinkSync, rmSync, existsSync } from 'fs'
 import { tmpdir, homedir } from 'os'
-import { ravenHome } from './raven-home'
+import { ravenHome, userHome } from './raven-home'
 import { execSync, execFile, execFileSync } from 'child_process'
 import { randomBytes } from 'crypto'
 import { PtyManager } from './pty-manager'
@@ -246,9 +246,13 @@ ipcMain.handle('git:listBranches', async (_evt, repoPath: string) => {
 
   let branches: string[] = []
   try {
-    const out = execSync(`git -C "${repoPath}" for-each-ref --format=%(refname:short) refs/heads/`, {
+    // execFileSync (no shell) — same defense as `git:pushBranch` and
+    // `parseRemoteOrigin`. The "no double-quotes" guard above doesn't cover
+    // backticks/$()/newlines that would break execSync's quoting.
+    const out = execFileSync('git', ['-C', repoPath, 'for-each-ref', '--format=%(refname:short)', 'refs/heads/'], {
       encoding: 'utf8',
       timeout: 3000,
+      stdio: ['pipe', 'pipe', 'pipe'],
     })
     branches = out.split('\n').map((s) => s.trim()).filter(Boolean)
   } catch {
@@ -257,7 +261,7 @@ ipcMain.handle('git:listBranches', async (_evt, repoPath: string) => {
 
   let defaultBranch: string | null = null
   try {
-    const head = execSync(`git -C "${repoPath}" symbolic-ref refs/remotes/origin/HEAD`, {
+    const head = execFileSync('git', ['-C', repoPath, 'symbolic-ref', 'refs/remotes/origin/HEAD'], {
       encoding: 'utf8',
       timeout: 3000,
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -284,11 +288,14 @@ ipcMain.handle('git:pushBranch', async (_event, worktreePath: string) => {
     return { ok: false as const, error: `Worktree path no longer exists on disk: ${worktreePath}` }
   }
 
-  // Read current branch. Capture stderr so the error message tells the user
-  // what's actually wrong (corrupt worktree, detached HEAD, not a git repo).
+  // Read current branch. Use execFileSync (no shell) — execSync with string
+  // interpolation would let a worktreePath/branch with `&` `|` `` ` `` etc.
+  // execute arbitrary commands. Branch values come from git itself but we
+  // still don't want to trust them blindly: git allows many chars in branch
+  // names that are dangerous in a shell context.
   let branch: string
   try {
-    branch = execSync(`git -C "${worktreePath}" rev-parse --abbrev-ref HEAD`, {
+    branch = execFileSync('git', ['-C', worktreePath, 'rev-parse', '--abbrev-ref', 'HEAD'], {
       encoding: 'utf8',
       timeout: 3000,
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -304,7 +311,7 @@ ipcMain.handle('git:pushBranch', async (_event, worktreePath: string) => {
   }
 
   try {
-    execSync(`git -C "${worktreePath}" push -u origin "${branch}"`, {
+    execFileSync('git', ['-C', worktreePath, 'push', '-u', 'origin', branch], {
       encoding: 'utf8',
       timeout: 60000,
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -362,12 +369,49 @@ ipcMain.handle('git:clone', async (
     return { ok: false, error: 'Invalid repoName' }
   }
   const folderName = parts[parts.length - 1]
+  // Use userHome() (real home), not ravenHome() (storage root). When the user
+  // runs Nest with RAVEN_HOME pointed at an accountDir to share storage with a
+  // parent Nest, ravenHome() returns that accountDir — and clones would land
+  // inside .raven-nest/accounts/.../RavenProjects/. Clones are user DATA, not
+  // Nest's internal storage, so they belong in the real user home regardless
+  // of RAVEN_HOME.
   const baseDir = parentDir && isAbsolute(parentDir)
     ? parentDir
-    : pathJoin(ravenHome(), 'RavenProjects')
+    : pathJoin(userHome(), 'RavenProjects')
   try { mkdirSync(baseDir, { recursive: true }) } catch {}
   const dest = pathJoin(baseDir, folderName)
-  try { if (statSync(dest).isDirectory()) return { ok: true, path: dest, alreadyExisted: true } } catch {}
+  // If a directory at `dest` already exists, only adopt it when its `origin`
+  // remote matches the URL we're trying to clone. Two different repos with
+  // the same last-segment (e.g. `groupA/utils` vs `groupB/utils`) would
+  // otherwise collide silently, and the renderer would link the new repo
+  // record to the wrong folder — same class of bug as the link-existing
+  // mismatch case in `pickRepoFolder`.
+  try {
+    if (statSync(dest).isDirectory()) {
+      let existingRemote: string | null = null
+      try {
+        existingRemote = execFileSync('git', ['-C', dest, 'remote', 'get-url', 'origin'], {
+          encoding: 'utf8', timeout: 3000, stdio: ['pipe', 'pipe', 'pipe'],
+        }).trim() || null
+      } catch {
+        // Not a git repo (or no origin). Treat as collision — don't adopt.
+      }
+      const norm = (u: string) => u
+        .replace(/\.git$/, '')
+        .replace(/\/+$/, '')
+        .replace(/^https?:\/\/[^@/]+@/, 'https://')
+        .toLowerCase()
+      if (existingRemote && norm(existingRemote) === norm(cloneUrl)) {
+        return { ok: true, path: dest, alreadyExisted: true }
+      }
+      return {
+        ok: false,
+        error: `Folder already exists at "${dest}" but its remote ${existingRemote ? `is "${existingRemote}"` : 'is missing'}, not "${cloneUrl}". Choose a different parent dir or remove the existing folder.`,
+      }
+    }
+  } catch {
+    // Path doesn't exist — proceed with clone normally.
+  }
 
   // For private repos, inject the OAuth token into the URL just for the clone.
   // After cloning we rewrite the remote to the clean URL so the token never
@@ -413,14 +457,98 @@ ipcMain.handle('git:clone', async (
   }
 })
 
-// Pick a folder for linking an existing local repo
-ipcMain.handle('dialog:pickRepoFolder', async () => {
+// Pick a folder for linking an existing local repo. Validates:
+//   1. Selected folder is a git repo (.git/ exists). Without this, users can
+//      accidentally link a non-repo folder and then "Open terminal" lands in
+//      the wrong place forever.
+//   2. (optional) Selected folder's `origin` remote matches `expectedRemote`.
+//      Without this, the user can pick the WRONG repo's folder and the link
+//      sticks silently — exactly how sti-travel-console ended up pointing at
+//      the algoritmos folder.
+// On validation failure we show a native dialog explaining why and return
+// null. Callers don't need to handle each rejection case manually.
+ipcMain.handle('dialog:pickRepoFolder', async (_evt, expectedRemote?: string) => {
   const win = BrowserWindow.getFocusedWindow()
   const opts = { properties: ['openDirectory'] as const, title: 'Link local repo folder' }
   const { filePaths, canceled } = win
     ? await dialog.showOpenDialog(win, opts)
     : await dialog.showOpenDialog(opts)
-  return canceled || filePaths.length === 0 ? null : filePaths[0]
+  if (canceled || filePaths.length === 0) return null
+  const folder = filePaths[0]!
+
+  // .git can be a directory (regular repo) or a file (linked worktrees point
+  // at the common gitdir via a `gitdir:` text file). Either is valid.
+  let isGitRepo = false
+  try { statSync(pathJoin(folder, '.git')); isGitRepo = true } catch { /* not a repo */ }
+  if (!isGitRepo) {
+    const recipient = win ?? undefined
+    const msgOpts = {
+      type: 'error' as const,
+      title: 'Not a git repository',
+      message: 'The selected folder is not a git repository.',
+      detail: `${folder}\n\nIt has no .git entry. Pick the repository's root folder.`,
+    }
+    if (recipient) await dialog.showMessageBox(recipient, msgOpts)
+    else await dialog.showMessageBox(msgOpts)
+    return null
+  }
+
+  if (expectedRemote && typeof expectedRemote === 'string') {
+    let actualRemote: string | null = null
+    try {
+      actualRemote = execFileSync('git', ['-C', folder, 'remote', 'get-url', 'origin'], {
+        encoding: 'utf8', timeout: 3000, stdio: ['pipe', 'pipe', 'pipe'],
+      }).trim() || null
+    } catch {
+      // No `origin` remote — uncommon but legal (local-only repo). Skip the
+      // match check and let the user proceed; we already verified .git exists.
+    }
+    if (actualRemote) {
+      const norm = (u: string) => u
+        .replace(/\.git$/, '')
+        .replace(/\/+$/, '')
+        .replace(/^https?:\/\/[^@/]+@/, 'https://')  // strip embedded credentials
+        .toLowerCase()
+      if (norm(actualRemote) !== norm(expectedRemote)) {
+        const recipient = win ?? undefined
+        const msgOpts = {
+          type: 'warning' as const,
+          title: 'Remote URL mismatch',
+          message: 'The selected folder is linked to a different repository.',
+          detail: `Expected:\n  ${expectedRemote}\n\nFound:\n  ${actualRemote}\n\nLink anyway?`,
+          buttons: ['Link anyway', 'Cancel'],
+          defaultId: 1,
+          cancelId: 1,
+        }
+        const choice = recipient
+          ? await dialog.showMessageBox(recipient, msgOpts)
+          : await dialog.showMessageBox(msgOpts)
+        if (choice.response !== 0) return null
+      }
+    }
+  }
+
+  return folder
+})
+
+// Read the `origin` remote URL of a local repo. Returns null when the path
+// isn't a git repo, has no origin remote, or git is missing. Used by the
+// Teams "Open terminal" flow to verify a team-shared local_path actually
+// matches THIS repo before auto-adopting it as the user's path — otherwise
+// the wrong-folder bug (sti-travel-console linked to algoritmos) keeps
+// silently re-applying after every Unlink.
+ipcMain.handle('git:getRemoteUrl', (_event, folder: string) => {
+  if (!folder || typeof folder !== 'string' || !isAbsolute(folder)) return null
+  try { if (!statSync(folder).isDirectory()) return null } catch { return null }
+  try { statSync(pathJoin(folder, '.git')) } catch { return null }
+  try {
+    const out = execFileSync('git', ['-C', folder, 'remote', 'get-url', 'origin'], {
+      encoding: 'utf8', timeout: 3000, stdio: ['pipe', 'pipe', 'pipe'],
+    }).trim()
+    return out || null
+  } catch {
+    return null
+  }
 })
 
 // Check if a path exists and is a directory on this machine
@@ -608,8 +736,21 @@ ipcMain.handle('workspace:import', async () => {
 
 ipcMain.handle('worktree:list', async (_evt, repoPath: string) => {
   if (!isAbsolute(repoPath)) throw new Error('repoPath must be absolute')
-  worktreeStore.hydrateFromGit(repoPath)
-  return worktreeStore.list().filter((m) => m.rootRepoPath === repoPath)
+  const live = worktreeStore.hydrateFromGit(repoPath)
+  // Mark store entries that git no longer reports as `orphaned`. Without
+  // this, a worktree the user removed externally (`rm -rf <wt>` or
+  // `git worktree remove`) stays in the store as `done` forever, and every
+  // other consumer (metrics, ports, spotlight) treats it as live.
+  worktreeStore.reconcile(live.map((m) => m.repoPath))
+  // Filter by rootRepoPath in posix form on both sides so backslash variants
+  // from session restore don't cause an empty list (the store always stores
+  // POSIX-keyed rootRepoPath after the hydrate fix, but the IPC `repoPath`
+  // can still arrive with backslashes).
+  const rootPosix = repoPath.replace(/\\/g, '/').replace(/\/+$/, '')
+  return worktreeStore.list().filter((m) => {
+    const mRoot = m.rootRepoPath.replace(/\\/g, '/').replace(/\/+$/, '')
+    return mRoot === rootPosix
+  })
 })
 
 ipcMain.handle('worktree:get', async (_evt, worktreePath: string) => {
@@ -651,26 +792,32 @@ ipcMain.handle('worktree:create', async (_evt, opts: {
   // with "is not a working tree").
   const wtPath = opts.path ?? pathJoin(dirname(opts.repoPath), `${basename(opts.repoPath)}-${slug}`)
 
-  // Check if branch exists
+  // Validate fromBranch with the same regex as `opts.branch` — it gets passed
+  // directly to git when creating a new branch. The renderer always provides
+  // a value from `git:listBranches` (trusted) but server-side validation is
+  // defense in depth in case the IPC is called from elsewhere.
+  if (opts.fromBranch !== undefined && opts.fromBranch !== 'HEAD'
+      && !/^[a-zA-Z0-9._/\-]+$/.test(opts.fromBranch)) {
+    throw new Error(`Invalid fromBranch name: ${opts.fromBranch}`)
+  }
+
+  // Check if branch exists — execFileSync (no shell)
   let branchExists = false
   try {
-    execSync(`git -C "${opts.repoPath}" show-ref --verify --quiet "refs/heads/${opts.branch}"`, {
+    execFileSync('git', ['-C', opts.repoPath, 'show-ref', '--verify', '--quiet', `refs/heads/${opts.branch}`], {
       timeout: 3000,
+      stdio: ['pipe', 'pipe', 'pipe'],
     })
     branchExists = true
   } catch { branchExists = false }
 
-  // Build git worktree add command
-  let cmd: string
-  if (branchExists) {
-    cmd = `git -C "${opts.repoPath}" worktree add "${wtPath}" "${opts.branch}"`
-  } else {
-    const from = opts.fromBranch ?? 'HEAD'
-    cmd = `git -C "${opts.repoPath}" worktree add -b "${opts.branch}" "${wtPath}" "${from}"`
-  }
-
+  // git worktree add — array args, no shell interpolation.
+  const from = opts.fromBranch ?? 'HEAD'
+  const addArgs = branchExists
+    ? ['-C', opts.repoPath, 'worktree', 'add', wtPath, opts.branch]
+    : ['-C', opts.repoPath, 'worktree', 'add', '-b', opts.branch, wtPath, from]
   try {
-    execSync(cmd, { encoding: 'utf8', timeout: 10000 })
+    execFileSync('git', addArgs, { encoding: 'utf8', timeout: 10000, stdio: ['pipe', 'pipe', 'pipe'] })
   } catch (err) {
     throw new Error(`git worktree add failed: ${err instanceof Error ? err.message : String(err)}`)
   }
@@ -715,11 +862,27 @@ ipcMain.handle('worktree:remove', async (_evt, worktreePath: string) => {
 
   if (setupRunner.isRunning(worktreePath)) setupRunner.cancel(worktreePath)
 
+  // Kill every pane whose cwd lives inside the worktree BEFORE attempting
+  // any filesystem op. On Windows a PowerShell pane inside the worktree
+  // holds a directory handle, so `git worktree remove --force` and `rmSync`
+  // both fail with EBUSY-style errors that don't match our legacy-cleanup
+  // regex below — they used to bubble up as a confusing message OR worse,
+  // get silently swallowed in the manual-cleanup branch and leave a ghost
+  // directory that resurrected on every refresh.
+  const killedPanes = ptyManager.killByCwdPrefix(worktreePath)
+  if (killedPanes.length > 0) {
+    console.warn('[worktree:remove] killed live panes inside worktree', { worktreePath, killedPanes })
+    // Give Windows a moment to release the directory handles before we try
+    // to delete. Not strictly necessary on POSIX but cheap.
+    await new Promise((r) => setTimeout(r, 250))
+  }
+
   let needsManualCleanup = false
   try {
-    execSync(`git -C "${meta.rootRepoPath}" worktree remove "${worktreePath}" --force`, {
+    execFileSync('git', ['-C', meta.rootRepoPath, 'worktree', 'remove', worktreePath, '--force'], {
       encoding: 'utf8',
       timeout: 10000,
+      stdio: ['pipe', 'pipe', 'pipe'],
     })
   } catch (err) {
     // Legacy worktrees created before v1.0 sometimes ended up pointing inside
@@ -733,6 +896,10 @@ ipcMain.handle('worktree:remove', async (_evt, worktreePath: string) => {
     needsManualCleanup = true
   }
 
+  // Track partial failures. If EITHER step fails we keep the meta in place
+  // so the UI doesn't lie about success — otherwise on next hydrateFromGit
+  // the worktree resurrects and the user can't get rid of it.
+  let cleanupFailures: string[] = []
   if (needsManualCleanup) {
     // Order matters: delete the directory FIRST, then prune. With the dir
     // gone, `git worktree prune` sees the metadata as dangling and drops the
@@ -741,15 +908,25 @@ ipcMain.handle('worktree:remove', async (_evt, worktreePath: string) => {
     try {
       if (existsSync(worktreePath)) rmSync(worktreePath, { recursive: true, force: true })
     } catch (e) {
-      console.warn('[worktree:remove] manual rmSync failed', e)
+      const msg = e instanceof Error ? e.message : String(e)
+      console.warn('[worktree:remove] manual rmSync failed', msg)
+      cleanupFailures.push(`rmSync: ${msg}`)
     }
     try {
-      execSync(`git -C "${meta.rootRepoPath}" worktree prune`, { encoding: 'utf8', timeout: 5000 })
+      execFileSync('git', ['-C', meta.rootRepoPath, 'worktree', 'prune'], {
+        encoding: 'utf8', timeout: 5000, stdio: ['pipe', 'pipe', 'pipe'],
+      })
     } catch (e) {
-      console.warn('[worktree:remove] prune failed', e)
+      const msg = e instanceof Error ? e.message : String(e)
+      console.warn('[worktree:remove] prune failed', msg)
+      cleanupFailures.push(`prune: ${msg}`)
     }
   }
 
+  if (cleanupFailures.length > 0) {
+    // Leave the meta in place so user can retry; surface a real error.
+    throw new Error(`Worktree partially removed — ${cleanupFailures.join('; ')}. Retry, or clean up the directory manually.`)
+  }
   worktreeStore.remove(worktreePath)
 })
 
@@ -797,9 +974,14 @@ ipcMain.handle('preset:cancel', async (_evt, worktreePath: string) => {
 
 // === Port monitor handler (Plan 3 — v1.0) ===
 
+// Shared tree resolver: routes Windows tree walks through MetricsCollector's
+// CIM snapshot cache (wmic was removed in Win11 22H2). On POSIX it still
+// uses pidtree under the hood. Pass this to every scanPid() call.
+const resolvePidTree = (pid: number) => metricsCollector.getTreeForPid(pid)
+
 ipcMain.handle('port:scan', async (_evt, pid: number) => {
   if (!Number.isFinite(pid) || pid <= 0) return []
-  return scanPid(pid)
+  return scanPid(pid, resolvePidTree)
 })
 
 // === Browser pane handlers (Plan 4 — v1.0) ===
@@ -807,7 +989,11 @@ ipcMain.handle('port:scan', async (_evt, pid: number) => {
 const SAFE_PARTITION_RE = /^persist:[a-zA-Z0-9_-]+$/
 
 function safeBrowserUrl(url: string): boolean {
-  return /^https?:\/\//i.test(url)
+  // Allow http(s) for real navigation, plus a strictly self-contained
+  // `data:text/html` URL used by BrowserCell as the dark blank-state page.
+  // We don't allow arbitrary data: URLs (e.g. data:application/javascript)
+  // to keep this narrow — only inert HTML payloads.
+  return /^https?:\/\//i.test(url) || /^data:text\/html[;,]/i.test(url)
 }
 
 ipcMain.handle('browser:create', async (_evt, paneId: string, url: string, partition: string) => {
@@ -905,33 +1091,31 @@ ipcMain.handle('metrics:refreshDisk', async (_evt, worktreePaths: string[]) => {
 // tree — a PowerShell pane has its dev server as a descendant and `process.kill`
 // would only signal the shell itself, leaving the actual server orphaned.
 // Falls back to `process.kill(pid)` if taskkill isn't available.
-ipcMain.handle('metrics:killPid', async (_evt, pid: number) => {
-  if (!Number.isFinite(pid) || pid <= 0) {
-    return { ok: false as const, error: 'Invalid pid' }
-  }
+function killProcessTree(pid: number): { ok: true } | { ok: false; error: string } {
   if (process.platform === 'win32') {
     try {
       execFileSync('taskkill', ['/F', '/T', '/PID', String(pid)], {
         timeout: 5000,
         stdio: 'pipe',
       })
-      return { ok: true as const }
-    } catch (err) {
+      return { ok: true }
+    } catch {
       // taskkill missing or refused — fall through to process.kill
-      try {
-        process.kill(pid)
-        return { ok: true as const }
-      } catch (killErr) {
-        return { ok: false as const, error: killErr instanceof Error ? killErr.message : String(killErr) }
-      }
     }
   }
   try {
     process.kill(pid)
-    return { ok: true as const }
+    return { ok: true }
   } catch (err) {
-    return { ok: false as const, error: err instanceof Error ? err.message : String(err) }
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
   }
+}
+
+ipcMain.handle('metrics:killPid', async (_evt, pid: number) => {
+  if (!Number.isFinite(pid) || pid <= 0) {
+    return { ok: false as const, error: 'Invalid pid' }
+  }
+  return killProcessTree(pid)
 })
 
 // Bulk port-scan for many pids in one IPC call. Used by the resource popover
@@ -946,18 +1130,38 @@ ipcMain.handle('metrics:killPid', async (_evt, pid: number) => {
 // — that's how a `npm run dev` launched in a side terminal (or another
 // Nest instance) still surfaces here. Tree-scans each PID so children
 // (the actual `node` listening on :5173) are covered.
-ipcMain.handle('ports:listForWorkspace', async (_evt, opts: { repoPath?: string; paneIds?: string[] }) => {
-  const safe = opts && typeof opts === 'object' ? opts : { paneIds: [] as string[] }
+ipcMain.handle('ports:listForWorkspace', async (
+  _evt,
+  opts: { repoPath?: string; repoPaths?: string[]; paneIds?: string[] },
+) => {
+  const safe = opts && typeof opts === 'object' ? opts : {}
   const seedPids = new Set<number>()
 
   for (const id of safe.paneIds ?? []) {
     const p = ptyManager.getPid(id)
     if (p && Number.isFinite(p) && p > 0) seedPids.add(p)
   }
-  if (safe.repoPath) {
-    const external = await metricsCollector.findProcessesUnderPath(safe.repoPath)
+  // Accept BOTH legacy `repoPath` (single, kept for renderer compat) and the
+  // newer `repoPaths` array. The array is critical when a workspace tab is
+  // pinned to a repo root but its panes (and the dev server they reference)
+  // live in *worktrees* — siblings of the root that don't share its path
+  // prefix. Without scanning each pane's actual path, the dev server is
+  // invisible to findProcessesUnderPath.
+  const pathsToScan = new Set<string>()
+  if (safe.repoPath) pathsToScan.add(safe.repoPath)
+  for (const p of safe.repoPaths ?? []) {
+    if (typeof p === 'string' && p) pathsToScan.add(p)
+  }
+  for (const path of pathsToScan) {
+    const external = await metricsCollector.findProcessesUnderPath(path)
     for (const p of external) seedPids.add(p)
   }
+  console.log('[ports:listForWorkspace] scan', {
+    pathsCount: pathsToScan.size,
+    paths: Array.from(pathsToScan),
+    paneIdCount: safe.paneIds?.length ?? 0,
+    seedPidsCount: seedPids.size,
+  })
   if (seedPids.size === 0) return [] as number[]
 
   const trees = await Promise.all(Array.from(seedPids).map((p) => metricsCollector.getTreeForPid(p)))
@@ -965,7 +1169,7 @@ ipcMain.handle('ports:listForWorkspace', async (_evt, opts: { repoPath?: string;
   for (const t of trees) for (const p of t) flat.add(p)
   if (flat.size === 0) return [] as number[]
 
-  const portArrays = await Promise.allSettled(Array.from(flat).map((pid) => scanPid(pid)))
+  const portArrays = await Promise.allSettled(Array.from(flat).map((pid) => scanPid(pid, resolvePidTree)))
   const merged = new Set<number>()
   for (const r of portArrays) {
     if (r.status === 'fulfilled' && Array.isArray(r.value)) {
@@ -981,7 +1185,10 @@ ipcMain.handle('ports:listAll', async () => {
   if (process.platform === 'win32') {
     return await new Promise<number[]>((res) => {
       execFile('netstat', ['-ano'], { timeout: 5000, windowsHide: true, maxBuffer: 8 * 1024 * 1024 }, (err, stdout) => {
-        if (err || !stdout) return res([])
+        if (err || !stdout) {
+          if (err) console.warn('[ports:listAll] netstat failed', (err as NodeJS.ErrnoException).code ?? err.message)
+          return res([])
+        }
         const ports = new Set<number>()
         for (const line of stdout.split(/\r?\n/)) {
           // `  TCP    0.0.0.0:5173    0.0.0.0:0    LISTENING    12708`
@@ -998,7 +1205,10 @@ ipcMain.handle('ports:listAll', async () => {
   // macOS / Linux: `lsof -nP -iTCP -sTCP:LISTEN` is the cleanest one-shot.
   return await new Promise<number[]>((res) => {
     execFile('lsof', ['-nP', '-iTCP', '-sTCP:LISTEN'], { timeout: 5000 }, (err, stdout) => {
-      if (err || !stdout) return res([])
+      if (err || !stdout) {
+        if (err) console.warn('[ports:listAll] lsof failed', (err as NodeJS.ErrnoException).code ?? err.message)
+        return res([])
+      }
       const ports = new Set<number>()
       for (const line of stdout.split(/\r?\n/)) {
         const m = line.match(/:(\d+)\s+\(LISTEN\)\s*$/)
@@ -1024,7 +1234,7 @@ ipcMain.handle('metrics:portsByPids', async (_evt, pids: number[]) => {
   // 2. For each input pid, scan every pid in its tree and union the results.
   await Promise.all(valid.map(async (p, idx) => {
     const tree = trees[idx]!
-    const results = await Promise.allSettled(tree.map((tp) => scanPid(tp)))
+    const results = await Promise.allSettled(tree.map((tp) => scanPid(tp, resolvePidTree)))
     const merged = new Set<number>()
     for (const r of results) {
       if (r.status === 'fulfilled' && Array.isArray(r.value)) {
@@ -1059,14 +1269,14 @@ ipcMain.handle('git:shortstat', async (_evt, worktreePath: string, base?: string
   let baseRef = base
   if (!baseRef) {
     try {
-      const head = execSync(`git -C "${worktreePath}" symbolic-ref refs/remotes/origin/HEAD`, {
+      const head = execFileSync('git', ['-C', worktreePath, 'symbolic-ref', 'refs/remotes/origin/HEAD'], {
         encoding: 'utf8', timeout: 3000, stdio: ['pipe', 'pipe', 'pipe'],
       }).trim()
       baseRef = head.replace(/^refs\/remotes\//, '')
     } catch {
       for (const candidate of ['origin/main', 'origin/master', 'origin/develop', 'main', 'master']) {
         try {
-          execSync(`git -C "${worktreePath}" rev-parse --verify "${candidate}"`, {
+          execFileSync('git', ['-C', worktreePath, 'rev-parse', '--verify', candidate], {
             timeout: 2000, stdio: 'pipe',
           })
           baseRef = candidate
@@ -1075,11 +1285,12 @@ ipcMain.handle('git:shortstat', async (_evt, worktreePath: string, base?: string
       }
     }
   }
-  if (!baseRef || /["`$;|&<>]/.test(baseRef)) return empty
+  // Even with execFile, validate baseRef shape — it's a git ref name, not a path.
+  if (!baseRef || !/^[a-zA-Z0-9._/\-]+$/.test(baseRef)) return empty
 
   let out = ''
   try {
-    out = execSync(`git -C "${worktreePath}" diff --shortstat "${baseRef}"...HEAD`, {
+    out = execFileSync('git', ['-C', worktreePath, 'diff', '--shortstat', `${baseRef}...HEAD`], {
       encoding: 'utf8', timeout: 5000, stdio: ['pipe', 'pipe', 'pipe'],
     })
   } catch {
@@ -1150,14 +1361,22 @@ function parseRemoteOrigin(repoPath: string): {
   ownerRepo: string
 } | null {
   try {
-    const remote = execSync(`git -C "${repoPath}" remote get-url origin`, {
+    // Use execFileSync (no shell) — `repoPath` flows from the renderer's
+    // session/tab state with only `isAbsolute` validation upstream. With
+    // execSync + string interpolation, a path containing `"`, `` ` ``, `$`,
+    // `\n`, etc. could inject arbitrary commands in main.
+    const remote = execFileSync('git', ['-C', repoPath, 'remote', 'get-url', 'origin'], {
       encoding: 'utf8', timeout: 3000, stdio: ['pipe', 'pipe', 'pipe'],
     }).trim()
     const gh = remote.match(/github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/i)
     if (gh) return { provider: 'github', ownerRepo: gh[1]! }
     const gl = remote.match(/gitlab\.com[:/]([^/]+(?:\/[^/]+)+?)(?:\.git)?$/i)
     if (gl) return { provider: 'gitlab', ownerRepo: gl[1]! }
-  } catch { /* fallthrough */ }
+  } catch (err) {
+    // Log so the PR chip not appearing is debuggable (vs an empty `origin`
+    // remote which is legitimate for local-only repos).
+    console.warn('[parseRemoteOrigin]', repoPath, err instanceof Error ? err.message.split('\n')[0] : err)
+  }
   return null
 }
 
@@ -1177,6 +1396,10 @@ ipcMain.handle('git:findPRForBranch', async (
   const remote = parseRemoteOrigin(repoPath)
   if (!remote) { prCacheSet(cacheKey, null); return null }
 
+  // Only cache null on a confirmed "no PR exists" (200 + empty array, or 404).
+  // For 401/403/429/5xx and network/fetch errors we return null WITHOUT caching
+  // so the next refresh retries — otherwise the user loses the PR chip for the
+  // full TTL on a transient blip.
   try {
     if (remote.provider === 'github') {
       const [owner, repo] = remote.ownerRepo.split('/') as [string, string]
@@ -1188,7 +1411,11 @@ ipcMain.handle('git:findPRForBranch', async (
       const tok = tokens?.github
       if (typeof tok === 'string' && tok) headers['Authorization'] = `Bearer ${tok}`
       const res = await fetch(url, { headers })
-      if (!res.ok) { prCacheSet(cacheKey, null); return null }
+      if (!res.ok) {
+        if (res.status === 404) { prCacheSet(cacheKey, null); return null }
+        console.warn('[git:findPRForBranch]', res.status, branch, 'github transient — not caching')
+        return null
+      }
       const arr = (await res.json()) as Array<{ number: number; html_url: string }>
       if (!Array.isArray(arr) || arr.length === 0) { prCacheSet(cacheKey, null); return null }
       const pr = { number: arr[0]!.number, url: arr[0]!.html_url }
@@ -1202,14 +1429,18 @@ ipcMain.handle('git:findPRForBranch', async (
     const tok = tokens?.gitlab
     if (typeof tok === 'string' && tok) headers['PRIVATE-TOKEN'] = tok
     const res = await fetch(url, { headers })
-    if (!res.ok) { prCacheSet(cacheKey, null); return null }
+    if (!res.ok) {
+      if (res.status === 404) { prCacheSet(cacheKey, null); return null }
+      console.warn('[git:findPRForBranch]', res.status, branch, 'gitlab transient — not caching')
+      return null
+    }
     const arr = (await res.json()) as Array<{ iid: number; web_url: string }>
     if (!Array.isArray(arr) || arr.length === 0) { prCacheSet(cacheKey, null); return null }
     const pr = { number: arr[0]!.iid, url: arr[0]!.web_url }
     prCacheSet(cacheKey, pr)
     return pr
-  } catch {
-    prCacheSet(cacheKey, null)
+  } catch (err) {
+    console.warn('[git:findPRForBranch]', 'network', branch, err instanceof Error ? err.message : String(err))
     return null
   }
 })
@@ -1246,10 +1477,24 @@ ipcMain.handle('worktree:copyFiles', async (
         skipped++
         continue
       }
+      // Precheck: copyFileSync fails with EISDIR on directories/symlink-to-dirs.
+      // Skip them with a clear warning instead of letting the cryptic errno bubble.
+      try {
+        if (!statSync(src).isFile()) {
+          console.warn(`[worktree:copyFiles] skipping directory ${rel}`)
+          skipped++
+          continue
+        }
+      } catch (statErr) {
+        console.warn('[worktree:copyFiles]', rel, statErr)
+        errors.push(`${rel}: ${statErr instanceof Error ? statErr.message : String(statErr)}`)
+        continue
+      }
       mkdirSync(dirname(dst), { recursive: true })
       copyFileSync(src, dst)
       copied++
     } catch (err) {
+      console.warn('[worktree:copyFiles]', rel, err)
       errors.push(`${rel}: ${err instanceof Error ? err.message : String(err)}`)
     }
   }
@@ -1263,6 +1508,17 @@ ipcMain.handle('ide:detect', async (_evt, force?: boolean) => detectIDEs(Boolean
 ipcMain.handle('ide:open', async (_evt, binPath: string, worktreePath: string) => {
   if (!isAbsolute(worktreePath)) throw new Error('worktreePath must be absolute')
   if (typeof binPath !== 'string' || !binPath) throw new Error('binPath required')
+  // Defense in depth: the renderer should only call this with paths from
+  // `detectIDEs()`, but the IPC contract has to enforce it server-side too.
+  // Without this whitelist, a compromised renderer could pass any string
+  // as binPath (e.g. `"calc.exe & evil.exe"`) and `spawn(..., { shell: true })`
+  // would execute it via cmd.exe.
+  const detected = await detectIDEs(false)
+  const allowedBinPaths = new Set(detected.map((d) => d.binPath))
+  if (!allowedBinPaths.has(binPath)) {
+    console.error('[ide:open] refused to launch — binPath not in detected IDE cache', { binPath })
+    throw new Error('binPath not recognised as a detected IDE')
+  }
   openInIDE(binPath, worktreePath)
 })
 
@@ -1608,5 +1864,31 @@ app.on('before-quit', () => {
     clearInterval(updaterInterval)
     updaterInterval = null
   }
+  // Tear down every long-lived resource on quit. Without these, dev-mode HMR
+  // reloads (and any future "soft restart" path) would accumulate intervals,
+  // file watchers, PTYs and detached child processes across reloads —
+  // user-visible as a slow leak on app idle.
   benchmark.stopAll()
+  // Cancel any in-flight `npm install` / preset setup. The spawned children
+  // are NOT detached, so they'd die with the parent anyway — but explicit
+  // taskkill on Windows tears down the whole tree (preset commands like
+  // `npm install` spawn many sub-processes) cleanly instead of orphaning
+  // them for a moment.
+  setupRunner.cancelAll()
+  // Stop the spotlight fs.watch handle. The watcher keeps the event loop
+  // alive on macOS/Linux and would block app exit otherwise.
+  void spotlight.stop()
+  // Destroy every WebContentsView. Each one owns a Chromium render process
+  // tree; leaving them dangling for the Electron app teardown is slow.
+  browserPanes.destroyAll()
+  // Kill every node-pty process. Each PTY is its own OS-level process with a
+  // pseudoterminal device — without this, the user sees PowerShell/bash
+  // processes survive Nest's tray-Quit on Windows (they'd only die when
+  // the conpty session closes, which doesn't happen cleanly without kill()).
+  ptyManager.killAll()
+  ptyManager.removeAllListeners()
+  setupRunner.removeAllListeners()
+  spotlight.removeAllListeners()
+  metricsCollector.dispose()
+  autoUpdater.removeAllListeners()
 })

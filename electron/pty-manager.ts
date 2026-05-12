@@ -15,6 +15,15 @@ const BUFFER_MAX_LINES = 10_000
 export class PtyManager extends EventEmitter {
   private ptys = new Map<string, pty.IPty>()
   private buffers = new Map<string, string[]>()
+  // cwd at spawn time, per pane. Used by `killByCwdPrefix` so worktree:remove
+  // can tear down every PTY whose working directory is inside the worktree
+  // being deleted — otherwise Windows holds the directory handle open and
+  // `rmSync` fails with EBUSY but the meta gets deleted anyway (ghost dir).
+  private cwdByPaneId = new Map<string, string>()
+  // Pending "write the cmd after shell warms up" timers per pane. Cleared on
+  // kill() and on onExit so a teardown during the 3 s Windows delay doesn't
+  // fire a write into a dead (or recreated) PTY.
+  private startupTimers = new Map<string, NodeJS.Timeout>()
 
   create(paneId: string, cmd: string, accountDir: string, repoPath?: string, shell?: ShellOverride): { ok: true } | { ok: false; error: string } {
     if (this.ptys.has(paneId)) return { ok: true }  // already running, don't recreate
@@ -77,7 +86,16 @@ export class PtyManager extends EventEmitter {
       // Launch AI command after shell starts (skip if plain terminal)
       // PowerShell on Windows can take 1-2s to initialise — use a longer delay
       if (cmd) {
-        setTimeout(() => ptyProcess.write(`${cmd}\r`), isWin ? 3000 : 500)
+        const timer = setTimeout(() => {
+          this.startupTimers.delete(paneId)
+          // Only write if the slot still owns THIS pty. A kill→create race
+          // between scheduling and firing would otherwise write the cmd into
+          // a fresh pty that wasn't asked to run it.
+          if (this.ptys.get(paneId) === ptyProcess) {
+            ptyProcess.write(`${cmd}\r`)
+          }
+        }, isWin ? 3000 : 500)
+        this.startupTimers.set(paneId, timer)
       }
 
       ptyProcess.onData((data) => {
@@ -93,12 +111,21 @@ export class PtyManager extends EventEmitter {
         // process. Don't wipe its state or fire 'exit' for a stale paneId.
         const current = this.ptys.get(paneId)
         if (current && current !== ptyProcess) return
+        // Clear any pending startup-write timer for THIS pty before tearing
+        // down — otherwise a delayed write could land in the next pane that
+        // reuses the paneId.
+        const pending = this.startupTimers.get(paneId)
+        if (pending) {
+          clearTimeout(pending)
+          this.startupTimers.delete(paneId)
+        }
         this.ptys.delete(paneId)
         this.buffers.delete(paneId)
         this.emit('exit', paneId)
       })
 
       this.ptys.set(paneId, ptyProcess)
+      this.cwdByPaneId.set(paneId, cwd)
       return { ok: true }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
@@ -116,8 +143,12 @@ export class PtyManager extends EventEmitter {
     if (ptyProc) {
       try {
         ptyProc.resize(cols, rows)
-      } catch {
-        // Ignore resize errors on exited PTY
+      } catch (err) {
+        // Resize on an exited PTY is the common case during teardown — keep it
+        // as debug (not warn) so we don't spam main.log, but DO log it so a
+        // genuinely broken resize (e.g. conpty hiccup on live pane) leaves a
+        // breadcrumb instead of vanishing.
+        console.debug('[pty-manager] resize failed', paneId, err instanceof Error ? err.message : err)
       }
     }
   }
@@ -150,15 +181,45 @@ export class PtyManager extends EventEmitter {
   }
 
   kill(paneId: string): void {
+    // Clear any pending startup-write timer FIRST. If the pane is killed
+    // before the 3 s Windows warmup elapses, the timer would otherwise fire a
+    // write into a dead (or recreated) pty.
+    const pending = this.startupTimers.get(paneId)
+    if (pending) {
+      clearTimeout(pending)
+      this.startupTimers.delete(paneId)
+    }
     const ptyProc = this.ptys.get(paneId)
     if (ptyProc) {
       try { ptyProc.kill() } catch { /* already dead */ }
       this.ptys.delete(paneId)
     }
     this.buffers.delete(paneId)
+    this.cwdByPaneId.delete(paneId)
   }
 
   killAll(): void {
     for (const id of this.ptys.keys()) this.kill(id)
+  }
+
+  /**
+   * Kill every pane whose cwd lives inside `prefix`. Returns the paneIds that
+   * were killed. Used by `worktree:remove` so Windows doesn't hit EBUSY when
+   * deleting a worktree directory that a PowerShell pane is currently sitting
+   * inside.
+   */
+  killByCwdPrefix(prefix: string): string[] {
+    const norm = (p: string) => p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
+    const target = norm(prefix)
+    const targetSlash = target + '/'
+    const killed: string[] = []
+    for (const [paneId, cwd] of Array.from(this.cwdByPaneId.entries())) {
+      const cwdN = norm(cwd)
+      if (cwdN === target || cwdN.startsWith(targetSlash)) {
+        this.kill(paneId)
+        killed.push(paneId)
+      }
+    }
+    return killed
   }
 }

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import type { MetricsPaneInput } from '../types'
 import { useMetrics } from '../hooks/useMetrics'
 import ResourceBarPopover from './ResourceBarPopover'
+import { formatBytes } from '../lib/formatMetrics'
 
 type PrimaryMetric = 'memory' | 'cpu'
 const STORAGE_KEY = 'nest-metrics-primary'
@@ -13,19 +14,6 @@ function readPrimary(): PrimaryMetric {
   } catch {
     return 'memory'
   }
-}
-
-function formatBytes(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B'
-  const units = ['B', 'KB', 'MB', 'GB', 'TB']
-  let idx = 0
-  let val = bytes
-  while (val >= 1024 && idx < units.length - 1) {
-    val /= 1024
-    idx += 1
-  }
-  const decimals = val < 10 ? 2 : val < 100 ? 1 : 0
-  return `${val.toFixed(decimals)} ${units[idx]}`
 }
 
 interface Props {

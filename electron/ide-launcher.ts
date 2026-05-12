@@ -55,14 +55,36 @@ export async function detectIDEs(force = false): Promise<DetectedIDE[]> {
   return found
 }
 
+// Windows cmd.exe metacharacters. With `shell: true`, spawn concatenates
+// args into a single command line that cmd.exe parses — so a worktreePath
+// containing any of these can break out of the quoted argument and execute
+// arbitrary commands (e.g. `C:\foo & calc.exe & rem `). The upstream IPC
+// handler only validates `isAbsolute`, which doesn't catch this.
+const WIN_SHELL_METACHARS = /[&|<>^"`%!]/
+
 export function openInIDE(binPath: string, worktreePath: string): void {
+  if (process.platform === 'win32' && WIN_SHELL_METACHARS.test(worktreePath)) {
+    console.error('[ide-launcher] refusing to launch IDE — worktreePath contains cmd.exe metacharacters', { worktreePath })
+    return
+  }
   // Windows: `code` resolves to `code.cmd`. Node's spawn won't find a .cmd
-  // shim without shell:true. Without it, spawn emits an async 'error' event
-  // that, if unhandled, crashes the main process (ENOENT uncaught exception).
-  const child = spawn(binPath, [worktreePath], {
+  // shim without shell:true (Electron 33 ships Node 20, which lacks the
+  // safer .cmd handling added in Node 21). Without it, spawn emits an async
+  // 'error' event that, if unhandled, crashes the main process.
+  //
+  // Quirk: with `shell: true`, Node does NOT quote the program path before
+  // handing it to cmd.exe. A binPath with spaces (e.g. `C:\Program Files\…`
+  // or VS Code's default location `…\Microsoft VS Code\bin\code`) gets split
+  // by cmd at the first space → ENOENT silently. Manually quote it on
+  // Windows when needed. We already rejected metacharacters in worktreePath
+  // above, so this quoting is safe.
+  const isWindows = process.platform === 'win32'
+  const programToSpawn = isWindows && binPath.includes(' ') ? `"${binPath}"` : binPath
+  const child = spawn(programToSpawn, [worktreePath], {
     detached: true,
     stdio: 'ignore',
-    shell: process.platform === 'win32',
+    shell: isWindows,
+    windowsVerbatimArguments: false,
   })
   child.on('error', (err) => {
     console.error('[ide-launcher] failed to spawn IDE', { binPath, error: err.message })

@@ -20,3 +20,10 @@ docs/superpowers/
 test-results/
 playwright-report/
 e2e/.auth/
+
+# Supabase CLI generated state
+supabase/.temp/
+
+# Local scratch scripts / accidental folders
+Microsoft/
+stress-cpu.js

@@ -56,11 +56,12 @@ interface Props {
   onFocus: () => void
   onActivity?: (paneId: string, active: boolean) => void
   onJoinRequest?: (paneId: string) => void
+  onPtyStarted?: (paneId: string, runningRepoPath: string | undefined) => void
   fontSize: number
   style?: React.CSSProperties
 }
 
-export default function TerminalPane({ pane, cellId, isDragging, zoomed, zoomingOut, onZoom, onClose, onColorChange, onNoteChange, onInput, onBusyChange, onFocus, onActivity, onJoinRequest, fontSize, style }: Props) {
+export default function TerminalPane({ pane, cellId, isDragging, zoomed, zoomingOut, onZoom, onClose, onColorChange, onNoteChange, onInput, onBusyChange, onFocus, onActivity, onJoinRequest, onPtyStarted, fontSize, style }: Props) {
   const cmdBufferRef = useRef('')
   const wrappedOnInput = useCallback((data: string) => {
     for (const ch of data) {
@@ -240,6 +241,8 @@ export default function TerminalPane({ pane, cellId, isDragging, zoomed, zooming
         if (!res.ok) {
           write(`\r\n\x1b[31m── failed to start terminal: ${res.error} ──\x1b[0m\r\n`)
           setProcessEnded(true)
+        } else {
+          onPtyStarted?.(pane.id, pane.repoPath)
         }
       }
       // Sync PTY size with xterm's actual dimensions
@@ -283,8 +286,20 @@ export default function TerminalPane({ pane, cellId, isDragging, zoomed, zooming
     if (!res.ok) {
       write(`\r\n\x1b[31m── failed to start terminal: ${res.error} ──\x1b[0m\r\n`)
       setProcessEnded(true)
+    } else {
+      onPtyStarted?.(pane.id, pane.repoPath)
     }
-  }, [pane.id, pane.cmd, pane.accountDir, pane.repoPath, pane.shellId, write])
+  }, [pane.id, pane.cmd, pane.accountDir, pane.repoPath, pane.shellId, write, onPtyStarted])
+
+  const handleSyncCwd = useCallback(() => {
+    void window.pty.kill(pane.id).then(() => handleRestart())
+  }, [pane.id, handleRestart])
+
+  const repoPathDiverged =
+    pane.cmd !== '' &&
+    !processEnded &&
+    pane.runningRepoPath !== undefined &&
+    pane.runningRepoPath !== pane.repoPath
 
   // File staging handlers
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -424,6 +439,8 @@ export default function TerminalPane({ pane, cellId, isDragging, zoomed, zooming
         onToggleBlocks={handleToggleBlocks}
         onShare={() => setShowShare(v => !v)}
         isSharing={isSharing}
+        repoPathDiverged={repoPathDiverged}
+        onSyncCwd={handleSyncCwd}
       />
       {searchOpen && (
         <div className="search-bar">

@@ -19,7 +19,25 @@ interface GitHubEvent {
 interface DailyStandupProps {
   repos: Array<{ repo_full_name: string }>
   githubToken: string | null
-  teamMembers: Array<{ email: string; user_id: string | null }>
+  // H6: To correctly attribute GitHub events to team members, callers SHOULD
+  // pass `github_login` per member. The previous code matched `member.user_id`
+  // (a Supabase UUID) against `actor.login` (a GitHub username) — these never
+  // equal, so every member showed "No activity in the last 24h".
+  //
+  // TODO(H6): TeamsWorkspace currently cannot resolve other members'
+  // `github_login` from the client because `profiles` RLS only allows
+  // `auth.uid() = id`. Recommended fix:
+  //   (a) Denormalize `github_login` onto `team_members` (write on team join
+  //       / GitHub connect), OR
+  //   (b) Add a SECURITY DEFINER view/function exposing only
+  //       (user_id, github_login) for users sharing at least one team with
+  //       the caller, OR
+  //   (c) Loosen the profiles SELECT policy to expose only the github_login
+  //       column to teammates (requires column-level RLS or a separate
+  //       public view).
+  // Until then, teammates without `github_login` will fall through to
+  // "No activity" — which is incorrect but at least honest about the gap.
+  teamMembers: Array<{ email: string; user_id: string | null; github_login?: string | null }>
 }
 
 interface ActorSummary {
@@ -113,8 +131,12 @@ function buildStandupText(
 
   for (const member of teamMembers) {
     lines.push(member.email)
+    // H6: Match by github_login (the actual GitHub username) when available.
+    // Fall back to user_id only for the personal-panel case where the caller
+    // intentionally passes githubLogin as user_id (see MyReposPanel).
+    const memberLogin = member.github_login ?? member.user_id
     const matched = [...actorMap.values()].find(a =>
-      member.user_id ? a.login === member.user_id : false
+      memberLogin ? a.login === memberLogin : false
     )
     // Fall back to showing all actors not matched if no user_id mapping
     if (matched && matched.activities.length > 0) {
@@ -128,8 +150,9 @@ function buildStandupText(
   }
 
   // Actors found in GitHub but not matched to a team member
+  // H6: same matching rule as above — prefer github_login.
   const unmatchedLogins = [...actorMap.keys()].filter(
-    login => !teamMembers.some(m => m.user_id === login)
+    login => !teamMembers.some(m => (m.github_login ?? m.user_id) === login)
   )
   for (const login of unmatchedLogins) {
     const summary = actorMap.get(login)!
@@ -274,8 +297,10 @@ export default function DailyStandup({ repos, githubToken, teamMembers }: DailyS
       <div className="standup-divider" />
 
       {teamMembers.map(member => {
+        // H6: Prefer github_login; fall back to user_id (personal-panel case).
+        const memberLogin = member.github_login ?? member.user_id
         const matched = [...actorMap.values()].find(a =>
-          member.user_id ? a.login === member.user_id : false
+          memberLogin ? a.login === memberLogin : false
         )
         const activities = matched?.activities ?? []
 
@@ -297,7 +322,8 @@ export default function DailyStandup({ repos, githubToken, teamMembers }: DailyS
 
       {/* Unmatched GitHub actors */}
       {[...actorMap.entries()]
-        .filter(([login]) => !teamMembers.some(m => m.user_id === login))
+        // H6: Prefer github_login when matching.
+        .filter(([login]) => !teamMembers.some(m => (m.github_login ?? m.user_id) === login))
         .filter(([, summary]) => summary.activities.length > 0)
         .map(([login, summary]) => (
           <div key={login} className="standup-member">

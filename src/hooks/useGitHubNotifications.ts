@@ -19,6 +19,7 @@ export function useGitHubNotifications(githubToken: string | null) {
 
   useEffect(() => {
     if (!githubToken) return
+    let alive = true
 
     const fetchNotifications = async () => {
       try {
@@ -30,6 +31,7 @@ export function useGitHubNotifications(githubToken: string | null) {
         })
         if (!res.ok) return
         const data: GitHubNotification[] = await res.json()
+        if (!alive) return
         setNotifications(data)
         setUnreadCount(data.filter(n => n.unread).length)
       } catch {
@@ -39,7 +41,7 @@ export function useGitHubNotifications(githubToken: string | null) {
 
     fetchNotifications()
     const interval = setInterval(fetchNotifications, 60_000)
-    return () => clearInterval(interval)
+    return () => { alive = false; clearInterval(interval) }
   }, [githubToken])
 
   const markAsRead = async (notificationId: string) => {

@@ -35,9 +35,11 @@ interface Props {
   onToggleBlocks?: () => void
   onShare?: () => void
   isSharing?: boolean
+  repoPathDiverged?: boolean
+  onSyncCwd?: () => void
 }
 
-export default function PaneHeader({ pane, zoomed, onZoom, onClose, onColorChange, onNoteChange, dragHandleProps, processEnded, isBusy, onRestart, onSaveConversation, onCopyLastResponse, showBlocks, blockCount, onToggleBlocks, onShare, isSharing }: Props) {
+export default function PaneHeader({ pane, zoomed, onZoom, onClose, onColorChange, onNoteChange, dragHandleProps, processEnded, isBusy, onRestart, onSaveConversation, onCopyLastResponse, showBlocks, blockCount, onToggleBlocks, onShare, isSharing, repoPathDiverged, onSyncCwd }: Props) {
   const config = AI_CONFIG[pane.aiType]
   const displayLabel = pane.customLabel ?? config.label
   const displayColor = pane.customColor ?? config.color
@@ -118,12 +120,11 @@ export default function PaneHeader({ pane, zoomed, onZoom, onClose, onColorChang
           )}
         </div>
 
-        <span className="pane-ai-label" style={{ color: displayColor }} title={displayLabel}>
+        <span className="pane-ai-label" style={{ color: displayColor }} title={pane.accountName ? `${displayLabel} · ${pane.accountName}` : displayLabel}>
           {(pane.aiType === 'terminal' || pane.aiType === 'custom')
             ? displayLabel
             : <AILogo aiType={pane.aiType} color={displayColor} size={14} />}
         </span>
-        <span className="pane-account-name">{pane.accountName}</span>
 
         {isBusy && pid !== undefined && (
           <span className="pane-pid-chip">PID {pid}</span>
@@ -155,6 +156,20 @@ export default function PaneHeader({ pane, zoomed, onZoom, onClose, onColorChang
 
         {!editingNote && processEnded && (
           <span className="pane-ended-badge">ended</span>
+        )}
+
+        {repoPathDiverged && onSyncCwd && (
+          <button
+            className="pane-sync-cwd-btn"
+            onClick={onSyncCwd}
+            title={`Live cwd is ${pane.runningRepoPath ?? 'unset'} but the active repo is ${pane.repoPath ?? 'unset'}. Restart the pane to apply.`}
+          >
+            <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
+              <path d="M10 6A4 4 0 1 1 6 2a4 4 0 0 1 2.83 1.17L10 4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+              <path d="M10 1v3H7" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+            Sync cwd
+          </button>
         )}
       </div>
 

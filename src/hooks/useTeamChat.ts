@@ -212,7 +212,8 @@ export function useTeamChat({ teamId, userId, userEmail, githubLogin, githubToke
         } catch { /* ignore individual repo failures */ }
       }))
       if (newRows.length > 0) {
-        await supabase.from('team_chat_events').upsert(newRows, { onConflict: 'team_id,github_event_id', ignoreDuplicates: true })
+        const { error } = await supabase.from('team_chat_events').upsert(newRows, { onConflict: 'team_id,github_event_id', ignoreDuplicates: true })
+        if (error) console.warn('[useTeamChat.pollGitHubEvents] upsert team_chat_events failed', { count: newRows.length }, error)
       }
     } catch { /* swallow polling errors */ }
   }, [teamId, githubToken])
@@ -241,7 +242,8 @@ export function useTeamChat({ teamId, userId, userEmail, githubLogin, githubToke
   }, [teamId, userId, userEmail, githubLogin])
 
   const deleteMessage = useCallback(async (id: string) => {
-    await supabase.from('team_chat_messages').delete().eq('id', id)
+    const { error } = await supabase.from('team_chat_messages').delete().eq('id', id)
+    if (error) console.warn('[useTeamChat.deleteMessage] delete failed', { id }, error)
   }, [])
 
   const toggleReaction = useCallback(async (
@@ -252,9 +254,10 @@ export function useTeamChat({ teamId, userId, userEmail, githubLogin, githubToke
       r.user_id === userId && r.target_type === targetType && r.target_id === targetId && r.emoji === emoji
     )
     if (existing) {
-      await supabase.from('team_chat_reactions').delete().eq('id', existing.id)
+      const { error } = await supabase.from('team_chat_reactions').delete().eq('id', existing.id)
+      if (error) console.warn('[useTeamChat.toggleReaction] delete failed', { id: existing.id }, error)
     } else {
-      await supabase.from('team_chat_reactions').insert({
+      const { error } = await supabase.from('team_chat_reactions').insert({
         team_id: teamId,
         user_id: userId,
         user_email: userEmail,
@@ -262,6 +265,7 @@ export function useTeamChat({ teamId, userId, userEmail, githubLogin, githubToke
         target_id: targetId,
         emoji,
       })
+      if (error) console.warn('[useTeamChat.toggleReaction] insert failed', { targetType, targetId, emoji }, error)
     }
   }, [teamId, userId, userEmail, reactions])
 

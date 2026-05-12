@@ -1,12 +1,11 @@
-import { execFile } from 'child_process'
-import { promisify } from 'util'
+import os from 'os'
+import pidusage from 'pidusage'
 
-const execFileP = promisify(execFile)
-const isWindows = process.platform === 'win32'
+const CPU_COUNT = Math.max(1, os.cpus().length)
 
 export interface BenchSample {
   ts: number
-  cpuPct: number | null  // 0-100
+  cpuPct: number | null  // 0-100, normalized by CPU count
   rssMB: number | null
   mode: 'setup' | 'spotlight' | 'idle'
   processGone?: boolean
@@ -23,41 +22,25 @@ export interface BenchSession {
 const MAX_SAMPLES = 1200  // ~10 min at 500ms
 
 async function sampleProcess(pid: number): Promise<{ cpuPct: number | null; rssMB: number | null; gone: boolean }> {
-  if (isWindows) {
-    try {
-      const { stdout } = await execFileP('wmic', [
-        'process',
-        'where',
-        `(processid=${pid})`,
-        'get',
-        'workingsetsize,kerneltime,usertime',
-        '/format:csv',
-      ], { timeout: 2000 })
-      const lines = stdout.trim().split(/\r?\n/).filter((l) => l && !/^Node/i.test(l))
-      const last = lines[lines.length - 1]
-      if (!last) return { cpuPct: null, rssMB: null, gone: true }
-      const parts = last.split(',')
-      const ws = parseInt(parts[parts.length - 1] ?? '', 10)
-      return {
-        cpuPct: null,
-        rssMB: Number.isFinite(ws) ? Math.round((ws / 1024 / 1024) * 10) / 10 : null,
-        gone: false,
-      }
-    } catch {
-      return { cpuPct: null, rssMB: null, gone: true }
-    }
-  }
   try {
-    const { stdout } = await execFileP('ps', ['-o', 'pcpu=,rss=', '-p', String(pid)], { timeout: 2000 })
-    const m = stdout.trim().match(/^\s*([\d.]+)\s+(\d+)/)
-    if (!m) return { cpuPct: null, rssMB: null, gone: true }
+    const stat = await pidusage(pid)
     return {
-      cpuPct: parseFloat(m[1]!),
-      rssMB: Math.round((parseInt(m[2]!, 10) / 1024) * 10) / 10,
+      cpuPct: stat.cpu / CPU_COUNT,
+      rssMB: Math.round((stat.memory / 1024 / 1024) * 10) / 10,
       gone: false,
     }
-  } catch {
-    return { cpuPct: null, rssMB: null, gone: true }
+  } catch (err) {
+    // pidusage throws { code: 'ESRCH' } / "No matching pid found" when the
+    // process has exited — that's the legitimate "gone" signal. Anything
+    // else is a real error we want surfaced so it isn't mistaken for a
+    // dead process.
+    const code = (err as NodeJS.ErrnoException)?.code
+    const msg = err instanceof Error ? err.message : String(err)
+    if (code === 'ESRCH' || /no matching pid/i.test(msg)) {
+      return { cpuPct: null, rssMB: null, gone: true }
+    }
+    console.warn('[benchmark] pidusage failed', pid, code ?? msg)
+    return { cpuPct: null, rssMB: null, gone: false }
   }
 }
 

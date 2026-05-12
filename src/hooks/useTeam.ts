@@ -46,12 +46,16 @@ export function useTeam() {
 
   const activeTeam = state.teams.find(t => t.id === state.activeTeamId) ?? null
 
-  const loadMembers = useCallback(async (teamId: string): Promise<TeamMember[]> => {
-    const { data } = await supabase
+  const loadMembers = useCallback(async (teamId: string): Promise<TeamMember[] | null> => {
+    const { data, error } = await supabase
       .from('team_members')
       .select('*')
       .eq('team_id', teamId)
       .order('invited_at', { ascending: true })
+    if (error) {
+      console.warn('[useTeam.loadMembers] select team_members failed', { teamId }, error)
+      return null
+    }
     return (data ?? []) as TeamMember[]
   }, [])
 
@@ -64,32 +68,46 @@ export function useTeam() {
     }
 
     // All active memberships
-    const { data: memberships } = await supabase
+    const { data: memberships, error: membershipsError } = await supabase
       .from('team_members')
       .select('team_id')
       .eq('user_id', user.id)
       .eq('status', 'active')
 
+    if (membershipsError) {
+      console.warn('[useTeam.refresh] select team_members (memberships) failed; keeping previous state', { userId: user.id }, membershipsError)
+      setState(s => ({ ...s, loading: false, userId: user.id, userEmail: user.email ?? null }))
+      return
+    }
+
     const teamIds = (memberships ?? []).map((m: { team_id: string }) => m.team_id)
 
     let teams: Team[] = []
     if (teamIds.length > 0) {
-      const { data: teamsData } = await supabase
+      const { data: teamsData, error: teamsError } = await supabase
         .from('teams')
         .select('*')
         .in('id', teamIds)
         .order('created_at', { ascending: true })
+      if (teamsError) {
+        console.warn('[useTeam.refresh] select teams failed; keeping previous state', { teamIds }, teamsError)
+        setState(s => ({ ...s, loading: false, userId: user.id, userEmail: user.email ?? null }))
+        return
+      }
       teams = (teamsData ?? []) as Team[]
     }
 
     // Persist active team selection; prefer Supabase, fall back to localStorage, then first team
     let stored = localStorage.getItem(storageKey(user.id))
     // Try to load from Supabase user_preferences
-    const { data: userPrefsData } = await supabase
+    const { data: userPrefsData, error: userPrefsError } = await supabase
       .from('user_preferences')
       .select('active_team_id')
       .eq('user_id', user.id)
       .maybeSingle()
+    if (userPrefsError) {
+      console.warn('[useTeam.refresh] select user_preferences failed; falling back to localStorage', { userId: user.id }, userPrefsError)
+    }
     if (userPrefsData?.active_team_id) {
       stored = userPrefsData.active_team_id
     }
@@ -102,30 +120,36 @@ export function useTeam() {
       supabase.from('user_preferences').upsert(
         { user_id: user.id, active_team_id: activeTeamId, updated_at: new Date().toISOString() },
         { onConflict: 'user_id' }
-      )
+      ).then(({ error }) => {
+        if (error) console.warn('[useTeam.refresh] upsert user_preferences failed', { userId: user.id, activeTeamId }, error)
+      })
     }
 
-    const members = activeTeamId ? await loadMembers(activeTeamId) : []
+    const loadedMembers = activeTeamId ? await loadMembers(activeTeamId) : []
 
     // Pending invite (first one)
-    const { data: pending } = await supabase
+    const { data: pending, error: pendingError } = await supabase
       .from('team_members')
       .select('id, teams(*)')
       .eq('email', user.email ?? '')
       .eq('status', 'pending')
       .maybeSingle()
+    if (pendingError) {
+      console.warn('[useTeam.refresh] select pending team_members failed', { email: user.email }, pendingError)
+    }
 
-    setState({
+    setState(s => ({
       teams,
       activeTeamId,
-      members,
+      // If loadMembers returned null (RLS / network error), keep previous members list to avoid flicker-to-empty.
+      members: loadedMembers ?? s.members,
       pendingInvite: pending
         ? { team: (pending.teams as unknown as Team), memberId: pending.id }
-        : null,
+        : (pendingError ? s.pendingInvite : null),
       loading: false,
       userId: user.id,
       userEmail: user.email ?? null,
-    })
+    }))
   }, [loadMembers])
 
   useEffect(() => { refresh() }, [refresh])
@@ -133,10 +157,11 @@ export function useTeam() {
   const switchTeam = useCallback(async (teamId: string) => {
     if (!state.userId) return
     localStorage.setItem(storageKey(state.userId), teamId)
-    await supabase.from('user_preferences').upsert(
+    const { error } = await supabase.from('user_preferences').upsert(
       { user_id: state.userId, active_team_id: teamId, updated_at: new Date().toISOString() },
       { onConflict: 'user_id' }
     )
+    if (error) console.warn('[useTeam.switchTeam] upsert user_preferences failed', { userId: state.userId, teamId }, error)
     setState(s => ({ ...s, activeTeamId: teamId, members: [] }))
     await refresh()
   }, [state.userId, refresh])
@@ -151,9 +176,12 @@ export function useTeam() {
       .select()
       .single()
 
-    if (error || !team) return false
+    if (error || !team) {
+      if (error) console.warn('[useTeam.createTeam] insert teams failed', { name }, error)
+      return false
+    }
 
-    await supabase.from('team_members').insert({
+    const { error: memberError } = await supabase.from('team_members').insert({
       team_id: team.id,
       user_id: user.id,
       email: user.email ?? '',
@@ -162,12 +190,15 @@ export function useTeam() {
       invited_by: user.id,
       accepted_at: new Date().toISOString(),
     })
+    if (memberError) console.warn('[useTeam.createTeam] insert team_members (self) failed', { teamId: team.id }, memberError)
 
     localStorage.setItem(storageKey(user.id), team.id)
     supabase.from('user_preferences').upsert(
       { user_id: user.id, active_team_id: team.id, updated_at: new Date().toISOString() },
       { onConflict: 'user_id' }
-    )
+    ).then(({ error: prefError }) => {
+      if (prefError) console.warn('[useTeam.createTeam] upsert user_preferences failed', { userId: user.id, teamId: team.id }, prefError)
+    })
     await refresh()
     return true
   }, [refresh])
@@ -203,7 +234,8 @@ export function useTeam() {
   }, [activeTeam, state.userId, state.userEmail, refresh])
 
   const removeMember = useCallback(async (memberId: string): Promise<void> => {
-    await supabase.from('team_members').delete().eq('id', memberId)
+    const { error } = await supabase.from('team_members').delete().eq('id', memberId)
+    if (error) console.warn('[useTeam.removeMember] delete failed', { memberId }, error)
     await refresh()
   }, [refresh])
 
@@ -212,7 +244,10 @@ export function useTeam() {
       .from('team_members')
       .update({ role: 'leader' })
       .eq('id', memberId)
-    if (error) return { ok: false, error: error.message }
+    if (error) {
+      console.warn('[useTeam.promoteMember] update failed', { memberId }, error)
+      return { ok: false, error: error.message }
+    }
     await refresh()
     return { ok: true }
   }, [refresh])
@@ -228,7 +263,10 @@ export function useTeam() {
       .from('team_members')
       .update({ role: 'member' })
       .eq('id', memberId)
-    if (error) return { ok: false, error: error.message }
+    if (error) {
+      console.warn('[useTeam.demoteMember] update failed', { memberId }, error)
+      return { ok: false, error: error.message }
+    }
     await refresh()
     return { ok: true }
   }, [state.members, refresh])
@@ -239,14 +277,19 @@ export function useTeam() {
       .from('team_members')
       .update({ status: 'active', accepted_at: new Date().toISOString(), user_id: state.userId })
       .eq('id', state.pendingInvite.memberId)
-    if (error) return false
+    if (error) {
+      console.warn('[useTeam.acceptInvite] update failed', { memberId: state.pendingInvite.memberId }, error)
+      return false
+    }
     await refresh()
     return true
   }, [state.pendingInvite, state.userId, refresh])
 
   const rejectInvite = useCallback(async (): Promise<void> => {
     if (!state.pendingInvite) return
-    await supabase.from('team_members').delete().eq('id', state.pendingInvite.memberId)
+    const memberId = state.pendingInvite.memberId
+    const { error } = await supabase.from('team_members').delete().eq('id', memberId)
+    if (error) console.warn('[useTeam.rejectInvite] delete failed', { memberId }, error)
     await refresh()
   }, [state.pendingInvite, refresh])
 
@@ -254,7 +297,8 @@ export function useTeam() {
     if (!state.userId || !activeTeam) return
     const myMember = state.members.find(m => m.user_id === state.userId)
     if (!myMember) return
-    await supabase.from('team_members').delete().eq('id', myMember.id)
+    const { error } = await supabase.from('team_members').delete().eq('id', myMember.id)
+    if (error) console.warn('[useTeam.leaveTeam] delete failed', { memberId: myMember.id }, error)
     // Switch to another team or clear
     const remaining = state.teams.filter(t => t.id !== activeTeam.id)
     if (remaining.length > 0) localStorage.setItem(storageKey(state.userId), remaining[0].id)
@@ -264,7 +308,8 @@ export function useTeam() {
 
   const deleteTeam = useCallback(async (): Promise<void> => {
     if (!activeTeam) return
-    await supabase.from('teams').delete().eq('id', activeTeam.id)
+    const { error } = await supabase.from('teams').delete().eq('id', activeTeam.id)
+    if (error) console.warn('[useTeam.deleteTeam] delete failed', { teamId: activeTeam.id }, error)
     const remaining = state.teams.filter(t => t.id !== activeTeam.id)
     if (remaining.length > 0) localStorage.setItem(storageKey(state.userId!), remaining[0].id)
     else localStorage.removeItem(storageKey(state.userId!))

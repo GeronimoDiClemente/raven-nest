@@ -11,9 +11,14 @@ export const SHELL = isWin
     ? '/bin/zsh'
     : (process.env.SHELL || '/bin/bash')
 
+// The initial cwd is set by pty.spawn() in pty-manager. Do NOT run
+// `Set-Location $HOME` here on Windows — it overrides the spawn cwd and
+// breaks AI panes that should start in repoPath (because $HOME is redirected
+// to the per-account dir for AI panes, so a blind cd to $HOME lands the
+// shell inside .raven-nest/accounts/... instead of the linked repo).
 export const SHELL_ARGS: string[] = isWin
   ? ['-NoLogo', '-NoExit', '-Command',
-     '$env:PATH = [System.Environment]::GetEnvironmentVariable("PATH","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("PATH","User"); Set-Location $HOME']
+     '$env:PATH = [System.Environment]::GetEnvironmentVariable("PATH","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("PATH","User")']
   : ['-l', '-i']
 
 export const ICON_FILENAME = isWin ? 'icon.ico' : isMac ? 'icon.icns' : 'icon.png'

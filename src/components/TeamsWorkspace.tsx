@@ -152,7 +152,10 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal }: 
   }
 
   const handleLinkExisting = async (repo: TeamRepo) => {
-    const folder = await window.git.pickRepoFolder()
+    // Pass repo_url so the picker rejects (or warns about) folders whose
+    // origin remote doesn't match this repo. Prevents the exact bug that
+    // landed sti-travel-console at the algoritmos folder.
+    const folder = await window.git.pickRepoFolder(repo.repo_url)
     if (folder) await updateUserLocalPath(repo.id, folder)
   }
 
@@ -171,11 +174,25 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal }: 
         onOpenRepoTerminal(repo.repo_full_name, userPath)
         return
       }
-      // Fall back to shared team path if it works on this machine
+      // Fall back to shared team path only if (a) the folder exists on this
+      // machine AND (b) its origin remote actually matches this repo. Without
+      // the remote check, a stale/wrong team-level path silently re-adopts
+      // after every Unlink — exactly the sti-travel-console → algoritmos bug
+      // we just fixed for pickRepoFolder.
       if (repo.local_path && await window.pathUtils.exists(repo.local_path)) {
-        await updateUserLocalPath(repo.id, repo.local_path)
-        onOpenRepoTerminal(repo.repo_full_name, repo.local_path)
-        return
+        const actualRemote = await window.git.getRemoteUrl(repo.local_path)
+        const norm = (u: string) => u
+          .replace(/\.git$/, '')
+          .replace(/\/+$/, '')
+          .replace(/^https?:\/\/[^@/]+@/, 'https://')
+          .toLowerCase()
+        if (actualRemote && norm(actualRemote) === norm(repo.repo_url)) {
+          await updateUserLocalPath(repo.id, repo.local_path)
+          onOpenRepoTerminal(repo.repo_full_name, repo.local_path)
+          return
+        }
+        // Path exists but doesn't match — fall through to clone/link dialog
+        // instead of silently adopting the wrong folder.
       }
       // No valid path found — ask to clone or link
       setCloneTarget(repo)
@@ -212,7 +229,7 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal }: 
 
   const handleLinkTarget = async () => {
     if (!cloneTarget) return
-    const folder = await window.git.pickRepoFolder()
+    const folder = await window.git.pickRepoFolder(cloneTarget.repo_url)
     if (folder) {
       await updateUserLocalPath(cloneTarget.id, folder)
       setCloneTarget(null)
@@ -223,6 +240,10 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal }: 
   const isTeamLeader = activeTeam && userId
     ? members.some(m => m.user_id === userId && m.role === 'leader' && m.status === 'active')
     : false
+  // RLS allows DELETE on teams only to owner_id (decision B13). Render the
+  // Delete button by ownership, not by leader role — otherwise non-owner
+  // leaders see it and click into a silent RLS rejection.
+  const isTeamOwner = activeTeam && userId ? activeTeam.owner_id === userId : false
 
   const [memberActionError, setMemberActionError] = useState<string | null>(null)
   const [confirmAction, setConfirmAction] = useState<{
@@ -324,7 +345,20 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal }: 
                     <button
                       key={t.id}
                       className={`team-switcher-item${t.id === activeTeam.id ? ' active' : ''}`}
-                      onClick={() => { switchTeam(t.id); setShowSwitcher(false); setCreatingTeam(false) }}
+                      onClick={() => {
+                        switchTeam(t.id)
+                        // H3: Wipe local view state — selections from the previous team
+                        // must not leak across (stale repo/PR/issue refs cause flicker
+                        // or "not found" errors against the new team's data).
+                        setSelectedRepo(null)
+                        setSelectedPR(null)
+                        setStatusRepo(null)
+                        setCloneTarget(null)
+                        setSelectedIssueRepo(null)
+                        setCloneError(null)
+                        setShowSwitcher(false)
+                        setCreatingTeam(false)
+                      }}
                     >
                       <span className="team-switcher-check">{t.id === activeTeam.id ? '✓' : ''}</span>
                       {t.name}
@@ -448,7 +482,7 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal }: 
                 </button>
               ))}
               <div className="tw-nav-spacer" />
-              {isTeamLeader ? (
+              {isTeamOwner ? (
                 <button
                   className="tw-nav-danger"
                   onClick={() => setConfirmAction({
@@ -570,6 +604,49 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal }: 
                                   <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
                                     <circle cx="8" cy="8" r="5.5" stroke="currentColor" strokeWidth="1.4"/>
                                     <path d="M8 5.5v3l2 1.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+                                  </svg>
+                                ),
+                              })
+                              overflow.push({
+                                label: 'Re-link folder',
+                                onClick: () => handleLinkExisting(repo),
+                                icon: (
+                                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+                                    <path d="M6 9l-2 2a2 2 0 102.83 2.83l3-3a2 2 0 00-2.83-2.83M10 7l2-2a2 2 0 10-2.83-2.83l-3 3a2 2 0 002.83 2.83" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+                                  </svg>
+                                ),
+                              })
+                              overflow.push({
+                                label: 'Unlink folder',
+                                onClick: () => updateUserLocalPath(repo.id, null),
+                                icon: (
+                                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+                                    <path d="M3 8h10M5 5l-2 3 2 3M11 5l2 3-2 3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+                                  </svg>
+                                ),
+                              })
+                            } else {
+                              // No local folder linked yet — give the user
+                              // explicit clone/link options so they're not
+                              // forced through the auto-fallback in
+                              // handleOpenTerminal (which can fail silently if
+                              // the modal is dismissed or the validation
+                              // rejects the team-shared path).
+                              overflow.push({
+                                label: 'Clone repo',
+                                onClick: () => setCloneTarget(repo),
+                                icon: (
+                                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+                                    <path d="M8 2v8M4.5 6.5L8 10l3.5-3.5M3 13h10" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+                                  </svg>
+                                ),
+                              })
+                              overflow.push({
+                                label: 'Link existing folder',
+                                onClick: () => handleLinkExisting(repo),
+                                icon: (
+                                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+                                    <path d="M6 9l-2 2a2 2 0 102.83 2.83l3-3a2 2 0 00-2.83-2.83M10 7l2-2a2 2 0 10-2.83-2.83l-3 3a2 2 0 002.83 2.83" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
                                   </svg>
                                 ),
                               })
@@ -1015,37 +1092,54 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal }: 
 
       {cloneTarget && (
         <div className="confirm-overlay" onMouseDown={e => { if (e.target === e.currentTarget) { setCloneTarget(null); setCloneError(null) } }}>
-          <div className="confirm-dialog" style={{ width: 360 }}>
-            <div className="confirm-title">{cloneTarget.repo_full_name}</div>
-            <div className="confirm-message">
-              No local folder for this repo on this machine. Choose how to continue:
+          <div className="confirm-dialog" style={{ width: 420, padding: 18 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+              <ProviderAvatar provider={cloneTarget.provider} size={16} />
+              <div className="confirm-title" style={{ margin: 0, fontSize: 14 }}>
+                {cloneTarget.repo_full_name}
+              </div>
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 6 }}>
+            <div className="confirm-message" style={{ marginBottom: 14, color: 'var(--text-muted)', fontSize: 12 }}>
+              No local folder for this repo on this machine.
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               <button
-                className="confirm-btn-ok"
-                style={{ padding: '7px 12px', textAlign: 'left' }}
+                className="clone-action-btn clone-action-btn--primary"
                 onClick={handleCloneTarget}
                 disabled={cloning}
               >
-                {cloning ? 'Cloning…' : '⬇  Clone repo'}
+                <span className="clone-action-icon">
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                    <path d="M8 2v8M4.5 6.5L8 10l3.5-3.5M3 13h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                </span>
+                <span className="clone-action-body">
+                  <span className="clone-action-label">{cloning ? 'Cloning…' : 'Clone repo'}</span>
+                  <span className="clone-action-sub">Downloads a fresh copy into your RavenProjects folder</span>
+                </span>
               </button>
               <button
-                className="confirm-btn-cancel"
-                style={{ padding: '7px 12px', textAlign: 'left' }}
+                className="clone-action-btn"
                 onClick={handleLinkTarget}
                 disabled={cloning}
               >
-                📁  Link existing folder
+                <span className="clone-action-icon">
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                    <path d="M2 5.5A1.5 1.5 0 013.5 4h2.382a1.5 1.5 0 011.06.44l.618.618a1.5 1.5 0 001.061.44H12.5A1.5 1.5 0 0114 7v4.5A1.5 1.5 0 0112.5 13h-9A1.5 1.5 0 012 11.5v-6z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/>
+                  </svg>
+                </span>
+                <span className="clone-action-body">
+                  <span className="clone-action-label">Link existing folder</span>
+                  <span className="clone-action-sub">Pick a folder you already cloned. We&apos;ll verify the remote matches.</span>
+                </span>
               </button>
             </div>
             {cloneError && (
-              <div style={{ color: '#FF4444', fontSize: 11, marginTop: 4, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                {cloneError}
-              </div>
+              <div className="clone-action-error">{cloneError}</div>
             )}
-            <div className="confirm-actions">
+            <div className="confirm-actions" style={{ marginTop: 14 }}>
               <button className="confirm-btn-cancel" onClick={() => { setCloneTarget(null); setCloneError(null) }}>
-                Close
+                Cancel
               </button>
             </div>
           </div>

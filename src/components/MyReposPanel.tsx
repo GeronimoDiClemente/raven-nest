@@ -80,7 +80,7 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
   }
 
   const handleLinkExisting = async (repo: UserRepo) => {
-    const folder = await window.git.pickRepoFolder()
+    const folder = await window.git.pickRepoFolder(repo.repo_url)
     if (folder) await updateLocalPath(repo.id, folder)
   }
 
@@ -464,18 +464,29 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
             )}
 
             {/* ISSUES — repo selector */}
-            {githubToken && section === 'issues' && issuesView === 'repo-select' && (
+            {githubToken && section === 'issues' && issuesView === 'repo-select' && (() => {
+              // H1: GitHub Issues API doesn't apply to GitLab repos — filter them out.
+              // GitLab has its own issues API and a different schema; the IssueList
+              // component talks to api.github.com only, so showing GitLab repos here
+              // would just produce 404s.
+              const githubRepos = repos.filter(r => (r.provider ?? 'github') === 'github')
+              return (
               <div className="team-tab-pane">
                 {repos.length === 0 ? (
                   <div className="tw-placeholder">
                     <p style={{ fontSize: 13, fontWeight: 500, marginBottom: 6 }}>No repos linked</p>
                     <p style={{ fontSize: 12 }}>First add a repo in the Repos section</p>
                   </div>
+                ) : githubRepos.length === 0 ? (
+                  <div className="tw-placeholder">
+                    <p style={{ fontSize: 13, fontWeight: 500, marginBottom: 6 }}>No GitHub repos</p>
+                    <p style={{ fontSize: 12 }}>Issues only available for GitHub repos — connect your GitHub account or add a GitHub repo above.</p>
+                  </div>
                 ) : (
                   <>
                     <p style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 10 }}>Select a repo to view its issues:</p>
                     <div className="snippet-list" style={{ maxHeight: 'none' }}>
-                      {repos.map(repo => (
+                      {githubRepos.map(repo => (
                         <div
                           key={repo.id}
                           className="snippet-item"
@@ -492,7 +503,8 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
                   </>
                 )}
               </div>
-            )}
+              )
+            })()}
 
             {/* ISSUES — list */}
             {githubToken && section === 'issues' && issuesView === 'list' && selectedIssueRepo && (

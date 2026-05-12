@@ -30,7 +30,12 @@ export function useSharedMcpConfigs(teamId?: string) {
     } else {
       query = query.is('team_id', null)
     }
-    const { data } = await query
+    const { data, error } = await query
+    if (error) {
+      console.warn('[useSharedMcpConfigs.refresh] select failed; keeping previous state', { teamId }, error)
+      setLoading(false)
+      return
+    }
     setItems(data ?? [])
     setLoading(false)
   }, [teamId])
@@ -44,12 +49,17 @@ export function useSharedMcpConfigs(teamId?: string) {
       config,
       team_id: teamId ?? null,
     })
+    if (error) console.warn('[useSharedMcpConfigs.share] insert failed', { name, teamId }, error)
     if (!error) refresh()
     return !error
   }, [refresh])
 
   const remove = useCallback(async (id: string) => {
-    await supabase.from('shared_mcp_configs').delete().eq('id', id)
+    const { error } = await supabase.from('shared_mcp_configs').delete().eq('id', id)
+    if (error) {
+      console.warn('[useSharedMcpConfigs.remove] delete failed; keeping item in state', { id }, error)
+      return
+    }
     setItems(prev => prev.filter(i => i.id !== id))
   }, [])
 

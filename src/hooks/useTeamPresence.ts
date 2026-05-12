@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import type { RealtimeChannel } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
 
 export interface PresenceState {
@@ -11,6 +12,10 @@ export interface PresenceState {
 
 export function useTeamPresence(teamId: string | null, currentUserId: string | null) {
   const [presence, setPresence] = useState<Record<string, PresenceState>>({})
+  // H5: Hold the subscribed channel so updatePresence can call .track() on it.
+  // Previously updatePresence created a NEW channel and never subscribed it,
+  // so the track() call silently dropped on the floor.
+  const channelRef = useRef<RealtimeChannel | null>(null)
 
   useEffect(() => {
     if (!teamId || !currentUserId) return
@@ -18,6 +23,7 @@ export function useTeamPresence(teamId: string | null, currentUserId: string | n
     const channel = supabase.channel(`team-presence:${teamId}`, {
       config: { presence: { key: currentUserId } }
     })
+    channelRef.current = channel
 
     channel
       .on('presence', { event: 'sync' }, () => {
@@ -42,6 +48,7 @@ export function useTeamPresence(teamId: string | null, currentUserId: string | n
       })
 
     return () => {
+      channelRef.current = null
       supabase.removeChannel(channel)
     }
   }, [teamId, currentUserId])
@@ -51,7 +58,8 @@ export function useTeamPresence(teamId: string | null, currentUserId: string | n
     branch: string | null
   ) => {
     if (!teamId || !currentUserId) return
-    const channel = supabase.channel(`team-presence:${teamId}`)
+    const channel = channelRef.current
+    if (!channel) return
     const { data: { user } } = await supabase.auth.getUser()
     await channel.track({
       userId: currentUserId,

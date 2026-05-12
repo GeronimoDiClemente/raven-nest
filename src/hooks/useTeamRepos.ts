@@ -30,7 +30,7 @@ export function useTeamRepos(teamId: string | null) {
     if (!teamId) { setRepos([]); setUserLocalPaths({}); return }
     setLoading(true)
 
-    const [{ data: reposData }, { data: { user } }] = await Promise.all([
+    const [{ data: reposData, error: reposError }, { data: { user } }] = await Promise.all([
       supabase
         .from('team_repos')
         .select('*')
@@ -38,19 +38,28 @@ export function useTeamRepos(teamId: string | null) {
         .order('added_at', { ascending: false }),
       supabase.auth.getUser(),
     ])
+    if (reposError) {
+      console.warn('[useTeamRepos.refresh] select team_repos failed; keeping previous state', { teamId }, reposError)
+      setLoading(false)
+      return
+    }
     setRepos((reposData ?? []) as TeamRepo[])
 
     if (user) {
-      const { data: pathsData } = await supabase
+      const { data: pathsData, error: pathsError } = await supabase
         .from('team_repo_local_paths')
         .select('team_repo_id, local_path')
         .eq('user_id', user.id)
-      const map: Record<string, string> = {}
-      for (const row of pathsData ?? []) {
-        map[(row as { team_repo_id: string; local_path: string }).team_repo_id] =
-          (row as { team_repo_id: string; local_path: string }).local_path
+      if (pathsError) {
+        console.warn('[useTeamRepos.refresh] select team_repo_local_paths failed; keeping previous paths', { teamId, userId: user.id }, pathsError)
+      } else {
+        const map: Record<string, string> = {}
+        for (const row of pathsData ?? []) {
+          map[(row as { team_repo_id: string; local_path: string }).team_repo_id] =
+            (row as { team_repo_id: string; local_path: string }).local_path
+        }
+        setUserLocalPaths(map)
       }
-      setUserLocalPaths(map)
     }
 
     setLoading(false)
@@ -78,14 +87,18 @@ export function useTeamRepos(teamId: string | null) {
       .select('id')
       .single()
 
-    if (error || !inserted) return false
+    if (error || !inserted) {
+      if (error) console.warn('[useTeamRepos.addRepo] insert team_repos failed', { teamId, repoFullName, provider }, error)
+      return false
+    }
 
     // Also save per-user path if provided
     if (localPath) {
-      await supabase.from('team_repo_local_paths').upsert(
+      const { error: pathError } = await supabase.from('team_repo_local_paths').upsert(
         { team_repo_id: inserted.id, user_id: user.id, local_path: localPath, updated_at: new Date().toISOString() },
         { onConflict: 'team_repo_id,user_id' }
       )
+      if (pathError) console.warn('[useTeamRepos.addRepo] upsert team_repo_local_paths failed', { repoId: inserted.id }, pathError)
     }
 
     await refresh()
@@ -97,35 +110,46 @@ export function useTeamRepos(teamId: string | null) {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
     if (localPath) {
-      await supabase.from('team_repo_local_paths').upsert(
+      const { error } = await supabase.from('team_repo_local_paths').upsert(
         { team_repo_id: repoId, user_id: user.id, local_path: localPath, updated_at: new Date().toISOString() },
         { onConflict: 'team_repo_id,user_id' }
       )
+      if (error) {
+        console.warn('[useTeamRepos.updateUserLocalPath] upsert failed; keeping previous path', { repoId }, error)
+        return
+      }
       setUserLocalPaths(prev => ({ ...prev, [repoId]: localPath }))
     } else {
-      await supabase.from('team_repo_local_paths').delete()
+      const { error } = await supabase.from('team_repo_local_paths').delete()
         .eq('team_repo_id', repoId).eq('user_id', user.id)
+      if (error) {
+        console.warn('[useTeamRepos.updateUserLocalPath] delete failed; keeping previous path', { repoId }, error)
+        return
+      }
       setUserLocalPaths(prev => { const next = { ...prev }; delete next[repoId]; return next })
     }
   }, [])
 
   /** Legacy: update the shared team path (kept for backwards compat, prefer updateUserLocalPath). */
   const updateLocalPath = useCallback(async (repoId: string, localPath: string | null) => {
-    await supabase.from('team_repos').update({ local_path: localPath }).eq('id', repoId)
+    const { error } = await supabase.from('team_repos').update({ local_path: localPath }).eq('id', repoId)
+    if (error) console.warn('[useTeamRepos.updateLocalPath] update failed', { repoId }, error)
     await refresh()
   }, [refresh])
 
   const removeRepo = useCallback(async (repoId: string) => {
-    await supabase.from('team_repos').delete().eq('id', repoId)
+    const { error } = await supabase.from('team_repos').delete().eq('id', repoId)
+    if (error) console.warn('[useTeamRepos.removeRepo] delete failed', { repoId }, error)
     await refresh()
   }, [refresh])
 
   const setPermission = useCallback(async (
     repoId: string, userId: string, permission: 'read' | 'write' | 'admin'
   ) => {
-    await supabase
+    const { error } = await supabase
       .from('team_repo_permissions')
       .upsert({ team_repo_id: repoId, user_id: userId, permission }, { onConflict: 'team_repo_id,user_id' })
+    if (error) console.warn('[useTeamRepos.setPermission] upsert failed', { repoId, userId, permission }, error)
   }, [])
 
   return { repos, loading, userLocalPaths, refresh, addRepo, updateUserLocalPath, updateLocalPath, removeRepo, setPermission }

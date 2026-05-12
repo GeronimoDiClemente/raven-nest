@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 
 export interface GitHubUserRepo {
   id: number
@@ -19,6 +19,12 @@ export function useGitHubUserRepos(githubToken: string | null) {
   const [repos, setRepos] = useState<GitHubUserRepo[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const aliveRef = useRef(true)
+
+  useEffect(() => {
+    aliveRef.current = true
+    return () => { aliveRef.current = false }
+  }, [])
 
   const fetchRepos = useCallback(async () => {
     if (!githubToken) { setRepos([]); return }
@@ -40,12 +46,12 @@ export function useGitHubUserRepos(githubToken: string | null) {
         if (batch.length < 100) break
         page++
       }
-      setRepos(all)
+      if (aliveRef.current) setRepos(all)
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Unknown error'
-      setError(message)
+      if (aliveRef.current) setError(message)
     } finally {
-      setLoading(false)
+      if (aliveRef.current) setLoading(false)
     }
   }, [githubToken])
 

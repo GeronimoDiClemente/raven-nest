@@ -17,10 +17,15 @@ export function useUserRepos() {
 
   const refresh = useCallback(async () => {
     setLoading(true)
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('user_repos')
       .select('*')
       .order('added_at', { ascending: false })
+    if (error) {
+      console.warn('[useUserRepos.refresh] select user_repos failed; keeping previous state', error)
+      setLoading(false)
+      return
+    }
     setRepos((data ?? []).map((r: UserRepo) => ({ ...r, provider: r.provider ?? 'github' })))
     setLoading(false)
   }, [])
@@ -40,17 +45,20 @@ export function useUserRepos() {
         local_path: localPath ?? null,
         provider,
       })
+    if (error) console.warn('[useUserRepos.addRepo] insert failed', { repoFullName, provider }, error)
     if (!error) await refresh()
     return !error
   }, [refresh])
 
   const updateLocalPath = useCallback(async (repoId: string, localPath: string | null) => {
-    await supabase.from('user_repos').update({ local_path: localPath }).eq('id', repoId)
+    const { error } = await supabase.from('user_repos').update({ local_path: localPath }).eq('id', repoId)
+    if (error) console.warn('[useUserRepos.updateLocalPath] update failed', { repoId }, error)
     await refresh()
   }, [refresh])
 
   const removeRepo = useCallback(async (repoId: string) => {
-    await supabase.from('user_repos').delete().eq('id', repoId)
+    const { error } = await supabase.from('user_repos').delete().eq('id', repoId)
+    if (error) console.warn('[useUserRepos.removeRepo] delete failed', { repoId }, error)
     await refresh()
   }, [refresh])
 

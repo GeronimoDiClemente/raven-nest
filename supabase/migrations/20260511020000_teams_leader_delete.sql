@@ -1,0 +1,24 @@
+-- 20260511020000_teams_leader_delete.sql
+-- B13: Audit asked whether non-owner leaders should be able to DELETE the team.
+--
+-- Decision: KEEP OWNER-ONLY at the RLS layer. Deleting a team cascades to
+-- team_members, team_repos, team_chat_messages, team_chat_events,
+-- team_chat_reactions, shared_snippets (team_id set null) and
+-- shared_workspaces (team_id set null). That is a high-blast-radius operation
+-- and we want a single accountable party (the original creator / billing owner).
+--
+-- The bug surfaced in the audit was a CLIENT-side issue: TeamsWorkspace.tsx
+-- showed the "Delete team" button to any role='leader' member, but the
+-- existing RLS policy ("Owner can delete team", migration 002) only lets
+-- `teams.owner_id = auth.uid()` succeed. Non-owner leaders saw the button,
+-- clicked it, and got a silent failure (0 rows affected).
+--
+-- Fix lives in the client (TeamsWorkspace.tsx): only render the delete button
+-- when `team.owner_id === currentUserId`. No SQL change is needed.
+--
+-- This migration is intentionally a no-op so the decision is captured in
+-- migration history. If we later decide leaders should also be able to delete,
+-- add a "Team leader can delete team" policy here.
+
+-- (no-op)
+SELECT 1;

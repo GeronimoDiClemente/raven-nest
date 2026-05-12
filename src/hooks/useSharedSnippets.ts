@@ -29,7 +29,12 @@ export function useSharedSnippets(teamId?: string) {
     } else {
       query = query.is('team_id', null)
     }
-    const { data } = await query
+    const { data, error } = await query
+    if (error) {
+      console.warn('[useSharedSnippets.refresh] select failed; keeping previous state', { teamId }, error)
+      setLoading(false)
+      return
+    }
     setItems(data ?? [])
     setLoading(false)
   }, [teamId])
@@ -38,12 +43,17 @@ export function useSharedSnippets(teamId?: string) {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return false
     const { error } = await supabase.from('shared_snippets').insert({ owner_id: user.id, name, content, team_id: teamId ?? null })
+    if (error) console.warn('[useSharedSnippets.share] insert failed', { name, teamId }, error)
     if (!error) refresh()
     return !error
   }, [refresh])
 
   const remove = useCallback(async (id: string) => {
-    await supabase.from('shared_snippets').delete().eq('id', id)
+    const { error } = await supabase.from('shared_snippets').delete().eq('id', id)
+    if (error) {
+      console.warn('[useSharedSnippets.remove] delete failed; keeping item in state', { id }, error)
+      return
+    }
     setItems(prev => prev.filter(i => i.id !== id))
   }, [])
 

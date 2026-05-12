@@ -6,42 +6,57 @@ const execFileP = promisify(execFile)
 const isWindows = process.platform === 'win32'
 const isMac = process.platform === 'darwin'
 
-async function pidChildren(pid: number): Promise<number[]> {
-  if (isWindows) {
-    try {
-      const { stdout } = await execFileP('wmic', [
-        'process',
-        'where',
-        `(parentprocessid=${pid})`,
-        'get',
-        'processid',
-      ], { timeout: 3000 })
-      return stdout
-        .split(/\r?\n/)
-        .map((s) => parseInt(s.trim(), 10))
-        .filter((n) => Number.isFinite(n) && n !== pid)
-    } catch {
-      return []
-    }
-  }
+/**
+ * Resolves a PID to its full process tree (root + descendants).
+ * On Windows the caller MUST inject one — `wmic` was removed in Win11 22H2,
+ * and rather than duplicate the CIM snapshot logic from MetricsCollector
+ * here, main.ts passes `metricsCollector.getTreeForPid` in.
+ */
+export type TreeResolver = (pid: number) => Promise<number[]>
+
+async function pidChildrenPosix(pid: number): Promise<number[]> {
   try {
     const { stdout } = await execFileP('pgrep', ['-P', String(pid)], { timeout: 3000 })
     return stdout
       .split(/\s+/)
       .map((s) => parseInt(s.trim(), 10))
       .filter((n) => Number.isFinite(n))
-  } catch {
+  } catch (err) {
+    // pgrep returns exit 1 when no children — that's normal, not an error.
+    // Anything else (pgrep missing, timeout) we surface so a system without
+    // pgrep doesn't silently report empty trees forever.
+    const code = (err as NodeJS.ErrnoException)?.code
+    if (code && code !== 'ENOENT') {
+      console.warn('[port-monitor] pgrep failed', pid, code, err instanceof Error ? err.message : err)
+    }
     return []
   }
 }
 
-export async function pidTree(rootPid: number, depth = 4): Promise<Set<number>> {
+export async function pidTree(rootPid: number, opts?: { depth?: number; treeResolver?: TreeResolver }): Promise<Set<number>> {
+  if (opts?.treeResolver) {
+    try {
+      const tree = await opts.treeResolver(rootPid)
+      const set = new Set<number>(tree.length > 0 ? tree : [rootPid])
+      set.add(rootPid)  // ensure root is present even if resolver returned []
+      return set
+    } catch (err) {
+      console.warn('[port-monitor] tree resolver failed for pid', rootPid, err instanceof Error ? err.message : err)
+      return new Set([rootPid])
+    }
+  }
+  if (isWindows) {
+    // No resolver and no wmic — degrade to root-only rather than silently
+    // pretending the tree is complete.
+    return new Set([rootPid])
+  }
+  const depth = opts?.depth ?? 4
   const all = new Set<number>([rootPid])
   let frontier = [rootPid]
   for (let d = 0; d < depth && frontier.length > 0; d++) {
     const next: number[] = []
     for (const pid of frontier) {
-      const kids = await pidChildren(pid)
+      const kids = await pidChildrenPosix(pid)
       for (const k of kids) {
         if (!all.has(k)) { all.add(k); next.push(k) }
       }
@@ -65,7 +80,8 @@ export async function listenPortsForPids(pids: Set<number>): Promise<number[]> {
         if (pids.has(pid)) ports.add(port)
       }
       return Array.from(ports).sort((a, b) => a - b)
-    } catch {
+    } catch (err) {
+      console.warn('[port-monitor] netstat failed', err instanceof Error ? err.message : err)
       return []
     }
   }
@@ -82,15 +98,22 @@ export async function listenPortsForPids(pids: Set<number>): Promise<number[]> {
         const m = line.match(/:(\d+)$/)
         if (m) ports.add(parseInt(m[1]!, 10))
       }
-    } catch {
-      // lsof may not exist or pid gone
+    } catch (err) {
+      // lsof returns exit 1 when the pid has no matching sockets — normal.
+      // ENOENT (lsof not installed) is worth a warn so users on minimal Linux
+      // installs see why port detection is empty.
+      const code = (err as NodeJS.ErrnoException)?.code
+      if (code === 'ENOENT') {
+        console.warn('[port-monitor] lsof not installed; cannot enumerate listening ports')
+        break
+      }
     }
   }
   return Array.from(ports).sort((a, b) => a - b)
 }
 
-export async function scanPid(pid: number): Promise<number[]> {
+export async function scanPid(pid: number, treeResolver?: TreeResolver): Promise<number[]> {
   if (!Number.isFinite(pid) || pid <= 0) return []
-  const tree = await pidTree(pid)
+  const tree = await pidTree(pid, { treeResolver })
   return listenPortsForPids(tree)
 }
