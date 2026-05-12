@@ -164,6 +164,70 @@ export interface GridLayout {
   cols: number
 }
 
+// 12-column virtual grid (Superset-style). Each cell stores its own position
+// and size; cells can sit anywhere, including odd counts (3, 5, 7, ...).
+// cell.id matches pane.id so react-grid-layout has a single stable key.
+export const GRID_COLS = 12
+
+export interface WorkspaceCell {
+  id: string             // === pane.id
+  x: number              // 0..GRID_COLS-1
+  y: number              // grid row (integer, unbounded)
+  w: number              // width in grid columns (1..GRID_COLS)
+  h: number              // height in grid rows
+  pane: PaneNode
+}
+
+// Serializable form. Pane subset matches SessionPane (no id; regenerated on
+// load so PTY restarts cleanly).
+export interface SessionCell {
+  x: number
+  y: number
+  w: number
+  h: number
+  pane: SessionPane
+}
+
+// Migrate an old rows/cols/cells[] layout into WorkspaceCell[]. Each old slot
+// maps to a fixed-width column in the 12-col grid; rows are 1 unit tall.
+export function migrateLegacyGrid(layout: GridLayout, oldCells: (PaneNode | null)[]): WorkspaceCell[] {
+  const rows = Math.max(1, layout.rows)
+  const cols = Math.max(1, layout.cols)
+  const cellW = Math.max(1, Math.floor(GRID_COLS / cols))
+  const extra = GRID_COLS - cellW * cols
+  const widths = Array.from({ length: cols }, (_, c) => cellW + (c < extra ? 1 : 0))
+  const offsets: number[] = []
+  let acc = 0
+  for (const w of widths) { offsets.push(acc); acc += w }
+
+  const out: WorkspaceCell[] = []
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const pane = oldCells[r * cols + c]
+      if (!pane) continue
+      out.push({ id: pane.id, x: offsets[c], y: r, w: widths[c], h: 1, pane })
+    }
+  }
+  return out
+}
+
+// Find the next free (x,y) for a new cell of given (w,h). Scans row-by-row
+// from y=0, leftmost first. Falls past the last row when nothing fits above.
+export function findFreeSlot(cells: WorkspaceCell[], w: number, h: number): { x: number; y: number } {
+  const safeW = Math.min(Math.max(1, w), GRID_COLS)
+  const occupies = (x: number, y: number) => cells.some(c =>
+    x < c.x + c.w && x + safeW > c.x &&
+    y < c.y + c.h && y + h > c.y
+  )
+  const maxY = cells.reduce((m, c) => Math.max(m, c.y + c.h), 0)
+  for (let y = 0; y <= maxY; y++) {
+    for (let x = 0; x + safeW <= GRID_COLS; x++) {
+      if (!occupies(x, y)) return { x, y }
+    }
+  }
+  return { x: 0, y: maxY }
+}
+
 export const COLOR_PALETTE = [
   '#0055FF', // blue
   '#FF4500', // red-orange
@@ -204,12 +268,18 @@ export interface SessionPane {
 }
 
 export interface SessionData {
-  // v2: multi-tab
+  // v3: free grid. Tabs carry positioned cells. v2 fields stay optional so
+  // old session.json still loads — App.tsx migrates legacy to gridCells.
   tabs?: Array<{
     id: string
     name: string
-    layout: GridLayout
-    cells: (SessionPane | null)[]
+    accentColor?: string
+    repoPath?: string
+    gridCells?: SessionCell[]              // v3
+    layout?: GridLayout                    // v2 legacy
+    cells?: (SessionPane | null)[]         // v2 legacy
+    colSizes?: number[][]                  // v2 legacy
+    rowSizes?: number[]                    // v2 legacy
   }>
   activeTabId?: string
   // v1 legacy fields — kept for backward compat migration on load
@@ -235,10 +305,8 @@ export interface WorkspaceTab {
   name: string
   accentColor?: string
   repoPath?: string     // git repo directory; new panes start here as cwd
-  layout: GridLayout
-  colSizes: number[][]  // per-row column percentages: colSizes[row][col]
-  rowSizes: number[]    // row heights, length = rows, sum = 100
-  cells: (PaneNode | null)[]
+  // v3 free-grid model. Authoritative for render.
+  gridCells: WorkspaceCell[]
 }
 
 export function equalSizes(count: number): number[] {

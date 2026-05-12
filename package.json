@@ -110,6 +110,7 @@
     "@dnd-kit/utilities": "^3.2.2",
     "@paddle/paddle-js": "^1.6.2",
     "@supabase/supabase-js": "^2.101.1",
+    "@types/react-grid-layout": "^1.3.6",
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/addon-search": "^0.16.0",
     "@xterm/addon-web-links": "^0.11.0",
@@ -120,6 +121,7 @@
     "pidusage": "^4.0.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "react-grid-layout": "^2.2.3",
     "react-resizable-panels": "^2.1.7"
   },
   "devDependencies": {
