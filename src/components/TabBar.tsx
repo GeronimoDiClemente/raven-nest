@@ -134,7 +134,7 @@ const SortableTab = memo(function SortableTab({
       </button>
     </div>
   )
-}
+})
 
 export default function TabBar({
   tabs, activeTabId, onTabSelect, onTabClose, onTabNew, onTabRename, onTabReorder, onTabColorChange, isWin, tabActivity, rightSlot
