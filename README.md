@@ -38,11 +38,14 @@ The headline of v1.0 is **branch-level isolation in the same window**: spawn a w
 
 ### Teams workspace, polished
 
+- **Join by code with leader approval.** Each team has a rotatable 8-character code (visible to active members, regenerable by leaders). Paste it from the Teams empty state or the team switcher to request to join — leaders see and approve the requests right in the Members tab.
+- **Multiple pending invites at once.** A user can hold pending invites to several teams and accept or decline each independently. The Sidebar Team icon shows a red badge with the pending count.
 - **Per-user local paths** — each member of a team can have their own local clone path for shared repos; the team record stays clean, your machine stays your machine.
 - **Clone over HTTPS for private team repos** — Nest now passes your OAuth token to the clone (token never lands in `.git/config`), so onboarding a new teammate to a private repo is one click.
 - **Visible errors instead of silent failures** — every clone, branch fetch and remote action now surfaces what went wrong (status code, OAuth-app authorization hints) instead of failing quietly.
 - **Sidebar redesigned (Superset-style)** — worktrees front and center, secondary tools (Layout, Snippets, Workspaces, MCP, Voice, Broadcast, Join Terminal, History, Cmd Hist.) collapsed into a "More tools" dropdown so on small windows or with many worktrees the sidebar stays scannable. Tab names no longer duplicate the repo folder when they match; account name no longer crowds pane headers (hover to see it).
 - **Teams hardening (audit B12-B15)** — anti-spoof trigger on chat messages, server-side RPC for the GitHub event poller, scoped DELETE policies on team_members (excludes owner and self), and the Delete-team button only renders for the team owner.
+- **Upgrade modal redesigned.** New hero, segmented Monthly/Annual toggle, three plan cards with grouped features ("Everything in Free, plus..."), and a `Most popular` badge on Pro. Plain-English feature copy across Free / Pro / Team.
 
 ### Carried over from v0.7
 

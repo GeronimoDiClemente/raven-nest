@@ -28,6 +28,7 @@ import UpgradeModal from './components/UpgradeModal'
 import TeamsWorkspace from './components/TeamsWorkspace'
 import MyReposPanel from './components/MyReposPanel'
 import { useGitHub } from './hooks/useGitHub'
+import { usePendingInvitesCount } from './hooks/usePendingInvitesCount'
 import { useSpeechRecognition } from './hooks/useSpeechRecognition'
 import { useSettings } from './hooks/useSettings'
 import { matchesBinding } from './lib/keybindings'
@@ -152,6 +153,7 @@ export default function App() {
   const planLimits = PLAN_LIMITS[plan]
   const [showUpgrade, setShowUpgrade] = useState(false)
   const [teamsOpen, setTeamsOpen] = useState(false)
+  const { count: pendingInvitesCount, refresh: refreshPendingInvitesCount } = usePendingInvitesCount()
   const [myReposOpen, setMyReposOpen] = useState(false)
   const [showJoinViewer, setShowJoinViewer] = useState(false)
   const [joinRequest, setJoinRequest] = useState<{ paneId: string; paneTitle: string } | null>(null)
@@ -931,6 +933,7 @@ export default function App() {
           if (plan !== 'team') { setShowUpgrade(true); return }
           setTeamsOpen(true)
         }}
+        pendingInvitesCount={pendingInvitesCount}
         onMyReposOpen={() => {
           if (plan !== 'pro' && plan !== 'team') { setShowUpgrade(true); return }
           setMyReposOpen(true)
@@ -1120,10 +1123,11 @@ export default function App() {
 
       {teamsOpen && (
         <TeamsWorkspace
-          onClose={() => setTeamsOpen(false)}
+          onClose={() => { setTeamsOpen(false); refreshPendingInvitesCount() }}
           onLoad={loadWorkspace}
           onRequireUpgrade={() => setShowUpgrade(true)}
           onOpenRepoTerminal={openRepoInNewTab}
+          onPendingInvitesChange={refreshPendingInvitesCount}
         />
       )}
 

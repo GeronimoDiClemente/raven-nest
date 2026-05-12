@@ -27,3 +27,7 @@ supabase/.temp/
 # Local scratch scripts / accidental folders
 Microsoft/
 stress-cpu.js
+
+# Local seed/check helpers (contain service_role key, never commit)
+_seed-*.mjs
+_check-*.mjs
