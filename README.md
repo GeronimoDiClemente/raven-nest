@@ -85,7 +85,7 @@ Nest by RAVEN is not yet notarized by Apple, so macOS Gatekeeper will block it o
 **1.** Download the DMG and remove the quarantine flag before opening it:
 
 ```bash
-xattr -dr com.apple.quarantine ~/Downloads/Nest-1.0.0-arm64.dmg
+xattr -dr com.apple.quarantine ~/Downloads/Nest-1.0.1-arm64.dmg
 ```
 
 **2.** Open the DMG, drag **Nest.app** to `/Applications`, then clear the flag on the installed app:
@@ -107,8 +107,8 @@ Two formats, pick whichever fits your distro.
 Works on Ubuntu, Fedora, Arch, openSUSE, Mint, Pop!_OS and most others. No system-wide install.
 
 ```bash
-chmod +x ~/Downloads/Nest-1.0.0.AppImage
-~/Downloads/Nest-1.0.0.AppImage
+chmod +x ~/Downloads/Nest-1.0.1.AppImage
+~/Downloads/Nest-1.0.1.AppImage
 ```
 
 To integrate it into your apps menu, use [AppImageLauncher](https://github.com/TheAssassin/AppImageLauncher) or move it to `~/Applications/`.
@@ -118,7 +118,7 @@ To integrate it into your apps menu, use [AppImageLauncher](https://github.com/T
 Installs system-wide, registers the desktop entry and the `nest://` deep link handler.
 
 ```bash
-sudo apt install ~/Downloads/nest_1.0.0_amd64.deb
+sudo apt install ~/Downloads/nest_1.0.1_amd64.deb
 ```
 
 Required packages (auto-installed by `apt`): `libgtk-3-0`, `libnotify4`, `libnss3`, `libxss1`, `libxtst6`, `libatspi2.0-0`, `libdrm2`, `libgbm1`, `libxcb-dri3-0`, `xdg-utils`.
