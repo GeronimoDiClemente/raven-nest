@@ -67,6 +67,7 @@ body {
   display: flex;
   flex-direction: column;
   background: var(--bg-app);
+  position: relative;
 }
 
 
@@ -9040,4 +9041,26 @@ body.platform-mac .tabbar { padding-right: 116px; }
   color: var(--raven-blue);
   border-color: var(--raven-blue);
   background: #0066FF15;
+}
+
+/* ── Drop Indicator ───────────────────────────────────────── */
+
+.workspace.grid-workspace--drop-target {
+  outline: 2px dashed var(--raven-blue);
+  outline-offset: -6px;
+  background: #0066FF08;
+}
+
+/* ── Browser Drag Handle ───────────────────────────────────── */
+
+.browser-drag-handle {
+  width: 16px;
+  height: 100%;
+  cursor: grab;
+  margin-right: 4px;
+  border-right: 1px dashed var(--border);
+}
+
+.browser-drag-handle:active {
+  cursor: grabbing;
 }
