@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { PaneNode, AI_CONFIG, COLOR_PALETTE, AIType } from '../types'
 import { ClaudeLogo, GeminiLogo, CodexLogo, CopilotLogo, OpenCodeLogo } from './AILogos'
 import ConfirmDialog from './ConfirmDialog'
-import { PortChip } from './PortChip'
+import { PortChipsGroup } from './PortChipsGroup'
 
 function AILogo({ aiType, color, size = 14 }: { aiType: AIType; color: string; size?: number }) {
   switch (aiType) {
@@ -51,7 +51,6 @@ export default function PaneHeader({ pane, zoomed, onZoom, onClose, onColorChang
   const [copied, setCopied] = useState(false)
   const [editingNote, setEditingNote] = useState(false)
   const [noteValue, setNoteValue] = useState(pane.note ?? '')
-  const [pid, setPid] = useState<number | undefined>()
   const noteInputRef = useRef<HTMLInputElement>(null)
   const pickerRef = useRef<HTMLDivElement>(null)
 
@@ -69,11 +68,6 @@ export default function PaneHeader({ pane, zoomed, onZoom, onClose, onColorChang
   useEffect(() => {
     if (editingNote) noteInputRef.current?.focus()
   }, [editingNote])
-
-  useEffect(() => {
-    if (!isBusy || processEnded) return
-    window.pty.getPid(pane.id).then((p) => setPid(p))
-  }, [isBusy, processEnded, pane.id])
 
   const handleSave = async () => {
     await onSaveConversation?.()
@@ -128,13 +122,7 @@ export default function PaneHeader({ pane, zoomed, onZoom, onClose, onColorChang
             : <AILogo aiType={pane.aiType} color={displayColor} size={14} />}
         </span>
 
-        {isBusy && pid !== undefined && (
-          <span className="pane-pid-chip">PID {pid}</span>
-        )}
-
-        {ports.map(port => (
-          <PortChip key={port} port={port} paneId={pane.id} />
-        ))}
+        <PortChipsGroup ports={ports} paneId={pane.id} />
 
         {editingNote ? (
           <input

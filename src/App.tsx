@@ -146,34 +146,33 @@ export default function App() {
     return () => clearInterval(interval)
   }, [])
 
-  // Global port poll — one IPC per 5s regardless of how many panes are open.
-  // Maps pane.id → ports[] for the PortChips in PaneHeader.
+  // Per-pane port poll. ports:byPane attributes each listening process to
+  // the pane that owns it via PID tree → PPID → cwd (3 fallbacks), so a
+  // dev server launched detached by Claude/OpenCode still maps to one
+  // specific pane instead of broadcasting to every pane in the workspace.
   useEffect(() => {
     let cancelled = false
     const tick = async () => {
-      const livePanes = panesRef.current.filter(p => p.aiType !== 'browser')
-      if (livePanes.length === 0) {
+      try {
+        const livePanes = panesRef.current.filter(p => p.aiType !== 'browser')
+        if (livePanes.length === 0) {
+          if (!cancelled) setPanePorts({})
+          return
+        }
+        const result = await window.port.byPane({
+          panes: livePanes.map(p => ({ paneId: p.id, repoPath: p.repoPath ?? null })),
+        })
+        if (cancelled) return
+        setPanePorts(result)
+      } catch (err) {
+        // IPC failures (handler throws, koffi crash, netstat timeout) bubble
+        // up here. Without this catch the rejection becomes an unhandled
+        // promise — the setInterval keeps firing but chips silently freeze
+        // on the last successful tick. Clear the state so the user can tell
+        // attribution is currently broken instead of seeing stale data.
+        console.warn('[App] port poll failed', err instanceof Error ? err.message : err)
         if (!cancelled) setPanePorts({})
-        return
       }
-      const pids = await Promise.all(
-        livePanes.map(async p => ({ id: p.id, pid: await window.pty.getPid(p.id) }))
-      )
-      const valid = pids.filter((x): x is { id: string; pid: number } =>
-        typeof x.pid === 'number' && x.pid > 0
-      )
-      if (valid.length === 0) {
-        if (!cancelled) setPanePorts({})
-        return
-      }
-      const byPid = await window.metrics.portsByPids(valid.map(x => x.pid))
-      if (cancelled) return
-      const next: Record<string, number[]> = {}
-      for (const { id, pid } of valid) {
-        const ports = byPid[pid] ?? []
-        if (ports.length > 0) next[id] = ports
-      }
-      setPanePorts(next)
     }
     tick()
     const handle = setInterval(tick, 5000)

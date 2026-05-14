@@ -458,6 +458,7 @@ declare global {
       scan: (pid: number) => Promise<number[]>
       listAll: () => Promise<number[]>
       listForWorkspace: (opts: { repoPath?: string; repoPaths?: string[]; paneIds?: string[] }) => Promise<number[]>
+      byPane: (opts: { panes: { paneId: string; repoPath?: string | null }[] }) => Promise<Record<string, number[]>>
     }
     diff: {
       get: (worktreePath: string, base?: string) => Promise<DiffResult>

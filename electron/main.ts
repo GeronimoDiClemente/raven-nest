@@ -47,6 +47,7 @@ import { WorktreeStore } from './worktree-store'
 import { PresetStore } from './preset-store'
 import { SetupRunner } from './setup-runner'
 import { scanPid } from './port-monitor'
+import { getCwdForPid, getProcessInfo, listListeningPidsWindows } from './cwd-reader'
 // pidtree resolves a pid's full descendant tree. Used so port scans cover the
 // actual server (a child of the PowerShell shell), not just the shell itself.
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
@@ -353,7 +354,7 @@ ipcMain.handle('git:pushBranch', async (_event, worktreePath: string) => {
 
   let compareUrl: string | undefined
   try {
-    const remote = execSync(`git -C "${worktreePath}" remote get-url origin`, {
+    const remote = execFileSync('git', ['-C', worktreePath, 'remote', 'get-url', 'origin'], {
       encoding: 'utf8',
       timeout: 3000,
     }).trim()
@@ -1185,21 +1186,161 @@ ipcMain.handle('ports:listForWorkspace', async (
     const external = await metricsCollector.findProcessesUnderPath(path)
     for (const p of external) seedPids.add(p)
   }
-  if (seedPids.size === 0) return [] as number[]
 
-  const trees = await Promise.all(Array.from(seedPids).map((p) => metricsCollector.getTreeForPid(p)))
-  const flat = new Set<number>()
-  for (const t of trees) for (const p of t) flat.add(p)
-  if (flat.size === 0) return [] as number[]
-
-  const portArrays = await Promise.allSettled(Array.from(flat).map((pid) => scanPid(pid, resolvePidTree)))
   const merged = new Set<number>()
-  for (const r of portArrays) {
-    if (r.status === 'fulfilled' && Array.isArray(r.value)) {
-      for (const port of r.value) merged.add(port)
+  const flat = new Set<number>()
+
+  if (seedPids.size > 0) {
+    const trees = await Promise.all(Array.from(seedPids).map((p) => metricsCollector.getTreeForPid(p)))
+    for (const t of trees) for (const p of t) flat.add(p)
+    if (flat.size > 0) {
+      const portArrays = await Promise.allSettled(Array.from(flat).map((pid) => scanPid(pid, resolvePidTree)))
+      for (const r of portArrays) {
+        if (r.status === 'fulfilled' && Array.isArray(r.value)) {
+          for (const port of r.value) merged.add(port)
+        }
+      }
     }
   }
+
+  // Cwd-based attribution for processes detached from the PTY tree —
+  // an AI assistant (Claude Code, OpenCode, etc.) spawning a dev server
+  // in the background loses the parent/child link on Windows, and the
+  // binary path/cmdline don't carry the worktree root. The only reliable
+  // signal left is the process's current directory. We read it via
+  // NtQueryInformationProcess + PEB (Windows) or /proc/<pid>/cwd / lsof.
+  if (pathsToScan.size > 0) {
+    try {
+      const listening = process.platform === 'win32'
+        ? await listListeningPidsWindows()
+        : null
+      if (listening && listening.size > 0) {
+        const normPaths = Array.from(pathsToScan).map((p) =>
+          p.toLowerCase().replace(/\\/g, '/').replace(/\/+$/, ''),
+        )
+        const candidates = Array.from(listening.entries()).filter(([pid]) => !flat.has(pid))
+        const cwds = await Promise.all(candidates.map(async ([pid]) => getCwdForPid(pid)))
+        candidates.forEach(([, ports], idx) => {
+          const cwd = cwds[idx]
+          if (!cwd) return
+          const c = cwd.toLowerCase().replace(/\\/g, '/').replace(/\/+$/, '')
+          const match = normPaths.some((np) => c === np || c.startsWith(np + '/'))
+          if (match) for (const port of ports) merged.add(port)
+        })
+      }
+    } catch (err) {
+      console.warn('[ports:listForWorkspace] cwd attribution failed', err instanceof Error ? err.message : err)
+    }
+  }
+
   return Array.from(merged).sort((a, b) => a - b)
+})
+
+// Per-pane port attribution for the PortChip in PaneHeader. Returns a map
+// of paneId → ports[] using three signals in order of confidence:
+//   1. Listening PID is in the pane's PTY tree (direct shell launch).
+//   2. Listening PID's PPID is in the pane's tree (AI assistant spawned it
+//      detached — Claude Code, OpenCode etc. — but the PPID still points
+//      at the parent inside the tree).
+//   3. Listening PID's cwd is under the pane's repoPath (best-effort
+//      fallback when even the PPID has been detached/orphaned).
+ipcMain.handle('ports:byPane', async (
+  _evt,
+  opts: { panes: { paneId: string; repoPath?: string | null }[] },
+) => {
+  const safe = opts && typeof opts === 'object' ? opts : { panes: [] }
+  const panes = Array.isArray(safe.panes) ? safe.panes.filter((p) => p && typeof p.paneId === 'string') : []
+  if (panes.length === 0) return {} as Record<string, number[]>
+
+  const paneInfo = panes.map((p) => ({
+    paneId: p.paneId,
+    repoPath: typeof p.repoPath === 'string' ? p.repoPath : null,
+    panePid: ptyManager.getPid(p.paneId),
+  }))
+
+  const treesByPane = new Map<string, Set<number>>()
+  await Promise.all(paneInfo.map(async ({ paneId, panePid }) => {
+    const set = new Set<number>()
+    if (typeof panePid === 'number' && panePid > 0) {
+      const tree = await metricsCollector.getTreeForPid(panePid)
+      for (const p of tree) set.add(p)
+    }
+    treesByPane.set(paneId, set)
+  }))
+
+  const result: Record<string, number[]> = {}
+
+  if (process.platform === 'win32') {
+    const listening = await listListeningPidsWindows()
+    if (listening.size === 0) {
+      // netstat falló o no devolvió nada — caemos al scan por árbol PTY que
+      // ya está calculado en treesByPane. Cubre el caso normal (dev server
+      // corriendo bajo el shell del pane) sin depender de netstat. Los
+      // detached siguen sin atribuirse, pero al menos no perdemos los chips.
+      await Promise.all(paneInfo.map(async ({ paneId, panePid }) => {
+        if (typeof panePid !== 'number' || panePid <= 0) return
+        const ports = await scanPid(panePid, resolvePidTree)
+        if (ports.length > 0) result[paneId] = ports
+      }))
+      return result
+    }
+
+    const entries = Array.from(listening.entries())
+    const infos = await Promise.all(entries.map(async ([pid]) => getProcessInfo(pid)))
+
+    entries.forEach(([pid, ports], idx) => {
+      const info = infos[idx]
+      let attributed: string | null = null
+
+      for (const { paneId } of paneInfo) {
+        if (treesByPane.get(paneId)?.has(pid)) { attributed = paneId; break }
+      }
+      if (!attributed && info?.ppid) {
+        for (const { paneId } of paneInfo) {
+          if (treesByPane.get(paneId)?.has(info.ppid)) { attributed = paneId; break }
+        }
+      }
+      if (!attributed && info?.cwd) {
+        const c = info.cwd.toLowerCase().replace(/\\/g, '/').replace(/\/+$/, '')
+        // Cwd attribution can match several panes (e.g. two terminals open in
+        // the same worktree). We can't tell which one launched the detached
+        // process, so the tiebreak is: prefer panes with an active child
+        // process (tree size > 1 means shell + something), and within those
+        // pick the most recently created one (= last in paneInfo, because
+        // addPane appends to the end of the panes state array).
+        const matching = paneInfo.filter(({ repoPath }) => {
+          if (!repoPath) return false
+          const np = repoPath.toLowerCase().replace(/\\/g, '/').replace(/\/+$/, '')
+          return c === np || c.startsWith(np + '/')
+        })
+        if (matching.length === 1) {
+          attributed = matching[0]!.paneId
+        } else if (matching.length > 1) {
+          const busy = matching.filter(({ paneId }) => (treesByPane.get(paneId)?.size ?? 0) > 1)
+          const candidates = busy.length > 0 ? busy : matching
+          attributed = candidates[candidates.length - 1]!.paneId
+        }
+      }
+      if (!attributed) return
+      const arr = result[attributed] ?? []
+      for (const port of ports) if (!arr.includes(port)) arr.push(port)
+      result[attributed] = arr
+    })
+  } else {
+    // POSIX path: PPID lookup isn't free here (would need an extra `ps`
+    // call per listening pid), so we fall back to the tree-only attribution
+    // that the metrics:portsByPids handler already does well.
+    await Promise.all(paneInfo.map(async ({ paneId, panePid }) => {
+      if (typeof panePid !== 'number' || panePid <= 0) return
+      const ports = await scanPid(panePid, resolvePidTree)
+      if (ports.length > 0) result[paneId] = ports
+    }))
+  }
+
+  for (const id of Object.keys(result)) {
+    result[id] = result[id]!.sort((a, b) => a - b)
+  }
+  return result
 })
 
 // All listening localhost-bindable ports on the system. Used by the
@@ -1340,7 +1481,7 @@ ipcMain.handle('git:listUntrackedEnvFiles', async (_evt, repoPath: string) => {
   try { if (!statSync(repoPath).isDirectory()) return [] } catch { return [] }
   let out: string
   try {
-    out = execSync(`git -C "${repoPath}" ls-files --others --exclude-standard`, {
+    out = execFileSync('git', ['-C', repoPath, 'ls-files', '--others', '--exclude-standard'], {
       encoding: 'utf8', timeout: 5000, stdio: ['pipe', 'pipe', 'pipe'],
     })
   } catch {
@@ -1663,6 +1804,16 @@ ipcMain.handle('tempImages:copyToTemp', (_event, srcPath: string, index: number)
 })
 
 ipcMain.handle('tempImages:save', (_event, base64: string) => {
+  // Validar tipo + cap de tamaño. El renderer es untrusted; sin esto un
+  // payload arbitrariamente grande llena tmpdir y un payload no-string
+  // crashea el handler.
+  if (typeof base64 !== 'string' || base64.length === 0) {
+    throw new Error('tempImages:save requires a base64 string')
+  }
+  // ~13.4MB de base64 = ~10MB binarios, suficiente para screenshots.
+  if (base64.length > 14_000_000) {
+    throw new Error('tempImages:save payload too large')
+  }
   const filePath = pathJoin(tmpdir(), `nest-${Date.now()}.png`)
   writeFileSync(filePath, Buffer.from(base64, 'base64'))
   return filePath

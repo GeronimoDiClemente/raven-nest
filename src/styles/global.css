@@ -9136,3 +9136,32 @@ body.platform-mac .tabbar { padding-right: 116px; }
   background: rgba(0, 102, 255, 0.12);
   border-color: var(--raven-blue);
 }
+
+.port-chips-group {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.port-chip-collapsed {
+  letter-spacing: 0.2px;
+}
+
+.port-chips-popover {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+}
+
+.port-chips-popover .port-chip {
+  margin: 0;
+}
