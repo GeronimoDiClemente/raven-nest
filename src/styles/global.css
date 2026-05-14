@@ -9002,19 +9002,17 @@ body.platform-mac .tabbar { padding-right: 116px; }
 }
 
 .layout-selector-popover {
-  position: absolute;
-  top: calc(100% + 6px);
-  right: 0;
   background: var(--bg-surface);
   border: 1px solid var(--border);
   border-radius: 8px;
   box-shadow: 0 8px 24px rgba(0,0,0,0.5);
-  padding: 12px;
-  min-width: 200px;
+  padding: 10px;
+  width: 240px;
+  max-width: 240px;
 }
 
 .layout-selector-title {
-  font-size: 11px;
+  font-size: 10px;
   color: var(--text-muted);
   margin-bottom: 8px;
   text-transform: uppercase;
@@ -9032,14 +9030,23 @@ body.platform-mac .tabbar { padding-right: 116px; }
   flex-direction: column;
   align-items: center;
   gap: 4px;
-  padding: 8px 4px;
+  padding: 8px 2px;
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: 6px;
   cursor: pointer;
   color: var(--text-muted);
-  font-size: 10px;
+  font-size: 9px;
+  line-height: 1.2;
+  text-align: center;
+  min-height: 64px;
   transition: border-color 0.15s, color 0.15s;
+}
+
+.layout-selector-option svg {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
 }
 
 .layout-selector-option:hover {

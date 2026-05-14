@@ -605,7 +605,7 @@ export default function Sidebar({
                     onClick={() => { onLayoutChange(id); setLayoutOpen(false) }}
                     title={preset.label}
                   >
-                    <svg width="36" height="36" viewBox="0 0 16 16" fill="currentColor">
+                    <svg viewBox="0 0 16 16" fill="currentColor">
                       <path d={preset.icon} />
                     </svg>
                     <span>{preset.label}</span>
