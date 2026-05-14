@@ -2,12 +2,12 @@
 
 # 🪺 Nest by RAVEN
 
-**Multi-AI Terminal Workspace · v1.0 is here**
+**Multi-AI Terminal Workspace · v1.1 is here**
 
 Run Claude, Gemini, Codex, Copilot and more — side by side in a single window. Each pane is its own AI session, with its own account, history, and environment.
 
 [![Latest Release](https://img.shields.io/github/v/release/GeronimoDiClemente/raven-nest?style=flat-square&color=0066FF)](https://github.com/GeronimoDiClemente/raven-nest/releases/latest)
-[![v1.0](https://img.shields.io/badge/v1.0-official%20release-0066FF?style=flat-square)](#whats-new-in-v10)
+[![v1.1](https://img.shields.io/badge/v1.1-current%20release-0066FF?style=flat-square)](#whats-new-in-v11)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey?style=flat-square)](https://github.com/GeronimoDiClemente/raven-nest/releases/latest)
 
 [Website](https://nestmux.com) · [Download](#download) · [Feedback](../../issues) · [Discussions](../../discussions)
@@ -20,7 +20,36 @@ Run Claude, Gemini, Codex, Copilot and more — side by side in a single window.
 
 Think of it as a terminal multiplexer — but built specifically for AI agents and the way teams ship code. Instead of juggling tabs and windows, you get a flexible **grid workspace** where every cell is an independent AI session, on top of the things developers actually need every day: native **git worktrees**, a real **Teams workspace**, your personal **My Repos** dashboard, GitHub & GitLab integration, CI runs, and live terminal sharing.
 
-> **v1.0 is the first stable, non-beta release.** Auto-update is on by default — if you already have Nest installed, you'll get it shortly.
+> **v1.1 builds on the v1.0 stable foundation** with a new tiling layout engine, per-pane port detection, and security hardening across the renderer / IPC surface. Auto-update is on by default — if you already have Nest installed, you'll get it shortly.
+
+---
+
+## What's new in v1.1
+
+### Pane Layout Engine
+
+Tiling layouts replace the legacy grid. **11 built-in presets** adapt to the number of panes (1 → 12); for any pane count with multiple sane arrangements, **`Ctrl/Cmd+L` cycles through alternatives** Cmd+Tab style without re-creating the panes. Panes are dragged by their stable `pane.id` (so swap is instant — no PTY restart), and the Browser cell joins the swap rotation. New `MAX_PANES` enforcement prevents you from blowing up the layout with too many cells.
+
+### Port detection per pane
+
+Every terminal pane now shows a chip with the port(s) its process is listening on, attributed by a **3-fallback chain**: PTY tree → parent PID → cwd-under-worktree (read directly from the foreign process via FFI on Windows, `/proc/<pid>/cwd` on Linux, `lsof` on macOS). Detached dev servers launched in the background by AI assistants (Claude Code, OpenCode) are still attributed to the right pane via their cwd. **Click** a chip to open the URL in the internal Browser Cell; **Shift+click** opens the system browser. When a pane has 2+ ports, the chips collapse into a `2 ports ▾` dropdown so the header stays readable.
+
+### Browser Cell upgrades
+
+The localhost port dropdown **filters to your workspace** by default — sibling panes' ports plus processes whose binary path lives inside a known worktree. A **"Show all"** toggle reveals every listening port on the system when you really do need it.
+
+### Security hardening
+
+- `window.open()` from any renderer routes to the system browser only for `http(s)`; `file://`, `javascript:`, and other schemes are dropped. Same filter applies to embedded `WebContentsView`s.
+- Git IPC invocations switched from `execSync` with interpolated paths to `execFileSync` (no shell). Defense in depth even for already-validated inputs.
+- `tempImages:save` IPC validates input type and caps payload to ~10 MB to prevent renderer-driven `tmpdir` flooding.
+- The OAuth deep-link callback (`nest://oauth/...`) verifies a `state` nonce against the one generated at the Connect click — single-use, 16 bytes from `randomBytes`.
+
+### Quality of life
+
+- `useEffect` polls (port detection, metrics) wrap their async ticks in `try/catch` so a transient IPC failure no longer freezes UI on stale data — chips reset and try again on the next tick.
+- `cwd-reader` logs once per PID when `OpenProcess` is denied (elevated processes / other users), so when a Docker Desktop port doesn't show up you know why.
+- Dropped `react-grid-layout` — superseded by the new tiling engine.
 
 ---
 
@@ -65,14 +94,14 @@ The headline of v1.0 is **branch-level isolation in the same window**: spawn a w
 
 ## Download
 
-Latest: **v1.0.1** — bug fixes (Teams panel + Browser cell + kill button + EPIPE crash).
+Latest: **v1.1.0** — tiling layout engine, per-pane port detection, browser cell upgrades, security hardening.
 
 | Platform | Download |
 |----------|----------|
-| **macOS** (Apple Silicon) | [Nest-1.0.1-arm64.dmg](../../releases/latest) |
-| **Windows** | [Nest-Setup-1.0.1.exe](../../releases/latest) |
-| **Linux** (universal) | [Nest-1.0.1.AppImage](../../releases/latest) |
-| **Linux** (Debian / Ubuntu) | [nest_1.0.1_amd64.deb](../../releases/latest) |
+| **macOS** (Apple Silicon) | [Nest-1.1.0-arm64.dmg](../../releases/latest) |
+| **Windows** | [Nest-Setup-1.1.0.exe](../../releases/latest) |
+| **Linux** (universal) | [Nest-1.1.0.AppImage](../../releases/latest) |
+| **Linux** (Debian / Ubuntu) | [nest_1.1.0_amd64.deb](../../releases/latest) |
 
 > Nest auto-updates in the background — install once and you'll get future releases without re-downloading.
 
@@ -85,7 +114,7 @@ Nest by RAVEN is not yet notarized by Apple, so macOS Gatekeeper will block it o
 **1.** Download the DMG and remove the quarantine flag before opening it:
 
 ```bash
-xattr -dr com.apple.quarantine ~/Downloads/Nest-1.0.1-arm64.dmg
+xattr -dr com.apple.quarantine ~/Downloads/Nest-1.1.0-arm64.dmg
 ```
 
 **2.** Open the DMG, drag **Nest.app** to `/Applications`, then clear the flag on the installed app:
@@ -107,8 +136,8 @@ Two formats, pick whichever fits your distro.
 Works on Ubuntu, Fedora, Arch, openSUSE, Mint, Pop!_OS and most others. No system-wide install.
 
 ```bash
-chmod +x ~/Downloads/Nest-1.0.1.AppImage
-~/Downloads/Nest-1.0.1.AppImage
+chmod +x ~/Downloads/Nest-1.1.0.AppImage
+~/Downloads/Nest-1.1.0.AppImage
 ```
 
 To integrate it into your apps menu, use [AppImageLauncher](https://github.com/TheAssassin/AppImageLauncher) or move it to `~/Applications/`.
@@ -118,7 +147,7 @@ To integrate it into your apps menu, use [AppImageLauncher](https://github.com/T
 Installs system-wide, registers the desktop entry and the `nest://` deep link handler.
 
 ```bash
-sudo apt install ~/Downloads/nest_1.0.1_amd64.deb
+sudo apt install ~/Downloads/nest_1.1.0_amd64.deb
 ```
 
 Required packages (auto-installed by `apt`): `libgtk-3-0`, `libnotify4`, `libnss3`, `libxss1`, `libxtst6`, `libatspi2.0-0`, `libdrm2`, `libgbm1`, `libxcb-dri3-0`, `xdg-utils`.
