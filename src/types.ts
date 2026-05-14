@@ -5,9 +5,16 @@ export type LayoutId =
   | '2V' | '2H'
   | '3C' | '3M' | '3T'
   | '4Q' | '4M' | '4T'
-  | '5T'
-  | '6G'
-  | '9G'
+  | '5T' | '5M' | '5B'
+  | '6G' | '6M' | '6C'
+  | '7T' | '7M' | '7B'
+  | '8G' | '8M' | '8B'
+  | '9G' | '9M' | '9T'
+  | '10G' | '10M' | '10B'
+  | '11G' | '11M' | '11B'
+  | '12G' | '12M' | '12C'
+
+export const MAX_PANES = 12
 
 export interface Account {
   name: string

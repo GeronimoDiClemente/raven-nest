@@ -9,7 +9,7 @@ import RepoActionsBar from './RepoActionsBar'
 import { WorktreesSection } from './WorktreesSection'
 import { useGitHub } from '../hooks/useGitHub'
 import { useGitlab } from '../hooks/useGitlab'
-import { LayoutId, Workspace } from '../types'
+import { LayoutId, Workspace, MAX_PANES } from '../types'
 import { PRESETS } from '../layout/presets'
 import { alternativesFor } from '../layout/select'
 import { supabase } from '../lib/supabase'
@@ -667,19 +667,21 @@ export default function Sidebar({
           </div>
         )}
 
-        {/* ── 5. NEW TERMINAL (acción primaria, siempre visible) ── */}
-        <button
-          className="sidebar-item sidebar-new-terminal"
-          onClick={onNewPane}
-          title={`New terminal (${isWin ? 'Ctrl+T' : '⌘T'})`}
-        >
-          <span className="sidebar-icon">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
-            </svg>
-          </span>
-          <span className="sidebar-label">New Terminal</span>
-        </button>
+        {/* ── 5. NEW TERMINAL (acción primaria; oculto al tope) ── */}
+        {paneCount < MAX_PANES && (
+          <button
+            className="sidebar-item sidebar-new-terminal"
+            onClick={onNewPane}
+            title={`New terminal (${isWin ? 'Ctrl+T' : '⌘T'})`}
+          >
+            <span className="sidebar-icon">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
+              </svg>
+            </span>
+            <span className="sidebar-label">New Terminal</span>
+          </button>
+        )}
       </div>{/* /.sidebar-scroll */}
 
       {/* User menu — hidden while loading to avoid flash */}

@@ -6,7 +6,7 @@ import {
 import { SortableContext, rectSortingStrategy } from '@dnd-kit/sortable'
 import {
   PaneNode, AIType, AI_CONFIG, SessionData, SessionPane, Workspace,
-  WorkspaceTab, LayoutId,
+  WorkspaceTab, LayoutId, MAX_PANES,
 } from './types'
 import { PaneLayoutEngine } from './components/PaneLayoutEngine'
 import { defaultLayoutFor, mapLegacyToPreset } from './layout/select'
@@ -202,6 +202,10 @@ export default function App() {
     aiType: AIType, accountName: string, accountDir: string, borderColor: string,
     cmd: string, customLabel?: string, customColor?: string, shellId?: string
   ) => {
+    if (panesRef.current.length >= MAX_PANES) {
+      setAddingPane(null)
+      return
+    }
     const worktreePath = addingPaneRef.current?.worktreePath
     updateActiveTab(t => {
       const pane: PaneNode = {
@@ -553,6 +557,7 @@ export default function App() {
   }, [])
 
   const openBrowserCell = useCallback((url: string) => {
+    if (panesRef.current.length >= MAX_PANES) return
     const pane: PaneNode = {
       id: generateId(),
       aiType: 'browser',
