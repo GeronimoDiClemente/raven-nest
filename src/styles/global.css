@@ -9054,6 +9054,15 @@ body.platform-mac .tabbar { padding-right: 116px; }
   border-color: var(--raven-blue);
 }
 
+/* The slot the user is about to commit when they release Ctrl/Cmd.
+   Outlined more strongly than .active so the in-flight selection is
+   distinguishable from the currently-applied preset. */
+.layout-selector-option.cycling {
+  color: var(--text-primary);
+  border-color: var(--raven-blue);
+  box-shadow: 0 0 0 1px var(--raven-blue) inset;
+}
+
 .layout-selector-option.active {
   color: var(--raven-blue);
   border-color: var(--raven-blue);
