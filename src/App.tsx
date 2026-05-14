@@ -83,6 +83,7 @@ export default function App() {
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [broadcastMode, setBroadcastMode] = useState(false)
   const [focusedPaneId, setFocusedPaneId] = useState<string | null>(null)
+  const [panePorts, setPanePorts] = useState<Record<string, number[]>>({})
   const focusedPaneIdRef = useRef<string | null>(null)
   const zoomedPaneIdRef = useRef<string | null>(null)
   zoomedPaneIdRef.current = zoomedPaneId
@@ -143,6 +144,40 @@ export default function App() {
       })
     }, 3000)
     return () => clearInterval(interval)
+  }, [])
+
+  // Global port poll — one IPC per 5s regardless of how many panes are open.
+  // Maps pane.id → ports[] for the PortChips in PaneHeader.
+  useEffect(() => {
+    let cancelled = false
+    const tick = async () => {
+      const livePanes = panesRef.current.filter(p => p.aiType !== 'browser')
+      if (livePanes.length === 0) {
+        if (!cancelled) setPanePorts({})
+        return
+      }
+      const pids = await Promise.all(
+        livePanes.map(async p => ({ id: p.id, pid: await window.pty.getPid(p.id) }))
+      )
+      const valid = pids.filter((x): x is { id: string; pid: number } =>
+        typeof x.pid === 'number' && x.pid > 0
+      )
+      if (valid.length === 0) {
+        if (!cancelled) setPanePorts({})
+        return
+      }
+      const byPid = await window.metrics.portsByPids(valid.map(x => x.pid))
+      if (cancelled) return
+      const next: Record<string, number[]> = {}
+      for (const { id, pid } of valid) {
+        const ports = byPid[pid] ?? []
+        if (ports.length > 0) next[id] = ports
+      }
+      setPanePorts(next)
+    }
+    tick()
+    const handle = setInterval(tick, 5000)
+    return () => { cancelled = true; clearInterval(handle) }
   }, [])
 
   const { plan, isTrialActive, trialDaysLeft, loading: profileLoading } = useProfile()
@@ -1003,6 +1038,7 @@ export default function App() {
                       <TerminalPane
                         key={pane.id}
                         pane={pane}
+                        ports={panePorts[pane.id] ?? []}
                         isDragging={draggingId === pane.id}
                         zoomed={zoomedPaneId === pane.id}
                         zoomingOut={zoomedPaneId === pane.id && zoomingOut}

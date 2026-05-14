@@ -37,9 +37,10 @@ interface Props {
   isSharing?: boolean
   repoPathDiverged?: boolean
   onSyncCwd?: () => void
+  ports?: number[]
 }
 
-export default function PaneHeader({ pane, zoomed, onZoom, onClose, onColorChange, onNoteChange, dragHandleProps, processEnded, isBusy, onRestart, onSaveConversation, onCopyLastResponse, showBlocks, blockCount, onToggleBlocks, onShare, isSharing, repoPathDiverged, onSyncCwd }: Props) {
+export default function PaneHeader({ pane, zoomed, onZoom, onClose, onColorChange, onNoteChange, dragHandleProps, processEnded, isBusy, onRestart, onSaveConversation, onCopyLastResponse, showBlocks, blockCount, onToggleBlocks, onShare, isSharing, repoPathDiverged, onSyncCwd, ports = [] }: Props) {
   const config = AI_CONFIG[pane.aiType]
   const displayLabel = pane.customLabel ?? config.label
   const displayColor = pane.customColor ?? config.color

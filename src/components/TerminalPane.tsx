@@ -56,11 +56,12 @@ interface Props {
   onActivity?: (paneId: string, active: boolean) => void
   onJoinRequest?: (paneId: string) => void
   onPtyStarted?: (paneId: string, runningRepoPath: string | undefined) => void
+  ports?: number[]
   fontSize: number
   style?: React.CSSProperties
 }
 
-export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZoom, onClose, onColorChange, onNoteChange, onInput, onBusyChange, onFocus, onActivity, onJoinRequest, onPtyStarted, fontSize, style }: Props) {
+export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZoom, onClose, onColorChange, onNoteChange, onInput, onBusyChange, onFocus, onActivity, onJoinRequest, onPtyStarted, ports = [], fontSize, style }: Props) {
   const cmdBufferRef = useRef('')
   const wrappedOnInput = useCallback((data: string) => {
     for (const ch of data) {
@@ -426,6 +427,7 @@ export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZ
     >
       <PaneHeader
         pane={pane}
+        ports={ports}
         zoomed={zoomed}
         onZoom={onZoom}
         onClose={onClose}
