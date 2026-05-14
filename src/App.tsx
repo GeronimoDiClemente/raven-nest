@@ -206,12 +206,17 @@ export default function App() {
         repoPath: worktreePath ?? t.repoPath,
       }
       const nextPanes = [...t.panes, pane]
-      // Promote layoutId if current preset is full and there's a default for the new size.
+      // Promote layoutId if current preset is full and there's a default for the
+      // new size. When the layout changes, clear splitRatios — the persisted
+      // weights belong to the old tree shape and would apply to the wrong number
+      // of children, leaving slots at undefined sizes (visible as a degenerate
+      // sliver pane).
       const currentSlots = getPreset(t.layoutId).slotCount
-      const layoutId: LayoutId = nextPanes.length > currentSlots
-        ? defaultLayoutFor(nextPanes.length)
-        : t.layoutId
-      return { ...t, panes: nextPanes, layoutId }
+      const promoted = nextPanes.length > currentSlots
+      const layoutId: LayoutId = promoted ? defaultLayoutFor(nextPanes.length) : t.layoutId
+      return promoted
+        ? { ...t, panes: nextPanes, layoutId, splitRatios: {} }
+        : { ...t, panes: nextPanes, layoutId }
     })
     setAddingPane(null)
   }, [addingPane, updateActiveTab])
@@ -317,12 +322,15 @@ export default function App() {
     updateActiveTab(t => {
       const nextPanes = t.panes.filter(p => p.id !== paneId)
       // Demote layoutId if a smaller default fits the remaining panes.
+      // Clear splitRatios when the layout shape changes so the persisted
+      // weights from a different tree don't bleed into the new one.
       const naturalDefault = defaultLayoutFor(nextPanes.length)
       const naturalSlots = getPreset(naturalDefault).slotCount
-      const layoutId: LayoutId = naturalSlots < getPreset(t.layoutId).slotCount
-        ? naturalDefault
-        : t.layoutId
-      return { ...t, panes: nextPanes, layoutId }
+      const demoted = naturalSlots < getPreset(t.layoutId).slotCount
+      const layoutId: LayoutId = demoted ? naturalDefault : t.layoutId
+      return demoted
+        ? { ...t, panes: nextPanes, layoutId, splitRatios: {} }
+        : { ...t, panes: nextPanes, layoutId }
     })
     if (zoomedPaneId === paneId) { setZoomedPaneId(null); setZoomingOut(false) }
     if (focusedPaneIdRef.current === paneId) {
@@ -554,10 +562,11 @@ export default function App() {
     updateActiveTab(t => {
       const nextPanes = [...t.panes, pane]
       const currentSlots = getPreset(t.layoutId).slotCount
-      const layoutId: LayoutId = nextPanes.length > currentSlots
-        ? defaultLayoutFor(nextPanes.length)
-        : t.layoutId
-      return { ...t, panes: nextPanes, layoutId }
+      const promoted = nextPanes.length > currentSlots
+      const layoutId: LayoutId = promoted ? defaultLayoutFor(nextPanes.length) : t.layoutId
+      return promoted
+        ? { ...t, panes: nextPanes, layoutId, splitRatios: {} }
+        : { ...t, panes: nextPanes, layoutId }
     })
   }, [activeTabId, updateActiveTab])
 
@@ -834,7 +843,16 @@ export default function App() {
         onTabColorChange={handleTabColorChange}
         isWin={window.platform?.isWin ?? false}
         tabActivity={tabActivity}
-        rightSlot={<ResourceBar panes={activePanesPayload} />}
+        rightSlot={
+          <>
+            <LayoutSelector
+              current={activeTab.layoutId}
+              paneCount={panes.length}
+              onChange={handleLayoutIdChange}
+            />
+            <ResourceBar panes={activePanesPayload} />
+          </>
+        }
       />
       <PortsBanner
         rootRepoPath={activeTab.repoPath ?? null}
@@ -935,11 +953,6 @@ export default function App() {
                 onClick={handleUnzoom}
               />
             )}
-            <LayoutSelector
-              current={activeTab.layoutId}
-              paneCount={panes.length}
-              onChange={handleLayoutIdChange}
-            />
             <DndContext
               sensors={sensors}
               collisionDetection={closestCenter}

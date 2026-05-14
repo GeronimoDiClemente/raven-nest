@@ -45,13 +45,25 @@ function renderSplit(
     return pane ? renderPane(pane) : renderEmpty(split.slot)
   }
 
-  const ratios = splitRatios[path] ?? equalSizes(split.children.length)
+  // Defensive: a persisted ratio array whose length doesn't match the current
+  // children count would feed `defaultSize={undefined}` to the trailing Panels
+  // and render them as degenerate slivers. When the count mismatches, fall
+  // back to equal weights.
+  const persisted = splitRatios[path]
+  const ratios = persisted && persisted.length === split.children.length
+    ? persisted
+    : equalSizes(split.children.length)
   const direction = split.kind === 'h' ? 'horizontal' : 'vertical'
   const handleClass = split.kind === 'h' ? 'resize-handle resize-handle--col' : 'resize-handle resize-handle--row'
 
+  // Re-mount the group when the children count changes — react-resizable-panels
+  // only reads `defaultSize` on mount, so adding/removing a Panel in-place
+  // leaves the existing siblings stuck at their old sizes. Keying on the count
+  // forces a fresh layout when the shape changes, without re-mounting on every
+  // user resize (which would discard their drag).
   return (
     <PanelGroup
-      key={path}
+      key={`${path}-${split.children.length}`}
       direction={direction}
       onLayout={(sizes) => onResize(path, sizes)}
     >

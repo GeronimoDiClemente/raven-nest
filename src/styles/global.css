@@ -8965,19 +8965,21 @@ body.platform-mac .tabbar { padding-right: 116px; }
 
 /* ── Layout Selector ─────────────────────────────────────── */
 
+/* Anchor inside the TabBar's rightSlot, NOT inside the workspace — keeps the
+   trigger outside the pane area so it never overlaps a pane header. */
 .layout-selector {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  z-index: 30;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  margin-right: 6px;
 }
 
 .layout-selector-btn {
-  background: var(--bg-elevated);
+  background: transparent;
   border: 1px solid var(--border);
   border-radius: 6px;
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   display: flex;
   align-items: center;
   justify-content: center;
