@@ -2,9 +2,30 @@ import { defineConfig } from 'vitest/config'
 
 export default defineConfig({
   test: {
-    environment: 'node',
     globals: true,
-    include: ['electron/__tests__/**/*.test.ts', 'src/__tests__/**/*.test.ts'],
-    setupFiles: ['electron/__tests__/setup.ts'],
+    projects: [
+      {
+        test: {
+          name: 'node',
+          environment: 'node',
+          include: [
+            'electron/__tests__/**/*.test.ts',
+            'src/__tests__/**/*.test.ts',
+          ],
+          setupFiles: ['electron/__tests__/setup.ts'],
+        },
+      },
+      {
+        test: {
+          name: 'jsdom',
+          environment: 'jsdom',
+          include: ['src/__tests__/components/**/*.test.tsx'],
+          setupFiles: [
+            'electron/__tests__/setup.ts',
+            'src/__tests__/setup-dom.ts',
+          ],
+        },
+      },
+    ],
   },
 })

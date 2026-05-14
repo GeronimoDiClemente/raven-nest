@@ -31,3 +31,6 @@ stress-cpu.js
 # Local seed/check helpers (contain service_role key, never commit)
 _seed-*.mjs
 _check-*.mjs
+
+# Claude Code scheduled tasks (local-only)
+.claude/scheduled_tasks.lock

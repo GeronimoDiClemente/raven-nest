@@ -15,7 +15,7 @@ interface Props {
   onTabReorder: (fromId: string, toId: string) => void
   onTabColorChange?: (tabId: string, color: string) => void
   isWin: boolean
-  tabActivity?: Map<string, Set<number>>
+  tabActivity?: Map<string, Set<string>>
   rightSlot?: React.ReactNode
 }
 

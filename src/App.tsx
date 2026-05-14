@@ -1,12 +1,17 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import {
   DndContext, DragEndEvent, DragOverlay, DragStartEvent,
-  PointerSensor, useSensor, useSensors, closestCenter
+  PointerSensor, useSensor, useSensors, closestCenter,
 } from '@dnd-kit/core'
-import { SortableContext, rectSortingStrategy, useSortable } from '@dnd-kit/sortable'
-import { CSS } from '@dnd-kit/utilities'
-import { PaneNode, AIType, GridLayout, AI_CONFIG, SessionData, SessionPane, Workspace, WorkspaceTab, equalSizes } from './types'
-import { PanelGroup, Panel, PanelResizeHandle } from 'react-resizable-panels'
+import { SortableContext, rectSortingStrategy } from '@dnd-kit/sortable'
+import {
+  PaneNode, AIType, AI_CONFIG, SessionData, SessionPane, Workspace,
+  WorkspaceTab, LayoutId, MAX_PANES,
+} from './types'
+import { PaneLayoutEngine } from './components/PaneLayoutEngine'
+import { defaultLayoutFor, mapLegacyToPreset } from './layout/select'
+import { swap } from './layout/swap'
+import { getPreset } from './layout/presets'
 import TerminalPane from './components/TerminalPane'
 import BrowserCell from './components/BrowserCell'
 import NewPaneDialog from './components/NewPaneDialog'
@@ -42,6 +47,8 @@ import type { MetricsPaneInput } from './types'
 let paneCounter = 0
 const generateId = () => `pane-${++paneCounter}-${Date.now()}`
 
+const WORKTREE_DRAG_MIME = 'application/x-raven-worktree-path'
+
 export default function App() {
   const generateTabId = () => `tab-${Date.now()}`
 
@@ -49,52 +56,43 @@ export default function App() {
   const [tabs, setTabs] = useState<WorkspaceTab[]>([{
     id: initialTabId,
     name: 'Workspace',
-    layout: { rows: 1, cols: 1 },
-    colSizes: [equalSizes(1)],
-    rowSizes: equalSizes(1),
-    cells: [null],
+    layoutId: '1',
+    panes: [],
   }])
   const [activeTabId, setActiveTabId] = useState<string>(initialTabId)
   const [confirmClose, setConfirmClose] = useState<{ tabId: string; name: string } | null>(null)
 
   // Derive active tab data
   const activeTab = tabs.find(t => t.id === activeTabId) ?? tabs[0]
-  const layout = activeTab.layout
-  const cells = activeTab.cells
-  const colSizes: number[][] = activeTab.colSizes ?? Array.from({ length: layout.rows }, () => equalSizes(layout.cols))
-  const rowSizes = activeTab.rowSizes ?? equalSizes(layout.rows)
-  const cellsRef = useRef(cells)
-  cellsRef.current = cells
+  const panes = activeTab.panes
+  const panesRef = useRef(panes)
+  panesRef.current = panes
 
   const updateActiveTab = useCallback((updater: (tab: WorkspaceTab) => WorkspaceTab) => {
     setTabs(prev => prev.map(t => t.id === activeTabId ? updater(t) : t))
   }, [activeTabId])
 
-  const updateColSizesForRow = useCallback((rowIndex: number, sizes: number[]) => {
-    updateActiveTab(t => {
-      const next = [...(t.colSizes ?? [])]
-      next[rowIndex] = sizes
-      return { ...t, colSizes: next }
-    })
-  }, [updateActiveTab])
-
-  const updateRowSizes = useCallback((sizes: number[]) => {
-    updateActiveTab(t => ({ ...t, rowSizes: sizes }))
-  }, [updateActiveTab])
-
-  const [addingToCell, setAddingToCell] = useState<number | null>(null)
-  const [zoomedCell, setZoomedCell] = useState<number | null>(null)
+  const [addingPane, setAddingPane] = useState<null | { worktreePath?: string }>(null)
+  // Mirror addingPane in a ref so addPane reads the freshest value without
+  // depending on a closure that React may not have updated yet — the dialog
+  // sometimes captures the previous addPane closure where worktreePath is null.
+  const addingPaneRef = useRef<null | { worktreePath?: string }>(null)
+  addingPaneRef.current = addingPane
+  const [zoomedPaneId, setZoomedPaneId] = useState<string | null>(null)
   const [zoomingOut, setZoomingOut] = useState(false)
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [broadcastMode, setBroadcastMode] = useState(false)
   const [focusedPaneId, setFocusedPaneId] = useState<string | null>(null)
+  const [panePorts, setPanePorts] = useState<Record<string, number[]>>({})
   const focusedPaneIdRef = useRef<string | null>(null)
+  const zoomedPaneIdRef = useRef<string | null>(null)
+  zoomedPaneIdRef.current = zoomedPaneId
 
   const activeCellRepoPath = (() => {
     const focusedId = focusedPaneIdRef.current
     if (!focusedId) return activeTab.repoPath
-    const cell = activeTab.cells.find(c => c?.id === focusedId)
-    return cell?.repoPath ?? activeTab.repoPath
+    const pane = activeTab.panes.find(p => p.id === focusedId)
+    return pane?.repoPath ?? activeTab.repoPath
   })()
 
   const [convSidebarOpen, setConvSidebarOpen] = useState(false)
@@ -106,9 +104,8 @@ export default function App() {
     return saved ? parseInt(saved, 10) : 13
   })
 
-  // Activity tracking: tabId -> Set of cell indices with recent activity
-  const [tabActivity, setTabActivity] = useState<Map<string, Set<number>>>(new Map())
-  const activeTabActivity = tabActivity.get(activeTabId) ?? new Set()
+  // Activity tracking: tabId -> Set of paneIds with recent activity
+  const [tabActivity, setTabActivity] = useState<Map<string, Set<string>>>(new Map())
 
   // Busy state: paneId -> boolean
   const [busyPanes, setBusyPanes] = useState<Set<string>>(new Set())
@@ -122,12 +119,12 @@ export default function App() {
     })
   }, [])
 
-  const handlePaneActivity = useCallback((cellIndex: number, active: boolean) => {
+  const handlePaneActivity = useCallback((paneId: string, active: boolean) => {
     setTabActivity(prev => {
       const next = new Map(prev)
-      const tabSet = new Set(next.get(activeTabId) ?? new Set())
-      if (active) tabSet.add(cellIndex)
-      else tabSet.delete(cellIndex)
+      const tabSet = new Set(next.get(activeTabId) ?? new Set<string>())
+      if (active) tabSet.add(paneId)
+      else tabSet.delete(paneId)
       next.set(activeTabId, tabSet)
       return next
     })
@@ -138,8 +135,8 @@ export default function App() {
     const interval = setInterval(() => {
       setTabActivity(prev => {
         const next = new Map(prev)
-        for (const [tabId, cells] of next) {
-          if (cells.size > 0) {
+        for (const [tabId, panes] of next) {
+          if (panes.size > 0) {
             next.set(tabId, new Set())
           }
         }
@@ -147,6 +144,39 @@ export default function App() {
       })
     }, 3000)
     return () => clearInterval(interval)
+  }, [])
+
+  // Per-pane port poll. ports:byPane attributes each listening process to
+  // the pane that owns it via PID tree → PPID → cwd (3 fallbacks), so a
+  // dev server launched detached by Claude/OpenCode still maps to one
+  // specific pane instead of broadcasting to every pane in the workspace.
+  useEffect(() => {
+    let cancelled = false
+    const tick = async () => {
+      try {
+        const livePanes = panesRef.current.filter(p => p.aiType !== 'browser')
+        if (livePanes.length === 0) {
+          if (!cancelled) setPanePorts({})
+          return
+        }
+        const result = await window.port.byPane({
+          panes: livePanes.map(p => ({ paneId: p.id, repoPath: p.repoPath ?? null })),
+        })
+        if (cancelled) return
+        setPanePorts(result)
+      } catch (err) {
+        // IPC failures (handler throws, koffi crash, netstat timeout) bubble
+        // up here. Without this catch the rejection becomes an unhandled
+        // promise — the setInterval keeps firing but chips silently freeze
+        // on the last successful tick. Clear the state so the user can tell
+        // attribution is currently broken instead of seeing stale data.
+        console.warn('[App] port poll failed', err instanceof Error ? err.message : err)
+        if (!cancelled) setPanePorts({})
+      }
+    }
+    tick()
+    const handle = setInterval(tick, 5000)
+    return () => { cancelled = true; clearInterval(handle) }
   }, [])
 
   const { plan, isTrialActive, trialDaysLeft, loading: profileLoading } = useProfile()
@@ -197,43 +227,41 @@ export default function App() {
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
   )
 
-  const applyLayout = useCallback((newLayout: GridLayout) => {
-    // Feature gating — clamp to plan limits
-    const clampedLayout = {
-      rows: Math.min(newLayout.rows, planLimits.maxRows),
-      cols: Math.min(newLayout.cols, planLimits.maxCols),
-    }
-    if (clampedLayout.rows < newLayout.rows || clampedLayout.cols < newLayout.cols) {
-      setShowUpgrade(true)
-    }
-    const total = clampedLayout.rows * clampedLayout.cols
-    updateActiveTab(t => ({
-      ...t,
-      layout: clampedLayout,
-      colSizes: Array.from({ length: clampedLayout.rows }, () => equalSizes(clampedLayout.cols)),
-      rowSizes: equalSizes(clampedLayout.rows),
-      cells: Array.from({ length: total }, (_, i) => t.cells[i] ?? null),
-    }))
-  }, [updateActiveTab, planLimits])
-
   const activePaneIds = useMemo(
-    () => cells.filter(Boolean).map((c) => c!.id),
-    [cells]
+    () => panes.map(p => p.id),
+    [panes]
   )
 
   const addPane = useCallback((
     aiType: AIType, accountName: string, accountDir: string, borderColor: string,
     cmd: string, customLabel?: string, customColor?: string, shellId?: string
   ) => {
-    if (addingToCell === null) return
+    if (panesRef.current.length >= MAX_PANES) {
+      setAddingPane(null)
+      return
+    }
+    const worktreePath = addingPaneRef.current?.worktreePath
     updateActiveTab(t => {
-      const pane: PaneNode = { id: generateId(), aiType, accountName, accountDir, borderColor, cmd, customLabel, customColor, repoPath: t.repoPath, shellId }
-      const next = [...t.cells]
-      next[addingToCell] = pane
-      return { ...t, cells: next }
+      const pane: PaneNode = {
+        id: generateId(), aiType, accountName, accountDir, borderColor, cmd,
+        customLabel, customColor, shellId,
+        repoPath: worktreePath ?? t.repoPath,
+      }
+      const nextPanes = [...t.panes, pane]
+      // Promote layoutId if current preset is full and there's a default for the
+      // new size. When the layout changes, clear splitRatios — the persisted
+      // weights belong to the old tree shape and would apply to the wrong number
+      // of children, leaving slots at undefined sizes (visible as a degenerate
+      // sliver pane).
+      const currentSlots = getPreset(t.layoutId).slotCount
+      const promoted = nextPanes.length > currentSlots
+      const layoutId: LayoutId = promoted ? defaultLayoutFor(nextPanes.length) : t.layoutId
+      return promoted
+        ? { ...t, panes: nextPanes, layoutId, splitRatios: {} }
+        : { ...t, panes: nextPanes, layoutId }
     })
-    setAddingToCell(null)
-  }, [addingToCell, updateActiveTab])
+    setAddingPane(null)
+  }, [updateActiveTab])
 
   const handleRepoLink = useCallback(async () => {
     try {
@@ -248,16 +276,16 @@ export default function App() {
         ? `'${path.replace(/'/g, "''")}'`
         : `'${path.replace(/'/g, "'\\''")}'`
       const cdCmd = `${isWin ? 'Set-Location' : 'cd'} ${quoted}\r`
-      for (const cell of cellsRef.current) {
-        if (cell && cell.cmd === '' && await window.pty.exists(cell.id)) {
-          window.pty.write(cell.id, cdCmd)
+      for (const p of panesRef.current) {
+        if (p.cmd === '' && await window.pty.exists(p.id)) {
+          window.pty.write(p.id, cdCmd)
         }
       }
 
       updateActiveTab(t => ({
         ...t,
         repoPath: path,
-        cells: t.cells.map(c => c ? { ...c, repoPath: path } : null),
+        panes: t.panes.map(p => ({ ...p, repoPath: path })),
       }))
     } catch (err) {
       console.error('handleRepoLink error:', err)
@@ -268,7 +296,7 @@ export default function App() {
     updateActiveTab(t => ({
       ...t,
       repoPath: undefined,
-      cells: t.cells.map(c => c ? { ...c, repoPath: undefined } : null),
+      panes: t.panes.map(p => ({ ...p, repoPath: undefined })),
     }))
   }, [updateActiveTab])
 
@@ -285,11 +313,11 @@ export default function App() {
       ? `'${worktreePath.replace(/'/g, "''")}'`
       : `'${worktreePath.replace(/'/g, "'\\''")}'`
     const cdCmd = `${isWin ? 'Set-Location' : 'cd'} ${quoted}\r`
-    for (const cell of cellsRef.current) {
-      if (!cell || cell.cmd !== '') continue
-      if (focusedId && cell.id !== focusedId) continue
-      if (await window.pty.exists(cell.id)) {
-        window.pty.write(cell.id, cdCmd)
+    for (const p of panesRef.current) {
+      if (p.cmd !== '') continue
+      if (focusedId && p.id !== focusedId) continue
+      if (await window.pty.exists(p.id)) {
+        window.pty.write(p.id, cdCmd)
       }
     }
 
@@ -297,13 +325,13 @@ export default function App() {
       if (focusedId) {
         return {
           ...t,
-          cells: t.cells.map(c => c && c.id === focusedId ? { ...c, repoPath: worktreePath } : c),
+          panes: t.panes.map(p => p.id === focusedId ? { ...p, repoPath: worktreePath } : p),
         }
       }
       return {
         ...t,
         repoPath: worktreePath,
-        cells: t.cells.map(c => c ? { ...c, repoPath: worktreePath } : null),
+        panes: t.panes.map(p => ({ ...p, repoPath: worktreePath })),
       }
     })
   }, [updateActiveTab])
@@ -331,36 +359,46 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey, true)
   }, [activeTab.repoPath, activeCellRepoPath])
 
-  const removePane = useCallback((cellIndex: number) => {
-    const pane = cellsRef.current[cellIndex]
-    if (pane) window.pty.kill(pane.id)
+  const removePane = useCallback((paneId: string) => {
+    window.pty.kill(paneId)
     updateActiveTab(t => {
-      const next = [...t.cells]
-      next[cellIndex] = null
-      return { ...t, cells: next }
+      const nextPanes = t.panes.filter(p => p.id !== paneId)
+      // Demote layoutId if a smaller default fits the remaining panes.
+      // Clear splitRatios when the layout shape changes so the persisted
+      // weights from a different tree don't bleed into the new one.
+      const naturalDefault = defaultLayoutFor(nextPanes.length)
+      const naturalSlots = getPreset(naturalDefault).slotCount
+      const demoted = naturalSlots < getPreset(t.layoutId).slotCount
+      const layoutId: LayoutId = demoted ? naturalDefault : t.layoutId
+      return demoted
+        ? { ...t, panes: nextPanes, layoutId, splitRatios: {} }
+        : { ...t, panes: nextPanes, layoutId }
     })
+    if (zoomedPaneId === paneId) { setZoomedPaneId(null); setZoomingOut(false) }
+    if (focusedPaneIdRef.current === paneId) {
+      focusedPaneIdRef.current = null
+      setFocusedPaneId(null)
+    }
+  }, [updateActiveTab, zoomedPaneId])
+
+  const updatePaneColor = useCallback((paneId: string, borderColor: string) => {
+    updateActiveTab(t => ({
+      ...t,
+      panes: t.panes.map(p => p.id === paneId ? { ...p, borderColor } : p),
+    }))
   }, [updateActiveTab])
 
-  const updatePaneColor = useCallback((cellIndex: number, borderColor: string) => {
-    updateActiveTab(t => {
-      const next = [...t.cells]
-      if (next[cellIndex]) next[cellIndex] = { ...next[cellIndex]!, borderColor }
-      return { ...t, cells: next }
-    })
-  }, [updateActiveTab])
-
-  const updatePaneNote = useCallback((cellIndex: number, note: string) => {
-    updateActiveTab(t => {
-      const next = [...t.cells]
-      if (next[cellIndex]) next[cellIndex] = { ...next[cellIndex]!, note }
-      return { ...t, cells: next }
-    })
+  const updatePaneNote = useCallback((paneId: string, note: string) => {
+    updateActiveTab(t => ({
+      ...t,
+      panes: t.panes.map(p => p.id === paneId ? { ...p, note } : p),
+    }))
   }, [updateActiveTab])
 
   const handlePtyStarted = useCallback((paneId: string, runningRepoPath: string | undefined) => {
     updateActiveTab(t => ({
       ...t,
-      cells: t.cells.map(c => c && c.id === paneId ? { ...c, runningRepoPath } : c),
+      panes: t.panes.map(p => p.id === paneId ? { ...p, runningRepoPath } : p),
     }))
   }, [updateActiveTab])
 
@@ -372,91 +410,89 @@ export default function App() {
     setDraggingId(null)
     const { active, over } = e
     if (!over || active.id === over.id) return
-    const fromIdx = Number(active.id)
-    const toIdx = Number(over.id)
-    if (isNaN(fromIdx) || isNaN(toIdx)) return
     updateActiveTab(t => {
-      const next = [...t.cells]
-      ;[next[fromIdx], next[toIdx]] = [next[toIdx], next[fromIdx]]
-      return { ...t, cells: next }
+      const from = t.panes.findIndex(p => p.id === active.id)
+      const to = t.panes.findIndex(p => p.id === over.id)
+      if (from < 0 || to < 0) return t
+      return { ...t, panes: swap(t.panes, from, to) }
     })
+  }, [updateActiveTab])
+
+  const handleSplitResize = useCallback((path: string, sizes: number[]) => {
+    updateActiveTab(t => ({
+      ...t,
+      splitRatios: { ...(t.splitRatios ?? {}), [path]: sizes },
+    }))
+  }, [updateActiveTab])
+
+  const handleLayoutIdChange = useCallback((id: LayoutId) => {
+    updateActiveTab(t => ({ ...t, layoutId: id, splitRatios: {} }))
   }, [updateActiveTab])
 
   const handleUnzoom = useCallback(() => {
     setZoomingOut(true)
     setTimeout(() => {
-      setZoomedCell(null)
+      setZoomedPaneId(null)
       setZoomingOut(false)
     }, 300)
   }, [])
 
-  const handleZoom = useCallback((cellIndex: number) => {
-    if (zoomedCell === cellIndex) {
+  const handleZoom = useCallback((paneId: string) => {
+    if (zoomedPaneId === paneId) {
       handleUnzoom()
     } else {
       setZoomingOut(false)
-      setZoomedCell(cellIndex)
+      setZoomedPaneId(paneId)
     }
-  }, [zoomedCell, handleUnzoom])
+  }, [zoomedPaneId, handleUnzoom])
 
   const saveWorkspace = useCallback(async (name: string) => {
+    const liveCount = Math.max(1, panesRef.current.length)
     const ws: Workspace = {
       id: `ws-${Date.now()}`,
       name,
-      layout,
-      colSizes,
-      rowSizes,
-      cells: cellsRef.current.map((c) => c ? {
-        aiType: c.aiType,
-        accountName: c.accountName,
-        accountDir: c.accountDir,
-        borderColor: c.borderColor,
-        cmd: c.cmd,
-        customLabel: c.customLabel,
-        customColor: c.customColor,
-        note: c.note,
-        shellId: c.shellId,
-      } : null),
+      // Legacy snapshot fields kept for forward-compat. Workspace files older
+      // than v1.1 expect layout/rows/cols — fill with a 1×N row.
+      layout: { rows: 1, cols: liveCount },
+      colSizes: [Array(liveCount).fill(Math.floor(100 / liveCount))],
+      rowSizes: [100],
+      cells: panesRef.current.map(p => ({
+        aiType: p.aiType,
+        accountName: p.accountName,
+        accountDir: p.accountDir,
+        borderColor: p.borderColor,
+        cmd: p.cmd,
+        customLabel: p.customLabel,
+        customColor: p.customColor,
+        note: p.note,
+        shellId: p.shellId,
+      })),
       resumeLastSession: false,
       createdAt: Date.now(),
       updatedAt: Date.now(),
       repoPath: activeTab.repoPath,
     }
     await window.workspaces.save(ws)
-  }, [layout, colSizes, rowSizes, activeTab.repoPath])
+  }, [activeTab.repoPath])
 
   const loadWorkspace = useCallback((ws: Workspace) => {
     const id = generateTabId()
-    const total = ws.layout.rows * ws.layout.cols
-    const restoredCells = Array.from({ length: total }, (_, i) => {
-      const sp = ws.cells[i]
-      if (!sp) return null
-      return { ...sp, id: generateId() } as PaneNode
-    })
-    const newTab: WorkspaceTab = {
+    const restored = (ws.cells ?? [])
+      .filter((c): c is SessionPane => c != null)
+      .map(sp => ({ ...sp, id: generateId() } as PaneNode))
+    setTabs(prev => [...prev, {
       id,
       name: ws.name,
-      layout: ws.layout,
-      colSizes: ws.colSizes ?? Array.from({ length: ws.layout.rows }, () => equalSizes(ws.layout.cols)),
-      rowSizes: ws.rowSizes ?? equalSizes(ws.layout.rows),
-      cells: restoredCells,
+      layoutId: defaultLayoutFor(restored.length),
+      panes: restored,
       repoPath: ws.repoPath,
-    }
-    setTabs(prev => [...prev, newTab])
+    }])
     setActiveTabId(id)
   }, [])
 
   const handleTabNew = useCallback(() => {
     const id = generateTabId()
-    const newTab: WorkspaceTab = {
-      id,
-      name: 'Workspace',
-      layout: { rows: 1, cols: 1 },
-      colSizes: [equalSizes(1)],
-      rowSizes: equalSizes(1),
-      cells: [null],
-    }
-    setTabs(prev => [...prev, newTab])
+    setTabs(prev => [...prev, { id, name: 'Workspace', layoutId: '1', panes: [] }])
     setActiveTabId(id)
   }, [])
 
@@ -465,16 +501,7 @@ export default function App() {
     // H2: GitLab paths like `group/subgroup/repo` need the last segment, not [1].
     // Using split('/')[1] would yield "subgroup" instead of "repo".
     const folderName = repoFullName.includes('/') ? repoFullName.split('/').pop()! : repoFullName
-    const newTab: WorkspaceTab = {
-      id,
-      name: folderName,
-      layout: { rows: 1, cols: 1 },
-      colSizes: [equalSizes(1)],
-      rowSizes: equalSizes(1),
-      cells: [null],
-      repoPath: localPath,
-    }
-    setTabs(prev => [...prev, newTab])
+    setTabs(prev => [...prev, { id, name: folderName, layoutId: '1', panes: [], repoPath: localPath }])
     setActiveTabId(id)
     setMyReposOpen(false)
     setTeamsOpen(false)
@@ -488,8 +515,6 @@ export default function App() {
   tabsRef.current = tabs
   const activeTabIdRef = useRef(activeTabId)
   activeTabIdRef.current = activeTabId
-  const zoomedCellRef = useRef(zoomedCell)
-  zoomedCellRef.current = zoomedCell
 
   const cycleTab = useCallback((isPrev: boolean) => {
     const allTabs = tabsRef.current
@@ -512,7 +537,7 @@ export default function App() {
   const closeTab = useCallback((id: string) => {
     const currentTabs = tabsRef.current
     const tab = currentTabs.find(t => t.id === id)
-    if (tab) tab.cells.forEach(c => { if (c) window.pty.kill(c.id) })
+    if (tab) tab.panes.forEach(p => window.pty.kill(p.id))
     setTabActivity(prev => {
       const next = new Map(prev)
       next.delete(id)
@@ -522,16 +547,8 @@ export default function App() {
       const next = prev.filter(t => t.id !== id)
       if (next.length === 0) {
         const fallbackId = generateTabId()
-        const fallback: WorkspaceTab = {
-          id: fallbackId,
-          name: 'Workspace',
-          layout: { rows: 1, cols: 1 },
-          colSizes: [equalSizes(1)],
-          rowSizes: equalSizes(1),
-          cells: [null],
-        }
         setActiveTabId(fallbackId)
-        return [fallback]
+        return [{ id: fallbackId, name: 'Workspace', layoutId: '1', panes: [] }]
       }
       setActiveTabId(prevActive => {
         if (prevActive !== id) return prevActive
@@ -546,7 +563,7 @@ export default function App() {
   const handleTabClose = useCallback((id: string) => {
     const tab = tabsRef.current.find(t => t.id === id)
     if (!tab) return
-    const hasTerminals = tab.cells.some(c => c !== null)
+    const hasTerminals = tab.panes.length > 0
     if (hasTerminals) {
       setConfirmClose({ tabId: id, name: tab.name })
     } else {
@@ -574,6 +591,7 @@ export default function App() {
   }, [])
 
   const openBrowserCell = useCallback((url: string) => {
+    if (panesRef.current.length >= MAX_PANES) return
     const pane: PaneNode = {
       id: generateId(),
       aiType: 'browser',
@@ -584,48 +602,36 @@ export default function App() {
       url,
       sessionPartition: `persist:browser-${activeTabId}`,
     }
-    updateActiveTab((t) => {
-      const emptyIdx = t.cells.findIndex((c) => c === null)
-      if (emptyIdx !== -1) {
-        const next = [...t.cells]
-        next[emptyIdx] = pane
-        return { ...t, cells: next }
-      }
-      const newLayout = t.layout.cols <= t.layout.rows
-        ? { rows: t.layout.rows, cols: t.layout.cols + 1 }
-        : { rows: t.layout.rows + 1, cols: t.layout.cols }
-      const newTotal = newLayout.rows * newLayout.cols
-      const filled = [...t.cells, ...Array(newTotal - t.cells.length).fill(null)]
-      filled[newTotal - 1] = pane
-      return {
-        ...t,
-        layout: newLayout,
-        colSizes: Array.from({ length: newLayout.rows }, () => equalSizes(newLayout.cols)),
-        rowSizes: equalSizes(newLayout.rows),
-        cells: filled,
-      }
+    updateActiveTab(t => {
+      const nextPanes = [...t.panes, pane]
+      const currentSlots = getPreset(t.layoutId).slotCount
+      const promoted = nextPanes.length > currentSlots
+      const layoutId: LayoutId = promoted ? defaultLayoutFor(nextPanes.length) : t.layoutId
+      return promoted
+        ? { ...t, panes: nextPanes, layoutId, splitRatios: {} }
+        : { ...t, panes: nextPanes, layoutId }
     })
   }, [activeTabId, updateActiveTab])
 
-  // Open dialog for next empty cell, or expand grid if full
-  const addNextPane = useCallback(() => {
-    const emptyIdx = cells.findIndex((c) => c === null)
-    if (emptyIdx !== -1) {
-      setAddingToCell(emptyIdx)
-      return
+  // When a link click in xterm or a PortChip dispatches nest:pty-url and no
+  // BrowserCell is mounted to capture it, create one. If a BrowserCell IS
+  // mounted, its own listener (BrowserCell.tsx:166) already navigates it —
+  // we no-op to avoid duplicating panes.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const ce = e as CustomEvent<{ paneId: string; url: string }>
+      if (!ce.detail?.url) return
+      const hasBrowser = panesRef.current.some(p => p.aiType === 'browser')
+      if (!hasBrowser) openBrowserCell(ce.detail.url)
     }
-    const { rows, cols } = layout
-    const newLayout = cols <= rows ? { rows, cols: cols + 1 } : { rows: rows + 1, cols }
-    const newTotal = newLayout.rows * newLayout.cols
-    updateActiveTab(t => ({
-      ...t,
-      layout: newLayout,
-      colSizes: Array.from({ length: newLayout.rows }, () => equalSizes(newLayout.cols)),
-      rowSizes: equalSizes(newLayout.rows),
-      cells: [...t.cells, ...Array(newTotal - t.cells.length).fill(null)],
-    }))
-    setAddingToCell(newTotal - 1)
-  }, [cells, layout, updateActiveTab])
+    window.addEventListener('nest:pty-url', handler as EventListener)
+    return () => window.removeEventListener('nest:pty-url', handler as EventListener)
+  }, [openBrowserCell])
+
+  // Open the new-pane dialog (engine handles slot placement)
+  const addNextPane = useCallback(() => {
+    setAddingPane({})
+  }, [])
 
   // Load session on startup
   useEffect(() => {
@@ -639,50 +645,62 @@ export default function App() {
         '#84CC16': '#88FF00', '#6B7280': '#666666',
       }
 
-      const restoreCells = (rawCells: (SessionPane | null)[], total: number): (PaneNode | null)[] =>
-        Array.from({ length: total }, (_, i) => {
-          const sp = rawCells[i]
-          if (!sp) return null
-          const borderColor = COLOR_MIGRATION[sp.borderColor] ?? sp.borderColor
-          return { ...sp, id: generateId(), cmd: sp.cmd ?? AI_CONFIG[sp.aiType]?.cmd ?? '', borderColor } as PaneNode
-        })
+      const sessionToPane = (sp: SessionPane): PaneNode => {
+        const borderColor = COLOR_MIGRATION[sp.borderColor] ?? sp.borderColor
+        return {
+          ...sp,
+          id: generateId(),
+          cmd: sp.cmd ?? AI_CONFIG[sp.aiType]?.cmd ?? '',
+          borderColor,
+        } as PaneNode
+      }
+
+      const migrate = (raw: NonNullable<SessionData['tabs']>[number]): WorkspaceTab => {
+        if (raw.layoutId && Array.isArray(raw.panes)) {
+          return {
+            id: raw.id, name: raw.name, accentColor: raw.accentColor, repoPath: raw.repoPath,
+            layoutId: raw.layoutId,
+            panes: raw.panes.map(sessionToPane),
+            splitRatios: raw.splitRatios ?? {},
+          }
+        }
+        // v2: layout + cells
+        const live = (raw.cells ?? []).filter((c): c is SessionPane => c != null).map(sessionToPane)
+        const layoutId = raw.layout
+          ? mapLegacyToPreset(raw.layout.rows, raw.layout.cols, live.length)
+          : defaultLayoutFor(live.length)
+        return {
+          id: raw.id, name: raw.name, accentColor: raw.accentColor, repoPath: raw.repoPath,
+          layoutId,
+          panes: live,
+        }
+      }
 
       // v1 legacy format: single layout + cells at root
       if (!data.tabs && data.layout && data.cells) {
-        const total = data.layout.rows * data.layout.cols
+        const live = data.cells.filter((c): c is SessionPane => c != null).map(sessionToPane)
         const id = `tab-${Date.now()}`
         setTabs([{
           id,
           name: 'Workspace',
-          layout: data.layout,
-          colSizes: Array.from({ length: data.layout.rows }, () => equalSizes(data.layout.cols)),
-          rowSizes: equalSizes(data.layout.rows),
-          cells: restoreCells(data.cells, total),
+          layoutId: mapLegacyToPreset(data.layout.rows, data.layout.cols, live.length),
+          panes: live,
         }])
         setActiveTabId(id)
         return
       }
 
-      // v2 format: tabs array
+      // v2/v3 format: tabs array
       if (data.tabs && data.tabs.length > 0) {
-        const restoredTabs: WorkspaceTab[] = data.tabs.map(tab => ({
-          id: tab.id,
-          name: tab.name,
-          accentColor: tab.accentColor,
-          repoPath: tab.repoPath,
-          layout: tab.layout,
-          colSizes: tab.colSizes ?? Array.from({ length: tab.layout.rows }, () => equalSizes(tab.layout.cols)),
-          rowSizes: tab.rowSizes ?? equalSizes(tab.layout.rows),
-          cells: restoreCells(tab.cells, tab.layout.rows * tab.layout.cols),
-        }))
+        const restored = data.tabs.map(migrate)
         // Drop repoPath references to directories that no longer exist on disk —
         // otherwise every new pane inherits a dead cwd and pty.spawn fails with
         // ERROR_DIRECTORY (267) on Windows. Applies to both tab.repoPath AND
-        // cell.repoPath (cells override tab scope when set).
-        Promise.all(restoredTabs.map(async (t) => {
+        // pane.repoPath (panes override tab scope when set).
+        Promise.all(restored.map(async (t) => {
           const pathsToCheck = new Set<string>()
           if (t.repoPath) pathsToCheck.add(t.repoPath)
-          for (const c of t.cells) if (c?.repoPath) pathsToCheck.add(c.repoPath)
+          for (const p of t.panes) if (p.repoPath) pathsToCheck.add(p.repoPath)
           if (pathsToCheck.size === 0) return t
 
           const existence = await Promise.all(
@@ -695,8 +713,8 @@ export default function App() {
           return {
             ...t,
             repoPath: t.repoPath && dead.has(t.repoPath) ? undefined : t.repoPath,
-            cells: t.cells.map((c) =>
-              c && c.repoPath && dead.has(c.repoPath) ? { ...c, repoPath: undefined } : c
+            panes: t.panes.map((p) =>
+              p.repoPath && dead.has(p.repoPath) ? { ...p, repoPath: undefined } : p
             ),
           }
         })).then((cleaned) => {
@@ -716,16 +734,15 @@ export default function App() {
           name: tab.name,
           accentColor: tab.accentColor,
           repoPath: tab.repoPath,
-          layout: tab.layout,
-          colSizes: tab.colSizes,
-          rowSizes: tab.rowSizes,
-          cells: tab.cells.map(c => c ? {
-            aiType: c.aiType, accountName: c.accountName, accountDir: c.accountDir,
-            borderColor: c.borderColor, cmd: c.cmd,
-            customLabel: c.customLabel, customColor: c.customColor, note: c.note,
-            repoPath: c.repoPath,
-            shellId: c.shellId,
-          } : null),
+          layoutId: tab.layoutId,
+          panes: tab.panes.map(p => ({
+            aiType: p.aiType, accountName: p.accountName, accountDir: p.accountDir,
+            borderColor: p.borderColor, cmd: p.cmd,
+            customLabel: p.customLabel, customColor: p.customColor, note: p.note,
+            repoPath: p.repoPath,
+            shellId: p.shellId,
+          })),
+          splitRatios: tab.splitRatios,
         })),
         activeTabId,
       }
@@ -746,7 +763,7 @@ export default function App() {
         return
       }
 
-      if (e.key === 'Escape' && zoomedCell !== null) { handleUnzoom(); return }
+      if (e.key === 'Escape' && zoomedPaneIdRef.current !== null) { handleUnzoom(); return }
 
       if (!e.metaKey && !e.ctrlKey) return
 
@@ -770,11 +787,9 @@ export default function App() {
 
       if (matchesBinding(e, kb.toggleZoom)) {
         e.preventDefault()
-        if (zoomedCellRef.current !== null) { handleUnzoom(); return }
+        if (zoomedPaneIdRef.current !== null) { handleUnzoom(); return }
         const focusedId = focusedPaneIdRef.current
-        if (!focusedId) return
-        const cellIdx = cellsRef.current.findIndex(c => c?.id === focusedId)
-        if (cellIdx >= 0) handleZoom(cellIdx)
+        if (focusedId) handleZoom(focusedId)
         return
       }
 
@@ -782,8 +797,7 @@ export default function App() {
       const n = parseInt(e.key, 10)
       if (!isNaN(n) && n >= 1 && n <= 9) {
         e.preventDefault()
-        const activePanes = cellsRef.current.filter(Boolean)
-        const target = activePanes[n - 1]
+        const target = panesRef.current[n - 1]
         if (target) {
           setFocusedPaneId(target.id)
           focusedPaneIdRef.current = target.id
@@ -797,14 +811,14 @@ export default function App() {
 
       if (matchesBinding(e, kb.nextPane) || matchesBinding(e, kb.prevPane)) {
         e.preventDefault()
-        const activePanes = cellsRef.current.filter(Boolean)
-        if (activePanes.length === 0) return
-        const currentIdx = activePanes.findIndex(p => p!.id === focusedPaneIdRef.current)
+        const all = panesRef.current
+        if (all.length === 0) return
+        const currentIdx = all.findIndex(p => p.id === focusedPaneIdRef.current)
         const isNext = matchesBinding(e, kb.nextPane)
         const next = isNext
-          ? (currentIdx + 1) % activePanes.length
-          : (currentIdx - 1 + activePanes.length) % activePanes.length
-        const target = activePanes[next]!
+          ? (currentIdx + 1) % all.length
+          : (currentIdx - 1 + all.length) % all.length
+        const target = all[next]
         setFocusedPaneId(target.id)
         focusedPaneIdRef.current = target.id
         focusTerminal(target.id)
@@ -821,11 +835,33 @@ export default function App() {
     // means non-modified keystrokes still flow through to the terminal.
     window.addEventListener('keydown', handler, true)
     return () => window.removeEventListener('keydown', handler, true)
-  }, [addNextPane, toggleListening, cycleTab])
+  }, [addNextPane, toggleListening, cycleTab, handleUnzoom, handleZoom])
 
-  const totalCells = layout.rows * layout.cols
-  const hasAnyPane = cells.some((c) => c !== null)
-  const isInitialState = !hasAnyPane && totalCells <= 1
+  const isInitialState = panes.length === 0
+
+  // Workspace-level drop handling for worktree drag-and-drop
+  const [dropActive, setDropActive] = useState(false)
+  const workspaceRef = useRef<HTMLDivElement>(null)
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    if (!Array.from(e.dataTransfer.types).includes(WORKTREE_DRAG_MIME)) return
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'copy'
+    if (!dropActive) setDropActive(true)
+  }, [dropActive])
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    if (e.currentTarget.contains(e.relatedTarget as Node)) return
+    setDropActive(false)
+  }, [])
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    const path = e.dataTransfer.getData(WORKTREE_DRAG_MIME)
+    setDropActive(false)
+    if (!path) return
+    e.preventDefault()
+    setAddingPane({ worktreePath: path })
+  }, [])
 
   // ResourceBar payload — flatten ALL tabs (not just active) so the panel
   // reflects every running PTY in the app. Memoize on a structural key so the
@@ -833,10 +869,9 @@ export default function App() {
   const activePanesPayload = useMemo<MetricsPaneInput[]>(() => {
     const out: MetricsPaneInput[] = []
     for (const tab of tabs) {
-      for (const cell of tab.cells) {
-        if (!cell) continue
-        if (cell.aiType === 'browser') continue
-        const label = cell.customLabel ?? AI_CONFIG[cell.aiType]?.label ?? 'Terminal'
+      for (const pane of tab.panes) {
+        if (pane.aiType === 'browser') continue
+        const label = pane.customLabel ?? AI_CONFIG[pane.aiType]?.label ?? 'Terminal'
         // The user-typed pane note is the most useful discriminator (e.g.
         // "fixing auth", "running tests"). When empty the row shows only
         // the AI-coloured bullet — the AI name itself is intentionally not
@@ -846,8 +881,8 @@ export default function App() {
         // header's color picker) wins so the panel mirrors what they see
         // in the pane header. Falls back to customColor (custom CLIs) and
         // then to the AI's default color.
-        const aiColor = cell.borderColor ?? cell.customColor ?? AI_CONFIG[cell.aiType]?.color ?? '#888888'
-        out.push({ paneId: cell.id, repoPath: cell.repoPath, label, note: cell.note, workspaceName: tab.name, aiColor, aiType: cell.aiType })
+        const aiColor = pane.borderColor ?? pane.customColor ?? AI_CONFIG[pane.aiType]?.color ?? '#888888'
+        out.push({ paneId: pane.id, repoPath: pane.repoPath, label, note: pane.note, workspaceName: tab.name, aiColor, aiType: pane.aiType })
       }
     }
     return out
@@ -870,9 +905,9 @@ export default function App() {
       />
       <PortsBanner
         rootRepoPath={activeTab.repoPath ?? null}
-        cells={activeTab.cells
-          .filter((c): c is NonNullable<typeof c> => c !== null && Boolean(c.repoPath))
-          .map((c) => ({ paneId: c.id, repoPath: c.repoPath as string }))}
+        cells={activeTab.panes
+          .filter((p) => Boolean(p.repoPath))
+          .map((p) => ({ paneId: p.id, repoPath: p.repoPath as string }))}
         onOpenInternal={openBrowserCell}
       />
       {updateStatus?.type === 'downloading' && (
@@ -907,8 +942,6 @@ export default function App() {
         onToggle={() => setSidebarExpanded((v) => !v)}
         broadcastMode={broadcastMode}
         onBroadcastToggle={() => setBroadcastMode((v) => !v)}
-        layout={layout}
-        onLayoutChange={applyLayout}
         onNewPane={addNextPane}
         onHistoryOpen={() => setConvSidebarOpen(true)}
         onSnippetSend={(content) => {
@@ -951,130 +984,104 @@ export default function App() {
         onWorktreeSelect={handleWorktreeSelect}
         onNewWorktree={handleNewWorktree}
         worktreeRefreshKey={worktreeRefreshKey}
+        layoutId={activeTab.layoutId}
+        paneCount={panes.length}
+        onLayoutChange={handleLayoutIdChange}
       />
-      <div className="workspace">
+      <div
+        ref={workspaceRef}
+        className={`workspace${dropActive ? ' grid-workspace--drop-target' : ''}`}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+      >
         {isInitialState ? (
-          <EmptyState onNewPane={() => setAddingToCell(0)} />
+          <EmptyState onNewPane={addNextPane} />
         ) : (
           <>
-          {zoomedCell !== null && (
-            <div
-              className={`zoom-backdrop${zoomingOut ? ' zooming-out' : ''}`}
-              onClick={handleUnzoom}
-            />
-          )}
-          <DndContext
-            sensors={sensors}
-            collisionDetection={closestCenter}
-            onDragStart={handleDragStart}
-            onDragEnd={handleDragEnd}
-          >
-            <SortableContext
-              items={Array.from({ length: totalCells }, (_, i) => String(i))}
-              strategy={rectSortingStrategy}
+            {zoomedPaneId !== null && (
+              <div
+                className={`zoom-backdrop${zoomingOut ? ' zooming-out' : ''}`}
+                onClick={handleUnzoom}
+              />
+            )}
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragStart={handleDragStart}
+              onDragEnd={handleDragEnd}
             >
-              <PanelGroup
-                key={`${activeTabId}-${layout.rows}-${layout.cols}`}
-                direction="vertical"
-                className="grid-workspace"
-                onLayout={updateRowSizes}
-              >
-                {Array.from({ length: layout.rows }).map((_, r) => (
-                  <React.Fragment key={r}>
-                    {r > 0 && (
-                      <PanelResizeHandle
-                        className={`resize-handle resize-handle--row${zoomedCell !== null ? ' resize-handle--disabled' : ''}`}
+              <SortableContext items={panes.map(p => p.id)} strategy={rectSortingStrategy}>
+                <PaneLayoutEngine
+                  layoutId={activeTab.layoutId}
+                  panes={panes}
+                  splitRatios={activeTab.splitRatios}
+                  onResize={handleSplitResize}
+                  renderPane={(pane) => pane.aiType === 'browser'
+                    ? (
+                      <BrowserCell
+                        key={pane.id}
+                        pane={pane}
+                        borderColor={pane.borderColor}
+                        siblingPaneIds={panes.filter(p => p.id !== pane.id).map(p => p.id)}
+                        workspaceRepoPath={activeTab.repoPath ?? pane.repoPath}
+                        siblingRepoPaths={Array.from(new Set(
+                          panes
+                            .map((p) => p.repoPath)
+                            .filter((p): p is string => !!p)
+                        ))}
+                        onClose={() => removePane(pane.id)}
                       />
-                    )}
-                    <Panel defaultSize={rowSizes[r]}>
-                      <PanelGroup
-                        direction="horizontal"
-                        onLayout={(sizes) => updateColSizesForRow(r, sizes)}
-                      >
-                        {Array.from({ length: layout.cols }).map((_, c) => {
-                          const i = r * layout.cols + c
-                          const pane = cells[i] ?? null
-                          const rowColSizes = colSizes[r] ?? equalSizes(layout.cols)
-                          return (
-                            <React.Fragment key={c}>
-                              {c > 0 && (
-                                <PanelResizeHandle
-                                  className={`resize-handle resize-handle--col${zoomedCell !== null ? ' resize-handle--disabled' : ''}`}
-                                />
-                              )}
-                              <Panel defaultSize={rowColSizes[c]}>
-                                {pane && pane.aiType === 'browser' ? (
-                                  <BrowserCell
-                                    key={pane.id}
-                                    pane={pane}
-                                    cellId={String(i)}
-                                    borderColor={pane.borderColor}
-                                    siblingPaneIds={activeTab.cells.filter((c): c is PaneNode => !!c && c.id !== pane.id).map((c) => c.id)}
-                                    workspaceRepoPath={activeTab.repoPath ?? pane.repoPath}
-                                    siblingRepoPaths={Array.from(new Set(
-                                      activeTab.cells
-                                        .filter((c): c is PaneNode => !!c)
-                                        .map((c) => c.repoPath)
-                                        .filter((p): p is string => !!p)
-                                    ))}
-                                    onClose={() => { removePane(i); if (zoomedCell === i) { setZoomedCell(null); setZoomingOut(false) } }}
-                                  />
-                                ) : pane ? (
-                                  <TerminalPane
-                                    key={pane.id}
-                                    cellId={String(i)}
-                                    pane={pane}
-                                    isDragging={draggingId === String(i)}
-                                    zoomed={zoomedCell === i}
-                                    zoomingOut={zoomedCell === i && zoomingOut}
-                                    onZoom={() => handleZoom(i)}
-                                    onClose={() => { removePane(i); if (zoomedCell === i) { setZoomedCell(null); setZoomingOut(false) } }}
-                                    onColorChange={(c) => updatePaneColor(i, c)}
-                                    onNoteChange={(note) => updatePaneNote(i, note)}
-                                    fontSize={fontSize}
-                                    onInput={(data) => {
-                                      const targets = broadcastMode ? activePaneIds : [pane.id]
-                                      targets.forEach((id) => window.pty.write(id, data))
-                                    }}
-                                    onFocus={() => {
-                                      setFocusedPaneId(pane.id)
-                                      focusedPaneIdRef.current = pane.id
-                                    }}
-                                    onBusyChange={handleBusyChange}
-                                    onActivity={(paneId, active) => handlePaneActivity(i, active)}
-                                    onJoinRequest={(paneId) => setJoinRequest({ paneId, paneTitle: pane.customLabel ?? pane.accountName ?? 'Terminal' })}
-                                    onPtyStarted={handlePtyStarted}
-                                  />
-                                ) : (
-                                  <EmptyCell key={`empty-${i}`} cellId={String(i)} onClick={() => setAddingToCell(i)} />
-                                )}
-                              </Panel>
-                            </React.Fragment>
-                          )
-                        })}
-                      </PanelGroup>
-                    </Panel>
-                  </React.Fragment>
-                ))}
-              </PanelGroup>
-            </SortableContext>
-            <DragOverlay>
-              {draggingId !== null && (() => {
-                const i = Number(draggingId)
-                const pane = cells[i]
-                return pane ? (
-                  <div className="drag-overlay-pane" style={{ '--pane-color': pane.borderColor } as React.CSSProperties}>
-                    <div className="pane-header" style={{ borderBottom: `1px solid ${pane.borderColor}44` }}>
-                      <span className="pane-ai-label" style={{ color: AI_CONFIG[pane.aiType].color, paddingLeft: 10 }}>
-                        {AI_CONFIG[pane.aiType].label}
-                      </span>
-                      <span className="pane-account-name" style={{ paddingLeft: 6 }}>{pane.accountName}</span>
+                    )
+                    : (
+                      <TerminalPane
+                        key={pane.id}
+                        pane={pane}
+                        ports={panePorts[pane.id] ?? []}
+                        isDragging={draggingId === pane.id}
+                        zoomed={zoomedPaneId === pane.id}
+                        zoomingOut={zoomedPaneId === pane.id && zoomingOut}
+                        onZoom={() => handleZoom(pane.id)}
+                        onClose={() => removePane(pane.id)}
+                        onColorChange={(c) => updatePaneColor(pane.id, c)}
+                        onNoteChange={(note) => updatePaneNote(pane.id, note)}
+                        fontSize={fontSize}
+                        onInput={(data) => {
+                          const targets = broadcastMode ? panes.map(p => p.id) : [pane.id]
+                          targets.forEach((id) => window.pty.write(id, data))
+                        }}
+                        onFocus={() => {
+                          setFocusedPaneId(pane.id)
+                          focusedPaneIdRef.current = pane.id
+                        }}
+                        onBusyChange={handleBusyChange}
+                        onActivity={handlePaneActivity}
+                        onJoinRequest={() => setJoinRequest({ paneId: pane.id, paneTitle: pane.customLabel ?? pane.accountName ?? 'Terminal' })}
+                        onPtyStarted={handlePtyStarted}
+                      />
+                    )
+                  }
+                  renderEmpty={() => (
+                    <EmptyCell onClick={() => setAddingPane({})} />
+                  )}
+                />
+              </SortableContext>
+              <DragOverlay>
+                {draggingId !== null && (() => {
+                  const pane = panes.find(p => p.id === draggingId)
+                  return pane ? (
+                    <div className="drag-overlay-pane" style={{ '--pane-color': pane.borderColor } as React.CSSProperties}>
+                      <div className="pane-header" style={{ borderBottom: `1px solid ${pane.borderColor}44` }}>
+                        <span className="pane-ai-label" style={{ color: AI_CONFIG[pane.aiType].color, paddingLeft: 10 }}>
+                          {AI_CONFIG[pane.aiType].label}
+                        </span>
+                        <span className="pane-account-name" style={{ paddingLeft: 6 }}>{pane.accountName}</span>
+                      </div>
                     </div>
-                  </div>
-                ) : null
-              })()}
-            </DragOverlay>
-          </DndContext>
+                  ) : null
+                })()}
+              </DragOverlay>
+            </DndContext>
           </>
         )}
       </div>
@@ -1096,7 +1103,7 @@ export default function App() {
           onTabSelect={(id) => { handleTabSelect(id) }}
           onWorkspaceLoad={loadWorkspace}
           onSnippetSend={(content) => { if (focusedPaneId) window.pty.write(focusedPaneId, content + '\n') }}
-          onSnippetBroadcast={(content) => { cells.filter(Boolean).forEach(p => window.pty.write(p!.id, content + '\n')) }}
+          onSnippetBroadcast={(content) => { panes.forEach(p => window.pty.write(p.id, content + '\n')) }}
           onHistoryOpen={() => setConvSidebarOpen(true)}
           onNewTab={handleTabNew}
           onNewPane={addNextPane}
@@ -1104,12 +1111,12 @@ export default function App() {
         />
       )}
 
-      {addingToCell !== null && (
+      {addingPane !== null && (
         <NewPaneDialog
           onConfirm={addPane}
-          onCancel={() => setAddingToCell(null)}
+          onCancel={() => setAddingPane(null)}
           allowedAIs={planLimits.allowedAIs}
-          onUpgrade={() => { setAddingToCell(null); setShowUpgrade(true) }}
+          onUpgrade={() => { setAddingPane(null); setShowUpgrade(true) }}
         />
       )}
 
@@ -1208,17 +1215,9 @@ export default function App() {
 }
 
 
-function EmptyCell({ cellId, onClick, style: outerStyle }: { cellId: string; onClick: () => void; style?: React.CSSProperties }) {
-  const { setNodeRef, transform, transition, isOver } = useSortable({ id: cellId })
-  const style: React.CSSProperties = {
-    ...outerStyle,
-    transform: CSS.Transform.toString(transform),
-    transition,
-    outline: isOver ? '2px solid #0066FF66' : undefined,
-    outlineOffset: isOver ? '-2px' : undefined,
-  }
+function EmptyCell({ onClick }: { onClick: () => void }) {
   return (
-    <div ref={setNodeRef} className="empty-cell" style={style} onClick={onClick}>
+    <div className="empty-cell" onClick={onClick}>
       <span className="empty-cell-icon">+</span>
       <span className="empty-cell-label">New Terminal</span>
     </div>
@@ -1240,4 +1239,3 @@ function EmptyState({ onNewPane }: { onNewPane: () => void }) {
     </div>
   )
 }
-

@@ -1,4 +1,4 @@
-import { BrowserWindow, WebContentsView, session as electronSession } from 'electron'
+import { BrowserWindow, WebContentsView, session as electronSession, shell } from 'electron'
 
 export interface PaneBounds {
   x: number
@@ -56,6 +56,21 @@ export class BrowserPaneManager {
     })
     win.contentView.addChildView(view)
     view.setBounds({ x: 0, y: 0, width: 0, height: 0 })
+
+    // Prevent window.open() inside a browser pane from creating a native
+    // BrowserWindow. Only http(s) URLs are forwarded to the system browser;
+    // file://, javascript: and other schemes are silently dropped.
+    view.webContents.setWindowOpenHandler(({ url }) => {
+      if (typeof url === 'string' && (url.startsWith('http://') || url.startsWith('https://'))) {
+        try {
+          shell.openExternal(url)
+        } catch (err) {
+          console.warn('[browser-pane-manager] openExternal rejected', url, err instanceof Error ? err.message : err)
+        }
+      }
+      return { action: 'deny' }
+    })
+
     void view.webContents.loadURL(url).catch(() => {})
 
     view.webContents.on('did-navigate', (_e, navUrl) => {

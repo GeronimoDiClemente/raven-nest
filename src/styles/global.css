@@ -67,6 +67,7 @@ body {
   display: flex;
   flex-direction: column;
   background: var(--bg-app);
+  position: relative;
 }
 
 
@@ -7494,6 +7495,31 @@ button.ci-badge:hover {
 .port-pill-discovered {
   border-style: dashed;
 }
+.ports-section-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-muted, #888);
+  padding: 6px 10px 4px;
+}
+.ports-section-label--muted { opacity: 0.7; }
+.ports-item--muted { opacity: 0.7; }
+.ports-empty {
+  padding: 8px 10px;
+  color: var(--text-muted, #888);
+  font-size: 11px;
+  font-style: italic;
+}
+.ports-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border-top: 1px solid var(--border, #2a2a2a);
+  font-size: 11px;
+  color: var(--text-secondary, #aaa);
+  cursor: pointer;
+}
 
 /* === BrowserCell (Plan 4) === */
 .browser-cell {
@@ -8960,4 +8986,182 @@ body.platform-mac .tabbar { padding-right: 116px; }
 .jcf-pending-cancel:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* ── Layout Selector ─────────────────────────────────────── */
+
+/* Anchor inside the TabBar's rightSlot, NOT inside the workspace — keeps the
+   trigger outside the pane area so it never overlaps a pane header.
+   The TabBar is the OS titlebar (-webkit-app-region: drag), so we have to
+   carve out a no-drag zone for the button + popover or clicks get swallowed
+   by the window-drag handler. */
+.layout-selector,
+.layout-selector-popover {
+  -webkit-app-region: no-drag;
+}
+
+.layout-selector {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  margin-right: 6px;
+}
+
+.layout-selector-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--text-muted);
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.layout-selector-btn:hover {
+  color: var(--text-primary);
+  border-color: var(--raven-blue);
+}
+
+.layout-selector-popover {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+  padding: 10px;
+  width: 240px;
+  max-width: 240px;
+}
+
+.layout-selector-title {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.layout-selector-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+
+.layout-selector-option {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 2px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 9px;
+  line-height: 1.2;
+  text-align: center;
+  min-height: 64px;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.layout-selector-option svg {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+}
+
+.layout-selector-option:hover {
+  color: var(--text-primary);
+  border-color: var(--raven-blue);
+}
+
+/* The slot the user is about to commit when they release Ctrl/Cmd.
+   Outlined more strongly than .active so the in-flight selection is
+   distinguishable from the currently-applied preset. */
+.layout-selector-option.cycling {
+  color: var(--text-primary);
+  border-color: var(--raven-blue);
+  box-shadow: 0 0 0 1px var(--raven-blue) inset;
+}
+
+.layout-selector-option.active {
+  color: var(--raven-blue);
+  border-color: var(--raven-blue);
+  background: #0066FF15;
+}
+
+/* ── Drop Indicator ───────────────────────────────────────── */
+
+.workspace.grid-workspace--drop-target {
+  outline: 2px dashed var(--raven-blue);
+  outline-offset: -6px;
+  background: #0066FF08;
+}
+
+/* ── Browser Drag Handle ───────────────────────────────────── */
+
+.browser-drag-handle {
+  width: 16px;
+  height: 100%;
+  cursor: grab;
+  margin-right: 4px;
+  border-right: 1px dashed var(--border);
+}
+
+.browser-drag-handle:active {
+  cursor: grabbing;
+}
+
+.port-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  background: var(--bg-elevated);
+  color: var(--raven-blue);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-family: 'JetBrains Mono', monospace;
+  cursor: pointer;
+  margin: 0 4px;
+  white-space: nowrap;
+  transition: background 0.12s, border-color 0.12s;
+}
+.port-chip:hover {
+  background: rgba(0, 102, 255, 0.12);
+  border-color: var(--raven-blue);
+}
+
+.port-chips-group {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.port-chip-collapsed {
+  letter-spacing: 0.2px;
+}
+
+.port-chips-popover {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+}
+
+.port-chips-popover .port-chip {
+  margin: 0;
 }

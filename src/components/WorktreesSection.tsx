@@ -209,6 +209,12 @@ export function WorktreesSection({ repoPath, activeRepoPath, onSelect, onNewClic
               <div
                 key={wt.repoPath}
                 className={`wt-item ${activeRepoPath === wt.repoPath ? 'wt-item-active' : ''}`}
+                draggable
+                onDragStart={(e) => {
+                  e.dataTransfer.effectAllowed = 'copy'
+                  e.dataTransfer.setData('application/x-raven-worktree-path', wt.repoPath)
+                  e.dataTransfer.setData('text/plain', wt.repoPath)
+                }}
                 onClick={() => onSelect(wt.repoPath)}
                 onContextMenu={(e) => {
                   e.preventDefault()
