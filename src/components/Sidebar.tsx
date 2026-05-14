@@ -9,7 +9,9 @@ import RepoActionsBar from './RepoActionsBar'
 import { WorktreesSection } from './WorktreesSection'
 import { useGitHub } from '../hooks/useGitHub'
 import { useGitlab } from '../hooks/useGitlab'
-import { Workspace } from '../types'
+import { LayoutId, Workspace } from '../types'
+import { PRESETS } from '../layout/presets'
+import { alternativesFor } from '../layout/select'
 import { supabase } from '../lib/supabase'
 import { terminalJoinService } from '../lib/terminalJoinService'
 import { basename } from '../lib/path'
@@ -49,6 +51,11 @@ interface Props {
   onWorktreeSelect: (worktreePath: string) => void
   onNewWorktree: () => void
   worktreeRefreshKey?: number
+  // Layout selector (replaces the old LayoutPicker). Sidebar renders the
+  // trigger; the engine in App.tsx owns the state.
+  layoutId: LayoutId
+  paneCount: number
+  onLayoutChange: (id: LayoutId) => void
 }
 
 export default function Sidebar({
@@ -57,7 +64,8 @@ export default function Sidebar({
   onNewPane, onHistoryOpen,
   onSnippetSend, onSnippetBroadcast, onCommandRun, onWorkspaceSave, onWorkspaceLoad, isWin,
   isTrialActive, trialDaysLeft, profileLoading, onUpgrade, onTeamsOpen, pendingInvitesCount = 0, onMyReposOpen, plan, repoPath, onRepoLink, onRepoUnlink, onJoinTerminal,
-  activeCellRepoPath, onWorktreeSelect, onNewWorktree, worktreeRefreshKey
+  activeCellRepoPath, onWorktreeSelect, onNewWorktree, worktreeRefreshKey,
+  layoutId, paneCount, onLayoutChange,
 }: Props) {
   const { branch, githubUrl, isDirty } = useGitInfo(repoPath)
   const { githubToken } = useGitHub()
@@ -79,6 +87,12 @@ export default function Sidebar({
   const [joinConnected, setJoinConnected] = useState(terminalJoinService.isConnected)
   const [, forceUpdate] = useState(0)
   const [moreOpen, setMoreOpen] = useState(false)
+  const [layoutOpen, setLayoutOpen] = useState(false)
+  const layoutAnchorRef = useRef<HTMLDivElement>(null)
+  const layoutPopoverRef = useRef<HTMLDivElement>(null)
+  const layoutPopPos = useFixedPopover(layoutAnchorRef, layoutOpen, layoutPopoverRef)
+  const layoutOptions = alternativesFor(paneCount)
+  const layoutPreset = PRESETS[layoutId]
   const joinInputRef = useRef<HTMLInputElement>(null)
   const joinAnchorRef = useRef<HTMLDivElement>(null)
   const joinPopoverRef = useRef<HTMLDivElement>(null)
@@ -115,6 +129,34 @@ export default function Sidebar({
   useEffect(() => {
     if (!expanded) setMoreOpen(false)
   }, [expanded])
+
+  // Cmd/Ctrl+L toggles the layout selector from anywhere. Escape closes.
+  // Click-outside closes via the popover's own document listener below.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'l') {
+        e.preventDefault()
+        setLayoutOpen(v => !v)
+      } else if (e.key === 'Escape' && layoutOpen) {
+        setLayoutOpen(false)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [layoutOpen])
+
+  // Click-outside to close the layout popover. Mounted only while open.
+  useEffect(() => {
+    if (!layoutOpen) return
+    const onClick = (e: MouseEvent) => {
+      const t = e.target as Node
+      if (layoutPopoverRef.current?.contains(t)) return
+      if (layoutAnchorRef.current?.contains(t)) return
+      setLayoutOpen(false)
+    }
+    document.addEventListener('mousedown', onClick)
+    return () => document.removeEventListener('mousedown', onClick)
+  }, [layoutOpen])
 
   const startJoinAttempt = (code: string) => {
     // Drop any previous pending attempt before starting a new one.
@@ -527,6 +569,52 @@ export default function Sidebar({
             </div>
           )}
         </div>
+
+        {/* ── 4.5. LAYOUT SELECTOR (replaces v1.0 LayoutPicker) ── */}
+        <div
+          className="sidebar-item sidebar-item-panel"
+          ref={layoutAnchorRef}
+          style={{ cursor: 'pointer' }}
+          onClick={() => setLayoutOpen(v => !v)}
+          title={`Layout: ${layoutPreset.label} (${isWin ? 'Ctrl+L' : '⌘L'})`}
+        >
+          <span className="sidebar-icon">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+              <path d={layoutPreset.icon} />
+            </svg>
+          </span>
+          <span className="sidebar-label">Layout</span>
+        </div>
+        {layoutOpen && layoutPopPos && (
+          <div
+            ref={layoutPopoverRef}
+            className="layout-selector-popover"
+            style={{ position: 'fixed', top: layoutPopPos.top, left: layoutPopPos.left, zIndex: 200 }}
+          >
+            <div className="layout-selector-title">
+              Layout — {paneCount} pane{paneCount === 1 ? '' : 's'}
+            </div>
+            <div className="layout-selector-grid">
+              {layoutOptions.map(id => {
+                const preset = PRESETS[id]
+                const active = id === layoutId
+                return (
+                  <button
+                    key={id}
+                    className={`layout-selector-option${active ? ' active' : ''}`}
+                    onClick={() => { onLayoutChange(id); setLayoutOpen(false) }}
+                    title={preset.label}
+                  >
+                    <svg width="36" height="36" viewBox="0 0 16 16" fill="currentColor">
+                      <path d={preset.icon} />
+                    </svg>
+                    <span>{preset.label}</span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )}
 
         {/* ── 5. NEW TERMINAL (acción primaria, siempre visible) ── */}
         <button

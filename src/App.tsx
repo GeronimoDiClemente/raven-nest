@@ -9,7 +9,6 @@ import {
   WorkspaceTab, LayoutId,
 } from './types'
 import { PaneLayoutEngine } from './components/PaneLayoutEngine'
-import { LayoutSelector } from './components/LayoutSelector'
 import { defaultLayoutFor, mapLegacyToPreset } from './layout/select'
 import { swap } from './layout/swap'
 import { getPreset } from './layout/presets'
@@ -848,16 +847,7 @@ export default function App() {
         onTabColorChange={handleTabColorChange}
         isWin={window.platform?.isWin ?? false}
         tabActivity={tabActivity}
-        rightSlot={
-          <>
-            <LayoutSelector
-              current={activeTab.layoutId}
-              paneCount={panes.length}
-              onChange={handleLayoutIdChange}
-            />
-            <ResourceBar panes={activePanesPayload} />
-          </>
-        }
+        rightSlot={<ResourceBar panes={activePanesPayload} />}
       />
       <PortsBanner
         rootRepoPath={activeTab.repoPath ?? null}
@@ -940,6 +930,9 @@ export default function App() {
         onWorktreeSelect={handleWorktreeSelect}
         onNewWorktree={handleNewWorktree}
         worktreeRefreshKey={worktreeRefreshKey}
+        layoutId={activeTab.layoutId}
+        paneCount={panes.length}
+        onLayoutChange={handleLayoutIdChange}
       />
       <div
         ref={workspaceRef}
