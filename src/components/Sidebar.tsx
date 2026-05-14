@@ -131,18 +131,22 @@ export default function Sidebar({
   }, [expanded])
 
   // Cmd/Ctrl+L toggles the layout selector from anywhere. Escape closes.
-  // Click-outside closes via the popover's own document listener below.
+  // Capture phase: intercept BEFORE xterm.js (which is focused inside panes
+  // and consumes Ctrl+L for clear-screen). Without capture, the keystroke
+  // gets swallowed and the popover never opens when the user is typing in
+  // a terminal pane. Mirrors the pattern App.tsx uses for its own shortcuts.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'l') {
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'l') {
         e.preventDefault()
+        e.stopPropagation()
         setLayoutOpen(v => !v)
       } else if (e.key === 'Escape' && layoutOpen) {
         setLayoutOpen(false)
       }
     }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
   }, [layoutOpen])
 
   // Click-outside to close the layout popover. Mounted only while open.
