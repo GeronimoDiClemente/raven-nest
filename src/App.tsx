@@ -74,6 +74,11 @@ export default function App() {
   }, [activeTabId])
 
   const [addingPane, setAddingPane] = useState<null | { worktreePath?: string }>(null)
+  // Mirror addingPane in a ref so addPane reads the freshest value without
+  // depending on a closure that React may not have updated yet — the dialog
+  // sometimes captures the previous addPane closure where worktreePath is null.
+  const addingPaneRef = useRef<null | { worktreePath?: string }>(null)
+  addingPaneRef.current = addingPane
   const [zoomedPaneId, setZoomedPaneId] = useState<string | null>(null)
   const [zoomingOut, setZoomingOut] = useState(false)
   const [draggingId, setDraggingId] = useState<string | null>(null)
@@ -198,7 +203,7 @@ export default function App() {
     aiType: AIType, accountName: string, accountDir: string, borderColor: string,
     cmd: string, customLabel?: string, customColor?: string, shellId?: string
   ) => {
-    const worktreePath = addingPane?.worktreePath
+    const worktreePath = addingPaneRef.current?.worktreePath
     updateActiveTab(t => {
       const pane: PaneNode = {
         id: generateId(), aiType, accountName, accountDir, borderColor, cmd,
@@ -219,7 +224,7 @@ export default function App() {
         : { ...t, panes: nextPanes, layoutId }
     })
     setAddingPane(null)
-  }, [addingPane, updateActiveTab])
+  }, [updateActiveTab])
 
   const handleRepoLink = useCallback(async () => {
     try {
