@@ -300,13 +300,17 @@ export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZ
     pane.runningRepoPath !== undefined &&
     pane.runningRepoPath !== pane.repoPath
 
-  // File staging handlers
+  // File staging handlers. Only intercept file drops — let other drag payloads
+  // (e.g. worktree paths dragged from the sidebar) bubble up to the workspace
+  // root, otherwise dropping a worktree onto an existing pane silently fails.
   const handleDragOver = useCallback((e: React.DragEvent) => {
+    if (!Array.from(e.dataTransfer.types).includes('Files')) return
     e.preventDefault()
     e.stopPropagation()
   }, [])
 
   const handleDrop = useCallback((e: React.DragEvent) => {
+    if (!Array.from(e.dataTransfer.types).includes('Files')) return
     e.preventDefault()
     e.stopPropagation()
     const files = Array.from(e.dataTransfer.files)
