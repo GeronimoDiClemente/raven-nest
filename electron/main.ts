@@ -135,12 +135,17 @@ function createWindow(): void {
   // system browser instead of creating a child BrowserWindow that would
   // cover the terminals. Localhost clicks in xterm go through the
   // nest:pty-url event channel (see useXterm), not window.open, so they
-  // stay internal.
+  // stay internal. Only http(s) URLs are allowed to reach the system
+  // shell — file://, javascript: and other schemes are dropped.
   win.webContents.setWindowOpenHandler(({ url }) => {
-    try {
-      shell.openExternal(url)
-    } catch (err) {
-      console.warn('[window-open-handler] openExternal rejected', url, err instanceof Error ? err.message : err)
+    if (typeof url === 'string' && (url.startsWith('http://') || url.startsWith('https://'))) {
+      try {
+        shell.openExternal(url)
+      } catch (err) {
+        console.warn('[window-open-handler] openExternal rejected', url, err instanceof Error ? err.message : err)
+      }
+    } else {
+      console.warn('[window-open-handler] blocked non-http url', url)
     }
     return { action: 'deny' }
   })
