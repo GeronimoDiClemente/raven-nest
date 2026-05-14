@@ -1,5 +1,14 @@
 export type AIType = 'claude' | 'gemini' | 'codex' | 'copilot' | 'opencode' | 'terminal' | 'custom' | 'browser'
 
+export type LayoutId =
+  | '1'
+  | '2V' | '2H'
+  | '3C' | '3M' | '3T'
+  | '4Q' | '4M'
+  | '5T'
+  | '6G'
+  | '9G'
+
 export interface Account {
   name: string
   aiType: AIType
@@ -204,15 +213,23 @@ export interface SessionPane {
 }
 
 export interface SessionData {
-  // v2: multi-tab
   tabs?: Array<{
     id: string
     name: string
-    layout: GridLayout
-    cells: (SessionPane | null)[]
+    accentColor?: string
+    repoPath?: string
+    // v3 new
+    layoutId?: LayoutId
+    panes?: SessionPane[]
+    splitRatios?: Record<string, number[]>
+    // v2 legacy (kept optional for migration)
+    layout?: GridLayout
+    cells?: (SessionPane | null)[]
+    colSizes?: number[][]
+    rowSizes?: number[]
   }>
   activeTabId?: string
-  // v1 legacy fields — kept for backward compat migration on load
+  // v1 legacy
   layout?: GridLayout
   cells?: (SessionPane | null)[]
 }
@@ -234,11 +251,10 @@ export interface WorkspaceTab {
   id: string
   name: string
   accentColor?: string
-  repoPath?: string     // git repo directory; new panes start here as cwd
-  layout: GridLayout
-  colSizes: number[][]  // per-row column percentages: colSizes[row][col]
-  rowSizes: number[]    // row heights, length = rows, sum = 100
-  cells: (PaneNode | null)[]
+  repoPath?: string
+  layoutId: LayoutId
+  panes: PaneNode[]
+  splitRatios?: Record<string, number[]>
 }
 
 export function equalSizes(count: number): number[] {
