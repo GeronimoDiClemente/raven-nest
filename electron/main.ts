@@ -131,6 +131,20 @@ function createWindow(): void {
     }
   })
 
+  // Defense in depth: any window.open() from the renderer routes to the
+  // system browser instead of creating a child BrowserWindow that would
+  // cover the terminals. Localhost clicks in xterm go through the
+  // nest:pty-url event channel (see useXterm), not window.open, so they
+  // stay internal.
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    try {
+      shell.openExternal(url)
+    } catch (err) {
+      console.warn('[window-open-handler] openExternal rejected', url, err instanceof Error ? err.message : err)
+    }
+    return { action: 'deny' }
+  })
+
   if (process.env['ELECTRON_RENDERER_URL']) {
     win.loadURL(process.env['ELECTRON_RENDERER_URL'])
   } else {
