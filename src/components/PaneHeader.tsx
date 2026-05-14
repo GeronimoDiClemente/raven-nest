@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { PaneNode, AI_CONFIG, COLOR_PALETTE, AIType } from '../types'
 import { ClaudeLogo, GeminiLogo, CodexLogo, CopilotLogo, OpenCodeLogo } from './AILogos'
 import ConfirmDialog from './ConfirmDialog'
+import { PortChip } from './PortChip'
 
 function AILogo({ aiType, color, size = 14 }: { aiType: AIType; color: string; size?: number }) {
   switch (aiType) {
@@ -130,6 +131,10 @@ export default function PaneHeader({ pane, zoomed, onZoom, onClose, onColorChang
         {isBusy && pid !== undefined && (
           <span className="pane-pid-chip">PID {pid}</span>
         )}
+
+        {ports.map(port => (
+          <PortChip key={port} port={port} paneId={pane.id} />
+        ))}
 
         {editingNote ? (
           <input
