@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef } from 'react'
-import LayoutPicker from './LayoutPicker'
 import SnippetPanel from './SnippetPanel'
 import CommandHistoryPanel from './CommandHistoryPanel'
 import WorkspacePanel from './WorkspacePanel'
@@ -10,7 +9,7 @@ import RepoActionsBar from './RepoActionsBar'
 import { WorktreesSection } from './WorktreesSection'
 import { useGitHub } from '../hooks/useGitHub'
 import { useGitlab } from '../hooks/useGitlab'
-import { GridLayout, Workspace } from '../types'
+import { Workspace } from '../types'
 import { supabase } from '../lib/supabase'
 import { terminalJoinService } from '../lib/terminalJoinService'
 import { basename } from '../lib/path'
@@ -26,8 +25,6 @@ interface Props {
   isTranscribing: boolean
   isModelLoading: boolean
   onMicToggle: () => void
-  layout: GridLayout
-  onLayoutChange: (layout: GridLayout) => void
   onNewPane: () => void
   onHistoryOpen: () => void
   onSnippetSend: (content: string) => void
@@ -57,7 +54,7 @@ interface Props {
 export default function Sidebar({
   expanded, onToggle, broadcastMode, onBroadcastToggle,
   isListening, isTranscribing, isModelLoading, onMicToggle,
-  layout, onLayoutChange, onNewPane, onHistoryOpen,
+  onNewPane, onHistoryOpen,
   onSnippetSend, onSnippetBroadcast, onCommandRun, onWorkspaceSave, onWorkspaceLoad, isWin,
   isTrialActive, trialDaysLeft, profileLoading, onUpgrade, onTeamsOpen, pendingInvitesCount = 0, onMyReposOpen, plan, repoPath, onRepoLink, onRepoUnlink, onJoinTerminal,
   activeCellRepoPath, onWorktreeSelect, onNewWorktree, worktreeRefreshKey
@@ -348,21 +345,6 @@ export default function Sidebar({
     </div>
   )
 
-  const LayoutItem = (
-    <div className="sidebar-item sidebar-item-panel">
-      <span className="sidebar-icon">
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-          <rect x="2" y="2" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.3"/>
-          <rect x="9" y="2" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.3"/>
-          <rect x="2" y="9" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.3"/>
-          <rect x="9" y="9" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.3"/>
-        </svg>
-      </span>
-      <span className="sidebar-label">Layout</span>
-      <LayoutPicker current={layout} onChange={onLayoutChange} />
-    </div>
-  )
-
   return (
     <div className={`sidebar${expanded ? ' expanded' : ''}`}>
 
@@ -534,7 +516,6 @@ export default function Sidebar({
 
           {moreOpen && (
             <div className="sidebar-more-list">
-              {LayoutItem}
               {SnippetsItem}
               {WorkspacesItem}
               {MCPItem}

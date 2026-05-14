@@ -113,7 +113,7 @@ export default function CommandPalette({
     // Tabs
     tabs.forEach(tab => {
       if (tab.id === activeTabId) return
-      const paneCount = tab.cells.filter(Boolean).length
+      const paneCount = tab.panes.length
       items.push({
         id: `tab-${tab.id}`, section: 'tabs',
         label: tab.name,
