@@ -264,35 +264,46 @@ export default function BrowserCell({ pane, onClose, borderColor, siblingPaneIds
   const [portsOpen, setPortsOpen] = useState(false)
   const [openPorts, setOpenPorts] = useState<number[]>([])
   const [portsAnchor, setPortsAnchor] = useState<{ top: number; right: number } | null>(null)
+  const [showAll, setShowAll] = useState(() =>
+    localStorage.getItem('nest.browserCell.showAll') === '1'
+  )
+  const [systemPorts, setSystemPorts] = useState<number[]>([])
   const togglePorts = async () => {
     if (portsOpen) { setPortsOpen(false); return }
     try {
-      // Prefer the workspace-scoped query: ports of sibling panes + procs
-      // running under the workspace's linked repo. Falls back to listAll
-      // when the host didn't provide context. Note: `[]` is truthy in JS, so
-      // an empty siblingPaneIds list would mask the fallback — we check
-      // length explicitly here.
-      const useWorkspaceScope = !!workspaceRepoPath || (siblingPaneIds?.length ?? 0) > 0 || (siblingRepoPaths?.length ?? 0) > 0
-      let list = useWorkspaceScope
-        ? await window.port.listForWorkspace({
-            repoPath: workspaceRepoPath,
-            repoPaths: siblingRepoPaths ?? [],
-            paneIds: siblingPaneIds ?? [],
-          })
-        : await window.port.listAll()
-      // Fall back to system-wide scan when the workspace-scoped query returns
-      // nothing — covers dev servers launched outside Nest (in another shell,
-      // VS Code, Docker, etc.) so the dropdown isn't useless.
-      if (list.length === 0 && useWorkspaceScope) {
-        list = await window.port.listAll()
+      const filtered = await window.port.listForWorkspace({
+        repoPath: workspaceRepoPath,
+        repoPaths: siblingRepoPaths ?? [],
+        paneIds: siblingPaneIds ?? [],
+      })
+      setOpenPorts(filtered)
+      if (showAll) {
+        const all = await window.port.listAll()
+        setSystemPorts(all.filter(p => !filtered.includes(p)))
+      } else {
+        setSystemPorts([])
       }
-      setOpenPorts(list)
     } catch {
       setOpenPorts([])
+      setSystemPorts([])
     }
     const rect = portBtnRef.current?.getBoundingClientRect()
     if (rect) setPortsAnchor({ top: rect.bottom + 4, right: window.innerWidth - rect.right })
     setPortsOpen(true)
+  }
+  const onToggleShowAll = async (next: boolean) => {
+    setShowAll(next)
+    localStorage.setItem('nest.browserCell.showAll', next ? '1' : '0')
+    if (next) {
+      try {
+        const all = await window.port.listAll()
+        setSystemPorts(all.filter(p => !openPorts.includes(p)))
+      } catch {
+        setSystemPorts([])
+      }
+    } else {
+      setSystemPorts([])
+    }
   }
   const goToPort = (port: number) => {
     const url = `http://localhost:${port}`
@@ -370,50 +381,90 @@ export default function BrowserCell({ pane, onClose, borderColor, siblingPaneIds
               animation: 'browser-port-dropdown-in 140ms cubic-bezier(0.16, 1, 0.3, 1)',
             }}
           >
-            <div style={{
-              fontSize: 9.5,
-              fontWeight: 600,
-              letterSpacing: '0.12em',
-              textTransform: 'uppercase',
-              color: 'rgba(255, 255, 255, 0.4)',
-              padding: '6px 10px 6px',
-            }}>Listening ports</div>
+            <div className="ports-section-label">Listening ports — Nest</div>
             {openPorts.length === 0 ? (
-              <div style={{ padding: '14px 12px', color: 'rgba(255, 255, 255, 0.4)', fontSize: 11.5, textAlign: 'center', letterSpacing: '0.01em' }}>
-                No listening ports
-              </div>
-            ) : openPorts.map((port) => (
-              <button
-                key={port}
-                onClick={() => goToPort(port)}
-                style={{
-                  display: 'flex',
-                  alignItems: 'baseline',
-                  justifyContent: 'flex-start',
-                  gap: 8,
-                  width: '100%',
-                  background: 'transparent',
-                  border: 0,
-                  outline: 0,
-                  color: '#fff',
-                  padding: '8px 12px',
-                  borderRadius: 7,
-                  cursor: 'pointer',
-                  textAlign: 'left',
-                  font: 'inherit',
-                  fontSize: 13,
-                  WebkitAppearance: 'none',
-                  appearance: 'none',
-                  marginTop: 1,
-                  transition: 'background 120ms ease',
-                }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255, 255, 255, 0.06)' }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
-              >
-                <span style={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: 13, fontWeight: 400 }}>localhost</span>
-                <span style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace", color: '#0066FF', fontWeight: 600, fontSize: 13, letterSpacing: '0.02em' }}>:{port}</span>
-              </button>
-            ))}
+              <div className="ports-empty">No ports detected in this workspace.</div>
+            ) : (
+              openPorts.map((port) => (
+                <button
+                  key={port}
+                  className="ports-item"
+                  onClick={() => goToPort(port)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'baseline',
+                    justifyContent: 'flex-start',
+                    gap: 8,
+                    width: '100%',
+                    background: 'transparent',
+                    border: 0,
+                    outline: 0,
+                    color: '#fff',
+                    padding: '8px 12px',
+                    borderRadius: 7,
+                    cursor: 'pointer',
+                    textAlign: 'left',
+                    font: 'inherit',
+                    fontSize: 13,
+                    WebkitAppearance: 'none',
+                    appearance: 'none',
+                    marginTop: 1,
+                    transition: 'background 120ms ease',
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255, 255, 255, 0.06)' }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
+                >
+                  <span style={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: 13, fontWeight: 400 }}>localhost</span>
+                  <span style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace", color: '#0066FF', fontWeight: 600, fontSize: 13, letterSpacing: '0.02em' }}>:{port}</span>
+                </button>
+              ))
+            )}
+            {showAll && systemPorts.length > 0 && (
+              <>
+                <div className="ports-section-label ports-section-label--muted">Other system ports</div>
+                {systemPorts.map((port) => (
+                  <button
+                    key={`sys-${port}`}
+                    className="ports-item ports-item--muted"
+                    onClick={() => goToPort(port)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'baseline',
+                      justifyContent: 'flex-start',
+                      gap: 8,
+                      width: '100%',
+                      background: 'transparent',
+                      border: 0,
+                      outline: 0,
+                      color: '#fff',
+                      padding: '8px 12px',
+                      borderRadius: 7,
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      font: 'inherit',
+                      fontSize: 13,
+                      WebkitAppearance: 'none',
+                      appearance: 'none',
+                      marginTop: 1,
+                      transition: 'background 120ms ease',
+                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255, 255, 255, 0.06)' }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
+                  >
+                    <span style={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: 13, fontWeight: 400 }}>localhost</span>
+                    <span style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace", color: '#0066FF', fontWeight: 600, fontSize: 13, letterSpacing: '0.02em' }}>:{port}</span>
+                  </button>
+                ))}
+              </>
+            )}
+            <label className="ports-toggle">
+              <input
+                type="checkbox"
+                checked={showAll}
+                onChange={(e) => void onToggleShowAll(e.target.checked)}
+              />
+              <span>Show other system ports</span>
+            </label>
           </div>
         )}
         <button

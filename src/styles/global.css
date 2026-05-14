@@ -7495,6 +7495,31 @@ button.ci-badge:hover {
 .port-pill-discovered {
   border-style: dashed;
 }
+.ports-section-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-muted, #888);
+  padding: 6px 10px 4px;
+}
+.ports-section-label--muted { opacity: 0.7; }
+.ports-item--muted { opacity: 0.7; }
+.ports-empty {
+  padding: 8px 10px;
+  color: var(--text-muted, #888);
+  font-size: 11px;
+  font-style: italic;
+}
+.ports-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border-top: 1px solid var(--border, #2a2a2a);
+  font-size: 11px;
+  color: var(--text-secondary, #aaa);
+  cursor: pointer;
+}
 
 /* === BrowserCell (Plan 4) === */
 .browser-cell {
