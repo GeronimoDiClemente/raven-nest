@@ -579,6 +579,21 @@ export default function App() {
     })
   }, [activeTabId, updateActiveTab])
 
+  // When a link click in xterm or a PortChip dispatches nest:pty-url and no
+  // BrowserCell is mounted to capture it, create one. If a BrowserCell IS
+  // mounted, its own listener (BrowserCell.tsx:166) already navigates it —
+  // we no-op to avoid duplicating panes.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const ce = e as CustomEvent<{ paneId: string; url: string }>
+      if (!ce.detail?.url) return
+      const hasBrowser = panesRef.current.some(p => p.aiType === 'browser')
+      if (!hasBrowser) openBrowserCell(ce.detail.url)
+    }
+    window.addEventListener('nest:pty-url', handler as EventListener)
+    return () => window.removeEventListener('nest:pty-url', handler as EventListener)
+  }, [openBrowserCell])
+
   // Open the new-pane dialog (engine handles slot placement)
   const addNextPane = useCallback(() => {
     setAddingPane({})
