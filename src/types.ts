@@ -457,7 +457,7 @@ declare global {
     port: {
       scan: (pid: number) => Promise<number[]>
       listAll: () => Promise<number[]>
-      listForWorkspace: (opts: { repoPath?: string; paneIds?: string[] }) => Promise<number[]>
+      listForWorkspace: (opts: { repoPath?: string; repoPaths?: string[]; paneIds?: string[] }) => Promise<number[]>
     }
     diff: {
       get: (worktreePath: string, base?: string) => Promise<DiffResult>
