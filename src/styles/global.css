@@ -8961,3 +8961,83 @@ body.platform-mac .tabbar { padding-right: 116px; }
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* ── Layout Selector ─────────────────────────────────────── */
+
+.layout-selector {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 30;
+}
+
+.layout-selector-btn {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--text-muted);
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.layout-selector-btn:hover {
+  color: var(--text-primary);
+  border-color: var(--raven-blue);
+}
+
+.layout-selector-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+  padding: 12px;
+  min-width: 200px;
+}
+
+.layout-selector-title {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.layout-selector-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+
+.layout-selector-option {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 4px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 10px;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.layout-selector-option:hover {
+  color: var(--text-primary);
+  border-color: var(--raven-blue);
+}
+
+.layout-selector-option.active {
+  color: var(--raven-blue);
+  border-color: var(--raven-blue);
+  background: #0066FF15;
+}
