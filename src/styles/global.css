@@ -9095,18 +9095,19 @@ body.platform-mac .tabbar { padding-right: 116px; }
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  background: #0a2540;
-  color: #4F9EFF;
-  border: 1px solid #1e4060;
+  background: var(--bg-elevated);
+  color: var(--raven-blue);
+  border: 1px solid var(--border);
   border-radius: 10px;
   padding: 2px 8px;
   font-size: 11px;
-  font-family: var(--font-mono, "Cascadia Mono", monospace);
+  font-family: 'JetBrains Mono', monospace;
   cursor: pointer;
   margin: 0 4px;
   white-space: nowrap;
+  transition: background 0.12s, border-color 0.12s;
 }
 .port-chip:hover {
-  background: #14305a;
-  border-color: #2a5080;
+  background: rgba(0, 102, 255, 0.12);
+  border-color: var(--raven-blue);
 }
