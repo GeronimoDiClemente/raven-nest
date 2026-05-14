@@ -5,6 +5,7 @@ import { WebLinksAddon } from '@xterm/addon-web-links'
 import { SearchAddon } from '@xterm/addon-search'
 import { registerTerminal, unregisterTerminal } from '../terminal-instances'
 import { safeWriteText, safeReadText } from '../lib/clipboard'
+import { isLocalUrl } from '../lib/is-local-url'
 
 export function useXterm(paneId: string, onInput?: (data: string) => void, fontSize = 13, onResize?: (cols: number, rows: number) => void) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -60,7 +61,16 @@ export function useXterm(paneId: string, onInput?: (data: string) => void, fontS
     const searchAddon = new SearchAddon()
     term.loadAddon(fitAddon)
     term.loadAddon(searchAddon)
-    term.loadAddon(new WebLinksAddon())
+    term.loadAddon(new WebLinksAddon((event, url) => {
+      event.preventDefault()
+      if (isLocalUrl(url)) {
+        window.dispatchEvent(new CustomEvent('nest:pty-url', {
+          detail: { paneId, url }
+        }))
+      } else {
+        window.electronShell.openExternal(url)
+      }
+    }))
     term.open(containerRef.current)
 
     termRef.current = term
