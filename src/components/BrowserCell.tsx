@@ -1,9 +1,10 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { PaneNode } from '../types'
+import { useSortable } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 
 interface Props {
   pane: PaneNode
-  cellId: string
   onClose: () => void
   borderColor?: string
   // Other pane ids in the same workspace tab. Used to filter the port
@@ -61,8 +62,17 @@ function isOwnOrigin(rawUrl: string): boolean {
   }
 }
 
-export default function BrowserCell({ pane, cellId, onClose, borderColor, siblingPaneIds, workspaceRepoPath, siblingRepoPaths }: Props) {
+export default function BrowserCell({ pane, onClose, borderColor, siblingPaneIds, workspaceRepoPath, siblingRepoPaths }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
+  const { setNodeRef: setSortableRef, attributes, listeners, transform, transition } = useSortable({ id: pane.id })
+  const sortableStyle: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  }
+  const setNodeRef = (el: HTMLDivElement | null) => {
+    setSortableRef(el)
+    ;(containerRef as React.MutableRefObject<HTMLDivElement | null>).current = el
+  }
   const placeholderRef = useRef<HTMLDivElement>(null)
   const createdRef = useRef(false)
   const [url, setUrl] = useState<string>(pane.url ?? 'about:blank')
@@ -118,8 +128,8 @@ export default function BrowserCell({ pane, cellId, onClose, borderColor, siblin
   useEffect(() => {
     const handler = (e: Event) => {
       if (!isUntouchedRef.current) return
-      const ce = e as CustomEvent<{ paneId: string; cellId: string; url: string }>
-      const sourceEl = document.querySelector(`[data-cell-id="${ce.detail.cellId}"]`)
+      const ce = e as CustomEvent<{ paneId: string; url: string }>
+      const sourceEl = document.querySelector(`[data-pane-id="${ce.detail.paneId}"]`)
       const myEl = containerRef.current
       if (sourceEl && myEl) {
         const sr = sourceEl.getBoundingClientRect()
@@ -313,13 +323,14 @@ export default function BrowserCell({ pane, cellId, onClose, borderColor, siblin
 
   return (
     <div
-      ref={containerRef}
+      ref={setNodeRef}
       className="browser-cell"
-      data-cell-id={cellId}
+      data-pane-id={pane.id}
       data-browser-untouched={isUntouched ? 'true' : undefined}
-      style={{ borderColor: accent }}
+      style={{ ...sortableStyle, borderColor: accent }}
     >
       <div className="browser-header" style={{ height: HEADER_HEIGHT }}>
+        <span className="browser-drag-handle" {...listeners} {...attributes} />
         <button className="browser-btn" onClick={() => window.browser.back(pane.id)} title="Back">‹</button>
         <button className="browser-btn" onClick={() => window.browser.forward(pane.id)} title="Forward">›</button>
         <button className="browser-btn" onClick={() => window.browser.reload(pane.id)} title="Reload">↻</button>

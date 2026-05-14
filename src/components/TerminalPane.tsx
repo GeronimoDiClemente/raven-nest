@@ -43,7 +43,6 @@ function extractLabel(raw: string): string {
 
 interface Props {
   pane: PaneNode
-  cellId: string
   isDragging: boolean
   zoomed: boolean
   zoomingOut: boolean
@@ -61,7 +60,7 @@ interface Props {
   style?: React.CSSProperties
 }
 
-export default function TerminalPane({ pane, cellId, isDragging, zoomed, zoomingOut, onZoom, onClose, onColorChange, onNoteChange, onInput, onBusyChange, onFocus, onActivity, onJoinRequest, onPtyStarted, fontSize, style }: Props) {
+export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZoom, onClose, onColorChange, onNoteChange, onInput, onBusyChange, onFocus, onActivity, onJoinRequest, onPtyStarted, fontSize, style }: Props) {
   const cmdBufferRef = useRef('')
   const wrappedOnInput = useCallback((data: string) => {
     for (const ch of data) {
@@ -83,7 +82,7 @@ export default function TerminalPane({ pane, cellId, isDragging, zoomed, zooming
       terminalShareService.broadcastSize(pane.id, cols, rows)
     }, [pane.id])
   )
-  const { setNodeRef, attributes, listeners, transform, transition, isOver } = useSortable({ id: cellId })
+  const { setNodeRef, attributes, listeners, transform, transition, isOver } = useSortable({ id: pane.id })
   const outputBuf = useRef('')       // notification buffer (last 2000 chars)
   const convBuf = useRef('')         // full conversation buffer
   const urlScanBuf = useRef('')      // sliding window for localhost URL detection
@@ -176,7 +175,7 @@ export default function TerminalPane({ pane, cellId, isDragging, zoomed, zooming
         if (seenUrlsRef.current.has(detectedUrl)) continue
         seenUrlsRef.current.add(detectedUrl)
         window.dispatchEvent(new CustomEvent('nest:pty-url', {
-          detail: { paneId: pane.id, cellId, url: detectedUrl }
+          detail: { paneId: pane.id, url: detectedUrl }
         }))
       }
 
