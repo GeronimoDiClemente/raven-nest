@@ -26,6 +26,7 @@ const ICONS: Record<LayoutId, string> = {
   '3T': 'M2 2h5v5H2z M9 2h5v5H9z M2 9h12v5H2z',
   '4Q': 'M2 2h5v5H2z M9 2h5v5H9z M2 9h5v5H2z M9 9h5v5H9z',
   '4M': 'M2 2h5v12H2z M9 2h5v3.3H9z M9 6.3h5v3.4H9z M9 10.7h5v3.3H9z',
+  '4T': 'M2 2h3.3v5H2z M6.3 2h3.4v5H6.3z M10.7 2h3.3v5h-3.3z M2 9h12v5H2z',
   '5T': 'M2 2h3.3v5H2z M6.3 2h3.4v5H6.3z M10.7 2h3.3v5h-3.3z M2 9h5v5H2z M9 9h5v5H9z',
   '6G': 'M2 2h3.3v5H2z M6.3 2h3.4v5H6.3z M10.7 2h3.3v5h-3.3z M2 9h3.3v5H2z M6.3 9h3.4v5H6.3z M10.7 9h3.3v5h-3.3z',
   '9G': 'M2 2h3.3v3.3H2z M6.3 2h3.4v3.3H6.3z M10.7 2h3.3v3.3h-3.3z M2 6.3h3.3v3.4H2z M6.3 6.3h3.4v3.4H6.3z M10.7 6.3h3.3v3.4h-3.3z M2 10.7h3.3v3.3H2z M6.3 10.7h3.4v3.3H6.3z M10.7 10.7h3.3v3.3h-3.3z',
@@ -40,6 +41,7 @@ export const PRESETS: Record<LayoutId, LayoutPreset> = {
   '3T': { id: '3T', slotCount: 3, label: 'Top split + bottom',       icon: ICONS['3T'], root: v(h(pane(0), pane(1)), pane(2)) },
   '4Q': { id: '4Q', slotCount: 4, label: 'Quadrants',                icon: ICONS['4Q'], root: v(h(pane(0), pane(1)), h(pane(2), pane(3))) },
   '4M': { id: '4M', slotCount: 4, label: 'Master + 3 stack',         icon: ICONS['4M'], root: h(pane(0), v(pane(1), pane(2), pane(3))) },
+  '4T': { id: '4T', slotCount: 4, label: '3 over wide bottom',       icon: ICONS['4T'], root: v(h(pane(0), pane(1), pane(2)), pane(3)) },
   '5T': { id: '5T', slotCount: 5, label: 'Three over two',           icon: ICONS['5T'], root: v(h(pane(0), pane(1), pane(2)), h(pane(3), pane(4))) },
   '6G': { id: '6G', slotCount: 6, label: '3 × 2 grid',               icon: ICONS['6G'], root: v(h(pane(0), pane(1), pane(2)), h(pane(3), pane(4), pane(5))) },
   '9G': { id: '9G', slotCount: 9, label: '3 × 3 grid',               icon: ICONS['9G'], root: v(

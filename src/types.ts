@@ -4,7 +4,7 @@ export type LayoutId =
   | '1'
   | '2V' | '2H'
   | '3C' | '3M' | '3T'
-  | '4Q' | '4M'
+  | '4Q' | '4M' | '4T'
   | '5T'
   | '6G'
   | '9G'

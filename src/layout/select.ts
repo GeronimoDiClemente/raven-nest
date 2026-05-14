@@ -13,7 +13,7 @@ export function defaultLayoutFor(n: number): LayoutId {
 export function alternativesFor(n: number): LayoutId[] {
   if (n === 2) return ['2V', '2H']
   if (n === 3) return ['3C', '3M', '3T']
-  if (n === 4) return ['4Q', '4M']
+  if (n === 4) return ['4Q', '4M', '4T']
   return [defaultLayoutFor(n)]
 }
 

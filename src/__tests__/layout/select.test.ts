@@ -14,7 +14,7 @@ describe('alternativesFor', () => {
   it('returns multiple options for N=2/3/4', () => {
     expect(alternativesFor(2)).toEqual(['2V', '2H'])
     expect(alternativesFor(3)).toEqual(['3C', '3M', '3T'])
-    expect(alternativesFor(4)).toEqual(['4Q', '4M'])
+    expect(alternativesFor(4)).toEqual(['4Q', '4M', '4T'])
   })
 
   it('returns just the default for N=1 and N>=5', () => {
