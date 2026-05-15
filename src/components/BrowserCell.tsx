@@ -6,6 +6,10 @@ import { CSS } from '@dnd-kit/utilities'
 interface Props {
   pane: PaneNode
   onClose: () => void
+  // Called when the WebContentsView navigates so the parent can persist the
+  // current URL on the pane model. Without this, switching workspaces destroys
+  // the view and the pane re-mounts with the original (placeholder) URL.
+  onNavigate?: (url: string) => void
   borderColor?: string
   // Other pane ids in the same workspace tab. Used to filter the port
   // dropdown to "what's running in this workspace" instead of the whole OS.
@@ -62,7 +66,7 @@ function isOwnOrigin(rawUrl: string): boolean {
   }
 }
 
-export default function BrowserCell({ pane, onClose, borderColor, siblingPaneIds, workspaceRepoPath, siblingRepoPaths }: Props) {
+export default function BrowserCell({ pane, onClose, onNavigate, borderColor, siblingPaneIds, workspaceRepoPath, siblingRepoPaths }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const { setNodeRef: setSortableRef, attributes, listeners, transform, transition } = useSortable({ id: pane.id })
   const sortableStyle: React.CSSProperties = {
@@ -103,6 +107,11 @@ export default function BrowserCell({ pane, onClose, borderColor, siblingPaneIds
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pane.id])
 
+  // Latest onNavigate kept in a ref so the long-lived subscription below
+  // always calls the freshest closure without re-subscribing on every render.
+  const onNavigateRef = useRef(onNavigate)
+  useEffect(() => { onNavigateRef.current = onNavigate }, [onNavigate])
+
   // Subscribe to navigation updates from main
   useEffect(() => {
     const cb = (paneId: string, navUrl: string) => {
@@ -110,6 +119,8 @@ export default function BrowserCell({ pane, onClose, borderColor, siblingPaneIds
       // The BLANK_PAGE placeholder is a data: URL — showing its encoded HTML
       // in the input field is meaningless and ugly, so we keep internal state
       // but leave the input empty so the "https://" placeholder is visible.
+      // Also: don't propagate it to the pane model, otherwise we'd persist the
+      // placeholder as if it were a user navigation.
       if (navUrl.startsWith('data:')) {
         setUrl(navUrl)
         setDraftUrl('')
@@ -117,6 +128,7 @@ export default function BrowserCell({ pane, onClose, borderColor, siblingPaneIds
       }
       setUrl(navUrl)
       setDraftUrl(navUrl)
+      onNavigateRef.current?.(navUrl)
     }
     window.browser.onNavigated(cb)
     return () => window.browser.removeListeners()

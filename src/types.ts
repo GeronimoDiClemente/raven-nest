@@ -217,6 +217,7 @@ export interface SessionPane {
   note?: string
   repoPath?: string
   shellId?: string
+  url?: string  // browser only: last navigated URL, restored on session load
 }
 
 export interface SessionData {

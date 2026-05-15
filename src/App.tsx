@@ -395,6 +395,17 @@ export default function App() {
     }))
   }, [updateActiveTab])
 
+  // Mirror the browser's current URL onto the pane model so that switching
+  // tabs (which unmounts the cell and destroys the WebContentsView) doesn't
+  // throw away where the user had navigated to. Also fed into the session
+  // snapshot below so the URL survives restarts.
+  const updatePaneUrl = useCallback((paneId: string, url: string) => {
+    updateActiveTab(t => ({
+      ...t,
+      panes: t.panes.map(p => p.id === paneId ? { ...p, url } : p),
+    }))
+  }, [updateActiveTab])
+
   const handlePtyStarted = useCallback((paneId: string, runningRepoPath: string | undefined) => {
     updateActiveTab(t => ({
       ...t,
@@ -741,6 +752,9 @@ export default function App() {
             customLabel: p.customLabel, customColor: p.customColor, note: p.note,
             repoPath: p.repoPath,
             shellId: p.shellId,
+            // Persist the browser pane's current URL so reopening Nest (or
+            // switching workspaces) restores the page instead of the placeholder.
+            url: p.url,
           })),
           splitRatios: tab.splitRatios,
         })),
@@ -1031,6 +1045,7 @@ export default function App() {
                             .filter((p): p is string => !!p)
                         ))}
                         onClose={() => removePane(pane.id)}
+                        onNavigate={(url) => updatePaneUrl(pane.id, url)}
                       />
                     )
                     : (
