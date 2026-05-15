@@ -61,14 +61,21 @@ jobs:
       - run: npm ci
 
       - name: Build Mac
-        # Signing config (hardenedRuntime, notarize, entitlements) lives in
-        # package.json so it's preconfigured and visible. When MAC_CSC_LINK is
-        # absent we override those flags to false so the build still produces
-        # unsigned binaries instead of erroring at codesign.
+        # Signing config is preconfigured here (not in package.json) because
+        # electron-builder rejects `hardenedRuntime + entitlements` when no
+        # cert is present. We pass the full signing+notarize config as CLI
+        # flags only when MAC_CSC_LINK is set; otherwise the build produces
+        # unsigned binaries.
+        # When secrets are loaded, the build firma + notariza automáticamente.
         run: |
           EXTRA_FLAGS=""
-          if [ -z "$CSC_LINK" ]; then
-            EXTRA_FLAGS="--c.mac.hardenedRuntime=false --c.mac.notarize=false"
+          if [ -n "$CSC_LINK" ]; then
+            EXTRA_FLAGS="\
+              --c.mac.hardenedRuntime=true \
+              --c.mac.gatekeeperAssess=false \
+              --c.mac.entitlements=build/entitlements.mac.plist \
+              --c.mac.entitlementsInherit=build/entitlements.mac.plist \
+              --c.mac.notarize=true"
           fi
           npx electron-vite build && npx electron-builder --mac --publish never $EXTRA_FLAGS
         env:
