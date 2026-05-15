@@ -9,6 +9,8 @@ Run Claude, Gemini, Codex, Copilot and more — side by side in a single window.
 [![Latest Release](https://img.shields.io/github/v/release/GeronimoDiClemente/raven-nest?style=flat-square&color=0066FF)](https://github.com/GeronimoDiClemente/raven-nest/releases/latest)
 [![v1.1](https://img.shields.io/badge/v1.1-current%20release-0066FF?style=flat-square)](#whats-new-in-v11)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey?style=flat-square)](https://github.com/GeronimoDiClemente/raven-nest/releases/latest)
+[![License: PolyForm Strict](https://img.shields.io/badge/license-PolyForm%20Strict%201.0.0-orange?style=flat-square)](./LICENSE)
+[![Source-available](https://img.shields.io/badge/source--available-official%20binaries%20only-orange?style=flat-square)](#license--redistribution)
 
 [Website](https://nestmux.com) · [Download](#download) · [Feedback](../../issues) · [Discussions](../../discussions)
 
@@ -92,16 +94,24 @@ The headline of v1.0 is **branch-level isolation in the same window**: spawn a w
 
 ---
 
+## License & redistribution
+
+Nest by RAVEN is **source-available** under the [PolyForm Strict License 1.0.0](./LICENSE). The code is published here for transparency and security audit. You **may not** redistribute, fork, modify, or build this software — please install the official binaries from the [Releases page](../../releases/latest). Official builds are signed and auto-update in the background.
+
+Versions up to and including **v1.0.1** were published under the Apache License 2.0 and remain under those terms forever. Versions **v1.1.1 and later** are under PolyForm Strict.
+
+---
+
 ## Download
 
-Latest: **v1.1.0** — tiling layout engine, per-pane port detection, browser cell upgrades, security hardening.
+Latest: **v1.1.1** — code signing, PolyForm Strict relicense, min-version check, trial RLS fix (on top of v1.1.0 tiling layout + port detection + security hardening).
 
 | Platform | Download |
 |----------|----------|
-| **macOS** (Apple Silicon) | [Nest-1.1.0-arm64.dmg](../../releases/latest) |
-| **Windows** | [Nest-Setup-1.1.0.exe](../../releases/latest) |
-| **Linux** (universal) | [Nest-1.1.0.AppImage](../../releases/latest) |
-| **Linux** (Debian / Ubuntu) | [nest_1.1.0_amd64.deb](../../releases/latest) |
+| **macOS** (Apple Silicon) | [Nest-1.1.1-arm64.dmg](../../releases/latest) |
+| **Windows** | [Nest-Setup-1.1.1.exe](../../releases/latest) |
+| **Linux** (universal) | [Nest-1.1.1.AppImage](../../releases/latest) |
+| **Linux** (Debian / Ubuntu) | [nest_1.1.1_amd64.deb](../../releases/latest) |
 
 > Nest auto-updates in the background — install once and you'll get future releases without re-downloading.
 

@@ -43,7 +43,14 @@ Deno.serve(async (req) => {
   if (event.type === 'checkout.session.completed') {
     const session = event.data.object as Stripe.Checkout.Session
     const userId = session.metadata?.user_id
-    const priceId = session.line_items?.data[0]?.price?.id ?? ''
+    // Stripe does NOT include line_items in checkout.session.completed unless
+    // explicitly expanded. Pull the priceId from the subscription instead so
+    // a Team purchase doesn't silently downgrade to Pro.
+    let priceId = ''
+    if (session.subscription) {
+      const sub = await stripe.subscriptions.retrieve(session.subscription as string)
+      priceId = sub.items.data[0]?.price.id ?? ''
+    }
     const plan = PRICE_TO_PLAN[priceId] ?? 'pro'
 
     if (userId) {

@@ -63,7 +63,14 @@ jobs:
       - name: Build Mac
         run: npx electron-vite build && npx electron-builder --mac --publish never
         env:
-          CSC_IDENTITY_AUTO_DISCOVERY: false
+          # Code signing: if MAC_CSC_LINK is not set, electron-builder skips signing.
+          # When set, requires the four APPLE_* secrets for notarization.
+          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          CSC_IDENTITY_AUTO_DISCOVERY: ${{ secrets.MAC_CSC_LINK == '' && 'false' || 'true' }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           MAIN_VITE_GITHUB_CLIENT_ID: ${{ secrets.MAIN_VITE_GITHUB_CLIENT_ID }}
           MAIN_VITE_GITLAB_CLIENT_ID: ${{ secrets.MAIN_VITE_GITLAB_CLIENT_ID }}
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
@@ -96,6 +103,9 @@ jobs:
       - name: Build Windows
         run: npx electron-vite build && npx electron-builder --win --publish never
         env:
+          # Code signing: if WIN_CSC_LINK is not set, electron-builder skips signing.
+          CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
           MAIN_VITE_GITHUB_CLIENT_ID: ${{ secrets.MAIN_VITE_GITHUB_CLIENT_ID }}
           MAIN_VITE_GITLAB_CLIENT_ID: ${{ secrets.MAIN_VITE_GITLAB_CLIENT_ID }}
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
