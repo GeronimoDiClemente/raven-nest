@@ -1,6 +1,71 @@
-import { app, BrowserWindow, ipcMain, shell, nativeImage, dialog, session, safeStorage, clipboard } from 'electron'
+import { app, BrowserWindow, ipcMain, shell, nativeImage, dialog, session, safeStorage, clipboard, net } from 'electron'
 import { autoUpdater } from 'electron-updater'
 import { resolve as pathResolve } from 'path'
+
+const MIN_VERSION_URL = 'https://raw.githubusercontent.com/GeronimoDiClemente/raven-nest-releases/main/min-version.json'
+const MIN_VERSION_TIMEOUT_MS = 4000
+const DOWNLOAD_PAGE_URL = 'https://github.com/GeronimoDiClemente/raven-nest-releases/releases/latest'
+
+function isVersionLower(current: string, target: string): boolean {
+  const parse = (v: string): number[] => v.replace(/^v/, '').split('.').map(n => parseInt(n, 10) || 0)
+  const a = parse(current)
+  const b = parse(target)
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    const ai = a[i] ?? 0
+    const bi = b[i] ?? 0
+    if (ai < bi) return true
+    if (ai > bi) return false
+  }
+  return false
+}
+
+async function fetchMinVersion(): Promise<{ min_version: string; message?: string } | null> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(null), MIN_VERSION_TIMEOUT_MS)
+    try {
+      const req = net.request({ url: MIN_VERSION_URL, redirect: 'follow' })
+      let body = ''
+      req.on('response', (res) => {
+        if (res.statusCode !== 200) { clearTimeout(timer); resolve(null); return }
+        res.on('data', (chunk) => { body += chunk.toString() })
+        res.on('end', () => {
+          clearTimeout(timer)
+          try {
+            const parsed = JSON.parse(body)
+            if (parsed && typeof parsed.min_version === 'string') resolve(parsed)
+            else resolve(null)
+          } catch { resolve(null) }
+        })
+        res.on('error', () => { clearTimeout(timer); resolve(null) })
+      })
+      req.on('error', () => { clearTimeout(timer); resolve(null) })
+      req.end()
+    } catch { clearTimeout(timer); resolve(null) }
+  })
+}
+
+async function enforceMinVersion(): Promise<boolean> {
+  if (process.env['ELECTRON_RENDERER_URL']) return true
+  const current = app.getVersion()
+  const remote = await fetchMinVersion()
+  if (!remote) return true
+  if (!isVersionLower(current, remote.min_version)) return true
+
+  const defaultMsg = `This version of Nest (v${current}) is no longer supported. Please install the latest version (v${remote.min_version} or newer).`
+  const choice = dialog.showMessageBoxSync({
+    type: 'warning',
+    title: 'Update required',
+    message: 'Nest needs to be updated',
+    detail: remote.message || defaultMsg,
+    buttons: ['Download latest', 'Quit'],
+    defaultId: 0,
+    cancelId: 1,
+    noLink: true,
+  })
+  if (choice === 0) shell.openExternal(DOWNLOAD_PAGE_URL)
+  app.quit()
+  return false
+}
 
 // Swallow stdout EPIPE — happens when the parent terminal closes while the
 // app keeps running. A single console.log that writes to a closed stdout
@@ -1951,7 +2016,13 @@ function clearCacheOnVersionChange(): void {
   }
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  // Block launch if this build is older than the minimum supported version
+  // (published at min-version.json in the releases repo root). Fails open on
+  // network errors so offline users aren't locked out.
+  const allowed = await enforceMinVersion()
+  if (!allowed) return
+
   clearCacheOnVersionChange()
 
   // Windows: capture deep link URL passed as argv at cold launch

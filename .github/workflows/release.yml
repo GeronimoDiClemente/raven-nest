@@ -63,7 +63,14 @@ jobs:
       - name: Build Mac
         run: npx electron-vite build && npx electron-builder --mac --publish never
         env:
-          CSC_IDENTITY_AUTO_DISCOVERY: false
+          # Code signing: if MAC_CSC_LINK is not set, electron-builder skips signing.
+          # When set, requires the four APPLE_* secrets for notarization.
+          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          CSC_IDENTITY_AUTO_DISCOVERY: ${{ secrets.MAC_CSC_LINK == '' && 'false' || 'true' }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           MAIN_VITE_GITHUB_CLIENT_ID: ${{ secrets.MAIN_VITE_GITHUB_CLIENT_ID }}
           MAIN_VITE_GITLAB_CLIENT_ID: ${{ secrets.MAIN_VITE_GITLAB_CLIENT_ID }}
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
@@ -96,6 +103,9 @@ jobs:
       - name: Build Windows
         run: npx electron-vite build && npx electron-builder --win --publish never
         env:
+          # Code signing: if WIN_CSC_LINK is not set, electron-builder skips signing.
+          CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
           MAIN_VITE_GITHUB_CLIENT_ID: ${{ secrets.MAIN_VITE_GITHUB_CLIENT_ID }}
           MAIN_VITE_GITLAB_CLIENT_ID: ${{ secrets.MAIN_VITE_GITLAB_CLIENT_ID }}
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
@@ -196,16 +206,17 @@ jobs:
           name: linux-artifacts
           path: artifacts/linux
 
-      - name: Delete existing release and tag
-        run: gh release delete v${{ needs.decrypt.outputs.version }} --yes --cleanup-tag --repo GeronimoDiClemente/raven-nest || true
+      - name: Delete existing release and tag (on public releases repo)
+        run: gh release delete v${{ needs.decrypt.outputs.version }} --yes --cleanup-tag --repo GeronimoDiClemente/raven-nest-releases || true
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.RELEASES_REPO_TOKEN }}
 
-      - name: Create GitHub Release
+      - name: Create GitHub Release on raven-nest-releases (cross-repo)
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ needs.decrypt.outputs.version }}
           name: v${{ needs.decrypt.outputs.version }}
+          repository: GeronimoDiClemente/raven-nest-releases
           files: |
             artifacts/mac/*.dmg
             artifacts/mac/*.zip
@@ -216,5 +227,5 @@ jobs:
             artifacts/linux/*.deb
             artifacts/linux/*.yml
           make_latest: true
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.RELEASES_REPO_TOKEN }}
 
