@@ -61,30 +61,37 @@ jobs:
       - run: npm ci
 
       - name: Build Mac
-        # Signing config lives in `signing/` (not the default `build/`)
-        # because electron-builder auto-detects `build/entitlements.mac.plist`
-        # and triggers signing even without a cert, which breaks the unsigned
-        # build. Flags below only fire when MAC_CSC_LINK is set.
+        # Signing env vars are passed under *_SECRET names so electron-builder
+        # doesn't see CSC_LINK / CSC_KEY_PASSWORD / APPLE_* in the environment
+        # unless we explicitly export them. The previous version passed
+        # `CSC_LINK: ${{ secrets.MAC_CSC_LINK }}` which on repos without the
+        # secret resolves to an empty string — empty-but-defined was enough
+        # for electron-builder to enter the signing flow and crash with
+        # "not a file" on the unsigned build.
         run: |
           EXTRA_FLAGS=""
-          if [ -n "$CSC_LINK" ]; then
+          if [ -n "$MAC_CSC_LINK_SECRET" ]; then
+            export CSC_LINK="$MAC_CSC_LINK_SECRET"
+            export CSC_KEY_PASSWORD="$MAC_CSC_KEY_PASSWORD_SECRET"
+            export APPLE_ID="$APPLE_ID_SECRET"
+            export APPLE_APP_SPECIFIC_PASSWORD="$APPLE_APP_SPECIFIC_PASSWORD_SECRET"
+            export APPLE_TEAM_ID="$APPLE_TEAM_ID_SECRET"
             EXTRA_FLAGS="\
               --c.mac.hardenedRuntime=true \
               --c.mac.gatekeeperAssess=false \
               --c.mac.entitlements=signing/entitlements.mac.plist \
               --c.mac.entitlementsInherit=signing/entitlements.mac.plist \
               --c.mac.notarize=true"
+          else
+            export CSC_IDENTITY_AUTO_DISCOVERY=false
           fi
           npx electron-vite build && npx electron-builder --mac --publish never $EXTRA_FLAGS
         env:
-          # Code signing: if MAC_CSC_LINK is not set, electron-builder skips signing.
-          # When set, requires the four APPLE_* secrets for notarization.
-          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
-          CSC_IDENTITY_AUTO_DISCOVERY: ${{ secrets.MAC_CSC_LINK == '' && 'false' || 'true' }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          MAC_CSC_LINK_SECRET: ${{ secrets.MAC_CSC_LINK }}
+          MAC_CSC_KEY_PASSWORD_SECRET: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          APPLE_ID_SECRET: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD_SECRET: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID_SECRET: ${{ secrets.APPLE_TEAM_ID }}
           MAIN_VITE_GITHUB_CLIENT_ID: ${{ secrets.MAIN_VITE_GITHUB_CLIENT_ID }}
           MAIN_VITE_GITLAB_CLIENT_ID: ${{ secrets.MAIN_VITE_GITLAB_CLIENT_ID }}
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
