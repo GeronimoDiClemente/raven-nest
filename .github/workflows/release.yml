@@ -61,7 +61,15 @@ jobs:
       - run: npm ci
 
       - name: Build Mac
-        run: npx electron-vite build && npx electron-builder --mac --publish never
+        # hardenedRuntime + notarize are opt-in via flags only when MAC_CSC_LINK
+        # is present. Without the cert/notarize creds electron-builder would
+        # fail at the codesign step even with CSC_IDENTITY_AUTO_DISCOVERY=false.
+        run: |
+          EXTRA_FLAGS=""
+          if [ -n "$CSC_LINK" ]; then
+            EXTRA_FLAGS="--c.mac.hardenedRuntime=true --c.mac.notarize=true"
+          fi
+          npx electron-vite build && npx electron-builder --mac --publish never $EXTRA_FLAGS
         env:
           # Code signing: if MAC_CSC_LINK is not set, electron-builder skips signing.
           # When set, requires the four APPLE_* secrets for notarization.
