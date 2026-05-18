@@ -183,13 +183,13 @@ jobs:
           for dmg in dist/*.dmg; do
             [ -f "$dmg" ] || continue
             echo ""
-            echo "==> Submitting $dmg to Apple notarization (timeout 30m)"
+            echo "==> Submitting $dmg to Apple notarization (timeout 5m — best-effort)"
             if xcrun notarytool submit "$dmg" \
                  --apple-id "$APPLE_ID" \
                  --password "$APPLE_APP_SPECIFIC_PASSWORD" \
                  --team-id "$APPLE_TEAM_ID" \
                  --wait \
-                 --timeout 30m; then
+                 --timeout 5m; then
               echo "==> Stapling notarization ticket onto $dmg"
               xcrun stapler staple "$dmg"
               echo "==> Verifying stapled signature"
