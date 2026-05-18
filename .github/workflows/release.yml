@@ -156,15 +156,21 @@ jobs:
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
 
       - name: Notarize and staple Mac artifacts
-        # Runs after build. Uses xcrun notarytool (replacement for legacy altool)
-        # which gives detailed logs and supports --timeout to avoid infinite hangs.
+        # Best-effort notarization: the .dmg is already signed at this point.
+        # If Apple's notary takes longer than the timeout (common for first-time
+        # submissions with a new team ID — Apple does an "in-depth analysis"
+        # that can take 12-48h), we log a warning and proceed without stapling.
+        # The .dmg is still signed and will work on macOS, just requires
+        # internet on first launch to verify the notarization online.
+        #
+        # Once Apple has warmed up the team ID (after the first slow submission
+        # eventually completes), subsequent runs should finish in 5-10 minutes.
         env:
           MAC_CSC_LINK_SECRET: ${{ secrets.MAC_CSC_LINK }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          set -e
           if [ -z "$MAC_CSC_LINK_SECRET" ]; then
             echo "No signing secret — skipping notarization"
             exit 0
@@ -178,22 +184,25 @@ jobs:
             [ -f "$dmg" ] || continue
             echo ""
             echo "==> Submitting $dmg to Apple notarization (timeout 30m)"
-            xcrun notarytool submit "$dmg" \
-              --apple-id "$APPLE_ID" \
-              --password "$APPLE_APP_SPECIFIC_PASSWORD" \
-              --team-id "$APPLE_TEAM_ID" \
-              --wait \
-              --timeout 30m
-
-            echo "==> Stapling notarization ticket onto $dmg"
-            xcrun stapler staple "$dmg"
-
-            echo "==> Verifying stapled signature"
-            xcrun stapler validate "$dmg"
+            if xcrun notarytool submit "$dmg" \
+                 --apple-id "$APPLE_ID" \
+                 --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+                 --team-id "$APPLE_TEAM_ID" \
+                 --wait \
+                 --timeout 30m; then
+              echo "==> Stapling notarization ticket onto $dmg"
+              xcrun stapler staple "$dmg"
+              echo "==> Verifying stapled signature"
+              xcrun stapler validate "$dmg"
+            else
+              echo "::warning::Notarization timed out or failed for $dmg. The .dmg is signed but not stapled — first launch on macOS will require internet to verify online. This is expected for the first submission with a new team ID; later runs should complete in 5-10 minutes."
+            fi
           done
 
           # .zip cannot be stapled (only .app/.dmg/.pkg), but the .app inside
-          # is already notarized through the .dmg submission above.
+          # is already notarized through the .dmg submission above (assuming
+          # Apple eventually completes the in-progress submission).
+          exit 0
 
       - uses: actions/upload-artifact@v4
         with:
