@@ -106,7 +106,7 @@ jobs:
         run: |
           EXTRA_FLAGS=""
           if [ -n "$MAC_CSC_LINK_SECRET" ]; then
-            export CSC_NAME="Developer ID Application: Matias Labari (N6RR4W6FV4)"
+            export CSC_NAME="Matias Labari (N6RR4W6FV4)"
             export APPLE_ID="$APPLE_ID_SECRET"
             export APPLE_APP_SPECIFIC_PASSWORD="$APPLE_APP_SPECIFIC_PASSWORD_SECRET"
             export APPLE_TEAM_ID="$APPLE_TEAM_ID_SECRET"
