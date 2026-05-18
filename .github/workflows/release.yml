@@ -70,6 +70,7 @@ jobs:
           MAC_CSC_LINK_SECRET: ${{ secrets.MAC_CSC_LINK }}
           MAC_CSC_KEY_PASSWORD_SECRET: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
         run: |
+          set -e
           if [ -z "$MAC_CSC_LINK_SECRET" ]; then
             echo "No MAC_CSC_LINK secret — skipping cert import (unsigned build)"
             exit 0
@@ -78,11 +79,19 @@ jobs:
           KEYCHAIN_NAME="build.keychain-db"
           KEYCHAIN_PASSWORD="$(openssl rand -base64 32)"
 
+          # Mask password so it never appears in logs
+          echo "::add-mask::$KEYCHAIN_PASSWORD"
+
+          # Force Apple's codesign (avoid any Homebrew override)
+          export PATH=/usr/bin:$PATH
+
+          echo "==> Creating temp keychain"
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_NAME"
           security default-keychain -s "$KEYCHAIN_NAME"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_NAME"
           security set-keychain-settings -lut 21600 "$KEYCHAIN_NAME"
 
+          echo "==> Importing cert"
           echo "$MAC_CSC_LINK_SECRET" | base64 --decode > /tmp/cert.p12
           security import /tmp/cert.p12 \
             -P "$MAC_CSC_KEY_PASSWORD_SECRET" \
@@ -90,45 +99,102 @@ jobs:
             -k "$KEYCHAIN_NAME"
           rm /tmp/cert.p12
 
-          # Allow codesign + apple tools to use the key without GUI prompt
+          echo "==> Setting partition list (codesign access)"
           security set-key-partition-list \
             -S apple-tool:,apple:,codesign: \
             -s -k "$KEYCHAIN_PASSWORD" \
-            "$KEYCHAIN_NAME"
+            "$KEYCHAIN_NAME" > /dev/null
 
-          echo "Available signing identities:"
+          echo "==> Diagnostics"
+          echo "    which codesign: $(which codesign)"
+          codesign --version
+          echo "    list-keychains:"
+          security list-keychains
+          echo "    find-identity:"
           security find-identity -v -p codesigning "$KEYCHAIN_NAME"
 
-      - name: Build Mac
-        # If MAC_CSC_LINK_SECRET is set, the cert is already imported in the
-        # keychain by the previous step — we tell electron-builder to find
-        # it by name via CSC_NAME instead of re-importing via CSC_LINK.
+          # Persist keychain credentials for next steps
+          echo "KEYCHAIN_NAME=$KEYCHAIN_NAME" >> $GITHUB_ENV
+          echo "KEYCHAIN_PASSWORD=$KEYCHAIN_PASSWORD" >> $GITHUB_ENV
+
+      - name: Build Mac (sign only, no notarize)
+        # Notarization is intentionally disabled here and done in a separate
+        # step via `xcrun notarytool`. Reasons:
+        #   1. Splits failure modes — codesign vs notarize visible separately.
+        #   2. notarytool gives real progress logs vs electron-builder's silent wait.
+        #   3. Allows independent timeout for the Apple notary roundtrip.
         run: |
+          set -e
+          # Force /usr/bin codesign + our keychain so electron-builder cannot
+          # accidentally create its own keychain and lose the partition list.
+          export PATH=/usr/bin:$PATH
+
           EXTRA_FLAGS=""
           if [ -n "$MAC_CSC_LINK_SECRET" ]; then
+            security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_NAME"
+            security default-keychain -s "$KEYCHAIN_NAME"
+
             export CSC_NAME="Matias Labari (N6RR4W6FV4)"
-            export APPLE_ID="$APPLE_ID_SECRET"
-            export APPLE_APP_SPECIFIC_PASSWORD="$APPLE_APP_SPECIFIC_PASSWORD_SECRET"
-            export APPLE_TEAM_ID="$APPLE_TEAM_ID_SECRET"
+            export CSC_KEYCHAIN="$KEYCHAIN_NAME"
             EXTRA_FLAGS="\
               --c.mac.hardenedRuntime=true \
               --c.mac.gatekeeperAssess=false \
               --c.mac.entitlements=signing/entitlements.mac.plist \
               --c.mac.entitlementsInherit=signing/entitlements.mac.plist \
-              --c.mac.notarize=true"
+              --c.mac.notarize=false"
           else
             export CSC_IDENTITY_AUTO_DISCOVERY=false
           fi
+
+          # Verbose electron-builder output
+          export DEBUG=electron-builder
           npx electron-vite build && npx electron-builder --mac --publish never $EXTRA_FLAGS
         env:
           MAC_CSC_LINK_SECRET: ${{ secrets.MAC_CSC_LINK }}
-          APPLE_ID_SECRET: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD_SECRET: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID_SECRET: ${{ secrets.APPLE_TEAM_ID }}
           MAIN_VITE_GITHUB_CLIENT_ID: ${{ secrets.MAIN_VITE_GITHUB_CLIENT_ID }}
           MAIN_VITE_GITLAB_CLIENT_ID: ${{ secrets.MAIN_VITE_GITLAB_CLIENT_ID }}
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+
+      - name: Notarize and staple Mac artifacts
+        # Runs after build. Uses xcrun notarytool (replacement for legacy altool)
+        # which gives detailed logs and supports --timeout to avoid infinite hangs.
+        env:
+          MAC_CSC_LINK_SECRET: ${{ secrets.MAC_CSC_LINK }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -e
+          if [ -z "$MAC_CSC_LINK_SECRET" ]; then
+            echo "No signing secret — skipping notarization"
+            exit 0
+          fi
+          export PATH=/usr/bin:$PATH
+
+          echo "==> Artifacts found in dist/:"
+          ls -lh dist/*.dmg dist/*.zip 2>/dev/null || true
+
+          for dmg in dist/*.dmg; do
+            [ -f "$dmg" ] || continue
+            echo ""
+            echo "==> Submitting $dmg to Apple notarization (timeout 30m)"
+            xcrun notarytool submit "$dmg" \
+              --apple-id "$APPLE_ID" \
+              --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+              --team-id "$APPLE_TEAM_ID" \
+              --wait \
+              --timeout 30m
+
+            echo "==> Stapling notarization ticket onto $dmg"
+            xcrun stapler staple "$dmg"
+
+            echo "==> Verifying stapled signature"
+            xcrun stapler validate "$dmg"
+          done
+
+          # .zip cannot be stapled (only .app/.dmg/.pkg), but the .app inside
+          # is already notarized through the .dmg submission above.
 
       - uses: actions/upload-artifact@v4
         with:
