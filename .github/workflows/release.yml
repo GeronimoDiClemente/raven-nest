@@ -60,19 +60,53 @@ jobs:
 
       - run: npm ci
 
+      - name: Import code signing cert into keychain
+        # Manual import is required because electron-builder's auto-import
+        # does not run `security set-key-partition-list`, which on macOS
+        # 10.12+ causes `codesign` to wait for an invisible GUI prompt to
+        # authorize use of the private key — codesign hangs indefinitely.
+        # See electron-builder issues #8089, #7452.
+        env:
+          MAC_CSC_LINK_SECRET: ${{ secrets.MAC_CSC_LINK }}
+          MAC_CSC_KEY_PASSWORD_SECRET: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+        run: |
+          if [ -z "$MAC_CSC_LINK_SECRET" ]; then
+            echo "No MAC_CSC_LINK secret — skipping cert import (unsigned build)"
+            exit 0
+          fi
+
+          KEYCHAIN_NAME="build.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -base64 32)"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_NAME"
+          security default-keychain -s "$KEYCHAIN_NAME"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_NAME"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_NAME"
+
+          echo "$MAC_CSC_LINK_SECRET" | base64 --decode > /tmp/cert.p12
+          security import /tmp/cert.p12 \
+            -P "$MAC_CSC_KEY_PASSWORD_SECRET" \
+            -A -t cert -f pkcs12 \
+            -k "$KEYCHAIN_NAME"
+          rm /tmp/cert.p12
+
+          # Allow codesign + apple tools to use the key without GUI prompt
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PASSWORD" \
+            "$KEYCHAIN_NAME"
+
+          echo "Available signing identities:"
+          security find-identity -v -p codesigning "$KEYCHAIN_NAME"
+
       - name: Build Mac
-        # Signing env vars are passed under *_SECRET names so electron-builder
-        # doesn't see CSC_LINK / CSC_KEY_PASSWORD / APPLE_* in the environment
-        # unless we explicitly export them. The previous version passed
-        # `CSC_LINK: ${{ secrets.MAC_CSC_LINK }}` which on repos without the
-        # secret resolves to an empty string — empty-but-defined was enough
-        # for electron-builder to enter the signing flow and crash with
-        # "not a file" on the unsigned build.
+        # If MAC_CSC_LINK_SECRET is set, the cert is already imported in the
+        # keychain by the previous step — we tell electron-builder to find
+        # it by name via CSC_NAME instead of re-importing via CSC_LINK.
         run: |
           EXTRA_FLAGS=""
           if [ -n "$MAC_CSC_LINK_SECRET" ]; then
-            export CSC_LINK="$MAC_CSC_LINK_SECRET"
-            export CSC_KEY_PASSWORD="$MAC_CSC_KEY_PASSWORD_SECRET"
+            export CSC_NAME="Developer ID Application: Matias Labari (N6RR4W6FV4)"
             export APPLE_ID="$APPLE_ID_SECRET"
             export APPLE_APP_SPECIFIC_PASSWORD="$APPLE_APP_SPECIFIC_PASSWORD_SECRET"
             export APPLE_TEAM_ID="$APPLE_TEAM_ID_SECRET"
@@ -88,7 +122,6 @@ jobs:
           npx electron-vite build && npx electron-builder --mac --publish never $EXTRA_FLAGS
         env:
           MAC_CSC_LINK_SECRET: ${{ secrets.MAC_CSC_LINK }}
-          MAC_CSC_KEY_PASSWORD_SECRET: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
           APPLE_ID_SECRET: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD_SECRET: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID_SECRET: ${{ secrets.APPLE_TEAM_ID }}
