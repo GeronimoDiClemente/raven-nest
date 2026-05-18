@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 
 export interface UserRepo {
@@ -29,6 +29,8 @@ export function useUserRepos() {
     setRepos((data ?? []).map((r: UserRepo) => ({ ...r, provider: r.provider ?? 'github' })))
     setLoading(false)
   }, [])
+
+  useEffect(() => { refresh() }, [refresh])
 
   const addRepo = useCallback(async (repoFullName: string, provider: 'github' | 'gitlab', localPath?: string | null): Promise<boolean> => {
     const repoUrl = provider === 'gitlab'

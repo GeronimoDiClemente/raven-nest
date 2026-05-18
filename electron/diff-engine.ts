@@ -1,4 +1,5 @@
 import { execFile } from 'child_process'
+import { existsSync, statSync } from 'fs'
 import { promisify } from 'util'
 
 const execFileP = promisify(execFile)
@@ -30,6 +31,7 @@ export interface DiffFile {
 export interface DiffResult {
   base: string
   files: DiffFile[]
+  notFound?: boolean
 }
 
 const MAX_LINES_PER_FILE = 10000
@@ -93,6 +95,12 @@ function parseUnifiedDiff(diff: string): DiffFile[] {
 }
 
 export async function getDiff(worktreePath: string, base = 'HEAD'): Promise<DiffResult> {
+  // If the worktree was deleted out from under us (or never existed), don't
+  // shell out to git — execFile would otherwise reject with an opaque ENOENT
+  // / "fatal: cannot change to" error. Caller handles `notFound` in its agent.
+  if (!existsSync(worktreePath) || !statSync(worktreePath).isDirectory()) {
+    return { base: '', files: [], notFound: true }
+  }
   const { stdout } = await execFileP('git', ['-C', worktreePath, 'diff', '--no-color', '--unified=3', base], {
     timeout: 10000,
     maxBuffer: 50 * 1024 * 1024,

@@ -96,10 +96,10 @@ if (process.defaultApp) {
   app.setAsDefaultProtocolClient('nest')
 }
 import { join as pathJoin, join, isAbsolute, basename, dirname } from 'path'
-import { readFileSync, writeFileSync, mkdirSync, statSync, copyFileSync, unlinkSync, rmSync, existsSync } from 'fs'
+import { readFileSync, writeFileSync, mkdirSync, statSync, copyFileSync, unlinkSync, rmSync, existsSync, promises as fsp } from 'fs'
 import { tmpdir, homedir } from 'os'
 import { ravenHome, userHome } from './raven-home'
-import { execSync, execFile, execFileSync } from 'child_process'
+import { execSync, execFile, execFileSync, spawn } from 'child_process'
 import { randomBytes } from 'crypto'
 import { PtyManager } from './pty-manager'
 import { detectShells, getShellById } from './shell-detect'
@@ -290,13 +290,26 @@ ipcMain.handle('git:info', (_event, repoPath: string) => {
   if (!repoPath || typeof repoPath !== 'string' || !isAbsolute(repoPath)) return empty
   try { if (!statSync(repoPath).isDirectory()) return empty } catch { return empty }
 
+  let gitMissing = false
   const run = (cmd: string) => {
-    try { return execSync(cmd, { cwd: repoPath, encoding: 'utf8', timeout: 3000 }).trim() }
-    catch { return null }
+    try {
+      return execSync(cmd, { cwd: repoPath, encoding: 'utf8', timeout: 3000 }).trim()
+    } catch (err) {
+      const e = err as NodeJS.ErrnoException
+      if (e.code === 'ENOENT') {
+        gitMissing = true
+      } else {
+        console.warn('[git:info]', cmd, e.message)
+      }
+      return null
+    }
   }
   const branch = run('git rev-parse --abbrev-ref HEAD')
+  if (gitMissing) return { error: 'git-not-found' as const }
   const remoteUrl = run('git remote get-url origin')
+  if (gitMissing) return { error: 'git-not-found' as const }
   const dirty = run('git status --porcelain')
+  if (gitMissing) return { error: 'git-not-found' as const }
 
   let githubUrl: string | null = null
   if (remoteUrl) {
@@ -314,12 +327,23 @@ ipcMain.handle('git:status', (_event, repoPath: string) => {
   if (!repoPath || typeof repoPath !== 'string' || !isAbsolute(repoPath)) return empty
   try { if (!statSync(repoPath).isDirectory()) return empty } catch { return empty }
 
+  let gitMissing = false
   const run = (cmd: string) => {
-    try { return execSync(cmd, { cwd: repoPath, encoding: 'utf8', timeout: 3000 }).trim() }
-    catch { return null }
+    try {
+      return execSync(cmd, { cwd: repoPath, encoding: 'utf8', timeout: 3000 }).trim()
+    } catch (err) {
+      const e = err as NodeJS.ErrnoException
+      if (e.code === 'ENOENT') {
+        gitMissing = true
+      } else {
+        console.warn('[git:status]', cmd, e.message)
+      }
+      return null
+    }
   }
 
   const porcelain = run('git status --porcelain') ?? ''
+  if (gitMissing) return { error: 'git-not-found' as const }
   const files = porcelain
     .split('\n')
     .filter(Boolean)
@@ -327,6 +351,7 @@ ipcMain.handle('git:status', (_event, repoPath: string) => {
 
   const aheadRaw = run('git rev-list --count @{upstream}..HEAD')
   const behindRaw = run('git rev-list --count HEAD..@{upstream}')
+  if (gitMissing) return { error: 'git-not-found' as const }
   const ahead = aheadRaw ? parseInt(aheadRaw, 10) : 0
   const behind = behindRaw ? parseInt(behindRaw, 10) : 0
 
@@ -336,8 +361,8 @@ ipcMain.handle('git:status', (_event, repoPath: string) => {
 // List local branches in a repo + detect the default branch. Used by the
 // NewWorktreeModal so the user can pick a base branch other than HEAD.
 ipcMain.handle('git:listBranches', async (_evt, repoPath: string) => {
-  if (!isAbsolute(repoPath)) throw new Error('repoPath must be absolute')
-  if (repoPath.includes('"')) throw new Error('repoPath contains invalid characters')
+  if (!isAbsolute(repoPath)) return { ok: false as const, error: 'repoPath must be absolute' }
+  if (repoPath.includes('"')) return { ok: false as const, error: 'repoPath contains invalid characters' }
 
   let branches: string[] = []
   try {
@@ -351,8 +376,14 @@ ipcMain.handle('git:listBranches', async (_evt, repoPath: string) => {
     })
     branches = out.split('\n').map((s) => s.trim()).filter(Boolean)
   } catch {
-    return { branches: [], defaultBranch: null }
+    return { ok: true as const, branches: [], defaultBranch: null }
   }
+
+  // Sort branches alphabetically so the fallback below (when origin/HEAD,
+  // main, master, develop are all missing) picks a deterministic name —
+  // otherwise `branches[0]` reflects whatever order `for-each-ref` returned,
+  // which is implementation-defined and varies between git versions.
+  branches.sort((a, b) => a.localeCompare(b))
 
   let defaultBranch: string | null = null
   try {
@@ -370,14 +401,14 @@ ipcMain.handle('git:listBranches', async (_evt, repoPath: string) => {
     else defaultBranch = branches[0] ?? null
   }
 
-  return { branches, defaultBranch }
+  return { ok: true as const, branches, defaultBranch }
 })
 
 // Push the worktree's current branch to origin (with -u). Returns a compare
 // URL for GitHub so the renderer can offer "Open PR" after a successful push.
 ipcMain.handle('git:pushBranch', async (_event, worktreePath: string) => {
-  if (!isAbsolute(worktreePath)) throw new Error('worktreePath must be absolute')
-  if (worktreePath.includes('"')) throw new Error('worktreePath contains invalid characters')
+  if (!isAbsolute(worktreePath)) return { ok: false as const, error: 'worktreePath must be absolute' }
+  if (worktreePath.includes('"')) return { ok: false as const, error: 'worktreePath contains invalid characters' }
 
   if (!existsSync(worktreePath)) {
     return { ok: false as const, error: `Worktree path no longer exists on disk: ${worktreePath}` }
@@ -434,7 +465,7 @@ ipcMain.handle('git:pushBranch', async (_event, worktreePath: string) => {
 
 // Clone a GitHub or GitLab repo into ~/RavenProjects/<name> (or a chosen parent dir)
 ipcMain.handle('git:clone', async (
-  _event,
+  event,
   cloneUrl: string,
   repoName: string,
   parentDir?: string,
@@ -473,7 +504,11 @@ ipcMain.handle('git:clone', async (
   const baseDir = parentDir && isAbsolute(parentDir)
     ? parentDir
     : pathJoin(userHome(), 'RavenProjects')
-  try { mkdirSync(baseDir, { recursive: true }) } catch {}
+  try {
+    mkdirSync(baseDir, { recursive: true })
+  } catch (err) {
+    return { ok: false, error: `cannot create parent dir: ${(err as Error).message}` }
+  }
   const dest = pathJoin(baseDir, folderName)
   // If a directory at `dest` already exists, only adopt it when its `origin`
   // remote matches the URL we're trying to clone. Two different repos with
@@ -522,11 +557,44 @@ ipcMain.handle('git:clone', async (
   }
 
   try {
-    execFileSync('git', ['clone', authedUrl, dest], {
-      encoding: 'utf8',
-      timeout: 120000,
-      stdio: 'pipe',
+    // Run `git clone` via spawn so we can stream stderr (which carries git's
+    // progress lines) back to the renderer without blocking the main thread.
+    // execFileSync would freeze the UI for the entire duration of the clone —
+    // up to 2 minutes for slow networks or large repos.
+    await new Promise<void>((resolveClone, rejectClone) => {
+      const child = spawn('git', ['clone', '--progress', authedUrl, dest], {
+        stdio: ['ignore', 'pipe', 'pipe'],
+        windowsHide: true,
+      })
+      let stderrTail = ''
+      let stderrBuf = ''
+      child.stderr?.setEncoding('utf8')
+      child.stderr?.on('data', (chunk: string) => {
+        stderrBuf += chunk
+        // git emits progress with \r — split on either CR or LF so each
+        // "Receiving objects: N%" tick becomes its own line.
+        let idx: number
+        while ((idx = stderrBuf.search(/[\r\n]/)) !== -1) {
+          const line = stderrBuf.slice(0, idx).trim()
+          stderrBuf = stderrBuf.slice(idx + 1)
+          if (line) {
+            stderrTail = line
+            try { event.sender.send('git:clone:progress', line) } catch { /* renderer gone */ }
+          }
+        }
+      })
+      child.on('error', (err) => rejectClone(err))
+      child.on('close', (code) => {
+        if (stderrBuf.trim()) {
+          const tail = stderrBuf.trim()
+          stderrTail = tail
+          try { event.sender.send('git:clone:progress', tail) } catch { /* renderer gone */ }
+        }
+        if (code === 0) resolveClone()
+        else rejectClone(new Error(stderrTail || `git clone exited with code ${code}`))
+      })
     })
+
     if (tokenSafe) {
       try {
         execFileSync('git', ['-C', dest, 'remote', 'set-url', 'origin', cloneUrl], { stdio: 'pipe' })
@@ -632,24 +700,56 @@ ipcMain.handle('dialog:pickRepoFolder', async (_evt, expectedRemote?: string) =>
 // matches THIS repo before auto-adopting it as the user's path — otherwise
 // the wrong-folder bug (sti-travel-console linked to algoritmos) keeps
 // silently re-applying after every Unlink.
-ipcMain.handle('git:getRemoteUrl', (_event, folder: string) => {
-  if (!folder || typeof folder !== 'string' || !isAbsolute(folder)) return null
-  try { if (!statSync(folder).isDirectory()) return null } catch { return null }
-  try { statSync(pathJoin(folder, '.git')) } catch { return null }
+type RemoteUrlResult =
+  | { ok: true; url: string }
+  | { ok: false; reason: 'no-git' | 'not-repo' | 'no-origin' | 'io-error' }
+
+ipcMain.handle('git:getRemoteUrl', (_event, folder: string): RemoteUrlResult => {
+  if (!folder || typeof folder !== 'string' || !isAbsolute(folder)) {
+    return { ok: false, reason: 'not-repo' }
+  }
+  try {
+    if (!statSync(folder).isDirectory()) return { ok: false, reason: 'not-repo' }
+  } catch {
+    return { ok: false, reason: 'not-repo' }
+  }
+  try {
+    statSync(pathJoin(folder, '.git'))
+  } catch {
+    return { ok: false, reason: 'not-repo' }
+  }
   try {
     const out = execFileSync('git', ['-C', folder, 'remote', 'get-url', 'origin'], {
       encoding: 'utf8', timeout: 3000, stdio: ['pipe', 'pipe', 'pipe'],
     }).trim()
-    return out || null
-  } catch {
-    return null
+    if (!out) return { ok: false, reason: 'no-origin' }
+    return { ok: true, url: out }
+  } catch (err) {
+    const e = err as NodeJS.ErrnoException
+    if (e.code === 'ENOENT') return { ok: false, reason: 'no-git' }
+    const msg = e.message || ''
+    // `git remote get-url origin` exits non-zero with "No such remote 'origin'"
+    // when the repo has no origin configured.
+    if (/no such remote|does not exist/i.test(msg)) return { ok: false, reason: 'no-origin' }
+    console.warn('[git:getRemoteUrl]', folder, msg)
+    return { ok: false, reason: 'io-error' }
   }
 })
 
-// Check if a path exists and is a directory on this machine
-ipcMain.handle('path:exists', (_event, p: string) => {
-  if (!p || typeof p !== 'string' || !isAbsolute(p)) return false
-  try { return statSync(p).isDirectory() } catch { return false }
+// Check if a path exists on this machine. Async with 2s timeout so UNC/OneDrive
+// offline paths (Windows SMB timeout is 30s by default) don't block the main
+// thread when the renderer probes them during session restore.
+ipcMain.handle('path:exists', async (_e, p: string) => {
+  if (typeof p !== 'string' || !p) return false
+  try {
+    await Promise.race([
+      fsp.stat(p),
+      new Promise<never>((_, rej) => setTimeout(() => rej(new Error('timeout')), 2000))
+    ])
+    return true
+  } catch {
+    return false
+  }
 })
 
 // Settings IPC handlers
@@ -830,7 +930,7 @@ ipcMain.handle('workspace:import', async () => {
 // === Worktree handlers (Plan 1 — v1.0) ===
 
 ipcMain.handle('worktree:list', async (_evt, repoPath: string) => {
-  if (!isAbsolute(repoPath)) throw new Error('repoPath must be absolute')
+  if (!isAbsolute(repoPath)) return { ok: false as const, error: 'repoPath must be absolute' }
   const live = worktreeStore.hydrateFromGit(repoPath)
   // Mark store entries that git no longer reports as `orphaned`. Without
   // this, a worktree the user removed externally (`rm -rf <wt>` or
@@ -842,22 +942,24 @@ ipcMain.handle('worktree:list', async (_evt, repoPath: string) => {
   // POSIX-keyed rootRepoPath after the hydrate fix, but the IPC `repoPath`
   // can still arrive with backslashes).
   const rootPosix = repoPath.replace(/\\/g, '/').replace(/\/+$/, '')
-  return worktreeStore.list().filter((m) => {
+  const worktrees = worktreeStore.list().filter((m) => {
     const mRoot = m.rootRepoPath.replace(/\\/g, '/').replace(/\/+$/, '')
     return mRoot === rootPosix
   })
+  return { ok: true as const, worktrees }
 })
 
 ipcMain.handle('worktree:get', async (_evt, worktreePath: string) => {
-  if (!isAbsolute(worktreePath)) throw new Error('worktreePath must be absolute')
-  return worktreeStore.get(worktreePath)
+  if (!isAbsolute(worktreePath)) return { ok: false as const, error: 'worktreePath must be absolute' }
+  return { ok: true as const, meta: worktreeStore.get(worktreePath) }
 })
 
 ipcMain.handle('worktree:setPreset', async (_evt, worktreePath: string, presetId: string | null) => {
-  if (!isAbsolute(worktreePath)) throw new Error('worktreePath must be absolute')
+  if (!isAbsolute(worktreePath)) return { ok: false as const, error: 'worktreePath must be absolute' }
   const meta = worktreeStore.get(worktreePath)
-  if (!meta) throw new Error('Worktree not found')
+  if (!meta) return { ok: false as const, error: 'Worktree not found' }
   worktreeStore.setMeta({ ...meta, presetId: presetId ?? undefined })
+  return { ok: true as const }
 })
 
 ipcMain.handle('worktree:create', async (_evt, opts: {
@@ -867,16 +969,16 @@ ipcMain.handle('worktree:create', async (_evt, opts: {
   path?: string
   presetId?: string
 }) => {
-  if (!isAbsolute(opts.repoPath)) throw new Error('repoPath must be absolute')
+  if (!isAbsolute(opts.repoPath)) return { ok: false as const, error: 'repoPath must be absolute' }
   // Reject quotes — paths get interpolated into shell strings below, so a path
   // containing `"` could escape the quoting and inject arbitrary commands.
-  if (opts.repoPath.includes('"')) throw new Error('repoPath contains invalid characters')
+  if (opts.repoPath.includes('"')) return { ok: false as const, error: 'repoPath contains invalid characters' }
   if (!opts.branch || !/^[a-zA-Z0-9._/\-]+$/.test(opts.branch)) {
-    throw new Error(`Invalid branch name: ${opts.branch}`)
+    return { ok: false as const, error: `Invalid branch name: ${opts.branch}` }
   }
   if (opts.path !== undefined) {
     if (!isAbsolute(opts.path) || opts.path.includes('..') || opts.path.includes('"')) {
-      throw new Error('path must be absolute and not contain ".." or quotes')
+      return { ok: false as const, error: 'path must be absolute and not contain ".." or quotes' }
     }
   }
 
@@ -893,7 +995,7 @@ ipcMain.handle('worktree:create', async (_evt, opts: {
   // defense in depth in case the IPC is called from elsewhere.
   if (opts.fromBranch !== undefined && opts.fromBranch !== 'HEAD'
       && !/^[a-zA-Z0-9._/\-]+$/.test(opts.fromBranch)) {
-    throw new Error(`Invalid fromBranch name: ${opts.fromBranch}`)
+    return { ok: false as const, error: `Invalid fromBranch name: ${opts.fromBranch}` }
   }
 
   // Check if branch exists — execFileSync (no shell)
@@ -914,7 +1016,7 @@ ipcMain.handle('worktree:create', async (_evt, opts: {
   try {
     execFileSync('git', addArgs, { encoding: 'utf8', timeout: 10000, stdio: ['pipe', 'pipe', 'pipe'] })
   } catch (err) {
-    throw new Error(`git worktree add failed: ${err instanceof Error ? err.message : String(err)}`)
+    return { ok: false as const, error: `git worktree add failed: ${err instanceof Error ? err.message : String(err)}` }
   }
 
   // Persist meta
@@ -947,13 +1049,13 @@ ipcMain.handle('worktree:create', async (_evt, opts: {
     }
   }
 
-  return meta
+  return { ok: true as const, meta }
 })
 
 ipcMain.handle('worktree:remove', async (_evt, worktreePath: string) => {
-  if (!isAbsolute(worktreePath)) throw new Error('worktreePath must be absolute')
+  if (!isAbsolute(worktreePath)) return { ok: false as const, error: 'worktreePath must be absolute' }
   const meta = worktreeStore.get(worktreePath)
-  if (!meta) throw new Error('Worktree not found in store')
+  if (!meta) return { ok: false as const, error: 'Worktree not found in store' }
 
   if (setupRunner.isRunning(worktreePath)) setupRunner.cancel(worktreePath)
 
@@ -986,7 +1088,7 @@ ipcMain.handle('worktree:remove', async (_evt, worktreePath: string) => {
     // can still get rid of them from the UI.
     const msg = err instanceof Error ? err.message : String(err)
     if (!/is not a working tree|is not a worktree|not a valid/i.test(msg)) {
-      throw new Error(`git worktree remove failed: ${msg}`)
+      return { ok: false as const, error: `git worktree remove failed: ${msg}` }
     }
     needsManualCleanup = true
   }
@@ -1020,9 +1122,10 @@ ipcMain.handle('worktree:remove', async (_evt, worktreePath: string) => {
 
   if (cleanupFailures.length > 0) {
     // Leave the meta in place so user can retry; surface a real error.
-    throw new Error(`Worktree partially removed — ${cleanupFailures.join('; ')}. Retry, or clean up the directory manually.`)
+    return { ok: false as const, error: `Worktree partially removed — ${cleanupFailures.join('; ')}. Retry, or clean up the directory manually.` }
   }
   worktreeStore.remove(worktreePath)
+  return { ok: true as const }
 })
 
 // === Preset handlers (Plan 2 — v1.0) ===
@@ -1639,7 +1742,7 @@ ipcMain.handle('git:findPRForBranch', async (
       }
       const tok = tokens?.github
       if (typeof tok === 'string' && tok) headers['Authorization'] = `Bearer ${tok}`
-      const res = await fetch(url, { headers })
+      const res = await fetch(url, { headers, signal: AbortSignal.timeout(5000) })
       if (!res.ok) {
         if (res.status === 404) { prCacheSet(cacheKey, null); return null }
         console.warn('[git:findPRForBranch]', res.status, branch, 'github transient — not caching')
@@ -1657,7 +1760,7 @@ ipcMain.handle('git:findPRForBranch', async (
     const headers: Record<string, string> = { 'User-Agent': 'raven-nest' }
     const tok = tokens?.gitlab
     if (typeof tok === 'string' && tok) headers['PRIVATE-TOKEN'] = tok
-    const res = await fetch(url, { headers })
+    const res = await fetch(url, { headers, signal: AbortSignal.timeout(5000) })
     if (!res.ok) {
       if (res.status === 404) { prCacheSet(cacheKey, null); return null }
       console.warn('[git:findPRForBranch]', res.status, branch, 'gitlab transient — not caching')
@@ -1759,7 +1862,12 @@ const SESSION_PATH = join(ravenHome(), '.raven-nest', 'session.json')
 ipcMain.handle('session:load', () => {
   try {
     return JSON.parse(readFileSync(SESSION_PATH, 'utf8'))
-  } catch {
+  } catch (err) {
+    // ENOENT is the expected "first launch, no session yet" case — return null
+    // silently. Any other error means the session file is corrupt / unreadable;
+    // log loud so we can debug why the user's panes didn't restore.
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null
+    console.error('[session:load] failed to read session', SESSION_PATH, err)
     return null
   }
 })
@@ -1768,7 +1876,9 @@ ipcMain.handle('session:save', (_event, data: unknown) => {
   try {
     mkdirSync(join(ravenHome(), '.raven-nest'), { recursive: true })
     writeFileSync(SESSION_PATH, JSON.stringify(data))
-  } catch {}
+  } catch (err) {
+    console.error('[session:save] failed to write session', SESSION_PATH, err)
+  }
 })
 
 type UpdaterState = 'idle' | 'downloading' | 'ready'
@@ -1781,14 +1891,14 @@ function safeCheckForUpdates(): void {
 }
 
 function setupAutoUpdater(): void {
+  // Clear ALL previously attached listeners so repeated calls (e.g. HMR/reload,
+  // re-entry from test code) don't accumulate handlers, double-fire events, or
+  // leak memory. Must run BEFORE the dev short-circuit below so a dev->prod
+  // build switch within one process still wipes stale handlers.
+  autoUpdater.removeAllListeners()
+
   // Only run in packaged app, not in dev
   if (process.env['ELECTRON_RENDERER_URL']) return
-
-  // Clear any previously attached listeners so repeated calls (e.g. HMR/reload)
-  // don't accumulate handlers and leak memory.
-  autoUpdater.removeAllListeners('update-available')
-  autoUpdater.removeAllListeners('update-downloaded')
-  autoUpdater.removeAllListeners('error')
 
   autoUpdater.autoDownload = true
   autoUpdater.autoInstallOnAppQuit = true
@@ -1812,7 +1922,14 @@ function setupAutoUpdater(): void {
 
   autoUpdater.on('error', (err) => {
     console.error('Auto-updater error:', err.message)
-    updaterState = 'idle'
+    // Only downgrade state if we were mid-flight. `ready` means a download
+    // already completed successfully — clobbering it would re-enable the
+    // Install button on what might now be a half-overwritten payload after
+    // a follow-up error from the differential updater.
+    const s: string = updaterState
+    if (s === 'downloading' || s === 'checking') {
+      updaterState = 'idle'
+    }
     const win = BrowserWindow.getAllWindows()[0]
     const shortMsg = err.message?.split('\n')[0].slice(0, 120)
     if (win) win.webContents.send('updater:status', 'error', shortMsg)
@@ -1842,18 +1959,26 @@ ipcMain.handle('updater:checkForUpdates', async () => {
 })
 
 ipcMain.handle('safeStorage:encrypt', (_event, plaintext: string) => {
-  if (!safeStorage.isEncryptionAvailable()) return null
+  if (!safeStorage.isEncryptionAvailable()) throw new Error('safeStorage not available')
   return safeStorage.encryptString(plaintext).toString('base64')
 })
 
 ipcMain.handle('safeStorage:decrypt', (_event, encrypted: string) => {
-  if (!safeStorage.isEncryptionAvailable()) return null
+  if (!safeStorage.isEncryptionAvailable()) throw new Error('safeStorage not available')
   return safeStorage.decryptString(Buffer.from(encrypted, 'base64'))
 })
 
-ipcMain.handle('clipboard:writeImage', (_event, filePath: string) => {
-  const img = nativeImage.createFromPath(filePath)
-  if (!img.isEmpty()) clipboard.writeImage(img)
+ipcMain.handle('clipboard:writeImage', (_event, filePath: string): { ok: boolean; error?: string } => {
+  try {
+    const img = nativeImage.createFromPath(filePath)
+    if (img.isEmpty()) {
+      return { ok: false, error: `Could not load image from ${filePath}` }
+    }
+    clipboard.writeImage(img)
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  }
 })
 
 const ALLOWED_IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'tiff', 'tif', 'svg'])

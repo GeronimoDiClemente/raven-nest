@@ -1,9 +1,20 @@
 import { EventEmitter } from 'events'
 import { join } from 'path'
-import { mkdirSync, existsSync } from 'fs'
+import { mkdirSync } from 'fs'
+import * as fs from 'fs'
 import * as pty from 'node-pty'
 import { SHELL, SHELL_ARGS, isWin } from './platform'
 import { userHome } from './raven-home'
+
+async function cwdReachable(p: string): Promise<boolean> {
+  try {
+    await Promise.race([
+      fs.promises.stat(p),
+      new Promise<never>((_, rej) => setTimeout(() => rej(new Error('timeout')), 1500))
+    ])
+    return true
+  } catch { return false }
+}
 
 export interface ShellOverride {
   bin: string
@@ -25,7 +36,7 @@ export class PtyManager extends EventEmitter {
   // fire a write into a dead (or recreated) PTY.
   private startupTimers = new Map<string, NodeJS.Timeout>()
 
-  create(paneId: string, cmd: string, accountDir: string, repoPath?: string, shell?: ShellOverride): { ok: true } | { ok: false; error: string } {
+  async create(paneId: string, cmd: string, accountDir: string, repoPath?: string, shell?: ShellOverride): Promise<{ ok: true } | { ok: false; error: string }> {
     if (this.ptys.has(paneId)) return { ok: true }  // already running, don't recreate
 
     const env: Record<string, string> = {
@@ -69,8 +80,8 @@ export class PtyManager extends EventEmitter {
     // storage redirection, not for cwd). Never accountDir — that's the AI's
     // config dir, not a meaningful working directory.
     let cwd = repoPath || userHome()
-    if (!existsSync(cwd)) {
-      console.warn('[pty-manager] cwd does not exist, falling back to userHome', { paneId, requested: cwd })
+    if (!(await cwdReachable(cwd))) {
+      console.warn('[pty-manager] cwd not reachable, falling back to userHome', { paneId, requested: cwd })
       cwd = userHome()
     }
 
@@ -83,10 +94,18 @@ export class PtyManager extends EventEmitter {
         cwd,
       })
 
-      // Launch AI command after shell starts (skip if plain terminal)
-      // PowerShell on Windows can take 1-2s to initialise — use a longer delay
+      // Launch AI command after shell starts (skip if plain terminal).
+      // On Windows, PowerShell takes 1-2s to initialise and writing blindly
+      // before the prompt appears means the keystrokes get eaten. Poll: wait
+      // for the first `data` event from the pty (which means PowerShell has
+      // printed its prompt), then write the cmd. Keep a 5s safety timeout in
+      // case data never arrives (e.g. silent shell). On non-Windows we keep
+      // the short 500ms delay because POSIX shells warm up fast.
       if (cmd) {
-        const timer = setTimeout(() => {
+        let primed = false
+        const writeCmd = () => {
+          if (primed) return
+          primed = true
           this.startupTimers.delete(paneId)
           // Only write if the slot still owns THIS pty. A kill→create race
           // between scheduling and firing would otherwise write the cmd into
@@ -94,8 +113,15 @@ export class PtyManager extends EventEmitter {
           if (this.ptys.get(paneId) === ptyProcess) {
             ptyProcess.write(`${cmd}\r`)
           }
-        }, isWin ? 3000 : 500)
-        this.startupTimers.set(paneId, timer)
+        }
+        if (isWin) {
+          ptyProcess.onData(() => writeCmd())
+          const timer = setTimeout(writeCmd, 5000)
+          this.startupTimers.set(paneId, timer)
+        } else {
+          const timer = setTimeout(writeCmd, 500)
+          this.startupTimers.set(paneId, timer)
+        }
       }
 
       ptyProcess.onData((data) => {

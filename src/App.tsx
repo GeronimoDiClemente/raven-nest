@@ -130,17 +130,22 @@ export default function App() {
     })
   }, [activeTabId])
 
-  // Auto-clear activity indicators after 3s
+  // Auto-clear activity indicators after 3s. Only return a new Map when at
+  // least one tab had non-empty activity that got cleared — otherwise every
+  // consumer of `tabActivity` re-renders every 3s for nothing (TabBar, etc.)
+  // when all tabs are already idle.
   useEffect(() => {
     const interval = setInterval(() => {
       setTabActivity(prev => {
+        let changed = false
         const next = new Map(prev)
         for (const [tabId, panes] of next) {
           if (panes.size > 0) {
             next.set(tabId, new Set())
+            changed = true
           }
         }
-        return next
+        return changed ? next : prev
       })
     }, 3000)
     return () => clearInterval(interval)
@@ -507,7 +512,22 @@ export default function App() {
     setActiveTabId(id)
   }, [])
 
-  const openRepoInNewTab = useCallback((repoFullName: string, localPath: string) => {
+  const openRepoInNewTab = useCallback(async (repoFullName: string, localPath: string) => {
+    // Central bottleneck for "open repo in a new tab" — both MyReposPanel and
+    // TeamsWorkspace funnel through here. Validate the path exists BEFORE
+    // creating the tab so a stale link/clone doesn't produce a broken pane
+    // with a dead cwd (pty.spawn would fail with ERROR_DIRECTORY 267 on Win).
+    if (localPath) {
+      const exists = await window.pathUtils.exists(localPath)
+      if (!exists) {
+        // Surface the failure to the user. We use a window.alert here
+        // because there's no global toast service in the app; both callers
+        // (MyReposPanel/TeamsWorkspace) already validate themselves so this
+        // is a defense-in-depth fallback rather than the primary UX.
+        window.alert(`La carpeta "${localPath}" ya no existe. Re-linkeala o cloná de nuevo desde My Repos.`)
+        return
+      }
+    }
     const id = generateTabId()
     // H2: GitLab paths like `group/subgroup/repo` need the last segment, not [1].
     // Using split('/')[1] would yield "subgroup" instead of "repo".

@@ -49,7 +49,12 @@ export function useTeamPresence(teamId: string | null, currentUserId: string | n
 
     return () => {
       channelRef.current = null
-      supabase.removeChannel(channel)
+      // Explicit untrack() so teammates see us go offline immediately,
+      // instead of waiting for the heartbeat timeout to expire.
+      ;(async () => {
+        try { await channel.untrack() } catch { /* best-effort */ }
+        supabase.removeChannel(channel)
+      })()
     }
   }, [teamId, currentUserId])
 

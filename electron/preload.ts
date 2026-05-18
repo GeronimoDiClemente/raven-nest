@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer, webUtils } from 'electron'
+import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron'
 
 contextBridge.exposeInMainWorld('conversations', {
   list: () => ipcRenderer.invoke('conversations:list'),
@@ -206,7 +206,9 @@ contextBridge.exposeInMainWorld('keybinds', {
 contextBridge.exposeInMainWorld('github', {
   openOAuth: () => ipcRenderer.invoke('github:open-oauth'),
   onOAuthCode: (cb: (code: string) => void) => {
-    ipcRenderer.on('github-oauth-code', (_event, code) => cb(code))
+    const handler = (_e: IpcRendererEvent, code: string) => cb(code)
+    ipcRenderer.on('github-oauth-code', handler)
+    return () => ipcRenderer.removeListener('github-oauth-code', handler)
   },
   removeOAuthListener: () => ipcRenderer.removeAllListeners('github-oauth-code'),
 })
@@ -214,7 +216,9 @@ contextBridge.exposeInMainWorld('github', {
 contextBridge.exposeInMainWorld('gitlab', {
   openOAuth: () => ipcRenderer.invoke('gitlab:open-oauth'),
   onOAuthCode: (cb: (code: string) => void) => {
-    ipcRenderer.on('gitlab-oauth-code', (_event, code) => cb(code))
+    const handler = (_e: IpcRendererEvent, code: string) => cb(code)
+    ipcRenderer.on('gitlab-oauth-code', handler)
+    return () => ipcRenderer.removeListener('gitlab-oauth-code', handler)
   },
   removeOAuthListener: () => ipcRenderer.removeAllListeners('gitlab-oauth-code'),
 })
@@ -287,8 +291,9 @@ contextBridge.exposeInMainWorld('browser', {
   reload: (paneId: string) => ipcRenderer.invoke('browser:reload', paneId),
   destroy: (paneId: string) => ipcRenderer.invoke('browser:destroy', paneId),
   onNavigated: (cb: (paneId: string, url: string) => void) => {
-    ipcRenderer.removeAllListeners('browser:navigated')
-    ipcRenderer.on('browser:navigated', (_e, paneId, url) => cb(paneId, url))
+    const handler = (_e: IpcRendererEvent, paneId: string, url: string) => cb(paneId, url)
+    ipcRenderer.on('browser:navigated', handler)
+    return () => ipcRenderer.removeListener('browser:navigated', handler)
   },
   removeListeners: () => ipcRenderer.removeAllListeners('browser:navigated'),
 })

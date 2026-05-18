@@ -91,7 +91,11 @@ export default function BrowserCell({ pane, onClose, onNavigate, borderColor, si
   // blank (see `isOwnOrigin` above).
   const [selfOriginAttempt, setSelfOriginAttempt] = useState<string | null>(null)
 
-  // Create the WebContentsView once per pane
+  // Create the WebContentsView once per pane. Also tear down + recreate when
+  // sessionPartition changes — partitions are wired at view-create time in
+  // main and can't be swapped on an existing WebContentsView, so changing
+  // tab/workspace requires destroying and re-creating the view (otherwise
+  // cookies/localStorage from the wrong session bleed through).
   useEffect(() => {
     if (createdRef.current) return
     const initialUrl = isHttpUrl(pane.url ?? '') ? pane.url! : BLANK_PAGE
@@ -105,7 +109,7 @@ export default function BrowserCell({ pane, onClose, onNavigate, borderColor, si
       createdRef.current = false
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pane.id])
+  }, [pane.id, pane.sessionPartition])
 
   // Latest onNavigate kept in a ref so the long-lived subscription below
   // always calls the freshest closure without re-subscribing on every render.
@@ -230,13 +234,14 @@ export default function BrowserCell({ pane, onClose, onNavigate, borderColor, si
         height: rect.height,
       })
     }
-    // MutationObserver fires on every xterm log line in sibling panes. Coalesce
-    // to one send() per animation frame so we don't saturate the main process
-    // with browser:reposition IPC when terminals are spammy.
-    let rafId: number | null = null
+    // MutationObserver fires on every xterm log line in sibling panes — RAF
+    // coalescing wasn't enough when terminals are spammy (still one IPC per
+    // frame = up to 60/s). 100ms trailing-edge debounce drops the rate to
+    // ~10/s while still feeling instant for resize/overlay transitions.
+    let timeoutId: ReturnType<typeof setTimeout> | null = null
     const sendDebounced = () => {
-      if (rafId !== null) return
-      rafId = requestAnimationFrame(() => { rafId = null; send() })
+      if (timeoutId !== null) return
+      timeoutId = setTimeout(() => { timeoutId = null; send() }, 100)
     }
     send()
     const ro = new ResizeObserver(sendDebounced)
@@ -245,15 +250,13 @@ export default function BrowserCell({ pane, onClose, onNavigate, borderColor, si
     // Watch the body for overlay nodes appearing/disappearing.
     const mo = new MutationObserver(sendDebounced)
     mo.observe(document.body, { childList: true, subtree: true })
-    const interval = setInterval(sendDebounced, 1000)  // catch parent layout shifts
     return () => {
       ro.disconnect()
       mo.disconnect()
       window.removeEventListener('resize', send)
-      clearInterval(interval)
-      if (rafId !== null) {
-        cancelAnimationFrame(rafId)
-        rafId = null
+      if (timeoutId !== null) {
+        clearTimeout(timeoutId)
+        timeoutId = null
       }
     }
   }, [pane.id])

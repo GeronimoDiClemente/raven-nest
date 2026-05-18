@@ -130,13 +130,6 @@ export function useTeamRepos(teamId: string | null) {
     }
   }, [])
 
-  /** Legacy: update the shared team path (kept for backwards compat, prefer updateUserLocalPath). */
-  const updateLocalPath = useCallback(async (repoId: string, localPath: string | null) => {
-    const { error } = await supabase.from('team_repos').update({ local_path: localPath }).eq('id', repoId)
-    if (error) console.warn('[useTeamRepos.updateLocalPath] update failed', { repoId }, error)
-    await refresh()
-  }, [refresh])
-
   const removeRepo = useCallback(async (repoId: string) => {
     const { error } = await supabase.from('team_repos').delete().eq('id', repoId)
     if (error) console.warn('[useTeamRepos.removeRepo] delete failed', { repoId }, error)
@@ -152,5 +145,5 @@ export function useTeamRepos(teamId: string | null) {
     if (error) console.warn('[useTeamRepos.setPermission] upsert failed', { repoId, userId, permission }, error)
   }, [])
 
-  return { repos, loading, userLocalPaths, refresh, addRepo, updateUserLocalPath, updateLocalPath, removeRepo, setPermission }
+  return { repos, loading, userLocalPaths, refresh, addRepo, updateUserLocalPath, removeRepo, setPermission }
 }

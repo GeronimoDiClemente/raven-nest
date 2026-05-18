@@ -8,7 +8,15 @@ export interface SetupRun {
   presetId: string
   commands: string[]
   env: Record<string, string>
+  /**
+   * Per-command timeout in milliseconds. If a command emits no output and
+   * never exits within this window, it is killed and the run fails (or moves
+   * on). Default: 600_000 (10 min).
+   */
+  timeoutMs?: number
 }
+
+const DEFAULT_COMMAND_TIMEOUT_MS = 600_000
 
 interface ActiveRun {
   child: ChildProcess | null
@@ -64,6 +72,8 @@ export class SetupRunner extends EventEmitter {
         }
       }
 
+      const timeoutMs = run.timeoutMs ?? DEFAULT_COMMAND_TIMEOUT_MS
+
       const runNext = () => {
         if (slot.cancelled) {
           finish('cancelled')
@@ -82,17 +92,43 @@ export class SetupRunner extends EventEmitter {
 
         slot.child = child
 
+        // Per-command timeout: if the child emits no `exit` within timeoutMs,
+        // kill the tree and fail the run. Without this, a command that hangs
+        // silently (no output, no exit) leaves the runner stuck forever.
+        let timedOut = false
+        const timer = setTimeout(() => {
+          timedOut = true
+          pushLog(`error: command timed out after ${Math.round(timeoutMs / 1000)}s — killing`)
+          this.emit('command-timed-out', run.worktreePath, cmd)
+          try {
+            if (isWindows()) {
+              const pid = child.pid
+              if (pid) spawn('taskkill', ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore' })
+            } else {
+              child.kill('SIGTERM')
+            }
+          } catch {}
+        }, timeoutMs)
+
         child.stdout?.on('data', (d) => pushLog(d.toString('utf8')))
         child.stderr?.on('data', (d) => pushLog(d.toString('utf8')))
         child.on('error', (err) => {
+          clearTimeout(timer)
           pushLog(`error: ${err.message}`)
           // Without this, a spawn failure (ENOENT, missing shell, etc.) leaves
           // the runner stuck in `running` forever — `exit` may never fire.
           finish(slot.cancelled ? 'cancelled' : 'failed')
         })
         child.on('exit', (code, signal) => {
+          clearTimeout(timer)
           if (slot.cancelled) {
             finish('cancelled')
+            return
+          }
+          if (timedOut) {
+            // Match the existing pattern: a timed-out command is a failure
+            // for the whole run, just like a non-zero exit.
+            finish('failed')
             return
           }
           if (code === 0) {

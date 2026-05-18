@@ -15,8 +15,9 @@ export function usePendingInvitesCount() {
     setCount(c ?? 0)
   }, [])
 
-  useEffect(() => { refresh() }, [refresh])
-
+  // `onAuthStateChange` fires SIGNED_IN immediately on subscribe when a
+  // session exists, which doubles as our initial fetch — so no separate
+  // mount-time refresh() effect is needed.
   useEffect(() => {
     const { data: sub } = supabase.auth.onAuthStateChange(() => { refresh() })
     return () => { sub.subscription.unsubscribe() }
