@@ -4,9 +4,9 @@ name: Staple pending Mac releases
 # if the .dmg in that release is NOT yet stapled and Apple has accepted
 # at least one notarization submission for it, download + staple + re-upload.
 #
-# Replaces the v1.1.2-specific check-mac-staple.yml. Once v1.1.5 stables,
-# trim the RELEASES list. The first-submission "in-depth analysis" with a
-# new team ID takes 12-48h according to Apple docs.
+# Replaces the v1.1.2-specific check-mac-staple.yml. Trim the RELEASES list
+# as each release is stapled. The first-submission "in-depth analysis" with
+# a new team ID takes 12-48h according to Apple docs.
 
 on:
   workflow_dispatch:
@@ -52,7 +52,7 @@ jobs:
           export PATH=/usr/bin:$PATH
 
           # Add new releases here as they ship. Trim old ones after they're stapled.
-          RELEASES="v1.1.3 v1.1.4 v1.1.5"
+          RELEASES="v1.1.6"
 
           # We don't need to match submission ID to release — Apple's notary
           # accepts by binary hash, so any Accepted submission whose hash
