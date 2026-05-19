@@ -66,8 +66,10 @@ export function WorktreesSection({ repoPath, activeRepoPath, onSelect, onNewClic
   useEffect(() => {
     if (!repoPath) { setWorktrees([]); return }
     let cancelled = false
-    void window.worktree.list(repoPath).then((wts) => {
-      if (!cancelled) setWorktrees(wts)
+    void window.worktree.list(repoPath).then((res) => {
+      if (cancelled) return
+      if (res.ok) setWorktrees(res.worktrees)
+      else { console.error('worktree:list failed', res.error); setWorktrees([]) }
     }).catch((err) => {
       console.error('worktree:list failed', err)
       if (!cancelled) setWorktrees([])
@@ -147,7 +149,8 @@ export function WorktreesSection({ repoPath, activeRepoPath, onSelect, onNewClic
     try {
       await window.worktree.remove(target)
       const fresh = await window.worktree.list(repoPath)
-      setWorktrees(fresh)
+      if (fresh.ok) setWorktrees(fresh.worktrees)
+      else { console.error('worktree:list failed', fresh.error); setWorktrees([]) }
     } catch (err) {
       alert(`Failed: ${err instanceof Error ? err.message : String(err)}`)
     }

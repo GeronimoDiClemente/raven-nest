@@ -434,7 +434,10 @@ declare global {
       detect: () => Promise<ShellInfo[]>
     }
     worktree: {
-      list: (repoPath: string) => Promise<WorktreeMeta[]>
+      list: (repoPath: string) => Promise<
+        | { ok: true; worktrees: WorktreeMeta[] }
+        | { ok: false; error: string }
+      >
       create: (opts: { repoPath: string; branch: string; fromBranch?: string; path?: string; presetId?: string }) => Promise<WorktreeMeta>
       remove: (worktreePath: string) => Promise<void>
       get: (worktreePath: string) => Promise<WorktreeMeta | null>
