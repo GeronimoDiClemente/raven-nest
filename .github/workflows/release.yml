@@ -4,6 +4,12 @@ on:
   push:
     branches:
       - main
+    paths:
+      # Only build + publish on version bumps. Every other push (docs, CI,
+      # README) used to trigger a full rebuild that DELETED + recreated the
+      # release, wiping any stapled .dmg already attached. Gated on
+      # package.json so the workflow runs once per `release: vX.Y.Z` commit.
+      - 'package.json'
 
 permissions:
   contents: write

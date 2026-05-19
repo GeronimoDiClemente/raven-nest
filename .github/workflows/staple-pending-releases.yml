@@ -11,7 +11,10 @@ name: Staple pending Mac releases
 on:
   workflow_dispatch:
   schedule:
-    - cron: '13 */2 * * *'
+    # Poll Apple every 10 minutes so a freshly notarized release gets stapled
+    # within ~10 min of acceptance, rather than waiting up to 2h. macOS runners
+    # are free on public repos. Step exits early when nothing is pending.
+    - cron: '*/10 * * * *'
 
 permissions:
   contents: write
