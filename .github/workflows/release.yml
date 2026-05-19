@@ -349,6 +349,10 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create GitHub Release
+        # Glob is `latest*.yml`, not `*.yml`. electron-builder emits a
+        # `builder-debug.yml` on every platform; uploading three assets with
+        # the same name races and the loser hits a 404 from GitHub's asset
+        # API, failing the job and leaving the release stuck as draft.
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ needs.decrypt.outputs.version }}
@@ -356,12 +360,12 @@ jobs:
           files: |
             artifacts/mac/*.dmg
             artifacts/mac/*.zip
-            artifacts/mac/*.yml
+            artifacts/mac/latest*.yml
             artifacts/win/*.exe
-            artifacts/win/*.yml
+            artifacts/win/latest*.yml
             artifacts/linux/*.AppImage
             artifacts/linux/*.deb
-            artifacts/linux/*.yml
+            artifacts/linux/latest*.yml
           make_latest: true
           token: ${{ secrets.GITHUB_TOKEN }}
 
