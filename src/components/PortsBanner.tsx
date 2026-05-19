@@ -22,7 +22,15 @@ interface PortGroup {
 const POLL_MS = 3000
 
 async function safeListWorktrees(repoPath: string): Promise<WorktreeMeta[]> {
-  try { return await window.worktree.list(repoPath) } catch { return [] }
+  try {
+    const res = await window.worktree.list(repoPath) as { ok: boolean; worktrees?: WorktreeMeta[]; error?: string } | WorktreeMeta[]
+    // Defensive: handle both new {ok, worktrees} shape and legacy array shape
+    // in case the IPC layer ever regresses or this caller runs against an
+    // older main process.
+    if (Array.isArray(res)) return res
+    if (res && res.ok && Array.isArray(res.worktrees)) return res.worktrees
+    return []
+  } catch { return [] }
 }
 
 export function PortsBanner({ cells, rootRepoPath, onOpenInternal }: Props) {

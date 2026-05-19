@@ -563,7 +563,7 @@ ipcMain.handle('git:clone', async (
     // up to 2 minutes for slow networks or large repos.
     await new Promise<void>((resolveClone, rejectClone) => {
       const child = spawn('git', ['clone', '--progress', authedUrl, dest], {
-        stdio: ['ignore', 'pipe', 'pipe'],
+        stdio: ['ignore', 'ignore', 'pipe'],
         windowsHide: true,
       })
       let stderrTail = ''
@@ -1926,8 +1926,7 @@ function setupAutoUpdater(): void {
     // already completed successfully — clobbering it would re-enable the
     // Install button on what might now be a half-overwritten payload after
     // a follow-up error from the differential updater.
-    const s: string = updaterState
-    if (s === 'downloading' || s === 'checking') {
+    if (updaterState === 'downloading') {
       updaterState = 'idle'
     }
     const win = BrowserWindow.getAllWindows()[0]

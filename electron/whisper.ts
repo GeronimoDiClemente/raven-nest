@@ -12,6 +12,7 @@ let pendingResolve: ((text: string) => void) | null = null
 let pendingReject: ((err: Error) => void) | null = null
 let stdoutBuf = ''
 let statusCallback: ((status: 'loading' | 'ready') => void) | null = null
+let pendingWaitTimeout: ReturnType<typeof setTimeout> | null = null
 
 export function setWhisperStatusCallback(cb: (status: 'loading' | 'ready') => void): void {
   statusCallback = cb
@@ -173,9 +174,11 @@ export function transcribeAudio(audioBuffer: Buffer, language = 'es'): Promise<s
     const READY_TIMEOUT_MS = 30_000
     const readyDeadline = Date.now() + READY_TIMEOUT_MS
     const waitForReady = () => {
+      pendingWaitTimeout = null
       if (whisperReady) { sendRequest() }
+      else if (!whisperProc) { reject(new Error('whisper shutdown')) }
       else if (Date.now() >= readyDeadline) { reject(new Error('whisper process did not start in time (30s timeout)')) }
-      else { setTimeout(waitForReady, 500) }
+      else { pendingWaitTimeout = setTimeout(waitForReady, 500) }
     }
 
     if (!whisperProc) {
@@ -192,9 +195,19 @@ export function transcribeAudio(audioBuffer: Buffer, language = 'es'): Promise<s
 }
 
 export function shutdownWhisper(): void {
+  if (pendingWaitTimeout) {
+    clearTimeout(pendingWaitTimeout)
+    pendingWaitTimeout = null
+  }
   if (whisperProc) {
     whisperProc.kill()
     whisperProc = null
     whisperReady = false
+  }
+  if (pendingReject) {
+    const reject = pendingReject
+    pendingResolve = null
+    pendingReject = null
+    reject(new Error('whisper shutdown'))
   }
 }

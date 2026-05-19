@@ -196,28 +196,42 @@ export default function BrowserCell({ pane, onClose, onNavigate, borderColor, si
     // covered. Includes: dialogs, full-screen workspaces, sidebar popovers,
     // pane-level overlays.
     const OVERLAY_SELECTOR = [
+      // Dialogs / modals (full-screen backdrops)
       '.dialog-overlay',
       '.confirm-overlay',
       '.team-modal-overlay',
       '.modal-overlay',
+      '.cmd-overlay',
+      '.global-search-overlay',
+      '.repo-picker-overlay',
+      '.repo-picker-modal',
+      '.upgrade-modal',
+      // Full-screen workspace views
       '.teams-workspace',
+      // Sidebars / panels
       '.snippet-panel',
       '.mcp-panel',
-      '.layout-popover',
       '.notification-panel',
-      '.user-menu-popover',
-      '.cmd-panel',
+      '.conv-overlay',
+      '.conv-sidebar',
       '.diff-drawer',
       '.repo-status-panel',
-      '.pane-color-popover',
       '.ts-panel',
+      // Popovers / inline overlays
+      '.layout-popover',
+      '.layout-selector-popover',
+      '.user-menu-popover',
+      '.cmd-panel',
+      '.pane-color-popover',
       '.resource-bar-popover',
       '.rb-overlay',
-      '.browser-port-dropdown',
-      '.browser-self-origin-overlay',
+      '.port-chips-popover',
       '.wt-context-menu',
       '.ide-picker-menu',
       '.repo-menu-pop',
+      // Pane-level overlays
+      '.browser-port-dropdown',
+      '.browser-self-origin-overlay',
     ].join(', ')
 
     const send = () => {
@@ -236,12 +250,18 @@ export default function BrowserCell({ pane, onClose, onNavigate, borderColor, si
     }
     // MutationObserver fires on every xterm log line in sibling panes — RAF
     // coalescing wasn't enough when terminals are spammy (still one IPC per
-    // frame = up to 60/s). 100ms trailing-edge debounce drops the rate to
-    // ~10/s while still feeling instant for resize/overlay transitions.
+    // frame = up to 60/s). Leading + trailing 100ms debounce: first trigger
+    // fires immediately so opening an overlay collapses the view without a
+    // visible lag, then coalesces follow-ups and emits a final send().
     let timeoutId: ReturnType<typeof setTimeout> | null = null
+    let pendingTrailing = false
     const sendDebounced = () => {
-      if (timeoutId !== null) return
-      timeoutId = setTimeout(() => { timeoutId = null; send() }, 100)
+      if (timeoutId !== null) { pendingTrailing = true; return }
+      send()
+      timeoutId = setTimeout(() => {
+        timeoutId = null
+        if (pendingTrailing) { pendingTrailing = false; send() }
+      }, 100)
     }
     send()
     const ro = new ResizeObserver(sendDebounced)
@@ -250,10 +270,15 @@ export default function BrowserCell({ pane, onClose, onNavigate, borderColor, si
     // Watch the body for overlay nodes appearing/disappearing.
     const mo = new MutationObserver(sendDebounced)
     mo.observe(document.body, { childList: true, subtree: true })
+    // Safety net for parent layout shifts not detected by ResizeObserver or
+    // MutationObserver (CSS animations on ancestors that don't resize this
+    // element or mutate the DOM). Cheap because send() is idempotent.
+    const intervalId = setInterval(sendDebounced, 1000)
     return () => {
       ro.disconnect()
       mo.disconnect()
       window.removeEventListener('resize', send)
+      clearInterval(intervalId)
       if (timeoutId !== null) {
         clearTimeout(timeoutId)
         timeoutId = null
