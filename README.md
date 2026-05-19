@@ -104,14 +104,14 @@ Versions up to and including **v1.0.1** were published under the Apache License 
 
 ## Download
 
-Latest: **v1.1.1** — code signing, PolyForm Strict relicense, min-version check, trial RLS fix (on top of v1.1.0 tiling layout + port detection + security hardening).
+Latest: **v1.1.6** — sidebar overlays no longer black out the app, ports banner restored, auto-updater cleanup, git clone hang fix (on top of v1.1.1 code signing + v1.1.0 tiling layout + port detection + security hardening).
 
 | Platform | Download |
 |----------|----------|
-| **macOS** (Apple Silicon) | [Nest-1.1.1-arm64.dmg](../../releases/latest) |
-| **Windows** | [Nest-Setup-1.1.1.exe](../../releases/latest) |
-| **Linux** (universal) | [Nest-1.1.1.AppImage](../../releases/latest) |
-| **Linux** (Debian / Ubuntu) | [nest_1.1.1_amd64.deb](../../releases/latest) |
+| **macOS** (Apple Silicon) | [Nest-1.1.6-arm64.dmg](../../releases/latest) |
+| **Windows** | [Nest-Setup-1.1.6.exe](../../releases/latest) |
+| **Linux** (universal) | [Nest-1.1.6.AppImage](../../releases/latest) |
+| **Linux** (Debian / Ubuntu) | [nest_1.1.6_amd64.deb](../../releases/latest) |
 
 > Nest auto-updates in the background — install once and you'll get future releases without re-downloading.
 
@@ -119,21 +119,9 @@ Latest: **v1.1.1** — code signing, PolyForm Strict relicense, min-version chec
 
 ## Installing on macOS
 
-Nest by RAVEN is not yet notarized by Apple, so macOS Gatekeeper will block it on first open. Two short commands fix that.
+Nest by RAVEN is signed and notarized by Apple since v1.1.2 — just download the DMG, open it and drag **Nest.app** to `/Applications`. Gatekeeper will let it run normally.
 
-**1.** Download the DMG and remove the quarantine flag before opening it:
-
-```bash
-xattr -dr com.apple.quarantine ~/Downloads/Nest-1.1.0-arm64.dmg
-```
-
-**2.** Open the DMG, drag **Nest.app** to `/Applications`, then clear the flag on the installed app:
-
-```bash
-xattr -dr com.apple.quarantine /Applications/Nest.app
-```
-
-That's it — Nest will launch normally from now on.
+> If you previously installed a pre-notarized build (≤ v1.1.1) and worked around Gatekeeper with `xattr -dr com.apple.quarantine`, that's no longer needed. Re-install from the latest DMG to get the auto-updater wired to the signed pipeline.
 
 ---
 
@@ -146,8 +134,8 @@ Two formats, pick whichever fits your distro.
 Works on Ubuntu, Fedora, Arch, openSUSE, Mint, Pop!_OS and most others. No system-wide install.
 
 ```bash
-chmod +x ~/Downloads/Nest-1.1.0.AppImage
-~/Downloads/Nest-1.1.0.AppImage
+chmod +x ~/Downloads/Nest-1.1.6.AppImage
+~/Downloads/Nest-1.1.6.AppImage
 ```
 
 To integrate it into your apps menu, use [AppImageLauncher](https://github.com/TheAssassin/AppImageLauncher) or move it to `~/Applications/`.
@@ -157,7 +145,7 @@ To integrate it into your apps menu, use [AppImageLauncher](https://github.com/T
 Installs system-wide, registers the desktop entry and the `nest://` deep link handler.
 
 ```bash
-sudo apt install ~/Downloads/nest_1.1.0_amd64.deb
+sudo apt install ~/Downloads/nest_1.1.6_amd64.deb
 ```
 
 Required packages (auto-installed by `apt`): `libgtk-3-0`, `libnotify4`, `libnss3`, `libxss1`, `libxtst6`, `libatspi2.0-0`, `libdrm2`, `libgbm1`, `libxcb-dri3-0`, `xdg-utils`.
