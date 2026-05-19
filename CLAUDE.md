@@ -8,9 +8,9 @@
    VERSION=$(node -p "require('./package.json').version")
    gh release create "v$VERSION" --title "v$VERSION" --notes "" --repo GeronimoDiClemente/raven-nest
    ```
-3. Triggerear el workflow de build (buildea Windows y Mac en paralelo):
+3. Triggerear el workflow de build (buildea Windows, Mac y Linux en paralelo):
    ```bash
-   gh workflow run "Build Windows & Mac" --repo GeronimoDiClemente/raven-nest
+   gh workflow run "Build (Windows, Mac, Linux)" --repo GeronimoDiClemente/raven-nest
    ```
 4. Verificar que los artifacts se subieron a la release:
    ```bash
@@ -29,13 +29,13 @@
 ## Stack
 - Electron + Vite + React + TypeScript
 - Terminal: xterm.js con PTY (node-pty)
-- Build: electron-builder (NSIS para Windows, DMG para Mac)
+- Build: electron-builder (NSIS para Windows, DMG para Mac, AppImage/deb para Linux)
 - El repo usa git-crypt — los archivos sensibles están encriptados
 
 ## Estructura
 - `src/hooks/useXterm.ts` — terminal xterm.js
 - `src/` — renderer (React)
-- `.github/workflows/build-windows.yml` — CI para Windows y Mac
+- `.github/workflows/build-windows.yml` — CI para Windows, Mac y Linux
 
 ## Seguridad — pendiente crítico
 
