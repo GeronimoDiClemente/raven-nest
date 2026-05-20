@@ -47,13 +47,22 @@ function load(): PersistedState {
 
 function persist(state: PersistedState): void {
   const { dir, file } = fileFor()
-  mkdirSync(dir, { recursive: true })
-  // Per-call random tmp filename so two concurrent IPC handlers (e.g.
-  // setLocalPath + setMigrationFlag) don't clobber each other's tmp file
-  // and break the atomic rename. Mirrors electron/worktree-store.ts.
-  const tmp = `${file}.${randomBytes(6).toString('hex')}.tmp`
-  writeFileSync(tmp, JSON.stringify(state))
-  renameSync(tmp, file)
+  // Swallow fs errors with a console.warn so an out-of-disk / permission
+  // failure surfaces a recoverable warning instead of an UnhandledPromise
+  // Rejection bubbling up through ipcMain.handle to the renderer. The spec
+  // contract is "console.warn, keep previous state" — preserving previous
+  // state happens implicitly because we don't mutate the on-disk file.
+  try {
+    mkdirSync(dir, { recursive: true })
+    // Per-call random tmp filename so two concurrent IPC handlers (e.g.
+    // setLocalPath + setMigrationFlag) don't clobber each other's tmp file
+    // and break the atomic rename. Mirrors electron/worktree-store.ts.
+    const tmp = `${file}.${randomBytes(6).toString('hex')}.tmp`
+    writeFileSync(tmp, JSON.stringify(state))
+    renameSync(tmp, file)
+  } catch (err) {
+    console.warn('[local-paths-store] persist failed; keeping previous state:', (err as Error).message)
+  }
 }
 
 export class LocalPathsStore {
