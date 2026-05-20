@@ -427,6 +427,14 @@ declare global {
     pathUtils: {
       exists: (p: string) => Promise<boolean>
     }
+    localPaths: {
+      get: (repoId: string) => Promise<string | null>
+      set: (repoId: string, path: string) => Promise<void>
+      delete: (repoId: string) => Promise<void>
+      getAll: () => Promise<Record<string, string>>
+      getMigrationFlag: (key: string) => Promise<string | null>
+      setMigrationFlag: (key: string, value: string) => Promise<void>
+    }
     cli: {
       check: (cmd: string) => Promise<{ found: boolean; path: string }>
     }

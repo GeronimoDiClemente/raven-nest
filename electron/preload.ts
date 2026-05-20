@@ -19,6 +19,15 @@ contextBridge.exposeInMainWorld('snippets', {
   delete: (id: string) => ipcRenderer.invoke('snippets:delete', id),
 })
 
+contextBridge.exposeInMainWorld('localPaths', {
+  get: (repoId: string) => ipcRenderer.invoke('localPaths:get', repoId),
+  set: (repoId: string, path: string) => ipcRenderer.invoke('localPaths:set', repoId, path),
+  delete: (repoId: string) => ipcRenderer.invoke('localPaths:delete', repoId),
+  getAll: () => ipcRenderer.invoke('localPaths:getAll'),
+  getMigrationFlag: (key: string) => ipcRenderer.invoke('localPaths:getMigrationFlag', key),
+  setMigrationFlag: (key: string, value: string) => ipcRenderer.invoke('localPaths:setMigrationFlag', key, value),
+})
+
 contextBridge.exposeInMainWorld('customCLIs', {
   list: () => ipcRenderer.invoke('customcli:list'),
   save: (cli: unknown) => ipcRenderer.invoke('customcli:save', cli),
