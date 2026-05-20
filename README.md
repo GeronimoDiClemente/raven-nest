@@ -2,12 +2,12 @@
 
 # 🪺 Nest by RAVEN
 
-**Multi-AI Terminal Workspace · v1.1 is here**
+**Multi-AI Terminal Workspace · v1.2 is here**
 
 Run Claude, Gemini, Codex, Copilot and more — side by side in a single window. Each pane is its own AI session, with its own account, history, and environment.
 
 [![Latest Release](https://img.shields.io/github/v/release/GeronimoDiClemente/raven-nest?style=flat-square&color=0066FF)](https://github.com/GeronimoDiClemente/raven-nest/releases/latest)
-[![v1.1](https://img.shields.io/badge/v1.1-current%20release-0066FF?style=flat-square)](#whats-new-in-v11)
+[![v1.2](https://img.shields.io/badge/v1.2-current%20release-0066FF?style=flat-square)](#whats-new-in-v12)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey?style=flat-square)](https://github.com/GeronimoDiClemente/raven-nest/releases/latest)
 [![License: PolyForm Strict](https://img.shields.io/badge/license-PolyForm%20Strict%201.0.0-orange?style=flat-square)](./LICENSE)
 [![Source-available](https://img.shields.io/badge/source--available-official%20binaries%20only-orange?style=flat-square)](#license--redistribution)
@@ -22,7 +22,28 @@ Run Claude, Gemini, Codex, Copilot and more — side by side in a single window.
 
 Think of it as a terminal multiplexer — but built specifically for AI agents and the way teams ship code. Instead of juggling tabs and windows, you get a flexible **grid workspace** where every cell is an independent AI session, on top of the things developers actually need every day: native **git worktrees**, a real **Teams workspace**, your personal **My Repos** dashboard, GitHub & GitLab integration, CI runs, and live terminal sharing.
 
-> **v1.1 builds on the v1.0 stable foundation** with a new tiling layout engine, per-pane port detection, and security hardening across the renderer / IPC surface. Auto-update is on by default — if you already have Nest installed, you'll get it shortly.
+> **v1.2 builds on the v1.1 foundation** with per-device repo paths and a Teams crash fix — same account on a different PC now starts clean instead of trying to open paths that don't exist. Auto-update is on by default — if you already have Nest installed, you'll get it shortly.
+
+---
+
+## What's new in v1.2
+
+### Per-device local repo paths
+
+Local repo paths now live **per-machine** in `~/.raven-nest/local-paths.json`, no longer in Supabase. Logging into the same account on a different PC shows your repo list but with no path — Nest offers **Clone** or **Link existing folder** per repo, instead of trying to open a path from your other machine that doesn't exist locally. The first launch after upgrading from v1.1.x migrates the paths you already had into the local store (only the ones still present on disk).
+
+### Teams no longer crashes on a missing local folder
+
+Previously, clicking **Terminal** on a Teams repo whose folder had been moved, deleted, or pointed to a non-git directory would silently break the handler (or trip the global error boundary). The new code wraps `getRemoteUrl` in try/catch and falls into the same Clone/Link dialog that My Repos already showed. Same UX in both places; no silent dead ends.
+
+### Cleanup
+
+- Removed the OS-level "terminal finished" notifications. They were firing on mid-stream pauses (>2s) instead of true completion, and added noise without signal.
+- Fixed a pre-existing `ProviderAvatar` ReferenceError in the Teams clone dialog (regression introduced before v1.0 — the dialog crashed every time it rendered).
+
+### Compatibility
+
+v1.1.x clients keep working unchanged during the transition — v1.2.0 never writes to the deprecated Supabase columns (`user_repos.local_path`, the `team_repo_local_paths` table). Those columns will be dropped in v1.3.
 
 ---
 
@@ -104,14 +125,14 @@ Versions up to and including **v1.0.1** were published under the Apache License 
 
 ## Download
 
-Latest: **v1.1.6** — sidebar overlays no longer black out the app, ports banner restored, auto-updater cleanup, git clone hang fix (on top of v1.1.1 code signing + v1.1.0 tiling layout + port detection + security hardening).
+Latest: **v1.2.0** — per-device local repo paths, Teams crash on missing folder fixed, "terminal finished" notification noise removed (on top of v1.1.6 sidebar/ports/clone fixes + v1.1.1 code signing + v1.1.0 tiling layout + port detection + security hardening).
 
 | Platform | Download |
 |----------|----------|
-| **macOS** (Apple Silicon) | [Nest-1.1.6-arm64.dmg](../../releases/latest) |
-| **Windows** | [Nest-Setup-1.1.6.exe](../../releases/latest) |
-| **Linux** (universal) | [Nest-1.1.6.AppImage](../../releases/latest) |
-| **Linux** (Debian / Ubuntu) | [nest_1.1.6_amd64.deb](../../releases/latest) |
+| **macOS** (Apple Silicon) | [Nest-1.2.0-arm64.dmg](../../releases/latest) |
+| **Windows** | [Nest-Setup-1.2.0.exe](../../releases/latest) |
+| **Linux** (universal) | [Nest-1.2.0.AppImage](../../releases/latest) |
+| **Linux** (Debian / Ubuntu) | [nest_1.2.0_amd64.deb](../../releases/latest) |
 
 > Nest auto-updates in the background — install once and you'll get future releases without re-downloading.
 
@@ -134,8 +155,8 @@ Two formats, pick whichever fits your distro.
 Works on Ubuntu, Fedora, Arch, openSUSE, Mint, Pop!_OS and most others. No system-wide install.
 
 ```bash
-chmod +x ~/Downloads/Nest-1.1.6.AppImage
-~/Downloads/Nest-1.1.6.AppImage
+chmod +x ~/Downloads/Nest-1.2.0.AppImage
+~/Downloads/Nest-1.2.0.AppImage
 ```
 
 To integrate it into your apps menu, use [AppImageLauncher](https://github.com/TheAssassin/AppImageLauncher) or move it to `~/Applications/`.
@@ -145,7 +166,7 @@ To integrate it into your apps menu, use [AppImageLauncher](https://github.com/T
 Installs system-wide, registers the desktop entry and the `nest://` deep link handler.
 
 ```bash
-sudo apt install ~/Downloads/nest_1.1.6_amd64.deb
+sudo apt install ~/Downloads/nest_1.2.0_amd64.deb
 ```
 
 Required packages (auto-installed by `apt`): `libgtk-3-0`, `libnotify4`, `libnss3`, `libxss1`, `libxtst6`, `libatspi2.0-0`, `libdrm2`, `libgbm1`, `libxcb-dri3-0`, `xdg-utils`.
