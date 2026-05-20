@@ -226,32 +226,35 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal, on
     setTerminalOpening(true)
     try {
       const userPath = userLocalPaths?.[repo.id]
-      if (userPath && await window.pathUtils.exists(userPath)) {
-        onOpenRepoTerminal(repo.repo_full_name, userPath)
+      if (!userPath) {
+        setCloneTarget(repo)
         return
       }
-      // Fall back to shared team path only if (a) the folder exists on this
-      // machine AND (b) its origin remote actually matches this repo. Without
-      // the remote check, a stale/wrong team-level path silently re-adopts
-      // after every Unlink — exactly the sti-travel-console → algoritmos bug
-      // we just fixed for pickRepoFolder.
-      if (repo.local_path && await window.pathUtils.exists(repo.local_path)) {
-        const actualRemote = await window.git.getRemoteUrl(repo.local_path)
+      const exists = await window.pathUtils.exists(userPath).catch(() => false)
+      if (!exists) {
+        setCloneTarget(repo)
+        return
+      }
+      // Verify the local folder still points at this repo's remote.
+      // Mirrors MyReposPanel.tsx:145-164 — getRemoteUrl can throw (git missing,
+      // folder not a repo, permissions) and we MUST fall through to the
+      // Clone/Link dialog instead of letting the handler die silently.
+      try {
+        const remoteUrl = await window.git.getRemoteUrl(userPath)
         const norm = (u: string) => u
           .replace(/\.git$/, '')
           .replace(/\/+$/, '')
           .replace(/^https?:\/\/[^@/]+@/, 'https://')
           .toLowerCase()
-        if (actualRemote && norm(actualRemote) === norm(repo.repo_url)) {
-          await updateUserLocalPath(repo.id, repo.local_path)
-          onOpenRepoTerminal(repo.repo_full_name, repo.local_path)
+        if (typeof remoteUrl === 'string' && remoteUrl && norm(remoteUrl) !== norm(repo.repo_url)) {
+          setCloneTarget(repo)
           return
         }
-        // Path exists but doesn't match — fall through to clone/link dialog
-        // instead of silently adopting the wrong folder.
+      } catch {
+        setCloneTarget(repo)
+        return
       }
-      // No valid path found — ask to clone or link
-      setCloneTarget(repo)
+      onOpenRepoTerminal(repo.repo_full_name, userPath)
     } finally {
       setTerminalOpening(false)
     }
@@ -1384,7 +1387,7 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal, on
         <div className="confirm-overlay" onMouseDown={e => { if (e.target === e.currentTarget) { setCloneTarget(null); setCloneError(null) } }}>
           <div className="confirm-dialog" style={{ width: 420, padding: 18 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-              <ProviderAvatar provider={cloneTarget.provider} size={16} />
+              <ProviderIcon provider={cloneTarget.provider} size={16} />
               <div className="confirm-title" style={{ margin: 0, fontSize: 14 }}>
                 {cloneTarget.repo_full_name}
               </div>
