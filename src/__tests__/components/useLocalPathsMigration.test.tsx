@@ -81,7 +81,10 @@ describe('useLocalPathsMigration', () => {
       .mockReturnValueOnce(buildFromChain([], { message: 'rls denied' }))
       .mockReturnValueOnce(buildFromChain([]))
     renderHook(() => useLocalPathsMigration())
-    await new Promise((r) => setTimeout(r, 20))
+    // Wait until both supabase queries have actually run, so the flag-write
+    // branch has had its chance. Anchoring on a call-count is stable; the
+    // raw setTimeout(20ms) previously here could falsely pass on slow CI.
+    await waitFor(() => expect(supabaseMock.from).toHaveBeenCalledTimes(2))
     expect(localPathsMock.setMigrationFlag).not.toHaveBeenCalled()
   })
 
