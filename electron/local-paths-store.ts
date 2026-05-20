@@ -1,5 +1,6 @@
 import { join } from 'path'
 import { readFileSync, writeFileSync, mkdirSync, existsSync, renameSync } from 'fs'
+import { randomBytes } from 'crypto'
 import { ravenHome } from './raven-home'
 
 interface PersistedState {
@@ -47,7 +48,10 @@ function load(): PersistedState {
 function persist(state: PersistedState): void {
   const { dir, file } = fileFor()
   mkdirSync(dir, { recursive: true })
-  const tmp = `${file}.tmp`
+  // Per-call random tmp filename so two concurrent IPC handlers (e.g.
+  // setLocalPath + setMigrationFlag) don't clobber each other's tmp file
+  // and break the atomic rename. Mirrors electron/worktree-store.ts.
+  const tmp = `${file}.${randomBytes(6).toString('hex')}.tmp`
   writeFileSync(tmp, JSON.stringify(state))
   renameSync(tmp, file)
 }
