@@ -174,7 +174,6 @@ export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZ
       onBusyChangeRef.current(pane.id, true)
       if (busyTimer.current) clearTimeout(busyTimer.current)
       busyTimer.current = setTimeout(() => {
-        const duration = busyStartRef.current ? Date.now() - busyStartRef.current : 0
         busyStartRef.current = null
         const stripped = filterChrome(stripAnsi(responseAccumRef.current))
         lastResponseRef.current = stripped
@@ -193,12 +192,6 @@ export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZ
           setBlocks(prev => {
             const next = [...prev, block]
             return next.length > MAX_BLOCKS ? next.slice(next.length - MAX_BLOCKS) : next
-          })
-        }
-        if (duration > 2000 && Notification.permission === 'granted' && !document.hasFocus()) {
-          new Notification('Nest — terminal finished', {
-            body: `${pane.customLabel ?? pane.aiType}${pane.accountName ? ` · ${pane.accountName}` : ''} finished responding`,
-            silent: false,
           })
         }
       }, BUSY_THRESHOLD_MS)

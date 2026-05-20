@@ -226,11 +226,6 @@ export default function App() {
     window.updater.onStatus((status, msg) => setUpdateStatus({ type: status, msg }))
   }, [])
 
-  // Request notification permission once
-  useEffect(() => {
-    if (Notification.permission === 'default') Notification.requestPermission()
-  }, [])
-
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
   )
