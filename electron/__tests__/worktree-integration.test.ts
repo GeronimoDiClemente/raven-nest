@@ -29,7 +29,8 @@ describe('Worktree integration (happy path)', () => {
   it('hydrate of fresh repo returns single root entry', () => {
     const wts = store.hydrateFromGit(repoPath)
     expect(wts).toHaveLength(1)
-    expect(wts[0].rootRepoPath).toBe(repoPath)
+    // WorktreeStore normalizes Windows paths to POSIX (see posixKey).
+    expect(wts[0].rootRepoPath).toBe(repoPath.replace(/\\/g, '/'))
   })
 
   it('after git worktree add, hydrate returns 2 entries', () => {

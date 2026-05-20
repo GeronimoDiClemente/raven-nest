@@ -96,7 +96,9 @@ describe('WorktreeStore', () => {
     expect(got.length).toBeGreaterThanOrEqual(1)
     const featWt = got.find((m) => m.branch === 'feat/test')
     expect(featWt).toBeDefined()
-    expect(featWt!.rootRepoPath).toBe(repoPath)
+    // WorktreeStore normalizes Windows paths to POSIX (see posixKey),
+    // so compare against the forward-slash form of the temp dir.
+    expect(featWt!.rootRepoPath).toBe(repoPath.replace(/\\/g, '/'))
 
     cleanupTmp(repoPath)
     cleanupTmp(wtPath)
