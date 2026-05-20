@@ -236,17 +236,28 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal, on
         return
       }
       // Verify the local folder still points at this repo's remote.
-      // Mirrors MyReposPanel.tsx:145-164 — getRemoteUrl can throw (git missing,
-      // folder not a repo, permissions) and we MUST fall through to the
-      // Clone/Link dialog instead of letting the handler die silently.
+      // Mirrors MyReposPanel.tsx:145-164. getRemoteUrl returns either the
+      // legacy `string | null` shape or the newer `{ ok, url, reason }` shape
+      // depending on main process version — handle both. Any thrown error
+      // (git missing, folder not a repo, perms) falls into the Clone/Link
+      // dialog so the user is never left with a silently dead button.
       try {
-        const remoteUrl = await window.git.getRemoteUrl(userPath)
+        const rawResult: unknown = await (window.git as unknown as {
+          getRemoteUrl: (folder: string) => Promise<unknown>
+        }).getRemoteUrl(userPath)
+        let remoteUrl: string | null = null
+        if (typeof rawResult === 'string') {
+          remoteUrl = rawResult
+        } else if (rawResult && typeof rawResult === 'object' && 'ok' in rawResult) {
+          const r = rawResult as { ok: boolean; url?: string | null; reason?: string }
+          if (r.ok && r.url) remoteUrl = r.url
+        }
         const norm = (u: string) => u
           .replace(/\.git$/, '')
           .replace(/\/+$/, '')
           .replace(/^https?:\/\/[^@/]+@/, 'https://')
           .toLowerCase()
-        if (typeof remoteUrl === 'string' && remoteUrl && norm(remoteUrl) !== norm(repo.repo_url)) {
+        if (remoteUrl && norm(remoteUrl) !== norm(repo.repo_url)) {
           setCloneTarget(repo)
           return
         }
