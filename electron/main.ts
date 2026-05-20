@@ -106,6 +106,7 @@ import { detectShells, getShellById } from './shell-detect'
 import { AccountStore, detachClaudeConfig } from './account-store'
 import { CustomCLIStore } from './custom-cli-store'
 import { SnippetStore } from './snippet-store'
+import { LocalPathsStore } from './local-paths-store'
 import { ConversationStore } from './conversation-store'
 import { WorkspaceStore } from './workspace-store'
 import { WorktreeStore } from './worktree-store'
@@ -138,6 +139,7 @@ const accountStore = new AccountStore()
 accountStore.migrateClaudeAccounts()
 const customCLIStore = new CustomCLIStore()
 const snippetStore = new SnippetStore()
+const localPathsStore = new LocalPathsStore()
 const conversationStore = new ConversationStore()
 const workspaceStore = new WorkspaceStore()
 const worktreeStore = new WorktreeStore(pathJoin(ravenHome(), '.raven-nest'))
@@ -770,6 +772,20 @@ ipcMain.handle('mcp:globalPath', () => pathJoin(ravenHome(), '.claude', 'setting
 ipcMain.handle('snippets:list', () => snippetStore.list())
 ipcMain.handle('snippets:save', (_event, snippet) => snippetStore.save(snippet))
 ipcMain.handle('snippets:delete', (_event, id: string) => snippetStore.delete(id))
+
+// LocalPaths IPC handlers (per-device repo paths)
+ipcMain.handle('localPaths:get', (_event, repoId: string) => localPathsStore.getLocalPath(repoId))
+ipcMain.handle('localPaths:set', (_event, repoId: string, path: string) => {
+  localPathsStore.setLocalPath(repoId, path)
+})
+ipcMain.handle('localPaths:delete', (_event, repoId: string) => {
+  localPathsStore.deleteLocalPath(repoId)
+})
+ipcMain.handle('localPaths:getAll', () => localPathsStore.getAllLocalPaths())
+ipcMain.handle('localPaths:getMigrationFlag', (_event, key: string) => localPathsStore.getMigrationFlag(key))
+ipcMain.handle('localPaths:setMigrationFlag', (_event, key: string, value: string) => {
+  localPathsStore.setMigrationFlag(key, value)
+})
 
 // CLI detection
 // Electron launched from a desktop launcher (.app on macOS Finder,
