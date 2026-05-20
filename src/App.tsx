@@ -41,6 +41,7 @@ import { useUserPreferences } from './hooks/useUserPreferences'
 import SharedTerminalViewer from './components/SharedTerminalViewer'
 import { terminalShareService } from './lib/terminalShareService'
 import ResourceBar from './components/ResourceBar'
+import { useLocalPathsMigration } from './hooks/useLocalPathsMigration'
 import type { MetricsPaneInput } from './types'
 
 
@@ -195,6 +196,8 @@ export default function App() {
   const { githubToken, githubLogin, connectGitHub } = useGitHub()
 
   const userPrefs = useUserPreferences()
+
+  useLocalPathsMigration()
 
   // Sync fontSize from Supabase once loaded
   useEffect(() => {
