@@ -1,0 +1,110 @@
+name: Re-notarize Mac DMG
+
+# One-shot workflow: downloads the latest release DMG, submits it fresh to
+# Apple notarization, waits up to 30 minutes, and if accepted staples the
+# ticket and re-uploads the DMG to the release.
+#
+# Use this when prior notarization submissions are stuck "In Progress" for
+# more than a few hours (common after Apple credential changes or new team IDs).
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  renotarize:
+    runs-on: macos-latest
+    timeout-minutes: 40
+    steps:
+      - name: Get latest release tag
+        id: release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          TAG=$(gh release list \
+            --repo GeronimoDiClemente/raven-nest \
+            --limit 1 \
+            --json tagName \
+            --jq '.[0].tagName')
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "Latest release: $TAG"
+
+      - name: Download DMG from release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -e
+          mkdir -p /tmp/dmg
+          gh release download "$TAG" \
+            --repo GeronimoDiClemente/raven-nest \
+            --pattern "*.dmg" \
+            --dir /tmp/dmg/
+          echo "==> Downloaded:"
+          ls -lh /tmp/dmg/
+
+      - name: Submit to Apple notarization (wait up to 30 min)
+        id: notarize
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -e
+          export PATH=/usr/bin:$PATH
+
+          ACCEPTED_DMGS=()
+
+          for dmg in /tmp/dmg/*.dmg; do
+            [ -f "$dmg" ] || continue
+            echo ""
+            echo "==> Submitting $(basename $dmg) to Apple notarization (timeout 30m)..."
+            if xcrun notarytool submit "$dmg" \
+                --apple-id "$APPLE_ID" \
+                --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+                --team-id "$APPLE_TEAM_ID" \
+                --wait \
+                --timeout 30m; then
+              echo "==> Accepted: $dmg"
+              ACCEPTED_DMGS+=("$dmg")
+            else
+              echo "::error::Notarization failed or timed out for $(basename $dmg)"
+              exit 1
+            fi
+          done
+
+          echo "accepted_count=${#ACCEPTED_DMGS[@]}" >> $GITHUB_OUTPUT
+
+      - name: Staple notarization ticket
+        env:
+          ACCEPTED_COUNT: ${{ steps.notarize.outputs.accepted_count }}
+        run: |
+          set -e
+          export PATH=/usr/bin:$PATH
+          for dmg in /tmp/dmg/*.dmg; do
+            [ -f "$dmg" ] || continue
+            echo "==> Stapling $(basename $dmg)"
+            xcrun stapler staple "$dmg"
+            xcrun stapler validate "$dmg"
+            echo "    OK"
+          done
+
+      - name: Re-upload stapled DMG to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -e
+          for dmg in /tmp/dmg/*.dmg; do
+            [ -f "$dmg" ] || continue
+            echo "==> Uploading $(basename $dmg) to $TAG"
+            gh release upload "$TAG" "$dmg" \
+              --repo GeronimoDiClemente/raven-nest \
+              --clobber
+          done
+          echo ""
+          echo "==> Done! $TAG DMG is now notarized and stapled."
+          echo "::notice::$TAG is fully notarized. Users can install without Gatekeeper warnings."
