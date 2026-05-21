@@ -3694,6 +3694,61 @@ body {
   cursor: not-allowed;
 }
 
+/* Enterprise banner — sales-led tier, below the self-serve grid */
+.upgrade-enterprise-banner {
+  margin-top: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 18px;
+  background: linear-gradient(135deg, rgba(124, 92, 252, 0.10) 0%, rgba(0, 102, 255, 0.04) 100%);
+  border: 1px solid rgba(124, 92, 252, 0.32);
+  border-radius: 10px;
+}
+
+.upgrade-enterprise-banner-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.upgrade-enterprise-banner-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: 0.1px;
+}
+
+.upgrade-enterprise-banner-subtitle {
+  font-size: 11px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.upgrade-enterprise-banner-cta {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(124, 92, 252, 0.16);
+  border: 1px solid rgba(124, 92, 252, 0.45);
+  color: #b8a3ff;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  padding: 9px 16px;
+  border-radius: 7px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.upgrade-enterprise-banner-cta:hover {
+  background: rgba(124, 92, 252, 0.26);
+  border-color: rgba(124, 92, 252, 0.65);
+  color: #d0c2ff;
+}
+
 /* ── Update Banner ───────────────────────────────────────── */
 
 .update-banner {
@@ -6767,9 +6822,10 @@ button.ci-badge:hover {
   border: 2px solid var(--bg-surface, #0a0a0a);
   box-sizing: border-box;
 }
-.user-menu-dot--free  { background: #6b6b6b; }
-.user-menu-dot--pro   { background: var(--raven-blue); }
-.user-menu-dot--team  { background: #FFB800; }
+.user-menu-dot--free       { background: #6b6b6b; }
+.user-menu-dot--pro        { background: var(--raven-blue); }
+.user-menu-dot--team       { background: #FFB800; }
+.user-menu-dot--enterprise { background: #7C5CFC; }
 .user-menu-dot--trial {
   background: #FFB800;
   animation: user-menu-trial-pulse 1.6s ease-in-out infinite;
@@ -6876,10 +6932,11 @@ button.ci-badge:hover {
   border-radius: 999px;
   color: #fff;
 }
-.user-menu-popover-badge.user-menu-dot--free  { background: #444; color: #ccc; }
-.user-menu-popover-badge.user-menu-dot--pro   { background: rgba(0,102,255,0.2); color: var(--raven-blue); }
-.user-menu-popover-badge.user-menu-dot--team  { background: rgba(255,184,0,0.18); color: #FFB800; }
-.user-menu-popover-badge.user-menu-dot--trial { background: rgba(255,184,0,0.18); color: #FFB800; }
+.user-menu-popover-badge.user-menu-dot--free       { background: #444; color: #ccc; }
+.user-menu-popover-badge.user-menu-dot--pro        { background: rgba(0,102,255,0.2); color: var(--raven-blue); }
+.user-menu-popover-badge.user-menu-dot--team       { background: rgba(255,184,0,0.18); color: #FFB800; }
+.user-menu-popover-badge.user-menu-dot--enterprise { background: rgba(124,92,252,0.2); color: #b8a3ff; }
+.user-menu-popover-badge.user-menu-dot--trial      { background: rgba(255,184,0,0.18); color: #FFB800; }
 
 .user-menu-trial-bar {
   width: 100%;

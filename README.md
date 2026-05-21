@@ -265,28 +265,35 @@ All rebindable in **Settings → Keybinds**.
 
 ## Plans
 
-|  | Free | Pro | Team |
-|--|------|-----|------|
-| **Price** | $0 | $20/mo · $17/mo annual | $35/mo · $29/mo annual |
-| **Grid size** | 2×2 | Up to 4×4 | Up to 4×4 |
-| **All 7 AIs** | ✓ | ✓ | ✓ |
-| **Persistent sessions** | ✓ | ✓ | ✓ |
-| **MCP server panel** | ✓ | ✓ | ✓ |
-| **Broadcast mode** | — | ✓ | ✓ |
-| **Terminal Sharing** | — | ✓ | ✓ |
-| **GitHub & GitLab integration** | — | ✓ | ✓ |
-| **Actions panel** | — | ✓ | ✓ |
-| **My Repos personal workspace** | — | ✓ | ✓ |
-| **Snippets & saved workspaces** | — | ✓ | ✓ |
-| **Daily standup** | — | ✓ | ✓ |
-| **Team Chat + reactions** | — | — | ✓ |
-| **Team Activity feed** | — | — | ✓ |
-| **Multi-leader roles** | — | — | ✓ |
-| **Real-time presence** | — | — | ✓ |
-| **Shared repos / snippets / MCP** | — | — | ✓ |
-| **Priority support** | — | — | ✓ |
+|  | Free | Pro | Team | Enterprise |
+|--|------|-----|------|------------|
+| **Price** | $0 | $20/mo · $15/mo annual | $35/seat · $26/seat annual | from $60/seat/mo · min 10 seats |
+| **Panes (max)** | 3 | 12 | 12 | 12 |
+| **All 7 AIs + Browser cell** | ✓ | ✓ | ✓ | ✓ |
+| **Persistent sessions + Global search** | ✓ | ✓ | ✓ | ✓ |
+| **MCP panel** | read-only | read/write | read/write | read/write |
+| **View worktrees** | ✓ | ✓ | ✓ | ✓ |
+| **Create worktrees + Spotlight** | — | ✓ | ✓ | ✓ |
+| **Diff viewer + IDE picker** | — | ✓ | ✓ | ✓ |
+| **Broadcast mode** | — | ✓ | ✓ | ✓ |
+| **Terminal Sharing** | — | ✓ | ✓ | ✓ |
+| **Voice input (local Whisper)** | — | ✓ | ✓ | ✓ |
+| **Port detection per pane** | — | ✓ | ✓ | ✓ |
+| **GitHub & GitLab integration** | — | ✓ | ✓ | ✓ |
+| **My Repos + Actions + Standup** | — | ✓ | ✓ | ✓ |
+| **Snippets + saved workspaces** | — | ✓ | ✓ | ✓ |
+| **Team Chat + presence + activity** | — | — | ✓ | ✓ |
+| **Shared repos / snippets / MCP** | — | — | ✓ | ✓ |
+| **Multi-leader roles + standup** | — | — | ✓ | ✓ |
+| **Priority support** | — | — | ✓ | ✓ |
+| **SSO · audit logs · SCIM** | — | — | — | ✓ |
+| **On-prem / self-hosted Supabase** | — | — | — | ✓ |
+| **SLA + dedicated CSM** | — | — | — | ✓ |
+| **Custom integrations & features** | — | — | — | ✓ |
 
-Save ~15% with annual billing.
+Save **25%** with annual billing on Pro and Team. Nest is BYOK — your Claude / Codex / Copilot subscriptions handle the AI billing; we don't meter usage.
+
+**Enterprise** is sales-led: SSO, audit logs, on-prem option, and custom feature development for organizations with compliance or workflow needs. [Contact sales →](mailto:sales@nestmux.com)
 
 ---
 

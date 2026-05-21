@@ -1,6 +1,15 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
-import { STRIPE_PRICES, type Plan } from '../lib/stripe'
+import {
+  STRIPE_PRICES,
+  PLAN_PRICING,
+  ANNUAL_DISCOUNT_PERCENT,
+  ENTERPRISE_CONTACT_EMAIL,
+  ENTERPRISE_FLOOR_PER_SEAT,
+  ENTERPRISE_MIN_SEATS,
+  TEAM_MIN_SEATS,
+  type Plan,
+} from '../lib/stripe'
 
 interface Props {
   currentPlan: Plan
@@ -13,12 +22,9 @@ interface FeatureGroup {
 }
 
 interface PlanInfo {
-  id: Plan | 'free'
+  id: Plan
   name: string
   tagline: string
-  monthlyPrice: string
-  annualPrice: string
-  annualTotal: string
   popular?: boolean
   groups: FeatureGroup[]
 }
@@ -27,19 +33,18 @@ const PLAN_LIST: PlanInfo[] = [
   {
     id: 'free',
     name: 'Free',
-    tagline: 'Try Raven, no commitment',
-    monthlyPrice: '$0',
-    annualPrice: '$0',
-    annualTotal: '$0/year',
+    tagline: 'Try Nest, no card required',
     groups: [
       {
         items: [
-          'Grid 2×2 multi-pane',
-          'All AIs: Claude, Codex, Cursor, Gemini, Copilot',
+          'Up to 3 panes at a time',
+          'All 7 AIs: Claude, Codex, Gemini, Copilot, OpenCode, Terminal, Custom',
+          'Browser cell (Chromium, port-filtered)',
           'Persistent sessions across restarts',
           'Command palette + keybindings',
-          'Global MCP server panel',
-          'Voice dictation offline',
+          'Global search across panes',
+          'View worktrees in your repos',
+          'MCP server panel (read-only)',
         ],
       },
     ],
@@ -47,22 +52,25 @@ const PLAN_LIST: PlanInfo[] = [
   {
     id: 'pro',
     name: 'Pro',
-    tagline: 'Your personal workflow, unlimited',
-    monthlyPrice: '$20',
-    annualPrice: '$17',
-    annualTotal: '$204/year',
+    tagline: 'Everything Nest can do, for one developer',
     popular: true,
     groups: [
       {
         label: 'Everything in Free, plus',
         items: [
-          'Grid up to 4×4',
+          'Up to 12 panes',
+          'Create worktrees + Spotlight + benchmark',
+          'Diff viewer + IDE picker (VS Code, Cursor, JetBrains, Zed, Sublime)',
           'Broadcast: one command, every pane',
-          'Personal My Repos with change detection',
-          'GitHub OAuth + Git status panel',
-          'Personal Snippets and Workspaces',
-          'Actions panel (GitHub + GitLab workflows)',
+          'Terminal Sharing with handshake',
+          'Voice input — local Whisper, 8 languages',
+          'Port detection per pane (with "Show all")',
+          'GitHub + GitLab integration',
+          'My Repos — PRs, issues, branch-from-issue',
+          'Actions panel: CI runs inline',
           'Automatic daily standup',
+          'Snippets + workspaces (unlimited)',
+          'MCP panel — full read/write',
         ],
       },
     ],
@@ -70,27 +78,34 @@ const PLAN_LIST: PlanInfo[] = [
   {
     id: 'team',
     name: 'Team',
-    tagline: 'Code with your team in real time',
-    monthlyPrice: '$35',
-    annualPrice: '$29',
-    annualTotal: '$348/year',
+    tagline: 'Real-time collaboration for your dev team',
     groups: [
       {
         label: 'Everything in Pro, plus',
         items: [
-          'Real-time presence: see where everyone is',
-          'Team chat with reactions',
-          'Shared team activity feed',
+          'Real-time presence — see where everyone is',
+          'Team Chat with reactions',
+          'Team Activity feed (GitHub/GitLab events)',
           'Multi-leader roles',
-          'Shared team repos',
-          'Shared snippets, workspaces and MCP',
-          'Join by code: no email needed',
-          'Priority support',
+          'Shared repos, snippets, workspaces, MCP',
+          'Per-user local paths for shared repos',
+          'HTTPS clone with OAuth for private team repos',
+          'Shared team standup',
+          'Join-by-code (8-char, leader-approved)',
+          `Priority support (24h email) · min ${TEAM_MIN_SEATS} seats`,
         ],
       },
     ],
   },
 ]
+
+function priceFor(planId: Plan, billing: 'monthly' | 'annual'): { amount: string; annualTotal?: string } {
+  if (planId === 'free' || planId === 'enterprise') return { amount: '$0' }
+  const pricing = PLAN_PRICING[planId]
+  const monthlyEquiv = billing === 'monthly' ? pricing.monthly : pricing.annual
+  const annualTotal = billing === 'annual' ? `$${pricing.annual * 12}/year` : undefined
+  return { amount: `$${monthlyEquiv}`, annualTotal }
+}
 
 export default function UpgradeModal({ currentPlan, onClose }: Props) {
   const [userId, setUserId] = useState<string | null>(null)
@@ -105,7 +120,7 @@ export default function UpgradeModal({ currentPlan, onClose }: Props) {
     })
   }, [])
 
-  const handleUpgrade = async (plan: Plan) => {
+  const handleUpgrade = async (plan: 'pro' | 'team') => {
     if (!userId) return
     setLoading(plan)
     try {
@@ -124,6 +139,14 @@ export default function UpgradeModal({ currentPlan, onClose }: Props) {
     }
   }
 
+  const handleContactSales = () => {
+    const subject = encodeURIComponent('Nest by RAVEN — Enterprise inquiry')
+    const body = encodeURIComponent(
+      `Hi RAVEN team,\n\nI'd like to talk about Enterprise pricing for Nest.\n\nTeam size: \nUse case: \nCompliance needs (SSO/audit/on-prem): \n\nThanks.`,
+    )
+    window.electronShell.openExternal(`mailto:${ENTERPRISE_CONTACT_EMAIL}?subject=${subject}&body=${body}`)
+  }
+
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="upgrade-modal" onClick={e => e.stopPropagation()}>
@@ -138,7 +161,7 @@ export default function UpgradeModal({ currentPlan, onClose }: Props) {
           </div>
           <h2 className="upgrade-hero-title">Choose your plan</h2>
           <p className="upgrade-hero-subtitle">
-            Upgrade to Pro for your personal workflow, or Team to collaborate in real time.
+            Nest is BYOK — your Claude / Codex / Copilot subscriptions handle the AI. We don't meter usage.
           </p>
         </div>
 
@@ -152,15 +175,16 @@ export default function UpgradeModal({ currentPlan, onClose }: Props) {
             onClick={() => setBilling('annual')}
           >
             Annual
-            <span className="upgrade-save-badge">Save 15%</span>
+            <span className="upgrade-save-badge">Save {ANNUAL_DISCOUNT_PERCENT}%</span>
           </button>
         </div>
 
         <div className="upgrade-plans">
           {PLAN_LIST.map(plan => {
             const isCurrent = currentPlan === plan.id
-            const showAnnual = billing === 'annual' && plan.id !== 'free'
-            const price = billing === 'monthly' ? plan.monthlyPrice : plan.annualPrice
+            const { amount, annualTotal } = priceFor(plan.id, billing)
+            const isPaid = plan.id === 'pro' || plan.id === 'team'
+            const showSeatLabel = plan.id === 'team'
             return (
               <div
                 key={plan.id}
@@ -176,11 +200,11 @@ export default function UpgradeModal({ currentPlan, onClose }: Props) {
                 </div>
 
                 <div className="upgrade-plan-pricing">
-                  <span className="upgrade-plan-price">{price}</span>
-                  {plan.id !== 'free' && <span className="upgrade-plan-period">/mo</span>}
+                  <span className="upgrade-plan-price">{amount}</span>
+                  {isPaid && <span className="upgrade-plan-period">/{showSeatLabel ? 'seat/mo' : 'mo'}</span>}
                 </div>
-                {showAnnual && (
-                  <div className="upgrade-plan-annual">{plan.annualTotal}</div>
+                {billing === 'annual' && annualTotal && (
+                  <div className="upgrade-plan-annual">{annualTotal}{showSeatLabel ? ' / seat' : ''}</div>
                 )}
 
                 <div className="upgrade-plan-feature-list">
@@ -209,7 +233,7 @@ export default function UpgradeModal({ currentPlan, onClose }: Props) {
                   ) : (
                     <button
                       className={`upgrade-plan-btn${plan.popular ? ' primary' : ''}`}
-                      onClick={() => handleUpgrade(plan.id as Plan)}
+                      onClick={() => handleUpgrade(plan.id as 'pro' | 'team')}
                       disabled={!userId || loading === plan.id}
                     >
                       {loading === plan.id ? '…' : `Upgrade to ${plan.name}`}
@@ -219,6 +243,23 @@ export default function UpgradeModal({ currentPlan, onClose }: Props) {
               </div>
             )
           })}
+        </div>
+
+        <div className="upgrade-enterprise-banner">
+          <div className="upgrade-enterprise-banner-text">
+            <div className="upgrade-enterprise-banner-title">
+              Enterprise — from ${ENTERPRISE_FLOOR_PER_SEAT}/seat/mo · min {ENTERPRISE_MIN_SEATS} seats
+            </div>
+            <div className="upgrade-enterprise-banner-subtitle">
+              SSO · audit logs · SCIM · on-prem option · custom integrations · dedicated support · SLA. Need a feature we don't ship yet? We build it.
+            </div>
+          </div>
+          <button
+            className="upgrade-enterprise-banner-cta"
+            onClick={handleContactSales}
+          >
+            Contact sales →
+          </button>
         </div>
       </div>
     </div>
