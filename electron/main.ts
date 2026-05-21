@@ -2157,6 +2157,20 @@ function clearCacheOnVersionChange(): void {
 }
 
 app.whenReady().then(async () => {
+  // macOS: Electron launched from Finder/Dock gets a minimal PATH from launchd
+  // (/usr/bin:/bin:/usr/sbin:/sbin). Capture the user's real login-shell PATH
+  // once so all PTY spawns inherit it (same fix Windows does via the registry).
+  if (isMac) {
+    try {
+      const { execFileSync } = await import('child_process')
+      const loginPath = execFileSync('/bin/zsh', ['-l', '-c', 'echo $PATH'], {
+        encoding: 'utf8',
+        timeout: 5000,
+      }).trim()
+      if (loginPath) process.env.PATH = loginPath
+    } catch { /* keep existing PATH on failure */ }
+  }
+
   // Block launch if this build is older than the minimum supported version
   // (published at min-version.json in the repo root). Fails open on network
   // errors so offline users aren't locked out.
