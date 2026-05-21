@@ -3,7 +3,7 @@ import { join } from 'path'
 import { mkdirSync } from 'fs'
 import * as fs from 'fs'
 import * as pty from 'node-pty'
-import { SHELL, SHELL_ARGS, isWin } from './platform'
+import { SHELL, SHELL_ARGS, isWin, isMac } from './platform'
 import { userHome } from './raven-home'
 
 async function cwdReachable(p: string): Promise<boolean> {
@@ -43,6 +43,23 @@ export class PtyManager extends EventEmitter {
       ...process.env as Record<string, string>,
       TERM: 'xterm-256color',
       COLORTERM: 'truecolor',
+    }
+
+    // macOS: Electron inherits a minimal PATH from launchd. ~/.local/bin and
+    // other user dirs only get added by .zshrc, which node-pty's login shell
+    // may not source reliably. Inject them directly into the PTY env so tools
+    // like claude, pipx, cargo, etc. are always found regardless of shell state.
+    if (isMac) {
+      const home = env.HOME || ''
+      const extra = [
+        `${home}/.local/bin`,
+        '/opt/homebrew/bin',
+        '/opt/homebrew/sbin',
+        '/usr/local/bin',
+      ].filter(Boolean)
+      const current = (env.PATH || '').split(':').filter(Boolean)
+      const toAdd = extra.filter(p => !current.includes(p))
+      if (toAdd.length) env.PATH = [...toAdd, ...current].join(':')
     }
 
     // Only redirect HOME for AI agent panes — plain terminals keep the real HOME
