@@ -162,15 +162,16 @@ jobs:
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
 
       - name: Notarize and staple Mac artifacts
-        # Best-effort notarization: the .dmg is already signed at this point.
-        # If Apple's notary takes longer than the timeout (common for first-time
-        # submissions with a new team ID — Apple does an "in-depth analysis"
-        # that can take 12-48h), we log a warning and proceed without stapling.
-        # The .dmg is still signed and will work on macOS, just requires
-        # internet on first launch to verify the notarization online.
+        # Submit async + poll-by-ID instead of `notarytool submit --wait`.
+        # `--wait` polls Apple internally but its status sync lags: with the
+        # team ID warmed up Apple now accepts in 2-9s, yet `--wait` keeps
+        # printing "In Progress" for minutes and trips the timeout. Polling
+        # `notarytool info <id>` directly reflects the real state, so a fresh
+        # release gets stapled in the build itself — no fallback workflow.
         #
-        # Once Apple has warmed up the team ID (after the first slow submission
-        # eventually completes), subsequent runs should finish in 5-10 minutes.
+        # If Apple ever rejects (Invalid/Rejected), fail loud with the log.
+        # If we somehow blow the 15m budget, warn and continue — the
+        # staple-pending-releases.yml cron stays as a safety net.
         env:
           MAC_CSC_LINK_SECRET: ${{ secrets.MAC_CSC_LINK }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
@@ -189,25 +190,59 @@ jobs:
           for dmg in dist/*.dmg; do
             [ -f "$dmg" ] || continue
             echo ""
-            echo "==> Submitting $dmg to Apple notarization (timeout 5m — best-effort)"
-            if xcrun notarytool submit "$dmg" \
-                 --apple-id "$APPLE_ID" \
-                 --password "$APPLE_APP_SPECIFIC_PASSWORD" \
-                 --team-id "$APPLE_TEAM_ID" \
-                 --wait \
-                 --timeout 5m; then
-              echo "==> Stapling notarization ticket onto $dmg"
-              xcrun stapler staple "$dmg"
-              echo "==> Verifying stapled signature"
-              xcrun stapler validate "$dmg"
-            else
-              echo "::warning::Notarization timed out or failed for $dmg. The .dmg is signed but not stapled — first launch on macOS will require internet to verify online. This is expected for the first submission with a new team ID; later runs should complete in 5-10 minutes."
+            echo "==> Submitting $dmg to Apple notarization (async)"
+            SUBMIT_JSON=$(xcrun notarytool submit "$dmg" \
+              --apple-id "$APPLE_ID" \
+              --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+              --team-id "$APPLE_TEAM_ID" \
+              --output-format json)
+            echo "$SUBMIT_JSON"
+            SUBMISSION_ID=$(echo "$SUBMIT_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin).get('id',''))")
+            if [ -z "$SUBMISSION_ID" ]; then
+              echo "::error::Failed to extract submission ID — Apple submit response: $SUBMIT_JSON"
+              exit 1
             fi
+
+            echo "==> Polling submission $SUBMISSION_ID (every 15s, up to 15m)"
+            DEADLINE=$(( $(date +%s) + 15 * 60 ))
+            STATUS=""
+            while [ "$(date +%s)" -lt "$DEADLINE" ]; do
+              INFO_JSON=$(xcrun notarytool info "$SUBMISSION_ID" \
+                --apple-id "$APPLE_ID" \
+                --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+                --team-id "$APPLE_TEAM_ID" \
+                --output-format json 2>/dev/null || echo '{}')
+              STATUS=$(echo "$INFO_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin).get('status',''))" 2>/dev/null || echo "")
+              echo "    $(date -u +%H:%M:%S) status=$STATUS"
+              case "$STATUS" in
+                Accepted|Invalid|Rejected) break ;;
+              esac
+              sleep 15
+            done
+
+            case "$STATUS" in
+              Accepted)
+                echo "==> Stapling notarization ticket onto $dmg"
+                xcrun stapler staple "$dmg"
+                xcrun stapler validate "$dmg"
+                ;;
+              Invalid|Rejected)
+                echo "::error::Apple rejected $dmg (status=$STATUS). Fetching notary log:"
+                xcrun notarytool log "$SUBMISSION_ID" \
+                  --apple-id "$APPLE_ID" \
+                  --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+                  --team-id "$APPLE_TEAM_ID" || true
+                exit 1
+                ;;
+              *)
+                echo "::warning::Notarization for $dmg did not finish in 15m (last status=$STATUS). DMG is signed but not stapled — staple-pending-releases.yml will pick it up later."
+                ;;
+            esac
           done
 
-          # .zip cannot be stapled (only .app/.dmg/.pkg), but the .app inside
-          # is already notarized through the .dmg submission above (assuming
-          # Apple eventually completes the in-progress submission).
+          # .zip can't be stapled (only .app/.dmg/.pkg), but the .app inside
+          # is already signed + notarized through the .dmg submission, so
+          # macOS verifies it online on first launch.
           exit 0
 
       - uses: actions/upload-artifact@v4
