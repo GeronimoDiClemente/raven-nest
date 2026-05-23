@@ -935,13 +935,6 @@ export default function App() {
         tabActivity={tabActivity}
         rightSlot={<ResourceBar panes={activePanesPayload} />}
       />
-      <PortsBanner
-        rootRepoPath={activeTab.repoPath ?? null}
-        cells={activeTab.panes
-          .filter((p) => Boolean(p.repoPath))
-          .map((p) => ({ paneId: p.id, repoPath: p.repoPath as string }))}
-        onOpenInternal={openBrowserCell}
-      />
       {updateStatus?.type === 'downloading' && (
         <div className="update-banner update-banner--downloading">
           Downloading update…
