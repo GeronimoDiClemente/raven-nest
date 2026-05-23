@@ -83,6 +83,21 @@ export class PtyManager extends EventEmitter {
         mkdirSync(geminiHome, { recursive: true })
         env.GEMINI_CLI_HOME = geminiHome
       }
+
+      // macOS: AI CLIs (Claude, etc.) build keychain paths from $HOME, but the
+      // real login keychain lives in the actual user home. Symlink
+      // accountDir/Library/Keychains → ~/Library/Keychains so credential
+      // managers find the login keychain even with HOME redirected.
+      if (isMac) {
+        const realKeychains = join(userHome(), 'Library', 'Keychains')
+        const localKeychains = join(accountDir, 'Library', 'Keychains')
+        if (fs.existsSync(realKeychains) && !fs.existsSync(localKeychains)) {
+          try {
+            mkdirSync(join(accountDir, 'Library'), { recursive: true })
+            fs.symlinkSync(realKeychains, localKeychains)
+          } catch { /* race or already exists — ignore */ }
+        }
+      }
     } else if (accountDir) {
       mkdirSync(accountDir, { recursive: true })
     }
