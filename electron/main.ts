@@ -1928,10 +1928,6 @@ function setupAutoUpdater(): void {
 
   autoUpdater.on('update-downloaded', () => {
     updaterState = 'ready'
-    // Remove macOS quarantine so the updated app opens without Gatekeeper block
-    if (isMac) {
-      execFile('xattr', ['-cr', app.getPath('exe').split('.app')[0] + '.app'], () => {})
-    }
     const win = BrowserWindow.getAllWindows()[0]
     if (win) win.webContents.send('updater:status', 'ready')
   })
@@ -1959,7 +1955,18 @@ function setupAutoUpdater(): void {
 }
 
 ipcMain.on('updater:install', () => {
-  autoUpdater.quitAndInstall()
+  if (isMac) {
+    // quitAndInstall schedules the helper process then calls app.quit() internally.
+    // On macOS, async before-quit work (spotlight watcher, browser panes) can keep
+    // the event loop alive indefinitely — the helper then waits forever for the old
+    // process to disappear. Kill PTYs up front and force-exit after a short grace
+    // period so the update always completes regardless of lingering event loop refs.
+    ptyManager.killAll()
+    autoUpdater.quitAndInstall(true, false)
+    setTimeout(() => app.exit(0), 500)
+  } else {
+    autoUpdater.quitAndInstall()
+  }
 })
 
 ipcMain.handle('updater:checkForUpdates', async () => {
