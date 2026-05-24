@@ -22,7 +22,7 @@ Run Claude, Gemini, Codex, Copilot and more — side by side in a single window.
 
 Think of it as a terminal multiplexer — but built specifically for AI agents and the way teams ship code. Instead of juggling tabs and windows, you get a flexible **grid workspace** where every cell is an independent AI session, on top of the things developers actually need every day: native **git worktrees**, a real **Teams workspace**, your personal **My Repos** dashboard, GitHub & GitLab integration, CI runs, and live terminal sharing.
 
-> **v1.2 builds on the v1.1 foundation** with per-device repo paths, Teams crash fixes, and macOS bugfixes (credential persistence, port detection, auto-update). Auto-update is on by default — if you already have Nest installed, you'll get it shortly.
+> **v1.2 builds on the v1.1 foundation** with per-device repo paths, Teams crash fixes, and macOS bugfixes (credential persistence, port detection, auto-update). **v1.2.5 fixes the macOS auto-updater** — if you're on an older version, download this release once manually; from v1.2.5 onwards `Install and restart` works automatically.
 
 ---
 
@@ -134,15 +134,13 @@ Latest: **v1.2.5** — macOS credential persistence, per-pane port attribution f
 | **Linux** (universal) | [Nest-1.2.5.AppImage](../../releases/latest) |
 | **Linux** (Debian / Ubuntu) | [nest_1.2.5_amd64.deb](../../releases/latest) |
 
-> Nest auto-updates in the background — install once and you'll get future releases without re-downloading.
+> Nest auto-updates in the background. **If you're upgrading from a version older than v1.2.5, this first download is manual** — the auto-updater was broken on macOS before v1.2.5. After installing v1.2.5, future updates install automatically via `Install and restart`.
 
 ---
 
 ## Installing on macOS
 
-Nest by RAVEN is signed and notarized by Apple since v1.1.2 — just download the DMG, open it and drag **Nest.app** to `/Applications`. Gatekeeper will let it run normally.
-
-> If you previously installed a pre-notarized build (≤ v1.1.1) and worked around Gatekeeper with `xattr -dr com.apple.quarantine`, that's no longer needed. Re-install from the latest DMG to get the auto-updater wired to the signed pipeline.
+Nest by RAVEN is signed and notarized by Apple. Download the DMG, open it and drag **Nest.app** to `/Applications` — Gatekeeper will let it run without any extra steps.
 
 ---
 
