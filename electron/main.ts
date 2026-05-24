@@ -251,6 +251,11 @@ function createWindow(): void {
     win.hide()
     if (isMac) app.dock.hide()
   })
+
+  // Notify renderer to re-focus the active terminal after the window is shown
+  win.on('show', () => {
+    win.webContents.send('window:shown')
+  })
 }
 
 // Window control handlers (used by custom titlebar on Windows)
@@ -2287,12 +2292,12 @@ app.on('before-quit', () => {
   // Destroy every WebContentsView. Each one owns a Chromium render process
   // tree; leaving them dangling for the Electron app teardown is slow.
   browserPanes.destroyAll()
-  // Kill every node-pty process. Each PTY is its own OS-level process with a
-  // pseudoterminal device — without this, the user sees PowerShell/bash
-  // processes survive Nest's tray-Quit on Windows (they'd only die when
-  // the conpty session closes, which doesn't happen cleanly without kill()).
-  ptyManager.killAll()
-  ptyManager.removeAllListeners()
+  // PTYs are NOT killed here. On macOS, before-quit always fires on Cmd+Q but
+  // the quit is then cancelled by win.on('close') calling e.preventDefault() —
+  // killing PTYs here would destroy running sessions even though the app stays
+  // alive (hidden to tray). PTY cleanup is handled by the tray "Quit" handler
+  // (explicit killAll + app.exit) and the updater:install path (explicit killAll
+  // before quitAndInstall). Those are the only real-quit paths.
   setupRunner.removeAllListeners()
   spotlight.removeAllListeners()
   metricsCollector.dispose()

@@ -181,10 +181,14 @@ export function useXterm(paneId: string, onInput?: (data: string) => void, fontS
     const onPaste = (e: Event) => e.preventDefault()
     container.addEventListener('paste', onPaste, true)
 
-    // Resize observer — defer to next frame so grid layout is finalized
+    // Resize observer — defer to next frame so grid layout is finalized.
+    // Guard against hidden-window resizes (clientWidth/Height = 0 when win.hide()
+    // is called on macOS) — FitAddon would resize the terminal to 2×1 and corrupt
+    // both the xterm buffer and the PTY.
     const resizeObserver = new ResizeObserver(() => {
       requestAnimationFrame(() => {
         try {
+          if (!container.clientWidth || !container.clientHeight) return
           fitAddon.fit()
           window.pty.resize(paneId, term.cols, term.rows)
           onResizeRef.current?.(term.cols, term.rows)
@@ -193,10 +197,26 @@ export function useXterm(paneId: string, onInput?: (data: string) => void, fontS
     })
     resizeObserver.observe(container)
 
+    // Re-fit and re-focus after the window comes back from win.hide() on macOS.
+    // Without this, the terminal stays at the corrupted 2×1 dimensions until the
+    // user manually resizes the window.
+    const onVisibilityChange = () => {
+      if (document.visibilityState !== 'visible') return
+      requestAnimationFrame(() => {
+        try {
+          fitAddon.fit()
+          window.pty.resize(paneId, term.cols, term.rows)
+          onResizeRef.current?.(term.cols, term.rows)
+        } catch { /* ignore */ }
+      })
+    }
+    document.addEventListener('visibilitychange', onVisibilityChange)
+
     return () => {
       container.removeEventListener('mousedown', onMouseDown)
       container.removeEventListener('paste', onPaste, true)
       resizeObserver.disconnect()
+      document.removeEventListener('visibilitychange', onVisibilityChange)
       unregisterTerminal(paneId)
       term.dispose()
     }

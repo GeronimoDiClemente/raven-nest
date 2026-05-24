@@ -657,6 +657,17 @@ export default function App() {
     return () => window.removeEventListener('nest:pty-url', handler as EventListener)
   }, [openBrowserCell])
 
+  // Re-focus the active terminal when the window comes back from win.hide()
+  // (e.g. Cmd+Q on macOS hides instead of quitting). main.ts emits 'window:shown'
+  // on every BrowserWindow 'show' event — more reliable than the 'focus' DOM event
+  // which Electron doesn't always fire after win.hide()/win.show().
+  useEffect(() => {
+    window.windowControls?.onShown(() => {
+      const id = focusedPaneIdRef.current
+      if (id) focusTerminal(id)
+    })
+  }, [])
+
   // Open the new-pane dialog (engine handles slot placement)
   const addNextPane = useCallback(() => {
     setAddingPane({})
