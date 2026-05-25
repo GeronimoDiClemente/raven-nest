@@ -113,7 +113,7 @@ import { WorktreeStore } from './worktree-store'
 import { PresetStore } from './preset-store'
 import { SetupRunner } from './setup-runner'
 import { scanPid } from './port-monitor'
-import { getCwdForPid, getProcessInfo, listListeningPidsWindows } from './cwd-reader'
+import { getCwdForPid, getProcessInfo, listListeningPidsPosix, listListeningPidsWindows } from './cwd-reader'
 // pidtree resolves a pid's full descendant tree. Used so port scans cover the
 // actual server (a child of the PowerShell shell), not just the shell itself.
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
@@ -1516,14 +1516,62 @@ ipcMain.handle('ports:byPane', async (
       result[attributed] = arr
     })
   } else {
-    // POSIX path: PPID lookup isn't free here (would need an extra `ps`
-    // call per listening pid), so we fall back to the tree-only attribution
-    // that the metrics:portsByPids handler already does well.
-    await Promise.all(paneInfo.map(async ({ paneId, panePid }) => {
-      if (typeof panePid !== 'number' || panePid <= 0) return
-      const ports = await scanPid(panePid, resolvePidTree)
-      if (ports.length > 0) result[paneId] = ports
-    }))
+    // POSIX (macOS/Linux): same three-layer attribution as Windows.
+    // 1. Global lsof scan → PID tree match (handles normal dev servers)
+    // 2. CWD match — handles processes reparented to init/launchd after their
+    //    parent shell exits (e.g. `npx next dev &` launched from Claude Code's
+    //    Bash tool: the shell subprocess exits and the Node.js worker is
+    //    adopted by PID 1, so pidtree can't find it from the pane's PTY PID).
+    const listening = await listListeningPidsPosix()
+    if (listening.size === 0) {
+      // lsof failed or returned nothing — fall back to per-pane tree scan.
+      await Promise.all(paneInfo.map(async ({ paneId, panePid }) => {
+        if (typeof panePid !== 'number' || panePid <= 0) return
+        const ports = await scanPid(panePid, resolvePidTree)
+        if (ports.length > 0) result[paneId] = ports
+      }))
+    } else {
+      const unattributed: Array<[number, number[]]> = []
+      for (const [pid, ports] of listening) {
+        let attributed: string | null = null
+        for (const { paneId } of paneInfo) {
+          if (treesByPane.get(paneId)?.has(pid)) { attributed = paneId; break }
+        }
+        if (attributed) {
+          const arr = result[attributed] ?? []
+          for (const p of ports) if (!arr.includes(p)) arr.push(p)
+          result[attributed] = arr
+        } else {
+          unattributed.push([pid, ports])
+        }
+      }
+      if (unattributed.length > 0 && paneInfo.some((p) => p.repoPath)) {
+        const infos = await Promise.allSettled(unattributed.map(([pid]) => getProcessInfo(pid)))
+        unattributed.forEach(([, ports], idx) => {
+          const r = infos[idx]
+          const info = r?.status === 'fulfilled' ? r.value : null
+          if (!info?.cwd) return
+          const c = info.cwd.toLowerCase().replace(/\/+$/, '')
+          const matching = paneInfo.filter(({ repoPath }) => {
+            if (!repoPath) return false
+            const np = repoPath.toLowerCase().replace(/\/+$/, '')
+            return c === np || c.startsWith(np + '/')
+          })
+          let attributed: string | null = null
+          if (matching.length === 1) {
+            attributed = matching[0]!.paneId
+          } else if (matching.length > 1) {
+            const busy = matching.filter(({ paneId }) => (treesByPane.get(paneId)?.size ?? 0) > 1)
+            const candidates = busy.length > 0 ? busy : matching
+            attributed = candidates[candidates.length - 1]!.paneId
+          }
+          if (!attributed) return
+          const arr = result[attributed] ?? []
+          for (const p of ports) if (!arr.includes(p)) arr.push(p)
+          result[attributed] = arr
+        })
+      }
+    }
   }
 
   for (const id of Object.keys(result)) {
