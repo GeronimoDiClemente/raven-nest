@@ -1,5 +1,7 @@
 // src/tutorial/demo/fixtures.ts
 
+import { createWorktreeDemoState, type WorktreeDemoState } from './worktree-fixtures'
+
 /** A demo repo as the UI expects to see it. */
 export interface DemoRepo {
   id: string
@@ -32,6 +34,7 @@ export interface DemoState {
   ptyScript: string
   githubLogin: string
   githubToken: string
+  worktree: WorktreeDemoState
 }
 
 const AVATAR =
@@ -80,5 +83,6 @@ export function createDemoState(): DemoState {
       'Welcome to Claude Code (demo)\r\n' +
       '> How do I add a route?\r\n' +
       '\x1b[36mAdd a new entry to src/router.tsx ...\x1b[0m\r\n',
+    worktree: createWorktreeDemoState(),
   }
 }
