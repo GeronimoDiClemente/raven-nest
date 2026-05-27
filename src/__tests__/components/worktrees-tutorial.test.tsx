@@ -5,6 +5,7 @@ import { TutorialSandbox } from '../../tutorial/TutorialSandbox'
 
 describe('worktrees tutorial (demo sandbox)', () => {
   beforeEach(() => {
+    Object.defineProperty(navigator, 'language', { value: 'en-US', configurable: true })
     // Sentinels: the REAL window.* must never be called (components read via bridge,
     // which the demo harness overrides). If a component still touches window.worktree
     // or window.diff directly, these throw and the test fails loudly.
@@ -33,13 +34,11 @@ describe('worktrees tutorial (demo sandbox)', () => {
     render(<TutorialSandbox tourId="worktrees" onClose={() => {}} />)
     // The sandbox renders nothing until the harness activates (useEffect → ready).
     await waitFor(() =>
-      expect(screen.getByText(/Un worktree es una rama/)).toBeInTheDocument(),
+      expect(screen.getByText(/A worktree is a branch/)).toBeInTheDocument(),
     )
-    // Step 1 title is exactly "Worktrees" (the section header DOM text is
-    // "▾ Worktrees" with the chevron, so it won't collide with an exact match).
     expect(screen.getByText('Worktrees')).toBeInTheDocument()
-    // Progress badge: step 1 of 11.
-    expect(screen.getByText(/1\s*\/\s*11/)).toBeInTheDocument()
+    // Progress badge: step 1 of 13.
+    expect(screen.getByText(/1\s*\/\s*13/)).toBeInTheDocument()
 
     // Regression guard: the diff/pr chip tour anchors must resolve in the DOM on
     // initial mount. They render only on NON-root worktrees, and the chip data
@@ -58,14 +57,14 @@ describe('worktrees tutorial (demo sandbox)', () => {
     const onClose = vi.fn()
     render(<TutorialSandbox tourId="worktrees" onClose={onClose} />)
     await waitFor(() =>
-      expect(screen.getByText(/Un worktree es una rama/)).toBeInTheDocument(),
+      expect(screen.getByText(/A worktree is a branch/)).toBeInTheDocument(),
     )
-    // 11 steps: advance with "Siguiente →" 10 times, then the last step's
-    // same button reads "Listo" and finishing calls onClose.
-    for (let i = 0; i < 10; i++) {
-      fireEvent.click(screen.getByRole('button', { name: /siguiente/i }))
+    // 13 steps: advance with "Next →" 12 times, then the last step's button
+    // reads "Done" and finishing calls onClose.
+    for (let i = 0; i < 12; i++) {
+      fireEvent.click(screen.getByRole('button', { name: /next/i }))
     }
-    fireEvent.click(screen.getByRole('button', { name: /listo/i }))
+    fireEvent.click(screen.getByRole('button', { name: /done/i }))
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 })

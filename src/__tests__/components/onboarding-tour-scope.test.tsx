@@ -5,7 +5,7 @@ import { useRef } from 'react'
 import { OnboardingTour } from '../../tutorial/OnboardingTour'
 import type { TourStep } from '../../tutorial/types'
 
-const steps: TourStep[] = [{ id: 's', anchor: '[data-tour-id="x"]', title: 'T', body: 'B' }]
+const steps: TourStep[] = [{ id: 's', anchor: '[data-tour-id="x"]', title: { en: 'T', es: 'T' }, body: { en: 'B', es: 'B' } }]
 
 function Harness({ anchorInside }: { anchorInside: boolean }) {
   const ref = useRef<HTMLDivElement | null>(null)

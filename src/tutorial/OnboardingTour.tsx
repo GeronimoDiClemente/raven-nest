@@ -1,6 +1,13 @@
 // src/tutorial/OnboardingTour.tsx
-import { useState, useEffect, useCallback, type CSSProperties, type RefObject } from 'react'
+import { useState, useEffect, useRef, useCallback, type CSSProperties, type RefObject } from 'react'
 import type { TourStep } from './types'
+import { t, resolveTutorialLocale, type Localized } from './i18n'
+
+/** Action signal: bumping `nonce` advances the step whose `advanceOnAction` === `action`. */
+export interface AdvanceSignal {
+  action: string
+  nonce: number
+}
 
 export interface OnboardingTourProps {
   steps: TourStep[]
@@ -14,9 +21,24 @@ export interface OnboardingTourProps {
    * anchor (hidden under the overlay) instead of the sandbox's.
    */
   rootRef?: RefObject<HTMLElement | null>
+  /**
+   * Drives action-based advancing. When `nonce` changes and the current step's
+   * `advanceOnAction` matches `action`, the tour advances. Optional: when
+   * absent the tour advances only via the anchor click or the Next button.
+   */
+  advanceSignal?: AdvanceSignal | null
 }
 
-export function OnboardingTour({ steps, onClose, startIndex = 0, rootRef }: OnboardingTourProps) {
+const LABELS: Record<'back' | 'skip' | 'next' | 'done' | 'hint', Localized> = {
+  back: { en: 'Back', es: 'Atrás' },
+  skip: { en: 'Skip', es: 'Saltar' },
+  next: { en: 'Next →', es: 'Siguiente →' },
+  done: { en: 'Done', es: 'Listo' },
+  hint: { en: 'or click the highlighted element', es: 'o tocá el elemento resaltado' },
+}
+
+export function OnboardingTour({ steps, onClose, startIndex = 0, rootRef, advanceSignal }: OnboardingTourProps) {
+  const locale = resolveTutorialLocale()
   const [index, setIndex] = useState(startIndex)
   const [rect, setRect] = useState<DOMRect | null>(null)
   const step = steps[index]
@@ -57,6 +79,19 @@ export function OnboardingTour({ steps, onClose, startIndex = 0, rootRef }: Onbo
     return () => el.removeEventListener('click', handler)
   }, [step, next, rootRef])
 
+  // Action-to-advance: a fresh signal whose action matches the current step
+  // advances it. We mark every nonce as seen (even non-matching) so a stale
+  // signal can't fire later when we reach a step that would match it.
+  const lastNonce = useRef<number | null>(null)
+  useEffect(() => {
+    if (!advanceSignal) return
+    if (lastNonce.current === advanceSignal.nonce) return
+    lastNonce.current = advanceSignal.nonce
+    if (step?.advanceOnAction && step.advanceOnAction === advanceSignal.action) {
+      next()
+    }
+  }, [advanceSignal, step, next])
+
   if (!step) return null
 
   const pad = 6
@@ -92,19 +127,19 @@ export function OnboardingTour({ steps, onClose, startIndex = 0, rootRef }: Onbo
         <span className="tour-badge">
           {index + 1} / {steps.length}
         </span>
-        <h3 className="tour-title">{step.title}</h3>
-        <p className="tour-body">{step.body}</p>
-        {step.advanceOnClick && <div className="tour-hint">o tocá el elemento resaltado</div>}
+        <h3 className="tour-title">{t(step.title, locale)}</h3>
+        <p className="tour-body">{t(step.body, locale)}</p>
+        {step.advanceOnClick && <div className="tour-hint">{t(LABELS.hint, locale)}</div>}
         <div className="tour-controls">
           <button className="tour-back" onClick={back} disabled={index === 0}>
-            Atrás
+            {t(LABELS.back, locale)}
           </button>
           <span className="tour-spacer" />
           <button className="tour-skip" onClick={onClose}>
-            Saltar tour
+            {t(LABELS.skip, locale)}
           </button>
           <button className="tour-next" onClick={next}>
-            {isLast ? 'Listo' : 'Siguiente →'}
+            {isLast ? t(LABELS.done, locale) : t(LABELS.next, locale)}
           </button>
         </div>
         <div className="tour-progress">

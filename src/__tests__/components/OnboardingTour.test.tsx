@@ -5,8 +5,8 @@ import { OnboardingTour } from '../../tutorial/OnboardingTour'
 import type { TourStep } from '../../tutorial/types'
 
 const steps: TourStep[] = [
-  { id: 's1', anchor: '[data-tour-id="a"]', title: 'Step one', body: 'First' },
-  { id: 's2', anchor: '[data-tour-id="b"]', title: 'Step two', body: 'Second' },
+  { id: 's1', anchor: '[data-tour-id="a"]', title: { en: 'Step one', es: 'Paso uno' }, body: { en: 'First', es: 'Primero' } },
+  { id: 's2', anchor: '[data-tour-id="b"]', title: { en: 'Step two', es: 'Paso dos' }, body: { en: 'Second', es: 'Segundo' } },
 ]
 
 describe('OnboardingTour navigation', () => {
@@ -18,28 +18,28 @@ describe('OnboardingTour navigation', () => {
 
   it('Next advances to the second step', () => {
     render(<OnboardingTour steps={steps} onClose={() => {}} />)
-    fireEvent.click(screen.getByRole('button', { name: /siguiente/i }))
+    fireEvent.click(screen.getByRole('button', { name: /next/i }))
     expect(screen.getByText('Step two')).toBeInTheDocument()
   })
 
   it('Next on the last step calls onClose (finish)', () => {
     const onClose = vi.fn()
     render(<OnboardingTour steps={steps} onClose={onClose} startIndex={1} />)
-    fireEvent.click(screen.getByRole('button', { name: /finalizar|terminar|listo/i }))
+    fireEvent.click(screen.getByRole('button', { name: /done/i }))
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 
   it('Skip calls onClose immediately', () => {
     const onClose = vi.fn()
     render(<OnboardingTour steps={steps} onClose={onClose} />)
-    fireEvent.click(screen.getByRole('button', { name: /saltar/i }))
+    fireEvent.click(screen.getByRole('button', { name: /skip/i }))
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 
   it('advances when the anchored element is clicked on an advanceOnClick step', () => {
     const clickSteps: TourStep[] = [
-      { id: 's1', anchor: '[data-tour-id="go"]', title: 'Click it', body: 'x', advanceOnClick: true },
-      { id: 's2', anchor: '[data-tour-id="b"]', title: 'Step two', body: 'y' },
+      { id: 's1', anchor: '[data-tour-id="go"]', title: { en: 'Click it', es: 'Tocalo' }, body: { en: 'x', es: 'x' }, advanceOnClick: true },
+      { id: 's2', anchor: '[data-tour-id="b"]', title: { en: 'Step two', es: 'Paso dos' }, body: { en: 'y', es: 'y' } },
     ]
     document.body.innerHTML = '<button data-tour-id="go">Go</button>'
     render(<OnboardingTour steps={clickSteps} onClose={() => {}} />)
