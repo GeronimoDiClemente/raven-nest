@@ -43,7 +43,6 @@ import { terminalShareService } from './lib/terminalShareService'
 import ResourceBar from './components/ResourceBar'
 import { useLocalPathsMigration } from './hooks/useLocalPathsMigration'
 import type { MetricsPaneInput } from './types'
-import { TutorialController } from './tutorial/TutorialController'
 import { TutorialSandbox } from './tutorial/TutorialSandbox'
 import { useTourSeen } from './hooks/useTourSeen'
 
@@ -1258,7 +1257,6 @@ export default function App() {
         worktreePath={activeCellRepoPath ?? null}
         onClose={() => setDiffViewerOpen(false)}
       />
-      <TutorialController />
       {tutorialTour && <TutorialSandbox tourId={tutorialTour} onClose={() => { if (tutorialTour === 'worktrees') worktreesSeen.markSeen(); setTutorialTour(null) }} />}
     </div>
   )
