@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { DiffFile, DiffResult } from '../types'
+import { bridge } from '../lib/bridge'
 
 interface Props {
   open: boolean
@@ -17,7 +18,7 @@ export function DiffViewerPanel({ open, worktreePath, onClose }: Props) {
     if (!open || !worktreePath) return
     let cancelled = false
     setLoading(true); setError(null)
-    void window.diff.get(worktreePath).then((res) => {
+    void bridge.diff.get(worktreePath).then((res) => {
       if (cancelled) return
       setData(res)
       setSelectedPath(res.files[0]?.path ?? null)
@@ -41,7 +42,7 @@ export function DiffViewerPanel({ open, worktreePath, onClose }: Props) {
 
   return (
     <div className="diff-drawer" onClick={onClose}>
-      <div className="diff-panel" onClick={(e) => e.stopPropagation()}>
+      <div className="diff-panel" data-tour-id="diff-panel" onClick={(e) => e.stopPropagation()}>
         <div className="diff-header">
           <span className="diff-title">Diff · {worktreePath?.split(/[\\/]/).pop()}</span>
           <button className="diff-close" onClick={onClose}>×</button>
@@ -53,7 +54,7 @@ export function DiffViewerPanel({ open, worktreePath, onClose }: Props) {
         )}
         {data && data.files.length > 0 && (
           <div className="diff-body">
-            <div className="diff-files">
+            <div className="diff-files" data-tour-id="diff-files">
               {data.files.map((f) => (
                 <button
                   key={f.path}
