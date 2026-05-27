@@ -1664,3 +1664,16 @@ Resultado de los code-reviews tras implementar Plan 1. **Aprobado para merge, si
 - `OnboardingTour.tsx`: el campo `placement` de `TourStep` está declarado pero no se consume (el tooltip siempre va debajo). Implementar `placement` si algún ancla queda cerca del borde inferior (p.ej. `workspace-tabs`) y el tooltip se corta.
 
 **Hecho en esta tanda:** `aria-label="Open tutorial"` agregado al botón Help del Sidebar (a11y).
+
+---
+
+## Corrección de arquitectura: intercepción vía `bridge` (no `window` swap)
+
+**Hallazgo en runtime (Electron real, no detectable en jsdom):** la estrategia original de reemplazar `window.*` en `activate()` es **imposible**. `contextBridge` expone `window.git`, `window.accounts`, etc. como propiedades **read-only Y non-configurable**, así que ni la asignación directa (`window.git = mock` → "Cannot assign to read only property") ni `Object.defineProperty` (→ "Cannot redefine property") funcionan. Los tests en jsdom no lo detectaron porque jsdom define esas props como escribibles.
+
+**Solución adoptada (la alternativa que el spec ya anticipaba — inyección de dependencias):**
+- `src/lib/bridge.ts`: un Proxy `bridge` que por defecto delega a `window.*` y, cuando el demo inyecta overrides (`__setBridgeOverrides` / `__clearBridgeOverrides`), devuelve los mocks. En producción `bridge.x === window.x` (cero cambio de comportamiento).
+- El harness ahora hace `__setBridgeOverrides(mocks)` en vez de mutar `window`. El swap de `supabase` (Proxy propio) y la intercepción de `fetch` (no es contextBridge, es reasignable) se mantienen.
+- **Los componentes reutilizados por el demo deben leer sus APIs vía `bridge.*` en vez de `window.*`.** `NewPaneDialog` ya migrado (6 APIs: platform, shells, customCLIs, cli, accounts, electronShell; `window.addEventListener` queda como DOM nativo).
+
+**Implicación para los planes de seguimiento (My Repos / Teams / Worktrees):** cada plan debe **migrar a `bridge.*`** las llamadas `window.*` de los componentes que reutilice (`MyReposPanel`, `TeamsWorkspace`, `WorktreesSection`, `PRList`, `PRReview`, etc.). Es un cambio mecánico y behavior-preserving en producción. `fetch` (usado por PRList/PRReview) se decide en el plan de My Repos: o se migra a `bridge.fetch`, o se mantiene la intercepción directa de `window.fetch` (verificar que sea reasignable en Electron — el `fetch` nativo lo es; solo las props de contextBridge no).
