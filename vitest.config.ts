@@ -12,6 +12,7 @@ export default defineConfig({
             'electron/__tests__/**/*.test.ts',
             'src/__tests__/**/*.test.ts',
           ],
+          exclude: ['src/__tests__/tutorial/**'],
           setupFiles: ['electron/__tests__/setup.ts'],
         },
       },
@@ -19,7 +20,11 @@ export default defineConfig({
         test: {
           name: 'jsdom',
           environment: 'jsdom',
-          include: ['src/__tests__/components/**/*.test.tsx', 'src/__tests__/hooks/**/*.test.tsx'],
+          include: [
+            'src/__tests__/components/**/*.test.tsx',
+            'src/__tests__/hooks/**/*.test.tsx',
+            'src/__tests__/tutorial/**/*.test.ts',
+          ],
           setupFiles: [
             'electron/__tests__/setup.ts',
             'src/__tests__/setup-dom.ts',
