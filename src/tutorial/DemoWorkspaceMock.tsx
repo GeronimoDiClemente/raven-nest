@@ -1,9 +1,11 @@
 // src/tutorial/DemoWorkspaceMock.tsx
 //
-// Purely-visual static replica of the real workspace (tab bar + a terminal
-// pane), used to fill the tutorial sandbox's right side so it reads like the
-// real app instead of an empty void. No PTYs, no hooks, no bridge — just the
-// real CSS classes with canned content tied to the demo worktree story.
+// The tutorial sandbox's right side, built from the real workspace CSS classes
+// so it reads like the real app. Exports a static `DemoTabBar` and the
+// interactive `DemoWorkspace` (drop a worktree → fake terminal pane; Sync cwd
+// on cwd divergence). No PTYs and no bridge — terminals are faked via local
+// React state; the drag uses the real WORKTREE_DRAG_MIME so it interoperates
+// with the live WorktreesSection drag source.
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { WORKTREE_DRAG_MIME } from '../lib/dragTypes'
 

@@ -118,7 +118,9 @@ export function OnboardingTour({ steps, onClose, startIndex = 0, rootRef, advanc
       }
     : null
 
-  // Tooltip sits just below the spotlight (fallback: centered).
+  // Tooltip sits just below the spotlight (fallback: centered when no anchor).
+  // NOTE: step.placement ('top'|'left'|'right') is not yet honored — every
+  // anchored tooltip renders below the spotlight. TODO: route by placement.
   const tooltipStyle: CSSProperties = spotlight
     ? { position: 'fixed', top: spotlight.top + spotlight.height + 12, left: spotlight.left, zIndex: 2001 }
     : { position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', zIndex: 2001 }

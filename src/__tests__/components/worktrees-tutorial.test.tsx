@@ -2,6 +2,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import { TutorialSandbox } from '../../tutorial/TutorialSandbox'
+import { WORKTREE_DRAG_MIME } from '../../lib/dragTypes'
 
 describe('worktrees tutorial (demo sandbox)', () => {
   beforeEach(() => {
@@ -110,7 +111,7 @@ describe('worktrees tutorial (demo sandbox)', () => {
     fireEvent.drop(ws, {
       dataTransfer: {
         getData: () => 'C:/demo/.worktrees/nest-web/feat-dark-mode',
-        types: ['application/x-raven-worktree-path'],
+        types: [WORKTREE_DRAG_MIME],
       },
     })
     await waitFor(() =>
