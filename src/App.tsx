@@ -43,6 +43,7 @@ import { terminalShareService } from './lib/terminalShareService'
 import ResourceBar from './components/ResourceBar'
 import { useLocalPathsMigration } from './hooks/useLocalPathsMigration'
 import type { MetricsPaneInput } from './types'
+import { TutorialController, openTour } from './tutorial/TutorialController'
 
 
 let paneCounter = 0
@@ -1019,6 +1020,7 @@ export default function App() {
         layoutId={activeTab.layoutId}
         paneCount={panes.length}
         onLayoutChange={handleLayoutIdChange}
+        onHelp={(id) => openTour(id)}
       />
       <div
         ref={workspaceRef}
@@ -1243,6 +1245,7 @@ export default function App() {
         worktreePath={activeCellRepoPath ?? null}
         onClose={() => setDiffViewerOpen(false)}
       />
+      <TutorialController />
     </div>
   )
 }
