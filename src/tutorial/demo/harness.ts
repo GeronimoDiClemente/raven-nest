@@ -4,19 +4,6 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type { DemoState } from './fixtures'
 import { makeWindowMocks, makePtyMock, makeSupabaseMock } from './mocks'
 
-/** Keys on `window` the harness overrides during the tutorial. */
-const WINDOW_KEYS = [
-  'git',
-  'worktree',
-  'pty',
-  'metrics',
-  'accounts',
-  'session',
-  'dialog',
-  'localPaths',
-  'port',
-  'electronShell',
-] as const
 
 export interface DemoHarness {
   /** The mutable demo world the UI reads/writes. */
@@ -29,32 +16,36 @@ export interface DemoHarness {
 
 export function createDemoHarness(state: DemoState): DemoHarness {
   let active = false
-  const saved = new Map<string, unknown>()
+  const savedDescriptors = new Map<string, PropertyDescriptor | undefined>()
   let pty: ReturnType<typeof makePtyMock> | null = null
+
+  function install(key: string, value: unknown): void {
+    if (!savedDescriptors.has(key)) {
+      savedDescriptors.set(key, Object.getOwnPropertyDescriptor(window, key))
+    }
+    Object.defineProperty(window, key, { value, writable: true, configurable: true, enumerable: true })
+  }
 
   function activate(): void {
     if (active) return
     active = true
 
-    const win = window as unknown as Record<string, unknown>
-    for (const key of WINDOW_KEYS) saved.set(key, win[key])
-
     const mocks = makeWindowMocks(state)
-    win.git = mocks.git
-    win.worktree = makeWorktreeMock(state)
-    win.metrics = mocks.metrics
-    win.accounts = mocks.accounts
-    win.session = mocks.session
-    win.dialog = mocks.dialog
-    win.localPaths = mocks.localPaths
-    win.port = mocks.port
-    win.electronShell = mocks.electronShell
+    install('git', mocks.git)
+    install('worktree', makeWorktreeMock(state))
+    install('metrics', mocks.metrics)
+    install('accounts', mocks.accounts)
+    install('session', mocks.session)
+    install('dialog', mocks.dialog)
+    install('localPaths', mocks.localPaths)
+    install('port', mocks.port)
+    install('electronShell', mocks.electronShell)
 
-    saved.set('fetch', window.fetch)
-    window.fetch = makeFetchMock(state, saved.get('fetch') as typeof fetch)
+    const originalFetch = window.fetch.bind(window)
+    install('fetch', makeFetchMock(state, originalFetch))
 
     pty = makePtyMock(state)
-    win.pty = pty.api
+    install('pty', pty.api)
 
     __setSupabaseClient(makeSupabaseMock(state) as unknown as SupabaseClient)
   }
@@ -66,9 +57,11 @@ export function createDemoHarness(state: DemoState): DemoHarness {
     pty?.dispose()
     pty = null
 
-    const win = window as unknown as Record<string, unknown>
-    for (const [key, value] of saved) win[key] = value
-    saved.clear()
+    for (const [key, desc] of savedDescriptors) {
+      if (desc) Object.defineProperty(window, key, desc)
+      else delete (window as unknown as Record<string, unknown>)[key]
+    }
+    savedDescriptors.clear()
 
     __resetSupabaseClient()
   }
