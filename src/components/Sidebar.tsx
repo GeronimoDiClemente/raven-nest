@@ -56,7 +56,6 @@ interface Props {
   layoutId: LayoutId
   paneCount: number
   onLayoutChange: (id: LayoutId) => void
-  onHelp?: (tourId: import('../tutorial/types').TourId) => void
   onOpenTutorial?: (tourId: import('../tutorial/types').TourId) => void
 }
 
@@ -67,7 +66,7 @@ export default function Sidebar({
   onSnippetSend, onSnippetBroadcast, onCommandRun, onWorkspaceSave, onWorkspaceLoad, isWin,
   isTrialActive, trialDaysLeft, profileLoading, onUpgrade, onTeamsOpen, pendingInvitesCount = 0, onMyReposOpen, plan, repoPath, onRepoLink, onRepoUnlink, onJoinTerminal,
   activeCellRepoPath, onWorktreeSelect, onNewWorktree, worktreeRefreshKey,
-  layoutId, paneCount, onLayoutChange, onHelp, onOpenTutorial,
+  layoutId, paneCount, onLayoutChange, onOpenTutorial,
 }: Props) {
   const { branch, githubUrl, isDirty } = useGitInfo(repoPath)
   const { githubToken } = useGitHub()
@@ -683,9 +682,6 @@ export default function Sidebar({
             </span>
             <span className="sidebar-label">New Terminal</span>
           </button>
-        )}
-        {onHelp && (
-          <button className="tour-help-btn" title="Tutorial" aria-label="Open tutorial" onClick={() => onHelp('activation')}>?</button>
         )}
       </div>{/* /.sidebar-scroll */}
 

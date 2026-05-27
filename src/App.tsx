@@ -43,8 +43,9 @@ import { terminalShareService } from './lib/terminalShareService'
 import ResourceBar from './components/ResourceBar'
 import { useLocalPathsMigration } from './hooks/useLocalPathsMigration'
 import type { MetricsPaneInput } from './types'
-import { TutorialController, openTour } from './tutorial/TutorialController'
+import { TutorialController } from './tutorial/TutorialController'
 import { TutorialSandbox } from './tutorial/TutorialSandbox'
+import { useTourSeen } from './hooks/useTourSeen'
 
 
 let paneCounter = 0
@@ -346,6 +347,16 @@ export default function App() {
   const [quickWorktreeOpen, setQuickWorktreeOpen] = useState(false)
   const [diffViewerOpen, setDiffViewerOpen] = useState(false)
   const [tutorialTour, setTutorialTour] = useState<import('./tutorial/types').TourId | null>(null)
+
+  // First-time auto-launch: when the sidebar is expanded with a repo linked,
+  // the Worktrees section becomes visible. Launch the Worktrees tutorial once,
+  // then mark it seen when the sandbox closes (below, in the sandbox onClose).
+  const worktreesSeen = useTourSeen('worktrees')
+  useEffect(() => {
+    if (sidebarExpanded && activeTab.repoPath && !worktreesSeen.seen) {
+      setTutorialTour('worktrees')
+    }
+  }, [sidebarExpanded, activeTab.repoPath, worktreesSeen.seen])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -1022,7 +1033,6 @@ export default function App() {
         layoutId={activeTab.layoutId}
         paneCount={panes.length}
         onLayoutChange={handleLayoutIdChange}
-        onHelp={(id) => openTour(id)}
         onOpenTutorial={(id) => setTutorialTour(id)}
       />
       <div
@@ -1249,7 +1259,7 @@ export default function App() {
         onClose={() => setDiffViewerOpen(false)}
       />
       <TutorialController />
-      {tutorialTour && <TutorialSandbox tourId={tutorialTour} onClose={() => setTutorialTour(null)} />}
+      {tutorialTour && <TutorialSandbox tourId={tutorialTour} onClose={() => { if (tutorialTour === 'worktrees') worktreesSeen.markSeen(); setTutorialTour(null) }} />}
     </div>
   )
 }
