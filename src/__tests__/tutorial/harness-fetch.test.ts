@@ -6,7 +6,7 @@ import { createDemoState } from '../../tutorial/demo/fixtures'
 describe('demo harness fetch routing', () => {
   it('serves PR list fixtures for api.github.com and restores fetch', async () => {
     const realFetch = window.fetch
-    const harness = createDemoHarness(createDemoState())
+    const harness = createDemoHarness(createDemoState(), { fetch: true })
     harness.activate()
 
     const res = await fetch('https://api.github.com/repos/demo-user/nest-web/pulls?state=open')
@@ -20,7 +20,7 @@ describe('demo harness fetch routing', () => {
   })
 
   it('marks a PR merged on a PUT .../merge', async () => {
-    const harness = createDemoHarness(createDemoState())
+    const harness = createDemoHarness(createDemoState(), { fetch: true })
     harness.activate()
     const res = await fetch('https://api.github.com/repos/demo-user/nest-web/pulls/42/merge', { method: 'PUT' })
     const body = await res.json()

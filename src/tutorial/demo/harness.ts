@@ -15,11 +15,19 @@ export interface DemoHarness {
   deactivate(): void
 }
 
-export function createDemoHarness(state: DemoState): DemoHarness {
+export interface DemoHarnessOptions {
+  /** Swap the supabase client for a mock (only sections that use Teams need this). Default false. */
+  supabase?: boolean
+  /** Patch window.fetch to serve GitHub/GitLab fixtures. Default false. */
+  fetch?: boolean
+}
+
+export function createDemoHarness(state: DemoState, opts: DemoHarnessOptions = {}): DemoHarness {
   let active = false
   let pty: ReturnType<typeof makePtyMock> | null = null
   let originalFetch: typeof fetch | null = null
   let fetchPatched = false
+  let supabaseSwapped = false
 
   function activate(): void {
     if (active) return
@@ -35,15 +43,20 @@ export function createDemoHarness(state: DemoState): DemoHarness {
 
     // fetch is NOT a contextBridge prop; it's the native fetch and is reassignable.
     // (PRList/PRReview call the global fetch directly; intercept it here.)
-    originalFetch = window.fetch
-    try {
-      window.fetch = makeFetchMock(state, originalFetch.bind(window))
-      fetchPatched = true
-    } catch {
-      fetchPatched = false
+    if (opts.fetch) {
+      originalFetch = window.fetch
+      try {
+        window.fetch = makeFetchMock(state, originalFetch.bind(window))
+        fetchPatched = true
+      } catch {
+        fetchPatched = false
+      }
     }
 
-    __setSupabaseClient(makeSupabaseMock(state) as unknown as SupabaseClient)
+    if (opts.supabase) {
+      __setSupabaseClient(makeSupabaseMock(state) as unknown as SupabaseClient)
+      supabaseSwapped = true
+    }
   }
 
   function deactivate(): void {
@@ -61,7 +74,10 @@ export function createDemoHarness(state: DemoState): DemoHarness {
     }
     originalFetch = null
 
-    __resetSupabaseClient()
+    if (supabaseSwapped) {
+      __resetSupabaseClient()
+      supabaseSwapped = false
+    }
   }
 
   return { state, activate, deactivate }
