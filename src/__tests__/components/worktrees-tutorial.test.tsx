@@ -67,4 +67,29 @@ describe('worktrees tutorial (demo sandbox)', () => {
     fireEvent.click(screen.getByRole('button', { name: /done/i }))
     expect(onClose).toHaveBeenCalledTimes(1)
   })
+
+  it('dropping a worktree advances the drag-terminal step', async () => {
+    render(<TutorialSandbox tourId="worktrees" onClose={() => {}} />)
+    await waitFor(() =>
+      expect(screen.getByText(/A worktree is a branch/)).toBeInTheDocument(),
+    )
+    // Walk to the "Open a terminal in a worktree" step (index 9, the 10th).
+    for (let i = 0; i < 9; i++) {
+      fireEvent.click(screen.getByRole('button', { name: /next/i }))
+    }
+    expect(screen.getByText('Open a terminal in a worktree')).toBeInTheDocument()
+
+    // Drop a worktree onto the workspace → the tour advances to "Switch a
+    // terminal's folder" without clicking Next.
+    const ws = screen.getByTestId('demo-workspace')
+    fireEvent.drop(ws, {
+      dataTransfer: {
+        getData: () => 'C:/demo/.worktrees/nest-web/feat-dark-mode',
+        types: ['application/x-raven-worktree-path'],
+      },
+    })
+    await waitFor(() =>
+      expect(screen.getByText("Switch a terminal's folder")).toBeInTheDocument(),
+    )
+  })
 })

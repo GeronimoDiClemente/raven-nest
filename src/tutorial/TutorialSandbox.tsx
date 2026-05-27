@@ -1,15 +1,15 @@
 // src/tutorial/TutorialSandbox.tsx
-import { useRef, useState, useEffect } from 'react'
+import { useRef, useState, useEffect, useCallback } from 'react'
 import { createDemoHarness, type DemoHarness } from './demo/harness'
 import { createDemoState, type DemoState } from './demo/fixtures'
-import { OnboardingTour } from './OnboardingTour'
+import { OnboardingTour, type AdvanceSignal } from './OnboardingTour'
 import { BridgeProvider } from '../lib/bridge'
-import { DemoTabBar, DemoWorkspacePane } from './DemoWorkspaceMock'
+import { DemoTabBar, DemoWorkspace } from './DemoWorkspaceMock'
 import { getTour } from './registry'
 import { WorktreesSection } from '../components/WorktreesSection'
 import { NewWorktreeModal } from '../components/NewWorktreeModal'
 import { DiffViewerPanel } from '../components/DiffViewerPanel'
-import type { TourId } from './types'
+import { type TourId, TOUR_ACTIONS } from './types'
 
 interface Props {
   tourId: TourId
@@ -29,6 +29,14 @@ export function TutorialSandbox({ tourId, onClose }: Props) {
   const stateRef = useRef<DemoState | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
   const [diffPath, setDiffPath] = useState<string | null>(null)
+  // Drives the workspace mock's cwd divergence (which worktree the user picked).
+  const [selectedRepoPath, setSelectedRepoPath] = useState<string | null>(null)
+  // Action channel: bumping the nonce advances the step whose advanceOnAction matches.
+  const [advanceSignal, setAdvanceSignal] = useState<AdvanceSignal | null>(null)
+  const nonceRef = useRef(0)
+  const fire = useCallback((action: string) => {
+    setAdvanceSignal({ action, nonce: ++nonceRef.current })
+  }, [])
 
   if (!harnessRef.current) {
     stateRef.current = createDemoState()
@@ -45,6 +53,13 @@ export function TutorialSandbox({ tourId, onClose }: Props) {
       setReady(false)
     }
   }, [])
+
+  // Resolve a dropped worktree path → branch by reading the LIVE demo store
+  // (so a worktree the user just created in the real modal resolves too).
+  const resolveBranch = useCallback(
+    (repoPath: string) => stateRef.current?.worktree.worktrees.find((w) => w.repoPath === repoPath)?.branch,
+    [],
+  )
 
   if (!ready) return null
   const tour = getTour(tourId)
@@ -69,14 +84,19 @@ export function TutorialSandbox({ tourId, onClose }: Props) {
               <WorktreesSection
                 repoPath={repoPath}
                 activeRepoPath={repoPath}
-                onSelect={(p) => setDiffPath(p)}
+                onSelect={(p) => { setDiffPath(p); setSelectedRepoPath(p) }}
                 onNewClick={() => setModalOpen(true)}
               />
             </div>
           </div>
 
-          {/* Right panel: a static workspace replica (tab's terminal pane). */}
-          <DemoWorkspacePane />
+          {/* Right panel: an interactive workspace replica (drop target + fake panes). */}
+          <DemoWorkspace
+            resolveBranch={resolveBranch}
+            selectedRepoPath={selectedRepoPath}
+            onPaneOpened={() => fire(TOUR_ACTIONS.DROP)}
+            onSyncCwd={() => fire(TOUR_ACTIONS.SYNC)}
+          />
         </div>
 
         <NewWorktreeModal
@@ -90,7 +110,7 @@ export function TutorialSandbox({ tourId, onClose }: Props) {
 
       {/* The tour scopes anchor lookups to this sandbox container so it never
           targets the live app's duplicate data-tour-id anchors behind the overlay. */}
-      <OnboardingTour steps={tour.steps} onClose={onClose} rootRef={containerRef} />
+      <OnboardingTour steps={tour.steps} onClose={onClose} rootRef={containerRef} advanceSignal={advanceSignal} />
     </div>
   )
 }
