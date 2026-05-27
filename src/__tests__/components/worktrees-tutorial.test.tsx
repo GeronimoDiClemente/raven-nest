@@ -1,6 +1,6 @@
 // src/__tests__/components/worktrees-tutorial.test.tsx
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import { TutorialSandbox } from '../../tutorial/TutorialSandbox'
 
 describe('worktrees tutorial (demo sandbox)', () => {
@@ -66,6 +66,31 @@ describe('worktrees tutorial (demo sandbox)', () => {
     }
     fireEvent.click(screen.getByRole('button', { name: /done/i }))
     expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('on the sync-cwd step, selecting a worktree diverges the pane without opening the diff drawer', async () => {
+    render(<TutorialSandbox tourId="worktrees" onClose={() => {}} />)
+    await waitFor(() =>
+      expect(screen.getByText(/A worktree is a branch/)).toBeInTheDocument(),
+    )
+    // Walk to the sync-cwd step (index 10, the 11th step).
+    for (let i = 0; i < 10; i++) {
+      fireEvent.click(screen.getByRole('button', { name: /next/i }))
+    }
+    expect(screen.getByText("Switch a terminal's folder")).toBeInTheDocument()
+
+    // Click the root ("main") worktree row inside the sandbox sidebar to point
+    // the focused pane at a different folder.
+    const sandbox = document.querySelector('.tutorial-sandbox') as HTMLElement
+    const mainRow = within(sandbox).getByText('main', { selector: '.wt-branch' })
+    fireEvent.click(mainRow)
+
+    // The Sync cwd button appears (divergence) ...
+    await waitFor(() =>
+      expect(sandbox.querySelector('[data-tour-id="pane-sync-cwd-btn"]')).not.toBeNull(),
+    )
+    // ... and the full-screen diff drawer did NOT open (it would cover the button).
+    expect(document.querySelector('.diff-drawer')).toBeNull()
   })
 
   it('dropping a worktree advances the drag-terminal step', async () => {

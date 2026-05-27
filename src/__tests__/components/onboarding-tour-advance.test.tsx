@@ -50,4 +50,12 @@ describe('OnboardingTour engine', () => {
     expect(onClose).toHaveBeenCalledTimes(1)
     cleanup()
   })
+
+  it('reports the current step id via onStepChange', () => {
+    const onStepChange = vi.fn()
+    render(<OnboardingTour steps={steps} onClose={() => {}} onStepChange={onStepChange} />)
+    expect(onStepChange).toHaveBeenLastCalledWith('s1')
+    fireEvent.click(screen.getByRole('button', { name: /next/i }))
+    expect(onStepChange).toHaveBeenLastCalledWith('s2')
+  })
 })

@@ -11,6 +11,12 @@ import { NewWorktreeModal } from '../components/NewWorktreeModal'
 import { DiffViewerPanel } from '../components/DiffViewerPanel'
 import { type TourId, TOUR_ACTIONS } from './types'
 
+// Steps where the workspace must stay visible (drag target / Sync cwd button),
+// so the full-screen diff drawer must NOT be open / must not be opened by a
+// worktree selection. The diff drawer belongs only to the 'diff'/'diff-panel'
+// steps.
+const WORKSPACE_STEPS = new Set(['drag-terminal', 'sync-cwd'])
+
 interface Props {
   tourId: TourId
   onClose: () => void
@@ -31,6 +37,8 @@ export function TutorialSandbox({ tourId, onClose }: Props) {
   const [diffPath, setDiffPath] = useState<string | null>(null)
   // Drives the workspace mock's cwd divergence (which worktree the user picked).
   const [selectedRepoPath, setSelectedRepoPath] = useState<string | null>(null)
+  // Tracks the current tour step id so the sandbox can react (e.g. close panels).
+  const [stepId, setStepId] = useState<string | null>(null)
   // Action channel: bumping the nonce advances the step whose advanceOnAction matches.
   const [advanceSignal, setAdvanceSignal] = useState<AdvanceSignal | null>(null)
   const nonceRef = useRef(0)
@@ -61,6 +69,12 @@ export function TutorialSandbox({ tourId, onClose }: Props) {
     [],
   )
 
+  // Close the diff drawer when the tour reaches a step that needs the workspace
+  // visible (it would otherwise stay open from the diff-panel step and cover it).
+  useEffect(() => {
+    if (stepId && WORKSPACE_STEPS.has(stepId)) setDiffPath(null)
+  }, [stepId])
+
   if (!ready) return null
   const tour = getTour(tourId)
   if (!tour) return null
@@ -84,7 +98,13 @@ export function TutorialSandbox({ tourId, onClose }: Props) {
               <WorktreesSection
                 repoPath={repoPath}
                 activeRepoPath={repoPath}
-                onSelect={(p) => { setDiffPath(p); setSelectedRepoPath(p) }}
+                onSelect={(p) => {
+                  setSelectedRepoPath(p)
+                  // On the workspace steps, selecting a worktree must diverge the
+                  // pane WITHOUT opening the diff drawer (it would cover the
+                  // Sync cwd button / drop area the step points at).
+                  if (!WORKSPACE_STEPS.has(stepId ?? '')) setDiffPath(p)
+                }}
                 onNewClick={() => setModalOpen(true)}
               />
             </div>
@@ -110,7 +130,7 @@ export function TutorialSandbox({ tourId, onClose }: Props) {
 
       {/* The tour scopes anchor lookups to this sandbox container so it never
           targets the live app's duplicate data-tour-id anchors behind the overlay. */}
-      <OnboardingTour steps={tour.steps} onClose={onClose} rootRef={containerRef} advanceSignal={advanceSignal} />
+      <OnboardingTour steps={tour.steps} onClose={onClose} rootRef={containerRef} advanceSignal={advanceSignal} onStepChange={setStepId} />
     </div>
   )
 }

@@ -32,6 +32,8 @@ export interface OnboardingTourProps {
    * step is active (the Next button is always the fallback).
    */
   advanceSignal?: AdvanceSignal | null
+  /** Notifies the parent of the current step's id whenever it changes. */
+  onStepChange?: (stepId: string) => void
 }
 
 const LABELS: Record<'back' | 'skip' | 'next' | 'done' | 'hint', Localized> = {
@@ -42,7 +44,7 @@ const LABELS: Record<'back' | 'skip' | 'next' | 'done' | 'hint', Localized> = {
   hint: { en: 'or click the highlighted element', es: 'o tocá el elemento resaltado' },
 }
 
-export function OnboardingTour({ steps, onClose, startIndex = 0, rootRef, advanceSignal }: OnboardingTourProps) {
+export function OnboardingTour({ steps, onClose, startIndex = 0, rootRef, advanceSignal, onStepChange }: OnboardingTourProps) {
   // Locale is snapshotted per render; no event re-renders on a mid-session OS language change (acceptable).
   const locale = resolveTutorialLocale()
   const [index, setIndex] = useState(startIndex)
@@ -97,6 +99,12 @@ export function OnboardingTour({ steps, onClose, startIndex = 0, rootRef, advanc
       next()
     }
   }, [advanceSignal, step, next])
+
+  // Report the active step's id so a parent can react (e.g. close panels that
+  // would cover anchors on later steps).
+  useEffect(() => {
+    if (step) onStepChange?.(step.id)
+  }, [step, onStepChange])
 
   if (!step) return null
 
