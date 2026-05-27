@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { RavenPreset, WorktreeMeta } from '../types'
+import { bridge } from '../lib/bridge'
 
 interface Props {
   open: boolean
@@ -31,8 +32,8 @@ export function NewWorktreeModal({ open, repoPath, onClose, onCreated }: Props) 
 
   useEffect(() => {
     if (!open) return
-    void window.preset.list(repoPath).then(setPresets).catch(() => setPresets([]))
-    void window.git.listBranches(repoPath).then((res) => {
+    void bridge.preset.list(repoPath).then(setPresets).catch(() => setPresets([]))
+    void bridge.git.listBranches(repoPath).then((res) => {
       setBranches(res.branches)
       // Default to the repo's default branch (main/master/develop/origin HEAD).
       setFromBranch(res.defaultBranch ?? res.branches[0] ?? '')
@@ -42,7 +43,7 @@ export function NewWorktreeModal({ open, repoPath, onClose, onCreated }: Props) 
     })
     // Detect untracked .env* files so we can warn — git worktree add does not
     // copy them, which silently breaks dev servers in the new worktree.
-    void window.git.listUntrackedEnvFiles(repoPath).then(setEnvFiles).catch(() => setEnvFiles([]))
+    void bridge.git.listUntrackedEnvFiles(repoPath).then(setEnvFiles).catch(() => setEnvFiles([]))
   }, [open, repoPath])
 
   if (!open) return null
@@ -61,7 +62,7 @@ export function NewWorktreeModal({ open, repoPath, onClose, onCreated }: Props) 
     if (!branch.trim()) { setError('Branch name required'); return }
     setError(null); setCreating(true)
     try {
-      const meta = await window.worktree.create({
+      const meta = await bridge.worktree.create({
         repoPath,
         branch: branch.trim(),
         fromBranch: fromBranch || undefined,
@@ -72,7 +73,7 @@ export function NewWorktreeModal({ open, repoPath, onClose, onCreated }: Props) 
       // create flow — the worktree already exists at this point.
       if (copyEnvFiles && envFiles.length > 0) {
         try {
-          await window.worktree.copyFiles(repoPath, meta.repoPath, envFiles)
+          await bridge.worktree.copyFiles(repoPath, meta.repoPath, envFiles)
         } catch (copyErr) {
           console.warn('[NewWorktreeModal] env carry-over failed', copyErr)
         }
@@ -88,13 +89,14 @@ export function NewWorktreeModal({ open, repoPath, onClose, onCreated }: Props) 
 
   return (
     <div className="dialog-overlay" onClick={creating ? undefined : onClose}>
-      <div className="dialog new-worktree-modal" onClick={(e) => e.stopPropagation()}>
+      <div className="dialog new-worktree-modal" data-tour-id="wt-modal" onClick={(e) => e.stopPropagation()}>
         <div className="dialog-title">New worktree</div>
         <div className="dialog-sub">{repoPath.split(/[\/\\]/).pop()}</div>
 
         <label className="field-label">Branch</label>
         <input
           className="field-input"
+          data-tour-id="wt-branch-input"
           value={branch}
           onChange={(e) => setBranch(e.target.value)}
           onKeyDown={(e) => {
@@ -134,7 +136,7 @@ export function NewWorktreeModal({ open, repoPath, onClose, onCreated }: Props) 
         />
 
         <label className="field-label">Preset</label>
-        <div className="preset-cards">
+        <div className="preset-cards" data-tour-id="wt-presets">
           <button
             type="button"
             className={`preset-card ${presetId === null ? 'preset-card-selected' : ''}`}
@@ -165,7 +167,7 @@ export function NewWorktreeModal({ open, repoPath, onClose, onCreated }: Props) 
         {error && <div className="modal-error">{error}</div>}
 
         {envFiles.length > 0 && (
-          <div className="wt-env-banner">
+          <div className="wt-env-banner" data-tour-id="wt-env-banner">
             <div className="wt-env-banner-text">
               <span className="wt-env-banner-icon">⚠</span>
               <strong>{envFiles.length}</strong> untracked .env file{envFiles.length === 1 ? '' : 's'} won't be copied to the new worktree.
@@ -190,7 +192,7 @@ export function NewWorktreeModal({ open, repoPath, onClose, onCreated }: Props) 
 
         <div className="dialog-actions">
           <button className="dialog-cancel" onClick={onClose} disabled={creating}>Cancel</button>
-          <button className="btn-primary" onClick={handleCreate} disabled={creating || !branch.trim()}>
+          <button className="btn-primary" data-tour-id="wt-create-btn" onClick={handleCreate} disabled={creating || !branch.trim()}>
             {creating ? 'Creating…' : 'Create'}
           </button>
         </div>
