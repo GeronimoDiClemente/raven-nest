@@ -35,4 +35,15 @@ describe('OnboardingTour navigation', () => {
     fireEvent.click(screen.getByRole('button', { name: /saltar/i }))
     expect(onClose).toHaveBeenCalledTimes(1)
   })
+
+  it('advances when the anchored element is clicked on an advanceOnClick step', () => {
+    const clickSteps: TourStep[] = [
+      { id: 's1', anchor: '[data-tour-id="go"]', title: 'Click it', body: 'x', advanceOnClick: true },
+      { id: 's2', anchor: '[data-tour-id="b"]', title: 'Step two', body: 'y' },
+    ]
+    document.body.innerHTML = '<button data-tour-id="go">Go</button>'
+    render(<OnboardingTour steps={clickSteps} onClose={() => {}} />)
+    fireEvent.click(document.querySelector('[data-tour-id="go"]') as Element)
+    expect(screen.getByText('Step two')).toBeInTheDocument()
+  })
 })
