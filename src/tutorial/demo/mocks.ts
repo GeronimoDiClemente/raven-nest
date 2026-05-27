@@ -1,5 +1,7 @@
 // src/tutorial/demo/mocks.ts
 import type { DemoState } from './fixtures'
+import type { DemoWorktree, DiffFile as DemoDiffFile } from './worktree-fixtures'
+import type { DiffLine, DiffResult, WorktreeMeta } from '../../types'
 
 /** Subset of window.pty the demo drives; matches electron/preload.ts signatures. */
 type PtyDataCb = (paneId: string, data: string) => void
@@ -150,5 +152,141 @@ export function makeSupabaseMock(state: DemoState) {
     removeChannel: async () => {},
     // touch state so the param isn't unused and future actions can read it
     _state: state,
+  }
+}
+
+/**
+ * Worktree-domain mocks driven by the mutable `state.worktree` store. These back
+ * the REAL Worktrees components mounted in the demo sandbox (WorktreesSection,
+ * NewWorktreeModal, DiffViewerPanel, PortsBanner) via the bridge overrides, so
+ * simulated create/remove actions persist and the components render without
+ * runtime errors. Return shapes mirror the preload types in src/types.ts and the
+ * exact subsets the components destructure.
+ */
+export function makeWorktreeMocks(state: DemoState) {
+  const ws = state.worktree
+
+  // Build a full WorktreeMeta so callers can read rootRepoPath (WorktreesSection)
+  // and declaredPorts (PortsBanner) without hitting undefined.
+  // DemoWorktree uses 'error'; WorktreeMeta uses 'failed' — map across.
+  const toSetupState = (s: DemoWorktree['setupState']): WorktreeMeta['setupState'] =>
+    s === 'error' ? 'failed' : s
+  const meta = (w: DemoWorktree): WorktreeMeta => ({
+    repoPath: w.repoPath,
+    rootRepoPath: ws.rootRepoPath,
+    branch: w.branch,
+    setupState: toSetupState(w.setupState),
+    declaredPorts: ws.ports[w.repoPath] ?? [],
+    detectedPorts: [],
+    createdAt: 0,
+    updatedAt: 0,
+  })
+
+  // The fixture stores diff lines as raw strings (+/-/context). DiffViewerPanel
+  // reads structured DiffLine objects (l.type / l.text), so convert here.
+  const toDiffLine = (raw: string): DiffLine => {
+    if (raw.startsWith('+')) return { type: 'add', text: raw.slice(1) }
+    if (raw.startsWith('-')) return { type: 'del', text: raw.slice(1) }
+    return { type: 'context', text: raw.replace(/^ /, '') }
+  }
+  const toDiffFiles = (files: DemoDiffFile[]): DiffResult['files'] =>
+    files.map((f) => ({
+      path: f.path,
+      additions: f.additions,
+      deletions: f.deletions,
+      binary: f.binary,
+      hunks: f.hunks.map((h) => ({ header: h.header, lines: h.lines.map(toDiffLine) })),
+    }))
+
+  let setupCb: ((worktreePath: string, state: WorktreeMeta['setupState']) => void) | null = null
+
+  return {
+    worktree: {
+      list: async (_repoPath: string) =>
+        ({ ok: true as const, worktrees: ws.worktrees.map(meta) }),
+      get: async (p: string) => {
+        const w = ws.worktrees.find((x) => x.repoPath === p)
+        return w ? meta(w) : null
+      },
+      create: async (opts: { repoPath: string; branch: string; fromBranch?: string; path?: string; presetId?: string }) => {
+        const path =
+          opts.path ?? `C:/demo/.worktrees/nest-web/${opts.branch.replace(/\//g, '-')}`
+        const w: DemoWorktree = {
+          repoPath: path,
+          branch: opts.branch,
+          setupState: 'running',
+          isRoot: false,
+        }
+        ws.worktrees.push(w)
+        // Simulate async setup: running -> done.
+        setTimeout(() => {
+          const live = ws.worktrees.find((x) => x.repoPath === path)
+          if (live) live.setupState = 'done'
+          setupCb?.(path, 'done')
+        }, 1200)
+        return meta(w)
+      },
+      remove: async (p: string) => {
+        const i = ws.worktrees.findIndex((x) => x.repoPath === p)
+        if (i >= 0) ws.worktrees.splice(i, 1)
+      },
+      setPreset: async () => {},
+      copyFiles: async () => ({ copied: 0, skipped: 0, errors: [] as string[] }),
+    },
+    git: {
+      shortstat: async (p: string) => {
+        const files = ws.diffs[p] ?? []
+        return {
+          additions: files.reduce((a, f) => a + f.additions, 0),
+          deletions: files.reduce((a, f) => a + f.deletions, 0),
+          filesChanged: files.length,
+        }
+      },
+      listBranches: async () => ({ branches: ws.branches, defaultBranch: ws.defaultBranch }),
+      findPRForBranch: async (_repoPath: string, branch: string) => ws.prs[branch] ?? null,
+      listUntrackedEnvFiles: async () => ['.env', '.env.local'],
+      pushBranch: async (p: string) => {
+        const w = ws.worktrees.find((x) => x.repoPath === p)
+        return {
+          ok: true as const,
+          branch: w?.branch ?? 'demo',
+          compareUrl: 'https://github.com/demo-user/nest-web/compare/feat/dark-mode',
+        }
+      },
+    },
+    preset: {
+      list: async () => [],
+      onSetupState: (cb: (worktreePath: string, state: WorktreeMeta['setupState']) => void) => {
+        setupCb = cb
+      },
+      cancel: async () => {},
+      removeListeners: () => {
+        setupCb = null
+      },
+    },
+    spotlight: {
+      start: async () => {},
+      stop: async () => {},
+      status: async () => ({ active: false }),
+      onStatus: () => {},
+      removeListeners: () => {},
+    },
+    diff: {
+      get: async (p: string): Promise<DiffResult> => {
+        const files = ws.diffs[p] ?? []
+        return { base: ws.defaultBranch, files: toDiffFiles(files) }
+      },
+    },
+    port: {
+      scan: async () => [] as number[],
+    },
+    pty: {
+      getPid: async () => 4321,
+    },
+    electronShell: {
+      openExternal: () => {},
+      onDeepLink: () => {},
+      consumePendingDeepLink: async () => null,
+    },
   }
 }

@@ -3,7 +3,7 @@ import { __setSupabaseClient, __resetSupabaseClient } from '../../lib/supabase'
 import { __setBridgeOverrides, __clearBridgeOverrides } from '../../lib/bridge'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { DemoState } from './fixtures'
-import { makeWindowMocks, makePtyMock, makeSupabaseMock } from './mocks'
+import { makeWindowMocks, makePtyMock, makeSupabaseMock, makeWorktreeMocks } from './mocks'
 
 
 export interface DemoHarness {
@@ -34,11 +34,17 @@ export function createDemoHarness(state: DemoState, opts: DemoHarnessOptions = {
     active = true
 
     const mocks = makeWindowMocks(state)
+    const wt = makeWorktreeMocks(state)
     pty = makePtyMock(state)
     __setBridgeOverrides({
       ...mocks,
-      worktree: makeWorktreeMock(state),
-      pty: pty.api,
+      // Worktree-domain mocks take precedence for these keys (worktree, git,
+      // preset, spotlight, diff, port, electronShell) so the real Worktrees
+      // components read store-driven demo data.
+      ...wt,
+      // pty keeps the replay (onData/create from makePtyMock) AND adds getPid
+      // from the worktree mocks (PortsBanner reads it).
+      pty: { ...pty.api, getPid: wt.pty.getPid },
     })
 
     // fetch is NOT a contextBridge prop; it's the native fetch and is reassignable.
@@ -124,21 +130,4 @@ function makeFetchMock(state: DemoState, realFetch: typeof fetch): typeof fetch 
     // Fallback: empty array (branches, reviews, files, etc.).
     return json([])
   }) as typeof fetch
-}
-
-/** worktree mock that appends created worktrees to an in-memory list. */
-function makeWorktreeMock(_state: DemoState) {
-  const worktrees: unknown[] = []
-  return {
-    list: async () => ({ ok: true, worktrees }),
-    create: async (opts: { repoPath: string; branch: string }) => {
-      const meta = { path: `C:/demo/wt/${opts.branch}`, branch: opts.branch, setupState: 'done' as const }
-      worktrees.push(meta)
-      return meta
-    },
-    remove: async () => ({ ok: true }),
-    get: async (p: string) => ({ path: p, branch: 'demo', setupState: 'done' as const }),
-    setPreset: async () => ({ ok: true }),
-    copyFiles: async () => ({ ok: true }),
-  }
 }
