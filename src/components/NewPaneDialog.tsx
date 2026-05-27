@@ -455,6 +455,7 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
               <p className="account-list-label">New account</p>
               <div className="new-account-row">
                 <input
+                  data-tour-id="account-field"
                   className="new-account-input"
                   placeholder="Account name (e.g. Personal, Work)"
                   value={newAccountName}
