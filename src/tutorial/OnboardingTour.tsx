@@ -76,12 +76,17 @@ export function OnboardingTour({ steps, onClose, startIndex = 0, rootRef }: Onbo
 
   return (
     <div className="tour-overlay" role="dialog" aria-modal="true" aria-label="Tutorial">
-      <div className="tour-dim" />
-      {spotlight && (
+      {/* When a spotlight is shown its box-shadow already dims everything
+          OUTSIDE the cutout, so the focused element stays bright. A separate
+          full dim would re-darken the cutout too ("can't see the focus"), so
+          only use it as the fallback when there's no anchor to spotlight. */}
+      {spotlight ? (
         <div
           className="tour-spotlight"
           style={{ top: spotlight.top, left: spotlight.left, width: spotlight.width, height: spotlight.height }}
         />
+      ) : (
+        <div className="tour-dim" />
       )}
       <div className="tour-tooltip" style={tooltipStyle}>
         <span className="tour-badge">
