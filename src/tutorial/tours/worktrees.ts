@@ -1,5 +1,5 @@
 // src/tutorial/tours/worktrees.ts
-import type { TourDef } from '../types'
+import { type TourDef, TOUR_ACTIONS } from '../types'
 
 export const worktreesTour: TourDef = {
   id: 'worktrees',
@@ -40,7 +40,7 @@ export const worktreesTour: TourDef = {
       anchor: '[data-tour-id="wt-presets"]',
       title: { en: 'Preset (optional)', es: 'Preset (opcional)' },
       body: {
-        en: 'Pick a preset to run setup automatically (install deps, start the dev server).',
+        en: 'Pick a preset to run setup automatically (install dependencies, start the dev server).',
         es: 'Elegí un preset para correr el setup automático (instalar deps, levantar el dev).',
       },
       placement: 'bottom',
@@ -99,6 +99,8 @@ export const worktreesTour: TourDef = {
     },
     {
       id: 'drag-terminal',
+      // Deliberately reuses the `wt-list` anchor — there is no per-row anchor;
+      // the spotlight covers the whole list.
       anchor: '[data-tour-id="wt-list"]',
       title: { en: 'Open a terminal in a worktree', es: 'Abrí una terminal en un worktree' },
       body: {
@@ -106,7 +108,7 @@ export const worktreesTour: TourDef = {
         es: 'Arrastrá un worktree de la lista al workspace para abrir una terminal que corre en la carpeta de ese worktree.',
       },
       placement: 'right',
-      advanceOnAction: 'drop',
+      advanceOnAction: TOUR_ACTIONS.DROP,
     },
     {
       id: 'sync-cwd',
@@ -117,7 +119,7 @@ export const worktreesTour: TourDef = {
         es: 'Tocá otro worktree para apuntar esta terminal ahí, después dale "Sync cwd" para reiniciarla en esa carpeta.',
       },
       placement: 'left',
-      advanceOnAction: 'sync',
+      advanceOnAction: TOUR_ACTIONS.SYNC,
     },
     {
       id: 'pr',

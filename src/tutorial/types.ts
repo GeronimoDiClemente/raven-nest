@@ -1,6 +1,16 @@
 // src/tutorial/types.ts
 import type { Localized } from './i18n'
 
+/**
+ * Action ids used by interactive tour steps (advanceOnAction) and emitted by
+ * the sandbox via OnboardingTour's advanceSignal. Shared so a typo can't
+ * silently break auto-advance between the tour definition and the emitter.
+ */
+export const TOUR_ACTIONS = {
+  DROP: 'drop',
+  SYNC: 'sync',
+} as const
+
 /** All tours shipped in the app. */
 export type TourId = 'activation' | 'my-repos' | 'teams' | 'worktrees'
 

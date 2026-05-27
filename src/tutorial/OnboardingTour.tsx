@@ -25,6 +25,11 @@ export interface OnboardingTourProps {
    * Drives action-based advancing. When `nonce` changes and the current step's
    * `advanceOnAction` matches `action`, the tour advances. Optional: when
    * absent the tour advances only via the anchor click or the Next button.
+   *
+   * Note: a signal fired while the current step's `advanceOnAction` does NOT
+   * match is consumed (marked seen) and will NOT retroactively advance a later
+   * matching step — so emitters should only fire a signal while its matching
+   * step is active (the Next button is always the fallback).
    */
   advanceSignal?: AdvanceSignal | null
 }
@@ -38,6 +43,7 @@ const LABELS: Record<'back' | 'skip' | 'next' | 'done' | 'hint', Localized> = {
 }
 
 export function OnboardingTour({ steps, onClose, startIndex = 0, rootRef, advanceSignal }: OnboardingTourProps) {
+  // Locale is snapshotted per render; no event re-renders on a mid-session OS language change (acceptable).
   const locale = resolveTutorialLocale()
   const [index, setIndex] = useState(startIndex)
   const [rect, setRect] = useState<DOMRect | null>(null)
