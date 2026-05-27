@@ -44,6 +44,13 @@ export function makePtyMock(state: DemoState) {
 /** Builds fake git/worktree/accounts/etc. APIs over the demo state. */
 export function makeWindowMocks(state: DemoState) {
   return {
+    // NOTE: in the Worktrees sandbox these `git` shapes are intentionally
+    // overridden by makeWorktreeMocks (...wt.overrides spreads after this). Some
+    // shapes here are NOT worktree-correct (e.g. shortstat returns
+    // {ok, insertions, deletions, files} but the worktree components expect
+    // {additions, deletions, filesChanged}). The worktree-correct shapes live in
+    // makeWorktreeMocks; these stay for other harness consumers that spread only
+    // makeWindowMocks.
     git: {
       info: async () => ({ ok: true, branch: 'main', clean: true }),
       status: async () => ({ ok: true, files: [] }),
@@ -88,6 +95,9 @@ export function makeWindowMocks(state: DemoState) {
       load: async () => null,
       save: async () => {},
     },
+    // NOTE: in the Worktrees sandbox `port` and `electronShell` are also
+    // overridden by makeWorktreeMocks (...wt.overrides). These stay for other
+    // harness consumers that spread only makeWindowMocks.
     port: {
       scan: async () => [] as number[],
       listAll: async () => [] as number[],
@@ -199,8 +209,9 @@ export function makeWorktreeMocks(state: DemoState) {
     }))
 
   let setupCb: ((worktreePath: string, state: WorktreeMeta['setupState']) => void) | null = null
+  const timers: ReturnType<typeof setTimeout>[] = []
 
-  return {
+  const overrides = {
     worktree: {
       list: async (_repoPath: string) =>
         ({ ok: true as const, worktrees: ws.worktrees.map(meta) }),
@@ -219,11 +230,13 @@ export function makeWorktreeMocks(state: DemoState) {
         }
         ws.worktrees.push(w)
         // Simulate async setup: running -> done.
-        setTimeout(() => {
-          const live = ws.worktrees.find((x) => x.repoPath === path)
-          if (live) live.setupState = 'done'
-          setupCb?.(path, 'done')
-        }, 1200)
+        timers.push(
+          setTimeout(() => {
+            const live = ws.worktrees.find((x) => x.repoPath === path)
+            if (live) live.setupState = 'done'
+            setupCb?.(path, 'done')
+          }, 1200),
+        )
         return meta(w)
       },
       remove: async (p: string) => {
@@ -247,10 +260,11 @@ export function makeWorktreeMocks(state: DemoState) {
       listUntrackedEnvFiles: async () => ['.env', '.env.local'],
       pushBranch: async (p: string) => {
         const w = ws.worktrees.find((x) => x.repoPath === p)
+        const branch = w?.branch ?? 'demo'
         return {
           ok: true as const,
-          branch: w?.branch ?? 'demo',
-          compareUrl: 'https://github.com/demo-user/nest-web/compare/feat/dark-mode',
+          branch,
+          compareUrl: `https://github.com/demo-user/nest-web/compare/${branch}`,
         }
       },
     },
@@ -287,6 +301,15 @@ export function makeWorktreeMocks(state: DemoState) {
       openExternal: () => {},
       onDeepLink: () => {},
       consumePendingDeepLink: async () => null,
+    },
+  }
+
+  return {
+    overrides,
+    /** Cancel pending setup timers and drop the setup callback on teardown. */
+    dispose: () => {
+      timers.forEach(clearTimeout)
+      setupCb = null
     },
   }
 }

@@ -7,7 +7,7 @@ describe('worktree demo mocks', () => {
   it('list returns the demo worktrees', async () => {
     const state = createDemoState()
     const m = makeWorktreeMocks(state)
-    const res = await m.worktree.list(state.worktree.rootRepoPath)
+    const res = await m.overrides.worktree.list(state.worktree.rootRepoPath)
     expect(res).toMatchObject({ ok: true })
     expect((res as { worktrees: unknown[] }).worktrees.length).toBe(2)
   })
@@ -16,7 +16,7 @@ describe('worktree demo mocks', () => {
     vi.useFakeTimers()
     const state = createDemoState()
     const m = makeWorktreeMocks(state)
-    const meta = await m.worktree.create({ repoPath: state.worktree.rootRepoPath, branch: 'feat/new' })
+    const meta = await m.overrides.worktree.create({ repoPath: state.worktree.rootRepoPath, branch: 'feat/new' })
     expect(meta.branch).toBe('feat/new')
     expect(state.worktree.worktrees.some(w => w.branch === 'feat/new')).toBe(true)
     await vi.advanceTimersByTimeAsync(1500)
@@ -28,7 +28,7 @@ describe('worktree demo mocks', () => {
     const state = createDemoState()
     const m = makeWorktreeMocks(state)
     const target = state.worktree.worktrees[1].repoPath
-    await m.worktree.remove(target)
+    await m.overrides.worktree.remove(target)
     expect(state.worktree.worktrees.some(w => w.repoPath === target)).toBe(false)
   })
 
@@ -36,7 +36,7 @@ describe('worktree demo mocks', () => {
     const state = createDemoState()
     const m = makeWorktreeMocks(state)
     const featPath = state.worktree.worktrees[1].repoPath
-    const d = await m.diff.get(featPath)
+    const d = await m.overrides.diff.get(featPath)
     expect(d.files[0].path).toBe('src/theme.ts')
   })
 })

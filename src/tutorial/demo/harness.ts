@@ -25,6 +25,7 @@ export interface DemoHarnessOptions {
 export function createDemoHarness(state: DemoState, opts: DemoHarnessOptions = {}): DemoHarness {
   let active = false
   let pty: ReturnType<typeof makePtyMock> | null = null
+  let wt: ReturnType<typeof makeWorktreeMocks> | null = null
   let originalFetch: typeof fetch | null = null
   let fetchPatched = false
   let supabaseSwapped = false
@@ -34,17 +35,17 @@ export function createDemoHarness(state: DemoState, opts: DemoHarnessOptions = {
     active = true
 
     const mocks = makeWindowMocks(state)
-    const wt = makeWorktreeMocks(state)
+    wt = makeWorktreeMocks(state)
     pty = makePtyMock(state)
     __setBridgeOverrides({
       ...mocks,
       // Worktree-domain mocks take precedence for these keys (worktree, git,
       // preset, spotlight, diff, port, electronShell) so the real Worktrees
       // components read store-driven demo data.
-      ...wt,
+      ...wt.overrides,
       // pty keeps the replay (onData/create from makePtyMock) AND adds getPid
       // from the worktree mocks (PortsBanner reads it).
-      pty: { ...pty.api, getPid: wt.pty.getPid },
+      pty: { ...pty.api, getPid: wt.overrides.pty.getPid },
     })
 
     // fetch is NOT a contextBridge prop; it's the native fetch and is reassignable.
@@ -71,6 +72,9 @@ export function createDemoHarness(state: DemoState, opts: DemoHarnessOptions = {
 
     pty?.dispose()
     pty = null
+
+    wt?.dispose()
+    wt = null
 
     __clearBridgeOverrides()
 
