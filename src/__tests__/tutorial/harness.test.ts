@@ -21,4 +21,16 @@ describe('demo harness window swap', () => {
     harness.deactivate()
     expect((window as unknown as { git: { __real?: boolean } }).git.__real).toBe(true)
   })
+
+  it('swaps and restores window.worktree (mock built via a separate path)', async () => {
+    const harness = createDemoHarness(createDemoState())
+    harness.activate()
+    // Mock returns fixture-shaped data, not the sentinel.
+    const list = await window.worktree.list('x')
+    expect(list).toMatchObject({ ok: true })
+    expect((window as unknown as { worktree: { __real?: boolean } }).worktree.__real).toBeUndefined()
+
+    harness.deactivate()
+    expect((window as unknown as { worktree: { __real?: boolean } }).worktree.__real).toBe(true)
+  })
 })
