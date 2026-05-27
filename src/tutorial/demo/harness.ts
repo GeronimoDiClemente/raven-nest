@@ -50,6 +50,9 @@ export function createDemoHarness(state: DemoState): DemoHarness {
     win.port = mocks.port
     win.electronShell = mocks.electronShell
 
+    saved.set('fetch', window.fetch)
+    window.fetch = makeFetchMock(state, saved.get('fetch') as typeof fetch)
+
     pty = makePtyMock(state)
     win.pty = pty.api
 
@@ -71,6 +74,49 @@ export function createDemoHarness(state: DemoState): DemoHarness {
   }
 
   return { state, activate, deactivate }
+}
+
+/** Builds a fetch replacement that answers GitHub/GitLab calls from fixtures. */
+function makeFetchMock(state: DemoState, realFetch: typeof fetch): typeof fetch {
+  const json = (data: unknown, status = 200): Response =>
+    ({ ok: status < 400, status, json: async () => data, text: async () => JSON.stringify(data) } as unknown as Response)
+
+  return (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : (input as Request).url
+    const isGit = url.includes('api.github.com') || url.includes('gitlab.com/api')
+    if (!isGit) return realFetch(input, init)
+
+    // PUT .../pulls/:n/merge → mark merged in state.
+    const mergeMatch = url.match(/repos\/([^/]+\/[^/]+)\/pulls\/(\d+)\/merge/)
+    if (mergeMatch && (init?.method ?? 'GET').toUpperCase() === 'PUT') {
+      const [, repo, num] = mergeMatch
+      const pr = state.prs[repo]?.find((p) => p.number === Number(num))
+      if (pr) {
+        pr.merged = true
+        pr.state = 'closed'
+      }
+      return json({ merged: true, message: 'Pull Request successfully merged' })
+    }
+
+    // GET .../pulls → list.
+    const listMatch = url.match(/repos\/([^/]+\/[^/]+)\/pulls/)
+    if (listMatch) {
+      const repo = listMatch[1]
+      const wantClosed = /state=closed/.test(url)
+      const all = state.prs[repo] ?? []
+      return json(all.filter((p) => (wantClosed ? p.state === 'closed' : p.state === 'open')))
+    }
+
+    // GET .../repos/:owner/:repo → repo metadata.
+    const repoMatch = url.match(/repos\/([^/]+\/[^/]+)(?:\?|$)/)
+    if (repoMatch) {
+      const r = state.repos.find((x) => x.fullName === repoMatch[1])
+      return json({ default_branch: r?.defaultBranch ?? 'main' })
+    }
+
+    // Fallback: empty array (branches, reviews, files, etc.).
+    return json([])
+  }) as typeof fetch
 }
 
 /** worktree mock that appends created worktrees to an in-memory list. */
