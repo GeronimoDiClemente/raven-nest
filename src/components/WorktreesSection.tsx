@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { WorktreeMeta } from '../types'
+import { bridge } from '../lib/bridge'
 import { IDEPickerMenu } from './IDEPickerMenu'
 import { useGitHub } from '../hooks/useGitHub'
 import { useGitlab } from '../hooks/useGitlab'
@@ -53,20 +54,20 @@ export function WorktreesSection({ repoPath, activeRepoPath, onSelect, onNewClic
   const { gitlabToken } = useGitlab()
 
   useEffect(() => {
-    void window.spotlight.status().then((s) => {
+    void bridge.spotlight.status().then((s) => {
       if (s.active && s.worktreePath) setSpotlightPath(s.worktreePath)
       else setSpotlightPath(null)
     })
-    window.spotlight.onStatus((s) => {
+    bridge.spotlight.onStatus((s) => {
       setSpotlightPath(s.active && s.worktreePath ? s.worktreePath : null)
     })
-    return () => window.spotlight.removeListeners()
+    return () => bridge.spotlight.removeListeners()
   }, [])
 
   useEffect(() => {
     if (!repoPath) { setWorktrees([]); return }
     let cancelled = false
-    void window.worktree.list(repoPath).then((res) => {
+    void bridge.worktree.list(repoPath).then((res) => {
       if (cancelled) return
       if (res.ok) setWorktrees(res.worktrees)
       else { console.error('worktree:list failed', res.error); setWorktrees([]) }
@@ -88,8 +89,8 @@ export function WorktreesSection({ repoPath, activeRepoPath, onSelect, onNewClic
         )
       )
     }
-    window.preset.onSetupState(onState)
-    return () => window.preset.removeListeners()
+    bridge.preset.onSetupState(onState)
+    return () => bridge.preset.removeListeners()
   }, [repoPath])
 
   // Fetch diff stats for all non-root worktrees in parallel. Each result drops
@@ -101,7 +102,7 @@ export function WorktreesSection({ repoPath, activeRepoPath, onSelect, onNewClic
     const targets = worktrees.filter((w) => w.repoPath !== w.rootRepoPath)
     void Promise.allSettled(
       targets.map(async (wt) => {
-        const res = await window.git.shortstat(wt.repoPath).catch(() => null)
+        const res = await bridge.git.shortstat(wt.repoPath).catch(() => null)
         if (cancelled || !res) return
         if (res.additions === 0 && res.deletions === 0) return
         setDiffStats((prev) => ({
@@ -122,7 +123,7 @@ export function WorktreesSection({ repoPath, activeRepoPath, onSelect, onNewClic
     const tokens = { github: githubToken, gitlab: gitlabToken }
     void Promise.allSettled(
       targets.map(async (wt) => {
-        const res = await window.git.findPRForBranch(wt.rootRepoPath, wt.branch, tokens).catch(() => null)
+        const res = await bridge.git.findPRForBranch(wt.rootRepoPath, wt.branch, tokens).catch(() => null)
         if (cancelled || !res) return
         setPrChips((prev) => ({ ...prev, [wt.repoPath]: res }))
       }),
@@ -147,8 +148,8 @@ export function WorktreesSection({ repoPath, activeRepoPath, onSelect, onNewClic
     const target = contextMenu.worktreePath
     setContextMenu(null)
     try {
-      await window.worktree.remove(target)
-      const fresh = await window.worktree.list(repoPath)
+      await bridge.worktree.remove(target)
+      const fresh = await bridge.worktree.list(repoPath)
       if (fresh.ok) setWorktrees(fresh.worktrees)
       else { console.error('worktree:list failed', fresh.error); setWorktrees([]) }
     } catch (err) {
@@ -157,7 +158,7 @@ export function WorktreesSection({ repoPath, activeRepoPath, onSelect, onNewClic
   }
 
   const handleCancelSetup = async (wtPath: string) => {
-    try { await window.preset.cancel(wtPath) }
+    try { await bridge.preset.cancel(wtPath) }
     catch (err) { console.error(err) }
     setContextMenu(null)
   }
@@ -166,13 +167,13 @@ export function WorktreesSection({ repoPath, activeRepoPath, onSelect, onNewClic
     setContextMenu(null)
     setPushingPath(wtPath)
     try {
-      const res = await window.git.pushBranch(wtPath)
+      const res = await bridge.git.pushBranch(wtPath)
       if (!res.ok) {
         alert(`Push failed: ${res.error}`)
         return
       }
       if (res.compareUrl && confirm(`Pushed ${res.branch} to origin. Open "Create PR" in your browser?`)) {
-        window.electronShell.openExternal(res.compareUrl)
+        bridge.electronShell.openExternal(res.compareUrl)
       }
     } catch (err) {
       alert(`Push failed: ${err instanceof Error ? err.message : String(err)}`)
@@ -183,8 +184,8 @@ export function WorktreesSection({ repoPath, activeRepoPath, onSelect, onNewClic
 
   const handleToggleSpotlight = async (wtPath: string) => {
     try {
-      if (spotlightPath === wtPath) await window.spotlight.stop()
-      else await window.spotlight.start(wtPath)
+      if (spotlightPath === wtPath) await bridge.spotlight.stop()
+      else await bridge.spotlight.start(wtPath)
     } catch (err) {
       alert(`Spotlight: ${err instanceof Error ? err.message : String(err)}`)
     }
@@ -193,17 +194,18 @@ export function WorktreesSection({ repoPath, activeRepoPath, onSelect, onNewClic
 
   return (
     <div className="worktrees-section">
-      <div className="wt-section-header" onClick={() => setExpanded(!expanded)}>
+      <div className="wt-section-header" data-tour-id="wt-header" onClick={() => setExpanded(!expanded)}>
         <span>{expanded ? '▾' : '▸'} Worktrees</span>
         <button
           className="wt-add-btn"
+          data-tour-id="wt-add"
           onClick={(e) => { e.stopPropagation(); onNewClick() }}
           title="New worktree"
         >+</button>
       </div>
       {expanded && (
-        <div className="wt-list">
-          {worktrees.map((wt) => {
+        <div className="wt-list" data-tour-id="wt-list">
+          {worktrees.map((wt, index) => {
             const isRoot = wt.repoPath === wt.rootRepoPath
             const stat = diffStats[wt.repoPath]
             const pr = prChips[wt.repoPath]
@@ -234,7 +236,7 @@ export function WorktreesSection({ repoPath, activeRepoPath, onSelect, onNewClic
                   <span className={`wt-dot ${STATUS_DOT_CLASS[wt.setupState]}`} />
                   <span className="wt-branch">{wt.branch}</span>
                   {!isRoot && stat && (stat.additions > 0 || stat.deletions > 0) && (
-                    <span className="wt-diff-chip" title="Lines changed vs base">
+                    <span className="wt-diff-chip" {...(index === 0 ? { 'data-tour-id': 'wt-diff-chip' } : {})} title="Lines changed vs base">
                       {stat.additions > 0 && (
                         <span className="wt-diff-add">+{stat.additions}</span>
                       )}
@@ -247,10 +249,11 @@ export function WorktreesSection({ repoPath, activeRepoPath, onSelect, onNewClic
                     <button
                       type="button"
                       className="wt-pr-chip"
+                      {...(index === 0 ? { 'data-tour-id': 'wt-pr-chip' } : {})}
                       title={`Open PR ${pr.url}`}
                       onClick={(e) => {
                         e.stopPropagation()
-                        window.electronShell.openExternal(pr.url)
+                        bridge.electronShell.openExternal(pr.url)
                       }}
                     >
                       #{pr.number}
@@ -281,6 +284,7 @@ export function WorktreesSection({ repoPath, activeRepoPath, onSelect, onNewClic
         return (
           <div
             className="wt-context-menu"
+            data-tour-id="wt-context-menu"
             style={{ top: contextMenu.y, left: contextMenu.x }}
             onClick={(e) => e.stopPropagation()}
           >
