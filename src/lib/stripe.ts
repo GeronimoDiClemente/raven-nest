@@ -3,10 +3,10 @@ export const STRIPE_PUBLISHABLE_KEY = import.meta.env.VITE_STRIPE_PUBLISHABLE_KE
 // Price IDs from Stripe dashboard → Products → [product] → Prices.
 // Enterprise has no self-serve checkout — sales-led, invoiced manually.
 export const STRIPE_PRICES = {
-  pro_monthly:  'price_1TJmwsJarRYFmNbKh7G6JXnF',
-  pro_annual:   'price_1TJmy8JarRYFmNbKeScj4mwX',
-  team_monthly: 'price_1TJmyRJarRYFmNbKeiOLrXss',
-  team_annual:  'price_1TJmyyJarRYFmNbKq9mRgrdz',
+  pro_monthly:  'price_1TJmwsJarRYFmNbKh7G6JXnF',  // $20/mo
+  pro_annual:   'price_1TbX45JarRYFmNbKXYSBT3Yn',  // $180/yr ($15/mo) — 25% off
+  team_monthly: 'price_1TJmyRJarRYFmNbKeiOLrXss',  // $35/mo
+  team_annual:  'price_1TbX66JarRYFmNbKqTA1AoEA',  // $312/yr ($26/mo) — 25% off
 }
 
 export type Plan = 'free' | 'pro' | 'team' | 'enterprise'
