@@ -9175,25 +9175,25 @@ body.platform-mac .tabbar { padding-right: 116px; }
   transition: top .18s ease, left .18s ease, width .18s ease, height .18s ease;
 }
 .tour-tooltip {
-  width: 336px; background: #16161a; border: 1px solid #2b2b32; border-radius: 14px;
-  padding: 16px; box-shadow: 0 18px 50px rgba(0,0,0,.55); color: #ededed;
+  width: 260px; background: #16161a; border: 1px solid #2b2b32; border-radius: 12px;
+  padding: 12px; box-shadow: 0 14px 40px rgba(0,0,0,.55); color: #ededed;
 }
 .tour-badge {
-  display: inline-block; font-size: 11px; font-weight: 600; color: #9cc0ff;
+  display: inline-block; font-size: 10px; font-weight: 600; color: #9cc0ff;
   background: rgba(47,109,255,.14); border: 1px solid rgba(47,109,255,.3);
-  padding: 2px 9px; border-radius: 999px;
+  padding: 2px 8px; border-radius: 999px;
 }
-.tour-title { margin: 10px 0 5px; font-size: 15.5px; font-weight: 650; }
-.tour-body { margin: 0; font-size: 13px; line-height: 1.5; color: #bdbdc6; }
-.tour-hint { margin-top: 10px; font-size: 11.5px; color: #7f8694; }
-.tour-controls { display: flex; align-items: center; gap: 8px; margin-top: 14px; padding-top: 12px; border-top: 1px solid #232329; }
+.tour-title { margin: 8px 0 4px; font-size: 13px; font-weight: 650; }
+.tour-body { margin: 0; font-size: 11.5px; line-height: 1.45; color: #bdbdc6; }
+.tour-hint { margin-top: 8px; font-size: 10.5px; color: #7f8694; }
+.tour-controls { display: flex; align-items: center; gap: 6px; margin-top: 11px; padding-top: 10px; border-top: 1px solid #232329; }
 .tour-spacer { flex: 1; }
-.tour-back { font-size: 12.5px; color: #5a5a63; background: #1a1a1f; border: 1px solid #26262c; border-radius: 8px; padding: 7px 12px; cursor: pointer; }
+.tour-back { font-size: 11px; color: #5a5a63; background: #1a1a1f; border: 1px solid #26262c; border-radius: 7px; padding: 6px 10px; cursor: pointer; }
 .tour-back:disabled { cursor: not-allowed; opacity: .6; }
-.tour-skip { background: none; border: none; color: #7f8694; font-size: 12.5px; cursor: pointer; }
-.tour-next { font-size: 12.5px; font-weight: 600; color: #fff; background: #2f6dff; border: none; border-radius: 8px; padding: 7px 15px; cursor: pointer; }
-.tour-progress { display: flex; gap: 5px; margin-top: 14px; justify-content: center; }
-.tour-progress i { width: 7px; height: 7px; border-radius: 50%; background: #2a2a30; display: block; }
+.tour-skip { background: none; border: none; color: #7f8694; font-size: 11px; cursor: pointer; }
+.tour-next { font-size: 11px; font-weight: 600; color: #fff; background: #2f6dff; border: none; border-radius: 7px; padding: 6px 12px; cursor: pointer; }
+.tour-progress { display: flex; gap: 4px; margin-top: 11px; justify-content: center; }
+.tour-progress i { width: 6px; height: 6px; border-radius: 50%; background: #2a2a30; display: block; }
 .tour-progress i.on { background: #2f6dff; }
 .tour-help-btn { background: none; border: 1px solid #2b2b32; color: #9a9aa3; border-radius: 8px; width: 26px; height: 26px; cursor: pointer; font-size: 14px; }
 .tour-help-btn:hover { color: #ededed; border-color: #3a3a42; }
