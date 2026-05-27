@@ -4,9 +4,7 @@ import {
   STRIPE_PRICES,
   PLAN_PRICING,
   ANNUAL_DISCOUNT_PERCENT,
-  ENTERPRISE_CONTACT_EMAIL,
-  ENTERPRISE_FLOOR_PER_SEAT,
-  ENTERPRISE_MIN_SEATS,
+  BOOK_DEMO_URL,
   TEAM_MIN_SEATS,
   type Plan,
 } from '../lib/stripe'
@@ -16,91 +14,67 @@ interface Props {
   onClose: () => void
 }
 
-interface FeatureGroup {
-  label?: string
-  items: string[]
-}
-
 interface PlanInfo {
   id: Plan
   name: string
   tagline: string
+  /** The one feature that makes this tier worth it — shown above the list. */
+  highlight: string
   popular?: boolean
-  groups: FeatureGroup[]
+  features: string[]
 }
 
 const PLAN_LIST: PlanInfo[] = [
   {
     id: 'free',
     name: 'Free',
-    tagline: 'Try Nest, no card required',
-    groups: [
-      {
-        items: [
-          'Up to 3 panes at a time',
-          'All 7 AIs: Claude, Codex, Gemini, Copilot, OpenCode, Terminal, Custom',
-          'Browser cell (Chromium, port-filtered)',
-          'Persistent sessions across restarts',
-          'Command palette + keybindings',
-          'Global search across panes',
-          'View worktrees in your repos',
-          'MCP server panel (read-only)',
-        ],
-      },
+    tagline: 'Feel the multi-agent flow — free forever, no card',
+    highlight: 'Run Claude, Codex & Gemini in 3 panes at once',
+    features: [
+      'All 7 AIs — Claude, Codex, Gemini, Copilot, OpenCode, Terminal + your own',
+      'Bring your own keys — we never meter usage · local-first, no telemetry',
+      'Preview localhost in an in-app browser, ports auto-detected',
+      'Sessions survive restarts — pick up where you left off',
+      'Command palette + global search across every pane',
+      'Browse worktrees & MCP servers (read-only)',
     ],
   },
   {
     id: 'pro',
     name: 'Pro',
-    tagline: 'Everything Nest can do, for one developer',
+    tagline: 'Everything in Free — built out for one developer',
     popular: true,
-    groups: [
-      {
-        label: 'Everything in Free, plus',
-        items: [
-          'Up to 12 panes',
-          'Create worktrees + Spotlight + benchmark',
-          'Diff viewer + IDE picker (VS Code, Cursor, JetBrains, Zed, Sublime)',
-          'Broadcast: one command, every pane',
-          'Terminal Sharing with handshake',
-          'Voice input — local Whisper, 8 languages',
-          'Port detection per pane (with "Show all")',
-          'GitHub + GitLab integration',
-          'My Repos — PRs, issues, branch-from-issue',
-          'Actions panel: CI runs inline',
-          'Automatic daily standup',
-          'Snippets + workspaces (unlimited)',
-          'MCP panel — full read/write',
-        ],
-      },
+    highlight: 'Up to 12 isolated worktrees side by side — a branch per pane, no stashing',
+    features: [
+      'Review, merge & open PRs without leaving Nest',
+      'Branch straight from an issue, CI runs inline',
+      'GitHub + GitLab · per-pane port detection',
+      'Voice-to-prompt (local Whisper) + broadcast to every pane',
+      'Diff viewer + open in any IDE (VS Code, Cursor, JetBrains, Zed…)',
+      'Jump anywhere instantly (Spotlight) + benchmark across models',
+      'Unlimited snippets, workspaces & auto standup',
+      'Full read/write MCP + isolated HOME per account',
     ],
   },
   {
     id: 'team',
     name: 'Team',
-    tagline: 'Real-time collaboration for your dev team',
-    groups: [
-      {
-        label: 'Everything in Pro, plus',
-        items: [
-          'Real-time presence — see where everyone is',
-          'Team Chat with reactions',
-          'Team Activity feed (GitHub/GitLab events)',
-          'Multi-leader roles',
-          'Shared repos, snippets, workspaces, MCP',
-          'Per-user local paths for shared repos',
-          'HTTPS clone with OAuth for private team repos',
-          'Shared team standup',
-          'Join-by-code (8-char, leader-approved)',
-          `Priority support (24h email) · min ${TEAM_MIN_SEATS} seats`,
-        ],
-      },
+    tagline: 'Everything in Pro — for a team that ships together',
+    highlight: 'See where every teammate is working in real time, and jump in',
+    features: [
+      'Team chat with reactions + shared activity feed (GitHub/GitLab)',
+      'Shared repos, snippets, workspaces & MCP servers',
+      "Per-user local paths — one repo, everyone's machine",
+      'Clone private repos over HTTPS with OAuth, one click',
+      'Multi-leader roles + join by 8-char code',
+      'Shared team standup',
+      `Priority support (24h) · min ${TEAM_MIN_SEATS} seats`,
     ],
   },
 ]
 
 function priceFor(planId: Plan, billing: 'monthly' | 'annual'): { amount: string; annualTotal?: string } {
-  if (planId === 'free' || planId === 'enterprise') return { amount: '$0' }
+  if (planId !== 'pro' && planId !== 'team') return { amount: '$0' }
   const pricing = PLAN_PRICING[planId]
   const monthlyEquiv = billing === 'monthly' ? pricing.monthly : pricing.annual
   const annualTotal = billing === 'annual' ? `$${pricing.annual * 12}/year` : undefined
@@ -139,12 +113,8 @@ export default function UpgradeModal({ currentPlan, onClose }: Props) {
     }
   }
 
-  const handleContactSales = () => {
-    const subject = encodeURIComponent('Nest by RAVEN — Enterprise inquiry')
-    const body = encodeURIComponent(
-      `Hi RAVEN team,\n\nI'd like to talk about Enterprise pricing for Nest.\n\nTeam size: \nUse case: \nCompliance needs (SSO/audit/on-prem): \n\nThanks.`,
-    )
-    window.electronShell.openExternal(`mailto:${ENTERPRISE_CONTACT_EMAIL}?subject=${subject}&body=${body}`)
+  const handleBookDemo = () => {
+    window.electronShell.openExternal(BOOK_DEMO_URL)
   }
 
   return (
@@ -208,21 +178,18 @@ export default function UpgradeModal({ currentPlan, onClose }: Props) {
                 )}
 
                 <div className="upgrade-plan-feature-list">
-                  {plan.groups.map((group, gi) => (
-                    <div key={gi} className="upgrade-plan-feature-group">
-                      {group.label && (
-                        <div className="upgrade-plan-feature-group-label">{group.label}</div>
-                      )}
-                      <ul className="upgrade-plan-features">
-                        {group.items.map(item => (
-                          <li key={item}>
-                            <CheckIcon />
-                            <span>{item}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  ))}
+                  <div className="upgrade-plan-highlight">
+                    <StarIcon />
+                    <span>{plan.highlight}</span>
+                  </div>
+                  <ul className="upgrade-plan-features">
+                    {plan.features.map(item => (
+                      <li key={item}>
+                        <CheckIcon />
+                        <span>{item}</span>
+                      </li>
+                    ))}
+                  </ul>
                 </div>
 
                 <div className="upgrade-plan-cta">
@@ -245,22 +212,12 @@ export default function UpgradeModal({ currentPlan, onClose }: Props) {
           })}
         </div>
 
-        <div className="upgrade-enterprise-banner">
-          <div className="upgrade-enterprise-banner-text">
-            <div className="upgrade-enterprise-banner-title">
-              Enterprise — from ${ENTERPRISE_FLOOR_PER_SEAT}/seat/mo · min {ENTERPRISE_MIN_SEATS} seats
-            </div>
-            <div className="upgrade-enterprise-banner-subtitle">
-              SSO · audit logs · SCIM · on-prem option · custom integrations · dedicated support · SLA. Need a feature we don't ship yet? We build it.
-            </div>
-          </div>
-          <button
-            className="upgrade-enterprise-banner-cta"
-            onClick={handleContactSales}
-          >
-            Contact sales →
-          </button>
-        </div>
+        <button className="upgrade-enterprise-link" onClick={handleBookDemo}>
+          <span className="upgrade-enterprise-link-text">
+            Need SSO, audit logs or org-wide rollout?
+          </span>
+          <span className="upgrade-enterprise-link-cta">Book a demo →</span>
+        </button>
       </div>
     </div>
   )
@@ -270,6 +227,14 @@ function CheckIcon() {
   return (
     <svg className="upgrade-feature-check" width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true">
       <path d="M3 8.5l3 3 7-7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+    </svg>
+  )
+}
+
+function StarIcon() {
+  return (
+    <svg className="upgrade-feature-star" width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+      <path d="M8 1l1.9 4.1 4.5.5-3.4 3 1 4.4L8 10.8 3.9 13l1-4.4-3.4-3 4.5-.5L8 1z"/>
     </svg>
   )
 }

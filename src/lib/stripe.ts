@@ -25,10 +25,14 @@ export const PLAN_PRICING: Record<'pro' | 'team', PlanPricing> = {
 }
 
 export const ANNUAL_DISCOUNT_PERCENT = 25
-export const ENTERPRISE_MIN_SEATS = 10
+export const ENTERPRISE_MIN_SEATS = 4
 export const ENTERPRISE_FLOOR_PER_SEAT = 60  // $/seat/mo, annual billing
 export const TEAM_MIN_SEATS = 2
-export const ENTERPRISE_CONTACT_EMAIL = 'sales@nestmux.com'
+export const ENTERPRISE_CONTACT_EMAIL = 'bautista@nestmux.com'
+
+// Enterprise is sales-led: the in-app modal links out to a demo booking instead
+// of showing a card.
+export const BOOK_DEMO_URL = 'https://calendly.com/matias-nestmux/new-meeting'
 
 export interface PlanLimits {
   // Hard caps
