@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import type { WorktreeMeta } from '../types'
+import { bridge } from '../lib/bridge'
 
 interface CellRef {
   paneId: string
@@ -23,7 +24,7 @@ const POLL_MS = 3000
 
 async function safeListWorktrees(repoPath: string): Promise<WorktreeMeta[]> {
   try {
-    const res = await window.worktree.list(repoPath) as { ok: boolean; worktrees?: WorktreeMeta[]; error?: string } | WorktreeMeta[]
+    const res = await bridge.worktree.list(repoPath) as { ok: boolean; worktrees?: WorktreeMeta[]; error?: string } | WorktreeMeta[]
     // Defensive: handle both new {ok, worktrees} shape and legacy array shape
     // in case the IPC layer ever regresses or this caller runs against an
     // older main process.
@@ -70,9 +71,9 @@ export function PortsBanner({ cells, rootRepoPath, onOpenInternal }: Props) {
           const detected = new Set<number>()
           for (const paneId of paneIds) {
             try {
-              const pid = await window.pty.getPid(paneId)
+              const pid = await bridge.pty.getPid(paneId)
               if (!pid) continue
-              const ports = await window.port.scan(pid)
+              const ports = await bridge.port.scan(pid)
               for (const p of ports) detected.add(p)
             } catch {}
           }
@@ -103,7 +104,7 @@ export function PortsBanner({ cells, rootRepoPath, onOpenInternal }: Props) {
   const showSubheaders = groups.length > 1
 
   return (
-    <div className="ports-banner">
+    <div className="ports-banner" data-tour-id="ports-banner">
       {groups.map((g) => (
         <div key={g.worktreePath} className="ports-group">
           {showSubheaders && (
@@ -129,7 +130,7 @@ function PortPill({ port, kind, onOpenInternal }: {
   const url = `http://localhost:${port}`
   const handleClick = (e: React.MouseEvent) => {
     if (e.shiftKey || !onOpenInternal) {
-      window.electronShell.openExternal(url)
+      bridge.electronShell.openExternal(url)
     } else {
       onOpenInternal(url)
     }
