@@ -684,7 +684,7 @@ export default function Sidebar({
           </button>
         )}
         {onHelp && (
-          <button className="tour-help-btn" title="Tutorial" onClick={() => onHelp('activation')}>?</button>
+          <button className="tour-help-btn" title="Tutorial" aria-label="Open tutorial" onClick={() => onHelp('activation')}>?</button>
         )}
       </div>{/* /.sidebar-scroll */}
 

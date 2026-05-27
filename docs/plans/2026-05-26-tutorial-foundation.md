@@ -1648,3 +1648,19 @@ git commit -m "test(tutorial): activation tour end-to-end and no-real-API guard"
 **Type consistency:** `TourStep`/`TourDef`/`TourId` (Task 1) used identically in Tasks 9–13; `DemoState`/`DemoRepo`/`DemoPR` (Task 4) consumed in Tasks 5–7; `createDemoHarness(state)`/`DemoHarness.activate/deactivate/state` consistent across Tasks 6–8, 12; `OnboardingTourProps` (`steps`, `onClose`, `startIndex`) consistent Tasks 9–10, 13; `openTour`/`OPEN_EVENT` consistent Task 13–14. ✅
 
 **z-index:** app max is 1000 (`.team-switcher-dropdown`); tutorial overlay uses 2000 and tooltip 2001, demo stage 1500 — above everything. ✅
+
+---
+
+## Deuda y seguimiento post-implementación
+
+Resultado de los code-reviews tras implementar Plan 1. **Aprobado para merge, sin issues críticos.** Items diferidos:
+
+**Para el plan de Teams (cuando el mock de supabase se ejercite con componentes reales):**
+- El mock `noChain` en `src/tutorial/demo/mocks.ts` resuelve vía `.then` a `{ data: [], error: null }` pero `.single()` resuelve a `{ data: null, error: null }` — shapes inconsistentes. Verificar contra los hooks reales de Teams (`useTeam`, `useTeamChat`, etc.) y alinear el shape al que esos hooks esperan.
+
+**Polish (próximo sprint, no bloqueante):**
+- `src/__tests__/setup-dom.ts` lee la instancia jsdom vía `globalThis['jsdom']` (API interna de Vitest). Si Vitest cambia ese path, los tests que dependen del `localStorage` real de jsdom se romperían en silencio. Alternativa más robusta: instalar un mock de `localStorage` incondicional (como hace `useTourSeen.test.tsx`).
+- `DemoActivationStage.tsx`: el ancla `[data-tour-id="ai-grid"]` envuelve todo `NewPaneDialog`, así que el spotlight del paso 2 abarca un área enorme. Mover el ancla a un elemento más específico dentro del diálogo.
+- `OnboardingTour.tsx`: el campo `placement` de `TourStep` está declarado pero no se consume (el tooltip siempre va debajo). Implementar `placement` si algún ancla queda cerca del borde inferior (p.ej. `workspace-tabs`) y el tooltip se corta.
+
+**Hecho en esta tanda:** `aria-label="Open tutorial"` agregado al botón Help del Sidebar (a11y).
