@@ -2,12 +2,12 @@
 
 # 🪺 Nest by RAVEN
 
-**Multi-AI Terminal Workspace · v1.2 is here**
+**Multi-AI Terminal Workspace · v1.2.5**
 
 Run Claude, Gemini, Codex, Copilot and more — side by side in a single window. Each pane is its own AI session, with its own account, history, and environment.
 
 [![Latest Release](https://img.shields.io/github/v/release/GeronimoDiClemente/raven-nest?style=flat-square&color=0066FF)](https://github.com/GeronimoDiClemente/raven-nest/releases/latest)
-[![v1.2](https://img.shields.io/badge/v1.2-current%20release-0066FF?style=flat-square)](#whats-new-in-v12)
+[![v1.2.5](https://img.shields.io/badge/v1.2.5-current%20release-0066FF?style=flat-square)](#whats-new-in-v12)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey?style=flat-square)](https://github.com/GeronimoDiClemente/raven-nest/releases/latest)
 [![License: PolyForm Strict](https://img.shields.io/badge/license-PolyForm%20Strict%201.0.0-orange?style=flat-square)](./LICENSE)
 [![Source-available](https://img.shields.io/badge/source--available-official%20binaries%20only-orange?style=flat-square)](#license--redistribution)
@@ -22,7 +22,7 @@ Run Claude, Gemini, Codex, Copilot and more — side by side in a single window.
 
 Think of it as a terminal multiplexer — but built specifically for AI agents and the way teams ship code. Instead of juggling tabs and windows, you get a flexible **grid workspace** where every cell is an independent AI session, on top of the things developers actually need every day: native **git worktrees**, a real **Teams workspace**, your personal **My Repos** dashboard, GitHub & GitLab integration, CI runs, and live terminal sharing.
 
-> **v1.2 builds on the v1.1 foundation** with per-device repo paths and a Teams crash fix — same account on a different PC now starts clean instead of trying to open paths that don't exist. Auto-update is on by default — if you already have Nest installed, you'll get it shortly.
+> **v1.2 builds on the v1.1 foundation** with per-device repo paths, Teams crash fixes, and macOS bugfixes (credential persistence, port detection, auto-update). **v1.2.5 fixes the macOS auto-updater** — if you're on an older version, download this release once manually; from v1.2.5 onwards `Install and restart` works automatically.
 
 ---
 
@@ -125,24 +125,22 @@ Versions up to and including **v1.0.1** were published under the Apache License 
 
 ## Download
 
-Latest: **v1.2.0** — per-device local repo paths, Teams crash on missing folder fixed, "terminal finished" notification noise removed (on top of v1.1.6 sidebar/ports/clone fixes + v1.1.1 code signing + v1.1.0 tiling layout + port detection + security hardening).
+Latest: **v1.2.5** — macOS credential persistence, per-pane port attribution fix, auto-update fix (on top of v1.2.0 per-device paths + v1.1.x tiling layout + port detection + security hardening).
 
 | Platform | Download |
 |----------|----------|
-| **macOS** (Apple Silicon) | [Nest-1.2.0-arm64.dmg](../../releases/latest) |
-| **Windows** | [Nest-Setup-1.2.0.exe](../../releases/latest) |
-| **Linux** (universal) | [Nest-1.2.0.AppImage](../../releases/latest) |
-| **Linux** (Debian / Ubuntu) | [nest_1.2.0_amd64.deb](../../releases/latest) |
+| **macOS** (Apple Silicon) | [Nest-1.2.5-arm64.dmg](../../releases/latest) |
+| **Windows** | [Nest-Setup-1.2.5.exe](../../releases/latest) |
+| **Linux** (universal) | [Nest-1.2.5.AppImage](../../releases/latest) |
+| **Linux** (Debian / Ubuntu) | [nest_1.2.5_amd64.deb](../../releases/latest) |
 
-> Nest auto-updates in the background — install once and you'll get future releases without re-downloading.
+> Nest auto-updates in the background. **If you're upgrading from a version older than v1.2.5, this first download is manual** — the auto-updater was broken on macOS before v1.2.5. After installing v1.2.5, future updates install automatically via `Install and restart`.
 
 ---
 
 ## Installing on macOS
 
-Nest by RAVEN is signed and notarized by Apple since v1.1.2 — just download the DMG, open it and drag **Nest.app** to `/Applications`. Gatekeeper will let it run normally.
-
-> If you previously installed a pre-notarized build (≤ v1.1.1) and worked around Gatekeeper with `xattr -dr com.apple.quarantine`, that's no longer needed. Re-install from the latest DMG to get the auto-updater wired to the signed pipeline.
+Nest by RAVEN is signed and notarized by Apple. Download the DMG, open it and drag **Nest.app** to `/Applications` — Gatekeeper will let it run without any extra steps.
 
 ---
 
@@ -155,8 +153,8 @@ Two formats, pick whichever fits your distro.
 Works on Ubuntu, Fedora, Arch, openSUSE, Mint, Pop!_OS and most others. No system-wide install.
 
 ```bash
-chmod +x ~/Downloads/Nest-1.2.0.AppImage
-~/Downloads/Nest-1.2.0.AppImage
+chmod +x ~/Downloads/Nest-1.2.5.AppImage
+~/Downloads/Nest-1.2.5.AppImage
 ```
 
 To integrate it into your apps menu, use [AppImageLauncher](https://github.com/TheAssassin/AppImageLauncher) or move it to `~/Applications/`.
@@ -166,7 +164,7 @@ To integrate it into your apps menu, use [AppImageLauncher](https://github.com/T
 Installs system-wide, registers the desktop entry and the `nest://` deep link handler.
 
 ```bash
-sudo apt install ~/Downloads/nest_1.2.0_amd64.deb
+sudo apt install ~/Downloads/nest_1.2.5_amd64.deb
 ```
 
 Required packages (auto-installed by `apt`): `libgtk-3-0`, `libnotify4`, `libnss3`, `libxss1`, `libxtst6`, `libatspi2.0-0`, `libdrm2`, `libgbm1`, `libxcb-dri3-0`, `xdg-utils`.

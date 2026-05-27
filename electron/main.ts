@@ -113,7 +113,7 @@ import { WorktreeStore } from './worktree-store'
 import { PresetStore } from './preset-store'
 import { SetupRunner } from './setup-runner'
 import { scanPid } from './port-monitor'
-import { getCwdForPid, getProcessInfo, listListeningPidsWindows } from './cwd-reader'
+import { getCwdForPid, getProcessInfo, listListeningPidsPosix, listListeningPidsWindows } from './cwd-reader'
 // pidtree resolves a pid's full descendant tree. Used so port scans cover the
 // actual server (a child of the PowerShell shell), not just the shell itself.
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
@@ -250,6 +250,11 @@ function createWindow(): void {
     e.preventDefault()
     win.hide()
     if (isMac) app.dock.hide()
+  })
+
+  // Notify renderer to re-focus the active terminal after the window is shown
+  win.on('show', () => {
+    win.webContents.send('window:shown')
   })
 }
 
@@ -1511,14 +1516,62 @@ ipcMain.handle('ports:byPane', async (
       result[attributed] = arr
     })
   } else {
-    // POSIX path: PPID lookup isn't free here (would need an extra `ps`
-    // call per listening pid), so we fall back to the tree-only attribution
-    // that the metrics:portsByPids handler already does well.
-    await Promise.all(paneInfo.map(async ({ paneId, panePid }) => {
-      if (typeof panePid !== 'number' || panePid <= 0) return
-      const ports = await scanPid(panePid, resolvePidTree)
-      if (ports.length > 0) result[paneId] = ports
-    }))
+    // POSIX (macOS/Linux): same three-layer attribution as Windows.
+    // 1. Global lsof scan → PID tree match (handles normal dev servers)
+    // 2. CWD match — handles processes reparented to init/launchd after their
+    //    parent shell exits (e.g. `npx next dev &` launched from Claude Code's
+    //    Bash tool: the shell subprocess exits and the Node.js worker is
+    //    adopted by PID 1, so pidtree can't find it from the pane's PTY PID).
+    const listening = await listListeningPidsPosix()
+    if (listening.size === 0) {
+      // lsof failed or returned nothing — fall back to per-pane tree scan.
+      await Promise.all(paneInfo.map(async ({ paneId, panePid }) => {
+        if (typeof panePid !== 'number' || panePid <= 0) return
+        const ports = await scanPid(panePid, resolvePidTree)
+        if (ports.length > 0) result[paneId] = ports
+      }))
+    } else {
+      const unattributed: Array<[number, number[]]> = []
+      for (const [pid, ports] of listening) {
+        let attributed: string | null = null
+        for (const { paneId } of paneInfo) {
+          if (treesByPane.get(paneId)?.has(pid)) { attributed = paneId; break }
+        }
+        if (attributed) {
+          const arr = result[attributed] ?? []
+          for (const p of ports) if (!arr.includes(p)) arr.push(p)
+          result[attributed] = arr
+        } else {
+          unattributed.push([pid, ports])
+        }
+      }
+      if (unattributed.length > 0 && paneInfo.some((p) => p.repoPath)) {
+        const infos = await Promise.allSettled(unattributed.map(([pid]) => getProcessInfo(pid)))
+        unattributed.forEach(([, ports], idx) => {
+          const r = infos[idx]
+          const info = r?.status === 'fulfilled' ? r.value : null
+          if (!info?.cwd) return
+          const c = info.cwd.toLowerCase().replace(/\/+$/, '')
+          const matching = paneInfo.filter(({ repoPath }) => {
+            if (!repoPath) return false
+            const np = repoPath.toLowerCase().replace(/\/+$/, '')
+            return c === np || c.startsWith(np + '/')
+          })
+          let attributed: string | null = null
+          if (matching.length === 1) {
+            attributed = matching[0]!.paneId
+          } else if (matching.length > 1) {
+            const busy = matching.filter(({ paneId }) => (treesByPane.get(paneId)?.size ?? 0) > 1)
+            const candidates = busy.length > 0 ? busy : matching
+            attributed = candidates[candidates.length - 1]!.paneId
+          }
+          if (!attributed) return
+          const arr = result[attributed] ?? []
+          for (const p of ports) if (!arr.includes(p)) arr.push(p)
+          result[attributed] = arr
+        })
+      }
+    }
   }
 
   for (const id of Object.keys(result)) {
@@ -1928,10 +1981,6 @@ function setupAutoUpdater(): void {
 
   autoUpdater.on('update-downloaded', () => {
     updaterState = 'ready'
-    // Remove macOS quarantine so the updated app opens without Gatekeeper block
-    if (isMac) {
-      execFile('xattr', ['-cr', app.getPath('exe').split('.app')[0] + '.app'], () => {})
-    }
     const win = BrowserWindow.getAllWindows()[0]
     if (win) win.webContents.send('updater:status', 'ready')
   })
@@ -1959,7 +2008,18 @@ function setupAutoUpdater(): void {
 }
 
 ipcMain.on('updater:install', () => {
-  autoUpdater.quitAndInstall()
+  if (isMac) {
+    // quitAndInstall schedules the helper process then calls app.quit() internally.
+    // On macOS, async before-quit work (spotlight watcher, browser panes) can keep
+    // the event loop alive indefinitely — the helper then waits forever for the old
+    // process to disappear. Kill PTYs up front and force-exit after a short grace
+    // period so the update always completes regardless of lingering event loop refs.
+    ptyManager.killAll()
+    autoUpdater.quitAndInstall(true, false)
+    setTimeout(() => app.exit(0), 500)
+  } else {
+    autoUpdater.quitAndInstall()
+  }
 })
 
 ipcMain.handle('updater:checkForUpdates', async () => {
@@ -2157,6 +2217,20 @@ function clearCacheOnVersionChange(): void {
 }
 
 app.whenReady().then(async () => {
+  // macOS: Electron launched from Finder/Dock gets a minimal PATH from launchd
+  // (/usr/bin:/bin:/usr/sbin:/sbin). Capture the user's real login-shell PATH
+  // once so all PTY spawns inherit it (same fix Windows does via the registry).
+  if (isMac) {
+    try {
+      const { execFileSync } = await import('child_process')
+      const loginPath = execFileSync('/bin/zsh', ['-l', '-c', 'echo $PATH'], {
+        encoding: 'utf8',
+        timeout: 5000,
+      }).trim()
+      if (loginPath) process.env.PATH = loginPath
+    } catch { /* keep existing PATH on failure */ }
+  }
+
   // Block launch if this build is older than the minimum supported version
   // (published at min-version.json in the repo root). Fails open on network
   // errors so offline users aren't locked out.
@@ -2266,12 +2340,12 @@ app.on('before-quit', () => {
   // Destroy every WebContentsView. Each one owns a Chromium render process
   // tree; leaving them dangling for the Electron app teardown is slow.
   browserPanes.destroyAll()
-  // Kill every node-pty process. Each PTY is its own OS-level process with a
-  // pseudoterminal device — without this, the user sees PowerShell/bash
-  // processes survive Nest's tray-Quit on Windows (they'd only die when
-  // the conpty session closes, which doesn't happen cleanly without kill()).
-  ptyManager.killAll()
-  ptyManager.removeAllListeners()
+  // PTYs are NOT killed here. On macOS, before-quit always fires on Cmd+Q but
+  // the quit is then cancelled by win.on('close') calling e.preventDefault() —
+  // killing PTYs here would destroy running sessions even though the app stays
+  // alive (hidden to tray). PTY cleanup is handled by the tray "Quit" handler
+  // (explicit killAll + app.exit) and the updater:install path (explicit killAll
+  // before quitAndInstall). Those are the only real-quit paths.
   setupRunner.removeAllListeners()
   spotlight.removeAllListeners()
   metricsCollector.dispose()

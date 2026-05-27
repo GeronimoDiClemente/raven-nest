@@ -3,7 +3,7 @@ import { join } from 'path'
 import { mkdirSync } from 'fs'
 import * as fs from 'fs'
 import * as pty from 'node-pty'
-import { SHELL, SHELL_ARGS, isWin } from './platform'
+import { SHELL, SHELL_ARGS, isWin, isMac } from './platform'
 import { userHome } from './raven-home'
 
 async function cwdReachable(p: string): Promise<boolean> {
@@ -45,6 +45,23 @@ export class PtyManager extends EventEmitter {
       COLORTERM: 'truecolor',
     }
 
+    // macOS: Electron inherits a minimal PATH from launchd. ~/.local/bin and
+    // other user dirs only get added by .zshrc, which node-pty's login shell
+    // may not source reliably. Inject them directly into the PTY env so tools
+    // like claude, pipx, cargo, etc. are always found regardless of shell state.
+    if (isMac) {
+      const home = env.HOME || ''
+      const extra = [
+        `${home}/.local/bin`,
+        '/opt/homebrew/bin',
+        '/opt/homebrew/sbin',
+        '/usr/local/bin',
+      ].filter(Boolean)
+      const current = (env.PATH || '').split(':').filter(Boolean)
+      const toAdd = extra.filter(p => !current.includes(p))
+      if (toAdd.length) env.PATH = [...toAdd, ...current].join(':')
+    }
+
     // Only redirect HOME for AI agent panes — plain terminals keep the real HOME
     // so system credentials (gh, git, ssh, etc.) work without reconfiguration.
     if (accountDir && cmd) {
@@ -65,6 +82,21 @@ export class PtyManager extends EventEmitter {
         const geminiHome = join(accountDir, 'gemini')
         mkdirSync(geminiHome, { recursive: true })
         env.GEMINI_CLI_HOME = geminiHome
+      }
+
+      // macOS: AI CLIs (Claude, etc.) build keychain paths from $HOME, but the
+      // real login keychain lives in the actual user home. Symlink
+      // accountDir/Library/Keychains → ~/Library/Keychains so credential
+      // managers find the login keychain even with HOME redirected.
+      if (isMac) {
+        const realKeychains = join(userHome(), 'Library', 'Keychains')
+        const localKeychains = join(accountDir, 'Library', 'Keychains')
+        if (fs.existsSync(realKeychains) && !fs.existsSync(localKeychains)) {
+          try {
+            mkdirSync(join(accountDir, 'Library'), { recursive: true })
+            fs.symlinkSync(realKeychains, localKeychains)
+          } catch { /* race or already exists — ignore */ }
+        }
       }
     } else if (accountDir) {
       mkdirSync(accountDir, { recursive: true })

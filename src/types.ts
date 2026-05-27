@@ -337,6 +337,7 @@ declare global {
     }
     windowControls: {
       send: (action: 'minimize' | 'maximize' | 'close') => void
+      onShown: (callback: () => void) => void
     }
     updater: {
       onStatus: (cb: (status: 'downloading' | 'ready' | 'error', msg?: string) => void) => void

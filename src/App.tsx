@@ -672,6 +672,17 @@ export default function App() {
     return () => window.removeEventListener('nest:pty-url', handler as EventListener)
   }, [openBrowserCell])
 
+  // Re-focus the active terminal when the window comes back from win.hide()
+  // (e.g. Cmd+Q on macOS hides instead of quitting). main.ts emits 'window:shown'
+  // on every BrowserWindow 'show' event — more reliable than the 'focus' DOM event
+  // which Electron doesn't always fire after win.hide()/win.show().
+  useEffect(() => {
+    window.windowControls?.onShown(() => {
+      const id = focusedPaneIdRef.current
+      if (id) focusTerminal(id)
+    })
+  }, [])
+
   // Open the new-pane dialog (engine handles slot placement)
   const addNextPane = useCallback(() => {
     setAddingPane({})
@@ -950,13 +961,6 @@ export default function App() {
         isWin={window.platform?.isWin ?? false}
         tabActivity={tabActivity}
         rightSlot={<ResourceBar panes={activePanesPayload} />}
-      />
-      <PortsBanner
-        rootRepoPath={activeTab.repoPath ?? null}
-        cells={activeTab.panes
-          .filter((p) => Boolean(p.repoPath))
-          .map((p) => ({ paneId: p.id, repoPath: p.repoPath as string }))}
-        onOpenInternal={openBrowserCell}
       />
       {updateStatus?.type === 'downloading' && (
         <div className="update-banner update-banner--downloading">

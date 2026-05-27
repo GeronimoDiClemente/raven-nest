@@ -1,0 +1,145 @@
+name: Check & Staple Mac Notarization
+
+# Polls Apple's notarization queue every 2 hours. When Apple accepts any
+# pending submission, this workflow automatically:
+#   1. Downloads all .dmg files from the latest release
+#   2. Staples the notarization ticket onto each one
+#   3. Re-uploads the stapled .dmg files replacing the old ones
+#
+# Works dynamically with whatever the current latest release is — no
+# hardcoded version numbers.
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Every 2 hours
+    - cron: '0 */2 * * *'
+
+permissions:
+  contents: write
+
+jobs:
+  check-and-staple:
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - name: Get latest release tag
+        id: release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          TAG=$(gh release list \
+            --repo GeronimoDiClemente/raven-nest \
+            --limit 1 \
+            --json tagName \
+            --jq '.[0].tagName')
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "Latest release: $TAG"
+
+      - name: Check individual submission statuses
+        id: notarize
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -e
+          export PATH=/usr/bin:$PATH
+
+          echo "==> Fetching notarization history for team $APPLE_TEAM_ID"
+          xcrun notarytool history \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            --output-format json > /tmp/history.json
+
+          # Extract IDs of submissions that appear In Progress in history
+          python3 -c "
+          import json
+          with open('/tmp/history.json') as f:
+              h = json.load(f)
+          for s in h.get('history', [])[:20]:
+              print(f\"  {s.get('id')} | {s.get('status'):12s} | {s.get('createdDate')}\")
+          "
+
+          # Check each In Progress submission individually — history can lag
+          ACCEPTED_ID=""
+          while IFS= read -r id; do
+            [ -z "$id" ] && continue
+            STATUS=$(xcrun notarytool info "$id" \
+              --apple-id "$APPLE_ID" \
+              --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+              --team-id "$APPLE_TEAM_ID" \
+              --output-format json 2>/dev/null \
+              | python3 -c "import json,sys; print(json.load(sys.stdin).get('status','unknown'))" \
+              || echo "error")
+            echo "  $id => $STATUS"
+            if [ "$STATUS" = "Accepted" ]; then
+              ACCEPTED_ID="$id"
+              break
+            fi
+          done < <(python3 -c "
+          import json
+          with open('/tmp/history.json') as f:
+              h = json.load(f)
+          for s in h.get('history', [])[:20]:
+              if s.get('status') == 'In Progress':
+                  print(s.get('id'))
+          ")
+
+          if [ -z "$ACCEPTED_ID" ]; then
+            echo ""
+            echo "No accepted submissions yet. Will retry in 2 hours."
+            echo "accepted=false" >> $GITHUB_OUTPUT
+          else
+            echo ""
+            echo "==> Apple accepted submission: $ACCEPTED_ID"
+            echo "accepted=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Download DMGs from latest release
+        if: steps.notarize.outputs.accepted == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -e
+          mkdir -p /tmp/dmg
+          gh release download "$TAG" \
+            --repo GeronimoDiClemente/raven-nest \
+            --pattern "*.dmg" \
+            --dir /tmp/dmg/
+          echo "==> Downloaded:"
+          ls -lh /tmp/dmg/
+
+      - name: Staple notarization ticket onto each DMG
+        if: steps.notarize.outputs.accepted == 'true'
+        run: |
+          set -e
+          export PATH=/usr/bin:$PATH
+          for dmg in /tmp/dmg/*.dmg; do
+            [ -f "$dmg" ] || continue
+            echo "==> Stapling $dmg"
+            xcrun stapler staple "$dmg"
+            xcrun stapler validate "$dmg"
+            echo "    OK: $dmg"
+          done
+
+      - name: Re-upload stapled DMGs to release
+        if: steps.notarize.outputs.accepted == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -e
+          for dmg in /tmp/dmg/*.dmg; do
+            [ -f "$dmg" ] || continue
+            echo "==> Uploading $(basename $dmg) to $TAG"
+            gh release upload "$TAG" "$dmg" \
+              --repo GeronimoDiClemente/raven-nest \
+              --clobber
+          done
+          echo ""
+          echo "==> $TAG DMGs are now stapled and re-uploaded."
+          echo "::notice::Notarization stapled for $TAG. Users can now install without Gatekeeper warnings."
