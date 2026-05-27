@@ -37,6 +37,7 @@ import { usePendingInvitesCount } from './hooks/usePendingInvitesCount'
 import { useSpeechRecognition } from './hooks/useSpeechRecognition'
 import { useSettings } from './hooks/useSettings'
 import { matchesBinding } from './lib/keybindings'
+import { WORKTREE_DRAG_MIME } from './lib/dragTypes'
 import { useUserPreferences } from './hooks/useUserPreferences'
 import SharedTerminalViewer from './components/SharedTerminalViewer'
 import { terminalShareService } from './lib/terminalShareService'
@@ -50,7 +51,6 @@ import { useTourSeen } from './hooks/useTourSeen'
 let paneCounter = 0
 const generateId = () => `pane-${++paneCounter}-${Date.now()}`
 
-const WORKTREE_DRAG_MIME = 'application/x-raven-worktree-path'
 
 export default function App() {
   const generateTabId = () => `tab-${Date.now()}`
