@@ -118,8 +118,12 @@ interface FakePane {
   kind: 'claude' | 'tests'
 }
 
+// Module-level: ids only need to be unique, not reset per instance; this just
+// ever-increases (harmless across re-mounts/hot-reloads).
 let dropPaneCounter = 0
 
+// Must match the demo worktree paths in src/tutorial/demo/worktree-fixtures.ts
+// (createWorktreeDemoState) so a dropped/selected real worktree resolves here.
 const SEED_FEAT = 'C:/demo/.worktrees/nest-web/feat-dark-mode'
 const SEED_ROOT = 'C:/demo/nest-web'
 
@@ -146,16 +150,21 @@ export function DemoWorkspace({ resolveBranch, selectedRepoPath, onPaneOpened, o
     { id: 'pane-tests', label: 'CODEX', color: PANE_GREEN, branch: 'main', repoPath: SEED_ROOT, runningRepoPath: SEED_ROOT, kind: 'tests' },
   ])
   const [focusedId, setFocusedId] = useState('pane-claude')
+  const focusedIdRef = useRef(focusedId)
+  useEffect(() => { focusedIdRef.current = focusedId }, [focusedId])
   const [dropActive, setDropActive] = useState(false)
   const [restartingId, setRestartingId] = useState<string | null>(null)
   const restartTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Selecting a different worktree points the focused pane at it; its
-  // runningRepoPath stays stale → the Sync cwd button appears.
+  // Selecting a different worktree points the CURRENTLY-focused pane at it; its
+  // runningRepoPath stays stale → the Sync cwd button appears. Depends only on
+  // selectedRepoPath (focus is read via ref) so merely changing focus does NOT
+  // re-apply a stale selection to a different pane.
   useEffect(() => {
     if (!selectedRepoPath) return
-    setPanes((prev) => prev.map((p) => (p.id === focusedId ? { ...p, repoPath: selectedRepoPath } : p)))
-  }, [selectedRepoPath, focusedId])
+    const target = focusedIdRef.current
+    setPanes((prev) => prev.map((p) => (p.id === target ? { ...p, repoPath: selectedRepoPath } : p)))
+  }, [selectedRepoPath])
 
   useEffect(() => () => { if (restartTimer.current) clearTimeout(restartTimer.current) }, [])
 
