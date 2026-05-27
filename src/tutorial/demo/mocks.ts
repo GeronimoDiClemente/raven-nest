@@ -97,6 +97,26 @@ export function makeWindowMocks(state: DemoState) {
       onDeepLink: () => {},
       consumePendingDeepLink: async () => null,
     },
+    // NewPaneDialog reads window.platform?.isWin (boolean, not a function)
+    platform: {
+      isWin: false,
+      isMac: false,
+      isLinux: true,
+    },
+    // NewPaneDialog calls window.shells?.detect() → Promise<ShellInfo[]>
+    shells: {
+      detect: async () => [] as { id: string; label: string }[],
+    },
+    // NewPaneDialog calls window.customCLIs.list(), .save(cli), .delete(id)
+    customCLIs: {
+      list: async () => [] as { id: string; label: string; cmd: string; color: string }[],
+      save: async () => {},
+      delete: async () => {},
+    },
+    // NewPaneDialog calls window.cli.check(cmd) → Promise<{ found: boolean; path: string }>
+    cli: {
+      check: async (_cmd: string) => ({ found: true, path: '' }),
+    },
   }
 }
 

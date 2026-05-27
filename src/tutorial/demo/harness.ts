@@ -1,5 +1,6 @@
 // src/tutorial/demo/harness.ts
 import { __setSupabaseClient, __resetSupabaseClient } from '../../lib/supabase'
+import { __setBridgeOverrides, __clearBridgeOverrides } from '../../lib/bridge'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { DemoState } from './fixtures'
 import { makeWindowMocks, makePtyMock, makeSupabaseMock } from './mocks'
@@ -16,36 +17,31 @@ export interface DemoHarness {
 
 export function createDemoHarness(state: DemoState): DemoHarness {
   let active = false
-  const savedDescriptors = new Map<string, PropertyDescriptor | undefined>()
   let pty: ReturnType<typeof makePtyMock> | null = null
-
-  function install(key: string, value: unknown): void {
-    if (!savedDescriptors.has(key)) {
-      savedDescriptors.set(key, Object.getOwnPropertyDescriptor(window, key))
-    }
-    Object.defineProperty(window, key, { value, writable: true, configurable: true, enumerable: true })
-  }
+  let originalFetch: typeof fetch | null = null
+  let fetchPatched = false
 
   function activate(): void {
     if (active) return
     active = true
 
     const mocks = makeWindowMocks(state)
-    install('git', mocks.git)
-    install('worktree', makeWorktreeMock(state))
-    install('metrics', mocks.metrics)
-    install('accounts', mocks.accounts)
-    install('session', mocks.session)
-    install('dialog', mocks.dialog)
-    install('localPaths', mocks.localPaths)
-    install('port', mocks.port)
-    install('electronShell', mocks.electronShell)
-
-    const originalFetch = window.fetch.bind(window)
-    install('fetch', makeFetchMock(state, originalFetch))
-
     pty = makePtyMock(state)
-    install('pty', pty.api)
+    __setBridgeOverrides({
+      ...mocks,
+      worktree: makeWorktreeMock(state),
+      pty: pty.api,
+    })
+
+    // fetch is NOT a contextBridge prop; it's the native fetch and is reassignable.
+    // (PRList/PRReview call the global fetch directly; intercept it here.)
+    originalFetch = window.fetch
+    try {
+      window.fetch = makeFetchMock(state, originalFetch.bind(window))
+      fetchPatched = true
+    } catch {
+      fetchPatched = false
+    }
 
     __setSupabaseClient(makeSupabaseMock(state) as unknown as SupabaseClient)
   }
@@ -57,11 +53,13 @@ export function createDemoHarness(state: DemoState): DemoHarness {
     pty?.dispose()
     pty = null
 
-    for (const [key, desc] of savedDescriptors) {
-      if (desc) Object.defineProperty(window, key, desc)
-      else delete (window as unknown as Record<string, unknown>)[key]
+    __clearBridgeOverrides()
+
+    if (fetchPatched && originalFetch) {
+      window.fetch = originalFetch
+      fetchPatched = false
     }
-    savedDescriptors.clear()
+    originalFetch = null
 
     __resetSupabaseClient()
   }
