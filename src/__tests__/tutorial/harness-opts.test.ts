@@ -6,7 +6,7 @@ vi.mock('../../lib/supabase', () => ({
   __resetSupabaseClient: vi.fn(),
 }))
 
-import { __setSupabaseClient } from '../../lib/supabase'
+import { __setSupabaseClient, __resetSupabaseClient } from '../../lib/supabase'
 import { createDemoHarness } from '../../tutorial/demo/harness'
 import { createDemoState } from '../../tutorial/demo/fixtures'
 
@@ -33,5 +33,12 @@ describe('selective harness', () => {
     h.activate()
     expect(window.fetch).toBe(realFetch)
     h.deactivate()
+  })
+
+  it('resets supabase on deactivate only when it was swapped', () => {
+    const h = createDemoHarness(createDemoState(), { supabase: true })
+    h.activate()
+    h.deactivate()
+    expect(__resetSupabaseClient).toHaveBeenCalledTimes(1)
   })
 })
