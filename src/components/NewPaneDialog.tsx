@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { AIType, AI_CONFIG, COLOR_PALETTE, CustomCLI, ShellInfo } from '../types'
 import { safeWriteText } from '../lib/clipboard'
+import { bridge } from '../lib/bridge'
 import { ClaudeLogo, GeminiLogo, CodexLogo, CopilotLogo, OpenCodeLogo } from './AILogos'
 import ConfirmDialog from './ConfirmDialog'
 
@@ -84,10 +85,10 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
   const [copied, setCopied] = useState(false)
   const [shells, setShells] = useState<ShellInfo[]>([])
   const [shellsError, setShellsError] = useState<string | null>(null)
-  const isWindows = window.platform?.isWin ?? false
+  const isWindows = bridge.platform?.isWin ?? false
 
   useEffect(() => {
-    window.shells?.detect()
+    bridge.shells?.detect()
       .then((list) => { setShells(list); setShellsError(null) })
       .catch((err) => {
         console.error('[shells.detect] failed', err)
@@ -107,7 +108,7 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
   }, [onCancel])
 
   useEffect(() => {
-    window.customCLIs.list().then(setCustomCLIs)
+    bridge.customCLIs.list().then(setCustomCLIs)
   }, [])
 
   useEffect(() => {
@@ -115,7 +116,7 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
     const cmd = AI_CONFIG[selectedAI].cmd
     if (!cmd) { setCliFound(true); return }
     setCliFound(null)
-    window.cli.check(cmd).then(r => setCliFound(r.found))
+    bridge.cli.check(cmd).then(r => setCliFound(r.found))
   }, [step, selectedAI])
 
   async function selectAI(aiType: AIType) {
@@ -131,7 +132,7 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
     if (cfg.noAccount) {
       // Check CLI availability before opening — show a brief warning but don't block
       if (cfg.cmd) {
-        const { found } = await window.cli.check(cfg.cmd)
+        const { found } = await bridge.cli.check(cfg.cmd)
         if (!found && CLI_INSTALL[aiType]) {
           setCliFound(false)
           setStep('select-account') // Reuse the account step UI just to show the warning
@@ -141,7 +142,7 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
       onConfirm(aiType, 'default', '', cfg.color, cfg.cmd)
       return
     }
-    const existing = await window.accounts.list(aiType)
+    const existing = await bridge.accounts.list(aiType)
     setAccounts(existing)
     setStep('select-account')
   }
@@ -152,14 +153,14 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
 
   async function selectAccount(name: string) {
     if (!selectedAI) return
-    const dir = await window.accounts.getDir(selectedAI, name)
+    const dir = await bridge.accounts.getDir(selectedAI, name)
     onConfirm(selectedAI, name, dir, borderColor, AI_CONFIG[selectedAI].cmd)
   }
 
   async function createAccount() {
     if (!selectedAI || !newAccountName.trim()) return
     setCreatingNew(true)
-    const dir = await window.accounts.save(selectedAI, newAccountName.trim())
+    const dir = await bridge.accounts.save(selectedAI, newAccountName.trim())
     onConfirm(selectedAI, newAccountName.trim(), dir, borderColor, AI_CONFIG[selectedAI].cmd)
   }
 
@@ -171,7 +172,7 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
       cmd: customCmd.trim(),
       color: customColor,
     }
-    await window.customCLIs.save(cli)
+    await bridge.customCLIs.save(cli)
     setCustomCLIs((prev) => [...prev, cli])
     setStep('select-ai')
     setCustomCmd('')
@@ -414,7 +415,7 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
                       cursor: 'pointer',
                       flexShrink: 0,
                     }}
-                    onClick={() => window.electronShell.openExternal(CLI_INSTALL[selectedAI!]!.url)}
+                    onClick={() => bridge.electronShell.openExternal(CLI_INSTALL[selectedAI!]!.url)}
                   >
                     Docs ↗
                   </button>
@@ -504,12 +505,12 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
           confirmDanger
           onConfirm={async () => {
             if (confirmDelete.type === 'account') {
-              await window.accounts.delete(selectedAI!, confirmDelete.name)
+              await bridge.accounts.delete(selectedAI!, confirmDelete.name)
               setAccounts((prev) => prev.filter((a) => a !== (confirmDelete as { name: string }).name))
             } else {
               const c = confirmDelete as { type: 'cli'; id: string; e: React.MouseEvent }
               c.e.stopPropagation()
-              await window.customCLIs.delete(c.id)
+              await bridge.customCLIs.delete(c.id)
               setCustomCLIs((prev) => prev.filter((x) => x.id !== c.id))
             }
             setConfirmDelete(null)
