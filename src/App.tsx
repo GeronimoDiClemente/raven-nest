@@ -44,6 +44,7 @@ import ResourceBar from './components/ResourceBar'
 import { useLocalPathsMigration } from './hooks/useLocalPathsMigration'
 import type { MetricsPaneInput } from './types'
 import { TutorialController, openTour } from './tutorial/TutorialController'
+import { TutorialSandbox } from './tutorial/TutorialSandbox'
 
 
 let paneCounter = 0
@@ -344,6 +345,7 @@ export default function App() {
   const handleNewWorktree = useCallback(() => setShowNewWorktree(true), [])
   const [quickWorktreeOpen, setQuickWorktreeOpen] = useState(false)
   const [diffViewerOpen, setDiffViewerOpen] = useState(false)
+  const [tutorialTour, setTutorialTour] = useState<import('./tutorial/types').TourId | null>(null)
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -1021,6 +1023,7 @@ export default function App() {
         paneCount={panes.length}
         onLayoutChange={handleLayoutIdChange}
         onHelp={(id) => openTour(id)}
+        onOpenTutorial={(id) => setTutorialTour(id)}
       />
       <div
         ref={workspaceRef}
@@ -1246,6 +1249,7 @@ export default function App() {
         onClose={() => setDiffViewerOpen(false)}
       />
       <TutorialController />
+      {tutorialTour && <TutorialSandbox tourId={tutorialTour} onClose={() => setTutorialTour(null)} />}
     </div>
   )
 }

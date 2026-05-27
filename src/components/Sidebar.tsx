@@ -57,6 +57,7 @@ interface Props {
   paneCount: number
   onLayoutChange: (id: LayoutId) => void
   onHelp?: (tourId: import('../tutorial/types').TourId) => void
+  onOpenTutorial?: (tourId: import('../tutorial/types').TourId) => void
 }
 
 export default function Sidebar({
@@ -66,7 +67,7 @@ export default function Sidebar({
   onSnippetSend, onSnippetBroadcast, onCommandRun, onWorkspaceSave, onWorkspaceLoad, isWin,
   isTrialActive, trialDaysLeft, profileLoading, onUpgrade, onTeamsOpen, pendingInvitesCount = 0, onMyReposOpen, plan, repoPath, onRepoLink, onRepoUnlink, onJoinTerminal,
   activeCellRepoPath, onWorktreeSelect, onNewWorktree, worktreeRefreshKey,
-  layoutId, paneCount, onLayoutChange, onHelp,
+  layoutId, paneCount, onLayoutChange, onHelp, onOpenTutorial,
 }: Props) {
   const { branch, githubUrl, isDirty } = useGitInfo(repoPath)
   const { githubToken } = useGitHub()
@@ -712,6 +713,7 @@ export default function Sidebar({
           onCheckUpdates={handleCheckUpdates}
           userEmail={userEmail}
           activeRepoPath={activeCellRepoPath}
+          onOpenTutorial={onOpenTutorial}
         />
       </div>
 
