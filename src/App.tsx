@@ -51,7 +51,6 @@ import { useTourSeen } from './hooks/useTourSeen'
 let paneCounter = 0
 const generateId = () => `pane-${++paneCounter}-${Date.now()}`
 
-
 export default function App() {
   const generateTabId = () => `tab-${Date.now()}`
 

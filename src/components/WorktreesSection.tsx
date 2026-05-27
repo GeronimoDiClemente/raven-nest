@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { WorktreeMeta } from '../types'
 import { useBridge } from '../lib/bridge'
+import { WORKTREE_DRAG_MIME } from '../lib/dragTypes'
 import { IDEPickerMenu } from './IDEPickerMenu'
 import { useGitHub } from '../hooks/useGitHub'
 import { useGitlab } from '../hooks/useGitlab'
@@ -233,7 +234,7 @@ export function WorktreesSection({ repoPath, activeRepoPath, onSelect, onNewClic
                 draggable
                 onDragStart={(e) => {
                   e.dataTransfer.effectAllowed = 'copy'
-                  e.dataTransfer.setData('application/x-raven-worktree-path', wt.repoPath)
+                  e.dataTransfer.setData(WORKTREE_DRAG_MIME, wt.repoPath)
                   e.dataTransfer.setData('text/plain', wt.repoPath)
                 }}
                 onClick={() => onSelect(wt.repoPath)}
