@@ -40,6 +40,18 @@ describe('worktrees tutorial (demo sandbox)', () => {
     expect(screen.getByText('Worktrees')).toBeInTheDocument()
     // Progress badge: step 1 of 11.
     expect(screen.getByText(/1\s*\/\s*11/)).toBeInTheDocument()
+
+    // Regression guard: the diff/pr chip tour anchors must resolve in the DOM on
+    // initial mount. They render only on NON-root worktrees, and the chip data
+    // (diff stats, PR lookup) loads via async effects, so wait for them. If these
+    // anchors land on index 0 (root, which renders no chips) they resolve to
+    // nothing and tour steps 8 (diff) / 10 (pr) show a spotlight-less tooltip.
+    await waitFor(() => {
+      expect(document.querySelector('[data-tour-id="wt-diff-chip"]')).not.toBeNull()
+    })
+    await waitFor(() => {
+      expect(document.querySelector('[data-tour-id="wt-pr-chip"]')).not.toBeNull()
+    })
   })
 
   it('walks the whole tour via Next and finishes', async () => {

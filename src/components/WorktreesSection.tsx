@@ -203,6 +203,21 @@ export function WorktreesSection({ repoPath, activeRepoPath, onSelect, onNewClic
           title="New worktree"
         >+</button>
       </div>
+      {(() => {
+      // Tour anchors must land on the FIRST worktree that actually RENDERS each
+      // chip — not index 0 (the root never renders chips). Mirror the chips'
+      // render conditions exactly, reading the same async diffStats/prChips
+      // state so the anchor moves onto the element once that data loads.
+      const firstDiffChipIdx = worktrees.findIndex((w) => {
+        if (w.repoPath === w.rootRepoPath) return false
+        const s = diffStats[w.repoPath]
+        return !!s && (s.additions > 0 || s.deletions > 0)
+      })
+      const firstPrChipIdx = worktrees.findIndex(
+        (w) => w.repoPath !== w.rootRepoPath && !!prChips[w.repoPath],
+      )
+      return (
+      <>
       {expanded && (
         <div className="wt-list" data-tour-id="wt-list">
           {worktrees.map((wt, index) => {
@@ -236,7 +251,7 @@ export function WorktreesSection({ repoPath, activeRepoPath, onSelect, onNewClic
                   <span className={`wt-dot ${STATUS_DOT_CLASS[wt.setupState]}`} />
                   <span className="wt-branch">{wt.branch}</span>
                   {!isRoot && stat && (stat.additions > 0 || stat.deletions > 0) && (
-                    <span className="wt-diff-chip" {...(index === 0 ? { 'data-tour-id': 'wt-diff-chip' } : {})} title="Lines changed vs base">
+                    <span className="wt-diff-chip" {...(index === firstDiffChipIdx ? { 'data-tour-id': 'wt-diff-chip' } : {})} title="Lines changed vs base">
                       {stat.additions > 0 && (
                         <span className="wt-diff-add">+{stat.additions}</span>
                       )}
@@ -249,7 +264,7 @@ export function WorktreesSection({ repoPath, activeRepoPath, onSelect, onNewClic
                     <button
                       type="button"
                       className="wt-pr-chip"
-                      {...(index === 0 ? { 'data-tour-id': 'wt-pr-chip' } : {})}
+                      {...(index === firstPrChipIdx ? { 'data-tour-id': 'wt-pr-chip' } : {})}
                       title={`Open PR ${pr.url}`}
                       onClick={(e) => {
                         e.stopPropagation()
@@ -271,6 +286,9 @@ export function WorktreesSection({ repoPath, activeRepoPath, onSelect, onNewClic
           )}
         </div>
       )}
+      </>
+      )
+      })()}
       {idePickerAt && (
         <IDEPickerMenu
           worktreePath={idePickerAt.worktreePath}
