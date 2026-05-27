@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { DiffFile, DiffResult } from '../types'
-import { bridge } from '../lib/bridge'
+import { useBridge } from '../lib/bridge'
 
 interface Props {
   open: boolean
@@ -9,6 +9,7 @@ interface Props {
 }
 
 export function DiffViewerPanel({ open, worktreePath, onClose }: Props) {
+  const bridge = useBridge()
   const [data, setData] = useState<DiffResult | null>(null)
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
@@ -27,7 +28,7 @@ export function DiffViewerPanel({ open, worktreePath, onClose }: Props) {
       setError(err instanceof Error ? err.message : String(err))
     }).finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
-  }, [open, worktreePath])
+  }, [open, worktreePath, bridge])
 
   useEffect(() => {
     if (!open) return

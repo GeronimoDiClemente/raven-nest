@@ -1,6 +1,6 @@
 // src/tutorial/demo/harness.ts
 import { __setSupabaseClient, __resetSupabaseClient } from '../../lib/supabase'
-import { __setBridgeOverrides, __clearBridgeOverrides } from '../../lib/bridge'
+import type { Bridge } from '../../lib/bridge'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { DemoState } from './fixtures'
 import { makeWindowMocks, makePtyMock, makeSupabaseMock, makeWorktreeMocks } from './mocks'
@@ -9,9 +9,15 @@ import { makeWindowMocks, makePtyMock, makeSupabaseMock, makeWorktreeMocks } fro
 export interface DemoHarness {
   /** The mutable demo world the UI reads/writes. */
   readonly state: DemoState
-  /** Swap real APIs for mocks. Idempotent. */
+  /**
+   * The demo bridge value to feed `<BridgeProvider value={harness.bridge}>`.
+   * Isolation is per React subtree — only components rendered inside that
+   * provider see these mocks; the live app (outside it) keeps reading window.
+   */
+  readonly bridge: Bridge
+  /** Swap the GLOBAL real APIs (supabase/fetch) for mocks, if opted in. Idempotent. */
   activate(): void
-  /** Restore everything swapped by activate(). Idempotent. */
+  /** Restore everything swapped by activate() + dispose mock timers/listeners. Idempotent. */
   deactivate(): void
 }
 
@@ -23,9 +29,22 @@ export interface DemoHarnessOptions {
 }
 
 export function createDemoHarness(state: DemoState, opts: DemoHarnessOptions = {}): DemoHarness {
+  // The bridge mocks are built once and handed to the sandbox's BridgeProvider —
+  // NOT installed globally, so the live app's identical components are untouched.
+  const wt = makeWorktreeMocks(state)
+  const pty = makePtyMock(state)
+  const demoBridge = {
+    ...makeWindowMocks(state),
+    // Worktree-domain mocks take precedence for these keys (worktree, git,
+    // preset, spotlight, diff, port, electronShell) so the real Worktrees
+    // components read store-driven demo data.
+    ...wt.overrides,
+    // pty keeps the replay (onData/create from makePtyMock) AND adds getPid
+    // from the worktree mocks (PortsBanner reads it).
+    pty: { ...pty.api, getPid: wt.overrides.pty.getPid },
+  } as unknown as Bridge
+
   let active = false
-  let pty: ReturnType<typeof makePtyMock> | null = null
-  let wt: ReturnType<typeof makeWorktreeMocks> | null = null
   let originalFetch: typeof fetch | null = null
   let fetchPatched = false
   let supabaseSwapped = false
@@ -33,20 +52,6 @@ export function createDemoHarness(state: DemoState, opts: DemoHarnessOptions = {
   function activate(): void {
     if (active) return
     active = true
-
-    const mocks = makeWindowMocks(state)
-    wt = makeWorktreeMocks(state)
-    pty = makePtyMock(state)
-    __setBridgeOverrides({
-      ...mocks,
-      // Worktree-domain mocks take precedence for these keys (worktree, git,
-      // preset, spotlight, diff, port, electronShell) so the real Worktrees
-      // components read store-driven demo data.
-      ...wt.overrides,
-      // pty keeps the replay (onData/create from makePtyMock) AND adds getPid
-      // from the worktree mocks (PortsBanner reads it).
-      pty: { ...pty.api, getPid: wt.overrides.pty.getPid },
-    })
 
     // fetch is NOT a contextBridge prop; it's the native fetch and is reassignable.
     // (PRList/PRReview call the global fetch directly; intercept it here.)
@@ -70,13 +75,8 @@ export function createDemoHarness(state: DemoState, opts: DemoHarnessOptions = {
     if (!active) return
     active = false
 
-    pty?.dispose()
-    pty = null
-
-    wt?.dispose()
-    wt = null
-
-    __clearBridgeOverrides()
+    pty.dispose()
+    wt.dispose()
 
     if (fetchPatched && originalFetch) {
       window.fetch = originalFetch
@@ -90,7 +90,7 @@ export function createDemoHarness(state: DemoState, opts: DemoHarnessOptions = {
     }
   }
 
-  return { state, activate, deactivate }
+  return { state, bridge: demoBridge, activate, deactivate }
 }
 
 /** Builds a fetch replacement that answers GitHub/GitLab calls from fixtures. */

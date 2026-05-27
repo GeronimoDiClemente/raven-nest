@@ -2,7 +2,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import { createDemoHarness } from '../../tutorial/demo/harness'
 import { createDemoState } from '../../tutorial/demo/fixtures'
-import { bridge } from '../../lib/bridge'
 
 type PtyBridge = {
   pty: {
@@ -17,7 +16,7 @@ describe('demo harness pty replay', () => {
     const harness = createDemoHarness(createDemoState())
     harness.activate()
 
-    const pty = (bridge as unknown as PtyBridge).pty
+    const pty = (harness.bridge as unknown as PtyBridge).pty
     const received: string[] = []
     pty.onData((_paneId, data) => received.push(data))
     await pty.create('pane-1', 'claude', 'C:/demo/account')

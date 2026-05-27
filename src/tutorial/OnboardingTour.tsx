@@ -1,14 +1,22 @@
 // src/tutorial/OnboardingTour.tsx
-import { useState, useEffect, useCallback, type CSSProperties } from 'react'
+import { useState, useEffect, useCallback, type CSSProperties, type RefObject } from 'react'
 import type { TourStep } from './types'
 
 export interface OnboardingTourProps {
   steps: TourStep[]
   onClose: () => void
   startIndex?: number
+  /**
+   * Scope anchor lookups to this element's subtree instead of the whole
+   * document. Required when the tour runs over a live app that renders the
+   * SAME `data-tour-id` anchors (e.g. the tutorial sandbox): without it,
+   * `document.querySelector` would resolve to the background app's duplicate
+   * anchor (hidden under the overlay) instead of the sandbox's.
+   */
+  rootRef?: RefObject<HTMLElement | null>
 }
 
-export function OnboardingTour({ steps, onClose, startIndex = 0 }: OnboardingTourProps) {
+export function OnboardingTour({ steps, onClose, startIndex = 0, rootRef }: OnboardingTourProps) {
   const [index, setIndex] = useState(startIndex)
   const [rect, setRect] = useState<DOMRect | null>(null)
   const step = steps[index]
@@ -25,7 +33,8 @@ export function OnboardingTour({ steps, onClose, startIndex = 0 }: OnboardingTou
   useEffect(() => {
     if (!step) return
     const update = () => {
-      const el = document.querySelector(step.anchor)
+      const scope: ParentNode = rootRef?.current ?? document
+      const el = scope.querySelector(step.anchor)
       setRect(el ? el.getBoundingClientRect() : null)
     }
     update()
@@ -35,17 +44,18 @@ export function OnboardingTour({ steps, onClose, startIndex = 0 }: OnboardingTou
       window.removeEventListener('resize', update)
       window.removeEventListener('scroll', update, true)
     }
-  }, [step])
+  }, [step, rootRef])
 
   // Click-to-advance: clicking the anchored element advances the step.
   useEffect(() => {
     if (!step?.advanceOnClick) return
-    const el = document.querySelector(step.anchor)
+    const scope: ParentNode = rootRef?.current ?? document
+    const el = scope.querySelector(step.anchor)
     if (!el) return
     const handler = () => next()
     el.addEventListener('click', handler)
     return () => el.removeEventListener('click', handler)
-  }, [step, next])
+  }, [step, next, rootRef])
 
   if (!step) return null
 

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { RavenPreset, WorktreeMeta } from '../types'
-import { bridge } from '../lib/bridge'
+import { useBridge } from '../lib/bridge'
 
 interface Props {
   open: boolean
@@ -10,6 +10,7 @@ interface Props {
 }
 
 export function NewWorktreeModal({ open, repoPath, onClose, onCreated }: Props) {
+  const bridge = useBridge()
   const [branch, setBranch] = useState('')
   const [path, setPath] = useState('')
   const [presets, setPresets] = useState<RavenPreset[]>([])
@@ -44,7 +45,7 @@ export function NewWorktreeModal({ open, repoPath, onClose, onCreated }: Props) 
     // Detect untracked .env* files so we can warn — git worktree add does not
     // copy them, which silently breaks dev servers in the new worktree.
     void bridge.git.listUntrackedEnvFiles(repoPath).then(setEnvFiles).catch(() => setEnvFiles([]))
-  }, [open, repoPath])
+  }, [open, repoPath, bridge])
 
   if (!open) return null
 

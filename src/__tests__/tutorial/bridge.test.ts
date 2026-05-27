@@ -1,34 +1,23 @@
 // src/__tests__/tutorial/bridge.test.ts
-import { describe, it, expect, afterEach } from 'vitest'
-import { bridge, __setBridgeOverrides, __clearBridgeOverrides } from '../../lib/bridge'
+import { describe, it, expect } from 'vitest'
+import { bridge } from '../../lib/bridge'
 
-describe('bridge accessor', () => {
-  afterEach(() => __clearBridgeOverrides())
-
-  it('delegates to window.* by default', () => {
+// `bridge` always delegates to window. Per-subtree demo overrides go through
+// the React context (useBridge/BridgeProvider) — covered in
+// src/__tests__/components/bridge-context.test.tsx.
+describe('bridge (window delegation)', () => {
+  it('delegates to window.* live', () => {
     const real = { list: async () => ['real'] }
     ;(window as unknown as { accounts: unknown }).accounts = real
     expect((bridge as unknown as { accounts: unknown }).accounts).toBe(real)
   })
 
-  it('returns the override when set', async () => {
-    __setBridgeOverrides({ accounts: { list: async () => ['mock'] } })
-    const r = await (bridge as unknown as { accounts: { list: () => Promise<string[]> } }).accounts.list()
-    expect(r[0]).toBe('mock')
-  })
-
-  it('falls back to window for keys not overridden', () => {
-    const realGit = { ok: true }
-    ;(window as unknown as { git: unknown }).git = realGit
-    __setBridgeOverrides({ accounts: {} })
-    expect((bridge as unknown as { git: unknown }).git).toBe(realGit)
-  })
-
-  it('clear restores full delegation', () => {
-    const realGit = { v: 1 }
-    ;(window as unknown as { git: unknown }).git = realGit
-    __setBridgeOverrides({ git: { v: 2 } })
-    __clearBridgeOverrides()
-    expect((bridge as unknown as { git: { v: number } }).git).toBe(realGit)
+  it('reflects later window changes (live proxy, not a snapshot)', () => {
+    const g1 = { v: 1 }
+    ;(window as unknown as { git: unknown }).git = g1
+    expect((bridge as unknown as { git: { v: number } }).git).toBe(g1)
+    const g2 = { v: 2 }
+    ;(window as unknown as { git: unknown }).git = g2
+    expect((bridge as unknown as { git: { v: number } }).git).toBe(g2)
   })
 })

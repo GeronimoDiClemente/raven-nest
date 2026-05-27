@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { WorktreeMeta } from '../types'
-import { bridge } from '../lib/bridge'
+import { useBridge } from '../lib/bridge'
 import { IDEPickerMenu } from './IDEPickerMenu'
 import { useGitHub } from '../hooks/useGitHub'
 import { useGitlab } from '../hooks/useGitlab'
@@ -40,6 +40,7 @@ interface ContextMenuState {
 }
 
 export function WorktreesSection({ repoPath, activeRepoPath, onSelect, onNewClick, refreshKey }: Props) {
+  const bridge = useBridge()
   const [worktrees, setWorktrees] = useState<WorktreeMeta[]>([])
   const [expanded, setExpanded] = useState(true)
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
@@ -62,7 +63,7 @@ export function WorktreesSection({ repoPath, activeRepoPath, onSelect, onNewClic
       setSpotlightPath(s.active && s.worktreePath ? s.worktreePath : null)
     })
     return () => bridge.spotlight.removeListeners()
-  }, [])
+  }, [bridge])
 
   useEffect(() => {
     if (!repoPath) { setWorktrees([]); return }
@@ -76,7 +77,7 @@ export function WorktreesSection({ repoPath, activeRepoPath, onSelect, onNewClic
       if (!cancelled) setWorktrees([])
     })
     return () => { cancelled = true }
-  }, [repoPath, refreshKey])
+  }, [repoPath, refreshKey, bridge])
 
   useEffect(() => {
     if (!repoPath) return
@@ -91,7 +92,7 @@ export function WorktreesSection({ repoPath, activeRepoPath, onSelect, onNewClic
     }
     bridge.preset.onSetupState(onState)
     return () => bridge.preset.removeListeners()
-  }, [repoPath])
+  }, [repoPath, bridge])
 
   // Fetch diff stats for all non-root worktrees in parallel. Each result drops
   // into state independently, so the list never waits for the slowest one.
@@ -112,7 +113,7 @@ export function WorktreesSection({ repoPath, activeRepoPath, onSelect, onNewClic
       }),
     )
     return () => { cancelled = true }
-  }, [worktrees, refreshKey])
+  }, [worktrees, refreshKey, bridge])
 
   // Fetch PR chips for all non-root worktrees in parallel.
   useEffect(() => {
@@ -129,7 +130,7 @@ export function WorktreesSection({ repoPath, activeRepoPath, onSelect, onNewClic
       }),
     )
     return () => { cancelled = true }
-  }, [worktrees, refreshKey, githubToken, gitlabToken])
+  }, [worktrees, refreshKey, githubToken, gitlabToken, bridge])
 
   useEffect(() => {
     if (!contextMenu) return
