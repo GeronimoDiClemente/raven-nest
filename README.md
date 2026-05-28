@@ -2,12 +2,12 @@
 
 # 🪺 Nest by RAVEN
 
-**Multi-AI Terminal Workspace · v1.2.5**
+**Multi-AI Terminal Workspace · v1.2.7**
 
 Run Claude, Gemini, Codex, Copilot and more — side by side in a single window. Each pane is its own AI session, with its own account, history, and environment.
 
 [![Latest Release](https://img.shields.io/github/v/release/GeronimoDiClemente/raven-nest?style=flat-square&color=0066FF)](https://github.com/GeronimoDiClemente/raven-nest/releases/latest)
-[![v1.2.5](https://img.shields.io/badge/v1.2.5-current%20release-0066FF?style=flat-square)](#whats-new-in-v12)
+[![v1.2.7](https://img.shields.io/badge/v1.2.7-current%20release-0066FF?style=flat-square)](#whats-new-in-v12)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey?style=flat-square)](https://github.com/GeronimoDiClemente/raven-nest/releases/latest)
 [![License: PolyForm Strict](https://img.shields.io/badge/license-PolyForm%20Strict%201.0.0-orange?style=flat-square)](./LICENSE)
 [![Source-available](https://img.shields.io/badge/source--available-official%20binaries%20only-orange?style=flat-square)](#license--redistribution)
@@ -22,7 +22,7 @@ Run Claude, Gemini, Codex, Copilot and more — side by side in a single window.
 
 Think of it as a terminal multiplexer — but built specifically for AI agents and the way teams ship code. Instead of juggling tabs and windows, you get a flexible **grid workspace** where every cell is an independent AI session, on top of the things developers actually need every day: native **git worktrees**, a real **Teams workspace**, your personal **My Repos** dashboard, GitHub & GitLab integration, CI runs, and live terminal sharing.
 
-> **v1.2 builds on the v1.1 foundation** with per-device repo paths, Teams crash fixes, and macOS bugfixes (credential persistence, port detection, auto-update). **v1.2.5 fixes the macOS auto-updater** — if you're on an older version, download this release once manually; from v1.2.5 onwards `Install and restart` works automatically.
+> **v1.2 builds on the v1.1 foundation** with per-device repo paths, Teams crash fixes, and macOS bugfixes (credential persistence, port detection, auto-update). **v1.2.5 fixed the macOS auto-updater** — if you're on a version older than v1.2.5, download once manually; from v1.2.5 onwards `Install and restart` works automatically. **v1.2.6** restored terminal sessions after Cmd+Q. **v1.2.7** fixes port attribution for reparented background processes on macOS and Linux.
 
 ---
 
@@ -44,6 +44,14 @@ Previously, clicking **Terminal** on a Teams repo whose folder had been moved, d
 ### Compatibility
 
 v1.1.x clients keep working unchanged during the transition — v1.2.0 never writes to the deprecated Supabase columns (`user_repos.local_path`, the `team_repo_local_paths` table). Those columns will be dropped in v1.3.
+
+### v1.2.6 — Terminal session after Cmd+Q
+
+On macOS, hiding Nest to the tray via Cmd+Q and reopening it no longer drops the active terminal session. The window restore path now reattaches the PTY correctly instead of spawning a fresh shell.
+
+### v1.2.7 — Port attribution for reparented processes
+
+Dev servers launched by AI assistants that get reparented (e.g. `claude` spawning a `vite` child that outlives the shell) are now correctly attributed to their pane on macOS and Linux. The fallback chain walks the full process tree rather than stopping at the direct PTY child.
 
 ---
 
@@ -125,16 +133,16 @@ Versions up to and including **v1.0.1** were published under the Apache License 
 
 ## Download
 
-Latest: **v1.2.5** — macOS credential persistence, per-pane port attribution fix, auto-update fix (on top of v1.2.0 per-device paths + v1.1.x tiling layout + port detection + security hardening).
+Latest: **v1.2.7** — port attribution for reparented background processes, terminal session fix after Cmd+Q, auto-update fix (on top of v1.2.0 per-device paths + v1.1.x tiling layout + port detection + security hardening).
 
 | Platform | Download |
 |----------|----------|
-| **macOS** (Apple Silicon) | [Nest-1.2.5-arm64.dmg](../../releases/latest) |
-| **Windows** | [Nest-Setup-1.2.5.exe](../../releases/latest) |
-| **Linux** (universal) | [Nest-1.2.5.AppImage](../../releases/latest) |
-| **Linux** (Debian / Ubuntu) | [nest_1.2.5_amd64.deb](../../releases/latest) |
+| **macOS** (Apple Silicon) | [Nest-1.2.7-arm64.dmg](../../releases/latest) |
+| **Windows** | [Nest-Setup-1.2.7.exe](../../releases/latest) |
+| **Linux** (universal) | [Nest-1.2.7.AppImage](../../releases/latest) |
+| **Linux** (Debian / Ubuntu) | [nest_1.2.7_amd64.deb](../../releases/latest) |
 
-> Nest auto-updates in the background. **If you're upgrading from a version older than v1.2.5, this first download is manual** — the auto-updater was broken on macOS before v1.2.5. After installing v1.2.5, future updates install automatically via `Install and restart`.
+> Nest auto-updates in the background. **If you're upgrading from a version older than v1.2.5, this first download is manual** — the auto-updater was broken on macOS before v1.2.5. After installing v1.2.5 or later, future updates install automatically via `Install and restart`.
 
 ---
 
@@ -153,8 +161,8 @@ Two formats, pick whichever fits your distro.
 Works on Ubuntu, Fedora, Arch, openSUSE, Mint, Pop!_OS and most others. No system-wide install.
 
 ```bash
-chmod +x ~/Downloads/Nest-1.2.5.AppImage
-~/Downloads/Nest-1.2.5.AppImage
+chmod +x ~/Downloads/Nest-1.2.7.AppImage
+~/Downloads/Nest-1.2.7.AppImage
 ```
 
 To integrate it into your apps menu, use [AppImageLauncher](https://github.com/TheAssassin/AppImageLauncher) or move it to `~/Applications/`.
@@ -164,7 +172,7 @@ To integrate it into your apps menu, use [AppImageLauncher](https://github.com/T
 Installs system-wide, registers the desktop entry and the `nest://` deep link handler.
 
 ```bash
-sudo apt install ~/Downloads/nest_1.2.5_amd64.deb
+sudo apt install ~/Downloads/nest_1.2.7_amd64.deb
 ```
 
 Required packages (auto-installed by `apt`): `libgtk-3-0`, `libnotify4`, `libnss3`, `libxss1`, `libxtst6`, `libatspi2.0-0`, `libdrm2`, `libgbm1`, `libxcb-dri3-0`, `xdg-utils`.
@@ -265,7 +273,7 @@ All rebindable in **Settings → Keybinds**.
 
 |  | Free | Pro | Team | Enterprise |
 |--|------|-----|------|------------|
-| **Price** | $0 | $20/mo · $15/mo annual | $35/seat · $26/seat annual | from $60/seat/mo · min 10 seats |
+| **Price** | $0 | $20/mo · $15/mo annual | $35/seat · $26/seat annual | from $60/seat/mo · min 4 seats |
 | **Panes (max)** | 3 | 12 | 12 | 12 |
 | **All 7 AIs + Browser cell** | ✓ | ✓ | ✓ | ✓ |
 | **Persistent sessions + Global search** | ✓ | ✓ | ✓ | ✓ |
