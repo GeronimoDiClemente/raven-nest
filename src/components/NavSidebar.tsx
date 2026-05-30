@@ -14,9 +14,8 @@ import {
 } from 'lucide-react'
 import SettingsPanel from './SettingsPanel'
 import UserMenu from './UserMenu'
-import SidePanel from './SidePanel'
 import { supabase } from '../lib/supabase'
-import type { PanelId, Workspace } from '../types'
+import type { PanelId } from '../types'
 
 interface Props {
   // nav / activity-bar props
@@ -34,18 +33,6 @@ interface Props {
   profileLoading: boolean
   onUpgrade: () => void
   activeCellRepoPath?: string
-  // side-panel content props
-  repoPath?: string
-  onWorktreeSelect: (worktreePath: string) => void
-  onNewWorktree: () => void
-  worktreeRefreshKey?: number
-  onRepoLink: () => void
-  onRepoUnlink: () => void
-  onSnippetSend: (content: string) => void
-  onSnippetBroadcast: (content: string) => void
-  onWorkspaceSave: (name: string) => void
-  onWorkspaceLoad: (ws: Workspace) => void
-  onCommandRun: (cmd: string) => void
 }
 
 export default function NavSidebar({
@@ -63,17 +50,6 @@ export default function NavSidebar({
   profileLoading,
   onUpgrade,
   activeCellRepoPath,
-  repoPath,
-  onWorktreeSelect,
-  onNewWorktree,
-  worktreeRefreshKey,
-  onRepoLink,
-  onRepoUnlink,
-  onSnippetSend,
-  onSnippetBroadcast,
-  onWorkspaceSave,
-  onWorkspaceLoad,
-  onCommandRun,
 }: Props) {
   // ── Update state (ported from ActivityBar) ───────────────────────────────
   const [updateState, setUpdateState] = useState<
@@ -213,29 +189,8 @@ export default function NavSidebar({
         </button>
       </div>
 
-      {/* ── Active panel content ─────────────────────────────────────────── */}
-      {activePanel && (
-        <div className="nav-content">
-          <SidePanel
-            embedded
-            panel={activePanel}
-            onClose={() => {}}
-            repoPath={repoPath}
-            activeCellRepoPath={activeCellRepoPath}
-            onWorktreeSelect={onWorktreeSelect}
-            onNewWorktree={onNewWorktree}
-            worktreeRefreshKey={worktreeRefreshKey}
-            onRepoLink={onRepoLink}
-            onRepoUnlink={onRepoUnlink}
-            onSnippetSend={onSnippetSend}
-            onSnippetBroadcast={onSnippetBroadcast}
-            onUpgrade={onUpgrade}
-            onWorkspaceSave={onWorkspaceSave}
-            onWorkspaceLoad={onWorkspaceLoad}
-            onCommandRun={onCommandRun}
-          />
-        </div>
-      )}
+      {/* Spacer pushes the footer to the bottom */}
+      <div className="nav-spacer" />
 
       {/* ── Footer ──────────────────────────────────────────────────────── */}
       <div className="nav-footer">

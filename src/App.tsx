@@ -15,6 +15,7 @@ import { PortsBanner } from './components/PortsBanner'
 import ConfirmDialog from './components/ConfirmDialog'
 import ConversationSidebar from './components/ConversationSidebar'
 import NavSidebar from './components/NavSidebar'
+import SidePanel from './components/SidePanel'
 import LayoutPicker from './components/LayoutPicker'
 import { Radio, Mic } from 'lucide-react'
 import { NewWorktreeModal } from './components/NewWorktreeModal'
@@ -946,26 +947,34 @@ export default function App() {
         profileLoading={profileLoading}
         onUpgrade={() => setShowUpgrade(true)}
         activeCellRepoPath={activeCellRepoPath}
-        repoPath={activeTab.repoPath}
-        onWorktreeSelect={handleWorktreeSelect}
-        onNewWorktree={handleNewWorktree}
-        worktreeRefreshKey={worktreeRefreshKey}
-        onRepoLink={handleRepoLink}
-        onRepoUnlink={handleRepoUnlink}
-        onSnippetSend={(content) => {
-          const id = focusedPaneIdRef.current
-          if (id) window.pty.write(id, content + '\r')
-        }}
-        onSnippetBroadcast={(content) => {
-          activePaneIds.forEach((id) => window.pty.write(id, content + '\r'))
-        }}
-        onWorkspaceSave={saveWorkspace}
-        onWorkspaceLoad={loadWorkspace}
-        onCommandRun={(cmd) => {
-          const id = focusedPaneIdRef.current
-          if (id) window.pty.write(id, cmd + '\r')
-        }}
       />
+      {activePanel && (
+        <SidePanel
+          panel={activePanel}
+          onClose={() => setActivePanel(null)}
+          repoPath={activeTab.repoPath}
+          activeCellRepoPath={activeCellRepoPath}
+          onWorktreeSelect={handleWorktreeSelect}
+          onNewWorktree={handleNewWorktree}
+          worktreeRefreshKey={worktreeRefreshKey}
+          onRepoLink={handleRepoLink}
+          onRepoUnlink={handleRepoUnlink}
+          onSnippetSend={(content) => {
+            const id = focusedPaneIdRef.current
+            if (id) window.pty.write(id, content + '\r')
+          }}
+          onSnippetBroadcast={(content) => {
+            activePaneIds.forEach((id) => window.pty.write(id, content + '\r'))
+          }}
+          onUpgrade={() => setShowUpgrade(true)}
+          onWorkspaceSave={saveWorkspace}
+          onWorkspaceLoad={loadWorkspace}
+          onCommandRun={(cmd) => {
+            const id = focusedPaneIdRef.current
+            if (id) window.pty.write(id, cmd + '\r')
+          }}
+        />
+      )}
       <div className="workspace">
         {isInitialState ? (
           <EmptyState onNewPane={() => setAddingToCell(0)} />
