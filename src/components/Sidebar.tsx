@@ -489,7 +489,7 @@ export default function Sidebar({
                   alignItems: 'center',
                   justifyContent: 'center',
                   lineHeight: 1,
-                  boxShadow: '0 0 0 1.5px var(--bg-primary, #0a0a0a)',
+                  boxShadow: '0 0 0 1.5px var(--bg-sidebar)',
                 }}
               >
                 {pendingInvitesCount > 9 ? '9+' : pendingInvitesCount}

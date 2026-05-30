@@ -34,6 +34,11 @@
 
   --color-success: #22C55E;
 
+  /* Back-compat aliases for stray token references */
+  --bg-primary: var(--bg-app);
+  --bg-secondary: var(--bg-surface);
+  --bg-hover: var(--list-hover);
+
   --titlebar-height: 44px;
   --header-height: 32px;
 }
