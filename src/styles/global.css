@@ -1,4 +1,4 @@
-/* RAVEN Nest — Global Styles */
+﻿/* RAVEN Nest â€” Global Styles */
 
 @keyframes spin {
   from { transform: rotate(0deg); }
@@ -6,7 +6,7 @@
 }
 
 :root {
-  /* Brand accent — emerald + cyan (matches nestmux.com demo).
+  /* Brand accent â€” emerald + cyan (matches nestmux.com demo).
      Legacy name --raven-blue kept so existing var(--raven-blue) usages follow. */
   --accent: oklch(0.72 0.17 156);
   --accent-hover: oklch(0.66 0.18 156);
@@ -21,7 +21,7 @@
   --bg-elevated: oklch(0.215 0.006 240); /* popovers, modals */
   --bg-titlebar: oklch(0.205 0.005 240);
   --bg-activity: oklch(0.165 0.005 240);
-  --bg-pane: #000000;                     /* terminal cells — black like the demo */
+  --bg-pane: #000000;                     /* terminal cells â€” black like the demo */
 
   --border: oklch(1 0 0 / 0.07);         /* subtle border */
   --border-strong: oklch(1 0 0 / 0.14);  /* visible border */
@@ -67,14 +67,14 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* No-select on UI chrome only — never on terminal area */
+/* No-select on UI chrome only â€” never on terminal area */
 .tabbar, .pane-header, .dialog, .layout-popover,
 .snippet-panel, .empty-state, .empty-cell {
   user-select: none;
   -webkit-user-select: none;
 }
 
-/* ── App Layout ─────────────────────────────────────────── */
+/* â”€â”€ App Layout â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 .app {
   display: flex;
@@ -117,7 +117,7 @@ body {
 .status-item-end { margin-left: auto; }
 
 
-/* ── Tab Bar ─────────────────────────────────────────────── */
+/* â”€â”€ Tab Bar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 .tabbar {
   height: var(--titlebar-height);
@@ -333,7 +333,7 @@ body {
   50% { opacity: 0.4; transform: scale(0.8); }
 }
 
-/* ── Sidebar ─────────────────────────────────────────────── */
+/* â”€â”€ Sidebar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 .sidebar {
   flex-shrink: 0;
@@ -348,7 +348,7 @@ body {
   z-index: 10;
 }
 
-/* Scrollable middle section of the sidebar — keeps top toggle and bottom user menu /
+/* Scrollable middle section of the sidebar â€” keeps top toggle and bottom user menu /
    settings pinned while letting the rest scroll when the window is short. Popovers
    inside scroll items use position:fixed (see useFixedPopover) to escape this clip. */
 .sidebar-scroll {
@@ -381,7 +381,7 @@ body {
 }
 .sidebar-scroll::-webkit-scrollbar-button { display: none; }
 
-/* ── Global scrollbar theme ─────────────────────────────────
+/* â”€â”€ Global scrollbar theme â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
    Minimalist dark scrollbars: invisible by default, fade in when the user
    hovers the scrollable area. Applies to every scrollable element in the
    renderer (Chromium WebKit + Firefox). Specific containers can still
@@ -599,11 +599,11 @@ body {
   margin-bottom: 4px;
 }
 
-/* ── Sidebar popover overrides ───────────────────────────────
+/* â”€â”€ Sidebar popover overrides â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
    SnippetPanel and LayoutPicker were designed for the Titlebar
    (popovers open downward, right-aligned). In the sidebar they
    must open rightward instead.
-   ─────────────────────────────────────────────────────────── */
+   â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 /* Make wrapper divs non-positioning contexts so popovers anchor
    to .sidebar-item-panel (which IS position:relative) */
@@ -614,7 +614,7 @@ body {
   position: static;
 }
 
-/* Hide the internal trigger buttons — the sidebar row IS the trigger.
+/* Hide the internal trigger buttons â€” the sidebar row IS the trigger.
    We overlay the button over the full row (inset:0) so clicking
    anywhere on the row opens the panel. */
 .sidebar .snippet-wrap > button.titlebar-btn,
@@ -637,7 +637,7 @@ body {
   position: relative;
 }
 
-/* Team / Settings modal trigger — same overlay trick */
+/* Team / Settings modal trigger â€” same overlay trick */
 .sidebar-item-team > button.titlebar-btn,
 .sidebar-item-settings > button.titlebar-btn {
   position: absolute;
@@ -682,14 +682,14 @@ body {
   right: auto;
 }
 
-/* ── Sidebar Superset-style layout (v1.0) ──────────────────
+/* â”€â”€ Sidebar Superset-style layout (v1.0) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
    Top: repo header. Middle: WorktreesSection (foco principal, flex-grow
    con min-height grande para que no se achique cuando "More tools" abre).
    Below: Teams + My Repos. Bottom: More tools (collapsible con scroll
    interno) + New Terminal. */
 
-/* Wrap around WorktreesSection — toma todo el espacio sobrante del scroll
-   area pero NUNCA baja de un mínimo grande, para que el desplegable de
+/* Wrap around WorktreesSection â€” toma todo el espacio sobrante del scroll
+   area pero NUNCA baja de un mÃ­nimo grande, para que el desplegable de
    abajo no aplaste los worktrees. */
 .sidebar-worktrees-wrap {
   flex: 1 1 auto;
@@ -700,7 +700,7 @@ body {
   padding-top: 4px;
 }
 
-/* Separador sutil entre la sección de worktrees y Teams/MyRepos. */
+/* Separador sutil entre la secciÃ³n de worktrees y Teams/MyRepos. */
 .sidebar-section-divider {
   height: 1px;
   background: var(--border);
@@ -708,9 +708,9 @@ body {
   flex-shrink: 0;
 }
 
-/* Desplegable "More tools" — header siempre visible, contenido con scroll
+/* Desplegable "More tools" â€” header siempre visible, contenido con scroll
    interno cuando abierto. flex-shrink:0 + max-height en la lista hace que
-   no robe altura a la sección de worktrees. */
+   no robe altura a la secciÃ³n de worktrees. */
 .sidebar-more {
   flex-shrink: 0;
   display: flex;
@@ -746,8 +746,8 @@ body {
   background: var(--bg-elevated);
 }
 
-/* New Terminal — acción primaria al fondo del scroll. Tipografía ligeramente
-   más destacada para que se lea como CTA. */
+/* New Terminal â€” acciÃ³n primaria al fondo del scroll. TipografÃ­a ligeramente
+   mÃ¡s destacada para que se lea como CTA. */
 .sidebar-new-terminal {
   flex-shrink: 0;
   color: var(--text-primary);
@@ -758,7 +758,7 @@ body {
 }
 
 /* En modo colapsado (sin .expanded) la sidebar es de 44px y los labels van
-   ocultos: aseguramos que las secciones nuevas también escondan separador
+   ocultos: aseguramos que las secciones nuevas tambiÃ©n escondan separador
    y borders sobrantes para no romper el look minimal. */
 .sidebar:not(.expanded) .sidebar-section-divider {
   margin: 6px 8px;
@@ -769,7 +769,7 @@ body {
   background: transparent;
 }
 
-/* ── Grid Workspace ─────────────────────────────────────── */
+/* â”€â”€ Grid Workspace â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 .grid-workspace {
   flex: 1;
@@ -778,7 +778,7 @@ body {
   overflow: hidden;
 }
 
-/* react-resizable-panels — make each Panel a flex container so children fill it */
+/* react-resizable-panels â€” make each Panel a flex container so children fill it */
 .grid-workspace [data-panel] {
   display: flex !important;
   flex-direction: column;
@@ -817,9 +817,9 @@ body {
   font-size: 12px;
 }
 
-/* ── Layout Picker ───────────────────────────────────────── */
+/* â”€â”€ Layout Picker â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
-/* ── Snippets ────────────────────────────────────────────── */
+/* â”€â”€ Snippets â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 .snippet-wrap {
   position: relative;
@@ -838,7 +838,7 @@ body {
   overflow: hidden;
 }
 
-/* ── Team Modal ──────────────────────────────────────────── */
+/* â”€â”€ Team Modal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 .team-modal-overlay {
   position: fixed;
@@ -1352,7 +1352,7 @@ body {
 }
 
 .snippet-name {
-  /* MUST be block (or inline-block) so the ellipsis chain works — inline
+  /* MUST be block (or inline-block) so the ellipsis chain works â€” inline
      elements ignore `overflow: hidden` and `text-overflow: ellipsis`. Without
      `display: block` here, long repo names like "Sti-Project/sti-travel-console"
      overflow visually past their container and render UNDERNEATH the action
@@ -1410,7 +1410,7 @@ body {
 
 .snippet-delete-btn:hover { color: #EF4444; }
 
-/* ── Conversation Sidebar ────────────────────────────────── */
+/* â”€â”€ Conversation Sidebar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 .conv-overlay {
   position: fixed;
@@ -1756,7 +1756,7 @@ body {
   color: #22C55E;
 }
 
-/* ── Layout Picker ───────────────────────────────────────── */
+/* â”€â”€ Layout Picker â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 .layout-picker-wrap {
   position: relative;
@@ -1835,7 +1835,7 @@ body {
   color: var(--raven-blue);
 }
 
-/* ── Terminal Pane ───────────────────────────────────────── */
+/* â”€â”€ Terminal Pane â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 .terminal-pane {
   display: flex;
@@ -1991,7 +1991,7 @@ body {
   border-color: #0066FF88;
 }
 
-/* Sync cwd button — live pane cwd diverges from active repo */
+/* Sync cwd button â€” live pane cwd diverges from active repo */
 .pane-sync-cwd-btn {
   display: flex;
   align-items: center;
@@ -2036,7 +2036,7 @@ body {
   color: var(--raven-blue);
 }
 
-/* ── Drag & Drop ─────────────────────────────────────────── */
+/* â”€â”€ Drag & Drop â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 .pane-header {
   position: relative;
@@ -2063,7 +2063,7 @@ body {
 }
 
 .pane-drag-handle::before {
-  content: '⠿';
+  content: 'â ¿';
   font-size: 14px;
   color: var(--text-muted);
   line-height: 1;
@@ -2284,7 +2284,7 @@ body {
   display: none;
 }
 
-/* ── FileStagingBar ──────────────────────────────────────── */
+/* â”€â”€ FileStagingBar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 .file-staging-bar {
   flex-shrink: 0;
@@ -2385,7 +2385,7 @@ body {
   background: #0055dd;
 }
 
-/* ── ConfirmDialog ───────────────────────────────────────── */
+/* â”€â”€ ConfirmDialog â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 .confirm-overlay {
   position: fixed;
@@ -2457,7 +2457,7 @@ body {
   color: #FF4444;
 }
 
-/* ── PR / Issue / Activity Feed ──────────────────────────── */
+/* â”€â”€ PR / Issue / Activity Feed â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 /* Shared: avatar inline */
 .pr-avatar {
@@ -2539,7 +2539,7 @@ body {
   100% { background-position: -200% 0; }
 }
 
-/* ── PRList ──────────────────────────────────────────────── */
+/* â”€â”€ PRList â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 .pr-list-container {
   display: flex;
@@ -2705,7 +2705,7 @@ body {
   cursor: not-allowed;
 }
 
-/* ── PRReview ────────────────────────────────────────────── */
+/* â”€â”€ PRReview â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 .pr-review-container {
   display: flex;
@@ -2931,7 +2931,7 @@ body {
   flex-wrap: wrap;
 }
 
-/* ── IssueList ───────────────────────────────────────────── */
+/* â”€â”€ IssueList â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 .issue-list-container {
   display: flex;
@@ -3013,7 +3013,7 @@ body {
   white-space: nowrap;
 }
 
-/* ── IssueDetail ─────────────────────────────────────────── */
+/* â”€â”€ IssueDetail â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 .issue-detail-container {
   display: flex;
@@ -3088,7 +3088,7 @@ body {
   border-color: #22c55e44 !important;
 }
 
-/* ── ActivityFeed ────────────────────────────────────────── */
+/* â”€â”€ ActivityFeed â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 .feed-container {
   display: flex;
@@ -3252,7 +3252,7 @@ body {
   opacity: 0.85;
 }
 
-/* ── Resize Handle ───────────────────────────────────────── */
+/* â”€â”€ Resize Handle â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 .resize-handle {
   background: transparent;
@@ -3281,7 +3281,7 @@ body {
   pointer-events: none;
 }
 
-/* ── Blocks View ─────────────────────────────────────────── */
+/* â”€â”€ Blocks View â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 .blocks-view {
   flex: 1;
@@ -3431,7 +3431,7 @@ body {
   opacity: 0.9;
 }
 
-/* ── AI Card locked state ────────────────────────────────── */
+/* â”€â”€ AI Card locked state â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 .ai-card.locked {
   opacity: 0.4;
@@ -3457,7 +3457,7 @@ body {
   letter-spacing: 0.5px;
 }
 
-/* ── Upgrade Modal ───────────────────────────────────────── */
+/* â”€â”€ Upgrade Modal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 .modal-backdrop {
   position: fixed;
@@ -3747,7 +3747,7 @@ body {
   cursor: not-allowed;
 }
 
-/* ── Update Banner ───────────────────────────────────────── */
+/* â”€â”€ Update Banner â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 .update-banner {
   display: flex;
@@ -3793,7 +3793,7 @@ body {
   background: #22C55E33;
 }
 
-/* ── Auth Screen ─────────────────────────────────────────── */
+/* â”€â”€ Auth Screen â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 /* Always-present OS drag region at the top of every screen */
 .global-titlebar-drag {
@@ -4006,7 +4006,7 @@ body {
   color: var(--text-secondary);
 }
 
-/* ── Empty State ─────────────────────────────────────────── */
+/* â”€â”€ Empty State â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 .empty-state {
   display: flex;
@@ -4060,7 +4060,7 @@ kbd {
   font-family: inherit;
 }
 
-/* ── Buttons ─────────────────────────────────────────────── */
+/* â”€â”€ Buttons â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 .btn-primary {
   background: var(--raven-blue);
@@ -4083,7 +4083,7 @@ kbd {
   cursor: not-allowed;
 }
 
-/* ── Dialog ──────────────────────────────────────────────── */
+/* â”€â”€ Dialog â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 .dialog-overlay {
   position: fixed;
@@ -4147,7 +4147,7 @@ kbd {
   color: var(--text-primary);
 }
 
-/* ── AI Grid ─────────────────────────────────────────────── */
+/* â”€â”€ AI Grid â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 .ai-grid {
   display: grid;
@@ -4252,7 +4252,7 @@ kbd {
   color: #fff;
 }
 
-/* ── Account List ────────────────────────────────────────── */
+/* â”€â”€ Account List â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 .account-list {
   margin-bottom: 20px;
@@ -4316,7 +4316,7 @@ kbd {
   background: rgba(239, 68, 68, 0.1);
 }
 
-/* ── New Account Form ────────────────────────────────────── */
+/* â”€â”€ New Account Form â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 .new-account-form {
   border-top: 1px solid var(--border);
@@ -4356,7 +4356,7 @@ kbd {
   line-height: 1.5;
 }
 
-/* ── Color Picker ────────────────────────────────────────── */
+/* â”€â”€ Color Picker â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 .color-picker-section {
   margin-top: 16px;
@@ -4391,7 +4391,7 @@ kbd {
   box-shadow: 0 0 0 2px rgba(255,255,255,0.3);
 }
 
-/* ── Global Search ───────────────────────────────────────── */
+/* â”€â”€ Global Search â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 .global-search-overlay {
   position: fixed;
@@ -4527,7 +4527,7 @@ kbd {
   font-family: inherit;
 }
 
-/* ── Command Palette ─────────────────────────────────────── */
+/* â”€â”€ Command Palette â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 .cmd-overlay {
   position: fixed;
@@ -4660,7 +4660,7 @@ kbd {
   margin-right: 3px;
 }
 
-/* ── MCP Panel ───────────────────────────────────────────── */
+/* â”€â”€ MCP Panel â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 .mcp-wrap {
   position: relative;
@@ -4964,9 +4964,9 @@ kbd {
   }
 }
 
-/* ══════════════════════════════════════
+/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
    TEAMS WORKSPACE (full-screen overlay)
-══════════════════════════════════════ */
+â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 
 .teams-workspace {
   position: fixed;
@@ -5241,7 +5241,7 @@ kbd {
   color: var(--text-secondary);
 }
 
-/* ── Notification Panel ─────────────────────────────────── */
+/* â”€â”€ Notification Panel â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 .notification-panel {
   position: absolute;
@@ -5381,7 +5381,7 @@ kbd {
   margin-top: 5px;
 }
 
-/* ── CI Status Badge ─────────────────────────────────────── */
+/* â”€â”€ CI Status Badge â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 .ci-badge {
   display: inline-flex;
@@ -5451,7 +5451,7 @@ button.ci-badge:hover {
   50%       { opacity: 0.35; transform: scale(0.75); }
 }
 
-/* Teams Workspace — header right & subnav */
+/* Teams Workspace â€” header right & subnav */
 .tw-header-right {
   display: flex;
   align-items: center;
@@ -5536,7 +5536,7 @@ button.ci-badge:hover {
   color: var(--text-secondary);
 }
 
-/* ── Daily Standup ───────────────────────────────────────── */
+/* â”€â”€ Daily Standup â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 .standup-container {
   display: flex;
@@ -5594,7 +5594,7 @@ button.ci-badge:hover {
 }
 
 .standup-member-activity li::before {
-  content: '•';
+  content: 'â€¢';
   position: absolute;
   left: 0;
   color: var(--text-muted);
@@ -5797,7 +5797,7 @@ button.ci-badge:hover {
   border-color: #0052cc;
 }
 
-/* ── Repo actions overflow menu (⋯) ──────────────────────── */
+/* â”€â”€ Repo actions overflow menu (â‹¯) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .repo-menu-wrap {
   position: relative;
   display: inline-flex;
@@ -5861,7 +5861,7 @@ button.ci-badge:hover {
   flex-shrink: 0;
 }
 
-/* ── Repo list scroll wrapper ────────────────────────────── */
+/* â”€â”€ Repo list scroll wrapper â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .repo-list-scroll {
   max-height: calc(100vh - 280px);
   overflow-y: auto;
@@ -5879,7 +5879,7 @@ button.ci-badge:hover {
 .repo-list-scroll:hover::-webkit-scrollbar-thumb { background: rgba(128,128,128,0.3); }
 .repo-list-scroll::-webkit-scrollbar-thumb:hover { background: rgba(128,128,128,0.5); }
 
-/* ── Repo action buttons — unified system ────────────────── */
+/* â”€â”€ Repo action buttons â€” unified system â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .repo-action-btn {
   display: inline-flex;
   align-items: center;
@@ -5945,7 +5945,7 @@ button.ci-badge:hover {
   opacity: 0.85;
 }
 
-/* ── Placeholder typography helpers ──────────────────────── */
+/* â”€â”€ Placeholder typography helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .tw-placeholder-title {
   font-size: 13px;
   font-weight: 500;
@@ -5956,7 +5956,7 @@ button.ci-badge:hover {
   margin-bottom: 14px;
 }
 
-/* ── Provider avatar pill (header de MyRepos / Teams) ───── */
+/* â”€â”€ Provider avatar pill (header de MyRepos / Teams) â”€â”€â”€â”€â”€ */
 .tw-provider-avatars {
   display: inline-flex;
   align-items: center;
@@ -6304,7 +6304,7 @@ button.ci-badge:hover {
   color: #ef4444;
 }
 
-/* ── RepoStatusPanel ─────────────────────────────────────── */
+/* â”€â”€ RepoStatusPanel â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .repo-status-panel {
   display: flex;
   flex-direction: column;
@@ -6457,7 +6457,7 @@ button.ci-badge:hover {
 }
 .rsp-refresh:disabled { opacity: 0.4; cursor: not-allowed; }
 
-/* ── Settings Panel ──────────────────────────────────────── */
+/* â”€â”€ Settings Panel â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 .sp-modal {
   position: fixed;
@@ -6696,7 +6696,7 @@ button.ci-badge:hover {
 .sp-action-btn:hover:not(:disabled) { background: var(--bg-elevated); color: var(--text-primary); }
 .sp-action-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
-/* ── Terminal Share Panel ────────────────────────────────── */
+/* â”€â”€ Terminal Share Panel â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 .ts-panel {
   width: 280px;
@@ -6753,7 +6753,7 @@ button.ci-badge:hover {
   font-family: var(--font-mono);
 }
 
-/* ── User menu (sidebar avatar + popover) ─────────────────── */
+/* â”€â”€ User menu (sidebar avatar + popover) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 .user-menu-trigger {
   display: flex;
@@ -6989,7 +6989,7 @@ button.ci-badge:hover {
   border-color: rgba(255,80,80,0.3);
 }
 
-/* ── Repo Actions (B accordion + D bar) ──────────────────── */
+/* â”€â”€ Repo Actions (B accordion + D bar) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 .actions-accordion {
   display: flex;
@@ -7339,7 +7339,7 @@ button.ci-badge:hover {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 
-/* +X / -Y diff chip — green/red tones tuned to read on the dark sidebar. */
+/* +X / -Y diff chip â€” green/red tones tuned to read on the dark sidebar. */
 .wt-diff-chip {
   display: inline-flex; align-items: center; gap: 4px;
   font-family: var(--font-mono); font-size: 10px;
@@ -7348,7 +7348,7 @@ button.ci-badge:hover {
 .wt-diff-add { color: #4ade80; }
 .wt-diff-del { color: #f87171; }
 
-/* PR badge — subtle indigo so it doesn't compete with status dot or spotlight. */
+/* PR badge â€” subtle indigo so it doesn't compete with status dot or spotlight. */
 .wt-pr-chip {
   display: inline-flex; align-items: center;
   background: rgba(68, 85, 255, 0.12);
@@ -7368,7 +7368,7 @@ button.ci-badge:hover {
   color: #b6c2ff;
 }
 
-/* ── NewWorktreeModal ────────────────────────────────────── */
+/* â”€â”€ NewWorktreeModal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 .new-worktree-modal { width: 480px; }
 .dialog-sub { color: var(--text-muted); font-size: 11px; margin-bottom: 16px; }
@@ -7389,7 +7389,7 @@ button.ci-badge:hover {
   font-size: 11px; border-radius: 4px;
 }
 
-/* .env carry-over warning in NewWorktreeModal — uses the same amber tone as
+/* .env carry-over warning in NewWorktreeModal â€” uses the same amber tone as
    .pane-sync-cwd-btn and .rb-heavy-banner so all "watch out" hints look alike. */
 .wt-env-banner {
   margin-top: 14px;
@@ -7412,7 +7412,7 @@ button.ci-badge:hover {
   color: #FFB800cc;
 }
 .wt-env-banner-list li { line-height: 1.5; }
-.wt-env-banner-list li::before { content: '• '; }
+.wt-env-banner-list li::before { content: 'â€¢ '; }
 .wt-env-banner-copy {
   display: flex; align-items: center; gap: 6px;
   margin-top: 8px;
@@ -7590,7 +7590,7 @@ button.ci-badge:hover {
 }
 
 /* Shown in place of the (now-collapsed) WebContentsView when the user
-   attempts to navigate to Nest's own dev/renderer origin — see isOwnOrigin
+   attempts to navigate to Nest's own dev/renderer origin â€” see isOwnOrigin
    in BrowserCell.tsx. The matching selector in OVERLAY_SELECTOR collapses
    the native WebContentsView so this DOM overlay isn't covered. */
 .browser-self-origin-overlay {
@@ -7740,7 +7740,7 @@ button.ci-badge:hover {
 .ide-picker-divider { height: 1px; background: var(--border); margin: 4px 0; }
 .ide-picker-redetect { color: var(--text-secondary); font-size: 11px; }
 
-/* ── Resource Usage (titlebar pill + popover) ────────────────── */
+/* â”€â”€ Resource Usage (titlebar pill + popover) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 /* Floats over the tabbar's right edge, before the Windows native titlebar
    overlay (~138px reserved for min/max/close). Position fixed because the
@@ -8005,7 +8005,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
 }
 
 .rb-bullet-logo {
-/* ── Empty state: Join / Create tabs ─────────────────────────────── */
+/* â”€â”€ Empty state: Join / Create tabs â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 .empty-state-wrap {
   width: 100%;
@@ -8134,7 +8134,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
   background: var(--border);
 }
 
-/* ── Join by code form ───────────────────────────────────────────── */
+/* â”€â”€ Join by code form â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 .join-code-form {
   display: flex;
@@ -8182,7 +8182,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
   gap: 8px;
 }
 
-/* ── Team join code panel (Members tab) ──────────────────────────── */
+/* â”€â”€ Team join code panel (Members tab) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 .team-join-code-panel {
   display: flex;
@@ -8266,13 +8266,13 @@ body.platform-mac .tabbar { padding-right: 116px; }
 }
 .team-join-code-icon-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 
-/* ── Member status: requested ────────────────────────────────────── */
+/* â”€â”€ Member status: requested â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 .team-member-status.requested {
   color: var(--raven-blue);
 }
 
-/* ── Switcher item: Join with code icon hue ──────────────────────── */
+/* â”€â”€ Switcher item: Join with code icon hue â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 .team-switcher-item-icon {
   display: inline-flex;
@@ -8289,7 +8289,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
   height: 11px;
 }
 
-/* Browser URL port picker — dropdown of listening ports detected
+/* Browser URL port picker â€” dropdown of listening ports detected
    across every live pane's process tree. */
 .browser-port-wrap {
   position: relative;
@@ -8402,7 +8402,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
   letter-spacing: 0.02em;
 }
 
-/* Heaviest-pane callout — same amber tone the .pane-sync-cwd-btn uses so the
+/* Heaviest-pane callout â€” same amber tone the .pane-sync-cwd-btn uses so the
    warning hue is consistent across the app. Sits above totals when fired. */
 .rb-heavy-banner {
   display: flex;
@@ -8441,7 +8441,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
   font-size: 11px;
 }
 
-/* Port chips next to a worktree branch label — small monospace tags so they
+/* Port chips next to a worktree branch label â€” small monospace tags so they
    read like "address-y" annotations rather than another metric value. */
 .rb-port-chips {
   display: inline-flex;
@@ -8462,7 +8462,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
   font-variant-numeric: tabular-nums;
 }
 
-/* Per-pane kill button — hidden until the row is hovered to keep the tree
+/* Per-pane kill button â€” hidden until the row is hovered to keep the tree
    visually quiet. The grandchild row already has padding-left so the metric
    text sits where users expect; the button reserves a fixed 18px slot at the
    right edge instead of shifting the metric on hover. */
@@ -8527,7 +8527,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
   pointer-events: none;
 }
 
-/* Disk bucket rows shown under an expanded worktree — same grandchild indent
+/* Disk bucket rows shown under an expanded worktree â€” same grandchild indent
    as panes, muted text + right-aligned monospace size so the eye lines up
    the numbers across rows. No hover interaction (read-only breakdown). */
 .rb-bucket-row {
@@ -8553,7 +8553,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
   opacity: 0.5;
 }
 
-/* Inline bucket summary on the repo header (top 3) — collapses to dots when
+/* Inline bucket summary on the repo header (top 3) â€” collapses to dots when
    tight, gets the muted treatment so it reads as metadata, not a metric. */
 .rb-bucket-inline {
   margin-left: 4px;
@@ -8577,7 +8577,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
 }
 
 /* 3-segment pane label separator. The middle dot stays muted so the eye can
-   pick out the segments (cli · account · pid) without the row looking like a
+   pick out the segments (cli Â· account Â· pid) without the row looking like a
    sentence. accountName uses text-secondary (slightly brighter than muted)
    so two panes from the same CLI but different accounts pop visually. */
 .rb-label-sep {
@@ -8620,7 +8620,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
 }
 
 /* ==========================================================================
-   TeamJoinCodePanel — redesigned (tjcp-*)
+   TeamJoinCodePanel â€” redesigned (tjcp-*)
    Mac-minimal: subtle border, soft surface, generous tracking labels.
    ========================================================================== */
 .tjcp-card {
@@ -8784,7 +8784,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
 }
 
 /* ==========================================================================
-   JoinByCodeForm — redesigned (jcf-*)
+   JoinByCodeForm â€” redesigned (jcf-*)
    Minimal, modern: monospace hero input, full-width primary CTA below.
    ========================================================================== */
 .jcf-root {
@@ -9021,7 +9021,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
   cursor: not-allowed;
 }
 
-/* ── Activity bar ─────────────────────────────────────── */
+/* â”€â”€ Activity bar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .activity-bar{width:48px;flex-shrink:0;background:var(--bg-activity);border-right:1px solid var(--border);display:flex;flex-direction:column;align-items:center;padding:6px 0}
 .activity-btn{width:48px;height:46px;display:flex;align-items:center;justify-content:center;color:#868686;position:relative;cursor:pointer;background:none;border:none}
 .activity-btn svg{width:22px;height:22px}
@@ -9034,7 +9034,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
 .activity-more-item{display:flex;align-items:center;gap:9px;width:100%;padding:7px 10px;border-radius:5px;background:none;border:none;color:var(--text-primary);font-size:13px;font-family:var(--font-ui);cursor:pointer;text-align:left}
 .activity-more-item:hover{background:var(--list-hover)}
 
-/* ── Docked side panel ────────────────────────────────── */
+/* â”€â”€ Docked side panel â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .side-panel{width:266px;flex-shrink:0;background:var(--bg-sidebar);border-right:1px solid var(--border);display:flex;flex-direction:column;min-height:0}
 .side-panel-head{display:flex;align-items:center;height:35px;padding:0 6px 0 16px;flex-shrink:0}
 .side-panel-head .ttl{font-size:11px;font-weight:600;letter-spacing:.09em;color:#bdbdbd;text-transform:uppercase}
@@ -9062,13 +9062,13 @@ body.platform-mac .tabbar { padding-right: 116px; }
 .side-panel-body::-webkit-scrollbar-thumb{background:#4a4a4a;border-radius:6px;border:3px solid var(--bg-sidebar)}
 .activity-more-item svg{width:15px;height:15px;color:var(--text-secondary)}
 
-/* ── Tab bar view controls ─────────────────────────────── */
+/* â”€â”€ Tab bar view controls â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .tabbar-tools{display:flex;align-items:center;gap:2px;padding-right:4px}
 .tabbar-tool{width:30px;height:30px;border-radius:6px;display:flex;align-items:center;justify-content:center;color:var(--text-secondary);background:none;border:none;cursor:pointer}
 .tabbar-tool:hover{background:var(--list-hover);color:var(--text-primary)}
 .tabbar-tool.active{color:var(--accent)}
 
-/* ── Docked panel overrides ─────────────────────────────── */
+/* â”€â”€ Docked panel overrides â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .snippet-panel--docked,
 .mcp-panel--docked,
 .workspace-panel--docked,
@@ -9086,3 +9086,21 @@ body.platform-mac .tabbar { padding-right: 116px; }
   background: transparent;
 }
 .tabbar-tool svg{width:17px;height:17px}
+n.nav-sidebar{width:226px;flex-shrink:0;background:var(--bg-sidebar);border-right:1px solid var(--border);display:flex;flex-direction:column;min-height:0;padding:6px 0}n.nav-item{display:flex;align-items:center;gap:11px;height:34px;padding:0 11px;border-radius:7px;color:var(--text-secondary);font-size:13px;font-family:var(--font-ui);background:none;border:none;cursor:pointer;width:100%;text-align:left;position:relative}n.nav-item:hover{background:var(--list-hover);color:var(--text-primary)}n.nav-item.active{background:oklch(0.72 0.17 156 / 0.13);color:oklch(0.85 0.13 156);font-weight:500}n.nav-item-label{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}n.nav-item-primary{color:oklch(0.82 0.14 156)}n.nav-content{flex:1;min-height:0;overflow-y:auto;margin-top:6px;border-top:1px solid var(--border);padding-top:4px}n.nav-content::-webkit-scrollbar-thumb{background:#ffffff1a;border-radius:6px;border:3px solid var(--bg-sidebar)}n
+/* ── Labeled nav sidebar (Teams-style) ─────────────────────────────────── */
+.nav-sidebar{width:226px;flex-shrink:0;background:var(--bg-sidebar);border-right:1px solid var(--border);display:flex;flex-direction:column;min-height:0;padding:6px 0}
+.nav-group{display:flex;flex-direction:column;flex-shrink:0;padding:0 8px;gap:1px}
+.nav-item{display:flex;align-items:center;gap:11px;height:34px;padding:0 11px;border-radius:7px;color:var(--text-secondary);font-size:13px;font-family:var(--font-ui);background:none;border:none;cursor:pointer;width:100%;text-align:left;position:relative}
+.nav-item svg{width:17px;height:17px;color:var(--text-muted);flex-shrink:0;stroke-width:1.7}
+.nav-item:hover{background:var(--list-hover);color:var(--text-primary)}
+.nav-item:hover svg{color:var(--text-secondary)}
+.nav-item.active{background:oklch(0.72 0.17 156 / 0.13);color:oklch(0.85 0.13 156);font-weight:500}
+.nav-item.active svg{color:oklch(0.80 0.15 156)}
+.nav-item-label{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.nav-item-badge{margin-left:auto;background:var(--accent);color:#04130c;font-size:10px;font-weight:700;min-width:16px;height:16px;border-radius:8px;display:flex;align-items:center;justify-content:center;padding:0 4px}
+.nav-item-primary{color:oklch(0.82 0.14 156)}
+.nav-item-primary svg{color:oklch(0.80 0.15 156)}
+.nav-content{flex:1;min-height:0;overflow-y:auto;margin-top:6px;border-top:1px solid var(--border);padding-top:4px}
+.nav-content::-webkit-scrollbar{width:10px}
+.nav-content::-webkit-scrollbar-thumb{background:#ffffff1a;border-radius:6px;border:3px solid var(--bg-sidebar)}
+.nav-footer{flex-shrink:0;border-top:1px solid var(--border);margin-top:6px;padding:4px 8px 0;display:flex;flex-direction:column;gap:1px}

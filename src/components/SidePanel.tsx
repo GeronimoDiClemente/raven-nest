@@ -11,6 +11,7 @@ import CommandHistoryPanel from './CommandHistoryPanel'
 interface Props {
   panel: PanelId
   onClose: () => void
+  embedded?: boolean
   // worktrees
   repoPath?: string
   activeCellRepoPath?: string
@@ -116,6 +117,7 @@ function WorktreesBody({
 export default function SidePanel({
   panel,
   onClose,
+  embedded,
   repoPath,
   activeCellRepoPath,
   onWorktreeSelect,
@@ -130,6 +132,57 @@ export default function SidePanel({
   onWorkspaceLoad,
   onCommandRun,
 }: Props) {
+  const content = (
+    <>
+      {panel === 'worktrees' && (
+        <WorktreesBody
+          repoPath={repoPath}
+          activeCellRepoPath={activeCellRepoPath}
+          onWorktreeSelect={onWorktreeSelect}
+          onNewWorktree={onNewWorktree}
+          worktreeRefreshKey={worktreeRefreshKey}
+          onRepoLink={onRepoLink}
+          onRepoUnlink={onRepoUnlink}
+        />
+      )}
+
+      {panel === 'snippets' && (
+        <SnippetPanel
+          docked
+          onSend={onSnippetSend}
+          onBroadcast={onSnippetBroadcast}
+          onRequireUpgrade={onUpgrade}
+        />
+      )}
+
+      {panel === 'mcp' && (
+        <MCPPanel
+          docked
+          repoPath={repoPath}
+          onRequireUpgrade={onUpgrade}
+        />
+      )}
+
+      {panel === 'workspaces' && (
+        <WorkspacePanel
+          docked
+          onSave={onWorkspaceSave}
+          onLoad={onWorkspaceLoad}
+          onRequireUpgrade={onUpgrade}
+        />
+      )}
+
+      {panel === 'cmdhist' && (
+        <CommandHistoryPanel
+          docked
+          onRun={onCommandRun}
+        />
+      )}
+    </>
+  )
+
+  if (embedded) return content
+
   return (
     <div className="side-panel">
       <div className="side-panel-head">
@@ -142,50 +195,7 @@ export default function SidePanel({
       </div>
 
       <div className="side-panel-body">
-        {panel === 'worktrees' && (
-          <WorktreesBody
-            repoPath={repoPath}
-            activeCellRepoPath={activeCellRepoPath}
-            onWorktreeSelect={onWorktreeSelect}
-            onNewWorktree={onNewWorktree}
-            worktreeRefreshKey={worktreeRefreshKey}
-            onRepoLink={onRepoLink}
-            onRepoUnlink={onRepoUnlink}
-          />
-        )}
-
-        {panel === 'snippets' && (
-          <SnippetPanel
-            docked
-            onSend={onSnippetSend}
-            onBroadcast={onSnippetBroadcast}
-            onRequireUpgrade={onUpgrade}
-          />
-        )}
-
-        {panel === 'mcp' && (
-          <MCPPanel
-            docked
-            repoPath={repoPath}
-            onRequireUpgrade={onUpgrade}
-          />
-        )}
-
-        {panel === 'workspaces' && (
-          <WorkspacePanel
-            docked
-            onSave={onWorkspaceSave}
-            onLoad={onWorkspaceLoad}
-            onRequireUpgrade={onUpgrade}
-          />
-        )}
-
-        {panel === 'cmdhist' && (
-          <CommandHistoryPanel
-            docked
-            onRun={onCommandRun}
-          />
-        )}
+        {content}
       </div>
     </div>
   )
