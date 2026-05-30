@@ -400,7 +400,7 @@ export default function BrowserCell({ pane, cellId, onClose, borderColor, siblin
                 onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
               >
                 <span style={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: 13, fontWeight: 400 }}>localhost</span>
-                <span style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace", color: '#0066FF', fontWeight: 600, fontSize: 13, letterSpacing: '0.02em' }}>:{port}</span>
+                <span style={{ fontFamily: 'var(--font-mono)', color: '#0066FF', fontWeight: 600, fontSize: 13, letterSpacing: '0.02em' }}>:{port}</span>
               </button>
             ))}
           </div>

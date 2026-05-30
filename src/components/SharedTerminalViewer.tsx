@@ -148,7 +148,7 @@ export default function SharedTerminalViewer({ onClose }: Props) {
       } as React.CSSProperties}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
           <span style={{ fontSize: 11, color: waitingApproval ? '#eab308' : '#22c55e', fontWeight: 600 }}>● {waitingApproval ? 'Pending' : 'Live'}</span>
-          <span style={{ fontSize: 12, color: 'var(--text-muted)', letterSpacing: 2, fontFamily: 'monospace' }}>
+          <span style={{ fontSize: 12, color: 'var(--text-muted)', letterSpacing: 2, fontFamily: 'var(--font-mono)' }}>
             {code}
           </span>
           <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>— {waitingApproval ? 'Waiting for approval' : 'Interactive'}</span>

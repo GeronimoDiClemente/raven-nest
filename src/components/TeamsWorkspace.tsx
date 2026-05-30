@@ -1243,7 +1243,7 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal, on
                       <div key={mc.id} className="snippet-item">
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <span className="snippet-name" style={{ display: 'block' }}>{mc.name}</span>
-                          <span style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'monospace' }}>
+                          <span style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
                             {typeof mc.config.command === 'string' ? mc.config.command : ''}
                           </span>
                         </div>

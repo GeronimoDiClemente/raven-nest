@@ -49,7 +49,7 @@ html, body, #root {
 }
 
 body {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: var(--font-ui);
   background: var(--bg-app);
   color: var(--text-primary);
   -webkit-font-smoothing: antialiased;
@@ -470,7 +470,7 @@ body {
 .sidebar-branch-badge {
   font-size: 9px;
   color: var(--text-muted);
-  font-family: 'SFMono-Regular', 'Consolas', monospace;
+  font-family: var(--font-mono);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1634,7 +1634,7 @@ body {
   font-size: 12px;
   line-height: 1.7;
   color: var(--text-secondary);
-  font-family: 'JetBrains Mono', 'Cascadia Code', monospace;
+  font-family: var(--font-mono);
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -1921,7 +1921,7 @@ body {
 .pane-pid-chip {
   font-size: 9px;
   font-weight: 600;
-  font-family: 'SF Mono', 'Menlo', monospace;
+  font-family: var(--font-mono);
   letter-spacing: 0.4px;
   color: var(--raven-blue);
   background: #0066FF15;
@@ -2433,7 +2433,7 @@ body {
 
 /* Shared: branch label */
 .pr-branch {
-  font-family: monospace;
+  font-family: var(--font-mono);
   font-size: 10px;
   background: var(--bg-elevated);
   border: 1px solid var(--border);
@@ -2524,7 +2524,7 @@ body {
 .pr-list-repo {
   font-size: 12px;
   color: var(--text-muted);
-  font-family: monospace;
+  font-family: var(--font-mono);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2778,7 +2778,7 @@ body {
 }
 
 .pr-file-name {
-  font-family: monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
   color: var(--text-primary);
   flex: 1;
@@ -2803,7 +2803,7 @@ body {
 .pr-diff-pre {
   margin: 0;
   padding: 6px 0;
-  font-family: monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
   overflow-x: auto;
   background: var(--bg-surface);
@@ -3146,7 +3146,7 @@ body {
 
 .feed-repo {
   font-size: 12px;
-  font-family: monospace;
+  font-family: var(--font-mono);
   color: var(--text-muted);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -3300,7 +3300,7 @@ body {
 .block-card-time {
   font-size: 10px;
   color: var(--text-muted);
-  font-family: 'SF Mono', 'Menlo', monospace;
+  font-family: var(--font-mono);
 }
 
 .block-copy-btn {
@@ -3334,7 +3334,7 @@ body {
 .block-card-content {
   padding: 8px 10px;
   font-size: 11.5px;
-  font-family: 'SF Mono', 'Menlo', 'Cascadia Mono', 'Consolas', monospace;
+  font-family: var(--font-mono);
   line-height: 1.6;
   color: var(--text-secondary);
   white-space: pre-wrap;
@@ -4734,7 +4734,7 @@ kbd {
   border: 1px solid var(--border);
   border-radius: 5px;
   color: var(--text-primary);
-  font-family: 'JetBrains Mono', 'Cascadia Code', monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
   line-height: 1.5;
   padding: 8px;
@@ -6330,7 +6330,7 @@ button.ci-badge:hover {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
   color: var(--text-primary);
   overflow: hidden;
@@ -6348,7 +6348,7 @@ button.ci-badge:hover {
 .rsp-sync {
   display: flex;
   gap: 6px;
-  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
   flex-shrink: 0;
 }
@@ -6373,7 +6373,7 @@ button.ci-badge:hover {
 .rsp-file-item:hover { background: rgba(255,255,255,0.04); }
 
 .rsp-file-status {
-  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
   font-weight: 700;
   width: 12px;
@@ -6382,7 +6382,7 @@ button.ci-badge:hover {
 }
 
 .rsp-file-path {
-  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
   color: var(--text-secondary);
   overflow: hidden;
@@ -6437,7 +6437,7 @@ button.ci-badge:hover {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: var(--font-ui);
 }
 
 .sp-header {
@@ -6570,7 +6570,7 @@ button.ci-badge:hover {
   border-radius: 5px;
   padding: 3px 10px;
   font-size: 12px;
-  font-family: 'Inter', monospace;
+  font-family: var(--font-mono);
   min-width: 70px;
   text-align: center;
 }
@@ -6713,7 +6713,7 @@ button.ci-badge:hover {
   border: 1px solid rgba(99,102,241,0.2);
   border-radius: 8px;
   padding: 12px;
-  font-family: 'Cascadia Mono', 'Consolas', monospace;
+  font-family: var(--font-mono);
 }
 
 /* ── User menu (sidebar avatar + popover) ─────────────────── */
@@ -7283,14 +7283,14 @@ button.ci-badge:hover {
 .wt-dot-gray { background: #555; }
 .wt-branch { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .wt-meta {
-  color: var(--text-muted); font-size: 9px; font-family: 'JetBrains Mono', monospace;
+  color: var(--text-muted); font-size: 9px; font-family: var(--font-mono);
 }
 .wt-empty { padding: 6px 12px; color: var(--text-muted); font-size: 11px; font-style: italic; }
 
 /* Slug: directory basename under the branch line. Muted, monospace so it
    reads as "this is where it lives on disk", not as content. */
 .wt-slug {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 10px;
   color: var(--text-muted);
   padding-left: 12px; /* visually nests under the branch text */
@@ -7300,7 +7300,7 @@ button.ci-badge:hover {
 /* +X / -Y diff chip — green/red tones tuned to read on the dark sidebar. */
 .wt-diff-chip {
   display: inline-flex; align-items: center; gap: 4px;
-  font-family: 'JetBrains Mono', monospace; font-size: 10px;
+  font-family: var(--font-mono); font-size: 10px;
   flex-shrink: 0;
 }
 .wt-diff-add { color: #4ade80; }
@@ -7315,7 +7315,7 @@ button.ci-badge:hover {
   border-radius: 4px;
   padding: 0 5px;
   font-size: 10px;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   cursor: pointer;
   flex-shrink: 0;
   line-height: 1.4;
@@ -7338,7 +7338,7 @@ button.ci-badge:hover {
   width: 100%; box-sizing: border-box; background: var(--bg-elevated);
   border: 1px solid var(--border); border-radius: 4px;
   padding: 8px 10px; color: var(--text-primary);
-  font-size: 12px; font-family: 'JetBrains Mono', monospace;
+  font-size: 12px; font-family: var(--font-mono);
 }
 .field-input:focus { outline: none; border-color: var(--raven-blue); }
 .modal-error {
@@ -7365,7 +7365,7 @@ button.ci-badge:hover {
 .wt-env-banner-list {
   list-style: none;
   margin: 6px 0 0 22px;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 10px;
   color: #FFB800cc;
 }
@@ -7397,7 +7397,7 @@ button.ci-badge:hover {
   width: 100%; box-sizing: border-box; background: var(--bg-app);
   border: 1px solid var(--border); border-radius: 4px;
   padding: 10px 12px; color: var(--text-primary);
-  font-size: 14px; font-family: 'JetBrains Mono', monospace;
+  font-size: 14px; font-family: var(--font-mono);
 }
 .qw-input:focus { outline: none; border-color: var(--raven-blue); }
 .qw-hint { color: var(--text-muted); font-size: 10px; margin-top: 8px; }
@@ -7435,7 +7435,7 @@ button.ci-badge:hover {
 .preset-card-name { font-size: 12px; font-weight: 600; }
 .preset-card-desc {
   font-size: 11px; color: var(--text-secondary);
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;
 }
 
@@ -7460,7 +7460,7 @@ button.ci-badge:hover {
 .preset-row-name { font-size: 12px; font-weight: 600; color: var(--text-primary); }
 .preset-row-id {
   font-size: 11px; color: var(--text-muted);
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
 }
 .preset-row-desc { font-size: 11px; color: var(--text-secondary); }
 .preset-row-actions { display: flex; gap: 6px; }
@@ -7469,7 +7469,7 @@ button.ci-badge:hover {
   width: 100%; box-sizing: border-box; background: var(--bg-app);
   border: 1px solid var(--border); border-radius: 4px;
   padding: 8px 10px; color: var(--text-primary);
-  font-size: 11px; font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; font-family: var(--font-mono);
   resize: vertical; min-height: 200px;
 }
 .preset-editor-textarea:focus { outline: none; border-color: var(--raven-blue); }
@@ -7496,13 +7496,13 @@ button.ci-badge:hover {
 }
 .ports-group { display: flex; align-items: center; gap: 6px; }
 .ports-group-label {
-  color: var(--text-muted); font-family: 'JetBrains Mono', monospace;
+  color: var(--text-muted); font-family: var(--font-mono);
   white-space: nowrap;
 }
 .port-pill {
   background: var(--bg-elevated); border: 1px solid var(--border);
   border-radius: 4px; padding: 2px 8px;
-  color: var(--raven-blue); font-family: 'JetBrains Mono', monospace;
+  color: var(--raven-blue); font-family: var(--font-mono);
   font-size: 11px; cursor: pointer; transition: background 0.12s, border-color 0.12s;
 }
 .port-pill:hover {
@@ -7539,7 +7539,7 @@ button.ci-badge:hover {
   flex: 1; min-width: 0; background: var(--bg-elevated);
   border: 1px solid var(--border); border-radius: 3px;
   padding: 4px 8px; color: var(--text-primary);
-  font-size: 11px; font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; font-family: var(--font-mono);
 }
 .browser-url:focus { outline: none; border-color: var(--raven-blue); }
 .browser-placeholder {
@@ -7599,7 +7599,7 @@ button.ci-badge:hover {
   display: grid;
   grid-template-columns: 1.5fr 0.8fr 1fr 0.8fr 1fr 1fr 1fr;
   gap: 8px; padding: 6px 8px;
-  font-size: 11px; font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; font-family: var(--font-mono);
   background: var(--bg-elevated); border: 1px solid var(--border);
   border-radius: 4px; align-items: center;
 }
@@ -7653,7 +7653,7 @@ button.ci-badge:hover {
   width: 100%; background: transparent; border: 1px solid transparent;
   border-radius: 4px; padding: 6px 8px; cursor: pointer;
   color: var(--text-primary); font-size: 11px;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   text-align: left;
 }
 .diff-file:hover { background: var(--bg-elevated); }
@@ -7664,7 +7664,7 @@ button.ci-badge:hover {
 .diff-del { color: #FF6666; }
 .diff-content {
   overflow: auto; padding: 8px 12px;
-  font-family: 'JetBrains Mono', monospace; font-size: 11px;
+  font-family: var(--font-mono); font-size: 11px;
 }
 .diff-hunk { margin-bottom: 12px; }
 .diff-hunk-header {
@@ -7694,7 +7694,7 @@ button.ci-badge:hover {
 }
 .ide-picker-item:hover { background: rgba(0, 102, 255, 0.10); }
 .ide-picker-name { font-size: 12px; font-weight: 500; }
-.ide-picker-path { font-size: 10px; color: var(--text-muted); font-family: 'JetBrains Mono', monospace; }
+.ide-picker-path { font-size: 10px; color: var(--text-muted); font-family: var(--font-mono); }
 .ide-picker-divider { height: 1px; background: var(--border); margin: 4px 0; }
 .ide-picker-redetect { color: var(--text-secondary); font-size: 11px; }
 
@@ -7728,7 +7728,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
   border: 1px solid var(--border);
   color: var(--text-secondary);
   font-size: 12px;
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: var(--font-ui);
   font-variant-numeric: tabular-nums;
   border-radius: 6px;
   padding: 4px 12px;
@@ -7872,7 +7872,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
   font-size: 13px;
   font-weight: 600;
   color: var(--text-primary);
-  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-family: var(--font-mono);
 }
 
 .rb-divider {
@@ -7890,7 +7890,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
   gap: 12px;
   padding: 4px 0;
   font-size: 12px;
-  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-family: var(--font-mono);
 }
 
 .rb-row--header {
@@ -8116,7 +8116,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
 
 .join-code-input {
   flex: 1;
-  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 16px;
   letter-spacing: 4px;
   text-align: center;
@@ -8177,7 +8177,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
 }
 
 .team-join-code-value {
-  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 18px;
   font-weight: 700;
   color: var(--text-primary);
@@ -8257,7 +8257,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
 
 .browser-port-btn {
   font-weight: 700;
-  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-family: var(--font-mono);
 }
 
 .browser-port-dropdown {
@@ -8353,7 +8353,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
 }
 
 .browser-port-num {
-  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-family: var(--font-mono);
   color: var(--raven-blue);
   font-weight: 600;
   font-size: 13px;
@@ -8395,7 +8395,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
 
 .rb-heavy-loc {
   color: #FFB800cc;
-  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
 }
 
@@ -8414,7 +8414,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
   border-radius: 4px;
   background: rgba(0, 102, 255, 0.12);
   color: var(--raven-blue);
-  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-family: var(--font-mono);
   font-size: 10px;
   line-height: 1.4;
   font-variant-numeric: tabular-nums;
@@ -8495,7 +8495,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
 }
 
 .rb-bucket-name {
-  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-family: var(--font-mono);
   color: var(--text-secondary);
 }
 
@@ -8517,7 +8517,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
   margin-left: 4px;
   color: var(--text-muted);
   font-size: 11px;
-  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   overflow: hidden;
@@ -8589,7 +8589,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
   display: flex;
   flex-direction: column;
   gap: 12px;
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: var(--font-ui);
   transition: border-color 150ms ease, background-color 150ms ease;
 }
 .tjcp-card:hover {
@@ -8636,7 +8636,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
   border-radius: 8px;
 }
 .tjcp-code {
-  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 22px;
   font-weight: 700;
   letter-spacing: 0.18em;
@@ -8711,7 +8711,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
 .tjcp-primary-btn {
   height: 28px;
   padding: 0 14px;
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: var(--font-ui);
   font-size: 12px;
   font-weight: 600;
   color: #fff;
@@ -8749,7 +8749,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
   display: flex;
   flex-direction: column;
   gap: 14px;
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: var(--font-ui);
 }
 
 .jcf-subtitle {
@@ -8773,7 +8773,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
   border: 1px solid var(--border, #1e1e1e);
   border-radius: 10px;
   color: var(--text-primary, #fff);
-  font-family: 'JetBrains Mono', 'Menlo', 'Consolas', monospace;
+  font-family: var(--font-mono);
   font-size: 24px;
   font-weight: 500;
   text-align: center;

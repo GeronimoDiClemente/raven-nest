@@ -74,7 +74,7 @@ export default function CommandHistoryPanel({ onRun }: Props) {
                 <span
                   className="snippet-name"
                   title={cmd}
-                  style={{ fontFamily: 'monospace', fontSize: 11, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                  style={{ fontFamily: 'var(--font-mono)', fontSize: 11, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
                 >
                   {cmd}
                 </span>

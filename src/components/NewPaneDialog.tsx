@@ -374,7 +374,7 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
                     padding: '4px 8px',
                     color: '#e2e8f0',
                     fontSize: 11,
-                    fontFamily: 'monospace',
+                    fontFamily: 'var(--font-mono)',
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
                     whiteSpace: 'nowrap',
