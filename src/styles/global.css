@@ -880,7 +880,7 @@ body {
   transition: border-color 0.15s, color 0.15s;
 }
 .team-switcher-btn:hover {
-  border-color: #444;
+  border-color: var(--border-strong);
   color: var(--text-primary);
 }
 
@@ -959,7 +959,7 @@ body {
   transition: background 0.1s;
 }
 .team-switcher-new:hover {
-  background: #0066FF15;
+  background: rgba(0, 102, 255, 0.08);
 }
 
 /* Pending invite banner (inside team, for second invite) */
@@ -1106,14 +1106,14 @@ body {
   transition: background 0.12s;
 }
 .team-member-row:hover {
-  background: var(--bg-surface);
+  background: var(--list-hover);
 }
 
 .team-member-avatar {
   width: 30px;
   height: 30px;
   border-radius: 50%;
-  background: #0066FF22;
+  background: rgba(0, 102, 255, 0.13);
   color: var(--raven-blue);
   font-size: 12px;
   font-weight: 600;
@@ -3197,7 +3197,7 @@ body {
   border-radius: 50%;
   flex-shrink: 0;
   animation: shimmer 1.4s infinite;
-  background: linear-gradient(90deg, var(--bg-elevated) 25%, #1a1a1a 50%, var(--bg-elevated) 75%);
+  background: linear-gradient(90deg, var(--bg-elevated) 25%, var(--bg-app) 50%, var(--bg-elevated) 75%);
   background-size: 200% 100%;
 }
 
@@ -3213,7 +3213,7 @@ body {
   height: 11px;
   border-radius: 4px;
   animation: shimmer 1.4s infinite;
-  background: linear-gradient(90deg, var(--bg-elevated) 25%, #1a1a1a 50%, var(--bg-elevated) 75%);
+  background: linear-gradient(90deg, var(--bg-elevated) 25%, var(--bg-app) 50%, var(--bg-elevated) 75%);
   background-size: 200% 100%;
 }
 
@@ -6029,7 +6029,7 @@ button.ci-badge:hover {
 
 /* Message rows: subtle hover background */
 .chat-row.chat-row-message:hover {
-  background: rgba(255,255,255,0.03);
+  background: var(--list-hover);
 }
 
 /* Event rows: left border by type */
@@ -6038,7 +6038,7 @@ button.ci-badge:hover {
   padding-left: 13px;
 }
 .chat-row.chat-row-event:hover {
-  background: rgba(255,255,255,0.025);
+  background: var(--list-hover);
 }
 .chat-row.event-push    { border-left-color: #3b82f6; }
 .chat-row.event-pr      { border-left-color: #22c55e; }
@@ -6166,7 +6166,7 @@ button.ci-badge:hover {
 }
 .chat-reaction.mine {
   background: rgba(0, 102, 255, 0.14);
-  border-color: rgba(0, 102, 255, 0.45);
+  border-color: rgba(0, 102, 255, 0.4);
 }
 
 .chat-reaction-count {

@@ -1286,7 +1286,7 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal, on
                         }}>
                           {m.email.charAt(0).toUpperCase()}
                         </div>
-                        <div className="tw-presence-dot" style={{ background: isOnline ? '#22C55E' : '#555' }} />
+                        <div className="tw-presence-dot" style={{ background: isOnline ? 'var(--color-success)' : 'var(--text-muted)' }} />
                       </div>
                       <div className="tw-presence-info">
                         <div className="tw-presence-email">{m.email}</div>
