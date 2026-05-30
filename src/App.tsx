@@ -36,6 +36,7 @@ import { useUserPreferences } from './hooks/useUserPreferences'
 import SharedTerminalViewer from './components/SharedTerminalViewer'
 import { terminalShareService } from './lib/terminalShareService'
 import ResourceBar from './components/ResourceBar'
+import StatusBar from './components/StatusBar'
 import type { MetricsPaneInput } from './types'
 
 
@@ -1079,6 +1080,12 @@ export default function App() {
         )}
       </div>
       </div>
+
+      <StatusBar
+        paneCount={cells.filter(Boolean).length}
+        workspaceName={activeTab.name}
+        repoName={activeTab.repoPath ? activeTab.repoPath.split(/[\\/]/).filter(Boolean).pop() : undefined}
+      />
 
       <ConversationSidebar open={convSidebarOpen} onClose={() => setConvSidebarOpen(false)} />
 

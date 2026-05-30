@@ -88,6 +88,22 @@ body {
   background: var(--bg-app);
 }
 
+.status-bar {
+  height: 22px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0 11px;
+  background: var(--accent);
+  color: #fff;
+  font-family: var(--font-ui);
+  font-size: 11px;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.status-item-end { margin-left: auto; }
+
 
 /* ── Tab Bar ─────────────────────────────────────────────── */
 
