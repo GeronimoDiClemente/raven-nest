@@ -185,8 +185,8 @@ export default function RepoPicker({ githubToken, gitlabToken, excludedFullNames
                 padding: '4px 12px',
                 fontSize: 12,
                 borderRadius: 12,
-                border: '1px solid var(--border-color, #ccc)',
-                background: provider === 'github' ? 'var(--raven-blue, #0066FF)' : 'transparent',
+                border: '1px solid var(--border)',
+                background: provider === 'github' ? 'var(--accent)' : 'transparent',
                 color: provider === 'github' ? '#fff' : 'inherit',
                 cursor: 'pointer',
               }}
@@ -200,8 +200,8 @@ export default function RepoPicker({ githubToken, gitlabToken, excludedFullNames
                 padding: '4px 12px',
                 fontSize: 12,
                 borderRadius: 12,
-                border: '1px solid var(--border-color, #ccc)',
-                background: provider === 'gitlab' ? 'var(--raven-blue, #0066FF)' : 'transparent',
+                border: '1px solid var(--border)',
+                background: provider === 'gitlab' ? 'var(--accent)' : 'transparent',
                 color: provider === 'gitlab' ? '#fff' : 'inherit',
                 cursor: 'pointer',
               }}

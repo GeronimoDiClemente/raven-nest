@@ -1320,7 +1320,7 @@ body {
 }
 
 .snippet-item:hover {
-  background: #ffffff06;
+  background: var(--list-hover);
 }
 
 .snippet-name {
@@ -2560,11 +2560,11 @@ body {
 .pr-filter-btn.active {
   background: var(--raven-blue-dim);
   color: var(--raven-blue);
-  border-color: #0066FF55;
+  border-color: var(--raven-blue-dim);
 }
 
 .pr-filter-btn:not(.active):hover {
-  background: #ffffff0a;
+  background: var(--list-hover);
   color: var(--text-primary);
 }
 
@@ -2592,7 +2592,7 @@ body {
   gap: 8px;
 }
 
-.pr-item:hover { background: #ffffff06; }
+.pr-item:hover { background: var(--list-hover); }
 
 .pr-item-left {
   display: flex;
@@ -2945,11 +2945,11 @@ body {
 .issue-filter-btn.active {
   background: var(--raven-blue-dim);
   color: var(--raven-blue);
-  border-color: #0066FF55;
+  border-color: var(--raven-blue-dim);
 }
 
 .issue-filter-btn:not(.active):hover {
-  background: #ffffff0a;
+  background: var(--list-hover);
   color: var(--text-primary);
 }
 
@@ -3078,7 +3078,7 @@ body {
   transition: background 0.1s;
 }
 
-.feed-event:hover { background: #ffffff05; }
+.feed-event:hover { background: var(--list-hover); }
 
 .feed-avatar {
   width: 36px;
@@ -5787,7 +5787,7 @@ button.ci-badge:hover {
   top: calc(100% + 4px);
   right: 0;
   min-width: 160px;
-  background: var(--bg-elevated, #1a1a1a);
+  background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: 6px;
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
@@ -5813,7 +5813,7 @@ button.ci-badge:hover {
   transition: background 0.12s ease, color 0.12s ease;
 }
 .repo-menu-item:hover {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--list-hover);
   color: var(--text-primary);
 }
 .repo-menu-item:disabled {
@@ -5859,7 +5859,7 @@ button.ci-badge:hover {
   gap: 5px;
   height: 26px;
   background: transparent;
-  border: 1px solid #1f1f1f;
+  border: 1px solid var(--border);
   color: var(--text-secondary);
   font-size: 11.5px;
   font-weight: 500;
@@ -5872,11 +5872,11 @@ button.ci-badge:hover {
   white-space: nowrap;
 }
 .repo-action-btn:hover {
-  background: #161616;
+  background: var(--list-hover);
   color: var(--text-primary);
-  border-color: #2c2c2c;
+  border-color: var(--border-strong);
 }
-.repo-action-btn:active { background: #0e0e0e; }
+.repo-action-btn:active { background: var(--bg-app); }
 .repo-action-btn:focus-visible {
   outline: none;
   border-color: var(--raven-blue);
@@ -5941,7 +5941,7 @@ button.ci-badge:hover {
   height: 26px;
   padding: 0;
   background: var(--bg-elevated);
-  border: 1px solid #232323;
+  border: 1px solid var(--border);
   border-radius: 50%;
   cursor: pointer;
   overflow: hidden;
@@ -5989,7 +5989,7 @@ button.ci-badge:hover {
   width: 18px;
   height: 18px;
   border-radius: 50%;
-  border: 1px solid #232323;
+  border: 1px solid var(--border);
   display: block;
 }
 
