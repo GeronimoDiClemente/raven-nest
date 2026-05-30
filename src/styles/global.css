@@ -9056,4 +9056,22 @@ body.platform-mac .tabbar { padding-right: 116px; }
 .tabbar-tool{width:30px;height:30px;border-radius:6px;display:flex;align-items:center;justify-content:center;color:var(--text-secondary);background:none;border:none;cursor:pointer}
 .tabbar-tool:hover{background:var(--list-hover);color:var(--text-primary)}
 .tabbar-tool.active{color:var(--accent)}
+
+/* ── Docked panel overrides ─────────────────────────────── */
+.snippet-panel--docked,
+.mcp-panel--docked,
+.workspace-panel--docked,
+.cmd-history-panel--docked {
+  position: static !important;
+  top: auto;
+  left: auto;
+  right: auto;
+  width: auto;
+  max-width: none;
+  max-height: none;
+  box-shadow: none;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+}
 .tabbar-tool svg{width:17px;height:17px}

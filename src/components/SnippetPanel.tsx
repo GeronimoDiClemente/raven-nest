@@ -10,6 +10,7 @@ interface Props {
   onSend: (content: string) => void
   onBroadcast: (content: string) => void
   onRequireUpgrade?: () => void
+  docked?: boolean
 }
 
 interface VarModal {
@@ -30,7 +31,7 @@ function substituteVars(content: string, values: Record<string, string>): string
   return content.replace(/\{\{(\w+)\}\}/g, (_, key) => values[key] ?? `{{${key}}}`)
 }
 
-export default function SnippetPanel({ onSend, onBroadcast, onRequireUpgrade }: Props) {
+export default function SnippetPanel({ onSend, onBroadcast, onRequireUpgrade, docked }: Props) {
   const [open, setOpen] = useState(false)
   const [tab, setTab] = useState<'mine' | 'team'>('mine')
   const [snippets, setSnippets] = useState<Snippet[]>([])
@@ -47,11 +48,11 @@ export default function SnippetPanel({ onSend, onBroadcast, onRequireUpgrade }: 
   const { plan } = useProfile()
 
   useEffect(() => {
-    window.snippets.list().then(setSnippets)
-  }, [open])
+    if (open || docked) window.snippets.list().then(setSnippets)
+  }, [open, docked])
 
   useEffect(() => {
-    if (!open) return
+    if (!open || docked) return
     const handler = (e: MouseEvent) => {
       if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
         setOpen(false)
@@ -60,7 +61,7 @@ export default function SnippetPanel({ onSend, onBroadcast, onRequireUpgrade }: 
     }
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
-  }, [open])
+  }, [open, docked])
 
   const save = async () => {
     if (!name.trim() || !content.trim()) return
@@ -87,7 +88,7 @@ export default function SnippetPanel({ onSend, onBroadcast, onRequireUpgrade }: 
     if (vars.length === 0) {
       if (mode === 'send') onSend(snippetContent)
       else onBroadcast(snippetContent)
-      setOpen(false)
+      if (!docked) setOpen(false)
       return
     }
     const values: Record<string, string> = {}
@@ -101,100 +102,87 @@ export default function SnippetPanel({ onSend, onBroadcast, onRequireUpgrade }: 
     if (varModal.mode === 'send') onSend(result)
     else onBroadcast(result)
     setVarModal(null)
-    setOpen(false)
+    if (!docked) setOpen(false)
   }
 
-  return (
-    <div className="snippet-wrap" ref={panelRef}>
-      <button
-        className={`titlebar-btn${open ? ' active' : ''}`}
-        onClick={() => { setOpen((v) => !v); setCreating(false) }}
-        title="Snippets"
-      >
-        <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
-          <rect x="1" y="1" width="12" height="3" rx="1" stroke="currentColor" strokeWidth="1.3"/>
-          <rect x="1" y="5.5" width="8" height="3" rx="1" stroke="currentColor" strokeWidth="1.3"/>
-          <rect x="1" y="10" width="10" height="3" rx="1" stroke="currentColor" strokeWidth="1.3"/>
-        </svg>
-        Snippets
-      </button>
-
-      {open && popPos && (
-        <div ref={popoverRef} className="snippet-panel" style={{ position: 'fixed', top: popPos.top, left: popPos.left, right: 'auto' }}>
-          <div className="snippet-panel-header">
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button className={`workspace-tab-btn${tab === 'mine' ? ' active' : ''}`} onClick={() => setTab('mine')}>Mine</button>
-              <button className={`workspace-tab-btn${tab === 'team' ? ' active' : ''}`} onClick={() => { setTab('team'); refreshShared() }}>Team</button>
-            </div>
-            {tab === 'mine' && (
-              <button className="snippet-add-btn" onClick={() => setCreating((v) => !v)} title="New snippet">+</button>
-            )}
-          </div>
-
-          {tab === 'mine' && (
-            <>
-              {creating && (
-                <div className="snippet-form">
-                  <input className="snippet-input" placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
-                  <textarea
-                    className="snippet-textarea"
-                    placeholder="Content… Use {{variable}} for dynamic values"
-                    value={content}
-                    onChange={(e) => setContent(e.target.value)}
-                    rows={4}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) save()
-                      if (e.key === 'Escape') setCreating(false)
-                    }}
-                  />
-                  <div className="snippet-form-actions">
-                    <button className="snippet-save-btn" onClick={save}>Save</button>
-                    <button className="snippet-cancel-btn" onClick={() => setCreating(false)}>Cancel</button>
-                  </div>
-                </div>
-              )}
-              {snippets.length === 0 && !creating && (
-                <p className="snippet-empty">No snippets yet. Click + to create one.</p>
-              )}
-              <div className="snippet-list">
-                {snippets.map((s) => (
-                  <div key={s.id} className="snippet-item">
-                    <span className="snippet-name" title={s.content}>{s.name}</span>
-                    <div className="snippet-item-actions">
-                      <button className="snippet-send-btn" onClick={() => handleSend(s.content, 'send')} title="Send to active terminal">Send</button>
-                      <button className="snippet-broadcast-btn" onClick={() => handleSend(s.content, 'broadcast')} title="Broadcast to all">All</button>
-                      <button className="snippet-send-btn" onClick={() => handleShare(s.name, s.content)} title={team ? 'Share to Team' : 'Share to Community'}>↗</button>
-                      <button className="snippet-delete-btn" onClick={() => setConfirmDelete({ id: s.id, name: s.name })} title="Delete">×</button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
-
-          {tab === 'team' && (
-            <>
-              {sharedLoading && <p className="snippet-empty">Loading…</p>}
-              {!sharedLoading && shared.length === 0 && <p className="snippet-empty">No team snippets yet.</p>}
-              <div className="snippet-list">
-                {shared.map((s) => (
-                  <div key={s.id} className="snippet-item">
-                    <span className="snippet-name" title={s.content}>{s.name}</span>
-                    <div className="snippet-item-actions">
-                      <button className="snippet-send-btn" onClick={() => handleSend(s.content, 'send')} title="Send">Send</button>
-                      <button className="snippet-broadcast-btn" onClick={() => handleSend(s.content, 'broadcast')} title="Broadcast">All</button>
-                      {s.owner_id === userId && (
-                        <button className="snippet-delete-btn" onClick={() => setConfirmDelete({ id: s.id, name: s.name, shared: true })} title="Remove">×</button>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
+  const body = (
+    <>
+      <div className="snippet-panel-header">
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className={`workspace-tab-btn${tab === 'mine' ? ' active' : ''}`} onClick={() => setTab('mine')}>Mine</button>
+          <button className={`workspace-tab-btn${tab === 'team' ? ' active' : ''}`} onClick={() => { setTab('team'); refreshShared() }}>Team</button>
         </div>
+        {tab === 'mine' && (
+          <button className="snippet-add-btn" onClick={() => setCreating((v) => !v)} title="New snippet">+</button>
+        )}
+      </div>
+
+      {tab === 'mine' && (
+        <>
+          {creating && (
+            <div className="snippet-form">
+              <input className="snippet-input" placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
+              <textarea
+                className="snippet-textarea"
+                placeholder="Content… Use {{variable}} for dynamic values"
+                value={content}
+                onChange={(e) => setContent(e.target.value)}
+                rows={4}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) save()
+                  if (e.key === 'Escape') setCreating(false)
+                }}
+              />
+              <div className="snippet-form-actions">
+                <button className="snippet-save-btn" onClick={save}>Save</button>
+                <button className="snippet-cancel-btn" onClick={() => setCreating(false)}>Cancel</button>
+              </div>
+            </div>
+          )}
+          {snippets.length === 0 && !creating && (
+            <p className="snippet-empty">No snippets yet. Click + to create one.</p>
+          )}
+          <div className="snippet-list">
+            {snippets.map((s) => (
+              <div key={s.id} className="snippet-item">
+                <span className="snippet-name" title={s.content}>{s.name}</span>
+                <div className="snippet-item-actions">
+                  <button className="snippet-send-btn" onClick={() => handleSend(s.content, 'send')} title="Send to active terminal">Send</button>
+                  <button className="snippet-broadcast-btn" onClick={() => handleSend(s.content, 'broadcast')} title="Broadcast to all">All</button>
+                  <button className="snippet-send-btn" onClick={() => handleShare(s.name, s.content)} title={team ? 'Share to Team' : 'Share to Community'}>↗</button>
+                  <button className="snippet-delete-btn" onClick={() => setConfirmDelete({ id: s.id, name: s.name })} title="Delete">×</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
       )}
 
+      {tab === 'team' && (
+        <>
+          {sharedLoading && <p className="snippet-empty">Loading…</p>}
+          {!sharedLoading && shared.length === 0 && <p className="snippet-empty">No team snippets yet.</p>}
+          <div className="snippet-list">
+            {shared.map((s) => (
+              <div key={s.id} className="snippet-item">
+                <span className="snippet-name" title={s.content}>{s.name}</span>
+                <div className="snippet-item-actions">
+                  <button className="snippet-send-btn" onClick={() => handleSend(s.content, 'send')} title="Send">Send</button>
+                  <button className="snippet-broadcast-btn" onClick={() => handleSend(s.content, 'broadcast')} title="Broadcast">All</button>
+                  {s.owner_id === userId && (
+                    <button className="snippet-delete-btn" onClick={() => setConfirmDelete({ id: s.id, name: s.name, shared: true })} title="Remove">×</button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </>
+  )
+
+  const modals = (
+    <>
       {varModal && (
         <div className="confirm-overlay" onClick={() => setVarModal(null)}>
           <div className="confirm-dialog" onClick={(e) => e.stopPropagation()} style={{ minWidth: 280 }}>
@@ -240,6 +228,40 @@ export default function SnippetPanel({ onSend, onBroadcast, onRequireUpgrade }: 
           onCancel={() => setConfirmDelete(null)}
         />
       )}
+    </>
+  )
+
+  if (docked) {
+    return (
+      <>
+        <div className="snippet-panel snippet-panel--docked">{body}</div>
+        {modals}
+      </>
+    )
+  }
+
+  return (
+    <div className="snippet-wrap" ref={panelRef}>
+      <button
+        className={`titlebar-btn${open ? ' active' : ''}`}
+        onClick={() => { setOpen((v) => !v); setCreating(false) }}
+        title="Snippets"
+      >
+        <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
+          <rect x="1" y="1" width="12" height="3" rx="1" stroke="currentColor" strokeWidth="1.3"/>
+          <rect x="1" y="5.5" width="8" height="3" rx="1" stroke="currentColor" strokeWidth="1.3"/>
+          <rect x="1" y="10" width="10" height="3" rx="1" stroke="currentColor" strokeWidth="1.3"/>
+        </svg>
+        Snippets
+      </button>
+
+      {open && popPos && (
+        <div ref={popoverRef} className="snippet-panel" style={{ position: 'fixed', top: popPos.top, left: popPos.left, right: 'auto' }}>
+          {body}
+        </div>
+      )}
+
+      {modals}
     </div>
   )
 }

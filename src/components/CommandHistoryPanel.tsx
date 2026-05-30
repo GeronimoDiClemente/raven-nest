@@ -4,9 +4,10 @@ import { useFixedPopover } from '../hooks/useFixedPopover'
 
 interface Props {
   onRun?: (cmd: string) => void
+  docked?: boolean
 }
 
-export default function CommandHistoryPanel({ onRun }: Props) {
+export default function CommandHistoryPanel({ onRun, docked }: Props) {
   const [open, setOpen] = useState(false)
   const [history, setHistory] = useState(getHistory)
   const [search, setSearch] = useState('')
@@ -17,7 +18,7 @@ export default function CommandHistoryPanel({ onRun }: Props) {
   useEffect(() => subscribe(() => setHistory(getHistory())), [])
 
   useEffect(() => {
-    if (!open) return
+    if (!open || docked) return
     const handler = (e: MouseEvent) => {
       if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
         setOpen(false)
@@ -25,7 +26,7 @@ export default function CommandHistoryPanel({ onRun }: Props) {
     }
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
-  }, [open])
+  }, [open, docked])
 
   const filtered = search.trim()
     ? history.filter((cmd) => cmd.toLowerCase().includes(search.toLowerCase()))
@@ -33,7 +34,53 @@ export default function CommandHistoryPanel({ onRun }: Props) {
 
   const handleRun = (cmd: string) => {
     onRun?.(cmd)
-    setOpen(false)
+    if (!docked) setOpen(false)
+  }
+
+  const body = (
+    <>
+      <div className="snippet-panel-header">
+        <span style={{ fontSize: 12, fontWeight: 600 }}>Command History</span>
+      </div>
+      <div style={{ padding: '6px 8px' }}>
+        <input
+          className="snippet-input"
+          placeholder="Search…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          style={{ width: '100%', boxSizing: 'border-box' }}
+        />
+      </div>
+      {filtered.length === 0 && (
+        <p className="snippet-empty">{history.length === 0 ? 'No commands yet.' : 'No match.'}</p>
+      )}
+      <div className="snippet-list" style={{ maxHeight: 300, overflowY: 'auto' }}>
+        {filtered.map((cmd, i) => (
+          <div key={i} className="snippet-item">
+            <span
+              className="snippet-name"
+              title={cmd}
+              style={{ fontFamily: 'var(--font-mono)', fontSize: 11, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+            >
+              {cmd}
+            </span>
+            <button
+              className="snippet-send-btn"
+              onClick={() => handleRun(cmd)}
+              title="Run in active pane"
+            >
+              Run
+            </button>
+          </div>
+        ))}
+      </div>
+    </>
+  )
+
+  if (docked) {
+    return (
+      <div className="snippet-panel cmd-history-panel--docked">{body}</div>
+    )
   }
 
   return (
@@ -52,42 +99,7 @@ export default function CommandHistoryPanel({ onRun }: Props) {
 
       {open && popPos && (
         <div ref={popoverRef} className="snippet-panel" style={{ position: 'fixed', top: popPos.top, left: popPos.left, right: 'auto' }}>
-          <div className="snippet-panel-header">
-            <span style={{ fontSize: 12, fontWeight: 600 }}>Command History</span>
-          </div>
-          <div style={{ padding: '6px 8px' }}>
-            <input
-              className="snippet-input"
-              placeholder="Search…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              autoFocus
-              style={{ width: '100%', boxSizing: 'border-box' }}
-            />
-          </div>
-          {filtered.length === 0 && (
-            <p className="snippet-empty">{history.length === 0 ? 'No commands yet.' : 'No match.'}</p>
-          )}
-          <div className="snippet-list" style={{ maxHeight: 300, overflowY: 'auto' }}>
-            {filtered.map((cmd, i) => (
-              <div key={i} className="snippet-item">
-                <span
-                  className="snippet-name"
-                  title={cmd}
-                  style={{ fontFamily: 'var(--font-mono)', fontSize: 11, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-                >
-                  {cmd}
-                </span>
-                <button
-                  className="snippet-send-btn"
-                  onClick={() => handleRun(cmd)}
-                  title="Run in active pane"
-                >
-                  Run
-                </button>
-              </div>
-            ))}
-          </div>
+          {body}
         </div>
       )}
     </div>

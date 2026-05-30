@@ -156,6 +156,7 @@ export default function SidePanel({
 
         {panel === 'snippets' && (
           <SnippetPanel
+            docked
             onSend={onSnippetSend}
             onBroadcast={onSnippetBroadcast}
             onRequireUpgrade={onUpgrade}
@@ -164,6 +165,7 @@ export default function SidePanel({
 
         {panel === 'mcp' && (
           <MCPPanel
+            docked
             repoPath={repoPath}
             onRequireUpgrade={onUpgrade}
           />
@@ -171,6 +173,7 @@ export default function SidePanel({
 
         {panel === 'workspaces' && (
           <WorkspacePanel
+            docked
             onSave={onWorkspaceSave}
             onLoad={onWorkspaceLoad}
             onRequireUpgrade={onUpgrade}
@@ -179,6 +182,7 @@ export default function SidePanel({
 
         {panel === 'cmdhist' && (
           <CommandHistoryPanel
+            docked
             onRun={onCommandRun}
           />
         )}

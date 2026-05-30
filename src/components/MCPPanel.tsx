@@ -8,6 +8,7 @@ import ConfirmDialog from './ConfirmDialog'
 interface Props {
   repoPath?: string
   onRequireUpgrade?: () => void
+  docked?: boolean
 }
 
 interface FormState {
@@ -40,7 +41,7 @@ function formToServer(form: FormState): Record<string, unknown> {
   return result
 }
 
-export default function MCPPanel({ repoPath, onRequireUpgrade }: Props) {
+export default function MCPPanel({ repoPath, onRequireUpgrade, docked }: Props) {
   const [open, setOpen] = useState(false)
   const [globalPath, setGlobalPath] = useState('')
   const [globalServers, setGlobalServers] = useState<Record<string, unknown>>({})
@@ -70,15 +71,15 @@ export default function MCPPanel({ repoPath, onRequireUpgrade }: Props) {
   }, [projectPath])
 
   useEffect(() => {
-    if (!open) return
+    if (!open && !docked) return
     window.mcp.globalPath().then((gPath) => {
       setGlobalPath(gPath)
       load(gPath)
     })
-  }, [open, load])
+  }, [open, docked, load])
 
   useEffect(() => {
-    if (!open) return
+    if (!open || docked) return
     const handler = (e: MouseEvent) => {
       if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
         setOpen(false)
@@ -87,7 +88,7 @@ export default function MCPPanel({ repoPath, onRequireUpgrade }: Props) {
     }
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
-  }, [open])
+  }, [open, docked])
 
   const expand = (scope: 'global' | 'project', name: string) => {
     const key = `${scope}:${name}`
@@ -343,6 +344,34 @@ export default function MCPPanel({ repoPath, onRequireUpgrade }: Props) {
     )
   }
 
+  const body = (
+    <>
+      {renderSection('global', globalServers)}
+      <div className="mcp-divider" />
+      {renderSection('project', projectServers, !projectPath)}
+    </>
+  )
+
+  const confirmDeleteDialog = confirmDelete ? (
+    <ConfirmDialog
+      title="Remove MCP server"
+      message={`Remove "${confirmDelete.name}"?`}
+      confirmLabel="Remove"
+      confirmDanger
+      onConfirm={() => { remove(confirmDelete.scope, confirmDelete.name); setConfirmDelete(null) }}
+      onCancel={() => setConfirmDelete(null)}
+    />
+  ) : null
+
+  if (docked) {
+    return (
+      <>
+        <div className="mcp-panel mcp-panel--docked">{body}</div>
+        {confirmDeleteDialog}
+      </>
+    )
+  }
+
   return (
     <div className="mcp-wrap" ref={panelRef}>
       <button
@@ -366,22 +395,11 @@ export default function MCPPanel({ repoPath, onRequireUpgrade }: Props) {
 
       {open && popPos && (
         <div ref={popoverRef} className="mcp-panel" style={{ position: 'fixed', top: popPos.top, left: popPos.left, right: 'auto' }}>
-          {renderSection('global', globalServers)}
-          <div className="mcp-divider" />
-          {renderSection('project', projectServers, !projectPath)}
+          {body}
         </div>
       )}
 
-      {confirmDelete && (
-        <ConfirmDialog
-          title="Remove MCP server"
-          message={`Remove "${confirmDelete.name}"?`}
-          confirmLabel="Remove"
-          confirmDanger
-          onConfirm={() => { remove(confirmDelete.scope, confirmDelete.name); setConfirmDelete(null) }}
-          onCancel={() => setConfirmDelete(null)}
-        />
-      )}
+      {confirmDeleteDialog}
     </div>
   )
 }

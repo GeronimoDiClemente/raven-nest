@@ -10,6 +10,7 @@ interface Props {
   onSave: (name: string) => void
   onLoad: (ws: Workspace) => void
   onRequireUpgrade?: () => void
+  docked?: boolean
 }
 
 function makePane(aiType: keyof typeof AI_CONFIG): SessionPane {
@@ -97,7 +98,7 @@ const TEMPLATES: { name: string; description: string; build: () => Omit<Workspac
   },
 ]
 
-export default function WorkspacePanel({ onSave, onLoad, onRequireUpgrade }: Props) {
+export default function WorkspacePanel({ onSave, onLoad, onRequireUpgrade, docked }: Props) {
   const [open, setOpen] = useState(false)
   const [tab, setTab] = useState<'mine' | 'team' | 'templates'>('mine')
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
@@ -112,16 +113,16 @@ export default function WorkspacePanel({ onSave, onLoad, onRequireUpgrade }: Pro
   const { plan } = useProfile()
 
   useEffect(() => {
-    if (open) {
+    if (open || docked) {
       window.workspaces.list().then(setWorkspaces)
       refreshShared()
     } else {
       setSaving(false)
     }
-  }, [open])
+  }, [open, docked])
 
   useEffect(() => {
-    if (!open) return
+    if (!open || docked) return
     const handler = (e: MouseEvent) => {
       if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
         setOpen(false)
@@ -129,7 +130,7 @@ export default function WorkspacePanel({ onSave, onLoad, onRequireUpgrade }: Pro
     }
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
-  }, [open])
+  }, [open, docked])
 
   const handleSave = () => {
     if (!name.trim()) return
@@ -141,7 +142,7 @@ export default function WorkspacePanel({ onSave, onLoad, onRequireUpgrade }: Pro
 
   const handleLoad = (ws: Workspace) => {
     onLoad(ws)
-    setOpen(false)
+    if (!docked) setOpen(false)
   }
 
   const handleDelete = async (id: string) => {
@@ -184,7 +185,134 @@ export default function WorkspacePanel({ onSave, onLoad, onRequireUpgrade }: Pro
     await window.workspaces.save(ws)
     setWorkspaces(prev => [...prev, ws])
     onLoad(ws)
-    setOpen(false)
+    if (!docked) setOpen(false)
+  }
+
+  const body = (
+    <>
+      <div className="snippet-panel-header">
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button
+            className={`workspace-tab-btn${tab === 'mine' ? ' active' : ''}`}
+            onClick={() => setTab('mine')}
+          >Mine</button>
+          <button
+            className={`workspace-tab-btn${tab === 'team' ? ' active' : ''}`}
+            onClick={() => { setTab('team'); refreshShared() }}
+          >Team</button>
+          <button
+            className={`workspace-tab-btn${tab === 'templates' ? ' active' : ''}`}
+            onClick={() => setTab('templates')}
+          >Templates</button>
+        </div>
+        {tab === 'mine' && (
+          <div style={{ display: 'flex', gap: 4 }}>
+            <button className="snippet-add-btn" onClick={(e) => { e.stopPropagation(); handleImport() }} title="Import from file">↑</button>
+            <button className="snippet-add-btn" onClick={(e) => { e.stopPropagation(); setSaving((v) => !v) }} title="Save current workspace">+</button>
+          </div>
+        )}
+      </div>
+
+      {tab === 'mine' && (
+        <>
+          {saving && (
+            <div className="snippet-form">
+              <input
+                className="snippet-input"
+                placeholder="Workspace name…"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleSave()
+                  if (e.key === 'Escape') setSaving(false)
+                }}
+              />
+              <div className="snippet-form-actions">
+                <button className="snippet-save-btn" onClick={handleSave}>Save</button>
+                <button className="snippet-cancel-btn" onClick={() => setSaving(false)}>Cancel</button>
+              </div>
+            </div>
+          )}
+          {workspaces.length === 0 && !saving && (
+            <p className="snippet-empty">No workspaces. Click + to save the current layout.</p>
+          )}
+          <div className="snippet-list">
+            {workspaces.map((ws) => (
+              <div key={ws.id} className="snippet-item">
+                <span className="snippet-name" title={`${ws.layout.rows}×${ws.layout.cols}`}>{ws.name}</span>
+                <div className="snippet-item-actions">
+                  <button className="snippet-send-btn" onClick={() => handleLoad(ws)} title="Load">Load</button>
+                  <button className="snippet-send-btn" onClick={() => handleShare(ws)} title={team ? 'Share to Team' : 'Share to Community'}>↗</button>
+                  <button className="snippet-send-btn" onClick={() => handleExport(ws)} title="Export to file">↓</button>
+                  <button className="snippet-delete-btn" onClick={() => setConfirmDelete({ id: ws.id, name: ws.name })} title="Delete">×</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      {tab === 'team' && (
+        <>
+          {sharedLoading && <p className="snippet-empty">Loading…</p>}
+          {!sharedLoading && shared.length === 0 && (
+            <p className="snippet-empty">No team workspaces yet.</p>
+          )}
+          <div className="snippet-list">
+            {shared.map((item) => (
+              <div key={item.id} className="snippet-item">
+                <span className="snippet-name" title={`${item.data.layout?.rows}×${item.data.layout?.cols}`}>{item.name}</span>
+                <div className="snippet-item-actions">
+                  <button className="snippet-send-btn" onClick={() => handleClone(item.data)} title="Clone to Mine">Clone</button>
+                  {item.owner_id === userId && (
+                    <button className="snippet-delete-btn" onClick={() => setConfirmDelete({ id: item.id, name: item.name, shared: true })} title="Remove">×</button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      {tab === 'templates' && (
+        <div className="snippet-list">
+          {TEMPLATES.map((tpl, i) => (
+            <div key={tpl.name} className="snippet-item" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 2 }}>
+              <div style={{ display: 'flex', width: '100%', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span className="snippet-name">{tpl.name}</span>
+                <button className="snippet-send-btn" onClick={() => handleUseTemplate(i)} title="Use this template">Use</button>
+              </div>
+              <span style={{ fontSize: 10, color: 'var(--text-muted)', paddingLeft: 2 }}>{tpl.description}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </>
+  )
+
+  const confirmDeleteDialog = confirmDelete ? (
+    <ConfirmDialog
+      title="Delete workspace"
+      message={`Delete "${confirmDelete.name}"?`}
+      confirmLabel="Delete"
+      confirmDanger
+      onConfirm={() => {
+        if (confirmDelete.shared) removeShared(confirmDelete.id)
+        else handleDelete(confirmDelete.id)
+        setConfirmDelete(null)
+      }}
+      onCancel={() => setConfirmDelete(null)}
+    />
+  ) : null
+
+  if (docked) {
+    return (
+      <>
+        <div className="snippet-panel workspace-panel workspace-panel--docked">{body}</div>
+        {confirmDeleteDialog}
+      </>
+    )
   }
 
   return (
@@ -198,122 +326,12 @@ export default function WorkspacePanel({ onSave, onLoad, onRequireUpgrade }: Pro
 
       {open && popPos && (
         <div ref={popoverRef} className="snippet-panel workspace-panel" style={{ position: 'fixed', top: popPos.top, left: popPos.left, right: 'auto' }}>
-          <div className="snippet-panel-header">
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button
-                className={`workspace-tab-btn${tab === 'mine' ? ' active' : ''}`}
-                onClick={() => setTab('mine')}
-              >Mine</button>
-              <button
-                className={`workspace-tab-btn${tab === 'team' ? ' active' : ''}`}
-                onClick={() => { setTab('team'); refreshShared() }}
-              >Team</button>
-              <button
-                className={`workspace-tab-btn${tab === 'templates' ? ' active' : ''}`}
-                onClick={() => setTab('templates')}
-              >Templates</button>
-            </div>
-            {tab === 'mine' && (
-              <div style={{ display: 'flex', gap: 4 }}>
-                <button className="snippet-add-btn" onClick={(e) => { e.stopPropagation(); handleImport() }} title="Import from file">↑</button>
-                <button className="snippet-add-btn" onClick={(e) => { e.stopPropagation(); setSaving((v) => !v) }} title="Save current workspace">+</button>
-              </div>
-            )}
-          </div>
-
-          {tab === 'mine' && (
-            <>
-              {saving && (
-                <div className="snippet-form">
-                  <input
-                    className="snippet-input"
-                    placeholder="Workspace name…"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    autoFocus
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') handleSave()
-                      if (e.key === 'Escape') setSaving(false)
-                    }}
-                  />
-                  <div className="snippet-form-actions">
-                    <button className="snippet-save-btn" onClick={handleSave}>Save</button>
-                    <button className="snippet-cancel-btn" onClick={() => setSaving(false)}>Cancel</button>
-                  </div>
-                </div>
-              )}
-              {workspaces.length === 0 && !saving && (
-                <p className="snippet-empty">No workspaces. Click + to save the current layout.</p>
-              )}
-              <div className="snippet-list">
-                {workspaces.map((ws) => (
-                  <div key={ws.id} className="snippet-item">
-                    <span className="snippet-name" title={`${ws.layout.rows}×${ws.layout.cols}`}>{ws.name}</span>
-                    <div className="snippet-item-actions">
-                      <button className="snippet-send-btn" onClick={() => handleLoad(ws)} title="Load">Load</button>
-                      <button className="snippet-send-btn" onClick={() => handleShare(ws)} title={team ? 'Share to Team' : 'Share to Community'}>↗</button>
-                      <button className="snippet-send-btn" onClick={() => handleExport(ws)} title="Export to file">↓</button>
-                      <button className="snippet-delete-btn" onClick={() => setConfirmDelete({ id: ws.id, name: ws.name })} title="Delete">×</button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
-
-          {tab === 'team' && (
-            <>
-              {sharedLoading && <p className="snippet-empty">Loading…</p>}
-              {!sharedLoading && shared.length === 0 && (
-                <p className="snippet-empty">No team workspaces yet.</p>
-              )}
-              <div className="snippet-list">
-                {shared.map((item) => (
-                  <div key={item.id} className="snippet-item">
-                    <span className="snippet-name" title={`${item.data.layout?.rows}×${item.data.layout?.cols}`}>{item.name}</span>
-                    <div className="snippet-item-actions">
-                      <button className="snippet-send-btn" onClick={() => handleClone(item.data)} title="Clone to Mine">Clone</button>
-                      {item.owner_id === userId && (
-                        <button className="snippet-delete-btn" onClick={() => setConfirmDelete({ id: item.id, name: item.name, shared: true })} title="Remove">×</button>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
-
-          {tab === 'templates' && (
-            <div className="snippet-list">
-              {TEMPLATES.map((tpl, i) => (
-                <div key={tpl.name} className="snippet-item" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 2 }}>
-                  <div style={{ display: 'flex', width: '100%', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <span className="snippet-name">{tpl.name}</span>
-                    <button className="snippet-send-btn" onClick={() => handleUseTemplate(i)} title="Use this template">Use</button>
-                  </div>
-                  <span style={{ fontSize: 10, color: 'var(--text-muted)', paddingLeft: 2 }}>{tpl.description}</span>
-                </div>
-              ))}
-            </div>
-          )}
+          {body}
         </div>
       )}
     </div>
 
-    {confirmDelete && (
-      <ConfirmDialog
-        title="Delete workspace"
-        message={`Delete "${confirmDelete.name}"?`}
-        confirmLabel="Delete"
-        confirmDanger
-        onConfirm={() => {
-          if (confirmDelete.shared) removeShared(confirmDelete.id)
-          else handleDelete(confirmDelete.id)
-          setConfirmDelete(null)
-        }}
-        onCancel={() => setConfirmDelete(null)}
-      />
-    )}
+    {confirmDeleteDialog}
     </>
   )
 }
