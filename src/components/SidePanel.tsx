@@ -1,4 +1,4 @@
-import { GitFork, GitBranch, Github, X, Check, Plus, PanelLeftClose } from 'lucide-react'
+import { GitFork, GitBranch, ExternalLink, X, Check, Plus, PanelLeftClose } from 'lucide-react'
 import { PanelId, Workspace } from '../types'
 import { useGitInfo } from '../hooks/useGitInfo'
 import { basename } from '../lib/path'
@@ -79,7 +79,7 @@ function WorktreesBody({
               title="Open on GitHub"
               onClick={() => window.electronShell.openExternal(githubUrl)}
             >
-              <Github />
+              <ExternalLink />
             </button>
           )}
           <button
@@ -113,7 +113,7 @@ function WorktreesBody({
   )
 }
 
-export function SidePanel({
+export default function SidePanel({
   panel,
   onClose,
   repoPath,

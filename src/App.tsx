@@ -14,7 +14,10 @@ import TabBar from './components/TabBar'
 import { PortsBanner } from './components/PortsBanner'
 import ConfirmDialog from './components/ConfirmDialog'
 import ConversationSidebar from './components/ConversationSidebar'
-import Sidebar from './components/Sidebar'
+import ActivityBar from './components/ActivityBar'
+import SidePanel from './components/SidePanel'
+import LayoutPicker from './components/LayoutPicker'
+import { Radio, Mic } from 'lucide-react'
 import { NewWorktreeModal } from './components/NewWorktreeModal'
 import { QuickWorktreePalette } from './components/QuickWorktreePalette'
 import { DiffViewerPanel } from './components/DiffViewerPanel'
@@ -102,7 +105,6 @@ export default function App() {
   const [globalSearchOpen, setGlobalSearchOpen] = useState(false)
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
   const [activePanel, setActivePanel] = useState<PanelId | null>('worktrees')
-  const sidebarExpanded = activePanel !== null
   const [fontSize, setFontSize] = useState<number>(() => {
     const saved = localStorage.getItem('nest-font-size')
     return saved ? parseInt(saved, 10) : 13
@@ -868,7 +870,27 @@ export default function App() {
         onTabColorChange={handleTabColorChange}
         isWin={window.platform?.isWin ?? false}
         tabActivity={tabActivity}
-        rightSlot={<ResourceBar panes={activePanesPayload} />}
+        rightSlot={
+          <div className="tabbar-tools">
+            <LayoutPicker current={layout} onChange={applyLayout} />
+            <button
+              className={`tabbar-tool${broadcastMode ? ' active' : ''}`}
+              onClick={() => setBroadcastMode((v) => !v)}
+              title={broadcastMode ? 'Broadcast ON — click to turn off' : 'Broadcast'}
+            >
+              <Radio size={17} />
+            </button>
+            <button
+              className="tabbar-tool"
+              onClick={(isTranscribing || isModelLoading) ? undefined : toggleListening}
+              title={isListening ? 'Stop voice (F5)' : isTranscribing ? 'Processing…' : isModelLoading ? 'Loading model…' : 'Voice (F5)'}
+              style={isListening ? { color: 'var(--accent)' } : undefined}
+            >
+              <Mic size={17} />
+            </button>
+            <ResourceBar panes={activePanesPayload} />
+          </div>
+        }
       />
       <PortsBanner
         rootRepoPath={activeTab.repoPath ?? null}
@@ -904,56 +926,55 @@ export default function App() {
       )}
 
       <div className="app-body">
-      <Sidebar
-        expanded={sidebarExpanded}
-        onToggle={() => setActivePanel((p) => (p ? null : 'worktrees'))}
-        broadcastMode={broadcastMode}
-        onBroadcastToggle={() => setBroadcastMode((v) => !v)}
-        layout={layout}
-        onLayoutChange={applyLayout}
-        onNewPane={addNextPane}
-        onHistoryOpen={() => setConvSidebarOpen(true)}
-        onSnippetSend={(content) => {
-          const id = focusedPaneIdRef.current
-          if (id) window.pty.write(id, content + '\r')
-        }}
-        onSnippetBroadcast={(content) => {
-          activePaneIds.forEach((id) => window.pty.write(id, content + '\r'))
-        }}
-        onCommandRun={(cmd) => {
-          const id = focusedPaneIdRef.current
-          if (id) window.pty.write(id, cmd + '\r')
-        }}
-        onWorkspaceSave={saveWorkspace}
-        onWorkspaceLoad={loadWorkspace}
-        isWin={window.platform?.isWin ?? false}
-        isTrialActive={isTrialActive}
-        trialDaysLeft={trialDaysLeft}
-        profileLoading={profileLoading}
-        onUpgrade={() => setShowUpgrade(true)}
+      <ActivityBar
+        activePanel={activePanel}
+        onSelectPanel={(id) => setActivePanel((p) => (p === id ? null : id))}
         onTeamsOpen={() => {
           if (plan !== 'team') { setShowUpgrade(true); return }
           setTeamsOpen(true)
         }}
-        pendingInvitesCount={pendingInvitesCount}
         onMyReposOpen={() => {
           if (plan !== 'pro' && plan !== 'team') { setShowUpgrade(true); return }
           setMyReposOpen(true)
         }}
-        plan={plan}
-        repoPath={activeTab.repoPath}
-        onRepoLink={handleRepoLink}
-        onRepoUnlink={handleRepoUnlink}
-        isListening={isListening}
-        isTranscribing={isTranscribing}
-        isModelLoading={isModelLoading}
-        onMicToggle={toggleListening}
+        onHistoryOpen={() => setConvSidebarOpen(true)}
+        onNewPane={addNextPane}
         onJoinTerminal={() => setShowJoinViewer(true)}
+        pendingInvitesCount={pendingInvitesCount}
+        plan={plan}
+        isTrialActive={isTrialActive}
+        trialDaysLeft={trialDaysLeft}
+        profileLoading={profileLoading}
+        onUpgrade={() => setShowUpgrade(true)}
         activeCellRepoPath={activeCellRepoPath}
-        onWorktreeSelect={handleWorktreeSelect}
-        onNewWorktree={handleNewWorktree}
-        worktreeRefreshKey={worktreeRefreshKey}
       />
+      {activePanel && (
+        <SidePanel
+          panel={activePanel}
+          onClose={() => setActivePanel(null)}
+          repoPath={activeTab.repoPath}
+          activeCellRepoPath={activeCellRepoPath}
+          onWorktreeSelect={handleWorktreeSelect}
+          onNewWorktree={handleNewWorktree}
+          worktreeRefreshKey={worktreeRefreshKey}
+          onRepoLink={handleRepoLink}
+          onRepoUnlink={handleRepoUnlink}
+          onSnippetSend={(content) => {
+            const id = focusedPaneIdRef.current
+            if (id) window.pty.write(id, content + '\r')
+          }}
+          onSnippetBroadcast={(content) => {
+            activePaneIds.forEach((id) => window.pty.write(id, content + '\r'))
+          }}
+          onUpgrade={() => setShowUpgrade(true)}
+          onWorkspaceSave={saveWorkspace}
+          onWorkspaceLoad={loadWorkspace}
+          onCommandRun={(cmd) => {
+            const id = focusedPaneIdRef.current
+            if (id) window.pty.write(id, cmd + '\r')
+          }}
+        />
+      )}
       <div className="workspace">
         {isInitialState ? (
           <EmptyState onNewPane={() => setAddingToCell(0)} />
