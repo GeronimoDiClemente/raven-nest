@@ -6,28 +6,32 @@
 }
 
 :root {
-  --raven-blue: #0066FF;
-  --raven-blue-dim: #0066FF44;
-  --accent: var(--raven-blue);
+  /* Brand accent — emerald + cyan (matches nestmux.com demo).
+     Legacy name --raven-blue kept so existing var(--raven-blue) usages follow. */
+  --accent: oklch(0.72 0.17 156);
+  --accent-hover: oklch(0.66 0.18 156);
+  --accent-cyan: oklch(0.80 0.13 195);
+  --raven-blue: var(--accent);
+  --raven-blue-dim: oklch(0.72 0.17 156 / 0.28);
 
-  /* Carbon layered surfaces (VS Code-style) */
-  --bg-app: #1e1e1e;        /* base / editor */
-  --bg-surface: #252526;    /* sidebar, panels, tabs */
-  --bg-sidebar: #252526;
-  --bg-elevated: #2d2d30;   /* popovers, modals */
-  --bg-titlebar: #323233;
-  --bg-activity: #2d2d30;
-  --bg-pane: #181818;       /* terminal cell background */
+  /* Near-black layered surfaces (matches demo) */
+  --bg-app: oklch(0.155 0.004 240);      /* base behind panes */
+  --bg-surface: oklch(0.185 0.005 240);  /* sidebar, panels, tabs */
+  --bg-sidebar: oklch(0.175 0.005 240);
+  --bg-elevated: oklch(0.215 0.006 240); /* popovers, modals */
+  --bg-titlebar: oklch(0.205 0.005 240);
+  --bg-activity: oklch(0.165 0.005 240);
+  --bg-pane: #000000;                     /* terminal cells — black like the demo */
 
-  --border: #2b2b2b;        /* subtle border */
-  --border-strong: #333333; /* visible border */
+  --border: oklch(1 0 0 / 0.07);         /* subtle border */
+  --border-strong: oklch(1 0 0 / 0.14);  /* visible border */
 
-  --text-primary: #d4d4d4;
-  --text-secondary: #969696;
-  --text-muted: #6a6a6a;
+  --text-primary: oklch(0.95 0 0);
+  --text-secondary: oklch(0.66 0 0);
+  --text-muted: oklch(0.48 0 0);
 
-  --list-hover: #2a2d2e;
-  --list-active: #37373d;
+  --list-hover: oklch(1 0 0 / 0.05);
+  --list-active: oklch(1 0 0 / 0.09);
 
   /* Typography */
   --font-ui: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
@@ -101,13 +105,15 @@ body {
   align-items: center;
   gap: 14px;
   padding: 0 11px;
-  background: var(--accent);
-  color: #fff;
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  border-top: 1px solid var(--border);
   font-family: var(--font-ui);
   font-size: 11px;
   user-select: none;
   -webkit-user-select: none;
 }
+.status-bar .status-item:first-child { color: var(--text-primary); }
 .status-item-end { margin-left: auto; }
 
 
@@ -9045,13 +9051,13 @@ body.platform-mac .tabbar { padding-right: 116px; }
 .repo-card-ext:hover{background:var(--list-hover);color:var(--text-primary)}
 .repo-card-ext svg{width:13px;height:13px}
 .repo-card-meta{display:flex;align-items:center;gap:8px;margin-top:7px}
-.branch-pill{display:inline-flex;align-items:center;gap:5px;font-family:var(--font-mono);font-size:11px;color:#cdd6f4;background:#0066ff1f;border:1px solid #0066ff33;padding:2px 8px;border-radius:11px}
+.branch-pill{display:inline-flex;align-items:center;gap:5px;font-family:var(--font-mono);font-size:11px;color:oklch(0.86 0.09 156);background:oklch(0.72 0.17 156 / 0.13);border:1px solid oklch(0.72 0.17 156 / 0.25);padding:2px 8px;border-radius:11px}
 .branch-pill svg{width:11px;height:11px}
 .branch-pill.dirty{color:#f0c674;background:#f59e0b1a;border-color:#f59e0b33}
 .repo-sync{font-size:11px;color:var(--text-muted);display:flex;align-items:center;gap:4px}
 .repo-sync svg{width:11px;height:11px}
 .side-panel-link{margin:2px 8px 8px;display:flex;align-items:center;gap:7px;padding:9px 10px;border:1px dashed var(--border-strong);border-radius:7px;color:var(--text-secondary);font-size:13px;background:none;cursor:pointer;width:calc(100% - 16px)}
-.side-panel-link:hover{border-color:#0066ff66;color:#cdd6f4;background:#0066ff0d}
+.side-panel-link:hover{border-color:oklch(0.72 0.17 156 / 0.45);color:oklch(0.86 0.09 156);background:oklch(0.72 0.17 156 / 0.08)}
 .side-panel-body::-webkit-scrollbar{width:10px}
 .side-panel-body::-webkit-scrollbar-thumb{background:#4a4a4a;border-radius:6px;border:3px solid var(--bg-sidebar)}
 .activity-more-item svg{width:15px;height:15px;color:var(--text-secondary)}
