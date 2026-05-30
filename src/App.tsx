@@ -37,7 +37,7 @@ import SharedTerminalViewer from './components/SharedTerminalViewer'
 import { terminalShareService } from './lib/terminalShareService'
 import ResourceBar from './components/ResourceBar'
 import StatusBar from './components/StatusBar'
-import type { MetricsPaneInput } from './types'
+import type { MetricsPaneInput, PanelId } from './types'
 
 
 let paneCounter = 0
@@ -101,7 +101,8 @@ export default function App() {
   const [convSidebarOpen, setConvSidebarOpen] = useState(false)
   const [globalSearchOpen, setGlobalSearchOpen] = useState(false)
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
-  const [sidebarExpanded, setSidebarExpanded] = useState(false)
+  const [activePanel, setActivePanel] = useState<PanelId | null>('worktrees')
+  const sidebarExpanded = activePanel !== null
   const [fontSize, setFontSize] = useState<number>(() => {
     const saved = localStorage.getItem('nest-font-size')
     return saved ? parseInt(saved, 10) : 13
@@ -905,7 +906,7 @@ export default function App() {
       <div className="app-body">
       <Sidebar
         expanded={sidebarExpanded}
-        onToggle={() => setSidebarExpanded((v) => !v)}
+        onToggle={() => setActivePanel((p) => (p ? null : 'worktrees'))}
         broadcastMode={broadcastMode}
         onBroadcastToggle={() => setBroadcastMode((v) => !v)}
         layout={layout}

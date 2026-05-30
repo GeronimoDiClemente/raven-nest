@@ -1,5 +1,8 @@
 export type AIType = 'claude' | 'gemini' | 'codex' | 'copilot' | 'opencode' | 'terminal' | 'custom' | 'browser'
 
+// Which docked side-panel section is open in the activity-bar sidebar (null = collapsed).
+export type PanelId = 'worktrees' | 'snippets' | 'mcp' | 'workspaces' | 'cmdhist'
+
 export interface Account {
   name: string
   aiType: AIType

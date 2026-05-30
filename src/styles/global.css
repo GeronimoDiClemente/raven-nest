@@ -16,6 +16,7 @@
   --bg-sidebar: #252526;
   --bg-elevated: #2d2d30;   /* popovers, modals */
   --bg-titlebar: #323233;
+  --bg-activity: #2d2d30;
   --bg-pane: #181818;       /* terminal cell background */
 
   --border: #2b2b2b;        /* subtle border */
