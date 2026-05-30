@@ -8,13 +8,30 @@
 :root {
   --raven-blue: #0066FF;
   --raven-blue-dim: #0066FF44;
-  --bg-app: #000000;
-  --bg-surface: #0a0a0a;
-  --bg-elevated: #111111;
-  --border: #1e1e1e;
-  --text-primary: #e8e8e8;
-  --text-secondary: #888;
-  --text-muted: #555;
+  --accent: var(--raven-blue);
+
+  /* Carbon layered surfaces (VS Code-style) */
+  --bg-app: #1e1e1e;        /* base / editor */
+  --bg-surface: #252526;    /* sidebar, panels, tabs */
+  --bg-sidebar: #252526;
+  --bg-elevated: #2d2d30;   /* popovers, modals */
+  --bg-titlebar: #323233;
+  --bg-pane: #181818;       /* terminal cell background */
+
+  --border: #2b2b2b;        /* subtle border */
+  --border-strong: #333333; /* visible border */
+
+  --text-primary: #d4d4d4;
+  --text-secondary: #969696;
+  --text-muted: #6a6a6a;
+
+  --list-hover: #2a2d2e;
+  --list-active: #37373d;
+
+  /* Typography */
+  --font-ui: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'Cascadia Code', Consolas, monospace;
+
   --titlebar-height: 44px;
   --header-height: 32px;
 }
