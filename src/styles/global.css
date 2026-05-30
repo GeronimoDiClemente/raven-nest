@@ -9009,3 +9009,17 @@ body.platform-mac .tabbar { padding-right: 116px; }
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* ── Activity bar ─────────────────────────────────────── */
+.activity-bar{width:48px;flex-shrink:0;background:var(--bg-activity);border-right:1px solid var(--border);display:flex;flex-direction:column;align-items:center;padding:6px 0}
+.activity-btn{width:48px;height:46px;display:flex;align-items:center;justify-content:center;color:#868686;position:relative;cursor:pointer;background:none;border:none}
+.activity-btn svg{width:22px;height:22px}
+.activity-btn:hover{color:#d6d6d6}
+.activity-btn.active{color:#fff}
+.activity-btn.active::before{content:'';position:absolute;left:0;top:9px;bottom:9px;width:2px;background:var(--accent)}
+.activity-badge{position:absolute;top:7px;right:7px;min-width:15px;height:15px;border-radius:8px;background:var(--accent);color:#fff;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;padding:0 3px;box-shadow:0 0 0 2px var(--bg-activity)}
+.activity-spacer{margin-top:auto}
+.activity-more-menu{position:fixed;background:var(--bg-elevated);border:1px solid var(--border-strong);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.45);padding:4px;min-width:170px;z-index:200}
+.activity-more-item{display:flex;align-items:center;gap:9px;width:100%;padding:7px 10px;border-radius:5px;background:none;border:none;color:var(--text-primary);font-size:13px;font-family:var(--font-ui);cursor:pointer;text-align:left}
+.activity-more-item:hover{background:var(--list-hover)}
+.activity-more-item svg{width:15px;height:15px;color:var(--text-secondary)}
