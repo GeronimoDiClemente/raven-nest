@@ -6400,7 +6400,7 @@ button.ci-badge:hover {
   gap: 7px;
   padding: 3px 12px;
 }
-.rsp-file-item:hover { background: rgba(255,255,255,0.04); }
+.rsp-file-item:hover { background: var(--list-hover); }
 
 .rsp-file-status {
   font-family: var(--font-mono);
@@ -7298,7 +7298,7 @@ button.ci-badge:hover {
   padding: 6px 12px; cursor: pointer; font-size: 12px;
   color: var(--text-secondary);
 }
-.wt-item:hover { background: #111; color: var(--text-primary); }
+.wt-item:hover { background: var(--list-hover); color: var(--text-primary); }
 .wt-item-active {
   background: rgba(0, 102, 255, 0.10); color: var(--text-primary);
   border-left: 2px solid var(--raven-blue); padding-left: 10px;
