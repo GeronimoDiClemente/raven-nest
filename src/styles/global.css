@@ -7282,41 +7282,46 @@ button.ci-badge:hover {
 }
 
 /* === Worktrees Section (Plan 1) === */
-.worktrees-section { padding: 8px 0; border-top: 1px solid var(--border); }
+.worktrees-section { padding: 4px 0 8px; }
 .wt-section-header {
   display: flex; justify-content: space-between; align-items: center;
-  padding: 6px 12px; color: var(--text-muted); font-size: 10px;
-  text-transform: uppercase; letter-spacing: 0.5px; cursor: pointer;
+  height: 24px; padding: 0 8px 0 16px; color: #8d8d8d; font-size: 11px;
+  font-weight: 600; text-transform: uppercase; letter-spacing: 0.07em;
+  cursor: pointer; user-select: none;
 }
 .wt-section-header:hover { color: var(--text-secondary); }
 .wt-add-btn {
-  background: transparent; border: none; color: var(--raven-blue);
-  font-size: 14px; cursor: pointer; padding: 0 4px;
+  width: 22px; height: 22px; display: flex; align-items: center; justify-content: center;
+  background: transparent; border: none; color: var(--text-muted); border-radius: 5px;
+  font-size: 15px; line-height: 1; cursor: pointer;
 }
-.wt-list { display: flex; flex-direction: column; }
+.wt-add-btn:hover { background: var(--list-hover); color: var(--text-primary); }
+.wt-list { display: flex; flex-direction: column; padding: 0 6px; }
 .wt-item {
-  display: flex; flex-direction: column; align-items: stretch; gap: 2px;
-  padding: 6px 12px; cursor: pointer; font-size: 12px;
-  color: var(--text-secondary);
+  display: flex; flex-direction: column; align-items: stretch; gap: 1px;
+  padding: 5px 8px; border-radius: 5px; cursor: pointer; font-size: 13px;
+  color: var(--text-secondary); position: relative;
 }
 .wt-item:hover { background: var(--list-hover); color: var(--text-primary); }
-.wt-item-active {
-  background: rgba(0, 102, 255, 0.10); color: var(--text-primary);
-  border-left: 2px solid var(--raven-blue); padding-left: 10px;
+.wt-item-active { background: var(--list-active); color: #fff; }
+.wt-item-active::before {
+  content: ''; position: absolute; left: 0; top: 5px; bottom: 5px;
+  width: 2px; background: var(--accent); border-radius: 2px;
 }
-.wt-item-main { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.wt-item-main { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .wt-dot {
-  width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
+  width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
 }
-.wt-dot-green { background: #00CC44; }
-.wt-dot-yellow { background: #FFB800; }
-.wt-dot-red { background: #FF1A1A; }
-.wt-dot-gray { background: #555; }
-.wt-branch { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.wt-dot-green { background: #3fb950; }
+.wt-dot-yellow { background: #d9c23a; }
+.wt-dot-red { background: #f85149; }
+.wt-dot-gray { background: #6e6e6e; }
+.wt-branch { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; font-size: 13px; }
 .wt-meta {
-  color: var(--text-muted); font-size: 9px; font-family: var(--font-mono);
+  margin-left: auto; color: var(--text-muted); font-size: 9px;
+  font-family: var(--font-mono); text-transform: uppercase; letter-spacing: .04em;
 }
-.wt-empty { padding: 6px 12px; color: var(--text-muted); font-size: 11px; font-style: italic; }
+.wt-empty { padding: 8px 16px; color: var(--text-muted); font-size: 12px; }
 
 /* Slug: directory basename under the branch line. Muted, monospace so it
    reads as "this is where it lives on disk", not as content. */
@@ -7324,7 +7329,7 @@ button.ci-badge:hover {
   font-family: var(--font-mono);
   font-size: 10px;
   color: var(--text-muted);
-  padding-left: 12px; /* visually nests under the branch text */
+  padding-left: 15px; /* nests under the branch text */
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 
