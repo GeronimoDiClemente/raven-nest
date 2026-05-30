@@ -194,7 +194,7 @@ export default function PaneHeader({ pane, zoomed, onZoom, onClose, onColorChang
         <button className="pane-copy-btn" onClick={handleCopy} title="Copy last response">
           {copied ? (
             <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
-              <path d="M2 6l3 3 5-5" stroke="#22C55E" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              <path d="M2 6l3 3 5-5" stroke="var(--color-success)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
           ) : (
             <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
@@ -209,7 +209,7 @@ export default function PaneHeader({ pane, zoomed, onZoom, onClose, onColorChang
         <button className="pane-save-btn" onClick={handleSave} title="Save conversation to history">
           {saved ? (
             <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
-              <path d="M2 6l3 3 5-5" stroke="#22C55E" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              <path d="M2 6l3 3 5-5" stroke="var(--color-success)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
           ) : (
             <svg width="11" height="11" viewBox="0 0 12 12" fill="none">

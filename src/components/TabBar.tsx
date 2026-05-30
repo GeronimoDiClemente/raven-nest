@@ -60,7 +60,7 @@ const SortableTab = memo(function SortableTab({
     setRenamingId(null)
   }
 
-  const tabAccent = tab.accentColor ?? '#0066FF'
+  const tabAccent = tab.accentColor ?? 'var(--accent)'
 
   // Only apply transition while actively dragging — otherwise React re-renders
   // (from upstream metrics polling) re-attach the style and trigger CSS

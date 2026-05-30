@@ -32,6 +32,8 @@
   --font-ui: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, 'Cascadia Code', Consolas, monospace;
 
+  --color-success: #22C55E;
+
   --titlebar-height: 44px;
   --header-height: 32px;
 }
@@ -91,7 +93,7 @@ body {
 
 .tabbar {
   height: var(--titlebar-height);
-  background: var(--bg-surface);
+  background: var(--bg-titlebar);
   border-bottom: 1px solid var(--border);
   display: flex;
   align-items: flex-end;
@@ -165,16 +167,15 @@ body {
 .tab::before {
   content: '';
   position: absolute;
-  bottom: 0;
+  top: 0;
   left: 0;
   right: 0;
   height: 2px;
-  background: var(--tab-accent, var(--raven-blue));
-  opacity: 0.5;
+  background: var(--tab-accent, var(--accent));
+  opacity: 0;
   transition: opacity 0.15s;
 }
 
-.tab:hover::before,
 .tab.active::before {
   opacity: 1;
 }
@@ -187,7 +188,7 @@ body {
 
 .tab:not(.active):hover {
   color: var(--text-primary);
-  background: rgba(255,255,255,0.04);
+  background: var(--list-hover);
 }
 
 .tab-name {
@@ -1819,7 +1820,8 @@ body {
 
 .pane-header {
   height: var(--header-height);
-  background: color-mix(in srgb, var(--pane-color, var(--bg-surface)) 8%, var(--bg-surface));
+  background: var(--bg-pane);
+  border-bottom: 1px solid var(--border);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1876,6 +1878,7 @@ body {
 .pane-ai-label {
   font-size: 11px;
   font-weight: 600;
+  font-family: var(--font-mono);
   text-transform: uppercase;
   letter-spacing: 0.8px;
   flex-shrink: 0;
@@ -1883,7 +1886,7 @@ body {
 
 .pane-account-name {
   font-size: 12px;
-  color: var(--text-secondary);
+  color: var(--text-muted);
   flex-shrink: 0;
 }
 
