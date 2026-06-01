@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import type { Plan } from '../lib/stripe'
 
-const TRIAL_DAYS = 14
+const TRIAL_DAYS = 15
 
 interface Profile {
   plan: Plan

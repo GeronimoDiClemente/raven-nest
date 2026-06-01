@@ -12,7 +12,7 @@ interface Props {
   expanded: boolean
 }
 
-const TRIAL_DAYS_TOTAL = 14
+const TRIAL_DAYS_TOTAL = 15
 
 const planLabel = (plan: Plan | null, isTrialActive: boolean, trialDaysLeft: number) => {
   if (isTrialActive) return `Trial · ${trialDaysLeft}d`
