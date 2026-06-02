@@ -9116,6 +9116,11 @@ n.nav-sidebar{width:226px;flex-shrink:0;background:var(--bg-sidebar);border-righ
 .nav-item-badge{margin-left:auto;background:var(--accent);color:#04130c;font-size:10px;font-weight:700;min-width:16px;height:16px;border-radius:8px;display:flex;align-items:center;justify-content:center;padding:0 4px}
 .nav-item-primary{color:oklch(0.82 0.14 156)}
 .nav-item-primary svg{color:oklch(0.80 0.15 156)}
+/* Worktrees inline accordion body — bounded + scrollable so a long worktree
+   list never pushes the rest of the nav items off-screen. */
+.nav-accordion-body{max-height:42vh;overflow-y:auto;overflow-x:hidden;margin:1px 0 3px}
+.nav-accordion-body::-webkit-scrollbar{width:10px}
+.nav-accordion-body::-webkit-scrollbar-thumb{background:#ffffff1a;border-radius:6px;border:3px solid var(--bg-sidebar)}
 .nav-content{flex:1;min-height:0;overflow-y:auto;margin-top:6px;border-top:1px solid var(--border);padding-top:4px}
 .nav-content::-webkit-scrollbar{width:10px}
 .nav-content::-webkit-scrollbar-thumb{background:#ffffff1a;border-radius:6px;border:3px solid var(--bg-sidebar)}

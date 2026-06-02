@@ -11,6 +11,7 @@ import {
   Cable,
   Plus,
   Settings,
+  ChevronRight,
 } from 'lucide-react'
 import SettingsPanel from './SettingsPanel'
 import UserMenu from './UserMenu'
@@ -81,6 +82,9 @@ export default function NavSidebar({
     'idle' | 'checking' | 'up-to-date' | 'update-found' | 'error'
   >('idle')
   const [userEmail, setUserEmail] = useState('')
+  // Worktrees is "working context", not a quick action — it lives inline in the
+  // sidebar as a collapsible accordion (open by default) rather than a popover.
+  const [worktreesOpen, setWorktreesOpen] = useState(true)
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
@@ -110,27 +114,47 @@ export default function NavSidebar({
     <aside className="nav-sidebar">
       {/* ── Nav group ───────────────────────────────────────────────────── */}
       <div className="nav-group">
-        {/* Worktrees */}
-        <NavPopover icon={<GitBranch />} label="Worktrees">
-          <SidePanel
-            embedded
-            panel="worktrees"
-            onClose={() => {}}
-            repoPath={repoPath}
-            activeCellRepoPath={activeCellRepoPath}
-            onWorktreeSelect={onWorktreeSelect}
-            onNewWorktree={onNewWorktree}
-            worktreeRefreshKey={worktreeRefreshKey}
-            onRepoLink={onRepoLink}
-            onRepoUnlink={onRepoUnlink}
-            onSnippetSend={onSnippetSend}
-            onSnippetBroadcast={onSnippetBroadcast}
-            onUpgrade={onUpgrade}
-            onWorkspaceSave={onWorkspaceSave}
-            onWorkspaceLoad={onWorkspaceLoad}
-            onCommandRun={onCommandRun}
+        {/* Worktrees — inline collapsible accordion (working context, not a popover) */}
+        <button
+          className={`nav-item${worktreesOpen ? ' active' : ''}`}
+          onClick={() => setWorktreesOpen((v) => !v)}
+          title="Worktrees"
+          aria-expanded={worktreesOpen}
+        >
+          <GitBranch />
+          <span className="nav-item-label">Worktrees</span>
+          <ChevronRight
+            style={{
+              marginLeft: 'auto',
+              width: 15,
+              height: 15,
+              transition: 'transform .15s ease',
+              transform: worktreesOpen ? 'rotate(90deg)' : 'none',
+            }}
           />
-        </NavPopover>
+        </button>
+        {worktreesOpen && (
+          <div className="nav-accordion-body">
+            <SidePanel
+              embedded
+              panel="worktrees"
+              onClose={() => {}}
+              repoPath={repoPath}
+              activeCellRepoPath={activeCellRepoPath}
+              onWorktreeSelect={onWorktreeSelect}
+              onNewWorktree={onNewWorktree}
+              worktreeRefreshKey={worktreeRefreshKey}
+              onRepoLink={onRepoLink}
+              onRepoUnlink={onRepoUnlink}
+              onSnippetSend={onSnippetSend}
+              onSnippetBroadcast={onSnippetBroadcast}
+              onUpgrade={onUpgrade}
+              onWorkspaceSave={onWorkspaceSave}
+              onWorkspaceLoad={onWorkspaceLoad}
+              onCommandRun={onCommandRun}
+            />
+          </div>
+        )}
 
         {/* Team */}
         <button

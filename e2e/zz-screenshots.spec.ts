@@ -21,14 +21,9 @@ test('capture restyled UI', async () => {
 
   const shot = (name: string) => page.screenshot({ path: join(OUT, name) })
 
-  // 1. Initial view (worktrees panel open by default)
+  // 1. Initial view — Worktrees is an inline accordion, open by default
   await shot('01-initial.png')
-
-  // close the default side panel for a clean baseline
-  if (await page.locator('.side-panel').count()) {
-    await page.locator('.nav-item[title="Worktrees"]').first().click()
-    await page.waitForTimeout(300)
-  }
+  await shot('04-worktrees-accordion.png')
 
   // 2. The "Choose AI" picker (multi-AI identity, branded tiles)
   await page.keyboard.press('Control+t')
@@ -37,20 +32,27 @@ test('capture restyled UI', async () => {
   await page.keyboard.press('Escape') // close dialog before interacting with nav
   await page.waitForTimeout(300)
 
-  // 3. Side panels docked to the right
-  const panels: Array<[string, string]> = [
-    ['Worktrees', '04-worktrees.png'],
+  // 3. Nav popovers — anchored to the right of the nav item (NOT a docked panel)
+  const popovers: Array<[string, string]> = [
     ['Snippets', '05-snippets.png'],
     ['MCP', '06-mcp.png'],
     ['Workspaces', '07-workspaces.png'],
+    ['Command History', '14-cmdhist.png'],
   ]
-  for (const [title, file] of panels) {
+  for (const [title, file] of popovers) {
     await page.locator(`.nav-item[title="${title}"]`).first().click()
-    await page.waitForTimeout(500)
+    await page.waitForTimeout(450)
     await shot(file)
-    await page.locator(`.nav-item[title="${title}"]`).first().click() // toggle closed
+    await page.keyboard.press('Escape') // close popover before the next one
     await page.waitForTimeout(200)
   }
+
+  // 4. Worktrees accordion collapsed, then re-open for a clean baseline
+  await page.locator('.nav-item[title="Worktrees"]').first().click()
+  await page.waitForTimeout(300)
+  await shot('04b-worktrees-collapsed.png')
+  await page.locator('.nav-item[title="Worktrees"]').first().click()
+  await page.waitForTimeout(300)
 
   // 4. Teams — now populated via the e2e fixtures (lands on Activity feed)
   await page.locator('.nav-item[title="Team"]').first().click()
