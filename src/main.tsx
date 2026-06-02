@@ -3,6 +3,8 @@ import ReactDOM from 'react-dom/client'
 import App from './App'
 import AuthScreen from './components/AuthScreen'
 import { supabase } from './lib/supabase'
+import '@fontsource-variable/inter'
+import '@fontsource-variable/geist-mono'
 import './styles/global.css'
 import '@xterm/xterm/css/xterm.css'
 

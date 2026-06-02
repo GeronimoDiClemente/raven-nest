@@ -14,28 +14,32 @@
   --raven-blue: var(--accent);
   --raven-blue-dim: oklch(0.72 0.17 156 / 0.28);
 
-  /* Near-black layered surfaces (matches demo) */
-  --bg-app: oklch(0.155 0.004 240);      /* base behind panes */
-  --bg-surface: oklch(0.185 0.005 240);  /* sidebar, panels, tabs */
-  --bg-sidebar: oklch(0.175 0.005 240);
-  --bg-elevated: oklch(0.215 0.006 240); /* popovers, modals */
-  --bg-titlebar: oklch(0.205 0.005 240);
-  --bg-activity: oklch(0.165 0.005 240);
+  /* Near-black layered surfaces — values taken from nestmux.com (oklch hue 240,
+     deep cool near-black base with layered surfaces). */
+  --bg-app: oklch(0.135 0.005 240);      /* layer-0: base behind panes */
+  --bg-surface: oklch(0.175 0.005 240);  /* layer-1: sidebar, panels, tabs */
+  --bg-sidebar: oklch(0.165 0.005 240);
+  --bg-elevated: oklch(0.215 0.008 240); /* layer-2: popovers, modals */
+  --bg-titlebar: oklch(0.175 0.005 240);
+  --bg-activity: oklch(0.145 0.005 240);
   --bg-pane: #000000;                     /* terminal cells â€” black like the demo */
 
-  --border: oklch(1 0 0 / 0.07);         /* subtle border */
-  --border-strong: oklch(1 0 0 / 0.14);  /* visible border */
+  /* White-alpha borders in three tiers (matches nestmux --line-*) */
+  --border-subtle: oklch(1 0 0 / 0.06);
+  --border: oklch(1 0 0 / 0.10);         /* default border */
+  --border-strong: oklch(1 0 0 / 0.16);  /* visible border */
 
-  --text-primary: oklch(0.95 0 0);
-  --text-secondary: oklch(0.66 0 0);
-  --text-muted: oklch(0.48 0 0);
+  --text-primary: oklch(0.98 0 0);
+  --text-secondary: oklch(0.72 0 0);
+  --text-muted: oklch(0.55 0 0);
 
-  --list-hover: oklch(1 0 0 / 0.05);
-  --list-active: oklch(1 0 0 / 0.09);
+  --list-hover: oklch(1 0 0 / 0.06);
+  --list-active: oklch(1 0 0 / 0.10);
 
-  /* Typography */
-  --font-ui: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, 'Cascadia Code', Consolas, monospace;
+  /* Typography — Inter (UI) + Geist Mono, bundled via @fontsource (offline-safe),
+     matching nestmux.com. */
+  --font-ui: 'Inter Variable', 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'Geist Mono Variable', 'Geist Mono', ui-monospace, 'Cascadia Code', Consolas, monospace;
 
   --color-success: #22C55E;
 
@@ -4041,10 +4045,10 @@ body {
 }
 
 .empty-title {
-  font-size: 28px;
-  font-weight: 700;
+  font-size: 30px;
+  font-weight: 600;
   color: var(--text-primary);
-  letter-spacing: 1px;
+  letter-spacing: -0.022em;
 }
 
 .empty-title .raven {
