@@ -8005,6 +8005,10 @@ body.platform-mac .tabbar { padding-right: 116px; }
 }
 
 .rb-bullet-logo {
+  display: inline-flex;
+  align-items: center;
+  vertical-align: middle;
+}
 /* â”€â”€ Empty state: Join / Create tabs â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 .empty-state-wrap {
@@ -8593,6 +8597,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
   font-variant-numeric: tabular-nums;
 }
 
+.team-switcher-item-icon {
   flex-shrink: 0;
   color: var(--text-muted);
 }
