@@ -404,8 +404,8 @@ Be specific and actionable. Keep it short.`
       {canMerge && pr.state === 'open' && !merged && (
         <div style={{ padding: '8px 14px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 10 }}>
           <button
-            className="snippet-save-btn"
-            style={{ background: '#7c3aed', minWidth: 110 }}
+            className="btn-primary-violet"
+            style={{ minWidth: 110 }}
             onClick={mergePR}
             disabled={merging}
           >
@@ -431,8 +431,7 @@ Be specific and actionable. Keep it short.`
                 disabled={releasing}
               />
               <button
-                className="snippet-save-btn"
-                style={{ background: '#7c3aed' }}
+                className="btn-primary-violet"
                 onClick={createRelease}
                 disabled={releasing || !releaseVersion.trim()}
               >
@@ -572,23 +571,21 @@ Be specific and actionable. Keep it short.`
                 {submitOk && <p style={{ color: '#22c55e', fontSize: 11, marginBottom: 6 }}>Review submitted.</p>}
                 <div className="pr-review-actions">
                   <button
-                    className="snippet-save-btn"
-                    style={{ background: '#22c55e' }}
+                    className="btn-soft success"
                     disabled={submitting}
                     onClick={() => submitReview('APPROVE')}
                   >
                     Approve
                   </button>
                   <button
-                    className="snippet-save-btn"
-                    style={{ background: '#f59e0b' }}
+                    className="btn-soft warning"
                     disabled={submitting}
                     onClick={() => submitReview('REQUEST_CHANGES')}
                   >
                     Request changes
                   </button>
                   <button
-                    className="snippet-cancel-btn"
+                    className="btn-soft neutral"
                     disabled={submitting}
                     onClick={() => submitReview('COMMENT')}
                   >

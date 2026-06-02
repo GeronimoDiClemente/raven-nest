@@ -1274,6 +1274,58 @@ body {
   box-shadow: 0 0 0 2px rgba(0, 102, 255, 0.18);
 }
 
+/* ── Lenguaje de botones compartido ──────────────────────────
+   Botones semánticos "soft" (fill tenue + borde + texto teñido)
+   en vez de fills planos saturados. Pulido, no genérico. */
+.btn-soft {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.1px;
+  padding: 6px 13px;
+  border-radius: 7px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: background 0.14s ease, border-color 0.14s ease, color 0.14s ease, box-shadow 0.14s ease;
+}
+.btn-soft:disabled { opacity: 0.45; cursor: not-allowed; }
+.btn-soft:focus-visible { outline: none; box-shadow: 0 0 0 2px rgba(0, 102, 255, 0.3); }
+
+.btn-soft.success { background: rgba(34, 197, 94, 0.10); border-color: rgba(34, 197, 94, 0.30); color: #4ade80; }
+.btn-soft.success:hover:not(:disabled) { background: rgba(34, 197, 94, 0.18); border-color: rgba(34, 197, 94, 0.55); }
+.btn-soft.warning { background: rgba(245, 158, 11, 0.10); border-color: rgba(245, 158, 11, 0.30); color: #fbbf24; }
+.btn-soft.warning:hover:not(:disabled) { background: rgba(245, 158, 11, 0.18); border-color: rgba(245, 158, 11, 0.55); }
+.btn-soft.neutral { background: rgba(255, 255, 255, 0.04); border-color: var(--border); color: var(--text-secondary); }
+.btn-soft.neutral:hover:not(:disabled) { background: rgba(255, 255, 255, 0.07); border-color: #2c2c2c; color: var(--text-primary); }
+
+/* Primario sólido refinado (Merge / Release): gradiente sutil + highlight interno */
+.btn-primary-violet {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.1px;
+  padding: 6px 14px;
+  border-radius: 7px;
+  cursor: pointer;
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  background: linear-gradient(180deg, #8b5cf6, #7c3aed);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), 0 1px 2px rgba(0, 0, 0, 0.45);
+  transition: filter 0.14s ease, box-shadow 0.14s ease;
+}
+.btn-primary-violet:hover:not(:disabled) { filter: brightness(1.08); }
+.btn-primary-violet:active:not(:disabled) { filter: brightness(0.95); box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.4); }
+.btn-primary-violet:disabled { opacity: 0.45; cursor: not-allowed; box-shadow: none; }
+.btn-primary-violet:focus-visible { outline: none; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), 0 0 0 2px rgba(124, 58, 237, 0.4); }
+
 .snippet-empty {
   font-size: 13px;
   color: var(--text-muted);
@@ -5451,17 +5503,18 @@ button.ci-badge:hover {
 .tw-connect-github-btn {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
   background: none;
   border: 1px solid var(--border);
-  border-radius: 5px;
+  border-radius: 7px;
   color: var(--text-secondary);
   font-size: 11px;
-  padding: 3px 8px;
+  font-weight: 500;
+  padding: 6px 11px;
   cursor: pointer;
-  transition: color 0.15s, border-color 0.15s;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
 }
-.tw-connect-github-btn:hover { color: var(--text-primary); border-color: var(--text-muted); }
+.tw-connect-github-btn:hover { color: var(--text-primary); border-color: var(--text-muted); background: rgba(255, 255, 255, 0.04); }
 
 .tw-github-user {
   display: flex;
@@ -5480,17 +5533,19 @@ button.ci-badge:hover {
 
 .tw-notif-btn {
   position: relative;
-  background: none;
-  border: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  background: transparent;
+  border: 1px solid transparent;
   color: var(--text-muted);
   cursor: pointer;
-  padding: 4px;
-  border-radius: 5px;
-  display: flex;
-  align-items: center;
-  transition: color 0.15s;
+  border-radius: 8px;
+  transition: background 0.14s ease, color 0.14s ease, border-color 0.14s ease;
 }
-.tw-notif-btn:hover { color: var(--text-primary); }
+.tw-notif-btn:hover { background: rgba(255, 255, 255, 0.05); color: var(--text-primary); border-color: var(--border); }
 
 .tw-notif-badge {
   position: absolute;
