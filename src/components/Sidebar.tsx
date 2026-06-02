@@ -525,6 +525,7 @@ export default function Sidebar({
               onSelect={onWorktreeSelect}
               onNewClick={onNewWorktree}
               refreshKey={worktreeRefreshKey}
+              onStartTutorial={onOpenTutorial ? () => onOpenTutorial('worktrees') : undefined}
             />
           </div>
         )}

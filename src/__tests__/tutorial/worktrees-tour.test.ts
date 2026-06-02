@@ -3,10 +3,9 @@ import { describe, it, expect } from 'vitest'
 import { worktreesTour } from '../../tutorial/tours/worktrees'
 
 describe('worktrees tour copy', () => {
-  it('has 13 steps in the guided order', () => {
+  it('covers only the worktrees list-view anchors, in order', () => {
     expect(worktreesTour.steps.map((s) => s.id)).toEqual([
-      'header', 'add', 'branch', 'presets', 'env', 'create', 'list',
-      'diff', 'diff-panel', 'drag-terminal', 'sync-cwd', 'pr', 'menu',
+      'header', 'add', 'list', 'diff', 'pr', 'menu',
     ])
   })
 
@@ -19,11 +18,10 @@ describe('worktrees tour copy', () => {
     }
   })
 
-  it('wires action-driven advance on the two interactive-mock steps', () => {
-    const byId = Object.fromEntries(worktreesTour.steps.map((s) => [s.id, s]))
-    expect(byId['drag-terminal'].advanceOnAction).toBe('drop')
-    expect(byId['drag-terminal'].anchor).toBe('[data-tour-id="wt-list"]')
-    expect(byId['sync-cwd'].advanceOnAction).toBe('sync')
-    expect(byId['sync-cwd'].anchor).toBe('[data-tour-id="pane-sync-cwd-btn"]')
+  it('is non-interactive: no step advances on click or action (Next-only)', () => {
+    for (const step of worktreesTour.steps) {
+      expect(step.advanceOnClick).toBeUndefined()
+      expect(step.advanceOnAction).toBeUndefined()
+    }
   })
 })

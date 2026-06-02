@@ -1,6 +1,13 @@
 // src/tutorial/tours/worktrees.ts
-import { type TourDef, TOUR_ACTIONS } from '../types'
+import { type TourDef } from '../types'
 
+/**
+ * Worktrees walkthrough. Text-only / Next-only: it spotlights anchors that are
+ * present in the live worktrees list view (a repo must be open) and never
+ * advances on click or action, so touring never triggers a real action on the
+ * user's repos. Steps that lived inside the New-worktree modal or required an
+ * interaction (drag a worktree, sync a terminal) were dropped on purpose.
+ */
 export const worktreesTour: TourDef = {
   id: 'worktrees',
   steps: [
@@ -19,60 +26,18 @@ export const worktreesTour: TourDef = {
       anchor: '[data-tour-id="wt-add"]',
       title: { en: 'Create a worktree', es: 'Creá un worktree' },
       body: {
-        en: 'Click "+" to create one from a branch.',
-        es: 'Tocá "+" para crear uno a partir de una rama.',
+        en: 'Click "+" to open the dialog: pick a branch, an optional setup preset, optionally copy your .env files, and create it.',
+        es: 'Tocá "+" para abrir el diálogo: elegís una rama, un preset de setup opcional, podés copiar tus .env, y lo creás.',
       },
       placement: 'right',
-      advanceOnClick: true,
-    },
-    {
-      id: 'branch',
-      anchor: '[data-tour-id="wt-branch-input"]',
-      title: { en: 'Branch name', es: 'Nombre de la rama' },
-      body: {
-        en: 'Type the new branch name, e.g. feat/billing.',
-        es: 'Escribí el nombre de la rama nueva, ej. feat/billing.',
-      },
-      placement: 'bottom',
-    },
-    {
-      id: 'presets',
-      anchor: '[data-tour-id="wt-presets"]',
-      title: { en: 'Preset (optional)', es: 'Preset (opcional)' },
-      body: {
-        en: 'Pick a preset to run setup automatically (install dependencies, start the dev server).',
-        es: 'Elegí un preset para correr el setup automático (instalar deps, levantar el dev).',
-      },
-      placement: 'bottom',
-    },
-    {
-      id: 'env',
-      anchor: '[data-tour-id="wt-env-banner"]',
-      title: { en: '.env files', es: 'Archivos .env' },
-      body: {
-        en: 'If there are untracked .env files, you can copy them into the new worktree.',
-        es: 'Si hay archivos .env sin trackear, podés copiarlos al worktree nuevo.',
-      },
-      placement: 'top',
-    },
-    {
-      id: 'create',
-      anchor: '[data-tour-id="wt-create-btn"]',
-      title: { en: 'Create', es: 'Crear' },
-      body: {
-        en: 'Confirm: the worktree appears and runs its setup.',
-        es: 'Confirmá: el worktree aparece y corre su setup.',
-      },
-      placement: 'top',
-      advanceOnClick: true,
     },
     {
       id: 'list',
       anchor: '[data-tour-id="wt-list"]',
       title: { en: 'Your worktrees', es: 'Tus worktrees' },
       body: {
-        en: 'They all show up here with their status (yellow = setup, green = ready).',
-        es: 'Acá aparecen todos con su estado (amarillo = setup, verde = listo).',
+        en: 'They all show up here with their status (yellow = setting up, green = ready). Drag one into the workspace to open a terminal in its folder.',
+        es: 'Acá aparecen todos con su estado (amarillo = setup, verde = listo). Arrastrá uno al workspace para abrir una terminal en su carpeta.',
       },
       placement: 'right',
     },
@@ -81,53 +46,18 @@ export const worktreesTour: TourDef = {
       anchor: '[data-tour-id="wt-diff-chip"]',
       title: { en: 'Changes', es: 'Cambios' },
       body: {
-        en: 'The chip shows +added/−removed lines. Click it to see the full diff.',
-        es: 'El chip muestra +líneas/−líneas. Tocalo para ver el diff completo.',
+        en: 'The chip shows +added/−removed lines. Click it to review the full diff file by file without leaving Nest.',
+        es: 'El chip muestra +líneas/−líneas. Tocalo para revisar el diff completo archivo por archivo sin salir de Nest.',
       },
       placement: 'right',
-      advanceOnClick: true,
-    },
-    {
-      id: 'diff-panel',
-      anchor: '[data-tour-id="diff-panel"]',
-      title: { en: 'Diff', es: 'Diff' },
-      body: {
-        en: 'Review changes file by file without leaving Nest.',
-        es: 'Revisás los cambios archivo por archivo sin salir de Nest.',
-      },
-      placement: 'left',
-    },
-    {
-      id: 'drag-terminal',
-      // Deliberately reuses the `wt-list` anchor — there is no per-row anchor;
-      // the spotlight covers the whole list.
-      anchor: '[data-tour-id="wt-list"]',
-      title: { en: 'Open a terminal in a worktree', es: 'Abrí una terminal en un worktree' },
-      body: {
-        en: "Drag a worktree from the list into the workspace to open a terminal that runs in that worktree's folder.",
-        es: 'Arrastrá un worktree de la lista al workspace para abrir una terminal que corre en la carpeta de ese worktree.',
-      },
-      placement: 'right',
-      advanceOnAction: TOUR_ACTIONS.DROP,
-    },
-    {
-      id: 'sync-cwd',
-      anchor: '[data-tour-id="pane-sync-cwd-btn"]',
-      title: { en: "Switch a terminal's folder", es: 'Cambiá la carpeta de una terminal' },
-      body: {
-        en: 'Click another worktree to point this terminal at it, then hit "Sync cwd" to restart it there.',
-        es: 'Tocá otro worktree para apuntar esta terminal ahí, después dale "Sync cwd" para reiniciarla en esa carpeta.',
-      },
-      placement: 'left',
-      advanceOnAction: TOUR_ACTIONS.SYNC,
     },
     {
       id: 'pr',
       anchor: '[data-tour-id="wt-pr-chip"]',
       title: { en: 'Pull request', es: 'Pull request' },
       body: {
-        en: 'If the branch has a PR, the chip takes you there. From the menu you can also "Push to GitHub".',
-        es: 'Si la rama tiene PR, el chip te lleva ahí. Desde el menú también podés "Push to GitHub".',
+        en: 'If the branch has a PR, the chip takes you there. You can also "Push to GitHub" from the worktree menu.',
+        es: 'Si la rama tiene PR, el chip te lleva ahí. También podés "Push to GitHub" desde el menú del worktree.',
       },
       placement: 'right',
     },
@@ -136,8 +66,8 @@ export const worktreesTour: TourDef = {
       anchor: '[data-tour-id="wt-context-menu"]',
       title: { en: 'Actions', es: 'Acciones' },
       body: {
-        en: "Right-click a worktree: push, open in IDE, spotlight, or remove it. That's Worktrees!",
-        es: 'Click derecho en un worktree: push, abrir en IDE, spotlight, o eliminarlo. ¡Eso es Worktrees!',
+        en: "Right-click a worktree for its actions: push, open in your IDE, spotlight, or remove it. That's Worktrees!",
+        es: 'Click derecho en un worktree para sus acciones: push, abrir en tu IDE, spotlight, o eliminarlo. ¡Eso es Worktrees!',
       },
       placement: 'right',
     },

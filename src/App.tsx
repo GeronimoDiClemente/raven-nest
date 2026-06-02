@@ -44,8 +44,8 @@ import { terminalShareService } from './lib/terminalShareService'
 import ResourceBar from './components/ResourceBar'
 import { useLocalPathsMigration } from './hooks/useLocalPathsMigration'
 import type { MetricsPaneInput } from './types'
-import { TutorialSandbox } from './tutorial/TutorialSandbox'
-import { useTourSeen } from './hooks/useTourSeen'
+import { OnboardingTour } from './tutorial/OnboardingTour'
+import { getTour } from './tutorial/registry'
 
 
 let paneCounter = 0
@@ -344,17 +344,10 @@ export default function App() {
   const handleNewWorktree = useCallback(() => setShowNewWorktree(true), [])
   const [quickWorktreeOpen, setQuickWorktreeOpen] = useState(false)
   const [diffViewerOpen, setDiffViewerOpen] = useState(false)
+  // The tutorial is launched on demand: from the "?" button in the Worktrees
+  // section header or from Settings → Tutorial. No blind auto-launch — the tour
+  // spotlights the live app, so it only makes sense once you're on that view.
   const [tutorialTour, setTutorialTour] = useState<import('./tutorial/types').TourId | null>(null)
-
-  // First-time auto-launch: when the sidebar is expanded with a repo linked,
-  // the Worktrees section becomes visible. Launch the Worktrees tutorial once,
-  // then mark it seen when the sandbox closes (below, in the sandbox onClose).
-  const worktreesSeen = useTourSeen('worktrees')
-  useEffect(() => {
-    if (sidebarExpanded && activeTab.repoPath && !worktreesSeen.seen) {
-      setTutorialTour('worktrees')
-    }
-  }, [sidebarExpanded, activeTab.repoPath, worktreesSeen.seen])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -1256,7 +1249,10 @@ export default function App() {
         worktreePath={activeCellRepoPath ?? null}
         onClose={() => setDiffViewerOpen(false)}
       />
-      {tutorialTour && <TutorialSandbox tourId={tutorialTour} onClose={() => { if (tutorialTour === 'worktrees') worktreesSeen.markSeen(); setTutorialTour(null) }} />}
+      {tutorialTour && (() => {
+        const tour = getTour(tutorialTour)
+        return tour ? <OnboardingTour steps={tour.steps} onClose={() => setTutorialTour(null)} /> : null
+      })()}
     </div>
   )
 }

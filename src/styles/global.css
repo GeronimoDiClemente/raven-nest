@@ -7242,10 +7242,17 @@ button.ci-badge:hover {
   text-transform: uppercase; letter-spacing: 0.5px; cursor: pointer;
 }
 .wt-section-header:hover { color: var(--text-secondary); }
+.wt-header-actions { display: flex; align-items: center; gap: 2px; }
 .wt-add-btn {
   background: transparent; border: none; color: var(--raven-blue);
   font-size: 14px; cursor: pointer; padding: 0 4px;
 }
+.wt-help-btn {
+  background: transparent; border: none; color: var(--text-muted);
+  font-size: 11px; cursor: pointer; padding: 0 5px; line-height: 1;
+  border-radius: 50%;
+}
+.wt-help-btn:hover { color: var(--raven-blue); }
 .wt-list { display: flex; flex-direction: column; }
 .wt-item {
   display: flex; flex-direction: column; align-items: stretch; gap: 2px;

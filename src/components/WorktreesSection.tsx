@@ -12,6 +12,8 @@ interface Props {
   onSelect: (worktreePath: string) => void
   onNewClick: () => void
   refreshKey?: number
+  /** When provided, the header shows a "?" button that launches the worktrees tutorial. */
+  onStartTutorial?: () => void
 }
 
 interface DiffStat { additions: number; deletions: number }
@@ -40,7 +42,7 @@ interface ContextMenuState {
   isRoot: boolean
 }
 
-export function WorktreesSection({ repoPath, activeRepoPath, onSelect, onNewClick, refreshKey }: Props) {
+export function WorktreesSection({ repoPath, activeRepoPath, onSelect, onNewClick, refreshKey, onStartTutorial }: Props) {
   const bridge = useBridge()
   const [worktrees, setWorktrees] = useState<WorktreeMeta[]>([])
   const [expanded, setExpanded] = useState(true)
@@ -198,12 +200,21 @@ export function WorktreesSection({ repoPath, activeRepoPath, onSelect, onNewClic
     <div className="worktrees-section">
       <div className="wt-section-header" data-tour-id="wt-header" onClick={() => setExpanded(!expanded)}>
         <span>{expanded ? '▾' : '▸'} Worktrees</span>
-        <button
-          className="wt-add-btn"
-          data-tour-id="wt-add"
-          onClick={(e) => { e.stopPropagation(); onNewClick() }}
-          title="New worktree"
-        >+</button>
+        <span className="wt-header-actions">
+          {onStartTutorial && (
+            <button
+              className="wt-help-btn"
+              onClick={(e) => { e.stopPropagation(); onStartTutorial() }}
+              title="Tutorial: Worktrees"
+            >?</button>
+          )}
+          <button
+            className="wt-add-btn"
+            data-tour-id="wt-add"
+            onClick={(e) => { e.stopPropagation(); onNewClick() }}
+            title="New worktree"
+          >+</button>
+        </span>
       </div>
       {(() => {
       // Tour anchors must land on the FIRST worktree that actually RENDERS each

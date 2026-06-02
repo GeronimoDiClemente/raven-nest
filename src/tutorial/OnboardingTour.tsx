@@ -1,7 +1,8 @@
 // src/tutorial/OnboardingTour.tsx
-import { useState, useEffect, useRef, useCallback, type CSSProperties, type RefObject } from 'react'
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, type CSSProperties, type RefObject } from 'react'
 import type { TourStep } from './types'
 import { t, resolveTutorialLocale, type Localized } from './i18n'
+import { computeTooltipPosition } from './tooltipPosition'
 
 /** Action signal: bumping `nonce` advances the step whose `advanceOnAction` === `action`. */
 export interface AdvanceSignal {
@@ -49,6 +50,8 @@ export function OnboardingTour({ steps, onClose, startIndex = 0, rootRef, advanc
   const locale = resolveTutorialLocale()
   const [index, setIndex] = useState(startIndex)
   const [rect, setRect] = useState<DOMRect | null>(null)
+  const tooltipRef = useRef<HTMLDivElement | null>(null)
+  const [ttSize, setTtSize] = useState({ w: 260, h: 170 })
   const step = steps[index]
   const isLast = index === steps.length - 1
 
@@ -106,6 +109,19 @@ export function OnboardingTour({ steps, onClose, startIndex = 0, rootRef, advanc
     if (step) onStepChange?.(step.id)
   }, [step, onStepChange])
 
+  // Measure the rendered tooltip so placement math can keep it inside the
+  // viewport. Bails out (returns prev) when unchanged so it doesn't re-render.
+  useLayoutEffect(() => {
+    const el = tooltipRef.current
+    if (!el) return
+    const r = el.getBoundingClientRect()
+    setTtSize((prev) =>
+      r.width && r.height && (Math.abs(r.width - prev.w) > 1 || Math.abs(r.height - prev.h) > 1)
+        ? { w: r.width, h: r.height }
+        : prev,
+    )
+  }, [step, rect])
+
   if (!step) return null
 
   const pad = 6
@@ -118,18 +134,14 @@ export function OnboardingTour({ steps, onClose, startIndex = 0, rootRef, advanc
       }
     : null
 
-  // Tooltip sits just below the spotlight (fallback: centered when no anchor).
-  // NOTE: step.placement ('top'|'left'|'right') is not yet honored — every
-  // anchored tooltip renders below the spotlight. TODO: route by placement.
-  // Clamp horizontally so the tooltip never hugs a viewport edge when the
-  // anchored element is near x=0 or x=innerWidth (e.g. sidebar items).
-  const VP_MARGIN = 16
-  const TOOLTIP_W = 260
+  // Position the tooltip beside/above/below the spotlight per step.placement,
+  // clamped inside the viewport (fallback: centered when there's no anchor).
   const tooltipStyle: CSSProperties = spotlight
     ? (() => {
-        const maxLeft = (typeof window !== 'undefined' ? window.innerWidth : TOOLTIP_W + VP_MARGIN * 2) - TOOLTIP_W - VP_MARGIN
-        const left = Math.min(Math.max(VP_MARGIN, spotlight.left), Math.max(VP_MARGIN, maxLeft))
-        return { position: 'fixed', top: spotlight.top + spotlight.height + 12, left, zIndex: 2001 }
+        const vw = typeof window !== 'undefined' ? window.innerWidth : 1024
+        const vh = typeof window !== 'undefined' ? window.innerHeight : 768
+        const { top, left } = computeTooltipPosition(spotlight, step.placement, ttSize, { w: vw, h: vh })
+        return { position: 'fixed', top, left, zIndex: 2001 }
       })()
     : { position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', zIndex: 2001 }
 
@@ -147,7 +159,7 @@ export function OnboardingTour({ steps, onClose, startIndex = 0, rootRef, advanc
       ) : (
         <div className="tour-dim" />
       )}
-      <div className="tour-tooltip" style={tooltipStyle}>
+      <div className="tour-tooltip" style={tooltipStyle} ref={tooltipRef}>
         <span className="tour-badge">
           {index + 1} / {steps.length}
         </span>
