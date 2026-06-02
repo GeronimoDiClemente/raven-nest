@@ -266,7 +266,7 @@ export default function IssueDetail({ repoFullName, issue: initialIssue, githubT
           {branchError && <p style={{ color: '#EF4444', fontSize: 11, marginBottom: 6 }}>{branchError}</p>}
           {createdBranchName && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 11, color: '#22c55e' }}>✓ Rama creada:</span>
+              <span style={{ fontSize: 11, color: '#22c55e' }}>✓ Branch created:</span>
               <code style={{ fontSize: 11, background: 'var(--bg-secondary)', padding: '2px 6px', borderRadius: 4, color: 'var(--text-primary)' }}>
                 {createdBranchName}
               </code>

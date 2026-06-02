@@ -19,7 +19,7 @@ const REACTION_EMOJIS = ['👍', '❤️', '🔥', '👀', '🎉']
 function timeAgo(dateStr: string): string {
   const diff = Date.now() - new Date(dateStr).getTime()
   const mins = Math.floor(diff / 60000)
-  if (mins < 1) return 'ahora'
+  if (mins < 1) return 'now'
   if (mins < 60) return `${mins}m`
   const hrs = Math.floor(mins / 60)
   if (hrs < 24) return `${hrs}h`
@@ -199,7 +199,7 @@ export default function TeamChat({
           onClick={handlePost}
           disabled={posting || !messageInput.trim()}
         >
-          {posting ? '…' : 'Enviar'}
+          {posting ? '…' : 'Send'}
         </button>
       </div>
     </div>

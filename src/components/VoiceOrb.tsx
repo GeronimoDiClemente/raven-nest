@@ -23,7 +23,7 @@ export default function VoiceOrb({ isListening, interimTranscript, onClick }: Vo
     }}>
       <div
         onClick={onClick}
-        title={isListening ? 'Click para detener' : 'Click para hablar'}
+        title={isListening ? 'Click to stop' : 'Click to speak'}
         style={{
           width: size,
           height: size,

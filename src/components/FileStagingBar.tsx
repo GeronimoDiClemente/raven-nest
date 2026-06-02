@@ -44,13 +44,13 @@ export default function FileStagingBar({ files, onRemove, onSend, onCancel }: Pr
         <input
           ref={inputRef}
           className="file-staging-input"
-          placeholder="Mensaje (opcional)…"
+          placeholder="Message (optional)…"
           value={message}
           onChange={(e) => setMessage(e.target.value)}
           onKeyDown={handleKeyDown}
         />
         <button className="file-staging-send" onClick={() => { onSend(message); setMessage('') }}>
-          Enviar ↵
+          Send ↵
         </button>
       </div>
     </div>
