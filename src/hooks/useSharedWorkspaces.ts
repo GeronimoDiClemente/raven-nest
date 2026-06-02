@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 import type { Workspace } from '../types'
+import { isE2EPreview } from '../lib/e2ePreview'
+import { FX_WORKSPACES, FX_USER_ID } from '../lib/e2eFixtures'
 
 export interface SharedWorkspace {
   id: string
@@ -62,6 +64,17 @@ export function useSharedWorkspaces(teamId?: string) {
     }
     setItems(prev => prev.filter(i => i.id !== id))
   }, [])
+
+  if (isE2EPreview()) {
+    return {
+      items: FX_WORKSPACES as unknown as SharedWorkspace[],
+      loading: false,
+      userId: FX_USER_ID,
+      refresh: async () => {},
+      share: async () => true,
+      remove: async () => {},
+    }
+  }
 
   return { items, loading, userId, refresh, share, remove }
 }

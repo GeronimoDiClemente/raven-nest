@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react'
 import { safeWriteText } from '../lib/clipboard'
+import { isE2EPreview } from '../lib/e2ePreview'
+import { FX_MEMBERS } from '../lib/e2eFixtures'
 
 interface GitHubEvent {
   id: string
@@ -263,6 +265,32 @@ export default function DailyStandup({ repos, githubToken, teamMembers }: DailyS
         setTimeout(() => setCopied(false), 2000)
       }
     })
+  }
+
+  if (isE2EPreview()) {
+    const preview = FX_MEMBERS.slice(0, 2)
+    const previewActivities: Record<string, string[]> = {
+      [preview[0].email]: ['pushed 3 commits to feat/auth-rewrite (platform-api)', 'opened PR #142 "add rate limiter v2" (platform-api)'],
+      [preview[1].email]: ['pushed 2 commits to main (platform-api)'],
+    }
+    return (
+      <div className="standup-container">
+        <div className="standup-header">
+          <span className="standup-title">📋 Standup — {dateLabel}</span>
+        </div>
+        <div className="standup-divider" />
+        {preview.map(member => (
+          <div key={member.email} className="standup-member">
+            <div className="standup-member-name">{member.email}</div>
+            <ul className="standup-member-activity">
+              {previewActivities[member.email].map((act, i) => (
+                <li key={i}>{act}</li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </div>
+    )
   }
 
   if (!githubToken) {

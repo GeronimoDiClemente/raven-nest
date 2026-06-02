@@ -1,5 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useGitHub } from '../hooks/useGitHub'
+import { isE2EPreview } from '../lib/e2ePreview'
+import { FX_FEED } from '../lib/e2eFixtures'
 
 interface GitHubEvent {
   id: string
@@ -164,6 +166,29 @@ export default function ActivityFeed({ repos, githubToken, teamMembers: _teamMem
     load()
     return () => { alive = false }
   }, [repoNames, githubToken])
+
+  if (isE2EPreview()) {
+    return (
+      <div className="feed-container">
+        {FX_FEED.map(ev => (
+          <div key={ev.id} className="feed-event">
+            <div className="feed-avatar" aria-hidden />
+            <div className="feed-event-content">
+              <div className="feed-event-top">
+                <div className="feed-event-main"><span className="feed-actor">{ev.actor}</span> {ev.action}</div>
+                <span className="feed-time">{ev.ago}</span>
+              </div>
+              {ev.detail && <div className="feed-event-detail">"{ev.detail}"</div>}
+              <div className="feed-event-meta">
+                <span className={`feed-type-badge ${ev.badge}`}>{ev.badge === 'pr' ? 'PR' : ev.badge}</span>
+                <span className="feed-repo">{ev.repo}</span>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    )
+  }
 
   // No token
   if (!githubToken) {

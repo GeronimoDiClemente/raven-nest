@@ -1,6 +1,8 @@
 import { useState, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 import { PROVIDER_HOST } from '../components/ProviderAvatar'
+import { isE2EPreview } from '../lib/e2ePreview'
+import { FX_REPOS } from '../lib/e2eFixtures'
 
 export interface TeamRepo {
   id: string
@@ -151,6 +153,20 @@ export function useTeamRepos(teamId: string | null) {
       .upsert({ team_repo_id: repoId, user_id: userId, permission }, { onConflict: 'team_repo_id,user_id' })
     if (error) console.warn('[useTeamRepos.setPermission] upsert failed', { repoId, userId, permission }, error)
   }, [])
+
+  if (isE2EPreview()) {
+    return {
+      repos: FX_REPOS,
+      loading: false,
+      userLocalPaths: {} as Record<string, string>,
+      refresh: async () => {},
+      addRepo: async () => true,
+      updateUserLocalPath: async () => {},
+      updateLocalPath: async () => {},
+      removeRepo: async () => {},
+      setPermission: async () => {},
+    }
+  }
 
   return { repos, loading, userLocalPaths, refresh, addRepo, updateUserLocalPath, updateLocalPath, removeRepo, setPermission }
 }

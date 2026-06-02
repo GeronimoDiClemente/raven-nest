@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import type { RealtimeChannel } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
+import { isE2EPreview } from '../lib/e2ePreview'
+import { FX_PRESENCE } from '../lib/e2eFixtures'
 
 export interface PresenceState {
   userId: string
@@ -69,6 +71,10 @@ export function useTeamPresence(teamId: string | null, currentUserId: string | n
       lastSeen: new Date().toISOString(),
     })
   }, [teamId, currentUserId])
+
+  if (isE2EPreview()) {
+    return { presence: FX_PRESENCE, updatePresence: async () => {} }
+  }
 
   return { presence, updatePresence }
 }

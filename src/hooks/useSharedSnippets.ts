@@ -1,5 +1,7 @@
 import { useState, useCallback, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
+import { isE2EPreview } from '../lib/e2ePreview'
+import { FX_SNIPPETS, FX_USER_ID } from '../lib/e2eFixtures'
 
 export interface SharedSnippet {
   id: string
@@ -56,6 +58,17 @@ export function useSharedSnippets(teamId?: string) {
     }
     setItems(prev => prev.filter(i => i.id !== id))
   }, [])
+
+  if (isE2EPreview()) {
+    return {
+      items: FX_SNIPPETS as SharedSnippet[],
+      loading: false,
+      userId: FX_USER_ID,
+      refresh: async () => {},
+      share: async () => true,
+      remove: async () => {},
+    }
+  }
 
   return { items, loading, userId, refresh, share, remove }
 }

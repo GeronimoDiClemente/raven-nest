@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import type { Plan } from '../lib/stripe'
+import { isE2EPreview } from '../lib/e2ePreview'
 
 const TRIAL_DAYS = 14
 
@@ -71,6 +72,12 @@ export function useProfile(): Profile {
     load()
     return () => { alive = false }
   }, [])
+
+  // LOCAL PREVIEW ONLY (gated on RAVEN_E2E bypass): unlock Pro/Team
+  // so My Repos / Teams render without a real Supabase backend.
+  if (isE2EPreview()) {
+    return { plan: 'team', loading: false, isTrialActive: false, trialDaysLeft: 0 }
+  }
 
   return profile
 }

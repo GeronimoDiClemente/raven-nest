@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
+import { isE2EPreview } from '../lib/e2ePreview'
+import { FX_TEAM, FX_MEMBERS, FX_USER_ID } from '../lib/e2eFixtures'
 
 export interface Team {
   id: string
@@ -390,6 +392,36 @@ export function useTeam() {
     else localStorage.removeItem(storageKey(state.userId!))
     await refresh()
   }, [activeTeam, state.teams, state.userId, refresh])
+
+  if (isE2EPreview()) {
+    return {
+      teams: [FX_TEAM],
+      team: FX_TEAM,
+      activeTeam: FX_TEAM,
+      activeTeamId: FX_TEAM.id,
+      members: FX_MEMBERS,
+      pendingInvites: [],
+      myPendingRequests: [],
+      loading: false,
+      userId: FX_USER_ID,
+      userEmail: 'alex.k@acme.io',
+      switchTeam: async () => {},
+      refresh: async () => {},
+      createTeam: async () => ({ ok: true }),
+      inviteMember: async () => ({ ok: true }),
+      removeMember: async () => {},
+      promoteMember: async () => ({ ok: true }),
+      demoteMember: async () => ({ ok: true }),
+      acceptInvite: async () => ({ ok: true }),
+      rejectInvite: async () => {},
+      requestJoin: async () => ({ ok: true }),
+      cancelRequest: async () => ({ ok: true }),
+      approveRequest: async () => ({ ok: true }),
+      declineRequest: async () => ({ ok: true }),
+      leaveTeam: async () => {},
+      deleteTeam: async () => {},
+    }
+  }
 
   return {
     teams: state.teams,

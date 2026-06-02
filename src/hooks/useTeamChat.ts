@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from '../lib/supabase'
+import { isE2EPreview } from '../lib/e2ePreview'
+import { FX_CHAT } from '../lib/e2eFixtures'
 
 export interface ChatEvent {
   kind: 'event'
@@ -268,6 +270,19 @@ export function useTeamChat({ teamId, userId, userEmail, githubLogin, githubToke
       if (error) console.warn('[useTeamChat.toggleReaction] insert failed', { targetType, targetId, emoji }, error)
     }
   }, [teamId, userId, userEmail, reactions])
+
+  if (isE2EPreview()) {
+    return {
+      timeline: FX_CHAT,
+      reactions: [] as ChatReaction[],
+      loading: false,
+      error: null as string | null,
+      refresh: async () => {},
+      postMessage: async () => ({ ok: true }),
+      deleteMessage: async () => {},
+      toggleReaction: async () => {},
+    }
+  }
 
   // Combined timeline (newest first)
   const timeline: ChatItem[] = [...events, ...messages].sort(
