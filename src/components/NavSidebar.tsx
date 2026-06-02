@@ -14,13 +14,17 @@ import {
 } from 'lucide-react'
 import SettingsPanel from './SettingsPanel'
 import UserMenu from './UserMenu'
+import NavPopover from './NavPopover'
+import SidePanel from './SidePanel'
+import SnippetPanel from './SnippetPanel'
+import MCPPanel from './MCPPanel'
+import WorkspacePanel from './WorkspacePanel'
+import CommandHistoryPanel from './CommandHistoryPanel'
 import { supabase } from '../lib/supabase'
-import type { PanelId } from '../types'
+import type { Workspace } from '../types'
 
 interface Props {
   // nav / activity-bar props
-  activePanel: PanelId | null
-  onSelectPanel: (id: PanelId) => void
   onTeamsOpen: () => void
   onMyReposOpen: () => void
   onHistoryOpen: () => void
@@ -33,11 +37,21 @@ interface Props {
   profileLoading: boolean
   onUpgrade: () => void
   activeCellRepoPath?: string
+  // panel props (moved from SidePanel)
+  repoPath?: string
+  onWorktreeSelect: (worktreePath: string) => void
+  onNewWorktree: () => void
+  worktreeRefreshKey?: number
+  onRepoLink: () => void
+  onRepoUnlink: () => void
+  onSnippetSend: (content: string) => void
+  onSnippetBroadcast: (content: string) => void
+  onWorkspaceSave: (name: string) => void
+  onWorkspaceLoad: (ws: Workspace) => void
+  onCommandRun: (cmd: string) => void
 }
 
 export default function NavSidebar({
-  activePanel,
-  onSelectPanel,
   onTeamsOpen,
   onMyReposOpen,
   onHistoryOpen,
@@ -50,6 +64,17 @@ export default function NavSidebar({
   profileLoading,
   onUpgrade,
   activeCellRepoPath,
+  repoPath,
+  onWorktreeSelect,
+  onNewWorktree,
+  worktreeRefreshKey,
+  onRepoLink,
+  onRepoUnlink,
+  onSnippetSend,
+  onSnippetBroadcast,
+  onWorkspaceSave,
+  onWorkspaceLoad,
+  onCommandRun,
 }: Props) {
   // ── Update state (ported from ActivityBar) ───────────────────────────────
   const [updateState, setUpdateState] = useState<
@@ -81,23 +106,31 @@ export default function NavSidebar({
 
   const badgeLabel = pendingInvitesCount > 9 ? '9+' : String(pendingInvitesCount)
 
-  function toggle(id: PanelId) {
-    onSelectPanel(id)
-  }
-
   return (
     <aside className="nav-sidebar">
       {/* ── Nav group ───────────────────────────────────────────────────── */}
       <div className="nav-group">
         {/* Worktrees */}
-        <button
-          className={`nav-item${activePanel === 'worktrees' ? ' active' : ''}`}
-          onClick={() => toggle('worktrees')}
-          title="Worktrees"
-        >
-          <GitBranch />
-          <span className="nav-item-label">Worktrees</span>
-        </button>
+        <NavPopover icon={<GitBranch />} label="Worktrees">
+          <SidePanel
+            embedded
+            panel="worktrees"
+            onClose={() => {}}
+            repoPath={repoPath}
+            activeCellRepoPath={activeCellRepoPath}
+            onWorktreeSelect={onWorktreeSelect}
+            onNewWorktree={onNewWorktree}
+            worktreeRefreshKey={worktreeRefreshKey}
+            onRepoLink={onRepoLink}
+            onRepoUnlink={onRepoUnlink}
+            onSnippetSend={onSnippetSend}
+            onSnippetBroadcast={onSnippetBroadcast}
+            onUpgrade={onUpgrade}
+            onWorkspaceSave={onWorkspaceSave}
+            onWorkspaceLoad={onWorkspaceLoad}
+            onCommandRun={onCommandRun}
+          />
+        </NavPopover>
 
         {/* Team */}
         <button
@@ -129,44 +162,34 @@ export default function NavSidebar({
         </button>
 
         {/* Snippets */}
-        <button
-          className={`nav-item${activePanel === 'snippets' ? ' active' : ''}`}
-          onClick={() => toggle('snippets')}
-          title="Snippets"
-        >
-          <SquareCode />
-          <span className="nav-item-label">Snippets</span>
-        </button>
+        <NavPopover icon={<SquareCode />} label="Snippets">
+          <SnippetPanel
+            docked
+            onSend={onSnippetSend}
+            onBroadcast={onSnippetBroadcast}
+            onRequireUpgrade={onUpgrade}
+          />
+        </NavPopover>
 
         {/* MCP */}
-        <button
-          className={`nav-item${activePanel === 'mcp' ? ' active' : ''}`}
-          onClick={() => toggle('mcp')}
-          title="MCP"
-        >
-          <Plug />
-          <span className="nav-item-label">MCP</span>
-        </button>
+        <NavPopover icon={<Plug />} label="MCP">
+          <MCPPanel docked repoPath={repoPath} onRequireUpgrade={onUpgrade} />
+        </NavPopover>
 
         {/* Workspaces */}
-        <button
-          className={`nav-item${activePanel === 'workspaces' ? ' active' : ''}`}
-          onClick={() => toggle('workspaces')}
-          title="Workspaces"
-        >
-          <Layers />
-          <span className="nav-item-label">Workspaces</span>
-        </button>
+        <NavPopover icon={<Layers />} label="Workspaces">
+          <WorkspacePanel
+            docked
+            onSave={onWorkspaceSave}
+            onLoad={onWorkspaceLoad}
+            onRequireUpgrade={onUpgrade}
+          />
+        </NavPopover>
 
         {/* Command History */}
-        <button
-          className={`nav-item${activePanel === 'cmdhist' ? ' active' : ''}`}
-          onClick={() => toggle('cmdhist')}
-          title="Command History"
-        >
-          <SquareTerminal />
-          <span className="nav-item-label">Command History</span>
-        </button>
+        <NavPopover icon={<SquareTerminal />} label="Command History">
+          <CommandHistoryPanel docked onRun={onCommandRun} />
+        </NavPopover>
 
         {/* History */}
         <button

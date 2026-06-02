@@ -15,7 +15,6 @@ import { PortsBanner } from './components/PortsBanner'
 import ConfirmDialog from './components/ConfirmDialog'
 import ConversationSidebar from './components/ConversationSidebar'
 import NavSidebar from './components/NavSidebar'
-import SidePanel from './components/SidePanel'
 import LayoutPicker from './components/LayoutPicker'
 import { Radio, Mic } from 'lucide-react'
 import { NewWorktreeModal } from './components/NewWorktreeModal'
@@ -40,7 +39,7 @@ import SharedTerminalViewer from './components/SharedTerminalViewer'
 import { terminalShareService } from './lib/terminalShareService'
 import ResourceBar from './components/ResourceBar'
 import StatusBar from './components/StatusBar'
-import type { MetricsPaneInput, PanelId } from './types'
+import type { MetricsPaneInput } from './types'
 
 
 let paneCounter = 0
@@ -104,7 +103,6 @@ export default function App() {
   const [convSidebarOpen, setConvSidebarOpen] = useState(false)
   const [globalSearchOpen, setGlobalSearchOpen] = useState(false)
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
-  const [activePanel, setActivePanel] = useState<PanelId | null>('worktrees')
   const [fontSize, setFontSize] = useState<number>(() => {
     const saved = localStorage.getItem('nest-font-size')
     return saved ? parseInt(saved, 10) : 13
@@ -927,8 +925,25 @@ export default function App() {
 
       <div className="app-body">
       <NavSidebar
-        activePanel={activePanel}
-        onSelectPanel={(id) => setActivePanel((p) => (p === id ? null : id))}
+        repoPath={activeTab.repoPath}
+        onWorktreeSelect={handleWorktreeSelect}
+        onNewWorktree={handleNewWorktree}
+        worktreeRefreshKey={worktreeRefreshKey}
+        onRepoLink={handleRepoLink}
+        onRepoUnlink={handleRepoUnlink}
+        onSnippetSend={(content) => {
+          const id = focusedPaneIdRef.current
+          if (id) window.pty.write(id, content + '\r')
+        }}
+        onSnippetBroadcast={(content) => {
+          activePaneIds.forEach((id) => window.pty.write(id, content + '\r'))
+        }}
+        onWorkspaceSave={saveWorkspace}
+        onWorkspaceLoad={loadWorkspace}
+        onCommandRun={(cmd) => {
+          const id = focusedPaneIdRef.current
+          if (id) window.pty.write(id, cmd + '\r')
+        }}
         onTeamsOpen={() => {
           if (plan !== 'team') { setShowUpgrade(true); return }
           setTeamsOpen(true)
@@ -948,33 +963,6 @@ export default function App() {
         onUpgrade={() => setShowUpgrade(true)}
         activeCellRepoPath={activeCellRepoPath}
       />
-      {activePanel && (
-        <SidePanel
-          panel={activePanel}
-          onClose={() => setActivePanel(null)}
-          repoPath={activeTab.repoPath}
-          activeCellRepoPath={activeCellRepoPath}
-          onWorktreeSelect={handleWorktreeSelect}
-          onNewWorktree={handleNewWorktree}
-          worktreeRefreshKey={worktreeRefreshKey}
-          onRepoLink={handleRepoLink}
-          onRepoUnlink={handleRepoUnlink}
-          onSnippetSend={(content) => {
-            const id = focusedPaneIdRef.current
-            if (id) window.pty.write(id, content + '\r')
-          }}
-          onSnippetBroadcast={(content) => {
-            activePaneIds.forEach((id) => window.pty.write(id, content + '\r'))
-          }}
-          onUpgrade={() => setShowUpgrade(true)}
-          onWorkspaceSave={saveWorkspace}
-          onWorkspaceLoad={loadWorkspace}
-          onCommandRun={(cmd) => {
-            const id = focusedPaneIdRef.current
-            if (id) window.pty.write(id, cmd + '\r')
-          }}
-        />
-      )}
       <div className="workspace">
         {isInitialState ? (
           <EmptyState onNewPane={() => setAddingToCell(0)} />
