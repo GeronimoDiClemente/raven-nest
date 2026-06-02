@@ -64,7 +64,7 @@ export default function PRList({ repoFullName, githubToken, onSelectPR }: PRList
         const data: GitHubPR[] = await res.json()
         if (alive) {
           setPrs(data)
-          // Detectar stacks solo para PRs open
+          // Detect stacks only for open PRs
           if (filter === 'open') {
             const headMap = new Map<string, GitHubPR>()
             for (const pr of data) headMap.set(pr.head.ref, pr)

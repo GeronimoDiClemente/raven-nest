@@ -138,7 +138,7 @@ export default function IssueDetail({ repoFullName, issue: initialIssue, githubT
     setCreatingBranch(true)
     setBranchError(null)
     try {
-      // 1. Obtener el default branch del repo
+      // 1. Get the repo's default branch
       const repoRes = await fetch(
         `https://api.github.com/repos/${repoFullName}`,
         { headers: ghHeaders }
@@ -150,7 +150,7 @@ export default function IssueDetail({ repoFullName, issue: initialIssue, githubT
       const repoData = await repoRes.json()
       const defaultBranch: string = repoData.default_branch
 
-      // 2. Obtener el SHA del default branch
+      // 2. Get the SHA of the default branch
       const refRes = await fetch(
         `https://api.github.com/repos/${repoFullName}/git/refs/heads/${defaultBranch}`,
         { headers: ghHeaders }
@@ -162,7 +162,7 @@ export default function IssueDetail({ repoFullName, issue: initialIssue, githubT
       const refData = await refRes.json()
       const sha: string = refData.object.sha
 
-      // 3. Crear el branch
+      // 3. Create the branch
       const slug = toSlug(issue.title)
       const branchName = `issue-${issue.number}-${slug}`
       const createRes = await fetch(

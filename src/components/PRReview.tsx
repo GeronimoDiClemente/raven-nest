@@ -225,7 +225,7 @@ Be specific and actionable. Keep it short.`
     }
   }
 
-  // Fetch latest release version cuando se mergea (para sugerir la siguiente)
+  // Fetch latest release version when merged (to suggest the next one)
   useEffect(() => {
     if (!merged || !canMerge) return
     const headers = { Authorization: `Bearer ${githubToken}`, Accept: 'application/vnd.github.v3+json' }
@@ -254,7 +254,7 @@ Be specific and actionable. Keep it short.`
     setReleaseOk(false)
     setBuildTriggered(false)
     try {
-      // 1. Crear el release tag en GitHub
+      // 1. Create the release tag on GitHub
       const tagName = version.startsWith('v') ? version : `v${version}`
       const relRes = await fetch(`https://api.github.com/repos/${repoFullName}/releases`, {
         method: 'POST',

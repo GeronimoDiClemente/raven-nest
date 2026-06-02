@@ -93,5 +93,5 @@ export function useTeamsKeyboard({ onClose, onSectionChange, currentSection }: T
       window.removeEventListener('keydown', handler)
       clearChordState()
     }
-  }, []) // sin dependencias: usamos refs para todo
+  }, []) // no dependencies: we use refs for everything
 }

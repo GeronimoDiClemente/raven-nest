@@ -111,7 +111,7 @@ export default function ActivityFeed({ repos, githubToken, teamMembers: _teamMem
   const [error, setError] = useState<string | null>(null)
   const { connectGitHub } = useGitHub()
 
-  // Estabilizar la dependencia del useEffect — evita re-fetch si el array cambia de referencia pero no de contenido
+  // Stabilize the useEffect dependency — avoids re-fetch when the array changes reference but not content
   const repoNames = useMemo(() => repos.map(r => r.repo_full_name).join(','), [repos])
 
   useEffect(() => {
