@@ -7,3 +7,11 @@ export function isE2EPreview(): boolean {
     (window as unknown as { appFlags?: { e2eBypass?: boolean } }).appFlags?.e2eBypass
   )
 }
+
+// Dev-only: when set, the Teams preview renders the "no team yet" welcome/join
+// state (teams: []) instead of the populated acme-platform fixture team.
+export function isPreviewEmptyTeams(): boolean {
+  return Boolean(
+    (window as unknown as { appFlags?: { previewEmptyTeams?: boolean } }).appFlags?.previewEmptyTeams
+  )
+}

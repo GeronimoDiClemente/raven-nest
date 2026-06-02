@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
-import { isE2EPreview } from '../lib/e2ePreview'
+import { isE2EPreview, isPreviewEmptyTeams } from '../lib/e2ePreview'
 import { FX_TEAM, FX_MEMBERS, FX_USER_ID } from '../lib/e2eFixtures'
 
 export interface Team {
@@ -394,12 +394,13 @@ export function useTeam() {
   }, [activeTeam, state.teams, state.userId, refresh])
 
   if (isE2EPreview()) {
+    const empty = isPreviewEmptyTeams()
     return {
-      teams: [FX_TEAM],
-      team: FX_TEAM,
-      activeTeam: FX_TEAM,
-      activeTeamId: FX_TEAM.id,
-      members: FX_MEMBERS,
+      teams: empty ? [] : [FX_TEAM],
+      team: empty ? null : FX_TEAM,
+      activeTeam: empty ? null : FX_TEAM,
+      activeTeamId: empty ? null : FX_TEAM.id,
+      members: empty ? [] : FX_MEMBERS,
       pendingInvites: [],
       myPendingRequests: [],
       loading: false,

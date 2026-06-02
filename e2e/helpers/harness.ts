@@ -22,7 +22,7 @@ function uniqueTmp(prefix: string): string {
   return mkdtempSync(join(tmpdir(), prefix))
 }
 
-export async function launchHarness(opts?: { withRepo?: boolean }): Promise<Harness> {
+export async function launchHarness(opts?: { withRepo?: boolean; env?: Record<string, string> }): Promise<Harness> {
   const homeDir = uniqueTmp('raven-e2e-home-')
   let repoDir = ''
   if (opts?.withRepo !== false) {
@@ -44,6 +44,7 @@ export async function launchHarness(opts?: { withRepo?: boolean }): Promise<Harn
   env.RAVEN_HOME = homeDir
   env.HOME = homeDir
   env.USERPROFILE = homeDir
+  if (opts?.env) Object.assign(env, opts.env)
 
   const app = await electron.launch({
     args: [MAIN_JS, `--user-data-dir=${userDataDir}`],

@@ -87,6 +87,8 @@ contextBridge.exposeInMainWorld('platform', {
 
 contextBridge.exposeInMainWorld('appFlags', {
   e2eBypass: process.env.RAVEN_E2E === '1',
+  // Dev-only: render Teams in its "no team yet" welcome/join state during preview.
+  previewEmptyTeams: process.env.RAVEN_PREVIEW_EMPTY === '1',
 })
 
 contextBridge.exposeInMainWorld('windowControls', {
