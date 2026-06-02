@@ -639,7 +639,7 @@ ipcMain.handle('git:clone', async (
 // null. Callers don't need to handle each rejection case manually.
 ipcMain.handle('dialog:pickRepoFolder', async (_evt, expectedRemote?: string) => {
   const win = BrowserWindow.getFocusedWindow()
-  const opts = { properties: ['openDirectory'] as const, title: 'Link local repo folder' }
+  const opts: Electron.OpenDialogOptions = { properties: ['openDirectory'], title: 'Link local repo folder' }
   const { filePaths, canceled } = win
     ? await dialog.showOpenDialog(win, opts)
     : await dialog.showOpenDialog(opts)

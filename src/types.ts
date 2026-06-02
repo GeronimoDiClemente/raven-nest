@@ -87,6 +87,11 @@ export interface PaneMetric {
   pid: number
   cpuPercent: number
   memBytes: number
+  // CSS color del bullet del AI (sincronizado con electron/metrics-collector.ts).
+  aiColor?: string
+  // Logo de AI a renderizar. Puede ser un AIType o un valor sintético
+  // ('external-<kind>') para filas de procesos externos al pane.
+  aiType?: string
 }
 export interface DiskBucket {
   name: string
@@ -356,6 +361,7 @@ declare global {
     electronShell: {
       openExternal: (url: string) => void
       onDeepLink: (cb: (url: string) => void) => void
+      consumePendingDeepLink: () => Promise<string | null>
     }
     mcp: {
       read: (filePath: string) => Promise<Record<string, unknown>>
@@ -393,7 +399,7 @@ declare global {
         branches: string[]
         defaultBranch: string | null
       }>
-      pickRepoFolder: () => Promise<string | null>
+      pickRepoFolder: (expectedRemote?: string) => Promise<string | null>
       shortstat: (
         worktreePath: string,
         base?: string,

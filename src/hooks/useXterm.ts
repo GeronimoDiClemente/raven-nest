@@ -93,11 +93,11 @@ export function useXterm(paneId: string, onInput?: (data: string) => void, fontS
     // Ctrl+C copies if there's a selection, otherwise sends SIGINT
     // Ctrl+V pastes from clipboard
     term.attachCustomKeyEventHandler((event: KeyboardEvent) => {
-      if (event.ctrlKey && event.key === 'c' && term.hasSelection()) {
+      if (event.ctrlKey && event.key.toLowerCase() === 'c' && term.hasSelection()) {
         void safeWriteText(term.getSelection())
         return false
       }
-      if (event.ctrlKey && event.key === 'v') {
+      if (event.ctrlKey && event.key.toLowerCase() === 'v') {
         void safeReadText().then(text => {
           if (text === null) return
           if (onInputRef.current) onInputRef.current(text)

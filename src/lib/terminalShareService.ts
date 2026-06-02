@@ -36,7 +36,9 @@ class TerminalShareService {
 
   subscribe(fn: Listener) {
     this.listeners.add(fn)
-    return () => this.listeners.delete(fn)
+    // Bloque para descartar el boolean de Set.delete → unsubscribe es () => void,
+    // compatible con el cleanup de useEffect.
+    return () => { this.listeners.delete(fn) }
   }
 
   private notify(paneId: string) {

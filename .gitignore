@@ -34,3 +34,8 @@ _check-*.mjs
 
 # Claude Code scheduled tasks (local-only)
 .claude/scheduled_tasks.lock
+
+# Claude Code local hook (typecheck-on-stop) — per-machine, not shared
+.claude/settings.local.json
+.claude/hooks/
+.claude/tsc-baseline.json
