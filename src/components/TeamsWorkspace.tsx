@@ -37,6 +37,8 @@ interface TeamsWorkspaceProps {
   onRequireUpgrade?: () => void
   onOpenRepoTerminal: (repoFullName: string, localPath: string) => void
   onPendingInvitesChange?: () => void
+  /** When provided, the header shows a "?" button that launches the Teams tutorial. */
+  onStartTutorial?: () => void
 }
 
 type WorkspaceSection = 'activity' | 'chat' | 'repos' | 'issues' | 'members' | 'snippets' | 'workspaces' | 'mcp' | 'pendings'
@@ -48,7 +50,7 @@ const PRESENCE_COLORS = [
   '#00CCCC', '#FF2D78', '#4455FF', '#88FF00',
 ]
 
-export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal, onPendingInvitesChange }: TeamsWorkspaceProps) {
+export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal, onPendingInvitesChange, onStartTutorial }: TeamsWorkspaceProps) {
   const [section, setSection] = useState<WorkspaceSection>('activity')
   const [acceptError, setAcceptError] = useState<string | null>(null)
   const [acceptingId, setAcceptingId] = useState<string | null>(null)
@@ -404,11 +406,11 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal, on
             <circle cx="11.5" cy="5.5" r="1.5" stroke="currentColor" strokeWidth="1.2" opacity="0.7"/>
             <path d="M13.5 12.5c0-1.38-.9-2.55-2.14-2.87" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" opacity="0.7"/>
           </svg>
-          <span className="tw-header-title">Teams</span>
+          <span className="tw-header-title" data-tour-id="teams-header">Teams</span>
 
           {activeTeam && (
             <div className="team-switcher" ref={switcherRef}>
-              <button className="team-switcher-btn" onClick={() => setShowSwitcher(v => !v)}>
+              <button className="team-switcher-btn" data-tour-id="team-switcher" onClick={() => setShowSwitcher(v => !v)}>
                 <span className="team-switcher-name">{activeTeam.name}</span>
                 <svg width="10" height="10" viewBox="0 0 10 10" fill="none" style={{ flexShrink: 0 }}>
                   <path d="M2 3.5L5 6.5L8 3.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
@@ -512,6 +514,9 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal, on
               {gitlabConnected && gitlabLogin && <ProviderAvatarPill provider="gitlab" login={gitlabLogin} />}
             </span>
           ) : null}
+          {onStartTutorial && (
+            <button className="tour-help-btn" onClick={onStartTutorial} title="Tutorial: Teams">?</button>
+          )}
           <div style={{ position: 'relative' }} ref={notifRef}>
             <button
               className="tw-notif-btn"
@@ -665,6 +670,7 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal, on
               {NAV_ITEMS.map(item => (
                 <button
                   key={item.id}
+                  data-tour-id={`teams-nav-${item.id}`}
                   className={`tw-nav-btn${!creatingTeam && section === item.id ? ' active' : ''}`}
                   onClick={() => switchSection(item.id)}
                 >

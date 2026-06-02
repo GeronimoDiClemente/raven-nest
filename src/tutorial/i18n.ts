@@ -11,10 +11,13 @@ export interface Localized {
   es: string
 }
 
-/** 'es' only when the browser locale is Spanish; English otherwise (app default). */
+/**
+ * The tutorial displays in English to match the English-only app UI (and the
+ * international launch). Copy is still authored bilingually (the `es` strings
+ * stay in the tour defs) so re-enabling locale detection is a one-line change.
+ */
 export function resolveTutorialLocale(): Locale {
-  const lang = (typeof navigator !== 'undefined' && navigator.language) || 'en'
-  return lang.toLowerCase().startsWith('es') ? 'es' : 'en'
+  return 'en'
 }
 
 /** Pick the string for `locale` (defaults to the resolved locale). */

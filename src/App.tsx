@@ -1174,6 +1174,7 @@ export default function App() {
           onRequireUpgrade={() => setShowUpgrade(true)}
           onOpenRepoTerminal={openRepoInNewTab}
           onPendingInvitesChange={refreshPendingInvitesCount}
+          onStartTutorial={() => setTutorialTour('teams')}
         />
       )}
 
@@ -1184,6 +1185,7 @@ export default function App() {
           githubLogin={githubLogin}
           onConnectGitHub={connectGitHub}
           onOpenRepoTerminal={openRepoInNewTab}
+          onStartTutorial={() => setTutorialTour('my-repos')}
         />
       )}
 

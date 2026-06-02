@@ -22,11 +22,11 @@ describe('OnboardingTour engine', () => {
     expect(screen.getByRole('button', { name: /back/i })).toBeInTheDocument()
   })
 
-  it('shows Spanish copy + labels when locale is Spanish', () => {
+  it('renders English copy + labels even when the browser locale is Spanish', () => {
     Object.defineProperty(navigator, 'language', { value: 'es-AR', configurable: true })
     render(<OnboardingTour steps={steps} onClose={() => {}} />)
-    expect(screen.getByText('Cuerpo uno')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /siguiente/i })).toBeInTheDocument()
+    expect(screen.getByText('Step one body')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /next/i })).toBeInTheDocument()
   })
 
   it('advances on a matching action signal only', () => {

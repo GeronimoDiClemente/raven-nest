@@ -11,15 +11,10 @@ afterEach(() => {
 })
 
 describe('resolveTutorialLocale', () => {
-  it('returns es for Spanish locales', () => {
+  it('always returns en (tutorial is English-only) regardless of browser locale', () => {
     setLanguage('es-AR')
-    expect(resolveTutorialLocale()).toBe('es')
+    expect(resolveTutorialLocale()).toBe('en')
     setLanguage('es')
-    expect(resolveTutorialLocale()).toBe('es')
-  })
-
-  it('returns en for everything else (English default)', () => {
-    setLanguage('en-US')
     expect(resolveTutorialLocale()).toBe('en')
     setLanguage('pt-BR')
     expect(resolveTutorialLocale()).toBe('en')
@@ -31,10 +26,8 @@ describe('resolveTutorialLocale', () => {
 describe('t', () => {
   const phrase: Localized = { en: 'Create', es: 'Crear' }
 
-  it('picks the string for the resolved locale by default', () => {
+  it('defaults to English (the resolved locale) even on a Spanish browser', () => {
     setLanguage('es-AR')
-    expect(t(phrase)).toBe('Crear')
-    setLanguage('en-US')
     expect(t(phrase)).toBe('Create')
   })
 
