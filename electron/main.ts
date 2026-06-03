@@ -953,6 +953,10 @@ ipcMain.handle('worktree:list', async (_evt, repoPath: string) => {
   // `git worktree remove`) stays in the store as `done` forever, and every
   // other consumer (metrics, ports, spotlight) treats it as live.
   worktreeStore.reconcile(live.map((m) => m.repoPath))
+  // Drop entries whose directory is gone (worktrees removed outside the app, or
+  // older clones that no longer exist on this machine). reconcile only marks
+  // them `orphaned`; without this they pile up in the sidebar forever.
+  worktreeStore.pruneMissing()
   // Filter by rootRepoPath in posix form on both sides so backslash variants
   // from session restore don't cause an empty list (the store always stores
   // POSIX-keyed rootRepoPath after the hydrate fix, but the IPC `repoPath`
