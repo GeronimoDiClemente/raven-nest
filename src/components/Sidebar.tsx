@@ -57,6 +57,7 @@ interface Props {
   paneCount: number
   onLayoutChange: (id: LayoutId) => void
   onOpenTutorial?: (tourId: import('../tutorial/types').TourId) => void
+  onIntegrationsOpen?: () => void
 }
 
 export default function Sidebar({
@@ -66,7 +67,7 @@ export default function Sidebar({
   onSnippetSend, onSnippetBroadcast, onCommandRun, onWorkspaceSave, onWorkspaceLoad, isWin,
   isTrialActive, trialDaysLeft, profileLoading, onUpgrade, onTeamsOpen, pendingInvitesCount = 0, onMyReposOpen, plan, repoPath, onRepoLink, onRepoUnlink, onJoinTerminal,
   activeCellRepoPath, onWorktreeSelect, onNewWorktree, worktreeRefreshKey,
-  layoutId, paneCount, onLayoutChange, onOpenTutorial,
+  layoutId, paneCount, onLayoutChange, onOpenTutorial, onIntegrationsOpen,
 }: Props) {
   const { branch, githubUrl, isDirty } = useGitInfo(repoPath)
   const { githubToken } = useGitHub()
@@ -591,6 +592,23 @@ export default function Sidebar({
           </span>
           <span className="sidebar-label">My Repos</span>
           {expanded && plan === 'free' && <span className="sidebar-plan-badge">Pro</span>}
+        </div>
+
+        <div
+          className="sidebar-item sidebar-item-panel sidebar-item-team"
+          style={{ cursor: 'pointer' }}
+          onClick={onIntegrationsOpen}
+          title="Integraciones"
+        >
+          <span className="sidebar-icon">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <rect x="1" y="1" width="6" height="6" rx="1.2" stroke="currentColor" strokeWidth="1.3"/>
+              <rect x="9" y="1" width="6" height="6" rx="1.2" stroke="currentColor" strokeWidth="1.3"/>
+              <rect x="1" y="9" width="6" height="6" rx="1.2" stroke="currentColor" strokeWidth="1.3"/>
+              <path d="M12 9v6M9 12h6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+            </svg>
+          </span>
+          <span className="sidebar-label">Integraciones</span>
         </div>
 
         {/* ── 4. MORE TOOLS (desplegable) ─────────────────── */}
