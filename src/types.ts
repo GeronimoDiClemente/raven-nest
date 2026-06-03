@@ -531,3 +531,66 @@ declare global {
     }
   }
 }
+
+// === Marketplace de integraciones ===
+export type PluginType = 'action' | 'panel' | 'integration'
+export type PluginCategory =
+  | 'comms' | 'docs' | 'pm' | 'ci' | 'design' | 'observability' | 'other'
+
+export interface ConfigField {
+  key: string
+  label: string
+  type: 'text' | 'password' | 'select'
+  required?: boolean
+  options?: { value: string; label: string }[]
+  placeholder?: string
+}
+
+export interface AuthSpec {
+  kind: 'oauth' | 'apiKey' | 'none'
+  fields?: ConfigField[]
+}
+
+export interface MenuContribution {
+  id: string          // 'slack.notify'
+  label: string       // 'Notificar a Slack'
+  actionId: string    // se pasa a window.pluginActions.run(pluginId, actionId, ...)
+  surface: 'sidebar' | 'repoActions'
+}
+
+export interface EventHook {
+  on: 'onAgentDone' | 'onWorktreeReady' | 'onPrPushed'
+  actionId: string
+}
+
+export interface PluginContributions {
+  menuItems?: MenuContribution[]
+  events?: EventHook[]
+  // paneType: diferido a slices futuros
+}
+
+export interface PluginManifest {
+  id: string
+  name: string
+  description: string
+  category: PluginCategory
+  icon: string
+  color: string
+  type: PluginType
+  // `(string & {})` keeps the 'raven' literal as an autocomplete hint while
+  // still accepting any third-party publisher id (a plain `'raven' | string`
+  // collapses to `string`). 'raven' = curated/built-in.
+  publisher: 'raven' | (string & {})
+  tier: 'free' | 'pro' | 'team-enterprise'
+  comingSoon?: boolean
+  auth?: AuthSpec
+  configSchema?: ConfigField[]
+  contributes?: PluginContributions
+}
+
+export interface InstalledPlugin {
+  pluginId: string
+  scope: 'personal' | 'team'
+  enabled: boolean
+  config: Record<string, unknown>
+}
