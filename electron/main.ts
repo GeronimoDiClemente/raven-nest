@@ -2231,7 +2231,7 @@ ipcMain.handle('pluginActions:run', (_e, id: string, actionId: string, params) =
   runPluginAction(id, actionId, params ?? {}, { getToken: (p) => pluginCreds.getToken(p), fetch }))
 
 ipcMain.handle('slack:open-oauth', async () => {
-  const clientId = process.env.SLACK_CLIENT_ID ?? ''
+  const clientId = import.meta.env.MAIN_VITE_SLACK_CLIENT_ID ?? ''
   const scope = 'chat:write,channels:read'
   const state = newOAuthState()
   expectedOAuthState.slack = state
