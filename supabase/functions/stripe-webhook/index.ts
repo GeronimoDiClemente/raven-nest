@@ -17,12 +17,16 @@ const supabase = createClient(
   Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
 )
 
-// Maps Stripe Price ID → plan name
+// Maps Stripe Price ID → plan name.
+// Old annual prices (15% off) are kept so existing subscriptions on them still
+// resolve correctly; new annual prices (25% off) are what checkout now uses.
 const PRICE_TO_PLAN: Record<string, string> = {
-  'price_1TJmwsJarRYFmNbKh7G6JXnF': 'pro',
-  'price_1TJmy8JarRYFmNbKeScj4mwX': 'pro',
-  'price_1TJmyRJarRYFmNbKeiOLrXss': 'team',
-  'price_1TJmyyJarRYFmNbKq9mRgrdz': 'team',
+  'price_1TJmwsJarRYFmNbKh7G6JXnF': 'pro',   // pro monthly $20
+  'price_1TJmy8JarRYFmNbKeScj4mwX': 'pro',   // pro annual $204 (legacy 15% off)
+  'price_1TbX45JarRYFmNbKXYSBT3Yn': 'pro',   // pro annual $180 (current 25% off)
+  'price_1TJmyRJarRYFmNbKeiOLrXss': 'team',  // team monthly $35
+  'price_1TJmyyJarRYFmNbKq9mRgrdz': 'team',  // team annual $348 (legacy 15% off)
+  'price_1TbX66JarRYFmNbKqTA1AoEA': 'team',  // team annual $312 (current 25% off)
 }
 
 Deno.serve(async (req) => {

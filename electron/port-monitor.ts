@@ -94,7 +94,7 @@ export async function listenPortsForPids(pids: Set<number>): Promise<number[]> {
     try {
       // Same lsof invocation works on both macOS and Linux — the previous
       // `isMac ? [...] : [...]` ternary had identical branches.
-      const args = ['-P', '-iTCP', '-sTCP:LISTEN', '-n', '-p', String(pid), '-Fn']
+      const args = ['-P', '-iTCP', '-sTCP:LISTEN', '-n', '-p', String(pid), '-Fn', '-a']
       const { stdout } = await execFileP('lsof', args, { timeout: 3000 })
       for (const line of stdout.split(/\r?\n/)) {
         if (!line.startsWith('n')) continue

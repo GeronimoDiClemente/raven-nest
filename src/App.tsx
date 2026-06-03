@@ -244,6 +244,12 @@ export default function App() {
       setAddingPane(null)
       return
     }
+    if (panesRef.current.length >= planLimits.maxPanes) {
+      // Plan cap (e.g. Free is 3) — offer upgrade rather than silently no-op.
+      setAddingPane(null)
+      setShowUpgrade(true)
+      return
+    }
     const worktreePath = addingPaneRef.current?.worktreePath
     updateActiveTab(t => {
       const pane: PaneNode = {
@@ -265,7 +271,7 @@ export default function App() {
         : { ...t, panes: nextPanes, layoutId }
     })
     setAddingPane(null)
-  }, [updateActiveTab])
+  }, [updateActiveTab, planLimits.maxPanes])
 
   const handleRepoLink = useCallback(async () => {
     try {
@@ -341,7 +347,10 @@ export default function App() {
   }, [updateActiveTab])
 
   const [showNewWorktree, setShowNewWorktree] = useState(false)
-  const handleNewWorktree = useCallback(() => setShowNewWorktree(true), [])
+  const handleNewWorktree = useCallback(() => {
+    if (!planLimits.allowCreateWorktree) { setShowUpgrade(true); return }
+    setShowNewWorktree(true)
+  }, [planLimits.allowCreateWorktree])
   const [quickWorktreeOpen, setQuickWorktreeOpen] = useState(false)
   const [diffViewerOpen, setDiffViewerOpen] = useState(false)
   // The tutorial is launched on demand: from the "?" button in the Worktrees
@@ -355,17 +364,19 @@ export default function App() {
       if (isCmdShift && e.key.toLowerCase() === 'w') {
         if (!activeTab.repoPath) return
         e.preventDefault()
+        if (!planLimits.allowCreateWorktree) { setShowUpgrade(true); return }
         setQuickWorktreeOpen(true)
       }
       if (isCmdShift && e.key.toLowerCase() === 'd') {
         if (!activeCellRepoPath) return
         e.preventDefault()
+        if (!planLimits.allowDiffViewer) { setShowUpgrade(true); return }
         setDiffViewerOpen((v) => !v)
       }
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
-  }, [activeTab.repoPath, activeCellRepoPath])
+  }, [activeTab.repoPath, activeCellRepoPath, planLimits.allowCreateWorktree, planLimits.allowDiffViewer])
 
   const removePane = useCallback((paneId: string) => {
     window.pty.kill(paneId)
@@ -626,6 +637,10 @@ export default function App() {
 
   const openBrowserCell = useCallback((url: string) => {
     if (panesRef.current.length >= MAX_PANES) return
+    if (panesRef.current.length >= planLimits.maxPanes) {
+      setShowUpgrade(true)
+      return
+    }
     const pane: PaneNode = {
       id: generateId(),
       aiType: 'browser',
@@ -645,7 +660,7 @@ export default function App() {
         ? { ...t, panes: nextPanes, layoutId, splitRatios: {} }
         : { ...t, panes: nextPanes, layoutId }
     })
-  }, [activeTabId, updateActiveTab])
+  }, [activeTabId, updateActiveTab, planLimits.maxPanes])
 
   // When a link click in xterm or a PortChip dispatches nest:pty-url and no
   // BrowserCell is mounted to capture it, create one. If a BrowserCell IS
@@ -661,6 +676,17 @@ export default function App() {
     window.addEventListener('nest:pty-url', handler as EventListener)
     return () => window.removeEventListener('nest:pty-url', handler as EventListener)
   }, [openBrowserCell])
+
+  // Re-focus the active terminal when the window comes back from win.hide()
+  // (e.g. Cmd+Q on macOS hides instead of quitting). main.ts emits 'window:shown'
+  // on every BrowserWindow 'show' event — more reliable than the 'focus' DOM event
+  // which Electron doesn't always fire after win.hide()/win.show().
+  useEffect(() => {
+    window.windowControls?.onShown(() => {
+      const id = focusedPaneIdRef.current
+      if (id) focusTerminal(id)
+    })
+  }, [])
 
   // Open the new-pane dialog (engine handles slot placement)
   const addNextPane = useCallback(() => {
@@ -796,6 +822,7 @@ export default function App() {
       // Voice input toggle
       if (matchesBinding(e, kb.voiceInput)) {
         e.preventDefault()
+        if (!planLimits.allowVoice) { setShowUpgrade(true); return }
         toggleListening()
         return
       }
@@ -872,7 +899,7 @@ export default function App() {
     // means non-modified keystrokes still flow through to the terminal.
     window.addEventListener('keydown', handler, true)
     return () => window.removeEventListener('keydown', handler, true)
-  }, [addNextPane, toggleListening, cycleTab, handleUnzoom, handleZoom])
+  }, [addNextPane, toggleListening, cycleTab, handleUnzoom, handleZoom, planLimits.allowVoice])
 
   const isInitialState = panes.length === 0
 
@@ -940,13 +967,6 @@ export default function App() {
         tabActivity={tabActivity}
         rightSlot={<ResourceBar panes={activePanesPayload} />}
       />
-      <PortsBanner
-        rootRepoPath={activeTab.repoPath ?? null}
-        cells={activeTab.panes
-          .filter((p) => Boolean(p.repoPath))
-          .map((p) => ({ paneId: p.id, repoPath: p.repoPath as string }))}
-        onOpenInternal={openBrowserCell}
-      />
       {updateStatus?.type === 'downloading' && (
         <div className="update-banner update-banner--downloading">
           Downloading update…
@@ -1000,12 +1020,12 @@ export default function App() {
         profileLoading={profileLoading}
         onUpgrade={() => setShowUpgrade(true)}
         onTeamsOpen={() => {
-          if (plan !== 'team') { setShowUpgrade(true); return }
+          if (!planLimits.allowTeam) { setShowUpgrade(true); return }
           setTeamsOpen(true)
         }}
         pendingInvitesCount={pendingInvitesCount}
         onMyReposOpen={() => {
-          if (plan !== 'pro' && plan !== 'team') { setShowUpgrade(true); return }
+          if (!planLimits.allowMyRepos) { setShowUpgrade(true); return }
           setMyReposOpen(true)
         }}
         plan={plan}
@@ -1015,7 +1035,10 @@ export default function App() {
         isListening={isListening}
         isTranscribing={isTranscribing}
         isModelLoading={isModelLoading}
-        onMicToggle={toggleListening}
+        onMicToggle={() => {
+          if (!planLimits.allowVoice) { setShowUpgrade(true); return }
+          toggleListening()
+        }}
         onJoinTerminal={() => setShowJoinViewer(true)}
         activeCellRepoPath={activeCellRepoPath}
         onWorktreeSelect={handleWorktreeSelect}
@@ -1097,6 +1120,8 @@ export default function App() {
                         onActivity={handlePaneActivity}
                         onJoinRequest={() => setJoinRequest({ paneId: pane.id, paneTitle: pane.customLabel ?? pane.accountName ?? 'Terminal' })}
                         onPtyStarted={handlePtyStarted}
+                        allowSharing={planLimits.allowSharing}
+                        onRequireUpgrade={() => setShowUpgrade(true)}
                       />
                     )
                   }

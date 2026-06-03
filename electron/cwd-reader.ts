@@ -127,6 +127,40 @@ export async function getCwdForPid(pid: number): Promise<string | null> {
   return info?.cwd ?? null
 }
 
+// Returns a map of LISTENING PID → ports[] from lsof (macOS/Linux).
+// Used to enumerate candidate processes for cwd-based workspace attribution.
+export async function listListeningPidsPosix(): Promise<Map<number, number[]>> {
+  if (IS_WIN) return new Map()
+  try {
+    const { stdout } = await execFileP(
+      'lsof', ['-nP', '-iTCP', '-sTCP:LISTEN', '-Fpn'],
+      { timeout: 5000 },
+    )
+    const out = new Map<number, number[]>()
+    let cur: number | null = null
+    for (const line of stdout.split(/\r?\n/)) {
+      if (line.startsWith('p')) {
+        const p = parseInt(line.slice(1), 10)
+        cur = Number.isFinite(p) && p > 0 ? p : null
+      } else if (line.startsWith('n') && cur !== null) {
+        const m = line.match(/:(\d+)$/)
+        if (m) {
+          const port = parseInt(m[1]!, 10)
+          if (Number.isFinite(port)) {
+            const arr = out.get(cur) ?? []
+            if (!arr.includes(port)) arr.push(port)
+            out.set(cur, arr)
+          }
+        }
+      }
+    }
+    return out
+  } catch (err) {
+    console.warn('[cwd-reader] lsof listening scan failed', err instanceof Error ? err.message : err)
+    return new Map()
+  }
+}
+
 // Returns a map of LISTENING PID → ports[] from `netstat -ano` (Windows-only).
 // Used to enumerate candidate processes for cwd-based workspace attribution.
 export async function listListeningPidsWindows(): Promise<Map<number, number[]>> {

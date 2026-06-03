@@ -101,6 +101,10 @@ contextBridge.exposeInMainWorld('appFlags', {
 contextBridge.exposeInMainWorld('windowControls', {
   send: (action: 'minimize' | 'maximize' | 'close') =>
     ipcRenderer.send(`window:${action}`),
+  onShown: (callback: () => void) => {
+    ipcRenderer.removeAllListeners('window:shown')
+    ipcRenderer.on('window:shown', () => callback())
+  },
 })
 
 contextBridge.exposeInMainWorld('updater', {

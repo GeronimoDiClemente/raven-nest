@@ -42,7 +42,7 @@ interface Props {
   onTeamsOpen?: () => void
   pendingInvitesCount?: number
   onMyReposOpen?: () => void
-  plan?: 'free' | 'pro' | 'team'
+  plan?: 'free' | 'pro' | 'team' | 'enterprise'
   repoPath?: string
   onRepoLink: () => void
   onRepoUnlink: () => void
@@ -578,7 +578,7 @@ export default function Sidebar({
         <div
           className="sidebar-item sidebar-item-panel sidebar-item-team"
           style={{ cursor: 'pointer' }}
-          onClick={plan === 'pro' || plan === 'team' ? onMyReposOpen : onUpgrade}
+          onClick={plan === 'pro' || plan === 'team' || plan === 'enterprise' ? onMyReposOpen : onUpgrade}
           title="My Repos"
         >
           <span className="sidebar-icon">

@@ -3594,18 +3594,29 @@ body {
   flex: 1;
 }
 
-.upgrade-plan-feature-group {
+/* The standout feature for each tier, set above the bullet list. */
+.upgrade-plan-highlight {
   display: flex;
-  flex-direction: column;
-  gap: 8px;
+  align-items: flex-start;
+  gap: 7px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.45;
+  color: var(--text-primary);
+  background: rgba(0, 102, 255, 0.07);
+  border: 1px solid rgba(0, 102, 255, 0.16);
+  border-radius: 7px;
+  padding: 9px 10px;
+}
+.upgrade-plan.popular .upgrade-plan-highlight {
+  background: rgba(0, 102, 255, 0.12);
+  border-color: rgba(0, 102, 255, 0.3);
 }
 
-.upgrade-plan-feature-group-label {
-  font-size: 10px;
-  font-weight: 600;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.6px;
+.upgrade-feature-star {
+  flex-shrink: 0;
+  margin-top: 1px;
+  color: var(--raven-blue);
 }
 
 .upgrade-plan-features {
@@ -3692,6 +3703,35 @@ body {
 .upgrade-plan-btn:disabled {
   opacity: 0.55;
   cursor: not-allowed;
+}
+
+/* Enterprise — sales-led, linked out to a demo instead of an in-app card */
+.upgrade-enterprise-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  width: 100%;
+  margin-top: 16px;
+  padding: 11px 16px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.upgrade-enterprise-link:hover {
+  background: rgba(255, 255, 255, 0.03);
+  border-color: rgba(255, 255, 255, 0.16);
+}
+
+.upgrade-enterprise-link-cta {
+  color: var(--raven-blue);
+  font-weight: 600;
 }
 
 /* ── Update Banner ───────────────────────────────────────── */
@@ -6767,9 +6807,10 @@ button.ci-badge:hover {
   border: 2px solid var(--bg-surface, #0a0a0a);
   box-sizing: border-box;
 }
-.user-menu-dot--free  { background: #6b6b6b; }
-.user-menu-dot--pro   { background: var(--raven-blue); }
-.user-menu-dot--team  { background: #FFB800; }
+.user-menu-dot--free       { background: #6b6b6b; }
+.user-menu-dot--pro        { background: var(--raven-blue); }
+.user-menu-dot--team       { background: #FFB800; }
+.user-menu-dot--enterprise { background: #7C5CFC; }
 .user-menu-dot--trial {
   background: #FFB800;
   animation: user-menu-trial-pulse 1.6s ease-in-out infinite;
@@ -6876,10 +6917,11 @@ button.ci-badge:hover {
   border-radius: 999px;
   color: #fff;
 }
-.user-menu-popover-badge.user-menu-dot--free  { background: #444; color: #ccc; }
-.user-menu-popover-badge.user-menu-dot--pro   { background: rgba(0,102,255,0.2); color: var(--raven-blue); }
-.user-menu-popover-badge.user-menu-dot--team  { background: rgba(255,184,0,0.18); color: #FFB800; }
-.user-menu-popover-badge.user-menu-dot--trial { background: rgba(255,184,0,0.18); color: #FFB800; }
+.user-menu-popover-badge.user-menu-dot--free       { background: #444; color: #ccc; }
+.user-menu-popover-badge.user-menu-dot--pro        { background: rgba(0,102,255,0.2); color: var(--raven-blue); }
+.user-menu-popover-badge.user-menu-dot--team       { background: rgba(255,184,0,0.18); color: #FFB800; }
+.user-menu-popover-badge.user-menu-dot--enterprise { background: rgba(124,92,252,0.2); color: #b8a3ff; }
+.user-menu-popover-badge.user-menu-dot--trial      { background: rgba(255,184,0,0.18); color: #FFB800; }
 
 .user-menu-trial-bar {
   width: 100%;
