@@ -7,7 +7,7 @@ jobs:
   decrypt:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install git-crypt
         run: sudo apt-get install -y git-crypt
@@ -21,7 +21,7 @@ jobs:
           GIT_CRYPT_KEY: ${{ secrets.GIT_CRYPT_KEY }}
 
       - name: Upload decrypted source
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: decrypted-source
           path: |
@@ -37,12 +37,12 @@ jobs:
       contents: write
     steps:
       - name: Download decrypted source
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: decrypted-source
           path: .
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 20
 
@@ -88,12 +88,12 @@ jobs:
       contents: write
     steps:
       - name: Download decrypted source
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: decrypted-source
           path: .
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 20
 
@@ -129,12 +129,12 @@ jobs:
       contents: write
     steps:
       - name: Download decrypted source
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: decrypted-source
           path: .
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 20
 

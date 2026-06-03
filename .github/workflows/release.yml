@@ -20,7 +20,7 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install git-crypt
         run: sudo apt-get install -y git-crypt
@@ -38,7 +38,7 @@ jobs:
         run: echo "version=$(node -p 'require("./package.json").version')" >> $GITHUB_OUTPUT
 
       - name: Upload decrypted source
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: decrypted-source
           path: |
@@ -52,12 +52,12 @@ jobs:
     runs-on: macos-latest
     steps:
       - name: Download decrypted source
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: decrypted-source
           path: .
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 20
 
@@ -245,7 +245,7 @@ jobs:
           # macOS verifies it online on first launch.
           exit 0
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: mac-artifacts
           path: |
@@ -259,12 +259,12 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Download decrypted source
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: decrypted-source
           path: .
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 20
 
@@ -281,7 +281,7 @@ jobs:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: win-artifacts
           path: |
@@ -294,12 +294,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download decrypted source
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: decrypted-source
           path: .
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 20
 
@@ -313,7 +313,7 @@ jobs:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: linux-artifacts
           path: |
@@ -328,7 +328,7 @@ jobs:
     continue-on-error: true
     steps:
       - name: Download decrypted source
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: decrypted-source
           path: .
@@ -361,19 +361,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download mac artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: mac-artifacts
           path: artifacts/mac
 
       - name: Download win artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: win-artifacts
           path: artifacts/win
 
       - name: Download linux artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: linux-artifacts
           path: artifacts/linux
