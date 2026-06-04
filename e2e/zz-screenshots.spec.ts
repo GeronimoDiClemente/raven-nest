@@ -34,6 +34,7 @@ test('capture restyled UI', async () => {
 
   // 3. Nav popovers — anchored to the right of the nav item (NOT a docked panel)
   const popovers: Array<[string, string]> = [
+    ['Session', '15-session.png'],
     ['Snippets', '05-snippets.png'],
     ['MCP', '06-mcp.png'],
     ['Workspaces', '07-workspaces.png'],

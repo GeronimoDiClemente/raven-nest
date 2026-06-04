@@ -875,6 +875,41 @@ body {
   animation: popover-in var(--dur) var(--ease);
 }
 
+/* ── Session panel (tokens / MCP / git / broadcast) ─────────────────────── */
+.session-panel{padding:12px 13px;font-family:var(--font-ui)}
+.session-head{display:flex;align-items:center;gap:8px;margin-bottom:11px}
+.session-title{font-size:13px;font-weight:600;color:var(--text-primary)}
+.session-live{display:flex;align-items:center;gap:5px;font-family:var(--font-mono);font-size:10px;color:var(--accent)}
+.session-live-dot{width:6px;height:6px;border-radius:50%;background:var(--accent);box-shadow:0 0 7px var(--accent);animation:pulse-dot 1.6s infinite}
+@keyframes pulse-dot{50%{opacity:.4}}
+.session-uptime{margin-left:auto;font-family:var(--font-mono);font-size:10px;color:var(--text-muted)}
+.session-metrics{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--border-subtle);border:1px solid var(--border-subtle);border-radius:9px;overflow:hidden;margin-bottom:12px}
+.session-metric{background:var(--bg-elevated);padding:9px 11px;display:flex;flex-direction:column;gap:3px}
+.session-metric-label{font-family:var(--font-mono);font-size:8.5px;letter-spacing:.08em;color:var(--text-muted)}
+.session-metric-value{font-family:var(--font-mono);font-size:18px;font-weight:700;color:var(--text-primary);line-height:1;letter-spacing:-.02em}
+.session-metric-value small{font-size:11px;color:var(--text-secondary);font-weight:500}
+.session-metric-delta{font-family:var(--font-mono);font-size:9.5px}
+.session-metric-delta.up{color:var(--accent)}
+.session-metric-delta.flat{color:var(--text-muted)}
+.session-metric-delta.warn{color:oklch(0.8 0.13 75)}
+.session-spark-head{font-family:var(--font-mono);font-size:8.5px;letter-spacing:.08em;color:var(--text-muted);margin-bottom:5px}
+.session-spark{display:flex;align-items:flex-end;gap:2px;height:38px;margin-bottom:13px}
+.session-spark i{flex:1;border-radius:1px;background:linear-gradient(to top, oklch(0.72 0.17 156 / 0.45), var(--accent));min-height:2px}
+.session-tabs{display:flex;gap:3px;margin-bottom:9px}
+.session-tab{flex:1;font-family:var(--font-mono);font-size:10px;padding:5px 0;border-radius:6px;border:1px solid var(--border-subtle);background:transparent;color:var(--text-secondary);cursor:pointer;transition:background var(--dur-fast) var(--ease),color var(--dur-fast) var(--ease)}
+.session-tab:hover{color:var(--text-primary);background:var(--list-hover)}
+.session-tab.active{color:var(--accent);border-color:oklch(0.72 0.17 156 / 0.4);background:oklch(0.72 0.17 156 / 0.1)}
+.session-list{display:flex;flex-direction:column;gap:1px}
+.session-row{display:flex;align-items:center;gap:8px;height:28px;padding:0 8px;border-radius:6px;font-family:var(--font-mono);font-size:11px;color:var(--text-secondary)}
+.session-row:hover{background:var(--list-hover)}
+.session-pip{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+.session-pip.ok{background:var(--accent);box-shadow:0 0 6px var(--accent)}
+.session-pip.slow{background:oklch(0.8 0.13 75);box-shadow:0 0 6px oklch(0.8 0.13 75)}
+.session-pip.idle{background:var(--text-muted)}
+.session-row-name{flex:1;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.session-row-meta{font-size:9.5px;color:var(--text-muted)}
+.session-row-val{font-size:10px;color:var(--text-secondary);min-width:50px;text-align:right}
+
 /* â”€â”€ Team Modal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 .team-modal-overlay {

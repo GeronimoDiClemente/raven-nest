@@ -12,6 +12,7 @@ import {
   Plus,
   Settings,
   ChevronRight,
+  Activity,
 } from 'lucide-react'
 import SettingsPanel from './SettingsPanel'
 import UserMenu from './UserMenu'
@@ -21,6 +22,7 @@ import SnippetPanel from './SnippetPanel'
 import MCPPanel from './MCPPanel'
 import WorkspacePanel from './WorkspacePanel'
 import CommandHistoryPanel from './CommandHistoryPanel'
+import SessionPanel from './SessionPanel'
 import { supabase } from '../lib/supabase'
 import type { Workspace } from '../types'
 
@@ -155,6 +157,11 @@ export default function NavSidebar({
             />
           </div>
         )}
+
+        {/* Session — live workspace telemetry (tokens, MCP, worktrees, broadcast) */}
+        <NavPopover icon={<Activity />} label="Session">
+          <SessionPanel docked />
+        </NavPopover>
 
         {/* Team */}
         <button
