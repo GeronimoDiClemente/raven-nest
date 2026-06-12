@@ -848,7 +848,7 @@ ipcMain.handle('cli:install', async (event, aiType: string) => {
   return cliInstallRunner.run(
     aiType,
     cmd,
-    (line) => event.sender.send('cli:install:progress', { aiType, line }),
+    (line) => { try { event.sender.send('cli:install:progress', { aiType, line }) } catch { /* renderer gone */ } },
     { env: { ...process.env, PATH: cliLookupPath() } },
   )
 })
