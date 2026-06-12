@@ -86,6 +86,7 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
   const [installReason, setInstallReason] = useState<'failed' | 'not-on-path'>('failed')
   const [installLog, setInstallLog] = useState('')
   const logRef = useRef<HTMLDivElement>(null)
+  const installAbortRef = useRef(false)
   const [shells, setShells] = useState<ShellInfo[]>([])
   const [shellsError, setShellsError] = useState<string | null>(null)
   const isWindows = window.platform?.isWin ?? false
@@ -128,6 +129,8 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight
   }, [installLog])
 
+  useEffect(() => () => { installAbortRef.current = true }, [])
+
   async function selectAI(aiType: AIType) {
     const cfg = AI_CONFIG[aiType]
     setSelectedAI(aiType)
@@ -169,6 +172,7 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
   async function installCli() {
     if (!selectedAI) return
     const ai = selectedAI
+    installAbortRef.current = false
     setInstallLog('')
     setInstallState('installing')
     const unsub = window.cli.onInstallProgress(({ aiType, line }) => {
@@ -187,6 +191,7 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
     if (!found) { setInstallReason('not-on-path'); setInstallState('error'); return }
     setInstallState('done')
     setTimeout(() => {
+      if (installAbortRef.current) return
       const cfg = AI_CONFIG[ai]
       if (cfg.noAccount) {
         onConfirm(ai, 'default', '', cfg.color, cfg.cmd)
@@ -384,7 +389,7 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
           </>
         ) : (
           <>
-            <button className="dialog-back" onClick={() => { setStep('select-ai'); setCliFound(null) }}>← Back</button>
+            <button className="dialog-back" onClick={() => { installAbortRef.current = true; setStep('select-ai'); setCliFound(null) }}>← Back</button>
             <h2 className="dialog-title">
               <span style={{ color: AI_CONFIG[selectedAI!].color }}>{AI_CONFIG[selectedAI!].label}</span>
               {' '}Account
