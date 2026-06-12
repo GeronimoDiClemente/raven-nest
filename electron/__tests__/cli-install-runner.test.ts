@@ -50,6 +50,13 @@ describe('CliInstallRunner', () => {
     expect(result.state).toBe('cancelled')
   }, 10000)
 
+  it('timeout → state failed with timed out in log', async () => {
+    const slow = process.platform === 'win32' ? 'ping -n 30 127.0.0.1' : 'sleep 30'
+    const result = await runner.run('test', slow, () => {}, { timeoutMs: 200 })
+    expect(result.state).toBe('failed')
+    expect(result.log).toContain('timed out')
+  }, 10000)
+
   it('INSTALL_COMMANDS covers the five known AIs', () => {
     expect(Object.keys(INSTALL_COMMANDS).sort()).toEqual(
       ['claude', 'codex', 'copilot', 'gemini', 'opencode'],
