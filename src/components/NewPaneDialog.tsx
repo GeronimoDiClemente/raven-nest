@@ -404,16 +404,7 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
                     {copied ? '✓' : 'Copy'}
                   </button>
                   <button
-                    style={{
-                      background: 'transparent',
-                      color: '#888',
-                      border: '1px solid #333',
-                      borderRadius: 4,
-                      padding: '4px 10px',
-                      fontSize: 11,
-                      cursor: 'pointer',
-                      flexShrink: 0,
-                    }}
+                    className="cli-banner-link"
                     onClick={() => window.electronShell.openExternal(CLI_INSTALL[selectedAI!]!.url)}
                   >
                     Docs ↗

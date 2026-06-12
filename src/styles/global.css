@@ -4134,6 +4134,25 @@ kbd {
   color: var(--text-primary);
 }
 
+/* ── CLI-not-found banner: "Docs ↗" link button ───────────── */
+.cli-banner-link {
+  background: transparent;
+  color: #cbd5e1;
+  border: 1px solid #475569;
+  border-radius: 4px;
+  padding: 4px 10px;
+  font-size: 11px;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.cli-banner-link:hover {
+  background: #1e293b;
+  border-color: #64748b;
+  color: #fff;
+}
+
 /* ── AI Grid ─────────────────────────────────────────────── */
 
 .ai-grid {
