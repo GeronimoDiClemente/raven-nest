@@ -152,6 +152,13 @@ contextBridge.exposeInMainWorld('pathUtils', {
 
 contextBridge.exposeInMainWorld('cli', {
   check: (cmd: string) => ipcRenderer.invoke('cli:check', cmd),
+  install: (aiType: string) => ipcRenderer.invoke('cli:install', aiType),
+  cancelInstall: (aiType: string) => ipcRenderer.invoke('cli:install:cancel', aiType),
+  onInstallProgress: (cb: (data: { aiType: string; line: string }) => void) => {
+    const handler = (_event: unknown, data: { aiType: string; line: string }) => cb(data)
+    ipcRenderer.on('cli:install:progress', handler)
+    return () => ipcRenderer.removeListener('cli:install:progress', handler)
+  },
 })
 
 contextBridge.exposeInMainWorld('shells', {
