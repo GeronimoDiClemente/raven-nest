@@ -37,18 +37,19 @@ import { usePendingInvitesCount } from './hooks/usePendingInvitesCount'
 import { useSpeechRecognition } from './hooks/useSpeechRecognition'
 import { useSettings } from './hooks/useSettings'
 import { matchesBinding } from './lib/keybindings'
+import { WORKTREE_DRAG_MIME } from './lib/dragTypes'
 import { useUserPreferences } from './hooks/useUserPreferences'
 import SharedTerminalViewer from './components/SharedTerminalViewer'
 import { terminalShareService } from './lib/terminalShareService'
 import ResourceBar from './components/ResourceBar'
 import { useLocalPathsMigration } from './hooks/useLocalPathsMigration'
 import type { MetricsPaneInput } from './types'
+import { OnboardingTour } from './tutorial/OnboardingTour'
+import { getTour } from './tutorial/registry'
 
 
 let paneCounter = 0
 const generateId = () => `pane-${++paneCounter}-${Date.now()}`
-
-const WORKTREE_DRAG_MIME = 'application/x-raven-worktree-path'
 
 export default function App() {
   const generateTabId = () => `tab-${Date.now()}`
@@ -352,6 +353,10 @@ export default function App() {
   }, [planLimits.allowCreateWorktree])
   const [quickWorktreeOpen, setQuickWorktreeOpen] = useState(false)
   const [diffViewerOpen, setDiffViewerOpen] = useState(false)
+  // The tutorial is launched on demand: from the "?" button in the Worktrees
+  // section header or from Settings → Tutorial. No blind auto-launch — the tour
+  // spotlights the live app, so it only makes sense once you're on that view.
+  const [tutorialTour, setTutorialTour] = useState<import('./tutorial/types').TourId | null>(null)
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -1042,6 +1047,7 @@ export default function App() {
         layoutId={activeTab.layoutId}
         paneCount={panes.length}
         onLayoutChange={handleLayoutIdChange}
+        onOpenTutorial={(id) => setTutorialTour(id)}
       />
       <div
         ref={workspaceRef}
@@ -1193,6 +1199,7 @@ export default function App() {
           onRequireUpgrade={() => setShowUpgrade(true)}
           onOpenRepoTerminal={openRepoInNewTab}
           onPendingInvitesChange={refreshPendingInvitesCount}
+          onStartTutorial={() => setTutorialTour('teams')}
         />
       )}
 
@@ -1203,6 +1210,7 @@ export default function App() {
           githubLogin={githubLogin}
           onConnectGitHub={connectGitHub}
           onOpenRepoTerminal={openRepoInNewTab}
+          onStartTutorial={() => setTutorialTour('my-repos')}
         />
       )}
 
@@ -1268,6 +1276,10 @@ export default function App() {
         worktreePath={activeCellRepoPath ?? null}
         onClose={() => setDiffViewerOpen(false)}
       />
+      {tutorialTour && (() => {
+        const tour = getTour(tutorialTour)
+        return tour ? <OnboardingTour steps={tour.steps} onClose={() => setTutorialTour(null)} /> : null
+      })()}
     </div>
   )
 }

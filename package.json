@@ -1,6 +1,6 @@
 {
   "name": "nest",
-  "version": "1.2.8",
+  "version": "1.3.0",
   "description": "Nest by RAVEN — Multi-AI Terminal Multiplexer",
   "engines": {
     "node": ">=20.19"
@@ -56,8 +56,17 @@
         "height": 380
       },
       "contents": [
-        { "x": 140, "y": 200, "type": "file" },
-        { "x": 400, "y": 200, "type": "link", "path": "/Applications" }
+        {
+          "x": 140,
+          "y": 200,
+          "type": "file"
+        },
+        {
+          "x": 400,
+          "y": 200,
+          "type": "link",
+          "path": "/Applications"
+        }
       ]
     },
     "win": {

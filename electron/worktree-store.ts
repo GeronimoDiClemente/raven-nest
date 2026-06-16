@@ -76,6 +76,27 @@ export class WorktreeStore {
     if (mutated) this.persist()
   }
 
+  /**
+   * Drop entries whose worktree directory no longer exists on disk. `reconcile`
+   * only *marks* such entries `orphaned` (so live consumers stop treating them
+   * as active) — it deliberately keeps them. But across many create/remove
+   * cycles, or after worktrees are deleted outside the app, the store
+   * accumulates dead entries that linger in the sidebar forever. Call this from
+   * `worktree:list` so a worktree disappears on the next refresh once its
+   * folder is gone. Returns the removed keys.
+   */
+  pruneMissing(): string[] {
+    const removed: string[] = []
+    for (const [path, meta] of this.metas) {
+      if (!existsSync(meta.repoPath)) {
+        this.metas.delete(path)
+        removed.push(path)
+      }
+    }
+    if (removed.length > 0) this.persist()
+    return removed
+  }
+
   hydrateFromGit(repoPath: string): WorktreeMeta[] {
     const normalizedInput = repoPath.replace(/\\/g, '/')
     let raw: string
@@ -125,6 +146,11 @@ export class WorktreeStore {
         ...base,
         branch,
         rootRepoPath,
+        // git just reported this worktree as live, so a stale `orphaned` flag
+        // left by a prior reconcile (e.g. while another repo was active) is
+        // wrong — clear it back to idle. Any other state (running/done/failed)
+        // is real progress and must be preserved.
+        setupState: base.setupState === 'orphaned' ? 'idle' : base.setupState,
         updatedAt: now,
       }
       this.metas.set(wtPath, meta)

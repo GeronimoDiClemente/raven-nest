@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import type { WorktreeMeta } from '../types'
+import { useBridge } from '../lib/bridge'
+import type { Bridge } from '../lib/bridge'
 
 interface CellRef {
   paneId: string
@@ -21,9 +23,9 @@ interface PortGroup {
 
 const POLL_MS = 3000
 
-async function safeListWorktrees(repoPath: string): Promise<WorktreeMeta[]> {
+async function safeListWorktrees(bridge: Bridge, repoPath: string): Promise<WorktreeMeta[]> {
   try {
-    const res = await window.worktree.list(repoPath) as { ok: boolean; worktrees?: WorktreeMeta[]; error?: string } | WorktreeMeta[]
+    const res = await bridge.worktree.list(repoPath) as { ok: boolean; worktrees?: WorktreeMeta[]; error?: string } | WorktreeMeta[]
     // Defensive: handle both new {ok, worktrees} shape and legacy array shape
     // in case the IPC layer ever regresses or this caller runs against an
     // older main process.
@@ -34,6 +36,7 @@ async function safeListWorktrees(repoPath: string): Promise<WorktreeMeta[]> {
 }
 
 export function PortsBanner({ cells, rootRepoPath, onOpenInternal }: Props) {
+  const bridge = useBridge()
   const [groups, setGroups] = useState<PortGroup[]>([])
 
   // Map: worktreePath → set of paneIds (cells running there)
@@ -60,7 +63,7 @@ export function PortsBanner({ cells, rootRepoPath, onOpenInternal }: Props) {
       if (inFlightRef.current) return
       inFlightRef.current = true
       try {
-        const wts = await safeListWorktrees(rootRepoPath)
+        const wts = await safeListWorktrees(bridge, rootRepoPath)
         const byPath = new Map(wts.map((w) => [w.repoPath, w]))
         const result: PortGroup[] = []
 
@@ -70,9 +73,9 @@ export function PortsBanner({ cells, rootRepoPath, onOpenInternal }: Props) {
           const detected = new Set<number>()
           for (const paneId of paneIds) {
             try {
-              const pid = await window.pty.getPid(paneId)
+              const pid = await bridge.pty.getPid(paneId)
               if (!pid) continue
-              const ports = await window.port.scan(pid)
+              const ports = await bridge.port.scan(pid)
               for (const p of ports) detected.add(p)
             } catch {}
           }
@@ -94,7 +97,7 @@ export function PortsBanner({ cells, rootRepoPath, onOpenInternal }: Props) {
     void tick()
     const id = setInterval(tick, POLL_MS)
     return () => { cancelled = true; clearInterval(id) }
-  }, [rootRepoPath, cellsByWorktree])
+  }, [rootRepoPath, cellsByWorktree, bridge])
 
   if (groups.length === 0) return null
   const totalPorts = groups.reduce((n, g) => n + g.declared.length + g.detected.length, 0)
@@ -103,7 +106,7 @@ export function PortsBanner({ cells, rootRepoPath, onOpenInternal }: Props) {
   const showSubheaders = groups.length > 1
 
   return (
-    <div className="ports-banner">
+    <div className="ports-banner" data-tour-id="ports-banner">
       {groups.map((g) => (
         <div key={g.worktreePath} className="ports-group">
           {showSubheaders && (
@@ -126,10 +129,11 @@ function PortPill({ port, kind, onOpenInternal }: {
   kind: 'declared' | 'discovered'
   onOpenInternal?: (url: string) => void
 }) {
+  const bridge = useBridge()
   const url = `http://localhost:${port}`
   const handleClick = (e: React.MouseEvent) => {
     if (e.shiftKey || !onOpenInternal) {
-      window.electronShell.openExternal(url)
+      bridge.electronShell.openExternal(url)
     } else {
       onOpenInternal(url)
     }

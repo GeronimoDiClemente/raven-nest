@@ -24,13 +24,15 @@ interface MyReposPanelProps {
   githubLogin: string | null
   onConnectGitHub: () => void
   onOpenRepoTerminal: (repoFullName: string, localPath: string) => void
+  /** When provided, the header shows a "?" button that launches the My Repos tutorial. */
+  onStartTutorial?: () => void
 }
 
 type Section = 'activity' | 'repos' | 'issues' | 'standup'
 type ReposView = 'list' | 'prs' | 'pr-detail'
 type IssuesView = 'repo-select' | 'list' | 'detail'
 
-export default function MyReposPanel({ onClose, githubToken, githubLogin, onConnectGitHub, onOpenRepoTerminal }: MyReposPanelProps) {
+export default function MyReposPanel({ onClose, githubToken, githubLogin, onConnectGitHub, onOpenRepoTerminal, onStartTutorial }: MyReposPanelProps) {
   const { repos, loading, refresh, addRepo, updateLocalPath, removeRepo } = useUserRepos()
   const { notifications, unreadCount, markAsRead } = useGitHubNotifications(githubToken)
   const { gitlabLogin, gitlabToken } = useGitlab()
@@ -259,7 +261,7 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
             <circle cx="4" cy="12" r="1.5" stroke="currentColor" strokeWidth="1.3"/>
             <path d="M4 5.5v5M5.5 4h5M4 5.5c2 0 4 1 4 3.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
           </svg>
-          <span className="tw-header-title">My Repos</span>
+          <span className="tw-header-title" data-tour-id="myrepos-header">My Repos</span>
         </div>
 
         <div className="tw-header-right">
@@ -276,6 +278,9 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
               {githubToken && githubLogin && <ProviderAvatarPill provider="github" login={githubLogin} />}
               {gitlabToken && gitlabLogin && <ProviderAvatarPill provider="gitlab" login={gitlabLogin} />}
             </span>
+          )}
+          {onStartTutorial && (
+            <button className="tour-help-btn" onClick={onStartTutorial} title="Tutorial: My Repos">?</button>
           )}
           <div style={{ position: 'relative' }} ref={notifRef}>
             <button
@@ -303,7 +308,7 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
 
       {/* Body: sidebar + content */}
       <div className="teams-workspace-body">
-        <nav className="teams-workspace-nav">
+        <nav className="teams-workspace-nav" data-tour-id="myrepos-nav">
           {NAV_ITEMS.map(item => (
             <button
               key={item.id}
@@ -351,7 +356,7 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
                   <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
                     {repos.length} {repos.length === 1 ? 'repo' : 'repos'}
                   </span>
-                  <button className="repo-action-btn primary" onClick={() => setShowPicker(true)}>
+                  <button className="repo-action-btn primary" data-tour-id="myrepos-add" onClick={() => setShowPicker(true)}>
                     <svg className="ra-icon" width="11" height="11" viewBox="0 0 16 16" fill="none">
                       <path d="M8 3.5v9M3.5 8h9" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/>
                     </svg>
@@ -376,7 +381,7 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
                   if (glRepos.length > 0) groups.push({ provider: 'gitlab', label: 'GitLab', items: glRepos })
                   const showHeaders = groups.length > 1
                   return (
-                    <div className="repo-list-scroll snippet-list" style={{ flex: 1, minHeight: 0, maxHeight: 'none' }}>
+                    <div className="repo-list-scroll snippet-list" data-tour-id="myrepos-list" style={{ flex: 1, minHeight: 0, maxHeight: 'none' }}>
                       {groups.map(group => (
                         <div key={group.provider}>
                           {showHeaders && (
@@ -447,7 +452,7 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
                                       </div>
                                     )}
                                   </div>
-                                  <div className="snippet-item-actions">
+                                  <div className="snippet-item-actions" data-tour-id="myrepos-actions">
                                     {repoProvider === 'github' && (
                                       <RepoCIBadge repoFullName={repo.repo_full_name} githubToken={githubToken} />
                                     )}
