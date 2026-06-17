@@ -4134,6 +4134,72 @@ kbd {
   color: var(--text-primary);
 }
 
+/* ── CLI-not-found banner: "Docs ↗" link button ───────────── */
+.cli-banner-link {
+  background: transparent;
+  color: #cbd5e1;
+  border: 1px solid #475569;
+  border-radius: 4px;
+  padding: 4px 10px;
+  font-size: 11px;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.cli-banner-link:hover {
+  background: #1e293b;
+  border-color: #64748b;
+  color: #fff;
+}
+
+.cli-banner-install {
+  background: #f59e0b;
+  color: #1a1200;
+  border: none;
+  border-radius: 4px;
+  padding: 5px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: filter 0.15s;
+}
+
+.cli-banner-install:hover {
+  filter: brightness(1.08);
+}
+
+.cli-banner-spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid #f59e0b;
+  border-top-color: transparent;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+  animation: cli-spin 0.8s linear infinite;
+}
+
+@keyframes cli-spin {
+  to { transform: rotate(360deg); }
+}
+
+.cli-banner-log {
+  background: #111;
+  border: 1px solid #333;
+  border-radius: 4px;
+  padding: 6px 8px;
+  margin-top: 8px;
+  color: #e2e8f0;
+  font-size: 10.5px;
+  font-family: monospace;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  max-height: 140px;
+  overflow-y: auto;
+}
+
 /* ── AI Grid ─────────────────────────────────────────────── */
 
 .ai-grid {

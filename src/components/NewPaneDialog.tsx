@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { AIType, AI_CONFIG, COLOR_PALETTE, CustomCLI, ShellInfo } from '../types'
 import { safeWriteText } from '../lib/clipboard'
 import { bridge } from '../lib/bridge'
@@ -10,7 +10,7 @@ const CLI_INSTALL: Partial<Record<AIType, { cmd: string; url: string }>> = {
   gemini:   { cmd: 'npm install -g @google/gemini-cli',        url: 'https://github.com/google-gemini/gemini-cli' },
   codex:    { cmd: 'npm install -g @openai/codex',             url: 'https://github.com/openai/codex' },
   copilot:  { cmd: 'gh extension install github/gh-copilot',   url: 'https://docs.github.com/en/copilot/github-copilot-in-the-cli' },
-  opencode: { cmd: 'npm install -g opencode',                   url: 'https://opencode.ai' },
+  opencode: { cmd: 'npm install -g opencode-ai',                url: 'https://opencode.ai' },
 }
 
 type LogoComponent = React.FC<{ size?: number; color?: string }>
@@ -83,6 +83,11 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
   const [confirmDelete, setConfirmDelete] = useState<{ type: 'account'; name: string } | { type: 'cli'; id: string; label: string; e: React.MouseEvent } | null>(null)
   const [cliFound, setCliFound] = useState<boolean | null>(null)
   const [copied, setCopied] = useState(false)
+  const [installState, setInstallState] = useState<'idle' | 'installing' | 'done' | 'error'>('idle')
+  const [installReason, setInstallReason] = useState<'failed' | 'not-on-path'>('failed')
+  const [installLog, setInstallLog] = useState('')
+  const logRef = useRef<HTMLDivElement>(null)
+  const installAbortRef = useRef(false)
   const [shells, setShells] = useState<ShellInfo[]>([])
   const [shellsError, setShellsError] = useState<string | null>(null)
   const isWindows = bridge.platform?.isWin ?? false
@@ -116,8 +121,16 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
     const cmd = AI_CONFIG[selectedAI].cmd
     if (!cmd) { setCliFound(true); return }
     setCliFound(null)
+    setInstallState('idle')
+    setInstallLog('')
     bridge.cli.check(cmd).then(r => setCliFound(r.found))
   }, [step, selectedAI])
+
+  useEffect(() => {
+    if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight
+  }, [installLog])
+
+  useEffect(() => () => { installAbortRef.current = true }, [])
 
   async function selectAI(aiType: AIType) {
     const cfg = AI_CONFIG[aiType]
@@ -155,6 +168,39 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
     if (!selectedAI) return
     const dir = await bridge.accounts.getDir(selectedAI, name)
     onConfirm(selectedAI, name, dir, borderColor, AI_CONFIG[selectedAI].cmd)
+  }
+
+  async function installCli() {
+    if (!selectedAI) return
+    const ai = selectedAI
+    installAbortRef.current = false
+    setInstallLog('')
+    setInstallState('installing')
+    const unsub = bridge.cli.onInstallProgress(({ aiType, line }) => {
+      if (aiType === ai) setInstallLog((prev) => (prev ? `${prev}\n${line}` : line))
+    })
+    let result: { state: 'done' | 'failed' | 'cancelled'; log: string }
+    try {
+      result = await bridge.cli.install(ai)
+    } finally {
+      unsub()
+    }
+    if (result.state === 'cancelled') { setInstallState('idle'); return }
+    if (result.state === 'failed') { setInstallReason('failed'); setInstallState('error'); return }
+    // done → re-check that the binary is now on PATH
+    const { found } = await bridge.cli.check(AI_CONFIG[ai].cmd)
+    if (!found) { setInstallReason('not-on-path'); setInstallState('error'); return }
+    setInstallState('done')
+    setTimeout(() => {
+      if (installAbortRef.current) return
+      const cfg = AI_CONFIG[ai]
+      if (cfg.noAccount) {
+        onConfirm(ai, 'default', '', cfg.color, cfg.cmd)
+      } else {
+        setCliFound(true)
+        setInstallState('idle')
+      }
+    }, 900)
   }
 
   async function createAccount() {
@@ -344,7 +390,7 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
           </>
         ) : (
           <>
-            <button className="dialog-back" onClick={() => { setStep('select-ai'); setCliFound(null) }}>← Back</button>
+            <button className="dialog-back" onClick={() => { installAbortRef.current = true; setStep('select-ai'); setCliFound(null) }}>← Back</button>
             <h2 className="dialog-title">
               <span style={{ color: AI_CONFIG[selectedAI!].color }}>{AI_CONFIG[selectedAI!].label}</span>
               {' '}Account
@@ -353,78 +399,153 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
             {/* CLI detection banner */}
             {cliFound === false && selectedAI && CLI_INSTALL[selectedAI] && (
               <div style={{
-                background: '#2a1a00',
-                border: '1px solid #f59e0b',
+                background:
+                  installState === 'done' || (installState === 'error' && installReason === 'not-on-path')
+                    ? '#07210f'
+                    : installState === 'error'
+                      ? '#2a0a0a'
+                      : '#2a1a00',
+                border: `1px solid ${
+                  installState === 'done' || (installState === 'error' && installReason === 'not-on-path')
+                    ? '#22c55e'
+                    : installState === 'error'
+                      ? '#ef4444'
+                      : '#f59e0b'
+                }`,
                 borderRadius: 6,
                 padding: '10px 12px',
                 marginBottom: 12,
                 fontSize: 11,
               }}>
-                <div style={{ color: '#f59e0b', fontWeight: 600, marginBottom: 6 }}>
-                  ⚠ {AI_CONFIG[selectedAI].label} CLI not found
-                </div>
-                <div style={{ color: '#aaa', marginBottom: 8 }}>
-                  Install it with:
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <code style={{
-                    flex: 1,
-                    background: '#111',
-                    border: '1px solid #333',
-                    borderRadius: 4,
-                    padding: '4px 8px',
-                    color: '#e2e8f0',
-                    fontSize: 11,
-                    fontFamily: 'monospace',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                  }}>
-                    {CLI_INSTALL[selectedAI]!.cmd}
-                  </code>
-                  <button
-                    style={{
-                      background: copied ? '#22c55e' : '#333',
-                      color: '#fff',
-                      border: 'none',
-                      borderRadius: 4,
-                      padding: '4px 10px',
-                      fontSize: 11,
-                      cursor: 'pointer',
-                      flexShrink: 0,
-                    }}
-                    onClick={() => {
-                      void safeWriteText(CLI_INSTALL[selectedAI!]!.cmd).then(ok => {
-                        if (ok) {
-                          setCopied(true)
-                          setTimeout(() => setCopied(false), 2000)
-                        }
-                      })
-                    }}
-                  >
-                    {copied ? '✓' : 'Copy'}
-                  </button>
-                  <button
-                    style={{
-                      background: 'transparent',
-                      color: '#888',
-                      border: '1px solid #333',
-                      borderRadius: 4,
-                      padding: '4px 10px',
-                      fontSize: 11,
-                      cursor: 'pointer',
-                      flexShrink: 0,
-                    }}
-                    onClick={() => bridge.electronShell.openExternal(CLI_INSTALL[selectedAI!]!.url)}
-                  >
-                    Docs ↗
-                  </button>
-                </div>
+                {installState === 'idle' && (
+                  <>
+                    <div style={{ color: '#f59e0b', fontWeight: 600, marginBottom: 6 }}>
+                      ⚠ {AI_CONFIG[selectedAI].label} CLI not found
+                    </div>
+                    <div style={{ color: '#aaa', marginBottom: 8 }}>
+                      Raven Nest can install it for you.
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <button className="cli-banner-install" onClick={installCli}>
+                        Install {AI_CONFIG[selectedAI].label} CLI
+                      </button>
+                      <button
+                        className="cli-banner-link"
+                        onClick={() => bridge.electronShell.openExternal(CLI_INSTALL[selectedAI!]!.url)}
+                      >
+                        Docs ↗
+                      </button>
+                    </div>
+                  </>
+                )}
+
+                {installState === 'installing' && (
+                  <>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                      <span className="cli-banner-spinner" />
+                      <div style={{ color: '#f59e0b', fontWeight: 600, flex: 1 }}>
+                        Installing {AI_CONFIG[selectedAI].label} CLI…
+                      </div>
+                      <button
+                        style={{ background: 'transparent', color: '#888', border: '1px solid #333', borderRadius: 4, padding: '4px 10px', fontSize: 11, cursor: 'pointer', flexShrink: 0 }}
+                        onClick={() => bridge.cli.cancelInstall(selectedAI!)}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                    <div className="cli-banner-log" ref={logRef}>{installLog}</div>
+                  </>
+                )}
+
+                {installState === 'done' && (
+                  <>
+                    <div style={{ color: '#22c55e', fontWeight: 600, marginBottom: 4 }}>
+                      ✓ {AI_CONFIG[selectedAI].label} CLI installed
+                    </div>
+                    <div style={{ color: '#aaa' }}>Opening {AI_CONFIG[selectedAI].label}…</div>
+                  </>
+                )}
+
+                {installState === 'error' && installReason === 'not-on-path' && (
+                  <>
+                    <div style={{ color: '#22c55e', fontWeight: 600, marginBottom: 6 }}>
+                      ✓ {AI_CONFIG[selectedAI].label} CLI installed
+                    </div>
+                    <div style={{ color: '#aaa', marginBottom: 8 }}>
+                      Restart Raven Nest to pick it up.
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <button
+                        className="cli-banner-link"
+                        onClick={() => bridge.electronShell.openExternal(CLI_INSTALL[selectedAI!]!.url)}
+                      >
+                        Docs ↗
+                      </button>
+                    </div>
+                  </>
+                )}
+
+                {installState === 'error' && installReason === 'failed' && (
+                  <>
+                    <div style={{ color: '#ef4444', fontWeight: 600, marginBottom: 6 }}>
+                      ✗ Install failed
+                    </div>
+                    <div style={{ color: '#aaa', marginBottom: 8 }}>
+                      Try it manually:
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <code style={{
+                        flex: 1,
+                        background: '#111',
+                        border: '1px solid #333',
+                        borderRadius: 4,
+                        padding: '4px 8px',
+                        color: '#e2e8f0',
+                        fontSize: 11,
+                        fontFamily: 'monospace',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}>
+                        {CLI_INSTALL[selectedAI]!.cmd}
+                      </code>
+                      <button
+                        style={{
+                          background: copied ? '#22c55e' : '#333',
+                          color: '#fff',
+                          border: 'none',
+                          borderRadius: 4,
+                          padding: '4px 10px',
+                          fontSize: 11,
+                          cursor: 'pointer',
+                          flexShrink: 0,
+                        }}
+                        onClick={() => {
+                          void safeWriteText(CLI_INSTALL[selectedAI!]!.cmd).then(ok => {
+                            if (ok) {
+                              setCopied(true)
+                              setTimeout(() => setCopied(false), 2000)
+                            }
+                          })
+                        }}
+                      >
+                        {copied ? '✓' : 'Copy'}
+                      </button>
+                      <button
+                        className="cli-banner-link"
+                        onClick={() => bridge.electronShell.openExternal(CLI_INSTALL[selectedAI!]!.url)}
+                      >
+                        Docs ↗
+                      </button>
+                    </div>
+                    {installLog && <div className="cli-banner-log" ref={logRef}>{installLog}</div>}
+                  </>
+                )}
               </div>
             )}
 
             {/* noAccount types (opencode) land here only when CLI not found — show open anyway */}
-            {selectedAI && AI_CONFIG[selectedAI].noAccount && cliFound === false && (
+            {selectedAI && AI_CONFIG[selectedAI].noAccount && cliFound === false && installState === 'idle' && (
               <button
                 className="btn-primary"
                 style={{ width: '100%', marginBottom: 8 }}

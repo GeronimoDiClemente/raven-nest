@@ -438,6 +438,9 @@ declare global {
     }
     cli: {
       check: (cmd: string) => Promise<{ found: boolean; path: string }>
+      install: (aiType: string) => Promise<{ state: 'done' | 'failed' | 'cancelled'; log: string }>
+      cancelInstall: (aiType: string) => Promise<boolean>
+      onInstallProgress: (cb: (data: { aiType: string; line: string }) => void) => () => void
     }
     shells: {
       detect: () => Promise<ShellInfo[]>
