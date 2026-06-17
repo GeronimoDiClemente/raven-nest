@@ -55,7 +55,7 @@ jobs:
           export PATH=/usr/bin:$PATH
 
           # Add new releases here as they ship. Trim old ones after they're stapled.
-          RELEASES="v1.2.0 v1.2.1 v1.2.2 v1.2.3 v1.2.4 v1.2.5 v1.2.6 v1.2.7"
+          RELEASES="v1.2.0 v1.2.1 v1.2.2 v1.2.3 v1.2.4 v1.2.5 v1.2.6 v1.2.7 v1.3.1"
 
           # We don't need to match submission ID to release — Apple's notary
           # accepts by binary hash, so any Accepted submission whose hash
