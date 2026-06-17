@@ -256,7 +256,7 @@ jobs:
 
   build-win:
     needs: decrypt
-    runs-on: windows-latest
+    runs-on: windows-2022
     steps:
       - name: Download decrypted source
         uses: actions/download-artifact@v7
