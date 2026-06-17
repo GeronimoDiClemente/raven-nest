@@ -10,7 +10,7 @@ const CLI_INSTALL: Partial<Record<AIType, { cmd: string; url: string }>> = {
   gemini:   { cmd: 'npm install -g @google/gemini-cli',        url: 'https://github.com/google-gemini/gemini-cli' },
   codex:    { cmd: 'npm install -g @openai/codex',             url: 'https://github.com/openai/codex' },
   copilot:  { cmd: 'gh extension install github/gh-copilot',   url: 'https://docs.github.com/en/copilot/github-copilot-in-the-cli' },
-  opencode: { cmd: 'npm install -g opencode',                   url: 'https://opencode.ai' },
+  opencode: { cmd: 'npm install -g opencode-ai',                url: 'https://opencode.ai' },
 }
 
 type LogoComponent = React.FC<{ size?: number; color?: string }>

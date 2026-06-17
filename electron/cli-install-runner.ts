@@ -12,7 +12,7 @@ export const INSTALL_COMMANDS: Record<string, string> = {
   gemini:   'npm install -g @google/gemini-cli',
   codex:    'npm install -g @openai/codex',
   copilot:  'gh extension install github/gh-copilot',
-  opencode: 'npm install -g opencode',
+  opencode: 'npm install -g opencode-ai',
 }
 
 const SECRET_RE = /(?:^|[\s=:])(?:token|key|password|secret|api[_-]?key)\s*[=:]\s*\S+/gi
