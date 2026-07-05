@@ -535,6 +535,7 @@ export default function Sidebar({
 
         <div
           className="sidebar-item sidebar-item-panel sidebar-item-team"
+          data-tour-id="sidebar-team"
           style={{ cursor: 'pointer', position: 'relative' }}
           onClick={onTeamsOpen}
           title={pendingInvitesCount > 0 ? `Team — ${pendingInvitesCount} pending invite${pendingInvitesCount === 1 ? '' : 's'}` : 'Team'}
@@ -577,6 +578,7 @@ export default function Sidebar({
 
         <div
           className="sidebar-item sidebar-item-panel sidebar-item-team"
+          data-tour-id="sidebar-myrepos"
           style={{ cursor: 'pointer' }}
           onClick={plan === 'pro' || plan === 'team' || plan === 'enterprise' ? onMyReposOpen : onUpgrade}
           title="My Repos"

@@ -1302,7 +1302,7 @@ function EmptyState({ onNewPane }: { onNewPane: () => void }) {
       </div>
       <h1 className="empty-title">Nest</h1>
       <p className="empty-subtitle">Multi-AI Terminal Workspace by RAVEN</p>
-      <button className="btn-primary" onClick={onNewPane}>
+      <button className="btn-primary" data-tour-id="empty-new-terminal" onClick={onNewPane}>
         + New Terminal
       </button>
       <p className="empty-hint">or press <kbd>{window.platform?.isWin ? 'Ctrl+T' : '⌘T'}</kbd></p>
