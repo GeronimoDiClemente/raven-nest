@@ -31,6 +31,20 @@ describe('ContextColumn', () => {
     fireEvent.click(screen.getByText('Item A'))
     expect(onSelect).toHaveBeenCalledWith({ sectionId: 'mine', itemId: 'a' })
   })
+  it('marca activo solo el item de la sección seleccionada (mismo itemId en dos secciones)', () => {
+    const twoSections = [
+      { id: 'a', label: 'Sección A', items: [{ id: 'x', title: 'Item X en A' }] },
+      { id: 'b', label: 'Sección B', items: [{ id: 'x', title: 'Item X en B' }] },
+    ]
+    render(
+      <ContextColumn sections={twoSections} selected={{ sectionId: 'b', itemId: 'x' }}
+        onSelect={vi.fn()} header={{ title: 'Demo' }} branch={null} entityLabel={null} />,
+    )
+    const btnA = screen.getByText('Item X en A').closest('button')!
+    const btnB = screen.getByText('Item X en B').closest('button')!
+    expect(btnA.getAttribute('aria-pressed')).toBe('false')
+    expect(btnB.getAttribute('aria-pressed')).toBe('true')
+  })
 })
 
 describe('ComposeBar', () => {

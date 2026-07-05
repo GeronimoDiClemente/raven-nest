@@ -23,9 +23,9 @@ export function ContextColumn({ header, sections, selected, onSelect, branch, en
           <h4 className="ip-section-label">{s.label} · {s.items.length}</h4>
           {s.items.map((it) => {
             const ref = { sectionId: s.id, itemId: it.id }
-            const on = selected?.itemId === it.id
+            const on = selected?.sectionId === s.id && selected?.itemId === it.id
             return (
-              <button key={it.id} className={`ip-item${on ? ' active' : ''}`} onClick={() => onSelect(ref)}>
+              <button key={it.id} className={`ip-item${on ? ' active' : ''}`} aria-pressed={on} onClick={() => onSelect(ref)}>
                 {it.accent && <span className="ip-item-accent">{it.accent}</span>}
                 <span className="ip-item-body">
                   <span className="ip-item-title">{it.title}</span>
