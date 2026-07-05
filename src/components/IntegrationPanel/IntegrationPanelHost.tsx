@@ -12,7 +12,7 @@ interface Props {
 
 export function IntegrationPanelHost({ pluginId, repoPath, onClose }: Props) {
   const adapter = useMemo(() => getAdapter(pluginId), [pluginId])
-  const { branch } = useGitInfo(repoPath ?? '')
+  const { branch } = useGitInfo(repoPath ?? undefined)
   if (!adapter) return null
   return (
     <div className="ip-overlay" onClick={onClose}>
