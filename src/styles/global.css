@@ -4038,6 +4038,36 @@ body {
   color: var(--text-muted);
 }
 
+/* "?" re-entry button for the activation tour. Base position clears the native
+   window-controls overlay (44px tall, top-right) used on Windows and Linux
+   (see electron/platform.ts getWindowOptions). Linux gets no platform-* body
+   class, so the safe offset is the default; Mac (traffic lights on the left)
+   overrides to hug the top. */
+.empty-help-btn {
+  position: fixed;
+  top: 52px;
+  right: 16px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  z-index: 5;
+}
+
+body.platform-mac .empty-help-btn {
+  top: 16px;
+}
+
+.empty-help-btn:hover {
+  color: var(--text-secondary);
+  border-color: var(--text-secondary);
+}
+
 kbd {
   background: var(--bg-elevated);
   border: 1px solid var(--border);

@@ -355,8 +355,10 @@ export default function App() {
   const [quickWorktreeOpen, setQuickWorktreeOpen] = useState(false)
   const [diffViewerOpen, setDiffViewerOpen] = useState(false)
   // The tutorial is launched on demand: from the "?" button in the Worktrees
-  // section header or from Settings → Tutorial. No blind auto-launch — the tour
-  // spotlights the live app, so it only makes sense once you're on that view.
+  // section header or from Settings → Tutorial. The one exception is the
+  // `activation` tour, which auto-launches once on first run when the workspace
+  // boots empty (see the effect below `isInitialState`). The other tours
+  // spotlight a live view, so they only make sense launched from that view.
   const [tutorialTour, setTutorialTour] = useState<import('./tutorial/types').TourId | null>(null)
 
   // Launching `activation` expands the sidebar first, so its My Repos / Team
@@ -925,7 +927,7 @@ export default function App() {
     if (activationSeen.seen) return
     activationSeen.markSeen()
     openTutorial('activation')
-  }, [isInitialState, activationSeen, openTutorial])
+  }, [isInitialState, activationSeen.seen, activationSeen.markSeen, openTutorial])
 
   // Workspace-level drop handling for worktree drag-and-drop
   const [dropActive, setDropActive] = useState(false)
@@ -1322,24 +1324,10 @@ function EmptyState({ onNewPane, onStartTutorial }: { onNewPane: () => void; onS
   return (
     <div className="empty-state">
       <button
+        className="empty-help-btn"
         onClick={onStartTutorial}
         title="Getting started"
         aria-label="Getting started tour"
-        style={{
-          position: 'fixed',
-          top: 16,
-          right: 16,
-          width: 28,
-          height: 28,
-          borderRadius: '50%',
-          border: '1px solid var(--border, #2a2a2a)',
-          background: 'transparent',
-          color: 'var(--text-muted, #888)',
-          cursor: 'pointer',
-          fontSize: 14,
-          lineHeight: 1,
-          zIndex: 5,
-        }}
       >
         ?
       </button>
