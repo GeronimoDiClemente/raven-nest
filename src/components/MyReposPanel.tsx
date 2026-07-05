@@ -18,6 +18,11 @@ import RepoActionsMenu, { type RepoAction } from './RepoActionsMenu'
 import { useGitlab } from '../hooks/useGitlab'
 import { ProviderAvatarPill, providerAvatar } from './ProviderAvatar'
 import { IntegrationsMarketplaceView } from './IntegrationsMarketplace'
+import { useInstalledPlugins } from '../hooks/useInstalledPlugins'
+import { useGitInfo } from '../hooks/useGitInfo'
+import { BUILTIN_CATALOG } from '../lib/plugins/builtinCatalog'
+import { getAdapter, hasAdapter } from '../integrations/registry'
+import { IntegrationPanelShell } from './IntegrationPanel/IntegrationPanelShell'
 
 interface MyReposPanelProps {
   onClose: () => void
@@ -27,20 +32,25 @@ interface MyReposPanelProps {
   onOpenRepoTerminal: (repoFullName: string, localPath: string) => void
   /** When provided, the header shows a "?" button that launches the My Repos tutorial. */
   onStartTutorial?: () => void
+  /** Repo path of the currently active tab — feeds the worktreeContext of an embedded integration panel. */
+  activeRepoPath: string | null
 }
 
 type Section = 'activity' | 'repos' | 'issues' | 'standup' | 'integrations'
+// Sección de un panel de integración instalada embebido (ej. 'integration:demo').
+type IntegrationSection = `integration:${string}`
+type SectionState = Section | IntegrationSection
 type ReposView = 'list' | 'prs' | 'pr-detail'
 type IssuesView = 'repo-select' | 'list' | 'detail'
 
-export default function MyReposPanel({ onClose, githubToken, githubLogin, onConnectGitHub, onOpenRepoTerminal, onStartTutorial }: MyReposPanelProps) {
+export default function MyReposPanel({ onClose, githubToken, githubLogin, onConnectGitHub, onOpenRepoTerminal, onStartTutorial, activeRepoPath }: MyReposPanelProps) {
   const { repos, loading, refresh, addRepo, updateLocalPath, removeRepo } = useUserRepos()
   const { notifications, unreadCount, markAsRead } = useGitHubNotifications(githubToken)
   const { gitlabLogin, gitlabToken } = useGitlab()
   const tokenForProvider = (provider: 'github' | 'gitlab') =>
     provider === 'gitlab' ? gitlabToken : githubToken
 
-  const [section, setSection] = useState<Section>('repos')
+  const [section, setSection] = useState<SectionState>('repos')
   const [showPicker, setShowPicker] = useState(false)
   const [showNotifications, setShowNotifications] = useState(false)
   const [statusRepo, setStatusRepo] = useState<UserRepo | null>(null)
@@ -76,6 +86,30 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
   }, [])
 
   const excludedNames = useMemo(() => new Set(repos.map(r => r.repo_full_name)), [repos])
+
+  // Ítems instalados con adapter registrado → grupo "Installed" del nav interno.
+  // useInstalledPlugins ya se sincroniza via 'nest:plugins-changed', así que
+  // instalar/desinstalar desde la sección Integrations refresca este grupo sin remount.
+  const { installed: installedPlugins } = useInstalledPlugins()
+  const installedIntegrations = useMemo(
+    () => installedPlugins.filter(p => p.enabled && hasAdapter(p.pluginId)),
+    [installedPlugins],
+  )
+
+  const activeIntegrationId = section.startsWith('integration:') ? section.slice('integration:'.length) : null
+  const activeIntegrationAdapter = useMemo(
+    () => (activeIntegrationId ? getAdapter(activeIntegrationId) : null),
+    [activeIntegrationId],
+  )
+  const { branch: activeRepoBranch } = useGitInfo(activeRepoPath ?? undefined)
+
+  // Si se desinstala la integración cuya sección está abierta, volver al marketplace.
+  useEffect(() => {
+    if (!activeIntegrationId) return
+    if (!installedIntegrations.some(p => p.pluginId === activeIntegrationId)) {
+      setSection('integrations')
+    }
+  }, [activeIntegrationId, installedIntegrations])
 
   const handlePickerAdd = async (repoFullName: string, provider: 'github' | 'gitlab', localPath: string | null) => {
     await addRepo(repoFullName, provider, localPath)
@@ -216,6 +250,8 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
     if (s === 'issues') { setIssuesView('repo-select'); setSelectedIssueRepo(null); setSelectedIssue(null) }
   }
 
+  const openIntegration = (pluginId: string) => setSection(`integration:${pluginId}`)
+
   const NAV_ITEMS: { id: Section; label: string; icon: React.ReactNode }[] = [
     {
       id: 'activity',
@@ -325,13 +361,37 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
               {item.label}
             </button>
           ))}
+
+          {installedIntegrations.length > 0 && (
+            <>
+              <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5, color: 'var(--text-secondary)', padding: '10px 12px 2px' }}>
+                Installed
+              </div>
+              {installedIntegrations.map(p => {
+                const manifest = BUILTIN_CATALOG.find(m => m.id === p.pluginId)
+                return (
+                  <button
+                    key={p.pluginId}
+                    className={`tw-nav-btn${section === `integration:${p.pluginId}` ? ' active' : ''}`}
+                    onClick={() => openIntegration(p.pluginId)}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" style={{ color: manifest?.color }}>
+                      <rect x="2" y="2" width="12" height="12" rx="3.5" stroke="currentColor" strokeWidth="1.4" />
+                      <path d="M5.5 8h5M8 5.5v5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+                    </svg>
+                    {manifest?.name ?? p.pluginId}
+                  </button>
+                )
+              })}
+            </>
+          )}
         </nav>
 
         <div className="teams-workspace-content">
           <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
 
             {/* Integrations no depende de GitHub/GitLab: se excluye del gate genérico. */}
-            {!githubToken && !gitlabToken && section !== 'integrations' && (
+            {!githubToken && !gitlabToken && section !== 'integrations' && !activeIntegrationId && (
               <div className="tw-placeholder">
                 <p className="tw-placeholder-title">Connect GitHub or GitLab to use My Repos</p>
                 <p className="tw-placeholder-text">Activity, PRs and issues require GitHub. Repos and Actions work with both providers — connect one or both from Settings → Account.</p>
@@ -339,7 +399,18 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
               </div>
             )}
 
-            {section === 'integrations' && <IntegrationsMarketplaceView />}
+            {/* Fallback al marketplace si la sección activa apunta a un adapter que ya no existe. */}
+            {(section === 'integrations' || (activeIntegrationId && !activeIntegrationAdapter)) && <IntegrationsMarketplaceView />}
+
+            {activeIntegrationId && activeIntegrationAdapter && (
+              <div className="ip-embedded">
+                <IntegrationPanelShell
+                  adapter={activeIntegrationAdapter}
+                  worktreeContext={{ repoPath: activeRepoPath, branch: activeRepoBranch ?? null }}
+                  getTerminalOutput={() => '$ (milestone 2: real output from the active pane)'}
+                />
+              </div>
+            )}
 
             {section === 'activity' && githubToken && (
               <div className="team-tab-pane">
