@@ -4,14 +4,12 @@ import { IntegrationsMarketplaceView } from '../../components/IntegrationsMarket
 import { BUILTIN_CATALOG } from '../../lib/plugins/builtinCatalog'
 
 // usePluginCatalog toca supabase (no configurado en el entorno de test) —
-// se mockea igual que en IntegrationsMarketplace.test.tsx para servir el
-// catálogo builtin de forma síncrona.
+// se mockea para servir el catálogo builtin de forma síncrona.
 vi.mock('../../hooks/usePluginCatalog', () => ({
   usePluginCatalog: () => ({ catalog: BUILTIN_CATALOG, loading: false, source: 'builtin' }),
 }))
 
-// useInstalledPlugins NO se mockea: se ejercita real contra window.plugins,
-// igual que Sidebar-integrations.test.tsx / SidebarIntegrationItems.test.tsx.
+// useInstalledPlugins NO se mockea: se ejercita real contra window.plugins.
 describe('IntegrationsMarketplaceView (embebida, sin overlay)', () => {
   beforeEach(() => {
     ;(globalThis as unknown as { window: Window }).window.plugins = {
@@ -38,5 +36,12 @@ describe('IntegrationsMarketplaceView (embebida, sin overlay)', () => {
         expect.objectContaining({ pluginId: expect.any(String), scope: 'personal', enabled: true }),
       )
     })
+  })
+
+  it('filtra por búsqueda', () => {
+    render(<IntegrationsMarketplaceView />)
+    fireEvent.change(screen.getByPlaceholderText('Search...'), { target: { value: 'jira' } })
+    expect(screen.getByText('Jira')).toBeInTheDocument()
+    expect(screen.queryByText('Slack')).not.toBeInTheDocument()
   })
 })

@@ -5,13 +5,10 @@ import type { PluginManifest } from '../types'
 
 /**
  * Contenido del marketplace de integraciones (tabs, búsqueda, grids de
- * instaladas/disponibles/coming-soon y tab de team). No incluye el overlay
- * ni el botón de cerrar: se usa embebido dentro de `MyReposPanel` (sección
- * "Integrations") y también como cuerpo del modal legacy `IntegrationsMarketplace`.
- * `headerActions` permite inyectar controles extra (ej. el botón de cerrar
- * del modal) sin duplicar el header.
+ * instaladas/disponibles/coming-soon y tab de team). Se usa embebido dentro
+ * de `MyReposPanel` (sección "Integrations").
  */
-export function IntegrationsMarketplaceView({ headerActions }: { headerActions?: ReactNode } = {}) {
+export function IntegrationsMarketplaceView() {
   const { catalog } = usePluginCatalog()
   const { install, uninstall, isInstalled } = useInstalledPlugins()
   const [tab, setTab] = useState<'personal' | 'team'>('personal')
@@ -41,7 +38,6 @@ export function IntegrationsMarketplaceView({ headerActions }: { headerActions?:
           <button className={`integrations-tab${tab === 'personal' ? ' active' : ''}`} onClick={() => setTab('personal')} aria-pressed={tab === 'personal'}>Personal</button>
           <button className={`integrations-tab${tab === 'team' ? ' active' : ''}`} onClick={() => setTab('team')} aria-pressed={tab === 'team'}>Team · Enterprise</button>
         </div>
-        {headerActions}
       </header>
 
       <div className="integrations-body">
@@ -89,23 +85,6 @@ export function IntegrationsMarketplaceView({ headerActions }: { headerActions?:
             </button>
           </div>
         )}
-      </div>
-    </div>
-  )
-}
-
-/**
- * Modal legacy a nivel de app (sidebar global). Se elimina en Task C del plan
- * de migración a My Repos; hasta entonces queda como wrapper delgado sobre
- * `IntegrationsMarketplaceView`.
- */
-export function IntegrationsMarketplace({ onClose }: { onClose: () => void }) {
-  return (
-    <div className="integrations-overlay" onClick={onClose}>
-      <div className="integrations-modal" role="dialog" aria-label="Integrations" onClick={e => e.stopPropagation()}>
-        <IntegrationsMarketplaceView
-          headerActions={<button className="integrations-close" onClick={onClose} aria-label="Close">×</button>}
-        />
       </div>
     </div>
   )

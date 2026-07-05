@@ -17,7 +17,6 @@ import { terminalJoinService } from '../lib/terminalJoinService'
 import { basename } from '../lib/path'
 import { useGitInfo } from '../hooks/useGitInfo'
 import { useFixedPopover } from '../hooks/useFixedPopover'
-import { SidebarIntegrationItems } from './SidebarIntegrationItems'
 
 interface Props {
   expanded: boolean
@@ -58,8 +57,6 @@ interface Props {
   paneCount: number
   onLayoutChange: (id: LayoutId) => void
   onOpenTutorial?: (tourId: import('../tutorial/types').TourId) => void
-  onIntegrationsOpen?: () => void
-  onIntegrationPanelOpen?: (pluginId: string) => void
 }
 
 export default function Sidebar({
@@ -69,7 +66,7 @@ export default function Sidebar({
   onSnippetSend, onSnippetBroadcast, onCommandRun, onWorkspaceSave, onWorkspaceLoad, isWin,
   isTrialActive, trialDaysLeft, profileLoading, onUpgrade, onTeamsOpen, pendingInvitesCount = 0, onMyReposOpen, plan, repoPath, onRepoLink, onRepoUnlink, onJoinTerminal,
   activeCellRepoPath, onWorktreeSelect, onNewWorktree, worktreeRefreshKey,
-  layoutId, paneCount, onLayoutChange, onOpenTutorial, onIntegrationsOpen, onIntegrationPanelOpen,
+  layoutId, paneCount, onLayoutChange, onOpenTutorial,
 }: Props) {
   const { branch, githubUrl, isDirty } = useGitInfo(repoPath)
   const { githubToken } = useGitHub()
@@ -594,25 +591,6 @@ export default function Sidebar({
           </span>
           <span className="sidebar-label">My Repos</span>
           {expanded && plan === 'free' && <span className="sidebar-plan-badge">Pro</span>}
-        </div>
-
-        <SidebarIntegrationItems onOpen={(id) => onIntegrationPanelOpen?.(id)} />
-
-        <div
-          className="sidebar-item sidebar-item-panel sidebar-item-team"
-          style={{ cursor: 'pointer' }}
-          onClick={onIntegrationsOpen}
-          title="Integrations"
-        >
-          <span className="sidebar-icon">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <rect x="1" y="1" width="6" height="6" rx="1.2" stroke="currentColor" strokeWidth="1.3"/>
-              <rect x="9" y="1" width="6" height="6" rx="1.2" stroke="currentColor" strokeWidth="1.3"/>
-              <rect x="1" y="9" width="6" height="6" rx="1.2" stroke="currentColor" strokeWidth="1.3"/>
-              <path d="M12 9v6M9 12h6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-            </svg>
-          </span>
-          <span className="sidebar-label">Integrations</span>
         </div>
 
         {/* ── 4. MORE TOOLS (desplegable) ─────────────────── */}

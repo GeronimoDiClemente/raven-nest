@@ -1,10 +1,12 @@
 // src/__tests__/components/Sidebar-integrations.test.tsx
 //
-// Smoke test: clicking the "Integrations" button calls onIntegrationsOpen.
+// Regression test: the global "Integrations" entry point (button + installed
+// items) no longer lives in the Sidebar — it moved into My Repos (see
+// docs/design/integrations/2026-07-05-plan-migracion-my-repos.md, Task C).
 // Sidebar has many heavy deps (supabase, git hooks, window.* IPC). We mock
 // the problematic ones so the component renders without crashing.
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 
 // ── Mock heavy transitive deps ────────────────────────────────────────────
 vi.mock('../../lib/supabase', () => ({
@@ -48,17 +50,14 @@ vi.mock('../../lib/terminalJoinService', () => ({
 // ── Import component after mocks ──────────────────────────────────────────
 import Sidebar from '../../components/Sidebar'
 
-// Minimal window globals that Sidebar (or its sub-hooks) access synchronously
+// Minimal window globals that Sidebar (or its sub-hooks) access synchronously.
+// Note: no window.plugins mock — Sidebar no longer uses useInstalledPlugins
+// (that lived in the now-deleted SidebarIntegrationItems).
 beforeEach(() => {
   Object.assign(window as unknown as Record<string, unknown>, {
     updater: { checkForUpdates: vi.fn(), onStatus: vi.fn() },
     platform: { isWin: false },
     electronShell: { openExternal: vi.fn() },
-    plugins: {
-      list: vi.fn(() => Promise.resolve([])),
-      save: vi.fn(),
-      delete: vi.fn(),
-    },
   })
 })
 
@@ -90,22 +89,13 @@ const baseProps = {
   onLayoutChange: vi.fn(),
 }
 
-describe('Sidebar — botón Integraciones', () => {
-  it('llama onIntegrationsOpen al hacer click en el botón Integraciones', () => {
-    const onIntegrationsOpen = vi.fn()
-    render(
-      <Sidebar
-        {...baseProps}
-        onIntegrationsOpen={onIntegrationsOpen}
-      />,
-    )
-    fireEvent.click(screen.getByText('Integrations'))
-    expect(onIntegrationsOpen).toHaveBeenCalledTimes(1)
+describe('Sidebar — sin entry point global de Integraciones', () => {
+  it('no renderiza ningún ítem "Integrations" (vive en My Repos)', () => {
+    render(<Sidebar {...baseProps} />)
+    expect(screen.queryByText('Integrations')).not.toBeInTheDocument()
   })
 
-  it('no explota si onIntegrationsOpen no se pasa (prop opcional)', () => {
-    expect(() =>
-      render(<Sidebar {...baseProps} />),
-    ).not.toThrow()
+  it('renderiza sin explotar (smoke test)', () => {
+    expect(() => render(<Sidebar {...baseProps} />)).not.toThrow()
   })
 })

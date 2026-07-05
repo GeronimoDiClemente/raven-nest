@@ -32,8 +32,6 @@ import { PLAN_LIMITS } from './lib/stripe'
 import UpgradeModal from './components/UpgradeModal'
 import TeamsWorkspace from './components/TeamsWorkspace'
 import MyReposPanel from './components/MyReposPanel'
-import { IntegrationsMarketplace } from './components/IntegrationsMarketplace'
-import { IntegrationPanelHost } from './components/IntegrationPanel/IntegrationPanelHost'
 import { useGitHub } from './hooks/useGitHub'
 import { usePendingInvitesCount } from './hooks/usePendingInvitesCount'
 import { useSpeechRecognition } from './hooks/useSpeechRecognition'
@@ -194,8 +192,6 @@ export default function App() {
   const [teamsOpen, setTeamsOpen] = useState(false)
   const { count: pendingInvitesCount, refresh: refreshPendingInvitesCount } = usePendingInvitesCount()
   const [myReposOpen, setMyReposOpen] = useState(false)
-  const [integrationsOpen, setIntegrationsOpen] = useState(false)
-  const [integrationPanelId, setIntegrationPanelId] = useState<string | null>(null)
   const [showJoinViewer, setShowJoinViewer] = useState(false)
   const [joinRequest, setJoinRequest] = useState<{ paneId: string; paneTitle: string } | null>(null)
   const { githubToken, githubLogin, connectGitHub } = useGitHub()
@@ -1052,8 +1048,6 @@ export default function App() {
         paneCount={panes.length}
         onLayoutChange={handleLayoutIdChange}
         onOpenTutorial={(id) => setTutorialTour(id)}
-        onIntegrationsOpen={() => setIntegrationsOpen(true)}
-        onIntegrationPanelOpen={(id) => setIntegrationPanelId(id)}
       />
       <div
         ref={workspaceRef}
@@ -1218,18 +1212,6 @@ export default function App() {
           onOpenRepoTerminal={openRepoInNewTab}
           onStartTutorial={() => setTutorialTour('my-repos')}
           activeRepoPath={activeTab.repoPath ?? null}
-        />
-      )}
-
-      {integrationsOpen && (
-        <IntegrationsMarketplace onClose={() => setIntegrationsOpen(false)} />
-      )}
-
-      {integrationPanelId && (
-        <IntegrationPanelHost
-          pluginId={integrationPanelId}
-          repoPath={activeTab.repoPath ?? null}
-          onClose={() => setIntegrationPanelId(null)}
         />
       )}
 

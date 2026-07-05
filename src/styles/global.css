@@ -9264,31 +9264,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
 .tour-help-btn { background: none; border: 1px solid #2b2b32; color: #9a9aa3; border-radius: 8px; width: 26px; height: 26px; cursor: pointer; font-size: 14px; }
 .tour-help-btn:hover { color: #ededed; border-color: #3a3a42; }
 
-/* === Integrations marketplace modal === */
-.integrations-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.55);
-  z-index: 200;
-  backdrop-filter: blur(2px);
-  -webkit-backdrop-filter: blur(2px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.integrations-modal {
-  width: 640px;
-  max-width: 92vw;
-  height: 560px;
-  max-height: 88vh;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  box-shadow: 0 32px 80px rgba(0, 0, 0, 0.85);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
+/* === Integrations marketplace (embedded in My Repos) === */
 .integrations-header {
   display: flex;
   align-items: center;
@@ -9311,11 +9287,6 @@ body.platform-mac .tabbar { padding-right: 116px; }
 }
 .integrations-tab:hover { color: var(--text-primary); }
 .integrations-tab.active { background: var(--bg-surface); color: var(--text-primary); }
-.integrations-close {
-  background: transparent; border: none; color: var(--text-muted);
-  font-size: 20px; line-height: 1; cursor: pointer; padding: 4px 8px; border-radius: 6px;
-}
-.integrations-close:hover { color: var(--text-primary); background: var(--bg-surface); }
 .integrations-body { padding: 14px 16px; overflow-y: auto; flex: 1; }
 .integrations-search {
   width: 100%;
@@ -9374,9 +9345,8 @@ body.platform-mac .tabbar { padding-right: 116px; }
 .integrations-team-list li::before { content: '🔗'; position: absolute; left: 0; }
 .integrations-team-sub { font-size: 13px; color: var(--text-secondary); margin-bottom: 14px; }
 
-/* Wrapper de IntegrationsMarketplaceView cuando se embebe (sin overlay/modal),
-   ej. dentro de My Repos → sección Integrations. Sin el tamaño fijo de
-   .integrations-modal: ocupa el alto disponible de teams-workspace-content
+/* Wrapper de IntegrationsMarketplaceView, embebida dentro de My Repos →
+   sección Integrations: ocupa el alto disponible de teams-workspace-content
    y deja que .integrations-body haga su propio scroll interno. */
 .integrations-embedded { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; }
 
@@ -9433,9 +9403,3 @@ body.platform-mac .tabbar { padding-right: 116px; }
 .ip-send:hover:not(:disabled) { background: #1975ff; }
 .ip-send:disabled { opacity: .4; cursor: default; }
 .ip-empty { flex: 1; display: flex; align-items: center; justify-content: center; color: #55555b; font-size: 13px; }
-/* Host overlay (misma mecánica que .integrations-overlay) */
-.ip-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center; z-index: 200; }
-.ip-window { width: min(1100px, 92vw); height: min(680px, 88vh); background: #08080a; border: 1px solid #141416; border-radius: 14px; overflow: hidden; display: flex; flex-direction: column; }
-.ip-window-bar { display: flex; align-items: center; padding: 10px 14px; border-bottom: 1px solid #121214; color: #eaeaef; font-size: 13px; font-weight: 600; gap: 8px; }
-.ip-window-close { margin-left: auto; background: none; border: none; color: #7c7c83; font-size: 16px; cursor: pointer; }
-.ip-window-close:hover { color: #d0d0d6; }
