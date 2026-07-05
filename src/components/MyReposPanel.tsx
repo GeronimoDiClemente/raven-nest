@@ -101,7 +101,10 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
     () => (activeIntegrationId ? getAdapter(activeIntegrationId) : null),
     [activeIntegrationId],
   )
-  const { branch: activeRepoBranch } = useGitInfo(activeRepoPath ?? undefined)
+  // Solo consultar git cuando hay un panel de integración activo: git:info es
+  // IPC síncrono en main (execSync x3) y useGitInfo lo re-dispara en cada
+  // focus de la ventana. Sin repoPath, el hook no llama a window.git.info.
+  const { branch: activeRepoBranch } = useGitInfo(activeIntegrationId ? (activeRepoPath ?? undefined) : undefined)
 
   // Si se desinstala la integración cuya sección está abierta, volver al marketplace.
   useEffect(() => {
@@ -363,8 +366,11 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
           ))}
 
           {installedIntegrations.length > 0 && (
-            <>
-              <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5, color: 'var(--text-secondary)', padding: '10px 12px 2px' }}>
+            // role="group" + aria-label le dan semántica al grupo (misma idea
+            // que los <section aria-label> del marketplace); el label visual
+            // queda oculto para lectores de pantalla para no duplicarlo.
+            <div role="group" aria-label="Installed">
+              <div aria-hidden style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5, color: 'var(--text-secondary)', padding: '10px 12px 2px' }}>
                 Installed
               </div>
               {installedIntegrations.map(p => {
@@ -383,7 +389,7 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
                   </button>
                 )
               })}
-            </>
+            </div>
           )}
         </nav>
 

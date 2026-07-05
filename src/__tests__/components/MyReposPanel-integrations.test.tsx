@@ -90,7 +90,7 @@ describe('MyReposPanel — sección Integrations', () => {
     renderPanel()
     const nav = await screen.findByRole('navigation')
     await within(nav).findByRole('button', { name: /^repos$/i })
-    expect(within(nav).queryByText('Installed')).not.toBeInTheDocument()
+    expect(within(nav).queryByRole('group', { name: 'Installed' })).not.toBeInTheDocument()
   })
 
   it('instalar Demo desde el marketplace muestra el ítem en el nav sin remount, y clickearlo abre el shell embebido', async () => {
@@ -101,7 +101,7 @@ describe('MyReposPanel — sección Integrations', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /install/i }))
     const demoNavBtn = await within(nav).findByRole('button', { name: /^demo$/i })
-    expect(within(nav).getByText('Installed')).toBeInTheDocument()
+    expect(within(nav).getByRole('group', { name: 'Installed' })).toBeInTheDocument()
 
     fireEvent.click(demoNavBtn)
     expect(await screen.findByText(/My work/)).toBeInTheDocument()
