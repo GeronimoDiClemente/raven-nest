@@ -18,7 +18,7 @@ export function ComposeBar({ placeholder, onSubmit, getTerminalOutput }: Props) 
       <div className="ip-compose-actions">
         {getTerminalOutput && (
           <button className="ip-attach" onClick={() => setAttached(getTerminalOutput())}>
-            ⌨ Adjuntar output del terminal
+            ⌨ Attach terminal output
           </button>
         )}
         <button
@@ -28,7 +28,7 @@ export function ComposeBar({ placeholder, onSubmit, getTerminalOutput }: Props) 
             onSubmit({ text: text.trim(), terminalOutput: attached })
             setText(''); setAttached(undefined)
           }}
-        >Enviar</button>
+        >Send</button>
       </div>
     </footer>
   )

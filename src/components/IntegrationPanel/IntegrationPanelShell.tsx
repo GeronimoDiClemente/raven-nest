@@ -95,11 +95,11 @@ export function IntegrationPanelShell({ adapter, worktreeContext, getTerminalOut
                 return <p key={i} className="ip-block-text">{b.text}</p>
               })}
             </div>
-            <ComposeBar placeholder={`Comentar en ${detail.key ?? detail.title}…`}
+            <ComposeBar placeholder={`Comment on ${detail.key ?? detail.title}…`}
               onSubmit={(b) => void compose(b)} getTerminalOutput={getTerminalOutput} />
           </>
         ) : (
-          <div className="ip-empty">Elegí un ítem de la izquierda</div>
+          <div className="ip-empty">Pick an item on the left</div>
         )}
       </div>
     </div>

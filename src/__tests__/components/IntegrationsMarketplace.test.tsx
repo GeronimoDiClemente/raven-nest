@@ -17,19 +17,19 @@ describe('IntegrationsMarketplace', () => {
   it('lista disponibles y separa las coming-soon', () => {
     render(<IntegrationsMarketplace onClose={() => {}} />)
     expect(screen.getByText('Slack')).toBeInTheDocument()
-    expect(screen.getByText('Próximamente · sumamos integraciones cada semana')).toBeInTheDocument()
+    expect(screen.getByText('Coming soon · new integrations every week')).toBeInTheDocument()
   })
 
   it('filtra por búsqueda', () => {
     render(<IntegrationsMarketplace onClose={() => {}} />)
-    fireEvent.change(screen.getByPlaceholderText('Buscar...'), { target: { value: 'jira' } })
+    fireEvent.change(screen.getByPlaceholderText('Search...'), { target: { value: 'jira' } })
     expect(screen.getByText('Jira')).toBeInTheDocument()
     expect(screen.queryByText('Slack')).not.toBeInTheDocument()
   })
 
   it('Instalar dispara install()', () => {
     render(<IntegrationsMarketplace onClose={() => {}} />)
-    fireEvent.click(screen.getAllByText('Instalar')[0])
+    fireEvent.click(screen.getAllByText('Install')[0])
     expect(installMock).toHaveBeenCalled()
   })
 })

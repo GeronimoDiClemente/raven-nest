@@ -19,12 +19,12 @@ export function IntegrationPanelHost({ pluginId, repoPath, onClose }: Props) {
       <div className="ip-window" role="dialog" aria-label={adapter.displayName} onClick={(e) => e.stopPropagation()}>
         <div className="ip-window-bar">
           {adapter.displayName}
-          <button className="ip-window-close" onClick={onClose} aria-label="Cerrar">×</button>
+          <button className="ip-window-close" onClick={onClose} aria-label="Close">×</button>
         </div>
         <IntegrationPanelShell
           adapter={adapter}
           worktreeContext={{ repoPath, branch: branch ?? null }}
-          getTerminalOutput={() => '$ (hito 2: output real del pane activo)'}
+          getTerminalOutput={() => '$ (milestone 2: real output from the active pane)'}
         />
       </div>
     </div>

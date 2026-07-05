@@ -50,10 +50,10 @@ describe('ContextColumn', () => {
 describe('ComposeBar', () => {
   it('envía texto y output adjuntado', () => {
     const onSubmit = vi.fn()
-    render(<ComposeBar placeholder="Comentar…" onSubmit={onSubmit} getTerminalOutput={() => '$ ok'} />)
+    render(<ComposeBar placeholder="Comment…" onSubmit={onSubmit} getTerminalOutput={() => '$ ok'} />)
     fireEvent.change(screen.getByRole('textbox'), { target: { value: 'hola' } })
-    fireEvent.click(screen.getByText('⌨ Adjuntar output del terminal'))
-    fireEvent.click(screen.getByRole('button', { name: 'Enviar' }))
+    fireEvent.click(screen.getByText('⌨ Attach terminal output'))
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }))
     expect(onSubmit).toHaveBeenCalledWith({ text: 'hola', terminalOutput: '$ ok' })
   })
 })

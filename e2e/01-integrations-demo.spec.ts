@@ -10,14 +10,14 @@ test('hito 1: instalar Demo → ítem en Sidebar → panel → acciones → comp
   const { page } = h
   try {
     // 1. Abrir el marketplace desde la Sidebar
-    await page.locator('.sidebar-item', { hasText: 'Integraciones' }).first().click()
+    await page.locator('.sidebar-item', { hasText: 'Integrations' }).first().click()
     await expect(page.locator('.integrations-modal')).toBeVisible()
     await page.screenshot({ path: `${SHOTS}/01-marketplace.png` })
 
     // 2. Instalar Demo (tab Personal)
     const demoCard = page.locator('.integration-card', { hasText: 'Demo' })
-    await demoCard.getByRole('button', { name: 'Instalar' }).click()
-    await expect(demoCard.getByRole('button', { name: 'Quitar' })).toBeVisible()
+    await demoCard.getByRole('button', { name: 'Install' }).click()
+    await expect(demoCard.getByRole('button', { name: 'Remove' })).toBeVisible()
 
     // 3. Cerrar el modal → ítem Demo en la Sidebar (sync cross-instancia)
     await page.locator('.integrations-close').click()
@@ -28,14 +28,14 @@ test('hito 1: instalar Demo → ítem en Sidebar → panel → acciones → comp
     // 4. Abrir el panel Demo
     await demoItem.click()
     await expect(page.locator('.ip-window')).toBeVisible()
-    await expect(page.locator('.ip-section-label', { hasText: 'Mi trabajo' })).toBeVisible()
-    await expect(page.locator('.ip-section-label', { hasText: 'Recientes' })).toBeVisible()
+    await expect(page.locator('.ip-section-label', { hasText: 'My work' })).toBeVisible()
+    await expect(page.locator('.ip-section-label', { hasText: 'Recent' })).toBeVisible()
     // Sin repo activo no hay branch → no auto-selección
-    await expect(page.locator('.ip-empty')).toHaveText('Elegí un ítem de la izquierda')
+    await expect(page.locator('.ip-empty')).toHaveText('Pick an item on the left')
     await page.screenshot({ path: `${SHOTS}/03-panel-abierto.png` })
 
     // 5. Seleccionar DEMO-231 y correr la acción → Done
-    await page.locator('.ip-item', { hasText: 'Marketplace de integraciones' }).click()
+    await page.locator('.ip-item', { hasText: 'Integrations marketplace' }).click()
     await expect(page.locator('.ip-status')).toHaveText('In Progress')
     await page.locator('.ip-action', { hasText: '→ Done' }).click()
     await expect(page.locator('.ip-status')).toHaveText('Done')
@@ -55,12 +55,12 @@ test('hito 1: instalar Demo → ítem en Sidebar → panel → acciones → comp
     await expect(page.locator('.ip-window')).toHaveCount(0)
     await demoItem.click()
     await expect(page.locator('.ip-window')).toBeVisible()
-    await expect(page.locator('.ip-section-label', { hasText: 'Mi trabajo' })).toBeVisible()
+    await expect(page.locator('.ip-section-label', { hasText: 'My work' })).toBeVisible()
     await page.locator('.ip-window-close').click()
 
     // 8. Desinstalar Demo → el ítem desaparece de la Sidebar
-    await page.locator('.sidebar-item', { hasText: 'Integraciones' }).first().click()
-    await page.locator('.integration-card', { hasText: 'Demo' }).getByRole('button', { name: 'Quitar' }).click()
+    await page.locator('.sidebar-item', { hasText: 'Integrations' }).first().click()
+    await page.locator('.integration-card', { hasText: 'Demo' }).getByRole('button', { name: 'Remove' }).click()
     await page.locator('.integrations-close').click()
     await expect(page.locator('.sidebar-item-panel', { hasText: 'Demo' })).toHaveCount(0)
     await page.screenshot({ path: `${SHOTS}/06-desinstalado.png` })

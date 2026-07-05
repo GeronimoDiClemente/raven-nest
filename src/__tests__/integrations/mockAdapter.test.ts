@@ -29,7 +29,7 @@ describe('mockAdapter', () => {
     const a = createMockAdapter()
     const ref = (await a.resolveWorktreeEntity(ctx))!
     const before = (await a.fetchDetail(ref)).blocks.filter(b => b.kind === 'comment').length
-    await a.compose(ref, { text: 'listo', terminalOutput: '$ npm test\n✓ 8 passed' })
+    await a.compose(ref, { text: 'done', terminalOutput: '$ npm test\n✓ 8 passed' })
     const after = (await a.fetchDetail(ref)).blocks.filter(b => b.kind === 'comment').length
     expect(after).toBe(before + 1)
   })

@@ -602,7 +602,7 @@ export default function Sidebar({
           className="sidebar-item sidebar-item-panel sidebar-item-team"
           style={{ cursor: 'pointer' }}
           onClick={onIntegrationsOpen}
-          title="Integraciones"
+          title="Integrations"
         >
           <span className="sidebar-icon">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
@@ -612,7 +612,7 @@ export default function Sidebar({
               <path d="M12 9v6M9 12h6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
             </svg>
           </span>
-          <span className="sidebar-label">Integraciones</span>
+          <span className="sidebar-label">Integrations</span>
         </div>
 
         {/* ── 4. MORE TOOLS (desplegable) ─────────────────── */}

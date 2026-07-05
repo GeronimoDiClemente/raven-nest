@@ -28,57 +28,57 @@ export function IntegrationsMarketplace({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="integrations-overlay" onClick={onClose}>
-      <div className="integrations-modal" role="dialog" aria-label="Integraciones" onClick={e => e.stopPropagation()}>
+      <div className="integrations-modal" role="dialog" aria-label="Integrations" onClick={e => e.stopPropagation()}>
         <header className="integrations-header">
           <div className="integrations-tabs">
             <button className={`integrations-tab${tab === 'personal' ? ' active' : ''}`} onClick={() => setTab('personal')} aria-pressed={tab === 'personal'}>Personal</button>
             <button className={`integrations-tab${tab === 'team' ? ' active' : ''}`} onClick={() => setTab('team')} aria-pressed={tab === 'team'}>Team · Enterprise</button>
           </div>
-          <button className="integrations-close" onClick={onClose} aria-label="Cerrar">×</button>
+          <button className="integrations-close" onClick={onClose} aria-label="Close">×</button>
         </header>
 
         <div className="integrations-body">
           {tab === 'personal' && (
             <>
-              <input className="integrations-search" placeholder="Buscar..." value={q} onChange={e => setQ(e.target.value)} />
+              <input className="integrations-search" placeholder="Search..." value={q} onChange={e => setQ(e.target.value)} />
 
               {installed.length > 0 && (
-                <section aria-label="Instaladas">
-                  <h3 className="integrations-section-title">Instaladas</h3>
+                <section aria-label="Installed">
+                  <h3 className="integrations-section-title">Installed</h3>
                   <div className="integrations-grid">
-                    {installed.map(p => card(p, <button className="integration-btn ghost" onClick={() => uninstall(p.id)}>Quitar</button>))}
+                    {installed.map(p => card(p, <button className="integration-btn ghost" onClick={() => uninstall(p.id)}>Remove</button>))}
                   </div>
                 </section>
               )}
 
-              <section aria-label="Disponibles">
-                <h3 className="integrations-section-title">Disponibles</h3>
+              <section aria-label="Available">
+                <h3 className="integrations-section-title">Available</h3>
                 <div className="integrations-grid">
-                  {available.map(p => card(p, <button className="integration-btn primary" onClick={() => install(p.id)}>Instalar</button>))}
+                  {available.map(p => card(p, <button className="integration-btn primary" onClick={() => install(p.id)}>Install</button>))}
                 </div>
               </section>
 
-              <section aria-label="Próximamente">
-                <h3 className="integrations-section-title">Próximamente · sumamos integraciones cada semana</h3>
+              <section aria-label="Coming soon">
+                <h3 className="integrations-section-title">Coming soon · new integrations every week</h3>
                 <div className="integrations-grid">
-                  {comingSoon.map(p => card(p, <span className="integration-soon-tag">Pronto</span>))}
+                  {comingSoon.map(p => card(p, <span className="integration-soon-tag">Soon</span>))}
                 </div>
-                <button className="integration-request">Pedir integración</button>
+                <button className="integration-request">Request an integration</button>
               </section>
             </>
           )}
 
           {tab === 'team' && (
             <div className="integrations-team" aria-label="Team Enterprise">
-              <h3 className="integrations-team-title">Integraciones a medida para tu equipo</h3>
+              <h3 className="integrations-team-title">Custom integrations for your team</h3>
               <ul className="integrations-team-list">
-                <li>Alerts de Slack centralizados para el equipo</li>
-                <li>Sync bidireccional Jira ↔ worktrees</li>
-                <li>Tu herramienta interna — lo que necesiten</li>
+                <li>Centralized Slack alerts for the team</li>
+                <li>Bidirectional Jira ↔ worktree sync</li>
+                <li>Your internal tool — whatever you need</li>
               </ul>
-              <p className="integrations-team-sub">Las construimos a medida.</p>
+              <p className="integrations-team-sub">We build them to spec.</p>
               <button className="integration-btn primary" onClick={() => window.electronShell.openExternal('https://cal.com/raven/enterprise')}>
-                Contactar Enterprise
+                Contact Enterprise
               </button>
             </div>
           )}

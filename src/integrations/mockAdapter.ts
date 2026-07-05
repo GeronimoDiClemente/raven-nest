@@ -9,16 +9,16 @@ export function createMockAdapter(): IntegrationAdapter {
 
   const sections: Section[] = [
     {
-      id: 'mine', label: 'Mi trabajo',
+      id: 'mine', label: 'My work',
       items: [
-        { id: 'demo-231', title: 'Marketplace de integraciones — OAuth Slack', subtitle: 'In Progress · vos', accent: 'DEMO-231' },
-        { id: 'demo-228', title: 'Gate Pro server-side vía Supabase', subtitle: 'To Do · vos', accent: 'DEMO-228' },
+        { id: 'demo-231', title: 'Integrations marketplace — Slack OAuth', subtitle: 'In Progress · you', accent: 'DEMO-231' },
+        { id: 'demo-228', title: 'Server-side Pro gate via Supabase', subtitle: 'To Do · you', accent: 'DEMO-228' },
       ],
     },
     {
-      id: 'recent', label: 'Recientes',
+      id: 'recent', label: 'Recent',
       items: [
-        { id: 'demo-209', title: 'Catálogo remoto plugin_catalog', subtitle: 'Code Review', accent: 'DEMO-209' },
+        { id: 'demo-209', title: 'Remote plugin_catalog', subtitle: 'Code Review', accent: 'DEMO-209' },
       ],
     },
   ]
@@ -26,24 +26,24 @@ export function createMockAdapter(): IntegrationAdapter {
   const details: Record<string, Omit<DetailModel, 'blocks'> & { description: string }> = {
     'demo-231': {
       ref: { sectionId: 'mine', itemId: 'demo-231' },
-      title: 'Marketplace de integraciones — OAuth Slack',
+      title: 'Integrations marketplace — Slack OAuth',
       key: 'DEMO-231', status: 'In Progress',
-      meta: [{ label: 'Asignada a', value: 'Gerónimo' }, { label: 'Prioridad', value: 'Alta' }],
-      description: 'Item de demo vinculado al branch actual. Probá las acciones y el compose.',
+      meta: [{ label: 'Assignee', value: 'Gerónimo' }, { label: 'Priority', value: 'High' }],
+      description: 'Demo item linked to the current branch. Try out the actions and the compose bar.',
     },
     'demo-228': {
       ref: { sectionId: 'mine', itemId: 'demo-228' },
-      title: 'Gate Pro server-side vía Supabase',
+      title: 'Server-side Pro gate via Supabase',
       key: 'DEMO-228', status: 'To Do',
-      meta: [{ label: 'Asignada a', value: 'Gerónimo' }],
-      description: 'Validación del tier contra la DB en cada arranque de sesión de panel.',
+      meta: [{ label: 'Assignee', value: 'Gerónimo' }],
+      description: 'Validate the tier against the DB on every panel session startup.',
     },
     'demo-209': {
       ref: { sectionId: 'recent', itemId: 'demo-209' },
-      title: 'Catálogo remoto plugin_catalog',
+      title: 'Remote plugin_catalog',
       key: 'DEMO-209', status: 'Code Review',
-      meta: [{ label: 'Asignada a', value: 'Matías' }],
-      description: 'Fallback local BUILTIN_CATALOG cuando no hay red.',
+      meta: [{ label: 'Assignee', value: 'Matías' }],
+      description: 'Local BUILTIN_CATALOG fallback for when there is no network.',
     },
   }
 
@@ -73,7 +73,7 @@ export function createMockAdapter(): IntegrationAdapter {
     },
     compose: async (target: ItemRef, body: ComposeBody) => {
       const text = body.terminalOutput ? `${body.text}\n\`\`\`\n${body.terminalOutput}\n\`\`\`` : body.text
-      ;(comments[target.itemId] ??= []).push({ author: 'Vos', when: 'ahora', text })
+      ;(comments[target.itemId] ??= []).push({ author: 'You', when: 'now', text })
     },
   }
 }

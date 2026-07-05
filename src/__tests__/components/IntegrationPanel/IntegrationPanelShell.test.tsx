@@ -9,16 +9,16 @@ const ctx = { repoPath: 'C:/dev/raven-nest', branch: 'feat/integrations' }
 describe('IntegrationPanelShell', () => {
   it('carga secciones, selecciona la entidad del worktree y muestra el detalle', async () => {
     render(<IntegrationPanelShell adapter={createMockAdapter()} worktreeContext={ctx} />)
-    await waitFor(() => expect(screen.getAllByText('Marketplace de integraciones — OAuth Slack').length).toBeGreaterThan(0))
+    await waitFor(() => expect(screen.getAllByText('Integrations marketplace — Slack OAuth').length).toBeGreaterThan(0))
     expect(screen.getByText('In Progress')).toBeTruthy()
   })
 
   it('clickear otro ítem de la columna izquierda carga su detalle', async () => {
     render(<IntegrationPanelShell adapter={createMockAdapter()} worktreeContext={ctx} />)
-    await waitFor(() => expect(screen.getAllByText('Marketplace de integraciones — OAuth Slack').length).toBeGreaterThan(0))
-    fireEvent.click(screen.getByText('Gate Pro server-side vía Supabase'))
+    await waitFor(() => expect(screen.getAllByText('Integrations marketplace — Slack OAuth').length).toBeGreaterThan(0))
+    fireEvent.click(screen.getByText('Server-side Pro gate via Supabase'))
     await waitFor(() => expect(screen.getByText('To Do')).toBeTruthy())
-    expect(screen.getAllByText('Gate Pro server-side vía Supabase').length).toBeGreaterThan(1)
+    expect(screen.getAllByText('Server-side Pro gate via Supabase').length).toBeGreaterThan(1)
   })
 
   it('una acción actualiza el estado del detalle', async () => {
@@ -35,7 +35,7 @@ describe('IntegrationPanelShell', () => {
     )
     await waitFor(() => screen.getByRole('textbox'))
     fireEvent.change(screen.getByRole('textbox'), { target: { value: 'probando compose' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Enviar' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }))
     await waitFor(() => expect(screen.getByText(/probando compose/)).toBeTruthy())
   })
 })

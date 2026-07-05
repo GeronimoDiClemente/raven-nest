@@ -1,6 +1,6 @@
 // src/__tests__/components/Sidebar-integrations.test.tsx
 //
-// Smoke test: clicking the "Integraciones" button calls onIntegrationsOpen.
+// Smoke test: clicking the "Integrations" button calls onIntegrationsOpen.
 // Sidebar has many heavy deps (supabase, git hooks, window.* IPC). We mock
 // the problematic ones so the component renders without crashing.
 import { describe, it, expect, vi, beforeEach } from 'vitest'
@@ -99,7 +99,7 @@ describe('Sidebar — botón Integraciones', () => {
         onIntegrationsOpen={onIntegrationsOpen}
       />,
     )
-    fireEvent.click(screen.getByText('Integraciones'))
+    fireEvent.click(screen.getByText('Integrations'))
     expect(onIntegrationsOpen).toHaveBeenCalledTimes(1)
   })
 
