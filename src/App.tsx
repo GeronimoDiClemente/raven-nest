@@ -43,6 +43,7 @@ import SharedTerminalViewer from './components/SharedTerminalViewer'
 import { terminalShareService } from './lib/terminalShareService'
 import ResourceBar from './components/ResourceBar'
 import { useLocalPathsMigration } from './hooks/useLocalPathsMigration'
+import { useTourSeen } from './hooks/useTourSeen'
 import type { MetricsPaneInput } from './types'
 import { OnboardingTour } from './tutorial/OnboardingTour'
 import { getTour } from './tutorial/registry'
@@ -365,6 +366,9 @@ export default function App() {
     if (id === 'activation') setSidebarExpanded(true)
     setTutorialTour(id)
   }, [])
+
+  const activationSeen = useTourSeen('activation')
+  const activationTried = useRef(false)
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -911,6 +915,18 @@ export default function App() {
 
   const isInitialState = panes.length === 0
 
+  // First-run onboarding: when the workspace boots empty and the user has never
+  // seen the activation tour, launch it once. markSeen() runs here (on show),
+  // not on close, so Skip and Done behave the same: it never auto-reappears.
+  useEffect(() => {
+    if (activationTried.current) return
+    if (!isInitialState) return
+    activationTried.current = true
+    if (activationSeen.seen) return
+    activationSeen.markSeen()
+    openTutorial('activation')
+  }, [isInitialState, activationSeen, openTutorial])
+
   // Workspace-level drop handling for worktree drag-and-drop
   const [dropActive, setDropActive] = useState(false)
   const workspaceRef = useRef<HTMLDivElement>(null)
@@ -1065,7 +1081,7 @@ export default function App() {
         onDrop={handleDrop}
       >
         {isInitialState ? (
-          <EmptyState onNewPane={addNextPane} />
+          <EmptyState onNewPane={addNextPane} onStartTutorial={() => openTutorial('activation')} />
         ) : (
           <>
             {zoomedPaneId !== null && (
@@ -1302,9 +1318,31 @@ function EmptyCell({ onClick }: { onClick: () => void }) {
   )
 }
 
-function EmptyState({ onNewPane }: { onNewPane: () => void }) {
+function EmptyState({ onNewPane, onStartTutorial }: { onNewPane: () => void; onStartTutorial: () => void }) {
   return (
     <div className="empty-state">
+      <button
+        onClick={onStartTutorial}
+        title="Getting started"
+        aria-label="Getting started tour"
+        style={{
+          position: 'fixed',
+          top: 16,
+          right: 16,
+          width: 28,
+          height: 28,
+          borderRadius: '50%',
+          border: '1px solid var(--border, #2a2a2a)',
+          background: 'transparent',
+          color: 'var(--text-muted, #888)',
+          cursor: 'pointer',
+          fontSize: 14,
+          lineHeight: 1,
+          zIndex: 5,
+        }}
+      >
+        ?
+      </button>
       <div className="empty-logo">
         <img src={logoUrl} alt="Nest" className="empty-logo-img" />
       </div>
