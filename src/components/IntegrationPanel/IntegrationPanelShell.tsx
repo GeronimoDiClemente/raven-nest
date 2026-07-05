@@ -16,12 +16,17 @@ export function IntegrationPanelShell({ adapter, worktreeContext, getTerminalOut
   const [detail, setDetail] = useState<DetailModel | null>(null)
   const [worktreeEntity, setWorktreeEntity] = useState<string | null>(null)
 
+  // Deps por primitivas: el host puede pasar un objeto literal nuevo en cada
+  // render y no queremos refetchear/resetear el panel por identidad de objeto.
+  const { repoPath, branch } = worktreeContext
+
   useEffect(() => {
     let alive = true
     void (async () => {
+      const ctx: WorktreeContext = { repoPath, branch }
       const [secs, entityRef] = await Promise.all([
-        adapter.fetchSections(worktreeContext),
-        adapter.resolveWorktreeEntity(worktreeContext),
+        adapter.fetchSections(ctx),
+        adapter.resolveWorktreeEntity(ctx),
       ])
       if (!alive) return
       setSections(secs)
@@ -34,7 +39,7 @@ export function IntegrationPanelShell({ adapter, worktreeContext, getTerminalOut
       }
     })()
     return () => { alive = false }
-  }, [adapter, worktreeContext])
+  }, [adapter, repoPath, branch])
 
   const select = useCallback(async (ref: ItemRef) => {
     setSelected(ref)
@@ -58,7 +63,7 @@ export function IntegrationPanelShell({ adapter, worktreeContext, getTerminalOut
       <ContextColumn
         header={{ title: adapter.displayName }}
         sections={sections} selected={selected} onSelect={(r) => void select(r)}
-        branch={worktreeContext.branch} entityLabel={worktreeEntity}
+        branch={branch} entityLabel={worktreeEntity}
       />
       <div className="ip-main">
         {detail ? (
