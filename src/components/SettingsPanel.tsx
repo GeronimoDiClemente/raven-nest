@@ -273,6 +273,9 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                   <button className="sp-action-btn" onClick={() => onOpenTutorial?.('worktrees')}>
                     Tutorial: Worktrees
                   </button>
+                  <button className="sp-action-btn" onClick={() => onOpenTutorial?.('activation')}>
+                    Tutorial: Getting Started
+                  </button>
                 </div>
               )}
 

@@ -358,6 +358,14 @@ export default function App() {
   // spotlights the live app, so it only makes sense once you're on that view.
   const [tutorialTour, setTutorialTour] = useState<import('./tutorial/types').TourId | null>(null)
 
+  // Launching `activation` expands the sidebar first, so its My Repos / Team
+  // items are visible (with labels) as spotlight targets. Other tours are
+  // launched from a view where their anchors are already on screen.
+  const openTutorial = useCallback((id: import('./tutorial/types').TourId) => {
+    if (id === 'activation') setSidebarExpanded(true)
+    setTutorialTour(id)
+  }, [])
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const isCmdShift = (e.metaKey || e.ctrlKey) && e.shiftKey
@@ -1047,7 +1055,7 @@ export default function App() {
         layoutId={activeTab.layoutId}
         paneCount={panes.length}
         onLayoutChange={handleLayoutIdChange}
-        onOpenTutorial={(id) => setTutorialTour(id)}
+        onOpenTutorial={openTutorial}
       />
       <div
         ref={workspaceRef}
