@@ -9385,6 +9385,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
 .ip-worktree-value code { font-size: 11px; background: #101a2e; border-radius: 5px; padding: 1px 6px; color: #9db8e8; }
 .ip-section-label { font-size: 10.5px; font-weight: 600; letter-spacing: .09em; text-transform: uppercase; color: #45454b; padding: 12px 16px 6px; margin: 0; }
 .ip-item { display: flex; gap: 9px; padding: 9px 16px; width: 100%; text-align: left; background: none; border: none; border-left: 2px solid transparent; cursor: pointer; }
+.ip-item:hover { background: #0c0d11; }
 .ip-item.active { background: #0e0f14; border-left-color: #0066FF; }
 .ip-item-accent { font-size: 11px; color: #5a7bb5; font-weight: 600; flex-shrink: 0; margin-top: 1px; }
 .ip-item-body { display: flex; flex-direction: column; }
@@ -9398,7 +9399,9 @@ body.platform-mac .tabbar { padding-right: 116px; }
 .ip-status { font-size: 11px; font-weight: 600; border-radius: 6px; padding: 4px 10px; background: #101a2e; color: #7da6ff; border: 1px solid #1c2c4a; }
 .ip-action { font-size: 11.5px; border-radius: 7px; padding: 4px 11px; cursor: pointer; }
 .ip-action-secondary { color: #8a8a92; border: 1px solid #1e1e24; background: none; }
+.ip-action-secondary:hover { color: #b8b8c0; border-color: #2a2a32; }
 .ip-action-primary { color: #fff; border: 1px solid transparent; background: #0066FF; font-weight: 600; }
+.ip-action-primary:hover { background: #1975ff; }
 .ip-detail-meta { display: flex; gap: 18px; margin-top: 14px; font-size: 11.5px; color: #6a6a72; }
 .ip-detail-meta b { color: #a9a9b1; font-weight: 500; }
 .ip-detail-blocks { padding: 14px 22px; flex: 1; }
@@ -9413,11 +9416,14 @@ body.platform-mac .tabbar { padding-right: 116px; }
 .ip-compose-input { width: 100%; background: #0c0c0f; border: 1px solid #1c1c22; border-radius: 10px; padding: 10px 13px; font-size: 12.5px; color: #d9d9dd; resize: none; font-family: inherit; }
 .ip-compose-actions { display: flex; align-items: center; gap: 10px; margin-top: 9px; }
 .ip-attach { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: #9aa6d6; background: #0c1018; border: 1px solid #16233b; border-radius: 7px; padding: 5px 11px; cursor: pointer; }
+.ip-attach:hover { background: #101828; }
 .ip-send { margin-left: auto; font-size: 12px; font-weight: 600; color: #fff; background: #0066FF; border: none; border-radius: 7px; padding: 6px 16px; cursor: pointer; }
+.ip-send:hover:not(:disabled) { background: #1975ff; }
 .ip-send:disabled { opacity: .4; cursor: default; }
 .ip-empty { flex: 1; display: flex; align-items: center; justify-content: center; color: #55555b; font-size: 13px; }
 /* Host overlay (misma mecánica que .integrations-overlay) */
-.ip-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center; z-index: 60; }
+.ip-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center; z-index: 200; }
 .ip-window { width: min(1100px, 92vw); height: min(680px, 88vh); background: #08080a; border: 1px solid #141416; border-radius: 14px; overflow: hidden; display: flex; flex-direction: column; }
 .ip-window-bar { display: flex; align-items: center; padding: 10px 14px; border-bottom: 1px solid #121214; color: #eaeaef; font-size: 13px; font-weight: 600; gap: 8px; }
 .ip-window-close { margin-left: auto; background: none; border: none; color: #7c7c83; font-size: 16px; cursor: pointer; }
+.ip-window-close:hover { color: #d0d0d6; }
