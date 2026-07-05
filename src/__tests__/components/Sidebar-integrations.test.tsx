@@ -54,6 +54,11 @@ beforeEach(() => {
     updater: { checkForUpdates: vi.fn(), onStatus: vi.fn() },
     platform: { isWin: false },
     electronShell: { openExternal: vi.fn() },
+    plugins: {
+      list: vi.fn(() => Promise.resolve([])),
+      save: vi.fn(),
+      delete: vi.fn(),
+    },
   })
 })
 

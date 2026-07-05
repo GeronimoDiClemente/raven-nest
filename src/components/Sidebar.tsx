@@ -17,6 +17,7 @@ import { terminalJoinService } from '../lib/terminalJoinService'
 import { basename } from '../lib/path'
 import { useGitInfo } from '../hooks/useGitInfo'
 import { useFixedPopover } from '../hooks/useFixedPopover'
+import { SidebarIntegrationItems } from './SidebarIntegrationItems'
 
 interface Props {
   expanded: boolean
@@ -58,6 +59,7 @@ interface Props {
   onLayoutChange: (id: LayoutId) => void
   onOpenTutorial?: (tourId: import('../tutorial/types').TourId) => void
   onIntegrationsOpen?: () => void
+  onIntegrationPanelOpen?: (pluginId: string) => void
 }
 
 export default function Sidebar({
@@ -67,7 +69,7 @@ export default function Sidebar({
   onSnippetSend, onSnippetBroadcast, onCommandRun, onWorkspaceSave, onWorkspaceLoad, isWin,
   isTrialActive, trialDaysLeft, profileLoading, onUpgrade, onTeamsOpen, pendingInvitesCount = 0, onMyReposOpen, plan, repoPath, onRepoLink, onRepoUnlink, onJoinTerminal,
   activeCellRepoPath, onWorktreeSelect, onNewWorktree, worktreeRefreshKey,
-  layoutId, paneCount, onLayoutChange, onOpenTutorial, onIntegrationsOpen,
+  layoutId, paneCount, onLayoutChange, onOpenTutorial, onIntegrationsOpen, onIntegrationPanelOpen,
 }: Props) {
   const { branch, githubUrl, isDirty } = useGitInfo(repoPath)
   const { githubToken } = useGitHub()
@@ -593,6 +595,8 @@ export default function Sidebar({
           <span className="sidebar-label">My Repos</span>
           {expanded && plan === 'free' && <span className="sidebar-plan-badge">Pro</span>}
         </div>
+
+        <SidebarIntegrationItems onOpen={(id) => onIntegrationPanelOpen?.(id)} />
 
         <div
           className="sidebar-item sidebar-item-panel sidebar-item-team"

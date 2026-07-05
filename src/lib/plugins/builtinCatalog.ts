@@ -39,4 +39,11 @@ export const BUILTIN_CATALOG: PluginManifest[] = [
     category: 'observability', icon: 'sentry', color: '#362D59',
     type: 'integration', publisher: 'raven', tier: 'free', comingSoon: true,
   },
+  {
+    id: 'demo', name: 'Demo',
+    description: 'Panel de demostración del shell de integraciones (datos fake).',
+    category: 'comms', icon: 'demo', color: '#0066FF',
+    type: 'integration', publisher: 'raven', tier: 'free',
+    auth: { kind: 'none' },
+  },
 ]
