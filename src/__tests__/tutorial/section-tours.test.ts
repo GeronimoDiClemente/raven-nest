@@ -4,13 +4,14 @@ import { getTour, listTourIds } from '../../tutorial/registry'
 import type { TourId } from '../../tutorial/types'
 
 const SECTION_TOURS: Record<string, string[]> = {
+  activation: ['welcome', 'new-terminal', 'my-repos', 'team', 'outro'],
   'my-repos': ['header', 'add', 'nav', 'list', 'actions'],
   teams: ['header', 'switcher', 'repos', 'members', 'chat'],
 }
 
-describe('section tours (my-repos, teams)', () => {
-  it('registers both tours alongside worktrees', () => {
-    expect([...listTourIds()].sort()).toEqual(['my-repos', 'teams', 'worktrees'])
+describe('tours registry', () => {
+  it('registers all four tours', () => {
+    expect([...listTourIds()].sort()).toEqual(['activation', 'my-repos', 'teams', 'worktrees'])
   })
 
   for (const [id, ids] of Object.entries(SECTION_TOURS)) {
