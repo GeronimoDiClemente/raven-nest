@@ -17,6 +17,7 @@ import RepoActionsAccordion from './RepoActionsAccordion'
 import RepoActionsMenu, { type RepoAction } from './RepoActionsMenu'
 import { useGitlab } from '../hooks/useGitlab'
 import { ProviderAvatarPill, providerAvatar } from './ProviderAvatar'
+import { IntegrationsMarketplaceView } from './IntegrationsMarketplace'
 
 interface MyReposPanelProps {
   onClose: () => void
@@ -28,7 +29,7 @@ interface MyReposPanelProps {
   onStartTutorial?: () => void
 }
 
-type Section = 'activity' | 'repos' | 'issues' | 'standup'
+type Section = 'activity' | 'repos' | 'issues' | 'standup' | 'integrations'
 type ReposView = 'list' | 'prs' | 'pr-detail'
 type IssuesView = 'repo-select' | 'list' | 'detail'
 
@@ -236,6 +237,11 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
       label: 'Standup',
       icon: <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="2" y="3" width="12" height="11" rx="1.5" stroke="currentColor" strokeWidth="1.3"/><path d="M5 6h6M5 9h4M5 12h3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>,
     },
+    {
+      id: 'integrations',
+      label: 'Integrations',
+      icon: <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="1" y="1" width="6" height="6" rx="1.2" stroke="currentColor" strokeWidth="1.3"/><rect x="9" y="1" width="6" height="6" rx="1.2" stroke="currentColor" strokeWidth="1.3"/><rect x="1" y="9" width="6" height="6" rx="1.2" stroke="currentColor" strokeWidth="1.3"/><path d="M12 9v6M9 12h6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>,
+    },
   ]
 
   const myAvatar = githubLogin
@@ -324,13 +330,16 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
         <div className="teams-workspace-content">
           <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
 
-            {!githubToken && !gitlabToken && (
+            {/* Integrations no depende de GitHub/GitLab: se excluye del gate genérico. */}
+            {!githubToken && !gitlabToken && section !== 'integrations' && (
               <div className="tw-placeholder">
                 <p className="tw-placeholder-title">Connect GitHub or GitLab to use My Repos</p>
                 <p className="tw-placeholder-text">Activity, PRs and issues require GitHub. Repos and Actions work with both providers — connect one or both from Settings → Account.</p>
                 <button className="snippet-save-btn" onClick={onConnectGitHub}>Connect GitHub</button>
               </div>
             )}
+
+            {section === 'integrations' && <IntegrationsMarketplaceView />}
 
             {section === 'activity' && githubToken && (
               <div className="team-tab-pane">
