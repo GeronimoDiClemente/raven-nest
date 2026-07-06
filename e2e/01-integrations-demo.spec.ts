@@ -48,10 +48,11 @@ test('integrations dentro de My Repos: instalar Demo → nav → panel → accio
     await expect(page.locator('.ip-status')).toHaveText('Done')
     await page.screenshot({ path: `${SHOTS}/05-accion-done.png` })
 
-    // 6. Compose con output adjuntado
+    // 6. Compose. Nota: la captura del terminal es real desde F2 (lee el
+    // buffer de xterm del pane enfocado) y acá no hay panes en el entorno
+    // e2e, así que "Attach" no adjunta nada — la captura está unit-testeada
+    // en src/__tests__/integrations/terminalCapture.test.ts.
     await page.locator('.ip-compose-input').fill('testing compose from e2e')
-    await page.locator('.ip-attach').click()
-    await expect(page.locator('.ip-compose-attachment')).toBeVisible()
     await page.locator('.ip-send').click()
     const comment = page.locator('.ip-block-comment', { hasText: 'testing compose from e2e' })
     await expect(comment).toBeVisible()
