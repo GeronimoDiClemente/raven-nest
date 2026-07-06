@@ -8,6 +8,7 @@ const adapters: Record<string, () => IntegrationAdapter> = {
   notion: () => createIpcAdapter('notion', 'Notion'),
   slack: () => createIpcAdapter('slack', 'Slack'),
   jira: () => createIpcAdapter('jira', 'Jira'),
+  github: () => createIpcAdapter('github', 'GitHub'),
 }
 
 export function getAdapter(pluginId: string): IntegrationAdapter | null {

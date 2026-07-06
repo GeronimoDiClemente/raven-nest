@@ -6,9 +6,11 @@ import { registerPanelAdapter } from '../integration-panels'
 import { createNotionServerAdapter } from './notion'
 import { createSlackServerAdapter } from './slack'
 import { createJiraServerAdapter } from './jira'
+import { createGitHubServerAdapter } from './github'
 
 export function registerAllPanelAdapters(): void {
   registerPanelAdapter('notion', createNotionServerAdapter)
   registerPanelAdapter('slack', createSlackServerAdapter)
   registerPanelAdapter('jira', createJiraServerAdapter)
+  registerPanelAdapter('github', createGitHubServerAdapter)
 }
