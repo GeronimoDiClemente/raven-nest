@@ -23,6 +23,7 @@ import { useGitInfo } from '../hooks/useGitInfo'
 import { BUILTIN_CATALOG } from '../lib/plugins/builtinCatalog'
 import { getAdapter, hasAdapter } from '../integrations/registry'
 import { IntegrationPanelShell } from './IntegrationPanel/IntegrationPanelShell'
+import { captureTerminalOutput } from '../integrations/terminalCapture'
 
 interface MyReposPanelProps {
   onClose: () => void
@@ -34,6 +35,8 @@ interface MyReposPanelProps {
   onStartTutorial?: () => void
   /** Repo path of the currently active tab — feeds the worktreeContext of an embedded integration panel. */
   activeRepoPath: string | null
+  /** Pane currently focused in the terminal grid — feeds the "attach terminal output" action of an embedded integration panel. */
+  focusedPaneId: string | null
 }
 
 type Section = 'activity' | 'repos' | 'issues' | 'standup' | 'integrations'
@@ -43,7 +46,7 @@ type SectionState = Section | IntegrationSection
 type ReposView = 'list' | 'prs' | 'pr-detail'
 type IssuesView = 'repo-select' | 'list' | 'detail'
 
-export default function MyReposPanel({ onClose, githubToken, githubLogin, onConnectGitHub, onOpenRepoTerminal, onStartTutorial, activeRepoPath }: MyReposPanelProps) {
+export default function MyReposPanel({ onClose, githubToken, githubLogin, onConnectGitHub, onOpenRepoTerminal, onStartTutorial, activeRepoPath, focusedPaneId }: MyReposPanelProps) {
   const { repos, loading, refresh, addRepo, updateLocalPath, removeRepo } = useUserRepos()
   const { notifications, unreadCount, markAsRead } = useGitHubNotifications(githubToken)
   const { gitlabLogin, gitlabToken } = useGitlab()
@@ -413,7 +416,7 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
                 <IntegrationPanelShell
                   adapter={activeIntegrationAdapter}
                   worktreeContext={{ repoPath: activeRepoPath, branch: activeRepoBranch ?? null }}
-                  getTerminalOutput={() => '$ (milestone 2: real output from the active pane)'}
+                  getTerminalOutput={() => captureTerminalOutput(focusedPaneId)}
                 />
               </div>
             )}

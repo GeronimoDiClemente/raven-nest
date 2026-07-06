@@ -52,6 +52,7 @@ function renderPanel() {
       onConnectGitHub={vi.fn()}
       onOpenRepoTerminal={vi.fn()}
       activeRepoPath={null}
+      focusedPaneId={null}
     />,
   )
 }

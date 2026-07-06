@@ -9448,3 +9448,8 @@ body.platform-mac .tabbar { padding-right: 116px; }
 .ip-send:hover:not(:disabled) { background: #1975ff; }
 .ip-send:disabled { opacity: .4; cursor: default; }
 .ip-empty { flex: 1; display: flex; align-items: center; justify-content: center; color: #55555b; font-size: 13px; }
+.ip-loading { flex: 1; display: flex; align-items: center; justify-content: center; color: #55555b; font-size: 13px; }
+.ip-error { display: flex; align-items: center; gap: 12px; margin: 14px 22px 0; background: #1a0e0e; border: 1px solid #3a1c1c; border-radius: 9px; padding: 10px 14px; color: #f0a8a8; font-size: 12.5px; }
+.ip-error-text { flex: 1; }
+.ip-error-retry { flex-shrink: 0; font-size: 11.5px; font-weight: 600; color: #fff; background: #b3261e; border: none; border-radius: 7px; padding: 5px 13px; cursor: pointer; }
+.ip-error-retry:hover { background: #cc2c22; }
