@@ -135,6 +135,7 @@ import { PluginsStore } from './plugins-store'
 import { PluginCredentialStore } from './plugin-credentials'
 import { runPluginAction } from './plugin-actions'
 import { callPanel, type PanelAdapterDeps } from './integration-panels'
+import { registerAllPanelAdapters } from './integrations/register'
 
 const ptyManager = new PtyManager()
 const accountStore = new AccountStore()
@@ -167,6 +168,7 @@ const pluginCreds = new PluginCredentialStore({
   encryptString: (s) => safeStorage.encryptString(s),
   decryptString: (b) => safeStorage.decryptString(b),
 })
+registerAllPanelAdapters()
 
 function broadcast(channel: string, ...args: unknown[]): void {
   const win = BrowserWindow.getAllWindows()[0]
