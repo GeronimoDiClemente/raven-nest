@@ -47,6 +47,15 @@ export function useProfile(): Profile {
     let alive = true
 
     const load = async () => {
+      // e2e harness bypasses auth entirely (see src/main.tsx), so there is no
+      // real Supabase session/user and this hook would otherwise settle on
+      // 'free'. My Repos is gated to pro/team/enterprise (Sidebar.tsx), so
+      // e2e needs a plan that clears that gate without touching the
+      // production gate itself.
+      if (window.appFlags?.e2eBypass) {
+        setProfile({ plan: 'pro', loading: false, isTrialActive: false, trialDaysLeft: 0 })
+        return
+      }
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) { setProfile(p => ({ ...p, loading: false })); return }
 
