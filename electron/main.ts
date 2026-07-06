@@ -135,6 +135,7 @@ import { PluginsStore } from './plugins-store'
 import { PluginCredentialStore } from './plugin-credentials'
 import { runPluginAction } from './plugin-actions'
 import { callPanel, type PanelAdapterDeps } from './integration-panels'
+import { registerAllPanelAdapters } from './integrations/register'
 
 const ptyManager = new PtyManager()
 const accountStore = new AccountStore()
@@ -2248,8 +2249,8 @@ ipcMain.handle('pluginActions:run', (_e, id: string, actionId: string, params) =
 
 // Host genérico de paneles de integración (Hito 2+ Task F1): el renderer
 // nunca ve el token, solo el resultado plano del adapter server-side
-// registrado en electron/integration-panels.ts (registro real de
-// slack/github/jira/notion llega en las tasks de Fase 2 del plan).
+// registrado en electron/integrations/register.ts (Fase 2 del plan).
+registerAllPanelAdapters()
 ipcMain.handle('plugins:panel:call', (_e, pluginId: string, method: string, args: unknown[]) => {
   const deps: PanelAdapterDeps = {
     getToken: (id) => pluginCreds.getToken(id),
