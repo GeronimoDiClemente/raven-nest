@@ -1211,7 +1211,8 @@ export default function App() {
           onConnectGitHub={connectGitHub}
           onOpenRepoTerminal={openRepoInNewTab}
           onStartTutorial={() => setTutorialTour('my-repos')}
-          activeRepoPath={activeTab.repoPath ?? null}
+          activeRepoPath={activeCellRepoPath ?? null}
+          focusedPaneId={focusedPaneId}
         />
       )}
 

@@ -112,6 +112,7 @@ import { WorkspaceStore } from './workspace-store'
 import { WorktreeStore } from './worktree-store'
 import { PresetStore } from './preset-store'
 import { SetupRunner } from './setup-runner'
+import { CliInstallRunner, INSTALL_COMMANDS } from './cli-install-runner'
 import { scanPid } from './port-monitor'
 import { getCwdForPid, getProcessInfo, listListeningPidsPosix, listListeningPidsWindows } from './cwd-reader'
 // pidtree resolves a pid's full descendant tree. Used so port scans cover the
@@ -149,6 +150,7 @@ const workspaceStore = new WorkspaceStore()
 const worktreeStore = new WorktreeStore(pathJoin(ravenHome(), '.raven-nest'))
 const presetStore = new PresetStore()
 const setupRunner = new SetupRunner()
+const cliInstallRunner = new CliInstallRunner()
 const browserPanes = new BrowserPaneManager(() => BrowserWindow.getAllWindows()[0] ?? null)
 const spotlight = new SpotlightEngine()
 const benchmark = new BenchmarkRecorder()
@@ -849,6 +851,19 @@ ipcMain.handle('cli:check', (_event, cmd: string) => {
     return { found: false, path: '' }
   }
 })
+
+ipcMain.handle('cli:install', async (event, aiType: string) => {
+  const cmd = INSTALL_COMMANDS[aiType]
+  if (!cmd) return { state: 'failed' as const, log: `No install command for "${aiType}"` }
+  return cliInstallRunner.run(
+    aiType,
+    cmd,
+    (line) => { try { event.sender.send('cli:install:progress', { aiType, line }) } catch { /* renderer gone */ } },
+    { env: { ...process.env, PATH: cliLookupPath() } },
+  )
+})
+
+ipcMain.handle('cli:install:cancel', (_event, aiType: string) => cliInstallRunner.cancel(aiType))
 
 // Custom CLI IPC handlers
 ipcMain.handle('customcli:list', () => customCLIStore.list())
@@ -2434,6 +2449,7 @@ app.on('before-quit', () => {
   // `npm install` spawn many sub-processes) cleanly instead of orphaning
   // them for a moment.
   setupRunner.cancelAll()
+  cliInstallRunner.cancelAll()
   // Stop the spotlight fs.watch handle. The watcher keeps the event loop
   // alive on macOS/Linux and would block app exit otherwise.
   void spotlight.stop()
