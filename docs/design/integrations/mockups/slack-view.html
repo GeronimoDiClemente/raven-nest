@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Slack view</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,system-ui,sans-serif;background:#050506;color:#d9d9dd;-webkit-font-smoothing:antialiased;padding:24px}
+  .q{font-size:12.5px;color:#5a5a60;margin:0 auto 12px;max-width:1100px}.q b{color:#b8b8be;font-weight:600}
+  .win{max-width:1100px;height:660px;margin:0 auto;display:flex;background:#08080a;border:1px solid #141416;border-radius:14px;overflow:hidden;box-shadow:0 30px 90px -30px rgba(0,0,0,.85)}
+
+  /* Teams sidebar */
+  .side{width:200px;flex-shrink:0;background:#0a0a0c;border-right:1px solid #141416;display:flex;flex-direction:column}
+  .team{display:flex;align-items:center;gap:10px;padding:15px 15px 13px;border-bottom:1px solid #111113}
+  .team .av{width:26px;height:26px;border-radius:7px;background:linear-gradient(135deg,#0066FF,#7a3dff)}
+  .team .nm{font-size:12.5px;font-weight:600;color:#e6e6ea}.team .nm small{display:block;font-size:10px;color:#55555b;font-weight:400}
+  .nav{padding:9px 7px;display:flex;flex-direction:column;gap:2px}
+  .nv{display:flex;align-items:center;gap:9px;padding:7px 10px;border-radius:8px;color:#7c7c83;font-size:12.5px;cursor:pointer}
+  .nv svg{opacity:.7}.nv.on{background:#121319;color:#eaeaef}.nv.on svg{opacity:1}
+  .navsep{height:1px;background:#141416;margin:9px 12px}
+  .navlbl{font-size:9px;letter-spacing:.11em;text-transform:uppercase;color:#43434a;font-weight:600;padding:2px 10px 6px}
+  .nlogo{width:16px;height:16px;display:flex;align-items:center;justify-content:center;flex-shrink:0}.nlogo svg{width:15px;height:15px}
+  .sfoot{margin-top:auto}
+  .addbtn{margin:10px 15px 8px;width:30px;height:30px;border-radius:9px;border:1px dashed #2a2a30;display:flex;align-items:center;justify-content:center;color:#6a6a72;cursor:pointer}
+  .addbtn:hover{border-color:#3a3a44;color:#bcbcc2}
+  .me{display:flex;align-items:center;gap:8px;padding:11px 15px;border-top:1px solid #111113;font-size:11.5px;color:#7c7c83}.me .av{width:20px;height:20px;border-radius:50%;background:#333}
+
+  /* content */
+  .content{flex:1;display:flex;flex-direction:column;min-width:0}
+  .sbar{display:flex;align-items:center;gap:11px;padding:13px 18px;border-bottom:1px solid #111113}
+  .back{font-size:12px;color:#6a6a70;cursor:pointer}
+  .slogo{width:20px;height:20px;display:flex;align-items:center;justify-content:center}
+  .sname{font-size:14px;font-weight:600;color:#ededf0}
+  .ws{font-size:11.5px;color:#5e5e64}
+  .cdot{width:7px;height:7px;border-radius:50%;background:#2EB67D;box-shadow:0 0 7px #2EB67D99}
+  .ssearch{margin-left:auto;width:190px;background:#0e0e10;border:1px solid #1b1b1e;border-radius:8px;padding:6px 10px;color:#56565c;font-size:12px;display:flex;align-items:center;gap:7px}
+
+  .sbody{flex:1;display:flex;min-height:0}
+  /* channels */
+  .chans{width:208px;flex-shrink:0;border-right:1px solid #111113;overflow-y:auto;padding:10px 0}
+  .ctx{margin:2px 10px 10px;padding:9px 11px;background:#0c1018;border:1px solid #16233b;border-radius:9px}
+  .ctx .k{font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:#5a7bb5;font-weight:600}
+  .ctx .c{display:flex;align-items:center;gap:6px;margin-top:5px;font-size:13px;color:#cfe0ff;font-weight:600}
+  .ctx .hint{font-size:10.5px;color:#5a6b88;margin-top:2px}
+  .sec{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#45454b;font-weight:600;padding:10px 14px 5px}
+  .ch{display:flex;align-items:center;gap:7px;padding:5px 14px;font-size:13px;color:#83838a;cursor:pointer;border-radius:0}
+  .ch:hover{background:#0d0d10;color:#bcbcc2}
+  .ch.on{background:#121319;color:#eaeaef;font-weight:600}
+  .ch .h{color:#4e4e54}.ch.on .h{color:#8a8a90}
+  .badge{margin-left:auto;font-size:10px;font-weight:700;color:#fff;background:#d33;border-radius:9px;padding:1px 6px}
+  .pdot{margin-left:auto;width:7px;height:7px;border-radius:50%;background:#2EB67D}
+  .pdot.off{background:#3a3a40}
+
+  /* thread */
+  .thread{flex:1;display:flex;flex-direction:column;min-width:0}
+  .thead{padding:13px 18px;border-bottom:1px solid #111113}
+  .thead .t{font-size:14px;font-weight:600;color:#ededf0}.thead .t .h{color:#666}
+  .thead .s{font-size:11.5px;color:#5e5e64;margin-top:2px}
+  .msgs{flex:1;overflow-y:auto;padding:14px 18px}
+  .msg{display:flex;gap:10px;padding:8px 0}
+  .ava{width:30px;height:30px;border-radius:7px;flex-shrink:0;display:flex;align-items:center;justify-content:center;color:#fff;font-size:12px;font-weight:700}
+  .mh{display:flex;align-items:baseline;gap:8px}.mn{font-size:13px;font-weight:600;color:#e6e6ea}.mt{font-size:10.5px;color:#55555b}
+  .mb{font-size:13px;color:#c2c2c8;margin-top:2px;line-height:1.5}
+  .code{margin-top:6px;background:#0b0b0d;border:1px solid #1a1a1d;border-radius:8px;padding:9px 11px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11.5px;color:#9fd0a0;white-space:pre;overflow:hidden}
+  .code .dim{color:#5a5a60}
+  .fromnest{display:inline-flex;align-items:center;gap:5px;margin-top:6px;font-size:10.5px;color:#5a7bb5;background:#0c1018;border:1px solid #16233b;border-radius:6px;padding:2px 7px}
+  .thr{margin-top:6px;font-size:11.5px;color:#5a7bb5;cursor:pointer}
+  /* compose */
+  .compose{padding:12px 18px 16px;border-top:1px solid #111113}
+  .cbox{background:#0d0d10;border:1px solid #1f1f23;border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:9px}
+  .cbox .ph{font-size:13px;color:#56565c}
+  .crow{display:flex;align-items:center;gap:10px}
+  .cact{font-size:11px;color:#6a6a70;display:flex;align-items:center;gap:5px;cursor:pointer}
+  .send{margin-left:auto;font-size:12px;font-weight:600;color:#fff;background:#0066FF;border-radius:7px;padding:5px 13px;cursor:pointer}
+</style></head><body>
+  <div class="q">Al instalar Slack del marketplace, aparece como <b>ítem propio en el menú (logo + "Slack")</b>, debajo de "Integraciones" (el marketplace). Misma lógica en My Repos. Click → su vista. Diferenciadores: <b>canal atado al worktree</b> + <b>output del terminal a Slack</b>.</div>
+  <div class="win">
+    <div class="side">
+      <div class="team"><div class="av"></div><div class="nm">RAVEN<small>Team</small></div></div>
+      <div class="nav">
+        <div class="nv"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M2 8h3l2-5 3 10 2-5h2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>Activity</div>
+        <div class="nv"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M2 4a1.5 1.5 0 0 1 1.5-1.5h9A1.5 1.5 0 0 1 14 4v6a1.5 1.5 0 0 1-1.5 1.5H6L3 14v-2.5A1.5 1.5 0 0 1 2 10V4z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>Chat</div>
+        <div class="nv"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><circle cx="4" cy="4" r="1.5" stroke="currentColor" stroke-width="1.3"/><circle cx="12" cy="4" r="1.5" stroke="currentColor" stroke-width="1.3"/><circle cx="4" cy="12" r="1.5" stroke="currentColor" stroke-width="1.3"/><path d="M4 5.5v5M5.5 4h5M4 5.5c2 0 4 1 4 3.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>Repos</div>
+        <div class="nv"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><circle cx="6" cy="5" r="2" stroke="currentColor" stroke-width="1.3"/><path d="M2 13c0-2.2 1.8-4 4-4s4 1.8 4 4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>Members</div>
+        <div class="navsep"></div>
+        <div class="nv on"><span class="nlogo"><svg viewBox="0 0 2447.6 2452.5"><g clip-rule="evenodd" fill-rule="evenodd"><path d="m897.4 0c-135.3.1-244.8 109.9-244.7 245.2-.1 135.3 109.5 245.1 244.8 245.2h244.8v-245.1c.1-135.3-109.5-245.1-244.9-245.3zm0 654h-652.6c-135.3.1-244.9 109.9-244.8 245.2-.2 135.3 109.4 245.1 244.7 245.3h652.7c135.3-.1 244.9-109.9 244.8-245.2.1-135.4-109.5-245.2-244.8-245.3z" fill="#36c5f0"/><path d="m2447.6 899.2c.1-135.3-109.5-245.1-244.8-245.2-135.3.1-244.9 109.9-244.8 245.2v245.3h244.8c135.3-.1 244.9-109.9 244.8-245.3zm-652.7 0v-654c.1-135.2-109.4-245-244.7-245.2-135.3.1-244.9 109.9-244.8 245.2v654c-.2 135.3 109.4 245.1 244.7 245.3 135.3-.1 244.9-109.9 244.8-245.3z" fill="#2eb67d"/><path d="m1550.1 2452.5c135.3-.1 244.9-109.9 244.8-245.2.1-135.3-109.5-245.1-244.8-245.2h-244.8v245.2c-.1 135.2 109.5 245 244.8 245.2zm0-654.1h652.7c135.3-.1 244.9-109.9 244.8-245.2.2-135.3-109.4-245.1-244.7-245.3h-652.7c-135.3.1-244.9 109.9-244.8 245.2-.1 135.4 109.4 245.2 244.7 245.3z" fill="#ecb22e"/><path d="m0 1553.2c-.1 135.3 109.5 245.1 244.8 245.2 135.3-.1 244.9-109.9 244.8-245.2v-245.2h-244.8c-135.3.1-244.9 109.9-244.8 245.2zm652.7 0v654c-.2 135.3 109.4 245.1 244.7 245.3 135.3-.1 244.9-109.9 244.8-245.2v-653.9c.2-135.3-109.4-245.1-244.7-245.3-135.4 0-244.9 109.8-244.8 245.1z" fill="#e01e5a"/></g></svg></span>Slack</div>
+        <div class="nv"><span class="nlogo"><svg viewBox="0 0 24 24" fill="#2684FF"><path d="M11.571 11.513H0a5.218 5.218 0 0 0 5.232 5.215h2.13v2.057A5.215 5.215 0 0 0 12.575 24V12.518a1.005 1.005 0 0 0-1.005-1.005zm5.723-5.756H5.736a5.215 5.215 0 0 0 5.215 5.214h2.129v2.058a5.218 5.218 0 0 0 5.215 5.214V6.758a1.001 1.001 0 0 0-1.001-1.001zM23.013 0H11.455a5.215 5.215 0 0 0 5.215 5.215h2.129v2.057A5.215 5.215 0 0 0 24 12.483V1.005A1.001 1.001 0 0 0 23.013 0Z"/></svg></span>Jira</div>
+      </div>
+      <div class="sfoot">
+        <div class="addbtn" title="Agregar integración"><svg width="15" height="15" viewBox="0 0 16 16"><path d="M8 3.2v9.6M3.2 8h9.6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></div>
+        <div class="me"><div class="av"></div>Gerónimo · Pro</div>
+      </div>
+    </div>
+
+    <div class="content">
+      <div class="sbar">
+        <span class="back">‹ Integraciones</span>
+        <span class="slogo"><svg viewBox="0 0 2447.6 2452.5" width="17" height="17"><g clip-rule="evenodd" fill-rule="evenodd"><path d="m897.4 0c-135.3.1-244.8 109.9-244.7 245.2-.1 135.3 109.5 245.1 244.8 245.2h244.8v-245.1c.1-135.3-109.5-245.1-244.9-245.3zm0 654h-652.6c-135.3.1-244.9 109.9-244.8 245.2-.2 135.3 109.4 245.1 244.7 245.3h652.7c135.3-.1 244.9-109.9 244.8-245.2.1-135.4-109.5-245.2-244.8-245.3z" fill="#36c5f0"/><path d="m2447.6 899.2c.1-135.3-109.5-245.1-244.8-245.2-135.3.1-244.9 109.9-244.8 245.2v245.3h244.8c135.3-.1 244.9-109.9 244.8-245.3zm-652.7 0v-654c.1-135.2-109.4-245-244.7-245.2-135.3.1-244.9 109.9-244.8 245.2v654c-.2 135.3 109.4 245.1 244.7 245.3 135.3-.1 244.9-109.9 244.8-245.3z" fill="#2eb67d"/><path d="m1550.1 2452.5c135.3-.1 244.9-109.9 244.8-245.2.1-135.3-109.5-245.1-244.8-245.2h-244.8v245.2c-.1 135.2 109.5 245 244.8 245.2zm0-654.1h652.7c135.3-.1 244.9-109.9 244.8-245.2.2-135.3-109.4-245.1-244.7-245.3h-652.7c-135.3.1-244.9 109.9-244.8 245.2-.1 135.4 109.4 245.2 244.7 245.3z" fill="#ecb22e"/><path d="m0 1553.2c-.1 135.3 109.5 245.1 244.8 245.2 135.3-.1 244.9-109.9 244.8-245.2v-245.2h-244.8c-135.3.1-244.9 109.9-244.8 245.2zm652.7 0v654c-.2 135.3 109.4 245.1 244.7 245.3 135.3-.1 244.9-109.9 244.8-245.2v-653.9c.2-135.3-109.4-245.1-244.7-245.3-135.4 0-244.9 109.8-244.8 245.1z" fill="#e01e5a"/></g></svg></span>
+        <span class="sname">Slack</span><span class="ws">raven.slack.com</span><span class="cdot"></span>
+        <div class="ssearch"><svg width="12" height="12" viewBox="0 0 16 16" fill="none"><circle cx="7" cy="7" r="4.5" stroke="#56565c" stroke-width="1.3"/><path d="M11 11l3 3" stroke="#56565c" stroke-width="1.3" stroke-linecap="round"/></svg>Buscar…</div>
+      </div>
+
+      <div class="sbody">
+        <div class="chans">
+          <div class="ctx"><div class="k">Worktree actual</div><div class="c"><span class="h" style="color:#5a7bb5">#</span> feat-auth</div><div class="hint">canal del branch en el que estás</div></div>
+          <div class="sec">Canales</div>
+          <div class="ch"><span class="h">#</span> general</div>
+          <div class="ch on"><span class="h">#</span> dev <span class="badge">3</span></div>
+          <div class="ch"><span class="h">#</span> feat-auth <span class="badge">1</span></div>
+          <div class="ch"><span class="h">#</span> deploys</div>
+          <div class="ch"><span class="h">#</span> random</div>
+          <div class="sec">Directos</div>
+          <div class="ch"><span style="width:8px;height:8px;border-radius:50%;background:#a64bd6;display:inline-block"></span> Matías <span class="pdot"></span></div>
+          <div class="ch"><span style="width:8px;height:8px;border-radius:50%;background:#4b9bd6;display:inline-block"></span> Bautista <span class="pdot off"></span></div>
+          <div class="ch"><span style="width:8px;height:8px;border-radius:50%;background:#d6a04b;display:inline-block"></span> Eliseo <span class="pdot"></span></div>
+        </div>
+
+        <div class="thread">
+          <div class="thead"><div class="t"><span class="h">#</span> dev</div><div class="s">12 miembros · refactor del agente + reviews</div></div>
+          <div class="msgs">
+            <div class="msg"><div class="ava" style="background:#a64bd6">M</div><div><div class="mh"><span class="mn">Matías</span><span class="mt">10:41</span></div><div class="mb">che el build de la rama de integraciones tarda un montón, lo miran?</div><div class="thr">↳ 2 respuestas</div></div></div>
+            <div class="msg"><div class="ava" style="background:#4b9bd6">B</div><div><div class="mh"><span class="mn">Bautista</span><span class="mt">10:52</span></div><div class="mb">probá con cache, dejé un comando en #deploys</div></div></div>
+            <div class="msg"><div class="ava" style="background:linear-gradient(135deg,#0066FF,#7a3dff)">G</div><div><div class="mh"><span class="mn">Gerónimo</span><span class="mt">11:03</span></div><div class="mb">listo, lo corrí desde Nest 👇</div>
+              <div class="code"><span class="dim">$ npm run build</span>
+✓ built in 1.9s · main.js 172 kB · renderer 2.3 MB</div>
+              <div class="fromnest"><svg width="11" height="11" viewBox="0 0 16 16" fill="none"><rect x="2" y="2" width="12" height="12" rx="3" stroke="#5a7bb5" stroke-width="1.3"/></svg> Enviado desde Nest · worktree feat/integrations</div></div></div>
+          </div>
+          <div class="compose">
+            <div class="cbox">
+              <div class="ph">Mensaje a #dev</div>
+              <div class="crow">
+                <span class="cact"><svg width="13" height="13" viewBox="0 0 16 16" fill="none"><rect x="2" y="3" width="12" height="10" rx="2" stroke="currentColor" stroke-width="1.2"/><path d="M5 7h6M5 9h4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg> Adjuntar output del terminal</span>
+                <span class="send">Enviar</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body></html>

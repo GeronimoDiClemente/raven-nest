@@ -9329,3 +9329,122 @@ body.platform-mac .tabbar { padding-right: 116px; }
 .tour-progress i.on { background: #3d79ff; width: 14px; border-radius: 3px; }
 .tour-help-btn { background: none; border: 1px solid #2b2b32; color: #9a9aa3; border-radius: 8px; width: 26px; height: 26px; cursor: pointer; font-size: 14px; }
 .tour-help-btn:hover { color: #ededed; border-color: #3a3a42; }
+
+/* === Integrations marketplace (embedded in My Repos) === */
+.integrations-body { padding: 14px 16px; overflow-y: auto; flex: 1; }
+.integrations-search {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  color: var(--text-primary);
+  font: inherit; font-size: 13px;
+  margin-bottom: 6px;
+}
+.integrations-search:focus { outline: none; border-color: var(--raven-blue); }
+.integrations-section-title {
+  font-size: 11px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.04em; color: var(--text-muted);
+  margin: 16px 0 8px;
+}
+.integrations-grid { display: flex; flex-direction: column; gap: 8px; }
+.integration-card {
+  display: flex; align-items: center; gap: 12px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+.integration-icon {
+  width: 34px; height: 34px; border-radius: 8px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  color: #fff; font-weight: 700; font-size: 15px; text-transform: uppercase;
+}
+.integration-meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.integration-name { font-size: 13px; font-weight: 600; color: var(--text-primary); }
+.integration-desc { font-size: 12px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.integration-btn {
+  flex-shrink: 0; font: inherit; font-size: 12px; font-weight: 600;
+  padding: 6px 14px; border-radius: 7px; cursor: pointer; border: 1px solid transparent;
+  transition: filter 0.15s, background 0.15s, border-color 0.15s, color 0.15s;
+}
+.integration-btn.primary { background: var(--raven-blue); color: #fff; }
+.integration-btn.primary:hover { filter: brightness(1.12); }
+.integration-btn.ghost { background: transparent; border-color: var(--border); color: var(--text-secondary); }
+.integration-btn.ghost:hover { color: var(--text-primary); border-color: #444; }
+.integration-soon-tag { flex-shrink: 0; font-size: 11px; color: var(--text-muted); border: 1px solid var(--border); border-radius: 6px; padding: 3px 9px; }
+.integration-card:has(.integration-soon-tag) { opacity: 0.55; }
+.integration-request {
+  margin-top: 10px; background: transparent; border: 1px dashed var(--border);
+  color: var(--text-secondary); font: inherit; font-size: 12px;
+  padding: 8px 12px; border-radius: 8px; cursor: pointer; width: 100%;
+}
+.integration-request:hover { color: var(--text-primary); border-color: #444; }
+.integrations-team { padding: 8px 4px; }
+.integrations-team-title { font-size: 15px; font-weight: 600; color: var(--text-primary); margin-bottom: 12px; }
+.integrations-team-list { list-style: none; padding: 0; margin: 0 0 14px; display: flex; flex-direction: column; gap: 8px; }
+.integrations-team-list li { font-size: 13px; color: var(--text-secondary); padding-left: 22px; position: relative; }
+.integrations-team-list li::before { content: '🔗'; position: absolute; left: 0; }
+.integrations-team-sub { font-size: 13px; color: var(--text-secondary); margin-bottom: 14px; }
+
+/* Wrapper compartido por IntegrationsMarketplaceView (My Repos →
+   Integrations) y TeamIntegrationsView (Teams → Integrations): ocupa el
+   alto disponible de teams-workspace-content y deja que .integrations-body
+   haga su propio scroll interno. */
+.integrations-embedded { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; }
+
+/* ===== Integration Panel (hito 1) ===== */
+/* Wrapper cuando el shell se embebe en teams-workspace-content (My Repos):
+   sin flex:1 el shell (height:100%) no tendría una altura de referencia, ya
+   que el div columna que lo contiene no crece automáticamente para llenar el
+   alto disponible. */
+.ip-embedded { flex: 1; min-height: 0; display: flex; }
+.ip-shell { display: flex; height: 100%; min-height: 0; background: #08080a; }
+.ip-context { width: 290px; flex-shrink: 0; border-right: 1px solid #121214; display: flex; flex-direction: column; overflow-y: auto; }
+.ip-context-header { display: flex; flex-direction: column; padding: 14px 16px 12px; border-bottom: 1px solid #121214; }
+.ip-context-title { font-size: 13px; font-weight: 650; color: #eef0f4; }
+.ip-context-sub { font-size: 10.5px; color: #55555b; }
+.ip-worktree-card { margin: 10px 12px; background: #0c1018; border: 1px solid #16233b; border-radius: 10px; padding: 11px 12px; display: flex; flex-direction: column; }
+.ip-worktree-label { font-size: 10px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: #5a7bb5; }
+.ip-worktree-value { font-size: 12px; color: #c9d4e6; margin-top: 5px; }
+.ip-worktree-value code { font-size: 11px; background: #101a2e; border-radius: 5px; padding: 1px 6px; color: #9db8e8; }
+.ip-section-label { font-size: 10.5px; font-weight: 600; letter-spacing: .09em; text-transform: uppercase; color: #45454b; padding: 12px 16px 6px; margin: 0; }
+.ip-item { display: flex; gap: 9px; padding: 9px 16px; width: 100%; text-align: left; background: none; border: none; border-left: 2px solid transparent; cursor: pointer; }
+.ip-item:hover { background: #0c0d11; }
+.ip-item.active { background: #0e0f14; border-left-color: #0066FF; }
+.ip-item-accent { font-size: 11px; color: #5a7bb5; font-weight: 600; flex-shrink: 0; margin-top: 1px; }
+.ip-item-body { display: flex; flex-direction: column; }
+.ip-item-title { font-size: 12.5px; color: #c4c4ca; line-height: 1.35; }
+.ip-item-sub { font-size: 10.5px; color: #55555b; margin-top: 3px; }
+.ip-main { flex: 1; display: flex; flex-direction: column; min-width: 0; overflow-y: auto; }
+.ip-detail-header { padding: 16px 22px 14px; border-bottom: 1px solid #121214; }
+.ip-detail-key { font-size: 11.5px; color: #5a7bb5; font-weight: 600; }
+.ip-detail-title { font-size: 17px; font-weight: 650; color: #f0f0f3; margin: 4px 0 0; letter-spacing: -0.01em; }
+.ip-detail-row { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
+.ip-status { font-size: 11px; font-weight: 600; border-radius: 6px; padding: 4px 10px; background: #101a2e; color: #7da6ff; border: 1px solid #1c2c4a; }
+.ip-action { font-size: 11.5px; border-radius: 7px; padding: 4px 11px; cursor: pointer; }
+.ip-action-secondary { color: #8a8a92; border: 1px solid #1e1e24; background: none; }
+.ip-action-secondary:hover { color: #b8b8c0; border-color: #2a2a32; }
+.ip-action-primary { color: #fff; border: 1px solid transparent; background: #0066FF; font-weight: 600; }
+.ip-action-primary:hover { background: #1975ff; }
+.ip-detail-meta { display: flex; gap: 18px; margin-top: 14px; font-size: 11.5px; color: #6a6a72; }
+.ip-detail-meta b { color: #a9a9b1; font-weight: 500; }
+.ip-detail-blocks { padding: 14px 22px; flex: 1; }
+.ip-block-text { font-size: 13px; color: #b4b4bb; line-height: 1.6; max-width: 640px; }
+.ip-block-code { margin: 10px 0; background: #0b0b0e; border: 1px solid #191920; border-radius: 9px; padding: 11px 14px; font-size: 11.5px; color: #8fa8d0; white-space: pre-wrap; }
+.ip-block-comment { display: flex; flex-direction: column; padding: 10px 0; border-top: 1px solid #101012; }
+.ip-comment-who { font-size: 12px; font-weight: 600; color: #d4d4da; }
+.ip-comment-who small { color: #55555b; font-weight: 400; margin-left: 6px; }
+.ip-comment-text { font-size: 12.5px; color: #a2a2aa; margin-top: 3px; line-height: 1.5; white-space: pre-wrap; }
+.ip-compose { border-top: 1px solid #141416; padding: 12px 22px 14px; }
+.ip-compose-attachment { background: #0b0b0e; border: 1px solid #16233b; border-radius: 8px; padding: 8px 11px; font-size: 11px; color: #8fa8d0; margin-bottom: 8px; white-space: pre-wrap; }
+.ip-compose-input { width: 100%; background: #0c0c0f; border: 1px solid #1c1c22; border-radius: 10px; padding: 10px 13px; font-size: 12.5px; color: #d9d9dd; resize: none; font-family: inherit; }
+.ip-compose-actions { display: flex; align-items: center; gap: 10px; margin-top: 9px; }
+.ip-attach { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: #9aa6d6; background: #0c1018; border: 1px solid #16233b; border-radius: 7px; padding: 5px 11px; cursor: pointer; }
+.ip-attach:hover { background: #101828; }
+.ip-send { margin-left: auto; font-size: 12px; font-weight: 600; color: #fff; background: #0066FF; border: none; border-radius: 7px; padding: 6px 16px; cursor: pointer; }
+.ip-send:hover:not(:disabled) { background: #1975ff; }
+.ip-send:disabled { opacity: .4; cursor: default; }
+.ip-empty { flex: 1; display: flex; align-items: center; justify-content: center; color: #55555b; font-size: 13px; }

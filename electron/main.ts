@@ -131,6 +131,9 @@ import { MetricsCollector, PaneInput } from './metrics-collector'
 import { transcribeAudio, checkWhisperAvailable, initWhisper, shutdownWhisper, setWhisperStatusCallback } from './whisper'
 import { getWindowOptions, getIconsDir, ICON_FILENAME, isMac } from './platform'
 import { createTray } from './tray'
+import { PluginsStore } from './plugins-store'
+import { PluginCredentialStore } from './plugin-credentials'
+import { runPluginAction } from './plugin-actions'
 
 const ptyManager = new PtyManager()
 const accountStore = new AccountStore()
@@ -157,6 +160,12 @@ spotlight.on('stop', () => broadcast('spotlight:status', { active: false }))
 spotlight.on('warning', (msg: string) => broadcast('spotlight:warning', msg))
 const mcpStore = new MCPStore()
 const settingsStore = new SettingsStore()
+const pluginsStore = new PluginsStore()
+const pluginCreds = new PluginCredentialStore({
+  isEncryptionAvailable: () => safeStorage.isEncryptionAvailable(),
+  encryptString: (s) => safeStorage.encryptString(s),
+  decryptString: (b) => safeStorage.decryptString(b),
+})
 
 function broadcast(channel: string, ...args: unknown[]): void {
   const win = BrowserWindow.getAllWindows()[0]
@@ -2122,9 +2131,10 @@ ipcMain.on('shell:openExternal', (_event, url: string) => {
 // when the user clicks Connect and only honor a deep-link if its `state` matches
 // the most recent expected nonce — this prevents an attacker from tricking the
 // running app into exchanging an attacker-controlled `code` (account hijack).
-const expectedOAuthState: { github: string | null; gitlab: string | null } = {
+const expectedOAuthState: { github: string | null; gitlab: string | null; slack: string | null } = {
   github: null,
   gitlab: null,
+  slack: null,
 }
 function newOAuthState(): string {
   return randomBytes(16).toString('hex')
@@ -2152,6 +2162,19 @@ function handleDeepLink(url: string) {
       const win = BrowserWindow.getAllWindows()[0]
       if (win) win.webContents.send('gitlab-oauth-code', code)
     }
+    return
+  }
+  if (url.startsWith('nest://slack-callback')) {
+    const urlObj = new URL(url)
+    const code = urlObj.searchParams.get('code')
+    const state = urlObj.searchParams.get('state')
+    if (!code || !state || state !== expectedOAuthState.slack) {
+      console.warn('[slack-oauth] rejected deep-link: state mismatch or missing code/state', { state, expected: expectedOAuthState.slack })
+      return
+    }
+    expectedOAuthState.slack = null
+    const win = BrowserWindow.getAllWindows()[0]
+    if (win) win.webContents.send('slack-oauth-code', code)
     return
   }
   // Buffer URL — renderer will pull it via deeplink:consume once ready
@@ -2205,6 +2228,29 @@ ipcMain.handle('gitlab:open-oauth', async () => {
   const state = newOAuthState()
   expectedOAuthState.gitlab = state
   const url = `https://gitlab.com/oauth/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${encodeURIComponent(scope)}&state=${state}`
+  await shell.openExternal(url)
+})
+
+ipcMain.handle('plugins:list', () => pluginsStore.list())
+ipcMain.handle('plugins:save', (_e, p) => pluginsStore.save(p))
+ipcMain.handle('plugins:delete', (_e, id) => pluginsStore.delete(id))
+
+ipcMain.handle('pluginCreds:set', (_e, id: string, token: string) => {
+  try { pluginCreds.setToken(id, token); return { ok: true } }
+  catch (err) { return { ok: false, error: err instanceof Error ? err.message : 'error' } }
+})
+ipcMain.handle('pluginCreds:has', (_e, id: string) => pluginCreds.has(id))
+ipcMain.handle('pluginCreds:delete', (_e, id: string) => pluginCreds.delete(id))
+
+ipcMain.handle('pluginActions:run', (_e, id: string, actionId: string, params) =>
+  runPluginAction(id, actionId, params ?? {}, { getToken: (p) => pluginCreds.getToken(p), fetch }))
+
+ipcMain.handle('slack:open-oauth', async () => {
+  const clientId = import.meta.env.MAIN_VITE_SLACK_CLIENT_ID ?? ''
+  const scope = 'chat:write,channels:read'
+  const state = newOAuthState()
+  expectedOAuthState.slack = state
+  const url = `https://slack.com/oauth/v2/authorize?client_id=${clientId}&scope=${scope}&redirect_uri=${encodeURIComponent('nest://slack-callback')}&state=${state}`
   await shell.openExternal(url)
 })
 

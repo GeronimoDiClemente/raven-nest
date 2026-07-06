@@ -243,6 +243,29 @@ contextBridge.exposeInMainWorld('gitlab', {
   removeOAuthListener: () => ipcRenderer.removeAllListeners('gitlab-oauth-code'),
 })
 
+contextBridge.exposeInMainWorld('plugins', {
+  list: () => ipcRenderer.invoke('plugins:list'),
+  save: (p: unknown) => ipcRenderer.invoke('plugins:save', p),
+  delete: (id: string) => ipcRenderer.invoke('plugins:delete', id),
+})
+contextBridge.exposeInMainWorld('pluginCreds', {
+  set: (id: string, token: string) => ipcRenderer.invoke('pluginCreds:set', id, token),
+  has: (id: string) => ipcRenderer.invoke('pluginCreds:has', id),
+  delete: (id: string) => ipcRenderer.invoke('pluginCreds:delete', id),
+})
+contextBridge.exposeInMainWorld('pluginActions', {
+  run: (id: string, actionId: string, params: unknown) =>
+    ipcRenderer.invoke('pluginActions:run', id, actionId, params),
+})
+contextBridge.exposeInMainWorld('slack', {
+  openOAuth: () => ipcRenderer.invoke('slack:open-oauth'),
+  onOAuthCode: (cb: (code: string) => void) => {
+    const handler = (_e: IpcRendererEvent, code: string) => cb(code)
+    ipcRenderer.on('slack-oauth-code', handler)
+  },
+  removeOAuthListener: () => ipcRenderer.removeAllListeners('slack-oauth-code'),
+})
+
 contextBridge.exposeInMainWorld('worktree', {
   list: (repoPath: string) => ipcRenderer.invoke('worktree:list', repoPath),
   create: (opts: unknown) => ipcRenderer.invoke('worktree:create', opts),
