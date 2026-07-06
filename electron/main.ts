@@ -133,6 +133,7 @@ import { createTray } from './tray'
 import { PluginsStore } from './plugins-store'
 import { PluginCredentialStore } from './plugin-credentials'
 import { runPluginAction } from './plugin-actions'
+import { callPanel, type PanelAdapterDeps } from './integration-panels'
 
 const ptyManager = new PtyManager()
 const accountStore = new AccountStore()
@@ -2230,13 +2231,62 @@ ipcMain.handle('pluginCreds:delete', (_e, id: string) => pluginCreds.delete(id))
 ipcMain.handle('pluginActions:run', (_e, id: string, actionId: string, params) =>
   runPluginAction(id, actionId, params ?? {}, { getToken: (p) => pluginCreds.getToken(p), fetch }))
 
+// Host genérico de paneles de integración (Hito 2+ Task F1): el renderer
+// nunca ve el token, solo el resultado plano del adapter server-side
+// registrado en electron/integration-panels.ts (registro real de
+// slack/github/jira/notion llega en las tasks de Fase 2 del plan).
+ipcMain.handle('plugins:panel:call', (_e, pluginId: string, method: string, args: unknown[]) => {
+  const deps: PanelAdapterDeps = {
+    getToken: (id) => pluginCreds.getToken(id),
+    getConfig: (id) => pluginsStore.list().find(p => p.pluginId === id)?.config ?? {},
+    fetch,
+  }
+  return callPanel(pluginId, method, args ?? [], deps)
+})
+
 ipcMain.handle('slack:open-oauth', async () => {
   const clientId = import.meta.env.MAIN_VITE_SLACK_CLIENT_ID ?? ''
-  const scope = 'chat:write,channels:read'
+  const scope = 'chat:write,channels:read,channels:history,groups:read,im:read,users:read'
   const state = newOAuthState()
   expectedOAuthState.slack = state
   const url = `https://slack.com/oauth/v2/authorize?client_id=${clientId}&scope=${scope}&redirect_uri=${encodeURIComponent('nest://slack-callback')}&state=${state}`
   await shell.openExternal(url)
+})
+
+// Exchange del `code` de Slack OAuth por un access token (spec §6/§7: el
+// token nunca sale del main process). En producción el spec prevé una Edge
+// Function; acá lo hacemos main-side para poder testear local sin infra
+// (plan Hito 2+, decisión documentada). Guardamos el token *bot* (`access_token`
+// de la raíz de la respuesta) en vez de `authed_user.access_token`: los
+// adapters de paneles pegan a endpoints con scopes de bot (conversations.*,
+// chat.postMessage), no a los del usuario que instaló la app.
+ipcMain.handle('slack:exchange-code', async (_e, code: string) => {
+  const clientId = import.meta.env.MAIN_VITE_SLACK_CLIENT_ID ?? ''
+  const clientSecret = import.meta.env.MAIN_VITE_SLACK_CLIENT_SECRET ?? ''
+  if (!clientId || !clientSecret) {
+    return { ok: false, error: 'NOT_CONFIGURED' }
+  }
+  try {
+    const body = new URLSearchParams({
+      client_id: clientId,
+      client_secret: clientSecret,
+      code,
+      redirect_uri: 'nest://slack-callback',
+    })
+    const res = await fetch('https://slack.com/api/oauth.v2.access', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: body.toString(),
+    })
+    const json = (await res.json()) as { ok: boolean; access_token?: string; error?: string }
+    if (!json.ok || !json.access_token) {
+      return { ok: false, error: json.error ?? 'slack_error' }
+    }
+    pluginCreds.setToken('slack', json.access_token)
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : 'error' }
+  }
 })
 
 // macOS: open-url event

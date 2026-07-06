@@ -9308,6 +9308,17 @@ body.platform-mac .tabbar { padding-right: 116px; }
 .integration-btn.primary:hover { filter: brightness(1.12); }
 .integration-btn.ghost { background: transparent; border-color: var(--border); color: var(--text-secondary); }
 .integration-btn.ghost:hover { color: var(--text-primary); border-color: #444; }
+.integration-card-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; flex-shrink: 0; }
+.integration-connect-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.integration-connected { font-size: 12px; font-weight: 600; color: var(--raven-green, #2ecc71); white-space: nowrap; }
+.integration-apikey-form { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+.integration-apikey-input {
+  font: inherit; font-size: 12px; padding: 5px 9px; border-radius: 6px;
+  border: 1px solid var(--border); background: var(--bg-inset, var(--bg-surface)); color: var(--text-primary);
+  min-width: 180px;
+}
+.integration-apikey-input:focus { outline: none; border-color: var(--raven-blue); }
+.integration-error { font-size: 11px; color: var(--raven-red, #e5484d); text-align: right; max-width: 220px; }
 .integration-soon-tag { flex-shrink: 0; font-size: 11px; color: var(--text-muted); border: 1px solid var(--border); border-radius: 6px; padding: 3px 9px; }
 .integration-card:has(.integration-soon-tag) { opacity: 0.55; }
 .integration-request {

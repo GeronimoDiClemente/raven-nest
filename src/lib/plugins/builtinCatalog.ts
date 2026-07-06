@@ -18,16 +18,37 @@ export const BUILTIN_CATALOG: PluginManifest[] = [
     },
   },
   {
+    id: 'github', name: 'GitHub',
+    description: 'Track issues and PRs for the active worktree.',
+    category: 'pm', icon: 'github', color: '#181717',
+    type: 'integration', publisher: 'raven', tier: 'free',
+    auth: { kind: 'oauth' },
+  },
+  {
     id: 'notion', name: 'Notion',
     description: 'Send the worktree summary to Notion.',
     category: 'docs', icon: 'notion', color: '#0F0F0F',
-    type: 'integration', publisher: 'raven', tier: 'free', auth: { kind: 'oauth' },
+    type: 'integration', publisher: 'raven', tier: 'free',
+    auth: {
+      kind: 'apiKey',
+      fields: [
+        { key: 'token', label: 'Internal integration token', type: 'password', required: true, placeholder: 'secret_...' },
+      ],
+    },
   },
   {
     id: 'jira', name: 'Jira',
     description: 'Create worktrees from Jira issues.',
     category: 'pm', icon: 'jira', color: '#0052CC',
-    type: 'integration', publisher: 'raven', tier: 'free', auth: { kind: 'oauth' },
+    type: 'integration', publisher: 'raven', tier: 'free',
+    auth: {
+      kind: 'apiKey',
+      fields: [
+        { key: 'email', label: 'Email', type: 'text', required: true, placeholder: 'you@company.com' },
+        { key: 'apiToken', label: 'API token', type: 'password', required: true },
+        { key: 'siteUrl', label: 'Site URL', type: 'text', required: true, placeholder: 'https://yourcompany.atlassian.net' },
+      ],
+    },
   },
   {
     id: 'figma', name: 'Figma', description: 'Coming soon.',

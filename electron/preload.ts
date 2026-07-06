@@ -252,11 +252,20 @@ contextBridge.exposeInMainWorld('pluginActions', {
 })
 contextBridge.exposeInMainWorld('slack', {
   openOAuth: () => ipcRenderer.invoke('slack:open-oauth'),
+  // Antes no devolvía unsubscribe y por eso apilaba listeners entre reintentos
+  // de Connect (mismo bug que había en github/gitlab). Mirror del patrón de
+  // arriba: devuelve la función de unsubscribe.
   onOAuthCode: (cb: (code: string) => void) => {
     const handler = (_e: IpcRendererEvent, code: string) => cb(code)
     ipcRenderer.on('slack-oauth-code', handler)
+    return () => ipcRenderer.removeListener('slack-oauth-code', handler)
   },
   removeOAuthListener: () => ipcRenderer.removeAllListeners('slack-oauth-code'),
+  exchangeCode: (code: string) => ipcRenderer.invoke('slack:exchange-code', code),
+})
+contextBridge.exposeInMainWorld('pluginPanels', {
+  call: (pluginId: string, method: string, args: unknown[]) =>
+    ipcRenderer.invoke('plugins:panel:call', pluginId, method, args),
 })
 
 contextBridge.exposeInMainWorld('worktree', {
