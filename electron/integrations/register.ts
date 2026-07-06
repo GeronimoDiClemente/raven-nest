@@ -4,7 +4,9 @@
 // compartidos aparte de este.
 import { registerPanelAdapter } from '../integration-panels'
 import { createNotionServerAdapter } from './notion'
+import { createSlackServerAdapter } from './slack'
 
 export function registerAllPanelAdapters(): void {
   registerPanelAdapter('notion', createNotionServerAdapter)
+  registerPanelAdapter('slack', createSlackServerAdapter)
 }

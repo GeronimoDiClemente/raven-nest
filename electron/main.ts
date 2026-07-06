@@ -168,6 +168,7 @@ const pluginCreds = new PluginCredentialStore({
   encryptString: (s) => safeStorage.encryptString(s),
   decryptString: (b) => safeStorage.decryptString(b),
 })
+registerAllPanelAdapters()
 
 function broadcast(channel: string, ...args: unknown[]): void {
   const win = BrowserWindow.getAllWindows()[0]

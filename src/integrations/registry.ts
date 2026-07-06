@@ -6,6 +6,7 @@ import { createIpcAdapter } from './ipcAdapter'
 const adapters: Record<string, () => IntegrationAdapter> = {
   demo: createMockAdapter,
   notion: () => createIpcAdapter('notion', 'Notion'),
+  slack: () => createIpcAdapter('slack', 'Slack'),
 }
 
 export function getAdapter(pluginId: string): IntegrationAdapter | null {
