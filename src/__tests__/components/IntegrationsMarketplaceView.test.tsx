@@ -44,4 +44,13 @@ describe('IntegrationsMarketplaceView (embebida, sin overlay)', () => {
     expect(screen.getByText('Jira')).toBeInTheDocument()
     expect(screen.queryByText('Slack')).not.toBeInTheDocument()
   })
+
+  it('no tiene tabs ni pitch de Team · Enterprise — es exclusivamente el marketplace personal', () => {
+    const { container } = render(<IntegrationsMarketplaceView />)
+    expect(container.querySelector('.integrations-tabs')).not.toBeInTheDocument()
+    expect(screen.queryByText('Personal')).not.toBeInTheDocument()
+    expect(screen.queryByText('Team · Enterprise')).not.toBeInTheDocument()
+    expect(screen.queryByText('Custom integrations for your team')).not.toBeInTheDocument()
+    expect(screen.queryByText('Contact Enterprise')).not.toBeInTheDocument()
+  })
 })

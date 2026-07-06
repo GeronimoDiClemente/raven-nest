@@ -9265,28 +9265,6 @@ body.platform-mac .tabbar { padding-right: 116px; }
 .tour-help-btn:hover { color: #ededed; border-color: #3a3a42; }
 
 /* === Integrations marketplace (embedded in My Repos) === */
-.integrations-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 14px;
-  border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
-}
-.integrations-tabs { display: flex; gap: 4px; }
-.integrations-tab {
-  background: transparent;
-  border: none;
-  color: var(--text-secondary);
-  font: inherit;
-  font-size: 13px;
-  padding: 6px 12px;
-  border-radius: 7px;
-  cursor: pointer;
-  transition: background 0.15s, color 0.15s;
-}
-.integrations-tab:hover { color: var(--text-primary); }
-.integrations-tab.active { background: var(--bg-surface); color: var(--text-primary); }
 .integrations-body { padding: 14px 16px; overflow-y: auto; flex: 1; }
 .integrations-search {
   width: 100%;
@@ -9345,9 +9323,10 @@ body.platform-mac .tabbar { padding-right: 116px; }
 .integrations-team-list li::before { content: '🔗'; position: absolute; left: 0; }
 .integrations-team-sub { font-size: 13px; color: var(--text-secondary); margin-bottom: 14px; }
 
-/* Wrapper de IntegrationsMarketplaceView, embebida dentro de My Repos →
-   sección Integrations: ocupa el alto disponible de teams-workspace-content
-   y deja que .integrations-body haga su propio scroll interno. */
+/* Wrapper compartido por IntegrationsMarketplaceView (My Repos →
+   Integrations) y TeamIntegrationsView (Teams → Integrations): ocupa el
+   alto disponible de teams-workspace-content y deja que .integrations-body
+   haga su propio scroll interno. */
 .integrations-embedded { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; }
 
 /* ===== Integration Panel (hito 1) ===== */
