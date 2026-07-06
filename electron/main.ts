@@ -135,6 +135,9 @@ import { PluginsStore } from './plugins-store'
 import { PluginCredentialStore } from './plugin-credentials'
 import { runPluginAction } from './plugin-actions'
 import { callPanel, type PanelAdapterDeps } from './integration-panels'
+import { registerAllPanelAdapters } from './integrations/register'
+
+registerAllPanelAdapters()
 
 const ptyManager = new PtyManager()
 const accountStore = new AccountStore()
