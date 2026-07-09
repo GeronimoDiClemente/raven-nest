@@ -6,7 +6,7 @@
 
 **Architecture:** Un nuevo hook `useTeamStats` fetcha los eventos de GitHub (mismo endpoint que usa `ActivityFeed`) y los agrega por `actor.login`. Un componente `TeamStats` renderiza overview cards + tabla de developers. `TeamsWorkspace` recibe el nuevo tab `'stats'` con mínimos cambios: una línea en el tipo, una entrada en `NAV_ITEMS` y un bloque de render.
 
-**Tech Stack:** React + TypeScript, Vitest + @testing-library/react, GitHub REST API (`/repos/:owner/:repo/events`), Supabase Realtime (presence ya existente).
+**Tech Stack:** React + TypeScript, Vitest + @testing-library/react, Playwright (e2e Electron), GitHub REST API (`/repos/:owner/:repo/events`), Supabase Realtime (presence ya existente).
 
 ## Global Constraints
 
@@ -29,6 +29,17 @@
 | `src/__tests__/components/TeamStats.test.tsx` | Crear | Tests del componente |
 | `src/styles/global.css` | Modificar | Agregar clases `.ts-*` al final del archivo |
 | `src/components/TeamsWorkspace.tsx` | Modificar | Agregar `'stats'` al tipo, nav item y render |
+| `e2e/team-stats.spec.ts` | Crear | Smoke test Playwright: Teams abre sin crash con el nuevo código |
+
+---
+
+## Setup: crear rama de feature
+
+Antes de cualquier tarea, crear la rama:
+
+```bash
+git checkout -b feat/team-stats
+```
 
 ---
 
@@ -801,3 +812,96 @@ Resultado esperado: sin errores.
 git add src/components/TeamsWorkspace.tsx
 git commit -m "feat: add Stats tab to TeamsWorkspace for team analytics"
 ```
+
+---
+
+## Task 4: Playwright smoke test
+
+**Files:**
+- Create: `e2e/team-stats.spec.ts`
+
+El test lanza la app con auth bypassed y verifica que TeamsWorkspace abre sin crash con el nuevo código integrado. El test de Stats en sí (con equipo real, token GitHub real) lo hace Gero en Mac/Linux con su cuenta.
+
+**Nota:** Playwright requiere que el app esté buildeada. El workflow de CI ya lo hace antes de correr e2e. Localmente: `npm run build` antes de `npm run test:e2e`.
+
+---
+
+- [ ] **Step 1: Crear `e2e/team-stats.spec.ts`**
+
+```typescript
+import { test } from '@playwright/test'
+import { launchHarness, teardown, expect } from './helpers/harness'
+
+test('TeamsWorkspace opens without crash after Stats tab integration', async () => {
+  const h = await launchHarness({ withRepo: false })
+
+  // Click the Teams button in the sidebar
+  await h.page.locator('.sidebar-item-team').click()
+
+  // TeamsWorkspace mounts — either the empty state (no team) or the full workspace
+  await expect(h.page.locator('.teams-workspace')).toBeVisible({ timeout: 10_000 })
+
+  // No JS error overlay should be visible
+  await expect(h.page.locator('.error-boundary-fallback')).not.toBeVisible()
+
+  await teardown(h)
+})
+```
+
+- [ ] **Step 2: Commit**
+
+```bash
+git add e2e/team-stats.spec.ts
+git commit -m "test: add Playwright smoke test for Stats tab in TeamsWorkspace"
+```
+
+---
+
+## Task 5: Crear el PR
+
+- [ ] **Step 1: Push de la rama**
+
+```bash
+git push origin feat/team-stats
+```
+
+- [ ] **Step 2: Crear el PR**
+
+```bash
+gh pr create \
+  --title "feat: Team Stats tab — activity dashboard for team leaders" \
+  --body "$(cat <<'EOF'
+## Qué hace
+
+Agrega una nueva sección **Stats** al `TeamsWorkspace` que muestra métricas de actividad de la última semana por developer, usando datos que ya fluyen por el app (GitHub Events API + Supabase Presence). Sin migraciones de base de datos.
+
+## Pantallas
+
+- **Overview cards:** devs online ahora, commits totales, PRs mergeados, developer más activo
+- **Tabla de developers:** avatar, estado online/offline, commits, PRs, issues cerrados, última actividad — ordenado por commits desc
+
+## Archivos modificados
+
+- `src/hooks/useTeamStats.ts` — nuevo hook, agrega eventos por `actor.login`
+- `src/components/TeamStats.tsx` — nuevo componente
+- `src/styles/global.css` — clases `.ts-*` al final del archivo
+- `src/components/TeamsWorkspace.tsx` — +1 línea en el tipo, +1 nav item, +1 bloque de render
+- `e2e/team-stats.spec.ts` — smoke test Playwright
+
+## Tests
+
+- 7 unit tests en `useTeamStats.test.ts` (aggregation logic)
+- 5 unit tests en `TeamStats.test.tsx` (component render)
+- 1 Playwright smoke test (Teams abre sin crash)
+
+## Para el reviewer (Gero)
+
+- [ ] Verificar en Mac y Linux que el tab Stats aparece correctamente en Teams
+- [ ] Con GitHub conectado y repos de equipo, confirmar que los datos de la semana cargan
+- [ ] Security: el fetch usa el token OAuth ya existente en el hook `useGitHub`, mismo que usa `ActivityFeed`
+- [ ] El e2e requiere `npm run build` previo (igual que los otros specs)
+EOF
+)"
+```
+
+- [ ] **Step 3: Copiar la URL del PR y compartirla**
