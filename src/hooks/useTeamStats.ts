@@ -97,15 +97,31 @@ export function useTeamStats(
 
     const load = async () => {
       try {
+        const fetchRepoEvents = async (name: string): Promise<GitHubEvent[]> => {
+          const all: GitHubEvent[] = []
+          for (let page = 1; page <= 3; page++) {
+            const res = await fetch(
+              `https://api.github.com/repos/${name}/events?per_page=100&page=${page}`,
+              {
+                headers: {
+                  Authorization: `Bearer ${githubToken}`,
+                  Accept: 'application/vnd.github.v3+json',
+                },
+              }
+            )
+            if (!res.ok) break
+            const events = await res.json() as GitHubEvent[]
+            if (events.length === 0) break
+            all.push(...events)
+            // Stop early if the oldest event on this page is already outside the 7-day window
+            const oldest = events[events.length - 1]
+            if (Date.now() - new Date(oldest.created_at).getTime() > ONE_WEEK_MS) break
+          }
+          return all
+        }
+
         const results = await Promise.allSettled(
-          repoList.map(name =>
-            fetch(`https://api.github.com/repos/${name}/events?per_page=100`, {
-              headers: {
-                Authorization: `Bearer ${githubToken}`,
-                Accept: 'application/vnd.github.v3+json',
-              },
-            }).then(res => (res.ok ? (res.json() as Promise<GitHubEvent[]>) : ([] as GitHubEvent[])))
-          )
+          repoList.map(name => fetchRepoEvents(name))
         )
         const all: GitHubEvent[] = []
         for (const r of results) {
