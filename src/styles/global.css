@@ -9329,3 +9329,128 @@ body.platform-mac .tabbar { padding-right: 116px; }
 .tour-progress i.on { background: #3d79ff; width: 14px; border-radius: 3px; }
 .tour-help-btn { background: none; border: 1px solid #2b2b32; color: #9a9aa3; border-radius: 8px; width: 26px; height: 26px; cursor: pointer; font-size: 14px; }
 .tour-help-btn:hover { color: #ededed; border-color: #3a3a42; }
+
+/* ── Team Stats ──────────────────────────────────────────── */
+.ts-container {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 14px;
+  height: 100%;
+  overflow-y: auto;
+}
+
+.ts-overview-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+
+.ts-card {
+  background: #ffffff08;
+  border: 1px solid #ffffff12;
+  border-radius: 8px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ts-card-label {
+  font-size: 10px;
+  color: #ffffff55;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.ts-card-value {
+  font-size: 22px;
+  font-weight: 600;
+  color: #fff;
+  line-height: 1;
+}
+
+.ts-card-sub {
+  font-size: 11px;
+  color: #ffffff66;
+}
+
+.ts-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: #ffffff55;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 6px;
+}
+
+.ts-table-wrap {
+  overflow-x: auto;
+}
+
+.ts-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.ts-table th {
+  text-align: left;
+  font-size: 10px;
+  font-weight: 500;
+  color: #ffffff44;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0 8px 8px;
+  white-space: nowrap;
+}
+
+.ts-table th:first-child { padding-left: 0; }
+
+.ts-table td {
+  padding: 6px 8px;
+  color: #ffffffcc;
+  border-top: 1px solid #ffffff08;
+  vertical-align: middle;
+}
+
+.ts-table td:first-child { padding-left: 0; }
+
+.ts-table tr:hover td { background: #ffffff05; }
+
+.ts-dev-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ts-avatar {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.ts-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.ts-status-dot.online  { background: #22c55e; }
+.ts-status-dot.offline { background: #ffffff22; }
+
+.ts-num {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.ts-muted { color: #ffffff44; }
+
+.ts-empty {
+  padding: 40px 0;
+  text-align: center;
+  color: #ffffff44;
+  font-size: 12px;
+}
