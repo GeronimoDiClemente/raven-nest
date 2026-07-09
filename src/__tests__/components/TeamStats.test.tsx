@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import TeamStats from '../../components/TeamStats'
 
 vi.mock('../../hooks/useTeamStats', () => ({
@@ -69,8 +69,8 @@ describe('TeamStats', () => {
 
   it('muestra el conteo de developers online desde presence', () => {
     render(<TeamStats {...defaultProps} />)
-    const ones = screen.getAllByText('1')
-    expect(ones.length).toBeGreaterThan(0)
+    const onlineCard = screen.getByText('Online now').closest('.ts-card')!
+    expect(within(onlineCard).getByText('1')).toBeTruthy()
   })
 
   it('muestra la tabla con ambos developers', () => {

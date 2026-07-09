@@ -118,7 +118,7 @@ export default function TeamStats({ repos, githubToken, presence }: TeamStatsPro
                         </div>
                       </td>
                       <td className="ts-num">{dev.commits || <span className="ts-muted">—</span>}</td>
-                      <td className="ts-num">{dev.prsOpened + dev.prsMerged || <span className="ts-muted">—</span>}</td>
+                      <td className="ts-num">{dev.prsOpened || <span className="ts-muted">—</span>}</td>
                       <td className="ts-num">{dev.issuesClosed || <span className="ts-muted">—</span>}</td>
                       <td className="ts-num ts-muted">{timeAgo(dev.lastEventAt)}</td>
                     </tr>
