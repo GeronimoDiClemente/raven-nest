@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { aggregateEvents } from '../../hooks/useTeamStats'
+import { aggregateEvents, extractRecentPrs } from '../../hooks/useTeamStats'
 
 const NOW = new Date().toISOString()
 const OLD = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString() // 8 días atrás
@@ -9,11 +9,13 @@ const makeEvent = (
   login: string,
   type: string,
   created_at: string,
-  payload: object = {}
+  payload: object = {},
+  repo = 'owner/repo'
 ) => ({
   id,
   type,
   actor: { login, avatar_url: `https://avatars.githubusercontent.com/u/1?v=4` },
+  repo: { name: repo },
   created_at,
   payload,
 })
@@ -83,5 +85,61 @@ describe('aggregateEvents', () => {
     ]
     const result = aggregateEvents(events)
     expect(result[0].commits).toBe(1)
+  })
+})
+
+describe('extractRecentPrs', () => {
+  it('returns merged PRs with title and repo', () => {
+    const events = [
+      makeEvent('1', 'alice', 'PullRequestEvent', NOW,
+        { action: 'closed', pull_request: { merged: true, title: 'feat: add login' } },
+        'acme/api'),
+    ]
+    const result = extractRecentPrs(events)
+    expect(result).toHaveLength(1)
+    expect(result[0].title).toBe('feat: add login')
+    expect(result[0].repo).toBe('acme/api')
+    expect(result[0].login).toBe('alice')
+  })
+
+  it('ignores unmerged closed PRs', () => {
+    const events = [
+      makeEvent('1', 'bob', 'PullRequestEvent', NOW,
+        { action: 'closed', pull_request: { merged: false, title: 'wip' } }),
+    ]
+    expect(extractRecentPrs(events)).toHaveLength(0)
+  })
+
+  it('ignores events older than 7 days', () => {
+    const events = [
+      makeEvent('1', 'alice', 'PullRequestEvent', OLD,
+        { action: 'closed', pull_request: { merged: true, title: 'old PR' } }),
+    ]
+    expect(extractRecentPrs(events)).toHaveLength(0)
+  })
+
+  it('sorts by mergedAt descending', () => {
+    const earlier = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString()
+    const later   = new Date(Date.now() - 1 * 60 * 60 * 1000).toISOString()
+    const events = [
+      makeEvent('1', 'alice', 'PullRequestEvent', earlier,
+        { action: 'closed', pull_request: { merged: true, title: 'first' } }),
+      makeEvent('2', 'bob', 'PullRequestEvent', later,
+        { action: 'closed', pull_request: { merged: true, title: 'second' } }),
+    ]
+    const result = extractRecentPrs(events)
+    expect(result[0].title).toBe('second')
+    expect(result[1].title).toBe('first')
+  })
+
+  it('also check dailyCommits populated — today slot incremented', () => {
+    const events = [
+      makeEvent('1', 'alice', 'PushEvent', NOW, { commits: [{ sha: 'a', message: 'x' }, { sha: 'b', message: 'y' }] }),
+    ]
+    const result = aggregateEvents(events)
+    // index 6 = today
+    expect(result[0].dailyCommits[6]).toBe(2)
+    // other slots should be 0
+    expect(result[0].dailyCommits.slice(0, 6).every((v: number) => v === 0)).toBe(true)
   })
 })

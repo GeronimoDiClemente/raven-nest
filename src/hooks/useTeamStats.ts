@@ -8,6 +8,16 @@ export interface DeveloperStats {
   prsMerged: number
   issuesClosed: number
   lastEventAt: string | null
+  dailyCommits: number[]   // 7 elements, index 0 = 6 days ago, index 6 = today
+}
+
+export interface RecentPR {
+  id: string
+  login: string
+  avatarUrl: string
+  title: string
+  repo: string      // full repo name e.g. "owner/repo"
+  mergedAt: string  // ISO string
 }
 
 export interface TeamStatsData {
@@ -15,17 +25,19 @@ export interface TeamStatsData {
   totalCommits: number
   totalPrsMerged: number
   topDeveloper: DeveloperStats | null
+  recentPrs: RecentPR[]
 }
 
 interface GitHubEvent {
   id: string
   type: string
   actor: { login: string; avatar_url: string }
+  repo: { name: string }   // full repo name e.g. "owner/repo"
   created_at: string
   payload: {
     action?: string
     commits?: { sha: string; message: string }[]
-    pull_request?: { merged?: boolean }
+    pull_request?: { merged?: boolean; title?: string }
   }
 }
 
@@ -54,6 +66,7 @@ export function aggregateEvents(events: GitHubEvent[]): DeveloperStats[] {
         prsMerged: 0,
         issuesClosed: 0,
         lastEventAt: null,
+        dailyCommits: Array(7).fill(0),
       })
     }
     const dev = map.get(login)!
@@ -63,7 +76,10 @@ export function aggregateEvents(events: GitHubEvent[]): DeveloperStats[] {
     }
 
     if (event.type === 'PushEvent') {
-      dev.commits += event.payload.commits?.length ?? 0
+      const count = event.payload.commits?.length ?? 0
+      dev.commits += count
+      const daysAgo = Math.floor((Date.now() - new Date(event.created_at).getTime()) / (24 * 60 * 60 * 1000))
+      if (daysAgo < 7) dev.dailyCommits[6 - daysAgo] += count
     } else if (event.type === 'PullRequestEvent') {
       if (event.payload.action === 'opened') dev.prsOpened++
       if (event.payload.action === 'closed' && event.payload.pull_request?.merged) dev.prsMerged++
@@ -73,6 +89,31 @@ export function aggregateEvents(events: GitHubEvent[]): DeveloperStats[] {
   }
 
   return Array.from(map.values()).sort((a, b) => b.commits - a.commits)
+}
+
+export function extractRecentPrs(events: GitHubEvent[]): RecentPR[] {
+  const seen = new Set<string>()
+  const prs: RecentPR[] = []
+
+  for (const event of events) {
+    if (seen.has(event.id)) continue
+    seen.add(event.id)
+    if (!isThisWeek(event.created_at)) continue
+    if (event.type !== 'PullRequestEvent') continue
+    if (event.payload.action !== 'closed') continue
+    if (!event.payload.pull_request?.merged) continue
+
+    prs.push({
+      id: event.id,
+      login: event.actor.login,
+      avatarUrl: event.actor.avatar_url,
+      title: event.payload.pull_request.title ?? '(no title)',
+      repo: event.repo?.name ?? '',
+      mergedAt: event.created_at,
+    })
+  }
+
+  return prs.sort((a, b) => b.mergedAt.localeCompare(a.mergedAt))
 }
 
 export function useTeamStats(
@@ -143,9 +184,10 @@ export function useTeamStats(
   const totalCommits = developers.reduce((s, d) => s + d.commits, 0)
   const totalPrsMerged = developers.reduce((s, d) => s + d.prsMerged, 0)
   const topDeveloper = developers[0] ?? null
+  const recentPrs = useMemo(() => extractRecentPrs(events), [events])
 
   return {
-    stats: { developers, totalCommits, totalPrsMerged, topDeveloper },
+    stats: { developers, totalCommits, totalPrsMerged, topDeveloper, recentPrs },
     loading,
     error,
   }
