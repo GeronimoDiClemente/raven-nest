@@ -9424,6 +9424,12 @@ body.platform-mac .tabbar { padding-right: 116px; }
   gap: 8px;
 }
 
+.ts-dev-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
 .ts-avatar {
   width: 22px;
   height: 22px;
@@ -9461,8 +9467,8 @@ body.platform-mac .tabbar { padding-right: 116px; }
   display: flex;
   align-items: flex-end;
   gap: 2px;
-  height: 18px;
-  width: 52px;
+  height: 24px;
+  width: 60px;
 }
 
 .ts-spark-bar {

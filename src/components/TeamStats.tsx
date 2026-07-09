@@ -1,6 +1,5 @@
 import { useState, useMemo } from 'react'
 import { useTeamStats } from '../hooks/useTeamStats'
-import type { RecentPR } from '../hooks/useTeamStats'
 import type { PresenceState } from '../hooks/useTeamPresence'
 
 interface TeamStatsProps {
@@ -82,7 +81,7 @@ export default function TeamStats({ repos, githubToken, presence }: TeamStatsPro
     )
   }
 
-  const { developers, totalCommits, totalPrsMerged, topDeveloper, recentPrs } = stats
+  const { developers, totalCommits, totalPrsMerged, topDeveloper } = stats
 
   const sortedDevs = useMemo(() => {
     return [...developers].sort((a, b) => {
@@ -140,7 +139,6 @@ export default function TeamStats({ repos, githubToken, presence }: TeamStatsPro
               <thead>
                 <tr>
                   <th>Developer</th>
-                  <th>Activity</th>
                   <th style={{ textAlign: 'right' }}>
                     <button className="ts-th-btn" onClick={() => handleSort('commits')}>
                       Commits
@@ -181,10 +179,12 @@ export default function TeamStats({ repos, githubToken, presence }: TeamStatsPro
                             src={dev.avatarUrl}
                             alt={dev.login}
                           />
-                          <span>{dev.login}</span>
+                          <div className="ts-dev-info">
+                            <span>{dev.login}</span>
+                            <Sparkline data={dev.dailyCommits} />
+                          </div>
                         </div>
                       </td>
-                      <td><Sparkline data={dev.dailyCommits} /></td>
                       <td className="ts-num">{dev.commits || <span className="ts-muted">—</span>}</td>
                       <td className="ts-num">{dev.prsOpened + dev.prsMerged || <span className="ts-muted">—</span>}</td>
                       <td className="ts-num">{dev.issuesClosed || <span className="ts-muted">—</span>}</td>
@@ -198,25 +198,6 @@ export default function TeamStats({ repos, githubToken, presence }: TeamStatsPro
         )}
       </div>
 
-      {recentPrs.length > 0 && (
-        <div>
-          <div className="ts-section-title">Recent PRs merged</div>
-          <div className="ts-pr-feed">
-            {recentPrs.slice(0, 10).map((pr: RecentPR) => (
-              <div key={pr.id} className="ts-pr-item">
-                <img className="ts-avatar" src={pr.avatarUrl} alt={pr.login} />
-                <div className="ts-pr-meta">
-                  <span className="ts-pr-title">{pr.title}</span>
-                  <span className="ts-pr-sub">
-                    @{pr.login} · {pr.repo.split('/')[1] ?? pr.repo} · {timeAgo(pr.mergedAt)}
-                  </span>
-                </div>
-                <span className="ts-pr-merged-badge">merged</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   )
 }

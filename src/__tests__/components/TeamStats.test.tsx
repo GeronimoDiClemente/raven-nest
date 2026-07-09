@@ -97,12 +97,6 @@ describe('TeamStats', () => {
     expect(screen.getByText(/connect your github/i)).toBeTruthy()
   })
 
-  it('muestra el feed de PRs mergeados', () => {
-    render(<TeamStats {...defaultProps} />)
-    expect(screen.getByText('feat: add team stats dashboard')).toBeTruthy()
-    expect(screen.getByText('merged')).toBeTruthy()
-  })
-
   it('renderiza la sparkline (7 barras por developer)', () => {
     render(<TeamStats {...defaultProps} />)
     const sparkBars = document.querySelectorAll('.ts-spark-bar')
