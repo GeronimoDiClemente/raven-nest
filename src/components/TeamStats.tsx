@@ -1,4 +1,6 @@
+import { useState, useMemo } from 'react'
 import { useTeamStats } from '../hooks/useTeamStats'
+import type { RecentPR } from '../hooks/useTeamStats'
 import type { PresenceState } from '../hooks/useTeamPresence'
 
 interface TeamStatsProps {
@@ -18,12 +20,43 @@ function timeAgo(dateStr: string | null): string {
   return `${Math.floor(hrs / 24)}d`
 }
 
+function Sparkline({ data }: { data: number[] }) {
+  const max = Math.max(...data, 1)
+  return (
+    <div className="ts-sparkline">
+      {data.map((v, i) => (
+        <div
+          key={i}
+          className="ts-spark-bar"
+          style={{
+            height: `${Math.max(8, Math.round((v / max) * 100))}%`,
+            opacity: v > 0 ? 1 : 0.15,
+          }}
+        />
+      ))}
+    </div>
+  )
+}
+
 export default function TeamStats({ repos, githubToken, presence }: TeamStatsProps) {
   const { stats, loading, error } = useTeamStats(repos, githubToken)
   const onlineCount = Object.keys(presence).length
   const onlineLogins = new Set(
     Object.values(presence).map(p => p.displayName.split('@')[0].toLowerCase())
   )
+
+  type SortKey = 'commits' | 'prs' | 'issues'
+  const [sortKey, setSortKey] = useState<SortKey>('commits')
+  const [sortDir, setSortDir] = useState<'desc' | 'asc'>('desc')
+
+  function handleSort(key: SortKey) {
+    if (sortKey === key) {
+      setSortDir(d => d === 'desc' ? 'asc' : 'desc')
+    } else {
+      setSortKey(key)
+      setSortDir('desc')
+    }
+  }
 
   if (!githubToken) {
     return (
@@ -49,7 +82,19 @@ export default function TeamStats({ repos, githubToken, presence }: TeamStatsPro
     )
   }
 
-  const { developers, totalCommits, totalPrsMerged, topDeveloper } = stats
+  const { developers, totalCommits, totalPrsMerged, topDeveloper, recentPrs } = stats
+
+  const sortedDevs = useMemo(() => {
+    return [...developers].sort((a, b) => {
+      const va = sortKey === 'commits' ? a.commits
+        : sortKey === 'prs' ? a.prsOpened + a.prsMerged
+        : a.issuesClosed
+      const vb = sortKey === 'commits' ? b.commits
+        : sortKey === 'prs' ? b.prsOpened + b.prsMerged
+        : b.issuesClosed
+      return sortDir === 'desc' ? vb - va : va - vb
+    })
+  }, [developers, sortKey, sortDir])
 
   return (
     <div className="ts-container">
@@ -95,14 +140,36 @@ export default function TeamStats({ repos, githubToken, presence }: TeamStatsPro
               <thead>
                 <tr>
                   <th>Developer</th>
-                  <th style={{ textAlign: 'right' }}>Commits</th>
-                  <th style={{ textAlign: 'right' }}>PRs</th>
-                  <th style={{ textAlign: 'right' }}>Issues</th>
+                  <th>Activity</th>
+                  <th style={{ textAlign: 'right' }}>
+                    <button className="ts-th-btn" onClick={() => handleSort('commits')}>
+                      Commits
+                      <span className={`ts-sort-icon${sortKey === 'commits' ? ' active' : ''}`}>
+                        {sortKey === 'commits' ? (sortDir === 'desc' ? '↓' : '↑') : '↕'}
+                      </span>
+                    </button>
+                  </th>
+                  <th style={{ textAlign: 'right' }}>
+                    <button className="ts-th-btn" onClick={() => handleSort('prs')}>
+                      PRs
+                      <span className={`ts-sort-icon${sortKey === 'prs' ? ' active' : ''}`}>
+                        {sortKey === 'prs' ? (sortDir === 'desc' ? '↓' : '↑') : '↕'}
+                      </span>
+                    </button>
+                  </th>
+                  <th style={{ textAlign: 'right' }}>
+                    <button className="ts-th-btn" onClick={() => handleSort('issues')}>
+                      Issues
+                      <span className={`ts-sort-icon${sortKey === 'issues' ? ' active' : ''}`}>
+                        {sortKey === 'issues' ? (sortDir === 'desc' ? '↓' : '↑') : '↕'}
+                      </span>
+                    </button>
+                  </th>
                   <th style={{ textAlign: 'right' }}>Last activity</th>
                 </tr>
               </thead>
               <tbody>
-                {developers.map(dev => {
+                {sortedDevs.map(dev => {
                   const isOnline = onlineLogins.has(dev.login.toLowerCase())
                   return (
                     <tr key={dev.login}>
@@ -117,6 +184,7 @@ export default function TeamStats({ repos, githubToken, presence }: TeamStatsPro
                           <span>{dev.login}</span>
                         </div>
                       </td>
+                      <td><Sparkline data={dev.dailyCommits} /></td>
                       <td className="ts-num">{dev.commits || <span className="ts-muted">—</span>}</td>
                       <td className="ts-num">{dev.prsOpened + dev.prsMerged || <span className="ts-muted">—</span>}</td>
                       <td className="ts-num">{dev.issuesClosed || <span className="ts-muted">—</span>}</td>
@@ -129,6 +197,26 @@ export default function TeamStats({ repos, githubToken, presence }: TeamStatsPro
           </div>
         )}
       </div>
+
+      {recentPrs.length > 0 && (
+        <div>
+          <div className="ts-section-title">Recent PRs merged</div>
+          <div className="ts-pr-feed">
+            {recentPrs.slice(0, 10).map((pr: RecentPR) => (
+              <div key={pr.id} className="ts-pr-item">
+                <img className="ts-avatar" src={pr.avatarUrl} alt={pr.login} />
+                <div className="ts-pr-meta">
+                  <span className="ts-pr-title">{pr.title}</span>
+                  <span className="ts-pr-sub">
+                    @{pr.login} · {pr.repo.split('/')[1] ?? pr.repo} · {timeAgo(pr.mergedAt)}
+                  </span>
+                </div>
+                <span className="ts-pr-merged-badge">merged</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -9454,3 +9454,98 @@ body.platform-mac .tabbar { padding-right: 116px; }
   color: #ffffff44;
   font-size: 12px;
 }
+
+/* ── Team Stats — sparklines ────────────────────────── */
+
+.ts-sparkline {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 18px;
+  width: 52px;
+}
+
+.ts-spark-bar {
+  flex: 1;
+  background: #0066FF;
+  border-radius: 1px;
+  min-height: 2px;
+}
+
+/* ── Team Stats — sortable column headers ───────────── */
+
+.ts-th-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+  opacity: 1;
+}
+
+.ts-th-btn:hover { color: #ffffff88; }
+
+.ts-sort-icon {
+  font-size: 9px;
+  opacity: 0.25;
+  line-height: 1;
+}
+
+.ts-sort-icon.active {
+  opacity: 0.8;
+  color: #0066FF;
+}
+
+/* ── Team Stats — PR feed ───────────────────────────── */
+
+.ts-pr-feed {
+  display: flex;
+  flex-direction: column;
+}
+
+.ts-pr-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 0;
+  border-top: 1px solid #ffffff08;
+}
+
+.ts-pr-item:first-child { border-top: none; }
+
+.ts-pr-meta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ts-pr-title {
+  font-size: 12px;
+  color: #ffffffcc;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ts-pr-sub {
+  font-size: 10px;
+  color: #ffffff44;
+}
+
+.ts-pr-merged-badge {
+  font-size: 10px;
+  padding: 2px 7px;
+  border-radius: 10px;
+  background: #22c55e18;
+  border: 1px solid #22c55e30;
+  color: #22c55e;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
