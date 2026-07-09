@@ -97,10 +97,10 @@ describe('TeamStats', () => {
     expect(screen.getByText(/connect your github/i)).toBeTruthy()
   })
 
-  it('renderiza la sparkline (7 barras por developer)', () => {
+  it('renderiza una sparkline SVG por developer', () => {
     render(<TeamStats {...defaultProps} />)
-    const sparkBars = document.querySelectorAll('.ts-spark-bar')
-    // 2 developers × 7 bars each = 14
-    expect(sparkBars.length).toBe(14)
+    const sparks = document.querySelectorAll('.ts-spark')
+    // 1 SVG sparkline per developer
+    expect(sparks.length).toBe(2)
   })
 })

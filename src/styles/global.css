@@ -9334,8 +9334,8 @@ body.platform-mac .tabbar { padding-right: 116px; }
 .ts-container {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  padding: 14px;
+  gap: 20px;
+  padding: 18px;
   height: 100%;
   overflow-y: auto;
 }
@@ -9343,49 +9343,66 @@ body.platform-mac .tabbar { padding-right: 116px; }
 .ts-overview-row {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 8px;
+  gap: 10px;
 }
 
 .ts-card {
   background: #ffffff08;
   border: 1px solid #ffffff12;
-  border-radius: 8px;
-  padding: 12px 14px;
+  border-top: 2px solid #ffffff20;
+  border-radius: 10px;
+  padding: 13px 15px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 5px;
 }
+
+.ts-card--green  { background: #22c55e10; border-color: #22c55e28; border-top-color: #22c55e; }
+.ts-card--blue   { background: #3b82f610; border-color: #3b82f628; border-top-color: #3b82f6; }
+.ts-card--purple { background: #a855f710; border-color: #a855f728; border-top-color: #a855f7; }
+.ts-card--amber  { background: #f59e0b10; border-color: #f59e0b28; border-top-color: #f59e0b; }
 
 .ts-card-label {
   font-size: 10px;
-  color: #ffffff55;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.07em;
+  color: #ffffff44;
 }
 
+.ts-card--green  .ts-card-label { color: #22c55e; }
+.ts-card--blue   .ts-card-label { color: #3b82f6; }
+.ts-card--purple .ts-card-label { color: #a855f7; }
+.ts-card--amber  .ts-card-label { color: #f59e0b; }
+
 .ts-card-value {
-  font-size: 22px;
-  font-weight: 600;
+  font-size: 26px;
+  font-weight: 700;
   color: #fff;
   line-height: 1;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
 }
 
 .ts-card-sub {
   font-size: 11px;
-  color: #ffffff66;
+  color: #ffffff55;
 }
 
 .ts-section-title {
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 600;
-  color: #ffffff55;
+  color: #ffffff33;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
-  margin-bottom: 6px;
+  letter-spacing: 0.08em;
+  margin-bottom: 8px;
 }
 
 .ts-table-wrap {
   overflow-x: auto;
+  border: 1px solid #ffffff10;
+  border-radius: 10px;
+  background: #ffffff03;
 }
 
 .ts-table {
@@ -9397,26 +9414,25 @@ body.platform-mac .tabbar { padding-right: 116px; }
 .ts-table th {
   text-align: left;
   font-size: 10px;
-  font-weight: 500;
-  color: #ffffff44;
+  font-weight: 600;
+  color: #ffffff33;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
-  padding: 0 8px 8px;
+  letter-spacing: 0.06em;
+  padding: 10px 12px;
   white-space: nowrap;
+  border-bottom: 1px solid #ffffff0a;
 }
 
-.ts-table th:first-child { padding-left: 0; }
-
 .ts-table td {
-  padding: 6px 8px;
+  padding: 9px 12px;
   color: #ffffffcc;
-  border-top: 1px solid #ffffff08;
+  border-top: 1px solid #ffffff06;
   vertical-align: middle;
 }
 
-.ts-table td:first-child { padding-left: 0; }
-
-.ts-table tr:hover td { background: #ffffff05; }
+.ts-table tr:first-child td { border-top: none; }
+.ts-table tr:hover td { background: #ffffff04; }
+.ts-top-row td { background: #f59e0b06; }
 
 .ts-dev-cell {
   display: flex;
@@ -9427,14 +9443,40 @@ body.platform-mac .tabbar { padding-right: 116px; }
 .ts-dev-info {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 5px;
 }
 
+.ts-dev-name {
+  font-size: 12px;
+  font-weight: 500;
+  color: #e2e2e2;
+  white-space: nowrap;
+}
+
+.ts-top-row .ts-dev-name { color: #fff; font-weight: 600; }
+
+.ts-rank {
+  font-size: 10px;
+  font-weight: 600;
+  color: #ffffff25;
+  font-variant-numeric: tabular-nums;
+  width: 14px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.ts-top-row .ts-rank { color: #f59e0b; }
+
 .ts-avatar {
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
   border-radius: 50%;
   flex-shrink: 0;
+}
+
+@keyframes ts-online-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 #22c55e55; }
+  50%       { box-shadow: 0 0 0 4px #22c55e00; }
 }
 
 .ts-status-dot {
@@ -9444,39 +9486,26 @@ body.platform-mac .tabbar { padding-right: 116px; }
   flex-shrink: 0;
 }
 
-.ts-status-dot.online  { background: #22c55e; }
-.ts-status-dot.offline { background: #ffffff22; }
+.ts-status-dot.online  { background: #22c55e; animation: ts-online-pulse 2.5s ease-in-out infinite; }
+.ts-status-dot.offline { background: #ffffff18; }
 
 .ts-num {
   font-variant-numeric: tabular-nums;
   text-align: right;
 }
 
-.ts-muted { color: #ffffff44; }
+.ts-muted { color: #ffffff30; }
 
 .ts-empty {
   padding: 40px 0;
   text-align: center;
-  color: #ffffff44;
+  color: #ffffff33;
   font-size: 12px;
 }
 
-/* ── Team Stats — sparklines ────────────────────────── */
+/* ── Team Stats — sparklines (SVG area) ─────────────── */
 
-.ts-sparkline {
-  display: flex;
-  align-items: flex-end;
-  gap: 2px;
-  height: 24px;
-  width: 60px;
-}
-
-.ts-spark-bar {
-  flex: 1;
-  background: #0066FF;
-  border-radius: 1px;
-  min-height: 2px;
-}
+.ts-spark { display: block; }
 
 /* ── Team Stats — sortable column headers ───────────── */
 
@@ -9491,10 +9520,9 @@ body.platform-mac .tabbar { padding-right: 116px; }
   align-items: center;
   gap: 4px;
   white-space: nowrap;
-  opacity: 1;
 }
 
-.ts-th-btn:hover { color: #ffffff88; }
+.ts-th-btn:hover { color: #ffffff66; }
 
 .ts-sort-icon {
   font-size: 9px;
@@ -9503,8 +9531,8 @@ body.platform-mac .tabbar { padding-right: 116px; }
 }
 
 .ts-sort-icon.active {
-  opacity: 0.8;
-  color: #0066FF;
+  opacity: 0.9;
+  color: #3b82f6;
 }
 
 /* ── Team Stats — PR feed ───────────────────────────── */

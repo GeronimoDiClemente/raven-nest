@@ -19,21 +19,28 @@ function timeAgo(dateStr: string | null): string {
   return `${Math.floor(hrs / 24)}d`
 }
 
-function Sparkline({ data }: { data: number[] }) {
+function AreaSparkline({ data, gradId }: { data: number[]; gradId: string }) {
+  const W = 64, H = 26
   const max = Math.max(...data, 1)
+  const pts = data.map((v, i) => ({
+    x: (i / (data.length - 1)) * W,
+    y: H - Math.max(3, (v / max) * H),
+  }))
+  const line = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')
+  const area = `${line} L${W},${H} L0,${H} Z`
+  const last = pts[pts.length - 1]
   return (
-    <div className="ts-sparkline">
-      {data.map((v, i) => (
-        <div
-          key={i}
-          className="ts-spark-bar"
-          style={{
-            height: `${Math.max(8, Math.round((v / max) * 100))}%`,
-            opacity: v > 0 ? 1 : 0.15,
-          }}
-        />
-      ))}
-    </div>
+    <svg className="ts-spark" width={W} height={H} viewBox={`0 0 ${W} ${H}`} fill="none">
+      <defs>
+        <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.25" />
+          <stop offset="100%" stopColor="#3b82f6" stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      <path d={area} fill={`url(#${gradId})`} />
+      <path d={line} stroke="#3b82f6" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx={last.x} cy={last.y} r="2.5" fill="#3b82f6" />
+    </svg>
   )
 }
 
@@ -101,22 +108,22 @@ export default function TeamStats({ repos, githubToken, presence }: TeamStatsPro
       <div>
         <div className="ts-section-title">This week</div>
         <div className="ts-overview-row">
-          <div className="ts-card">
+          <div className="ts-card ts-card--green">
             <span className="ts-card-label">Online now</span>
             <span className="ts-card-value">{onlineCount}</span>
             <span className="ts-card-sub">developers active</span>
           </div>
-          <div className="ts-card">
+          <div className="ts-card ts-card--blue">
             <span className="ts-card-label">Commits</span>
             <span className="ts-card-value">{totalCommits}</span>
             <span className="ts-card-sub">across all repos</span>
           </div>
-          <div className="ts-card">
+          <div className="ts-card ts-card--purple">
             <span className="ts-card-label">PRs merged</span>
             <span className="ts-card-value">{totalPrsMerged}</span>
             <span className="ts-card-sub">this week</span>
           </div>
-          <div className="ts-card">
+          <div className="ts-card ts-card--amber">
             <span className="ts-card-label">Top dev</span>
             <span className="ts-card-value" style={{ fontSize: 14, paddingTop: 4 }}>
               {topDeveloper ? `@${topDeveloper.login}` : '—'}
@@ -167,12 +174,14 @@ export default function TeamStats({ repos, githubToken, presence }: TeamStatsPro
                 </tr>
               </thead>
               <tbody>
-                {sortedDevs.map(dev => {
+                {sortedDevs.map((dev, i) => {
                   const isOnline = onlineLogins.has(dev.login.toLowerCase())
+                  const isTop = i === 0
                   return (
-                    <tr key={dev.login}>
+                    <tr key={dev.login} className={isTop ? 'ts-top-row' : undefined}>
                       <td>
                         <div className="ts-dev-cell">
+                          <span className="ts-rank">{i + 1}</span>
                           <span className={`ts-status-dot ${isOnline ? 'online' : 'offline'}`} />
                           <img
                             className="ts-avatar"
@@ -180,8 +189,8 @@ export default function TeamStats({ repos, githubToken, presence }: TeamStatsPro
                             alt={dev.login}
                           />
                           <div className="ts-dev-info">
-                            <span>{dev.login}</span>
-                            <Sparkline data={dev.dailyCommits} />
+                            <span className="ts-dev-name">{dev.login}</span>
+                            <AreaSparkline data={dev.dailyCommits} gradId={`ts-sg-${dev.login}`} />
                           </div>
                         </div>
                       </td>
