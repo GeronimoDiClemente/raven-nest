@@ -363,8 +363,9 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal, on
       label: 'Members',
       icon: <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><circle cx="6" cy="5" r="2" stroke="currentColor" strokeWidth="1.3"/><path d="M2 13c0-2.21 1.79-4 4-4s4 1.79 4 4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/><circle cx="11.5" cy="5.5" r="1.5" stroke="currentColor" strokeWidth="1.2" opacity="0.7"/><path d="M13.5 12.5c0-1.38-.9-2.55-2.14-2.87" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" opacity="0.7"/></svg>,
     },
-    {
-      id: 'stats',
+    // Stats es solo para líderes/managers del team — no lo ven los miembros.
+    ...(isTeamLeader ? [{
+      id: 'stats' as WorkspaceSection,
       label: 'Stats',
       icon: (
         <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
@@ -373,7 +374,7 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal, on
           <rect x="11" y="2" width="3" height="12" rx="0.5" stroke="currentColor" strokeWidth="1.3"/>
         </svg>
       ),
-    },
+    }] : []),
     {
       id: 'snippets',
       label: 'Snippets',
@@ -1300,7 +1301,9 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal, on
               )}
 
               {/* STATS */}
-              {!creatingTeam && section === 'stats' && (
+              {/* Defensa en profundidad: solo líderes renderizan Stats, aunque
+                  el tab ya está oculto para miembros en NAV_ITEMS. */}
+              {!creatingTeam && section === 'stats' && isTeamLeader && (
                 <TeamStats
                   repos={repos.map(r => ({ repo_full_name: r.repo_full_name }))}
                   githubToken={githubToken}
