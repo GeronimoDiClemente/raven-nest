@@ -9332,6 +9332,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
 
 /* ── Team Stats ──────────────────────────────────────────── */
 .ts-container {
+  --ts-accent: #0066ff;
   display: flex;
   flex-direction: column;
   gap: 20px;

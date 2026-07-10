@@ -41,13 +41,13 @@ function AreaSparkline({ data, gradId }: { data: number[]; gradId: string }) {
     <svg className="ts-spark" width={W} height={H} viewBox={`0 0 ${W} ${H}`} fill="none">
       <defs>
         <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.25" />
-          <stop offset="100%" stopColor="#3b82f6" stopOpacity="0" />
+          <stop offset="0%" stopColor="var(--ts-accent)" stopOpacity="0.25" />
+          <stop offset="100%" stopColor="var(--ts-accent)" stopOpacity="0" />
         </linearGradient>
       </defs>
       <path d={area} fill={`url(#${gradId})`} />
-      <path d={line} stroke="#3b82f6" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-      <circle cx={last.x} cy={last.y} r="2.5" fill="#3b82f6" />
+      <path d={line} stroke="var(--ts-accent)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx={last.x} cy={last.y} r="2.5" fill="var(--ts-accent)" />
     </svg>
   )
 }
