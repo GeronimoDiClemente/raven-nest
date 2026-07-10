@@ -52,6 +52,19 @@ function AreaSparkline({ data, gradId }: { data: number[]; gradId: string }) {
   )
 }
 
+function StatsSkeleton() {
+  return (
+    <div className="ts-container" aria-busy="true" aria-label="Loading team stats">
+      <div className="ts-overview-row">
+        {[0, 1, 2, 3].map(i => <div key={i} className="ts-skeleton ts-skel-card" />)}
+      </div>
+      <div>
+        {[0, 1, 2, 3, 4].map(i => <div key={i} className="ts-skeleton ts-skel-row" />)}
+      </div>
+    </div>
+  )
+}
+
 export default function TeamStats({ repos, githubToken, presence }: TeamStatsProps) {
   const [windowDays, setWindowDays] = useState<7 | 30>(7)
   const { stats, loading, error } = useTeamStats(repos, githubToken, windowDays)
@@ -86,17 +99,19 @@ export default function TeamStats({ repos, githubToken, presence }: TeamStatsPro
   if (!githubToken) {
     return (
       <div className="ts-container">
-        <div className="ts-empty">Connect your GitHub account to see team stats</div>
+        <div className="ts-empty">
+          <svg className="ts-empty-icon" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Z" />
+            <path d="M8 12h8M12 8v8" strokeLinecap="round" />
+          </svg>
+          Connect your GitHub account to see team stats
+        </div>
       </div>
     )
   }
 
   if (loading) {
-    return (
-      <div className="ts-container">
-        <div className="ts-empty">Loading stats…</div>
-      </div>
-    )
+    return <StatsSkeleton />
   }
 
   if (error) {

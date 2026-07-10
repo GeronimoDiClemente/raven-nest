@@ -9613,3 +9613,33 @@ body.platform-mac .tabbar { padding-right: 116px; }
   white-space: nowrap;
   flex-shrink: 0;
 }
+
+/* ── Team Stats — skeleton ──────────────────────────── */
+@keyframes ts-skeleton-shimmer {
+  0%   { background-position: -180px 0; }
+  100% { background-position: 180px 0; }
+}
+.ts-skeleton {
+  background: #ffffff0c;
+  border-radius: 6px;
+  background-image: linear-gradient(90deg, #ffffff00 0, #ffffff14 50%, #ffffff00 100%);
+  background-size: 180px 100%;
+  background-repeat: no-repeat;
+  animation: ts-skeleton-shimmer 1.2s ease-in-out infinite;
+}
+.ts-skel-card { height: 78px; border-radius: 10px; }
+.ts-skel-row {
+  height: 40px;
+  border-radius: 8px;
+  margin-top: 6px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ts-skeleton { animation: none; }
+}
+
+/* ── Team Stats — empty state icon ──────────────────── */
+.ts-empty-icon {
+  display: block;
+  margin: 0 auto 10px;
+  opacity: 0.35;
+}
