@@ -53,7 +53,8 @@ function AreaSparkline({ data, gradId }: { data: number[]; gradId: string }) {
 }
 
 export default function TeamStats({ repos, githubToken, presence }: TeamStatsProps) {
-  const { stats, loading, error } = useTeamStats(repos, githubToken)
+  const [windowDays, setWindowDays] = useState<7 | 30>(7)
+  const { stats, loading, error } = useTeamStats(repos, githubToken, windowDays)
   const onlineCount = Object.keys(presence).length
   const onlineLogins = onlineGithubLogins(presence)
 
@@ -112,7 +113,23 @@ export default function TeamStats({ repos, githubToken, presence }: TeamStatsPro
     <div className="ts-container">
       {/* Overview cards */}
       <div>
-        <div className="ts-section-title">This week</div>
+        <div className="ts-cards-header">
+          <div className="ts-section-title">{windowDays === 7 ? 'This week' : 'This month'}</div>
+          <div className="ts-toggle" role="tablist" aria-label="Time period">
+            <button
+              role="tab"
+              aria-selected={windowDays === 7}
+              className={`ts-toggle-btn${windowDays === 7 ? ' active' : ''}`}
+              onClick={() => setWindowDays(7)}
+            >Week</button>
+            <button
+              role="tab"
+              aria-selected={windowDays === 30}
+              className={`ts-toggle-btn${windowDays === 30 ? ' active' : ''}`}
+              onClick={() => setWindowDays(30)}
+            >Month</button>
+          </div>
+        </div>
         <div className="ts-overview-row">
           <div className="ts-card ts-card--green">
             <span className="ts-card-label">Online now</span>
@@ -127,7 +144,7 @@ export default function TeamStats({ repos, githubToken, presence }: TeamStatsPro
           <div className="ts-card ts-card--purple">
             <span className="ts-card-label">PRs merged</span>
             <span className="ts-card-value">{totalPrsMerged}</span>
-            <span className="ts-card-sub">this week</span>
+            <span className="ts-card-sub">{windowDays === 7 ? 'this week' : 'this month'}</span>
           </div>
           <div className="ts-card ts-card--amber">
             <span className="ts-card-label">Top dev</span>
@@ -145,7 +162,7 @@ export default function TeamStats({ repos, githubToken, presence }: TeamStatsPro
       <div>
         <div className="ts-section-title">Developers</div>
         {developers.length === 0 ? (
-          <div className="ts-empty">No activity in the last 7 days</div>
+          <div className="ts-empty">{`No activity in the last ${windowDays} days`}</div>
         ) : (
           <div className="ts-table-wrap">
             <table className="ts-table">

@@ -41,20 +41,20 @@ interface GitHubEvent {
   }
 }
 
-const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000
+const DAY_MS = 24 * 60 * 60 * 1000
 
-function isThisWeek(dateStr: string): boolean {
-  return Date.now() - new Date(dateStr).getTime() < ONE_WEEK_MS
+function isWithinWindow(dateStr: string, windowDays: number): boolean {
+  return Date.now() - new Date(dateStr).getTime() < windowDays * DAY_MS
 }
 
-export function aggregateEvents(events: GitHubEvent[]): DeveloperStats[] {
+export function aggregateEvents(events: GitHubEvent[], windowDays = 7): DeveloperStats[] {
   const map = new Map<string, DeveloperStats>()
   const seen = new Set<string>()
 
   for (const event of events) {
     if (seen.has(event.id)) continue
     seen.add(event.id)
-    if (!isThisWeek(event.created_at)) continue
+    if (!isWithinWindow(event.created_at, windowDays)) continue
 
     const { login, avatar_url } = event.actor
     if (!map.has(login)) {
@@ -66,7 +66,7 @@ export function aggregateEvents(events: GitHubEvent[]): DeveloperStats[] {
         prsMerged: 0,
         issuesClosed: 0,
         lastEventAt: null,
-        dailyCommits: Array(7).fill(0),
+        dailyCommits: Array(windowDays).fill(0),
       })
     }
     const dev = map.get(login)!
@@ -78,8 +78,8 @@ export function aggregateEvents(events: GitHubEvent[]): DeveloperStats[] {
     if (event.type === 'PushEvent') {
       const count = event.payload.commits?.length ?? 0
       dev.commits += count
-      const daysAgo = Math.floor((Date.now() - new Date(event.created_at).getTime()) / (24 * 60 * 60 * 1000))
-      if (daysAgo < 7) dev.dailyCommits[6 - daysAgo] += count
+      const daysAgo = Math.floor((Date.now() - new Date(event.created_at).getTime()) / DAY_MS)
+      if (daysAgo < windowDays) dev.dailyCommits[windowDays - 1 - daysAgo] += count
     } else if (event.type === 'PullRequestEvent') {
       if (event.payload.action === 'opened') dev.prsOpened++
       if (event.payload.action === 'closed' && event.payload.pull_request?.merged) dev.prsMerged++
@@ -91,14 +91,14 @@ export function aggregateEvents(events: GitHubEvent[]): DeveloperStats[] {
   return Array.from(map.values()).sort((a, b) => b.commits - a.commits)
 }
 
-export function extractRecentPrs(events: GitHubEvent[]): RecentPR[] {
+export function extractRecentPrs(events: GitHubEvent[], windowDays = 7): RecentPR[] {
   const seen = new Set<string>()
   const prs: RecentPR[] = []
 
   for (const event of events) {
     if (seen.has(event.id)) continue
     seen.add(event.id)
-    if (!isThisWeek(event.created_at)) continue
+    if (!isWithinWindow(event.created_at, windowDays)) continue
     if (event.type !== 'PullRequestEvent') continue
     if (event.payload.action !== 'closed') continue
     if (!event.payload.pull_request?.merged) continue
@@ -118,7 +118,8 @@ export function extractRecentPrs(events: GitHubEvent[]): RecentPR[] {
 
 export function useTeamStats(
   repos: Array<{ repo_full_name: string }>,
-  githubToken: string | null
+  githubToken: string | null,
+  windowDays = 7,
 ): { stats: TeamStatsData; loading: boolean; error: string | null } {
   const [events, setEvents] = useState<GitHubEvent[]>([])
   const [loading, setLoading] = useState(false)
@@ -154,9 +155,9 @@ export function useTeamStats(
             const events = await res.json() as GitHubEvent[]
             if (events.length === 0) break
             all.push(...events)
-            // Stop early if the oldest event on this page is already outside the 7-day window
+            // Stop early if the oldest event on this page ya está fuera de la ventana
             const oldest = events[events.length - 1]
-            if (Date.now() - new Date(oldest.created_at).getTime() > ONE_WEEK_MS) break
+            if (Date.now() - new Date(oldest.created_at).getTime() > windowDays * DAY_MS) break
           }
           return all
         }
@@ -178,13 +179,13 @@ export function useTeamStats(
 
     void load()
     return () => { alive = false }
-  }, [repoNames, githubToken])
+  }, [repoNames, githubToken, windowDays])
 
-  const developers = useMemo(() => aggregateEvents(events), [events])
+  const developers = useMemo(() => aggregateEvents(events, windowDays), [events, windowDays])
   const totalCommits = developers.reduce((s, d) => s + d.commits, 0)
   const totalPrsMerged = developers.reduce((s, d) => s + d.prsMerged, 0)
   const topDeveloper = developers[0] ?? null
-  const recentPrs = useMemo(() => extractRecentPrs(events), [events])
+  const recentPrs = useMemo(() => extractRecentPrs(events, windowDays), [events, windowDays])
 
   return {
     stats: { developers, totalCommits, totalPrsMerged, topDeveloper, recentPrs },

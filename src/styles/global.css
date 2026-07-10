@@ -9398,6 +9398,36 @@ body.platform-mac .tabbar { padding-right: 116px; }
   margin-bottom: 8px;
 }
 
+.ts-cards-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.ts-cards-header .ts-section-title { margin-bottom: 0; }
+
+.ts-toggle {
+  display: inline-flex;
+  background: #ffffff08;
+  border: 1px solid #ffffff12;
+  border-radius: 8px;
+  padding: 2px;
+  gap: 2px;
+}
+.ts-toggle-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #ffffff55;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 12px;
+  border-radius: 6px;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.ts-toggle-btn:hover { color: #ffffff88; }
+.ts-toggle-btn.active { background: #ffffff14; color: #fff; }
+
 .ts-table-wrap {
   overflow-x: auto;
   border: 1px solid #ffffff10;

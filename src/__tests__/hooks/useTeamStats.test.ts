@@ -38,6 +38,26 @@ describe('aggregateEvents', () => {
     expect(aggregateEvents(events)).toHaveLength(0)
   })
 
+  it('excluye eventos fuera de la ventana por defecto (7 días)', () => {
+    const twentyDaysAgo = new Date(Date.now() - 20 * 24 * 60 * 60 * 1000).toISOString()
+    const events = [makeEvent('1', 'alice', 'PushEvent', twentyDaysAgo, { commits: [{ sha: 'a', message: 'x' }] })]
+    expect(aggregateEvents(events)).toHaveLength(0)
+  })
+
+  it('incluye eventos de hace 20 días con ventana de 30', () => {
+    const twentyDaysAgo = new Date(Date.now() - 20 * 24 * 60 * 60 * 1000).toISOString()
+    const events = [makeEvent('1', 'alice', 'PushEvent', twentyDaysAgo, { commits: [{ sha: 'a', message: 'x' }] })]
+    const result = aggregateEvents(events, 30)
+    expect(result).toHaveLength(1)
+    expect(result[0].commits).toBe(1)
+  })
+
+  it('dimensiona dailyCommits según la ventana', () => {
+    const events = [makeEvent('1', 'alice', 'PushEvent', NOW, { commits: [{ sha: 'a', message: 'x' }] })]
+    expect(aggregateEvents(events, 7)[0].dailyCommits).toHaveLength(7)
+    expect(aggregateEvents(events, 30)[0].dailyCommits).toHaveLength(30)
+  })
+
   it('cuenta PRs abiertos y mergeados por separado', () => {
     const events = [
       makeEvent('1', 'bob', 'PullRequestEvent', NOW, { action: 'opened' }),
