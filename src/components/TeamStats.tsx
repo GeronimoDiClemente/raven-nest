@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, memo, type CSSProperties } from 'react'
 import { useTeamStats, type DeveloperStats } from '../hooks/useTeamStats'
 import type { PresenceState } from '../hooks/useTeamPresence'
 
@@ -27,7 +27,7 @@ function timeAgo(dateStr: string | null): string {
   return `${Math.floor(hrs / 24)}d`
 }
 
-function AreaSparkline({ data, gradId }: { data: number[]; gradId: string }) {
+const AreaSparkline = memo(function AreaSparkline({ data, gradId }: { data: number[]; gradId: string }) {
   const W = 64, H = 26
   const max = Math.max(...data, 1)
   const pts = data.map((v, i) => ({
@@ -50,7 +50,7 @@ function AreaSparkline({ data, gradId }: { data: number[]; gradId: string }) {
       <circle cx={last.x} cy={last.y} r="2.5" fill="var(--ts-accent)" />
     </svg>
   )
-}
+})
 
 // ▲/▼ vs período anterior. Verde/rojo semánticos, nunca color solo (lleva flecha + %).
 function DeltaBadge({ current, previous }: { current: number; previous: number }) {
@@ -73,8 +73,17 @@ function dayLabel(daysAgo: number): string {
   return d.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric' })
 }
 
+// Alinea el tooltip al borde de la columna cuando está cerca de los extremos,
+// para que no se corte contra el borde del panel (peor en vista Month).
+function tipStyle(i: number, n: number): CSSProperties {
+  const Y = 'calc(-100% - 4px)'
+  if (i <= 1) return { left: 0, transform: `translateY(${Y})` }
+  if (i >= n - 2) return { right: 0, left: 'auto', transform: `translateY(${Y})` }
+  return { left: '50%', transform: `translate(-50%, ${Y})` }
+}
+
 // Actividad del equipo por día — una sola serie (azul de marca), con hover por barra.
-function TeamBarChart({ daily }: { daily: number[] }) {
+const TeamBarChart = memo(function TeamBarChart({ daily }: { daily: number[] }) {
   const [hover, setHover] = useState<number | null>(null)
   const n = daily.length
   const max = Math.max(...daily, 1)
@@ -91,7 +100,7 @@ function TeamBarChart({ daily }: { daily: number[] }) {
               onMouseEnter={() => setHover(i)}
             >
               {hover === i && (
-                <div className="ts-bar-tip">
+                <div className="ts-bar-tip" style={tipStyle(i, n)}>
                   <strong>{v}</strong> commit{v === 1 ? '' : 's'}
                   <span>{daysAgo === 0 ? 'today' : dayLabel(daysAgo)}</span>
                 </div>
@@ -108,9 +117,9 @@ function TeamBarChart({ daily }: { daily: number[] }) {
       </div>
     </div>
   )
-}
+})
 
-function Podium({ devs, online }: { devs: DeveloperStats[]; online: Set<string> }) {
+const Podium = memo(function Podium({ devs, online }: { devs: DeveloperStats[]; online: Set<string> }) {
   const top = devs.slice(0, 3)
   if (top.length === 0) return null
   return (
@@ -131,10 +140,10 @@ function Podium({ devs, online }: { devs: DeveloperStats[]; online: Set<string> 
       ))}
     </div>
   )
-}
+})
 
 // Matriz devs × días (quién trabajó cuándo). Secuencial de un solo hue (azul).
-function TeamHeatmap({ devs }: { devs: DeveloperStats[] }) {
+const TeamHeatmap = memo(function TeamHeatmap({ devs }: { devs: DeveloperStats[] }) {
   const rows = devs.slice(0, 8)
   if (rows.length === 0) return null
   const max = Math.max(1, ...rows.flatMap(d => d.dailyCommits))
@@ -165,7 +174,7 @@ function TeamHeatmap({ devs }: { devs: DeveloperStats[] }) {
       )}
     </div>
   )
-}
+})
 
 function StatsSkeleton() {
   return (
@@ -182,9 +191,9 @@ function StatsSkeleton() {
 
 export default function TeamStats({ repos, githubToken, presence }: TeamStatsProps) {
   const [windowDays, setWindowDays] = useState<7 | 30>(7)
-  const { stats, loading, error } = useTeamStats(repos, githubToken, windowDays)
+  const { stats, loading, error, warning } = useTeamStats(repos, githubToken, windowDays)
   const onlineCount = Object.keys(presence).length
-  const onlineLogins = onlineGithubLogins(presence)
+  const onlineLogins = useMemo(() => onlineGithubLogins(presence), [presence])
 
   type SortKey = 'commits' | 'prs' | 'issues'
   const [sortKey, setSortKey] = useState<SortKey>('commits')
@@ -249,6 +258,16 @@ export default function TeamStats({ repos, githubToken, presence }: TeamStatsPro
 
   return (
     <div className="ts-container">
+      {warning && (
+        <div className="ts-warning" role="status">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4">
+            <path d="M8 1.5 15 14H1L8 1.5Z" strokeLinejoin="round" />
+            <path d="M8 6.5v3.5M8 12v.4" strokeLinecap="round" />
+          </svg>
+          {warning}
+        </div>
+      )}
+
       {/* Overview cards */}
       <div>
         <div className="ts-cards-header">

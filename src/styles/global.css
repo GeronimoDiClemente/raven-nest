@@ -9464,6 +9464,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
   display: flex;
   flex-direction: column;
   gap: 5px;
+  min-width: 0;
 }
 
 .ts-dev-name {
@@ -9471,6 +9472,9 @@ body.platform-mac .tabbar { padding-right: 116px; }
   font-weight: 500;
   color: var(--text-primary);
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 220px;
 }
 
 .ts-top-row .ts-dev-name { font-weight: 600; }
@@ -9631,6 +9635,20 @@ body.platform-mac .tabbar { padding-right: 116px; }
   margin: 0 auto 10px;
   opacity: 0.35;
 }
+
+/* ── Team Stats — partial-load warning ──────────────── */
+.ts-warning {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-surface);
+  color: #d9a441;
+  font-size: 12px;
+}
+.ts-warning svg { flex-shrink: 0; }
 
 /* ── Team Stats — delta badges (▲▼ vs período anterior) ─ */
 .ts-delta {

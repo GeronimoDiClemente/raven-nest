@@ -58,6 +58,25 @@ describe('aggregateEvents', () => {
     expect(aggregateEvents(events, 30)[0].dailyCommits).toHaveLength(30)
   })
 
+  it('NO crea developer para eventos que no son contribución (star/fork)', () => {
+    const events = [
+      makeEvent('1', 'randouser', 'WatchEvent', NOW, { action: 'started' }),
+      makeEvent('2', 'forker', 'ForkEvent', NOW, {}),
+      makeEvent('3', 'commenter', 'IssueCommentEvent', NOW, { action: 'created' }),
+    ]
+    expect(aggregateEvents(events)).toHaveLength(0)
+  })
+
+  it('excluye actores bot del roster', () => {
+    const events = [
+      makeEvent('1', 'dependabot[bot]', 'PullRequestEvent', NOW, { action: 'opened' }),
+      makeEvent('2', 'alice', 'PushEvent', NOW, { commits: [{ sha: 'a', message: 'x' }] }),
+    ]
+    const result = aggregateEvents(events)
+    expect(result).toHaveLength(1)
+    expect(result[0].login).toBe('alice')
+  })
+
   it('cuenta PRs abiertos y mergeados por separado', () => {
     const events = [
       makeEvent('1', 'bob', 'PullRequestEvent', NOW, { action: 'opened' }),

@@ -45,6 +45,15 @@ interface GitHubEvent {
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000
+// Ventana máxima que traemos de red (cubre 2× el período más largo, 30d, para deltas).
+// El filtrado a 7/30 días se hace client-side, así togglear Week/Month no re-fetchea.
+const MAX_DAYS = 60
+// Límite de repos en paralelo, para no gatillar el secondary rate limit de GitHub.
+const CONCURRENCY = 5
+// Solo estos tipos de evento cuentan como "contribución" y crean una fila de developer.
+// Sin esto, un WatchEvent/ForkEvent/comentario mete gente que no commiteó al roster.
+const CONTRIB_TYPES = new Set(['PushEvent', 'PullRequestEvent', 'IssuesEvent'])
+const isBot = (login: string): boolean => login.endsWith('[bot]')
 
 function isWithinWindow(dateStr: string, windowDays: number): boolean {
   return Date.now() - new Date(dateStr).getTime() < windowDays * DAY_MS
@@ -58,8 +67,12 @@ export function aggregateEvents(events: GitHubEvent[], windowDays = 7): Develope
     if (seen.has(event.id)) continue
     seen.add(event.id)
     if (!isWithinWindow(event.created_at, windowDays)) continue
+    // Excluir eventos que no son contribución (stars, forks, comentarios) y bots,
+    // para que no ensucien el roster / podium con filas de 0 commits.
+    if (!CONTRIB_TYPES.has(event.type)) continue
 
     const { login, avatar_url } = event.actor
+    if (isBot(login)) continue
     if (!map.has(login)) {
       map.set(login, {
         login,
@@ -133,6 +146,7 @@ export function windowTotals(
     seen.add(event.id)
     const ageDays = (Date.now() - new Date(event.created_at).getTime()) / DAY_MS
     if (ageDays < fromDaysAgo || ageDays >= toDaysAgo) continue
+    if (isBot(event.actor.login)) continue
     if (event.type === 'PushEvent') {
       commits += event.payload.commits?.length ?? 0
     } else if (
@@ -150,29 +164,35 @@ export function useTeamStats(
   repos: Array<{ repo_full_name: string }>,
   githubToken: string | null,
   windowDays = 7,
-): { stats: TeamStatsData; loading: boolean; error: string | null } {
+): { stats: TeamStatsData; loading: boolean; error: string | null; warning: string | null } {
   const [events, setEvents] = useState<GitHubEvent[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [warning, setWarning] = useState<string | null>(null)
 
   const repoNames = useMemo(
     () => repos.map(r => r.repo_full_name).join(','),
     [repos]
   )
 
+  // El fetch NO depende de windowDays: traemos MAX_DAYS de red una sola vez y
+  // filtramos client-side a 7/30. Togglear Week/Month no vuelve a pegarle a GitHub.
   useEffect(() => {
     if (!githubToken || !repoNames) return
     const repoList = repoNames.split(',').filter(Boolean)
     let alive = true
     setLoading(true)
     setError(null)
+    setWarning(null)
 
     const load = async () => {
-      try {
-        const fetchRepoEvents = async (name: string): Promise<GitHubEvent[]> => {
-          const all: GitHubEvent[] = []
-          for (let page = 1; page <= 3; page++) {
-            const res = await fetch(
+      const failed: string[] = []
+      const fetchRepoEvents = async (name: string): Promise<GitHubEvent[]> => {
+        const all: GitHubEvent[] = []
+        for (let page = 1; page <= 3; page++) {
+          let res: Response
+          try {
+            res = await fetch(
               `https://api.github.com/repos/${name}/events?per_page=100&page=${page}`,
               {
                 headers: {
@@ -181,25 +201,43 @@ export function useTeamStats(
                 },
               }
             )
-            if (!res.ok) break
-            const events = await res.json() as GitHubEvent[]
-            if (events.length === 0) break
-            all.push(...events)
-            // Traemos 2× la ventana para poder comparar contra el período anterior (deltas).
-            const oldest = events[events.length - 1]
-            if (Date.now() - new Date(oldest.created_at).getTime() > windowDays * 2 * DAY_MS) break
+          } catch {
+            if (page === 1) failed.push(name)
+            break
           }
-          return all
+          // Un 403 (rate limit) / 404 (sin acceso o repo movido) en la 1ª página
+          // es una falla del repo, no fin de paginación: la registramos.
+          if (!res.ok) {
+            if (page === 1) failed.push(name)
+            break
+          }
+          const events = await res.json() as GitHubEvent[]
+          if (events.length === 0) break
+          all.push(...events)
+          const oldest = events[events.length - 1]
+          if (Date.now() - new Date(oldest.created_at).getTime() > MAX_DAYS * DAY_MS) break
         }
+        return all
+      }
 
-        const results = await Promise.allSettled(
-          repoList.map(name => fetchRepoEvents(name))
-        )
+      try {
         const all: GitHubEvent[] = []
-        for (const r of results) {
-          if (r.status === 'fulfilled') all.push(...r.value)
+        // Pool: procesamos los repos en tandas de CONCURRENCY en vez de todos a la vez.
+        for (let i = 0; i < repoList.length; i += CONCURRENCY) {
+          const batch = repoList.slice(i, i + CONCURRENCY)
+          const results = await Promise.allSettled(batch.map(fetchRepoEvents))
+          for (const r of results) {
+            if (r.status === 'fulfilled') all.push(...r.value)
+          }
         }
-        if (alive) setEvents(all)
+        if (alive) {
+          setEvents(all)
+          setWarning(
+            failed.length
+              ? `No se pudieron cargar ${failed.length} de ${repoList.length} repos (rate limit o sin acceso)`
+              : null
+          )
+        }
       } catch (e) {
         if (alive) setError(e instanceof Error ? e.message : 'Failed to load stats')
       } finally {
@@ -209,7 +247,7 @@ export function useTeamStats(
 
     void load()
     return () => { alive = false }
-  }, [repoNames, githubToken, windowDays])
+  }, [repoNames, githubToken])
 
   const developers = useMemo(() => aggregateEvents(events, windowDays), [events, windowDays])
   const totalCommits = developers.reduce((s, d) => s + d.commits, 0)
@@ -225,5 +263,6 @@ export function useTeamStats(
     },
     loading,
     error,
+    warning,
   }
 }
