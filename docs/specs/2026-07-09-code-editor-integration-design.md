@@ -74,9 +74,9 @@ Sin necesidad de levantar Electron real para la mayoría de los casos — el mai
 
 ## Manejo de errores
 
-- Escritura falla (permisos, disco lleno, archivo borrado externamente) → toast de error; la tab NO se marca como guardada.
-- Archivo binario o demasiado grande → el Explorer lo muestra, pero al abrirlo Monaco avisa que no se puede editar en vez de trabarse.
-- Worktree borrado mientras el editor lo tiene abierto → las tabs de ese worktree se cierran con aviso, análogo a `killByCwdPrefix` para terminales.
+- Escritura falla (permisos, disco lleno, archivo borrado externamente) → `window.alert(...)` con el error; la tab NO se marca como guardada. **Corrección post-verificación:** no existe un servicio de toasts global en la app — el precedente real (`src/App.tsx:537-541`, `WorktreesSection.tsx:160`) es `window.alert(...)` para fallas raras que necesitan feedback inmediato. Se sigue ese mismo patrón en vez de inventar un componente de toast nuevo.
+- Archivo binario o demasiado grande → el Explorer lo muestra, pero al abrirlo el bridge de fs rechaza la lectura (`UnsupportedFileError`) y el pane de editor muestra un mensaje en vez de Monaco, en vez de trabarse.
+- **Corrección post-verificación:** no existe precedente en el codebase de que borrar un worktree limpie proactivamente el estado de panes en React (`worktree:remove` en `WorktreesSection.tsx:155` solo llama al IPC y refresca la lista de worktrees; la limpieza de PTYs vía `killByCwdPrefix` pasa en el main process, no en el estado de panes del renderer — un pane de terminal huérfano queda en pantalla igual hoy). Implementar limpieza proactiva de panes solo para el editor sería inconsistente con ese precedente. En su lugar: el mismo watcher por archivo abierto (ya necesario para conflictos) detecta que el archivo desapareció — la próxima lectura falla (ENOENT) y el pane muestra "este archivo ya no existe en disco" con la opción de cerrar la tab, sin lógica nueva de "escuchar worktree:remove".
 
 ## Fuera de alcance (v1)
 
