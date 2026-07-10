@@ -64,6 +64,18 @@ export default function TeamStats({ repos, githubToken, presence }: TeamStatsPro
     }
   }
 
+  const sortedDevs = useMemo(() => {
+    return [...stats.developers].sort((a, b) => {
+      const va = sortKey === 'commits' ? a.commits
+        : sortKey === 'prs' ? a.prsOpened + a.prsMerged
+        : a.issuesClosed
+      const vb = sortKey === 'commits' ? b.commits
+        : sortKey === 'prs' ? b.prsOpened + b.prsMerged
+        : b.issuesClosed
+      return sortDir === 'desc' ? vb - va : va - vb
+    })
+  }, [stats.developers, sortKey, sortDir])
+
   if (!githubToken) {
     return (
       <div className="ts-container">
@@ -89,18 +101,6 @@ export default function TeamStats({ repos, githubToken, presence }: TeamStatsPro
   }
 
   const { developers, totalCommits, totalPrsMerged, topDeveloper } = stats
-
-  const sortedDevs = useMemo(() => {
-    return [...developers].sort((a, b) => {
-      const va = sortKey === 'commits' ? a.commits
-        : sortKey === 'prs' ? a.prsOpened + a.prsMerged
-        : a.issuesClosed
-      const vb = sortKey === 'commits' ? b.commits
-        : sortKey === 'prs' ? b.prsOpened + b.prsMerged
-        : b.issuesClosed
-      return sortDir === 'desc' ? vb - va : va - vb
-    })
-  }, [developers, sortKey, sortDir])
 
   return (
     <div className="ts-container">
