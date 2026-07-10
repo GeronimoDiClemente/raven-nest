@@ -110,22 +110,23 @@ function TeamBarChart({ daily }: { daily: number[] }) {
   )
 }
 
-const MEDALS = ['🥇', '🥈', '🥉']
 function Podium({ devs, online }: { devs: DeveloperStats[]; online: Set<string> }) {
   const top = devs.slice(0, 3)
   if (top.length === 0) return null
   return (
     <div className="ts-podium">
       {top.map((dev, i) => (
-        <div key={dev.login} className={`ts-podium-card ts-podium-${i}`}>
-          <span className="ts-medal" aria-hidden>{MEDALS[i]}</span>
-          <img className="ts-podium-av" src={dev.avatarUrl} alt={dev.login} />
-          <span className="ts-podium-name">
-            <span className={`ts-status-dot ${online.has(dev.login.toLowerCase()) ? 'online' : 'offline'}`} />
-            {dev.login}
+        <div key={dev.login} className="ts-podium-row">
+          <span className="ts-podium-rank">{i + 1}</span>
+          <span className="ts-podium-av-wrap">
+            <img className="ts-podium-av" src={dev.avatarUrl} alt={dev.login} />
+            <span className={`ts-podium-dot ${online.has(dev.login.toLowerCase()) ? 'online' : 'offline'}`} />
           </span>
-          <span className="ts-podium-commits">{dev.commits} commits</span>
-          <span className="ts-podium-sub">{dev.prsMerged} PRs · {dev.issuesClosed} issues</span>
+          <span className="ts-podium-info">
+            <span className="ts-podium-name">{dev.login}</span>
+            <span className="ts-podium-sub">{dev.prsMerged} PRs · {dev.issuesClosed} issues</span>
+          </span>
+          <span className="ts-podium-commits">{dev.commits}<span className="ts-podium-unit">commits</span></span>
         </div>
       ))}
     </div>
@@ -268,22 +269,22 @@ export default function TeamStats({ repos, githubToken, presence }: TeamStatsPro
           </div>
         </div>
         <div className="ts-overview-row">
-          <div className="ts-card ts-card--green">
+          <div className="ts-card">
             <span className="ts-card-label">Online now</span>
             <span className="ts-card-value">{onlineCount}</span>
             <span className="ts-card-sub">developers active</span>
           </div>
-          <div className="ts-card ts-card--blue">
+          <div className="ts-card">
             <span className="ts-card-label">Commits</span>
             <span className="ts-card-value">{totalCommits}</span>
             <span className="ts-card-sub">across all repos <DeltaBadge current={totalCommits} previous={prevCommits} /></span>
           </div>
-          <div className="ts-card ts-card--purple">
+          <div className="ts-card">
             <span className="ts-card-label">PRs merged</span>
             <span className="ts-card-value">{totalPrsMerged}</span>
             <span className="ts-card-sub">{windowDays === 7 ? 'this week' : 'this month'} <DeltaBadge current={totalPrsMerged} previous={prevPrsMerged} /></span>
           </div>
-          <div className="ts-card ts-card--amber">
+          <div className="ts-card">
             <span className="ts-card-label">Top dev</span>
             <span className="ts-card-value" style={{ fontSize: 14, paddingTop: 4 }}>
               {topDeveloper ? `@${topDeveloper.login}` : '—'}
