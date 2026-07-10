@@ -1,7 +1,7 @@
 # Editor de código embebido en Nest — Design Spec
 
 **Fecha:** 2026-07-09
-**Estado:** Aprobado para pasar a plan de implementación
+**Estado:** Aprobado para pasar a plan de implementación (v1.1 — corregido el mecanismo de panes/splits y el límite de plan tras verificar el código real)
 
 ## Contexto y objetivo
 
@@ -19,19 +19,21 @@ Nueva sección en `Sidebar.tsx`, al mismo nivel que `MyReposPanel`/`WorktreesSec
 
 ### Editor pane (nuevo tipo de pane)
 
-Se suma un nuevo tipo de pane al lado del pane de terminal existente, integrado al árbol de `PaneLayoutEngine` — se puede splitear contra una terminal igual que hoy se splitea una terminal contra otra.
+**Corrección post-verificación de código (v1.1 del spec):** `PaneLayoutEngine` no es un árbol de splits libre. `panes` es un array plano (`PaneNode[]`) por tab, y el layout (`layoutId`) es un preset fijo de un catálogo (`1`, `2V`, `2H`, `3C`... hasta `12C`, ver `src/layout/presets.ts`) que se recalcula solo según cuántos panes hay (`defaultLayoutFor(nextPanes.length)`, usado en `addPane`, `src/App.tsx:239-274`). No existe "splitear una posición libre" — agregar un pane siempre es empujar al array y dejar que el preset se re-acomode.
 
-- Sidebar interno con tabs de archivos abiertos (no un pane nuevo por archivo). Cada tab tiene indicador de "cambios sin guardar" (dot).
-- Arrastrar una tab hacia afuera del pane la mueve a un split nuevo del layout — mismo mecanismo de splits que ya existe para terminales.
+El editor se modela igual que ya se modela `browser` hoy: un valor nuevo de `AIType` (`'editor'`, sumado al union en `src/types.ts:1`), con su entrada en `AI_CONFIG` (`src/types.ts:198-207`), y una rama nueva en `renderPane` (`src/App.tsx:1081`): `pane.aiType === 'editor' ? <EditorCell .../> : ...`. No hace falta un discriminante `kind` nuevo — el codebase ya usa `aiType` para esto.
+
+- Sidebar interno con tabs de archivos abiertos (no un pane nuevo por archivo). Cada tab tiene indicador de "cambios sin guardar" (dot). Este estado (lista de archivos abiertos, tab activa, dirty flag) vive en el propio `PaneNode` del editor (mismo array `panes` que usan las terminales), no en un store aparte.
+- "Abrir en pane nuevo" (sacar una tab a un pane aparte) es una acción de menú contextual en la tab, no un drag-and-drop de posición libre (no hay ese mecanismo en el codebase): remueve el archivo de las tabs internas del pane actual y agrega un `PaneNode` `aiType: 'editor'` nuevo con ese único archivo — mismo `addPane` que agrega una terminal.
+- **Límite de panes:** los panes de editor cuentan contra el mismo `MAX_PANES`/`planLimits.maxPanes` que las terminales. Si el usuario está en el límite del plan y clickea un archivo, ve el mismo modal de upgrade que hoy ve al intentar agregar una terminal — cero lógica nueva de conteo, decisión explícita para mantener consistencia con el resto de la app.
 - Motor de edición: **Monaco Editor** (`@monaco-editor/react`), mismo motor que VS Code. Nueva dependencia.
 - Guardado: manual, Ctrl+S / Cmd+S (Monaco resuelve la diferencia de atajo por plataforma sola). Dispara `bridge.fs.write(path, content)`.
-- Estado de tabs abiertas (lista de archivos, tab activa, dirty flag por archivo) es propio de cada pane de editor, con el mismo patrón de ownership de estado que ya usan los panes de terminal en `PaneNode`.
 
 ### Flujo de apertura de archivo
 
 1. Click en un archivo del Explorer.
-2. Si el tab activo tiene un pane de editor enfocado, se abre ahí como tab nueva (o se enfoca la tab si ya estaba abierto).
-3. Si no hay ningún pane de editor en el tab activo, se crea uno nuevo splitéando el layout actual — mismo mecanismo que "nueva terminal".
+2. Si el tab activo ya tiene un pane con `aiType: 'editor'` (el último enfocado), el archivo se abre ahí como tab nueva (o se enfoca la tab si ya estaba abierto) — actualización in-place del `PaneNode`, sin tocar el array `panes`.
+3. Si no hay ningún pane de editor en el tab activo, se agrega un `PaneNode` nuevo con `aiType: 'editor'` — mismo `addPane` que agrega una terminal, sujeto al mismo límite de plan (punto anterior).
 
 ### Conflictos de archivo (disco vs editor)
 
@@ -67,8 +69,8 @@ Los handlers viven en el main process (`electron/fs-bridge.ts`, nuevo módulo). 
 Sin necesidad de levantar Electron real para la mayoría de los casos — el main process es Node puro y ya hay precedente de testearlo así (`electron/__tests__/worktree-store.test.ts`, `electron/__tests__/cli-install-runner.test.ts`).
 
 1. **Main process (`fs-bridge.ts`)** — unit tests con Vitest: scoping rechaza paths fuera del worktree, el watcher dispara eventos correctos ante cambios, manejo de errores de escritura.
-2. **Componentes React (Explorer, tabs del editor)** — React Testing Library, mismo patrón que `src/__tests__/components/bridge-context.test.tsx`: se mockea `window.bridge.fs.*` y se testea render del árbol, apertura de tabs al clickear, aparición del banner de conflicto.
-3. **Multiplataforma real** — no hay atajo: se valida corriendo la app en cada SO. El plan de implementación incluye un smoke-test manual mínimo por SO antes de mergear (abrir archivo, editar, guardar, provocar conflicto de disco).
+2. **Componentes React (Explorer, tabs del editor)** — React Testing Library, mismo patrón que `src/__tests__/components/bridge-context.test.tsx`: se mockea el `BridgeProvider` (no `window` directo) y se testea render del árbol, apertura de tabs al clickear, aparición del banner de conflicto.
+3. **Corrección post-verificación:** ya hay infraestructura Playwright + Electron instalada (`@playwright/test`, scripts `e2e`/`e2e:ui`/`pre-e2e` en `package.json`), sin tests E2E reales todavía sobre esta feature. El plan de implementación suma un test E2E real (abrir archivo, editar, guardar, verificar contenido en disco) que corre en CI sobre al menos un SO, más smoke-test manual mínimo en los otros dos antes de mergear — ya no es "solo manual".
 
 ## Manejo de errores
 
