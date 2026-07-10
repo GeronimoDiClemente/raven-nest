@@ -38,12 +38,14 @@ const LOADED: { stats: TeamStatsData; loading: boolean; error: string | null } =
         mergedAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
       },
     ],
+    prevCommits: 10,
+    prevPrsMerged: 2,
   },
   loading: false,
   error: null,
 }
 const EMPTY: { stats: TeamStatsData; loading: boolean; error: string | null } = {
-  stats: { developers: [], totalCommits: 0, totalPrsMerged: 0, topDeveloper: null, recentPrs: [] },
+  stats: { developers: [], totalCommits: 0, totalPrsMerged: 0, topDeveloper: null, recentPrs: [], prevCommits: 0, prevPrsMerged: 0 },
   loading: false,
   error: null,
 }
@@ -71,7 +73,7 @@ describe('TeamStats', () => {
     // Si el useMemo está después de un early return, este rerender tira
     // "Rendered more hooks than during the previous render".
     expect(() => rerender(<TeamStats {...defaultProps} />)).not.toThrow()
-    expect(screen.getByText('alice')).toBeTruthy()
+    expect(screen.getAllByText('alice').length).toBeGreaterThan(0)
   })
 
   it('muestra el conteo de commits totales en las cards de overview', () => {
@@ -81,7 +83,7 @@ describe('TeamStats', () => {
 
   it('muestra el developer más activo', () => {
     render(<TeamStats {...defaultProps} />)
-    expect(screen.getByText('alice')).toBeTruthy()
+    expect(screen.getAllByText('alice').length).toBeGreaterThan(0)
   })
 
   it('muestra el conteo de developers online desde presence', () => {
@@ -91,9 +93,10 @@ describe('TeamStats', () => {
   })
 
   it('muestra la tabla con ambos developers', () => {
-    render(<TeamStats {...defaultProps} />)
-    expect(screen.getByText('alice')).toBeTruthy()
-    expect(screen.getByText('bob')).toBeTruthy()
+    const { container } = render(<TeamStats {...defaultProps} />)
+    const table = container.querySelector('.ts-table') as HTMLElement
+    expect(within(table).getByText('alice')).toBeTruthy()
+    expect(within(table).getByText('bob')).toBeTruthy()
   })
 
   it('muestra mensaje de conectar GitHub cuando no hay token', () => {

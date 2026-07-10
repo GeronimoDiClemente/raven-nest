@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { useTeamStats } from '../hooks/useTeamStats'
+import { useTeamStats, type DeveloperStats } from '../hooks/useTeamStats'
 import type { PresenceState } from '../hooks/useTeamPresence'
 
 interface TeamStatsProps {
@@ -52,6 +52,120 @@ function AreaSparkline({ data, gradId }: { data: number[]; gradId: string }) {
   )
 }
 
+// ▲/▼ vs período anterior. Verde/rojo semánticos, nunca color solo (lleva flecha + %).
+function DeltaBadge({ current, previous }: { current: number; previous: number }) {
+  if (previous === 0) {
+    if (current === 0) return null
+    return <span className="ts-delta up" title="Sin actividad en el período anterior">▲ nuevo</span>
+  }
+  const pct = Math.round(((current - previous) / previous) * 100)
+  if (pct === 0) return <span className="ts-delta flat">— 0%</span>
+  const up = pct > 0
+  return (
+    <span className={`ts-delta ${up ? 'up' : 'down'}`} title={`${current} vs ${previous} en el período anterior`}>
+      {up ? '▲' : '▼'} {Math.abs(pct)}%
+    </span>
+  )
+}
+
+function dayLabel(daysAgo: number): string {
+  const d = new Date(Date.now() - daysAgo * 86_400_000)
+  return d.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric' })
+}
+
+// Actividad del equipo por día — una sola serie (azul de marca), con hover por barra.
+function TeamBarChart({ daily }: { daily: number[] }) {
+  const [hover, setHover] = useState<number | null>(null)
+  const n = daily.length
+  const max = Math.max(...daily, 1)
+  const total = daily.reduce((a, b) => a + b, 0)
+  return (
+    <div className="ts-chart">
+      <div className="ts-chart-bars" onMouseLeave={() => setHover(null)}>
+        {daily.map((v, i) => {
+          const daysAgo = n - 1 - i
+          return (
+            <div
+              key={i}
+              className={`ts-bar-col${hover === i ? ' hover' : ''}`}
+              onMouseEnter={() => setHover(i)}
+            >
+              {hover === i && (
+                <div className="ts-bar-tip">
+                  <strong>{v}</strong> commit{v === 1 ? '' : 's'}
+                  <span>{daysAgo === 0 ? 'today' : dayLabel(daysAgo)}</span>
+                </div>
+              )}
+              <div className="ts-bar" style={{ height: `${Math.max(2, (v / max) * 100)}%` }} />
+            </div>
+          )
+        })}
+      </div>
+      <div className="ts-chart-foot">
+        <span>{dayLabel(n - 1)}</span>
+        <span className="ts-chart-total">{total} commits en el período</span>
+        <span>today</span>
+      </div>
+    </div>
+  )
+}
+
+const MEDALS = ['🥇', '🥈', '🥉']
+function Podium({ devs, online }: { devs: DeveloperStats[]; online: Set<string> }) {
+  const top = devs.slice(0, 3)
+  if (top.length === 0) return null
+  return (
+    <div className="ts-podium">
+      {top.map((dev, i) => (
+        <div key={dev.login} className={`ts-podium-card ts-podium-${i}`}>
+          <span className="ts-medal" aria-hidden>{MEDALS[i]}</span>
+          <img className="ts-podium-av" src={dev.avatarUrl} alt={dev.login} />
+          <span className="ts-podium-name">
+            <span className={`ts-status-dot ${online.has(dev.login.toLowerCase()) ? 'online' : 'offline'}`} />
+            {dev.login}
+          </span>
+          <span className="ts-podium-commits">{dev.commits} commits</span>
+          <span className="ts-podium-sub">{dev.prsMerged} PRs · {dev.issuesClosed} issues</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// Matriz devs × días (quién trabajó cuándo). Secuencial de un solo hue (azul).
+function TeamHeatmap({ devs }: { devs: DeveloperStats[] }) {
+  const rows = devs.slice(0, 8)
+  if (rows.length === 0) return null
+  const max = Math.max(1, ...rows.flatMap(d => d.dailyCommits))
+  const n = rows[0].dailyCommits.length
+  return (
+    <div className="ts-heatmap">
+      {rows.map(dev => (
+        <div key={dev.login} className="ts-heat-row">
+          <span className="ts-heat-name">{dev.login}</span>
+          <div className="ts-heat-cells" style={{ gridTemplateColumns: `repeat(${n}, 1fr)` }}>
+            {dev.dailyCommits.map((v, i) => {
+              const daysAgo = n - 1 - i
+              const alpha = v <= 0 ? 0 : 0.15 + 0.85 * (v / max)
+              return (
+                <div
+                  key={i}
+                  className="ts-heat-cell"
+                  style={v > 0 ? { background: `rgba(0,102,255,${alpha.toFixed(2)})` } : undefined}
+                  title={`${dev.login} — ${v} commit${v === 1 ? '' : 's'} ${daysAgo === 0 ? 'today' : `${daysAgo}d ago`}`}
+                />
+              )
+            })}
+          </div>
+        </div>
+      ))}
+      {devs.length > rows.length && (
+        <div className="ts-heat-more">+{devs.length - rows.length} developers más</div>
+      )}
+    </div>
+  )
+}
+
 function StatsSkeleton() {
   return (
     <div className="ts-container" aria-busy="true" aria-label="Loading team stats">
@@ -96,6 +210,14 @@ export default function TeamStats({ repos, githubToken, presence }: TeamStatsPro
     })
   }, [stats.developers, sortKey, sortDir])
 
+  // Commits del equipo por día = suma de los dailyCommits de cada dev.
+  const teamDaily = useMemo(() => {
+    const n = stats.developers[0]?.dailyCommits.length ?? windowDays
+    const out = Array<number>(n).fill(0)
+    for (const d of stats.developers) d.dailyCommits.forEach((c, i) => { out[i] += c })
+    return out
+  }, [stats.developers, windowDays])
+
   if (!githubToken) {
     return (
       <div className="ts-container">
@@ -122,7 +244,7 @@ export default function TeamStats({ repos, githubToken, presence }: TeamStatsPro
     )
   }
 
-  const { developers, totalCommits, totalPrsMerged, topDeveloper } = stats
+  const { developers, totalCommits, totalPrsMerged, topDeveloper, prevCommits, prevPrsMerged } = stats
 
   return (
     <div className="ts-container">
@@ -154,12 +276,12 @@ export default function TeamStats({ repos, githubToken, presence }: TeamStatsPro
           <div className="ts-card ts-card--blue">
             <span className="ts-card-label">Commits</span>
             <span className="ts-card-value">{totalCommits}</span>
-            <span className="ts-card-sub">across all repos</span>
+            <span className="ts-card-sub">across all repos <DeltaBadge current={totalCommits} previous={prevCommits} /></span>
           </div>
           <div className="ts-card ts-card--purple">
             <span className="ts-card-label">PRs merged</span>
             <span className="ts-card-value">{totalPrsMerged}</span>
-            <span className="ts-card-sub">{windowDays === 7 ? 'this week' : 'this month'}</span>
+            <span className="ts-card-sub">{windowDays === 7 ? 'this week' : 'this month'} <DeltaBadge current={totalPrsMerged} previous={prevPrsMerged} /></span>
           </div>
           <div className="ts-card ts-card--amber">
             <span className="ts-card-label">Top dev</span>
@@ -172,6 +294,22 @@ export default function TeamStats({ repos, githubToken, presence }: TeamStatsPro
           </div>
         </div>
       </div>
+
+      {/* Team activity chart */}
+      {developers.length > 0 && (
+        <div>
+          <div className="ts-section-title">Team activity — commits per day</div>
+          <TeamBarChart daily={teamDaily} />
+        </div>
+      )}
+
+      {/* Top performers podium */}
+      {developers.length > 0 && (
+        <div>
+          <div className="ts-section-title">Top performers</div>
+          <Podium devs={developers} online={onlineLogins} />
+        </div>
+      )}
 
       {/* Developer table */}
       <div>
@@ -244,6 +382,14 @@ export default function TeamStats({ repos, githubToken, presence }: TeamStatsPro
           </div>
         )}
       </div>
+
+      {/* Activity matrix — who worked when */}
+      {developers.length > 0 && (
+        <div>
+          <div className="ts-section-title">Activity matrix — who worked when</div>
+          <TeamHeatmap devs={developers} />
+        </div>
+      )}
 
     </div>
   )

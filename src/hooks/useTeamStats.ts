@@ -26,6 +26,9 @@ export interface TeamStatsData {
   totalPrsMerged: number
   topDeveloper: DeveloperStats | null
   recentPrs: RecentPR[]
+  /** Totales del período INMEDIATAMENTE anterior (misma duración), para deltas. */
+  prevCommits: number
+  prevPrsMerged: number
 }
 
 interface GitHubEvent {
@@ -116,6 +119,33 @@ export function extractRecentPrs(events: GitHubEvent[], windowDays = 7): RecentP
   return prs.sort((a, b) => b.mergedAt.localeCompare(a.mergedAt))
 }
 
+/** Suma commits y PRs mergeados en la ventana [fromDaysAgo, toDaysAgo) (días atrás). */
+export function windowTotals(
+  events: GitHubEvent[],
+  fromDaysAgo: number,
+  toDaysAgo: number,
+): { commits: number; prsMerged: number } {
+  const seen = new Set<string>()
+  let commits = 0
+  let prsMerged = 0
+  for (const event of events) {
+    if (seen.has(event.id)) continue
+    seen.add(event.id)
+    const ageDays = (Date.now() - new Date(event.created_at).getTime()) / DAY_MS
+    if (ageDays < fromDaysAgo || ageDays >= toDaysAgo) continue
+    if (event.type === 'PushEvent') {
+      commits += event.payload.commits?.length ?? 0
+    } else if (
+      event.type === 'PullRequestEvent' &&
+      event.payload.action === 'closed' &&
+      event.payload.pull_request?.merged
+    ) {
+      prsMerged++
+    }
+  }
+  return { commits, prsMerged }
+}
+
 export function useTeamStats(
   repos: Array<{ repo_full_name: string }>,
   githubToken: string | null,
@@ -155,9 +185,9 @@ export function useTeamStats(
             const events = await res.json() as GitHubEvent[]
             if (events.length === 0) break
             all.push(...events)
-            // Stop early if the oldest event on this page ya está fuera de la ventana
+            // Traemos 2× la ventana para poder comparar contra el período anterior (deltas).
             const oldest = events[events.length - 1]
-            if (Date.now() - new Date(oldest.created_at).getTime() > windowDays * DAY_MS) break
+            if (Date.now() - new Date(oldest.created_at).getTime() > windowDays * 2 * DAY_MS) break
           }
           return all
         }
@@ -186,9 +216,13 @@ export function useTeamStats(
   const totalPrsMerged = developers.reduce((s, d) => s + d.prsMerged, 0)
   const topDeveloper = developers[0] ?? null
   const recentPrs = useMemo(() => extractRecentPrs(events, windowDays), [events, windowDays])
+  const prev = useMemo(() => windowTotals(events, windowDays, windowDays * 2), [events, windowDays])
 
   return {
-    stats: { developers, totalCommits, totalPrsMerged, topDeveloper, recentPrs },
+    stats: {
+      developers, totalCommits, totalPrsMerged, topDeveloper, recentPrs,
+      prevCommits: prev.commits, prevPrsMerged: prev.prsMerged,
+    },
     loading,
     error,
   }

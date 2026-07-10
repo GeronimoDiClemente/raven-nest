@@ -9644,3 +9644,128 @@ body.platform-mac .tabbar { padding-right: 116px; }
   margin: 0 auto 10px;
   opacity: 0.35;
 }
+
+/* ── Team Stats — delta badges (▲▼ vs período anterior) ─ */
+.ts-delta {
+  font-size: 10px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  margin-left: 3px;
+  white-space: nowrap;
+}
+.ts-delta.up   { color: #3fb950; }
+.ts-delta.down { color: #f85149; }
+.ts-delta.flat { color: #ffffff44; }
+
+/* ── Team Stats — team activity bar chart ───────────── */
+.ts-chart { position: relative; }
+.ts-chart-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 120px;
+  overflow: visible;
+}
+.ts-bar-col {
+  flex: 1;
+  height: 100%;
+  display: flex;
+  align-items: flex-end;
+  position: relative;
+}
+.ts-bar {
+  width: 100%;
+  min-height: 2px;
+  background: var(--ts-accent);
+  border-radius: 3px 3px 0 0;
+  opacity: 0.85;
+  transition: opacity 0.12s ease, filter 0.12s ease;
+}
+.ts-bar-col:hover .ts-bar,
+.ts-bar-col.hover .ts-bar { opacity: 1; filter: brightness(1.18); }
+.ts-bar-tip {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translate(-50%, calc(-100% - 4px));
+  background: #0b0f17;
+  border: 1px solid #ffffff20;
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 11px;
+  color: #fff;
+  white-space: nowrap;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  z-index: 5;
+  pointer-events: none;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+.ts-bar-tip span { color: #ffffff66; font-size: 10px; }
+.ts-chart-foot {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 6px;
+  font-size: 10px;
+  color: #ffffff40;
+}
+.ts-chart-total { color: #ffffff70; font-weight: 600; }
+
+/* ── Team Stats — top performers podium ─────────────── */
+.ts-podium {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+@media (max-width: 520px) { .ts-podium { grid-template-columns: 1fr; } }
+.ts-podium-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 16px 12px 12px;
+  background: #ffffff06;
+  border: 1px solid #ffffff12;
+  border-top: 2px solid #ffffff20;
+  border-radius: 10px;
+  text-align: center;
+}
+.ts-podium-0 { border-top-color: #f5c518; background: #f5c51810; }
+.ts-podium-1 { border-top-color: #c0c6d0; background: #c0c6d010; }
+.ts-podium-2 { border-top-color: #cd7f32; background: #cd7f3210; }
+.ts-medal { position: absolute; top: 8px; left: 10px; font-size: 16px; line-height: 1; }
+.ts-podium-av { width: 40px; height: 40px; border-radius: 50%; }
+.ts-podium-name {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 13px; font-weight: 600; color: #fff;
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ts-podium-commits {
+  font-size: 20px; font-weight: 700; color: #fff;
+  font-variant-numeric: tabular-nums; line-height: 1.1;
+}
+.ts-podium-sub { font-size: 11px; color: #ffffff55; }
+
+/* ── Team Stats — activity heatmap (devs × days) ────── */
+.ts-heatmap { display: flex; flex-direction: column; gap: 4px; }
+.ts-heat-row {
+  display: grid;
+  grid-template-columns: 116px 1fr;
+  align-items: center;
+  gap: 10px;
+}
+.ts-heat-name {
+  font-size: 11px; color: #ffffffaa;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ts-heat-cells { display: grid; gap: 3px; }
+.ts-heat-cell {
+  aspect-ratio: 1;
+  min-height: 12px;
+  border-radius: 2px;
+  background: #ffffff0a;
+}
+.ts-heat-more { font-size: 11px; color: #ffffff44; margin-top: 2px; padding-left: 126px; }
