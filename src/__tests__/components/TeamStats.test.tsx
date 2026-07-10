@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, within, fireEvent } from '@testing-library/react'
 import TeamStats, { onlineGithubLogins } from '../../components/TeamStats'
 import type { TeamStatsData } from '../../hooks/useTeamStats'
 
@@ -106,6 +106,32 @@ describe('TeamStats', () => {
     const sparks = document.querySelectorAll('.ts-spark')
     // 1 SVG sparkline per developer
     expect(sparks.length).toBe(2)
+  })
+
+  it('muestra el skeleton mientras carga', () => {
+    mockUseTeamStats.mockReturnValue({ ...EMPTY, loading: true })
+    const { container } = render(<TeamStats {...defaultProps} />)
+    expect(container.querySelector('[aria-busy="true"]')).toBeTruthy()
+    expect(container.querySelectorAll('.ts-skeleton').length).toBeGreaterThan(0)
+  })
+
+  it('muestra el mensaje de error', () => {
+    mockUseTeamStats.mockReturnValue({ ...EMPTY, error: 'API rate limit exceeded' })
+    render(<TeamStats {...defaultProps} />)
+    expect(screen.getByText('API rate limit exceeded')).toBeTruthy()
+  })
+
+  it('reordena por PRs al clickear el header', () => {
+    const { getByRole } = render(<TeamStats {...defaultProps} />)
+    // Orden inicial: por commits desc → alice (12) antes que bob (4)
+    let names = Array.from(document.querySelectorAll('.ts-dev-name')).map(n => n.textContent)
+    expect(names).toEqual(['alice', 'bob'])
+    // Click en "PRs": alice tiene 3 (2+1), bob 0. 1er click = desc, 2do = asc → invierte.
+    const prsHeader = getByRole('button', { name: /PRs/i })
+    fireEvent.click(prsHeader)  // desc por prs
+    fireEvent.click(prsHeader)  // asc por prs
+    names = Array.from(document.querySelectorAll('.ts-dev-name')).map(n => n.textContent)
+    expect(names).toEqual(['bob', 'alice'])
   })
 })
 
