@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
-import TeamStats from '../../components/TeamStats'
+import TeamStats, { onlineGithubLogins } from '../../components/TeamStats'
 import type { TeamStatsData } from '../../hooks/useTeamStats'
 
 const mockUseTeamStats = vi.fn()
@@ -106,5 +106,17 @@ describe('TeamStats', () => {
     const sparks = document.querySelectorAll('.ts-spark')
     // 1 SVG sparkline per developer
     expect(sparks.length).toBe(2)
+  })
+})
+
+describe('onlineGithubLogins', () => {
+  it('devuelve los github logins en minúscula, ignorando nulls', () => {
+    const p = {
+      a: { userId: 'a', displayName: 'x@co.com', githubLogin: 'Alice', repo: null, branch: null, lastSeen: '' },
+      b: { userId: 'b', displayName: 'y@co.com', githubLogin: null, repo: null, branch: null, lastSeen: '' },
+    }
+    const set = onlineGithubLogins(p)
+    expect(set.has('alice')).toBe(true)
+    expect(set.size).toBe(1)
   })
 })

@@ -8,6 +8,14 @@ interface TeamStatsProps {
   presence: Record<string, PresenceState>
 }
 
+export function onlineGithubLogins(presence: Record<string, PresenceState>): Set<string> {
+  const set = new Set<string>()
+  for (const p of Object.values(presence)) {
+    if (p.githubLogin) set.add(p.githubLogin.toLowerCase())
+  }
+  return set
+}
+
 function timeAgo(dateStr: string | null): string {
   if (!dateStr) return '—'
   const diff = Date.now() - new Date(dateStr).getTime()
@@ -47,9 +55,7 @@ function AreaSparkline({ data, gradId }: { data: number[]; gradId: string }) {
 export default function TeamStats({ repos, githubToken, presence }: TeamStatsProps) {
   const { stats, loading, error } = useTeamStats(repos, githubToken)
   const onlineCount = Object.keys(presence).length
-  const onlineLogins = new Set(
-    Object.values(presence).map(p => p.displayName.split('@')[0].toLowerCase())
-  )
+  const onlineLogins = onlineGithubLogins(presence)
 
   type SortKey = 'commits' | 'prs' | 'issues'
   const [sortKey, setSortKey] = useState<SortKey>('commits')
