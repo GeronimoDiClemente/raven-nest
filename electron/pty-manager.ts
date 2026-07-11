@@ -52,6 +52,13 @@ export class PtyManager extends EventEmitter {
     if (isMac) {
       const home = env.HOME || ''
       const extra = [
+        // AI panes redirect HOME to accountDir (see below), and the native
+        // `claude` installer drops its launcher at $HOME/.local/bin =
+        // accountDir/.local/bin. Claude's /doctor checks `homedir()/.local/bin`
+        // ∈ PATH, so without this entry it warns "Native installation exists
+        // but ~/.local/bin is not in your PATH". Prepend it so the per-account
+        // install is found and preferred over any stray global claude.
+        ...(accountDir && cmd ? [`${accountDir}/.local/bin`] : []),
         `${home}/.local/bin`,
         '/opt/homebrew/bin',
         '/opt/homebrew/sbin',
