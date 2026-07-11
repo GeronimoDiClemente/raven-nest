@@ -444,7 +444,7 @@ Insertar dentro de `declare global { interface Window { ... } }`, después del b
       writeFile: (worktreePath: string, relPath: string, content: string) => Promise<{ ok: true } | { ok: false; error: string }>
       listDir: (worktreePath: string, relPath: string) => Promise<{ ok: true; entries: DirEntry[] } | { ok: false; error: string }>
       watch: (worktreePath: string, relPath: string, opts?: { depth?: number }) => Promise<{ ok: true } | { ok: false; error: string }>
-      unwatch: (worktreePath: string, relPath: string) => Promise<void>
+      unwatch: (worktreePath: string, relPath: string) => Promise<{ ok: true } | { ok: false; error: string }>
       onChanged: (cb: (worktreePath: string, relPath: string) => void) => () => void
     }
 ```
@@ -508,9 +508,17 @@ ipcMain.handle('fs:watch', async (_evt, worktreePath: string, relPath: string, o
 })
 
 ipcMain.handle('fs:unwatch', async (_evt, worktreePath: string, relPath: string) => {
-  await fsWatchRegistry.unwatch(worktreePath, relPath)
+  if (!isAbsolute(worktreePath)) return { ok: false as const, error: 'worktreePath must be absolute' }
+  try {
+    await fsWatchRegistry.unwatch(worktreePath, relPath)
+    return { ok: true as const }
+  } catch (err) {
+    return { ok: false as const, error: err instanceof Error ? err.message : String(err) }
+  }
 })
 ```
+
+**Corrección post-review (Task 3):** el snippet original de este handler no validaba `isAbsolute` ni devolvía `{ok,error}` como sus hermanos — violaba la letra de los Global Constraints (riesgo real bajo, ya que `unwatch` solo hace un lookup en un Map y nunca toca el filesystem con ese path, pero el constraint es incondicional para todo handler IPC nuevo). Corregido para igualar el patrón de `fs:readFile`/`fs:writeFile`/`fs:listDir`/`fs:watch`.
 
 - [ ] **Step 3: Exponer el bridge en `electron/preload.ts`**
 
