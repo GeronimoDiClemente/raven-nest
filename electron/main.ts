@@ -124,6 +124,7 @@ import { BrowserPaneManager } from './browser-pane-manager'
 import { SpotlightEngine } from './spotlight-engine'
 import { BenchmarkRecorder } from './benchmark-recorder'
 import { getDiff } from './diff-engine'
+import { readFile as fsReadFile, writeFile as fsWriteFile, listDir as fsListDir, FsWatchRegistry } from './fs-bridge'
 import { detectIDEs, openInIDE, clearCache as clearIDECache } from './ide-launcher'
 import { MCPStore } from './mcp-store'
 import { SettingsStore } from './settings-store'
@@ -151,6 +152,8 @@ const browserPanes = new BrowserPaneManager(() => BrowserWindow.getAllWindows()[
 const spotlight = new SpotlightEngine()
 const benchmark = new BenchmarkRecorder()
 const metricsCollector = new MetricsCollector()
+const fsWatchRegistry = new FsWatchRegistry()
+app.on('before-quit', () => { fsWatchRegistry.closeAll() })
 
 spotlight.on('start', (wt: string) => broadcast('spotlight:status', { active: true, worktreePath: wt }))
 spotlight.on('stop', () => broadcast('spotlight:status', { active: false }))
@@ -1673,6 +1676,50 @@ ipcMain.handle('metrics:portsByPids', async (_evt, pids: number[]) => {
 ipcMain.handle('diff:get', async (_evt, worktreePath: string, base?: string) => {
   if (!isAbsolute(worktreePath)) throw new Error('worktreePath must be absolute')
   return getDiff(worktreePath, base ?? 'HEAD')
+})
+
+ipcMain.handle('fs:readFile', async (_evt, worktreePath: string, relPath: string) => {
+  if (!isAbsolute(worktreePath)) return { ok: false as const, error: 'worktreePath must be absolute' }
+  try {
+    const content = await fsReadFile(worktreePath, relPath)
+    return { ok: true as const, content }
+  } catch (err) {
+    return { ok: false as const, error: err instanceof Error ? err.message : String(err) }
+  }
+})
+
+ipcMain.handle('fs:writeFile', async (_evt, worktreePath: string, relPath: string, content: string) => {
+  if (!isAbsolute(worktreePath)) return { ok: false as const, error: 'worktreePath must be absolute' }
+  try {
+    await fsWriteFile(worktreePath, relPath, content)
+    return { ok: true as const }
+  } catch (err) {
+    return { ok: false as const, error: err instanceof Error ? err.message : String(err) }
+  }
+})
+
+ipcMain.handle('fs:listDir', async (_evt, worktreePath: string, relPath: string) => {
+  if (!isAbsolute(worktreePath)) return { ok: false as const, error: 'worktreePath must be absolute' }
+  try {
+    const entries = await fsListDir(worktreePath, relPath)
+    return { ok: true as const, entries }
+  } catch (err) {
+    return { ok: false as const, error: err instanceof Error ? err.message : String(err) }
+  }
+})
+
+ipcMain.handle('fs:watch', async (_evt, worktreePath: string, relPath: string, opts?: { depth?: number }) => {
+  if (!isAbsolute(worktreePath)) return { ok: false as const, error: 'worktreePath must be absolute' }
+  try {
+    await fsWatchRegistry.watch(worktreePath, relPath, (wt, rp) => broadcast('fs:changed', wt, rp), opts)
+    return { ok: true as const }
+  } catch (err) {
+    return { ok: false as const, error: err instanceof Error ? err.message : String(err) }
+  }
+})
+
+ipcMain.handle('fs:unwatch', async (_evt, worktreePath: string, relPath: string) => {
+  await fsWatchRegistry.unwatch(worktreePath, relPath)
 })
 
 // Lightweight shortstat for the worktree sidebar chip. `git diff --shortstat`

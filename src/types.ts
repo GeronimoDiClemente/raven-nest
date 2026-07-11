@@ -73,6 +73,12 @@ export interface DiffFile {
 }
 export interface DiffResult { base: string; files: DiffFile[] }
 
+export interface DirEntry {
+  name: string
+  path: string
+  isDirectory: boolean
+}
+
 export interface DetectedIDE { id: string; name: string; binPath: string }
 
 // === Resource usage metrics (kept in sync with electron/metrics-collector.ts) ===
@@ -478,6 +484,14 @@ declare global {
     }
     diff: {
       get: (worktreePath: string, base?: string) => Promise<DiffResult>
+    }
+    fs: {
+      readFile: (worktreePath: string, relPath: string) => Promise<{ ok: true; content: string } | { ok: false; error: string }>
+      writeFile: (worktreePath: string, relPath: string, content: string) => Promise<{ ok: true } | { ok: false; error: string }>
+      listDir: (worktreePath: string, relPath: string) => Promise<{ ok: true; entries: DirEntry[] } | { ok: false; error: string }>
+      watch: (worktreePath: string, relPath: string, opts?: { depth?: number }) => Promise<{ ok: true } | { ok: false; error: string }>
+      unwatch: (worktreePath: string, relPath: string) => Promise<void>
+      onChanged: (cb: (worktreePath: string, relPath: string) => void) => () => void
     }
     ide: {
       detect: (force?: boolean) => Promise<DetectedIDE[]>

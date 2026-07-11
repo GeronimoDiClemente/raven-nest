@@ -267,6 +267,20 @@ contextBridge.exposeInMainWorld('diff', {
   get: (worktreePath: string, base?: string) => ipcRenderer.invoke('diff:get', worktreePath, base),
 })
 
+contextBridge.exposeInMainWorld('fs', {
+  readFile: (worktreePath: string, relPath: string) => ipcRenderer.invoke('fs:readFile', worktreePath, relPath),
+  writeFile: (worktreePath: string, relPath: string, content: string) =>
+    ipcRenderer.invoke('fs:writeFile', worktreePath, relPath, content),
+  listDir: (worktreePath: string, relPath: string) => ipcRenderer.invoke('fs:listDir', worktreePath, relPath),
+  watch: (worktreePath: string, relPath: string, opts?: { depth?: number }) => ipcRenderer.invoke('fs:watch', worktreePath, relPath, opts),
+  unwatch: (worktreePath: string, relPath: string) => ipcRenderer.invoke('fs:unwatch', worktreePath, relPath),
+  onChanged: (cb: (worktreePath: string, relPath: string) => void) => {
+    const handler = (_e: IpcRendererEvent, worktreePath: string, relPath: string) => cb(worktreePath, relPath)
+    ipcRenderer.on('fs:changed', handler)
+    return () => ipcRenderer.removeListener('fs:changed', handler)
+  },
+})
+
 contextBridge.exposeInMainWorld('ide', {
   detect: (force?: boolean) => ipcRenderer.invoke('ide:detect', force),
   open: (binPath: string, worktreePath: string) => ipcRenderer.invoke('ide:open', binPath, worktreePath),
