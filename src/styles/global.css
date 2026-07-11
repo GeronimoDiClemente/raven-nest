@@ -9329,3 +9329,11 @@ body.platform-mac .tabbar { padding-right: 116px; }
 .tour-progress i.on { background: #3d79ff; width: 14px; border-radius: 3px; }
 .tour-help-btn { background: none; border: 1px solid #2b2b32; color: #9a9aa3; border-radius: 8px; width: 26px; height: 26px; cursor: pointer; font-size: 14px; }
 .tour-help-btn:hover { color: #ededed; border-color: #3a3a42; }
+
+/* ── ExplorerPanel (File Tree) ──────────────────────────────── */
+
+.explorer-panel { font-size: 12px; overflow-y: auto; }
+.explorer-panel-empty { padding: 8px; opacity: 0.6; }
+.explorer-entry { display: flex; align-items: center; gap: 4px; padding: 2px 4px; cursor: pointer; }
+.explorer-entry:hover { background: rgba(255, 255, 255, 0.06); }
+.explorer-entry-icon { width: 10px; opacity: 0.7; }
