@@ -6,6 +6,7 @@ dist-electron/
 .env.*
 !.env.example
 .superpowers/
+.worktrees/
 *.tsbuildinfo
 *.log
 
