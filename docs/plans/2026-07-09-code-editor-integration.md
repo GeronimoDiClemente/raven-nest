@@ -400,7 +400,7 @@ export class FsWatchRegistry {
 - [ ] **Step 4: Correr los tests y verificar que pasan**
 
 Run: `npx vitest run electron/__tests__/fs-bridge.test.ts`
-Expected: PASS — 12 tests (u 11 + 1 skipped si el runner no puede crear symlinks).
+Expected: PASS — 11 tests (o 10 + 1 skipped si el runner no puede crear symlinks).
 
 - [ ] **Step 5: Commit**
 
