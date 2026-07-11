@@ -99,6 +99,7 @@ import { join as pathJoin, join, isAbsolute, basename, dirname } from 'path'
 import { readFileSync, writeFileSync, mkdirSync, statSync, copyFileSync, unlinkSync, rmSync, existsSync, promises as fsp } from 'fs'
 import { tmpdir, homedir } from 'os'
 import { ravenHome, userHome } from './raven-home'
+import { loadSession, saveSession } from './session-store'
 import { execSync, execFile, execFileSync, spawn } from 'child_process'
 import { randomBytes } from 'crypto'
 import { PtyManager } from './pty-manager'
@@ -1944,28 +1945,14 @@ ipcMain.handle('ide:open', async (_evt, binPath: string, worktreePath: string) =
 
 ipcMain.handle('ide:clearCache', async () => { clearIDECache() })
 
-// Session persistence
-const SESSION_PATH = join(ravenHome(), '.raven-nest', 'session.json')
-
-ipcMain.handle('session:load', () => {
-  try {
-    return JSON.parse(readFileSync(SESSION_PATH, 'utf8'))
-  } catch (err) {
-    // ENOENT is the expected "first launch, no session yet" case — return null
-    // silently. Any other error means the session file is corrupt / unreadable;
-    // log loud so we can debug why the user's panes didn't restore.
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null
-    console.error('[session:load] failed to read session', SESSION_PATH, err)
-    return null
-  }
-})
+// Session persistence — atomic read/write lives in session-store.ts
+ipcMain.handle('session:load', () => loadSession())
 
 ipcMain.handle('session:save', (_event, data: unknown) => {
   try {
-    mkdirSync(join(ravenHome(), '.raven-nest'), { recursive: true })
-    writeFileSync(SESSION_PATH, JSON.stringify(data))
+    saveSession(data)
   } catch (err) {
-    console.error('[session:save] failed to write session', SESSION_PATH, err)
+    console.error('[session:save] failed to write session', err)
   }
 })
 

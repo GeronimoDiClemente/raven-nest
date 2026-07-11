@@ -693,10 +693,18 @@ export default function App() {
     setAddingPane({})
   }, [])
 
+  // Saves must wait until the restore attempt finished: the debounced save
+  // below fires 800ms after mount, and with the initial empty workspace it
+  // would overwrite session.json before the async restore populates the tabs.
+  const sessionRestoredRef = useRef(false)
+
   // Load session on startup
   useEffect(() => {
     window.session.load().then((data) => {
-      if (!data) return
+      if (!data) {
+        sessionRestoredRef.current = true
+        return
+      }
 
       const COLOR_MIGRATION: Record<string, string> = {
         '#3B82F6': '#0055FF', '#EF4444': '#FF1A1A', '#10B981': '#00CC44',
@@ -747,6 +755,7 @@ export default function App() {
           panes: live,
         }])
         setActiveTabId(id)
+        sessionRestoredRef.current = true
         return
       }
 
@@ -780,13 +789,25 @@ export default function App() {
         })).then((cleaned) => {
           setTabs(cleaned)
           setActiveTabId(data.activeTabId ?? cleaned[0].id)
+          sessionRestoredRef.current = true
+        }).catch((err) => {
+          console.error('[session] restore failed; re-enabling saves with current state', err)
+          sessionRestoredRef.current = true
         })
+        return
       }
+
+      // Session exists but has no restorable tabs — nothing to protect.
+      sessionRestoredRef.current = true
+    }).catch(() => {
+      sessionRestoredRef.current = true
     })
   }, [])
 
-  // Save session on changes (debounced 800ms)
+  // Save session on changes (debounced 800ms). Gated until the restore
+  // attempt finishes — see sessionRestoredRef above.
   useEffect(() => {
+    if (!sessionRestoredRef.current) return
     const timer = setTimeout(() => {
       const sessionData: SessionData = {
         tabs: tabs.map(tab => ({
