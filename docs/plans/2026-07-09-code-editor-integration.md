@@ -2,11 +2,13 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+**Versión:** v2 (2026-07-10). Cambios vs v1: (a) Monaco se bundlea local (offline) — Task 1 suma `monaco-editor`, `src/lib/monaco-setup.ts` y el registro de workers; el default de `@monaco-editor/react` descarga Monaco desde CDN en runtime, inaceptable en una app de escritorio. (b) Ubicación correcta de dependencias para no inflar el instalador (~90MB de `monaco-editor`). (c) Los pasos de verificación ya no afirman que `npm run build` chequea tipos — `electron-vite build` transpila con esbuild sin typecheck; la verificación real por task es vitest. (d) Anclajes de línea re-verificados contra el código el 2026-07-10 (`diff:get` en `main.ts:1673`, etc.).
+
 **Goal:** Sumar un editor de código embebido (Monaco) a Nest, navegable desde un nuevo panel "Explorer" en el Sidebar, integrado como un tipo de pane más (`aiType: 'editor'`) dentro del mecanismo de panes existente.
 
 **Architecture:** Nuevo módulo main-process `electron/fs-bridge.ts` (read/write/listDir/watch, con scoping por `worktreePath` vía `realpath`) expuesto por IPC (`fs:*`) y por `preload.ts` como `window.fs`. `EditorPane` (Monaco) y `ExplorerPanel` son componentes React nuevos que se integran al mecanismo de panes/Sidebar existente sin tocar `PaneLayoutEngine`. Ver `docs/specs/2026-07-09-code-editor-integration-design.md` para el diseño completo.
 
-**Tech Stack:** Electron (main process, Node puro) + React/TypeScript (renderer) + `chokidar` (file watching cross-plataforma) + `@monaco-editor/react` (editor) + Vitest (unit/component tests) + Playwright `_electron` (E2E, infraestructura ya existente en `e2e/`).
+**Tech Stack:** Electron (main process, Node puro) + React/TypeScript (renderer) + `chokidar` (file watching cross-plataforma) + `@monaco-editor/react` + `monaco-editor` (editor, bundleado local — nunca CDN) + Vitest (unit/component tests) + Playwright `_electron` (E2E, infraestructura ya existente en `e2e/`). Build tool: **electron-vite** (config en `electron.vite.config.ts` — no existe `vite.config.ts`).
 
 ## Global Constraints
 
@@ -16,16 +18,22 @@
 - Ningún archivo de test debe mockear `window` directamente — usar `BridgeProvider`/`useBridge()` (`src/lib/bridge.ts`), como ya hace `bridge-context.test.tsx`.
 - Los panes de editor cuentan contra el mismo `MAX_PANES` (12) / `planLimits.maxPanes` que las terminales — no se agrega lógica de conteo separada.
 - v1 explícitamente NO incluye: crear/renombrar/borrar archivos desde el Explorer, filtrado por `.gitignore`, IntelliSense/LSP real, ni multi-root workspaces (ver spec, sección "Fuera de alcance").
+- Monaco se sirve SIEMPRE desde el bundle local (`loader.config({ monaco })` en `src/lib/monaco-setup.ts`, Task 1) — ningún `<Editor>` puede montarse sin que ese módulo se haya importado en el entry (`src/main.tsx`). Nunca cargar Monaco desde CDN.
+- Ubicación de dependencias nuevas: lo que corre en el main process y se carga de `node_modules` en runtime (`chokidar`) → `dependencies`; lo que Vite bundlea en el renderer (`monaco-editor`, `@monaco-editor/react`) → `devDependencies`. Motivo: `electron-builder` empaqueta las prod deps en el instalador y `monaco-editor` pesa ~90MB que ya viven en `dist/**`.
+- `npm run build` = `electron-vite build` (esbuild): valida sintaxis, imports y bundling, **NO chequea tipos** (no hay script de typecheck en el repo). La verificación con dientes de cada task es su suite de vitest.
 
 ---
 
-### Task 1: Branch dedicada + dependencias nuevas
+### Task 1: Branch dedicada + dependencias + bootstrap offline de Monaco
 
 **Files:**
 - Modify: `package.json`
+- Create: `src/lib/monaco-setup.ts`
+- Modify: `src/main.tsx`
+- Modify: `electron.vite.config.ts`
 
 **Interfaces:**
-- Produces: `chokidar` y `@monaco-editor/react` disponibles como imports en el resto de las tareas.
+- Produces: `chokidar` importable desde `electron/` (Task 2); `@monaco-editor/react` importable desde `src/` con Monaco resuelto desde el bundle local — cualquier `<Editor>` montado después de este task funciona sin internet (Task 6).
 
 - [ ] **Step 1: Crear la branch dedicada**
 
@@ -33,24 +41,79 @@
 git checkout -b feat/code-editor-integration
 ```
 
-- [ ] **Step 2: Instalar las dependencias nuevas**
+- [ ] **Step 2: Instalar las dependencias nuevas — OJO con dónde va cada una**
 
 ```bash
-npm install chokidar @monaco-editor/react
+npm install chokidar
+npm install -D monaco-editor @monaco-editor/react
 ```
 
-Expected: `package.json` gana `chokidar` (dependencies) y `@monaco-editor/react` (dependencies) con sus versiones resueltas; `package-lock.json` se actualiza.
+Expected: `chokidar` queda en `dependencies` (corre en el main process, que `externalizeDepsPlugin` NO bundlea — se carga de `node_modules` en runtime y `electron-builder` lo empaqueta como a `node-pty`/`koffi`). `monaco-editor` y `@monaco-editor/react` quedan en `devDependencies` (Vite los bundlea en `dist/**`; si fueran prod deps, `electron-builder` metería ~90MB de `node_modules/monaco-editor` duplicados en el instalador). `package-lock.json` se actualiza.
 
-- [ ] **Step 3: Verificar que el proyecto sigue compilando**
+- [ ] **Step 3: Crear `src/lib/monaco-setup.ts` (Monaco local + workers)**
+
+Por defecto `@monaco-editor/react` descarga Monaco desde el CDN de jsdelivr en runtime — sin internet, el editor no abre. Este módulo lo reemplaza por el paquete local y registra los web workers vía imports `?worker` de Vite (patrón oficial del README de `@monaco-editor/react` para Vite; el renderer de electron-vite es un build Vite estándar):
+
+```ts
+// src/lib/monaco-setup.ts
+// Registers the locally-bundled Monaco (no CDN) and its web workers.
+// Must be imported from the renderer entry (src/main.tsx) before any
+// <Editor> from @monaco-editor/react mounts.
+import { loader } from '@monaco-editor/react'
+import * as monaco from 'monaco-editor'
+import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
+import jsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker'
+import cssWorker from 'monaco-editor/esm/vs/language/css/css.worker?worker'
+import htmlWorker from 'monaco-editor/esm/vs/language/html/html.worker?worker'
+import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker'
+
+self.MonacoEnvironment = {
+  getWorker(_workerId: string, label: string) {
+    if (label === 'json') return new jsonWorker()
+    if (label === 'css' || label === 'scss' || label === 'less') return new cssWorker()
+    if (label === 'html' || label === 'handlebars' || label === 'razor') return new htmlWorker()
+    if (label === 'typescript' || label === 'javascript') return new tsWorker()
+    return new editorWorker()
+  },
+}
+
+loader.config({ monaco })
+```
+
+Si TypeScript se queja por los imports `?worker`, agregar `/// <reference types="vite/client" />` al inicio del archivo (o verificar que ya exista un `src/vite-env.d.ts`).
+
+- [ ] **Step 4: Importar el setup en el entry del renderer**
+
+En `src/main.tsx` (el entry que carga `src/index.html:11`), agregar como PRIMER import:
+
+```ts
+import './lib/monaco-setup'
+```
+
+Va en el entry y no en `EditorPane.tsx` a propósito: así los tests de componentes (Task 6) mockean `@monaco-editor/react` con `vi.mock` y jsdom nunca intenta cargar `monaco-editor` ni los workers `?worker` (que Vitest no resuelve).
+
+- [ ] **Step 5: Pre-bundlear monaco-editor en dev**
+
+En `electron.vite.config.ts`, dentro de la sección `renderer`, agregar:
+
+```ts
+optimizeDeps: {
+  include: ['monaco-editor'],
+},
+```
+
+Evita que el dev server de Vite descubra las decenas de módulos ESM de Monaco a demanda (recarga lenta / request storm la primera vez que se abre un editor en `npm run dev`).
+
+- [ ] **Step 6: Verificar bundling**
 
 Run: `npm run build`
-Expected: build exitoso, sin errores de tipos ni de bundling por las dependencias nuevas.
+Expected: build exitoso; en `dist/assets/` aparecen chunks de workers de Monaco (archivos `*worker*.js`). Esto valida imports y bundling — NO tipos (esbuild no typechequea).
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add package.json package-lock.json
-git commit -m "chore(editor): agregar chokidar y @monaco-editor/react"
+git add package.json package-lock.json src/lib/monaco-setup.ts src/main.tsx electron.vite.config.ts
+git commit -m "chore(editor): chokidar + Monaco bundleado local con workers (sin CDN)"
 ```
 
 ---
@@ -72,7 +135,10 @@ git commit -m "chore(editor): agregar chokidar y @monaco-editor/react"
   export function writeFile(worktreePath: string, relPath: string, content: string): Promise<void>
   export function listDir(worktreePath: string, relPath: string): Promise<DirEntry[]>
   export class FsWatchRegistry {
-    watch(worktreePath: string, relPath: string, onChange: (worktreePath: string, relPath: string) => void): Promise<void>
+    // opts.depth se pasa directo a chokidar. Para carpetas usar { depth: 0 }
+    // (watchea la carpeta y sus hijos directos, SIN recursión — watchear un
+    // directorio sin depth recorre todo su subárbol, node_modules incluido).
+    watch(worktreePath: string, relPath: string, onChange: (worktreePath: string, relPath: string) => void, opts?: { depth?: number }): Promise<void>
     unwatch(worktreePath: string, relPath: string): Promise<void>
     closeAll(): Promise<void>
   }
@@ -184,6 +250,18 @@ describe('fs-bridge', () => {
     expect(changes).toEqual([])
     await registry.closeAll()
   })
+
+  it('watch() on a directory with depth 0 fires (with the DIR relPath) when a direct child is created', async () => {
+    mkdirSync(join(root, 'dir'))
+    const registry = new FsWatchRegistry()
+    const changes: string[] = []
+    await registry.watch(root, 'dir', (_wt, relPath) => changes.push(relPath), { depth: 0 })
+    await new Promise((r) => setTimeout(r, 300))
+    writeFileSync(join(root, 'dir', 'new.txt'), 'x')
+    await new Promise((r) => setTimeout(r, 500))
+    expect(changes).toContain('dir')
+    await registry.closeAll()
+  })
 })
 ```
 
@@ -290,12 +368,13 @@ export class FsWatchRegistry {
     return `${worktreePath}::${relPath}`
   }
 
-  async watch(worktreePath: string, relPath: string, onChange: FsChangeCallback): Promise<void> {
+  async watch(worktreePath: string, relPath: string, onChange: FsChangeCallback, opts?: { depth?: number }): Promise<void> {
     const key = this.key(worktreePath, relPath)
     if (this.watchers.has(key)) return
     const full = await resolveScoped(worktreePath, relPath)
     const watcher = chokidar.watch(full, {
       ignoreInitial: true,
+      depth: opts?.depth,
       awaitWriteFinish: { stabilityThreshold: 200, pollInterval: 50 },
     })
     const fire = () => onChange(worktreePath, relPath)
@@ -321,7 +400,7 @@ export class FsWatchRegistry {
 - [ ] **Step 4: Correr los tests y verificar que pasan**
 
 Run: `npx vitest run electron/__tests__/fs-bridge.test.ts`
-Expected: PASS — 11 tests (o 10 + 1 skipped si el runner no puede crear symlinks).
+Expected: PASS — 12 tests (u 11 + 1 skipped si el runner no puede crear symlinks).
 
 - [ ] **Step 5: Commit**
 
@@ -364,7 +443,7 @@ Insertar dentro de `declare global { interface Window { ... } }`, después del b
       readFile: (worktreePath: string, relPath: string) => Promise<{ ok: true; content: string } | { ok: false; error: string }>
       writeFile: (worktreePath: string, relPath: string, content: string) => Promise<{ ok: true } | { ok: false; error: string }>
       listDir: (worktreePath: string, relPath: string) => Promise<{ ok: true; entries: DirEntry[] } | { ok: false; error: string }>
-      watch: (worktreePath: string, relPath: string) => Promise<{ ok: true } | { ok: false; error: string }>
+      watch: (worktreePath: string, relPath: string, opts?: { depth?: number }) => Promise<{ ok: true } | { ok: false; error: string }>
       unwatch: (worktreePath: string, relPath: string) => Promise<void>
       onChanged: (cb: (worktreePath: string, relPath: string) => void) => () => void
     }
@@ -385,7 +464,7 @@ const fsWatchRegistry = new FsWatchRegistry()
 app.on('before-quit', () => { fsWatchRegistry.closeAll() })
 ```
 
-Agregar los handlers cerca de `diff:get` (después de la línea 1676):
+Agregar los handlers cerca de `diff:get` (el handler existente arranca en la línea 1673; agregar los nuevos justo después de su cierre):
 
 ```ts
 ipcMain.handle('fs:readFile', async (_evt, worktreePath: string, relPath: string) => {
@@ -418,10 +497,10 @@ ipcMain.handle('fs:listDir', async (_evt, worktreePath: string, relPath: string)
   }
 })
 
-ipcMain.handle('fs:watch', async (_evt, worktreePath: string, relPath: string) => {
+ipcMain.handle('fs:watch', async (_evt, worktreePath: string, relPath: string, opts?: { depth?: number }) => {
   if (!isAbsolute(worktreePath)) return { ok: false as const, error: 'worktreePath must be absolute' }
   try {
-    await fsWatchRegistry.watch(worktreePath, relPath, (wt, rp) => broadcast('fs:changed', wt, rp))
+    await fsWatchRegistry.watch(worktreePath, relPath, (wt, rp) => broadcast('fs:changed', wt, rp), opts)
     return { ok: true as const }
   } catch (err) {
     return { ok: false as const, error: err instanceof Error ? err.message : String(err) }
@@ -443,7 +522,7 @@ contextBridge.exposeInMainWorld('fs', {
   writeFile: (worktreePath: string, relPath: string, content: string) =>
     ipcRenderer.invoke('fs:writeFile', worktreePath, relPath, content),
   listDir: (worktreePath: string, relPath: string) => ipcRenderer.invoke('fs:listDir', worktreePath, relPath),
-  watch: (worktreePath: string, relPath: string) => ipcRenderer.invoke('fs:watch', worktreePath, relPath),
+  watch: (worktreePath: string, relPath: string, opts?: { depth?: number }) => ipcRenderer.invoke('fs:watch', worktreePath, relPath, opts),
   unwatch: (worktreePath: string, relPath: string) => ipcRenderer.invoke('fs:unwatch', worktreePath, relPath),
   onChanged: (cb: (worktreePath: string, relPath: string) => void) => {
     const handler = (_e: IpcRendererEvent, worktreePath: string, relPath: string) => cb(worktreePath, relPath)
@@ -453,10 +532,10 @@ contextBridge.exposeInMainWorld('fs', {
 })
 ```
 
-- [ ] **Step 4: Verificar tipos y build**
+- [ ] **Step 4: Verificar bundling**
 
 Run: `npm run build`
-Expected: build exitoso — sin errores de TS por el nuevo bloque `Window.fs` ni por los imports nuevos en `main.ts`/`preload.ts`.
+Expected: build exitoso — valida que los imports nuevos en `main.ts`/`preload.ts` resuelven y bundlean (esbuild NO chequea tipos; los errores de tipos del bloque `Window.fs` los marca el editor/LSP, revisarlos ahí antes de commitear).
 
 No hay test unitario dedicado para este glue de IPC — mismo criterio que el resto del codebase (p.ej. `diff:get` tampoco tiene test propio; lo que se testea es la lógica pura en `diff-engine.test.ts`). La cobertura de esta capa de wiring llega vía el E2E de la Task 8.
 
@@ -521,10 +600,10 @@ export const AI_CONFIG: Record<AIType, { label: string; color: string; bg: strin
 }
 ```
 
-- [ ] **Step 4: Verificar que el proyecto compila**
+- [ ] **Step 4: Verificar que nada se rompe**
 
-Run: `npm run build`
-Expected: build exitoso. Si algún `switch`/objeto exhaustivo sobre `AIType` no contempla `'editor'`, TypeScript lo marca en este paso — resolverlo agregando el caso que falte (probablemente ninguno, ya que `renderPane` en `App.tsx` usa un `? :` no exhaustivo, no un switch).
+Run: `npm run build && npx vitest run`
+Expected: build exitoso y suite existente en verde. OJO: esbuild no chequea tipos, así que la exhaustividad de `Record<AIType, ...>` (p.ej. que `AI_CONFIG` tenga la entrada `editor`) NO la valida este comando — la marca el editor/LSP; revisar que no queden diagnósticos de TS en `src/types.ts` antes de commitear. `renderPane` en `App.tsx` usa un `? :` no exhaustivo, no un switch, así que no hay otros puntos de exhaustividad que tocar.
 
 - [ ] **Step 5: Commit**
 
@@ -542,11 +621,13 @@ git commit -m "feat(editor): agregar aiType 'editor', EditorTab y campos de Pane
 - Test: `src/__tests__/components/ExplorerPanel.test.tsx`
 
 **Interfaces:**
-- Consumes: `useBridge()`/`BridgeProvider` (`src/lib/bridge.ts`), `window.fs.listDir` (Task 3), `DirEntry` (`src/types.ts`, Task 3).
+- Consumes: `useBridge()`/`BridgeProvider` (`src/lib/bridge.ts`), `window.fs.{listDir,watch,unwatch,onChanged}` (Task 3), `DirEntry` (`src/types.ts`, Task 3).
 - Produces (usado por Task 7):
   ```ts
   export function ExplorerPanel(props: { worktreePath: string | null; onFileOpen: (relPath: string) => void }): JSX.Element
   ```
+
+Requisito del spec cubierto acá: el árbol se re-suscribe a cambios de las carpetas cargadas (root + expandidas) para reflejar archivos que crean/borran los subagentes de las terminales del mismo tab. Cada carpeta se watchea con `{ depth: 0 }` — sin recursión, si no watchear una carpeta cercana al root arrastraría `node_modules` entero.
 
 - [ ] **Step 1: Escribir el test (fallando)**
 
@@ -558,24 +639,28 @@ import { BridgeProvider } from '../../lib/bridge'
 import { ExplorerPanel } from '../../components/ExplorerPanel'
 
 function makeMockBridge() {
+  let changeCb: ((wt: string, rel: string) => void) | null = null
+  const rootEntries = [
+    { name: 'src', path: 'src', isDirectory: true },
+    { name: 'README.md', path: 'README.md', isDirectory: false },
+  ]
   const fs = {
     listDir: vi.fn().mockImplementation((_wt: string, relPath: string) => {
-      if (relPath === '') {
-        return Promise.resolve({
-          ok: true,
-          entries: [
-            { name: 'src', path: 'src', isDirectory: true },
-            { name: 'README.md', path: 'README.md', isDirectory: false },
-          ],
-        })
-      }
+      if (relPath === '') return Promise.resolve({ ok: true, entries: [...rootEntries] })
       if (relPath === 'src') {
         return Promise.resolve({ ok: true, entries: [{ name: 'index.ts', path: 'src/index.ts', isDirectory: false }] })
       }
       return Promise.resolve({ ok: true, entries: [] })
     }),
+    watch: vi.fn().mockResolvedValue({ ok: true }),
+    unwatch: vi.fn().mockResolvedValue(undefined),
+    onChanged: vi.fn((cb: (wt: string, rel: string) => void) => {
+      changeCb = cb
+      return () => { changeCb = null }
+    }),
   }
-  return { fs } as unknown as Window & typeof globalThis
+  const bridge = { fs } as unknown as Window & typeof globalThis
+  return { bridge, rootEntries, fireChange: (wt: string, rel: string) => changeCb?.(wt, rel) }
 }
 
 describe('ExplorerPanel', () => {
@@ -585,14 +670,14 @@ describe('ExplorerPanel', () => {
   })
 
   it('renders the root listing', async () => {
-    const bridge = makeMockBridge()
+    const { bridge } = makeMockBridge()
     render(<BridgeProvider value={bridge}><ExplorerPanel worktreePath="/repo" onFileOpen={vi.fn()} /></BridgeProvider>)
     await waitFor(() => expect(screen.getByText('README.md')).toBeInTheDocument())
     expect(screen.getByText('src')).toBeInTheDocument()
   })
 
   it('calls onFileOpen when a file entry is clicked', async () => {
-    const bridge = makeMockBridge()
+    const { bridge } = makeMockBridge()
     const onFileOpen = vi.fn()
     render(<BridgeProvider value={bridge}><ExplorerPanel worktreePath="/repo" onFileOpen={onFileOpen} /></BridgeProvider>)
     await waitFor(() => screen.getByText('README.md'))
@@ -601,11 +686,31 @@ describe('ExplorerPanel', () => {
   })
 
   it('expands a directory and lists its children on click', async () => {
-    const bridge = makeMockBridge()
+    const { bridge } = makeMockBridge()
     render(<BridgeProvider value={bridge}><ExplorerPanel worktreePath="/repo" onFileOpen={vi.fn()} /></BridgeProvider>)
     await waitFor(() => screen.getByText('src'))
     fireEvent.click(screen.getByText('src'))
     await waitFor(() => expect(screen.getByText('index.ts')).toBeInTheDocument())
+  })
+
+  it('watches the root (depth 0) and re-lists it when a change is reported', async () => {
+    const { bridge, rootEntries, fireChange } = makeMockBridge()
+    render(<BridgeProvider value={bridge}><ExplorerPanel worktreePath="/repo" onFileOpen={vi.fn()} /></BridgeProvider>)
+    await waitFor(() => screen.getByText('README.md'))
+    expect(bridge.fs.watch).toHaveBeenCalledWith('/repo', '', { depth: 0 })
+    rootEntries.push({ name: 'NEW.txt', path: 'NEW.txt', isDirectory: false })
+    fireChange('/repo', '')
+    await waitFor(() => expect(screen.getByText('NEW.txt')).toBeInTheDocument())
+  })
+
+  it('watches an expanded directory (depth 0) and unwatches it on collapse', async () => {
+    const { bridge } = makeMockBridge()
+    render(<BridgeProvider value={bridge}><ExplorerPanel worktreePath="/repo" onFileOpen={vi.fn()} /></BridgeProvider>)
+    await waitFor(() => screen.getByText('src'))
+    fireEvent.click(screen.getByText('src'))
+    await waitFor(() => expect(bridge.fs.watch).toHaveBeenCalledWith('/repo', 'src', { depth: 0 }))
+    fireEvent.click(screen.getByText('src'))
+    await waitFor(() => expect(bridge.fs.unwatch).toHaveBeenCalledWith('/repo', 'src'))
   })
 })
 ```
@@ -619,7 +724,7 @@ Expected: FAIL — `Cannot find module '../../components/ExplorerPanel'`.
 
 ```tsx
 // src/components/ExplorerPanel.tsx
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useBridge } from '../lib/bridge'
 import type { DirEntry } from '../types'
 
@@ -632,6 +737,12 @@ export function ExplorerPanel({ worktreePath, onFileOpen }: ExplorerPanelProps) 
   const bridge = useBridge()
   const [entriesByDir, setEntriesByDir] = useState<Record<string, DirEntry[]>>({})
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
+  const entriesByDirRef = useRef(entriesByDir)
+  entriesByDirRef.current = entriesByDir
+  // Dirs we watch besides root. Collapsing a parent leaves its expanded
+  // children watched until unmount/worktree switch — bounded (depth-0
+  // watchers are cheap) and simpler than tracking the subtree.
+  const watchedDirsRef = useRef(new Set<string>())
 
   const loadDir = useCallback((relPath: string) => {
     if (!worktreePath) return
@@ -643,16 +754,36 @@ export function ExplorerPanel({ worktreePath, onFileOpen }: ExplorerPanelProps) 
   useEffect(() => {
     setEntriesByDir({})
     setExpanded({})
-    if (worktreePath) loadDir('')
-  }, [worktreePath, loadDir])
+    if (!worktreePath) return
+    loadDir('')
+    bridge.fs.watch(worktreePath, '', { depth: 0 })
+    const unsubscribe = bridge.fs.onChanged((wt, relPath) => {
+      if (wt !== worktreePath) return
+      // El watcher reporta el relPath de la CARPETA watcheada (ver Task 2);
+      // si la tenemos cargada, se re-lista.
+      if (entriesByDirRef.current[relPath] !== undefined) loadDir(relPath)
+    })
+    return () => {
+      unsubscribe()
+      bridge.fs.unwatch(worktreePath, '')
+      watchedDirsRef.current.forEach((dir) => bridge.fs.unwatch(worktreePath, dir))
+      watchedDirsRef.current.clear()
+    }
+  }, [worktreePath, loadDir, bridge])
 
   const toggleDir = useCallback((relPath: string) => {
-    setExpanded((e) => {
-      const next = { ...e, [relPath]: !e[relPath] }
-      if (next[relPath] && !entriesByDir[relPath]) loadDir(relPath)
-      return next
-    })
-  }, [entriesByDir, loadDir])
+    if (!worktreePath) return
+    const willExpand = !expanded[relPath]
+    setExpanded((e) => ({ ...e, [relPath]: willExpand }))
+    if (willExpand) {
+      if (!entriesByDirRef.current[relPath]) loadDir(relPath)
+      bridge.fs.watch(worktreePath, relPath, { depth: 0 })
+      watchedDirsRef.current.add(relPath)
+    } else {
+      bridge.fs.unwatch(worktreePath, relPath)
+      watchedDirsRef.current.delete(relPath)
+    }
+  }, [worktreePath, expanded, loadDir, bridge])
 
   if (!worktreePath) {
     return <div className="explorer-panel explorer-panel-empty">No hay repo activo</div>
@@ -692,7 +823,7 @@ Agregar estilos mínimos en `src/styles/global.css` reusando la paleta ya existe
 - [ ] **Step 4: Correr el test y verificar que pasa**
 
 Run: `npx vitest run src/__tests__/components/ExplorerPanel.test.tsx`
-Expected: PASS — 4 tests.
+Expected: PASS — 6 tests.
 
 - [ ] **Step 5: Commit**
 
@@ -721,6 +852,8 @@ git commit -m "feat(editor): componente ExplorerPanel (árbol de archivos lazy)"
     onOpenInNewPane: (relPath: string) => void
   }): JSX.Element
   ```
+
+Nota de testeo: el test mockea `@monaco-editor/react` entero con `vi.mock`. Esto funciona porque el bootstrap de Monaco (`src/lib/monaco-setup.ts`, Task 1) se importa desde `src/main.tsx` y NO desde `EditorPane.tsx` — jsdom nunca ve `monaco-editor` ni los imports `?worker` (que Vitest no resuelve). No importar `monaco-setup` desde este componente.
 
 - [ ] **Step 1: Escribir el test (fallando)**
 
@@ -1268,7 +1401,7 @@ onFileOpen={openFileInEditor}
 
 - [ ] **Step 5: Agregar la prop `onFileOpen` y montar `ExplorerPanel` en `src/components/Sidebar.tsx`**
 
-En la interfaz de props (cerca de la línea 59, antes del `}` que cierra la interfaz):
+En la interfaz de props (`interface Props` abre en la línea 21 de `Sidebar.tsx`; agregar antes del `}` que la cierra — la desestructuración de props de `Sidebar` arranca en la línea 63; `activeCellRepoPath?: string` ya existe como prop en la línea 50):
 
 ```ts
   onFileOpen: (relPath: string) => void

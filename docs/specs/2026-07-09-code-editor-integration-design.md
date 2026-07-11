@@ -1,7 +1,7 @@
 # Editor de código embebido en Nest — Design Spec
 
-**Fecha:** 2026-07-09
-**Estado:** Aprobado para pasar a plan de implementación (v1.1 — corregido el mecanismo de panes/splits y el límite de plan tras verificar el código real)
+**Fecha:** 2026-07-09 (v1.2: 2026-07-10)
+**Estado:** Aprobado para pasar a plan de implementación (v1.1 — corregido el mecanismo de panes/splits y el límite de plan tras verificar el código real; v1.2 — Monaco debe bundlearse localmente, no cargarse desde CDN, ver "Monaco offline")
 
 ## Contexto y objetivo
 
@@ -26,7 +26,7 @@ El editor se modela igual que ya se modela `browser` hoy: un valor nuevo de `AIT
 - Sidebar interno con tabs de archivos abiertos (no un pane nuevo por archivo). Cada tab tiene indicador de "cambios sin guardar" (dot). Este estado (lista de archivos abiertos, tab activa, dirty flag) vive en el propio `PaneNode` del editor (mismo array `panes` que usan las terminales), no en un store aparte.
 - "Abrir en pane nuevo" (sacar una tab a un pane aparte) es una acción de menú contextual en la tab, no un drag-and-drop de posición libre (no hay ese mecanismo en el codebase): remueve el archivo de las tabs internas del pane actual y agrega un `PaneNode` `aiType: 'editor'` nuevo con ese único archivo — mismo `addPane` que agrega una terminal.
 - **Límite de panes:** los panes de editor cuentan contra el mismo `MAX_PANES`/`planLimits.maxPanes` que las terminales. Si el usuario está en el límite del plan y clickea un archivo, ve el mismo modal de upgrade que hoy ve al intentar agregar una terminal — cero lógica nueva de conteo, decisión explícita para mantener consistencia con el resto de la app.
-- Motor de edición: **Monaco Editor** (`@monaco-editor/react`), mismo motor que VS Code. Nueva dependencia.
+- Motor de edición: **Monaco Editor** (`@monaco-editor/react` + `monaco-editor`), mismo motor que VS Code. Nuevas dependencias (ver "Monaco offline" para por qué son dos y dónde va cada una).
 - Guardado: manual, Ctrl+S / Cmd+S (Monaco resuelve la diferencia de atajo por plataforma sola). Dispara `bridge.fs.write(path, content)`.
 
 ### Flujo de apertura de archivo
@@ -56,6 +56,14 @@ fs.watch(path)               → suscripción a cambios; usada tanto por
 ```
 
 Los handlers viven en el main process (`electron/fs-bridge.ts`, nuevo módulo). **Cada path recibido se resuelve con `realpath` y se valida contra el `repoPath`/`worktreePath` correspondiente antes de tocar disco** — un pane de editor no puede leer ni escribir nada fuera del repo/worktree al que pertenece. Mismo principio de scoping que ya aplica `worktree-store.ts`, extendido a fs plano.
+
+## Monaco offline (corrección v1.2, post-research)
+
+`@monaco-editor/react` **por defecto NO bundlea Monaco: lo descarga en runtime desde el CDN de jsdelivr** vía su `loader`. La app hoy no tiene CSP (nada lo bloquearía), pero en una app de escritorio eso significa que el editor no abre sin internet y que metemos una dependencia de red en runtime. Corrección obligatoria:
+
+- Se instala también el paquete **`monaco-editor`** y se lo registra local con `loader.config({ monaco })` en un módulo de setup (`src/lib/monaco-setup.ts`) importado desde el entry del renderer (`src/main.tsx`), **antes** de que se monte cualquier `<Editor>`.
+- Los web workers de Monaco (editor + TS/JSON/CSS/HTML) se registran vía `self.MonacoEnvironment.getWorker` con imports `?worker` de Vite — patrón oficial documentado por `@monaco-editor/react` para Vite; funciona igual bajo `electron-vite` (el renderer es un build Vite estándar).
+- **Ubicación de dependencias:** `electron-builder` empaqueta las `dependencies` de `node_modules` en el instalador (así llegan `node-pty`/`koffi`). `monaco-editor` pesa ~90MB en `node_modules` y Vite ya lo bundlea en `dist/**` → **`monaco-editor` y `@monaco-editor/react` van en `devDependencies`**. `chokidar` en cambio corre en el main process, que `externalizeDepsPlugin` no bundlea (se carga de `node_modules` en runtime) → **`chokidar` va en `dependencies`**.
 
 ## Multiplataforma (Windows / macOS / Linux)
 
