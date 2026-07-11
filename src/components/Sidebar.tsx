@@ -17,6 +17,7 @@ import { terminalJoinService } from '../lib/terminalJoinService'
 import { basename } from '../lib/path'
 import { useGitInfo } from '../hooks/useGitInfo'
 import { useFixedPopover } from '../hooks/useFixedPopover'
+import { ExplorerPanel } from './ExplorerPanel'
 
 interface Props {
   expanded: boolean
@@ -57,6 +58,7 @@ interface Props {
   paneCount: number
   onLayoutChange: (id: LayoutId) => void
   onOpenTutorial?: (tourId: import('../tutorial/types').TourId) => void
+  onFileOpen: (relPath: string) => void
 }
 
 export default function Sidebar({
@@ -66,7 +68,7 @@ export default function Sidebar({
   onSnippetSend, onSnippetBroadcast, onCommandRun, onWorkspaceSave, onWorkspaceLoad, isWin,
   isTrialActive, trialDaysLeft, profileLoading, onUpgrade, onTeamsOpen, pendingInvitesCount = 0, onMyReposOpen, plan, repoPath, onRepoLink, onRepoUnlink, onJoinTerminal,
   activeCellRepoPath, onWorktreeSelect, onNewWorktree, worktreeRefreshKey,
-  layoutId, paneCount, onLayoutChange, onOpenTutorial,
+  layoutId, paneCount, onLayoutChange, onOpenTutorial, onFileOpen,
 }: Props) {
   const { branch, githubUrl, isDirty } = useGitInfo(repoPath)
   const { githubToken } = useGitHub()
@@ -527,6 +529,13 @@ export default function Sidebar({
               refreshKey={worktreeRefreshKey}
               onStartTutorial={onOpenTutorial ? () => onOpenTutorial('worktrees') : undefined}
             />
+          </div>
+        )}
+
+        {/* ── EXPLORER (árbol de archivos del worktree activo) ───── */}
+        {expanded && (
+          <div className="sidebar-explorer-wrap">
+            <ExplorerPanel worktreePath={activeCellRepoPath ?? null} onFileOpen={onFileOpen} />
           </div>
         )}
 

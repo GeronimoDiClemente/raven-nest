@@ -6,7 +6,7 @@ import {
 import { SortableContext, rectSortingStrategy } from '@dnd-kit/sortable'
 import {
   PaneNode, AIType, AI_CONFIG, SessionData, SessionPane, Workspace,
-  WorkspaceTab, LayoutId, MAX_PANES,
+  WorkspaceTab, LayoutId, MAX_PANES, EditorTab,
 } from './types'
 import { PaneLayoutEngine } from './components/PaneLayoutEngine'
 import { defaultLayoutFor, mapLegacyToPreset } from './layout/select'
@@ -14,6 +14,7 @@ import { swap } from './layout/swap'
 import { getPreset } from './layout/presets'
 import TerminalPane from './components/TerminalPane'
 import BrowserCell from './components/BrowserCell'
+import { EditorPane } from './components/EditorPane'
 import NewPaneDialog from './components/NewPaneDialog'
 import TabBar from './components/TabBar'
 import { PortsBanner } from './components/PortsBanner'
@@ -238,7 +239,8 @@ export default function App() {
 
   const addPane = useCallback((
     aiType: AIType, accountName: string, accountDir: string, borderColor: string,
-    cmd: string, customLabel?: string, customColor?: string, shellId?: string
+    cmd: string, customLabel?: string, customColor?: string, shellId?: string,
+    initial?: Partial<Pick<PaneNode, 'editorTabs' | 'activeEditorTabPath' | 'repoPath'>>,
   ) => {
     if (panesRef.current.length >= MAX_PANES) {
       setAddingPane(null)
@@ -256,6 +258,7 @@ export default function App() {
         id: generateId(), aiType, accountName, accountDir, borderColor, cmd,
         customLabel, customColor, shellId,
         repoPath: worktreePath ?? t.repoPath,
+        ...initial,
       }
       const nextPanes = [...t.panes, pane]
       // Promote layoutId if current preset is full and there's a default for the
@@ -424,6 +427,59 @@ export default function App() {
       panes: t.panes.map(p => p.id === paneId ? { ...p, url } : p),
     }))
   }, [updateActiveTab])
+
+  const updatePaneEditorTabs = useCallback((paneId: string, tabs: EditorTab[], activeEditorTabPath: string | undefined) => {
+    updateActiveTab(t => ({
+      ...t,
+      panes: t.panes.map(p => p.id === paneId ? { ...p, editorTabs: tabs, activeEditorTabPath } : p),
+    }))
+  }, [updateActiveTab])
+
+  const openFileInEditor = useCallback((relPath: string) => {
+    const worktreePath = activeCellRepoPath
+    if (!worktreePath) return
+    const focusedId = focusedPaneIdRef.current
+    const focusedPane = focusedId ? activeTab.panes.find(p => p.id === focusedId) : undefined
+    const sameWorktreeEditor = (p: PaneNode) => p.aiType === 'editor' && p.repoPath === worktreePath
+    const targetPane = focusedPane && sameWorktreeEditor(focusedPane) ? focusedPane : activeTab.panes.find(sameWorktreeEditor)
+
+    if (targetPane) {
+      updateActiveTab(t => ({
+        ...t,
+        panes: t.panes.map(p => {
+          if (p.id !== targetPane.id) return p
+          const existing = p.editorTabs ?? []
+          const tabs = existing.some(tab => tab.relPath === relPath) ? existing : [...existing, { relPath, dirty: false }]
+          return { ...p, editorTabs: tabs, activeEditorTabPath: relPath }
+        }),
+      }))
+      return
+    }
+
+    addPane('editor', '', '', AI_CONFIG.editor.color, '', undefined, undefined, undefined, {
+      editorTabs: [{ relPath, dirty: false }],
+      activeEditorTabPath: relPath,
+      repoPath: worktreePath,
+    })
+  }, [activeTab, activeCellRepoPath, updateActiveTab, addPane])
+
+  const moveEditorTabToNewPane = useCallback((paneId: string, relPath: string) => {
+    const sourcePane = activeTab.panes.find(p => p.id === paneId)
+    if (!sourcePane) return
+    updateActiveTab(t => ({
+      ...t,
+      panes: t.panes.map(p => {
+        if (p.id !== paneId) return p
+        const remaining = (p.editorTabs ?? []).filter(tab => tab.relPath !== relPath)
+        return { ...p, editorTabs: remaining, activeEditorTabPath: remaining[0]?.relPath }
+      }),
+    }))
+    addPane('editor', '', '', AI_CONFIG.editor.color, '', undefined, undefined, undefined, {
+      editorTabs: [{ relPath, dirty: false }],
+      activeEditorTabPath: relPath,
+      repoPath: sourcePane.repoPath,
+    })
+  }, [activeTab, updateActiveTab, addPane])
 
   const handlePtyStarted = useCallback((paneId: string, runningRepoPath: string | undefined) => {
     updateActiveTab(t => ({
@@ -1048,6 +1104,7 @@ export default function App() {
         paneCount={panes.length}
         onLayoutChange={handleLayoutIdChange}
         onOpenTutorial={(id) => setTutorialTour(id)}
+        onFileOpen={openFileInEditor}
       />
       <div
         ref={workspaceRef}
@@ -1078,7 +1135,18 @@ export default function App() {
                   panes={panes}
                   splitRatios={activeTab.splitRatios}
                   onResize={handleSplitResize}
-                  renderPane={(pane) => pane.aiType === 'browser'
+                  renderPane={(pane) => pane.aiType === 'editor'
+                    ? (
+                      <EditorPane
+                        key={pane.id}
+                        pane={pane}
+                        onTabsChange={(tabs, activeEditorTabPath) => updatePaneEditorTabs(pane.id, tabs, activeEditorTabPath)}
+                        onClose={() => removePane(pane.id)}
+                        onFocus={() => { setFocusedPaneId(pane.id); focusedPaneIdRef.current = pane.id }}
+                        onOpenInNewPane={(relPath) => moveEditorTabToNewPane(pane.id, relPath)}
+                      />
+                    )
+                    : pane.aiType === 'browser'
                     ? (
                       <BrowserCell
                         key={pane.id}
