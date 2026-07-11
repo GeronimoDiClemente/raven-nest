@@ -1,4 +1,4 @@
-export type AIType = 'claude' | 'gemini' | 'codex' | 'copilot' | 'opencode' | 'terminal' | 'custom' | 'browser'
+export type AIType = 'claude' | 'gemini' | 'codex' | 'copilot' | 'opencode' | 'terminal' | 'custom' | 'browser' | 'editor'
 
 export type LayoutId =
   | '1'
@@ -22,6 +22,11 @@ export interface Account {
   dir: string
 }
 
+export interface EditorTab {
+  relPath: string  // path relativo al repoPath del pane, POSIX-style
+  dirty: boolean
+}
+
 export interface PaneNode {
   id: string
   aiType: AIType
@@ -37,6 +42,8 @@ export interface PaneNode {
   url?: string          // browser only: initial url
   sessionPartition?: string  // browser only: persist:browser-<workspaceId>
   shellId?: string      // terminal panes only: which shell to spawn (Windows shell picker)
+  editorTabs?: EditorTab[]        // editor panes only: open files
+  activeEditorTabPath?: string    // editor panes only: which tab is focused
 }
 
 export interface ShellInfo {
@@ -210,6 +217,7 @@ export const AI_CONFIG: Record<AIType, { label: string; color: string; bg: strin
   terminal: { label: 'Terminal', color: '#888888', bg: '#1a1a1a', cmd: '',           noAccount: true },
   custom:   { label: 'Custom',   color: '#888888', bg: '#1a1a1a', cmd: '',           noAccount: true },
   browser:  { label: 'Browser',  color: '#0066FF', bg: '#0a1428', cmd: '',           noAccount: true },
+  editor:   { label: 'Editor',   color: '#4EC9B0', bg: '#0d1f1c', cmd: '',           noAccount: true },
 }
 
 export interface SessionPane {
