@@ -163,8 +163,23 @@ se decide junto.
 
 Casi nada del `.env` es secreto de verdad: la URL/anon key de Supabase, los client IDs de
 OAuth y la publishable key de Stripe son **públicos por diseño** (ya viajan en el binario
-de Nest; la seguridad real es RLS). Aun así, los valores se comparten por password manager
-o Doppler, **nunca por chat**.
+de Nest; la seguridad real es RLS). Aun así, los valores se comparten por Doppler,
+**nunca por chat**.
+
+### Config con Doppler (setup una sola vez)
+
+La config de entornos vive en Doppler (workplace `Nestmux`, proyecto `nest`). No hace
+falta ningún archivo `.env` local: las variables se inyectan al correr la app.
+
+1. Instalar la CLI: `brew install dopplerhq/cli/doppler` (Mac) o
+   `winget install doppler.doppler` (Windows). Gero te invita al workplace.
+2. `doppler login`
+3. En la carpeta del repo: `doppler setup --project nest --config dev`
+4. Correr la app: `doppler run -- npm run dev`
+
+El config `dev` apunta al Supabase **local** (`supabase start`), nunca a producción.
+Regla: los secretos no se imprimen en terminal, no se pegan en chats y no se commitean —
+GitHub además rechaza pushes que contengan API keys (push protection activo).
 
 - **Features locales** (panes, terminales, MCP, snippets): no necesitan `.env` — corré
   `npm run dev` y listo.
