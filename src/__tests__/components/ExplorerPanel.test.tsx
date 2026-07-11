@@ -28,6 +28,44 @@ function makeMockBridge() {
   return { bridge, rootEntries, fireChange: (wt: string, rel: string) => changeCb?.(wt, rel) }
 }
 
+// Simulates the real IPC round-trip: `watch()` only "registers" the
+// directory (adds it to `registry`) after an async delay — mirroring the
+// main-process `fs:watch` handler which awaits `resolveScoped` before
+// touching the chokidar-backed FsWatchRegistry. `unwatch()` resolves fast
+// and only removes the entry if it is ALREADY registered — mirroring the
+// main-process no-op when nothing is registered yet for that key. This
+// lets a rapid expand→collapse genuinely race unless the caller sequences
+// watch/unwatch calls per key.
+function makeRaceMockBridge() {
+  const registry = new Set<string>()
+  const opLog: string[] = []
+  const fs = {
+    listDir: vi.fn().mockImplementation((_wt: string, relPath: string) => {
+      if (relPath === '') {
+        return Promise.resolve({ ok: true, entries: [{ name: 'src', path: 'src', isDirectory: true }] })
+      }
+      return Promise.resolve({ ok: true, entries: [] })
+    }),
+    watch: vi.fn().mockImplementation((_wt: string, relPath: string) => new Promise((resolve) => {
+      setTimeout(() => {
+        registry.add(relPath)
+        opLog.push(`watch:${relPath}`)
+        resolve({ ok: true })
+      }, 10)
+    })),
+    unwatch: vi.fn().mockImplementation((_wt: string, relPath: string) => new Promise<void>((resolve) => {
+      setTimeout(() => {
+        registry.delete(relPath)
+        opLog.push(`unwatch:${relPath}`)
+        resolve()
+      }, 0)
+    })),
+    onChanged: vi.fn(() => () => {}),
+  }
+  const bridge = { fs } as unknown as Window & typeof globalThis
+  return { bridge, registry, opLog }
+}
+
 describe('ExplorerPanel', () => {
   it('shows a placeholder when there is no active worktree', () => {
     render(<ExplorerPanel worktreePath={null} onFileOpen={vi.fn()} />)
@@ -76,5 +114,28 @@ describe('ExplorerPanel', () => {
     await waitFor(() => expect(bridge.fs.watch).toHaveBeenCalledWith('/repo', 'src', { depth: 0 }))
     fireEvent.click(screen.getByText('src'))
     await waitFor(() => expect(bridge.fs.unwatch).toHaveBeenCalledWith('/repo', 'src'))
+  })
+
+  it('sequences a rapid expand-then-collapse so unwatch is not lost to an in-flight watch', async () => {
+    const { bridge, registry, opLog } = makeRaceMockBridge()
+    render(<BridgeProvider value={bridge}><ExplorerPanel worktreePath="/repo" onFileOpen={vi.fn()} /></BridgeProvider>)
+    await waitFor(() => screen.getByText('src'))
+
+    // Expand then immediately collapse, synchronously, before the mocked
+    // watch() promise for 'src' has resolved (it resolves after 10ms).
+    fireEvent.click(screen.getByText('src'))
+    fireEvent.click(screen.getByText('src'))
+
+    // Let both the watch() and unwatch() round-trips for 'src' finish.
+    await waitFor(() => {
+      expect(opLog.filter((entry) => entry.endsWith(':src'))).toHaveLength(2)
+    })
+
+    // The last operation applied to 'src' must be the unwatch — collapse
+    // wins — and the simulated registry must not still hold a watcher for
+    // a directory the UI shows as collapsed.
+    const srcOps = opLog.filter((entry) => entry.endsWith(':src'))
+    expect(srcOps[srcOps.length - 1]).toBe('unwatch:src')
+    expect(registry.has('src')).toBe(false)
   })
 })
