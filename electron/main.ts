@@ -1719,7 +1719,13 @@ ipcMain.handle('fs:watch', async (_evt, worktreePath: string, relPath: string, o
 })
 
 ipcMain.handle('fs:unwatch', async (_evt, worktreePath: string, relPath: string) => {
-  await fsWatchRegistry.unwatch(worktreePath, relPath)
+  if (!isAbsolute(worktreePath)) return { ok: false as const, error: 'worktreePath must be absolute' }
+  try {
+    await fsWatchRegistry.unwatch(worktreePath, relPath)
+    return { ok: true as const }
+  } catch (err) {
+    return { ok: false as const, error: err instanceof Error ? err.message : String(err) }
+  }
 })
 
 // Lightweight shortstat for the worktree sidebar chip. `git diff --shortstat`

@@ -490,7 +490,7 @@ declare global {
       writeFile: (worktreePath: string, relPath: string, content: string) => Promise<{ ok: true } | { ok: false; error: string }>
       listDir: (worktreePath: string, relPath: string) => Promise<{ ok: true; entries: DirEntry[] } | { ok: false; error: string }>
       watch: (worktreePath: string, relPath: string, opts?: { depth?: number }) => Promise<{ ok: true } | { ok: false; error: string }>
-      unwatch: (worktreePath: string, relPath: string) => Promise<void>
+      unwatch: (worktreePath: string, relPath: string) => Promise<{ ok: true } | { ok: false; error: string }>
       onChanged: (cb: (worktreePath: string, relPath: string) => void) => () => void
     }
     ide: {
