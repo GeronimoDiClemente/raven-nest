@@ -36,6 +36,9 @@ export default defineConfig({
         }
       }
     },
-    plugins: [react()]
+    plugins: [react()],
+    optimizeDeps: {
+      include: ['monaco-editor'],
+    }
   }
 })
