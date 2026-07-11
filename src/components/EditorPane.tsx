@@ -27,6 +27,35 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
   contentsRef.current = contents
   const tabsRef = useRef(tabs)
   tabsRef.current = tabs
+  const activePathRef = useRef(activePath)
+  activePathRef.current = activePath
+
+  // watch()/unwatch() are un-awaited async IPC round-trips into a single,
+  // non-ref-counted registry keyed by `worktreePath::relPath` (see
+  // electron/fs-bridge.ts FsWatchRegistry). A watch effect that re-runs
+  // (cleanup+setup) before the prior unwatch()'s async teardown has deleted
+  // its key can race: watch()'s synchronous dedupe-check sees the key still
+  // present and no-ops, then the in-flight unwatch() finishes and deletes it
+  // anyway — leaving the file silently unwatched even though this component
+  // believes it's watched. Ported from ExplorerPanel.tsx, which hit the same
+  // bug class on directory watches: sequence watch/unwatch calls per key so
+  // the last toggle always wins.
+  const pendingOpsRef = useRef(new Map<string, Promise<void>>())
+
+  const sequencedOp = useCallback((key: string, op: () => Promise<unknown>) => {
+    const prior = pendingOpsRef.current.get(key) ?? Promise.resolve()
+    const next = prior.then(() => op()).then(() => {}, () => {})
+    pendingOpsRef.current.set(key, next)
+    return next
+  }, [])
+
+  const sequencedWatch = useCallback((wt: string, relPath: string) => {
+    return sequencedOp(`${wt}::${relPath}`, () => bridge.fs.watch(wt, relPath))
+  }, [bridge, sequencedOp])
+
+  const sequencedUnwatch = useCallback((wt: string, relPath: string) => {
+    return sequencedOp(`${wt}::${relPath}`, () => bridge.fs.unwatch(wt, relPath))
+  }, [bridge, sequencedOp])
 
   useEffect(() => {
     if (!worktreePath) return
@@ -46,7 +75,7 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
 
   useEffect(() => {
     if (!worktreePath) return
-    tabs.forEach((tab) => bridge.fs.watch(worktreePath, tab.relPath))
+    tabs.forEach((tab) => sequencedWatch(worktreePath, tab.relPath))
     const unsubscribe = bridge.fs.onChanged((changedWorktree, relPath) => {
       if (changedWorktree !== worktreePath) return
       const tab = tabsRef.current.find((t) => t.relPath === relPath)
@@ -71,17 +100,36 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
     })
     return () => {
       unsubscribe()
-      tabs.forEach((tab) => bridge.fs.unwatch(worktreePath, tab.relPath))
+      tabs.forEach((tab) => sequencedUnwatch(worktreePath, tab.relPath))
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tabs, worktreePath, bridge])
+  }, [tabs, worktreePath, bridge, sequencedWatch, sequencedUnwatch])
 
+  // Reads current tabs/activePath via refs instead of closing over the
+  // `tabs`/`activePath` render-scoped variables. This matters for callers
+  // that resolve asynchronously after the render that created them (see
+  // `save()` below): without it, an in-flight save's completion would
+  // clobber onTabsChange with a stale tabs/activePath snapshot from before
+  // the user closed or switched tabs while the save was in flight. Refs are
+  // kept in sync every render (see tabsRef/activePathRef above), so
+  // synchronous callers (e.g. handleChange) see identical behavior to
+  // before — they read the ref at the time they're invoked, same as they'd
+  // have read the closure.
   const setDirty = useCallback((relPath: string, dirty: boolean) => {
-    onTabsChange(tabs.map((t) => (t.relPath === relPath ? { ...t, dirty } : t)), activePath)
-  }, [tabs, activePath, onTabsChange])
+    onTabsChange(tabsRef.current.map((t) => (t.relPath === relPath ? { ...t, dirty } : t)), activePathRef.current)
+  }, [onTabsChange])
 
   const handleChange = useCallback((relPath: string, value: string | undefined) => {
     setContents((c) => ({ ...c, [relPath]: value ?? '' }))
+    // Only flip dirty (and thus only churn a new tabs array reference via
+    // onTabsChange) if the tab isn't ALREADY dirty. Without this, every
+    // keystroke calls setDirty(relPath, true) unconditionally, .map()
+    // returns a new array reference every time, and the parent hands this
+    // component a new `tabs` prop reference on every keystroke — re-running
+    // the watch effect's cleanup+setup for no state-meaningful reason and
+    // opening the watch/unwatch race window on every keystroke.
+    const tab = tabsRef.current.find((t) => t.relPath === relPath)
+    if (tab?.dirty) return
     setDirty(relPath, true)
   }, [setDirty])
 
@@ -107,9 +155,18 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
   const reloadFromDisk = useCallback(async (relPath: string) => {
     if (!worktreePath) return
     const res = await bridge.fs.readFile(worktreePath, relPath)
-    if (res.ok) setContents((c) => ({ ...c, [relPath]: res.content }))
-    setConflicts((c) => ({ ...c, [relPath]: false }))
-    setDirty(relPath, false)
+    if (res.ok) {
+      setContents((c) => ({ ...c, [relPath]: res.content }))
+      setConflicts((c) => ({ ...c, [relPath]: false }))
+      setDirty(relPath, false)
+    } else {
+      // The reload didn't actually happen — the conflict is still real, and
+      // the in-memory content is unchanged (still whatever it was before the
+      // click), so `conflicts`/`dirty` must NOT be cleared. Same
+      // window.alert precedent as save()'s failure path (no global toast
+      // service exists — see design spec).
+      window.alert(`No se pudo recargar ${relPath} desde disco: ${res.error}`)
+    }
   }, [worktreePath, bridge, setDirty])
 
   const closeTab = useCallback((relPath: string) => {
