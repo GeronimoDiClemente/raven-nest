@@ -9336,4 +9336,14 @@ body.platform-mac .tabbar { padding-right: 116px; }
 .explorer-panel-empty { padding: 8px; opacity: 0.6; }
 .explorer-entry { display: flex; align-items: center; gap: 4px; padding: 2px 4px; cursor: pointer; }
 .explorer-entry:hover { background: rgba(255, 255, 255, 0.06); }
+
+/* ── EditorPane (Monaco) ─────────────────────────────────────── */
+
+.editor-pane { display: flex; flex-direction: column; height: 100%; }
+.editor-pane-tabs { display: flex; border-bottom: 1px solid rgba(255,255,255,0.1); }
+.editor-tab { display: flex; align-items: center; gap: 4px; padding: 4px 8px; cursor: pointer; font-size: 12px; }
+.editor-tab.active { background: rgba(255,255,255,0.08); }
+.editor-tab-dirty { color: #4EC9B0; }
+.editor-conflict-banner { display: flex; align-items: center; gap: 8px; padding: 6px 8px; background: #402a1a; font-size: 12px; }
+.editor-file-unavailable { display: flex; align-items: center; gap: 8px; padding: 16px; opacity: 0.8; font-size: 12px; }
 .explorer-entry-icon { width: 10px; opacity: 0.7; }
