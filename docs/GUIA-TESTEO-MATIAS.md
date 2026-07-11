@@ -178,6 +178,21 @@ La regla de oro de la verificación: **evidencia antes de afirmaciones**. Nunca 
 - **Ojo con las races del workflow de release**: el push a main puede pisar la release en curso. Si hay una release corriendo, coordiná el merge (preguntá antes de mergear a main durante una release).
 - Las deprecaciones se planifican por versión: se deja lo viejo read-only una versión (v1.2) y se dropea en la siguiente (v1.3). Si tocás schema o formatos persistidos, seguí ese patrón.
 
+### Mergear no es releasear
+
+- Tu PR aprobado y con checks verdes **se mergea ya** — no se deja esperando para
+  "juntarlo" con otros. Un PR aprobado sin mergear solo acumula conflictos. `main`
+  siempre puede ir adelante de la última release; nadie recibe nada hasta que se
+  corta versión.
+- **Las releases las corta Gero en tandas**: los fixes se van juntando en un patch
+  (vX.Y.Z+1), los features en un minor (vX.Y+1.0). Cada release buildea 3 plataformas
+  y les baja el update a todos los usuarios — por eso no hay una release por PR.
+  Tu laburo termina en el merge.
+- **Excepción**: un fix crítico (seguridad, crash masivo, pérdida de datos) sale solo
+  e inmediato. Si el tuyo es de esos, avisale a Gero apenas abras el PR.
+- El changelog sale del squash: **el título de tu PR ES el renglón de las release
+  notes** (`git log --oneline` entre tags) — otra razón para escribirlo bien.
+
 ## Stack y frameworks
 
 Nest es una app de escritorio Electron (v1.3.1, Node >= 20.19), todo en **TypeScript 5.7 strict**.
