@@ -349,6 +349,11 @@ declare global {
     appFlags?: {
       e2eBypass: boolean
     }
+    // Test-only hook, installed by App.tsx only when appFlags.e2eBypass is
+    // true. Lets Playwright link a repo to the active tab without driving
+    // the native OS folder-picker dialog (window.dialog.openFolder), which
+    // is not automatable.
+    __e2e_linkRepo?: (path: string) => void
     windowControls: {
       send: (action: 'minimize' | 'maximize' | 'close') => void
       onShown: (callback: () => void) => void

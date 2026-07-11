@@ -313,6 +313,23 @@ export default function App() {
     }))
   }, [updateActiveTab])
 
+  // E2E-only bypass for handleRepoLink's native folder dialog (not
+  // automatable via Playwright). Mirrors the tab-update half of
+  // handleRepoLink; skips the pty cd-push, which is irrelevant for tests
+  // that link a fresh repo before any pane exists. Gated behind the same
+  // appFlags.e2eBypass flag (RAVEN_E2E=1) used for auth bypass.
+  useEffect(() => {
+    if (!window.appFlags?.e2eBypass) return
+    window.__e2e_linkRepo = (path: string) => {
+      updateActiveTab(t => ({
+        ...t,
+        repoPath: path,
+        panes: t.panes.map(p => ({ ...p, repoPath: path })),
+      }))
+    }
+    return () => { delete window.__e2e_linkRepo }
+  }, [updateActiveTab])
+
   const [worktreeRefreshKey, setWorktreeRefreshKey] = useState(0)
 
   const handleWorktreeSelect = useCallback(async (worktreePath: string) => {
