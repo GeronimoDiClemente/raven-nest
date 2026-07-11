@@ -1,6 +1,6 @@
 // electron/fs-bridge.ts
 import { promises as fsp } from 'fs'
-import { resolve, sep } from 'path'
+import { basename, dirname, join, resolve, sep } from 'path'
 import chokidar, { FSWatcher } from 'chokidar'
 
 export interface DirEntry {
@@ -42,18 +42,67 @@ async function assertReadableAsText(full: string, relPath: string): Promise<void
 async function resolveScoped(worktreePath: string, relPath: string): Promise<string> {
   const root = await fsp.realpath(worktreePath)
   const candidate = resolve(root, relPath)
-  let real: string
-  try {
-    real = await fsp.realpath(candidate)
-  } catch {
-    // Target may not exist yet (e.g. about to be written) — the resolved
-    // (non-realpath'd) candidate is still checked against `root` below.
-    real = candidate
-  }
   const rootWithSep = root.endsWith(sep) ? root : root + sep
-  if (real !== root && !real.startsWith(rootWithSep)) {
-    throw new ScopeViolationError(worktreePath, relPath)
+
+  const assertWithinRoot = (p: string): void => {
+    if (p !== root && !p.startsWith(rootWithSep)) {
+      throw new ScopeViolationError(worktreePath, relPath)
+    }
   }
+
+  // Fast path: the whole candidate exists on disk. realpath() resolves every
+  // symlink in it (including the leaf), so a direct string-prefix check
+  // against `root` is safe here.
+  try {
+    const real = await fsp.realpath(candidate)
+    assertWithinRoot(real)
+    return real
+  } catch (err) {
+    if (!(err instanceof Error) || (err as NodeJS.ErrnoException).code !== 'ENOENT') throw err
+  }
+
+  // realpath() failed because the candidate — or some ancestor of it —
+  // doesn't exist yet. realpath() cannot resolve a path unless the ENTIRE
+  // path exists, so we can't just trust the un-resolved candidate string:
+  // an EXISTING intermediate directory earlier in the path could be a
+  // symlink pointing outside `root`, and the raw candidate string would
+  // still textually start with `root` even though the OS would follow that
+  // symlink at write time. So: walk up from the candidate to the nearest
+  // ancestor that actually exists (even as a symlink — lstat, not stat, so
+  // we don't get fooled by a *broken* symlink reading as "missing"),
+  // realpath just that existing ancestor to flush out any symlinks in it,
+  // verify the result is inside `root`, and only then re-append the
+  // remaining path segments — which are guaranteed not to exist yet, so
+  // they cannot themselves be symlinks.
+  const missingSegments: string[] = []
+  let ancestor = candidate
+  while (ancestor !== root) {
+    const parent = dirname(ancestor)
+    if (parent === ancestor) {
+      // Walked all the way to the filesystem root without ever reaching
+      // `root` — relPath resolves entirely outside the worktree.
+      throw new ScopeViolationError(worktreePath, relPath)
+    }
+    let exists = true
+    try {
+      await fsp.lstat(ancestor)
+    } catch (statErr) {
+      if (statErr instanceof Error && (statErr as NodeJS.ErrnoException).code === 'ENOENT') {
+        exists = false
+      } else {
+        throw statErr
+      }
+    }
+    if (exists) break
+    missingSegments.unshift(basename(ancestor))
+    ancestor = parent
+  }
+
+  const realAncestor = ancestor === root ? root : await fsp.realpath(ancestor)
+  assertWithinRoot(realAncestor)
+
+  const real = missingSegments.length > 0 ? join(realAncestor, ...missingSegments) : realAncestor
+  assertWithinRoot(real)
   return real
 }
 

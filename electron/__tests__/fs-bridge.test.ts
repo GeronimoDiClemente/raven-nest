@@ -76,6 +76,22 @@ describe('fs-bridge', () => {
     cleanupTmp(outside)
   })
 
+  it('rejects a write through a symlinked intermediate directory that points outside the worktree, even when the leaf file does not exist yet', async ({ skip }) => {
+    const outside = makeTmpDir('fs-bridge-outside-')
+    try {
+      symlinkSync(outside, join(root, 'symlinkedDir'), 'junction')
+    } catch {
+      // Creating filesystem symlinks needs elevated privileges on some Windows
+      // configurations (no Developer Mode, non-admin). Skip rather than fail
+      // CI on a platform limitation unrelated to the scoping logic itself.
+      cleanupTmp(outside)
+      skip()
+      return
+    }
+    await expect(writeFile(root, 'symlinkedDir/newfile.txt', 'pwned')).rejects.toThrow(ScopeViolationError)
+    cleanupTmp(outside)
+  })
+
   it('watch() fires onChange when the watched file is modified', async () => {
     writeFileSync(join(root, 'watched.txt'), 'v1')
     const registry = new FsWatchRegistry()
@@ -102,7 +118,7 @@ describe('fs-bridge', () => {
     await registry.closeAll()
   })
 
-  it('watch() on a directory with depth 0 fires (with the DIR relPath) when a direct child is created', async () => {
+  it('watch() on a directory with depth 0 fires (with the DIR relPath) when a direct child is created, but not for a grandchild two levels down', async () => {
     mkdirSync(join(root, 'dir'))
     const registry = new FsWatchRegistry()
     const changes: string[] = []
@@ -111,6 +127,19 @@ describe('fs-bridge', () => {
     writeFileSync(join(root, 'dir', 'new.txt'), 'x')
     await new Promise((r) => setTimeout(r, 500))
     expect(changes).toContain('dir')
+
+    // depth: 0 must NOT recurse — a change two levels below the watched dir
+    // should never surface, proving depth actually limits recursion rather
+    // than the assertion above merely being satisfied by an unlimited-depth
+    // watcher too. Creating `nested` itself is a direct child, so let it
+    // settle first — the assertion below only covers the grandchild.
+    mkdirSync(join(root, 'dir', 'nested'))
+    await new Promise((r) => setTimeout(r, 500))
+    const changesBeforeGrandchild = changes.length
+    writeFileSync(join(root, 'dir', 'nested', 'grandchild.txt'), 'y')
+    await new Promise((r) => setTimeout(r, 500))
+    expect(changes.length).toBe(changesBeforeGrandchild)
+
     await registry.closeAll()
   })
 })
