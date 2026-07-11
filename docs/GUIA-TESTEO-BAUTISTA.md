@@ -19,10 +19,11 @@ doppler login                        # Gero te invita al workplace Nestmux
 doppler setup --project nest --config dev
 ```
 
-**Tu área casi no toca la nube**: panes, terminales, sesiones y el editor son 100%
-locales (Electron main process + renderer). Para la mayoría de tu trabajo ni siquiera
-necesitás Docker/Supabase — con `npm run dev` alcanza. Doppler es para cuando toques
-algo que cruce con features cloud.
+**El setup de Doppler se hace el día uno, igual que todo el equipo**, y la app se corre
+SIEMPRE con `doppler run -- npm run dev` — una sola manera de laburar para todos, sin
+archivos `.env`. Dicho eso, tu área casi no toca la nube: panes, terminales, sesiones y
+el editor son 100% locales (Electron main process + renderer), así que Docker/Supabase
+solo lo vas a necesitar si tocás algo que cruce con features cloud.
 
 ## El ciclo de trabajo diario
 
