@@ -23,7 +23,12 @@ import { useGitInfo } from '../hooks/useGitInfo'
 import { BUILTIN_CATALOG } from '../lib/plugins/builtinCatalog'
 import { getAdapter, hasAdapter } from '../integrations/registry'
 import { IntegrationPanelShell } from './IntegrationPanel/IntegrationPanelShell'
+import MyTicketsView from './IntegrationPanel/MyTicketsView'
 import { captureTerminalOutput } from '../integrations/terminalCapture'
+
+// Plugins with a TicketProvider registered in main (electron/integrations/register.ts):
+// only these get the "My tickets" toggle inside their embedded panel.
+const TICKET_PLUGINS = new Set(['jira', 'linear', 'github'])
 
 interface MyReposPanelProps {
   onClose: () => void
@@ -37,6 +42,8 @@ interface MyReposPanelProps {
   activeRepoPath: string | null
   /** Pane currently focused in the terminal grid — feeds the "attach terminal output" action of an embedded integration panel. */
   focusedPaneId: string | null
+  /** Opens the add-pane flow on a freshly created worktree (App.tsx setAddingPane). */
+  onOpenWorktree?: (worktreePath: string) => void
 }
 
 type Section = 'activity' | 'repos' | 'issues' | 'standup' | 'integrations'
@@ -46,7 +53,7 @@ type SectionState = Section | IntegrationSection
 type ReposView = 'list' | 'prs' | 'pr-detail'
 type IssuesView = 'repo-select' | 'list' | 'detail'
 
-export default function MyReposPanel({ onClose, githubToken, githubLogin, onConnectGitHub, onOpenRepoTerminal, onStartTutorial, activeRepoPath, focusedPaneId }: MyReposPanelProps) {
+export default function MyReposPanel({ onClose, githubToken, githubLogin, onConnectGitHub, onOpenRepoTerminal, onStartTutorial, activeRepoPath, focusedPaneId, onOpenWorktree }: MyReposPanelProps) {
   const { repos, loading, refresh, addRepo, updateLocalPath, removeRepo } = useUserRepos()
   const { notifications, unreadCount, markAsRead } = useGitHubNotifications(githubToken)
   const { gitlabLogin, gitlabToken } = useGitlab()
@@ -104,6 +111,9 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
     () => (activeIntegrationId ? getAdapter(activeIntegrationId) : null),
     [activeIntegrationId],
   )
+  // 'panel' = the adapter's IntegrationPanelShell; 'tickets' = My tickets list.
+  const [integrationView, setIntegrationView] = useState<'panel' | 'tickets'>('panel')
+  useEffect(() => { setIntegrationView('panel') }, [activeIntegrationId])
   // Solo consultar git cuando hay un panel de integración activo: git:info es
   // IPC síncrono en main (execSync x3) y useGitInfo lo re-dispara en cada
   // focus de la ventana. Sin repoPath, el hook no llama a window.git.info.
@@ -413,11 +423,36 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
 
             {activeIntegrationId && activeIntegrationAdapter && (
               <div className="ip-embedded">
-                <IntegrationPanelShell
-                  adapter={activeIntegrationAdapter}
-                  worktreeContext={{ repoPath: activeRepoPath, branch: activeRepoBranch ?? null }}
-                  getTerminalOutput={() => captureTerminalOutput(focusedPaneId)}
-                />
+                {TICKET_PLUGINS.has(activeIntegrationId) && (
+                  <div className="tk-toggle">
+                    <button
+                      className={`tk-toggle-btn${integrationView === 'panel' ? ' active' : ''}`}
+                      onClick={() => setIntegrationView('panel')}
+                    >
+                      Panel
+                    </button>
+                    <button
+                      className={`tk-toggle-btn${integrationView === 'tickets' ? ' active' : ''}`}
+                      onClick={() => setIntegrationView('tickets')}
+                    >
+                      My tickets
+                    </button>
+                  </div>
+                )}
+                {integrationView === 'tickets' && TICKET_PLUGINS.has(activeIntegrationId) ? (
+                  <MyTicketsView
+                    pluginId={activeIntegrationId}
+                    repoPath={activeRepoPath}
+                    githubLogin={githubLogin}
+                    onOpenWorktree={(path) => onOpenWorktree?.(path)}
+                  />
+                ) : (
+                  <IntegrationPanelShell
+                    adapter={activeIntegrationAdapter}
+                    worktreeContext={{ repoPath: activeRepoPath, branch: activeRepoBranch ?? null }}
+                    getTerminalOutput={() => captureTerminalOutput(focusedPaneId)}
+                  />
+                )}
               </div>
             )}
 
