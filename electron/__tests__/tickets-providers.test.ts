@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import { createJiraTicketProvider } from '../integrations/tickets-jira'
+import { createLinearTicketProvider } from '../integrations/tickets-linear'
 import type { PanelAdapterDeps } from '../integration-panels'
 
 // Jira creds are the same JSON blob the milestone-2 adapter stores in
@@ -54,5 +55,41 @@ describe('JiraTicketProvider', () => {
     const post = calls.find(c => c[1]?.method === 'POST')
     expect(post?.[0]).toContain('/rest/api/3/issue/10001/transitions')
     expect(JSON.parse(post?.[1]?.body as string)).toEqual({ transition: { id: '41' } })
+  })
+})
+
+describe('LinearTicketProvider', () => {
+  it('lista assigned issues del viewer', async () => {
+    const d = deps({
+      'api.linear.app': { data: { viewer: { assignedIssues: { nodes: [{
+        id: 'uuid-1', identifier: 'ENG-42', title: 'Ship it',
+        url: 'https://linear.app/acme/issue/ENG-42',
+        state: { type: 'started' },
+        description: 'the spec',
+        comments: { nodes: [{ user: { name: 'Bau' }, body: 'dale' }] },
+      }] } } } },
+    })
+    const p = createLinearTicketProvider(d)
+    const t = await p.listMyTickets()
+    expect(t[0]).toMatchObject({ key: 'ENG-42', providerId: 'uuid-1', state: 'in_progress' })
+    expect(t[0].context).toContain('the spec')
+    expect(t[0].context).toContain('Bau')
+  })
+
+  it('transition muta el estado buscando el workflow state del team', async () => {
+    const d = deps({
+      'api.linear.app': { data: {
+        issue: { team: { states: { nodes: [
+          { id: 's-review', type: 'started', name: 'In Review' },
+          { id: 's-done', type: 'completed', name: 'Done' },
+        ] } } },
+        issueUpdate: { success: true },
+      } },
+    })
+    const p = createLinearTicketProvider(d)
+    await p.transition('uuid-1', 'done')
+    const calls = (d.fetch as ReturnType<typeof vi.fn>).mock.calls
+    expect(calls.length).toBeGreaterThanOrEqual(2) // query states + mutation
+    expect(String(calls.at(-1)?.[1]?.body)).toContain('s-done')
   })
 })
