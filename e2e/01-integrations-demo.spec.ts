@@ -6,6 +6,43 @@ import { launchHarness, teardown, expect } from './helpers/harness'
 
 const SHOTS = process.env.SMOKE_SHOTS || '/tmp/ip-smoke'
 
+// Smoke del ticket loop (H3): la vista "My tickets" renderiza sin crash.
+// El adapter Demo no está en TICKET_PLUGINS (solo jira/linear/github tienen
+// ticket provider), así que instalamos Jira sin credenciales: tickets:list
+// falla en main, TicketLoop lo captura y devuelve [] → estado vacío estable.
+test('ticket loop: vista My tickets renderiza sin crash (Jira sin creds → estado vacío)', async () => {
+  const h = await launchHarness({ withRepo: false })
+  const { page } = h
+  try {
+    // My Repos → Integrations → instalar Jira
+    await page.locator('.sidebar-item', { hasText: 'My Repos' }).first().click()
+    await expect(page.locator('.teams-workspace')).toBeVisible()
+    await page.locator('.tw-nav-btn', { hasText: 'Integrations' }).click()
+    await expect(page.locator('section[aria-label="Available"]')).toBeVisible()
+    const jiraCard = page.locator('.integration-card', { hasText: 'Jira' })
+    await jiraCard.getByRole('button', { name: 'Install' }).click()
+    await expect(jiraCard.getByRole('button', { name: 'Remove' })).toBeVisible()
+
+    // Abrir el panel de Jira desde el nav → aparece el toggle Panel / My tickets
+    const installedGroup = page.getByRole('group', { name: 'Installed' })
+    await installedGroup.locator('.tw-nav-btn', { hasText: 'Jira' }).click()
+    await expect(page.locator('.tk-toggle')).toBeVisible()
+    await page.screenshot({ path: `${SHOTS}/08-tk-toggle.png` })
+
+    // Cambiar a "My tickets" → sin creds la lista resuelve vacía, sin crash
+    await page.locator('.tk-toggle-btn', { hasText: 'My tickets' }).click()
+    await expect(page.locator('.tk-empty')).toHaveText('No open tickets assigned to you')
+    await page.screenshot({ path: `${SHOTS}/09-tk-empty.png` })
+
+    // Limpieza: desinstalar Jira para no dejar estado colgado
+    await page.locator('.tw-nav-btn', { hasText: 'Integrations' }).click()
+    await page.locator('.integration-card', { hasText: 'Jira' }).getByRole('button', { name: 'Remove' }).click()
+    await expect(page.getByRole('group', { name: 'Installed' })).toHaveCount(0)
+  } finally {
+    await teardown(h)
+  }
+})
+
 test('integrations dentro de My Repos: instalar Demo → nav → panel → acciones → compose → desinstalar', async () => {
   const h = await launchHarness({ withRepo: false })
   const { page } = h

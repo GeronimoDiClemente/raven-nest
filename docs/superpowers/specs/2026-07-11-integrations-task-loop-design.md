@@ -1,7 +1,7 @@
 # Integrations v3 — Task Loop, motores y bus de eventos
 
 **Fecha**: 2026-07-11
-**Estado**: aprobado en conversación (Gero + Claude), pendiente de plan de implementación
+**Estado**: aprobado en conversación (Gero + Claude). **H3 (ticket loop) implementado** en `feat/integrations` (plan `2026-07-12-h3-ticket-loop.md`, Tasks A–K); H4+ pendientes.
 **Base**: hito 1 (shell + mock) y hito 2 (adapters reales Slack/GitHub/Jira/Notion) ya mergeados en `feat/integrations`.
 **Research**: 5 informes (task→branch→PR, Slack, GitHub, Notion, Calendar) — conclusiones incorporadas acá.
 
