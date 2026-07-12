@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { createJiraTicketProvider } from '../integrations/tickets-jira'
 import { createLinearTicketProvider } from '../integrations/tickets-linear'
+import { createGitHubTicketProvider } from '../integrations/tickets-github'
 import type { PanelAdapterDeps } from '../integration-panels'
 
 // Jira creds are the same JSON blob the milestone-2 adapter stores in
@@ -91,5 +92,37 @@ describe('LinearTicketProvider', () => {
     const calls = (d.fetch as ReturnType<typeof vi.fn>).mock.calls
     expect(calls.length).toBeGreaterThanOrEqual(2) // query states + mutation
     expect(String(calls.at(-1)?.[1]?.body)).toContain('s-done')
+  })
+})
+
+describe('GitHubTicketProvider', () => {
+  it('lista issues asignados (excluye PRs) con contexto de comments', async () => {
+    const d = deps({
+      '/issues?filter=assigned': [
+        { number: 7, id: 1, title: 'Bug X', state: 'open',
+          html_url: 'https://github.com/acme/app/issues/7',
+          repository: { full_name: 'acme/app' },
+          body: 'repro steps', comments: 0, pull_request: undefined },
+        { number: 8, id: 2, title: 'soy un PR', state: 'open',
+          html_url: 'x', repository: { full_name: 'acme/app' },
+          body: '', comments: 0, pull_request: { url: 'x' } },
+      ],
+    })
+    const p = createGitHubTicketProvider(d)
+    const t = await p.listMyTickets()
+    expect(t).toHaveLength(1)
+    expect(t[0]).toMatchObject({ key: 'acme/app#7', providerId: 'acme/app#7', state: 'todo' })
+    expect(t[0].context).toContain('repro steps')
+  })
+
+  it('transition done cierra el issue; in_progress/in_review son no-op', async () => {
+    const d = deps({ '/repos/acme/app/issues/7': { ok: true } })
+    const p = createGitHubTicketProvider(d)
+    await p.transition('acme/app#7', 'in_progress') // no-op
+    await p.transition('acme/app#7', 'done')
+    const calls = (d.fetch as ReturnType<typeof vi.fn>).mock.calls
+    expect(calls).toHaveLength(1)
+    expect(calls[0][1]?.method).toBe('PATCH')
+    expect(JSON.parse(calls[0][1]?.body as string)).toEqual({ state: 'closed' })
   })
 })
