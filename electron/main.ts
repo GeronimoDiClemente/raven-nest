@@ -136,7 +136,10 @@ import { PluginsStore } from './plugins-store'
 import { PluginCredentialStore } from './plugin-credentials'
 import { runPluginAction } from './plugin-actions'
 import { callPanel, type PanelAdapterDeps } from './integration-panels'
-import { registerAllPanelAdapters } from './integrations/register'
+import { registerAllPanelAdapters, registerAllTicketProviders } from './integrations/register'
+import { ticketLoop } from './ticket-loop'
+import { ticketBranchName } from './integrations/branch-name'
+import type { Ticket } from './integrations/ticket-types'
 
 const ptyManager = new PtyManager()
 const accountStore = new AccountStore()
@@ -2238,13 +2241,55 @@ ipcMain.handle('pluginActions:run', (_e, id: string, actionId: string, params) =
 // nunca ve el token, solo el resultado plano del adapter server-side
 // registrado en electron/integrations/register.ts (Fase 2 del plan).
 registerAllPanelAdapters()
-ipcMain.handle('plugins:panel:call', (_e, pluginId: string, method: string, args: unknown[]) => {
-  const deps: PanelAdapterDeps = {
-    getToken: (id) => pluginCreds.getToken(id),
-    getConfig: (id) => pluginsStore.list().find(p => p.pluginId === id)?.config ?? {},
-    fetch,
+registerAllTicketProviders()
+
+// Single source of adapter deps (tokens/config/fetch) shared by the panel
+// host and the ticket loop — tokens never leave the main process.
+const panelDeps = (): PanelAdapterDeps => ({
+  getToken: (id) => pluginCreds.getToken(id),
+  getConfig: (id) => pluginsStore.list().find(p => p.pluginId === id)?.config ?? {},
+  fetch,
+})
+
+ipcMain.handle('plugins:panel:call', (_e, pluginId: string, method: string, args: unknown[]) =>
+  callPanel(pluginId, method, args ?? [], panelDeps()))
+
+// === Ticket loop IPC (H3 Motor 1) ===
+ipcMain.handle('tickets:list', (_e, pluginId: string) => {
+  if (typeof pluginId !== 'string') return []
+  return ticketLoop.list(pluginId, panelDeps())
+})
+
+ipcMain.handle('tickets:branchName', (_e, user: string, key: string, title: string) =>
+  ticketBranchName(String(user ?? ''), String(key ?? ''), String(title ?? '')))
+
+// Called AFTER worktree:create returned ok: writes TASK.md with the ticket
+// context and fires the in_progress transition. worktreePath comes from the
+// worktree:create return (meta.path) — validate it exists and is a dir.
+ipcMain.handle('tickets:startWork', async (_e, args: {
+  pluginId: string; ticket: unknown; branch: string; worktreePath: string
+}) => {
+  const { pluginId, ticket, branch, worktreePath } = args ?? {}
+  if (typeof pluginId !== 'string' || typeof branch !== 'string' || typeof worktreePath !== 'string') {
+    return { ok: false as const, error: 'BAD_ARGS' }
   }
-  return callPanel(pluginId, method, args ?? [], deps)
+  const t = ticket as Ticket
+  try {
+    if (!existsSync(worktreePath) || !statSync(worktreePath).isDirectory()) {
+      return { ok: false as const, error: 'NO_WORKTREE' }
+    }
+    const dir = join(worktreePath, '.nest')
+    mkdirSync(dir, { recursive: true })
+    // The last line covers the "Fixes <ID>" rule from the spec: the agent
+    // working in this worktree reads it and includes it in the PR description.
+    writeFileSync(join(dir, 'TASK.md'),
+      `# ${t.key}: ${t.title}\n\n${t.url}\n\n${t.context}\n\n---\n` +
+      `When you open the PR for this task, include "Fixes ${t.key}" in the description.\n`)
+  } catch (err) {
+    console.warn('[tickets:startWork] TASK.md write failed', err)
+  }
+  await ticketLoop.startWork(pluginId, t, branch, panelDeps())
+  return { ok: true as const }
 })
 
 ipcMain.handle('slack:open-oauth', async () => {

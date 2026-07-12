@@ -274,6 +274,13 @@ contextBridge.exposeInMainWorld('pluginPanels', {
   call: (pluginId: string, method: string, args: unknown[]) =>
     ipcRenderer.invoke('plugins:panel:call', pluginId, method, args),
 })
+contextBridge.exposeInMainWorld('tickets', {
+  list: (pluginId: string) => ipcRenderer.invoke('tickets:list', pluginId),
+  branchName: (user: string, key: string, title: string) =>
+    ipcRenderer.invoke('tickets:branchName', user, key, title),
+  startWork: (args: { pluginId: string; ticket: unknown; branch: string; worktreePath: string }) =>
+    ipcRenderer.invoke('tickets:startWork', args),
+})
 
 contextBridge.exposeInMainWorld('worktree', {
   list: (repoPath: string) => ipcRenderer.invoke('worktree:list', repoPath),

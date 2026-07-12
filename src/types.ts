@@ -59,6 +59,33 @@ export interface WorktreeMeta {
   updatedAt: number
 }
 
+// === Ticket loop (kept in sync with electron/integrations/ticket-types.ts —
+// src/ never imports from electron/, same pattern as WorktreeMeta above) ===
+export type TicketState = 'todo' | 'in_progress' | 'in_review' | 'done'
+
+export interface Ticket {
+  /** visible id like "PROJ-142" (Jira), "ENG-42" (Linear), "owner/repo#7" (GitHub) */
+  key: string
+  /** internal id the provider needs for its API (issueId, node id, number) */
+  providerId: string
+  title: string
+  url: string
+  state: TicketState
+  /** markdown: description + comments, for TASK.md */
+  context: string
+}
+
+export interface TicketsBridge {
+  list: (pluginId: string) => Promise<Ticket[]>
+  branchName: (user: string, key: string, title: string) => Promise<string>
+  startWork: (args: {
+    pluginId: string
+    ticket: Ticket
+    branch: string
+    worktreePath: string
+  }) => Promise<{ ok: true } | { ok: false; error: string }>
+}
+
 export type DiffLineType = 'add' | 'del' | 'context' | 'meta'
 export interface DiffLine { type: DiffLineType; text: string; oldNum?: number; newNum?: number }
 export interface DiffHunk { header: string; lines: DiffLine[] }
@@ -532,6 +559,7 @@ declare global {
       killPid: (pid: number) => Promise<{ ok: true } | { ok: false; error: string }>
       portsByPids: (pids: number[]) => Promise<Record<number, number[]>>
     }
+    tickets: TicketsBridge
   }
 }
 
