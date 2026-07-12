@@ -48,4 +48,28 @@ describe('MyTicketsView', () => {
     const tk = (window as never as { tickets: { startWork: ReturnType<typeof vi.fn> } }).tickets
     expect(tk.startWork).not.toHaveBeenCalled()
   })
+
+  it('si startWork devuelve ok:false muestra el error y NO abre el worktree', async () => {
+    ;(window as never as { tickets: { startWork: ReturnType<typeof vi.fn> } }).tickets.startWork =
+      vi.fn().mockResolvedValue({ ok: false, error: 'NO_WORKTREE' })
+    const onOpen = vi.fn()
+    render(<MyTicketsView pluginId="jira" repoPath="/repo" githubLogin="gero" onOpenWorktree={onOpen} />)
+    await waitFor(() => screen.getByText('Fix auth'))
+    fireEvent.click(screen.getByRole('button', { name: /work on this/i }))
+    await waitFor(() => expect(screen.getByText(/NO_WORKTREE/i)).toBeTruthy())
+    expect(onOpen).not.toHaveBeenCalled()
+  })
+
+  it('si una llamada del bridge rechaza muestra el error (no unhandled rejection) y libera el botón', async () => {
+    ;(window as never as { worktree: { create: ReturnType<typeof vi.fn> } }).worktree.create =
+      vi.fn().mockRejectedValue(new Error('keyring locked'))
+    const onOpen = vi.fn()
+    render(<MyTicketsView pluginId="jira" repoPath="/repo" githubLogin="gero" onOpenWorktree={onOpen} />)
+    await waitFor(() => screen.getByText('Fix auth'))
+    const btn = screen.getByRole('button', { name: /work on this/i })
+    fireEvent.click(btn)
+    await waitFor(() => expect(screen.getByText(/keyring locked/i)).toBeTruthy())
+    expect(onOpen).not.toHaveBeenCalled()
+    expect((btn as HTMLButtonElement).disabled).toBe(false)
+  })
 })

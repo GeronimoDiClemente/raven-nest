@@ -140,7 +140,7 @@ import { registerAllPanelAdapters, registerAllTicketProviders } from './integrat
 import { ticketLoop } from './ticket-loop'
 import { ticketBranchName } from './integrations/branch-name'
 import { getRemoteUrl, parseOwnerRepo } from './integrations/github'
-import type { Ticket } from './integrations/ticket-types'
+import { isTicket } from './integrations/ticket-types'
 
 const ptyManager = new PtyManager()
 const accountStore = new AccountStore()
@@ -2244,6 +2244,12 @@ ipcMain.handle('pluginActions:run', (_e, id: string, actionId: string, params) =
 registerAllPanelAdapters()
 registerAllTicketProviders()
 
+// Branch→ticket tracking persists across restarts (spec Motor 1: the PR
+// usually opens/merges days after the worktree was created). At boot, drop
+// entries whose worktree no longer exists — the worktree is the unit of work.
+ticketLoop.attachStorage(pathJoin(ravenHome(), '.raven-nest', 'ticket-loop.json'))
+ticketLoop.retainBranches(worktreeStore.list().map((m) => m.branch))
+
 // Single source of adapter deps (tokens/config/fetch) shared by the panel
 // host and the ticket loop — tokens never leave the main process.
 const panelDeps = (): PanelAdapterDeps => ({
@@ -2264,26 +2270,22 @@ ipcMain.handle('tickets:list', (_e, pluginId: string) => {
 ipcMain.handle('tickets:branchName', (_e, user: string, key: string, title: string) =>
   ticketBranchName(String(user ?? ''), String(key ?? ''), String(title ?? '')))
 
-// Repos (owner/name) with at least one ticket branch started, used by the PR
-// polling below. v1 only infers PR state on GitHub remotes; tickets on other
-// forges stay in_progress until moved manually on the platform.
-const ticketPollRepos = new Set<string>()
-
 // Called AFTER worktree:create returned ok: writes TASK.md with the ticket
-// context and fires the in_progress transition. worktreePath comes from the
-// worktree:create return (meta.path) — validate it exists and is a dir.
+// context and fires the in_progress transition. The ticket shape is validated
+// (its fields are interpolated into TASK.md) and worktreePath must be a
+// worktree THIS app registered — never an arbitrary directory.
 ipcMain.handle('tickets:startWork', async (_e, args: {
   pluginId: string; ticket: unknown; branch: string; worktreePath: string
 }) => {
   const { pluginId, ticket, branch, worktreePath } = args ?? {}
-  if (typeof pluginId !== 'string' || typeof branch !== 'string' || typeof worktreePath !== 'string') {
+  if (typeof pluginId !== 'string' || typeof branch !== 'string' || typeof worktreePath !== 'string' || !isTicket(ticket)) {
     return { ok: false as const, error: 'BAD_ARGS' }
   }
-  const t = ticket as Ticket
+  const t = ticket
+  if (!worktreeStore.get(worktreePath) || !existsSync(worktreePath) || !statSync(worktreePath).isDirectory()) {
+    return { ok: false as const, error: 'NO_WORKTREE' }
+  }
   try {
-    if (!existsSync(worktreePath) || !statSync(worktreePath).isDirectory()) {
-      return { ok: false as const, error: 'NO_WORKTREE' }
-    }
     const dir = join(worktreePath, '.nest')
     mkdirSync(dir, { recursive: true })
     // The last line covers the "Fixes <ID>" rule from the spec: the agent
@@ -2294,21 +2296,22 @@ ipcMain.handle('tickets:startWork', async (_e, args: {
   } catch (err) {
     console.warn('[tickets:startWork] TASK.md write failed', err)
   }
-  // Remember the worktree's GitHub repo so the 90s poll below can watch its
-  // PRs by branch name (non-GitHub remotes parse to null and are skipped).
+  // The worktree's GitHub repo travels with the tracked branch so the 90s
+  // poll below only asks that repo about it (non-GitHub remotes parse to
+  // null and are skipped; v1 only infers PR state on GitHub remotes).
   const remoteUrl = getRemoteUrl(worktreePath)
   const ownerRepo = remoteUrl ? parseOwnerRepo(remoteUrl) : null
-  if (ownerRepo) ticketPollRepos.add(`${ownerRepo.owner}/${ownerRepo.repo}`)
-  await ticketLoop.startWork(pluginId, t, branch, panelDeps())
+  await ticketLoop.startWork(pluginId, t, branch, panelDeps(),
+    ownerRepo ? `${ownerRepo.owner}/${ownerRepo.repo}` : null)
   return { ok: true as const }
 })
 
 // PR polling → ticket transitions (in_review/done). Every 90s ask GitHub for
-// PRs on each tracked branch. Zero requests at rest: pollOnce iterates only
-// tracked branches, and the repo set is empty until a ticket is started.
+// PRs on each tracked branch, per repo the branch belongs to. Zero requests
+// at rest: trackedRepos() is empty until a ticket is started.
 const TICKET_POLL_MS = 90_000
 let ticketPollInterval: ReturnType<typeof setInterval> | null = setInterval(() => {
-  for (const repoFullName of ticketPollRepos) {
+  for (const repoFullName of ticketLoop.trackedRepos()) {
     void ticketLoop.pollOnce(repoFullName, panelDeps())
   }
 }, TICKET_POLL_MS)

@@ -31,8 +31,13 @@ export default function MyTicketsView({ pluginId, repoPath, githubLogin, onOpenW
       const branch = await window.tickets.branchName(githubLogin ?? '', t.key, t.title)
       const res = await window.worktree.create({ repoPath, branch }) as unknown as WorktreeCreateResult
       if (!res.ok) { setActionError(res.error || 'worktree failed'); return }
-      await window.tickets.startWork({ pluginId, ticket: t, branch, worktreePath: res.meta.repoPath })
+      const started = await window.tickets.startWork({ pluginId, ticket: t, branch, worktreePath: res.meta.repoPath })
+      if (!started.ok) { setActionError(`Could not start work: ${started.error}`); return }
       onOpenWorktree(res.meta.repoPath)
+    } catch (e) {
+      // Any bridge call can reject (handler threw, keyring locked, …): show
+      // it instead of dying as an unhandled rejection with a silent spinner.
+      setActionError(e instanceof Error ? e.message : 'Failed to start work on this ticket')
     } finally {
       setWorking(null)
     }

@@ -24,3 +24,22 @@ export interface TicketProvider {
 }
 
 export type TicketProviderFactory = (deps: PanelAdapterDeps) => TicketProvider
+
+const TICKET_STATES: readonly TicketState[] = ['todo', 'in_progress', 'in_review', 'done']
+
+/**
+ * Runtime guard for tickets crossing the IPC boundary: the renderer sends
+ * `unknown`, and main interpolates key/title/url/context straight into
+ * TASK.md — a blind cast would let a compromised renderer inject anything
+ * (or crash the handler with null).
+ */
+export function isTicket(x: unknown): x is Ticket {
+  if (!x || typeof x !== 'object') return false
+  const t = x as Record<string, unknown>
+  return typeof t.key === 'string'
+    && typeof t.providerId === 'string'
+    && typeof t.title === 'string'
+    && typeof t.url === 'string'
+    && typeof t.context === 'string'
+    && TICKET_STATES.includes(t.state as TicketState)
+}

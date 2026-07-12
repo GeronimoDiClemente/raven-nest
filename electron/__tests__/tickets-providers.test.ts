@@ -23,9 +23,11 @@ function deps(responses: Record<string, unknown>): PanelAdapterDeps {
 }
 
 describe('JiraTicketProvider', () => {
-  it('lista tickets asignados con estado mapeado', async () => {
-    const p = createJiraTicketProvider(deps({
-      '/rest/api/3/search': {
+  it('lista tickets asignados con estado mapeado (endpoint /search/jql vigente)', async () => {
+    const d = deps({
+      // Old /rest/api/3/search is deprecated/removed on Jira Cloud — the mock
+      // only knows the new endpoint, so a regression to the old URL fails.
+      '/rest/api/3/search/jql': {
         issues: [{
           id: '10001', key: 'PROJ-142',
           fields: {
@@ -35,12 +37,15 @@ describe('JiraTicketProvider', () => {
           },
         }],
       },
-    }))
+    })
+    const p = createJiraTicketProvider(d)
     const t = await p.listMyTickets()
     expect(t[0]).toMatchObject({
       key: 'PROJ-142', providerId: '10001', title: 'Fix auth', state: 'in_progress',
       url: 'https://acme.atlassian.net/browse/PROJ-142',
     })
+    const calls = (d.fetch as ReturnType<typeof vi.fn>).mock.calls
+    expect(String(calls[0][0])).toContain('/rest/api/3/search/jql?')
   })
 
   it('transition busca la transición por categoría y la ejecuta', async () => {
@@ -56,6 +61,36 @@ describe('JiraTicketProvider', () => {
     const post = calls.find(c => c[1]?.method === 'POST')
     expect(post?.[0]).toContain('/rest/api/3/issue/10001/transitions')
     expect(JSON.parse(post?.[1]?.body as string)).toEqual({ transition: { id: '41' } })
+  })
+
+  it('transition in_review prefiere el destino con "review" en el nombre, no el primer indeterminate', async () => {
+    // Typical workflow: To Do / In Progress / In Review / Done. Both middle
+    // states are category 'indeterminate'; the name hint must pick In Review.
+    const d = deps({
+      '/transitions': { transitions: [
+        { id: '21', to: { name: 'In Progress', statusCategory: { key: 'indeterminate' } } },
+        { id: '31', to: { name: 'In Review', statusCategory: { key: 'indeterminate' } } },
+        { id: '41', to: { name: 'Done', statusCategory: { key: 'done' } } },
+      ] },
+    })
+    const p = createJiraTicketProvider(d)
+    await p.transition('10001', 'in_review')
+    const calls = (d.fetch as ReturnType<typeof vi.fn>).mock.calls
+    const post = calls.find(c => c[1]?.method === 'POST')
+    expect(JSON.parse(post?.[1]?.body as string)).toEqual({ transition: { id: '31' } })
+  })
+
+  it('transition cae a la categoría si ningún nombre matchea el hint', async () => {
+    const d = deps({
+      '/transitions': { transitions: [
+        { id: '21', to: { name: 'Doing', statusCategory: { key: 'indeterminate' } } },
+      ] },
+    })
+    const p = createJiraTicketProvider(d)
+    await p.transition('10001', 'in_review')
+    const calls = (d.fetch as ReturnType<typeof vi.fn>).mock.calls
+    const post = calls.find(c => c[1]?.method === 'POST')
+    expect(JSON.parse(post?.[1]?.body as string)).toEqual({ transition: { id: '21' } })
   })
 })
 

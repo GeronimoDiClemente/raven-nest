@@ -9,6 +9,14 @@ const CATEGORY_TO_STATE: Record<string, TicketState> = {
 const STATE_TO_CATEGORY: Record<TicketState, string> = {
   todo: 'new', in_progress: 'indeterminate', in_review: 'indeterminate', done: 'done',
 }
+// in_progress and in_review share the 'indeterminate' category, so category
+// alone can send the ticket to the WRONG intermediate state (e.g. a PR
+// opening bounces it back to In Progress). Prefer a transition whose target
+// NAME matches the intent, fall back to the category (same nameHint trick as
+// tickets-linear.ts).
+const TRANSITION_NAME_HINT: Partial<Record<TicketState, string>> = {
+  in_progress: 'progress', in_review: 'review',
+}
 
 interface JiraCreds {
   email: string
@@ -44,7 +52,9 @@ export function createJiraTicketProvider(deps: PanelAdapterDeps): TicketProvider
       const c = creds()
       const base = baseOf(c)
       const jql = encodeURIComponent('assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC')
-      const res = await deps.fetch(`${base}/rest/api/3/search?jql=${jql}&maxResults=50&fields=summary,description,status,comment`, { headers: headers(c) })
+      // /rest/api/3/search/jql: Atlassian deprecated the old /search endpoint
+      // (removal announced for 2025) — on current Jira Cloud it 410s.
+      const res = await deps.fetch(`${base}/rest/api/3/search/jql?jql=${jql}&maxResults=50&fields=summary,description,status,comment`, { headers: headers(c) })
       if (!res.ok) throw new Error(`Jira ${res.status}`)
       const data = await res.json() as { issues: Array<{ id: string; key: string; fields: {
         summary: string; description: unknown
@@ -66,8 +76,12 @@ export function createJiraTicketProvider(deps: PanelAdapterDeps): TicketProvider
       const base = baseOf(c)
       const res = await deps.fetch(`${base}/rest/api/3/issue/${providerId}/transitions`, { headers: headers(c) })
       if (!res.ok) return
-      const { transitions } = await res.json() as { transitions: Array<{ id: string; to: { statusCategory: { key: string } } }> }
-      const target = transitions.find(t => t.to.statusCategory.key === STATE_TO_CATEGORY[to])
+      const { transitions } = await res.json() as { transitions: Array<{ id: string; to: { name?: string; statusCategory: { key: string } } }> }
+      const candidates = transitions.filter(t => t.to.statusCategory.key === STATE_TO_CATEGORY[to])
+      const hint = TRANSITION_NAME_HINT[to]
+      const target = (hint
+        ? candidates.find(t => (t.to.name ?? '').toLowerCase().includes(hint))
+        : undefined) ?? candidates[0]
       if (!target) return // the project's workflow lacks that transition: no-op
       await deps.fetch(`${base}/rest/api/3/issue/${providerId}/transitions`, {
         method: 'POST', headers: headers(c), body: JSON.stringify({ transition: { id: target.id } }),
