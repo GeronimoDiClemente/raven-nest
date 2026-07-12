@@ -139,6 +139,7 @@ import { callPanel, type PanelAdapterDeps } from './integration-panels'
 import { registerAllPanelAdapters, registerAllTicketProviders } from './integrations/register'
 import { ticketLoop } from './ticket-loop'
 import { ticketBranchName } from './integrations/branch-name'
+import { getRemoteUrl, parseOwnerRepo } from './integrations/github'
 import type { Ticket } from './integrations/ticket-types'
 
 const ptyManager = new PtyManager()
@@ -2263,6 +2264,11 @@ ipcMain.handle('tickets:list', (_e, pluginId: string) => {
 ipcMain.handle('tickets:branchName', (_e, user: string, key: string, title: string) =>
   ticketBranchName(String(user ?? ''), String(key ?? ''), String(title ?? '')))
 
+// Repos (owner/name) with at least one ticket branch started, used by the PR
+// polling below. v1 only infers PR state on GitHub remotes; tickets on other
+// forges stay in_progress until moved manually on the platform.
+const ticketPollRepos = new Set<string>()
+
 // Called AFTER worktree:create returned ok: writes TASK.md with the ticket
 // context and fires the in_progress transition. worktreePath comes from the
 // worktree:create return (meta.path) — validate it exists and is a dir.
@@ -2288,9 +2294,24 @@ ipcMain.handle('tickets:startWork', async (_e, args: {
   } catch (err) {
     console.warn('[tickets:startWork] TASK.md write failed', err)
   }
+  // Remember the worktree's GitHub repo so the 90s poll below can watch its
+  // PRs by branch name (non-GitHub remotes parse to null and are skipped).
+  const remoteUrl = getRemoteUrl(worktreePath)
+  const ownerRepo = remoteUrl ? parseOwnerRepo(remoteUrl) : null
+  if (ownerRepo) ticketPollRepos.add(`${ownerRepo.owner}/${ownerRepo.repo}`)
   await ticketLoop.startWork(pluginId, t, branch, panelDeps())
   return { ok: true as const }
 })
+
+// PR polling → ticket transitions (in_review/done). Every 90s ask GitHub for
+// PRs on each tracked branch. Zero requests at rest: pollOnce iterates only
+// tracked branches, and the repo set is empty until a ticket is started.
+const TICKET_POLL_MS = 90_000
+let ticketPollInterval: ReturnType<typeof setInterval> | null = setInterval(() => {
+  for (const repoFullName of ticketPollRepos) {
+    void ticketLoop.pollOnce(repoFullName, panelDeps())
+  }
+}, TICKET_POLL_MS)
 
 ipcMain.handle('slack:open-oauth', async () => {
   const clientId = import.meta.env.MAIN_VITE_SLACK_CLIENT_ID ?? ''
@@ -2470,6 +2491,10 @@ app.on('before-quit', () => {
   if (updaterInterval) {
     clearInterval(updaterInterval)
     updaterInterval = null
+  }
+  if (ticketPollInterval) {
+    clearInterval(ticketPollInterval)
+    ticketPollInterval = null
   }
   // Tear down every long-lived resource on quit. Without these, dev-mode HMR
   // reloads (and any future "soft restart" path) would accumulate intervals,

@@ -47,6 +47,29 @@ export class TicketLoop {
 
   trackedTicket(branch: string): Tracked | undefined { return this.tracked.get(branch) }
 
+  /**
+   * Consulta GitHub por cada branch trackeado dentro de repoFullName y dispara
+   * las transiciones. Se llama desde main.ts cada 90s SOLO si hay branches
+   * trackeados (cero requests en reposo — cuidar el rate limit).
+   */
+  async pollOnce(repoFullName: string, deps: PanelAdapterDeps): Promise<void> {
+    for (const [branch] of this.tracked) {
+      try {
+        const res = await deps.fetch(
+          `https://api.github.com/repos/${repoFullName}/pulls?head=${encodeURIComponent(repoFullName.split('/')[0] + ':' + branch)}&state=all&per_page=1`,
+          { headers: { Authorization: `Bearer ${deps.getToken('github')}`, Accept: 'application/vnd.github.v3+json' } },
+        )
+        if (!res.ok) continue
+        const prs = await res.json() as Array<{ state: string; merged_at: string | null }>
+        if (prs.length === 0) continue
+        if (prs[0].merged_at) await this.onPrStateChanged(branch, 'merged', deps)
+        else if (prs[0].state === 'open') await this.onPrStateChanged(branch, 'open', deps)
+      } catch (err) {
+        console.warn('[ticket-loop] poll failed', branch, err)
+      }
+    }
+  }
+
   async onPrStateChanged(branch: string, pr: 'open' | 'merged', deps: PanelAdapterDeps): Promise<void> {
     const t = this.tracked.get(branch)
     if (!t) return

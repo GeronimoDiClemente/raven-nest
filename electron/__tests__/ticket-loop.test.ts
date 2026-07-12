@@ -45,4 +45,17 @@ describe('TicketLoop', () => {
   it('onPrStateChanged con branch no trackeado es no-op', async () => {
     await expect(loop.onPrStateChanged('otra/rama', 'merged', {} as never)).resolves.toBeUndefined()
   })
+
+  it('pollOnce consulta PRs por branch trackeado y dispara transiciones', async () => {
+    await loop.startWork('jira', ticket, 'gero/PROJ-1-fix', {} as never)
+    const fetchMock = vi.fn(async (url: RequestInfo | URL) => {
+      if (String(url).includes('state=all')) {
+        return new Response(JSON.stringify([{ state: 'closed', merged_at: '2026-07-12T00:00:00Z' }]), { status: 200 })
+      }
+      return new Response('[]', { status: 200 })
+    })
+    const deps = { getToken: () => 'tok', getConfig: () => ({}), fetch: fetchMock as unknown as typeof fetch }
+    await loop.pollOnce('acme/app', deps)
+    expect(provider.transition).toHaveBeenLastCalledWith('p1', 'done')
+  })
 })

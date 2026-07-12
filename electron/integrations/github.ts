@@ -108,7 +108,7 @@ function parseOriginUrlFromConfig(config: string): string | null {
   return null
 }
 
-function parseOwnerRepo(remoteUrl: string): { owner: string; repo: string } | null {
+export function parseOwnerRepo(remoteUrl: string): { owner: string; repo: string } | null {
   // https://github.com/owner/repo(.git) | git@github.com:owner/repo(.git) | ssh://git@github.com/owner/repo(.git)
   const patterns = [
     /^https?:\/\/github\.com\/([^/]+)\/(.+?)(?:\.git)?\/?$/,
