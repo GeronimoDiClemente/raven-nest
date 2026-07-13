@@ -139,6 +139,7 @@ import { callPanel, type PanelAdapterDeps } from './integration-panels'
 import { registerAllPanelAdapters, registerAllTicketProviders } from './integrations/register'
 import { ticketLoop } from './ticket-loop'
 import { ticketBranchName } from './integrations/branch-name'
+import { performWorktreeAdd } from './worktree-create'
 import { getRemoteUrl, parseOwnerRepo } from './integrations/github'
 import { isTicket } from './integrations/ticket-types'
 
@@ -1054,25 +1055,34 @@ ipcMain.handle('worktree:create', async (_evt, opts: {
     return { ok: false as const, error: `Invalid fromBranch name: ${opts.fromBranch}` }
   }
 
-  // Check if branch exists — execFileSync (no shell)
-  let branchExists = false
-  try {
-    execFileSync('git', ['-C', opts.repoPath, 'show-ref', '--verify', '--quiet', `refs/heads/${opts.branch}`], {
-      timeout: 3000,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    })
-    branchExists = true
-  } catch { branchExists = false }
-
-  // git worktree add — array args, no shell interpolation.
+  // git worktree add — decision + invocation live in performWorktreeAdd
+  // (electron/worktree-create.ts) so the idempotency behaviour is unit-tested.
+  // Array args, no shell interpolation.
   const from = opts.fromBranch ?? 'HEAD'
-  const addArgs = branchExists
-    ? ['-C', opts.repoPath, 'worktree', 'add', wtPath, opts.branch]
-    : ['-C', opts.repoPath, 'worktree', 'add', '-b', opts.branch, wtPath, from]
-  try {
-    execFileSync('git', addArgs, { encoding: 'utf8', timeout: 10000, stdio: ['pipe', 'pipe', 'pipe'] })
-  } catch (err) {
-    return { ok: false as const, error: `git worktree add failed: ${err instanceof Error ? err.message : String(err)}` }
+  const addResult = performWorktreeAdd(
+    {
+      worktreeExists: (p) => worktreeStore.get(p) != null,
+      branchExists: (repoPath, branch) => {
+        try {
+          execFileSync('git', ['-C', repoPath, 'show-ref', '--verify', '--quiet', `refs/heads/${branch}`], {
+            timeout: 3000,
+            stdio: ['pipe', 'pipe', 'pipe'],
+          })
+          return true
+        } catch { return false }
+      },
+      runGit: (args) => {
+        execFileSync('git', args, { encoding: 'utf8', timeout: 10000, stdio: ['pipe', 'pipe', 'pipe'] })
+      },
+    },
+    { repoPath: opts.repoPath, branch: opts.branch, wtPath, fromBranch: from },
+  )
+  if (!addResult.ok) return { ok: false as const, error: addResult.error }
+  if (!addResult.created) {
+    // Reused an existing worktree ("Work on this" clicked twice): return its
+    // stored meta and skip re-persisting / re-running setup.
+    const existing = worktreeStore.get(wtPath)
+    if (existing) return { ok: true as const, meta: existing }
   }
 
   // Persist meta

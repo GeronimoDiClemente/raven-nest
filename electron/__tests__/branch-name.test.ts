@@ -22,4 +22,15 @@ describe('ticketBranchName', () => {
   it('usuario vacío cae a "nest"', () => {
     expect(ticketBranchName('', 'X-1', 'y')).toBe('nest/X-1-y')
   })
+
+  it('keys de GitHub (owner/repo#n): reemplaza / y # por - en vez de mashearlos', () => {
+    // Antes: 'GeronimoDiClemente/raven-nest#9' → 'GeronimoDiClementeraven-nest9'
+    // (borraba los separadores y pegaba owner+repo). Ahora los reemplaza por '-'.
+    expect(ticketBranchName('GeronimoDiClemente', 'GeronimoDiClemente/raven-nest#9', 'Cant download it'))
+      .toBe('geronimodiclemente/GeronimoDiClemente-raven-nest-9-cant-download-it')
+  })
+
+  it('no deja guiones colgando cuando la key termina en separador', () => {
+    expect(ticketBranchName('gero', 'repo#42#', 'x')).toBe('gero/repo-42-x')
+  })
 })

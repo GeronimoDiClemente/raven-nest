@@ -86,7 +86,10 @@ describe('IntegrationsMarketplaceView — Connect state', () => {
     render(<IntegrationsMarketplaceView />)
     await screen.findByText('Installed')
     const jiraCard = screen.getByText('Jira').closest('article')!
-    fireEvent.click(within(jiraCard).getByRole('button', { name: 'Connect' }))
+    // findByRole (no getByRole): ConnectControl renderiza null mientras
+    // usePluginConnection chequea la conexión (async), así que hay que esperar
+    // a que aparezca el botón o el test es flaky.
+    fireEvent.click(await within(jiraCard).findByRole('button', { name: 'Connect' }))
 
     fireEvent.change(within(jiraCard).getByPlaceholderText('you@company.com'), { target: { value: 'me@co.com' } })
     fireEvent.change(within(jiraCard).getByPlaceholderText('https://x.atlassian.net'), { target: { value: 'https://co.atlassian.net' } })
@@ -109,7 +112,8 @@ describe('IntegrationsMarketplaceView — Connect state', () => {
     render(<IntegrationsMarketplaceView />)
     await screen.findByText('Installed')
     const slackCard = screen.getByText('Slack').closest('article')!
-    fireEvent.click(within(slackCard).getByRole('button', { name: 'Connect' }))
+    // findByRole: mismo race async que en el test de Jira (ConnectControl carga).
+    fireEvent.click(await within(slackCard).findByRole('button', { name: 'Connect' }))
 
     expect(window.slack.openOAuth).toHaveBeenCalled()
     expect(slackCb).not.toBeNull()

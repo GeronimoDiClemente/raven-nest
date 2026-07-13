@@ -13,7 +13,10 @@ function kebab(s: string): string {
 
 export function ticketBranchName(user: string, key: string, title: string): string {
   const u = kebab(user) || 'nest'
-  const k = key.replace(/[^a-zA-Z0-9._\-]/g, '') || 'task'
+  // Separators (/, #, …) become '-' so a GitHub key "owner/repo#n" reads as
+  // "owner-repo-n" instead of mashing owner+repo together. Collapse runs and
+  // trim the edges so the key never contributes a dangling '-'.
+  const k = key.replace(/[^a-zA-Z0-9._\-]+/g, '-').replace(/^-+|-+$/g, '') || 'task'
   const slug = kebab(title).slice(0, MAX_SLUG).replace(/-+$/g, '')
   return slug ? `${u}/${k}-${slug}` : `${u}/${k}`
 }
