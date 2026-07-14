@@ -60,7 +60,7 @@ interface Props {
   style?: React.CSSProperties
   allowSharing?: boolean
   onRequireUpgrade?: () => void
-  onTogglePin?: () => void  // solo desde el Hub → habilita el botón de pin en el header
+  onTogglePin?: () => void  // habilita el botón de pin en el header (marca el pane para el Hub)
 }
 
 export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZoom, onClose, onColorChange, onNoteChange, onInput, onBusyChange, onFocus, onActivity, onJoinRequest, onPtyStarted, ports = [], fontSize, style, allowSharing = true, onRequireUpgrade, onTogglePin }: Props) {

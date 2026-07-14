@@ -39,7 +39,7 @@ interface Props {
   repoPathDiverged?: boolean
   onSyncCwd?: () => void
   ports?: number[]
-  onTogglePin?: () => void  // solo se pasa desde el Hub → muestra el botón de pin
+  onTogglePin?: () => void  // muestra el botón de pin (marca el pane para el filtro Pineadas del Hub)
 }
 
 export default function PaneHeader({ pane, zoomed, onZoom, onClose, onColorChange, onNoteChange, dragHandleProps, processEnded, isBusy, onRestart, onSaveConversation, onCopyLastResponse, showBlocks, blockCount, onToggleBlocks, onShare, isSharing, repoPathDiverged, onSyncCwd, ports = [], onTogglePin }: Props) {

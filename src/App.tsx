@@ -1380,6 +1380,7 @@ export default function App() {
                         onPtyStarted={handlePtyStarted}
                         allowSharing={planLimits.allowSharing}
                         onRequireUpgrade={() => setShowUpgrade(true)}
+                        onTogglePin={() => updatePaneAnywhere(pane.id, p => ({ ...p, pinned: !p.pinned }))}
                       />
                     )
                   }
