@@ -27,6 +27,7 @@ import GlobalSearch from './components/GlobalSearch'
 import CommandPalette from './components/CommandPalette'
 import HubOverlay from './components/HubOverlay'
 import HubWorkspace from './components/HubWorkspace'
+import { filterEntries, type HubFilter, type HubEntry } from './components/HubGrid'
 import { useHubActivity } from './hub-activity'
 import { focusTerminal } from './terminal-registry'
 import logoUrl from './assets/logo.png'
@@ -53,6 +54,17 @@ import { getTour } from './tutorial/registry'
 
 let paneCounter = 0
 const generateId = () => `pane-${++paneCounter}-${Date.now()}`
+
+const HUB_FILTER_KEY = 'nest-hub-filter'
+function loadHubFilter(): HubFilter {
+  const raw = localStorage.getItem(HUB_FILTER_KEY)
+  if (raw === 'active' || raw === 'pinned') return raw
+  if (raw?.startsWith('tab:')) return { tabId: raw.slice(4) }
+  return 'all'
+}
+function saveHubFilter(f: HubFilter): void {
+  localStorage.setItem(HUB_FILTER_KEY, typeof f === 'string' ? f : `tab:${f.tabId}`)
+}
 
 export default function App() {
   const generateTabId = () => `tab-${Date.now()}`
@@ -106,6 +118,9 @@ export default function App() {
   const [hubOpen, setHubOpen] = useState(false)
   const hubOpenRef = useRef(false)
   hubOpenRef.current = hubOpen
+  const [hubFilter, setHubFilter] = useState<HubFilter>(loadHubFilter)
+  const hubPanesRef = useRef<PaneNode[]>([])
+  const changeHubFilter = useCallback((f: HubFilter) => { setHubFilter(f); saveHubFilter(f) }, [])
   const hubPrevFocusRef = useRef<string | null>(null)
   const [sidebarExpanded, setSidebarExpanded] = useState(false)
   const [fontSize, setFontSize] = useState<number>(() => {
@@ -426,6 +441,43 @@ export default function App() {
       setFocusedPaneId(null)
     }
   }, [updateActiveTab, zoomedPaneId])
+
+  // ── Hub: los panes viven en OTROS workspaces, así que estos handlers operan
+  // sobre el tab de origen del pane (no sobre el tab activo, que es el Hub). ──
+  const updatePaneAnywhere = useCallback((paneId: string, updater: (p: PaneNode) => PaneNode) => {
+    setTabs(prev => prev.map(t =>
+      t.panes.some(p => p.id === paneId)
+        ? { ...t, panes: t.panes.map(p => p.id === paneId ? updater(p) : p) }
+        : t
+    ))
+  }, [])
+
+  const removePaneAnywhere = useCallback((paneId: string) => {
+    window.pty.kill(paneId)
+    setTabs(prev => prev.map(t => {
+      if (!t.panes.some(p => p.id === paneId)) return t
+      const nextPanes = t.panes.filter(p => p.id !== paneId)
+      const naturalDefault = defaultLayoutFor(nextPanes.length)
+      const demoted = getPreset(naturalDefault).slotCount < getPreset(t.layoutId).slotCount
+      return demoted
+        ? { ...t, panes: nextPanes, layoutId: naturalDefault, splitRatios: {} }
+        : { ...t, panes: nextPanes }
+    }))
+    if (zoomedPaneIdRef.current === paneId) { setZoomedPaneId(null); setZoomingOut(false) }
+    if (focusedPaneIdRef.current === paneId) { focusedPaneIdRef.current = null; setFocusedPaneId(null) }
+  }, [])
+
+  // Reordenar tiles del Hub: guarda el orden (ids) en el tab Hub activo.
+  const handleHubDragEnd = useCallback((e: DragEndEvent) => {
+    setDraggingId(null)
+    const { active, over } = e
+    if (!over || active.id === over.id) return
+    const ids = hubPanesRef.current.map(p => p.id)
+    const from = ids.indexOf(String(active.id))
+    const to = ids.indexOf(String(over.id))
+    if (from < 0 || to < 0) return
+    updateActiveTab(t => ({ ...t, hubOrder: swap(ids, from, to) }))
+  }, [updateActiveTab])
 
   const updatePaneColor = useCallback((paneId: string, borderColor: string) => {
     updateActiveTab(t => ({
@@ -1079,6 +1131,63 @@ export default function App() {
     [tabs]
   )
 
+  // Agregación de todas las terminales (de todos los workspaces) para el Hub:
+  // filtradas, ordenadas y capadas a MAX_PANES para el motor de layout.
+  const hubData = useMemo(() => {
+    if (!activeTab.isHub) return null
+    const source = tabs.filter(t => !t.isHub)
+    const entries: HubEntry[] = source.flatMap(t =>
+      t.panes.filter(p => p.aiType !== 'browser').map(p => ({
+        pane: p, tabId: t.id, tabName: t.name, isActiveTab: false, busy: activePanes.has(p.id),
+      })))
+    const counts = {
+      all: entries.length,
+      active: entries.filter(e => e.busy).length,
+      pinned: entries.filter(e => e.pane.pinned).length,
+    }
+    const order = activeTab.hubOrder ?? []
+    const ordered = [...filterEntries(entries, hubFilter)].sort((a, b) => {
+      const ia = order.indexOf(a.pane.id), ib = order.indexOf(b.pane.id)
+      if (ia === -1 && ib === -1) return 0
+      if (ia === -1) return 1
+      if (ib === -1) return -1
+      return ia - ib
+    })
+    const panes = ordered.slice(0, MAX_PANES).map(e => e.pane)
+    return {
+      panes,
+      layoutId: defaultLayoutFor(panes.length),
+      counts,
+      hiddenCount: Math.max(0, ordered.length - MAX_PANES),
+      sourceTabs: source.map(t => ({ id: t.id, name: t.name })),
+    }
+  }, [activeTab.isHub, activeTab.hubOrder, tabs, activePanes, hubFilter])
+  hubPanesRef.current = hubData?.panes ?? []
+
+  const renderHubPane = (pane: PaneNode) => (
+    <TerminalPane
+      key={pane.id}
+      pane={pane}
+      ports={panePorts[pane.id] ?? []}
+      isDragging={draggingId === pane.id}
+      zoomed={zoomedPaneId === pane.id}
+      zoomingOut={zoomedPaneId === pane.id && zoomingOut}
+      onZoom={() => handleZoom(pane.id)}
+      onClose={() => removePaneAnywhere(pane.id)}
+      onColorChange={(c) => updatePaneAnywhere(pane.id, p => ({ ...p, borderColor: c }))}
+      onNoteChange={(note) => updatePaneAnywhere(pane.id, p => ({ ...p, note }))}
+      fontSize={fontSize}
+      onInput={(data) => window.pty.write(pane.id, data)}
+      onFocus={() => { setFocusedPaneId(pane.id); focusedPaneIdRef.current = pane.id }}
+      onBusyChange={handleBusyChange}
+      onActivity={handlePaneActivity}
+      onJoinRequest={() => setJoinRequest({ paneId: pane.id, paneTitle: pane.customLabel ?? pane.accountName ?? 'Terminal' })}
+      onPtyStarted={(id, rp) => updatePaneAnywhere(id, p => ({ ...p, runningRepoPath: rp }))}
+      allowSharing={planLimits.allowSharing}
+      onRequireUpgrade={() => setShowUpgrade(true)}
+    />
+  )
+
   return (
     <div className="app" style={{ '--tab-accent': activeTab.accentColor ?? 'var(--raven-blue)' } as React.CSSProperties}>
       <TabBar
@@ -1185,11 +1294,20 @@ export default function App() {
       >
         {activeTab.isHub ? (
           <HubWorkspace
-            tabs={tabs}
-            activeTabId={activeTabId}
-            activePanes={activePanes}
-            onJump={handleHubJump}
-            onTogglePin={handleHubTogglePin}
+            panes={hubData?.panes ?? []}
+            layoutId={hubData?.layoutId ?? '1'}
+            splitRatios={activeTab.splitRatios}
+            sourceTabs={hubData?.sourceTabs ?? []}
+            filter={hubFilter}
+            counts={hubData?.counts ?? { all: 0, active: 0, pinned: 0 }}
+            hiddenCount={hubData?.hiddenCount ?? 0}
+            onFilter={changeHubFilter}
+            onResize={handleSplitResize}
+            onDragStart={handleDragStart}
+            onDragEnd={handleHubDragEnd}
+            draggingId={draggingId}
+            sensors={sensors}
+            renderPane={renderHubPane}
           />
         ) : isInitialState ? (
           <EmptyState

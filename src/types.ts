@@ -267,6 +267,7 @@ export interface WorkspaceTab {
   panes: PaneNode[]
   splitRatios?: Record<string, number[]>
   isHub?: boolean  // true = pestaña que muestra el Hub (todas las terminales), sin panes propios
+  hubOrder?: string[]  // orden de los panes en la vista Hub (ids); reordenar por drag
 }
 
 export function equalSizes(count: number): number[] {

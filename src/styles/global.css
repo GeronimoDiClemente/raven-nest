@@ -9608,6 +9608,33 @@ body.platform-mac .tabbar { padding-right: 116px; }
   flex-direction: column;
 }
 
+/* El Hub-como-workspace usa el motor de layout normal: que llene el alto. */
+.hub-workspace .grid-workspace {
+  flex: 1;
+  min-height: 0;
+}
+
+.hub-hidden-note {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.hub-empty-slot {
+  width: 100%;
+  height: 100%;
+  background: var(--bg-app);
+}
+
+.hub-drag-overlay {
+  width: 220px;
+  height: 120px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-surface);
+  opacity: 0.9;
+}
+
 .tab-hub-icon {
   display: inline-flex;
   align-items: center;
