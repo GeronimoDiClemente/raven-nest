@@ -258,6 +258,22 @@ export default function App() {
       setShowUpgrade(true)
       return
     }
+    // A Hub tab owns no terminals of its own (HubView filters isHub tabs out
+    // of the grid). Pushing a pane onto it would create an invisible,
+    // unclosable pane, so route the new terminal into a fresh workspace.
+    const activeNow = tabsRef.current.find(t => t.id === activeTabIdRef.current)
+    if (activeNow?.isHub) {
+      const newTabId = generateTabId()
+      const pane: PaneNode = {
+        id: generateId(), aiType, accountName, accountDir, borderColor, cmd,
+        customLabel, customColor, shellId,
+        repoPath: addingPaneRef.current?.worktreePath,
+      }
+      setTabs(prev => [...prev, { id: newTabId, name: 'Workspace', layoutId: '1', panes: [pane] }])
+      setActiveTabId(newTabId)
+      setAddingPane(null)
+      return
+    }
     const worktreePath = addingPaneRef.current?.worktreePath
     updateActiveTab(t => {
       const pane: PaneNode = {
@@ -679,6 +695,20 @@ export default function App() {
     if (panesRef.current.length >= MAX_PANES) return
     if (panesRef.current.length >= planLimits.maxPanes) {
       setShowUpgrade(true)
+      return
+    }
+    // Hub tabs own no panes — open the browser cell in a fresh workspace
+    // rather than pushing an invisible pane onto the Hub tab (see addPane).
+    const activeNow = tabsRef.current.find(t => t.id === activeTabIdRef.current)
+    if (activeNow?.isHub) {
+      const newTabId = generateTabId()
+      const pane: PaneNode = {
+        id: generateId(), aiType: 'browser', accountName: 'browser', accountDir: '',
+        borderColor: '#0066FF', cmd: '', url,
+        sessionPartition: `persist:browser-${newTabId}`,
+      }
+      setTabs(prev => [...prev, { id: newTabId, name: 'Workspace', layoutId: '1', panes: [pane] }])
+      setActiveTabId(newTabId)
       return
     }
     const pane: PaneNode = {
