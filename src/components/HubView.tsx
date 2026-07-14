@@ -127,9 +127,13 @@ export default function HubView({ tabs, activeTabId, activePanes, onJump, onTogg
         ))}
         {pageCount > 1 && (
           <span className="hub-pager">
-            <button className="hub-chip" disabled={clampedPage === 0} onClick={() => setPage(p => Math.max(0, p - 1))}>‹</button>
+            <button className="hub-chip hub-pager-btn" disabled={clampedPage === 0} onClick={() => setPage(p => Math.max(0, p - 1))} aria-label="Página anterior">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M15 18l-6-6 6-6" /></svg>
+            </button>
             <span className="hub-pager-label">{clampedPage + 1}/{pageCount}</span>
-            <button className="hub-chip" disabled={clampedPage >= pageCount - 1} onClick={() => setPage(p => p + 1)}>›</button>
+            <button className="hub-chip hub-pager-btn" disabled={clampedPage >= pageCount - 1} onClick={() => setPage(p => p + 1)} aria-label="Página siguiente">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M9 18l6-6-6-6" /></svg>
+            </button>
           </span>
         )}
       </div>

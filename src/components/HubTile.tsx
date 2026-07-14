@@ -60,7 +60,15 @@ export default function HubTile({ entry, focused, onFocus, onJump, onTogglePin }
           onMouseDown={(e) => e.stopPropagation()}
           onDoubleClick={(e) => e.stopPropagation()}
         >
-          pin
+          {pane.pinned ? (
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path d="M9 4v6l-2 3v2h10v-2l-2-3V4z" /><rect x="11" y="17" width="2" height="4" />
+            </svg>
+          ) : (
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+              <path d="M9 4v6l-2 3v2h10v-2l-2-3V4z" /><path d="M12 17v4" />
+            </svg>
+          )}
         </button>
       </div>
       <div ref={containerRef} className="hub-tile-terminal" />

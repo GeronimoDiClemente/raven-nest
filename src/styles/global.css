@@ -9406,9 +9406,9 @@ body.platform-mac .tabbar { padding-right: 116px; }
 }
 
 .hub-chip.on {
-  color: var(--raven-blue);
-  background: #0066FF15;
-  border-color: #0066FF30;
+  color: var(--text-primary);
+  background: #161616;
+  border-color: #2a2a2a;
 }
 
 .hub-chip:disabled {
@@ -9442,15 +9442,30 @@ body.platform-mac .tabbar { padding-right: 116px; }
 .hub-pager-label {
   font-size: 10px;
   color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.hub-pager-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px 5px;
+}
+
+.hub-pager-btn svg {
+  width: 11px;
+  height: 11px;
 }
 
 .hub-grid {
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  grid-auto-rows: minmax(180px, 1fr);
-  gap: 6px;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 380px));
+  grid-auto-rows: 210px;
+  align-content: start;
+  justify-content: start;
+  gap: 8px;
   padding: 8px;
   overflow-y: auto;
 }
@@ -9465,20 +9480,31 @@ body.platform-mac .tabbar { padding-right: 116px; }
 }
 
 .hub-tile {
+  position: relative;
   display: flex;
   flex-direction: column;
   min-height: 0;
   overflow: hidden;
   background: var(--bg-app);
-  border: 1.5px solid color-mix(in srgb, var(--pane-color, var(--border)) 40%, transparent);
+  border: 1px solid var(--border);
   border-radius: 4px;
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--pane-color, transparent) 12%, transparent);
+}
+
+/* Única marca de color del tile: franja fina con el color del agente/pane. */
+.hub-tile::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--pane-color, transparent);
+  z-index: 1;
 }
 
 .hub-tile.focused {
-  border-color: color-mix(in srgb, var(--pane-color, var(--raven-blue)) 85%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--pane-color, transparent) 25%, transparent),
-              0 0 12px -2px color-mix(in srgb, var(--pane-color, transparent) 45%, transparent);
+  border-color: #565656;
+  box-shadow: 0 0 0 1px #565656;
 }
 
 .hub-tile-header {
@@ -9488,7 +9514,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
   align-items: center;
   gap: 7px;
   padding: 0 8px;
-  background: color-mix(in srgb, var(--pane-color, var(--bg-surface)) 8%, var(--bg-surface));
+  background: var(--bg-surface);
   font-size: 10px;
   user-select: none;
 }
@@ -9506,9 +9532,9 @@ body.platform-mac .tabbar { padding-right: 116px; }
   font-weight: 600;
   font-family: 'SF Mono', 'Menlo', monospace;
   letter-spacing: 0.4px;
-  color: var(--raven-blue);
-  background: #0066FF15;
-  border: 1px solid #0066FF30;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid var(--border);
   border-radius: 3px;
   padding: 1px 5px;
   flex-shrink: 0;
@@ -9532,17 +9558,21 @@ body.platform-mac .tabbar { padding-right: 116px; }
 }
 
 .hub-tile-pin {
-  font-size: 9px;
-  font-weight: 600;
-  letter-spacing: 0.4px;
-  text-transform: uppercase;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   color: var(--text-muted);
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 3px;
-  padding: 1px 5px;
+  border-radius: 4px;
+  padding: 2px;
   cursor: pointer;
-  transition: color 0.15s, border-color 0.15s;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+
+.hub-tile-pin svg {
+  width: 12px;
+  height: 12px;
 }
 
 .hub-tile-pin:hover {
@@ -9551,9 +9581,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
 }
 
 .hub-tile-pin.pinned {
-  color: var(--raven-blue);
-  border-color: #0066FF30;
-  background: #0066FF15;
+  color: var(--text-primary);
 }
 
 .hub-tile-terminal {
@@ -9563,28 +9591,8 @@ body.platform-mac .tabbar { padding-right: 116px; }
   overflow: hidden;
 }
 
-/* Botón Hub en la tab bar (va dentro del rightSlot, zona no-drag) */
-.hub-btn {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  background: transparent;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  color: var(--text-secondary);
-  font-size: 11px;
-  font-weight: 600;
-  padding: 3px 8px;
-  cursor: pointer;
-  -webkit-app-region: no-drag;
-  transition: color 0.15s, border-color 0.15s;
-  position: relative;
-}
-
-.hub-btn:hover {
-  color: var(--raven-blue);
-  border-color: #0066FF44;
-}
+/* El Hub ya no tiene botón en la tab bar: se entra desde el estado vacío
+   (como workspace) o con el atajo Ctrl/Cmd+Shift+O (overlay). */
 
 .hub-view {
   flex: 1;
@@ -9601,27 +9609,75 @@ body.platform-mac .tabbar { padding-right: 116px; }
 }
 
 .tab-hub-icon {
-  color: var(--raven-blue);
-  margin-right: 5px;
-  font-size: 11px;
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-secondary);
+  margin-right: 6px;
+}
+
+.tab-hub-icon svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* Entrada al Hub desde el estado vacío: camino secundario, discreto,
+   separado por una hairline "o". */
+.empty-or {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 236px;
+  margin: 26px 0 2px;
+  color: var(--text-muted);
+  font-size: 10.5px;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  user-select: none;
+}
+
+.empty-or::before,
+.empty-or::after {
+  content: "";
+  height: 1px;
+  flex: 1;
+  background: var(--border);
 }
 
 .empty-hub-btn {
-  margin-top: 14px;
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 9px;
   background: transparent;
-  border: 1px solid var(--raven-blue);
-  color: var(--raven-blue);
-  border-radius: 6px;
-  padding: 8px 16px;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  border-radius: 7px;
+  padding: 9px 16px;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
   cursor: pointer;
-  transition: background 0.15s;
+  transition: color 0.15s, border-color 0.15s;
 }
 
 .empty-hub-btn:hover {
-  background: #0066FF18;
+  color: var(--text-primary);
+  border-color: #333;
+}
+
+.empty-hub-btn svg {
+  width: 15px;
+  height: 15px;
+  color: var(--text-muted);
+}
+
+.empty-hub-btn:hover svg {
+  color: var(--text-secondary);
+}
+
+.empty-hub-count {
+  font-family: 'SF Mono', 'Menlo', monospace;
+  font-size: 11px;
+  color: var(--text-muted);
+  border-left: 1px solid var(--border);
+  padding-left: 9px;
+  margin-left: 2px;
 }

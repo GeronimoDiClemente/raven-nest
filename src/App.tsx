@@ -1074,13 +1074,8 @@ export default function App() {
     return out
   }, [tabs])
 
-  const hubHasRemoteActivity = useMemo(
-    () => tabs.some(t => t.id !== activeTabId && t.panes.some(p => activePanes.has(p.id))),
-    [tabs, activeTabId, activePanes]
-  )
-
-  const hasAnyTerminal = useMemo(
-    () => tabs.some(t => !t.isHub && t.panes.some(p => p.aiType !== 'browser')),
+  const hubTermCount = useMemo(
+    () => tabs.reduce((n, t) => t.isHub ? n : n + t.panes.filter(p => p.aiType !== 'browser').length, 0),
     [tabs]
   )
 
@@ -1097,15 +1092,7 @@ export default function App() {
         onTabColorChange={handleTabColorChange}
         isWin={window.platform?.isWin ?? false}
         tabActivity={tabActivity}
-        rightSlot={
-          <>
-            <button className="hub-btn" onClick={openHub} title={`Hub (${formatBinding('Meta+Shift+O')})`}>
-              Hub
-              {hubHasRemoteActivity && <span className="tab-activity-dot" />}
-            </button>
-            <ResourceBar panes={activePanesPayload} />
-          </>
-        }
+        rightSlot={<ResourceBar panes={activePanesPayload} />}
       />
       {updateStatus?.type === 'downloading' && (
         <div className="update-banner update-banner--downloading">
@@ -1207,7 +1194,8 @@ export default function App() {
         ) : isInitialState ? (
           <EmptyState
             onNewPane={addNextPane}
-            onShowHub={hasAnyTerminal ? convertActiveTabToHub : undefined}
+            onShowHub={hubTermCount > 0 ? convertActiveTabToHub : undefined}
+            hubCount={hubTermCount}
           />
         ) : (
           <>
@@ -1457,7 +1445,7 @@ function EmptyCell({ onClick }: { onClick: () => void }) {
   )
 }
 
-function EmptyState({ onNewPane, onShowHub }: { onNewPane: () => void; onShowHub?: () => void }) {
+function EmptyState({ onNewPane, onShowHub, hubCount }: { onNewPane: () => void; onShowHub?: () => void; hubCount?: number }) {
   return (
     <div className="empty-state">
       <div className="empty-logo">
@@ -1470,9 +1458,17 @@ function EmptyState({ onNewPane, onShowHub }: { onNewPane: () => void; onShowHub
       </button>
       <p className="empty-hint">or press <kbd>{window.platform?.isWin ? 'Ctrl+T' : '⌘T'}</kbd></p>
       {onShowHub && (
-        <button className="empty-hub-btn" onClick={onShowHub}>
-          ▦ Ver todas las terminales (Hub)
-        </button>
+        <>
+          <div className="empty-or">o</div>
+          <button className="empty-hub-btn" onClick={onShowHub}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+              <rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" />
+              <rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" />
+            </svg>
+            Ver todas las terminales en el Hub
+            {hubCount ? <span className="empty-hub-count">{hubCount}</span> : null}
+          </button>
+        </>
       )}
     </div>
   )
