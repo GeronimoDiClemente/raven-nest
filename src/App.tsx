@@ -822,6 +822,7 @@ export default function App() {
             customLabel: p.customLabel, customColor: p.customColor, note: p.note,
             repoPath: p.repoPath,
             shellId: p.shellId,
+            pinned: p.pinned,
             // Persist the browser pane's current URL so reopening Nest (or
             // switching workspaces) restores the page instead of the placeholder.
             url: p.url,

@@ -37,6 +37,7 @@ export interface PaneNode {
   url?: string          // browser only: initial url
   sessionPartition?: string  // browser only: persist:browser-<workspaceId>
   shellId?: string      // terminal panes only: which shell to spawn (Windows shell picker)
+  pinned?: boolean      // Hub: user-pinned pane, shows under the "Pinned" filter
 }
 
 export interface ShellInfo {
@@ -218,6 +219,7 @@ export interface SessionPane {
   repoPath?: string
   shellId?: string
   url?: string  // browser only: last navigated URL, restored on session load
+  pinned?: boolean  // Hub pin — survives session restore
 }
 
 export interface SessionData {
