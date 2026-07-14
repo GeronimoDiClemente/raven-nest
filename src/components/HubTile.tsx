@@ -30,11 +30,9 @@ export default function HubTile({ entry, focused, onFocus, onJump, onTogglePin }
     return subscribeToPtyExit((id) => { if (id === pane.id) setEnded(true) })
   }, [pane.id])
 
-  // External focus (Tab cycling from HubOverlay) → focus the xterm too
-  useEffect(() => {
-    if (focused) focusTile()
-  }, [focused, focusTile])
-
+  // Keyboard selection (Tab cycling) only moves the selection ring — it does
+  // NOT pull DOM focus into the xterm. That keeps Tab/Enter as Hub gestures
+  // (cycle / jump); typing into a tile is opt-in via click (see onMouseDown).
   const aiColor = pane.borderColor ?? pane.customColor ?? AI_CONFIG[pane.aiType]?.color ?? '#888888'
   const aiLabel = pane.customLabel ?? AI_CONFIG[pane.aiType].label
 

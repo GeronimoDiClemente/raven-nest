@@ -384,6 +384,9 @@ export default function App() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // The Hub overlay owns the keyboard while open — don't open worktree/diff
+      // modals behind it using the hidden workspace's context.
+      if (hubOpenRef.current) return
       const isCmdShift = (e.metaKey || e.ctrlKey) && e.shiftKey
       if (isCmdShift && e.key.toLowerCase() === 'w') {
         if (!activeTab.repoPath) return
@@ -581,9 +584,12 @@ export default function App() {
   }, [])
 
   const openHub = useCallback(() => {
+    // Already viewing the Hub as a workspace tab — don't stack the overlay on
+    // top (would mount a second HubView / duplicate xterms for the same PTYs).
+    if (activeTab.isHub) return
     hubPrevFocusRef.current = focusedPaneIdRef.current
     setHubOpen(true)
-  }, [])
+  }, [activeTab.isHub])
 
   const closeHub = useCallback(() => {
     setHubOpen(false)
@@ -609,7 +615,10 @@ export default function App() {
   }, [])
 
   const convertActiveTabToHub = useCallback(() => {
-    updateActiveTab(t => ({ ...t, isHub: true, name: 'Hub' }))
+    // A Hub tab owns no panes (HubView would filter them out → invisible,
+    // uncloseable). Only reached from EmptyState (panes already []), but clear
+    // defensively so a Hub tab can never hold orphan panes.
+    updateActiveTab(t => ({ ...t, isHub: true, name: 'Hub', panes: [] }))
   }, [updateActiveTab])
 
   const tabsRef = useRef(tabs)

@@ -68,6 +68,9 @@ export default function HubView({ tabs, activeTabId, activePanes, onJump, onTogg
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Tab') {
+        // If the user clicked into a tile's terminal, Tab belongs to the shell
+        // (autocomplete) — don't hijack it for tile cycling.
+        if (document.activeElement?.closest('.hub-tile-terminal')) return
         e.preventDefault()
         if (visible.length === 0) return
         const idx = visible.findIndex(en => en.pane.id === focusedPaneId)
