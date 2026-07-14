@@ -3,10 +3,12 @@
 type DataCallback = (data: string) => void
 type ExitCallback = () => void
 type GlobalDataCallback = (paneId: string, data: string) => void
+type GlobalExitCallback = (paneId: string) => void
 
 const dataCallbacks = new Map<string, DataCallback>()
 const exitCallbacks = new Map<string, ExitCallback>()
 const globalDataSubscribers = new Set<GlobalDataCallback>()
+const globalExitSubscribers = new Set<GlobalExitCallback>()
 
 let ipcRegistered = false
 
@@ -17,7 +19,10 @@ function ensureIpcRegistered() {
     dataCallbacks.get(paneId)?.(data)
     for (const cb of globalDataSubscribers) cb(paneId, data)
   })
-  window.pty.onExit((paneId) => exitCallbacks.get(paneId)?.())
+  window.pty.onExit((paneId) => {
+    exitCallbacks.get(paneId)?.()
+    for (const cb of globalExitSubscribers) cb(paneId)
+  })
 }
 
 export function registerPane(paneId: string, onData: DataCallback, onExit?: ExitCallback) {
@@ -38,6 +43,13 @@ export function subscribeToPtyData(cb: GlobalDataCallback): () => void {
   return () => { globalDataSubscribers.delete(cb) }
 }
 
+/** Subscribe to exit events from all panes. Returns an unsubscribe function. */
+export function subscribeToPtyExit(cb: GlobalExitCallback): () => void {
+  ensureIpcRegistered()
+  globalExitSubscribers.add(cb)
+  return () => { globalExitSubscribers.delete(cb) }
+}
+
 /**
  * Tear down the global IPC listeners and clear subscriber maps. Intended to
  * run on window `beforeunload` so the renderer doesn't leak listeners (or
@@ -48,6 +60,7 @@ export function stopListening(): void {
   dataCallbacks.clear()
   exitCallbacks.clear()
   globalDataSubscribers.clear()
+  globalExitSubscribers.clear()
   ipcRegistered = false
 }
 

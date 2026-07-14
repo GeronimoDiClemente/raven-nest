@@ -20,13 +20,13 @@ function saveFilter(f: HubFilter) {
 interface Props {
   tabs: WorkspaceTab[]
   activeTabId: string
-  busyPanes: Set<string>
+  activePanes: Set<string>
   onClose: () => void
   onJump: (tabId: string, paneId: string) => void
   onTogglePin: (tabId: string, paneId: string) => void
 }
 
-export default function HubOverlay({ tabs, activeTabId, busyPanes, onClose, onJump, onTogglePin }: Props) {
+export default function HubOverlay({ tabs, activeTabId, activePanes, onClose, onJump, onTogglePin }: Props) {
   const [filter, setFilter] = useState<HubFilter>(loadFilter)
   const [page, setPage] = useState(0)
   const [focusedPaneId, setFocusedPaneId] = useState<string | null>(null)
@@ -40,9 +40,9 @@ export default function HubOverlay({ tabs, activeTabId, busyPanes, onClose, onJu
           tabId: t.id,
           tabName: t.name,
           isActiveTab: t.id === activeTabId,
-          busy: busyPanes.has(p.id),
+          busy: activePanes.has(p.id),
         }))
-    ), [tabs, activeTabId, busyPanes])
+    ), [tabs, activeTabId, activePanes])
 
   const filtered = useMemo(() => filterEntries(entries, filter), [entries, filter])
   const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))

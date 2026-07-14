@@ -26,6 +26,7 @@ import { DiffViewerPanel } from './components/DiffViewerPanel'
 import GlobalSearch from './components/GlobalSearch'
 import CommandPalette from './components/CommandPalette'
 import HubOverlay from './components/HubOverlay'
+import { useHubActivity } from './hub-activity'
 import { focusTerminal } from './terminal-registry'
 import logoUrl from './assets/logo.png'
 import { useProfile } from './hooks/useProfile'
@@ -116,6 +117,7 @@ export default function App() {
 
   // Busy state: paneId -> boolean
   const [busyPanes, setBusyPanes] = useState<Set<string>>(new Set())
+  const activePanes = useHubActivity()
 
   const handleBusyChange = useCallback((paneId: string, busy: boolean) => {
     setBusyPanes(prev => {
@@ -887,6 +889,18 @@ export default function App() {
 
       if (!e.metaKey && !e.ctrlKey) return
 
+      // While the Hub overlay is open, its own listener owns the keyboard.
+      // Swallow every App-level Meta/Ctrl binding (pane cycling, Cmd+1-9, new
+      // pane, zoom, font size…) so a shell shortcut typed into a Hub tile
+      // (e.g. Ctrl+←/→ word-jump) can't redirect focus to a hidden pane
+      // behind the overlay. Only the Hub toggle still acts here (to close);
+      // Escape is handled above. Returning without preventDefault lets the
+      // keystroke reach the focused tile's terminal.
+      if (hubOpenRef.current) {
+        if (matchesBinding(e, kb.hubOverlay)) { e.preventDefault(); closeHub(); return }
+        return
+      }
+
       if (matchesBinding(e, kb.newPane)) { e.preventDefault(); addNextPane(); return }
 
       if (matchesBinding(e, kb.fontSizeUp)) {
@@ -1015,8 +1029,8 @@ export default function App() {
   }, [tabs])
 
   const hubHasRemoteActivity = useMemo(
-    () => tabs.some(t => t.id !== activeTabId && t.panes.some(p => busyPanes.has(p.id))),
-    [tabs, activeTabId, busyPanes]
+    () => tabs.some(t => t.id !== activeTabId && t.panes.some(p => activePanes.has(p.id))),
+    [tabs, activeTabId, activePanes]
   )
 
   return (
@@ -1236,7 +1250,7 @@ export default function App() {
         <HubOverlay
           tabs={tabs}
           activeTabId={activeTabId}
-          busyPanes={busyPanes}
+          activePanes={activePanes}
           onClose={closeHub}
           onJump={handleHubJump}
           onTogglePin={handleHubTogglePin}

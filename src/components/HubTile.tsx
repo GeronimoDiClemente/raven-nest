@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { AI_CONFIG } from '../types'
 import { useHubTerminal } from '../hooks/useHubTerminal'
+import { subscribeToPtyExit } from '../pty-events'
 import type { HubEntry } from './HubGrid'
 
 interface Props {
@@ -22,6 +23,11 @@ export default function HubTile({ entry, focused, onFocus, onJump, onTogglePin }
     let alive = true
     window.pty.exists(pane.id).then(exists => { if (alive) setEnded(!exists) })
     return () => { alive = false }
+  }, [pane.id])
+
+  // Live exit: flip to the ended badge if the PTY dies while this tile is open.
+  useEffect(() => {
+    return subscribeToPtyExit((id) => { if (id === pane.id) setEnded(true) })
   }, [pane.id])
 
   // External focus (Tab cycling from HubOverlay) → focus the xterm too
