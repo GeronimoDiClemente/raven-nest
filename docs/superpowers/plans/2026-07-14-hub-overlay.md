@@ -1089,3 +1089,389 @@ Reportar URL del PR draft. Recordar: review de Gero; pedir smoke en Mac/Linux en
 1. **Cobertura del spec:** entrada por atajo/palette/botón ✓ (Task 5), tiles con lenguaje visual + chip ✓ (Task 3/4), filtros + persistencia localStorage ✓ (Task 4), pin persistente en sesión ✓ (Task 1), interacciones (click/Tab/Enter/doble click/Esc) ✓ (Task 4/5), decisión resize PTY ✓ (Task 2, `canResizePty`), paginación 12 ✓ (Task 4), replay 200 líneas ✓ (Task 2), badge ended ✓ (Task 3), estado vacío ✓ (Task 3), testing manual + build ✓ (Task 6). Suscripción única con fan-out del spec se simplificó a N suscripciones al `Set` del bus (mismo costo real, menos plumbing) — anotado como desvío consciente.
 2. **Placeholders:** ninguno; todos los pasos tienen código o comandos concretos.
 3. **Consistencia de tipos:** `HubEntry`/`HubFilter`/`filterEntries` definidos en Task 3 y consumidos idénticos en Task 4; `useHubTerminal(paneId, canResizePty)` idéntico entre Task 2 y 3; `onJump(tabId, paneId)`/`onTogglePin(tabId, paneId)` uniformes en Tasks 3/4/5.
+
+---
+
+## Adición (2026-07-14): Hub como workspace desde el `+` (mockup A)
+
+Tareas 7-8, sobre la misma rama. El overlay ya existe y está revisado. Estas tareas extraen su núcleo a `HubView` y agregan la variante "Hub como pestaña", creada desde el estado vacío de un workspace nuevo. Las Global Constraints de arriba siguen vigentes.
+
+### Task 7: Extraer `HubView` (núcleo compartido) de `HubOverlay`
+
+**Files:**
+- Create: `src/components/HubView.tsx`
+- Modify: `src/components/HubOverlay.tsx` (pasa a wrapper)
+- Modify: `src/styles/global.css` (agregar `.hub-view`)
+
+**Interfaces:**
+- Produces (consumido por Task 8 y por HubOverlay): `<HubView tabs activeTabId activePanes onJump onTogglePin />` — el núcleo: estado de filtro (localStorage `nest-hub-filter`), paginación (PAGE_SIZE 12), teclado (Tab/Shift+Tab/Enter), toolbar de filtros + `HubGrid`. Excluye tabs con `isHub`.
+
+- [ ] **Step 1: Crear `src/components/HubView.tsx`**
+
+```tsx
+import { useState, useEffect, useMemo, useCallback } from 'react'
+import { WorkspaceTab } from '../types'
+import HubGrid, { HubEntry, HubFilter, filterEntries } from './HubGrid'
+
+const PAGE_SIZE = 12
+const FILTER_STORAGE_KEY = 'nest-hub-filter'
+
+function loadFilter(): HubFilter {
+  const raw = localStorage.getItem(FILTER_STORAGE_KEY)
+  if (raw === 'active' || raw === 'pinned') return raw
+  if (raw?.startsWith('tab:')) return { tabId: raw.slice(4) }
+  return 'all'
+}
+function saveFilter(f: HubFilter) {
+  localStorage.setItem(FILTER_STORAGE_KEY, typeof f === 'string' ? f : `tab:${f.tabId}`)
+}
+
+interface Props {
+  tabs: WorkspaceTab[]
+  activeTabId: string
+  activePanes: Set<string>
+  onJump: (tabId: string, paneId: string) => void
+  onTogglePin: (tabId: string, paneId: string) => void
+}
+
+export default function HubView({ tabs, activeTabId, activePanes, onJump, onTogglePin }: Props) {
+  const [filter, setFilter] = useState<HubFilter>(loadFilter)
+  const [page, setPage] = useState(0)
+  const [focusedPaneId, setFocusedPaneId] = useState<string | null>(null)
+
+  // Hub tabs own no terminals; exclude them so they don't appear as empty
+  // per-workspace filter chips or contribute phantom entries.
+  const sourceTabs = useMemo(() => tabs.filter(t => !t.isHub), [tabs])
+
+  const entries = useMemo<HubEntry[]>(() =>
+    sourceTabs.flatMap(t =>
+      t.panes
+        .filter(p => p.aiType !== 'browser')
+        .map(p => ({
+          pane: p,
+          tabId: t.id,
+          tabName: t.name,
+          isActiveTab: t.id === activeTabId,
+          busy: activePanes.has(p.id),
+        }))
+    ), [sourceTabs, activeTabId, activePanes])
+
+  const filtered = useMemo(() => filterEntries(entries, filter), [entries, filter])
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  const clampedPage = Math.min(page, pageCount - 1)
+  const visible = filtered.slice(clampedPage * PAGE_SIZE, (clampedPage + 1) * PAGE_SIZE)
+
+  const changeFilter = useCallback((f: HubFilter) => {
+    setFilter(f); setPage(0); saveFilter(f)
+  }, [])
+
+  useEffect(() => {
+    if (focusedPaneId && !visible.some(e => e.pane.id === focusedPaneId)) {
+      setFocusedPaneId(null)
+    }
+  }, [visible, focusedPaneId])
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Tab') {
+        e.preventDefault()
+        if (visible.length === 0) return
+        const idx = visible.findIndex(en => en.pane.id === focusedPaneId)
+        const next = e.shiftKey
+          ? (idx - 1 + visible.length) % visible.length
+          : (idx + 1) % visible.length
+        setFocusedPaneId(visible[next].pane.id)
+        return
+      }
+      if (e.key === 'Enter' && focusedPaneId) {
+        const entry = visible.find(en => en.pane.id === focusedPaneId)
+        if (entry && !(document.activeElement?.closest('.hub-tile-terminal'))) {
+          e.preventDefault()
+          onJump(entry.tabId, entry.pane.id)
+        }
+      }
+    }
+    window.addEventListener('keydown', handler, true)
+    return () => window.removeEventListener('keydown', handler, true)
+  }, [visible, focusedPaneId, onJump])
+
+  const counts = useMemo(() => ({
+    all: entries.length,
+    active: entries.filter(e => e.busy).length,
+    pinned: entries.filter(e => e.pane.pinned).length,
+  }), [entries])
+
+  const filterIs = (f: HubFilter) =>
+    typeof f === 'string' ? filter === f : typeof filter !== 'string' && filter.tabId === f.tabId
+
+  return (
+    <div className="hub-view">
+      <div className="hub-toolbar">
+        <button className={`hub-chip${filterIs('all') ? ' on' : ''}`} onClick={() => changeFilter('all')}>
+          Todas <span className="hub-chip-n">{counts.all}</span>
+        </button>
+        <button className={`hub-chip${filterIs('active') ? ' on' : ''}`} onClick={() => changeFilter('active')}>
+          Activas <span className="hub-chip-n">{counts.active}</span>
+        </button>
+        <button className={`hub-chip${filterIs('pinned') ? ' on' : ''}`} onClick={() => changeFilter('pinned')}>
+          Pineadas <span className="hub-chip-n">{counts.pinned}</span>
+        </button>
+        <span className="hub-toolbar-sep" />
+        {sourceTabs.map(t => (
+          <button
+            key={t.id}
+            className={`hub-chip${filterIs({ tabId: t.id }) ? ' on' : ''}`}
+            onClick={() => changeFilter({ tabId: t.id })}
+          >
+            {t.name}
+          </button>
+        ))}
+        {pageCount > 1 && (
+          <span className="hub-pager">
+            <button className="hub-chip" disabled={clampedPage === 0} onClick={() => setPage(p => Math.max(0, p - 1))}>‹</button>
+            <span className="hub-pager-label">{clampedPage + 1}/{pageCount}</span>
+            <button className="hub-chip" disabled={clampedPage >= pageCount - 1} onClick={() => setPage(p => p + 1)}>›</button>
+          </span>
+        )}
+      </div>
+      <HubGrid
+        entries={visible}
+        focusedPaneId={focusedPaneId}
+        onFocus={setFocusedPaneId}
+        onJump={onJump}
+        onTogglePin={onTogglePin}
+      />
+    </div>
+  )
+}
+```
+
+- [ ] **Step 2: Reescribir `src/components/HubOverlay.tsx` como wrapper**
+
+```tsx
+import { WorkspaceTab } from '../types'
+import HubView from './HubView'
+import { formatBinding } from '../lib/keybindings'
+
+interface Props {
+  tabs: WorkspaceTab[]
+  activeTabId: string
+  activePanes: Set<string>
+  onClose: () => void
+  onJump: (tabId: string, paneId: string) => void
+  onTogglePin: (tabId: string, paneId: string) => void
+}
+
+export default function HubOverlay({ tabs, activeTabId, activePanes, onClose, onJump, onTogglePin }: Props) {
+  return (
+    <div className="hub-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="hub-panel">
+        <div className="hub-title">
+          <span>Hub — terminales activas</span>
+          <span className="hub-title-hint">
+            Esc volver · Tab siguiente · Enter ir al workspace · {formatBinding('Meta+Shift+O')} toggle
+          </span>
+        </div>
+        <HubView
+          tabs={tabs}
+          activeTabId={activeTabId}
+          activePanes={activePanes}
+          onJump={onJump}
+          onTogglePin={onTogglePin}
+        />
+      </div>
+    </div>
+  )
+}
+```
+
+- [ ] **Step 3: CSS** — al final de `src/styles/global.css`:
+
+```css
+.hub-view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+```
+
+- [ ] **Step 4:** `npm run build` limpio. El overlay debe comportarse idéntico.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/components/HubView.tsx src/components/HubOverlay.tsx src/styles/global.css
+git commit -m "refactor(hub): extraer HubView del overlay para reusar como workspace
+
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
+```
+
+---
+
+### Task 8: Hub como workspace (`isHub`) creado desde el estado vacío
+
+**Files:**
+- Modify: `src/types.ts` (`WorkspaceTab.isHub`, `SessionData.tabs[].isHub`)
+- Create: `src/components/HubWorkspace.tsx`
+- Modify: `src/App.tsx` (render switch, convert handler, hasAnyTerminal, EmptyState, persistencia)
+- Modify: `src/components/TabBar.tsx` (ícono ▦)
+- Modify: `src/styles/global.css` (`.hub-workspace`, `.tab-hub-icon`, `.empty-hub-btn`)
+
+**Interfaces:**
+- Consumes: `HubView` (Task 7); `handleHubJump`/`handleHubTogglePin`/`activePanes`/`updateActiveTab` (ya existen en App).
+
+- [ ] **Step 1: `src/types.ts`** — en `interface WorkspaceTab`, después de `splitRatios?: Record<string, number[]>`:
+
+```ts
+  splitRatios?: Record<string, number[]>
+  isHub?: boolean  // true = pestaña que muestra el Hub (todas las terminales), sin panes propios
+```
+
+y en `SessionData.tabs` (objeto del array), después de su `splitRatios?`:
+
+```ts
+    splitRatios?: Record<string, number[]>
+    isHub?: boolean
+```
+
+- [ ] **Step 2: Crear `src/components/HubWorkspace.tsx`**
+
+```tsx
+import { WorkspaceTab } from '../types'
+import HubView from './HubView'
+
+interface Props {
+  tabs: WorkspaceTab[]
+  activeTabId: string
+  activePanes: Set<string>
+  onJump: (tabId: string, paneId: string) => void
+  onTogglePin: (tabId: string, paneId: string) => void
+}
+
+export default function HubWorkspace(props: Props) {
+  return (
+    <div className="hub-workspace">
+      <HubView {...props} />
+    </div>
+  )
+}
+```
+
+- [ ] **Step 3: `src/App.tsx` — import + hasAnyTerminal + convertActiveTabToHub**
+
+Import junto a `import HubOverlay from './components/HubOverlay'`:
+```ts
+import HubWorkspace from './components/HubWorkspace'
+```
+
+Cerca de `hubHasRemoteActivity` (mismo patrón `useMemo`):
+```ts
+  const hasAnyTerminal = useMemo(
+    () => tabs.some(t => !t.isHub && t.panes.some(p => p.aiType !== 'browser')),
+    [tabs]
+  )
+```
+
+Después de `handleHubTogglePin`:
+```ts
+  const convertActiveTabToHub = useCallback(() => {
+    updateActiveTab(t => ({ ...t, isHub: true, name: 'Hub' }))
+  }, [updateActiveTab])
+```
+
+- [ ] **Step 4: `src/App.tsx` — render switch** (alrededor de la línea 1148). Reemplazá exactamente:
+```tsx
+        {isInitialState ? (
+          <EmptyState onNewPane={addNextPane} />
+        ) : (
+```
+por:
+```tsx
+        {activeTab.isHub ? (
+          <HubWorkspace
+            tabs={tabs}
+            activeTabId={activeTabId}
+            activePanes={activePanes}
+            onJump={handleHubJump}
+            onTogglePin={handleHubTogglePin}
+          />
+        ) : isInitialState ? (
+          <EmptyState
+            onNewPane={addNextPane}
+            onShowHub={hasAnyTerminal ? convertActiveTabToHub : undefined}
+          />
+        ) : (
+```
+El resto del bloque (`<>...PaneLayoutEngine...</>` y su cierre `)}`) queda igual.
+
+- [ ] **Step 5: `src/App.tsx` — EmptyState acepta `onShowHub`** (función ~línea 1398). Reemplazá la firma `function EmptyState({ onNewPane }: { onNewPane: () => void })` por `function EmptyState({ onNewPane, onShowHub }: { onNewPane: () => void; onShowHub?: () => void })`, y antes del `</div>` de cierre de `.empty-state` (después del `<p className="empty-hint">…</p>`) agregá:
+```tsx
+      {onShowHub && (
+        <button className="empty-hub-btn" onClick={onShowHub}>
+          ▦ Ver todas las terminales (Hub)
+        </button>
+      )}
+```
+
+- [ ] **Step 6: `src/App.tsx` — persistencia.** En el save mapping (dentro de `tabs.map(tab => ({ ... }))`, después de `splitRatios: tab.splitRatios,`):
+```ts
+          splitRatios: tab.splitRatios,
+          isHub: tab.isHub,
+```
+y en `migrate` (rama v3 que retorna `layoutId`/`panes`/`splitRatios`), agregá `isHub: raw.isHub,` a ese objeto retornado.
+
+- [ ] **Step 7: `src/components/TabBar.tsx`** — en `SortableTab`, dentro del `<span className="tab-name" …>`, justo antes de `{tab.name}`:
+```tsx
+          {tab.isHub && <span className="tab-hub-icon">▦</span>}
+          {tab.name}
+```
+
+- [ ] **Step 8: CSS** — al final de `src/styles/global.css`:
+```css
+.hub-workspace {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.tab-hub-icon {
+  color: var(--raven-blue);
+  margin-right: 5px;
+  font-size: 11px;
+}
+
+.empty-hub-btn {
+  margin-top: 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: transparent;
+  border: 1px solid var(--raven-blue);
+  color: var(--raven-blue);
+  border-radius: 6px;
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.empty-hub-btn:hover {
+  background: #0066FF18;
+}
+```
+
+- [ ] **Step 9:** `npm run build` limpio.
+
+- [ ] **Step 10: Commit**
+
+```bash
+git add src/types.ts src/components/HubWorkspace.tsx src/App.tsx src/components/TabBar.tsx src/styles/global.css
+git commit -m "feat(hub): crear el Hub como workspace desde el estado vacío del +
+
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
+```
+
+**Verificación (test path manual):** + → tab vacío → "Ver todas las terminales (Hub)" convierte el tab (nombre Hub, ícono ▦, grilla con las terminales de los otros workspaces); escribir en un tile va a esa terminal; doble click salta al workspace (el tab Hub queda); el overlay `Ctrl+Shift+O` sigue igual; el botón del EmptyState no aparece si no hay terminales en otro workspace; cerrar/reabrir conserva el tab Hub.

@@ -46,9 +46,17 @@ Mismo lenguaje visual del pane actual (borde `color-mix` con `--pane-color`, hea
 
 Con más de 12 tiles tras filtrar: paginación simple (12 por página), para acotar la cantidad de xterms vivos.
 
+## Adición aprobada (2026-07-14): Hub como workspace desde el `+`
+
+Además del overlay, el Hub se puede crear como **una pestaña más**. Interacción elegida (mockup "A"): el `+` crea un workspace vacío como hoy (un click, sin cambios); en su **estado vacío** (`EmptyState`), junto a "+ New Terminal", aparece **"▦ Ver todas las terminales (Hub)"**. Al tocarlo, ese tab se convierte en la vista Hub (nombre → "Hub", ícono ▦ en la pestaña) y su contenido es la grilla de todas las terminales de los demás workspaces. El overlay (`Ctrl/Cmd+Shift+O`) se mantiene igual; ambos comparten el mismo núcleo `HubView`.
+
+- La grilla del overlay se refactoriza a `HubView` (toolbar de filtros + paginación + teclado + `HubGrid`). `HubOverlay` pasa a ser un wrapper (backdrop + título + `HubView`); `HubWorkspace` monta `HubView` inline como contenido del tab activo.
+- Un tab Hub tiene `isHub: true` y `panes: []`; se excluye de las fuentes/chips de filtro. Cuando es el tab activo, los demás tabs quedan inactivos → sus `TerminalPane` reales desmontados → los tiles del Hub son la única vista de esos PTYs (sin doble-vista, más limpio que el overlay).
+- `isHub` persiste en la sesión (save/restore/migrate). El botón del `EmptyState` solo aparece si hay terminales en algún otro workspace.
+- Limitación conocida (v1): si restaurás la sesión con el tab Hub activo, los PTYs de los otros tabs aún no existen (se crean al montar sus `TerminalPane`), así que esos tiles se ven vacíos/ended hasta visitar esos tabs una vez. Se documenta en el PR.
+
 ## Fuera de alcance (v1)
 
-- Workspace fijo "Hub" (variante A) — la arquitectura lo permite, no se construye ahora.
 - Panel lateral persistente (variante C).
 - Detección fina de "esperando input" (heurísticas de prompt): v1 usa las señales existentes (busy/actividad/idle/ended).
 - Broadcast cross-workspace desde el Hub.
