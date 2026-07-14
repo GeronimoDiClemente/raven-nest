@@ -26,6 +26,7 @@ import { DiffViewerPanel } from './components/DiffViewerPanel'
 import GlobalSearch from './components/GlobalSearch'
 import CommandPalette from './components/CommandPalette'
 import HubOverlay from './components/HubOverlay'
+import HubWorkspace from './components/HubWorkspace'
 import { useHubActivity } from './hub-activity'
 import { focusTerminal } from './terminal-registry'
 import logoUrl from './assets/logo.png'
@@ -591,6 +592,10 @@ export default function App() {
     }))
   }, [])
 
+  const convertActiveTabToHub = useCallback(() => {
+    updateActiveTab(t => ({ ...t, isHub: true, name: 'Hub' }))
+  }, [updateActiveTab])
+
   const tabsRef = useRef(tabs)
   tabsRef.current = tabs
   const activeTabIdRef = useRef(activeTabId)
@@ -765,6 +770,7 @@ export default function App() {
             layoutId: raw.layoutId,
             panes: raw.panes.map(sessionToPane),
             splitRatios: raw.splitRatios ?? {},
+            isHub: raw.isHub,
           }
         }
         // v2: layout + cells
@@ -863,6 +869,7 @@ export default function App() {
             url: p.url,
           })),
           splitRatios: tab.splitRatios,
+          isHub: tab.isHub,
         })),
         activeTabId,
       }
@@ -1033,6 +1040,11 @@ export default function App() {
     [tabs, activeTabId, activePanes]
   )
 
+  const hasAnyTerminal = useMemo(
+    () => tabs.some(t => !t.isHub && t.panes.some(p => p.aiType !== 'browser')),
+    [tabs]
+  )
+
   return (
     <div className="app" style={{ '--tab-accent': activeTab.accentColor ?? 'var(--raven-blue)' } as React.CSSProperties}>
       <TabBar
@@ -1145,8 +1157,19 @@ export default function App() {
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
       >
-        {isInitialState ? (
-          <EmptyState onNewPane={addNextPane} />
+        {activeTab.isHub ? (
+          <HubWorkspace
+            tabs={tabs}
+            activeTabId={activeTabId}
+            activePanes={activePanes}
+            onJump={handleHubJump}
+            onTogglePin={handleHubTogglePin}
+          />
+        ) : isInitialState ? (
+          <EmptyState
+            onNewPane={addNextPane}
+            onShowHub={hasAnyTerminal ? convertActiveTabToHub : undefined}
+          />
         ) : (
           <>
             {zoomedPaneId !== null && (
@@ -1395,7 +1418,7 @@ function EmptyCell({ onClick }: { onClick: () => void }) {
   )
 }
 
-function EmptyState({ onNewPane }: { onNewPane: () => void }) {
+function EmptyState({ onNewPane, onShowHub }: { onNewPane: () => void; onShowHub?: () => void }) {
   return (
     <div className="empty-state">
       <div className="empty-logo">
@@ -1407,6 +1430,11 @@ function EmptyState({ onNewPane }: { onNewPane: () => void }) {
         + New Terminal
       </button>
       <p className="empty-hint">or press <kbd>{window.platform?.isWin ? 'Ctrl+T' : '⌘T'}</kbd></p>
+      {onShowHub && (
+        <button className="empty-hub-btn" onClick={onShowHub}>
+          ▦ Ver todas las terminales (Hub)
+        </button>
+      )}
     </div>
   )
 }

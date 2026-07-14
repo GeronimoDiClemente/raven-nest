@@ -102,6 +102,7 @@ const SortableTab = memo(function SortableTab({
           {...attributes}
           style={{ cursor: 'grab' }}
         >
+          {tab.isHub && <span className="tab-hub-icon">▦</span>}
           {tab.name}
           {tab.repoPath && basename(tab.repoPath) !== tab.name && (
             <span className="tab-repo-badge" title={tab.repoPath}>{basename(tab.repoPath)}</span>
