@@ -1983,6 +1983,31 @@ body {
   color: var(--raven-blue);
 }
 
+/* Pin (solo visible en el Hub): marca el pane para el filtro Pineadas. */
+.pane-pin-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: background 0.15s, color 0.15s;
+  margin-right: 2px;
+}
+
+.pane-pin-btn:hover {
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+}
+
+.pane-pin-btn.pinned {
+  color: var(--text-primary);
+}
+
 /* ── Drag & Drop ─────────────────────────────────────────── */
 
 .pane-header {

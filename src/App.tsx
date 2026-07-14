@@ -1185,6 +1185,7 @@ export default function App() {
       onPtyStarted={(id, rp) => updatePaneAnywhere(id, p => ({ ...p, runningRepoPath: rp }))}
       allowSharing={planLimits.allowSharing}
       onRequireUpgrade={() => setShowUpgrade(true)}
+      onTogglePin={() => updatePaneAnywhere(pane.id, p => ({ ...p, pinned: !p.pinned }))}
     />
   )
 

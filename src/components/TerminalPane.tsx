@@ -60,9 +60,10 @@ interface Props {
   style?: React.CSSProperties
   allowSharing?: boolean
   onRequireUpgrade?: () => void
+  onTogglePin?: () => void  // solo desde el Hub → habilita el botón de pin en el header
 }
 
-export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZoom, onClose, onColorChange, onNoteChange, onInput, onBusyChange, onFocus, onActivity, onJoinRequest, onPtyStarted, ports = [], fontSize, style, allowSharing = true, onRequireUpgrade }: Props) {
+export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZoom, onClose, onColorChange, onNoteChange, onInput, onBusyChange, onFocus, onActivity, onJoinRequest, onPtyStarted, ports = [], fontSize, style, allowSharing = true, onRequireUpgrade, onTogglePin }: Props) {
   const cmdBufferRef = useRef('')
   const wrappedOnInput = useCallback((data: string) => {
     for (const ch of data) {
@@ -428,6 +429,7 @@ export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZ
         isSharing={isSharing}
         repoPathDiverged={repoPathDiverged}
         onSyncCwd={handleSyncCwd}
+        onTogglePin={onTogglePin}
       />
       {searchOpen && (
         <div className="search-bar">
