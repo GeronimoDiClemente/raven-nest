@@ -9585,3 +9585,10 @@ body.platform-mac .tabbar { padding-right: 116px; }
   color: var(--raven-blue);
   border-color: #0066FF44;
 }
+
+.hub-view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
