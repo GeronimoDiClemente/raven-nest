@@ -24,6 +24,7 @@ interface Props {
   onNewTab: () => void
   onNewPane: () => void
   onBroadcastToggle: () => void
+  onHubOpen: () => void
 }
 
 function score(item: PaletteItem, query: string): number {
@@ -57,7 +58,7 @@ const SECTION_LABELS: Record<PaletteItem['section'], string> = {
 export default function CommandPalette({
   onClose, tabs, activeTabId, focusedPaneId, broadcastMode,
   onTabSelect, onWorkspaceLoad, onSnippetSend, onSnippetBroadcast,
-  onHistoryOpen, onNewTab, onNewPane, onBroadcastToggle,
+  onHistoryOpen, onNewTab, onNewPane, onBroadcastToggle, onHubOpen,
 }: Props) {
   const [query, setQuery] = useState('')
   const [selectedIdx, setSelectedIdx] = useState(0)
@@ -102,6 +103,13 @@ export default function CommandPalette({
       sublabel: broadcastMode ? 'Stop sending to all terminals' : 'Send to all terminals',
       keywords: 'broadcast all terminals',
       action: () => { onBroadcastToggle(); onClose() },
+    })
+    items.push({
+      id: 'action-hub', section: 'actions',
+      label: 'Hub: ver todas las terminales',
+      sublabel: 'Vista compacta de todos los workspaces',
+      keywords: 'hub overview terminales workspaces todas',
+      action: () => { onHubOpen(); onClose() },
     })
     items.push({
       id: 'action-history', section: 'actions',
@@ -163,7 +171,7 @@ export default function CommandPalette({
 
     return items
   }, [tabs, activeTabId, workspaces, snippets, conversations, broadcastMode,
-      onNewTab, onNewPane, onBroadcastToggle, onHistoryOpen,
+      onNewTab, onNewPane, onBroadcastToggle, onHubOpen, onHistoryOpen,
       onTabSelect, onWorkspaceLoad, onSnippetSend, onSnippetBroadcast, onClose])
 
   const filtered = buildItems()

@@ -25,6 +25,7 @@ import { QuickWorktreePalette } from './components/QuickWorktreePalette'
 import { DiffViewerPanel } from './components/DiffViewerPanel'
 import GlobalSearch from './components/GlobalSearch'
 import CommandPalette from './components/CommandPalette'
+import HubOverlay from './components/HubOverlay'
 import { focusTerminal } from './terminal-registry'
 import logoUrl from './assets/logo.png'
 import { useProfile } from './hooks/useProfile'
@@ -36,7 +37,7 @@ import { useGitHub } from './hooks/useGitHub'
 import { usePendingInvitesCount } from './hooks/usePendingInvitesCount'
 import { useSpeechRecognition } from './hooks/useSpeechRecognition'
 import { useSettings } from './hooks/useSettings'
-import { matchesBinding } from './lib/keybindings'
+import { matchesBinding, formatBinding } from './lib/keybindings'
 import { WORKTREE_DRAG_MIME } from './lib/dragTypes'
 import { useUserPreferences } from './hooks/useUserPreferences'
 import SharedTerminalViewer from './components/SharedTerminalViewer'
@@ -100,6 +101,10 @@ export default function App() {
   const [convSidebarOpen, setConvSidebarOpen] = useState(false)
   const [globalSearchOpen, setGlobalSearchOpen] = useState(false)
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
+  const [hubOpen, setHubOpen] = useState(false)
+  const hubOpenRef = useRef(false)
+  hubOpenRef.current = hubOpen
+  const hubPrevFocusRef = useRef<string | null>(null)
   const [sidebarExpanded, setSidebarExpanded] = useState(false)
   const [fontSize, setFontSize] = useState<number>(() => {
     const saved = localStorage.getItem('nest-font-size')
@@ -556,6 +561,34 @@ export default function App() {
     setActiveTabId(id)
   }, [])
 
+  const openHub = useCallback(() => {
+    hubPrevFocusRef.current = focusedPaneIdRef.current
+    setHubOpen(true)
+  }, [])
+
+  const closeHub = useCallback(() => {
+    setHubOpen(false)
+    const prev = hubPrevFocusRef.current
+    // Restore focus after the overlay unmounts and the pane below re-renders.
+    if (prev) setTimeout(() => focusTerminal(prev), 50)
+  }, [])
+
+  const handleHubJump = useCallback((tabId: string, paneId: string) => {
+    setHubOpen(false)
+    setActiveTabId(tabId)
+    setFocusedPaneId(paneId)
+    focusedPaneIdRef.current = paneId
+    // The pane's xterm mounts on tab switch; focus once it registered.
+    setTimeout(() => focusTerminal(paneId), 150)
+  }, [])
+
+  const handleHubTogglePin = useCallback((tabId: string, paneId: string) => {
+    setTabs(prev => prev.map(t => t.id !== tabId ? t : {
+      ...t,
+      panes: t.panes.map(p => p.id !== paneId ? p : { ...p, pinned: !p.pinned }),
+    }))
+  }, [])
+
   const tabsRef = useRef(tabs)
   tabsRef.current = tabs
   const activeTabIdRef = useRef(activeTabId)
@@ -849,6 +882,7 @@ export default function App() {
         return
       }
 
+      if (e.key === 'Escape' && hubOpenRef.current) { closeHub(); return }
       if (e.key === 'Escape' && zoomedPaneIdRef.current !== null) { handleUnzoom(); return }
 
       if (!e.metaKey && !e.ctrlKey) return
@@ -894,6 +928,12 @@ export default function App() {
 
       if (matchesBinding(e, kb.globalSearch)) { e.preventDefault(); setGlobalSearchOpen(true); return }
       if (matchesBinding(e, kb.commandPalette)) { e.preventDefault(); setCommandPaletteOpen(v => !v); return }
+      if (matchesBinding(e, kb.hubOverlay)) {
+        e.preventDefault()
+        if (hubOpenRef.current) closeHub()
+        else openHub()
+        return
+      }
 
       if (matchesBinding(e, kb.nextPane) || matchesBinding(e, kb.prevPane)) {
         e.preventDefault()
@@ -921,7 +961,7 @@ export default function App() {
     // means non-modified keystrokes still flow through to the terminal.
     window.addEventListener('keydown', handler, true)
     return () => window.removeEventListener('keydown', handler, true)
-  }, [addNextPane, toggleListening, cycleTab, handleUnzoom, handleZoom, planLimits.allowVoice])
+  }, [addNextPane, toggleListening, cycleTab, handleUnzoom, handleZoom, planLimits.allowVoice, openHub, closeHub])
 
   const isInitialState = panes.length === 0
 
@@ -974,6 +1014,11 @@ export default function App() {
     return out
   }, [tabs])
 
+  const hubHasRemoteActivity = useMemo(
+    () => tabs.some(t => t.id !== activeTabId && t.panes.some(p => busyPanes.has(p.id))),
+    [tabs, activeTabId, busyPanes]
+  )
+
   return (
     <div className="app" style={{ '--tab-accent': activeTab.accentColor ?? 'var(--raven-blue)' } as React.CSSProperties}>
       <TabBar
@@ -987,7 +1032,15 @@ export default function App() {
         onTabColorChange={handleTabColorChange}
         isWin={window.platform?.isWin ?? false}
         tabActivity={tabActivity}
-        rightSlot={<ResourceBar panes={activePanesPayload} />}
+        rightSlot={
+          <>
+            <button className="hub-btn" onClick={openHub} title={`Hub (${formatBinding('Meta+Shift+O')})`}>
+              Hub
+              {hubHasRemoteActivity && <span className="tab-activity-dot" />}
+            </button>
+            <ResourceBar panes={activePanesPayload} />
+          </>
+        }
       />
       {updateStatus?.type === 'downloading' && (
         <div className="update-banner update-banner--downloading">
@@ -1179,6 +1232,17 @@ export default function App() {
         <GlobalSearch onClose={() => setGlobalSearchOpen(false)} />
       )}
 
+      {hubOpen && (
+        <HubOverlay
+          tabs={tabs}
+          activeTabId={activeTabId}
+          busyPanes={busyPanes}
+          onClose={closeHub}
+          onJump={handleHubJump}
+          onTogglePin={handleHubTogglePin}
+        />
+      )}
+
       {commandPaletteOpen && (
         <CommandPalette
           onClose={() => setCommandPaletteOpen(false)}
@@ -1194,6 +1258,7 @@ export default function App() {
           onNewTab={handleTabNew}
           onNewPane={addNextPane}
           onBroadcastToggle={() => setBroadcastMode(v => !v)}
+          onHubOpen={openHub}
         />
       )}
 
