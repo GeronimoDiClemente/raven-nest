@@ -54,12 +54,17 @@ export default function HubView({ tabs, activeTabId, activePanes, onJump, onTogg
     setFilter(f); setPage(0); saveFilter(f)
   }, [])
 
+  // If the focused pane left the visible set (filter change, pane closed),
+  // drop focus so Tab cycling restarts from the first tile.
   useEffect(() => {
     if (focusedPaneId && !visible.some(e => e.pane.id === focusedPaneId)) {
       setFocusedPaneId(null)
     }
   }, [visible, focusedPaneId])
 
+  // Keyboard: Tab cycles tiles; Enter jumps to the focused pane's workspace.
+  // In the overlay, Escape is handled centrally in App.tsx (capture phase) so
+  // its priority lives in one place; the workspace variant has no Escape.
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Tab') {
@@ -74,6 +79,8 @@ export default function HubView({ tabs, activeTabId, activePanes, onJump, onTogg
       }
       if (e.key === 'Enter' && focusedPaneId) {
         const entry = visible.find(en => en.pane.id === focusedPaneId)
+        // Only when the xterm itself isn't consuming Enter (i.e. the tile is
+        // focused via Tab but the user hasn't clicked into the terminal).
         if (entry && !(document.activeElement?.closest('.hub-tile-terminal'))) {
           e.preventDefault()
           onJump(entry.tabId, entry.pane.id)
