@@ -232,6 +232,7 @@ export interface SessionData {
     layoutId?: LayoutId
     panes?: SessionPane[]
     splitRatios?: Record<string, number[]>
+    isHub?: boolean
     // v2 legacy (kept optional for migration)
     layout?: GridLayout
     cells?: (SessionPane | null)[]
@@ -265,6 +266,7 @@ export interface WorkspaceTab {
   layoutId: LayoutId
   panes: PaneNode[]
   splitRatios?: Record<string, number[]>
+  isHub?: boolean  // true = pestaña que muestra el Hub (todas las terminales), sin panes propios
 }
 
 export function equalSizes(count: number): number[] {
