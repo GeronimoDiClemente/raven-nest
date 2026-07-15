@@ -59,11 +59,10 @@ const HUB_FILTER_KEY = 'nest-hub-filter'
 function loadHubFilter(): HubFilter {
   const raw = localStorage.getItem(HUB_FILTER_KEY)
   if (raw === 'active' || raw === 'pinned') return raw
-  if (raw?.startsWith('tab:')) return { tabId: raw.slice(4) }
   return 'all'
 }
 function saveHubFilter(f: HubFilter): void {
-  localStorage.setItem(HUB_FILTER_KEY, typeof f === 'string' ? f : `tab:${f.tabId}`)
+  localStorage.setItem(HUB_FILTER_KEY, f)
 }
 
 export default function App() {
@@ -1159,7 +1158,6 @@ export default function App() {
       layoutId: defaultLayoutFor(panes.length),
       counts,
       hiddenCount: Math.max(0, ordered.length - MAX_PANES),
-      sourceTabs: source.map(t => ({ id: t.id, name: t.name })),
     }
   }, [activeTab.isHub, activeTab.hubOrder, tabs, activePanes, hubFilter])
   hubPanesRef.current = hubData?.panes ?? []
@@ -1298,7 +1296,6 @@ export default function App() {
             panes={hubData?.panes ?? []}
             layoutId={hubData?.layoutId ?? '1'}
             splitRatios={activeTab.splitRatios}
-            sourceTabs={hubData?.sourceTabs ?? []}
             filter={hubFilter}
             counts={hubData?.counts ?? { all: 0, active: 0, pinned: 0 }}
             hiddenCount={hubData?.hiddenCount ?? 0}

@@ -9450,13 +9450,6 @@ body.platform-mac .tabbar { padding-right: 116px; }
   color: var(--text-secondary);
 }
 
-.hub-toolbar-sep {
-  width: 1px;
-  height: 14px;
-  background: var(--border);
-  margin: 0 3px;
-}
-
 .hub-pager {
   margin-left: auto;
   display: flex;

@@ -8,11 +8,10 @@ const FILTER_STORAGE_KEY = 'nest-hub-filter'
 function loadFilter(): HubFilter {
   const raw = localStorage.getItem(FILTER_STORAGE_KEY)
   if (raw === 'active' || raw === 'pinned') return raw
-  if (raw?.startsWith('tab:')) return { tabId: raw.slice(4) }
   return 'all'
 }
 function saveFilter(f: HubFilter) {
-  localStorage.setItem(FILTER_STORAGE_KEY, typeof f === 'string' ? f : `tab:${f.tabId}`)
+  localStorage.setItem(FILTER_STORAGE_KEY, f)
 }
 
 interface Props {
@@ -28,8 +27,7 @@ export default function HubView({ tabs, activeTabId, activePanes, onJump, onTogg
   const [page, setPage] = useState(0)
   const [focusedPaneId, setFocusedPaneId] = useState<string | null>(null)
 
-  // Hub tabs own no terminals; exclude them so they don't appear as empty
-  // per-workspace filter chips or contribute phantom entries.
+  // Hub tabs own no terminals; exclude them so they don't contribute phantom entries.
   const sourceTabs = useMemo(() => tabs.filter(t => !t.isHub), [tabs])
 
   const entries = useMemo<HubEntry[]>(() =>
@@ -100,31 +98,18 @@ export default function HubView({ tabs, activeTabId, activePanes, onJump, onTogg
     pinned: entries.filter(e => e.pane.pinned).length,
   }), [entries])
 
-  const filterIs = (f: HubFilter) =>
-    typeof f === 'string' ? filter === f : typeof filter !== 'string' && filter.tabId === f.tabId
-
   return (
     <div className="hub-view">
       <div className="hub-toolbar">
-        <button className={`hub-chip${filterIs('all') ? ' on' : ''}`} onClick={() => changeFilter('all')}>
+        <button className={`hub-chip${filter === 'all' ? ' on' : ''}`} onClick={() => changeFilter('all')}>
           Todas <span className="hub-chip-n">{counts.all}</span>
         </button>
-        <button className={`hub-chip${filterIs('active') ? ' on' : ''}`} onClick={() => changeFilter('active')}>
+        <button className={`hub-chip${filter === 'active' ? ' on' : ''}`} onClick={() => changeFilter('active')}>
           Activas <span className="hub-chip-n">{counts.active}</span>
         </button>
-        <button className={`hub-chip${filterIs('pinned') ? ' on' : ''}`} onClick={() => changeFilter('pinned')}>
+        <button className={`hub-chip${filter === 'pinned' ? ' on' : ''}`} onClick={() => changeFilter('pinned')}>
           Pineadas <span className="hub-chip-n">{counts.pinned}</span>
         </button>
-        <span className="hub-toolbar-sep" />
-        {sourceTabs.map(t => (
-          <button
-            key={t.id}
-            className={`hub-chip${filterIs({ tabId: t.id }) ? ' on' : ''}`}
-            onClick={() => changeFilter({ tabId: t.id })}
-          >
-            {t.name}
-          </button>
-        ))}
         {pageCount > 1 && (
           <span className="hub-pager">
             <button className="hub-chip hub-pager-btn" disabled={clampedPage === 0} onClick={() => setPage(p => Math.max(0, p - 1))} aria-label="Página anterior">

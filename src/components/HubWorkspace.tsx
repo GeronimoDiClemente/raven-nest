@@ -13,7 +13,6 @@ interface Props {
   panes: PaneNode[]                          // ya filtrados + ordenados (máx. 12)
   layoutId: LayoutId
   splitRatios?: Record<string, number[]>
-  sourceTabs: { id: string; name: string }[]
   filter: HubFilter
   counts: { all: number; active: number; pinned: number }
   hiddenCount: number
@@ -28,36 +27,25 @@ interface Props {
 
 // El Hub como workspace: mismas terminales de todos los workspaces, renderizadas
 // con el motor de layout normal (1 = pantalla completa, N = tileadas, resize y
-// reorder), con una barra de filtros delgada arriba.
+// reorder), con una barra de filtros delgada arriba. Los filtros son solo
+// transversales (Todas / Activas / Pineadas): filtrar por-workspace sería lo
+// mismo que ir a esa pestaña, así que no existe.
 export default function HubWorkspace({
-  panes, layoutId, splitRatios, sourceTabs, filter, counts, hiddenCount,
+  panes, layoutId, splitRatios, filter, counts, hiddenCount,
   onFilter, onResize, onDragStart, onDragEnd, draggingId, sensors, renderPane,
 }: Props) {
-  const filterIs = (f: HubFilter) =>
-    typeof f === 'string' ? filter === f : (typeof filter !== 'string' && filter.tabId === f.tabId)
-
   return (
     <div className="hub-workspace">
       <div className="hub-toolbar">
-        <button className={`hub-chip${filterIs('all') ? ' on' : ''}`} onClick={() => onFilter('all')}>
+        <button className={`hub-chip${filter === 'all' ? ' on' : ''}`} onClick={() => onFilter('all')}>
           Todas <span className="hub-chip-n">{counts.all}</span>
         </button>
-        <button className={`hub-chip${filterIs('active') ? ' on' : ''}`} onClick={() => onFilter('active')}>
+        <button className={`hub-chip${filter === 'active' ? ' on' : ''}`} onClick={() => onFilter('active')}>
           Activas <span className="hub-chip-n">{counts.active}</span>
         </button>
-        <button className={`hub-chip${filterIs('pinned') ? ' on' : ''}`} onClick={() => onFilter('pinned')}>
+        <button className={`hub-chip${filter === 'pinned' ? ' on' : ''}`} onClick={() => onFilter('pinned')}>
           Pineadas <span className="hub-chip-n">{counts.pinned}</span>
         </button>
-        <span className="hub-toolbar-sep" />
-        {sourceTabs.map(t => (
-          <button
-            key={t.id}
-            className={`hub-chip${filterIs({ tabId: t.id }) ? ' on' : ''}`}
-            onClick={() => onFilter({ tabId: t.id })}
-          >
-            {t.name}
-          </button>
-        ))}
         {hiddenCount > 0 && <span className="hub-hidden-note">+{hiddenCount} sin mostrar (máx. 12)</span>}
       </div>
 

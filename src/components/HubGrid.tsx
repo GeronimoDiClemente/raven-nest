@@ -9,13 +9,14 @@ export interface HubEntry {
   busy: boolean
 }
 
-export type HubFilter = 'all' | 'active' | 'pinned' | { tabId: string }
+// Filtros transversales del Hub. NO hay filtro por-workspace: filtrar a un solo
+// workspace mostraría lo mismo que ir a su pestaña, así que no aporta nada.
+export type HubFilter = 'all' | 'active' | 'pinned'
 
 export function filterEntries(entries: HubEntry[], filter: HubFilter): HubEntry[] {
-  if (filter === 'all') return entries
   if (filter === 'active') return entries.filter(e => e.busy)
   if (filter === 'pinned') return entries.filter(e => e.pane.pinned)
-  return entries.filter(e => e.tabId === filter.tabId)
+  return entries  // 'all'
 }
 
 interface Props {
