@@ -9343,8 +9343,11 @@ body.platform-mac .tabbar { padding-right: 116px; }
 
 .ts-overview-row {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
+}
+@media (max-width: 520px) {
+  .ts-overview-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 .ts-card {
@@ -9664,30 +9667,60 @@ body.platform-mac .tabbar { padding-right: 116px; }
 
 /* ── Team Stats — team activity bar chart ───────────── */
 .ts-chart { position: relative; }
+.ts-chart-plot {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px;
+}
+.ts-chart-axis {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  height: 120px;
+  font-size: 10px;
+  color: var(--text-muted);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  padding-bottom: 1px;
+}
+.ts-chart-grid {
+  position: relative;
+  height: 120px;
+}
+.ts-grid-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 0;
+  border-top: 1px dashed var(--border);
+  pointer-events: none;
+}
 .ts-chart-bars {
+  position: absolute;
+  inset: 0;
   display: flex;
   align-items: flex-end;
-  gap: 2px;
-  height: 120px;
-  overflow: visible;
+  gap: 3px;
 }
 .ts-bar-col {
   flex: 1;
   height: 100%;
   display: flex;
   align-items: flex-end;
+  justify-content: center;
   position: relative;
 }
 .ts-bar {
   width: 100%;
+  max-width: 34px;
   min-height: 2px;
-  background: var(--ts-accent);
-  border-radius: 3px 3px 0 0;
-  opacity: 0.85;
-  transition: opacity 0.12s ease, filter 0.12s ease;
+  background: color-mix(in srgb, var(--ts-accent) 55%, transparent);
+  border-radius: 4px 4px 0 0;
+  transition: filter 0.12s ease, background 0.12s ease;
 }
+.ts-bar.today { background: var(--ts-accent); }
 .ts-bar-col:hover .ts-bar,
-.ts-bar-col.hover .ts-bar { opacity: 1; filter: brightness(1.18); }
+.ts-bar-col.hover .ts-bar { filter: brightness(1.2); background: var(--ts-accent); }
 .ts-bar-tip {
   position: absolute;
   top: 0;
@@ -9717,69 +9750,6 @@ body.platform-mac .tabbar { padding-right: 116px; }
   color: var(--text-muted);
 }
 .ts-chart-total { color: var(--text-secondary); font-weight: 600; }
-
-/* ── Team Stats — top performers (ranked list) ──────── */
-.ts-podium { display: flex; flex-direction: column; gap: 4px; }
-.ts-podium-row {
-  display: grid;
-  grid-template-columns: auto auto 1fr auto;
-  align-items: center;
-  gap: 12px;
-  padding: 8px 12px;
-  background: var(--bg-surface);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-}
-.ts-podium-rank {
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--text-muted);
-  font-variant-numeric: tabular-nums;
-  width: 14px;
-  text-align: center;
-}
-.ts-podium-row:first-child .ts-podium-rank { color: var(--text-primary); }
-.ts-podium-av-wrap { position: relative; flex-shrink: 0; display: block; }
-.ts-podium-av { width: 30px; height: 30px; border-radius: 50%; display: block; }
-.ts-podium-dot {
-  position: absolute;
-  bottom: -1px;
-  right: -1px;
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  border: 2px solid var(--bg-app);
-}
-.ts-podium-dot.online  { background: #3fb950; }
-.ts-podium-dot.offline { background: #3a3a3a; }
-.ts-podium-info { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-.ts-podium-name {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.ts-podium-sub { font-size: 11px; color: var(--text-muted); }
-.ts-podium-commits {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  font-size: 18px;
-  font-weight: 700;
-  color: var(--text-primary);
-  font-variant-numeric: tabular-nums;
-  line-height: 1;
-}
-.ts-podium-unit {
-  font-size: 9px;
-  font-weight: 600;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.6px;
-  margin-top: 2px;
-}
 
 /* ── Team Stats — activity heatmap (devs × days) ────── */
 .ts-heatmap { display: flex; flex-direction: column; gap: 4px; }

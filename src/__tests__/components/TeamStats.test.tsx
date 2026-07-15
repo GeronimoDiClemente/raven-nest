@@ -11,14 +11,14 @@ vi.mock('../../hooks/useTeamStats', () => ({
 const DEV_ALICE = {
   login: 'alice',
   avatarUrl: 'https://avatars.githubusercontent.com/u/1?v=4',
-  commits: 12, prsOpened: 2, prsMerged: 1, issuesClosed: 3,
+  commits: 12, prsOpened: 2, prsMerged: 1, reviews: 4, issuesClosed: 3,
   lastEventAt: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
   dailyCommits: [0, 2, 4, 1, 3, 2, 0],
 }
 const DEV_BOB = {
   login: 'bob',
   avatarUrl: 'https://avatars.githubusercontent.com/u/2?v=4',
-  commits: 4, prsOpened: 0, prsMerged: 0, issuesClosed: 0,
+  commits: 4, prsOpened: 0, prsMerged: 0, reviews: 0, issuesClosed: 0,
   lastEventAt: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
   dailyCommits: [0, 0, 1, 0, 2, 1, 0],
 }
@@ -27,6 +27,8 @@ const LOADED: { stats: TeamStatsData; loading: boolean; error: string | null } =
     developers: [DEV_ALICE, DEV_BOB],
     totalCommits: 16,
     totalPrsMerged: 1,
+    totalReviews: 4,
+    mergeTimeHours: 6,
     topDeveloper: DEV_ALICE,
     recentPrs: [
       {
@@ -45,7 +47,7 @@ const LOADED: { stats: TeamStatsData; loading: boolean; error: string | null } =
   error: null,
 }
 const EMPTY: { stats: TeamStatsData; loading: boolean; error: string | null } = {
-  stats: { developers: [], totalCommits: 0, totalPrsMerged: 0, topDeveloper: null, recentPrs: [], prevCommits: 0, prevPrsMerged: 0 },
+  stats: { developers: [], totalCommits: 0, totalPrsMerged: 0, totalReviews: 0, mergeTimeHours: null, topDeveloper: null, recentPrs: [], prevCommits: 0, prevPrsMerged: 0 },
   loading: false,
   error: null,
 }

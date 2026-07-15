@@ -82,33 +82,53 @@ function tipStyle(i: number, n: number): CSSProperties {
   return { left: '50%', transform: `translate(-50%, ${Y})` }
 }
 
-// Actividad del equipo por día — una sola serie (azul de marca), con hover por barra.
+// Techo "redondo" (múltiplo de 4) para que los ticks 0 / mitad / techo sean enteros.
+function niceCeil(v: number): number {
+  return Math.max(4, Math.ceil(v / 4) * 4)
+}
+
+// Actividad del equipo por día — una sola serie (azul de marca). Barras finas con
+// tope redondeado, gridlines punteadas con escala, y HOY resaltado a azul pleno
+// (los demás días al 55% del mismo azul).
 const TeamBarChart = memo(function TeamBarChart({ daily }: { daily: number[] }) {
   const [hover, setHover] = useState<number | null>(null)
   const n = daily.length
-  const max = Math.max(...daily, 1)
+  const top = niceCeil(Math.max(...daily))
+  const ticks = [top, top / 2, 0]
   const total = daily.reduce((a, b) => a + b, 0)
   return (
     <div className="ts-chart">
-      <div className="ts-chart-bars" onMouseLeave={() => setHover(null)}>
-        {daily.map((v, i) => {
-          const daysAgo = n - 1 - i
-          return (
-            <div
-              key={i}
-              className={`ts-bar-col${hover === i ? ' hover' : ''}`}
-              onMouseEnter={() => setHover(i)}
-            >
-              {hover === i && (
-                <div className="ts-bar-tip" style={tipStyle(i, n)}>
-                  <strong>{v}</strong> commit{v === 1 ? '' : 's'}
-                  <span>{daysAgo === 0 ? 'today' : dayLabel(daysAgo)}</span>
+      <div className="ts-chart-plot">
+        <div className="ts-chart-axis">
+          {ticks.map(t => <span key={t}>{t}</span>)}
+        </div>
+        <div className="ts-chart-grid" onMouseLeave={() => setHover(null)}>
+          {ticks.map(t => <span key={t} className="ts-grid-line" style={{ bottom: `${(t / top) * 100}%` }} />)}
+          <div className="ts-chart-bars">
+            {daily.map((v, i) => {
+              const daysAgo = n - 1 - i
+              const isToday = daysAgo === 0
+              return (
+                <div
+                  key={i}
+                  className={`ts-bar-col${hover === i ? ' hover' : ''}`}
+                  onMouseEnter={() => setHover(i)}
+                >
+                  {hover === i && (
+                    <div className="ts-bar-tip" style={tipStyle(i, n)}>
+                      <strong>{v}</strong> commit{v === 1 ? '' : 's'}
+                      <span>{isToday ? 'today' : dayLabel(daysAgo)}</span>
+                    </div>
+                  )}
+                  <div
+                    className={`ts-bar${isToday ? ' today' : ''}`}
+                    style={{ height: `${(v / top) * 100}%` }}
+                  />
                 </div>
-              )}
-              <div className="ts-bar" style={{ height: `${Math.max(2, (v / max) * 100)}%` }} />
-            </div>
-          )
-        })}
+              )
+            })}
+          </div>
+        </div>
       </div>
       <div className="ts-chart-foot">
         <span>{dayLabel(n - 1)}</span>
@@ -119,28 +139,13 @@ const TeamBarChart = memo(function TeamBarChart({ daily }: { daily: number[] }) 
   )
 })
 
-const Podium = memo(function Podium({ devs, online }: { devs: DeveloperStats[]; online: Set<string> }) {
-  const top = devs.slice(0, 3)
-  if (top.length === 0) return null
-  return (
-    <div className="ts-podium">
-      {top.map((dev, i) => (
-        <div key={dev.login} className="ts-podium-row">
-          <span className="ts-podium-rank">{i + 1}</span>
-          <span className="ts-podium-av-wrap">
-            <img className="ts-podium-av" src={dev.avatarUrl} alt={dev.login} />
-            <span className={`ts-podium-dot ${online.has(dev.login.toLowerCase()) ? 'online' : 'offline'}`} />
-          </span>
-          <span className="ts-podium-info">
-            <span className="ts-podium-name">{dev.login}</span>
-            <span className="ts-podium-sub">{dev.prsMerged} PRs · {dev.issuesClosed} issues</span>
-          </span>
-          <span className="ts-podium-commits">{dev.commits}<span className="ts-podium-unit">commits</span></span>
-        </div>
-      ))}
-    </div>
-  )
-})
+// Formatea horas a una unidad legible: 40m / 6h / 2.3d.
+function fmtDuration(hours: number | null): string {
+  if (hours == null) return '—'
+  if (hours < 1) return `${Math.round(hours * 60)}m`
+  if (hours < 24) return `${Math.round(hours)}h`
+  return `${(hours / 24).toFixed(1)}d`
+}
 
 // Matriz devs × días (quién trabajó cuándo). Secuencial de un solo hue (azul).
 const TeamHeatmap = memo(function TeamHeatmap({ devs }: { devs: DeveloperStats[] }) {
@@ -180,7 +185,7 @@ function StatsSkeleton() {
   return (
     <div className="ts-container" aria-busy="true" aria-label="Loading team stats">
       <div className="ts-overview-row">
-        {[0, 1, 2, 3].map(i => <div key={i} className="ts-skeleton ts-skel-card" />)}
+        {[0, 1, 2, 3, 4, 5].map(i => <div key={i} className="ts-skeleton ts-skel-card" />)}
       </div>
       <div>
         {[0, 1, 2, 3, 4].map(i => <div key={i} className="ts-skeleton ts-skel-row" />)}
@@ -195,7 +200,7 @@ export default function TeamStats({ repos, githubToken, presence }: TeamStatsPro
   const onlineCount = Object.keys(presence).length
   const onlineLogins = useMemo(() => onlineGithubLogins(presence), [presence])
 
-  type SortKey = 'commits' | 'prs' | 'issues'
+  type SortKey = 'commits' | 'prs' | 'reviews' | 'issues'
   const [sortKey, setSortKey] = useState<SortKey>('commits')
   const [sortDir, setSortDir] = useState<'desc' | 'asc'>('desc')
 
@@ -208,15 +213,16 @@ export default function TeamStats({ repos, githubToken, presence }: TeamStatsPro
     }
   }
 
+  const metric = (d: DeveloperStats, key: SortKey): number =>
+    key === 'commits' ? d.commits
+      : key === 'prs' ? d.prsOpened + d.prsMerged
+      : key === 'reviews' ? d.reviews
+      : d.issuesClosed
+
   const sortedDevs = useMemo(() => {
     return [...stats.developers].sort((a, b) => {
-      const va = sortKey === 'commits' ? a.commits
-        : sortKey === 'prs' ? a.prsOpened + a.prsMerged
-        : a.issuesClosed
-      const vb = sortKey === 'commits' ? b.commits
-        : sortKey === 'prs' ? b.prsOpened + b.prsMerged
-        : b.issuesClosed
-      return sortDir === 'desc' ? vb - va : va - vb
+      const diff = metric(b, sortKey) - metric(a, sortKey)
+      return sortDir === 'desc' ? diff : -diff
     })
   }, [stats.developers, sortKey, sortDir])
 
@@ -254,7 +260,7 @@ export default function TeamStats({ repos, githubToken, presence }: TeamStatsPro
     )
   }
 
-  const { developers, totalCommits, totalPrsMerged, topDeveloper, prevCommits, prevPrsMerged } = stats
+  const { developers, totalCommits, totalPrsMerged, totalReviews, mergeTimeHours, topDeveloper, prevCommits, prevPrsMerged } = stats
 
   return (
     <div className="ts-container">
@@ -304,6 +310,16 @@ export default function TeamStats({ repos, githubToken, presence }: TeamStatsPro
             <span className="ts-card-sub">{windowDays === 7 ? 'this week' : 'this month'} <DeltaBadge current={totalPrsMerged} previous={prevPrsMerged} /></span>
           </div>
           <div className="ts-card">
+            <span className="ts-card-label">Reviews</span>
+            <span className="ts-card-value">{totalReviews}</span>
+            <span className="ts-card-sub">PRs reviewed by the team</span>
+          </div>
+          <div className="ts-card">
+            <span className="ts-card-label">PR merge time</span>
+            <span className="ts-card-value">{fmtDuration(mergeTimeHours)}</span>
+            <span className="ts-card-sub">median, open → merge</span>
+          </div>
+          <div className="ts-card">
             <span className="ts-card-label">Top dev</span>
             <span className="ts-card-value" style={{ fontSize: 14, paddingTop: 4 }}>
               {topDeveloper ? `@${topDeveloper.login}` : '—'}
@@ -320,14 +336,6 @@ export default function TeamStats({ repos, githubToken, presence }: TeamStatsPro
         <div>
           <div className="ts-section-title">Team activity — commits per day</div>
           <TeamBarChart daily={teamDaily} />
-        </div>
-      )}
-
-      {/* Top performers podium */}
-      {developers.length > 0 && (
-        <div>
-          <div className="ts-section-title">Top performers</div>
-          <Podium devs={developers} online={onlineLogins} />
         </div>
       )}
 
@@ -355,6 +363,14 @@ export default function TeamStats({ repos, githubToken, presence }: TeamStatsPro
                       PRs
                       <span className={`ts-sort-icon${sortKey === 'prs' ? ' active' : ''}`}>
                         {sortKey === 'prs' ? (sortDir === 'desc' ? '↓' : '↑') : '↕'}
+                      </span>
+                    </button>
+                  </th>
+                  <th style={{ textAlign: 'right' }}>
+                    <button className="ts-th-btn" onClick={() => handleSort('reviews')}>
+                      Reviews
+                      <span className={`ts-sort-icon${sortKey === 'reviews' ? ' active' : ''}`}>
+                        {sortKey === 'reviews' ? (sortDir === 'desc' ? '↓' : '↑') : '↕'}
                       </span>
                     </button>
                   </th>
@@ -392,6 +408,7 @@ export default function TeamStats({ repos, githubToken, presence }: TeamStatsPro
                       </td>
                       <td className="ts-num">{dev.commits || <span className="ts-muted">—</span>}</td>
                       <td className="ts-num">{dev.prsOpened + dev.prsMerged || <span className="ts-muted">—</span>}</td>
+                      <td className="ts-num">{dev.reviews || <span className="ts-muted">—</span>}</td>
                       <td className="ts-num">{dev.issuesClosed || <span className="ts-muted">—</span>}</td>
                       <td className="ts-num ts-muted">{timeAgo(dev.lastEventAt)}</td>
                     </tr>

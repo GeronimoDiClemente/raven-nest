@@ -6,6 +6,7 @@ export interface DeveloperStats {
   commits: number
   prsOpened: number
   prsMerged: number
+  reviews: number          // PR reviews que ESTE dev le hizo a otros (PullRequestReviewEvent)
   issuesClosed: number
   lastEventAt: string | null
   dailyCommits: number[]   // 7 elements, index 0 = 6 days ago, index 6 = today
@@ -24,6 +25,9 @@ export interface TeamStatsData {
   developers: DeveloperStats[]
   totalCommits: number
   totalPrsMerged: number
+  totalReviews: number
+  /** Mediana de horas abierto→merge de los PRs mergeados en la ventana. null si no hubo. */
+  mergeTimeHours: number | null
   topDeveloper: DeveloperStats | null
   recentPrs: RecentPR[]
   /** Totales del período INMEDIATAMENTE anterior (misma duración), para deltas. */
@@ -40,7 +44,9 @@ interface GitHubEvent {
   payload: {
     action?: string
     commits?: { sha: string; message: string }[]
-    pull_request?: { merged?: boolean; title?: string }
+    // created_at/merged_at vienen en el objeto pull_request del Events API, sirven
+    // para medir el tiempo abierto→merge sin llamadas extra.
+    pull_request?: { merged?: boolean; title?: string; created_at?: string; merged_at?: string }
   }
 }
 
@@ -52,7 +58,7 @@ const MAX_DAYS = 60
 const CONCURRENCY = 5
 // Solo estos tipos de evento cuentan como "contribución" y crean una fila de developer.
 // Sin esto, un WatchEvent/ForkEvent/comentario mete gente que no commiteó al roster.
-const CONTRIB_TYPES = new Set(['PushEvent', 'PullRequestEvent', 'IssuesEvent'])
+const CONTRIB_TYPES = new Set(['PushEvent', 'PullRequestEvent', 'PullRequestReviewEvent', 'IssuesEvent'])
 const isBot = (login: string): boolean => login.endsWith('[bot]')
 
 function isWithinWindow(dateStr: string, windowDays: number): boolean {
@@ -80,6 +86,7 @@ export function aggregateEvents(events: GitHubEvent[], windowDays = 7): Develope
         commits: 0,
         prsOpened: 0,
         prsMerged: 0,
+        reviews: 0,
         issuesClosed: 0,
         lastEventAt: null,
         dailyCommits: Array(windowDays).fill(0),
@@ -99,6 +106,8 @@ export function aggregateEvents(events: GitHubEvent[], windowDays = 7): Develope
     } else if (event.type === 'PullRequestEvent') {
       if (event.payload.action === 'opened') dev.prsOpened++
       if (event.payload.action === 'closed' && event.payload.pull_request?.merged) dev.prsMerged++
+    } else if (event.type === 'PullRequestReviewEvent') {
+      if (event.payload.action === 'created') dev.reviews++
     } else if (event.type === 'IssuesEvent' && event.payload.action === 'closed') {
       dev.issuesClosed++
     }
@@ -130,6 +139,31 @@ export function extractRecentPrs(events: GitHubEvent[], windowDays = 7): RecentP
   }
 
   return prs.sort((a, b) => b.mergedAt.localeCompare(a.mergedAt))
+}
+
+/**
+ * Mediana de horas abierto→merge de los PRs mergeados dentro de la ventana.
+ * Usa created_at/merged_at del payload del Events API (sin llamadas extra).
+ * Mediana en vez de promedio: un PR viejo de días no distorsiona el número.
+ * Devuelve null si ningún PR mergeado trae ambas fechas.
+ */
+export function medianMergeHours(events: GitHubEvent[], windowDays = 7): number | null {
+  const seen = new Set<string>()
+  const durs: number[] = []
+  for (const event of events) {
+    if (seen.has(event.id)) continue
+    seen.add(event.id)
+    if (!isWithinWindow(event.created_at, windowDays)) continue
+    if (event.type !== 'PullRequestEvent' || event.payload.action !== 'closed') continue
+    const pr = event.payload.pull_request
+    if (!pr?.merged || !pr.created_at || !pr.merged_at) continue
+    const h = (new Date(pr.merged_at).getTime() - new Date(pr.created_at).getTime()) / 3_600_000
+    if (h >= 0) durs.push(h)
+  }
+  if (durs.length === 0) return null
+  durs.sort((a, b) => a - b)
+  const mid = Math.floor(durs.length / 2)
+  return durs.length % 2 ? durs[mid] : (durs[mid - 1] + durs[mid]) / 2
 }
 
 /** Suma commits y PRs mergeados en la ventana [fromDaysAgo, toDaysAgo) (días atrás). */
@@ -252,13 +286,16 @@ export function useTeamStats(
   const developers = useMemo(() => aggregateEvents(events, windowDays), [events, windowDays])
   const totalCommits = developers.reduce((s, d) => s + d.commits, 0)
   const totalPrsMerged = developers.reduce((s, d) => s + d.prsMerged, 0)
+  const totalReviews = developers.reduce((s, d) => s + d.reviews, 0)
   const topDeveloper = developers[0] ?? null
   const recentPrs = useMemo(() => extractRecentPrs(events, windowDays), [events, windowDays])
+  const mergeTimeHours = useMemo(() => medianMergeHours(events, windowDays), [events, windowDays])
   const prev = useMemo(() => windowTotals(events, windowDays, windowDays * 2), [events, windowDays])
 
   return {
     stats: {
-      developers, totalCommits, totalPrsMerged, topDeveloper, recentPrs,
+      developers, totalCommits, totalPrsMerged, totalReviews, mergeTimeHours,
+      topDeveloper, recentPrs,
       prevCommits: prev.commits, prevPrsMerged: prev.prsMerged,
     },
     loading,

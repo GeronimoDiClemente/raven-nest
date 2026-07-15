@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { aggregateEvents, extractRecentPrs } from '../../hooks/useTeamStats'
+import { aggregateEvents, extractRecentPrs, medianMergeHours } from '../../hooks/useTeamStats'
 
 const NOW = new Date().toISOString()
 const OLD = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString() // 8 días atrás
@@ -88,6 +88,17 @@ describe('aggregateEvents', () => {
     expect(result[0].prsMerged).toBe(1)
   })
 
+  it('cuenta reviews de PullRequestReviewEvent (action created)', () => {
+    const events = [
+      makeEvent('1', 'dana', 'PullRequestReviewEvent', NOW, { action: 'created' }),
+      makeEvent('2', 'dana', 'PullRequestReviewEvent', NOW, { action: 'created' }),
+      makeEvent('3', 'dana', 'PullRequestReviewEvent', NOW, { action: 'dismissed' }),
+    ]
+    const result = aggregateEvents(events)
+    expect(result).toHaveLength(1)
+    expect(result[0].reviews).toBe(2)
+  })
+
   it('cuenta issues cerrados', () => {
     const events = [
       makeEvent('1', 'carol', 'IssuesEvent', NOW, { action: 'closed' }),
@@ -124,6 +135,35 @@ describe('aggregateEvents', () => {
     ]
     const result = aggregateEvents(events)
     expect(result[0].commits).toBe(1)
+  })
+})
+
+describe('medianMergeHours', () => {
+  const merged = (id: string, createdHoursAgo: number, mergedHoursAgo: number) =>
+    makeEvent(id, 'x', 'PullRequestEvent', new Date(Date.now() - mergedHoursAgo * 3_600_000).toISOString(), {
+      action: 'closed',
+      pull_request: {
+        merged: true,
+        created_at: new Date(Date.now() - createdHoursAgo * 3_600_000).toISOString(),
+        merged_at: new Date(Date.now() - mergedHoursAgo * 3_600_000).toISOString(),
+      },
+    })
+
+  it('devuelve null si no hay PRs mergeados con fechas', () => {
+    expect(medianMergeHours([])).toBeNull()
+    expect(medianMergeHours([makeEvent('1', 'a', 'PushEvent', NOW, {})])).toBeNull()
+  })
+
+  it('calcula la mediana de horas abierto→merge', () => {
+    // duraciones: 2h, 4h, 12h → mediana 4h
+    const events = [merged('1', 3, 1), merged('2', 6, 2), merged('3', 24, 12)]
+    expect(medianMergeHours(events)).toBe(4)
+  })
+
+  it('promedia los dos centrales con cantidad par', () => {
+    // duraciones: 2h, 6h → mediana 4h
+    const events = [merged('1', 3, 1), merged('2', 8, 2)]
+    expect(medianMergeHours(events)).toBe(4)
   })
 })
 
