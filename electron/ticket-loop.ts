@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync, mkdirSync } from 'fs'
 import { dirname } from 'path'
 import type { PanelAdapterDeps } from './integration-panels'
-import type { Ticket, TicketProviderFactory } from './integrations/ticket-types'
+import type { Ticket, TicketProvider, TicketProviderFactory } from './integrations/ticket-types'
 import type { EventBus } from './integrations/event-bus'
 import type { DomainEvent } from './integrations/bus-types'
 
@@ -105,6 +105,16 @@ export class TicketLoop {
   private provider(pluginId: string, deps: PanelAdapterDeps) {
     const f = this.factories.get(pluginId)
     return f ? f(deps) : null
+  }
+
+  /**
+   * Resuelve el provider de un pluginId con las deps inyectadas (o null si no hay
+   * factory registrada). Público para que los handlers del bus (bus-commands.ts)
+   * reusen el mismo registry sin duplicarlo ni tocar los paths H3. Aditivo: no
+   * altera onPrStateChanged/startWork.
+   */
+  providerFor(pluginId: string, deps: PanelAdapterDeps): TicketProvider | null {
+    return this.provider(pluginId, deps)
   }
 
   async list(pluginId: string, deps: PanelAdapterDeps): Promise<Ticket[]> {
