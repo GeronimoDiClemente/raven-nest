@@ -138,6 +138,9 @@ import { runPluginAction } from './plugin-actions'
 import { callPanel, type PanelAdapterDeps } from './integration-panels'
 import { registerAllPanelAdapters, registerAllTicketProviders } from './integrations/register'
 import { ticketLoop } from './ticket-loop'
+import { EventBus } from './integrations/event-bus'
+import { loadRecipes } from './integrations/recipes'
+import { registerBusCommands } from './integrations/bus-commands'
 import { ticketBranchName } from './integrations/branch-name'
 import { performWorktreeAdd } from './worktree-create'
 import { getRemoteUrl, parseOwnerRepo } from './integrations/github'
@@ -2259,6 +2262,25 @@ registerAllTicketProviders()
 // entries whose worktree no longer exists — the worktree is the unit of work.
 ticketLoop.attachStorage(pathJoin(ravenHome(), '.raven-nest', 'ticket-loop.json'))
 ticketLoop.retainBranches(worktreeStore.list().map((m) => m.branch))
+
+// Bus de eventos v1 (H8/T7): cablea el ticket loop como primer emisor/consumidor.
+// Las DEFAULT_RECIPES (recipes.json inexistente → defaults) REPLICAN H3:
+// pr.opened → updateStatus(in_review), pr.merged → updateStatus(done), con
+// pluginId/providerId resueltos por lookup branch→tracking. El handler
+// updateStatus (registerBusCommands) hace la transición real vía el provider que
+// resuelve el propio loop; credential-free (los tokens llegan por panelDeps() al
+// emitir, nunca acá). Con el bus adjunto, onPrStateChanged EMITE en vez de
+// transicionar directo — misma resolución in_review/done que H3 en el happy path.
+// NOTA (divergencia conocida, aceptada en v1): el path con bus es best-effort y no
+// re-reintenta una transición fallida (borra/marca el tracking tras el emit), a
+// diferencia del path sin-bus que reintenta al siguiente poll. Ver plan H8 §riesgos.
+const eventBus = new EventBus()
+eventBus.setRecipes(loadRecipes(
+  pathJoin(ravenHome(), '.raven-nest', 'recipes.json'),
+  (branch) => ticketLoop.trackedTicket(branch),
+))
+registerBusCommands(eventBus, { ticketLoop })
+ticketLoop.attachBus(eventBus)
 
 // Single source of adapter deps (tokens/config/fetch) shared by the panel
 // host and the ticket loop — tokens never leave the main process.
