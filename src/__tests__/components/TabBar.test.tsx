@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, fireEvent, within } from '@testing-library/react'
+import { render, screen, fireEvent } from '@testing-library/react'
 import TabBar from '../../components/TabBar'
 import type { WorkspaceTab } from '../../types'
 
@@ -15,22 +15,21 @@ const baseProps = {
   isWin: true,
 }
 
-describe('TabBar overflow menu', () => {
-  it('opens a menu listing every workspace so far-right tabs stay reachable', () => {
-    const tabs = makeTabs(['Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon', 'Zeta'])
-    render(<TabBar {...baseProps} tabs={tabs} activeTabId="t0" />)
-    fireEvent.click(screen.getByTitle(/all workspaces/i))
-    const menu = screen.getByRole('menu')
-    expect(within(menu).getByText('Zeta')).toBeTruthy()
-    expect(within(menu).getByText('Epsilon')).toBeTruthy()
+describe('TabBar', () => {
+  it('renders every workspace tab (they compress to stay visible, no overflow menu)', () => {
+    const names = ['Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon', 'Zeta']
+    render(<TabBar {...baseProps} tabs={makeTabs(names)} activeTabId="t0" />)
+    for (const name of names) {
+      expect(screen.getByText(name)).toBeTruthy()
+    }
+    // No overflow dropdown — tabs shrink to fit instead of hiding behind a menu.
+    expect(screen.queryByTitle(/all workspaces/i)).toBeNull()
   })
 
-  it('selects a workspace from the overflow menu', () => {
+  it('selects a workspace by clicking its tab', () => {
     const onTabSelect = vi.fn()
-    const tabs = makeTabs(['Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon', 'Zeta'])
-    render(<TabBar {...baseProps} onTabSelect={onTabSelect} tabs={tabs} activeTabId="t0" />)
-    fireEvent.click(screen.getByTitle(/all workspaces/i))
-    fireEvent.click(within(screen.getByRole('menu')).getByText('Zeta'))
-    expect(onTabSelect).toHaveBeenCalledWith('t5')
+    render(<TabBar {...baseProps} onTabSelect={onTabSelect} tabs={makeTabs(['Alpha', 'Beta'])} activeTabId="t0" />)
+    fireEvent.click(screen.getByText('Beta'))
+    expect(onTabSelect).toHaveBeenCalledWith('t1')
   })
 })
