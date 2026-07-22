@@ -233,7 +233,7 @@ export interface SessionData {
     panes?: SessionPane[]
     splitRatios?: Record<string, number[]>
     isHub?: boolean
-    hubHidden?: string[]
+    hubPanes?: string[]
     // v2 legacy (kept optional for migration)
     layout?: GridLayout
     cells?: (SessionPane | null)[]
@@ -267,9 +267,8 @@ export interface WorkspaceTab {
   layoutId: LayoutId
   panes: PaneNode[]
   splitRatios?: Record<string, number[]>
-  isHub?: boolean  // true = tab that shows the Hub (all terminals), with no panes of its own
-  hubOrder?: string[]  // order of the panes in the Hub view (ids); reorder by drag
-  hubHidden?: string[]  // Hub: pane ids the user removed from the composed grid (show/hide)
+  isHub?: boolean  // true = tab that shows the Hub, with no panes of its own
+  hubPanes?: string[]  // Hub: ORDERED pane ids the user curated into the Hub (membership + order)
 }
 
 export function equalSizes(count: number): number[] {

@@ -1,76 +1,38 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { describe, it, expect } from 'vitest'
+import { render, screen } from '@testing-library/react'
 import HubWorkspace from '../../components/HubWorkspace'
-import type { HubEntry, HubGroup } from '../../lib/hub-compose'
 import type { PaneNode } from '../../types'
 
-vi.mock('../../hooks/useHubTerminal', () => ({
-  useHubTerminal: () => ({ containerRef: { current: null }, focusTile: vi.fn() }),
-}))
-vi.mock('../../pty-events', () => ({
-  subscribeToPtyExit: () => () => {},
-}))
-
-beforeEach(() => {
-  Object.defineProperty(window, 'pty', {
-    value: { exists: () => Promise.resolve(true) },
-    configurable: true, writable: true,
-  })
+const pane = (id: string): PaneNode => ({
+  id, aiType: 'terminal', accountName: '', accountDir: '', borderColor: '#888', cmd: '',
 })
-
-const pane = (id: string, extra: Partial<PaneNode> = {}): PaneNode => ({
-  id, aiType: 'terminal', accountName: '', accountDir: '', borderColor: '#888', cmd: '', ...extra,
-})
-const entry = (id: string, tabId: string, tabName: string): HubEntry => ({
-  pane: pane(id), tabId, tabName, accentColor: '#123', isActiveTab: false, busy: false,
-})
-const group = (tabId: string, tabName: string, entries: HubEntry[], hiddenCount = 0): HubGroup =>
-  ({ tabId, tabName, accentColor: '#123', entries, hiddenCount })
 
 const baseProps = {
-  counts: { all: 3, active: 0, pinned: 0 },
-  shownCount: 3,
+  splitRatios: {},
   hiddenCount: 0,
-  filter: 'all' as const,
-  focusTarget: null,
-  onFilter: () => {},
-  onJump: () => {},
-  onTogglePin: () => {},
-  onHide: () => {},
-  onShowWorkspace: () => {},
+  onResize: () => {},
+  onDragStart: () => {},
+  onDragEnd: () => {},
+  draggingId: null,
+  sensors: [],
+  renderPane: (p: PaneNode) => <div data-testid={`pane-${p.id}`}>{p.id}</div>,
 }
 
-describe('HubWorkspace (grouped mirror grid)', () => {
-  it('renders one section header per source workspace', () => {
-    const groups = [
-      group('wsA', 'API', [entry('a1', 'wsA', 'API'), entry('a2', 'wsA', 'API')]),
-      group('wsB', 'Web', [entry('b1', 'wsB', 'Web')]),
-    ]
-    render(<HubWorkspace {...baseProps} groups={groups} />)
-    expect(screen.getByText('API')).toBeTruthy()
-    expect(screen.getByText('Web')).toBeTruthy()
+describe('HubWorkspace (curated workspace view)', () => {
+  it('renders the curated panes through the normal layout engine', () => {
+    render(<HubWorkspace {...baseProps} panes={[pane('a'), pane('b')]} layoutId="2V" />)
+    expect(screen.getByTestId('pane-a')).toBeTruthy()
+    expect(screen.getByTestId('pane-b')).toBeTruthy()
   })
 
-  it('shows how many terminals are hidden and re-shows a workspace on demand', () => {
-    const onShowWorkspace = vi.fn()
-    const groups = [group('wsA', 'API', [entry('a1', 'wsA', 'API')], 2)]
-    render(
-      <HubWorkspace {...baseProps} groups={groups} hiddenCount={2} onShowWorkspace={onShowWorkspace} />,
-    )
-    expect(screen.getByText(/2 hidden/i)).toBeTruthy()
-    fireEvent.click(screen.getByTitle('Show 2 hidden'))
-    expect(onShowWorkspace).toHaveBeenCalledWith('wsA')
+  it('shows an empty state prompting to pin terminals when nothing is curated', () => {
+    render(<HubWorkspace {...baseProps} panes={[]} layoutId="1" />)
+    expect(screen.getByText(/your hub is empty/i)).toBeTruthy()
+    expect(screen.getByText(/pin the terminals you use most/i)).toBeTruthy()
   })
 
-  it('switches the cross-cutting filter from the toolbar', () => {
-    const onFilter = vi.fn()
-    render(<HubWorkspace {...baseProps} groups={[]} onFilter={onFilter} />)
-    fireEvent.click(screen.getByText(/Active/))
-    expect(onFilter).toHaveBeenCalledWith('active')
-  })
-
-  it('shows an empty state when nothing is composed into the Hub', () => {
-    render(<HubWorkspace {...baseProps} groups={[]} shownCount={0} counts={{ all: 0, active: 0, pinned: 0 }} />)
-    expect(screen.getByText(/no terminals/i)).toBeTruthy()
+  it('notes when more terminals are pinned than the 12-pane cap shows', () => {
+    render(<HubWorkspace {...baseProps} panes={[pane('a')]} layoutId="1" hiddenCount={3} />)
+    expect(screen.getByText(/\+3 more pinned/i)).toBeTruthy()
   })
 })

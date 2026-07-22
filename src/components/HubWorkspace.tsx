@@ -1,104 +1,74 @@
-import { useEffect, useRef } from 'react'
-import HubTile from './HubTile'
-import type { HubGroup, HubFilter } from '../lib/hub-compose'
+import type { ReactNode } from 'react'
+import {
+  DndContext, DragOverlay, closestCenter,
+  type DragStartEvent, type DragEndEvent,
+  type SensorDescriptor, type SensorOptions,
+} from '@dnd-kit/core'
+import { SortableContext, rectSortingStrategy } from '@dnd-kit/sortable'
+import { PaneLayoutEngine } from './PaneLayoutEngine'
+import type { PaneNode, LayoutId } from '../types'
 
 interface Props {
-  groups: HubGroup[]
-  counts: { all: number; active: number; pinned: number }
-  shownCount: number
-  hiddenCount: number
-  filter: HubFilter
-  // Scroll a specific tile into view (sidebar click). nonce forces a re-scroll
-  // even when the same id is clicked twice.
-  focusTarget: { id: string; nonce: number } | null
-  onFilter: (f: HubFilter) => void
-  onJump: (tabId: string, paneId: string) => void        // "open in workspace"
-  onTogglePin: (tabId: string, paneId: string) => void
-  onHide: (paneId: string) => void                        // remove from Hub
-  onShowWorkspace: (tabId: string) => void                // re-show a workspace's hidden terminals
+  panes: PaneNode[]                          // the curated subset (max 12), in order
+  layoutId: LayoutId
+  splitRatios?: Record<string, number[]>
+  hiddenCount: number                        // curated beyond the 12-pane cap
+  onResize: (path: string, sizes: number[]) => void
+  onDragStart: (e: DragStartEvent) => void
+  onDragEnd: (e: DragEndEvent) => void
+  draggingId: string | null
+  sensors: SensorDescriptor<SensorOptions>[]
+  renderPane: (pane: PaneNode) => ReactNode
 }
 
-// The Hub as a filterable, composable VIEW of terminals across every workspace.
-// Tiles are live read/echo mirrors (useHubTerminal); they are grouped by their
-// source workspace and the whole thing scrolls, so there is no 12-pane cap. The
-// per-terminal show/hide (× on a tile / the sidebar picker) composes exactly the
-// set the user wants to watch (e.g. 1 terminal from one workspace + 3 from
-// another). The ↗ button on each tile opens that pane in its real workspace.
+// The Hub renders EXACTLY like a normal workspace — same layout engine, same real
+// TerminalPane (zoom / notes / PR / resize / close) — the only difference is that
+// its panes are a curated subset the user pulled from across every workspace (the
+// terminals they use most). Curation happens in the sidebar; this is just the
+// workspace view of the chosen set.
 export default function HubWorkspace({
-  groups, counts, shownCount, hiddenCount, filter, focusTarget,
-  onFilter, onJump, onTogglePin, onHide, onShowWorkspace,
+  panes, layoutId, splitRatios, hiddenCount,
+  onResize, onDragStart, onDragEnd, draggingId, sensors, renderPane,
 }: Props) {
-  const tileNodes = useRef(new Map<string, HTMLDivElement>())
-
-  // Scroll the requested tile into view when the sidebar picks a terminal.
-  useEffect(() => {
-    if (!focusTarget) return
-    const el = tileNodes.current.get(focusTarget.id)
-    el?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
-  }, [focusTarget])
+  if (panes.length === 0) {
+    return (
+      <div className="hub-workspace hub-workspace--empty">
+        <div className="hub-empty">
+          <svg className="hub-empty-icon" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4">
+            <rect x="3" y="4" width="18" height="16" rx="2" />
+            <path d="M7 9l3 3-3 3M13 15h4" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          <div className="hub-empty-title">Your Hub is empty</div>
+          <div className="hub-empty-sub">Pin the terminals you use most from the sidebar to gather them here.</div>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="hub-workspace">
-      <div className="hub-toolbar">
-        <button className={`hub-chip${filter === 'all' ? ' on' : ''}`} onClick={() => onFilter('all')}>
-          All <span className="hub-chip-n">{counts.all}</span>
-        </button>
-        <button className={`hub-chip${filter === 'active' ? ' on' : ''}`} onClick={() => onFilter('active')}>
-          Active <span className="hub-chip-n">{counts.active}</span>
-        </button>
-        <button className={`hub-chip${filter === 'pinned' ? ' on' : ''}`} onClick={() => onFilter('pinned')}>
-          Pinned <span className="hub-chip-n">{counts.pinned}</span>
-        </button>
-        {hiddenCount > 0 && <span className="hub-hidden-note">{hiddenCount} hidden</span>}
-      </div>
-
-      {shownCount === 0 ? (
-        <div className="hub-empty">
-          {counts.all === 0
-            ? 'No terminals yet — open one in any workspace'
-            : 'No terminals in this view'}
-        </div>
-      ) : (
-        <div className="hub-scroll">
-          {groups.map(g => (
-            <section className="hub-group" key={g.tabId}>
-              <div className="hub-group-header">
-                <span className="wt-dot" style={{ background: g.accentColor ?? 'var(--raven-blue)' }} />
-                <span className="hub-group-name">{g.tabName}</span>
-                <span className="hub-group-count">{g.entries.length}</span>
-                {g.hiddenCount > 0 && (
-                  <button
-                    className="hub-group-show"
-                    title={`Show ${g.hiddenCount} hidden`}
-                    onClick={() => onShowWorkspace(g.tabId)}
-                  >
-                    +{g.hiddenCount}
-                  </button>
-                )}
-              </div>
-              {g.entries.length > 0 && (
-                <div className="hub-grid">
-                  {g.entries.map(e => (
-                    <HubTile
-                      key={e.pane.id}
-                      entry={e}
-                      focused={focusTarget?.id === e.pane.id}
-                      innerRef={(el) => {
-                        if (el) tileNodes.current.set(e.pane.id, el)
-                        else tileNodes.current.delete(e.pane.id)
-                      }}
-                      onFocus={() => {}}
-                      onJump={onJump}
-                      onTogglePin={onTogglePin}
-                      onHide={onHide}
-                      showWorkspace={false}
-                    />
-                  ))}
-                </div>
-              )}
-            </section>
-          ))}
-        </div>
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCenter}
+        onDragStart={onDragStart}
+        onDragEnd={onDragEnd}
+      >
+        <SortableContext items={panes.map(p => p.id)} strategy={rectSortingStrategy}>
+          <PaneLayoutEngine
+            layoutId={layoutId}
+            panes={panes}
+            splitRatios={splitRatios}
+            onResize={onResize}
+            renderPane={renderPane}
+            renderEmpty={() => <div className="hub-empty-slot" />}
+          />
+        </SortableContext>
+        <DragOverlay>
+          {draggingId ? <div className="drag-overlay-pane hub-drag-overlay" /> : null}
+        </DragOverlay>
+      </DndContext>
+      {hiddenCount > 0 && (
+        <div className="hub-cap-note">+{hiddenCount} more pinned — the Hub shows up to 12 at a time</div>
       )}
     </div>
   )

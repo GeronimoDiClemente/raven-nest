@@ -9497,11 +9497,232 @@ body.platform-mac .tabbar { padding-right: 116px; }
 .hub-empty {
   flex: 1;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 6px;
   color: var(--text-muted);
   font-size: 13px;
+  text-align: center;
+  padding: 24px;
 }
+.hub-empty-icon { color: var(--text-muted); opacity: 0.7; margin-bottom: 4px; }
+.hub-empty-title { color: var(--text-secondary); font-size: 14px; font-weight: 600; }
+.hub-empty-sub { color: var(--text-muted); font-size: 12px; max-width: 320px; line-height: 1.5; }
+
+.hub-workspace--empty { display: flex; }
+
+/* Curated-beyond-cap note pinned to the bottom of the Hub workspace */
+.hub-cap-note {
+  position: absolute;
+  bottom: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 10px;
+  color: var(--text-muted);
+  background: color-mix(in srgb, var(--bg-surface) 92%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 3px 10px;
+  pointer-events: none;
+}
+
+/* ═══ Hub sidebar picker (curation) — pin-on-hover, agent logos, no checkboxes ═══ */
+.hub-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px 0;
+}
+
+.hub-sec { padding: 2px 0 6px; }
+.hub-sec + .hub-sec { border-top: 1px solid var(--border); margin-top: 2px; padding-top: 8px; }
+
+.hub-sec-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 12px 6px;
+}
+.hub-sec-title {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.hub-sec-n {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  min-width: 16px;
+  text-align: center;
+  padding: 0 5px;
+  font-variant-numeric: tabular-nums;
+}
+.hub-sec-head .hub-add { margin-left: auto; }
+
+.hub-sec-empty {
+  font-size: 11px;
+  color: var(--text-muted);
+  padding: 4px 12px 6px;
+  line-height: 1.4;
+}
+
+/* Terminal row — the whole row is the click target (focus); pin on the right */
+.hub-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  height: 32px;
+  padding: 0 10px 0 12px;
+  cursor: pointer;
+  border-left: 2px solid transparent;
+  transition: background 0.12s;
+}
+.hub-row:hover { background: rgba(255, 255, 255, 0.045); }
+.hub-row.is-pinned {
+  background: color-mix(in srgb, var(--raven-blue) 8%, transparent);
+  border-left-color: var(--raven-blue);
+}
+.hub-row.is-pinned:hover { background: color-mix(in srgb, var(--raven-blue) 13%, transparent); }
+
+.hub-row-label {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hub-row-ws {
+  font-size: 10px;
+  color: var(--text-muted);
+  max-width: 84px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Agent avatar / colored-dot fallback, with a live-status ring when busy */
+.hub-av {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+.hub-av-dot { width: 8px; height: 8px; border-radius: 50%; }
+.hub-av.busy::after {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  border-radius: 50%;
+  border: 1.5px solid var(--av-color, #22C55E);
+  opacity: 0.9;
+  animation: hub-av-pulse 1.6s ease-in-out infinite;
+}
+@keyframes hub-av-pulse {
+  0%, 100% { opacity: 0.25; transform: scale(0.9); }
+  50% { opacity: 0.9; transform: scale(1.05); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hub-av.busy::after { animation: none; opacity: 0.7; }
+}
+
+/* Pin toggle — hidden until row hover; always shown once pinned */
+.hub-pin {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s, color 0.12s, transform 0.1s;
+}
+.hub-pin svg { width: 14px; height: 14px; }
+.hub-row:hover .hub-pin,
+.hub-ws-head:hover .hub-pin,
+.hub-pin.on { opacity: 1; }
+.hub-pin:hover { color: var(--text-secondary); transform: scale(1.12); }
+.hub-pin.on { color: var(--raven-blue); }
+
+/* Workspace group header */
+.hub-ws-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 30px;
+  padding: 0 8px 0 10px;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.hub-ws-head:hover { background: rgba(255, 255, 255, 0.03); }
+.hub-caret {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  flex-shrink: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 10px;
+  cursor: pointer;
+}
+.hub-caret:hover { color: var(--text-primary); }
+.hub-ws-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hub-ws-n {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+/* Terminal rows sit indented under their workspace header */
+.hub-ws .hub-row { padding-left: 24px; }
+
+/* + buttons (new workspace / new terminal) */
+.hub-add {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  transition: color 0.12s, border-color 0.12s;
+}
+.hub-add:hover { color: var(--text-primary); border-color: var(--border); }
+.hub-ws-add { opacity: 0; }
+.hub-ws-head:hover .hub-ws-add { opacity: 1; }
 
 .hub-tile {
   position: relative;
