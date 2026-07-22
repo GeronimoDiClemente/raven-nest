@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { prSizeBuckets, reviewCoverage } from '../../hooks/useTeamStats'
+import { prSizeBuckets, reviewCoverage, medianReviewLatencyHours } from '../../hooks/useTeamStats'
 
 const now = new Date().toISOString()
+const hoursAgo = (h: number) => new Date(Date.now() - h * 3_600_000).toISOString()
 
 // Minimal GitHub Events API shapes (only the fields the metrics read).
 const mergedPR = (id: string, number: number, additions: number | undefined, deletions: number | undefined, repo = 'o/r') => ({
@@ -40,5 +41,32 @@ describe('reviewCoverage', () => {
 
   it('is null-safe with no merged PRs', () => {
     expect(reviewCoverage([] as any)).toEqual({ mergedTotal: 0, reviewed: 0, pct: 0 })
+  })
+})
+
+// A review event whose PR opened `openedHoursAgo` ago and was reviewed `reviewedHoursAgo` ago.
+const reviewLatency = (id: string, number: number, openedHoursAgo: number, reviewedHoursAgo: number, repo = 'o/r') => ({
+  id, type: 'PullRequestReviewEvent', actor: { login: 'b', avatar_url: '' }, repo: { name: repo },
+  created_at: hoursAgo(reviewedHoursAgo),
+  payload: {
+    action: 'created',
+    review: { state: 'approved', submitted_at: hoursAgo(reviewedHoursAgo) },
+    pull_request: { number, created_at: hoursAgo(openedHoursAgo) },
+  },
+})
+
+describe('medianReviewLatencyHours', () => {
+  it('measures open→first-review hours, taking the earliest review per PR', () => {
+    const events = [
+      reviewLatency('1', 1, 10, 8),  // PR1 opened 10h ago, first review 8h ago → 2h
+      reviewLatency('2', 1, 10, 5),  // PR1 later review (ignored — not the first)
+      reviewLatency('3', 2, 20, 14), // PR2 → 6h
+    ]
+    // medians of [2, 6] = 4
+    expect(medianReviewLatencyHours(events as any)).toBe(4)
+  })
+
+  it('returns null when no review carries both timestamps', () => {
+    expect(medianReviewLatencyHours([] as any)).toBeNull()
   })
 })

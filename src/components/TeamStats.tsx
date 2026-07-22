@@ -1,5 +1,5 @@
 import { useState, useMemo, memo, type CSSProperties } from 'react'
-import { useTeamStats, type DeveloperStats } from '../hooks/useTeamStats'
+import { useTeamStats, type PrSizeBuckets } from '../hooks/useTeamStats'
 import type { PresenceState } from '../hooks/useTeamPresence'
 
 interface TeamStatsProps {
@@ -15,42 +15,6 @@ export function onlineGithubLogins(presence: Record<string, PresenceState>): Set
   }
   return set
 }
-
-function timeAgo(dateStr: string | null): string {
-  if (!dateStr) return '—'
-  const diff = Date.now() - new Date(dateStr).getTime()
-  const mins = Math.floor(diff / 60000)
-  if (mins < 1) return 'just now'
-  if (mins < 60) return `${mins}m`
-  const hrs = Math.floor(mins / 60)
-  if (hrs < 24) return `${hrs}h`
-  return `${Math.floor(hrs / 24)}d`
-}
-
-const AreaSparkline = memo(function AreaSparkline({ data, gradId }: { data: number[]; gradId: string }) {
-  const W = 64, H = 26
-  const max = Math.max(...data, 1)
-  const pts = data.map((v, i) => ({
-    x: (i / (data.length - 1)) * W,
-    y: H - Math.max(3, (v / max) * H),
-  }))
-  const line = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')
-  const area = `${line} L${W},${H} L0,${H} Z`
-  const last = pts[pts.length - 1]
-  return (
-    <svg className="ts-spark" width={W} height={H} viewBox={`0 0 ${W} ${H}`} fill="none">
-      <defs>
-        <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="var(--ts-accent)" stopOpacity="0.25" />
-          <stop offset="100%" stopColor="var(--ts-accent)" stopOpacity="0" />
-        </linearGradient>
-      </defs>
-      <path d={area} fill={`url(#${gradId})`} />
-      <path d={line} stroke="var(--ts-accent)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-      <circle cx={last.x} cy={last.y} r="2.5" fill="var(--ts-accent)" />
-    </svg>
-  )
-})
 
 // ▲/▼ vs previous period. Semantic green/red, never color alone (carries arrow + %).
 function DeltaBadge({ current, previous }: { current: number; previous: number }) {
@@ -89,7 +53,7 @@ function niceCeil(v: number): number {
 
 // Team activity per day — a single series (brand blue). Thin bars with
 // rounded top, dotted gridlines with scale, and TODAY highlighted in full blue
-// (the other days at 55% of the same blue).
+// (the other days at 55% of the same blue). Team-level: no per-person breakdown.
 const TeamBarChart = memo(function TeamBarChart({ daily }: { daily: number[] }) {
   const [hover, setHover] = useState<number | null>(null)
   const n = daily.length
@@ -147,36 +111,34 @@ function fmtDuration(hours: number | null): string {
   return `${(hours / 24).toFixed(1)}d`
 }
 
-// devs × days matrix (who worked when). Single-hue sequential (blue).
-const TeamHeatmap = memo(function TeamHeatmap({ devs }: { devs: DeveloperStats[] }) {
-  const rows = devs.slice(0, 8)
-  if (rows.length === 0) return null
-  const max = Math.max(1, ...rows.flatMap(d => d.dailyCommits))
-  const n = rows[0].dailyCommits.length
+// Distribution of merged PRs by size. Small PRs review faster and safer, so this
+// is the counter-metric to raw throughput — "many PRs" read against "how big".
+const PR_SIZE_ROWS: { key: string; hint: string; field: keyof PrSizeBuckets; color: string }[] = [
+  { key: 'S', hint: '≤50 lines', field: 's', color: '#22C55E' },
+  { key: 'M', hint: '51–200', field: 'm', color: '#0066FF' },
+  { key: 'L', hint: '201–500', field: 'l', color: '#FFB800' },
+  { key: 'XL', hint: '>500', field: 'xl', color: '#FF4500' },
+]
+
+const PrSizeBars = memo(function PrSizeBars({ sizes }: { sizes: PrSizeBuckets }) {
+  const total = sizes.s + sizes.m + sizes.l + sizes.xl
+  if (total === 0) return <div className="ts-empty">No merged PRs in this period</div>
+  const max = Math.max(sizes.s, sizes.m, sizes.l, sizes.xl, 1)
   return (
-    <div className="ts-heatmap">
-      {rows.map(dev => (
-        <div key={dev.login} className="ts-heat-row">
-          <span className="ts-heat-name">{dev.login}</span>
-          <div className="ts-heat-cells" style={{ gridTemplateColumns: `repeat(${n}, 1fr)` }}>
-            {dev.dailyCommits.map((v, i) => {
-              const daysAgo = n - 1 - i
-              const alpha = v <= 0 ? 0 : 0.15 + 0.85 * (v / max)
-              return (
-                <div
-                  key={i}
-                  className="ts-heat-cell"
-                  style={v > 0 ? { background: `rgba(0,102,255,${alpha.toFixed(2)})` } : undefined}
-                  title={`${dev.login} — ${v} commit${v === 1 ? '' : 's'} ${daysAgo === 0 ? 'today' : `${daysAgo}d ago`}`}
-                />
-              )
-            })}
+    <div className="ts-prsize">
+      {PR_SIZE_ROWS.map(r => {
+        const n = sizes[r.field]
+        return (
+          <div className="ts-prsize-row" key={r.key} title={`${n} PR${n === 1 ? '' : 's'} · ${r.hint}`}>
+            <span className="ts-prsize-key">{r.key}</span>
+            <div className="ts-prsize-track">
+              <div className="ts-prsize-fill" style={{ width: `${(n / max) * 100}%`, background: r.color }} />
+            </div>
+            <span className="ts-prsize-n">{n}</span>
+            <span className="ts-prsize-hint">{r.hint}</span>
           </div>
-        </div>
-      ))}
-      {devs.length > rows.length && (
-        <div className="ts-heat-more">+{devs.length - rows.length} more developers</div>
-      )}
+        )
+      })}
     </div>
   )
 })
@@ -185,10 +147,10 @@ function StatsSkeleton() {
   return (
     <div className="ts-container" aria-busy="true" aria-label="Loading team stats">
       <div className="ts-overview-row">
-        {[0, 1, 2, 3, 4, 5].map(i => <div key={i} className="ts-skeleton ts-skel-card" />)}
+        {[0, 1, 2, 3, 4, 5, 6].map(i => <div key={i} className="ts-skeleton ts-skel-card" />)}
       </div>
       <div>
-        {[0, 1, 2, 3, 4].map(i => <div key={i} className="ts-skeleton ts-skel-row" />)}
+        {[0, 1, 2, 3].map(i => <div key={i} className="ts-skeleton ts-skel-row" />)}
       </div>
     </div>
   )
@@ -198,35 +160,8 @@ export default function TeamStats({ repos, githubToken, presence }: TeamStatsPro
   const [windowDays, setWindowDays] = useState<7 | 30>(7)
   const { stats, loading, error, warning } = useTeamStats(repos, githubToken, windowDays)
   const onlineCount = Object.keys(presence).length
-  const onlineLogins = useMemo(() => onlineGithubLogins(presence), [presence])
 
-  type SortKey = 'commits' | 'prs' | 'reviews' | 'issues'
-  const [sortKey, setSortKey] = useState<SortKey>('commits')
-  const [sortDir, setSortDir] = useState<'desc' | 'asc'>('desc')
-
-  function handleSort(key: SortKey) {
-    if (sortKey === key) {
-      setSortDir(d => d === 'desc' ? 'asc' : 'desc')
-    } else {
-      setSortKey(key)
-      setSortDir('desc')
-    }
-  }
-
-  const metric = (d: DeveloperStats, key: SortKey): number =>
-    key === 'commits' ? d.commits
-      : key === 'prs' ? d.prsOpened + d.prsMerged
-      : key === 'reviews' ? d.reviews
-      : d.issuesClosed
-
-  const sortedDevs = useMemo(() => {
-    return [...stats.developers].sort((a, b) => {
-      const diff = metric(b, sortKey) - metric(a, sortKey)
-      return sortDir === 'desc' ? diff : -diff
-    })
-  }, [stats.developers, sortKey, sortDir])
-
-  // Team commits per day = sum of each dev's dailyCommits.
+  // Team commits per day = sum of each dev's dailyCommits (aggregate, not per-dev).
   const teamDaily = useMemo(() => {
     const n = stats.developers[0]?.dailyCommits.length ?? windowDays
     const out = Array<number>(n).fill(0)
@@ -260,7 +195,12 @@ export default function TeamStats({ repos, githubToken, presence }: TeamStatsPro
     )
   }
 
-  const { developers, totalCommits, totalPrsMerged, totalReviews, mergeTimeHours, topDeveloper, prevCommits, prevPrsMerged } = stats
+  const {
+    developers, totalCommits, totalPrsMerged, totalReviews,
+    mergeTimeHours, reviewLatencyHours, prSizes, reviewCov,
+    prevCommits, prevPrsMerged,
+  } = stats
+  const coveragePct = reviewCov.mergedTotal ? `${Math.round(reviewCov.pct * 100)}%` : '—'
 
   return (
     <div className="ts-container">
@@ -274,7 +214,9 @@ export default function TeamStats({ repos, githubToken, presence }: TeamStatsPro
         </div>
       )}
 
-      {/* Overview cards */}
+      {/* Team pulse + flow & health — aggregate metrics only, no per-person ranking.
+          Raw counts (commits/PRs) are throughput; the flow cards (cycle time,
+          review latency, coverage) and PR size are the quality counter-metrics. */}
       <div>
         <div className="ts-cards-header">
           <div className="ts-section-title">{windowDays === 7 ? 'This week' : 'This month'}</div>
@@ -315,119 +257,36 @@ export default function TeamStats({ repos, githubToken, presence }: TeamStatsPro
             <span className="ts-card-sub">PRs reviewed by the team</span>
           </div>
           <div className="ts-card">
-            <span className="ts-card-label">PR merge time</span>
+            <span className="ts-card-label">Cycle time</span>
             <span className="ts-card-value">{fmtDuration(mergeTimeHours)}</span>
             <span className="ts-card-sub">median, open → merge</span>
           </div>
           <div className="ts-card">
-            <span className="ts-card-label">Top dev</span>
-            <span className="ts-card-value" style={{ fontSize: 14, paddingTop: 4 }}>
-              {topDeveloper ? `@${topDeveloper.login}` : '—'}
-            </span>
-            <span className="ts-card-sub">
-              {topDeveloper ? `${topDeveloper.commits} commits` : 'no activity'}
-            </span>
+            <span className="ts-card-label">Review latency</span>
+            <span className="ts-card-value">{fmtDuration(reviewLatencyHours)}</span>
+            <span className="ts-card-sub">median, open → first review</span>
+          </div>
+          <div className="ts-card">
+            <span className="ts-card-label">Review coverage</span>
+            <span className="ts-card-value">{coveragePct}</span>
+            <span className="ts-card-sub">{reviewCov.reviewed} / {reviewCov.mergedTotal} PRs reviewed</span>
           </div>
         </div>
       </div>
 
-      {/* Team activity chart */}
+      {/* PR size distribution */}
+      <div>
+        <div className="ts-section-title">PR size distribution</div>
+        <PrSizeBars sizes={prSizes} />
+      </div>
+
+      {/* Team activity chart — aggregate commits per day */}
       {developers.length > 0 && (
         <div>
           <div className="ts-section-title">Team activity — commits per day</div>
           <TeamBarChart daily={teamDaily} />
         </div>
       )}
-
-      {/* Developer table */}
-      <div>
-        <div className="ts-section-title">Developers</div>
-        {developers.length === 0 ? (
-          <div className="ts-empty">{`No activity in the last ${windowDays} days`}</div>
-        ) : (
-          <div className="ts-table-wrap">
-            <table className="ts-table">
-              <thead>
-                <tr>
-                  <th>Developer</th>
-                  <th style={{ textAlign: 'right' }}>
-                    <button className="ts-th-btn" onClick={() => handleSort('commits')}>
-                      Commits
-                      <span className={`ts-sort-icon${sortKey === 'commits' ? ' active' : ''}`}>
-                        {sortKey === 'commits' ? (sortDir === 'desc' ? '↓' : '↑') : '↕'}
-                      </span>
-                    </button>
-                  </th>
-                  <th style={{ textAlign: 'right' }}>
-                    <button className="ts-th-btn" onClick={() => handleSort('prs')}>
-                      PRs
-                      <span className={`ts-sort-icon${sortKey === 'prs' ? ' active' : ''}`}>
-                        {sortKey === 'prs' ? (sortDir === 'desc' ? '↓' : '↑') : '↕'}
-                      </span>
-                    </button>
-                  </th>
-                  <th style={{ textAlign: 'right' }}>
-                    <button className="ts-th-btn" onClick={() => handleSort('reviews')}>
-                      Reviews
-                      <span className={`ts-sort-icon${sortKey === 'reviews' ? ' active' : ''}`}>
-                        {sortKey === 'reviews' ? (sortDir === 'desc' ? '↓' : '↑') : '↕'}
-                      </span>
-                    </button>
-                  </th>
-                  <th style={{ textAlign: 'right' }}>
-                    <button className="ts-th-btn" onClick={() => handleSort('issues')}>
-                      Issues
-                      <span className={`ts-sort-icon${sortKey === 'issues' ? ' active' : ''}`}>
-                        {sortKey === 'issues' ? (sortDir === 'desc' ? '↓' : '↑') : '↕'}
-                      </span>
-                    </button>
-                  </th>
-                  <th style={{ textAlign: 'right' }}>Last activity</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sortedDevs.map((dev, i) => {
-                  const isOnline = onlineLogins.has(dev.login.toLowerCase())
-                  const isTop = i === 0
-                  return (
-                    <tr key={dev.login} className={isTop ? 'ts-top-row' : undefined}>
-                      <td>
-                        <div className="ts-dev-cell">
-                          <span className="ts-rank">{i + 1}</span>
-                          <span className={`ts-status-dot ${isOnline ? 'online' : 'offline'}`} />
-                          <img
-                            className="ts-avatar"
-                            src={dev.avatarUrl}
-                            alt={dev.login}
-                          />
-                          <div className="ts-dev-info">
-                            <span className="ts-dev-name">{dev.login}</span>
-                            <AreaSparkline data={dev.dailyCommits} gradId={`ts-sg-${dev.login}`} />
-                          </div>
-                        </div>
-                      </td>
-                      <td className="ts-num">{dev.commits || <span className="ts-muted">—</span>}</td>
-                      <td className="ts-num">{dev.prsOpened + dev.prsMerged || <span className="ts-muted">—</span>}</td>
-                      <td className="ts-num">{dev.reviews || <span className="ts-muted">—</span>}</td>
-                      <td className="ts-num">{dev.issuesClosed || <span className="ts-muted">—</span>}</td>
-                      <td className="ts-num ts-muted">{timeAgo(dev.lastEventAt)}</td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      {/* Activity matrix — who worked when */}
-      {developers.length > 0 && (
-        <div>
-          <div className="ts-section-title">Activity matrix — who worked when</div>
-          <TeamHeatmap devs={developers} />
-        </div>
-      )}
-
     </div>
   )
 }

@@ -9919,6 +9919,50 @@ body.platform-mac .tabbar { padding-right: 116px; }
   .ts-overview-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
+/* PR size distribution (S/M/L/XL) */
+.ts-prsize {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 2px;
+}
+.ts-prsize-row {
+  display: grid;
+  grid-template-columns: 26px 1fr 28px auto;
+  align-items: center;
+  gap: 10px;
+}
+.ts-prsize-key {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.ts-prsize-track {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+.ts-prsize-fill {
+  height: 100%;
+  border-radius: 4px 0 0 4px;
+  min-width: 2px;
+  transition: width 0.3s ease;
+}
+.ts-prsize-n {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.ts-prsize-hint {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
 .ts-card {
   background: var(--bg-surface);
   border: 1px solid var(--border);

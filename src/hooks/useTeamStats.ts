@@ -26,8 +26,14 @@ export interface TeamStatsData {
   totalCommits: number
   totalPrsMerged: number
   totalReviews: number
-  /** Median open→merge hours of the PRs merged within the window. null if none. */
+  /** Median open→merge hours of the PRs merged within the window (cycle time). null if none. */
   mergeTimeHours: number | null
+  /** Median open→first-review hours within the window (review latency). null if none. */
+  reviewLatencyHours: number | null
+  /** Distribution of merged PRs by size (S/M/L/XL). */
+  prSizes: PrSizeBuckets
+  /** Fraction of merged PRs that got at least one review. */
+  reviewCov: ReviewCoverage
   topDeveloper: DeveloperStats | null
   recentPrs: RecentPR[]
   /** Totals for the IMMEDIATELY preceding period (same duration), for deltas. */
@@ -256,6 +262,38 @@ export function reviewCoverage(events: GitHubEvent[], windowDays = 7): ReviewCov
   return { mergedTotal: merged.size, reviewed: count, pct: merged.size ? count / merged.size : 0 }
 }
 
+/**
+ * Median hours from a PR opening to its FIRST review — how long work waits on a
+ * reviewer (review latency), the flow counterpart to cycle time. Groups review
+ * events by repo+number, takes the earliest review per PR, and medians the
+ * open→first-review gap. Reads pull_request.created_at and review.submitted_at
+ * from the Events payload (no extra calls). null if none carries both stamps.
+ */
+export function medianReviewLatencyHours(events: GitHubEvent[], windowDays = 7): number | null {
+  const seen = new Set<string>()
+  const firstReview = new Map<string, { opened: number; reviewed: number }>()
+  for (const event of events) {
+    if (seen.has(event.id)) continue
+    seen.add(event.id)
+    if (!isWithinWindow(event.created_at, windowDays)) continue
+    if (event.type !== 'PullRequestReviewEvent' || event.payload.action !== 'created') continue
+    const pr = event.payload.pull_request
+    const submitted = event.payload.review?.submitted_at
+    if (pr?.number == null || !pr.created_at || !submitted) continue
+    const opened = new Date(pr.created_at).getTime()
+    const reviewed = new Date(submitted).getTime()
+    if (reviewed < opened) continue
+    const key = `${event.repo?.name ?? ''}#${pr.number}`
+    const prev = firstReview.get(key)
+    if (!prev || reviewed < prev.reviewed) firstReview.set(key, { opened, reviewed })
+  }
+  const durs = [...firstReview.values()].map(v => (v.reviewed - v.opened) / 3_600_000)
+  if (durs.length === 0) return null
+  durs.sort((a, b) => a - b)
+  const mid = Math.floor(durs.length / 2)
+  return durs.length % 2 ? durs[mid] : (durs[mid - 1] + durs[mid]) / 2
+}
+
 export function useTeamStats(
   repos: Array<{ repo_full_name: string }>,
   githubToken: string | null,
@@ -352,11 +390,15 @@ export function useTeamStats(
   const topDeveloper = developers[0] ?? null
   const recentPrs = useMemo(() => extractRecentPrs(events, windowDays), [events, windowDays])
   const mergeTimeHours = useMemo(() => medianMergeHours(events, windowDays), [events, windowDays])
+  const reviewLatencyHours = useMemo(() => medianReviewLatencyHours(events, windowDays), [events, windowDays])
+  const prSizes = useMemo(() => prSizeBuckets(events, windowDays), [events, windowDays])
+  const reviewCov = useMemo(() => reviewCoverage(events, windowDays), [events, windowDays])
   const prev = useMemo(() => windowTotals(events, windowDays, windowDays * 2), [events, windowDays])
 
   return {
     stats: {
       developers, totalCommits, totalPrsMerged, totalReviews, mergeTimeHours,
+      reviewLatencyHours, prSizes, reviewCov,
       topDeveloper, recentPrs,
       prevCommits: prev.commits, prevPrsMerged: prev.prsMerged,
     },

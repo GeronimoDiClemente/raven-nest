@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, within, fireEvent } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import TeamStats, { onlineGithubLogins } from '../../components/TeamStats'
 import type { TeamStatsData } from '../../hooks/useTeamStats'
 
@@ -29,17 +29,11 @@ const LOADED: { stats: TeamStatsData; loading: boolean; error: string | null } =
     totalPrsMerged: 1,
     totalReviews: 4,
     mergeTimeHours: 6,
+    reviewLatencyHours: 4,
+    prSizes: { s: 3, m: 2, l: 1, xl: 0 },
+    reviewCov: { mergedTotal: 5, reviewed: 4, pct: 0.8 },
     topDeveloper: DEV_ALICE,
-    recentPrs: [
-      {
-        id: 'evt-1',
-        login: 'alice',
-        avatarUrl: 'https://avatars.githubusercontent.com/u/1?v=4',
-        title: 'feat: add team stats dashboard',
-        repo: 'org/repo',
-        mergedAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
-      },
-    ],
+    recentPrs: [],
     prevCommits: 10,
     prevPrsMerged: 2,
   },
@@ -47,7 +41,12 @@ const LOADED: { stats: TeamStatsData; loading: boolean; error: string | null } =
   error: null,
 }
 const EMPTY: { stats: TeamStatsData; loading: boolean; error: string | null } = {
-  stats: { developers: [], totalCommits: 0, totalPrsMerged: 0, totalReviews: 0, mergeTimeHours: null, topDeveloper: null, recentPrs: [], prevCommits: 0, prevPrsMerged: 0 },
+  stats: {
+    developers: [], totalCommits: 0, totalPrsMerged: 0, totalReviews: 0,
+    mergeTimeHours: null, reviewLatencyHours: null,
+    prSizes: { s: 0, m: 0, l: 0, xl: 0 }, reviewCov: { mergedTotal: 0, reviewed: 0, pct: 0 },
+    topDeveloper: null, recentPrs: [], prevCommits: 0, prevPrsMerged: 0,
+  },
   loading: false,
   error: null,
 }
@@ -62,7 +61,10 @@ const defaultProps = {
   presence,
 }
 
-describe('TeamStats', () => {
+const card = (label: string): HTMLElement =>
+  screen.getByText(label).closest('.ts-card') as HTMLElement
+
+describe('TeamStats (team flow & health)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockUseTeamStats.mockReturnValue(LOADED)
@@ -72,45 +74,49 @@ describe('TeamStats', () => {
     mockUseTeamStats.mockReturnValue({ ...EMPTY, loading: true })
     const { rerender } = render(<TeamStats {...defaultProps} />)
     mockUseTeamStats.mockReturnValue(LOADED)
-    // If the useMemo is after an early return, this rerender throws
-    // "Rendered more hooks than during the previous render".
     expect(() => rerender(<TeamStats {...defaultProps} />)).not.toThrow()
-    expect(screen.getAllByText('alice').length).toBeGreaterThan(0)
-  })
-
-  it('shows the total commit count in the overview cards', () => {
-    render(<TeamStats {...defaultProps} />)
     expect(screen.getByText('16')).toBeTruthy()
   })
 
-  it('shows the most active developer', () => {
+  it('shows the team totals in the overview cards', () => {
     render(<TeamStats {...defaultProps} />)
-    expect(screen.getAllByText('alice').length).toBeGreaterThan(0)
+    expect(within(card('Commits')).getByText('16')).toBeTruthy()
+    expect(within(card('PRs merged')).getByText('1')).toBeTruthy()
   })
 
   it('shows the online developer count from presence', () => {
     render(<TeamStats {...defaultProps} />)
-    const onlineCard = screen.getByText('Online now').closest('.ts-card') as HTMLElement
-    expect(within(onlineCard).getByText('1')).toBeTruthy()
+    expect(within(card('Online now')).getByText('1')).toBeTruthy()
   })
 
-  it('shows the table with both developers', () => {
+  it('shows cycle time and review latency as flow metrics', () => {
+    render(<TeamStats {...defaultProps} />)
+    expect(within(card('Cycle time')).getByText('6h')).toBeTruthy()
+    expect(within(card('Review latency')).getByText('4h')).toBeTruthy()
+  })
+
+  it('shows review coverage as a percentage of merged PRs', () => {
+    render(<TeamStats {...defaultProps} />)
+    const cov = card('Review coverage')
+    expect(within(cov).getByText('80%')).toBeTruthy()
+    expect(within(cov).getByText(/4\s*\/\s*5/)).toBeTruthy()
+  })
+
+  it('shows the PR size distribution (S/M/L/XL)', () => {
     const { container } = render(<TeamStats {...defaultProps} />)
-    const table = container.querySelector('.ts-table') as HTMLElement
-    expect(within(table).getByText('alice')).toBeTruthy()
-    expect(within(table).getByText('bob')).toBeTruthy()
+    expect(screen.getByText(/PR size/i)).toBeTruthy()
+    expect(container.querySelectorAll('.ts-prsize-row').length).toBe(4)
+  })
+
+  it('does NOT rank developers individually (no leaderboard table)', () => {
+    const { container } = render(<TeamStats {...defaultProps} />)
+    expect(container.querySelector('.ts-table')).toBeNull()
+    expect(container.querySelector('.ts-rank')).toBeNull()
   })
 
   it('shows the connect-GitHub message when there is no token', () => {
     render(<TeamStats {...defaultProps} githubToken={null} />)
     expect(screen.getByText(/connect your github/i)).toBeTruthy()
-  })
-
-  it('renders one SVG sparkline per developer', () => {
-    render(<TeamStats {...defaultProps} />)
-    const sparks = document.querySelectorAll('.ts-spark')
-    // 1 SVG sparkline per developer
-    expect(sparks.length).toBe(2)
   })
 
   it('shows the skeleton while loading', () => {
@@ -124,19 +130,6 @@ describe('TeamStats', () => {
     mockUseTeamStats.mockReturnValue({ ...EMPTY, error: 'API rate limit exceeded' })
     render(<TeamStats {...defaultProps} />)
     expect(screen.getByText('API rate limit exceeded')).toBeTruthy()
-  })
-
-  it('re-sorts by PRs when clicking the header', () => {
-    const { getByRole } = render(<TeamStats {...defaultProps} />)
-    // Initial order: by commits desc → alice (12) before bob (4)
-    let names = Array.from(document.querySelectorAll('.ts-dev-name')).map(n => n.textContent)
-    expect(names).toEqual(['alice', 'bob'])
-    // Click on "PRs": alice has 3 (2+1), bob 0. 1st click = desc, 2nd = asc → inverts.
-    const prsHeader = getByRole('button', { name: /PRs/i })
-    fireEvent.click(prsHeader)  // desc by prs
-    fireEvent.click(prsHeader)  // asc by prs
-    names = Array.from(document.querySelectorAll('.ts-dev-name')).map(n => n.textContent)
-    expect(names).toEqual(['bob', 'alice'])
   })
 })
 
