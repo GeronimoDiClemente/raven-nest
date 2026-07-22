@@ -11,7 +11,8 @@ merged locally, translated to English, plus corrections. **Not pushed, not merge
   fixes the pty-events teardown bug (`resetHubActivity` via `onStopListening`)
 - `c06d21f` — **#5 rename + labels**: double-click the pane-header label to rename ANY pane
   (`updatePaneAnywhere` → `customLabel`); Hub tiles show the custom label
-- `0b60765` — **#8 tab overflow**: "all workspaces" menu, wheel→horizontal, auto-scroll active
+- `0b60765` — **#8 tab overflow**: "all workspaces" menu, wheel→horizontal, auto-scroll active.
+  ⚠️ **The dropdown-menu approach is NOT what Gero wants — rework (see below).**
 - `e74f65e` — **#2+#3 Hub sidebar**: hides the repo context group on a Hub tab, shows a
   workspace/terminal builder (`HubSidebarPanel`). ⚠️ **The #3 click behaviour is WRONG — rework (see below).**
 - `2554bfc` — #8 bugfix: overflow chevron only shows when the tab strip actually overflows
@@ -35,6 +36,14 @@ The Hub is a **composable, filterable VIEW of terminals** across all workspaces 
 - `onAddTerminalToWorkspace` currently does `setActiveTabId + setAddingPane` (leaves the Hub).
   Reconsider under the new model.
 
+## #8 rework — no overflow menu; all tabs stay visible
+Gero (2026-07-21): the fix must **NOT** be a little bar that pops out a menu. **All workspace
+tabs must stay VISIBLE even when the window is small** — the tabs should compress/shrink to fit
+(e.g. shrink to a coloured chip / dot + short label when very crowded) so every workspace is
+reachable, **without breaking** the layout. Remove the `⌄` overflow dropdown (`0b60765` /
+`2554bfc`). Keep wheel→horizontal + auto-scroll-active only if still useful; the primary
+requirement is "everything visible, compressed to fit".
+
 ## Bugs pending
 1. **Collapsed sidebar looks broken on a Hub tab**: `HubSidebarPanel` renders a bare column of
    coloured dots (labels hidden) when the sidebar is at 44px. Fix: hide the builder when
@@ -51,7 +60,9 @@ The Hub is a **composable, filterable VIEW of terminals** across all workspaces 
    - Decide: keep "double-click = jump to the pane in its workspace" as an explicit *secondary*
      action? (Primary action is NOT jumping.)
 2. **Fix collapsed-sidebar rendering** (hide builder when `!expanded`).
-3. **#6 team-stats pivot** — design already done (flow & health dashboard; data-availability
+3. **Rework #8**: drop the overflow dropdown; make all tabs compress to stay visible when the
+   window is narrow (chip / dot when crowded), without breaking layout.
+4. **#6 team-stats pivot** — design already done (flow & health dashboard; data-availability
    matrix; cycle time / review latency / PR size computable now, DORA deploy = phase 2).
 
 ## Open decisions
