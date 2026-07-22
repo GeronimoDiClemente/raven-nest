@@ -16,8 +16,14 @@ merged locally, translated to English, plus corrections. **Not pushed, not merge
 - `e74f65e` — **#2+#3 Hub sidebar**: hides the repo context group on a Hub tab, shows a
   workspace/terminal builder (`HubSidebarPanel`). ⚠️ **The #3 click behaviour is WRONG — rework (see below).**
 - `2554bfc` — #8 bugfix: overflow chevron only shows when the tab strip actually overflows
+- `e170570` — **#8 REWORK (done)** + **collapsed-sidebar fix**: removed the overflow dropdown; tabs
+  now compress (`.tab` min-width 44px) so all workspaces stay visible when narrow; Hub builder
+  hidden when the sidebar is collapsed
+- `0463397` — **#3 click-focus (v1, done)** + **aesthetic restyle (done)**: Hub sidebar terminal
+  click now FOCUSES the tile in the Hub (`focusTerminal`, no navigation); HubSidebarPanel restyled
+  onto the existing `.wt-*` / `.sidebar-item` aesthetic (bespoke `.hub-side-*` deleted)
 
-State: **233 tests green**, `tsc -b` no new errors.
+State: all tests green, `tsc -b` no new errors.
 
 ## ⚠️ Conceptual correction from Gero (2026-07-21) — REWORK #3 (+ merge with #4)
 The Hub is a **composable, filterable VIEW of terminals** across all workspaces — a way to
@@ -36,7 +42,7 @@ The Hub is a **composable, filterable VIEW of terminals** across all workspaces 
 - `onAddTerminalToWorkspace` currently does `setActiveTabId + setAddingPane` (leaves the Hub).
   Reconsider under the new model.
 
-## #8 rework — no overflow menu; all tabs stay visible
+## #8 rework — no overflow menu; all tabs stay visible  ✅ DONE (`e170570`)
 Gero (2026-07-21): the fix must **NOT** be a little bar that pops out a menu. **All workspace
 tabs must stay VISIBLE even when the window is small** — the tabs should compress/shrink to fit
 (e.g. shrink to a coloured chip / dot + short label when very crowded) so every workspace is
@@ -45,28 +51,44 @@ reachable, **without breaking** the layout. Remove the `⌄` overflow dropdown (
 requirement is "everything visible, compressed to fit".
 
 ## Bugs pending
-1. **Collapsed sidebar looks broken on a Hub tab**: `HubSidebarPanel` renders a bare column of
-   coloured dots (labels hidden) when the sidebar is at 44px. Fix: hide the builder when
-   `!expanded`, or give it a proper collapsed presentation. (See screenshot 2026-07-21.)
-2. ~~Overflow chevron always visible~~ — fixed in `2554bfc`.
-3. **Hub sidebar aesthetic (Gero, 2026-07-21)**: it MUST reuse the existing sidebar look —
-   `.sidebar-item`, existing tokens and patterns — **no distinct visual language**. Rework the
-   bespoke `.hub-side-*` styling so the Hub sidebar is visually consistent with the rest of the app.
+1. ~~Collapsed sidebar looks broken on a Hub tab~~ — **DONE (`e170570` + `0463397`)**: the Hub
+   builder is hidden when collapsed and shows only the New-workspace icon.
+2. ~~Overflow chevron always visible~~ — fixed in `2554bfc`, then the whole menu removed in `e170570`.
+3. ~~Hub sidebar aesthetic~~ — **DONE (`0463397`)**: restyled onto `.wt-*` / `.sidebar-item`; bespoke
+   `.hub-side-*` deleted.
+
+## ⚠️ DECISION NEEDED from Gero (blocks the full #3+#4 rework)
+The full model — group tiles by workspace + scroll to a specific tile + show/hide + >12 terminals —
+**cannot** be built on the Hub tab's current substrate (PaneLayoutEngine + real `TerminalPane`, fixed
+geometric layout, 12-cap, no scroll, no sections). The design (workflow `hub-filterable-view-design`,
+journal.jsonl in the wf transcript) proposes rendering the Hub **tab** on the OVERLAY's substrate: a
+scrollable, grouped `HubGrid` of `HubTile` **mirrors** (`useHubTerminal` read/echo xterms that attach
+to the live PTY by id). That unlocks grouping + scroll-to-tile + unlimited tiles + show/hide — **but
+each Hub tile becomes a read/echo mirror and LOSES the per-tile `TerminalPane` chrome** (zoom, notes,
+colour picker, close, rename, PR/join buttons). Mitigation: an explicit "open in workspace" button per tile.
+
+**Question for Gero:** OK to make the Hub-tab tiles read/echo mirrors (view + click-to-type, plus an
+"open in workspace" button for full ops) in exchange for grouping + scroll + show/hide? Or must the
+Hub keep full `TerminalPane` parity (which blocks grouping/scroll)? Everything in the plan below hinges
+on this. (Perf note: a live xterm per terminal may need lazy-mount/virtualization; show/hide is the
+user-facing mitigation.)
+
+Minor decisions: keep the per-workspace "+ terminal" (it navigates — an explicit create) or drop it?
+Per-terminal hide or just per-workspace? Should the All/Active/Pinned toolbar counts reflect the shown
+(post show/hide) set?
 
 ## Plan for tomorrow (order)
-1. **Rework #3 + #4 (unified): the Hub as a filterable view.**
-   - Model a "which panes are shown in the Hub" selection state.
-   - Sidebar/toolbar toggles inclusion per terminal and per workspace (groups).
-   - Click a terminal in the sidebar = focus/scroll to its tile in the Hub grid (ensure it's
-     included). Do NOT navigate.
-   - Group tiles by workspace in the grid (#4) + multi-select show/hide.
-   - Decide: keep "double-click = jump to the pane in its workspace" as an explicit *secondary*
-     action? (Primary action is NOT jumping.)
-2. **Fix collapsed-sidebar rendering** (hide builder when `!expanded`).
-3. **Rework #8**: drop the overflow dropdown; make all tabs compress to stay visible when the
-   window is narrow (chip / dot when crowded), without breaking layout.
-4. **#6 team-stats pivot** — design already done (flow & health dashboard; data-availability
-   matrix; cycle time / review latency / PR size computable now, DORA deploy = phase 2).
+✅ **Done tonight (autonomous):** #8 rework (tabs compress), collapsed-sidebar fix, #3 click-focus v1
+(sidebar click focuses the tile, no navigation, works ≤12), aesthetic restyle. What's left:
+
+1. **Full #3+#4 rework — the Hub as a filterable grid** (BLOCKED on the decision above):
+   - Swap the Hub-tab substrate to a scrollable grouped `HubGrid` of `HubTile` mirrors.
+   - `hubHiddenWorkspaces?: string[]` per Hub tab (persisted in session) → multi-select show/hide (#4).
+   - Group tiles by workspace (`.hub-group` / `.hub-group-header`); extend the v1 click-focus to a
+     `hubFocusTarget {id, nonce}` state that scrolls the tile into view (needed once the grid scrolls / >12).
+   - Full per-file plan is in the workflow result (`hub-filterable-view-design`, journal.jsonl).
+2. **#6 team-stats pivot** — design already done (flow & health dashboard; cycle time / review latency /
+   PR size computable now, DORA deploy = phase 2).
 
 ## Open decisions
 - Reconcile the Hub toolbar filters (All/Active/Pinned) with the sidebar picker (redundancy).
