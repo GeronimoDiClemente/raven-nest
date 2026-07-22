@@ -19,6 +19,7 @@ import { useGitlab } from '../hooks/useGitlab'
 import { ProviderAvatarPill, providerAvatar } from './ProviderAvatar'
 import { IntegrationsMarketplaceView } from './IntegrationsMarketplace'
 import { useInstalledPlugins } from '../hooks/useInstalledPlugins'
+import { BRANDS, BrandLogo } from '../lib/plugins/brandLogos'
 import { useGitInfo } from '../hooks/useGitInfo'
 import { BUILTIN_CATALOG } from '../lib/plugins/builtinCatalog'
 import { getAdapter, hasAdapter } from '../integrations/registry'
@@ -388,16 +389,23 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
               </div>
               {installedIntegrations.map(p => {
                 const manifest = BUILTIN_CATALOG.find(m => m.id === p.pluginId)
+                const brand = BRANDS[p.pluginId]
                 return (
                   <button
                     key={p.pluginId}
                     className={`tw-nav-btn${section === `integration:${p.pluginId}` ? ' active' : ''}`}
                     onClick={() => openIntegration(p.pluginId)}
                   >
-                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" style={{ color: manifest?.color }}>
-                      <rect x="2" y="2" width="12" height="12" rx="3.5" stroke="currentColor" strokeWidth="1.4" />
-                      <path d="M5.5 8h5M8 5.5v5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-                    </svg>
+                    {brand ? (
+                      <span style={{ display: 'inline-flex', color: brand.onDark }}>
+                        <BrandLogo id={p.pluginId} size={15} />
+                      </span>
+                    ) : (
+                      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" style={{ color: manifest?.color }}>
+                        <rect x="2" y="2" width="12" height="12" rx="3.5" stroke="currentColor" strokeWidth="1.4" />
+                        <path d="M5.5 8h5M8 5.5v5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+                      </svg>
+                    )}
                     {manifest?.name ?? p.pluginId}
                   </button>
                 )

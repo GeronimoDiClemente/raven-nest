@@ -1,5 +1,6 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode, type CSSProperties } from 'react'
 import { usePluginCatalog } from '../hooks/usePluginCatalog'
+import { BRANDS, BrandLogo } from '../lib/plugins/brandLogos'
 import { useInstalledPlugins } from '../hooks/useInstalledPlugins'
 import { usePluginConnection, notifyPluginConnectionChanged } from '../hooks/usePluginConnection'
 import { useGitHub } from '../hooks/useGitHub'
@@ -155,16 +156,29 @@ export function IntegrationsMarketplaceView() {
   const comingSoon = visible.filter(p => p.comingSoon)
   const installed = visible.filter(p => isInstalled(p.id))
 
-  const card = (p: PluginManifest, action: ReactNode) => (
-    <article key={p.id} className="integration-card">
-      <span className="integration-icon" style={{ background: p.color }} aria-hidden>{p.name[0]}</span>
-      <div className="integration-meta">
-        <span className="integration-name">{p.name}</span>
-        {p.description && <span className="integration-desc">{p.description}</span>}
-      </div>
-      {action}
-    </article>
-  )
+  const card = (p: PluginManifest, action: ReactNode) => {
+    const brand = BRANDS[p.id]
+    return (
+      <article
+        key={p.id}
+        className="integration-card"
+        style={brand ? ({ '--brand': brand.color } as CSSProperties) : undefined}
+      >
+        <span
+          className="integration-icon"
+          style={brand ? { color: brand.onDark } : { background: p.color }}
+          aria-hidden
+        >
+          {brand ? <BrandLogo id={p.id} size={20} /> : p.name[0]}
+        </span>
+        <div className="integration-meta">
+          <span className="integration-name">{p.name}</span>
+          {p.description && <span className="integration-desc">{p.description}</span>}
+        </div>
+        {action}
+      </article>
+    )
+  }
 
   return (
     <div className="integrations-embedded">

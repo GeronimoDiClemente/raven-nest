@@ -6,8 +6,12 @@
 }
 
 :root {
-  --raven-blue: #0066FF;
-  --raven-blue-dim: #0066FF44;
+  /* Acento de marca: migrado de azul (#0066FF) a verde nestmux.com (marca oficial).
+     Ver skill nest-ui + memoria integrations-visual-redesign. */
+  --raven-blue: #18c376;
+  --raven-blue-dim: #18c37644;
+  --brand-hover: #14a86a;      /* verde hover (más oscuro) */
+  --on-brand: #08130d;         /* texto sobre botón verde sólido (contraste) */
   --bg-app: #000000;
   --bg-surface: #0a0a0a;
   --bg-elevated: #111111;
@@ -3792,6 +3796,345 @@ body {
   z-index: 0;
   -webkit-app-region: drag;
   pointer-events: none;
+}
+
+/* ══════ NestMux login (nx-*) — terminal-split + aurora ══════════════════
+   Rediseño aprobado 2026-07-13. Ver skill nest-ui + memoria
+   integrations-visual-redesign. Verde medio nestmux, IBM Plex Mono bundleado. */
+
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  src: url('../assets/fonts/ibmplexmono-400.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+  src: url('../assets/fonts/ibmplexmono-600.woff2') format('woff2');
+}
+
+.nx-root {
+  --nx-green: oklch(65% .13 157);
+  --nx-green-br: oklch(74% .16 156);
+  --nx-green-soft: oklch(65% .13 157 / .13);
+  --nx-green-line: oklch(65% .13 157 / .34);
+  --nx-on-green: #04100a;
+  --nx-cyan: oklch(78% .11 205);
+  --nx-mono: 'IBM Plex Mono', ui-monospace, monospace;
+  --nx-inter: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  --nx-fg: #eaeaec;
+  --nx-fg2: #8b8b93;
+  --nx-fg3: #54545b;
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 100vh;
+  overflow: hidden;
+  background: #060907;
+  color: var(--nx-fg);
+  font-family: var(--nx-inter);
+  display: grid;
+  grid-template-columns: 1.3fr 1fr;
+}
+.nx-root::before {
+  content: '';
+  position: absolute;
+  inset: -20%;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(38% 40% at 22% 32%, color-mix(in oklch, var(--nx-green) 42%, transparent), transparent 60%),
+    radial-gradient(42% 44% at 82% 22%, color-mix(in oklch, var(--nx-cyan) 24%, transparent), transparent 60%),
+    radial-gradient(48% 50% at 58% 92%, color-mix(in oklch, var(--nx-green) 24%, transparent), transparent 62%);
+  filter: blur(75px);
+  opacity: .5;
+  animation: nx-drift 18s ease-in-out infinite alternate;
+}
+.nx-root::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent 40%, rgba(6,9,7,.55) 78%, rgba(6,9,7,.8) 100%);
+}
+
+/* ── stage izquierda: multiplexer vivo ── */
+.nx-stage {
+  position: relative;
+  z-index: 1;
+  padding: 42px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 22px;
+}
+.nx-kick {
+  font-family: var(--nx-mono);
+  font-size: 11px;
+  letter-spacing: .2em;
+  text-transform: uppercase;
+  color: var(--nx-green-br);
+  margin: 0;
+  opacity: 0;
+  animation: nx-up .6s ease .1s forwards;
+}
+.nx-headline {
+  font-family: var(--nx-mono);
+  font-weight: 600;
+  font-size: clamp(24px, 2.7vw, 34px);
+  line-height: 1.14;
+  margin: 0;
+  max-width: 12ch;
+  text-shadow: 0 2px 30px rgba(0,0,0,.5);
+  opacity: 0;
+  animation: nx-up .6s ease .16s forwards;
+}
+.nx-headline em { font-style: normal; color: var(--nx-green-br); }
+.nx-panes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 11px;
+  max-width: 520px;
+  opacity: 0;
+  animation: nx-up .7s ease .24s forwards;
+}
+.nx-pane {
+  background: rgba(9,10,12,.86);
+  backdrop-filter: blur(6px);
+  border: 1px solid #1c1d22;
+  border-radius: 11px;
+  overflow: hidden;
+  box-shadow: 0 18px 40px -22px rgba(0,0,0,.9);
+}
+.nx-ph {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 11px;
+  border-bottom: 1px solid #1a1a1f;
+  background: rgba(11,12,14,.7);
+  font-family: var(--nx-mono);
+  font-size: 10px;
+  color: var(--nx-fg3);
+}
+.nx-ai { width: 15px; height: 15px; flex-shrink: 0; }
+.nx-br { margin-left: auto; color: var(--nx-fg3); }
+.nx-pb {
+  padding: 10px 12px;
+  font-family: var(--nx-mono);
+  font-size: 10.5px;
+  line-height: 1.6;
+  color: var(--nx-fg2);
+  min-height: 66px;
+}
+.nx-p, .nx-ok { color: var(--nx-green-br); }
+.nx-dim { color: var(--nx-fg3); }
+.nx-cur {
+  display: inline-block;
+  width: 6px;
+  height: 12px;
+  background: var(--nx-green-br);
+  vertical-align: -1px;
+  animation: nx-bl 1.05s steps(1) infinite;
+}
+.nx-cur-lg { width: 8px; height: 16px; margin-left: 2px; }
+.nx-badges {
+  display: flex;
+  gap: 20px;
+  font-family: var(--nx-mono);
+  font-size: 10.5px;
+  color: var(--nx-fg3);
+  opacity: 0;
+  animation: nx-up .6s ease .55s forwards;
+}
+.nx-badges span { display: inline-flex; align-items: center; gap: 7px; }
+.nx-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--nx-green-br);
+  box-shadow: 0 0 7px var(--nx-green-br);
+}
+
+/* ── card de auth (glass) ── */
+.nx-auth {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 34px 32px;
+}
+.nx-card {
+  width: 100%;
+  max-width: 330px;
+  padding: 32px 28px;
+  border-radius: 18px;
+  background: rgba(11,13,12,.55);
+  backdrop-filter: blur(22px) saturate(1.2);
+  border: 1px solid rgba(255,255,255,.08);
+  box-shadow: 0 30px 70px -28px rgba(0,0,0,.85);
+  opacity: 0;
+  animation: nx-up .6s ease .3s forwards;
+}
+.nx-wm {
+  font-family: var(--nx-mono);
+  font-size: 20px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+  color: var(--nx-fg);
+}
+.nx-wm svg { color: var(--nx-green-br); }
+.nx-mx { color: var(--nx-green-br); }
+.nx-sub { font-size: 13px; color: var(--nx-fg2); margin: 0 0 20px; }
+.nx-h2 { font-size: 17px; font-weight: 600; color: var(--nx-fg); margin: 14px 0 6px; letter-spacing: -.2px; }
+.nx-row3 {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 15px;
+}
+.nx-ob {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 9px 4px;
+  border-radius: 9px;
+  font-size: 11.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: .14s;
+  font-family: var(--nx-inter);
+  background: rgba(255,255,255,.05);
+  border: 1px solid rgba(255,255,255,.1);
+  color: var(--nx-fg);
+}
+.nx-ob:hover { background: rgba(255,255,255,.1); transform: translateY(-1px); }
+.nx-ob:disabled { opacity: .5; cursor: default; transform: none; }
+.nx-ob.nx-last { border-color: var(--nx-green-line); background: var(--nx-green-soft); }
+.nx-ob.nx-last .nx-badge {
+  position: absolute;
+  top: -9px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: var(--nx-mono);
+  font-size: 8px;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--nx-on-green);
+  background: var(--nx-green-br);
+  border-radius: 999px;
+  padding: 2px 7px;
+  white-space: nowrap;
+  box-shadow: 0 3px 9px -2px var(--nx-green);
+}
+.nx-or {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 15px 0;
+  color: var(--nx-fg3);
+  font-size: 10px;
+  font-family: var(--nx-mono);
+  letter-spacing: .15em;
+}
+.nx-or::before, .nx-or::after { content: ''; flex: 1; height: 1px; background: rgba(255,255,255,.1); }
+.nx-form { width: 100%; }
+.nx-fld {
+  width: 100%;
+  background: rgba(255,255,255,.05);
+  border: 1px solid rgba(255,255,255,.11);
+  border-radius: 10px;
+  padding: 11px 13px;
+  color: var(--nx-fg);
+  font-size: 13px;
+  outline: none;
+  margin-bottom: 9px;
+  font-family: var(--nx-inter);
+  transition: .14s;
+}
+.nx-fld::placeholder { color: var(--nx-fg3); }
+.nx-fld:focus { border-color: var(--nx-green-line); box-shadow: 0 0 0 3px var(--nx-green-soft); }
+.nx-error {
+  font-size: 11.5px;
+  color: #ff8080;
+  margin: 2px 0 9px;
+  padding: 8px 11px;
+  background: rgba(255,80,80,.08);
+  border: 1px solid rgba(255,80,80,.18);
+  border-radius: 8px;
+}
+.nx-signin {
+  width: 100%;
+  margin-top: 6px;
+  border: none;
+  cursor: pointer;
+  border-radius: 10px;
+  padding: 12px;
+  font-family: var(--nx-inter);
+  font-size: 13.5px;
+  font-weight: 600;
+  background: var(--nx-green);
+  color: var(--nx-on-green);
+  transition: .15s;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 8px 24px -8px var(--nx-green);
+}
+.nx-signin:hover { background: var(--nx-green-br); }
+.nx-signin:active { transform: scale(.99); }
+.nx-signin:disabled { opacity: .55; cursor: default; }
+.nx-signin::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg, transparent 35%, rgba(255,255,255,.25) 50%, transparent 65%);
+  transform: translateX(-130%);
+}
+.nx-signin:hover::after { transform: translateX(130%); transition: transform .6s ease; }
+.nx-foot { margin-top: 15px; font-size: 12px; color: var(--nx-fg2); }
+.nx-lk { color: var(--nx-green-br); font-weight: 500; cursor: pointer; }
+.nx-lk:hover { text-decoration: underline; }
+.nx-back {
+  display: block;
+  margin-top: 12px;
+  background: transparent;
+  border: none;
+  color: var(--nx-fg2);
+  font-size: 12px;
+  font-family: var(--nx-inter);
+  cursor: pointer;
+  padding: 0;
+  transition: color .14s;
+}
+.nx-back:hover { color: var(--nx-fg); }
+
+/* ── modo centrado: vistas secundarias sin stage ── */
+.nx-root.nx-centered { grid-template-columns: 1fr; place-items: center; }
+.nx-root.nx-centered::after { display: none; }
+
+@keyframes nx-up { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@keyframes nx-bl { 50% { opacity: 0; } }
+@keyframes nx-drift { to { transform: translate(4%, 3%) scale(1.08); } }
+@media (prefers-reduced-motion: reduce) {
+  .nx-root *, .nx-root::before { animation: none !important; opacity: 1 !important; }
+}
+/* colapso en ventanas angostas: oculta el stage, centra el auth */
+@media (max-width: 720px) {
+  .nx-root { grid-template-columns: 1fr; }
+  .nx-stage { display: none; }
+  .nx-root::after { display: none; }
 }
 
 .auth-screen {
@@ -9356,12 +9699,20 @@ body.platform-mac .tabbar { padding-right: 116px; }
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 10px 12px;
+  transition: border-color .16s ease, background .16s ease;
+}
+.integration-card:hover {
+  border-color: color-mix(in srgb, var(--brand, var(--border)) 55%, var(--border));
+  background: color-mix(in srgb, var(--brand, transparent) 7%, var(--bg-surface));
 }
 .integration-icon {
-  width: 34px; height: 34px; border-radius: 8px; flex-shrink: 0;
+  width: 38px; height: 38px; border-radius: 9px; flex-shrink: 0;
   display: flex; align-items: center; justify-content: center;
   color: #fff; font-weight: 700; font-size: 15px; text-transform: uppercase;
+  background: color-mix(in srgb, var(--brand, #2b2b31) 22%, var(--bg-inset, #16161a));
+  border: 1px solid color-mix(in srgb, var(--brand, #ffffff) 32%, transparent);
 }
+.integration-icon svg { width: 20px; height: 20px; }
 .integration-meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
 .integration-name { font-size: 13px; font-weight: 600; color: var(--text-primary); }
 .integration-desc { font-size: 12px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -9411,7 +9762,13 @@ body.platform-mac .tabbar { padding-right: 116px; }
    sin flex:1 el shell (height:100%) no tendría una altura de referencia, ya
    que el div columna que lo contiene no crece automáticamente para llenar el
    alto disponible. */
-.ip-embedded { flex: 1; min-height: 0; display: flex; }
+.ip-embedded { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+/* El toggle (Panel/My tickets) va arriba como barra; el contenido llena abajo.
+   Sin la dirección column, el toggle se montaba como columna izquierda y sus
+   botones se estiraban a toda la altura (dos barras verticales). */
+.ip-embedded > .ip-shell,
+.ip-embedded > .tk-list,
+.ip-embedded > .tk-empty { flex: 1; min-height: 0; }
 .ip-shell { display: flex; height: 100%; min-height: 0; background: #08080a; }
 .ip-context { width: 290px; flex-shrink: 0; border-right: 1px solid #121214; display: flex; flex-direction: column; overflow-y: auto; }
 .ip-context-header { display: flex; flex-direction: column; padding: 14px 16px 12px; border-bottom: 1px solid #121214; }
