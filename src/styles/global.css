@@ -9726,3 +9726,445 @@ body.platform-mac .tabbar { padding-right: 116px; }
   padding-left: 9px;
   margin-left: 2px;
 }
+
+/* ── Team Stats ──────────────────────────────────────────── */
+.ts-container {
+  --ts-accent: #0066ff;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 18px;
+  height: 100%;
+  overflow-y: auto;
+}
+
+.ts-overview-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+@media (max-width: 520px) {
+  .ts-overview-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+.ts-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 13px 15px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.ts-card-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--text-muted);
+}
+
+.ts-card-value {
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+.ts-card-sub {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.ts-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  margin-bottom: 8px;
+}
+
+.ts-cards-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.ts-cards-header .ts-section-title { margin-bottom: 0; }
+
+.ts-toggle {
+  display: inline-flex;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 2px;
+  gap: 2px;
+}
+.ts-toggle-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 12px;
+  border-radius: 6px;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.ts-toggle-btn:hover { color: var(--text-primary); }
+.ts-toggle-btn.active { background: var(--bg-elevated); color: var(--text-primary); }
+
+.ts-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-surface);
+}
+
+.ts-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.ts-table th {
+  text-align: left;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  padding: 10px 12px;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--border);
+}
+
+.ts-table td {
+  padding: 9px 12px;
+  color: var(--text-primary);
+  border-top: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+.ts-table tr:first-child td { border-top: none; }
+.ts-table tr:hover td { background: var(--bg-elevated); }
+.ts-top-row td { background: var(--bg-elevated); }
+
+.ts-dev-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ts-dev-info {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.ts-dev-name {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 220px;
+}
+
+.ts-top-row .ts-dev-name { font-weight: 600; }
+
+.ts-rank {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  width: 14px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.ts-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+@keyframes ts-online-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 #3fb95055; }
+  50%       { box-shadow: 0 0 0 4px #3fb95000; }
+}
+
+.ts-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.ts-status-dot.online  { background: #3fb950; animation: ts-online-pulse 2.5s ease-in-out infinite; }
+.ts-status-dot.offline { background: #3a3a3a; }
+
+.ts-num {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.ts-muted { color: var(--text-muted); }
+
+.ts-empty {
+  padding: 40px 0;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+/* ── Team Stats — sparklines (SVG area) ─────────────── */
+
+.ts-spark { display: block; }
+
+/* ── Team Stats — sortable column headers ───────────── */
+
+.ts-th-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.ts-th-btn:hover { color: var(--text-secondary); }
+
+.ts-sort-icon {
+  font-size: 9px;
+  opacity: 0.35;
+  line-height: 1;
+}
+
+.ts-sort-icon.active {
+  opacity: 1;
+  color: var(--text-secondary);
+}
+
+/* ── Team Stats — PR feed ───────────────────────────── */
+
+.ts-pr-feed {
+  display: flex;
+  flex-direction: column;
+}
+
+.ts-pr-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 0;
+  border-top: 1px solid #ffffff08;
+}
+
+.ts-pr-item:first-child { border-top: none; }
+
+.ts-pr-meta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ts-pr-title {
+  font-size: 12px;
+  color: #ffffffcc;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ts-pr-sub {
+  font-size: 10px;
+  color: #ffffff44;
+}
+
+.ts-pr-merged-badge {
+  font-size: 10px;
+  padding: 2px 7px;
+  border-radius: 10px;
+  background: #22c55e18;
+  border: 1px solid #22c55e30;
+  color: #22c55e;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* ── Team Stats — skeleton ──────────────────────────── */
+@keyframes ts-skeleton-shimmer {
+  0%   { background-position: -180px 0; }
+  100% { background-position: 180px 0; }
+}
+.ts-skeleton {
+  background: #ffffff0c;
+  border-radius: 6px;
+  background-image: linear-gradient(90deg, #ffffff00 0, #ffffff14 50%, #ffffff00 100%);
+  background-size: 180px 100%;
+  background-repeat: no-repeat;
+  animation: ts-skeleton-shimmer 1.2s ease-in-out infinite;
+}
+.ts-skel-card { height: 78px; border-radius: 10px; }
+.ts-skel-row {
+  height: 40px;
+  border-radius: 8px;
+  margin-top: 6px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ts-skeleton { animation: none; }
+}
+
+/* ── Team Stats — empty state icon ──────────────────── */
+.ts-empty-icon {
+  display: block;
+  margin: 0 auto 10px;
+  opacity: 0.35;
+}
+
+/* ── Team Stats — partial-load warning ──────────────── */
+.ts-warning {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-surface);
+  color: #d9a441;
+  font-size: 12px;
+}
+.ts-warning svg { flex-shrink: 0; }
+
+/* ── Team Stats — delta badges (▲▼ vs período anterior) ─ */
+.ts-delta {
+  font-size: 10px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  margin-left: 3px;
+  white-space: nowrap;
+}
+.ts-delta.up   { color: #3fb950; }
+.ts-delta.down { color: #f85149; }
+.ts-delta.flat { color: var(--text-muted); }
+
+/* ── Team Stats — team activity bar chart ───────────── */
+.ts-chart { position: relative; }
+.ts-chart-plot {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px;
+}
+.ts-chart-axis {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  height: 120px;
+  font-size: 10px;
+  color: var(--text-muted);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  padding-bottom: 1px;
+}
+.ts-chart-grid {
+  position: relative;
+  height: 120px;
+}
+.ts-grid-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 0;
+  border-top: 1px dashed var(--border);
+  pointer-events: none;
+}
+.ts-chart-bars {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+}
+.ts-bar-col {
+  flex: 1;
+  height: 100%;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  position: relative;
+}
+.ts-bar {
+  width: 100%;
+  max-width: 34px;
+  min-height: 2px;
+  background: color-mix(in srgb, var(--ts-accent) 55%, transparent);
+  border-radius: 4px 4px 0 0;
+  transition: filter 0.12s ease, background 0.12s ease;
+}
+.ts-bar.today { background: var(--ts-accent); }
+.ts-bar-col:hover .ts-bar,
+.ts-bar-col.hover .ts-bar { filter: brightness(1.2); background: var(--ts-accent); }
+.ts-bar-tip {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translate(-50%, calc(-100% - 4px));
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 11px;
+  color: var(--text-primary);
+  white-space: nowrap;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  z-index: 5;
+  pointer-events: none;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+}
+.ts-bar-tip span { color: var(--text-secondary); font-size: 10px; }
+.ts-chart-foot {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 6px;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+.ts-chart-total { color: var(--text-secondary); font-weight: 600; }
+
+/* ── Team Stats — activity heatmap (devs × days) ────── */
+.ts-heatmap { display: flex; flex-direction: column; gap: 4px; }
+.ts-heat-row {
+  display: grid;
+  grid-template-columns: 116px 1fr;
+  align-items: center;
+  gap: 10px;
+}
+.ts-heat-name {
+  font-size: 11px; color: var(--text-secondary);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ts-heat-cells { display: grid; gap: 3px; }
+.ts-heat-cell {
+  aspect-ratio: 1;
+  min-height: 12px;
+  border-radius: 2px;
+  background: var(--bg-elevated);
+}
+.ts-heat-more { font-size: 11px; color: var(--text-muted); margin-top: 2px; padding-left: 126px; }
