@@ -363,7 +363,7 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal, on
       label: 'Members',
       icon: <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><circle cx="6" cy="5" r="2" stroke="currentColor" strokeWidth="1.3"/><path d="M2 13c0-2.21 1.79-4 4-4s4 1.79 4 4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/><circle cx="11.5" cy="5.5" r="1.5" stroke="currentColor" strokeWidth="1.2" opacity="0.7"/><path d="M13.5 12.5c0-1.38-.9-2.55-2.14-2.87" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" opacity="0.7"/></svg>,
     },
-    // Stats es solo para líderes/managers del team — no lo ven los miembros.
+    // Stats is only for team leaders/managers — members don't see it.
     ...(isTeamLeader ? [{
       id: 'stats' as WorkspaceSection,
       label: 'Stats',
@@ -1301,8 +1301,8 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal, on
               )}
 
               {/* STATS */}
-              {/* Defensa en profundidad: solo líderes renderizan Stats, aunque
-                  el tab ya está oculto para miembros en NAV_ITEMS. */}
+              {/* Defense in depth: only leaders render Stats, even though
+                  the tab is already hidden from members in NAV_ITEMS. */}
               {!creatingTeam && section === 'stats' && isTeamLeader && (
                 <TeamStats
                   repos={repos.map(r => ({ repo_full_name: r.repo_full_name }))}

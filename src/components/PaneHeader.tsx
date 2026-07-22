@@ -39,7 +39,7 @@ interface Props {
   repoPathDiverged?: boolean
   onSyncCwd?: () => void
   ports?: number[]
-  onTogglePin?: () => void  // muestra el botón de pin (marca el pane para el filtro Pineadas del Hub)
+  onTogglePin?: () => void  // shows the pin button (marks the pane for the Hub's Pinned filter)
 }
 
 export default function PaneHeader({ pane, zoomed, onZoom, onClose, onColorChange, onNoteChange, dragHandleProps, processEnded, isBusy, onRestart, onSaveConversation, onCopyLastResponse, showBlocks, blockCount, onToggleBlocks, onShare, isSharing, repoPathDiverged, onSyncCwd, ports = [], onTogglePin }: Props) {
@@ -229,7 +229,7 @@ export default function PaneHeader({ pane, zoomed, onZoom, onClose, onColorChang
         <button
           className={`pane-pin-btn${pane.pinned ? ' pinned' : ''}`}
           onClick={onTogglePin}
-          title={pane.pinned ? 'Quitar pin del Hub' : 'Pinear en el Hub'}
+          title={pane.pinned ? 'Unpin from Hub' : 'Pin to Hub'}
         >
           {pane.pinned ? (
             <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor">

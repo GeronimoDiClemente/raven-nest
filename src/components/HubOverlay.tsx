@@ -16,9 +16,9 @@ export default function HubOverlay({ tabs, activeTabId, activePanes, onClose, on
     <div className="hub-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
       <div className="hub-panel">
         <div className="hub-title">
-          <span>Hub — todas tus terminales</span>
+          <span>Hub — all your terminals</span>
           <span className="hub-title-hint">
-            Esc volver · Tab siguiente · Enter ir al workspace · {formatBinding('Meta+Shift+O')} toggle
+            Esc back · Tab next · Enter go to workspace · {formatBinding('Meta+Shift+O')} toggle
           </span>
         </div>
         <HubView

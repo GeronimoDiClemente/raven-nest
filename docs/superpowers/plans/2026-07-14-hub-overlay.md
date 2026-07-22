@@ -2,81 +2,81 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Overlay "Hub" (`Ctrl/Cmd+Shift+O`) que muestra en grilla todas las terminales vivas de todos los workspaces y permite escribir en cualquiera; `Esc` vuelve al pane previo.
+**Goal:** "Hub" overlay (`Ctrl/Cmd+Shift+O`) that shows, in a grid, all the live terminals from every workspace and lets you type in any of them; `Esc` returns to the previous pane.
 
-**Architecture:** La grilla (`HubGrid`) es un componente puro reutilizable; el contenedor (`HubOverlay`) es un estado de UI en `App` (mismo patrón que CommandPalette/GlobalSearch). Cada tile monta su propio xterm conectado al PTY existente por `paneId` vía `subscribeToPtyData` + `getBuffer` — nunca crea ni mata PTYs. Spec: `docs/superpowers/specs/2026-07-14-hub-overlay-design.md`.
+**Architecture:** The grid (`HubGrid`) is a pure, reusable component; the container (`HubOverlay`) is a UI state in `App` (same pattern as CommandPalette/GlobalSearch). Each tile mounts its own xterm connected to the existing PTY by `paneId` via `subscribeToPtyData` + `getBuffer` — it never creates or kills PTYs. Spec: `docs/superpowers/specs/2026-07-14-hub-overlay-design.md`.
 
-**Tech Stack:** Electron + Vite + React + TypeScript (strict), xterm.js (`@xterm/xterm` + `@xterm/addon-fit`), node-pty ya existente en main. **Sin dependencias nuevas.**
+**Tech Stack:** Electron + Vite + React + TypeScript (strict), xterm.js (`@xterm/xterm` + `@xterm/addon-fit`), node-pty already present in main. **No new dependencies.**
 
 ## Global Constraints
 
-- Rama: `feat/hub-overlay` (worktree `C:\Users\matia\raven-nest-wt\feat-hub-overlay`). **PROHIBIDO** pushear a `main` o mergear; el entregable final es un PR draft para review de Gero.
-- TypeScript strict: `npm run build` debe pasar limpio después de CADA tarea (es el type-gate del repo; no hay suite de tests automatizada — CONTRIBUTING pide ejercitar la feature en la app real con `npm run dev` y documentar el test path manual).
-- Estilos: solo tokens existentes (`--raven-blue`, `--bg-*`, `--border`, `--text-*`, `--pane-color`). Cero colores nuevos hardcodeados (salvo los ya presentes en el codebase, p. ej. `#22C55E` del activity dot, referenciados tal cual).
-- Reglas duras de convivencia con el código existente:
-  - **NUNCA** llamar `registerPane()` desde el Hub (es un `Map` de callback único por pane: pisaría el callback del `TerminalPane` del workspace activo). Usar `subscribeToPtyData()`.
-  - **NUNCA** llamar `registerTerminal()` desde el Hub (pisaría la instancia del pane real en el registry de GlobalSearch).
-  - **NUNCA** matar PTYs al desmontar tiles (`term.dispose()` sí, `pty.kill` jamás).
-  - Resize de PTY: solo el tile enfocado y solo si su pane NO pertenece al tab activo (esos panes están montados a tamaño real detrás del overlay).
-- Panes `aiType === 'browser'` quedan fuera del Hub (no tienen PTY).
-- Commits: estilo del repo, cortos e imperativos, con `Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>`.
+- Branch: `feat/hub-overlay` (worktree `C:\Users\matia\raven-nest-wt\feat-hub-overlay`). **FORBIDDEN** to push to `main` or merge; the final deliverable is a draft PR for Gero's review.
+- TypeScript strict: `npm run build` must pass clean after EVERY task (it's the repo's type-gate; there is no automated test suite — CONTRIBUTING asks to exercise the feature in the real app with `npm run dev` and document the manual test path).
+- Styles: only existing tokens (`--raven-blue`, `--bg-*`, `--border`, `--text-*`, `--pane-color`). Zero new hardcoded colors (except those already present in the codebase, e.g. the activity dot's `#22C55E`, referenced as-is).
+- Hard rules for coexisting with the existing code:
+  - **NEVER** call `registerPane()` from the Hub (it's a `Map` of a single callback per pane: it would overwrite the active workspace's `TerminalPane` callback). Use `subscribeToPtyData()`.
+  - **NEVER** call `registerTerminal()` from the Hub (it would overwrite the real pane's instance in the GlobalSearch registry).
+  - **NEVER** kill PTYs when unmounting tiles (`term.dispose()` yes, `pty.kill` never).
+  - PTY resize: only the focused tile and only if its pane does NOT belong to the active tab (those panes are mounted at real size behind the overlay).
+- Panes with `aiType === 'browser'` are left out of the Hub (they have no PTY).
+- Commits: repo style, short and imperative, with `Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>`.
 
 ## File Structure
 
-- Create: `src/hooks/useHubTerminal.ts` — xterm liviano para tiles (replay + stream + input; sin search/weblinks/registry).
-- Create: `src/components/HubTile.tsx` — tile individual (header + xterm + pin + ended).
-- Create: `src/components/HubGrid.tsx` — grilla pura + tipos `HubEntry`/`HubFilter` + `filterEntries()`.
-- Create: `src/components/HubOverlay.tsx` — contenedor overlay (filtros, paginación, teclado, foco).
-- Modify: `src/types.ts` — `pinned?: boolean` en `PaneNode` (línea ~40) y `SessionPane` (línea ~220).
-- Modify: `src/lib/keybindings.ts` — binding `hubOverlay`.
-- Modify: `src/components/CommandPalette.tsx` — prop `onHubOpen` + item de acción.
-- Modify: `src/App.tsx` — estado `hubOpen`, handlers, keybind, botón en tab bar, persistencia de `pinned`.
-- Modify: `src/styles/global.css` — sección `/* ── Hub Overlay ── */` al final.
+- Create: `src/hooks/useHubTerminal.ts` — lightweight xterm for tiles (replay + stream + input; no search/weblinks/registry).
+- Create: `src/components/HubTile.tsx` — individual tile (header + xterm + pin + ended).
+- Create: `src/components/HubGrid.tsx` — pure grid + `HubEntry`/`HubFilter` types + `filterEntries()`.
+- Create: `src/components/HubOverlay.tsx` — overlay container (filters, pagination, keyboard, focus).
+- Modify: `src/types.ts` — `pinned?: boolean` on `PaneNode` (line ~40) and `SessionPane` (line ~220).
+- Modify: `src/lib/keybindings.ts` — `hubOverlay` binding.
+- Modify: `src/components/CommandPalette.tsx` — `onHubOpen` prop + action item.
+- Modify: `src/App.tsx` — `hubOpen` state, handlers, keybind, tab bar button, `pinned` persistence.
+- Modify: `src/styles/global.css` — `/* ── Hub Overlay ── */` section at the end.
 
 ---
 
-### Task 1: Tipos, keybinding y persistencia de `pinned`
+### Task 1: Types, keybinding and `pinned` persistence
 
 **Files:**
-- Modify: `src/types.ts` (interfaces `PaneNode` y `SessionPane`)
-- Modify: `src/lib/keybindings.ts` (interface `Keybindings` + `DEFAULT_SETTINGS`)
-- Modify: `src/App.tsx` (mapeo de save de sesión, ~línea 819)
+- Modify: `src/types.ts` (`PaneNode` and `SessionPane` interfaces)
+- Modify: `src/lib/keybindings.ts` (`Keybindings` interface + `DEFAULT_SETTINGS`)
+- Modify: `src/App.tsx` (session save mapping, ~line 819)
 
 **Interfaces:**
-- Produces: `PaneNode.pinned?: boolean`, `SessionPane.pinned?: boolean`, `kb.hubOverlay` (binding `'Meta+Shift+O'` → Ctrl en Win/Linux, ⌘ en Mac). `sessionToPane` ya spreadea `...sp`, así que `pinned` fluye solo en el restore.
+- Produces: `PaneNode.pinned?: boolean`, `SessionPane.pinned?: boolean`, `kb.hubOverlay` (binding `'Meta+Shift+O'` → Ctrl on Win/Linux, ⌘ on Mac). `sessionToPane` already spreads `...sp`, so `pinned` flows through on restore on its own.
 
-- [ ] **Step 1: Agregar `pinned` a `PaneNode`**
+- [ ] **Step 1: Add `pinned` to `PaneNode`**
 
-En `src/types.ts`, dentro de `interface PaneNode` (después de `shellId?: string`):
+In `src/types.ts`, inside `interface PaneNode` (after `shellId?: string`):
 
 ```ts
   shellId?: string      // terminal panes only: which shell to spawn (Windows shell picker)
   pinned?: boolean      // Hub: user-pinned pane, shows under the "Pinned" filter
 ```
 
-- [ ] **Step 2: Agregar `pinned` a `SessionPane`**
+- [ ] **Step 2: Add `pinned` to `SessionPane`**
 
-En `src/types.ts`, dentro de `interface SessionPane` (después de `url?: string`):
+In `src/types.ts`, inside `interface SessionPane` (after `url?: string`):
 
 ```ts
   url?: string  // browser only: last navigated URL, restored on session load
   pinned?: boolean  // Hub pin — survives session restore
 ```
 
-- [ ] **Step 3: Persistir `pinned` en el save de sesión**
+- [ ] **Step 3: Persist `pinned` in the session save**
 
-En `src/App.tsx`, en el `useEffect` de save (~línea 819), el mapeo `panes: tab.panes.map(p => ({ ... }))` — agregar después de `shellId: p.shellId,`:
+In `src/App.tsx`, in the save `useEffect` (~line 819), the `panes: tab.panes.map(p => ({ ... }))` mapping — add after `shellId: p.shellId,`:
 
 ```ts
             shellId: p.shellId,
             pinned: p.pinned,
 ```
 
-(El restore no necesita cambios: `sessionToPane` hace `...sp`.)
+(The restore needs no changes: `sessionToPane` does `...sp`.)
 
-- [ ] **Step 4: Agregar keybinding `hubOverlay`**
+- [ ] **Step 4: Add `hubOverlay` keybinding**
 
-En `src/lib/keybindings.ts`:
+In `src/lib/keybindings.ts`:
 
 ```ts
 export interface Keybindings {
@@ -86,28 +86,28 @@ export interface Keybindings {
   commandPalette: string
   hubOverlay: string
   nextPane: string
-  // ... resto igual
+  // ... rest unchanged
 ```
 
-y en `DEFAULT_SETTINGS.keybindings`, después de `commandPalette: 'Meta+k',`:
+and in `DEFAULT_SETTINGS.keybindings`, after `commandPalette: 'Meta+k',`:
 
 ```ts
     commandPalette: 'Meta+k',
     hubOverlay: 'Meta+Shift+O',
 ```
 
-Nota: `useSettings` mergea `{ ...DEFAULT_SETTINGS.keybindings, ...s.keybindings }`, así que settings guardados viejos toman el default automáticamente.
+Note: `useSettings` merges `{ ...DEFAULT_SETTINGS.keybindings, ...s.keybindings }`, so old saved settings pick up the default automatically.
 
-- [ ] **Step 5: Verificar type-check**
+- [ ] **Step 5: Verify type-check**
 
 Run: `npm run build`
-Expected: build OK, sin errores TS.
+Expected: build OK, no TS errors.
 
 - [ ] **Step 6: Commit**
 
 ```bash
 git add src/types.ts src/lib/keybindings.ts src/App.tsx
-git commit -m "feat(hub): pinned en PaneNode/SessionPane + keybinding hubOverlay
+git commit -m "feat(hub): pinned on PaneNode/SessionPane + hubOverlay keybinding
 
 Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 ```
@@ -121,9 +121,9 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 
 **Interfaces:**
 - Consumes: `subscribeToPtyData` (`src/pty-events.ts:35`), `window.pty.getBuffer/write/resize`.
-- Produces: `useHubTerminal(paneId: string, canResizePty: boolean): { containerRef: React.RefObject<HTMLDivElement>, focusTile: () => void }`. `canResizePty` = el pane NO pertenece al tab activo.
+- Produces: `useHubTerminal(paneId: string, canResizePty: boolean): { containerRef: React.RefObject<HTMLDivElement>, focusTile: () => void }`. `canResizePty` = the pane does NOT belong to the active tab.
 
-- [ ] **Step 1: Crear el hook completo**
+- [ ] **Step 1: Create the full hook**
 
 `src/hooks/useHubTerminal.ts`:
 
@@ -244,37 +244,37 @@ export function useHubTerminal(paneId: string, canResizePty: boolean) {
 }
 ```
 
-- [ ] **Step 2: Verificar type-check**
+- [ ] **Step 2: Verify type-check**
 
 Run: `npm run build`
-Expected: OK (el hook aún no se usa; no debe romper nada).
+Expected: OK (the hook isn't used yet; it must not break anything).
 
 - [ ] **Step 3: Commit**
 
 ```bash
 git add src/hooks/useHubTerminal.ts
-git commit -m "feat(hub): useHubTerminal — xterm liviano adosado a PTY existente
+git commit -m "feat(hub): useHubTerminal — lightweight xterm attached to an existing PTY
 
 Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 ```
 
 ---
 
-### Task 3: `HubGrid` (tipos + filtro puro + grilla) y `HubTile`
+### Task 3: `HubGrid` (types + pure filter + grid) and `HubTile`
 
 **Files:**
 - Create: `src/components/HubGrid.tsx`
 - Create: `src/components/HubTile.tsx`
 
 **Interfaces:**
-- Consumes: `useHubTerminal(paneId, canResizePty)` (Task 2), `PaneNode`/`AI_CONFIG` de `../types`.
-- Produces (usados por Task 4):
+- Consumes: `useHubTerminal(paneId, canResizePty)` (Task 2), `PaneNode`/`AI_CONFIG` from `../types`.
+- Produces (used by Task 4):
   - `interface HubEntry { pane: PaneNode; tabId: string; tabName: string; isActiveTab: boolean; busy: boolean }`
   - `type HubFilter = 'all' | 'active' | 'pinned' | { tabId: string }`
   - `function filterEntries(entries: HubEntry[], filter: HubFilter): HubEntry[]`
   - `<HubGrid entries focusedPaneId onFocus onJump onTogglePin />`
 
-- [ ] **Step 1: Crear `src/components/HubGrid.tsx`**
+- [ ] **Step 1: Create `src/components/HubGrid.tsx`**
 
 ```tsx
 import { PaneNode } from '../types'
@@ -307,7 +307,7 @@ interface Props {
 
 export default function HubGrid({ entries, focusedPaneId, onFocus, onJump, onTogglePin }: Props) {
   if (entries.length === 0) {
-    return <div className="hub-empty">No hay terminales para este filtro</div>
+    return <div className="hub-empty">No terminals for this filter</div>
   }
   return (
     <div className="hub-grid">
@@ -326,7 +326,7 @@ export default function HubGrid({ entries, focusedPaneId, onFocus, onJump, onTog
 }
 ```
 
-- [ ] **Step 2: Crear `src/components/HubTile.tsx`**
+- [ ] **Step 2: Create `src/components/HubTile.tsx`**
 
 ```tsx
 import { useEffect, useState } from 'react'
@@ -345,7 +345,7 @@ interface Props {
 export default function HubTile({ entry, focused, onFocus, onJump, onTogglePin }: Props) {
   const { pane, tabId, tabName, isActiveTab, busy } = entry
   // Active-tab panes stay mounted at real size behind the overlay — never
-  // resize their PTY from a tile (see spec: "tamaño del PTY").
+  // resize their PTY from a tile (see spec: "PTY size").
   const { containerRef, focusTile } = useHubTerminal(pane.id, !isActiveTab)
   const [ended, setEnded] = useState(false)
 
@@ -382,7 +382,7 @@ export default function HubTile({ entry, focused, onFocus, onJump, onTogglePin }
         <span className="hub-tile-spacer" />
         <button
           className={`hub-tile-pin${pane.pinned ? ' pinned' : ''}`}
-          title={pane.pinned ? 'Quitar pin' : 'Pinear al Hub'}
+          title={pane.pinned ? 'Unpin' : 'Pin to Hub'}
           onClick={(e) => { e.stopPropagation(); onTogglePin(tabId, pane.id) }}
           onMouseDown={(e) => e.stopPropagation()}
           onDoubleClick={(e) => e.stopPropagation()}
@@ -396,33 +396,33 @@ export default function HubTile({ entry, focused, onFocus, onJump, onTogglePin }
 }
 ```
 
-- [ ] **Step 3: Verificar type-check**
+- [ ] **Step 3: Verify type-check**
 
 Run: `npm run build`
-Expected: OK. (Las clases CSS todavía no existen — se agregan en Task 4; no afecta el build.)
+Expected: OK. (The CSS classes don't exist yet — they're added in Task 4; it doesn't affect the build.)
 
 - [ ] **Step 4: Commit**
 
 ```bash
 git add src/components/HubGrid.tsx src/components/HubTile.tsx
-git commit -m "feat(hub): HubGrid + HubTile — grilla reutilizable de terminales
+git commit -m "feat(hub): HubGrid + HubTile — reusable terminal grid
 
 Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 ```
 
 ---
 
-### Task 4: `HubOverlay` (filtros, paginación, teclado) + CSS
+### Task 4: `HubOverlay` (filters, pagination, keyboard) + CSS
 
 **Files:**
 - Create: `src/components/HubOverlay.tsx`
-- Modify: `src/styles/global.css` (nueva sección al final del archivo)
+- Modify: `src/styles/global.css` (new section at the end of the file)
 
 **Interfaces:**
-- Consumes: `HubEntry`, `HubFilter`, `filterEntries`, `HubGrid` (Task 3); `WorkspaceTab` de `../types`.
-- Produces (consumido por Task 5): `<HubOverlay tabs activeTabId busyPanes onClose onJump onTogglePin />` con `onJump: (tabId: string, paneId: string) => void`, `onTogglePin: (tabId: string, paneId: string) => void`.
+- Consumes: `HubEntry`, `HubFilter`, `filterEntries`, `HubGrid` (Task 3); `WorkspaceTab` from `../types`.
+- Produces (consumed by Task 5): `<HubOverlay tabs activeTabId busyPanes onClose onJump onTogglePin />` with `onJump: (tabId: string, paneId: string) => void`, `onTogglePin: (tabId: string, paneId: string) => void`.
 
-- [ ] **Step 1: Crear `src/components/HubOverlay.tsx`**
+- [ ] **Step 1: Create `src/components/HubOverlay.tsx`**
 
 ```tsx
 import { useState, useEffect, useMemo, useCallback } from 'react'
@@ -532,20 +532,20 @@ export default function HubOverlay({ tabs, activeTabId, busyPanes, onClose, onJu
     <div className="hub-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
       <div className="hub-panel">
         <div className="hub-title">
-          <span>Hub — terminales activas</span>
+          <span>Hub — active terminals</span>
           <span className="hub-title-hint">
-            Esc volver · Tab siguiente · Enter ir al workspace · {formatBinding('Meta+Shift+O')} toggle
+            Esc back · Tab next · Enter go to workspace · {formatBinding('Meta+Shift+O')} toggle
           </span>
         </div>
         <div className="hub-toolbar">
           <button className={`hub-chip${filterIs('all') ? ' on' : ''}`} onClick={() => changeFilter('all')}>
-            Todas <span className="hub-chip-n">{counts.all}</span>
+            All <span className="hub-chip-n">{counts.all}</span>
           </button>
           <button className={`hub-chip${filterIs('active') ? ' on' : ''}`} onClick={() => changeFilter('active')}>
-            Activas <span className="hub-chip-n">{counts.active}</span>
+            Active <span className="hub-chip-n">{counts.active}</span>
           </button>
           <button className={`hub-chip${filterIs('pinned') ? ' on' : ''}`} onClick={() => changeFilter('pinned')}>
-            Pineadas <span className="hub-chip-n">{counts.pinned}</span>
+            Pinned <span className="hub-chip-n">{counts.pinned}</span>
           </button>
           <span className="hub-toolbar-sep" />
           {tabs.map(t => (
@@ -578,7 +578,7 @@ export default function HubOverlay({ tabs, activeTabId, busyPanes, onClose, onJu
 }
 ```
 
-- [ ] **Step 2: Agregar CSS al final de `src/styles/global.css`**
+- [ ] **Step 2: Add CSS to the end of `src/styles/global.css`**
 
 ```css
 /* ── Hub Overlay ─────────────────────────────────────────── */
@@ -814,7 +814,7 @@ export default function HubOverlay({ tabs, activeTabId, busyPanes, onClose, onJu
   overflow: hidden;
 }
 
-/* Botón Hub en la tab bar (va dentro del rightSlot, zona no-drag) */
+/* Hub button in the tab bar (goes inside the rightSlot, no-drag zone) */
 .hub-btn {
   display: flex;
   align-items: center;
@@ -838,23 +838,23 @@ export default function HubOverlay({ tabs, activeTabId, busyPanes, onClose, onJu
 }
 ```
 
-- [ ] **Step 3: Verificar type-check**
+- [ ] **Step 3: Verify type-check**
 
 Run: `npm run build`
-Expected: OK (HubOverlay aún sin montar).
+Expected: OK (HubOverlay not mounted yet).
 
 - [ ] **Step 4: Commit**
 
 ```bash
 git add src/components/HubOverlay.tsx src/styles/global.css
-git commit -m "feat(hub): HubOverlay — filtros, paginación y teclado + estilos
+git commit -m "feat(hub): HubOverlay — filters, pagination and keyboard + styles
 
 Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 ```
 
 ---
 
-### Task 5: Integración en `App.tsx` + Command Palette + botón en tab bar
+### Task 5: Integration in `App.tsx` + Command Palette + tab bar button
 
 **Files:**
 - Modify: `src/App.tsx`
@@ -862,17 +862,17 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 
 **Interfaces:**
 - Consumes: `HubOverlay` (Task 4), `kb.hubOverlay` (Task 1), `focusTerminal` (`src/terminal-registry.ts`).
-- Produces: feature completa montada.
+- Produces: complete feature mounted.
 
-- [ ] **Step 1: Import + estado en `App.tsx`**
+- [ ] **Step 1: Import + state in `App.tsx`**
 
-Import (junto a los otros components, ~línea 27):
+Import (next to the other components, ~line 27):
 
 ```ts
 import HubOverlay from './components/HubOverlay'
 ```
 
-Estado (junto a `commandPaletteOpen`, ~línea 102):
+State (next to `commandPaletteOpen`, ~line 102):
 
 ```ts
   const [hubOpen, setHubOpen] = useState(false)
@@ -881,9 +881,9 @@ Estado (junto a `commandPaletteOpen`, ~línea 102):
   const hubPrevFocusRef = useRef<string | null>(null)
 ```
 
-- [ ] **Step 2: Handlers open/close/jump/pin en `App.tsx`**
+- [ ] **Step 2: open/close/jump/pin handlers in `App.tsx`**
 
-Después de `handleTabSelect` (~línea 557):
+After `handleTabSelect` (~line 557):
 
 ```ts
   const openHub = useCallback(() => {
@@ -915,16 +915,16 @@ Después de `handleTabSelect` (~línea 557):
   }, [])
 ```
 
-- [ ] **Step 3: Keybinding + Escape en el handler global de `App.tsx`**
+- [ ] **Step 3: Keybinding + Escape in the global handler of `App.tsx`**
 
-En el handler de keydown (~línea 851), ANTES de la línea del Escape de zoom:
+In the keydown handler (~line 851), BEFORE the zoom Escape line:
 
 ```ts
       if (e.key === 'Escape' && hubOpenRef.current) { closeHub(); return }
       if (e.key === 'Escape' && zoomedPaneIdRef.current !== null) { handleUnzoom(); return }
 ```
 
-Y junto a los bindings de search/palette (~línea 894):
+And next to the search/palette bindings (~line 894):
 
 ```ts
       if (matchesBinding(e, kb.globalSearch)) { e.preventDefault(); setGlobalSearchOpen(true); return }
@@ -937,11 +937,11 @@ Y junto a los bindings de search/palette (~línea 894):
       }
 ```
 
-El `useEffect` del handler debe incluir `closeHub` y `openHub` en su array de deps si ya lista callbacks (verificar el array existente y sumarlos si corresponde; si usa refs y `// eslint-disable`, seguir el patrón del archivo).
+The handler's `useEffect` must include `closeHub` and `openHub` in its deps array if it already lists callbacks (check the existing array and add them if appropriate; if it uses refs and `// eslint-disable`, follow the file's pattern).
 
-- [ ] **Step 4: Montar el overlay en el render de `App.tsx`**
+- [ ] **Step 4: Mount the overlay in `App.tsx`'s render**
 
-Después del bloque `{globalSearchOpen && (...)}` (~línea 1179):
+After the `{globalSearchOpen && (...)}` block (~line 1179):
 
 ```tsx
       {hubOpen && (
@@ -956,9 +956,9 @@ Después del bloque `{globalSearchOpen && (...)}` (~línea 1179):
       )}
 ```
 
-- [ ] **Step 5: Botón Hub en la tab bar (via `rightSlot`, sin tocar TabBar)**
+- [ ] **Step 5: Hub button in the tab bar (via `rightSlot`, without touching TabBar)**
 
-Derivar actividad remota (cerca de `activePanesPayload`, ~línea 974):
+Derive remote activity (near `activePanesPayload`, ~line 974):
 
 ```ts
   const hubHasRemoteActivity = useMemo(
@@ -967,7 +967,7 @@ Derivar actividad remota (cerca de `activePanesPayload`, ~línea 974):
   )
 ```
 
-Reemplazar `rightSlot={<ResourceBar panes={activePanesPayload} />}` por:
+Replace `rightSlot={<ResourceBar panes={activePanesPayload} />}` with:
 
 ```tsx
         rightSlot={
@@ -981,132 +981,132 @@ Reemplazar `rightSlot={<ResourceBar panes={activePanesPayload} />}` por:
         }
 ```
 
-Import de `formatBinding` (sumar al import existente de `./lib/keybindings`):
+Import `formatBinding` (add to the existing import from `./lib/keybindings`):
 
 ```ts
 import { matchesBinding, formatBinding } from './lib/keybindings'
 ```
 
-- [ ] **Step 6: Entrada en Command Palette**
+- [ ] **Step 6: Command Palette entry**
 
-En `src/components/CommandPalette.tsx` — agregar prop:
+In `src/components/CommandPalette.tsx` — add prop:
 
 ```ts
 interface Props {
-  // ... existentes
+  // ... existing
   onBroadcastToggle: () => void
   onHubOpen: () => void
 }
 ```
 
-En la destructuración del componente sumar `onHubOpen`, y en `buildItems()` después del item `action-broadcast`:
+In the component's destructuring add `onHubOpen`, and in `buildItems()` after the `action-broadcast` item:
 
 ```ts
     items.push({
       id: 'action-hub', section: 'actions',
-      label: 'Hub: ver todas las terminales',
-      sublabel: 'Vista compacta de todos los workspaces',
-      keywords: 'hub overview terminales workspaces todas',
+      label: 'Hub: view all terminals',
+      sublabel: 'Compact view of all workspaces',
+      keywords: 'hub overview terminals workspaces all',
       action: () => { onHubOpen(); onClose() },
     })
 ```
 
-En `App.tsx`, en el JSX de `<CommandPalette ...>` agregar:
+In `App.tsx`, in the `<CommandPalette ...>` JSX add:
 
 ```tsx
           onBroadcastToggle={() => setBroadcastMode(v => !v)}
           onHubOpen={openHub}
 ```
 
-- [ ] **Step 7: Verificar type-check**
+- [ ] **Step 7: Verify type-check**
 
 Run: `npm run build`
-Expected: OK sin errores.
+Expected: OK, no errors.
 
 - [ ] **Step 8: Commit**
 
 ```bash
 git add src/App.tsx src/components/CommandPalette.tsx
-git commit -m "feat(hub): integración — atajo, overlay montado, palette y botón en tab bar
+git commit -m "feat(hub): integration — shortcut, mounted overlay, palette and tab bar button
 
 Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 ```
 
 ---
 
-### Task 6: Verificación manual end-to-end + screenshots + PR draft
+### Task 6: End-to-end manual verification + screenshots + draft PR
 
 **Files:**
-- Ninguno nuevo (fixes que surjan del testeo van acá, commiteados por separado).
+- None new (fixes that come out of testing go here, committed separately).
 
-- [ ] **Step 1: Levantar la app**
+- [ ] **Step 1: Launch the app**
 
-Run: `npm run dev` (en el worktree). Expected: app abre.
+Run: `npm run dev` (in the worktree). Expected: the app opens.
 
-- [ ] **Step 2: Test path manual (documentarlo tal cual en el PR)**
+- [ ] **Step 2: Manual test path (document it verbatim in the PR)**
 
-1. Crear 3 workspaces con 2 terminales c/u (mezclar Claude/terminal plano).
-2. En workspace 1, dejar un agente generando output largo. Cambiar a workspace 2.
-3. `Ctrl+Shift+O` → el Hub abre, se ven las 6 terminales con su chip de workspace; la del agente muestra el punto verde y streamea en vivo.
-4. Click en una terminal del workspace 3 → tipear `echo hola` + Enter → verificar el eco en el tile. Ir al workspace 3 y confirmar que el comando corrió ahí.
-5. `Esc` → vuelve al workspace 2 con el foco en el pane que estaba enfocado antes de abrir.
-6. Reabrir Hub → doble click en un tile de otro workspace → salta a ese workspace con ese pane enfocado.
-7. Pinear 2 terminales → filtro «Pineadas» muestra solo esas → cerrar y reabrir la app → los pins persisten.
-8. Filtro «Activas» muestra solo las busy. Filtro por workspace funciona. Filtro queda recordado al reabrir el Hub.
-9. Matar un proceso (`exit` en un shell) → su tile muestra el badge «ended».
-10. Command Palette (`Ctrl+K`) → «Hub: ver todas las terminales» abre el overlay. Botón «Hub» de la tab bar también, y muestra el puntito verde cuando hay actividad en un workspace no activo.
-11. Con >12 terminales, aparece paginación y navega bien.
-12. Regresión: el broadcast del workspace activo, zoom (`Ctrl+Shift+Z`), Cmd+1-9 y la búsqueda global siguen funcionando igual con el Hub cerrado.
+1. Create 3 workspaces with 2 terminals each (mix Claude/plain terminal).
+2. In workspace 1, leave an agent generating long output. Switch to workspace 2.
+3. `Ctrl+Shift+O` → the Hub opens, the 6 terminals are visible with their workspace chip; the agent's shows the green dot and streams live.
+4. Click a terminal from workspace 3 → type `echo hello` + Enter → verify the echo in the tile. Go to workspace 3 and confirm the command ran there.
+5. `Esc` → returns to workspace 2 with focus on the pane that was focused before opening.
+6. Reopen the Hub → double-click a tile from another workspace → jumps to that workspace with that pane focused.
+7. Pin 2 terminals → the «Pinned» filter shows only those → close and reopen the app → the pins persist.
+8. The «Active» filter shows only the busy ones. Per-workspace filter works. The filter is remembered when reopening the Hub.
+9. Kill a process (`exit` in a shell) → its tile shows the «ended» badge.
+10. Command Palette (`Ctrl+K`) → «Hub: view all terminals» opens the overlay. The tab bar's «Hub» button too, and it shows the little green dot when there's activity in a non-active workspace.
+11. With >12 terminals, pagination appears and navigates correctly.
+12. Regression: the active workspace's broadcast, zoom (`Ctrl+Shift+Z`), Cmd+1-9 and global search still work the same with the Hub closed.
 
 - [ ] **Step 3: Screenshots**
 
-Capturar: (a) Hub abierto con 6+ tiles y filtros, (b) tile enfocado recibiendo input, (c) botón Hub con activity dot. Guardarlas para el body del PR.
+Capture: (a) the Hub open with 6+ tiles and filters, (b) a focused tile receiving input, (c) the Hub button with the activity dot. Save them for the PR body.
 
-- [ ] **Step 4: `npm run build` final**
+- [ ] **Step 4: final `npm run build`**
 
 Run: `npm run build`
 Expected: OK.
 
-- [ ] **Step 5: Push y PR draft (NO mergear)**
+- [ ] **Step 5: Push and draft PR (do NOT merge)**
 
 ```bash
 git push -u origin feat/hub-overlay
 gh pr create --draft --repo GeronimoDiClemente/raven-nest \
-  --title "feat(hub): overlay con todas las terminales de todos los workspaces" \
+  --title "feat(hub): overlay with all the terminals from every workspace" \
   --body-file docs/superpowers/team-stats-PR-body.md
 ```
 
-(El body se escribe a mano en ese paso — no reusar el de team-stats; incluir: el *why*, screenshots, el test path manual del Step 2, la decisión de resize de PTY, y el checklist del spec. Cerrar con la línea de generado con Claude Code según convención.)
+(The body is written by hand at that step — don't reuse the team-stats one; include: the *why*, screenshots, the manual test path from Step 2, the PTY resize decision, and the spec's checklist. Close with the "generated with Claude Code" line per convention.)
 
-- [ ] **Step 6: Avisar a Matías**
+- [ ] **Step 6: Notify Matías**
 
-Reportar URL del PR draft. Recordar: review de Gero; pedir smoke en Mac/Linux en el body.
-
----
-
-## Self-Review (hecho al escribir el plan)
-
-1. **Cobertura del spec:** entrada por atajo/palette/botón ✓ (Task 5), tiles con lenguaje visual + chip ✓ (Task 3/4), filtros + persistencia localStorage ✓ (Task 4), pin persistente en sesión ✓ (Task 1), interacciones (click/Tab/Enter/doble click/Esc) ✓ (Task 4/5), decisión resize PTY ✓ (Task 2, `canResizePty`), paginación 12 ✓ (Task 4), replay 200 líneas ✓ (Task 2), badge ended ✓ (Task 3), estado vacío ✓ (Task 3), testing manual + build ✓ (Task 6). Suscripción única con fan-out del spec se simplificó a N suscripciones al `Set` del bus (mismo costo real, menos plumbing) — anotado como desvío consciente.
-2. **Placeholders:** ninguno; todos los pasos tienen código o comandos concretos.
-3. **Consistencia de tipos:** `HubEntry`/`HubFilter`/`filterEntries` definidos en Task 3 y consumidos idénticos en Task 4; `useHubTerminal(paneId, canResizePty)` idéntico entre Task 2 y 3; `onJump(tabId, paneId)`/`onTogglePin(tabId, paneId)` uniformes en Tasks 3/4/5.
+Report the draft PR URL. Remember: Gero's review; ask for a Mac/Linux smoke in the body.
 
 ---
 
-## Adición (2026-07-14): Hub como workspace desde el `+` (mockup A)
+## Self-Review (done while writing the plan)
 
-Tareas 7-8, sobre la misma rama. El overlay ya existe y está revisado. Estas tareas extraen su núcleo a `HubView` y agregan la variante "Hub como pestaña", creada desde el estado vacío de un workspace nuevo. Las Global Constraints de arriba siguen vigentes.
+1. **Spec coverage:** entry via shortcut/palette/button ✓ (Task 5), tiles with visual language + chip ✓ (Task 3/4), filters + localStorage persistence ✓ (Task 4), session-persistent pin ✓ (Task 1), interactions (click/Tab/Enter/double click/Esc) ✓ (Task 4/5), PTY resize decision ✓ (Task 2, `canResizePty`), pagination of 12 ✓ (Task 4), 200-line replay ✓ (Task 2), ended badge ✓ (Task 3), empty state ✓ (Task 3), manual testing + build ✓ (Task 6). The spec's single subscription with fan-out was simplified to N subscriptions to the bus's `Set` (same real cost, less plumbing) — noted as a conscious deviation.
+2. **Placeholders:** none; every step has concrete code or commands.
+3. **Type consistency:** `HubEntry`/`HubFilter`/`filterEntries` defined in Task 3 and consumed identically in Task 4; `useHubTerminal(paneId, canResizePty)` identical between Task 2 and 3; `onJump(tabId, paneId)`/`onTogglePin(tabId, paneId)` uniform across Tasks 3/4/5.
 
-### Task 7: Extraer `HubView` (núcleo compartido) de `HubOverlay`
+---
+
+## Addition (2026-07-14): Hub as a workspace from the `+` (mockup A)
+
+Tasks 7-8, on the same branch. The overlay already exists and is reviewed. These tasks extract its core into `HubView` and add the "Hub as a tab" variant, created from the empty state of a new workspace. The Global Constraints above still apply.
+
+### Task 7: Extract `HubView` (shared core) from `HubOverlay`
 
 **Files:**
 - Create: `src/components/HubView.tsx`
-- Modify: `src/components/HubOverlay.tsx` (pasa a wrapper)
-- Modify: `src/styles/global.css` (agregar `.hub-view`)
+- Modify: `src/components/HubOverlay.tsx` (becomes a wrapper)
+- Modify: `src/styles/global.css` (add `.hub-view`)
 
 **Interfaces:**
-- Produces (consumido por Task 8 y por HubOverlay): `<HubView tabs activeTabId activePanes onJump onTogglePin />` — el núcleo: estado de filtro (localStorage `nest-hub-filter`), paginación (PAGE_SIZE 12), teclado (Tab/Shift+Tab/Enter), toolbar de filtros + `HubGrid`. Excluye tabs con `isHub`.
+- Produces (consumed by Task 8 and by HubOverlay): `<HubView tabs activeTabId activePanes onJump onTogglePin />` — the core: filter state (localStorage `nest-hub-filter`), pagination (PAGE_SIZE 12), keyboard (Tab/Shift+Tab/Enter), filter toolbar + `HubGrid`. Excludes tabs with `isHub`.
 
-- [ ] **Step 1: Crear `src/components/HubView.tsx`**
+- [ ] **Step 1: Create `src/components/HubView.tsx`**
 
 ```tsx
 import { useState, useEffect, useMemo, useCallback } from 'react'
@@ -1208,13 +1208,13 @@ export default function HubView({ tabs, activeTabId, activePanes, onJump, onTogg
     <div className="hub-view">
       <div className="hub-toolbar">
         <button className={`hub-chip${filterIs('all') ? ' on' : ''}`} onClick={() => changeFilter('all')}>
-          Todas <span className="hub-chip-n">{counts.all}</span>
+          All <span className="hub-chip-n">{counts.all}</span>
         </button>
         <button className={`hub-chip${filterIs('active') ? ' on' : ''}`} onClick={() => changeFilter('active')}>
-          Activas <span className="hub-chip-n">{counts.active}</span>
+          Active <span className="hub-chip-n">{counts.active}</span>
         </button>
         <button className={`hub-chip${filterIs('pinned') ? ' on' : ''}`} onClick={() => changeFilter('pinned')}>
-          Pineadas <span className="hub-chip-n">{counts.pinned}</span>
+          Pinned <span className="hub-chip-n">{counts.pinned}</span>
         </button>
         <span className="hub-toolbar-sep" />
         {sourceTabs.map(t => (
@@ -1246,7 +1246,7 @@ export default function HubView({ tabs, activeTabId, activePanes, onJump, onTogg
 }
 ```
 
-- [ ] **Step 2: Reescribir `src/components/HubOverlay.tsx` como wrapper**
+- [ ] **Step 2: Rewrite `src/components/HubOverlay.tsx` as a wrapper**
 
 ```tsx
 import { WorkspaceTab } from '../types'
@@ -1267,9 +1267,9 @@ export default function HubOverlay({ tabs, activeTabId, activePanes, onClose, on
     <div className="hub-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
       <div className="hub-panel">
         <div className="hub-title">
-          <span>Hub — terminales activas</span>
+          <span>Hub — active terminals</span>
           <span className="hub-title-hint">
-            Esc volver · Tab siguiente · Enter ir al workspace · {formatBinding('Meta+Shift+O')} toggle
+            Esc back · Tab next · Enter go to workspace · {formatBinding('Meta+Shift+O')} toggle
           </span>
         </div>
         <HubView
@@ -1285,7 +1285,7 @@ export default function HubOverlay({ tabs, activeTabId, activePanes, onClose, on
 }
 ```
 
-- [ ] **Step 3: CSS** — al final de `src/styles/global.css`:
+- [ ] **Step 3: CSS** — at the end of `src/styles/global.css`:
 
 ```css
 .hub-view {
@@ -1296,46 +1296,46 @@ export default function HubOverlay({ tabs, activeTabId, activePanes, onClose, on
 }
 ```
 
-- [ ] **Step 4:** `npm run build` limpio. El overlay debe comportarse idéntico.
+- [ ] **Step 4:** `npm run build` clean. The overlay must behave identically.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add src/components/HubView.tsx src/components/HubOverlay.tsx src/styles/global.css
-git commit -m "refactor(hub): extraer HubView del overlay para reusar como workspace
+git commit -m "refactor(hub): extract HubView from the overlay to reuse as a workspace
 
 Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 ```
 
 ---
 
-### Task 8: Hub como workspace (`isHub`) creado desde el estado vacío
+### Task 8: Hub as a workspace (`isHub`) created from the empty state
 
 **Files:**
 - Modify: `src/types.ts` (`WorkspaceTab.isHub`, `SessionData.tabs[].isHub`)
 - Create: `src/components/HubWorkspace.tsx`
-- Modify: `src/App.tsx` (render switch, convert handler, hasAnyTerminal, EmptyState, persistencia)
-- Modify: `src/components/TabBar.tsx` (ícono ▦)
+- Modify: `src/App.tsx` (render switch, convert handler, hasAnyTerminal, EmptyState, persistence)
+- Modify: `src/components/TabBar.tsx` (▦ icon)
 - Modify: `src/styles/global.css` (`.hub-workspace`, `.tab-hub-icon`, `.empty-hub-btn`)
 
 **Interfaces:**
-- Consumes: `HubView` (Task 7); `handleHubJump`/`handleHubTogglePin`/`activePanes`/`updateActiveTab` (ya existen en App).
+- Consumes: `HubView` (Task 7); `handleHubJump`/`handleHubTogglePin`/`activePanes`/`updateActiveTab` (already exist in App).
 
-- [ ] **Step 1: `src/types.ts`** — en `interface WorkspaceTab`, después de `splitRatios?: Record<string, number[]>`:
+- [ ] **Step 1: `src/types.ts`** — in `interface WorkspaceTab`, after `splitRatios?: Record<string, number[]>`:
 
 ```ts
   splitRatios?: Record<string, number[]>
-  isHub?: boolean  // true = pestaña que muestra el Hub (todas las terminales), sin panes propios
+  isHub?: boolean  // true = tab that shows the Hub (all terminals), with no panes of its own
 ```
 
-y en `SessionData.tabs` (objeto del array), después de su `splitRatios?`:
+and in `SessionData.tabs` (the array's object), after its `splitRatios?`:
 
 ```ts
     splitRatios?: Record<string, number[]>
     isHub?: boolean
 ```
 
-- [ ] **Step 2: Crear `src/components/HubWorkspace.tsx`**
+- [ ] **Step 2: Create `src/components/HubWorkspace.tsx`**
 
 ```tsx
 import { WorkspaceTab } from '../types'
@@ -1360,12 +1360,12 @@ export default function HubWorkspace(props: Props) {
 
 - [ ] **Step 3: `src/App.tsx` — import + hasAnyTerminal + convertActiveTabToHub**
 
-Import junto a `import HubOverlay from './components/HubOverlay'`:
+Import next to `import HubOverlay from './components/HubOverlay'`:
 ```ts
 import HubWorkspace from './components/HubWorkspace'
 ```
 
-Cerca de `hubHasRemoteActivity` (mismo patrón `useMemo`):
+Near `hubHasRemoteActivity` (same `useMemo` pattern):
 ```ts
   const hasAnyTerminal = useMemo(
     () => tabs.some(t => !t.isHub && t.panes.some(p => p.aiType !== 'browser')),
@@ -1373,20 +1373,20 @@ Cerca de `hubHasRemoteActivity` (mismo patrón `useMemo`):
   )
 ```
 
-Después de `handleHubTogglePin`:
+After `handleHubTogglePin`:
 ```ts
   const convertActiveTabToHub = useCallback(() => {
     updateActiveTab(t => ({ ...t, isHub: true, name: 'Hub' }))
   }, [updateActiveTab])
 ```
 
-- [ ] **Step 4: `src/App.tsx` — render switch** (alrededor de la línea 1148). Reemplazá exactamente:
+- [ ] **Step 4: `src/App.tsx` — render switch** (around line 1148). Replace exactly:
 ```tsx
         {isInitialState ? (
           <EmptyState onNewPane={addNextPane} />
         ) : (
 ```
-por:
+with:
 ```tsx
         {activeTab.isHub ? (
           <HubWorkspace
@@ -1403,31 +1403,31 @@ por:
           />
         ) : (
 ```
-El resto del bloque (`<>...PaneLayoutEngine...</>` y su cierre `)}`) queda igual.
+The rest of the block (`<>...PaneLayoutEngine...</>` and its closing `)}`) stays the same.
 
-- [ ] **Step 5: `src/App.tsx` — EmptyState acepta `onShowHub`** (función ~línea 1398). Reemplazá la firma `function EmptyState({ onNewPane }: { onNewPane: () => void })` por `function EmptyState({ onNewPane, onShowHub }: { onNewPane: () => void; onShowHub?: () => void })`, y antes del `</div>` de cierre de `.empty-state` (después del `<p className="empty-hint">…</p>`) agregá:
+- [ ] **Step 5: `src/App.tsx` — EmptyState accepts `onShowHub`** (function ~line 1398). Replace the signature `function EmptyState({ onNewPane }: { onNewPane: () => void })` with `function EmptyState({ onNewPane, onShowHub }: { onNewPane: () => void; onShowHub?: () => void })`, and before the closing `</div>` of `.empty-state` (after the `<p className="empty-hint">…</p>`) add:
 ```tsx
       {onShowHub && (
         <button className="empty-hub-btn" onClick={onShowHub}>
-          ▦ Ver todas las terminales (Hub)
+          ▦ View all terminals (Hub)
         </button>
       )}
 ```
 
-- [ ] **Step 6: `src/App.tsx` — persistencia.** En el save mapping (dentro de `tabs.map(tab => ({ ... }))`, después de `splitRatios: tab.splitRatios,`):
+- [ ] **Step 6: `src/App.tsx` — persistence.** In the save mapping (inside `tabs.map(tab => ({ ... }))`, after `splitRatios: tab.splitRatios,`):
 ```ts
           splitRatios: tab.splitRatios,
           isHub: tab.isHub,
 ```
-y en `migrate` (rama v3 que retorna `layoutId`/`panes`/`splitRatios`), agregá `isHub: raw.isHub,` a ese objeto retornado.
+and in `migrate` (the v3 branch that returns `layoutId`/`panes`/`splitRatios`), add `isHub: raw.isHub,` to that returned object.
 
-- [ ] **Step 7: `src/components/TabBar.tsx`** — en `SortableTab`, dentro del `<span className="tab-name" …>`, justo antes de `{tab.name}`:
+- [ ] **Step 7: `src/components/TabBar.tsx`** — in `SortableTab`, inside the `<span className="tab-name" …>`, right before `{tab.name}`:
 ```tsx
           {tab.isHub && <span className="tab-hub-icon">▦</span>}
           {tab.name}
 ```
 
-- [ ] **Step 8: CSS** — al final de `src/styles/global.css`:
+- [ ] **Step 8: CSS** — at the end of `src/styles/global.css`:
 ```css
 .hub-workspace {
   flex: 1;
@@ -1463,15 +1463,15 @@ y en `migrate` (rama v3 que retorna `layoutId`/`panes`/`splitRatios`), agregá `
 }
 ```
 
-- [ ] **Step 9:** `npm run build` limpio.
+- [ ] **Step 9:** `npm run build` clean.
 
 - [ ] **Step 10: Commit**
 
 ```bash
 git add src/types.ts src/components/HubWorkspace.tsx src/App.tsx src/components/TabBar.tsx src/styles/global.css
-git commit -m "feat(hub): crear el Hub como workspace desde el estado vacío del +
+git commit -m "feat(hub): create the Hub as a workspace from the +'s empty state
 
 Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 ```
 
-**Verificación (test path manual):** + → tab vacío → "Ver todas las terminales (Hub)" convierte el tab (nombre Hub, ícono ▦, grilla con las terminales de los otros workspaces); escribir en un tile va a esa terminal; doble click salta al workspace (el tab Hub queda); el overlay `Ctrl+Shift+O` sigue igual; el botón del EmptyState no aparece si no hay terminales en otro workspace; cerrar/reabrir conserva el tab Hub.
+**Verification (manual test path):** + → empty tab → "View all terminals (Hub)" converts the tab (name Hub, ▦ icon, grid with the other workspaces' terminals); typing in a tile goes to that terminal; double-click jumps to the workspace (the Hub tab stays); the `Ctrl+Shift+O` overlay is unchanged; the EmptyState button doesn't appear if there are no terminals in another workspace; close/reopen keeps the Hub tab.

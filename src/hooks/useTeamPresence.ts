@@ -4,16 +4,16 @@ import { supabase } from '../lib/supabase'
 
 export interface PresenceState {
   userId: string
-  displayName: string  // email o nombre
+  displayName: string  // email or name
   githubLogin: string | null
   repo: string | null
   branch: string | null
   lastSeen: string
 }
 
-// Arma el payload de presencia incluyendo el github_login real del perfil,
-// para que Stats pueda matchear "online" contra el login de GitHub del dev
-// (antes se adivinaba por el prefijo del email y casi nunca coincidía).
+// Builds the presence payload including the profile's real github_login,
+// so Stats can match "online" against the dev's GitHub login
+// (previously it was guessed from the email prefix and almost never matched).
 async function buildPresencePayload(
   currentUserId: string,
   repo: string | null,

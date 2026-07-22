@@ -9,8 +9,9 @@ export interface HubEntry {
   busy: boolean
 }
 
-// Filtros transversales del Hub. NO hay filtro por-workspace: filtrar a un solo
-// workspace mostraría lo mismo que ir a su pestaña, así que no aporta nada.
+// Cross-cutting Hub filters. There is NO per-workspace filter: filtering to a
+// single workspace would show the same thing as going to its tab, so it adds
+// nothing.
 export type HubFilter = 'all' | 'active' | 'pinned'
 
 export function filterEntries(entries: HubEntry[], filter: HubFilter): HubEntry[] {
@@ -29,7 +30,7 @@ interface Props {
 
 export default function HubGrid({ entries, focusedPaneId, onFocus, onJump, onTogglePin }: Props) {
   if (entries.length === 0) {
-    return <div className="hub-empty">No hay terminales para este filtro</div>
+    return <div className="hub-empty">No terminals for this filter</div>
   }
   return (
     <div className="hub-grid">

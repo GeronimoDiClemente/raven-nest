@@ -68,80 +68,80 @@ describe('TeamStats', () => {
     mockUseTeamStats.mockReturnValue(LOADED)
   })
 
-  it('no crashea al pasar de loading a cargado (orden de hooks)', () => {
+  it('does not crash going from loading to loaded (hook order)', () => {
     mockUseTeamStats.mockReturnValue({ ...EMPTY, loading: true })
     const { rerender } = render(<TeamStats {...defaultProps} />)
     mockUseTeamStats.mockReturnValue(LOADED)
-    // Si el useMemo está después de un early return, este rerender tira
+    // If the useMemo is after an early return, this rerender throws
     // "Rendered more hooks than during the previous render".
     expect(() => rerender(<TeamStats {...defaultProps} />)).not.toThrow()
     expect(screen.getAllByText('alice').length).toBeGreaterThan(0)
   })
 
-  it('muestra el conteo de commits totales en las cards de overview', () => {
+  it('shows the total commit count in the overview cards', () => {
     render(<TeamStats {...defaultProps} />)
     expect(screen.getByText('16')).toBeTruthy()
   })
 
-  it('muestra el developer más activo', () => {
+  it('shows the most active developer', () => {
     render(<TeamStats {...defaultProps} />)
     expect(screen.getAllByText('alice').length).toBeGreaterThan(0)
   })
 
-  it('muestra el conteo de developers online desde presence', () => {
+  it('shows the online developer count from presence', () => {
     render(<TeamStats {...defaultProps} />)
-    const onlineCard = screen.getByText('Online now').closest('.ts-card')!
+    const onlineCard = screen.getByText('Online now').closest('.ts-card') as HTMLElement
     expect(within(onlineCard).getByText('1')).toBeTruthy()
   })
 
-  it('muestra la tabla con ambos developers', () => {
+  it('shows the table with both developers', () => {
     const { container } = render(<TeamStats {...defaultProps} />)
     const table = container.querySelector('.ts-table') as HTMLElement
     expect(within(table).getByText('alice')).toBeTruthy()
     expect(within(table).getByText('bob')).toBeTruthy()
   })
 
-  it('muestra mensaje de conectar GitHub cuando no hay token', () => {
+  it('shows the connect-GitHub message when there is no token', () => {
     render(<TeamStats {...defaultProps} githubToken={null} />)
     expect(screen.getByText(/connect your github/i)).toBeTruthy()
   })
 
-  it('renderiza una sparkline SVG por developer', () => {
+  it('renders one SVG sparkline per developer', () => {
     render(<TeamStats {...defaultProps} />)
     const sparks = document.querySelectorAll('.ts-spark')
     // 1 SVG sparkline per developer
     expect(sparks.length).toBe(2)
   })
 
-  it('muestra el skeleton mientras carga', () => {
+  it('shows the skeleton while loading', () => {
     mockUseTeamStats.mockReturnValue({ ...EMPTY, loading: true })
     const { container } = render(<TeamStats {...defaultProps} />)
     expect(container.querySelector('[aria-busy="true"]')).toBeTruthy()
     expect(container.querySelectorAll('.ts-skeleton').length).toBeGreaterThan(0)
   })
 
-  it('muestra el mensaje de error', () => {
+  it('shows the error message', () => {
     mockUseTeamStats.mockReturnValue({ ...EMPTY, error: 'API rate limit exceeded' })
     render(<TeamStats {...defaultProps} />)
     expect(screen.getByText('API rate limit exceeded')).toBeTruthy()
   })
 
-  it('reordena por PRs al clickear el header', () => {
+  it('re-sorts by PRs when clicking the header', () => {
     const { getByRole } = render(<TeamStats {...defaultProps} />)
-    // Orden inicial: por commits desc → alice (12) antes que bob (4)
+    // Initial order: by commits desc → alice (12) before bob (4)
     let names = Array.from(document.querySelectorAll('.ts-dev-name')).map(n => n.textContent)
     expect(names).toEqual(['alice', 'bob'])
-    // Click en "PRs": alice tiene 3 (2+1), bob 0. 1er click = desc, 2do = asc → invierte.
+    // Click on "PRs": alice has 3 (2+1), bob 0. 1st click = desc, 2nd = asc → inverts.
     const prsHeader = getByRole('button', { name: /PRs/i })
-    fireEvent.click(prsHeader)  // desc por prs
-    fireEvent.click(prsHeader)  // asc por prs
+    fireEvent.click(prsHeader)  // desc by prs
+    fireEvent.click(prsHeader)  // asc by prs
     names = Array.from(document.querySelectorAll('.ts-dev-name')).map(n => n.textContent)
     expect(names).toEqual(['bob', 'alice'])
   })
 })
 
 describe('onlineGithubLogins', () => {
-  it('devuelve los github logins en minúscula, ignorando nulls', () => {
+  it('returns the github logins in lowercase, ignoring nulls', () => {
     const p = {
       a: { userId: 'a', displayName: 'x@co.com', githubLogin: 'Alice', repo: null, branch: null, lastSeen: '' },
       b: { userId: 'b', displayName: 'y@co.com', githubLogin: null, repo: null, branch: null, lastSeen: '' },

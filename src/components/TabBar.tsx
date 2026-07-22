@@ -195,7 +195,7 @@ export default function TabBar({
         </SortableContext>
       </DndContext>
 
-      <button className="tab-new" onClick={onTabNew} title="Nuevo workspace">
+      <button className="tab-new" onClick={onTabNew} title="New workspace">
         +
       </button>
 

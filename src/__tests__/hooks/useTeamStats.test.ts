@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { aggregateEvents, extractRecentPrs, medianMergeHours } from '../../hooks/useTeamStats'
 
 const NOW = new Date().toISOString()
-const OLD = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString() // 8 días atrás
+const OLD = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString() // 8 days ago
 
 const makeEvent = (
   id: string,
@@ -21,7 +21,7 @@ const makeEvent = (
 })
 
 describe('aggregateEvents', () => {
-  it('cuenta commits de PushEvent de esta semana', () => {
+  it('counts PushEvent commits from this week', () => {
     const events = [
       makeEvent('1', 'alice', 'PushEvent', NOW, { commits: [{ sha: 'a', message: 'fix' }, { sha: 'b', message: 'feat' }] }),
     ]
@@ -31,20 +31,20 @@ describe('aggregateEvents', () => {
     expect(result[0].commits).toBe(2)
   })
 
-  it('ignora eventos de hace más de 7 días', () => {
+  it('ignores events older than 7 days', () => {
     const events = [
       makeEvent('1', 'alice', 'PushEvent', OLD, { commits: [{ sha: 'a', message: 'old' }] }),
     ]
     expect(aggregateEvents(events)).toHaveLength(0)
   })
 
-  it('excluye eventos fuera de la ventana por defecto (7 días)', () => {
+  it('excludes events outside the default window (7 days)', () => {
     const twentyDaysAgo = new Date(Date.now() - 20 * 24 * 60 * 60 * 1000).toISOString()
     const events = [makeEvent('1', 'alice', 'PushEvent', twentyDaysAgo, { commits: [{ sha: 'a', message: 'x' }] })]
     expect(aggregateEvents(events)).toHaveLength(0)
   })
 
-  it('incluye eventos de hace 20 días con ventana de 30', () => {
+  it('includes events from 20 days ago with a 30-day window', () => {
     const twentyDaysAgo = new Date(Date.now() - 20 * 24 * 60 * 60 * 1000).toISOString()
     const events = [makeEvent('1', 'alice', 'PushEvent', twentyDaysAgo, { commits: [{ sha: 'a', message: 'x' }] })]
     const result = aggregateEvents(events, 30)
@@ -52,13 +52,13 @@ describe('aggregateEvents', () => {
     expect(result[0].commits).toBe(1)
   })
 
-  it('dimensiona dailyCommits según la ventana', () => {
+  it('sizes dailyCommits to the window', () => {
     const events = [makeEvent('1', 'alice', 'PushEvent', NOW, { commits: [{ sha: 'a', message: 'x' }] })]
     expect(aggregateEvents(events, 7)[0].dailyCommits).toHaveLength(7)
     expect(aggregateEvents(events, 30)[0].dailyCommits).toHaveLength(30)
   })
 
-  it('NO crea developer para eventos que no son contribución (star/fork)', () => {
+  it('does NOT create a developer for non-contribution events (star/fork)', () => {
     const events = [
       makeEvent('1', 'randouser', 'WatchEvent', NOW, { action: 'started' }),
       makeEvent('2', 'forker', 'ForkEvent', NOW, {}),
@@ -67,7 +67,7 @@ describe('aggregateEvents', () => {
     expect(aggregateEvents(events)).toHaveLength(0)
   })
 
-  it('excluye actores bot del roster', () => {
+  it('excludes bot actors from the roster', () => {
     const events = [
       makeEvent('1', 'dependabot[bot]', 'PullRequestEvent', NOW, { action: 'opened' }),
       makeEvent('2', 'alice', 'PushEvent', NOW, { commits: [{ sha: 'a', message: 'x' }] }),
@@ -77,7 +77,7 @@ describe('aggregateEvents', () => {
     expect(result[0].login).toBe('alice')
   })
 
-  it('cuenta PRs abiertos y mergeados por separado', () => {
+  it('counts opened and merged PRs separately', () => {
     const events = [
       makeEvent('1', 'bob', 'PullRequestEvent', NOW, { action: 'opened' }),
       makeEvent('2', 'bob', 'PullRequestEvent', NOW, { action: 'closed', pull_request: { merged: true } }),
@@ -88,7 +88,7 @@ describe('aggregateEvents', () => {
     expect(result[0].prsMerged).toBe(1)
   })
 
-  it('cuenta reviews de PullRequestReviewEvent (action created)', () => {
+  it('counts reviews from PullRequestReviewEvent (action created)', () => {
     const events = [
       makeEvent('1', 'dana', 'PullRequestReviewEvent', NOW, { action: 'created' }),
       makeEvent('2', 'dana', 'PullRequestReviewEvent', NOW, { action: 'created' }),
@@ -99,7 +99,7 @@ describe('aggregateEvents', () => {
     expect(result[0].reviews).toBe(2)
   })
 
-  it('cuenta issues cerrados', () => {
+  it('counts closed issues', () => {
     const events = [
       makeEvent('1', 'carol', 'IssuesEvent', NOW, { action: 'closed' }),
       makeEvent('2', 'carol', 'IssuesEvent', NOW, { action: 'opened' }),
@@ -108,7 +108,7 @@ describe('aggregateEvents', () => {
     expect(result[0].issuesClosed).toBe(1)
   })
 
-  it('agrupa múltiples eventos del mismo developer', () => {
+  it('groups multiple events from the same developer', () => {
     const events = [
       makeEvent('1', 'alice', 'PushEvent', NOW, { commits: [{ sha: 'a', message: 'x' }] }),
       makeEvent('2', 'alice', 'PushEvent', NOW, { commits: [{ sha: 'b', message: 'y' }, { sha: 'c', message: 'z' }] }),
@@ -118,7 +118,7 @@ describe('aggregateEvents', () => {
     expect(result[0].commits).toBe(3)
   })
 
-  it('ordena por commits descendente', () => {
+  it('sorts by commits descending', () => {
     const events = [
       makeEvent('1', 'alice', 'PushEvent', NOW, { commits: [{ sha: 'a', message: 'x' }] }),
       makeEvent('2', 'bob', 'PushEvent', NOW, { commits: [{ sha: 'b', message: 'y' }, { sha: 'c', message: 'z' }, { sha: 'd', message: 'w' }] }),
@@ -128,7 +128,7 @@ describe('aggregateEvents', () => {
     expect(result[1].login).toBe('alice')
   })
 
-  it('deduplica eventos con el mismo id', () => {
+  it('deduplicates events with the same id', () => {
     const events = [
       makeEvent('1', 'alice', 'PushEvent', NOW, { commits: [{ sha: 'a', message: 'x' }] }),
       makeEvent('1', 'alice', 'PushEvent', NOW, { commits: [{ sha: 'a', message: 'x' }] }),
@@ -149,19 +149,19 @@ describe('medianMergeHours', () => {
       },
     })
 
-  it('devuelve null si no hay PRs mergeados con fechas', () => {
+  it('returns null if there are no merged PRs with dates', () => {
     expect(medianMergeHours([])).toBeNull()
     expect(medianMergeHours([makeEvent('1', 'a', 'PushEvent', NOW, {})])).toBeNull()
   })
 
-  it('calcula la mediana de horas abierto→merge', () => {
-    // duraciones: 2h, 4h, 12h → mediana 4h
+  it('computes the median open→merge hours', () => {
+    // durations: 2h, 4h, 12h → median 4h
     const events = [merged('1', 3, 1), merged('2', 6, 2), merged('3', 24, 12)]
     expect(medianMergeHours(events)).toBe(4)
   })
 
-  it('promedia los dos centrales con cantidad par', () => {
-    // duraciones: 2h, 6h → mediana 4h
+  it('averages the two middle values for an even count', () => {
+    // durations: 2h, 6h → median 4h
     const events = [merged('1', 3, 1), merged('2', 8, 2)]
     expect(medianMergeHours(events)).toBe(4)
   })

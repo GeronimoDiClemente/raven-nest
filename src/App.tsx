@@ -441,8 +441,8 @@ export default function App() {
     }
   }, [updateActiveTab, zoomedPaneId])
 
-  // ── Hub: los panes viven en OTROS workspaces, así que estos handlers operan
-  // sobre el tab de origen del pane (no sobre el tab activo, que es el Hub). ──
+  // ── Hub: the panes live in OTHER workspaces, so these handlers operate on
+  // the pane's origin tab (not on the active tab, which is the Hub). ──
   const updatePaneAnywhere = useCallback((paneId: string, updater: (p: PaneNode) => PaneNode) => {
     setTabs(prev => prev.map(t =>
       t.panes.some(p => p.id === paneId)
@@ -466,7 +466,7 @@ export default function App() {
     if (focusedPaneIdRef.current === paneId) { focusedPaneIdRef.current = null; setFocusedPaneId(null) }
   }, [])
 
-  // Reordenar tiles del Hub: guarda el orden (ids) en el tab Hub activo.
+  // Reorder Hub tiles: save the order (ids) on the active Hub tab.
   const handleHubDragEnd = useCallback((e: DragEndEvent) => {
     setDraggingId(null)
     const { active, over } = e
@@ -1130,8 +1130,8 @@ export default function App() {
     [tabs]
   )
 
-  // Agregación de todas las terminales (de todos los workspaces) para el Hub:
-  // filtradas, ordenadas y capadas a MAX_PANES para el motor de layout.
+  // Aggregation of all terminals (from every workspace) for the Hub:
+  // filtered, sorted and capped to MAX_PANES for the layout engine.
   const hubData = useMemo(() => {
     if (!activeTab.isHub) return null
     const source = tabs.filter(t => !t.isHub)
@@ -1576,13 +1576,13 @@ function EmptyState({ onNewPane, onShowHub, hubCount }: { onNewPane: () => void;
       <p className="empty-hint">or press <kbd>{window.platform?.isWin ? 'Ctrl+T' : '⌘T'}</kbd></p>
       {onShowHub && (
         <>
-          <div className="empty-or">o</div>
+          <div className="empty-or">or</div>
           <button className="empty-hub-btn" onClick={onShowHub}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
               <rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" />
               <rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" />
             </svg>
-            Ver todas las terminales en el Hub
+            View all terminals in the Hub
             {hubCount ? <span className="empty-hub-count">{hubCount}</span> : null}
           </button>
         </>

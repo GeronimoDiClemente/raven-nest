@@ -2,40 +2,40 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Agregar una sección "Stats" en `TeamsWorkspace` que muestre actividad de la última semana por developer (commits, PRs, quién está online ahora), usando datos que ya fluyen por el app.
+**Goal:** Add a "Stats" section in `TeamsWorkspace` that shows the last week's activity per developer (commits, PRs, who is online now), using data that already flows through the app.
 
-**Architecture:** Un nuevo hook `useTeamStats` fetcha los eventos de GitHub (mismo endpoint que usa `ActivityFeed`) y los agrega por `actor.login`. Un componente `TeamStats` renderiza overview cards + tabla de developers. `TeamsWorkspace` recibe el nuevo tab `'stats'` con mínimos cambios: una línea en el tipo, una entrada en `NAV_ITEMS` y un bloque de render.
+**Architecture:** A new `useTeamStats` hook fetches the GitHub events (the same endpoint `ActivityFeed` uses) and aggregates them by `actor.login`. A `TeamStats` component renders overview cards + a developer table. `TeamsWorkspace` gets the new `'stats'` tab with minimal changes: one line in the type, one entry in `NAV_ITEMS` and a render block.
 
-**Tech Stack:** React + TypeScript, Vitest + @testing-library/react, Playwright (e2e Electron), GitHub REST API (`/repos/:owner/:repo/events`), Supabase Realtime (presence ya existente).
+**Tech Stack:** React + TypeScript, Vitest + @testing-library/react, Playwright (Electron e2e), GitHub REST API (`/repos/:owner/:repo/events`), Supabase Realtime (existing presence).
 
 ## Global Constraints
 
-- TypeScript estricto — no `any`
-- Tests con Vitest (`import { describe, it, expect, vi } from 'vitest'`)
-- Estilos: inline styles o clases ya existentes en `global.css` para los nuevos elementos simples; agregar clases nuevas al final del archivo para layout
-- No crear archivos CSS separados — todo en `src/styles/global.css`
-- `per_page=100` en el fetch de eventos (el ActivityFeed usa 10; necesitamos más para cubrir la semana)
-- Correr tests con `npm test` (alias de `vitest run`)
+- Strict TypeScript — no `any`
+- Tests with Vitest (`import { describe, it, expect, vi } from 'vitest'`)
+- Styles: inline styles or classes already existing in `global.css` for the simple new elements; add new classes at the end of the file for layout
+- Do not create separate CSS files — everything in `src/styles/global.css`
+- `per_page=100` in the events fetch (ActivityFeed uses 10; we need more to cover the week)
+- Run tests with `npm test` (alias of `vitest run`)
 
 ---
 
-## Estructura de archivos
+## File structure
 
-| Archivo | Acción | Responsabilidad |
+| File | Action | Responsibility |
 |---------|--------|-----------------|
-| `src/hooks/useTeamStats.ts` | Crear | Fetch + agregación de eventos GitHub por developer |
-| `src/__tests__/hooks/useTeamStats.test.ts` | Crear | Tests unitarios de la lógica de agregación |
-| `src/components/TeamStats.tsx` | Crear | UI: overview cards + tabla de developers |
-| `src/__tests__/components/TeamStats.test.tsx` | Crear | Tests del componente |
-| `src/styles/global.css` | Modificar | Agregar clases `.ts-*` al final del archivo |
-| `src/components/TeamsWorkspace.tsx` | Modificar | Agregar `'stats'` al tipo, nav item y render |
-| `e2e/team-stats.spec.ts` | Crear | Smoke test Playwright: Teams abre sin crash con el nuevo código |
+| `src/hooks/useTeamStats.ts` | Create | Fetch + aggregation of GitHub events per developer |
+| `src/__tests__/hooks/useTeamStats.test.ts` | Create | Unit tests of the aggregation logic |
+| `src/components/TeamStats.tsx` | Create | UI: overview cards + developer table |
+| `src/__tests__/components/TeamStats.test.tsx` | Create | Component tests |
+| `src/styles/global.css` | Modify | Add `.ts-*` classes at the end of the file |
+| `src/components/TeamsWorkspace.tsx` | Modify | Add `'stats'` to the type, nav item and render |
+| `e2e/team-stats.spec.ts` | Create | Playwright smoke test: Teams opens without crash with the new code |
 
 ---
 
-## Setup: crear rama de feature
+## Setup: create the feature branch
 
-Antes de cualquier tarea, crear la rama:
+Before any task, create the branch:
 
 ```bash
 git checkout -b feat/team-stats
@@ -43,28 +43,28 @@ git checkout -b feat/team-stats
 
 ---
 
-## Task 1: Hook `useTeamStats` — fetch y agregación
+## Task 1: Hook `useTeamStats` — fetch and aggregation
 
 **Files:**
 - Create: `src/hooks/useTeamStats.ts`
 - Create: `src/__tests__/hooks/useTeamStats.test.ts`
 
 **Interfaces:**
-- Produce: `aggregateEvents(events: GitHubEvent[]): DeveloperStats[]` (exportada para testear)
+- Produce: `aggregateEvents(events: GitHubEvent[]): DeveloperStats[]` (exported for testing)
 - Produce: `useTeamStats(repos, githubToken): { stats: TeamStatsData; loading: boolean; error: string | null }`
 
 ---
 
-- [ ] **Step 1: Escribir el test de agregación**
+- [ ] **Step 1: Write the aggregation test**
 
-Crear `src/__tests__/hooks/useTeamStats.test.ts`:
+Create `src/__tests__/hooks/useTeamStats.test.ts`:
 
 ```typescript
 import { describe, it, expect } from 'vitest'
 import { aggregateEvents } from '../../hooks/useTeamStats'
 
 const NOW = new Date().toISOString()
-const OLD = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString() // 8 días atrás
+const OLD = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString() // 8 days ago
 
 const makeEvent = (
   id: string,
@@ -81,7 +81,7 @@ const makeEvent = (
 })
 
 describe('aggregateEvents', () => {
-  it('cuenta commits de PushEvent de esta semana', () => {
+  it('counts PushEvent commits from this week', () => {
     const events = [
       makeEvent('1', 'alice', 'PushEvent', NOW, { commits: [{ sha: 'a', message: 'fix' }, { sha: 'b', message: 'feat' }] }),
     ]
@@ -91,14 +91,14 @@ describe('aggregateEvents', () => {
     expect(result[0].commits).toBe(2)
   })
 
-  it('ignora eventos de hace más de 7 días', () => {
+  it('ignores events older than 7 days', () => {
     const events = [
       makeEvent('1', 'alice', 'PushEvent', OLD, { commits: [{ sha: 'a', message: 'old' }] }),
     ]
     expect(aggregateEvents(events)).toHaveLength(0)
   })
 
-  it('cuenta PRs abiertos y mergeados por separado', () => {
+  it('counts opened and merged PRs separately', () => {
     const events = [
       makeEvent('1', 'bob', 'PullRequestEvent', NOW, { action: 'opened' }),
       makeEvent('2', 'bob', 'PullRequestEvent', NOW, { action: 'closed', pull_request: { merged: true } }),
@@ -109,7 +109,7 @@ describe('aggregateEvents', () => {
     expect(result[0].prsMerged).toBe(1)
   })
 
-  it('cuenta issues cerrados', () => {
+  it('counts closed issues', () => {
     const events = [
       makeEvent('1', 'carol', 'IssuesEvent', NOW, { action: 'closed' }),
       makeEvent('2', 'carol', 'IssuesEvent', NOW, { action: 'opened' }),
@@ -118,7 +118,7 @@ describe('aggregateEvents', () => {
     expect(result[0].issuesClosed).toBe(1)
   })
 
-  it('agrupa múltiples eventos del mismo developer', () => {
+  it('groups multiple events from the same developer', () => {
     const events = [
       makeEvent('1', 'alice', 'PushEvent', NOW, { commits: [{ sha: 'a', message: 'x' }] }),
       makeEvent('2', 'alice', 'PushEvent', NOW, { commits: [{ sha: 'b', message: 'y' }, { sha: 'c', message: 'z' }] }),
@@ -128,7 +128,7 @@ describe('aggregateEvents', () => {
     expect(result[0].commits).toBe(3)
   })
 
-  it('ordena por commits descendente', () => {
+  it('sorts by commits descending', () => {
     const events = [
       makeEvent('1', 'alice', 'PushEvent', NOW, { commits: [{ sha: 'a', message: 'x' }] }),
       makeEvent('2', 'bob', 'PushEvent', NOW, { commits: [{ sha: 'b', message: 'y' }, { sha: 'c', message: 'z' }, { sha: 'd', message: 'w' }] }),
@@ -138,7 +138,7 @@ describe('aggregateEvents', () => {
     expect(result[1].login).toBe('alice')
   })
 
-  it('deduplica eventos con el mismo id', () => {
+  it('deduplicates events with the same id', () => {
     const events = [
       makeEvent('1', 'alice', 'PushEvent', NOW, { commits: [{ sha: 'a', message: 'x' }] }),
       makeEvent('1', 'alice', 'PushEvent', NOW, { commits: [{ sha: 'a', message: 'x' }] }),
@@ -149,17 +149,17 @@ describe('aggregateEvents', () => {
 })
 ```
 
-- [ ] **Step 2: Correr el test para verificar que falla**
+- [ ] **Step 2: Run the test to verify it fails**
 
 ```bash
 npm test -- useTeamStats
 ```
 
-Resultado esperado: `Error: Failed to resolve import "../../hooks/useTeamStats"`
+Expected result: `Error: Failed to resolve import "../../hooks/useTeamStats"`
 
-- [ ] **Step 3: Implementar `useTeamStats.ts`**
+- [ ] **Step 3: Implement `useTeamStats.ts`**
 
-Crear `src/hooks/useTeamStats.ts`:
+Create `src/hooks/useTeamStats.ts`:
 
 ```typescript
 import { useState, useEffect, useMemo } from 'react'
@@ -300,13 +300,13 @@ export function useTeamStats(
 }
 ```
 
-- [ ] **Step 4: Correr los tests y verificar que pasan**
+- [ ] **Step 4: Run the tests and verify they pass**
 
 ```bash
 npm test -- useTeamStats
 ```
 
-Resultado esperado: `7 passed`
+Expected result: `7 passed`
 
 - [ ] **Step 5: Commit**
 
@@ -317,16 +317,16 @@ git commit -m "feat: add useTeamStats hook with GitHub event aggregation"
 
 ---
 
-## Task 2: Componente `TeamStats` — UI
+## Task 2: Component `TeamStats` — UI
 
 **Files:**
 - Create: `src/components/TeamStats.tsx`
 - Create: `src/__tests__/components/TeamStats.test.tsx`
-- Modify: `src/styles/global.css` — agregar clases `.ts-*` al final
+- Modify: `src/styles/global.css` — add `.ts-*` classes at the end
 
 **Interfaces:**
 - Consume: `useTeamStats(repos, githubToken)` → `{ stats: TeamStatsData, loading, error }`
-- Consume: `presence: Record<string, PresenceState>` (de `useTeamPresence`)
+- Consume: `presence: Record<string, PresenceState>` (from `useTeamPresence`)
 - Props:
   ```typescript
   interface TeamStatsProps {
@@ -338,9 +338,9 @@ git commit -m "feat: add useTeamStats hook with GitHub event aggregation"
 
 ---
 
-- [ ] **Step 1: Escribir el test del componente**
+- [ ] **Step 1: Write the component test**
 
-Crear `src/__tests__/components/TeamStats.test.tsx`:
+Create `src/__tests__/components/TeamStats.test.tsx`:
 
 ```typescript
 import { describe, it, expect, vi, beforeEach } from 'vitest'
@@ -402,45 +402,45 @@ describe('TeamStats', () => {
     vi.clearAllMocks()
   })
 
-  it('muestra el conteo de commits totales en las cards de overview', () => {
+  it('shows the total commit count in the overview cards', () => {
     render(<TeamStats {...defaultProps} />)
     expect(screen.getByText('16')).toBeTruthy()
   })
 
-  it('muestra el developer más activo', () => {
+  it('shows the most active developer', () => {
     render(<TeamStats {...defaultProps} />)
     expect(screen.getByText('alice')).toBeTruthy()
   })
 
-  it('muestra el conteo de developers online desde presence', () => {
+  it('shows the online developer count from presence', () => {
     render(<TeamStats {...defaultProps} />)
     expect(screen.getByText('1')).toBeTruthy()
   })
 
-  it('muestra la tabla con ambos developers', () => {
+  it('shows the table with both developers', () => {
     render(<TeamStats {...defaultProps} />)
     expect(screen.getByText('alice')).toBeTruthy()
     expect(screen.getByText('bob')).toBeTruthy()
   })
 
-  it('muestra mensaje de conectar GitHub cuando no hay token', () => {
+  it('shows the connect-GitHub message when there is no token', () => {
     render(<TeamStats {...defaultProps} githubToken={null} />)
     expect(screen.getByText(/connect your github/i)).toBeTruthy()
   })
 })
 ```
 
-- [ ] **Step 2: Correr el test para verificar que falla**
+- [ ] **Step 2: Run the test to verify it fails**
 
 ```bash
 npm test -- "TeamStats.test"
 ```
 
-Resultado esperado: `Error: Failed to resolve import "../../components/TeamStats"`
+Expected result: `Error: Failed to resolve import "../../components/TeamStats"`
 
-- [ ] **Step 3: Agregar clases CSS al final de `src/styles/global.css`**
+- [ ] **Step 3: Add CSS classes at the end of `src/styles/global.css`**
 
-Agregar al final del archivo:
+Add at the end of the file:
 
 ```css
 /* ── Team Stats ──────────────────────────────────────────── */
@@ -569,9 +569,9 @@ Agregar al final del archivo:
 }
 ```
 
-- [ ] **Step 4: Implementar `TeamStats.tsx`**
+- [ ] **Step 4: Implement `TeamStats.tsx`**
 
-Crear `src/components/TeamStats.tsx`:
+Create `src/components/TeamStats.tsx`:
 
 ```typescript
 import { useTeamStats } from '../hooks/useTeamStats'
@@ -710,13 +710,13 @@ export default function TeamStats({ repos, githubToken, presence }: TeamStatsPro
 }
 ```
 
-- [ ] **Step 5: Correr los tests y verificar que pasan**
+- [ ] **Step 5: Run the tests and verify they pass**
 
 ```bash
 npm test -- "TeamStats.test"
 ```
 
-Resultado esperado: `5 passed`
+Expected result: `5 passed`
 
 - [ ] **Step 6: Commit**
 
@@ -727,40 +727,40 @@ git commit -m "feat: add TeamStats component with overview cards and developer t
 
 ---
 
-## Task 3: Integrar en `TeamsWorkspace`
+## Task 3: Integrate into `TeamsWorkspace`
 
 **Files:**
 - Modify: `src/components/TeamsWorkspace.tsx`
 
 **Interfaces:**
-- Consume: `TeamStats` (default export de `src/components/TeamStats.tsx`)
-- Consume: Props ya disponibles en `TeamsWorkspace`: `repos`, `githubToken`, `presence`
+- Consume: `TeamStats` (default export of `src/components/TeamStats.tsx`)
+- Consume: Props already available in `TeamsWorkspace`: `repos`, `githubToken`, `presence`
 
 ---
 
-- [ ] **Step 1: Agregar `'stats'` al tipo `WorkspaceSection`**
+- [ ] **Step 1: Add `'stats'` to the `WorkspaceSection` type**
 
-En `src/components/TeamsWorkspace.tsx`, línea 44, cambiar:
+In `src/components/TeamsWorkspace.tsx`, line 44, change:
 
 ```typescript
-// Antes:
+// Before:
 type WorkspaceSection = 'activity' | 'chat' | 'repos' | 'issues' | 'members' | 'snippets' | 'workspaces' | 'mcp' | 'pendings'
 
-// Después:
+// After:
 type WorkspaceSection = 'activity' | 'chat' | 'repos' | 'issues' | 'members' | 'snippets' | 'workspaces' | 'mcp' | 'pendings' | 'stats'
 ```
 
-- [ ] **Step 2: Agregar el import de `TeamStats`**
+- [ ] **Step 2: Add the `TeamStats` import**
 
-Después de la línea que importa `TeamJoinCodePanel` (aprox. línea 32), agregar:
+After the line that imports `TeamJoinCodePanel` (approx. line 32), add:
 
 ```typescript
 import TeamStats from './TeamStats'
 ```
 
-- [ ] **Step 3: Agregar el nav item de Stats en `NAV_ITEMS`**
+- [ ] **Step 3: Add the Stats nav item in `NAV_ITEMS`**
 
-Agregar después del item `'members'` (después de la línea 364 aprox), antes del item `'snippets'`:
+Add after the `'members'` item (after approx. line 364), before the `'snippets'` item:
 
 ```typescript
 {
@@ -776,9 +776,9 @@ Agregar después del item `'members'` (después de la línea 364 aprox), antes d
 },
 ```
 
-- [ ] **Step 4: Agregar el bloque de render para la sección `'stats'`**
+- [ ] **Step 4: Add the render block for the `'stats'` section**
 
-Buscar el último bloque de sección antes del cierre `</ErrorBoundary>` (aprox. línea 1255, sección `'mcp'`). Después de ese bloque, agregar:
+Find the last section block before the `</ErrorBoundary>` close (approx. line 1255, `'mcp'` section). After that block, add:
 
 ```typescript
 {!creatingTeam && section === 'stats' && (
@@ -790,23 +790,23 @@ Buscar el último bloque de sección antes del cierre `</ErrorBoundary>` (aprox.
 )}
 ```
 
-- [ ] **Step 5: Correr todos los tests**
+- [ ] **Step 5: Run all the tests**
 
 ```bash
 npm test
 ```
 
-Resultado esperado: todos los tests previos siguen pasando + los nuevos.
+Expected result: all previous tests still pass + the new ones.
 
-- [ ] **Step 6: Verificar TypeScript**
+- [ ] **Step 6: Verify TypeScript**
 
 ```bash
 npm run typecheck 2>/dev/null || npx tsc --noEmit
 ```
 
-Resultado esperado: sin errores.
+Expected result: no errors.
 
-- [ ] **Step 7: Commit final**
+- [ ] **Step 7: Final commit**
 
 ```bash
 git add src/components/TeamsWorkspace.tsx
@@ -820,13 +820,13 @@ git commit -m "feat: add Stats tab to TeamsWorkspace for team analytics"
 **Files:**
 - Create: `e2e/team-stats.spec.ts`
 
-El test lanza la app con auth bypassed y verifica que TeamsWorkspace abre sin crash con el nuevo código integrado. El test de Stats en sí (con equipo real, token GitHub real) lo hace Gero en Mac/Linux con su cuenta.
+The test launches the app with auth bypassed and verifies that TeamsWorkspace opens without crash with the new integrated code. The Stats test itself (with a real team, real GitHub token) is done by Gero on Mac/Linux with his account.
 
-**Nota:** Playwright requiere que el app esté buildeada. El workflow de CI ya lo hace antes de correr e2e. Localmente: `npm run build` antes de `npm run test:e2e`.
+**Note:** Playwright requires the app to be built. The CI workflow already does this before running e2e. Locally: `npm run build` before `npm run test:e2e`.
 
 ---
 
-- [ ] **Step 1: Crear `e2e/team-stats.spec.ts`**
+- [ ] **Step 1: Create `e2e/team-stats.spec.ts`**
 
 ```typescript
 import { test } from '@playwright/test'
@@ -857,51 +857,51 @@ git commit -m "test: add Playwright smoke test for Stats tab in TeamsWorkspace"
 
 ---
 
-## Task 5: Crear el PR
+## Task 5: Create the PR
 
-- [ ] **Step 1: Push de la rama**
+- [ ] **Step 1: Push the branch**
 
 ```bash
 git push origin feat/team-stats
 ```
 
-- [ ] **Step 2: Crear el PR**
+- [ ] **Step 2: Create the PR**
 
 ```bash
 gh pr create \
   --title "feat: Team Stats tab — activity dashboard for team leaders" \
   --body "$(cat <<'EOF'
-## Qué hace
+## What it does
 
-Agrega una nueva sección **Stats** al `TeamsWorkspace` que muestra métricas de actividad de la última semana por developer, usando datos que ya fluyen por el app (GitHub Events API + Supabase Presence). Sin migraciones de base de datos.
+Adds a new **Stats** section to `TeamsWorkspace` that shows the last week's activity metrics per developer, using data that already flows through the app (GitHub Events API + Supabase Presence). No database migrations.
 
-## Pantallas
+## Screens
 
-- **Overview cards:** devs online ahora, commits totales, PRs mergeados, developer más activo
-- **Tabla de developers:** avatar, estado online/offline, commits, PRs, issues cerrados, última actividad — ordenado por commits desc
+- **Overview cards:** devs online now, total commits, merged PRs, most active developer
+- **Developer table:** avatar, online/offline status, commits, PRs, closed issues, last activity — sorted by commits desc
 
-## Archivos modificados
+## Modified files
 
-- `src/hooks/useTeamStats.ts` — nuevo hook, agrega eventos por `actor.login`
-- `src/components/TeamStats.tsx` — nuevo componente
-- `src/styles/global.css` — clases `.ts-*` al final del archivo
-- `src/components/TeamsWorkspace.tsx` — +1 línea en el tipo, +1 nav item, +1 bloque de render
-- `e2e/team-stats.spec.ts` — smoke test Playwright
+- `src/hooks/useTeamStats.ts` — new hook, aggregates events by `actor.login`
+- `src/components/TeamStats.tsx` — new component
+- `src/styles/global.css` — `.ts-*` classes at the end of the file
+- `src/components/TeamsWorkspace.tsx` — +1 line in the type, +1 nav item, +1 render block
+- `e2e/team-stats.spec.ts` — Playwright smoke test
 
 ## Tests
 
-- 7 unit tests en `useTeamStats.test.ts` (aggregation logic)
-- 5 unit tests en `TeamStats.test.tsx` (component render)
-- 1 Playwright smoke test (Teams abre sin crash)
+- 7 unit tests in `useTeamStats.test.ts` (aggregation logic)
+- 5 unit tests in `TeamStats.test.tsx` (component render)
+- 1 Playwright smoke test (Teams opens without crash)
 
-## Para el reviewer (Gero)
+## For the reviewer (Gero)
 
-- [ ] Verificar en Mac y Linux que el tab Stats aparece correctamente en Teams
-- [ ] Con GitHub conectado y repos de equipo, confirmar que los datos de la semana cargan
-- [ ] Security: el fetch usa el token OAuth ya existente en el hook `useGitHub`, mismo que usa `ActivityFeed`
-- [ ] El e2e requiere `npm run build` previo (igual que los otros specs)
+- [ ] Verify on Mac and Linux that the Stats tab appears correctly in Teams
+- [ ] With GitHub connected and team repos, confirm the week's data loads
+- [ ] Security: the fetch uses the existing OAuth token in the `useGitHub` hook, the same one `ActivityFeed` uses
+- [ ] The e2e requires a prior `npm run build` (like the other specs)
 EOF
 )"
 ```
 
-- [ ] **Step 3: Copiar la URL del PR y compartirla**
+- [ ] **Step 3: Copy the PR URL and share it**

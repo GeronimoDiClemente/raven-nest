@@ -6,7 +6,7 @@ export interface DeveloperStats {
   commits: number
   prsOpened: number
   prsMerged: number
-  reviews: number          // PR reviews que ESTE dev le hizo a otros (PullRequestReviewEvent)
+  reviews: number          // PR reviews THIS dev did for others (PullRequestReviewEvent)
   issuesClosed: number
   lastEventAt: string | null
   dailyCommits: number[]   // 7 elements, index 0 = 6 days ago, index 6 = today
@@ -26,11 +26,11 @@ export interface TeamStatsData {
   totalCommits: number
   totalPrsMerged: number
   totalReviews: number
-  /** Mediana de horas abierto→merge de los PRs mergeados en la ventana. null si no hubo. */
+  /** Median open→merge hours of the PRs merged within the window. null if none. */
   mergeTimeHours: number | null
   topDeveloper: DeveloperStats | null
   recentPrs: RecentPR[]
-  /** Totales del período INMEDIATAMENTE anterior (misma duración), para deltas. */
+  /** Totals for the IMMEDIATELY preceding period (same duration), for deltas. */
   prevCommits: number
   prevPrsMerged: number
 }
@@ -44,20 +44,20 @@ interface GitHubEvent {
   payload: {
     action?: string
     commits?: { sha: string; message: string }[]
-    // created_at/merged_at vienen en el objeto pull_request del Events API, sirven
-    // para medir el tiempo abierto→merge sin llamadas extra.
+    // created_at/merged_at come in the pull_request object from the Events API; they
+    // serve to measure the open→merge time without extra calls.
     pull_request?: { merged?: boolean; title?: string; created_at?: string; merged_at?: string }
   }
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000
-// Ventana máxima que traemos de red (cubre 2× el período más largo, 30d, para deltas).
-// El filtrado a 7/30 días se hace client-side, así togglear Week/Month no re-fetchea.
+// Max window we fetch from the network (covers 2× the longest period, 30d, for deltas).
+// Filtering to 7/30 days happens client-side, so toggling Week/Month doesn't re-fetch.
 const MAX_DAYS = 60
-// Límite de repos en paralelo, para no gatillar el secondary rate limit de GitHub.
+// Limit of repos in parallel, to avoid triggering GitHub's secondary rate limit.
 const CONCURRENCY = 5
-// Solo estos tipos de evento cuentan como "contribución" y crean una fila de developer.
-// Sin esto, un WatchEvent/ForkEvent/comentario mete gente que no commiteó al roster.
+// Only these event types count as a "contribution" and create a developer row.
+// Without this, a WatchEvent/ForkEvent/comment adds people who didn't commit to the roster.
 const CONTRIB_TYPES = new Set(['PushEvent', 'PullRequestEvent', 'PullRequestReviewEvent', 'IssuesEvent'])
 const isBot = (login: string): boolean => login.endsWith('[bot]')
 
@@ -73,8 +73,8 @@ export function aggregateEvents(events: GitHubEvent[], windowDays = 7): Develope
     if (seen.has(event.id)) continue
     seen.add(event.id)
     if (!isWithinWindow(event.created_at, windowDays)) continue
-    // Excluir eventos que no son contribución (stars, forks, comentarios) y bots,
-    // para que no ensucien el roster / podium con filas de 0 commits.
+    // Exclude non-contribution events (stars, forks, comments) and bots,
+    // so they don't pollute the roster / podium with rows of 0 commits.
     if (!CONTRIB_TYPES.has(event.type)) continue
 
     const { login, avatar_url } = event.actor
@@ -142,10 +142,10 @@ export function extractRecentPrs(events: GitHubEvent[], windowDays = 7): RecentP
 }
 
 /**
- * Mediana de horas abierto→merge de los PRs mergeados dentro de la ventana.
- * Usa created_at/merged_at del payload del Events API (sin llamadas extra).
- * Mediana en vez de promedio: un PR viejo de días no distorsiona el número.
- * Devuelve null si ningún PR mergeado trae ambas fechas.
+ * Median open→merge hours of the PRs merged within the window.
+ * Uses created_at/merged_at from the Events API payload (no extra calls).
+ * Median instead of average: an old PR of several days doesn't distort the number.
+ * Returns null if no merged PR carries both dates.
  */
 export function medianMergeHours(events: GitHubEvent[], windowDays = 7): number | null {
   const seen = new Set<string>()
@@ -166,7 +166,7 @@ export function medianMergeHours(events: GitHubEvent[], windowDays = 7): number 
   return durs.length % 2 ? durs[mid] : (durs[mid - 1] + durs[mid]) / 2
 }
 
-/** Suma commits y PRs mergeados en la ventana [fromDaysAgo, toDaysAgo) (días atrás). */
+/** Sums commits and merged PRs in the window [fromDaysAgo, toDaysAgo) (days ago). */
 export function windowTotals(
   events: GitHubEvent[],
   fromDaysAgo: number,
@@ -209,8 +209,8 @@ export function useTeamStats(
     [repos]
   )
 
-  // El fetch NO depende de windowDays: traemos MAX_DAYS de red una sola vez y
-  // filtramos client-side a 7/30. Togglear Week/Month no vuelve a pegarle a GitHub.
+  // The fetch does NOT depend on windowDays: we fetch MAX_DAYS from the network once and
+  // filter client-side to 7/30. Toggling Week/Month doesn't hit GitHub again.
   useEffect(() => {
     if (!githubToken || !repoNames) return
     const repoList = repoNames.split(',').filter(Boolean)
@@ -239,8 +239,8 @@ export function useTeamStats(
             if (page === 1) failed.push(name)
             break
           }
-          // Un 403 (rate limit) / 404 (sin acceso o repo movido) en la 1ª página
-          // es una falla del repo, no fin de paginación: la registramos.
+          // A 403 (rate limit) / 404 (no access or repo moved) on the 1st page
+          // is a repo failure, not the end of pagination: we record it.
           if (!res.ok) {
             if (page === 1) failed.push(name)
             break
@@ -256,7 +256,7 @@ export function useTeamStats(
 
       try {
         const all: GitHubEvent[] = []
-        // Pool: procesamos los repos en tandas de CONCURRENCY en vez de todos a la vez.
+        // Pool: we process the repos in batches of CONCURRENCY instead of all at once.
         for (let i = 0; i < repoList.length; i += CONCURRENCY) {
           const batch = repoList.slice(i, i + CONCURRENCY)
           const results = await Promise.allSettled(batch.map(fetchRepoEvents))
@@ -268,7 +268,7 @@ export function useTeamStats(
           setEvents(all)
           setWarning(
             failed.length
-              ? `No se pudieron cargar ${failed.length} de ${repoList.length} repos (rate limit o sin acceso)`
+              ? `Could not load ${failed.length} of ${repoList.length} repos (rate limit or no access)`
               : null
           )
         }

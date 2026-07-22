@@ -1,126 +1,126 @@
-# Hub — vista compacta de terminales cross-workspace (overlay)
+# Hub — compact cross-workspace terminal view (overlay)
 
-**Fecha:** 2026-07-14
-**Estado:** propuesta — se implementa en `feat/hub-overlay` y queda como PR para review del equipo. No se mergea sin OK explícito.
-**Autor:** Matías (diseño asistido)
+**Date:** 2026-07-14
+**Status:** proposal — implemented in `feat/hub-overlay` and left as a PR for team review. Not merged without explicit OK.
+**Author:** Matías (assisted design)
 
-## Problema
+## Problem
 
-Cada workspace (tab) muestra solo sus propios panes. Con agentes corriendo en 2–3 workspaces a la vez, no hay forma de ver qué está pasando en los demás ni de responder un prompt de otro workspace sin cambiar de tab a ciegas y volver. El único indicio actual es el punto verde de actividad en la pestaña (`.tab-activity-dot`), que no dice qué pane ni qué necesita.
+Each workspace (tab) shows only its own panes. With agents running in 2–3 workspaces at once, there's no way to see what's happening in the others, or to answer a prompt from another workspace without blindly switching tabs and coming back. The only current cue is the green activity dot on the tab (`.tab-activity-dot`), which doesn't say which pane or what it needs.
 
-## Solución (v1)
+## Solution (v1)
 
-Un overlay **"Hub"** que se abre con `Ctrl+Shift+O` (`Cmd+Shift+O` en Mac) por encima del workspace actual y muestra en grilla todas las terminales vivas de todos los workspaces. Es **interactivo**: lo que se tipea va a la terminal enfocada. `Esc` cierra y devuelve el foco exactamente al pane previo.
+A **"Hub"** overlay that opens with `Ctrl+Shift+O` (`Cmd+Shift+O` on Mac) on top of the current workspace and shows, in a grid, all the live terminals from every workspace. It is **interactive**: what you type goes to the focused terminal. `Esc` closes and returns focus exactly to the previous pane.
 
-Mockups aprobados: variante B (overlay) de la comparativa A/B/C. La grilla se construye como componente independiente del contenedor para poder promoverla más adelante a un workspace fijo "Hub" (variante A) sin rehacer nada.
+Approved mockups: variant B (overlay) from the A/B/C comparison. The grid is built as a component independent of its container, so it can later be promoted to a fixed "Hub" workspace (variant A) without redoing anything.
 
-### Puntos de entrada
+### Entry points
 
-1. Atajo global `Ctrl/Cmd+Shift+O` (toggle).
-2. Entrada "Hub: ver todas las terminales" en la Command Palette.
-3. Botón en la tab bar (a la derecha del `+`), con punto de actividad cuando algún pane de un workspace no visible tiene actividad.
+1. Global shortcut `Ctrl/Cmd+Shift+O` (toggle).
+2. "Hub: view all terminals" entry in the Command Palette.
+3. Button in the tab bar (to the right of the `+`), with an activity dot when a pane in a non-visible workspace has activity.
 
-### Qué muestra cada tile
+### What each tile shows
 
-Mismo lenguaje visual del pane actual (borde `color-mix` con `--pane-color`, header teñido, punto de color, label del AI en mayúsculas, cuenta) más:
+The same visual language as the current pane (`color-mix` border with `--pane-color`, tinted header, color dot, AI label in uppercase, account) plus:
 
-- **Chip del workspace de origen** (estilo `.pane-pid-chip`, azul) con el nombre del tab.
-- Label de actividad existente (`.pane-activity-label`) / badge `ended` si el proceso murió.
-- Botón de **pin** en el header del tile.
-- Contenido: xterm real conectado al PTY existente (replay de las últimas ~200 líneas del buffer + stream en vivo).
+- **Origin workspace chip** (`.pane-pid-chip` style, blue) with the tab name.
+- Existing activity label (`.pane-activity-label`) / `ended` badge if the process died.
+- **Pin** button in the tile header.
+- Content: a real xterm connected to the existing PTY (replay of the last ~200 buffer lines + live stream).
 
-### Filtros (fila superior del overlay)
+### Filters (top row of the overlay)
 
-`Todas` (default) · `Activas` (busy o con actividad reciente) · `Pineadas` · chips por workspace. El último filtro elegido se recuerda en `localStorage` (no amerita tocar el formato de sesión). Contadores por filtro.
+`All` (default) · `Active` (busy or with recent activity) · `Pinned` · per-workspace chips. The last chosen filter is remembered in `localStorage` (not worth touching the session format). Per-filter counters.
 
-### Interacciones
+### Interactions
 
-| Gesto | Acción |
+| Gesture | Action |
 |---|---|
-| Click en tile | Foco: el teclado va a esa terminal |
-| `Tab` / `Shift+Tab` | Ciclar foco entre tiles |
-| Doble click o `Enter` sobre tile enfocado | Saltar a ese pane en su workspace (cierra overlay, activa el tab, enfoca el pane) |
-| `Esc` | Cerrar overlay y devolver foco al pane previo |
-| Pin en header | Alterna `pinned` del pane |
-| `Ctrl/Cmd+Shift+O` | Toggle abrir/cerrar |
+| Click on tile | Focus: the keyboard goes to that terminal |
+| `Tab` / `Shift+Tab` | Cycle focus between tiles |
+| Double click or `Enter` on the focused tile | Jump to that pane in its workspace (closes the overlay, activates the tab, focuses the pane) |
+| `Esc` | Close the overlay and return focus to the previous pane |
+| Pin in header | Toggles the pane's `pinned` |
+| `Ctrl/Cmd+Shift+O` | Toggle open/close |
 
-Con más de 12 tiles tras filtrar: paginación simple (12 por página), para acotar la cantidad de xterms vivos.
+With more than 12 tiles after filtering: simple pagination (12 per page), to bound the number of live xterms.
 
-## Adición aprobada (2026-07-14): Hub como workspace desde el `+`
+## Approved addition (2026-07-14): Hub as a workspace from the `+`
 
-Además del overlay, el Hub se puede crear como **una pestaña más**. Interacción elegida (mockup "A"): el `+` crea un workspace vacío como hoy (un click, sin cambios); en su **estado vacío** (`EmptyState`), junto a "+ New Terminal", aparece **"▦ Ver todas las terminales (Hub)"**. Al tocarlo, ese tab se convierte en la vista Hub (nombre → "Hub", ícono ▦ en la pestaña) y su contenido es la grilla de todas las terminales de los demás workspaces. El overlay (`Ctrl/Cmd+Shift+O`) se mantiene igual; ambos comparten el mismo núcleo `HubView`.
+In addition to the overlay, the Hub can be created as **just another tab**. Chosen interaction (mockup "A"): the `+` creates an empty workspace as it does today (one click, no changes); in its **empty state** (`EmptyState`), next to "+ New Terminal", **"▦ View all terminals (Hub)"** appears. Tapping it converts that tab into the Hub view (name → "Hub", ▦ icon on the tab), and its content is the grid of all the terminals from the other workspaces. The overlay (`Ctrl/Cmd+Shift+O`) stays the same; both share the same `HubView` core.
 
-- La grilla del overlay se refactoriza a `HubView` (toolbar de filtros + paginación + teclado + `HubGrid`). `HubOverlay` pasa a ser un wrapper (backdrop + título + `HubView`); `HubWorkspace` monta `HubView` inline como contenido del tab activo.
-- Un tab Hub tiene `isHub: true` y `panes: []`; se excluye de las fuentes/chips de filtro. Cuando es el tab activo, los demás tabs quedan inactivos → sus `TerminalPane` reales desmontados → los tiles del Hub son la única vista de esos PTYs (sin doble-vista, más limpio que el overlay).
-- `isHub` persiste en la sesión (save/restore/migrate). El botón del `EmptyState` solo aparece si hay terminales en algún otro workspace.
-- Limitación conocida (v1): si restaurás la sesión con el tab Hub activo, los PTYs de los otros tabs aún no existen (se crean al montar sus `TerminalPane`), así que esos tiles se ven vacíos/ended hasta visitar esos tabs una vez. Se documenta en el PR.
+- The overlay's grid is refactored into `HubView` (filter toolbar + pagination + keyboard + `HubGrid`). `HubOverlay` becomes a wrapper (backdrop + title + `HubView`); `HubWorkspace` mounts `HubView` inline as the content of the active tab.
+- A Hub tab has `isHub: true` and `panes: []`; it's excluded from the filter sources/chips. When it's the active tab, the other tabs become inactive → their real `TerminalPane`s unmount → the Hub tiles are the only view of those PTYs (no double-view, cleaner than the overlay).
+- `isHub` persists in the session (save/restore/migrate). The `EmptyState` button only appears if there are terminals in some other workspace.
+- Known limitation (v1): if you restore the session with the Hub tab active, the other tabs' PTYs don't exist yet (they're created when their `TerminalPane`s mount), so those tiles look empty/ended until you visit those tabs once. Documented in the PR.
 
-## Fuera de alcance (v1)
+## Out of scope (v1)
 
-- Panel lateral persistente (variante C).
-- Detección fina de "esperando input" (heurísticas de prompt): v1 usa las señales existentes (busy/actividad/idle/ended).
-- Broadcast cross-workspace desde el Hub.
-- Reordenar/mover panes desde el Hub.
+- Persistent side panel (variant C).
+- Fine-grained "waiting for input" detection (prompt heuristics): v1 uses the existing signals (busy/activity/idle/ended).
+- Cross-workspace broadcast from the Hub.
+- Reordering/moving panes from the Hub.
 
-## Arquitectura
+## Architecture
 
-Sin IPC nuevo y sin store nuevo. Todas las piezas existen:
+No new IPC and no new store. All the pieces already exist:
 
-- **PTYs**: viven en el main process para todos los workspaces (`electron/pty-manager.ts`, `Map<paneId, IPty>` + buffer de 10k líneas). `window.pty.write(paneId, …)` ya es global.
-- **Datos**: `tabs.flatMap(t => t.panes)` en `App.tsx` (fuente única de verdad; el overlay no copia estado).
-- **Stream**: `subscribeToPtyData` (`src/pty-events.ts`) entrega `(paneId, data)` de todas las terminales con un solo listener.
-- **Estado de actividad**: `busyPanes` y `tabActivity` existentes en `App.tsx`.
+- **PTYs**: they live in the main process for all workspaces (`electron/pty-manager.ts`, `Map<paneId, IPty>` + 10k-line buffer). `window.pty.write(paneId, …)` is already global.
+- **Data**: `tabs.flatMap(t => t.panes)` in `App.tsx` (single source of truth; the overlay doesn't copy state).
+- **Stream**: `subscribeToPtyData` (`src/pty-events.ts`) delivers `(paneId, data)` from every terminal with a single listener.
+- **Activity state**: the existing `busyPanes` and `tabActivity` in `App.tsx`.
 
-### Componentes nuevos (`src/components/`)
+### New components (`src/components/`)
 
-1. **`HubOverlay.tsx`** — contenedor overlay. Se monta en `App` gated por `hubOpen` (useState en App), mismo patrón que Command Palette / GlobalSearch. Maneja: atajo, `Esc`, prioridad frente a otros overlays (si palette o búsqueda están abiertos, `Esc` cierra esos primero; el atajo del Hub no abre si hay un dialog modal), guardar/restaurar el pane enfocado previo (`terminal-registry`), paginación y fila de filtros.
-2. **`HubGrid.tsx`** — grilla pura y reutilizable. Props: `entries: HubEntry[]` (`{ pane, tabId, tabName, tabColor, busy, ended }`), `focusedPaneId`, callbacks (`onFocus`, `onJump`, `onTogglePin`). Sin conocimiento del contenedor ni de App. Es la pieza que luego se monta en un tab Hub.
-3. **`HubTile.tsx`** — mini-pane. Header reutilizando clases/estilos de pane existentes + chip de workspace + pin. Cuerpo: instancia xterm propia (readonly hasta tener foco) conectada por `paneId`:
-   - mount → `window.pty.getBuffer(paneId)` (recortado a ~200 líneas) → `write()` → suscripción al stream global filtrando su `paneId`;
-   - unmount → `term.dispose()`; **nunca** matar el PTY (mismo contrato que `TerminalPane`).
+1. **`HubOverlay.tsx`** — overlay container. Mounted in `App` gated by `hubOpen` (useState in App), same pattern as Command Palette / GlobalSearch. Handles: the shortcut, `Esc`, priority over other overlays (if the palette or search are open, `Esc` closes those first; the Hub shortcut doesn't open if a modal dialog is up), saving/restoring the previously focused pane (`terminal-registry`), pagination and the filter row.
+2. **`HubGrid.tsx`** — pure, reusable grid. Props: `entries: HubEntry[]` (`{ pane, tabId, tabName, tabColor, busy, ended }`), `focusedPaneId`, callbacks (`onFocus`, `onJump`, `onTogglePin`). No knowledge of the container or of App. This is the piece later mounted in a Hub tab.
+3. **`HubTile.tsx`** — mini-pane. Header reusing existing pane classes/styles + workspace chip + pin. Body: its own xterm instance (read-only until focused) connected by `paneId`:
+   - mount → `window.pty.getBuffer(paneId)` (trimmed to ~200 lines) → `write()` → subscription to the global stream filtering by its `paneId`;
+   - unmount → `term.dispose()`; **never** kill the PTY (same contract as `TerminalPane`).
 
-### Cambios en código existente
+### Changes to existing code
 
-- `App.tsx`: estado `hubOpen`, montaje de `HubOverlay`, entrada en Command Palette, botón en tab bar, handler de "jump" (setActiveTabId + foco de pane). Derivar `HubEntry[]` con `useMemo` sobre `tabs`/`busyPanes`/`tabActivity`.
-- `src/types.ts`: `pinned?: boolean` en `PaneNode` y `SessionPane` (persiste con el save/restore de sesión existente; migración trivial: ausente = false).
-- `src/styles/global.css`: sección nueva `/* ── Hub Overlay ── */` reutilizando tokens (`--raven-blue`, `--pane-color`, etc.). Sin colores hardcodeados nuevos.
+- `App.tsx`: `hubOpen` state, mounting `HubOverlay`, Command Palette entry, tab bar button, "jump" handler (setActiveTabId + pane focus). Derive `HubEntry[]` with `useMemo` over `tabs`/`busyPanes`/`tabActivity`.
+- `src/types.ts`: `pinned?: boolean` on `PaneNode` and `SessionPane` (persists with the existing session save/restore; trivial migration: absent = false).
+- `src/styles/global.css`: new `/* ── Hub Overlay ── */` section reusing tokens (`--raven-blue`, `--pane-color`, etc.). No new hardcoded colors.
 
-## Decisión técnica clave: tamaño del PTY
+## Key technical decision: PTY size
 
-Un PTY tiene un único cols×rows; hay dos vistas posibles del mismo PTY (pane real + tile del Hub).
+A PTY has a single cols×rows; there are two possible views of the same PTY (the real pane + the Hub tile).
 
-**Decisión:** solo el **tile enfocado** redimensiona el PTY a su tamaño (para poder interactuar con TUIs coherentemente). Los tiles sin foco renderizan el buffer sin resize — puede haber wrapping imperfecto, aceptable en una vista compacta. Al cerrar el overlay se re-ajustan (`fit()`) los panes montados del workspace activo, que es lo que ya pasa en un remount. Es el trade-off estándar de tmux con múltiples clientes.
+**Decision:** only the **focused tile** resizes the PTY to its size (so you can interact with TUIs consistently). Unfocused tiles render the buffer without resizing — there may be imperfect wrapping, acceptable in a compact view. When the overlay closes, the active workspace's mounted panes are re-fitted (`fit()`), which is what already happens on a remount. It's tmux's standard trade-off with multiple clients.
 
-Riesgo residual: un agente TUI en el workspace activo visible detrás del overlay se redibuja chico si su tile toma foco. Mitigación: si el pane pertenece al workspace activo, el foco en su tile **no** redimensiona (ya está montado a tamaño real; solo se enruta el input).
+Residual risk: a TUI agent in the active workspace visible behind the overlay redraws small if its tile takes focus. Mitigation: if the pane belongs to the active workspace, focusing its tile does **not** resize (it's already mounted at real size; only input is routed).
 
 ## Performance
 
-- xterm solo para los tiles de la página visible (máx. 12); `dispose()` al paginar/filtrar/cerrar.
-- Replay acotado a ~200 líneas por tile.
-- Suscripción única al bus de datos en `HubOverlay`, fan-out interno a los tiles (no 12 listeners IPC).
-- Overlay cerrado = costo cero (no se monta).
+- xterm only for the tiles on the visible page (max 12); `dispose()` on paginate/filter/close.
+- Replay bounded to ~200 lines per tile.
+- Single subscription to the data bus in `HubOverlay`, internal fan-out to the tiles (not 12 IPC listeners).
+- Overlay closed = zero cost (not mounted).
 
-## Errores y bordes
+## Errors and edge cases
 
-- **PTY muerto**: tile con badge `ended` existente; para relanzar se salta al pane (el restart vive ahí).
-- **Cierre de pane/workspace con el Hub abierto**: la grilla se deriva de `tabs` en cada render; el tile desaparece solo. Si era el enfocado, el foco pasa al siguiente.
-- **Workspace activo dentro del Hub**: sus panes también aparecen (con su chip), para que la vista sea completa y predecible.
-- **0 resultados tras filtrar**: estado vacío con hint del filtro activo.
+- **Dead PTY**: tile with the existing `ended` badge; to relaunch, jump to the pane (the restart lives there).
+- **Closing a pane/workspace with the Hub open**: the grid is derived from `tabs` on every render; the tile disappears on its own. If it was the focused one, focus moves to the next.
+- **Active workspace inside the Hub**: its panes also appear (with their chip), so the view is complete and predictable.
+- **0 results after filtering**: empty state with a hint about the active filter.
 
-## Testing (según CONTRIBUTING: ejercitar en la app real)
+## Testing (per CONTRIBUTING: exercise in the real app)
 
-- `npm run build` limpio (TS strict).
-- Manual (documentado en el PR): 3 workspaces con agentes → abrir Hub → tipear en terminal de otro workspace → verificar llegada; Enter salta al pane correcto; Esc devuelve foco; pin + filtro Pineadas; pane ended muestra badge; sesión con `pinned` sobrevive restart.
-- E2E Playwright (si el harness del repo lo permite sin fricción): abrir overlay, escribir cross-workspace, verificar eco en buffer.
-- Smoke en Windows (dev local) y pedir verificación Mac/Linux en el PR (requisito del equipo).
+- `npm run build` clean (TS strict).
+- Manual (documented in the PR): 3 workspaces with agents → open the Hub → type in a terminal from another workspace → verify it arrives; Enter jumps to the correct pane; Esc returns focus; pin + Pinned filter; an ended pane shows the badge; a session with `pinned` survives a restart.
+- Playwright E2E (if the repo's harness allows it without friction): open the overlay, type cross-workspace, verify the echo in the buffer.
+- Smoke on Windows (local dev) and ask for Mac/Linux verification in the PR (team requirement).
 
-## Checklist para el PR (controles del equipo)
+## PR checklist (team controls)
 
-- [ ] PR enfocado: solo esta feature, sin "while I'm here".
-- [ ] Screenshots/recording del overlay en el body del PR (requisito CONTRIBUTING para UI).
-- [ ] El *why* en el body; el diff muestra el *what*.
-- [ ] Sin dependencias nuevas.
-- [ ] Tokens/estilos existentes, cero colores hardcodeados nuevos.
-- [ ] Review visual en app real antes de pedir review.
-- [ ] Nota de performance (xterms acotados, replay acotado) y de seguridad (sin IPC nuevo, sin superficie nueva).
-- [ ] **No se mergea**: queda para review y merge de Gero.
+- [ ] Focused PR: only this feature, no "while I'm here".
+- [ ] Screenshots/recording of the overlay in the PR body (CONTRIBUTING requirement for UI).
+- [ ] The *why* in the body; the diff shows the *what*.
+- [ ] No new dependencies.
+- [ ] Existing tokens/styles, zero new hardcoded colors.
+- [ ] Visual review in the real app before requesting review.
+- [ ] Note on performance (bounded xterms, bounded replay) and security (no new IPC, no new surface).
+- [ ] **Not merged**: left for Gero's review and merge.

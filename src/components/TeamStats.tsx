@@ -52,17 +52,17 @@ const AreaSparkline = memo(function AreaSparkline({ data, gradId }: { data: numb
   )
 })
 
-// ▲/▼ vs período anterior. Verde/rojo semánticos, nunca color solo (lleva flecha + %).
+// ▲/▼ vs previous period. Semantic green/red, never color alone (carries arrow + %).
 function DeltaBadge({ current, previous }: { current: number; previous: number }) {
   if (previous === 0) {
     if (current === 0) return null
-    return <span className="ts-delta up" title="Sin actividad en el período anterior">▲ nuevo</span>
+    return <span className="ts-delta up" title="No activity in the previous period">▲ new</span>
   }
   const pct = Math.round(((current - previous) / previous) * 100)
   if (pct === 0) return <span className="ts-delta flat">— 0%</span>
   const up = pct > 0
   return (
-    <span className={`ts-delta ${up ? 'up' : 'down'}`} title={`${current} vs ${previous} en el período anterior`}>
+    <span className={`ts-delta ${up ? 'up' : 'down'}`} title={`${current} vs ${previous} in the previous period`}>
       {up ? '▲' : '▼'} {Math.abs(pct)}%
     </span>
   )
@@ -73,8 +73,8 @@ function dayLabel(daysAgo: number): string {
   return d.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric' })
 }
 
-// Alinea el tooltip al borde de la columna cuando está cerca de los extremos,
-// para que no se corte contra el borde del panel (peor en vista Month).
+// Aligns the tooltip to the column edge when it's near the extremes,
+// so it doesn't get clipped against the panel edge (worst in Month view).
 function tipStyle(i: number, n: number): CSSProperties {
   const Y = 'calc(-100% - 4px)'
   if (i <= 1) return { left: 0, transform: `translateY(${Y})` }
@@ -82,14 +82,14 @@ function tipStyle(i: number, n: number): CSSProperties {
   return { left: '50%', transform: `translate(-50%, ${Y})` }
 }
 
-// Techo "redondo" (múltiplo de 4) para que los ticks 0 / mitad / techo sean enteros.
+// "Round" ceiling (multiple of 4) so the ticks 0 / half / ceiling are integers.
 function niceCeil(v: number): number {
   return Math.max(4, Math.ceil(v / 4) * 4)
 }
 
-// Actividad del equipo por día — una sola serie (azul de marca). Barras finas con
-// tope redondeado, gridlines punteadas con escala, y HOY resaltado a azul pleno
-// (los demás días al 55% del mismo azul).
+// Team activity per day — a single series (brand blue). Thin bars with
+// rounded top, dotted gridlines with scale, and TODAY highlighted in full blue
+// (the other days at 55% of the same blue).
 const TeamBarChart = memo(function TeamBarChart({ daily }: { daily: number[] }) {
   const [hover, setHover] = useState<number | null>(null)
   const n = daily.length
@@ -132,14 +132,14 @@ const TeamBarChart = memo(function TeamBarChart({ daily }: { daily: number[] }) 
       </div>
       <div className="ts-chart-foot">
         <span>{dayLabel(n - 1)}</span>
-        <span className="ts-chart-total">{total} commits en el período</span>
+        <span className="ts-chart-total">{total} commits in the period</span>
         <span>today</span>
       </div>
     </div>
   )
 })
 
-// Formatea horas a una unidad legible: 40m / 6h / 2.3d.
+// Formats hours to a legible unit: 40m / 6h / 2.3d.
 function fmtDuration(hours: number | null): string {
   if (hours == null) return '—'
   if (hours < 1) return `${Math.round(hours * 60)}m`
@@ -147,7 +147,7 @@ function fmtDuration(hours: number | null): string {
   return `${(hours / 24).toFixed(1)}d`
 }
 
-// Matriz devs × días (quién trabajó cuándo). Secuencial de un solo hue (azul).
+// devs × days matrix (who worked when). Single-hue sequential (blue).
 const TeamHeatmap = memo(function TeamHeatmap({ devs }: { devs: DeveloperStats[] }) {
   const rows = devs.slice(0, 8)
   if (rows.length === 0) return null
@@ -175,7 +175,7 @@ const TeamHeatmap = memo(function TeamHeatmap({ devs }: { devs: DeveloperStats[]
         </div>
       ))}
       {devs.length > rows.length && (
-        <div className="ts-heat-more">+{devs.length - rows.length} developers más</div>
+        <div className="ts-heat-more">+{devs.length - rows.length} more developers</div>
       )}
     </div>
   )
@@ -226,7 +226,7 @@ export default function TeamStats({ repos, githubToken, presence }: TeamStatsPro
     })
   }, [stats.developers, sortKey, sortDir])
 
-  // Commits del equipo por día = suma de los dailyCommits de cada dev.
+  // Team commits per day = sum of each dev's dailyCommits.
   const teamDaily = useMemo(() => {
     const n = stats.developers[0]?.dailyCommits.length ?? windowDays
     const out = Array<number>(n).fill(0)

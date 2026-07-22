@@ -48,11 +48,11 @@ function score(item: PaletteItem, query: string): number {
 }
 
 const SECTION_LABELS: Record<PaletteItem['section'], string> = {
-  actions: 'Acciones',
+  actions: 'Actions',
   tabs: 'Tabs',
   workspaces: 'Workspaces',
   snippets: 'Snippets',
-  history: 'Historial',
+  history: 'History',
 }
 
 export default function CommandPalette({
@@ -106,9 +106,9 @@ export default function CommandPalette({
     })
     items.push({
       id: 'action-hub', section: 'actions',
-      label: 'Hub: ver todas las terminales',
-      sublabel: 'Vista compacta de todos los workspaces',
-      keywords: 'hub overview terminales workspaces todas',
+      label: 'Hub: view all terminals',
+      sublabel: 'Compact view of all workspaces',
+      keywords: 'hub overview terminals workspaces all',
       action: () => { onHubOpen(); onClose() },
     })
     items.push({
@@ -125,8 +125,8 @@ export default function CommandPalette({
       items.push({
         id: `tab-${tab.id}`, section: 'tabs',
         label: tab.name,
-        sublabel: `${paneCount} terminal${paneCount !== 1 ? 'es' : ''}`,
-        keywords: 'tab workspace ir',
+        sublabel: `${paneCount} terminal${paneCount !== 1 ? 's' : ''}`,
+        keywords: 'tab workspace go',
         action: () => { onTabSelect(tab.id); onClose() },
       })
     })
@@ -137,7 +137,7 @@ export default function CommandPalette({
         id: `ws-${ws.id}`, section: 'workspaces',
         label: ws.name,
         sublabel: `${ws.layout.rows}×${ws.layout.cols}`,
-        keywords: 'workspace cargar layout',
+        keywords: 'workspace load layout',
         action: () => { onWorkspaceLoad(ws); onClose() },
       })
     })
@@ -148,7 +148,7 @@ export default function CommandPalette({
         id: `sn-${sn.id}`, section: 'snippets',
         label: sn.name,
         sublabel: sn.content.slice(0, 60) + (sn.content.length > 60 ? '…' : ''),
-        keywords: 'snippet enviar comando',
+        keywords: 'snippet send command',
         action: () => {
           if (broadcastMode) onSnippetBroadcast(sn.content)
           else onSnippetSend(sn.content)
@@ -164,7 +164,7 @@ export default function CommandPalette({
         id: `cv-${cv.id}`, section: 'history',
         label: cv.preview.slice(0, 50) || 'No preview',
         sublabel: `${label} · ${cv.accountName} · ${new Date(cv.timestamp).toLocaleDateString()}`,
-        keywords: 'historial conversacion',
+        keywords: 'history conversation',
         action: () => { onHistoryOpen(); onClose() },
       })
     })

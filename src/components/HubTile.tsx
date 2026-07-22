@@ -15,7 +15,7 @@ interface Props {
 export default function HubTile({ entry, focused, onFocus, onJump, onTogglePin }: Props) {
   const { pane, tabId, tabName, isActiveTab, busy } = entry
   // Active-tab panes stay mounted at real size behind the overlay — never
-  // resize their PTY from a tile (see spec: "tamaño del PTY").
+  // resize their PTY from a tile (see spec: "PTY size").
   const { containerRef, focusTile } = useHubTerminal(pane.id, !isActiveTab)
   const [ended, setEnded] = useState(false)
 
@@ -55,7 +55,7 @@ export default function HubTile({ entry, focused, onFocus, onJump, onTogglePin }
         <span className="hub-tile-spacer" />
         <button
           className={`hub-tile-pin${pane.pinned ? ' pinned' : ''}`}
-          title={pane.pinned ? 'Quitar pin' : 'Pinear al Hub'}
+          title={pane.pinned ? 'Unpin' : 'Pin to Hub'}
           onClick={(e) => { e.stopPropagation(); onTogglePin(tabId, pane.id) }}
           onMouseDown={(e) => e.stopPropagation()}
           onDoubleClick={(e) => e.stopPropagation()}

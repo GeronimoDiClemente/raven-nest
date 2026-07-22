@@ -10,7 +10,7 @@ import type { PaneNode, LayoutId } from '../types'
 import type { HubFilter } from './HubGrid'
 
 interface Props {
-  panes: PaneNode[]                          // ya filtrados + ordenados (máx. 12)
+  panes: PaneNode[]                          // already filtered + sorted (max 12)
   layoutId: LayoutId
   splitRatios?: Record<string, number[]>
   filter: HubFilter
@@ -25,11 +25,11 @@ interface Props {
   renderPane: (pane: PaneNode) => ReactNode
 }
 
-// El Hub como workspace: mismas terminales de todos los workspaces, renderizadas
-// con el motor de layout normal (1 = pantalla completa, N = tileadas, resize y
-// reorder), con una barra de filtros delgada arriba. Los filtros son solo
-// transversales (Todas / Activas / Pineadas): filtrar por-workspace sería lo
-// mismo que ir a esa pestaña, así que no existe.
+// The Hub as a workspace: the same terminals from every workspace, rendered
+// with the normal layout engine (1 = fullscreen, N = tiled, resize and
+// reorder), with a thin filter bar on top. The filters are only cross-cutting
+// (All / Active / Pinned): filtering per-workspace would be the same as going
+// to that tab, so it doesn't exist.
 export default function HubWorkspace({
   panes, layoutId, splitRatios, filter, counts, hiddenCount,
   onFilter, onResize, onDragStart, onDragEnd, draggingId, sensors, renderPane,
@@ -38,19 +38,19 @@ export default function HubWorkspace({
     <div className="hub-workspace">
       <div className="hub-toolbar">
         <button className={`hub-chip${filter === 'all' ? ' on' : ''}`} onClick={() => onFilter('all')}>
-          Todas <span className="hub-chip-n">{counts.all}</span>
+          All <span className="hub-chip-n">{counts.all}</span>
         </button>
         <button className={`hub-chip${filter === 'active' ? ' on' : ''}`} onClick={() => onFilter('active')}>
-          Activas <span className="hub-chip-n">{counts.active}</span>
+          Active <span className="hub-chip-n">{counts.active}</span>
         </button>
         <button className={`hub-chip${filter === 'pinned' ? ' on' : ''}`} onClick={() => onFilter('pinned')}>
-          Pineadas <span className="hub-chip-n">{counts.pinned}</span>
+          Pinned <span className="hub-chip-n">{counts.pinned}</span>
         </button>
-        {hiddenCount > 0 && <span className="hub-hidden-note">+{hiddenCount} sin mostrar (máx. 12)</span>}
+        {hiddenCount > 0 && <span className="hub-hidden-note">+{hiddenCount} hidden (max 12)</span>}
       </div>
 
       {panes.length === 0 ? (
-        <div className="hub-empty">No hay terminales para este filtro</div>
+        <div className="hub-empty">No terminals for this filter</div>
       ) : (
         <DndContext
           sensors={sensors}

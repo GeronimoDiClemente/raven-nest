@@ -102,21 +102,21 @@ export default function HubView({ tabs, activeTabId, activePanes, onJump, onTogg
     <div className="hub-view">
       <div className="hub-toolbar">
         <button className={`hub-chip${filter === 'all' ? ' on' : ''}`} onClick={() => changeFilter('all')}>
-          Todas <span className="hub-chip-n">{counts.all}</span>
+          All <span className="hub-chip-n">{counts.all}</span>
         </button>
         <button className={`hub-chip${filter === 'active' ? ' on' : ''}`} onClick={() => changeFilter('active')}>
-          Activas <span className="hub-chip-n">{counts.active}</span>
+          Active <span className="hub-chip-n">{counts.active}</span>
         </button>
         <button className={`hub-chip${filter === 'pinned' ? ' on' : ''}`} onClick={() => changeFilter('pinned')}>
-          Pineadas <span className="hub-chip-n">{counts.pinned}</span>
+          Pinned <span className="hub-chip-n">{counts.pinned}</span>
         </button>
         {pageCount > 1 && (
           <span className="hub-pager">
-            <button className="hub-chip hub-pager-btn" disabled={clampedPage === 0} onClick={() => setPage(p => Math.max(0, p - 1))} aria-label="Página anterior">
+            <button className="hub-chip hub-pager-btn" disabled={clampedPage === 0} onClick={() => setPage(p => Math.max(0, p - 1))} aria-label="Previous page">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M15 18l-6-6 6-6" /></svg>
             </button>
             <span className="hub-pager-label">{clampedPage + 1}/{pageCount}</span>
-            <button className="hub-chip hub-pager-btn" disabled={clampedPage >= pageCount - 1} onClick={() => setPage(p => p + 1)} aria-label="Página siguiente">
+            <button className="hub-chip hub-pager-btn" disabled={clampedPage >= pageCount - 1} onClick={() => setPage(p => p + 1)} aria-label="Next page">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M9 18l6-6-6-6" /></svg>
             </button>
           </span>

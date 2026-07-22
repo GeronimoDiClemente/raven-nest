@@ -46,14 +46,14 @@ export interface ShellInfo {
 }
 
 export interface WorktreeMeta {
-  repoPath: string                   // path absoluto canónico del worktree
-  rootRepoPath: string               // path del repo principal (igual a repoPath si es root)
+  repoPath: string                   // canonical absolute path of the worktree
+  rootRepoPath: string               // path of the main repo (equal to repoPath if it is the root)
   branch: string                     // branch checked out
-  presetId?: string                  // opaco en Plan 1; consumido en Plan 2
+  presetId?: string                  // opaque in Plan 1; consumed in Plan 2
   setupState: 'idle' | 'running' | 'done' | 'failed' | 'cancelled' | 'orphaned'
-  setupLog?: string                  // últimas ~200 líneas
-  declaredPorts: number[]            // del preset (vacío en Plan 1)
-  detectedPorts: number[]            // discovered runtime (vacío en Plan 1)
+  setupLog?: string                  // last ~200 lines
+  declaredPorts: number[]            // from the preset (empty in Plan 1)
+  detectedPorts: number[]            // discovered runtime (empty in Plan 1)
   devCmd?: string
   devPid?: number
   createdAt: number
@@ -134,7 +134,7 @@ export interface MetricsPaneInput {
 }
 
 export interface RavenPreset {
-  id: string                  // slug, ej "nextjs-dev"
+  id: string                  // slug, e.g. "nextjs-dev"
   name: string
   description?: string
   setup?: string[]            // shell commands, sequential
@@ -266,8 +266,8 @@ export interface WorkspaceTab {
   layoutId: LayoutId
   panes: PaneNode[]
   splitRatios?: Record<string, number[]>
-  isHub?: boolean  // true = pestaña que muestra el Hub (todas las terminales), sin panes propios
-  hubOrder?: string[]  // orden de los panes en la vista Hub (ids); reordenar por drag
+  isHub?: boolean  // true = tab that shows the Hub (all terminals), with no panes of its own
+  hubOrder?: string[]  // order of the panes in the Hub view (ids); reorder by drag
 }
 
 export function equalSizes(count: number): number[] {

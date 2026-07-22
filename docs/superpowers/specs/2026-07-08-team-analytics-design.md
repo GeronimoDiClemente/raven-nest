@@ -1,102 +1,102 @@
 # Team Analytics — Design Spec
-**Fecha:** 2026-07-08  
-**Contexto:** Reunión con aceleradora que quiere usar Nest para 45 developers. Pidieron visibilidad de actividad por developer (quién hace más, qué hace, cuánto).
+**Date:** 2026-07-08  
+**Context:** Meeting with an accelerator that wants to use Nest for 45 developers. They asked for per-developer activity visibility (who does the most, what they do, how much).
 
 ---
 
-## Objetivo
+## Objective
 
-Agregar una sección "Stats" dentro del `TeamsWorkspace` existente que muestre métricas de actividad por developer, usando datos que ya fluyen por el app (GitHub events + Supabase Presence). Sin migraciones nuevas de base de datos.
+Add a "Stats" section inside the existing `TeamsWorkspace` that shows per-developer activity metrics, using data that already flows through the app (GitHub events + Supabase Presence). No new database migrations.
 
 ---
 
-## Lo que se construye
+## What gets built
 
 ### 1. Hook `useTeamStats.ts`
 
-Agrega los eventos de GitHub (ya disponibles vía GitHub API) por developer y los combina con presence data.
+Aggregates GitHub events (already available via the GitHub API) per developer and combines them with presence data.
 
 **Input:**
-- `events: GitHubEvent[]` — los mismos que ya usa `ActivityFeed`
-- `presence: Record<string, PresenceState>` — del hook `useTeamPresence` ya existente
-- `teamMembers: Array<{ email: string; user_id: string | null }>` — ya disponible en TeamsWorkspace
+- `events: GitHubEvent[]` — the same ones `ActivityFeed` already uses
+- `presence: Record<string, PresenceState>` — from the existing `useTeamPresence` hook
+- `teamMembers: Array<{ email: string; user_id: string | null }>` — already available in TeamsWorkspace
 
-**Output por developer:**
+**Output per developer:**
 ```ts
 interface DeveloperStats {
   login: string           // GitHub username
   avatarUrl: string
-  isOnline: boolean       // de presence
-  currentRepo: string | null   // de presence
-  currentBranch: string | null // de presence
-  lastSeen: string        // de presence
-  commits: number         // PushEvents esta semana
+  isOnline: boolean       // from presence
+  currentRepo: string | null   // from presence
+  currentBranch: string | null // from presence
+  lastSeen: string        // from presence
+  commits: number         // PushEvents this week
   prsOpened: number       // PullRequestEvent opened
   prsMerged: number       // PullRequestEvent merged
   issuesClosed: number    // IssuesEvent closed
-  lastEventAt: string     // último evento GitHub
+  lastEventAt: string     // last GitHub event
 }
 ```
 
-**Lógica de matching:** los eventos GitHub incluyen `actor.login` y `actor.avatar_url`. Se agrupa por `actor.login` directamente — no se intenta hacer match con emails de teamMembers (que son Supabase IDs, no GitHub logins). El presence online/offline se muestra como un panel separado por displayName. En Fase 2, cuando se guarde el GitHub login en el perfil de Supabase, se puede hacer el merge completo.
+**Matching logic:** GitHub events include `actor.login` and `actor.avatar_url`. They are grouped by `actor.login` directly — no attempt is made to match against teamMembers emails (which are Supabase IDs, not GitHub logins). Presence online/offline is shown as a separate panel by displayName. In Phase 2, once the GitHub login is stored in the Supabase profile, the full merge can be done.
 
-### 2. Componente `TeamStats.tsx`
+### 2. Component `TeamStats.tsx`
 
 **Layout:**
 ```
 ┌─────────────────────────────────────────────────────┐
 │  OVERVIEW                                            │
-│  [🟢 12 activos ahora] [📦 47 commits] [⬡ 8 PRs]  │
+│  [🟢 12 active now] [📦 47 commits] [⬡ 8 PRs]     │
 │  [🏆 top: @maticodes]                               │
 ├─────────────────────────────────────────────────────┤
 │  DEVELOPERS                                          │
-│  Avatar  Nombre    Estado  Repo/Branch  C   PR  Last │
+│  Avatar  Name      Status  Repo/Branch  C   PR  Last │
 │  ●       @alice    🟢      main-api/feat 12   3   2m │
 │  ●       @bob      ⚫      —            4    1   3h  │
 │  ...                                                 │
 └─────────────────────────────────────────────────────┘
 ```
 
-- Ordenado por commits (descendente) por defecto
-- Columnas: Avatar, login, estado online, repo+branch actual, commits semana, PRs, última actividad
-- Estado 🟢 si está en presence actualmente, ⚫ si no
-- Muestra "N/A" si el developer no tiene GitHub conectado
+- Sorted by commits (descending) by default
+- Columns: Avatar, login, online status, current repo+branch, week commits, PRs, last activity
+- 🟢 status if currently in presence, ⚫ if not
+- Shows "N/A" if the developer doesn't have GitHub connected
 
-### 3. Integración en `TeamsWorkspace.tsx`
+### 3. Integration in `TeamsWorkspace.tsx`
 
-- Agregar `'stats'` al tipo `WorkspaceSection`
-- Agregar botón "Stats" en la barra de navegación de secciones (junto a activity, chat, repos, etc.)
-- Pasar `events` (del fetch de ActivityFeed) y `presence` al nuevo componente
-
----
-
-## Lo que NO se construye en esta iteración
-
-- Sesiones de IA por developer (requiere instrumentar PTY por usuario + tabla nueva)
-- Tiempo en terminal (requiere persistent session tracking)
-- Historial más allá de la semana (requiere DB nueva)
-- Notificaciones de inactividad
-- Exportar datos a CSV
-
-Estas capacidades van en una Fase 2 post-reunión si el deal se cierra.
+- Add `'stats'` to the `WorkspaceSection` type
+- Add a "Stats" button to the section navigation bar (next to activity, chat, repos, etc.)
+- Pass `events` (from the ActivityFeed fetch) and `presence` to the new component
 
 ---
 
-## Archivos a crear/modificar
+## What does NOT get built in this iteration
 
-| Archivo | Acción |
+- AI sessions per developer (requires instrumenting the PTY per user + a new table)
+- Time in terminal (requires persistent session tracking)
+- History beyond the week (requires a new DB)
+- Inactivity notifications
+- Exporting data to CSV
+
+These capabilities go into a Phase 2 after the meeting if the deal closes.
+
+---
+
+## Files to create/modify
+
+| File | Action |
 |---------|--------|
-| `src/hooks/useTeamStats.ts` | Crear |
-| `src/components/TeamStats.tsx` | Crear |
-| `src/components/TeamsWorkspace.tsx` | Modificar — agregar sección 'stats' + nav tab |
+| `src/hooks/useTeamStats.ts` | Create |
+| `src/components/TeamStats.tsx` | Create |
+| `src/components/TeamsWorkspace.tsx` | Modify — add the 'stats' section + nav tab |
 
 ---
 
-## Criterio de éxito para la demo
+## Success criteria for the demo
 
-En la reunión se puede mostrar en vivo:
-1. La tabla de developers con quién está online ahora
-2. Commits y PRs de la semana por developer
-3. Ordenar por actividad y ver quién es el más productivo
+In the meeting we can show live:
+1. The developer table with who is online now
+2. Commits and PRs of the week per developer
+3. Sorting by activity and seeing who is the most productive
 
-Con 45 developers reales del cliente, el impacto visual es inmediato.
+With 45 real developers from the client, the visual impact is immediate.
