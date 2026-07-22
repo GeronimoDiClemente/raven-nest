@@ -5,6 +5,10 @@ import type { Ticket, TicketProvider, TicketProviderFactory } from './integratio
 import type { EventBus } from './integrations/event-bus'
 import type { DomainEvent } from './integrations/bus-types'
 
+// Conclusiones de un check-run de GitHub que cuentan como "CI rojo". 'cancelled'
+// y 'skipped' se excluyen a propósito: no son una rotura real que amerite avisar.
+const FAILED_CI_CONCLUSIONS: ReadonlySet<string> = new Set(['failure', 'timed_out', 'startup_failure'])
+
 interface Tracked {
   pluginId: string
   providerId: string
@@ -33,6 +37,13 @@ export class TicketLoop {
    * wiring de main (T7) lo cablea.
    */
   private bus?: EventBus
+  /**
+   * Dedupe en memoria de la señal CI (Motor 3): branch → SHA del último commit
+   * rojo ya emitido. Evita re-emitir `ci.failed` en cada ciclo de poll (90s)
+   * para el mismo rojo (spam de notify). Un commit NUEVO rojo (otro SHA) sí
+   * vuelve a emitir. No se persiste: el churn a evitar es dentro de una sesión.
+   */
+  private ciNotified = new Map<string, string>()
 
   register(pluginId: string, factory: TicketProviderFactory): void {
     this.factories.set(pluginId, factory)
@@ -96,6 +107,7 @@ export class TicketLoop {
     for (const branch of [...this.tracked.keys()]) {
       if (!live.has(branch)) {
         this.tracked.delete(branch)
+        this.ciNotified.delete(branch)
         mutated = true
       }
     }
@@ -199,14 +211,58 @@ export class TicketLoop {
           { headers: { Authorization: `Bearer ${deps.getToken('github')}`, Accept: 'application/vnd.github.v3+json' } },
         )
         if (!res.ok) continue
-        const prs = await res.json() as Array<{ state: string; merged_at: string | null }>
+        const prs = await res.json() as Array<{ state: string; merged_at: string | null; head?: { sha?: string } }>
         if (prs.length === 0) continue
         if (prs[0].merged_at) await this.onPrStateChanged(branch, 'merged', deps)
-        else if (prs[0].state === 'open') await this.onPrStateChanged(branch, 'open', deps)
+        else if (prs[0].state === 'open') {
+          await this.onPrStateChanged(branch, 'open', deps)
+          // Motor 3 (bus-only, aditivo): con el PR abierto, mirar los checks del
+          // HEAD y emitir ci.failed si está rojo. Sin bus no se consulta (path
+          // H3 verbatim). Va DESPUÉS de onPrStateChanged, que ya destrackeó si
+          // hubiese sido merge; acá el branch sigue vivo (open).
+          if (this.bus) await this.checkCi(branch, repoFullName, prs[0].head?.sha, deps)
+        }
       } catch (err) {
         console.warn('[ticket-loop] poll failed', branch, err)
       }
     }
+  }
+
+  /**
+   * Motor 3 — señal CI. Consulta los check-runs del commit `sha` (HEAD del PR
+   * abierto del branch propio) y, si alguno completó en rojo, emite `ci.failed`
+   * por el bus (receta futura: ci.failed → notify con botón "que el agente
+   * arregle el rojo"). Sólo GitHub, credential-free (token vía deps). Dedupe por
+   * SHA para no spamear en cada ciclo de poll. Best-effort: cualquier fallo de
+   * red se propaga al try/catch de pollOnce (no rompe el resto de branches).
+   */
+  private async checkCi(branch: string, repoFullName: string, sha: string | undefined, deps: PanelAdapterDeps): Promise<void> {
+    if (!this.bus || !sha) return
+    const res = await deps.fetch(
+      `https://api.github.com/repos/${repoFullName}/commits/${encodeURIComponent(sha)}/check-runs`,
+      { headers: { Authorization: `Bearer ${deps.getToken('github')}`, Accept: 'application/vnd.github.v3+json' } },
+    )
+    if (!res.ok) return
+    const data = await res.json() as {
+      check_runs?: Array<{ name?: string; status?: string; conclusion?: string | null; html_url?: string; details_url?: string }>
+    }
+    const failed = (data.check_runs ?? []).filter(
+      (r) => r.status === 'completed' && FAILED_CI_CONCLUSIONS.has(r.conclusion ?? ''),
+    )
+    if (failed.length === 0) return
+    // Ya avisamos este mismo commit rojo → no re-emitir (evita spam de notify).
+    if (this.ciNotified.get(branch) === sha) return
+    this.ciNotified.set(branch, sha)
+    const summary = failed.map((r) => r.name).filter((n): n is string => !!n).join(', ')
+    const runUrl = failed[0].html_url ?? failed[0].details_url
+    const ev: DomainEvent = {
+      type: 'ci.failed',
+      branch,
+      repoFullName,
+      ...(runUrl ? { runUrl } : {}),
+      ...(summary ? { summary } : {}),
+    }
+    await this.bus.emit(ev, deps)
   }
 
   async onPrStateChanged(branch: string, pr: 'open' | 'merged', deps: PanelAdapterDeps): Promise<void> {
