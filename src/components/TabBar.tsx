@@ -154,6 +154,36 @@ export default function TabBar({
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
   )
 
+  const [menuOpen, setMenuOpen] = useState(false)
+  const tabsScrollRef = useRef<HTMLDivElement>(null)
+  const overflowRef = useRef<HTMLDivElement>(null)
+
+  // Vertical mouse-wheel scrolls the tab strip horizontally (the scrollbar is
+  // hidden), so far-right tabs are reachable with a plain wheel on Windows.
+  const onTabsWheel = (e: React.WheelEvent) => {
+    if (e.deltaY === 0) return
+    const el = tabsScrollRef.current
+    if (el && el.scrollWidth > el.clientWidth) el.scrollLeft += e.deltaY
+  }
+
+  // Keep the active tab in view when it changes (keyboard, palette, new tab).
+  useEffect(() => {
+    const active = tabsScrollRef.current?.querySelector('.tab.active')
+    if (active && typeof (active as HTMLElement).scrollIntoView === 'function') {
+      (active as HTMLElement).scrollIntoView({ inline: 'nearest', block: 'nearest' })
+    }
+  }, [activeTabId, tabs.length])
+
+  // Close the overflow menu on outside click.
+  useEffect(() => {
+    if (!menuOpen) return
+    const onDown = (e: MouseEvent) => {
+      if (overflowRef.current && !overflowRef.current.contains(e.target as Node)) setMenuOpen(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [menuOpen])
+
   const handleDragEnd = (e: DragEndEvent) => {
     const { active, over } = e
     if (!over || active.id === over.id) return
@@ -170,7 +200,7 @@ export default function TabBar({
         onDragEnd={handleDragEnd}
       >
         <SortableContext items={tabs.map(t => t.id)} strategy={horizontalListSortingStrategy}>
-          <div className="tabbar-tabs">
+          <div className="tabbar-tabs" ref={tabsScrollRef} onWheel={onTabsWheel}>
             {tabs.map((tab) => {
               const activity = tabActivity?.get(tab.id)
               const hasActivity = activity && activity.size > 0
@@ -198,6 +228,35 @@ export default function TabBar({
       <button className="tab-new" onClick={onTabNew} title="New workspace">
         +
       </button>
+
+      <div className="tab-overflow" ref={overflowRef}>
+        <button
+          className="tab-overflow-btn"
+          onClick={() => setMenuOpen((v) => !v)}
+          title="All workspaces"
+          aria-haspopup="true"
+          aria-expanded={menuOpen}
+        >
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+            <path d="M2 4l4 4 4-4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
+        {menuOpen && (
+          <div className="tab-overflow-menu" role="menu">
+            {tabs.map((t) => (
+              <button
+                key={t.id}
+                role="menuitem"
+                className={`tab-overflow-item${t.id === activeTabId ? ' active' : ''}`}
+                onClick={() => { onTabSelect(t.id); setMenuOpen(false) }}
+              >
+                <span className="tab-overflow-dot" style={{ background: t.accentColor ?? 'var(--raven-blue)' }} />
+                <span className="tab-overflow-name">{t.isHub ? '▦ ' : ''}{t.name}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
 
       <div className="tabbar-drag" />
       {rightSlot}
