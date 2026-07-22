@@ -1,5 +1,37 @@
 # Hub corrections — continuation plan (2026-07-21)
 
+## ✅ 2026-07-22 — both blocking decisions taken by Gero + both reworks DONE
+Gero's decisions:
+1. **Hub = mirrors** (composable filterable view). His words: "si yo quiero ver 1/4
+   terminales de un workspace y 3/4 de otro, vea esas 4 totales" → per-terminal
+   multi-select across workspaces. Tiles are live mirrors + an "open in workspace"
+   button for the heavy ops. (Panel-completo was impossible by his own definition:
+   the same terminal can't live in two grids at once.)
+2. **team-stats = team flow & health**, drop the per-dev ranking.
+
+Shipped on `review/hub-stats`:
+- `d86682a` **Hub rework**: `lib/hub-compose.ts` (composeHubGroups, TDD); HubWorkspace
+  rewritten as a grouped, scrollable, uncapped mirror grid; HubTile ↗ open-in-workspace
+  + × remove-from-Hub + scroll-to-tile; HubSidebarPanel = picker with per-terminal /
+  per-workspace show/hide checkboxes (click a terminal → scroll its tile into view,
+  never navigate); `WorkspaceTab.hubHidden` persisted in session. Removed the Hub DnD
+  reorder (grouping replaces it).
+- `37e305b` **team-stats pivot**: medianReviewLatencyHours added (TDD); TeamStats.tsx
+  now 7 aggregate cards (Online / Commits / PRs merged / Reviews / Cycle time / Review
+  latency / Review coverage) + PR size distribution + aggregate commits/day chart. No
+  leaderboard / ranking / per-dev heatmap.
+
+**258 tests green, no new tsc errors.** To verify live tomorrow: `npm run dev`, open a
+Hub tab (empty-state button or the workspace with terminals), check the grouped grid +
+sidebar checkboxes compose the set, ↗ opens the real pane, × removes a tile, and the
+team-stats panel shows the flow cards. **Known perf note:** the Hub now mounts one live
+xterm per SHOWN terminal (uncapped) — show/hide is the mitigation; virtualize if it janks
+with many terminals. **Open:** merge `review/hub-stats` to main vs split back to the two
+feature branches.
+
+---
+
+
 **Branch:** `review/hub-stats` = `main` + PR #21 (Hub overlay) + PR #13 (team-stats),
 merged locally, translated to English, plus corrections. **Not pushed, not merged to
 `main`.** We continue here tomorrow.
