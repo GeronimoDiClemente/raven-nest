@@ -9,6 +9,7 @@ const dataCallbacks = new Map<string, DataCallback>()
 const exitCallbacks = new Map<string, ExitCallback>()
 const globalDataSubscribers = new Set<GlobalDataCallback>()
 const globalExitSubscribers = new Set<GlobalExitCallback>()
+const stopListeners = new Set<() => void>()
 
 let ipcRegistered = false
 
@@ -51,6 +52,15 @@ export function subscribeToPtyExit(cb: GlobalExitCallback): () => void {
 }
 
 /**
+ * Register a callback to run when the PTY bus is torn down (stopListening).
+ * Lets module-level consumers (e.g. hub-activity) reset their own state so they
+ * re-subscribe cleanly, without pty-events importing them (avoids a cycle).
+ */
+export function onStopListening(cb: () => void): void {
+  stopListeners.add(cb)
+}
+
+/**
  * Tear down the global IPC listeners and clear subscriber maps. Intended to
  * run on window `beforeunload` so the renderer doesn't leak listeners (or
  * keep stale callbacks alive) across reloads / window close.
@@ -62,6 +72,9 @@ export function stopListening(): void {
   globalDataSubscribers.clear()
   globalExitSubscribers.clear()
   ipcRegistered = false
+  // Notify consumers AFTER the bus subscribers are cleared so their reset
+  // can't race a re-subscribe.
+  for (const cb of stopListeners) cb()
 }
 
 // Attach at module load so cleanup happens regardless of which component

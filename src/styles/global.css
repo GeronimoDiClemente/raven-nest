@@ -288,6 +288,10 @@ body {
   50% { opacity: 0.4; transform: scale(0.8); }
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .tab-activity-dot { animation: none; }
+}
+
 /* ── Sidebar ─────────────────────────────────────────────── */
 
 .sidebar {
@@ -9568,7 +9572,10 @@ body.platform-mac .tabbar { padding-right: 116px; }
   border-radius: 50%;
   background: #22C55E;
   flex-shrink: 0;
-  animation: activityPulse 1.5s ease-in-out infinite;
+  /* Steady dot: shown only while the pane emits visible output (see
+     hub-activity.ts). No pulse — a constant blink communicates nothing about
+     real cadence and re-flashes on every remount. A soft glow reads as "lit". */
+  box-shadow: 0 0 4px rgba(34, 197, 94, 0.55);
 }
 
 .hub-tile-spacer {
