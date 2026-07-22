@@ -46,7 +46,8 @@ interface GitHubEvent {
     commits?: { sha: string; message: string }[]
     // created_at/merged_at come in the pull_request object from the Events API; they
     // serve to measure the open→merge time without extra calls.
-    pull_request?: { merged?: boolean; title?: string; created_at?: string; merged_at?: string }
+    pull_request?: { merged?: boolean; title?: string; created_at?: string; merged_at?: string; number?: number; additions?: number; deletions?: number }
+    review?: { state?: string; submitted_at?: string }
   }
 }
 
@@ -192,6 +193,67 @@ export function windowTotals(
     }
   }
   return { commits, prsMerged }
+}
+
+export interface PrSizeBuckets { s: number; m: number; l: number; xl: number }
+
+/**
+ * Distribution of merged PRs by lines changed (additions+deletions), read from
+ * the Events API payload (no extra calls). This is the counter-metric to raw PR
+ * throughput — small PRs review faster and safer, so "many PRs" is read against
+ * "how big". PRs whose size the payload doesn't carry are skipped.
+ * Buckets: S ≤ 50, M ≤ 200, L ≤ 500, XL > 500.
+ */
+export function prSizeBuckets(events: GitHubEvent[], windowDays = 7): PrSizeBuckets {
+  const seen = new Set<string>()
+  const out: PrSizeBuckets = { s: 0, m: 0, l: 0, xl: 0 }
+  for (const event of events) {
+    if (seen.has(event.id)) continue
+    seen.add(event.id)
+    if (!isWithinWindow(event.created_at, windowDays)) continue
+    if (event.type !== 'PullRequestEvent' || event.payload.action !== 'closed') continue
+    const pr = event.payload.pull_request
+    if (!pr?.merged) continue
+    if (pr.additions == null && pr.deletions == null) continue
+    const size = (pr.additions ?? 0) + (pr.deletions ?? 0)
+    if (size <= 50) out.s++
+    else if (size <= 200) out.m++
+    else if (size <= 500) out.l++
+    else out.xl++
+  }
+  return out
+}
+
+export interface ReviewCoverage { mergedTotal: number; reviewed: number; pct: number }
+
+/**
+ * Fraction of merged PRs (in the window) that received at least one review — the
+ * quality counter-metric to review/merge speed, so "fast" can't mean
+ * "unreviewed". Correlates merged PullRequestEvents with PullRequestReviewEvents
+ * by repo+number. Lower-bound estimate: reviews outside the fetched window / cap
+ * aren't visible.
+ */
+export function reviewCoverage(events: GitHubEvent[], windowDays = 7): ReviewCoverage {
+  const seen = new Set<string>()
+  const merged = new Set<string>()
+  const reviewed = new Set<string>()
+  for (const event of events) {
+    if (seen.has(event.id)) continue
+    seen.add(event.id)
+    if (!isWithinWindow(event.created_at, windowDays)) continue
+    const repo = event.repo?.name ?? ''
+    const pr = event.payload.pull_request
+    if (pr?.number == null) continue
+    const key = `${repo}#${pr.number}`
+    if (event.type === 'PullRequestEvent' && event.payload.action === 'closed' && pr.merged) {
+      merged.add(key)
+    } else if (event.type === 'PullRequestReviewEvent' && event.payload.action === 'created') {
+      reviewed.add(key)
+    }
+  }
+  let count = 0
+  for (const k of merged) if (reviewed.has(k)) count++
+  return { mergedTotal: merged.size, reviewed: count, pct: merged.size ? count / merged.size : 0 }
 }
 
 export function useTeamStats(
