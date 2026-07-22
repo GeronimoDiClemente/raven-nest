@@ -40,9 +40,10 @@ interface Props {
   onSyncCwd?: () => void
   ports?: number[]
   onTogglePin?: () => void  // shows the pin button (marks the pane for the Hub's Pinned filter)
+  onRename?: (label: string) => void  // rename the pane (sets customLabel; '' clears it back to the default)
 }
 
-export default function PaneHeader({ pane, zoomed, onZoom, onClose, onColorChange, onNoteChange, dragHandleProps, processEnded, isBusy, onRestart, onSaveConversation, onCopyLastResponse, showBlocks, blockCount, onToggleBlocks, onShare, isSharing, repoPathDiverged, onSyncCwd, ports = [], onTogglePin }: Props) {
+export default function PaneHeader({ pane, zoomed, onZoom, onClose, onColorChange, onNoteChange, dragHandleProps, processEnded, isBusy, onRestart, onSaveConversation, onCopyLastResponse, showBlocks, blockCount, onToggleBlocks, onShare, isSharing, repoPathDiverged, onSyncCwd, ports = [], onTogglePin, onRename }: Props) {
   const config = AI_CONFIG[pane.aiType]
   const displayLabel = pane.customLabel ?? config.label
   const displayColor = pane.customColor ?? config.color
@@ -54,6 +55,9 @@ export default function PaneHeader({ pane, zoomed, onZoom, onClose, onColorChang
   const [noteValue, setNoteValue] = useState(pane.note ?? '')
   const noteInputRef = useRef<HTMLInputElement>(null)
   const pickerRef = useRef<HTMLDivElement>(null)
+  const [editingLabel, setEditingLabel] = useState(false)
+  const [labelValue, setLabelValue] = useState(pane.customLabel ?? '')
+  const labelInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     if (!showPicker) return
@@ -70,6 +74,10 @@ export default function PaneHeader({ pane, zoomed, onZoom, onClose, onColorChang
     if (editingNote) noteInputRef.current?.focus()
   }, [editingNote])
 
+  useEffect(() => {
+    if (editingLabel) { labelInputRef.current?.focus(); labelInputRef.current?.select() }
+  }, [editingLabel])
+
   const handleSave = async () => {
     await onSaveConversation?.()
     setSaved(true)
@@ -85,6 +93,11 @@ export default function PaneHeader({ pane, zoomed, onZoom, onClose, onColorChang
   const commitNote = () => {
     setEditingNote(false)
     onNoteChange(noteValue)
+  }
+
+  const commitLabel = () => {
+    setEditingLabel(false)
+    onRename?.(labelValue.trim())
   }
 
   return (
@@ -117,11 +130,32 @@ export default function PaneHeader({ pane, zoomed, onZoom, onClose, onColorChang
           )}
         </div>
 
-        <span className="pane-ai-label" style={{ color: displayColor }} title={pane.accountName ? `${displayLabel} · ${pane.accountName}` : displayLabel}>
-          {(pane.aiType === 'terminal' || pane.aiType === 'custom')
-            ? displayLabel
-            : <AILogo aiType={pane.aiType} color={displayColor} size={14} />}
-        </span>
+        {editingLabel && onRename ? (
+          <input
+            ref={labelInputRef}
+            className="pane-label-input"
+            value={labelValue}
+            onChange={(e) => setLabelValue(e.target.value)}
+            onBlur={commitLabel}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') commitLabel()
+              if (e.key === 'Escape') { setLabelValue(pane.customLabel ?? ''); setEditingLabel(false) }
+            }}
+            placeholder="Rename pane…"
+            maxLength={40}
+          />
+        ) : (
+          <span
+            className="pane-ai-label"
+            style={{ color: displayColor }}
+            title={onRename ? 'Double-click to rename' : (pane.accountName ? `${displayLabel} · ${pane.accountName}` : displayLabel)}
+            onDoubleClick={onRename ? () => { setLabelValue(pane.customLabel ?? ''); setEditingLabel(true) } : undefined}
+          >
+            {(pane.aiType === 'terminal' || pane.aiType === 'custom')
+              ? displayLabel
+              : <><AILogo aiType={pane.aiType} color={displayColor} size={14} />{pane.customLabel && <span className="pane-custom-label">{pane.customLabel}</span>}</>}
+          </span>
+        )}
 
         <PortChipsGroup ports={ports} paneId={pane.id} />
 

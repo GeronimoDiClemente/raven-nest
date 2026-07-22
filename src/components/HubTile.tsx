@@ -34,7 +34,6 @@ export default function HubTile({ entry, focused, onFocus, onJump, onTogglePin }
   // NOT pull DOM focus into the xterm. That keeps Tab/Enter as Hub gestures
   // (cycle / jump); typing into a tile is opt-in via click (see onMouseDown).
   const aiColor = pane.borderColor ?? pane.customColor ?? AI_CONFIG[pane.aiType]?.color ?? '#888888'
-  const aiLabel = pane.customLabel ?? AI_CONFIG[pane.aiType].label
 
   return (
     <div
@@ -45,7 +44,11 @@ export default function HubTile({ entry, focused, onFocus, onJump, onTogglePin }
     >
       <div className="hub-tile-header">
         <span className="pane-color-btn" style={{ background: aiColor, cursor: 'default' }} />
-        <span className="pane-ai-label" style={{ color: aiColor }}>{aiLabel}</span>
+        {pane.customLabel ? (
+          <span className="hub-tile-label" style={{ color: aiColor }} title={pane.customLabel}>{pane.customLabel}</span>
+        ) : (
+          <span className="pane-ai-label" style={{ color: aiColor }}>{AI_CONFIG[pane.aiType].label}</span>
+        )}
         {pane.accountName && !AI_CONFIG[pane.aiType]?.noAccount && (
           <span className="pane-account-name">{pane.accountName}</span>
         )}

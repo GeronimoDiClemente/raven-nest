@@ -1184,6 +1184,7 @@ export default function App() {
       allowSharing={planLimits.allowSharing}
       onRequireUpgrade={() => setShowUpgrade(true)}
       onTogglePin={() => updatePaneAnywhere(pane.id, p => ({ ...p, pinned: !p.pinned }))}
+      onRename={(label) => updatePaneAnywhere(pane.id, p => ({ ...p, customLabel: label || undefined }))}
     />
   )
 
@@ -1378,6 +1379,7 @@ export default function App() {
                         allowSharing={planLimits.allowSharing}
                         onRequireUpgrade={() => setShowUpgrade(true)}
                         onTogglePin={() => updatePaneAnywhere(pane.id, p => ({ ...p, pinned: !p.pinned }))}
+                        onRename={(label) => updatePaneAnywhere(pane.id, p => ({ ...p, customLabel: label || undefined }))}
                       />
                     )
                   }
