@@ -27,7 +27,7 @@ import GlobalSearch from './components/GlobalSearch'
 import CommandPalette from './components/CommandPalette'
 import HubOverlay from './components/HubOverlay'
 import HubWorkspace from './components/HubWorkspace'
-import { filterEntries, type HubFilter, type HubEntry } from './components/HubGrid'
+import { composeHubGroups, type HubFilter, type HubEntry } from './lib/hub-compose'
 import { useHubActivity } from './hub-activity'
 import { focusTerminal } from './terminal-registry'
 import logoUrl from './assets/logo.png'
@@ -118,9 +118,11 @@ export default function App() {
   const hubOpenRef = useRef(false)
   hubOpenRef.current = hubOpen
   const [hubFilter, setHubFilter] = useState<HubFilter>(loadHubFilter)
-  const hubPanesRef = useRef<PaneNode[]>([])
   const changeHubFilter = useCallback((f: HubFilter) => { setHubFilter(f); saveHubFilter(f) }, [])
   const hubPrevFocusRef = useRef<string | null>(null)
+  // Scroll-to-tile request when a terminal is picked in the Hub sidebar. The
+  // nonce forces a re-scroll even if the same terminal is clicked twice.
+  const [hubFocusTarget, setHubFocusTarget] = useState<{ id: string; nonce: number } | null>(null)
   const [sidebarExpanded, setSidebarExpanded] = useState(false)
   const [fontSize, setFontSize] = useState<number>(() => {
     const saved = localStorage.getItem('nest-font-size')
@@ -466,18 +468,6 @@ export default function App() {
     if (focusedPaneIdRef.current === paneId) { focusedPaneIdRef.current = null; setFocusedPaneId(null) }
   }, [])
 
-  // Reorder Hub tiles: save the order (ids) on the active Hub tab.
-  const handleHubDragEnd = useCallback((e: DragEndEvent) => {
-    setDraggingId(null)
-    const { active, over } = e
-    if (!over || active.id === over.id) return
-    const ids = hubPanesRef.current.map(p => p.id)
-    const from = ids.indexOf(String(active.id))
-    const to = ids.indexOf(String(over.id))
-    if (from < 0 || to < 0) return
-    updateActiveTab(t => ({ ...t, hubOrder: swap(ids, from, to) }))
-  }, [updateActiveTab])
-
   const updatePaneColor = useCallback((paneId: string, borderColor: string) => {
     updateActiveTab(t => ({
       ...t,
@@ -664,6 +654,48 @@ export default function App() {
       panes: t.panes.map(p => p.id !== paneId ? p : { ...p, pinned: !p.pinned }),
     }))
   }, [])
+
+  // ── Hub composition (show/hide) — stored as `hubHidden` on the active Hub tab.
+  // A pane not listed there is shown; the Hub defaults to showing everything and
+  // the user filters DOWN (removes tiles), which keeps new terminals visible. ──
+  const handleHubToggleTerminal = useCallback((paneId: string) => {
+    updateActiveTab(t => {
+      const hidden = new Set(t.hubHidden ?? [])
+      if (hidden.has(paneId)) hidden.delete(paneId); else hidden.add(paneId)
+      return { ...t, hubHidden: [...hidden] }
+    })
+  }, [updateActiveTab])
+
+  const handleHubToggleWorkspace = useCallback((tabId: string) => {
+    const src = tabsRef.current.find(t => t.id === tabId)
+    if (!src) return
+    const paneIds = src.panes.filter(p => p.aiType !== 'browser').map(p => p.id)
+    updateActiveTab(t => {
+      const hidden = new Set(t.hubHidden ?? [])
+      // Any shown → hide the whole workspace; otherwise re-show all of it.
+      const anyShown = paneIds.some(id => !hidden.has(id))
+      paneIds.forEach(id => anyShown ? hidden.add(id) : hidden.delete(id))
+      return { ...t, hubHidden: [...hidden] }
+    })
+  }, [updateActiveTab])
+
+  const handleHubShowWorkspace = useCallback((tabId: string) => {
+    const src = tabsRef.current.find(t => t.id === tabId)
+    if (!src) return
+    const paneIds = new Set(src.panes.map(p => p.id))
+    updateActiveTab(t => ({ ...t, hubHidden: (t.hubHidden ?? []).filter(id => !paneIds.has(id)) }))
+  }, [updateActiveTab])
+
+  // Sidebar terminal click: bring that live tile into view *within the Hub*
+  // (un-hide it if it was removed, then scroll to it) — never navigate away.
+  const handleHubFocus = useCallback((paneId: string) => {
+    updateActiveTab(t =>
+      t.hubHidden?.includes(paneId)
+        ? { ...t, hubHidden: t.hubHidden.filter(id => id !== paneId) }
+        : t
+    )
+    setHubFocusTarget(prev => ({ id: paneId, nonce: (prev?.nonce ?? 0) + 1 }))
+  }, [updateActiveTab])
 
   const convertActiveTabToHub = useCallback(() => {
     // A Hub tab owns no panes (HubView would filter them out → invisible,
@@ -861,6 +893,7 @@ export default function App() {
             panes: raw.panes.map(sessionToPane),
             splitRatios: raw.splitRatios ?? {},
             isHub: raw.isHub,
+            hubHidden: raw.hubHidden,
           }
         }
         // v2: layout + cells
@@ -960,6 +993,7 @@ export default function App() {
           })),
           splitRatios: tab.splitRatios,
           isHub: tab.isHub,
+          hubHidden: tab.hubHidden,
         })),
         activeTabId,
       }
@@ -1130,37 +1164,20 @@ export default function App() {
     [tabs]
   )
 
-  // Aggregation of all terminals (from every workspace) for the Hub:
-  // filtered, sorted and capped to MAX_PANES for the layout engine.
+  // The Hub as a composable, filterable VIEW: every terminal from every other
+  // workspace, grouped by source workspace, minus the ones the user hid. No cap
+  // — the grid scrolls (see composeHubGroups / HubWorkspace).
+  const hubHiddenSet = useMemo(() => new Set(activeTab.hubHidden ?? []), [activeTab.hubHidden])
   const hubData = useMemo(() => {
     if (!activeTab.isHub) return null
     const source = tabs.filter(t => !t.isHub)
     const entries: HubEntry[] = source.flatMap(t =>
       t.panes.filter(p => p.aiType !== 'browser').map(p => ({
-        pane: p, tabId: t.id, tabName: t.name, isActiveTab: false, busy: activePanes.has(p.id),
+        pane: p, tabId: t.id, tabName: t.name, accentColor: t.accentColor,
+        isActiveTab: false, busy: activePanes.has(p.id),
       })))
-    const counts = {
-      all: entries.length,
-      active: entries.filter(e => e.busy).length,
-      pinned: entries.filter(e => e.pane.pinned).length,
-    }
-    const order = activeTab.hubOrder ?? []
-    const ordered = [...filterEntries(entries, hubFilter)].sort((a, b) => {
-      const ia = order.indexOf(a.pane.id), ib = order.indexOf(b.pane.id)
-      if (ia === -1 && ib === -1) return 0
-      if (ia === -1) return 1
-      if (ib === -1) return -1
-      return ia - ib
-    })
-    const panes = ordered.slice(0, MAX_PANES).map(e => e.pane)
-    return {
-      panes,
-      layoutId: defaultLayoutFor(panes.length),
-      counts,
-      hiddenCount: Math.max(0, ordered.length - MAX_PANES),
-    }
-  }, [activeTab.isHub, activeTab.hubOrder, tabs, activePanes, hubFilter])
-  hubPanesRef.current = hubData?.panes ?? []
+    return composeHubGroups(entries, hubFilter, hubHiddenSet)
+  }, [activeTab.isHub, tabs, activePanes, hubFilter, hubHiddenSet])
 
   const hubWorkspaces = useMemo(() => tabs.filter(t => !t.isHub).map(t => ({
     id: t.id,
@@ -1170,34 +1187,9 @@ export default function App() {
       id: p.id,
       label: p.customLabel ?? AI_CONFIG[p.aiType]?.label ?? 'Terminal',
       color: p.borderColor ?? p.customColor ?? AI_CONFIG[p.aiType]?.color ?? '#888888',
+      hidden: hubHiddenSet.has(p.id),
     })),
-  })), [tabs])
-
-  const renderHubPane = (pane: PaneNode) => (
-    <TerminalPane
-      key={pane.id}
-      pane={pane}
-      ports={panePorts[pane.id] ?? []}
-      isDragging={draggingId === pane.id}
-      zoomed={zoomedPaneId === pane.id}
-      zoomingOut={zoomedPaneId === pane.id && zoomingOut}
-      onZoom={() => handleZoom(pane.id)}
-      onClose={() => removePaneAnywhere(pane.id)}
-      onColorChange={(c) => updatePaneAnywhere(pane.id, p => ({ ...p, borderColor: c }))}
-      onNoteChange={(note) => updatePaneAnywhere(pane.id, p => ({ ...p, note }))}
-      fontSize={fontSize}
-      onInput={(data) => window.pty.write(pane.id, data)}
-      onFocus={() => { setFocusedPaneId(pane.id); focusedPaneIdRef.current = pane.id }}
-      onBusyChange={handleBusyChange}
-      onActivity={handlePaneActivity}
-      onJoinRequest={() => setJoinRequest({ paneId: pane.id, paneTitle: pane.customLabel ?? pane.accountName ?? 'Terminal' })}
-      onPtyStarted={(id, rp) => updatePaneAnywhere(id, p => ({ ...p, runningRepoPath: rp }))}
-      allowSharing={planLimits.allowSharing}
-      onRequireUpgrade={() => setShowUpgrade(true)}
-      onTogglePin={() => updatePaneAnywhere(pane.id, p => ({ ...p, pinned: !p.pinned }))}
-      onRename={(label) => updatePaneAnywhere(pane.id, p => ({ ...p, customLabel: label || undefined }))}
-    />
-  )
+  })), [tabs, hubHiddenSet])
 
   return (
     <div className="app" style={{ '--tab-accent': activeTab.accentColor ?? 'var(--raven-blue)' } as React.CSSProperties}>
@@ -1280,13 +1272,15 @@ export default function App() {
         isHub={activeTab.isHub ?? false}
         hubWorkspaces={hubWorkspaces}
         onSelectWorkspace={(id) => {
-          // Hub is a filterable VIEW, not a launcher: focus the workspace's
+          // Hub is a filterable VIEW, not a launcher: scroll to the workspace's
           // first terminal *within* the Hub grid instead of navigating away.
           const t = tabs.find(x => x.id === id)
           const p = t?.panes.find(pp => pp.aiType !== 'browser')
-          if (p) focusTerminal(p.id)
+          if (p) handleHubFocus(p.id)
         }}
-        onJumpToPane={(_tabId, paneId) => focusTerminal(paneId)}
+        onJumpToPane={(_tabId, paneId) => handleHubFocus(paneId)}
+        onToggleTerminal={handleHubToggleTerminal}
+        onToggleWorkspace={handleHubToggleWorkspace}
         onNewWorkspace={handleTabNew}
         onAddTerminalToWorkspace={(tabId) => { setActiveTabId(tabId); setAddingPane({}) }}
         onRepoLink={handleRepoLink}
@@ -1317,19 +1311,17 @@ export default function App() {
       >
         {activeTab.isHub ? (
           <HubWorkspace
-            panes={hubData?.panes ?? []}
-            layoutId={hubData?.layoutId ?? '1'}
-            splitRatios={activeTab.splitRatios}
-            filter={hubFilter}
+            groups={hubData?.groups ?? []}
             counts={hubData?.counts ?? { all: 0, active: 0, pinned: 0 }}
-            hiddenCount={hubData?.hiddenCount ?? 0}
+            shownCount={hubData?.shown ?? 0}
+            hiddenCount={hubData?.hidden ?? 0}
+            filter={hubFilter}
+            focusTarget={hubFocusTarget}
             onFilter={changeHubFilter}
-            onResize={handleSplitResize}
-            onDragStart={handleDragStart}
-            onDragEnd={handleHubDragEnd}
-            draggingId={draggingId}
-            sensors={sensors}
-            renderPane={renderHubPane}
+            onJump={handleHubJump}
+            onTogglePin={handleHubTogglePin}
+            onHide={handleHubToggleTerminal}
+            onShowWorkspace={handleHubShowWorkspace}
           />
         ) : isInitialState ? (
           <EmptyState

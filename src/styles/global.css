@@ -9704,6 +9704,112 @@ body.platform-mac .tabbar { padding-right: 116px; }
   color: var(--text-muted);
 }
 
+/* ── Hub-tab: grouped, scrollable mirror grid ── */
+.hub-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* Inside a group the outer .hub-scroll owns the scroll — the per-group grid
+   just lays out its tiles and grows to fit. */
+.hub-scroll .hub-grid {
+  flex: none;
+  overflow: visible;
+  padding: 6px 8px 12px;
+}
+
+.hub-group + .hub-group {
+  border-top: 1px solid var(--border);
+}
+
+.hub-group-header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border);
+  user-select: none;
+}
+
+.hub-group-name {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.hub-group-count {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.hub-group-show {
+  margin-left: 6px;
+  font-size: 10px;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 1px 7px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.hub-group-show:hover {
+  color: var(--text-primary);
+  border-color: var(--text-muted);
+}
+
+/* Tile actions: open-in-workspace (↗) and remove-from-Hub (×) */
+.hub-tile-open,
+.hub-tile-hide {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 2px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+
+.hub-tile-open svg,
+.hub-tile-hide svg {
+  width: 12px;
+  height: 12px;
+}
+
+.hub-tile-open:hover {
+  color: var(--text-primary);
+  border-color: var(--border);
+}
+
+.hub-tile-hide:hover {
+  color: #ff6b6b;
+  border-color: var(--border);
+}
+
+/* Sidebar picker checkbox (compose which terminals show in the Hub) */
+.hub-check {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+  margin: 0 1px 0 0;
+  cursor: pointer;
+  accent-color: var(--raven-blue);
+}
+
+.hub-term-hidden {
+  opacity: 0.45;
+}
+
 .hub-empty-slot {
   width: 100%;
   height: 100%;

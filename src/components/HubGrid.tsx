@@ -1,24 +1,9 @@
-import { PaneNode } from '../types'
 import HubTile from './HubTile'
+import { type HubEntry, type HubFilter, filterEntries } from '../lib/hub-compose'
 
-export interface HubEntry {
-  pane: PaneNode
-  tabId: string
-  tabName: string
-  isActiveTab: boolean
-  busy: boolean
-}
-
-// Cross-cutting Hub filters. There is NO per-workspace filter: filtering to a
-// single workspace would show the same thing as going to its tab, so it adds
-// nothing.
-export type HubFilter = 'all' | 'active' | 'pinned'
-
-export function filterEntries(entries: HubEntry[], filter: HubFilter): HubEntry[] {
-  if (filter === 'active') return entries.filter(e => e.busy)
-  if (filter === 'pinned') return entries.filter(e => e.pane.pinned)
-  return entries  // 'all'
-}
+// Re-exported for existing import sites (App, HubView, HubTile, HubWorkspace).
+export { filterEntries }
+export type { HubEntry, HubFilter }
 
 interface Props {
   entries: HubEntry[]

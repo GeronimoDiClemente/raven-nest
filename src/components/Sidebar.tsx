@@ -63,6 +63,8 @@ interface Props {
   hubWorkspaces?: HubWorkspace[]
   onSelectWorkspace?: (tabId: string) => void
   onJumpToPane?: (tabId: string, paneId: string) => void
+  onToggleTerminal?: (paneId: string) => void
+  onToggleWorkspace?: (tabId: string) => void
   onNewWorkspace?: () => void
   onAddTerminalToWorkspace?: (tabId: string) => void
 }
@@ -75,7 +77,7 @@ export default function Sidebar({
   isTrialActive, trialDaysLeft, profileLoading, onUpgrade, onTeamsOpen, pendingInvitesCount = 0, onMyReposOpen, plan, repoPath, onRepoLink, onRepoUnlink, onJoinTerminal,
   activeCellRepoPath, onWorktreeSelect, onNewWorktree, worktreeRefreshKey,
   layoutId, paneCount, onLayoutChange, onOpenTutorial,
-  isHub = false, hubWorkspaces, onSelectWorkspace, onJumpToPane, onNewWorkspace, onAddTerminalToWorkspace,
+  isHub = false, hubWorkspaces, onSelectWorkspace, onJumpToPane, onToggleTerminal, onToggleWorkspace, onNewWorkspace, onAddTerminalToWorkspace,
 }: Props) {
   const { branch, githubUrl, isDirty } = useGitInfo(repoPath)
   const { githubToken } = useGitHub()
@@ -468,12 +470,14 @@ export default function Sidebar({
       </button>
 
       <div className="sidebar-scroll">
-        {isHub && onSelectWorkspace && onJumpToPane && onNewWorkspace && onAddTerminalToWorkspace && (
+        {isHub && onSelectWorkspace && onJumpToPane && onToggleTerminal && onToggleWorkspace && onNewWorkspace && onAddTerminalToWorkspace && (
           <HubSidebarPanel
             workspaces={hubWorkspaces ?? []}
             expanded={expanded}
             onSelectWorkspace={onSelectWorkspace}
             onJumpToPane={onJumpToPane}
+            onToggleTerminal={onToggleTerminal}
+            onToggleWorkspace={onToggleWorkspace}
             onNewWorkspace={onNewWorkspace}
             onAddTerminal={onAddTerminalToWorkspace}
           />

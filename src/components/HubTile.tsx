@@ -10,9 +10,19 @@ interface Props {
   onFocus: (paneId: string) => void
   onJump: (tabId: string, paneId: string) => void
   onTogglePin: (tabId: string, paneId: string) => void
+  // Hub-tab only: remove this terminal from the composed Hub grid. Omitted in
+  // the overlay (which shows every terminal and has no show/hide model).
+  onHide?: (paneId: string) => void
+  // Lets the grouped grid register the tile's root node for scroll-to-tile.
+  innerRef?: (el: HTMLDivElement | null) => void
+  // The grouped Hub-tab already labels each section with its workspace, so the
+  // per-tile workspace chip is redundant there; the flat overlay keeps it.
+  showWorkspace?: boolean
 }
 
-export default function HubTile({ entry, focused, onFocus, onJump, onTogglePin }: Props) {
+export default function HubTile({
+  entry, focused, onFocus, onJump, onTogglePin, onHide, innerRef, showWorkspace = true,
+}: Props) {
   const { pane, tabId, tabName, isActiveTab, busy } = entry
   // Active-tab panes stay mounted at real size behind the overlay — never
   // resize their PTY from a tile (see spec: "PTY size").
@@ -37,6 +47,7 @@ export default function HubTile({ entry, focused, onFocus, onJump, onTogglePin }
 
   return (
     <div
+      ref={innerRef}
       className={`hub-tile${focused ? ' focused' : ''}`}
       style={{ '--pane-color': aiColor } as React.CSSProperties}
       onMouseDown={() => { onFocus(pane.id); focusTile() }}
@@ -52,7 +63,7 @@ export default function HubTile({ entry, focused, onFocus, onJump, onTogglePin }
         {pane.accountName && !AI_CONFIG[pane.aiType]?.noAccount && (
           <span className="pane-account-name">{pane.accountName}</span>
         )}
-        <span className="hub-tile-ws" title={`Workspace: ${tabName}`}>{tabName}</span>
+        {showWorkspace && <span className="hub-tile-ws" title={`Workspace: ${tabName}`}>{tabName}</span>}
         {busy && !ended && <span className="hub-tile-busy" />}
         {ended && <span className="pane-ended-badge">ended</span>}
         <span className="hub-tile-spacer" />
@@ -73,6 +84,30 @@ export default function HubTile({ entry, focused, onFocus, onJump, onTogglePin }
             </svg>
           )}
         </button>
+        <button
+          className="hub-tile-open"
+          title="Open in workspace"
+          onClick={(e) => { e.stopPropagation(); onJump(tabId, pane.id) }}
+          onMouseDown={(e) => e.stopPropagation()}
+          onDoubleClick={(e) => e.stopPropagation()}
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+            <path d="M7 17L17 7M9 7h8v8" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
+        {onHide && (
+          <button
+            className="hub-tile-hide"
+            title="Remove from Hub"
+            onClick={(e) => { e.stopPropagation(); onHide(pane.id) }}
+            onMouseDown={(e) => e.stopPropagation()}
+            onDoubleClick={(e) => e.stopPropagation()}
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+              <path d="M6 6l12 12M18 6L6 18" strokeLinecap="round" />
+            </svg>
+          </button>
+        )}
       </div>
       <div ref={containerRef} className="hub-tile-terminal" />
     </div>

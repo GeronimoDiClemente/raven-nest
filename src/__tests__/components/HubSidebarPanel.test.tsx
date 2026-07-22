@@ -8,7 +8,7 @@ const workspaces = [
     { id: 'p2', label: 'API server', color: '#22C55E' },
   ] },
   { id: 'w2', name: 'Backend', terminals: [
-    { id: 'p3', label: 'Gemini', color: '#4285F4' },
+    { id: 'p3', label: 'Gemini', color: '#4285F4', hidden: true },
   ] },
 ]
 
@@ -17,6 +17,8 @@ const baseProps = {
   expanded: true,
   onSelectWorkspace: () => {},
   onJumpToPane: () => {},
+  onToggleTerminal: () => {},
+  onToggleWorkspace: () => {},
   onNewWorkspace: () => {},
   onAddTerminal: () => {},
 }
@@ -35,6 +37,26 @@ describe('HubSidebarPanel', () => {
     render(<HubSidebarPanel {...baseProps} onJumpToPane={onJumpToPane} />)
     fireEvent.click(screen.getByText('API server'))
     expect(onJumpToPane).toHaveBeenCalledWith('w1', 'p2')
+  })
+
+  it('toggles a terminal in/out of the Hub via its checkbox', () => {
+    const onToggleTerminal = vi.fn()
+    render(<HubSidebarPanel {...baseProps} onToggleTerminal={onToggleTerminal} />)
+    fireEvent.click(screen.getByLabelText('Show API server'))
+    expect(onToggleTerminal).toHaveBeenCalledWith('p2')
+  })
+
+  it('reflects a hidden terminal as unchecked', () => {
+    render(<HubSidebarPanel {...baseProps} />)
+    expect(screen.getByLabelText('Show Gemini')).not.toBeChecked()
+    expect(screen.getByLabelText('Show Claude')).toBeChecked()
+  })
+
+  it('toggles a whole workspace in/out of the Hub', () => {
+    const onToggleWorkspace = vi.fn()
+    render(<HubSidebarPanel {...baseProps} onToggleWorkspace={onToggleWorkspace} />)
+    fireEvent.click(screen.getByLabelText('Show all Backend'))
+    expect(onToggleWorkspace).toHaveBeenCalledWith('w2')
   })
 
   it('creates a new workspace', () => {
