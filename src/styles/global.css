@@ -301,6 +301,10 @@ body {
   -webkit-app-region: no-drag;
 }
 
+.tab-overflow--hidden {
+  display: none;
+}
+
 .tab-overflow-btn {
   display: flex;
   align-items: center;

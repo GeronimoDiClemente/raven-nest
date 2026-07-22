@@ -155,6 +155,7 @@ export default function TabBar({
   )
 
   const [menuOpen, setMenuOpen] = useState(false)
+  const [overflowing, setOverflowing] = useState(false)
   const tabsScrollRef = useRef<HTMLDivElement>(null)
   const overflowRef = useRef<HTMLDivElement>(null)
 
@@ -173,6 +174,19 @@ export default function TabBar({
       (active as HTMLElement).scrollIntoView({ inline: 'nearest', block: 'nearest' })
     }
   }, [activeTabId, tabs.length])
+
+  // Only surface the "all workspaces" overflow menu when the strip actually
+  // overflows — with a handful of tabs it must stay out of the way.
+  useEffect(() => {
+    const el = tabsScrollRef.current
+    if (!el) return
+    const measure = () => setOverflowing(el.scrollWidth > el.clientWidth + 1)
+    measure()
+    if (typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [tabs.length])
 
   // Close the overflow menu on outside click.
   useEffect(() => {
@@ -229,7 +243,7 @@ export default function TabBar({
         +
       </button>
 
-      <div className="tab-overflow" ref={overflowRef}>
+      <div className={`tab-overflow${overflowing ? '' : ' tab-overflow--hidden'}`} ref={overflowRef}>
         <button
           className="tab-overflow-btn"
           onClick={() => setMenuOpen((v) => !v)}
