@@ -9613,142 +9613,28 @@ body.platform-mac .tabbar { padding-right: 116px; }
   margin-left: 4px;
 }
 
-/* ── Hub-tab sidebar (workspace builder) ── */
-.hub-side {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 4px 0;
-}
-
-.hub-side-caption {
-  font-size: 10px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-muted);
-  padding: 4px 12px;
-}
-
-.hub-side-empty {
-  font-size: 11px;
-  color: var(--text-muted);
-  padding: 6px 12px;
-}
-
-.hub-side-new {
-  color: var(--text-secondary);
-}
-
-.hub-side-ws-row {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  padding: 0 6px 0 4px;
-}
-
-.hub-side-caret,
-.hub-side-add {
+/* ── Hub-tab sidebar (reuses the .wt-* / .sidebar-* aesthetic) ── */
+.hub-ws-caret {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 20px;
-  height: 24px;
+  width: 16px;
   border: none;
   background: transparent;
   color: var(--text-muted);
-  cursor: pointer;
-  flex-shrink: 0;
-}
-
-.hub-side-add {
-  font-size: 15px;
-  line-height: 1;
-}
-
-.hub-side-caret:hover,
-.hub-side-add:hover {
-  color: var(--text-primary);
-}
-
-.hub-side-ws-name {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  flex: 1;
-  min-width: 0;
-  height: 24px;
-  padding: 0 4px;
-  border: none;
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: 12px;
-  cursor: pointer;
-  border-radius: 5px;
-}
-
-.hub-side-ws-name:hover {
-  background: rgba(255, 255, 255, 0.05);
-  color: var(--text-primary);
-}
-
-.hub-side-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-
-.hub-side-ws-label {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  text-align: left;
-}
-
-.hub-side-count {
   font-size: 10px;
-  color: var(--text-muted);
-  font-variant-numeric: tabular-nums;
-}
-
-.hub-side-terms {
-  display: flex;
-  flex-direction: column;
-  padding-left: 22px;
-}
-
-.hub-side-term {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  height: 22px;
-  padding: 0 8px;
-  border: none;
-  background: transparent;
-  color: var(--text-muted);
-  font-size: 11.5px;
   cursor: pointer;
-  border-radius: 5px;
+  flex-shrink: 0;
+  padding: 0;
 }
 
-.hub-side-term:hover {
-  background: rgba(255, 255, 255, 0.05);
+.hub-ws-caret:hover {
   color: var(--text-primary);
 }
 
-.hub-side-term-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-
-.hub-side-term-label {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+/* Terminal rows sit indented under their workspace row */
+.hub-term-item {
+  padding-left: 18px;
 }
 
 .hub-tile-spacer {

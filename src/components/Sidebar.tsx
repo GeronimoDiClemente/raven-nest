@@ -468,9 +468,10 @@ export default function Sidebar({
       </button>
 
       <div className="sidebar-scroll">
-        {isHub && expanded && onSelectWorkspace && onJumpToPane && onNewWorkspace && onAddTerminalToWorkspace && (
+        {isHub && onSelectWorkspace && onJumpToPane && onNewWorkspace && onAddTerminalToWorkspace && (
           <HubSidebarPanel
             workspaces={hubWorkspaces ?? []}
+            expanded={expanded}
             onSelectWorkspace={onSelectWorkspace}
             onJumpToPane={onJumpToPane}
             onNewWorkspace={onNewWorkspace}

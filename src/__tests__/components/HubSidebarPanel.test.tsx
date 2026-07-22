@@ -14,6 +14,7 @@ const workspaces = [
 
 const baseProps = {
   workspaces,
+  expanded: true,
   onSelectWorkspace: () => {},
   onJumpToPane: () => {},
   onNewWorkspace: () => {},
@@ -29,7 +30,7 @@ describe('HubSidebarPanel', () => {
     expect(screen.getByText('Gemini')).toBeTruthy()
   })
 
-  it('jumps to a terminal on click', () => {
+  it('focuses a terminal in the Hub on click (does not navigate)', () => {
     const onJumpToPane = vi.fn()
     render(<HubSidebarPanel {...baseProps} onJumpToPane={onJumpToPane} />)
     fireEvent.click(screen.getByText('API server'))
@@ -39,7 +40,7 @@ describe('HubSidebarPanel', () => {
   it('creates a new workspace', () => {
     const onNewWorkspace = vi.fn()
     render(<HubSidebarPanel {...baseProps} onNewWorkspace={onNewWorkspace} />)
-    fireEvent.click(screen.getByText(/new workspace/i))
+    fireEvent.click(screen.getByTitle('New workspace'))
     expect(onNewWorkspace).toHaveBeenCalled()
   })
 
@@ -48,5 +49,11 @@ describe('HubSidebarPanel', () => {
     render(<HubSidebarPanel {...baseProps} onAddTerminal={onAddTerminal} />)
     fireEvent.click(screen.getByTitle('New terminal in Backend'))
     expect(onAddTerminal).toHaveBeenCalledWith('w2')
+  })
+
+  it('collapses to just the new-workspace action when the sidebar is collapsed', () => {
+    render(<HubSidebarPanel {...baseProps} expanded={false} />)
+    expect(screen.getByTitle('New workspace')).toBeTruthy()
+    expect(screen.queryByText('Frontend')).toBeNull()
   })
 })

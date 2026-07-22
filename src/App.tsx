@@ -1279,8 +1279,14 @@ export default function App() {
         repoPath={activeTab.repoPath}
         isHub={activeTab.isHub ?? false}
         hubWorkspaces={hubWorkspaces}
-        onSelectWorkspace={(id) => setActiveTabId(id)}
-        onJumpToPane={handleHubJump}
+        onSelectWorkspace={(id) => {
+          // Hub is a filterable VIEW, not a launcher: focus the workspace's
+          // first terminal *within* the Hub grid instead of navigating away.
+          const t = tabs.find(x => x.id === id)
+          const p = t?.panes.find(pp => pp.aiType !== 'browser')
+          if (p) focusTerminal(p.id)
+        }}
+        onJumpToPane={(_tabId, paneId) => focusTerminal(paneId)}
         onNewWorkspace={handleTabNew}
         onAddTerminalToWorkspace={(tabId) => { setActiveTabId(tabId); setAddingPane({}) }}
         onRepoLink={handleRepoLink}
