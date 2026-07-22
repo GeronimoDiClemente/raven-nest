@@ -7,6 +7,7 @@ import SettingsPanel from './SettingsPanel'
 import UserMenu from './UserMenu'
 import RepoActionsBar from './RepoActionsBar'
 import { WorktreesSection } from './WorktreesSection'
+import HubSidebarPanel, { type HubWorkspace } from './HubSidebarPanel'
 import { useGitHub } from '../hooks/useGitHub'
 import { useGitlab } from '../hooks/useGitlab'
 import { LayoutId, Workspace, MAX_PANES } from '../types'
@@ -57,6 +58,13 @@ interface Props {
   paneCount: number
   onLayoutChange: (id: LayoutId) => void
   onOpenTutorial?: (tourId: import('../tutorial/types').TourId) => void
+  // Hub-tab sidebar (#2/#3): swap the repo context group for a workspace builder.
+  isHub?: boolean
+  hubWorkspaces?: HubWorkspace[]
+  onSelectWorkspace?: (tabId: string) => void
+  onJumpToPane?: (tabId: string, paneId: string) => void
+  onNewWorkspace?: () => void
+  onAddTerminalToWorkspace?: (tabId: string) => void
 }
 
 export default function Sidebar({
@@ -67,6 +75,7 @@ export default function Sidebar({
   isTrialActive, trialDaysLeft, profileLoading, onUpgrade, onTeamsOpen, pendingInvitesCount = 0, onMyReposOpen, plan, repoPath, onRepoLink, onRepoUnlink, onJoinTerminal,
   activeCellRepoPath, onWorktreeSelect, onNewWorktree, worktreeRefreshKey,
   layoutId, paneCount, onLayoutChange, onOpenTutorial,
+  isHub = false, hubWorkspaces, onSelectWorkspace, onJumpToPane, onNewWorkspace, onAddTerminalToWorkspace,
 }: Props) {
   const { branch, githubUrl, isDirty } = useGitInfo(repoPath)
   const { githubToken } = useGitHub()
@@ -393,7 +402,7 @@ export default function Sidebar({
           <path d="M5 12v2M11 12v2M3 14h10" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
         </svg>
       </span>
-      <span className="sidebar-label">Workspaces</span>
+      <span className="sidebar-label">Saved layouts</span>
       <WorkspacePanel onSave={onWorkspaceSave} onLoad={onWorkspaceLoad} onRequireUpgrade={onUpgrade} />
     </div>
   )
@@ -459,6 +468,17 @@ export default function Sidebar({
       </button>
 
       <div className="sidebar-scroll">
+        {isHub && onSelectWorkspace && onJumpToPane && onNewWorkspace && onAddTerminalToWorkspace && (
+          <HubSidebarPanel
+            workspaces={hubWorkspaces ?? []}
+            onSelectWorkspace={onSelectWorkspace}
+            onJumpToPane={onJumpToPane}
+            onNewWorkspace={onNewWorkspace}
+            onAddTerminal={onAddTerminalToWorkspace}
+          />
+        )}
+
+        {!isHub && (<>
         {/* ── 1. REPO (top focus) ───────────────────────────── */}
         <div
           className="sidebar-item sidebar-repo"
@@ -529,6 +549,7 @@ export default function Sidebar({
             />
           </div>
         )}
+        </>)}
 
         {/* ── 3. TEAMS + MY REPOS ───────────────────────────── */}
         <div className="sidebar-section-divider" />
@@ -623,6 +644,7 @@ export default function Sidebar({
         </div>
 
         {/* ── 4.5. LAYOUT SELECTOR (replaces v1.0 LayoutPicker) ── */}
+        {!isHub && (
         <div
           className="sidebar-item sidebar-item-panel"
           ref={layoutAnchorRef}
@@ -637,7 +659,8 @@ export default function Sidebar({
           </span>
           <span className="sidebar-label">Layout</span>
         </div>
-        {layoutOpen && layoutPopPos && (
+        )}
+        {!isHub && layoutOpen && layoutPopPos && (
           <div
             ref={layoutPopoverRef}
             className="layout-selector-popover"
@@ -670,7 +693,7 @@ export default function Sidebar({
         )}
 
         {/* ── 5. NEW TERMINAL (acción primaria; oculto al tope) ── */}
-        {paneCount < MAX_PANES && (
+        {!isHub && paneCount < MAX_PANES && (
           <button
             className="sidebar-item sidebar-new-terminal"
             onClick={onNewPane}

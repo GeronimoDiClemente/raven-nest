@@ -1162,6 +1162,17 @@ export default function App() {
   }, [activeTab.isHub, activeTab.hubOrder, tabs, activePanes, hubFilter])
   hubPanesRef.current = hubData?.panes ?? []
 
+  const hubWorkspaces = useMemo(() => tabs.filter(t => !t.isHub).map(t => ({
+    id: t.id,
+    name: t.name,
+    accentColor: t.accentColor,
+    terminals: t.panes.filter(p => p.aiType !== 'browser').map(p => ({
+      id: p.id,
+      label: p.customLabel ?? AI_CONFIG[p.aiType]?.label ?? 'Terminal',
+      color: p.borderColor ?? p.customColor ?? AI_CONFIG[p.aiType]?.color ?? '#888888',
+    })),
+  })), [tabs])
+
   const renderHubPane = (pane: PaneNode) => (
     <TerminalPane
       key={pane.id}
@@ -1266,6 +1277,12 @@ export default function App() {
         }}
         plan={plan}
         repoPath={activeTab.repoPath}
+        isHub={activeTab.isHub ?? false}
+        hubWorkspaces={hubWorkspaces}
+        onSelectWorkspace={(id) => setActiveTabId(id)}
+        onJumpToPane={handleHubJump}
+        onNewWorkspace={handleTabNew}
+        onAddTerminalToWorkspace={(tabId) => { setActiveTabId(tabId); setAddingPane({}) }}
         onRepoLink={handleRepoLink}
         onRepoUnlink={handleRepoUnlink}
         isListening={isListening}
