@@ -2,6 +2,8 @@ import { readFileSync, writeFileSync, mkdirSync } from 'fs'
 import { dirname } from 'path'
 import type { PanelAdapterDeps } from './integration-panels'
 import type { Ticket, TicketProviderFactory } from './integrations/ticket-types'
+import type { EventBus } from './integrations/event-bus'
+import type { DomainEvent } from './integrations/bus-types'
 
 interface Tracked {
   pluginId: string
@@ -22,9 +24,23 @@ export class TicketLoop {
   private factories = new Map<string, TicketProviderFactory>()
   private tracked = new Map<string, Tracked>()
   private storePath: string | null = null
+  /**
+   * Bus de eventos OPCIONAL. Sin bus (undefined) el loop se comporta idéntico a
+   * H3 (transición directa por provider). Con bus, onPrStateChanged EMITE
+   * pr.opened/pr.merged y el handler updateStatus hace la transición. Se adjunta
+   * por setter (attachBus), no por constructor, para preservar la firma zero-arg
+   * `new TicketLoop()` que usan los 14+ tests. El singleton nace sin bus; sólo el
+   * wiring de main (T7) lo cablea.
+   */
+  private bus?: EventBus
 
   register(pluginId: string, factory: TicketProviderFactory): void {
     this.factories.set(pluginId, factory)
+  }
+
+  /** Adjunta (o desadjunta con undefined) el bus de eventos. Ver campo `bus`. */
+  attachBus(bus?: EventBus): void {
+    this.bus = bus
   }
 
   registeredIds(): string[] { return [...this.factories.keys()] }
@@ -119,6 +135,32 @@ export class TicketLoop {
       // The transition is best-effort: the worktree already exists, don't break the flow.
       console.warn('[ticket-loop] transition in_progress failed', ticket.key, err)
     }
+    // Bus opcional: ADITIVO, no reemplaza. La transición a in_progress ya se hizo
+    // directa arriba (sincrónica, esperada por los tests). Con bus, además
+    // emitimos task.created + session.opened para observabilidad/motores futuros.
+    // No hay doble transición: la receta de task.created es no-op en v1.
+    if (this.bus) {
+      const created: DomainEvent = {
+        type: 'task.created',
+        taskId: ticket.key,
+        pluginId,
+        providerId: ticket.providerId,
+        repoFullName,
+        branch,
+        title: ticket.title,
+      }
+      await this.bus.emit(created, deps)
+      const opened: DomainEvent = {
+        // repoPath real vive en main (worktree:create); acá no lo conocemos.
+        // Ninguna receta v1 consume session.opened, así que el valor no es load-bearing.
+        type: 'session.opened',
+        branch,
+        repoPath: '',
+        pluginId,
+        providerId: ticket.providerId,
+      }
+      await this.bus.emit(opened, deps)
+    }
   }
 
   trackedTicket(branch: string): Tracked | undefined { return this.tracked.get(branch) }
@@ -166,6 +208,21 @@ export class TicketLoop {
     // notifications). If the transition fails we keep lastPr unset so the
     // next cycle retries.
     if (pr === 'open' && t.lastPr === 'open') return
+    // Rama con bus (OPCIONAL): reemplaza la transición directa por un emit.
+    // El emit va SIEMPRE antes del delete/set para que el `then(ev)` de la receta
+    // pueda resolver branch→ticket mientras el tracking sigue vivo. El handler
+    // updateStatus (registrado en main/T5) hace la transición real. Se conserva
+    // arriba el guard lastPr, así que tampoco se re-emite pr.opened cada ciclo.
+    if (this.bus) {
+      const ev: DomainEvent = pr === 'open'
+        ? { type: 'pr.opened', branch, repoFullName: t.repoFullName ?? '' }
+        : { type: 'pr.merged', branch, repoFullName: t.repoFullName ?? '' }
+      await this.bus.emit(ev, deps)
+      if (pr === 'merged') this.tracked.delete(branch)
+      else this.tracked.set(branch, { ...t, lastPr: 'open' })
+      this.saveTracked()
+      return
+    }
     const p = this.provider(t.pluginId, deps)
     if (!p) return
     try {

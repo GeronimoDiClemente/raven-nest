@@ -4,6 +4,9 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import { TicketLoop } from '../ticket-loop'
 import type { Ticket, TicketProvider } from '../integrations/ticket-types'
+import { EventBus } from '../integrations/event-bus'
+import { defaultRecipes } from '../integrations/recipes'
+import type { Command, DomainEvent } from '../integrations/bus-types'
 
 const ticket: Ticket = {
   key: 'PROJ-1', providerId: 'p1', title: 'Fix', url: 'u', state: 'todo', context: 'ctx',
@@ -131,5 +134,78 @@ describe('TicketLoop', () => {
     loop.retainBranches(['rama-viva'])
     expect(loop.trackedTicket('rama-viva')).toBeDefined()
     expect(loop.trackedTicket('rama-muerta')).toBeUndefined()
+  })
+})
+
+describe('TicketLoop con bus adjunto', () => {
+  let provider: TicketProvider
+  let loop: TicketLoop
+  let bus: EventBus
+  let commands: Command[]
+
+  beforeEach(() => {
+    provider = makeProvider()
+    loop = new TicketLoop()
+    loop.register('jira', () => provider)
+    bus = new EventBus()
+    // Recetas por defecto (replican H3): resuelven branch→ticket via el tracking vivo del loop.
+    bus.setRecipes(defaultRecipes((branch) => loop.trackedTicket(branch)))
+    commands = []
+    // Handler real de updateStatus: materializa el comando en el provider.
+    bus.registerHandler('updateStatus', async (cmd) => {
+      commands.push(cmd)
+      if (cmd.cmd === 'updateStatus') await provider.transition(cmd.providerId, cmd.to)
+    })
+    loop.attachBus(bus)
+  })
+
+  it('startWork mantiene la transición directa a in_progress y ADEMÁS emite task.created + session.opened', async () => {
+    const emitSpy = vi.spyOn(bus, 'emit')
+    await loop.startWork('jira', ticket, 'gero/PROJ-1-fix', {} as never, 'acme/app')
+    expect(provider.transition).toHaveBeenCalledWith('p1', 'in_progress')
+    const types = emitSpy.mock.calls.map((c) => (c[0] as DomainEvent).type)
+    expect(types).toContain('task.created')
+    expect(types).toContain('session.opened')
+    // task.created es no-op en v1: NO debe re-disparar in_progress por el bus (doble transición).
+    expect((provider.transition as ReturnType<typeof vi.fn>).mock.calls
+      .filter((c) => c[1] === 'in_progress')).toHaveLength(1)
+  })
+
+  it('onPrStateChanged open enruta pr.opened→updateStatus in_review por el bus', async () => {
+    await loop.startWork('jira', ticket, 'gero/PROJ-1-fix', {} as never, 'acme/app')
+    ;(provider.transition as ReturnType<typeof vi.fn>).mockClear()
+    await loop.onPrStateChanged('gero/PROJ-1-fix', 'open', {} as never)
+    expect(commands).toContainEqual({ cmd: 'updateStatus', pluginId: 'jira', providerId: 'p1', to: 'in_review' })
+    expect(provider.transition).toHaveBeenCalledWith('p1', 'in_review')
+  })
+
+  it('onPrStateChanged merged enruta pr.merged→updateStatus done, destrackea, y el emit ve el branch vivo', async () => {
+    await loop.startWork('jira', ticket, 'gero/PROJ-1-fix', {} as never, 'acme/app')
+    await loop.onPrStateChanged('gero/PROJ-1-fix', 'merged', {} as never)
+    // El comando se resolvió con los IDs del tracking → el emit corrió ANTES del delete.
+    expect(commands).toContainEqual({ cmd: 'updateStatus', pluginId: 'jira', providerId: 'p1', to: 'done' })
+    expect(loop.trackedTicket('gero/PROJ-1-fix')).toBeUndefined()
+  })
+
+  it('con bus preserva el guard lastPr: no re-emite pr.opened mientras el PR sigue open', async () => {
+    await loop.startWork('jira', ticket, 'gero/PROJ-1-fix', {} as never, 'acme/app')
+    const emitSpy = vi.spyOn(bus, 'emit')
+    await loop.onPrStateChanged('gero/PROJ-1-fix', 'open', {} as never)
+    await loop.onPrStateChanged('gero/PROJ-1-fix', 'open', {} as never)
+    await loop.onPrStateChanged('gero/PROJ-1-fix', 'open', {} as never)
+    const prOpened = emitSpy.mock.calls.filter((c) => (c[0] as DomainEvent).type === 'pr.opened')
+    expect(prOpened).toHaveLength(1)
+    // un cambio real de estado sí enruta done
+    await loop.onPrStateChanged('gero/PROJ-1-fix', 'merged', {} as never)
+    expect(commands.at(-1)).toEqual({ cmd: 'updateStatus', pluginId: 'jira', providerId: 'p1', to: 'done' })
+  })
+
+  it('sin bus adjunto el comportamiento es idéntico al H3 directo (transición sin emit)', async () => {
+    const bare = new TicketLoop()
+    bare.register('jira', () => provider)
+    await bare.startWork('jira', ticket, 'gero/PROJ-1-fix', {} as never, 'acme/app')
+    await bare.onPrStateChanged('gero/PROJ-1-fix', 'open', {} as never)
+    expect(provider.transition).toHaveBeenLastCalledWith('p1', 'in_review')
+    expect(commands).toHaveLength(0) // ningún comando pasó por el bus
   })
 })
