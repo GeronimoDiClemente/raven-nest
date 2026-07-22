@@ -49,6 +49,9 @@ requirement is "everything visible, compressed to fit".
    coloured dots (labels hidden) when the sidebar is at 44px. Fix: hide the builder when
    `!expanded`, or give it a proper collapsed presentation. (See screenshot 2026-07-21.)
 2. ~~Overflow chevron always visible~~ — fixed in `2554bfc`.
+3. **Hub sidebar aesthetic (Gero, 2026-07-21)**: it MUST reuse the existing sidebar look —
+   `.sidebar-item`, existing tokens and patterns — **no distinct visual language**. Rework the
+   bespoke `.hub-side-*` styling so the Hub sidebar is visually consistent with the rest of the app.
 
 ## Plan for tomorrow (order)
 1. **Rework #3 + #4 (unified): the Hub as a filterable view.**
