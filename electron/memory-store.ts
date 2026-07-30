@@ -440,6 +440,95 @@ export class MemoryStore {
     return (this.db.prepare('SELECT * FROM observations WHERE sync_id = ?').get(syncId) as ObservationRow) ?? null
   }
 
+  /** Read-only lookup used by the daemon's pull-apply path (§4.3) to detect topic collisions. */
+  findActiveTopicOwner(projectKey: string, scope: string, topicKey: string, excludeSyncId: string): ObservationRow | null {
+    return (
+      (this.db
+        .prepare(
+          `SELECT * FROM observations WHERE project_key = ? AND scope = ? AND topic_key = ?
+           AND sync_id != ? AND deleted = 0 AND superseded_by IS NULL`
+        )
+        .get(projectKey, scope, topicKey, excludeSyncId) as ObservationRow) ?? null
+    )
+  }
+
+  /**
+   * Applies an already-resolved incoming row from a cloud pull (§4.4). Unlike save(),
+   * this does NOT run the topic/dedupe resolution — the caller (memory-daemon.ts) has
+   * already applied the LWW/topic-collision rules from memory-merge.ts and is telling
+   * this store exactly what the row should look like now. Upsert by sync_id, idempotent.
+   */
+  applyIncomingObservation(row: {
+    syncId: string
+    projectKey: string
+    scope: string
+    topicKey: string | null
+    type: string
+    title: string
+    content: string
+    tags?: string[] | null
+    originAi?: string | null
+    originAccount?: string | null
+    gitBranch?: string | null
+    authorUserId?: string | null
+    authorDisplay?: string | null
+    contentHash?: string
+    updatedAt: number
+    lamport: number
+    deleted: boolean
+    supersededBy?: string | null
+    serverSeq?: number | null
+  }): void {
+    const existing = this.get(row.syncId)
+    const now = Date.now()
+    if (existing) {
+      this.db
+        .prepare(
+          `UPDATE observations SET title = ?, content = ?, tags = ?, updated_at = ?, lamport = ?,
+           deleted = ?, superseded_by = ?, server_seq = ? WHERE sync_id = ?`
+        )
+        .run(
+          row.title,
+          row.content,
+          row.tags ? JSON.stringify(row.tags) : existing.tags,
+          row.updatedAt,
+          row.lamport,
+          row.deleted ? 1 : 0,
+          row.supersededBy ?? null,
+          row.serverSeq ?? existing.server_seq,
+          row.syncId
+        )
+    } else {
+      this.insertRow({
+        sync_id: row.syncId,
+        project_key: row.projectKey,
+        scope: row.scope,
+        topic_key: row.topicKey,
+        type: row.type,
+        title: row.title,
+        content: row.content,
+        tags: row.tags ? JSON.stringify(row.tags) : null,
+        source: 'import',
+        origin_ai: row.originAi ?? null,
+        origin_account: row.originAccount ?? null,
+        git_branch: row.gitBranch ?? null,
+        author_user_id: row.authorUserId ?? null,
+        author_display: row.authorDisplay ?? null,
+        content_hash: row.contentHash ?? contentHash(row.title, row.content),
+        revision_count: 0,
+        duplicate_count: 0,
+        last_seen_at: now,
+        created_at: now,
+        updated_at: row.updatedAt,
+        lamport: row.lamport,
+        deleted: row.deleted ? 1 : 0,
+        superseded_by: row.supersededBy ?? null,
+        source_ref: null,
+        server_seq: row.serverSeq ?? null,
+      })
+    }
+  }
+
   getBySourceRef(source: string, sourceRef: string): ObservationRow | null {
     return (
       (this.db
