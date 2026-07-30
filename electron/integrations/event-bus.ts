@@ -29,6 +29,20 @@ export interface Recipe {
   then: (ev: DomainEvent) => Command[]
 }
 
+/**
+ * Resultado de un `emit`. `commands` son los comandos que las recetas dispararon
+ * (en orden, para test/observabilidad). `failed` son aquellos cuyo handler tiró:
+ * el emit es best-effort (los demás igual corrieron), pero el emisor necesita
+ * saber qué NO se aplicó para reintentar — p.ej. el ticket loop no destrackea un
+ * PR mergeado si el `updateStatus` correspondiente está en `failed`. Un comando
+ * sin handler registrado NO va a `failed` (reintentarlo sería un bucle: nunca lo
+ * tendrá); se avisa por consola aparte.
+ */
+export interface EmitResult {
+  commands: Command[]
+  failed: Command[]
+}
+
 export class EventBus {
   private handlers = new Map<Command['cmd'], CommandHandler>()
   private recipes: Recipe[] = []
@@ -46,12 +60,12 @@ export class EventBus {
    * resuelto y devuelve los comandos disparados (en orden) para test/observabilidad.
    *
    * Best-effort: un handler que tira NO interrumpe a los demás ni rechaza el
-   * emit (se loguea con `console.warn`). Awaitea a TODOS los handlers antes de
-   * resolver — el llamador (ticket loop) confía en que el tracking del branch
-   * sigue vivo mientras corren los handlers, así que el emit no puede retornar
-   * antes de que terminen.
+   * emit (se loguea con `console.warn` y el comando se acumula en `failed`).
+   * Awaitea a TODOS los handlers antes de resolver — el llamador (ticket loop)
+   * confía en que el tracking del branch sigue vivo mientras corren los handlers,
+   * así que el emit no puede retornar antes de que terminen. Ver `EmitResult`.
    */
-  async emit(ev: DomainEvent, deps: PanelAdapterDeps): Promise<Command[]> {
+  async emit(ev: DomainEvent, deps: PanelAdapterDeps): Promise<EmitResult> {
     const commands: Command[] = []
     for (const recipe of this.recipes) {
       if (recipe.when !== ev.type) continue
@@ -62,6 +76,7 @@ export class EventBus {
         console.warn('[event-bus] recipe.then falló', recipe.id, ev.type, err)
       }
     }
+    const failed: Command[] = []
     for (const cmd of commands) {
       const handler = this.handlers.get(cmd.cmd)
       if (!handler) {
@@ -72,8 +87,9 @@ export class EventBus {
         await handler(cmd, ev, deps)
       } catch (err) {
         console.warn('[event-bus] handler falló', cmd.cmd, ev.type, err)
+        failed.push(cmd)
       }
     }
-    return commands
+    return { commands, failed }
   }
 }

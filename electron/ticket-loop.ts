@@ -283,10 +283,21 @@ export class TicketLoop {
       const ev: DomainEvent = pr === 'open'
         ? { type: 'pr.opened', branch, repoFullName: t.repoFullName ?? '' }
         : { type: 'pr.merged', branch, repoFullName: t.repoFullName ?? '' }
-      await this.bus.emit(ev, deps)
-      if (pr === 'merged') this.tracked.delete(branch)
-      else this.tracked.set(branch, { ...t, lastPr: 'open' })
-      this.saveTracked()
+      const { failed } = await this.bus.emit(ev, deps)
+      // Retry parity con H3: sólo damos por hecha la transición —destrackear en
+      // merge, marcar lastPr en open— si el updateStatus de ESTE ticket NO falló.
+      // El emit es best-effort y traga los errores del handler, así que sin esto
+      // un 500 transitorio de Jira/Linear dejaría el ticket stuck (tracking
+      // borrado, nunca llega a Done). Si falló, dejamos el tracking intacto para
+      // que el próximo poll re-emita y reintente, igual que el path sin-bus.
+      const statusFailed = failed.some(
+        (c) => c.cmd === 'updateStatus' && c.pluginId === t.pluginId && c.providerId === t.providerId,
+      )
+      if (!statusFailed) {
+        if (pr === 'merged') this.tracked.delete(branch)
+        else this.tracked.set(branch, { ...t, lastPr: 'open' })
+        this.saveTracked()
+      }
       return
     }
     const p = this.provider(t.pluginId, deps)

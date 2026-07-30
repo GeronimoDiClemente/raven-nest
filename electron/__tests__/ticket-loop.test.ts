@@ -200,6 +200,28 @@ describe('TicketLoop con bus adjunto', () => {
     expect(commands.at(-1)).toEqual({ cmd: 'updateStatus', pluginId: 'jira', providerId: 'p1', to: 'done' })
   })
 
+  it('con bus, si la transición merged falla el tracking sobrevive y el próximo poll reintenta', async () => {
+    await loop.startWork('jira', ticket, 'gero/PROJ-1-fix', {} as never, 'acme/app')
+    ;(provider.transition as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('jira 500'))
+    await loop.onPrStateChanged('gero/PROJ-1-fix', 'merged', {} as never) // transición falla dentro del handler
+    // El ticket NUNCA llegó a done: el tracking debe seguir vivo para reintentar (no stuck).
+    expect(loop.trackedTicket('gero/PROJ-1-fix')).toBeDefined()
+    // Próximo poll: re-emite pr.merged → transición reintenta (ahora OK) → destrackea.
+    await loop.onPrStateChanged('gero/PROJ-1-fix', 'merged', {} as never)
+    const done = (provider.transition as ReturnType<typeof vi.fn>).mock.calls.filter((c) => c[1] === 'done')
+    expect(done).toHaveLength(2)
+    expect(loop.trackedTicket('gero/PROJ-1-fix')).toBeUndefined()
+  })
+
+  it('con bus, si la transición in_review falla NO se marca lastPr y se reintenta (paridad con H3)', async () => {
+    await loop.startWork('jira', ticket, 'gero/PROJ-1-fix', {} as never, 'acme/app')
+    ;(provider.transition as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('jira 500'))
+    await loop.onPrStateChanged('gero/PROJ-1-fix', 'open', {} as never) // falla
+    await loop.onPrStateChanged('gero/PROJ-1-fix', 'open', {} as never) // reintenta (lastPr no quedó marcado)
+    const inReview = (provider.transition as ReturnType<typeof vi.fn>).mock.calls.filter((c) => c[1] === 'in_review')
+    expect(inReview).toHaveLength(2)
+  })
+
   it('sin bus adjunto el comportamiento es idéntico al H3 directo (transición sin emit)', async () => {
     const bare = new TicketLoop()
     bare.register('jira', () => provider)

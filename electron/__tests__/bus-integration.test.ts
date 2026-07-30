@@ -64,17 +64,17 @@ describe('bus-integration: todos los buses (evento → receta → comando → pr
 
     // task.created: la receta v1 es no-op (evita doble transición a in_progress).
     const created = await bus.emit(evTaskCreated, deps)
-    expect(created).toEqual([])
+    expect(created.commands).toEqual([])
 
     // pr.opened → updateStatus(to:in_review) con los IDs del tracking resueltos.
     const opened = await bus.emit(evPrOpened, deps)
-    expect(opened).toEqual([
+    expect(opened.commands).toEqual([
       { cmd: 'updateStatus', pluginId: 'jira', providerId: 'PROJ-42', to: 'in_review' },
     ])
 
     // pr.merged → updateStatus(to:done).
     const merged = await bus.emit(evPrMerged, deps)
-    expect(merged).toEqual([
+    expect(merged.commands).toEqual([
       { cmd: 'updateStatus', pluginId: 'jira', providerId: 'PROJ-42', to: 'done' },
     ])
 
@@ -122,8 +122,8 @@ describe('bus-integration: todos los buses (evento → receta → comando → pr
 
     const opened = await bus.emit(evPrOpened, makeDeps())
     const merged = await bus.emit(evPrMerged, makeDeps())
-    expect(opened).toEqual([])
-    expect(merged).toEqual([])
+    expect(opened.commands).toEqual([])
+    expect(merged.commands).toEqual([])
     expect(provider.transition).not.toHaveBeenCalled()
   })
 
@@ -140,11 +140,11 @@ describe('bus-integration: todos los buses (evento → receta → comando → pr
     const merged = await bus.emit(evPrMerged, makeDeps())
     map.delete(BRANCH) // H3 borraría el tracking recién ahora
 
-    expect(merged).toEqual([
+    expect(merged.commands).toEqual([
       { cmd: 'updateStatus', pluginId: 'jira', providerId: 'PROJ-42', to: 'done' },
     ])
     expect(provider.transition).toHaveBeenCalledWith('PROJ-42', 'done')
     // tras el borrado, un nuevo emit del mismo branch ya no resuelve comando.
-    expect(await bus.emit(evPrMerged, makeDeps())).toEqual([])
+    expect((await bus.emit(evPrMerged, makeDeps())).commands).toEqual([])
   })
 })

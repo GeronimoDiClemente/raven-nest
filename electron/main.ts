@@ -2271,9 +2271,9 @@ ticketLoop.retainBranches(worktreeStore.list().map((m) => m.branch))
 // resuelve el propio loop; credential-free (los tokens llegan por panelDeps() al
 // emitir, nunca acá). Con el bus adjunto, onPrStateChanged EMITE en vez de
 // transicionar directo — misma resolución in_review/done que H3 en el happy path.
-// NOTA (divergencia conocida, aceptada en v1): el path con bus es best-effort y no
-// re-reintenta una transición fallida (borra/marca el tracking tras el emit), a
-// diferencia del path sin-bus que reintenta al siguiente poll. Ver plan H8 §riesgos.
+// Retry parity con H3: el emit reporta en `failed` los handlers que tiraron, y el
+// loop sólo destrackea/marca lastPr si el updateStatus del ticket NO falló, así un
+// 500 transitorio de Jira/Linear reintenta al próximo poll (no deja el ticket stuck).
 const eventBus = new EventBus()
 eventBus.setRecipes(loadRecipes(
   pathJoin(ravenHome(), '.raven-nest', 'recipes.json'),

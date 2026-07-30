@@ -30,7 +30,7 @@ describe('EventBus', () => {
     const handler = vi.fn<Parameters<CommandHandler>, ReturnType<CommandHandler>>()
     bus.registerHandler('updateStatus', handler)
     const out = await bus.emit(prOpened, deps)
-    expect(out).toEqual([])
+    expect(out.commands).toEqual([])
     expect(handler).not.toHaveBeenCalled()
   })
 
@@ -40,9 +40,9 @@ describe('EventBus', () => {
     bus.registerHandler('updateStatus', handler)
     bus.setRecipes([updateStatusRecipe('in_review', 'pr.opened')])
     const out = await bus.emit(prOpened, deps)
-    expect(out).toEqual([{ cmd: 'updateStatus', pluginId: 'jira', providerId: 'p1', to: 'in_review' }])
+    expect(out.commands).toEqual([{ cmd: 'updateStatus', pluginId: 'jira', providerId: 'p1', to: 'in_review' }])
     expect(handler).toHaveBeenCalledTimes(1)
-    expect(handler).toHaveBeenCalledWith(out[0], prOpened, deps)
+    expect(handler).toHaveBeenCalledWith(out.commands[0], prOpened, deps)
   })
 
   it('solo dispara recetas cuyo `when` matchea el type del evento', async () => {
@@ -54,7 +54,7 @@ describe('EventBus', () => {
       updateStatusRecipe('done', 'pr.merged'),
     ])
     const out = await bus.emit(prMerged, deps)
-    expect(out).toEqual([{ cmd: 'updateStatus', pluginId: 'jira', providerId: 'p1', to: 'done' }])
+    expect(out.commands).toEqual([{ cmd: 'updateStatus', pluginId: 'jira', providerId: 'p1', to: 'done' }])
     expect(handler).toHaveBeenCalledTimes(1)
   })
 
@@ -71,7 +71,7 @@ describe('EventBus', () => {
       },
     ])
     const out = await bus.emit(prOpened, deps)
-    expect(out).toEqual([])
+    expect(out.commands).toEqual([])
     expect(handler).not.toHaveBeenCalled()
   })
 
@@ -85,7 +85,7 @@ describe('EventBus', () => {
       { id: 'r2', when: 'pr.opened', then: () => [{ cmd: 'notify', channel: '#dev', message: 'PR abierto' }] },
     ])
     const out = await bus.emit(prOpened, deps)
-    expect(out.map((c) => c.cmd)).toEqual(['updateStatus', 'notify'])
+    expect(out.commands.map((c) => c.cmd)).toEqual(['updateStatus', 'notify'])
     expect(calls).toEqual(['status:in_review', 'notify:#dev'])
   })
 
@@ -100,7 +100,10 @@ describe('EventBus', () => {
       { id: 'r2', when: 'pr.opened', then: () => [{ cmd: 'notify', channel: '#dev', message: 'hi' }] },
     ])
     const out = await bus.emit(prOpened, deps)
-    expect(out.map((c) => c.cmd)).toEqual(['updateStatus', 'notify'])
+    expect(out.commands.map((c) => c.cmd)).toEqual(['updateStatus', 'notify'])
+    // El handler que tiró se reporta en `failed` (para que el emisor reintente);
+    // el que resolvió no.
+    expect(out.failed.map((c) => c.cmd)).toEqual(['updateStatus'])
     expect(second).toHaveBeenCalledTimes(1)
     expect(warn).toHaveBeenCalled()
   })
@@ -110,7 +113,9 @@ describe('EventBus', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     bus.setRecipes([updateStatusRecipe('in_review', 'pr.opened')])
     const out = await bus.emit(prOpened, deps)
-    expect(out).toEqual([{ cmd: 'updateStatus', pluginId: 'jira', providerId: 'p1', to: 'in_review' }])
+    expect(out.commands).toEqual([{ cmd: 'updateStatus', pluginId: 'jira', providerId: 'p1', to: 'in_review' }])
+    // Un comando sin handler NO cuenta como `failed` (reintentarlo sería un bucle).
+    expect(out.failed).toEqual([])
     expect(warn).toHaveBeenCalled()
   })
 
@@ -133,7 +138,7 @@ describe('EventBus', () => {
     bus.setRecipes([updateStatusRecipe('in_review', 'pr.opened')])
     bus.setRecipes([updateStatusRecipe('done', 'pr.merged')])
     const out = await bus.emit(prOpened, deps)
-    expect(out).toEqual([])
+    expect(out.commands).toEqual([])
     expect(handler).not.toHaveBeenCalled()
   })
 })
