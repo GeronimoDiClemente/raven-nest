@@ -499,18 +499,24 @@ export class MemoryStore {
          JOIN observations_fts f ON f.rowid = o.rowid
          WHERE observations_fts MATCH ? AND o.deleted = 0 AND o.superseded_by IS NULL
            AND (o.project_key = ? OR o.project_key = ?)
-         ORDER BY o.updated_at DESC LIMIT ?`
+         ORDER BY o.updated_at DESC, o.lamport DESC LIMIT ?`
       )
       .all(`"${safe}"`, projectKey, GLOBAL_PROJECT_KEY, limit) as ObservationRow[]
     return rows.map((r) => this.toSummary(r))
   }
 
+  // `updated_at` is a JS `Date.now()` ms-epoch value — two writes in the same
+  // millisecond (routine in a fast test, and not impossible for a chatty agent
+  // session) tie under a bare `ORDER BY updated_at DESC`, and SQLite doesn't
+  // guarantee ties resolve in write order. `lamport` exists precisely to give a
+  // total order beyond wall-clock resolution (it's a strictly-increasing counter,
+  // §4.3), so it's the correct secondary sort key wherever recency ordering matters.
   context(projectKey: string, limit = 10): ObservationSummary[] {
     const rows = this.db
       .prepare(
         `SELECT * FROM observations
          WHERE (project_key = ? OR project_key = ?) AND deleted = 0 AND superseded_by IS NULL
-         ORDER BY updated_at DESC LIMIT ?`
+         ORDER BY updated_at DESC, lamport DESC LIMIT ?`
       )
       .all(projectKey, GLOBAL_PROJECT_KEY, limit) as ObservationRow[]
     return rows.map((r) => this.toSummary(r))
