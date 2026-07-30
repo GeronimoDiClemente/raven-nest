@@ -75,26 +75,34 @@ describe('PtyManager — Nest Memory integration point (M11)', () => {
     }
   }
 
-  it('calls ensureClaudeProvisioned (not just a read-only check) on every claude pane spawn', () => {
+  // NOTE: PtyManager.create() became async on main (the cwd-existence check switched
+  // from sync existsSync to an async cwdReachable() with its own race/timeout — see
+  // main's pty-manager.ts). ensureClaudeProvisioned and every NEST_MEMORY_* env write
+  // still happen synchronously BEFORE that first `await`, but pty.spawn() itself now
+  // only runs after it resolves — so any assertion touching spawnMock must await the
+  // full create() call first (fake timers alone aren't enough: cwdReachable's happy
+  // path resolves via real fs.promises.stat, not a timer).
+
+  it('calls ensureClaudeProvisioned (not just a read-only check) on every claude pane spawn', async () => {
     const fake = fakePty()
     spawnMock.mockReturnValue(fake)
     const integration = memoryIntegration()
     manager = new PtyManager(integration)
 
     const accountDir = join(dir, 'accounts', 'claude', 'Bautista')
-    manager.create('pane-1', 'claude', accountDir, dir)
+    await manager.create('pane-1', 'claude', accountDir, dir)
 
     expect(integration.ensureClaudeProvisioned).toHaveBeenCalledWith(accountDir)
   })
 
-  it('injects NEST_MEMORY_SOCKET, NEST_MEMORY_TOKEN and NEST_MEMORY_ACCOUNT into the spawned env', () => {
+  it('injects NEST_MEMORY_SOCKET, NEST_MEMORY_TOKEN and NEST_MEMORY_ACCOUNT into the spawned env', async () => {
     const fake = fakePty()
     spawnMock.mockReturnValue(fake)
     const integration = memoryIntegration()
     manager = new PtyManager(integration)
 
     const accountDir = join(dir, 'accounts', 'claude', 'Bautista')
-    manager.create('pane-1', 'claude', accountDir, dir)
+    await manager.create('pane-1', 'claude', accountDir, dir)
 
     const spawnEnv = spawnMock.mock.calls[0][2].env
     expect(spawnEnv.NEST_MEMORY_SOCKET).toBe(integration.socketPath)
@@ -111,7 +119,7 @@ describe('PtyManager — Nest Memory integration point (M11)', () => {
     manager = new PtyManager(integration)
 
     const accountDir = join(dir, 'accounts', 'claude', 'Bautista')
-    manager.create('pane-1', 'claude', accountDir, dir)
+    await manager.create('pane-1', 'claude', accountDir, dir)
     await vi.runAllTimersAsync()
 
     expect(fake.write).toHaveBeenCalledTimes(1)
@@ -120,36 +128,37 @@ describe('PtyManager — Nest Memory integration point (M11)', () => {
     expect(written).toContain(`"${settingsPath}"`)
   })
 
-  it('does not inject memory env or provision when memory is disabled', () => {
+  it('does not inject memory env or provision when memory is disabled', async () => {
     const fake = fakePty()
     spawnMock.mockReturnValue(fake)
     const integration = memoryIntegration({ isEnabled: () => false })
     manager = new PtyManager(integration)
 
     const accountDir = join(dir, 'accounts', 'claude', 'Bautista')
-    manager.create('pane-1', 'claude', accountDir, dir)
+    await manager.create('pane-1', 'claude', accountDir, dir)
 
     expect(integration.ensureClaudeProvisioned).not.toHaveBeenCalled()
     const spawnEnv = spawnMock.mock.calls[0][2].env
     expect(spawnEnv.NEST_MEMORY_ENABLED).toBe('0')
   })
 
-  it('does nothing memory-related for a plain terminal (no cmd)', () => {
+  it('does nothing memory-related for a plain terminal (no cmd)', async () => {
     const fake = fakePty()
     spawnMock.mockReturnValue(fake)
     const integration = memoryIntegration()
     manager = new PtyManager(integration)
 
-    manager.create('pane-1', '', join(dir, 'accounts', 'claude', 'Bautista'), dir)
+    await manager.create('pane-1', '', join(dir, 'accounts', 'claude', 'Bautista'), dir)
 
     expect(integration.ensureClaudeProvisioned).not.toHaveBeenCalled()
   })
 
-  it('works with no memory integration configured at all (existing behavior unaffected)', () => {
+  it('works with no memory integration configured at all (existing behavior unaffected)', async () => {
     const fake = fakePty()
     spawnMock.mockReturnValue(fake)
     manager = new PtyManager() // no integration — matches every other existing PtyManager test
 
-    expect(() => manager.create('pane-1', 'claude', join(dir, 'accounts', 'claude', 'Bautista'), dir)).not.toThrow()
+    const result = await manager.create('pane-1', 'claude', join(dir, 'accounts', 'claude', 'Bautista'), dir)
+    expect(result.ok).toBe(true)
   })
 })

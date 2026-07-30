@@ -6,6 +6,10 @@ import { CSS } from '@dnd-kit/utilities'
 interface Props {
   pane: PaneNode
   onClose: () => void
+  // Called when the WebContentsView navigates so the parent can persist the
+  // current URL on the pane model. Without this, switching workspaces destroys
+  // the view and the pane re-mounts with the original (placeholder) URL.
+  onNavigate?: (url: string) => void
   borderColor?: string
   // Other pane ids in the same workspace tab. Used to filter the port
   // dropdown to "what's running in this workspace" instead of the whole OS.
@@ -62,7 +66,7 @@ function isOwnOrigin(rawUrl: string): boolean {
   }
 }
 
-export default function BrowserCell({ pane, onClose, borderColor, siblingPaneIds, workspaceRepoPath, siblingRepoPaths }: Props) {
+export default function BrowserCell({ pane, onClose, onNavigate, borderColor, siblingPaneIds, workspaceRepoPath, siblingRepoPaths }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const { setNodeRef: setSortableRef, attributes, listeners, transform, transition } = useSortable({ id: pane.id })
   const sortableStyle: React.CSSProperties = {
@@ -87,7 +91,11 @@ export default function BrowserCell({ pane, onClose, borderColor, siblingPaneIds
   // blank (see `isOwnOrigin` above).
   const [selfOriginAttempt, setSelfOriginAttempt] = useState<string | null>(null)
 
-  // Create the WebContentsView once per pane
+  // Create the WebContentsView once per pane. Also tear down + recreate when
+  // sessionPartition changes — partitions are wired at view-create time in
+  // main and can't be swapped on an existing WebContentsView, so changing
+  // tab/workspace requires destroying and re-creating the view (otherwise
+  // cookies/localStorage from the wrong session bleed through).
   useEffect(() => {
     if (createdRef.current) return
     const initialUrl = isHttpUrl(pane.url ?? '') ? pane.url! : BLANK_PAGE
@@ -101,7 +109,12 @@ export default function BrowserCell({ pane, onClose, borderColor, siblingPaneIds
       createdRef.current = false
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pane.id])
+  }, [pane.id, pane.sessionPartition])
+
+  // Latest onNavigate kept in a ref so the long-lived subscription below
+  // always calls the freshest closure without re-subscribing on every render.
+  const onNavigateRef = useRef(onNavigate)
+  useEffect(() => { onNavigateRef.current = onNavigate }, [onNavigate])
 
   // Subscribe to navigation updates from main
   useEffect(() => {
@@ -110,6 +123,8 @@ export default function BrowserCell({ pane, onClose, borderColor, siblingPaneIds
       // The BLANK_PAGE placeholder is a data: URL — showing its encoded HTML
       // in the input field is meaningless and ugly, so we keep internal state
       // but leave the input empty so the "https://" placeholder is visible.
+      // Also: don't propagate it to the pane model, otherwise we'd persist the
+      // placeholder as if it were a user navigation.
       if (navUrl.startsWith('data:')) {
         setUrl(navUrl)
         setDraftUrl('')
@@ -117,6 +132,7 @@ export default function BrowserCell({ pane, onClose, borderColor, siblingPaneIds
       }
       setUrl(navUrl)
       setDraftUrl(navUrl)
+      onNavigateRef.current?.(navUrl)
     }
     window.browser.onNavigated(cb)
     return () => window.browser.removeListeners()
@@ -180,28 +196,42 @@ export default function BrowserCell({ pane, onClose, borderColor, siblingPaneIds
     // covered. Includes: dialogs, full-screen workspaces, sidebar popovers,
     // pane-level overlays.
     const OVERLAY_SELECTOR = [
+      // Dialogs / modals (full-screen backdrops)
       '.dialog-overlay',
       '.confirm-overlay',
       '.team-modal-overlay',
       '.modal-overlay',
+      '.cmd-overlay',
+      '.global-search-overlay',
+      '.repo-picker-overlay',
+      '.repo-picker-modal',
+      '.upgrade-modal',
+      // Full-screen workspace views
       '.teams-workspace',
+      // Sidebars / panels
       '.snippet-panel',
       '.mcp-panel',
-      '.layout-popover',
       '.notification-panel',
-      '.user-menu-popover',
-      '.cmd-panel',
+      '.conv-overlay',
+      '.conv-sidebar',
       '.diff-drawer',
       '.repo-status-panel',
-      '.pane-color-popover',
       '.ts-panel',
+      // Popovers / inline overlays
+      '.layout-popover',
+      '.layout-selector-popover',
+      '.user-menu-popover',
+      '.cmd-panel',
+      '.pane-color-popover',
       '.resource-bar-popover',
       '.rb-overlay',
-      '.browser-port-dropdown',
-      '.browser-self-origin-overlay',
+      '.port-chips-popover',
       '.wt-context-menu',
       '.ide-picker-menu',
       '.repo-menu-pop',
+      // Pane-level overlays
+      '.browser-port-dropdown',
+      '.browser-self-origin-overlay',
     ].join(', ')
 
     const send = () => {
@@ -218,13 +248,20 @@ export default function BrowserCell({ pane, onClose, borderColor, siblingPaneIds
         height: rect.height,
       })
     }
-    // MutationObserver fires on every xterm log line in sibling panes. Coalesce
-    // to one send() per animation frame so we don't saturate the main process
-    // with browser:reposition IPC when terminals are spammy.
-    let rafId: number | null = null
+    // MutationObserver fires on every xterm log line in sibling panes — RAF
+    // coalescing wasn't enough when terminals are spammy (still one IPC per
+    // frame = up to 60/s). Leading + trailing 100ms debounce: first trigger
+    // fires immediately so opening an overlay collapses the view without a
+    // visible lag, then coalesces follow-ups and emits a final send().
+    let timeoutId: ReturnType<typeof setTimeout> | null = null
+    let pendingTrailing = false
     const sendDebounced = () => {
-      if (rafId !== null) return
-      rafId = requestAnimationFrame(() => { rafId = null; send() })
+      if (timeoutId !== null) { pendingTrailing = true; return }
+      send()
+      timeoutId = setTimeout(() => {
+        timeoutId = null
+        if (pendingTrailing) { pendingTrailing = false; send() }
+      }, 100)
     }
     send()
     const ro = new ResizeObserver(sendDebounced)
@@ -233,15 +270,18 @@ export default function BrowserCell({ pane, onClose, borderColor, siblingPaneIds
     // Watch the body for overlay nodes appearing/disappearing.
     const mo = new MutationObserver(sendDebounced)
     mo.observe(document.body, { childList: true, subtree: true })
-    const interval = setInterval(sendDebounced, 1000)  // catch parent layout shifts
+    // Safety net for parent layout shifts not detected by ResizeObserver or
+    // MutationObserver (CSS animations on ancestors that don't resize this
+    // element or mutate the DOM). Cheap because send() is idempotent.
+    const intervalId = setInterval(sendDebounced, 1000)
     return () => {
       ro.disconnect()
       mo.disconnect()
       window.removeEventListener('resize', send)
-      clearInterval(interval)
-      if (rafId !== null) {
-        cancelAnimationFrame(rafId)
-        rafId = null
+      clearInterval(intervalId)
+      if (timeoutId !== null) {
+        clearTimeout(timeoutId)
+        timeoutId = null
       }
     }
   }, [pane.id])

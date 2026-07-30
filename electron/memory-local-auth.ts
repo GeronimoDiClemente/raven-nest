@@ -12,7 +12,7 @@
 // A process that can't read this file can connect to the pipe but every request it sends
 // is rejected before touching the store.
 import { join } from 'path'
-import { readFileSync, writeFileSync, existsSync, mkdirSync, chmodSync } from 'fs'
+import { readFileSync, writeFileSync, existsSync, mkdirSync, chmodSync, renameSync } from 'fs'
 import { randomBytes } from 'crypto'
 
 export interface LocalAuthMaterial {
@@ -53,7 +53,15 @@ export function ensureLocalAuthMaterial(ravenHomeDir: string): LocalAuthMaterial
     token: randomBytes(32).toString('hex'),
   }
   mkdirSync(join(ravenHomeDir, '.raven-nest', 'memory'), { recursive: true })
-  writeFileSync(path, JSON.stringify(material), { mode: 0o600 })
-  try { chmodSync(path, 0o600) } catch { /* best effort — e.g. unsupported on this fs */ }
+  // Atomic write (tmp + rename) — house pattern from session-store.ts/local-paths-store.ts
+  // (docs/GUIA-TESTEO-BAUTISTA.md). A crash mid-write must never leave a truncated,
+  // unparseable pipe-auth.json — that would silently regenerate fresh (harmless, just a
+  // reconnect-required blip) rather than the historically worse "half-written secret on
+  // disk" failure mode. mode 0600 is set on the tmp file so the final path (same inode
+  // after rename) inherits it — never briefly world-readable between write and chmod.
+  const tmp = `${path}.${randomBytes(6).toString('hex')}.tmp`
+  writeFileSync(tmp, JSON.stringify(material), { mode: 0o600 })
+  try { chmodSync(tmp, 0o600) } catch { /* best effort — e.g. unsupported on this fs */ }
+  renameSync(tmp, path)
   return material
 }

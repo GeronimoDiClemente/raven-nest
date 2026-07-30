@@ -15,8 +15,9 @@
 // electron/__tests__/memory-provisioner.test.ts asserts byte-for-byte that the global
 // settings.json is unchanged by provision/deprovision — the regression test for this
 // exact hazard (Phase 1 acceptance criterion #6, risk R-2).
-import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync, chmodSync } from 'fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync, chmodSync, renameSync } from 'fs'
 import { join } from 'path'
+import { randomBytes } from 'crypto'
 
 const NEST_MARKER = 'memory'
 const HOOK_EVENTS = ['SessionStart', 'Stop', 'PreCompact'] as const
@@ -50,17 +51,26 @@ function claudeJsonPath(accountDir: string): string {
  * POSIX vs `set VAR=x && cmd` / `$env:VAR=x; cmd` on Windows) inside the hook "command"
  * string that Claude Code's hook runner executes.
  */
+// Atomic write (tmp + rename) for every file this module owns — house pattern from
+// session-store.ts/local-paths-store.ts (docs/GUIA-TESTEO-BAUTISTA.md). A per-call
+// random tmp suffix avoids two concurrent provision calls (e.g. AccountStore.save() and
+// a PtyManager.create() self-heal racing) clobbering each other's in-flight write.
+function writeFileAtomic(path: string, content: string, mode?: number): void {
+  const tmp = `${path}.${randomBytes(6).toString('hex')}.tmp`
+  writeFileSync(tmp, content, mode !== undefined ? { mode } : undefined)
+  renameSync(tmp, path)
+}
+
 function writeWrapperScript(accountDir: string, paths: ProvisionerPaths, isWin: boolean): string {
   const dir = nestDir(accountDir)
   mkdirSync(dir, { recursive: true })
   const target = wrapperPath(accountDir, isWin)
   if (isWin) {
     const content = `@echo off\r\nset ELECTRON_RUN_AS_NODE=1\r\n"${paths.execPath}" "${paths.shimPath}" %*\r\n`
-    writeFileSync(target, content)
+    writeFileAtomic(target, content)
   } else {
     const content = `#!/bin/sh\nexport ELECTRON_RUN_AS_NODE=1\nexec "${paths.execPath}" "${paths.shimPath}" "$@"\n`
-    writeFileSync(target, content)
-    try { chmodSync(target, 0o755) } catch { /* best effort */ }
+    writeFileAtomic(target, content, 0o755)
   }
   return target
 }
@@ -69,24 +79,43 @@ interface JsonFile {
   [key: string]: unknown
 }
 
-function readJson(path: string): JsonFile {
-  if (!existsSync(path)) return {}
+/**
+ * `.claude.json` is NOT a file this module owns exclusively — it's Claude Code's own
+ * config (auth, project trust, other MCP servers a user configured by hand). A naive
+ * "catch parse error -> default to {}" here is exactly the pitfall
+ * docs/GUIA-TESTEO-BAUTISTA.md warns about: "un archivo que no parsea se reemplaza
+ * entero en silencio" — a transient read (e.g. Claude Code itself mid-write) would
+ * silently nuke the user's real config down to just our mcpServers.nest_memory entry
+ * on the very next provision call. Missing file (ENOENT) is the normal "nothing here
+ * yet" case and defaults to {}; any OTHER read/parse failure throws instead of
+ * defaulting, so the caller's provisioning attempt aborts for this cycle rather than
+ * clobbering. account-store.ts already wraps every provision call in try/catch and
+ * logs — provisioning simply retries on the next PtyManager.create() (M11), so
+ * aborting here costs nothing but safety.
+ */
+function readJsonOrThrow(path: string): JsonFile {
+  let raw: string
   try {
-    const parsed = JSON.parse(readFileSync(path, 'utf8'))
-    return typeof parsed === 'object' && parsed !== null ? (parsed as JsonFile) : {}
-  } catch {
-    return {}
+    raw = readFileSync(path, 'utf8')
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return {}
+    throw err
   }
+  const parsed = JSON.parse(raw) // throws on malformed JSON — caller must not swallow this
+  if (typeof parsed !== 'object' || parsed === null) {
+    throw new Error(`${path} did not contain a JSON object`)
+  }
+  return parsed as JsonFile
 }
 
 function writeJson(path: string, data: JsonFile): void {
-  writeFileSync(path, `${JSON.stringify(data, null, 2)}\n`)
+  writeFileAtomic(path, `${JSON.stringify(data, null, 2)}\n`)
 }
 
 /** Idempotent: writes mcpServers.nest_memory into {accountDir}/.claude.json. */
 function provisionMcpConfig(accountDir: string, paths: ProvisionerPaths): void {
   const path = claudeJsonPath(accountDir)
-  const config = readJson(path)
+  const config = readJsonOrThrow(path)
   const mcpServers = (config.mcpServers as JsonFile) ?? {}
   mcpServers.nest_memory = {
     command: paths.execPath,
@@ -100,7 +129,7 @@ function provisionMcpConfig(accountDir: string, paths: ProvisionerPaths): void {
 function deprovisionMcpConfig(accountDir: string): void {
   const path = claudeJsonPath(accountDir)
   if (!existsSync(path)) return
-  const config = readJson(path)
+  const config = readJsonOrThrow(path)
   const mcpServers = (config.mcpServers as JsonFile) ?? {}
   if ('nest_memory' in mcpServers) {
     delete mcpServers.nest_memory

@@ -71,7 +71,23 @@ export class BrowserPaneManager {
       return { action: 'deny' }
     })
 
-    void view.webContents.loadURL(url).catch(() => {})
+    void view.webContents.loadURL(url).catch((err: Error) => {
+      console.warn('[browser-pane] loadURL failed:', err.message)
+    })
+
+    // Surface hard load failures to the renderer so BrowserCell can show an
+    // error state instead of a blank pane. did-fail-load also fires for
+    // aborted navigations (errorCode -3) — those are noise from in-flight
+    // user-initiated navigation away, so we filter them out.
+    view.webContents.on('did-fail-load', (_e, errorCode, errorDescription, validatedURL, isMainFrame) => {
+      if (!isMainFrame) return
+      if (errorCode === -3) return // ERR_ABORTED — typical when user navigates away mid-load
+      console.warn('[browser-pane] did-fail-load', { paneId, url: validatedURL, errorCode, errorDescription })
+      const hostWin = this.hostWindowGetter()
+      if (hostWin && !hostWin.isDestroyed()) {
+        hostWin.webContents.send('browser:load-error', { paneId, url: validatedURL, error: errorDescription })
+      }
+    })
 
     view.webContents.on('did-navigate', (_e, navUrl) => {
       const e = this.panes.get(paneId)
@@ -88,7 +104,9 @@ export class BrowserPaneManager {
     // intentionally don't track: the styles are scoped to the document and
     // get garbage-collected with it.
     view.webContents.on('did-finish-load', () => {
-      void view.webContents.insertCSS(SCROLLBAR_CSS).catch(() => {})
+      void view.webContents.insertCSS(SCROLLBAR_CSS).catch((err: Error) => {
+        console.warn('[browser-pane] insertCSS failed:', err.message)
+      })
     })
 
     // Zoom shortcuts. Chromium only natively binds Ctrl+= for zoom-in, but the
@@ -132,7 +150,9 @@ export class BrowserPaneManager {
     const e = this.panes.get(paneId)
     if (!e) return
     e.url = url
-    void e.view.webContents.loadURL(url).catch(() => {})
+    void e.view.webContents.loadURL(url).catch((err: Error) => {
+      console.warn('[browser-pane] loadURL failed:', err.message)
+    })
   }
 
   back(paneId: string): void {

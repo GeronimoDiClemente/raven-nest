@@ -1,4 +1,5 @@
 import { execFile, spawn } from 'child_process'
+import { existsSync } from 'fs'
 import { promisify } from 'util'
 
 const execFileP = promisify(execFile)
@@ -66,6 +67,12 @@ export function openInIDE(binPath: string, worktreePath: string): void {
   if (process.platform === 'win32' && WIN_SHELL_METACHARS.test(worktreePath)) {
     console.error('[ide-launcher] refusing to launch IDE — worktreePath contains cmd.exe metacharacters', { worktreePath })
     return
+  }
+  // Validate the worktree directory still exists. Without this, spawn either
+  // silently opens the IDE on a missing path or surfaces an opaque async
+  // 'error'. Throwing synchronously lets the renderer's `.catch` show an alert.
+  if (!existsSync(worktreePath)) {
+    throw new Error('worktree path no longer exists: ' + worktreePath)
   }
   // Windows: `code` resolves to `code.cmd`. Node's spawn won't find a .cmd
   // shim without shell:true (Electron 33 ships Node 20, which lacks the

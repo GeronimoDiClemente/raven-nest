@@ -23,6 +23,7 @@ interface PaneSession {
   hostCols: number  // last known size of the host terminal
   hostRows: number
   retryCount: number
+  retryTimer: ReturnType<typeof setTimeout> | null
   inputAllowed: boolean
   onJoinRequest: (() => void) | null
 }
@@ -104,7 +105,8 @@ class TerminalShareService {
         }
         const delay = Math.min(2000 * Math.pow(2, session.retryCount - 1), 30000)
         console.log('[TerminalShare] pane', paneId, 'retry', session.retryCount, 'in', delay, 'ms')
-        setTimeout(() => {
+        session.retryTimer = setTimeout(() => {
+          session.retryTimer = null
           if (!session.dead) this.createChannel(session, paneId)
         }, delay)
       }
@@ -131,6 +133,7 @@ class TerminalShareService {
       hostCols: 0,
       hostRows: 0,
       retryCount: 0,
+      retryTimer: null,
       inputAllowed: false,
       onJoinRequest: null,
     }
@@ -173,6 +176,10 @@ class TerminalShareService {
   stop(paneId: string) {
     const session = this.sessions.get(paneId)
     if (!session) return
+    if (session.retryTimer) {
+      clearTimeout(session.retryTimer)
+      session.retryTimer = null
+    }
     session.dead = true
     session.inputAllowed = false
     session.onJoinRequest = null

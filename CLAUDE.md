@@ -1,21 +1,36 @@
 # Raven Nest — Instrucciones para Claude
 
+## v1.2 — per-device local paths
+
+A partir de v1.2 los paths locales de los repos se guardan **por máquina** en `~/.raven-nest/local-paths.json`, no en Supabase. Al actualizar desde v1.1.x, el primer arranque importa los paths existentes desde Supabase (solo los que existan en disco) y los guarda en el store local. Una segunda PC entrando a la misma cuenta partirá sin paths y ofrecerá **Clone** o **Link existing folder** por repo. Las columnas Supabase `user_repos.local_path` y la tabla `team_repo_local_paths` quedan deprecated en v1.2 (read-only para clientes viejos) y serán dropeadas en v1.3.
+
 ## Hacer una release
 
-1. Asegurarse de que `package.json` tiene la versión correcta (campo `"version"`)
-2. Crear el tag y la release en GitHub:
+**El workflow `release.yml` hace TODO solo**: buildea las 3 plataformas **firmadas**,
+notariza y grapa el DMG de Mac, borra la release/tag anterior y crea la release nueva con
+todos los artifacts. Se dispara automáticamente al pushear a `main` un cambio de
+`package.json`. El proceso es solo bumpear la versión:
+
+1. Subir el campo `"version"` en `package.json` a la nueva versión.
+2. Commitear y pushear a `main`:
    ```bash
    VERSION=$(node -p "require('./package.json').version")
-   gh release create "v$VERSION" --title "v$VERSION" --notes "" --repo GeronimoDiClemente/raven-nest
+   git commit -am "chore(release): v$VERSION — <resumen>"
+   git push origin main
    ```
-3. Triggerear el workflow de build (buildea Windows y Mac en paralelo):
-   ```bash
-   gh workflow run "Build Windows & Mac" --repo GeronimoDiClemente/raven-nest
-   ```
-4. Verificar que los artifacts se subieron a la release:
+   Eso dispara `release.yml` solo (por el cambio en `package.json`).
+3. (Opcional) Re-disparar a mano si hace falta: `gh workflow run release.yml --repo GeronimoDiClemente/raven-nest`
+4. Verificar que la release tiene los artifacts y que el DMG de Mac quedó notarizado:
    ```bash
    gh release view "v$VERSION" --repo GeronimoDiClemente/raven-nest
+   gh workflow run "Check Apple Notary Status" --repo GeronimoDiClemente/raven-nest
    ```
+
+> **NUNCA correr el workflow "Build (Windows, Mac, Linux)" (`build.yml`) como parte de un
+> release.** Ese workflow genera un DMG de Mac **sin firmar** y lo sube con `--clobber`,
+> pisando el DMG firmado de `release.yml` → la notarización falla con `Invalid`. Fue la
+> causa de que v1.3.1 y v1.3.2 quedaran sin notarizar. `build.yml` es solo un build manual
+> de diagnóstico; `release.yml` ya cubre las 3 plataformas firmadas.
 
 ## Requisitos del usuario (dependencias externas)
 
@@ -29,13 +44,13 @@
 ## Stack
 - Electron + Vite + React + TypeScript
 - Terminal: xterm.js con PTY (node-pty)
-- Build: electron-builder (NSIS para Windows, DMG para Mac)
-- El repo usa git-crypt — los archivos sensibles están encriptados
+- Build: electron-builder (NSIS para Windows, DMG para Mac, AppImage/deb para Linux)
+- Secretos: en `.env` / `.env.local` (gitignored) o vía Doppler (`doppler run -- npm run dev`); el repo **ya no usa git-crypt**, nada está encriptado en git
 
 ## Estructura
 - `src/hooks/useXterm.ts` — terminal xterm.js
 - `src/` — renderer (React)
-- `.github/workflows/build-windows.yml` — CI para Windows y Mac
+- `.github/workflows/build-windows.yml` — CI para Windows, Mac y Linux
 
 ## Seguridad — pendiente crítico
 

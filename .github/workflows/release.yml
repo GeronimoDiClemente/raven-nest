@@ -1,9 +1,16 @@
 name: Release
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - main
+    paths:
+      # Only build + publish on version bumps. Every other push (docs, CI,
+      # README) used to trigger a full rebuild that DELETED + recreated the
+      # release, wiping any stapled .dmg already attached. Gated on
+      # package.json so the workflow runs once per `release: vX.Y.Z` commit.
+      - 'package.json'
 
 permissions:
   contents: write
@@ -14,7 +21,7 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install git-crypt
         run: sudo apt-get install -y git-crypt
@@ -32,7 +39,7 @@ jobs:
         run: echo "version=$(node -p 'require("./package.json").version')" >> $GITHUB_OUTPUT
 
       - name: Upload decrypted source
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: decrypted-source
           path: |
@@ -46,12 +53,12 @@ jobs:
     runs-on: macos-latest
     steps:
       - name: Download decrypted source
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: decrypted-source
           path: .
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 20
 
@@ -60,34 +67,205 @@ jobs:
 
       - run: npm ci
 
-      - name: Build Mac
-        run: npx electron-vite build && npx electron-builder --mac --publish never
+      - name: Import code signing cert into keychain
+        # Manual import is required because electron-builder's auto-import
+        # does not run `security set-key-partition-list`, which on macOS
+        # 10.12+ causes `codesign` to wait for an invisible GUI prompt to
+        # authorize use of the private key — codesign hangs indefinitely.
+        # See electron-builder issues #8089, #7452.
         env:
-          CSC_IDENTITY_AUTO_DISCOVERY: false
+          MAC_CSC_LINK_SECRET: ${{ secrets.MAC_CSC_LINK }}
+          MAC_CSC_KEY_PASSWORD_SECRET: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+        run: |
+          set -e
+          if [ -z "$MAC_CSC_LINK_SECRET" ]; then
+            echo "No MAC_CSC_LINK secret — skipping cert import (unsigned build)"
+            exit 0
+          fi
+
+          KEYCHAIN_NAME="build.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -base64 32)"
+
+          # Mask password so it never appears in logs
+          echo "::add-mask::$KEYCHAIN_PASSWORD"
+
+          # Force Apple's codesign (avoid any Homebrew override)
+          export PATH=/usr/bin:$PATH
+
+          echo "==> Creating temp keychain"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_NAME"
+          security default-keychain -s "$KEYCHAIN_NAME"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_NAME"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_NAME"
+
+          echo "==> Importing cert"
+          echo "$MAC_CSC_LINK_SECRET" | base64 --decode > /tmp/cert.p12
+          security import /tmp/cert.p12 \
+            -P "$MAC_CSC_KEY_PASSWORD_SECRET" \
+            -A -t cert -f pkcs12 \
+            -k "$KEYCHAIN_NAME"
+          rm /tmp/cert.p12
+
+          echo "==> Setting partition list (codesign access)"
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PASSWORD" \
+            "$KEYCHAIN_NAME" > /dev/null
+
+          echo "==> Diagnostics"
+          echo "    which codesign: $(which codesign)"
+          echo "    list-keychains:"
+          security list-keychains
+          echo "    find-identity:"
+          security find-identity -v -p codesigning "$KEYCHAIN_NAME"
+
+          # Persist keychain credentials for next steps
+          echo "KEYCHAIN_NAME=$KEYCHAIN_NAME" >> $GITHUB_ENV
+          echo "KEYCHAIN_PASSWORD=$KEYCHAIN_PASSWORD" >> $GITHUB_ENV
+
+      - name: Build Mac (sign only, no notarize)
+        # Notarization is intentionally disabled here and done in a separate
+        # step via `xcrun notarytool`. Reasons:
+        #   1. Splits failure modes — codesign vs notarize visible separately.
+        #   2. notarytool gives real progress logs vs electron-builder's silent wait.
+        #   3. Allows independent timeout for the Apple notary roundtrip.
+        run: |
+          set -e
+          # Force /usr/bin codesign + our keychain so electron-builder cannot
+          # accidentally create its own keychain and lose the partition list.
+          export PATH=/usr/bin:$PATH
+
+          EXTRA_FLAGS=""
+          if [ -n "$MAC_CSC_LINK_SECRET" ]; then
+            security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_NAME"
+            security default-keychain -s "$KEYCHAIN_NAME"
+
+            export CSC_NAME="Matias Labari (N6RR4W6FV4)"
+            export CSC_KEYCHAIN="$KEYCHAIN_NAME"
+            EXTRA_FLAGS="\
+              --c.mac.hardenedRuntime=true \
+              --c.mac.gatekeeperAssess=false \
+              --c.mac.entitlements=signing/entitlements.mac.plist \
+              --c.mac.entitlementsInherit=signing/entitlements.mac.plist \
+              --c.mac.notarize=false"
+          else
+            export CSC_IDENTITY_AUTO_DISCOVERY=false
+          fi
+
+          # Verbose electron-builder output
+          export DEBUG=electron-builder
+          npx electron-vite build && npx electron-builder --mac --publish never $EXTRA_FLAGS
+        env:
+          MAC_CSC_LINK_SECRET: ${{ secrets.MAC_CSC_LINK }}
           MAIN_VITE_GITHUB_CLIENT_ID: ${{ secrets.MAIN_VITE_GITHUB_CLIENT_ID }}
           MAIN_VITE_GITLAB_CLIENT_ID: ${{ secrets.MAIN_VITE_GITLAB_CLIENT_ID }}
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
 
-      - uses: actions/upload-artifact@v4
+      - name: Notarize and staple Mac artifacts
+        # Submit async + poll-by-ID instead of `notarytool submit --wait`.
+        # `--wait` polls Apple internally but its status sync lags: with the
+        # team ID warmed up Apple now accepts in 2-9s, yet `--wait` keeps
+        # printing "In Progress" for minutes and trips the timeout. Polling
+        # `notarytool info <id>` directly reflects the real state, so a fresh
+        # release gets stapled in the build itself — no fallback workflow.
+        #
+        # If Apple ever rejects (Invalid/Rejected), fail loud with the log.
+        # If we somehow blow the 15m budget, warn and continue — the
+        # staple-pending-releases.yml cron stays as a safety net.
+        env:
+          MAC_CSC_LINK_SECRET: ${{ secrets.MAC_CSC_LINK }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          if [ -z "$MAC_CSC_LINK_SECRET" ]; then
+            echo "No signing secret — skipping notarization"
+            exit 0
+          fi
+          export PATH=/usr/bin:$PATH
+
+          echo "==> Artifacts found in dist/:"
+          ls -lh dist/*.dmg dist/*.zip 2>/dev/null || true
+
+          for dmg in dist/*.dmg; do
+            [ -f "$dmg" ] || continue
+            echo ""
+            echo "==> Submitting $dmg to Apple notarization (async)"
+            SUBMIT_JSON=$(xcrun notarytool submit "$dmg" \
+              --apple-id "$APPLE_ID" \
+              --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+              --team-id "$APPLE_TEAM_ID" \
+              --output-format json)
+            echo "$SUBMIT_JSON"
+            SUBMISSION_ID=$(echo "$SUBMIT_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin).get('id',''))")
+            if [ -z "$SUBMISSION_ID" ]; then
+              echo "::error::Failed to extract submission ID — Apple submit response: $SUBMIT_JSON"
+              exit 1
+            fi
+
+            echo "==> Polling submission $SUBMISSION_ID (every 15s, up to 15m)"
+            DEADLINE=$(( $(date +%s) + 15 * 60 ))
+            STATUS=""
+            while [ "$(date +%s)" -lt "$DEADLINE" ]; do
+              INFO_JSON=$(xcrun notarytool info "$SUBMISSION_ID" \
+                --apple-id "$APPLE_ID" \
+                --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+                --team-id "$APPLE_TEAM_ID" \
+                --output-format json 2>/dev/null || echo '{}')
+              STATUS=$(echo "$INFO_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin).get('status',''))" 2>/dev/null || echo "")
+              echo "    $(date -u +%H:%M:%S) status=$STATUS"
+              case "$STATUS" in
+                Accepted|Invalid|Rejected) break ;;
+              esac
+              sleep 15
+            done
+
+            case "$STATUS" in
+              Accepted)
+                echo "==> Stapling notarization ticket onto $dmg"
+                xcrun stapler staple "$dmg"
+                xcrun stapler validate "$dmg"
+                ;;
+              Invalid|Rejected)
+                echo "::error::Apple rejected $dmg (status=$STATUS). Fetching notary log:"
+                xcrun notarytool log "$SUBMISSION_ID" \
+                  --apple-id "$APPLE_ID" \
+                  --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+                  --team-id "$APPLE_TEAM_ID" || true
+                exit 1
+                ;;
+              *)
+                echo "::warning::Notarization for $dmg did not finish in 15m (last status=$STATUS). DMG is signed but not stapled — staple-pending-releases.yml will pick it up later."
+                ;;
+            esac
+          done
+
+          # .zip can't be stapled (only .app/.dmg/.pkg), but the .app inside
+          # is already signed + notarized through the .dmg submission, so
+          # macOS verifies it online on first launch.
+          exit 0
+
+      - uses: actions/upload-artifact@v6
         with:
           name: mac-artifacts
           path: |
             dist/*.dmg
             dist/*.zip
             dist/*.yml
+          retention-days: 7
 
   build-win:
     needs: decrypt
-    runs-on: windows-latest
+    runs-on: windows-2022
     steps:
       - name: Download decrypted source
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: decrypted-source
           path: .
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 20
 
@@ -96,29 +274,33 @@ jobs:
       - name: Build Windows
         run: npx electron-vite build && npx electron-builder --win --publish never
         env:
+          # Code signing: if WIN_CSC_LINK is not set, electron-builder skips signing.
+          CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
           MAIN_VITE_GITHUB_CLIENT_ID: ${{ secrets.MAIN_VITE_GITHUB_CLIENT_ID }}
           MAIN_VITE_GITLAB_CLIENT_ID: ${{ secrets.MAIN_VITE_GITLAB_CLIENT_ID }}
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: win-artifacts
           path: |
             dist/*.exe
             dist/*.yml
+          retention-days: 7
 
   build-linux:
     needs: decrypt
     runs-on: ubuntu-latest
     steps:
       - name: Download decrypted source
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: decrypted-source
           path: .
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 20
 
@@ -132,13 +314,14 @@ jobs:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: linux-artifacts
           path: |
             dist/*.AppImage
             dist/*.deb
             dist/*.yml
+          retention-days: 7
 
   deploy-functions:
     needs: decrypt
@@ -146,7 +329,7 @@ jobs:
     continue-on-error: true
     steps:
       - name: Download decrypted source
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: decrypted-source
           path: .
@@ -179,19 +362,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download mac artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: mac-artifacts
           path: artifacts/mac
 
       - name: Download win artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: win-artifacts
           path: artifacts/win
 
       - name: Download linux artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: linux-artifacts
           path: artifacts/linux
@@ -202,6 +385,10 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create GitHub Release
+        # Glob is `latest*.yml`, not `*.yml`. electron-builder emits a
+        # `builder-debug.yml` on every platform; uploading three assets with
+        # the same name races and the loser hits a 404 from GitHub's asset
+        # API, failing the job and leaving the release stuck as draft.
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ needs.decrypt.outputs.version }}
@@ -209,12 +396,12 @@ jobs:
           files: |
             artifacts/mac/*.dmg
             artifacts/mac/*.zip
-            artifacts/mac/*.yml
+            artifacts/mac/latest*.yml
             artifacts/win/*.exe
-            artifacts/win/*.yml
+            artifacts/win/latest*.yml
             artifacts/linux/*.AppImage
             artifacts/linux/*.deb
-            artifacts/linux/*.yml
+            artifacts/linux/latest*.yml
           make_latest: true
           token: ${{ secrets.GITHUB_TOKEN }}
 

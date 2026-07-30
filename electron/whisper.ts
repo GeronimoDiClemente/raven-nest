@@ -12,6 +12,7 @@ let pendingResolve: ((text: string) => void) | null = null
 let pendingReject: ((err: Error) => void) | null = null
 let stdoutBuf = ''
 let statusCallback: ((status: 'loading' | 'ready') => void) | null = null
+let pendingWaitTimeout: ReturnType<typeof setTimeout> | null = null
 
 export function setWhisperStatusCallback(cb: (status: 'loading' | 'ready') => void): void {
   statusCallback = cb
@@ -106,6 +107,7 @@ function startWhisperProcess(pythonCmd: string) {
   whisperProc.on('close', () => {
     whisperProc = null
     whisperReady = false
+    stdoutBuf = ''
     if (pendingReject) {
       pendingReject(new Error('whisper process exited unexpectedly'))
       pendingResolve = null
@@ -116,6 +118,7 @@ function startWhisperProcess(pythonCmd: string) {
   whisperProc.on('error', (err: Error) => {
     whisperProc = null
     whisperReady = false
+    stdoutBuf = ''
     if (pendingReject) {
       pendingReject(err)
       pendingResolve = null
@@ -134,22 +137,48 @@ export async function checkWhisperAvailable(): Promise<boolean> {
 
 export function transcribeAudio(audioBuffer: Buffer, language = 'es'): Promise<string> {
   return new Promise((resolve, reject) => {
+    const TRANSCRIBE_TIMEOUT_MS = 60_000
+    let transcribeTimer: NodeJS.Timeout | null = null
+
+    const clearTranscribeTimer = () => {
+      if (transcribeTimer) {
+        clearTimeout(transcribeTimer)
+        transcribeTimer = null
+      }
+    }
+
     const sendRequest = () => {
       if (!whisperProc) return reject(new Error('whisper process died'))
       if (pendingResolve) return reject(new Error('whisper busy'))
       const inputPath = join(tmpdir(), `nest-voice-${Date.now()}.wav`)
       try { writeFileSync(inputPath, audioBuffer) } catch (err) { return reject(err as Error) }
-      pendingResolve = resolve
-      pendingReject = (err: Error) => { try { unlinkSync(inputPath) } catch {} reject(err) }
+      pendingResolve = (text: string) => { clearTranscribeTimer(); resolve(text) }
+      pendingReject = (err: Error) => { clearTranscribeTimer(); try { unlinkSync(inputPath) } catch {} reject(err) }
       whisperProc.stdin.write(JSON.stringify({ path: inputPath, language }) + '\n')
+      transcribeTimer = setTimeout(() => {
+        transcribeTimer = null
+        const reject2 = pendingReject
+        pendingResolve = null
+        pendingReject = null
+        stdoutBuf = ''
+        if (whisperProc) {
+          try { whisperProc.kill('SIGKILL') } catch {}
+          whisperProc = null
+        }
+        whisperReady = false
+        if (reject2) reject2(new Error('whisper transcription timed out after 60s'))
+        else reject(new Error('whisper transcription timed out after 60s'))
+      }, TRANSCRIBE_TIMEOUT_MS)
     }
 
     const READY_TIMEOUT_MS = 30_000
     const readyDeadline = Date.now() + READY_TIMEOUT_MS
     const waitForReady = () => {
+      pendingWaitTimeout = null
       if (whisperReady) { sendRequest() }
+      else if (!whisperProc) { reject(new Error('whisper shutdown')) }
       else if (Date.now() >= readyDeadline) { reject(new Error('whisper process did not start in time (30s timeout)')) }
-      else { setTimeout(waitForReady, 500) }
+      else { pendingWaitTimeout = setTimeout(waitForReady, 500) }
     }
 
     if (!whisperProc) {
@@ -166,9 +195,19 @@ export function transcribeAudio(audioBuffer: Buffer, language = 'es'): Promise<s
 }
 
 export function shutdownWhisper(): void {
+  if (pendingWaitTimeout) {
+    clearTimeout(pendingWaitTimeout)
+    pendingWaitTimeout = null
+  }
   if (whisperProc) {
     whisperProc.kill()
     whisperProc = null
     whisperReady = false
+  }
+  if (pendingReject) {
+    const reject = pendingReject
+    pendingResolve = null
+    pendingReject = null
+    reject(new Error('whisper shutdown'))
   }
 }

@@ -1,0 +1,38 @@
+name: Check Apple Notary Status
+
+# One-off diagnostic: prints the last 10 submissions in our Apple
+# notarization queue with their status (Accepted / In Progress / Invalid).
+# Trigger manually with: gh workflow run "Check Apple Notary Status"
+
+on:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: macos-latest
+    timeout-minutes: 5
+    steps:
+      - name: Query notarization history
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -e
+          export PATH=/usr/bin:$PATH
+
+          echo "==> Last 10 submissions for team $APPLE_TEAM_ID:"
+          echo ""
+          xcrun notarytool history \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            --output-format json > /tmp/history.json
+
+          python3 -c "
+          import json
+          with open('/tmp/history.json') as f:
+              h = json.load(f)
+          for s in h.get('history', [])[:10]:
+              print(f\"  {s.get('id')} | {s.get('status'):12s} | {s.get('createdDate')}\")
+          "

@@ -2,13 +2,15 @@
 
 # 🪺 Nest by RAVEN
 
-**Multi-AI Terminal Workspace · v1.1 is here**
+**Multi-AI Terminal Workspace · v1.3.1**
 
 Run Claude, Gemini, Codex, Copilot and more — side by side in a single window. Each pane is its own AI session, with its own account, history, and environment.
 
 [![Latest Release](https://img.shields.io/github/v/release/GeronimoDiClemente/raven-nest?style=flat-square&color=0066FF)](https://github.com/GeronimoDiClemente/raven-nest/releases/latest)
-[![v1.1](https://img.shields.io/badge/v1.1-current%20release-0066FF?style=flat-square)](#whats-new-in-v11)
+[![v1.3.1](https://img.shields.io/badge/v1.3.1-current%20release-0066FF?style=flat-square)](#whats-new-in-v13)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey?style=flat-square)](https://github.com/GeronimoDiClemente/raven-nest/releases/latest)
+[![License: PolyForm Strict](https://img.shields.io/badge/license-PolyForm%20Strict%201.0.0-orange?style=flat-square)](./LICENSE)
+[![Source-available](https://img.shields.io/badge/source--available-official%20binaries%20only-orange?style=flat-square)](#license--redistribution)
 
 [Website](https://nestmux.com) · [Download](#download) · [Feedback](../../issues) · [Discussions](../../discussions)
 
@@ -20,7 +22,48 @@ Run Claude, Gemini, Codex, Copilot and more — side by side in a single window.
 
 Think of it as a terminal multiplexer — but built specifically for AI agents and the way teams ship code. Instead of juggling tabs and windows, you get a flexible **grid workspace** where every cell is an independent AI session, on top of the things developers actually need every day: native **git worktrees**, a real **Teams workspace**, your personal **My Repos** dashboard, GitHub & GitLab integration, CI runs, and live terminal sharing.
 
-> **v1.1 builds on the v1.0 stable foundation** with a new tiling layout engine, per-pane port detection, and security hardening across the renderer / IPC surface. Auto-update is on by default — if you already have Nest installed, you'll get it shortly.
+> **v1.2 builds on the v1.1 foundation** with per-device repo paths, Teams crash fixes, and macOS bugfixes (credential persistence, port detection, auto-update). **v1.2.5 fixed the macOS auto-updater** — if you're on a version older than v1.2.5, download once manually; from v1.2.5 onwards `Install and restart` works automatically. **v1.2.6** restored terminal sessions after Cmd+Q. **v1.2.7** fixes port attribution for reparented background processes on macOS and Linux. **v1.3** adds an interactive onboarding tutorial, and **v1.3.1** lets you install an agent's CLI straight from the pane banner.
+
+---
+
+## What's new in v1.3
+
+### v1.3.1 — Install the agent CLI from the banner
+
+Open a pane for an AI whose CLI isn't installed yet and the **"CLI not found"** banner now shows a one-click **Install \<AI> CLI** button instead of a command to copy. Nest runs the install **in-app with a live log**, and **auto-opens the pane** the moment the CLI is ready. If the install fails — or finishes but the binary isn't on `PATH` — the banner falls back to the manual command so you're never stuck. When the CLI is already present, the banner never appears.
+
+### v1.3.0 — Interactive onboarding tutorial
+
+A guided onboarding that runs **on top of the real UI**, not a separate sandbox screen: **three narrated tours** — Worktrees, My Repos and Teams — with an illuminated spotlight that walks you through each core flow step by step. The Worktrees tour launches automatically on first run. This release also cleans up the sidebar worktree registry, dropping dead/stale worktree entries instead of leaving them lingering.
+
+---
+
+## What's new in v1.2
+
+### Per-device local repo paths
+
+Local repo paths now live **per-machine** in `~/.raven-nest/local-paths.json`, no longer in Supabase. Logging into the same account on a different PC shows your repo list but with no path — Nest offers **Clone** or **Link existing folder** per repo, instead of trying to open a path from your other machine that doesn't exist locally. The first launch after upgrading from v1.1.x migrates the paths you already had into the local store (only the ones still present on disk).
+
+### Teams no longer crashes on a missing local folder
+
+Previously, clicking **Terminal** on a Teams repo whose folder had been moved, deleted, or pointed to a non-git directory would silently break the handler (or trip the global error boundary). The new code wraps `getRemoteUrl` in try/catch and falls into the same Clone/Link dialog that My Repos already showed. Same UX in both places; no silent dead ends.
+
+### Cleanup
+
+- Removed the OS-level "terminal finished" notifications. They were firing on mid-stream pauses (>2s) instead of true completion, and added noise without signal.
+- Fixed a pre-existing `ProviderAvatar` ReferenceError in the Teams clone dialog (regression introduced before v1.0 — the dialog crashed every time it rendered).
+
+### Compatibility
+
+v1.1.x clients keep working unchanged during the transition — v1.2.0 never writes to the deprecated Supabase columns (`user_repos.local_path`, the `team_repo_local_paths` table). Those columns will be dropped in v1.3.
+
+### v1.2.6 — Terminal session after Cmd+Q
+
+On macOS, hiding Nest to the tray via Cmd+Q and reopening it no longer drops the active terminal session. The window restore path now reattaches the PTY correctly instead of spawning a fresh shell.
+
+### v1.2.7 — Port attribution for reparented processes
+
+Dev servers launched by AI assistants that get reparented (e.g. `claude` spawning a `vite` child that outlives the shell) are now correctly attributed to their pane on macOS and Linux. The fallback chain walks the full process tree rather than stopping at the direct PTY child.
 
 ---
 
@@ -92,38 +135,32 @@ The headline of v1.0 is **branch-level isolation in the same window**: spawn a w
 
 ---
 
+## License & redistribution
+
+Nest by RAVEN is **source-available** under the [PolyForm Strict License 1.0.0](./LICENSE). The code is published here for transparency and security audit. You **may not** redistribute, fork, modify, or build this software — please install the official binaries from the [Releases page](../../releases/latest). Official builds are signed and auto-update in the background.
+
+Versions up to and including **v1.0.1** were published under the Apache License 2.0 and remain under those terms forever. Versions **v1.1.1 and later** are under PolyForm Strict.
+
+---
+
 ## Download
 
-Latest: **v1.1.0** — tiling layout engine, per-pane port detection, browser cell upgrades, security hardening.
+Latest: **v1.3.1** — install an agent's CLI straight from the pane banner, on top of v1.3.0's interactive onboarding tutorial (3 guided tours) and the v1.2.x port-attribution, session and auto-update fixes.
 
 | Platform | Download |
 |----------|----------|
-| **macOS** (Apple Silicon) | [Nest-1.1.0-arm64.dmg](../../releases/latest) |
-| **Windows** | [Nest-Setup-1.1.0.exe](../../releases/latest) |
-| **Linux** (universal) | [Nest-1.1.0.AppImage](../../releases/latest) |
-| **Linux** (Debian / Ubuntu) | [nest_1.1.0_amd64.deb](../../releases/latest) |
+| **macOS** (Apple Silicon) | [Nest-1.3.1-arm64.dmg](../../releases/latest) |
+| **Windows** | [Nest-Setup-1.3.1.exe](../../releases/latest) |
+| **Linux** (universal) | [Nest-1.3.1.AppImage](../../releases/latest) |
+| **Linux** (Debian / Ubuntu) | [nest_1.3.1_amd64.deb](../../releases/latest) |
 
-> Nest auto-updates in the background — install once and you'll get future releases without re-downloading.
+> Nest auto-updates in the background. **If you're upgrading from a version older than v1.2.5, this first download is manual** — the auto-updater was broken on macOS before v1.2.5. After installing v1.2.5 or later, future updates install automatically via `Install and restart`.
 
 ---
 
 ## Installing on macOS
 
-Nest by RAVEN is not yet notarized by Apple, so macOS Gatekeeper will block it on first open. Two short commands fix that.
-
-**1.** Download the DMG and remove the quarantine flag before opening it:
-
-```bash
-xattr -dr com.apple.quarantine ~/Downloads/Nest-1.1.0-arm64.dmg
-```
-
-**2.** Open the DMG, drag **Nest.app** to `/Applications`, then clear the flag on the installed app:
-
-```bash
-xattr -dr com.apple.quarantine /Applications/Nest.app
-```
-
-That's it — Nest will launch normally from now on.
+Nest by RAVEN is signed and notarized by Apple. Download the DMG, open it and drag **Nest.app** to `/Applications` — Gatekeeper will let it run without any extra steps.
 
 ---
 
@@ -136,8 +173,8 @@ Two formats, pick whichever fits your distro.
 Works on Ubuntu, Fedora, Arch, openSUSE, Mint, Pop!_OS and most others. No system-wide install.
 
 ```bash
-chmod +x ~/Downloads/Nest-1.1.0.AppImage
-~/Downloads/Nest-1.1.0.AppImage
+chmod +x ~/Downloads/Nest-1.3.1.AppImage
+~/Downloads/Nest-1.3.1.AppImage
 ```
 
 To integrate it into your apps menu, use [AppImageLauncher](https://github.com/TheAssassin/AppImageLauncher) or move it to `~/Applications/`.
@@ -147,7 +184,7 @@ To integrate it into your apps menu, use [AppImageLauncher](https://github.com/T
 Installs system-wide, registers the desktop entry and the `nest://` deep link handler.
 
 ```bash
-sudo apt install ~/Downloads/nest_1.1.0_amd64.deb
+sudo apt install ~/Downloads/nest_1.3.1_amd64.deb
 ```
 
 Required packages (auto-installed by `apt`): `libgtk-3-0`, `libnotify4`, `libnss3`, `libxss1`, `libxtst6`, `libatspi2.0-0`, `libdrm2`, `libgbm1`, `libxcb-dri3-0`, `xdg-utils`.
@@ -246,28 +283,35 @@ All rebindable in **Settings → Keybinds**.
 
 ## Plans
 
-|  | Free | Pro | Team |
-|--|------|-----|------|
-| **Price** | $0 | $20/mo · $17/mo annual | $35/mo · $29/mo annual |
-| **Grid size** | 2×2 | Up to 4×4 | Up to 4×4 |
-| **All 7 AIs** | ✓ | ✓ | ✓ |
-| **Persistent sessions** | ✓ | ✓ | ✓ |
-| **MCP server panel** | ✓ | ✓ | ✓ |
-| **Broadcast mode** | — | ✓ | ✓ |
-| **Terminal Sharing** | — | ✓ | ✓ |
-| **GitHub & GitLab integration** | — | ✓ | ✓ |
-| **Actions panel** | — | ✓ | ✓ |
-| **My Repos personal workspace** | — | ✓ | ✓ |
-| **Snippets & saved workspaces** | — | ✓ | ✓ |
-| **Daily standup** | — | ✓ | ✓ |
-| **Team Chat + reactions** | — | — | ✓ |
-| **Team Activity feed** | — | — | ✓ |
-| **Multi-leader roles** | — | — | ✓ |
-| **Real-time presence** | — | — | ✓ |
-| **Shared repos / snippets / MCP** | — | — | ✓ |
-| **Priority support** | — | — | ✓ |
+|  | Free | Pro | Team | Enterprise |
+|--|------|-----|------|------------|
+| **Price** | $0 | $20/mo · $15/mo annual | $35/seat · $26/seat annual | from $60/seat/mo · min 4 seats |
+| **Panes (max)** | 3 | 12 | 12 | 12 |
+| **All 7 AIs + Browser cell** | ✓ | ✓ | ✓ | ✓ |
+| **Persistent sessions + Global search** | ✓ | ✓ | ✓ | ✓ |
+| **MCP panel** | read-only | read/write | read/write | read/write |
+| **View worktrees** | ✓ | ✓ | ✓ | ✓ |
+| **Create worktrees + Spotlight** | — | ✓ | ✓ | ✓ |
+| **Diff viewer + IDE picker** | — | ✓ | ✓ | ✓ |
+| **Broadcast mode** | — | ✓ | ✓ | ✓ |
+| **Terminal Sharing** | — | ✓ | ✓ | ✓ |
+| **Voice input (local Whisper)** | — | ✓ | ✓ | ✓ |
+| **Port detection per pane** | — | ✓ | ✓ | ✓ |
+| **GitHub & GitLab integration** | — | ✓ | ✓ | ✓ |
+| **My Repos + Actions + Standup** | — | ✓ | ✓ | ✓ |
+| **Snippets + saved workspaces** | — | ✓ | ✓ | ✓ |
+| **Team Chat + presence + activity** | — | — | ✓ | ✓ |
+| **Shared repos / snippets / MCP** | — | — | ✓ | ✓ |
+| **Multi-leader roles + standup** | — | — | ✓ | ✓ |
+| **Priority support** | — | — | ✓ | ✓ |
+| **SSO · audit logs · SCIM** | — | — | — | ✓ |
+| **On-prem / self-hosted Supabase** | — | — | — | ✓ |
+| **SLA + dedicated CSM** | — | — | — | ✓ |
+| **Custom integrations & features** | — | — | — | ✓ |
 
-Save ~15% with annual billing.
+Save **25%** with annual billing on Pro and Team. Nest is BYOK — your Claude / Codex / Copilot subscriptions handle the AI billing; we don't meter usage.
+
+**Enterprise** is sales-led: SSO, audit logs, on-prem option, and custom feature development for organizations with compliance or workflow needs. [Contact sales →](mailto:sales@nestmux.com)
 
 ---
 

@@ -58,9 +58,11 @@ interface Props {
   ports?: number[]
   fontSize: number
   style?: React.CSSProperties
+  allowSharing?: boolean
+  onRequireUpgrade?: () => void
 }
 
-export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZoom, onClose, onColorChange, onNoteChange, onInput, onBusyChange, onFocus, onActivity, onJoinRequest, onPtyStarted, ports = [], fontSize, style }: Props) {
+export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZoom, onClose, onColorChange, onNoteChange, onInput, onBusyChange, onFocus, onActivity, onJoinRequest, onPtyStarted, ports = [], fontSize, style, allowSharing = true, onRequireUpgrade }: Props) {
   const cmdBufferRef = useRef('')
   const wrappedOnInput = useCallback((data: string) => {
     for (const ch of data) {
@@ -174,7 +176,6 @@ export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZ
       onBusyChangeRef.current(pane.id, true)
       if (busyTimer.current) clearTimeout(busyTimer.current)
       busyTimer.current = setTimeout(() => {
-        const duration = busyStartRef.current ? Date.now() - busyStartRef.current : 0
         busyStartRef.current = null
         const stripped = filterChrome(stripAnsi(responseAccumRef.current))
         lastResponseRef.current = stripped
@@ -193,12 +194,6 @@ export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZ
           setBlocks(prev => {
             const next = [...prev, block]
             return next.length > MAX_BLOCKS ? next.slice(next.length - MAX_BLOCKS) : next
-          })
-        }
-        if (duration > 2000 && Notification.permission === 'granted' && !document.hasFocus()) {
-          new Notification('Nest — terminal finished', {
-            body: `${pane.customLabel ?? pane.aiType}${pane.accountName ? ` · ${pane.accountName}` : ''} finished responding`,
-            silent: false,
           })
         }
       }, BUSY_THRESHOLD_MS)
@@ -426,7 +421,10 @@ export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZ
         showBlocks={showBlocks}
         blockCount={blocks.length}
         onToggleBlocks={handleToggleBlocks}
-        onShare={() => setShowShare(v => !v)}
+        onShare={() => {
+          if (!allowSharing) { onRequireUpgrade?.(); return }
+          setShowShare(v => !v)
+        }}
         isSharing={isSharing}
         repoPathDiverged={repoPathDiverged}
         onSyncCwd={handleSyncCwd}

@@ -217,6 +217,7 @@ export interface SessionPane {
   note?: string
   repoPath?: string
   shellId?: string
+  url?: string  // browser only: last navigated URL, restored on session load
 }
 
 export interface SessionData {
@@ -350,6 +351,7 @@ declare global {
     }
     windowControls: {
       send: (action: 'minimize' | 'maximize' | 'close') => void
+      onShown: (callback: () => void) => void
     }
     updater: {
       onStatus: (cb: (status: 'downloading' | 'ready' | 'error', msg?: string) => void) => void
@@ -440,14 +442,28 @@ declare global {
     pathUtils: {
       exists: (p: string) => Promise<boolean>
     }
+    localPaths: {
+      get: (repoId: string) => Promise<string | null>
+      set: (repoId: string, path: string) => Promise<void>
+      delete: (repoId: string) => Promise<void>
+      getAll: () => Promise<Record<string, string>>
+      getMigrationFlag: (key: string) => Promise<string | null>
+      setMigrationFlag: (key: string, value: string) => Promise<void>
+    }
     cli: {
       check: (cmd: string) => Promise<{ found: boolean; path: string }>
+      install: (aiType: string) => Promise<{ state: 'done' | 'failed' | 'cancelled'; log: string }>
+      cancelInstall: (aiType: string) => Promise<boolean>
+      onInstallProgress: (cb: (data: { aiType: string; line: string }) => void) => () => void
     }
     shells: {
       detect: () => Promise<ShellInfo[]>
     }
     worktree: {
-      list: (repoPath: string) => Promise<WorktreeMeta[]>
+      list: (repoPath: string) => Promise<
+        | { ok: true; worktrees: WorktreeMeta[] }
+        | { ok: false; error: string }
+      >
       create: (opts: { repoPath: string; branch: string; fromBranch?: string; path?: string; presetId?: string }) => Promise<WorktreeMeta>
       remove: (worktreePath: string) => Promise<void>
       get: (worktreePath: string) => Promise<WorktreeMeta | null>

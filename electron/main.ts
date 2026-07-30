@@ -1,6 +1,71 @@
-import { app, BrowserWindow, ipcMain, shell, nativeImage, dialog, session, safeStorage, clipboard } from 'electron'
+import { app, BrowserWindow, ipcMain, shell, nativeImage, dialog, session, safeStorage, clipboard, net } from 'electron'
 import { autoUpdater } from 'electron-updater'
 import { resolve as pathResolve } from 'path'
+
+const MIN_VERSION_URL = 'https://raw.githubusercontent.com/GeronimoDiClemente/raven-nest/main/min-version.json'
+const MIN_VERSION_TIMEOUT_MS = 4000
+const DOWNLOAD_PAGE_URL = 'https://github.com/GeronimoDiClemente/raven-nest/releases/latest'
+
+function isVersionLower(current: string, target: string): boolean {
+  const parse = (v: string): number[] => v.replace(/^v/, '').split('.').map(n => parseInt(n, 10) || 0)
+  const a = parse(current)
+  const b = parse(target)
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    const ai = a[i] ?? 0
+    const bi = b[i] ?? 0
+    if (ai < bi) return true
+    if (ai > bi) return false
+  }
+  return false
+}
+
+async function fetchMinVersion(): Promise<{ min_version: string; message?: string } | null> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(null), MIN_VERSION_TIMEOUT_MS)
+    try {
+      const req = net.request({ url: MIN_VERSION_URL, redirect: 'follow' })
+      let body = ''
+      req.on('response', (res) => {
+        if (res.statusCode !== 200) { clearTimeout(timer); resolve(null); return }
+        res.on('data', (chunk) => { body += chunk.toString() })
+        res.on('end', () => {
+          clearTimeout(timer)
+          try {
+            const parsed = JSON.parse(body)
+            if (parsed && typeof parsed.min_version === 'string') resolve(parsed)
+            else resolve(null)
+          } catch { resolve(null) }
+        })
+        res.on('error', () => { clearTimeout(timer); resolve(null) })
+      })
+      req.on('error', () => { clearTimeout(timer); resolve(null) })
+      req.end()
+    } catch { clearTimeout(timer); resolve(null) }
+  })
+}
+
+async function enforceMinVersion(): Promise<boolean> {
+  if (process.env['ELECTRON_RENDERER_URL']) return true
+  const current = app.getVersion()
+  const remote = await fetchMinVersion()
+  if (!remote) return true
+  if (!isVersionLower(current, remote.min_version)) return true
+
+  const defaultMsg = `This version of Nest (v${current}) is no longer supported. Please install the latest version (v${remote.min_version} or newer).`
+  const choice = dialog.showMessageBoxSync({
+    type: 'warning',
+    title: 'Update required',
+    message: 'Nest needs to be updated',
+    detail: remote.message || defaultMsg,
+    buttons: ['Download latest', 'Quit'],
+    defaultId: 0,
+    cancelId: 1,
+    noLink: true,
+  })
+  if (choice === 0) shell.openExternal(DOWNLOAD_PAGE_URL)
+  app.quit()
+  return false
+}
 
 // Swallow stdout EPIPE — happens when the parent terminal closes while the
 // app keeps running. A single console.log that writes to a closed stdout
@@ -31,24 +96,27 @@ if (process.defaultApp) {
   app.setAsDefaultProtocolClient('nest')
 }
 import { join as pathJoin, join, isAbsolute, basename, dirname } from 'path'
-import { readFileSync, writeFileSync, mkdirSync, statSync, copyFileSync, unlinkSync, rmSync, existsSync, chmodSync } from 'fs'
+import { readFileSync, writeFileSync, mkdirSync, statSync, copyFileSync, unlinkSync, rmSync, existsSync, chmodSync, promises as fsp } from 'fs'
 import { tmpdir, homedir } from 'os'
 import { lookup } from 'dns/promises'
 import { ravenHome, userHome } from './raven-home'
-import { execSync, execFile, execFileSync } from 'child_process'
+import { loadSession, saveSession } from './session-store'
+import { execSync, execFile, execFileSync, spawn } from 'child_process'
 import { randomBytes } from 'crypto'
 import { PtyManager } from './pty-manager'
 import { detectShells, getShellById } from './shell-detect'
 import { AccountStore, detachClaudeConfig } from './account-store'
 import { CustomCLIStore } from './custom-cli-store'
 import { SnippetStore } from './snippet-store'
+import { LocalPathsStore } from './local-paths-store'
 import { ConversationStore } from './conversation-store'
 import { WorkspaceStore } from './workspace-store'
 import { WorktreeStore } from './worktree-store'
 import { PresetStore } from './preset-store'
 import { SetupRunner } from './setup-runner'
+import { CliInstallRunner, INSTALL_COMMANDS } from './cli-install-runner'
 import { scanPid } from './port-monitor'
-import { getCwdForPid, getProcessInfo, listListeningPidsWindows } from './cwd-reader'
+import { getCwdForPid, getProcessInfo, listListeningPidsPosix, listListeningPidsWindows } from './cwd-reader'
 // pidtree resolves a pid's full descendant tree. Used so port scans cover the
 // actual server (a child of the PowerShell shell), not just the shell itself.
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
@@ -181,17 +249,42 @@ try {
   memory = null
 }
 
+// Explicit "really quitting" teardown — docs/GUIA-TESTEO-BAUTISTA.md pitfall:
+// "No hagas teardown en before-quit." `before-quit` fires on every Cmd+Q attempt even
+// when macOS's win.on('close') cancels it right after (preventDefault + hide to tray),
+// and the app's actual exit paths call app.exit(0) directly, which never emits
+// before-quit/will-quit at all. This function is called ONLY from those real exit
+// paths (tray "Salir", updater install) — never from the before-quit listener.
+// isReallyQuittingMemory guards against a double call if a user mashes the tray Quit
+// item, or if both a tray-quit and an updater-quit somehow race.
+let isReallyQuittingMemory = false
+async function finalizeMemoryBeforeQuit(): Promise<void> {
+  if (!memory || isReallyQuittingMemory) return
+  isReallyQuittingMemory = true
+  // §4.1 "App quit": best-effort push within a 2s budget (memory.daemon.onQuit()
+  // internally races the push against that budget) — never blocks exit indefinitely
+  // (the mutation_log queue is durable across restarts regardless, §4.5), but DOES
+  // block the caller until that bounded attempt settles, so store.close() right after
+  // never races an in-flight write.
+  await memory.daemon.onQuit()
+  memory.daemon.stop()
+  memory.ipcServer.stop()
+  memory.store.close()
+}
+
 // Ensure every existing Claude account has the shared config (CLAUDE.md,
 // settings.json, skills, etc.) linked from ~/.claude. Idempotent — only
 // fills in missing links, never replaces a user's real file or dir.
 accountStore.migrateClaudeAccounts()
 const customCLIStore = new CustomCLIStore()
 const snippetStore = new SnippetStore()
+const localPathsStore = new LocalPathsStore()
 const conversationStore = new ConversationStore()
 const workspaceStore = new WorkspaceStore()
 const worktreeStore = new WorktreeStore(pathJoin(ravenHome(), '.raven-nest'))
 const presetStore = new PresetStore()
 const setupRunner = new SetupRunner()
+const cliInstallRunner = new CliInstallRunner()
 const browserPanes = new BrowserPaneManager(() => BrowserWindow.getAllWindows()[0] ?? null)
 const spotlight = new SpotlightEngine()
 const benchmark = new BenchmarkRecorder()
@@ -298,6 +391,11 @@ function createWindow(): void {
     win.hide()
     if (isMac) app.dock.hide()
   })
+
+  // Notify renderer to re-focus the active terminal after the window is shown
+  win.on('show', () => {
+    win.webContents.send('window:shown')
+  })
 }
 
 // Window control handlers (used by custom titlebar on Windows)
@@ -339,13 +437,26 @@ ipcMain.handle('git:info', (_event, repoPath: string) => {
   if (!repoPath || typeof repoPath !== 'string' || !isAbsolute(repoPath)) return empty
   try { if (!statSync(repoPath).isDirectory()) return empty } catch { return empty }
 
+  let gitMissing = false
   const run = (cmd: string) => {
-    try { return execSync(cmd, { cwd: repoPath, encoding: 'utf8', timeout: 3000 }).trim() }
-    catch { return null }
+    try {
+      return execSync(cmd, { cwd: repoPath, encoding: 'utf8', timeout: 3000 }).trim()
+    } catch (err) {
+      const e = err as NodeJS.ErrnoException
+      if (e.code === 'ENOENT') {
+        gitMissing = true
+      } else {
+        console.warn('[git:info]', cmd, e.message)
+      }
+      return null
+    }
   }
   const branch = run('git rev-parse --abbrev-ref HEAD')
+  if (gitMissing) return { error: 'git-not-found' as const }
   const remoteUrl = run('git remote get-url origin')
+  if (gitMissing) return { error: 'git-not-found' as const }
   const dirty = run('git status --porcelain')
+  if (gitMissing) return { error: 'git-not-found' as const }
 
   let githubUrl: string | null = null
   if (remoteUrl) {
@@ -363,12 +474,23 @@ ipcMain.handle('git:status', (_event, repoPath: string) => {
   if (!repoPath || typeof repoPath !== 'string' || !isAbsolute(repoPath)) return empty
   try { if (!statSync(repoPath).isDirectory()) return empty } catch { return empty }
 
+  let gitMissing = false
   const run = (cmd: string) => {
-    try { return execSync(cmd, { cwd: repoPath, encoding: 'utf8', timeout: 3000 }).trim() }
-    catch { return null }
+    try {
+      return execSync(cmd, { cwd: repoPath, encoding: 'utf8', timeout: 3000 }).trim()
+    } catch (err) {
+      const e = err as NodeJS.ErrnoException
+      if (e.code === 'ENOENT') {
+        gitMissing = true
+      } else {
+        console.warn('[git:status]', cmd, e.message)
+      }
+      return null
+    }
   }
 
   const porcelain = run('git status --porcelain') ?? ''
+  if (gitMissing) return { error: 'git-not-found' as const }
   const files = porcelain
     .split('\n')
     .filter(Boolean)
@@ -376,6 +498,7 @@ ipcMain.handle('git:status', (_event, repoPath: string) => {
 
   const aheadRaw = run('git rev-list --count @{upstream}..HEAD')
   const behindRaw = run('git rev-list --count HEAD..@{upstream}')
+  if (gitMissing) return { error: 'git-not-found' as const }
   const ahead = aheadRaw ? parseInt(aheadRaw, 10) : 0
   const behind = behindRaw ? parseInt(behindRaw, 10) : 0
 
@@ -385,8 +508,8 @@ ipcMain.handle('git:status', (_event, repoPath: string) => {
 // List local branches in a repo + detect the default branch. Used by the
 // NewWorktreeModal so the user can pick a base branch other than HEAD.
 ipcMain.handle('git:listBranches', async (_evt, repoPath: string) => {
-  if (!isAbsolute(repoPath)) throw new Error('repoPath must be absolute')
-  if (repoPath.includes('"')) throw new Error('repoPath contains invalid characters')
+  if (!isAbsolute(repoPath)) return { ok: false as const, error: 'repoPath must be absolute' }
+  if (repoPath.includes('"')) return { ok: false as const, error: 'repoPath contains invalid characters' }
 
   let branches: string[] = []
   try {
@@ -400,8 +523,14 @@ ipcMain.handle('git:listBranches', async (_evt, repoPath: string) => {
     })
     branches = out.split('\n').map((s) => s.trim()).filter(Boolean)
   } catch {
-    return { branches: [], defaultBranch: null }
+    return { ok: true as const, branches: [], defaultBranch: null }
   }
+
+  // Sort branches alphabetically so the fallback below (when origin/HEAD,
+  // main, master, develop are all missing) picks a deterministic name —
+  // otherwise `branches[0]` reflects whatever order `for-each-ref` returned,
+  // which is implementation-defined and varies between git versions.
+  branches.sort((a, b) => a.localeCompare(b))
 
   let defaultBranch: string | null = null
   try {
@@ -419,14 +548,14 @@ ipcMain.handle('git:listBranches', async (_evt, repoPath: string) => {
     else defaultBranch = branches[0] ?? null
   }
 
-  return { branches, defaultBranch }
+  return { ok: true as const, branches, defaultBranch }
 })
 
 // Push the worktree's current branch to origin (with -u). Returns a compare
 // URL for GitHub so the renderer can offer "Open PR" after a successful push.
 ipcMain.handle('git:pushBranch', async (_event, worktreePath: string) => {
-  if (!isAbsolute(worktreePath)) throw new Error('worktreePath must be absolute')
-  if (worktreePath.includes('"')) throw new Error('worktreePath contains invalid characters')
+  if (!isAbsolute(worktreePath)) return { ok: false as const, error: 'worktreePath must be absolute' }
+  if (worktreePath.includes('"')) return { ok: false as const, error: 'worktreePath contains invalid characters' }
 
   if (!existsSync(worktreePath)) {
     return { ok: false as const, error: `Worktree path no longer exists on disk: ${worktreePath}` }
@@ -483,7 +612,7 @@ ipcMain.handle('git:pushBranch', async (_event, worktreePath: string) => {
 
 // Clone a GitHub or GitLab repo into ~/RavenProjects/<name> (or a chosen parent dir)
 ipcMain.handle('git:clone', async (
-  _event,
+  event,
   cloneUrl: string,
   repoName: string,
   parentDir?: string,
@@ -522,7 +651,11 @@ ipcMain.handle('git:clone', async (
   const baseDir = parentDir && isAbsolute(parentDir)
     ? parentDir
     : pathJoin(userHome(), 'RavenProjects')
-  try { mkdirSync(baseDir, { recursive: true }) } catch {}
+  try {
+    mkdirSync(baseDir, { recursive: true })
+  } catch (err) {
+    return { ok: false, error: `cannot create parent dir: ${(err as Error).message}` }
+  }
   const dest = pathJoin(baseDir, folderName)
   // If a directory at `dest` already exists, only adopt it when its `origin`
   // remote matches the URL we're trying to clone. Two different repos with
@@ -571,11 +704,44 @@ ipcMain.handle('git:clone', async (
   }
 
   try {
-    execFileSync('git', ['clone', authedUrl, dest], {
-      encoding: 'utf8',
-      timeout: 120000,
-      stdio: 'pipe',
+    // Run `git clone` via spawn so we can stream stderr (which carries git's
+    // progress lines) back to the renderer without blocking the main thread.
+    // execFileSync would freeze the UI for the entire duration of the clone —
+    // up to 2 minutes for slow networks or large repos.
+    await new Promise<void>((resolveClone, rejectClone) => {
+      const child = spawn('git', ['clone', '--progress', authedUrl, dest], {
+        stdio: ['ignore', 'ignore', 'pipe'],
+        windowsHide: true,
+      })
+      let stderrTail = ''
+      let stderrBuf = ''
+      child.stderr?.setEncoding('utf8')
+      child.stderr?.on('data', (chunk: string) => {
+        stderrBuf += chunk
+        // git emits progress with \r — split on either CR or LF so each
+        // "Receiving objects: N%" tick becomes its own line.
+        let idx: number
+        while ((idx = stderrBuf.search(/[\r\n]/)) !== -1) {
+          const line = stderrBuf.slice(0, idx).trim()
+          stderrBuf = stderrBuf.slice(idx + 1)
+          if (line) {
+            stderrTail = line
+            try { event.sender.send('git:clone:progress', line) } catch { /* renderer gone */ }
+          }
+        }
+      })
+      child.on('error', (err) => rejectClone(err))
+      child.on('close', (code) => {
+        if (stderrBuf.trim()) {
+          const tail = stderrBuf.trim()
+          stderrTail = tail
+          try { event.sender.send('git:clone:progress', tail) } catch { /* renderer gone */ }
+        }
+        if (code === 0) resolveClone()
+        else rejectClone(new Error(stderrTail || `git clone exited with code ${code}`))
+      })
     })
+
     if (tokenSafe) {
       try {
         execFileSync('git', ['-C', dest, 'remote', 'set-url', 'origin', cloneUrl], { stdio: 'pipe' })
@@ -681,24 +847,56 @@ ipcMain.handle('dialog:pickRepoFolder', async (_evt, expectedRemote?: string) =>
 // matches THIS repo before auto-adopting it as the user's path — otherwise
 // the wrong-folder bug (sti-travel-console linked to algoritmos) keeps
 // silently re-applying after every Unlink.
-ipcMain.handle('git:getRemoteUrl', (_event, folder: string) => {
-  if (!folder || typeof folder !== 'string' || !isAbsolute(folder)) return null
-  try { if (!statSync(folder).isDirectory()) return null } catch { return null }
-  try { statSync(pathJoin(folder, '.git')) } catch { return null }
+type RemoteUrlResult =
+  | { ok: true; url: string }
+  | { ok: false; reason: 'no-git' | 'not-repo' | 'no-origin' | 'io-error' }
+
+ipcMain.handle('git:getRemoteUrl', (_event, folder: string): RemoteUrlResult => {
+  if (!folder || typeof folder !== 'string' || !isAbsolute(folder)) {
+    return { ok: false, reason: 'not-repo' }
+  }
+  try {
+    if (!statSync(folder).isDirectory()) return { ok: false, reason: 'not-repo' }
+  } catch {
+    return { ok: false, reason: 'not-repo' }
+  }
+  try {
+    statSync(pathJoin(folder, '.git'))
+  } catch {
+    return { ok: false, reason: 'not-repo' }
+  }
   try {
     const out = execFileSync('git', ['-C', folder, 'remote', 'get-url', 'origin'], {
       encoding: 'utf8', timeout: 3000, stdio: ['pipe', 'pipe', 'pipe'],
     }).trim()
-    return out || null
-  } catch {
-    return null
+    if (!out) return { ok: false, reason: 'no-origin' }
+    return { ok: true, url: out }
+  } catch (err) {
+    const e = err as NodeJS.ErrnoException
+    if (e.code === 'ENOENT') return { ok: false, reason: 'no-git' }
+    const msg = e.message || ''
+    // `git remote get-url origin` exits non-zero with "No such remote 'origin'"
+    // when the repo has no origin configured.
+    if (/no such remote|does not exist/i.test(msg)) return { ok: false, reason: 'no-origin' }
+    console.warn('[git:getRemoteUrl]', folder, msg)
+    return { ok: false, reason: 'io-error' }
   }
 })
 
-// Check if a path exists and is a directory on this machine
-ipcMain.handle('path:exists', (_event, p: string) => {
-  if (!p || typeof p !== 'string' || !isAbsolute(p)) return false
-  try { return statSync(p).isDirectory() } catch { return false }
+// Check if a path exists on this machine. Async with 2s timeout so UNC/OneDrive
+// offline paths (Windows SMB timeout is 30s by default) don't block the main
+// thread when the renderer probes them during session restore.
+ipcMain.handle('path:exists', async (_e, p: string) => {
+  if (typeof p !== 'string' || !p) return false
+  try {
+    await Promise.race([
+      fsp.stat(p),
+      new Promise<never>((_, rej) => setTimeout(() => rej(new Error('timeout')), 2000))
+    ])
+    return true
+  } catch {
+    return false
+  }
 })
 
 // Settings IPC handlers
@@ -719,6 +917,20 @@ ipcMain.handle('mcp:globalPath', () => pathJoin(ravenHome(), '.claude', 'setting
 ipcMain.handle('snippets:list', () => snippetStore.list())
 ipcMain.handle('snippets:save', (_event, snippet) => snippetStore.save(snippet))
 ipcMain.handle('snippets:delete', (_event, id: string) => snippetStore.delete(id))
+
+// LocalPaths IPC handlers (per-device repo paths)
+ipcMain.handle('localPaths:get', (_event, repoId: string) => localPathsStore.getLocalPath(repoId))
+ipcMain.handle('localPaths:set', (_event, repoId: string, path: string) => {
+  localPathsStore.setLocalPath(repoId, path)
+})
+ipcMain.handle('localPaths:delete', (_event, repoId: string) => {
+  localPathsStore.deleteLocalPath(repoId)
+})
+ipcMain.handle('localPaths:getAll', () => localPathsStore.getAllLocalPaths())
+ipcMain.handle('localPaths:getMigrationFlag', (_event, key: string) => localPathsStore.getMigrationFlag(key))
+ipcMain.handle('localPaths:setMigrationFlag', (_event, key: string, value: string) => {
+  localPathsStore.setMigrationFlag(key, value)
+})
 
 // CLI detection
 // Electron launched from a desktop launcher (.app on macOS Finder,
@@ -767,6 +979,19 @@ ipcMain.handle('cli:check', (_event, cmd: string) => {
     return { found: false, path: '' }
   }
 })
+
+ipcMain.handle('cli:install', async (event, aiType: string) => {
+  const cmd = INSTALL_COMMANDS[aiType]
+  if (!cmd) return { state: 'failed' as const, log: `No install command for "${aiType}"` }
+  return cliInstallRunner.run(
+    aiType,
+    cmd,
+    (line) => { try { event.sender.send('cli:install:progress', { aiType, line }) } catch { /* renderer gone */ } },
+    { env: { ...process.env, PATH: cliLookupPath() } },
+  )
+})
+
+ipcMain.handle('cli:install:cancel', (_event, aiType: string) => cliInstallRunner.cancel(aiType))
 
 // Custom CLI IPC handlers
 ipcMain.handle('customcli:list', () => customCLIStore.list())
@@ -879,34 +1104,40 @@ ipcMain.handle('workspace:import', async () => {
 // === Worktree handlers (Plan 1 — v1.0) ===
 
 ipcMain.handle('worktree:list', async (_evt, repoPath: string) => {
-  if (!isAbsolute(repoPath)) throw new Error('repoPath must be absolute')
+  if (!isAbsolute(repoPath)) return { ok: false as const, error: 'repoPath must be absolute' }
   const live = worktreeStore.hydrateFromGit(repoPath)
   // Mark store entries that git no longer reports as `orphaned`. Without
   // this, a worktree the user removed externally (`rm -rf <wt>` or
   // `git worktree remove`) stays in the store as `done` forever, and every
   // other consumer (metrics, ports, spotlight) treats it as live.
   worktreeStore.reconcile(live.map((m) => m.repoPath))
+  // Drop entries whose directory is gone (worktrees removed outside the app, or
+  // older clones that no longer exist on this machine). reconcile only marks
+  // them `orphaned`; without this they pile up in the sidebar forever.
+  worktreeStore.pruneMissing()
   // Filter by rootRepoPath in posix form on both sides so backslash variants
   // from session restore don't cause an empty list (the store always stores
   // POSIX-keyed rootRepoPath after the hydrate fix, but the IPC `repoPath`
   // can still arrive with backslashes).
   const rootPosix = repoPath.replace(/\\/g, '/').replace(/\/+$/, '')
-  return worktreeStore.list().filter((m) => {
+  const worktrees = worktreeStore.list().filter((m) => {
     const mRoot = m.rootRepoPath.replace(/\\/g, '/').replace(/\/+$/, '')
     return mRoot === rootPosix
   })
+  return { ok: true as const, worktrees }
 })
 
 ipcMain.handle('worktree:get', async (_evt, worktreePath: string) => {
-  if (!isAbsolute(worktreePath)) throw new Error('worktreePath must be absolute')
-  return worktreeStore.get(worktreePath)
+  if (!isAbsolute(worktreePath)) return { ok: false as const, error: 'worktreePath must be absolute' }
+  return { ok: true as const, meta: worktreeStore.get(worktreePath) }
 })
 
 ipcMain.handle('worktree:setPreset', async (_evt, worktreePath: string, presetId: string | null) => {
-  if (!isAbsolute(worktreePath)) throw new Error('worktreePath must be absolute')
+  if (!isAbsolute(worktreePath)) return { ok: false as const, error: 'worktreePath must be absolute' }
   const meta = worktreeStore.get(worktreePath)
-  if (!meta) throw new Error('Worktree not found')
+  if (!meta) return { ok: false as const, error: 'Worktree not found' }
   worktreeStore.setMeta({ ...meta, presetId: presetId ?? undefined })
+  return { ok: true as const }
 })
 
 ipcMain.handle('worktree:create', async (_evt, opts: {
@@ -916,16 +1147,16 @@ ipcMain.handle('worktree:create', async (_evt, opts: {
   path?: string
   presetId?: string
 }) => {
-  if (!isAbsolute(opts.repoPath)) throw new Error('repoPath must be absolute')
+  if (!isAbsolute(opts.repoPath)) return { ok: false as const, error: 'repoPath must be absolute' }
   // Reject quotes — paths get interpolated into shell strings below, so a path
   // containing `"` could escape the quoting and inject arbitrary commands.
-  if (opts.repoPath.includes('"')) throw new Error('repoPath contains invalid characters')
+  if (opts.repoPath.includes('"')) return { ok: false as const, error: 'repoPath contains invalid characters' }
   if (!opts.branch || !/^[a-zA-Z0-9._/\-]+$/.test(opts.branch)) {
-    throw new Error(`Invalid branch name: ${opts.branch}`)
+    return { ok: false as const, error: `Invalid branch name: ${opts.branch}` }
   }
   if (opts.path !== undefined) {
     if (!isAbsolute(opts.path) || opts.path.includes('..') || opts.path.includes('"')) {
-      throw new Error('path must be absolute and not contain ".." or quotes')
+      return { ok: false as const, error: 'path must be absolute and not contain ".." or quotes' }
     }
   }
 
@@ -942,7 +1173,7 @@ ipcMain.handle('worktree:create', async (_evt, opts: {
   // defense in depth in case the IPC is called from elsewhere.
   if (opts.fromBranch !== undefined && opts.fromBranch !== 'HEAD'
       && !/^[a-zA-Z0-9._/\-]+$/.test(opts.fromBranch)) {
-    throw new Error(`Invalid fromBranch name: ${opts.fromBranch}`)
+    return { ok: false as const, error: `Invalid fromBranch name: ${opts.fromBranch}` }
   }
 
   // Check if branch exists — execFileSync (no shell)
@@ -963,7 +1194,7 @@ ipcMain.handle('worktree:create', async (_evt, opts: {
   try {
     execFileSync('git', addArgs, { encoding: 'utf8', timeout: 10000, stdio: ['pipe', 'pipe', 'pipe'] })
   } catch (err) {
-    throw new Error(`git worktree add failed: ${err instanceof Error ? err.message : String(err)}`)
+    return { ok: false as const, error: `git worktree add failed: ${err instanceof Error ? err.message : String(err)}` }
   }
 
   // Persist meta
@@ -996,13 +1227,13 @@ ipcMain.handle('worktree:create', async (_evt, opts: {
     }
   }
 
-  return meta
+  return { ok: true as const, meta }
 })
 
 ipcMain.handle('worktree:remove', async (_evt, worktreePath: string) => {
-  if (!isAbsolute(worktreePath)) throw new Error('worktreePath must be absolute')
+  if (!isAbsolute(worktreePath)) return { ok: false as const, error: 'worktreePath must be absolute' }
   const meta = worktreeStore.get(worktreePath)
-  if (!meta) throw new Error('Worktree not found in store')
+  if (!meta) return { ok: false as const, error: 'Worktree not found in store' }
 
   if (setupRunner.isRunning(worktreePath)) setupRunner.cancel(worktreePath)
 
@@ -1035,7 +1266,7 @@ ipcMain.handle('worktree:remove', async (_evt, worktreePath: string) => {
     // can still get rid of them from the UI.
     const msg = err instanceof Error ? err.message : String(err)
     if (!/is not a working tree|is not a worktree|not a valid/i.test(msg)) {
-      throw new Error(`git worktree remove failed: ${msg}`)
+      return { ok: false as const, error: `git worktree remove failed: ${msg}` }
     }
     needsManualCleanup = true
   }
@@ -1069,9 +1300,10 @@ ipcMain.handle('worktree:remove', async (_evt, worktreePath: string) => {
 
   if (cleanupFailures.length > 0) {
     // Leave the meta in place so user can retry; surface a real error.
-    throw new Error(`Worktree partially removed — ${cleanupFailures.join('; ')}. Retry, or clean up the directory manually.`)
+    return { ok: false as const, error: `Worktree partially removed — ${cleanupFailures.join('; ')}. Retry, or clean up the directory manually.` }
   }
   worktreeStore.remove(worktreePath)
+  return { ok: true as const }
 })
 
 // === Preset handlers (Plan 2 — v1.0) ===
@@ -1441,14 +1673,62 @@ ipcMain.handle('ports:byPane', async (
       result[attributed] = arr
     })
   } else {
-    // POSIX path: PPID lookup isn't free here (would need an extra `ps`
-    // call per listening pid), so we fall back to the tree-only attribution
-    // that the metrics:portsByPids handler already does well.
-    await Promise.all(paneInfo.map(async ({ paneId, panePid }) => {
-      if (typeof panePid !== 'number' || panePid <= 0) return
-      const ports = await scanPid(panePid, resolvePidTree)
-      if (ports.length > 0) result[paneId] = ports
-    }))
+    // POSIX (macOS/Linux): same three-layer attribution as Windows.
+    // 1. Global lsof scan → PID tree match (handles normal dev servers)
+    // 2. CWD match — handles processes reparented to init/launchd after their
+    //    parent shell exits (e.g. `npx next dev &` launched from Claude Code's
+    //    Bash tool: the shell subprocess exits and the Node.js worker is
+    //    adopted by PID 1, so pidtree can't find it from the pane's PTY PID).
+    const listening = await listListeningPidsPosix()
+    if (listening.size === 0) {
+      // lsof failed or returned nothing — fall back to per-pane tree scan.
+      await Promise.all(paneInfo.map(async ({ paneId, panePid }) => {
+        if (typeof panePid !== 'number' || panePid <= 0) return
+        const ports = await scanPid(panePid, resolvePidTree)
+        if (ports.length > 0) result[paneId] = ports
+      }))
+    } else {
+      const unattributed: Array<[number, number[]]> = []
+      for (const [pid, ports] of listening) {
+        let attributed: string | null = null
+        for (const { paneId } of paneInfo) {
+          if (treesByPane.get(paneId)?.has(pid)) { attributed = paneId; break }
+        }
+        if (attributed) {
+          const arr = result[attributed] ?? []
+          for (const p of ports) if (!arr.includes(p)) arr.push(p)
+          result[attributed] = arr
+        } else {
+          unattributed.push([pid, ports])
+        }
+      }
+      if (unattributed.length > 0 && paneInfo.some((p) => p.repoPath)) {
+        const infos = await Promise.allSettled(unattributed.map(([pid]) => getProcessInfo(pid)))
+        unattributed.forEach(([, ports], idx) => {
+          const r = infos[idx]
+          const info = r?.status === 'fulfilled' ? r.value : null
+          if (!info?.cwd) return
+          const c = info.cwd.toLowerCase().replace(/\/+$/, '')
+          const matching = paneInfo.filter(({ repoPath }) => {
+            if (!repoPath) return false
+            const np = repoPath.toLowerCase().replace(/\/+$/, '')
+            return c === np || c.startsWith(np + '/')
+          })
+          let attributed: string | null = null
+          if (matching.length === 1) {
+            attributed = matching[0]!.paneId
+          } else if (matching.length > 1) {
+            const busy = matching.filter(({ paneId }) => (treesByPane.get(paneId)?.size ?? 0) > 1)
+            const candidates = busy.length > 0 ? busy : matching
+            attributed = candidates[candidates.length - 1]!.paneId
+          }
+          if (!attributed) return
+          const arr = result[attributed] ?? []
+          for (const p of ports) if (!arr.includes(p)) arr.push(p)
+          result[attributed] = arr
+        })
+      }
+    }
   }
 
   for (const id of Object.keys(result)) {
@@ -1688,7 +1968,7 @@ ipcMain.handle('git:findPRForBranch', async (
       }
       const tok = tokens?.github
       if (typeof tok === 'string' && tok) headers['Authorization'] = `Bearer ${tok}`
-      const res = await fetch(url, { headers })
+      const res = await fetch(url, { headers, signal: AbortSignal.timeout(5000) })
       if (!res.ok) {
         if (res.status === 404) { prCacheSet(cacheKey, null); return null }
         console.warn('[git:findPRForBranch]', res.status, branch, 'github transient — not caching')
@@ -1706,7 +1986,7 @@ ipcMain.handle('git:findPRForBranch', async (
     const headers: Record<string, string> = { 'User-Agent': 'raven-nest' }
     const tok = tokens?.gitlab
     if (typeof tok === 'string' && tok) headers['PRIVATE-TOKEN'] = tok
-    const res = await fetch(url, { headers })
+    const res = await fetch(url, { headers, signal: AbortSignal.timeout(5000) })
     if (!res.ok) {
       if (res.status === 404) { prCacheSet(cacheKey, null); return null }
       console.warn('[git:findPRForBranch]', res.status, branch, 'gitlab transient — not caching')
@@ -1802,22 +2082,15 @@ ipcMain.handle('ide:open', async (_evt, binPath: string, worktreePath: string) =
 
 ipcMain.handle('ide:clearCache', async () => { clearIDECache() })
 
-// Session persistence
-const SESSION_PATH = join(ravenHome(), '.raven-nest', 'session.json')
-
-ipcMain.handle('session:load', () => {
-  try {
-    return JSON.parse(readFileSync(SESSION_PATH, 'utf8'))
-  } catch {
-    return null
-  }
-})
+// Session persistence — atomic read/write lives in session-store.ts
+ipcMain.handle('session:load', () => loadSession())
 
 ipcMain.handle('session:save', (_event, data: unknown) => {
   try {
-    mkdirSync(join(ravenHome(), '.raven-nest'), { recursive: true })
-    writeFileSync(SESSION_PATH, JSON.stringify(data))
-  } catch {}
+    saveSession(data)
+  } catch (err) {
+    console.error('[session:save] failed to write session', err)
+  }
 })
 
 type UpdaterState = 'idle' | 'downloading' | 'ready'
@@ -1830,14 +2103,14 @@ function safeCheckForUpdates(): void {
 }
 
 function setupAutoUpdater(): void {
+  // Clear ALL previously attached listeners so repeated calls (e.g. HMR/reload,
+  // re-entry from test code) don't accumulate handlers, double-fire events, or
+  // leak memory. Must run BEFORE the dev short-circuit below so a dev->prod
+  // build switch within one process still wipes stale handlers.
+  autoUpdater.removeAllListeners()
+
   // Only run in packaged app, not in dev
   if (process.env['ELECTRON_RENDERER_URL']) return
-
-  // Clear any previously attached listeners so repeated calls (e.g. HMR/reload)
-  // don't accumulate handlers and leak memory.
-  autoUpdater.removeAllListeners('update-available')
-  autoUpdater.removeAllListeners('update-downloaded')
-  autoUpdater.removeAllListeners('error')
 
   autoUpdater.autoDownload = true
   autoUpdater.autoInstallOnAppQuit = true
@@ -1851,17 +2124,19 @@ function setupAutoUpdater(): void {
 
   autoUpdater.on('update-downloaded', () => {
     updaterState = 'ready'
-    // Remove macOS quarantine so the updated app opens without Gatekeeper block
-    if (isMac) {
-      execFile('xattr', ['-cr', app.getPath('exe').split('.app')[0] + '.app'], () => {})
-    }
     const win = BrowserWindow.getAllWindows()[0]
     if (win) win.webContents.send('updater:status', 'ready')
   })
 
   autoUpdater.on('error', (err) => {
     console.error('Auto-updater error:', err.message)
-    updaterState = 'idle'
+    // Only downgrade state if we were mid-flight. `ready` means a download
+    // already completed successfully — clobbering it would re-enable the
+    // Install button on what might now be a half-overwritten payload after
+    // a follow-up error from the differential updater.
+    if (updaterState === 'downloading') {
+      updaterState = 'idle'
+    }
     const win = BrowserWindow.getAllWindows()[0]
     const shortMsg = err.message?.split('\n')[0].slice(0, 120)
     if (win) win.webContents.send('updater:status', 'error', shortMsg)
@@ -1876,7 +2151,26 @@ function setupAutoUpdater(): void {
 }
 
 ipcMain.on('updater:install', () => {
-  autoUpdater.quitAndInstall()
+  // Real quit path (electron-updater calls app.quit()/app.exit() internally) — fire the
+  // memory push best-effort. NOT awaited here: the isMac branch below has its own
+  // carefully-tuned 500ms force-exit deadline (event-loop-refs workaround, see comment),
+  // and stretching that to accommodate the full 2s push budget risks reintroducing the
+  // exact "helper waits forever" failure mode this code exists to avoid. Whatever
+  // portion of the push completes in whatever time is actually available is strictly
+  // better than the push never being attempted at all.
+  void finalizeMemoryBeforeQuit()
+  if (isMac) {
+    // quitAndInstall schedules the helper process then calls app.quit() internally.
+    // On macOS, async before-quit work (spotlight watcher, browser panes) can keep
+    // the event loop alive indefinitely — the helper then waits forever for the old
+    // process to disappear. Kill PTYs up front and force-exit after a short grace
+    // period so the update always completes regardless of lingering event loop refs.
+    ptyManager.killAll()
+    autoUpdater.quitAndInstall(true, false)
+    setTimeout(() => app.exit(0), 500)
+  } else {
+    autoUpdater.quitAndInstall()
+  }
 })
 
 ipcMain.handle('updater:checkForUpdates', async () => {
@@ -1891,12 +2185,12 @@ ipcMain.handle('updater:checkForUpdates', async () => {
 })
 
 ipcMain.handle('safeStorage:encrypt', (_event, plaintext: string) => {
-  if (!safeStorage.isEncryptionAvailable()) return null
+  if (!safeStorage.isEncryptionAvailable()) throw new Error('safeStorage not available')
   return safeStorage.encryptString(plaintext).toString('base64')
 })
 
 ipcMain.handle('safeStorage:decrypt', (_event, encrypted: string) => {
-  if (!safeStorage.isEncryptionAvailable()) return null
+  if (!safeStorage.isEncryptionAvailable()) throw new Error('safeStorage not available')
   return safeStorage.decryptString(Buffer.from(encrypted, 'base64'))
 })
 
@@ -2006,9 +2300,17 @@ ipcMain.handle('memory:ensureDeviceId', () => {
   return deviceId
 })
 
-ipcMain.handle('clipboard:writeImage', (_event, filePath: string) => {
-  const img = nativeImage.createFromPath(filePath)
-  if (!img.isEmpty()) clipboard.writeImage(img)
+ipcMain.handle('clipboard:writeImage', (_event, filePath: string): { ok: boolean; error?: string } => {
+  try {
+    const img = nativeImage.createFromPath(filePath)
+    if (img.isEmpty()) {
+      return { ok: false, error: `Could not load image from ${filePath}` }
+    }
+    clipboard.writeImage(img)
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  }
 })
 
 const ALLOWED_IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'tiff', 'tif', 'svg'])
@@ -2171,7 +2473,27 @@ function clearCacheOnVersionChange(): void {
   }
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  // macOS: Electron launched from Finder/Dock gets a minimal PATH from launchd
+  // (/usr/bin:/bin:/usr/sbin:/sbin). Capture the user's real login-shell PATH
+  // once so all PTY spawns inherit it (same fix Windows does via the registry).
+  if (isMac) {
+    try {
+      const { execFileSync } = await import('child_process')
+      const loginPath = execFileSync('/bin/zsh', ['-l', '-c', 'echo $PATH'], {
+        encoding: 'utf8',
+        timeout: 5000,
+      }).trim()
+      if (loginPath) process.env.PATH = loginPath
+    } catch { /* keep existing PATH on failure */ }
+  }
+
+  // Block launch if this build is older than the minimum supported version
+  // (published at min-version.json in the repo root). Fails open on network
+  // errors so offline users aren't locked out.
+  const allowed = await enforceMinVersion()
+  if (!allowed) return
+
   clearCacheOnVersionChange()
 
   // Windows: capture deep link URL passed as argv at cold launch
@@ -2234,8 +2556,15 @@ app.whenReady().then(() => {
       }
     },
     () => {
-      ptyManager.killAll()
-      app.exit(0)
+      // Real quit path — the tray "Salir"/"Quit" item is one of exactly two ways this
+      // app actually exits (the other is updater:install above). Await the bounded
+      // (2s budget) memory push before killing PTYs / force-exiting, since nothing
+      // here is time-constrained the way the updater's quit path is.
+      void (async () => {
+        await finalizeMemoryBeforeQuit()
+        ptyManager.killAll()
+        app.exit(0)
+      })()
     },
     () => {
       if (updaterState === 'downloading') {
@@ -2279,65 +2608,44 @@ app.on('window-all-closed', () => {
   // App only exits via tray menu "Salir"
 })
 
-// C6 fix: this handler used to be fully synchronous, firing `void memoryDaemon.onQuit()`
-// (a fetch call) and then IMMEDIATELY closing the store in the same tick. onQuit()'s
-// push races the close — when the fetch eventually settled, markPushed()/setSyncState()
-// ran against an already-closed better-sqlite3 handle (a synchronous throw from
-// better-sqlite3, surfacing as an unhandled rejection since nothing awaited that
-// promise), AND any mutations that WERE genuinely accepted by the server before the
-// process exited never got marked pushed locally — resent as duplicates on next launch
-// (harmless server-side, since apply is idempotent by sync_id, but still real waste and
-// a symptom of the same underlying race). Fix: preventDefault, await the bounded (2s
-// budget) push, stop/close AFTER it settles, THEN exit via app.exit() (which — unlike
-// calling app.quit() again — does not re-fire before-quit).
-let quitting = false
-app.on('before-quit', (event) => {
-  if (quitting) return
-  quitting = true
-  event.preventDefault()
-  void (async () => {
-    shutdownWhisper()
-    if (updaterInterval) {
-      clearInterval(updaterInterval)
-      updaterInterval = null
-    }
-    if (memory) {
-      // §4.1 "App quit": best-effort push within a 2s budget — never blocks exit
-      // indefinitely (the mutation_log queue is durable across restarts regardless,
-      // §4.5), but DOES block until that bounded attempt settles, so close() below
-      // never races an in-flight store write.
-      await memory.daemon.onQuit()
-      memory.daemon.stop()
-      memory.ipcServer.stop()
-      memory.store.close()
-    }
-    // Tear down every long-lived resource on quit. Without these, dev-mode HMR
-    // reloads (and any future "soft restart" path) would accumulate intervals,
-    // file watchers, PTYs and detached child processes across reloads —
-    // user-visible as a slow leak on app idle.
-    benchmark.stopAll()
-    // Cancel any in-flight `npm install` / preset setup. The spawned children
-    // are NOT detached, so they'd die with the parent anyway — but explicit
-    // taskkill on Windows tears down the whole tree (preset commands like
-    // `npm install` spawn many sub-processes) cleanly instead of orphaning
-    // them for a moment.
-    setupRunner.cancelAll()
-    // Stop the spotlight fs.watch handle. The watcher keeps the event loop
-    // alive on macOS/Linux and would block app exit otherwise.
-    void spotlight.stop()
-    // Destroy every WebContentsView. Each one owns a Chromium render process
-    // tree; leaving them dangling for the Electron app teardown is slow.
-    browserPanes.destroyAll()
-    // Kill every node-pty process. Each PTY is its own OS-level process with a
-    // pseudoterminal device — without this, the user sees PowerShell/bash
-    // processes survive Nest's tray-Quit on Windows (they'd only die when
-    // the conpty session closes, which doesn't happen cleanly without kill()).
-    ptyManager.killAll()
-    ptyManager.removeAllListeners()
-    setupRunner.removeAllListeners()
-    spotlight.removeAllListeners()
-    metricsCollector.dispose()
-    autoUpdater.removeAllListeners()
-    app.exit(0)
-  })()
+app.on('before-quit', () => {
+  shutdownWhisper()
+  if (updaterInterval) {
+    clearInterval(updaterInterval)
+    updaterInterval = null
+  }
+  // Tear down every long-lived resource on quit. Without these, dev-mode HMR
+  // reloads (and any future "soft restart" path) would accumulate intervals,
+  // file watchers, PTYs and detached child processes across reloads —
+  // user-visible as a slow leak on app idle.
+  benchmark.stopAll()
+  // Cancel any in-flight `npm install` / preset setup. The spawned children
+  // are NOT detached, so they'd die with the parent anyway — but explicit
+  // taskkill on Windows tears down the whole tree (preset commands like
+  // `npm install` spawn many sub-processes) cleanly instead of orphaning
+  // them for a moment.
+  setupRunner.cancelAll()
+  cliInstallRunner.cancelAll()
+  // Stop the spotlight fs.watch handle. The watcher keeps the event loop
+  // alive on macOS/Linux and would block app exit otherwise.
+  void spotlight.stop()
+  // Destroy every WebContentsView. Each one owns a Chromium render process
+  // tree; leaving them dangling for the Electron app teardown is slow.
+  browserPanes.destroyAll()
+  // PTYs are NOT killed here. On macOS, before-quit always fires on Cmd+Q but
+  // the quit is then cancelled by win.on('close') calling e.preventDefault() —
+  // killing PTYs here would destroy running sessions even though the app stays
+  // alive (hidden to tray). PTY cleanup is handled by the tray "Quit" handler
+  // (explicit killAll + app.exit) and the updater:install path (explicit killAll
+  // before quitAndInstall). Those are the only real-quit paths.
+  //
+  // Nest Memory teardown is DELIBERATELY NOT here either, for the identical reason
+  // (docs/GUIA-TESTEO-BAUTISTA.md pitfall: "No hagas teardown en before-quit" — this
+  // handler fires on every Cmd+Q attempt even when win.on('close') cancels it right
+  // after). See finalizeMemoryBeforeQuit(), wired into the same two real-quit paths
+  // as ptyManager.killAll() below.
+  setupRunner.removeAllListeners()
+  spotlight.removeAllListeners()
+  metricsCollector.dispose()
+  autoUpdater.removeAllListeners()
 })

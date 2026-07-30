@@ -1,0 +1,9 @@
+# Critical paths require Gero's approval in addition to any peer review.
+/electron/main.ts        @GeronimoDiClemente
+/electron/preload.ts     @GeronimoDiClemente
+/supabase/migrations/    @GeronimoDiClemente
+/supabase/functions/     @GeronimoDiClemente
+/.github/                @GeronimoDiClemente
+/package.json            @GeronimoDiClemente
+/package-lock.json       @GeronimoDiClemente
+/signing/                @GeronimoDiClemente

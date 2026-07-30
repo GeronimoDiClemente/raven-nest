@@ -4,8 +4,8 @@
 // docs/nest-memory-architecture.md §6.2 — secrets and non-secret state are deliberately
 // not colocated).
 import { join } from 'path'
-import { readFileSync, writeFileSync, mkdirSync, existsSync, unlinkSync } from 'fs'
-import { randomUUID } from 'crypto'
+import { readFileSync, writeFileSync, mkdirSync, existsSync, unlinkSync, renameSync } from 'fs'
+import { randomUUID, randomBytes } from 'crypto'
 
 export interface MemoryConnectionState {
   connected: boolean
@@ -19,6 +19,14 @@ function statePath(ravenHomeDir: string): string {
   return join(ravenHomeDir, '.raven-nest', 'memory', 'connection.json')
 }
 
+// Deliberately DOES default to DEFAULT_STATE on any read/parse failure (unlike
+// memory-provisioner.ts's readJsonOrThrow for .claude.json — see that file's comment
+// for the general rule). The difference: this file holds only a connected flag + a
+// device id we generate ourselves, is exclusively OUR OWN, and its worst-case failure
+// mode is "the user has to click Connect again" — genuinely low-stakes and recoverable,
+// unlike silently destroying a user's real Claude Code config. Called at module-load
+// time in main.ts, too: throwing here would crash the whole app over a corrupt 3-field
+// file, which would be a strictly worse outcome than resetting to disconnected.
 export function getMemoryConnectionState(ravenHomeDir: string): MemoryConnectionState {
   try {
     const raw = readFileSync(statePath(ravenHomeDir), 'utf8')
@@ -28,10 +36,19 @@ export function getMemoryConnectionState(ravenHomeDir: string): MemoryConnection
   }
 }
 
+// Atomic write (tmp + rename), matching the house pattern in session-store.ts /
+// local-paths-store.ts (docs/GUIA-TESTEO-BAUTISTA.md: "escribí atómico... el patrón
+// está en electron/session-store.ts (PR #15): copiá ese"). A per-call random tmp
+// filename — not just a fixed `.tmp` suffix — so two concurrent IPC handlers writing
+// this same file (e.g. memory:connect and memory:ensureDeviceId) can't clobber each
+// other's in-flight write (local-paths-store.ts's variant of the pattern).
 export function setMemoryConnectionState(ravenHomeDir: string, state: MemoryConnectionState): void {
   const path = statePath(ravenHomeDir)
+  const serialized = JSON.stringify(state, null, 2)
   mkdirSync(join(ravenHomeDir, '.raven-nest', 'memory'), { recursive: true })
-  writeFileSync(path, JSON.stringify(state, null, 2))
+  const tmp = `${path}.${randomBytes(6).toString('hex')}.tmp`
+  writeFileSync(tmp, serialized)
+  renameSync(tmp, path)
 }
 
 export function credentialPath(ravenHomeDir: string): string {

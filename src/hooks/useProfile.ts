@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import type { Plan } from '../lib/stripe'
 
-const TRIAL_DAYS = 14
+const TRIAL_DAYS = 15
 
 interface Profile {
   plan: Plan
@@ -16,7 +16,7 @@ function computeEffectivePlan(rawPlan: string, trialStartedAt: string | null): {
   isTrialActive: boolean
   trialDaysLeft: number
 } {
-  if (rawPlan === 'pro' || rawPlan === 'team') {
+  if (rawPlan === 'pro' || rawPlan === 'team' || rawPlan === 'enterprise') {
     return { plan: rawPlan as Plan, isTrialActive: false, trialDaysLeft: 0 }
   }
 

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { DiffFile, DiffResult } from '../types'
+import { useBridge } from '../lib/bridge'
 
 interface Props {
   open: boolean
@@ -8,6 +9,7 @@ interface Props {
 }
 
 export function DiffViewerPanel({ open, worktreePath, onClose }: Props) {
+  const bridge = useBridge()
   const [data, setData] = useState<DiffResult | null>(null)
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
@@ -17,7 +19,7 @@ export function DiffViewerPanel({ open, worktreePath, onClose }: Props) {
     if (!open || !worktreePath) return
     let cancelled = false
     setLoading(true); setError(null)
-    void window.diff.get(worktreePath).then((res) => {
+    void bridge.diff.get(worktreePath).then((res) => {
       if (cancelled) return
       setData(res)
       setSelectedPath(res.files[0]?.path ?? null)
@@ -26,7 +28,7 @@ export function DiffViewerPanel({ open, worktreePath, onClose }: Props) {
       setError(err instanceof Error ? err.message : String(err))
     }).finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
-  }, [open, worktreePath])
+  }, [open, worktreePath, bridge])
 
   useEffect(() => {
     if (!open) return
@@ -41,7 +43,7 @@ export function DiffViewerPanel({ open, worktreePath, onClose }: Props) {
 
   return (
     <div className="diff-drawer" onClick={onClose}>
-      <div className="diff-panel" onClick={(e) => e.stopPropagation()}>
+      <div className="diff-panel" data-tour-id="diff-panel" onClick={(e) => e.stopPropagation()}>
         <div className="diff-header">
           <span className="diff-title">Diff · {worktreePath?.split(/[\\/]/).pop()}</span>
           <button className="diff-close" onClick={onClose}>×</button>
@@ -53,7 +55,7 @@ export function DiffViewerPanel({ open, worktreePath, onClose }: Props) {
         )}
         {data && data.files.length > 0 && (
           <div className="diff-body">
-            <div className="diff-files">
+            <div className="diff-files" data-tour-id="diff-files">
               {data.files.map((f) => (
                 <button
                   key={f.path}

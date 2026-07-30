@@ -96,7 +96,9 @@ describe('WorktreeStore', () => {
     expect(got.length).toBeGreaterThanOrEqual(1)
     const featWt = got.find((m) => m.branch === 'feat/test')
     expect(featWt).toBeDefined()
-    expect(featWt!.rootRepoPath).toBe(repoPath)
+    // WorktreeStore normalizes Windows paths to POSIX (see posixKey),
+    // so compare against the forward-slash form of the temp dir.
+    expect(featWt!.rootRepoPath).toBe(repoPath.replace(/\\/g, '/'))
 
     cleanupTmp(repoPath)
     cleanupTmp(wtPath)
@@ -116,5 +118,88 @@ describe('WorktreeStore', () => {
     // Reconcile against an empty git list (mock: empty array returned)
     store.reconcile([])
     expect(store.get('/tmp/nonexistent-wt')?.setupState).toBe('orphaned')
+  })
+
+  it('pruneMissing removes entries whose directory no longer exists', () => {
+    const liveDir = makeTmpDir('live-wt-')
+    store.setMeta({
+      repoPath: liveDir,
+      rootRepoPath: liveDir,
+      branch: 'main',
+      setupState: 'idle',
+      declaredPorts: [], detectedPorts: [],
+      createdAt: 1, updatedAt: 1,
+    })
+    store.setMeta({
+      repoPath: '/tmp/gone-worktree-xyz',
+      rootRepoPath: liveDir,
+      branch: 'feat/gone',
+      setupState: 'orphaned',
+      declaredPorts: [], detectedPorts: [],
+      createdAt: 1, updatedAt: 1,
+    })
+
+    const removed = store.pruneMissing()
+
+    expect(removed).toEqual(['/tmp/gone-worktree-xyz'])
+    expect(store.get('/tmp/gone-worktree-xyz')).toBeNull()
+    expect(store.get(liveDir)).not.toBeNull()
+
+    cleanupTmp(liveDir)
+  })
+
+  it('pruneMissing persists the removal across instances', () => {
+    store.setMeta({
+      repoPath: '/tmp/gone-worktree-abc',
+      rootRepoPath: '/tmp/r',
+      branch: 'feat/gone',
+      setupState: 'orphaned',
+      declaredPorts: [], detectedPorts: [],
+      createdAt: 1, updatedAt: 1,
+    })
+    store.pruneMissing()
+    const reloaded = new WorktreeStore(storeDir)
+    expect(reloaded.get('/tmp/gone-worktree-abc')).toBeNull()
+  })
+
+  it('hydrateFromGit clears a stale orphaned flag when git reports the worktree live', () => {
+    const repoPath = makeTmpDir('git-orphan-')
+    execSync(`git -C "${repoPath}" init -q`)
+    execSync(`git -C "${repoPath}" config user.email test@example.com`)
+    execSync(`git -C "${repoPath}" config user.name Test`)
+    execSync(`git -C "${repoPath}" commit -q --allow-empty -m initial`)
+
+    // First hydrate registers the root entry as idle...
+    store.hydrateFromGit(repoPath)
+    const key = repoPath.replace(/\\/g, '/')
+    // ...then a prior reconcile (triggered while another repo was active)
+    // wrongly left it orphaned.
+    const meta = store.get(key)!
+    store.setMeta({ ...meta, setupState: 'orphaned' })
+    expect(store.get(key)!.setupState).toBe('orphaned')
+
+    // git still lists this worktree, so re-hydrate must clear the stale flag.
+    store.hydrateFromGit(repoPath)
+    expect(store.get(key)!.setupState).toBe('idle')
+
+    cleanupTmp(repoPath)
+  })
+
+  it('hydrateFromGit preserves a real setup state (does not reset done to idle)', () => {
+    const repoPath = makeTmpDir('git-done-')
+    execSync(`git -C "${repoPath}" init -q`)
+    execSync(`git -C "${repoPath}" config user.email test@example.com`)
+    execSync(`git -C "${repoPath}" config user.name Test`)
+    execSync(`git -C "${repoPath}" commit -q --allow-empty -m initial`)
+
+    store.hydrateFromGit(repoPath)
+    const key = repoPath.replace(/\\/g, '/')
+    const meta = store.get(key)!
+    store.setMeta({ ...meta, setupState: 'done' })
+
+    store.hydrateFromGit(repoPath)
+    expect(store.get(key)!.setupState).toBe('done')
+
+    cleanupTmp(repoPath)
   })
 })

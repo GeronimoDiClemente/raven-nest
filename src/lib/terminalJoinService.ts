@@ -19,6 +19,7 @@ type Listener = () => void
 class TerminalJoinService {
   private channel: ReturnType<typeof joinSupabase.channel> | null = null
   private timeoutId: ReturnType<typeof setTimeout> | null = null
+  private replayTimer: ReturnType<typeof setTimeout> | null = null
 
   private _code: string | null = null
   private _connected = false
@@ -133,15 +134,18 @@ class TerminalJoinService {
 
   attachViewer(fn: (data: string) => void) {
     this.onData = fn
+    if (this.replayTimer) { clearTimeout(this.replayTimer); this.replayTimer = null }
     if (this.history.length > 0) {
       const snapshot = this.history.slice()
-      setTimeout(() => {
+      this.replayTimer = setTimeout(() => {
+        this.replayTimer = null
         for (const data of snapshot) fn(data)
       }, 50)
     }
   }
 
   detachViewer() {
+    if (this.replayTimer) { clearTimeout(this.replayTimer); this.replayTimer = null }
     this.onData = null
     this.onSize = null
   }
@@ -164,6 +168,7 @@ class TerminalJoinService {
 
   leave() {
     this.clearTimeout()
+    if (this.replayTimer) { clearTimeout(this.replayTimer); this.replayTimer = null }
     // Tell the host to restore its original size
     if (this.channel && this._connected) {
       this.channel.send({ type: 'broadcast', event: 'resize', payload: { cols: 0, rows: 0 } })

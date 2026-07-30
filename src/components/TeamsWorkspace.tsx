@@ -37,6 +37,8 @@ interface TeamsWorkspaceProps {
   onRequireUpgrade?: () => void
   onOpenRepoTerminal: (repoFullName: string, localPath: string) => void
   onPendingInvitesChange?: () => void
+  /** When provided, the header shows a "?" button that launches the Teams tutorial. */
+  onStartTutorial?: () => void
 }
 
 type WorkspaceSection = 'activity' | 'chat' | 'repos' | 'issues' | 'members' | 'snippets' | 'workspaces' | 'mcp' | 'pendings'
@@ -48,7 +50,7 @@ const PRESENCE_COLORS = [
   '#00CCCC', '#FF2D78', '#4455FF', '#88FF00',
 ]
 
-export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal, onPendingInvitesChange }: TeamsWorkspaceProps) {
+export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal, onPendingInvitesChange, onStartTutorial }: TeamsWorkspaceProps) {
   const [section, setSection] = useState<WorkspaceSection>('activity')
   const [acceptError, setAcceptError] = useState<string | null>(null)
   const [acceptingId, setAcceptingId] = useState<string | null>(null)
@@ -226,32 +228,46 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal, on
     setTerminalOpening(true)
     try {
       const userPath = userLocalPaths?.[repo.id]
-      if (userPath && await window.pathUtils.exists(userPath)) {
-        onOpenRepoTerminal(repo.repo_full_name, userPath)
+      if (!userPath) {
+        setCloneTarget(repo)
         return
       }
-      // Fall back to shared team path only if (a) the folder exists on this
-      // machine AND (b) its origin remote actually matches this repo. Without
-      // the remote check, a stale/wrong team-level path silently re-adopts
-      // after every Unlink — exactly the sti-travel-console → algoritmos bug
-      // we just fixed for pickRepoFolder.
-      if (repo.local_path && await window.pathUtils.exists(repo.local_path)) {
-        const actualRemote = await window.git.getRemoteUrl(repo.local_path)
+      const exists = await window.pathUtils.exists(userPath).catch(() => false)
+      if (!exists) {
+        setCloneTarget(repo)
+        return
+      }
+      // Verify the local folder still points at this repo's remote.
+      // Mirrors MyReposPanel.tsx:145-164. getRemoteUrl returns either the
+      // legacy `string | null` shape or the newer `{ ok, url, reason }` shape
+      // depending on main process version — handle both. Any thrown error
+      // (git missing, folder not a repo, perms) falls into the Clone/Link
+      // dialog so the user is never left with a silently dead button.
+      try {
+        const rawResult: unknown = await (window.git as unknown as {
+          getRemoteUrl: (folder: string) => Promise<unknown>
+        }).getRemoteUrl(userPath)
+        let remoteUrl: string | null = null
+        if (typeof rawResult === 'string') {
+          remoteUrl = rawResult
+        } else if (rawResult && typeof rawResult === 'object' && 'ok' in rawResult) {
+          const r = rawResult as { ok: boolean; url?: string | null; reason?: string }
+          if (r.ok && r.url) remoteUrl = r.url
+        }
         const norm = (u: string) => u
           .replace(/\.git$/, '')
           .replace(/\/+$/, '')
           .replace(/^https?:\/\/[^@/]+@/, 'https://')
           .toLowerCase()
-        if (actualRemote && norm(actualRemote) === norm(repo.repo_url)) {
-          await updateUserLocalPath(repo.id, repo.local_path)
-          onOpenRepoTerminal(repo.repo_full_name, repo.local_path)
+        if (remoteUrl && norm(remoteUrl) !== norm(repo.repo_url)) {
+          setCloneTarget(repo)
           return
         }
-        // Path exists but doesn't match — fall through to clone/link dialog
-        // instead of silently adopting the wrong folder.
+      } catch {
+        setCloneTarget(repo)
+        return
       }
-      // No valid path found — ask to clone or link
-      setCloneTarget(repo)
+      onOpenRepoTerminal(repo.repo_full_name, userPath)
     } finally {
       setTerminalOpening(false)
     }
@@ -390,11 +406,11 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal, on
             <circle cx="11.5" cy="5.5" r="1.5" stroke="currentColor" strokeWidth="1.2" opacity="0.7"/>
             <path d="M13.5 12.5c0-1.38-.9-2.55-2.14-2.87" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" opacity="0.7"/>
           </svg>
-          <span className="tw-header-title">Teams</span>
+          <span className="tw-header-title" data-tour-id="teams-header">Teams</span>
 
           {activeTeam && (
             <div className="team-switcher" ref={switcherRef}>
-              <button className="team-switcher-btn" onClick={() => setShowSwitcher(v => !v)}>
+              <button className="team-switcher-btn" data-tour-id="team-switcher" onClick={() => setShowSwitcher(v => !v)}>
                 <span className="team-switcher-name">{activeTeam.name}</span>
                 <svg width="10" height="10" viewBox="0 0 10 10" fill="none" style={{ flexShrink: 0 }}>
                   <path d="M2 3.5L5 6.5L8 3.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
@@ -498,6 +514,9 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal, on
               {gitlabConnected && gitlabLogin && <ProviderAvatarPill provider="gitlab" login={gitlabLogin} />}
             </span>
           ) : null}
+          {onStartTutorial && (
+            <button className="tour-help-btn" onClick={onStartTutorial} title="Tutorial: Teams">?</button>
+          )}
           <div style={{ position: 'relative' }} ref={notifRef}>
             <button
               className="tw-notif-btn"
@@ -651,6 +670,7 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal, on
               {NAV_ITEMS.map(item => (
                 <button
                   key={item.id}
+                  data-tour-id={`teams-nav-${item.id}`}
                   className={`tw-nav-btn${!creatingTeam && section === item.id ? ' active' : ''}`}
                   onClick={() => switchSection(item.id)}
                 >
@@ -1384,7 +1404,7 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal, on
         <div className="confirm-overlay" onMouseDown={e => { if (e.target === e.currentTarget) { setCloneTarget(null); setCloneError(null) } }}>
           <div className="confirm-dialog" style={{ width: 420, padding: 18 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-              <ProviderAvatar provider={cloneTarget.provider} size={16} />
+              <ProviderIcon provider={cloneTarget.provider} size={16} />
               <div className="confirm-title" style={{ margin: 0, fontSize: 14 }}>
                 {cloneTarget.repo_full_name}
               </div>

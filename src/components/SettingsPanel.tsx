@@ -12,7 +12,7 @@ import { PresetEditor } from './PresetEditor'
 import { BenchmarkDashboard } from './BenchmarkDashboard'
 import UpgradeModal from './UpgradeModal'
 
-type Tab = 'keybinds' | 'presets' | 'benchmarks' | 'updates' | 'account'
+type Tab = 'keybinds' | 'presets' | 'benchmarks' | 'updates' | 'account' | 'tutorial'
 
 interface KeybindRowProps {
   label: string
@@ -81,9 +81,10 @@ interface Props {
   onCheckUpdates: () => void
   userEmail: string
   activeRepoPath?: string
+  onOpenTutorial?: (tourId: import('../tutorial/types').TourId) => void
 }
 
-export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, activeRepoPath }: Props) {
+export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, activeRepoPath, onOpenTutorial }: Props) {
   const [open, setOpen] = useState(false)
   const [tab, setTab] = useState<Tab>('keybinds')
   const { settings, updateKeybinding, updateVoiceLanguage } = useSettings()
@@ -149,7 +150,7 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
 
             {/* Tabs */}
             <div className="sp-tabs">
-              {(['keybinds', 'presets', 'benchmarks', 'updates', 'account'] as Tab[]).map(t => (
+              {(['keybinds', 'presets', 'benchmarks', 'updates', 'account', 'tutorial'] as Tab[]).map(t => (
                 <button
                   key={t}
                   className={`sp-tab${tab === t ? ' active' : ''}`}
@@ -327,6 +328,17 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
 
                   <button className="sp-action-btn" onClick={() => supabase.auth.signOut()}>
                     Sign out
+                  </button>
+                </div>
+              )}
+
+              {tab === 'tutorial' && (
+                <div className="sp-section">
+                  <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '0 0 12px' }}>
+                    Recorré las secciones de Nest con datos de demostración, sin tocar tus repos.
+                  </p>
+                  <button className="sp-action-btn" onClick={() => onOpenTutorial?.('worktrees')}>
+                    Tutorial: Worktrees
                   </button>
                 </div>
               )}

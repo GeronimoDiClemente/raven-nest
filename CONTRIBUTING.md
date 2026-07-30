@@ -71,7 +71,7 @@ MAIN_VITE_GITLAB_CLIENT_ID=...   # optional
 
 ## License
 
-By contributing you agree that your contributions are licensed under the same terms as the project — [Apache License 2.0](LICENSE).
+By contributing you agree that your contributions are licensed under the same terms as the project — [PolyForm Strict License 1.0.0](LICENSE) for v1.1.1 and later (earlier versions remain under Apache License 2.0).
 
 ## Code of conduct
 

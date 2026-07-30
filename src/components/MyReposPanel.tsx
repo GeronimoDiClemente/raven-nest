@@ -24,13 +24,15 @@ interface MyReposPanelProps {
   githubLogin: string | null
   onConnectGitHub: () => void
   onOpenRepoTerminal: (repoFullName: string, localPath: string) => void
+  /** When provided, the header shows a "?" button that launches the My Repos tutorial. */
+  onStartTutorial?: () => void
 }
 
 type Section = 'activity' | 'repos' | 'issues' | 'standup'
 type ReposView = 'list' | 'prs' | 'pr-detail'
 type IssuesView = 'repo-select' | 'list' | 'detail'
 
-export default function MyReposPanel({ onClose, githubToken, githubLogin, onConnectGitHub, onOpenRepoTerminal }: MyReposPanelProps) {
+export default function MyReposPanel({ onClose, githubToken, githubLogin, onConnectGitHub, onOpenRepoTerminal, onStartTutorial }: MyReposPanelProps) {
   const { repos, loading, refresh, addRepo, updateLocalPath, removeRepo } = useUserRepos()
   const { notifications, unreadCount, markAsRead } = useGitHubNotifications(githubToken)
   const { gitlabLogin, gitlabToken } = useGitlab()
@@ -86,6 +88,14 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
 
   const [cloningRepoId, setCloningRepoId] = useState<string | null>(null)
   const [cloneErrorMsg, setCloneErrorMsg] = useState<string | null>(null)
+  const [terminalOpening, setTerminalOpening] = useState<string | null>(null)
+  // When the linked folder is missing or its remote doesn't match the repo,
+  // surface the same "Clone vs Link" dialog TeamsWorkspace uses instead of
+  // silently opening a terminal pointed at a dead/wrong path.
+  const [openTarget, setOpenTarget] = useState<UserRepo | null>(null)
+  const [openTargetReason, setOpenTargetReason] = useState<string | null>(null)
+  const [openTargetCloning, setOpenTargetCloning] = useState(false)
+  const [openTargetError, setOpenTargetError] = useState<string | null>(null)
 
   const handleCloneExisting = async (repo: UserRepo) => {
     if (cloningRepoId) return
@@ -103,6 +113,99 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
       await updateLocalPath(repo.id, result.path)
     } else {
       setCloneErrorMsg(result.error ?? 'Clone failed')
+    }
+  }
+
+  // Normalize remote URLs (strip .git suffix, trailing slashes, embedded
+  // basic-auth credentials, case) so a comparison against repo.repo_url
+  // doesn't flag identical repos as mismatches. Mirrors TeamsWorkspace.
+  const normalizeRemote = (u: string) => u
+    .replace(/\.git$/, '')
+    .replace(/\/+$/, '')
+    .replace(/^https?:\/\/[^@/]+@/, 'https://')
+    .toLowerCase()
+
+  const handleOpenTerminal = async (repo: UserRepo) => {
+    if (terminalOpening) return
+    if (!repo.local_path) {
+      setOpenTargetReason(`No local folder linked for "${repo.repo_full_name}".`)
+      setOpenTarget(repo)
+      return
+    }
+    setTerminalOpening(repo.id)
+    try {
+      const exists = await window.pathUtils.exists(repo.local_path)
+      if (!exists) {
+        setOpenTargetReason(`La carpeta \`${repo.local_path}\` ya no existe. ¿Querés re-linkear o clonar de nuevo?`)
+        setOpenTarget(repo)
+        return
+      }
+      // Verify the remote actually matches the repo — guards against the
+      // wrong-folder bug where a stale local_path points at a different repo.
+      // New IPC shape: { ok: true, url } | { ok: false, reason }. Falls back
+      // gracefully if main returns the legacy string|null.
+      try {
+        const rawResult: unknown = await (window.git as unknown as {
+          getRemoteUrl: (folder: string) => Promise<unknown>
+        }).getRemoteUrl(repo.local_path)
+        let remoteUrl: string | null = null
+        if (typeof rawResult === 'string') {
+          remoteUrl = rawResult
+        } else if (rawResult && typeof rawResult === 'object' && 'ok' in rawResult) {
+          const r = rawResult as { ok: boolean; url?: string | null; reason?: string }
+          if (r.ok && r.url) remoteUrl = r.url
+        }
+        if (remoteUrl && normalizeRemote(remoteUrl) !== normalizeRemote(repo.repo_url)) {
+          setOpenTargetReason(`La carpeta \`${repo.local_path}\` apunta a otro repo (${remoteUrl}). ¿Querés re-linkear o clonar de nuevo?`)
+          setOpenTarget(repo)
+          return
+        }
+      } catch {
+        // getRemoteUrl failures (git missing, IPC throw) are non-fatal — fall
+        // through and open the terminal. The user can manually re-link later.
+      }
+      onOpenRepoTerminal(repo.repo_full_name, repo.local_path)
+    } finally {
+      setTerminalOpening(null)
+    }
+  }
+
+  const handleOpenTargetClone = async () => {
+    if (!openTarget) return
+    setOpenTargetCloning(true)
+    setOpenTargetError(null)
+    const token = openTarget.provider === 'gitlab' ? gitlabToken : githubToken
+    const result = await window.git.clone(
+      `${openTarget.repo_url}.git`,
+      openTarget.repo_full_name,
+      undefined,
+      { provider: openTarget.provider, token: token ?? null },
+    )
+    setOpenTargetCloning(false)
+    if (result.ok && result.path) {
+      await updateLocalPath(openTarget.id, result.path)
+      const target = openTarget
+      setOpenTarget(null)
+      setOpenTargetReason(null)
+      onOpenRepoTerminal(target.repo_full_name, result.path)
+    } else {
+      setOpenTargetError(result.error ?? 'Clone failed')
+    }
+  }
+
+  const handleOpenTargetLink = async () => {
+    if (!openTarget) return
+    // pickRepoFolder accepts an `expectedRemote` arg in preload.ts but is
+    // typed as 0-args in src/types.ts (pre-existing mismatch — see line 83
+    // and TeamsWorkspace for the same call). Cast around the type until
+    // types.ts is updated to match the preload signature.
+    const folder = await (window.git.pickRepoFolder as unknown as (expected?: string) => Promise<string | null>)(openTarget.repo_url)
+    if (folder) {
+      await updateLocalPath(openTarget.id, folder)
+      const target = openTarget
+      setOpenTarget(null)
+      setOpenTargetReason(null)
+      onOpenRepoTerminal(target.repo_full_name, folder)
     }
   }
 
@@ -158,7 +261,7 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
             <circle cx="4" cy="12" r="1.5" stroke="currentColor" strokeWidth="1.3"/>
             <path d="M4 5.5v5M5.5 4h5M4 5.5c2 0 4 1 4 3.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
           </svg>
-          <span className="tw-header-title">My Repos</span>
+          <span className="tw-header-title" data-tour-id="myrepos-header">My Repos</span>
         </div>
 
         <div className="tw-header-right">
@@ -175,6 +278,9 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
               {githubToken && githubLogin && <ProviderAvatarPill provider="github" login={githubLogin} />}
               {gitlabToken && gitlabLogin && <ProviderAvatarPill provider="gitlab" login={gitlabLogin} />}
             </span>
+          )}
+          {onStartTutorial && (
+            <button className="tour-help-btn" onClick={onStartTutorial} title="Tutorial: My Repos">?</button>
           )}
           <div style={{ position: 'relative' }} ref={notifRef}>
             <button
@@ -202,7 +308,7 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
 
       {/* Body: sidebar + content */}
       <div className="teams-workspace-body">
-        <nav className="teams-workspace-nav">
+        <nav className="teams-workspace-nav" data-tour-id="myrepos-nav">
           {NAV_ITEMS.map(item => (
             <button
               key={item.id}
@@ -250,7 +356,7 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
                   <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
                     {repos.length} {repos.length === 1 ? 'repo' : 'repos'}
                   </span>
-                  <button className="repo-action-btn primary" onClick={() => setShowPicker(true)}>
+                  <button className="repo-action-btn primary" data-tour-id="myrepos-add" onClick={() => setShowPicker(true)}>
                     <svg className="ra-icon" width="11" height="11" viewBox="0 0 16 16" fill="none">
                       <path d="M8 3.5v9M3.5 8h9" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/>
                     </svg>
@@ -275,7 +381,7 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
                   if (glRepos.length > 0) groups.push({ provider: 'gitlab', label: 'GitLab', items: glRepos })
                   const showHeaders = groups.length > 1
                   return (
-                    <div className="repo-list-scroll snippet-list" style={{ flex: 1, minHeight: 0, maxHeight: 'none' }}>
+                    <div className="repo-list-scroll snippet-list" data-tour-id="myrepos-list" style={{ flex: 1, minHeight: 0, maxHeight: 'none' }}>
                       {groups.map(group => (
                         <div key={group.provider}>
                           {showHeaders && (
@@ -346,14 +452,15 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
                                       </div>
                                     )}
                                   </div>
-                                  <div className="snippet-item-actions">
+                                  <div className="snippet-item-actions" data-tour-id="myrepos-actions">
                                     {repoProvider === 'github' && (
                                       <RepoCIBadge repoFullName={repo.repo_full_name} githubToken={githubToken} />
                                     )}
                                     {repo.local_path ? (
                                       <button
                                         className="repo-action-btn subtle-accent"
-                                        onClick={() => onOpenRepoTerminal(repo.repo_full_name, repo.local_path!)}
+                                        onClick={() => handleOpenTerminal(repo)}
+                                        disabled={terminalOpening === repo.id}
                                         title="Open terminal in this repo"
                                       >
                                         <svg className="ra-icon" width="11" height="11" viewBox="0 0 16 16" fill="none">
@@ -594,6 +701,63 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
             </div>
             <div className="confirm-actions">
               <button className="confirm-btn-cancel" onClick={() => setCloneErrorMsg(null)}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {openTarget && (
+        <div className="confirm-overlay" onMouseDown={e => { if (e.target === e.currentTarget && !openTargetCloning) { setOpenTarget(null); setOpenTargetReason(null); setOpenTargetError(null) } }}>
+          <div className="confirm-dialog" style={{ width: 420, padding: 18 }}>
+            <div className="confirm-title" style={{ marginBottom: 4, fontSize: 14 }}>
+              {openTarget.repo_full_name}
+            </div>
+            <div className="confirm-message" style={{ marginBottom: 14, color: 'var(--text-muted)', fontSize: 12, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+              {openTargetReason ?? 'No local folder for this repo on this machine.'}
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <button
+                className="clone-action-btn clone-action-btn--primary"
+                onClick={handleOpenTargetClone}
+                disabled={openTargetCloning}
+              >
+                <span className="clone-action-icon">
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                    <path d="M8 2v8M4.5 6.5L8 10l3.5-3.5M3 13h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                </span>
+                <span className="clone-action-body">
+                  <span className="clone-action-label">{openTargetCloning ? 'Cloning…' : 'Clone repo'}</span>
+                  <span className="clone-action-sub">Downloads a fresh copy into your RavenProjects folder</span>
+                </span>
+              </button>
+              <button
+                className="clone-action-btn"
+                onClick={handleOpenTargetLink}
+                disabled={openTargetCloning}
+              >
+                <span className="clone-action-icon">
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                    <path d="M2 5.5A1.5 1.5 0 013.5 4h2.382a1.5 1.5 0 011.06.44l.618.618a1.5 1.5 0 001.061.44H12.5A1.5 1.5 0 0114 7v4.5A1.5 1.5 0 0112.5 13h-9A1.5 1.5 0 012 11.5v-6z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/>
+                  </svg>
+                </span>
+                <span className="clone-action-body">
+                  <span className="clone-action-label">Link existing folder</span>
+                  <span className="clone-action-sub">Pick a folder you already cloned. We&apos;ll verify the remote matches.</span>
+                </span>
+              </button>
+            </div>
+            {openTargetError && (
+              <div className="clone-action-error">{openTargetError}</div>
+            )}
+            <div className="confirm-actions" style={{ marginTop: 14 }}>
+              <button
+                className="confirm-btn-cancel"
+                onClick={() => { setOpenTarget(null); setOpenTargetReason(null); setOpenTargetError(null) }}
+                disabled={openTargetCloning}
+              >
+                Cancel
+              </button>
             </div>
           </div>
         </div>

@@ -267,16 +267,22 @@ export function useTeam() {
     if (error?.code === '23505') return { ok: false, error: 'Already invited' }
     if (error) return { ok: false, error: error.message }
 
+    // Email notification: require an authenticated session — sending the request
+    // with empty headers would always 401 at the Edge Function and is a silent waste.
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session?.access_token) {
+      console.warn('[inviteMember] no active session; skipping invite email')
+      await refresh()
+      return { ok: true }
+    }
     // Fire-and-forget email notification (fails silently if not configured)
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      supabase.functions.invoke('send-invite-email', {
-        body: { toEmail: email, teamName: activeTeam.name, inviterEmail: state.userEmail },
-        headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
-      }).then(({ data, error }) => {
-        if (error) console.error('[send-invite-email] error:', error)
-        else console.log('[send-invite-email] result:', data)
-      }).catch(e => console.error('[send-invite-email] catch:', e))
-    })
+    supabase.functions.invoke('send-invite-email', {
+      body: { toEmail: email, teamName: activeTeam.name, inviterEmail: state.userEmail },
+      headers: { Authorization: `Bearer ${session.access_token}` },
+    }).then(({ data, error }) => {
+      if (error) console.error('[send-invite-email] error:', error)
+      else console.log('[send-invite-email] result:', data)
+    }).catch(e => console.error('[send-invite-email] catch:', e))
 
     await refresh()
     return { ok: true }

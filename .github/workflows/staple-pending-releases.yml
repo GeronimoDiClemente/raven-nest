@@ -1,0 +1,108 @@
+name: Staple pending Mac releases
+
+# Generic auto-staple: every 2 hours, for each release in RELEASES list,
+# if the .dmg in that release is NOT yet stapled and Apple has accepted
+# at least one notarization submission for it, download + staple + re-upload.
+#
+# Replaces the v1.1.2-specific check-mac-staple.yml. Trim the RELEASES list
+# as each release is stapled. The first-submission "in-depth analysis" with
+# a new team ID takes 12-48h according to Apple docs.
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Poll Apple every 10 minutes so a freshly notarized release gets stapled
+    # within ~10 min of acceptance, rather than waiting up to 2h. macOS runners
+    # are free on public repos. Step exits early when nothing is pending.
+    - cron: '*/10 * * * *'
+
+permissions:
+  contents: write
+
+jobs:
+  staple:
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - name: Query notarization history
+        id: history
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -e
+          export PATH=/usr/bin:$PATH
+          xcrun notarytool history \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            --output-format json > /tmp/history.json
+          echo "==> Recent submissions:"
+          python3 -c "
+          import json
+          with open('/tmp/history.json') as f:
+              h = json.load(f)
+          for s in h.get('history', [])[:15]:
+              print(f\"  {s.get('id')} | {s.get('status'):12s} | {s.get('createdDate')}\")
+          "
+
+      - name: Staple each pending release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          export PATH=/usr/bin:$PATH
+
+          # Add new releases here as they ship. Trim old ones after they're stapled.
+          RELEASES="v1.2.0 v1.2.1 v1.2.2 v1.2.3 v1.2.4 v1.2.5 v1.2.6 v1.2.7 v1.3.1 v1.3.2"
+
+          # We don't need to match submission ID to release — Apple's notary
+          # accepts by binary hash, so any Accepted submission whose hash
+          # matches our .dmg will produce a valid staple. Just try stapler on
+          # each release's .dmg and check the result.
+          ANY_ACCEPTED=$(python3 -c "
+          import json
+          with open('/tmp/history.json') as f:
+              h = json.load(f)
+          print('yes' if any(s.get('status') == 'Accepted' for s in h.get('history', [])) else 'no')
+          ")
+
+          if [ "$ANY_ACCEPTED" != "yes" ]; then
+            echo "Apple has not accepted any submission yet. Nothing to staple."
+            exit 0
+          fi
+
+          mkdir -p /tmp/dmgs
+          for V in $RELEASES; do
+            echo ""
+            echo "==> Checking $V"
+            DMG_NAME=$(gh release view "$V" --repo GeronimoDiClemente/raven-nest \
+              --json assets --jq '.assets[] | select(.name | endswith(".dmg")) | .name' | head -1)
+            if [ -z "$DMG_NAME" ]; then
+              echo "    No .dmg in $V — skipping"
+              continue
+            fi
+
+            DEST="/tmp/dmgs/$DMG_NAME"
+            gh release download "$V" --repo GeronimoDiClemente/raven-nest \
+              --pattern "$DMG_NAME" --dir /tmp/dmgs/ --clobber
+
+            # Check if already stapled (validate exits 0 if ticket present)
+            if xcrun stapler validate "$DEST" >/dev/null 2>&1; then
+              echo "    $V already stapled — skipping"
+              continue
+            fi
+
+            echo "    $V not stapled. Attempting staple..."
+            if xcrun stapler staple "$DEST" 2>&1; then
+              if xcrun stapler validate "$DEST"; then
+                echo "    Stapled successfully. Re-uploading $DMG_NAME to $V"
+                gh release upload "$V" "$DEST" \
+                  --repo GeronimoDiClemente/raven-nest --clobber
+                echo "::notice::Stapled $V"
+              fi
+            else
+              echo "    Staple failed for $V (Apple may not have notarized yet)."
+            fi
+          done

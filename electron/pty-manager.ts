@@ -1,9 +1,20 @@
 import { EventEmitter } from 'events'
 import { join } from 'path'
-import { mkdirSync, existsSync } from 'fs'
+import { mkdirSync } from 'fs'
+import * as fs from 'fs'
 import * as pty from 'node-pty'
-import { SHELL, SHELL_ARGS, isWin } from './platform'
+import { SHELL, SHELL_ARGS, isWin, isMac } from './platform'
 import { userHome } from './raven-home'
+
+async function cwdReachable(p: string): Promise<boolean> {
+  try {
+    await Promise.race([
+      fs.promises.stat(p),
+      new Promise<never>((_, rej) => setTimeout(() => rej(new Error('timeout')), 1500))
+    ])
+    return true
+  } catch { return false }
+}
 
 export interface ShellOverride {
   bin: string
@@ -89,13 +100,30 @@ export class PtyManager extends EventEmitter {
     this.memory = memory
   }
 
-  create(paneId: string, cmd: string, accountDir: string, repoPath?: string, shell?: ShellOverride): { ok: true } | { ok: false; error: string } {
+  async create(paneId: string, cmd: string, accountDir: string, repoPath?: string, shell?: ShellOverride): Promise<{ ok: true } | { ok: false; error: string }> {
     if (this.ptys.has(paneId)) return { ok: true }  // already running, don't recreate
 
     const env: Record<string, string> = {
       ...process.env as Record<string, string>,
       TERM: 'xterm-256color',
       COLORTERM: 'truecolor',
+    }
+
+    // macOS: Electron inherits a minimal PATH from launchd. ~/.local/bin and
+    // other user dirs only get added by .zshrc, which node-pty's login shell
+    // may not source reliably. Inject them directly into the PTY env so tools
+    // like claude, pipx, cargo, etc. are always found regardless of shell state.
+    if (isMac) {
+      const home = env.HOME || ''
+      const extra = [
+        `${home}/.local/bin`,
+        '/opt/homebrew/bin',
+        '/opt/homebrew/sbin',
+        '/usr/local/bin',
+      ].filter(Boolean)
+      const current = (env.PATH || '').split(':').filter(Boolean)
+      const toAdd = extra.filter(p => !current.includes(p))
+      if (toAdd.length) env.PATH = [...toAdd, ...current].join(':')
     }
 
     let launchCmd = cmd
@@ -120,6 +148,21 @@ export class PtyManager extends EventEmitter {
         const geminiHome = join(accountDir, 'gemini')
         mkdirSync(geminiHome, { recursive: true })
         env.GEMINI_CLI_HOME = geminiHome
+      }
+
+      // macOS: AI CLIs (Claude, etc.) build keychain paths from $HOME, but the
+      // real login keychain lives in the actual user home. Symlink
+      // accountDir/Library/Keychains → ~/Library/Keychains so credential
+      // managers find the login keychain even with HOME redirected.
+      if (isMac) {
+        const realKeychains = join(userHome(), 'Library', 'Keychains')
+        const localKeychains = join(accountDir, 'Library', 'Keychains')
+        if (fs.existsSync(realKeychains) && !fs.existsSync(localKeychains)) {
+          try {
+            mkdirSync(join(accountDir, 'Library'), { recursive: true })
+            fs.symlinkSync(realKeychains, localKeychains)
+          } catch { /* race or already exists — ignore */ }
+        }
       }
 
       // Nest Memory: env injection at PtyManager.create() (§2.5) — the one place every
@@ -162,8 +205,8 @@ export class PtyManager extends EventEmitter {
     // storage redirection, not for cwd). Never accountDir — that's the AI's
     // config dir, not a meaningful working directory.
     let cwd = repoPath || userHome()
-    if (!existsSync(cwd)) {
-      console.warn('[pty-manager] cwd does not exist, falling back to userHome', { paneId, requested: cwd })
+    if (!(await cwdReachable(cwd))) {
+      console.warn('[pty-manager] cwd not reachable, falling back to userHome', { paneId, requested: cwd })
       cwd = userHome()
     }
 
@@ -176,10 +219,18 @@ export class PtyManager extends EventEmitter {
         cwd,
       })
 
-      // Launch AI command after shell starts (skip if plain terminal)
-      // PowerShell on Windows can take 1-2s to initialise — use a longer delay
+      // Launch AI command after shell starts (skip if plain terminal).
+      // On Windows, PowerShell takes 1-2s to initialise and writing blindly
+      // before the prompt appears means the keystrokes get eaten. Poll: wait
+      // for the first `data` event from the pty (which means PowerShell has
+      // printed its prompt), then write the cmd. Keep a 5s safety timeout in
+      // case data never arrives (e.g. silent shell). On non-Windows we keep
+      // the short 500ms delay because POSIX shells warm up fast.
       if (cmd) {
-        const timer = setTimeout(() => {
+        let primed = false
+        const writeCmd = () => {
+          if (primed) return
+          primed = true
           this.startupTimers.delete(paneId)
           // Only write if the slot still owns THIS pty. A kill→create race
           // between scheduling and firing would otherwise write the cmd into
@@ -187,8 +238,15 @@ export class PtyManager extends EventEmitter {
           if (this.ptys.get(paneId) === ptyProcess) {
             ptyProcess.write(`${launchCmd}\r`)
           }
-        }, isWin ? 3000 : 500)
-        this.startupTimers.set(paneId, timer)
+        }
+        if (isWin) {
+          ptyProcess.onData(() => writeCmd())
+          const timer = setTimeout(writeCmd, 5000)
+          this.startupTimers.set(paneId, timer)
+        } else {
+          const timer = setTimeout(writeCmd, 500)
+          this.startupTimers.set(paneId, timer)
+        }
       }
 
       ptyProcess.onData((data) => {

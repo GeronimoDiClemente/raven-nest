@@ -4,7 +4,10 @@ import { promisify } from 'util'
 const execFileP = promisify(execFile)
 
 const isWindows = process.platform === 'win32'
-const isMac = process.platform === 'darwin'
+
+// Module-level flag so the "lsof not installed" warning fires once per
+// process lifetime instead of on every scan tick (the monitor polls often).
+let warnedNoLsof = false
 
 /**
  * Resolves a PID to its full process tree (root + descendants).
@@ -89,9 +92,9 @@ export async function listenPortsForPids(pids: Set<number>): Promise<number[]> {
   const ports = new Set<number>()
   for (const pid of pids) {
     try {
-      const args = isMac
-        ? ['-P', '-iTCP', '-sTCP:LISTEN', '-n', '-p', String(pid), '-Fn']
-        : ['-P', '-iTCP', '-sTCP:LISTEN', '-n', '-p', String(pid), '-Fn']
+      // Same lsof invocation works on both macOS and Linux — the previous
+      // `isMac ? [...] : [...]` ternary had identical branches.
+      const args = ['-P', '-iTCP', '-sTCP:LISTEN', '-n', '-p', String(pid), '-Fn', '-a']
       const { stdout } = await execFileP('lsof', args, { timeout: 3000 })
       for (const line of stdout.split(/\r?\n/)) {
         if (!line.startsWith('n')) continue
@@ -101,11 +104,15 @@ export async function listenPortsForPids(pids: Set<number>): Promise<number[]> {
     } catch (err) {
       // lsof returns exit 1 when the pid has no matching sockets — normal.
       // ENOENT (lsof not installed) is worth a warn so users on minimal Linux
-      // installs see why port detection is empty.
+      // installs see why port detection is empty. Return `[]` (not a partial
+      // accumulator) so callers see "no data" rather than misleading partial.
       const code = (err as NodeJS.ErrnoException)?.code
       if (code === 'ENOENT') {
-        console.warn('[port-monitor] lsof not installed; cannot enumerate listening ports')
-        break
+        if (!warnedNoLsof) {
+          console.warn('[port-monitor] lsof not installed; cannot enumerate listening ports')
+          warnedNoLsof = true
+        }
+        return []
       }
     }
   }

@@ -37,17 +37,19 @@ import { usePendingInvitesCount } from './hooks/usePendingInvitesCount'
 import { useSpeechRecognition } from './hooks/useSpeechRecognition'
 import { useSettings } from './hooks/useSettings'
 import { matchesBinding } from './lib/keybindings'
+import { WORKTREE_DRAG_MIME } from './lib/dragTypes'
 import { useUserPreferences } from './hooks/useUserPreferences'
 import SharedTerminalViewer from './components/SharedTerminalViewer'
 import { terminalShareService } from './lib/terminalShareService'
 import ResourceBar from './components/ResourceBar'
+import { useLocalPathsMigration } from './hooks/useLocalPathsMigration'
 import type { MetricsPaneInput } from './types'
+import { OnboardingTour } from './tutorial/OnboardingTour'
+import { getTour } from './tutorial/registry'
 
 
 let paneCounter = 0
 const generateId = () => `pane-${++paneCounter}-${Date.now()}`
-
-const WORKTREE_DRAG_MIME = 'application/x-raven-worktree-path'
 
 export default function App() {
   const generateTabId = () => `tab-${Date.now()}`
@@ -130,17 +132,22 @@ export default function App() {
     })
   }, [activeTabId])
 
-  // Auto-clear activity indicators after 3s
+  // Auto-clear activity indicators after 3s. Only return a new Map when at
+  // least one tab had non-empty activity that got cleared — otherwise every
+  // consumer of `tabActivity` re-renders every 3s for nothing (TabBar, etc.)
+  // when all tabs are already idle.
   useEffect(() => {
     const interval = setInterval(() => {
       setTabActivity(prev => {
+        let changed = false
         const next = new Map(prev)
         for (const [tabId, panes] of next) {
           if (panes.size > 0) {
             next.set(tabId, new Set())
+            changed = true
           }
         }
-        return next
+        return changed ? next : prev
       })
     }, 3000)
     return () => clearInterval(interval)
@@ -191,6 +198,8 @@ export default function App() {
 
   const userPrefs = useUserPreferences()
 
+  useLocalPathsMigration()
+
   // Sync fontSize from Supabase once loaded
   useEffect(() => {
     if (userPrefs.loaded && userPrefs.prefs.ui_settings.fontSize != null) {
@@ -218,11 +227,6 @@ export default function App() {
     window.updater.onStatus((status, msg) => setUpdateStatus({ type: status, msg }))
   }, [])
 
-  // Request notification permission once
-  useEffect(() => {
-    if (Notification.permission === 'default') Notification.requestPermission()
-  }, [])
-
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
   )
@@ -238,6 +242,12 @@ export default function App() {
   ) => {
     if (panesRef.current.length >= MAX_PANES) {
       setAddingPane(null)
+      return
+    }
+    if (panesRef.current.length >= planLimits.maxPanes) {
+      // Plan cap (e.g. Free is 3) — offer upgrade rather than silently no-op.
+      setAddingPane(null)
+      setShowUpgrade(true)
       return
     }
     const worktreePath = addingPaneRef.current?.worktreePath
@@ -261,7 +271,7 @@ export default function App() {
         : { ...t, panes: nextPanes, layoutId }
     })
     setAddingPane(null)
-  }, [updateActiveTab])
+  }, [updateActiveTab, planLimits.maxPanes])
 
   const handleRepoLink = useCallback(async () => {
     try {
@@ -337,9 +347,16 @@ export default function App() {
   }, [updateActiveTab])
 
   const [showNewWorktree, setShowNewWorktree] = useState(false)
-  const handleNewWorktree = useCallback(() => setShowNewWorktree(true), [])
+  const handleNewWorktree = useCallback(() => {
+    if (!planLimits.allowCreateWorktree) { setShowUpgrade(true); return }
+    setShowNewWorktree(true)
+  }, [planLimits.allowCreateWorktree])
   const [quickWorktreeOpen, setQuickWorktreeOpen] = useState(false)
   const [diffViewerOpen, setDiffViewerOpen] = useState(false)
+  // The tutorial is launched on demand: from the "?" button in the Worktrees
+  // section header or from Settings → Tutorial. No blind auto-launch — the tour
+  // spotlights the live app, so it only makes sense once you're on that view.
+  const [tutorialTour, setTutorialTour] = useState<import('./tutorial/types').TourId | null>(null)
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -347,17 +364,19 @@ export default function App() {
       if (isCmdShift && e.key.toLowerCase() === 'w') {
         if (!activeTab.repoPath) return
         e.preventDefault()
+        if (!planLimits.allowCreateWorktree) { setShowUpgrade(true); return }
         setQuickWorktreeOpen(true)
       }
       if (isCmdShift && e.key.toLowerCase() === 'd') {
         if (!activeCellRepoPath) return
         e.preventDefault()
+        if (!planLimits.allowDiffViewer) { setShowUpgrade(true); return }
         setDiffViewerOpen((v) => !v)
       }
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
-  }, [activeTab.repoPath, activeCellRepoPath])
+  }, [activeTab.repoPath, activeCellRepoPath, planLimits.allowCreateWorktree, planLimits.allowDiffViewer])
 
   const removePane = useCallback((paneId: string) => {
     window.pty.kill(paneId)
@@ -392,6 +411,17 @@ export default function App() {
     updateActiveTab(t => ({
       ...t,
       panes: t.panes.map(p => p.id === paneId ? { ...p, note } : p),
+    }))
+  }, [updateActiveTab])
+
+  // Mirror the browser's current URL onto the pane model so that switching
+  // tabs (which unmounts the cell and destroys the WebContentsView) doesn't
+  // throw away where the user had navigated to. Also fed into the session
+  // snapshot below so the URL survives restarts.
+  const updatePaneUrl = useCallback((paneId: string, url: string) => {
+    updateActiveTab(t => ({
+      ...t,
+      panes: t.panes.map(p => p.id === paneId ? { ...p, url } : p),
     }))
   }, [updateActiveTab])
 
@@ -496,7 +526,22 @@ export default function App() {
     setActiveTabId(id)
   }, [])
 
-  const openRepoInNewTab = useCallback((repoFullName: string, localPath: string) => {
+  const openRepoInNewTab = useCallback(async (repoFullName: string, localPath: string) => {
+    // Central bottleneck for "open repo in a new tab" — both MyReposPanel and
+    // TeamsWorkspace funnel through here. Validate the path exists BEFORE
+    // creating the tab so a stale link/clone doesn't produce a broken pane
+    // with a dead cwd (pty.spawn would fail with ERROR_DIRECTORY 267 on Win).
+    if (localPath) {
+      const exists = await window.pathUtils.exists(localPath)
+      if (!exists) {
+        // Surface the failure to the user. We use a window.alert here
+        // because there's no global toast service in the app; both callers
+        // (MyReposPanel/TeamsWorkspace) already validate themselves so this
+        // is a defense-in-depth fallback rather than the primary UX.
+        window.alert(`La carpeta "${localPath}" ya no existe. Re-linkeala o cloná de nuevo desde My Repos.`)
+        return
+      }
+    }
     const id = generateTabId()
     // H2: GitLab paths like `group/subgroup/repo` need the last segment, not [1].
     // Using split('/')[1] would yield "subgroup" instead of "repo".
@@ -592,6 +637,10 @@ export default function App() {
 
   const openBrowserCell = useCallback((url: string) => {
     if (panesRef.current.length >= MAX_PANES) return
+    if (panesRef.current.length >= planLimits.maxPanes) {
+      setShowUpgrade(true)
+      return
+    }
     const pane: PaneNode = {
       id: generateId(),
       aiType: 'browser',
@@ -611,7 +660,7 @@ export default function App() {
         ? { ...t, panes: nextPanes, layoutId, splitRatios: {} }
         : { ...t, panes: nextPanes, layoutId }
     })
-  }, [activeTabId, updateActiveTab])
+  }, [activeTabId, updateActiveTab, planLimits.maxPanes])
 
   // When a link click in xterm or a PortChip dispatches nest:pty-url and no
   // BrowserCell is mounted to capture it, create one. If a BrowserCell IS
@@ -628,15 +677,34 @@ export default function App() {
     return () => window.removeEventListener('nest:pty-url', handler as EventListener)
   }, [openBrowserCell])
 
+  // Re-focus the active terminal when the window comes back from win.hide()
+  // (e.g. Cmd+Q on macOS hides instead of quitting). main.ts emits 'window:shown'
+  // on every BrowserWindow 'show' event — more reliable than the 'focus' DOM event
+  // which Electron doesn't always fire after win.hide()/win.show().
+  useEffect(() => {
+    window.windowControls?.onShown(() => {
+      const id = focusedPaneIdRef.current
+      if (id) focusTerminal(id)
+    })
+  }, [])
+
   // Open the new-pane dialog (engine handles slot placement)
   const addNextPane = useCallback(() => {
     setAddingPane({})
   }, [])
 
+  // Saves must wait until the restore attempt finished: the debounced save
+  // below fires 800ms after mount, and with the initial empty workspace it
+  // would overwrite session.json before the async restore populates the tabs.
+  const sessionRestoredRef = useRef(false)
+
   // Load session on startup
   useEffect(() => {
     window.session.load().then((data) => {
-      if (!data) return
+      if (!data) {
+        sessionRestoredRef.current = true
+        return
+      }
 
       const COLOR_MIGRATION: Record<string, string> = {
         '#3B82F6': '#0055FF', '#EF4444': '#FF1A1A', '#10B981': '#00CC44',
@@ -687,6 +755,7 @@ export default function App() {
           panes: live,
         }])
         setActiveTabId(id)
+        sessionRestoredRef.current = true
         return
       }
 
@@ -720,13 +789,25 @@ export default function App() {
         })).then((cleaned) => {
           setTabs(cleaned)
           setActiveTabId(data.activeTabId ?? cleaned[0].id)
+          sessionRestoredRef.current = true
+        }).catch((err) => {
+          console.error('[session] restore failed; re-enabling saves with current state', err)
+          sessionRestoredRef.current = true
         })
+        return
       }
+
+      // Session exists but has no restorable tabs — nothing to protect.
+      sessionRestoredRef.current = true
+    }).catch(() => {
+      sessionRestoredRef.current = true
     })
   }, [])
 
-  // Save session on changes (debounced 800ms)
+  // Save session on changes (debounced 800ms). Gated until the restore
+  // attempt finishes — see sessionRestoredRef above.
   useEffect(() => {
+    if (!sessionRestoredRef.current) return
     const timer = setTimeout(() => {
       const sessionData: SessionData = {
         tabs: tabs.map(tab => ({
@@ -741,6 +822,9 @@ export default function App() {
             customLabel: p.customLabel, customColor: p.customColor, note: p.note,
             repoPath: p.repoPath,
             shellId: p.shellId,
+            // Persist the browser pane's current URL so reopening Nest (or
+            // switching workspaces) restores the page instead of the placeholder.
+            url: p.url,
           })),
           splitRatios: tab.splitRatios,
         })),
@@ -759,6 +843,7 @@ export default function App() {
       // Voice input toggle
       if (matchesBinding(e, kb.voiceInput)) {
         e.preventDefault()
+        if (!planLimits.allowVoice) { setShowUpgrade(true); return }
         toggleListening()
         return
       }
@@ -835,7 +920,7 @@ export default function App() {
     // means non-modified keystrokes still flow through to the terminal.
     window.addEventListener('keydown', handler, true)
     return () => window.removeEventListener('keydown', handler, true)
-  }, [addNextPane, toggleListening, cycleTab, handleUnzoom, handleZoom])
+  }, [addNextPane, toggleListening, cycleTab, handleUnzoom, handleZoom, planLimits.allowVoice])
 
   const isInitialState = panes.length === 0
 
@@ -903,13 +988,6 @@ export default function App() {
         tabActivity={tabActivity}
         rightSlot={<ResourceBar panes={activePanesPayload} />}
       />
-      <PortsBanner
-        rootRepoPath={activeTab.repoPath ?? null}
-        cells={activeTab.panes
-          .filter((p) => Boolean(p.repoPath))
-          .map((p) => ({ paneId: p.id, repoPath: p.repoPath as string }))}
-        onOpenInternal={openBrowserCell}
-      />
       {updateStatus?.type === 'downloading' && (
         <div className="update-banner update-banner--downloading">
           Downloading update…
@@ -963,12 +1041,12 @@ export default function App() {
         profileLoading={profileLoading}
         onUpgrade={() => setShowUpgrade(true)}
         onTeamsOpen={() => {
-          if (plan !== 'team') { setShowUpgrade(true); return }
+          if (!planLimits.allowTeam) { setShowUpgrade(true); return }
           setTeamsOpen(true)
         }}
         pendingInvitesCount={pendingInvitesCount}
         onMyReposOpen={() => {
-          if (plan !== 'pro' && plan !== 'team') { setShowUpgrade(true); return }
+          if (!planLimits.allowMyRepos) { setShowUpgrade(true); return }
           setMyReposOpen(true)
         }}
         plan={plan}
@@ -978,7 +1056,10 @@ export default function App() {
         isListening={isListening}
         isTranscribing={isTranscribing}
         isModelLoading={isModelLoading}
-        onMicToggle={toggleListening}
+        onMicToggle={() => {
+          if (!planLimits.allowVoice) { setShowUpgrade(true); return }
+          toggleListening()
+        }}
         onJoinTerminal={() => setShowJoinViewer(true)}
         activeCellRepoPath={activeCellRepoPath}
         onWorktreeSelect={handleWorktreeSelect}
@@ -987,6 +1068,7 @@ export default function App() {
         layoutId={activeTab.layoutId}
         paneCount={panes.length}
         onLayoutChange={handleLayoutIdChange}
+        onOpenTutorial={(id) => setTutorialTour(id)}
       />
       <div
         ref={workspaceRef}
@@ -1031,6 +1113,7 @@ export default function App() {
                             .filter((p): p is string => !!p)
                         ))}
                         onClose={() => removePane(pane.id)}
+                        onNavigate={(url) => updatePaneUrl(pane.id, url)}
                       />
                     )
                     : (
@@ -1058,6 +1141,8 @@ export default function App() {
                         onActivity={handlePaneActivity}
                         onJoinRequest={() => setJoinRequest({ paneId: pane.id, paneTitle: pane.customLabel ?? pane.accountName ?? 'Terminal' })}
                         onPtyStarted={handlePtyStarted}
+                        allowSharing={planLimits.allowSharing}
+                        onRequireUpgrade={() => setShowUpgrade(true)}
                       />
                     )
                   }
@@ -1135,6 +1220,7 @@ export default function App() {
           onRequireUpgrade={() => setShowUpgrade(true)}
           onOpenRepoTerminal={openRepoInNewTab}
           onPendingInvitesChange={refreshPendingInvitesCount}
+          onStartTutorial={() => setTutorialTour('teams')}
         />
       )}
 
@@ -1145,6 +1231,7 @@ export default function App() {
           githubLogin={githubLogin}
           onConnectGitHub={connectGitHub}
           onOpenRepoTerminal={openRepoInNewTab}
+          onStartTutorial={() => setTutorialTour('my-repos')}
         />
       )}
 
@@ -1210,6 +1297,10 @@ export default function App() {
         worktreePath={activeCellRepoPath ?? null}
         onClose={() => setDiffViewerOpen(false)}
       />
+      {tutorialTour && (() => {
+        const tour = getTour(tutorialTour)
+        return tour ? <OnboardingTour steps={tour.steps} onClose={() => setTutorialTour(null)} /> : null
+      })()}
     </div>
   )
 }

@@ -10,14 +10,20 @@ const VALID_AI_TYPES = new Set(['claude', 'gemini', 'codex', 'copilot', 'opencod
 
 function assertSafe(aiType: string, name?: string): void {
   if (!VALID_AI_TYPES.has(aiType)) throw new Error(`Invalid AI type: ${aiType}`)
-  // Quote characters are additionally rejected (minor, pty-manager.ts review round 1):
+  if (name === undefined) return
+  // '' and '.' resolve to the aiType root itself: delete() with either would
+  // rmSync EVERY account of that type. join() swallows empty segments, so the
+  // traversal checks below never see them. (PR #14, main)
+  //
+  // Quote characters are additionally rejected (minor, Nest Memory review round 1):
   // an account name becomes part of `accountDir`, which the Nest Memory provisioner can
   // pass through `--settings <accountDir>/.nest/memory-settings.json` on the literal
   // shell command line PtyManager writes into the pane (see quoteShellArg there). This
   // is defense in depth — quoteShellArg already escapes embedded quotes correctly — but
   // an account name should never need one, so rejecting it here removes the class of
   // input entirely rather than relying solely on correct escaping downstream.
-  if (name !== undefined && (name.includes('..') || name.includes('/') || name.includes('\\') || name.includes('"'))) {
+  const trimmed = name.trim()
+  if (trimmed === '' || trimmed === '.' || name.includes('..') || name.includes('/') || name.includes('\\') || name.includes('"')) {
     throw new Error(`Invalid account name: ${name}`)
   }
 }

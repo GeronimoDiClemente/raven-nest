@@ -38,6 +38,10 @@ export function useGitHub() {
 
   const connectGitHub = useCallback(async () => {
     setState(s => ({ ...s, error: null }))
+    // Remove any previously-registered listener BEFORE adding a new one;
+    // preload's onOAuthCode stacks ipcRenderer.on() handlers, so without
+    // this, repeated calls would fire the callback N times.
+    window.github.removeOAuthListener()
     window.github.onOAuthCode(async (code) => {
       window.github.removeOAuthListener()
       try {

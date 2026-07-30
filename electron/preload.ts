@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer, webUtils } from 'electron'
+import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron'
 
 contextBridge.exposeInMainWorld('conversations', {
   list: () => ipcRenderer.invoke('conversations:list'),
@@ -17,6 +17,15 @@ contextBridge.exposeInMainWorld('snippets', {
   list: () => ipcRenderer.invoke('snippets:list'),
   save: (snippet: unknown) => ipcRenderer.invoke('snippets:save', snippet),
   delete: (id: string) => ipcRenderer.invoke('snippets:delete', id),
+})
+
+contextBridge.exposeInMainWorld('localPaths', {
+  get: (repoId: string) => ipcRenderer.invoke('localPaths:get', repoId),
+  set: (repoId: string, path: string) => ipcRenderer.invoke('localPaths:set', repoId, path),
+  delete: (repoId: string) => ipcRenderer.invoke('localPaths:delete', repoId),
+  getAll: () => ipcRenderer.invoke('localPaths:getAll'),
+  getMigrationFlag: (key: string) => ipcRenderer.invoke('localPaths:getMigrationFlag', key),
+  setMigrationFlag: (key: string, value: string) => ipcRenderer.invoke('localPaths:setMigrationFlag', key, value),
 })
 
 contextBridge.exposeInMainWorld('customCLIs', {
@@ -110,6 +119,10 @@ contextBridge.exposeInMainWorld('appFlags', {
 contextBridge.exposeInMainWorld('windowControls', {
   send: (action: 'minimize' | 'maximize' | 'close') =>
     ipcRenderer.send(`window:${action}`),
+  onShown: (callback: () => void) => {
+    ipcRenderer.removeAllListeners('window:shown')
+    ipcRenderer.on('window:shown', () => callback())
+  },
 })
 
 contextBridge.exposeInMainWorld('updater', {
@@ -157,6 +170,13 @@ contextBridge.exposeInMainWorld('pathUtils', {
 
 contextBridge.exposeInMainWorld('cli', {
   check: (cmd: string) => ipcRenderer.invoke('cli:check', cmd),
+  install: (aiType: string) => ipcRenderer.invoke('cli:install', aiType),
+  cancelInstall: (aiType: string) => ipcRenderer.invoke('cli:install:cancel', aiType),
+  onInstallProgress: (cb: (data: { aiType: string; line: string }) => void) => {
+    const handler = (_event: unknown, data: { aiType: string; line: string }) => cb(data)
+    ipcRenderer.on('cli:install:progress', handler)
+    return () => ipcRenderer.removeListener('cli:install:progress', handler)
+  },
 })
 
 contextBridge.exposeInMainWorld('shells', {
@@ -224,7 +244,9 @@ contextBridge.exposeInMainWorld('keybinds', {
 contextBridge.exposeInMainWorld('github', {
   openOAuth: () => ipcRenderer.invoke('github:open-oauth'),
   onOAuthCode: (cb: (code: string) => void) => {
-    ipcRenderer.on('github-oauth-code', (_event, code) => cb(code))
+    const handler = (_e: IpcRendererEvent, code: string) => cb(code)
+    ipcRenderer.on('github-oauth-code', handler)
+    return () => ipcRenderer.removeListener('github-oauth-code', handler)
   },
   removeOAuthListener: () => ipcRenderer.removeAllListeners('github-oauth-code'),
 })
@@ -232,7 +254,9 @@ contextBridge.exposeInMainWorld('github', {
 contextBridge.exposeInMainWorld('gitlab', {
   openOAuth: () => ipcRenderer.invoke('gitlab:open-oauth'),
   onOAuthCode: (cb: (code: string) => void) => {
-    ipcRenderer.on('gitlab-oauth-code', (_event, code) => cb(code))
+    const handler = (_e: IpcRendererEvent, code: string) => cb(code)
+    ipcRenderer.on('gitlab-oauth-code', handler)
+    return () => ipcRenderer.removeListener('gitlab-oauth-code', handler)
   },
   removeOAuthListener: () => ipcRenderer.removeAllListeners('gitlab-oauth-code'),
 })
@@ -305,8 +329,9 @@ contextBridge.exposeInMainWorld('browser', {
   reload: (paneId: string) => ipcRenderer.invoke('browser:reload', paneId),
   destroy: (paneId: string) => ipcRenderer.invoke('browser:destroy', paneId),
   onNavigated: (cb: (paneId: string, url: string) => void) => {
-    ipcRenderer.removeAllListeners('browser:navigated')
-    ipcRenderer.on('browser:navigated', (_e, paneId, url) => cb(paneId, url))
+    const handler = (_e: IpcRendererEvent, paneId: string, url: string) => cb(paneId, url)
+    ipcRenderer.on('browser:navigated', handler)
+    return () => ipcRenderer.removeListener('browser:navigated', handler)
   },
   removeListeners: () => ipcRenderer.removeAllListeners('browser:navigated'),
 })
