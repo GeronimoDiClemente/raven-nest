@@ -70,6 +70,23 @@ export interface MeetingTranscribedEvent {
   items: string[]
 }
 
+// H4 Motor 3 — señales de review. Su emisión efectiva al bus y sus recetas
+// `notify` son H5; en H4 sólo se declaran los tipos (+ guards) para que el motor
+// pueda tiparlos. `changes.requested` viaja hoy por IPC directo (no bus).
+export interface ChangesRequestedEvent {
+  type: 'changes.requested'
+  branch: string
+  repoFullName: string
+  prNumber: number
+}
+
+export interface ReviewRequestedEvent {
+  type: 'review.requested'
+  repoFullName: string
+  prNumber: number
+  prTitle: string
+}
+
 export type DomainEvent =
   | TaskCreatedEvent
   | SessionOpenedEvent
@@ -80,6 +97,8 @@ export type DomainEvent =
   | ErrorDetectedEvent
   | BlockStartedEvent
   | MeetingTranscribedEvent
+  | ChangesRequestedEvent
+  | ReviewRequestedEvent
 
 // ── Comandos (unión discriminada por `cmd`) ─────────────────────────────────
 
@@ -176,6 +195,10 @@ export function isDomainEvent(x: unknown): x is DomainEvent {
       return optStr(e.taskId) && isStr(e.label)
     case 'meeting.transcribed':
       return isStr(e.title) && Array.isArray(e.items) && e.items.every(isStr)
+    case 'changes.requested':
+      return isStr(e.branch) && isStr(e.repoFullName) && typeof e.prNumber === 'number'
+    case 'review.requested':
+      return isStr(e.repoFullName) && typeof e.prNumber === 'number' && isStr(e.prTitle)
     default:
       return false
   }

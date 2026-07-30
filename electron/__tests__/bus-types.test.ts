@@ -68,6 +68,15 @@ describe('isDomainEvent', () => {
     expect(isDomainEvent({ type: 'task.created', taskId: 't', pluginId: 'j', providerId: 'p', repoFullName: null, branch: 'b' })).toBe(true)
     expect(isDomainEvent({ type: 'task.created', taskId: 't', pluginId: 'j', providerId: 'p', repoFullName: 3, branch: 'b' })).toBe(false)
   })
+
+  it('changes.requested válido', () => {
+    expect(isDomainEvent({ type: 'changes.requested', branch: 'feat/x', repoFullName: 'o/r', prNumber: 5 })).toBe(true)
+    expect(isDomainEvent({ type: 'changes.requested', branch: 'feat/x', repoFullName: 'o/r' })).toBe(false)
+  })
+  it('review.requested válido', () => {
+    expect(isDomainEvent({ type: 'review.requested', repoFullName: 'o/r', prNumber: 5, prTitle: 'x' })).toBe(true)
+    expect(isDomainEvent({ type: 'review.requested', repoFullName: 'o/r', prNumber: 5 })).toBe(false)
+  })
 })
 
 describe('isCommand', () => {
