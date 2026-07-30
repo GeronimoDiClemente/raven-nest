@@ -14,6 +14,7 @@
 import type { EventBus } from './event-bus'
 import type {
   CreateTaskCommand,
+  LogOutcomeCommand,
   NotifyCommand,
   OpenSessionCommand,
   SetPresenceCommand,
@@ -52,10 +53,25 @@ function canCreateTask(p: unknown): p is TaskCreatingProvider {
  */
 export type OpenSessionFn = (cmd: OpenSessionCommand, ev: DomainEvent) => Promise<void>
 
+/**
+ * Superficie mínima del adapter de Calendar que el handler `logOutcome` (H6,
+ * Motor 4 salida) necesita: buscar el evento por taskId y, según exista o no,
+ * apendear el outcome o crear un evento de registro. Estructural (no importa
+ * gcal.ts) — el `GcalAdapter` real es asignable a esto.
+ */
+export interface GcalOutcomeSink {
+  findEventByTask(taskId: string): Promise<{ id: string } | null>
+  appendOutcome(eventId: string, summary: string): Promise<void>
+  createOutcomeEvent(summary: string, whenIso: string): Promise<unknown>
+}
+
 export interface BusCommandDeps {
   ticketLoop: TicketProviderResolver
   /** Gancho a "Work on this"/worktree:create. Sin él, `openSession` no-op con warn. */
   openSession?: OpenSessionFn
+  /** Resuelve el sink de Calendar con las deps inyectadas. Sin él (o si devuelve
+   *  null), `logOutcome` degrada a no-op con warn — igual que notify sin token. */
+  gcal?: (deps: PanelAdapterDeps) => GcalOutcomeSink | null
 }
 
 async function handleUpdateStatus(cmd: UpdateStatusCommand, deps: PanelAdapterDeps, opts: BusCommandDeps): Promise<void> {
@@ -134,6 +150,26 @@ async function handleCreateTask(cmd: CreateTaskCommand, deps: PanelAdapterDeps, 
   await provider.createTask(cmd.title, cmd.body)
 }
 
+// H6 Motor 4 (salida) — registra el outcome real en el calendario. Resuelve el
+// evento por `ref` (taskId): si existe, apendea la línea a su description; si no,
+// crea un evento corto de registro. Credential-free (el sink llega por opts.gcal);
+// sin gcal → no-op con warn. Best-effort: un fallo de la API de Calendar no debe
+// romper la secuencia (por eso NO re-throwea; no reporta a `failed`).
+async function handleLogOutcome(cmd: LogOutcomeCommand, deps: PanelAdapterDeps, opts: BusCommandDeps): Promise<void> {
+  const gcal = opts.gcal?.(deps)
+  if (!gcal) {
+    console.warn('[bus-commands] logOutcome sin gcal, no-op', cmd.ref)
+    return
+  }
+  try {
+    const ev = await gcal.findEventByTask(cmd.ref)
+    if (ev) await gcal.appendOutcome(ev.id, cmd.summary)
+    else await gcal.createOutcomeEvent(cmd.summary, new Date().toISOString())
+  } catch (err) {
+    console.warn('[bus-commands] logOutcome falló', cmd.ref, err)
+  }
+}
+
 /**
  * Registra en `bus` los handlers de los comandos estándar:
  *  - `updateStatus` → `provider.transition` (provider resuelto vía ticketLoop).
@@ -141,7 +177,9 @@ async function handleCreateTask(cmd: CreateTaskCommand, deps: PanelAdapterDeps, 
  *  - `setPresence`  → Slack users.profile.set (H5; sin token/scope no-op con warn).
  *  - `openSession`  → callback inyectado (worktree:create vive en main).
  *  - `createTask`   → `provider.createTask` si lo soporta; si no, no-op con warn.
- * `logOutcome`/`scheduleBlock` (Motor 3/5) llegan en hitos futuros.
+ *  - `logOutcome`   → Calendar (H6): apendea/crea el registro de la sesión; sin
+ *                     gcal inyectado, no-op con warn.
+ * `scheduleBlock` (Motor 5) llega en un hito futuro.
  */
 export function registerBusCommands(bus: EventBus, opts: BusCommandDeps): void {
   bus.registerHandler('updateStatus', async (cmd, _ev, deps) => {
@@ -158,5 +196,8 @@ export function registerBusCommands(bus: EventBus, opts: BusCommandDeps): void {
   })
   bus.registerHandler('createTask', async (cmd, _ev, deps) => {
     await handleCreateTask(cmd as CreateTaskCommand, deps, opts)
+  })
+  bus.registerHandler('logOutcome', async (cmd, _ev, deps) => {
+    await handleLogOutcome(cmd as LogOutcomeCommand, deps, opts)
   })
 }

@@ -82,6 +82,14 @@ describe('defaultRecipes (replican H3)', () => {
       .some(c => c.cmd === 'notify')).toBe(true)
   })
 
+  it('pr.merged produce logOutcome (Calendar H6) con ref=branch y summary del merge', () => {
+    const recipes = defaultRecipes(lookup)
+    const cmds = recipes.filter((r) => r.when === 'pr.merged').flatMap((r) => r.then(prMerged))
+    const logOutcome = cmds.find((c) => c.cmd === 'logOutcome')
+    expect(logOutcome).toMatchObject({ cmd: 'logOutcome', ref: 'feat/x' })
+    expect((logOutcome as { summary: string }).summary).toContain('o/r')
+  })
+
   it('resuelve el tracking al momento de then(ev) (lookup dinámico, no import global)', () => {
     let current: ReturnType<TrackedLookup> = undefined
     const dyn: TrackedLookup = () => current
@@ -102,7 +110,7 @@ describe('loadRecipes / saveRecipes', () => {
       { cmd: 'updateStatus', pluginId: 'jira', providerId: 'ISSUE-9', to: 'in_review' },
     ])
     expect(recipes.map((x) => x.when).sort()).toEqual(
-      ['changes.requested', 'ci.failed', 'pr.merged', 'pr.merged', 'pr.opened', 'review.requested', 'session.opened', 'task.created'],
+      ['changes.requested', 'ci.failed', 'pr.merged', 'pr.merged', 'pr.merged', 'pr.opened', 'review.requested', 'session.opened', 'task.created'],
     )
   })
 
@@ -132,7 +140,7 @@ describe('loadRecipes / saveRecipes', () => {
     const recipes = loadRecipes(file, lookup)
     expect(warn).toHaveBeenCalled()
     expect(recipes.map((x) => x.when).sort()).toEqual(
-      ['changes.requested', 'ci.failed', 'pr.merged', 'pr.merged', 'pr.opened', 'review.requested', 'session.opened', 'task.created'],
+      ['changes.requested', 'ci.failed', 'pr.merged', 'pr.merged', 'pr.merged', 'pr.opened', 'review.requested', 'session.opened', 'task.created'],
     )
   })
 

@@ -72,11 +72,12 @@ describe('bus-integration: todos los buses (evento → receta → comando → pr
       { cmd: 'updateStatus', pluginId: 'jira', providerId: 'PROJ-42', to: 'in_review' },
     ])
 
-    // pr.merged → updateStatus(to:done) + notify H5 (channel:'' lo resuelve el handler).
+    // pr.merged → updateStatus(to:done) + notify H5 + logOutcome H6 (channel:'' lo resuelve el handler).
     const merged = await bus.emit(evPrMerged, deps)
     expect(merged.commands).toEqual([
       { cmd: 'updateStatus', pluginId: 'jira', providerId: 'PROJ-42', to: 'done' },
       { cmd: 'notify', channel: '', message: '✅ PR mergeado en acme/webapp (feat/login)' },
+      { cmd: 'logOutcome', ref: 'feat/login', summary: '🪺 Nest: merge en acme/webapp (feat/login)' },
     ])
 
     // El provider real recibió exactamente las dos transiciones, en orden.
@@ -124,9 +125,10 @@ describe('bus-integration: todos los buses (evento → receta → comando → pr
     const opened = await bus.emit(evPrOpened, makeDeps())
     const merged = await bus.emit(evPrMerged, makeDeps())
     expect(opened.commands).toEqual([])
-    // pr.merged: el updateStatus no se resuelve sin tracking; el notify H5 sí (independiente del tracking).
+    // pr.merged: el updateStatus no se resuelve sin tracking; el notify H5 y el logOutcome H6 sí (independientes del tracking).
     expect(merged.commands).toEqual([
       { cmd: 'notify', channel: '', message: '✅ PR mergeado en acme/webapp (feat/login)' },
+      { cmd: 'logOutcome', ref: 'feat/login', summary: '🪺 Nest: merge en acme/webapp (feat/login)' },
     ])
     expect(provider.transition).not.toHaveBeenCalled()
   })
@@ -147,12 +149,14 @@ describe('bus-integration: todos los buses (evento → receta → comando → pr
     expect(merged.commands).toEqual([
       { cmd: 'updateStatus', pluginId: 'jira', providerId: 'PROJ-42', to: 'done' },
       { cmd: 'notify', channel: '', message: '✅ PR mergeado en acme/webapp (feat/login)' },
+      { cmd: 'logOutcome', ref: 'feat/login', summary: '🪺 Nest: merge en acme/webapp (feat/login)' },
     ])
     expect(provider.transition).toHaveBeenCalledWith('PROJ-42', 'done')
     // tras el borrado, el updateStatus ya no se resuelve (depende del tracking);
-    // el notify H5 sí sigue (no depende del tracking del branch).
+    // el notify H5 y el logOutcome H6 siguen (no dependen del tracking del branch).
     expect((await bus.emit(evPrMerged, makeDeps())).commands).toEqual([
       { cmd: 'notify', channel: '', message: '✅ PR mergeado en acme/webapp (feat/login)' },
+      { cmd: 'logOutcome', ref: 'feat/login', summary: '🪺 Nest: merge en acme/webapp (feat/login)' },
     ])
   })
 })

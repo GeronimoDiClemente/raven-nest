@@ -41,7 +41,7 @@ describe('registerBusCommands', () => {
     const { bus, handlers } = capturingBus()
     const resolver: TicketProviderResolver = { providerFor: () => makeProvider() }
     registerBusCommands(bus, { ticketLoop: resolver })
-    expect([...handlers.keys()].sort()).toEqual(['createTask', 'notify', 'openSession', 'setPresence', 'updateStatus'])
+    expect([...handlers.keys()].sort()).toEqual(['createTask', 'logOutcome', 'notify', 'openSession', 'setPresence', 'updateStatus'])
   })
 
   // ── updateStatus ──────────────────────────────────────────────────────────
@@ -224,6 +224,48 @@ describe('registerBusCommands', () => {
         { cmd: 'createTask', pluginId: 'nope', title: 'X' },
         evTaskCreated, makeDeps(),
       ),
+    ).resolves.toBeUndefined()
+    expect(warn).toHaveBeenCalled()
+  })
+
+  // ── logOutcome (Calendar, H6) ───────────────────────────────────────────────
+  it('logOutcome apendea al evento existente del taskId (findEventByTask → appendOutcome)', async () => {
+    const append = vi.fn(async () => {})
+    const gcal = {
+      findEventByTask: vi.fn(async () => ({ id: 'ev1' })),
+      appendOutcome: append,
+      createOutcomeEvent: vi.fn(async () => ({ id: 'new1' })),
+    }
+    const bus = new EventBus()
+    registerBusCommands(bus, { ticketLoop: { providerFor: () => null }, gcal: () => gcal })
+    bus.setRecipes([{ id: 'r', when: 'pr.merged', then: () => [{ cmd: 'logOutcome', ref: 'PROJ-1', summary: 'hecho' }] }])
+    await bus.emit({ type: 'pr.merged', branch: 'b', repoFullName: 'o/r' } as DomainEvent, makeDeps())
+    expect(gcal.findEventByTask).toHaveBeenCalledWith('PROJ-1')
+    expect(append).toHaveBeenCalledWith('ev1', 'hecho')
+    expect(gcal.createOutcomeEvent).not.toHaveBeenCalled()
+  })
+
+  it('logOutcome sin evento existente crea uno de registro (createOutcomeEvent)', async () => {
+    const create = vi.fn(async () => ({ id: 'new1' }))
+    const gcal = {
+      findEventByTask: vi.fn(async () => null),
+      appendOutcome: vi.fn(async () => {}),
+      createOutcomeEvent: create,
+    }
+    const bus = new EventBus()
+    registerBusCommands(bus, { ticketLoop: { providerFor: () => null }, gcal: () => gcal })
+    bus.setRecipes([{ id: 'r', when: 'pr.merged', then: () => [{ cmd: 'logOutcome', ref: 'X', summary: 'hecho' }] }])
+    await bus.emit({ type: 'pr.merged', branch: 'b', repoFullName: 'o/r' } as DomainEvent, makeDeps())
+    expect(create).toHaveBeenCalled()
+    expect(gcal.appendOutcome).not.toHaveBeenCalled()
+  })
+
+  it('logOutcome sin gcal inyectado degrada a no-op con warn (como notify sin token)', async () => {
+    const { bus, handlers } = capturingBus()
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    registerBusCommands(bus, { ticketLoop: { providerFor: () => null } })
+    await expect(
+      handlers.get('logOutcome')!({ cmd: 'logOutcome', ref: 'X', summary: 's' }, evPrOpened, makeDeps()),
     ).resolves.toBeUndefined()
     expect(warn).toHaveBeenCalled()
   })

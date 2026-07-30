@@ -112,6 +112,17 @@ export function defaultRecipes(lookup: TrackedLookup): Recipe[] {
       when: 'session.opened',
       then: (ev) => [{ cmd: 'setPresence', text: `focus: ${(ev as { branch: string }).branch}` }],
     },
+    // H6 Motor 4 (salida) — registra el outcome del merge en el calendario. `ref`
+    // es el branch como fallback (el matcheo por taskId mejora cuando el evento lo
+    // traiga). El handler resuelve append-vs-create y degrada a no-op sin gcal.
+    {
+      id: 'h6:pr.merged→logOutcome',
+      when: 'pr.merged',
+      then: (ev) => {
+        const e = ev as { branch: string; repoFullName: string }
+        return [{ cmd: 'logOutcome', ref: e.branch, summary: `🪺 Nest: merge en ${e.repoFullName} (${e.branch})` }]
+      },
+    },
   ]
 }
 
@@ -130,6 +141,7 @@ export interface StoredRecipe {
 const EVENT_TYPES: readonly DomainEvent['type'][] = [
   'task.created', 'session.opened', 'session.closed', 'pr.opened', 'pr.merged',
   'ci.failed', 'error.detected', 'block.started', 'meeting.transcribed',
+  'changes.requested', 'review.requested',
 ]
 
 /** Convierte una receta almacenada (venida de disco, `unknown`) en runtime, o null si es inválida. */
