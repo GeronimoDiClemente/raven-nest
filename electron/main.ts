@@ -65,7 +65,8 @@ import { MemoryStore } from './memory-store'
 import { MemoryIpcServer } from './memory-ipc-server'
 import { MemoryDaemon } from './memory-daemon'
 import { daemonSocketPath } from './memory-protocol'
-import { claudeSettingsFlagArgs, deprovisionClaudeAccount, type ProvisionerPaths } from './memory-provisioner'
+import { provisionClaudeAccount, deprovisionClaudeAccount, type ProvisionerPaths } from './memory-provisioner'
+import { ensureLocalAuthMaterial } from './memory-local-auth'
 import { importAllMarkdownSources } from './memory-importers/markdown'
 import { importEngramDatabase, discoverEngramDatabases } from './memory-importers/engram'
 import { resolveProjectKey } from './memory-project-key'
@@ -83,8 +84,6 @@ const accountStore = new AccountStore()
 // setupClaudeConfig() link-repair pass it runs alongside.
 import { credentialPath, deleteCredential, ensureDeviceId, getMemoryConnectionState, setMemoryConnectionState } from './memory-connection-state'
 
-const memoryStore = new MemoryStore(pathJoin(ravenHome(), '.raven-nest', 'memory', 'memory.db'))
-const memorySocketPath = daemonSocketPath(ravenHome(), process.platform === 'win32')
 let memoryConnectionState = getMemoryConnectionState(ravenHome())
 
 function memoryProvisionerPaths(): ProvisionerPaths {
@@ -113,41 +112,74 @@ function loadMemoryToken(): string | null {
 
 let memoryOnline = true // updated by a lightweight periodic DNS check below
 
-const memoryDaemon = new MemoryDaemon({
-  store: memoryStore,
-  getSupabaseUrl: getMemorySupabaseUrl,
-  getToken: loadMemoryToken,
-  getDeviceId: () => memoryConnectionState.deviceId,
-  isOnline: () => memoryOnline,
-  onStatusChange: (status) => {
-    const win = BrowserWindow.getAllWindows()[0]
-    if (win) win.webContents.send('memory:status', status)
-  },
-})
+interface MemorySubsystem {
+  store: MemoryStore
+  daemon: MemoryDaemon
+  ipcServer: MemoryIpcServer
+}
 
-const memoryIpcServer = new MemoryIpcServer({
-  store: memoryStore,
-  socketPath: memorySocketPath,
-  resolveGitInfo: (cwd) => {
-    try {
-      if (!existsSync(cwd)) return null
-      const branch = execSync('git rev-parse --abbrev-ref HEAD', { cwd, encoding: 'utf8', timeout: 3000 }).trim()
-      let remoteUrl: string | null = null
-      try { remoteUrl = execSync('git remote get-url origin', { cwd, encoding: 'utf8', timeout: 3000 }).trim() } catch { /* no remote */ }
-      return { branch, remoteUrl }
-    } catch {
-      return null
-    }
-  },
-  onMutation: () => memoryDaemon.scheduleMutationPush(),
-})
+// C7 fix: `new MemoryStore(...)` (better-sqlite3) used to run unguarded at module scope.
+// A native-module load failure (verified live in this repo's own dev sandbox: no
+// prebuilt better-sqlite3 binding for the local Node version, no Visual Studio Build
+// Tools to compile one — see docs/nest-memory-architecture.md §10 R-5) threw during
+// module evaluation and crashed the ENTIRE app before a single window could open —
+// PTYs, accounts, everything, taken down by a memory-feature dependency. Memory must be
+// able to fail independently and degrade to "disabled", exactly like a missing
+// `safeStorage.isEncryptionAvailable()` already does for connect. Every consumer below
+// checks `memory` for null; account provisioning and pty env injection are simply never
+// configured when it's null (both already no-op safely without a configured integration).
+let memory: MemorySubsystem | null = null
+try {
+  const store = new MemoryStore(pathJoin(ravenHome(), '.raven-nest', 'memory', 'memory.db'))
+  const authMaterial = ensureLocalAuthMaterial(ravenHome())
+  const memorySocketPath = daemonSocketPath(ravenHome(), process.platform === 'win32', authMaterial.pipeId)
 
-accountStore.configureMemory({ paths: memoryProvisionerPaths(), isEnabled: () => memoryConnectionState.connected })
-ptyManager.setMemoryIntegration({
-  socketPath: memorySocketPath,
-  isEnabled: () => memoryConnectionState.connected,
-  getClaudeSettingsFlagArgs: claudeSettingsFlagArgs,
-})
+  const daemon = new MemoryDaemon({
+    store,
+    getSupabaseUrl: getMemorySupabaseUrl,
+    getToken: loadMemoryToken,
+    getDeviceId: () => memoryConnectionState.deviceId,
+    isOnline: () => memoryOnline,
+    onStatusChange: (status) => {
+      const win = BrowserWindow.getAllWindows()[0]
+      if (win) win.webContents.send('memory:status', status)
+    },
+  })
+
+  const ipcServer = new MemoryIpcServer({
+    store,
+    socketPath: memorySocketPath,
+    authToken: authMaterial.token,
+    resolveGitInfo: (cwd) => {
+      try {
+        if (!existsSync(cwd)) return null
+        const branch = execSync('git rev-parse --abbrev-ref HEAD', { cwd, encoding: 'utf8', timeout: 3000 }).trim()
+        let remoteUrl: string | null = null
+        try { remoteUrl = execSync('git remote get-url origin', { cwd, encoding: 'utf8', timeout: 3000 }).trim() } catch { /* no remote */ }
+        return { branch, remoteUrl }
+      } catch {
+        return null
+      }
+    },
+    onMutation: () => daemon.scheduleMutationPush(),
+  })
+
+  accountStore.configureMemory({ paths: memoryProvisionerPaths(), isEnabled: () => memoryConnectionState.connected })
+  ptyManager.setMemoryIntegration({
+    socketPath: memorySocketPath,
+    authToken: authMaterial.token,
+    isEnabled: () => memoryConnectionState.connected,
+    ensureClaudeProvisioned: (accountDir) => {
+      const { settingsFlagPath } = provisionClaudeAccount(accountDir, memoryProvisionerPaths(), process.platform === 'win32')
+      return ['--settings', settingsFlagPath]
+    },
+  })
+
+  memory = { store, daemon, ipcServer }
+} catch (err) {
+  console.error('[main] Nest Memory subsystem failed to initialize — memory features disabled for this session', err instanceof Error ? err.message : err)
+  memory = null
+}
 
 // Ensure every existing Claude account has the shared config (CLAUDE.md,
 // settings.json, skills, etc.) linked from ~/.claude. Idempotent — only
@@ -1875,7 +1907,10 @@ ipcMain.handle('safeStorage:decrypt', (_event, encrypted: string) => {
 // see §5.1 step 1). Main only ever receives that plaintext once, stores it encrypted,
 // and does local-only work from here on: provisioning accounts, running importers,
 // and letting the daemon push/pull over plain HTTPS with the token as a Bearer header.
+const MEMORY_UNAVAILABLE = { ok: false, error: 'Nest Memory is unavailable on this device (failed to initialize) — see main process logs.' }
+
 ipcMain.handle('memory:connect', async (_event, token: string, deviceId: string) => {
+  if (!memory) return MEMORY_UNAVAILABLE
   if (!safeStorage.isEncryptionAvailable()) {
     return { ok: false, error: 'Encryption is not available on this system — memory connect is refused (§6.2).' }
   }
@@ -1901,7 +1936,7 @@ ipcMain.handle('memory:connect', async (_event, token: string, deviceId: string)
   // partial import beats a failed connect (R-7).
   const globalKey = resolveProjectKey({})
   try {
-    importAllMarkdownSources(memoryStore, {
+    importAllMarkdownSources(memory.store, {
       ravenHomeDir: ravenHome(),
       claudeAccountDirs: accountStore.list('claude').map((name) => accountStore.getDir('claude', name)),
       projectRoots: [],
@@ -1913,37 +1948,55 @@ ipcMain.handle('memory:connect', async (_event, token: string, deviceId: string)
   try {
     const accountDirs = accountStore.list('claude').map((name) => accountStore.getDir('claude', name))
     for (const dbPath of discoverEngramDatabases(ravenHome(), accountDirs)) {
-      importEngramDatabase(memoryStore, dbPath)
+      importEngramDatabase(memory.store, dbPath)
     }
   } catch (err) {
     console.warn('[memory:connect] engram import failed', err instanceof Error ? err.message : err)
   }
 
-  memoryDaemon.onNetworkRegain() // drains everything just seeded
-  return { ok: true, itemCount: memoryStore.count() }
+  memory.daemon.onNetworkRegain() // drains everything just seeded
+  return { ok: true, itemCount: memory.store.count() }
 })
 
-ipcMain.handle('memory:disconnect', (_event, opts?: { deleteCloud?: boolean }) => {
+ipcMain.handle('memory:disconnect', async (_event, opts?: { deleteCloud?: boolean }) => {
+  if (!memory) return MEMORY_UNAVAILABLE
+  // M10 / §6.6 "Right to delete": issued BEFORE clearing the local token/credential
+  // below — this is the only place main still holds the nmk_ token needed to call the
+  // memory-sync 'delete-cloud-data' action. Best-effort: a failed cloud delete must not
+  // block disconnecting locally (the user can retry by reconnecting then disconnecting
+  // again). Local data is NEVER deleted by disconnecting regardless of this flag — only
+  // this explicit server call touches cloud data, never local rows.
+  if (opts?.deleteCloud) {
+    const url = getMemorySupabaseUrl()
+    const token = loadMemoryToken()
+    if (url && token) {
+      try {
+        await fetch(`${url}/functions/v1/memory-sync/delete-cloud-data`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: '{}',
+        })
+      } catch (err) {
+        console.warn('[memory:disconnect] cloud data delete failed', err instanceof Error ? err.message : err)
+      }
+    }
+  }
   accountStore.disconnectMemoryFromAllClaudeAccounts()
   deleteCredential(ravenHome())
   memoryToken = null
   memoryConnectionState = { connected: false, deviceId: memoryConnectionState.deviceId, connectedAt: null }
   setMemoryConnectionState(ravenHome(), memoryConnectionState)
-  // Local data is NEVER deleted by disconnecting (§6.6 "Right to delete" — that's a
-  // separate, explicit action). `opts.deleteCloud` is a renderer-side hint the caller
-  // (which already holds the user's Supabase session) uses to also call
-  // memory-token{action:'revoke', all:true} — main does not hold that session.
-  void opts
   return { ok: true }
 })
 
 ipcMain.handle('memory:status', () => {
+  if (!memory) return { connected: false, deviceId: null, itemCount: 0, pendingCount: 0, daemonStatus: 'error' as const, unavailable: true }
   return {
     connected: memoryConnectionState.connected,
     deviceId: memoryConnectionState.deviceId,
-    itemCount: memoryStore.count(),
-    pendingCount: memoryStore.pendingMutationCount(),
-    daemonStatus: memoryDaemon.getStatus(),
+    itemCount: memory.store.count(),
+    pendingCount: memory.store.pendingMutationCount(),
+    daemonStatus: memory.daemon.getStatus(),
   }
 })
 
@@ -2144,24 +2197,27 @@ app.whenReady().then(() => {
   // daemon. Both are safe to start even when memory is disconnected — the IPC server
   // just serves local reads/writes to memory.db (which always works, offline-first,
   // §1.2), and the daemon no-ops push/pull without a token (§4.1 guards on getToken()).
-  memoryIpcServer.start()
-  memoryDaemon.start()
-  // §4.1 "Window focus" trigger.
-  app.on('browser-window-focus', () => memoryDaemon.onWindowFocus())
-  // Lightweight connectivity probe — Electron main has no `navigator.onLine`; a short
-  // DNS lookup against the Supabase host is cheap and avoids adding an IPC round-trip
-  // from the renderer just to learn online/offline (§4.1 "Network regain").
-  setInterval(() => {
-    const url = getMemorySupabaseUrl()
-    if (!url) return
-    try {
-      const host = new URL(url).hostname
-      void lookup(host).then(
-        () => { const wasOffline = !memoryOnline; memoryOnline = true; if (wasOffline) memoryDaemon.onNetworkRegain() },
-        () => { memoryOnline = false }
-      )
-    } catch { /* invalid URL — leave memoryOnline as-is */ }
-  }, 15_000)
+  // C7: skipped entirely when the subsystem failed to initialize.
+  if (memory) {
+    memory.ipcServer.start()
+    memory.daemon.start()
+    // §4.1 "Window focus" trigger.
+    app.on('browser-window-focus', () => memory?.daemon.onWindowFocus())
+    // Lightweight connectivity probe — Electron main has no `navigator.onLine`; a short
+    // DNS lookup against the Supabase host is cheap and avoids adding an IPC round-trip
+    // from the renderer just to learn online/offline (§4.1 "Network regain").
+    setInterval(() => {
+      const url = getMemorySupabaseUrl()
+      if (!url) return
+      try {
+        const host = new URL(url).hostname
+        void lookup(host).then(
+          () => { const wasOffline = !memoryOnline; memoryOnline = true; if (wasOffline) memory?.daemon.onNetworkRegain() },
+          () => { memoryOnline = false }
+        )
+      } catch { /* invalid URL — leave memoryOnline as-is */ }
+    }, 15_000)
+  }
 
   setWhisperStatusCallback((status) => {
     const win = BrowserWindow.getAllWindows()[0]
@@ -2223,44 +2279,65 @@ app.on('window-all-closed', () => {
   // App only exits via tray menu "Salir"
 })
 
-app.on('before-quit', () => {
-  shutdownWhisper()
-  if (updaterInterval) {
-    clearInterval(updaterInterval)
-    updaterInterval = null
-  }
-  // Nest Memory §4.1 "App quit": best-effort push within a 2s budget, fire-and-forget —
-  // never blocks app exit (the mutation_log queue is durable across restarts either way,
-  // §4.5). Stop the daemon/IPC server and close the DB handle synchronously right after.
-  void memoryDaemon.onQuit()
-  memoryDaemon.stop()
-  memoryIpcServer.stop()
-  memoryStore.close()
-  // Tear down every long-lived resource on quit. Without these, dev-mode HMR
-  // reloads (and any future "soft restart" path) would accumulate intervals,
-  // file watchers, PTYs and detached child processes across reloads —
-  // user-visible as a slow leak on app idle.
-  benchmark.stopAll()
-  // Cancel any in-flight `npm install` / preset setup. The spawned children
-  // are NOT detached, so they'd die with the parent anyway — but explicit
-  // taskkill on Windows tears down the whole tree (preset commands like
-  // `npm install` spawn many sub-processes) cleanly instead of orphaning
-  // them for a moment.
-  setupRunner.cancelAll()
-  // Stop the spotlight fs.watch handle. The watcher keeps the event loop
-  // alive on macOS/Linux and would block app exit otherwise.
-  void spotlight.stop()
-  // Destroy every WebContentsView. Each one owns a Chromium render process
-  // tree; leaving them dangling for the Electron app teardown is slow.
-  browserPanes.destroyAll()
-  // Kill every node-pty process. Each PTY is its own OS-level process with a
-  // pseudoterminal device — without this, the user sees PowerShell/bash
-  // processes survive Nest's tray-Quit on Windows (they'd only die when
-  // the conpty session closes, which doesn't happen cleanly without kill()).
-  ptyManager.killAll()
-  ptyManager.removeAllListeners()
-  setupRunner.removeAllListeners()
-  spotlight.removeAllListeners()
-  metricsCollector.dispose()
-  autoUpdater.removeAllListeners()
+// C6 fix: this handler used to be fully synchronous, firing `void memoryDaemon.onQuit()`
+// (a fetch call) and then IMMEDIATELY closing the store in the same tick. onQuit()'s
+// push races the close — when the fetch eventually settled, markPushed()/setSyncState()
+// ran against an already-closed better-sqlite3 handle (a synchronous throw from
+// better-sqlite3, surfacing as an unhandled rejection since nothing awaited that
+// promise), AND any mutations that WERE genuinely accepted by the server before the
+// process exited never got marked pushed locally — resent as duplicates on next launch
+// (harmless server-side, since apply is idempotent by sync_id, but still real waste and
+// a symptom of the same underlying race). Fix: preventDefault, await the bounded (2s
+// budget) push, stop/close AFTER it settles, THEN exit via app.exit() (which — unlike
+// calling app.quit() again — does not re-fire before-quit).
+let quitting = false
+app.on('before-quit', (event) => {
+  if (quitting) return
+  quitting = true
+  event.preventDefault()
+  void (async () => {
+    shutdownWhisper()
+    if (updaterInterval) {
+      clearInterval(updaterInterval)
+      updaterInterval = null
+    }
+    if (memory) {
+      // §4.1 "App quit": best-effort push within a 2s budget — never blocks exit
+      // indefinitely (the mutation_log queue is durable across restarts regardless,
+      // §4.5), but DOES block until that bounded attempt settles, so close() below
+      // never races an in-flight store write.
+      await memory.daemon.onQuit()
+      memory.daemon.stop()
+      memory.ipcServer.stop()
+      memory.store.close()
+    }
+    // Tear down every long-lived resource on quit. Without these, dev-mode HMR
+    // reloads (and any future "soft restart" path) would accumulate intervals,
+    // file watchers, PTYs and detached child processes across reloads —
+    // user-visible as a slow leak on app idle.
+    benchmark.stopAll()
+    // Cancel any in-flight `npm install` / preset setup. The spawned children
+    // are NOT detached, so they'd die with the parent anyway — but explicit
+    // taskkill on Windows tears down the whole tree (preset commands like
+    // `npm install` spawn many sub-processes) cleanly instead of orphaning
+    // them for a moment.
+    setupRunner.cancelAll()
+    // Stop the spotlight fs.watch handle. The watcher keeps the event loop
+    // alive on macOS/Linux and would block app exit otherwise.
+    void spotlight.stop()
+    // Destroy every WebContentsView. Each one owns a Chromium render process
+    // tree; leaving them dangling for the Electron app teardown is slow.
+    browserPanes.destroyAll()
+    // Kill every node-pty process. Each PTY is its own OS-level process with a
+    // pseudoterminal device — without this, the user sees PowerShell/bash
+    // processes survive Nest's tray-Quit on Windows (they'd only die when
+    // the conpty session closes, which doesn't happen cleanly without kill()).
+    ptyManager.killAll()
+    ptyManager.removeAllListeners()
+    setupRunner.removeAllListeners()
+    spotlight.removeAllListeners()
+    metricsCollector.dispose()
+    autoUpdater.removeAllListeners()
+    app.exit(0)
+  })()
 })
