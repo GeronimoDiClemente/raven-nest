@@ -105,6 +105,13 @@ export function defaultRecipes(lookup: TrackedLookup): Recipe[] {
         return [{ cmd: 'notify', channel: '', message: `👀 Te pidieron revisar PR #${e.prNumber}: ${e.prTitle}` }]
       },
     },
+    // Auto-status del terminal: al abrir una sesión, refleja el foco en Slack.
+    // El clear en session.closed queda como follow-up (nadie emite ese evento hoy).
+    {
+      id: 'h5:session.opened→presence',
+      when: 'session.opened',
+      then: (ev) => [{ cmd: 'setPresence', text: `focus: ${(ev as { branch: string }).branch}` }],
+    },
   ]
 }
 

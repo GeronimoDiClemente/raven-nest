@@ -37,11 +37,11 @@ describe('registerBusCommands', () => {
   beforeEach(() => vi.restoreAllMocks())
   afterEach(() => vi.restoreAllMocks())
 
-  it('registra los 4 handlers estándar', () => {
+  it('registra los handlers estándar', () => {
     const { bus, handlers } = capturingBus()
     const resolver: TicketProviderResolver = { providerFor: () => makeProvider() }
     registerBusCommands(bus, { ticketLoop: resolver })
-    expect([...handlers.keys()].sort()).toEqual(['createTask', 'notify', 'openSession', 'updateStatus'])
+    expect([...handlers.keys()].sort()).toEqual(['createTask', 'notify', 'openSession', 'setPresence', 'updateStatus'])
   })
 
   // ── updateStatus ──────────────────────────────────────────────────────────
@@ -136,6 +136,35 @@ describe('registerBusCommands', () => {
     await expect(
       handlers.get('notify')!({ cmd: 'notify', channel: '#nope', message: 'x' }, evPrOpened, deps),
     ).resolves.toBeUndefined()
+    expect(warn).toHaveBeenCalled()
+  })
+
+  // ── setPresence (Slack status) ──────────────────────────────────────────────
+  it('setPresence POSTea users.profile.set con status_text y el bot token', async () => {
+    const { bus, handlers } = capturingBus()
+    const fetch = vi.fn(async () => new Response(JSON.stringify({ ok: true }), { status: 200 }))
+    const deps = makeDeps({ getToken: (id: string) => (id === 'slack' ? 'xoxb-tok' : null), fetch: fetch as unknown as typeof globalThis.fetch })
+    registerBusCommands(bus, { ticketLoop: { providerFor: () => null } })
+    await handlers.get('setPresence')!({ cmd: 'setPresence', text: 'focus: feat/x' }, evPrOpened, deps)
+    const [url, init] = fetch.mock.calls[0] as [string, RequestInit]
+    expect(url).toBe('https://slack.com/api/users.profile.set')
+    expect(init.method).toBe('POST')
+    expect((init.headers as Record<string, string>).Authorization).toBe('Bearer xoxb-tok')
+    const body = JSON.parse(init.body as string)
+    expect(body.profile.status_text).toBe('focus: feat/x')
+    expect(body.profile.status_emoji).toBe(':hammer_and_wrench:')
+  })
+
+  it('setPresence sin token Slack degrada a no-op con warn', async () => {
+    const { bus, handlers } = capturingBus()
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const fetch = vi.fn()
+    const deps = makeDeps({ fetch: fetch as unknown as typeof globalThis.fetch })
+    registerBusCommands(bus, { ticketLoop: { providerFor: () => null } })
+    await expect(
+      handlers.get('setPresence')!({ cmd: 'setPresence', text: 'focus: x' }, evPrOpened, deps),
+    ).resolves.toBeUndefined()
+    expect(fetch).not.toHaveBeenCalled()
     expect(warn).toHaveBeenCalled()
   })
 

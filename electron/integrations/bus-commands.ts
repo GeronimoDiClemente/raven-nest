@@ -16,6 +16,7 @@ import type {
   CreateTaskCommand,
   NotifyCommand,
   OpenSessionCommand,
+  SetPresenceCommand,
   UpdateStatusCommand,
   DomainEvent,
 } from './bus-types'
@@ -96,6 +97,26 @@ async function handleNotify(cmd: NotifyCommand, deps: PanelAdapterDeps): Promise
   }
 }
 
+async function handleSetPresence(cmd: SetPresenceCommand, deps: PanelAdapterDeps): Promise<void> {
+  const token = deps.getToken('slack')
+  if (!token) {
+    console.warn('[bus-commands] setPresence sin token de Slack, no-op')
+    return
+  }
+  try {
+    const res = await deps.fetch('https://slack.com/api/users.profile.set', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json; charset=utf-8' },
+      body: JSON.stringify({ profile: { status_text: cmd.text, status_emoji: cmd.emoji ?? ':hammer_and_wrench:' } }),
+    })
+    const json = (await res.json()) as { ok?: boolean; error?: string }
+    // Sin el scope users.profile:write, Slack devuelve no-ok: degrada a no-op con warn.
+    if (!json.ok) console.warn('[bus-commands] setPresence no-ok', json.error ?? 'unknown')
+  } catch (err) {
+    console.warn('[bus-commands] setPresence falló', err)
+  }
+}
+
 async function handleOpenSession(cmd: OpenSessionCommand, ev: DomainEvent, opts: BusCommandDeps): Promise<void> {
   if (!opts.openSession) {
     console.warn('[bus-commands] openSession sin gancho inyectado, no-op', cmd.branch)
@@ -114,9 +135,10 @@ async function handleCreateTask(cmd: CreateTaskCommand, deps: PanelAdapterDeps, 
 }
 
 /**
- * Registra en `bus` los handlers de los 4 comandos estándar de v1:
+ * Registra en `bus` los handlers de los comandos estándar:
  *  - `updateStatus` → `provider.transition` (provider resuelto vía ticketLoop).
  *  - `notify`       → Slack chat.postMessage (token por deps; sin token no-op).
+ *  - `setPresence`  → Slack users.profile.set (H5; sin token/scope no-op con warn).
  *  - `openSession`  → callback inyectado (worktree:create vive en main).
  *  - `createTask`   → `provider.createTask` si lo soporta; si no, no-op con warn.
  * `logOutcome`/`scheduleBlock` (Motor 3/5) llegan en hitos futuros.
@@ -127,6 +149,9 @@ export function registerBusCommands(bus: EventBus, opts: BusCommandDeps): void {
   })
   bus.registerHandler('notify', async (cmd, _ev, deps) => {
     await handleNotify(cmd as NotifyCommand, deps)
+  })
+  bus.registerHandler('setPresence', async (cmd, _ev, deps) => {
+    await handleSetPresence(cmd as SetPresenceCommand, deps)
   })
   bus.registerHandler('openSession', async (cmd, ev, _deps) => {
     await handleOpenSession(cmd as OpenSessionCommand, ev, opts)

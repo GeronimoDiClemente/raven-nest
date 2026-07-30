@@ -102,7 +102,7 @@ describe('loadRecipes / saveRecipes', () => {
       { cmd: 'updateStatus', pluginId: 'jira', providerId: 'ISSUE-9', to: 'in_review' },
     ])
     expect(recipes.map((x) => x.when).sort()).toEqual(
-      ['changes.requested', 'ci.failed', 'pr.merged', 'pr.merged', 'pr.opened', 'review.requested', 'task.created'],
+      ['changes.requested', 'ci.failed', 'pr.merged', 'pr.merged', 'pr.opened', 'review.requested', 'session.opened', 'task.created'],
     )
   })
 
@@ -132,7 +132,7 @@ describe('loadRecipes / saveRecipes', () => {
     const recipes = loadRecipes(file, lookup)
     expect(warn).toHaveBeenCalled()
     expect(recipes.map((x) => x.when).sort()).toEqual(
-      ['changes.requested', 'ci.failed', 'pr.merged', 'pr.merged', 'pr.opened', 'review.requested', 'task.created'],
+      ['changes.requested', 'ci.failed', 'pr.merged', 'pr.merged', 'pr.opened', 'review.requested', 'session.opened', 'task.created'],
     )
   })
 

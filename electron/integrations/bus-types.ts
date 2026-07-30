@@ -149,6 +149,15 @@ export interface ScheduleBlockCommand {
   label: string
 }
 
+// H5 Motor 4 — auto-status del terminal (Slack users.profile.set). El emoji es
+// opcional; el handler usa `:hammer_and_wrench:` por defecto. Requiere el scope
+// `users.profile:write`; sin él, el handler degrada a no-op con warn.
+export interface SetPresenceCommand {
+  cmd: 'setPresence'
+  text: string
+  emoji?: string
+}
+
 export type Command =
   | CreateTaskCommand
   | OpenSessionCommand
@@ -156,6 +165,7 @@ export type Command =
   | UpdateStatusCommand
   | LogOutcomeCommand
   | ScheduleBlockCommand
+  | SetPresenceCommand
 
 // ── Guards runtime mínimos ──────────────────────────────────────────────────
 // Los eventos/comandos pueden cruzar el borde IPC o venir de recipes.json en
@@ -229,6 +239,8 @@ export function isCommand(x: unknown): x is Command {
       return isStr(c.ref) && isStr(c.summary)
     case 'scheduleBlock':
       return isStr(c.when) && isStr(c.label)
+    case 'setPresence':
+      return isStr(c.text) && optStr(c.emoji)
     default:
       return false
   }

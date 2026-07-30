@@ -113,4 +113,11 @@ describe('isCommand', () => {
       expect(isCommand({ cmd: 'updateStatus', pluginId: 'j', providerId: 'p', to })).toBe(true)
     }
   })
+
+  it('setPresence válido', () => {
+    expect(isCommand({ cmd: 'setPresence', text: 'focus: X' })).toBe(true)
+    expect(isCommand({ cmd: 'setPresence', text: 'focus: X', emoji: ':fire:' })).toBe(true)
+    expect(isCommand({ cmd: 'setPresence' })).toBe(false)
+    expect(isCommand({ cmd: 'setPresence', text: 5 })).toBe(false)
+  })
 })
