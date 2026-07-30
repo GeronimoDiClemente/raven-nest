@@ -6,6 +6,7 @@ import { TicketLoop } from '../ticket-loop'
 import type { Ticket, TicketProvider } from '../integrations/ticket-types'
 import { EventBus } from '../integrations/event-bus'
 import { defaultRecipes } from '../integrations/recipes'
+import { registerBusCommands } from '../integrations/bus-commands'
 import type { Command, DomainEvent } from '../integrations/bus-types'
 
 const ticket: Ticket = {
@@ -220,6 +221,21 @@ describe('TicketLoop con bus adjunto', () => {
     await loop.onPrStateChanged('gero/PROJ-1-fix', 'open', {} as never) // reintenta (lastPr no quedó marcado)
     const inReview = (provider.transition as ReturnType<typeof vi.fn>).mock.calls.filter((c) => c[1] === 'in_review')
     expect(inReview).toHaveLength(2)
+  })
+
+  it('con bus, si updateStatus es no-op por provider ausente el tracking sobrevive (no stuck)', async () => {
+    // provider resolver que devuelve null → handleUpdateStatus tira → el comando
+    // cae en failed → el loop conserva el tracking (paridad con H3), no destrackea.
+    const loopNoProv = new TicketLoop()
+    const bus2 = new EventBus()
+    bus2.setRecipes(defaultRecipes((b) => loopNoProv.trackedTicket(b)))
+    registerBusCommands(bus2, { ticketLoop: { providerFor: () => null } })
+    loopNoProv.attachBus(bus2)
+    // trackear a mano (sin startWork, que necesitaría provider)
+    ;(loopNoProv as unknown as { tracked: Map<string, unknown> }).tracked.set('gero/PROJ-1-fix',
+      { pluginId: 'jira', providerId: 'p1', key: 'PROJ-1', repoFullName: 'acme/app' })
+    await loopNoProv.onPrStateChanged('gero/PROJ-1-fix', 'merged', {} as never)
+    expect(loopNoProv.trackedTicket('gero/PROJ-1-fix')).toBeDefined() // no destrackeado
   })
 
   it('sin bus adjunto el comportamiento es idéntico al H3 directo (transición sin emit)', async () => {

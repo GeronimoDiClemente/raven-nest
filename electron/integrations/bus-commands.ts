@@ -77,8 +77,12 @@ export interface BusCommandDeps {
 async function handleUpdateStatus(cmd: UpdateStatusCommand, deps: PanelAdapterDeps, opts: BusCommandDeps): Promise<void> {
   const provider = opts.ticketLoop.providerFor(cmd.pluginId, deps)
   if (!provider) {
-    console.warn('[bus-commands] updateStatus sin provider para', cmd.pluginId)
-    return
+    // A diferencia del resto de handlers (notify/logOutcome/setPresence, que son
+    // best-effort y degradan a no-op), updateStatus ES la transición: si no hay
+    // provider TIRAMOS para que el bus lo reporte en failed[]. Así el ticket loop
+    // conserva el tracking y reintenta, en vez de destrackear un ticket que nunca
+    // transicionó (paridad con el path sin-bus de H3).
+    throw new Error(`updateStatus: provider ausente ${cmd.pluginId}`)
   }
   // No envolvemos el error de transition: el best-effort del bus (T2) ya lo
   // captura, y en el path sin-bus (H3) el propio TicketLoop maneja el reintento.

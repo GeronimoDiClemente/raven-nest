@@ -59,17 +59,19 @@ describe('registerBusCommands', () => {
     expect(provider.transition).toHaveBeenCalledWith('p1', 'in_review')
   })
 
-  it('updateStatus con provider desconocido no tira: warn + no-op', async () => {
+  it('updateStatus con provider ausente TIRA (para no destrackear un ticket sin transicionar)', async () => {
+    // A diferencia de notify/logOutcome/setPresence (best-effort de verdad), la
+    // transición NO es best-effort: si el provider no existe, el comando debe caer
+    // en failed[] para que el ticket loop conserve el tracking y reintente (paridad
+    // con el path sin-bus de H3). Ver Fix 3 del review de H4-H7.
     const { bus, handlers } = capturingBus()
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     registerBusCommands(bus, { ticketLoop: { providerFor: () => null } })
     await expect(
       handlers.get('updateStatus')!(
         { cmd: 'updateStatus', pluginId: 'nope', providerId: 'p1', to: 'done' },
         evPrOpened, makeDeps(),
       ),
-    ).resolves.toBeUndefined()
-    expect(warn).toHaveBeenCalled()
+    ).rejects.toThrow(/provider ausente/)
   })
 
   it('updateStatus NO envuelve el error de transition (best-effort lo hace el bus)', async () => {
