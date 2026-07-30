@@ -30,12 +30,18 @@ export function useEmployeeFiles(
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // Depend on a stable string, not the array identity: the caller mints a fresh
+  // `repos` array every render, so keying the effect on the object would re-fire
+  // the search on every parent re-render (e.g. each presence sync). Same guard as
+  // useTeamStats' `repoNames`.
+  const repoKey = repos.map(r => r.repo_full_name).join(',')
+
   useEffect(() => {
-    if (!githubToken || !login || repos.length === 0) { setPrs([]); return }
+    if (!githubToken || !login || !repoKey) { setPrs([]); return }
     let alive = true
     setLoading(true); setError(null)
     const since = new Date(Date.now() - MAX_DAYS * DAY_MS).toISOString().slice(0, 10)
-    const repoQ = repos.map(r => `repo:${r.repo_full_name}`).join(' ')
+    const repoQ = repoKey.split(',').filter(Boolean).map(n => `repo:${n}`).join(' ')
     const q = `author:${login} is:pr updated:>=${since} ${repoQ}`
     ;(async () => {
       try {
@@ -67,7 +73,7 @@ export function useEmployeeFiles(
       }
     })()
     return () => { alive = false }
-  }, [githubToken, login, repos])
+  }, [githubToken, login, repoKey])
 
   const topAreas = topAreasFromFiles(prs.map(p => ({ files: p.files })), 6)
   const mergedRecent = prs.filter(p => p.state === 'MERGED').sort((a, b) => (b.mergedAt ?? '').localeCompare(a.mergedAt ?? '')).slice(0, 5)
