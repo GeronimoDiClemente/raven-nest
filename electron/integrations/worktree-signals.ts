@@ -60,10 +60,16 @@ export class WorktreeSignals {
   }
 
   private async pollOne(wt: WorktreeInput, repo: string, deps: PanelAdapterDeps): Promise<void> {
+    const prev = this.state.get(wt.repoPath)
     const runsJson = await this.gh<{ workflow_runs?: WorkflowRun[] }>(
       deps, `/repos/${repo}/actions/runs?branch=${encodeURIComponent(wt.branch)}&per_page=5`,
     )
-    const runs = runsJson?.workflow_runs ?? []
+    // gh() colapsa 401/403/429/5xx/timeout a null, indistinguible de "sin data".
+    // Un blip NO debe pisar el último estado bueno del worktree (badge rojo, runId
+    // para fixCiPrompt): retornamos temprano y el próximo poll OK lo actualiza. (Un
+    // 401 persistente deja el estado viejo; el push "reconectá GitHub" es follow-up.)
+    if (runsJson === null) return
+    const runs = runsJson.workflow_runs ?? []
     const ci = runsToStatus(runs)
     // El run rojo del que emitimos ci.failed / mostramos runId debe derivarse del
     // estado ACTUAL del branch (runs[0], el más reciente), no de "hay algún rojo en
@@ -83,9 +89,10 @@ export class WorktreeSignals {
       const reviews = await this.gh<Array<{ user: { login: string } | null; state: string; submitted_at: string }>>(
         deps, `/repos/${repo}/pulls/${pr.number}/reviews`,
       )
-      changesRequested = latestReviewIsChangesRequested(reviews ?? [])
+      // Blip en el fetch de reviews (null): conservamos el changesRequested previo
+      // en vez de asumir false (no apagar un badge de "cambios pedidos" por un blip).
+      changesRequested = reviews === null ? (prev?.changesRequested ?? false) : latestReviewIsChangesRequested(reviews)
     }
-    const prev = this.state.get(wt.repoPath)
     this.state.set(wt.repoPath, { ci, repo, runId: failedRun?.id, runUrl: failedRun?.html_url, changesRequested, prNumber })
 
     // changes.requested: emitir SOLO en la transición a true (no en cada ciclo).

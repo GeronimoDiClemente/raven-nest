@@ -119,6 +119,25 @@ describe('WorktreeSignals — CI por worktree', () => {
     expect(rr[0][0]).toMatchObject({ type: 'review.requested', repoFullName: 'acme/app', prNumber: 11, prTitle: 'Fix A' })
   })
 
+  it('un fallo transitorio del fetch de runs NO pisa el estado rojo previo', async () => {
+    let firstRun = true
+    const deps = depsWith(async (url) => {
+      if (url.includes('/actions/runs')) {
+        if (firstRun) { firstRun = false; return new Response(JSON.stringify({ workflow_runs: [
+          { id: 9, name: 'CI', status: 'completed', conclusion: 'failure', html_url: 'r', head_branch: 'feat/x', head_sha: 'S' } ] }), { status: 200 }) }
+        return new Response('boom', { status: 500 }) // blip
+      }
+      return new Response('[]', { status: 200 })
+    })
+    const s = new WorktreeSignals(() => 'acme/app')
+    const wts = [{ repoPath: '/wt/x', branch: 'feat/x' }]
+    await s.poll(wts, deps)                     // rojo
+    expect(s.get('/wt/x')?.ci).toBe('failure')
+    await s.poll(wts, deps)                     // blip 500
+    expect(s.get('/wt/x')?.ci).toBe('failure')  // retiene el estado bueno
+    expect(s.get('/wt/x')?.runId).toBe(9)
+  })
+
   it('review.requested no colisiona entre repos con el mismo número de PR', async () => {
     const items = [
       { number: 5, title: 'A', repository_url: 'https://api.github.com/repos/acme/app' },
