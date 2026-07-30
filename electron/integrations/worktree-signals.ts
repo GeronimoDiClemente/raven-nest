@@ -29,6 +29,7 @@ export type ResolveRepo = (repoPath: string) => string | null
 export class WorktreeSignals {
   private state = new Map<string, WorktreeSignal>()
   private ciNotified = new Map<string, string>() // repoPath → sha ya emitido
+  private reviewNotified = new Set<number>() // PRs de review-requested ya emitidos
   private bus?: EventBus
 
   constructor(private resolveRepo: ResolveRepo) {}
@@ -100,6 +101,21 @@ export class WorktreeSignals {
         ...(failedRun.html_url ? { runUrl: failedRun.html_url } : {}),
         ...(failedRun.name ? { summary: failedRun.name } : {}),
       }
+      await this.bus.emit(ev, deps)
+    }
+  }
+
+  /** Global (no por worktree): PRs donde me pidieron review. Emite review.requested por PR nuevo. */
+  async pollReviewRequests(deps: PanelAdapterDeps): Promise<void> {
+    if (!this.bus) return
+    const json = await this.gh<{ items?: Array<{ number: number; title: string; repository_url: string }> }>(
+      deps, `/search/issues?q=${encodeURIComponent('review-requested:@me type:pr state:open')}`,
+    )
+    for (const it of json?.items ?? []) {
+      if (this.reviewNotified.has(it.number)) continue
+      this.reviewNotified.add(it.number)
+      const repoFullName = it.repository_url.replace('https://api.github.com/repos/', '')
+      const ev: DomainEvent = { type: 'review.requested', repoFullName, prNumber: it.number, prTitle: it.title }
       await this.bus.emit(ev, deps)
     }
   }

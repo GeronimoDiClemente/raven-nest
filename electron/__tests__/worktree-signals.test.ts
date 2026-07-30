@@ -84,6 +84,25 @@ describe('WorktreeSignals — CI por worktree', () => {
     expect(cr[0][0]).toMatchObject({ type: 'changes.requested', branch: 'feat/x', repoFullName: 'acme/app', prNumber: 7 })
   })
 
+  it('emite review.requested por cada PR nuevo del search, sin repetir', async () => {
+    // Response fresca por llamada: un único Response se consumiría al primer
+    // .json() y la 2da poll tiraría "body used already" en vez de testear dedup.
+    const deps = depsWith(async (url) => {
+      if (url.includes('/search/issues')) return new Response(JSON.stringify({ items: [
+        { number: 11, title: 'Fix A', repository_url: 'https://api.github.com/repos/acme/app' },
+      ] }), { status: 200 })
+      return new Response('[]', { status: 200 })
+    })
+    const emit = vi.fn(async (_ev: unknown, _deps: unknown) => ({ commands: [], failed: [] }))
+    const s = new WorktreeSignals(() => 'acme/app')
+    s.attachBus({ emit } as unknown as import('../integrations/event-bus').EventBus)
+    await s.pollReviewRequests(deps)
+    await s.pollReviewRequests(deps) // mismo PR → no re-emite
+    const rr = emit.mock.calls.filter((c) => (c[0] as { type: string }).type === 'review.requested')
+    expect(rr).toHaveLength(1)
+    expect(rr[0][0]).toMatchObject({ type: 'review.requested', repoFullName: 'acme/app', prNumber: 11, prTitle: 'Fix A' })
+  })
+
   it('fixCiPrompt arma prompt con el título del run, la URL y el log truncado', async () => {
     const bigLog = Array.from({ length: 300 }, (_, i) => `line ${i}`).join('\n')
     const deps = depsWith(async (url) => {
