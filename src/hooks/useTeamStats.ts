@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
+import { perLoginPrev } from '../lib/employee-analytics'
 
 export interface DeveloperStats {
   login: string
@@ -393,12 +394,46 @@ export function eventsFromGraphQL(
   return events
 }
 
+export interface OpenPr {
+  login: string; avatarUrl: string; repo: string
+  number: number; title: string; createdAt: string; reviewCount: number
+}
+
+interface GqlOpenPr {
+  number: number; title?: string | null; createdAt: string
+  author?: { login?: string | null; avatarUrl?: string | null } | null
+  reviews?: { totalCount: number } | null
+}
+
+/**
+ * Maps open-PR GraphQL nodes to the flat shape the WIP/attention signals need
+ * (login, repo, review count). Unlike merged PRs, an open PR with no author
+ * (ghost/deleted account) can't be attributed to anyone, so it's dropped
+ * rather than counted under 'unknown'.
+ */
+export function openPrsFromGraphQL(repoName: string, nodes: GqlOpenPr[]): OpenPr[] {
+  const out: OpenPr[] = []
+  for (const pr of nodes) {
+    const login = pr.author?.login
+    if (!login) continue
+    out.push({
+      login, avatarUrl: pr.author?.avatarUrl ?? '', repo: repoName,
+      number: pr.number, title: pr.title ?? '(no title)',
+      createdAt: pr.createdAt, reviewCount: pr.reviews?.totalCount ?? 0,
+    })
+  }
+  return out
+}
+
 interface GqlPageInfo { hasNextPage: boolean; endCursor: string | null }
 interface CommitsResponse {
   repository: { defaultBranchRef: { target: { history?: { nodes: GqlCommit[]; pageInfo: GqlPageInfo } } | null } | null } | null
 }
 interface PrsResponse {
   repository: { pullRequests: { nodes: GqlPullRequest[]; pageInfo: GqlPageInfo } } | null
+}
+interface OpenPrsResponse {
+  repository: { pullRequests: { nodes: GqlOpenPr[]; pageInfo: GqlPageInfo } } | null
 }
 
 // Commits on the default branch (integrated work) within the window, with the
@@ -432,12 +467,33 @@ query($owner:String!,$name:String!,$after:String){
   }
 }`
 
+// Team-wide OPEN PRs — the WIP/attention counterpart to the merged-PR history
+// above. Only the review COUNT is needed (not each reviewer), so this query
+// stays cheap: no nested reviews(first:50), just totalCount.
+const OPEN_PRS_QUERY = `
+query($owner:String!,$name:String!,$after:String){
+  repository(owner:$owner,name:$name){
+    pullRequests(states:OPEN, first:50, orderBy:{field:CREATED_AT,direction:DESC}, after:$after){
+      nodes{ number title createdAt author{ login avatarUrl } reviews(first:1){ totalCount } }
+      pageInfo{ hasNextPage endCursor }
+    }
+  }
+}`
+
 export function useTeamStats(
   repos: Array<{ repo_full_name: string }>,
   githubToken: string | null,
   windowDays = 7,
-): { stats: TeamStatsData; loading: boolean; error: string | null; warning: string | null } {
+): {
+  stats: TeamStatsData
+  loading: boolean
+  error: string | null
+  warning: string | null
+  prevByLogin: Record<string, { commits: number; prsMerged: number }>
+  openPrsByLogin: Record<string, OpenPr[]>
+} {
   const [events, setEvents] = useState<GitHubEvent[]>([])
+  const [openPrs, setOpenPrs] = useState<OpenPr[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [warning, setWarning] = useState<string | null>(null)
@@ -510,30 +566,58 @@ export function useTeamStats(
         return out
       }
 
-      const fetchRepoActivity = async (fullName: string): Promise<GitHubEvent[]> => {
+      const fetchOpenPrs = async (owner: string, name: string): Promise<GqlOpenPr[]> => {
+        const out: GqlOpenPr[] = []
+        let after: string | null = null
+        // Cap at 2 pages (100 open PRs) — team-wide WIP is naturally shallower
+        // than the merged-PR history, so this needs less depth than fetchMergedPrs.
+        for (let page = 0; page < 2; page++) {
+          const data = (await graphql(OPEN_PRS_QUERY, { owner, name, after })) as OpenPrsResponse
+          if (!data.repository) throw new Error('no repo access')
+          const prs = data.repository.pullRequests
+          out.push(...prs.nodes)
+          if (!prs.pageInfo.hasNextPage) break
+          after = prs.pageInfo.endCursor
+        }
+        return out
+      }
+
+      const fetchRepoActivity = async (fullName: string): Promise<{ events: GitHubEvent[]; openPrs: OpenPr[] }> => {
         const [owner, name] = fullName.split('/')
-        if (!owner || !name) { failed.push(fullName); return [] }
+        if (!owner || !name) { failed.push(fullName); return { events: [], openPrs: [] } }
         try {
-          const [commits, prs] = await Promise.all([fetchCommits(owner, name), fetchMergedPrs(owner, name)])
-          return eventsFromGraphQL(fullName, { commits, prs })
+          const [commits, prs, openPrNodes] = await Promise.all([
+            fetchCommits(owner, name),
+            fetchMergedPrs(owner, name),
+            fetchOpenPrs(owner, name),
+          ])
+          return {
+            events: eventsFromGraphQL(fullName, { commits, prs }),
+            openPrs: openPrsFromGraphQL(fullName, openPrNodes),
+          }
         } catch {
           failed.push(fullName)
-          return []
+          return { events: [], openPrs: [] }
         }
       }
 
       try {
         const all: GitHubEvent[] = []
+        const collectedOpen: OpenPr[] = []
         // Pool: process the repos in batches of CONCURRENCY instead of all at once.
         for (let i = 0; i < repoList.length; i += CONCURRENCY) {
           const batch = repoList.slice(i, i + CONCURRENCY)
           const results = await Promise.allSettled(batch.map(fetchRepoActivity))
           for (const r of results) {
-            if (r.status === 'fulfilled') all.push(...r.value)
+            if (r.status === 'fulfilled') {
+              all.push(...r.value.events)
+              collectedOpen.push(...r.value.openPrs)
+            }
           }
         }
         if (alive) {
           setEvents(all)
+          setOpenPrs(collectedOpen)
           setWarning(
             failed.length
               ? `Could not load ${failed.length} of ${repoList.length} repos (rate limit or no access)`
@@ -562,6 +646,14 @@ export function useTeamStats(
   const prSizes = useMemo(() => prSizeBuckets(events, windowDays), [events, windowDays])
   const reviewCov = useMemo(() => reviewCoverage(events, windowDays), [events, windowDays])
   const prev = useMemo(() => windowTotals(events, windowDays, windowDays * 2), [events, windowDays])
+  // Per-login breakdown of the same previous-period totals, for per-employee
+  // coaching deltas (the team-wide `prev` above only sums across everyone).
+  const prevByLogin = useMemo(() => perLoginPrev(events, windowDays), [events, windowDays])
+  const openPrsByLogin = useMemo(() => {
+    const m: Record<string, OpenPr[]> = {}
+    for (const pr of openPrs) (m[pr.login] ??= []).push(pr)
+    return m
+  }, [openPrs])
 
   return {
     stats: {
@@ -573,5 +665,7 @@ export function useTeamStats(
     loading,
     error,
     warning,
+    prevByLogin,
+    openPrsByLogin,
   }
 }

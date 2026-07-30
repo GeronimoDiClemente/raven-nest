@@ -6,6 +6,7 @@ import {
   medianMergeHours,
   reviewCoverage,
   medianReviewLatencyHours,
+  openPrsFromGraphQL,
 } from '../../hooks/useTeamStats'
 
 const now = new Date().toISOString()
@@ -99,5 +100,23 @@ describe('eventsFromGraphQL', () => {
     })
     expect(aggregateEvents(events, 7).reduce((s, d) => s + d.prsMerged, 0)).toBe(0)
     expect(prSizeBuckets(events, 7)).toEqual({ s: 0, m: 0, l: 0, xl: 0 })
+  })
+})
+
+describe('openPrsFromGraphQL', () => {
+  it('maps open PR nodes to {login, repo, number, title, createdAt, reviewCount}', () => {
+    const rows = openPrsFromGraphQL('acme/api', [
+      { number: 7, title: 'wip: cache', createdAt: '2026-07-20T00:00:00Z',
+        author: { login: 'ana', avatarUrl: 'x' }, reviews: { totalCount: 0 } },
+      { number: 8, title: 'feat: x', createdAt: '2026-07-25T00:00:00Z',
+        author: { login: 'bob', avatarUrl: 'y' }, reviews: { totalCount: 2 } },
+    ])
+    expect(rows).toEqual([
+      { login: 'ana', avatarUrl: 'x', repo: 'acme/api', number: 7, title: 'wip: cache', createdAt: '2026-07-20T00:00:00Z', reviewCount: 0 },
+      { login: 'bob', avatarUrl: 'y', repo: 'acme/api', number: 8, title: 'feat: x', createdAt: '2026-07-25T00:00:00Z', reviewCount: 2 },
+    ])
+  })
+  it('skips a PR with no author (ghost)', () => {
+    expect(openPrsFromGraphQL('o/r', [{ number: 1, title: 't', createdAt: 'z', author: null, reviews: { totalCount: 0 } }])).toEqual([])
   })
 })
