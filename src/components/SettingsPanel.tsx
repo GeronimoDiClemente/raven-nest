@@ -92,6 +92,11 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
   const memory = useMemory()
   const { plan } = useProfile()
   const [memoryUpgradeOpen, setMemoryUpgradeOpen] = useState(false)
+  // M10 / §6.6 "Right to delete": disconnect never touches local data regardless of
+  // this — it only controls whether main also calls memory-sync's delete-cloud-data
+  // action (see electron/main.ts's memory:disconnect handler) before clearing the
+  // local connection state.
+  const [deleteCloudOnDisconnect, setDeleteCloudOnDisconnect] = useState(false)
   const kb = settings.keybindings
 
   useEffect(() => {
@@ -297,7 +302,7 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                         )}
                       </div>
                       {memory.state === 'connected' || memory.state === 'paused' ? (
-                        <button className="sp-btn-danger" onClick={() => memory.disconnect()}>Disconnect</button>
+                        <button className="sp-btn-danger" onClick={() => memory.disconnect(deleteCloudOnDisconnect)}>Disconnect</button>
                       ) : memory.state === 'error' ? (
                         <button className="sp-btn-purple" onClick={() => memory.connect()}>Retry</button>
                       ) : memory.state === 'connecting' || memory.state === 'migrating' ? (
@@ -308,6 +313,16 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                         <button className="sp-btn-purple" onClick={() => setMemoryUpgradeOpen(true)}>Upgrade</button>
                       )}
                     </div>
+                    {(memory.state === 'connected' || memory.state === 'paused') && (
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, opacity: 0.75, marginTop: 6 }}>
+                        <input
+                          type="checkbox"
+                          checked={deleteCloudOnDisconnect}
+                          onChange={(e) => setDeleteCloudOnDisconnect(e.target.checked)}
+                        />
+                        Also delete my cloud memory (your local memory is never affected)
+                      </label>
+                    )}
                   </div>
 
                   <button className="sp-action-btn" onClick={() => supabase.auth.signOut()}>
