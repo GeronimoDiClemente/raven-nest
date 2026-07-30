@@ -51,6 +51,9 @@ describe('SlackSocket', () => {
   })
 
   it('reconecta cuando el socket se cierra', async () => {
+    // La reconexión pasa por scheduleReconnect (setTimeout con backoff), así que
+    // avanzamos timers en vez de flushear microtasks (adaptado en Fix 5).
+    vi.useFakeTimers()
     const wss = [fakeWs(), fakeWs()]
     let i = 0
     const fetch = vi.fn(async () => okOpen())
@@ -58,9 +61,23 @@ describe('SlackSocket', () => {
       wsFactory: () => wss[i++], onAppMention: vi.fn(), onBlockAction: vi.fn() })
     await sock.connect()
     wss[0].close()                       // dispara reconexión
-    await Promise.resolve(); await Promise.resolve()
+    await vi.advanceTimersByTimeAsync(2000)
     expect(fetch).toHaveBeenCalledTimes(2)  // re-open
     sock.disconnect()
+    vi.useRealTimers()
+  })
+
+  it('si connect() falla, reintenta con backoff (no queda muerto)', async () => {
+    vi.useFakeTimers()
+    let calls = 0
+    const fetch = vi.fn(async () => { calls++; if (calls === 1) throw new Error('net')
+      return new Response(JSON.stringify({ ok: true, url: 'wss://x' }), { status: 200 }) })
+    const ws = fakeWs()
+    const sock = new SlackSocket({ appToken: 'x', fetch: fetch as never, wsFactory: () => ws, onAppMention: vi.fn(), onBlockAction: vi.fn() })
+    await sock.connect().catch(() => {})   // 1er intento falla
+    await vi.advanceTimersByTimeAsync(5000) // backoff dispara reintento
+    expect(calls).toBeGreaterThanOrEqual(2)
+    sock.disconnect(); vi.useRealTimers()
   })
 
   it('disconnect frena la reconexión (no re-open tras close manual)', async () => {

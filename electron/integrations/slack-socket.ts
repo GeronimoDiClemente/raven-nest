@@ -29,6 +29,8 @@ export interface SlackSocketOptions {
 }
 
 const CONNECTIONS_OPEN = 'https://slack.com/api/apps.connections.open'
+const BASE_BACKOFF_MS = 1_000
+const MAX_BACKOFF_MS = 30_000
 
 function defaultWsFactory(url: string): WsLike {
   const Ctor = (globalThis as { WebSocket?: new (url: string) => WsLike }).WebSocket
@@ -40,6 +42,8 @@ export class SlackSocket {
   private ws: WsLike | null = null
   private stopped = false
   private readonly wsFactory: (url: string) => WsLike
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null
+  private attempts = 0
 
   constructor(private readonly opts: SlackSocketOptions) {
     this.wsFactory = opts.wsFactory ?? defaultWsFactory
@@ -47,20 +51,45 @@ export class SlackSocket {
 
   async connect(): Promise<void> {
     this.stopped = false
-    const res = await this.opts.fetch(CONNECTIONS_OPEN, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${this.opts.appToken}`,
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-    })
-    const json = (await res.json()) as { ok?: boolean; url?: string; error?: string }
-    if (!json.ok || !json.url) throw new Error(`apps.connections.open: ${json.error ?? 'sin url'}`)
+    try {
+      const res = await this.opts.fetch(CONNECTIONS_OPEN, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${this.opts.appToken}`,
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+      })
+      const json = (await res.json()) as { ok?: boolean; url?: string; error?: string }
+      if (!json.ok || !json.url) throw new Error(`apps.connections.open: ${json.error ?? 'sin url'}`)
 
-    const ws = this.wsFactory(json.url)
-    this.ws = ws
-    ws.addEventListener('message', (ev) => this.onMessage(ev))
-    ws.addEventListener('close', () => this.onClose())
+      const ws = this.wsFactory(json.url)
+      this.ws = ws
+      this.attempts = 0 // conexión OK → reset del backoff
+      ws.addEventListener('message', (ev) => this.onMessage(ev))
+      ws.addEventListener('close', () => this.onClose())
+    } catch (err) {
+      // Un connect() que rechaza (red caída, apps.connections.open !ok/429) NO deja
+      // el socket muerto: agendamos un reintento con backoff. Re-lanzamos para que
+      // el llamador directo (arranque) también se entere; el reintento agendado
+      // corre en background pase lo que pase con ese throw.
+      this.scheduleReconnect()
+      throw err
+    }
+  }
+
+  // Reintento con backoff exponencial (BASE·2^n, tope MAX). Un solo timer a la vez
+  // (evita que un ciclo rápido de close martille apps.connections.open). El backoff
+  // se resetea al conectar OK; `disconnect()` limpia el timer y frena la cadena.
+  private scheduleReconnect(): void {
+    if (this.stopped) return
+    if (this.reconnectTimer) return
+    const delay = Math.min(MAX_BACKOFF_MS, BASE_BACKOFF_MS * 2 ** this.attempts)
+    this.attempts++
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null
+      // connect() reagenda por sí mismo en su catch; acá sólo evitamos el unhandled.
+      void this.connect().catch(() => {})
+    }, delay)
   }
 
   private onMessage(ev: unknown): void {
@@ -90,13 +119,17 @@ export class SlackSocket {
 
   private onClose(): void {
     if (this.stopped) return
-    // Reconexión: re-open + reconectar. Un fallo de connect (ej red caída) se
-    // loguea; el próximo close/ciclo reintenta. Sin backoff en v1 (documentado).
-    void this.connect().catch((e) => console.warn('[slack-socket] reconnect failed', e))
+    // Reconexión con backoff (no connect() directo): reabre una URL nueva vía
+    // scheduleReconnect. Si ese connect falla, él mismo reagenda → nunca queda muerto.
+    this.scheduleReconnect()
   }
 
   disconnect(): void {
     this.stopped = true
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer)
+      this.reconnectTimer = null
+    }
     this.ws?.close()
   }
 }
