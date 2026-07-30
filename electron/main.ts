@@ -2349,6 +2349,9 @@ const worktreeSignals = new WorktreeSignals((repoPath) => {
   const or = url ? parseOwnerRepo(url) : null
   return or ? `${or.owner}/${or.repo}` : null
 })
+// El dedup de ci.failed/review.requested se persiste a disco para no re-spamear
+// notificaciones tras reiniciar la app (mismo patrón que ticket-loop.json).
+worktreeSignals.attachStorage(pathJoin(ravenHome(), '.raven-nest', 'worktree-signals.json'))
 worktreeSignals.attachBus(eventBus)
 
 // H7 Motor 5 — @Nest desde Slack (Socket Mode). Sólo arranca si hay un

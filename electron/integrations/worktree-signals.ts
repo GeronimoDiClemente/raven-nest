@@ -3,6 +3,8 @@
 // get() para la UI. Fuente única de la señal `ci.failed` del bus. No importa
 // worktree-store ni electron: la lista de worktrees y la resolución de repo se
 // inyectan (testeable en node puro).
+import { readFileSync, writeFileSync, renameSync, mkdirSync } from 'fs'
+import { dirname } from 'path'
 import type { PanelAdapterDeps } from '../integration-panels'
 import type { EventBus } from './event-bus'
 import type { DomainEvent } from './bus-types'
@@ -30,10 +32,59 @@ export class WorktreeSignals {
   private ciNotified = new Map<string, string>() // repoPath → sha ya emitido
   private reviewNotified = new Set<string>() // `owner/repo#num` de review-requested ya emitidos
   private bus?: EventBus
+  private storePath: string | null = null
 
   constructor(private resolveRepo: ResolveRepo) {}
 
   attachBus(bus?: EventBus): void { this.bus = bus }
+
+  /**
+   * Apunta el dedup a un archivo de persistencia y carga lo que dejó una sesión
+   * previa. Sin esto, `ciNotified`/`reviewNotified` viven sólo en memoria y tras
+   * reiniciar la app se re-emitirían `ci.failed`/`review.requested` de todo lo que
+   * siga rojo/pendiente → spam de notificaciones. Mismo patrón que
+   * `ticket-loop.ts attachStorage`; entradas con shape roto se descartan.
+   */
+  attachStorage(filePath: string): void {
+    this.storePath = filePath
+    let raw: string
+    try {
+      raw = readFileSync(filePath, 'utf8')
+    } catch {
+      return // primer arranque: nada persistido todavía
+    }
+    try {
+      const data = JSON.parse(raw) as { ciNotified?: Record<string, unknown>; reviewNotified?: unknown[] }
+      for (const [repoPath, sha] of Object.entries(data.ciNotified ?? {})) {
+        if (typeof sha === 'string') this.ciNotified.set(repoPath, sha)
+      }
+      for (const key of data.reviewNotified ?? []) {
+        if (typeof key === 'string') this.reviewNotified.add(key)
+      }
+    } catch (err) {
+      console.warn('[worktree-signals] dedup store unreadable, starting empty', err)
+    }
+  }
+
+  // Persiste el dedup best-effort (tmp+rename para no dejar un JSON a medias si el
+  // proceso muere durante la escritura). Se llama cada vez que se agrega un SHA a
+  // ciNotified o un PR a reviewNotified.
+  private saveNotified(): void {
+    if (!this.storePath) return
+    try {
+      mkdirSync(dirname(this.storePath), { recursive: true })
+      const payload = JSON.stringify({
+        version: 1,
+        ciNotified: Object.fromEntries(this.ciNotified),
+        reviewNotified: [...this.reviewNotified],
+      }, null, 2)
+      const tmp = `${this.storePath}.tmp`
+      writeFileSync(tmp, payload)
+      renameSync(tmp, this.storePath)
+    } catch (err) {
+      console.warn('[worktree-signals] dedup store write failed', err)
+    }
+  }
   get(repoPath: string): WorktreeSignal | undefined { return this.state.get(repoPath) }
   list(): Array<{ repoPath: string } & WorktreeSignal> {
     return [...this.state].map(([repoPath, s]) => ({ repoPath, ...s }))
@@ -105,6 +156,7 @@ export class WorktreeSignals {
     const sha = (failedRun as { head_sha?: string } | undefined)?.head_sha
     if (this.bus && failedRun && sha && this.ciNotified.get(wt.repoPath) !== sha) {
       this.ciNotified.set(wt.repoPath, sha)
+      this.saveNotified()
       const ev: DomainEvent = {
         type: 'ci.failed', branch: wt.branch, repoFullName: repo,
         ...(failedRun.html_url ? { runUrl: failedRun.html_url } : {}),
@@ -127,6 +179,7 @@ export class WorktreeSignals {
       const key = `${repoFullName}#${it.number}`
       if (this.reviewNotified.has(key)) continue
       this.reviewNotified.add(key)
+      this.saveNotified()
       const ev: DomainEvent = { type: 'review.requested', repoFullName, prNumber: it.number, prTitle: it.title }
       await this.bus.emit(ev, deps)
     }

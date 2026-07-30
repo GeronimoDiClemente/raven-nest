@@ -1,4 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
+import { mkdtempSync, rmSync } from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
 import { WorktreeSignals } from '../integrations/worktree-signals'
 import type { PanelAdapterDeps } from '../integration-panels'
 
@@ -61,6 +64,40 @@ describe('WorktreeSignals — CI por worktree', () => {
     await s.poll(wts, deps) // mismo SHA rojo
     const ciFailed = emit.mock.calls.filter((c) => (c[0] as { type: string }).type === 'ci.failed')
     expect(ciFailed).toHaveLength(1)
+  })
+
+  it('el dedup de ci.failed persiste entre reinicios (no spamea al arrancar)', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'wsig-')); const file = join(dir, 'signals.json')
+    try {
+      const rojo = () => new Response(JSON.stringify({ workflow_runs: [
+        { id: 9, name: 'CI', status: 'completed', conclusion: 'failure', html_url: 'r', head_branch: 'feat/x', head_sha: 'S' } ] }), { status: 200 })
+      const deps = depsWith(async (u) => u.includes('/actions/runs') ? rojo() : new Response('[]', { status: 200 }))
+      const emit1 = vi.fn(async (_e: unknown, _d: unknown) => ({ commands: [], failed: [] }))
+      const s1 = new WorktreeSignals(() => 'acme/app'); s1.attachStorage(file); s1.attachBus({ emit: emit1 } as never)
+      await s1.poll([{ repoPath: '/wt/x', branch: 'feat/x' }], deps)
+      expect(emit1.mock.calls.filter(c => (c[0] as { type: string }).type === 'ci.failed')).toHaveLength(1)
+      const emit2 = vi.fn(async (_e: unknown, _d: unknown) => ({ commands: [], failed: [] }))
+      const s2 = new WorktreeSignals(() => 'acme/app'); s2.attachStorage(file); s2.attachBus({ emit: emit2 } as never)
+      await s2.poll([{ repoPath: '/wt/x', branch: 'feat/x' }], deps) // restart, mismo SHA rojo
+      expect(emit2.mock.calls.filter(c => (c[0] as { type: string }).type === 'ci.failed')).toHaveLength(0)
+    } finally { rmSync(dir, { recursive: true, force: true }) }
+  })
+
+  it('el dedup de review.requested persiste entre reinicios (no re-notifica el mismo PR)', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'wsig-')); const file = join(dir, 'signals.json')
+    try {
+      const deps = depsWith(async (u) => u.includes('/search/issues')
+        ? new Response(JSON.stringify({ items: [{ number: 11, title: 'Fix A', repository_url: 'https://api.github.com/repos/acme/app' }] }), { status: 200 })
+        : new Response('[]', { status: 200 }))
+      const emit1 = vi.fn(async (_e: unknown, _d: unknown) => ({ commands: [], failed: [] }))
+      const s1 = new WorktreeSignals(() => 'acme/app'); s1.attachStorage(file); s1.attachBus({ emit: emit1 } as never)
+      await s1.pollReviewRequests(deps)
+      expect(emit1.mock.calls.filter(c => (c[0] as { type: string }).type === 'review.requested')).toHaveLength(1)
+      const emit2 = vi.fn(async (_e: unknown, _d: unknown) => ({ commands: [], failed: [] }))
+      const s2 = new WorktreeSignals(() => 'acme/app'); s2.attachStorage(file); s2.attachBus({ emit: emit2 } as never)
+      await s2.pollReviewRequests(deps) // restart, mismo PR
+      expect(emit2.mock.calls.filter(c => (c[0] as { type: string }).type === 'review.requested')).toHaveLength(0)
+    } finally { rmSync(dir, { recursive: true, force: true }) }
   })
 
   it('NO emite ci.failed ni marca runId si el run más reciente está verde (aunque haya uno viejo rojo)', async () => {
