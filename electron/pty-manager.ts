@@ -10,7 +10,35 @@ export interface ShellOverride {
   args: string[]
 }
 
+/**
+ * Nest Memory integration point (docs/nest-memory-architecture.md §2.5). Injected as a
+ * constructor dependency rather than imported directly so existing PtyManager tests
+ * (worktree-integration, etc.) keep working with `new PtyManager()` and no memory
+ * wiring at all.
+ */
+export interface PtyMemoryIntegration {
+  socketPath: string
+  isEnabled: () => boolean
+  /** Returns `['--settings', '<path>']` for a provisioned Claude account, else `[]`. */
+  getClaudeSettingsFlagArgs: (accountDir: string) => string[]
+}
+
 const BUFFER_MAX_LINES = 10_000
+
+/**
+ * accountDir is always `{ravenHome}/.raven-nest/accounts/{aiType}/{accountName}` (see
+ * account-store.ts `getDir`). Parsing it here — rather than widening
+ * `PtyManager.create()`'s signature to take aiType/accountName explicitly — keeps every
+ * existing call site (main.ts's `pty:create` handler, and transitively preload/renderer)
+ * unchanged. docs/nest-memory-architecture.md §2.5 calls the signature-change path
+ * "cleaner" but explicitly allows derivation from accountDir as the alternative.
+ */
+export function parseAccountDir(accountDir: string): { aiType: string; accountName: string } | null {
+  const parts = accountDir.split(/[\\/]/).filter(Boolean)
+  const idx = parts.lastIndexOf('accounts')
+  if (idx === -1 || idx + 2 >= parts.length) return null
+  return { aiType: parts[idx + 1], accountName: parts[idx + 2] }
+}
 
 export class PtyManager extends EventEmitter {
   private ptys = new Map<string, pty.IPty>()
@@ -24,6 +52,18 @@ export class PtyManager extends EventEmitter {
   // kill() and on onExit so a teardown during the 3 s Windows delay doesn't
   // fire a write into a dead (or recreated) PTY.
   private startupTimers = new Map<string, NodeJS.Timeout>()
+  private memory?: PtyMemoryIntegration
+
+  constructor(memory?: PtyMemoryIntegration) {
+    super()
+    this.memory = memory
+  }
+
+  /** Late-binds the memory integration when it can't be ready at PtyManager construction
+   *  time (main.ts constructs ptyManager before the memory subsystem). */
+  setMemoryIntegration(memory: PtyMemoryIntegration): void {
+    this.memory = memory
+  }
 
   create(paneId: string, cmd: string, accountDir: string, repoPath?: string, shell?: ShellOverride): { ok: true } | { ok: false; error: string } {
     if (this.ptys.has(paneId)) return { ok: true }  // already running, don't recreate
@@ -33,6 +73,8 @@ export class PtyManager extends EventEmitter {
       TERM: 'xterm-256color',
       COLORTERM: 'truecolor',
     }
+
+    let launchCmd = cmd
 
     // Only redirect HOME for AI agent panes — plain terminals keep the real HOME
     // so system credentials (gh, git, ssh, etc.) work without reconfiguration.
@@ -54,6 +96,30 @@ export class PtyManager extends EventEmitter {
         const geminiHome = join(accountDir, 'gemini')
         mkdirSync(geminiHome, { recursive: true })
         env.GEMINI_CLI_HOME = geminiHome
+      }
+
+      // Nest Memory: env injection at PtyManager.create() (§2.5) — the one place every
+      // AI pane passes through, same reasoning as the HOME rewrite above. Only claude is
+      // provisioned in Phase 1; env is still injected for every AI type so a future
+      // Codex/Gemini adapter (Phase 2) needs no pty-manager change.
+      if (this.memory) {
+        const parsed = parseAccountDir(accountDir)
+        if (parsed) {
+          env.NEST_MEMORY_SOCKET = this.memory.socketPath
+          env.NEST_MEMORY_ACCOUNT = `${parsed.aiType}:${parsed.accountName}`
+          env.NEST_MEMORY_AI = parsed.aiType
+          env.NEST_MEMORY_PANE = paneId
+          env.NEST_MEMORY_ENABLED = this.memory.isEnabled() ? '1' : '0'
+
+          // §2.5 "the shared-config hazard": hooks load ONLY via the isolated
+          // --settings file, never by writing accountDir/.claude/settings.json.
+          if (cmd === 'claude' && this.memory.isEnabled()) {
+            const flagArgs = this.memory.getClaudeSettingsFlagArgs(accountDir)
+            if (flagArgs.length > 0) {
+              launchCmd = `claude ${flagArgs.map((a) => (a.startsWith('-') ? a : `"${a}"`)).join(' ')}`
+            }
+          }
+        }
       }
     } else if (accountDir) {
       mkdirSync(accountDir, { recursive: true })
@@ -92,7 +158,7 @@ export class PtyManager extends EventEmitter {
           // between scheduling and firing would otherwise write the cmd into
           // a fresh pty that wasn't asked to run it.
           if (this.ptys.get(paneId) === ptyProcess) {
-            ptyProcess.write(`${cmd}\r`)
+            ptyProcess.write(`${launchCmd}\r`)
           }
         }, isWin ? 3000 : 500)
         this.startupTimers.set(paneId, timer)

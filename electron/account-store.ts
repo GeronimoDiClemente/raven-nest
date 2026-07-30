@@ -1,6 +1,8 @@
 import { join } from 'path'
 import { mkdirSync, readdirSync, rmSync, existsSync, lstatSync, symlinkSync, linkSync, cpSync } from 'fs'
 import { ravenHome } from './raven-home'
+import { provisionClaudeAccount, deprovisionClaudeAccount, type ProvisionerPaths } from './memory-provisioner'
+import { isWin } from './platform'
 
 const BASE_DIR = join(ravenHome(), '.raven-nest', 'accounts')
 
@@ -128,6 +130,33 @@ export function detachClaudeConfig(accountDir: string): void {
 }
 
 export class AccountStore {
+  // Nest Memory (§2.5). Optional and injected — AccountStore has no other Electron
+  // dependency today, and existing callers/tests construct it with `new AccountStore()`.
+  // When unset, save()/migrateClaudeAccounts() simply skip provisioning (memory
+  // disconnected / not yet configured).
+  private memory?: { paths: ProvisionerPaths; isEnabled: () => boolean }
+
+  configureMemory(memory: { paths: ProvisionerPaths; isEnabled: () => boolean }): void {
+    this.memory = memory
+  }
+
+  private provisionMemoryIfEnabled(aiType: string, dir: string): void {
+    if (aiType !== 'claude' || !this.memory || !this.memory.isEnabled()) return
+    try {
+      provisionClaudeAccount(dir, this.memory.paths, isWin)
+    } catch (err) {
+      console.warn('[account-store] memory provisioning failed', { dir, error: err instanceof Error ? err.message : String(err) })
+    }
+  }
+
+  /** Removes Nest Memory provisioning from a Claude account without deleting the account itself. */
+  disconnectMemoryFromAllClaudeAccounts(): void {
+    for (const name of this.list('claude')) {
+      try { deprovisionClaudeAccount(this.getDir('claude', name)) }
+      catch (err) { console.warn('[account-store] memory deprovisioning failed', { name, error: err instanceof Error ? err.message : String(err) }) }
+    }
+  }
+
   list(aiType: string): string[] {
     assertSafe(aiType)
     const dir = join(BASE_DIR, aiType)
@@ -152,6 +181,7 @@ export class AccountStore {
       if (failed.length > 0) {
         console.warn('[account-store] save: some claude config items did not link', { aiType, name, failed })
       }
+      this.provisionMemoryIfEnabled(aiType, dir)
     }
     return dir
   }
@@ -170,12 +200,14 @@ export class AccountStore {
   /** Run on app startup: ensure all existing Claude accounts have the shared config linked. */
   migrateClaudeAccounts(): void {
     for (const name of this.list('claude')) {
-      const { failed } = setupClaudeConfig(this.getDir('claude', name))
+      const dir = this.getDir('claude', name)
+      const { failed } = setupClaudeConfig(dir)
       if (failed.length > 0) {
         // Best-effort at startup — just log. The user already has a working
         // account dir; the missing shared items will retry next launch.
         console.warn('[account-store] migrate: some claude config items did not link', { name, failed })
       }
+      this.provisionMemoryIfEnabled('claude', dir)
     }
   }
 }

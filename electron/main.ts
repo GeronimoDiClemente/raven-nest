@@ -33,6 +33,7 @@ if (process.defaultApp) {
 import { join as pathJoin, join, isAbsolute, basename, dirname } from 'path'
 import { readFileSync, writeFileSync, mkdirSync, statSync, copyFileSync, unlinkSync, rmSync, existsSync } from 'fs'
 import { tmpdir, homedir } from 'os'
+import { lookup } from 'dns/promises'
 import { ravenHome, userHome } from './raven-home'
 import { execSync, execFile, execFileSync } from 'child_process'
 import { randomBytes } from 'crypto'
@@ -60,6 +61,14 @@ import { getDiff } from './diff-engine'
 import { detectIDEs, openInIDE, clearCache as clearIDECache } from './ide-launcher'
 import { MCPStore } from './mcp-store'
 import { SettingsStore } from './settings-store'
+import { MemoryStore } from './memory-store'
+import { MemoryIpcServer } from './memory-ipc-server'
+import { MemoryDaemon } from './memory-daemon'
+import { daemonSocketPath } from './memory-protocol'
+import { claudeSettingsFlagArgs, deprovisionClaudeAccount, type ProvisionerPaths } from './memory-provisioner'
+import { importAllMarkdownSources } from './memory-importers/markdown'
+import { importEngramDatabase, discoverEngramDatabases } from './memory-importers/engram'
+import { resolveProjectKey } from './memory-project-key'
 import { MetricsCollector, PaneInput } from './metrics-collector'
 import { transcribeAudio, checkWhisperAvailable, initWhisper, shutdownWhisper, setWhisperStatusCallback } from './whisper'
 import { getWindowOptions, getIconsDir, ICON_FILENAME, isMac } from './platform'
@@ -67,6 +76,79 @@ import { createTray } from './tray'
 
 const ptyManager = new PtyManager()
 const accountStore = new AccountStore()
+
+// ── Nest Memory (docs/nest-memory-architecture.md) ──────────────────────────
+// Configured before accountStore.migrateClaudeAccounts() so a machine that's already
+// connected re-provisions every account on startup, same as the existing
+// setupClaudeConfig() link-repair pass it runs alongside.
+import { credentialPath, deleteCredential, ensureDeviceId, getMemoryConnectionState, setMemoryConnectionState } from './memory-connection-state'
+
+const memoryStore = new MemoryStore(pathJoin(ravenHome(), '.raven-nest', 'memory', 'memory.db'))
+const memorySocketPath = daemonSocketPath(ravenHome(), process.platform === 'win32')
+let memoryConnectionState = getMemoryConnectionState(ravenHome())
+
+function memoryProvisionerPaths(): ProvisionerPaths {
+  // dist-electron/memory-mcp.js is built as a sibling entry to main.js (electron.vite.config.ts).
+  return { execPath: process.execPath, shimPath: pathJoin(__dirname, 'memory-mcp.js') }
+}
+
+function getMemorySupabaseUrl(): string | null {
+  return (import.meta.env.MAIN_VITE_SUPABASE_URL as string | undefined) ?? null
+}
+
+let memoryToken: string | null = null
+function loadMemoryToken(): string | null {
+  if (memoryToken) return memoryToken
+  const path = credentialPath(ravenHome())
+  if (!existsSync(path)) return null
+  try {
+    const encrypted = readFileSync(path)
+    if (!safeStorage.isEncryptionAvailable()) return null
+    memoryToken = safeStorage.decryptString(encrypted)
+    return memoryToken
+  } catch {
+    return null
+  }
+}
+
+let memoryOnline = true // updated by a lightweight periodic DNS check below
+
+const memoryDaemon = new MemoryDaemon({
+  store: memoryStore,
+  getSupabaseUrl: getMemorySupabaseUrl,
+  getToken: loadMemoryToken,
+  getDeviceId: () => memoryConnectionState.deviceId,
+  isOnline: () => memoryOnline,
+  onStatusChange: (status) => {
+    const win = BrowserWindow.getAllWindows()[0]
+    if (win) win.webContents.send('memory:status', status)
+  },
+})
+
+const memoryIpcServer = new MemoryIpcServer({
+  store: memoryStore,
+  socketPath: memorySocketPath,
+  resolveGitInfo: (cwd) => {
+    try {
+      if (!existsSync(cwd)) return null
+      const branch = execSync('git rev-parse --abbrev-ref HEAD', { cwd, encoding: 'utf8', timeout: 3000 }).trim()
+      let remoteUrl: string | null = null
+      try { remoteUrl = execSync('git remote get-url origin', { cwd, encoding: 'utf8', timeout: 3000 }).trim() } catch { /* no remote */ }
+      return { branch, remoteUrl }
+    } catch {
+      return null
+    }
+  },
+  onMutation: () => memoryDaemon.scheduleMutationPush(),
+})
+
+accountStore.configureMemory({ paths: memoryProvisionerPaths(), isEnabled: () => memoryConnectionState.connected })
+ptyManager.setMemoryIntegration({
+  socketPath: memorySocketPath,
+  isEnabled: () => memoryConnectionState.connected,
+  getClaudeSettingsFlagArgs: claudeSettingsFlagArgs,
+})
+
 // Ensure every existing Claude account has the shared config (CLAUDE.md,
 // settings.json, skills, etc.) linked from ~/.claude. Idempotent — only
 // fills in missing links, never replaces a user's real file or dir.
@@ -1786,6 +1868,81 @@ ipcMain.handle('safeStorage:decrypt', (_event, encrypted: string) => {
   return safeStorage.decryptString(Buffer.from(encrypted, 'base64'))
 })
 
+// ── Nest Memory IPC (docs/nest-memory-architecture.md §5.1, §6.2, §8.1) ─────────────
+//
+// The renderer owns the Supabase JS client bound to the user's session (it already
+// calls supabase.functions.invoke('memory-token', ...) to get a plaintext token —
+// see §5.1 step 1). Main only ever receives that plaintext once, stores it encrypted,
+// and does local-only work from here on: provisioning accounts, running importers,
+// and letting the daemon push/pull over plain HTTPS with the token as a Bearer header.
+ipcMain.handle('memory:connect', async (_event, token: string, deviceId: string) => {
+  if (!safeStorage.isEncryptionAvailable()) {
+    return { ok: false, error: 'Encryption is not available on this system — memory connect is refused (§6.2).' }
+  }
+  writeFileSync(credentialPath(ravenHome()), safeStorage.encryptString(token))
+  memoryToken = token
+  memoryConnectionState = { connected: true, deviceId, connectedAt: Date.now() }
+  setMemoryConnectionState(ravenHome(), memoryConnectionState)
+
+  // Provision (or re-provision) every existing Claude account now that memory is enabled.
+  accountStore.migrateClaudeAccounts()
+
+  // First-connect import (§5.1 step 5 — always runs before any push). Best-effort: a
+  // partial import beats a failed connect (R-7).
+  const globalKey = resolveProjectKey({})
+  try {
+    importAllMarkdownSources(memoryStore, {
+      ravenHomeDir: ravenHome(),
+      claudeAccountDirs: accountStore.list('claude').map((name) => accountStore.getDir('claude', name)),
+      projectRoots: [],
+      globalProjectKey: globalKey,
+    })
+  } catch (err) {
+    console.warn('[memory:connect] markdown import failed', err instanceof Error ? err.message : err)
+  }
+  try {
+    const accountDirs = accountStore.list('claude').map((name) => accountStore.getDir('claude', name))
+    for (const dbPath of discoverEngramDatabases(ravenHome(), accountDirs)) {
+      importEngramDatabase(memoryStore, dbPath)
+    }
+  } catch (err) {
+    console.warn('[memory:connect] engram import failed', err instanceof Error ? err.message : err)
+  }
+
+  memoryDaemon.onNetworkRegain() // drains everything just seeded
+  return { ok: true, itemCount: memoryStore.count() }
+})
+
+ipcMain.handle('memory:disconnect', (_event, opts?: { deleteCloud?: boolean }) => {
+  accountStore.disconnectMemoryFromAllClaudeAccounts()
+  deleteCredential(ravenHome())
+  memoryToken = null
+  memoryConnectionState = { connected: false, deviceId: memoryConnectionState.deviceId, connectedAt: null }
+  setMemoryConnectionState(ravenHome(), memoryConnectionState)
+  // Local data is NEVER deleted by disconnecting (§6.6 "Right to delete" — that's a
+  // separate, explicit action). `opts.deleteCloud` is a renderer-side hint the caller
+  // (which already holds the user's Supabase session) uses to also call
+  // memory-token{action:'revoke', all:true} — main does not hold that session.
+  void opts
+  return { ok: true }
+})
+
+ipcMain.handle('memory:status', () => {
+  return {
+    connected: memoryConnectionState.connected,
+    deviceId: memoryConnectionState.deviceId,
+    itemCount: memoryStore.count(),
+    pendingCount: memoryStore.pendingMutationCount(),
+    daemonStatus: memoryDaemon.getStatus(),
+  }
+})
+
+ipcMain.handle('memory:ensureDeviceId', () => {
+  const deviceId = ensureDeviceId(ravenHome())
+  memoryConnectionState = { ...memoryConnectionState, deviceId }
+  return deviceId
+})
+
 ipcMain.handle('clipboard:writeImage', (_event, filePath: string) => {
   const img = nativeImage.createFromPath(filePath)
   if (!img.isEmpty()) clipboard.writeImage(img)
@@ -1972,6 +2129,30 @@ app.whenReady().then(() => {
   }
   createWindow()
   setupAutoUpdater()
+
+  // Nest Memory: start the IPC server (the MCP shim's only entry point) and the sync
+  // daemon. Both are safe to start even when memory is disconnected — the IPC server
+  // just serves local reads/writes to memory.db (which always works, offline-first,
+  // §1.2), and the daemon no-ops push/pull without a token (§4.1 guards on getToken()).
+  memoryIpcServer.start()
+  memoryDaemon.start()
+  // §4.1 "Window focus" trigger.
+  app.on('browser-window-focus', () => memoryDaemon.onWindowFocus())
+  // Lightweight connectivity probe — Electron main has no `navigator.onLine`; a short
+  // DNS lookup against the Supabase host is cheap and avoids adding an IPC round-trip
+  // from the renderer just to learn online/offline (§4.1 "Network regain").
+  setInterval(() => {
+    const url = getMemorySupabaseUrl()
+    if (!url) return
+    try {
+      const host = new URL(url).hostname
+      void lookup(host).then(
+        () => { const wasOffline = !memoryOnline; memoryOnline = true; if (wasOffline) memoryDaemon.onNetworkRegain() },
+        () => { memoryOnline = false }
+      )
+    } catch { /* invalid URL — leave memoryOnline as-is */ }
+  }, 15_000)
+
   setWhisperStatusCallback((status) => {
     const win = BrowserWindow.getAllWindows()[0]
     if (win) win.webContents.send('speech:status', status)
@@ -2038,6 +2219,13 @@ app.on('before-quit', () => {
     clearInterval(updaterInterval)
     updaterInterval = null
   }
+  // Nest Memory §4.1 "App quit": best-effort push within a 2s budget, fire-and-forget —
+  // never blocks app exit (the mutation_log queue is durable across restarts either way,
+  // §4.5). Stop the daemon/IPC server and close the DB handle synchronously right after.
+  void memoryDaemon.onQuit()
+  memoryDaemon.stop()
+  memoryIpcServer.stop()
+  memoryStore.close()
   // Tear down every long-lived resource on quit. Without these, dev-mode HMR
   // reloads (and any future "soft restart" path) would accumulate intervals,
   // file watchers, PTYs and detached child processes across reloads —
