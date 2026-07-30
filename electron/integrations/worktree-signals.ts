@@ -28,7 +28,7 @@ export type ResolveRepo = (repoPath: string) => string | null
 export class WorktreeSignals {
   private state = new Map<string, WorktreeSignal>()
   private ciNotified = new Map<string, string>() // repoPath → sha ya emitido
-  private reviewNotified = new Set<number>() // PRs de review-requested ya emitidos
+  private reviewNotified = new Set<string>() // `owner/repo#num` de review-requested ya emitidos
   private bus?: EventBus
 
   constructor(private resolveRepo: ResolveRepo) {}
@@ -114,9 +114,12 @@ export class WorktreeSignals {
       deps, `/search/issues?q=${encodeURIComponent('review-requested:@me type:pr state:open')}`,
     )
     for (const it of json?.items ?? []) {
-      if (this.reviewNotified.has(it.number)) continue
-      this.reviewNotified.add(it.number)
+      // El número de PR NO es global: acme/app#5 y acme/other#5 son PRs distintos.
+      // Dedup por `owner/repo#num` para no tragarnos el review request del segundo.
       const repoFullName = it.repository_url.replace('https://api.github.com/repos/', '')
+      const key = `${repoFullName}#${it.number}`
+      if (this.reviewNotified.has(key)) continue
+      this.reviewNotified.add(key)
       const ev: DomainEvent = { type: 'review.requested', repoFullName, prNumber: it.number, prTitle: it.title }
       await this.bus.emit(ev, deps)
     }

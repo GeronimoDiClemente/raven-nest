@@ -119,6 +119,19 @@ describe('WorktreeSignals — CI por worktree', () => {
     expect(rr[0][0]).toMatchObject({ type: 'review.requested', repoFullName: 'acme/app', prNumber: 11, prTitle: 'Fix A' })
   })
 
+  it('review.requested no colisiona entre repos con el mismo número de PR', async () => {
+    const items = [
+      { number: 5, title: 'A', repository_url: 'https://api.github.com/repos/acme/app' },
+      { number: 5, title: 'B', repository_url: 'https://api.github.com/repos/acme/other' },
+    ]
+    const deps = depsWith(async (url) => url.includes('/search/issues')
+      ? new Response(JSON.stringify({ items }), { status: 200 }) : new Response('[]', { status: 200 }))
+    const emit = vi.fn(async (_e: unknown, _d: unknown) => ({ commands: [], failed: [] }))
+    const s = new WorktreeSignals(() => 'acme/app'); s.attachBus({ emit } as never)
+    await s.pollReviewRequests(deps)
+    expect(emit.mock.calls.filter(c => (c[0] as { type: string }).type === 'review.requested')).toHaveLength(2)
+  })
+
   it('fixCiPrompt arma prompt con el título del run, la URL y el log truncado', async () => {
     const bigLog = Array.from({ length: 300 }, (_, i) => `line ${i}`).join('\n')
     const deps = depsWith(async (url) => {
