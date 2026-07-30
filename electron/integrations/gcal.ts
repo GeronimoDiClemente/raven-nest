@@ -69,7 +69,9 @@ export interface GcalAdapter {
   listEvents(timeMin: string, timeMax: string): Promise<GcalEvent[]>
   findEventByTask(taskId: string): Promise<GcalEvent | null>
   appendOutcome(eventId: string, line: string): Promise<void>
-  createOutcomeEvent(summary: string, whenIso: string): Promise<GcalEvent>
+  /** `taskId` opcional: si viene, se guarda en extendedProperties.private para que
+   *  un futuro findEventByTask lo encuentre y apendee (idempotencia) en vez de duplicar. */
+  createOutcomeEvent(summary: string, whenIso: string, taskId?: string): Promise<GcalEvent>
 }
 
 // Fetch autenticado contra la API v3. El token (access token ya válido; el
@@ -117,13 +119,16 @@ export function createGcalAdapter(deps: PanelAdapterDeps): GcalAdapter {
         body: JSON.stringify({ description }),
       })
     },
-    async createOutcomeEvent(summary, whenIso) {
+    async createOutcomeEvent(summary, whenIso, taskId) {
       return gcalFetch<GcalEvent>(deps, '/calendars/primary/events', {
         method: 'POST',
         body: JSON.stringify({
           summary,
           start: { dateTime: whenIso },
           end: { dateTime: whenIso },
+          // El taskId permite que un logOutcome futuro del mismo ref matchee este
+          // evento (findEventByTask) y apendee, en vez de crear un duplicado.
+          ...(taskId ? { extendedProperties: { private: { taskId } } } : {}),
         }),
       })
     },

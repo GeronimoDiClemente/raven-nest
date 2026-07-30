@@ -91,6 +91,17 @@ describe('createGcalAdapter', () => {
     expect(body.end?.dateTime).toBe('2026-07-30T12:00:00Z')
   })
 
+  it('createOutcomeEvent guarda el taskId en extendedProperties.private para que findEventByTask lo encuentre', async () => {
+    let body: { extendedProperties?: { private?: { taskId?: string } } } = {}
+    const deps = depsWith(async (url, init) => {
+      body = JSON.parse((init as { body: string }).body)
+      return new Response(JSON.stringify({ id: 'new1' }), { status: 200 })
+    })
+    const g = createGcalAdapter(deps)
+    await g.createOutcomeEvent('hecho', '2026-07-30T12:00:00Z', 'feat/x')
+    expect(body.extendedProperties?.private?.taskId).toBe('feat/x')
+  })
+
   it('sin token guardado, tira NotConnectedError', async () => {
     const deps = { getToken: () => null, getConfig: () => ({}), fetch: vi.fn() } as unknown as PanelAdapterDeps
     const g = createGcalAdapter(deps)

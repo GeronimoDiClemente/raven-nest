@@ -207,7 +207,8 @@ describe('TicketLoop con bus adjunto', () => {
     await loop.onPrStateChanged('gero/PROJ-1-fix', 'merged', {} as never) // transición falla dentro del handler
     // El ticket NUNCA llegó a done: el tracking debe seguir vivo para reintentar (no stuck).
     expect(loop.trackedTicket('gero/PROJ-1-fix')).toBeDefined()
-    // Próximo poll: re-emite pr.merged → transición reintenta (ahora OK) → destrackea.
+    // Próximo poll: como los side-effects ya salieron (merged:true), el retry NO
+    // re-emite por el bus — reintenta la transición directa (ahora OK) → destrackea.
     await loop.onPrStateChanged('gero/PROJ-1-fix', 'merged', {} as never)
     const done = (provider.transition as ReturnType<typeof vi.fn>).mock.calls.filter((c) => c[1] === 'done')
     expect(done).toHaveLength(2)
@@ -221,6 +222,21 @@ describe('TicketLoop con bus adjunto', () => {
     await loop.onPrStateChanged('gero/PROJ-1-fix', 'open', {} as never) // reintenta (lastPr no quedó marcado)
     const inReview = (provider.transition as ReturnType<typeof vi.fn>).mock.calls.filter((c) => c[1] === 'in_review')
     expect(inReview).toHaveLength(2)
+  })
+
+  it('con bus, un merged que reintenta la transición NO re-dispara notify cada ciclo', async () => {
+    // provider.transition falla siempre; contamos cuántas veces se dispara notify
+    const notifyCalls: unknown[] = []
+    const prov = makeProvider(); (prov.transition as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('500'))
+    const loop3 = new TicketLoop(); loop3.register('jira', () => prov)
+    const bus3 = new EventBus(); bus3.setRecipes(defaultRecipes((b) => loop3.trackedTicket(b)))
+    bus3.registerHandler('updateStatus', async (c) => { if (c.cmd === 'updateStatus') await prov.transition(c.providerId, c.to) })
+    bus3.registerHandler('notify', async () => { notifyCalls.push(1) })
+    loop3.attachBus(bus3)
+    await loop3.startWork('jira', ticket, 'gero/PROJ-1-fix', {} as never, 'acme/app')
+    await loop3.onPrStateChanged('gero/PROJ-1-fix', 'merged', {} as never) // 1er merged
+    await loop3.onPrStateChanged('gero/PROJ-1-fix', 'merged', {} as never) // retry
+    expect(notifyCalls.length).toBeLessThanOrEqual(1)
   })
 
   it('con bus, si updateStatus es no-op por provider ausente el tracking sobrevive (no stuck)', async () => {

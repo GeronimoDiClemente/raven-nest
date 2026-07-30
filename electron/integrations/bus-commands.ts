@@ -62,7 +62,7 @@ export type OpenSessionFn = (cmd: OpenSessionCommand, ev: DomainEvent) => Promis
 export interface GcalOutcomeSink {
   findEventByTask(taskId: string): Promise<{ id: string } | null>
   appendOutcome(eventId: string, summary: string): Promise<void>
-  createOutcomeEvent(summary: string, whenIso: string): Promise<unknown>
+  createOutcomeEvent(summary: string, whenIso: string, taskId?: string): Promise<unknown>
 }
 
 export interface BusCommandDeps {
@@ -168,7 +168,9 @@ async function handleLogOutcome(cmd: LogOutcomeCommand, deps: PanelAdapterDeps, 
   try {
     const ev = await gcal.findEventByTask(cmd.ref)
     if (ev) await gcal.appendOutcome(ev.id, cmd.summary)
-    else await gcal.createOutcomeEvent(cmd.summary, new Date().toISOString())
+    // Pasamos cmd.ref como taskId para que un logOutcome posterior del mismo ref
+    // matchee este evento (idempotencia) y apendee en vez de duplicar.
+    else await gcal.createOutcomeEvent(cmd.summary, new Date().toISOString(), cmd.ref)
   } catch (err) {
     console.warn('[bus-commands] logOutcome falló', cmd.ref, err)
   }

@@ -13,6 +13,13 @@ interface Tracked {
   repoFullName: string | null
   /** last PR state already notified to the provider; 'merged' deletes the entry instead */
   lastPr?: 'open'
+  /**
+   * true una vez que pr.merged EMITIÓ sus side-effects por el bus (notify/logOutcome).
+   * Si la transición a done falló, la entrada sobrevive con este flag; el retry NO
+   * re-emite por el bus (duplicaría notify/Calendar cada ciclo) — reintenta SOLO la
+   * transición directa. Ver Fix 6 del review de H4-H7.
+   */
+  merged?: true
 }
 
 // Motor 1: provider registry + branch→ticket tracking to infer ticket state.
@@ -69,6 +76,7 @@ export class TicketLoop {
           key: t.key,
           repoFullName: typeof t.repoFullName === 'string' ? t.repoFullName : null,
           ...(t.lastPr === 'open' ? { lastPr: 'open' as const } : {}),
+          ...(t.merged === true ? { merged: true as const } : {}),
         })
       }
     } catch (err) {
@@ -224,6 +232,27 @@ export class TicketLoop {
     // updateStatus (registrado en main/T5) hace la transición real. Se conserva
     // arriba el guard lastPr, así que tampoco se re-emite pr.opened cada ciclo.
     if (this.bus) {
+      // RETRY de un merge cuya transición ya falló una vez: los side-effects
+      // (notify/logOutcome) YA salieron en el 1er pr.merged; re-emitir por el bus
+      // los duplicaría cada poll (mensaje Slack + evento Calendar nuevos cada 90s).
+      // Reintentamos SOLO la transición directa (path H3), destrackeando únicamente
+      // si ahora sí tuvo éxito. Ver Fix 6 del review de H4-H7.
+      if (pr === 'merged' && t.merged) {
+        const p = this.provider(t.pluginId, deps)
+        if (!p) return
+        try {
+          await p.transition(t.providerId, 'done')
+          this.tracked.delete(branch)
+          this.saveTracked()
+        } catch (err) {
+          console.warn('[ticket-loop] retry transition done', t.key, err)
+        }
+        return
+      }
+      // Rama con bus (OPCIONAL): reemplaza la transición directa por un emit.
+      // El emit va SIEMPRE antes del delete/set para que el `then(ev)` de la receta
+      // pueda resolver branch→ticket mientras el tracking sigue vivo. El handler
+      // updateStatus (registrado en main/T5) hace la transición real.
       const ev: DomainEvent = pr === 'open'
         ? { type: 'pr.opened', branch, repoFullName: t.repoFullName ?? '' }
         : { type: 'pr.merged', branch, repoFullName: t.repoFullName ?? '' }
@@ -232,14 +261,18 @@ export class TicketLoop {
       // merge, marcar lastPr en open— si el updateStatus de ESTE ticket NO falló.
       // El emit es best-effort y traga los errores del handler, así que sin esto
       // un 500 transitorio de Jira/Linear dejaría el ticket stuck (tracking
-      // borrado, nunca llega a Done). Si falló, dejamos el tracking intacto para
-      // que el próximo poll re-emita y reintente, igual que el path sin-bus.
+      // borrado, nunca llega a Done).
       const statusFailed = failed.some(
         (c) => c.cmd === 'updateStatus' && c.pluginId === t.pluginId && c.providerId === t.providerId,
       )
-      if (!statusFailed) {
-        if (pr === 'merged') this.tracked.delete(branch)
-        else this.tracked.set(branch, { ...t, lastPr: 'open' })
+      if (pr === 'merged') {
+        // OK → destrackear. Falló → conservar con merged:true: el próximo poll
+        // reintenta la transición SIN re-emitir los side-effects (ver arriba).
+        if (!statusFailed) this.tracked.delete(branch)
+        else this.tracked.set(branch, { ...t, merged: true })
+        this.saveTracked()
+      } else if (!statusFailed) {
+        this.tracked.set(branch, { ...t, lastPr: 'open' })
         this.saveTracked()
       }
       return
