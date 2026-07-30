@@ -5,6 +5,7 @@
 // inyectan (testeable en node puro).
 import type { PanelAdapterDeps } from '../integration-panels'
 import type { EventBus } from './event-bus'
+import type { DomainEvent } from './bus-types'
 import { runsToStatus, type CIStatus, type WorkflowRun } from './ci-status'
 
 const FAILED_CI_CONCLUSIONS: ReadonlySet<string> = new Set(['failure', 'timed_out', 'startup_failure'])
@@ -63,13 +64,49 @@ export class WorktreeSignals {
     const runs = runsJson?.workflow_runs ?? []
     const ci = runsToStatus(runs)
     const failedRun = runs.find((r) => r.status === 'completed' && FAILED_CI_CONCLUSIONS.has(r.conclusion ?? ''))
-    const prev = this.state.get(wt.repoPath)
-    this.state.set(wt.repoPath, {
-      ci,
-      runId: failedRun?.id,
-      runUrl: failedRun?.html_url,
-      changesRequested: prev?.changesRequested ?? false,
-      prNumber: prev?.prNumber,
-    })
+
+    // PR abierto del branch → número + reviews (changes requested).
+    let changesRequested = false
+    let prNumber: number | undefined
+    const owner = repo.split('/')[0]
+    const pulls = await this.gh<Array<{ number: number; head: { ref: string } }>>(
+      deps, `/repos/${repo}/pulls?head=${encodeURIComponent(owner + ':' + wt.branch)}&state=open&per_page=1`,
+    )
+    const pr = pulls?.[0]
+    if (pr) {
+      prNumber = pr.number
+      const reviews = await this.gh<Array<{ user: { login: string } | null; state: string; submitted_at: string }>>(
+        deps, `/repos/${repo}/pulls/${pr.number}/reviews`,
+      )
+      changesRequested = latestReviewIsChangesRequested(reviews ?? [])
+    }
+    this.state.set(wt.repoPath, { ci, runId: failedRun?.id, runUrl: failedRun?.html_url, changesRequested, prNumber })
+
+    // Señal ci.failed (bus, aditiva, dedup por SHA del run rojo).
+    const sha = (failedRun as { head_sha?: string } | undefined)?.head_sha
+    if (this.bus && failedRun && sha && this.ciNotified.get(wt.repoPath) !== sha) {
+      this.ciNotified.set(wt.repoPath, sha)
+      const ev: DomainEvent = {
+        type: 'ci.failed', branch: wt.branch, repoFullName: repo,
+        ...(failedRun.html_url ? { runUrl: failedRun.html_url } : {}),
+        ...(failedRun.name ? { summary: failedRun.name } : {}),
+      }
+      await this.bus.emit(ev, deps)
+    }
   }
+}
+
+// El review que cuenta es el más reciente por autor: un CHANGES_REQUESTED viejo
+// que ya fue re-aprobado no debe marcar el PR. Sólo estados de decisión
+// (APPROVED/CHANGES_REQUESTED) pisan; COMMENTED/DISMISSED se ignoran.
+export function latestReviewIsChangesRequested(
+  reviews: Array<{ user: { login: string } | null; state: string; submitted_at: string }>,
+): boolean {
+  const byAuthor = new Map<string, string>()
+  for (const r of [...reviews].sort((a, b) => a.submitted_at.localeCompare(b.submitted_at))) {
+    const login = r.user?.login
+    if (!login) continue
+    if (r.state === 'APPROVED' || r.state === 'CHANGES_REQUESTED') byAuthor.set(login, r.state)
+  }
+  return [...byAuthor.values()].includes('CHANGES_REQUESTED')
 }

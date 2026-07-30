@@ -9,6 +9,7 @@ export interface WorkflowRun {
   conclusion: 'success' | 'failure' | 'cancelled' | 'skipped' | null
   html_url: string
   head_branch: string
+  head_sha?: string
 }
 
 /** El run más reciente (GitHub devuelve descendente por created_at) manda. */
