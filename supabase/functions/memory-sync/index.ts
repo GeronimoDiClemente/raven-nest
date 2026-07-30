@@ -59,8 +59,15 @@ Deno.serve(async (req) => {
     if (tokenRow.revoked_at) return json({ error: 'revoked_token' }, 401)
     if (tokenRow.expires_at && new Date(tokenRow.expires_at) < new Date()) return json({ error: 'expired_token' }, 401)
 
+    // C0 fix: this used to be `if (profile && profile.memory_token_epoch !== ...)` — a
+    // missing profile row (deleted account, replication lag, any query failure that
+    // returns null) SKIPPED the epoch check entirely instead of failing closed, letting
+    // an unknown/orphaned user bypass token-epoch invalidation. A token with no
+    // resolvable profile must be rejected outright, and the epoch comparison must run
+    // unconditionally otherwise — never silently passed through.
     const { data: profile } = await serviceClient.from('profiles').select('memory_token_epoch, plan').eq('id', tokenRow.user_id).maybeSingle()
-    if (profile && profile.memory_token_epoch !== tokenRow.minted_epoch) {
+    if (!profile) return json({ error: 'no_profile' }, 401)
+    if (profile.memory_token_epoch !== tokenRow.minted_epoch) {
       // §6.4 hard-kill lever: a team-removal bump invalidates every token minted before it.
       return json({ error: 'stale_token_epoch' }, 401)
     }
@@ -129,11 +136,28 @@ Deno.serve(async (req) => {
           if (error.code === '42501') continue // no longer authorized for this project — skip, don't fail the whole pull
           throw error
         }
-        allRows.push(...(data.rows ?? []))
+        // C1: the client applies pulled rows by LOCAL project_key (the client-derived
+        // hash — see electron/memory-project-key.ts), not by this cloud project UUID.
+        // Denormalizing project_key onto every row here means electron/memory-daemon.ts
+        // never needs a separate id->key lookup to know where a pulled row belongs.
+        const rowsWithProjectKey = ((data.rows ?? []) as Array<Record<string, unknown>>).map((row) => ({
+          ...row,
+          project_key: project.project_key,
+        }))
+        allRows.push(...rowsWithProjectKey)
         newCursors[project.project_key] = data.cursor
       }
 
       return json({ rows: allRows, cursors: newCursors, has_more: false })
+    }
+
+    if (action === 'delete-cloud-data') {
+      // M10 / §6.6 "Right to delete" — invoked from electron's memory:disconnect handler
+      // when the user opts to also delete cloud data. Local data is never touched by
+      // this (disconnect never deletes local rows — only this explicit server call does).
+      const { data, error } = await serviceClient.rpc('memory_delete_all_user_data', { p_user_id: userId })
+      if (error) throw error
+      return json({ ok: true, deleted: data })
     }
 
     return json({ error: `Unknown action: ${action}` }, 400)

@@ -36,6 +36,16 @@ function generateToken(): string {
   return `nmk_${base64url(bytes)}`
 }
 
+// Reuses the single-source-of-truth `user_has_plan` SQL function (20260502120100_
+// plan_gates_rls.sql) rather than duplicating plan logic here — same helper the RPCs in
+// the memory migration call server-side.
+// deno-lint-ignore no-explicit-any
+async function userHasPlan(client: any, userId: string, allowed: string[]): Promise<boolean> {
+  const { data, error } = await client.rpc('user_has_plan', { uid: userId, allowed })
+  if (error) return false
+  return data === true
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
 
@@ -59,10 +69,18 @@ Deno.serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     )
 
-    const { action, device } = await req.json()
+    // Parse the body exactly once — a Fetch API Request body can only be read once;
+    // `revoke`/`rotate` previously called `req.json()` a second time further down,
+    // which throws "Body already consumed" in Deno and made both actions unconditionally
+    // fail (caught by the outer try/catch as a generic 400). Destructure every field
+    // any action needs from this single parse instead.
+    const { action, device, tokenId, all } = await req.json()
 
     if (action === 'issue') {
       if (!device?.name || !device?.platform) return json({ error: 'device.name and device.platform are required' }, 400)
+      if (!(await userHasPlan(serviceClient, user.id, ['pro', 'team']))) {
+        return json({ error: 'plan_required' }, 403)
+      }
 
       // One device row per (user, name) — reissuing for the same machine updates it
       // rather than accumulating duplicates.
@@ -114,7 +132,6 @@ Deno.serve(async (req) => {
     }
 
     if (action === 'revoke') {
-      const { tokenId, all } = await req.json().catch(() => ({}))
       if (all) {
         const { error } = await serviceClient.from('memory_tokens').update({ revoked_at: new Date().toISOString() }).eq('user_id', user.id).is('revoked_at', null)
         if (error) throw error
@@ -128,18 +145,23 @@ Deno.serve(async (req) => {
     }
 
     if (action === 'rotate') {
-      const { tokenId } = await req.json().catch(() => ({}))
       if (!tokenId) return json({ error: 'tokenId is required' }, 400)
       const { data: old, error: fetchError } = await serviceClient.from('memory_tokens').select('device_id').eq('id', tokenId).eq('user_id', user.id).single()
       if (fetchError || !old) return json({ error: 'Token not found' }, 404)
 
       await serviceClient.from('memory_tokens').update({ revoked_at: new Date().toISOString() }).eq('id', tokenId)
 
+      // M14 fix: this previously omitted minted_epoch entirely (defaulting to 0), so any
+      // user whose epoch had already been bumped past 0 (e.g. by a past team removal,
+      // §6.4) got a token that memory-sync's epoch check rejects as stale on its very
+      // first use — "rotate" silently minted a dead token.
+      const { data: profile } = await serviceClient.from('profiles').select('memory_token_epoch').eq('id', user.id).maybeSingle()
+
       const plaintext = generateToken()
       const tokenHash = await sha256Hex(plaintext)
       const { data: created, error } = await serviceClient
         .from('memory_tokens')
-        .insert({ user_id: user.id, device_id: old.device_id, token_hash: tokenHash, token_prefix: plaintext.slice(0, 10) })
+        .insert({ user_id: user.id, device_id: old.device_id, token_hash: tokenHash, token_prefix: plaintext.slice(0, 10), minted_epoch: profile?.memory_token_epoch ?? 0 })
         .select('id')
         .single()
       if (error) throw error

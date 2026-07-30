@@ -125,8 +125,16 @@ CREATE POLICY memory_projects_insert ON memory_projects FOR INSERT WITH CHECK (
   owner_id = auth.uid() AND user_has_plan(auth.uid(), ARRAY['pro','team'])
 );
 
+-- M15 fix: without a WITH CHECK, an owner could UPDATE team_id to ANY team's id, not
+-- just one they belong to — sharing a project with a team they have no membership in.
 CREATE POLICY memory_projects_update ON memory_projects FOR UPDATE
-  USING (owner_id = auth.uid());
+  USING (owner_id = auth.uid())
+  WITH CHECK (
+    owner_id = auth.uid()
+    AND (team_id IS NULL OR team_id IN (
+      SELECT team_id FROM team_members WHERE user_id = auth.uid() AND status = 'active'
+    ))
+  );
 
 CREATE POLICY memory_obs_read ON memory_observations FOR SELECT USING (
   user_id = auth.uid()
@@ -156,16 +164,41 @@ CREATE POLICY memory_promotions_read ON memory_promotions FOR SELECT USING (
 
 -- Never expose token_hash to any client role via PostgREST — a view with the display
 -- columns only. Clients should query this view, not the base table, for listing devices.
-CREATE VIEW memory_tokens_public AS
+--
+-- C8 fix: a plain view runs with the OWNER's privileges by default (Postgres "security
+-- definer" view semantics), which bypasses memory_tokens' RLS entirely — any
+-- authenticated client querying this view via PostgREST could list every user's device
+-- names, token prefixes and timestamps. `security_invoker = true` (PG15+) makes the view
+-- run as the querying user, so the underlying memory_tokens_own RLS policy applies; the
+-- explicit `WHERE user_id = auth.uid()` is defense in depth on top of that, not a
+-- substitute for it (belt-and-braces, matching this migration's other patterns).
+CREATE VIEW memory_tokens_public
+  WITH (security_invoker = true) AS
   SELECT id, user_id, device_id, token_prefix, created_at, last_used_at, expires_at, revoked_at
-  FROM memory_tokens;
+  FROM memory_tokens
+  WHERE user_id = auth.uid();
 
 -- ── RPCs (daemon path — Bearer nmk_… resolved to user_id by the edge function before
 --    calling these; every authorization check lives here, in one reviewable place) ────
 
+-- M16: numeric plan caps (PLAN_LIMITS.maxMemoryProjects / maxCloudObservations,
+-- src/lib/stripe.ts) enforced server-side, not just in the client's copy of the table.
+-- Hard backstop; the graduated "warn at 80%" UX stays a client-only affordance per
+-- §7.1 — these two functions are the authoritative ceiling.
+CREATE OR REPLACE FUNCTION memory_max_projects_for_plan(p_plan text) RETURNS bigint
+LANGUAGE sql IMMUTABLE AS $$
+  SELECT CASE p_plan WHEN 'team' THEN 200 WHEN 'pro' THEN 50 ELSE 0 END;
+$$;
+
+CREATE OR REPLACE FUNCTION memory_max_observations_for_plan(p_plan text) RETURNS bigint
+LANGUAGE sql IMMUTABLE AS $$
+  SELECT CASE p_plan WHEN 'team' THEN 250000 WHEN 'pro' THEN 50000 ELSE 0 END;
+$$;
+
 -- Resolves (and lazily creates) a memory_projects row for a client project_key, honoring
--- the Pro/Team plan gate the same way the RLS insert policy does, so a direct RPC call
--- with a free-plan JWT is rejected exactly like the client insert path (§7.1).
+-- the Pro/Team plan gate AND the maxMemoryProjects cap the same way the RLS insert
+-- policy intends, so a direct RPC call with a free-plan JWT — or a plan user past their
+-- project cap — is rejected exactly like the client insert path (§7.1).
 CREATE OR REPLACE FUNCTION memory_resolve_project(
   p_user_id uuid, p_project_key text, p_display_name text, p_remote_url text
 ) RETURNS uuid
@@ -175,6 +208,8 @@ SET search_path = public
 AS $$
 DECLARE
   v_project_id uuid;
+  v_plan text;
+  v_project_count bigint;
 BEGIN
   SELECT id INTO v_project_id FROM memory_projects
     WHERE owner_id = p_user_id AND project_key = p_project_key;
@@ -182,8 +217,14 @@ BEGIN
     RETURN v_project_id;
   END IF;
 
-  IF NOT user_has_plan(p_user_id, ARRAY['pro','team']) THEN
+  SELECT plan INTO v_plan FROM profiles WHERE id = p_user_id;
+  IF v_plan IS NULL OR NOT user_has_plan(p_user_id, ARRAY['pro','team']) THEN
     RAISE EXCEPTION 'plan_required' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT count(*) INTO v_project_count FROM memory_projects WHERE owner_id = p_user_id;
+  IF v_project_count >= memory_max_projects_for_plan(v_plan) THEN
+    RAISE EXCEPTION 'project_limit_reached' USING ERRCODE = '42501';
   END IF;
 
   INSERT INTO memory_projects (owner_id, project_key, display_name, remote_url)
@@ -218,6 +259,21 @@ GRANT EXECUTE ON FUNCTION nextval_project_seq(uuid) TO service_role;
 -- BIGSERIAL has: a puller can observe a later seq committed before an earlier one and
 -- permanently miss a row). One call = one project's batch; the edge function fans out
 -- per-project if a client batch spans projects.
+--
+-- C5 fix: memory_resolve_project only plan-checks on the CREATE branch — once a project
+-- exists, this function itself never re-checked the pusher's plan, so a user downgraded
+-- to Free could keep pushing forever into an already-created project. Re-checked as the
+-- first statement here, unconditionally.
+--
+-- C9 fix: each mutation is now applied inside its own nested BEGIN/EXCEPTION block. In
+-- PL/pgSQL this creates an implicit savepoint per iteration — one malformed/conflicting
+-- mutation (bad FK reference, constraint violation, cap exceeded, etc.) is caught,
+-- rolled back to that savepoint, and recorded as a real 'rejected' outcome with the
+-- error message; the loop continues and every OTHER mutation in the batch still applies.
+-- Previously any single bad row aborted the whole function, and the edge function's only
+-- special case was a bare 42501 — the daemon would then retry the exact same poisoned
+-- batch forever, stalling the cursor permanently (the design doc calls this failure mode
+-- unacceptable, §4.2 "Apply ordering").
 CREATE OR REPLACE FUNCTION memory_sync_push(
   p_user_id uuid, p_device_id uuid, p_project_key text, p_display_name text,
   p_remote_url text, p_mutations jsonb
@@ -228,65 +284,93 @@ SET search_path = public
 AS $$
 DECLARE
   v_project_id uuid;
+  v_plan text;
+  v_max_obs bigint;
+  v_obs_count bigint;
   v_mutation jsonb;
   v_payload jsonb;
+  v_sync_id text;
   v_results jsonb := '[]'::jsonb;
   v_existing memory_observations%ROWTYPE;
   v_client_updated_at timestamptz;
   v_lamport bigint;
   v_seq bigint;
 BEGIN
+  SELECT plan INTO v_plan FROM profiles WHERE id = p_user_id;
+  IF v_plan IS NULL OR NOT user_has_plan(p_user_id, ARRAY['pro','team']) THEN
+    RAISE EXCEPTION 'plan_required' USING ERRCODE = '42501';
+  END IF;
+
   v_project_id := memory_resolve_project(p_user_id, p_project_key, p_display_name, p_remote_url);
 
   -- Per-project serialization — see §4.2 for why this must be an advisory lock, not a
   -- plain sequence.
   PERFORM pg_advisory_xact_lock(hashtext(v_project_id::text));
 
+  -- M16: observation cap, checked once up front (not re-queried per row — an
+  -- intentional soft/approximate cap, not a perfectly exact one; a single in-flight
+  -- batch can overshoot by at most its own size, which is acceptable for a ceiling
+  -- whose purpose is bounding runaway growth, not billing precision).
+  v_max_obs := memory_max_observations_for_plan(v_plan);
+  SELECT count(*) INTO v_obs_count FROM memory_observations WHERE user_id = p_user_id;
+
   FOR v_mutation IN SELECT * FROM jsonb_array_elements(p_mutations)
   LOOP
-    v_payload := v_mutation->'payload';
-    v_client_updated_at := to_timestamp((v_payload->>'updated_at')::bigint / 1000.0);
-    v_lamport := COALESCE((v_payload->>'lamport')::bigint, 0);
+    BEGIN
+      v_payload := v_mutation->'payload';
+      v_sync_id := v_payload->>'sync_id';
+      v_client_updated_at := to_timestamp((v_payload->>'updated_at')::bigint / 1000.0);
+      v_lamport := COALESCE((v_payload->>'lamport')::bigint, 0);
 
-    SELECT * INTO v_existing FROM memory_observations WHERE sync_id = v_payload->>'sync_id';
+      SELECT * INTO v_existing FROM memory_observations WHERE sync_id = v_sync_id;
 
-    IF v_existing.sync_id IS NOT NULL THEN
-      -- (a) same sync_id — LWW: max(client_updated_at) -> max(lamport) -> sync_id.
-      IF v_client_updated_at > v_existing.client_updated_at
-         OR (v_client_updated_at = v_existing.client_updated_at AND v_lamport > v_existing.lamport)
-         OR (v_client_updated_at = v_existing.client_updated_at AND v_lamport = v_existing.lamport
-             AND (v_payload->>'sync_id') > v_existing.sync_id)
-      THEN
-        v_seq := nextval_project_seq(v_project_id);
-        UPDATE memory_observations SET
-          title = v_payload->>'title', content = v_payload->>'content',
-          tags = COALESCE(v_payload->'tags', '[]'::jsonb),
-          topic_key = v_payload->>'topic_key',
-          client_updated_at = v_client_updated_at, lamport = v_lamport,
-          deleted = COALESCE((v_payload->>'deleted')::int, 0) = 1,
-          project_seq = v_seq, server_updated_at = now()
-        WHERE sync_id = v_existing.sync_id;
-        v_results := v_results || jsonb_build_object('sync_id', v_existing.sync_id, 'outcome', 'applied', 'project_seq', v_seq);
+      IF v_existing.sync_id IS NOT NULL THEN
+        -- (a) same sync_id — LWW: max(client_updated_at) -> max(lamport) -> sync_id.
+        IF v_client_updated_at > v_existing.client_updated_at
+           OR (v_client_updated_at = v_existing.client_updated_at AND v_lamport > v_existing.lamport)
+           OR (v_client_updated_at = v_existing.client_updated_at AND v_lamport = v_existing.lamport
+               AND v_sync_id > v_existing.sync_id)
+        THEN
+          v_seq := nextval_project_seq(v_project_id);
+          UPDATE memory_observations SET
+            title = v_payload->>'title', content = v_payload->>'content',
+            tags = COALESCE(v_payload->'tags', '[]'::jsonb),
+            topic_key = v_payload->>'topic_key',
+            client_updated_at = v_client_updated_at, lamport = v_lamport,
+            deleted = COALESCE((v_payload->>'deleted')::int, 0) = 1,
+            project_seq = v_seq, server_updated_at = now()
+          WHERE sync_id = v_existing.sync_id;
+          v_results := v_results || jsonb_build_object('sync_id', v_existing.sync_id, 'outcome', 'applied', 'project_seq', v_seq);
+        ELSE
+          v_results := v_results || jsonb_build_object('sync_id', v_existing.sync_id, 'outcome', 'superseded', 'project_seq', v_existing.project_seq);
+        END IF;
       ELSE
-        v_results := v_results || jsonb_build_object('sync_id', v_existing.sync_id, 'outcome', 'superseded', 'project_seq', v_existing.project_seq);
+        IF v_obs_count >= v_max_obs THEN
+          RAISE EXCEPTION 'observation_limit_reached' USING ERRCODE = '42501';
+        END IF;
+        v_seq := nextval_project_seq(v_project_id);
+        INSERT INTO memory_observations (
+          sync_id, user_id, project_id, scope, topic_key, type, title, content, tags,
+          origin_ai, origin_account, git_branch, author_display, content_hash,
+          client_created_at, client_updated_at, lamport, deleted, superseded_by, project_seq
+        ) VALUES (
+          v_sync_id, p_user_id, v_project_id, COALESCE(v_payload->>'scope', 'personal'),
+          v_payload->>'topic_key', v_payload->>'type', v_payload->>'title', v_payload->>'content',
+          COALESCE(v_payload->'tags', '[]'::jsonb),
+          v_payload->>'origin_ai', v_payload->>'origin_account', v_payload->>'git_branch',
+          COALESCE(v_payload->>'author_display', ''), COALESCE(v_payload->>'content_hash', ''),
+          to_timestamp((v_payload->>'created_at')::bigint / 1000.0), v_client_updated_at, v_lamport,
+          COALESCE((v_payload->>'deleted')::int, 0) = 1, v_payload->>'superseded_by', v_seq
+        );
+        v_obs_count := v_obs_count + 1;
+        v_results := v_results || jsonb_build_object('sync_id', v_sync_id, 'outcome', 'applied', 'project_seq', v_seq);
       END IF;
-    ELSE
-      v_seq := nextval_project_seq(v_project_id);
-      INSERT INTO memory_observations (
-        sync_id, user_id, project_id, scope, topic_key, type, title, content, tags,
-        origin_ai, origin_account, git_branch, author_display, content_hash,
-        client_created_at, client_updated_at, lamport, deleted, superseded_by, project_seq
-      ) VALUES (
-        v_payload->>'sync_id', p_user_id, v_project_id, COALESCE(v_payload->>'scope', 'personal'),
-        v_payload->>'topic_key', v_payload->>'type', v_payload->>'title', v_payload->>'content',
-        COALESCE(v_payload->'tags', '[]'::jsonb),
-        v_payload->>'origin_ai', v_payload->>'origin_account', v_payload->>'git_branch',
-        COALESCE(v_payload->>'author_display', ''), COALESCE(v_payload->>'content_hash', ''),
-        to_timestamp((v_payload->>'created_at')::bigint / 1000.0), v_client_updated_at, v_lamport,
-        COALESCE((v_payload->>'deleted')::int, 0) = 1, v_payload->>'superseded_by', v_seq
-      );
-      v_results := v_results || jsonb_build_object('sync_id', v_payload->>'sync_id', 'outcome', 'applied', 'project_seq', v_seq);
-    END IF;
+    EXCEPTION WHEN OTHERS THEN
+      -- Rolled back to the implicit savepoint for THIS mutation only — every other
+      -- mutation in the batch is unaffected. Never re-raises: a poisoned row must not
+      -- stall the whole cursor.
+      v_results := v_results || jsonb_build_object('sync_id', COALESCE(v_sync_id, 'unknown'), 'outcome', 'rejected', 'error', SQLERRM);
+    END;
   END LOOP;
 
   RETURN jsonb_build_object('results', v_results, 'project_id', v_project_id);
@@ -356,6 +440,28 @@ BEGIN
 END;
 $$;
 GRANT EXECUTE ON FUNCTION memory_sync_bootstrap(uuid) TO service_role;
+
+-- M10 / §6.6 "Right to delete": disconnect can offer "also delete my cloud memory".
+-- Deletes only p_user_id's own authored rows and owned projects — never another user's
+-- content, even in a shared team project (a departing member's team-scope contributions
+-- persist per §6.4, deleted only via a separate, explicit legal-request path, §10 O-5).
+CREATE OR REPLACE FUNCTION memory_delete_all_user_data(p_user_id uuid) RETURNS bigint
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_deleted bigint;
+BEGIN
+  DELETE FROM memory_observations WHERE user_id = p_user_id;
+  GET DIAGNOSTICS v_deleted = ROW_COUNT;
+  -- Cascades any remaining rows the DELETE above didn't reach (FK ON DELETE CASCADE),
+  -- and removes the projects themselves so a reconnect starts clean.
+  DELETE FROM memory_projects WHERE owner_id = p_user_id;
+  RETURN v_deleted;
+END;
+$$;
+GRANT EXECUTE ON FUNCTION memory_delete_all_user_data(uuid) TO service_role;
 
 -- §6.4 team-removal hard-kill lever: revoke tokens whose owner lost access to every
 -- team-shared project a device depended on, and bump the epoch. Belt-and-braces on top
