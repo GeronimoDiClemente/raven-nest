@@ -24,6 +24,7 @@ import { BUILTIN_CATALOG } from '../lib/plugins/builtinCatalog'
 import { getAdapter, hasAdapter } from '../integrations/registry'
 import { IntegrationPanelShell } from './IntegrationPanel/IntegrationPanelShell'
 import MyTicketsView from './IntegrationPanel/MyTicketsView'
+import CalendarPanel from './CalendarPanel'
 import { captureTerminalOutput } from '../integrations/terminalCapture'
 import type { WorktreeMeta } from '../types'
 
@@ -298,6 +299,27 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
     }
   }
 
+  // H6 Motor 4 — "Start session" desde un bloque del calendario: misma cadena que
+  // workOnDoc (worktree.create → gcal:startSession → onOpenWorktree con el prompt
+  // como initialInput). Reusa el error/busy del "Work on this" (mismo banner).
+  const startCalendarSession = async (title: string, context: string) => {
+    if (workOnDocBusy) return
+    setWorkOnDocError(null)
+    if (!activeRepoPath) { setWorkOnDocError('Open a repo tab first to create a worktree'); return }
+    setWorkOnDocBusy(true)
+    try {
+      const branch = await window.tickets.branchName(githubLogin ?? '', 'cal', title)
+      const res = await window.worktree.create({ repoPath: activeRepoPath, branch }) as unknown as WorktreeCreateResult
+      if (!res.ok) { setWorkOnDocError(res.error || 'worktree failed'); return }
+      const started = await window.gcal.startSession({ title, context, worktreePath: res.meta.repoPath })
+      onOpenWorktree?.(res.meta.repoPath, started.ok ? started.prompt : undefined)
+    } catch (e) {
+      setWorkOnDocError(e instanceof Error ? e.message : 'Failed to start session')
+    } finally {
+      setWorkOnDocBusy(false)
+    }
+  }
+
   const NAV_ITEMS: { id: Section; label: string; icon: React.ReactNode }[] = [
     {
       id: 'activity',
@@ -479,6 +501,10 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
                     githubLogin={githubLogin}
                     onOpenWorktree={(path) => onOpenWorktree?.(path)}
                   />
+                ) : activeIntegrationId === 'gcal' ? (
+                  // gcal no usa el panel genérico (sections/detail): su superficie
+                  // son los bloques del día + "Start session" (block→worktree).
+                  <CalendarPanel onStartSession={startCalendarSession} busy={workOnDocBusy} />
                 ) : (
                   <IntegrationPanelShell
                     adapter={activeIntegrationAdapter}

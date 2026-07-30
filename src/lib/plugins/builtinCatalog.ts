@@ -51,6 +51,13 @@ export const BUILTIN_CATALOG: PluginManifest[] = [
     },
   },
   {
+    id: 'gcal', name: 'Google Calendar',
+    description: 'Log real session outcomes and start work from a calendar block.',
+    category: 'other', icon: 'gcal', color: '#4285F4',
+    type: 'integration', publisher: 'raven', tier: 'free',
+    auth: { kind: 'oauth' },
+  },
+  {
     id: 'figma', name: 'Figma', description: 'Coming soon.',
     category: 'design', icon: 'figma', color: '#F24E1E',
     type: 'integration', publisher: 'raven', tier: 'free', comingSoon: true,

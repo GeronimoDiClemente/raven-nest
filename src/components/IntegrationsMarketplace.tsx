@@ -125,6 +125,14 @@ function ConnectControl({ plugin }: { plugin: PluginManifest }) {
       await github.connectGitHub()
       return
     }
+    if (plugin.id === 'gcal') {
+      // OAuth desktop (loopback + PKCE) resuelto en main: sin roundtrip de code
+      // por deep-link como Slack. openOAuth resuelve cuando el token se guardó.
+      const res = await window.gcal.openOAuth()
+      if (res.ok) notifyPluginConnectionChanged('gcal')
+      else setError(res.error === 'NOT_CONFIGURED' ? 'Google Calendar is not configured on this build' : (res.error ?? 'Calendar connection failed'))
+      return
+    }
     setError('This integration does not support Connect yet')
   }
 
