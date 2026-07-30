@@ -86,6 +86,23 @@ export interface TicketsBridge {
   }) => Promise<{ ok: true } | { ok: false; error: string }>
 }
 
+// === Worktree signals (H4 Motor 3) — espejo de WorktreeSignal de
+// electron/integrations/worktree-signals.ts (src/ nunca importa de electron/) ===
+export interface WorktreeSignalDTO {
+  repoPath: string
+  ci: 'success' | 'failure' | 'running' | 'unknown'
+  runId?: number
+  runUrl?: string
+  changesRequested: boolean
+  prNumber?: number
+}
+
+export interface SignalsBridge {
+  list: () => Promise<WorktreeSignalDTO[]>
+  fixCiPrompt: (repoPath: string) => Promise<string | null>
+  onUpdate: (cb: () => void) => () => void
+}
+
 export type DiffLineType = 'add' | 'del' | 'context' | 'meta'
 export interface DiffLine { type: DiffLineType; text: string; oldNum?: number; newNum?: number }
 export interface DiffHunk { header: string; lines: DiffLine[] }
@@ -560,6 +577,7 @@ declare global {
       portsByPids: (pids: number[]) => Promise<Record<number, number[]>>
     }
     tickets: TicketsBridge
+    signals: SignalsBridge
   }
 }
 

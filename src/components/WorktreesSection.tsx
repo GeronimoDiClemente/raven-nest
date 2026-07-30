@@ -3,8 +3,10 @@ import type { WorktreeMeta } from '../types'
 import { useBridge } from '../lib/bridge'
 import { WORKTREE_DRAG_MIME } from '../lib/dragTypes'
 import { IDEPickerMenu } from './IDEPickerMenu'
+import CIStatusBadge from './CIStatusBadge'
 import { useGitHub } from '../hooks/useGitHub'
 import { useGitlab } from '../hooks/useGitlab'
+import { useWorktreeSignals } from '../hooks/useWorktreeSignals'
 
 interface Props {
   repoPath: string | null
@@ -14,6 +16,8 @@ interface Props {
   refreshKey?: number
   /** When provided, the header shows a "?" button that launches the worktrees tutorial. */
   onStartTutorial?: () => void
+  /** "Arreglá el rojo": baja el log del run fallido y lo inyecta al pane del worktree. */
+  onFixCi: (repoPath: string) => void
 }
 
 interface DiffStat { additions: number; deletions: number }
@@ -42,8 +46,9 @@ interface ContextMenuState {
   isRoot: boolean
 }
 
-export function WorktreesSection({ repoPath, activeRepoPath, onSelect, onNewClick, refreshKey, onStartTutorial }: Props) {
+export function WorktreesSection({ repoPath, activeRepoPath, onSelect, onNewClick, refreshKey, onStartTutorial, onFixCi }: Props) {
   const bridge = useBridge()
+  const signals = useWorktreeSignals()
   const [worktrees, setWorktrees] = useState<WorktreeMeta[]>([])
   const [expanded, setExpanded] = useState(true)
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
@@ -237,6 +242,7 @@ export function WorktreesSection({ repoPath, activeRepoPath, onSelect, onNewClic
             const isRoot = wt.repoPath === wt.rootRepoPath
             const stat = diffStats[wt.repoPath]
             const pr = prChips[wt.repoPath]
+            const sig = signals[wt.repoPath]
             const slug = basenameOf(wt.repoPath)
             return (
               <div
@@ -286,6 +292,15 @@ export function WorktreesSection({ repoPath, activeRepoPath, onSelect, onNewClic
                     >
                       #{pr.number}
                     </button>
+                  )}
+                  {!isRoot && sig && sig.ci !== 'unknown' && (
+                    <CIStatusBadge
+                      status={sig.ci}
+                      onClick={sig.ci === 'failure' ? () => onFixCi(wt.repoPath) : undefined}
+                    />
+                  )}
+                  {!isRoot && sig?.changesRequested && (
+                    <span className="wt-changes-chip" title="Changes requested">⤺</span>
                   )}
                   {spotlightPath === wt.repoPath && <span className="wt-spotlight" title="Spotlight active">⚡</span>}
                   <span className="wt-meta">{isRoot ? 'root' : ''}</span>
