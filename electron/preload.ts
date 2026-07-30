@@ -282,6 +282,16 @@ contextBridge.exposeInMainWorld('tickets', {
     ipcRenderer.invoke('tickets:startWork', args),
 })
 
+contextBridge.exposeInMainWorld('signals', {
+  list: () => ipcRenderer.invoke('signals:list'),
+  fixCiPrompt: (repoPath: string) => ipcRenderer.invoke('signals:fixCiPrompt', repoPath),
+  onUpdate: (cb: () => void) => {
+    const h = () => cb()
+    ipcRenderer.on('signals:update', h)
+    return () => ipcRenderer.removeListener('signals:update', h)
+  },
+})
+
 contextBridge.exposeInMainWorld('worktree', {
   list: (repoPath: string) => ipcRenderer.invoke('worktree:list', repoPath),
   create: (opts: unknown) => ipcRenderer.invoke('worktree:create', opts),

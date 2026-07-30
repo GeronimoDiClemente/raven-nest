@@ -138,6 +138,7 @@ import { runPluginAction } from './plugin-actions'
 import { callPanel, type PanelAdapterDeps } from './integration-panels'
 import { registerAllPanelAdapters, registerAllTicketProviders } from './integrations/register'
 import { ticketLoop } from './ticket-loop'
+import { WorktreeSignals } from './integrations/worktree-signals'
 import { EventBus } from './integrations/event-bus'
 import { loadRecipes } from './integrations/recipes'
 import { registerBusCommands } from './integrations/bus-commands'
@@ -2290,8 +2291,23 @@ const panelDeps = (): PanelAdapterDeps => ({
   fetch,
 })
 
+// Motor 3 (H4): señales por worktree (CI/review) en el main. Fuente única de
+// `ci.failed` (se retiró de ticket-loop). Resuelve owner/repo con el mismo
+// getRemoteUrl+parseOwnerRepo del ticket loop; token nunca sale del main.
+const worktreeSignals = new WorktreeSignals((repoPath) => {
+  const url = getRemoteUrl(repoPath)
+  const or = url ? parseOwnerRepo(url) : null
+  return or ? `${or.owner}/${or.repo}` : null
+})
+worktreeSignals.attachBus(eventBus)
+
 ipcMain.handle('plugins:panel:call', (_e, pluginId: string, method: string, args: unknown[]) =>
   callPanel(pluginId, method, args ?? [], panelDeps()))
+
+// === Worktree signals IPC (H4 Motor 3) ===
+ipcMain.handle('signals:list', () => worktreeSignals.list())
+ipcMain.handle('signals:fixCiPrompt', (_e, repoPath: string) =>
+  typeof repoPath === 'string' ? worktreeSignals.fixCiPrompt(repoPath, panelDeps()) : Promise.resolve(null))
 
 // === Ticket loop IPC (H3 Motor 1) ===
 ipcMain.handle('tickets:list', (_e, pluginId: string) => {
@@ -2346,6 +2362,11 @@ let ticketPollInterval: ReturnType<typeof setInterval> | null = setInterval(() =
   for (const repoFullName of ticketLoop.trackedRepos()) {
     void ticketLoop.pollOnce(repoFullName, panelDeps())
   }
+  // Motor 3 (H4): pollea CI/review de TODOS los worktrees vivos (no sólo los con
+  // ticket) y empuja `signals:update` al renderer para refrescar los badges.
+  void worktreeSignals
+    .poll(worktreeStore.list().map((m) => ({ repoPath: m.repoPath, branch: m.branch })), panelDeps())
+    .then(() => { for (const w of BrowserWindow.getAllWindows()) w.webContents.send('signals:update') })
 }, TICKET_POLL_MS)
 
 ipcMain.handle('slack:open-oauth', async () => {

@@ -53,7 +53,7 @@ describe('WorktreeSignals — CI por worktree', () => {
       ] }), { status: 200 })
       return new Response('[]', { status: 200 })
     })
-    const emit = vi.fn(async () => ({ commands: [], failed: [] }))
+    const emit = vi.fn(async (_ev: unknown, _deps: unknown) => ({ commands: [], failed: [] }))
     const s = new WorktreeSignals(() => 'acme/app')
     s.attachBus({ emit } as unknown as import('../integrations/event-bus').EventBus)
     const wts = [{ repoPath: '/wt/x', branch: 'feat/x' }]
