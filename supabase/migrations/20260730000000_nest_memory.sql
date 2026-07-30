@@ -122,7 +122,7 @@ CREATE POLICY memory_projects_read ON memory_projects FOR SELECT USING (
 );
 
 CREATE POLICY memory_projects_insert ON memory_projects FOR INSERT WITH CHECK (
-  owner_id = auth.uid() AND user_has_plan(auth.uid(), ARRAY['pro','team'])
+  owner_id = auth.uid() AND user_has_plan(auth.uid(), ARRAY['pro','team','enterprise'])
 );
 
 -- M15 fix: without a WITH CHECK, an owner could UPDATE team_id to ANY team's id, not
@@ -145,7 +145,7 @@ CREATE POLICY memory_obs_read ON memory_observations FOR SELECT USING (
 );
 
 CREATE POLICY memory_obs_insert ON memory_observations FOR INSERT WITH CHECK (
-  user_id = auth.uid() AND user_has_plan(auth.uid(), ARRAY['pro','team'])
+  user_id = auth.uid() AND user_has_plan(auth.uid(), ARRAY['pro','team','enterprise'])
 );
 CREATE POLICY memory_obs_update ON memory_observations FOR UPDATE
   USING (user_id = auth.uid());
@@ -187,12 +187,12 @@ CREATE VIEW memory_tokens_public
 -- §7.1 — these two functions are the authoritative ceiling.
 CREATE OR REPLACE FUNCTION memory_max_projects_for_plan(p_plan text) RETURNS bigint
 LANGUAGE sql IMMUTABLE AS $$
-  SELECT CASE p_plan WHEN 'team' THEN 200 WHEN 'pro' THEN 50 ELSE 0 END;
+  SELECT CASE p_plan WHEN 'enterprise' THEN 9223372036854775807 WHEN 'team' THEN 200 WHEN 'pro' THEN 50 ELSE 0 END;
 $$;
 
 CREATE OR REPLACE FUNCTION memory_max_observations_for_plan(p_plan text) RETURNS bigint
 LANGUAGE sql IMMUTABLE AS $$
-  SELECT CASE p_plan WHEN 'team' THEN 250000 WHEN 'pro' THEN 50000 ELSE 0 END;
+  SELECT CASE p_plan WHEN 'enterprise' THEN 9223372036854775807 WHEN 'team' THEN 250000 WHEN 'pro' THEN 50000 ELSE 0 END;
 $$;
 
 -- Resolves (and lazily creates) a memory_projects row for a client project_key, honoring
@@ -218,7 +218,7 @@ BEGIN
   END IF;
 
   SELECT plan INTO v_plan FROM profiles WHERE id = p_user_id;
-  IF v_plan IS NULL OR NOT user_has_plan(p_user_id, ARRAY['pro','team']) THEN
+  IF v_plan IS NULL OR NOT user_has_plan(p_user_id, ARRAY['pro','team','enterprise']) THEN
     RAISE EXCEPTION 'plan_required' USING ERRCODE = '42501';
   END IF;
 
@@ -297,7 +297,7 @@ DECLARE
   v_seq bigint;
 BEGIN
   SELECT plan INTO v_plan FROM profiles WHERE id = p_user_id;
-  IF v_plan IS NULL OR NOT user_has_plan(p_user_id, ARRAY['pro','team']) THEN
+  IF v_plan IS NULL OR NOT user_has_plan(p_user_id, ARRAY['pro','team','enterprise']) THEN
     RAISE EXCEPTION 'plan_required' USING ERRCODE = '42501';
   END IF;
 

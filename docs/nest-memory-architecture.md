@@ -124,8 +124,10 @@ Justification for main-process (not per-CLI, not a separate service process):
    waiting for the first `env | grep -i token`.
 2. **Single writer.** Debounce, batching, and the `mutation_log` push cursor only work if
    exactly one process advances them. N panes = N racing pushers on the same rows.
-3. **Lifecycle signals.** `browser-window-focus`, `online`/`offline`, `before-quit`, and
-   `powerMonitor` resume events are main-process events. They are the sync triggers (§4.1).
+3. **Lifecycle signals.** `browser-window-focus`, `online`/`offline`, and app-quit are
+   main-process events. They are the sync triggers (§4.1) — **not** `before-quit` itself,
+   see the correction there; the *signal class* (main-process lifecycle events) is still
+   the point being made here.
 4. **Outlives panes.** The offline queue must survive a pane restart, a CLI crash, and a
    `worktree:remove` that kills every PTY in a directory (`pty-manager.ts:211`).
 5. **Already the choke point.** `pty-manager.ts:39-57` is where HOME/USERPROFILE/GEMINI_CLI_HOME
@@ -642,7 +644,27 @@ Non-negotiable property: **the user never initiates a sync and never sees a sync
 | **Window focus** | `browser-window-focus` → immediate pull (this is the "I just walked to my other machine" case). Rate-limited to once per 30 s. |
 | **Network regain** | `online` event / first successful request after failures → immediate full drain of the queue. |
 | **Pane exit** | Session rollup written → push. |
-| **App quit** | `before-quit`: one push attempt with a **2 s budget**, then quit regardless. Never block the user's exit — the queue is durable. |
+| **App quit** | An explicit `finalizeMemoryBeforeQuit()` call — **not** the `before-quit` event, see below. One push attempt with a **2 s budget**, then quit regardless. Never block the user's exit — the queue is durable. |
+
+**Correction (folded back after merging main v1.3.2, which added
+`docs/GUIA-TESTEO-BAUTISTA.md`):** this section originally specified `before-quit` as the
+app-quit trigger. That is wrong for this codebase and the fix landed in
+`electron/main.ts` — documented here so the mistake isn't reintroduced. `before-quit`
+fires on **every** quit attempt, including ones the app itself cancels afterward: on
+macOS, `win.on('close')` calls `event.preventDefault()` and hides the window to the tray
+instead of exiting, but `before-quit` has already fired by that point. Doing daemon
+teardown there means it runs on a false alarm, not just on a genuine exit. Separately,
+this app's actual exit paths — the tray "Salir"/"Quit" item, and `updater:install` — call
+`app.exit(0)` (or trigger `autoUpdater.quitAndInstall()`, which calls `app.quit()`
+internally but is followed by a hard `app.exit(0)` safety net on macOS), and
+**`app.exit()` never emits `before-quit`/`will-quit` at all**. Combined, that means a
+`before-quit` listener is simultaneously too eager (fires on cancelled quits) and
+unreliable (doesn't fire on real ones). The daemon's quit-time push is wired into an
+explicit `finalizeMemoryBeforeQuit()` function (an `isReallyQuittingMemory` flag guards
+against a double call), invoked only from the tray quit handler (awaited — nothing
+time-constrained there, so it gets the full 2 s budget) and from `updater:install`
+(fire-and-forget, since that path already has its own tighter, differently-motivated
+force-exit deadline that predates and is unrelated to memory).
 | **Backoff** | On failure: exponential 5 s → 5 min, jittered, capped. 3 consecutive auth failures → surface `error` state in the UI and stop retrying until the user acts. |
 
 ### 4.2 Push
@@ -1038,6 +1060,14 @@ export interface PlanLimits {
 - `free`: `{ memoryLocal: true, memoryCloud: false, memoryTeamShare: false }`
 - `pro`: `{ memoryLocal: true, memoryCloud: true, memoryTeamShare: false }`
 - `team`: all true.
+- `enterprise` (added on main after this doc was first written, sales-led/invoiced —
+  `src/lib/stripe.ts`'s `ENTERPRISE_MIN_SEATS`/`ENTERPRISE_CONTACT_EMAIL`): treated as
+  team-or-better for memory — `memoryCloud`/`memoryTeamShare: true`, caps set to
+  effectively unlimited (`Infinity` client-side, max-bigint server-side in
+  `memory_max_projects_for_plan`/`memory_max_observations_for_plan`). This is a judgment
+  call made while merging main's v1.3.x plan-tier changes into this branch, not a
+  product decision — **needs founder/sales confirmation** before a real enterprise
+  customer hits a memory feature, same status as the other open questions in §10.
 
 **Free keeps full local memory on purpose.** It is the demo. A user who has accumulated 800
 useful memories locally and then sees "sync across devices — Pro" converts; a user who was
@@ -1355,6 +1385,15 @@ gating.
   pays for itself immediately; using a production branch is faster to start but risks
   migration drift. Recommendation: local stack, because Phase 2 needs two devices hitting one
   backend repeatedly and that should never touch production.
+- **O-9 — Enterprise tier memory entitlement.** Main added a 4th plan tier
+  (`enterprise`, sales-led/invoiced, `src/lib/stripe.ts`) after this doc and its Supabase
+  migration were first written. Merging main into this branch required an immediate
+  answer just to keep enterprise accounts from being silently rejected by every memory
+  plan gate (`user_has_plan` calls that only listed `pro`/`team`), so §7.1 now treats
+  `enterprise` as team-or-better with effectively unlimited caps — a stopgap, not a
+  reviewed decision. *Needs founder/sales confirmation*: should enterprise memory caps
+  be genuinely unlimited, or a large negotiated number per contract (mirroring how
+  `ENTERPRISE_MIN_SEATS`/`ENTERPRISE_FLOOR_PER_SEAT` already work for pane/seat pricing)?
 
 ---
 
@@ -1429,7 +1468,7 @@ temp copy, version-tolerant.
 | `electron/memory-mcp/` | **new** — the stdio shim (built as a separate electron-vite entry) |
 | `electron/pty-manager.ts` | inject `NEST_MEMORY_*` env; accept `aiType` + `accountName` |
 | `electron/account-store.ts` | call the provisioner from `save()` / `migrateClaudeAccounts()`; export `isSharedWithGlobal` |
-| `electron/main.ts` | `memory:*` IPC handlers; daemon lifecycle on `ready` / `before-quit`; focus + online triggers |
+| `electron/main.ts` | `memory:*` IPC handlers; daemon start on `ready`, teardown via `finalizeMemoryBeforeQuit()` wired into the tray quit handler and `updater:install` (**not** `before-quit` — see §4.1 correction); focus + online triggers |
 | `electron/preload.ts` | `window.memory` bridge (connect, disconnect, status, list, promote) |
 | `src/hooks/useMemory.ts` | **new** — card state, progress stream, actions |
 | `src/components/SettingsPanel.tsx` | Nest Memory card in the Account tab |

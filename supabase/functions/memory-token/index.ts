@@ -78,7 +78,10 @@ Deno.serve(async (req) => {
 
     if (action === 'issue') {
       if (!device?.name || !device?.platform) return json({ error: 'device.name and device.platform are required' }, 400)
-      if (!(await userHasPlan(serviceClient, user.id, ['pro', 'team']))) {
+      // 'enterprise' added on main after this file was first written — see O-9 in
+      // docs/nest-memory-architecture.md §10. Without it here, an enterprise account
+      // would be silently refused a memory token at all.
+      if (!(await userHasPlan(serviceClient, user.id, ['pro', 'team', 'enterprise']))) {
         return json({ error: 'plan_required' }, 403)
       }
 
