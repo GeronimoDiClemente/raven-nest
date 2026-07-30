@@ -326,6 +326,20 @@ declare global {
     dialog: {
       openFolder: () => Promise<string | null>
     }
+    memory: {
+      ensureDeviceId: () => Promise<string>
+      connect: (token: string, deviceId: string) => Promise<{ ok: boolean; error?: string; itemCount?: number }>
+      disconnect: (opts?: { deleteCloud?: boolean }) => Promise<{ ok: boolean }>
+      status: () => Promise<{
+        connected: boolean
+        deviceId: string | null
+        itemCount: number
+        pendingCount: number
+        daemonStatus: 'idle' | 'syncing' | 'paused' | 'error'
+      }>
+      onStatus: (cb: (status: 'idle' | 'syncing' | 'paused' | 'error') => void) => void
+      removeStatusListener: () => void
+    }
     platform: {
       isWin: boolean
       isMac: boolean

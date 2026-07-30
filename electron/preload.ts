@@ -29,6 +29,24 @@ contextBridge.exposeInMainWorld('dialog', {
   openFolder: () => ipcRenderer.invoke('dialog:openFolder'),
 })
 
+// Nest Memory (docs/nest-memory-architecture.md §8.1). `connect` takes the plaintext
+// token the renderer already obtained from supabase.functions.invoke('memory-token',
+// {action:'issue', device}) — see §5.1 step 1-2. Main never calls that function itself;
+// it only ever receives the token here, once, and encrypts it immediately.
+contextBridge.exposeInMainWorld('memory', {
+  ensureDeviceId: () => ipcRenderer.invoke('memory:ensureDeviceId'),
+  connect: (token: string, deviceId: string) => ipcRenderer.invoke('memory:connect', token, deviceId),
+  disconnect: (opts?: { deleteCloud?: boolean }) => ipcRenderer.invoke('memory:disconnect', opts),
+  status: () => ipcRenderer.invoke('memory:status'),
+  onStatus: (cb: (status: 'idle' | 'syncing' | 'paused' | 'error') => void) => {
+    ipcRenderer.removeAllListeners('memory:status')
+    ipcRenderer.on('memory:status', (_event, status) => cb(status))
+  },
+  removeStatusListener: () => {
+    ipcRenderer.removeAllListeners('memory:status')
+  },
+})
+
 contextBridge.exposeInMainWorld('pty', {
   create: (paneId: string, cmd: string, accountDir: string, repoPath?: string, shellId?: string) =>
     ipcRenderer.invoke('pty:create', paneId, cmd, accountDir, repoPath, shellId),
