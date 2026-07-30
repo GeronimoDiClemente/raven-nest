@@ -31,7 +31,7 @@ if (process.defaultApp) {
   app.setAsDefaultProtocolClient('nest')
 }
 import { join as pathJoin, join, isAbsolute, basename, dirname } from 'path'
-import { readFileSync, writeFileSync, mkdirSync, statSync, copyFileSync, unlinkSync, rmSync, existsSync } from 'fs'
+import { readFileSync, writeFileSync, mkdirSync, statSync, copyFileSync, unlinkSync, rmSync, existsSync, chmodSync } from 'fs'
 import { tmpdir, homedir } from 'os'
 import { lookup } from 'dns/promises'
 import { ravenHome, userHome } from './raven-home'
@@ -1879,7 +1879,17 @@ ipcMain.handle('memory:connect', async (_event, token: string, deviceId: string)
   if (!safeStorage.isEncryptionAvailable()) {
     return { ok: false, error: 'Encryption is not available on this system — memory connect is refused (§6.2).' }
   }
-  writeFileSync(credentialPath(ravenHome()), safeStorage.encryptString(token))
+  // §6.2: credential.bin must be mode 0600, in addition to being safeStorage-encrypted
+  // (defense in depth — the ciphertext alone shouldn't be world/group-readable either).
+  // writeFileSync's `mode` option is subject to the process umask, so follow with an
+  // explicit chmodSync — same belt-and-braces pattern memory-ipc-server.ts uses for the
+  // unix socket. chmod is a no-op on Windows (NTFS ACLs, not POSIX mode bits); on
+  // Windows, safeStorage's DPAPI encryption is the actual protection (§6.2), so this is
+  // best-effort hardening there, not the primary control.
+  const credPath = credentialPath(ravenHome())
+  mkdirSync(dirname(credPath), { recursive: true })
+  writeFileSync(credPath, safeStorage.encryptString(token), { mode: 0o600 })
+  try { chmodSync(credPath, 0o600) } catch { /* best effort, e.g. unsupported on this fs */ }
   memoryToken = token
   memoryConnectionState = { connected: true, deviceId, connectedAt: Date.now() }
   setMemoryConnectionState(ravenHome(), memoryConnectionState)
