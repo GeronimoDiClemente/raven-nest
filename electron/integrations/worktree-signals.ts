@@ -8,7 +8,6 @@ import type { EventBus } from './event-bus'
 import type { DomainEvent } from './bus-types'
 import { runsToStatus, type CIStatus, type WorkflowRun } from './ci-status'
 
-const FAILED_CI_CONCLUSIONS: ReadonlySet<string> = new Set(['failure', 'timed_out', 'startup_failure'])
 const GH = 'https://api.github.com'
 
 export interface WorktreeInput { repoPath: string; branch: string }
@@ -66,7 +65,10 @@ export class WorktreeSignals {
     )
     const runs = runsJson?.workflow_runs ?? []
     const ci = runsToStatus(runs)
-    const failedRun = runs.find((r) => r.status === 'completed' && FAILED_CI_CONCLUSIONS.has(r.conclusion ?? ''))
+    // El run rojo del que emitimos ci.failed / mostramos runId debe derivarse del
+    // estado ACTUAL del branch (runs[0], el más reciente), no de "hay algún rojo en
+    // los últimos 5": un branch que pasó a verde no debe reportar el CI viejo rojo.
+    const failedRun = ci === 'failure' ? runs[0] : undefined
 
     // PR abierto del branch → número + reviews (changes requested).
     let changesRequested = false

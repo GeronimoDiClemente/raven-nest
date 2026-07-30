@@ -63,6 +63,22 @@ describe('WorktreeSignals — CI por worktree', () => {
     expect(ciFailed).toHaveLength(1)
   })
 
+  it('NO emite ci.failed ni marca runId si el run más reciente está verde (aunque haya uno viejo rojo)', async () => {
+    const deps = depsWith(async (url) => {
+      if (url.includes('/actions/runs')) return new Response(JSON.stringify({ workflow_runs: [
+        { id: 2, name: 'CI', status: 'completed', conclusion: 'success', html_url: 'b', head_branch: 'feat/x', head_sha: 'B' },
+        { id: 1, name: 'CI', status: 'completed', conclusion: 'failure', html_url: 'a', head_branch: 'feat/x', head_sha: 'A' },
+      ] }), { status: 200 })
+      return new Response('[]', { status: 200 })
+    })
+    const emit = vi.fn(async (_e: unknown, _d: unknown) => ({ commands: [], failed: [] }))
+    const s = new WorktreeSignals(() => 'acme/app'); s.attachBus({ emit } as never)
+    await s.poll([{ repoPath: '/wt/x', branch: 'feat/x' }], deps)
+    expect(s.get('/wt/x')?.ci).toBe('success')
+    expect(s.get('/wt/x')?.runId).toBeUndefined()
+    expect(emit.mock.calls.filter(c => (c[0] as { type: string }).type === 'ci.failed')).toHaveLength(0)
+  })
+
   it('emite changes.requested cuando el PR pasa a CHANGES_REQUESTED, una sola vez', async () => {
     let state = 'APPROVED'
     const deps = depsWith(async (url) => {
