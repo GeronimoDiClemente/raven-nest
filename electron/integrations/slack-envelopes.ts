@@ -42,7 +42,7 @@ interface RawEnvelope {
     }
     user?: { id?: string }
     channel?: { id?: string }
-    message?: { thread_ts?: string }
+    message?: { thread_ts?: string; ts?: string }
     actions?: Array<{ action_id?: string; value?: string }>
   }
 }
@@ -81,7 +81,10 @@ export function parseEnvelope(env: unknown): ParsedEnvelope {
         actionId: first?.action_id ?? '',
         value: first?.value,
         channel: payload.channel?.id ?? '',
-        threadTs: payload.message?.thread_ts,
+        // Igual que el mention path: si el botón está sobre un mensaje top-level
+        // (sin thread_ts), caemos al ts del mensaje para que slack:postThread tenga
+        // dónde responder en vez de no-opear.
+        threadTs: payload.message?.thread_ts ?? payload.message?.ts ?? '',
         user: payload.user?.id ?? '',
       },
     }

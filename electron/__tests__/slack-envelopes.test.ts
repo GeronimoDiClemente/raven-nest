@@ -27,6 +27,13 @@ describe('slack envelopes', () => {
       action: { actionId: 'fix_ci', value: '/wt/x', channel: 'C1', threadTs: '110.0', user: 'U9' } })
   })
 
+  it('block_actions sin thread_ts cae al ts del mensaje (botón sobre un mensaje top-level)', () => {
+    const env = { type: 'interactive', envelope_id: 'e4', payload: {
+      type: 'block_actions', user: { id: 'U9' }, channel: { id: 'C1' },
+      message: { ts: '200.0' }, actions: [{ action_id: 'fix_ci', value: '/wt/x' }] } }
+    expect((parseEnvelope(env) as { action: { threadTs?: string } }).action.threadTs).toBe('200.0')
+  })
+
   it('hello/disconnect/desconocido → kind control', () => {
     expect(parseEnvelope({ type: 'hello' }).kind).toBe('control')
     expect(parseEnvelope({ type: 'disconnect', envelope_id: 'x' }).kind).toBe('control')
