@@ -18,12 +18,36 @@ export interface ShellOverride {
  */
 export interface PtyMemoryIntegration {
   socketPath: string
+  /** C2: shared secret injected as NEST_MEMORY_TOKEN — see memory-local-auth.ts. */
+  authToken: string
   isEnabled: () => boolean
-  /** Returns `['--settings', '<path>']` for a provisioned Claude account, else `[]`. */
-  getClaudeSettingsFlagArgs: (accountDir: string) => string[]
+  /**
+   * M11 fix: this used to be `getClaudeSettingsFlagArgs`, a READ-ONLY check of whether
+   * `.nest/memory-settings.json` already existed — nothing ever actually called
+   * `provisionClaudeAccount` here. An account created before Connect Memory, or one
+   * whose provisioning failed once (disk error, race with account creation), silently
+   * never got the `--settings` flag or working hooks, forever, with no retry. Per
+   * §2.5 ("defensively from PtyManager.create() before spawn"), this is now the
+   * (idempotent) provisioning call itself — every AI pane spawn is the one integration
+   * point that can self-heal a missing/stale provisioning state. Returns the
+   * `['--settings', '<path>']` args to use.
+   */
+  ensureClaudeProvisioned: (accountDir: string) => string[]
 }
 
 const BUFFER_MAX_LINES = 10_000
+
+/**
+ * Minor hardening: `launchCmd` is typed literally into the shell via `ptyProcess.write()`
+ * (see below), so a `--settings <path>` argument must be safely quoted for the
+ * platform's shell — a path or account name containing a literal `"` would otherwise
+ * break out of the quoted argument. PowerShell escapes an embedded `"` inside a
+ * double-quoted string as `""`; POSIX shells (bash/zsh) escape it as `\"`.
+ */
+export function quoteShellArg(value: string, isWinShell: boolean): string {
+  const escaped = isWinShell ? value.replace(/"/g, '""') : value.replace(/(["\\$`])/g, '\\$1')
+  return `"${escaped}"`
+}
 
 /**
  * accountDir is always `{ravenHome}/.raven-nest/accounts/{aiType}/{accountName}` (see
@@ -106,6 +130,7 @@ export class PtyManager extends EventEmitter {
         const parsed = parseAccountDir(accountDir)
         if (parsed) {
           env.NEST_MEMORY_SOCKET = this.memory.socketPath
+          env.NEST_MEMORY_TOKEN = this.memory.authToken
           env.NEST_MEMORY_ACCOUNT = `${parsed.aiType}:${parsed.accountName}`
           env.NEST_MEMORY_AI = parsed.aiType
           env.NEST_MEMORY_PANE = paneId
@@ -113,10 +138,12 @@ export class PtyManager extends EventEmitter {
 
           // §2.5 "the shared-config hazard": hooks load ONLY via the isolated
           // --settings file, never by writing accountDir/.claude/settings.json.
+          // M11: ensureClaudeProvisioned (RE-)PROVISIONS the account, not just checks it.
           if (cmd === 'claude' && this.memory.isEnabled()) {
-            const flagArgs = this.memory.getClaudeSettingsFlagArgs(accountDir)
+            const flagArgs = this.memory.ensureClaudeProvisioned(accountDir)
             if (flagArgs.length > 0) {
-              launchCmd = `claude ${flagArgs.map((a) => (a.startsWith('-') ? a : `"${a}"`)).join(' ')}`
+              const quoted = flagArgs.map((a) => (a.startsWith('-') ? a : quoteShellArg(a, isWin)))
+              launchCmd = `claude ${quoted.join(' ')}`
             }
           }
         }
