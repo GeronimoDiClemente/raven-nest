@@ -18,6 +18,7 @@ import NewPaneDialog from './components/NewPaneDialog'
 import TabBar from './components/TabBar'
 import { PortsBanner } from './components/PortsBanner'
 import ConfirmDialog from './components/ConfirmDialog'
+import { shouldConfirmTabClose } from './lib/tab-close'
 import ConversationSidebar from './components/ConversationSidebar'
 import Sidebar from './components/Sidebar'
 import { NewWorktreeModal } from './components/NewWorktreeModal'
@@ -66,7 +67,7 @@ export default function App() {
     panes: [],
   }])
   const [activeTabId, setActiveTabId] = useState<string>(initialTabId)
-  const [confirmClose, setConfirmClose] = useState<{ tabId: string; name: string } | null>(null)
+  const [confirmClose, setConfirmClose] = useState<{ tabId: string; name: string; isHub?: boolean } | null>(null)
 
   // Derive active tab data
   const activeTab = tabs.find(t => t.id === activeTabId) ?? tabs[0]
@@ -746,9 +747,8 @@ export default function App() {
   const handleTabClose = useCallback((id: string) => {
     const tab = tabsRef.current.find(t => t.id === id)
     if (!tab) return
-    const hasTerminals = tab.panes.length > 0
-    if (hasTerminals) {
-      setConfirmClose({ tabId: id, name: tab.name })
+    if (shouldConfirmTabClose(tab)) {
+      setConfirmClose({ tabId: id, name: tab.name, isHub: tab.isHub })
     } else {
       closeTab(id)
     }
@@ -1546,9 +1546,11 @@ export default function App() {
 
       {confirmClose && (
         <ConfirmDialog
-          title={`Close "${confirmClose.name}"?`}
-          message="There are terminals running in this workspace. They will all be closed."
-          confirmLabel="Close"
+          title={confirmClose.isHub ? 'Close the Hub?' : `Close "${confirmClose.name}"?`}
+          message={confirmClose.isHub
+            ? 'This clears the terminals you pinned into the Hub. They stay open in their own workspaces — only the Hub set is cleared.'
+            : 'There are terminals running in this workspace. They will all be closed.'}
+          confirmLabel={confirmClose.isHub ? 'Close Hub' : 'Close'}
           confirmDanger
           onConfirm={() => { closeTab(confirmClose.tabId); setConfirmClose(null) }}
           onCancel={() => setConfirmClose(null)}
