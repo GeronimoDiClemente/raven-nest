@@ -104,6 +104,14 @@ export interface SignalsBridge {
   onUpdate: (cb: () => void) => () => void
 }
 
+// === Notion spec→worktree (H5 Motor 2) ===
+export interface NotionBridge {
+  /** Baja la página como markdown, la escribe en <worktree>/.nest/spec.md y
+   *  devuelve el markdown para inyectarlo como prompt inicial del agente. */
+  specToWorktree: (pageId: string, worktreePath: string) =>
+    Promise<{ ok: true; prompt: string } | { ok: false; error: string }>
+}
+
 export type DiffLineType = 'add' | 'del' | 'context' | 'meta'
 export interface DiffLine { type: DiffLineType; text: string; oldNum?: number; newNum?: number }
 export interface DiffHunk { header: string; lines: DiffLine[] }
@@ -579,6 +587,7 @@ declare global {
     }
     tickets: TicketsBridge
     signals: SignalsBridge
+    notion: NotionBridge
   }
 }
 

@@ -25,6 +25,12 @@ import { getAdapter, hasAdapter } from '../integrations/registry'
 import { IntegrationPanelShell } from './IntegrationPanel/IntegrationPanelShell'
 import MyTicketsView from './IntegrationPanel/MyTicketsView'
 import { captureTerminalOutput } from '../integrations/terminalCapture'
+import type { WorktreeMeta } from '../types'
+
+// worktree:create resuelve a esta unión (ver el handler en electron/main.ts); el
+// tipo del bridge en src/types.ts todavía dice Promise<WorktreeMeta>, así que lo
+// estrechamos vía unknown (mismo patrón que MyTicketsView).
+type WorktreeCreateResult = { ok: true; meta: WorktreeMeta } | { ok: false; error: string }
 
 // Plugins with a TicketProvider registered in main (electron/integrations/register.ts):
 // only these get the "My tickets" toggle inside their embedded panel.
@@ -42,8 +48,9 @@ interface MyReposPanelProps {
   activeRepoPath: string | null
   /** Pane currently focused in the terminal grid — feeds the "attach terminal output" action of an embedded integration panel. */
   focusedPaneId: string | null
-  /** Opens the add-pane flow on a freshly created worktree (App.tsx setAddingPane). */
-  onOpenWorktree?: (worktreePath: string) => void
+  /** Opens the add-pane flow on a freshly created worktree (App.tsx setAddingPane).
+   *  El 2º arg (H5) viaja como initialInput del pane: el prompt inicial del agente. */
+  onOpenWorktree?: (worktreePath: string, initialInput?: string) => void
 }
 
 type Section = 'activity' | 'repos' | 'issues' | 'standup' | 'integrations'
@@ -268,6 +275,29 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
 
   const openIntegration = (pluginId: string) => setSection(`integration:${pluginId}`)
 
+  // H5 Motor 2 — "Work on this" para un doc de Notion: crea un worktree desde el
+  // repo activo, baja la página como spec.md y abre el pane inyectando el markdown
+  // como prompt inicial del agente. Mismo flujo que MyTicketsView.workOn.
+  const [workOnDocError, setWorkOnDocError] = useState<string | null>(null)
+  const [workOnDocBusy, setWorkOnDocBusy] = useState(false)
+  const workOnDoc = async (pageId: string, title: string) => {
+    if (workOnDocBusy) return
+    setWorkOnDocError(null)
+    if (!activeRepoPath) { setWorkOnDocError('Open a repo tab first to create a worktree'); return }
+    setWorkOnDocBusy(true)
+    try {
+      const branch = await window.tickets.branchName(githubLogin ?? '', pageId.slice(0, 6), title)
+      const res = await window.worktree.create({ repoPath: activeRepoPath, branch }) as unknown as WorktreeCreateResult
+      if (!res.ok) { setWorkOnDocError(res.error || 'worktree failed'); return }
+      const spec = await window.notion.specToWorktree(pageId, res.meta.repoPath)
+      onOpenWorktree?.(res.meta.repoPath, spec.ok ? spec.prompt : undefined)
+    } catch (e) {
+      setWorkOnDocError(e instanceof Error ? e.message : 'Failed to start work on this doc')
+    } finally {
+      setWorkOnDocBusy(false)
+    }
+  }
+
   const NAV_ITEMS: { id: Section; label: string; icon: React.ReactNode }[] = [
     {
       id: 'activity',
@@ -423,6 +453,9 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
 
             {activeIntegrationId && activeIntegrationAdapter && (
               <div className="ip-embedded">
+                {workOnDocError && (
+                  <div className="tk-error" role="alert" style={{ margin: 8 }}>{workOnDocError}</div>
+                )}
                 {TICKET_PLUGINS.has(activeIntegrationId) && (
                   <div className="tk-toggle">
                     <button
@@ -451,6 +484,7 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
                     adapter={activeIntegrationAdapter}
                     worktreeContext={{ repoPath: activeRepoPath, branch: activeRepoBranch ?? null }}
                     getTerminalOutput={() => captureTerminalOutput(focusedPaneId)}
+                    onWorkOnDoc={activeIntegrationId === 'notion' ? workOnDoc : undefined}
                   />
                 )}
               </div>

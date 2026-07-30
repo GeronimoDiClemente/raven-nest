@@ -1252,7 +1252,7 @@ export default function App() {
           onStartTutorial={() => setTutorialTour('my-repos')}
           activeRepoPath={activeCellRepoPath ?? null}
           focusedPaneId={focusedPaneId}
-          onOpenWorktree={(path) => { setMyReposOpen(false); setAddingPane({ worktreePath: path }) }}
+          onOpenWorktree={(path, initialInput) => { setMyReposOpen(false); setAddingPane({ worktreePath: path, ...(initialInput ? { initialInput } : {}) }) }}
         />
       )}
 

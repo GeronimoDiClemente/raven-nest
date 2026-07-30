@@ -139,6 +139,7 @@ import { callPanel, type PanelAdapterDeps } from './integration-panels'
 import { registerAllPanelAdapters, registerAllTicketProviders } from './integrations/register'
 import { ticketLoop } from './ticket-loop'
 import { WorktreeSignals } from './integrations/worktree-signals'
+import { fetchPageMarkdown } from './integrations/notion'
 import { EventBus } from './integrations/event-bus'
 import { loadRecipes } from './integrations/recipes'
 import { registerBusCommands } from './integrations/bus-commands'
@@ -2352,6 +2353,24 @@ ipcMain.handle('tickets:startWork', async (_e, args: {
   await ticketLoop.startWork(pluginId, t, branch, panelDeps(),
     ownerRepo ? `${ownerRepo.owner}/${ownerRepo.repo}` : null)
   return { ok: true as const }
+})
+
+// H5 Motor 2 — Notion spec→worktree: baja la página como markdown, la escribe
+// en <worktree>/.nest/spec.md (mismo patrón que TASK.md en tickets:startWork) y
+// devuelve el markdown para inyectarlo como prompt inicial del agente
+// (initialInput). worktreePath debe ser un worktree que ESTA app registró.
+ipcMain.handle('notion:specToWorktree', async (_e, args: { pageId: string; worktreePath: string }) => {
+  const { pageId, worktreePath } = args ?? {}
+  if (typeof pageId !== 'string' || typeof worktreePath !== 'string') return { ok: false as const, error: 'BAD_ARGS' }
+  if (!worktreeStore.get(worktreePath) || !existsSync(worktreePath)) return { ok: false as const, error: 'NO_WORKTREE' }
+  try {
+    const md = await fetchPageMarkdown(panelDeps(), pageId)
+    mkdirSync(join(worktreePath, '.nest'), { recursive: true })
+    writeFileSync(join(worktreePath, '.nest', 'spec.md'), md)
+    return { ok: true as const, prompt: md }
+  } catch (err) {
+    return { ok: false as const, error: err instanceof Error ? err.message : 'error' }
+  }
 })
 
 // PR polling → ticket transitions (in_review/done). Every 90s ask GitHub for

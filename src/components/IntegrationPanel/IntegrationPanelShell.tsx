@@ -8,13 +8,16 @@ interface Props {
   adapter: IntegrationAdapter
   worktreeContext: WorktreeContext
   getTerminalOutput?: () => string
+  /** H5: cuando se provee (paneles de docs, p.ej. Notion), muestra "Work on this"
+   *  en el detalle — baja el doc como spec inicial de un worktree nuevo. */
+  onWorkOnDoc?: (pageId: string, title: string) => void
 }
 
 function errorMessage(e: unknown): string {
   return e instanceof Error ? e.message : String(e)
 }
 
-export function IntegrationPanelShell({ adapter, worktreeContext, getTerminalOutput }: Props) {
+export function IntegrationPanelShell({ adapter, worktreeContext, getTerminalOutput, onWorkOnDoc }: Props) {
   const [sections, setSections] = useState<Section[]>([])
   const [selected, setSelected] = useState<ItemRef | null>(null)
   const [detail, setDetail] = useState<DetailModel | null>(null)
@@ -152,6 +155,11 @@ export function IntegrationPanelShell({ adapter, worktreeContext, getTerminalOut
                     {a.label}
                   </button>
                 ))}
+                {onWorkOnDoc && (
+                  <button className="ip-action ip-action-primary" onClick={() => onWorkOnDoc(detail.ref.itemId, detail.title)}>
+                    Work on this
+                  </button>
+                )}
               </div>
               <div className="ip-detail-meta">
                 {detail.meta.map((m) => <span key={m.label}>{m.label} <b>{m.value}</b></span>)}

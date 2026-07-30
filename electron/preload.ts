@@ -292,6 +292,11 @@ contextBridge.exposeInMainWorld('signals', {
   },
 })
 
+contextBridge.exposeInMainWorld('notion', {
+  specToWorktree: (pageId: string, worktreePath: string) =>
+    ipcRenderer.invoke('notion:specToWorktree', { pageId, worktreePath }),
+})
+
 contextBridge.exposeInMainWorld('worktree', {
   list: (repoPath: string) => ipcRenderer.invoke('worktree:list', repoPath),
   create: (opts: unknown) => ipcRenderer.invoke('worktree:create', opts),
