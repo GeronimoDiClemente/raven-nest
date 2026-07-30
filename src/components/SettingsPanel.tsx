@@ -4,9 +4,13 @@ import { supabase } from '../lib/supabase'
 import { useSettings } from '../hooks/useSettings'
 import { useGitHub } from '../hooks/useGitHub'
 import { useGitlab } from '../hooks/useGitlab'
+import { useMemory } from '../hooks/useMemory'
+import { useProfile } from '../hooks/useProfile'
+import { PLAN_LIMITS } from '../lib/stripe'
 import { formatBinding, eventToBinding, Keybindings } from '../lib/keybindings'
 import { PresetEditor } from './PresetEditor'
 import { BenchmarkDashboard } from './BenchmarkDashboard'
+import UpgradeModal from './UpgradeModal'
 
 type Tab = 'keybinds' | 'presets' | 'benchmarks' | 'updates' | 'account'
 
@@ -85,6 +89,9 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
   const { settings, updateKeybinding, updateVoiceLanguage } = useSettings()
   const { isConnected: githubConnected, githubLogin, connectGitHub, disconnectGitHub } = useGitHub()
   const { isConnected: gitlabConnected, gitlabLogin, connectGitlab, disconnectGitlab } = useGitlab()
+  const memory = useMemory()
+  const { plan } = useProfile()
+  const [memoryUpgradeOpen, setMemoryUpgradeOpen] = useState(false)
   const kb = settings.keybindings
 
   useEffect(() => {
@@ -258,10 +265,59 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                     </div>
                   </div>
 
+                  <div className="sp-card">
+                    <div className="sp-card-row">
+                      <div className="sp-card-left">
+                        <span aria-hidden="true">🧠</span>
+                        <span className="sp-card-label">Nest Memory</span>
+                        {memory.state === 'connected' && (
+                          <span style={{ fontSize: 11, opacity: 0.65, marginLeft: 6 }}>
+                            {memory.itemCount} items{memory.pendingCount > 0 ? ` · ${memory.pendingCount} pending` : ' · synced'}
+                          </span>
+                        )}
+                        {memory.state === 'paused' && (
+                          <span style={{ fontSize: 11, color: '#f59e0b', marginLeft: 6 }}>
+                            Offline — {memory.pendingCount} change{memory.pendingCount === 1 ? '' : 's'} will sync when you're back
+                          </span>
+                        )}
+                        {memory.state === 'error' && (
+                          <span style={{ fontSize: 11, color: '#ef4444', marginLeft: 6 }}>
+                            Couldn't sync{memory.error ? ` — ${memory.error}` : ''}
+                          </span>
+                        )}
+                        {memory.state === 'disconnected' && !PLAN_LIMITS[plan].memoryCloud && (
+                          <span style={{ fontSize: 11, opacity: 0.65, marginLeft: 6 }}>
+                            Local memory active — cloud sync is a Pro feature
+                          </span>
+                        )}
+                        {(memory.state === 'connecting' || memory.state === 'migrating') && (
+                          <span style={{ fontSize: 11, opacity: 0.65, marginLeft: 6 }}>
+                            {memory.state === 'connecting' ? 'Connecting…' : 'Importing your memory…'}
+                          </span>
+                        )}
+                      </div>
+                      {memory.state === 'connected' || memory.state === 'paused' ? (
+                        <button className="sp-btn-danger" onClick={() => memory.disconnect()}>Disconnect</button>
+                      ) : memory.state === 'error' ? (
+                        <button className="sp-btn-purple" onClick={() => memory.connect()}>Retry</button>
+                      ) : memory.state === 'connecting' || memory.state === 'migrating' ? (
+                        <button className="sp-btn-purple" disabled>…</button>
+                      ) : PLAN_LIMITS[plan].memoryCloud ? (
+                        <button className="sp-btn-purple" onClick={() => memory.connect()}>Connect</button>
+                      ) : (
+                        <button className="sp-btn-purple" onClick={() => setMemoryUpgradeOpen(true)}>Upgrade</button>
+                      )}
+                    </div>
+                  </div>
+
                   <button className="sp-action-btn" onClick={() => supabase.auth.signOut()}>
                     Sign out
                   </button>
                 </div>
+              )}
+
+              {memoryUpgradeOpen && (
+                <UpgradeModal currentPlan={plan} onClose={() => setMemoryUpgradeOpen(false)} />
               )}
 
             </div>
