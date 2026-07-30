@@ -112,6 +112,26 @@ export interface NotionBridge {
     Promise<{ ok: true; prompt: string } | { ok: false; error: string }>
 }
 
+// === Google Calendar (H6 Motor 4) — espejo de GcalEvent de
+// electron/integrations/gcal.ts (src/ nunca importa de electron/) ===
+export interface GcalEventDTO {
+  id: string
+  summary?: string
+  description?: string
+  start?: { dateTime?: string; date?: string }
+  end?: { dateTime?: string; date?: string }
+}
+
+export interface GcalBridge {
+  /** OAuth desktop (loopback + PKCE). Guarda las creds en pluginCreds('gcal'). */
+  openOAuth: () => Promise<{ ok: true } | { ok: false; error: string }>
+  /** Bloques del rango (block→session). Errores degradan a []. */
+  listEvents: (timeMin: string, timeMax: string) => Promise<GcalEventDTO[]>
+  /** Escribe <worktree>/.nest/spec.md con el título/contexto y devuelve el prompt. */
+  startSession: (args: { title: string; context: string; worktreePath: string }) =>
+    Promise<{ ok: true; prompt: string } | { ok: false; error: string }>
+}
+
 export type DiffLineType = 'add' | 'del' | 'context' | 'meta'
 export interface DiffLine { type: DiffLineType; text: string; oldNum?: number; newNum?: number }
 export interface DiffHunk { header: string; lines: DiffLine[] }
@@ -588,6 +608,7 @@ declare global {
     tickets: TicketsBridge
     signals: SignalsBridge
     notion: NotionBridge
+    gcal: GcalBridge
   }
 }
 

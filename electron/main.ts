@@ -140,6 +140,8 @@ import { registerAllPanelAdapters, registerAllTicketProviders } from './integrat
 import { ticketLoop } from './ticket-loop'
 import { WorktreeSignals } from './integrations/worktree-signals'
 import { fetchPageMarkdown } from './integrations/notion'
+import { createGcalAdapter, type GcalEvent } from './integrations/gcal'
+import { refreshAccessToken, startLoopbackFlow, type GcalCreds } from './integrations/gcal-oauth'
 import { EventBus } from './integrations/event-bus'
 import { loadRecipes } from './integrations/recipes'
 import { registerBusCommands } from './integrations/bus-commands'
@@ -2281,7 +2283,11 @@ eventBus.setRecipes(loadRecipes(
   pathJoin(ravenHome(), '.raven-nest', 'recipes.json'),
   (branch) => ticketLoop.trackedTicket(branch),
 ))
-registerBusCommands(eventBus, { ticketLoop })
+// H6 Motor 4 — Calendar: el sink de outcomes se resuelve con `gcalDeps()`, que
+// desenvuelve el access token de las creds guardadas (JSON) y refresca en
+// background si venció. Sin creds gcal, `gcalDeps().getToken('gcal')` devuelve
+// null y el adapter degrada a NotConnectedError → el handler logOutcome lo traga.
+registerBusCommands(eventBus, { ticketLoop, gcal: () => createGcalAdapter(gcalDeps()) })
 ticketLoop.attachBus(eventBus)
 
 // Single source of adapter deps (tokens/config/fetch) shared by the panel
@@ -2291,6 +2297,48 @@ const panelDeps = (): PanelAdapterDeps => ({
   getConfig: (id) => pluginsStore.list().find(p => p.pluginId === id)?.config ?? {},
   fetch,
 })
+
+// Credenciales de Google Calendar guardadas por el OAuth loopback (JSON
+// {accessToken, refreshToken, expiresAt}). Parse tolerante: token mal formado → null.
+function gcalCreds(): GcalCreds | null {
+  const raw = pluginCreds.getToken('gcal')
+  if (!raw) return null
+  try {
+    const c = JSON.parse(raw) as GcalCreds
+    return typeof c?.accessToken === 'string' ? c : null
+  } catch {
+    return null
+  }
+}
+
+// Refresca el access token si venció (best-effort, persiste las nuevas creds).
+// Sin refresh token o sin client id, no hace nada. Se usa antes del read path
+// (gcal:listEvents) y en background desde gcalDeps() para el bus.
+async function refreshGcalIfNeeded(): Promise<void> {
+  const creds = gcalCreds()
+  const clientId = import.meta.env.MAIN_VITE_GCAL_CLIENT_ID ?? ''
+  if (!creds || !creds.refreshToken || !clientId) return
+  if (creds.expiresAt > Date.now()) return
+  try {
+    const next = await refreshAccessToken({ clientId, refreshToken: creds.refreshToken, fetch })
+    pluginCreds.setToken('gcal', JSON.stringify({ ...creds, accessToken: next.accessToken, expiresAt: next.expiresAt }))
+  } catch (err) {
+    console.warn('[gcal] refresh falló', err)
+  }
+}
+
+// Arma PanelAdapterDeps con el access token de Calendar. Síncrono (el bus llama
+// al factory de forma síncrona): si el token venció, dispara el refresh en
+// background para el próximo ciclo y usa el token actual en este.
+function gcalDeps(): PanelAdapterDeps {
+  const creds = gcalCreds()
+  if (creds && creds.refreshToken && creds.expiresAt <= Date.now()) void refreshGcalIfNeeded()
+  return {
+    getToken: (id) => (id === 'gcal' ? (creds?.accessToken ?? null) : pluginCreds.getToken(id)),
+    getConfig: (id) => pluginsStore.list().find(p => p.pluginId === id)?.config ?? {},
+    fetch,
+  }
+}
 
 // Motor 3 (H4): señales por worktree (CI/review) en el main. Fuente única de
 // `ci.failed` (se retiró de ticket-loop). Resuelve owner/repo con el mismo
@@ -2365,6 +2413,49 @@ ipcMain.handle('notion:specToWorktree', async (_e, args: { pageId: string; workt
   if (!worktreeStore.get(worktreePath) || !existsSync(worktreePath)) return { ok: false as const, error: 'NO_WORKTREE' }
   try {
     const md = await fetchPageMarkdown(panelDeps(), pageId)
+    mkdirSync(join(worktreePath, '.nest'), { recursive: true })
+    writeFileSync(join(worktreePath, '.nest', 'spec.md'), md)
+    return { ok: true as const, prompt: md }
+  } catch (err) {
+    return { ok: false as const, error: err instanceof Error ? err.message : 'error' }
+  }
+})
+
+// === Google Calendar IPC (H6 Motor 4) ===
+// OAuth desktop: loopback server + PKCE (sin client secret). El token nunca sale
+// del main; se guarda en pluginCreds('gcal') como JSON {accessToken, refreshToken,
+// expiresAt}. Sin client id configurado → NOT_CONFIGURED (igual patrón que Slack).
+ipcMain.handle('gcal:openOAuth', async () => {
+  const clientId = import.meta.env.MAIN_VITE_GCAL_CLIENT_ID ?? ''
+  if (!clientId) return { ok: false, error: 'NOT_CONFIGURED' }
+  try {
+    const creds = await startLoopbackFlow({ clientId, openExternal: (u) => shell.openExternal(u), fetch })
+    pluginCreds.setToken('gcal', JSON.stringify(creds))
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : 'error' }
+  }
+})
+
+// Bloques del día (block→session). Refresca el token si venció antes de leer;
+// cualquier error (sin conexión / API) degrada a [] para que el panel no crashee.
+ipcMain.handle('gcal:listEvents', async (_e, timeMin: string, timeMax: string): Promise<GcalEvent[]> => {
+  if (typeof timeMin !== 'string' || typeof timeMax !== 'string') return []
+  await refreshGcalIfNeeded()
+  return createGcalAdapter(gcalDeps()).listEvents(timeMin, timeMax).catch(() => [])
+})
+
+// Block → Session (un click, JAMÁS automático): escribe <worktree>/.nest/spec.md
+// con el título/contexto del evento (mismo patrón que notion:specToWorktree) y
+// devuelve el prompt para inyectar como initialInput del pane (reusa H4).
+ipcMain.handle('gcal:startSession', async (_e, args: { title: string; context: string; worktreePath: string }) => {
+  const { title, context, worktreePath } = args ?? {}
+  if (typeof title !== 'string' || typeof context !== 'string' || typeof worktreePath !== 'string') {
+    return { ok: false as const, error: 'BAD_ARGS' }
+  }
+  if (!worktreeStore.get(worktreePath) || !existsSync(worktreePath)) return { ok: false as const, error: 'NO_WORKTREE' }
+  try {
+    const md = `# ${title}\n\n${context}`
     mkdirSync(join(worktreePath, '.nest'), { recursive: true })
     writeFileSync(join(worktreePath, '.nest', 'spec.md'), md)
     return { ok: true as const, prompt: md }

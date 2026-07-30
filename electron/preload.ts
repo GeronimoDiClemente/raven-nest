@@ -297,6 +297,14 @@ contextBridge.exposeInMainWorld('notion', {
     ipcRenderer.invoke('notion:specToWorktree', { pageId, worktreePath }),
 })
 
+contextBridge.exposeInMainWorld('gcal', {
+  openOAuth: () => ipcRenderer.invoke('gcal:openOAuth'),
+  listEvents: (timeMin: string, timeMax: string) =>
+    ipcRenderer.invoke('gcal:listEvents', timeMin, timeMax),
+  startSession: (args: { title: string; context: string; worktreePath: string }) =>
+    ipcRenderer.invoke('gcal:startSession', args),
+})
+
 contextBridge.exposeInMainWorld('worktree', {
   list: (repoPath: string) => ipcRenderer.invoke('worktree:list', repoPath),
   create: (opts: unknown) => ipcRenderer.invoke('worktree:create', opts),
