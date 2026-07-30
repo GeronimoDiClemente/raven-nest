@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { trendVsPrev, topAreasFromFiles } from '../../lib/employee-analytics'
+import { perLoginPrev } from '../../lib/employee-analytics'
 
 describe('trendVsPrev', () => {
   it('returns a signed percentage delta vs the previous period', () => {
@@ -26,5 +27,30 @@ describe('topAreasFromFiles', () => {
   })
   it('is empty when no PR carries files', () => {
     expect(topAreasFromFiles([{ files: [] }], 5)).toEqual([])
+  })
+})
+
+const ev = (login: string, type: string, daysAgo: number, payload: object = {}) => ({
+  id: `${login}-${type}-${daysAgo}-${Math.random()}`,
+  type,
+  actor: { login, avatar_url: '' },
+  repo: { name: 'o/r' },
+  created_at: new Date(Date.now() - daysAgo * 86_400_000).toISOString(),
+  payload,
+})
+
+describe('perLoginPrev', () => {
+  it('totals commits and merged PRs per login for the PREVIOUS window only', () => {
+    const events = [
+      ev('ana', 'PushEvent', 2, { commits: [{ sha: 'a' }] }),
+      ev('ana', 'PushEvent', 10, { commits: [{ sha: 'b' }, { sha: 'c' }] }),
+      ev('ana', 'PullRequestEvent', 12, { action: 'closed', pull_request: { merged: true } }),
+    ]
+    const prev = perLoginPrev(events as never, 7)
+    expect(prev.ana).toEqual({ commits: 2, prsMerged: 1 })
+  })
+  it('has no entry for a login with no previous activity', () => {
+    const events = [ev('bob', 'PushEvent', 1, { commits: [{ sha: 'a' }] })]
+    expect(perLoginPrev(events as never, 7).bob).toBeUndefined()
   })
 })
