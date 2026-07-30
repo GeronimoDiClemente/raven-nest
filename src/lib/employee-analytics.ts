@@ -49,3 +49,33 @@ export function perLoginPrev(
   }
   return out
 }
+
+const STUCK_DAYS = 4          // an open PR older than this with no review is "stuck"
+const QUIET_DROP = 0.6        // >=60% fewer commits than last period → "quiet"
+
+export interface OpenPrLite { createdAt: string; reviewCount: number }
+export interface OpenPrSig { ageDays: number; stuck: boolean; awaitingReview: boolean }
+
+export function openPrSignal(pr: OpenPrLite): OpenPrSig {
+  const ageDays = Math.floor((Date.now() - new Date(pr.createdAt).getTime()) / DAY_MS)
+  const awaitingReview = pr.reviewCount === 0
+  return { ageDays, awaitingReview, stuck: awaitingReview && ageDays >= STUCK_DAYS }
+}
+
+export interface AttentionChip { cls: 'warn' | 'review'; text: string }
+
+/** The list chip. Coaching signals only — never a rank/score. First match wins. */
+export function attentionFor(
+  dev: { commits: number; prevCommits: number },
+  openPrs: OpenPrLite[],
+  _viewerLogin: string,
+): AttentionChip | null {
+  const stuck = openPrs.map(openPrSignal).filter(s => s.stuck).sort((a, b) => b.ageDays - a.ageDays)[0]
+  if (stuck) return { cls: 'warn', text: `PR stuck ${stuck.ageDays}d` }
+  if (dev.prevCommits > 0 && dev.commits <= dev.prevCommits * (1 - QUIET_DROP)) {
+    return { cls: 'warn', text: 'Quiet — activity down' }
+  }
+  const awaiting = openPrs.filter(p => openPrSignal(p).awaitingReview).length
+  if (awaiting > 0) return { cls: 'review', text: `${awaiting} PR${awaiting > 1 ? 's' : ''} awaiting review` }
+  return null
+}

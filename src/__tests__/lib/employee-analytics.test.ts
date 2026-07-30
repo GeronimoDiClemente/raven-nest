@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { trendVsPrev, topAreasFromFiles } from '../../lib/employee-analytics'
 import { perLoginPrev } from '../../lib/employee-analytics'
+import { openPrSignal, attentionFor } from '../../lib/employee-analytics'
 
 describe('trendVsPrev', () => {
   it('returns a signed percentage delta vs the previous period', () => {
@@ -52,5 +53,32 @@ describe('perLoginPrev', () => {
   it('has no entry for a login with no previous activity', () => {
     const events = [ev('bob', 'PushEvent', 1, { commits: [{ sha: 'a' }] })]
     expect(perLoginPrev(events as never, 7).bob).toBeUndefined()
+  })
+})
+
+const daysAgoIso = (d: number) => new Date(Date.now() - d * 86_400_000).toISOString()
+
+describe('openPrSignal', () => {
+  it('flags an old PR with no review as stuck + awaitingReview', () => {
+    const s = openPrSignal({ createdAt: daysAgoIso(6), reviewCount: 0 })
+    expect(s).toEqual({ ageDays: 6, stuck: true, awaitingReview: true })
+  })
+  it('a fresh reviewed PR is neither stuck nor awaiting', () => {
+    const s = openPrSignal({ createdAt: daysAgoIso(1), reviewCount: 2 })
+    expect(s).toEqual({ ageDays: 1, stuck: false, awaitingReview: false })
+  })
+})
+
+describe('attentionFor', () => {
+  it('flags a big activity drop as "Quiet"', () => {
+    const chip = attentionFor({ commits: 5, prevCommits: 40 }, [], 'viewer')
+    expect(chip).toEqual({ cls: 'warn', text: 'Quiet — activity down' })
+  })
+  it('flags a stuck open PR', () => {
+    const chip = attentionFor({ commits: 30, prevCommits: 28 }, [{ createdAt: daysAgoIso(6), reviewCount: 0 }], 'viewer')
+    expect(chip).toEqual({ cls: 'warn', text: 'PR stuck 6d' })
+  })
+  it('returns null when nothing needs attention', () => {
+    expect(attentionFor({ commits: 30, prevCommits: 28 }, [{ createdAt: daysAgoIso(1), reviewCount: 1 }], 'viewer')).toBeNull()
   })
 })
