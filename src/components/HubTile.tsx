@@ -44,6 +44,9 @@ export default function HubTile({
   // NOT pull DOM focus into the xterm. That keeps Tab/Enter as Hub gestures
   // (cycle / jump); typing into a tile is opt-in via click (see onMouseDown).
   const aiColor = pane.borderColor ?? pane.customColor ?? AI_CONFIG[pane.aiType]?.color ?? '#888888'
+  // What identifies the tile: the user's rename, else their note, else the agent
+  // type (same for every tile, so it's the weakest identifier).
+  const hubLabel = pane.customLabel ?? pane.note ?? AI_CONFIG[pane.aiType]?.label ?? 'Terminal'
 
   return (
     <div
@@ -55,11 +58,10 @@ export default function HubTile({
     >
       <div className="hub-tile-header">
         <span className="pane-color-btn" style={{ background: aiColor, cursor: 'default' }} />
-        {pane.customLabel ? (
-          <span className="hub-tile-label" style={{ color: aiColor }} title={pane.customLabel}>{pane.customLabel}</span>
-        ) : (
-          <span className="pane-ai-label" style={{ color: aiColor }}>{AI_CONFIG[pane.aiType].label}</span>
-        )}
+        {/* Identify the terminal by what the user actually named it (rename label,
+            then note) — the agent type is the same for every tile, so it's the
+            last-resort fallback, not the primary identifier. */}
+        <span className="hub-tile-label" style={{ color: aiColor }} title={hubLabel}>{hubLabel}</span>
         {pane.accountName && !AI_CONFIG[pane.aiType]?.noAccount && (
           <span className="pane-account-name">{pane.accountName}</span>
         )}

@@ -75,6 +75,10 @@ export default function HubSidebarPanel({
     if (next.has(id)) next.delete(id); else next.add(id)
     return next
   })
+  // Collapse/expand every workspace at once, so a picker with many workspaces
+  // stays compact instead of a long scroll of terminal rows.
+  const allCollapsed = workspaces.length > 0 && workspaces.every(ws => collapsed.has(ws.id))
+  const toggleAll = () => setCollapsed(allCollapsed ? new Set() : new Set(workspaces.map(ws => ws.id)))
 
   // Collapsed sidebar (44px): only the New-workspace icon, like the non-Hub rail.
   const newWorkspaceRow = (
@@ -127,6 +131,14 @@ export default function HubSidebarPanel({
       <div className="hub-sec">
         <div className="hub-sec-head">
           <span className="hub-sec-title">Workspaces</span>
+          {workspaces.length > 1 && (
+            <button
+              className="hub-add hub-collapse-all"
+              onClick={toggleAll}
+              title={allCollapsed ? 'Expand all workspaces' : 'Collapse all workspaces'}
+              aria-label={allCollapsed ? 'Expand all workspaces' : 'Collapse all workspaces'}
+            >{allCollapsed ? '▾' : '▴'}</button>
+          )}
           <button className="hub-add" onClick={onNewWorkspace} title="New workspace">+</button>
         </div>
         {workspaces.length === 0 && <div className="hub-sec-empty">No other workspaces open</div>}

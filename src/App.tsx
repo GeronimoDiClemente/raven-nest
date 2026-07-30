@@ -1181,7 +1181,7 @@ export default function App() {
     accentColor: t.accentColor,
     terminals: t.panes.filter(p => p.aiType !== 'browser').map(p => ({
       id: p.id,
-      label: p.customLabel ?? AI_CONFIG[p.aiType]?.label ?? 'Terminal',
+      label: p.customLabel ?? p.note ?? AI_CONFIG[p.aiType]?.label ?? 'Terminal',
       color: p.borderColor ?? p.customColor ?? AI_CONFIG[p.aiType]?.color ?? '#888888',
       aiType: p.aiType,
       inHub: hubPaneSet.has(p.id),
