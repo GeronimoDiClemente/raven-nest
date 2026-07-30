@@ -21,6 +21,12 @@ export interface PlanLimits {
   allowSnippets: boolean
   allowWorkspaces: boolean
   allowTeam: boolean
+  // Nest Memory — docs/nest-memory-architecture.md §7.1
+  memoryLocal: boolean          // always true — Free keeps full local memory (the demo, §7.1)
+  memoryCloud: boolean          // Pro+: replication + multi-device
+  memoryTeamShare: boolean      // Team only: promote to team scope (Phase 3)
+  maxMemoryProjects: number     // free: Infinity (local, unlimited), pro: 50, team: 200
+  maxCloudObservations: number  // pro: 50_000, team: 250_000 — soft caps, warn at 80%
 }
 
 export const PLAN_LIMITS: Record<Plan, PlanLimits> = {
@@ -32,6 +38,11 @@ export const PLAN_LIMITS: Record<Plan, PlanLimits> = {
     allowSnippets: false,
     allowWorkspaces: false,
     allowTeam: false,
+    memoryLocal: true,
+    memoryCloud: false,
+    memoryTeamShare: false,
+    maxMemoryProjects: Infinity,
+    maxCloudObservations: 0,
   },
   pro: {
     maxRows: 4,
@@ -41,6 +52,11 @@ export const PLAN_LIMITS: Record<Plan, PlanLimits> = {
     allowSnippets: true,
     allowWorkspaces: true,
     allowTeam: false,
+    memoryLocal: true,
+    memoryCloud: true,
+    memoryTeamShare: false,
+    maxMemoryProjects: 50,
+    maxCloudObservations: 50_000,
   },
   team: {
     maxRows: 4,
@@ -50,5 +66,10 @@ export const PLAN_LIMITS: Record<Plan, PlanLimits> = {
     allowSnippets: true,
     allowWorkspaces: true,
     allowTeam: true,
+    memoryLocal: true,
+    memoryCloud: true,
+    memoryTeamShare: true,
+    maxMemoryProjects: 200,
+    maxCloudObservations: 250_000,
   },
 }
