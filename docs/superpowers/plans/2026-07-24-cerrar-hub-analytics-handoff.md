@@ -40,7 +40,31 @@ mirrors).
 
 ---
 
-## 2) Analytics (team-stats) — HECHO pero con BUG: "no se ve nada"
+## 2) Analytics (team-stats) — ✅ RESUELTO (2026-07-30)
+
+**Root cause (confirmado, independiente de la cuenta):** `useTeamStats` sacaba TODO de
+`GET /repos/:o/:r/events`, pero GitHub **ya no** incluye en esa Events API los campos que el
+código leía. Verificado con `gh` contra un repo privado y contra `microsoft/vscode` (público),
+con el `Accept: application/vnd.github.v3+json` exacto de la app:
+- `PushEvent.payload` → `{before, head, push_id, ref, repository_id}` (sin `commits`/`size`) → **commits siempre 0**, gráfico vacío.
+- `PullRequestEvent.payload.pull_request` → `{base, head, id, number, url}` (sin `merged`/`merged_at`/`created_at`/`additions`/`deletions`) → **"No merged PRs"**, PR size / cycle time / review latency / coverage siempre `—`.
+No era la hipótesis #1 (team sin repos): con un team lleno de repos activos igual daba todo 0.
+
+**Fix:** migrar el data-layer de `useTeamStats` de la Events API a **GraphQL** (commits del
+default branch por ventana + PRs mergeados con additions/deletions/timestamps + reviews con
+submittedAt). Se mantienen intactas todas las funciones puras de métrica y sus tests; solo se
+reemplazó la adquisición de datos, vía una función pura nueva `eventsFromGraphQL` (con tests).
+Verificado con datos reales: `raven-nest` a 30d → commits 14, PRs merged 2, cycle ~8 min, 2×M.
+`.claude/tsc-baseline.json` intacto (0 errores tsc nuevos), 263 tests verdes.
+
+**Notas de diseño del rewrite:**
+- Commits = default branch (trabajo integrado), no todos los pushes. Cap 3 páginas (300 commits/60d).
+- Review latency/coverage se calculan sobre PRs **mergeados** (flujo de trabajo integrado).
+- Fetch por repo: 1 query commits + 1 query PRs, en pool de `CONCURRENCY`; ventana client-side 7/30 sin re-fetch.
+
+---
+
+### Contexto histórico del bug (previo al fix)
 
 **Pivot** (commit `37e305b`): TeamStats = **flujo & salud del equipo**, sin ranking por dev.
 7 tarjetas (Online / Commits / PRs merged / Reviews / Cycle time / Review latency / Review
@@ -98,6 +122,24 @@ quedan siempre en `—` aunque haya actividad, y habría que leerlas de la API d
 (más llamadas). Probar contra un repo real antes de dar Analytics por cerrado.
 
 ---
+
+## 2026-07-27 — feedback de testing en vivo (3 mejoras Hub)
+Gero probó el branch en una instancia sobre copia de userData (video/driver en
+`capture/stats-video.mjs`, video en `capture/stats-rec/hub-walkthrough.mp4`). 3 pedidos:
+
+1. **Identificar la tile por su etiqueta, no "CLAUDE"** — HECHO. Las tiles/picker
+   mostraban `customLabel ?? agente`, y como sus terminales están nombradas con **nota**,
+   caían a "CLAUDE". Fix: `customLabel ?? note ?? agente` en `HubTile.tsx` (`hubLabel`) y en
+   `App.tsx:1184` (label del picker). Rebuild pendiente para verificar en vivo.
+2. **Picker de la sidebar del Hub más fácil de cerrar / menos espacioso** — HECHO (v1):
+   botón **collapse/expand-all** en el header "Workspaces" de `HubSidebarPanel.tsx`
+   (`toggleAll`/`allCollapsed`). Falta CSS de `.hub-collapse-all` si se quiere pulir.
+3. **Guardar un Hub como preset (sincronizado por cuenta)** — PENDIENTE, feature grande.
+   Decisión de Gero: **sync por cuenta (Supabase)**, no local. Diseño a escribir: tabla
+   `hub_presets` (user_id, name, panes[] ordenados, created_at) + RLS `auth.uid()=user_id`,
+   guardar/recuperar/borrar preset, y UI para nombrarlo y reabrirlo ya seteado. Ojo: los
+   panes se referencian por id efímero — un preset debe reconstruir por (workspace+label)
+   o recrear terminales, no por pane-id. Definir en el spec.
 
 ## Housekeeping
 - Stash `wip CLAUDE.md pre-review PR21` pendiente para restaurar al volver a

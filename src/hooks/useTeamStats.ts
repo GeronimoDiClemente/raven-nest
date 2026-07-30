@@ -294,6 +294,144 @@ export function medianReviewLatencyHours(events: GitHubEvent[], windowDays = 7):
   return durs.length % 2 ? durs[mid] : (durs[mid - 1] + durs[mid]) / 2
 }
 
+// ── GitHub GraphQL → GitHubEvent adapter ─────────────────────────────────────
+// The REST Events API (/repos/:o/:r/events) stopped returning the fields these
+// metrics need: its PushEvent payload has no `commits` array and its
+// PullRequestEvent carries only {base,head,id,number,url} — no merged flag,
+// timestamps, or additions/deletions. So every metric read back 0/—. GraphQL
+// DOES return them, so we fetch there and synthesize the same GitHubEvent shape
+// the metric functions above already parse — the aggregation logic is unchanged.
+
+export interface GqlCommit {
+  oid: string
+  committedDate: string
+  author?: { user?: { login?: string | null } | null; avatarUrl?: string | null; name?: string | null } | null
+}
+export interface GqlReview {
+  author?: { login?: string | null; avatarUrl?: string | null } | null
+  submittedAt?: string | null
+  state?: string
+}
+export interface GqlPullRequest {
+  id: string
+  number: number
+  title?: string | null
+  createdAt: string
+  mergedAt?: string | null
+  additions?: number | null
+  deletions?: number | null
+  author?: { login?: string | null; avatarUrl?: string | null } | null
+  reviews?: { nodes: GqlReview[] } | null
+}
+
+export function eventsFromGraphQL(
+  repoName: string,
+  data: { commits: GqlCommit[]; prs: GqlPullRequest[] },
+): GitHubEvent[] {
+  const events: GitHubEvent[] = []
+
+  for (const c of data.commits) {
+    // A commit with no linked GitHub account (unknown email) still counts toward
+    // team throughput — fall back to the git author name so it isn't dropped.
+    const login = c.author?.user?.login ?? c.author?.name ?? 'unknown'
+    events.push({
+      id: `commit:${c.oid}`,
+      type: 'PushEvent',
+      actor: { login, avatar_url: c.author?.avatarUrl ?? '' },
+      repo: { name: repoName },
+      created_at: c.committedDate,
+      // One commit per event: aggregateEvents counts commits.length and buckets
+      // by created_at, so per-commit events yield an accurate daily histogram.
+      payload: { commits: [{ sha: c.oid, message: '' }] },
+    })
+  }
+
+  for (const pr of data.prs) {
+    if (pr.mergedAt) {
+      const login = pr.author?.login ?? 'unknown'
+      events.push({
+        id: `pr:${repoName}#${pr.number}`,
+        type: 'PullRequestEvent',
+        actor: { login, avatar_url: pr.author?.avatarUrl ?? '' },
+        repo: { name: repoName },
+        created_at: pr.mergedAt,
+        payload: {
+          action: 'closed',
+          pull_request: {
+            merged: true,
+            title: pr.title ?? undefined,
+            number: pr.number,
+            created_at: pr.createdAt,
+            merged_at: pr.mergedAt,
+            additions: pr.additions ?? undefined,
+            deletions: pr.deletions ?? undefined,
+          },
+        },
+      })
+    }
+    // Reviews correlate to their PR by repo#number (for coverage/latency),
+    // independent of merge state. A pending review carries no submittedAt.
+    const reviews = pr.reviews?.nodes ?? []
+    reviews.forEach((rv, i) => {
+      if (!rv.submittedAt) return
+      const login = rv.author?.login ?? 'unknown'
+      events.push({
+        id: `review:${repoName}#${pr.number}:${i}`,
+        type: 'PullRequestReviewEvent',
+        actor: { login, avatar_url: rv.author?.avatarUrl ?? '' },
+        repo: { name: repoName },
+        created_at: rv.submittedAt,
+        payload: {
+          action: 'created',
+          review: { state: rv.state, submitted_at: rv.submittedAt },
+          pull_request: { number: pr.number, created_at: pr.createdAt },
+        },
+      })
+    })
+  }
+
+  return events
+}
+
+interface GqlPageInfo { hasNextPage: boolean; endCursor: string | null }
+interface CommitsResponse {
+  repository: { defaultBranchRef: { target: { history?: { nodes: GqlCommit[]; pageInfo: GqlPageInfo } } | null } | null } | null
+}
+interface PrsResponse {
+  repository: { pullRequests: { nodes: GqlPullRequest[]; pageInfo: GqlPageInfo } } | null
+}
+
+// Commits on the default branch (integrated work) within the window, with the
+// author's GitHub login for the roster. `since` filters server-side.
+const COMMITS_QUERY = `
+query($owner:String!,$name:String!,$since:GitTimestamp!,$after:String){
+  repository(owner:$owner,name:$name){
+    defaultBranchRef{ target{ ... on Commit{
+      history(since:$since, first:100, after:$after){
+        nodes{ oid committedDate author{ user{ login } avatarUrl name } }
+        pageInfo{ hasNextPage endCursor }
+      }
+    }}}
+  }
+}`
+
+// Merged PRs with the fields the REST Events API drops: additions/deletions
+// (size), created/merged timestamps (cycle time), and each review's submittedAt
+// (latency + coverage).
+const MERGED_PRS_QUERY = `
+query($owner:String!,$name:String!,$after:String){
+  repository(owner:$owner,name:$name){
+    pullRequests(states:MERGED, first:50, orderBy:{field:UPDATED_AT,direction:DESC}, after:$after){
+      nodes{
+        id number title createdAt mergedAt additions deletions
+        author{ login avatarUrl }
+        reviews(first:50){ nodes{ author{ login avatarUrl } submittedAt state } }
+      }
+      pageInfo{ hasNextPage endCursor }
+    }
+  }
+}`
+
 export function useTeamStats(
   repos: Array<{ repo_full_name: string }>,
   githubToken: string | null,
@@ -319,47 +457,77 @@ export function useTeamStats(
     setError(null)
     setWarning(null)
 
+    const since = new Date(Date.now() - MAX_DAYS * DAY_MS).toISOString()
+
+    const graphql = async (query: string, variables: Record<string, unknown>): Promise<unknown> => {
+      const res = await fetch('https://api.github.com/graphql', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${githubToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query, variables }),
+      })
+      if (!res.ok) throw new Error(`GraphQL HTTP ${res.status}`)
+      const json = (await res.json()) as { data: unknown; errors?: { message: string }[] }
+      // A repo with no access surfaces as an errors[] entry (FORBIDDEN/NOT_FOUND);
+      // treat it as a per-repo failure so the warning banner reflects it.
+      if (json.errors?.length) throw new Error(json.errors[0]?.message ?? 'GraphQL error')
+      return json.data
+    }
+
     const load = async () => {
       const failed: string[] = []
-      const fetchRepoEvents = async (name: string): Promise<GitHubEvent[]> => {
-        const all: GitHubEvent[] = []
-        for (let page = 1; page <= 3; page++) {
-          let res: Response
-          try {
-            res = await fetch(
-              `https://api.github.com/repos/${name}/events?per_page=100&page=${page}`,
-              {
-                headers: {
-                  Authorization: `Bearer ${githubToken}`,
-                  Accept: 'application/vnd.github.v3+json',
-                },
-              }
-            )
-          } catch {
-            if (page === 1) failed.push(name)
-            break
-          }
-          // A 403 (rate limit) / 404 (no access or repo moved) on the 1st page
-          // is a repo failure, not the end of pagination: we record it.
-          if (!res.ok) {
-            if (page === 1) failed.push(name)
-            break
-          }
-          const events = await res.json() as GitHubEvent[]
-          if (events.length === 0) break
-          all.push(...events)
-          const oldest = events[events.length - 1]
-          if (Date.now() - new Date(oldest.created_at).getTime() > MAX_DAYS * DAY_MS) break
+
+      const fetchCommits = async (owner: string, name: string): Promise<GqlCommit[]> => {
+        const out: GqlCommit[] = []
+        let after: string | null = null
+        // Cap at 3 pages (300 commits) within the window — matches the old fetch's cap.
+        for (let page = 0; page < 3; page++) {
+          const data = (await graphql(COMMITS_QUERY, { owner, name, since, after })) as CommitsResponse
+          if (!data.repository) throw new Error('no repo access')
+          const hist = data.repository.defaultBranchRef?.target?.history
+          if (!hist) break // empty repo / no default branch → no commits (not a failure)
+          out.push(...hist.nodes)
+          if (!hist.pageInfo.hasNextPage) break
+          after = hist.pageInfo.endCursor
         }
-        return all
+        return out
+      }
+
+      const fetchMergedPrs = async (owner: string, name: string): Promise<GqlPullRequest[]> => {
+        const out: GqlPullRequest[] = []
+        let after: string | null = null
+        for (let page = 0; page < 3; page++) {
+          const data = (await graphql(MERGED_PRS_QUERY, { owner, name, after })) as PrsResponse
+          if (!data.repository) throw new Error('no repo access')
+          const prs = data.repository.pullRequests
+          out.push(...prs.nodes)
+          if (!prs.pageInfo.hasNextPage) break
+          // PRs come ordered by UPDATED_AT desc; stop once the oldest merge on the
+          // page is past the window (the client-side filter is the real bound).
+          const oldest = prs.nodes[prs.nodes.length - 1]?.mergedAt
+          if (oldest && Date.now() - new Date(oldest).getTime() > MAX_DAYS * DAY_MS) break
+          after = prs.pageInfo.endCursor
+        }
+        return out
+      }
+
+      const fetchRepoActivity = async (fullName: string): Promise<GitHubEvent[]> => {
+        const [owner, name] = fullName.split('/')
+        if (!owner || !name) { failed.push(fullName); return [] }
+        try {
+          const [commits, prs] = await Promise.all([fetchCommits(owner, name), fetchMergedPrs(owner, name)])
+          return eventsFromGraphQL(fullName, { commits, prs })
+        } catch {
+          failed.push(fullName)
+          return []
+        }
       }
 
       try {
         const all: GitHubEvent[] = []
-        // Pool: we process the repos in batches of CONCURRENCY instead of all at once.
+        // Pool: process the repos in batches of CONCURRENCY instead of all at once.
         for (let i = 0; i < repoList.length; i += CONCURRENCY) {
           const batch = repoList.slice(i, i + CONCURRENCY)
-          const results = await Promise.allSettled(batch.map(fetchRepoEvents))
+          const results = await Promise.allSettled(batch.map(fetchRepoActivity))
           for (const r of results) {
             if (r.status === 'fulfilled') all.push(...r.value)
           }
