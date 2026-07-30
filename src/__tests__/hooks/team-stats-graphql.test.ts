@@ -42,7 +42,7 @@ describe('eventsFromGraphQL', () => {
       ],
     })
     expect(prSizeBuckets(events, 7)).toEqual({ s: 1, m: 0, l: 0, xl: 0 })
-    expect(medianMergeHours(events, 7)).toBe(2) // opened 3h ago, merged 1h ago
+    expect(medianMergeHours(events, 7)).toBeCloseTo(2, 3) // opened 3h ago, merged 1h ago
     expect(aggregateEvents(events, 7).find(d => d.login === 'bob')?.prsMerged).toBe(1)
   })
 
@@ -62,7 +62,7 @@ describe('eventsFromGraphQL', () => {
       ],
     })
     expect(reviewCoverage(events, 7)).toEqual({ mergedTotal: 2, reviewed: 1, pct: 0.5 })
-    expect(medianReviewLatencyHours(events, 7)).toBe(2) // PR1 opened 10h, first review 8h ago → 2h
+    expect(medianReviewLatencyHours(events, 7)).toBeCloseTo(2, 3) // PR1 opened 10h, first review 8h ago → 2h
     expect(aggregateEvents(events, 7).find(d => d.login === 'dana')?.reviews).toBe(1)
   })
 

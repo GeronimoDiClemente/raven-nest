@@ -157,13 +157,13 @@ describe('medianMergeHours', () => {
   it('computes the median open→merge hours', () => {
     // durations: 2h, 4h, 12h → median 4h
     const events = [merged('1', 3, 1), merged('2', 6, 2), merged('3', 24, 12)]
-    expect(medianMergeHours(events)).toBe(4)
+    expect(medianMergeHours(events)).toBeCloseTo(4, 3)
   })
 
   it('averages the two middle values for an even count', () => {
     // durations: 2h, 6h → median 4h
     const events = [merged('1', 3, 1), merged('2', 8, 2)]
-    expect(medianMergeHours(events)).toBe(4)
+    expect(medianMergeHours(events)).toBeCloseTo(4, 3)
   })
 })
 

@@ -62,8 +62,9 @@ describe('medianReviewLatencyHours', () => {
       reviewLatency('2', 1, 10, 5),  // PR1 later review (ignored — not the first)
       reviewLatency('3', 2, 20, 14), // PR2 → 6h
     ]
-    // medians of [2, 6] = 4
-    expect(medianReviewLatencyHours(events as any)).toBe(4)
+    // medians of [2, 6] = 4 (toBeCloseTo: timestamps built from separate Date.now()
+    // calls carry sub-ms jitter, so exact equality is flaky)
+    expect(medianReviewLatencyHours(events as any)).toBeCloseTo(4, 3)
   })
 
   it('returns null when no review carries both timestamps', () => {
