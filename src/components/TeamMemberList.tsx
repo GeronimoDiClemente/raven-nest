@@ -36,12 +36,14 @@ export default function TeamMemberList({
 
   return (
     <div className="tm-list">
-      {ranked.map(({ m, chip }) => (
+      {ranked.map(({ m, chip }, i) => (
         <div
-          key={m.login ?? m.name}
+          key={m.login ? `gh:${m.login}` : `name:${m.name}:${i}`}
           className={`tm-row${m.login ? '' : ' tm-nolink'}`}
           onClick={() => m.login && onSelect(m.login)}
+          onKeyDown={(e) => { if (m.login && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); onSelect(m.login) } }}
           role={m.login ? 'button' : undefined}
+          tabIndex={m.login ? 0 : undefined}
         >
           <div className="tm-av" style={{ background: m.login ? undefined : '#333' }}>
             {m.avatarUrl ? <img src={m.avatarUrl} alt="" /> : initials(m.name)}
