@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import {
-  createNotionServerAdapter, pageTitle, notionBlocksToDetail, parseNotionToken,
+  createNotionServerAdapter, pageTitle, notionBlocksToDetail, parseNotionToken, blocksToMarkdown,
 } from '../integrations/notion'
 import { NotConnectedError, type PanelAdapterDeps } from '../integration-panels'
 
@@ -107,6 +107,32 @@ describe('notionBlocksToDetail', () => {
       { kind: 'text', text: 'antes' },
       { kind: 'text', text: 'después' },
     ])
+  })
+})
+
+describe('blocksToMarkdown', () => {
+  it('serializa text/code/heading a markdown', () => {
+    const md = blocksToMarkdown([
+      { kind: 'text', text: '# Título' },
+      { kind: 'text', text: 'párrafo' },
+      { kind: 'code', code: 'npm test', tag: 'sh' },
+    ])
+    expect(md).toContain('# Título')
+    expect(md).toContain('párrafo')
+    expect(md).toContain('```sh\nnpm test\n```')
+  })
+
+  it('code sin tag abre el bloque con ``` pelado', () => {
+    expect(blocksToMarkdown([{ kind: 'code', code: 'echo hi' }])).toBe('```\necho hi\n```')
+  })
+
+  it('comment se serializa como cita "> autor: texto"', () => {
+    expect(blocksToMarkdown([{ kind: 'comment', author: 'gero', when: '2026-01-01', text: 'ojo acá' }]))
+      .toBe('> gero: ojo acá')
+  })
+
+  it('separa los bloques con línea en blanco', () => {
+    expect(blocksToMarkdown([{ kind: 'text', text: 'a' }, { kind: 'text', text: 'b' }])).toBe('a\n\nb')
   })
 })
 

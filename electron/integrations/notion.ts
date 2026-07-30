@@ -121,6 +121,29 @@ export function notionBlocksToDetail(blocks: NotionBlock[]): DetailBlock[] {
   return out
 }
 
+// Serializa los DetailBlock del shell a markdown para inyectar como spec inicial
+// del agente (H5 Motor 2). text→línea tal cual (los headings ya vienen con `#`
+// desde notionBlocksToDetail), code→bloque cercado, comment→cita. Bloques
+// separados por línea en blanco. Puro y testeable (dado blocks[] → markdown).
+export function blocksToMarkdown(blocks: DetailBlock[]): string {
+  return blocks.map((b) => {
+    if (b.kind === 'code') return '```' + (b.tag ?? '') + '\n' + b.code + '\n```'
+    if (b.kind === 'comment') return `> ${b.author}: ${b.text}`
+    return b.text
+  }).join('\n\n')
+}
+
+// Baja una página de Notion completa como markdown: título (H1) + su contenido
+// serializado. Reusa notionFetch + notionBlocksToDetail (mismo pipeline que el
+// panel), así que hereda su cobertura de tipos de block.
+export async function fetchPageMarkdown(deps: PanelAdapterDeps, pageId: string): Promise<string> {
+  const [page, blocksRes] = await Promise.all([
+    notionFetch<NotionPage>(deps, `/pages/${pageId}`),
+    notionFetch<{ results: NotionBlock[] }>(deps, `/blocks/${pageId}/children?page_size=100`),
+  ])
+  return `# ${pageTitle(page)}\n\n${blocksToMarkdown(notionBlocksToDetail(blocksRes.results ?? []))}`
+}
+
 async function notionFetch<T>(deps: PanelAdapterDeps, path: string, init: { method?: string; body?: string } = {}): Promise<T> {
   const raw = deps.getToken('notion')
   if (!raw) throw new NotConnectedError()
