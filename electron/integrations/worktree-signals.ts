@@ -134,15 +134,24 @@ export class WorktreeSignals {
     const pulls = await this.gh<Array<{ number: number; head: { ref: string } }>>(
       deps, `/repos/${repo}/pulls?head=${encodeURIComponent(owner + ':' + wt.branch)}&state=open&per_page=1`,
     )
-    const pr = pulls?.[0]
-    if (pr) {
-      prNumber = pr.number
-      const reviews = await this.gh<Array<{ user: { login: string } | null; state: string; submitted_at: string }>>(
-        deps, `/repos/${repo}/pulls/${pr.number}/reviews`,
-      )
-      // Blip en el fetch de reviews (null): conservamos el changesRequested previo
-      // en vez de asumir false (no apagar un badge de "cambios pedidos" por un blip).
-      changesRequested = reviews === null ? (prev?.changesRequested ?? false) : latestReviewIsChangesRequested(reviews)
+    // gh() colapsa 5xx/timeout/401 a null, indistinguible de "sin PR". Un blip NO
+    // debe apagar el chip changes-requested ni perder el prNumber: distinguimos
+    // `null` (blip → conservar el estado previo) de `[]` (PR realmente cerrado →
+    // limpiar). El CI recién calculado sí se actualiza (runs sí anduvo).
+    if (pulls === null) {
+      changesRequested = prev?.changesRequested ?? false
+      prNumber = prev?.prNumber
+    } else {
+      const pr = pulls[0]
+      if (pr) {
+        prNumber = pr.number
+        const reviews = await this.gh<Array<{ user: { login: string } | null; state: string; submitted_at: string }>>(
+          deps, `/repos/${repo}/pulls/${pr.number}/reviews`,
+        )
+        // Blip en el fetch de reviews (null): conservamos el changesRequested previo
+        // en vez de asumir false (no apagar un badge de "cambios pedidos" por un blip).
+        changesRequested = reviews === null ? (prev?.changesRequested ?? false) : latestReviewIsChangesRequested(reviews)
+      }
     }
     this.state.set(wt.repoPath, { ci, repo, runId: failedRun?.id, runUrl: failedRun?.html_url, changesRequested, prNumber })
 

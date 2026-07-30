@@ -175,6 +175,23 @@ describe('WorktreeSignals — CI por worktree', () => {
     expect(s.get('/wt/x')?.runId).toBe(9)
   })
 
+  it('un blip del fetch de PRs (500) NO borra changesRequested ni prNumber', async () => {
+    let prsUp = true
+    const deps = depsWith(async (url) => {
+      if (url.includes('/actions/runs')) return runsResp('success')
+      if (url.includes('/pulls?')) return prsUp ? prResp(42) : new Response('boom', { status: 500 }) // blip
+      if (url.includes('/reviews')) return reviewsResp('CHANGES_REQUESTED')
+      return new Response('[]', { status: 200 })
+    })
+    const s = new WorktreeSignals(() => 'acme/app')
+    const wts = [{ repoPath: '/wt/x', branch: 'feat/x' }]
+    await s.poll(wts, deps)                                              // establece PR + changes-requested
+    expect(s.get('/wt/x')).toMatchObject({ changesRequested: true, prNumber: 42 })
+    prsUp = false
+    await s.poll(wts, deps)                                              // blip 500 en /pulls
+    expect(s.get('/wt/x')).toMatchObject({ ci: 'success', changesRequested: true, prNumber: 42 })
+  })
+
   it('review.requested no colisiona entre repos con el mismo número de PR', async () => {
     const items = [
       { number: 5, title: 'A', repository_url: 'https://api.github.com/repos/acme/app' },
