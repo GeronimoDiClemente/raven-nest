@@ -2367,6 +2367,9 @@ let ticketPollInterval: ReturnType<typeof setInterval> | null = setInterval(() =
   void worktreeSignals
     .poll(worktreeStore.list().map((m) => ({ repoPath: m.repoPath, branch: m.branch })), panelDeps())
     .then(() => { for (const w of BrowserWindow.getAllWindows()) w.webContents.send('signals:update') })
+  // Motor 4 (H5): review-requested es global (no por worktree) — un solo search
+  // /issues?q=review-requested:@me por ciclo, que emite review.requested al bus.
+  void worktreeSignals.pollReviewRequests(panelDeps())
 }, TICKET_POLL_MS)
 
 ipcMain.handle('slack:open-oauth', async () => {

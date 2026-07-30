@@ -123,7 +123,8 @@ describe('registerBusCommands', () => {
     registerBusCommands(bus, { ticketLoop: { providerFor: () => null } })
     bus.setRecipes([{ id: 'r', when: 'ci.failed', then: () => [{ cmd: 'notify', channel: '', message: 'hola' }] }])
     await bus.emit({ type: 'ci.failed', branch: 'b', repoFullName: 'o/r' } as DomainEvent, deps)
-    const body = JSON.parse((fetch.mock.calls[0][1] as { body: string }).body)
+    const [, init] = fetch.mock.calls[0] as unknown as [string, { body: string }]
+    const body = JSON.parse(init.body)
     expect(body.channel).toBe('#builds')
   })
 
@@ -146,7 +147,7 @@ describe('registerBusCommands', () => {
     const deps = makeDeps({ getToken: (id: string) => (id === 'slack' ? 'xoxb-tok' : null), fetch: fetch as unknown as typeof globalThis.fetch })
     registerBusCommands(bus, { ticketLoop: { providerFor: () => null } })
     await handlers.get('setPresence')!({ cmd: 'setPresence', text: 'focus: feat/x' }, evPrOpened, deps)
-    const [url, init] = fetch.mock.calls[0] as [string, RequestInit]
+    const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit]
     expect(url).toBe('https://slack.com/api/users.profile.set')
     expect(init.method).toBe('POST')
     expect((init.headers as Record<string, string>).Authorization).toBe('Bearer xoxb-tok')
