@@ -104,6 +104,32 @@ export interface SignalsBridge {
   onUpdate: (cb: () => void) => () => void
 }
 
+// === @Nest desde Slack (H7 Motor 5) — espejo de SlackMention/SlackAction de
+// electron/integrations/slack-envelopes.ts (src/ nunca importa de electron/) ===
+export interface SlackMentionDTO {
+  channel: string
+  threadTs: string
+  user: string
+  text: string
+}
+
+export interface SlackActionDTO {
+  actionId: string
+  value?: string
+  channel: string
+  threadTs?: string
+  user: string
+}
+
+export interface SlackMentionsBridge {
+  /** Menciones `@Nest` empujadas desde el socket (main). Devuelve el unsubscribe. */
+  onMention: (cb: (m: SlackMentionDTO) => void) => () => void
+  /** Clicks de botones Block Kit empujados desde el socket. Devuelve el unsubscribe. */
+  onAction: (cb: (a: SlackActionDTO) => void) => () => void
+  /** Postea al MISMO thread (bot token main-side). Sin token → { ok: false }. */
+  postThread: (args: { channel: string; threadTs: string; text: string }) => Promise<{ ok: boolean }>
+}
+
 // === Notion spec→worktree (H5 Motor 2) ===
 export interface NotionBridge {
   /** Baja la página como markdown, la escribe en <worktree>/.nest/spec.md y
@@ -607,6 +633,7 @@ declare global {
     }
     tickets: TicketsBridge
     signals: SignalsBridge
+    slackMentions: SlackMentionsBridge
     notion: NotionBridge
     gcal: GcalBridge
   }

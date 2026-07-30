@@ -139,6 +139,7 @@ import { callPanel, type PanelAdapterDeps } from './integration-panels'
 import { registerAllPanelAdapters, registerAllTicketProviders } from './integrations/register'
 import { ticketLoop } from './ticket-loop'
 import { WorktreeSignals } from './integrations/worktree-signals'
+import { SlackSocket } from './integrations/slack-socket'
 import { fetchPageMarkdown } from './integrations/notion'
 import { createGcalAdapter, type GcalEvent } from './integrations/gcal'
 import { refreshAccessToken, startLoopbackFlow, type GcalCreds } from './integrations/gcal-oauth'
@@ -2350,6 +2351,22 @@ const worktreeSignals = new WorktreeSignals((repoPath) => {
 })
 worktreeSignals.attachBus(eventBus)
 
+// H7 Motor 5 — @Nest desde Slack (Socket Mode). Sólo arranca si hay un
+// app-level token (`xapp-...`, distinto del bot token) guardado en
+// pluginCreds('slack-app'). Sin él, la feature queda apagada sin romper el
+// resto de Slack. El main NO abre panes: rutea los eventos al renderer por IPC
+// push (`slack:mention`/`slack:action`, mismo patrón que `signals:update`).
+const slackAppToken = pluginCreds.getToken('slack-app')
+if (slackAppToken) {
+  const slackSocket = new SlackSocket({
+    appToken: slackAppToken,
+    fetch,
+    onAppMention: (m) => { for (const w of BrowserWindow.getAllWindows()) w.webContents.send('slack:mention', m) },
+    onBlockAction: (a) => { for (const w of BrowserWindow.getAllWindows()) w.webContents.send('slack:action', a) },
+  })
+  void slackSocket.connect().catch((e) => console.warn('[slack-socket] connect failed', e))
+}
+
 ipcMain.handle('plugins:panel:call', (_e, pluginId: string, method: string, args: unknown[]) =>
   callPanel(pluginId, method, args ?? [], panelDeps()))
 
@@ -2524,6 +2541,28 @@ ipcMain.handle('slack:exchange-code', async (_e, code: string) => {
     return { ok: true }
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : 'error' }
+  }
+})
+
+// H7 — postea un mensaje al MISMO thread de Slack (bot token, no el app token).
+// Lo llama el renderer al crear la sesión ("🪺 Trabajando en esto…") y en
+// updates. Sin bot token → no-op silencioso (ok:false) para no romper el flujo.
+ipcMain.handle('slack:postThread', async (_e, args: { channel: string; threadTs: string; text: string }) => {
+  const { channel, threadTs, text } = args ?? {}
+  const token = pluginCreds.getToken('slack')
+  if (!token || typeof channel !== 'string' || typeof threadTs !== 'string' || typeof text !== 'string') {
+    return { ok: false as const }
+  }
+  try {
+    await fetch('https://slack.com/api/chat.postMessage', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json; charset=utf-8' },
+      body: JSON.stringify({ channel, thread_ts: threadTs, text }),
+    })
+    return { ok: true as const }
+  } catch (err) {
+    console.warn('[slack:postThread] failed', err)
+    return { ok: false as const }
   }
 })
 

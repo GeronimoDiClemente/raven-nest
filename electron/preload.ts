@@ -292,6 +292,23 @@ contextBridge.exposeInMainWorld('signals', {
   },
 })
 
+// H7 — @Nest desde Slack (Socket Mode). El main empuja menciones/acciones por
+// IPC push (patrón `signals:update`); postThread invoca el bot token main-side.
+contextBridge.exposeInMainWorld('slackMentions', {
+  onMention: (cb: (m: { channel: string; threadTs: string; user: string; text: string }) => void) => {
+    const h = (_e: IpcRendererEvent, m: { channel: string; threadTs: string; user: string; text: string }) => cb(m)
+    ipcRenderer.on('slack:mention', h)
+    return () => ipcRenderer.removeListener('slack:mention', h)
+  },
+  onAction: (cb: (a: { actionId: string; value?: string; channel: string; threadTs?: string; user: string }) => void) => {
+    const h = (_e: IpcRendererEvent, a: { actionId: string; value?: string; channel: string; threadTs?: string; user: string }) => cb(a)
+    ipcRenderer.on('slack:action', h)
+    return () => ipcRenderer.removeListener('slack:action', h)
+  },
+  postThread: (args: { channel: string; threadTs: string; text: string }) =>
+    ipcRenderer.invoke('slack:postThread', args),
+})
+
 contextBridge.exposeInMainWorld('notion', {
   specToWorktree: (pageId: string, worktreePath: string) =>
     ipcRenderer.invoke('notion:specToWorktree', { pageId, worktreePath }),
