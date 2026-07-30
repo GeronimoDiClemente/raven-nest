@@ -6,7 +6,7 @@ import {
 import { SortableContext, rectSortingStrategy } from '@dnd-kit/sortable'
 import {
   PaneNode, AIType, AI_CONFIG, SessionData, SessionPane, Workspace,
-  WorkspaceTab, LayoutId, MAX_PANES,
+  WorkspaceTab, LayoutId, MAX_PANES, WorktreeMeta,
 } from './types'
 import { PaneLayoutEngine } from './components/PaneLayoutEngine'
 import { defaultLayoutFor, mapLegacyToPreset } from './layout/select'
@@ -289,6 +289,52 @@ export default function App() {
       setAddingPane({ worktreePath, initialInput: prompt })
     }
   }, [])
+
+  // === H7 Motor 5 — @Nest desde Slack ===
+  // Refs para leer valores frescos dentro de los listeners del socket sin tener
+  // que re-suscribir el effect en cada render.
+  const activeRepoPathRef = useRef<string | undefined>(undefined)
+  activeRepoPathRef.current = activeCellRepoPath
+  const githubLoginRef = useRef<string | null>(null)
+  githubLoginRef.current = githubLogin
+  // worktreePath → {channel, threadTs}: qué thread de Slack originó cada sesión.
+  // Se llena al crear la sesión (el "Trabajando en esto…" inicial ya se postea);
+  // queda como enganche para que un follow-up postee updates por evento del bus.
+  const paneThreadRef = useRef<Record<string, { channel: string; threadTs: string }>>({})
+
+  useEffect(() => {
+    if (!window.slackMentions) return
+    // Mención @Nest → worktree + pane con el texto del thread como initialInput
+    // (reusa H4). El main ya ACKeó el envelope; acá sólo abrimos la sesión.
+    const offMention = window.slackMentions.onMention(async (m) => {
+      try {
+        const repoPath = activeRepoPathRef.current
+        if (!repoPath) return // sin repo activo no hay de dónde ramificar
+        const branch = await window.tickets.branchName(githubLoginRef.current ?? '', 'slack', m.text.slice(0, 24))
+        const res = await window.worktree.create({ repoPath, branch }) as unknown as
+          ({ ok: true; meta: WorktreeMeta } | { ok: false; error: string })
+        if (!res.ok) { console.warn('[slack] worktree.create falló', res.error); return }
+        const worktreePath = res.meta.repoPath
+        paneThreadRef.current[worktreePath] = { channel: m.channel, threadTs: m.threadTs }
+        setAddingPane({ worktreePath, initialInput: m.text })
+        void window.slackMentions.postThread({
+          channel: m.channel, threadTs: m.threadTs,
+          text: '🪺 Trabajando en esto — abrí Nest para ver el terminal.',
+        })
+      } catch (err) {
+        console.warn('[slack] onMention falló', err)
+      }
+    })
+    // Click de botón Block Kit → acción sobre el pane del worktree (a.value = worktreePath).
+    const offAction = window.slackMentions.onAction((a) => {
+      if (a.actionId === 'fix_ci' && a.value) { void onFixCi(a.value); return }
+      if (a.actionId === 'relaunch' && a.value) {
+        const pane = panesRef.current.find((p) => p.repoPath === a.value)
+        if (pane) setFocusedPaneId(pane.id)
+      }
+    })
+    return () => { offMention?.(); offAction?.() }
+  }, [onFixCi])
 
   const handleRepoLink = useCallback(async () => {
     try {
