@@ -59,6 +59,8 @@ const defaultProps = {
   repos: [{ repo_full_name: 'org/repo' }],
   githubToken: 'token',
   presence,
+  members: [],
+  viewerLogin: '',
 }
 
 const card = (label: string): HTMLElement =>

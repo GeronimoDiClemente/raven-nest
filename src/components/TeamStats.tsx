@@ -1,11 +1,15 @@
 import { useState, useMemo, memo, type CSSProperties } from 'react'
 import { useTeamStats, type PrSizeBuckets } from '../hooks/useTeamStats'
 import type { PresenceState } from '../hooks/useTeamPresence'
+import TeamMemberList, { type MemberRow } from './TeamMemberList'
+import EmployeeDetailPanel, { type EmployeeCtx } from './EmployeeDetailPanel'
 
 interface TeamStatsProps {
   repos: Array<{ repo_full_name: string }>
   githubToken: string | null
   presence: Record<string, PresenceState>
+  members: Array<{ login: string | null; name: string; avatarUrl: string; online: boolean }>
+  viewerLogin: string
 }
 
 export function onlineGithubLogins(presence: Record<string, PresenceState>): Set<string> {
@@ -156,9 +160,10 @@ function StatsSkeleton() {
   )
 }
 
-export default function TeamStats({ repos, githubToken, presence }: TeamStatsProps) {
+export default function TeamStats({ repos, githubToken, presence, members, viewerLogin }: TeamStatsProps) {
   const [windowDays, setWindowDays] = useState<7 | 30>(7)
-  const { stats, loading, error, warning } = useTeamStats(repos, githubToken, windowDays)
+  const [selected, setSelected] = useState<string | null>(null)
+  const { stats, loading, error, warning, prevByLogin, openPrsByLogin } = useTeamStats(repos, githubToken, windowDays)
   const onlineCount = Object.keys(presence).length
 
   // Team commits per day = sum of each dev's dailyCommits (aggregate, not per-dev).
@@ -201,6 +206,30 @@ export default function TeamStats({ repos, githubToken, presence }: TeamStatsPro
     prevCommits, prevPrsMerged,
   } = stats
   const coveragePct = reviewCov.mergedTotal ? `${Math.round(reviewCov.pct * 100)}%` : '—'
+
+  const byLogin = new Map(stats.developers.map(d => [d.login, d]))
+  const memberRows: MemberRow[] = members.map(m => {
+    const d = m.login ? byLogin.get(m.login) : undefined
+    return {
+      login: m.login, name: m.name, avatarUrl: m.avatarUrl, online: m.online,
+      commits: d?.commits ?? 0, prsMerged: d?.prsMerged ?? 0,
+      prevCommits: (m.login && prevByLogin[m.login]?.commits) || 0,
+    }
+  })
+  const selectedEmp: EmployeeCtx | null = (() => {
+    if (!selected) return null
+    const m = members.find(x => x.login === selected)
+    const d = byLogin.get(selected)
+    if (!m) return null
+    const prev = prevByLogin[selected] ?? { commits: 0, prsMerged: 0 }
+    return {
+      login: selected, name: m.name, avatarUrl: m.avatarUrl, online: m.online,
+      commits: d?.commits ?? 0, prevCommits: prev.commits,
+      prsMerged: d?.prsMerged ?? 0, prevPrsMerged: prev.prsMerged,
+      dailyCommits: d?.dailyCommits ?? Array(windowDays).fill(0),
+      openPrs: openPrsByLogin[selected] ?? [],
+    }
+  })()
 
   return (
     <div className="ts-container">
@@ -287,6 +316,10 @@ export default function TeamStats({ repos, githubToken, presence }: TeamStatsPro
           <TeamBarChart daily={teamDaily} />
         </div>
       )}
+
+      <div className="ts-section-title" style={{ marginTop: 20 }}>Team members</div>
+      <TeamMemberList members={memberRows} openPrsByLogin={openPrsByLogin} viewerLogin={viewerLogin} onSelect={setSelected} />
+      {selectedEmp && <EmployeeDetailPanel emp={selectedEmp} repos={repos} githubToken={githubToken} onClose={() => setSelected(null)} />}
     </div>
   )
 }

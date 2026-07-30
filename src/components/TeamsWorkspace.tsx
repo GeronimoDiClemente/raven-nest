@@ -1308,6 +1308,16 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal, on
                   repos={repos.map(r => ({ repo_full_name: r.repo_full_name }))}
                   githubToken={githubToken}
                   presence={presence}
+                  members={members.map(m => {
+                    const p = m.user_id ? presence[m.user_id] : undefined
+                    return {
+                      login: p?.githubLogin ?? null,
+                      name: m.email,
+                      avatarUrl: '',
+                      online: !!p,
+                    }
+                  })}
+                  viewerLogin={githubLogin ?? ''}
                 />
               )}
               </></ErrorBoundary>
