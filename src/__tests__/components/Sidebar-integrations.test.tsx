@@ -84,6 +84,7 @@ const baseProps = {
   onJoinTerminal: vi.fn(),
   onWorktreeSelect: vi.fn(),
   onNewWorktree: vi.fn(),
+  onFixCi: vi.fn(),
   layoutId: '1' as const,
   paneCount: 0,
   onLayoutChange: vi.fn(),

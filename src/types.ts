@@ -37,6 +37,7 @@ export interface PaneNode {
   url?: string          // browser only: initial url
   sessionPartition?: string  // browser only: persist:browser-<workspaceId>
   shellId?: string      // terminal panes only: which shell to spawn (Windows shell picker)
+  initialInput?: string // one-shot: input written to the PTY once when it first produces output (e.g. "arreglá el rojo")
 }
 
 export interface ShellInfo {

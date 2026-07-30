@@ -50,6 +50,7 @@ interface Props {
   activeCellRepoPath?: string
   onWorktreeSelect: (worktreePath: string) => void
   onNewWorktree: () => void
+  onFixCi: (repoPath: string) => void
   worktreeRefreshKey?: number
   // Layout selector (replaces the old LayoutPicker). Sidebar renders the
   // trigger; the engine in App.tsx owns the state.
@@ -65,7 +66,7 @@ export default function Sidebar({
   onNewPane, onHistoryOpen,
   onSnippetSend, onSnippetBroadcast, onCommandRun, onWorkspaceSave, onWorkspaceLoad, isWin,
   isTrialActive, trialDaysLeft, profileLoading, onUpgrade, onTeamsOpen, pendingInvitesCount = 0, onMyReposOpen, plan, repoPath, onRepoLink, onRepoUnlink, onJoinTerminal,
-  activeCellRepoPath, onWorktreeSelect, onNewWorktree, worktreeRefreshKey,
+  activeCellRepoPath, onWorktreeSelect, onNewWorktree, onFixCi, worktreeRefreshKey,
   layoutId, paneCount, onLayoutChange, onOpenTutorial,
 }: Props) {
   const { branch, githubUrl, isDirty } = useGitInfo(repoPath)
@@ -524,6 +525,7 @@ export default function Sidebar({
               activeRepoPath={activeCellRepoPath}
               onSelect={onWorktreeSelect}
               onNewClick={onNewWorktree}
+              onFixCi={onFixCi}
               refreshKey={worktreeRefreshKey}
               onStartTutorial={onOpenTutorial ? () => onOpenTutorial('worktrees') : undefined}
             />

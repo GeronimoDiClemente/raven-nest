@@ -74,11 +74,11 @@ export default function App() {
     setTabs(prev => prev.map(t => t.id === activeTabId ? updater(t) : t))
   }, [activeTabId])
 
-  const [addingPane, setAddingPane] = useState<null | { worktreePath?: string }>(null)
+  const [addingPane, setAddingPane] = useState<null | { worktreePath?: string; initialInput?: string }>(null)
   // Mirror addingPane in a ref so addPane reads the freshest value without
   // depending on a closure that React may not have updated yet — the dialog
   // sometimes captures the previous addPane closure where worktreePath is null.
-  const addingPaneRef = useRef<null | { worktreePath?: string }>(null)
+  const addingPaneRef = useRef<null | { worktreePath?: string; initialInput?: string }>(null)
   addingPaneRef.current = addingPane
   const [zoomedPaneId, setZoomedPaneId] = useState<string | null>(null)
   const [zoomingOut, setZoomingOut] = useState(false)
@@ -251,11 +251,13 @@ export default function App() {
       return
     }
     const worktreePath = addingPaneRef.current?.worktreePath
+    const initialInput = addingPaneRef.current?.initialInput
     updateActiveTab(t => {
       const pane: PaneNode = {
         id: generateId(), aiType, accountName, accountDir, borderColor, cmd,
         customLabel, customColor, shellId,
         repoPath: worktreePath ?? t.repoPath,
+        ...(initialInput ? { initialInput } : {}),
       }
       const nextPanes = [...t.panes, pane]
       // Promote layoutId if current preset is full and there's a default for the
@@ -272,6 +274,21 @@ export default function App() {
     })
     setAddingPane(null)
   }, [updateActiveTab, planLimits.maxPanes])
+
+  // "Arreglá el rojo" (H4): baja en main el log del run fallido del worktree y lo
+  // inyecta al agente. Si ya hay un pane en ese worktree, lo escribe y lo enfoca;
+  // si no, abre un pane nuevo con initialInput (se escribe al arrancar el PTY).
+  const onFixCi = useCallback(async (worktreePath: string) => {
+    const prompt = await window.signals?.fixCiPrompt(worktreePath).catch(() => null)
+    if (!prompt) return
+    const existing = panesRef.current.find((p) => p.repoPath === worktreePath)
+    if (existing) {
+      window.pty.write(existing.id, prompt + '\r')
+      setFocusedPaneId(existing.id)
+    } else {
+      setAddingPane({ worktreePath, initialInput: prompt })
+    }
+  }, [])
 
   const handleRepoLink = useCallback(async () => {
     try {
@@ -1064,6 +1081,7 @@ export default function App() {
         activeCellRepoPath={activeCellRepoPath}
         onWorktreeSelect={handleWorktreeSelect}
         onNewWorktree={handleNewWorktree}
+        onFixCi={onFixCi}
         worktreeRefreshKey={worktreeRefreshKey}
         layoutId={activeTab.layoutId}
         paneCount={panes.length}

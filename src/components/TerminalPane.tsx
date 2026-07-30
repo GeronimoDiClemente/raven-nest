@@ -108,6 +108,9 @@ export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZ
   const [showBlocks, setShowBlocks] = useState(false)
   const [isBusy, setIsBusy] = useState(false)
   const isBusyRef = useRef(false)
+  // One-shot: inyecta pane.initialInput al PTY la primera vez que produce output
+  // (señal de que el REPL del agente arrancó). Ver "arreglá el rojo" (H4).
+  const injectedRef = useRef(false)
   const [showShare, setShowShare] = useState(false)
   const { shareCode, isSharing, startSharing, stopSharing } = useTerminalShare(
     pane.id,
@@ -157,6 +160,12 @@ export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZ
 
     registerPane(pane.id, (data) => {
       if (!alive) return
+      // Primera data del pane → inyectar el prompt pendiente una sola vez. El
+      // delay le da aire al REPL del agente para montar su input antes de escribir.
+      if (pane.initialInput && !injectedRef.current) {
+        injectedRef.current = true
+        setTimeout(() => window.pty.write(pane.id, pane.initialInput! + '\r'), 400)
+      }
       write(data)
       if (!activityDebounce) {
         onActivityRef.current?.(pane.id, true)
