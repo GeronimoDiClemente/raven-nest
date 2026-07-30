@@ -1308,10 +1308,12 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal, on
                   repos={repos.map(r => ({ repo_full_name: r.repo_full_name }))}
                   githubToken={githubToken}
                   presence={presence}
-                  members={members.map(m => {
+                  members={members.filter(m => m.status === 'active').map(m => {
                     const p = m.user_id ? presence[m.user_id] : undefined
                     return {
-                      login: p?.githubLogin ?? null,
+                      // Prefer the denormalized github_login (reaches offline members);
+                      // fall back to presence (online-only) until the column is populated.
+                      login: m.github_login ?? p?.githubLogin ?? null,
                       name: m.email,
                       avatarUrl: '',
                       online: !!p,
