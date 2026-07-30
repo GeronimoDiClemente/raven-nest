@@ -19,6 +19,8 @@ export interface WorktreeSignal {
   runUrl?: string
   changesRequested: boolean
   prNumber?: number
+  /** "owner/repo" resuelto en el poll — lo necesita fixCiPrompt para bajar el log. */
+  repo?: string
 }
 
 /** repoPath → "owner/repo" | null (no-GitHub). En main: getRemoteUrl+parseOwnerRepo. */
@@ -80,7 +82,7 @@ export class WorktreeSignals {
       )
       changesRequested = latestReviewIsChangesRequested(reviews ?? [])
     }
-    this.state.set(wt.repoPath, { ci, runId: failedRun?.id, runUrl: failedRun?.html_url, changesRequested, prNumber })
+    this.state.set(wt.repoPath, { ci, repo, runId: failedRun?.id, runUrl: failedRun?.html_url, changesRequested, prNumber })
 
     // Señal ci.failed (bus, aditiva, dedup por SHA del run rojo).
     const sha = (failedRun as { head_sha?: string } | undefined)?.head_sha
@@ -94,6 +96,31 @@ export class WorktreeSignals {
       await this.bus.emit(ev, deps)
     }
   }
+
+  async fixCiPrompt(repoPath: string, deps: PanelAdapterDeps): Promise<string | null> {
+    const sig = this.state.get(repoPath)
+    if (!sig?.runId || !sig.repo) return null
+    const jobs = await this.gh<{ jobs?: Array<{ id: number; conclusion: string | null }> }>(
+      deps, `/repos/${sig.repo}/actions/runs/${sig.runId}/jobs`,
+    )
+    const failedJob = (jobs?.jobs ?? []).find((j) => j.conclusion === 'failure')
+    let log = ''
+    if (failedJob) {
+      const res = await deps.fetch(`${GH}/repos/${sig.repo}/actions/jobs/${failedJob.id}/logs`, {
+        headers: { Authorization: `Bearer ${deps.getToken('github')}`, Accept: 'application/vnd.github.v3+json' },
+      })
+      if (res.ok) log = truncateTail(await res.text(), 200)
+    }
+    return [
+      `El CI de este branch (${sig.runUrl ?? 'run'}) está en rojo. Arreglá lo que rompió.`,
+      log ? `\nÚltimas líneas del log del job fallido:\n\`\`\`\n${log}\n\`\`\`` : '',
+    ].join('\n')
+  }
+}
+
+export function truncateTail(text: string, maxLines: number): string {
+  const lines = text.split('\n')
+  return lines.length <= maxLines ? text : lines.slice(-maxLines).join('\n')
 }
 
 // El review que cuenta es el más reciente por autor: un CHANGES_REQUESTED viejo

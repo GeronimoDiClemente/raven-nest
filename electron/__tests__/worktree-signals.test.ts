@@ -62,4 +62,29 @@ describe('WorktreeSignals — CI por worktree', () => {
     const ciFailed = emit.mock.calls.filter((c) => (c[0] as { type: string }).type === 'ci.failed')
     expect(ciFailed).toHaveLength(1)
   })
+
+  it('fixCiPrompt arma prompt con el título del run, la URL y el log truncado', async () => {
+    const bigLog = Array.from({ length: 300 }, (_, i) => `line ${i}`).join('\n')
+    const deps = depsWith(async (url) => {
+      if (url.includes('/actions/runs?')) return new Response(JSON.stringify({ workflow_runs: [
+        { id: 77, name: 'CI', status: 'completed', conclusion: 'failure', html_url: 'https://run', head_branch: 'feat/x', head_sha: 's' },
+      ] }), { status: 200 })
+      if (url.endsWith('/runs/77/jobs')) return new Response(JSON.stringify({ jobs: [
+        { id: 5, conclusion: 'success' }, { id: 6, conclusion: 'failure' },
+      ] }), { status: 200 })
+      if (url.endsWith('/jobs/6/logs')) return new Response(bigLog, { status: 200 })
+      return new Response('[]', { status: 200 })
+    })
+    const s = new WorktreeSignals(() => 'acme/app')
+    await s.poll([{ repoPath: '/wt/x', branch: 'feat/x' }], deps)
+    const prompt = await s.fixCiPrompt('/wt/x', deps)
+    expect(prompt).toContain('https://run')
+    expect(prompt).toContain('line 299')       // últimas líneas presentes
+    expect(prompt).not.toContain('line 99')     // truncado (fuera de las últimas 200)
+  })
+
+  it('fixCiPrompt devuelve null si el worktree no tiene run rojo', async () => {
+    const s = new WorktreeSignals(() => 'acme/app')
+    expect(await s.fixCiPrompt('/desconocido', depsWith(async () => new Response('{}', { status: 200 })))).toBeNull()
+  })
 })
