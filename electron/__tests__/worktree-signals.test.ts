@@ -100,6 +100,41 @@ describe('WorktreeSignals — CI por worktree', () => {
     } finally { rmSync(dir, { recursive: true, force: true }) }
   })
 
+  it('ci.failed SÍ re-emite ante un SHA rojo NUEVO (no dedupea entre commits distintos)', async () => {
+    let sha = 'A'
+    const deps = depsWith(async (url) => {
+      if (url.includes('/actions/runs')) return new Response(JSON.stringify({ workflow_runs: [
+        { id: 9, name: 'CI', status: 'completed', conclusion: 'failure', html_url: 'r', head_branch: 'feat/x', head_sha: sha } ] }), { status: 200 })
+      return new Response('[]', { status: 200 })
+    })
+    const emit = vi.fn(async (_e: unknown, _d: unknown) => ({ commands: [], failed: [] }))
+    const s = new WorktreeSignals(() => 'acme/app'); s.attachBus({ emit } as never)
+    const wts = [{ repoPath: '/wt/x', branch: 'feat/x' }]
+    await s.poll(wts, deps)   // rojo shaA
+    sha = 'B'
+    await s.poll(wts, deps)   // rojo shaB (nuevo commit sigue rojo)
+    expect(emit.mock.calls.filter(c => (c[0] as { type: string }).type === 'ci.failed')).toHaveLength(2)
+  })
+
+  it('changes.requested re-emite tras un reset (CHANGES_REQUESTED → APPROVED → CHANGES_REQUESTED)', async () => {
+    let state = 'CHANGES_REQUESTED'
+    const deps = depsWith(async (url) => {
+      if (url.includes('/actions/runs')) return runsResp('success')
+      if (url.includes('/pulls?')) return prResp(7)
+      if (url.includes('/reviews')) return new Response(JSON.stringify([{ user: { login: 'a' }, state, submitted_at: '2026-01-02T00:00:00Z' }]), { status: 200 })
+      return new Response('[]', { status: 200 })
+    })
+    const emit = vi.fn(async (_e: unknown, _d: unknown) => ({ commands: [], failed: [] }))
+    const s = new WorktreeSignals(() => 'acme/app'); s.attachBus({ emit } as never)
+    const wts = [{ repoPath: '/wt/x', branch: 'feat/x' }]
+    await s.poll(wts, deps)   // CHANGES_REQUESTED → emite (1)
+    state = 'APPROVED'
+    await s.poll(wts, deps)   // reset a approved → no emite
+    state = 'CHANGES_REQUESTED'
+    await s.poll(wts, deps)   // vuelve a pedir cambios → re-emite (2)
+    expect(emit.mock.calls.filter(c => (c[0] as { type: string }).type === 'changes.requested')).toHaveLength(2)
+  })
+
   it('NO emite ci.failed ni marca runId si el run más reciente está verde (aunque haya uno viejo rojo)', async () => {
     const deps = depsWith(async (url) => {
       if (url.includes('/actions/runs')) return new Response(JSON.stringify({ workflow_runs: [

@@ -9,6 +9,8 @@ function fakeWs() {
     send(d: string) { this.sent.push(d) },
     close() { (handlers['close'] ?? []).forEach((cb) => cb({})) },
     emit(msg: unknown) { (handlers['message'] ?? []).forEach((cb) => cb({ data: JSON.stringify(msg) })) },
+    // Frame crudo (sin stringify): para simular un data no-JSON que JSON.parse rechaza.
+    emitRaw(data: unknown) { (handlers['message'] ?? []).forEach((cb) => cb({ data })) },
     open() { (handlers['open'] ?? []).forEach((cb) => cb({})) },
   }
 }
@@ -78,6 +80,54 @@ describe('SlackSocket', () => {
     await vi.advanceTimersByTimeAsync(5000) // backoff dispara reintento
     expect(calls).toBeGreaterThanOrEqual(2)
     sock.disconnect(); vi.useRealTimers()
+  })
+
+  it('un frame no-JSON no tira, no ACKea y no dispatcha', async () => {
+    const ws = fakeWs()
+    const fetch = vi.fn(async () => okOpen())
+    const onAppMention = vi.fn(); const onBlockAction = vi.fn()
+    const sock = new SlackSocket({ appToken: 'x', fetch: fetch as never,
+      wsFactory: () => ws, onAppMention, onBlockAction })
+    await sock.connect()
+    expect(() => ws.emitRaw('garbage')).not.toThrow()
+    expect(ws.sent).toHaveLength(0)            // sin ACK
+    expect(onAppMention).not.toHaveBeenCalled()
+    expect(onBlockAction).not.toHaveBeenCalled()
+    sock.disconnect()
+  })
+
+  it('un envelope de control disconnect cierra el socket y reconecta', async () => {
+    vi.useFakeTimers()
+    const wss = [fakeWs(), fakeWs()]
+    let i = 0
+    const fetch = vi.fn(async () => okOpen())
+    const sock = new SlackSocket({ appToken: 'x', fetch: fetch as never,
+      wsFactory: () => wss[i++], onAppMention: vi.fn(), onBlockAction: vi.fn() })
+    await sock.connect()
+    wss[0].emit({ type: 'disconnect', reason: 'refresh_requested' }) // control disconnect (sin envelope_id → sin ACK)
+    expect(wss[0].sent).toHaveLength(0)         // un disconnect no se ACKea
+    await vi.advanceTimersByTimeAsync(2000)     // backoff → re-open con URL nueva
+    expect(fetch).toHaveBeenCalledTimes(2)
+    sock.disconnect()
+    vi.useRealTimers()
+  })
+
+  it('ACKea aunque onAppMention tire (el ACK sale antes del dispatch)', async () => {
+    const ws = fakeWs()
+    const fetch = vi.fn(async () => okOpen())
+    // En el WebSocket real un listener que tira reporta el error (reportError) y el
+    // socket sigue vivo; el fakeWs propaga sincrónico, así que capturamos el throw.
+    const onAppMention = vi.fn(() => { throw new Error('handler boom') })
+    const sock = new SlackSocket({ appToken: 'x', fetch: fetch as never,
+      wsFactory: () => ws, onAppMention, onBlockAction: vi.fn() })
+    await sock.connect()
+    try {
+      ws.emit({ type: 'events_api', envelope_id: 'e9', payload: { event: {
+        type: 'app_mention', channel: 'C1', ts: '1.1', user: 'U9', text: '<@B> hola' } } })
+    } catch { /* handler boom esperado */ }
+    expect(JSON.parse(ws.sent[0])).toEqual({ envelope_id: 'e9' })  // ACK igual salió
+    expect(onAppMention).toHaveBeenCalled()
+    sock.disconnect()
   })
 
   it('disconnect frena la reconexión (no re-open tras close manual)', async () => {
