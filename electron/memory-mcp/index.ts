@@ -28,6 +28,15 @@ function requireSocketPath(): string {
   return socket
 }
 
+function requireAuthToken(): string {
+  const token = env('NEST_MEMORY_TOKEN')
+  if (!token) {
+    console.error('[nest-memory] NEST_MEMORY_TOKEN not set — memory is disabled for this session')
+    process.exit(1)
+  }
+  return token
+}
+
 // ── MCP stdio server mode ────────────────────────────────────────────────────
 
 interface JsonRpcRequest {
@@ -43,7 +52,8 @@ function writeMessage(msg: unknown): void {
 
 async function runMcpServer(): Promise<void> {
   const socketPath = requireSocketPath()
-  const client = new MemoryDaemonClient(socketPath)
+  const authToken = requireAuthToken()
+  const client = new MemoryDaemonClient(socketPath, authToken)
   const cwd = process.cwd()
 
   const rl = createInterface({ input: process.stdin, terminal: false })
@@ -150,7 +160,8 @@ async function readStdin(): Promise<string> {
 
 async function runHook(event: string): Promise<void> {
   const socketPath = requireSocketPath()
-  const client = new MemoryDaemonClient(socketPath)
+  const authToken = requireAuthToken()
+  const client = new MemoryDaemonClient(socketPath, authToken)
   const raw = await readStdin()
   let payload: Record<string, unknown> = {}
   try { payload = raw.trim() ? JSON.parse(raw) : {} } catch { payload = {} }

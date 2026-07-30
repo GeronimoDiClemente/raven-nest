@@ -16,6 +16,14 @@ const PATTERNS: RegExp[] = [
   /\bgh[poasu]_[A-Za-z0-9]{20,}\b/g,
   /\bxox[baprs]-[A-Za-z0-9-]{10,}\b/g,
   /\bAKIA[0-9A-Z]{12,}\b/g,
+  // Review round 1 (minor): "Authorization: Bearer <token>" style headers were only
+  // PARTIALLY redacted — the generic key=value pattern below matches
+  // "Authorization: Bearer" (stopping at the space before the actual token, since \S+
+  // doesn't cross whitespace) and replaced only that prefix, leaving an opaque
+  // (non-JWT — the JWT pattern above already covers the JWT-shaped case) bearer token
+  // fully exposed right after it. `bearer <anything>` is redacted as one unit, BEFORE
+  // the generic pattern runs, for the same reason PEM/JWT/prefixes run first above.
+  /\bbearer\s+\S+/gi,
   // key=value / key: value style secrets
   /(?:^|[\s=:])(?:token|key|password|secret|api[_-]?key|bearer|authorization)\s*[=:]\s*\S+/gi,
 ]

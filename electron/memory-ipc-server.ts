@@ -6,11 +6,18 @@
 import { createServer, Server, Socket } from 'net'
 import { existsSync, unlinkSync, mkdirSync, chmodSync } from 'fs'
 import { dirname } from 'path'
-import { isWin } from './platform'
+import { timingSafeEqual } from 'crypto'
+// Deliberately NOT importing isWin from ./platform — that module imports `electron`
+// (for getIconsDir()) at module scope, which makes ANY importer unloadable outside a
+// real Electron process (e.g. under plain-Node vitest, as memory-ipc-server.test.ts
+// discovered — "Electron failed to install correctly" when this file pulled it in
+// transitively). This check is a one-liner; inlining it avoids the whole chain.
+const isWin = process.platform === 'win32'
 import { MemoryStore } from './memory-store'
 import { resolveProjectKey } from './memory-project-key'
 import type {
   ContextMemoryParams,
+  DeleteMemoryParams,
   HookPreCompactParams,
   HookSessionStartParams,
   HookSessionStartResult,
@@ -26,11 +33,31 @@ export interface GitInfoResolver {
   (cwd: string): { remoteUrl?: string | null; branch?: string | null } | null
 }
 
+// M22: an unbounded per-connection buffer lets a misbehaving or malicious local client
+// grow memory without limit by never sending a newline. 1 MiB comfortably covers any
+// real request (the largest payload is a memory_save title+content) with headroom.
+const MAX_LINE_BYTES = 1024 * 1024
+// Idle connections (the shim should send-then-disconnect per call — see client.ts) are
+// dropped after this so a hung/leaked socket doesn't accumulate server-side.
+const CONNECTION_IDLE_TIMEOUT_MS = 30_000
+
 export interface MemoryIpcServerDeps {
   store: MemoryStore
   socketPath: string
+  /** C2: shared secret every request must present — see memory-local-auth.ts. */
+  authToken: string
   resolveGitInfo?: GitInfoResolver
   onMutation?: () => void // called after any write — the daemon uses this to schedule a debounced push
+}
+
+function tokensMatch(a: string, b: string): boolean {
+  const bufA = Buffer.from(a)
+  const bufB = Buffer.from(b)
+  // timingSafeEqual throws on length mismatch rather than returning false — length
+  // itself isn't secret here (tokens are a fixed 64-hex-char length), so comparing
+  // lengths first is safe and avoids the throw.
+  if (bufA.length !== bufB.length) return false
+  return timingSafeEqual(bufA, bufB)
 }
 
 export class MemoryIpcServer {
@@ -71,8 +98,14 @@ export class MemoryIpcServer {
   private handleConnection(socket: Socket): void {
     let buffer = ''
     socket.setEncoding('utf8')
+    socket.setTimeout(CONNECTION_IDLE_TIMEOUT_MS, () => socket.destroy())
     socket.on('data', (chunk: string) => {
       buffer += chunk
+      if (Buffer.byteLength(buffer, 'utf8') > MAX_LINE_BYTES) {
+        console.warn('[memory-ipc-server] connection exceeded max line size, dropping')
+        socket.destroy()
+        return
+      }
       let newlineIdx: number
       while ((newlineIdx = buffer.indexOf('\n')) !== -1) {
         const line = buffer.slice(0, newlineIdx)
@@ -92,6 +125,12 @@ export class MemoryIpcServer {
       return
     }
     let response: MemoryResponse
+    // C2: reject before dispatch — an invalid/missing token never reaches the store.
+    if (typeof request.token !== 'string' || !tokensMatch(request.token, this.deps.authToken)) {
+      response = { id: request.id, ok: false, error: 'unauthorized' }
+      socket.write(`${JSON.stringify(response)}\n`)
+      return
+    }
     try {
       const result = this.dispatch(request)
       response = { id: request.id, ok: true, result }
@@ -150,6 +189,13 @@ export class MemoryIpcServer {
         const params = request.params as ContextMemoryParams
         const projectKey = this.projectKeyForCwd(params.cwd)
         return { items: store.context(projectKey, params.limit ?? 10) }
+      }
+
+      case 'memory.delete': {
+        const params = request.params as DeleteMemoryParams
+        const ok = store.deleteObservation(params.syncId)
+        if (ok) this.deps.onMutation?.()
+        return { ok }
       }
 
       case 'hook.sessionStart': {

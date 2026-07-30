@@ -26,8 +26,8 @@ export function generateSyncId(prefix: 'obs' | 'sess' | 'prom'): string {
   return `${prefix}-${randomBytes(16).toString('hex')}`
 }
 
-export function contentHash(title: string, content: string): string {
-  const normalized = `${title.trim().toLowerCase()}\n${content.trim().toLowerCase()}`
+export function contentHash(title: string, content: string | null): string {
+  const normalized = `${title.trim().toLowerCase()}\n${(content ?? '').trim().toLowerCase()}`
   return createHash('sha256').update(normalized).digest('hex')
 }
 
@@ -55,7 +55,11 @@ export interface ObservationRow {
   topic_key: string | null
   type: string
   title: string
-  content: string
+  // M12: nullable so a tombstone can actually null the content, per §3.1 "A delete sets
+  // deleted=1, nulls content". The column was previously NOT NULL, which made that rule
+  // impossible to implement — deleteObservation() below is the only writer that sets
+  // this to null.
+  content: string | null
   tags: string | null
   source: string
   origin_ai: string | null
@@ -83,6 +87,15 @@ export interface MutationLogRow {
   payload: string
   created_at: number
   pushed_at: number | null
+  // M21: set when the server reported this specific mutation as 'rejected' (plan limit,
+  // revoked access, etc.) — surfaced once rather than silently discarded.
+  last_error: string | null
+}
+
+export interface MarkPushedEntry {
+  seq: number
+  /** Non-null only for a server-reported 'rejected' outcome — see M21. */
+  error?: string | null
 }
 
 export class MemoryStore {
@@ -112,7 +125,7 @@ export class MemoryStore {
         topic_key      TEXT,
         type           TEXT NOT NULL,
         title          TEXT NOT NULL,
-        content        TEXT NOT NULL,
+        content        TEXT,
         tags           TEXT,
         source         TEXT NOT NULL,
         origin_ai      TEXT,
@@ -168,7 +181,8 @@ export class MemoryStore {
         op         TEXT NOT NULL,
         payload    TEXT NOT NULL,
         created_at INTEGER NOT NULL,
-        pushed_at  INTEGER
+        pushed_at  INTEGER,
+        last_error TEXT
       );
       CREATE INDEX IF NOT EXISTS idx_mutlog_pending ON mutation_log(seq) WHERE pushed_at IS NULL;
 
@@ -239,6 +253,24 @@ export class MemoryStore {
     return this.lamportCounter
   }
 
+  /**
+   * Walks a `superseded_by` chain to the current active winner (§4.3 rule b — the loser
+   * is kept, never deleted, so the chain is always followable). Bounded to guard against
+   * a corrupt/cyclic chain, which should never occur by construction but must not hang
+   * the process if it somehow does.
+   */
+  private resolveToActiveWinner(row: ObservationRow): ObservationRow {
+    let current = row
+    let hops = 0
+    while (current.superseded_by && hops < 50) {
+      const next = this.get(current.superseded_by)
+      if (!next) break
+      current = next
+      hops += 1
+    }
+    return current
+  }
+
   ensureProject(input: { projectKey: string; displayName: string; rootPath?: string | null; remoteUrl?: string | null }): void {
     const existing = this.db.prepare('SELECT project_key FROM projects WHERE project_key = ?').get(input.projectKey)
     if (existing) return
@@ -248,6 +280,16 @@ export class MemoryStore {
          VALUES (?, ?, ?, ?, 1, ?)`
       )
       .run(input.projectKey, input.displayName, input.rootPath ?? null, input.remoteUrl ?? null, Date.now())
+  }
+
+  /** M17: enumerates known local projects so the daemon can pull with a per-project cursor for each. */
+  listProjects(): Array<{ projectKey: string; displayName: string; enrolled: boolean }> {
+    const rows = this.db.prepare('SELECT project_key, display_name, enrolled FROM projects').all() as Array<{
+      project_key: string
+      display_name: string
+      enrolled: number
+    }>
+    return rows.map((r) => ({ projectKey: r.project_key, displayName: r.display_name, enrolled: r.enrolled === 1 }))
   }
 
   private appendMutation(op: 'upsert' | 'delete' | 'promote', row: ObservationRow): void {
@@ -260,7 +302,9 @@ export class MemoryStore {
     return {
       syncId: row.sync_id,
       title: row.title,
-      content: row.content,
+      // search()/context() already filter deleted=0, so a tombstoned (null-content) row
+      // never reaches here in practice — the fallback is defensive, not load-bearing.
+      content: row.content ?? '',
       type: row.type as ObservationType,
       topicKey: row.topic_key,
       tags: row.tags ? (JSON.parse(row.tags) as string[]) : [],
@@ -284,8 +328,15 @@ export class MemoryStore {
     const txn = this.db.transaction((): SaveMemoryResult => {
       // Step 0 (imports only): identity by (source, source_ref).
       if (input.sourceRef) {
+        // C3 fix: this lookup used to omit `AND superseded_by IS NULL`. Once a row lost
+        // a topic-collision merge (superseded_by set by the daemon's pull-apply path,
+        // §4.3 rule b), it was still the ONLY row addressable by this (source,
+        // source_ref) pair — every future re-import silently rewrote the dead row,
+        // whose content is permanently excluded from search()/context() by the
+        // deleted=0/superseded_by IS NULL filters everywhere else. The importer would
+        // "succeed" forever while the item stayed invisible.
         const bySourceRef = this.db
-          .prepare('SELECT * FROM observations WHERE source = ? AND source_ref = ? AND deleted = 0')
+          .prepare('SELECT * FROM observations WHERE source = ? AND source_ref = ? AND deleted = 0 AND superseded_by IS NULL')
           .get(input.source, input.sourceRef) as ObservationRow | undefined
         if (bySourceRef) {
           const updated: ObservationRow = {
@@ -300,7 +351,24 @@ export class MemoryStore {
           }
           this.applyRowUpdate(updated)
           this.appendMutation('upsert', updated)
-          return { syncId: updated.sync_id, outcome: 'topic_updated', redacted }
+          return { syncId: updated.sync_id, outcome: 'source_ref_updated', redacted }
+        }
+
+        // Defined fallthrough (C3): no ACTIVE row for this source_ref, but an INACTIVE
+        // one (superseded or tombstoned) may still hold it — idx_obs_source_ref is a
+        // hard UNIQUE(source, source_ref) constraint that does NOT exclude inactive
+        // rows, so falling through to a plain INSERT below would violate it. Instead,
+        // resolve to whatever the current active winner of that lineage is (walking
+        // superseded_by) and report it WITHOUT overwriting its content — the winner
+        // already reflects the most-authoritative merge outcome, and an unchanged
+        // reimport of old source material must not regress it. A genuinely new
+        // source_ref (no row at all, active or not) falls through normally to steps 1-3.
+        const inactiveMatch = this.db
+          .prepare('SELECT * FROM observations WHERE source = ? AND source_ref = ?')
+          .get(input.source, input.sourceRef) as ObservationRow | undefined
+        if (inactiveMatch) {
+          const winner = this.resolveToActiveWinner(inactiveMatch)
+          return { syncId: winner.sync_id, outcome: 'duplicate', redacted }
         }
       }
 
@@ -339,6 +407,18 @@ export class MemoryStore {
         )
         .get(input.projectKey, scope, input.type, hash, now - DEDUPE_WINDOW_MS) as ObservationRow | undefined
       if (dupe) {
+        // M23 (accepted divergence, documented): this bump does NOT go through
+        // appendMutation/mutation_log, so duplicate_count/last_seen_at do not replicate
+        // to the cloud copy of this row. Deliberate, not an oversight — these are pure
+        // ranking-signal fields (§3.1: "The repeat is a ranking signal, not noise"), not
+        // part of LWW conflict resolution or displayed content, so a stale cloud copy of
+        // them is harmless. Routing every dedupe hit through the mutation log would mean
+        // an agent that calls memory_save with identical content N times in one session
+        // (the exact "safe to call aggressively" behavior §3.1 wants to encourage)
+        // produces N mutation_log rows and N pushes for a bump nobody but local ranking
+        // reads — real write/network amplification for zero replicated-content benefit
+        // (§10 R-8 cost). If duplicate_count/last_seen_at ever become user-visible or
+        // cross-device signals, revisit this.
         this.db
           .prepare('UPDATE observations SET duplicate_count = duplicate_count + 1, last_seen_at = ? WHERE sync_id = ?')
           .run(now, dupe.sync_id)
@@ -465,7 +545,7 @@ export class MemoryStore {
     topicKey: string | null
     type: string
     title: string
-    content: string
+    content: string | null
     tags?: string[] | null
     originAi?: string | null
     originAccount?: string | null
@@ -479,6 +559,24 @@ export class MemoryStore {
     supersededBy?: string | null
     serverSeq?: number | null
   }): void {
+    // C4 fix: this used to write `row.lamport` into the row without ever advancing
+    // MemoryStore's own `lamportCounter`. A local save() right after a pull could then
+    // hand out a lamport LOWER than one just received, so a same-timestamp LWW tie
+    // between the two would pick the wrong winner and silently discard a newer local
+    // edit. Standard Lamport clock discipline: on receiving a stamped value, the local
+    // clock becomes at least that value, so every subsequent local write is guaranteed
+    // to be ordered after everything this device has ever seen.
+    this.lamportCounter = Math.max(this.lamportCounter, row.lamport)
+
+    // M13 fix: pulled content previously went straight to disk unredacted. A secret an
+    // agent saved on another device (before that device's own redaction ran — or from a
+    // pre-redaction historical row) must not land in this store's plaintext either.
+    // Defense in depth: redaction is meant to run once, at the point of original
+    // authorship, but a second pass here costs nothing and closes the gap for any
+    // upstream data that slipped through.
+    const { text: safeTitle } = redact(row.title)
+    const safeContent = row.content !== null ? redact(row.content).text : null
+
     const existing = this.get(row.syncId)
     const now = Date.now()
     if (existing) {
@@ -488,8 +586,8 @@ export class MemoryStore {
            deleted = ?, superseded_by = ?, server_seq = ? WHERE sync_id = ?`
         )
         .run(
-          row.title,
-          row.content,
+          safeTitle,
+          safeContent,
           row.tags ? JSON.stringify(row.tags) : existing.tags,
           row.updatedAt,
           row.lamport,
@@ -505,8 +603,8 @@ export class MemoryStore {
         scope: row.scope,
         topic_key: row.topicKey,
         type: row.type,
-        title: row.title,
-        content: row.content,
+        title: safeTitle,
+        content: safeContent,
         tags: row.tags ? JSON.stringify(row.tags) : null,
         source: 'import',
         origin_ai: row.originAi ?? null,
@@ -514,7 +612,7 @@ export class MemoryStore {
         git_branch: row.gitBranch ?? null,
         author_user_id: row.authorUserId ?? null,
         author_display: row.authorDisplay ?? null,
-        content_hash: row.contentHash ?? contentHash(row.title, row.content),
+        content_hash: row.contentHash ?? contentHash(safeTitle, safeContent),
         revision_count: 0,
         duplicate_count: 0,
         last_seen_at: now,
@@ -529,6 +627,30 @@ export class MemoryStore {
     }
   }
 
+  /**
+   * M12: originates a local delete/tombstone (§3.1 — "A delete sets deleted=1, nulls
+   * content, bumps updated_at, and appends a delete mutation"). Not currently wired to
+   * any MCP tool or UI affordance in Phase 1 (the doc's own Phase 1 tool scope is
+   * memory_save/search/context only) — this is the capability existing so a tombstone
+   * CAN be created and will replicate correctly through the existing mutation_log/push
+   * path once something calls it. Returns false if the row doesn't exist or is already
+   * deleted (idempotent no-op, not an error).
+   */
+  deleteObservation(syncId: string): boolean {
+    const existing = this.get(syncId)
+    if (!existing || existing.deleted) return false
+    const updated: ObservationRow = {
+      ...existing,
+      content: null,
+      updated_at: Date.now(),
+      lamport: this.nextLamport(),
+      deleted: 1,
+    }
+    this.applyRowUpdate(updated)
+    this.appendMutation('delete', updated)
+    return true
+  }
+
   getBySourceRef(source: string, sourceRef: string): ObservationRow | null {
     return (
       (this.db
@@ -538,7 +660,12 @@ export class MemoryStore {
   }
 
   count(): number {
-    const row = this.db.prepare('SELECT COUNT(*) as c FROM observations WHERE deleted = 0').get() as { c: number }
+    // M24 fix: superseded rows are kept (append-first, §4.3 rule b) but are not "active"
+    // items — every other read path (search/context/idx_obs_topic) already excludes
+    // them via `superseded_by IS NULL`. This count is shown to the user as an item count
+    // (§8.1 Connect Memory card); including dead losers of a topic-collision merge
+    // overstates it.
+    const row = this.db.prepare('SELECT COUNT(*) as c FROM observations WHERE deleted = 0 AND superseded_by IS NULL').get() as { c: number }
     return row.c
   }
 
@@ -557,14 +684,27 @@ export class MemoryStore {
     return row.c
   }
 
-  markPushed(seqs: number[]): void {
-    if (seqs.length === 0) return
+  /**
+   * M21 fix: accepts either a bare seq (plain "mark pushed, no error") or `{seq, error}`
+   * so the daemon can record a server-reported 'rejected' outcome's message per §4.2:
+   * "Rejected ones ... are marked pushed with a local last_error so they don't loop
+   * forever, and surfaced once." Previously this only ever took bare seqs and the
+   * daemon discarded the server's per-mutation results entirely (`void body`), so a
+   * rejected mutation was marked pushed with NO record of why — indistinguishable from a
+   * normal success. Kept backward compatible with plain `number[]` so existing callers
+   * (tests, simple call sites) are unaffected.
+   */
+  markPushed(entries: Array<number | MarkPushedEntry>): void {
+    if (entries.length === 0) return
     const now = Date.now()
-    const stmt = this.db.prepare('UPDATE mutation_log SET pushed_at = ? WHERE seq = ?')
-    const txn = this.db.transaction((ids: number[]) => {
-      for (const seq of ids) stmt.run(now, seq)
+    const stmt = this.db.prepare('UPDATE mutation_log SET pushed_at = ?, last_error = ? WHERE seq = ?')
+    const txn = this.db.transaction((rows: Array<number | MarkPushedEntry>) => {
+      for (const e of rows) {
+        if (typeof e === 'number') stmt.run(now, null, e)
+        else stmt.run(now, e.error ?? null, e.seq)
+      }
     })
-    txn(seqs)
+    txn(entries)
   }
 
   pruneAckedMutations(olderThanMs = 7 * 24 * 60 * 60 * 1000): number {
@@ -572,6 +712,27 @@ export class MemoryStore {
     const result = this.db
       .prepare('DELETE FROM mutation_log WHERE pushed_at IS NOT NULL AND pushed_at < ?')
       .run(cutoff)
+    return result.changes
+  }
+
+  /**
+   * M20: offline-queue maintenance. §4.5 "hard cap 50000, after which the daemon
+   * compacts the queue by collapsing multiple upsert ops for the same sync_id into the
+   * latest one (safe: payload is a full snapshot)". Keeps only the highest-seq PENDING
+   * 'upsert' mutation per sync_id; 'delete'/'promote' ops are left untouched (each is
+   * meaningful on its own, not a superseded snapshot of the same intent). Wired from
+   * MemoryDaemon's drain() — see memory-daemon.ts.
+   */
+  compactMutationLog(): number {
+    const result = this.db
+      .prepare(
+        `DELETE FROM mutation_log
+         WHERE pushed_at IS NULL AND op = 'upsert'
+           AND seq NOT IN (
+             SELECT MAX(seq) FROM mutation_log WHERE pushed_at IS NULL AND op = 'upsert' GROUP BY sync_id
+           )`
+      )
+      .run()
     return result.changes
   }
 

@@ -28,6 +28,21 @@ describe('redact', () => {
     expect(redact(`bearer ${jwt}`).redacted).toBe(true)
   })
 
+  it('redacts an opaque (non-JWT) bearer token in an Authorization header, not just the prefix', () => {
+    // Regression: the generic key=value pattern alone only matched "Authorization:
+    // Bearer" (stopping at the space) and left an opaque, non-JWT token like this fully
+    // exposed right after the redacted prefix.
+    const { text, redacted } = redact('Authorization: Bearer sk_live_opaqueRandomToken1234567890')
+    expect(redacted).toBe(true)
+    expect(text).not.toContain('sk_live_opaqueRandomToken1234567890')
+  })
+
+  it('redacts a bare "Bearer <token>" with no Authorization: prefix', () => {
+    const { text, redacted } = redact('curl -H "Bearer abcDEF123opaqueToken"')
+    expect(redacted).toBe(true)
+    expect(text).not.toContain('abcDEF123opaqueToken')
+  })
+
   it('leaves ordinary text untouched', () => {
     const { text, redacted } = redact('We decided to use TanStack Query for server state.')
     expect(redacted).toBe(false)

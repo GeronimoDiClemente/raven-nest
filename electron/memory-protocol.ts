@@ -39,7 +39,12 @@ export interface SaveMemoryParams {
 
 export interface SaveMemoryResult {
   syncId: string
-  outcome: 'inserted' | 'topic_updated' | 'duplicate'
+  // 'source_ref_updated' (review round 1, minor): Step 0's source_ref identity match
+  // used to report 'topic_updated' even though the row may not have a topic_key at all
+  // — the match was by import identity, not by a topic-key collision. Kept as a
+  // distinct value from 'topic_updated' so a caller inspecting outcome can tell the two
+  // resolution paths apart.
+  outcome: 'inserted' | 'topic_updated' | 'source_ref_updated' | 'duplicate'
   redacted: boolean
 }
 
@@ -87,12 +92,27 @@ export interface HookPreCompactParams {
   sessionId: string
 }
 
+// M12: local delete/tombstone origination. Not exposed as an MCP tool in Phase 1 (the
+// doc's own Phase 1 tool scope is memory_save/search/context only, §9) — this is the
+// store/protocol-level capability so a tombstone CAN be originated locally and replicate
+// through the normal mutation_log/push path; a UI or future MCP tool wiring is a
+// follow-up, not a Phase 1 gap in itself.
+export interface DeleteMemoryParams {
+  cwd: string
+  syncId: string
+}
+
+export interface DeleteMemoryResult {
+  ok: boolean
+}
+
 // ── Request/response envelope ────────────────────────────────────────────────
 
 export type MemoryMethod =
   | 'memory.save'
   | 'memory.search'
   | 'memory.context'
+  | 'memory.delete'
   | 'hook.sessionStart'
   | 'hook.stop'
   | 'hook.preCompact'
@@ -102,6 +122,12 @@ export interface MemoryRequest {
   id: string
   method: MemoryMethod
   params: unknown
+  // C2: shared-secret handshake validated by memory-ipc-server.ts on every request.
+  // Node's `net` module gives no way to set a custom Windows named-pipe DACL or verify
+  // the connecting process's user SID, so an unpredictable pipe name alone is not
+  // access control — see memory-local-auth.ts for the full rationale and the read-only
+  // provenance of this token (a 0600 file under ravenHome, generated once).
+  token: string
 }
 
 export interface MemoryResponseOk {
@@ -118,22 +144,22 @@ export interface MemoryResponseErr {
 
 export type MemoryResponse = MemoryResponseOk | MemoryResponseErr
 
-/** Windows named pipe or POSIX unix socket path for the daemon's IPC server. */
-export function daemonSocketPath(ravenHomeDir: string, isWin: boolean): string {
+/**
+ * Windows named pipe or POSIX unix socket path for the daemon's IPC server.
+ *
+ * C2 fix: `pipeId` must be an unpredictable, per-install random value (see
+ * memory-local-auth.ts's `ensureLocalAuthMaterial`) — NOT a hash of ravenHomeDir. The
+ * previous implementation derived the pipe suffix from a fast non-cryptographic hash of
+ * a path that is itself guessable (the user's home directory), so any local process
+ * could compute the exact pipe name and either connect to it (no Windows ACL restricts
+ * named-pipe connections to the creating user by default via Node's `net` module) or
+ * squat on the name before Nest starts. Making the name unguessable closes the squatting
+ * angle; the `token` field on every MemoryRequest (validated in memory-ipc-server.ts) is
+ * the actual access control for the "who can issue calls" angle.
+ */
+export function daemonSocketPath(ravenHomeDir: string, isWin: boolean, pipeId: string): string {
   if (isWin) {
-    // One pipe per ravenHome so RAVEN_HOME-isolated e2e/dev instances don't collide.
-    const suffix = hashShort(ravenHomeDir)
-    return `\\\\.\\pipe\\nest-memory-${suffix}`
+    return `\\\\.\\pipe\\nest-memory-${pipeId}`
   }
   return `${ravenHomeDir}/.raven-nest/memory/daemon.sock`
-}
-
-// Small, fast, non-cryptographic — only used to keep pipe names short and distinct
-// per ravenHome, not for anything security-sensitive.
-function hashShort(input: string): string {
-  let h = 5381
-  for (let i = 0; i < input.length; i++) {
-    h = ((h << 5) + h + input.charCodeAt(i)) | 0
-  }
-  return (h >>> 0).toString(16)
 }

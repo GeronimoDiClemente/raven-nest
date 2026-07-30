@@ -9,7 +9,9 @@ import type { MemoryMethod, MemoryRequest, MemoryResponse } from '../memory-prot
 const REQUEST_TIMEOUT_MS = 5000
 
 export class MemoryDaemonClient {
-  constructor(private readonly socketPath: string) {}
+  // C2: every request must carry the shared-secret token the daemon validates before
+  // touching the store — see memory-local-auth.ts and memory-ipc-server.ts.
+  constructor(private readonly socketPath: string, private readonly authToken: string) {}
 
   call<T = unknown>(method: MemoryMethod, params: unknown): Promise<T> {
     return new Promise((resolve, reject) => {
@@ -31,7 +33,7 @@ export class MemoryDaemonClient {
       }, REQUEST_TIMEOUT_MS)
 
       socket.on('connect', () => {
-        const request: MemoryRequest = { id, method, params }
+        const request: MemoryRequest = { id, method, params, token: this.authToken }
         socket.write(`${JSON.stringify(request)}\n`)
       })
 
