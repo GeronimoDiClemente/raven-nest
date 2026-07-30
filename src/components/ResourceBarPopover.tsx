@@ -134,7 +134,12 @@ export default function ResourceBarPopover({
           <>
             {heaviestCallout && (
               <div className="rb-heavy-banner" role="status">
-                <span className="rb-heavy-icon">⚠</span>
+                <span className="rb-heavy-icon" aria-hidden="true">
+                  <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+                    <path d="M8 1.7 15 14.3H1L8 1.7Z" strokeLinejoin="round" />
+                    <path d="M8 6.4v3.4M8 11.8v.5" strokeLinecap="round" />
+                  </svg>
+                </span>
                 <span className="rb-heavy-text">
                   Heaviest pane: <strong>{heaviestCallout.pane.label}</strong> using {formatBytes(heaviestCallout.pane.memBytes)}
                   {' · '}
