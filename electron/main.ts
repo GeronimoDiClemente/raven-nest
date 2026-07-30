@@ -142,7 +142,7 @@ import { WorktreeSignals } from './integrations/worktree-signals'
 import { SlackSocket } from './integrations/slack-socket'
 import { fetchPageMarkdown } from './integrations/notion'
 import { createGcalAdapter, type GcalEvent } from './integrations/gcal'
-import { refreshAccessToken, startLoopbackFlow, type GcalCreds } from './integrations/gcal-oauth'
+import { refreshAccessToken, startLoopbackFlow, GcalAuthError, type GcalCreds } from './integrations/gcal-oauth'
 import { EventBus } from './integrations/event-bus'
 import { loadRecipes } from './integrations/recipes'
 import { registerBusCommands } from './integrations/bus-commands'
@@ -2324,7 +2324,16 @@ async function refreshGcalIfNeeded(): Promise<void> {
     const next = await refreshAccessToken({ clientId, refreshToken: creds.refreshToken, fetch })
     pluginCreds.setToken('gcal', JSON.stringify({ ...creds, accessToken: next.accessToken, expiresAt: next.expiresAt }))
   } catch (err) {
-    console.warn('[gcal] refresh falló', err)
+    // Terminal (invalid_grant): el refresh token murió; no reintentar. Limpiamos
+    // las creds para no dejar la integración "conectada" pero zombie (Calendar
+    // vacío para siempre). Un transitorio (5xx/red) se conserva y reintenta.
+    // (El push "reconectá Calendar" al renderer + su UI es la pasada en vivo.)
+    if (err instanceof GcalAuthError) {
+      console.warn('[gcal] refresh token revocado/expirado — limpiando creds', err)
+      pluginCreds.delete('gcal')
+    } else {
+      console.warn('[gcal] refresh falló (transitorio, conservo creds)', err)
+    }
   }
 }
 

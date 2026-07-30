@@ -25,6 +25,21 @@ export interface GcalCreds {
   expiresAt: number
 }
 
+/**
+ * Error TERMINAL de auth de Calendar: el refresh token está revocado o expirado
+ * (`invalid_grant`). No sirve reintentar — hay que re-conectar. El caller (main)
+ * lo distingue de un 5xx/red transitorio (Error común, sí conviene reintentar
+ * dejando las creds intactas) para limpiar las creds zombie en vez de dejar la
+ * integración "conectada" pero muerta.
+ */
+export class GcalAuthError extends Error {
+  readonly terminal = true
+  constructor(message: string) {
+    super(message)
+    this.name = 'GcalAuthError'
+  }
+}
+
 export interface AuthUrlParams {
   clientId: string
   redirectUri: string
@@ -103,6 +118,9 @@ export async function refreshAccessToken(
     body: body.toString(),
   })
   const json = (await res.json()) as { access_token?: string; expires_in?: number; error?: string }
+  // invalid_grant = refresh token revocado/expirado: terminal, hay que re-conectar.
+  // Va antes del check genérico para que el caller no lo confunda con un transitorio.
+  if (json.error === 'invalid_grant') throw new GcalAuthError('invalid_grant: refresh token de Calendar revocado o expirado')
   if (!res.ok || !json.access_token) throw new Error(json.error ?? `token refresh failed (${res.status})`)
   return { accessToken: json.access_token, expiresAt: now + (json.expires_in ?? 0) * 1000 }
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { authUrl, exchangeCode, refreshAccessToken } from '../integrations/gcal-oauth'
+import { authUrl, exchangeCode, refreshAccessToken, GcalAuthError } from '../integrations/gcal-oauth'
 
 describe('gcal-oauth', () => {
   it('authUrl incluye challenge S256, scope y redirect loopback', () => {
@@ -37,6 +37,22 @@ describe('gcal-oauth', () => {
     expect(body).toContain('grant_type=authorization_code')
     expect(body).toContain('code_verifier=ver')
     expect(body).toContain('code=abc')
+  })
+
+  it('refreshAccessToken con invalid_grant tira un error terminal (GcalAuthError)', async () => {
+    const fetch = vi.fn(async () => new Response(JSON.stringify({ error: 'invalid_grant' }), { status: 400 }))
+    const err = await refreshAccessToken({ clientId: 'cid', refreshToken: 'rt', fetch: fetch as unknown as typeof globalThis.fetch })
+      .then(() => null, (e: unknown) => e)
+    expect(err).toBeInstanceOf(GcalAuthError)
+    expect((err as GcalAuthError).terminal).toBe(true)
+  })
+
+  it('refreshAccessToken con un 500 transitorio tira un error NO terminal', async () => {
+    const fetch = vi.fn(async () => new Response(JSON.stringify({ error: 'server_error' }), { status: 500 }))
+    const err = await refreshAccessToken({ clientId: 'cid', refreshToken: 'rt', fetch: fetch as unknown as typeof globalThis.fetch })
+      .then(() => null, (e: unknown) => e)
+    expect(err).toBeInstanceOf(Error)
+    expect(err).not.toBeInstanceOf(GcalAuthError)
   })
 
   it('exchangeCode tira si la respuesta no trae access_token', async () => {
