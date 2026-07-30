@@ -61,11 +61,25 @@ describe('defaultRecipes (replican H3)', () => {
     expect(r.then(taskCreated)).toEqual([])
   })
 
-  it('si el branch no está trackeado, la receta no produce comando', () => {
+  it('si el branch no está trackeado, las recetas de status no producen updateStatus', () => {
+    // Las recetas H5 notify NO dependen del tracking (siempre emiten notify);
+    // sólo las de status (pr.opened/pr.merged→updateStatus) hacen if(!t) return [].
     const recipes = defaultRecipes(emptyLookup)
-    for (const r of recipes) {
-      expect(r.then(prOpened)).toEqual([])
-    }
+    const opened = recipes.filter((r) => r.when === 'pr.opened').flatMap((r) => r.then(prOpened))
+    const merged = recipes.filter((r) => r.when === 'pr.merged').flatMap((r) => r.then(prMerged))
+    expect(opened.some((c) => c.cmd === 'updateStatus')).toBe(false)
+    expect(merged.some((c) => c.cmd === 'updateStatus')).toBe(false)
+  })
+
+  it('pr.merged y ci.failed y changes.requested y review.requested producen notify', () => {
+    const recipes = defaultRecipes(() => ({ pluginId: 'jira', providerId: 'P-1' }))
+    const cmdsFor = (ev: DomainEvent) => recipes.filter(r => r.when === ev.type).flatMap(r => r.then(ev))
+    expect(cmdsFor({ type: 'ci.failed', branch: 'feat/x', repoFullName: 'o/r', runUrl: 'u' } as DomainEvent)
+      .some(c => c.cmd === 'notify')).toBe(true)
+    expect(cmdsFor({ type: 'changes.requested', branch: 'feat/x', repoFullName: 'o/r', prNumber: 3 } as DomainEvent)
+      .some(c => c.cmd === 'notify')).toBe(true)
+    expect(cmdsFor({ type: 'review.requested', repoFullName: 'o/r', prNumber: 3, prTitle: 't' } as DomainEvent)
+      .some(c => c.cmd === 'notify')).toBe(true)
   })
 
   it('resuelve el tracking al momento de then(ev) (lookup dinámico, no import global)', () => {
@@ -87,7 +101,9 @@ describe('loadRecipes / saveRecipes', () => {
     expect(opened.then(prOpened)).toEqual([
       { cmd: 'updateStatus', pluginId: 'jira', providerId: 'ISSUE-9', to: 'in_review' },
     ])
-    expect(recipes.map((x) => x.when).sort()).toEqual(['pr.merged', 'pr.opened', 'task.created'])
+    expect(recipes.map((x) => x.when).sort()).toEqual(
+      ['changes.requested', 'ci.failed', 'pr.merged', 'pr.merged', 'pr.opened', 'review.requested', 'task.created'],
+    )
   })
 
   it('round-trip: save recetas declarativas → load reconstruye las mismas emisiones', () => {
@@ -115,7 +131,9 @@ describe('loadRecipes / saveRecipes', () => {
     writeFileSync(file, '{ not json')
     const recipes = loadRecipes(file, lookup)
     expect(warn).toHaveBeenCalled()
-    expect(recipes.map((x) => x.when).sort()).toEqual(['pr.merged', 'pr.opened', 'task.created'])
+    expect(recipes.map((x) => x.when).sort()).toEqual(
+      ['changes.requested', 'ci.failed', 'pr.merged', 'pr.merged', 'pr.opened', 'review.requested', 'task.created'],
+    )
   })
 
   it('load descarta recetas almacenadas con comandos inválidos', () => {

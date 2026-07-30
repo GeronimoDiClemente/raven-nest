@@ -71,6 +71,40 @@ export function defaultRecipes(lookup: TrackedLookup): Recipe[] {
       when: 'task.created',
       then: () => [],
     },
+    // H5 Motor 4 — notify DIRIGIDO (eventos del ciclo propio → Slack). El
+    // channel va vacío: lo resuelve handleNotify desde getConfig('slack').channel.
+    {
+      id: 'h5:pr.merged→notify',
+      when: 'pr.merged',
+      then: (ev) => {
+        const e = ev as { repoFullName: string; branch: string }
+        return [{ cmd: 'notify', channel: '', message: `✅ PR mergeado en ${e.repoFullName} (${e.branch})` }]
+      },
+    },
+    {
+      id: 'h5:ci.failed→notify',
+      when: 'ci.failed',
+      then: (ev) => {
+        const e = ev as { branch: string; runUrl?: string }
+        return [{ cmd: 'notify', channel: '', message: `🔴 CI rojo en ${e.branch}${e.runUrl ? ` — ${e.runUrl}` : ''}` }]
+      },
+    },
+    {
+      id: 'h5:changes.requested→notify',
+      when: 'changes.requested',
+      then: (ev) => {
+        const e = ev as { repoFullName: string; prNumber: number }
+        return [{ cmd: 'notify', channel: '', message: `✏️ Te pidieron cambios en PR #${e.prNumber} (${e.repoFullName})` }]
+      },
+    },
+    {
+      id: 'h5:review.requested→notify',
+      when: 'review.requested',
+      then: (ev) => {
+        const e = ev as { repoFullName: string; prNumber: number; prTitle: string }
+        return [{ cmd: 'notify', channel: '', message: `👀 Te pidieron revisar PR #${e.prNumber}: ${e.prTitle}` }]
+      },
+    },
   ]
 }
 

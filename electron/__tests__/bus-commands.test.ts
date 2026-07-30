@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { registerBusCommands, type TicketProviderResolver, type OpenSessionFn } from '../integrations/bus-commands'
 import type { CommandHandler } from '../integrations/event-bus'
-import type { EventBus } from '../integrations/event-bus'
+import { EventBus } from '../integrations/event-bus'
 import type { Command, DomainEvent } from '../integrations/bus-types'
 import type { PanelAdapterDeps } from '../integration-panels'
 import type { TicketProvider } from '../integrations/ticket-types'
@@ -114,6 +114,17 @@ describe('registerBusCommands', () => {
     ).resolves.toBeUndefined()
     expect(fetch).not.toHaveBeenCalled()
     expect(warn).toHaveBeenCalled()
+  })
+
+  it('notify con channel vacío usa deps.getConfig(slack).channel', async () => {
+    const fetch = vi.fn(async () => new Response(JSON.stringify({ ok: true }), { status: 200 }))
+    const deps = { getToken: () => 'tok', getConfig: () => ({ channel: '#builds' }), fetch } as unknown as PanelAdapterDeps
+    const bus = new EventBus()
+    registerBusCommands(bus, { ticketLoop: { providerFor: () => null } })
+    bus.setRecipes([{ id: 'r', when: 'ci.failed', then: () => [{ cmd: 'notify', channel: '', message: 'hola' }] }])
+    await bus.emit({ type: 'ci.failed', branch: 'b', repoFullName: 'o/r' } as DomainEvent, deps)
+    const body = JSON.parse((fetch.mock.calls[0][1] as { body: string }).body)
+    expect(body.channel).toBe('#builds')
   })
 
   it('notify con respuesta Slack no-ok warnea pero no tira', async () => {

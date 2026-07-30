@@ -74,17 +74,25 @@ async function handleNotify(cmd: NotifyCommand, deps: PanelAdapterDeps): Promise
     console.warn('[bus-commands] notify sin token de Slack, no-op', cmd.channel)
     return
   }
+  // Las recetas H5 emiten channel:'' a propósito: el destino canónico vive en
+  // la config del plugin Slack (getConfig('slack').channel). Un cmd con channel
+  // explícito (recetas custom) lo pisa. Sin ninguno de los dos, no-op con warn.
+  const channel = cmd.channel || String((deps.getConfig('slack') as { channel?: unknown }).channel ?? '')
+  if (!channel) {
+    console.warn('[bus-commands] notify sin channel (cmd ni config), no-op')
+    return
+  }
   try {
     const res = await deps.fetch('https://slack.com/api/chat.postMessage', {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json; charset=utf-8' },
-      body: JSON.stringify({ channel: cmd.channel, text: cmd.message }),
+      body: JSON.stringify({ channel, text: cmd.message }),
     })
     const json = (await res.json()) as { ok?: boolean; error?: string }
-    if (!json.ok) console.warn('[bus-commands] notify: Slack respondió no-ok', json.error ?? 'unknown', cmd.channel)
+    if (!json.ok) console.warn('[bus-commands] notify: Slack respondió no-ok', json.error ?? 'unknown', channel)
   } catch (err) {
     // best-effort: un fallo de red no debe romper la secuencia de comandos.
-    console.warn('[bus-commands] notify falló', cmd.channel, err)
+    console.warn('[bus-commands] notify falló', channel, err)
   }
 }
 

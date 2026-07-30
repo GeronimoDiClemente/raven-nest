@@ -72,10 +72,11 @@ describe('bus-integration: todos los buses (evento → receta → comando → pr
       { cmd: 'updateStatus', pluginId: 'jira', providerId: 'PROJ-42', to: 'in_review' },
     ])
 
-    // pr.merged → updateStatus(to:done).
+    // pr.merged → updateStatus(to:done) + notify H5 (channel:'' lo resuelve el handler).
     const merged = await bus.emit(evPrMerged, deps)
     expect(merged.commands).toEqual([
       { cmd: 'updateStatus', pluginId: 'jira', providerId: 'PROJ-42', to: 'done' },
+      { cmd: 'notify', channel: '', message: '✅ PR mergeado en acme/webapp (feat/login)' },
     ])
 
     // El provider real recibió exactamente las dos transiciones, en orden.
@@ -103,8 +104,8 @@ describe('bus-integration: todos los buses (evento → receta → comando → pr
     await bus.emit(evPrOpened, deps)
     await bus.emit(evPrMerged, deps)
 
-    // notify nunca se dispara con las DEFAULT_RECIPES (gancho v2).
-    expect(notify).not.toHaveBeenCalled()
+    // H5: pr.merged ahora dispara notify (receta h5:pr.merged→notify), una vez.
+    expect(notify).toHaveBeenCalledTimes(1)
     // updateStatus recibió in_review y luego done, con el evento origen como 2º arg.
     expect(updateStatus.mock.calls.map((c) => (c[0] as Command & { to: string }).to)).toEqual([
       'in_review', 'done',
@@ -113,7 +114,7 @@ describe('bus-integration: todos los buses (evento → receta → comando → pr
     expect((updateStatus.mock.calls[1][1] as DomainEvent).type).toBe('pr.merged')
   })
 
-  it('si el branch no está trackeado, ningún comando se dispara (paridad con H3 if(!t) return)', async () => {
+  it('si el branch no está trackeado, ningún updateStatus se dispara (paridad con H3 if(!t) return)', async () => {
     const emptyLookup: TrackedLookup = () => undefined
     const provider = makeProvider()
     const bus = new EventBus()
@@ -123,7 +124,10 @@ describe('bus-integration: todos los buses (evento → receta → comando → pr
     const opened = await bus.emit(evPrOpened, makeDeps())
     const merged = await bus.emit(evPrMerged, makeDeps())
     expect(opened.commands).toEqual([])
-    expect(merged.commands).toEqual([])
+    // pr.merged: el updateStatus no se resuelve sin tracking; el notify H5 sí (independiente del tracking).
+    expect(merged.commands).toEqual([
+      { cmd: 'notify', channel: '', message: '✅ PR mergeado en acme/webapp (feat/login)' },
+    ])
     expect(provider.transition).not.toHaveBeenCalled()
   })
 
@@ -142,9 +146,13 @@ describe('bus-integration: todos los buses (evento → receta → comando → pr
 
     expect(merged.commands).toEqual([
       { cmd: 'updateStatus', pluginId: 'jira', providerId: 'PROJ-42', to: 'done' },
+      { cmd: 'notify', channel: '', message: '✅ PR mergeado en acme/webapp (feat/login)' },
     ])
     expect(provider.transition).toHaveBeenCalledWith('PROJ-42', 'done')
-    // tras el borrado, un nuevo emit del mismo branch ya no resuelve comando.
-    expect((await bus.emit(evPrMerged, makeDeps())).commands).toEqual([])
+    // tras el borrado, el updateStatus ya no se resuelve (depende del tracking);
+    // el notify H5 sí sigue (no depende del tracking del branch).
+    expect((await bus.emit(evPrMerged, makeDeps())).commands).toEqual([
+      { cmd: 'notify', channel: '', message: '✅ PR mergeado en acme/webapp (feat/login)' },
+    ])
   })
 })
