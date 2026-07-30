@@ -82,7 +82,14 @@ export class WorktreeSignals {
       )
       changesRequested = latestReviewIsChangesRequested(reviews ?? [])
     }
+    const prev = this.state.get(wt.repoPath)
     this.state.set(wt.repoPath, { ci, repo, runId: failedRun?.id, runUrl: failedRun?.html_url, changesRequested, prNumber })
+
+    // changes.requested: emitir SOLO en la transición a true (no en cada ciclo).
+    if (this.bus && changesRequested && !prev?.changesRequested && prNumber) {
+      const ev: DomainEvent = { type: 'changes.requested', branch: wt.branch, repoFullName: repo, prNumber }
+      await this.bus.emit(ev, deps)
+    }
 
     // Señal ci.failed (bus, aditiva, dedup por SHA del run rojo).
     const sha = (failedRun as { head_sha?: string } | undefined)?.head_sha

@@ -63,6 +63,27 @@ describe('WorktreeSignals — CI por worktree', () => {
     expect(ciFailed).toHaveLength(1)
   })
 
+  it('emite changes.requested cuando el PR pasa a CHANGES_REQUESTED, una sola vez', async () => {
+    let state = 'APPROVED'
+    const deps = depsWith(async (url) => {
+      if (url.includes('/actions/runs')) return runsResp('success')
+      if (url.includes('/pulls?')) return prResp(7)
+      if (url.includes('/reviews')) return new Response(JSON.stringify([{ user: { login: 'a' }, state, submitted_at: '2026-01-02T00:00:00Z' }]), { status: 200 })
+      return new Response('[]', { status: 200 })
+    })
+    const emit = vi.fn(async (_ev: unknown, _deps: unknown) => ({ commands: [], failed: [] }))
+    const s = new WorktreeSignals(() => 'acme/app')
+    s.attachBus({ emit } as unknown as import('../integrations/event-bus').EventBus)
+    const wts = [{ repoPath: '/wt/x', branch: 'feat/x' }]
+    await s.poll(wts, deps)                       // APPROVED → no emite
+    state = 'CHANGES_REQUESTED'
+    await s.poll(wts, deps)                       // transición → emite
+    await s.poll(wts, deps)                       // sigue en CHANGES_REQUESTED → no re-emite
+    const cr = emit.mock.calls.filter((c) => (c[0] as { type: string }).type === 'changes.requested')
+    expect(cr).toHaveLength(1)
+    expect(cr[0][0]).toMatchObject({ type: 'changes.requested', branch: 'feat/x', repoFullName: 'acme/app', prNumber: 7 })
+  })
+
   it('fixCiPrompt arma prompt con el título del run, la URL y el log truncado', async () => {
     const bigLog = Array.from({ length: 300 }, (_, i) => `line ${i}`).join('\n')
     const deps = depsWith(async (url) => {
