@@ -40,7 +40,11 @@ export function useHubTerminal(paneId: string, canResizePty: boolean) {
       lineHeight: 1.3,
       cursorBlink: false,
       cursorStyle: 'bar',
-      scrollback: 1000,
+      // A Hub tile is a compact preview, not a working terminal: it replays only
+      // a 200-line tail and you jump to the real pane to scroll. Capping scrollback
+      // here bounds per-tile memory (up to 12 live mirrors) without any visible
+      // loss — 300 leaves headroom above the replayed tail for a little live scroll.
+      scrollback: 300,
       theme: {
         background: '#000000',
         foreground: '#e8e8e8',
