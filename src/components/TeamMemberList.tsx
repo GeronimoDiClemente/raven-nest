@@ -49,7 +49,7 @@ export default function TeamMemberList({
             {m.avatarUrl ? <img src={m.avatarUrl} alt="" /> : initials(m.name)}
             <span className="tm-dot" style={{ background: m.online ? '#22C55E' : '#555' }} />
           </div>
-          <div className="tm-name">{m.name}{m.login && <span className="tm-login">@{m.login}</span>}</div>
+          <div className="tm-name">{m.name}{m.login && m.login !== m.name && <span className="tm-login">@{m.login}</span>}</div>
           {m.login ? (
             <>
               <div className="tm-act"><b>{m.commits}</b> commits · <b>{m.prsMerged}</b> PRs</div>
