@@ -1989,31 +1989,6 @@ body {
   color: var(--raven-blue);
 }
 
-/* Pin (solo visible en el Hub): marca el pane para el filtro Pineadas. */
-.pane-pin-btn {
-  background: transparent;
-  border: none;
-  color: var(--text-muted);
-  cursor: pointer;
-  width: 20px;
-  height: 20px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 4px;
-  transition: background 0.15s, color 0.15s;
-  margin-right: 2px;
-}
-
-.pane-pin-btn:hover {
-  background: var(--bg-elevated);
-  color: var(--text-secondary);
-}
-
-.pane-pin-btn.pinned {
-  color: var(--text-primary);
-}
-
 /* ── Drag & Drop ─────────────────────────────────────────── */
 
 .pane-header {
@@ -9619,22 +9594,8 @@ body.platform-mac .tabbar { padding-right: 116px; }
   flex-shrink: 0;
 }
 .hub-av-dot { width: 8px; height: 8px; border-radius: 50%; }
-.hub-av.busy::after {
-  content: "";
-  position: absolute;
-  inset: -2px;
-  border-radius: 50%;
-  border: 1.5px solid var(--av-color, #22C55E);
-  opacity: 0.9;
-  animation: hub-av-pulse 1.6s ease-in-out infinite;
-}
-@keyframes hub-av-pulse {
-  0%, 100% { opacity: 0.25; transform: scale(0.9); }
-  50% { opacity: 0.9; transform: scale(1.05); }
-}
-@media (prefers-reduced-motion: reduce) {
-  .hub-av.busy::after { animation: none; opacity: 0.7; }
-}
+/* No busy ring: the colored agent logo already reads the terminal; a pulsing
+   circle around it felt heavy and broke the app's minimal look. */
 
 /* Pin toggle — hidden until row hover; always shown once pinned */
 .hub-pin {
@@ -10616,7 +10577,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
 .tm-av{position:relative;width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font-size:10px;font-weight:600;color:#fff;background:#2a2a2a}
 .tm-av img{width:100%;height:100%;border-radius:50%;object-fit:cover}
 .tm-dot{position:absolute;right:-1px;bottom:-1px;width:8px;height:8px;border-radius:50%;border:2px solid var(--bg-surface)}
-.tm-name{font-weight:500}
+.tm-name{font-weight:500;font-size:13px}
 .tm-login{color:var(--text-muted);font-size:11px;margin-left:6px}
 .tm-act{color:var(--text-secondary);font-size:12px}
 .tm-act b{color:var(--text-primary);font-weight:600}

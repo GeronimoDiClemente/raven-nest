@@ -47,11 +47,10 @@ interface Props {
   style?: React.CSSProperties
   allowSharing?: boolean
   onRequireUpgrade?: () => void
-  onTogglePin?: () => void  // enables the pin button in the header (marks the pane for the Hub)
   onRename?: (label: string) => void  // rename the pane (sets customLabel)
 }
 
-export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZoom, onClose, onColorChange, onNoteChange, onInput, onBusyChange, onFocus, onActivity, onJoinRequest, onPtyStarted, ports = [], fontSize, style, allowSharing = true, onRequireUpgrade, onTogglePin, onRename }: Props) {
+export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZoom, onClose, onColorChange, onNoteChange, onInput, onBusyChange, onFocus, onActivity, onJoinRequest, onPtyStarted, ports = [], fontSize, style, allowSharing = true, onRequireUpgrade, onRename }: Props) {
   const cmdBufferRef = useRef('')
   const wrappedOnInput = useCallback((data: string) => {
     for (const ch of data) {
@@ -417,7 +416,6 @@ export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZ
         isSharing={isSharing}
         repoPathDiverged={repoPathDiverged}
         onSyncCwd={handleSyncCwd}
-        onTogglePin={onTogglePin}
         onRename={onRename}
       />
       {searchOpen && (

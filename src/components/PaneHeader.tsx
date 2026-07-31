@@ -39,11 +39,10 @@ interface Props {
   repoPathDiverged?: boolean
   onSyncCwd?: () => void
   ports?: number[]
-  onTogglePin?: () => void  // shows the pin button (marks the pane for the Hub's Pinned filter)
   onRename?: (label: string) => void  // rename the pane (sets customLabel; '' clears it back to the default)
 }
 
-export default function PaneHeader({ pane, zoomed, onZoom, onClose, onColorChange, onNoteChange, dragHandleProps, processEnded, isBusy, onRestart, onSaveConversation, onCopyLastResponse, showBlocks, blockCount, onToggleBlocks, onShare, isSharing, repoPathDiverged, onSyncCwd, ports = [], onTogglePin, onRename }: Props) {
+export default function PaneHeader({ pane, zoomed, onZoom, onClose, onColorChange, onNoteChange, dragHandleProps, processEnded, isBusy, onRestart, onSaveConversation, onCopyLastResponse, showBlocks, blockCount, onToggleBlocks, onShare, isSharing, repoPathDiverged, onSyncCwd, ports = [], onRename }: Props) {
   const config = AI_CONFIG[pane.aiType]
   const displayLabel = pane.customLabel ?? config.label
   const displayColor = pane.customColor ?? config.color
@@ -256,24 +255,6 @@ export default function PaneHeader({ pane, zoomed, onZoom, onClose, onColorChang
             <path d="M10 1v3H7" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>
           Restart
-        </button>
-      )}
-
-      {onTogglePin && (
-        <button
-          className={`pane-pin-btn${pane.pinned ? ' pinned' : ''}`}
-          onClick={onTogglePin}
-          title={pane.pinned ? 'Unpin from Hub' : 'Pin to Hub'}
-        >
-          {pane.pinned ? (
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M9 4v6l-2 3v2h10v-2l-2-3V4z" /><rect x="11" y="17" width="2" height="4" />
-            </svg>
-          ) : (
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M9 4v6l-2 3v2h10v-2l-2-3V4z" /><path d="M12 17v4" />
-            </svg>
-          )}
         </button>
       )}
 
