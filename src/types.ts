@@ -330,7 +330,7 @@ declare global {
     memory: {
       ensureDeviceId: () => Promise<string>
       connect: (token: string, deviceId: string) => Promise<{ ok: boolean; error?: string; itemCount?: number }>
-      disconnect: (opts?: { deleteCloud?: boolean }) => Promise<{ ok: boolean }>
+      disconnect: (opts?: { deleteCloud?: boolean }) => Promise<{ ok: boolean; cloudDeleteFailed?: string }>
       status: () => Promise<{
         connected: boolean
         deviceId: string | null

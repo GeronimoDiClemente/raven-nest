@@ -29,7 +29,8 @@ export function generateSyncId(prefix: 'obs' | 'sess' | 'prom'): string {
 /**
  * Deterministic sync_id for an imported observation, derived from WHAT the observation
  * IS — projectKey + scope + type + content_hash (the exact hash computeContentIdentity /
- * save() use for the dedupe window, Step 2 below) — never from WHERE it came from.
+ * save() use for the dedupe window, Step 2 below) + topicKey — never from WHERE it came
+ * from.
  *
  * WHY content, not source identity: the previous formula (sha256 of
  * "<source>:<sourceRef>", e.g. "import:engram:<engram's own sync_id>") failed in live
@@ -52,22 +53,51 @@ export function generateSyncId(prefix: 'obs' | 'sess' | 'prom'): string {
  * two imports of the identical fact diverge for reasons that have nothing to do with the
  * fact itself.
  *
+ * WHY topicKey IS included (fix for a real collision, not a hypothetical): two import
+ * rows sharing (projectKey, scope, type, content_hash) but carrying DIFFERENT topic_key
+ * values used to derive the SAME sync_id, because the seed ignored topic_key entirely.
+ * save()'s Step 0.5 (sync_id-match) update path only overwrites title/content/tags/
+ * content_hash/source_ref — it never touches topic_key — so the second import's topic
+ * classification was silently dropped while its source_ref clobbered the first import's,
+ * and alternating re-imports (e.g. on reconnect) ping-ponged source_ref back and forth on
+ * one row instead of ever producing two. Same content under different topics is
+ * deliberately DISTINCT identity: a topic_key is a user-meaningful classification of the
+ * content, not incidental metadata, so two different classifications of otherwise-
+ * identical text are two different facts as far as identity is concerned. Cross-device
+ * convergence still holds with topicKey in the seed — both devices read the same
+ * topic_key off the same source data (the same engram row, the same markdown heading), so
+ * they derive the same seed and therefore the same sync_id, exactly as before.
+ * `topicKey` is normalized to `''` for null/undefined so a no-topic row's seed reduces to
+ * exactly the pre-fix formula — no-topic import identity is unchanged by this fix; only
+ * topic-bearing rows get a new derived id (accepted pre-release: no production data
+ * depends on today's topic-bearing ids yet).
+ *
  * Accepted phase-1 edge (unchanged in spirit from before): this is a pure function of
- * (projectKey, scope, type, content_hash) with no per-user salt, so two different Nest
- * users importing byte-identical content (e.g. a shared CLAUDE.md file, or one user
- * copying another's ~/.engram directory) derive the SAME sync_id. The server's
- * PK-plus-RLS model rejects the second user's insert outright rather than silently
- * merging two people's memories — the failure mode is "the second user's import errors on
- * that one row," not data leakage — which is acceptable for phase 1. A real per-user salt
- * would remove the collision if this becomes a problem in practice.
+ * (projectKey, scope, type, content_hash, topicKey) with no per-user salt, so two
+ * different Nest users importing byte-identical content under the same topic (e.g. a
+ * shared CLAUDE.md file, or one user copying another's ~/.engram directory) derive the
+ * SAME sync_id. The server's PK-plus-RLS model rejects the second user's insert outright
+ * rather than silently merging two people's memories — the failure mode is "the second
+ * user's import errors on that one row," not data leakage — which is acceptable for phase
+ * 1. A real per-user salt would remove the collision if this becomes a problem in
+ * practice.
  */
 export function deriveImportSyncId(
   projectKey: string,
   scope: 'personal' | 'project' | 'team',
   type: string,
-  contentHash: string
+  contentHash: string,
+  topicKey?: string | null
 ): string {
-  const digest = createHash('sha256').update(`${projectKey}:${scope}:${type}:${contentHash}`).digest('hex')
+  const topic = topicKey ?? ''
+  // Empty-topic seed is byte-identical to the pre-fix formula (see doc comment above) —
+  // a no-topic row's derived id is unchanged by this fix. A topic-bearing row gets a
+  // seed segment that no no-topic row can ever collide with (an empty topicKey never
+  // produces the literal string 'topic=...').
+  const seed = topic
+    ? `${projectKey}:${scope}:${type}:topic=${topic}:${contentHash}`
+    : `${projectKey}:${scope}:${type}:${contentHash}`
+  const digest = createHash('sha256').update(seed).digest('hex')
   return `obs-${digest.slice(0, 32)}`
 }
 
@@ -504,14 +534,28 @@ export class MemoryStore {
         }
       }
 
-      // Step 2: content dedupe window — same (project, scope, type) + hash within 7 days.
+      // Step 2: content dedupe window — same (project, scope, type, topic_key) + hash
+      // within 7 days. `topic_key IS ?` (not `=`) so two no-topic rows (both NULL) still
+      // match each other, matching SQLite's NULL-safe comparison semantics.
+      //
+      // Finding-1 fix: this used to omit topic_key from the match entirely, so a
+      // topic-bearing import whose Step 0/0.5/1 identity checks above correctly found NO
+      // existing row for ITS topic would still get silently folded into a content-only
+      // "duplicate" of a DIFFERENT topic's row here — defeating the very identity fix
+      // deriveImportSyncId makes (see its doc comment): "same content under different
+      // topics is deliberately DISTINCT identity" has to hold at every step of this
+      // waterfall, not just at sync_id derivation, or two topic-bearing rows with
+      // byte-identical text would still collapse into one via this step instead of the
+      // Step 0.5 collision the topicKey-aware sync_id was meant to prevent.
       const dupe = this.db
         .prepare(
           `SELECT * FROM observations
            WHERE project_key = ? AND scope = ? AND type = ? AND content_hash = ?
-             AND deleted = 0 AND superseded_by IS NULL AND created_at >= ?`
+             AND topic_key IS ? AND deleted = 0 AND superseded_by IS NULL AND created_at >= ?`
         )
-        .get(input.projectKey, scope, input.type, hash, now - DEDUPE_WINDOW_MS) as ObservationRow | undefined
+        .get(input.projectKey, scope, input.type, hash, input.topicKey ?? null, now - DEDUPE_WINDOW_MS) as
+        | ObservationRow
+        | undefined
       if (dupe) {
         // M23 (accepted divergence, documented): this bump does NOT go through
         // appendMutation/mutation_log, so duplicate_count/last_seen_at do not replicate

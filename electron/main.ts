@@ -2316,6 +2316,14 @@ ipcMain.handle('memory:disconnect', async (_event, opts?: { deleteCloud?: boolea
   // block disconnecting locally (the user can retry by reconnecting then disconnecting
   // again). Local data is NEVER deleted by disconnecting regardless of this flag — only
   // this explicit server call touches cloud data, never local rows.
+  //
+  // Finding 2 fix: this used to swallow a failed delete-cloud-data call behind a
+  // console.warn and still return { ok: true } unconditionally — the renderer (and the
+  // user) had no way to know the cloud copy might still exist. Capture the failure
+  // reason and return it; the caller decides what to do with it (useMemory.ts surfaces
+  // it into the hook's error state). Local disconnect still proceeds regardless — only
+  // the REPORTING changed, not the best-effort semantics.
+  let cloudDeleteFailed: string | undefined
   if (opts?.deleteCloud) {
     const url = getMemorySupabaseUrl()
     const token = loadMemoryToken()
@@ -2328,9 +2336,11 @@ ipcMain.handle('memory:disconnect', async (_event, opts?: { deleteCloud?: boolea
         })
         if (!res.ok) {
           const body = await res.text().catch(() => '')
+          cloudDeleteFailed = `HTTP ${res.status}${body ? `: ${body}` : ''}`
           console.warn('[memory:disconnect] cloud data delete failed', res.status, body)
         }
       } catch (err) {
+        cloudDeleteFailed = err instanceof Error ? err.message : String(err)
         console.warn('[memory:disconnect] cloud data delete failed', err instanceof Error ? err.message : err)
       }
     }
@@ -2340,7 +2350,7 @@ ipcMain.handle('memory:disconnect', async (_event, opts?: { deleteCloud?: boolea
   memoryToken = null
   memoryConnectionState = { connected: false, deviceId: memoryConnectionState.deviceId, connectedAt: null }
   setMemoryConnectionState(ravenHome(), memoryConnectionState)
-  return { ok: true }
+  return cloudDeleteFailed ? { ok: true, cloudDeleteFailed } : { ok: true }
 })
 
 ipcMain.handle('memory:status', () => {

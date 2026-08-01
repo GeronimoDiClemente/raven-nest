@@ -521,3 +521,101 @@ describe('MemoryStore — content-derived import identity (cross-device dedupe f
     expect(row?.source_ref).toBe('engram:device-b-id') // last writer's source_ref wins, no leftover row holds the old one
   })
 })
+
+// Finding 1 fix: deriveImportSyncId used to ignore topic_key entirely, so two import rows
+// sharing (projectKey, scope, type, content_hash) but carrying DIFFERENT topic_key values
+// derived the SAME sync_id — save()'s Step 0.5 update path then silently dropped the
+// second import's topic classification (it never writes topic_key on that path) while
+// flipping source_ref to the second import's, and alternating re-imports ping-ponged
+// source_ref on one row instead of ever producing two. See deriveImportSyncId's doc
+// comment in memory-store.ts for the full story.
+describe('MemoryStore — topic-aware import identity (Finding 1 fix)', () => {
+  let dir: string
+  let store: MemoryStore
+
+  beforeEach(() => {
+    dir = makeTmpDir('raven-memory-store-topic-')
+    store = new MemoryStore(join(dir, 'memory.db'))
+  })
+
+  afterEach(() => {
+    store.close()
+    cleanupTmp(dir)
+  })
+
+  it('same content, DIFFERENT topicKey -> two distinct rows, both retrievable, distinct sync_ids', () => {
+    const { hash } = computeContentIdentity('Shared title', 'Shared content body, byte-identical across both topics.')
+    const syncIdTopicA = deriveImportSyncId('proj-a', 'personal', 'discovery', hash, 'topic/a')
+    const syncIdTopicB = deriveImportSyncId('proj-a', 'personal', 'discovery', hash, 'topic/b')
+    expect(syncIdTopicA).not.toBe(syncIdTopicB)
+
+    const first = store.save({
+      projectKey: 'proj-a',
+      topicKey: 'topic/a',
+      type: 'discovery',
+      title: 'Shared title',
+      content: 'Shared content body, byte-identical across both topics.',
+      source: 'import',
+      sourceRef: 'source:topic-a',
+      syncId: syncIdTopicA,
+    })
+    const second = store.save({
+      projectKey: 'proj-a',
+      topicKey: 'topic/b',
+      type: 'discovery',
+      title: 'Shared title',
+      content: 'Shared content body, byte-identical across both topics.',
+      source: 'import',
+      sourceRef: 'source:topic-b',
+      syncId: syncIdTopicB,
+    })
+
+    expect(first.outcome).toBe('inserted')
+    expect(second.outcome).toBe('inserted') // NOT folded into a Step 0.5 update or a Step 2 content dupe
+    expect(first.syncId).not.toBe(second.syncId)
+    expect(store.count()).toBe(2)
+
+    const rowA = store.get(syncIdTopicA)
+    const rowB = store.get(syncIdTopicB)
+    expect(rowA?.topic_key).toBe('topic/a')
+    expect(rowB?.topic_key).toBe('topic/b')
+    expect(rowA?.source_ref).toBe('source:topic-a') // neither row's source_ref was clobbered by the other
+    expect(rowB?.source_ref).toBe('source:topic-b')
+  })
+
+  it('same content, SAME topicKey, across two independent stores -> same sync_id (cross-device convergence preserved)', () => {
+    const dir2 = makeTmpDir('raven-memory-store-topic-2-')
+    const store2 = new MemoryStore(join(dir2, 'memory.db'))
+    try {
+      const { hash } = computeContentIdentity('Auth model', 'JWT-based auth with refresh tokens.')
+      const syncId = deriveImportSyncId('proj-a', 'personal', 'architecture', hash, 'architecture/auth-model')
+
+      const resultA = store.save({
+        projectKey: 'proj-a',
+        topicKey: 'architecture/auth-model',
+        type: 'architecture',
+        title: 'Auth model',
+        content: 'JWT-based auth with refresh tokens.',
+        source: 'import',
+        sourceRef: 'device-a:some-id',
+        syncId,
+      })
+      const resultB = store2.save({
+        projectKey: 'proj-a',
+        topicKey: 'architecture/auth-model',
+        type: 'architecture',
+        title: 'Auth model',
+        content: 'JWT-based auth with refresh tokens.',
+        source: 'import',
+        sourceRef: 'device-b:some-other-id',
+        syncId,
+      })
+
+      expect(resultA.syncId).toBe(resultB.syncId)
+      expect(resultA.syncId).toBe(syncId)
+    } finally {
+      store2.close()
+      cleanupTmp(dir2)
+    }
+  })
+})

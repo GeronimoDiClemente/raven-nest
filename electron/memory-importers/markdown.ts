@@ -36,7 +36,9 @@ export function importMarkdownFile(
     // Content-derived identity (see deriveImportSyncId in memory-store.ts): the same
     // convention text imported from two machines under different absolute paths (or via
     // a different importer entirely) converges on one row instead of two, the same
-    // cross-device guarantee the engram importer relies on.
+    // cross-device guarantee the engram importer relies on. chunk.topicKey is part of the
+    // seed (Finding 1 fix) — it's deterministic from headingPath/sourceLabel, so both
+    // devices still derive the same sync_id for the same chunk.
     const { hash } = computeContentIdentity(chunk.title, chunk.content)
     store.save({
       projectKey,
@@ -47,7 +49,7 @@ export function importMarkdownFile(
       content: chunk.content,
       source: 'import',
       sourceRef: `${sourceLabel}:${filePath}#${chunk.topicKey}`,
-      syncId: deriveImportSyncId(projectKey, scope, type, hash),
+      syncId: deriveImportSyncId(projectKey, scope, type, hash, chunk.topicKey),
     })
   }
   return chunks.length

@@ -157,8 +157,10 @@ export function importEngramDatabase(
         // engram.db it came from (each has its own, unrelated engram sync_id) or which
         // importer produced it, so the server's upsert-by-sync_id dedupes it cross-device
         // instead of the old source-id-based derivation, which diverged (261 duplicate
-        // groups, reproduced live).
-        syncId: deriveImportSyncId(projectKey, scope, type, hash),
+        // groups, reproduced live). topic_key is part of the seed (Finding 1 fix) — two
+        // engram rows with identical title/content but different topic_key are DISTINCT
+        // identities, not a collision.
+        syncId: deriveImportSyncId(projectKey, scope, type, hash, row.topic_key),
         // Bug 1 fix: preserve engram's original dates instead of collapsing all imported
         // history to the import moment. last_seen_at falls back to created_at when engram
         // never recorded a last-seen touch for this row.

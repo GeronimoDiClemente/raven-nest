@@ -422,6 +422,32 @@ export class MemoryDaemon {
       for (const [projectKey, cursor] of Object.entries(body.cursors ?? {})) {
         if (typeof cursor === 'number') {
           if (cursor > (cursors[projectKey] ?? 0)) cursorAdvanced = true
+          // M25 hot-loop fix: the server (supabase/functions/memory-sync/index.ts's pull
+          // handler) iterates EVERY account project, not just the ones THIS device sent a
+          // cursor for, and defaults an unsent cursor to 0 — so an account-owned project
+          // this device never registered locally (`projectKey` absent from `cursors`,
+          // built from store.listProjects() above) restarts from 0 on every single pull.
+          // setSyncState below WOULD persist its returned cursor, but that partition is
+          // keyed by project_key with no FK to `projects` — persisting a sync_state row
+          // for a project_key `projects` doesn't know about is exactly the pre-existing
+          // inconsistency this heals: without a matching `projects` row, listProjects()
+          // (and therefore the cursors object built at the top of every doPull() call,
+          // including the very next chained one) never includes it, so the persisted
+          // cursor is never SENT back — the client always resends 0 for it, the server
+          // always reports "progress" from 0, `cursorAdvanced` is always true, and with
+          // >= PULL_PAGE_SIZE rows in that project the M25 chain above loops forever
+          // re-fetching the same page. Field evidence: a device's local `projects` table
+          // had 2 rows while pulling 6 account partitions. Registering the project here —
+          // BEFORE persisting its cursor — means the NEXT request (including this same
+          // chained one) builds its cursors from a `listProjects()` that now includes it,
+          // so the cursor actually gets sent and progress persists instead of resetting.
+          // ensureProject() is idempotent and always inserts enrolled=1 (matching its
+          // documented default) — verified nothing reads `enrolled` as a push/pull gate
+          // today (see main.ts's own ensureProject call site for the same reasoning), so
+          // this can't silently change sync behavior for the project once it exists.
+          if (!(projectKey in cursors)) {
+            store.ensureProject({ projectKey, displayName: projectKey })
+          }
           store.setSyncState(projectKey, { pullCursor: cursor, lastSuccessAt: now, lastError: null })
         }
       }

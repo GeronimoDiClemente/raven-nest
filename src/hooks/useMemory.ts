@@ -82,11 +82,24 @@ export function useMemory() {
       // call with the locally stored nmk_ token, so it MUST run before we revoke that same
       // token below. Revoking first (the old order) made the server reject the delete
       // request with 401 revoked_token, silently leaving all cloud data intact.
-      await window.memory.disconnect({ deleteCloud })
+      const disconnectResult = await window.memory.disconnect({ deleteCloud })
       if (deleteCloud) {
-        await supabase.functions.invoke('memory-token', { body: { action: 'revoke', all: true } })
+        // Finding 2 fix: supabase-js's functions.invoke() RESOLVES { data, error } instead
+        // of throwing on a failed revoke (5xx, offline) — connect() above already does
+        // `if (error) throw error` for the same client; disconnect() used to discard the
+        // result entirely, so a failed revoke still reported a clean disconnect while
+        // leaving the nmk_ token valid server-side forever.
+        const { error } = await supabase.functions.invoke('memory-token', { body: { action: 'revoke', all: true } })
+        if (error) throw error
       }
       await refresh()
+      // Local disconnect still proceeds regardless of a cloud-delete failure (best-effort
+      // semantics, unchanged) — only surface it so the UI can tell the user the cloud copy
+      // may still exist. Set after refresh() so refresh's own setState (which never
+      // touches `error`) can't clobber this.
+      if (disconnectResult.cloudDeleteFailed) {
+        setState((s) => ({ ...s, error: `Cloud data may not have been deleted: ${disconnectResult.cloudDeleteFailed}` }))
+      }
     } catch (err) {
       setState((s) => ({ ...s, error: err instanceof Error ? err.message : String(err) }))
     }

@@ -20,6 +20,7 @@ function fakeStore(overrides: Partial<MemoryStore> = {}): MemoryStore {
     get: vi.fn(() => null),
     findActiveTopicOwner: vi.fn(() => null),
     applyIncomingObservation: vi.fn(),
+    ensureProject: vi.fn(),
     ...overrides,
   } as unknown as MemoryStore
 }
@@ -542,6 +543,115 @@ describe('MemoryDaemon — chained pull pages (M25, PULL_PAGE_SIZE=500)', () => 
 
     // proj-a's cursor moved 0 -> 480, so cursorAdvanced is true even though the aggregate
     // 500 = PULL_PAGE_SIZE is a coincidental sum across two projects, not one full page.
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+    daemon.stop()
+  })
+})
+
+// Finding 3 fix: the server (supabase/functions/memory-sync/index.ts's pull handler)
+// iterates EVERY account project and defaults an unsent cursor to 0 — an account-owned
+// project this device never registered locally (absent from store.listProjects()) used to
+// restart from 0 on every pull forever, because the client stored its returned cursor via
+// setSyncState but never SENT it back next time (the project was never in listProjects()).
+// With >= PULL_PAGE_SIZE rows in such a project, the M25 chain above loops forever
+// re-fetching the same page. Field evidence: a device's local `projects` table had 2 rows
+// while pulling 6 account partitions. These tests use a stateful fake store (ensureProject
+// actually registers the project so a later listProjects()/getSyncState() call reflects
+// it) because the fix's whole point is observable only across two chained requests.
+describe('MemoryDaemon — M25 pull heals unknown-project cursors (Finding 3)', () => {
+  beforeEach(() => vi.useFakeTimers())
+  afterEach(() => vi.useRealTimers())
+
+  function makeRows(n: number, projectKey: string): Array<Record<string, unknown>> {
+    return Array.from({ length: n }, (_, i) => ({
+      sync_id: `${projectKey}-s${i}`,
+      project_key: projectKey,
+      client_updated_at: '2026-01-05T21:00:00+00:00',
+      lamport: 1,
+      deleted: false,
+      project_seq: i + 1,
+    }))
+  }
+
+  function makeStatefulStore(initialProjects: Array<{ projectKey: string; displayName: string; enrolled: boolean }>) {
+    const projects = [...initialProjects]
+    const syncState = new Map<string, { pullCursor: number; lastPushSeq: number }>()
+    for (const p of projects) syncState.set(p.projectKey, { pullCursor: 0, lastPushSeq: 0 })
+
+    const ensureProject = vi.fn((input: { projectKey: string; displayName: string }) => {
+      if (!projects.some((p) => p.projectKey === input.projectKey)) {
+        projects.push({ projectKey: input.projectKey, displayName: input.displayName, enrolled: true })
+      }
+    })
+    const listProjects = vi.fn(() => [...projects])
+    const getSyncState = vi.fn((key: string) => syncState.get(key) ?? { pullCursor: 0, lastPushSeq: 0 })
+    const setSyncState = vi.fn((key: string, patch: Partial<{ pullCursor: number }>) => {
+      const current = syncState.get(key) ?? { pullCursor: 0, lastPushSeq: 0 }
+      syncState.set(key, { ...current, ...patch })
+    })
+
+    const store = fakeStore({ ensureProject, listProjects, getSyncState, setSyncState })
+    return { store, ensureProject, listProjects, getSyncState, setSyncState }
+  }
+
+  it('(a) registers a project returned by the server but absent from listProjects(), and sends its cursor on the chained pull request', async () => {
+    const { store, ensureProject, setSyncState } = makeStatefulStore([
+      { projectKey: 'proj-known', displayName: 'known', enrolled: true },
+    ])
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          rows: makeRows(500, 'proj-unknown'), // full page -> triggers the M25 chain
+          cursors: { 'proj-known': 0, 'proj-unknown': 500 },
+        }),
+      })
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ rows: [], cursors: { 'proj-known': 0, 'proj-unknown': 500 } }) })
+    const daemon = new MemoryDaemon(baseDaemonDeps(store, { fetchImpl }))
+
+    await daemon.pull()
+    await vi.runOnlyPendingTimersAsync() // flush the setImmediate-chained second pull
+
+    expect(ensureProject).toHaveBeenCalledWith({ projectKey: 'proj-unknown', displayName: 'proj-unknown' })
+    expect(setSyncState).toHaveBeenCalledWith('proj-unknown', expect.objectContaining({ pullCursor: 500 }))
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+    // The second (chained) request must include the now-registered project's cursor —
+    // this is the actual bug: before the fix, the project was never in listProjects(), so
+    // it was never in the SENT cursors object on any subsequent request, chained or not.
+    const secondSentBody = JSON.parse(fetchImpl.mock.calls[1][1].body)
+    expect(secondSentBody.cursors).toEqual({ 'proj-known': 0, 'proj-unknown': 500 })
+    daemon.stop()
+  })
+
+  it('(b) a constructed hot-loop scenario (full page, same unknown project every time) terminates once the cursor round-trips', async () => {
+    const { store } = makeStatefulStore([{ projectKey: 'proj-known', displayName: 'known', enrolled: true }])
+    const fetchImpl = vi
+      .fn()
+      // First response: the unknown project's cursor "advances" 0 -> 500 (a full page),
+      // which chains a second pull.
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ rows: makeRows(500, 'proj-unknown'), cursors: { 'proj-known': 0, 'proj-unknown': 500 } }),
+      })
+      // Second (and every subsequent) response reports the SAME cursor — no real
+      // progress. Without the fix, the client would have resent 0 for proj-unknown
+      // forever (it was never registered), so the server would report "500 > 0" forever
+      // and the chain would never stop. With the fix, the second request sends 500 (the
+      // cursor round-tripped), so this response's 500 is not > 500 and the chain stops.
+      .mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ rows: makeRows(500, 'proj-unknown'), cursors: { 'proj-known': 0, 'proj-unknown': 500 } }),
+      })
+    const daemon = new MemoryDaemon(baseDaemonDeps(store, { fetchImpl }))
+
+    await daemon.pull()
+    await vi.runOnlyPendingTimersAsync()
+    await vi.runOnlyPendingTimersAsync() // would fire a 3rd (and Nth) request if still hot-looping
+
     expect(fetchImpl).toHaveBeenCalledTimes(2)
     daemon.stop()
   })
