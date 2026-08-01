@@ -173,6 +173,7 @@ Deno.serve(async (req) => {
 
     return json({ error: `Unknown action: ${action}` }, 400)
   } catch (err: unknown) {
+    console.error('memory-token error:', err)
     const message = err instanceof Error ? err.message : 'Unknown error'
     return json({ error: message }, 400)
   }

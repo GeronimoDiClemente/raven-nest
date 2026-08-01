@@ -195,6 +195,35 @@ LANGUAGE sql IMMUTABLE AS $$
   SELECT CASE p_plan WHEN 'enterprise' THEN 9223372036854775807 WHEN 'team' THEN 250000 WHEN 'pro' THEN 50000 ELSE 0 END;
 $$;
 
+-- R-9 fix: user_has_plan (20260601000000_trial_15_days_fix_and_gift.sql) treats an
+-- active trial (trial_started_at > now() - 15 days) as effective plan 'team' for the
+-- purpose of the plan gate — but memory_resolve_project/memory_sync_push used to read
+-- the RAW profiles.plan (still 'free' during a trial) to compute the numeric caps via
+-- memory_max_projects_for_plan/memory_max_observations_for_plan. Gate and caps
+-- disagreed: a trial user passed user_has_plan(...) but then hit a cap of 0 (free's
+-- cap), so memory_resolve_project always raised 'project_limit_reached' and
+-- memory_sync_push would always raise 'observation_limit_reached'. This helper makes
+-- the caps agree with the gate by resolving the SAME effective plan user_has_plan uses.
+-- Defined BEFORE its callers (memory_resolve_project, memory_sync_push) — plpgsql/sql
+-- function bodies are checked at CREATE FUNCTION time (check_function_bodies), so a
+-- forward reference here would fail the migration, same reasoning as
+-- nextval_project_seq below.
+CREATE OR REPLACE FUNCTION memory_effective_plan(p_user_id uuid) RETURNS text
+LANGUAGE sql STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT CASE
+    -- Enterprise always outranks the trial's 'team' grant.
+    WHEN plan = 'enterprise' THEN 'enterprise'
+    WHEN trial_started_at IS NOT NULL
+         AND trial_started_at > (now() - interval '15 days') THEN 'team'
+    ELSE plan
+  END
+  FROM profiles WHERE id = p_user_id;
+$$;
+GRANT EXECUTE ON FUNCTION memory_effective_plan(uuid) TO service_role;
+
 -- Resolves (and lazily creates) a memory_projects row for a client project_key, honoring
 -- the Pro/Team plan gate AND the maxMemoryProjects cap the same way the RLS insert
 -- policy intends, so a direct RPC call with a free-plan JWT — or a plan user past their
@@ -217,7 +246,10 @@ BEGIN
     RETURN v_project_id;
   END IF;
 
-  SELECT plan INTO v_plan FROM profiles WHERE id = p_user_id;
+  -- R-9 fix: use the effective plan (trial-aware), not the raw column, so the cap
+  -- below agrees with the user_has_plan gate right after it — see
+  -- memory_effective_plan's comment for why the raw plan alone gave a 0 cap here.
+  v_plan := memory_effective_plan(p_user_id);
   IF v_plan IS NULL OR NOT user_has_plan(p_user_id, ARRAY['pro','team','enterprise']) THEN
     RAISE EXCEPTION 'plan_required' USING ERRCODE = '42501';
   END IF;
@@ -296,7 +328,9 @@ DECLARE
   v_lamport bigint;
   v_seq bigint;
 BEGIN
-  SELECT plan INTO v_plan FROM profiles WHERE id = p_user_id;
+  -- R-9 fix: same effective-plan resolution as memory_resolve_project, so
+  -- v_max_obs below is computed from the plan the gate actually granted.
+  v_plan := memory_effective_plan(p_user_id);
   IF v_plan IS NULL OR NOT user_has_plan(p_user_id, ARRAY['pro','team','enterprise']) THEN
     RAISE EXCEPTION 'plan_required' USING ERRCODE = '42501';
   END IF;

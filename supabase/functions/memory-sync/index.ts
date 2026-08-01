@@ -104,7 +104,10 @@ Deno.serve(async (req) => {
           p_project_key: projectKey,
           p_display_name: displayName,
           p_remote_url: null,
-          p_mutations: group.map((m) => m.payload),
+          // Pass the full mutation objects — memory_sync_push reads each element's
+          // ->'payload'; stripping the wrapper here made every row reject with a null
+          // sync_id (caught live in the local-stack smoke test).
+          p_mutations: group,
         })
         if (error) {
           if (error.code === '42501') return json({ error: 'plan_required' }, 403)

@@ -137,7 +137,7 @@ import { provisionClaudeAccount, deprovisionClaudeAccount, type ProvisionerPaths
 import { ensureLocalAuthMaterial } from './memory-local-auth'
 import { importAllMarkdownSources } from './memory-importers/markdown'
 import { importEngramDatabase, discoverEngramDatabases } from './memory-importers/engram'
-import { resolveProjectKey } from './memory-project-key'
+import { resolveProjectKey, GLOBAL_PROJECT_KEY } from './memory-project-key'
 import { MetricsCollector, PaneInput } from './metrics-collector'
 import { transcribeAudio, checkWhisperAvailable, initWhisper, shutdownWhisper, setWhisperStatusCallback } from './whisper'
 import { getWindowOptions, getIconsDir, ICON_FILENAME, isMac } from './platform'
@@ -2229,20 +2229,76 @@ ipcMain.handle('memory:connect', async (_event, token: string, deviceId: string)
   // First-connect import (§5.1 step 5 — always runs before any push). Best-effort: a
   // partial import beats a failed connect (R-7).
   const globalKey = resolveProjectKey({})
+
+  // Every repo with a known local path on THIS device (v1.2 local-paths-store, §per-device
+  // local paths in CLAUDE.md) is a candidate to import into its own project instead of
+  // __global__. Resolve each one's project_key the exact same way resolveGitInfo +
+  // resolveProjectKey do for live captures (memory-ipc-server.ts projectKeyForCwd) — remote
+  // URL first, path hash as fallback — so an imported observation and a live capture for
+  // the same repo land under the SAME project_key. Best-effort end to end: a missing/corrupt
+  // local-paths store, or a repo whose `git remote` call fails, must never break connect.
+  const knownRepoRoots: Array<{ path: string; projectKey: string; remoteUrl: string | null }> = []
+  try {
+    for (const localPath of Object.values(localPathsStore.getAllLocalPaths())) {
+      if (!existsSync(localPath)) continue // stale entry — repo no longer on disk
+      let remoteUrl: string | null = null
+      try {
+        remoteUrl = execSync('git remote get-url origin', { cwd: localPath, encoding: 'utf8', timeout: 3000 }).trim()
+      } catch { /* no remote configured — resolveProjectKey falls back to the path hash */ }
+      knownRepoRoots.push({ path: localPath, projectKey: resolveProjectKey({ remoteUrl, rootPath: localPath }), remoteUrl })
+    }
+  } catch (err) {
+    console.warn('[memory:connect] failed to enumerate known repo roots for import', err instanceof Error ? err.message : err)
+  }
+
+  // Fix (gap #1, see CLAUDE.md task notes): the importers below assign every imported
+  // observation a project_key but never create a matching `projects` row for it — only
+  // a LIVE capture does that, via memory-ipc-server.ts's projectKeyForCwd calling
+  // store.ensureProject() per request. A device that only ever imported (never had a
+  // live capture through the socket) ended connect with zero `projects` rows.
+  // memory-daemon.ts's doPull() reads store.listProjects() to build one pull cursor per
+  // known project and bails out entirely when that list is empty
+  // (`if (projects.length === 0) return`) — so pull silently never ran on such a
+  // device, even though push worked. Register every known repo root, plus the
+  // `__global__` partition (imports with no matching known repo land there), before the
+  // importers run so listProjects() is populated regardless of whether this device ever
+  // captures anything live. ensureProject() is idempotent (no-op if the row already
+  // exists) and always inserts with enrolled=1 — matching the column's documented
+  // meaning ("user can opt a repo out of memory entirely", §schema) and its default.
+  // Nothing reads `enrolled` as a gate yet (not doPull, not the live-capture path), so
+  // every known/imported project should stay enrolled=1 until an opt-out UI exists;
+  // there's no reason to import a repo's memories and then hide it from pull.
+  try {
+    for (const repo of knownRepoRoots) {
+      memory.store.ensureProject({
+        projectKey: repo.projectKey,
+        displayName: basename(repo.path) || repo.path,
+        rootPath: repo.path,
+        remoteUrl: repo.remoteUrl,
+      })
+    }
+    memory.store.ensureProject({ projectKey: globalKey, displayName: GLOBAL_PROJECT_KEY })
+  } catch (err) {
+    console.warn('[memory:connect] failed to register known projects', err instanceof Error ? err.message : err)
+  }
+
   try {
     importAllMarkdownSources(memory.store, {
       ravenHomeDir: ravenHome(),
       claudeAccountDirs: accountStore.list('claude').map((name) => accountStore.getDir('claude', name)),
-      projectRoots: [],
+      projectRoots: knownRepoRoots.map((r) => ({ rootPath: r.path, projectKey: r.projectKey })),
       globalProjectKey: globalKey,
     })
   } catch (err) {
     console.warn('[memory:connect] markdown import failed', err instanceof Error ? err.message : err)
   }
   try {
+    // engram's `project` column is a lowercased folder basename (§5.2.A), never a full
+    // path — key this map the same way so resolveProjectKeyForEngramProject can match it.
+    const knownProjects = new Map(knownRepoRoots.map((r) => [basename(r.path).toLowerCase(), r.projectKey]))
     const accountDirs = accountStore.list('claude').map((name) => accountStore.getDir('claude', name))
     for (const dbPath of discoverEngramDatabases(ravenHome(), accountDirs)) {
-      importEngramDatabase(memory.store, dbPath)
+      importEngramDatabase(memory.store, dbPath, { knownProjects })
     }
   } catch (err) {
     console.warn('[memory:connect] engram import failed', err instanceof Error ? err.message : err)
@@ -2265,11 +2321,15 @@ ipcMain.handle('memory:disconnect', async (_event, opts?: { deleteCloud?: boolea
     const token = loadMemoryToken()
     if (url && token) {
       try {
-        await fetch(`${url}/functions/v1/memory-sync/delete-cloud-data`, {
+        const res = await fetch(`${url}/functions/v1/memory-sync/delete-cloud-data`, {
           method: 'POST',
           headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
           body: '{}',
         })
+        if (!res.ok) {
+          const body = await res.text().catch(() => '')
+          console.warn('[memory:disconnect] cloud data delete failed', res.status, body)
+        }
       } catch (err) {
         console.warn('[memory:disconnect] cloud data delete failed', err instanceof Error ? err.message : err)
       }

@@ -77,11 +77,15 @@ export function useMemory() {
 
   const disconnect = useCallback(async (deleteCloud = false) => {
     try {
+      // §7.5 / §6.6 "Right to delete" — best-effort; local data is never touched by this.
+      // Ordering matters: window.memory.disconnect() authenticates its delete-cloud-data
+      // call with the locally stored nmk_ token, so it MUST run before we revoke that same
+      // token below. Revoking first (the old order) made the server reject the delete
+      // request with 401 revoked_token, silently leaving all cloud data intact.
+      await window.memory.disconnect({ deleteCloud })
       if (deleteCloud) {
-        // §7.5 / §6.6 "Right to delete" — best-effort; local data is never touched by this.
         await supabase.functions.invoke('memory-token', { body: { action: 'revoke', all: true } })
       }
-      await window.memory.disconnect({ deleteCloud })
       await refresh()
     } catch (err) {
       setState((s) => ({ ...s, error: err instanceof Error ? err.message : String(err) }))
