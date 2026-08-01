@@ -5,7 +5,7 @@
 import { existsSync, readFileSync, readdirSync, statSync } from 'fs'
 import { join } from 'path'
 import { createHash } from 'crypto'
-import { MemoryStore } from '../memory-store'
+import { MemoryStore, deriveImportSyncId, computeContentIdentity } from '../memory-store'
 import { isDeniedImportPath } from '../memory-redaction'
 import { chunkMarkdown } from './chunker'
 
@@ -30,16 +30,24 @@ export function importMarkdownFile(
   if (isDeniedImportPath(filePath) || !existsSync(filePath)) return 0
   const raw = readFileSync(filePath, 'utf8')
   const chunks = chunkMarkdown(raw, sourceLabel)
+  const scope = 'personal' as const
+  const type = 'pattern' as const
   for (const chunk of chunks) {
+    // Content-derived identity (see deriveImportSyncId in memory-store.ts): the same
+    // convention text imported from two machines under different absolute paths (or via
+    // a different importer entirely) converges on one row instead of two, the same
+    // cross-device guarantee the engram importer relies on.
+    const { hash } = computeContentIdentity(chunk.title, chunk.content)
     store.save({
       projectKey,
-      scope: 'personal',
+      scope,
       topicKey: chunk.topicKey,
-      type: 'pattern',
+      type,
       title: chunk.title,
       content: chunk.content,
       source: 'import',
       sourceRef: `${sourceLabel}:${filePath}#${chunk.topicKey}`,
+      syncId: deriveImportSyncId(projectKey, scope, type, hash),
     })
   }
   return chunks.length

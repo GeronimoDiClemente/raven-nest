@@ -26,9 +26,71 @@ export function generateSyncId(prefix: 'obs' | 'sess' | 'prom'): string {
   return `${prefix}-${randomBytes(16).toString('hex')}`
 }
 
+/**
+ * Deterministic sync_id for an imported observation, derived from WHAT the observation
+ * IS — projectKey + scope + type + content_hash (the exact hash computeContentIdentity /
+ * save() use for the dedupe window, Step 2 below) — never from WHERE it came from.
+ *
+ * WHY content, not source identity: the previous formula (sha256 of
+ * "<source>:<sourceRef>", e.g. "import:engram:<engram's own sync_id>") failed in live
+ * multi-device testing — the SAME observation content exists in two machines' engram.db
+ * files under two DIFFERENT engram sync_ids (engram never guarantees a stable id across
+ * separate installs), so each machine derived a DIFFERENT Nest sync_id for identical
+ * content. The `memory:connect` flow is import -> push -> pull (memory-daemon.ts), so at
+ * import time the local store does NOT yet contain the other device's rows — only the
+ * SERVER's upsert-by-sync_id (PK sync_id, no content dedup) can catch this, and only if
+ * both devices hand it the same PK. Verified in production: 261 duplicate content groups
+ * from this exact failure mode.
+ *
+ * WHY source is excluded (not just de-emphasized): the product requirement is
+ * importer-agnostic identity — a user who imports the same fact via engram on one
+ * machine and via some other memory system (or a plain markdown export) on another must
+ * ALSO converge on one row, not two. Baking the importer name into the seed (as the old
+ * formula did) would defeat that by construction. The source's own row id and any
+ * timestamp are excluded for the same reason: neither identifies WHAT the content is —
+ * both are the source system's own conventions, outside Nest's control, and would make
+ * two imports of the identical fact diverge for reasons that have nothing to do with the
+ * fact itself.
+ *
+ * Accepted phase-1 edge (unchanged in spirit from before): this is a pure function of
+ * (projectKey, scope, type, content_hash) with no per-user salt, so two different Nest
+ * users importing byte-identical content (e.g. a shared CLAUDE.md file, or one user
+ * copying another's ~/.engram directory) derive the SAME sync_id. The server's
+ * PK-plus-RLS model rejects the second user's insert outright rather than silently
+ * merging two people's memories — the failure mode is "the second user's import errors on
+ * that one row," not data leakage — which is acceptable for phase 1. A real per-user salt
+ * would remove the collision if this becomes a problem in practice.
+ */
+export function deriveImportSyncId(
+  projectKey: string,
+  scope: 'personal' | 'project' | 'team',
+  type: string,
+  contentHash: string
+): string {
+  const digest = createHash('sha256').update(`${projectKey}:${scope}:${type}:${contentHash}`).digest('hex')
+  return `obs-${digest.slice(0, 32)}`
+}
+
 export function contentHash(title: string, content: string | null): string {
   const normalized = `${title.trim().toLowerCase()}\n${(content ?? '').trim().toLowerCase()}`
   return createHash('sha256').update(normalized).digest('hex')
+}
+
+/**
+ * Redacts title/content and hashes the result — the exact sequence save() needs to
+ * arrive at the content_hash it persists and dedupes against (Step 2 below). Extracted
+ * out of save() (not left inline) so import identity (deriveImportSyncId above) can call
+ * this SAME function before save() even runs — an importer must know the content_hash to
+ * derive a syncId to pass INTO save() — and therefore can never drift from the hash
+ * save() independently arrives at for the same raw title/content.
+ */
+export function computeContentIdentity(
+  title: string,
+  content: string
+): { title: string; content: string; redacted: boolean; hash: string } {
+  const { text: safeTitle } = redact(title)
+  const { text: safeContent, redacted } = redact(content)
+  return { title: safeTitle, content: safeContent, redacted, hash: contentHash(safeTitle, safeContent) }
 }
 
 export interface SaveInput {
@@ -46,6 +108,12 @@ export interface SaveInput {
   authorUserId?: string | null
   authorDisplay?: string | null
   sourceRef?: string | null // import identity — see §5.3 idempotency guard 1
+  // Importers only, below. Both default to save()'s own generation/stamping behavior
+  // when absent, so every non-import caller (MCP, hooks, pty, ui) is unaffected.
+  syncId?: string | null // deterministic identity (see deriveImportSyncId) — see save()'s sync_id-match step
+  createdAt?: number | null // original epoch-ms timestamp from the source system, not the import moment
+  updatedAt?: number | null
+  lastSeenAt?: number | null
 }
 
 export interface ObservationRow {
@@ -315,14 +383,14 @@ export class MemoryStore {
   }
 
   /**
-   * The three-step write-path resolution from §3.1: source_ref identity (imports only,
-   * guard 1 of §5.3) -> topic_key upsert -> content dedupe window -> insert.
+   * The write-path resolution from §3.1, extended for import identity: source_ref identity
+   * (imports only, guard 1 of §5.3) -> sync_id identity (imports only, survives a local
+   * wipe + reconnect — see deriveImportSyncId) -> topic_key upsert -> content dedupe
+   * window -> insert.
    */
   save(input: SaveInput): SaveMemoryResult {
     const scope = input.scope ?? 'personal'
-    const { text: title } = redact(input.title)
-    const { text: content, redacted } = redact(input.content)
-    const hash = contentHash(title, content)
+    const { title, content, redacted, hash } = computeContentIdentity(input.title, input.content)
     const now = Date.now()
 
     const txn = this.db.transaction((): SaveMemoryResult => {
@@ -368,6 +436,44 @@ export class MemoryStore {
           .get(input.source, input.sourceRef) as ObservationRow | undefined
         if (inactiveMatch) {
           const winner = this.resolveToActiveWinner(inactiveMatch)
+          return { syncId: winner.sync_id, outcome: 'duplicate', redacted }
+        }
+      }
+
+      // Step 0.5 (imports only): identity by caller-supplied (deterministic) sync_id.
+      // This exists specifically for the wipe/reconnect gap Step 0 above cannot close: the
+      // server has no source_ref column, so a row pulled back down by
+      // applyIncomingObservation() after a local wipe carries the original sync_id but
+      // source_ref = null — Step 0's (source, source_ref) lookup can never find it again.
+      // A deterministic sync_id (see deriveImportSyncId) is the only surviving identity
+      // link, so this step is what turns "re-import after wipe+reconnect" back into a
+      // no-op update instead of either a duplicate insert (bug 2) or a PRIMARY KEY
+      // collision at the Step 3 insert below (a caller-supplied sync_id that already
+      // belongs to an active row must never reach a plain INSERT).
+      if (input.syncId) {
+        const bySyncId = this.get(input.syncId)
+        if (bySyncId && bySyncId.deleted === 0 && bySyncId.superseded_by === null) {
+          const updated: ObservationRow = {
+            ...bySyncId,
+            title,
+            content,
+            tags: input.tags ? JSON.stringify(input.tags) : bySyncId.tags,
+            content_hash: hash,
+            revision_count: bySyncId.revision_count + 1,
+            updated_at: now,
+            lamport: this.nextLamport(),
+            source_ref: input.sourceRef ?? bySyncId.source_ref,
+          }
+          this.applyRowUpdate(updated)
+          this.appendMutation('upsert', updated)
+          return { syncId: updated.sync_id, outcome: 'source_ref_updated', redacted }
+        }
+        // Mirrors the C3 fallthrough above: an INACTIVE row (superseded/tombstoned)
+        // already occupies this sync_id (it IS the primary key, so this is a certainty,
+        // not a possibility) — resolve to its active winner and report a duplicate
+        // without touching it, for the same reason as Step 0's fallthrough.
+        if (bySyncId) {
+          const winner = this.resolveToActiveWinner(bySyncId)
           return { syncId: winner.sync_id, outcome: 'duplicate', redacted }
         }
       }
@@ -427,7 +533,10 @@ export class MemoryStore {
 
       // Step 3: insert.
       const row: ObservationRow = {
-        sync_id: generateSyncId('obs'),
+        // Importers pass a deterministic id (deriveImportSyncId) so a later re-import can
+        // find this exact row via the sync_id-match step above instead of inserting a
+        // duplicate; every other caller gets a fresh random one, as before.
+        sync_id: input.syncId ?? generateSyncId('obs'),
         project_key: input.projectKey,
         scope,
         topic_key: input.topicKey ?? null,
@@ -444,9 +553,14 @@ export class MemoryStore {
         content_hash: hash,
         revision_count: 0,
         duplicate_count: 0,
-        last_seen_at: now,
-        created_at: now,
-        updated_at: now,
+        // Bug 1 fix: an importer passes the ORIGINAL timestamps from its source system so
+        // imported history keeps its real dates instead of collapsing to the import
+        // moment (verified in production: 1992 rows landing within the same second).
+        // Every other caller (MCP/hook/pty/ui saves have no prior history to preserve)
+        // omits these and gets `now`, exactly as before.
+        last_seen_at: input.lastSeenAt ?? now,
+        created_at: input.createdAt ?? now,
+        updated_at: input.updatedAt ?? now,
         lamport: this.nextLamport(),
         deleted: 0,
         superseded_by: null,

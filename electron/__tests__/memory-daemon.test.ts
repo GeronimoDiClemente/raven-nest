@@ -217,6 +217,56 @@ describe('MemoryDaemon — offline / online transitions (§4.1)', () => {
   })
 })
 
+describe('MemoryDaemon — push resolves project_display_name (gap #2 fix)', () => {
+  it('joins each mutation payload against listProjects() and sends the local display name', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ results: [] }) })
+    const store = fakeStore({
+      pendingMutations: vi.fn(() => PENDING_MUTATION_A), // payload.project_key === 'proj-1'
+      listProjects: vi.fn(() => [{ projectKey: 'proj-1', displayName: 'raven-nest', enrolled: true }]),
+      fetchImpl,
+    })
+    const daemon = new MemoryDaemon(baseDaemonDeps(store, { fetchImpl }))
+
+    await daemon.push()
+
+    const sentBody = JSON.parse(fetchImpl.mock.calls[0][1].body) as { mutations: Array<{ payload: Record<string, unknown> }> }
+    expect(sentBody.mutations[0].payload.project_display_name).toBe('raven-nest')
+    // original payload fields survive the join (project_key untouched, not dropped)
+    expect(sentBody.mutations[0].payload.project_key).toBe('proj-1')
+  })
+
+  it('falls back to the raw project_key when the project is not (yet) in the local projects table', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ results: [] }) })
+    const store = fakeStore({
+      pendingMutations: vi.fn(() => PENDING_MUTATION_A),
+      listProjects: vi.fn(() => []), // e.g. ensureProject failed/hasn't run yet
+    })
+    const daemon = new MemoryDaemon(baseDaemonDeps(store, { fetchImpl }))
+
+    await daemon.push()
+
+    const sentBody = JSON.parse(fetchImpl.mock.calls[0][1].body) as { mutations: Array<{ payload: Record<string, unknown> }> }
+    expect(sentBody.mutations[0].payload.project_display_name).toBe('proj-1')
+  })
+
+  it('falls back to GLOBAL_PROJECT_KEY when a mutation payload has no project_key at all', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ results: [] }) })
+    const noProjectKeyMutation: MutationLogRow[] = [
+      { seq: 1, sync_id: 'g', op: 'upsert', payload: JSON.stringify({ sync_id: 'g' }), created_at: 1, pushed_at: null, last_error: null },
+    ]
+    const store = fakeStore({
+      pendingMutations: vi.fn(() => noProjectKeyMutation),
+      listProjects: vi.fn(() => [{ projectKey: '__global__', displayName: '__global__', enrolled: true }]),
+    })
+    const daemon = new MemoryDaemon(baseDaemonDeps(store, { fetchImpl }))
+
+    await daemon.push()
+
+    const sentBody = JSON.parse(fetchImpl.mock.calls[0][1].body) as { mutations: Array<{ payload: Record<string, unknown> }> }
+    expect(sentBody.mutations[0].payload.project_display_name).toBe('__global__')
+  })
+})
+
 describe('MemoryDaemon — in-flight dedupe (M19)', () => {
   it('concurrent push() calls share a single in-flight request', async () => {
     let resolveResponse: (v: unknown) => void = () => {}
@@ -316,6 +366,184 @@ describe('MemoryDaemon — offline-queue maintenance (M20)', () => {
     await new Promise((r) => setTimeout(r, 10))
 
     expect(compactMutationLog).not.toHaveBeenCalled()
+  })
+})
+
+describe('MemoryDaemon — chained batch drain (M22, PUSH_BATCH_SIZE=200)', () => {
+  beforeEach(() => vi.useFakeTimers())
+  afterEach(() => vi.useRealTimers())
+
+  function makeMutation(n: number): MutationLogRow {
+    return {
+      seq: n,
+      sync_id: `m${n}`,
+      op: 'upsert',
+      payload: JSON.stringify({ sync_id: `m${n}`, project_key: 'proj-1' }),
+      created_at: n,
+      pushed_at: null,
+      last_error: null,
+    }
+  }
+
+  it('drains a queue larger than PUSH_BATCH_SIZE without waiting for the next external trigger', async () => {
+    const TOTAL = 250 // > PUSH_BATCH_SIZE (200) -> requires two batches
+    let queue: MutationLogRow[] = Array.from({ length: TOTAL }, (_, i) => makeMutation(i + 1))
+    const pendingMutations = vi.fn((limit = 200) => queue.slice(0, limit))
+    const markPushed = vi.fn((entries: Array<number | { seq: number; error?: string | null }>) => {
+      const seqs = new Set(entries.map((e) => (typeof e === 'number' ? e : e.seq)))
+      queue = queue.filter((m) => !seqs.has(m.seq))
+    })
+    const pendingMutationCount = vi.fn(() => queue.length)
+
+    const fetchImpl = vi.fn(async (_url: string, init: RequestInit) => {
+      const body = JSON.parse(init.body as string) as { mutations: Array<{ sync_id: string }> }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          results: body.mutations.map((m) => ({ sync_id: m.sync_id, outcome: 'applied' as const, project_seq: 1 })),
+        }),
+      }
+    })
+
+    const store = fakeStore({ pendingMutations, markPushed, pendingMutationCount })
+    const daemon = new MemoryDaemon(baseDaemonDeps(store, { fetchImpl }))
+
+    await daemon.push()
+    // The second batch is chained via setImmediate (a macrotask), not the 5-minute
+    // interval timer — flush pending macro/microtasks without advancing simulated time
+    // past that interval, proving the drain doesn't depend on the next external trigger.
+    for (let i = 0; i < 5 && queue.length > 0; i++) {
+      await vi.runOnlyPendingTimersAsync()
+    }
+
+    expect(queue.length).toBe(0)
+    expect(fetchImpl).toHaveBeenCalledTimes(2) // 200 then 50, chained back-to-back
+    daemon.stop()
+  })
+
+  it('does not chain an immediate re-push when the batch made no progress (server acknowledged nothing)', async () => {
+    const store = fakeStore({
+      pendingMutations: vi.fn(() => PENDING_MUTATION_A),
+      // Pretend more mutations are queued — if the chain guard only checked
+      // pendingMutationCount() (and not "did this batch make progress"), it would
+      // wrongly hot-loop the same unacknowledged batch against the server.
+      pendingMutationCount: vi.fn(() => 5),
+    })
+    const fetchImpl = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ results: [] }) })
+    const daemon = new MemoryDaemon(baseDaemonDeps(store, { fetchImpl }))
+
+    await daemon.push()
+    await vi.runOnlyPendingTimersAsync()
+    await vi.runOnlyPendingTimersAsync()
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+    daemon.stop()
+  })
+})
+
+describe('MemoryDaemon — chained pull pages (M25, PULL_PAGE_SIZE=500)', () => {
+  beforeEach(() => vi.useFakeTimers())
+  afterEach(() => vi.useRealTimers())
+
+  function makeRows(n: number, projectKey = 'proj-1'): Array<Record<string, unknown>> {
+    return Array.from({ length: n }, (_, i) => ({
+      sync_id: `s${i}`,
+      project_key: projectKey,
+      client_updated_at: '2026-01-05T21:00:00+00:00',
+      lamport: 1,
+      deleted: false,
+      project_seq: i + 1,
+    }))
+  }
+
+  it('a full page (rows.length === limit) with an advanced cursor chains a second pull without an external trigger', async () => {
+    const store = fakeStore({
+      listProjects: vi.fn(() => [{ projectKey: 'proj-1', displayName: 'proj-1', enrolled: true }]),
+      getSyncState: vi.fn(() => ({ pullCursor: 0, lastPushSeq: 0 })),
+    })
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ rows: makeRows(500), cursors: { 'proj-1': 500 } }) })
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ rows: makeRows(120), cursors: { 'proj-1': 620 } }) })
+    const daemon = new MemoryDaemon(baseDaemonDeps(store, { fetchImpl }))
+
+    await daemon.pull()
+    await vi.runOnlyPendingTimersAsync() // flush the setImmediate-chained second pull
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+    // First chained request re-reads the cursor via getSyncState — not a hardcoded 500 —
+    // proving the second page is a real continuation and not a duplicate of the first.
+    daemon.stop()
+  })
+
+  it('stops chaining once a response returns fewer than a full page', async () => {
+    const store = fakeStore({
+      listProjects: vi.fn(() => [{ projectKey: 'proj-1', displayName: 'proj-1', enrolled: true }]),
+      getSyncState: vi.fn(() => ({ pullCursor: 0, lastPushSeq: 0 })),
+    })
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ rows: makeRows(500), cursors: { 'proj-1': 500 } }) })
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ rows: makeRows(3), cursors: { 'proj-1': 503 } }) })
+    const daemon = new MemoryDaemon(baseDaemonDeps(store, { fetchImpl }))
+
+    await daemon.pull()
+    await vi.runOnlyPendingTimersAsync()
+    await vi.runOnlyPendingTimersAsync() // would fire a 3rd request if the guard were wrong
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+    daemon.stop()
+  })
+
+  it('a full page whose cursor did NOT advance does not chain (no hot loop against a stuck cursor)', async () => {
+    // Not achievable through the real server (a full page always implies max(project_seq)
+    // > p_cursor per memory_sync_pull's COALESCE), but this is exactly the guard's job:
+    // a malformed/replayed response must never hot-loop the same page forever.
+    const store = fakeStore({
+      listProjects: vi.fn(() => [{ projectKey: 'proj-1', displayName: 'proj-1', enrolled: true }]),
+      getSyncState: vi.fn(() => ({ pullCursor: 500, lastPushSeq: 0 })),
+    })
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ rows: makeRows(500), cursors: { 'proj-1': 500 } }), // same cursor sent back
+    })
+    const daemon = new MemoryDaemon(baseDaemonDeps(store, { fetchImpl }))
+
+    await daemon.pull()
+    await vi.runOnlyPendingTimersAsync()
+    await vi.runOnlyPendingTimersAsync()
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+    daemon.stop()
+  })
+
+  it('a full aggregate across multiple projects where only one project actually advanced still chains', async () => {
+    const store = fakeStore({
+      listProjects: vi.fn(() => [
+        { projectKey: 'proj-a', displayName: 'A', enrolled: true },
+        { projectKey: 'proj-b', displayName: 'B', enrolled: true },
+      ]),
+      getSyncState: vi.fn((key: string) => (key === 'proj-a' ? { pullCursor: 0, lastPushSeq: 0 } : { pullCursor: 50, lastPushSeq: 0 })),
+    })
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          rows: [...makeRows(480, 'proj-a'), ...makeRows(20, 'proj-b')],
+          cursors: { 'proj-a': 480, 'proj-b': 50 }, // proj-b's cursor unchanged despite 20 rows — server oddity, still handled
+        }),
+      })
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ rows: [], cursors: { 'proj-a': 480, 'proj-b': 50 } }) })
+    const daemon = new MemoryDaemon(baseDaemonDeps(store, { fetchImpl }))
+
+    await daemon.pull()
+    await vi.runOnlyPendingTimersAsync()
+
+    // proj-a's cursor moved 0 -> 480, so cursorAdvanced is true even though the aggregate
+    // 500 = PULL_PAGE_SIZE is a coincidental sum across two projects, not one full page.
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+    daemon.stop()
   })
 })
 

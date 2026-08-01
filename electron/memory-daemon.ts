@@ -7,6 +7,7 @@
 
 import { MemoryStore, type MutationLogRow } from './memory-store'
 import { resolveLWW, resolveTopicCollision, type LWWRow } from './memory-merge'
+import { GLOBAL_PROJECT_KEY } from './memory-project-key'
 
 const DEBOUNCE_MS = 3_000
 const MAX_WAIT_MS = 30_000
@@ -16,6 +17,7 @@ const BACKOFF_BASE_MS = 5_000
 const BACKOFF_MAX_MS = 5 * 60_000
 const QUIT_PUSH_BUDGET_MS = 2_000
 const PUSH_BATCH_SIZE = 200
+const PULL_PAGE_SIZE = 500
 // M20: §4.5 "hard cap 50 000, after which the daemon compacts the queue".
 const QUEUE_HARD_CAP = 50_000
 
@@ -274,12 +276,34 @@ export class MemoryDaemon {
     this.setStatus('syncing')
     try {
       const deviceId = this.deps.getDeviceId()
+      // Gap #2 fix (cloud display_name defaulting to the raw project_key hash, see
+      // CLAUDE.md task notes): the edge function reads `payload.project_display_name`
+      // (supabase/functions/memory-sync/index.ts, push handler) but no writer ever put
+      // it there — store.save()/appendMutation() persist a plain ObservationRow
+      // snapshot with no display-name field. Resolved HERE, at push time, rather than
+      // by threading displayName through save()/applyRowUpdate/insertRow and
+      // re-serializing every queued mutation_log payload: a project's display name can
+      // change locally (rename, or ensureProject learning a remote_url later) after a
+      // mutation was already queued, and a push-time join against the CURRENT
+      // `projects` table is always fresh, whereas a value baked in at save() time could
+      // go stale while still sitting in the offline queue. One listProjects() call per
+      // batch is a single indexed-PK read per row, not a per-mutation query.
+      const displayNameByProjectKey = new Map(store.listProjects().map((p) => [p.projectKey, p.displayName]))
       const response = await this.fetch(`${url}/functions/v1/memory-sync/push`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
           device_id: deviceId,
-          mutations: pending.map((m: MutationLogRow) => ({ seq: m.seq, sync_id: m.sync_id, op: m.op, payload: JSON.parse(m.payload) })),
+          mutations: pending.map((m: MutationLogRow) => {
+            const payload = JSON.parse(m.payload) as Record<string, unknown>
+            const projectKey = (payload.project_key as string | undefined) ?? GLOBAL_PROJECT_KEY
+            return {
+              seq: m.seq,
+              sync_id: m.sync_id,
+              op: m.op,
+              payload: { ...payload, project_display_name: displayNameByProjectKey.get(projectKey) ?? projectKey },
+            }
+          }),
         }),
       })
 
@@ -321,6 +345,26 @@ export class MemoryDaemon {
 
       store.setSyncState('__account__', { lastSuccessAt: Date.now(), lastError: null })
       this.setStatus('idle')
+
+      // M22 fix: a full PUSH_BATCH_SIZE batch used to just sit idle after a successful
+      // push until the NEXT external trigger (5-min interval, a fresh mutation debounce,
+      // etc.) — per §4 the daemon is supposed to *drain* the queue, not push one batch per
+      // trigger. A ~2000-mutation initial migration measured ~25 minutes to finish because
+      // of this. Chain the next batch immediately, but only when THIS batch made real
+      // progress (`toMark` non-empty, i.e. the server acknowledged at least one mutation)
+      // — chaining on a zero-progress response (malformed body / nothing matched) would
+      // hot-loop the same unacknowledged batch against the server instead of leaving it to
+      // the existing retry/backoff path. `setImmediate` (not `queueMicrotask`) is
+      // deliberate: doPush() is still executing here, so `push()`'s `.finally` hasn't
+      // cleared `pushInFlight` yet — a microtask-scheduled call lands BEFORE that `.finally`
+      // runs (queued earlier in the same microtask flush) and would see pushInFlight still
+      // set, silently deduping into a no-op per M19. A macrotask runs after the entire
+      // microtask queue (including that `.finally`) has drained, so by the time it fires
+      // pushInFlight is guaranteed clear and the chained push() actually starts a new
+      // request instead of returning the just-finished promise.
+      if (toMark.length > 0 && store.pendingMutationCount() > 0) {
+        setImmediate(() => void this.push())
+      }
     } catch (err) {
       store.setSyncState('__account__', { lastError: err instanceof Error ? err.message : String(err) })
       this.setStatus('error', err instanceof Error ? err.message : String(err))
@@ -366,21 +410,55 @@ export class MemoryDaemon {
       const response = await this.fetch(`${url}/functions/v1/memory-sync/pull`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cursors, limit: 500 }),
+        body: JSON.stringify({ cursors, limit: PULL_PAGE_SIZE }),
       })
       if (!response.ok) throw new Error(`pull failed: ${response.status}`)
       const body = (await response.json()) as { rows: Array<Record<string, unknown>>; cursors: Record<string, number> }
       for (const raw of body.rows) this.applyPulledRow(mapRawPulledRow(raw))
 
       const now = Date.now()
+      // Tracked while writing back cursors below — used by the M25 chain guard.
+      let cursorAdvanced = false
       for (const [projectKey, cursor] of Object.entries(body.cursors ?? {})) {
         if (typeof cursor === 'number') {
+          if (cursor > (cursors[projectKey] ?? 0)) cursorAdvanced = true
           store.setSyncState(projectKey, { pullCursor: cursor, lastSuccessAt: now, lastError: null })
         }
       }
       store.setSyncState('__account__', { lastSuccessAt: now, lastError: null })
       this.consecutiveAuthFailures = 0
       this.backoff.reset()
+
+      // M25 fix: doPull() suffered the exact same disease M22 fixed on the push side — it
+      // fetched ONE page (limit: PULL_PAGE_SIZE) and returned, so a backlog bigger than
+      // one page only advanced on the NEXT external trigger (the 5-minute interval). A
+      // ~2000-row first sync measured ~20+ minutes to catch up this way, one page every 5
+      // minutes. Chain the next pull immediately when this page came back full —
+      // `body.rows.length === PULL_PAGE_SIZE` — mirroring M22's own "this trigger's shape"
+      // signal. Not `has_more`: the memory-sync edge function's pull handler always
+      // returns `has_more: false` (dead/unused on the server today) — do not trust it.
+      //
+      // Guard: only chain when a cursor actually advanced. The edge function loops one
+      // `memory_sync_pull` RPC call per LOCAL project and concatenates every project's
+      // rows into a single `body.rows` array (supabase/functions/memory-sync/index.ts's
+      // pull handler) — with more than one project, `body.rows.length === PULL_PAGE_SIZE`
+      // is a coincidental SUM across projects, not proof any single project's page was
+      // actually full. The RPC itself (`memory_sync_pull`, nest_memory migration) returns
+      // `COALESCE(max(project_seq), p_cursor)` as the new cursor, so a project's cursor can
+      // only stay put when that project returned zero rows — "a project returned >0 rows"
+      // and "that project's cursor advanced" are the same fact reported two different
+      // ways. Comparing each response cursor against the cursor WE SENT for that project
+      // (captured in `cursors` above, before the fetch) is the honest per-project check:
+      // it can't be fooled by the aggregate-length coincidence, and — same reasoning as
+      // M22 — it can't hot-loop, because a response that advances no project's cursor can
+      // never chain again. `setImmediate` (not `queueMicrotask`), same reason as M22:
+      // doPull() is still executing here, so pull()'s `.finally` hasn't cleared
+      // `pullInFlight` (M19) yet — a microtask-scheduled call would run before that
+      // `.finally` and see `pullInFlight` still set, silently deduping into a no-op. A
+      // macrotask fires only after the microtask queue (including that `.finally`) drains.
+      if (body.rows.length === PULL_PAGE_SIZE && cursorAdvanced) {
+        setImmediate(() => void this.pull())
+      }
     } catch (err) {
       store.setSyncState('__account__', { lastError: err instanceof Error ? err.message : String(err) })
       this.setStatus('error', err instanceof Error ? err.message : String(err))

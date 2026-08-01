@@ -5,13 +5,21 @@ import Database from 'better-sqlite3'
 import { existsSync, mkdtempSync, copyFileSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join, basename } from 'path'
-import { MemoryStore } from '../memory-store'
+import { MemoryStore, deriveImportSyncId, computeContentIdentity } from '../memory-store'
 import type { ObservationType } from '../memory-protocol'
 import { GLOBAL_PROJECT_KEY } from '../memory-project-key'
 
 // The subset of engram's `observations` schema this adapter understands. Reading only
 // these columns — rather than `SELECT *` — is what makes the adapter degrade instead of
 // break when engram's schema drifts ahead of what we know (§5.2 "Schema drift").
+//
+// created_at/updated_at/last_seen_at/deleted_at are typed `string | number` — NOT `number`
+// as docs/nest-memory-architecture.md §5.2.A's "map 1:1" implied. Verified against a real
+// ~14 MB production engram.db: these columns hold SQLite TEXT datetimes in
+// 'YYYY-MM-DD HH:MM:SS' format (SQLite's CURRENT_TIMESTAMP default, always UTC), not epoch
+// integers. `number` is kept in the union only to tolerate a future engram schema that
+// switches to epoch ms — see parseEngramTimestamp below for why raw values can't be
+// passed through as-is.
 interface EngramObservationRow {
   sync_id: string
   type: string
@@ -21,10 +29,31 @@ interface EngramObservationRow {
   topic_key: string | null
   revision_count: number | null
   duplicate_count: number | null
-  last_seen_at: number | null
-  created_at: number
-  updated_at: number
-  deleted_at: number | null
+  last_seen_at: string | number | null
+  created_at: string | number
+  updated_at: string | number
+  deleted_at: string | number | null
+}
+
+/**
+ * Converts an engram timestamp to epoch ms, the unit MemoryStore's own
+ * created_at/updated_at/last_seen_at columns use (INTEGER, ms epoch — memory-store.ts).
+ * Engram stores these as naive SQLite TEXT datetimes ('YYYY-MM-DD HH:MM:SS', no timezone,
+ * always UTC per SQLite's CURRENT_TIMESTAMP convention) — passed through unconverted, this
+ * string would land in an INTEGER-affinity column as TEXT, and SQLite's type-sorting rules
+ * place any TEXT value after every INTEGER/REAL value in a comparison. Every imported row
+ * would then sort as "infinitely new" (breaking `ORDER BY updated_at DESC`) and never match
+ * the content-dedupe window's `created_at >= now - DEDUPE_WINDOW_MS` numeric comparison.
+ * `new Date(naiveString)` parses as LOCAL time without an explicit zone, which is wrong
+ * here by the host's UTC offset — hence the explicit 'Z' suffix.
+ */
+function parseEngramTimestamp(raw: string | number | null | undefined): number | undefined {
+  if (raw === null || raw === undefined) return undefined
+  if (typeof raw === 'number') return raw
+  const hasZone = /[zZ]|[+-]\d{2}:?\d{2}$/.test(raw)
+  const iso = `${raw.replace(' ', 'T')}${hasZone ? '' : 'Z'}`
+  const ms = Date.parse(iso)
+  return Number.isNaN(ms) ? undefined : ms
 }
 
 const KNOWN_TYPES = new Set<ObservationType>([
@@ -106,16 +135,36 @@ export function importEngramDatabase(
 
       const projectKey = resolveProjectKeyForEngramProject(row.project, knownProjects)
       const type: ObservationType = KNOWN_TYPES.has(row.type as ObservationType) ? (row.type as ObservationType) : 'discovery'
+      const scope = 'personal' as const // engram's `project` scope is NOT carried across — user re-decides sharing from zero (§5.2.A)
+      const sourceRef = `engram:${row.sync_id}`
+      const createdAt = parseEngramTimestamp(row.created_at)
+      // Pre-compute the same redact+hash sequence save() will independently arrive at,
+      // so the syncId below is derived from the identical content_hash it will persist —
+      // see computeContentIdentity's doc comment in memory-store.ts.
+      const { hash } = computeContentIdentity(row.title, row.content)
 
       store.save({
         projectKey,
-        scope: 'personal', // engram's `project` scope is NOT carried across — user re-decides sharing from zero (§5.2.A)
+        scope,
         topicKey: row.topic_key,
         type,
         title: row.title,
         content: row.content,
         source: 'import',
-        sourceRef: `engram:${row.sync_id}`,
+        sourceRef,
+        // Content-derived identity (see deriveImportSyncId in memory-store.ts): the same
+        // observation content produces the same sync_id no matter which machine's
+        // engram.db it came from (each has its own, unrelated engram sync_id) or which
+        // importer produced it, so the server's upsert-by-sync_id dedupes it cross-device
+        // instead of the old source-id-based derivation, which diverged (261 duplicate
+        // groups, reproduced live).
+        syncId: deriveImportSyncId(projectKey, scope, type, hash),
+        // Bug 1 fix: preserve engram's original dates instead of collapsing all imported
+        // history to the import moment. last_seen_at falls back to created_at when engram
+        // never recorded a last-seen touch for this row.
+        createdAt,
+        updatedAt: parseEngramTimestamp(row.updated_at) ?? createdAt,
+        lastSeenAt: parseEngramTimestamp(row.last_seen_at) ?? createdAt,
       })
       imported += 1
     }
