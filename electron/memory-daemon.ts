@@ -182,6 +182,16 @@ export class MemoryDaemon {
     return this.status
   }
 
+  // M26: exposed so memory-ipc-server.ts's pull-through search fallback (a zero-result
+  // memory_search triggers an immediate pull()) can decide WITHOUT calling pull() at all
+  // whether one is worth attempting — pull() already no-ops when offline (doPull()'s own
+  // isOnline() check), but skipping the call entirely on a disconnected/offline machine
+  // avoids even the Promise/timeout machinery around it, and lets callers (and their
+  // tests) assert "no pull attempted" instead of "a pull was attempted and no-opped".
+  isOnline(): boolean {
+    return this.deps.isOnline()
+  }
+
   /** §4.1 "On write" trigger — debounce 3s, max-wait 30s so a chatty session still pushes. */
   scheduleMutationPush(): void {
     if (this.debounceTimer) clearTimeout(this.debounceTimer)

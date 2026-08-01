@@ -59,6 +59,16 @@ export interface ContextMemoryParams {
   limit?: number
 }
 
+// M26: `refreshed` is only ever present (and only ever `true`) when memory-ipc-server.ts's
+// pull-through search fallback fired — a local zero-result search triggered an immediate
+// daemon pull before re-querying. Absent on every other response, including a fallback
+// that ran but still found nothing locally after the pull — the field reports whether a
+// server refresh was ATTEMPTED, not whether it changed the result.
+export interface SearchMemoryResult {
+  items: ObservationSummary[]
+  refreshed?: boolean
+}
+
 export interface ObservationSummary {
   syncId: string
   title: string

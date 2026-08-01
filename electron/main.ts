@@ -230,6 +230,10 @@ try {
       }
     },
     onMutation: () => daemon.scheduleMutationPush(),
+    // M26: lets memory.search's pull-through fallback trigger/await this same daemon's
+    // pull() on a local zero-result miss instead of waiting up to its ~5-minute interval
+    // — see memory-ipc-server.ts's memory.search case for the full rationale.
+    daemon,
   })
 
   accountStore.configureMemory({ paths: memoryProvisionerPaths(), isEnabled: () => memoryConnectionState.connected })

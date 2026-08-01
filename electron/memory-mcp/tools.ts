@@ -5,6 +5,24 @@
 // Tool descriptions are the prompt — see §2.1. They are copied close to verbatim from
 // the design doc; do not "clean them up" without re-reading why they're phrased this way.
 
+// M27: field-validated gap — sync works end-to-end, but agents only used memory when a
+// user explicitly asked, because nothing told a connected model WHEN to call these tools
+// on its own. Tool descriptions alone are a per-tool lever; this is the server-wide one —
+// the MCP `initialize` result's optional `instructions` field (2024-11-05 spec: "can be
+// thought of like a hint to the model... MAY be added to the system prompt"), wired in
+// index.ts's `initialize` handler. Kept compact and imperative on purpose: a model pays
+// tokens for this every single session. Mirrors the same trigger-based, mandatory framing
+// as memory_save's own description below rather than descriptive prose.
+export const MCP_INSTRUCTIONS =
+  'Nest Memory protocol — mandatory, not optional:\n' +
+  '1. Session start, or whenever the user references past work (any language: ' +
+  '"remember", "what did we do", "cómo resolvimos", "like last time"): call ' +
+  'memory_context, then memory_search with their keywords, BEFORE answering.\n' +
+  '2. Immediately after any decision, bug fix, convention, or non-obvious discovery: ' +
+  'call memory_save without being asked. Include what, why, and where (files).\n' +
+  '3. If memory_context/memory_search return nothing for something the user insists ' +
+  'happened, say so explicitly. Never invent or guess prior work.'
+
 export const TOOL_MANIFEST = [
   {
     name: 'memory_save',
@@ -35,9 +53,11 @@ export const TOOL_MANIFEST = [
   {
     name: 'memory_search',
     description:
-      'Full-text search over this project\'s saved memories. Use when the user references ' +
-      "past work by keyword ('how did we handle X', 'the Y decision') and memory_context's " +
-      'recent list does not cover it.',
+      'Full-text search over this project\'s saved memories. CALL THIS BEFORE ANSWERING ' +
+      "when the user references past work ('remember', 'how did we handle X', 'cómo " +
+      "resolvimos', in any language) and memory_context's recent list does not cover it. " +
+      'If it returns nothing for something the user insists happened, say so explicitly — ' +
+      'do not guess or invent past work.',
     inputSchema: {
       type: 'object',
       properties: {

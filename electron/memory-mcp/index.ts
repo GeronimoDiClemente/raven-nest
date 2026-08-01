@@ -12,7 +12,7 @@
 // Electron main over the local IPC channel (see client.ts, memory-ipc-server.ts).
 import { createInterface } from 'readline'
 import { MemoryDaemonClient } from './client'
-import { TOOL_MANIFEST } from './tools'
+import { MCP_INSTRUCTIONS, TOOL_MANIFEST } from './tools'
 import type { ObservationType } from '../memory-protocol'
 
 function env(name: string): string | undefined {
@@ -81,6 +81,13 @@ async function runMcpServer(): Promise<void> {
               protocolVersion: '2024-11-05',
               capabilities: { tools: {} },
               serverInfo: { name: 'nest-memory', version: '1.0.0' },
+              // M27: server-wide behavioral protocol — see tools.ts's MCP_INSTRUCTIONS
+              // for why this channel (not just per-tool descriptions) is the primary
+              // lever. Not every MCP client surfaces `instructions` the same way the spec
+              // recommends (folding it into the system prompt), which is why the search
+              // tool's own description in tools.ts also restates the "don't invent" rule
+              // as a redundant, cheaper-to-drop backup.
+              instructions: MCP_INSTRUCTIONS,
             },
           })
           return

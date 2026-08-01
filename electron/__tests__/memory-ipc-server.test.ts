@@ -8,7 +8,7 @@ import { platform } from 'os'
 import { makeTmpDir, cleanupTmp } from './setup'
 import { MemoryIpcServer } from '../memory-ipc-server'
 import type { MemoryStore } from '../memory-store'
-import type { MemoryRequest, MemoryResponse } from '../memory-protocol'
+import type { MemoryRequest, MemoryResponse, ObservationSummary } from '../memory-protocol'
 
 const TOKEN = 'a'.repeat(64)
 const isWin = platform() === 'win32'
@@ -25,6 +25,21 @@ function fakeStore(overrides: Partial<MemoryStore> = {}): MemoryStore {
     getSession: vi.fn(() => null),
     ...overrides,
   } as unknown as MemoryStore
+}
+
+function fakeObservation(overrides: Partial<ObservationSummary> = {}): ObservationSummary {
+  return {
+    syncId: 'obs-1',
+    title: 'a memory',
+    content: '',
+    type: 'discovery',
+    topicKey: null,
+    tags: [],
+    updatedAt: 0,
+    originAi: null,
+    gitBranch: null,
+    ...overrides,
+  }
 }
 
 function uniqueSocketPath(dir: string): string {
@@ -138,5 +153,126 @@ describe('MemoryIpcServer — message size cap (M22)', () => {
     })
 
     expect(closed).toBe(true)
+  })
+})
+
+// M26: pull-through search fallback. `daemon` here is a plain fake satisfying
+// MemoryIpcServerDaemon (`Pick<MemoryDaemon, 'pull' | 'isOnline'>`), not a real
+// MemoryDaemon — this file already avoids native/`electron`-touching imports (see the
+// file-header comment), and the fallback only ever calls these two methods.
+describe('MemoryIpcServer — pull-through search fallback (M26)', () => {
+  let dir: string
+  let server: MemoryIpcServer
+  let socketPath: string
+
+  beforeEach(() => {
+    dir = makeTmpDir('raven-ipc-')
+    socketPath = uniqueSocketPath(dir)
+  })
+
+  afterEach(async () => {
+    server?.stop()
+    await new Promise((r) => setTimeout(r, 20))
+    cleanupTmp(dir)
+  })
+
+  async function doSearch(): Promise<MemoryResponse> {
+    const request: MemoryRequest = { id: '1', method: 'memory.search', params: { cwd: '/tmp', query: 'q' }, token: TOKEN }
+    const raw = await sendRaw(socketPath, `${JSON.stringify(request)}\n`)
+    return JSON.parse(raw.trim()) as MemoryResponse
+  }
+
+  it('(a) search miss + online daemon: pulls once, re-searches, and marks the response refreshed', async () => {
+    const remoteObs = fakeObservation({ syncId: 'obs-2', title: 'from another device' })
+    const search = vi.fn()
+      .mockReturnValueOnce([]) // first local search: miss
+      .mockReturnValueOnce([remoteObs]) // post-pull re-search: hit
+    const store = fakeStore({ search })
+    const pull = vi.fn(() => Promise.resolve())
+    const daemon = { pull, isOnline: () => true }
+    server = new MemoryIpcServer({ store, socketPath, authToken: TOKEN, daemon })
+    server.start()
+    await new Promise((r) => setTimeout(r, 20))
+
+    const response = await doSearch()
+
+    expect(pull).toHaveBeenCalledTimes(1)
+    expect(search).toHaveBeenCalledTimes(2)
+    expect(response.ok).toBe(true)
+    if (!response.ok) throw new Error('unreachable')
+    expect(response.result).toEqual({ items: [remoteObs], refreshed: true })
+  })
+
+  it('(b) search hit: never calls daemon.pull and never sets refreshed', async () => {
+    const localObs = fakeObservation({ syncId: 'obs-1', title: 'already local' })
+    const search = vi.fn(() => [localObs])
+    const store = fakeStore({ search })
+    const pull = vi.fn(() => Promise.resolve())
+    const daemon = { pull, isOnline: () => true }
+    server = new MemoryIpcServer({ store, socketPath, authToken: TOKEN, daemon })
+    server.start()
+    await new Promise((r) => setTimeout(r, 20))
+
+    const response = await doSearch()
+
+    expect(pull).not.toHaveBeenCalled()
+    expect(search).toHaveBeenCalledTimes(1)
+    expect(response.ok).toBe(true)
+    if (!response.ok) throw new Error('unreachable')
+    expect(response.result).toEqual({ items: [localObs] })
+  })
+
+  it('(c) a pull that never resolves still returns (empty) within the bounded timeout', async () => {
+    const search = vi.fn(() => []) // miss both times — pull "succeeded" but found nothing new
+    const store = fakeStore({ search })
+    const pull = vi.fn(() => new Promise<void>(() => { /* never resolves */ }))
+    const daemon = { pull, isOnline: () => true }
+    // Test-only override (see MemoryIpcServerDeps.searchPullTimeoutMs) so this test
+    // doesn't have to wait out the real 8s production default to prove the bound works.
+    server = new MemoryIpcServer({ store, socketPath, authToken: TOKEN, daemon, searchPullTimeoutMs: 50 })
+    server.start()
+    await new Promise((r) => setTimeout(r, 20))
+
+    const start = Date.now()
+    const response = await doSearch()
+    const elapsed = Date.now() - start
+
+    expect(pull).toHaveBeenCalledTimes(1)
+    expect(elapsed).toBeLessThan(2000) // generous bound vs. the 50ms timeout, avoids flakiness
+    expect(response.ok).toBe(true)
+    if (!response.ok) throw new Error('unreachable')
+    expect(response.result).toEqual({ items: [], refreshed: true })
+  })
+
+  it('(d) daemon reports offline: no pull attempted, local (empty) result returned as-is', async () => {
+    const search = vi.fn(() => [])
+    const store = fakeStore({ search })
+    const pull = vi.fn(() => Promise.resolve())
+    const daemon = { pull, isOnline: () => false }
+    server = new MemoryIpcServer({ store, socketPath, authToken: TOKEN, daemon })
+    server.start()
+    await new Promise((r) => setTimeout(r, 20))
+
+    const response = await doSearch()
+
+    expect(pull).not.toHaveBeenCalled()
+    expect(search).toHaveBeenCalledTimes(1)
+    expect(response.ok).toBe(true)
+    if (!response.ok) throw new Error('unreachable')
+    expect(response.result).toEqual({ items: [] })
+  })
+
+  it('no daemon wired at all: behaves exactly as before M26 (no pull, no refreshed field)', async () => {
+    const search = vi.fn(() => [])
+    const store = fakeStore({ search })
+    server = new MemoryIpcServer({ store, socketPath, authToken: TOKEN })
+    server.start()
+    await new Promise((r) => setTimeout(r, 20))
+
+    const response = await doSearch()
+
+    expect(response.ok).toBe(true)
+    if (!response.ok) throw new Error('unreachable')
+    expect(response.result).toEqual({ items: [] })
   })
 })

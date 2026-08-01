@@ -26,8 +26,15 @@ import type {
   MemoryResponse,
   SaveMemoryParams,
   SearchMemoryParams,
+  SearchMemoryResult,
 } from './memory-protocol'
 import { generateSyncId } from './memory-store'
+// M26: type-only import — memory-daemon.ts has no `electron` import in its own chain
+// (same reasoning as the isWin inlining above for MemoryStore), so this doesn't
+// reintroduce the "unloadable outside real Electron" problem the isWin comment warns
+// about. `Pick<...>` (not the whole class) is what MemoryIpcServerDeps.daemon actually
+// needs, and it's what memory-ipc-server.test.ts's fakes implement.
+import type { MemoryDaemon } from './memory-daemon'
 
 export interface GitInfoResolver {
   (cwd: string): { remoteUrl?: string | null; branch?: string | null } | null
@@ -41,6 +48,23 @@ const MAX_LINE_BYTES = 1024 * 1024
 // dropped after this so a hung/leaked socket doesn't accumulate server-side.
 const CONNECTION_IDLE_TIMEOUT_MS = 30_000
 
+// M26: how long a zero-result memory_search will wait on a triggered daemon pull before
+// giving up and answering from local data anyway. The daemon's own pull interval is 5
+// minutes (memory-daemon.ts's INTERVAL_MS) — this fallback exists BECAUSE that's too
+// slow for "I just saved this on my other laptop, search for it now"; 8s is long enough
+// for one real pull round-trip (a page fetch + apply, see doPull()) but short enough that
+// a bad network never turns a memory_search tool call into a hang the agent is left
+// waiting on. Overridable via deps for tests only — production wiring (main.ts) never
+// sets it, so this default is what actually runs.
+const DEFAULT_SEARCH_PULL_TIMEOUT_MS = 8_000
+
+/**
+ * M26: the subset of MemoryDaemon the pull-through search fallback needs. Narrower than
+ * the whole class so memory-ipc-server.test.ts can pass a plain `{ pull, isOnline }`
+ * fake instead of constructing (or fully mocking) a real MemoryDaemon.
+ */
+export type MemoryIpcServerDaemon = Pick<MemoryDaemon, 'pull' | 'isOnline'>
+
 export interface MemoryIpcServerDeps {
   store: MemoryStore
   socketPath: string
@@ -48,6 +72,30 @@ export interface MemoryIpcServerDeps {
   authToken: string
   resolveGitInfo?: GitInfoResolver
   onMutation?: () => void // called after any write — the daemon uses this to schedule a debounced push
+  // M26: optional so a degraded memory subsystem (main.ts's try/catch around
+  // `new MemoryStore(...)` — a construction failure there leaves `memory` null and skips
+  // this entirely) and existing tests that don't care about the fallback keep working
+  // unchanged. When absent, memory.search behaves exactly as it did before M26.
+  daemon?: MemoryIpcServerDaemon
+  /** M26: test-only override of DEFAULT_SEARCH_PULL_TIMEOUT_MS — see that constant. */
+  searchPullTimeoutMs?: number
+}
+
+/**
+ * M26: races `promise` against a timer so a hanging daemon.pull() can never hang the
+ * memory_search tool call it was triggered from. Deliberately resolves (never rejects)
+ * on both the timeout AND a pull() rejection (bad network, 401, etc.) — either way the
+ * caller falls back to whatever is already on disk, and memory-daemon.ts already records
+ * the failure into its own status/backoff state, so there is nothing left to report here.
+ */
+function withTimeout(promise: Promise<void>, ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms)
+    promise.then(
+      () => { clearTimeout(timer); resolve() },
+      () => { clearTimeout(timer); resolve() }
+    )
+  })
 }
 
 function tokensMatch(a: string, b: string): boolean {
@@ -124,20 +172,27 @@ export class MemoryIpcServer {
     } catch {
       return
     }
-    let response: MemoryResponse
     // C2: reject before dispatch — an invalid/missing token never reaches the store.
     if (typeof request.token !== 'string' || !tokensMatch(request.token, this.deps.authToken)) {
-      response = { id: request.id, ok: false, error: 'unauthorized' }
+      const response: MemoryResponse = { id: request.id, ok: false, error: 'unauthorized' }
       socket.write(`${JSON.stringify(response)}\n`)
       return
     }
-    try {
-      const result = this.dispatch(request)
-      response = { id: request.id, ok: true, result }
-    } catch (err) {
-      response = { id: request.id, ok: false, error: err instanceof Error ? err.message : String(err) }
-    }
-    socket.write(`${JSON.stringify(response)}\n`)
+    // M26: dispatch() is now async (memory.search may await a bounded pull-through
+    // fallback) — every other method still resolves synchronously inside it, so this is
+    // a no-op timing-wise for them. One line per connection in practice (client.ts opens
+    // a fresh socket per call), so there's no request-ordering concern from not awaiting
+    // this inline.
+    this.dispatch(request).then(
+      (result) => {
+        const response: MemoryResponse = { id: request.id, ok: true, result }
+        socket.write(`${JSON.stringify(response)}\n`)
+      },
+      (err: unknown) => {
+        const response: MemoryResponse = { id: request.id, ok: false, error: err instanceof Error ? err.message : String(err) }
+        socket.write(`${JSON.stringify(response)}\n`)
+      }
+    )
   }
 
   private projectKeyForCwd(cwd: string): string {
@@ -152,7 +207,7 @@ export class MemoryIpcServer {
     return projectKey
   }
 
-  private dispatch(request: MemoryRequest): unknown {
+  private async dispatch(request: MemoryRequest): Promise<unknown> {
     const { store } = this.deps
     switch (request.method) {
       case 'ping':
@@ -182,7 +237,28 @@ export class MemoryIpcServer {
       case 'memory.search': {
         const params = request.params as SearchMemoryParams
         const projectKey = this.projectKeyForCwd(params.cwd)
-        return { items: store.search(projectKey, params.query, params.limit ?? 10) }
+        const limit = params.limit ?? 10
+        const items = store.search(projectKey, params.query, limit)
+        if (items.length > 0) return { items } as SearchMemoryResult
+
+        // M26 pull-through search: a LOCAL zero-result miss is exactly the shape of "an
+        // agent asks about something just saved on another device" — sync only lands
+        // locally on the daemon's own ~5-minute interval (memory-daemon.ts's
+        // INTERVAL_MS), so without this the answer is a false "nothing here" for up to
+        // that long. Server data stays non-authoritative for reads: this only narrows a
+        // MISS, it never runs (or overrides) a local HIT — see the `items.length > 0`
+        // return above. Skip entirely (no pull attempt at all) when there's no daemon
+        // wired or it reports offline/disconnected — daemon.pull() already dedupes
+        // concurrent callers via pullInFlight (M19) and chains full pages via M25, so
+        // calling it here piggybacks on whatever pull is already in flight rather than
+        // starting a redundant one.
+        const daemon = this.deps.daemon
+        if (!daemon || !daemon.isOnline()) return { items } as SearchMemoryResult
+
+        const timeoutMs = this.deps.searchPullTimeoutMs ?? DEFAULT_SEARCH_PULL_TIMEOUT_MS
+        await withTimeout(daemon.pull(), timeoutMs)
+        const refreshedItems = store.search(projectKey, params.query, limit)
+        return { items: refreshedItems, refreshed: true } as SearchMemoryResult
       }
 
       case 'memory.context': {
