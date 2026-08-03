@@ -1,8 +1,9 @@
 import { useState, useMemo, memo, type CSSProperties } from 'react'
 import { useTeamStats, type PrSizeBuckets } from '../hooks/useTeamStats'
 import type { PresenceState } from '../hooks/useTeamPresence'
-import TeamMemberList, { type MemberRow } from './TeamMemberList'
+import TeamMemberList from './TeamMemberList'
 import EmployeeDetailPanel, { type EmployeeCtx } from './EmployeeDetailPanel'
+import { buildRoster } from '../lib/employee-analytics'
 
 interface TeamStatsProps {
   repos: Array<{ repo_full_name: string }>
@@ -207,27 +208,26 @@ export default function TeamStats({ repos, githubToken, presence, members, viewe
   } = stats
   const coveragePct = reviewCov.mergedTotal ? `${Math.round(reviewCov.pct * 100)}%` : '—'
 
-  const byLogin = new Map(stats.developers.map(d => [d.login, d]))
-  const memberRows: MemberRow[] = members.map(m => {
-    const d = m.login ? byLogin.get(m.login) : undefined
-    return {
-      login: m.login, name: m.name, avatarUrl: m.avatarUrl, online: m.online,
-      commits: d?.commits ?? 0, prsMerged: d?.prsMerged ?? 0,
-      prevCommits: (m.login && prevByLogin[m.login]?.commits) || 0,
-    }
-  })
+  const memberRows = buildRoster(members, stats.developers, prevByLogin)
   const selectedEmp: EmployeeCtx | null = (() => {
     if (!selected) return null
-    const m = members.find(x => x.login === selected)
-    const d = byLogin.get(selected)
-    if (!m) return null
-    const prev = prevByLogin[selected] ?? { commits: 0, prsMerged: 0 }
+    const key = selected.toLowerCase()
+    // The roster unions registered members with GitHub contributors, so a
+    // selected login may not be a registered member — fall back to GitHub data.
+    // All lookups are case-insensitive since GitHub logins aren't case-sensitive.
+    const m = members.find(x => x.login?.toLowerCase() === key)
+    const d = stats.developers.find(x => x.login.toLowerCase() === key)
+    if (!m && !d) return null
+    const prev = Object.entries(prevByLogin).find(([l]) => l.toLowerCase() === key)?.[1]
+      ?? { commits: 0, prsMerged: 0 }
+    const openPrs = Object.entries(openPrsByLogin).find(([l]) => l.toLowerCase() === key)?.[1] ?? []
     return {
-      login: selected, name: m.name, avatarUrl: m.avatarUrl, online: m.online,
+      login: selected, name: m?.name ?? selected, avatarUrl: m?.avatarUrl || d?.avatarUrl || '',
+      online: m?.online ?? false,
       commits: d?.commits ?? 0, prevCommits: prev.commits,
       prsMerged: d?.prsMerged ?? 0, prevPrsMerged: prev.prsMerged,
       dailyCommits: d?.dailyCommits ?? Array(windowDays).fill(0),
-      openPrs: openPrsByLogin[selected] ?? [],
+      openPrs,
     }
   })()
 

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { trendVsPrev, topAreasFromFiles } from '../../lib/employee-analytics'
 import { perLoginPrev } from '../../lib/employee-analytics'
-import { openPrSignal, attentionFor } from '../../lib/employee-analytics'
+import { openPrSignal, attentionFor, buildRoster } from '../../lib/employee-analytics'
 
 describe('trendVsPrev', () => {
   it('returns a signed percentage delta vs the previous period', () => {
@@ -80,5 +80,39 @@ describe('attentionFor', () => {
   })
   it('returns null when nothing needs attention', () => {
     expect(attentionFor({ commits: 30, prevCommits: 28 }, [{ createdAt: daysAgoIso(1), reviewCount: 1 }], 'viewer')).toBeNull()
+  })
+})
+
+describe('buildRoster', () => {
+  const dev = (login: string, commits: number, prsMerged = 0) => ({ login, avatarUrl: `av/${login}`, commits, prsMerged })
+  const member = (login: string | null, name: string) => ({ login, name, avatarUrl: '', online: false })
+
+  it('matches a registered member to their GitHub stats case-insensitively', () => {
+    const rows = buildRoster([member('Ada', 'Ada L.')], [dev('ada', 12, 3)], { ada: { commits: 5 } })
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({ login: 'Ada', name: 'Ada L.', commits: 12, prsMerged: 3, prevCommits: 5 })
+  })
+
+  it('appends GitHub contributors who are not registered members', () => {
+    const rows = buildRoster([member('ada', 'Ada')], [dev('ada', 1), dev('grace', 8, 2)], {})
+    const grace = rows.find(r => r.login === 'grace')
+    expect(grace).toMatchObject({ login: 'grace', name: 'grace', avatarUrl: 'av/grace', commits: 8, prsMerged: 2, online: false })
+    expect(rows).toHaveLength(2)
+  })
+
+  it('excludes bots and the unknown fallback from appended contributors', () => {
+    const rows = buildRoster([], [dev('dependabot[bot]', 40), dev('unknown', 9), dev('grace', 3)], {})
+    expect(rows.map(r => r.login)).toEqual(['grace'])
+  })
+
+  it('keeps a member with no linked GitHub login (login null, zero stats)', () => {
+    const rows = buildRoster([member(null, 'no-gh@x.com')], [], {})
+    expect(rows).toEqual([{ login: null, name: 'no-gh@x.com', avatarUrl: '', online: false, commits: 0, prsMerged: 0, prevCommits: 0 }])
+  })
+
+  it('does not duplicate a contributor already present as a member', () => {
+    const rows = buildRoster([member('Ada', 'Ada')], [dev('ada', 4)], {})
+    expect(rows).toHaveLength(1)
+    expect(rows[0].login).toBe('Ada')
   })
 })

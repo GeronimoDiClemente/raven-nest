@@ -23,6 +23,80 @@ export function topAreasFromFiles(prs: FiledPr[], topN: number): Array<{ dir: st
     .slice(0, topN)
 }
 
+export interface RosterMember {
+  login: string | null
+  name: string
+  avatarUrl: string
+  online: boolean
+}
+export interface RosterDev {
+  login: string
+  avatarUrl: string
+  commits: number
+  prsMerged: number
+}
+export interface RosterRow extends RosterMember {
+  commits: number
+  prsMerged: number
+  prevCommits: number
+}
+
+const isRosterBot = (login: string): boolean => login.endsWith('[bot]') || login === 'unknown'
+
+/**
+ * Coaching roster = registered team members UNIONED with the repo's actual GitHub
+ * contributors, so the list reflects everyone doing the work — not only whoever
+ * happens to be added to the Nest team (a team may have just the leader
+ * registered while many devs contribute on GitHub). Registered members keep
+ * their profile (name/avatar/online); contributors that aren't registered are
+ * appended from their GitHub identity. Logins match case-insensitively (GitHub
+ * logins aren't case-sensitive) so a casing difference never zeroes a member's
+ * stats. Bots and the 'unknown' commit-author fallback are excluded.
+ */
+export function buildRoster(
+  members: RosterMember[],
+  developers: RosterDev[],
+  prevByLogin: Record<string, { commits: number }>,
+): RosterRow[] {
+  const devByLower = new Map(developers.map(d => [d.login.toLowerCase(), d]))
+  const prevByLower = new Map(
+    Object.entries(prevByLogin).map(([login, v]) => [login.toLowerCase(), v]),
+  )
+  const seen = new Set<string>()
+
+  const rows: RosterRow[] = members.map(m => {
+    const key = m.login ? m.login.toLowerCase() : null
+    if (key) seen.add(key)
+    const d = key ? devByLower.get(key) : undefined
+    return {
+      login: m.login,
+      name: m.name,
+      avatarUrl: m.avatarUrl,
+      online: m.online,
+      commits: d?.commits ?? 0,
+      prsMerged: d?.prsMerged ?? 0,
+      prevCommits: (key ? prevByLower.get(key)?.commits : 0) ?? 0,
+    }
+  })
+
+  for (const d of developers) {
+    const key = d.login.toLowerCase()
+    if (seen.has(key) || isRosterBot(d.login)) continue
+    seen.add(key)
+    rows.push({
+      login: d.login,
+      name: d.login,
+      avatarUrl: d.avatarUrl,
+      online: false,
+      commits: d.commits,
+      prsMerged: d.prsMerged,
+      prevCommits: prevByLower.get(key)?.commits ?? 0,
+    })
+  }
+
+  return rows
+}
+
 const DAY_MS = 24 * 60 * 60 * 1000
 
 interface MinEvent {

@@ -62,46 +62,47 @@ Verificado: `tsc -b --noEmit` en 19 (baseline, 0 nuevos), tests `hub-activity` +
 
 ---
 
-## 2) Analytics — el roster de "Team members" NO aparece (DIAGNOSTICADO, falta fix)
+## 2) Analytics — roster de "Team members" casi vacío (FIX APLICADO, verificar en vivo)
 
-### Síntoma (confirmado por screenshot, 2026-08-02)
+### Síntoma (screenshot 2026-08-02)
 En **Teams → Stats**: las tarjetas agregadas SÍ traen datos (PR size 4/7/5/33, "348
-commits in the period", gráfico de commits/día OK) → **la data de GitHub (GraphQL)
-funciona**. Pero bajo el título **"TEAM MEMBERS" NO hay ninguna fila** (solo el título
-y una línea vacía). O sea el problema NO es de actividad ni de `github_login`: es que
-la lista de **miembros de Supabase llega vacía**.
+commits in the period", gráfico OK) → la data de GitHub (GraphQL) funciona. Pero bajo
+"TEAM MEMBERS" no se veían miembros.
 
-### Camino de datos (verificado)
-1. Miembros: `useTeam.loadMembers()` → `select('*') from team_members where team_id`
-   (`src/hooks/useTeam.ts:67-78`). Si el select falla (RLS/red) devuelve `null` y
-   `refresh` **mantiene el `members` previo** (`useTeam.ts:190-191`, que puede ser `[]`).
-2. Mapeo a props: `TeamsWorkspace.tsx:1311` →
-   `members.filter(m => m.status === 'active').map(...)`. **Doble gate**: miembros
-   vacíos O ninguno con `status === 'active'` → lista vacía.
-3. Roster: `TeamStats.tsx` arma `memberRows` (left-join contra stats por `login`,
-   default 0) y renderiza `<TeamMemberList>` **sin gate** (siempre). Por eso se ve el
-   título pero cero filas cuando `members` filtrado es `[]`.
+### Diagnóstico final (corregido)
+La primera hipótesis ("`members` vacío") era **incorrecta**: la pestaña Stats solo
+renderiza si `isTeamLeader` (`TeamsWorkspace.tsx:314`), que exige al menos al líder
+(vos) con `status === 'active'` en `members` → o sea `members` NO está vacío.
 
-### Causa raíz = miembros vacíos tras el filtro. Falta distinguir cuál de las dos:
-- (a) `team_members` viene **vacío** por RLS/red (`loadMembers` → null → previo `[]`).
-- (b) `team_members` tiene filas pero **ninguna con `status === 'active'`** (¿'pending'?).
+Causa real: el roster se armaba **solo** desde `team_members` de Supabase
+(`members.filter(status === 'active')`, `TeamsWorkspace.tsx:1311`), así que si el equipo
+tiene pocos (o solo el líder) registrados en Nest, la lista queda casi vacía aunque en
+GitHub contribuyan muchos devs (que sí aparecen en las tarjetas agregadas).
 
-### Próximo paso concreto (en la otra PC, con la cuenta de Gero)
-1. **Chequeo cruzado rápido:** abrí Teams → **pestaña "Members"** y el sidebar de
-   presencia. Si ahí TAMPOCO se ven miembros → es (a) (carga/RLS de `team_members`).
-   Si ahí SÍ se ven pero en Stats no → es (b) (filtro `status === 'active'`).
-2. **Log en el boundary correcto** (antes del filtro, en `TeamsWorkspace.tsx:1311`):
-   ```ts
-   console.log('[members]', members.map(m => ({ email: m.email, status: m.status, gh: m.github_login })))
-   ```
-   - array vacío → (a): revisar consola por `[useTeam.loadMembers] ... failed` y la
-     RLS de SELECT de `team_members` (ver `supabase/migrations/020_fix_team_members_recursion.sql`).
-   - filas con `status !== 'active'` → (b): decidir si el roster debe incluir otros
-     estados o si el dato de status está mal.
-3. **Aparte (no bloquea el roster, pero apaga el drill-down):** confirmar que la
-   migración `20260730000000_team_members_github_login.sql` esté aplicada y
-   `profiles.github_login` poblado; si `github_login` es null, cada fila cae al branch
-   "No GitHub linked" (`TeamMemberList.tsx:53`) — sin trend/chip/click.
+### Fix aplicado
+Nuevo helper puro **`buildRoster(members, developers, prevByLogin)`** en
+`src/lib/employee-analytics.ts` (con tests): **une** los miembros registrados con los
+**contribuidores reales de GitHub** (`stats.developers`), match de login
+**case-insensitive** (los logins de GitHub no distinguen mayúsculas — de paso arregla
+el bug latente de casing que zeroeaba stats) y excluye bots (`[bot]`) y `unknown`.
+- `TeamStats.tsx`: `memberRows = buildRoster(...)` en vez del `.map` sobre members.
+- `selectedEmp` (drawer) hecho robusto: soporta un login seleccionado que NO es miembro
+  registrado (cae a la data de GitHub) y hace lookups case-insensitive.
+- Verificado: tsc en 19 (baseline), tests `employee-analytics` (16) + `useTeamStats` /
+  `team-stats-graphql` / `team-flow-metrics` (35) verdes.
+
+### A verificar en vivo mañana (no pude correrlo acá)
+1. Abrir Teams → Stats: ahora el roster debería listar a los contribuidores de GitHub
+   (los mismos que suman los 348 commits), clickeables → drawer de coaching.
+2. Confirmar que el líder/miembros registrados salgan una sola vez (dedup por login).
+3. Si querés que el roster sea SOLO miembros registrados de Nest (no todos los
+   contribuidores del repo), es una decisión de producto — se revierte fácil volviendo
+   `buildRoster` a solo `members`. Lo dejé unido porque es lo que pediste ("ver los
+   miembros") y es lo útil para un dashboard de coaching del equipo.
+4. **Aparte (drill-down de miembros registrados):** para que un miembro registrado
+   traiga su avatar/online y no dependa del match por GitHub, conviene tener la
+   migración `20260730000000_team_members_github_login.sql` aplicada y
+   `profiles.github_login` poblado.
 
 ---
 
