@@ -32,5 +32,9 @@ const OSC_RE = /\x1b\][\s\S]*?(?:\x07|\x1b\\)/g
  * (which strips spinners): a spinner IS a real work signal here.
  */
 export function hasVisibleOutput(data: string): boolean {
-  return stripAnsi(data.replace(OSC_RE, '')).replace(/\s/g, '').length > 0
+  // /\S/.test short-circuits at the first non-whitespace char instead of
+  // building a whole whitespace-stripped copy just to measure its length —
+  // same result, one fewer full-string allocation per PTY chunk (this runs on
+  // every chunk of every pane via hub-activity).
+  return /\S/.test(stripAnsi(data.replace(OSC_RE, '')))
 }
