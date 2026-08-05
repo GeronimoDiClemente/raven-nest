@@ -192,7 +192,7 @@ function createWindow(): void {
     minHeight: 600,
     backgroundColor: '#0d0d0d',
     ...getWindowOptions(),
-    title: 'Nest',
+    title: 'NestMux',
     icon: icon.isEmpty() ? undefined : icon,
     webPreferences: {
       preload: join(__dirname, 'preload.js'),
