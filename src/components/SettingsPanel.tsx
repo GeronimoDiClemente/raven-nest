@@ -7,6 +7,8 @@ import { useGitlab } from '../hooks/useGitlab'
 import { formatBinding, eventToBinding, Keybindings } from '../lib/keybindings'
 import { PresetEditor } from './PresetEditor'
 import { BenchmarkDashboard } from './BenchmarkDashboard'
+import { TmuxImportModal } from './TmuxImportModal'
+import { parseTmuxConf, type TmuxImportPlan } from '../lib/tmux/parse'
 
 type Tab = 'keybinds' | 'presets' | 'benchmarks' | 'updates' | 'account' | 'tutorial'
 
@@ -87,6 +89,13 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
   const { isConnected: githubConnected, githubLogin, connectGitHub, disconnectGitHub } = useGitHub()
   const { isConnected: gitlabConnected, gitlabLogin, connectGitlab, disconnectGitlab } = useGitlab()
   const kb = settings.keybindings
+  const [importPlan, setImportPlan] = useState<TmuxImportPlan | null>(null)
+
+  const importFromTmux = async () => {
+    const res = await window.tmux.readConf()
+    if (!res) return
+    setImportPlan(parseTmuxConf(res.text, { current: settings.keybindings, confPath: res.confPath }))
+  }
 
   useEffect(() => {
     if (!open) return
@@ -181,6 +190,10 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                       onUpdate={updateKeybinding}
                     />
                   ))}
+                  <div className="sp-divider" />
+                  <button className="tmux-import-btn" onClick={importFromTmux}>
+                    Import from tmux…
+                  </button>
                 </div>
               )}
 
@@ -280,6 +293,19 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
           </div>
         </>,
         document.body
+      )}
+
+      {importPlan && (
+        <TmuxImportModal
+          plan={importPlan}
+          current={settings.keybindings}
+          onApply={patch =>
+            Object.entries(patch).forEach(([action, key]) =>
+              updateKeybinding(action as keyof Keybindings, key),
+            )
+          }
+          onClose={() => setImportPlan(null)}
+        />
       )}
     </>
   )
