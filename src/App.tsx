@@ -894,6 +894,19 @@ export default function App() {
       if (matchesBinding(e, kb.globalSearch)) { e.preventDefault(); setGlobalSearchOpen(true); return }
       if (matchesBinding(e, kb.commandPalette)) { e.preventDefault(); setCommandPaletteOpen(v => !v); return }
 
+      if (matchesBinding(e, kb.closePane)) {
+        e.preventDefault()
+        const id = focusedPaneIdRef.current
+        if (id) removePane(id)
+        return
+      }
+
+      if (matchesBinding(e, kb.closeTab)) {
+        e.preventDefault()
+        handleTabClose(activeTabIdRef.current)
+        return
+      }
+
       if (matchesBinding(e, kb.nextPane) || matchesBinding(e, kb.prevPane)) {
         e.preventDefault()
         const all = panesRef.current
@@ -920,7 +933,7 @@ export default function App() {
     // means non-modified keystrokes still flow through to the terminal.
     window.addEventListener('keydown', handler, true)
     return () => window.removeEventListener('keydown', handler, true)
-  }, [addNextPane, toggleListening, cycleTab, handleUnzoom, handleZoom, planLimits.allowVoice])
+  }, [addNextPane, toggleListening, cycleTab, handleUnzoom, handleZoom, removePane, handleTabClose, planLimits.allowVoice])
 
   const isInitialState = panes.length === 0
 
@@ -1129,6 +1142,7 @@ export default function App() {
                         onColorChange={(c) => updatePaneColor(pane.id, c)}
                         onNoteChange={(note) => updatePaneNote(pane.id, note)}
                         fontSize={fontSize}
+                        scrollback={settings.scrollback}
                         onInput={(data) => {
                           const targets = broadcastMode ? panes.map(p => p.id) : [pane.id]
                           targets.forEach((id) => window.pty.write(id, data))

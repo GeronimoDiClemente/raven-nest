@@ -52,3 +52,16 @@ export function applyPayload(rows: ImportRow[]): Partial<Record<keyof Keybinding
   }
   return patch
 }
+
+const SCROLLBACK_MIN = 1000
+const SCROLLBACK_MAX = 100_000
+
+/** The scrollback (lines) to apply from a plan's `history-limit`, clamped to a
+ *  sane range, or null when the conf sets no history-limit. */
+export function scrollbackFromOptions(plan: TmuxImportPlan): number | null {
+  const opt = plan.options.find(o => o.target === 'scrollback')
+  if (!opt) return null
+  const n = parseInt(opt.value, 10)
+  if (!Number.isFinite(n)) return null
+  return Math.min(SCROLLBACK_MAX, Math.max(SCROLLBACK_MIN, n))
+}

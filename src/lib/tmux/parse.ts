@@ -114,6 +114,10 @@ function mapBindCommand(tokens: string[]): keyof Keybindings | null {
       return 'newPane'
     case 'resize-pane':
       return args.includes('-Z') ? 'toggleZoom' : null
+    case 'kill-pane':
+      return 'closePane'
+    case 'kill-window':
+      return 'closeTab'
     default:
       return null
   }

@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import { createPortal } from 'react-dom'
 import { eventToBinding, formatBinding, type Keybindings } from '../lib/keybindings'
 import type { TmuxImportPlan } from '../lib/tmux/parse'
-import { toImportRows, applyPayload, conflictFor, type ImportRow } from '../lib/tmux/apply'
+import { toImportRows, applyPayload, conflictFor, scrollbackFromOptions, type ImportRow } from '../lib/tmux/apply'
 
 const ACTION_LABELS: Record<keyof Keybindings, string> = {
   voiceInput: 'Voice input',
@@ -14,6 +14,8 @@ const ACTION_LABELS: Record<keyof Keybindings, string> = {
   nextTab: 'Next tab',
   prevTab: 'Previous tab',
   toggleZoom: 'Zoom cell',
+  closePane: 'Close pane',
+  closeTab: 'Close tab',
   fontSizeUp: 'Font size +',
   fontSizeDown: 'Font size −',
   fontSizeReset: 'Font size reset',
@@ -25,6 +27,7 @@ interface Props {
   plan: TmuxImportPlan
   current: Keybindings
   onApply: (patch: Partial<Record<keyof Keybindings, string>>) => void
+  onApplyScrollback?: (lines: number) => void
   onClose: () => void
 }
 
@@ -34,12 +37,13 @@ interface Props {
  * surfaced so nothing is applied silently. Options are shown for reference (their
  * apply lands with the terminal-settings work).
  */
-export function TmuxImportModal({ plan, current, onApply, onClose }: Props) {
+export function TmuxImportModal({ plan, current, onApply, onApplyScrollback, onClose }: Props) {
   const [rows, setRows] = useState<ImportRow[]>(() => toImportRows(plan))
   const [recordingIdx, setRecordingIdx] = useState<number | null>(null)
 
   const unsupportedBinds = plan.keybindings.filter(kb => kb.action === null)
   const selectedCount = rows.filter(r => r.selected).length
+  const scrollback = scrollbackFromOptions(plan)
 
   const toggle = (i: number) =>
     setRows(rs => rs.map((r, idx) => (idx === i ? { ...r, selected: !r.selected } : r)))
@@ -63,6 +67,7 @@ export function TmuxImportModal({ plan, current, onApply, onClose }: Props) {
 
   const apply = () => {
     onApply(applyPayload(rows))
+    if (scrollback !== null) onApplyScrollback?.(scrollback)
     onClose()
   }
 

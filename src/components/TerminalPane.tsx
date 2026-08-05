@@ -57,12 +57,13 @@ interface Props {
   onPtyStarted?: (paneId: string, runningRepoPath: string | undefined) => void
   ports?: number[]
   fontSize: number
+  scrollback: number
   style?: React.CSSProperties
   allowSharing?: boolean
   onRequireUpgrade?: () => void
 }
 
-export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZoom, onClose, onColorChange, onNoteChange, onInput, onBusyChange, onFocus, onActivity, onJoinRequest, onPtyStarted, ports = [], fontSize, style, allowSharing = true, onRequireUpgrade }: Props) {
+export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZoom, onClose, onColorChange, onNoteChange, onInput, onBusyChange, onFocus, onActivity, onJoinRequest, onPtyStarted, ports = [], fontSize, scrollback, style, allowSharing = true, onRequireUpgrade }: Props) {
   const cmdBufferRef = useRef('')
   const wrappedOnInput = useCallback((data: string) => {
     for (const ch of data) {
@@ -82,7 +83,8 @@ export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZ
     pane.id, wrappedOnInput, fontSize,
     useCallback((cols: number, rows: number) => {
       terminalShareService.broadcastSize(pane.id, cols, rows)
-    }, [pane.id])
+    }, [pane.id]),
+    scrollback
   )
   const { setNodeRef, attributes, listeners, transform, transition, isOver } = useSortable({ id: pane.id })
   const outputBuf = useRef('')       // notification buffer (last 2000 chars)

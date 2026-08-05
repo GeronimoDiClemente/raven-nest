@@ -7,7 +7,7 @@ import { registerTerminal, unregisterTerminal } from '../terminal-instances'
 import { safeWriteText, safeReadText } from '../lib/clipboard'
 import { isLocalUrl } from '../lib/is-local-url'
 
-export function useXterm(paneId: string, onInput?: (data: string) => void, fontSize = 13, onResize?: (cols: number, rows: number) => void) {
+export function useXterm(paneId: string, onInput?: (data: string) => void, fontSize = 13, onResize?: (cols: number, rows: number) => void, scrollback = 5000) {
   const containerRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
@@ -53,7 +53,7 @@ export function useXterm(paneId: string, onInput?: (data: string) => void, fontS
         brightCyan: '#9aedfe',
         brightWhite: '#ffffff'
       },
-      scrollback: 5000,
+      scrollback,
       allowProposedApi: true
     })
 

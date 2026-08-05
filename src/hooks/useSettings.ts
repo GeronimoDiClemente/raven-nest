@@ -10,6 +10,7 @@ export function useSettings() {
         const s = await window.settings.get()
         setSettings({
           voiceLanguage: (s as AppSettings).voiceLanguage ?? DEFAULT_SETTINGS.voiceLanguage,
+          scrollback: (s as AppSettings).scrollback ?? DEFAULT_SETTINGS.scrollback,
           keybindings: { ...DEFAULT_SETTINGS.keybindings, ...s.keybindings }
         })
       } catch (err) {
@@ -39,5 +40,13 @@ export function useSettings() {
     })
   }, [])
 
-  return { settings, updateKeybinding, updateVoiceLanguage }
+  const updateScrollback = useCallback((lines: number) => {
+    setSettings(prev => {
+      const next: AppSettings = { ...DEFAULT_SETTINGS, ...prev, scrollback: lines }
+      window.settings.set(next)
+      return next
+    })
+  }, [])
+
+  return { settings, updateKeybinding, updateVoiceLanguage, updateScrollback }
 }

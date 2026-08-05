@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { toImportRows, applyPayload, conflictFor } from '../../lib/tmux/apply'
+import { toImportRows, applyPayload, conflictFor, scrollbackFromOptions } from '../../lib/tmux/apply'
 import { parseTmuxConf } from '../../lib/tmux/parse'
 import { DEFAULT_SETTINGS } from '../../lib/keybindings'
 
@@ -47,5 +47,17 @@ describe('conflictFor', () => {
   it('returns the Nest action already bound to a combo, or undefined', () => {
     expect(conflictFor('Meta+t', DEFAULT_SETTINGS.keybindings)).toBe('newPane')
     expect(conflictFor('Ctrl+Alt+q', DEFAULT_SETTINGS.keybindings)).toBeUndefined()
+  })
+})
+
+describe('scrollbackFromOptions', () => {
+  it('extracts the history-limit and clamps it to a sane range', () => {
+    expect(scrollbackFromOptions(parseTmuxConf('set -g history-limit 50000'))).toBe(50000)
+    expect(scrollbackFromOptions(parseTmuxConf('set -g history-limit 999999'))).toBe(100000)
+    expect(scrollbackFromOptions(parseTmuxConf('set -g history-limit 5'))).toBe(1000)
+  })
+
+  it('returns null when there is no history-limit', () => {
+    expect(scrollbackFromOptions(parseTmuxConf('set -g mouse on'))).toBeNull()
   })
 })

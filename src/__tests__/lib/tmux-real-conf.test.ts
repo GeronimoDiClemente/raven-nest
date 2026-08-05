@@ -31,6 +31,10 @@ bind c new-window
 # ── zoom ──
 bind z resize-pane -Z
 
+# ── kill ──
+bind x kill-pane
+bind & kill-window
+
 # ── copy mode ──
 setw -g mode-keys vi
 bind -T copy-mode-vi v send-keys -X begin-selection
@@ -73,6 +77,11 @@ describe('parseTmuxConf on a real .tmux.conf', () => {
     expect(find(plan.keybindings, 'bind c new-window').action).toBe('newPane')
   })
 
+  it('maps kill-pane / kill-window to closePane / closeTab', () => {
+    expect(find(plan.keybindings, 'bind x kill-pane').action).toBe('closePane')
+    expect(find(plan.keybindings, 'bind & kill-window').action).toBe('closeTab')
+  })
+
   it('skips arg-taking flags (-T table) to find the real key + command', () => {
     const copy = find(plan.keybindings, 'copy-mode-vi v send-keys')
     expect(copy.action).toBeNull() // send-keys has no Nest action
@@ -99,7 +108,7 @@ describe('parseTmuxConf on a real .tmux.conf', () => {
     expect(plan.unsupported.some(u => u.line.startsWith('run '))).toBe(true)
   })
 
-  it('maps exactly the 10 shortcuts Nest can represent', () => {
-    expect(plan.keybindings.filter(k => k.action !== null)).toHaveLength(10)
+  it('maps exactly the 12 shortcuts Nest can represent', () => {
+    expect(plan.keybindings.filter(k => k.action !== null)).toHaveLength(12)
   })
 })

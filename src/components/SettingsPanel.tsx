@@ -85,7 +85,7 @@ interface Props {
 export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, activeRepoPath, onOpenTutorial }: Props) {
   const [open, setOpen] = useState(false)
   const [tab, setTab] = useState<Tab>('keybinds')
-  const { settings, updateKeybinding, updateVoiceLanguage } = useSettings()
+  const { settings, updateKeybinding, updateVoiceLanguage, updateScrollback } = useSettings()
   const { isConnected: githubConnected, githubLogin, connectGitHub, disconnectGitHub } = useGitHub()
   const { isConnected: gitlabConnected, gitlabLogin, connectGitlab, disconnectGitlab } = useGitlab()
   const kb = settings.keybindings
@@ -114,6 +114,8 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
     { label: 'Next tab', action: 'nextTab' },
     { label: 'Previous tab', action: 'prevTab' },
     { label: 'Zoom cell', action: 'toggleZoom' },
+    { label: 'Close pane', action: 'closePane' },
+    { label: 'Close tab', action: 'closeTab' },
     { label: 'Font size +', action: 'fontSizeUp' },
     { label: 'Font size −', action: 'fontSizeDown' },
     { label: 'Font size reset', action: 'fontSizeReset' },
@@ -304,6 +306,7 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
               updateKeybinding(action as keyof Keybindings, key),
             )
           }
+          onApplyScrollback={updateScrollback}
           onClose={() => setImportPlan(null)}
         />
       )}

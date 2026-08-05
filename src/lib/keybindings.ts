@@ -8,6 +8,8 @@ export interface Keybindings {
   nextTab: string
   prevTab: string
   toggleZoom: string
+  closePane: string
+  closeTab: string
   fontSizeUp: string
   fontSizeDown: string
   fontSizeReset: string
@@ -16,10 +18,13 @@ export interface Keybindings {
 export interface AppSettings {
   keybindings: Keybindings
   voiceLanguage: string
+  /** xterm scrollback (lines). Importable from tmux `history-limit`. */
+  scrollback: number
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
   voiceLanguage: 'es',
+  scrollback: 5000,
   keybindings: {
     voiceInput: 'F5',
     newPane: 'Meta+t',
@@ -30,6 +35,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
     nextTab: 'Ctrl+Tab',
     prevTab: 'Ctrl+Shift+Tab',
     toggleZoom: 'Meta+Shift+Z',
+    closePane: 'Meta+w',
+    closeTab: 'Meta+Shift+w',
     fontSizeUp: 'Meta+=',
     fontSizeDown: 'Meta+-',
     fontSizeReset: 'Meta+0',
