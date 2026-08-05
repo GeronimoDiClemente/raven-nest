@@ -324,6 +324,9 @@ declare global {
       exportToFile: (ws: Workspace) => Promise<void>
       importFromFile: () => Promise<Workspace | null>
     }
+    tmux: {
+      readConf: () => Promise<{ confPath: string; text: string } | null>
+    }
     dialog: {
       openFolder: () => Promise<string | null>
     }

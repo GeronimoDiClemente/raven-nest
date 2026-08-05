@@ -964,6 +964,27 @@ ipcMain.handle('workspace:import', async () => {
   }
 })
 
+// Read a .tmux.conf for the import feature. I/O only — parsing happens in the
+// renderer (src/lib/tmux/parse.ts) so it can run against the user's live bindings.
+ipcMain.handle('tmux:read-conf', async () => {
+  const { canceled, filePaths } = await dialog.showOpenDialog({
+    title: 'Import from tmux',
+    defaultPath: pathResolve(app.getPath('home'), '.tmux.conf'),
+    filters: [
+      { name: 'tmux config', extensions: ['conf'] },
+      { name: 'All files', extensions: ['*'] },
+    ],
+    properties: ['openFile'],
+  })
+  if (canceled || !filePaths[0]) return null
+  try {
+    const confPath = filePaths[0]
+    return { confPath, text: readFileSync(confPath, 'utf8') }
+  } catch {
+    return null
+  }
+})
+
 // === Worktree handlers (Plan 1 — v1.0) ===
 
 ipcMain.handle('worktree:list', async (_evt, repoPath: string) => {

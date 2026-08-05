@@ -88,6 +88,10 @@ contextBridge.exposeInMainWorld('workspaces', {
   importFromFile: () => ipcRenderer.invoke('workspace:import'),
 })
 
+contextBridge.exposeInMainWorld('tmux', {
+  readConf: () => ipcRenderer.invoke('tmux:read-conf'),
+})
+
 contextBridge.exposeInMainWorld('platform', {
   isWin: process.platform === 'win32',
   isMac: process.platform === 'darwin',
