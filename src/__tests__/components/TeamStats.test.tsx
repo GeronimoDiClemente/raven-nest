@@ -8,6 +8,18 @@ vi.mock('../../hooks/useTeamStats', () => ({
   useTeamStats: (...args: unknown[]) => mockUseTeamStats(...args),
 }))
 
+// Mirrors the real hook's return contract: prevByLogin/openPrsByLogin are always
+// objects (both come from useMemo, never undefined), so the roster builder can
+// safely Object.entries() them.
+type MockStats = {
+  stats: TeamStatsData
+  loading: boolean
+  error: string | null
+  warning: string | null
+  prevByLogin: Record<string, { commits: number; prsMerged: number }>
+  openPrsByLogin: Record<string, unknown[]>
+}
+
 const DEV_ALICE = {
   login: 'alice',
   avatarUrl: 'https://avatars.githubusercontent.com/u/1?v=4',
@@ -22,7 +34,7 @@ const DEV_BOB = {
   lastEventAt: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
   dailyCommits: [0, 0, 1, 0, 2, 1, 0],
 }
-const LOADED: { stats: TeamStatsData; loading: boolean; error: string | null } = {
+const LOADED: MockStats = {
   stats: {
     developers: [DEV_ALICE, DEV_BOB],
     totalCommits: 16,
@@ -39,8 +51,11 @@ const LOADED: { stats: TeamStatsData; loading: boolean; error: string | null } =
   },
   loading: false,
   error: null,
+  warning: null,
+  prevByLogin: {},
+  openPrsByLogin: {},
 }
-const EMPTY: { stats: TeamStatsData; loading: boolean; error: string | null } = {
+const EMPTY: MockStats = {
   stats: {
     developers: [], totalCommits: 0, totalPrsMerged: 0, totalReviews: 0,
     mergeTimeHours: null, reviewLatencyHours: null,
@@ -49,6 +64,9 @@ const EMPTY: { stats: TeamStatsData; loading: boolean; error: string | null } = 
   },
   loading: false,
   error: null,
+  warning: null,
+  prevByLogin: {},
+  openPrsByLogin: {},
 }
 
 const presence = {
