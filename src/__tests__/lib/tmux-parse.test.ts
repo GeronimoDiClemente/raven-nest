@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { parseTmuxConf } from '../../lib/tmux/parse'
+import { DEFAULT_SETTINGS } from '../../lib/keybindings'
 
 const only = (src: string) => parseTmuxConf(src).keybindings[0]
 
@@ -96,5 +97,57 @@ describe('parseTmuxConf — parsing mechanics', () => {
     expect(plan.keybindings).toEqual([])
     expect(plan.options).toEqual([])
     expect(plan.unsupported).toEqual([])
+  })
+})
+
+describe('parseTmuxConf — conflict detection', () => {
+  it('flags a suggested combo that collides with an existing Nest binding', () => {
+    const current = { ...DEFAULT_SETTINGS.keybindings, globalSearch: 'Ctrl+Alt+h' }
+    const kb = parseTmuxConf('bind h select-pane -L', { current }).keybindings[0]
+    expect(kb.suggested).toBe('Ctrl+Alt+h')
+    expect(kb.conflict).toBe('globalSearch')
+  })
+
+  it('sets no conflict when the suggested combo is free', () => {
+    const kb = parseTmuxConf('bind h select-pane -L', {
+      current: DEFAULT_SETTINGS.keybindings,
+    }).keybindings[0]
+    expect(kb.conflict).toBeUndefined()
+  })
+})
+
+describe('parseTmuxConf — line continuations & quoting', () => {
+  it('joins a line ending with a backslash to the next', () => {
+    const plan = parseTmuxConf('bind h \\\n  select-pane -L')
+    expect(plan.keybindings).toHaveLength(1)
+    expect(plan.keybindings[0].action).toBe('prevPane')
+  })
+
+  it('strips quotes from a quoted option value', () => {
+    expect(parseTmuxConf('set -g history-limit "5000"').options[0].value).toBe('5000')
+  })
+})
+
+describe('parseTmuxConf — unsupported constructs (never executed)', () => {
+  it('records run-shell as unsupported and never runs it', () => {
+    const plan = parseTmuxConf('run-shell "~/evil.sh"')
+    expect(plan.unsupported).toHaveLength(1)
+    expect(plan.unsupported[0].line).toContain('run-shell')
+    expect(plan.keybindings).toHaveLength(0)
+    expect(plan.options).toHaveLength(0)
+  })
+
+  it('records if-shell as unsupported', () => {
+    expect(parseTmuxConf('if-shell "true" "set -g mouse on"').unsupported).toHaveLength(1)
+  })
+
+  it('records TPM @plugin declarations as unsupported (not as an option)', () => {
+    const plan = parseTmuxConf("set -g @plugin 'tmux-plugins/tpm'")
+    expect(plan.unsupported).toHaveLength(1)
+    expect(plan.options).toHaveLength(0)
+  })
+
+  it('records source-file as unsupported (the pure parser cannot follow it)', () => {
+    expect(parseTmuxConf('source-file ~/.tmux.other.conf').unsupported).toHaveLength(1)
   })
 })
