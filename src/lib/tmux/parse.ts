@@ -125,6 +125,23 @@ function suggestCombo(key: string): string {
   return `Ctrl+Alt+${base}`
 }
 
+// tmux bind flags that consume the following token as an argument.
+const BIND_ARG_FLAGS = new Set(['-T', '-N'])
+
+/**
+ * Split a `bind [flags] key command...` token list into the key and its command.
+ * Skips tmux bind flags (`-n`, `-r`, and `-T`/`-N` which take an argument). A bare
+ * `-` is a real key (split-window is often bound to it), not a flag — hence the
+ * length check.
+ */
+function splitBind(tokens: string[]): { key: string; command: string[] } {
+  let i = 1 // tokens[0] is `bind` / `bind-key`
+  while (i < tokens.length && tokens[i].startsWith('-') && tokens[i].length > 1) {
+    i += BIND_ARG_FLAGS.has(tokens[i]) ? 2 : 1
+  }
+  return { key: tokens[i] ?? '', command: tokens.slice(i + 1) }
+}
+
 function mapOption(name: string): { target?: string; status: OptionStatus } {
   switch (name) {
     case 'history-limit':
@@ -164,8 +181,8 @@ export function parseTmuxConf(
     }
 
     if (BIND_CMDS.has(head)) {
-      const key = tokens[1]
-      const action = mapBindCommand(tokens.slice(2))
+      const { key, command } = splitBind(tokens)
+      const action = mapBindCommand(command)
       const suggested = suggestCombo(key)
       const conflict = opts.current ? findConflict(suggested, opts.current) : undefined
       keybindings.push({
