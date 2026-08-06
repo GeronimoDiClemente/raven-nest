@@ -9399,6 +9399,32 @@ body.platform-mac .tabbar { padding-right: 116px; }
    handle its own internal scroll. */
 .integrations-embedded { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; }
 
+/* === Connections cards === */
+/* Connections tab of the Integrations Hub: one ordered card per catalog
+   integration, replacing the search + Installed/Available/Coming soon grids
+   above. Reuses .integration-card/.integration-icon/.integration-meta/
+   .integration-name/.integration-desc (and everything ConnectControl already
+   renders — .integration-btn/.integration-connect-row/.integration-connected/
+   .integration-apikey-*) so the connect/disconnect UI stays pixel-identical;
+   only the card shell, grid and status LED are new. */
+.cx-body { padding: 16px; overflow-y: auto; flex: 1; }
+.cx-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 10px;
+}
+.cx-card { align-items: flex-start; }
+.cx-action { flex-shrink: 0; display: flex; align-items: center; margin-top: 2px; }
+.cx-status { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; margin-top: 2px; }
+.cx-led { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; background: var(--text-muted); }
+.cx-status-on { color: var(--raven-green, #2ecc71); }
+.cx-status-on .cx-led { background: var(--raven-green, #2ecc71); box-shadow: 0 0 6px var(--raven-green, #2ecc71); }
+.cx-status-off { color: var(--text-muted); }
+.cx-status-pending { color: var(--text-muted); }
+.cx-status-soon { color: var(--text-muted); }
+.cx-led-dashed { background: transparent; border: 1px solid var(--text-muted); }
+.cx-card-soon { opacity: 0.55; pointer-events: none; }
+
 /* ===== Integration Panel (hito 1) ===== */
 /* Wrapper cuando el shell se embebe en teams-workspace-content (My Repos):
    sin flex:1 el shell (height:100%) no tendría una altura de referencia, ya
@@ -9502,9 +9528,9 @@ body.platform-mac .tabbar { padding-right: 116px; }
 .ih-main { flex: 1; min-width: 0; overflow: auto; }
 .ih-rail { width: 312px; flex: none; border-left: 1px solid var(--border); overflow: auto; padding: 14px; }
 
-/* Connections tab: hosts the marketplace (.integrations-embedded) full-width,
-   same as the Hub tab's .ih-layout — gives it a definite height so the
-   marketplace's own flex:1/overflow-y:auto scroll region engages. */
+/* Connections tab: hosts the card grid (.cx-body/.cx-grid, see "Connections
+   cards" above) full-width, same as the Hub tab's .ih-layout — gives it a
+   definite height so .cx-body's flex:1/overflow-y:auto scroll region engages. */
 .ih-connections { height: 100%; display: flex; flex-direction: column; }
 
 .ih-filter { display: inline-flex; gap: 3px; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 9px; padding: 3px; margin: 10px 14px; }

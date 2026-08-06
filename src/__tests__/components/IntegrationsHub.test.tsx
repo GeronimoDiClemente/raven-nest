@@ -4,7 +4,7 @@
 // same window bridges useBoardRows needs (pattern from hooks/useBoardRows.test.tsx)
 // so the hook resolves without touching real IPC.
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import type { Ticket, WorktreeMeta, WorktreeSignalDTO } from '../../types'
 
 const mockUseInstalledPlugins = vi.fn()
@@ -13,23 +13,24 @@ vi.mock('../../hooks/useInstalledPlugins', () => ({
 }))
 
 // usePluginCatalog toca supabase (no configurado en el entorno de test) — se
-// mockea para servir el catálogo builtin de forma síncrona, igual que en
-// MyReposPanel-integrations.test.tsx, para que el tab Connections (que
-// embebe IntegrationsMarketplaceView) renderice sin esperar la resolución.
+// mockea para servir el catálogo builtin de forma síncrona, para que el tab
+// Connections (que renderiza un ConnectionCard por integración, ver
+// ConnectionsView.tsx/ConnectionCard.tsx) renderice sin esperar la resolución.
 vi.mock('../../hooks/usePluginCatalog', () => ({
   usePluginCatalog: () => ({
-    catalog: [{ id: 'demo', name: 'Demo', description: 'Demo plugin', category: 'other', icon: 'demo', color: '#123', type: 'integration', publisher: 'raven', tier: 'free', auth: { kind: 'none' } }],
+    catalog: BUILTIN_CATALOG,
     loading: false,
     source: 'builtin',
   }),
 }))
 
 import { IntegrationsHub } from '../../components/IntegrationsHub'
+import { BUILTIN_CATALOG } from '../../lib/plugins/builtinCatalog'
 
 beforeEach(() => {
   // installed/install/uninstall/isInstalled: shape consumed both by
-  // useBoardRows (via the "installed" field) and by IntegrationsMarketplaceView
-  // (rendered on the Connections tab), which also needs install/uninstall/isInstalled.
+  // useBoardRows (via the "installed" field) and by ConnectionCard (rendered
+  // on the Connections tab), which also needs install/isInstalled.
   mockUseInstalledPlugins.mockReturnValue({
     installed: [], install: vi.fn(), uninstall: vi.fn(), isInstalled: () => false,
   })
@@ -44,6 +45,15 @@ beforeEach(() => {
       list: vi.fn().mockResolvedValue([
         { id: 'default:pr.merged', when: 'pr.merged', commands: ['updateStatus: done'] },
       ]),
+    },
+    // ConnectionCard mounts ConnectControl unconditionally for every
+    // connectable plugin (unlike the old Installed/Available grid, which
+    // only mounted it for installed ones) — usePluginConnection needs this
+    // to resolve without throwing for the Connections tab test.
+    pluginCreds: {
+      has: vi.fn().mockResolvedValue(false),
+      set: vi.fn().mockResolvedValue({ ok: true }),
+      delete: vi.fn().mockResolvedValue(undefined),
     },
   })
 })
@@ -92,15 +102,15 @@ describe('IntegrationsHub', () => {
     expect(screen.getByText(/Coming soon/)).toBeInTheDocument()
   })
 
-  it('switches to the Connections tab and renders the integrations marketplace', async () => {
+  it('switches to the Connections tab and renders a card per integration', async () => {
     render(<IntegrationsHub onClose={vi.fn()} />)
 
     await waitFor(() => expect(screen.getByText('No tasks yet')).toBeInTheDocument())
     fireEvent.click(screen.getByRole('button', { name: 'Connections' }))
 
-    expect(await screen.findByText('Available')).toBeInTheDocument()
-    expect(screen.getByText('Demo')).toBeInTheDocument()
-    expect(screen.getByPlaceholderText('Search...')).toBeInTheDocument()
+    expect(await screen.findByText('GitHub')).toBeInTheDocument()
+    expect(await within(screen.getByText('GitHub').closest('article')!).findByRole('button', { name: 'Connect' })).toBeInTheDocument()
+    expect(screen.getByText('Figma')).toBeInTheDocument()
     expect(screen.queryByText('No tasks yet')).not.toBeInTheDocument()
   })
 

@@ -59,8 +59,14 @@ function ApiKeyForm({ pluginId, fields, onSaved }: { pluginId: string; fields: C
   )
 }
 
-/** Badge/botón de Connect para un plugin instalado, según `auth.kind` del manifest. */
-function ConnectControl({ plugin }: { plugin: PluginManifest }) {
+/**
+ * Badge/botón de Connect según `auth.kind` del manifest. Exportado para que
+ * ConnectionCard (Connections tab del hub, ver ConnectionsView.tsx) lo
+ * reuse tal cual — es el único lugar con la lógica OAuth/apiKey real
+ * (Slack deep-link, reuso de sesión GitHub, gcal loopback+PKCE) y no debe
+ * duplicarse.
+ */
+export function ConnectControl({ plugin }: { plugin: PluginManifest }) {
   const { connected, loading, refresh } = usePluginConnection(plugin.id)
   const [error, setError] = useState<string | null>(null)
   const [showForm, setShowForm] = useState(false)
