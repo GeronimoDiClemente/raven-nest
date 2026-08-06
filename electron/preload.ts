@@ -287,6 +287,13 @@ contextBridge.exposeInMainWorld('recipes', {
   list: () => ipcRenderer.invoke('recipes:list'),
 })
 
+contextBridge.exposeInMainWorld('automations', {
+  list: () => ipcRenderer.invoke('automations:list'),
+  create: (input: unknown) => ipcRenderer.invoke('automations:create', input),
+  update: (id: string, patch: unknown) => ipcRenderer.invoke('automations:update', id, patch),
+  delete: (id: string) => ipcRenderer.invoke('automations:delete', id),
+})
+
 contextBridge.exposeInMainWorld('signals', {
   list: () => ipcRenderer.invoke('signals:list'),
   fixCiPrompt: (repoPath: string) => ipcRenderer.invoke('signals:fixCiPrompt', repoPath),

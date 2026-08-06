@@ -120,6 +120,51 @@ export interface RecipesBridge {
   list: () => Promise<RecipeDescriptor[]>
 }
 
+// === Automations tab (epic C/H11) — mirror of Automation in
+// electron/integrations/scheduler.ts (src/ nunca importa de electron/, same
+// convention as RecipeDescriptor above). `nextRunAt`/`scheduleLabel` are NOT
+// part of the persisted model — the main process computes them fresh on every
+// `list()`/`create()`/`update()` call and attaches them to the DTO. ===
+export interface Automation {
+  id: string
+  name: string
+  trigger: string
+  time?: string
+  timezone?: string
+  prompt: string
+  repo?: string
+  provider?: string
+  enabled: boolean
+  createdAt: number
+  updatedAt: number
+  lastRunAt?: number
+  lastResult?: 'ok' | 'error'
+  lastSummary?: string
+  /** Epoch ms of the next scheduled fire, or null if the trigger doesn't
+   *  parse. Computed server-side by `nextRun`. */
+  nextRunAt: number | null
+  /** Human label for the list row, e.g. "Daily at 18:00". Computed
+   *  server-side by `describeSchedule`. */
+  scheduleLabel: string
+}
+
+export interface AutomationInput {
+  name: string
+  trigger: string
+  time?: string
+  timezone?: string
+  prompt: string
+  repo?: string
+  provider?: string
+}
+
+export interface AutomationsBridge {
+  list: () => Promise<Automation[]>
+  create: (input: AutomationInput) => Promise<Automation>
+  update: (id: string, patch: Partial<AutomationInput & { enabled: boolean }>) => Promise<Automation | null>
+  delete: (id: string) => Promise<boolean>
+}
+
 // === @Nest desde Slack (H7 Motor 5) — espejo de SlackMention/SlackAction de
 // electron/integrations/slack-envelopes.ts (src/ nunca importa de electron/) ===
 export interface SlackMentionDTO {
@@ -657,6 +702,7 @@ declare global {
     notion: NotionBridge
     gcal: GcalBridge
     recipes: RecipesBridge
+    automations: AutomationsBridge
   }
 }
 

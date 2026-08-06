@@ -146,6 +146,10 @@ import { refreshAccessToken, startLoopbackFlow, GcalAuthError, type GcalCreds } 
 import { EventBus } from './integrations/event-bus'
 import { loadRecipes, recipeDescriptors } from './integrations/recipes'
 import { registerBusCommands } from './integrations/bus-commands'
+import {
+  loadAutomations, saveAutomations, nextRun, describeSchedule, newAutomationId, Scheduler,
+  type Automation, type AutomationRunResult,
+} from './integrations/scheduler'
 import { ticketBranchName } from './integrations/branch-name'
 import { performWorktreeAdd } from './worktree-create'
 import { getRemoteUrl, parseOwnerRepo } from './integrations/github'
@@ -2341,11 +2345,28 @@ eventBus.setRecipes(loadRecipes(
 // Recipes tab (Plan 5 Task 1) — read-only display of the ACTIVE recipes
 // above (same recipes.json, same swap-not-merge rule as loadRecipes).
 ipcMain.handle('recipes:list', () => recipeDescriptors())
+// Epic C (H11) — scheduled agents. automations.json lives next to
+// recipes.json/ticket-loop.json under .raven-nest.
+const automationsFilePath = pathJoin(ravenHome(), '.raven-nest', 'automations.json')
 // H6 Motor 4 — Calendar: el sink de outcomes se resuelve con `gcalDeps()`, que
 // desenvuelve el access token de las creds guardadas (JSON) y refresca en
 // background si venció. Sin creds gcal, `gcalDeps().getToken('gcal')` devuelve
 // null y el adapter degrada a NotConnectedError → el handler logOutcome lo traga.
-registerBusCommands(eventBus, { ticketLoop, gcal: () => createGcalAdapter(gcalDeps()) })
+registerBusCommands(eventBus, {
+  ticketLoop,
+  gcal: () => createGcalAdapter(gcalDeps()),
+  // scheduleBlock (epic C reactivation): turns the command into a persisted,
+  // enabled automation so the tick loop below picks it up on its next pass.
+  scheduleBlock: (cmd) => {
+    const list = loadAutomations(automationsFilePath)
+    const now = Date.now()
+    list.push({
+      id: newAutomationId(), name: cmd.label, trigger: cmd.when, prompt: cmd.label,
+      enabled: true, createdAt: now, updatedAt: now,
+    })
+    saveAutomations(automationsFilePath, list)
+  },
+})
 ticketLoop.attachBus(eventBus)
 
 // Single source of adapter deps (tokens/config/fetch) shared by the panel
@@ -2355,6 +2376,95 @@ const panelDeps = (): PanelAdapterDeps => ({
   getConfig: (id) => pluginsStore.list().find(p => p.pluginId === id)?.config ?? {},
   fetch,
 })
+
+// Epic C (H11) — automations DTO adds two main-computed fields the renderer
+// needs but the persisted model doesn't carry: `nextRunAt` (from `nextRun`)
+// and `scheduleLabel` (from `describeSchedule`). Keeps all cron logic on this
+// side of the IPC boundary — src/ never imports electron/ (same convention as
+// RecipeDescriptor mirroring Command in recipes.ts/types.ts).
+function automationDTO(a: Automation, now: Date) {
+  return { ...a, nextRunAt: nextRun(a, now)?.getTime() ?? null, scheduleLabel: describeSchedule(a) }
+}
+
+// STUB (epic C — headless execution not wired yet): a real run would create
+// an ephemeral worktree (worktree-create.ts), spawn the automation's
+// `provider` CLI via pty-manager/setup-runner with `prompt`, capture its
+// output into a summary, then clean the worktree up. That's the highest-risk,
+// least-tested part of this feature — no coverage here exercises a real child
+// process — so this pass only records the DISPATCH: `block.started` still
+// fires and lastRunAt/lastResult still persist, but no CLI is actually
+// spawned. Wire the real run in here once worktree-create + a headless
+// CLI runner are ready to be driven unattended.
+async function runAutomationStub(automation: Automation, _now: Date): Promise<AutomationRunResult> {
+  console.warn('[automations] headless run STUBBED — not spawning a CLI', automation.id, automation.name)
+  return { ok: true, summary: 'Stubbed run — headless execution (worktree + CLI) not wired yet' }
+}
+
+const automationScheduler = new Scheduler({
+  runAutomation: runAutomationStub,
+  onEvent: (ev) => { void eventBus.emit(ev, panelDeps()) },
+})
+
+ipcMain.handle('automations:list', () => {
+  const now = new Date()
+  return loadAutomations(automationsFilePath).map((a) => automationDTO(a, now))
+})
+
+ipcMain.handle('automations:create', (_e, input: {
+  name: string; trigger: string; time?: string; timezone?: string; prompt: string; repo?: string; provider?: string
+}) => {
+  const now = Date.now()
+  const automation: Automation = {
+    id: newAutomationId(),
+    name: input.name,
+    trigger: input.trigger,
+    time: input.time,
+    timezone: input.timezone,
+    prompt: input.prompt,
+    repo: input.repo,
+    provider: input.provider,
+    enabled: true,
+    createdAt: now,
+    updatedAt: now,
+  }
+  const list = loadAutomations(automationsFilePath)
+  list.push(automation)
+  saveAutomations(automationsFilePath, list)
+  return automationDTO(automation, new Date(now))
+})
+
+ipcMain.handle('automations:update', (_e, id: string, patch: Partial<Pick<Automation,
+  'name' | 'trigger' | 'time' | 'timezone' | 'prompt' | 'repo' | 'provider' | 'enabled'>>) => {
+  const list = loadAutomations(automationsFilePath)
+  const idx = list.findIndex((a) => a.id === id)
+  if (idx === -1) return null
+  const updated: Automation = { ...list[idx], ...patch, updatedAt: Date.now() }
+  list[idx] = updated
+  saveAutomations(automationsFilePath, list)
+  return automationDTO(updated, new Date())
+})
+
+ipcMain.handle('automations:delete', (_e, id: string) => {
+  const list = loadAutomations(automationsFilePath)
+  const next = list.filter((a) => a.id !== id)
+  const removed = next.length !== list.length
+  if (removed) saveAutomations(automationsFilePath, next)
+  return removed
+})
+
+// Scheduler tick — once a minute, check for due automations and dispatch
+// them. No-ops cleanly when automations.json is empty/absent: loadAutomations
+// already degrades to `[]` robustly, and the early return below skips the
+// tick/save work entirely so an install with nothing configured never
+// touches disk on a timer.
+const AUTOMATIONS_TICK_MS = 60_000
+let automationsTickInterval: ReturnType<typeof setInterval> | null = setInterval(() => {
+  const automations = loadAutomations(automationsFilePath)
+  if (automations.length === 0) return
+  void automationScheduler.tick(automations, new Date()).then(({ automations: updated, fired }) => {
+    if (fired.length > 0) saveAutomations(automationsFilePath, updated)
+  })
+}, AUTOMATIONS_TICK_MS)
 
 // Credenciales de Google Calendar guardadas por el OAuth loopback (JSON
 // {accessToken, refreshToken, expiresAt}). Parse tolerante: token mal formado → null.
@@ -2830,6 +2940,10 @@ app.on('before-quit', () => {
   if (ticketPollInterval) {
     clearInterval(ticketPollInterval)
     ticketPollInterval = null
+  }
+  if (automationsTickInterval) {
+    clearInterval(automationsTickInterval)
+    automationsTickInterval = null
   }
   // Tear down every long-lived resource on quit. Without these, dev-mode HMR
   // reloads (and any future "soft restart" path) would accumulate intervals,
