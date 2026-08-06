@@ -41,7 +41,9 @@ describe('registerBusCommands', () => {
     const { bus, handlers } = capturingBus()
     const resolver: TicketProviderResolver = { providerFor: () => makeProvider() }
     registerBusCommands(bus, { ticketLoop: resolver })
-    expect([...handlers.keys()].sort()).toEqual(['createTask', 'logOutcome', 'notify', 'openSession', 'setPresence', 'updateStatus'])
+    expect([...handlers.keys()].sort()).toEqual([
+      'createTask', 'logOutcome', 'notify', 'openSession', 'scheduleBlock', 'setPresence', 'updateStatus',
+    ])
   })
 
   // ── updateStatus ──────────────────────────────────────────────────────────
@@ -268,6 +270,26 @@ describe('registerBusCommands', () => {
     registerBusCommands(bus, { ticketLoop: { providerFor: () => null } })
     await expect(
       handlers.get('logOutcome')!({ cmd: 'logOutcome', ref: 'X', summary: 's' }, evPrOpened, makeDeps()),
+    ).resolves.toBeUndefined()
+    expect(warn).toHaveBeenCalled()
+  })
+
+  // ── scheduleBlock (epic C — reactivates the previously unhandled command) ──
+  it('scheduleBlock delegates to the injected hook with the command', async () => {
+    const { bus, handlers } = capturingBus()
+    const scheduleBlock = vi.fn()
+    registerBusCommands(bus, { ticketLoop: { providerFor: () => null }, scheduleBlock })
+    const cmd = { cmd: 'scheduleBlock', when: 'daily', label: 'Nightly audit' } as const
+    await handlers.get('scheduleBlock')!(cmd, evPrOpened, makeDeps())
+    expect(scheduleBlock).toHaveBeenCalledWith(cmd)
+  })
+
+  it('scheduleBlock sin gancho inyectado degrada a no-op con warn', async () => {
+    const { bus, handlers } = capturingBus()
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    registerBusCommands(bus, { ticketLoop: { providerFor: () => null } })
+    await expect(
+      handlers.get('scheduleBlock')!({ cmd: 'scheduleBlock', when: 'daily', label: 'x' }, evPrOpened, makeDeps()),
     ).resolves.toBeUndefined()
     expect(warn).toHaveBeenCalled()
   })

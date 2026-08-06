@@ -17,6 +17,7 @@ import type {
   LogOutcomeCommand,
   NotifyCommand,
   OpenSessionCommand,
+  ScheduleBlockCommand,
   SetPresenceCommand,
   UpdateStatusCommand,
   DomainEvent,
@@ -65,6 +66,15 @@ export interface GcalOutcomeSink {
   createOutcomeEvent(summary: string, whenIso: string, taskId?: string): Promise<unknown>
 }
 
+/**
+ * Turns a `scheduleBlock` command into a persisted automation (epic C —
+ * electron/integrations/scheduler.ts). Sync by design: the real work is a
+ * cheap local file write (`saveAutomations`), not network I/O, so there's
+ * nothing worth awaiting from the bus's perspective. Injected so bus-commands
+ * never imports scheduler.ts's fs-touching persistence directly.
+ */
+export type ScheduleBlockFn = (cmd: ScheduleBlockCommand) => void
+
 export interface BusCommandDeps {
   ticketLoop: TicketProviderResolver
   /** Gancho a "Work on this"/worktree:create. Sin él, `openSession` no-op con warn. */
@@ -72,6 +82,9 @@ export interface BusCommandDeps {
   /** Resuelve el sink de Calendar con las deps inyectadas. Sin él (o si devuelve
    *  null), `logOutcome` degrada a no-op con warn — igual que notify sin token. */
   gcal?: (deps: PanelAdapterDeps) => GcalOutcomeSink | null
+  /** Handles `scheduleBlock` (epic C reactivation). Without it, no-op with warn
+   *  — same best-effort degradation as the other optional hooks above. */
+  scheduleBlock?: ScheduleBlockFn
 }
 
 async function handleUpdateStatus(cmd: UpdateStatusCommand, deps: PanelAdapterDeps, opts: BusCommandDeps): Promise<void> {
@@ -176,6 +189,17 @@ async function handleLogOutcome(cmd: LogOutcomeCommand, deps: PanelAdapterDeps, 
   }
 }
 
+// Epic C — turns a `scheduleBlock` command into a persisted automation via
+// the injected hook. Sin gancho inyectado, no-op con warn (mismo contrato
+// best-effort que openSession/logOutcome).
+async function handleScheduleBlock(cmd: ScheduleBlockCommand, opts: BusCommandDeps): Promise<void> {
+  if (!opts.scheduleBlock) {
+    console.warn('[bus-commands] scheduleBlock sin gancho inyectado, no-op', cmd.label)
+    return
+  }
+  opts.scheduleBlock(cmd)
+}
+
 /**
  * Registra en `bus` los handlers de los comandos estándar:
  *  - `updateStatus` → `provider.transition` (provider resuelto vía ticketLoop).
@@ -185,7 +209,7 @@ async function handleLogOutcome(cmd: LogOutcomeCommand, deps: PanelAdapterDeps, 
  *  - `createTask`   → `provider.createTask` si lo soporta; si no, no-op con warn.
  *  - `logOutcome`   → Calendar (H6): apendea/crea el registro de la sesión; sin
  *                     gcal inyectado, no-op con warn.
- * `scheduleBlock` (Motor 5) llega en un hito futuro.
+ *  - `scheduleBlock` → persiste una automation (epic C); sin gancho, no-op con warn.
  */
 export function registerBusCommands(bus: EventBus, opts: BusCommandDeps): void {
   bus.registerHandler('updateStatus', async (cmd, _ev, deps) => {
@@ -205,5 +229,8 @@ export function registerBusCommands(bus: EventBus, opts: BusCommandDeps): void {
   })
   bus.registerHandler('logOutcome', async (cmd, _ev, deps) => {
     await handleLogOutcome(cmd as LogOutcomeCommand, deps, opts)
+  })
+  bus.registerHandler('scheduleBlock', async (cmd, _ev, _deps) => {
+    await handleScheduleBlock(cmd as ScheduleBlockCommand, opts)
   })
 }
