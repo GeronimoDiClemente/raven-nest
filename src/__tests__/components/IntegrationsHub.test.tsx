@@ -12,6 +12,36 @@ vi.mock('../../hooks/useInstalledPlugins', () => ({
   useInstalledPlugins: () => mockUseInstalledPlugins(),
 }))
 
+// Team presence: mocked so the hub's chip rendering + broadcast-on-open can
+// be asserted without a real Supabase Realtime channel (pattern already used
+// for useInstalledPlugins/usePluginCatalog below).
+const mockUseTeam = vi.fn()
+vi.mock('../../hooks/useTeam', () => ({
+  useTeam: () => mockUseTeam(),
+}))
+
+const mockUpdatePresence = vi.fn()
+const mockUseTeamPresence = vi.fn()
+vi.mock('../../hooks/useTeamPresence', () => ({
+  useTeamPresence: (...args: unknown[]) => mockUseTeamPresence(...args),
+}))
+
+// Clicking a row mounts WorktreePicker (see "team presence" tests below,
+// which click a row to assert the updatePresence broadcast) — mock its two
+// data hooks the same way WorktreePicker.test.tsx does, so it renders
+// without touching real supabase/IPC.
+vi.mock('../../hooks/useGitHub', () => ({
+  useGitHub: () => ({
+    isConnected: true, githubLogin: 'gero', githubToken: 'tok', loading: false, error: null,
+    connectGitHub: vi.fn(), disconnectGitHub: vi.fn(),
+  }),
+}))
+vi.mock('../../hooks/useUserRepos', () => ({
+  useUserRepos: () => ({
+    repos: [], loading: false, refresh: vi.fn(), addRepo: vi.fn(), updateLocalPath: vi.fn(), removeRepo: vi.fn(),
+  }),
+}))
+
 // usePluginCatalog toca supabase (no configurado en el entorno de test) — se
 // mockea para servir el catálogo builtin de forma síncrona, para que el tab
 // Connections (que renderiza un ConnectionCard por integración, ver
@@ -34,6 +64,11 @@ beforeEach(() => {
   mockUseInstalledPlugins.mockReturnValue({
     installed: [], install: vi.fn(), uninstall: vi.fn(), isInstalled: () => false,
   })
+  // No active team by default — most tests don't care about presence; the
+  // "team presence" describe block below overrides this per-test.
+  mockUseTeam.mockReturnValue({ activeTeamId: null, userId: null })
+  mockUpdatePresence.mockClear()
+  mockUseTeamPresence.mockReturnValue({ presence: {}, updatePresence: mockUpdatePresence })
   Object.assign(window as unknown as Record<string, unknown>, {
     tickets: {
       list: vi.fn().mockResolvedValue([]),
@@ -138,6 +173,10 @@ describe('IntegrationsHub', () => {
         tickets: {
           list: vi.fn().mockResolvedValue([ticketOrg, ticketPersonal]),
           tracked: vi.fn().mockResolvedValue([{ branch: worktreeOrg.branch, ticketKey: ticketOrg.key }]),
+          // Only reached by the "team presence" tests below: clicking the
+          // unlinked Ticket B row mounts WorktreePicker's create form, which
+          // fetches a suggested branch name via this bridge.
+          branchName: vi.fn().mockResolvedValue('gero/b-1-ticket-b'),
         },
         worktree: { listAll: vi.fn().mockResolvedValue({ ok: true, worktrees: [worktreeOrg] }) },
         signals: { list: vi.fn().mockResolvedValue([signalOrg]), onUpdate: vi.fn(() => () => {}) },
@@ -155,6 +194,80 @@ describe('IntegrationsHub', () => {
 
       expect(screen.getByText('Ticket B')).toBeInTheDocument()
       expect(screen.queryByText('Ticket A')).not.toBeInTheDocument()
+    })
+
+    describe('team presence', () => {
+      // Ticket A links to worktreeOrg (branch 'gero/a-1'), whose signal repo
+      // is 'OrgOne/x' — projectBoard joins these into the board row's
+      // branch/repoFullName that the presence map/broadcast key off.
+      beforeEach(() => {
+        mockUseTeam.mockReturnValue({ activeTeamId: 'team-1', userId: 'me' })
+      })
+
+      it('shows "<name> is here" on the row whose branch matches a teammate presence', async () => {
+        mockUseTeamPresence.mockReturnValue({
+          presence: {
+            teammate1: { userId: 'teammate1', displayName: 'ana@x.com', repo: 'OrgOne/x', branch: 'gero/a-1', lastSeen: '' },
+          },
+          updatePresence: mockUpdatePresence,
+        })
+        render(<IntegrationsHub onClose={vi.fn()} />)
+
+        await waitFor(() => expect(screen.getByText('Ticket A')).toBeInTheDocument())
+        expect(screen.getByText('· ana@x.com is here')).toBeInTheDocument()
+        // Passed teamId/userId through to the shared hook — same instance
+        // used for both consuming and broadcasting presence.
+        expect(mockUseTeamPresence).toHaveBeenCalledWith('team-1', 'me')
+      })
+
+      it('excludes the current user from presence chips', async () => {
+        mockUseTeamPresence.mockReturnValue({
+          presence: {
+            me: { userId: 'me', displayName: 'me@x.com', repo: 'OrgOne/x', branch: 'gero/a-1', lastSeen: '' },
+          },
+          updatePresence: mockUpdatePresence,
+        })
+        render(<IntegrationsHub onClose={vi.fn()} />)
+
+        await waitFor(() => expect(screen.getByText('Ticket A')).toBeInTheDocument())
+        expect(screen.queryByText(/is here/)).not.toBeInTheDocument()
+      })
+
+      it('shows nothing when there is no active team', async () => {
+        mockUseTeam.mockReturnValue({ activeTeamId: null, userId: 'me' })
+        // Presence would naturally stay {} with no team, but assert the
+        // component itself renders no noise even if a stale entry lingers.
+        mockUseTeamPresence.mockReturnValue({
+          presence: {
+            teammate1: { userId: 'teammate1', displayName: 'ana@x.com', repo: 'OrgOne/x', branch: 'gero/a-1', lastSeen: '' },
+          },
+          updatePresence: mockUpdatePresence,
+        })
+        render(<IntegrationsHub onClose={vi.fn()} />)
+
+        await waitFor(() => expect(screen.getByText('Ticket A')).toBeInTheDocument())
+        expect(screen.queryByText(/is here/)).not.toBeInTheDocument()
+      })
+
+      it('broadcasts updatePresence with the row repo/branch when a task is opened', async () => {
+        mockUseTeamPresence.mockReturnValue({ presence: {}, updatePresence: mockUpdatePresence })
+        render(<IntegrationsHub onClose={vi.fn()} />)
+
+        await waitFor(() => expect(screen.getByText('Ticket A')).toBeInTheDocument())
+        fireEvent.click(screen.getByText('Ticket A'))
+
+        expect(mockUpdatePresence).toHaveBeenCalledWith('OrgOne/x', 'gero/a-1')
+      })
+
+      it('broadcasts null branch/repo when an unlinked task is opened', async () => {
+        mockUseTeamPresence.mockReturnValue({ presence: {}, updatePresence: mockUpdatePresence })
+        render(<IntegrationsHub onClose={vi.fn()} />)
+
+        await waitFor(() => expect(screen.getByText('Ticket B')).toBeInTheDocument())
+        fireEvent.click(screen.getByText('Ticket B'))
+
+        expect(mockUpdatePresence).toHaveBeenCalledWith(null, null)
+      })
     })
   })
 })

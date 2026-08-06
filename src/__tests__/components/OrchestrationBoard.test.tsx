@@ -48,4 +48,27 @@ describe('<OrchestrationBoard>', () => {
     fireEvent.keyDown(screen.getByText('Race board').closest('[role="button"]')!, { key: 'Enter' })
     expect(onOpen).toHaveBeenCalledWith(rows[0])
   })
+
+  describe('team presence', () => {
+    it('shows a "<name> is here" chip when a teammate presence branch matches the row branch', () => {
+      render(<OrchestrationBoard rows={rows} presenceByBranch={{ 'gero/189-race': 'ana@x.com' }} />)
+      expect(screen.getByText('· ana@x.com is here')).toBeInTheDocument()
+    })
+
+    it('shows no chip for a row whose branch has no matching teammate presence', () => {
+      render(<OrchestrationBoard rows={rows} presenceByBranch={{ 'some/other-branch': 'ana@x.com' }} />)
+      expect(screen.queryByText(/is here/)).not.toBeInTheDocument()
+    })
+
+    it('shows no chip for an unlinked row (no branch), even with presence data', () => {
+      render(<OrchestrationBoard rows={rows} presenceByBranch={{ 'gero/189-race': 'ana@x.com' }} />)
+      // Design import (rows[1]) has branch: null — nothing to match against.
+      expect(screen.getByText('Design import').closest('.ob-row')!.textContent).not.toMatch(/is here/)
+    })
+
+    it('renders nothing extra when presenceByBranch is omitted', () => {
+      render(<OrchestrationBoard rows={rows} />)
+      expect(screen.queryByText(/is here/)).not.toBeInTheDocument()
+    })
+  })
 })

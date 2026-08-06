@@ -6,6 +6,9 @@ import { formatActivity, timeAgo } from '../lib/formatActivity'
 interface Props {
   rows: BoardRow[]
   onOpenRow?: (row: BoardRow) => void
+  /** branch -> teammate display name, for the "<name> is here" presence chip
+   *  (team-presence — see useTeamPresence). Omitted/empty renders no chips. */
+  presenceByBranch?: Record<string, string>
 }
 
 const ACTIVITY_CAP = 50
@@ -14,7 +17,7 @@ const ACTIVITY_CAP = 50
  *  queue for rows that need a human call, and the Activity feed — fed by
  *  the event bus's DomainEvents (`window.activity`, same push pattern as
  *  `signals`/`slackMentions`). */
-export function IntegrationsRail({ rows, onOpenRow }: Props) {
+export function IntegrationsRail({ rows, onOpenRow, presenceByBranch }: Props) {
   const needsYou = rows.filter((r) => r.status === 'needs_you')
   const [entries, setEntries] = useState<ActivityEntry[]>([])
 
@@ -57,7 +60,12 @@ export function IntegrationsRail({ rows, onOpenRow }: Props) {
             onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpenRow?.(row) } }}
           >
             <div className="ih-need-title">{row.key} {row.title}</div>
-            <div className="ih-need-sub">open in {row.branch ?? 'new workspace'} →</div>
+            <div className="ih-need-sub">
+              open in {row.branch ?? 'new workspace'} →
+              {row.branch && presenceByBranch?.[row.branch] && (
+                <span className="ob-here">{`· ${presenceByBranch[row.branch]} is here`}</span>
+              )}
+            </div>
           </div>
         ))}
       </div>

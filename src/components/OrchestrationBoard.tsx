@@ -6,6 +6,9 @@ interface Props {
   rows: BoardRow[]
   onOpen?: (row: BoardRow) => void
   onConnect?: () => void
+  /** branch -> teammate display name, for the "<name> is here" presence chip
+   *  (team-presence — see useTeamPresence). Omitted/empty renders no chips. */
+  presenceByBranch?: Record<string, string>
 }
 
 const STATUS_LABEL = {
@@ -15,7 +18,7 @@ const STATUS_LABEL = {
   todo: 'To do',
 } as const
 
-export function OrchestrationBoard({ rows, onOpen, onConnect }: Props) {
+export function OrchestrationBoard({ rows, onOpen, onConnect, presenceByBranch }: Props) {
   if (rows.length === 0) {
     return (
       <div className="ob-empty">
@@ -47,6 +50,9 @@ export function OrchestrationBoard({ rows, onOpen, onConnect }: Props) {
             <span className="ob-title">{row.title}</span>
             <span className="ob-spacer" />
             {row.branch && <span className="ob-branch">{row.branch}</span>}
+            {row.branch && presenceByBranch?.[row.branch] && (
+              <span className="ob-here">{`· ${presenceByBranch[row.branch]} is here`}</span>
+            )}
             {row.scope.kind === 'org' && <span className="ob-scope">{row.scope.org}</span>}
             <span className="ob-src" style={{ background: cat?.color }}>
               <IntegrationLogo id={row.pluginId} size={16} />
