@@ -4,6 +4,7 @@ import { useInstalledPlugins } from '../hooks/useInstalledPlugins'
 import { usePluginConnection, notifyPluginConnectionChanged } from '../hooks/usePluginConnection'
 import { useGitHub } from '../hooks/useGitHub'
 import { supabase } from '../lib/supabase'
+import { IntegrationLogo } from './IntegrationLogos'
 import type { PluginManifest, ConfigField } from '../types'
 
 // Duplica la consulta a `profiles.github_token` que hace useGitHub.ts en su
@@ -170,7 +171,7 @@ export function IntegrationsMarketplaceView() {
 
   const card = (p: PluginManifest, action: ReactNode) => (
     <article key={p.id} className="integration-card">
-      <span className="integration-icon" style={{ background: p.color }} aria-hidden>{p.name[0]}</span>
+      <span className="integration-icon" style={{ background: p.color }} aria-hidden><IntegrationLogo id={p.id} size={16} /></span>
       <div className="integration-meta">
         <span className="integration-name">{p.name}</span>
         {p.description && <span className="integration-desc">{p.description}</span>}
