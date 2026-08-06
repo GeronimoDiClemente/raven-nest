@@ -46,6 +46,7 @@ export interface EmitResult {
 export class EventBus {
   private handlers = new Map<Command['cmd'], CommandHandler>()
   private recipes: Recipe[] = []
+  private onEmitCb?: (ev: DomainEvent) => void
 
   registerHandler(cmd: Command['cmd'], handler: CommandHandler): void {
     this.handlers.set(cmd, handler)
@@ -53,6 +54,17 @@ export class EventBus {
 
   setRecipes(recipes: Recipe[]): void {
     this.recipes = [...recipes]
+  }
+
+  /**
+   * Optional observer invoked with every emitted event, before recipe
+   * routing runs. Purely additive: does not read commands/failed, does not
+   * touch handler execution, and has no default (a bus with none set is a
+   * no-op here). Lets a caller (e.g. the Hub Activity log) capture the
+   * event stream without coupling the bus itself to storage.
+   */
+  setOnEmit(cb: (ev: DomainEvent) => void): void {
+    this.onEmitCb = cb
   }
 
   /**
@@ -66,6 +78,7 @@ export class EventBus {
    * así que el emit no puede retornar antes de que terminen. Ver `EmitResult`.
    */
   async emit(ev: DomainEvent, deps: PanelAdapterDeps): Promise<EmitResult> {
+    this.onEmitCb?.(ev)
     const commands: Command[] = []
     for (const recipe of this.recipes) {
       if (recipe.when !== ev.type) continue

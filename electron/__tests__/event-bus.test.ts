@@ -141,4 +141,40 @@ describe('EventBus', () => {
     expect(out.commands).toEqual([])
     expect(handler).not.toHaveBeenCalled()
   })
+
+  describe('setOnEmit', () => {
+    it('fires the observer with every emitted event, even without matching recipes', async () => {
+      const bus = new EventBus()
+      const onEmit = vi.fn()
+      bus.setOnEmit(onEmit)
+      await bus.emit(prOpened, deps)
+      expect(onEmit).toHaveBeenCalledTimes(1)
+      expect(onEmit).toHaveBeenCalledWith(prOpened)
+    })
+
+    it('fires once per emit, in order, across multiple emits', async () => {
+      const bus = new EventBus()
+      const seen: string[] = []
+      bus.setOnEmit((ev) => seen.push(ev.type))
+      await bus.emit(prOpened, deps)
+      await bus.emit(prMerged, deps)
+      expect(seen).toEqual(['pr.opened', 'pr.merged'])
+    })
+
+    it('does not affect commands/failed or handler execution', async () => {
+      const bus = new EventBus()
+      const handler = vi.fn<Parameters<CommandHandler>, ReturnType<CommandHandler>>()
+      bus.registerHandler('updateStatus', handler)
+      bus.setRecipes([updateStatusRecipe('in_review', 'pr.opened')])
+      bus.setOnEmit(vi.fn())
+      const out = await bus.emit(prOpened, deps)
+      expect(out.commands).toEqual([{ cmd: 'updateStatus', pluginId: 'jira', providerId: 'p1', to: 'in_review' }])
+      expect(handler).toHaveBeenCalledTimes(1)
+    })
+
+    it('is a no-op when never set', async () => {
+      const bus = new EventBus()
+      await expect(bus.emit(prOpened, deps)).resolves.toEqual({ commands: [], failed: [] })
+    })
+  })
 })
