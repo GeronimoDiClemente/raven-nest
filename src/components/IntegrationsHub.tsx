@@ -5,13 +5,14 @@ import { IntegrationsRail } from './IntegrationsRail'
 import { WorktreePicker } from './WorktreePicker'
 import { RecipesView } from './RecipesView'
 import { AutomationsView } from './AutomationsView'
+import { ConnectionsView } from './ConnectionsView'
 import type { BoardRow } from '../integrations/board'
 
 interface IntegrationsHubProps {
   onClose: () => void
 }
 
-type HubTab = 'hub' | 'recipes' | 'automations'
+type HubTab = 'hub' | 'connections' | 'recipes' | 'automations'
 
 /** Full-screen overlay for the orchestration board — mirrors the
  *  teams-workspace shell used by TeamsWorkspace/MyReposPanel. */
@@ -48,6 +49,7 @@ export function IntegrationsHub({ onClose }: IntegrationsHubProps) {
           <span className="tw-header-title">Integrations</span>
           <div className="ih-tabs">
             <button className={tab === 'hub' ? 'active' : ''} onClick={() => setTab('hub')}>Hub</button>
+            <button className={tab === 'connections' ? 'active' : ''} onClick={() => setTab('connections')}>Connections</button>
             <button className={tab === 'recipes' ? 'active' : ''} onClick={() => setTab('recipes')}>Recipes</button>
             <button className={tab === 'automations' ? 'active' : ''} onClick={() => setTab('automations')}>Automations</button>
           </div>
@@ -78,6 +80,7 @@ export function IntegrationsHub({ onClose }: IntegrationsHubProps) {
               </div>
             </div>
           )}
+          {tab === 'connections' && <ConnectionsView />}
           {tab === 'recipes' && <RecipesView />}
           {tab === 'automations' && <AutomationsView />}
         </div>

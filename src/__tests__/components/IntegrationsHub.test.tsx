@@ -12,10 +12,27 @@ vi.mock('../../hooks/useInstalledPlugins', () => ({
   useInstalledPlugins: () => mockUseInstalledPlugins(),
 }))
 
+// usePluginCatalog toca supabase (no configurado en el entorno de test) — se
+// mockea para servir el catálogo builtin de forma síncrona, igual que en
+// MyReposPanel-integrations.test.tsx, para que el tab Connections (que
+// embebe IntegrationsMarketplaceView) renderice sin esperar la resolución.
+vi.mock('../../hooks/usePluginCatalog', () => ({
+  usePluginCatalog: () => ({
+    catalog: [{ id: 'demo', name: 'Demo', description: 'Demo plugin', category: 'other', icon: 'demo', color: '#123', type: 'integration', publisher: 'raven', tier: 'free', auth: { kind: 'none' } }],
+    loading: false,
+    source: 'builtin',
+  }),
+}))
+
 import { IntegrationsHub } from '../../components/IntegrationsHub'
 
 beforeEach(() => {
-  mockUseInstalledPlugins.mockReturnValue({ installed: [] })
+  // installed/install/uninstall/isInstalled: shape consumed both by
+  // useBoardRows (via the "installed" field) and by IntegrationsMarketplaceView
+  // (rendered on the Connections tab), which also needs install/uninstall/isInstalled.
+  mockUseInstalledPlugins.mockReturnValue({
+    installed: [], install: vi.fn(), uninstall: vi.fn(), isInstalled: () => false,
+  })
   Object.assign(window as unknown as Record<string, unknown>, {
     tickets: {
       list: vi.fn().mockResolvedValue([]),
@@ -73,6 +90,18 @@ describe('IntegrationsHub', () => {
 
     expect(screen.getByRole('heading', { name: 'Automations' })).toBeInTheDocument()
     expect(screen.getByText(/Coming soon/)).toBeInTheDocument()
+  })
+
+  it('switches to the Connections tab and renders the integrations marketplace', async () => {
+    render(<IntegrationsHub onClose={vi.fn()} />)
+
+    await waitFor(() => expect(screen.getByText('No tasks yet — connect a source.')).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: 'Connections' }))
+
+    expect(await screen.findByText('Available')).toBeInTheDocument()
+    expect(screen.getByText('Demo')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('Search...')).toBeInTheDocument()
+    expect(screen.queryByText('No tasks yet — connect a source.')).not.toBeInTheDocument()
   })
 
   describe('with rows spanning an org and a personal ticket', () => {
