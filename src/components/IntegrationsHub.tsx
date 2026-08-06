@@ -1,5 +1,7 @@
+import { useState } from 'react'
 import { useBoardRows } from '../hooks/useBoardRows'
 import { OrchestrationBoard } from './OrchestrationBoard'
+import { IntegrationsRail } from './IntegrationsRail'
 
 interface IntegrationsHubProps {
   onClose: () => void
@@ -9,6 +11,15 @@ interface IntegrationsHubProps {
  *  teams-workspace shell used by TeamsWorkspace/MyReposPanel. */
 export function IntegrationsHub({ onClose }: IntegrationsHubProps) {
   const { rows } = useBoardRows()
+  const [scope, setScope] = useState<'all' | 'personal' | string>('all')
+
+  const orgs = [...new Set(rows.filter((r) => r.scope.kind === 'org').map((r) => (r.scope.kind === 'org' ? r.scope.org : '')))]
+  const hasPersonal = rows.some((r) => r.scope.kind === 'personal')
+  const showFilter = orgs.length + (hasPersonal ? 1 : 0) >= 2
+
+  const visibleRows = scope === 'all'
+    ? rows
+    : rows.filter((r) => (scope === 'personal' ? r.scope.kind === 'personal' : r.scope.kind === 'org' && r.scope.org === scope))
 
   return (
     <div className="teams-workspace">
@@ -35,7 +46,23 @@ export function IntegrationsHub({ onClose }: IntegrationsHubProps) {
       {/* Body */}
       <div className="teams-workspace-body">
         <div className="teams-workspace-content">
-          <OrchestrationBoard rows={rows} />
+          <div className="ih-layout">
+            <div className="ih-main">
+              {showFilter && (
+                <div className="ih-filter">
+                  <button className={scope === 'all' ? 'active' : ''} onClick={() => setScope('all')}>All</button>
+                  {orgs.map((org) => (
+                    <button key={org} className={scope === org ? 'active' : ''} onClick={() => setScope(org)}>{org}</button>
+                  ))}
+                  <button className={scope === 'personal' ? 'active' : ''} onClick={() => setScope('personal')}>Personal</button>
+                </div>
+              )}
+              <OrchestrationBoard rows={visibleRows} />
+            </div>
+            <div className="ih-rail">
+              <IntegrationsRail rows={visibleRows} />
+            </div>
+          </div>
         </div>
       </div>
     </div>
