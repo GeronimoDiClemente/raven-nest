@@ -9479,4 +9479,22 @@ body.platform-mac .tabbar { padding-right: 116px; }
 .tk-work-btn:disabled { opacity: 0.5; cursor: default; }
 .tk-empty { padding: 20px; text-align: center; color: var(--text-muted); font-size: 13px; }
 .tk-error { padding: 8px 10px; font-size: 12px; color: var(--raven-red, #e5484d); }
+
+/* === Orchestration board === */
+.ob-list { display: flex; flex-direction: column; }
+.ob-row { display: flex; align-items: center; gap: 12px; padding: 9px 14px; border-bottom: 1px solid var(--border); cursor: pointer; }
+.ob-row:hover { background: var(--bg-elevated); }
+.ob-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.ob-dot-needs_you { background: #e6a23c; }
+.ob-dot-working { background: #d9b64e; }
+.ob-dot-done { background: #37c98a; }
+.ob-dot-todo { background: #6b7280; }
+.ob-status { font-size: 12px; color: var(--text-secondary); min-width: 74px; }
+.ob-key { font-family: 'SFMono-Regular', 'Consolas', monospace; font-size: 12px; color: var(--text-secondary); }
+.ob-title { font-weight: 500; color: var(--text-primary); }
+.ob-spacer { flex: 1; }
+.ob-src { width: 18px; height: 18px; border-radius: 5px; display: inline-grid; place-items: center; color: #fff; font-weight: 700; font-size: 10px; }
+.ob-branch { font-family: 'SFMono-Regular', 'Consolas', monospace; font-size: 11px; color: var(--text-secondary); }
+.ob-scope { font-size: 10px; color: var(--text-muted); border: 1px solid var(--border); border-radius: 999px; padding: 1px 7px; }
+.ob-empty { padding: 28px; text-align: center; color: var(--text-muted); }
 .tk-retry { margin-left: 6px; }
