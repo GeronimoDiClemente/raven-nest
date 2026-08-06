@@ -9499,3 +9499,34 @@ body.platform-mac .tabbar { padding-right: 116px; }
 .ob-branch { font-family: 'SFMono-Regular', 'Consolas', monospace; font-size: 11px; color: var(--text-secondary); }
 .ob-scope { font-size: 10px; color: var(--text-muted); border: 1px solid var(--border); border-radius: 999px; padding: 1px 7px; }
 .ob-empty { padding: 28px; text-align: center; color: var(--text-muted); }
+
+/* === Integrations hub layout / rail === */
+.ih-layout { display: flex; gap: 0; height: 100%; }
+.ih-main { flex: 1; min-width: 0; overflow: auto; }
+.ih-rail { width: 312px; flex: none; border-left: 1px solid var(--border); overflow: auto; padding: 14px; }
+
+.ih-filter { display: inline-flex; gap: 3px; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 9px; padding: 3px; margin: 10px 14px; }
+.ih-filter button { all: unset; cursor: pointer; padding: 4px 10px; border-radius: 6px; color: var(--text-secondary); font-size: 12px; }
+.ih-filter button.active { background: var(--bg-surface); color: var(--text-primary); }
+
+.ih-bot { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 12px; padding: 12px; margin-bottom: 16px; }
+.ih-bot-head { display: flex; align-items: center; gap: 7px; }
+.ih-bot-avatar { font-size: 16px; line-height: 1; }
+.ih-bot-name { font-weight: 600; color: var(--text-primary); font-size: 13px; }
+.ih-bot-chip { margin-left: auto; font-size: 10px; color: #37c98a; border: 1px solid var(--border); border-radius: 999px; padding: 2px 7px; }
+.ih-bot-desc { font-size: 12px; color: var(--text-secondary); line-height: 1.45; margin: 8px 0 10px; }
+.ih-ask { font-size: 12px; color: var(--text-muted); border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; }
+
+.ih-railh {
+  font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: var(--text-muted);
+  margin: 0 0 9px; display: flex; gap: 8px; align-items: center;
+}
+.ih-railh-count { font-family: 'SFMono-Regular', 'Consolas', monospace; }
+
+.ih-need-block { margin-bottom: 20px; }
+.ih-need { border: 1px solid var(--border); border-left: 2px solid #e6a23c; border-radius: 9px; padding: 10px; margin-bottom: 8px; cursor: pointer; }
+.ih-need:hover { background: var(--bg-elevated); }
+.ih-need-title { font-size: 12.5px; color: var(--text-primary); font-weight: 500; }
+.ih-need-sub { font-size: 11px; color: var(--text-secondary); margin-top: 3px; font-family: 'SFMono-Regular', 'Consolas', monospace; }
+
+.ih-act-empty { color: var(--text-muted); font-size: 12px; }
