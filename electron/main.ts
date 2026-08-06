@@ -149,7 +149,8 @@ import { registerBusCommands } from './integrations/bus-commands'
 import { ticketBranchName } from './integrations/branch-name'
 import { performWorktreeAdd } from './worktree-create'
 import { getRemoteUrl, parseOwnerRepo } from './integrations/github'
-import { isTicket } from './integrations/ticket-types'
+import { isTicket, type Ticket } from './integrations/ticket-types'
+import { handleMention, type NestBotDeps } from './integrations/nest-bot'
 
 const ptyManager = new PtyManager()
 const accountStore = new AccountStore()
@@ -1038,6 +1039,33 @@ ipcMain.handle('worktree:setPreset', async (_evt, worktreePath: string, presetId
   return { ok: true as const }
 })
 
+// git worktree add — decision + invocation live in performWorktreeAdd
+// (electron/worktree-create.ts) so the idempotency behaviour is unit-tested.
+// Array args, no shell interpolation. Factored out of the worktree:create
+// handler so the @Nest bot's grab intent (H7 §6) can run the exact same
+// git-level flow (it doesn't offer preset selection, so it stops here and
+// persists a plain meta itself — see createWorktreeForBot below).
+function runWorktreeAdd(repoPath: string, branch: string, wtPath: string, fromBranch: string) {
+  return performWorktreeAdd(
+    {
+      worktreeExists: (p) => worktreeStore.get(p) != null,
+      branchExists: (repoPath, branch) => {
+        try {
+          execFileSync('git', ['-C', repoPath, 'show-ref', '--verify', '--quiet', `refs/heads/${branch}`], {
+            timeout: 3000,
+            stdio: ['pipe', 'pipe', 'pipe'],
+          })
+          return true
+        } catch { return false }
+      },
+      runGit: (args) => {
+        execFileSync('git', args, { encoding: 'utf8', timeout: 10000, stdio: ['pipe', 'pipe', 'pipe'] })
+      },
+    },
+    { repoPath, branch, wtPath, fromBranch },
+  )
+}
+
 ipcMain.handle('worktree:create', async (_evt, opts: {
   repoPath: string
   branch: string
@@ -1074,28 +1102,8 @@ ipcMain.handle('worktree:create', async (_evt, opts: {
     return { ok: false as const, error: `Invalid fromBranch name: ${opts.fromBranch}` }
   }
 
-  // git worktree add — decision + invocation live in performWorktreeAdd
-  // (electron/worktree-create.ts) so the idempotency behaviour is unit-tested.
-  // Array args, no shell interpolation.
   const from = opts.fromBranch ?? 'HEAD'
-  const addResult = performWorktreeAdd(
-    {
-      worktreeExists: (p) => worktreeStore.get(p) != null,
-      branchExists: (repoPath, branch) => {
-        try {
-          execFileSync('git', ['-C', repoPath, 'show-ref', '--verify', '--quiet', `refs/heads/${branch}`], {
-            timeout: 3000,
-            stdio: ['pipe', 'pipe', 'pipe'],
-          })
-          return true
-        } catch { return false }
-      },
-      runGit: (args) => {
-        execFileSync('git', args, { encoding: 'utf8', timeout: 10000, stdio: ['pipe', 'pipe', 'pipe'] })
-      },
-    },
-    { repoPath: opts.repoPath, branch: opts.branch, wtPath, fromBranch: from },
-  )
+  const addResult = runWorktreeAdd(opts.repoPath, opts.branch, wtPath, from)
   if (!addResult.ok) return { ok: false as const, error: addResult.error }
   if (!addResult.created) {
     // Reused an existing worktree ("Work on this" clicked twice): return its
@@ -1136,6 +1144,41 @@ ipcMain.handle('worktree:create', async (_evt, opts: {
 
   return { ok: true as const, meta }
 })
+
+// @Nest bot's grab intent (H7 §6): the same git-level flow as worktree:create
+// above (path/slug computation, runWorktreeAdd, idempotent reuse), minus the
+// preset/setup-runner step — the bot only creates a worktree and starts work,
+// same scope as "Do NOT open a real terminal pane" in the spec.
+function createWorktreeForBot(repoPath: string, branch: string): Promise<
+  { ok: true; worktreePath: string } | { ok: false; error: string }
+> {
+  if (!isAbsolute(repoPath)) return Promise.resolve({ ok: false, error: 'repoPath must be absolute' })
+  if (!branch || !/^[a-zA-Z0-9._/\-]+$/.test(branch)) {
+    return Promise.resolve({ ok: false, error: `Invalid branch name: ${branch}` })
+  }
+  const slug = branch.replace(/[\/]/g, '-').replace(/[^a-zA-Z0-9._\-]/g, '')
+  const wtPath = pathJoin(dirname(repoPath), `${basename(repoPath)}-${slug}`)
+
+  const addResult = runWorktreeAdd(repoPath, branch, wtPath, 'HEAD')
+  if (!addResult.ok) return Promise.resolve({ ok: false, error: addResult.error })
+  if (!addResult.created) {
+    const existing = worktreeStore.get(wtPath)
+    if (existing) return Promise.resolve({ ok: true, worktreePath: existing.repoPath })
+  }
+
+  const now = Date.now()
+  worktreeStore.setMeta({
+    repoPath: wtPath,
+    rootRepoPath: repoPath,
+    branch,
+    setupState: 'idle' as const,
+    declaredPorts: [],
+    detectedPorts: [],
+    createdAt: now,
+    updatedAt: now,
+  })
+  return Promise.resolve({ ok: true, worktreePath: wtPath })
+}
 
 ipcMain.handle('worktree:remove', async (_evt, worktreePath: string) => {
   if (!isAbsolute(worktreePath)) return { ok: false as const, error: 'worktreePath must be absolute' }
@@ -2377,17 +2420,57 @@ const worktreeSignals = new WorktreeSignals((repoPath) => {
 worktreeSignals.attachStorage(pathJoin(ravenHome(), '.raven-nest', 'worktree-signals.json'))
 worktreeSignals.attachBus(eventBus)
 
+// @Nest bot orchestration intents (H7 §6, on top of the Socket Mode mention
+// handler below). Resolves a GitHub "owner/repo" full name to a LOCAL base
+// repoPath by looking at repos this app already knows about (worktreeStore) —
+// the ticket key alone never gives us a filesystem path. Jira/Linear keys
+// carry no repo info at all, so grabTicket() never calls this for them (see
+// nest-bot.ts: only pluginId 'github' resolves fullName from the key).
+function resolveRepoPathForBot(fullName: string): string | null {
+  const wanted = fullName.toLowerCase()
+  const roots = new Set(worktreeStore.list().map((m) => m.rootRepoPath))
+  for (const root of roots) {
+    const url = getRemoteUrl(root)
+    const or = url ? parseOwnerRepo(url) : null
+    if (or && `${or.owner}/${or.repo}`.toLowerCase() === wanted) return root
+  }
+  return null
+}
+
+// Wires the real implementations into NestBotDeps — same building blocks the
+// "Work on this" picker uses (ticketBranchName, the worktree:create git flow
+// via createWorktreeForBot, tickets:startWork's flow via startWorkOnWorktree).
+function nestBotDeps(): NestBotDeps {
+  return {
+    ticketPluginIds: () => ticketLoop.registeredIds(),
+    listTickets: (pluginId) => ticketLoop.list(pluginId, panelDeps()),
+    branchName: ticketBranchName,
+    resolveRepoPath: resolveRepoPathForBot,
+    createWorktree: createWorktreeForBot,
+    startWork: startWorkOnWorktree,
+  }
+}
+
 // H7 Motor 5 — @Nest desde Slack (Socket Mode). Sólo arranca si hay un
 // app-level token (`xapp-...`, distinto del bot token) guardado en
 // pluginCreds('slack-app'). Sin él, la feature queda apagada sin romper el
 // resto de Slack. El main NO abre panes: rutea los eventos al renderer por IPC
-// push (`slack:mention`/`slack:action`, mismo patrón que `signals:update`).
+// push (`slack:mention`/`slack:action`, mismo patrón que `signals:update`) Y,
+// además (H7 §6), corre el bot orchestration (parseIntent/handleMention) y
+// responde in-thread con el bot token. Un fallo del bot (fetch caído, provider
+// caído) sólo genera un console.warn — nunca debe tumbar el socket ni dejar de
+// empujar `slack:mention` al renderer.
 const slackAppToken = pluginCreds.getToken('slack-app')
 if (slackAppToken) {
   const slackSocket = new SlackSocket({
     appToken: slackAppToken,
     fetch,
-    onAppMention: (m) => { for (const w of BrowserWindow.getAllWindows()) w.webContents.send('slack:mention', m) },
+    onAppMention: (m) => {
+      for (const w of BrowserWindow.getAllWindows()) w.webContents.send('slack:mention', m)
+      void handleMention(m, nestBotDeps())
+        .then((res) => postToSlackThread(m.channel, m.threadTs, res.reply))
+        .catch((err) => console.warn('[nest-bot] handleMention failed', err))
+    },
     onBlockAction: (a) => { for (const w of BrowserWindow.getAllWindows()) w.webContents.send('slack:action', a) },
   })
   void slackSocket.connect().catch((e) => console.warn('[slack-socket] connect failed', e))
@@ -2413,20 +2496,16 @@ ipcMain.handle('tickets:branchName', (_e, user: string, key: string, title: stri
 // All tracked branch→ticket links, for the orchestration board (Plan 2).
 ipcMain.handle('tickets:tracked', () => ticketLoop.trackedList())
 
-// Called AFTER worktree:create returned ok: writes TASK.md with the ticket
-// context and fires the in_progress transition. The ticket shape is validated
-// (its fields are interpolated into TASK.md) and worktreePath must be a
-// worktree THIS app registered — never an arbitrary directory.
-ipcMain.handle('tickets:startWork', async (_e, args: {
-  pluginId: string; ticket: unknown; branch: string; worktreePath: string
-}) => {
-  const { pluginId, ticket, branch, worktreePath } = args ?? {}
-  if (typeof pluginId !== 'string' || typeof branch !== 'string' || typeof worktreePath !== 'string' || !isTicket(ticket)) {
-    return { ok: false as const, error: 'BAD_ARGS' }
-  }
-  const t = ticket
+// Writes TASK.md with the ticket context and fires the in_progress
+// transition. worktreePath must be a worktree THIS app registered — never an
+// arbitrary directory. Shared by the tickets:startWork IPC handler (the
+// "Work on this" picker) and the @Nest bot's grab intent (H7 §6) — same flow,
+// two callers.
+async function startWorkOnWorktree(
+  pluginId: string, ticket: Ticket, branch: string, worktreePath: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
   if (!worktreeStore.get(worktreePath) || !existsSync(worktreePath) || !statSync(worktreePath).isDirectory()) {
-    return { ok: false as const, error: 'NO_WORKTREE' }
+    return { ok: false, error: 'NO_WORKTREE' }
   }
   try {
     const dir = join(worktreePath, '.nest')
@@ -2434,19 +2513,32 @@ ipcMain.handle('tickets:startWork', async (_e, args: {
     // The last line covers the "Fixes <ID>" rule from the spec: the agent
     // working in this worktree reads it and includes it in the PR description.
     writeFileSync(join(dir, 'TASK.md'),
-      `# ${t.key}: ${t.title}\n\n${t.url}\n\n${t.context}\n\n---\n` +
-      `When you open the PR for this task, include "Fixes ${t.key}" in the description.\n`)
+      `# ${ticket.key}: ${ticket.title}\n\n${ticket.url}\n\n${ticket.context}\n\n---\n` +
+      `When you open the PR for this task, include "Fixes ${ticket.key}" in the description.\n`)
   } catch (err) {
-    console.warn('[tickets:startWork] TASK.md write failed', err)
+    console.warn('[startWorkOnWorktree] TASK.md write failed', err)
   }
   // The worktree's GitHub repo travels with the tracked branch so the 90s
   // poll below only asks that repo about it (non-GitHub remotes parse to
   // null and are skipped; v1 only infers PR state on GitHub remotes).
   const remoteUrl = getRemoteUrl(worktreePath)
   const ownerRepo = remoteUrl ? parseOwnerRepo(remoteUrl) : null
-  await ticketLoop.startWork(pluginId, t, branch, panelDeps(),
+  await ticketLoop.startWork(pluginId, ticket, branch, panelDeps(),
     ownerRepo ? `${ownerRepo.owner}/${ownerRepo.repo}` : null)
-  return { ok: true as const }
+  return { ok: true }
+}
+
+// Called AFTER worktree:create returned ok. The ticket shape is validated at
+// this IPC boundary (its fields are interpolated into TASK.md) — the actual
+// work happens in startWorkOnWorktree above.
+ipcMain.handle('tickets:startWork', async (_e, args: {
+  pluginId: string; ticket: unknown; branch: string; worktreePath: string
+}) => {
+  const { pluginId, ticket, branch, worktreePath } = args ?? {}
+  if (typeof pluginId !== 'string' || typeof branch !== 'string' || typeof worktreePath !== 'string' || !isTicket(ticket)) {
+    return { ok: false as const, error: 'BAD_ARGS' }
+  }
+  return startWorkOnWorktree(pluginId, ticket, branch, worktreePath)
 })
 
 // H5 Motor 2 — Notion spec→worktree: baja la página como markdown, la escribe
@@ -2575,24 +2667,30 @@ ipcMain.handle('slack:exchange-code', async (_e, code: string) => {
 
 // H7 — postea un mensaje al MISMO thread de Slack (bot token, no el app token).
 // Lo llama el renderer al crear la sesión ("🪺 Trabajando en esto…") y en
-// updates. Sin bot token → no-op silencioso (ok:false) para no romper el flujo.
-ipcMain.handle('slack:postThread', async (_e, args: { channel: string; threadTs: string; text: string }) => {
-  const { channel, threadTs, text } = args ?? {}
+// updates, y el @Nest bot (H7 §6) para responder in-thread a una mención. Sin
+// bot token → no-op silencioso (ok:false) para no romper el flujo.
+async function postToSlackThread(channel: string, threadTs: string, text: string): Promise<{ ok: boolean }> {
   const token = pluginCreds.getToken('slack')
-  if (!token || typeof channel !== 'string' || typeof threadTs !== 'string' || typeof text !== 'string') {
-    return { ok: false as const }
-  }
+  if (!token) return { ok: false }
   try {
     await fetch('https://slack.com/api/chat.postMessage', {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json; charset=utf-8' },
       body: JSON.stringify({ channel, thread_ts: threadTs, text }),
     })
-    return { ok: true as const }
+    return { ok: true }
   } catch (err) {
-    console.warn('[slack:postThread] failed', err)
+    console.warn('[postToSlackThread] failed', err)
+    return { ok: false }
+  }
+}
+
+ipcMain.handle('slack:postThread', async (_e, args: { channel: string; threadTs: string; text: string }) => {
+  const { channel, threadTs, text } = args ?? {}
+  if (typeof channel !== 'string' || typeof threadTs !== 'string' || typeof text !== 'string') {
     return { ok: false as const }
   }
+  return postToSlackThread(channel, threadTs, text)
 })
 
 // macOS: open-url event
