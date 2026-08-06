@@ -6,8 +6,6 @@ interface TeamStatsProps {
   repos: Array<{ repo_full_name: string }>
   githubToken: string | null
   presence: Record<string, PresenceState>
-  members: Array<{ login: string | null; name: string; avatarUrl: string; online: boolean }>
-  viewerLogin: string
 }
 
 export function onlineGithubLogins(presence: Record<string, PresenceState>): Set<string> {

@@ -1308,22 +1308,6 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal, on
                   repos={repos.map(r => ({ repo_full_name: r.repo_full_name }))}
                   githubToken={githubToken}
                   presence={presence}
-                  members={members.filter(m => m.status === 'active').map(m => {
-                    const p = m.user_id ? presence[m.user_id] : undefined
-                    // Prefer the denormalized github_login (reaches offline members);
-                    // fall back to presence (online-only) until the column is populated.
-                    const gh = m.github_login ?? p?.githubLogin ?? null
-                    return {
-                      login: gh,
-                      // Team analytics keys on the GitHub identity, not the Nest login
-                      // email — show the GitHub username. Email is only the fallback for
-                      // members who haven't linked their GitHub account.
-                      name: gh ?? m.email,
-                      avatarUrl: '',
-                      online: !!p,
-                    }
-                  })}
-                  viewerLogin={githubLogin ?? ''}
                 />
               )}
               </></ErrorBoundary>
