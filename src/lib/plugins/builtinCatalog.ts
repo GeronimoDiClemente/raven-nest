@@ -51,6 +51,22 @@ export const BUILTIN_CATALOG: PluginManifest[] = [
     },
   },
   {
+    id: 'linear', name: 'Linear',
+    description: 'Track Linear issues and open worktrees from them.',
+    category: 'pm', icon: 'linear', color: '#5E6AD2',
+    type: 'integration', publisher: 'raven', tier: 'free',
+    // Single personal API key, same shape as Notion's (one 'token' field,
+    // parsed leniently on the main side — see parseLinearToken in
+    // electron/integrations/tickets-linear.ts). Linear's own keys are
+    // prefixed 'lin_api_'.
+    auth: {
+      kind: 'apiKey',
+      fields: [
+        { key: 'token', label: 'Personal API key', type: 'password', required: true, placeholder: 'lin_api_...' },
+      ],
+    },
+  },
+  {
     id: 'gcal', name: 'Google Calendar',
     description: 'Log real session outcomes and start work from a calendar block.',
     category: 'other', icon: 'gcal', color: '#4285F4',

@@ -128,6 +128,24 @@ describe('LinearTicketProvider', () => {
     expect(calls.length).toBeGreaterThanOrEqual(2) // query states + mutation
     expect(String(calls.at(-1)?.[1]?.body)).toContain('s-done')
   })
+
+  it('acepta el token guardado por el ApiKeyForm envuelto en JSON ({token}), igual que Notion', async () => {
+    // BUILTIN_CATALOG declara linear con auth.kind 'apiKey' y un solo field
+    // 'token' — el form (IntegrationsMarketplace.tsx) siempre persiste
+    // JSON.stringify({ token }), nunca el string crudo que este provider
+    // asumía originalmente.
+    const d: PanelAdapterDeps = {
+      getToken: () => JSON.stringify({ token: 'lin_api_abc' }),
+      getConfig: () => ({}),
+      fetch: vi.fn(async () =>
+        new Response(JSON.stringify({ data: { viewer: { assignedIssues: { nodes: [] } } } }), { status: 200 }),
+      ) as unknown as typeof fetch,
+    }
+    const p = createLinearTicketProvider(d)
+    await p.listMyTickets()
+    const calls = (d.fetch as ReturnType<typeof vi.fn>).mock.calls
+    expect((calls[0][1]?.headers as Record<string, string>).Authorization).toBe('lin_api_abc')
+  })
 })
 
 describe('GitHubTicketProvider', () => {

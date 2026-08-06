@@ -1,8 +1,24 @@
 import { NotConnectedError, type PanelAdapterDeps } from '../integration-panels'
 import type { Ticket, TicketProvider, TicketState } from './ticket-types'
 
-// Linear GraphQL. Token = personal API key stored in pluginCreds under 'linear'
-// as a plain string (unlike Jira's JSON blob).
+// Linear GraphQL. The catalog's apiKey Connect form (IntegrationsMarketplace.tsx)
+// always saves JSON.stringify({ token: '...' }), but we tolerate a raw string
+// too — same contract as parseNotionToken in notion.ts — so a credential
+// saved by hand or from an older client keeps working.
+export function parseLinearToken(raw: string | null): string {
+  if (!raw) throw new NotConnectedError()
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    if (typeof parsed === 'string') return parsed
+    if (parsed && typeof parsed === 'object' && typeof (parsed as { token?: unknown }).token === 'string') {
+      return (parsed as { token: string }).token
+    }
+  } catch {
+    // not valid JSON: treat the raw string as the token
+  }
+  return raw
+}
+
 const TYPE_TO_STATE: Record<string, TicketState> = {
   triage: 'todo', backlog: 'todo', unstarted: 'todo',
   started: 'in_progress', completed: 'done', canceled: 'done',
@@ -20,8 +36,7 @@ const API = 'https://api.linear.app/graphql'
 
 export function createLinearTicketProvider(deps: PanelAdapterDeps): TicketProvider {
   const gql = async (query: string, variables?: Record<string, unknown>) => {
-    const token = deps.getToken('linear')
-    if (!token) throw new NotConnectedError()
+    const token = parseLinearToken(deps.getToken('linear'))
     const res = await deps.fetch(API, {
       method: 'POST',
       headers: { Authorization: token, 'Content-Type': 'application/json' },

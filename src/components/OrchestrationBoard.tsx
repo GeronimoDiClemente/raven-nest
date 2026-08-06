@@ -1,5 +1,6 @@
 import type { BoardRow } from '../integrations/board'
 import { BUILTIN_CATALOG } from '../lib/plugins/builtinCatalog'
+import { IntegrationLogo } from './IntegrationLogos'
 
 interface Props {
   rows: BoardRow[]
@@ -47,7 +48,9 @@ export function OrchestrationBoard({ rows, onOpen, onConnect }: Props) {
             <span className="ob-spacer" />
             {row.branch && <span className="ob-branch">{row.branch}</span>}
             {row.scope.kind === 'org' && <span className="ob-scope">{row.scope.org}</span>}
-            <span className="ob-src" style={{ background: cat?.color }}>{cat?.name?.[0] ?? '?'}</span>
+            <span className="ob-src" style={{ background: cat?.color }}>
+              <IntegrationLogo id={row.pluginId} size={16} />
+            </span>
             <span className="ob-src-name">{cat?.name}</span>
           </div>
         )

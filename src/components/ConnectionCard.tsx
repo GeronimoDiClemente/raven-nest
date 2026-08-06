@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { usePluginConnection } from '../hooks/usePluginConnection'
 import { ConnectControl } from './IntegrationsMarketplace'
+import { IntegrationLogo } from './IntegrationLogos'
 import type { PluginManifest } from '../types'
 
 interface ConnectionCardProps {
@@ -41,7 +42,9 @@ export function ConnectionCard({ plugin, isInstalled, install }: ConnectionCardP
 
   return (
     <article className="integration-card cx-card">
-      <span className="integration-icon" style={{ background: plugin.color }} aria-hidden>{plugin.name[0]}</span>
+      <span className="integration-icon" style={{ color: plugin.color }} aria-hidden>
+        <IntegrationLogo id={plugin.id} size={20} />
+      </span>
       <div className="integration-meta">
         <span className="integration-name">{plugin.name}</span>
         {plugin.description && <span className="integration-desc">{plugin.description}</span>}
@@ -61,7 +64,9 @@ export function ConnectionCard({ plugin, isInstalled, install }: ConnectionCardP
 export function ConnectionCardSoon({ plugin }: { plugin: PluginManifest }) {
   return (
     <article className="integration-card cx-card cx-card-soon">
-      <span className="integration-icon" style={{ background: plugin.color }} aria-hidden>{plugin.name[0]}</span>
+      <span className="integration-icon" style={{ color: plugin.color }} aria-hidden>
+        <IntegrationLogo id={plugin.id} size={20} />
+      </span>
       <div className="integration-meta">
         <span className="integration-name">{plugin.name}</span>
         {plugin.description && <span className="integration-desc">{plugin.description}</span>}

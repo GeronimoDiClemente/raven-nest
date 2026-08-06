@@ -42,10 +42,6 @@ export function IntegrationsHub({ onClose }: IntegrationsHubProps) {
         </button>
 
         <div className="tw-header-center">
-          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" style={{ color: 'var(--raven-blue)', flexShrink: 0 }}>
-            <rect x="2" y="2" width="12" height="12" rx="3.5" stroke="currentColor" strokeWidth="1.4" />
-            <path d="M5.5 8h5M8 5.5v5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-          </svg>
           <div className="ih-tabs">
             <button className={tab === 'hub' ? 'active' : ''} onClick={() => setTab('hub')}>Hub</button>
             <button className={tab === 'connections' ? 'active' : ''} onClick={() => setTab('connections')}>Connections</button>
