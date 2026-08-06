@@ -29,6 +29,7 @@ export function OrchestrationBoard({ rows, onOpen }: Props) {
             role="button"
             tabIndex={0}
             onClick={() => onOpen?.(row)}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen?.(row) } }}
           >
             <span className={`ob-dot ob-dot-${row.status}`} />
             <span className="ob-status">{STATUS_LABEL[row.status]}</span>
@@ -38,7 +39,7 @@ export function OrchestrationBoard({ rows, onOpen }: Props) {
             {row.branch && <span className="ob-branch">{row.branch}</span>}
             {row.scope.kind === 'org' && <span className="ob-scope">{row.scope.org}</span>}
             <span className="ob-src" style={{ background: cat?.color }}>{cat?.name?.[0] ?? '?'}</span>
-            {cat?.name}
+            <span className="ob-src-name">{cat?.name}</span>
           </div>
         )
       })}

@@ -41,4 +41,11 @@ describe('<OrchestrationBoard>', () => {
     fireEvent.click(screen.getByText('Race board'))
     expect(onOpen).toHaveBeenCalledWith(rows[0])
   })
+
+  it('calls onOpen when Enter is pressed on a row', () => {
+    const onOpen = vi.fn()
+    render(<OrchestrationBoard rows={rows} onOpen={onOpen} />)
+    fireEvent.keyDown(screen.getByText('Race board').closest('[role="button"]')!, { key: 'Enter' })
+    expect(onOpen).toHaveBeenCalledWith(rows[0])
+  })
 })
