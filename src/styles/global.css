@@ -9393,17 +9393,10 @@ body.platform-mac .tabbar { padding-right: 116px; }
   padding: 8px 12px; border-radius: 8px; cursor: pointer; width: 100%;
 }
 .integration-request:hover { color: var(--text-primary); border-color: #444; }
-.integrations-team { padding: 8px 4px; }
-.integrations-team-title { font-size: 15px; font-weight: 600; color: var(--text-primary); margin-bottom: 12px; }
-.integrations-team-list { list-style: none; padding: 0; margin: 0 0 14px; display: flex; flex-direction: column; gap: 8px; }
-.integrations-team-list li { font-size: 13px; color: var(--text-secondary); padding-left: 22px; position: relative; }
-.integrations-team-list li::before { content: '🔗'; position: absolute; left: 0; }
-.integrations-team-sub { font-size: 13px; color: var(--text-secondary); margin-bottom: 14px; }
 
-/* Wrapper compartido por IntegrationsMarketplaceView (My Repos →
-   Integrations) y TeamIntegrationsView (Teams → Integrations): ocupa el
-   alto disponible de teams-workspace-content y deja que .integrations-body
-   haga su propio scroll interno. */
+/* Wrapper used by IntegrationsMarketplaceView (My Repos → Integrations):
+   occupies the available height of its container and lets .integrations-body
+   handle its own internal scroll. */
 .integrations-embedded { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; }
 
 /* ===== Integration Panel (hito 1) ===== */

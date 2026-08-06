@@ -149,8 +149,7 @@ function ConnectControl({ plugin }: { plugin: PluginManifest }) {
 /**
  * Marketplace personal de integraciones (búsqueda, grids de
  * instaladas/disponibles/coming-soon). Se usa embebido dentro de
- * `MyReposPanel` (sección "Integrations"). El pitch de Team · Enterprise
- * vive aparte en `TeamIntegrationsView`, embebido en `TeamsWorkspace`.
+ * `MyReposPanel` (sección "Integrations").
  */
 export function IntegrationsMarketplaceView() {
   const { catalog } = usePluginCatalog()

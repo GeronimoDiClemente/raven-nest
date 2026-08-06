@@ -30,7 +30,6 @@ import { safeWriteText } from '../lib/clipboard'
 import ErrorBoundary from './ErrorBoundary'
 import JoinByCodeForm from './JoinByCodeForm'
 import TeamJoinCodePanel from './TeamJoinCodePanel'
-import { TeamIntegrationsView } from './TeamIntegrationsView'
 
 interface TeamsWorkspaceProps {
   onClose: () => void
@@ -42,7 +41,7 @@ interface TeamsWorkspaceProps {
   onStartTutorial?: () => void
 }
 
-type WorkspaceSection = 'activity' | 'chat' | 'repos' | 'issues' | 'members' | 'snippets' | 'workspaces' | 'mcp' | 'integrations' | 'pendings'
+type WorkspaceSection = 'activity' | 'chat' | 'repos' | 'issues' | 'members' | 'snippets' | 'workspaces' | 'mcp' | 'pendings'
 type ReposView = 'list' | 'prs' | 'pr-detail'
 type IssuesView = 'repo-select' | 'list' | 'detail'
 
@@ -377,11 +376,6 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal, on
       id: 'mcp',
       label: 'MCP Servers',
       icon: <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><rect x="1" y="2" width="8" height="10" rx="1.2" stroke="currentColor" strokeWidth="1.3"/><path d="M4 5h2M4 7.5h3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/><circle cx="11" cy="5" r="2" stroke="currentColor" strokeWidth="1.3"/><path d="M11 7v4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>,
-    },
-    {
-      id: 'integrations',
-      label: 'Integrations',
-      icon: <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="1" y="1" width="6" height="6" rx="1.2" stroke="currentColor" strokeWidth="1.3"/><rect x="9" y="1" width="6" height="6" rx="1.2" stroke="currentColor" strokeWidth="1.3"/><rect x="1" y="9" width="6" height="6" rx="1.2" stroke="currentColor" strokeWidth="1.3"/><path d="M12 9v6M9 12h6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>,
     },
     ...(pendingInvites.length > 0 ? [{
       id: 'pendings' as WorkspaceSection,
@@ -1293,7 +1287,6 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal, on
                 </div>
               )}
 
-              {!creatingTeam && section === 'integrations' && <TeamIntegrationsView />}
               </></ErrorBoundary>
 
             </div>
