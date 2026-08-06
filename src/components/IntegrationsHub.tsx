@@ -3,11 +3,15 @@ import { useBoardRows } from '../hooks/useBoardRows'
 import { OrchestrationBoard } from './OrchestrationBoard'
 import { IntegrationsRail } from './IntegrationsRail'
 import { WorktreePicker } from './WorktreePicker'
+import { RecipesView } from './RecipesView'
+import { AutomationsView } from './AutomationsView'
 import type { BoardRow } from '../integrations/board'
 
 interface IntegrationsHubProps {
   onClose: () => void
 }
+
+type HubTab = 'hub' | 'recipes' | 'automations'
 
 /** Full-screen overlay for the orchestration board — mirrors the
  *  teams-workspace shell used by TeamsWorkspace/MyReposPanel. */
@@ -15,6 +19,7 @@ export function IntegrationsHub({ onClose }: IntegrationsHubProps) {
   const { rows, refresh } = useBoardRows()
   const [scope, setScope] = useState<'all' | 'personal' | string>('all')
   const [picked, setPicked] = useState<BoardRow | null>(null)
+  const [tab, setTab] = useState<HubTab>('hub')
 
   const orgs = [...new Set(rows.filter((r) => r.scope.kind === 'org').map((r) => (r.scope.kind === 'org' ? r.scope.org : '')))]
   const hasPersonal = rows.some((r) => r.scope.kind === 'personal')
@@ -41,6 +46,11 @@ export function IntegrationsHub({ onClose }: IntegrationsHubProps) {
             <path d="M5.5 8h5M8 5.5v5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
           </svg>
           <span className="tw-header-title">Integrations</span>
+          <div className="ih-tabs">
+            <button className={tab === 'hub' ? 'active' : ''} onClick={() => setTab('hub')}>Hub</button>
+            <button className={tab === 'recipes' ? 'active' : ''} onClick={() => setTab('recipes')}>Recipes</button>
+            <button className={tab === 'automations' ? 'active' : ''} onClick={() => setTab('automations')}>Automations</button>
+          </div>
         </div>
 
         <div className="tw-header-right" />
@@ -49,23 +59,27 @@ export function IntegrationsHub({ onClose }: IntegrationsHubProps) {
       {/* Body */}
       <div className="teams-workspace-body">
         <div className="teams-workspace-content">
-          <div className="ih-layout">
-            <div className="ih-main">
-              {showFilter && (
-                <div className="ih-filter">
-                  <button className={scope === 'all' ? 'active' : ''} onClick={() => setScope('all')}>All</button>
-                  {orgs.map((org) => (
-                    <button key={org} className={scope === org ? 'active' : ''} onClick={() => setScope(org)}>{org}</button>
-                  ))}
-                  <button className={scope === 'personal' ? 'active' : ''} onClick={() => setScope('personal')}>Personal</button>
-                </div>
-              )}
-              <OrchestrationBoard rows={visibleRows} onOpen={setPicked} />
+          {tab === 'hub' && (
+            <div className="ih-layout">
+              <div className="ih-main">
+                {showFilter && (
+                  <div className="ih-filter">
+                    <button className={scope === 'all' ? 'active' : ''} onClick={() => setScope('all')}>All</button>
+                    {orgs.map((org) => (
+                      <button key={org} className={scope === org ? 'active' : ''} onClick={() => setScope(org)}>{org}</button>
+                    ))}
+                    <button className={scope === 'personal' ? 'active' : ''} onClick={() => setScope('personal')}>Personal</button>
+                  </div>
+                )}
+                <OrchestrationBoard rows={visibleRows} onOpen={setPicked} />
+              </div>
+              <div className="ih-rail">
+                <IntegrationsRail rows={visibleRows} onOpenRow={setPicked} />
+              </div>
             </div>
-            <div className="ih-rail">
-              <IntegrationsRail rows={visibleRows} onOpenRow={setPicked} />
-            </div>
-          </div>
+          )}
+          {tab === 'recipes' && <RecipesView />}
+          {tab === 'automations' && <AutomationsView />}
         </div>
       </div>
 

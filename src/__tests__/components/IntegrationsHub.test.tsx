@@ -23,6 +23,11 @@ beforeEach(() => {
     },
     worktree: { listAll: vi.fn().mockResolvedValue({ ok: true, worktrees: [] }) },
     signals: { list: vi.fn().mockResolvedValue([]), onUpdate: vi.fn(() => () => {}) },
+    recipes: {
+      list: vi.fn().mockResolvedValue([
+        { id: 'default:pr.merged', when: 'pr.merged', commands: ['updateStatus: done'] },
+      ]),
+    },
   })
 })
 
@@ -48,6 +53,26 @@ describe('IntegrationsHub', () => {
 
     await waitFor(() => expect(screen.getByText('No tasks yet — connect a source.')).toBeInTheDocument())
     expect(screen.getByText('@Nest')).toBeInTheDocument()
+  })
+
+  it('switches to the Recipes tab and shows its content', async () => {
+    render(<IntegrationsHub onClose={vi.fn()} />)
+
+    await waitFor(() => expect(screen.getByText('No tasks yet — connect a source.')).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: 'Recipes' }))
+
+    await waitFor(() => expect(screen.getByText('pr.merged')).toBeInTheDocument())
+    expect(screen.queryByText('No tasks yet — connect a source.')).not.toBeInTheDocument()
+  })
+
+  it('switches to the Automations tab and shows the coming-soon placeholder', async () => {
+    render(<IntegrationsHub onClose={vi.fn()} />)
+
+    await waitFor(() => expect(screen.getByText('No tasks yet — connect a source.')).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: 'Automations' }))
+
+    expect(screen.getByRole('heading', { name: 'Automations' })).toBeInTheDocument()
+    expect(screen.getByText(/Coming soon/)).toBeInTheDocument()
   })
 
   describe('with rows spanning an org and a personal ticket', () => {
