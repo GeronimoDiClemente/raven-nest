@@ -72,6 +72,9 @@ export function useXterm(paneId: string, onInput?: (data: string) => void, fontS
       }
     }))
     term.open(containerRef.current)
+    // Surface the applied scrollback so it's inspectable (e2e / debugging): a new
+    // terminal bakes in the current setting, importable from tmux `history-limit`.
+    containerRef.current?.setAttribute('data-scrollback', String(scrollback))
 
     termRef.current = term
     fitAddonRef.current = fitAddon
