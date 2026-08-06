@@ -1,9 +1,6 @@
 import { useState, useMemo, memo, type CSSProperties } from 'react'
 import { useTeamStats, type PrSizeBuckets } from '../hooks/useTeamStats'
 import type { PresenceState } from '../hooks/useTeamPresence'
-import TeamMemberList from './TeamMemberList'
-import EmployeeDetailPanel, { type EmployeeCtx } from './EmployeeDetailPanel'
-import { buildRoster } from '../lib/employee-analytics'
 
 interface TeamStatsProps {
   repos: Array<{ repo_full_name: string }>
@@ -161,10 +158,9 @@ function StatsSkeleton() {
   )
 }
 
-export default function TeamStats({ repos, githubToken, presence, members, viewerLogin }: TeamStatsProps) {
+export default function TeamStats({ repos, githubToken, presence }: TeamStatsProps) {
   const [windowDays, setWindowDays] = useState<7 | 30>(7)
-  const [selected, setSelected] = useState<string | null>(null)
-  const { stats, loading, error, warning, prevByLogin, openPrsByLogin } = useTeamStats(repos, githubToken, windowDays)
+  const { stats, loading, error, warning } = useTeamStats(repos, githubToken, windowDays)
   const onlineCount = Object.keys(presence).length
 
   // Team commits per day = sum of each dev's dailyCommits (aggregate, not per-dev).
@@ -207,29 +203,6 @@ export default function TeamStats({ repos, githubToken, presence, members, viewe
     prevCommits, prevPrsMerged,
   } = stats
   const coveragePct = reviewCov.mergedTotal ? `${Math.round(reviewCov.pct * 100)}%` : '—'
-
-  const memberRows = buildRoster(members, stats.developers, prevByLogin)
-  const selectedEmp: EmployeeCtx | null = (() => {
-    if (!selected) return null
-    const key = selected.toLowerCase()
-    // The roster unions registered members with GitHub contributors, so a
-    // selected login may not be a registered member — fall back to GitHub data.
-    // All lookups are case-insensitive since GitHub logins aren't case-sensitive.
-    const m = members.find(x => x.login?.toLowerCase() === key)
-    const d = stats.developers.find(x => x.login.toLowerCase() === key)
-    if (!m && !d) return null
-    const prev = Object.entries(prevByLogin).find(([l]) => l.toLowerCase() === key)?.[1]
-      ?? { commits: 0, prsMerged: 0 }
-    const openPrs = Object.entries(openPrsByLogin).find(([l]) => l.toLowerCase() === key)?.[1] ?? []
-    return {
-      login: selected, name: m?.name ?? selected, avatarUrl: m?.avatarUrl || d?.avatarUrl || '',
-      online: m?.online ?? false,
-      commits: d?.commits ?? 0, prevCommits: prev.commits,
-      prsMerged: d?.prsMerged ?? 0, prevPrsMerged: prev.prsMerged,
-      dailyCommits: d?.dailyCommits ?? Array(windowDays).fill(0),
-      openPrs,
-    }
-  })()
 
   return (
     <div className="ts-container">
@@ -317,9 +290,6 @@ export default function TeamStats({ repos, githubToken, presence, members, viewe
         </div>
       )}
 
-      <div className="ts-section-title" style={{ marginTop: 20 }}>Team members</div>
-      <TeamMemberList members={memberRows} openPrsByLogin={openPrsByLogin} viewerLogin={viewerLogin} onSelect={setSelected} />
-      {selectedEmp && <EmployeeDetailPanel emp={selectedEmp} repos={repos} githubToken={githubToken} onClose={() => setSelected(null)} />}
     </div>
   )
 }
