@@ -183,6 +183,11 @@ export class TicketLoop {
 
   trackedTicket(branch: string): Tracked | undefined { return this.tracked.get(branch) }
 
+  /** All tracked branch→ticket links, for the renderer board. */
+  trackedList(): Array<{ branch: string; ticketKey: string }> {
+    return [...this.tracked.entries()].map(([branch, t]) => ({ branch, ticketKey: t.key }))
+  }
+
   /** Distinct GitHub repos with at least one tracked branch — drives the poll. */
   trackedRepos(): string[] {
     const repos = new Set<string>()

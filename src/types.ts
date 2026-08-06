@@ -85,6 +85,7 @@ export interface TicketsBridge {
     branch: string
     worktreePath: string
   }) => Promise<{ ok: true } | { ok: false; error: string }>
+  tracked: () => Promise<Array<{ branch: string; ticketKey: string }>>
 }
 
 // === Worktree signals (H4 Motor 3) — espejo de WorktreeSignal de
@@ -96,6 +97,8 @@ export interface WorktreeSignalDTO {
   runUrl?: string
   changesRequested: boolean
   prNumber?: number
+  /** "owner/repo" resolved during the poll; undefined until the first poll cycle. */
+  repo?: string
 }
 
 export interface SignalsBridge {
@@ -558,6 +561,10 @@ declare global {
         dstWorktreePath: string,
         files: string[],
       ) => Promise<{ copied: number; skipped: number; errors: string[] }>
+      listAll: () => Promise<
+        | { ok: true; worktrees: WorktreeMeta[] }
+        | { ok: false; error: string }
+      >
     }
     preset: {
       list: (repoPath: string) => Promise<RavenPreset[]>

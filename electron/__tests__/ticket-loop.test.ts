@@ -136,6 +136,11 @@ describe('TicketLoop', () => {
     expect(loop.trackedTicket('rama-viva')).toBeDefined()
     expect(loop.trackedTicket('rama-muerta')).toBeUndefined()
   })
+
+  it('trackedList devuelve todos los links branch→ticket trackeados, para el board del renderer', async () => {
+    await loop.startWork('jira', ticket, 'gero/PROJ-1-fix', {} as never, 'acme/app')
+    expect(loop.trackedList()).toEqual([{ branch: 'gero/PROJ-1-fix', ticketKey: 'PROJ-1' }])
+  })
 })
 
 describe('TicketLoop con bus adjunto', () => {

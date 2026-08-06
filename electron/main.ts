@@ -1014,6 +1014,17 @@ ipcMain.handle('worktree:list', async (_evt, repoPath: string) => {
   return { ok: true as const, worktrees }
 })
 
+// Unfiltered worktree list across every repo the store knows about — the
+// orchestration board (Plan 2) shows worktrees from all repos at once,
+// unlike worktree:list above which scopes to a single repoPath.
+ipcMain.handle('worktree:listAll', () => {
+  try {
+    return { ok: true as const, worktrees: worktreeStore.list() }
+  } catch (e) {
+    return { ok: false as const, error: String(e) }
+  }
+})
+
 ipcMain.handle('worktree:get', async (_evt, worktreePath: string) => {
   if (!isAbsolute(worktreePath)) return { ok: false as const, error: 'worktreePath must be absolute' }
   return { ok: true as const, meta: worktreeStore.get(worktreePath) }
@@ -2395,6 +2406,9 @@ ipcMain.handle('tickets:list', (_e, pluginId: string) => {
 
 ipcMain.handle('tickets:branchName', (_e, user: string, key: string, title: string) =>
   ticketBranchName(String(user ?? ''), String(key ?? ''), String(title ?? '')))
+
+// All tracked branch→ticket links, for the orchestration board (Plan 2).
+ipcMain.handle('tickets:tracked', () => ticketLoop.trackedList())
 
 // Called AFTER worktree:create returned ok: writes TASK.md with the ticket
 // context and fires the in_progress transition. The ticket shape is validated

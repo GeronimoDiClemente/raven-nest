@@ -280,6 +280,7 @@ contextBridge.exposeInMainWorld('tickets', {
     ipcRenderer.invoke('tickets:branchName', user, key, title),
   startWork: (args: { pluginId: string; ticket: unknown; branch: string; worktreePath: string }) =>
     ipcRenderer.invoke('tickets:startWork', args),
+  tracked: () => ipcRenderer.invoke('tickets:tracked'),
 })
 
 contextBridge.exposeInMainWorld('signals', {
@@ -331,6 +332,7 @@ contextBridge.exposeInMainWorld('worktree', {
     ipcRenderer.invoke('worktree:setPreset', worktreePath, presetId),
   copyFiles: (srcRepoPath: string, dstWorktreePath: string, files: string[]) =>
     ipcRenderer.invoke('worktree:copyFiles', srcRepoPath, dstWorktreePath, files),
+  listAll: () => ipcRenderer.invoke('worktree:listAll'),
 })
 
 contextBridge.exposeInMainWorld('port', {
