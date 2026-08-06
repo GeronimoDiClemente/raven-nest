@@ -1,4 +1,4 @@
-import type { TicketState, WorktreeMeta, WorktreeSignalDTO } from '../types'
+import type { Ticket, TicketState, WorktreeMeta, WorktreeSignalDTO } from '../types'
 
 export type Scope = { kind: 'org'; org: string } | { kind: 'personal' }
 
@@ -30,4 +30,64 @@ export function deriveStatus(
   if (setupState === 'running') return 'working'
   if (setupState == null) return ticketState === 'todo' ? 'todo' : 'working'
   return 'working'
+}
+
+export interface BoardRow {
+  key: string
+  title: string
+  url: string
+  providerId: string
+  pluginId: string
+  ticketState: TicketState
+  status: AgentStatus
+  branch: string | null
+  worktreePath: string | null
+  repoFullName: string | null
+  scope: Scope
+  ci: WorktreeSignalDTO['ci'] | null
+  changesRequested: boolean
+  prNumber: number | null
+}
+
+export interface BoardInputs {
+  tickets: Array<{ pluginId: string; ticket: Ticket }>
+  worktrees: WorktreeMeta[]
+  signals: WorktreeSignalDTO[]
+  links: Array<{ branch: string; ticketKey: string }>
+  personalLogin: string
+  repoFullName: (repoPath: string) => string | null
+}
+
+/** Pure join: one BoardRow per ticket, enriched with its linked worktree/signal. */
+export function projectBoard(inp: BoardInputs): BoardRow[] {
+  const branchByKey = new Map(inp.links.map((l) => [l.ticketKey, l.branch]))
+  const wtByBranch = new Map(inp.worktrees.map((w) => [w.branch, w]))
+  const sigByPath = new Map(inp.signals.map((s) => [s.repoPath, s]))
+
+  return inp.tickets.map(({ pluginId, ticket }) => {
+    const branch = branchByKey.get(ticket.key) ?? null
+    const wt = branch ? wtByBranch.get(branch) ?? null : null
+    const sig = wt ? sigByPath.get(wt.repoPath) ?? null : null
+    const full = wt ? inp.repoFullName(wt.repoPath) : null
+    return {
+      key: ticket.key,
+      title: ticket.title,
+      url: ticket.url,
+      providerId: ticket.providerId,
+      pluginId,
+      ticketState: ticket.state,
+      status: deriveStatus(
+        ticket.state,
+        wt?.setupState ?? null,
+        sig ? { ci: sig.ci, changesRequested: sig.changesRequested } : null,
+      ),
+      branch,
+      worktreePath: wt?.repoPath ?? null,
+      repoFullName: full,
+      scope: deriveScope(full, inp.personalLogin),
+      ci: sig?.ci ?? null,
+      changesRequested: sig?.changesRequested ?? false,
+      prNumber: sig?.prNumber ?? null,
+    }
+  })
 }
