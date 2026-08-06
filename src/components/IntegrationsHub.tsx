@@ -46,7 +46,6 @@ export function IntegrationsHub({ onClose }: IntegrationsHubProps) {
             <rect x="2" y="2" width="12" height="12" rx="3.5" stroke="currentColor" strokeWidth="1.4" />
             <path d="M5.5 8h5M8 5.5v5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
           </svg>
-          <span className="tw-header-title">Integrations</span>
           <div className="ih-tabs">
             <button className={tab === 'hub' ? 'active' : ''} onClick={() => setTab('hub')}>Hub</button>
             <button className={tab === 'connections' ? 'active' : ''} onClick={() => setTab('connections')}>Connections</button>
@@ -73,7 +72,7 @@ export function IntegrationsHub({ onClose }: IntegrationsHubProps) {
                     <button className={scope === 'personal' ? 'active' : ''} onClick={() => setScope('personal')}>Personal</button>
                   </div>
                 )}
-                <OrchestrationBoard rows={visibleRows} onOpen={setPicked} />
+                <OrchestrationBoard rows={visibleRows} onOpen={setPicked} onConnect={() => setTab('connections')} />
               </div>
               <div className="ih-rail">
                 <IntegrationsRail rows={visibleRows} onOpenRow={setPicked} />

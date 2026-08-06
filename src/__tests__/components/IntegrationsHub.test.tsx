@@ -49,18 +49,18 @@ beforeEach(() => {
 })
 
 describe('IntegrationsHub', () => {
-  it('shows the Integrations header and the board empty state', async () => {
+  it('shows the hub tabs and the board empty state', async () => {
     render(<IntegrationsHub onClose={vi.fn()} />)
 
-    expect(screen.getByText('Integrations')).toBeInTheDocument()
-    await waitFor(() => expect(screen.getByText('No tasks yet — connect a source.')).toBeInTheDocument())
+    expect(screen.getByRole('button', { name: 'Hub' })).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByText('No tasks yet')).toBeInTheDocument())
   })
 
   it('calls onClose when the back button is clicked', async () => {
     const onClose = vi.fn()
     render(<IntegrationsHub onClose={onClose} />)
 
-    await waitFor(() => expect(screen.getByText('No tasks yet — connect a source.')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('No tasks yet')).toBeInTheDocument())
     fireEvent.click(screen.getByText('Back'))
     expect(onClose).toHaveBeenCalledTimes(1)
   })
@@ -68,24 +68,24 @@ describe('IntegrationsHub', () => {
   it('shows the rail alongside the board', async () => {
     render(<IntegrationsHub onClose={vi.fn()} />)
 
-    await waitFor(() => expect(screen.getByText('No tasks yet — connect a source.')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('No tasks yet')).toBeInTheDocument())
     expect(screen.getByText('@Nest')).toBeInTheDocument()
   })
 
   it('switches to the Recipes tab and shows its content', async () => {
     render(<IntegrationsHub onClose={vi.fn()} />)
 
-    await waitFor(() => expect(screen.getByText('No tasks yet — connect a source.')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('No tasks yet')).toBeInTheDocument())
     fireEvent.click(screen.getByRole('button', { name: 'Recipes' }))
 
     await waitFor(() => expect(screen.getByText('pr.merged')).toBeInTheDocument())
-    expect(screen.queryByText('No tasks yet — connect a source.')).not.toBeInTheDocument()
+    expect(screen.queryByText('No tasks yet')).not.toBeInTheDocument()
   })
 
   it('switches to the Automations tab and shows the coming-soon placeholder', async () => {
     render(<IntegrationsHub onClose={vi.fn()} />)
 
-    await waitFor(() => expect(screen.getByText('No tasks yet — connect a source.')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('No tasks yet')).toBeInTheDocument())
     fireEvent.click(screen.getByRole('button', { name: 'Automations' }))
 
     expect(screen.getByRole('heading', { name: 'Automations' })).toBeInTheDocument()
@@ -95,13 +95,13 @@ describe('IntegrationsHub', () => {
   it('switches to the Connections tab and renders the integrations marketplace', async () => {
     render(<IntegrationsHub onClose={vi.fn()} />)
 
-    await waitFor(() => expect(screen.getByText('No tasks yet — connect a source.')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('No tasks yet')).toBeInTheDocument())
     fireEvent.click(screen.getByRole('button', { name: 'Connections' }))
 
     expect(await screen.findByText('Available')).toBeInTheDocument()
     expect(screen.getByText('Demo')).toBeInTheDocument()
     expect(screen.getByPlaceholderText('Search...')).toBeInTheDocument()
-    expect(screen.queryByText('No tasks yet — connect a source.')).not.toBeInTheDocument()
+    expect(screen.queryByText('No tasks yet')).not.toBeInTheDocument()
   })
 
   describe('with rows spanning an org and a personal ticket', () => {

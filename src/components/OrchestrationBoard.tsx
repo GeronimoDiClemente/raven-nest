@@ -4,6 +4,7 @@ import { BUILTIN_CATALOG } from '../lib/plugins/builtinCatalog'
 interface Props {
   rows: BoardRow[]
   onOpen?: (row: BoardRow) => void
+  onConnect?: () => void
 }
 
 const STATUS_LABEL = {
@@ -13,9 +14,17 @@ const STATUS_LABEL = {
   todo: 'To do',
 } as const
 
-export function OrchestrationBoard({ rows, onOpen }: Props) {
+export function OrchestrationBoard({ rows, onOpen, onConnect }: Props) {
   if (rows.length === 0) {
-    return <div className="ob-empty">No tasks yet — connect a source.</div>
+    return (
+      <div className="ob-empty">
+        <p className="ob-empty-title">No tasks yet</p>
+        <p className="ob-empty-sub">Connect a source (GitHub, Jira, Linear…) to see your work here.</p>
+        {onConnect && (
+          <button className="ob-connect-btn" onClick={onConnect}>Connect a source →</button>
+        )}
+      </div>
+    )
   }
 
   return (
