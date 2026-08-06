@@ -144,6 +144,7 @@ import { fetchPageMarkdown } from './integrations/notion'
 import { createGcalAdapter, type GcalEvent } from './integrations/gcal'
 import { refreshAccessToken, startLoopbackFlow, GcalAuthError, type GcalCreds } from './integrations/gcal-oauth'
 import { EventBus } from './integrations/event-bus'
+import { ActivityLog } from './integrations/activity-log'
 import { loadRecipes, recipeDescriptors } from './integrations/recipes'
 import { registerBusCommands } from './integrations/bus-commands'
 import {
@@ -2338,6 +2339,19 @@ ticketLoop.retainBranches(worktreeStore.list().map((m) => m.branch))
 // loop sólo destrackea/marca lastPr si el updateStatus del ticket NO falló, así un
 // 500 transitorio de Jira/Linear reintenta al próximo poll (no deja el ticket stuck).
 const eventBus = new EventBus()
+
+// Hub Activity rail: every DomainEvent emitted on the shared bus (ticket
+// loop, worktree signals, scheduler) gets recorded in a ring buffer and
+// pushed live to the renderer. Wired right after the bus is created so it
+// observes every emitter — purely additive, does not touch EmitResult.
+const activityLog = new ActivityLog()
+eventBus.setOnEmit((ev) => {
+  const ts = Date.now()
+  activityLog.record(ev, ts)
+  for (const w of BrowserWindow.getAllWindows()) w.webContents.send('activity:append', { ev, ts })
+})
+ipcMain.handle('activity:list', () => activityLog.list())
+
 eventBus.setRecipes(loadRecipes(
   pathJoin(ravenHome(), '.raven-nest', 'recipes.json'),
   (branch) => ticketLoop.trackedTicket(branch),

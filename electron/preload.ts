@@ -304,6 +304,18 @@ contextBridge.exposeInMainWorld('signals', {
   },
 })
 
+// Hub Activity rail: `list()` reads the ring buffer for the initial paint;
+// `onAppend` is the live push, one call per DomainEvent emitted on the bus
+// (same push pattern as `signals:update`/`slack:mention`).
+contextBridge.exposeInMainWorld('activity', {
+  list: () => ipcRenderer.invoke('activity:list'),
+  onAppend: (cb: (entry: { ev: unknown; ts: number }) => void) => {
+    const h = (_e: IpcRendererEvent, entry: { ev: unknown; ts: number }) => cb(entry)
+    ipcRenderer.on('activity:append', h)
+    return () => ipcRenderer.removeListener('activity:append', h)
+  },
+})
+
 // H7 — @Nest desde Slack (Socket Mode). El main empuja menciones/acciones por
 // IPC push (patrón `signals:update`); postThread invoca el bot token main-side.
 contextBridge.exposeInMainWorld('slackMentions', {

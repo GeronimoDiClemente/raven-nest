@@ -107,6 +107,101 @@ export interface SignalsBridge {
   onUpdate: (cb: () => void) => () => void
 }
 
+// === Activity feed (event bus) — espejo de DomainEvent de
+// electron/integrations/bus-types.ts (src/ nunca importa de electron/, mismo
+// patrón que WorktreeSignalDTO arriba). Sólo los tipos, sin los guards
+// runtime (`isDomainEvent` vive en el borde de main, no acá). ===
+export interface TaskCreatedEvent {
+  type: 'task.created'
+  taskId: string
+  pluginId: string
+  providerId: string
+  repoFullName: string | null
+  branch: string
+  title?: string
+}
+export interface SessionOpenedEvent {
+  type: 'session.opened'
+  branch: string
+  repoPath: string
+  pluginId?: string
+  providerId?: string
+}
+export interface SessionClosedEvent {
+  type: 'session.closed'
+  branch: string
+}
+export interface PrOpenedEvent {
+  type: 'pr.opened'
+  branch: string
+  repoFullName: string
+}
+export interface PrMergedEvent {
+  type: 'pr.merged'
+  branch: string
+  repoFullName: string
+}
+export interface CiFailedEvent {
+  type: 'ci.failed'
+  branch: string
+  repoFullName: string
+  runUrl?: string
+  summary?: string
+}
+export interface ErrorDetectedEvent {
+  type: 'error.detected'
+  source: string
+  ref: string
+  summary: string
+}
+export interface BlockStartedEvent {
+  type: 'block.started'
+  taskId?: string
+  label: string
+}
+export interface MeetingTranscribedEvent {
+  type: 'meeting.transcribed'
+  title: string
+  items: string[]
+}
+export interface ChangesRequestedEvent {
+  type: 'changes.requested'
+  branch: string
+  repoFullName: string
+  prNumber: number
+}
+export interface ReviewRequestedEvent {
+  type: 'review.requested'
+  repoFullName: string
+  prNumber: number
+  prTitle: string
+}
+
+export type DomainEvent =
+  | TaskCreatedEvent
+  | SessionOpenedEvent
+  | SessionClosedEvent
+  | PrOpenedEvent
+  | PrMergedEvent
+  | CiFailedEvent
+  | ErrorDetectedEvent
+  | BlockStartedEvent
+  | MeetingTranscribedEvent
+  | ChangesRequestedEvent
+  | ReviewRequestedEvent
+
+export interface ActivityEntry {
+  ev: DomainEvent
+  ts: number
+}
+
+export interface ActivityBridge {
+  /** Snapshot of the ring buffer (newest first) for the initial paint. */
+  list: () => Promise<ActivityEntry[]>
+  /** Live push, one call per event emitted on the bus. Returns the unsubscribe. */
+  onAppend: (cb: (entry: ActivityEntry) => void) => () => void
+}
+
 // === Recipes tab (H8/Plan 5 Task 1) — espejo de RecipeDescriptor de
 // electron/integrations/recipes.ts (src/ nunca importa de electron/). Read-only:
 // "when event → commands" display for the built-in/stored bus recipes. ===
@@ -698,6 +793,7 @@ declare global {
     }
     tickets: TicketsBridge
     signals: SignalsBridge
+    activity: ActivityBridge
     slackMentions: SlackMentionsBridge
     notion: NotionBridge
     gcal: GcalBridge

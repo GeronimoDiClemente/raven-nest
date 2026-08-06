@@ -1,15 +1,32 @@
+import { useEffect, useState } from 'react'
 import type { BoardRow } from '../integrations/board'
+import type { ActivityEntry } from '../types'
+import { formatActivity, timeAgo } from '../lib/formatActivity'
 
 interface Props {
   rows: BoardRow[]
   onOpenRow?: (row: BoardRow) => void
 }
 
+const ACTIVITY_CAP = 50
+
 /** Right rail of the Integrations hub: the @Nest bot widget, a Needs-you
- *  queue for rows that need a human call, and an Activity placeholder
- *  (the real feed lands in a later pass — this only reserves the slot). */
+ *  queue for rows that need a human call, and the Activity feed — fed by
+ *  the event bus's DomainEvents (`window.activity`, same push pattern as
+ *  `signals`/`slackMentions`). */
 export function IntegrationsRail({ rows, onOpenRow }: Props) {
   const needsYou = rows.filter((r) => r.status === 'needs_you')
+  const [entries, setEntries] = useState<ActivityEntry[]>([])
+
+  useEffect(() => {
+    // `window.activity?` is defensive: the bridge may not exist yet
+    // (preload timing) or be absent in test environments that only mock
+    // other bridges — same convention as `useWorktreeSignals`.
+    window.activity?.list?.().then(setEntries).catch(() => {})
+    return window.activity?.onAppend?.((entry) => {
+      setEntries((prev) => [entry, ...prev].slice(0, ACTIVITY_CAP))
+    })
+  }, [])
 
   return (
     <div className="ih-rail-inner">
@@ -47,7 +64,18 @@ export function IntegrationsRail({ rows, onOpenRow }: Props) {
 
       <div className="ih-act-block">
         <div className="ih-railh">Activity</div>
-        <div className="ih-act-empty">Activity will appear here.</div>
+        {entries.length === 0
+          ? <div className="ih-act-empty">Activity will appear here.</div>
+          : entries.map((entry, i) => {
+              const { icon, text } = formatActivity(entry.ev)
+              return (
+                <div className="ih-act-item" key={`${entry.ts}-${i}`}>
+                  <span className="ih-act-icon">{icon}</span>
+                  <span className="ih-act-text">{text}</span>
+                  <span className="ih-act-time">{timeAgo(entry.ts)}</span>
+                </div>
+              )
+            })}
       </div>
     </div>
   )
