@@ -8,7 +8,8 @@
 // (`TrackedLookup`), no por import global.
 import { randomBytes } from 'crypto'
 import { readFileSync, writeFileSync, mkdirSync, renameSync } from 'fs'
-import { dirname } from 'path'
+import { dirname, join } from 'path'
+import { ravenHome } from '../raven-home'
 import type { Recipe } from './event-bus'
 import type { Command, DomainEvent } from './bus-types'
 import { isCommand } from './bus-types'
@@ -144,15 +145,50 @@ const EVENT_TYPES: readonly DomainEvent['type'][] = [
   'changes.requested', 'review.requested',
 ]
 
-/** Convierte una receta almacenada (venida de disco, `unknown`) en runtime, o null si es inválida. */
-function toRecipe(x: unknown): Recipe | null {
+/** Valida una receta almacenada (venida de disco, `unknown`), o null si es inválida. */
+function toStoredRecipe(x: unknown): StoredRecipe | null {
   if (!x || typeof x !== 'object') return null
   const r = x as Record<string, unknown>
   if (typeof r.id !== 'string') return null
   if (typeof r.when !== 'string' || !EVENT_TYPES.includes(r.when as DomainEvent['type'])) return null
   if (!Array.isArray(r.emit) || !r.emit.every(isCommand)) return null
-  const emit = r.emit as Command[]
-  return { id: r.id, when: r.when as DomainEvent['type'], then: () => emit.map((c) => ({ ...c })) }
+  return { id: r.id, when: r.when as DomainEvent['type'], emit: r.emit as Command[] }
+}
+
+/** Convierte una receta almacenada (venida de disco, `unknown`) en runtime, o null si es inválida. */
+function toRecipe(x: unknown): Recipe | null {
+  const stored = toStoredRecipe(x)
+  if (!stored) return null
+  const emit = stored.emit
+  return { id: stored.id, when: stored.when, then: () => emit.map((c) => ({ ...c })) }
+}
+
+/**
+ * Lee las recetas almacenadas SIN convertirlas a `Recipe` runtime (no hace
+ * falta `lookup`: las usa `recipeDescriptors`, sólo display). Archivo
+ * inexistente, JSON ilegible o sin recetas válidas → `[]` (nunca tira; el
+ * warn de recetas inválidas ya lo hace `loadRecipes` cuando el bus las carga
+ * de verdad, así no se duplica el log en cada `recipes:list`).
+ */
+export function loadStoredRecipes(filePath: string): StoredRecipe[] {
+  let raw: string
+  try {
+    raw = readFileSync(filePath, 'utf8')
+  } catch {
+    return []
+  }
+  try {
+    const data = JSON.parse(raw) as { recipes?: unknown }
+    const stored = Array.isArray(data.recipes) ? data.recipes : []
+    const out: StoredRecipe[] = []
+    for (const s of stored) {
+      const rec = toStoredRecipe(s)
+      if (rec) out.push(rec)
+    }
+    return out
+  } catch {
+    return []
+  }
 }
 
 /**
@@ -200,4 +236,87 @@ export function saveRecipes(filePath: string, recipes: StoredRecipe[]): void {
   } catch (err) {
     console.warn('[recipes] recipes.json write failed', err)
   }
+}
+
+// ── Recipes tab (renderer, read-only — Plan 5 Task 1) ───────────────────────
+// `recipeDescriptors()` backs the `recipes:list` IPC: a read-only "when event
+// → commands" view for the Recipes tab. It never invokes a Recipe's dynamic
+// `then(ev)` (that needs a real event + `lookup`, which display code doesn't
+// have) — instead it's a static, hand-written mirror of what `defaultRecipes`
+// above actually emits. Keep the two in sync when either changes.
+
+/** Human-readable label for one command; shared by defaults and stored recipes. */
+export function describeCommand(cmd: Command): string {
+  switch (cmd.cmd) {
+    case 'notify':
+      return `notify ${cmd.channel || '#channel'}`
+    case 'updateStatus':
+      return `updateStatus: ${cmd.to}`
+    case 'logOutcome':
+      return 'logOutcome'
+    case 'setPresence':
+      return 'setPresence'
+    case 'createTask':
+      return 'createTask'
+    case 'openSession':
+      return 'openSession'
+    case 'scheduleBlock':
+      return 'scheduleBlock'
+    default:
+      return (cmd as Command).cmd
+  }
+}
+
+export interface RecipeDescriptor {
+  id: string
+  when: string
+  commands: string[]
+}
+
+// Mirrors defaultRecipes() one-to-one: same (when, command-shape) pairs, same
+// order. Field values defaultRecipes() only knows at emit time (channel, ref,
+// summary, ...) are placeholders here — describeCommand() never reads them.
+// task.created→noop has no entry: it emits no commands, so it has nothing to
+// describe (and the grouping below drops any `when` left with an empty list).
+const DEFAULT_RECIPE_COMMANDS: ReadonlyArray<{ when: DomainEvent['type']; cmd: Command }> = [
+  { when: 'pr.opened', cmd: { cmd: 'updateStatus', pluginId: '', providerId: '', to: 'in_review' } },
+  { when: 'pr.merged', cmd: { cmd: 'updateStatus', pluginId: '', providerId: '', to: 'done' } },
+  { when: 'pr.merged', cmd: { cmd: 'notify', channel: '', message: '' } },
+  { when: 'ci.failed', cmd: { cmd: 'notify', channel: '', message: '' } },
+  { when: 'changes.requested', cmd: { cmd: 'notify', channel: '', message: '' } },
+  { when: 'review.requested', cmd: { cmd: 'notify', channel: '', message: '' } },
+  { when: 'session.opened', cmd: { cmd: 'setPresence', text: '' } },
+  { when: 'pr.merged', cmd: { cmd: 'logOutcome', ref: '', summary: '' } },
+]
+
+/** Groups DEFAULT_RECIPE_COMMANDS by `when` (first-seen order) into one descriptor per event. */
+function defaultDescriptors(): RecipeDescriptor[] {
+  const order: DomainEvent['type'][] = []
+  const commandsByWhen = new Map<DomainEvent['type'], string[]>()
+  for (const { when, cmd } of DEFAULT_RECIPE_COMMANDS) {
+    if (!commandsByWhen.has(when)) {
+      commandsByWhen.set(when, [])
+      order.push(when)
+    }
+    commandsByWhen.get(when)!.push(describeCommand(cmd))
+  }
+  return order.map((when) => ({ id: `default:${when}`, when, commands: commandsByWhen.get(when)! }))
+}
+
+function defaultRecipesFilePath(): string {
+  return join(ravenHome(), '.raven-nest', 'recipes.json')
+}
+
+/**
+ * Display descriptors for the ACTIVE bus recipes (backs `recipes:list`).
+ * Mirrors `loadRecipes`'s own activation rule so this stays honest about
+ * what's really running: no valid stored recipes (file missing, unreadable,
+ * or empty) → the built-in defaults; stored recipes present → only those
+ * (same swap-not-merge semantics `loadRecipes` uses for the live bus).
+ * `filePath` defaults to the real recipes.json; tests inject a temp path.
+ */
+export function recipeDescriptors(filePath: string = defaultRecipesFilePath()): RecipeDescriptor[] {
+  const stored = loadStoredRecipes(filePath)
+  if (stored.length === 0) return defaultDescriptors()
+  return stored.map((r) => ({ id: r.id, when: r.when, commands: r.emit.map(describeCommand) }))
 }

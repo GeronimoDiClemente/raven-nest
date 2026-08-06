@@ -107,6 +107,19 @@ export interface SignalsBridge {
   onUpdate: (cb: () => void) => () => void
 }
 
+// === Recipes tab (H8/Plan 5 Task 1) — espejo de RecipeDescriptor de
+// electron/integrations/recipes.ts (src/ nunca importa de electron/). Read-only:
+// "when event → commands" display for the built-in/stored bus recipes. ===
+export interface RecipeDescriptor {
+  id: string
+  when: string
+  commands: string[]
+}
+
+export interface RecipesBridge {
+  list: () => Promise<RecipeDescriptor[]>
+}
+
 // === @Nest desde Slack (H7 Motor 5) — espejo de SlackMention/SlackAction de
 // electron/integrations/slack-envelopes.ts (src/ nunca importa de electron/) ===
 export interface SlackMentionDTO {
@@ -643,6 +656,7 @@ declare global {
     slackMentions: SlackMentionsBridge
     notion: NotionBridge
     gcal: GcalBridge
+    recipes: RecipesBridge
   }
 }
 

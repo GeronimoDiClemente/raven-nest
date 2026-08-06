@@ -283,6 +283,10 @@ contextBridge.exposeInMainWorld('tickets', {
   tracked: () => ipcRenderer.invoke('tickets:tracked'),
 })
 
+contextBridge.exposeInMainWorld('recipes', {
+  list: () => ipcRenderer.invoke('recipes:list'),
+})
+
 contextBridge.exposeInMainWorld('signals', {
   list: () => ipcRenderer.invoke('signals:list'),
   fixCiPrompt: (repoPath: string) => ipcRenderer.invoke('signals:fixCiPrompt', repoPath),

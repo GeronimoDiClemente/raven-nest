@@ -6,6 +6,8 @@ import {
   defaultRecipes,
   loadRecipes,
   saveRecipes,
+  describeCommand,
+  recipeDescriptors,
   type TrackedLookup,
   type StoredRecipe,
 } from '../integrations/recipes'
@@ -161,5 +163,62 @@ describe('loadRecipes / saveRecipes', () => {
     const recipes = loadRecipes(file, lookup)
     expect(recipes.map((x) => x.id)).toEqual(['ok'])
     expect(warn).toHaveBeenCalled()
+  })
+})
+
+describe('describeCommand', () => {
+  it('formatea cada tipo de comando en una etiqueta corta', () => {
+    expect(describeCommand({ cmd: 'notify', channel: '#dev', message: 'x' })).toBe('notify #dev')
+    expect(describeCommand({ cmd: 'notify', channel: '', message: 'x' })).toBe('notify #channel')
+    expect(describeCommand({ cmd: 'updateStatus', pluginId: 'p', providerId: 'i', to: 'in_review' })).toBe('updateStatus: in_review')
+    expect(describeCommand({ cmd: 'logOutcome', ref: 'r', summary: 's' })).toBe('logOutcome')
+    expect(describeCommand({ cmd: 'setPresence', text: 't' })).toBe('setPresence')
+    expect(describeCommand({ cmd: 'createTask', pluginId: 'p', title: 't' })).toBe('createTask')
+    expect(describeCommand({ cmd: 'openSession' })).toBe('openSession')
+    expect(describeCommand({ cmd: 'scheduleBlock', when: 'w', label: 'l' })).toBe('scheduleBlock')
+  })
+})
+
+describe('recipeDescriptors (Recipes tab, read-only — Plan 5 Task 1)', () => {
+  it('archivo inexistente → descriptores de los defaults, agrupados por when en orden de aparición', () => {
+    const descriptors = recipeDescriptors(tmpFile())
+    expect(descriptors).toEqual([
+      { id: 'default:pr.opened', when: 'pr.opened', commands: ['updateStatus: in_review'] },
+      { id: 'default:pr.merged', when: 'pr.merged', commands: ['updateStatus: done', 'notify #channel', 'logOutcome'] },
+      { id: 'default:ci.failed', when: 'ci.failed', commands: ['notify #channel'] },
+      { id: 'default:changes.requested', when: 'changes.requested', commands: ['notify #channel'] },
+      { id: 'default:review.requested', when: 'review.requested', commands: ['notify #channel'] },
+      { id: 'default:session.opened', when: 'session.opened', commands: ['setPresence'] },
+    ])
+    // task.created→noop no emite comandos: no tiene fila (nada que mostrar)
+    expect(descriptors.some((d) => d.when === 'task.created')).toBe(false)
+  })
+
+  it('recetas guardadas reemplazan a los defaults (mismo swap-not-merge que loadRecipes) y se describen con describeCommand', () => {
+    const file = tmpFile()
+    const stored: StoredRecipe[] = [
+      { id: 'custom-notify', when: 'pr.opened', emit: [{ cmd: 'notify', channel: '#dev', message: 'PR abierto' }] },
+      {
+        id: 'custom-done',
+        when: 'pr.merged',
+        emit: [
+          { cmd: 'updateStatus', pluginId: 'jira', providerId: 'p1', to: 'done' },
+          { cmd: 'logOutcome', ref: 'x', summary: 'y' },
+        ],
+      },
+    ]
+    saveRecipes(file, stored)
+    expect(recipeDescriptors(file)).toEqual([
+      { id: 'custom-notify', when: 'pr.opened', commands: ['notify #dev'] },
+      { id: 'custom-done', when: 'pr.merged', commands: ['updateStatus: done', 'logOutcome'] },
+    ])
+  })
+
+  it('recipes.json presente pero sin recetas válidas → vuelve a caer en los defaults', () => {
+    const file = tmpFile()
+    saveRecipes(file, [])
+    expect(recipeDescriptors(file)[0]).toEqual(
+      { id: 'default:pr.opened', when: 'pr.opened', commands: ['updateStatus: in_review'] },
+    )
   })
 })

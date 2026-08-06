@@ -144,7 +144,7 @@ import { fetchPageMarkdown } from './integrations/notion'
 import { createGcalAdapter, type GcalEvent } from './integrations/gcal'
 import { refreshAccessToken, startLoopbackFlow, GcalAuthError, type GcalCreds } from './integrations/gcal-oauth'
 import { EventBus } from './integrations/event-bus'
-import { loadRecipes } from './integrations/recipes'
+import { loadRecipes, recipeDescriptors } from './integrations/recipes'
 import { registerBusCommands } from './integrations/bus-commands'
 import { ticketBranchName } from './integrations/branch-name'
 import { performWorktreeAdd } from './worktree-create'
@@ -2295,6 +2295,9 @@ eventBus.setRecipes(loadRecipes(
   pathJoin(ravenHome(), '.raven-nest', 'recipes.json'),
   (branch) => ticketLoop.trackedTicket(branch),
 ))
+// Recipes tab (Plan 5 Task 1) — read-only display of the ACTIVE recipes
+// above (same recipes.json, same swap-not-merge rule as loadRecipes).
+ipcMain.handle('recipes:list', () => recipeDescriptors())
 // H6 Motor 4 — Calendar: el sink de outcomes se resuelve con `gcalDeps()`, que
 // desenvuelve el access token de las creds guardadas (JSON) y refresca en
 // background si venció. Sin creds gcal, `gcalDeps().getToken('gcal')` devuelve
