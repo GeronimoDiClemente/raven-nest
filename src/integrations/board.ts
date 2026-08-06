@@ -19,6 +19,8 @@ export type AgentStatus = 'todo' | 'working' | 'needs_you' | 'done'
  * failure) always surfaces as `needs_you`; then ticket `done`; then an active
  * worktree is `working`; a todo ticket with no worktree is `todo`; anything
  * else in flight is `working`. `idle`/`needs_input` are epic B, not here.
+ * Note: `failed`/`cancelled`/`orphaned` setup states currently fall through to
+ * `working`; epic B will distinguish them.
  */
 export function deriveStatus(
   ticketState: TicketState,
@@ -58,7 +60,11 @@ export interface BoardInputs {
   repoFullName: (repoPath: string) => string | null
 }
 
-/** Pure join: one BoardRow per ticket, enriched with its linked worktree/signal. */
+/**
+ * Pure join: one BoardRow per ticket, enriched with its linked worktree/signal.
+ * Assumes branch names are unique across worktrees (true for ticket-derived
+ * branches like `user/KEY-slug`; the branch is the join key).
+ */
 export function projectBoard(inp: BoardInputs): BoardRow[] {
   const branchByKey = new Map(inp.links.map((l) => [l.ticketKey, l.branch]))
   const wtByBranch = new Map(inp.worktrees.map((w) => [w.branch, w]))

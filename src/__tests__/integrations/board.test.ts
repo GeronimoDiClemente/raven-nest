@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { deriveScope, deriveStatus, projectBoard, type BoardInputs } from '../integrations/board'
-import type { Ticket, WorktreeMeta } from '../types'
+import { deriveScope, deriveStatus, projectBoard, type BoardInputs } from '../../integrations/board'
+import type { Ticket, WorktreeMeta } from '../../types'
 
 describe('deriveScope', () => {
   it('is personal when there is no repo', () => {
@@ -59,6 +59,23 @@ describe('projectBoard', () => {
       worktreePath: '/repos/raven-nest', repoFullName: 'RAVEN/raven-nest',
       scope: { kind: 'org', org: 'RAVEN' }, status: 'needs_you',
       ci: 'success', changesRequested: true, prNumber: 42,
+    })
+  })
+
+  it('linked worktree with no signal yet → working, null ci/pr', () => {
+    const inp: BoardInputs = {
+      tickets: [{ pluginId: 'jira', ticket: ticket('PROJ-9', 'in_progress', 'Wire it') }],
+      worktrees: [wt('gero/proj-9-wire', '/repos/web', 'running')],
+      signals: [],
+      links: [{ branch: 'gero/proj-9-wire', ticketKey: 'PROJ-9' }],
+      personalLogin: 'gero',
+      repoFullName: () => 'RAVEN/web',
+    }
+    const [row] = projectBoard(inp)
+    expect(row).toMatchObject({
+      branch: 'gero/proj-9-wire', worktreePath: '/repos/web', repoFullName: 'RAVEN/web',
+      scope: { kind: 'org', org: 'RAVEN' }, status: 'working',
+      ci: null, changesRequested: false, prNumber: null,
     })
   })
 
