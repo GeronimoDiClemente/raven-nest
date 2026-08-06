@@ -149,7 +149,8 @@ The headline of v1.0 is **branch-level isolation in the same window**: spawn a w
 
 ## What's coming next
 
-- **v1.1+ — Multi-agent co-edit.** A pub/sub layer (Supabase Realtime first, MQTT optional) on top of CRDTs (Yjs) so humans **and** AI agents can edit the same files in real time — Google-Docs style, multiplayer for code with agents in the channel, not just people.
+- **Import your tmux config.** Bring your `.tmux.conf` keybindings and options into Nest with a preview — tmux *intent* mapped to Nest actions (nothing from your conf is ever executed).
+- **Multi-agent co-edit.** A pub/sub layer (Supabase Realtime first, MQTT optional) on top of CRDTs (Yjs) so humans **and** AI agents can edit the same files in real time — Google-Docs style, multiplayer for code with agents in the channel, not just people.
 
 ---
 
