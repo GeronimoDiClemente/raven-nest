@@ -9530,3 +9530,11 @@ body.platform-mac .tabbar { padding-right: 116px; }
 .ih-need-sub { font-size: 11px; color: var(--text-secondary); margin-top: 3px; font-family: 'SFMono-Regular', 'Consolas', monospace; }
 
 .ih-act-empty { color: var(--text-muted); font-size: 12px; }
+
+/* === WorktreePicker (board task -> create/open) === */
+.wtp-dialog { width: 360px; }
+.wtp-branch {
+  font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--text-primary);
+  background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 6px;
+  padding: 8px 10px;
+}

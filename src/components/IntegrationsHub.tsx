@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { useBoardRows } from '../hooks/useBoardRows'
 import { OrchestrationBoard } from './OrchestrationBoard'
 import { IntegrationsRail } from './IntegrationsRail'
+import { WorktreePicker } from './WorktreePicker'
+import type { BoardRow } from '../integrations/board'
 
 interface IntegrationsHubProps {
   onClose: () => void
@@ -10,8 +12,9 @@ interface IntegrationsHubProps {
 /** Full-screen overlay for the orchestration board — mirrors the
  *  teams-workspace shell used by TeamsWorkspace/MyReposPanel. */
 export function IntegrationsHub({ onClose }: IntegrationsHubProps) {
-  const { rows } = useBoardRows()
+  const { rows, refresh } = useBoardRows()
   const [scope, setScope] = useState<'all' | 'personal' | string>('all')
+  const [picked, setPicked] = useState<BoardRow | null>(null)
 
   const orgs = [...new Set(rows.filter((r) => r.scope.kind === 'org').map((r) => (r.scope.kind === 'org' ? r.scope.org : '')))]
   const hasPersonal = rows.some((r) => r.scope.kind === 'personal')
@@ -57,14 +60,16 @@ export function IntegrationsHub({ onClose }: IntegrationsHubProps) {
                   <button className={scope === 'personal' ? 'active' : ''} onClick={() => setScope('personal')}>Personal</button>
                 </div>
               )}
-              <OrchestrationBoard rows={visibleRows} />
+              <OrchestrationBoard rows={visibleRows} onOpen={setPicked} />
             </div>
             <div className="ih-rail">
-              <IntegrationsRail rows={visibleRows} />
+              <IntegrationsRail rows={visibleRows} onOpenRow={setPicked} />
             </div>
           </div>
         </div>
       </div>
+
+      {picked && <WorktreePicker row={picked} onClose={() => setPicked(null)} onCreated={refresh} />}
     </div>
   )
 }
