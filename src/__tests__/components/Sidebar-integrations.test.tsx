@@ -1,12 +1,14 @@
 // src/__tests__/components/Sidebar-integrations.test.tsx
 //
-// Regression test: the global "Integrations" entry point (button + installed
-// items) no longer lives in the Sidebar — it moved into My Repos (see
+// The global "Integrations" entry point (button + installed items) used to
+// live only inside My Repos (see
 // docs/design/integrations/2026-07-05-plan-migracion-my-repos.md, Task C).
+// Plan 2 / Task 4 re-introduces it as a top-level rail item that opens the
+// IntegrationsHub orchestration board overlay (mirrors My Repos/Teams).
 // Sidebar has many heavy deps (supabase, git hooks, window.* IPC). We mock
 // the problematic ones so the component renders without crashing.
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent } from '@testing-library/react'
 
 // ── Mock heavy transitive deps ────────────────────────────────────────────
 vi.mock('../../lib/supabase', () => ({
@@ -90,10 +92,12 @@ const baseProps = {
   onLayoutChange: vi.fn(),
 }
 
-describe('Sidebar — sin entry point global de Integraciones', () => {
-  it('no renderiza ningún ítem "Integrations" (vive en My Repos)', () => {
-    render(<Sidebar {...baseProps} />)
-    expect(screen.queryByText('Integrations')).not.toBeInTheDocument()
+describe('Sidebar — entry point global de Integraciones', () => {
+  it('renderiza un ítem "Integrations" que llama a onIntegrationsOpen', () => {
+    const onIntegrationsOpen = vi.fn()
+    render(<Sidebar {...baseProps} onIntegrationsOpen={onIntegrationsOpen} />)
+    fireEvent.click(screen.getByText('Integrations'))
+    expect(onIntegrationsOpen).toHaveBeenCalledTimes(1)
   })
 
   it('renderiza sin explotar (smoke test)', () => {

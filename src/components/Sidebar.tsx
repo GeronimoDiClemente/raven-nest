@@ -42,6 +42,7 @@ interface Props {
   onTeamsOpen?: () => void
   pendingInvitesCount?: number
   onMyReposOpen?: () => void
+  onIntegrationsOpen?: () => void
   plan?: 'free' | 'pro' | 'team' | 'enterprise'
   repoPath?: string
   onRepoLink: () => void
@@ -65,7 +66,7 @@ export default function Sidebar({
   isListening, isTranscribing, isModelLoading, onMicToggle,
   onNewPane, onHistoryOpen,
   onSnippetSend, onSnippetBroadcast, onCommandRun, onWorkspaceSave, onWorkspaceLoad, isWin,
-  isTrialActive, trialDaysLeft, profileLoading, onUpgrade, onTeamsOpen, pendingInvitesCount = 0, onMyReposOpen, plan, repoPath, onRepoLink, onRepoUnlink, onJoinTerminal,
+  isTrialActive, trialDaysLeft, profileLoading, onUpgrade, onTeamsOpen, pendingInvitesCount = 0, onMyReposOpen, onIntegrationsOpen, plan, repoPath, onRepoLink, onRepoUnlink, onJoinTerminal,
   activeCellRepoPath, onWorktreeSelect, onNewWorktree, onFixCi, worktreeRefreshKey,
   layoutId, paneCount, onLayoutChange, onOpenTutorial,
 }: Props) {
@@ -593,6 +594,21 @@ export default function Sidebar({
           </span>
           <span className="sidebar-label">My Repos</span>
           {expanded && plan === 'free' && <span className="sidebar-plan-badge">Pro</span>}
+        </div>
+
+        <div
+          className="sidebar-item sidebar-item-panel sidebar-item-team"
+          style={{ cursor: 'pointer' }}
+          onClick={onIntegrationsOpen}
+          title="Integrations"
+        >
+          <span className="sidebar-icon">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <rect x="2" y="2" width="12" height="12" rx="3.5" stroke="currentColor" strokeWidth="1.4" />
+              <path d="M5.5 8h5M8 5.5v5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+            </svg>
+          </span>
+          <span className="sidebar-label">Integrations</span>
         </div>
 
         {/* ── 4. MORE TOOLS (desplegable) ─────────────────── */}

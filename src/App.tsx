@@ -32,6 +32,7 @@ import { PLAN_LIMITS } from './lib/stripe'
 import UpgradeModal from './components/UpgradeModal'
 import TeamsWorkspace from './components/TeamsWorkspace'
 import MyReposPanel from './components/MyReposPanel'
+import { IntegrationsHub } from './components/IntegrationsHub'
 import { useGitHub } from './hooks/useGitHub'
 import { usePendingInvitesCount } from './hooks/usePendingInvitesCount'
 import { useSpeechRecognition } from './hooks/useSpeechRecognition'
@@ -192,6 +193,7 @@ export default function App() {
   const [teamsOpen, setTeamsOpen] = useState(false)
   const { count: pendingInvitesCount, refresh: refreshPendingInvitesCount } = usePendingInvitesCount()
   const [myReposOpen, setMyReposOpen] = useState(false)
+  const [integrationsHubOpen, setIntegrationsHubOpen] = useState(false)
   const [showJoinViewer, setShowJoinViewer] = useState(false)
   const [joinRequest, setJoinRequest] = useState<{ paneId: string; paneTitle: string } | null>(null)
   const { githubToken, githubLogin, connectGitHub } = useGitHub()
@@ -1112,6 +1114,8 @@ export default function App() {
           if (!planLimits.allowMyRepos) { setShowUpgrade(true); return }
           setMyReposOpen(true)
         }}
+        // TODO: gate behind plan tier if needed
+        onIntegrationsOpen={() => setIntegrationsHubOpen(true)}
         plan={plan}
         repoPath={activeTab.repoPath}
         onRepoLink={handleRepoLink}
@@ -1300,6 +1304,10 @@ export default function App() {
           focusedPaneId={focusedPaneId}
           onOpenWorktree={(path, initialInput) => { setMyReposOpen(false); setAddingPane({ worktreePath: path, ...(initialInput ? { initialInput } : {}) }) }}
         />
+      )}
+
+      {integrationsHubOpen && (
+        <IntegrationsHub onClose={() => setIntegrationsHubOpen(false)} />
       )}
 
       {joinRequest && (
