@@ -46,6 +46,12 @@ beforeEach(() => {
         { id: 'default:pr.merged', when: 'pr.merged', commands: ['updateStatus: done'] },
       ]),
     },
+    automations: {
+      list: vi.fn().mockResolvedValue([]),
+      create: vi.fn(),
+      update: vi.fn(),
+      delete: vi.fn(),
+    },
     // ConnectionCard mounts ConnectControl unconditionally for every
     // connectable plugin (unlike the old Installed/Available grid, which
     // only mounted it for installed ones) — usePluginConnection needs this
@@ -92,14 +98,15 @@ describe('IntegrationsHub', () => {
     expect(screen.queryByText('No tasks yet')).not.toBeInTheDocument()
   })
 
-  it('switches to the Automations tab and shows the coming-soon placeholder', async () => {
+  it('switches to the Automations tab and shows the scheduled-agents view', async () => {
     render(<IntegrationsHub onClose={vi.fn()} />)
 
     await waitFor(() => expect(screen.getByText('No tasks yet')).toBeInTheDocument())
     fireEvent.click(screen.getByRole('button', { name: 'Automations' }))
 
     expect(screen.getByRole('heading', { name: 'Automations' })).toBeInTheDocument()
-    expect(screen.getByText(/Coming soon/)).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByText(/No automations yet/)).toBeInTheDocument())
+    expect(screen.queryByText('No tasks yet')).not.toBeInTheDocument()
   })
 
   it('switches to the Connections tab and renders a card per integration', async () => {
