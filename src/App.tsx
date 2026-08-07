@@ -511,6 +511,10 @@ export default function App() {
     }))
   }, [updateActiveTab])
 
+  const handleLayoutIdChange = useCallback((id: LayoutId) => {
+    updateActiveTab(t => ({ ...t, layoutId: id, splitRatios: {} }))
+  }, [updateActiveTab])
+
   const handleUnzoom = useCallback(() => {
     setZoomingOut(true)
     setTimeout(() => {
@@ -1316,7 +1320,9 @@ export default function App() {
         onWorktreeSelect={handleWorktreeSelect}
         onNewWorktree={handleNewWorktree}
         worktreeRefreshKey={worktreeRefreshKey}
+        layoutId={activeTab.layoutId}
         paneCount={panes.length}
+        onLayoutChange={handleLayoutIdChange}
         onOpenTutorial={(id) => setTutorialTour(id)}
       />
       <div

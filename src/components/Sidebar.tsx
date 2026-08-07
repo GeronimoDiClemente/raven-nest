@@ -10,7 +10,9 @@ import { WorktreesSection } from './WorktreesSection'
 import HubSidebarPanel, { type HubWorkspace } from './HubSidebarPanel'
 import { useGitHub } from '../hooks/useGitHub'
 import { useGitlab } from '../hooks/useGitlab'
-import { Workspace, MAX_PANES } from '../types'
+import { LayoutId, Workspace, MAX_PANES } from '../types'
+import { PRESETS } from '../layout/presets'
+import { alternativesFor } from '../layout/select'
 import { supabase } from '../lib/supabase'
 import { terminalJoinService } from '../lib/terminalJoinService'
 import { basename } from '../lib/path'
@@ -50,7 +52,11 @@ interface Props {
   onWorktreeSelect: (worktreePath: string) => void
   onNewWorktree: () => void
   worktreeRefreshKey?: number
+  // Layout selector (replaces the old LayoutPicker). Sidebar renders the
+  // trigger; the engine in App.tsx owns the state.
+  layoutId: LayoutId
   paneCount: number
+  onLayoutChange: (id: LayoutId) => void
   onOpenTutorial?: (tourId: import('../tutorial/types').TourId) => void
   // Hub-tab sidebar (#2/#3): swap the repo context group for a workspace builder.
   isHub?: boolean
@@ -70,7 +76,7 @@ export default function Sidebar({
   onSnippetSend, onSnippetBroadcast, onCommandRun, onWorkspaceSave, onWorkspaceLoad, isWin,
   isTrialActive, trialDaysLeft, profileLoading, onUpgrade, onTeamsOpen, pendingInvitesCount = 0, onMyReposOpen, plan, repoPath, onRepoLink, onRepoUnlink, onJoinTerminal,
   activeCellRepoPath, onWorktreeSelect, onNewWorktree, worktreeRefreshKey,
-  paneCount, onOpenTutorial,
+  layoutId, paneCount, onLayoutChange, onOpenTutorial,
   isHub = false, hubWorkspaces, onSelectWorkspace, onJumpToPane, onToggleTerminal, onToggleWorkspace, onNewWorkspace, onAddTerminalToWorkspace,
 }: Props) {
   const { branch, githubUrl, isDirty } = useGitInfo(repoPath)
@@ -93,6 +99,26 @@ export default function Sidebar({
   const [joinConnected, setJoinConnected] = useState(terminalJoinService.isConnected)
   const [, forceUpdate] = useState(0)
   const [moreOpen, setMoreOpen] = useState(false)
+  const [layoutOpen, setLayoutOpen] = useState(false)
+  // Index into layoutOptions while the user is cycling with Ctrl+L. null when
+  // the popover was opened by click (no active cycling — selection commits on
+  // option click instead of on Ctrl release).
+  const [layoutCycleIdx, setLayoutCycleIdx] = useState<number | null>(null)
+  const layoutAnchorRef = useRef<HTMLDivElement>(null)
+  const layoutPopoverRef = useRef<HTMLDivElement>(null)
+  const layoutPopPos = useFixedPopover(layoutAnchorRef, layoutOpen, layoutPopoverRef)
+  const layoutOptions = alternativesFor(paneCount)
+  const layoutPreset = PRESETS[layoutId]
+  // Refs for the cycle handler so the keyup listener (which references the
+  // current options/cycleIdx) can read fresh values without re-attaching.
+  const layoutOptionsRef = useRef(layoutOptions)
+  layoutOptionsRef.current = layoutOptions
+  const layoutCycleIdxRef = useRef(layoutCycleIdx)
+  layoutCycleIdxRef.current = layoutCycleIdx
+  const layoutIdRef = useRef(layoutId)
+  layoutIdRef.current = layoutId
+  const onLayoutChangeRef = useRef(onLayoutChange)
+  onLayoutChangeRef.current = onLayoutChange
   const joinInputRef = useRef<HTMLInputElement>(null)
   const joinAnchorRef = useRef<HTMLDivElement>(null)
   const joinPopoverRef = useRef<HTMLDivElement>(null)
@@ -129,6 +155,70 @@ export default function Sidebar({
   useEffect(() => {
     if (!expanded) setMoreOpen(false)
   }, [expanded])
+
+  // Cmd/Ctrl+L behaviour (Cmd+Tab style):
+  //   • First press: opens the popover and highlights the NEXT option.
+  //   • Subsequent presses while Ctrl/Cmd is held: cycle forward.
+  //   • Releasing Ctrl/Cmd: commit the highlighted option and close.
+  //   • Escape: close without committing.
+  // Capture phase so xterm.js (which consumes Ctrl+L for clear-screen on a
+  // focused TerminalPane) doesn't swallow the keystroke.
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'l') {
+        e.preventDefault()
+        e.stopPropagation()
+        const options = layoutOptionsRef.current
+        if (options.length === 0) return
+        setLayoutCycleIdx(prev => {
+          if (prev == null) {
+            // First press: start at the slot after the current preset (so the
+            // first cycle actually moves you somewhere new, not to where you
+            // already are).
+            const startIdx = options.indexOf(layoutIdRef.current)
+            return (startIdx + 1) % options.length
+          }
+          return (prev + 1) % options.length
+        })
+        setLayoutOpen(true)
+      } else if (e.key === 'Escape' && layoutOpen) {
+        setLayoutCycleIdx(null)
+        setLayoutOpen(false)
+      }
+    }
+    const onKeyUp = (e: KeyboardEvent) => {
+      // Commit on releasing the Control/Meta key — that's the gesture's end.
+      // We don't commit on L-up because the user might tap L again while
+      // still holding Ctrl.
+      if (e.key !== 'Control' && e.key !== 'Meta' && e.key !== 'OS') return
+      const idx = layoutCycleIdxRef.current
+      if (idx == null) return
+      const options = layoutOptionsRef.current
+      const target = options[idx]
+      if (target && target !== layoutIdRef.current) onLayoutChangeRef.current(target)
+      setLayoutCycleIdx(null)
+      setLayoutOpen(false)
+    }
+    window.addEventListener('keydown', onKeyDown, true)
+    window.addEventListener('keyup', onKeyUp, true)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown, true)
+      window.removeEventListener('keyup', onKeyUp, true)
+    }
+  }, [layoutOpen])
+
+  // Click-outside to close the layout popover. Mounted only while open.
+  useEffect(() => {
+    if (!layoutOpen) return
+    const onClick = (e: MouseEvent) => {
+      const t = e.target as Node
+      if (layoutPopoverRef.current?.contains(t)) return
+      if (layoutAnchorRef.current?.contains(t)) return
+      setLayoutOpen(false)
+    }
+    document.addEventListener('mousedown', onClick)
+    return () => document.removeEventListener('mousedown', onClick)
+  }, [layoutOpen])
 
   const startJoinAttempt = (code: string) => {
     // Drop any previous pending attempt before starting a new one.
@@ -359,6 +449,26 @@ export default function Sidebar({
     </div>
   )
 
+  // Layout selector — lives inside "More tools". Icon is outlined (transparent)
+  // to match the other tools and avoid the solid white square the '1' preset
+  // used to render as. Clicking toggles the popover; Ctrl/⌘+L cycles.
+  const LayoutItem = (
+    <div
+      className="sidebar-item sidebar-item-panel"
+      ref={layoutAnchorRef}
+      style={{ cursor: 'pointer' }}
+      onClick={() => setLayoutOpen(v => !v)}
+      title={`Layout: ${layoutPreset.label} (${isWin ? 'Ctrl+L' : '⌘L'})`}
+    >
+      <span className="sidebar-icon">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <path d={layoutPreset.icon} stroke="currentColor" strokeWidth="1.3" />
+        </svg>
+      </span>
+      <span className="sidebar-label">Layout</span>
+    </div>
+  )
+
   return (
     <div className={`sidebar${expanded ? ' expanded' : ''}`}>
 
@@ -546,6 +656,7 @@ export default function Sidebar({
 
           {moreOpen && (
             <div className="sidebar-more-list">
+              {!isHub && LayoutItem}
               {SnippetsItem}
               {WorkspacesItem}
               {MCPItem}
@@ -557,6 +668,41 @@ export default function Sidebar({
             </div>
           )}
         </div>
+
+        {/* ── 4.5. LAYOUT SELECTOR — trigger now lives inside "More tools"
+             (see LayoutItem). Only the popover renders here (position:fixed,
+             anchored to the LayoutItem). ── */}
+        {!isHub && layoutOpen && layoutPopPos && (
+          <div
+            ref={layoutPopoverRef}
+            className="layout-selector-popover"
+            style={{ position: 'fixed', top: layoutPopPos.top, left: layoutPopPos.left, zIndex: 200 }}
+          >
+            <div className="layout-selector-title">
+              Layout — {paneCount} pane{paneCount === 1 ? '' : 's'}
+            </div>
+            <div className="layout-selector-grid">
+              {layoutOptions.map((id, i) => {
+                const preset = PRESETS[id]
+                const active = id === layoutId
+                const cycling = layoutCycleIdx === i
+                return (
+                  <button
+                    key={id}
+                    className={`layout-selector-option${active ? ' active' : ''}${cycling ? ' cycling' : ''}`}
+                    onClick={() => { onLayoutChange(id); setLayoutCycleIdx(null); setLayoutOpen(false) }}
+                    title={preset.label}
+                  >
+                    <svg viewBox="0 0 16 16" fill="none">
+                      <path d={preset.icon} stroke="currentColor" strokeWidth="1.3" />
+                    </svg>
+                    <span>{preset.label}</span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )}
 
         {/* ── 5. NEW TERMINAL (acción primaria; oculto al tope) ── */}
         {!isHub && paneCount < MAX_PANES && (
