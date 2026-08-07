@@ -2,12 +2,12 @@
 
 # 🪺 NestMux
 
-**Multi-AI Terminal Workspace · v1.4.0**
+**Multi-AI Terminal Workspace · v1.4.2**
 
 Run Claude, Gemini, Codex, Copilot and more — side by side in a single window. Each pane is its own AI session, with its own account, history, and environment.
 
 [![Latest Release](https://img.shields.io/github/v/release/GeronimoDiClemente/raven-nest?style=flat-square&color=18c376)](https://github.com/GeronimoDiClemente/raven-nest/releases/latest)
-[![v1.4.0](https://img.shields.io/badge/v1.4.0-current%20release-18c376?style=flat-square)](#whats-new-in-v14)
+[![v1.4.2](https://img.shields.io/badge/v1.4.2-current%20release-18c376?style=flat-square)](#whats-new-in-v14)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey?style=flat-square)](https://github.com/GeronimoDiClemente/raven-nest/releases/latest)
 [![License: PolyForm Strict](https://img.shields.io/badge/license-PolyForm%20Strict%201.0.0-orange?style=flat-square)](./LICENSE)
 [![Source-available](https://img.shields.io/badge/source--available-official%20binaries%20only-orange?style=flat-square)](#license--redistribution)
@@ -22,7 +22,7 @@ Run Claude, Gemini, Codex, Copilot and more — side by side in a single window.
 
 Think of it as a terminal multiplexer — but built specifically for AI agents and the way teams ship code. Instead of juggling tabs and windows, you get a flexible **grid workspace** where every cell is an independent AI session, on top of the things developers actually need every day: native **git worktrees**, a real **Teams workspace** with team **flow & health analytics**, a **Hub** that gathers your most-used terminals in one place, your personal **My Repos** dashboard, GitHub & GitLab integration, CI runs, and live terminal sharing.
 
-> **v1.2 builds on the v1.1 foundation** with per-device repo paths, Teams crash fixes, and macOS bugfixes (credential persistence, port detection, auto-update). **v1.2.5 fixed the macOS auto-updater** — if you're on a version older than v1.2.5, download once manually; from v1.2.5 onwards `Install and restart` works automatically. **v1.2.6** restored terminal sessions after Cmd+Q. **v1.2.7** fixes port attribution for reparented background processes on macOS and Linux. **v1.3** adds an interactive onboarding tutorial, and **v1.3.1** lets you install an agent's CLI straight from the pane banner. **v1.4** adds the **Hub** (your most-used terminals in one workspace) and **Team Analytics** (team flow & health, not a leaderboard).
+> **v1.2 builds on the v1.1 foundation** with per-device repo paths, Teams crash fixes, and macOS bugfixes (credential persistence, port detection, auto-update). **v1.2.5 fixed the macOS auto-updater** — if you're on a version older than v1.2.5, download once manually; from v1.2.5 onwards `Install and restart` works automatically. **v1.2.6** restored terminal sessions after Cmd+Q. **v1.2.7** fixes port attribution for reparented background processes on macOS and Linux. **v1.3** adds an interactive onboarding tutorial, and **v1.3.1** lets you install an agent's CLI straight from the pane banner. **v1.4** adds the **Hub** (your most-used terminals in one workspace) and **Team Analytics** (team flow & health, not a leaderboard). **v1.4.1** brought the Layout selector back into the *More tools* menu, and **v1.4.2** makes it work in the **Hub** too — so you can arrange your curated terminals like any workspace.
 
 ---
 
@@ -39,7 +39,7 @@ Team leaders get a **Stats** view of how work actually moves through the team: c
 ### Also in v1.4
 
 - **NestMux** — the app is settling into its name; the window and taskbar title now read **NestMux** (matching [nestmux.com](https://nestmux.com)).
-- **Simpler sidebar** — the manual Layout selector is gone. Pane layouts auto-fit as you add and remove panes.
+- **Layout selector, refined** — pane layouts still auto-fit as you add and remove panes, and the manual Layout selector (with **`Ctrl/Cmd+L`** to cycle alternatives) lives in the sidebar's **More tools** menu. As of **v1.4.2** it works inside the **Hub** too, so a curated set of terminals can be arranged just like any workspace — and the Hub's layout is per-tab, so rearranging it never touches your source workspaces.
 - Resource metrics no longer double-count reparented dev-server processes, so the totals in the resource bar are accurate.
 
 ---
@@ -164,14 +164,14 @@ Versions up to and including **v1.0.1** were published under the Apache License 
 
 ## Download
 
-Latest: **v1.4.0** — the **Hub** (your most-used terminals in one workspace) and **Team Analytics** (team flow & health), on top of v1.3's interactive onboarding tutorial and the CLI-install banner.
+Latest: **v1.4.2** — the **Hub** (your most-used terminals in one workspace) and **Team Analytics** (team flow & health), on top of v1.3's interactive onboarding tutorial and the CLI-install banner.
 
 | Platform | Download |
 |----------|----------|
-| **macOS** (Apple Silicon) | [Nest-1.4.0-arm64.dmg](../../releases/latest) |
-| **Windows** | [Nest-Setup-1.4.0.exe](../../releases/latest) |
-| **Linux** (universal) | [Nest-1.4.0.AppImage](../../releases/latest) |
-| **Linux** (Debian / Ubuntu) | [nest_1.4.0_amd64.deb](../../releases/latest) |
+| **macOS** (Apple Silicon) | [Nest-1.4.2-arm64.dmg](../../releases/latest) |
+| **Windows** | [Nest-Setup-1.4.2.exe](../../releases/latest) |
+| **Linux** (universal) | [Nest-1.4.2.AppImage](../../releases/latest) |
+| **Linux** (Debian / Ubuntu) | [nest_1.4.2_amd64.deb](../../releases/latest) |
 
 > Nest auto-updates in the background. **If you're upgrading from a version older than v1.2.5, this first download is manual** — the auto-updater was broken on macOS before v1.2.5. After installing v1.2.5 or later, future updates install automatically via `Install and restart`.
 
@@ -192,8 +192,8 @@ Two formats, pick whichever fits your distro.
 Works on Ubuntu, Fedora, Arch, openSUSE, Mint, Pop!_OS and most others. No system-wide install.
 
 ```bash
-chmod +x ~/Downloads/Nest-1.4.0.AppImage
-~/Downloads/Nest-1.4.0.AppImage
+chmod +x ~/Downloads/Nest-1.4.2.AppImage
+~/Downloads/Nest-1.4.2.AppImage
 ```
 
 To integrate it into your apps menu, use [AppImageLauncher](https://github.com/TheAssassin/AppImageLauncher) or move it to `~/Applications/`.
@@ -203,7 +203,7 @@ To integrate it into your apps menu, use [AppImageLauncher](https://github.com/T
 Installs system-wide, registers the desktop entry and the `nest://` deep link handler.
 
 ```bash
-sudo apt install ~/Downloads/nest_1.4.0_amd64.deb
+sudo apt install ~/Downloads/nest_1.4.2_amd64.deb
 ```
 
 Required packages (auto-installed by `apt`): `libgtk-3-0`, `libnotify4`, `libnss3`, `libxss1`, `libxtst6`, `libatspi2.0-0`, `libdrm2`, `libgbm1`, `libxcb-dri3-0`, `xdg-utils`.
