@@ -1307,7 +1307,11 @@ export default function App() {
       )}
 
       {integrationsHubOpen && (
-        <IntegrationsHub onClose={() => setIntegrationsHubOpen(false)} />
+        <IntegrationsHub
+          onClose={() => setIntegrationsHubOpen(false)}
+          activeRepoPath={activeCellRepoPath ?? null}
+          onOpenWorktree={(path, initialInput) => { setIntegrationsHubOpen(false); setAddingPane({ worktreePath: path, ...(initialInput ? { initialInput } : {}) }) }}
+        />
       )}
 
       {joinRequest && (

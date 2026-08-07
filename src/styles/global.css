@@ -9554,6 +9554,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
 }
 .ih-railh-count { font-family: 'SFMono-Regular', 'Consolas', monospace; }
 
+.ih-today-block { margin-bottom: 20px; }
 .ih-need-block { margin-bottom: 20px; }
 .ih-need { border: 1px solid var(--border); border-left: 2px solid #e6a23c; border-radius: 9px; padding: 10px; margin-bottom: 8px; cursor: pointer; }
 .ih-need:hover { background: var(--bg-elevated); }

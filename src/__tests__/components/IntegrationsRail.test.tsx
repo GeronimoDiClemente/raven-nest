@@ -3,6 +3,12 @@ import { render, screen, fireEvent, act } from '@testing-library/react'
 import { IntegrationsRail } from '../../components/IntegrationsRail'
 import type { ActivityEntry } from '../../types'
 
+function todayIso(hour: number): string {
+  const d = new Date()
+  d.setHours(hour, 0, 0, 0)
+  return d.toISOString()
+}
+
 const rows = [
   {
     key: '#189', title: 'Race board', url: '', providerId: 'x', pluginId: 'github', ticketState: 'in_review',
@@ -99,5 +105,43 @@ describe('<IntegrationsRail> activity feed', () => {
   it('renders the empty placeholder when window.activity is not bridged', () => {
     render(<IntegrationsRail rows={rows} />)
     expect(screen.getByText('Activity will appear here.')).toBeInTheDocument()
+  })
+})
+
+describe('<IntegrationsRail> Today (calendar block→session)', () => {
+  afterEach(() => {
+    // @ts-expect-error test-only cleanup of the bridged global
+    delete window.gcal
+  })
+
+  it('does not render the Today section when onStartCalendarSession is omitted', () => {
+    render(<IntegrationsRail rows={rows} />)
+    expect(screen.queryByText('Today')).not.toBeInTheDocument()
+  })
+
+  it('renders a "Today" header and forwards Start session clicks with the event summary/description', async () => {
+    // @ts-expect-error partial bridge is enough for this test
+    window.gcal = {
+      listEvents: vi.fn().mockResolvedValue([
+        { id: '1', summary: 'Standup', description: 'daily', start: { dateTime: todayIso(9) } },
+      ]),
+      startSession: vi.fn(),
+    }
+    const onStartCalendarSession = vi.fn()
+    render(<IntegrationsRail rows={rows} onStartCalendarSession={onStartCalendarSession} />)
+
+    expect(screen.getByText('Today')).toBeInTheDocument()
+    expect(await screen.findByText('Standup')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Start session' }))
+    expect(onStartCalendarSession).toHaveBeenCalledWith('Standup', 'daily')
+  })
+
+  it('shows the calendar error text when calendarError is set', async () => {
+    // @ts-expect-error partial bridge is enough for this test
+    window.gcal = { listEvents: vi.fn().mockResolvedValue([]), startSession: vi.fn() }
+    render(<IntegrationsRail rows={rows} onStartCalendarSession={vi.fn()} calendarError="Open a repo tab first to create a worktree" />)
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Open a repo tab first to create a worktree')
   })
 })

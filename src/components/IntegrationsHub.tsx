@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { useBoardRows } from '../hooks/useBoardRows'
 import { useTeam } from '../hooks/useTeam'
 import { useTeamPresence } from '../hooks/useTeamPresence'
+import { useGitHub } from '../hooks/useGitHub'
 import { OrchestrationBoard } from './OrchestrationBoard'
 import { IntegrationsRail } from './IntegrationsRail'
 import { WorktreePicker } from './WorktreePicker'
@@ -9,18 +10,26 @@ import { RecipesView } from './RecipesView'
 import { AutomationsView } from './AutomationsView'
 import { ConnectionsView } from './ConnectionsView'
 import type { BoardRow } from '../integrations/board'
+import type { WorktreeMeta } from '../types'
 
 interface IntegrationsHubProps {
   onClose: () => void
+  activeRepoPath?: string | null
+  onOpenWorktree?: (worktreePath: string, initialInput?: string) => void
 }
+
+// worktree:create actually resolves to this union (see WorktreePicker.tsx's
+// identical local type + comment) — narrow through unknown here too.
+type WorktreeCreateResult = { ok: true; meta: WorktreeMeta } | { ok: false; error: string }
 
 type HubTab = 'hub' | 'connections' | 'recipes' | 'automations'
 
 /** Full-screen overlay for the orchestration board — mirrors the
  *  teams-workspace shell used by TeamsWorkspace/MyReposPanel. */
-export function IntegrationsHub({ onClose }: IntegrationsHubProps) {
+export function IntegrationsHub({ onClose, activeRepoPath, onOpenWorktree }: IntegrationsHubProps) {
   const { rows, refresh } = useBoardRows()
   const { activeTeamId, userId } = useTeam()
+  const { githubLogin } = useGitHub()
   // Same presence channel used by TeamsWorkspace — reused here (not a second
   // subscription) both to render "<name> is here" chips and, via
   // updatePresence below, to broadcast the branch the current user acts on.
@@ -28,6 +37,28 @@ export function IntegrationsHub({ onClose }: IntegrationsHubProps) {
   const [scope, setScope] = useState<'all' | 'personal' | string>('all')
   const [picked, setPicked] = useState<BoardRow | null>(null)
   const [tab, setTab] = useState<HubTab>('hub')
+  const [calBusy, setCalBusy] = useState(false)
+  const [calError, setCalError] = useState<string | null>(null)
+
+  // H6 block→session, restored from MyReposPanel: create a worktree in the active
+  // repo tab and open a session seeded with the calendar block's title/description.
+  async function startCalendarSession(title: string, context: string) {
+    if (calBusy) return
+    setCalError(null)
+    if (!activeRepoPath) { setCalError('Open a repo tab first to create a worktree'); return }
+    setCalBusy(true)
+    try {
+      const branch = await window.tickets.branchName(githubLogin ?? '', 'cal', title)
+      const res = await window.worktree.create({ repoPath: activeRepoPath, branch }) as unknown as WorktreeCreateResult
+      if (!res.ok) { setCalError(res.error || 'worktree failed'); return }
+      const started = await window.gcal.startSession({ title, context, worktreePath: res.meta.repoPath })
+      onOpenWorktree?.(res.meta.repoPath, started.ok ? started.prompt : undefined)
+    } catch (e) {
+      setCalError(e instanceof Error ? e.message : 'Failed to start session')
+    } finally {
+      setCalBusy(false)
+    }
+  }
 
   // Teammate -> branch they're currently on. Excludes ourselves and idle
   // teammates (no branch); explicitly empty with no active team, so no chip
@@ -97,7 +128,14 @@ export function IntegrationsHub({ onClose }: IntegrationsHubProps) {
                 <OrchestrationBoard rows={visibleRows} presenceByBranch={presenceByBranch} onOpen={openRow} onConnect={() => setTab('connections')} />
               </div>
               <div className="ih-rail">
-                <IntegrationsRail rows={visibleRows} presenceByBranch={presenceByBranch} onOpenRow={openRow} />
+                <IntegrationsRail
+                  rows={visibleRows}
+                  presenceByBranch={presenceByBranch}
+                  onOpenRow={openRow}
+                  onStartCalendarSession={startCalendarSession}
+                  calendarBusy={calBusy}
+                  calendarError={calError}
+                />
               </div>
             </div>
           )}

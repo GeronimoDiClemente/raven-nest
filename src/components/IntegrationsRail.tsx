@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { BoardRow } from '../integrations/board'
 import type { ActivityEntry } from '../types'
 import { formatActivity, timeAgo } from '../lib/formatActivity'
+import CalendarPanel from './CalendarPanel'
 
 interface Props {
   rows: BoardRow[]
@@ -9,6 +10,11 @@ interface Props {
   /** branch -> teammate display name, for the "<name> is here" presence chip
    *  (team-presence — see useTeamPresence). Omitted/empty renders no chips. */
   presenceByBranch?: Record<string, string>
+  /** H6 block→session (see IntegrationsHub.startCalendarSession). Omitted ->
+   *  the "Today" calendar section doesn't mount at all. */
+  onStartCalendarSession?: (title: string, context: string) => void
+  calendarBusy?: boolean
+  calendarError?: string | null
 }
 
 const ACTIVITY_CAP = 50
@@ -17,7 +23,7 @@ const ACTIVITY_CAP = 50
  *  queue for rows that need a human call, and the Activity feed — fed by
  *  the event bus's DomainEvents (`window.activity`, same push pattern as
  *  `signals`/`slackMentions`). */
-export function IntegrationsRail({ rows, onOpenRow, presenceByBranch }: Props) {
+export function IntegrationsRail({ rows, onOpenRow, presenceByBranch, onStartCalendarSession, calendarBusy, calendarError }: Props) {
   const needsYou = rows.filter((r) => r.status === 'needs_you')
   const [entries, setEntries] = useState<ActivityEntry[]>([])
 
@@ -44,6 +50,14 @@ export function IntegrationsRail({ rows, onOpenRow, presenceByBranch }: Props) {
         </p>
         <div className="ih-ask">Ask it something… ⌘K</div>
       </div>
+
+      {onStartCalendarSession && (
+        <div className="ih-today-block">
+          <div className="ih-railh">Today</div>
+          {calendarError && <div className="tk-error" role="alert" style={{ margin: '4px 0' }}>{calendarError}</div>}
+          <CalendarPanel onStartSession={onStartCalendarSession} busy={calendarBusy} />
+        </div>
+      )}
 
       <div className="ih-need-block">
         <div className="ih-railh">

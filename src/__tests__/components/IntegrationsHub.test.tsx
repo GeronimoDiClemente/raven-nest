@@ -76,6 +76,10 @@ beforeEach(() => {
     },
     worktree: { listAll: vi.fn().mockResolvedValue({ ok: true, worktrees: [] }) },
     signals: { list: vi.fn().mockResolvedValue([]), onUpdate: vi.fn(() => () => {}) },
+    // IntegrationsHub always mounts IntegrationsRail's "Today" section (it
+    // always passes onStartCalendarSession down), which mounts CalendarPanel
+    // unconditionally — needs a gcal bridge to resolve without throwing.
+    gcal: { listEvents: vi.fn().mockResolvedValue([]), startSession: vi.fn() },
     recipes: {
       list: vi.fn().mockResolvedValue([
         { id: 'default:pr.merged', when: 'pr.merged', commands: ['updateStatus: done'] },
@@ -142,6 +146,28 @@ describe('IntegrationsHub', () => {
     expect(screen.getByRole('heading', { name: 'Automations' })).toBeInTheDocument()
     await waitFor(() => expect(screen.getByText(/No automations yet/)).toBeInTheDocument())
     expect(screen.queryByText('No tasks yet')).not.toBeInTheDocument()
+  })
+
+  it('guards calendar block→session with no active repo tab (H6, restored from MyReposPanel)', async () => {
+    const branchName = vi.fn()
+    Object.assign(window as unknown as Record<string, unknown>, {
+      gcal: {
+        listEvents: vi.fn().mockResolvedValue([
+          { id: '1', summary: 'Standup', description: 'daily', start: { dateTime: new Date().toISOString() } },
+        ]),
+        startSession: vi.fn(),
+      },
+      tickets: { list: vi.fn().mockResolvedValue([]), tracked: vi.fn().mockResolvedValue([]), branchName },
+    })
+    render(<IntegrationsHub onClose={vi.fn()} activeRepoPath={null} onOpenWorktree={vi.fn()} />)
+
+    await waitFor(() => expect(screen.getByText('No tasks yet')).toBeInTheDocument())
+    expect(await screen.findByText('Standup')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Start session' }))
+
+    expect(await screen.findByText('Open a repo tab first to create a worktree')).toBeInTheDocument()
+    expect(branchName).not.toHaveBeenCalled()
   })
 
   it('switches to the Connections tab and renders a card per integration', async () => {
