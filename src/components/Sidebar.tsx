@@ -656,7 +656,7 @@ export default function Sidebar({
 
           {moreOpen && (
             <div className="sidebar-more-list">
-              {!isHub && LayoutItem}
+              {LayoutItem}
               {SnippetsItem}
               {WorkspacesItem}
               {MCPItem}
@@ -672,7 +672,7 @@ export default function Sidebar({
         {/* ── 4.5. LAYOUT SELECTOR — trigger now lives inside "More tools"
              (see LayoutItem). Only the popover renders here (position:fixed,
              anchored to the LayoutItem). ── */}
-        {!isHub && layoutOpen && layoutPopPos && (
+        {layoutOpen && layoutPopPos && (
           <div
             ref={layoutPopoverRef}
             className="layout-selector-popover"

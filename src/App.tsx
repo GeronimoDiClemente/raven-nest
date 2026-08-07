@@ -9,7 +9,7 @@ import {
   WorkspaceTab, LayoutId, MAX_PANES,
 } from './types'
 import { PaneLayoutEngine } from './components/PaneLayoutEngine'
-import { defaultLayoutFor, mapLegacyToPreset } from './layout/select'
+import { defaultLayoutFor, hubLayoutFor, mapLegacyToPreset } from './layout/select'
 import { swap } from './layout/swap'
 import { getPreset } from './layout/presets'
 import TerminalPane from './components/TerminalPane'
@@ -1171,8 +1171,8 @@ export default function App() {
       .map(id => byId.get(id))
       .filter((p): p is PaneNode => !!p)
     const panes = picked.slice(0, MAX_PANES)
-    return { panes, layoutId: defaultLayoutFor(panes.length), hiddenCount: Math.max(0, picked.length - MAX_PANES) }
-  }, [activeTab.isHub, activeTab.hubPanes, tabs])
+    return { panes, layoutId: hubLayoutFor(activeTab.layoutId, panes.length), hiddenCount: Math.max(0, picked.length - MAX_PANES) }
+  }, [activeTab.isHub, activeTab.hubPanes, activeTab.layoutId, tabs])
   hubPanesRef.current = hubData?.panes ?? []
 
   const hubWorkspaces = useMemo(() => tabs.filter(t => !t.isHub).map(t => ({
@@ -1320,8 +1320,8 @@ export default function App() {
         onWorktreeSelect={handleWorktreeSelect}
         onNewWorktree={handleNewWorktree}
         worktreeRefreshKey={worktreeRefreshKey}
-        layoutId={activeTab.layoutId}
-        paneCount={panes.length}
+        layoutId={activeTab.isHub ? (hubData?.layoutId ?? '1') : activeTab.layoutId}
+        paneCount={activeTab.isHub ? (hubData?.panes.length ?? 0) : panes.length}
         onLayoutChange={handleLayoutIdChange}
         onOpenTutorial={(id) => setTutorialTour(id)}
       />

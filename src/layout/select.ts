@@ -30,6 +30,14 @@ export function alternativesFor(n: number): LayoutId[] {
   return [defaultLayoutFor(n)]
 }
 
+// The Hub reuses its tab's chosen layout while it still fits the curated pane
+// count; otherwise it falls back to the natural default for that count. This
+// mirrors the promote/demote behavior of a normal workspace as panes come and go.
+export function hubLayoutFor(chosen: LayoutId | undefined, n: number): LayoutId {
+  if (chosen && alternativesFor(n).includes(chosen)) return chosen
+  return defaultLayoutFor(n)
+}
+
 const LEGACY_MAP: Record<string, LayoutId> = {
   '1x1': '1',
   '1x2': '2V',
