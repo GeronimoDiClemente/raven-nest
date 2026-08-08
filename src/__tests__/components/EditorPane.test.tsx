@@ -1,13 +1,23 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { BridgeProvider } from '../../lib/bridge'
 import { EditorPane } from '../../components/EditorPane'
 import type { PaneNode } from '../../types'
 
+// Real Monaco's onChange reports the model's raw text verbatim (it keeps its
+// own text buffer, not a native <textarea>.value) — including literal '\r\n'.
+// A native <textarea> normalizes '\r\n' to '\n' on both the DOM value setter
+// and on read, so routing test input through fireEvent.change on the stub
+// textarea silently strips the very characters these tests need to send.
+// Stashing the latest onChange lets tests invoke it directly, bypassing that
+// DOM normalization, same as real Monaco would report it.
+const monacoStub = vi.hoisted(() => ({ latestOnChange: null as ((v: string) => void) | null }))
+
 vi.mock('@monaco-editor/react', () => ({
-  default: ({ value, onChange }: { value: string; onChange: (v: string | undefined) => void }) => (
-    <textarea data-testid="monaco-stub" value={value} onChange={(e) => onChange(e.target.value)} />
-  ),
+  default: ({ value, onChange }: { value: string; onChange: (v: string | undefined) => void }) => {
+    monacoStub.latestOnChange = onChange
+    return <textarea data-testid="monaco-stub" value={value} onChange={(e) => onChange(e.target.value)} />
+  },
 }))
 
 function makePane(overrides: Partial<PaneNode> = {}): PaneNode {
@@ -299,6 +309,47 @@ describe('EditorPane', () => {
     const [tabsArg, activePathArg] = onTabsChange.mock.calls[onTabsChange.mock.calls.length - 1]
     expect(tabsArg.find((t: { relPath: string }) => t.relPath === 'a.ts')).toBeUndefined()
     expect(activePathArg).toBe('b.ts')
+  })
+
+  // Windows CRLF-corruption bug: Monaco inserts its platform-default EOL
+  // (CRLF on Windows) for lines the user types via Enter, regardless of the
+  // loaded file's actual line-ending convention — confirmed via e2e (typing
+  // into an LF fixture and saving produced mixed LF/CRLF line endings).
+  it('normalizes newly-typed CRLF line breaks back to the loaded file\'s LF convention before saving', async () => {
+    const { bridge } = makeMockBridge()
+    ;(bridge.fs.readFile as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: true, content: 'line1\nline2' })
+    render(
+      <BridgeProvider value={bridge}>
+        <EditorPane pane={makePane()} onTabsChange={vi.fn()} onClose={vi.fn()} onFocus={vi.fn()} onOpenInNewPane={vi.fn()} />
+      </BridgeProvider>,
+    )
+    await waitFor(() => expect(screen.getByTestId('monaco-stub')).toHaveValue('line1\nline2'))
+
+    // Simulate what Monaco's onChange reports after the user presses Enter
+    // on Windows: the new line break comes back as CRLF even though the
+    // file that was loaded only had LF. Invoked directly (not via
+    // fireEvent.change) so jsdom's native-textarea CRLF normalization
+    // doesn't strip the '\r' before production code ever sees it.
+    act(() => monacoStub.latestOnChange?.('line1\r\nline2\r\nline3'))
+
+    fireEvent.keyDown(window, { key: 's', ctrlKey: true })
+    await waitFor(() => expect(bridge.fs.writeFile).toHaveBeenCalledWith('/repo', 'a.ts', 'line1\nline2\nline3'))
+  })
+
+  it('keeps CRLF line breaks when the loaded file already uses CRLF', async () => {
+    const { bridge } = makeMockBridge()
+    ;(bridge.fs.readFile as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: true, content: 'line1\r\nline2' })
+    render(
+      <BridgeProvider value={bridge}>
+        <EditorPane pane={makePane()} onTabsChange={vi.fn()} onClose={vi.fn()} onFocus={vi.fn()} onOpenInNewPane={vi.fn()} />
+      </BridgeProvider>,
+    )
+    await waitFor(() => expect(monacoStub.latestOnChange).not.toBeNull())
+
+    act(() => monacoStub.latestOnChange?.('line1\r\nline2\nline3'))
+
+    fireEvent.keyDown(window, { key: 's', ctrlKey: true })
+    await waitFor(() => expect(bridge.fs.writeFile).toHaveBeenCalledWith('/repo', 'a.ts', 'line1\r\nline2\r\nline3'))
   })
 
   // Finding 3: reloadFromDisk silently swallows a failed re-read.

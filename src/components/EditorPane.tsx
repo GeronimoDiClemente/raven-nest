@@ -3,6 +3,19 @@ import Editor from '@monaco-editor/react'
 import { useBridge } from '../lib/bridge'
 import type { EditorTab, PaneNode } from '../types'
 
+// Monaco inserts its platform-default EOL (CRLF on Windows) for any line the
+// user creates via Enter, regardless of the loaded file's own convention —
+// it does not infer EOL from loaded content. Left unchecked, editing an
+// LF file on Windows silently produces mixed LF/CRLF line endings on save.
+function detectEol(content: string): '\n' | '\r\n' {
+  return content.includes('\r\n') ? '\r\n' : '\n'
+}
+
+function normalizeEol(content: string, eol: '\n' | '\r\n'): string {
+  const withLf = content.replace(/\r\n/g, '\n')
+  return eol === '\r\n' ? withLf.replace(/\n/g, '\r\n') : withLf
+}
+
 interface EditorPaneProps {
   pane: PaneNode
   onTabsChange: (tabs: EditorTab[], activeEditorTabPath: string | undefined) => void
@@ -41,6 +54,7 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
   // bug class on directory watches: sequence watch/unwatch calls per key so
   // the last toggle always wins.
   const pendingOpsRef = useRef(new Map<string, Promise<void>>())
+  const eolRef = useRef<Record<string, '\n' | '\r\n'>>({})
 
   const sequencedOp = useCallback((key: string, op: () => Promise<unknown>) => {
     const prior = pendingOpsRef.current.get(key) ?? Promise.resolve()
@@ -63,6 +77,7 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
       if (contentsRef.current[tab.relPath] !== undefined) return
       bridge.fs.readFile(worktreePath, tab.relPath).then((res) => {
         if (res.ok) {
+          eolRef.current[tab.relPath] = detectEol(res.content)
           setContents((c) => ({ ...c, [tab.relPath]: res.content }))
           setLoadErrors((e) => { const { [tab.relPath]: _drop, ...rest } = e; return rest })
         } else {
@@ -86,6 +101,7 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
       }
       bridge.fs.readFile(worktreePath, relPath).then((res) => {
         if (res.ok) {
+          eolRef.current[relPath] = detectEol(res.content)
           setContents((c) => ({ ...c, [relPath]: res.content }))
           setLoadErrors((e) => { const { [relPath]: _drop, ...rest } = e; return rest })
         } else {
@@ -120,7 +136,8 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
   }, [onTabsChange])
 
   const handleChange = useCallback((relPath: string, value: string | undefined) => {
-    setContents((c) => ({ ...c, [relPath]: value ?? '' }))
+    const eol = eolRef.current[relPath] ?? '\n'
+    setContents((c) => ({ ...c, [relPath]: normalizeEol(value ?? '', eol) }))
     // Only flip dirty (and thus only churn a new tabs array reference via
     // onTabsChange) if the tab isn't ALREADY dirty. Without this, every
     // keystroke calls setDirty(relPath, true) unconditionally, .map()
@@ -156,6 +173,7 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
     if (!worktreePath) return
     const res = await bridge.fs.readFile(worktreePath, relPath)
     if (res.ok) {
+      eolRef.current[relPath] = detectEol(res.content)
       setContents((c) => ({ ...c, [relPath]: res.content }))
       setConflicts((c) => ({ ...c, [relPath]: false }))
       setDirty(relPath, false)
