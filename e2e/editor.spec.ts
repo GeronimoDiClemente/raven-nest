@@ -21,9 +21,14 @@ test('abrir un archivo desde el Explorer, editarlo y guardarlo actualiza el disc
   await expect(h.page.locator('.explorer-panel')).toBeVisible({ timeout: 10_000 })
   await h.page.locator('.explorer-entry-name', { hasText: 'README.md' }).click()
 
-  const editorTextarea = h.page.locator('.monaco-editor textarea')
-  await expect(editorTextarea).toBeVisible({ timeout: 10_000 })
-  await editorTextarea.click()
+  // No clickear '.monaco-editor textarea': en Chromium moderno Monaco usa la
+  // Native EditContext API para el input, y ese selector matchea el
+  // '.ime-text-area' (readonly, solo posiciona el candidate window de IME),
+  // no una superficie interactiva. Clickear '.view-lines' focá y posiciona
+  // el cursor igual, sin depender del mecanismo de input interno de Monaco.
+  const editorContent = h.page.locator('.monaco-editor .view-lines')
+  await expect(editorContent).toBeVisible({ timeout: 10_000 })
+  await editorContent.click()
   await h.page.keyboard.press('Control+A')
   await h.page.keyboard.type('# edited by e2e\n')
 
