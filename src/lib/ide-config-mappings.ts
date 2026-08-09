@@ -79,7 +79,7 @@ const VSCODE_MAPPINGS: VSCodeMapping[] = [
   { vsCodeKey: 'editor.guides.bracketPairs', apply: (o, v) => setNested(o, 'guides', 'bracketPairs', Boolean(v)) },
   { vsCodeKey: 'editor.autoClosingBrackets', apply: (o, v) => { o.autoClosingBrackets = v as EditorPreferences['autoClosingBrackets'] } },
   { vsCodeKey: 'editor.quickSuggestions', apply: (o, v) => { o.quickSuggestions = Boolean(v) } },
-  { vsCodeKey: 'editor.wordBasedSuggestions', apply: (o, v) => { o.wordBasedSuggestions = v !== 'off' } },
+  { vsCodeKey: 'editor.wordBasedSuggestions', apply: (o, v) => { o.wordBasedSuggestions = typeof v === 'string' ? v !== 'off' : Boolean(v) } },
   { vsCodeKey: 'editor.stickyScroll.enabled', apply: (o, v) => setNested(o, 'stickyScroll', 'enabled', Boolean(v)) },
   { vsCodeKey: 'editor.colorDecorators', apply: (o, v) => { o.colorDecorators = Boolean(v) } },
 ]
@@ -92,11 +92,15 @@ function themeFromName(name: string): EditorTheme | undefined {
 }
 
 export function parseVSCodeSettings(json: string): ParseResult {
-  let raw: Record<string, unknown>
+  let raw: unknown
   try {
     raw = JSON.parse(json)
   } catch (err) {
     return { ok: false, error: `No pudimos leer tu configuración: JSON inválido (${err instanceof Error ? err.message : String(err)})` }
+  }
+
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+    return { ok: false, error: 'No pudimos leer tu configuración: el archivo no es un objeto JSON válido.' }
   }
 
   const options: EditorPreferences = {}

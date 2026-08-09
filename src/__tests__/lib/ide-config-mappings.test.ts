@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseVSCodeSettings } from '../../lib/ide-config-mappings'
+import { parseVSCodeSettings, mergeEditorPreferences } from '../../lib/ide-config-mappings'
 
 describe('parseVSCodeSettings', () => {
   it('maps flat editor.* keys to Monaco options', () => {
@@ -64,5 +64,88 @@ describe('parseVSCodeSettings', () => {
     expect(result.ok).toBe(true)
     if (!result.ok) return
     expect(result.options).toEqual({})
+  })
+
+  it('handles wordBasedSuggestions as boolean false correctly (not inverted)', () => {
+    const result = parseVSCodeSettings(JSON.stringify({ 'editor.wordBasedSuggestions': false }))
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.options.wordBasedSuggestions).toBe(false)
+  })
+
+  it('handles wordBasedSuggestions as string "off" correctly', () => {
+    const result = parseVSCodeSettings(JSON.stringify({ 'editor.wordBasedSuggestions': 'off' }))
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.options.wordBasedSuggestions).toBe(false)
+  })
+
+  it('returns error result for null JSON, never throws', () => {
+    const result = parseVSCodeSettings('null')
+    expect(result.ok).toBe(false)
+    expect(result.ok || result.error).toContain('objeto JSON')
+  })
+
+  it('returns error result for JSON array, never throws', () => {
+    const result = parseVSCodeSettings('[]')
+    expect(result.ok).toBe(false)
+    expect(result.ok || result.error).toContain('objeto JSON')
+  })
+
+  it('returns error result for JSON primitive, never throws', () => {
+    const result = parseVSCodeSettings('"just a string"')
+    expect(result.ok).toBe(false)
+    expect(result.ok || result.error).toContain('objeto JSON')
+  })
+})
+
+describe('mergeEditorPreferences', () => {
+  it('merges scalar fields from base and patch', () => {
+    const base = { fontSize: 14, tabSize: 4 }
+    const patch = { tabSize: 2, insertSpaces: true }
+    const result = mergeEditorPreferences(base, patch)
+    expect(result).toEqual({ fontSize: 14, tabSize: 2, insertSpaces: true })
+  })
+
+  it('merges nested minimap objects field-by-field without clobbering', () => {
+    const base = { minimap: { enabled: true, scale: 1 } }
+    const patch = { minimap: { scale: 2 } }
+    const result = mergeEditorPreferences(base, patch)
+    expect(result.minimap).toEqual({ enabled: true, scale: 2 })
+  })
+
+  it('merges nested guides objects field-by-field without clobbering', () => {
+    const base = { guides: { indentation: true } }
+    const patch = { guides: { bracketPairs: true } }
+    const result = mergeEditorPreferences(base, patch)
+    expect(result.guides).toEqual({ indentation: true, bracketPairs: true })
+  })
+
+  it('merges nested bracketPairColorization objects field-by-field without clobbering', () => {
+    const base = { bracketPairColorization: { enabled: true } }
+    const patch = { bracketPairColorization: { enabled: false } }
+    const result = mergeEditorPreferences(base, patch)
+    expect(result.bracketPairColorization).toEqual({ enabled: false })
+  })
+
+  it('merges nested stickyScroll objects field-by-field without clobbering', () => {
+    const base = { stickyScroll: { enabled: true } }
+    const patch = { stickyScroll: { enabled: false } }
+    const result = mergeEditorPreferences(base, patch)
+    expect(result.stickyScroll).toEqual({ enabled: false })
+  })
+
+  it('handles undefined nested objects in base', () => {
+    const base: any = {}
+    const patch = { minimap: { scale: 2 } }
+    const result = mergeEditorPreferences(base, patch)
+    expect(result.minimap).toEqual({ scale: 2 })
+  })
+
+  it('handles undefined nested objects in patch', () => {
+    const base = { minimap: { enabled: true } }
+    const patch: any = {}
+    const result = mergeEditorPreferences(base, patch)
+    expect(result.minimap).toEqual({ enabled: true })
   })
 })
