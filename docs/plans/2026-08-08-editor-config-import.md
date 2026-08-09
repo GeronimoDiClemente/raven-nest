@@ -556,6 +556,7 @@ git commit -m "feat(editor): detección de paths de config de VS Code/IntelliJ p
 - Modify: `electron/main.ts` (register `ipcMain.handle('ide-config:import', ...)`)
 - Modify: `electron/preload.ts` (expose `window.ideConfig`)
 - Modify: `src/types.ts` (declare `ideConfig` on the global `Window` interface)
+- Modify: `tsconfig.node.json` (whitelist `src/lib/ide-config-mappings.ts` — see Step 3, a real cross-project-import build error found during planning, not a hypothetical)
 
 **Interfaces:**
 - Consumes: `resolveVSCodeSettingsPath`, `resolveJetBrainsRoot`, `findIntelliJConfigDir` (Task 3); `parseVSCodeSettings`, `parseIntelliJConfig`, `EditorPreferences`, `EditorTheme` (Task 1/2).
@@ -622,7 +623,20 @@ describe('importIntelliJConfig', () => {
 Run: `npx vitest run electron/__tests__/ide-config-bridge.test.ts`
 Expected: FAIL — `importVSCodeConfig is not a function`.
 
-- [ ] **Step 3: Implement the import functions**
+- [ ] **Step 3: Whitelist `src/lib/ide-config-mappings.ts` in the main-process tsconfig**
+
+`electron/*.ts` is its own TypeScript project (`tsconfig.node.json`, `composite: true`), and its `include` currently only pulls in ONE file from `src/`: `src/types.ts`, explicitly listed — NOT `src/**/*.ts` in general (that broader glob belongs to `tsconfig.web.json`, a separate composite project with no `references` back to the node one). Importing `../src/lib/ide-config-mappings` from `electron/ide-config-bridge.ts` (this step) without extending that whitelist fails `tsc --noEmit` with a TS6307-style "file not listed within project" error — confirmed against this repo's actual tsconfig files during planning, not a hypothetical.
+
+Modify `tsconfig.node.json`'s `include` array, following the exact precedent already set for `src/types.ts` (compare `electron/preset-store.ts`'s `import type { RavenPreset } from '../src/types'`, which works only because of that same whitelist entry):
+
+```json
+{
+  "compilerOptions": { "...": "unchanged" },
+  "include": ["electron.vite.config.ts", "electron/**/*.ts", "src/types.ts", "src/lib/ide-config-mappings.ts"]
+}
+```
+
+- [ ] **Step 4: Implement the import functions**
 
 ```typescript
 // append to electron/ide-config-bridge.ts
@@ -664,12 +678,12 @@ export async function importIntelliJConfig(homeDir: string, platform: NodeJS.Pla
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [ ] **Step 5: Run test to verify it passes**
 
 Run: `npx vitest run electron/__tests__/ide-config-bridge.test.ts`
 Expected: PASS (10 tests total)
 
-- [ ] **Step 5: Wire the IPC handler**
+- [ ] **Step 6: Wire the IPC handler**
 
 VS Code/IntelliJ configs live in the **real OS home directory**, not Nest's own (possibly-redirected) storage root — same reasoning `electron/main.ts:510-515` already documents for git clone targets: use `userHome()` from `electron/raven-home.ts`, not `ravenHome()`. `userHome()` deliberately always ignores `RAVEN_HOME` (see its docstring — that env var is reserved for Nest's persistent storage, not for redirecting where other apps' config lives), so e2e tests need a **separate** override env var, checked here directly rather than by reusing `RAVEN_HOME`.
 
@@ -691,7 +705,7 @@ ipcMain.handle('ide-config:import', async (_evt, source: 'vscode' | 'intellij') 
 })
 ```
 
-- [ ] **Step 6: Expose it in the preload script**
+- [ ] **Step 7: Expose it in the preload script**
 
 Add to `electron/preload.ts`, alongside the existing `contextBridge.exposeInMainWorld('fs', ...)` block:
 
@@ -701,7 +715,7 @@ contextBridge.exposeInMainWorld('ideConfig', {
 })
 ```
 
-- [ ] **Step 7: Declare the type on `Window`**
+- [ ] **Step 8: Declare the type on `Window`**
 
 Add to `src/types.ts`, inside `declare global { interface Window { ... } }`, alongside the existing `fs: {...}` block:
 
@@ -714,17 +728,27 @@ ideConfig: {
 }
 ```
 
-(Add `import type { EditorPreferences, EditorTheme } from './lib/ide-config-mappings'` to `src/types.ts`'s existing imports.)
+(Add `import type { EditorPreferences, EditorTheme } from './lib/ide-config-mappings'` to `src/types.ts`'s existing imports. This import has the same cross-project shape as Step 3's — already covered by that same `tsconfig.node.json` whitelist entry, since `src/types.ts` is itself compiled under `tsconfig.node.json`.)
 
-- [ ] **Step 8: Typecheck**
+- [ ] **Step 9: Typecheck**
 
 Run: `npx tsc --noEmit`
 Expected: no errors.
 
-- [ ] **Step 9: Commit**
+- [ ] **Step 9b: Verify the main process still boots (fast-xml-parser ESM/CJS check)**
+
+This branch already hit one real bug where `externalizeDepsPlugin()` turned an ESM-only dependency (`chokidar`) into a `require()` in the compiled main bundle and crashed Electron's boot with `ERR_REQUIRE_ESM` (see `git log --oneline | grep chokidar`) — `fast-xml-parser` (Task 2) ships `"main": "./lib/fxp.cjs"`, a real CJS entry, so it should NOT hit the same failure, but verify directly rather than assume:
 
 ```bash
-git add electron/ide-config-bridge.ts electron/__tests__/ide-config-bridge.test.ts electron/main.ts electron/preload.ts src/types.ts
+doppler run -- npm run build
+```
+
+Then launch the compiled main process directly for a few seconds and confirm no `ERR_REQUIRE_ESM` (or any crash) in its output — same direct-boot-check method already used for the chokidar fix earlier in this branch — before trusting the full E2E harness. If it crashes, `electron.vite.config.ts`'s `main.plugins: [externalizeDepsPlugin({ exclude: [...] })]` needs `fast-xml-parser` added to that `exclude` array too, same fix shape as chokidar's.
+
+- [ ] **Step 10: Commit**
+
+```bash
+git add electron/ide-config-bridge.ts electron/__tests__/ide-config-bridge.test.ts electron/main.ts electron/preload.ts src/types.ts tsconfig.node.json
 git commit -m "feat(editor): IPC ide-config:import + wiring main/preload/types"
 ```
 
@@ -815,14 +839,21 @@ const setEditorOptions = useCallback((options: EditorPreferences, theme?: Editor
   updatePrefs({
     ui_settings: {
       ...prefs.ui_settings,
-      editorOptions: { ...prefs.ui_settings.editorOptions, ...options },
+      // mergeEditorPreferences (Task 1), NOT a plain spread: a plain
+      // {...old, ...new} would replace nested groups (minimap, guides,
+      // bracketPairColorization, stickyScroll) wholesale instead of merging
+      // their sub-fields, silently dropping old sub-fields the new import
+      // doesn't happen to redefine (e.g. import #1 sets minimap.enabled,
+      // import #2 only sets minimap.scale — a plain spread would lose
+      // minimap.enabled even though import #2 never touched it).
+      editorOptions: mergeEditorPreferences(prefs.ui_settings.editorOptions ?? {}, options),
       ...(theme ? { editorTheme: theme } : {}),
     },
   })
 }, [updatePrefs, prefs.ui_settings])
 ```
 
-Add `setEditorOptions` to the hook's return object.
+Add `setEditorOptions` to the hook's return object. Add `mergeEditorPreferences` to this file's import from `../lib/ide-config-mappings` (alongside `EditorPreferences`/`EditorTheme`).
 
 - [ ] **Step 4: Thread the props through `EditorPane`**
 
