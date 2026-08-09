@@ -58,7 +58,7 @@ export async function importVSCodeConfig(homeDir: string, platform: NodeJS.Platf
   const path = resolveVSCodeSettingsPath(homeDir, platform)
   const content = await readIfExists(path)
   if (content === null) {
-    return { ok: false, error: 'No encontramos la configuración de VS Code en este equipo.' }
+    return { ok: false, error: "We couldn't find your VS Code configuration on this machine." }
   }
   return parseVSCodeSettings(content)
 }
@@ -67,11 +67,11 @@ export async function importIntelliJConfig(homeDir: string, platform: NodeJS.Pla
   const jetbrainsRoot = resolveJetBrainsRoot(homeDir, platform)
   const versionDir = await findIntelliJConfigDir(jetbrainsRoot)
   if (!versionDir) {
-    return { ok: false, error: 'No encontramos la configuración de IntelliJ en este equipo.' }
+    return { ok: false, error: "We couldn't find your IntelliJ configuration on this machine." }
   }
   const editorXml = await readIfExists(join(versionDir, 'options', 'editor.xml'))
   if (editorXml === null) {
-    return { ok: false, error: 'No encontramos la configuración de IntelliJ en este equipo.' }
+    return { ok: false, error: "We couldn't find your IntelliJ configuration on this machine." }
   }
   const codeStyleXml = await readIfExists(join(versionDir, 'codestyles', 'Project.xml'))
   return parseIntelliJConfig(editorXml, codeStyleXml)

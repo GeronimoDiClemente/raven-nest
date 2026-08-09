@@ -78,7 +78,7 @@ describe('importVSCodeConfig', () => {
     root = makeTmpDir('vscode-home-empty-')
     const result = await importVSCodeConfig(root, 'linux')
     expect(result.ok).toBe(false)
-    if (!result.ok) expect(result.error).toContain('No encontramos')
+    if (!result.ok) expect(result.error).toContain("couldn't find")
   })
 })
 
@@ -103,6 +103,6 @@ describe('importIntelliJConfig', () => {
     root = makeTmpDir('jetbrains-home-empty-')
     const result = await importIntelliJConfig(root, 'linux')
     expect(result.ok).toBe(false)
-    if (!result.ok) expect(result.error).toContain('No encontramos')
+    if (!result.ok) expect(result.error).toContain("couldn't find")
   })
 })

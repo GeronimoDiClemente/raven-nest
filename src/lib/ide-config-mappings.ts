@@ -98,11 +98,11 @@ export function parseVSCodeSettings(json: string): ParseResult {
   try {
     raw = JSON.parse(json)
   } catch (err) {
-    return { ok: false, error: `No pudimos leer tu configuración: JSON inválido (${err instanceof Error ? err.message : String(err)})` }
+    return { ok: false, error: `We couldn't read your configuration: invalid JSON (${err instanceof Error ? err.message : String(err)})` }
   }
 
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
-    return { ok: false, error: 'No pudimos leer tu configuración: el archivo no es un objeto JSON válido.' }
+    return { ok: false, error: "We couldn't read your configuration: the file isn't a valid JSON object." }
   }
 
   const settings = raw as Record<string, unknown>
@@ -164,7 +164,7 @@ export function parseIntelliJConfig(editorXml: string, codeStyleXml: string | nu
   try {
     editorOptions = findOptions(xmlParser.parse(editorXml))
   } catch (err) {
-    return { ok: false, error: `No pudimos leer tu configuración: XML inválido (${err instanceof Error ? err.message : String(err)})` }
+    return { ok: false, error: `We couldn't read your configuration: invalid XML (${err instanceof Error ? err.message : String(err)})` }
   }
 
   const options: EditorPreferences = {}
@@ -183,7 +183,7 @@ export function parseIntelliJConfig(editorXml: string, codeStyleXml: string | nu
     try {
       codeStyleOptions = findOptions(xmlParser.parse(codeStyleXml))
     } catch (err) {
-      return { ok: false, error: `No pudimos leer tu configuración: XML de code style inválido (${err instanceof Error ? err.message : String(err)})` }
+      return { ok: false, error: `We couldn't read your configuration: invalid code style XML (${err instanceof Error ? err.message : String(err)})` }
     }
     const tabSize = optionValue(codeStyleOptions, 'TAB_SIZE')
     if (tabSize !== undefined) options.tabSize = Number(tabSize)

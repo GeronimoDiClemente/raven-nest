@@ -83,19 +83,19 @@ describe('parseVSCodeSettings', () => {
   it('returns error result for null JSON, never throws', () => {
     const result = parseVSCodeSettings('null')
     expect(result.ok).toBe(false)
-    expect(result.ok || result.error).toContain('objeto JSON')
+    expect(result.ok || result.error).toContain('JSON object')
   })
 
   it('returns error result for JSON array, never throws', () => {
     const result = parseVSCodeSettings('[]')
     expect(result.ok).toBe(false)
-    expect(result.ok || result.error).toContain('objeto JSON')
+    expect(result.ok || result.error).toContain('JSON object')
   })
 
   it('returns error result for JSON primitive, never throws', () => {
     const result = parseVSCodeSettings('"just a string"')
     expect(result.ok).toBe(false)
-    expect(result.ok || result.error).toContain('objeto JSON')
+    expect(result.ok || result.error).toContain('JSON object')
   })
 })
 

@@ -54,11 +54,11 @@ describe('SettingsPanel — editor config import', () => {
   })
 
   it('shows an error message without crashing when the config is not found', async () => {
-    mockIdeConfigImport(vi.fn().mockResolvedValue({ ok: false, error: 'No encontramos la configuración de VS Code en este equipo.' }))
+    mockIdeConfigImport(vi.fn().mockResolvedValue({ ok: false, error: "We couldn't find your VS Code configuration on this machine." }))
     openEditorTab()
 
     fireEvent.click(screen.getByText('Import from VS Code'))
-    await waitFor(() => expect(screen.getByText('No encontramos la configuración de VS Code en este equipo.')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText("We couldn't find your VS Code configuration on this machine.")).toBeInTheDocument())
   })
 
   it('applies the preview via setEditorOptions and hides the preview on confirm', async () => {
