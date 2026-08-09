@@ -1,3 +1,5 @@
+import type { EditorPreferences, EditorTheme } from './lib/ide-config-mappings'
+
 export type AIType = 'claude' | 'gemini' | 'codex' | 'copilot' | 'opencode' | 'terminal' | 'custom' | 'browser' | 'editor'
 
 export type LayoutId =
@@ -505,6 +507,12 @@ declare global {
       watch: (worktreePath: string, relPath: string, opts?: { depth?: number }) => Promise<{ ok: true } | { ok: false; error: string }>
       unwatch: (worktreePath: string, relPath: string) => Promise<{ ok: true } | { ok: false; error: string }>
       onChanged: (cb: (worktreePath: string, relPath: string) => void) => () => void
+    }
+    ideConfig: {
+      import: (source: 'vscode' | 'intellij') => Promise<
+        | { ok: true; options: EditorPreferences; theme?: EditorTheme; unmappedTheme?: string }
+        | { ok: false; error: string }
+      >
     }
     ide: {
       detect: (force?: boolean) => Promise<DetectedIDE[]>

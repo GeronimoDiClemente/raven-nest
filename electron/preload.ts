@@ -281,6 +281,10 @@ contextBridge.exposeInMainWorld('fs', {
   },
 })
 
+contextBridge.exposeInMainWorld('ideConfig', {
+  import: (source: 'vscode' | 'intellij') => ipcRenderer.invoke('ide-config:import', source),
+})
+
 contextBridge.exposeInMainWorld('ide', {
   detect: (force?: boolean) => ipcRenderer.invoke('ide:detect', force),
   open: (binPath: string, worktreePath: string) => ipcRenderer.invoke('ide:open', binPath, worktreePath),

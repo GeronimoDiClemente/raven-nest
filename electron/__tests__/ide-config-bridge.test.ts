@@ -55,3 +55,54 @@ describe('findIntelliJConfigDir', () => {
     await expect(findIntelliJConfigDir(root)).resolves.toBeNull()
   })
 })
+
+import { writeFileSync, mkdirSync as mkdirSync2 } from 'fs'
+import { importVSCodeConfig, importIntelliJConfig } from '../ide-config-bridge'
+
+describe('importVSCodeConfig', () => {
+  let root: string
+  afterEach(() => cleanupTmp(root))
+
+  it('reads and parses settings.json from the resolved path', async () => {
+    root = makeTmpDir('vscode-home-')
+    const userDir = join(root, '.config', 'Code', 'User')
+    mkdirSync2(userDir, { recursive: true })
+    writeFileSync(join(userDir, 'settings.json'), JSON.stringify({ 'editor.fontSize': 18 }))
+
+    const result = await importVSCodeConfig(root, 'linux')
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.options.fontSize).toBe(18)
+  })
+
+  it('returns a not-found error when settings.json does not exist', async () => {
+    root = makeTmpDir('vscode-home-empty-')
+    const result = await importVSCodeConfig(root, 'linux')
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.error).toContain('No encontramos')
+  })
+})
+
+describe('importIntelliJConfig', () => {
+  let root: string
+  afterEach(() => cleanupTmp(root))
+
+  it('reads and parses editor.xml (and code style, if present) from the newest version dir', async () => {
+    root = makeTmpDir('jetbrains-home-')
+    const optionsDir = join(root, '.config', 'JetBrains', 'IntelliJIdea2025.1', 'options')
+    mkdirSync2(optionsDir, { recursive: true })
+    writeFileSync(
+      join(optionsDir, 'editor.xml'),
+      '<application><component name="EditorSettings"><option name="FONT_SIZE" value="17" /></component></application>',
+    )
+    const result = await importIntelliJConfig(root, 'linux')
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.options.fontSize).toBe(17)
+  })
+
+  it('returns a not-found error when no JetBrains install is found', async () => {
+    root = makeTmpDir('jetbrains-home-empty-')
+    const result = await importIntelliJConfig(root, 'linux')
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.error).toContain('No encontramos')
+  })
+})

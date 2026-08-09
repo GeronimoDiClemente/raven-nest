@@ -125,6 +125,7 @@ import { SpotlightEngine } from './spotlight-engine'
 import { BenchmarkRecorder } from './benchmark-recorder'
 import { getDiff } from './diff-engine'
 import { readFile as fsReadFile, writeFile as fsWriteFile, listDir as fsListDir, FsWatchRegistry } from './fs-bridge'
+import { importVSCodeConfig, importIntelliJConfig } from './ide-config-bridge'
 import { detectIDEs, openInIDE, clearCache as clearIDECache } from './ide-launcher'
 import { MCPStore } from './mcp-store'
 import { SettingsStore } from './settings-store'
@@ -1723,6 +1724,17 @@ ipcMain.handle('fs:unwatch', async (_evt, worktreePath: string, relPath: string)
   try {
     await fsWatchRegistry.unwatch(worktreePath, relPath)
     return { ok: true as const }
+  } catch (err) {
+    return { ok: false as const, error: err instanceof Error ? err.message : String(err) }
+  }
+})
+
+ipcMain.handle('ide-config:import', async (_evt, source: 'vscode' | 'intellij') => {
+  try {
+    const homeDir = process.env.RAVEN_IDE_CONFIG_HOME ?? userHome()
+    return source === 'vscode'
+      ? await importVSCodeConfig(homeDir, process.platform)
+      : await importIntelliJConfig(homeDir, process.platform)
   } catch (err) {
     return { ok: false as const, error: err instanceof Error ? err.message : String(err) }
   }
