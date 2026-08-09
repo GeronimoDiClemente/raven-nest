@@ -1,14 +1,16 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { supabase } from '../lib/supabase'
 import { useSettings } from '../hooks/useSettings'
 import { useGitHub } from '../hooks/useGitHub'
 import { useGitlab } from '../hooks/useGitlab'
+import { useUserPreferences } from '../hooks/useUserPreferences'
 import { formatBinding, eventToBinding, Keybindings } from '../lib/keybindings'
+import type { EditorPreferences, EditorTheme } from '../lib/ide-config-mappings'
 import { PresetEditor } from './PresetEditor'
 import { BenchmarkDashboard } from './BenchmarkDashboard'
 
-type Tab = 'keybinds' | 'presets' | 'benchmarks' | 'updates' | 'account' | 'tutorial'
+type Tab = 'keybinds' | 'presets' | 'benchmarks' | 'updates' | 'account' | 'tutorial' | 'editor'
 
 interface KeybindRowProps {
   label: string
@@ -86,7 +88,27 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
   const { settings, updateKeybinding, updateVoiceLanguage } = useSettings()
   const { isConnected: githubConnected, githubLogin, connectGitHub, disconnectGitHub } = useGitHub()
   const { isConnected: gitlabConnected, gitlabLogin, connectGitlab, disconnectGitlab } = useGitlab()
+  const userPrefs = useUserPreferences()
+  const [importPreview, setImportPreview] = useState<{ source: 'vscode' | 'intellij'; options: EditorPreferences; theme?: EditorTheme } | null>(null)
+  const [importError, setImportError] = useState<string | null>(null)
   const kb = settings.keybindings
+
+  const handleImportEditorConfig = useCallback(async (source: 'vscode' | 'intellij') => {
+    setImportError(null)
+    setImportPreview(null)
+    const result = await window.ideConfig.import(source)
+    if (!result.ok) {
+      setImportError(result.error)
+      return
+    }
+    setImportPreview({ source, options: result.options, theme: result.theme })
+  }, [])
+
+  const confirmImportEditorConfig = useCallback(() => {
+    if (!importPreview) return
+    userPrefs.setEditorOptions(importPreview.options, importPreview.theme)
+    setImportPreview(null)
+  }, [importPreview, userPrefs])
 
   useEffect(() => {
     if (!open) return
@@ -138,7 +160,7 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
 
             {/* Tabs */}
             <div className="sp-tabs">
-              {(['keybinds', 'presets', 'benchmarks', 'updates', 'account', 'tutorial'] as Tab[]).map(t => (
+              {(['keybinds', 'presets', 'benchmarks', 'updates', 'account', 'tutorial', 'editor'] as Tab[]).map(t => (
                 <button
                   key={t}
                   className={`sp-tab${tab === t ? ' active' : ''}`}
@@ -273,6 +295,30 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                   <button className="sp-action-btn" onClick={() => onOpenTutorial?.('worktrees')}>
                     Tutorial: Worktrees
                   </button>
+                </div>
+              )}
+
+              {tab === 'editor' && (
+                <div className="sp-section">
+                  <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '0 0 12px' }}>
+                    Import your editor preferences from VS Code or IntelliJ.
+                  </p>
+                  <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+                    <button className="sp-action-btn" onClick={() => handleImportEditorConfig('vscode')}>Import from VS Code</button>
+                    <button className="sp-action-btn" onClick={() => handleImportEditorConfig('intellij')}>Import from IntelliJ</button>
+                  </div>
+                  {importError && <p style={{ color: '#ef4444', fontSize: 12 }}>{importError}</p>}
+                  {importPreview && (
+                    <div data-testid="ide-config-preview">
+                      <ul>
+                        {Object.entries(importPreview.options).map(([key, value]) => (
+                          <li key={key}>{key}: {JSON.stringify(value)}</li>
+                        ))}
+                      </ul>
+                      <button className="sp-action-btn" onClick={confirmImportEditorConfig}>Apply</button>
+                      <button className="sp-btn-danger" onClick={() => setImportPreview(null)}>Cancel</button>
+                    </div>
+                  )}
                 </div>
               )}
 
