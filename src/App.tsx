@@ -1161,6 +1161,8 @@ export default function App() {
                         onClose={() => removePane(pane.id)}
                         onFocus={() => { setFocusedPaneId(pane.id); focusedPaneIdRef.current = pane.id }}
                         onOpenInNewPane={(relPath) => moveEditorTabToNewPane(pane.id, relPath)}
+                        editorOptions={userPrefs.prefs.ui_settings.editorOptions}
+                        editorTheme={userPrefs.prefs.ui_settings.editorTheme}
                       />
                     )
                     : pane.aiType === 'browser'

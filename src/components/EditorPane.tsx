@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import Editor from '@monaco-editor/react'
 import { useBridge } from '../lib/bridge'
 import type { EditorTab, PaneNode } from '../types'
+import type { EditorPreferences, EditorTheme } from '../lib/ide-config-mappings'
 
 // Monaco inserts its platform-default EOL (CRLF on Windows) for any line the
 // user creates via Enter, regardless of the loaded file's own convention —
@@ -22,9 +23,11 @@ interface EditorPaneProps {
   onClose: () => void
   onFocus: () => void
   onOpenInNewPane: (relPath: string) => void
+  editorOptions?: EditorPreferences
+  editorTheme?: EditorTheme
 }
 
-export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPane }: EditorPaneProps) {
+export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPane, editorOptions, editorTheme }: EditorPaneProps) {
   const bridge = useBridge()
   const worktreePath = pane.repoPath
   const tabs = pane.editorTabs ?? []
@@ -239,7 +242,13 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
           <button onClick={() => closeTab(activePath)}>Cerrar</button>
         </div>
       ) : activePath && (
-        <Editor path={activePath} value={contents[activePath] ?? ''} onChange={(value) => handleChange(activePath, value)} theme="vs-dark" />
+        <Editor
+          path={activePath}
+          value={contents[activePath] ?? ''}
+          onChange={(value) => handleChange(activePath, value)}
+          theme={editorTheme ?? 'vs-dark'}
+          options={editorOptions}
+        />
       )}
     </div>
   )

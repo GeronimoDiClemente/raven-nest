@@ -11,11 +11,17 @@ import type { PaneNode } from '../../types'
 // textarea silently strips the very characters these tests need to send.
 // Stashing the latest onChange lets tests invoke it directly, bypassing that
 // DOM normalization, same as real Monaco would report it.
-const monacoStub = vi.hoisted(() => ({ latestOnChange: null as ((v: string) => void) | null }))
+const monacoStub = vi.hoisted(() => ({
+  latestOnChange: null as ((v: string) => void) | null,
+  lastOptions: undefined as unknown,
+  lastTheme: undefined as string | undefined,
+}))
 
 vi.mock('@monaco-editor/react', () => ({
-  default: ({ value, onChange }: { value: string; onChange: (v: string | undefined) => void }) => {
+  default: ({ value, onChange, options, theme }: { value: string; onChange: (v: string | undefined) => void; options?: unknown; theme?: string }) => {
     monacoStub.latestOnChange = onChange
+    monacoStub.lastOptions = options
+    monacoStub.lastTheme = theme
     return <textarea data-testid="monaco-stub" value={value} onChange={(e) => onChange(e.target.value)} />
   },
 }))
@@ -381,5 +387,25 @@ describe('EditorPane', () => {
     expect(screen.getByTestId('conflict-banner')).toBeInTheDocument()
     expect(onTabsChange).not.toHaveBeenCalled()
     alertSpy.mockRestore()
+  })
+
+  it('passes editorOptions and editorTheme through to Monaco', async () => {
+    const { bridge } = makeMockBridge()
+    render(
+      <BridgeProvider value={bridge}>
+        <EditorPane
+          pane={makePane()}
+          onTabsChange={vi.fn()}
+          onClose={vi.fn()}
+          onFocus={vi.fn()}
+          onOpenInNewPane={vi.fn()}
+          editorOptions={{ fontSize: 18, tabSize: 2 }}
+          editorTheme="vs"
+        />
+      </BridgeProvider>,
+    )
+    await waitFor(() => expect(screen.getByTestId('monaco-stub')).toHaveValue('hello'))
+    expect(monacoStub.lastOptions).toEqual({ fontSize: 18, tabSize: 2 })
+    expect(monacoStub.lastTheme).toBe('vs')
   })
 })
