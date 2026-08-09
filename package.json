@@ -135,6 +135,7 @@
     "@xterm/xterm": "^5.5.0",
     "chokidar": "^5.0.0",
     "electron-updater": "^6.8.3",
+    "fast-xml-parser": "^5.10.1",
     "koffi": "^2.16.2",
     "node-pty": "^1.1.0",
     "pidtree": "^0.6.0",

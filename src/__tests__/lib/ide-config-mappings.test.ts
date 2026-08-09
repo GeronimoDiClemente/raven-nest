@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseVSCodeSettings, mergeEditorPreferences } from '../../lib/ide-config-mappings'
+import { parseVSCodeSettings, mergeEditorPreferences, parseIntelliJConfig } from '../../lib/ide-config-mappings'
 
 describe('parseVSCodeSettings', () => {
   it('maps flat editor.* keys to Monaco options', () => {
@@ -147,5 +147,48 @@ describe('mergeEditorPreferences', () => {
     const patch: any = {}
     const result = mergeEditorPreferences(base, patch)
     expect(result.minimap).toEqual({ enabled: true })
+  })
+})
+
+describe('parseIntelliJConfig', () => {
+  const EDITOR_XML = `<application>
+    <component name="EditorSettings">
+      <option name="FONT_SIZE" value="15" />
+      <option name="FONT_FAMILY" value="JetBrains Mono" />
+      <option name="USE_SOFT_WRAPS" value="true" />
+      <option name="LINE_NUMBERS_SHOWN" value="false" />
+    </component>
+  </application>`
+
+  const CODE_STYLE_XML = `<code_scheme name="Project">
+    <option name="TAB_SIZE" value="4" />
+    <option name="USE_TAB_CHARACTER" value="false" />
+  </code_scheme>`
+
+  it('maps editor.xml + code style scheme fields to Monaco options', () => {
+    const result = parseIntelliJConfig(EDITOR_XML, CODE_STYLE_XML)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.options).toMatchObject({
+      fontSize: 15,
+      fontFamily: 'JetBrains Mono',
+      wordWrap: 'on',
+      lineNumbers: 'off',
+      tabSize: 4,
+      insertSpaces: true,
+    })
+  })
+
+  it('works with editor.xml alone when no code style scheme is available', () => {
+    const result = parseIntelliJConfig(EDITOR_XML, null)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.options.fontSize).toBe(15)
+    expect(result.options.tabSize).toBeUndefined()
+  })
+
+  it('returns an error result for malformed XML, never throws', () => {
+    const result = parseIntelliJConfig('<app><opt name="test value="bad" /></app>', null)
+    expect(result.ok).toBe(false)
   })
 })

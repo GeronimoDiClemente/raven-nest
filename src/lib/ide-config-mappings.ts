@@ -1,3 +1,5 @@
+import { XMLParser } from 'fast-xml-parser'
+
 export interface EditorPreferences {
   fontSize?: number
   fontFamily?: string
@@ -129,4 +131,65 @@ export function mergeEditorPreferences(base: EditorPreferences, patch: EditorPre
     }
   }
   return merged
+}
+
+const xmlParser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '' })
+
+function findOptions(node: unknown): Array<{ name: string; value: string }> {
+  // IntelliJ XML represents each setting as <option name="X" value="Y" />.
+  // fast-xml-parser (attributeNamePrefix: '') turns that into
+  // { name: 'X', value: 'Y' } objects, either a single object or an array
+  // when there's more than one <option> under the same parent.
+  const found: Array<{ name: string; value: string }> = []
+  const visit = (n: unknown): void => {
+    if (Array.isArray(n)) { n.forEach(visit); return }
+    if (n && typeof n === 'object') {
+      const obj = n as Record<string, unknown>
+      if (typeof obj.name === 'string' && typeof obj.value === 'string') {
+        found.push({ name: obj.name, value: obj.value })
+      }
+      for (const v of Object.values(obj)) visit(v)
+    }
+  }
+  visit(node)
+  return found
+}
+
+function optionValue(options: Array<{ name: string; value: string }>, name: string): string | undefined {
+  return options.find((o) => o.name === name)?.value
+}
+
+export function parseIntelliJConfig(editorXml: string, codeStyleXml: string | null): ParseResult {
+  let editorOptions: Array<{ name: string; value: string }>
+  try {
+    editorOptions = findOptions(xmlParser.parse(editorXml))
+  } catch (err) {
+    return { ok: false, error: `No pudimos leer tu configuración: XML inválido (${err instanceof Error ? err.message : String(err)})` }
+  }
+
+  const options: EditorPreferences = {}
+
+  const fontSize = optionValue(editorOptions, 'FONT_SIZE')
+  if (fontSize !== undefined) options.fontSize = Number(fontSize)
+  const fontFamily = optionValue(editorOptions, 'FONT_FAMILY')
+  if (fontFamily !== undefined) options.fontFamily = fontFamily
+  const softWraps = optionValue(editorOptions, 'USE_SOFT_WRAPS')
+  if (softWraps !== undefined) options.wordWrap = softWraps === 'true' ? 'on' : 'off'
+  const lineNumbers = optionValue(editorOptions, 'LINE_NUMBERS_SHOWN')
+  if (lineNumbers !== undefined) options.lineNumbers = lineNumbers === 'true' ? 'on' : 'off'
+
+  if (codeStyleXml) {
+    let codeStyleOptions: Array<{ name: string; value: string }>
+    try {
+      codeStyleOptions = findOptions(xmlParser.parse(codeStyleXml))
+    } catch (err) {
+      return { ok: false, error: `No pudimos leer tu configuración: XML de code style inválido (${err instanceof Error ? err.message : String(err)})` }
+    }
+    const tabSize = optionValue(codeStyleOptions, 'TAB_SIZE')
+    if (tabSize !== undefined) options.tabSize = Number(tabSize)
+    const useTabChar = optionValue(codeStyleOptions, 'USE_TAB_CHARACTER')
+    if (useTabChar !== undefined) options.insertSpaces = useTabChar !== 'true'
+  }
+
+  return { ok: true, options }
 }
