@@ -103,14 +103,16 @@ export function parseVSCodeSettings(json: string): ParseResult {
     return { ok: false, error: 'No pudimos leer tu configuración: el archivo no es un objeto JSON válido.' }
   }
 
+  const settings = raw as Record<string, unknown>
+
   const options: EditorPreferences = {}
   for (const mapping of VSCODE_MAPPINGS) {
-    if (Object.prototype.hasOwnProperty.call(raw, mapping.vsCodeKey)) {
-      mapping.apply(options, raw[mapping.vsCodeKey])
+    if (Object.prototype.hasOwnProperty.call(settings, mapping.vsCodeKey)) {
+      mapping.apply(options, settings[mapping.vsCodeKey])
     }
   }
 
-  const themeName = raw['workbench.colorTheme']
+  const themeName = settings['workbench.colorTheme']
   if (typeof themeName === 'string') {
     const theme = themeFromName(themeName)
     return theme ? { ok: true, options, theme } : { ok: true, options, unmappedTheme: themeName }
