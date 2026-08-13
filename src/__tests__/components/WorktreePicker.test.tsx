@@ -115,7 +115,7 @@ describe('WorktreePicker', () => {
     expect((workerSelect as HTMLSelectElement).value).toBe('') // defaults to None
   })
 
-  it('unlinked row: picking a worker opens the pane with its steps[0] (agent/model/instructions)', async () => {
+  it('unlinked row: picking a worker opens the pane with the whole spec (App tracks the pipeline) and steps[0] as the input hint', async () => {
     const onOpenWorktree = vi.fn()
     render(<WorktreePicker row={unlinkedRow} onClose={vi.fn()} onOpenWorktree={onOpenWorktree} />)
     await waitFor(() => expect(screen.getByDisplayValue('gero/PROJ-9-fix-the-thing')).toBeInTheDocument())
@@ -125,7 +125,9 @@ describe('WorktreePicker', () => {
 
     await waitFor(() => expect(onOpenWorktree).toHaveBeenCalledTimes(1))
     expect(onOpenWorktree).toHaveBeenCalledWith('/tmp/wt', 'Fix the failing test', {
-      agent: 'claude', model: 'haiku', instructions: 'Fix the failing test',
+      id: 'w1', name: 'Bugfix Bot',
+      steps: [{ agent: 'claude', model: 'haiku', instructions: 'Fix the failing test' }],
+      createdAt: 0, updatedAt: 0,
     })
   })
 

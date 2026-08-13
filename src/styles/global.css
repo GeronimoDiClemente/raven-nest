@@ -1938,6 +1938,30 @@ body {
   border-color: #0066FF88;
 }
 
+/* Hand off → : advance a worker pipeline to its next agent/step. Mirrors the
+   restart button's accent-outline treatment (small, unobtrusive). */
+.pane-handoff-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: transparent;
+  border: 1px solid var(--raven-blue-dim);
+  color: var(--raven-blue);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 2px 7px;
+  border-radius: 4px;
+  transition: background 0.15s, border-color 0.15s;
+  flex-shrink: 0;
+  margin-right: 4px;
+}
+
+.pane-handoff-btn:hover {
+  background: #0066FF22;
+  border-color: #0066FF88;
+}
+
 /* Sync cwd button — live pane cwd diverges from active repo */
 .pane-sync-cwd-btn {
   display: flex;

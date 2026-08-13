@@ -10,12 +10,12 @@ import { RecipesView } from './RecipesView'
 import { AutomationsView } from './AutomationsView'
 import { ConnectionsView } from './ConnectionsView'
 import type { BoardRow } from '../integrations/board'
-import type { WorkerStep, WorktreeMeta } from '../types'
+import type { WorkerSpec, WorktreeMeta } from '../types'
 
 interface IntegrationsHubProps {
   onClose: () => void
   activeRepoPath?: string | null
-  onOpenWorktree?: (worktreePath: string, initialInput?: string, worker?: WorkerStep) => void
+  onOpenWorktree?: (worktreePath: string, initialInput?: string, worker?: WorkerSpec) => void
 }
 
 // worktree:create actually resolves to this union (see WorktreePicker.tsx's

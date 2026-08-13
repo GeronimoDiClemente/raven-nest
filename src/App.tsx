@@ -6,7 +6,7 @@ import {
 import { SortableContext, rectSortingStrategy } from '@dnd-kit/sortable'
 import {
   PaneNode, AIType, AI_CONFIG, SessionData, SessionPane, Workspace,
-  WorkspaceTab, LayoutId, MAX_PANES, WorktreeMeta,
+  WorkspaceTab, LayoutId, MAX_PANES, WorktreeMeta, WorkerSpec,
 } from './types'
 import { PaneLayoutEngine } from './components/PaneLayoutEngine'
 import { defaultLayoutFor, mapLegacyToPreset } from './layout/select'
@@ -45,6 +45,8 @@ import { terminalShareService } from './lib/terminalShareService'
 import ResourceBar from './components/ResourceBar'
 import { useLocalPathsMigration } from './hooks/useLocalPathsMigration'
 import type { MetricsPaneInput } from './types'
+import { nextStep, composeStepInput } from './lib/worker-run'
+import type { WorkerRun } from './lib/worker-run'
 import { OnboardingTour } from './tutorial/OnboardingTour'
 import { getTour } from './tutorial/registry'
 
@@ -84,6 +86,19 @@ export default function App() {
   // sometimes captures the previous addPane closure where worktreePath is null.
   const addingPaneRef = useRef<null | { worktreePath?: string; initialInput?: string; presetAgent?: AIType; presetModel?: string }>(null)
   addingPaneRef.current = addingPane
+  // Cooperative worker pipelines: which worker+step each worktree is running, so
+  // the pane header can offer "Hand off →" to advance to the next step. Keyed by
+  // worktree path (a pane's repoPath). Set when a worktree opens with a worker.
+  const [activeWorkerRun, setActiveWorkerRun] = useState<Record<string, WorkerRun>>({})
+  // Worker-specs loaded once so a running run is resolvable to its spec by id.
+  const [workerSpecs, setWorkerSpecs] = useState<WorkerSpec[]>([])
+  useEffect(() => {
+    let cancelled = false
+    window.workerSpecs?.list?.()
+      .then((list) => { if (!cancelled) setWorkerSpecs(list) })
+      .catch(() => { /* no bridge / failed load → handoff simply never arms */ })
+    return () => { cancelled = true }
+  }, [])
   const [zoomedPaneId, setZoomedPaneId] = useState<string | null>(null)
   const [zoomingOut, setZoomingOut] = useState(false)
   const [draggingId, setDraggingId] = useState<string | null>(null)
@@ -294,6 +309,24 @@ export default function App() {
       setAddingPane({ worktreePath, initialInput: prompt })
     }
   }, [])
+
+  // "Hand off →": advance the worktree's worker pipeline to the next step. Reads
+  // the handoff the current agent wrote (.nest/handoff.md), composes the next
+  // step's input (prior handoff + its instructions + a "write your handoff"
+  // note when it isn't the final step) and opens a fresh pane on that step's
+  // agent/model via the same preset seam the board-open flow uses.
+  const advanceHandoff = useCallback(async (worktreePath: string) => {
+    const run = activeWorkerRun[worktreePath]
+    const spec = workerSpecs.find((s) => s.id === run?.workerId)
+    if (!run || !spec) return
+    const next = nextStep(spec, run)
+    if (!next) return
+    const handoff = await window.handoff.read(worktreePath)
+    const isFinal = next.index === spec.steps.length - 1
+    const initialInput = composeStepInput(next.step.instructions, handoff, isFinal)
+    setAddingPane({ worktreePath, initialInput, presetAgent: next.step.agent, presetModel: next.step.model })
+    setActiveWorkerRun((m) => ({ ...m, [worktreePath]: { ...run, stepIndex: next.index } }))
+  }, [activeWorkerRun, workerSpecs])
 
   // === H7 Motor 5 — @Nest desde Slack ===
   // Refs para leer valores frescos dentro de los listeners del socket sin tener
@@ -1170,8 +1203,8 @@ export default function App() {
                   panes={panes}
                   splitRatios={activeTab.splitRatios}
                   onResize={handleSplitResize}
-                  renderPane={(pane) => pane.aiType === 'browser'
-                    ? (
+                  renderPane={(pane) => {
+                    if (pane.aiType === 'browser') return (
                       <BrowserCell
                         key={pane.id}
                         pane={pane}
@@ -1187,7 +1220,12 @@ export default function App() {
                         onNavigate={(url) => updatePaneUrl(pane.id, url)}
                       />
                     )
-                    : (
+                    // Cooperative worker handoff: this pane's worktree may be
+                    // mid-pipeline. Offer "Hand off →" only when a next step exists.
+                    const run = pane.repoPath ? activeWorkerRun[pane.repoPath] : undefined
+                    const spec = run ? workerSpecs.find((s) => s.id === run.workerId) : undefined
+                    const hasNextStep = !!(spec && run && nextStep(spec, run))
+                    return (
                       <TerminalPane
                         key={pane.id}
                         pane={pane}
@@ -1214,9 +1252,11 @@ export default function App() {
                         onPtyStarted={handlePtyStarted}
                         allowSharing={planLimits.allowSharing}
                         onRequireUpgrade={() => setShowUpgrade(true)}
+                        hasNextStep={hasNextStep}
+                        onHandoff={() => { if (pane.repoPath) void advanceHandoff(pane.repoPath) }}
                       />
                     )
-                  }
+                  }}
                   renderEmpty={() => (
                     <EmptyCell onClick={() => setAddingPane({})} />
                   )}
@@ -1315,16 +1355,22 @@ export default function App() {
         <IntegrationsHub
           onClose={() => setIntegrationsHubOpen(false)}
           activeRepoPath={activeCellRepoPath ?? null}
-          onOpenWorktree={(path, initialInput, worker) => {
+          onOpenWorktree={(path, initialInput, spec) => {
             setIntegrationsHubOpen(false)
-            // Worker instructions seed the pane; existing initialInput is the
-            // fallback. presetAgent/presetModel initialize NewPaneDialog.
+            // With a worker spec, step 0 seeds the first pane: compose its input
+            // (no prior handoff yet; append the "write your handoff" note unless
+            // it's a single-step worker) and initialize NewPaneDialog's
+            // agent/model. Then arm the run so the pane can offer "Hand off →".
+            // No spec → the plain flow (calendar/None): use initialInput as-is.
+            const step0 = spec?.steps[0]
+            const isFinal = !spec || spec.steps.length <= 1
             setAddingPane({
               worktreePath: path,
-              initialInput: worker?.instructions ?? initialInput,
-              presetAgent: worker?.agent,
-              presetModel: worker?.model,
+              initialInput: step0 ? composeStepInput(step0.instructions, null, isFinal) : initialInput,
+              presetAgent: step0?.agent,
+              presetModel: step0?.model,
             })
+            if (spec) setActiveWorkerRun((m) => ({ ...m, [path]: { workerId: spec.id, stepIndex: 0 } }))
           }}
         />
       )}

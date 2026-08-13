@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useGitHub } from '../hooks/useGitHub'
 import { useUserRepos } from '../hooks/useUserRepos'
 import type { BoardRow } from '../integrations/board'
-import type { Ticket, WorkerSpec, WorkerStep, WorktreeMeta } from '../types'
+import type { Ticket, WorkerSpec, WorktreeMeta } from '../types'
 
 // worktree:create actually resolves to this union (see the handler in
 // electron/main.ts); the bridge type in src/types.ts predates it and still
@@ -15,9 +15,10 @@ interface Props {
   onClose: () => void
   onCreated?: () => void
   /** Opens a terminal pane on the just-created worktree. When a worker is
-   *  picked, its `steps[0]` flows up so the pane launches on that agent/model
-   *  with the worker's instructions seeded as initial input. */
-  onOpenWorktree?: (worktreePath: string, initialInput?: string, worker?: WorkerStep) => void
+   *  picked, the whole `WorkerSpec` flows up (not just `steps[0]`) so App can
+   *  track the running pipeline (`{ workerId, stepIndex }`) and later offer
+   *  "Hand off →"; `steps[0]` still drives the first pane's agent/model/input. */
+  onOpenWorktree?: (worktreePath: string, initialInput?: string, worker?: WorkerSpec) => void
 }
 
 /** GitHub ticket keys encode the repo ("owner/repo#7", see tickets-github.ts);
@@ -91,11 +92,12 @@ export function WorktreePicker({ row, onClose, onCreated, onOpenWorktree }: Prop
       const started = await window.tickets.startWork({ pluginId: row.pluginId, ticket, branch, worktreePath: res.meta.repoPath })
       if (!started.ok) { setError(`Could not start work: ${started.error}`); return }
       onCreated?.()
-      // Open a pane on the new worktree. With a worker picked, its first step
-      // carries agent/model + instructions; None → (path, undefined, undefined),
-      // i.e. the plain new-pane flow, exactly as before.
-      const step = workers.find((w) => w.id === workerId)?.steps[0]
-      onOpenWorktree?.(res.meta.repoPath, step?.instructions, step)
+      // Open a pane on the new worktree. With a worker picked, the whole spec
+      // flows up so App can track the pipeline; steps[0].instructions is the
+      // first-pane input hint. None → (path, undefined, undefined), i.e. the
+      // plain new-pane flow, exactly as before.
+      const spec = workers.find((w) => w.id === workerId)
+      onOpenWorktree?.(res.meta.repoPath, spec?.steps[0]?.instructions, spec)
       onClose()
     } catch (e) {
       // Any bridge call can reject (handler threw, keyring locked, …): show it

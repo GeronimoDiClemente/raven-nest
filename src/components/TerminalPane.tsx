@@ -60,9 +60,13 @@ interface Props {
   style?: React.CSSProperties
   allowSharing?: boolean
   onRequireUpgrade?: () => void
+  /** True when this pane's worktree is running a multi-step worker and a next
+   *  step exists — arms the "Hand off →" action in the header. */
+  hasNextStep?: boolean
+  onHandoff?: () => void
 }
 
-export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZoom, onClose, onColorChange, onNoteChange, onInput, onBusyChange, onFocus, onActivity, onJoinRequest, onPtyStarted, ports = [], fontSize, style, allowSharing = true, onRequireUpgrade }: Props) {
+export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZoom, onClose, onColorChange, onNoteChange, onInput, onBusyChange, onFocus, onActivity, onJoinRequest, onPtyStarted, ports = [], fontSize, style, allowSharing = true, onRequireUpgrade, hasNextStep, onHandoff }: Props) {
   const cmdBufferRef = useRef('')
   const wrappedOnInput = useCallback((data: string) => {
     for (const ch of data) {
@@ -437,6 +441,8 @@ export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZ
         isSharing={isSharing}
         repoPathDiverged={repoPathDiverged}
         onSyncCwd={handleSyncCwd}
+        hasNextStep={hasNextStep}
+        onHandoff={onHandoff}
       />
       {searchOpen && (
         <div className="search-bar">

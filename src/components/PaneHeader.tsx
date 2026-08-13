@@ -39,9 +39,13 @@ interface Props {
   repoPathDiverged?: boolean
   onSyncCwd?: () => void
   ports?: number[]
+  /** When true, this pane's worktree is mid worker-pipeline and a next step
+   *  exists — show "Hand off →" to advance to it. */
+  hasNextStep?: boolean
+  onHandoff?: () => void
 }
 
-export default function PaneHeader({ pane, zoomed, onZoom, onClose, onColorChange, onNoteChange, dragHandleProps, processEnded, isBusy, onRestart, onSaveConversation, onCopyLastResponse, showBlocks, blockCount, onToggleBlocks, onShare, isSharing, repoPathDiverged, onSyncCwd, ports = [] }: Props) {
+export default function PaneHeader({ pane, zoomed, onZoom, onClose, onColorChange, onNoteChange, dragHandleProps, processEnded, isBusy, onRestart, onSaveConversation, onCopyLastResponse, showBlocks, blockCount, onToggleBlocks, onShare, isSharing, repoPathDiverged, onSyncCwd, hasNextStep, onHandoff, ports = [] }: Props) {
   const config = AI_CONFIG[pane.aiType]
   const displayLabel = pane.customLabel ?? config.label
   const displayColor = pane.customColor ?? config.color
@@ -166,6 +170,19 @@ export default function PaneHeader({ pane, zoomed, onZoom, onClose, onColorChang
           </button>
         )}
       </div>
+
+      {hasNextStep && (
+        <button
+          className="pane-handoff-btn"
+          onClick={() => onHandoff?.()}
+          title="Hand off to the next step in this worker pipeline"
+        >
+          Hand off
+          <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
+            <path d="M2 6h6.5M6 3l3 3-3 3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+        </button>
+      )}
 
       {onToggleBlocks && (
         <button
