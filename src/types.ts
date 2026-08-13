@@ -229,6 +229,12 @@ export interface Automation {
   prompt: string
   repo?: string
   provider?: string
+  /** References a saved worker-spec (electron/integrations/worker-spec-store.ts)
+   *  to resolve model/effort/instructions from. `model`/`effort` below, when
+   *  set, take precedence (inline override of the referenced worker's first step). */
+  workerId?: string
+  model?: string
+  effort?: 'low' | 'medium' | 'high'
   enabled: boolean
   createdAt: number
   updatedAt: number
@@ -251,6 +257,9 @@ export interface AutomationInput {
   prompt: string
   repo?: string
   provider?: string
+  workerId?: string
+  model?: string
+  effort?: 'low' | 'medium' | 'high'
 }
 
 export interface AutomationsBridge {

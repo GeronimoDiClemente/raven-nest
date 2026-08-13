@@ -207,6 +207,13 @@ describe('loadAutomations / saveAutomations', () => {
     expect(loadAutomations(file)).toEqual([a])
   })
 
+  it('toAutomation preserves workerId/model/effort when present', () => {
+    const f = tmpFile()
+    saveAutomations(f, [makeAutomation({ workerId: 'w1', model: 'haiku', effort: 'low' })])
+    const [a] = loadAutomations(f)
+    expect(a.workerId).toBe('w1'); expect(a.model).toBe('haiku'); expect(a.effort).toBe('low')
+  })
+
   it('corrupt JSON → warn + [] (never crashes)', () => {
     const file = tmpFile()
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})

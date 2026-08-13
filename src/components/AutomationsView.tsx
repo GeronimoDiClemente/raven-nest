@@ -60,6 +60,7 @@ export function AutomationsView() {
   const [prompt, setPrompt] = useState('')
   const [repo, setRepo] = useState('')
   const [provider, setProvider] = useState('claude')
+  const [model, setModel] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -85,6 +86,7 @@ export function AutomationsView() {
     setPrompt('')
     setRepo('')
     setProvider('claude')
+    setModel('')
     setError(null)
   }
 
@@ -104,6 +106,7 @@ export function AutomationsView() {
         prompt: prompt.trim(),
         repo: repo || undefined,
         provider: provider || undefined,
+        model: model || undefined,
       })
       resetForm()
       setShowForm(false)
@@ -315,9 +318,20 @@ export function AutomationsView() {
               <option value="">No repo</option>
               {repos.map((r) => <option key={r} value={r}>{basename(r)}</option>)}
             </select>
-            <select className="auto-select" aria-label="Provider" value={provider} onChange={(e) => setProvider(e.target.value)}>
+            <select
+              className="auto-select"
+              aria-label="Provider"
+              value={provider}
+              onChange={(e) => { setProvider(e.target.value); setModel('') }}
+            >
               {PROVIDER_OPTIONS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
             </select>
+            {!!AI_CONFIG[provider as AIType]?.models?.length && (
+              <select className="auto-select" aria-label="Model" value={model} onChange={(e) => setModel(e.target.value)}>
+                <option value="">Default model</option>
+                {AI_CONFIG[provider as AIType]!.models!.map((m) => <option key={m} value={m}>{m}</option>)}
+              </select>
+            )}
           </div>
 
           {error && <p className="integration-error">{error}</p>}

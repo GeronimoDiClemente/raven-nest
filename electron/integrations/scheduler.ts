@@ -26,6 +26,12 @@ export interface Automation {
   prompt: string
   repo?: string
   provider?: string
+  /** References a saved worker-spec (electron/integrations/worker-spec-store.ts)
+   *  to resolve model/effort/instructions from. `model`/`effort` below, when
+   *  set, take precedence (inline override of the referenced worker's first step). */
+  workerId?: string
+  model?: string
+  effort?: 'low' | 'medium' | 'high'
   enabled: boolean
   createdAt: number
   updatedAt: number
@@ -234,6 +240,9 @@ function toAutomation(x: unknown): Automation | null {
   if (typeof r.timezone === 'string') out.timezone = r.timezone
   if (typeof r.repo === 'string') out.repo = r.repo
   if (typeof r.provider === 'string') out.provider = r.provider
+  if (typeof r.workerId === 'string') out.workerId = r.workerId
+  if (typeof r.model === 'string') out.model = r.model
+  if (r.effort === 'low' || r.effort === 'medium' || r.effort === 'high') out.effort = r.effort
   if (typeof r.lastRunAt === 'number') out.lastRunAt = r.lastRunAt
   if (r.lastResult === 'ok' || r.lastResult === 'error') out.lastResult = r.lastResult
   if (typeof r.lastSummary === 'string') out.lastSummary = r.lastSummary

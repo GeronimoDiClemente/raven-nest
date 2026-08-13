@@ -2429,8 +2429,14 @@ function automationDTO(a: Automation, now: Date) {
 // spawned. Wire the real run in here once worktree-create + a headless
 // CLI runner are ready to be driven unattended.
 async function runAutomationStub(automation: Automation, _now: Date): Promise<AutomationRunResult> {
-  console.warn('[automations] headless run STUBBED — not spawning a CLI', automation.id, automation.name)
-  return { ok: true, summary: 'Stubbed run — headless execution (worktree + CLI) not wired yet' }
+  // worker-spec / model-per-task (Capa 1, Task 8): resolve which model this
+  // run would use — inline `automation.model` wins, else fall back to the
+  // referenced worker-spec's first step. Only threaded through for
+  // observability (the warn + returned summary) — no CLI is spawned here.
+  const model = automation.model
+    ?? (automation.workerId ? workerSpecStore.list().find((w) => w.id === automation.workerId)?.steps[0]?.model : undefined)
+  console.warn('[automations] headless run STUBBED — not spawning a CLI', automation.id, automation.name, 'model:', model ?? 'default')
+  return { ok: true, summary: `Stubbed run — headless execution (worktree + CLI) not wired yet (model: ${model ?? 'default'})` }
 }
 
 const automationScheduler = new Scheduler({
@@ -2445,6 +2451,7 @@ ipcMain.handle('automations:list', () => {
 
 ipcMain.handle('automations:create', (_e, input: {
   name: string; trigger: string; time?: string; timezone?: string; prompt: string; repo?: string; provider?: string
+  workerId?: string; model?: string; effort?: 'low' | 'medium' | 'high'
 }) => {
   const now = Date.now()
   const automation: Automation = {
@@ -2456,6 +2463,9 @@ ipcMain.handle('automations:create', (_e, input: {
     prompt: input.prompt,
     repo: input.repo,
     provider: input.provider,
+    workerId: input.workerId,
+    model: input.model,
+    effort: input.effort,
     enabled: true,
     createdAt: now,
     updatedAt: now,
@@ -2467,7 +2477,7 @@ ipcMain.handle('automations:create', (_e, input: {
 })
 
 ipcMain.handle('automations:update', (_e, id: string, patch: Partial<Pick<Automation,
-  'name' | 'trigger' | 'time' | 'timezone' | 'prompt' | 'repo' | 'provider' | 'enabled'>>) => {
+  'name' | 'trigger' | 'time' | 'timezone' | 'prompt' | 'repo' | 'provider' | 'workerId' | 'model' | 'effort' | 'enabled'>>) => {
   const list = loadAutomations(automationsFilePath)
   const idx = list.findIndex((a) => a.id === id)
   if (idx === -1) return null
