@@ -66,18 +66,34 @@ describe('parseVSCodeSettings', () => {
     expect(result.options).toEqual({})
   })
 
-  it('handles wordBasedSuggestions as boolean false correctly (not inverted)', () => {
+  it('handles wordBasedSuggestions as boolean false correctly (not inverted) — maps to the "off" string Monaco expects', () => {
     const result = parseVSCodeSettings(JSON.stringify({ 'editor.wordBasedSuggestions': false }))
     expect(result.ok).toBe(true)
     if (!result.ok) return
-    expect(result.options.wordBasedSuggestions).toBe(false)
+    expect(result.options.wordBasedSuggestions).toBe('off')
+  })
+
+  it('handles wordBasedSuggestions as boolean true correctly — maps to VS Code\'s own "currentDocument" default', () => {
+    const result = parseVSCodeSettings(JSON.stringify({ 'editor.wordBasedSuggestions': true }))
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.options.wordBasedSuggestions).toBe('currentDocument')
   })
 
   it('handles wordBasedSuggestions as string "off" correctly', () => {
     const result = parseVSCodeSettings(JSON.stringify({ 'editor.wordBasedSuggestions': 'off' }))
     expect(result.ok).toBe(true)
     if (!result.ok) return
-    expect(result.options.wordBasedSuggestions).toBe(false)
+    expect(result.options.wordBasedSuggestions).toBe('off')
+  })
+
+  it('passes through wordBasedSuggestions string enum values unchanged (Monaco 0.55 union, not a boolean)', () => {
+    for (const value of ['currentDocument', 'matchingDocuments', 'allDocuments'] as const) {
+      const result = parseVSCodeSettings(JSON.stringify({ 'editor.wordBasedSuggestions': value }))
+      expect(result.ok).toBe(true)
+      if (!result.ok) return
+      expect(result.options.wordBasedSuggestions).toBe(value)
+    }
   })
 
   it('returns error result for null JSON, never throws', () => {

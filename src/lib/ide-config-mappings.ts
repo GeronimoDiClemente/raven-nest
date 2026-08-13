@@ -27,7 +27,7 @@ export interface EditorPreferences {
   guides?: { indentation?: boolean; bracketPairs?: boolean }
   autoClosingBrackets?: 'always' | 'languageDefined' | 'beforeWhitespace' | 'never'
   quickSuggestions?: boolean
-  wordBasedSuggestions?: boolean
+  wordBasedSuggestions?: 'off' | 'currentDocument' | 'matchingDocuments' | 'allDocuments'
   stickyScroll?: { enabled?: boolean }
   colorDecorators?: boolean
 }
@@ -44,6 +44,23 @@ const NESTED_GROUP_KEYS: readonly NestedGroupKey[] = ['minimap', 'bracketPairCol
 function setNested(options: EditorPreferences, group: NestedGroupKey, field: string, value: unknown): void {
   const target = (options[group] ??= {} as never)
   ;(target as Record<string, unknown>)[field] = value
+}
+
+const WORD_BASED_SUGGESTIONS_VALUES = ['off', 'currentDocument', 'matchingDocuments', 'allDocuments'] as const
+
+// Monaco 0.55 declares `wordBasedSuggestions` as this string union, not a
+// boolean — a boolean assignment is both a TS2322 and a silent runtime
+// no-op (Monaco rejects it and falls back to its own default). VS Code's
+// `editor.wordBasedSuggestions` setting matches this same string union
+// today, but older settings.json files may still carry the pre-deprecation
+// boolean, so both shapes are handled here.
+function toWordBasedSuggestions(v: unknown): EditorPreferences['wordBasedSuggestions'] {
+  if (typeof v === 'string' && (WORD_BASED_SUGGESTIONS_VALUES as readonly string[]).includes(v)) {
+    return v as EditorPreferences['wordBasedSuggestions']
+  }
+  // Pre-deprecation boolean: `true` mapped to VS Code's own default of
+  // 'currentDocument', `false` to 'off'.
+  return v ? 'currentDocument' : 'off'
 }
 
 interface VSCodeMapping {
@@ -81,7 +98,7 @@ const VSCODE_MAPPINGS: VSCodeMapping[] = [
   { vsCodeKey: 'editor.guides.bracketPairs', apply: (o, v) => setNested(o, 'guides', 'bracketPairs', Boolean(v)) },
   { vsCodeKey: 'editor.autoClosingBrackets', apply: (o, v) => { o.autoClosingBrackets = v as EditorPreferences['autoClosingBrackets'] } },
   { vsCodeKey: 'editor.quickSuggestions', apply: (o, v) => { o.quickSuggestions = Boolean(v) } },
-  { vsCodeKey: 'editor.wordBasedSuggestions', apply: (o, v) => { o.wordBasedSuggestions = typeof v === 'string' ? v !== 'off' : Boolean(v) } },
+  { vsCodeKey: 'editor.wordBasedSuggestions', apply: (o, v) => { o.wordBasedSuggestions = toWordBasedSuggestions(v) } },
   { vsCodeKey: 'editor.stickyScroll.enabled', apply: (o, v) => setNested(o, 'stickyScroll', 'enabled', Boolean(v)) },
   { vsCodeKey: 'editor.colorDecorators', apply: (o, v) => { o.colorDecorators = Boolean(v) } },
 ]
