@@ -338,6 +338,35 @@ export default function App() {
     }
   }, [activeWorkerRun, workerSpecs])
 
+  // Shared by every "open a worktree, optionally running a worker" entry
+  // point (board flow via IntegrationsHub, My Repos via MyReposPanel): with a
+  // worker spec, step 0 seeds the first pane (compose its input — no prior
+  // handoff yet; append the "write your handoff" note unless it's a
+  // single-step worker) and initializes NewPaneDialog's agent/model, then
+  // arms the run so the pane can offer "Hand off →". No spec → the plain flow
+  // (calendar/None): use initialInput as-is. Callers own closing their own
+  // panel before/after calling this — it only does the pane/worker wiring.
+  const openWorktreeWithWorker = useCallback((worktreePath: string, initialInput?: string, worker?: WorkerSpec) => {
+    const step0 = worker?.steps[0]
+    const isFinal = !worker || worker.steps.length <= 1
+    setAddingPane({
+      worktreePath,
+      initialInput: step0 ? composeStepInput(step0.instructions, null, isFinal) : initialInput,
+      presetAgent: step0?.agent,
+      presetModel: step0?.model,
+    })
+    if (worker) {
+      // Resolve the run's spec from the one that just flowed through, not the
+      // mount-loaded list: a worker created/edited in AutomationsView after
+      // App mounted isn't in `workerSpecs`, so hasNextStep/advanceHandoff
+      // would silently miss it. Upsert (filter-then-append) so an edited
+      // worker's fresh steps also replace any stale copy. Mount-load stays
+      // the initial seed.
+      setWorkerSpecs((list) => upsertWorkerSpec(list, worker))
+      setActiveWorkerRun((m) => ({ ...m, [worktreePath]: { workerId: worker.id, stepIndex: 0 } }))
+    }
+  }, [])
+
   // === H7 Motor 5 — @Nest desde Slack ===
   // Refs para leer valores frescos dentro de los listeners del socket sin tener
   // que re-suscribir el effect en cada render.
@@ -1357,7 +1386,7 @@ export default function App() {
           onStartTutorial={() => setTutorialTour('my-repos')}
           activeRepoPath={activeCellRepoPath ?? null}
           focusedPaneId={focusedPaneId}
-          onOpenWorktree={(path, initialInput) => { setMyReposOpen(false); setAddingPane({ worktreePath: path, ...(initialInput ? { initialInput } : {}) }) }}
+          onOpenWorktree={(path, initialInput, worker) => { setMyReposOpen(false); openWorktreeWithWorker(path, initialInput, worker) }}
         />
       )}
 
@@ -1367,29 +1396,7 @@ export default function App() {
           activeRepoPath={activeCellRepoPath ?? null}
           onOpenWorktree={(path, initialInput, spec) => {
             setIntegrationsHubOpen(false)
-            // With a worker spec, step 0 seeds the first pane: compose its input
-            // (no prior handoff yet; append the "write your handoff" note unless
-            // it's a single-step worker) and initialize NewPaneDialog's
-            // agent/model. Then arm the run so the pane can offer "Hand off →".
-            // No spec → the plain flow (calendar/None): use initialInput as-is.
-            const step0 = spec?.steps[0]
-            const isFinal = !spec || spec.steps.length <= 1
-            setAddingPane({
-              worktreePath: path,
-              initialInput: step0 ? composeStepInput(step0.instructions, null, isFinal) : initialInput,
-              presetAgent: step0?.agent,
-              presetModel: step0?.model,
-            })
-            if (spec) {
-              // Resolve the run's spec from the one that just flowed through,
-              // not the mount-loaded list: a worker created/edited in
-              // AutomationsView after App mounted isn't in `workerSpecs`, so
-              // hasNextStep/advanceHandoff would silently miss it. Upsert
-              // (filter-then-append) so an edited worker's fresh steps also
-              // replace any stale copy. Mount-load stays the initial seed.
-              setWorkerSpecs((list) => upsertWorkerSpec(list, spec))
-              setActiveWorkerRun((m) => ({ ...m, [path]: { workerId: spec.id, stepIndex: 0 } }))
-            }
+            openWorktreeWithWorker(path, initialInput, spec)
           }}
         />
       )}

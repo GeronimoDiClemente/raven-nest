@@ -17,6 +17,7 @@ import RepoActionsAccordion from './RepoActionsAccordion'
 import RepoActionsMenu, { type RepoAction } from './RepoActionsMenu'
 import { useGitlab } from '../hooks/useGitlab'
 import { ProviderAvatarPill, providerAvatar } from './ProviderAvatar'
+import type { WorkerSpec } from '../types'
 
 interface MyReposPanelProps {
   onClose: () => void
@@ -31,8 +32,11 @@ interface MyReposPanelProps {
   /** Pane currently focused in the terminal grid — feeds the "attach terminal output" action of an embedded integration panel. */
   focusedPaneId: string | null
   /** Opens the add-pane flow on a freshly created worktree (App.tsx setAddingPane).
-   *  El 2º arg (H5) viaja como initialInput del pane: el prompt inicial del agente. */
-  onOpenWorktree?: (worktreePath: string, initialInput?: string) => void
+   *  El 2º arg (H5) viaja como initialInput del pane: el prompt inicial del agente.
+   *  El 3º arg (worker) viaja cuando el usuario elige "Run with worker": el spec
+   *  entero para que App arme el pipeline de Hand-off (steps[0] ya define
+   *  initialInput/agent/model, igual que el flujo del board). */
+  onOpenWorktree?: (worktreePath: string, initialInput?: string, worker?: WorkerSpec) => void
 }
 
 type Section = 'activity' | 'repos' | 'issues' | 'standup'
@@ -50,6 +54,11 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
   const [showPicker, setShowPicker] = useState(false)
   const [showNotifications, setShowNotifications] = useState(false)
   const [statusRepo, setStatusRepo] = useState<UserRepo | null>(null)
+  // "Run with worker" — launches a worker (agent+model+instructions, incl.
+  // Hand-off) directly on a linked repo's local_path, no board ticket needed.
+  const [workers, setWorkers] = useState<WorkerSpec[]>([])
+  const [workerPickerRepo, setWorkerPickerRepo] = useState<UserRepo | null>(null)
+  useEffect(() => { void window.workerSpecs?.list?.().then(setWorkers).catch(() => {}) }, [])
   const [confirmAction, setConfirmAction] = useState<{
     title: string
     message: string
@@ -419,6 +428,15 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
                                   </svg>
                                 ),
                               })
+                              overflow.push({
+                                label: 'Run with worker',
+                                onClick: () => setWorkerPickerRepo(repo),
+                                icon: (
+                                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+                                    <path d="M5.5 3.5v9l7-4.5-7-4.5z" fill="currentColor"/>
+                                  </svg>
+                                ),
+                              })
                             } else {
                               overflow.push({
                                 label: 'Link existing folder',
@@ -765,6 +783,46 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
               >
                 Cancel
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {workerPickerRepo && (
+        <div className="confirm-overlay" onMouseDown={e => { if (e.target === e.currentTarget) setWorkerPickerRepo(null) }}>
+          <div className="confirm-dialog" style={{ width: 380 }}>
+            <div className="confirm-title" style={{ marginBottom: 4, fontSize: 14 }}>Run with worker</div>
+            <div className="confirm-message" style={{ marginBottom: 12, color: 'var(--text-muted)', fontSize: 12 }}>
+              {workerPickerRepo.repo_full_name}
+            </div>
+            {workers.length === 0 ? (
+              <p className="snippet-empty">No workers yet — create one in Integrations → Automations.</p>
+            ) : (
+              <div className="snippet-list" style={{ maxHeight: 320 }}>
+                {workers.map(w => (
+                  <div
+                    key={w.id}
+                    className="snippet-item"
+                    style={{ cursor: 'pointer' }}
+                    onClick={() => {
+                      const localPath = workerPickerRepo.local_path
+                      if (!localPath) return
+                      onOpenWorktree?.(localPath, w.steps[0]?.instructions, w)
+                      setWorkerPickerRepo(null)
+                    }}
+                  >
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <span className="snippet-name">{w.name}</span>
+                      <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 2 }}>
+                        {w.steps.map(s => s.model ? `${s.agent}:${s.model}` : s.agent).join(' → ')}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="confirm-actions" style={{ marginTop: 14 }}>
+              <button className="confirm-btn-cancel" onClick={() => setWorkerPickerRepo(null)}>Cancel</button>
             </div>
           </div>
         </div>
