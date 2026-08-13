@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { AI_CONFIG, type AIType, type Automation, type WorkerSpec } from '../types'
+import { AI_CONFIG, type AIType, type Automation, type WorkerSpec, type WorkerStep } from '../types'
 import { basename } from '../lib/path'
 
 type SchedulePreset = 'hourly' | 'daily' | 'weekdays' | 'weekly' | 'custom'
@@ -47,9 +47,7 @@ export function AutomationsView() {
   const [workers, setWorkers] = useState<WorkerSpec[]>([])
   const [showWorkerForm, setShowWorkerForm] = useState(false)
   const [wName, setWName] = useState('')
-  const [wAgent, setWAgent] = useState<AIType>('claude')
-  const [wModel, setWModel] = useState('')
-  const [wInstructions, setWInstructions] = useState('')
+  const [wSteps, setWSteps] = useState<WorkerStep[]>([{ agent: 'claude' }])
   const [wSubmitting, setWSubmitting] = useState(false)
   const [wError, setWError] = useState<string | null>(null)
 
@@ -130,10 +128,18 @@ export function AutomationsView() {
 
   const resetWorkerForm = () => {
     setWName('')
-    setWAgent('claude')
-    setWModel('')
-    setWInstructions('')
+    setWSteps([{ agent: 'claude' }])
     setWError(null)
+  }
+
+  const updateStep = (i: number, patch: Partial<WorkerStep>) => {
+    setWSteps((steps) => steps.map((s, idx) => (idx === i ? { ...s, ...patch } : s)))
+  }
+
+  const addStep = () => setWSteps((steps) => [...steps, { agent: 'claude' }])
+
+  const removeStep = (i: number) => {
+    setWSteps((steps) => (steps.length > 1 ? steps.filter((_, idx) => idx !== i) : steps))
   }
 
   const createWorker = async () => {
@@ -143,7 +149,12 @@ export function AutomationsView() {
     try {
       await window.workerSpecs.save({
         name: wName.trim(),
-        steps: [{ agent: wAgent, model: wModel || undefined, instructions: wInstructions.trim() || undefined }],
+        steps: wSteps.map((s) => ({
+          agent: s.agent,
+          model: s.model || undefined,
+          instructions: s.instructions?.trim() || undefined,
+          role: s.role?.trim() || undefined,
+        })),
       })
       resetWorkerForm()
       setShowWorkerForm(false)
@@ -189,30 +200,60 @@ export function AutomationsView() {
               onChange={(e) => setWName(e.target.value)}
             />
 
-            <div className="auto-form-row">
-              <select
-                className="auto-select"
-                aria-label="Agent"
-                value={wAgent}
-                onChange={(e) => { setWAgent(e.target.value as AIType); setWModel('') }}
-              >
-                {WORKER_AGENTS.map((a) => <option key={a} value={a}>{AI_CONFIG[a].label}</option>)}
-              </select>
-              {!!AI_CONFIG[wAgent].models?.length && (
-                <select className="auto-select" aria-label="Model" value={wModel} onChange={(e) => setWModel(e.target.value)}>
-                  <option value="">Default model</option>
-                  {AI_CONFIG[wAgent].models!.map((m) => <option key={m} value={m}>{m}</option>)}
-                </select>
-              )}
-            </div>
+            {wSteps.map((step, i) => (
+              <div className="auto-step-row" key={i}>
+                <div className="auto-form-row">
+                  <select
+                    className="auto-select"
+                    aria-label="Agent"
+                    value={step.agent}
+                    onChange={(e) => updateStep(i, { agent: e.target.value as AIType, model: undefined })}
+                  >
+                    {WORKER_AGENTS.map((a) => <option key={a} value={a}>{AI_CONFIG[a].label}</option>)}
+                  </select>
+                  {!!AI_CONFIG[step.agent].models?.length && (
+                    <select
+                      className="auto-select"
+                      aria-label="Model"
+                      value={step.model ?? ''}
+                      onChange={(e) => updateStep(i, { model: e.target.value || undefined })}
+                    >
+                      <option value="">Default model</option>
+                      {AI_CONFIG[step.agent].models!.map((m) => <option key={m} value={m}>{m}</option>)}
+                    </select>
+                  )}
+                </div>
 
-            <textarea
-              className="auto-textarea"
-              placeholder="Instructions for this worker…"
-              value={wInstructions}
-              onChange={(e) => setWInstructions(e.target.value)}
-              rows={3}
-            />
+                <textarea
+                  className="auto-textarea"
+                  placeholder="Instructions for this worker…"
+                  value={step.instructions ?? ''}
+                  onChange={(e) => updateStep(i, { instructions: e.target.value })}
+                  rows={3}
+                />
+
+                <div className="auto-step-footer">
+                  <input
+                    className="auto-input"
+                    placeholder="role (optional), e.g. explore"
+                    value={step.role ?? ''}
+                    onChange={(e) => updateStep(i, { role: e.target.value })}
+                  />
+                  {wSteps.length > 1 && (
+                    <button
+                      type="button"
+                      className="auto-step-remove"
+                      aria-label={`Remove step ${i + 1}`}
+                      onClick={() => removeStep(i)}
+                    >
+                      × Remove
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+
+            <button type="button" className="integration-btn ghost auto-step-add" onClick={addStep}>+ Add step</button>
 
             {wError && <p className="integration-error">{wError}</p>}
 

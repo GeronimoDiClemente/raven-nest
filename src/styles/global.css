@@ -9634,6 +9634,20 @@ body.platform-mac .tabbar { padding-right: 116px; }
 .auto-textarea { resize: vertical; font-family: inherit; }
 .auto-input-time { flex: none; width: 110px; }
 
+/* Worker pipeline step editor — one row per step (agent + model + instructions + role). */
+.auto-step-row {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-surface);
+}
+.auto-step-footer { display: flex; gap: 8px; align-items: center; }
+.auto-step-footer > .auto-input { flex: 1; min-width: 0; }
+.auto-step-remove {
+  font: inherit; font-size: 11px; padding: 5px 10px; border-radius: 6px; cursor: pointer; flex: none;
+  border: 1px solid var(--border); background: transparent; color: var(--text-muted); transition: color 150ms ease, border-color 150ms ease;
+}
+.auto-step-remove:hover { color: var(--raven-red, #e5484d); border-color: var(--raven-red, #e5484d); }
+.auto-step-add { align-self: flex-start; }
+
 .auto-list { border-top: 1px solid var(--border); }
 .auto-row {
   display: flex; align-items: center; gap: 14px; padding: 11px 16px; border-bottom: 1px solid var(--border);

@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
-// AutomationsView's Workers section — a minimal single-step worker-spec
-// library (list/create/delete) via window.workerSpecs. No real IPC here;
-// window.workerSpecs/window.automations/window.worktree are mocked.
+// AutomationsView's Workers section — a worker-spec library (list/create/
+// delete) with a multi-step (pipeline) create form, via window.workerSpecs.
+// No real IPC here; window.workerSpecs/window.automations/window.worktree
+// are mocked.
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { AutomationsView } from '../../components/AutomationsView'
@@ -153,6 +154,53 @@ describe('<AutomationsView> — Workers create form', () => {
     const modelSelect = screen.getByLabelText('Model') as HTMLSelectElement
     expect(modelSelect.value).toBe('')
     expect(screen.getByPlaceholderText(/Name \(e\.g\. Code reviewer\)/)).toHaveValue('')
+  })
+
+  it('a fresh form has 1 step with no remove button; "+ Add step" adds a 2nd step (each removable), and removing one goes back to 1 with no remove button', async () => {
+    render(<AutomationsView />)
+    fireEvent.click(screen.getByRole('button', { name: '+ New worker' }))
+
+    expect(screen.getAllByLabelText('Agent')).toHaveLength(1)
+    expect(screen.queryByRole('button', { name: /Remove step/ })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '+ Add step' }))
+    expect(screen.getAllByLabelText('Agent')).toHaveLength(2)
+    expect(screen.getAllByRole('button', { name: /Remove step/ })).toHaveLength(2)
+
+    fireEvent.click(screen.getAllByRole('button', { name: /Remove step/ })[1])
+    expect(screen.getAllByLabelText('Agent')).toHaveLength(1)
+    expect(screen.queryByRole('button', { name: /Remove step/ })).not.toBeInTheDocument()
+  })
+
+  it('adding a 2nd step and submitting saves a 2-step pipeline, each step keeping its own agent/model/role', async () => {
+    render(<AutomationsView />)
+    fireEvent.click(screen.getByRole('button', { name: '+ New worker' }))
+
+    fireEvent.change(screen.getByPlaceholderText(/Name \(e\.g\. Code reviewer\)/), { target: { value: 'Explore then implement' } })
+    fireEvent.click(screen.getByRole('button', { name: '+ Add step' }))
+
+    // 2nd step: switch its agent to gemini (independent of step 1, which stays claude)
+    // and give it its own model + role.
+    const agentSelects = screen.getAllByLabelText('Agent')
+    fireEvent.change(agentSelects[1], { target: { value: 'gemini' } })
+
+    const modelSelects = screen.getAllByLabelText('Model')
+    fireEvent.change(modelSelects[1], { target: { value: 'gemini-2.5-flash' } })
+
+    const roleInputs = screen.getAllByPlaceholderText(/role \(optional\)/)
+    fireEvent.change(roleInputs[1], { target: { value: 'implement' } })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create' }))
+
+    await waitFor(() => expect(window.workerSpecs.save).toHaveBeenCalledWith(expect.objectContaining({
+      name: 'Explore then implement',
+      steps: [
+        expect.objectContaining({ agent: 'claude' }),
+        expect.objectContaining({ agent: 'gemini', model: 'gemini-2.5-flash', role: 'implement' }),
+      ],
+    })))
+    const savedSteps = (window.workerSpecs.save as ReturnType<typeof vi.fn>).mock.calls[0][0].steps
+    expect(savedSteps).toHaveLength(2)
   })
 })
 
