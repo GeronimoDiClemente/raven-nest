@@ -188,7 +188,7 @@ describe('EditorPane', () => {
     expect(onTabsChange).toHaveBeenCalledWith([{ relPath: 'a.ts', dirty: true }], 'a.ts')
     onTabsChange.mockClear()
 
-    fireEvent.keyDown(window, { key: 's', ctrlKey: true })
+    fireEvent.keyDown(screen.getByTestId('editor-pane'), { key: 's', ctrlKey: true })
     await waitFor(() => expect(alertSpy).toHaveBeenCalledWith(expect.stringContaining('EACCES: permission denied')))
     // setDirty(false) never fires on a failed save — onTabsChange stays untouched
     // since the last (successful) edit call, so the tab remains marked dirty.
@@ -286,7 +286,7 @@ describe('EditorPane', () => {
     await waitFor(() => expect(screen.getByTestId('monaco-stub')).toBeInTheDocument())
 
     // Trigger a save on 'a.ts' — writeFile() is controlled and won't resolve yet.
-    fireEvent.keyDown(window, { key: 's', ctrlKey: true })
+    fireEvent.keyDown(screen.getByTestId('editor-pane'), { key: 's', ctrlKey: true })
     await waitFor(() => expect(bridge.fs.writeFile).toHaveBeenCalled())
 
     // While the save is in flight, simulate the user closing 'a.ts' and
@@ -338,7 +338,7 @@ describe('EditorPane', () => {
     // doesn't strip the '\r' before production code ever sees it.
     act(() => monacoStub.latestOnChange?.('line1\r\nline2\r\nline3'))
 
-    fireEvent.keyDown(window, { key: 's', ctrlKey: true })
+    fireEvent.keyDown(screen.getByTestId('editor-pane'), { key: 's', ctrlKey: true })
     await waitFor(() => expect(bridge.fs.writeFile).toHaveBeenCalledWith('/repo', 'a.ts', 'line1\nline2\nline3'))
   })
 
@@ -354,7 +354,7 @@ describe('EditorPane', () => {
 
     act(() => monacoStub.latestOnChange?.('line1\r\nline2\nline3'))
 
-    fireEvent.keyDown(window, { key: 's', ctrlKey: true })
+    fireEvent.keyDown(screen.getByTestId('editor-pane'), { key: 's', ctrlKey: true })
     await waitFor(() => expect(bridge.fs.writeFile).toHaveBeenCalledWith('/repo', 'a.ts', 'line1\r\nline2\r\nline3'))
   })
 
@@ -407,5 +407,113 @@ describe('EditorPane', () => {
     await waitFor(() => expect(screen.getByTestId('monaco-stub')).toHaveValue('hello'))
     expect(monacoStub.lastOptions).toEqual({ fontSize: 18, tabSize: 2 })
     expect(monacoStub.lastTheme).toBe('vs')
+  })
+
+  // Critical finding 1: save() must never write when the active tab's
+  // content never successfully loaded — otherwise Ctrl+S truncates the file
+  // on disk with an empty string.
+  describe('save() bails out instead of truncating when content never loaded', () => {
+    it('does not write to disk when Ctrl+S is pressed before the initial read resolves', async () => {
+      const { bridge } = makeMockBridge()
+      // Never resolves — content stays undefined for the whole test.
+      ;(bridge.fs.readFile as ReturnType<typeof vi.fn>).mockReturnValue(new Promise(() => {}))
+      render(
+        <BridgeProvider value={bridge}>
+          <EditorPane pane={makePane()} onTabsChange={vi.fn()} onClose={vi.fn()} onFocus={vi.fn()} onOpenInNewPane={vi.fn()} />
+        </BridgeProvider>,
+      )
+      await waitFor(() => expect(bridge.fs.readFile).toHaveBeenCalled())
+
+      fireEvent.keyDown(screen.getByTestId('editor-pane'), { key: 's', ctrlKey: true })
+      // Give any (wrongly) in-flight write a tick to happen before asserting.
+      await new Promise((resolve) => setTimeout(resolve, 10))
+      expect(bridge.fs.writeFile).not.toHaveBeenCalled()
+    })
+
+    it('does not write to disk when Ctrl+S is pressed on a tab whose initial read failed', async () => {
+      const { bridge } = makeMockBridge()
+      ;(bridge.fs.readFile as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: false, error: 'Binary file, cannot edit: a.ts' })
+      render(
+        <BridgeProvider value={bridge}>
+          <EditorPane pane={makePane()} onTabsChange={vi.fn()} onClose={vi.fn()} onFocus={vi.fn()} onOpenInNewPane={vi.fn()} />
+        </BridgeProvider>,
+      )
+      await waitFor(() => expect(screen.getByTestId('file-unavailable')).toBeInTheDocument())
+
+      fireEvent.keyDown(screen.getByTestId('editor-pane'), { key: 's', ctrlKey: true })
+      await new Promise((resolve) => setTimeout(resolve, 10))
+      expect(bridge.fs.writeFile).not.toHaveBeenCalled()
+    })
+  })
+
+  // Important finding 4: the Ctrl+S listener must be scoped to this pane's
+  // own container, not `window` — otherwise one Ctrl+S saves every open
+  // pane's active file.
+  it('scopes Ctrl+S to the pane it was pressed in, not every mounted pane', async () => {
+    const { bridge: bridge1 } = makeMockBridge()
+    const { bridge: bridge2 } = makeMockBridge()
+    render(
+      <>
+        <BridgeProvider value={bridge1}>
+          <EditorPane pane={makePane({ editorTabs: [{ relPath: 'a.ts', dirty: true }], activeEditorTabPath: 'a.ts' })} onTabsChange={vi.fn()} onClose={vi.fn()} onFocus={vi.fn()} onOpenInNewPane={vi.fn()} />
+        </BridgeProvider>
+        <BridgeProvider value={bridge2}>
+          <EditorPane pane={makePane({ editorTabs: [{ relPath: 'b.ts', dirty: true }], activeEditorTabPath: 'b.ts' })} onTabsChange={vi.fn()} onClose={vi.fn()} onFocus={vi.fn()} onOpenInNewPane={vi.fn()} />
+        </BridgeProvider>
+      </>,
+    )
+    await waitFor(() => expect(screen.getAllByTestId('monaco-stub')).toHaveLength(2))
+
+    const panes = screen.getAllByTestId('editor-pane')
+    fireEvent.keyDown(panes[0], { key: 's', ctrlKey: true })
+
+    await waitFor(() => expect(bridge1.fs.writeFile).toHaveBeenCalledWith('/repo', 'a.ts', 'hello'))
+    expect(bridge2.fs.writeFile).not.toHaveBeenCalled()
+  })
+
+  // Important finding 5: closeTab must purge this pane's per-path caches so
+  // reopening the same relPath re-reads from disk instead of resurrecting
+  // discarded, unsaved edits marked (incorrectly) as clean.
+  it('purges cached content/EOL/conflict/loadError state on close, so reopening the same path reloads fresh from disk', async () => {
+    const { bridge } = makeMockBridge()
+    const onTabsChange = vi.fn()
+    const { rerender } = render(
+      <BridgeProvider value={bridge}>
+        <EditorPane
+          pane={makePane({ editorTabs: [{ relPath: 'a.ts', dirty: false }], activeEditorTabPath: 'a.ts' })}
+          onTabsChange={onTabsChange}
+          onClose={vi.fn()}
+          onFocus={vi.fn()}
+          onOpenInNewPane={vi.fn()}
+        />
+      </BridgeProvider>,
+    )
+    await waitFor(() => expect(screen.getByTestId('monaco-stub')).toHaveValue('hello'))
+
+    // Edit without saving, then close the tab — the edit is discarded.
+    fireEvent.change(screen.getByTestId('monaco-stub'), { target: { value: 'discarded edit' } })
+    fireEvent.click(screen.getByText('×'))
+
+    // Reopen the SAME relPath as a brand-new (clean) tab — this is what the
+    // parent does when the user clicks the file again in the Explorer.
+    ;(bridge.fs.readFile as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: true, content: 'hello' })
+    rerender(
+      <BridgeProvider value={bridge}>
+        <EditorPane
+          pane={makePane({ editorTabs: [{ relPath: 'a.ts', dirty: false }], activeEditorTabPath: 'a.ts' })}
+          onTabsChange={onTabsChange}
+          onClose={vi.fn()}
+          onFocus={vi.fn()}
+          onOpenInNewPane={vi.fn()}
+        />
+      </BridgeProvider>,
+    )
+
+    // Must show freshly-read disk content, NOT the discarded in-memory edit.
+    await waitFor(() => expect(screen.getByTestId('monaco-stub')).toHaveValue('hello'))
+    expect(screen.getByTestId('monaco-stub')).not.toHaveValue('discarded edit')
+    // A second real disk read for 'a.ts' proves the cache was actually
+    // purged (not just coincidentally overwritten).
+    expect((bridge.fs.readFile as ReturnType<typeof vi.fn>).mock.calls.filter(([, rel]) => rel === 'a.ts').length).toBeGreaterThanOrEqual(2)
   })
 })

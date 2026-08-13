@@ -41,6 +41,8 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
   const [loadErrors, setLoadErrors] = useState<Record<string, string>>({})
   const contentsRef = useRef(contents)
   contentsRef.current = contents
+  const loadErrorsRef = useRef(loadErrors)
+  loadErrorsRef.current = loadErrors
   const tabsRef = useRef(tabs)
   tabsRef.current = tabs
   const activePathRef = useRef(activePath)
@@ -58,6 +60,7 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
   // the last toggle always wins.
   const pendingOpsRef = useRef(new Map<string, Promise<void>>())
   const eolRef = useRef<Record<string, '\n' | '\r\n'>>({})
+  const containerRef = useRef<HTMLDivElement>(null)
 
   const sequencedOp = useCallback((key: string, op: () => Promise<unknown>) => {
     const prior = pendingOpsRef.current.get(key) ?? Promise.resolve()
@@ -155,7 +158,15 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
 
   const save = useCallback(async (relPath: string) => {
     if (!worktreePath) return
-    const content = contentsRef.current[relPath] ?? ''
+    const content = contentsRef.current[relPath]
+    // The tab's content never loaded successfully (binary/oversized file,
+    // still-in-flight initial read, or a failed re-read left `loadErrors`
+    // set without ever refreshing `contents`) — `content` is `undefined` or
+    // stale-relative-to-a-known-error. Writing anyway would truncate (or
+    // resurrect with stale data) the file on disk. Bail out silently: the
+    // "file unavailable" banner already communicates why, and a still-loading
+    // read will complete and let a later Ctrl+S succeed normally.
+    if (content === undefined || loadErrorsRef.current[relPath] !== undefined) return
     const res = await bridge.fs.writeFile(worktreePath, relPath, content)
     if (res.ok) {
       setDirty(relPath, false)
@@ -194,10 +205,26 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
     const nextTabs = tabs.filter((t) => t.relPath !== relPath)
     const nextActive = activePath === relPath ? nextTabs[0]?.relPath : activePath
     onTabsChange(nextTabs, nextActive)
+    // Purge every per-path cache for the closed tab. Without this, reopening
+    // the same relPath later (a brand-new tab entry, but the same key into
+    // these Record<string, ...> caches) resurrects whatever was here before
+    // — including discarded, unsaved edits — and shows it marked NOT dirty,
+    // so a subsequent Ctrl+S silently writes the forgotten changes back out.
+    setContents((c) => { const { [relPath]: _drop, ...rest } = c; return rest })
+    setConflicts((c) => { const { [relPath]: _drop, ...rest } = c; return rest })
+    setLoadErrors((e) => { const { [relPath]: _drop, ...rest } = e; return rest })
+    delete eolRef.current[relPath]
     if (nextTabs.length === 0) onClose()
   }, [tabs, activePath, onTabsChange, onClose])
 
   useEffect(() => {
+    // Scoped to THIS pane's own container, not `window`: with multiple
+    // editor panes open, a window-level listener fires save() for every
+    // pane's active file on a single Ctrl+S — even one triggered from a
+    // terminal pane, since the keydown bubbles up from xterm's textarea
+    // through the DOM to `window` regardless of which pane it originated in.
+    const el = containerRef.current
+    if (!el) return
     const onKeyDown = (e: KeyboardEvent) => {
       const isSave = (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's'
       if (isSave && activePath) {
@@ -205,12 +232,12 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
         save(activePath)
       }
     }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
+    el.addEventListener('keydown', onKeyDown)
+    return () => el.removeEventListener('keydown', onKeyDown)
   }, [activePath, save])
 
   return (
-    <div className="editor-pane" onFocus={onFocus} tabIndex={-1}>
+    <div className="editor-pane" data-testid="editor-pane" onFocus={onFocus} tabIndex={-1} ref={containerRef}>
       <div className="editor-pane-tabs">
         {tabs.map((tab) => (
           <div
