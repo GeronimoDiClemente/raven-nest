@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useGitHub } from '../hooks/useGitHub'
 import { useUserRepos } from '../hooks/useUserRepos'
 import type { BoardRow } from '../integrations/board'
-import type { Ticket, WorktreeMeta } from '../types'
+import type { Ticket, WorkerSpec, WorkerStep, WorktreeMeta } from '../types'
 
 // worktree:create actually resolves to this union (see the handler in
 // electron/main.ts); the bridge type in src/types.ts predates it and still
@@ -14,6 +14,10 @@ interface Props {
   row: BoardRow
   onClose: () => void
   onCreated?: () => void
+  /** Opens a terminal pane on the just-created worktree. When a worker is
+   *  picked, its `steps[0]` flows up so the pane launches on that agent/model
+   *  with the worker's instructions seeded as initial input. */
+  onOpenWorktree?: (worktreePath: string, initialInput?: string, worker?: WorkerStep) => void
 }
 
 /** GitHub ticket keys encode the repo ("owner/repo#7", see tickets-github.ts);
@@ -32,7 +36,7 @@ function deriveRepoFullName(row: BoardRow): string | null {
  * -> tickets.startWork. Linked rows get an "Open" action for the ticket URL —
  * opening a real terminal pane on the worktree is App-level and out of scope here.
  */
-export function WorktreePicker({ row, onClose, onCreated }: Props) {
+export function WorktreePicker({ row, onClose, onCreated, onOpenWorktree }: Props) {
   const { githubLogin } = useGitHub()
   const { repos } = useUserRepos()
 
@@ -61,6 +65,18 @@ export function WorktreePicker({ row, onClose, onCreated }: Props) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // "Run with worker" — the picked worker's first step (agent/model/instructions)
+  // seeds the pane that opens on the new worktree. Empty = None (unchanged flow).
+  const [workers, setWorkers] = useState<WorkerSpec[]>([])
+  const [workerId, setWorkerId] = useState('')
+  useEffect(() => {
+    let cancelled = false
+    window.workerSpecs?.list?.()
+      .then((list) => { if (!cancelled) setWorkers(list) })
+      .catch(() => { /* no workers bridge / failed load → just show None */ })
+    return () => { cancelled = true }
+  }, [])
+
   async function handleCreate() {
     if (busy) return
     const repo = candidates.find((r) => r.id === repoId)
@@ -75,6 +91,11 @@ export function WorktreePicker({ row, onClose, onCreated }: Props) {
       const started = await window.tickets.startWork({ pluginId: row.pluginId, ticket, branch, worktreePath: res.meta.repoPath })
       if (!started.ok) { setError(`Could not start work: ${started.error}`); return }
       onCreated?.()
+      // Open a pane on the new worktree. With a worker picked, its first step
+      // carries agent/model + instructions; None → (path, undefined, undefined),
+      // i.e. the plain new-pane flow, exactly as before.
+      const step = workers.find((w) => w.id === workerId)?.steps[0]
+      onOpenWorktree?.(res.meta.repoPath, step?.instructions, step)
       onClose()
     } catch (e) {
       // Any bridge call can reject (handler threw, keyring locked, …): show it
@@ -122,6 +143,24 @@ export function WorktreePicker({ row, onClose, onCreated }: Props) {
               onChange={(e) => { setBranch(e.target.value); setBranchTouched(true) }}
               disabled={busy}
             />
+
+            {workers.length > 0 && (
+              <>
+                <label className="field-label">Run with worker</label>
+                <select
+                  aria-label="Run with worker"
+                  className="field-input"
+                  value={workerId}
+                  onChange={(e) => setWorkerId(e.target.value)}
+                  disabled={busy}
+                >
+                  <option value="">None</option>
+                  {workers.map((w) => (
+                    <option key={w.id} value={w.id}>{w.name}</option>
+                  ))}
+                </select>
+              </>
+            )}
           </>
         )}
 

@@ -38,6 +38,11 @@ interface Props {
   onCancel: () => void
   allowedAIs?: string[]
   onUpgrade?: () => void
+  /** Board "Run with worker": open straight on this agent with `presetModel`
+   *  preselected. Initial values only — the manual flow is untouched, the user
+   *  still completes the account step. */
+  presetAgent?: AIType
+  presetModel?: string
 }
 
 type Step = 'select-ai' | 'select-account' | 'add-custom' | 'select-shell'
@@ -70,14 +75,19 @@ const SHELL_COLORS: Record<string, string> = {
 
 const CUSTOM_COLORS = ['#E07B54', '#4F9EFF', '#22C55E', '#A78BFA', '#F59E0B', '#EC4899', '#14B8A6', '#60A5FA', '#888888']
 
-export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgrade }: Props) {
-  const [step, setStep] = useState<Step>('select-ai')
-  const [selectedAI, setSelectedAI] = useState<AIType | null>(null)
-  const [model, setModel] = useState<string>('') // '' = agent default; reset on agent change
+export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgrade, presetAgent, presetModel }: Props) {
+  // A preset agent that uses accounts opens directly on its account step with the
+  // model preselected. noAccount agents (terminal/opencode/custom) can't seed a
+  // model through that step, so they fall back to the normal agent-grid flow.
+  const presetCfg = presetAgent ? AI_CONFIG[presetAgent] : null
+  const presetUsesAccount = !!presetAgent && !!presetCfg && !presetCfg.noAccount
+  const [step, setStep] = useState<Step>(presetUsesAccount ? 'select-account' : 'select-ai')
+  const [selectedAI, setSelectedAI] = useState<AIType | null>(presetAgent ?? null)
+  const [model, setModel] = useState<string>(presetModel ?? '') // '' = agent default; reset on agent change
   const [accounts, setAccounts] = useState<string[]>([])
   const [newAccountName, setNewAccountName] = useState('')
   const [creatingNew, setCreatingNew] = useState(false)
-  const [borderColor, setBorderColor] = useState(COLOR_PALETTE[0])
+  const [borderColor, setBorderColor] = useState(presetCfg ? presetCfg.color : COLOR_PALETTE[0])
   const [customCLIs, setCustomCLIs] = useState<CustomCLI[]>([])
   const [customCmd, setCustomCmd] = useState('')
   const [customLabel, setCustomLabel] = useState('')
@@ -117,6 +127,14 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
   useEffect(() => {
     bridge.customCLIs.list().then(setCustomCLIs)
   }, [])
+
+  // Preset agent: fetch its saved accounts up-front, since we skip the
+  // agent-grid click (selectAI) that normally loads them. Mount-only — preset
+  // is an initial value, not a live prop.
+  useEffect(() => {
+    if (!presetUsesAccount || !presetAgent) return
+    bridge.accounts.list(presetAgent).then(setAccounts).catch(() => { /* leave empty; new-account form still works */ })
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (step !== 'select-account' || !selectedAI) return

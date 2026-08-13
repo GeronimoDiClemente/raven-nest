@@ -72,6 +72,25 @@ describe('<NewPaneDialog> model picker', () => {
     expect(options).toEqual(['', 'gemini-2.5-pro', 'gemini-2.5-flash'])
   })
 
+  it('preset agent+model: opens straight on Claude with the model preselected; confirming yields "claude --model haiku"', async () => {
+    const onConfirm = vi.fn()
+    render(<NewPaneDialog onConfirm={onConfirm} onCancel={vi.fn()} presetAgent="claude" presetModel="haiku" />)
+
+    // Started on Claude's account step (no agent-grid click) with model preselected.
+    const select = await screen.findByLabelText('Model')
+    expect((select as HTMLSelectElement).value).toBe('haiku')
+
+    // Complete the account step exactly as the manual flow would.
+    fireEvent.change(screen.getByPlaceholderText('Account name (e.g. Personal, Work)'), {
+      target: { value: 'Work' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /login/i }))
+
+    await waitFor(() => expect(onConfirm).toHaveBeenCalledTimes(1))
+    expect(onConfirm.mock.calls[0]![0]).toBe('claude')
+    expect(onConfirm.mock.calls[0]![4]).toBe('claude --model haiku')
+  })
+
   it('Copilot: shows no model dropdown, and the confirmed command has no --model', async () => {
     const onConfirm = vi.fn()
     render(<NewPaneDialog onConfirm={onConfirm} onCancel={vi.fn()} />)

@@ -49,6 +49,13 @@ beforeEach(() => {
     worktree: {
       create: vi.fn().mockResolvedValue({ ok: true, meta: { repoPath: '/tmp/wt' } }),
     },
+    workerSpecs: {
+      list: vi.fn().mockResolvedValue([{
+        id: 'w1', name: 'Bugfix Bot',
+        steps: [{ agent: 'claude', model: 'haiku', instructions: 'Fix the failing test' }],
+        createdAt: 0, updatedAt: 0,
+      }]),
+    },
     electronShell: { openExternal: vi.fn() },
   })
 })
@@ -98,6 +105,40 @@ describe('WorktreePicker', () => {
     const tk = (window as unknown as { tickets: { startWork: ReturnType<typeof vi.fn> } }).tickets
     expect(tk.startWork).not.toHaveBeenCalled()
     expect(onCreated).not.toHaveBeenCalled()
+  })
+
+  it('unlinked row: renders a "Run with worker" select listing the available workers', async () => {
+    render(<WorktreePicker row={unlinkedRow} onClose={vi.fn()} onOpenWorktree={vi.fn()} />)
+    const workerSelect = await screen.findByLabelText('Run with worker')
+    expect(screen.getByRole('option', { name: 'None' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'Bugfix Bot' })).toBeInTheDocument()
+    expect((workerSelect as HTMLSelectElement).value).toBe('') // defaults to None
+  })
+
+  it('unlinked row: picking a worker opens the pane with its steps[0] (agent/model/instructions)', async () => {
+    const onOpenWorktree = vi.fn()
+    render(<WorktreePicker row={unlinkedRow} onClose={vi.fn()} onOpenWorktree={onOpenWorktree} />)
+    await waitFor(() => expect(screen.getByDisplayValue('gero/PROJ-9-fix-the-thing')).toBeInTheDocument())
+
+    fireEvent.change(await screen.findByLabelText('Run with worker'), { target: { value: 'w1' } })
+    fireEvent.click(screen.getByRole('button', { name: /create worktree/i }))
+
+    await waitFor(() => expect(onOpenWorktree).toHaveBeenCalledTimes(1))
+    expect(onOpenWorktree).toHaveBeenCalledWith('/tmp/wt', 'Fix the failing test', {
+      agent: 'claude', model: 'haiku', instructions: 'Fix the failing test',
+    })
+  })
+
+  it('unlinked row: with None selected, opens the pane with undefined input/worker (unchanged flow)', async () => {
+    const onOpenWorktree = vi.fn()
+    render(<WorktreePicker row={unlinkedRow} onClose={vi.fn()} onOpenWorktree={onOpenWorktree} />)
+    await waitFor(() => expect(screen.getByDisplayValue('gero/PROJ-9-fix-the-thing')).toBeInTheDocument())
+    await screen.findByLabelText('Run with worker') // workers loaded; None is the default
+
+    fireEvent.click(screen.getByRole('button', { name: /create worktree/i }))
+
+    await waitFor(() => expect(onOpenWorktree).toHaveBeenCalledTimes(1))
+    expect(onOpenWorktree).toHaveBeenCalledWith('/tmp/wt', undefined, undefined)
   })
 
   it('linked row: shows the branch and an Open action; Open calls electronShell.openExternal with the ticket url', async () => {

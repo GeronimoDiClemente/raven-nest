@@ -75,11 +75,14 @@ export default function App() {
     setTabs(prev => prev.map(t => t.id === activeTabId ? updater(t) : t))
   }, [activeTabId])
 
-  const [addingPane, setAddingPane] = useState<null | { worktreePath?: string; initialInput?: string }>(null)
+  // presetAgent/presetModel seed NewPaneDialog (agent + model dropdown) when a
+  // board task is opened "with a worker"; worktreePath/initialInput are threaded
+  // into the created pane by addPane below.
+  const [addingPane, setAddingPane] = useState<null | { worktreePath?: string; initialInput?: string; presetAgent?: AIType; presetModel?: string }>(null)
   // Mirror addingPane in a ref so addPane reads the freshest value without
   // depending on a closure that React may not have updated yet — the dialog
   // sometimes captures the previous addPane closure where worktreePath is null.
-  const addingPaneRef = useRef<null | { worktreePath?: string; initialInput?: string }>(null)
+  const addingPaneRef = useRef<null | { worktreePath?: string; initialInput?: string; presetAgent?: AIType; presetModel?: string }>(null)
   addingPaneRef.current = addingPane
   const [zoomedPaneId, setZoomedPaneId] = useState<string | null>(null)
   const [zoomingOut, setZoomingOut] = useState(false)
@@ -1270,6 +1273,8 @@ export default function App() {
           onCancel={() => setAddingPane(null)}
           allowedAIs={planLimits.allowedAIs}
           onUpgrade={() => { setAddingPane(null); setShowUpgrade(true) }}
+          presetAgent={addingPane.presetAgent}
+          presetModel={addingPane.presetModel}
         />
       )}
 
@@ -1310,7 +1315,17 @@ export default function App() {
         <IntegrationsHub
           onClose={() => setIntegrationsHubOpen(false)}
           activeRepoPath={activeCellRepoPath ?? null}
-          onOpenWorktree={(path, initialInput) => { setIntegrationsHubOpen(false); setAddingPane({ worktreePath: path, ...(initialInput ? { initialInput } : {}) }) }}
+          onOpenWorktree={(path, initialInput, worker) => {
+            setIntegrationsHubOpen(false)
+            // Worker instructions seed the pane; existing initialInput is the
+            // fallback. presetAgent/presetModel initialize NewPaneDialog.
+            setAddingPane({
+              worktreePath: path,
+              initialInput: worker?.instructions ?? initialInput,
+              presetAgent: worker?.agent,
+              presetModel: worker?.model,
+            })
+          }}
         />
       )}
 
