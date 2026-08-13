@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { composeStepInput, nextStep } from '../../lib/worker-run'
+import { composeStepInput, nextStep, upsertWorkerSpec } from '../../lib/worker-run'
 import type { WorkerSpec } from '../../types'
 
 const spec: WorkerSpec = {
@@ -30,5 +30,30 @@ describe('nextStep', () => {
   })
   it('returns null past the last step', () => {
     expect(nextStep(spec, { workerId: 'w', stepIndex: 1 })).toBeNull()
+  })
+})
+
+describe('upsertWorkerSpec', () => {
+  it('appends a spec whose id is not in the list (e.g. created after mount → resolvable for hasNextStep)', () => {
+    const out = upsertWorkerSpec([], spec)
+    expect(out).toEqual([spec])
+    // The run resolves against the merged list: nextStep now sees a real spec.
+    expect(nextStep(out.find((s) => s.id === 'w')!, { workerId: 'w', stepIndex: 0 })).not.toBeNull()
+  })
+
+  it('replaces (not duplicates) an existing spec so an edited worker\'s fresh steps win', () => {
+    const stale: WorkerSpec = { ...spec, name: 'old-name', steps: [spec.steps[0]!] }
+    const edited: WorkerSpec = { ...spec, name: 'new-name' } // same id, 2 steps
+    const out = upsertWorkerSpec([stale], edited)
+    expect(out).toHaveLength(1)
+    expect(out[0]).toBe(edited)
+    expect(out[0]!.steps).toHaveLength(2)
+  })
+
+  it('preserves other specs and appends the edited one at the end', () => {
+    const other: WorkerSpec = { ...spec, id: 'other', name: 'other' }
+    const out = upsertWorkerSpec([other, spec], { ...spec, name: 'v2' })
+    expect(out.map((s) => s.id)).toEqual(['other', 'w'])
+    expect(out.find((s) => s.id === 'w')!.name).toBe('v2')
   })
 })

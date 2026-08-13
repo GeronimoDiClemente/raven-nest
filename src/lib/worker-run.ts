@@ -23,3 +23,12 @@ export function nextStep(spec: WorkerSpec, run: WorkerRun): { step: WorkerStep; 
   if (i >= spec.steps.length) return null
   return { step: spec.steps[i], index: i }
 }
+
+/** Merge a worker spec into a list by id: replace the existing entry (e.g. an
+ *  edited worker's fresh steps) or append a new one. Lets the app keep its
+ *  resolvable-by-id spec list current when a spec created/edited after mount
+ *  arrives through the board-open path, instead of missing it in a stale
+ *  mount-loaded list. */
+export function upsertWorkerSpec(list: WorkerSpec[], spec: WorkerSpec): WorkerSpec[] {
+  return [...list.filter((s) => s.id !== spec.id), spec]
+}

@@ -45,7 +45,7 @@ import { terminalShareService } from './lib/terminalShareService'
 import ResourceBar from './components/ResourceBar'
 import { useLocalPathsMigration } from './hooks/useLocalPathsMigration'
 import type { MetricsPaneInput } from './types'
-import { nextStep, composeStepInput } from './lib/worker-run'
+import { nextStep, composeStepInput, upsertWorkerSpec } from './lib/worker-run'
 import type { WorkerRun } from './lib/worker-run'
 import { OnboardingTour } from './tutorial/OnboardingTour'
 import { getTour } from './tutorial/registry'
@@ -315,17 +315,27 @@ export default function App() {
   // step's input (prior handoff + its instructions + a "write your handoff"
   // note when it isn't the final step) and opens a fresh pane on that step's
   // agent/model via the same preset seam the board-open flow uses.
+  // Worktrees whose handoff is mid-flight, so a double-click can't resolve the
+  // same `next` twice (two panes + a double stepIndex bump) during the async
+  // handoff.read window. Set synchronously before the await, cleared after.
+  const handoffInFlightRef = useRef<Set<string>>(new Set())
   const advanceHandoff = useCallback(async (worktreePath: string) => {
+    if (handoffInFlightRef.current.has(worktreePath)) return
     const run = activeWorkerRun[worktreePath]
     const spec = workerSpecs.find((s) => s.id === run?.workerId)
     if (!run || !spec) return
     const next = nextStep(spec, run)
     if (!next) return
-    const handoff = await window.handoff.read(worktreePath)
-    const isFinal = next.index === spec.steps.length - 1
-    const initialInput = composeStepInput(next.step.instructions, handoff, isFinal)
-    setAddingPane({ worktreePath, initialInput, presetAgent: next.step.agent, presetModel: next.step.model })
-    setActiveWorkerRun((m) => ({ ...m, [worktreePath]: { ...run, stepIndex: next.index } }))
+    handoffInFlightRef.current.add(worktreePath)
+    try {
+      const handoff = await window.handoff.read(worktreePath)
+      const isFinal = next.index === spec.steps.length - 1
+      const initialInput = composeStepInput(next.step.instructions, handoff, isFinal)
+      setAddingPane({ worktreePath, initialInput, presetAgent: next.step.agent, presetModel: next.step.model })
+      setActiveWorkerRun((m) => ({ ...m, [worktreePath]: { ...run, stepIndex: next.index } }))
+    } finally {
+      handoffInFlightRef.current.delete(worktreePath)
+    }
   }, [activeWorkerRun, workerSpecs])
 
   // === H7 Motor 5 — @Nest desde Slack ===
@@ -1370,7 +1380,16 @@ export default function App() {
               presetAgent: step0?.agent,
               presetModel: step0?.model,
             })
-            if (spec) setActiveWorkerRun((m) => ({ ...m, [path]: { workerId: spec.id, stepIndex: 0 } }))
+            if (spec) {
+              // Resolve the run's spec from the one that just flowed through,
+              // not the mount-loaded list: a worker created/edited in
+              // AutomationsView after App mounted isn't in `workerSpecs`, so
+              // hasNextStep/advanceHandoff would silently miss it. Upsert
+              // (filter-then-append) so an edited worker's fresh steps also
+              // replace any stale copy. Mount-load stays the initial seed.
+              setWorkerSpecs((list) => upsertWorkerSpec(list, spec))
+              setActiveWorkerRun((m) => ({ ...m, [path]: { workerId: spec.id, stepIndex: 0 } }))
+            }
           }}
         />
       )}
