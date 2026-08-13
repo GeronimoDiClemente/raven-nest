@@ -449,6 +449,9 @@ export interface WorkerStep {
   effort?: 'low' | 'medium' | 'high'
   instructions?: string
   role?: string
+  /** Saved CLI account to launch this step with (bypasses the account picker
+   *  at run time). Unset = ask at launch, same as before this field existed. */
+  account?: string
 }
 export interface WorkerSpec {
   id: string

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { AI_CONFIG, type AIType, type Automation, type WorkerSpec, type WorkerStep } from '../types'
 import { basename } from '../lib/path'
+import { bridge } from '../lib/bridge'
 
 type SchedulePreset = 'hourly' | 'daily' | 'weekdays' | 'weekly' | 'custom'
 
@@ -50,6 +51,10 @@ export function AutomationsView() {
   const [wSteps, setWSteps] = useState<WorkerStep[]>([{ agent: 'claude' }])
   const [wSubmitting, setWSubmitting] = useState(false)
   const [wError, setWError] = useState<string | null>(null)
+  // Saved CLI accounts per agent, loaded lazily (only for account-agents, i.e.
+  // not AI_CONFIG[agent].noAccount) and cached so switching between steps that
+  // share an agent doesn't refetch. Backs the per-step "Account" select below.
+  const [accountsByAgent, setAccountsByAgent] = useState<Record<string, string[]>>({})
 
   const [name, setName] = useState('')
   const [schedule, setSchedule] = useState<SchedulePreset>('daily')
@@ -75,6 +80,21 @@ export function AutomationsView() {
   }, [])
 
   useEffect(() => { refreshWorkers() }, [])
+
+  // Ensure accounts are loaded for every account-agent currently used by a
+  // step, whenever the form is open (covers both "form just opened" and "a
+  // step's agent just changed"). Keyed on a stable string so retyping
+  // instructions (which also replaces the wSteps array) doesn't refetch.
+  const stepAgentsKey = [...new Set(wSteps.map((s) => s.agent))].join(',')
+  useEffect(() => {
+    if (!showWorkerForm) return
+    for (const agent of stepAgentsKey.split(',') as AIType[]) {
+      if (!agent || AI_CONFIG[agent].noAccount || accountsByAgent[agent]) continue
+      void bridge.accounts.list(agent).then((list) => {
+        setAccountsByAgent((prev) => ({ ...prev, [agent]: list }))
+      })
+    }
+  }, [showWorkerForm, stepAgentsKey, accountsByAgent])
 
   const resetForm = () => {
     setName('')
@@ -154,6 +174,7 @@ export function AutomationsView() {
           model: s.model || undefined,
           instructions: s.instructions?.trim() || undefined,
           role: s.role?.trim() || undefined,
+          account: s.account || undefined,
         })),
       })
       resetWorkerForm()
@@ -207,7 +228,7 @@ export function AutomationsView() {
                     className="auto-select"
                     aria-label="Agent"
                     value={step.agent}
-                    onChange={(e) => updateStep(i, { agent: e.target.value as AIType, model: undefined })}
+                    onChange={(e) => updateStep(i, { agent: e.target.value as AIType, model: undefined, account: undefined })}
                   >
                     {WORKER_AGENTS.map((a) => <option key={a} value={a}>{AI_CONFIG[a].label}</option>)}
                   </select>
@@ -220,6 +241,18 @@ export function AutomationsView() {
                     >
                       <option value="">Default model</option>
                       {AI_CONFIG[step.agent].models!.map((m) => <option key={m} value={m}>{m}</option>)}
+                    </select>
+                  )}
+                  {!AI_CONFIG[step.agent].noAccount && (
+                    <select
+                      className="auto-select"
+                      aria-label="Account"
+                      value={step.account ?? ''}
+                      disabled={!accountsByAgent[step.agent]?.length}
+                      onChange={(e) => updateStep(i, { account: e.target.value || undefined })}
+                    >
+                      <option value="">Auto (pick at run time)</option>
+                      {(accountsByAgent[step.agent] ?? []).map((a) => <option key={a} value={a}>{a}</option>)}
                     </select>
                   )}
                 </div>

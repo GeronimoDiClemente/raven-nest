@@ -46,6 +46,12 @@ interface Props {
    *  missing). Initial values only — the manual (no-preset) flow is untouched. */
   presetAgent?: AIType
   presetModel?: string
+  /** Worker-step-configured account (see worker-spec-store.ts's WorkerStep.account).
+   *  When it names an account that still exists in the saved list, the resolve
+   *  effect launches with it directly and skips the manual account picker even
+   *  when there are 0/>1 saved accounts. A stale/missing value (account deleted
+   *  since the worker was configured) is ignored and the existing rules apply. */
+  presetAccount?: string
 }
 
 type Step = 'select-ai' | 'select-account' | 'add-custom' | 'select-shell'
@@ -78,7 +84,7 @@ const SHELL_COLORS: Record<string, string> = {
 
 const CUSTOM_COLORS = ['#E07B54', '#4F9EFF', '#22C55E', '#A78BFA', '#F59E0B', '#EC4899', '#14B8A6', '#60A5FA', '#888888']
 
-export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgrade, presetAgent, presetModel }: Props) {
+export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgrade, presetAgent, presetModel, presetAccount }: Props) {
   const presetCfg = presetAgent ? AI_CONFIG[presetAgent] : null
   // While a preset resolves (see the mount effect below), render a minimal
   // placeholder instead of any step UI — no flash of an account form the user
@@ -167,21 +173,32 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
         if (cancelled || autoLaunchedRef.current) return
         setAccounts(existing)
 
-        if (existing.length === 1) {
+        // A worker-configured account that's still valid bypasses the "exactly
+        // one saved account" requirement entirely — it's an explicit choice,
+        // not a guess, so it wins even with 0 (unless the account itself has
+        // since been deleted — in that case it wouldn't be in `existing`) or
+        // >1 saved accounts. A missing/stale presetAccount falls back to the
+        // original "auto-launch only when unambiguous" rule.
+        const chosenAccount = presetAccount && existing.includes(presetAccount)
+          ? presetAccount
+          : existing.length === 1 ? existing[0] : null
+
+        if (chosenAccount) {
           const { found } = await bridge.cli.check(cfg.cmd)
           if (cancelled || autoLaunchedRef.current) return
           if (found) {
-            const dir = await bridge.accounts.getDir(presetAgent, existing[0])
+            const dir = await bridge.accounts.getDir(presetAgent, chosenAccount)
             if (cancelled || autoLaunchedRef.current) return
             autoLaunchedRef.current = true
-            onConfirm(presetAgent, existing[0], dir, cfg.color, appendModelFlag(cfg.cmd, cfg.modelFlag, presetModel ?? ''))
+            onConfirm(presetAgent, chosenAccount, dir, cfg.color, appendModelFlag(cfg.cmd, cfg.modelFlag, presetModel ?? ''))
             return
           }
           setCliFound(false)
         }
 
-        // 0 accounts (login needed), >1 (ambiguous), or CLI missing → the user
-        // finishes manually on the account step, accounts already loaded above.
+        // 0 accounts (login needed), >1 with no valid stored pick (ambiguous),
+        // or CLI missing → the user finishes manually on the account step,
+        // accounts already loaded above.
         setStep('select-account')
         setAutoResolving(false)
       } catch {

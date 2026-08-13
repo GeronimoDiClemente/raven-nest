@@ -31,12 +31,12 @@ describe('worker-spec-store persistence', () => {
     expect(JSON.parse(readFileSync(f, 'utf8')).version).toBe(1)
     expect(loadWorkerSpecs(f)).toEqual([makeSpec()])
   })
-  it('round-trips every optional step field (effort, role, customCliId)', () => {
+  it('round-trips every optional step field (effort, role, customCliId, account)', () => {
     const f = tmpFile()
     const spec = makeSpec({
       steps: [{
         agent: 'custom', customCliId: 'my-cli', model: 'sonnet',
-        effort: 'high', instructions: 'Do the thing.', role: 'reviewer',
+        effort: 'high', instructions: 'Do the thing.', role: 'reviewer', account: 'Gero Personal',
       }],
     })
     saveWorkerSpecs(f, [spec])

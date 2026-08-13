@@ -126,6 +126,44 @@ describe('<NewPaneDialog> model picker', () => {
     expect(screen.queryByText('Saved accounts')).not.toBeInTheDocument()
   })
 
+  it('preset account agent with TWO saved accounts BUT a stored presetAccount: auto-launches with that account, skipping the manual picker', async () => {
+    Object.assign(window as unknown as Record<string, unknown>, {
+      accounts: {
+        list: vi.fn().mockResolvedValue(['Gero Lulea', 'Gero Personal']),
+        save: vi.fn().mockResolvedValue('/accounts/dir'),
+        delete: vi.fn(),
+        getDir: vi.fn().mockResolvedValue('/accounts/Gero-Personal-dir'),
+      },
+    })
+    const onConfirm = vi.fn()
+    render(<NewPaneDialog onConfirm={onConfirm} onCancel={vi.fn()} presetAgent="claude" presetModel="haiku" presetAccount="Gero Personal" />)
+
+    await waitFor(() => expect(onConfirm).toHaveBeenCalledTimes(1))
+    expect(onConfirm.mock.calls[0]).toEqual([
+      'claude', 'Gero Personal', '/accounts/Gero-Personal-dir', expect.any(String), 'claude --model haiku',
+    ])
+
+    // No manual account step was ever shown to the user.
+    expect(screen.queryByText('Saved accounts')).not.toBeInTheDocument()
+    expect(screen.queryByPlaceholderText('Account name (e.g. Personal, Work)')).not.toBeInTheDocument()
+  })
+
+  it('preset account agent with a presetAccount that no longer exists in the saved list: ignores it and falls back to the manual picker (>1 accounts)', async () => {
+    Object.assign(window as unknown as Record<string, unknown>, {
+      accounts: {
+        list: vi.fn().mockResolvedValue(['Personal', 'Work']),
+        save: vi.fn().mockResolvedValue('/accounts/dir'),
+        delete: vi.fn(),
+        getDir: vi.fn().mockResolvedValue('/accounts/dir'),
+      },
+    })
+    const onConfirm = vi.fn()
+    render(<NewPaneDialog onConfirm={onConfirm} onCancel={vi.fn()} presetAgent="claude" presetModel="haiku" presetAccount="Deleted Account" />)
+
+    expect(await screen.findByText('Saved accounts')).toBeInTheDocument()
+    expect(onConfirm).not.toHaveBeenCalled()
+  })
+
   it('preset account agent with TWO saved accounts: does not auto-launch, shows the account step for a manual pick', async () => {
     Object.assign(window as unknown as Record<string, unknown>, {
       accounts: {

@@ -39,6 +39,12 @@ beforeEach(() => {
     ...window.worktree,
     listAll: vi.fn(() => Promise.resolve({ ok: true, worktrees: [] })),
   } as never
+  window.accounts = {
+    list: vi.fn(() => Promise.resolve([])),
+    save: vi.fn(),
+    delete: vi.fn(),
+    getDir: vi.fn(),
+  } as never
 })
 
 describe('<AutomationsView> — Workers list', () => {
@@ -132,6 +138,63 @@ describe('<AutomationsView> — Workers create form', () => {
       name: 'Fast claude',
       steps: [expect.objectContaining({ agent: 'claude', model: 'haiku' })],
     })))
+  })
+
+  it('shows an Account select for a claude step (with saved accounts) and saves the chosen account on the step', async () => {
+    window.accounts = {
+      list: vi.fn(() => Promise.resolve(['Gero Lulea', 'Gero Personal'])),
+      save: vi.fn(),
+      delete: vi.fn(),
+      getDir: vi.fn(),
+    } as never
+
+    render(<AutomationsView />)
+    fireEvent.click(screen.getByRole('button', { name: '+ New worker' }))
+
+    const accountSelect = await screen.findByLabelText('Account') as HTMLSelectElement
+    const values = Array.from(accountSelect.options).map((o) => o.value)
+    expect(values).toEqual(['', 'Gero Lulea', 'Gero Personal'])
+
+    fireEvent.change(screen.getByPlaceholderText(/Name \(e\.g\. Code reviewer\)/), { target: { value: 'Claude worker' } })
+    fireEvent.change(accountSelect, { target: { value: 'Gero Personal' } })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create' }))
+
+    await waitFor(() => expect(window.workerSpecs.save).toHaveBeenCalledWith(expect.objectContaining({
+      steps: [expect.objectContaining({ agent: 'claude', account: 'Gero Personal' })],
+    })))
+  })
+
+  it('shows no Account select for an opencode step (noAccount agent)', async () => {
+    render(<AutomationsView />)
+    fireEvent.click(screen.getByRole('button', { name: '+ New worker' }))
+
+    expect(await screen.findByLabelText('Account')).toBeInTheDocument() // default step is claude
+
+    fireEvent.change(screen.getByLabelText('Agent'), { target: { value: 'opencode' } })
+    expect(screen.queryByLabelText('Account')).not.toBeInTheDocument()
+  })
+
+  it('changing a step\'s agent resets its stored account', async () => {
+    window.accounts = {
+      list: vi.fn(() => Promise.resolve(['Gero Personal'])),
+      save: vi.fn(),
+      delete: vi.fn(),
+      getDir: vi.fn(),
+    } as never
+
+    render(<AutomationsView />)
+    fireEvent.click(screen.getByRole('button', { name: '+ New worker' }))
+
+    const accountSelect = await screen.findByLabelText('Account') as HTMLSelectElement
+    fireEvent.change(accountSelect, { target: { value: 'Gero Personal' } })
+    expect(accountSelect.value).toBe('Gero Personal')
+
+    // codex also has saved accounts loaded (same mock), but switching to it
+    // must NOT carry over claude's chosen account.
+    fireEvent.change(screen.getByLabelText('Agent'), { target: { value: 'codex' } })
+    const codexAccountSelect = await screen.findByLabelText('Account') as HTMLSelectElement
+    expect(codexAccountSelect.value).toBe('')
   })
 
   it('fully resets the form on reopen after creating a non-default (gemini + model) worker', async () => {

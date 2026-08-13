@@ -16,6 +16,9 @@ export interface WorkerStep {
   effort?: 'low' | 'medium' | 'high'
   instructions?: string
   role?: string
+  /** Saved CLI account to launch this step with (bypasses the account picker
+   *  at run time). Unset = ask at launch, same as before this field existed. */
+  account?: string
 }
 
 export interface WorkerSpec {
@@ -39,6 +42,7 @@ function toStep(x: unknown): WorkerStep | null {
   if (r.effort === 'low' || r.effort === 'medium' || r.effort === 'high') out.effort = r.effort
   if (typeof r.instructions === 'string') out.instructions = r.instructions
   if (typeof r.role === 'string') out.role = r.role
+  if (typeof r.account === 'string') out.account = r.account
   return out
 }
 

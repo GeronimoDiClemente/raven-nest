@@ -77,14 +77,15 @@ export default function App() {
     setTabs(prev => prev.map(t => t.id === activeTabId ? updater(t) : t))
   }, [activeTabId])
 
-  // presetAgent/presetModel seed NewPaneDialog (agent + model dropdown) when a
-  // board task is opened "with a worker"; worktreePath/initialInput are threaded
-  // into the created pane by addPane below.
-  const [addingPane, setAddingPane] = useState<null | { worktreePath?: string; initialInput?: string; presetAgent?: AIType; presetModel?: string }>(null)
+  // presetAgent/presetModel/presetAccount seed NewPaneDialog (agent + model
+  // dropdown, and — when the worker step stored one — the CLI account to
+  // launch with) when a board task is opened "with a worker"; worktreePath/
+  // initialInput are threaded into the created pane by addPane below.
+  const [addingPane, setAddingPane] = useState<null | { worktreePath?: string; initialInput?: string; presetAgent?: AIType; presetModel?: string; presetAccount?: string }>(null)
   // Mirror addingPane in a ref so addPane reads the freshest value without
   // depending on a closure that React may not have updated yet — the dialog
   // sometimes captures the previous addPane closure where worktreePath is null.
-  const addingPaneRef = useRef<null | { worktreePath?: string; initialInput?: string; presetAgent?: AIType; presetModel?: string }>(null)
+  const addingPaneRef = useRef<null | { worktreePath?: string; initialInput?: string; presetAgent?: AIType; presetModel?: string; presetAccount?: string }>(null)
   addingPaneRef.current = addingPane
   // Cooperative worker pipelines: which worker+step each worktree is running, so
   // the pane header can offer "Hand off →" to advance to the next step. Keyed by
@@ -331,7 +332,7 @@ export default function App() {
       const handoff = await window.handoff.read(worktreePath)
       const isFinal = next.index === spec.steps.length - 1
       const initialInput = composeStepInput(next.step.instructions, handoff, isFinal)
-      setAddingPane({ worktreePath, initialInput, presetAgent: next.step.agent, presetModel: next.step.model })
+      setAddingPane({ worktreePath, initialInput, presetAgent: next.step.agent, presetModel: next.step.model, presetAccount: next.step.account })
       setActiveWorkerRun((m) => ({ ...m, [worktreePath]: { ...run, stepIndex: next.index } }))
     } finally {
       handoffInFlightRef.current.delete(worktreePath)
@@ -354,6 +355,7 @@ export default function App() {
       initialInput: step0 ? composeStepInput(step0.instructions, null, isFinal) : initialInput,
       presetAgent: step0?.agent,
       presetModel: step0?.model,
+      presetAccount: step0?.account,
     })
     if (worker) {
       // Resolve the run's spec from the one that just flowed through, not the
@@ -1354,6 +1356,7 @@ export default function App() {
           onUpgrade={() => { setAddingPane(null); setShowUpgrade(true) }}
           presetAgent={addingPane.presetAgent}
           presetModel={addingPane.presetModel}
+          presetAccount={addingPane.presetAccount}
         />
       )}
 
