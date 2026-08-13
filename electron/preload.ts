@@ -34,6 +34,12 @@ contextBridge.exposeInMainWorld('customCLIs', {
   delete: (id: string) => ipcRenderer.invoke('customcli:delete', id),
 })
 
+contextBridge.exposeInMainWorld('workerSpecs', {
+  list: () => ipcRenderer.invoke('workerspec:list'),
+  save: (input: unknown) => ipcRenderer.invoke('workerspec:save', input),
+  delete: (id: string) => ipcRenderer.invoke('workerspec:delete', id),
+})
+
 contextBridge.exposeInMainWorld('dialog', {
   openFolder: () => ipcRenderer.invoke('dialog:openFolder'),
 })

@@ -430,6 +430,36 @@ export interface CustomCLI {
   color: string
 }
 
+// === Worker-spec / model-per-task — mirror of WorkerStep/WorkerSpec in
+// electron/integrations/worker-spec-store.ts (src/ nunca importa de
+// electron/, same convention as Automation above). ===
+export interface WorkerStep {
+  agent: AIType
+  customCliId?: string
+  model?: string
+  effort?: 'low' | 'medium' | 'high'
+  instructions?: string
+  role?: string
+}
+export interface WorkerSpec {
+  id: string
+  name: string
+  description?: string
+  steps: WorkerStep[]
+  createdAt: number
+  updatedAt: number
+}
+export interface WorkerSpecInput {
+  name: string
+  description?: string
+  steps: WorkerStep[]
+}
+export interface WorkerSpecsBridge {
+  list: () => Promise<WorkerSpec[]>
+  save: (input: WorkerSpecInput & { id?: string }) => Promise<WorkerSpec>
+  delete: (id: string) => Promise<boolean>
+}
+
 export interface GridLayout {
   rows: number
   cols: number
@@ -808,6 +838,7 @@ declare global {
     gcal: GcalBridge
     recipes: RecipesBridge
     automations: AutomationsBridge
+    workerSpecs: WorkerSpecsBridge
   }
 }
 

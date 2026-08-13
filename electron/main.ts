@@ -156,6 +156,7 @@ import { performWorktreeAdd } from './worktree-create'
 import { getRemoteUrl, parseOwnerRepo } from './integrations/github'
 import { isTicket, type Ticket } from './integrations/ticket-types'
 import { handleMention, type NestBotDeps } from './integrations/nest-bot'
+import { WorkerSpecStore, newWorkerSpecId, type WorkerSpec } from './integrations/worker-spec-store'
 
 const ptyManager = new PtyManager()
 const accountStore = new AccountStore()
@@ -164,6 +165,7 @@ const accountStore = new AccountStore()
 // fills in missing links, never replaces a user's real file or dir.
 accountStore.migrateClaudeAccounts()
 const customCLIStore = new CustomCLIStore()
+const workerSpecStore = new WorkerSpecStore()
 const snippetStore = new SnippetStore()
 const localPathsStore = new LocalPathsStore()
 const conversationStore = new ConversationStore()
@@ -890,6 +892,23 @@ ipcMain.handle('cli:install:cancel', (_event, aiType: string) => cliInstallRunne
 ipcMain.handle('customcli:list', () => customCLIStore.list())
 ipcMain.handle('customcli:save', (_event, cli) => customCLIStore.save(cli))
 ipcMain.handle('customcli:delete', (_event, id: string) => customCLIStore.delete(id))
+
+// Worker-spec IPC handlers
+ipcMain.handle('workerspec:list', () => workerSpecStore.list())
+ipcMain.handle('workerspec:save', (_event, input: { id?: string; name: string; description?: string; steps: WorkerSpec['steps'] }) => {
+  const now = Date.now()
+  const existing = input.id ? workerSpecStore.list().find((s) => s.id === input.id) : undefined
+  const spec: WorkerSpec = {
+    id: input.id ?? newWorkerSpecId(),
+    name: input.name,
+    description: input.description,
+    steps: input.steps,
+    createdAt: existing?.createdAt ?? now,
+    updatedAt: now,
+  }
+  return workerSpecStore.save(spec)
+})
+ipcMain.handle('workerspec:delete', (_event, id: string) => workerSpecStore.delete(id))
 
 // PTY IPC handlers
 ipcMain.handle('pty:create', (_event, paneId: string, cmd: string, accountDir: string, repoPath?: string, shellId?: string) => {
