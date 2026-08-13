@@ -9611,6 +9611,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
 
 /* === AutomationsView (epic C — scheduled agents) === */
 .auto-view { padding: 18px 8px; }
+.auto-workers { border-bottom: 1px solid var(--border); padding-bottom: 8px; margin-bottom: 8px; }
 .auto-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; padding: 0 16px 14px; }
 .auto-title { font-size: 15px; font-weight: 600; color: var(--text-primary); margin: 0 0 4px; }
 .auto-lead { font-size: 12.5px; color: var(--text-muted); margin: 0; max-width: 480px; }
