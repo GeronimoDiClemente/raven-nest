@@ -1,9 +1,9 @@
-import { describe, it, expect, afterEach } from 'vitest'
+import { describe, it, expect, afterEach, vi } from 'vitest'
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { dirname, join } from 'path'
 import {
-  loadWorkerSpecs, saveWorkerSpecs, newWorkerSpecId, type WorkerSpec,
+  loadWorkerSpecs, saveWorkerSpecs, newWorkerSpecId, WorkerSpecStore, type WorkerSpec,
 } from '../integrations/worker-spec-store'
 
 const tmpDirs: string[] = []
@@ -31,6 +31,26 @@ describe('worker-spec-store persistence', () => {
     expect(JSON.parse(readFileSync(f, 'utf8')).version).toBe(1)
     expect(loadWorkerSpecs(f)).toEqual([makeSpec()])
   })
+  it('round-trips every optional step field (effort, role, customCliId)', () => {
+    const f = tmpFile()
+    const spec = makeSpec({
+      steps: [{
+        agent: 'custom', customCliId: 'my-cli', model: 'sonnet',
+        effort: 'high', instructions: 'Do the thing.', role: 'reviewer',
+      }],
+    })
+    saveWorkerSpecs(f, [spec])
+    expect(loadWorkerSpecs(f)).toEqual([spec])
+  })
+  it('corrupt JSON → warn + [] (never crashes)', () => {
+    const f = tmpFile()
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    mkdirSync(dirname(f), { recursive: true })
+    writeFileSync(f, '{ not json')
+    expect(loadWorkerSpecs(f)).toEqual([])
+    expect(warn).toHaveBeenCalled()
+    warn.mockRestore()
+  })
   it('drops an invalid record but keeps valid ones', () => {
     const f = tmpFile()
     mkdirSync(dirname(f), { recursive: true })
@@ -49,5 +69,35 @@ describe('worker-spec-store persistence', () => {
   })
   it('newWorkerSpecId returns a non-empty hex string', () => {
     expect(newWorkerSpecId()).toMatch(/^[0-9a-f]+$/)
+  })
+})
+
+describe('WorkerSpecStore class', () => {
+  it('save() inserts a new spec, then list() shows it', () => {
+    const store = new WorkerSpecStore(tmpFile())
+    expect(store.list()).toEqual([])
+    store.save(makeSpec({ id: 'a' }))
+    expect(store.list()).toEqual([makeSpec({ id: 'a' })])
+  })
+  it('save() with an existing id upserts (overwrites, no duplicate)', () => {
+    const store = new WorkerSpecStore(tmpFile())
+    store.save(makeSpec({ id: 'a', name: 'first' }))
+    store.save(makeSpec({ id: 'a', name: 'second' }))
+    const list = store.list()
+    expect(list).toHaveLength(1)
+    expect(list[0].name).toBe('second')
+  })
+  it('delete() on an existing id returns true and removes it', () => {
+    const store = new WorkerSpecStore(tmpFile())
+    store.save(makeSpec({ id: 'a' }))
+    store.save(makeSpec({ id: 'b' }))
+    expect(store.delete('a')).toBe(true)
+    expect(store.list().map((s) => s.id)).toEqual(['b'])
+  })
+  it('delete() on a missing id returns false and leaves the list unchanged', () => {
+    const store = new WorkerSpecStore(tmpFile())
+    store.save(makeSpec({ id: 'a' }))
+    expect(store.delete('nope')).toBe(false)
+    expect(store.list().map((s) => s.id)).toEqual(['a'])
   })
 })
