@@ -91,6 +91,18 @@ describe('<NewPaneDialog> model picker', () => {
     expect(onConfirm.mock.calls[0]![4]).toBe('claude --model haiku')
   })
 
+  it('preset noAccount agent (opencode): falls back to the agent grid — no jump to account step, no auto-launch', async () => {
+    const onConfirm = vi.fn()
+    render(<NewPaneDialog onConfirm={onConfirm} onCancel={vi.fn()} presetAgent="opencode" presetModel={undefined} />)
+
+    // Stays on the agent-selection grid (noAccount presets don't jump to a step)…
+    expect(await screen.findByRole('heading', { name: /choose ai/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'OpenCode' })).toBeInTheDocument()
+    // …not the account step, and nothing is auto-launched without confirmation.
+    expect(screen.queryByPlaceholderText('Account name (e.g. Personal, Work)')).not.toBeInTheDocument()
+    expect(onConfirm).not.toHaveBeenCalled()
+  })
+
   it('Copilot: shows no model dropdown, and the confirmed command has no --model', async () => {
     const onConfirm = vi.fn()
     render(<NewPaneDialog onConfirm={onConfirm} onCancel={vi.fn()} />)

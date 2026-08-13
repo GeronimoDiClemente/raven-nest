@@ -77,8 +77,10 @@ const CUSTOM_COLORS = ['#E07B54', '#4F9EFF', '#22C55E', '#A78BFA', '#F59E0B', '#
 
 export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgrade, presetAgent, presetModel }: Props) {
   // A preset agent that uses accounts opens directly on its account step with the
-  // model preselected. noAccount agents (terminal/opencode/custom) can't seed a
-  // model through that step, so they fall back to the normal agent-grid flow.
+  // model preselected. noAccount agents (terminal/opencode/custom) deliberately
+  // fall back to the normal agent-grid flow — jumping to their step would mean
+  // auto-launching with no confirmation, which we do NOT want. Their instructions
+  // still reach the pane via addingPane.initialInput regardless.
   const presetCfg = presetAgent ? AI_CONFIG[presetAgent] : null
   const presetUsesAccount = !!presetAgent && !!presetCfg && !presetCfg.noAccount
   const [step, setStep] = useState<Step>(presetUsesAccount ? 'select-account' : 'select-ai')
