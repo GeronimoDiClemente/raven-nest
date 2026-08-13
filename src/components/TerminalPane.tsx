@@ -166,9 +166,16 @@ export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZ
       if (!alive) return
       // Primera data del pane → inyectar el prompt pendiente una sola vez. El
       // delay le da aire al REPL del agente para montar su input antes de escribir.
+      // El texto y el Enter se escriben en writes SEPARADOS (con otro delay entre
+      // medio): un \r pegado al texto llega antes de que el REPL termine de
+      // renderizar un input multilínea y no llega a submitear.
       if (pane.initialInput && !injectedRef.current) {
         injectedRef.current = true
-        setTimeout(() => window.pty.write(pane.id, pane.initialInput! + '\r'), 400)
+        const text = pane.initialInput!
+        setTimeout(() => {
+          window.pty.write(pane.id, text)
+          setTimeout(() => window.pty.write(pane.id, '\r'), 350)
+        }, 400)
       }
       write(data)
       if (!activityDebounce) {

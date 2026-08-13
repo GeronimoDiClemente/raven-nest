@@ -91,15 +91,66 @@ describe('<NewPaneDialog> model picker', () => {
     expect(onConfirm.mock.calls[0]![4]).toBe('claude --model haiku')
   })
 
-  it('preset noAccount agent (opencode): falls back to the agent grid — no jump to account step, no auto-launch', async () => {
+  it('preset noAccount agent (opencode): auto-launches with zero clicks — no grid, no account step', async () => {
     const onConfirm = vi.fn()
     render(<NewPaneDialog onConfirm={onConfirm} onCancel={vi.fn()} presetAgent="opencode" presetModel={undefined} />)
 
-    // Stays on the agent-selection grid (noAccount presets don't jump to a step)…
-    expect(await screen.findByRole('heading', { name: /choose ai/i })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'OpenCode' })).toBeInTheDocument()
-    // …not the account step, and nothing is auto-launched without confirmation.
+    await waitFor(() => expect(onConfirm).toHaveBeenCalledTimes(1))
+    expect(onConfirm.mock.calls[0]![0]).toBe('opencode')
+    expect(onConfirm.mock.calls[0]![1]).toBe('default')
+
+    // Never shows the agent grid or the account step — it launched straight away.
+    expect(screen.queryByRole('heading', { name: /choose ai/i })).not.toBeInTheDocument()
     expect(screen.queryByPlaceholderText('Account name (e.g. Personal, Work)')).not.toBeInTheDocument()
+  })
+
+  it('preset account agent with exactly ONE saved account: auto-launches with the model flag applied', async () => {
+    Object.assign(window as unknown as Record<string, unknown>, {
+      accounts: {
+        list: vi.fn().mockResolvedValue(['Personal']),
+        save: vi.fn().mockResolvedValue('/accounts/dir'),
+        delete: vi.fn(),
+        getDir: vi.fn().mockResolvedValue('/accounts/Personal-dir'),
+      },
+    })
+    const onConfirm = vi.fn()
+    render(<NewPaneDialog onConfirm={onConfirm} onCancel={vi.fn()} presetAgent="claude" presetModel="haiku" />)
+
+    await waitFor(() => expect(onConfirm).toHaveBeenCalledTimes(1))
+    expect(onConfirm.mock.calls[0]).toEqual([
+      'claude', 'Personal', '/accounts/Personal-dir', expect.any(String), 'claude --model haiku',
+    ])
+
+    // No account step was ever shown to the user.
+    expect(screen.queryByPlaceholderText('Account name (e.g. Personal, Work)')).not.toBeInTheDocument()
+    expect(screen.queryByText('Saved accounts')).not.toBeInTheDocument()
+  })
+
+  it('preset account agent with TWO saved accounts: does not auto-launch, shows the account step for a manual pick', async () => {
+    Object.assign(window as unknown as Record<string, unknown>, {
+      accounts: {
+        list: vi.fn().mockResolvedValue(['Personal', 'Work']),
+        save: vi.fn().mockResolvedValue('/accounts/dir'),
+        delete: vi.fn(),
+        getDir: vi.fn().mockResolvedValue('/accounts/dir'),
+      },
+    })
+    const onConfirm = vi.fn()
+    render(<NewPaneDialog onConfirm={onConfirm} onCancel={vi.fn()} presetAgent="claude" presetModel="haiku" />)
+
+    expect(await screen.findByText('Saved accounts')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Personal/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Work/ })).toBeInTheDocument()
+    expect(onConfirm).not.toHaveBeenCalled()
+  })
+
+  it('preset account agent with ZERO saved accounts: does not auto-launch, shows the new-account (login) form', async () => {
+    // Default beforeEach mock already resolves accounts.list to [].
+    const onConfirm = vi.fn()
+    render(<NewPaneDialog onConfirm={onConfirm} onCancel={vi.fn()} presetAgent="claude" presetModel="haiku" />)
+
+    expect(await screen.findByPlaceholderText('Account name (e.g. Personal, Work)')).toBeInTheDocument()
+    expect(screen.queryByText('Saved accounts')).not.toBeInTheDocument()
     expect(onConfirm).not.toHaveBeenCalled()
   })
 

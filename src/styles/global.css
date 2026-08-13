@@ -4158,6 +4158,27 @@ kbd {
   color: var(--text-primary);
 }
 
+/* ── Preset worker auto-launch: brief "Opening…" placeholder ─ */
+.npd-resolving {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 40px 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.npd-resolving-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--border);
+  border-top-color: var(--raven-blue);
+  border-radius: 50%;
+  flex-shrink: 0;
+  animation: cli-spin 0.8s linear infinite;
+}
+
 /* ── CLI-not-found banner: "Docs ↗" link button ───────────── */
 .cli-banner-link {
   background: transparent;

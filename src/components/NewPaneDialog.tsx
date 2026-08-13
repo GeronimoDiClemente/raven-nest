@@ -38,9 +38,12 @@ interface Props {
   onCancel: () => void
   allowedAIs?: string[]
   onUpgrade?: () => void
-  /** Board "Run with worker": open straight on this agent with `presetModel`
-   *  preselected. Initial values only — the manual flow is untouched, the user
-   *  still completes the account step. */
+  /** Board "Run with worker": zero-click launch on this agent with `presetModel`.
+   *  Resolved once on mount — if the CLI is found and there's exactly one saved
+   *  account (or the agent needs no account at all), it launches immediately
+   *  with no dialog shown. Falls back to the normal account-step UI only when
+   *  it's genuinely ambiguous (0 or >1 saved accounts) or impossible (CLI
+   *  missing). Initial values only — the manual (no-preset) flow is untouched. */
   presetAgent?: AIType
   presetModel?: string
 }
@@ -76,14 +79,14 @@ const SHELL_COLORS: Record<string, string> = {
 const CUSTOM_COLORS = ['#E07B54', '#4F9EFF', '#22C55E', '#A78BFA', '#F59E0B', '#EC4899', '#14B8A6', '#60A5FA', '#888888']
 
 export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgrade, presetAgent, presetModel }: Props) {
-  // A preset agent that uses accounts opens directly on its account step with the
-  // model preselected. noAccount agents (terminal/opencode/custom) deliberately
-  // fall back to the normal agent-grid flow — jumping to their step would mean
-  // auto-launching with no confirmation, which we do NOT want. Their instructions
-  // still reach the pane via addingPane.initialInput regardless.
   const presetCfg = presetAgent ? AI_CONFIG[presetAgent] : null
-  const presetUsesAccount = !!presetAgent && !!presetCfg && !presetCfg.noAccount
-  const [step, setStep] = useState<Step>(presetUsesAccount ? 'select-account' : 'select-ai')
+  // While a preset resolves (see the mount effect below), render a minimal
+  // placeholder instead of any step UI — no flash of an account form the user
+  // never needs to touch. `step`/`selectedAI` still seed the manual-flow-shaped
+  // fallback (select-account) the resolve effect uses when it can't launch blind.
+  const [autoResolving, setAutoResolving] = useState<boolean>(!!presetAgent)
+  const autoLaunchedRef = useRef(false)
+  const [step, setStep] = useState<Step>('select-ai')
   const [selectedAI, setSelectedAI] = useState<AIType | null>(presetAgent ?? null)
   const [model, setModel] = useState<string>(presetModel ?? '') // '' = agent default; reset on agent change
   const [accounts, setAccounts] = useState<string[]>([])
@@ -130,12 +133,62 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
     bridge.customCLIs.list().then(setCustomCLIs)
   }, [])
 
-  // Preset agent: fetch its saved accounts up-front, since we skip the
-  // agent-grid click (selectAI) that normally loads them. Mount-only — preset
-  // is an initial value, not a live prop.
+  // Preset agent: resolve automatically so a worker launches with zero clicks —
+  // no account picking, no Enter. Launches immediately when it's unambiguous
+  // (noAccount agent with its CLI present; account agent with exactly one saved
+  // account and its CLI present). Otherwise falls back to the normal
+  // select-account UI — same shape `selectAI` produces for a manual pick — so
+  // the user finishes by hand rather than auto-launching into a broken state.
+  // Mount-only — preset is an initial value, not a live prop. `autoLaunchedRef`
+  // guards against a double-launch if this ever re-runs (e.g. dev StrictMode).
   useEffect(() => {
-    if (!presetUsesAccount || !presetAgent) return
-    bridge.accounts.list(presetAgent).then(setAccounts).catch(() => { /* leave empty; new-account form still works */ })
+    if (!presetAgent) return
+    const cfg = AI_CONFIG[presetAgent]
+    let cancelled = false
+    ;(async () => {
+      try {
+        if (cfg.noAccount) {
+          const found = cfg.cmd ? (await bridge.cli.check(cfg.cmd)).found : true
+          if (cancelled || autoLaunchedRef.current) return
+          if (found) {
+            autoLaunchedRef.current = true
+            onConfirm(presetAgent, 'default', '', cfg.color, appendModelFlag(cfg.cmd, cfg.modelFlag, presetModel ?? ''))
+            return
+          }
+          // CLI missing: same install-banner UI a manual noAccount pick shows
+          // (see selectAI below) — can't launch blind without the CLI.
+          setCliFound(false)
+          setStep('select-account')
+          setAutoResolving(false)
+          return
+        }
+
+        const existing = await bridge.accounts.list(presetAgent)
+        if (cancelled || autoLaunchedRef.current) return
+        setAccounts(existing)
+
+        if (existing.length === 1) {
+          const { found } = await bridge.cli.check(cfg.cmd)
+          if (cancelled || autoLaunchedRef.current) return
+          if (found) {
+            const dir = await bridge.accounts.getDir(presetAgent, existing[0])
+            if (cancelled || autoLaunchedRef.current) return
+            autoLaunchedRef.current = true
+            onConfirm(presetAgent, existing[0], dir, cfg.color, appendModelFlag(cfg.cmd, cfg.modelFlag, presetModel ?? ''))
+            return
+          }
+          setCliFound(false)
+        }
+
+        // 0 accounts (login needed), >1 (ambiguous), or CLI missing → the user
+        // finishes manually on the account step, accounts already loaded above.
+        setStep('select-account')
+        setAutoResolving(false)
+      } catch {
+        if (!cancelled) setAutoResolving(false)
+      }
+    })()
+    return () => { cancelled = true }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -257,6 +310,24 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
     e.stopPropagation()
     const cli = customCLIs.find(c => c.id === id)
     setConfirmDelete({ type: 'cli', id, label: cli?.label ?? id, e })
+  }
+
+  if (autoResolving) {
+    // Preset resolve is in flight (see the mount effect above): no account
+    // form, no agent grid — just a brief "Opening…" beat. onCancel (overlay
+    // click / Escape) still works while this is up.
+    return (
+      <div className="dialog-overlay" onClick={onCancel}>
+        <div className="dialog" onClick={(e) => e.stopPropagation()}>
+          <div className="npd-resolving">
+            <span className="npd-resolving-spinner" style={presetCfg ? { borderTopColor: presetCfg.color } : undefined} />
+            <span>
+              Opening{presetCfg ? <> <span style={{ color: presetCfg.color }}>{presetCfg.label}</span></> : null}…
+            </span>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   if (step === 'add-custom') {
