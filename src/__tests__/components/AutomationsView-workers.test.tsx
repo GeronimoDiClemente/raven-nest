@@ -79,13 +79,13 @@ describe('<AutomationsView> — Workers create form', () => {
     expect(screen.getByPlaceholderText(/Instructions for this worker/)).toBeInTheDocument()
   })
 
-  it('the agent select offers exactly claude, gemini, codex, copilot, opencode', async () => {
+  it('the agent select offers exactly claude, codex, gemini, copilot, opencode (in PROVIDER_OPTIONS order)', async () => {
     render(<AutomationsView />)
     fireEvent.click(screen.getByRole('button', { name: '+ New worker' }))
 
     const agentSelect = screen.getByLabelText('Agent') as HTMLSelectElement
     const values = Array.from(agentSelect.options).map((o) => o.value)
-    expect(values).toEqual(['claude', 'gemini', 'codex', 'copilot', 'opencode'])
+    expect(values).toEqual(['claude', 'codex', 'gemini', 'copilot', 'opencode'])
   })
 
   it('shows a Model select for claude (has AI_CONFIG.models) but not for codex', async () => {
@@ -115,6 +115,72 @@ describe('<AutomationsView> — Workers create form', () => {
 
     await waitFor(() => expect(screen.queryByPlaceholderText(/Instructions for this worker/)).not.toBeInTheDocument())
     expect(window.workerSpecs.list).toHaveBeenCalledTimes(2) // initial load + refresh after create
+  })
+
+  it('passes the selected model through to the save payload', async () => {
+    render(<AutomationsView />)
+    fireEvent.click(screen.getByRole('button', { name: '+ New worker' }))
+
+    fireEvent.change(screen.getByPlaceholderText(/Name \(e\.g\. Code reviewer\)/), { target: { value: 'Fast claude' } })
+    // agent defaults to claude, which exposes a Model select (opus/sonnet/haiku)
+    fireEvent.change(screen.getByLabelText('Model'), { target: { value: 'haiku' } })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create' }))
+
+    await waitFor(() => expect(window.workerSpecs.save).toHaveBeenCalledWith(expect.objectContaining({
+      name: 'Fast claude',
+      steps: [expect.objectContaining({ agent: 'claude', model: 'haiku' })],
+    })))
+  })
+
+  it('fully resets the form on reopen after creating a non-default (gemini + model) worker', async () => {
+    render(<AutomationsView />)
+    fireEvent.click(screen.getByRole('button', { name: '+ New worker' }))
+
+    fireEvent.change(screen.getByPlaceholderText(/Name \(e\.g\. Code reviewer\)/), { target: { value: 'Gemini pro worker' } })
+    fireEvent.change(screen.getByLabelText('Agent'), { target: { value: 'gemini' } })
+    fireEvent.change(screen.getByLabelText('Model'), { target: { value: 'gemini-2.5-pro' } })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create' }))
+    // Form closes on success.
+    await waitFor(() => expect(screen.queryByLabelText('Agent')).not.toBeInTheDocument())
+
+    // Reopen: everything is back to the defaults, not the gemini/model we just used.
+    fireEvent.click(screen.getByRole('button', { name: '+ New worker' }))
+    const agentSelect = screen.getByLabelText('Agent') as HTMLSelectElement
+    expect(agentSelect.value).toBe('claude')
+    // claude's Model select is shown again and blank (Default model), not gemini-2.5-pro.
+    const modelSelect = screen.getByLabelText('Model') as HTMLSelectElement
+    expect(modelSelect.value).toBe('')
+    expect(screen.getByPlaceholderText(/Name \(e\.g\. Code reviewer\)/)).toHaveValue('')
+  })
+})
+
+describe('<AutomationsView> — Workers error handling', () => {
+  it('surfaces an error and keeps the form open when save rejects', async () => {
+    mockWorkerSpecsBridge([])
+    window.workerSpecs.save = vi.fn(() => Promise.reject(new Error('disk full'))) as never
+
+    render(<AutomationsView />)
+    fireEvent.click(screen.getByRole('button', { name: '+ New worker' }))
+    fireEvent.change(screen.getByPlaceholderText(/Name \(e\.g\. Code reviewer\)/), { target: { value: 'Doomed' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Create' }))
+
+    expect(await screen.findByText('disk full')).toBeInTheDocument()
+    // Form stays open so the user can retry.
+    expect(screen.getByLabelText('Agent')).toBeInTheDocument()
+  })
+
+  it('surfaces an error when delete rejects instead of failing silently', async () => {
+    mockWorkerSpecsBridge([makeWorker({ id: 'w9', name: 'Sticky worker' })])
+    window.workerSpecs.delete = vi.fn(() => Promise.reject(new Error('delete failed'))) as never
+
+    render(<AutomationsView />)
+    await waitFor(() => expect(screen.getByText('Sticky worker')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete Sticky worker' }))
+
+    expect(await screen.findByText('delete failed')).toBeInTheDocument()
   })
 })
 

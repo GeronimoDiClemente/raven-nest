@@ -26,8 +26,8 @@ const DEFAULT_TIME = '09:00'
 
 // Real launchable agents a worker step can run as. Excludes terminal/browser
 // (not meaningful worker agents) and custom (needs a customCliId picker —
-// deferred to a later enhancement).
-const WORKER_AGENTS: AIType[] = ['claude', 'gemini', 'codex', 'copilot', 'opencode']
+// deferred to a later enhancement). Order mirrors PROVIDER_OPTIONS above.
+const WORKER_AGENTS: AIType[] = ['claude', 'codex', 'gemini', 'copilot', 'opencode']
 
 function nextRunLabel(nextRunAt: number | null): string {
   if (nextRunAt == null) return 'Not scheduled'
@@ -50,6 +50,8 @@ export function AutomationsView() {
   const [wAgent, setWAgent] = useState<AIType>('claude')
   const [wModel, setWModel] = useState('')
   const [wInstructions, setWInstructions] = useState('')
+  const [wSubmitting, setWSubmitting] = useState(false)
+  const [wError, setWError] = useState<string | null>(null)
 
   const [name, setName] = useState('')
   const [schedule, setSchedule] = useState<SchedulePreset>('daily')
@@ -128,21 +130,36 @@ export function AutomationsView() {
     setWAgent('claude')
     setWModel('')
     setWInstructions('')
+    setWError(null)
   }
 
   const createWorker = async () => {
+    setWError(null)
     if (!wName.trim()) return
-    await window.workerSpecs.save({
-      name: wName.trim(),
-      steps: [{ agent: wAgent, model: wModel || undefined, instructions: wInstructions.trim() || undefined }],
-    })
-    setWName(''); setWInstructions(''); setShowWorkerForm(false)
-    refreshWorkers()
+    setWSubmitting(true)
+    try {
+      await window.workerSpecs.save({
+        name: wName.trim(),
+        steps: [{ agent: wAgent, model: wModel || undefined, instructions: wInstructions.trim() || undefined }],
+      })
+      resetWorkerForm()
+      setShowWorkerForm(false)
+      refreshWorkers()
+    } catch (err) {
+      setWError(err instanceof Error ? err.message : 'Could not create worker')
+    } finally {
+      setWSubmitting(false)
+    }
   }
 
   const deleteWorker = async (w: WorkerSpec) => {
-    await window.workerSpecs.delete(w.id)
-    refreshWorkers()
+    setWError(null)
+    try {
+      await window.workerSpecs.delete(w.id)
+      refreshWorkers()
+    } catch (err) {
+      setWError(err instanceof Error ? err.message : 'Could not delete worker')
+    }
   }
 
   return (
@@ -194,12 +211,18 @@ export function AutomationsView() {
               rows={3}
             />
 
+            {wError && <p className="integration-error">{wError}</p>}
+
             <div className="auto-form-actions">
               <button className="integration-btn ghost" onClick={() => { setShowWorkerForm(false); resetWorkerForm() }}>Cancel</button>
-              <button className="integration-btn primary" onClick={() => void createWorker()}>Create</button>
+              <button className="integration-btn primary" disabled={wSubmitting} onClick={() => void createWorker()}>
+                {wSubmitting ? 'Creating…' : 'Create'}
+              </button>
             </div>
           </div>
         )}
+
+        {wError && !showWorkerForm && <p className="integration-error">{wError}</p>}
 
         {workers.length === 0 ? (
           <div className="auto-empty">No workers yet. Create one to reuse an agent + model combo.</div>
