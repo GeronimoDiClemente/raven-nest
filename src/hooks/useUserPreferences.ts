@@ -80,3 +80,13 @@ export function useUserPreferences() {
 
   return { prefs, loaded, setActiveTeam, setFontSize, setEditorOptions }
 }
+
+// A single shared instance of this hook must live in App.tsx and be passed
+// down as a prop to every consumer (Sidebar -> SettingsPanel) instead of
+// each consumer calling useUserPreferences() itself. Two independent hook
+// instances have no shared state or Supabase subscription between them, so
+// an update made through one (e.g. SettingsPanel's "Apply" on an imported
+// editor config) never reaches the other (e.g. App.tsx's instance, which is
+// what actually feeds editorOptions/editorTheme into EditorPane) until a
+// full app restart re-mounts both from scratch.
+export type UserPreferencesApi = ReturnType<typeof useUserPreferences>

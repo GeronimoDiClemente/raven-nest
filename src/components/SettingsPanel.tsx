@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase'
 import { useSettings } from '../hooks/useSettings'
 import { useGitHub } from '../hooks/useGitHub'
 import { useGitlab } from '../hooks/useGitlab'
-import { useUserPreferences } from '../hooks/useUserPreferences'
+import type { UserPreferencesApi } from '../hooks/useUserPreferences'
 import { formatBinding, eventToBinding, Keybindings } from '../lib/keybindings'
 import type { EditorPreferences, EditorTheme } from '../lib/ide-config-mappings'
 import { PresetEditor } from './PresetEditor'
@@ -80,15 +80,17 @@ interface Props {
   userEmail: string
   activeRepoPath?: string
   onOpenTutorial?: (tourId: import('../tutorial/types').TourId) => void
+  // Lifted from App.tsx (the single shared instance) — see UserPreferencesApi's
+  // doc comment for why this must not be a local useUserPreferences() call.
+  userPrefs: UserPreferencesApi
 }
 
-export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, activeRepoPath, onOpenTutorial }: Props) {
+export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, activeRepoPath, onOpenTutorial, userPrefs }: Props) {
   const [open, setOpen] = useState(false)
   const [tab, setTab] = useState<Tab>('keybinds')
   const { settings, updateKeybinding, updateVoiceLanguage } = useSettings()
   const { isConnected: githubConnected, githubLogin, connectGitHub, disconnectGitHub } = useGitHub()
   const { isConnected: gitlabConnected, gitlabLogin, connectGitlab, disconnectGitlab } = useGitlab()
-  const userPrefs = useUserPreferences()
   const [importPreview, setImportPreview] = useState<{ source: 'vscode' | 'intellij'; options: EditorPreferences; theme?: EditorTheme } | null>(null)
   const [importError, setImportError] = useState<string | null>(null)
   const kb = settings.keybindings

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import SettingsPanel from '../../components/SettingsPanel'
+import type { EditorPreferences, EditorTheme } from '../../lib/ide-config-mappings'
 
 // SettingsPanel talks to supabase directly (useGitHub/useGitlab effects, the
 // "Sign out" button) — mocked here the same way useLocalPathsMigration.test.tsx
@@ -12,27 +13,29 @@ const supabaseMock = vi.hoisted(() => ({
 }))
 vi.mock('../../lib/supabase', () => ({ supabase: supabaseMock }))
 
-// useUserPreferences() itself talks to supabase (user_preferences table) —
-// mocked directly so `confirmImport`'s call to `setEditorOptions` can be
-// asserted deterministically instead of relying on the real hook's
-// early-return-when-no-user behavior (which would make the assertion vacuous).
-const setEditorOptionsMock = vi.hoisted(() => vi.fn())
-vi.mock('../../hooks/useUserPreferences', () => ({
-  useUserPreferences: () => ({
+// SettingsPanel no longer calls useUserPreferences() itself (Critical
+// finding 2 in the final review — two independent hook instances meant an
+// imported config never reached the running editor). It now receives the
+// single App.tsx-owned instance as a prop, so tests pass a fake directly
+// instead of mocking the hook module.
+function mockIdeConfigImport(impl: ReturnType<typeof vi.fn>) {
+  ;(window as unknown as { ideConfig: { import: ReturnType<typeof vi.fn> } }).ideConfig = { import: impl }
+}
+
+type SetEditorOptionsMock = ReturnType<typeof vi.fn<(options: EditorPreferences, theme?: EditorTheme) => void>>
+
+function makeUserPrefs(setEditorOptionsMock: SetEditorOptionsMock) {
+  return {
     prefs: { active_team_id: null, ui_settings: {} },
     loaded: true,
     setActiveTeam: vi.fn(),
     setFontSize: vi.fn(),
     setEditorOptions: setEditorOptionsMock,
-  }),
-}))
-
-function mockIdeConfigImport(impl: ReturnType<typeof vi.fn>) {
-  ;(window as unknown as { ideConfig: { import: ReturnType<typeof vi.fn> } }).ideConfig = { import: impl }
+  }
 }
 
-function openEditorTab() {
-  render(<SettingsPanel updateState="idle" onCheckUpdates={vi.fn()} userEmail="test@example.com" />)
+function openEditorTab(setEditorOptionsMock: SetEditorOptionsMock = vi.fn()) {
+  render(<SettingsPanel updateState="idle" onCheckUpdates={vi.fn()} userEmail="test@example.com" userPrefs={makeUserPrefs(setEditorOptionsMock)} />)
   fireEvent.click(screen.getByTitle('Settings'))
   fireEvent.click(screen.getByText('Editor'))
 }
@@ -62,8 +65,9 @@ describe('SettingsPanel — editor config import', () => {
   })
 
   it('applies the preview via setEditorOptions and hides the preview on confirm', async () => {
+    const setEditorOptionsMock: SetEditorOptionsMock = vi.fn()
     mockIdeConfigImport(vi.fn().mockResolvedValue({ ok: true, options: { fontSize: 18 }, theme: 'vs-dark' }))
-    openEditorTab()
+    openEditorTab(setEditorOptionsMock)
 
     fireEvent.click(screen.getByText('Import from VS Code'))
     await waitFor(() => expect(screen.getByTestId('ide-config-preview')).toBeInTheDocument())
@@ -74,8 +78,9 @@ describe('SettingsPanel — editor config import', () => {
   })
 
   it('discards the preview without applying on cancel', async () => {
+    const setEditorOptionsMock: SetEditorOptionsMock = vi.fn()
     mockIdeConfigImport(vi.fn().mockResolvedValue({ ok: true, options: { fontSize: 18 } }))
-    openEditorTab()
+    openEditorTab(setEditorOptionsMock)
 
     fireEvent.click(screen.getByText('Import from VS Code'))
     await waitFor(() => expect(screen.getByTestId('ide-config-preview')).toBeInTheDocument())

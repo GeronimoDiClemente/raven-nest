@@ -18,6 +18,7 @@ import { basename } from '../lib/path'
 import { useGitInfo } from '../hooks/useGitInfo'
 import { useFixedPopover } from '../hooks/useFixedPopover'
 import { ExplorerPanel } from './ExplorerPanel'
+import type { UserPreferencesApi } from '../hooks/useUserPreferences'
 
 interface Props {
   expanded: boolean
@@ -59,6 +60,9 @@ interface Props {
   onLayoutChange: (id: LayoutId) => void
   onOpenTutorial?: (tourId: import('../tutorial/types').TourId) => void
   onFileOpen: (relPath: string) => void
+  // Lifted to App.tsx (the single shared instance) — threaded through to
+  // SettingsPanel. See UserPreferencesApi's doc comment for why.
+  userPrefs: UserPreferencesApi
 }
 
 export default function Sidebar({
@@ -68,7 +72,7 @@ export default function Sidebar({
   onSnippetSend, onSnippetBroadcast, onCommandRun, onWorkspaceSave, onWorkspaceLoad, isWin,
   isTrialActive, trialDaysLeft, profileLoading, onUpgrade, onTeamsOpen, pendingInvitesCount = 0, onMyReposOpen, plan, repoPath, onRepoLink, onRepoUnlink, onJoinTerminal,
   activeCellRepoPath, onWorktreeSelect, onNewWorktree, worktreeRefreshKey,
-  layoutId, paneCount, onLayoutChange, onOpenTutorial, onFileOpen,
+  layoutId, paneCount, onLayoutChange, onOpenTutorial, onFileOpen, userPrefs,
 }: Props) {
   const { branch, githubUrl, isDirty } = useGitInfo(repoPath)
   const { githubToken } = useGitHub()
@@ -720,6 +724,7 @@ export default function Sidebar({
           userEmail={userEmail}
           activeRepoPath={activeCellRepoPath}
           onOpenTutorial={onOpenTutorial}
+          userPrefs={userPrefs}
         />
       </div>
 

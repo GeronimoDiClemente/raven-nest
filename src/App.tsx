@@ -1122,6 +1122,7 @@ export default function App() {
         onLayoutChange={handleLayoutIdChange}
         onOpenTutorial={(id) => setTutorialTour(id)}
         onFileOpen={openFileInEditor}
+        userPrefs={userPrefs}
       />
       <div
         ref={workspaceRef}
