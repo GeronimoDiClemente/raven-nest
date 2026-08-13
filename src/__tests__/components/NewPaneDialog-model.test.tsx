@@ -51,6 +51,27 @@ describe('<NewPaneDialog> model picker', () => {
     expect(cmd).toBe('claude --model haiku')
   })
 
+  it('switching agents resets the model: Claude=haiku -> Back -> Gemini shows Default model, not haiku', async () => {
+    render(<NewPaneDialog onConfirm={vi.fn()} onCancel={vi.fn()} />)
+
+    // Claude -> pick a non-default model
+    fireEvent.click(await screen.findByRole('button', { name: 'Claude' }))
+    const claudeSelect = await screen.findByLabelText('Model')
+    fireEvent.change(claudeSelect, { target: { value: 'haiku' } })
+    expect((claudeSelect as HTMLSelectElement).value).toBe('haiku')
+
+    // Back to the agent picker (the dialog's "← Back" control)
+    fireEvent.click(screen.getByRole('button', { name: /back/i }))
+
+    // Gemini has its own models list; its dropdown must start at the default, NOT haiku
+    fireEvent.click(await screen.findByRole('button', { name: 'Gemini' }))
+    const geminiSelect = await screen.findByLabelText('Model')
+    expect((geminiSelect as HTMLSelectElement).value).toBe('')
+    const options = Array.from((geminiSelect as HTMLSelectElement).options).map(o => o.value)
+    expect(options).not.toContain('haiku')
+    expect(options).toEqual(['', 'gemini-2.5-pro', 'gemini-2.5-flash'])
+  })
+
   it('Copilot: shows no model dropdown, and the confirmed command has no --model', async () => {
     const onConfirm = vi.fn()
     render(<NewPaneDialog onConfirm={onConfirm} onCancel={vi.fn()} />)
