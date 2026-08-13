@@ -40,6 +40,11 @@ contextBridge.exposeInMainWorld('workerSpecs', {
   delete: (id: string) => ipcRenderer.invoke('workerspec:delete', id),
 })
 
+contextBridge.exposeInMainWorld('handoff', {
+  read: (worktreePath: string) => ipcRenderer.invoke('handoff:read', worktreePath),
+  write: (worktreePath: string, content: string) => ipcRenderer.invoke('handoff:write', worktreePath, content),
+})
+
 contextBridge.exposeInMainWorld('dialog', {
   openFolder: () => ipcRenderer.invoke('dialog:openFolder'),
 })

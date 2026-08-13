@@ -157,6 +157,7 @@ import { getRemoteUrl, parseOwnerRepo } from './integrations/github'
 import { isTicket, type Ticket } from './integrations/ticket-types'
 import { handleMention, type NestBotDeps } from './integrations/nest-bot'
 import { WorkerSpecStore, newWorkerSpecId, type WorkerSpec } from './integrations/worker-spec-store'
+import { readHandoff, writeHandoff } from './integrations/handoff'
 
 const ptyManager = new PtyManager()
 const accountStore = new AccountStore()
@@ -909,6 +910,10 @@ ipcMain.handle('workerspec:save', (_event, input: { id?: string; name: string; d
   return workerSpecStore.save(spec)
 })
 ipcMain.handle('workerspec:delete', (_event, id: string) => workerSpecStore.delete(id))
+
+// Handoff IPC handlers
+ipcMain.handle('handoff:read', (_e, worktreePath: string) => readHandoff(worktreePath))
+ipcMain.handle('handoff:write', (_e, worktreePath: string, content: string) => writeHandoff(worktreePath, content))
 
 // PTY IPC handlers
 ipcMain.handle('pty:create', (_event, paneId: string, cmd: string, accountDir: string, repoPath?: string, shellId?: string) => {

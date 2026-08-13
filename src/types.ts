@@ -469,6 +469,11 @@ export interface WorkerSpecsBridge {
   delete: (id: string) => Promise<boolean>
 }
 
+export interface HandoffBridge {
+  read: (worktreePath: string) => Promise<string | null>
+  write: (worktreePath: string, content: string) => Promise<void>
+}
+
 export interface GridLayout {
   rows: number
   cols: number
@@ -848,6 +853,7 @@ declare global {
     recipes: RecipesBridge
     automations: AutomationsBridge
     workerSpecs: WorkerSpecsBridge
+    handoff: HandoffBridge
   }
 }
 
