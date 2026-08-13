@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { AIType, AI_CONFIG, COLOR_PALETTE, CustomCLI, ShellInfo } from '../types'
 import { safeWriteText } from '../lib/clipboard'
 import { bridge } from '../lib/bridge'
+import { appendModelFlag } from '../lib/launch-cmd'
 import { ClaudeLogo, GeminiLogo, CodexLogo, CopilotLogo, OpenCodeLogo } from './AILogos'
 import ConfirmDialog from './ConfirmDialog'
 
@@ -72,6 +73,7 @@ const CUSTOM_COLORS = ['#E07B54', '#4F9EFF', '#22C55E', '#A78BFA', '#F59E0B', '#
 export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgrade }: Props) {
   const [step, setStep] = useState<Step>('select-ai')
   const [selectedAI, setSelectedAI] = useState<AIType | null>(null)
+  const [model, setModel] = useState<string>('') // '' = agent default; reset on agent change
   const [accounts, setAccounts] = useState<string[]>([])
   const [newAccountName, setNewAccountName] = useState('')
   const [creatingNew, setCreatingNew] = useState(false)
@@ -135,6 +137,7 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
   async function selectAI(aiType: AIType) {
     const cfg = AI_CONFIG[aiType]
     setSelectedAI(aiType)
+    setModel('') // switching agents: don't let a leftover model pick leak into the new one
     setBorderColor(cfg.color)
     // Windows shell submenu: clicking "Terminal" on Windows with detected shells
     // opens a sub-step to pick which shell, instead of cluttering the main grid.
@@ -152,7 +155,10 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
           return
         }
       }
-      onConfirm(aiType, 'default', '', cfg.color, cfg.cmd)
+      // This launch happens for a just-selected agent, before any model dropdown for it
+      // could have rendered — pass '' explicitly rather than the `model` state var, which
+      // (inside this same closure) would still hold the PREVIOUS agent's stale value.
+      onConfirm(aiType, 'default', '', cfg.color, appendModelFlag(cfg.cmd, cfg.modelFlag, ''))
       return
     }
     const existing = await bridge.accounts.list(aiType)
@@ -167,7 +173,8 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
   async function selectAccount(name: string) {
     if (!selectedAI) return
     const dir = await bridge.accounts.getDir(selectedAI, name)
-    onConfirm(selectedAI, name, dir, borderColor, AI_CONFIG[selectedAI].cmd)
+    const cfg = AI_CONFIG[selectedAI]
+    onConfirm(selectedAI, name, dir, borderColor, appendModelFlag(cfg.cmd, cfg.modelFlag, model))
   }
 
   async function installCli() {
@@ -195,7 +202,7 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
       if (installAbortRef.current) return
       const cfg = AI_CONFIG[ai]
       if (cfg.noAccount) {
-        onConfirm(ai, 'default', '', cfg.color, cfg.cmd)
+        onConfirm(ai, 'default', '', cfg.color, appendModelFlag(cfg.cmd, cfg.modelFlag, model))
       } else {
         setCliFound(true)
         setInstallState('idle')
@@ -207,7 +214,8 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
     if (!selectedAI || !newAccountName.trim()) return
     setCreatingNew(true)
     const dir = await bridge.accounts.save(selectedAI, newAccountName.trim())
-    onConfirm(selectedAI, newAccountName.trim(), dir, borderColor, AI_CONFIG[selectedAI].cmd)
+    const cfg = AI_CONFIG[selectedAI]
+    onConfirm(selectedAI, newAccountName.trim(), dir, borderColor, appendModelFlag(cfg.cmd, cfg.modelFlag, model))
   }
 
   async function saveCustomCLI() {
@@ -396,6 +404,23 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
               {' '}Account
             </h2>
 
+            {AI_CONFIG[selectedAI!]?.models?.length ? (
+              <div className="npd-model-row">
+                <p className="account-list-label">Model</p>
+                <select
+                  aria-label="Model"
+                  value={model}
+                  onChange={(e) => setModel(e.target.value)}
+                  className="npd-model-select"
+                >
+                  <option value="">Default model</option>
+                  {AI_CONFIG[selectedAI!]!.models!.map((m) => (
+                    <option key={m} value={m}>{m}</option>
+                  ))}
+                </select>
+              </div>
+            ) : null}
+
             {/* CLI detection banner */}
             {cliFound === false && selectedAI && CLI_INSTALL[selectedAI] && (
               <div style={{
@@ -549,7 +574,10 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
               <button
                 className="btn-primary"
                 style={{ width: '100%', marginBottom: 8 }}
-                onClick={() => onConfirm(selectedAI!, 'default', '', AI_CONFIG[selectedAI!].color, AI_CONFIG[selectedAI!].cmd)}
+                onClick={() => {
+                  const cfg = AI_CONFIG[selectedAI!]
+                  onConfirm(selectedAI!, 'default', '', cfg.color, appendModelFlag(cfg.cmd, cfg.modelFlag, model))
+                }}
               >
                 Open anyway
               </button>

@@ -4305,6 +4305,29 @@ kbd {
   color: #fff;
 }
 
+/* ── Model Picker ─────────────────────────────────────────── */
+
+.npd-model-row {
+  margin-bottom: 16px;
+}
+
+.npd-model-select {
+  width: 100%;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  color: var(--text-primary);
+  font-size: 13px;
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+
+.npd-model-select:focus {
+  border-color: var(--raven-blue);
+}
+
 /* ── Account List ────────────────────────────────────────── */
 
 .account-list {
