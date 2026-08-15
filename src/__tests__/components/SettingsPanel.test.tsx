@@ -31,6 +31,7 @@ function makeUserPrefs(setEditorOptionsMock: SetEditorOptionsMock) {
     setActiveTeam: vi.fn(),
     setFontSize: vi.fn(),
     setEditorOptions: setEditorOptionsMock,
+    setEditorTheme: vi.fn(),
   }
 }
 

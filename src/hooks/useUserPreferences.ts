@@ -78,7 +78,11 @@ export function useUserPreferences() {
     })
   }, [updatePrefs, prefs.ui_settings])
 
-  return { prefs, loaded, setActiveTeam, setFontSize, setEditorOptions }
+  const setEditorTheme = useCallback((theme: EditorTheme) => {
+    updatePrefs({ ui_settings: { ...prefs.ui_settings, editorTheme: theme } })
+  }, [updatePrefs, prefs.ui_settings])
+
+  return { prefs, loaded, setActiveTeam, setFontSize, setEditorOptions, setEditorTheme }
 }
 
 // A single shared instance of this hook must live in App.tsx and be passed
