@@ -6523,7 +6523,8 @@ button.ci-badge:hover {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  width: 480px;
+  /* 7 tabs no longer fit in 480px; cap to the viewport on small windows */
+  width: min(640px, calc(100vw - 32px));
   max-height: 560px;
   background: var(--bg-elevated);
   border: 1px solid var(--border);
@@ -6573,6 +6574,7 @@ button.ci-badge:hover {
 
 .sp-tabs {
   display: flex;
+  flex-wrap: wrap; /* never clip tabs against the modal edge */
   gap: 2px;
   padding: 10px 16px;
   border-bottom: 1px solid var(--border);
@@ -6580,7 +6582,7 @@ button.ci-badge:hover {
 }
 
 .sp-tab {
-  padding: 6px 16px;
+  padding: 6px 12px;
   border-radius: 6px;
   background: transparent;
   color: var(--text-secondary);
