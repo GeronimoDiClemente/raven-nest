@@ -149,7 +149,7 @@ import { loadRecipes, recipeDescriptors } from './integrations/recipes'
 import { registerBusCommands } from './integrations/bus-commands'
 import {
   loadAutomations, saveAutomations, nextRun, describeSchedule, newAutomationId, Scheduler,
-  type Automation, type AutomationRunResult,
+  type Automation,
 } from './integrations/scheduler'
 import { ticketBranchName } from './integrations/branch-name'
 import { performWorktreeAdd } from './worktree-create'
@@ -158,6 +158,7 @@ import { isTicket, type Ticket } from './integrations/ticket-types'
 import { handleMention, type NestBotDeps } from './integrations/nest-bot'
 import { WorkerSpecStore, newWorkerSpecId, type WorkerSpec } from './integrations/worker-spec-store'
 import { readHandoff, writeHandoff } from './integrations/handoff'
+import { makeRunAutomation, type AutomationRunnerPorts } from './integrations/automation-runner'
 
 const ptyManager = new PtyManager()
 const accountStore = new AccountStore()
@@ -2424,28 +2425,95 @@ function automationDTO(a: Automation, now: Date) {
   return { ...a, nextRunAt: nextRun(a, now)?.getTime() ?? null, scheduleLabel: describeSchedule(a) }
 }
 
-// STUB (epic C — headless execution not wired yet): a real run would create
-// an ephemeral worktree (worktree-create.ts), spawn the automation's
-// `provider` CLI via pty-manager/setup-runner with `prompt`, capture its
-// output into a summary, then clean the worktree up. That's the highest-risk,
-// least-tested part of this feature — no coverage here exercises a real child
-// process — so this pass only records the DISPATCH: `block.started` still
-// fires and lastRunAt/lastResult still persist, but no CLI is actually
-// spawned. Wire the real run in here once worktree-create + a headless
-// CLI runner are ready to be driven unattended.
-async function runAutomationStub(automation: Automation, _now: Date): Promise<AutomationRunResult> {
-  // worker-spec / model-per-task (Capa 1, Task 8): resolve which model this
-  // run would use — inline `automation.model` wins, else fall back to the
-  // referenced worker-spec's first step. Only threaded through for
-  // observability (the warn + returned summary) — no CLI is spawned here.
-  const model = automation.model
-    ?? (automation.workerId ? workerSpecStore.list().find((w) => w.id === automation.workerId)?.steps[0]?.model : undefined)
-  console.warn('[automations] headless run STUBBED — not spawning a CLI', automation.id, automation.name, 'model:', model ?? 'default')
-  return { ok: true, summary: `Stubbed run — headless execution (worktree + CLI) not wired yet (model: ${model ?? 'default'})` }
+// Epic C (H11) — real headless execution. The pure orchestration
+// (create worktree → run agent → summarize → remove) lives in
+// automation-runner.ts; these ports inject the git/child-process side effects.
+// ⚠️ The child-process path (`runAgent`) is unit-untested integration and needs
+// a LIVE smoke test on Windows (claude `.cmd` resolution + reading the prompt
+// from stdin). See docs/INTEGRATIONS_ORCA_EXECUTION_PLAN.md, Fase 2.
+const automationRunnerPorts: AutomationRunnerPorts = {
+  // Create an ephemeral worktree in a sibling dir (same layout as
+  // worktree:create) but WITHOUT persisting store meta — it must never show up
+  // in the worktrees UI. The unique `nest-auto/<id>-<hex>` branch guarantees no
+  // collision, so runWorktreeAdd's idempotency check never trips.
+  createWorktree: async (repoPath, branch) => {
+    if (!isAbsolute(repoPath)) return { ok: false, error: 'repoPath must be absolute' }
+    const slug = branch.replace(/[\/]/g, '-').replace(/[^a-zA-Z0-9._\-]/g, '')
+    const wtPath = pathJoin(dirname(repoPath), `${basename(repoPath)}-${slug}`)
+    try {
+      const res = runWorktreeAdd(repoPath, branch, wtPath, 'HEAD')
+      if (!res.ok) return { ok: false, error: res.error }
+      return { ok: true, wtPath }
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) }
+    }
+  },
+  // Run the agent CLI non-interactively. SECURITY: the untrusted `prompt` (the
+  // argv tail after `-p`) is fed via STDIN and never placed on the shell command
+  // line — only the fixed provider name, `--model`, the SAFE_MODEL-validated
+  // model, and `-p` reach the shell, so there is nothing to inject. shell:true is
+  // required on Windows to resolve `claude.cmd`. A 10-min timeout kills a hang.
+  runAgent: (argv, cwd) => new Promise((resolveRun) => {
+    const pIdx = argv.lastIndexOf('-p')
+    const prompt = pIdx >= 0 ? argv.slice(pIdx + 1).join(' ') : ''
+    const cmdLine = (pIdx >= 0 ? argv.slice(0, pIdx + 1) : argv).join(' ')
+    let output = ''
+    let done = false
+    let child: ReturnType<typeof spawn> | undefined
+    const finish = (ok: boolean) => {
+      if (done) return
+      done = true
+      clearTimeout(timer)
+      resolveRun({ ok, output })
+    }
+    const timer = setTimeout(() => {
+      try {
+        if (process.platform === 'win32' && child?.pid) spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore' })
+        else child?.kill('SIGTERM')
+      } catch {}
+      output += '\n[automation timed out after 600s]'
+      finish(false)
+    }, 600_000)
+    try {
+      child = spawn(cmdLine, { cwd, env: { ...process.env }, shell: true })
+    } catch (err) {
+      output += `spawn failed: ${err instanceof Error ? err.message : String(err)}`
+      finish(false)
+      return
+    }
+    child.stdout?.on('data', (d) => { output += d.toString('utf8') })
+    child.stderr?.on('data', (d) => { output += d.toString('utf8') })
+    child.on('error', (err) => { output += `\nerror: ${err.message}`; finish(false) })
+    child.on('exit', (code) => finish(code === 0))
+    try { child.stdin?.write(prompt); child.stdin?.end() } catch {}
+  }),
+  // Best-effort cleanup, never throws: capture the ephemeral branch, remove the
+  // worktree (--force), prune on failure, then delete the `nest-auto/…` branch.
+  removeWorktree: async (repoPath, wtPath) => {
+    let branch = ''
+    try {
+      branch = execFileSync('git', ['-C', wtPath, 'branch', '--show-current'], { encoding: 'utf8', timeout: 5000, stdio: ['pipe', 'pipe', 'pipe'] }).trim()
+    } catch {}
+    try { ptyManager.killByCwdPrefix(wtPath) } catch {}
+    try {
+      execFileSync('git', ['-C', repoPath, 'worktree', 'remove', wtPath, '--force'], { encoding: 'utf8', timeout: 10000, stdio: ['pipe', 'pipe', 'pipe'] })
+    } catch (err) {
+      console.warn('[automations] worktree remove failed', wtPath, err instanceof Error ? err.message : err)
+      try { execFileSync('git', ['-C', repoPath, 'worktree', 'prune'], { timeout: 5000, stdio: ['pipe', 'pipe', 'pipe'] }) } catch {}
+    }
+    if (branch && branch.startsWith('nest-auto/')) {
+      try { execFileSync('git', ['-C', repoPath, 'branch', '-D', branch], { timeout: 5000, stdio: ['pipe', 'pipe', 'pipe'] }) } catch {}
+    }
+  },
+  // model-per-task (worker-spec Capa 1): inline model wins, else the referenced
+  // worker-spec's first step.
+  resolveModel: (automation) => automation.model
+    ?? (automation.workerId ? workerSpecStore.list().find((w) => w.id === automation.workerId)?.steps[0]?.model : undefined),
+  makeId: () => randomBytes(6).toString('hex'),
 }
 
 const automationScheduler = new Scheduler({
-  runAutomation: runAutomationStub,
+  runAutomation: makeRunAutomation(automationRunnerPorts),
   onEvent: (ev) => { void eventBus.emit(ev, panelDeps()) },
 })
 
