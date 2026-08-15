@@ -46,6 +46,7 @@ export interface PaneNode {
   shellId?: string      // terminal panes only: which shell to spawn (Windows shell picker)
   editorTabs?: EditorTab[]        // editor panes only: open files
   activeEditorTabPath?: string    // editor panes only: which tab is focused
+  pinned?: boolean      // Hub: user-pinned pane, shows under the "Pinned" filter
 }
 
 export interface ShellInfo {
@@ -54,14 +55,14 @@ export interface ShellInfo {
 }
 
 export interface WorktreeMeta {
-  repoPath: string                   // path absoluto canónico del worktree
-  rootRepoPath: string               // path del repo principal (igual a repoPath si es root)
+  repoPath: string                   // canonical absolute path of the worktree
+  rootRepoPath: string               // path of the main repo (equal to repoPath if it is the root)
   branch: string                     // branch checked out
-  presetId?: string                  // opaco en Plan 1; consumido en Plan 2
+  presetId?: string                  // opaque in Plan 1; consumed in Plan 2
   setupState: 'idle' | 'running' | 'done' | 'failed' | 'cancelled' | 'orphaned'
-  setupLog?: string                  // últimas ~200 líneas
-  declaredPorts: number[]            // del preset (vacío en Plan 1)
-  detectedPorts: number[]            // discovered runtime (vacío en Plan 1)
+  setupLog?: string                  // last ~200 lines
+  declaredPorts: number[]            // from the preset (empty in Plan 1)
+  detectedPorts: number[]            // discovered runtime (empty in Plan 1)
   devCmd?: string
   devPid?: number
   createdAt: number
@@ -148,7 +149,7 @@ export interface MetricsPaneInput {
 }
 
 export interface RavenPreset {
-  id: string                  // slug, ej "nextjs-dev"
+  id: string                  // slug, e.g. "nextjs-dev"
   name: string
   description?: string
   setup?: string[]            // shell commands, sequential
@@ -234,6 +235,7 @@ export interface SessionPane {
   repoPath?: string
   shellId?: string
   url?: string  // browser only: last navigated URL, restored on session load
+  pinned?: boolean  // Hub pin — survives session restore
 }
 
 export interface SessionData {
@@ -246,6 +248,8 @@ export interface SessionData {
     layoutId?: LayoutId
     panes?: SessionPane[]
     splitRatios?: Record<string, number[]>
+    isHub?: boolean
+    hubPanes?: string[]
     // v2 legacy (kept optional for migration)
     layout?: GridLayout
     cells?: (SessionPane | null)[]
@@ -279,6 +283,8 @@ export interface WorkspaceTab {
   layoutId: LayoutId
   panes: PaneNode[]
   splitRatios?: Record<string, number[]>
+  isHub?: boolean  // true = tab that shows the Hub, with no panes of its own
+  hubPanes?: string[]  // Hub: ORDERED pane ids the user curated into the Hub (membership + order)
 }
 
 export function equalSizes(count: number): number[] {

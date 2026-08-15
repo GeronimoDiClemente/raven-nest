@@ -229,11 +229,13 @@ describe('EditorPane', () => {
 
     // Let every sequenced watch/unwatch op for 'a.ts' fully settle.
     await waitFor(() => expect(opLog.filter((e) => e.endsWith(':a.ts')).length).toBeGreaterThan(0))
-    await new Promise((resolve) => setTimeout(resolve, 30))
 
     // The pane is still mounted with 'a.ts' open — it must end up watched,
     // not orphaned by an unwatch racing ahead of a still-in-flight watch.
-    expect(registry.has('/repo::a.ts')).toBe(true)
+    // waitFor (not a fixed sleep): under a loaded suite the 10ms-per-op mock
+    // chain can still be in flight; a real orphan leaves the registry empty
+    // forever, so this still fails (by timeout) if the bug regresses.
+    await waitFor(() => expect(registry.has('/repo::a.ts')).toBe(true))
     unmount()
 
     // Part B: with the fix, editing an ALREADY-dirty tab must not call

@@ -8,7 +8,12 @@ const VALID_AI_TYPES = new Set(['claude', 'gemini', 'codex', 'copilot', 'opencod
 
 function assertSafe(aiType: string, name?: string): void {
   if (!VALID_AI_TYPES.has(aiType)) throw new Error(`Invalid AI type: ${aiType}`)
-  if (name !== undefined && (name.includes('..') || name.includes('/') || name.includes('\\'))) {
+  if (name === undefined) return
+  // '' and '.' resolve to the aiType root itself: delete() with either would
+  // rmSync EVERY account of that type. join() swallows empty segments, so the
+  // traversal checks below never see them.
+  const trimmed = name.trim()
+  if (trimmed === '' || trimmed === '.' || name.includes('..') || name.includes('/') || name.includes('\\')) {
     throw new Error(`Invalid account name: ${name}`)
   }
 }

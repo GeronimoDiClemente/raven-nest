@@ -7,6 +7,7 @@ import SettingsPanel from './SettingsPanel'
 import UserMenu from './UserMenu'
 import RepoActionsBar from './RepoActionsBar'
 import { WorktreesSection } from './WorktreesSection'
+import HubSidebarPanel, { type HubWorkspace } from './HubSidebarPanel'
 import { useGitHub } from '../hooks/useGitHub'
 import { useGitlab } from '../hooks/useGitlab'
 import { LayoutId, Workspace, MAX_PANES } from '../types'
@@ -63,6 +64,15 @@ interface Props {
   // Lifted to App.tsx (the single shared instance) — threaded through to
   // SettingsPanel. See UserPreferencesApi's doc comment for why.
   userPrefs: UserPreferencesApi
+  // Hub-tab sidebar (#2/#3): swap the repo context group for a workspace builder.
+  isHub?: boolean
+  hubWorkspaces?: HubWorkspace[]
+  onSelectWorkspace?: (tabId: string) => void
+  onJumpToPane?: (tabId: string, paneId: string) => void
+  onToggleTerminal?: (paneId: string) => void
+  onToggleWorkspace?: (tabId: string) => void
+  onNewWorkspace?: () => void
+  onAddTerminalToWorkspace?: (tabId: string) => void
 }
 
 export default function Sidebar({
@@ -73,6 +83,7 @@ export default function Sidebar({
   isTrialActive, trialDaysLeft, profileLoading, onUpgrade, onTeamsOpen, pendingInvitesCount = 0, onMyReposOpen, plan, repoPath, onRepoLink, onRepoUnlink, onJoinTerminal,
   activeCellRepoPath, onWorktreeSelect, onNewWorktree, worktreeRefreshKey,
   layoutId, paneCount, onLayoutChange, onOpenTutorial, onFileOpen, userPrefs,
+  isHub = false, hubWorkspaces, onSelectWorkspace, onJumpToPane, onToggleTerminal, onToggleWorkspace, onNewWorkspace, onAddTerminalToWorkspace,
 }: Props) {
   const { branch, githubUrl, isDirty } = useGitInfo(repoPath)
   const { githubToken } = useGitHub()
@@ -399,7 +410,7 @@ export default function Sidebar({
           <path d="M5 12v2M11 12v2M3 14h10" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
         </svg>
       </span>
-      <span className="sidebar-label">Workspaces</span>
+      <span className="sidebar-label">Saved layouts</span>
       <WorkspacePanel onSave={onWorkspaceSave} onLoad={onWorkspaceLoad} onRequireUpgrade={onUpgrade} />
     </div>
   )
@@ -444,6 +455,26 @@ export default function Sidebar({
     </div>
   )
 
+  // Layout selector — lives inside "More tools". Icon is outlined (transparent)
+  // to match the other tools and avoid the solid white square the '1' preset
+  // used to render as. Clicking toggles the popover; Ctrl/⌘+L cycles.
+  const LayoutItem = (
+    <div
+      className="sidebar-item sidebar-item-panel"
+      ref={layoutAnchorRef}
+      style={{ cursor: 'pointer' }}
+      onClick={() => setLayoutOpen(v => !v)}
+      title={`Layout: ${layoutPreset.label} (${isWin ? 'Ctrl+L' : '⌘L'})`}
+    >
+      <span className="sidebar-icon">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <path d={layoutPreset.icon} stroke="currentColor" strokeWidth="1.3" />
+        </svg>
+      </span>
+      <span className="sidebar-label">Layout</span>
+    </div>
+  )
+
   return (
     <div className={`sidebar${expanded ? ' expanded' : ''}`}>
 
@@ -465,6 +496,20 @@ export default function Sidebar({
       </button>
 
       <div className="sidebar-scroll">
+        {isHub && onSelectWorkspace && onJumpToPane && onToggleTerminal && onToggleWorkspace && onNewWorkspace && onAddTerminalToWorkspace && (
+          <HubSidebarPanel
+            workspaces={hubWorkspaces ?? []}
+            expanded={expanded}
+            onSelectWorkspace={onSelectWorkspace}
+            onJumpToPane={onJumpToPane}
+            onToggleTerminal={onToggleTerminal}
+            onToggleWorkspace={onToggleWorkspace}
+            onNewWorkspace={onNewWorkspace}
+            onAddTerminal={onAddTerminalToWorkspace}
+          />
+        )}
+
+        {!isHub && (<>
         {/* ── 1. REPO (top focus) ───────────────────────────── */}
         <div
           className="sidebar-item sidebar-repo"
@@ -535,6 +580,7 @@ export default function Sidebar({
             />
           </div>
         )}
+        </>)}
 
         {/* ── EXPLORER (árbol de archivos del worktree activo) ───── */}
         {expanded && (
@@ -623,6 +669,7 @@ export default function Sidebar({
 
           {moreOpen && (
             <div className="sidebar-more-list">
+              {LayoutItem}
               {SnippetsItem}
               {WorkspacesItem}
               {MCPItem}
@@ -635,21 +682,9 @@ export default function Sidebar({
           )}
         </div>
 
-        {/* ── 4.5. LAYOUT SELECTOR (replaces v1.0 LayoutPicker) ── */}
-        <div
-          className="sidebar-item sidebar-item-panel"
-          ref={layoutAnchorRef}
-          style={{ cursor: 'pointer' }}
-          onClick={() => setLayoutOpen(v => !v)}
-          title={`Layout: ${layoutPreset.label} (${isWin ? 'Ctrl+L' : '⌘L'})`}
-        >
-          <span className="sidebar-icon">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-              <path d={layoutPreset.icon} />
-            </svg>
-          </span>
-          <span className="sidebar-label">Layout</span>
-        </div>
+        {/* ── 4.5. LAYOUT SELECTOR — trigger now lives inside "More tools"
+             (see LayoutItem). Only the popover renders here (position:fixed,
+             anchored to the LayoutItem). ── */}
         {layoutOpen && layoutPopPos && (
           <div
             ref={layoutPopoverRef}
@@ -671,8 +706,8 @@ export default function Sidebar({
                     onClick={() => { onLayoutChange(id); setLayoutCycleIdx(null); setLayoutOpen(false) }}
                     title={preset.label}
                   >
-                    <svg viewBox="0 0 16 16" fill="currentColor">
-                      <path d={preset.icon} />
+                    <svg viewBox="0 0 16 16" fill="none">
+                      <path d={preset.icon} stroke="currentColor" strokeWidth="1.3" />
                     </svg>
                     <span>{preset.label}</span>
                   </button>
@@ -683,7 +718,7 @@ export default function Sidebar({
         )}
 
         {/* ── 5. NEW TERMINAL (acción primaria; oculto al tope) ── */}
-        {paneCount < MAX_PANES && (
+        {!isHub && paneCount < MAX_PANES && (
           <button
             className="sidebar-item sidebar-new-terminal"
             onClick={onNewPane}

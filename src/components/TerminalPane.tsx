@@ -13,23 +13,10 @@ import { registerTerminalFocus, unregisterTerminalFocus } from '../terminal-regi
 import { safeWriteText } from '../lib/clipboard'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
+import { stripAnsi, PROMPT_RE, UI_CHROME_RE, filterChrome } from '../lib/terminal-chrome'
 
 const BUSY_THRESHOLD_MS = 2000
 const MAX_CONV_BUFFER = 500_000 // ~500KB
-
-const ANSI_RE = /\x1b\[[0-9;?]*[a-zA-Z]|\x1b[()][A-Z0-9]|\x1b[=>]|\x07|\r/g
-const stripAnsi = (s: string) => s.replace(ANSI_RE, '')
-const PROMPT_RE = /^\s*[\$\#\>❯➜]\s*$|^\s*$|^[0-9]+\s*$|\(base\)/
-// Claude/Gemini UI chrome: status bars, keyboard hints, spinner lines
-const UI_CHROME_RE = /tab to cycle|shift\+tab|bypass|permission|esc to interrupt|working\.\.\.|thinking\.\.\.|⠋|⠙|⠹|⠸|⠼|⠴|⠦|⠧|⠇|⠏|\([^)]{0,40}to [^)]{0,30}\)/i
-
-function filterChrome(text: string): string {
-  return text
-    .split(/[\r\n]+/)
-    .filter((l) => !UI_CHROME_RE.test(l.trim()) && !PROMPT_RE.test(l.trim()))
-    .join('\n')
-    .trim()
-}
 
 function extractLabel(raw: string): string {
   const lines = raw
@@ -60,9 +47,10 @@ interface Props {
   style?: React.CSSProperties
   allowSharing?: boolean
   onRequireUpgrade?: () => void
+  onRename?: (label: string) => void  // rename the pane (sets customLabel)
 }
 
-export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZoom, onClose, onColorChange, onNoteChange, onInput, onBusyChange, onFocus, onActivity, onJoinRequest, onPtyStarted, ports = [], fontSize, style, allowSharing = true, onRequireUpgrade }: Props) {
+export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZoom, onClose, onColorChange, onNoteChange, onInput, onBusyChange, onFocus, onActivity, onJoinRequest, onPtyStarted, ports = [], fontSize, style, allowSharing = true, onRequireUpgrade, onRename }: Props) {
   const cmdBufferRef = useRef('')
   const wrappedOnInput = useCallback((data: string) => {
     for (const ch of data) {
@@ -428,6 +416,7 @@ export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZ
         isSharing={isSharing}
         repoPathDiverged={repoPathDiverged}
         onSyncCwd={handleSyncCwd}
+        onRename={onRename}
       />
       {searchOpen && (
         <div className="search-bar">

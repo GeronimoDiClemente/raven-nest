@@ -3,6 +3,7 @@ export interface Keybindings {
   newPane: string
   globalSearch: string
   commandPalette: string
+  hubOverlay: string
   nextPane: string
   prevPane: string
   nextTab: string
@@ -25,6 +26,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     newPane: 'Meta+t',
     globalSearch: 'Meta+f',
     commandPalette: 'Meta+k',
+    hubOverlay: 'Meta+Shift+O',
     nextPane: 'Meta+ArrowRight',
     prevPane: 'Meta+ArrowLeft',
     nextTab: 'Ctrl+Tab',

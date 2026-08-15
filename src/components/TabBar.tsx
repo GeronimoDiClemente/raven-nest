@@ -146,6 +146,24 @@ export default function TabBar({
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
   )
 
+  const tabsScrollRef = useRef<HTMLDivElement>(null)
+
+  // Vertical mouse-wheel scrolls the tab strip horizontally (the scrollbar is
+  // hidden), so far-right tabs are reachable with a plain wheel on Windows.
+  const onTabsWheel = (e: React.WheelEvent) => {
+    if (e.deltaY === 0) return
+    const el = tabsScrollRef.current
+    if (el && el.scrollWidth > el.clientWidth) el.scrollLeft += e.deltaY
+  }
+
+  // Keep the active tab in view when it changes (keyboard, palette, new tab).
+  useEffect(() => {
+    const active = tabsScrollRef.current?.querySelector('.tab.active')
+    if (active && typeof (active as HTMLElement).scrollIntoView === 'function') {
+      (active as HTMLElement).scrollIntoView({ inline: 'nearest', block: 'nearest' })
+    }
+  }, [activeTabId, tabs.length])
+
   const handleDragEnd = (e: DragEndEvent) => {
     const { active, over } = e
     if (!over || active.id === over.id) return
@@ -162,7 +180,7 @@ export default function TabBar({
         onDragEnd={handleDragEnd}
       >
         <SortableContext items={tabs.map(t => t.id)} strategy={horizontalListSortingStrategy}>
-          <div className="tabbar-tabs">
+          <div className="tabbar-tabs" ref={tabsScrollRef} onWheel={onTabsWheel}>
             {tabs.map((tab) => {
               const activity = tabActivity?.get(tab.id)
               const hasActivity = activity && activity.size > 0
@@ -187,7 +205,7 @@ export default function TabBar({
         </SortableContext>
       </DndContext>
 
-      <button className="tab-new" onClick={onTabNew} title="Nuevo workspace">
+      <button className="tab-new" onClick={onTabNew} title="New workspace">
         +
       </button>
 

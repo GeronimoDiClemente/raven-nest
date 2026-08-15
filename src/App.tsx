@@ -9,7 +9,7 @@ import {
   WorkspaceTab, LayoutId, MAX_PANES, EditorTab,
 } from './types'
 import { PaneLayoutEngine } from './components/PaneLayoutEngine'
-import { defaultLayoutFor, mapLegacyToPreset } from './layout/select'
+import { defaultLayoutFor, hubLayoutFor, mapLegacyToPreset } from './layout/select'
 import { swap } from './layout/swap'
 import { getPreset } from './layout/presets'
 import TerminalPane from './components/TerminalPane'
@@ -19,6 +19,7 @@ import NewPaneDialog from './components/NewPaneDialog'
 import TabBar from './components/TabBar'
 import { PortsBanner } from './components/PortsBanner'
 import ConfirmDialog from './components/ConfirmDialog'
+import { shouldConfirmTabClose } from './lib/tab-close'
 import ConversationSidebar from './components/ConversationSidebar'
 import Sidebar from './components/Sidebar'
 import { NewWorktreeModal } from './components/NewWorktreeModal'
@@ -26,6 +27,9 @@ import { QuickWorktreePalette } from './components/QuickWorktreePalette'
 import { DiffViewerPanel } from './components/DiffViewerPanel'
 import GlobalSearch from './components/GlobalSearch'
 import CommandPalette from './components/CommandPalette'
+import HubOverlay from './components/HubOverlay'
+import HubWorkspace from './components/HubWorkspace'
+import { useHubActivity } from './hub-activity'
 import { focusTerminal } from './terminal-registry'
 import logoUrl from './assets/logo.png'
 import { useProfile } from './hooks/useProfile'
@@ -37,7 +41,7 @@ import { useGitHub } from './hooks/useGitHub'
 import { usePendingInvitesCount } from './hooks/usePendingInvitesCount'
 import { useSpeechRecognition } from './hooks/useSpeechRecognition'
 import { useSettings } from './hooks/useSettings'
-import { matchesBinding } from './lib/keybindings'
+import { matchesBinding, formatBinding } from './lib/keybindings'
 import { WORKTREE_DRAG_MIME } from './lib/dragTypes'
 import { useUserPreferences } from './hooks/useUserPreferences'
 import SharedTerminalViewer from './components/SharedTerminalViewer'
@@ -52,6 +56,7 @@ import { getTour } from './tutorial/registry'
 let paneCounter = 0
 const generateId = () => `pane-${++paneCounter}-${Date.now()}`
 
+
 export default function App() {
   const generateTabId = () => `tab-${Date.now()}`
 
@@ -63,7 +68,7 @@ export default function App() {
     panes: [],
   }])
   const [activeTabId, setActiveTabId] = useState<string>(initialTabId)
-  const [confirmClose, setConfirmClose] = useState<{ tabId: string; name: string } | null>(null)
+  const [confirmClose, setConfirmClose] = useState<{ tabId: string; name: string; isHub?: boolean } | null>(null)
 
   // Derive active tab data
   const activeTab = tabs.find(t => t.id === activeTabId) ?? tabs[0]
@@ -101,6 +106,12 @@ export default function App() {
   const [convSidebarOpen, setConvSidebarOpen] = useState(false)
   const [globalSearchOpen, setGlobalSearchOpen] = useState(false)
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
+  const [hubOpen, setHubOpen] = useState(false)
+  const hubOpenRef = useRef(false)
+  hubOpenRef.current = hubOpen
+  const hubPrevFocusRef = useRef<string | null>(null)
+  // Panes currently rendered in the Hub (curated subset), for drag-reorder.
+  const hubPanesRef = useRef<PaneNode[]>([])
   const [sidebarExpanded, setSidebarExpanded] = useState(false)
   const [fontSize, setFontSize] = useState<number>(() => {
     const saved = localStorage.getItem('nest-font-size')
@@ -112,6 +123,7 @@ export default function App() {
 
   // Busy state: paneId -> boolean
   const [busyPanes, setBusyPanes] = useState<Set<string>>(new Set())
+  const activePanes = useHubActivity()
 
   const handleBusyChange = useCallback((paneId: string, busy: boolean) => {
     setBusyPanes(prev => {
@@ -252,6 +264,22 @@ export default function App() {
       setShowUpgrade(true)
       return
     }
+    // A Hub tab owns no terminals of its own (HubView filters isHub tabs out
+    // of the grid). Pushing a pane onto it would create an invisible,
+    // unclosable pane, so route the new terminal into a fresh workspace.
+    const activeNow = tabsRef.current.find(t => t.id === activeTabIdRef.current)
+    if (activeNow?.isHub) {
+      const newTabId = generateTabId()
+      const pane: PaneNode = {
+        id: generateId(), aiType, accountName, accountDir, borderColor, cmd,
+        customLabel, customColor, shellId,
+        repoPath: addingPaneRef.current?.worktreePath,
+      }
+      setTabs(prev => [...prev, { id: newTabId, name: 'Workspace', layoutId: '1', panes: [pane] }])
+      setActiveTabId(newTabId)
+      setAddingPane(null)
+      return
+    }
     const worktreePath = addingPaneRef.current?.worktreePath
     updateActiveTab(t => {
       const pane: PaneNode = {
@@ -380,6 +408,9 @@ export default function App() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // The Hub overlay owns the keyboard while open — don't open worktree/diff
+      // modals behind it using the hidden workspace's context.
+      if (hubOpenRef.current) return
       const isCmdShift = (e.metaKey || e.ctrlKey) && e.shiftKey
       if (isCmdShift && e.key.toLowerCase() === 'w') {
         if (!activeTab.repoPath) return
@@ -419,6 +450,31 @@ export default function App() {
       setFocusedPaneId(null)
     }
   }, [updateActiveTab, zoomedPaneId])
+
+  // ── Hub: the panes live in OTHER workspaces, so these handlers operate on
+  // the pane's origin tab (not on the active tab, which is the Hub). ──
+  const updatePaneAnywhere = useCallback((paneId: string, updater: (p: PaneNode) => PaneNode) => {
+    setTabs(prev => prev.map(t =>
+      t.panes.some(p => p.id === paneId)
+        ? { ...t, panes: t.panes.map(p => p.id === paneId ? updater(p) : p) }
+        : t
+    ))
+  }, [])
+
+  const removePaneAnywhere = useCallback((paneId: string) => {
+    window.pty.kill(paneId)
+    setTabs(prev => prev.map(t => {
+      if (!t.panes.some(p => p.id === paneId)) return t
+      const nextPanes = t.panes.filter(p => p.id !== paneId)
+      const naturalDefault = defaultLayoutFor(nextPanes.length)
+      const demoted = getPreset(naturalDefault).slotCount < getPreset(t.layoutId).slotCount
+      return demoted
+        ? { ...t, panes: nextPanes, layoutId: naturalDefault, splitRatios: {} }
+        : { ...t, panes: nextPanes }
+    }))
+    if (zoomedPaneIdRef.current === paneId) { setZoomedPaneId(null); setZoomingOut(false) }
+    if (focusedPaneIdRef.current === paneId) { focusedPaneIdRef.current = null; setFocusedPaneId(null) }
+  }, [])
 
   const updatePaneColor = useCallback((paneId: string, borderColor: string) => {
     updateActiveTab(t => ({
@@ -629,6 +685,89 @@ export default function App() {
     setActiveTabId(id)
   }, [])
 
+  const openHub = useCallback(() => {
+    // Already viewing the Hub as a workspace tab — don't stack the overlay on
+    // top (would mount a second HubView / duplicate xterms for the same PTYs).
+    if (activeTab.isHub) return
+    hubPrevFocusRef.current = focusedPaneIdRef.current
+    setHubOpen(true)
+  }, [activeTab.isHub])
+
+  const closeHub = useCallback(() => {
+    setHubOpen(false)
+    const prev = hubPrevFocusRef.current
+    // Restore focus after the overlay unmounts and the pane below re-renders.
+    if (prev) setTimeout(() => focusTerminal(prev), 50)
+  }, [])
+
+  const handleHubJump = useCallback((tabId: string, paneId: string) => {
+    setHubOpen(false)
+    setActiveTabId(tabId)
+    setFocusedPaneId(paneId)
+    focusedPaneIdRef.current = paneId
+    // The pane's xterm mounts on tab switch; focus once it registered.
+    setTimeout(() => focusTerminal(paneId), 150)
+  }, [])
+
+  const handleHubTogglePin = useCallback((tabId: string, paneId: string) => {
+    setTabs(prev => prev.map(t => t.id !== tabId ? t : {
+      ...t,
+      panes: t.panes.map(p => p.id !== paneId ? p : { ...p, pinned: !p.pinned }),
+    }))
+  }, [])
+
+  // ── Hub composition — `hubPanes` on the active Hub tab is the ORDERED set of
+  // pane ids the user curated into the Hub (the terminals they use most). The Hub
+  // then renders exactly like a workspace with those panes (real TerminalPane). ──
+  const handleHubToggleTerminal = useCallback((paneId: string) => {
+    updateActiveTab(t => {
+      const cur = t.hubPanes ?? []
+      return cur.includes(paneId)
+        ? { ...t, hubPanes: cur.filter(id => id !== paneId) }
+        : { ...t, hubPanes: [...cur, paneId] }
+    })
+  }, [updateActiveTab])
+
+  const handleHubToggleWorkspace = useCallback((tabId: string) => {
+    const src = tabsRef.current.find(t => t.id === tabId)
+    if (!src) return
+    const ids = src.panes.filter(p => p.aiType !== 'browser').map(p => p.id)
+    updateActiveTab(t => {
+      const cur = t.hubPanes ?? []
+      const allIn = ids.length > 0 && ids.every(id => cur.includes(id))
+      return allIn
+        ? { ...t, hubPanes: cur.filter(id => !ids.includes(id)) }
+        : { ...t, hubPanes: [...cur, ...ids.filter(id => !cur.includes(id))] }
+    })
+  }, [updateActiveTab])
+
+  // Reorder the Hub's curated panes by drag (same gesture as a workspace).
+  const handleHubDragEnd = useCallback((e: DragEndEvent) => {
+    setDraggingId(null)
+    const { active, over } = e
+    if (!over || active.id === over.id) return
+    const ids = hubPanesRef.current.map(p => p.id)
+    const from = ids.indexOf(String(active.id))
+    const to = ids.indexOf(String(over.id))
+    if (from < 0 || to < 0) return
+    updateActiveTab(t => ({ ...t, hubPanes: swap(ids, from, to) }))
+  }, [updateActiveTab])
+
+  // Sidebar terminal click: ensure it's in the Hub, then focus its pane.
+  const handleHubFocus = useCallback((paneId: string) => {
+    updateActiveTab(t =>
+      (t.hubPanes ?? []).includes(paneId) ? t : { ...t, hubPanes: [...(t.hubPanes ?? []), paneId] }
+    )
+    setTimeout(() => focusTerminal(paneId), 120)
+  }, [updateActiveTab])
+
+  const convertActiveTabToHub = useCallback(() => {
+    // A Hub tab owns no panes (HubView would filter them out → invisible,
+    // uncloseable). Only reached from EmptyState (panes already []), but clear
+    // defensively so a Hub tab can never hold orphan panes.
+    updateActiveTab(t => ({ ...t, isHub: true, name: 'Hub', panes: [] }))
+  }, [updateActiveTab])
+
   const tabsRef = useRef(tabs)
   tabsRef.current = tabs
   const activeTabIdRef = useRef(activeTabId)
@@ -681,9 +820,8 @@ export default function App() {
   const handleTabClose = useCallback((id: string) => {
     const tab = tabsRef.current.find(t => t.id === id)
     if (!tab) return
-    const hasTerminals = tab.panes.length > 0
-    if (hasTerminals) {
-      setConfirmClose({ tabId: id, name: tab.name })
+    if (shouldConfirmTabClose(tab)) {
+      setConfirmClose({ tabId: id, name: tab.name, isHub: tab.isHub })
     } else {
       closeTab(id)
     }
@@ -712,6 +850,20 @@ export default function App() {
     if (panesRef.current.length >= MAX_PANES) return
     if (panesRef.current.length >= planLimits.maxPanes) {
       setShowUpgrade(true)
+      return
+    }
+    // Hub tabs own no panes — open the browser cell in a fresh workspace
+    // rather than pushing an invisible pane onto the Hub tab (see addPane).
+    const activeNow = tabsRef.current.find(t => t.id === activeTabIdRef.current)
+    if (activeNow?.isHub) {
+      const newTabId = generateTabId()
+      const pane: PaneNode = {
+        id: generateId(), aiType: 'browser', accountName: 'browser', accountDir: '',
+        borderColor: '#0066FF', cmd: '', url,
+        sessionPartition: `persist:browser-${newTabId}`,
+      }
+      setTabs(prev => [...prev, { id: newTabId, name: 'Workspace', layoutId: '1', panes: [pane] }])
+      setActiveTabId(newTabId)
       return
     }
     const pane: PaneNode = {
@@ -766,10 +918,18 @@ export default function App() {
     setAddingPane({})
   }, [])
 
+  // Saves must wait until the restore attempt finished: the debounced save
+  // below fires 800ms after mount, and with the initial empty workspace it
+  // would overwrite session.json before the async restore populates the tabs.
+  const sessionRestoredRef = useRef(false)
+
   // Load session on startup
   useEffect(() => {
     window.session.load().then((data) => {
-      if (!data) return
+      if (!data) {
+        sessionRestoredRef.current = true
+        return
+      }
 
       const COLOR_MIGRATION: Record<string, string> = {
         '#3B82F6': '#0055FF', '#EF4444': '#FF1A1A', '#10B981': '#00CC44',
@@ -795,6 +955,8 @@ export default function App() {
             layoutId: raw.layoutId,
             panes: raw.panes.map(sessionToPane),
             splitRatios: raw.splitRatios ?? {},
+            isHub: raw.isHub,
+            hubPanes: raw.hubPanes,
           }
         }
         // v2: layout + cells
@@ -820,6 +982,7 @@ export default function App() {
           panes: live,
         }])
         setActiveTabId(id)
+        sessionRestoredRef.current = true
         return
       }
 
@@ -853,13 +1016,25 @@ export default function App() {
         })).then((cleaned) => {
           setTabs(cleaned)
           setActiveTabId(data.activeTabId ?? cleaned[0].id)
+          sessionRestoredRef.current = true
+        }).catch((err) => {
+          console.error('[session] restore failed; re-enabling saves with current state', err)
+          sessionRestoredRef.current = true
         })
+        return
       }
+
+      // Session exists but has no restorable tabs — nothing to protect.
+      sessionRestoredRef.current = true
+    }).catch(() => {
+      sessionRestoredRef.current = true
     })
   }, [])
 
-  // Save session on changes (debounced 800ms)
+  // Save session on changes (debounced 800ms). Gated until the restore
+  // attempt finishes — see sessionRestoredRef above.
   useEffect(() => {
+    if (!sessionRestoredRef.current) return
     const timer = setTimeout(() => {
       const sessionData: SessionData = {
         tabs: tabs.map(tab => ({
@@ -874,11 +1049,14 @@ export default function App() {
             customLabel: p.customLabel, customColor: p.customColor, note: p.note,
             repoPath: p.repoPath,
             shellId: p.shellId,
+            pinned: p.pinned,
             // Persist the browser pane's current URL so reopening Nest (or
             // switching workspaces) restores the page instead of the placeholder.
             url: p.url,
           })),
           splitRatios: tab.splitRatios,
+          isHub: tab.isHub,
+          hubPanes: tab.hubPanes,
         })),
         activeTabId,
       }
@@ -900,9 +1078,22 @@ export default function App() {
         return
       }
 
+      if (e.key === 'Escape' && hubOpenRef.current) { closeHub(); return }
       if (e.key === 'Escape' && zoomedPaneIdRef.current !== null) { handleUnzoom(); return }
 
       if (!e.metaKey && !e.ctrlKey) return
+
+      // While the Hub overlay is open, its own listener owns the keyboard.
+      // Swallow every App-level Meta/Ctrl binding (pane cycling, Cmd+1-9, new
+      // pane, zoom, font size…) so a shell shortcut typed into a Hub tile
+      // (e.g. Ctrl+←/→ word-jump) can't redirect focus to a hidden pane
+      // behind the overlay. Only the Hub toggle still acts here (to close);
+      // Escape is handled above. Returning without preventDefault lets the
+      // keystroke reach the focused tile's terminal.
+      if (hubOpenRef.current) {
+        if (matchesBinding(e, kb.hubOverlay)) { e.preventDefault(); closeHub(); return }
+        return
+      }
 
       if (matchesBinding(e, kb.newPane)) { e.preventDefault(); addNextPane(); return }
 
@@ -945,6 +1136,12 @@ export default function App() {
 
       if (matchesBinding(e, kb.globalSearch)) { e.preventDefault(); setGlobalSearchOpen(true); return }
       if (matchesBinding(e, kb.commandPalette)) { e.preventDefault(); setCommandPaletteOpen(v => !v); return }
+      if (matchesBinding(e, kb.hubOverlay)) {
+        e.preventDefault()
+        if (hubOpenRef.current) closeHub()
+        else openHub()
+        return
+      }
 
       if (matchesBinding(e, kb.nextPane) || matchesBinding(e, kb.prevPane)) {
         e.preventDefault()
@@ -972,7 +1169,7 @@ export default function App() {
     // means non-modified keystrokes still flow through to the terminal.
     window.addEventListener('keydown', handler, true)
     return () => window.removeEventListener('keydown', handler, true)
-  }, [addNextPane, toggleListening, cycleTab, handleUnzoom, handleZoom, planLimits.allowVoice])
+  }, [addNextPane, toggleListening, cycleTab, handleUnzoom, handleZoom, planLimits.allowVoice, openHub, closeHub])
 
   const isInitialState = panes.length === 0
 
@@ -1024,6 +1221,71 @@ export default function App() {
     }
     return out
   }, [tabs])
+
+  const hubTermCount = useMemo(
+    () => tabs.reduce((n, t) => t.isHub ? n : n + t.panes.filter(p => p.aiType !== 'browser').length, 0),
+    [tabs]
+  )
+
+  // The Hub is a normal workspace whose panes are a CURATED subset the user pulls
+  // from across every workspace (the terminals they use most). Same layout engine
+  // + real TerminalPane as any workspace — the Hub tab replaces the whole view
+  // (not an overlay), so the real pane mounts here safely. Membership AND order
+  // both live in `hubPanes` (ids); capped at MAX_PANES like any workspace.
+  const hubPaneSet = useMemo(() => new Set(activeTab.hubPanes ?? []), [activeTab.hubPanes])
+  const hubData = useMemo(() => {
+    if (!activeTab.isHub) return null
+    const byId = new Map<string, PaneNode>()
+    for (const t of tabs) {
+      if (t.isHub) continue
+      for (const p of t.panes) if (p.aiType !== 'browser') byId.set(p.id, p)
+    }
+    const picked = (activeTab.hubPanes ?? [])
+      .map(id => byId.get(id))
+      .filter((p): p is PaneNode => !!p)
+    const panes = picked.slice(0, MAX_PANES)
+    return { panes, layoutId: hubLayoutFor(activeTab.layoutId, panes.length), hiddenCount: Math.max(0, picked.length - MAX_PANES) }
+  }, [activeTab.isHub, activeTab.hubPanes, activeTab.layoutId, tabs])
+  hubPanesRef.current = hubData?.panes ?? []
+
+  const hubWorkspaces = useMemo(() => tabs.filter(t => !t.isHub).map(t => ({
+    id: t.id,
+    name: t.name,
+    accentColor: t.accentColor,
+    terminals: t.panes.filter(p => p.aiType !== 'browser').map(p => ({
+      id: p.id,
+      label: p.customLabel ?? p.note ?? AI_CONFIG[p.aiType]?.label ?? 'Terminal',
+      color: p.borderColor ?? p.customColor ?? AI_CONFIG[p.aiType]?.color ?? '#888888',
+      aiType: p.aiType,
+      inHub: hubPaneSet.has(p.id),
+      busy: activePanes.has(p.id),
+    })),
+  })), [tabs, hubPaneSet, activePanes])
+
+  const renderHubPane = (pane: PaneNode) => (
+    <TerminalPane
+      key={pane.id}
+      pane={pane}
+      ports={panePorts[pane.id] ?? []}
+      isDragging={draggingId === pane.id}
+      zoomed={zoomedPaneId === pane.id}
+      zoomingOut={zoomedPaneId === pane.id && zoomingOut}
+      onZoom={() => handleZoom(pane.id)}
+      onClose={() => removePaneAnywhere(pane.id)}
+      onColorChange={(c) => updatePaneAnywhere(pane.id, p => ({ ...p, borderColor: c }))}
+      onNoteChange={(note) => updatePaneAnywhere(pane.id, p => ({ ...p, note }))}
+      fontSize={fontSize}
+      onInput={(data) => window.pty.write(pane.id, data)}
+      onFocus={() => { setFocusedPaneId(pane.id); focusedPaneIdRef.current = pane.id }}
+      onBusyChange={handleBusyChange}
+      onActivity={handlePaneActivity}
+      onJoinRequest={() => setJoinRequest({ paneId: pane.id, paneTitle: pane.customLabel ?? pane.accountName ?? 'Terminal' })}
+      onPtyStarted={(id, rp) => updatePaneAnywhere(id, p => ({ ...p, runningRepoPath: rp }))}
+      allowSharing={planLimits.allowSharing}
+      onRequireUpgrade={() => setShowUpgrade(true)}
+      onRename={(label) => updatePaneAnywhere(pane.id, p => ({ ...p, customLabel: label || undefined }))}
+    />
+  )
 
   return (
     <div className="app" style={{ '--tab-accent': activeTab.accentColor ?? 'var(--raven-blue)' } as React.CSSProperties}>
@@ -1103,6 +1365,20 @@ export default function App() {
         }}
         plan={plan}
         repoPath={activeTab.repoPath}
+        isHub={activeTab.isHub ?? false}
+        hubWorkspaces={hubWorkspaces}
+        onSelectWorkspace={(id) => {
+          // Hub is a curated workspace: clicking a workspace focuses its first
+          // pane *inside* the Hub (adding it if needed), never navigates away.
+          const t = tabs.find(x => x.id === id)
+          const p = t?.panes.find(pp => pp.aiType !== 'browser')
+          if (p) handleHubFocus(p.id)
+        }}
+        onJumpToPane={(_tabId, paneId) => handleHubFocus(paneId)}
+        onToggleTerminal={handleHubToggleTerminal}
+        onToggleWorkspace={handleHubToggleWorkspace}
+        onNewWorkspace={handleTabNew}
+        onAddTerminalToWorkspace={(tabId) => { setActiveTabId(tabId); setAddingPane({}) }}
         onRepoLink={handleRepoLink}
         onRepoUnlink={handleRepoUnlink}
         isListening={isListening}
@@ -1117,8 +1393,8 @@ export default function App() {
         onWorktreeSelect={handleWorktreeSelect}
         onNewWorktree={handleNewWorktree}
         worktreeRefreshKey={worktreeRefreshKey}
-        layoutId={activeTab.layoutId}
-        paneCount={panes.length}
+        layoutId={activeTab.isHub ? (hubData?.layoutId ?? '1') : activeTab.layoutId}
+        paneCount={activeTab.isHub ? (hubData?.panes.length ?? 0) : panes.length}
         onLayoutChange={handleLayoutIdChange}
         onOpenTutorial={(id) => setTutorialTour(id)}
         onFileOpen={openFileInEditor}
@@ -1131,8 +1407,25 @@ export default function App() {
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
       >
-        {isInitialState ? (
-          <EmptyState onNewPane={addNextPane} />
+        {activeTab.isHub ? (
+          <HubWorkspace
+            panes={hubData?.panes ?? []}
+            layoutId={hubData?.layoutId ?? '1'}
+            splitRatios={activeTab.splitRatios}
+            hiddenCount={hubData?.hiddenCount ?? 0}
+            onResize={handleSplitResize}
+            onDragStart={handleDragStart}
+            onDragEnd={handleHubDragEnd}
+            draggingId={draggingId}
+            sensors={sensors}
+            renderPane={renderHubPane}
+          />
+        ) : isInitialState ? (
+          <EmptyState
+            onNewPane={addNextPane}
+            onShowHub={hubTermCount > 0 ? convertActiveTabToHub : undefined}
+            hubCount={hubTermCount}
+          />
         ) : (
           <>
             {zoomedPaneId !== null && (
@@ -1210,6 +1503,7 @@ export default function App() {
                         onPtyStarted={handlePtyStarted}
                         allowSharing={planLimits.allowSharing}
                         onRequireUpgrade={() => setShowUpgrade(true)}
+                        onRename={(label) => updatePaneAnywhere(pane.id, p => ({ ...p, customLabel: label || undefined }))}
                       />
                     )
                   }
@@ -1245,6 +1539,17 @@ export default function App() {
         <GlobalSearch onClose={() => setGlobalSearchOpen(false)} />
       )}
 
+      {hubOpen && (
+        <HubOverlay
+          tabs={tabs}
+          activeTabId={activeTabId}
+          activePanes={activePanes}
+          onClose={closeHub}
+          onJump={handleHubJump}
+          onTogglePin={handleHubTogglePin}
+        />
+      )}
+
       {commandPaletteOpen && (
         <CommandPalette
           onClose={() => setCommandPaletteOpen(false)}
@@ -1260,6 +1565,7 @@ export default function App() {
           onNewTab={handleTabNew}
           onNewPane={addNextPane}
           onBroadcastToggle={() => setBroadcastMode(v => !v)}
+          onHubOpen={openHub}
         />
       )}
 
@@ -1326,9 +1632,11 @@ export default function App() {
 
       {confirmClose && (
         <ConfirmDialog
-          title={`Close "${confirmClose.name}"?`}
-          message="There are terminals running in this workspace. They will all be closed."
-          confirmLabel="Close"
+          title={confirmClose.isHub ? 'Close the Hub?' : `Close "${confirmClose.name}"?`}
+          message={confirmClose.isHub
+            ? 'This clears the terminals you pinned into the Hub. They stay open in their own workspaces — only the Hub set is cleared.'
+            : 'There are terminals running in this workspace. They will all be closed.'}
+          confirmLabel={confirmClose.isHub ? 'Close Hub' : 'Close'}
           confirmDanger
           onConfirm={() => { closeTab(confirmClose.tabId); setConfirmClose(null) }}
           onCancel={() => setConfirmClose(null)}
@@ -1382,7 +1690,7 @@ function EmptyCell({ onClick }: { onClick: () => void }) {
   )
 }
 
-function EmptyState({ onNewPane }: { onNewPane: () => void }) {
+function EmptyState({ onNewPane, onShowHub, hubCount }: { onNewPane: () => void; onShowHub?: () => void; hubCount?: number }) {
   return (
     <div className="empty-state">
       <div className="empty-logo">
@@ -1394,6 +1702,19 @@ function EmptyState({ onNewPane }: { onNewPane: () => void }) {
         + New Terminal
       </button>
       <p className="empty-hint">or press <kbd>{window.platform?.isWin ? 'Ctrl+T' : '⌘T'}</kbd></p>
+      {onShowHub && (
+        <>
+          <div className="empty-or">or</div>
+          <button className="empty-hub-btn" onClick={onShowHub}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+              <rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" />
+              <rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" />
+            </svg>
+            View all terminals in the Hub
+            {hubCount ? <span className="empty-hub-count">{hubCount}</span> : null}
+          </button>
+        </>
+      )}
     </div>
   )
 }

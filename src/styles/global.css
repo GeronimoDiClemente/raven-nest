@@ -124,7 +124,9 @@ body {
   cursor: pointer;
   flex-shrink: 1;
   flex-basis: 180px;
-  min-width: 140px;
+  /* Compress to keep every workspace tab visible when the window is narrow
+     (they shrink to a clickable chip) instead of overflowing out of reach. */
+  min-width: 44px;
   max-width: 200px;
   color: var(--text-secondary);
   border: 1px solid transparent;
@@ -136,7 +138,7 @@ body {
 
 /* Active tab keeps a touch more breathing room when crowded */
 .tab.active {
-  min-width: 160px;
+  min-width: 56px;
 }
 
 /* When a tab shrinks below readable width, hide the close button so the
@@ -286,6 +288,10 @@ body {
 @keyframes activityPulse {
   0%, 100% { opacity: 1; transform: scale(1); }
   50% { opacity: 0.4; transform: scale(0.8); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tab-activity-dot { animation: none; }
 }
 
 /* ── Sidebar ─────────────────────────────────────────────── */
@@ -9347,3 +9353,1298 @@ body.platform-mac .tabbar { padding-right: 116px; }
 .editor-conflict-banner { display: flex; align-items: center; gap: 8px; padding: 6px 8px; background: #402a1a; font-size: 12px; }
 .editor-file-unavailable { display: flex; align-items: center; gap: 8px; padding: 16px; opacity: 0.8; font-size: 12px; }
 .explorer-entry-icon { width: 10px; opacity: 0.7; }
+
+
+/* ── Hub Overlay ─────────────────────────────────────────── */
+
+.hub-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 28px;
+}
+
+.hub-panel {
+  width: 100%;
+  height: 100%;
+  max-width: 1400px;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-app);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 32px 80px rgba(0, 0, 0, 0.75);
+  overflow: hidden;
+}
+
+.hub-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-surface);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  user-select: none;
+}
+
+.hub-title-hint {
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
+.hub-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-surface);
+  user-select: none;
+}
+
+.hub-chip {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 2px 8px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+
+.hub-chip:hover:not(:disabled) {
+  color: var(--text-primary);
+  border-color: var(--text-muted);
+}
+
+.hub-chip.on {
+  color: var(--text-primary);
+  background: #161616;
+  border-color: #2a2a2a;
+}
+
+.hub-chip:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.hub-chip-n {
+  color: var(--text-muted);
+  margin-left: 3px;
+}
+
+.hub-chip.on .hub-chip-n {
+  color: var(--text-secondary);
+}
+
+.hub-pager {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.hub-pager-label {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.hub-pager-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px 5px;
+}
+
+.hub-pager-btn svg {
+  width: 11px;
+  height: 11px;
+}
+
+.hub-grid {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 380px));
+  grid-auto-rows: 210px;
+  align-content: start;
+  justify-content: start;
+  gap: 8px;
+  padding: 8px;
+  overflow-y: auto;
+}
+
+.hub-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 13px;
+  text-align: center;
+  padding: 24px;
+}
+.hub-empty-icon { color: var(--text-muted); opacity: 0.7; margin-bottom: 4px; }
+.hub-empty-title { color: var(--text-secondary); font-size: 14px; font-weight: 600; }
+.hub-empty-sub { color: var(--text-muted); font-size: 12px; max-width: 320px; line-height: 1.5; }
+
+.hub-workspace--empty { display: flex; }
+
+/* Curated-beyond-cap note pinned to the bottom of the Hub workspace */
+.hub-cap-note {
+  position: absolute;
+  bottom: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 10px;
+  color: var(--text-muted);
+  background: color-mix(in srgb, var(--bg-surface) 92%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 3px 10px;
+  pointer-events: none;
+}
+
+/* ═══ Hub sidebar picker (curation) — pin-on-hover, agent logos, no checkboxes ═══ */
+.hub-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px 0;
+}
+
+.hub-sec { padding: 2px 0 6px; }
+.hub-sec + .hub-sec { border-top: 1px solid var(--border); margin-top: 2px; padding-top: 8px; }
+
+.hub-sec-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 12px 6px;
+}
+.hub-sec-title {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.hub-sec-n {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  min-width: 16px;
+  text-align: center;
+  padding: 0 5px;
+  font-variant-numeric: tabular-nums;
+}
+.hub-sec-head .hub-add { margin-left: auto; }
+
+.hub-sec-empty {
+  font-size: 11px;
+  color: var(--text-muted);
+  padding: 4px 12px 6px;
+  line-height: 1.4;
+}
+
+/* Terminal row — the whole row is the click target (focus); pin on the right */
+.hub-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  height: 32px;
+  padding: 0 10px 0 12px;
+  cursor: pointer;
+  border-left: 2px solid transparent;
+  transition: background 0.12s;
+}
+.hub-row:hover { background: rgba(255, 255, 255, 0.045); }
+.hub-row.is-pinned {
+  background: color-mix(in srgb, var(--raven-blue) 8%, transparent);
+  border-left-color: var(--raven-blue);
+}
+.hub-row.is-pinned:hover { background: color-mix(in srgb, var(--raven-blue) 13%, transparent); }
+
+.hub-row-label {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hub-row-ws {
+  font-size: 10px;
+  color: var(--text-muted);
+  max-width: 84px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Agent avatar / colored-dot fallback, with a live-status ring when busy */
+.hub-av {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+.hub-av-dot { width: 8px; height: 8px; border-radius: 50%; }
+/* No busy ring: the colored agent logo already reads the terminal; a pulsing
+   circle around it felt heavy and broke the app's minimal look. */
+
+/* Pin toggle — hidden until row hover; always shown once pinned */
+.hub-pin {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s, color 0.12s, transform 0.1s;
+}
+.hub-pin svg { width: 14px; height: 14px; }
+.hub-row:hover .hub-pin,
+.hub-ws-head:hover .hub-pin,
+.hub-pin.on { opacity: 1; }
+.hub-pin:hover { color: var(--text-secondary); transform: scale(1.12); }
+.hub-pin.on { color: var(--raven-blue); }
+
+/* Workspace group header */
+.hub-ws-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 30px;
+  padding: 0 8px 0 10px;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.hub-ws-head:hover { background: rgba(255, 255, 255, 0.03); }
+.hub-caret {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  flex-shrink: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 10px;
+  cursor: pointer;
+}
+.hub-caret:hover { color: var(--text-primary); }
+.hub-ws-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hub-ws-n {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+/* Terminal rows sit indented under their workspace header */
+.hub-ws .hub-row { padding-left: 24px; }
+
+/* + buttons (new workspace / new terminal) */
+.hub-add {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  transition: color 0.12s, border-color 0.12s;
+}
+.hub-add:hover { color: var(--text-primary); border-color: var(--border); }
+.hub-ws-add { opacity: 0; }
+.hub-ws-head:hover .hub-ws-add { opacity: 1; }
+
+.hub-tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--bg-app);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+/* Única marca de color del tile: franja fina con el color del agente/pane. */
+.hub-tile::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--pane-color, transparent);
+  z-index: 1;
+}
+
+.hub-tile.focused {
+  border-color: #565656;
+  box-shadow: 0 0 0 1px #565656;
+}
+
+.hub-tile-header {
+  height: 26px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 8px;
+  background: var(--bg-surface);
+  font-size: 10px;
+  user-select: none;
+}
+
+.hub-tile-header .pane-ai-label {
+  font-size: 10px;
+}
+
+.hub-tile-header .pane-account-name {
+  font-size: 10px;
+}
+
+.hub-tile-ws {
+  font-size: 9px;
+  font-weight: 600;
+  font-family: 'SF Mono', 'Menlo', monospace;
+  letter-spacing: 0.4px;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 1px 5px;
+  flex-shrink: 0;
+  max-width: 110px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hub-tile-busy {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #22C55E;
+  flex-shrink: 0;
+  /* Steady dot: shown only while the pane emits visible output (see
+     hub-activity.ts). No pulse — a constant blink communicates nothing about
+     real cadence and re-flashes on every remount. A soft glow reads as "lit". */
+  box-shadow: 0 0 4px rgba(34, 197, 94, 0.55);
+}
+
+.hub-tile-label {
+  font-size: 10px;
+  font-weight: 600;
+  max-width: 110px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Custom pane name shown next to the AI logo in the pane header */
+.pane-custom-label {
+  margin-left: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 140px;
+}
+
+.pane-label-input {
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--raven-blue);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 600;
+  outline: none;
+  width: 120px;
+  padding: 0;
+  margin-left: 4px;
+}
+
+/* ── Hub-tab sidebar (reuses the .wt-* / .sidebar-* aesthetic) ── */
+.hub-ws-caret {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 10px;
+  cursor: pointer;
+  flex-shrink: 0;
+  padding: 0;
+}
+
+.hub-ws-caret:hover {
+  color: var(--text-primary);
+}
+
+/* Terminal rows sit indented under their workspace row */
+.hub-term-item {
+  padding-left: 18px;
+}
+
+.hub-tile-spacer {
+  flex: 1;
+}
+
+.hub-tile-pin {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 2px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+
+.hub-tile-pin svg {
+  width: 12px;
+  height: 12px;
+}
+
+.hub-tile-pin:hover {
+  color: var(--text-secondary);
+  border-color: var(--border);
+}
+
+.hub-tile-pin.pinned {
+  color: var(--text-primary);
+}
+
+.hub-tile-terminal {
+  flex: 1;
+  min-height: 0;
+  padding: 4px 6px;
+  overflow: hidden;
+}
+
+/* El Hub ya no tiene botón en la tab bar: se entra desde el estado vacío
+   (como workspace) o con el atajo Ctrl/Cmd+Shift+O (overlay). */
+
+.hub-view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.hub-workspace {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* El Hub-como-workspace usa el motor de layout normal: que llene el alto. */
+.hub-workspace .grid-workspace {
+  flex: 1;
+  min-height: 0;
+}
+
+.hub-hidden-note {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+/* ── Hub-tab: grouped, scrollable mirror grid ── */
+.hub-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* Inside a group the outer .hub-scroll owns the scroll — the per-group grid
+   just lays out its tiles and grows to fit. */
+.hub-scroll .hub-grid {
+  flex: none;
+  overflow: visible;
+  padding: 6px 8px 12px;
+}
+
+.hub-group + .hub-group {
+  border-top: 1px solid var(--border);
+}
+
+.hub-group-header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border);
+  user-select: none;
+}
+
+.hub-group-name {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.hub-group-count {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.hub-group-show {
+  margin-left: 6px;
+  font-size: 10px;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 1px 7px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.hub-group-show:hover {
+  color: var(--text-primary);
+  border-color: var(--text-muted);
+}
+
+/* Tile actions: open-in-workspace (↗) and remove-from-Hub (×) */
+.hub-tile-open,
+.hub-tile-hide {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 2px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+
+.hub-tile-open svg,
+.hub-tile-hide svg {
+  width: 12px;
+  height: 12px;
+}
+
+.hub-tile-open:hover {
+  color: var(--text-primary);
+  border-color: var(--border);
+}
+
+.hub-tile-hide:hover {
+  color: #ff6b6b;
+  border-color: var(--border);
+}
+
+/* Sidebar picker checkbox (compose which terminals show in the Hub) */
+.hub-check {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+  margin: 0 1px 0 0;
+  cursor: pointer;
+  accent-color: var(--raven-blue);
+}
+
+.hub-term-hidden {
+  opacity: 0.45;
+}
+
+.hub-empty-slot {
+  width: 100%;
+  height: 100%;
+  background: var(--bg-app);
+}
+
+.hub-drag-overlay {
+  width: 220px;
+  height: 120px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-surface);
+  opacity: 0.9;
+}
+
+.tab-hub-icon {
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-secondary);
+  margin-right: 6px;
+}
+
+.tab-hub-icon svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* Entrada al Hub desde el estado vacío: camino secundario, discreto,
+   separado por una hairline "o". */
+.empty-or {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 236px;
+  margin: 26px 0 2px;
+  color: var(--text-muted);
+  font-size: 10.5px;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  user-select: none;
+}
+
+.empty-or::before,
+.empty-or::after {
+  content: "";
+  height: 1px;
+  flex: 1;
+  background: var(--border);
+}
+
+.empty-hub-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  border-radius: 7px;
+  padding: 9px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.empty-hub-btn:hover {
+  color: var(--text-primary);
+  border-color: #333;
+}
+
+.empty-hub-btn svg {
+  width: 15px;
+  height: 15px;
+  color: var(--text-muted);
+}
+
+.empty-hub-btn:hover svg {
+  color: var(--text-secondary);
+}
+
+.empty-hub-count {
+  font-family: 'SF Mono', 'Menlo', monospace;
+  font-size: 11px;
+  color: var(--text-muted);
+  border-left: 1px solid var(--border);
+  padding-left: 9px;
+  margin-left: 2px;
+}
+
+/* ── Team Stats ──────────────────────────────────────────── */
+.ts-container {
+  --ts-accent: #0066ff;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 18px;
+  height: 100%;
+  overflow-y: auto;
+}
+
+.ts-overview-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+@media (max-width: 520px) {
+  .ts-overview-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* PR size distribution (S/M/L/XL) */
+.ts-prsize {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 2px;
+}
+.ts-prsize-row {
+  display: grid;
+  grid-template-columns: 26px 1fr 28px auto;
+  align-items: center;
+  gap: 10px;
+}
+.ts-prsize-key {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.ts-prsize-track {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+.ts-prsize-fill {
+  height: 100%;
+  border-radius: 4px 0 0 4px;
+  min-width: 2px;
+  transition: width 0.3s ease;
+}
+.ts-prsize-n {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.ts-prsize-hint {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.ts-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 13px 15px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.ts-card-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--text-muted);
+}
+
+.ts-card-value {
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+.ts-card-sub {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.ts-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  margin-bottom: 8px;
+}
+
+.ts-cards-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.ts-cards-header .ts-section-title { margin-bottom: 0; }
+
+.ts-toggle {
+  display: inline-flex;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 2px;
+  gap: 2px;
+}
+.ts-toggle-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 12px;
+  border-radius: 6px;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.ts-toggle-btn:hover { color: var(--text-primary); }
+.ts-toggle-btn.active { background: var(--bg-elevated); color: var(--text-primary); }
+
+.ts-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-surface);
+}
+
+.ts-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.ts-table th {
+  text-align: left;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  padding: 10px 12px;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--border);
+}
+
+.ts-table td {
+  padding: 9px 12px;
+  color: var(--text-primary);
+  border-top: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+.ts-table tr:first-child td { border-top: none; }
+.ts-table tr:hover td { background: var(--bg-elevated); }
+.ts-top-row td { background: var(--bg-elevated); }
+
+.ts-dev-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ts-dev-info {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.ts-dev-name {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 220px;
+}
+
+.ts-top-row .ts-dev-name { font-weight: 600; }
+
+.ts-rank {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  width: 14px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.ts-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+@keyframes ts-online-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 #3fb95055; }
+  50%       { box-shadow: 0 0 0 4px #3fb95000; }
+}
+
+.ts-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.ts-status-dot.online  { background: #3fb950; animation: ts-online-pulse 2.5s ease-in-out infinite; }
+.ts-status-dot.offline { background: #3a3a3a; }
+
+.ts-num {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.ts-muted { color: var(--text-muted); }
+
+.ts-empty {
+  padding: 40px 0;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+/* ── Team Stats — sparklines (SVG area) ─────────────── */
+
+.ts-spark { display: block; }
+
+/* ── Team Stats — sortable column headers ───────────── */
+
+.ts-th-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.ts-th-btn:hover { color: var(--text-secondary); }
+
+.ts-sort-icon {
+  font-size: 9px;
+  opacity: 0.35;
+  line-height: 1;
+}
+
+.ts-sort-icon.active {
+  opacity: 1;
+  color: var(--text-secondary);
+}
+
+/* ── Team Stats — PR feed ───────────────────────────── */
+
+.ts-pr-feed {
+  display: flex;
+  flex-direction: column;
+}
+
+.ts-pr-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 0;
+  border-top: 1px solid #ffffff08;
+}
+
+.ts-pr-item:first-child { border-top: none; }
+
+.ts-pr-meta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ts-pr-title {
+  font-size: 12px;
+  color: #ffffffcc;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ts-pr-sub {
+  font-size: 10px;
+  color: #ffffff44;
+}
+
+.ts-pr-merged-badge {
+  font-size: 10px;
+  padding: 2px 7px;
+  border-radius: 10px;
+  background: #22c55e18;
+  border: 1px solid #22c55e30;
+  color: #22c55e;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* ── Team Stats — skeleton ──────────────────────────── */
+@keyframes ts-skeleton-shimmer {
+  0%   { background-position: -180px 0; }
+  100% { background-position: 180px 0; }
+}
+.ts-skeleton {
+  background: #ffffff0c;
+  border-radius: 6px;
+  background-image: linear-gradient(90deg, #ffffff00 0, #ffffff14 50%, #ffffff00 100%);
+  background-size: 180px 100%;
+  background-repeat: no-repeat;
+  animation: ts-skeleton-shimmer 1.2s ease-in-out infinite;
+}
+.ts-skel-card { height: 78px; border-radius: 10px; }
+.ts-skel-row {
+  height: 40px;
+  border-radius: 8px;
+  margin-top: 6px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ts-skeleton { animation: none; }
+}
+
+/* ── Team Stats — empty state icon ──────────────────── */
+.ts-empty-icon {
+  display: block;
+  margin: 0 auto 10px;
+  opacity: 0.35;
+}
+
+/* ── Team Stats — partial-load warning ──────────────── */
+.ts-warning {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-surface);
+  color: #d9a441;
+  font-size: 12px;
+}
+.ts-warning svg { flex-shrink: 0; }
+
+/* ── Team Stats — delta badges (▲▼ vs período anterior) ─ */
+.ts-delta {
+  font-size: 10px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  margin-left: 3px;
+  white-space: nowrap;
+}
+.ts-delta.up   { color: #3fb950; }
+.ts-delta.down { color: #f85149; }
+.ts-delta.flat { color: var(--text-muted); }
+
+/* ── Team Stats — team activity bar chart ───────────── */
+.ts-chart { position: relative; }
+.ts-chart-plot {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px;
+}
+.ts-chart-axis {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  height: 120px;
+  font-size: 10px;
+  color: var(--text-muted);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  padding-bottom: 1px;
+}
+.ts-chart-grid {
+  position: relative;
+  height: 120px;
+}
+.ts-grid-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 0;
+  border-top: 1px dashed var(--border);
+  pointer-events: none;
+}
+.ts-chart-bars {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+}
+.ts-bar-col {
+  flex: 1;
+  height: 100%;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  position: relative;
+}
+.ts-bar {
+  width: 100%;
+  max-width: 34px;
+  min-height: 2px;
+  background: color-mix(in srgb, var(--ts-accent) 55%, transparent);
+  border-radius: 4px 4px 0 0;
+  transition: filter 0.12s ease, background 0.12s ease;
+}
+.ts-bar.today { background: var(--ts-accent); }
+.ts-bar-col:hover .ts-bar,
+.ts-bar-col.hover .ts-bar { filter: brightness(1.2); background: var(--ts-accent); }
+.ts-bar-tip {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translate(-50%, calc(-100% - 4px));
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 11px;
+  color: var(--text-primary);
+  white-space: nowrap;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  z-index: 5;
+  pointer-events: none;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+}
+.ts-bar-tip span { color: var(--text-secondary); font-size: 10px; }
+.ts-chart-foot {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 6px;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+.ts-chart-total { color: var(--text-secondary); font-weight: 600; }
+
+/* ── Team Stats — activity heatmap (devs × days) ────── */
+.ts-heatmap { display: flex; flex-direction: column; gap: 4px; }
+.ts-heat-row {
+  display: grid;
+  grid-template-columns: 116px 1fr;
+  align-items: center;
+  gap: 10px;
+}
+.ts-heat-name {
+  font-size: 11px; color: var(--text-secondary);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ts-heat-cells { display: grid; gap: 3px; }
+.ts-heat-cell {
+  aspect-ratio: 1;
+  min-height: 12px;
+  border-radius: 2px;
+  background: var(--bg-elevated);
+}
+.ts-heat-more { font-size: 11px; color: var(--text-muted); margin-top: 2px; padding-left: 126px; }
+
+/* Team member list (analytics per-employee) */
+.tm-list{border:1px solid var(--border);border-radius:10px;overflow:hidden;background:var(--bg-surface)}
+.tm-row{display:grid;grid-template-columns:30px 1.6fr 1fr 78px 150px;align-items:center;gap:12px;padding:11px 14px;border-top:1px solid var(--border);cursor:pointer}
+.tm-row:first-child{border-top:0}
+.tm-row:hover{background:#141414}
+.tm-row:focus-visible{outline:2px solid var(--raven-blue);outline-offset:-2px}
+.tm-nolink{cursor:default;opacity:.6}
+.tm-av{position:relative;width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font-size:10px;font-weight:600;color:#fff;background:#2a2a2a}
+.tm-av img{width:100%;height:100%;border-radius:50%;object-fit:cover}
+.tm-dot{position:absolute;right:-1px;bottom:-1px;width:8px;height:8px;border-radius:50%;border:2px solid var(--bg-surface)}
+.tm-name{font-weight:500;font-size:13px}
+.tm-login{color:var(--text-muted);font-size:11px;margin-left:6px}
+.tm-act{color:var(--text-secondary);font-size:12px}
+.tm-act b{color:var(--text-primary);font-weight:600}
+.tm-muted{color:var(--text-muted)}
+.tm-trend{font-size:12px}
+.tm-trend.up{color:#22C55E}.tm-trend.down{color:#FF4500}.tm-trend.flat{color:var(--text-muted)}
+.tm-chip-cell{text-align:right}
+.tm-chip{font-size:11px;padding:3px 8px;border-radius:20px;white-space:nowrap}
+.tm-chip.warn{background:rgba(255,184,0,.12);color:#FFB800;border:1px solid rgba(255,184,0,.25)}
+.tm-chip.review{background:rgba(0,102,255,.1);color:#4d94ff;border:1px solid rgba(0,102,255,.22)}
+
+/* Employee drill-down drawer (mirrors .confirm-overlay behavior) */
+.ed-scrim{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:60}
+.ed-drawer{position:fixed;top:0;right:0;height:100%;width:440px;max-width:92vw;background:var(--bg-elevated);border-left:1px solid var(--border);overflow-y:auto;z-index:61;animation:ed-in .18s ease}
+@keyframes ed-in{from{transform:translateX(100%)}to{transform:none}}
+.ed-head{display:flex;align-items:center;gap:12px;padding:16px 18px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--bg-elevated)}
+.ed-av{width:38px;height:38px;border-radius:50%;background:#2a2a2a;display:grid;place-items:center;font-size:13px;font-weight:600;overflow:hidden}
+.ed-av img{width:100%;height:100%;border-radius:50%;object-fit:cover}
+.ed-name{font-size:15px;font-weight:600}
+.ed-sub{font-size:11px;color:var(--text-secondary);margin-top:2px;display:flex;align-items:center;gap:6px}
+.ed-mdot{width:7px;height:7px;border-radius:50%}
+.ed-close{margin-left:auto;background:none;border:0;color:var(--text-secondary);font-size:18px;cursor:pointer}
+.ed-sec{padding:15px 18px;border-bottom:1px solid var(--border)}
+.ed-last{border-bottom:0}
+.ed-sec h4{margin:0 0 11px;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary)}
+.ed-mini{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.ed-k{background:var(--bg-surface);border:1px solid var(--border);border-radius:9px;padding:10px 12px}
+.ed-v{font-size:20px;font-weight:600}
+.ed-l{font-size:11px;color:var(--text-secondary);margin-top:2px;display:flex;gap:6px;align-items:center}
+.ed-d.up{color:#22C55E}.ed-d.down{color:#FF4500}.ed-d.flat{color:var(--text-muted)}
+.ed-spark{margin-top:12px;display:flex;align-items:flex-end;gap:3px;height:36px}
+.ed-spark i{flex:1;background:var(--raven-blue);opacity:.55;border-radius:2px 2px 0 0}
+.ed-spark i.today{opacity:1}
+.ed-pr{padding:9px 0;border-top:1px solid var(--border)}
+.ed-pr:first-of-type{border-top:0}
+.ed-pr-t{font-size:12.5px}
+.ed-pr-m{font-size:11px;color:var(--text-muted);margin-top:3px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.ed-flag{font-size:11px;padding:1px 7px;border-radius:20px}
+.ed-flag.warn{background:rgba(255,184,0,.12);color:#FFB800}
+.ed-flag.review{background:rgba(0,102,255,.1);color:#4d94ff}
+.ed-size{font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px}
+.ed-size.s-S{background:rgba(34,197,94,.15);color:#22C55E}
+.ed-size.s-M{background:rgba(0,102,255,.15);color:#4d94ff}
+.ed-size.s-L{background:rgba(255,184,0,.15);color:#FFB800}
+.ed-size.s-XL{background:rgba(255,69,0,.15);color:#FF4500}
+.ed-area{display:grid;grid-template-columns:120px 1fr 48px;align-items:center;gap:10px;margin-bottom:8px}
+.ed-area-p{font-size:12px;font-family:ui-monospace,monospace}
+.ed-area-track{height:7px;background:#181818;border-radius:4px;overflow:hidden}
+.ed-area-fill{height:100%;background:var(--raven-blue);border-radius:4px}
+.ed-area-n{font-size:11px;color:var(--text-secondary);text-align:right}
+.ed-empty{font-size:12px;color:var(--text-muted)}

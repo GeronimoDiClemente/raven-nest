@@ -1,13 +1,13 @@
 <div align="center">
 
-# 🪺 Nest by RAVEN
+# 🪺 NestMux
 
-**Multi-AI Terminal Workspace · v1.3.1**
+**Multi-AI Terminal Workspace · v1.4.2**
 
 Run Claude, Gemini, Codex, Copilot and more — side by side in a single window. Each pane is its own AI session, with its own account, history, and environment.
 
-[![Latest Release](https://img.shields.io/github/v/release/GeronimoDiClemente/raven-nest?style=flat-square&color=0066FF)](https://github.com/GeronimoDiClemente/raven-nest/releases/latest)
-[![v1.3.1](https://img.shields.io/badge/v1.3.1-current%20release-0066FF?style=flat-square)](#whats-new-in-v13)
+[![Latest Release](https://img.shields.io/github/v/release/GeronimoDiClemente/raven-nest?style=flat-square&color=18c376)](https://github.com/GeronimoDiClemente/raven-nest/releases/latest)
+[![v1.4.2](https://img.shields.io/badge/v1.4.2-current%20release-18c376?style=flat-square)](#whats-new-in-v14)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey?style=flat-square)](https://github.com/GeronimoDiClemente/raven-nest/releases/latest)
 [![License: PolyForm Strict](https://img.shields.io/badge/license-PolyForm%20Strict%201.0.0-orange?style=flat-square)](./LICENSE)
 [![Source-available](https://img.shields.io/badge/source--available-official%20binaries%20only-orange?style=flat-square)](#license--redistribution)
@@ -18,11 +18,29 @@ Run Claude, Gemini, Codex, Copilot and more — side by side in a single window.
 
 ---
 
-## What is Nest by RAVEN?
+## What is NestMux?
 
-Think of it as a terminal multiplexer — but built specifically for AI agents and the way teams ship code. Instead of juggling tabs and windows, you get a flexible **grid workspace** where every cell is an independent AI session, on top of the things developers actually need every day: native **git worktrees**, a real **Teams workspace**, your personal **My Repos** dashboard, GitHub & GitLab integration, CI runs, and live terminal sharing.
+Think of it as a terminal multiplexer — but built specifically for AI agents and the way teams ship code. Instead of juggling tabs and windows, you get a flexible **grid workspace** where every cell is an independent AI session, on top of the things developers actually need every day: native **git worktrees**, a real **Teams workspace** with team **flow & health analytics**, a **Hub** that gathers your most-used terminals in one place, your personal **My Repos** dashboard, GitHub & GitLab integration, CI runs, and live terminal sharing.
 
-> **v1.2 builds on the v1.1 foundation** with per-device repo paths, Teams crash fixes, and macOS bugfixes (credential persistence, port detection, auto-update). **v1.2.5 fixed the macOS auto-updater** — if you're on a version older than v1.2.5, download once manually; from v1.2.5 onwards `Install and restart` works automatically. **v1.2.6** restored terminal sessions after Cmd+Q. **v1.2.7** fixes port attribution for reparented background processes on macOS and Linux. **v1.3** adds an interactive onboarding tutorial, and **v1.3.1** lets you install an agent's CLI straight from the pane banner.
+> **v1.2 builds on the v1.1 foundation** with per-device repo paths, Teams crash fixes, and macOS bugfixes (credential persistence, port detection, auto-update). **v1.2.5 fixed the macOS auto-updater** — if you're on a version older than v1.2.5, download once manually; from v1.2.5 onwards `Install and restart` works automatically. **v1.2.6** restored terminal sessions after Cmd+Q. **v1.2.7** fixes port attribution for reparented background processes on macOS and Linux. **v1.3** adds an interactive onboarding tutorial, and **v1.3.1** lets you install an agent's CLI straight from the pane banner. **v1.4** adds the **Hub** (your most-used terminals in one workspace) and **Team Analytics** (team flow & health, not a leaderboard). **v1.4.1** brought the Layout selector back into the *More tools* menu, and **v1.4.2** makes it work in the **Hub** too — so you can arrange your curated terminals like any workspace.
+
+---
+
+## What's new in v1.4
+
+### Hub — your most-used terminals, one workspace
+
+The **Hub** is a dedicated workspace that gathers the terminals you touch most across every project into a single live grid — real panes, not screenshots — curated with a star and always one click away. Star the terminals you live in and your day starts in one place instead of hunting across tabs and workspaces. Closing the Hub asks for confirmation so a curated set is never lost by accident.
+
+### Team Analytics — flow & health, not a leaderboard
+
+Team leaders get a **Stats** view of how work actually moves through the team: commits, PRs merged, cycle time, review latency and coverage, plus PR-size distribution — sourced live from GitHub's GraphQL API. These are **aggregate signals to spot friction, never a per-person ranking**. The point is to give data, not label people.
+
+### Also in v1.4
+
+- **NestMux** — the app is settling into its name; the window and taskbar title now read **NestMux** (matching [nestmux.com](https://nestmux.com)).
+- **Layout selector, refined** — pane layouts still auto-fit as you add and remove panes, and the manual Layout selector (with **`Ctrl/Cmd+L`** to cycle alternatives) lives in the sidebar's **More tools** menu. As of **v1.4.2** it works inside the **Hub** too, so a curated set of terminals can be arranged just like any workspace — and the Hub's layout is per-tab, so rearranging it never touches your source workspaces.
+- Resource metrics no longer double-count reparented dev-server processes, so the totals in the resource bar are accurate.
 
 ---
 
@@ -131,13 +149,14 @@ The headline of v1.0 is **branch-level isolation in the same window**: spawn a w
 
 ## What's coming next
 
-- **v1.1+ — Multi-agent co-edit.** A pub/sub layer (Supabase Realtime first, MQTT optional) on top of CRDTs (Yjs) so humans **and** AI agents can edit the same files in real time — Google-Docs style, multiplayer for code with agents in the channel, not just people.
+- **Import your tmux config.** Bring your `.tmux.conf` keybindings and options into Nest with a preview — tmux *intent* mapped to Nest actions (nothing from your conf is ever executed).
+- **Multi-agent co-edit.** A pub/sub layer (Supabase Realtime first, MQTT optional) on top of CRDTs (Yjs) so humans **and** AI agents can edit the same files in real time — Google-Docs style, multiplayer for code with agents in the channel, not just people.
 
 ---
 
 ## License & redistribution
 
-Nest by RAVEN is **source-available** under the [PolyForm Strict License 1.0.0](./LICENSE). The code is published here for transparency and security audit. You **may not** redistribute, fork, modify, or build this software — please install the official binaries from the [Releases page](../../releases/latest). Official builds are signed and auto-update in the background.
+NestMux is **source-available** under the [PolyForm Strict License 1.0.0](./LICENSE). The code is published here for transparency and security audit. You **may not** redistribute, fork, modify, or build this software — please install the official binaries from the [Releases page](../../releases/latest). Official builds are signed and auto-update in the background.
 
 Versions up to and including **v1.0.1** were published under the Apache License 2.0 and remain under those terms forever. Versions **v1.1.1 and later** are under PolyForm Strict.
 
@@ -145,14 +164,14 @@ Versions up to and including **v1.0.1** were published under the Apache License 
 
 ## Download
 
-Latest: **v1.3.1** — install an agent's CLI straight from the pane banner, on top of v1.3.0's interactive onboarding tutorial (3 guided tours) and the v1.2.x port-attribution, session and auto-update fixes.
+Latest: **v1.4.2** — the **Hub** (your most-used terminals in one workspace) and **Team Analytics** (team flow & health), on top of v1.3's interactive onboarding tutorial and the CLI-install banner.
 
 | Platform | Download |
 |----------|----------|
-| **macOS** (Apple Silicon) | [Nest-1.3.1-arm64.dmg](../../releases/latest) |
-| **Windows** | [Nest-Setup-1.3.1.exe](../../releases/latest) |
-| **Linux** (universal) | [Nest-1.3.1.AppImage](../../releases/latest) |
-| **Linux** (Debian / Ubuntu) | [nest_1.3.1_amd64.deb](../../releases/latest) |
+| **macOS** (Apple Silicon) | [Nest-1.4.2-arm64.dmg](../../releases/latest) |
+| **Windows** | [Nest-Setup-1.4.2.exe](../../releases/latest) |
+| **Linux** (universal) | [Nest-1.4.2.AppImage](../../releases/latest) |
+| **Linux** (Debian / Ubuntu) | [nest_1.4.2_amd64.deb](../../releases/latest) |
 
 > Nest auto-updates in the background. **If you're upgrading from a version older than v1.2.5, this first download is manual** — the auto-updater was broken on macOS before v1.2.5. After installing v1.2.5 or later, future updates install automatically via `Install and restart`.
 
@@ -160,7 +179,7 @@ Latest: **v1.3.1** — install an agent's CLI straight from the pane banner, on 
 
 ## Installing on macOS
 
-Nest by RAVEN is signed and notarized by Apple. Download the DMG, open it and drag **Nest.app** to `/Applications` — Gatekeeper will let it run without any extra steps.
+NestMux is signed and notarized by Apple. Download the DMG, open it and drag **Nest.app** to `/Applications` — Gatekeeper will let it run without any extra steps.
 
 ---
 
@@ -173,8 +192,8 @@ Two formats, pick whichever fits your distro.
 Works on Ubuntu, Fedora, Arch, openSUSE, Mint, Pop!_OS and most others. No system-wide install.
 
 ```bash
-chmod +x ~/Downloads/Nest-1.3.1.AppImage
-~/Downloads/Nest-1.3.1.AppImage
+chmod +x ~/Downloads/Nest-1.4.2.AppImage
+~/Downloads/Nest-1.4.2.AppImage
 ```
 
 To integrate it into your apps menu, use [AppImageLauncher](https://github.com/TheAssassin/AppImageLauncher) or move it to `~/Applications/`.
@@ -184,7 +203,7 @@ To integrate it into your apps menu, use [AppImageLauncher](https://github.com/T
 Installs system-wide, registers the desktop entry and the `nest://` deep link handler.
 
 ```bash
-sudo apt install ~/Downloads/nest_1.3.1_amd64.deb
+sudo apt install ~/Downloads/nest_1.4.2_amd64.deb
 ```
 
 Required packages (auto-installed by `apt`): `libgtk-3-0`, `libnotify4`, `libnss3`, `libxss1`, `libxtst6`, `libatspi2.0-0`, `libdrm2`, `libgbm1`, `libxcb-dri3-0`, `xdg-utils`.
@@ -197,6 +216,10 @@ Required packages (auto-installed by `apt`): `libgtk-3-0`, `libnotify4`, `libnss
 
 Every repo cell can spawn a fully isolated **git worktree** — its own branch, its own deps, its own dev server. Two agents on two branches in the same window, never stepping on each other. Or use **Spotlight** to mirror the active branch live to the repo root if you want a lighter checkout. A built-in benchmark records RAM, CPU and disk so you can compare modes empirically. Each Nest account on a machine gets an isolated `RAVEN_HOME`, so worktrees from different accounts never collide.
 
+### Hub — your most-used terminals in one place
+
+A dedicated workspace that gathers the terminals you touch most across every project into a single live grid — real panes, curated with a star, always one click away. Start your day where you actually work instead of hunting across tabs and workspaces.
+
 ### Teams — real-time collaboration
 
 A full team workspace built on Supabase Realtime:
@@ -204,6 +227,7 @@ A full team workspace built on Supabase Realtime:
 - **Shared repos** with **per-user local paths** — each member can clone wherever they want; the team config stays clean.
 - **HTTPS clone with OAuth token** for private team repos — onboarding a teammate to a private repo is one click.
 - **Activity feed** of GitHub events, **Team Chat** with emoji reactions and presence.
+- **Team Analytics (Stats)** — a leader-only view of team flow & health: commits, PRs merged, cycle time, review latency and coverage, and PR-size distribution. Aggregate signals to spot friction, never a per-person ranking.
 - **Shared snippets and MCP configs**, **multi-leader roles**.
 - Auto-generated **daily standup** you can paste into Slack or Discord.
 
@@ -289,6 +313,7 @@ All rebindable in **Settings → Keybinds**.
 | **Panes (max)** | 3 | 12 | 12 | 12 |
 | **All 7 AIs + Browser cell** | ✓ | ✓ | ✓ | ✓ |
 | **Persistent sessions + Global search** | ✓ | ✓ | ✓ | ✓ |
+| **Hub — curated terminal workspace** | ✓ | ✓ | ✓ | ✓ |
 | **MCP panel** | read-only | read/write | read/write | read/write |
 | **View worktrees** | ✓ | ✓ | ✓ | ✓ |
 | **Create worktrees + Spotlight** | — | ✓ | ✓ | ✓ |
@@ -301,6 +326,7 @@ All rebindable in **Settings → Keybinds**.
 | **My Repos + Actions + Standup** | — | ✓ | ✓ | ✓ |
 | **Snippets + saved workspaces** | — | ✓ | ✓ | ✓ |
 | **Team Chat + presence + activity** | — | — | ✓ | ✓ |
+| **Team Analytics / Stats** | — | — | ✓ | ✓ |
 | **Shared repos / snippets / MCP** | — | — | ✓ | ✓ |
 | **Multi-leader roles + standup** | — | — | ✓ | ✓ |
 | **Priority support** | — | — | ✓ | ✓ |

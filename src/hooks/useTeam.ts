@@ -18,6 +18,10 @@ export interface TeamMember {
   invited_by: string
   invited_at: string
   accepted_at: string | null
+  // Denormalized from profiles (server-side triggers keep it in sync) so teammates
+  // can be joined to their GitHub activity without reading each other's profile.
+  // Undefined at runtime until the 20260730 migration adds the column.
+  github_login: string | null
 }
 
 export interface PendingInvite {
