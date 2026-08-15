@@ -32,11 +32,13 @@ Ejecutar los pendientes de código de `feat/integrations` uno atrás del otro, c
 ### Fase 1 — Épica A · Quota bar (H9, S) — ⛔ BLOCKED (2026-08-15)
 **No se implementa en el run autónomo.** El research en disco confirmó que **ningún CLI persiste localmente cuota/rate-limit con reset** (Claude solo deja tier estático + tokens por-mensaje sin límite; Codex/Gemini/Copilot/OpenCode nada). Sin fuente no hay `pct` ni warning 80% → A1 inviable como está especificado. Requiere decisión de producto de Gero (usage-counter Claude-only vs parsear en vivo vs esperar). Detalle completo en el backlog, sección Épica A. Se saltea y se sigue con Fase 2.
 
-### Fase 2 — Épica C · terminar Automations (H11, M)
-`scheduler.ts` ya cubre C1 (parse/nextRun/clase Scheduler) + C3 (emit `block.started`). Falta:
-- **C2** ejecución headless: worktree efímero → correr CLI del provider con el prompt → capturar resumen → limpiar.
-- **C4** UI de automations en `MyReposPanel.tsx` (crear/editar/togglear; presets).
-- Verificar handler de `scheduleBlock` en el bus. Tests: `scheduler.test.ts` + handler en `bus-commands.test.ts`.
+### Fase 2 — Épica C · terminar Automations (H11, M) — ✅ DONE (2026-08-15)
+Research reveló que C1/C3/C4 **ya existían** (scheduler + handler `scheduleBlock` + `AutomationsView` con IPC end-to-end). Único gap real = **C2 (ejecución headless)**, implementado:
+- Nuevo `electron/integrations/automation-runner.ts` (lógica pura: create→run→summarize→remove, nunca throws, cleanup en finally). 27 tests. Firma: `buildAgentArgv`/`summarize`/`makeRunAutomation(ports)`.
+- Puertos reales en `main.ts` (reemplazan `runAutomationStub`): worktree efímero (`nest-auto/<id>-<hex>`, sin persistir meta), `runAgent` (spawn, prompt por **stdin** = no shell injection, shell:true para `.cmd` en Win, timeout 10min), cleanup best-effort (remove --force + borra branch).
+- Alcance: solo `claude -p` confirmado; codex/gemini/copilot/opencode degradan a "unsupported" (no adivinar flags).
+- Commits: `54baeec`. Typecheck sin errores nuevos (47, baseline 48). 68 tests verdes con scheduler.
+- **Fast-follows:** (1) smoke test en vivo del child-process en Windows; (2) render de `lastResult`/`lastSummary` en la UI (+CSS).
 
 ### Fase 3 — Épica B · Agent Dashboard "Needs You" (H10, M)
 Ver backlog B1-B5. Nuevo `electron/integrations/agent-status.ts` (inferencia de estado por pane: working/needs_input/idle/done) → heurística "needs input" conservadora → `src/components/AgentDashboard.tsx` → eventos `agent.needs_input`/`agent.done` al bus + recipes. B5 (acción desde Slack) = fast-follow, no bloquea. Tests: `agent-status.test.ts` (node) + `AgentDashboard.test.tsx` (jsdom).

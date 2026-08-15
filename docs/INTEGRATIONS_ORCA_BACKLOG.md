@@ -59,6 +59,8 @@ El corazón del hook: el tablero de Orca es **Needs You / Working / Done / Idle*
 
 ## Épica C — Automations recurrentes (cron) `H11` · esfuerzo M
 
+> **✅ DONE (2026-08-15, run autónomo).** C1 (scheduler), C3 (handler `scheduleBlock` + emit `block.started`) y C4 (UI `AutomationsView` + IPC end-to-end) **ya existían**. El único gap real era **C2 (ejecución headless)**, ahora implementado: `electron/integrations/automation-runner.ts` (lógica pura, 27 tests) + puertos reales en `main.ts` reemplazando el `runAutomationStub`. Seguridad: prompt untrusted por **stdin** (nunca en el shell); solo `claude -p` soportado (otros providers degradan limpio). Fast-follows: (1) **smoke test en vivo** del child-process en Windows (`claude.cmd` + prompt por stdin) — es integración sin unit tests; (2) mostrar `lastResult`/`lastSummary` en la UI (el tipo ya los tiene; falta render + CSS, más útil tras el smoke test).
+
 Replica las auditorías nocturnas ("de noche corren agentes que auditan y me dejan un resumen"). Hoy **no hay scheduler** (solo `setInterval` de polling). El bus **ya declara** `scheduleBlock` (Command) y `block.started` (Event) **sin handler ni recipe** (`bus-commands.ts:188` "llega en un hito futuro") → base ideal para reactivar.
 
 - [ ] **C1 — Scheduler.** Nuevo `electron/integrations/scheduler.ts`: cron/RRULE + presets (hourly/daily/weekdays/weekly) + timezone. Persistencia `<ravenHome>/.raven-nest/automations.json`. Modelo: `{ id, name, schedule, prompt, repo, provider, enabled }`. Robustez de load igual a `recipes.ts` (ausente→[], ilegible→warn+[]).
