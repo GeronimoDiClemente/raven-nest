@@ -57,6 +57,19 @@ describe('useUserPreferences — editorTheme widening', () => {
     )
   })
 
+  it('updates local state without a signed-in user (persistence skipped, no upsert)', async () => {
+    // Sin sesión (harness E2E, app pre-login) el tema elegido tiene que
+    // aplicarse igual en la sesión actual; solo se saltea el upsert.
+    supabaseMock.auth.getUser.mockResolvedValue({ data: { user: null } })
+    const { result } = renderHook(() => useUserPreferences())
+    await waitFor(() => expect(result.current.loaded).toBe(true))
+
+    await act(async () => { result.current.setEditorTheme('dracula') })
+
+    expect(result.current.prefs.ui_settings.editorTheme).toBe('dracula')
+    expect(supabaseMock._upsert).not.toHaveBeenCalled()
+  })
+
   it('leaves editorTheme undefined when the stored settings have none (consumers fall back to vs-dark)', async () => {
     const { result } = renderHook(() => useUserPreferences())
     await waitFor(() => expect(result.current.loaded).toBe(true))

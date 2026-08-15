@@ -41,9 +41,12 @@ export function useUserPreferences() {
   }, [])
 
   const updatePrefs = useCallback(async (updates: Partial<UserPreferences>) => {
-    if (!userId) return
+    // Sin usuario logueado (harness E2E, pre-login) el estado local se
+    // actualiza igual — la preferencia aplica en esta sesión; solo se saltea
+    // la persistencia en Supabase.
     const newPrefs = { ...prefs, ...updates }
     setPrefs(newPrefs)
+    if (!userId) return
     await supabase
       .from('user_preferences')
       .upsert({
