@@ -1741,9 +1741,9 @@ ipcMain.handle('themes:installOpenVSX', (_evt, namespace: string, name: string) 
   installOpenVSX(themesDir(), namespace, name))
 ipcMain.handle('themes:loadFromFile', async () => {
   const win = BrowserWindow.getFocusedWindow()
-  const opts = {
+  const opts: Electron.OpenDialogOptions = {
     filters: [{ name: 'VS Code theme', extensions: ['json'] }],
-    properties: ['openFile'] as const,
+    properties: ['openFile'],
     title: 'Load a VS Code theme file',
   }
   const { filePaths, canceled } = win

@@ -142,9 +142,9 @@ describe('SettingsPanel — editor themes', () => {
 
   function openWithThemes(
     themes: ReturnType<typeof mockThemesBridge>,
-    prefsOverrides: { editorTheme?: string; setEditorTheme?: ReturnType<typeof vi.fn> } = {},
+    prefsOverrides: { editorTheme?: string; setEditorTheme?: ReturnType<typeof vi.fn<(theme: string) => void>> } = {},
   ) {
-    const setEditorTheme = prefsOverrides.setEditorTheme ?? vi.fn()
+    const setEditorTheme = prefsOverrides.setEditorTheme ?? vi.fn<(theme: string) => void>()
     const userPrefs = {
       prefs: { active_team_id: null, ui_settings: { editorTheme: prefsOverrides.editorTheme } },
       loaded: true,
@@ -177,7 +177,7 @@ describe('SettingsPanel — editor themes', () => {
 
   it('persists the selection via setEditorTheme', async () => {
     const themes = mockThemesBridge()
-    const setEditorTheme = vi.fn()
+    const setEditorTheme = vi.fn<(theme: string) => void>()
     openWithThemes(themes, { setEditorTheme })
 
     const select = await screen.findByTestId('theme-select')
