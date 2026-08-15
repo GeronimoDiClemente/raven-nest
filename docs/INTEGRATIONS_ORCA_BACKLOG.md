@@ -28,6 +28,17 @@ Todo estado nuevo que introduzcamos **emite un `DomainEvent` al `EventBus`** (`e
 
 Replica la barra inferior de la captura (`98% left 2h6m`, `20% left 3d 2h`, `0% left Fable`). **No existe nada hoy** (`metrics-collector.ts` mide CPU/RAM, no tokens/cuota). Orca lo hace leyendo state files locales sin API. Quick win sticky y muy visible.
 
+> **⛔ BLOCKED (2026-08-15, run autónomo) — falta la fuente de datos.** Research en disco (Windows, PC de Gero): **ningún CLI persiste localmente una ventana de cuota/rate-limit con reset**.
+> - **Claude:** `.credentials.json` trae `rateLimitTier`/`subscriptionType` (etiquetas estáticas, no cuota); `stats-cache.json` trae actividad diaria histórica; los transcripts `projects/**/*.jsonl` traen `usage.*_tokens` por mensaje (agregables) **pero sin límite ni `resetAt`**.
+> - **Codex/Gemini/Copilot/OpenCode:** nada de uso/cuota en disco (Codex ni siquiera tiene `sessions/`/`auth.json` acá).
+>
+> Conclusión: A1 tal como está especificado (`{ windows:{fiveHour,daily,weekly}, resetAt, pct }`) es **inviable** sin la fuente; sin límite no hay `pct` ni warning al 80%. **Requiere decisión de producto** (rediseño), opciones:
+> 1. **Usage counter Claude-only** (real pero distinto): sumar `usage.*_tokens` de los transcripts del día → chip "N msgs / T tokens hoy". Sin cuota/reset.
+> 2. **Parsear el rate-limit en vivo** desde la salida del terminal / headers de la API mientras el CLI corre (mucho más complejo, fuera del approach "state file").
+> 3. **Esperar** a que los CLIs persistan cuota en disco (no depende de nosotros).
+>
+> No se implementa en el run autónomo: cambia el alcance de la feature y es llamada de Gero. Retomar cuando elija approach.
+
 - [ ] **A1 — Reader de state files de CLIs.** Nuevo `electron/integrations/model-usage.ts`: lee y parsea el uso/rate-limit que cada CLI persiste en disco (`~/.claude`, `~/.codex`, y los demás soportados en `PaneAILogo`: gemini/copilot/opencode). Sin API calls, sin auth extra (igual que Orca). Salida: `{ provider, account, windows: { fiveHour, daily, weekly, fable? }, resetAt, pct }`. Robustez: archivo ausente/ilegible → `null` silencioso, nunca crashea.
 - [ ] **A2 — Ventanas + warning 80%.** Derivar time-to-reset por ventana (5h/día/semana + Fable) y un flag `warning` al cruzar 80% de un límite. Refrescar cuando el agente escribe el file (watch/poll suave), no en tiempo real.
 - [ ] **A3 — UI: chip de cuota.** Mostrar por pane/CLI activo. Extender `src/components/ResourceBarPopover.tsx` (ya arma el árbol repo→worktree→pane con logo del `aiType`) con un chip de cuota + color al 80%. Alternativa: chip en el header del pane.

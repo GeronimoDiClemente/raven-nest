@@ -29,8 +29,8 @@ Ejecutar los pendientes de código de `feat/integrations` uno atrás del otro, c
 - **H3.** Sincronizar el `CLAUDE.md` del worktree con el de `main` (que ya tiene la advertencia de NUNCA usar `build.yml`). Resuelve el `M CLAUDE.md` suelto.
 - **Salida:** commit "chore(integrations): close hygiene follow-ups + sync CLAUDE.md".
 
-### Fase 1 — Épica A · Quota bar (H9, S)
-Ver backlog A1-A5. Nuevo `electron/integrations/model-usage.ts` (reader de state files de CLIs, sin API) → ventanas + warning 80% → chip UI en `ResourceBarPopover.tsx` → multi-account read-only → evento `quota.threshold` al bus + recipe default. Tests: `model-usage.test.ts` (node, state files fake, dedup del umbral).
+### Fase 1 — Épica A · Quota bar (H9, S) — ⛔ BLOCKED (2026-08-15)
+**No se implementa en el run autónomo.** El research en disco confirmó que **ningún CLI persiste localmente cuota/rate-limit con reset** (Claude solo deja tier estático + tokens por-mensaje sin límite; Codex/Gemini/Copilot/OpenCode nada). Sin fuente no hay `pct` ni warning 80% → A1 inviable como está especificado. Requiere decisión de producto de Gero (usage-counter Claude-only vs parsear en vivo vs esperar). Detalle completo en el backlog, sección Épica A. Se saltea y se sigue con Fase 2.
 
 ### Fase 2 — Épica C · terminar Automations (H11, M)
 `scheduler.ts` ya cubre C1 (parse/nextRun/clase Scheduler) + C3 (emit `block.started`). Falta:
