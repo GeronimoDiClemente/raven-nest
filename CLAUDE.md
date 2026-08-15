@@ -6,20 +6,31 @@ A partir de v1.2 los paths locales de los repos se guardan **por máquina** en `
 
 ## Hacer una release
 
-1. Asegurarse de que `package.json` tiene la versión correcta (campo `"version"`)
-2. Crear el tag y la release en GitHub:
+**El workflow `release.yml` hace TODO solo**: buildea las 3 plataformas **firmadas**,
+notariza y grapa el DMG de Mac, borra la release/tag anterior y crea la release nueva con
+todos los artifacts. Se dispara automáticamente al pushear a `main` un cambio de
+`package.json`. El proceso es solo bumpear la versión:
+
+1. Subir el campo `"version"` en `package.json` a la nueva versión.
+2. Commitear y pushear a `main`:
    ```bash
    VERSION=$(node -p "require('./package.json').version")
-   gh release create "v$VERSION" --title "v$VERSION" --notes "" --repo GeronimoDiClemente/raven-nest
+   git commit -am "chore(release): v$VERSION — <resumen>"
+   git push origin main
    ```
-3. Triggerear el workflow de build (buildea Windows, Mac y Linux en paralelo):
-   ```bash
-   gh workflow run "Build (Windows, Mac, Linux)" --repo GeronimoDiClemente/raven-nest
-   ```
-4. Verificar que los artifacts se subieron a la release:
+   Eso dispara `release.yml` solo (por el cambio en `package.json`).
+3. (Opcional) Re-disparar a mano si hace falta: `gh workflow run release.yml --repo GeronimoDiClemente/raven-nest`
+4. Verificar que la release tiene los artifacts y que el DMG de Mac quedó notarizado:
    ```bash
    gh release view "v$VERSION" --repo GeronimoDiClemente/raven-nest
+   gh workflow run "Check Apple Notary Status" --repo GeronimoDiClemente/raven-nest
    ```
+
+> **NUNCA correr el workflow "Build (Windows, Mac, Linux)" (`build.yml`) como parte de un
+> release.** Ese workflow genera un DMG de Mac **sin firmar** y lo sube con `--clobber`,
+> pisando el DMG firmado de `release.yml` → la notarización falla con `Invalid`. Fue la
+> causa de que v1.3.1 y v1.3.2 quedaran sin notarizar. `build.yml` es solo un build manual
+> de diagnóstico; `release.yml` ya cubre las 3 plataformas firmadas.
 
 ## Requisitos del usuario (dependencias externas)
 
@@ -34,7 +45,7 @@ A partir de v1.2 los paths locales de los repos se guardan **por máquina** en `
 - Electron + Vite + React + TypeScript
 - Terminal: xterm.js con PTY (node-pty)
 - Build: electron-builder (NSIS para Windows, DMG para Mac, AppImage/deb para Linux)
-- El repo usa git-crypt — los archivos sensibles están encriptados
+- Secretos: en `.env` / `.env.local` (gitignored) o vía Doppler (`doppler run -- npm run dev`); el repo **ya no usa git-crypt**, nada está encriptado en git
 
 ## Estructura
 - `src/hooks/useXterm.ts` — terminal xterm.js

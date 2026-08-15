@@ -68,8 +68,8 @@ El feature más "Orca-core": *"fan one prompt across N agents, merge the winner"
 
 ## Higiene — follow-ups conocidos (esfuerzo XS)
 
-- [ ] **Recipes: mergear defaults en vez de reemplazar.** `loadRecipes` (`recipes.ts`): si el `recipes.json` del usuario trae recetas custom, hoy podría estar **reemplazando** las defaults en lugar de mergearlas (pendiente histórico en memoria `worktree-environment-state`). Verificar contra el código actual y, si aplica, mergear default+custom por `id`.
-- [ ] **checkCi: `ciNotified.set` antes del `emit`.** Orden de dedup en el poll de CI (memoria). Verificar que no se pierda/duplique una notificación si el emit falla.
+- [x] **Recipes: swap-not-merge es INTENCIONAL (verificado 2026-08-15).** `loadRecipes` (`recipes.ts`): si el usuario tiene recetas stored válidas se usan **sólo esas** (no se mergean con las defaults). No es un bug — está documentado en `recipes.ts` (~L311-316: "same swap-not-merge semantics"). El follow-up queda cerrado: es una decisión de diseño, no requiere cambio.
+- [x] **checkCi/worktree-signals: set-antes-de-emit es INTENCIONAL (verificado 2026-08-15).** En `worktree-signals.ts:166-169` el `ciNotified.set` + `saveNotified()` van **antes** del `emit` de `ci.failed`. Prioriza no-duplicar sobre no-perder (si el emit fallara, ese SHA queda marcado y no se re-emite), con persistencia tmp+rename. No es un bug — trade-off deliberado. Follow-up cerrado.
 - [ ] **Cablear estados nuevos a las recipes default** de forma consistente (A5/B4/C3) para que el marketplace de recipes (bus v2, `StoredRecipe` editable) las exponga.
 
 ## Fuera de scope (conceder explícitamente)
