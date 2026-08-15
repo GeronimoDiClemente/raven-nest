@@ -48,6 +48,9 @@ Replica la barra inferior de la captura (`98% left 2h6m`, `20% left 3d 2h`, `0% 
 
 ## Épica B — Agent Status Dashboard "Needs You" `H10` · esfuerzo M
 
+> **🟡 PARCIAL (2026-08-15, run autónomo).** **B1+B2 hechos:** `electron/integrations/agent-status.ts` — `deriveAgentState()` (working/needs_input/idle/done, prioridad done>needs_input>working>idle) + `detectNeedsInput()` (heurística conservadora, 11 patrones, prefiere falsos negativos). Lógica pura, 21 tests. Commit `9deb408`.
+> **Fast-follow (deferido a propósito — requiere validación en vivo):** B3 (UI `AgentDashboard`), B4 (tick en main que muestrea panes + emite `agent.needs_input`/`agent.done` al bus con dedup por-transición) y B5 (acción Slack). Motivo: activar notificaciones automáticas a Slack con una heurística `needs_input` sin validar en vivo puede spamear al equipo. La infra que falta (research ya hecho): `lastOutputAt` Map en `pty-manager.ts` (set en `onData`), un `setInterval` ~3-5s en main (molde `main.ts:2835`) que cruza `getAllPids()`+CPU+`getBuffer(tail)`+`setupState`, y 2 eventos nuevos en `bus-types.ts` + recipes default. Retomar cuando Gero valide la heurística contra CLIs reales.
+
 El corazón del hook: el tablero de Orca es **Needs You / Working / Done / Idle** y **te llama solo cuando "Needs You"**. En Nest un "agente" es un `SessionPane` corriendo un CLI (no hay tipo `Agent`); el único estado semántico hoy es `WorktreeMeta.setupState`. **No existe** un panel de agentes por estado ni noción de "esperando input".
 
 - [ ] **B1 — Inferencia de estado del agente.** Nuevo `electron/integrations/agent-status.ts`: derivar estado por pane a partir de (a) actividad del PTY (`pty-manager.ts`: timestamp del último output), (b) CPU del árbol de procesos (`metrics-collector.ts`), (c) `WorktreeMeta.setupState`. Estados: `working` (output/CPU activos), `needs_input` (output detenido esperando prompt del CLI / permiso), `idle` (sin output > N min), `done` (proceso salió / setup done).

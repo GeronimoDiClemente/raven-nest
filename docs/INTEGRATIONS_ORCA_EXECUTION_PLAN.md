@@ -40,8 +40,9 @@ Research reveló que C1/C3/C4 **ya existían** (scheduler + handler `scheduleBlo
 - Commits: `54baeec`. Typecheck sin errores nuevos (47, baseline 48). 68 tests verdes con scheduler.
 - **Fast-follows:** (1) smoke test en vivo del child-process en Windows; (2) render de `lastResult`/`lastSummary` en la UI (+CSS).
 
-### Fase 3 — Épica B · Agent Dashboard "Needs You" (H10, M)
-Ver backlog B1-B5. Nuevo `electron/integrations/agent-status.ts` (inferencia de estado por pane: working/needs_input/idle/done) → heurística "needs input" conservadora → `src/components/AgentDashboard.tsx` → eventos `agent.needs_input`/`agent.done` al bus + recipes. B5 (acción desde Slack) = fast-follow, no bloquea. Tests: `agent-status.test.ts` (node) + `AgentDashboard.test.tsx` (jsdom).
+### Fase 3 — Épica B · Agent Dashboard "Needs You" (H10, M) — 🟡 PARCIAL (2026-08-15)
+**B1+B2 hechos:** `electron/integrations/agent-status.ts` (`deriveAgentState` + `detectNeedsInput` conservador). Lógica pura, 21 tests. Commit `9deb408`. Typecheck sin regresión (47).
+**Deferido a fast-follow (requiere validación en vivo de la heurística antes de activar notificaciones — riesgo de spam a Slack):** el tick en main (muestrea panes + emite eventos con dedup por-transición), `lastOutputAt` en pty-manager, los 2 eventos de bus + recipes (B4), la UI `AgentDashboard` (B3) y la acción Slack (B5). Research completo en el backlog.
 
 ### Fase 4 — Épica D · Fan-out race-and-merge (H12, L)
 Ver backlog D1-D4. Empezar por **D1** (multi-issue → multi-worktree, puro integrations, encaja con ticket-loop). D2 (race same-prompt) y D3 (UI comparación + merge/discard) son lo pesado; si el contexto/tiempo no alcanza, dejar D1 cerrado y D2/D3 planificados. Tests: extender `worktree-integration.test.ts` para D1.
