@@ -42,7 +42,7 @@ const FolderIcon = ({ open }: { open: boolean }) => (
   </svg>
 )
 
-const FileIcon = ({ name }: { name: string }) => (
+export const FileIcon = ({ name }: { name: string }) => (
   <svg className={`explorer-type-icon ${extClass(name)}`} width="14" height="14" viewBox="0 0 16 16" fill="none">
     <path d="M4 1.5h5.5L13 5v9a.8.8 0 0 1-.8.8H4a.8.8 0 0 1-.8-.8V2.3a.8.8 0 0 1 .8-.8z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round" />
     <path d="M9.5 1.5V5H13" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round" />

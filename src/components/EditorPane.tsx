@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Editor from '@monaco-editor/react'
 import { useBridge } from '../lib/bridge'
+import { FileIcon } from './ExplorerPanel'
 import type { EditorTab, PaneNode } from '../types'
 import type { EditorPreferences, EditorTheme } from '../lib/ide-config-mappings'
 
@@ -175,7 +176,7 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
       // No global toast service exists in this app (see design spec) — the
       // established precedent for surfacing a rare failure immediately is
       // window.alert (src/App.tsx:537-541, WorktreesSection.tsx:160).
-      window.alert(`No se pudo guardar ${relPath}: ${res.error}`)
+      window.alert(`Could not save ${relPath}: ${res.error}`)
     }
   }, [worktreePath, bridge, setDirty])
 
@@ -197,7 +198,7 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
       // click), so `conflicts`/`dirty` must NOT be cleared. Same
       // window.alert precedent as save()'s failure path (no global toast
       // service exists — see design spec).
-      window.alert(`No se pudo recargar ${relPath} desde disco: ${res.error}`)
+      window.alert(`Could not reload ${relPath} from disk: ${res.error}`)
     }
   }, [worktreePath, bridge, setDirty])
 
@@ -242,31 +243,46 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
         {tabs.map((tab) => (
           <div
             key={tab.relPath}
-            className={`editor-tab${tab.relPath === activePath ? ' active' : ''}`}
+            className={`editor-tab${tab.relPath === activePath ? ' active' : ''}${tab.dirty ? ' dirty' : ''}`}
+            title={tab.relPath}
             onClick={() => onTabsChange(tabs, tab.relPath)}
           >
+            <FileIcon name={tab.relPath} />
             <span className="editor-tab-name">{tab.relPath.split('/').pop()}</span>
+            {/* Slot derecho estilo VS Code: el punto dirty se muestra hasta
+                que el hover lo reemplaza por las acciones. */}
             {tab.dirty && <span className="editor-tab-dirty" data-testid={`dirty-${tab.relPath}`}>●</span>}
-            <button
-              className="editor-tab-move"
-              title="Abrir en pane nuevo"
-              onClick={(e) => { e.stopPropagation(); onOpenInNewPane(tab.relPath) }}
-            >⇱</button>
-            <button className="editor-tab-close" onClick={(e) => { e.stopPropagation(); closeTab(tab.relPath) }}>×</button>
+            <span className="editor-tab-actions">
+              <button
+                className="editor-tab-btn editor-tab-move"
+                title="Open in new pane"
+                onClick={(e) => { e.stopPropagation(); onOpenInNewPane(tab.relPath) }}
+              >
+                <svg width="11" height="11" viewBox="0 0 16 16" fill="none">
+                  <path d="M6.5 2.5H3a.5.5 0 0 0-.5.5v10a.5.5 0 0 0 .5.5h10a.5.5 0 0 0 .5-.5V9.5M9.5 2.5h4v4M13.5 2.5L8 8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+              <button
+                className="editor-tab-btn editor-tab-close"
+                title="Close"
+                onClick={(e) => { e.stopPropagation(); closeTab(tab.relPath) }}
+              >×</button>
+            </span>
           </div>
         ))}
       </div>
       {activePath && conflicts[activePath] && (
         <div className="editor-conflict-banner" data-testid="conflict-banner">
-          El archivo cambió en disco.
-          <button onClick={() => keepMine(activePath)}>Mantener mis cambios</button>
-          <button onClick={() => reloadFromDisk(activePath)}>Recargar de disco</button>
+          <span className="editor-conflict-text">File changed on disk.</span>
+          <button className="editor-banner-btn" onClick={() => keepMine(activePath)}>Keep my changes</button>
+          <button className="editor-banner-btn primary" onClick={() => reloadFromDisk(activePath)}>Reload from disk</button>
         </div>
       )}
       {activePath && loadErrors[activePath] ? (
         <div className="editor-file-unavailable" data-testid="file-unavailable">
-          {loadErrors[activePath]}
-          <button onClick={() => closeTab(activePath)}>Cerrar</button>
+          <FileIcon name={activePath} />
+          <span className="editor-unavailable-text">{loadErrors[activePath]}</span>
+          <button className="editor-banner-btn" onClick={() => closeTab(activePath)}>Close tab</button>
         </div>
       ) : activePath && (
         <Editor

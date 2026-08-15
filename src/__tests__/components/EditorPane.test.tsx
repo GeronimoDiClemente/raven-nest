@@ -381,7 +381,7 @@ describe('EditorPane', () => {
     await waitFor(() => expect(screen.getByTestId('conflict-banner')).toBeInTheDocument())
 
     ;(bridge.fs.readFile as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ ok: false, error: 'ENOENT: no such file' })
-    fireEvent.click(screen.getByText('Recargar de disco'))
+    fireEvent.click(screen.getByText('Reload from disk'))
 
     await waitFor(() => expect(alertSpy).toHaveBeenCalledWith(expect.stringContaining('ENOENT: no such file')))
     // The re-read failed — the conflict is still real and the tab is still

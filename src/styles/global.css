@@ -9474,13 +9474,108 @@ body.platform-mac .tabbar { padding-right: 116px; }
 /* ── EditorPane (Monaco) ─────────────────────────────────────── */
 
 .editor-pane { display: flex; flex-direction: column; height: 100%; }
-.editor-pane-tabs { display: flex; border-bottom: 1px solid rgba(255,255,255,0.1); }
-.editor-tab { display: flex; align-items: center; gap: 4px; padding: 4px 8px; cursor: pointer; font-size: 12px; }
-.editor-tab.active { background: rgba(255,255,255,0.08); }
-.editor-tab-dirty { color: #4EC9B0; }
-.editor-conflict-banner { display: flex; align-items: center; gap: 8px; padding: 6px 8px; background: #402a1a; font-size: 12px; }
-.editor-file-unavailable { display: flex; align-items: center; gap: 8px; padding: 16px; opacity: 0.8; font-size: 12px; }
-.explorer-entry-icon { width: 10px; opacity: 0.7; }
+
+/* Tab bar estilo VS Code con la piel de la plataforma: barra hundida,
+   tab activa elevada con hilo de acento violeta arriba, punto dirty que
+   el hover reemplaza por las acciones. */
+.editor-pane-tabs {
+  display: flex;
+  height: 32px;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+  scrollbar-width: none;
+  flex-shrink: 0;
+}
+
+.editor-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px 0 10px;
+  max-width: 180px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  border-right: 1px solid var(--border);
+  border-top: 1px solid transparent;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  transition: background 0.1s, color 0.1s;
+}
+.editor-tab:hover { background: rgba(255, 255, 255, 0.04); color: var(--text-primary); }
+.editor-tab.active {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  border-top-color: #7c3aed;
+}
+.editor-tab .explorer-type-icon { flex-shrink: 0; }
+.editor-tab-name { overflow: hidden; text-overflow: ellipsis; }
+
+.editor-tab-dirty { color: #a78bfa; font-size: 10px; line-height: 1; }
+.editor-tab-actions { display: none; align-items: center; gap: 1px; }
+.editor-tab:hover .editor-tab-actions { display: flex; }
+.editor-tab.dirty:hover .editor-tab-dirty { display: none; }
+
+.editor-tab-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+}
+.editor-tab-btn:hover { background: var(--bg-surface); color: var(--text-primary); }
+
+/* Banner de conflicto: aviso ámbar sutil de la plataforma, no un bloque
+   marrón sólido. */
+.editor-conflict-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: rgba(255, 184, 0, 0.08);
+  border-bottom: 1px solid rgba(255, 184, 0, 0.25);
+  font-size: 12px;
+  flex-shrink: 0;
+}
+.editor-conflict-text { color: #ffcf66; margin-right: auto; }
+
+.editor-banner-btn {
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 11.5px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.editor-banner-btn:hover { background: var(--bg-surface); color: var(--text-primary); }
+.editor-banner-btn.primary { border-color: #7c3aed55; color: #a78bfa; }
+.editor-banner-btn.primary:hover { background: #7c3aed22; }
+
+/* Archivo no cargable (binario / oversized): empty state centrado. */
+.editor-file-unavailable {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 24px;
+  font-size: 12.5px;
+}
+.editor-file-unavailable .explorer-type-icon { width: 28px; height: 28px; opacity: 0.5; }
+.editor-unavailable-text { color: var(--text-muted); text-align: center; }
 
 
 /* ── Hub Overlay ─────────────────────────────────────────── */
