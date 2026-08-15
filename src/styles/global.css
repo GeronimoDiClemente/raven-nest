@@ -9344,7 +9344,18 @@ body.platform-mac .tabbar { padding-right: 116px; }
    radios en los items, hover suave y el mismo acento violeta que
    .sp-tab.active para la selección. */
 
-.explorer-panel { font-size: 12.5px; overflow-y: auto; display: flex; flex-direction: column; }
+/* Región de scroll propia, calcada del patrón de .sidebar-worktrees-wrap:
+   el árbol scrollea adentro y las secciones de abajo (Team/Settings/...)
+   quedan siempre alcanzables. Header y fila del repo quedan fijos. */
+.sidebar-explorer-wrap {
+  flex: 1 1 auto;
+  min-height: 160px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.explorer-panel { font-size: 12.5px; display: flex; flex-direction: column; flex: 1; min-height: 0; }
 
 .explorer-panel-empty {
   padding: 14px 12px;
@@ -9398,7 +9409,15 @@ body.platform-mac .tabbar { padding-right: 116px; }
 }
 .explorer-action-btn:hover { background: var(--bg-surface); color: var(--text-primary); }
 
-.explorer-tree { padding: 0 4px 6px; }
+.explorer-tree {
+  padding: 0 4px 6px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+.explorer-tree:hover { scrollbar-color: rgba(128,128,128,0.3) transparent; }
 
 .explorer-entry {
   display: flex;

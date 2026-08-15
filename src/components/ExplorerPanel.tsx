@@ -152,7 +152,7 @@ export function ExplorerPanel({ worktreePath, onFileOpen }: ExplorerPanelProps) 
       <div key={entry.path}>
         <div
           className={`explorer-entry${selected === entry.path ? ' selected' : ''}`}
-          style={{ paddingLeft: `${depth * 12 + 8}px` }}
+          style={{ paddingLeft: `${depth * 8 + 8}px` }}
           onClick={() => {
             if (entry.isDirectory) {
               toggleDir(entry.path)
@@ -173,7 +173,7 @@ export function ExplorerPanel({ worktreePath, onFileOpen }: ExplorerPanelProps) 
         {entry.isDirectory && expanded[entry.path] && (
           <div
             className="explorer-subtree"
-            style={{ '--guide-left': `${depth * 12 + 11}px` } as CSSProperties}
+            style={{ '--guide-left': `${depth * 8 + 11}px` } as CSSProperties}
           >
             {renderEntries(entry.path, depth + 1)}
           </div>
