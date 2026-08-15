@@ -972,26 +972,7 @@ ipcMain.handle('workspace:import', async () => {
 
 ipcMain.handle('worktree:list', async (_evt, repoPath: string) => {
   if (!isAbsolute(repoPath)) return { ok: false as const, error: 'repoPath must be absolute' }
-  const live = worktreeStore.hydrateFromGit(repoPath)
-  // Mark store entries that git no longer reports as `orphaned`. Without
-  // this, a worktree the user removed externally (`rm -rf <wt>` or
-  // `git worktree remove`) stays in the store as `done` forever, and every
-  // other consumer (metrics, ports, spotlight) treats it as live.
-  worktreeStore.reconcile(live.map((m) => m.repoPath))
-  // Drop entries whose directory is gone (worktrees removed outside the app, or
-  // older clones that no longer exist on this machine). reconcile only marks
-  // them `orphaned`; without this they pile up in the sidebar forever.
-  worktreeStore.pruneMissing()
-  // Filter by rootRepoPath in posix form on both sides so backslash variants
-  // from session restore don't cause an empty list (the store always stores
-  // POSIX-keyed rootRepoPath after the hydrate fix, but the IPC `repoPath`
-  // can still arrive with backslashes).
-  const rootPosix = repoPath.replace(/\\/g, '/').replace(/\/+$/, '')
-  const worktrees = worktreeStore.list().filter((m) => {
-    const mRoot = m.rootRepoPath.replace(/\\/g, '/').replace(/\/+$/, '')
-    return mRoot === rootPosix
-  })
-  return { ok: true as const, worktrees }
+  return { ok: true as const, worktrees: worktreeStore.listForRepo(repoPath) }
 })
 
 ipcMain.handle('worktree:get', async (_evt, worktreePath: string) => {

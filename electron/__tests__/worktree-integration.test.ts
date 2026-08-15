@@ -53,3 +53,40 @@ describe('Worktree integration (happy path)', () => {
     expect(orphaned?.setupState).toBe('orphaned')
   })
 })
+
+describe('listForRepo resolves the root from any worktree path', () => {
+  let repoPath: string
+  let wtPath: string
+  let storeDir: string
+  let store: WorktreeStore
+
+  beforeAll(() => {
+    repoPath = makeTmpDir('repo-root-')
+    storeDir = makeTmpDir('store-lfr-')
+    execSync(`git -C "${repoPath}" init -q`)
+    execSync(`git -C "${repoPath}" config user.email t@t.com`)
+    execSync(`git -C "${repoPath}" config user.name T`)
+    execSync(`git -C "${repoPath}" commit -q --allow-empty -m initial`)
+    wtPath = `${repoPath}-wt-feature`
+    execSync(`git -C "${repoPath}" worktree add -b feature-x "${wtPath}"`)
+    store = new WorktreeStore(storeDir)
+  })
+
+  afterAll(() => {
+    cleanupTmp(repoPath)
+    cleanupTmp(wtPath)
+    cleanupTmp(storeDir)
+  })
+
+  it('called with the ROOT path lists both entries', () => {
+    const wts = store.listForRepo(repoPath)
+    expect(wts).toHaveLength(2)
+    expect(wts.map((w) => w.branch)).toContain('feature-x')
+  })
+
+  it('called with a WORKTREE path lists the same entries (tab.repoPath points at the selected worktree after handleWorktreeSelect)', () => {
+    const wts = store.listForRepo(wtPath)
+    expect(wts).toHaveLength(2)
+    expect(wts.map((w) => w.branch)).toContain('feature-x')
+  })
+})
