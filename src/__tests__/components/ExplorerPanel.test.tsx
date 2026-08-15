@@ -67,9 +67,51 @@ function makeRaceMockBridge() {
 }
 
 describe('ExplorerPanel', () => {
-  it('shows a placeholder when there is no active worktree', () => {
+  it('shows an English placeholder when there is no active worktree', () => {
     render(<ExplorerPanel worktreePath={null} onFileOpen={vi.fn()} />)
-    expect(screen.getByText(/no hay repo activo/i)).toBeInTheDocument()
+    expect(screen.getByText(/no repo linked/i)).toBeInTheDocument()
+  })
+
+  it('renders the EXPLORER header with the repo basename uppercased', async () => {
+    const { bridge } = makeMockBridge()
+    render(<BridgeProvider value={bridge}><ExplorerPanel worktreePath="/home/user/my-repo" onFileOpen={vi.fn()} /></BridgeProvider>)
+    expect(screen.getByText('EXPLORER')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByText('MY-REPO')).toBeInTheDocument())
+  })
+
+  it('collapse-all collapses every expanded directory and unwatches it', async () => {
+    const { bridge } = makeMockBridge()
+    render(<BridgeProvider value={bridge}><ExplorerPanel worktreePath="/repo" onFileOpen={vi.fn()} /></BridgeProvider>)
+    await waitFor(() => screen.getByText('src'))
+    fireEvent.click(screen.getByText('src'))
+    await waitFor(() => expect(screen.getByText('index.ts')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByTitle('Collapse folders'))
+    await waitFor(() => expect(screen.queryByText('index.ts')).not.toBeInTheDocument())
+    await waitFor(() => expect(bridge.fs.unwatch).toHaveBeenCalledWith('/repo', 'src'))
+  })
+
+  it('refresh re-lists every loaded directory', async () => {
+    const { bridge } = makeMockBridge()
+    render(<BridgeProvider value={bridge}><ExplorerPanel worktreePath="/repo" onFileOpen={vi.fn()} /></BridgeProvider>)
+    await waitFor(() => screen.getByText('src'))
+    fireEvent.click(screen.getByText('src'))
+    await waitFor(() => screen.getByText('index.ts'))
+    const callsBefore = (bridge.fs.listDir as ReturnType<typeof vi.fn>).mock.calls.length
+
+    fireEvent.click(screen.getByTitle('Refresh'))
+    await waitFor(() => {
+      const calls = (bridge.fs.listDir as ReturnType<typeof vi.fn>).mock.calls.slice(callsBefore)
+      expect(calls.map((c) => c[1])).toEqual(expect.arrayContaining(['', 'src']))
+    })
+  })
+
+  it('marks the last clicked file as selected', async () => {
+    const { bridge } = makeMockBridge()
+    render(<BridgeProvider value={bridge}><ExplorerPanel worktreePath="/repo" onFileOpen={vi.fn()} /></BridgeProvider>)
+    await waitFor(() => screen.getByText('README.md'))
+    fireEvent.click(screen.getByText('README.md'))
+    expect(screen.getByText('README.md').closest('.explorer-entry')).toHaveClass('selected')
   })
 
   it('renders the root listing', async () => {

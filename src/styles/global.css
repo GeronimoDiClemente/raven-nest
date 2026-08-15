@@ -9338,12 +9338,119 @@ body.platform-mac .tabbar { padding-right: 116px; }
 .tour-help-btn { background: none; border: 1px solid #2b2b32; color: #9a9aa3; border-radius: 8px; width: 26px; height: 26px; cursor: pointer; font-size: 14px; }
 .tour-help-btn:hover { color: #ededed; border-color: #3a3a42; }
 
-/* ── ExplorerPanel (File Tree) ──────────────────────────────── */
+/* ── ExplorerPanel (File Tree) ──────────────────────────────────
+   Estructura VS Code (header / fila del repo con acciones / árbol con
+   chevrons, íconos e indent guides) con la piel de la plataforma:
+   radios en los items, hover suave y el mismo acento violeta que
+   .sp-tab.active para la selección. */
 
-.explorer-panel { font-size: 12px; overflow-y: auto; }
-.explorer-panel-empty { padding: 8px; opacity: 0.6; }
-.explorer-entry { display: flex; align-items: center; gap: 4px; padding: 2px 4px; cursor: pointer; }
-.explorer-entry:hover { background: rgba(255, 255, 255, 0.06); }
+.explorer-panel { font-size: 12.5px; overflow-y: auto; display: flex; flex-direction: column; }
+
+.explorer-panel-empty {
+  padding: 14px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.explorer-empty-title { color: var(--text-secondary); font-weight: 500; }
+.explorer-empty-hint { color: var(--text-muted); font-size: 11.5px; }
+
+.explorer-header {
+  padding: 8px 10px 4px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  user-select: none;
+}
+
+.explorer-root-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 2px 6px 2px 10px;
+  user-select: none;
+}
+.explorer-root-name {
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.explorer-root-actions { display: flex; gap: 2px; opacity: 0; transition: opacity 0.12s; }
+.explorer-root-row:hover .explorer-root-actions,
+.explorer-panel:focus-within .explorer-root-actions { opacity: 1; }
+.explorer-action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+.explorer-action-btn:hover { background: var(--bg-surface); color: var(--text-primary); }
+
+.explorer-tree { padding: 0 4px 6px; }
+
+.explorer-entry {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding-right: 6px;
+  border-radius: 5px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  transition: background 0.1s, color 0.1s;
+}
+.explorer-entry:hover { background: rgba(255, 255, 255, 0.05); color: var(--text-primary); }
+.explorer-entry.selected { background: #7c3aed22; color: #a78bfa; }
+.explorer-entry.selected .explorer-type-icon { color: #a78bfa; }
+
+.explorer-entry-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 10px;
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+.explorer-chevron { transition: transform 0.12s; }
+.explorer-chevron.open { transform: rotate(90deg); }
+
+.explorer-type-icon { flex-shrink: 0; }
+.ic-folder { color: #8f9aa8; }
+.ic-ts   { color: #4d94ff; }  /* raven blue family */
+.ic-js   { color: #e8c545; }
+.ic-json { color: #d19a66; }
+.ic-md   { color: #a78bfa; }  /* platform violet */
+.ic-css  { color: #56b6c2; }
+.ic-html { color: #e0876c; }
+.ic-img  { color: #6cc27e; }
+.ic-file { color: var(--text-muted); }
+
+.explorer-entry-name { overflow: hidden; text-overflow: ellipsis; }
+
+.explorer-subtree { position: relative; }
+.explorer-subtree::before {
+  content: '';
+  position: absolute;
+  left: var(--guide-left, 11px);
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: rgba(255, 255, 255, 0.07);
+}
 
 /* ── EditorPane (Monaco) ─────────────────────────────────────── */
 
