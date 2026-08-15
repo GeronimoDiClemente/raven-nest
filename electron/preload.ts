@@ -285,6 +285,17 @@ contextBridge.exposeInMainWorld('ideConfig', {
   import: (source: 'vscode' | 'intellij') => ipcRenderer.invoke('ide-config:import', source),
 })
 
+contextBridge.exposeInMainWorld('themes', {
+  listInstalled: () => ipcRenderer.invoke('themes:listInstalled'),
+  saveInstalled: (displayName: string, theme: unknown) => ipcRenderer.invoke('themes:saveInstalled', displayName, theme),
+  deleteInstalled: (name: string) => ipcRenderer.invoke('themes:deleteInstalled', name),
+  scanVSCode: () => ipcRenderer.invoke('themes:scanVSCode'),
+  importVSCode: (themePath: string) => ipcRenderer.invoke('themes:importVSCode', themePath),
+  searchOpenVSX: (query: string) => ipcRenderer.invoke('themes:searchOpenVSX', query),
+  installOpenVSX: (namespace: string, name: string) => ipcRenderer.invoke('themes:installOpenVSX', namespace, name),
+  loadFromFile: () => ipcRenderer.invoke('themes:loadFromFile'),
+})
+
 contextBridge.exposeInMainWorld('ide', {
   detect: (force?: boolean) => ipcRenderer.invoke('ide:detect', force),
   open: (binPath: string, worktreePath: string) => ipcRenderer.invoke('ide:open', binPath, worktreePath),

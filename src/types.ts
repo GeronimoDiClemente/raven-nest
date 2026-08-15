@@ -91,6 +91,17 @@ export interface DirEntry {
 
 export interface DetectedIDE { id: string; name: string; binPath: string }
 
+// === Sistema de temas del editor (kept in sync with electron/theme-bridge.ts) ===
+export interface InstalledThemeInfo {
+  name: string        // slug estable; es lo que se guarda en ui_settings.editorTheme
+  displayName: string
+  isDark: boolean
+  theme: import('./lib/theme-registry').VSCodeThemeJson
+}
+export interface ScannedThemeInfo { label: string; path: string }
+export interface OpenVSXThemeResult { namespace: string; name: string; displayName: string; description: string }
+export type ThemeOpResult = { ok: true; name: string } | { ok: false; error: string }
+
 // === Resource usage metrics (kept in sync with electron/metrics-collector.ts) ===
 export interface NestProcessMetric {
   type: 'Main' | 'Renderer' | 'Other'
@@ -519,6 +530,16 @@ declare global {
         | { ok: true; options: EditorPreferences; theme?: EditorTheme; unmappedTheme?: string }
         | { ok: false; error: string }
       >
+    }
+    themes: {
+      listInstalled: () => Promise<InstalledThemeInfo[]>
+      saveInstalled: (displayName: string, theme: import('./lib/theme-registry').VSCodeThemeJson) => Promise<ThemeOpResult>
+      deleteInstalled: (name: string) => Promise<{ ok: true } | { ok: false; error: string }>
+      scanVSCode: () => Promise<{ ok: true; themes: ScannedThemeInfo[] } | { ok: false; error: string }>
+      importVSCode: (themePath: string) => Promise<ThemeOpResult>
+      searchOpenVSX: (query: string) => Promise<{ ok: true; results: OpenVSXThemeResult[] } | { ok: false; error: string }>
+      installOpenVSX: (namespace: string, name: string) => Promise<{ ok: true; installed: string[] } | { ok: false; error: string }>
+      loadFromFile: () => Promise<ThemeOpResult | null>
     }
     ide: {
       detect: (force?: boolean) => Promise<DetectedIDE[]>
