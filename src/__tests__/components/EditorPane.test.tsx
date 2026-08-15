@@ -15,15 +15,32 @@ const monacoStub = vi.hoisted(() => ({
   latestOnChange: null as ((v: string) => void) | null,
   lastOptions: undefined as unknown,
   lastTheme: undefined as string | undefined,
+  lastLanguage: undefined as string | undefined,
+  latestOnMount: null as ((editor: unknown, monaco: unknown) => void) | null,
 }))
 
 vi.mock('@monaco-editor/react', () => ({
-  default: ({ value, onChange, options, theme }: { value: string; onChange: (v: string | undefined) => void; options?: unknown; theme?: string }) => {
+  default: ({ value, onChange, options, theme, language, onMount }: { value: string; onChange: (v: string | undefined) => void; options?: unknown; theme?: string; language?: string; onMount?: (editor: unknown, monaco: unknown) => void }) => {
     monacoStub.latestOnChange = onChange
     monacoStub.lastOptions = options
     monacoStub.lastTheme = theme
+    monacoStub.lastLanguage = language
+    monacoStub.latestOnMount = onMount ?? null
     return <textarea data-testid="monaco-stub" value={value} onChange={(e) => onChange(e.target.value)} />
   },
+}))
+
+// shiki mockeado entero: estos tests validan el WIRING (cuándo se llama
+// applyTheme/ensureLanguage y qué language recibe Monaco), no shiki en sí —
+// eso lo cubre shiki-monaco.test.ts.
+const shikiMock = vi.hoisted(() => ({
+  applyTheme: vi.fn().mockResolvedValue(true),
+  ensureLanguage: vi.fn().mockResolvedValue('typescript'),
+}))
+vi.mock('../../lib/shiki-monaco', () => ({
+  applyTheme: shikiMock.applyTheme,
+  ensureLanguage: shikiMock.ensureLanguage,
+  isMonacoBuiltinTheme: (name: string) => ['vs', 'vs-dark', 'hc-black', 'hc-light'].includes(name),
 }))
 
 function makePane(overrides: Partial<PaneNode> = {}): PaneNode {
@@ -409,6 +426,89 @@ describe('EditorPane', () => {
     await waitFor(() => expect(screen.getByTestId('monaco-stub')).toHaveValue('hello'))
     expect(monacoStub.lastOptions).toEqual({ fontSize: 18, tabSize: 2 })
     expect(monacoStub.lastTheme).toBe('vs')
+  })
+
+  describe('shiki theming', () => {
+    const fakeMonaco = { editor: { setTheme: vi.fn() } }
+
+    function mountEditor() {
+      // El stub de <Editor> capturó onMount; se dispara a mano simulando el
+      // mount real de Monaco, que es donde entra la instancia `monaco`.
+      act(() => { monacoStub.latestOnMount?.({}, fakeMonaco) })
+    }
+
+    it('applies the preferred theme via shiki on editor mount', async () => {
+      const { bridge } = makeMockBridge()
+      render(
+        <BridgeProvider value={bridge}>
+          <EditorPane pane={makePane()} onTabsChange={vi.fn()} onClose={vi.fn()} onFocus={vi.fn()} onOpenInNewPane={vi.fn()} editorTheme="dracula" />
+        </BridgeProvider>,
+      )
+      await waitFor(() => expect(screen.getByTestId('monaco-stub')).toHaveValue('hello'))
+      mountEditor()
+      await waitFor(() => expect(shikiMock.applyTheme).toHaveBeenCalledWith(fakeMonaco, 'dracula'))
+      // Mientras shiki no registró el tema, el wrapper queda en vs-dark — un
+      // nombre no built-in en el prop `theme` haría tirar a setTheme.
+      expect(monacoStub.lastTheme).toBe('vs-dark')
+    })
+
+    it('re-applies the theme when the editorTheme prop changes', async () => {
+      const { bridge } = makeMockBridge()
+      const props = { pane: makePane(), onTabsChange: vi.fn(), onClose: vi.fn(), onFocus: vi.fn(), onOpenInNewPane: vi.fn() }
+      const { rerender } = render(
+        <BridgeProvider value={bridge}>
+          <EditorPane {...props} editorTheme="dracula" />
+        </BridgeProvider>,
+      )
+      await waitFor(() => expect(screen.getByTestId('monaco-stub')).toHaveValue('hello'))
+      mountEditor()
+      rerender(
+        <BridgeProvider value={bridge}>
+          <EditorPane {...props} editorTheme="tokyo-night" />
+        </BridgeProvider>,
+      )
+      await waitFor(() => expect(shikiMock.applyTheme).toHaveBeenCalledWith(fakeMonaco, 'tokyo-night'))
+    })
+
+    it('keeps passing monaco built-in themes straight through the theme prop', async () => {
+      const { bridge } = makeMockBridge()
+      render(
+        <BridgeProvider value={bridge}>
+          <EditorPane pane={makePane()} onTabsChange={vi.fn()} onClose={vi.fn()} onFocus={vi.fn()} onOpenInNewPane={vi.fn()} editorTheme="vs" />
+        </BridgeProvider>,
+      )
+      await waitFor(() => expect(screen.getByTestId('monaco-stub')).toHaveValue('hello'))
+      expect(monacoStub.lastTheme).toBe('vs')
+    })
+
+    it('loads the shiki grammar for the active file and hands the language to Monaco', async () => {
+      const { bridge } = makeMockBridge()
+      render(
+        <BridgeProvider value={bridge}>
+          <EditorPane pane={makePane()} onTabsChange={vi.fn()} onClose={vi.fn()} onFocus={vi.fn()} onOpenInNewPane={vi.fn()} />
+        </BridgeProvider>,
+      )
+      await waitFor(() => expect(screen.getByTestId('monaco-stub')).toHaveValue('hello'))
+      mountEditor()
+      await waitFor(() => expect(shikiMock.ensureLanguage).toHaveBeenCalledWith(fakeMonaco, 'ts'))
+      await waitFor(() => expect(monacoStub.lastLanguage).toBe('typescript'))
+    })
+
+    it('leaves Monaco language inference (Monarch) untouched when shiki fails', async () => {
+      shikiMock.ensureLanguage.mockResolvedValueOnce(null)
+      const { bridge } = makeMockBridge()
+      render(
+        <BridgeProvider value={bridge}>
+          <EditorPane pane={makePane()} onTabsChange={vi.fn()} onClose={vi.fn()} onFocus={vi.fn()} onOpenInNewPane={vi.fn()} />
+        </BridgeProvider>,
+      )
+      await waitFor(() => expect(screen.getByTestId('monaco-stub')).toHaveValue('hello'))
+      mountEditor()
+      await waitFor(() => expect(shikiMock.ensureLanguage).toHaveBeenCalled())
+      // sin lang de shiki, el modelo queda sin override y sigue editable
+      expect(monacoStub.lastLanguage).toBeUndefined()
+      expect(screen.getByTestId('monaco-stub')).toHaveValue('hello')
+    })
   })
 
   // Critical finding 1: save() must never write when the active tab's

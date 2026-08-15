@@ -3,6 +3,7 @@ import {
   extToLang,
   ensureLanguage,
   applyTheme,
+  isMonacoBuiltinTheme,
   BUNDLED_THEMES,
   __resetShikiForTests,
   type MonacoLike,
@@ -148,6 +149,15 @@ describe('applyTheme', () => {
     const monaco = makeMonaco()
     expect(await applyTheme(monaco, 'dracula')).toBe(false)
     expect(monaco.editor.setTheme).toHaveBeenCalledWith('vs-dark')
+  })
+})
+
+describe('isMonacoBuiltinTheme', () => {
+  it('recognizes the native monaco themes (no shiki involved)', () => {
+    expect(isMonacoBuiltinTheme('vs')).toBe(true)
+    expect(isMonacoBuiltinTheme('vs-dark')).toBe(true)
+    expect(isMonacoBuiltinTheme('hc-black')).toBe(true)
+    expect(isMonacoBuiltinTheme('dracula')).toBe(false)
   })
 })
 

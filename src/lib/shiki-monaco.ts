@@ -133,6 +133,10 @@ const EXT_TO_LANG: Record<string, string> = {
 // Temas nativos de Monaco: no pasan por shiki, setTheme directo.
 const MONACO_BUILTIN_THEMES = new Set(['vs', 'vs-dark', 'hc-black', 'hc-light'])
 
+export function isMonacoBuiltinTheme(name: string): boolean {
+  return MONACO_BUILTIN_THEMES.has(name)
+}
+
 export function extToLang(ext: string): string | null {
   return EXT_TO_LANG[ext.replace(/^\./, '').toLowerCase()] ?? null
 }
