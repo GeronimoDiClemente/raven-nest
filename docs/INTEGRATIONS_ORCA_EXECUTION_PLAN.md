@@ -44,8 +44,28 @@ Research reveló que C1/C3/C4 **ya existían** (scheduler + handler `scheduleBlo
 **B1+B2 hechos:** `electron/integrations/agent-status.ts` (`deriveAgentState` + `detectNeedsInput` conservador). Lógica pura, 21 tests. Commit `9deb408`. Typecheck sin regresión (47).
 **Deferido a fast-follow (requiere validación en vivo de la heurística antes de activar notificaciones — riesgo de spam a Slack):** el tick en main (muestrea panes + emite eventos con dedup por-transición), `lastOutputAt` en pty-manager, los 2 eventos de bus + recipes (B4), la UI `AgentDashboard` (B3) y la acción Slack (B5). Research completo en el backlog.
 
-### Fase 4 — Épica D · Fan-out race-and-merge (H12, L)
-Ver backlog D1-D4. Empezar por **D1** (multi-issue → multi-worktree, puro integrations, encaja con ticket-loop). D2 (race same-prompt) y D3 (UI comparación + merge/discard) son lo pesado; si el contexto/tiempo no alcanza, dejar D1 cerrado y D2/D3 planificados. Tests: extender `worktree-integration.test.ts` para D1.
+### Fase 4 — Épica D · Fan-out race-and-merge (H12, L) — ⬜ NO EMPEZADA (2026-08-15)
+Decisión deliberada: es la épica más grande y la más orientada a UI + orquestación de git (comparar N diffs + merge/discard), no lógica pura testeable — necesita validación visual en vivo + presupuesto que este run ya no tiene tras 3 épicas. Camino trazado en el backlog: empezar por **D1** (multi-issue → multi-worktree, reusa `ticketBranchName`/`runWorktreeAdd`/`ticketLoop`/`startWork`); D2/D3 con Gero presente para validar la UX del merge.
+
+---
+
+## Resumen del run autónomo (2026-08-15)
+
+| Fase | Estado | Commit(s) | Qué quedó |
+|------|--------|-----------|-----------|
+| 0 · Higiene + CLAUDE.md | ✅ | `01a178e` | 2 follow-ups cerrados (eran diseño intencional) + CLAUDE.md sincronizado con main (advertencia build.yml) |
+| 1 · A quota bar | ⛔ BLOCKED | `d469cfa` | Sin fuente local de cuota/reset en NINGÚN CLI → requiere decisión de producto de Gero |
+| 2 · C automations | ✅ DONE | `54baeec`,`6aa5dd9` | **C2 headless implementado** (`automation-runner.ts`, 27 tests) + wiring. C1/C3/C4 ya existían. Fast-follow: smoke test en vivo |
+| 3 · B agent-status | 🟡 PARCIAL | `9deb408`,`d9cb42b` | **B1+B2 módulo puro** (`agent-status.ts`, 21 tests). Tick/UI/bus = fast-follow (validar heurística antes de notificar) |
+| 4 · D fan-out | ⬜ NO EMPEZADA | — | La más grande, UI/git-heavy. Empezar por D1. |
+
+**Verificación:** typecheck 47 errores (baseline preexistente, 0 nuevos). Suites nuevas: automation-runner (27) + agent-status (21) verdes; scheduler (41) sin regresión. Todo pusheado a `origin/feat/integrations`. Nada a `main`, nada de releases (según lo acordado).
+
+**Lo que necesita a Gero (no era código autónomo):**
+1. **Épica A** — elegir approach (usage-counter Claude-only / parsear en vivo / esperar) o descartar.
+2. **C2 smoke test en vivo** en Windows (crear una automation Claude y ver que crea worktree, corre `claude -p` vía stdin, resume y limpia).
+3. **B** — validar la heurística `detectNeedsInput` contra CLIs reales antes de cablear el tick que notifica a Slack.
+4. Los 3 release-blockers de seguridad (Slack OAuth→Edge Function, gate Pro server-side, github_token RLS) siguen fuera de scope.
 
 ## Criterio de "hecho" por fase
 - Tests de la fase en verde + suite completa sin regresiones.
