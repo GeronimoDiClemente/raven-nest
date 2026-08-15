@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import Editor from '@monaco-editor/react'
 import { useBridge } from '../lib/bridge'
 import { FileIcon } from './ExplorerPanel'
+import { applyTheme, ensureLanguage, isMonacoBuiltinTheme } from '../lib/shiki-monaco'
+import type { MonacoLike } from '../lib/shiki-monaco'
 import type { EditorTab, PaneNode } from '../types'
 import type { EditorPreferences, EditorTheme } from '../lib/ide-config-mappings'
 
@@ -62,6 +64,47 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
   const pendingOpsRef = useRef(new Map<string, Promise<void>>())
   const eolRef = useRef<Record<string, '\n' | '\r\n'>>({})
   const containerRef = useRef<HTMLDivElement>(null)
+
+  // --- Shiki (tokenización TextMate + temas) -----------------------------
+  // La instancia de monaco recién existe en onMount; hasta entonces el prop
+  // `theme` del wrapper queda en un built-in seguro (ver themeForWrapper).
+  const monacoRef = useRef<MonacoLike | null>(null)
+  // ext → lang id de shiki, o null si esa ext quedó en Monarch (sin grammar
+  // o falla de carga). La presencia de la key evita relanzar el import.
+  const [shikiLangs, setShikiLangs] = useState<Record<string, string | null>>({})
+  const shikiLangsRef = useRef(shikiLangs)
+  shikiLangsRef.current = shikiLangs
+  const editorThemeRef = useRef(editorTheme)
+  editorThemeRef.current = editorTheme
+
+  const requestShikiLang = useCallback((relPath: string | undefined) => {
+    const monaco = monacoRef.current
+    if (!monaco || !relPath) return
+    const ext = relPath.split('.').pop() ?? ''
+    if (!ext || ext in shikiLangsRef.current) return
+    setShikiLangs((s) => ({ ...s, [ext]: null }))
+    ensureLanguage(monaco, ext).then((lang) => {
+      if (lang) setShikiLangs((s) => ({ ...s, [ext]: lang }))
+    })
+  }, [])
+
+  const handleEditorMount = useCallback((_editor: unknown, monaco: MonacoLike) => {
+    monacoRef.current = monaco
+    // applyTheme cae solo a vs-dark ante cualquier falla — el editor ya está
+    // usable con Monarch antes de que esto resuelva.
+    void applyTheme(monaco, editorThemeRef.current ?? 'vs-dark')
+    requestShikiLang(activePathRef.current)
+  }, [requestShikiLang])
+
+  useEffect(() => {
+    const monaco = monacoRef.current
+    if (!monaco) return
+    void applyTheme(monaco, editorTheme ?? 'vs-dark')
+  }, [editorTheme])
+
+  useEffect(() => {
+    requestShikiLang(activePath)
+  }, [activePath, requestShikiLang])
 
   const sequencedOp = useCallback((key: string, op: () => Promise<unknown>) => {
     const prior = pendingOpsRef.current.get(key) ?? Promise.resolve()
@@ -289,7 +332,15 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
           path={activePath}
           value={contents[activePath] ?? ''}
           onChange={(value) => handleChange(activePath, value)}
-          theme={editorTheme ?? 'vs-dark'}
+          // Con shiki cargado, el lenguaje del modelo pasa a ser el id que
+          // registró shikiToMonaco (p.ej. 'tsx'); si shiki no cargó queda
+          // undefined y Monaco infiere por extensión → Monarch, como antes.
+          language={(activePath.includes('.') ? shikiLangs[activePath.split('.').pop() ?? ''] : undefined) ?? undefined}
+          // El wrapper llama monaco.editor.setTheme(theme) por su cuenta; un
+          // nombre no registrado (tema shiki aún no cargado) lo haría tirar.
+          // Los no built-in los aplica applyTheme; acá va el fallback seguro.
+          theme={editorTheme && isMonacoBuiltinTheme(editorTheme) ? editorTheme : 'vs-dark'}
+          onMount={handleEditorMount}
           options={editorOptions}
         />
       )}

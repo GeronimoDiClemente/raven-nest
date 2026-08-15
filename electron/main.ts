@@ -127,6 +127,8 @@ import { BenchmarkRecorder } from './benchmark-recorder'
 import { getDiff } from './diff-engine'
 import { readFile as fsReadFile, writeFile as fsWriteFile, listDir as fsListDir, FsWatchRegistry } from './fs-bridge'
 import { importVSCodeConfig, importIntelliJConfig } from './ide-config-bridge'
+import { listInstalledThemes, saveInstalledTheme, deleteInstalledTheme, scanVSCodeThemes, importVSCodeTheme, searchOpenVSX, installOpenVSX } from './theme-bridge'
+import type { VSCodeThemeJson } from '../src/lib/theme-registry'
 import { detectIDEs, openInIDE, clearCache as clearIDECache } from './ide-launcher'
 import { MCPStore } from './mcp-store'
 import { SettingsStore } from './settings-store'
@@ -1720,6 +1722,35 @@ ipcMain.handle('ide-config:import', async (_evt, source: 'vscode' | 'intellij') 
   } catch (err) {
     return { ok: false as const, error: err instanceof Error ? err.message : String(err) }
   }
+})
+
+// Sistema de temas del editor. Los archivos de tema son per-device (como los
+// local-paths de v1.2); el NOMBRE seleccionado viaja por Supabase en
+// ui_settings.editorTheme. El scan de VS Code honra RAVEN_IDE_CONFIG_HOME
+// igual que ide-config:import para el aislamiento E2E.
+const themesDir = () => pathJoin(ravenHome(), '.raven-nest', 'themes')
+
+ipcMain.handle('themes:listInstalled', () => listInstalledThemes(themesDir()))
+ipcMain.handle('themes:saveInstalled', (_evt, displayName: string, theme: unknown) =>
+  saveInstalledTheme(themesDir(), displayName, theme as VSCodeThemeJson))
+ipcMain.handle('themes:deleteInstalled', (_evt, name: string) => deleteInstalledTheme(themesDir(), name))
+ipcMain.handle('themes:scanVSCode', () => scanVSCodeThemes(process.env.RAVEN_IDE_CONFIG_HOME ?? userHome()))
+ipcMain.handle('themes:importVSCode', (_evt, themePath: string) => importVSCodeTheme(themesDir(), themePath))
+ipcMain.handle('themes:searchOpenVSX', (_evt, query: string) => searchOpenVSX(String(query ?? '')))
+ipcMain.handle('themes:installOpenVSX', (_evt, namespace: string, name: string) =>
+  installOpenVSX(themesDir(), namespace, name))
+ipcMain.handle('themes:loadFromFile', async () => {
+  const win = BrowserWindow.getFocusedWindow()
+  const opts: Electron.OpenDialogOptions = {
+    filters: [{ name: 'VS Code theme', extensions: ['json'] }],
+    properties: ['openFile'],
+    title: 'Load a VS Code theme file',
+  }
+  const { filePaths, canceled } = win
+    ? await dialog.showOpenDialog(win, opts)
+    : await dialog.showOpenDialog(opts)
+  if (canceled || filePaths.length === 0) return null
+  return importVSCodeTheme(themesDir(), filePaths[0])
 })
 
 // Lightweight shortstat for the worktree sidebar chip. `git diff --shortstat`

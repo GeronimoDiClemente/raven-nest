@@ -41,9 +41,12 @@ export function useUserPreferences() {
   }, [])
 
   const updatePrefs = useCallback(async (updates: Partial<UserPreferences>) => {
-    if (!userId) return
+    // Sin usuario logueado (harness E2E, pre-login) el estado local se
+    // actualiza igual — la preferencia aplica en esta sesión; solo se saltea
+    // la persistencia en Supabase.
     const newPrefs = { ...prefs, ...updates }
     setPrefs(newPrefs)
+    if (!userId) return
     await supabase
       .from('user_preferences')
       .upsert({
@@ -78,7 +81,11 @@ export function useUserPreferences() {
     })
   }, [updatePrefs, prefs.ui_settings])
 
-  return { prefs, loaded, setActiveTeam, setFontSize, setEditorOptions }
+  const setEditorTheme = useCallback((theme: EditorTheme) => {
+    updatePrefs({ ui_settings: { ...prefs.ui_settings, editorTheme: theme } })
+  }, [updatePrefs, prefs.ui_settings])
+
+  return { prefs, loaded, setActiveTeam, setFontSize, setEditorOptions, setEditorTheme }
 }
 
 // A single shared instance of this hook must live in App.tsx and be passed

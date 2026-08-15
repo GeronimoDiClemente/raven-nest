@@ -32,7 +32,11 @@ export interface EditorPreferences {
   colorDecorators?: boolean
 }
 
-export type EditorTheme = 'vs' | 'vs-dark'
+// Antes era el union 'vs' | 'vs-dark' de Monaco pelado; con el sistema de
+// temas (theme-registry + shiki) el nombre puede ser cualquier tema bundled
+// o instalado. Un nombre desconocido al aplicar cae a 'vs-dark' (fallback en
+// shiki-monaco/EditorPane), así que el widening no rompe datos viejos.
+export type EditorTheme = string
 
 export type ParseResult =
   | { ok: true; options: EditorPreferences; theme?: EditorTheme; unmappedTheme?: string }

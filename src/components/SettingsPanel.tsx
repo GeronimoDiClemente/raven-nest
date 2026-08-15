@@ -7,6 +7,9 @@ import { useGitlab } from '../hooks/useGitlab'
 import type { UserPreferencesApi } from '../hooks/useUserPreferences'
 import { formatBinding, eventToBinding, Keybindings } from '../lib/keybindings'
 import type { EditorPreferences, EditorTheme } from '../lib/ide-config-mappings'
+import { BUNDLED_THEMES } from '../lib/shiki-monaco'
+import { matchThemeName } from '../lib/theme-registry'
+import type { InstalledThemeInfo, ScannedThemeInfo, OpenVSXThemeResult } from '../types'
 import { PresetEditor } from './PresetEditor'
 import { BenchmarkDashboard } from './BenchmarkDashboard'
 
@@ -91,9 +94,79 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
   const { settings, updateKeybinding, updateVoiceLanguage } = useSettings()
   const { isConnected: githubConnected, githubLogin, connectGitHub, disconnectGitHub } = useGitHub()
   const { isConnected: gitlabConnected, gitlabLogin, connectGitlab, disconnectGitlab } = useGitlab()
-  const [importPreview, setImportPreview] = useState<{ source: 'vscode' | 'intellij'; options: EditorPreferences; theme?: EditorTheme } | null>(null)
+  const [importPreview, setImportPreview] = useState<{ source: 'vscode' | 'intellij'; options: EditorPreferences; theme?: EditorTheme; unmappedTheme?: string } | null>(null)
   const [importError, setImportError] = useState<string | null>(null)
   const kb = settings.keybindings
+
+  // --- Sistema de temas del editor ---------------------------------------
+  const [installedThemes, setInstalledThemes] = useState<InstalledThemeInfo[]>([])
+  const [scannedThemes, setScannedThemes] = useState<ScannedThemeInfo[] | null>(null)
+  const [themeError, setThemeError] = useState<string | null>(null)
+  const [vsxOpen, setVsxOpen] = useState(false)
+  const [vsxQuery, setVsxQuery] = useState('')
+  const [vsxResults, setVsxResults] = useState<OpenVSXThemeResult[] | null>(null)
+  const [vsxError, setVsxError] = useState<string | null>(null)
+  const [vsxBusy, setVsxBusy] = useState(false)
+
+  const refreshInstalledThemes = useCallback(async () => {
+    try {
+      setInstalledThemes(await window.themes.listInstalled())
+    } catch {
+      // sin bridge (o falla IPC): el selector muestra solo built-in + bundled
+    }
+  }, [])
+
+  useEffect(() => {
+    if (open && tab === 'editor') void refreshInstalledThemes()
+  }, [open, tab, refreshInstalledThemes])
+
+  const handleScanVSCodeThemes = useCallback(async () => {
+    setThemeError(null)
+    setScannedThemes(null)
+    const res = await window.themes.scanVSCode()
+    if (!res.ok) { setThemeError(res.error); return }
+    setScannedThemes(res.themes)
+  }, [])
+
+  const handleInstallScanned = useCallback(async (path: string) => {
+    setThemeError(null)
+    const res = await window.themes.importVSCode(path)
+    if (!res.ok) { setThemeError(res.error); return }
+    await refreshInstalledThemes()
+  }, [refreshInstalledThemes])
+
+  const handleLoadThemeFile = useCallback(async () => {
+    setThemeError(null)
+    const res = await window.themes.loadFromFile()
+    if (res === null) return  // diálogo cancelado
+    if (!res.ok) { setThemeError(res.error); return }
+    await refreshInstalledThemes()
+  }, [refreshInstalledThemes])
+
+  const handleVsxSearch = useCallback(async () => {
+    setVsxError(null)
+    setVsxResults(null)
+    setVsxBusy(true)
+    try {
+      const res = await window.themes.searchOpenVSX(vsxQuery)
+      if (!res.ok) { setVsxError(res.error); return }
+      setVsxResults(res.results)
+    } finally {
+      setVsxBusy(false)
+    }
+  }, [vsxQuery])
+
+  const handleVsxInstall = useCallback(async (namespace: string, name: string) => {
+    setVsxError(null)
+    setVsxBusy(true)
+    try {
+      const res = await window.themes.installOpenVSX(namespace, name)
+      if (!res.ok) { setVsxError(res.error); return }
+      await refreshInstalledThemes()
+    } finally {
+      setVsxBusy(false)
+    }
+  }, [refreshInstalledThemes])
 
   const handleImportEditorConfig = useCallback(async (source: 'vscode' | 'intellij') => {
     setImportError(null)
@@ -103,14 +176,21 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
       setImportError(result.error)
       return
     }
-    setImportPreview({ source, options: result.options, theme: result.theme })
+    setImportPreview({ source, options: result.options, theme: result.theme, unmappedTheme: result.unmappedTheme })
   }, [])
 
   const confirmImportEditorConfig = useCallback(() => {
     if (!importPreview) return
-    userPrefs.setEditorOptions(importPreview.options, importPreview.theme)
+    // unmappedTheme (workbench.colorTheme que no era vs/vs-dark): si matchea
+    // un tema bundled o instalado, se aplica directo — cierra el loop que el
+    // import de config dejaba abierto.
+    const theme = importPreview.theme
+      ?? (importPreview.unmappedTheme
+        ? matchThemeName(importPreview.unmappedTheme, [...BUNDLED_THEMES, ...installedThemes])
+        : undefined)
+    userPrefs.setEditorOptions(importPreview.options, theme)
     setImportPreview(null)
-  }, [importPreview, userPrefs])
+  }, [importPreview, userPrefs, installedThemes])
 
   useEffect(() => {
     if (!open) return
@@ -302,6 +382,79 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
 
               {tab === 'editor' && (
                 <div className="sp-section">
+                  <div className="sp-row">
+                    <span className="sp-row-label">Theme</span>
+                    <select
+                      className="sp-select"
+                      data-testid="theme-select"
+                      value={userPrefs.prefs.ui_settings.editorTheme ?? 'vs-dark'}
+                      onChange={e => userPrefs.setEditorTheme(e.target.value)}
+                    >
+                      <optgroup label="Built-in">
+                        <option value="vs-dark">Dark (Monaco)</option>
+                        <option value="vs">Light (Monaco)</option>
+                      </optgroup>
+                      <optgroup label="Bundled">
+                        {BUNDLED_THEMES.map(t => (
+                          <option key={t.name} value={t.name}>{t.displayName}</option>
+                        ))}
+                      </optgroup>
+                      <optgroup label="Installed">
+                        {installedThemes.map(t => (
+                          <option key={t.name} value={t.name}>{t.displayName}</option>
+                        ))}
+                      </optgroup>
+                    </select>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, margin: '10px 0' }}>
+                    <button className="sp-action-btn" onClick={handleScanVSCodeThemes}>Import themes from VS Code</button>
+                    <button className="sp-action-btn" onClick={handleLoadThemeFile}>Load theme file…</button>
+                    <button className="sp-action-btn" onClick={() => setVsxOpen(v => !v)}>Browse Open VSX…</button>
+                  </div>
+                  {themeError && <p style={{ color: '#ef4444', fontSize: 12 }}>{themeError}</p>}
+                  {scannedThemes && (
+                    <div data-testid="scanned-themes">
+                      {scannedThemes.length === 0 && (
+                        <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>No themes found in your VS Code extensions.</p>
+                      )}
+                      {scannedThemes.map(t => (
+                        <div key={t.path} className="sp-row">
+                          <span className="sp-row-label">{t.label}</span>
+                          <button className="sp-action-btn" onClick={() => handleInstallScanned(t.path)}>Install</button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {vsxOpen && (
+                    <div data-testid="openvsx-browser">
+                      <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                        <input
+                          className="sp-select"
+                          style={{ flex: 1 }}
+                          placeholder="Search themes on Open VSX"
+                          value={vsxQuery}
+                          onChange={e => setVsxQuery(e.target.value)}
+                          onKeyDown={e => { if (e.key === 'Enter') void handleVsxSearch() }}
+                        />
+                        <button className="sp-action-btn" onClick={handleVsxSearch} disabled={vsxBusy}>Search</button>
+                      </div>
+                      {vsxError && <p style={{ color: '#ef4444', fontSize: 12 }}>{vsxError}</p>}
+                      {vsxResults && vsxResults.length === 0 && (
+                        <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>No theme extensions matched your search.</p>
+                      )}
+                      {vsxResults?.map(r => (
+                        <div key={`${r.namespace}.${r.name}`} className="sp-row">
+                          <span className="sp-row-label" title={r.description}>{r.displayName}</span>
+                          <button
+                            className="sp-action-btn"
+                            disabled={vsxBusy}
+                            onClick={() => handleVsxInstall(r.namespace, r.name)}
+                          >Install</button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div className="sp-divider" />
                   <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '0 0 12px' }}>
                     Import your editor preferences from VS Code or IntelliJ.
                   </p>
