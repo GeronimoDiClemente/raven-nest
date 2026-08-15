@@ -69,24 +69,65 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
   // La instancia de monaco recién existe en onMount; hasta entonces el prop
   // `theme` del wrapper queda en un built-in seguro (ver themeForWrapper).
   const monacoRef = useRef<MonacoLike | null>(null)
-  // ext → lang id de shiki, o null si esa ext quedó en Monarch (sin grammar
-  // o falla de carga). La presencia de la key evita relanzar el import.
-  const [shikiLangs, setShikiLangs] = useState<Record<string, string | null>>({})
-  const shikiLangsRef = useRef(shikiLangs)
-  shikiLangsRef.current = shikiLangs
+  // ext → lang id de shiki, 'pending' mientras carga, o null si esa ext quedó
+  // en Monarch (sin grammar o falla de carga). Es un REF, nunca state: un
+  // state acá re-renderizaba al resolver el import y @monaco-editor/react
+  // pisaba el buffer del editor con el prop `value` atrasado en medio del
+  // tipeo — se comía keystrokes. El lenguaje se aplica imperativamente vía
+  // setModelLanguage (preserva buffer y cursor), jamás por el prop `language`.
+  const shikiLangsRef = useRef<Record<string, string | null | 'pending'>>({})
   const editorThemeRef = useRef(editorTheme)
   editorThemeRef.current = editorTheme
+
+  const applyShikiLang = useCallback((ext: string, lang: string) => {
+    const monaco = monacoRef.current
+    if (!monaco) return
+    for (const model of monaco.editor.getModels()) {
+      if (model.uri.path.endsWith(`.${ext}`)) monaco.editor.setModelLanguage(model, lang)
+    }
+  }, [])
+
+  // Monaco corre NO-controlado (defaultValue): pasar `value` por keystroke
+  // deja una race — el onChange de Monaco programa un setContents, el commit
+  // de React se difiere (p.ej. shiki tokenizando en el main thread), el
+  // usuario mete otra tecla, y el wrapper pisa el buffer con el prop viejo
+  // (keystroke comido; visto como '#edited' en E2E). Las escrituras al
+  // modelo van imperativas y SOLO en cargas/recargas de disco.
+  const setModelText = useCallback((relPath: string, text: string) => {
+    const monaco = monacoRef.current
+    if (!monaco) return
+    const model = monaco.editor.getModels().find(
+      (m) => m.uri.path === relPath || m.uri.path.endsWith(`/${relPath}`),
+    )
+    if (model && model.getValue() !== text) model.setValue(text)
+  }, [])
+
+  // Contador monotónico de ediciones por path. Las cargas de disco lo
+  // capturan al DESPACHAR la lectura y lo re-chequean al resolver: si el
+  // usuario tipeó en el medio, el buffer del editor es la verdad y el
+  // resultado de esa lectura se descarta (pisarlo comería keystrokes).
+  // "Tab dirty" no sirve como guarda: una tab restaurada dirty desde el
+  // estado persistido TIENE que cargar de disco en el mount.
+  const editSeqRef = useRef<Record<string, number>>({})
 
   const requestShikiLang = useCallback((relPath: string | undefined) => {
     const monaco = monacoRef.current
     if (!monaco || !relPath) return
     const ext = relPath.split('.').pop() ?? ''
-    if (!ext || ext in shikiLangsRef.current) return
-    setShikiLangs((s) => ({ ...s, [ext]: null }))
+    if (!ext) return
+    const known = shikiLangsRef.current[ext]
+    if (known === 'pending' || known === null) return
+    if (typeof known === 'string') {
+      // Grammar ya cargada: re-aplicar por si el modelo de esta tab es nuevo.
+      applyShikiLang(ext, known)
+      return
+    }
+    shikiLangsRef.current[ext] = 'pending'
     ensureLanguage(monaco, ext).then((lang) => {
-      if (lang) setShikiLangs((s) => ({ ...s, [ext]: lang }))
+      shikiLangsRef.current[ext] = lang
+      if (lang) applyShikiLang(ext, lang)
     })
-  }, [])
+  }, [applyShikiLang])
 
   const handleEditorMount = useCallback((_editor: unknown, monaco: MonacoLike) => {
     monacoRef.current = monaco
@@ -125,10 +166,15 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
     if (!worktreePath) return
     tabs.forEach((tab) => {
       if (contentsRef.current[tab.relPath] !== undefined) return
+      const seqAtDispatch = editSeqRef.current[tab.relPath] ?? 0
       bridge.fs.readFile(worktreePath, tab.relPath).then((res) => {
+        // Si el usuario tipeó mientras esta lectura estaba en vuelo, el
+        // buffer del editor es la verdad — no pisarlo con lo (viejo) del disco.
+        if ((editSeqRef.current[tab.relPath] ?? 0) !== seqAtDispatch) return
         if (res.ok) {
           eolRef.current[tab.relPath] = detectEol(res.content)
           setContents((c) => ({ ...c, [tab.relPath]: res.content }))
+          setModelText(tab.relPath, res.content)
           setLoadErrors((e) => { const { [tab.relPath]: _drop, ...rest } = e; return rest })
         } else {
           setLoadErrors((e) => ({ ...e, [tab.relPath]: res.error }))
@@ -149,10 +195,19 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
         setConflicts((c) => ({ ...c, [relPath]: true }))
         return
       }
+      const seqAtDispatch = editSeqRef.current[relPath] ?? 0
       bridge.fs.readFile(worktreePath, relPath).then((res) => {
+        // Se re-chequea al RESOLVER: el chequeo de dirty de arriba corre
+        // antes del round-trip de lectura y el usuario pudo tipear en el
+        // medio — en ese caso esto ES un conflicto edits-vs-disco.
+        if ((editSeqRef.current[relPath] ?? 0) !== seqAtDispatch) {
+          setConflicts((c) => ({ ...c, [relPath]: true }))
+          return
+        }
         if (res.ok) {
           eolRef.current[relPath] = detectEol(res.content)
           setContents((c) => ({ ...c, [relPath]: res.content }))
+          setModelText(relPath, res.content)
           setLoadErrors((e) => { const { [relPath]: _drop, ...rest } = e; return rest })
         } else {
           // Most commonly ENOENT — the file (or its whole worktree) was
@@ -186,6 +241,7 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
   }, [onTabsChange])
 
   const handleChange = useCallback((relPath: string, value: string | undefined) => {
+    editSeqRef.current[relPath] = (editSeqRef.current[relPath] ?? 0) + 1
     const eol = eolRef.current[relPath] ?? '\n'
     setContents((c) => ({ ...c, [relPath]: normalizeEol(value ?? '', eol) }))
     // Only flip dirty (and thus only churn a new tabs array reference via
@@ -233,6 +289,7 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
     if (res.ok) {
       eolRef.current[relPath] = detectEol(res.content)
       setContents((c) => ({ ...c, [relPath]: res.content }))
+      setModelText(relPath, res.content)
       setConflicts((c) => ({ ...c, [relPath]: false }))
       setDirty(relPath, false)
     } else {
@@ -330,12 +387,11 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
       ) : activePath && (
         <Editor
           path={activePath}
-          value={contents[activePath] ?? ''}
+          defaultValue={contents[activePath] ?? ''}
           onChange={(value) => handleChange(activePath, value)}
           // Con shiki cargado, el lenguaje del modelo pasa a ser el id que
           // registró shikiToMonaco (p.ej. 'tsx'); si shiki no cargó queda
           // undefined y Monaco infiere por extensión → Monarch, como antes.
-          language={(activePath.includes('.') ? shikiLangs[activePath.split('.').pop() ?? ''] : undefined) ?? undefined}
           // El wrapper llama monaco.editor.setTheme(theme) por su cuenta; un
           // nombre no registrado (tema shiki aún no cargado) lo haría tirar.
           // Los no built-in los aplica applyTheme; acá va el fallback seguro.

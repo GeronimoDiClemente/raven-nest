@@ -9,8 +9,17 @@ import type { InstalledThemeInfo } from '../types'
 
 // Subconjunto de la API de monaco que se usa acá — evita acoplar este módulo
 // al import runtime de 'monaco-editor' (llega como instancia desde onMount).
+export interface MonacoTextModel {
+  uri: { path: string }
+  getValue: () => string
+  setValue: (text: string) => void
+}
 export interface MonacoLike {
-  editor: { setTheme: (name: string) => void }
+  editor: {
+    setTheme: (name: string) => void
+    getModels: () => MonacoTextModel[]
+    setModelLanguage: (model: MonacoTextModel, lang: string) => void
+  }
 }
 
 export interface BundledThemeInfo {

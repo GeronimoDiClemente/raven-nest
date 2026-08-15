@@ -20,13 +20,16 @@ const monacoStub = vi.hoisted(() => ({
 }))
 
 vi.mock('@monaco-editor/react', () => ({
-  default: ({ value, onChange, options, theme, language, onMount }: { value: string; onChange: (v: string | undefined) => void; options?: unknown; theme?: string; language?: string; onMount?: (editor: unknown, monaco: unknown) => void }) => {
+  // El componente real corre NO-controlado (defaultValue) — el stub refleja
+  // el prop en cada re-render para que los tests puedan asertar contenido
+  // tras cargas/recargas (que en producción llegan vía setModelText).
+  default: ({ defaultValue, onChange, options, theme, language, onMount }: { defaultValue: string; onChange: (v: string | undefined) => void; options?: unknown; theme?: string; language?: string; onMount?: (editor: unknown, monaco: unknown) => void }) => {
     monacoStub.latestOnChange = onChange
     monacoStub.lastOptions = options
     monacoStub.lastTheme = theme
     monacoStub.lastLanguage = language
     monacoStub.latestOnMount = onMount ?? null
-    return <textarea data-testid="monaco-stub" value={value} onChange={(e) => onChange(e.target.value)} />
+    return <textarea data-testid="monaco-stub" value={defaultValue} onChange={(e) => onChange(e.target.value)} />
   },
 }))
 
@@ -429,7 +432,14 @@ describe('EditorPane', () => {
   })
 
   describe('shiki theming', () => {
-    const fakeMonaco = { editor: { setTheme: vi.fn() } }
+    const fakeModel = { uri: { path: '/a.ts' }, getValue: vi.fn(() => 'hello'), setValue: vi.fn() }
+    const fakeMonaco = {
+      editor: {
+        setTheme: vi.fn(),
+        getModels: vi.fn(() => [fakeModel]),
+        setModelLanguage: vi.fn(),
+      },
+    }
 
     function mountEditor() {
       // El stub de <Editor> capturó onMount; se dispara a mano simulando el
@@ -481,7 +491,7 @@ describe('EditorPane', () => {
       expect(monacoStub.lastTheme).toBe('vs')
     })
 
-    it('loads the shiki grammar for the active file and hands the language to Monaco', async () => {
+    it('loads the shiki grammar and applies it to the model IMPERATIVELY (never via the language prop)', async () => {
       const { bridge } = makeMockBridge()
       render(
         <BridgeProvider value={bridge}>
@@ -491,7 +501,12 @@ describe('EditorPane', () => {
       await waitFor(() => expect(screen.getByTestId('monaco-stub')).toHaveValue('hello'))
       mountEditor()
       await waitFor(() => expect(shikiMock.ensureLanguage).toHaveBeenCalledWith(fakeMonaco, 'ts'))
-      await waitFor(() => expect(monacoStub.lastLanguage).toBe('typescript'))
+      // La aplicación va por setModelLanguage (preserva buffer y cursor).
+      // El prop `language` NUNCA debe flipear post-mount: ese flip re-renderiza
+      // en medio del tipeo y @monaco-editor/react pisa el buffer con el prop
+      // `value` atrasado — se comía keystrokes (visto como '#edited' en E2E).
+      await waitFor(() => expect(fakeMonaco.editor.setModelLanguage).toHaveBeenCalledWith(fakeModel, 'typescript'))
+      expect(monacoStub.lastLanguage).toBeUndefined()
     })
 
     it('leaves Monaco language inference (Monarch) untouched when shiki fails', async () => {
@@ -506,6 +521,7 @@ describe('EditorPane', () => {
       mountEditor()
       await waitFor(() => expect(shikiMock.ensureLanguage).toHaveBeenCalled())
       // sin lang de shiki, el modelo queda sin override y sigue editable
+      expect(fakeMonaco.editor.setModelLanguage).not.toHaveBeenCalled()
       expect(monacoStub.lastLanguage).toBeUndefined()
       expect(screen.getByTestId('monaco-stub')).toHaveValue('hello')
     })
