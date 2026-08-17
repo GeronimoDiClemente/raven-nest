@@ -87,6 +87,46 @@ export interface ReviewRequestedEvent {
   prTitle: string
 }
 
+// Graph orchestration — a role-graph runs per ticket (Architect → Coder → N
+// Reviewers → Gate → Tester). The runner emits these on node/gate transitions;
+// recipes map the human-facing ones (needs_input / gate_blocked / completed)
+// to `notify` so the team sees them without the app open (diferencial vs Orca).
+export interface GraphNodeStartedEvent {
+  type: 'graph.node_started'
+  ticketId: string
+  nodeId: string
+  role: string
+}
+
+export interface GraphNodeDoneEvent {
+  type: 'graph.node_done'
+  ticketId: string
+  nodeId: string
+  role: string
+  summary?: string
+}
+
+export interface GraphNodeNeedsInputEvent {
+  type: 'graph.node_needs_input'
+  ticketId: string
+  nodeId: string
+  role: string
+  question?: string
+}
+
+export interface GraphGateBlockedEvent {
+  type: 'graph.gate_blocked'
+  ticketId: string
+  gateId: string
+  blockedBy: string[]
+}
+
+export interface GraphCompletedEvent {
+  type: 'graph.completed'
+  ticketId: string
+  templateId: string
+}
+
 export type DomainEvent =
   | TaskCreatedEvent
   | SessionOpenedEvent
@@ -99,6 +139,11 @@ export type DomainEvent =
   | MeetingTranscribedEvent
   | ChangesRequestedEvent
   | ReviewRequestedEvent
+  | GraphNodeStartedEvent
+  | GraphNodeDoneEvent
+  | GraphNodeNeedsInputEvent
+  | GraphGateBlockedEvent
+  | GraphCompletedEvent
 
 // ── Comandos (unión discriminada por `cmd`) ─────────────────────────────────
 
@@ -209,6 +254,17 @@ export function isDomainEvent(x: unknown): x is DomainEvent {
       return isStr(e.branch) && isStr(e.repoFullName) && typeof e.prNumber === 'number'
     case 'review.requested':
       return isStr(e.repoFullName) && typeof e.prNumber === 'number' && isStr(e.prTitle)
+    case 'graph.node_started':
+      return isStr(e.ticketId) && isStr(e.nodeId) && isStr(e.role)
+    case 'graph.node_done':
+      return isStr(e.ticketId) && isStr(e.nodeId) && isStr(e.role) && optStr(e.summary)
+    case 'graph.node_needs_input':
+      return isStr(e.ticketId) && isStr(e.nodeId) && isStr(e.role) && optStr(e.question)
+    case 'graph.gate_blocked':
+      return isStr(e.ticketId) && isStr(e.gateId)
+        && Array.isArray(e.blockedBy) && e.blockedBy.every(isStr)
+    case 'graph.completed':
+      return isStr(e.ticketId) && isStr(e.templateId)
     default:
       return false
   }

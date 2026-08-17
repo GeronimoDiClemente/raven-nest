@@ -20,6 +20,13 @@ const events: DomainEvent[] = [
   { type: 'block.started', label: 'deep work' },
   { type: 'block.started', taskId: 't1', label: 'deep work' },
   { type: 'meeting.transcribed', title: 'standup', items: ['a', 'b'] },
+  { type: 'graph.node_started', ticketId: 't1', nodeId: 'coder', role: 'coder' },
+  { type: 'graph.node_done', ticketId: 't1', nodeId: 'coder', role: 'coder' },
+  { type: 'graph.node_done', ticketId: 't1', nodeId: 'coder', role: 'coder', summary: '2 files' },
+  { type: 'graph.node_needs_input', ticketId: 't1', nodeId: 'rev-perf', role: 'reviewer' },
+  { type: 'graph.node_needs_input', ticketId: 't1', nodeId: 'rev-perf', role: 'reviewer', question: 'ttl?' },
+  { type: 'graph.gate_blocked', ticketId: 't1', gateId: 'gate', blockedBy: ['rev-perf'] },
+  { type: 'graph.completed', ticketId: 't1', templateId: 'full' },
 ]
 
 const commands: Command[] = [
@@ -49,6 +56,14 @@ describe('isDomainEvent', () => {
   it('rechaza un type desconocido', () => {
     expect(isDomainEvent({ type: 'pr.reopened', branch: 'b', repoFullName: 'o/r' })).toBe(false)
     expect(isDomainEvent({ branch: 'b' })).toBe(false)
+  })
+
+  it('rechaza graph events con campos faltantes o mal tipados', () => {
+    expect(isDomainEvent({ type: 'graph.node_started', ticketId: 't', nodeId: 'n' })).toBe(false) // falta role
+    expect(isDomainEvent({ type: 'graph.node_needs_input', ticketId: 't', nodeId: 'n', role: 'reviewer', question: 5 })).toBe(false) // question mal tipado
+    expect(isDomainEvent({ type: 'graph.gate_blocked', ticketId: 't', gateId: 'g', blockedBy: 'x' })).toBe(false) // blockedBy no-array
+    expect(isDomainEvent({ type: 'graph.gate_blocked', ticketId: 't', gateId: 'g', blockedBy: [1, 2] })).toBe(false) // blockedBy no-string
+    expect(isDomainEvent({ type: 'graph.completed', ticketId: 't' })).toBe(false) // falta templateId
   })
 
   it('rechaza eventos con campos requeridos faltantes o mal tipados', () => {
