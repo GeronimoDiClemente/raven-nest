@@ -112,7 +112,7 @@ describe('loadRecipes / saveRecipes', () => {
       { cmd: 'updateStatus', pluginId: 'jira', providerId: 'ISSUE-9', to: 'in_review' },
     ])
     expect(recipes.map((x) => x.when).sort()).toEqual(
-      ['changes.requested', 'ci.failed', 'pr.merged', 'pr.merged', 'pr.merged', 'pr.opened', 'review.requested', 'session.opened', 'task.created'],
+      ['changes.requested', 'ci.failed', 'graph.completed', 'graph.completed', 'graph.gate_blocked', 'graph.node_needs_input', 'pr.merged', 'pr.merged', 'pr.merged', 'pr.opened', 'review.requested', 'session.opened', 'task.created'],
     )
   })
 
@@ -142,7 +142,7 @@ describe('loadRecipes / saveRecipes', () => {
     const recipes = loadRecipes(file, lookup)
     expect(warn).toHaveBeenCalled()
     expect(recipes.map((x) => x.when).sort()).toEqual(
-      ['changes.requested', 'ci.failed', 'pr.merged', 'pr.merged', 'pr.merged', 'pr.opened', 'review.requested', 'session.opened', 'task.created'],
+      ['changes.requested', 'ci.failed', 'graph.completed', 'graph.completed', 'graph.gate_blocked', 'graph.node_needs_input', 'pr.merged', 'pr.merged', 'pr.merged', 'pr.opened', 'review.requested', 'session.opened', 'task.created'],
     )
   })
 
@@ -189,6 +189,9 @@ describe('recipeDescriptors (Recipes tab, read-only — Plan 5 Task 1)', () => {
       { id: 'default:changes.requested', when: 'changes.requested', commands: ['notify #channel'] },
       { id: 'default:review.requested', when: 'review.requested', commands: ['notify #channel'] },
       { id: 'default:session.opened', when: 'session.opened', commands: ['setPresence'] },
+      { id: 'default:graph.node_needs_input', when: 'graph.node_needs_input', commands: ['notify #channel'] },
+      { id: 'default:graph.gate_blocked', when: 'graph.gate_blocked', commands: ['notify #channel'] },
+      { id: 'default:graph.completed', when: 'graph.completed', commands: ['notify #channel', 'logOutcome'] },
     ])
     // task.created→noop no emite comandos: no tiene fila (nada que mostrar)
     expect(descriptors.some((d) => d.when === 'task.created')).toBe(false)

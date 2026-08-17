@@ -124,6 +124,41 @@ export function defaultRecipes(lookup: TrackedLookup): Recipe[] {
         return [{ cmd: 'logOutcome', ref: e.branch, summary: `🪺 Nest: merge en ${e.repoFullName} (${e.branch})` }]
       },
     },
+    // Graph orchestration — cada transición que necesita al humano o cierra el
+    // grafo sale al Slack del equipo (el diferencial vs Orca: te enterás sin la
+    // app abierta). `channel` vacío → lo resuelve handleNotify desde config.
+    {
+      id: 'graph:node_needs_input→notify',
+      when: 'graph.node_needs_input',
+      then: (ev) => {
+        const e = ev as { role: string; nodeId: string; question?: string }
+        return [{ cmd: 'notify', channel: '', message: `🙋 El nodo ${e.role} (${e.nodeId}) te espera${e.question ? `: ${e.question}` : ''}` }]
+      },
+    },
+    {
+      id: 'graph:gate_blocked→notify',
+      when: 'graph.gate_blocked',
+      then: (ev) => {
+        const e = ev as { gateId: string; blockedBy: string[] }
+        return [{ cmd: 'notify', channel: '', message: `⛔ Gate ${e.gateId} bloqueado por ${e.blockedBy.join(', ')}` }]
+      },
+    },
+    {
+      id: 'graph:completed→notify',
+      when: 'graph.completed',
+      then: (ev) => {
+        const e = ev as { ticketId: string; templateId: string }
+        return [{ cmd: 'notify', channel: '', message: `✅ Grafo completado para ${e.ticketId} (${e.templateId})` }]
+      },
+    },
+    {
+      id: 'graph:completed→logOutcome',
+      when: 'graph.completed',
+      then: (ev) => {
+        const e = ev as { ticketId: string; templateId: string }
+        return [{ cmd: 'logOutcome', ref: e.ticketId, summary: `🪺 Nest: grafo ${e.templateId} completado (${e.ticketId})` }]
+      },
+    },
   ]
 }
 
@@ -287,6 +322,10 @@ const DEFAULT_RECIPE_COMMANDS: ReadonlyArray<{ when: DomainEvent['type']; cmd: C
   { when: 'review.requested', cmd: { cmd: 'notify', channel: '', message: '' } },
   { when: 'session.opened', cmd: { cmd: 'setPresence', text: '' } },
   { when: 'pr.merged', cmd: { cmd: 'logOutcome', ref: '', summary: '' } },
+  { when: 'graph.node_needs_input', cmd: { cmd: 'notify', channel: '', message: '' } },
+  { when: 'graph.gate_blocked', cmd: { cmd: 'notify', channel: '', message: '' } },
+  { when: 'graph.completed', cmd: { cmd: 'notify', channel: '', message: '' } },
+  { when: 'graph.completed', cmd: { cmd: 'logOutcome', ref: '', summary: '' } },
 ]
 
 /** Groups DEFAULT_RECIPE_COMMANDS by `when` (first-seen order) into one descriptor per event. */
