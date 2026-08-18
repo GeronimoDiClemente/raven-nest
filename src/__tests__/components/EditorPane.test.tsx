@@ -338,6 +338,33 @@ describe('Open in new pane con cambios sin guardar', () => {
     expect(onFileDropped).toHaveBeenCalledWith('src/nuevo.ts')
   })
 
+  // El pane destino puede REMONTARSE entero (la remoción del pane origen
+  // cambia el layout y React desmonta/remonta al superviviente): el handoff
+  // se consume en el primer commit pero onMount de Monaco llega en un
+  // segundo commit — el modelo nace viejo/vacío. El mount debe volcar el
+  // estado `contents` (la verdad) al modelo activo.
+  it('flushes already-loaded content into the model when Monaco mounts late', async () => {
+    __resetHandoffForTests()
+    stashTabBuffer('/repo', 'a.ts', { content: 'buffer que llego antes que Monaco', eol: '\n', dirty: true })
+    const { bridge } = makeMockBridge()
+    render(
+      <BridgeProvider value={bridge}>
+        <EditorPane
+          pane={makePane({ editorTabs: [{ relPath: 'a.ts', dirty: true }], activeEditorTabPath: 'a.ts' })}
+          onTabsChange={vi.fn()} onClose={vi.fn()} onFocus={vi.fn()} onOpenInNewPane={vi.fn()}
+        />
+      </BridgeProvider>,
+    )
+    // handoff consumido con monacoRef todavía null…
+    await waitFor(() => expect(screen.getByTestId('monaco-stub')).toHaveValue('buffer que llego antes que Monaco'))
+    // …y recién ahora monta Monaco (segundo commit del wrapper real)
+    let value = 'contenido viejo del modelo global'
+    const model = { uri: { path: '/a.ts' }, getValue: () => value, setValue: vi.fn((v: string) => { value = v }) }
+    const monaco = { editor: { setTheme: vi.fn(), getModels: vi.fn(() => [model]), setModelLanguage: vi.fn() } }
+    act(() => { monacoStub.latestOnMount?.({}, monaco) })
+    expect(model.setValue).toHaveBeenCalledWith('buffer que llego antes que Monaco')
+  })
+
   it('a moved-in tab consumes the stashed buffer instead of reading disk', async () => {
     __resetHandoffForTests()
     stashTabBuffer('/repo', 'a.ts', { content: 'buffer mudado sin guardar', eol: '\n', dirty: true })

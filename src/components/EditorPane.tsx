@@ -156,7 +156,19 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
     // usable con Monarch antes de que esto resuelva.
     void applyTheme(monaco, editorThemeRef.current ?? 'vs-dark')
     requestShikiLang(activePathRef.current)
-  }, [requestShikiLang])
+    // El wrapper dispara onMount en un SEGUNDO commit (flip interno de
+    // isEditorReady): cualquier carga que resolvió en el primero — un
+    // handoff consumido tras el remount del pane (la remoción de un pane
+    // vecino cambia el layout y React remonta al superviviente) — escribió
+    // `contents` con monacoRef aún null y nunca llegó al modelo, que pudo
+    // nacer vacío o con contenido viejo del registro global de Monaco.
+    // `contents` es la verdad: volcarla al modelo activo.
+    const active = activePathRef.current
+    if (active !== undefined) {
+      const loaded = contentsRef.current[active]
+      if (loaded !== undefined) setModelText(active, loaded)
+    }
+  }, [requestShikiLang, setModelText])
 
   useEffect(() => {
     const monaco = monacoRef.current
