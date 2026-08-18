@@ -45,6 +45,18 @@ contextBridge.exposeInMainWorld('handoff', {
   write: (worktreePath: string, content: string) => ipcRenderer.invoke('handoff:write', worktreePath, content),
 })
 
+contextBridge.exposeInMainWorld('graphTemplates', {
+  list: () => ipcRenderer.invoke('graph:templates:list'),
+  save: (input: unknown) => ipcRenderer.invoke('graph:templates:save', input),
+  delete: (id: string) => ipcRenderer.invoke('graph:templates:delete', id),
+})
+
+contextBridge.exposeInMainWorld('graphRuns', {
+  list: () => ipcRenderer.invoke('graph:runs:list'),
+  start: (input: unknown) => ipcRenderer.invoke('graph:run:start', input),
+  attach: (runId: string, nodeId: string) => ipcRenderer.invoke('graph:node:attach', runId, nodeId),
+})
+
 contextBridge.exposeInMainWorld('dialog', {
   openFolder: () => ipcRenderer.invoke('dialog:openFolder'),
 })

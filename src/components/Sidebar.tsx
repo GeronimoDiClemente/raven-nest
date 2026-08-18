@@ -43,6 +43,7 @@ interface Props {
   pendingInvitesCount?: number
   onMyReposOpen?: () => void
   onIntegrationsOpen?: () => void
+  onGraphBoardOpen?: () => void
   plan?: 'free' | 'pro' | 'team' | 'enterprise'
   repoPath?: string
   onRepoLink: () => void
@@ -66,7 +67,7 @@ export default function Sidebar({
   isListening, isTranscribing, isModelLoading, onMicToggle,
   onNewPane, onHistoryOpen,
   onSnippetSend, onSnippetBroadcast, onCommandRun, onWorkspaceSave, onWorkspaceLoad, isWin,
-  isTrialActive, trialDaysLeft, profileLoading, onUpgrade, onTeamsOpen, pendingInvitesCount = 0, onMyReposOpen, onIntegrationsOpen, plan, repoPath, onRepoLink, onRepoUnlink, onJoinTerminal,
+  isTrialActive, trialDaysLeft, profileLoading, onUpgrade, onTeamsOpen, pendingInvitesCount = 0, onMyReposOpen, onIntegrationsOpen, onGraphBoardOpen, plan, repoPath, onRepoLink, onRepoUnlink, onJoinTerminal,
   activeCellRepoPath, onWorktreeSelect, onNewWorktree, onFixCi, worktreeRefreshKey,
   layoutId, paneCount, onLayoutChange, onOpenTutorial,
 }: Props) {
@@ -609,6 +610,23 @@ export default function Sidebar({
             </svg>
           </span>
           <span className="sidebar-label">Integrations</span>
+        </div>
+
+        <div
+          className="sidebar-item sidebar-item-panel sidebar-item-team"
+          style={{ cursor: 'pointer' }}
+          onClick={onGraphBoardOpen}
+          title="Orchestration"
+        >
+          <span className="sidebar-icon">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <circle cx="3.5" cy="8" r="1.6" stroke="currentColor" strokeWidth="1.3" />
+              <circle cx="12.5" cy="4" r="1.6" stroke="currentColor" strokeWidth="1.3" />
+              <circle cx="12.5" cy="12" r="1.6" stroke="currentColor" strokeWidth="1.3" />
+              <path d="M5 7l6-2.3M5 9l6 2.3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+            </svg>
+          </span>
+          <span className="sidebar-label">Orchestration</span>
         </div>
 
         {/* ── 4. MORE TOOLS (desplegable) ─────────────────── */}

@@ -477,6 +477,78 @@ export interface HandoffBridge {
   write: (worktreePath: string, content: string) => Promise<void>
 }
 
+// === Graph orchestration (renderer mirror of electron/integrations/graph-*) ===
+export type GraphRole = 'architect' | 'coder' | 'reviewer' | 'tester' | (string & {})
+export type GraphNodeKind = 'agent' | 'gate'
+export interface GraphNode {
+  id: string
+  role: GraphRole
+  kind: GraphNodeKind
+  agent?: AIType
+  model?: string
+  effort?: 'low' | 'medium' | 'high'
+  focus?: string
+  instructions?: string
+  dependsOn: string[]
+}
+export interface GraphTemplate {
+  id: string
+  name: string
+  description?: string
+  builtIn?: boolean
+  nodes: GraphNode[]
+  createdAt: number
+  updatedAt: number
+}
+export interface GraphTemplateInput {
+  name: string
+  description?: string
+  nodes: GraphNode[]
+}
+
+export type NodeRunState =
+  | 'queued' | 'running' | 'needs_input' | 'blocked' | 'done' | 'failed' | 'skipped'
+export interface NodeRuntime {
+  state: NodeRunState
+  paneId?: string
+  startedAt?: number
+  endedAt?: number
+  summary?: string
+  artifact?: string
+}
+export interface GraphRun {
+  runId: string
+  ticketId: string
+  templateId: string
+  worktreePath: string
+  branch: string
+  nodes: Record<string, NodeRuntime>
+  startedAt: number
+}
+export interface PersistedGraphRun {
+  run: GraphRun
+  seen: string[]
+}
+
+export interface GraphTemplatesBridge {
+  list: () => Promise<GraphTemplate[]>
+  save: (input: GraphTemplateInput & { id?: string }) => Promise<GraphTemplate>
+  delete: (id: string) => Promise<boolean>
+}
+export interface GraphRunStartInput {
+  repoPath: string
+  templateId: string
+  ticketId: string
+  branch: string
+}
+export interface GraphRunsBridge {
+  list: () => Promise<PersistedGraphRun[]>
+  start: (input: GraphRunStartInput) => Promise<
+    { ok: true; runId: string; worktreePath: string } | { ok: false; error: string }
+  >
+  attach: (runId: string, nodeId: string) => Promise<{ paneId: string; exists: boolean; buffer: string }>
+}
+
 export interface GridLayout {
   rows: number
   cols: number
@@ -857,6 +929,8 @@ declare global {
     automations: AutomationsBridge
     workerSpecs: WorkerSpecsBridge
     handoff: HandoffBridge
+    graphTemplates: GraphTemplatesBridge
+    graphRuns: GraphRunsBridge
   }
 }
 

@@ -157,10 +157,19 @@ import { getRemoteUrl, parseOwnerRepo } from './integrations/github'
 import { isTicket, type Ticket } from './integrations/ticket-types'
 import { handleMention, type NestBotDeps } from './integrations/nest-bot'
 import { WorkerSpecStore, newWorkerSpecId, type WorkerSpec } from './integrations/worker-spec-store'
+import { GraphTemplateStore, newGraphTemplateId } from './integrations/graph-template-store'
+import { toGraphTemplate, type GraphTemplate } from './integrations/graph-template'
+import { GraphRunStore } from './integrations/graph-run-store'
+import { planTick, dedupePersistentSignals } from './integrations/graph-orchestrator'
+import type { GraphRun, NodeRuntime } from './integrations/graph-runner'
+import { sampleGraph, launchCommand, type PaneSignals } from './integrations/graph-tick'
 import { readHandoff, writeHandoff } from './integrations/handoff'
 import { makeRunAutomation, type AutomationRunnerPorts } from './integrations/automation-runner'
 
 const ptyManager = new PtyManager()
+// Per-pane last-output timestamp. deriveAgentState (graph orchestrator sampling)
+// needs it and pty-manager doesn't track it — fed from the on('data') forward.
+const paneLastOutputAt = new Map<string, number>()
 const accountStore = new AccountStore()
 // Ensure every existing Claude account has the shared config (CLAUDE.md,
 // settings.json, skills, etc.) linked from ~/.claude. Idempotent — only
@@ -168,6 +177,8 @@ const accountStore = new AccountStore()
 accountStore.migrateClaudeAccounts()
 const customCLIStore = new CustomCLIStore()
 const workerSpecStore = new WorkerSpecStore()
+const graphTemplateStore = new GraphTemplateStore()
+const graphRunStore = new GraphRunStore()
 const snippetStore = new SnippetStore()
 const localPathsStore = new LocalPathsStore()
 const conversationStore = new ConversationStore()
@@ -912,6 +923,28 @@ ipcMain.handle('workerspec:save', (_event, input: { id?: string; name: string; d
 })
 ipcMain.handle('workerspec:delete', (_event, id: string) => workerSpecStore.delete(id))
 
+// Graph-orchestration IPC handlers (template CRUD + run listing; the run
+// lifecycle / tick lives in the orchestrator wiring below)
+ipcMain.handle('graph:templates:list', () => graphTemplateStore.list())
+ipcMain.handle('graph:templates:save', (_event, input: { id?: string; name: string; description?: string; nodes: GraphTemplate['nodes'] }) => {
+  const now = Date.now()
+  const existing = input.id ? graphTemplateStore.list().find((t) => t.id === input.id) : undefined
+  // Validate through the same guard the store loads with, so a malformed graph
+  // (dangling dependsOn, cycle, bad node) is rejected here instead of persisted.
+  const candidate = toGraphTemplate({
+    id: input.id ?? newGraphTemplateId(),
+    name: input.name,
+    description: input.description,
+    nodes: input.nodes,
+    createdAt: existing?.createdAt ?? now,
+    updatedAt: now,
+  })
+  if (!candidate) throw new Error('Invalid graph template (dangling dependency, cycle, or bad node)')
+  return graphTemplateStore.save(candidate)
+})
+ipcMain.handle('graph:templates:delete', (_event, id: string) => graphTemplateStore.delete(id))
+ipcMain.handle('graph:runs:list', () => graphRunStore.list())
+
 // Handoff IPC handlers
 ipcMain.handle('handoff:read', (_e, worktreePath: string) => readHandoff(worktreePath))
 ipcMain.handle('handoff:write', (_e, worktreePath: string, content: string) => writeHandoff(worktreePath, content))
@@ -961,11 +994,13 @@ ipcMain.handle('pty:pid', (_event, paneId: string) => {
 
 // Forward PTY output to renderer
 ptyManager.on('data', (paneId: string, data: string) => {
+  paneLastOutputAt.set(paneId, Date.now())
   const win = BrowserWindow.getAllWindows()[0]
   if (win) win.webContents.send('pty:data', paneId, data)
 })
 
 ptyManager.on('exit', (paneId: string) => {
+  paneLastOutputAt.delete(paneId)
   const win = BrowserWindow.getAllWindows()[0]
   if (win) win.webContents.send('pty:exit', paneId)
 })
@@ -2846,6 +2881,111 @@ let ticketPollInterval: ReturnType<typeof setInterval> | null = setInterval(() =
   void worktreeSignals.pollReviewRequests(panelDeps())
 }, TICKET_POLL_MS)
 
+// ── Graph orchestration wiring (F6) ─────────────────────────────────────────
+// main OWNS the graph nodes' PTYs (headless multi-agent orchestration): each
+// tick samples every launched pane via deriveAgentState, folds the states into
+// the run (planTick), spawns the panes it says to start, emits its events
+// (deduped + persisted so a still-blocked gate isn't re-notified), and saves the
+// advanced run. The renderer attaches a visible xterm to any node's pane
+// on demand (graph:node:attach) — pty-manager already decouples PTY from view.
+// ⚠️ Unit-untested integration (spawn/emit/persist + prompt timing); the pure
+// core (planTick/sampleGraph/launchCommand) is tested, but this glue needs a
+// LIVE smoke — see docs/superpowers/plans/2026-08-17-graph-orchestration.md T7.
+const GRAPH_TICK_MS = 3_000
+
+// Signals for one graph pane. A node in the run always has a paneId only if it
+// was launched, so a missing PTY here means the process exited → deriveAgentState
+// resolves it to 'done'. cpu is 0 for now (TODO: wire per-pane cpu from
+// metricsCollector); recent-output/quiescence already drive working/needs_input.
+function samplePane(paneId: string): PaneSignals | null {
+  const hasPty = ptyManager.exists(paneId)
+  return {
+    hasPty,
+    lastOutputAt: paneLastOutputAt.get(paneId) ?? null,
+    cpuPercent: 0,
+    bufferTail: hasPty ? ptyManager.getBuffer(paneId).slice(-2000) : '',
+  }
+}
+
+function readGraphArtifact(worktreePath: string, relPath: string): string | null {
+  try { return readFileSync(pathJoin(worktreePath, relPath), 'utf8') } catch { return null }
+}
+
+// Headless launch has no account picker: use the agent's first saved account
+// (its config/HOME dir), or '' (real HOME) when it has none.
+function accountDirForAgent(agent: string): string {
+  const names = accountStore.list(agent)
+  return names.length ? accountStore.getDir(agent, names[0]) : ''
+}
+
+function graphOrchestratorTick(): void {
+  const runs = graphRunStore.list()
+  if (runs.length === 0) return  // zero cost at rest
+  const templates = graphTemplateStore.list()
+  const now = Date.now()
+  for (const { run, seen } of runs) {
+    const template = templates.find((t) => t.id === run.templateId)
+    if (!template) continue
+    const samples = sampleGraph(run, samplePane, now)
+    const plan = planTick(template, run, samples, { now, readArtifact: readGraphArtifact })
+
+    // Spawn the panes the plan says to start — headless PTYs main owns.
+    for (const action of plan.start) {
+      const cmd = launchCommand(action)
+      if (!cmd) continue  // gate or custom/unknown agent → nothing to spawn
+      const accountDir = action.agent ? accountDirForAgent(action.agent) : ''
+      void ptyManager.create(action.paneId, cmd, accountDir, run.worktreePath).then((res) => {
+        if (!res.ok) { console.warn('[graph] pane spawn failed', action.paneId, res.error); return }
+        // pty-manager writes `cmd` after the shell warms up; give the CLI a
+        // moment to boot, then feed the composed handoff as its first prompt.
+        // Timing is smoke-tuned per CLI.
+        setTimeout(() => ptyManager.write(action.paneId, `${action.input}\r`), 1500)
+      })
+    }
+
+    // Dedup persistent signals against the run's saved `seen`, emit the fresh
+    // ones, persist the grown set.
+    const { fresh, seen: nextSeen } = dedupePersistentSignals(plan.events, new Set(seen))
+    for (const ev of fresh) void eventBus.emit(ev, panelDeps())
+
+    if (plan.completed) graphRunStore.delete(run.runId)
+    else graphRunStore.save(plan.run, [...nextSeen])
+  }
+}
+
+let graphTickInterval: ReturnType<typeof setInterval> | null = setInterval(graphOrchestratorTick, GRAPH_TICK_MS)
+
+// Start a graph run for a ticket: create/reuse the shared worktree, seed every
+// node as queued, persist. The tick picks it up next cycle and launches the root.
+ipcMain.handle('graph:run:start', async (_e, input: { repoPath: string; templateId: string; ticketId: string; branch: string }) => {
+  const template = graphTemplateStore.list().find((t) => t.id === input.templateId)
+  if (!template) return { ok: false as const, error: 'Unknown template' }
+  const wt = await createWorktreeForBot(input.repoPath, input.branch)
+  if (!wt.ok) return wt
+  const now = Date.now()
+  const nodes: Record<string, NodeRuntime> = {}
+  for (const n of template.nodes) nodes[n.id] = { state: 'queued' }
+  const run: GraphRun = {
+    runId: newGraphTemplateId(),
+    ticketId: input.ticketId,
+    templateId: template.id,
+    worktreePath: wt.worktreePath,
+    branch: input.branch,
+    nodes,
+    startedAt: now,
+  }
+  graphRunStore.save(run, [])
+  return { ok: true as const, runId: run.runId, worktreePath: wt.worktreePath }
+})
+
+// Attach a visible terminal to a node's headless pane: the renderer mounts an
+// xterm on the returned paneId (backfilling scrollback), then uses the existing
+// pty:data / pty:write / pty:getBuffer channels. Same paneId scheme planTick uses.
+ipcMain.handle('graph:node:attach', (_e, runId: string, nodeId: string) => {
+  const paneId = `${runId}:${nodeId}`
+  return { paneId, exists: ptyManager.exists(paneId), buffer: ptyManager.getBuffer(paneId) }
+})
+
 ipcMain.handle('slack:open-oauth', async () => {
   const clientId = import.meta.env.MAIN_VITE_SLACK_CLIENT_ID ?? ''
   const scope = 'chat:write,channels:read,channels:history,groups:read,im:read,users:read'
@@ -3060,6 +3200,10 @@ app.on('before-quit', () => {
   if (automationsTickInterval) {
     clearInterval(automationsTickInterval)
     automationsTickInterval = null
+  }
+  if (graphTickInterval) {
+    clearInterval(graphTickInterval)
+    graphTickInterval = null
   }
   // Tear down every long-lived resource on quit. Without these, dev-mode HMR
   // reloads (and any future "soft restart" path) would accumulate intervals,

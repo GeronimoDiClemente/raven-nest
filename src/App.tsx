@@ -33,6 +33,7 @@ import UpgradeModal from './components/UpgradeModal'
 import TeamsWorkspace from './components/TeamsWorkspace'
 import MyReposPanel from './components/MyReposPanel'
 import { IntegrationsHub } from './components/IntegrationsHub'
+import { GraphBoard } from './components/GraphBoard'
 import { useGitHub } from './hooks/useGitHub'
 import { usePendingInvitesCount } from './hooks/usePendingInvitesCount'
 import { useSpeechRecognition } from './hooks/useSpeechRecognition'
@@ -213,6 +214,7 @@ export default function App() {
   const { count: pendingInvitesCount, refresh: refreshPendingInvitesCount } = usePendingInvitesCount()
   const [myReposOpen, setMyReposOpen] = useState(false)
   const [integrationsHubOpen, setIntegrationsHubOpen] = useState(false)
+  const [graphBoardOpen, setGraphBoardOpen] = useState(false)
   const [showJoinViewer, setShowJoinViewer] = useState(false)
   const [joinRequest, setJoinRequest] = useState<{ paneId: string; paneTitle: string } | null>(null)
   const { githubToken, githubLogin, connectGitHub } = useGitHub()
@@ -1193,6 +1195,7 @@ export default function App() {
         }}
         // TODO: gate behind plan tier if needed
         onIntegrationsOpen={() => setIntegrationsHubOpen(true)}
+        onGraphBoardOpen={() => setGraphBoardOpen(true)}
         plan={plan}
         repoPath={activeTab.repoPath}
         onRepoLink={handleRepoLink}
@@ -1401,6 +1404,13 @@ export default function App() {
             setIntegrationsHubOpen(false)
             openWorktreeWithWorker(path, initialInput, spec)
           }}
+        />
+      )}
+
+      {graphBoardOpen && (
+        <GraphBoard
+          onClose={() => setGraphBoardOpen(false)}
+          activeRepoPath={activeCellRepoPath ?? null}
         />
       )}
 
