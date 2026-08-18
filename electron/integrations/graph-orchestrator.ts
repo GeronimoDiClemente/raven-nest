@@ -1,0 +1,156 @@
+// Pure orchestration core for the per-ticket role-graph. This is the "brain of
+// the tick" that main.ts drives: it takes sampled pane states, folds them into
+// the GraphRun, asks graph-runner what to do next, and returns the concrete
+// actions (panes to launch with composed inputs, gates to resolve, events to
+// emit). No fs / PTY / Electron here — the caller injects the clock and an
+// artifact reader and performs the real effects. Mirrors the pure-core pattern
+// of agent-status.ts / automation-runner.ts.
+import type { GraphTemplate, GraphNode } from './graph-template'
+import type { GraphRun, NodeRunState, NodeRuntime } from './graph-runner'
+import { advanceGraph } from './graph-runner'
+import type { AgentState } from './agent-status'
+import { composeNodeInput, artifactPath, type UpstreamArtifact } from './graph-handoff'
+import type { DomainEvent } from './bus-types'
+import type { WorkerAgent } from './worker-spec-store'
+
+const TERMINAL: ReadonlySet<NodeRunState> = new Set<NodeRunState>(['done', 'failed', 'skipped'])
+
+/** A pane's coarse AgentState (4) → a node's richer NodeRunState (7). A pane
+ *  that is idle is still alive, so the node stays 'running'; failed/blocked are
+ *  decided elsewhere (exit code / a reviewer's verdict), never from a sample. */
+export function mapAgentState(a: AgentState): NodeRunState {
+  switch (a) {
+    case 'working':
+      return 'running'
+    case 'idle':
+      return 'running'
+    case 'needs_input':
+      return 'needs_input'
+    case 'done':
+      return 'done'
+  }
+}
+
+/** Fold sampled pane states into the run. Only live (non-terminal) nodes that
+ *  were actually sampled change; a node that just finished gets `endedAt`.
+ *  Pure — returns a fresh run, never mutates the input. */
+export function syncNodeStates(run: GraphRun, samples: Record<string, AgentState>, now: number): GraphRun {
+  const nodes: Record<string, NodeRuntime> = {}
+  for (const [id, rt] of Object.entries(run.nodes)) {
+    const sample = samples[id]
+    if (sample === undefined || TERMINAL.has(rt.state)) {
+      nodes[id] = rt
+      continue
+    }
+    const next = mapAgentState(sample)
+    if (next === rt.state) {
+      nodes[id] = rt
+      continue
+    }
+    const updated: NodeRuntime = { ...rt, state: next }
+    if (next === 'done') updated.endedAt = now
+    nodes[id] = updated
+  }
+  return { ...run, nodes }
+}
+
+/** A pane the caller must launch for a ready agent node. */
+export interface StartAction {
+  nodeId: string
+  paneId: string
+  agent?: WorkerAgent
+  model?: string
+  effort?: 'low' | 'medium' | 'high'
+  input: string // composed handoff + role instructions for the CLI's first prompt
+}
+
+export interface OrchestratorPorts {
+  now: number
+  /** Read an upstream node's handoff artifact (relative to the run worktree). */
+  readArtifact: (worktreePath: string, relPath: string) => string | null
+}
+
+export interface TickPlan {
+  run: GraphRun // next run: sampled states folded in, starts/skips/gates applied
+  start: StartAction[] // agent panes the caller must spawn this tick
+  events: DomainEvent[] // node_done (from sampled transitions) + advanceGraph's
+  completed: boolean
+  blockedOn: string[]
+}
+
+/** True when no other node depends on this one (a DAG sink → writes no artifact). */
+function isLeaf(t: GraphTemplate, nodeId: string): boolean {
+  return !t.nodes.some((n) => n.dependsOn.includes(nodeId))
+}
+
+/** Collect the handoff artifacts feeding a node, hopping over gates (which write
+ *  nothing) to the agent nodes behind them. Missing artifacts are skipped. */
+function upstreamArtifacts(t: GraphTemplate, node: GraphNode, ports: OrchestratorPorts, worktreePath: string): UpstreamArtifact[] {
+  const byId = new Map(t.nodes.map((n) => [n.id, n]))
+  const out: UpstreamArtifact[] = []
+  const visit = (depId: string) => {
+    const dep = byId.get(depId)
+    if (!dep) return
+    if (dep.kind === 'gate') {
+      for (const d of dep.dependsOn) visit(d)
+      return
+    }
+    const content = ports.readArtifact(worktreePath, artifactPath(dep))
+    if (content === null) return
+    const ua: UpstreamArtifact = { role: dep.role, content }
+    if (dep.focus !== undefined) ua.focus = dep.focus
+    out.push(ua)
+  }
+  for (const depId of node.dependsOn) visit(depId)
+  return out
+}
+
+/** One orchestration step. Sample → sync → advance → materialize actions. */
+export function planTick(t: GraphTemplate, run: GraphRun, samples: Record<string, AgentState>, ports: OrchestratorPorts): TickPlan {
+  const byId = new Map(t.nodes.map((n) => [n.id, n]))
+  const synced = syncNodeStates(run, samples, ports.now)
+
+  // Nodes whose pane just finished → node_done (advanceGraph never emits this;
+  // it's the real transition the caller owns, carrying an optional summary).
+  const doneEvents: DomainEvent[] = []
+  for (const [id, rt] of Object.entries(synced.nodes)) {
+    if (rt.state === 'done' && run.nodes[id]?.state !== 'done') {
+      const node = byId.get(id)
+      if (node) doneEvents.push({ type: 'graph.node_done', ticketId: run.ticketId, nodeId: id, role: node.role })
+    }
+  }
+
+  const adv = advanceGraph(t, synced)
+  const nodes: Record<string, NodeRuntime> = { ...synced.nodes }
+  const start: StartAction[] = []
+
+  for (const id of adv.toSkip) {
+    nodes[id] = { ...nodes[id], state: 'skipped' }
+  }
+
+  for (const id of adv.toStart) {
+    const node = byId.get(id)
+    if (!node) continue
+    if (node.kind === 'gate') {
+      // A passed gate has no pane — resolve it so downstream unblocks next tick.
+      nodes[id] = { ...nodes[id], state: 'done', endedAt: ports.now }
+      continue
+    }
+    const paneId = `${run.runId}:${id}`
+    nodes[id] = { ...nodes[id], state: 'running', paneId, startedAt: ports.now }
+    const input = composeNodeInput(node, upstreamArtifacts(t, node, ports, run.worktreePath), isLeaf(t, id))
+    const action: StartAction = { nodeId: id, paneId, input }
+    if (node.agent !== undefined) action.agent = node.agent
+    if (node.model !== undefined) action.model = node.model
+    if (node.effort !== undefined) action.effort = node.effort
+    start.push(action)
+  }
+
+  return {
+    run: { ...synced, nodes },
+    start,
+    events: [...doneEvents, ...adv.events],
+    completed: adv.completed,
+    blockedOn: adv.blockedOn,
+  }
+}
