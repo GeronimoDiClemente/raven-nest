@@ -319,6 +319,7 @@ export interface GqlPullRequest {
   title?: string | null
   createdAt: string
   mergedAt?: string | null
+  updatedAt?: string | null
   additions?: number | null
   deletions?: number | null
   author?: { login?: string | null; avatarUrl?: string | null } | null
@@ -458,7 +459,7 @@ query($owner:String!,$name:String!,$after:String){
   repository(owner:$owner,name:$name){
     pullRequests(states:MERGED, first:50, orderBy:{field:UPDATED_AT,direction:DESC}, after:$after){
       nodes{
-        id number title createdAt mergedAt additions deletions
+        id number title createdAt mergedAt updatedAt additions deletions
         author{ login avatarUrl }
         reviews(first:50){ nodes{ author{ login avatarUrl } submittedAt state } }
       }
@@ -557,9 +558,14 @@ export function useTeamStats(
           const prs = data.repository.pullRequests
           out.push(...prs.nodes)
           if (!prs.pageInfo.hasNextPage) break
-          // PRs come ordered by UPDATED_AT desc; stop once the oldest merge on the
-          // page is past the window (the client-side filter is the real bound).
-          const oldest = prs.nodes[prs.nodes.length - 1]?.mergedAt
+          // PRs come ordered by UPDATED_AT desc, so the early-break must read
+          // updatedAt — the actual sort key. Breaking on mergedAt let a stale
+          // merge with a RECENT update (e.g. a new comment on an old PR) sit
+          // last on the page and cut pagination while in-window merges still
+          // existed on later pages (undercounted totals/cycle time).
+          // mergedAt <= updatedAt always, so once the page's oldest updatedAt
+          // is past the window, no later page can hold an in-window merge.
+          const oldest = prs.nodes[prs.nodes.length - 1]?.updatedAt
           if (oldest && Date.now() - new Date(oldest).getTime() > MAX_DAYS * DAY_MS) break
           after = prs.pageInfo.endCursor
         }

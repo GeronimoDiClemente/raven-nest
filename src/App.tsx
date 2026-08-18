@@ -274,6 +274,9 @@ export default function App() {
         id: generateId(), aiType, accountName, accountDir, borderColor, cmd,
         customLabel, customColor, shellId,
         repoPath: addingPaneRef.current?.worktreePath,
+        // Sin el spread, un pane de editor creado desde el Hub perdía sus
+        // editorTabs iniciales y nacía cascarón (finding del review).
+        ...initial,
       }
       setTabs(prev => [...prev, { id: newTabId, name: 'Workspace', layoutId: '1', panes: [pane] }])
       setActiveTabId(newTabId)
@@ -464,13 +467,19 @@ export default function App() {
   const removePaneAnywhere = useCallback((paneId: string) => {
     window.pty.kill(paneId)
     setTabs(prev => prev.map(t => {
-      if (!t.panes.some(p => p.id === paneId)) return t
-      const nextPanes = t.panes.filter(p => p.id !== paneId)
+      // Podar el id de los hubPanes de CUALQUIER tab Hub: sin esto quedaban
+      // ids colgantes en la sesión persistida (y shouldConfirmTabClose
+      // preguntaba por contenido que ya no existe).
+      const prunedHub = t.isHub && (t.hubPanes ?? []).includes(paneId)
+        ? { ...t, hubPanes: (t.hubPanes ?? []).filter(id => id !== paneId) }
+        : t
+      if (!prunedHub.panes.some(p => p.id === paneId)) return prunedHub
+      const nextPanes = prunedHub.panes.filter(p => p.id !== paneId)
       const naturalDefault = defaultLayoutFor(nextPanes.length)
-      const demoted = getPreset(naturalDefault).slotCount < getPreset(t.layoutId).slotCount
+      const demoted = getPreset(naturalDefault).slotCount < getPreset(prunedHub.layoutId).slotCount
       return demoted
-        ? { ...t, panes: nextPanes, layoutId: naturalDefault, splitRatios: {} }
-        : { ...t, panes: nextPanes }
+        ? { ...prunedHub, panes: nextPanes, layoutId: naturalDefault, splitRatios: {} }
+        : { ...prunedHub, panes: nextPanes }
     }))
     if (zoomedPaneIdRef.current === paneId) { setZoomedPaneId(null); setZoomingOut(false) }
     if (focusedPaneIdRef.current === paneId) { focusedPaneIdRef.current = null; setFocusedPaneId(null) }
@@ -1006,7 +1015,10 @@ export default function App() {
         const borderColor = COLOR_MIGRATION[sp.borderColor] ?? sp.borderColor
         return {
           ...sp,
-          id: generateId(),
+          // Reusar el id persistido: hubPanes referencia ids — regenerarlos
+          // dejaba el Hub restaurado vacío (curación perdida en cada
+          // relanzamiento). Sesiones viejas sin id siguen generando uno.
+          id: sp.id ?? generateId(),
           cmd: sp.cmd ?? AI_CONFIG[sp.aiType]?.cmd ?? '',
           borderColor,
         } as PaneNode
@@ -1108,6 +1120,9 @@ export default function App() {
           repoPath: tab.repoPath,
           layoutId: tab.layoutId,
           panes: tab.panes.map(p => ({
+            // El id viaja: hubPanes referencia ids y regenerarlos en el
+            // restore dejaba el Hub vacío tras cada relanzamiento.
+            id: p.id,
             aiType: p.aiType, accountName: p.accountName, accountDir: p.accountDir,
             borderColor: p.borderColor, cmd: p.cmd,
             customLabel: p.customLabel, customColor: p.customColor, note: p.note,

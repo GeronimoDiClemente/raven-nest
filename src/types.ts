@@ -235,6 +235,11 @@ export const AI_CONFIG: Record<AIType, { label: string; color: string; bg: strin
 }
 
 export interface SessionPane {
+  // Persistido para que hubPanes (que referencia ids) sobreviva el restart:
+  // regenerar ids en el restore dejaba el Hub restaurado vacío. Los
+  // workspaces GUARDADOS (plantillas re-cargables) siguen regenerando id al
+  // cargar — ver loadWorkspace.
+  id?: string
   aiType: AIType
   accountName: string
   accountDir: string

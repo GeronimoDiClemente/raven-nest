@@ -136,7 +136,12 @@ export async function listDir(worktreePath: string, relPath: string): Promise<Di
 export type FsChangeCallback = (worktreePath: string, relPath: string) => void
 
 export class FsWatchRegistry {
-  private watchers = new Map<string, FSWatcher>()
+  // Refcount por key: el mismo archivo abierto en dos panes produce dos
+  // watch() (dedupeados a UN chokidar) y dos unwatch() al cerrarse cada uno.
+  // Sin el contador, el primer unwatch cerraba el watcher compartido y el
+  // pane sobreviviente dejaba de ver cambios externos — su próximo Ctrl+S
+  // los pisaba sin pasar por el banner de conflicto.
+  private watchers = new Map<string, { watcher: FSWatcher; refs: number }>()
 
   private key(worktreePath: string, relPath: string): string {
     return `${worktreePath}::${relPath}`
@@ -144,7 +149,11 @@ export class FsWatchRegistry {
 
   async watch(worktreePath: string, relPath: string, onChange: FsChangeCallback, opts?: { depth?: number }): Promise<void> {
     const key = this.key(worktreePath, relPath)
-    if (this.watchers.has(key)) return
+    const existing = this.watchers.get(key)
+    if (existing) {
+      existing.refs++
+      return
+    }
     const full = await resolveScoped(worktreePath, relPath)
     const watcher = chokidar.watch(full, {
       ignoreInitial: true,
@@ -153,19 +162,21 @@ export class FsWatchRegistry {
     })
     const fire = () => onChange(worktreePath, relPath)
     watcher.on('change', fire).on('unlink', fire).on('add', fire).on('unlinkDir', fire).on('addDir', fire)
-    this.watchers.set(key, watcher)
+    this.watchers.set(key, { watcher, refs: 1 })
   }
 
   async unwatch(worktreePath: string, relPath: string): Promise<void> {
     const key = this.key(worktreePath, relPath)
-    const watcher = this.watchers.get(key)
-    if (!watcher) return
-    await watcher.close()
+    const entry = this.watchers.get(key)
+    if (!entry) return
+    entry.refs--
+    if (entry.refs > 0) return
+    await entry.watcher.close()
     this.watchers.delete(key)
   }
 
   async closeAll(): Promise<void> {
-    await Promise.all(Array.from(this.watchers.values()).map((w) => w.close()))
+    await Promise.all(Array.from(this.watchers.values()).map((e) => e.watcher.close()))
     this.watchers.clear()
   }
 }

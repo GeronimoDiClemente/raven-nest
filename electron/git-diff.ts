@@ -71,17 +71,21 @@ async function runGit(worktreePath: string, args: string[]): Promise<string> {
 }
 
 export async function getDiffStats(worktreePath: string): Promise<DiffStatsResult> {
-  try {
-    const [numstat, untrackedRaw] = await Promise.all([
-      runGit(worktreePath, ['diff', 'HEAD', '--numstat', '--no-renames']),
-      runGit(worktreePath, ['ls-files', '--others', '--exclude-standard']),
-    ])
-    const untracked = untrackedRaw.split('\n').map((l) => l.trim().replace(/\\/g, '/')).filter(Boolean)
-    return { ok: true, files: parseNumstat(numstat), untracked }
-  } catch (err) {
+  // allSettled y no all: con all, el reject temprano de un git (repo sin
+  // HEAD) devolvía con el OTRO proceso git todavía vivo — un hijo huérfano
+  // en vuelo que además mantiene un handle sobre el directorio (visto como
+  // EPERM al borrar el repo en tests de Windows).
+  const [numstatRes, untrackedRes] = await Promise.allSettled([
+    runGit(worktreePath, ['diff', 'HEAD', '--numstat', '--no-renames']),
+    runGit(worktreePath, ['ls-files', '--others', '--exclude-standard']),
+  ])
+  if (numstatRes.status === 'rejected' || untrackedRes.status === 'rejected') {
     // Típico: repo sin commits todavía (HEAD no existe) o path que no es repo.
-    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+    const reason = numstatRes.status === 'rejected' ? numstatRes.reason : (untrackedRes as PromiseRejectedResult).reason
+    return { ok: false, error: reason instanceof Error ? reason.message : String(reason) }
   }
+  const untracked = untrackedRes.value.split('\n').map((l) => l.trim().replace(/\\/g, '/')).filter(Boolean)
+  return { ok: true, files: parseNumstat(numstatRes.value), untracked }
 }
 
 export async function getAddedLines(worktreePath: string, relPath: string): Promise<AddedLinesResult> {

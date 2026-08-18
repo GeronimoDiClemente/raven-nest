@@ -118,6 +118,29 @@ describe('fs-bridge', () => {
     await registry.closeAll()
   })
 
+  it('refcounts watchers: closing one of two panes keeps the survivor watching', async () => {
+    // Mismo archivo abierto en DOS panes: cada uno hace watch() (dedupe por
+    // key) y al cerrar uno hace unwatch(). Sin refcount, ese único unwatch
+    // cerraba el chokidar compartido y el pane sobreviviente dejaba de ver
+    // cambios externos — su próximo Ctrl+S los pisaba sin conflicto.
+    writeFileSync(join(root, 'shared.txt'), 'v1')
+    const registry = new FsWatchRegistry()
+    const changes: string[] = []
+    await registry.watch(root, 'shared.txt', (_wt, relPath) => changes.push(relPath)) // pane A
+    await registry.watch(root, 'shared.txt', (_wt, relPath) => changes.push(relPath)) // pane B (dedupe)
+    await new Promise((r) => setTimeout(r, 300))
+    await registry.unwatch(root, 'shared.txt') // pane A se cierra
+    writeFileSync(join(root, 'shared.txt'), 'v2')
+    await new Promise((r) => setTimeout(r, 500))
+    expect(changes).toContain('shared.txt') // el pane B sigue enterándose
+    changes.length = 0
+    await registry.unwatch(root, 'shared.txt') // pane B se cierra: refs a 0
+    writeFileSync(join(root, 'shared.txt'), 'v3')
+    await new Promise((r) => setTimeout(r, 500))
+    expect(changes).toEqual([]) // ahora sí, nadie escucha
+    await registry.closeAll()
+  })
+
   it('watch() on a directory with depth 0 fires (with the DIR relPath) when a direct child is created, but not for a grandchild two levels down', async () => {
     mkdirSync(join(root, 'dir'))
     const registry = new FsWatchRegistry()
