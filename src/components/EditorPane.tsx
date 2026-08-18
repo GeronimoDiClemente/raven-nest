@@ -42,6 +42,10 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
   // a disk change fails (typically ENOENT — the file/worktree was removed).
   // Distinct from `conflicts`, which is only about unsaved-edits-vs-disk.
   const [loadErrors, setLoadErrors] = useState<Record<string, string>>({})
+  // Tab dirty a la que se le pidió "Open in new pane": el buffer sin guardar
+  // vive en el estado de ESTE pane y no sobrevive la mudanza (el pane nuevo
+  // carga de disco) — mover sin preguntar era data loss silencioso.
+  const [pendingMove, setPendingMove] = useState<string | null>(null)
   const contentsRef = useRef(contents)
   contentsRef.current = contents
   const loadErrorsRef = useRef(loadErrors)
@@ -273,8 +277,10 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
     setDirty(relPath, true)
   }, [setDirty])
 
-  const save = useCallback(async (relPath: string) => {
-    if (!worktreePath) return
+  // Devuelve si el guardado llegó al disco — "Save & move" solo muda la tab
+  // con el contenido efectivamente persistido.
+  const save = useCallback(async (relPath: string): Promise<boolean> => {
+    if (!worktreePath) return false
     const content = contentsRef.current[relPath]
     // The tab's content never loaded successfully (binary/oversized file,
     // still-in-flight initial read, or a failed re-read left `loadErrors`
@@ -283,17 +289,18 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
     // resurrect with stale data) the file on disk. Bail out silently: the
     // "file unavailable" banner already communicates why, and a still-loading
     // read will complete and let a later Ctrl+S succeed normally.
-    if (content === undefined || loadErrorsRef.current[relPath] !== undefined) return
+    if (content === undefined || loadErrorsRef.current[relPath] !== undefined) return false
     const res = await bridge.fs.writeFile(worktreePath, relPath, content)
     if (res.ok) {
       setDirty(relPath, false)
       setConflicts((c) => ({ ...c, [relPath]: false }))
-    } else {
-      // No global toast service exists in this app (see design spec) — the
-      // established precedent for surfacing a rare failure immediately is
-      // window.alert (src/App.tsx:537-541, WorktreesSection.tsx:160).
-      window.alert(`Could not save ${relPath}: ${res.error}`)
+      return true
     }
+    // No global toast service exists in this app (see design spec) — the
+    // established precedent for surfacing a rare failure immediately is
+    // window.alert (src/App.tsx:537-541, WorktreesSection.tsx:160).
+    window.alert(`Could not save ${relPath}: ${res.error}`)
+    return false
   }, [worktreePath, bridge, setDirty])
 
   const keepMine = useCallback((relPath: string) => {
@@ -332,6 +339,7 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
     setConflicts((c) => { const { [relPath]: _drop, ...rest } = c; return rest })
     setLoadErrors((e) => { const { [relPath]: _drop, ...rest } = e; return rest })
     delete eolRef.current[relPath]
+    setPendingMove((p) => (p === relPath ? null : p))
     if (nextTabs.length === 0) onClose()
   }, [tabs, activePath, onTabsChange, onClose])
 
@@ -373,7 +381,11 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
               <button
                 className="editor-tab-btn editor-tab-move"
                 title="Open in new pane"
-                onClick={(e) => { e.stopPropagation(); onOpenInNewPane(tab.relPath) }}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  if (tab.dirty) setPendingMove(tab.relPath)
+                  else onOpenInNewPane(tab.relPath)
+                }}
               >
                 <svg width="11" height="11" viewBox="0 0 16 16" fill="none">
                   <path d="M6.5 2.5H3a.5.5 0 0 0-.5.5v10a.5.5 0 0 0 .5.5h10a.5.5 0 0 0 .5-.5V9.5M9.5 2.5h4v4M13.5 2.5L8 8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
@@ -393,6 +405,28 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
           <span className="editor-conflict-text">File changed on disk.</span>
           <button className="editor-banner-btn" onClick={() => keepMine(activePath)}>Keep my changes</button>
           <button className="editor-banner-btn primary" onClick={() => reloadFromDisk(activePath)}>Reload from disk</button>
+        </div>
+      )}
+      {pendingMove && (
+        <div className="editor-conflict-banner" data-testid="move-dirty-banner">
+          <span className="editor-conflict-text">
+            {pendingMove.split('/').pop()} has unsaved changes — moving it to a new pane will discard them.
+          </span>
+          <button
+            className="editor-banner-btn primary"
+            onClick={async () => {
+              const rel = pendingMove
+              if (await save(rel)) {
+                onOpenInNewPane(rel)
+                setPendingMove(null)
+              }
+            }}
+          >Save &amp; move</button>
+          <button
+            className="editor-banner-btn"
+            onClick={() => { onOpenInNewPane(pendingMove); setPendingMove(null) }}
+          >Move anyway</button>
+          <button className="editor-banner-btn" onClick={() => setPendingMove(null)}>Cancel</button>
         </div>
       )}
       {activePath && loadErrors[activePath] ? (

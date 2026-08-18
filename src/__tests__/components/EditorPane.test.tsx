@@ -168,6 +168,89 @@ describe('cargas de disco vs onChange de Monaco', () => {
   })
 })
 
+// "Open in new pane" con una tab dirty perdía el edit sin guardar: contents
+// es estado del EditorPane viejo y el pane nuevo carga de disco (confirmado
+// en vivo, caso 4d del sweep 2026-08-18). El gesto ahora pide confirmación.
+describe('Open in new pane con cambios sin guardar', () => {
+  afterEach(() => vi.clearAllMocks())
+
+  function renderMove(dirty: boolean) {
+    const { bridge } = makeMockBridge()
+    const onOpenInNewPane = vi.fn()
+    render(
+      <BridgeProvider value={bridge}>
+        <EditorPane
+          pane={makePane({ editorTabs: [{ relPath: 'a.ts', dirty }], activeEditorTabPath: 'a.ts' })}
+          onTabsChange={vi.fn()} onClose={vi.fn()} onFocus={vi.fn()} onOpenInNewPane={onOpenInNewPane}
+        />
+      </BridgeProvider>,
+    )
+    return { bridge, onOpenInNewPane }
+  }
+
+  it('moves a clean tab immediately, without banner', async () => {
+    const { onOpenInNewPane } = renderMove(false)
+    await waitFor(() => expect(screen.getByTestId('monaco-stub')).toHaveValue('hello'))
+    fireEvent.click(screen.getByTitle('Open in new pane'))
+    expect(onOpenInNewPane).toHaveBeenCalledWith('a.ts')
+    expect(screen.queryByTestId('move-dirty-banner')).not.toBeInTheDocument()
+  })
+
+  it('blocks the move of a dirty tab behind a confirmation banner', async () => {
+    const { onOpenInNewPane } = renderMove(true)
+    await waitFor(() => expect(screen.getByTestId('monaco-stub')).toHaveValue('hello'))
+    fireEvent.click(screen.getByTitle('Open in new pane'))
+    expect(onOpenInNewPane).not.toHaveBeenCalled()
+    expect(screen.getByTestId('move-dirty-banner')).toBeInTheDocument()
+  })
+
+  it('Save & move saves to disk first and then moves', async () => {
+    const { bridge, onOpenInNewPane } = renderMove(true)
+    await waitFor(() => expect(screen.getByTestId('monaco-stub')).toHaveValue('hello'))
+    fireEvent.click(screen.getByTitle('Open in new pane'))
+    fireEvent.click(screen.getByRole('button', { name: 'Save & move' }))
+    await waitFor(() => expect(onOpenInNewPane).toHaveBeenCalledWith('a.ts'))
+    expect((bridge as unknown as { fs: { writeFile: ReturnType<typeof vi.fn> } }).fs.writeFile)
+      .toHaveBeenCalledWith('/repo', 'a.ts', 'hello')
+    expect(screen.queryByTestId('move-dirty-banner')).not.toBeInTheDocument()
+  })
+
+  it('Move anyway moves without saving', async () => {
+    const { bridge, onOpenInNewPane } = renderMove(true)
+    await waitFor(() => expect(screen.getByTestId('monaco-stub')).toHaveValue('hello'))
+    fireEvent.click(screen.getByTitle('Open in new pane'))
+    fireEvent.click(screen.getByRole('button', { name: 'Move anyway' }))
+    expect(onOpenInNewPane).toHaveBeenCalledWith('a.ts')
+    expect((bridge as unknown as { fs: { writeFile: ReturnType<typeof vi.fn> } }).fs.writeFile).not.toHaveBeenCalled()
+    expect(screen.queryByTestId('move-dirty-banner')).not.toBeInTheDocument()
+  })
+
+  it('Cancel keeps the tab where it is', async () => {
+    const { bridge, onOpenInNewPane } = renderMove(true)
+    await waitFor(() => expect(screen.getByTestId('monaco-stub')).toHaveValue('hello'))
+    fireEvent.click(screen.getByTitle('Open in new pane'))
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(onOpenInNewPane).not.toHaveBeenCalled()
+    expect((bridge as unknown as { fs: { writeFile: ReturnType<typeof vi.fn> } }).fs.writeFile).not.toHaveBeenCalled()
+    expect(screen.queryByTestId('move-dirty-banner')).not.toBeInTheDocument()
+  })
+
+  it('does not move when Save & move fails to write', async () => {
+    vi.spyOn(window, 'alert').mockImplementation(() => {})
+    const { bridge, onOpenInNewPane } = renderMove(true)
+    ;(bridge as unknown as { fs: { writeFile: ReturnType<typeof vi.fn> } }).fs.writeFile
+      .mockResolvedValue({ ok: false, error: 'disk full' })
+    await waitFor(() => expect(screen.getByTestId('monaco-stub')).toHaveValue('hello'))
+    fireEvent.click(screen.getByTitle('Open in new pane'))
+    fireEvent.click(screen.getByRole('button', { name: 'Save & move' }))
+    await waitFor(() => expect(window.alert).toHaveBeenCalled())
+    expect(onOpenInNewPane).not.toHaveBeenCalled()
+    // el banner sigue: el usuario decide reintentar, mover igual o cancelar
+    expect(screen.getByTestId('move-dirty-banner')).toBeInTheDocument()
+    vi.mocked(window.alert).mockRestore()
+  })
+})
+
 describe('EditorPane', () => {
   afterEach(() => vi.clearAllMocks())
 
