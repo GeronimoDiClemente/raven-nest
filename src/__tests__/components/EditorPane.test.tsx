@@ -2,6 +2,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { BridgeProvider } from '../../lib/bridge'
 import { EditorPane } from '../../components/EditorPane'
+import { stashTabBuffer, takeTabBuffer, __resetHandoffForTests } from '../../lib/editor-buffer-handoff'
 import type { PaneNode } from '../../types'
 
 // Real Monaco's onChange reports the model's raw text verbatim (it keeps its
@@ -170,7 +171,8 @@ describe('cargas de disco vs onChange de Monaco', () => {
 
 // "Open in new pane" con una tab dirty perdía el edit sin guardar: contents
 // es estado del EditorPane viejo y el pane nuevo carga de disco (confirmado
-// en vivo, caso 4d del sweep 2026-08-18). El gesto ahora pide confirmación.
+// en vivo, caso 4d del sweep 2026-08-18). La mudanza ahora PRESERVA el
+// buffer vía editor-buffer-handoff — origen stashea, destino consume.
 describe('Open in new pane con cambios sin guardar', () => {
   afterEach(() => vi.clearAllMocks())
 
@@ -221,58 +223,115 @@ describe('Open in new pane con cambios sin guardar', () => {
     expect(screen.queryByTestId('move-dirty-banner')).not.toBeInTheDocument()
   })
 
-  it('blocks the move of a dirty tab behind a confirmation banner', async () => {
+  // La mudanza PRESERVA el buffer sin guardar vía el handoff (deja el banner
+  // "Save & move" obsoleto): el origen stashea al iniciar el gesto y el
+  // destino consume el stash en su carga, en vez de leer disco.
+  it('moving a dirty tab stashes its buffer and moves immediately', async () => {
+    __resetHandoffForTests()
     const { onOpenInNewPane } = renderMove(true)
     await waitFor(() => expect(screen.getByTestId('monaco-stub')).toHaveValue('hello'))
+    act(() => { monacoStub.latestOnChange?.('hello editado') })
     fireEvent.click(moveBtn())
-    expect(onOpenInNewPane).not.toHaveBeenCalled()
-    expect(screen.getByTestId('move-dirty-banner')).toBeInTheDocument()
-  })
-
-  it('Save & move saves to disk first and then moves', async () => {
-    const { bridge, onOpenInNewPane } = renderMove(true)
-    await waitFor(() => expect(screen.getByTestId('monaco-stub')).toHaveValue('hello'))
-    fireEvent.click(moveBtn())
-    fireEvent.click(screen.getByRole('button', { name: 'Save & move' }))
-    await waitFor(() => expect(onOpenInNewPane).toHaveBeenCalledWith('a.ts'))
-    expect((bridge as unknown as { fs: { writeFile: ReturnType<typeof vi.fn> } }).fs.writeFile)
-      .toHaveBeenCalledWith('/repo', 'a.ts', 'hello')
-    expect(screen.queryByTestId('move-dirty-banner')).not.toBeInTheDocument()
-  })
-
-  it('Move anyway moves without saving', async () => {
-    const { bridge, onOpenInNewPane } = renderMove(true)
-    await waitFor(() => expect(screen.getByTestId('monaco-stub')).toHaveValue('hello'))
-    fireEvent.click(moveBtn())
-    fireEvent.click(screen.getByRole('button', { name: 'Move anyway' }))
     expect(onOpenInNewPane).toHaveBeenCalledWith('a.ts')
-    expect((bridge as unknown as { fs: { writeFile: ReturnType<typeof vi.fn> } }).fs.writeFile).not.toHaveBeenCalled()
     expect(screen.queryByTestId('move-dirty-banner')).not.toBeInTheDocument()
+    expect(takeTabBuffer('/repo', 'a.ts')).toEqual({ content: 'hello editado', eol: '\n', dirty: true })
   })
 
-  it('Cancel keeps the tab where it is', async () => {
-    const { bridge, onOpenInNewPane } = renderMove(true)
+  // ── Drag & drop de tabs entre panes / archivos del Explorer ──
+  function makeDataTransfer() {
+    const data: Record<string, string> = {}
+    return {
+      data,
+      types: [] as string[],
+      effectAllowed: '',
+      dropEffect: '',
+      setData(type: string, value: string) { data[type] = value; this.types.push(type) },
+      getData(type: string) { return data[type] ?? '' },
+    }
+  }
+
+  it('dragging a tab stashes its buffer and carries the move payload', async () => {
+    __resetHandoffForTests()
+    renderMove(true)
     await waitFor(() => expect(screen.getByTestId('monaco-stub')).toHaveValue('hello'))
-    fireEvent.click(moveBtn())
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
-    expect(onOpenInNewPane).not.toHaveBeenCalled()
-    expect((bridge as unknown as { fs: { writeFile: ReturnType<typeof vi.fn> } }).fs.writeFile).not.toHaveBeenCalled()
-    expect(screen.queryByTestId('move-dirty-banner')).not.toBeInTheDocument()
+    act(() => { monacoStub.latestOnChange?.('hello arrastrado') })
+    const dt = makeDataTransfer()
+    fireEvent.dragStart(screen.getByText('a.ts'), { dataTransfer: dt })
+    expect(JSON.parse(dt.getData('application/x-nest-editor-tab'))).toEqual({
+      sourcePaneId: 'pane-1', relPath: 'a.ts', dirty: true, worktreePath: '/repo',
+    })
+    expect(takeTabBuffer('/repo', 'a.ts')?.content).toBe('hello arrastrado')
   })
 
-  it('does not move when Save & move fails to write', async () => {
-    vi.spyOn(window, 'alert').mockImplementation(() => {})
-    const { bridge, onOpenInNewPane } = renderMove(true)
-    ;(bridge as unknown as { fs: { writeFile: ReturnType<typeof vi.fn> } }).fs.writeFile
-      .mockResolvedValue({ ok: false, error: 'disk full' })
+  it('a cancelled drag (tab still here on dragend) discards the stash', async () => {
+    __resetHandoffForTests()
+    renderMove(false)
     await waitFor(() => expect(screen.getByTestId('monaco-stub')).toHaveValue('hello'))
-    fireEvent.click(moveBtn())
-    fireEvent.click(screen.getByRole('button', { name: 'Save & move' }))
-    await waitFor(() => expect(window.alert).toHaveBeenCalled())
-    expect(onOpenInNewPane).not.toHaveBeenCalled()
-    // el banner sigue: el usuario decide reintentar, mover igual o cancelar
-    expect(screen.getByTestId('move-dirty-banner')).toBeInTheDocument()
-    vi.mocked(window.alert).mockRestore()
+    const dt = makeDataTransfer()
+    fireEvent.dragStart(screen.getByText('a.ts'), { dataTransfer: dt })
+    fireEvent.dragEnd(screen.getByText('a.ts'), { dataTransfer: dt })
+    expect(takeTabBuffer('/repo', 'a.ts')).toBeUndefined()
+  })
+
+  it('dropping a tab payload on the pane reports the move (same worktree only)', async () => {
+    __resetHandoffForTests()
+    const { bridge } = makeMockBridge()
+    const onTabDropped = vi.fn()
+    render(
+      <BridgeProvider value={bridge}>
+        <EditorPane
+          pane={makePane({ id: 'dest-pane' })}
+          onTabsChange={vi.fn()} onClose={vi.fn()} onFocus={vi.fn()} onOpenInNewPane={vi.fn()}
+          onTabDropped={onTabDropped}
+        />
+      </BridgeProvider>,
+    )
+    await waitFor(() => expect(screen.getByTestId('monaco-stub')).toHaveValue('hello'))
+    const dt = makeDataTransfer()
+    dt.setData('application/x-nest-editor-tab', JSON.stringify({ sourcePaneId: 'otro', relPath: 'x.ts', dirty: true, worktreePath: '/repo' }))
+    fireEvent.drop(screen.getByTestId('editor-pane'), { dataTransfer: dt })
+    expect(onTabDropped).toHaveBeenCalledWith({ sourcePaneId: 'otro', relPath: 'x.ts', dirty: true })
+    // cross-worktree: relPath significa otro archivo allá — se ignora
+    onTabDropped.mockClear()
+    const dt2 = makeDataTransfer()
+    dt2.setData('application/x-nest-editor-tab', JSON.stringify({ sourcePaneId: 'otro', relPath: 'x.ts', dirty: true, worktreePath: '/OTRO-wt' }))
+    fireEvent.drop(screen.getByTestId('editor-pane'), { dataTransfer: dt2 })
+    expect(onTabDropped).not.toHaveBeenCalled()
+  })
+
+  it('dropping an Explorer file payload opens it in this pane', async () => {
+    const { bridge } = makeMockBridge()
+    const onFileDropped = vi.fn()
+    render(
+      <BridgeProvider value={bridge}>
+        <EditorPane
+          pane={makePane()}
+          onTabsChange={vi.fn()} onClose={vi.fn()} onFocus={vi.fn()} onOpenInNewPane={vi.fn()}
+          onFileDropped={onFileDropped}
+        />
+      </BridgeProvider>,
+    )
+    await waitFor(() => expect(screen.getByTestId('monaco-stub')).toHaveValue('hello'))
+    const dt = makeDataTransfer()
+    dt.setData('application/x-nest-file', JSON.stringify({ relPath: 'src/nuevo.ts' }))
+    fireEvent.drop(screen.getByTestId('editor-pane'), { dataTransfer: dt })
+    expect(onFileDropped).toHaveBeenCalledWith('src/nuevo.ts')
+  })
+
+  it('a moved-in tab consumes the stashed buffer instead of reading disk', async () => {
+    __resetHandoffForTests()
+    stashTabBuffer('/repo', 'a.ts', { content: 'buffer mudado sin guardar', eol: '\n', dirty: true })
+    const { bridge } = makeMockBridge()
+    render(
+      <BridgeProvider value={bridge}>
+        <EditorPane
+          pane={makePane({ editorTabs: [{ relPath: 'a.ts', dirty: true }], activeEditorTabPath: 'a.ts' })}
+          onTabsChange={vi.fn()} onClose={vi.fn()} onFocus={vi.fn()} onOpenInNewPane={vi.fn()}
+        />
+      </BridgeProvider>,
+    )
+    await waitFor(() => expect(screen.getByTestId('monaco-stub')).toHaveValue('buffer mudado sin guardar'))
+    expect((bridge as unknown as { fs: { readFile: ReturnType<typeof vi.fn> } }).fs.readFile).not.toHaveBeenCalled()
   })
 })
 

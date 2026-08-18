@@ -161,6 +161,12 @@ export function ExplorerPanel({ worktreePath, onFileOpen }: ExplorerPanelProps) 
               onFileOpen(entry.path)
             }
           }}
+          draggable={!entry.isDirectory}
+          onDragStart={entry.isDirectory ? undefined : (e) => {
+            // Arrastrable a cualquier pane de editor (drop lo abre AHÍ).
+            e.dataTransfer.setData('application/x-nest-file', JSON.stringify({ relPath: entry.path }))
+            e.dataTransfer.effectAllowed = 'copy'
+          }}
         >
           <span className="explorer-entry-icon">
             {entry.isDirectory ? <Chevron open={!!expanded[entry.path]} /> : null}

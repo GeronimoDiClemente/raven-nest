@@ -36,6 +36,8 @@ import logoUrl from './assets/logo.png'
 import { useProfile } from './hooks/useProfile'
 import { PLAN_LIMITS } from './lib/stripe'
 import { broadcastTargets, isAgentPane } from './lib/broadcast'
+import { moveTabBetweenPanes, openFileInPane } from './lib/editor-tab-move'
+import { dropTabBuffer } from './lib/editor-buffer-handoff'
 import UpgradeModal from './components/UpgradeModal'
 import TeamsWorkspace from './components/TeamsWorkspace'
 import MyReposPanel from './components/MyReposPanel'
@@ -557,12 +559,42 @@ export default function App() {
         return { ...p, editorTabs: remaining, activeEditorTabPath: remaining[0]?.relPath }
       }),
     }))
+    // El dirty viaja con la tab: el buffer sin guardar llega por el handoff
+    // (el EditorPane origen lo stashea antes de invocar este handler).
+    const sourceTab = (sourcePane.editorTabs ?? []).find(tb => tb.relPath === relPath)
     addPane('editor', '', '', AI_CONFIG.editor.color, '', undefined, undefined, undefined, {
-      editorTabs: [{ relPath, dirty: false }],
+      editorTabs: [{ relPath, dirty: sourceTab?.dirty ?? false }],
       activeEditorTabPath: relPath,
       repoPath: sourcePane.repoPath,
     })
   }, [activeTab, updateActiveTab, addPane, planLimits.maxPanes])
+
+  // Drag & drop: una tab soltada sobre OTRO pane de editor del workspace.
+  const handleEditorTabDropped = useCallback((destPaneId: string, drop: { sourcePaneId: string; relPath: string; dirty: boolean }) => {
+    updateActiveTab(t => {
+      const res = moveTabBetweenPanes(t.panes, drop.sourcePaneId, destPaneId, drop.relPath, drop.dirty)
+      if (!res) return t
+      if (res.dropStash) {
+        // El destino ya tenía el archivo (con su propio buffer): no va a
+        // consumir el handoff — descartarlo. Idempotente si corre dos veces.
+        const dest = t.panes.find(p => p.id === destPaneId)
+        if (dest?.repoPath) dropTabBuffer(dest.repoPath, drop.relPath)
+      }
+      // Si la mudanza vació (y removió) el pane origen, demotear el layout —
+      // mismo patrón que removePane.
+      const naturalDefault = defaultLayoutFor(res.panes.length)
+      const demoted = getPreset(naturalDefault).slotCount < getPreset(t.layoutId).slotCount
+      const layoutId: LayoutId = demoted ? naturalDefault : t.layoutId
+      return demoted
+        ? { ...t, panes: res.panes, layoutId, splitRatios: {} }
+        : { ...t, panes: res.panes, layoutId }
+    })
+  }, [updateActiveTab])
+
+  // Drag & drop: un archivo del Explorer soltado sobre un pane de editor.
+  const handleEditorFileDropped = useCallback((paneId: string, relPath: string) => {
+    updateActiveTab(t => ({ ...t, panes: openFileInPane(t.panes, paneId, relPath) }))
+  }, [updateActiveTab])
 
   const handlePtyStarted = useCallback((paneId: string, runningRepoPath: string | undefined) => {
     updateActiveTab(t => ({
@@ -1520,6 +1552,8 @@ export default function App() {
                           onClose={() => removePane(pane.id)}
                           onFocus={() => { setFocusedPaneId(pane.id); focusedPaneIdRef.current = pane.id }}
                           onOpenInNewPane={(relPath) => moveEditorTabToNewPane(pane.id, relPath)}
+                          onTabDropped={(drop) => handleEditorTabDropped(pane.id, drop)}
+                          onFileDropped={(relPath) => handleEditorFileDropped(pane.id, relPath)}
                           editorOptions={userPrefs.prefs.ui_settings.editorOptions}
                           editorTheme={userPrefs.prefs.ui_settings.editorTheme}
                         />

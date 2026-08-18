@@ -3,6 +3,7 @@ import Editor from '@monaco-editor/react'
 import { useBridge } from '../lib/bridge'
 import { FileIcon } from './ExplorerPanel'
 import { applyTheme, ensureLanguage, isMonacoBuiltinTheme } from '../lib/shiki-monaco'
+import { stashTabBuffer, takeTabBuffer, dropTabBuffer } from '../lib/editor-buffer-handoff'
 import type { MonacoLike } from '../lib/shiki-monaco'
 import type { EditorTab, PaneNode } from '../types'
 import type { EditorPreferences, EditorTheme } from '../lib/ide-config-mappings'
@@ -26,11 +27,15 @@ interface EditorPaneProps {
   onClose: () => void
   onFocus: () => void
   onOpenInNewPane: (relPath: string) => void
+  // Drag & drop: una tab de OTRO pane soltada acá (mismo worktree; el buffer
+  // sin guardar viaja por editor-buffer-handoff), o un archivo del Explorer.
+  onTabDropped?: (drop: { sourcePaneId: string; relPath: string; dirty: boolean }) => void
+  onFileDropped?: (relPath: string) => void
   editorOptions?: EditorPreferences
   editorTheme?: EditorTheme
 }
 
-export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPane, editorOptions, editorTheme }: EditorPaneProps) {
+export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPane, onTabDropped, onFileDropped, editorOptions, editorTheme }: EditorPaneProps) {
   const bridge = useBridge()
   const worktreePath = pane.repoPath
   const tabs = pane.editorTabs ?? []
@@ -42,10 +47,8 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
   // a disk change fails (typically ENOENT — the file/worktree was removed).
   // Distinct from `conflicts`, which is only about unsaved-edits-vs-disk.
   const [loadErrors, setLoadErrors] = useState<Record<string, string>>({})
-  // Tab dirty a la que se le pidió "Open in new pane": el buffer sin guardar
-  // vive en el estado de ESTE pane y no sobrevive la mudanza (el pane nuevo
-  // carga de disco) — mover sin preguntar era data loss silencioso.
-  const [pendingMove, setPendingMove] = useState<string | null>(null)
+  // Feedback visual mientras un drag compatible está encima del pane.
+  const [dropActive, setDropActive] = useState(false)
   const contentsRef = useRef(contents)
   contentsRef.current = contents
   const loadErrorsRef = useRef(loadErrors)
@@ -184,6 +187,16 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
     if (!worktreePath) return
     tabs.forEach((tab) => {
       if (contentsRef.current[tab.relPath] !== undefined) return
+      // Tab mudada desde otro pane (botón o drag & drop): su buffer viaja por
+      // el handoff — consumirlo evita la lectura de disco que pisaría el
+      // edit sin guardar del pane origen.
+      const handoff = takeTabBuffer(worktreePath, tab.relPath)
+      if (handoff) {
+        eolRef.current[tab.relPath] = handoff.eol
+        setContents((c) => ({ ...c, [tab.relPath]: handoff.content }))
+        setModelText(tab.relPath, handoff.content)
+        return
+      }
       const seqAtDispatch = editSeqRef.current[tab.relPath] ?? 0
       bridge.fs.readFile(worktreePath, tab.relPath).then((res) => {
         // Si el usuario tipeó mientras esta lectura estaba en vuelo, el
@@ -339,7 +352,6 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
     setConflicts((c) => { const { [relPath]: _drop, ...rest } = c; return rest })
     setLoadErrors((e) => { const { [relPath]: _drop, ...rest } = e; return rest })
     delete eolRef.current[relPath]
-    setPendingMove((p) => (p === relPath ? null : p))
     if (nextTabs.length === 0) onClose()
   }, [tabs, activePath, onTabsChange, onClose])
 
@@ -362,8 +374,42 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
     return () => el.removeEventListener('keydown', onKeyDown)
   }, [activePath, save])
 
+  const acceptsDrop = (e: React.DragEvent) =>
+    e.dataTransfer.types.includes('application/x-nest-editor-tab') ||
+    e.dataTransfer.types.includes('application/x-nest-file')
+
   return (
-    <div className="editor-pane" data-testid="editor-pane" onFocus={onFocus} tabIndex={-1} ref={containerRef}>
+    <div
+      className={`editor-pane${dropActive ? ' drop-target' : ''}`}
+      data-testid="editor-pane"
+      onFocus={onFocus}
+      tabIndex={-1}
+      ref={containerRef}
+      onDragOver={(e) => { if (acceptsDrop(e)) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDropActive(true) } }}
+      onDragLeave={() => setDropActive(false)}
+      onDrop={(e) => {
+        setDropActive(false)
+        const tabRaw = e.dataTransfer.getData('application/x-nest-editor-tab')
+        if (tabRaw) {
+          e.preventDefault()
+          try {
+            const p = JSON.parse(tabRaw) as { sourcePaneId: string; relPath: string; dirty: boolean; worktreePath: string }
+            // relPath es relativo al worktree del pane origen: en otro
+            // worktree apunta a otro archivo — cross-worktree se ignora.
+            if (p.worktreePath === worktreePath) onTabDropped?.({ sourcePaneId: p.sourcePaneId, relPath: p.relPath, dirty: p.dirty })
+          } catch { /* payload ajeno, no es nuestro */ }
+          return
+        }
+        const fileRaw = e.dataTransfer.getData('application/x-nest-file')
+        if (fileRaw) {
+          e.preventDefault()
+          try {
+            const p = JSON.parse(fileRaw) as { relPath: string }
+            onFileDropped?.(p.relPath)
+          } catch { /* payload ajeno */ }
+        }
+      }}
+    >
       <div className="editor-pane-tabs">
         {tabs.map((tab) => (
           <div
@@ -371,6 +417,31 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
             className={`editor-tab${tab.relPath === activePath ? ' active' : ''}${tab.dirty ? ' dirty' : ''}`}
             title={tab.relPath}
             onClick={() => onTabsChange(tabs, tab.relPath)}
+            draggable
+            onDragStart={(e) => {
+              if (!worktreePath) return
+              // El buffer viaja con la tab (ver editor-buffer-handoff); si el
+              // drag termina sin mudanza, onDragEnd lo descarta.
+              const content = contentsRef.current[tab.relPath]
+              if (content !== undefined) {
+                stashTabBuffer(worktreePath, tab.relPath, {
+                  content,
+                  eol: eolRef.current[tab.relPath] ?? '\n',
+                  dirty: tab.dirty,
+                })
+              }
+              e.dataTransfer.setData('application/x-nest-editor-tab', JSON.stringify({
+                sourcePaneId: pane.id, relPath: tab.relPath, dirty: tab.dirty, worktreePath,
+              }))
+              e.dataTransfer.effectAllowed = 'move'
+            }}
+            onDragEnd={() => {
+              // La tab sigue en este pane → la mudanza no ocurrió (drag
+              // cancelado o drop en el mismo pane): descartar el stash.
+              if (worktreePath && tabsRef.current.some((t) => t.relPath === tab.relPath)) {
+                dropTabBuffer(worktreePath, tab.relPath)
+              }
+            }}
           >
             <FileIcon name={tab.relPath} />
             <span className="editor-tab-name">{tab.relPath.split('/').pop()}</span>
@@ -386,8 +457,17 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
                 title="Open in new pane"
                 onClick={(e) => {
                   e.stopPropagation()
-                  if (tab.dirty) setPendingMove(tab.relPath)
-                  else onOpenInNewPane(tab.relPath)
+                  // El buffer viaja con la tab: el pane destino lo consume en
+                  // su carga en lugar de leer disco (nada sin guardar se pierde).
+                  const content = contentsRef.current[tab.relPath]
+                  if (worktreePath && content !== undefined) {
+                    stashTabBuffer(worktreePath, tab.relPath, {
+                      content,
+                      eol: eolRef.current[tab.relPath] ?? '\n',
+                      dirty: tab.dirty,
+                    })
+                  }
+                  onOpenInNewPane(tab.relPath)
                 }}
               >
                 <svg width="11" height="11" viewBox="0 0 16 16" fill="none">
@@ -408,28 +488,6 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
           <span className="editor-conflict-text">File changed on disk.</span>
           <button className="editor-banner-btn" onClick={() => keepMine(activePath)}>Keep my changes</button>
           <button className="editor-banner-btn primary" onClick={() => reloadFromDisk(activePath)}>Reload from disk</button>
-        </div>
-      )}
-      {pendingMove && (
-        <div className="editor-conflict-banner" data-testid="move-dirty-banner">
-          <span className="editor-conflict-text">
-            {pendingMove.split('/').pop()} has unsaved changes — moving it to a new pane will discard them.
-          </span>
-          <button
-            className="editor-banner-btn primary"
-            onClick={async () => {
-              const rel = pendingMove
-              if (await save(rel)) {
-                onOpenInNewPane(rel)
-                setPendingMove(null)
-              }
-            }}
-          >Save &amp; move</button>
-          <button
-            className="editor-banner-btn"
-            onClick={() => { onOpenInNewPane(pendingMove); setPendingMove(null) }}
-          >Move anyway</button>
-          <button className="editor-banner-btn" onClick={() => setPendingMove(null)}>Cancel</button>
         </div>
       )}
       {activePath && loadErrors[activePath] ? (

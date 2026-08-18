@@ -9580,6 +9580,9 @@ body.platform-mac .tabbar { padding-right: 116px; }
 /* Pane crasheado (error boundary): mismo empty state, con acciones lado a lado. */
 .pane-crashed-actions { display: flex; gap: 8px; }
 
+/* Drop target de drag & drop (tab de otro pane o archivo del Explorer). */
+.editor-pane.drop-target { outline: 2px dashed #7c3aed88; outline-offset: -2px; }
+
 
 /* ── Hub Overlay ─────────────────────────────────────────── */
 
