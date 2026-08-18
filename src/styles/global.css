@@ -9589,9 +9589,10 @@ body.platform-mac .tabbar { padding-right: 116px; }
 .diff-deleted { color: #f85149; }
 .diff-untracked { color: #3fb950; opacity: 0.85; }
 
-/* Líneas agregadas/cambiadas vs HEAD dentro del editor. */
-.nest-diff-added { background: rgba(63, 185, 80, 0.13); }
-.nest-diff-added-gutter { border-left: 3px solid #3fb950; margin-left: 3px; }
+/* Líneas agregadas/cambiadas vs HEAD dentro del editor: tinte sutil (que se
+   lea el código, no la marca) + barra de gutter como señal principal. */
+.nest-diff-added { background: rgba(63, 185, 80, 0.07); }
+.nest-diff-added-gutter { border-left: 3px solid #3fb950cc; margin-left: 3px; }
 
 
 /* ── Hub Overlay ─────────────────────────────────────────── */

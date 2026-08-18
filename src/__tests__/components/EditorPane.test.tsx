@@ -753,8 +753,46 @@ describe('EditorPane', () => {
       </BridgeProvider>,
     )
     await waitFor(() => expect(screen.getByTestId('monaco-stub')).toHaveValue('hello'))
-    expect(monacoStub.lastOptions).toEqual({ fontSize: 18, tabSize: 2 })
+    // El minimap va apagado por DEFAULT (en panes chicos es ruido puro) pero
+    // las opciones del usuario lo pueden re-activar (spread después).
+    expect(monacoStub.lastOptions).toEqual({ minimap: { enabled: false }, fontSize: 18, tabSize: 2 })
     expect(monacoStub.lastTheme).toBe('vs')
+  })
+
+  it('lets user options re-enable the minimap over the default', async () => {
+    const { bridge } = makeMockBridge()
+    render(
+      <BridgeProvider value={bridge}>
+        <EditorPane
+          pane={makePane()} onTabsChange={vi.fn()} onClose={vi.fn()} onFocus={vi.fn()} onOpenInNewPane={vi.fn()}
+          editorOptions={{ minimap: { enabled: true } } as never}
+        />
+      </BridgeProvider>,
+    )
+    await waitFor(() => expect(screen.getByTestId('monaco-stub')).toHaveValue('hello'))
+    expect(monacoStub.lastOptions).toEqual({ minimap: { enabled: true } })
+  })
+
+  it('disables TS SEMANTIC validation on mount (no LSP: module errors are noise)', async () => {
+    const { bridge } = makeMockBridge()
+    const setDiagnosticsOptions = vi.fn()
+    const monaco = {
+      editor: { setTheme: vi.fn(), getModels: vi.fn(() => []), setModelLanguage: vi.fn() },
+      languages: { typescript: {
+        typescriptDefaults: { setDiagnosticsOptions },
+        javascriptDefaults: { setDiagnosticsOptions },
+      } },
+    }
+    render(
+      <BridgeProvider value={bridge}>
+        <EditorPane pane={makePane()} onTabsChange={vi.fn()} onClose={vi.fn()} onFocus={vi.fn()} onOpenInNewPane={vi.fn()} />
+      </BridgeProvider>,
+    )
+    await waitFor(() => expect(screen.getByTestId('monaco-stub')).toHaveValue('hello'))
+    act(() => { monacoStub.latestOnMount?.({}, monaco) })
+    // semántica OFF (imports irresolubles sin LSP), sintaxis ON (typos reales)
+    expect(setDiagnosticsOptions).toHaveBeenCalledTimes(2)
+    expect(setDiagnosticsOptions).toHaveBeenCalledWith({ noSemanticValidation: true, noSyntaxValidation: false })
   })
 
   describe('shiki theming', () => {

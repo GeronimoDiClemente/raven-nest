@@ -182,6 +182,17 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
   const handleEditorMount = useCallback((editorInstance: unknown, monaco: MonacoLike) => {
     editorInstanceRef.current = editorInstance as typeof editorInstanceRef.current
     monacoRef.current = monaco
+    // Sin LSP real (fuera de alcance v1 a propósito), la validación SEMÁNTICA
+    // de TS/JS de Monaco marca en rojo imports perfectamente válidos (no
+    // resuelve módulos del proyecto) — falsos positivos en cada archivo. La
+    // sintáctica queda: los typos reales sí valen. Best-effort: MonacoLike no
+    // tipa languages, y un Monaco sin el worker de TS simplemente no lo tiene.
+    const langs = (monaco as unknown as {
+      languages?: { typescript?: Record<'typescriptDefaults' | 'javascriptDefaults', { setDiagnosticsOptions?: (o: unknown) => void } | undefined> }
+    }).languages
+    for (const d of [langs?.typescript?.typescriptDefaults, langs?.typescript?.javascriptDefaults]) {
+      d?.setDiagnosticsOptions?.({ noSemanticValidation: true, noSyntaxValidation: false })
+    }
     // applyTheme cae solo a vs-dark ante cualquier falla — el editor ya está
     // usable con Monarch antes de que esto resuelva.
     void applyTheme(monaco, editorThemeRef.current ?? 'vs-dark')
@@ -565,7 +576,10 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
           // Los no built-in los aplica applyTheme; acá va el fallback seguro.
           theme={editorTheme && isMonacoBuiltinTheme(editorTheme) ? editorTheme : 'vs-dark'}
           onMount={handleEditorMount}
-          options={editorOptions}
+          // Minimap apagado por DEFAULT: en panes chicos renderiza texto
+          // microscópico ilegible (ruido visual puro). Las opciones del
+          // usuario (Settings / import de config) pueden re-activarlo.
+          options={{ minimap: { enabled: false }, ...(editorOptions ?? {}) }}
         />
       )}
     </div>
