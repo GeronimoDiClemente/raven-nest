@@ -35,6 +35,7 @@ import { focusTerminal } from './terminal-registry'
 import logoUrl from './assets/logo.png'
 import { useProfile } from './hooks/useProfile'
 import { PLAN_LIMITS } from './lib/stripe'
+import { broadcastTargets, isAgentPane } from './lib/broadcast'
 import UpgradeModal from './components/UpgradeModal'
 import TeamsWorkspace from './components/TeamsWorkspace'
 import MyReposPanel from './components/MyReposPanel'
@@ -245,10 +246,6 @@ export default function App() {
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
   )
 
-  const activePaneIds = useMemo(
-    () => panes.map(p => p.id),
-    [panes]
-  )
 
   const addPane = useCallback((
     aiType: AIType, accountName: string, accountDir: string, borderColor: string,
@@ -865,8 +862,10 @@ export default function App() {
       setShowUpgrade(true)
       return
     }
-    // Hub tabs own no panes — open the browser cell in a fresh workspace
-    // rather than pushing an invisible pane onto the Hub tab (see addPane).
+    // Hub tabs own no panes — el browser vive en un workspace nuevo, pero se
+    // auto-pinnea al Hub y el usuario SE QUEDA en el Hub (antes esto
+    // navegaba al workspace nuevo, dejando la sensación de "no puedo tener
+    // un browser en el Hub").
     const activeNow = tabsRef.current.find(t => t.id === activeTabIdRef.current)
     if (activeNow?.isHub) {
       const newTabId = generateTabId()
@@ -875,8 +874,9 @@ export default function App() {
         borderColor: '#0066FF', cmd: '', url,
         sessionPartition: `persist:browser-${newTabId}`,
       }
-      setTabs(prev => [...prev, { id: newTabId, name: 'Workspace', layoutId: '1', panes: [pane] }])
-      setActiveTabId(newTabId)
+      setTabs(prev => prev
+        .map(t => t.id === activeNow.id ? { ...t, hubPanes: [...(t.hubPanes ?? []), pane.id] } : t)
+        .concat({ id: newTabId, name: 'Workspace', layoutId: '1', panes: [pane] }))
       return
     }
     const pane: PaneNode = {
@@ -1235,8 +1235,10 @@ export default function App() {
     return out
   }, [tabs])
 
+  // Todos los panes de los workspaces son elegibles para el Hub — terminales,
+  // editores y browsers (renderHubPane branchea por tipo).
   const hubTermCount = useMemo(
-    () => tabs.reduce((n, t) => t.isHub ? n : n + t.panes.filter(p => p.aiType !== 'browser').length, 0),
+    () => tabs.reduce((n, t) => t.isHub ? n : n + t.panes.length, 0),
     [tabs]
   )
 
@@ -1251,7 +1253,7 @@ export default function App() {
     const byId = new Map<string, PaneNode>()
     for (const t of tabs) {
       if (t.isHub) continue
-      for (const p of t.panes) if (p.aiType !== 'browser') byId.set(p.id, p)
+      for (const p of t.panes) byId.set(p.id, p)
     }
     const picked = (activeTab.hubPanes ?? [])
       .map(id => byId.get(id))
@@ -1265,7 +1267,7 @@ export default function App() {
     id: t.id,
     name: t.name,
     accentColor: t.accentColor,
-    terminals: t.panes.filter(p => p.aiType !== 'browser').map(p => ({
+    terminals: t.panes.map(p => ({
       id: p.id,
       // Un pane de editor se identifica por su archivo activo, no por "Editor".
       label: p.customLabel ?? p.note
@@ -1298,6 +1300,21 @@ export default function App() {
         />
       </PaneErrorBoundary>
     )
+    : pane.aiType === 'browser'
+    ? (
+      <BrowserCell
+        key={pane.id}
+        pane={pane}
+        borderColor={pane.borderColor}
+        siblingPaneIds={hubPanesRef.current.filter(p => p.id !== pane.id).map(p => p.id)}
+        workspaceRepoPath={pane.repoPath}
+        siblingRepoPaths={Array.from(new Set(
+          hubPanesRef.current.map(p => p.repoPath).filter((p): p is string => !!p)
+        ))}
+        onClose={() => removePaneAnywhere(pane.id)}
+        onNavigate={(url) => updatePaneAnywhere(pane.id, p => ({ ...p, url }))}
+      />
+    )
     : (
     <TerminalPane
       key={pane.id}
@@ -1311,7 +1328,13 @@ export default function App() {
       onColorChange={(c) => updatePaneAnywhere(pane.id, p => ({ ...p, borderColor: c }))}
       onNoteChange={(note) => updatePaneAnywhere(pane.id, p => ({ ...p, note }))}
       fontSize={fontSize}
-      onInput={(data) => window.pty.write(pane.id, data)}
+      onInput={(data) => {
+        // El broadcast también aplica DESDE el Hub: los targets son los panes
+        // agentes visibles en el Hub (el onInput del workspace no corre acá —
+        // este es el camino que faltaba y por el que "no funcionaba").
+        const targets = broadcastMode ? broadcastTargets(hubPanesRef.current, pane.id) : [pane.id]
+        targets.forEach((id) => window.pty.write(id, data))
+      }}
       onFocus={() => { setFocusedPaneId(pane.id); focusedPaneIdRef.current = pane.id }}
       onBusyChange={handleBusyChange}
       onActivity={handlePaneActivity}
@@ -1377,7 +1400,10 @@ export default function App() {
           if (id) window.pty.write(id, content + '\r')
         }}
         onSnippetBroadcast={(content) => {
-          activePaneIds.forEach((id) => window.pty.write(id, content + '\r'))
+          // Vista-consciente: en el Hub la tab activa no posee panes — los
+          // targets salen de los panes del Hub. Y siempre solo agentes.
+          const viewPanes = activeTab.isHub ? hubPanesRef.current : panes
+          viewPanes.filter((p) => isAgentPane(p.aiType)).forEach((p) => window.pty.write(p.id, content + '\r'))
         }}
         onCommandRun={(cmd) => {
           const id = focusedPaneIdRef.current
@@ -1407,7 +1433,7 @@ export default function App() {
           // Hub is a curated workspace: clicking a workspace focuses its first
           // pane *inside* the Hub (adding it if needed), never navigates away.
           const t = tabs.find(x => x.id === id)
-          const p = t?.panes.find(pp => pp.aiType !== 'browser')
+          const p = t?.panes[0]
           if (p) handleHubFocus(p.id)
         }}
         onJumpToPane={(_tabId, paneId) => handleHubFocus(paneId)}
@@ -1530,7 +1556,10 @@ export default function App() {
                         onNoteChange={(note) => updatePaneNote(pane.id, note)}
                         fontSize={fontSize}
                         onInput={(data) => {
-                          const targets = broadcastMode ? panes.map(p => p.id) : [pane.id]
+                          // Broadcast solo a panes de AGENTE (más la propia):
+                          // editor/browser no tienen PTY y una shell plana
+                          // ejecutaría el prompt como comando.
+                          const targets = broadcastMode ? broadcastTargets(panes, pane.id) : [pane.id]
                           targets.forEach((id) => window.pty.write(id, data))
                         }}
                         onFocus={() => {
@@ -1600,7 +1629,10 @@ export default function App() {
           onTabSelect={(id) => { handleTabSelect(id) }}
           onWorkspaceLoad={loadWorkspace}
           onSnippetSend={(content) => { if (focusedPaneId) window.pty.write(focusedPaneId, content + '\n') }}
-          onSnippetBroadcast={(content) => { panes.forEach(p => window.pty.write(p.id, content + '\n')) }}
+          onSnippetBroadcast={(content) => {
+            const viewPanes = activeTab.isHub ? hubPanesRef.current : panes
+            viewPanes.filter(p => isAgentPane(p.aiType)).forEach(p => window.pty.write(p.id, content + '\n'))
+          }}
           onHistoryOpen={() => setConvSidebarOpen(true)}
           onNewTab={handleTabNew}
           onNewPane={addNextPane}
