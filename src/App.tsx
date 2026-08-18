@@ -15,6 +15,7 @@ import { getPreset } from './layout/presets'
 import TerminalPane from './components/TerminalPane'
 import BrowserCell from './components/BrowserCell'
 import { EditorPane } from './components/EditorPane'
+import { PaneErrorBoundary } from './components/PaneErrorBoundary'
 import NewPaneDialog from './components/NewPaneDialog'
 import TabBar from './components/TabBar'
 import { PortsBanner } from './components/PortsBanner'
@@ -1448,16 +1449,20 @@ export default function App() {
                   onResize={handleSplitResize}
                   renderPane={(pane) => pane.aiType === 'editor'
                     ? (
-                      <EditorPane
-                        key={pane.id}
-                        pane={pane}
-                        onTabsChange={(tabs, activeEditorTabPath) => updatePaneEditorTabs(pane.id, tabs, activeEditorTabPath)}
-                        onClose={() => removePane(pane.id)}
-                        onFocus={() => { setFocusedPaneId(pane.id); focusedPaneIdRef.current = pane.id }}
-                        onOpenInNewPane={(relPath) => moveEditorTabToNewPane(pane.id, relPath)}
-                        editorOptions={userPrefs.prefs.ui_settings.editorOptions}
-                        editorTheme={userPrefs.prefs.ui_settings.editorTheme}
-                      />
+                      // Boundary solo en el editor: es el único pane que corre
+                      // código de terceros patcheando globals (Monaco/shiki) —
+                      // un throw ahí en pleno commit desmontaba la app entera.
+                      <PaneErrorBoundary key={pane.id} onClose={() => removePane(pane.id)}>
+                        <EditorPane
+                          pane={pane}
+                          onTabsChange={(tabs, activeEditorTabPath) => updatePaneEditorTabs(pane.id, tabs, activeEditorTabPath)}
+                          onClose={() => removePane(pane.id)}
+                          onFocus={() => { setFocusedPaneId(pane.id); focusedPaneIdRef.current = pane.id }}
+                          onOpenInNewPane={(relPath) => moveEditorTabToNewPane(pane.id, relPath)}
+                          editorOptions={userPrefs.prefs.ui_settings.editorOptions}
+                          editorTheme={userPrefs.prefs.ui_settings.editorTheme}
+                        />
+                      </PaneErrorBoundary>
                     )
                     : pane.aiType === 'browser'
                     ? (

@@ -4,7 +4,10 @@
 
 `npx tsc --noEmit` en la raíz NO CHEQUEA NADA (tsconfig solution-style con
 `files: []`). El chequeo real es `npx tsc -b` — que además emite .js/.d.ts
-junto a los sources (composite): limpiar con `git clean -fd` después. Hay
+junto a los sources (composite): limpiar con `git clean -fd` después.
+**OJO: `git add` los archivos fuente NUEVOS ANTES del `git clean`** — clean
+borra todo lo untracked y no distingue un .tsx recién creado de un .js
+emitido (pasó el 2026-08-18: se llevó un componente nuevo y su test). Hay
 ~15 errores de tipo preexistentes bajo `tsc -b` en código de main
 (pidusage, metrics-collector, etc.) anteriores al branch del editor.
 
