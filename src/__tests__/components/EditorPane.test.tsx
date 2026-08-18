@@ -1,8 +1,10 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
+import { useState } from 'react'
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { BridgeProvider } from '../../lib/bridge'
 import { EditorPane } from '../../components/EditorPane'
 import { stashTabBuffer, takeTabBuffer, __resetHandoffForTests } from '../../lib/editor-buffer-handoff'
+import { modelPathFor } from '../../lib/editor-model-path'
 import type { PaneNode } from '../../types'
 
 // Real Monaco's onChange reports the model's raw text verbatim (it keeps its
@@ -17,6 +19,7 @@ const monacoStub = vi.hoisted(() => ({
   lastOptions: undefined as unknown,
   lastTheme: undefined as string | undefined,
   lastLanguage: undefined as string | undefined,
+  lastPath: undefined as string | undefined,
   latestOnMount: null as ((editor: unknown, monaco: unknown) => void) | null,
 }))
 
@@ -24,11 +27,12 @@ vi.mock('@monaco-editor/react', () => ({
   // El componente real corre NO-controlado (defaultValue) — el stub refleja
   // el prop en cada re-render para que los tests puedan asertar contenido
   // tras cargas/recargas (que en producción llegan vía setModelText).
-  default: ({ defaultValue, onChange, options, theme, language, onMount }: { defaultValue: string; onChange: (v: string | undefined) => void; options?: unknown; theme?: string; language?: string; onMount?: (editor: unknown, monaco: unknown) => void }) => {
+  default: ({ defaultValue, onChange, options, theme, language, path, onMount }: { defaultValue: string; onChange: (v: string | undefined) => void; options?: unknown; theme?: string; language?: string; path?: string; onMount?: (editor: unknown, monaco: unknown) => void }) => {
     monacoStub.latestOnChange = onChange
     monacoStub.lastOptions = options
     monacoStub.lastTheme = theme
     monacoStub.lastLanguage = language
+    monacoStub.lastPath = path
     monacoStub.latestOnMount = onMount ?? null
     return <textarea data-testid="monaco-stub" value={defaultValue} onChange={(e) => onChange(e.target.value)} />
   },
@@ -41,6 +45,9 @@ const shikiMock = vi.hoisted(() => ({
   applyTheme: vi.fn().mockResolvedValue(true),
   ensureLanguage: vi.fn().mockResolvedValue('typescript'),
 }))
+// monaco-setup real importa monaco-editor entero — en jsdom ni hace falta
+vi.mock('../../lib/monaco-setup', () => ({}))
+
 vi.mock('../../lib/shiki-monaco', () => ({
   applyTheme: shikiMock.applyTheme,
   ensureLanguage: shikiMock.ensureLanguage,
@@ -123,7 +130,7 @@ describe('cargas de disco vs onChange de Monaco', () => {
   function makeEchoingMonaco() {
     let value = ''
     const model = {
-      uri: { path: '/a.ts' },
+      uri: { path: modelPathFor('/repo', 'a.ts') },
       getValue: () => value,
       setValue: vi.fn((v: string) => { value = v; monacoStub.latestOnChange?.(v) }),
     }
@@ -142,6 +149,7 @@ describe('cargas de disco vs onChange de Monaco', () => {
         <EditorPane pane={makePane()} onTabsChange={onTabsChange} onClose={vi.fn()} onFocus={vi.fn()} onOpenInNewPane={vi.fn()} />
       </BridgeProvider>,
     )
+    await waitFor(() => expect(screen.getByTestId('monaco-stub')).toBeInTheDocument())
     act(() => { monacoStub.latestOnMount?.({}, monaco) })
     await act(async () => { resolveRead({ ok: true, content: 'hello' }) })
     expect(model.setValue).toHaveBeenCalledWith('hello')
@@ -333,9 +341,17 @@ describe('Open in new pane con cambios sin guardar', () => {
     )
     await waitFor(() => expect(screen.getByTestId('monaco-stub')).toHaveValue('hello'))
     const dt = makeDataTransfer()
-    dt.setData('application/x-nest-file', JSON.stringify({ relPath: 'src/nuevo.ts' }))
+    dt.setData('application/x-nest-file', JSON.stringify({ relPath: 'src/nuevo.ts', worktreePath: '/repo' }))
     fireEvent.drop(screen.getByTestId('editor-pane'), { dataTransfer: dt })
     expect(onFileDropped).toHaveBeenCalledWith('src/nuevo.ts')
+    // cross-worktree: el relPath significa OTRO archivo allá — se ignora
+    // (mismo guard que el drop de tabs; sin él, soltar un archivo del
+    // worktree X sobre un pane de Y abría la versión de Y en silencio).
+    onFileDropped.mockClear()
+    const dt2 = makeDataTransfer()
+    dt2.setData('application/x-nest-file', JSON.stringify({ relPath: 'src/nuevo.ts', worktreePath: '/OTRO' }))
+    fireEvent.drop(screen.getByTestId('editor-pane'), { dataTransfer: dt2 })
+    expect(onFileDropped).not.toHaveBeenCalled()
   })
 
   // El pane destino puede REMONTARSE entero (la remoción del pane origen
@@ -359,7 +375,7 @@ describe('Open in new pane con cambios sin guardar', () => {
     await waitFor(() => expect(screen.getByTestId('monaco-stub')).toHaveValue('buffer que llego antes que Monaco'))
     // …y recién ahora monta Monaco (segundo commit del wrapper real)
     let value = 'contenido viejo del modelo global'
-    const model = { uri: { path: '/a.ts' }, getValue: () => value, setValue: vi.fn((v: string) => { value = v }) }
+    const model = { uri: { path: modelPathFor('/repo', 'a.ts') }, getValue: () => value, setValue: vi.fn((v: string) => { value = v }) }
     const monaco = { editor: { setTheme: vi.fn(), getModels: vi.fn(() => [model]), setModelLanguage: vi.fn() } }
     act(() => { monacoStub.latestOnMount?.({}, monaco) })
     expect(model.setValue).toHaveBeenCalledWith('buffer que llego antes que Monaco')
@@ -379,6 +395,82 @@ describe('Open in new pane con cambios sin guardar', () => {
     )
     await waitFor(() => expect(screen.getByTestId('monaco-stub')).toHaveValue('buffer mudado sin guardar'))
     expect((bridge as unknown as { fs: { readFile: ReturnType<typeof vi.fn> } }).fs.readFile).not.toHaveBeenCalled()
+  })
+})
+
+// Identidad de modelos calificada por worktree (findings críticos 1-3 del
+// review 2026-08-18): el relPath pelado hacía que dos worktrees compartieran
+// modelo (clobber cruzado en Ctrl+S), el matching por sufijo confundía
+// foo.ts con src/foo.ts, y el unmount del pane (cambio de workspace tab)
+// perdía los buffers dirty aunque la tab siguiera marcada dirty.
+describe('EditorPane — identidad de modelos por worktree', () => {
+  afterEach(() => vi.clearAllMocks())
+
+  it('qualifies the Monaco model path with the worktree', async () => {
+    const { bridge } = makeMockBridge()
+    render(
+      <BridgeProvider value={bridge}>
+        <EditorPane pane={makePane()} onTabsChange={vi.fn()} onClose={vi.fn()} onFocus={vi.fn()} onOpenInNewPane={vi.fn()} />
+      </BridgeProvider>,
+    )
+    await waitFor(() => expect(screen.getByTestId('monaco-stub')).toHaveValue('hello'))
+    expect(monacoStub.lastPath).toBe(modelPathFor('/repo', 'a.ts'))
+  })
+
+  it('writes disk loads only into the EXACT model — no suffix matching', async () => {
+    const { bridge } = makeMockBridge()
+    const rootModel = { uri: { path: modelPathFor('/repo', 'foo.ts') }, getValue: () => '', setValue: vi.fn() }
+    const nestedModel = { uri: { path: modelPathFor('/repo', 'src/foo.ts') }, getValue: () => 'contenido de src', setValue: vi.fn() }
+    const monaco = { editor: { setTheme: vi.fn(), getModels: vi.fn(() => [nestedModel, rootModel]), setModelLanguage: vi.fn() } }
+    render(
+      <BridgeProvider value={bridge}>
+        <EditorPane
+          pane={makePane({ editorTabs: [{ relPath: 'foo.ts', dirty: false }], activeEditorTabPath: 'foo.ts' })}
+          onTabsChange={vi.fn()} onClose={vi.fn()} onFocus={vi.fn()} onOpenInNewPane={vi.fn()}
+        />
+      </BridgeProvider>,
+    )
+    await waitFor(() => expect(screen.getByTestId('monaco-stub')).toHaveValue('hello'))
+    act(() => { monacoStub.latestOnMount?.({}, monaco) })
+    await waitFor(() => expect(rootModel.setValue).toHaveBeenCalledWith('hello'))
+    // el modelo de src/foo.ts (mismo sufijo) NO se toca
+    expect(nestedModel.setValue).not.toHaveBeenCalled()
+  })
+
+  it('stashes dirty buffers on unmount so a workspace-tab switch cannot lose them', async () => {
+    __resetHandoffForTests()
+    const { bridge } = makeMockBridge()
+    // Host con estado: en producción App aplica onTabsChange y el dirty
+    // vuelve a bajar como prop — sin esto tabsRef nunca ve la tab dirty.
+    function Host() {
+      const [pane, setPane] = useState(makePane())
+      return (
+        <EditorPane
+          pane={pane}
+          onTabsChange={(editorTabs, activeEditorTabPath) => setPane((p) => ({ ...p, editorTabs, activeEditorTabPath }))}
+          onClose={vi.fn()} onFocus={vi.fn()} onOpenInNewPane={vi.fn()}
+        />
+      )
+    }
+    const { unmount } = render(<BridgeProvider value={bridge}><Host /></BridgeProvider>)
+    await waitFor(() => expect(screen.getByTestId('monaco-stub')).toHaveValue('hello'))
+    act(() => { monacoStub.latestOnChange?.('hello con edits sin guardar') })
+    await waitFor(() => expect(screen.getByTestId('dirty-a.ts')).toBeInTheDocument())
+    unmount()
+    expect(takeTabBuffer('/repo', 'a.ts')).toEqual({ content: 'hello con edits sin guardar', eol: '\n', dirty: true })
+  })
+
+  it('does not stash clean tabs on unmount (nada que preservar)', async () => {
+    __resetHandoffForTests()
+    const { bridge } = makeMockBridge()
+    const { unmount } = render(
+      <BridgeProvider value={bridge}>
+        <EditorPane pane={makePane()} onTabsChange={vi.fn()} onClose={vi.fn()} onFocus={vi.fn()} onOpenInNewPane={vi.fn()} />
+      </BridgeProvider>,
+    )
+    await waitFor(() => expect(screen.getByTestId('monaco-stub')).toHaveValue('hello'))
+    unmount()
+    expect(takeTabBuffer('/repo', 'a.ts')).toBeUndefined()
   })
 })
 

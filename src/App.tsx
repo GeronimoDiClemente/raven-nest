@@ -587,9 +587,12 @@ export default function App() {
   }, [])
 
   // Drag & drop: un archivo del Explorer soltado sobre un pane de editor.
+  // Cross-workspace a propósito (funciona igual desde el Hub, donde el pane
+  // destino vive en otro tab): openFileInPane no-opea para todo pane que no
+  // sea el destino, así que mapear todos los workspaces es inocuo.
   const handleEditorFileDropped = useCallback((paneId: string, relPath: string) => {
-    updateActiveTab(t => ({ ...t, panes: openFileInPane(t.panes, paneId, relPath) }))
-  }, [updateActiveTab])
+    setTabs(prev => prev.map(t => t.isHub ? t : { ...t, panes: openFileInPane(t.panes, paneId, relPath) }))
+  }, [])
 
   // "Open in new pane" desde el Hub: el split se crea en el workspace de
   // ORIGEN del pane y se auto-pinnea al Hub (mismo patrón que el browser).
@@ -677,6 +680,12 @@ export default function App() {
         customColor: p.customColor,
         note: p.note,
         shellId: p.shellId,
+        // Misma omisión que tenía el save de sesión: sin repoPath el editor
+        // restaurado no sabe su worktree, y sin editorTabs queda cascarón.
+        repoPath: p.repoPath,
+        url: p.url,
+        editorTabs: p.editorTabs,
+        activeEditorTabPath: p.activeEditorTabPath,
       })),
       resumeLastSession: false,
       createdAt: Date.now(),
@@ -1108,6 +1117,12 @@ export default function App() {
             // Persist the browser pane's current URL so reopening Nest (or
             // switching workspaces) restores the page instead of the placeholder.
             url: p.url,
+            // Editor: sin estos dos, el pane restauraba como cascarón sin
+            // tabs (negro, incerrable). Las tabs dirty recargan de disco al
+            // restaurar (el buffer no sobrevive el proceso) pero conservan
+            // la señal de "tenías trabajo sin guardar".
+            editorTabs: p.editorTabs,
+            activeEditorTabPath: p.activeEditorTabPath,
           })),
           splitRatios: tab.splitRatios,
           isHub: tab.isHub,
@@ -1336,6 +1351,7 @@ export default function App() {
           onFocus={() => { setFocusedPaneId(pane.id); focusedPaneIdRef.current = pane.id }}
           onOpenInNewPane={(relPath) => moveEditorTabToNewPaneFromHub(pane.id, relPath)}
           onTabDropped={(drop) => handleEditorTabDropped(pane.id, drop)}
+          onFileDropped={(relPath) => handleEditorFileDropped(pane.id, relPath)}
           editorOptions={userPrefs.prefs.ui_settings.editorOptions}
           editorTheme={userPrefs.prefs.ui_settings.editorTheme}
         />

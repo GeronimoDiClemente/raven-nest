@@ -4,6 +4,7 @@ import { useBridge } from '../lib/bridge'
 import { FileIcon } from './ExplorerPanel'
 import { applyTheme, ensureLanguage, isMonacoBuiltinTheme } from '../lib/shiki-monaco'
 import { stashTabBuffer, takeTabBuffer, dropTabBuffer } from '../lib/editor-buffer-handoff'
+import { modelPathFor } from '../lib/editor-model-path'
 import type { MonacoLike } from '../lib/shiki-monaco'
 import type { EditorTab, PaneNode } from '../types'
 import type { EditorPreferences, EditorTheme } from '../lib/ide-config-mappings'
@@ -19,6 +20,16 @@ function detectEol(content: string): '\n' | '\r\n' {
 function normalizeEol(content: string, eol: '\n' | '\r\n'): string {
   const withLf = content.replace(/\r\n/g, '\n')
   return eol === '\r\n' ? withLf.replace(/\n/g, '\r\n') : withLf
+}
+
+// UN solo import dinámico compartido entre todos los panes: monaco-setup es
+// idempotente pero dos import() concurrentes del mismo módulo pueden no
+// resolver ambos .then en algunos runners (visto en vitest) — y compartir el
+// promise es lo correcto de todos modos.
+let monacoSetupPromise: Promise<unknown> | null = null
+function ensureMonacoSetup(): Promise<unknown> {
+  monacoSetupPromise ??= import('../lib/monaco-setup')
+  return monacoSetupPromise
 }
 
 interface EditorPaneProps {
@@ -49,6 +60,15 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
   const [loadErrors, setLoadErrors] = useState<Record<string, string>>({})
   // Feedback visual mientras un drag compatible está encima del pane.
   const [dropActive, setDropActive] = useState(false)
+  // Monaco se carga LAZY en el primer pane de editor (no en el bundle de
+  // arranque). <Editor> recién puede montar cuando monaco-setup corrió —
+  // si no, @monaco-editor/react cae a su loader CDN (offline: roto).
+  const [monacoSetupReady, setMonacoSetupReady] = useState(false)
+  useEffect(() => {
+    let alive = true
+    void ensureMonacoSetup().then(() => { if (alive) setMonacoSetupReady(true) })
+    return () => { alive = false }
+  }, [])
   const contentsRef = useRef(contents)
   contentsRef.current = contents
   const loadErrorsRef = useRef(loadErrors)
@@ -57,6 +77,29 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
   tabsRef.current = tabs
   const activePathRef = useRef(activePath)
   activePathRef.current = activePath
+  const worktreePathRef = useRef(worktreePath)
+  worktreePathRef.current = worktreePath
+
+  // Los buffers dirty viven en el state de ESTE componente y cambiar de
+  // workspace tab lo DESMONTA (App renderiza solo el tab activo, sin
+  // keep-alive): sin esto, al volver la tab seguía marcada dirty pero
+  // recargaba de disco — y Ctrl+S escribía el contenido de disco pisando
+  // las ediciones del usuario. El unmount stashea todo buffer dirty al
+  // handoff; la carga ya consume stashes para tabs que llegan dirty.
+  useEffect(() => () => {
+    const wt = worktreePathRef.current
+    if (!wt) return
+    for (const tab of tabsRef.current) {
+      if (!tab.dirty) continue
+      const content = contentsRef.current[tab.relPath]
+      if (content === undefined) continue
+      stashTabBuffer(wt, tab.relPath, {
+        content,
+        eol: eolRef.current[tab.relPath] ?? '\n',
+        dirty: true,
+      })
+    }
+  }, [])
 
   // watch()/unwatch() are un-awaited async IPC round-trips into a single,
   // non-ref-counted registry keyed by `worktreePath::relPath` (see
@@ -115,8 +158,13 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
   const setModelText = useCallback((relPath: string, text: string) => {
     const monaco = monacoRef.current
     if (!monaco) return
+    // Matching EXACTO contra el path calificado por worktree. El matching
+    // viejo por sufijo (endsWith('/'+relPath)) inyectaba el contenido de
+    // foo.ts de raíz en el modelo de src/foo.ts — y sin calificar, dos
+    // worktrees compartían modelo (clobber cruzado en Ctrl+S).
+    const target = worktreePath ? modelPathFor(worktreePath, relPath) : relPath
     const model = monaco.editor.getModels().find(
-      (m) => m.uri.path === relPath || m.uri.path.endsWith(`/${relPath}`),
+      (m) => m.uri.path === target || m.uri.path === `/${target}`,
     )
     if (model && model.getValue() !== text) {
       suppressChangeRef.current++
@@ -126,7 +174,7 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
         suppressChangeRef.current--
       }
     }
-  }, [])
+  }, [worktreePath])
 
   // Contador monotónico de ediciones por path. Las cargas de disco lo
   // capturan al DESPACHAR la lectura y lo re-chequean al resolver: si el
@@ -273,9 +321,16 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tabs, worktreePath, bridge])
 
+  // Keyear por el SET de paths y no por la identidad de `tabs`: cada
+  // transición de dirty (.map() del padre) creaba un array nuevo y rehacía
+  // TODOS los watchers (2N round-trips IPC + teardown/rebuild de chokidar)
+  // sin que el conjunto watcheado cambiara.
+  const watchKey = tabs.map((t) => t.relPath).sort().join('\n')
+
   useEffect(() => {
     if (!worktreePath) return
-    tabs.forEach((tab) => sequencedWatch(worktreePath, tab.relPath))
+    const watched = tabsRef.current.map((t) => t.relPath)
+    watched.forEach((relPath) => sequencedWatch(worktreePath, relPath))
     const unsubscribe = bridge.fs.onChanged((changedWorktree, relPath) => {
       if (changedWorktree !== worktreePath) return
       const tab = tabsRef.current.find((t) => t.relPath === relPath)
@@ -311,10 +366,10 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
     })
     return () => {
       unsubscribe()
-      tabs.forEach((tab) => sequencedUnwatch(worktreePath, tab.relPath))
+      watched.forEach((relPath) => sequencedUnwatch(worktreePath, relPath))
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tabs, worktreePath, bridge, sequencedWatch, sequencedUnwatch])
+  }, [watchKey, worktreePath, bridge, sequencedWatch, sequencedUnwatch])
 
   // Reads current tabs/activePath via refs instead of closing over the
   // `tabs`/`activePath` render-scoped variables. This matters for callers
@@ -471,8 +526,10 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
         if (fileRaw) {
           e.preventDefault()
           try {
-            const p = JSON.parse(fileRaw) as { relPath: string }
-            onFileDropped?.(p.relPath)
+            const p = JSON.parse(fileRaw) as { relPath: string; worktreePath?: string }
+            // Mismo guard cross-worktree que el drop de tabs: el relPath de
+            // otro worktree significa OTRO archivo acá.
+            if (p.worktreePath === worktreePath) onFileDropped?.(p.relPath)
           } catch { /* payload ajeno */ }
         }
       }}
@@ -563,9 +620,11 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
           <span className="editor-unavailable-text">{loadErrors[activePath]}</span>
           <button className="editor-banner-btn" onClick={() => closeTab(activePath)}>Close tab</button>
         </div>
-      ) : activePath && (
+      ) : activePath && monacoSetupReady && (
         <Editor
-          path={activePath}
+          // Path de modelo calificado por worktree: el mismo relPath en dos
+          // worktrees son DOS modelos (ver lib/editor-model-path.ts).
+          path={worktreePath && activePath ? modelPathFor(worktreePath, activePath) : activePath}
           defaultValue={contents[activePath] ?? ''}
           onChange={(value) => handleChange(activePath, value)}
           // Con shiki cargado, el lenguaje del modelo pasa a ser el id que

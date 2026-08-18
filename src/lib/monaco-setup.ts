@@ -1,6 +1,9 @@
 // Registers the locally-bundled Monaco (no CDN) and its web workers.
-// Must be imported from the renderer entry (src/main.tsx) before any
-// <Editor> from @monaco-editor/react mounts.
+// Cargado LAZY vía dynamic import desde EditorPane (Monaco + 5 workers no
+// pertenecen al bundle de arranque: se parseaban en cada inicio aunque
+// nunca se abriera un editor). El gate de EditorPane garantiza que este
+// módulo corre ANTES de montar <Editor> — sin él, @monaco-editor/react cae
+// a su loader CDN, que offline falla.
 import { loader } from '@monaco-editor/react'
 import * as monaco from 'monaco-editor'
 import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'

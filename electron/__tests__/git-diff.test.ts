@@ -60,10 +60,10 @@ describe('integración con git real', () => {
 
   afterEach(() => { rmSync(repo, { recursive: true, force: true }) })
 
-  it('reports modified counts and untracked files vs HEAD', () => {
+  it('reports modified counts and untracked files vs HEAD', async () => {
     writeFileSync(join(repo, 'src', 'a.ts'), 'uno\nDOS CAMBIADO\ntres\ncuatro\ncinco\n')
     writeFileSync(join(repo, 'nuevo.ts'), 'x\n')
-    const res = getDiffStats(repo)
+    const res = await getDiffStats(repo)
     expect(res.ok).toBe(true)
     if (res.ok) {
       expect(res.files).toEqual([{ relPath: 'src/a.ts', added: 3, deleted: 1 }])
@@ -71,9 +71,26 @@ describe('integración con git real', () => {
     }
   })
 
-  it('reports added line ranges for a modified file', () => {
+  it('reports non-ASCII filenames unquoted (core.quotepath los C-quotea por default)', async () => {
+    // Sin -c core.quotepath=off, git reporta "a\303\261o.ts" y la clave
+    // jamás matchea los paths del Explorer → badges silenciosamente ausentes
+    // justo para archivos con acentos/ñ (finding alto #8 del review).
+    writeFileSync(join(repo, 'src', 'año.ts'), 'x\n')
+    git('add', 'src/año.ts')
+    git('-c', 'user.email=t@t', '-c', 'user.name=t', '-c', 'commit.gpgsign=false', 'commit', '-q', '-m', 'ñ')
+    writeFileSync(join(repo, 'src', 'año.ts'), 'x\ny\n')
+    writeFileSync(join(repo, 'cañería.ts'), 'z\n')
+    const res = await getDiffStats(repo)
+    expect(res.ok).toBe(true)
+    if (res.ok) {
+      expect(res.files).toEqual([{ relPath: 'src/año.ts', added: 1, deleted: 0 }])
+      expect(res.untracked).toEqual(['cañería.ts'])
+    }
+  })
+
+  it('reports added line ranges for a modified file', async () => {
     writeFileSync(join(repo, 'src', 'a.ts'), 'uno\nDOS CAMBIADO\ntres\ncuatro\n')
-    const res = getAddedLines(repo, 'src/a.ts')
+    const res = await getAddedLines(repo, 'src/a.ts')
     expect(res.ok).toBe(true)
     if (res.ok) {
       // línea 2 cambiada + línea 4 nueva
@@ -81,16 +98,16 @@ describe('integración con git real', () => {
     }
   })
 
-  it('rejects relPaths that traverse out of the worktree', () => {
-    const res = getAddedLines(repo, '../fuera.ts')
+  it('rejects relPaths that traverse out of the worktree', async () => {
+    const res = await getAddedLines(repo, '../fuera.ts')
     expect(res.ok).toBe(false)
   })
 
-  it('fails gracefully on a repo without commits (no HEAD)', () => {
+  it('fails gracefully on a repo without commits (no HEAD)', async () => {
     const fresh = mkdtempSync(join(tmpdir(), 'gitdiff-fresh-'))
     execFileSync('git', ['init', '-q', fresh], { stdio: 'pipe' })
     try {
-      const res = getDiffStats(fresh)
+      const res = await getDiffStats(fresh)
       expect(res.ok).toBe(false)
     } finally {
       rmSync(fresh, { recursive: true, force: true })

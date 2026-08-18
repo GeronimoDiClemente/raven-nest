@@ -247,6 +247,10 @@ export interface SessionPane {
   shellId?: string
   url?: string  // browser only: last navigated URL, restored on session load
   pinned?: boolean  // Hub pin — survives session restore
+  // editor only: sin estos dos, un pane de editor restauraba como cascarón
+  // sin tabs — negro y sin affordance de cierre (el × vive por-tab).
+  editorTabs?: EditorTab[]
+  activeEditorTabPath?: string
 }
 
 export interface SessionData {

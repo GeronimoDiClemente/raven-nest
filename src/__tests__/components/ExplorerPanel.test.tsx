@@ -230,6 +230,26 @@ describe('ExplorerPanel — badges de diff', () => {
     expect(intactRow.querySelector('.explorer-diff')).toBeNull()
   })
 
+  it('coalesces a burst of watcher events into ONE stats refresh (debounce)', async () => {
+    // Cada stats() spawnea git en el main: una ráfaga de fs:changed (agente
+    // escribiendo N archivos) no debe multiplicar los spawns.
+    const { bridge, gitDiff, fireChange } = makeDiffBridge()
+    render(
+      <BridgeProvider value={bridge}>
+        <ExplorerPanel worktreePath="/wt" onFileOpen={vi.fn()} />
+      </BridgeProvider>,
+    )
+    await waitFor(() => expect(gitDiff.stats).toHaveBeenCalledTimes(1))
+    fireChange('/wt', '')
+    fireChange('/wt', '')
+    fireChange('/wt', '')
+    fireChange('/wt', '')
+    await waitFor(() => expect(gitDiff.stats).toHaveBeenCalledTimes(2))
+    // dar aire a cualquier trailing call de más
+    await new Promise((r) => setTimeout(r, 400))
+    expect(gitDiff.stats).toHaveBeenCalledTimes(2)
+  })
+
   it('refreshes the stats when the watcher reports a change', async () => {
     const { bridge, gitDiff, fireChange } = makeDiffBridge()
     render(

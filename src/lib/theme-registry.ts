@@ -39,7 +39,7 @@ export function validateVSCodeTheme(raw: unknown): ThemeValidation {
 // igual que settings.json. JSON.parse pelado los rechazaría, así que se
 // limpian primero con un walker consciente de strings — un regex ingenuo
 // rompería valores como "http://...".
-function stripJsonc(text: string): string {
+export function stripJsonc(text: string): string {
   let out = ''
   let inString = false
   let inLine = false

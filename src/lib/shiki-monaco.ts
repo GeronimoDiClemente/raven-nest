@@ -279,24 +279,28 @@ export async function applyTheme(
       monaco.editor.setTheme('vs-dark')
       return false
     }
-    let theme: VSCodeThemeJson | null = null
-    const bundledLoader = BUNDLED_THEME_LOADERS[themeName]
-    if (bundledLoader) {
-      theme = (await bundledLoader()).default as VSCodeThemeJson
-    } else {
-      const getInstalled = deps.getInstalled ?? (() => window.themes.listInstalled())
-      const installed = (await getInstalled()).find((t) => t.name === themeName)
-      // El name del JSON instalado puede tener espacios (display name);
-      // defineTheme de Monaco los rechaza — se fuerza el slug como identidad.
-      if (installed) theme = { ...installed.theme, name: themeName }
-    }
-    if (!theme) {
-      console.warn(`[shiki-monaco] unknown theme '${themeName}', falling back to vs-dark`)
-      appliedTheme = 'vs-dark'
-      monaco.editor.setTheme('vs-dark')
-      return false
-    }
+    // El chequeo de "ya cargado" va ANTES de resolver la fuente: para temas
+    // instalados, resolver implica listInstalled() (main lee y parsea TODOS
+    // los json y los shippea por IPC) — hacerlo en cada mount de editor y
+    // cada re-apply era puro desperdicio.
     if (!highlighter.getLoadedThemes().includes(themeName)) {
+      let theme: VSCodeThemeJson | null = null
+      const bundledLoader = BUNDLED_THEME_LOADERS[themeName]
+      if (bundledLoader) {
+        theme = (await bundledLoader()).default as VSCodeThemeJson
+      } else {
+        const getInstalled = deps.getInstalled ?? (() => window.themes.listInstalled())
+        const installed = (await getInstalled()).find((t) => t.name === themeName)
+        // El name del JSON instalado puede tener espacios (display name);
+        // defineTheme de Monaco los rechaza — se fuerza el slug como identidad.
+        if (installed) theme = { ...installed.theme, name: themeName }
+      }
+      if (!theme) {
+        console.warn(`[shiki-monaco] unknown theme '${themeName}', falling back to vs-dark`)
+        appliedTheme = 'vs-dark'
+        monaco.editor.setTheme('vs-dark')
+        return false
+      }
       await highlighter.loadTheme(theme as never)
     }
     await syncToMonaco(highlighter, monaco)

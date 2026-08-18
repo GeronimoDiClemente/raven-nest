@@ -1,4 +1,7 @@
-import { execFileSync } from 'child_process'
+import { execFile } from 'child_process'
+import { promisify } from 'util'
+
+const execFileAsync = promisify(execFile)
 
 // Diff stats por worktree para el editor: badges +N −M en el Explorer y
 // líneas agregadas en verde en el editor. Diff contra HEAD (todo lo no
@@ -52,19 +55,27 @@ export function parseAddedLineRanges(stdout: string): Array<{ start: number; end
   return ranges
 }
 
-function runGit(worktreePath: string, args: string[]): string {
-  // execFileSync sin shell — mismo patrón que worktree-store.ts.
-  return execFileSync('git', ['-C', worktreePath, ...args], {
+async function runGit(worktreePath: string, args: string[]): Promise<string> {
+  // execFile ASYNC sin shell: estos comandos corren en cada save/tab-switch
+  // desde ipcMain.handle — la variante sync bloqueaba el event loop del main
+  // (PTYs, IPC, ventanas) durante cada spawn de git.
+  // core.quotepath=off: por default git C-quotea los paths no-ASCII
+  // ("a\303\261o.ts") y esas claves jamás matchean los paths del Explorer —
+  // badges silenciosamente ausentes justo para archivos con acentos/ñ.
+  const { stdout } = await execFileAsync('git', ['-C', worktreePath, '-c', 'core.quotepath=off', ...args], {
     encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'pipe'],
     maxBuffer: 10 * 1024 * 1024,
+    windowsHide: true,
   })
+  return stdout
 }
 
-export function getDiffStats(worktreePath: string): DiffStatsResult {
+export async function getDiffStats(worktreePath: string): Promise<DiffStatsResult> {
   try {
-    const numstat = runGit(worktreePath, ['diff', 'HEAD', '--numstat', '--no-renames'])
-    const untrackedRaw = runGit(worktreePath, ['ls-files', '--others', '--exclude-standard'])
+    const [numstat, untrackedRaw] = await Promise.all([
+      runGit(worktreePath, ['diff', 'HEAD', '--numstat', '--no-renames']),
+      runGit(worktreePath, ['ls-files', '--others', '--exclude-standard']),
+    ])
     const untracked = untrackedRaw.split('\n').map((l) => l.trim().replace(/\\/g, '/')).filter(Boolean)
     return { ok: true, files: parseNumstat(numstat), untracked }
   } catch (err) {
@@ -73,14 +84,14 @@ export function getDiffStats(worktreePath: string): DiffStatsResult {
   }
 }
 
-export function getAddedLines(worktreePath: string, relPath: string): AddedLinesResult {
+export async function getAddedLines(worktreePath: string, relPath: string): Promise<AddedLinesResult> {
   // git falla solo con "outside repository" para pathspecs con ..; el guard
   // corta antes y con un error claro.
   if (relPath.split(/[\\/]/).includes('..')) {
     return { ok: false, error: 'relPath escapes the worktree' }
   }
   try {
-    const out = runGit(worktreePath, ['diff', 'HEAD', '-U0', '--no-renames', '--', relPath])
+    const out = await runGit(worktreePath, ['diff', 'HEAD', '-U0', '--no-renames', '--', relPath])
     return { ok: true, ranges: parseAddedLineRanges(out) }
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) }

@@ -208,3 +208,22 @@ describe('parseIntelliJConfig', () => {
     expect(result.ok).toBe(false)
   })
 })
+
+// Los settings.json reales de VS Code son JSONC: comentarios y trailing
+// commas. JSON.parse pelado los rechazaba → "Import from VS Code" fallaba
+// para la mayoría de los usuarios reales (finding alto #6 del review).
+describe('parseVSCodeSettings — JSONC real', () => {
+  it('parses settings with comments and trailing commas', () => {
+    const jsonc = `{
+      // mi fuente preferida
+      "editor.fontSize": 16, /* bloque */
+      "editor.tabSize": 2,
+    }`
+    const res = parseVSCodeSettings(jsonc)
+    expect(res.ok).toBe(true)
+    if (res.ok) {
+      expect(res.options.fontSize).toBe(16)
+      expect(res.options.tabSize).toBe(2)
+    }
+  })
+})

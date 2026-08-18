@@ -238,6 +238,20 @@ describe('setTheme post-patch de shikiToMonaco', () => {
   })
 })
 
+describe('applyTheme — caché de temas ya cargados', () => {
+  it('does not re-fetch an installed theme once the highlighter has it', async () => {
+    // listInstalled() lee y parsea TODOS los json y los shippea por IPC —
+    // hacerlo en cada mount de editor era el hot path del finding #14.
+    const monaco = makeMonaco()
+    const getInstalled = vi.fn().mockResolvedValue([
+      { name: 'acme-dark', displayName: 'Acme Dark', isDark: true, theme: { name: 'Acme Dark', tokenColors: [] } },
+    ])
+    expect(await applyTheme(monaco, 'acme-dark', { getInstalled })).toBe(true)
+    expect(await applyTheme(monaco, 'acme-dark', { getInstalled })).toBe(true)
+    expect(getInstalled).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe('isMonacoBuiltinTheme', () => {
   it('recognizes the native monaco themes (no shiki involved)', () => {
     expect(isMonacoBuiltinTheme('vs')).toBe(true)

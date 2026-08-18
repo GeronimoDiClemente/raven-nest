@@ -1,4 +1,5 @@
 import { XMLParser } from 'fast-xml-parser'
+import { stripJsonc } from './theme-registry'
 
 export interface EditorPreferences {
   fontSize?: number
@@ -117,7 +118,10 @@ function themeFromName(name: string): EditorTheme | undefined {
 export function parseVSCodeSettings(json: string): ParseResult {
   let raw: unknown
   try {
-    raw = JSON.parse(json)
+    // Los settings.json reales de VS Code son JSONC (comentarios + trailing
+    // commas) — JSON.parse pelado rechazaba el archivo de la mayoría de los
+    // usuarios reales. Mismo stripJsonc que usan los temas.
+    raw = JSON.parse(stripJsonc(json))
   } catch (err) {
     return { ok: false, error: `We couldn't read your configuration: invalid JSON (${err instanceof Error ? err.message : String(err)})` }
   }

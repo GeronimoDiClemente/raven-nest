@@ -94,14 +94,21 @@ export function ExplorerPanel({ worktreePath, onFileOpen }: ExplorerPanelProps) 
     })
   }, [worktreePath, bridge])
 
+  // Debounce trailing: cada stats() spawnea git en el main — una ráfaga de
+  // fs:changed (un agente escribiendo N archivos) colapsa en UN refresh.
+  const diffTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const refreshDiff = useCallback(() => {
     if (!worktreePath) return
-    // Opcional: preloads viejos (o mocks parciales) no exponen gitDiff.
-    bridge.gitDiff?.stats(worktreePath).then((res) => {
-      if (!res.ok) return
-      setDiffFiles(Object.fromEntries(res.files.map((f) => [f.relPath, { added: f.added, deleted: f.deleted }])))
-      setUntracked(new Set(res.untracked))
-    }).catch(() => { /* repo sin HEAD o similar: sin badges */ })
+    if (diffTimerRef.current) clearTimeout(diffTimerRef.current)
+    diffTimerRef.current = setTimeout(() => {
+      diffTimerRef.current = null
+      // Opcional: preloads viejos (o mocks parciales) no exponen gitDiff.
+      bridge.gitDiff?.stats(worktreePath).then((res) => {
+        if (!res.ok) return
+        setDiffFiles(Object.fromEntries(res.files.map((f) => [f.relPath, { added: f.added, deleted: f.deleted }])))
+        setUntracked(new Set(res.untracked))
+      }).catch(() => { /* repo sin HEAD o similar: sin badges */ })
+    }, 200)
   }, [worktreePath, bridge])
 
   useEffect(() => {
@@ -131,6 +138,7 @@ export function ExplorerPanel({ worktreePath, onFileOpen }: ExplorerPanelProps) 
     return () => {
       unsubscribe()
       window.removeEventListener('nest:file-saved', onSaved)
+      if (diffTimerRef.current) { clearTimeout(diffTimerRef.current); diffTimerRef.current = null }
       sequencedUnwatch(worktreePath, '')
       watchedDirsRef.current.forEach((dir) => sequencedUnwatch(worktreePath, dir))
       watchedDirsRef.current.clear()
@@ -189,8 +197,10 @@ export function ExplorerPanel({ worktreePath, onFileOpen }: ExplorerPanelProps) 
           }}
           draggable={!entry.isDirectory}
           onDragStart={entry.isDirectory ? undefined : (e) => {
-            // Arrastrable a cualquier pane de editor (drop lo abre AHÍ).
-            e.dataTransfer.setData('application/x-nest-file', JSON.stringify({ relPath: entry.path }))
+            // Arrastrable a cualquier pane de editor (drop lo abre AHÍ). El
+            // worktree viaja en el payload: el pane receptor lo valida — un
+            // relPath de otro worktree es otro archivo.
+            e.dataTransfer.setData('application/x-nest-file', JSON.stringify({ relPath: entry.path, worktreePath }))
             e.dataTransfer.effectAllowed = 'copy'
           }}
         >
