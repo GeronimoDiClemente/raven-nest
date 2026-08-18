@@ -177,11 +177,40 @@ function getHighlighter(): Promise<HighlighterCore | null> {
   return highlighterPromise
 }
 
+// setTheme nativo de cada instancia de monaco, capturado ANTES del primer
+// patch de shikiToMonaco. WeakMap y no variable: el módulo es singleton pero
+// la instancia de monaco llega de afuera (onMount) y en tests hay varias.
+const nativeSetTheme = new WeakMap<MonacoLike['editor'], (name: string) => void>()
+
 async function syncToMonaco(highlighter: HighlighterCore, monaco: MonacoLike): Promise<void> {
   const { shikiToMonaco } = await import('@shikijs/monaco')
+  if (!nativeSetTheme.has(monaco.editor)) {
+    nativeSetTheme.set(monaco.editor, monaco.editor.setTheme.bind(monaco.editor))
+  }
   // shikiToMonaco re-registra tokenizers y temas para TODO lo cargado en el
   // highlighter — se re-corre después de cada load de grammar/tema.
   shikiToMonaco(highlighter, monaco as never)
+  // shikiToMonaco PISA monaco.editor.setTheme con una versión que solo conoce
+  // los temas del registry de shiki y TIRA ShikiError para cualquier otro
+  // nombre — los built-ins de Monaco ('vs-dark') incluidos. Ese throw es
+  // sincrónico y varios callers lo hacen dentro de un commit de React (el
+  // wrapper de @monaco-editor/react re-aplica su prop `theme` al re-crear el
+  // widget; los catch de applyTheme caen a 'vs-dark'): sin guarda, un tema
+  // built-in post-patch desmontaba el árbol entero de React (pantalla negra).
+  const patched = monaco.editor.setTheme
+  const original = nativeSetTheme.get(monaco.editor)!
+  monaco.editor.setTheme = (name: string) => {
+    if (MONACO_BUILTIN_THEMES.has(name)) {
+      original(name)
+      return
+    }
+    try {
+      patched.call(monaco.editor, name)
+    } catch (err) {
+      console.warn(`[shiki-monaco] patched setTheme rejected '${name}', falling back to vs-dark:`, err)
+      original('vs-dark')
+    }
+  }
 }
 
 // Carga (una vez) la grammar del lenguaje para la extensión dada y devuelve

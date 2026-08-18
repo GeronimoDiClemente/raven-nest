@@ -18,6 +18,7 @@ const shikiMock = vi.hoisted(() => ({
   loadLangFail: false,
   loadedLangs: [] as string[],
   loadedThemes: [] as string[],
+  patchedSetTheme: null as ((name: string) => void) | null,
 }))
 
 vi.mock('shiki/core', () => ({
@@ -39,7 +40,23 @@ vi.mock('shiki/core', () => ({
 }))
 vi.mock('shiki/engine/oniguruma', () => ({ createOnigurumaEngine: vi.fn(() => ({})) }))
 vi.mock('shiki/wasm', () => ({ default: {} }))
-vi.mock('@shikijs/monaco', () => ({ shikiToMonaco: vi.fn() }))
+// El shikiToMonaco REAL pisa monaco.editor.setTheme con una versión que
+// resuelve contra el registry de shiki y tira ShikiError para cualquier
+// nombre no cargado — built-ins de Monaco ('vs-dark') incluidos. El mock
+// tiene que emular ese patch: con un vi.fn() pelado, la suite entera pasaba
+// mientras la app real desmontaba React al primer setTheme('vs-dark')
+// post-patch (pantalla negra al cambiar de archivo, 2026-08-18).
+vi.mock('@shikijs/monaco', () => ({
+  shikiToMonaco: vi.fn((_highlighter: unknown, monaco: { editor: { setTheme: (name: string) => void } }) => {
+    const patched = vi.fn((name: string) => {
+      if (!shikiMock.loadedThemes.includes(name)) {
+        throw new Error(`Theme \`${name}\` not found, you may need to load it first`)
+      }
+    })
+    shikiMock.patchedSetTheme = patched
+    monaco.editor.setTheme = patched
+  }),
+}))
 
 function makeMonaco(): MonacoLike {
   return { editor: { setTheme: vi.fn() } } as unknown as MonacoLike
@@ -52,6 +69,7 @@ beforeEach(() => {
   shikiMock.loadLangFail = false
   shikiMock.loadedLangs = []
   shikiMock.loadedThemes = []
+  shikiMock.patchedSetTheme = null
   __resetShikiForTests()
 })
 
@@ -117,7 +135,9 @@ describe('applyTheme', () => {
     expect(await applyTheme(monaco, 'dracula')).toBe(true)
     expect(shikiMock.loadedThemes).toContain('dracula')
     expect(shikiToMonaco).toHaveBeenCalled()
-    expect(monaco.editor.setTheme).toHaveBeenCalledWith('dracula')
+    // El tema shiki tiene que llegar al setTheme QUE INSTALÓ shiki (la
+    // identidad de monaco.editor.setTheme post-sync es detalle interno).
+    expect(shikiMock.patchedSetTheme).toHaveBeenCalledWith('dracula')
   })
 
   it('loads an installed theme JSON (name forced to the slug) via getInstalled', async () => {
@@ -127,7 +147,7 @@ describe('applyTheme', () => {
     ])
     expect(await applyTheme(monaco, 'acme-dark', { getInstalled })).toBe(true)
     expect(shikiMock.loadedThemes).toContain('acme-dark')
-    expect(monaco.editor.setTheme).toHaveBeenCalledWith('acme-dark')
+    expect(shikiMock.patchedSetTheme).toHaveBeenCalledWith('acme-dark')
   })
 
   it('falls back to vs-dark for an unknown theme name', async () => {
@@ -149,6 +169,39 @@ describe('applyTheme', () => {
     const monaco = makeMonaco()
     expect(await applyTheme(monaco, 'dracula')).toBe(false)
     expect(monaco.editor.setTheme).toHaveBeenCalledWith('vs-dark')
+  })
+})
+
+describe('setTheme post-patch de shikiToMonaco', () => {
+  // El gesto que mataba la app: cualquier caller (el wrapper de
+  // @monaco-editor/react al re-crear el widget, los fallbacks de applyTheme)
+  // llama setTheme('vs-dark') DESPUÉS de que shiki patcheó — y el patch tira.
+  it('keeps monaco built-in themes working after shikiToMonaco patches setTheme', async () => {
+    const monaco = makeMonaco()
+    const original = monaco.editor.setTheme
+    await ensureLanguage(monaco, 'ts') // dispara syncToMonaco → patch
+    expect(shikiMock.patchedSetTheme).not.toBeNull()
+    expect(() => monaco.editor.setTheme('vs-dark')).not.toThrow()
+    expect(original).toHaveBeenCalledWith('vs-dark')
+  })
+
+  it('still routes shiki themes through the patched setTheme', async () => {
+    const monaco = makeMonaco()
+    const original = monaco.editor.setTheme
+    await applyTheme(monaco, 'dracula')
+    vi.mocked(shikiMock.patchedSetTheme!).mockClear()
+    vi.mocked(original).mockClear()
+    monaco.editor.setTheme('dracula')
+    expect(shikiMock.patchedSetTheme).toHaveBeenCalledWith('dracula')
+    expect(original).not.toHaveBeenCalled()
+  })
+
+  it('falls back to the original vs-dark when the patched setTheme throws', async () => {
+    const monaco = makeMonaco()
+    const original = monaco.editor.setTheme
+    await ensureLanguage(monaco, 'ts') // patch instalado, ningún tema shiki cargado
+    expect(() => monaco.editor.setTheme('dracula')).not.toThrow()
+    expect(original).toHaveBeenCalledWith('vs-dark')
   })
 })
 
