@@ -93,13 +93,27 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
   // usuario mete otra tecla, y el wrapper pisa el buffer con el prop viejo
   // (keystroke comido; visto como '#edited' en E2E). Las escrituras al
   // modelo van imperativas y SOLO en cargas/recargas de disco.
+  // Monaco dispara onDidChangeModelContent (→ onChange del wrapper) también
+  // para el setValue PROGRAMÁTICO de las cargas de disco — sin esta guarda,
+  // cada carga marcaba la tab dirty sin que el usuario tocara nada. Contador
+  // y no boolean por si una escritura anida otra; funciona porque Monaco
+  // notifica sincrónicamente dentro de setValue.
+  const suppressChangeRef = useRef(0)
+
   const setModelText = useCallback((relPath: string, text: string) => {
     const monaco = monacoRef.current
     if (!monaco) return
     const model = monaco.editor.getModels().find(
       (m) => m.uri.path === relPath || m.uri.path.endsWith(`/${relPath}`),
     )
-    if (model && model.getValue() !== text) model.setValue(text)
+    if (model && model.getValue() !== text) {
+      suppressChangeRef.current++
+      try {
+        model.setValue(text)
+      } finally {
+        suppressChangeRef.current--
+      }
+    }
   }, [])
 
   // Contador monotónico de ediciones por path. Las cargas de disco lo
@@ -241,6 +255,9 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
   }, [onTabsChange])
 
   const handleChange = useCallback((relPath: string, value: string | undefined) => {
+    // Eco de una escritura programática nuestra (carga/recarga de disco vía
+    // setModelText) — no es tipeo del usuario: ni dirty ni editSeq.
+    if (suppressChangeRef.current > 0) return
     editSeqRef.current[relPath] = (editSeqRef.current[relPath] ?? 0) + 1
     const eol = eolRef.current[relPath] ?? '\n'
     setContents((c) => ({ ...c, [relPath]: normalizeEol(value ?? '', eol) }))

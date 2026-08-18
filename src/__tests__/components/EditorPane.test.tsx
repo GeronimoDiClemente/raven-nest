@@ -111,6 +111,63 @@ function makeRaceMockBridge() {
   return { bridge, registry, opLog }
 }
 
+// El Monaco REAL dispara onDidChangeModelContent (→ onChange del wrapper)
+// también para setValue PROGRAMÁTICO — el de las cargas de disco vía
+// setModelText. Sin emularlo, la suite no ve que cada carga marcaba la tab
+// dirty sin que el usuario tocara nada (visto en vivo en la demo del caso 3,
+// 2026-08-18: ambas tabs dirty con una sola editada).
+describe('cargas de disco vs onChange de Monaco', () => {
+  afterEach(() => vi.clearAllMocks())
+
+  function makeEchoingMonaco() {
+    let value = ''
+    const model = {
+      uri: { path: '/a.ts' },
+      getValue: () => value,
+      setValue: vi.fn((v: string) => { value = v; monacoStub.latestOnChange?.(v) }),
+    }
+    return { model, monaco: { editor: { setTheme: vi.fn(), getModels: vi.fn(() => [model]), setModelLanguage: vi.fn() } } }
+  }
+
+  it('a disk load writing the model does not mark the tab dirty', async () => {
+    const { bridge } = makeMockBridge()
+    let resolveRead: (r: { ok: true; content: string }) => void = () => {}
+    ;(bridge as unknown as { fs: { readFile: unknown } }).fs.readFile =
+      vi.fn(() => new Promise((r) => { resolveRead = r }))
+    const onTabsChange = vi.fn()
+    const { model, monaco } = makeEchoingMonaco()
+    render(
+      <BridgeProvider value={bridge}>
+        <EditorPane pane={makePane()} onTabsChange={onTabsChange} onClose={vi.fn()} onFocus={vi.fn()} onOpenInNewPane={vi.fn()} />
+      </BridgeProvider>,
+    )
+    act(() => { monacoStub.latestOnMount?.({}, monaco) })
+    await act(async () => { resolveRead({ ok: true, content: 'hello' }) })
+    expect(model.setValue).toHaveBeenCalledWith('hello')
+    const dirtyCalls = onTabsChange.mock.calls.filter(
+      (call) => (call[0] as Array<{ dirty: boolean }>).some((t) => t.dirty),
+    )
+    expect(dirtyCalls).toEqual([])
+  })
+
+  it('a real user edit after the load still marks the tab dirty', async () => {
+    const { bridge } = makeMockBridge()
+    const onTabsChange = vi.fn()
+    const { monaco } = makeEchoingMonaco()
+    render(
+      <BridgeProvider value={bridge}>
+        <EditorPane pane={makePane()} onTabsChange={onTabsChange} onClose={vi.fn()} onFocus={vi.fn()} onOpenInNewPane={vi.fn()} />
+      </BridgeProvider>,
+    )
+    act(() => { monacoStub.latestOnMount?.({}, monaco) })
+    await waitFor(() => expect(screen.getByTestId('monaco-stub')).toHaveValue('hello'))
+    act(() => { monacoStub.latestOnChange?.('hello editado') })
+    await waitFor(() => expect(onTabsChange).toHaveBeenCalledWith(
+      [expect.objectContaining({ relPath: 'a.ts', dirty: true })], 'a.ts',
+    ))
+  })
+})
+
 describe('EditorPane', () => {
   afterEach(() => vi.clearAllMocks())
 

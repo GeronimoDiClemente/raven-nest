@@ -55,6 +55,12 @@ vi.mock('@shikijs/monaco', () => ({
     })
     shikiMock.patchedSetTheme = patched
     monaco.editor.setTheme = patched
+    // El shikiToMonaco REAL termina con monaco.editor.setTheme(themeIds[0])
+    // incondicional. Con cero temas shiki cargados eso es setTheme(undefined)
+    // → getTheme tira ShikiError → shikiToMonaco ENTERO tira, dejando el
+    // patch instalado a medias. Emularlo es lo que expone que ensureLanguage
+    // nunca registró tokenizers para usuarios en tema built-in (2026-08-18).
+    monaco.editor.setTheme(shikiMock.loadedThemes[0] as string)
   }),
 }))
 
@@ -202,6 +208,33 @@ describe('setTheme post-patch de shikiToMonaco', () => {
     await ensureLanguage(monaco, 'ts') // patch instalado, ningún tema shiki cargado
     expect(() => monaco.editor.setTheme('dracula')).not.toThrow()
     expect(original).toHaveBeenCalledWith('vs-dark')
+  })
+
+  // El shikiToMonaco real hace setTheme(themeIds[0]) al final. Con el usuario
+  // en un tema built-in (cero temas shiki) eso: (a) tira dentro de
+  // shikiToMonaco → sin contención, ensureLanguage devolvía null y NUNCA
+  // registraba tokenizers (TextMate silenciosamente roto para temas built-in);
+  // (b) si no tirara, resetearía Monaco a 'vs' (light) — visto en vivo como
+  // líneas blancas y minimap claro sobre la UI oscura.
+  it('ensureLanguage still returns the lang id when no shiki theme is loaded', async () => {
+    const monaco = makeMonaco()
+    expect(await ensureLanguage(monaco, 'ts')).toBe('typescript')
+  })
+
+  it('re-applies the tracked builtin theme after a grammar sync', async () => {
+    const monaco = makeMonaco()
+    const original = monaco.editor.setTheme
+    await applyTheme(monaco, 'vs-dark')
+    vi.mocked(original).mockClear()
+    await ensureLanguage(monaco, 'ts')
+    expect(original).toHaveBeenCalledWith('vs-dark')
+  })
+
+  it('re-applies the tracked shiki theme after a grammar sync', async () => {
+    const monaco = makeMonaco()
+    await applyTheme(monaco, 'dracula')
+    await ensureLanguage(monaco, 'ts')
+    expect(shikiMock.patchedSetTheme).toHaveBeenCalledWith('dracula')
   })
 })
 

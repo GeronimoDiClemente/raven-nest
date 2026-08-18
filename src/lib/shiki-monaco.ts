@@ -182,6 +182,13 @@ function getHighlighter(): Promise<HighlighterCore | null> {
 // la instancia de monaco llega de afuera (onMount) y en tests hay varias.
 const nativeSetTheme = new WeakMap<MonacoLike['editor'], (name: string) => void>()
 
+// Último tema que la APP pidió (applyTheme). shikiToMonaco termina con un
+// setTheme(themeIds[0]) incondicional: con cero temas shiki cargados eso es
+// setTheme(undefined) — según la versión, tira ShikiError adentro de
+// shikiToMonaco o resetea Monaco a 'vs' (light) sobre la UI oscura. Después
+// de cada sync se re-aplica este tema para deshacer cualquier reset.
+let appliedTheme = 'vs-dark'
+
 async function syncToMonaco(highlighter: HighlighterCore, monaco: MonacoLike): Promise<void> {
   const { shikiToMonaco } = await import('@shikijs/monaco')
   if (!nativeSetTheme.has(monaco.editor)) {
@@ -189,7 +196,14 @@ async function syncToMonaco(highlighter: HighlighterCore, monaco: MonacoLike): P
   }
   // shikiToMonaco re-registra tokenizers y temas para TODO lo cargado en el
   // highlighter — se re-corre después de cada load de grammar/tema.
-  shikiToMonaco(highlighter, monaco as never)
+  try {
+    shikiToMonaco(highlighter, monaco as never)
+  } catch (err) {
+    // Típicamente su setTheme(themeIds[0]) final con cero temas cargados.
+    // El patch de setTheme ya quedó instalado igual (side effect previo al
+    // throw) — el wrap de abajo TIENE que correr para desactivar la bomba.
+    console.warn('[shiki-monaco] shikiToMonaco sync threw (contained):', err)
+  }
   // shikiToMonaco PISA monaco.editor.setTheme con una versión que solo conoce
   // los temas del registry de shiki y TIRA ShikiError para cualquier otro
   // nombre — los built-ins de Monaco ('vs-dark') incluidos. Ese throw es
@@ -211,6 +225,10 @@ async function syncToMonaco(highlighter: HighlighterCore, monaco: MonacoLike): P
       original('vs-dark')
     }
   }
+  // Deshacer el reset de tema que shikiToMonaco pudo haber colado (ver
+  // appliedTheme arriba). Pasa por el wrap recién instalado: built-in va
+  // directo al nativo, tema shiki va al patched con fallback.
+  monaco.editor.setTheme(appliedTheme)
 }
 
 // Carga (una vez) la grammar del lenguaje para la extensión dada y devuelve
@@ -250,12 +268,14 @@ export async function applyTheme(
   deps: ApplyThemeDeps = {},
 ): Promise<boolean> {
   if (MONACO_BUILTIN_THEMES.has(themeName)) {
+    appliedTheme = themeName
     monaco.editor.setTheme(themeName)
     return true
   }
   try {
     const highlighter = await getHighlighter()
     if (!highlighter) {
+      appliedTheme = 'vs-dark'
       monaco.editor.setTheme('vs-dark')
       return false
     }
@@ -272,6 +292,7 @@ export async function applyTheme(
     }
     if (!theme) {
       console.warn(`[shiki-monaco] unknown theme '${themeName}', falling back to vs-dark`)
+      appliedTheme = 'vs-dark'
       monaco.editor.setTheme('vs-dark')
       return false
     }
@@ -279,10 +300,12 @@ export async function applyTheme(
       await highlighter.loadTheme(theme as never)
     }
     await syncToMonaco(highlighter, monaco)
+    appliedTheme = themeName
     monaco.editor.setTheme(themeName)
     return true
   } catch (err) {
     console.warn(`[shiki-monaco] couldn't apply theme '${themeName}', falling back to vs-dark:`, err)
+    appliedTheme = 'vs-dark'
     monaco.editor.setTheme('vs-dark')
     return false
   }
@@ -291,4 +314,5 @@ export async function applyTheme(
 // Solo para tests: resetea el singleton entre casos.
 export function __resetShikiForTests(): void {
   highlighterPromise = null
+  appliedTheme = 'vs-dark'
 }
