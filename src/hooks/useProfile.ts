@@ -47,6 +47,14 @@ export function useProfile(): Profile {
     let alive = true
 
     const load = async () => {
+      // Override E2E/demo (RAVEN_E2E_PLAN): gateado DOBLE al bypass — en una
+      // sesión real appFlags.e2eBypass es false y esto nunca corre. Permite
+      // probar features gateadas por plan sin un perfil Supabase.
+      const e2ePlan = window.appFlags?.e2eBypass ? window.appFlags.e2ePlan : null
+      if (e2ePlan === 'free' || e2ePlan === 'pro' || e2ePlan === 'team' || e2ePlan === 'enterprise') {
+        setProfile({ plan: e2ePlan, loading: false, isTrialActive: false, trialDaysLeft: 0 })
+        return
+      }
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) { setProfile(p => ({ ...p, loading: false })); return }
 

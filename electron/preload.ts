@@ -96,6 +96,9 @@ contextBridge.exposeInMainWorld('platform', {
 
 contextBridge.exposeInMainWorld('appFlags', {
   e2eBypass: process.env.RAVEN_E2E === '1',
+  // Plan simulado para demos/E2E de features gateadas por plan. Solo se
+  // expone bajo RAVEN_E2E=1 — useProfile además re-chequea e2eBypass.
+  e2ePlan: process.env.RAVEN_E2E === '1' ? (process.env.RAVEN_E2E_PLAN ?? null) : null,
 })
 
 contextBridge.exposeInMainWorld('windowControls', {
