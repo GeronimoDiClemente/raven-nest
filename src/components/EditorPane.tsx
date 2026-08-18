@@ -378,7 +378,10 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
                 que el hover lo reemplaza por las acciones. */}
             {tab.dirty && <span className="editor-tab-dirty" data-testid={`dirty-${tab.relPath}`}>●</span>}
             <span className="editor-tab-actions">
-              <button
+              {/* Mover la ÚNICA tab del pane a "un pane nuevo" es un no-op
+                  conceptual (ya está sola en el suyo) — y ofrecerlo dejaba un
+                  pane cascarón sin tabs (negro) por cada click. */}
+              {tabs.length > 1 && <button
                 className="editor-tab-btn editor-tab-move"
                 title="Open in new pane"
                 onClick={(e) => {
@@ -390,7 +393,7 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
                 <svg width="11" height="11" viewBox="0 0 16 16" fill="none">
                   <path d="M6.5 2.5H3a.5.5 0 0 0-.5.5v10a.5.5 0 0 0 .5.5h10a.5.5 0 0 0 .5-.5V9.5M9.5 2.5h4v4M13.5 2.5L8 8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
-              </button>
+              </button>}
               <button
                 className="editor-tab-btn editor-tab-close"
                 title="Close"

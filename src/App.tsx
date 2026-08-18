@@ -540,6 +540,18 @@ export default function App() {
   const moveEditorTabToNewPane = useCallback((paneId: string, relPath: string) => {
     const sourcePane = activeTab.panes.find(p => p.id === paneId)
     if (!sourcePane) return
+    // Única tab del pane: mover "a un pane nuevo" es un no-op conceptual (ya
+    // está sola en el suyo). El botón ni se renderiza en ese caso, pero el
+    // guard evita que cualquier otro caller deje un pane cascarón sin tabs.
+    if ((sourcePane.editorTabs ?? []).length <= 1) return
+    // Chequear el cap ANTES de sacar la tab del pane origen: addPane corre
+    // después y se bloquea silencioso en el tope de plan/MAX_PANES — sin este
+    // pre-check la tab ya removida no se agregaba a ningún lado (se perdía).
+    if (panesRef.current.length >= MAX_PANES) return
+    if (panesRef.current.length >= planLimits.maxPanes) {
+      setShowUpgrade(true)
+      return
+    }
     updateActiveTab(t => ({
       ...t,
       panes: t.panes.map(p => {
@@ -553,7 +565,7 @@ export default function App() {
       activeEditorTabPath: relPath,
       repoPath: sourcePane.repoPath,
     })
-  }, [activeTab, updateActiveTab, addPane])
+  }, [activeTab, updateActiveTab, addPane, planLimits.maxPanes])
 
   const handlePtyStarted = useCallback((paneId: string, runningRepoPath: string | undefined) => {
     updateActiveTab(t => ({
@@ -1255,7 +1267,10 @@ export default function App() {
     accentColor: t.accentColor,
     terminals: t.panes.filter(p => p.aiType !== 'browser').map(p => ({
       id: p.id,
-      label: p.customLabel ?? p.note ?? AI_CONFIG[p.aiType]?.label ?? 'Terminal',
+      // Un pane de editor se identifica por su archivo activo, no por "Editor".
+      label: p.customLabel ?? p.note
+        ?? (p.aiType === 'editor' ? p.activeEditorTabPath?.split('/').pop() : undefined)
+        ?? AI_CONFIG[p.aiType]?.label ?? 'Terminal',
       color: p.borderColor ?? p.customColor ?? AI_CONFIG[p.aiType]?.color ?? '#888888',
       aiType: p.aiType,
       inHub: hubPaneSet.has(p.id),
@@ -1263,7 +1278,27 @@ export default function App() {
     })),
   })), [tabs, hubPaneSet, activePanes])
 
-  const renderHubPane = (pane: PaneNode) => (
+  // El Hub muestra panes de OTROS workspaces: toda mutación va vía los
+  // helpers *Anywhere (la tab activa es la del Hub y no posee estos panes).
+  // Sin el branch por tipo, un pane de editor agregado al Hub se renderizaba
+  // como TerminalPane — un xterm sin PTY, roto.
+  const renderHubPane = (pane: PaneNode) => pane.aiType === 'editor'
+    ? (
+      <PaneErrorBoundary key={pane.id} onClose={() => removePaneAnywhere(pane.id)}>
+        <EditorPane
+          pane={pane}
+          onTabsChange={(editorTabs, activeEditorTabPath) => updatePaneAnywhere(pane.id, p => ({ ...p, editorTabs, activeEditorTabPath }))}
+          onClose={() => removePaneAnywhere(pane.id)}
+          onFocus={() => { setFocusedPaneId(pane.id); focusedPaneIdRef.current = pane.id }}
+          // Desde el Hub no hay workspace destino claro para "un pane nuevo"
+          // (la tab activa es el Hub, que no posee panes) — no-op deliberado.
+          onOpenInNewPane={() => {}}
+          editorOptions={userPrefs.prefs.ui_settings.editorOptions}
+          editorTheme={userPrefs.prefs.ui_settings.editorTheme}
+        />
+      </PaneErrorBoundary>
+    )
+    : (
     <TerminalPane
       key={pane.id}
       pane={pane}
@@ -1286,7 +1321,7 @@ export default function App() {
       onRequireUpgrade={() => setShowUpgrade(true)}
       onRename={(label) => updatePaneAnywhere(pane.id, p => ({ ...p, customLabel: label || undefined }))}
     />
-  )
+    )
 
   return (
     <div className="app" style={{ '--tab-accent': activeTab.accentColor ?? 'var(--raven-blue)' } as React.CSSProperties}>

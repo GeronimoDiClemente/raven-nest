@@ -174,24 +174,49 @@ describe('cargas de disco vs onChange de Monaco', () => {
 describe('Open in new pane con cambios sin guardar', () => {
   afterEach(() => vi.clearAllMocks())
 
+  // Dos tabs: con una sola, el botón de mover ni se renderiza (ver test de
+  // abajo) — mover la única tab a "un pane nuevo" es un no-op conceptual.
   function renderMove(dirty: boolean) {
     const { bridge } = makeMockBridge()
     const onOpenInNewPane = vi.fn()
     render(
       <BridgeProvider value={bridge}>
         <EditorPane
-          pane={makePane({ editorTabs: [{ relPath: 'a.ts', dirty }], activeEditorTabPath: 'a.ts' })}
+          pane={makePane({
+            editorTabs: [{ relPath: 'a.ts', dirty }, { relPath: 'b.ts', dirty: false }],
+            activeEditorTabPath: 'a.ts',
+          })}
           onTabsChange={vi.fn()} onClose={vi.fn()} onFocus={vi.fn()} onOpenInNewPane={onOpenInNewPane}
         />
       </BridgeProvider>,
     )
     return { bridge, onOpenInNewPane }
   }
+  // El botón de mover de la tab a.ts (la primera).
+  const moveBtn = () => screen.getAllByTitle('Open in new pane')[0]
+
+  // Mover la ÚNICA tab de un pane a "un pane nuevo" es un no-op conceptual:
+  // ya está sola en su propio pane. Ofrecer el botón igual dejaba un pane
+  // cascarón sin tabs (negro, incerrable) por cada click — visto en vivo
+  // en la demo del caso 9 (2026-08-18).
+  it('hides the move button when the tab is the pane only tab', async () => {
+    const { bridge } = makeMockBridge()
+    render(
+      <BridgeProvider value={bridge}>
+        <EditorPane
+          pane={makePane({ editorTabs: [{ relPath: 'a.ts', dirty: false }], activeEditorTabPath: 'a.ts' })}
+          onTabsChange={vi.fn()} onClose={vi.fn()} onFocus={vi.fn()} onOpenInNewPane={vi.fn()}
+        />
+      </BridgeProvider>,
+    )
+    await waitFor(() => expect(screen.getByTestId('monaco-stub')).toHaveValue('hello'))
+    expect(screen.queryByTitle('Open in new pane')).not.toBeInTheDocument()
+  })
 
   it('moves a clean tab immediately, without banner', async () => {
     const { onOpenInNewPane } = renderMove(false)
     await waitFor(() => expect(screen.getByTestId('monaco-stub')).toHaveValue('hello'))
-    fireEvent.click(screen.getByTitle('Open in new pane'))
+    fireEvent.click(moveBtn())
     expect(onOpenInNewPane).toHaveBeenCalledWith('a.ts')
     expect(screen.queryByTestId('move-dirty-banner')).not.toBeInTheDocument()
   })
@@ -199,7 +224,7 @@ describe('Open in new pane con cambios sin guardar', () => {
   it('blocks the move of a dirty tab behind a confirmation banner', async () => {
     const { onOpenInNewPane } = renderMove(true)
     await waitFor(() => expect(screen.getByTestId('monaco-stub')).toHaveValue('hello'))
-    fireEvent.click(screen.getByTitle('Open in new pane'))
+    fireEvent.click(moveBtn())
     expect(onOpenInNewPane).not.toHaveBeenCalled()
     expect(screen.getByTestId('move-dirty-banner')).toBeInTheDocument()
   })
@@ -207,7 +232,7 @@ describe('Open in new pane con cambios sin guardar', () => {
   it('Save & move saves to disk first and then moves', async () => {
     const { bridge, onOpenInNewPane } = renderMove(true)
     await waitFor(() => expect(screen.getByTestId('monaco-stub')).toHaveValue('hello'))
-    fireEvent.click(screen.getByTitle('Open in new pane'))
+    fireEvent.click(moveBtn())
     fireEvent.click(screen.getByRole('button', { name: 'Save & move' }))
     await waitFor(() => expect(onOpenInNewPane).toHaveBeenCalledWith('a.ts'))
     expect((bridge as unknown as { fs: { writeFile: ReturnType<typeof vi.fn> } }).fs.writeFile)
@@ -218,7 +243,7 @@ describe('Open in new pane con cambios sin guardar', () => {
   it('Move anyway moves without saving', async () => {
     const { bridge, onOpenInNewPane } = renderMove(true)
     await waitFor(() => expect(screen.getByTestId('monaco-stub')).toHaveValue('hello'))
-    fireEvent.click(screen.getByTitle('Open in new pane'))
+    fireEvent.click(moveBtn())
     fireEvent.click(screen.getByRole('button', { name: 'Move anyway' }))
     expect(onOpenInNewPane).toHaveBeenCalledWith('a.ts')
     expect((bridge as unknown as { fs: { writeFile: ReturnType<typeof vi.fn> } }).fs.writeFile).not.toHaveBeenCalled()
@@ -228,7 +253,7 @@ describe('Open in new pane con cambios sin guardar', () => {
   it('Cancel keeps the tab where it is', async () => {
     const { bridge, onOpenInNewPane } = renderMove(true)
     await waitFor(() => expect(screen.getByTestId('monaco-stub')).toHaveValue('hello'))
-    fireEvent.click(screen.getByTitle('Open in new pane'))
+    fireEvent.click(moveBtn())
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
     expect(onOpenInNewPane).not.toHaveBeenCalled()
     expect((bridge as unknown as { fs: { writeFile: ReturnType<typeof vi.fn> } }).fs.writeFile).not.toHaveBeenCalled()
@@ -241,7 +266,7 @@ describe('Open in new pane con cambios sin guardar', () => {
     ;(bridge as unknown as { fs: { writeFile: ReturnType<typeof vi.fn> } }).fs.writeFile
       .mockResolvedValue({ ok: false, error: 'disk full' })
     await waitFor(() => expect(screen.getByTestId('monaco-stub')).toHaveValue('hello'))
-    fireEvent.click(screen.getByTitle('Open in new pane'))
+    fireEvent.click(moveBtn())
     fireEvent.click(screen.getByRole('button', { name: 'Save & move' }))
     await waitFor(() => expect(window.alert).toHaveBeenCalled())
     expect(onOpenInNewPane).not.toHaveBeenCalled()
