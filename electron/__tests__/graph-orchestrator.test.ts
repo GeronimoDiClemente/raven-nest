@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import { defaultGraphTemplates } from '../integrations/graph-template'
-import { mapAgentState, syncNodeStates, planTick } from '../integrations/graph-orchestrator'
+import { mapAgentState, syncNodeStates, planTick, dedupePersistentSignals } from '../integrations/graph-orchestrator'
 import type { GraphRun, NodeRuntime } from '../integrations/graph-runner'
+import type { DomainEvent } from '../integrations/bus-types'
 
 const full = defaultGraphTemplates().find((t) => t.id === 'full')!
 
@@ -130,5 +131,41 @@ describe('planTick', () => {
     const plan = planTick(full, run, {}, { now: 70, readArtifact: noArtifacts })
     expect(plan.completed).toBe(true)
     expect(plan.events.some((e) => e.type === 'graph.completed')).toBe(true)
+  })
+})
+
+describe('dedupePersistentSignals', () => {
+  const gateBlocked: DomainEvent = { type: 'graph.gate_blocked', ticketId: 't1', gateId: 'gate', blockedBy: ['rev-perf'] }
+  const needsInput = (nodeId: string): DomainEvent => ({ type: 'graph.node_needs_input', ticketId: 't1', nodeId, role: 'reviewer' })
+
+  it('emits a persistent signal once, then suppresses it on later ticks', () => {
+    const first = dedupePersistentSignals([gateBlocked], new Set())
+    expect(first.fresh).toHaveLength(1)
+    const second = dedupePersistentSignals([gateBlocked], first.seen)
+    expect(second.fresh).toHaveLength(0)
+  })
+
+  it('keys needs_input by node, so two different nodes both pass', () => {
+    const out = dedupePersistentSignals([needsInput('rev-security'), needsInput('rev-types')], new Set())
+    expect(out.fresh).toHaveLength(2)
+    const again = dedupePersistentSignals([needsInput('rev-security')], out.seen)
+    expect(again.fresh).toHaveLength(0)
+  })
+
+  it('never dedupes transient events (started/done/completed)', () => {
+    const transient: DomainEvent[] = [
+      { type: 'graph.node_started', ticketId: 't1', nodeId: 'coder', role: 'coder' },
+      { type: 'graph.node_done', ticketId: 't1', nodeId: 'coder', role: 'coder' },
+      { type: 'graph.completed', ticketId: 't1', templateId: 'full' },
+    ]
+    const seen = new Set<string>()
+    expect(dedupePersistentSignals(transient, seen).fresh).toHaveLength(3)
+    expect(dedupePersistentSignals(transient, seen).fresh).toHaveLength(3)
+  })
+
+  it('does not mutate the incoming seen set', () => {
+    const seen = new Set<string>()
+    dedupePersistentSignals([gateBlocked], seen)
+    expect(seen.size).toBe(0)
   })
 })

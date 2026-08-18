@@ -105,6 +105,30 @@ function upstreamArtifacts(t: GraphTemplate, node: GraphNode, ports: Orchestrato
   return out
 }
 
+/** Persistent signals (a gate staying blocked, a node staying needs_input) are
+ *  re-derived every tick while the condition holds, so emitting them raw would
+ *  spam the team. Dedupe by a stable key against a caller-persisted set (same
+ *  contract as worktree-signals' ciNotified/reviewNotified). Transient
+ *  transitions (started/done/completed) always pass — they fire once by nature.
+ *  Pure: returns fresh events + a new set, never mutates `seen`. */
+export function dedupePersistentSignals(events: DomainEvent[], seen: ReadonlySet<string>): { fresh: DomainEvent[]; seen: Set<string> } {
+  const next = new Set(seen)
+  const fresh: DomainEvent[] = []
+  for (const ev of events) {
+    let key: string | null = null
+    if (ev.type === 'graph.gate_blocked') key = `gate_blocked:${ev.ticketId}:${ev.gateId}`
+    else if (ev.type === 'graph.node_needs_input') key = `needs_input:${ev.ticketId}:${ev.nodeId}`
+    if (key === null) {
+      fresh.push(ev)
+      continue
+    }
+    if (next.has(key)) continue
+    next.add(key)
+    fresh.push(ev)
+  }
+  return { fresh, seen: next }
+}
+
 /** One orchestration step. Sample → sync → advance → materialize actions. */
 export function planTick(t: GraphTemplate, run: GraphRun, samples: Record<string, AgentState>, ports: OrchestratorPorts): TickPlan {
   const byId = new Map(t.nodes.map((n) => [n.id, n]))
