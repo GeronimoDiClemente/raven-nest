@@ -327,6 +327,31 @@ describe('Open in new pane con cambios sin guardar', () => {
     expect(onTabDropped).not.toHaveBeenCalled()
   })
 
+  it('matches dropEffect to the payload effectAllowed (copy for files, move for tabs)', async () => {
+    // El Explorer arrastra con effectAllowed='copy' y el pane forzaba
+    // dropEffect='move': en el modelo DnD de HTML el mismatch INVALIDA el
+    // drop — el pane resaltaba pero el drop jamás disparaba en Chromium
+    // (por eso los dragTo de las demos "no entregaban").
+    const { bridge } = makeMockBridge()
+    render(
+      <BridgeProvider value={bridge}>
+        <EditorPane
+          pane={makePane()} onTabsChange={vi.fn()} onClose={vi.fn()} onFocus={vi.fn()} onOpenInNewPane={vi.fn()}
+          onTabDropped={vi.fn()} onFileDropped={vi.fn()}
+        />
+      </BridgeProvider>,
+    )
+    await waitFor(() => expect(screen.getByTestId('monaco-stub')).toHaveValue('hello'))
+    const dtFile = makeDataTransfer()
+    dtFile.setData('application/x-nest-file', 'x')
+    fireEvent.dragOver(screen.getByTestId('editor-pane'), { dataTransfer: dtFile })
+    expect(dtFile.dropEffect).toBe('copy')
+    const dtTab = makeDataTransfer()
+    dtTab.setData('application/x-nest-editor-tab', 'x')
+    fireEvent.dragOver(screen.getByTestId('editor-pane'), { dataTransfer: dtTab })
+    expect(dtTab.dropEffect).toBe('move')
+  })
+
   it('dropping an Explorer file payload opens it in this pane', async () => {
     const { bridge } = makeMockBridge()
     const onFileDropped = vi.fn()
@@ -471,6 +496,115 @@ describe('EditorPane — identidad de modelos por worktree', () => {
     await waitFor(() => expect(screen.getByTestId('monaco-stub')).toHaveValue('hello'))
     unmount()
     expect(takeTabBuffer('/repo', 'a.ts')).toBeUndefined()
+  })
+})
+
+// Los caches por-path (contents/eol/editSeq) solo se purgaban en closeTab —
+// una tab que SE MUDA a otro pane dejaba su snapshot: al volver, la carga
+// se salteaba (contents cacheado) y Ctrl+S escribía el contenido PRE-mudanza
+// revirtiendo el archivo en disco (finding crítico del review final).
+describe('EditorPane — purge de caches al salir una tab (mudanzas incluidas)', () => {
+  afterEach(() => vi.clearAllMocks())
+
+  it('re-reads from disk when a moved-out tab comes back', async () => {
+    const { bridge } = makeMockBridge()
+    const readFile = (bridge as unknown as { fs: { readFile: ReturnType<typeof vi.fn> } }).fs.readFile
+    function Host() {
+      const [pane, setPane] = useState(makePane({
+        editorTabs: [{ relPath: 'a.ts', dirty: false }, { relPath: 'b.ts', dirty: false }],
+        activeEditorTabPath: 'a.ts',
+      }))
+      return (
+        <>
+          <EditorPane
+            pane={pane}
+            onTabsChange={(editorTabs, activeEditorTabPath) => setPane((p) => ({ ...p, editorTabs, activeEditorTabPath }))}
+            onClose={vi.fn()} onFocus={vi.fn()} onOpenInNewPane={vi.fn()}
+          />
+          <button data-testid="mudar" onClick={() => setPane((p) => ({ ...p, editorTabs: [{ relPath: 'b.ts', dirty: false }], activeEditorTabPath: 'b.ts' }))} />
+          <button data-testid="volver" onClick={() => setPane((p) => ({ ...p, editorTabs: [{ relPath: 'b.ts', dirty: false }, { relPath: 'a.ts', dirty: false }], activeEditorTabPath: 'a.ts' }))} />
+        </>
+      )
+    }
+    render(<BridgeProvider value={bridge}><Host /></BridgeProvider>)
+    await waitFor(() => expect(readFile).toHaveBeenCalledWith('/repo', 'a.ts'))
+    const readsBefore = readFile.mock.calls.filter((c: string[]) => c[1] === 'a.ts').length
+    // la tab a.ts se muda a otro pane (sale de ESTE), y después vuelve
+    fireEvent.click(screen.getByTestId('mudar'))
+    await waitFor(() => expect(screen.queryByText('a.ts')).not.toBeInTheDocument())
+    fireEvent.click(screen.getByTestId('volver'))
+    // al volver TIENE que releer de disco — el cache viejo era el bug
+    await waitFor(() => {
+      const readsAfter = readFile.mock.calls.filter((c: string[]) => c[1] === 'a.ts').length
+      expect(readsAfter).toBe(readsBefore + 1)
+    })
+  })
+})
+
+describe('EditorPane — Ctrl+S durante un conflicto', () => {
+  afterEach(() => vi.clearAllMocks())
+
+  it('does not write while the conflict banner is asking the question', async () => {
+    // El banner ofrece Keep-mine/Reload; el Ctrl+S de memoria muscular
+    // escribía igual, LIMPIABA el conflicto y pisaba la versión externa en
+    // medio de la pregunta. El save se bloquea hasta que el banner se
+    // responda con sus botones.
+    const { bridge, fireChange } = makeMockBridge()
+    const writeFile = (bridge as unknown as { fs: { writeFile: ReturnType<typeof vi.fn> } }).fs.writeFile
+    render(
+      <BridgeProvider value={bridge}>
+        <EditorPane
+          pane={makePane({ editorTabs: [{ relPath: 'a.ts', dirty: true }], activeEditorTabPath: 'a.ts' })}
+          onTabsChange={vi.fn()} onClose={vi.fn()} onFocus={vi.fn()} onOpenInNewPane={vi.fn()}
+        />
+      </BridgeProvider>,
+    )
+    await waitFor(() => expect(bridge.fs.watch).toHaveBeenCalledWith('/repo', 'a.ts'))
+    fireChange('/repo', 'a.ts')
+    await waitFor(() => expect(screen.getByTestId('conflict-banner')).toBeInTheDocument())
+    fireEvent.keyDown(screen.getByTestId('editor-pane'), { key: 's', ctrlKey: true })
+    await new Promise((r) => setTimeout(r, 30))
+    expect(writeFile).not.toHaveBeenCalled()
+    expect(screen.getByTestId('conflict-banner')).toBeInTheDocument()
+    // resolver con "Keep my changes" habilita el save normal
+    fireEvent.click(screen.getByRole('button', { name: 'Keep my changes' }))
+    fireEvent.keyDown(screen.getByTestId('editor-pane'), { key: 's', ctrlKey: true })
+    await waitFor(() => expect(writeFile).toHaveBeenCalledWith('/repo', 'a.ts', 'hello'))
+  })
+})
+
+describe('EditorPane — cambio de worktree del pane', () => {
+  afterEach(() => vi.clearAllMocks())
+
+  it('purges caches and re-reads from the NEW worktree (and stashes dirty buffers to the old one)', async () => {
+    // handleWorktreeSelect cambia repoPath pero CONSERVA editorTabs: sin
+    // purge, el pane mostraba el contenido cacheado del worktree viejo y
+    // Ctrl+S lo escribía en el archivo del worktree nuevo (clobber cruzado).
+    __resetHandoffForTests()
+    const { bridge } = makeMockBridge()
+    const readFile = (bridge as unknown as { fs: { readFile: ReturnType<typeof vi.fn> } }).fs.readFile
+    function Host() {
+      const [pane, setPane] = useState(makePane())
+      return (
+        <>
+          <EditorPane
+            pane={pane}
+            onTabsChange={(editorTabs, activeEditorTabPath) => setPane((p) => ({ ...p, editorTabs, activeEditorTabPath }))}
+            onClose={vi.fn()} onFocus={vi.fn()} onOpenInNewPane={vi.fn()}
+          />
+          <button data-testid="switch-wt" onClick={() => setPane((p) => ({ ...p, repoPath: '/otro-wt' }))} />
+        </>
+      )
+    }
+    render(<BridgeProvider value={bridge}><Host /></BridgeProvider>)
+    await waitFor(() => expect(readFile).toHaveBeenCalledWith('/repo', 'a.ts'))
+    act(() => { monacoStub.latestOnChange?.('edit sin guardar en /repo') })
+    await waitFor(() => expect(screen.getByTestId('dirty-a.ts')).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId('switch-wt'))
+    // relee del worktree NUEVO (el cache del viejo se purgó)…
+    await waitFor(() => expect(readFile).toHaveBeenCalledWith('/otro-wt', 'a.ts'))
+    // …y el buffer dirty del viejo quedó a salvo en el handoff, con SU key
+    expect(takeTabBuffer('/repo', 'a.ts')).toEqual({ content: 'edit sin guardar en /repo', eol: '\n', dirty: true })
   })
 })
 

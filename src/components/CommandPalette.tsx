@@ -100,7 +100,7 @@ export default function CommandPalette({
     items.push({
       id: 'action-broadcast', section: 'actions',
       label: broadcastMode ? 'Disable broadcast' : 'Enable broadcast',
-      sublabel: broadcastMode ? 'Stop sending to all terminals' : 'Send to all terminals',
+      sublabel: broadcastMode ? 'Stop sending to all AI agents' : 'Send to all AI agents',
       keywords: 'broadcast all terminals',
       action: () => { onBroadcastToggle(); onClose() },
     })

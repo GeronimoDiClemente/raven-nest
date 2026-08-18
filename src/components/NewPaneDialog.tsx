@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { AIType, AI_CONFIG, COLOR_PALETTE, CustomCLI, ShellInfo } from '../types'
+import { AIType, AI_CONFIG, COLOR_PALETTE, CustomCLI, ShellInfo , PICKER_AI_TYPES } from '../types'
 import { safeWriteText } from '../lib/clipboard'
 import { bridge } from '../lib/bridge'
 import { ClaudeLogo, GeminiLogo, CodexLogo, CopilotLogo, OpenCodeLogo } from './AILogos'
@@ -299,7 +299,7 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
               </div>
             )}
             <div className="ai-grid">
-              {(Object.keys(AI_CONFIG) as AIType[]).filter((t) => t !== 'custom').map((aiType) => {
+              {PICKER_AI_TYPES.map((aiType) => {
                 const cfg = AI_CONFIG[aiType]
                 const Logo = AI_LOGOS[aiType]
                 const locked = allowedAIs && !allowedAIs.includes(aiType)

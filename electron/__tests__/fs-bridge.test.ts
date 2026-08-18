@@ -118,6 +118,32 @@ describe('fs-bridge', () => {
     await registry.closeAll()
   })
 
+  it('dedupes CONCURRENT watch() calls into one watcher with refs for both', async () => {
+    // TOCTOU del refcount: el chequeo del mapa era antes del await de
+    // resolveScoped y el set después — dos watch() concurrentes (session
+    // restore con el mismo archivo en dos panes) pasaban ambos el chequeo,
+    // creaban DOS chokidars (uno filtrado para siempre, eventos duplicados)
+    // y dejaban refs:1 para dos consumidores.
+    writeFileSync(join(root, 'conc.txt'), 'v1')
+    const registry = new FsWatchRegistry()
+    const changes: string[] = []
+    await Promise.all([
+      registry.watch(root, 'conc.txt', () => changes.push('a')),
+      registry.watch(root, 'conc.txt', () => changes.push('b')),
+    ])
+    await new Promise((r) => setTimeout(r, 300))
+    writeFileSync(join(root, 'conc.txt'), 'v2')
+    await new Promise((r) => setTimeout(r, 600))
+    // UN solo watcher → exactamente un evento por cambio (no duplicados)
+    expect(changes.length).toBe(1)
+    changes.length = 0
+    await registry.unwatch(root, 'conc.txt') // consumidor 1 se va
+    writeFileSync(join(root, 'conc.txt'), 'v3')
+    await new Promise((r) => setTimeout(r, 600))
+    expect(changes.length).toBe(1) // el consumidor 2 sigue cubierto
+    await registry.closeAll()
+  })
+
   it('refcounts watchers: closing one of two panes keeps the survivor watching', async () => {
     // Mismo archivo abierto en DOS panes: cada uno hace watch() (dedupe por
     // key) y al cerrar uno hace unwatch(). Sin refcount, ese único unwatch

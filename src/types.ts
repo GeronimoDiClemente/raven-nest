@@ -234,6 +234,14 @@ export const AI_CONFIG: Record<AIType, { label: string; color: string; bg: strin
   editor:   { label: 'Editor',   color: '#4EC9B0', bg: '#0d1f1c', cmd: '',           noAccount: true },
 }
 
+// Tipos elegibles en el picker de "New Terminal". 'custom' tiene su propia
+// card (Add CLI) y 'editor' NO es creable desde acá: un pane de editor sin
+// editorTabs iniciales es un cascarón sin tabs, sin Monaco y sin cierre —
+// los editores nacen desde el Explorer.
+export const PICKER_AI_TYPES: AIType[] = (Object.keys(AI_CONFIG) as AIType[]).filter(
+  (t) => t !== 'custom' && t !== 'editor',
+)
+
 export interface SessionPane {
   // Persistido para que hubPanes (que referencia ids) sobreviva el restart:
   // regenerar ids en el restore dejaba el Hub restaurado vacío. Los

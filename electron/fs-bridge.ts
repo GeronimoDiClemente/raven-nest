@@ -135,13 +135,26 @@ export async function listDir(worktreePath: string, relPath: string): Promise<Di
 
 export type FsChangeCallback = (worktreePath: string, relPath: string) => void
 
+interface WatchEntry {
+  refs: number
+  watcher: FSWatcher | null
+  // Resuelve cuando el chokidar quedó registrado (o la validación falló).
+  ready: Promise<void>
+}
+
 export class FsWatchRegistry {
   // Refcount por key: el mismo archivo abierto en dos panes produce dos
   // watch() (dedupeados a UN chokidar) y dos unwatch() al cerrarse cada uno.
   // Sin el contador, el primer unwatch cerraba el watcher compartido y el
   // pane sobreviviente dejaba de ver cambios externos — su próximo Ctrl+S
   // los pisaba sin pasar por el banner de conflicto.
-  private watchers = new Map<string, { watcher: FSWatcher; refs: number }>()
+  //
+  // La ENTRADA se registra SINCRÓNICAMENTE, antes del await de resolveScoped:
+  // con el chequeo antes del await y el set después, dos watch() concurrentes
+  // (session restore con el mismo archivo en dos panes) pasaban ambos el
+  // chequeo y creaban DOS chokidars — uno filtrado para siempre emitiendo
+  // eventos duplicados, y refs:1 para dos consumidores.
+  private watchers = new Map<string, WatchEntry>()
 
   private key(worktreePath: string, relPath: string): string {
     return `${worktreePath}::${relPath}`
@@ -152,17 +165,29 @@ export class FsWatchRegistry {
     const existing = this.watchers.get(key)
     if (existing) {
       existing.refs++
-      return
+      return existing.ready
     }
-    const full = await resolveScoped(worktreePath, relPath)
-    const watcher = chokidar.watch(full, {
-      ignoreInitial: true,
-      depth: opts?.depth,
-      awaitWriteFinish: { stabilityThreshold: 200, pollInterval: 50 },
-    })
-    const fire = () => onChange(worktreePath, relPath)
-    watcher.on('change', fire).on('unlink', fire).on('add', fire).on('unlinkDir', fire).on('addDir', fire)
-    this.watchers.set(key, { watcher, refs: 1 })
+    const entry: WatchEntry = { refs: 1, watcher: null, ready: Promise.resolve() }
+    entry.ready = (async () => {
+      try {
+        const full = await resolveScoped(worktreePath, relPath)
+        const watcher = chokidar.watch(full, {
+          ignoreInitial: true,
+          depth: opts?.depth,
+          awaitWriteFinish: { stabilityThreshold: 200, pollInterval: 50 },
+        })
+        const fire = () => onChange(worktreePath, relPath)
+        watcher.on('change', fire).on('unlink', fire).on('add', fire).on('unlinkDir', fire).on('addDir', fire)
+        entry.watcher = watcher
+      } catch (err) {
+        // Validación fallida: la entrada no representa ningún watcher — se
+        // retira para que un watch posterior pueda reintentar limpio.
+        if (this.watchers.get(key) === entry) this.watchers.delete(key)
+        throw err
+      }
+    })()
+    this.watchers.set(key, entry)
+    return entry.ready
   }
 
   async unwatch(worktreePath: string, relPath: string): Promise<void> {
@@ -171,12 +196,19 @@ export class FsWatchRegistry {
     if (!entry) return
     entry.refs--
     if (entry.refs > 0) return
-    await entry.watcher.close()
     this.watchers.delete(key)
+    // Esperar la registración en vuelo antes de cerrar — sin esto, un
+    // unwatch inmediato podía correr con watcher aún null y filtrarlo.
+    await entry.ready.catch(() => {})
+    if (entry.watcher) await entry.watcher.close()
   }
 
   async closeAll(): Promise<void> {
-    await Promise.all(Array.from(this.watchers.values()).map((e) => e.watcher.close()))
+    const entries = Array.from(this.watchers.values())
     this.watchers.clear()
+    await Promise.all(entries.map(async (e) => {
+      await e.ready.catch(() => {})
+      if (e.watcher) await e.watcher.close()
+    }))
   }
 }

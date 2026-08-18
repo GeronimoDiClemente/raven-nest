@@ -274,3 +274,17 @@ describe('SettingsPanel — editor themes', () => {
     expect(screen.getByText('Search')).toBeInTheDocument()
   })
 })
+
+describe('SettingsPanel — el match exacto le gana al heurístico', () => {
+  it('prefers the exact bundled match over the heuristic vs-dark', async () => {
+    const setEditorOptionsMock = vi.fn()
+    mockIdeConfigImport(vi.fn().mockResolvedValue({
+      ok: true, options: { fontSize: 18 }, theme: 'vs-dark', unmappedTheme: 'One Dark Pro',
+    }))
+    openEditorTab(setEditorOptionsMock)
+    fireEvent.click(screen.getByText('Import from VS Code'))
+    await waitFor(() => expect(screen.getByTestId('ide-config-preview')).toBeInTheDocument())
+    fireEvent.click(screen.getByText('Apply'))
+    expect(setEditorOptionsMock).toHaveBeenCalledWith({ fontSize: 18 }, 'one-dark-pro')
+  })
+})

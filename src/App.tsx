@@ -178,7 +178,10 @@ export default function App() {
     let cancelled = false
     const tick = async () => {
       try {
-        const livePanes = panesRef.current.filter(p => p.aiType !== 'browser')
+        // Editor tampoco: no tiene PTY, y con repoPath poblado el fallback
+        // por cwd del main podía atribuirle el puerto de un dev server — el
+        // chip desaparecía (el editor no renderiza chips de puertos).
+        const livePanes = panesRef.current.filter(p => p.aiType !== 'browser' && p.aiType !== 'editor')
         if (livePanes.length === 0) {
           if (!cancelled) setPanePorts({})
           return

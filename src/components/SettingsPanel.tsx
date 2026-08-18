@@ -184,10 +184,13 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
     // unmappedTheme (workbench.colorTheme que no era vs/vs-dark): si matchea
     // un tema bundled o instalado, se aplica directo — cierra el loop que el
     // import de config dejaba abierto.
-    const theme = importPreview.theme
-      ?? (importPreview.unmappedTheme
-        ? matchThemeName(importPreview.unmappedTheme, [...BUNDLED_THEMES, ...installedThemes])
-        : undefined)
+    // Match EXACTO primero (bundled/instalados); el heurístico vs/vs-dark de
+    // parseVSCodeSettings es solo el fallback — al revés degradaba temas que
+    // SÍ existen ("One Dark Pro" terminaba en vs-dark genérico).
+    const exact = importPreview.unmappedTheme
+      ? matchThemeName(importPreview.unmappedTheme, [...BUNDLED_THEMES, ...installedThemes])
+      : undefined
+    const theme = exact ?? importPreview.theme
     userPrefs.setEditorOptions(importPreview.options, theme)
     setImportPreview(null)
   }, [importPreview, userPrefs, installedThemes])

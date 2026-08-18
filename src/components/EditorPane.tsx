@@ -73,6 +73,8 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
   contentsRef.current = contents
   const loadErrorsRef = useRef(loadErrors)
   loadErrorsRef.current = loadErrors
+  const conflictsRef = useRef(conflicts)
+  conflictsRef.current = conflicts
   const tabsRef = useRef(tabs)
   tabsRef.current = tabs
   const activePathRef = useRef(activePath)
@@ -286,6 +288,57 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
     return sequencedOp(`${wt}::${relPath}`, () => bridge.fs.unwatch(wt, relPath))
   }, [bridge, sequencedOp])
 
+  // Purga TODO el estado por-path de un relPath. Muta los refs además de
+  // setear estado: los efectos de ESTE mismo commit (la carga de abajo) leen
+  // los refs — sin la mutación verían el cache viejo y saltearían el read.
+  const purgePathState = useCallback((relPath: string) => {
+    const { [relPath]: _c, ...restContents } = contentsRef.current
+    contentsRef.current = restContents
+    setContents(restContents)
+    const { [relPath]: _e, ...restErrors } = loadErrorsRef.current
+    loadErrorsRef.current = restErrors
+    setLoadErrors(restErrors)
+    setConflicts((c) => { const { [relPath]: _x, ...rest } = c; return rest })
+    delete eolRef.current[relPath]
+    delete editSeqRef.current[relPath]
+  }, [])
+
+  const relPathsKey = tabs.map((t) => t.relPath).sort().join('\n')
+
+  // Una tab que SALE del pane (mudanza por drag/botón, no solo closeTab)
+  // debe soltar sus caches: el snapshot viejo hacía que al volver se
+  // salteara la lectura y Ctrl+S escribiera contenido PRE-mudanza al disco.
+  const prevRelPathsRef = useRef<ReadonlySet<string>>(new Set())
+  useEffect(() => {
+    const current = new Set(tabsRef.current.map((t) => t.relPath))
+    for (const rel of prevRelPathsRef.current) {
+      if (!current.has(rel)) purgePathState(rel)
+    }
+    prevRelPathsRef.current = current
+  }, [relPathsKey, purgePathState])
+
+  // Cambio de worktree del pane (handleWorktreeSelect conserva las tabs):
+  // TODO el cache pertenece al worktree viejo — mostrarlo (y peor, guardarlo)
+  // contra el nuevo es clobber cruzado. Los buffers dirty se stashean con la
+  // key del worktree VIEJO (volver a él los recupera) y se purga el resto.
+  const prevWorktreeRef = useRef<string | undefined>(worktreePath)
+  useEffect(() => {
+    const prev = prevWorktreeRef.current
+    prevWorktreeRef.current = worktreePath
+    if (prev === undefined || prev === worktreePath) return
+    for (const tab of tabsRef.current) {
+      const content = contentsRef.current[tab.relPath]
+      if (tab.dirty && content !== undefined) {
+        stashTabBuffer(prev, tab.relPath, {
+          content,
+          eol: eolRef.current[tab.relPath] ?? '\n',
+          dirty: true,
+        })
+      }
+      purgePathState(tab.relPath)
+    }
+  }, [worktreePath, purgePathState])
+
   useEffect(() => {
     if (!worktreePath) return
     tabs.forEach((tab) => {
@@ -369,7 +422,7 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
       watched.forEach((relPath) => sequencedUnwatch(worktreePath, relPath))
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [watchKey, worktreePath, bridge, sequencedWatch, sequencedUnwatch])
+  }, [relPathsKey, worktreePath, bridge, sequencedWatch, sequencedUnwatch])
 
   // Reads current tabs/activePath via refs instead of closing over the
   // `tabs`/`activePath` render-scoped variables. This matters for callers
@@ -417,6 +470,10 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
     // "file unavailable" banner already communicates why, and a still-loading
     // read will complete and let a later Ctrl+S succeed normally.
     if (content === undefined || loadErrorsRef.current[relPath] !== undefined) return false
+    // Banner de conflicto abierto: la pregunta la responden SUS botones —
+    // el Ctrl+S de memoria muscular no puede pisar la versión externa ni
+    // limpiar el conflicto en silencio.
+    if (conflictsRef.current[relPath]) return false
     const res = await bridge.fs.writeFile(worktreePath, relPath, content)
     if (res.ok) {
       setDirty(relPath, false)
@@ -468,12 +525,9 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
     // these Record<string, ...> caches) resurrects whatever was here before
     // — including discarded, unsaved edits — and shows it marked NOT dirty,
     // so a subsequent Ctrl+S silently writes the forgotten changes back out.
-    setContents((c) => { const { [relPath]: _drop, ...rest } = c; return rest })
-    setConflicts((c) => { const { [relPath]: _drop, ...rest } = c; return rest })
-    setLoadErrors((e) => { const { [relPath]: _drop, ...rest } = e; return rest })
-    delete eolRef.current[relPath]
+    purgePathState(relPath)
     if (nextTabs.length === 0) onClose()
-  }, [tabs, activePath, onTabsChange, onClose])
+  }, [tabs, activePath, onTabsChange, onClose, purgePathState])
 
   useEffect(() => {
     // Scoped to THIS pane's own container, not `window`: with multiple
@@ -507,7 +561,15 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
       onFocus={onFocus}
       tabIndex={-1}
       ref={containerRef}
-      onDragOver={(e) => { if (acceptsDrop(e)) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDropActive(true) } }}
+      onDragOver={(e) => {
+        if (!acceptsDrop(e)) return
+        e.preventDefault()
+        // dropEffect DEBE ser compatible con el effectAllowed del origen: el
+        // Explorer arrastra con 'copy' y forzar 'move' acá INVALIDA el drop
+        // en Chromium (el pane resaltaba pero el drop jamás disparaba).
+        e.dataTransfer.dropEffect = e.dataTransfer.types.includes('application/x-nest-editor-tab') ? 'move' : 'copy'
+        setDropActive(true)
+      }}
       onDragLeave={() => setDropActive(false)}
       onDrop={(e) => {
         setDropActive(false)

@@ -141,8 +141,12 @@ export function parseVSCodeSettings(json: string): ParseResult {
 
   const themeName = settings['workbench.colorTheme']
   if (typeof themeName === 'string') {
+    // El raw name viaja SIEMPRE: el consumidor intenta primero el match
+    // EXACTO contra bundled/instalados ("One Dark Pro" → one-dark-pro) y
+    // recién si nada matchea cae al heurístico de substrings en `theme` —
+    // antes el heurístico cortaba primero y degradaba temas que SÍ teníamos.
     const theme = themeFromName(themeName)
-    return theme ? { ok: true, options, theme } : { ok: true, options, unmappedTheme: themeName }
+    return { ok: true, options, ...(theme ? { theme } : {}), unmappedTheme: themeName }
   }
 
   return { ok: true, options }

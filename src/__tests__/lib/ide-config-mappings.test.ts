@@ -227,3 +227,18 @@ describe('parseVSCodeSettings — JSONC real', () => {
     }
   })
 })
+
+// El heurístico de substrings ('dark'/'light') le GANABA al matcher exacto:
+// "One Dark Pro" → vs-dark genérico aunque one-dark-pro ES un tema bundled.
+// El raw name viaja SIEMPRE en unmappedTheme para que el panel intente el
+// match exacto primero; el heurístico queda como fallback en theme.
+describe('parseVSCodeSettings — colorTheme con nombre exacto', () => {
+  it('emits BOTH the raw name and the heuristic fallback', () => {
+    const res = parseVSCodeSettings(JSON.stringify({ 'workbench.colorTheme': 'One Dark Pro' }))
+    expect(res.ok).toBe(true)
+    if (res.ok) {
+      expect(res.unmappedTheme).toBe('One Dark Pro')
+      expect(res.theme).toBe('vs-dark') // fallback si nada matchea exacto
+    }
+  })
+})
