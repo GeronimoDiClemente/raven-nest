@@ -76,6 +76,11 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
   // La instancia de monaco recién existe en onMount; hasta entonces el prop
   // `theme` del wrapper queda en un built-in seguro (ver themeForWrapper).
   const monacoRef = useRef<MonacoLike | null>(null)
+  // --- Diff vs HEAD: líneas agregadas en verde (como GitHub) --------------
+  // La colección de decoraciones vive en la INSTANCIA del editor (primer arg
+  // de onMount); se re-setea por completo en cada refresh.
+  const decorationsRef = useRef<{ set: (d: unknown[]) => void } | null>(null)
+  const editorInstanceRef = useRef<{ createDecorationsCollection: (d: unknown[]) => { set: (d: unknown[]) => void } } | null>(null)
   // ext → lang id de shiki, 'pending' mientras carga, o null si esa ext quedó
   // en Monarch (sin grammar o falla de carga). Es un REF, nunca state: un
   // state acá re-renderizaba al resolver el import y @monaco-editor/react
@@ -150,7 +155,32 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
     })
   }, [applyShikiLang])
 
-  const handleEditorMount = useCallback((_editor: unknown, monaco: MonacoLike) => {
+  // Pide a git las líneas agregadas/cambiadas vs HEAD del path ACTIVO y las
+  // pinta como decoraciones whole-line. Los edits en curso corren las
+  // decoraciones solos (Monaco trackea rangos); el refresh real llega al
+  // guardar o recargar de disco.
+  const refreshDiffDecorations = useCallback((relPath: string | undefined) => {
+    const editor = editorInstanceRef.current
+    if (!editor || !worktreePath || !relPath) return
+    bridge.gitDiff?.addedLines(worktreePath, relPath).then((res) => {
+      if (relPath !== activePathRef.current) return // cambió la tab en vuelo
+      if (!decorationsRef.current) decorationsRef.current = editor.createDecorationsCollection([])
+      if (!res.ok) { decorationsRef.current.set([]); return }
+      decorationsRef.current.set(res.ranges.map((r) => ({
+        range: { startLineNumber: r.start, startColumn: 1, endLineNumber: r.end, endColumn: 1 },
+        options: {
+          isWholeLine: true,
+          className: 'nest-diff-added',
+          linesDecorationsClassName: 'nest-diff-added-gutter',
+        },
+      })))
+    }).catch(() => { /* sin decoraciones ante cualquier falla */ })
+  }, [worktreePath, bridge])
+  const refreshDiffDecorationsRef = useRef(refreshDiffDecorations)
+  refreshDiffDecorationsRef.current = refreshDiffDecorations
+
+  const handleEditorMount = useCallback((editorInstance: unknown, monaco: MonacoLike) => {
+    editorInstanceRef.current = editorInstance as typeof editorInstanceRef.current
     monacoRef.current = monaco
     // applyTheme cae solo a vs-dark ante cualquier falla — el editor ya está
     // usable con Monarch antes de que esto resuelva.
@@ -168,6 +198,7 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
       const loaded = contentsRef.current[active]
       if (loaded !== undefined) setModelText(active, loaded)
     }
+    refreshDiffDecorationsRef.current(active)
   }, [requestShikiLang, setModelText])
 
   useEffect(() => {
@@ -178,7 +209,8 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
 
   useEffect(() => {
     requestShikiLang(activePath)
-  }, [activePath, requestShikiLang])
+    refreshDiffDecorations(activePath)
+  }, [activePath, requestShikiLang, refreshDiffDecorations])
 
   const sequencedOp = useCallback((key: string, op: () => Promise<unknown>) => {
     const prior = pendingOpsRef.current.get(key) ?? Promise.resolve()
@@ -255,6 +287,7 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
           setContents((c) => ({ ...c, [relPath]: res.content }))
           setModelText(relPath, res.content)
           setLoadErrors((e) => { const { [relPath]: _drop, ...rest } = e; return rest })
+          refreshDiffDecorationsRef.current(relPath)
         } else {
           // Most commonly ENOENT — the file (or its whole worktree) was
           // removed on disk. No proactive pane teardown on worktree:remove
@@ -322,6 +355,11 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
     if (res.ok) {
       setDirty(relPath, false)
       setConflicts((c) => ({ ...c, [relPath]: false }))
+      // Refrescar el diff vs HEAD: las decoraciones de este pane y los
+      // badges del Explorer (que escucha este evento — el watcher de
+      // carpetas no ve el contenido de archivos).
+      window.dispatchEvent(new CustomEvent('nest:file-saved', { detail: { worktreePath, relPath } }))
+      refreshDiffDecorationsRef.current(relPath)
       return true
     }
     // No global toast service exists in this app (see design spec) — the
@@ -344,6 +382,7 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
       setModelText(relPath, res.content)
       setConflicts((c) => ({ ...c, [relPath]: false }))
       setDirty(relPath, false)
+      refreshDiffDecorationsRef.current(relPath)
     } else {
       // The reload didn't actually happen — the conflict is still real, and
       // the in-memory content is unchanged (still whatever it was before the

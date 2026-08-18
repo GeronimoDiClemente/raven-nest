@@ -128,6 +128,7 @@ import { getDiff } from './diff-engine'
 import { readFile as fsReadFile, writeFile as fsWriteFile, listDir as fsListDir, FsWatchRegistry } from './fs-bridge'
 import { importVSCodeConfig, importIntelliJConfig } from './ide-config-bridge'
 import { listInstalledThemes, saveInstalledTheme, deleteInstalledTheme, scanVSCodeThemes, importVSCodeTheme, searchOpenVSX, installOpenVSX } from './theme-bridge'
+import { getDiffStats, getAddedLines } from './git-diff'
 import type { VSCodeThemeJson } from '../src/lib/theme-registry'
 import { detectIDEs, openInIDE, clearCache as clearIDECache } from './ide-launcher'
 import { MCPStore } from './mcp-store'
@@ -1735,6 +1736,11 @@ ipcMain.handle('themes:saveInstalled', (_evt, displayName: string, theme: unknow
   saveInstalledTheme(themesDir(), displayName, theme as VSCodeThemeJson))
 ipcMain.handle('themes:deleteInstalled', (_evt, name: string) => deleteInstalledTheme(themesDir(), name))
 ipcMain.handle('themes:scanVSCode', () => scanVSCodeThemes(process.env.RAVEN_IDE_CONFIG_HOME ?? userHome()))
+
+// Diff vs HEAD para el editor: badges +N −M en el Explorer y líneas
+// agregadas en verde (ver electron/git-diff.ts).
+ipcMain.handle('git:diffStats', (_e, worktreePath: string) => getDiffStats(worktreePath))
+ipcMain.handle('git:addedLines', (_e, worktreePath: string, relPath: string) => getAddedLines(worktreePath, relPath))
 ipcMain.handle('themes:importVSCode', (_evt, themePath: string) => importVSCodeTheme(themesDir(), themePath))
 ipcMain.handle('themes:searchOpenVSX', (_evt, query: string) => searchOpenVSX(String(query ?? '')))
 ipcMain.handle('themes:installOpenVSX', (_evt, namespace: string, name: string) =>

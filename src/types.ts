@@ -365,6 +365,18 @@ declare global {
       isMac: boolean
       isLinux: boolean
     }
+    // Diff vs HEAD del worktree (electron/git-diff.ts): badges del Explorer
+    // y líneas agregadas del editor. Opcional: preloads viejos no lo exponen.
+    gitDiff?: {
+      stats: (worktreePath: string) => Promise<
+        | { ok: true; files: Array<{ relPath: string; added: number; deleted: number }>; untracked: string[] }
+        | { ok: false; error: string }
+      >
+      addedLines: (worktreePath: string, relPath: string) => Promise<
+        | { ok: true; ranges: Array<{ start: number; end: number }> }
+        | { ok: false; error: string }
+      >
+    }
     appFlags?: {
       e2eBypass: boolean
       // Plan simulado para demos/E2E (RAVEN_E2E_PLAN); null fuera de RAVEN_E2E.

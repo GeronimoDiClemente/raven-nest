@@ -382,6 +382,61 @@ describe('Open in new pane con cambios sin guardar', () => {
   })
 })
 
+// Líneas agregadas/cambiadas vs HEAD pintadas en verde (como GitHub):
+// decoraciones whole-line de Monaco alimentadas por gitDiff.addedLines.
+describe('EditorPane — diff vs HEAD en el editor', () => {
+  afterEach(() => vi.clearAllMocks())
+
+  function makeDiffEditorHarness(ranges: Array<{ start: number; end: number }>) {
+    const { bridge } = makeMockBridge()
+    const addedLines = vi.fn().mockResolvedValue({ ok: true, ranges })
+    ;(bridge as unknown as { gitDiff: unknown }).gitDiff = { stats: vi.fn(), addedLines }
+    const collection = { set: vi.fn() }
+    const editor = { createDecorationsCollection: vi.fn(() => collection) }
+    const monaco = { editor: { setTheme: vi.fn(), getModels: vi.fn(() => []), setModelLanguage: vi.fn() } }
+    return { bridge, addedLines, collection, editor, monaco }
+  }
+
+  it('paints added lines with whole-line green decorations on mount', async () => {
+    const { bridge, addedLines, collection, editor, monaco } = makeDiffEditorHarness([{ start: 2, end: 3 }])
+    render(
+      <BridgeProvider value={bridge}>
+        <EditorPane pane={makePane()} onTabsChange={vi.fn()} onClose={vi.fn()} onFocus={vi.fn()} onOpenInNewPane={vi.fn()} />
+      </BridgeProvider>,
+    )
+    await waitFor(() => expect(screen.getByTestId('monaco-stub')).toHaveValue('hello'))
+    act(() => { monacoStub.latestOnMount?.(editor, monaco) })
+    await waitFor(() => expect(addedLines).toHaveBeenCalledWith('/repo', 'a.ts'))
+    await waitFor(() => expect(collection.set).toHaveBeenCalledWith([
+      expect.objectContaining({
+        range: expect.objectContaining({ startLineNumber: 2, endLineNumber: 3 }),
+        options: expect.objectContaining({ isWholeLine: true, className: 'nest-diff-added' }),
+      }),
+    ]))
+  })
+
+  it('announces the save (nest:file-saved) and refreshes the decorations', async () => {
+    const { bridge, addedLines, editor, monaco } = makeDiffEditorHarness([])
+    const savedEvents: unknown[] = []
+    const onSaved = (e: Event) => savedEvents.push((e as CustomEvent).detail)
+    window.addEventListener('nest:file-saved', onSaved)
+    render(
+      <BridgeProvider value={bridge}>
+        <EditorPane pane={makePane()} onTabsChange={vi.fn()} onClose={vi.fn()} onFocus={vi.fn()} onOpenInNewPane={vi.fn()} />
+      </BridgeProvider>,
+    )
+    await waitFor(() => expect(screen.getByTestId('monaco-stub')).toHaveValue('hello'))
+    act(() => { monacoStub.latestOnMount?.(editor, monaco) })
+    await waitFor(() => expect(addedLines).toHaveBeenCalledTimes(1))
+    // editar y guardar
+    act(() => { monacoStub.latestOnChange?.('hello editado') })
+    fireEvent.keyDown(screen.getByTestId('editor-pane'), { key: 's', ctrlKey: true })
+    await waitFor(() => expect(savedEvents).toEqual([{ worktreePath: '/repo', relPath: 'a.ts' }]))
+    await waitFor(() => expect(addedLines).toHaveBeenCalledTimes(2))
+    window.removeEventListener('nest:file-saved', onSaved)
+  })
+})
+
 describe('EditorPane', () => {
   afterEach(() => vi.clearAllMocks())
 

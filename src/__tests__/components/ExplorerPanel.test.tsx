@@ -181,3 +181,76 @@ describe('ExplorerPanel', () => {
     expect(registry.has('src')).toBe(false)
   })
 })
+
+// Badges de diff vs HEAD: +N en verde, −M en rojo, U para untracked — el
+// estado git del worktree visible archivo por archivo, como en GitHub.
+describe('ExplorerPanel — badges de diff', () => {
+  function makeDiffBridge() {
+    let changeCb: ((wt: string, rel: string) => void) | null = null
+    const fs = {
+      listDir: vi.fn().mockResolvedValue({
+        ok: true,
+        entries: [
+          { name: 'a.ts', path: 'a.ts', isDirectory: false },
+          { name: 'nuevo.ts', path: 'nuevo.ts', isDirectory: false },
+          { name: 'intacto.ts', path: 'intacto.ts', isDirectory: false },
+        ],
+      }),
+      watch: vi.fn().mockResolvedValue({ ok: true }),
+      unwatch: vi.fn().mockResolvedValue(undefined),
+      onChanged: vi.fn((cb: (wt: string, rel: string) => void) => {
+        changeCb = cb
+        return () => { changeCb = null }
+      }),
+    }
+    const gitDiff = {
+      stats: vi.fn().mockResolvedValue({
+        ok: true,
+        files: [{ relPath: 'a.ts', added: 3, deleted: 1 }],
+        untracked: ['nuevo.ts'],
+      }),
+      addedLines: vi.fn().mockResolvedValue({ ok: true, ranges: [] }),
+    }
+    const bridge = { fs, gitDiff } as unknown as Window & typeof globalThis
+    return { bridge, gitDiff, fireChange: (wt: string, rel: string) => changeCb?.(wt, rel) }
+  }
+
+  it('shows +N / −M on modified files and U on untracked ones', async () => {
+    const { bridge } = makeDiffBridge()
+    render(
+      <BridgeProvider value={bridge}>
+        <ExplorerPanel worktreePath="/wt" onFileOpen={vi.fn()} />
+      </BridgeProvider>,
+    )
+    await waitFor(() => expect(screen.getByText('+3')).toBeInTheDocument())
+    expect(screen.getByText('−1')).toBeInTheDocument()
+    expect(screen.getByText('U')).toBeInTheDocument()
+    // el archivo sin cambios no tiene badge
+    const intactRow = screen.getByText('intacto.ts').closest('.explorer-entry')!
+    expect(intactRow.querySelector('.explorer-diff')).toBeNull()
+  })
+
+  it('refreshes the stats when the watcher reports a change', async () => {
+    const { bridge, gitDiff, fireChange } = makeDiffBridge()
+    render(
+      <BridgeProvider value={bridge}>
+        <ExplorerPanel worktreePath="/wt" onFileOpen={vi.fn()} />
+      </BridgeProvider>,
+    )
+    await waitFor(() => expect(gitDiff.stats).toHaveBeenCalledTimes(1))
+    fireChange('/wt', '')
+    await waitFor(() => expect(gitDiff.stats).toHaveBeenCalledTimes(2))
+  })
+
+  it('refreshes the stats on the nest:file-saved event (Ctrl+S en el editor)', async () => {
+    const { bridge, gitDiff } = makeDiffBridge()
+    render(
+      <BridgeProvider value={bridge}>
+        <ExplorerPanel worktreePath="/wt" onFileOpen={vi.fn()} />
+      </BridgeProvider>,
+    )
+    await waitFor(() => expect(gitDiff.stats).toHaveBeenCalledTimes(1))
+    fireEvent(window, new CustomEvent('nest:file-saved', { detail: { worktreePath: '/wt' } }))
+    await waitFor(() => expect(gitDiff.stats).toHaveBeenCalledTimes(2))
+  })
+})

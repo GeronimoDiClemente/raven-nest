@@ -54,6 +54,9 @@ export function ExplorerPanel({ worktreePath, onFileOpen }: ExplorerPanelProps) 
   const [entriesByDir, setEntriesByDir] = useState<Record<string, DirEntry[]>>({})
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
   const [selected, setSelected] = useState<string | null>(null)
+  // Diff vs HEAD del worktree: +N/−M por archivo modificado, U = untracked.
+  const [diffFiles, setDiffFiles] = useState<Record<string, { added: number; deleted: number }>>({})
+  const [untracked, setUntracked] = useState<ReadonlySet<string>>(new Set())
   const entriesByDirRef = useRef(entriesByDir)
   entriesByDirRef.current = entriesByDir
   // Dirs we watch besides root. Collapsing a parent leaves its expanded
@@ -91,26 +94,48 @@ export function ExplorerPanel({ worktreePath, onFileOpen }: ExplorerPanelProps) 
     })
   }, [worktreePath, bridge])
 
+  const refreshDiff = useCallback(() => {
+    if (!worktreePath) return
+    // Opcional: preloads viejos (o mocks parciales) no exponen gitDiff.
+    bridge.gitDiff?.stats(worktreePath).then((res) => {
+      if (!res.ok) return
+      setDiffFiles(Object.fromEntries(res.files.map((f) => [f.relPath, { added: f.added, deleted: f.deleted }])))
+      setUntracked(new Set(res.untracked))
+    }).catch(() => { /* repo sin HEAD o similar: sin badges */ })
+  }, [worktreePath, bridge])
+
   useEffect(() => {
     setEntriesByDir({})
     setExpanded({})
     setSelected(null)
+    setDiffFiles({})
+    setUntracked(new Set())
     if (!worktreePath) return
     loadDir('')
+    refreshDiff()
     sequencedWatch(worktreePath, '', { depth: 0 })
     const unsubscribe = bridge.fs.onChanged((wt, relPath) => {
       if (wt !== worktreePath) return
       // El watcher reporta el relPath de la CARPETA watcheada (ver Task 2);
       // si la tenemos cargada, se re-lista.
       if (entriesByDirRef.current[relPath] !== undefined) loadDir(relPath)
+      refreshDiff()
     })
+    // El guardado desde el editor no pasa por el watcher de carpetas — el
+    // EditorPane lo anuncia con este evento para refrescar los badges al toque.
+    const onSaved = (e: Event) => {
+      const ce = e as CustomEvent<{ worktreePath?: string }>
+      if (ce.detail?.worktreePath === worktreePath) refreshDiff()
+    }
+    window.addEventListener('nest:file-saved', onSaved)
     return () => {
       unsubscribe()
+      window.removeEventListener('nest:file-saved', onSaved)
       sequencedUnwatch(worktreePath, '')
       watchedDirsRef.current.forEach((dir) => sequencedUnwatch(worktreePath, dir))
       watchedDirsRef.current.clear()
     }
-  }, [worktreePath, loadDir, bridge, sequencedWatch, sequencedUnwatch])
+  }, [worktreePath, loadDir, refreshDiff, bridge, sequencedWatch, sequencedUnwatch])
 
   const toggleDir = useCallback((relPath: string) => {
     if (!worktreePath) return
@@ -135,7 +160,8 @@ export function ExplorerPanel({ worktreePath, onFileOpen }: ExplorerPanelProps) 
 
   const refresh = useCallback(() => {
     Object.keys(entriesByDirRef.current).forEach((dir) => loadDir(dir))
-  }, [loadDir])
+    refreshDiff()
+  }, [loadDir, refreshDiff])
 
   if (!worktreePath) {
     return (
@@ -175,6 +201,15 @@ export function ExplorerPanel({ worktreePath, onFileOpen }: ExplorerPanelProps) 
             ? <FolderIcon open={!!expanded[entry.path]} />
             : <FileIcon name={entry.name} />}
           <span className="explorer-entry-name">{entry.name}</span>
+          {!entry.isDirectory && diffFiles[entry.path] && (
+            <span className="explorer-diff">
+              {diffFiles[entry.path].added > 0 && <span className="diff-added">+{diffFiles[entry.path].added}</span>}
+              {diffFiles[entry.path].deleted > 0 && <span className="diff-deleted">−{diffFiles[entry.path].deleted}</span>}
+            </span>
+          )}
+          {!entry.isDirectory && !diffFiles[entry.path] && untracked.has(entry.path) && (
+            <span className="explorer-diff"><span className="diff-untracked">U</span></span>
+          )}
         </div>
         {entry.isDirectory && expanded[entry.path] && (
           <div

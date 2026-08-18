@@ -94,6 +94,11 @@ contextBridge.exposeInMainWorld('platform', {
   isLinux: process.platform === 'linux',
 })
 
+contextBridge.exposeInMainWorld('gitDiff', {
+  stats: (worktreePath: string) => ipcRenderer.invoke('git:diffStats', worktreePath),
+  addedLines: (worktreePath: string, relPath: string) => ipcRenderer.invoke('git:addedLines', worktreePath, relPath),
+})
+
 contextBridge.exposeInMainWorld('appFlags', {
   e2eBypass: process.env.RAVEN_E2E === '1',
   // Plan simulado para demos/E2E de features gateadas por plan. Solo se

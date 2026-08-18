@@ -9583,6 +9583,16 @@ body.platform-mac .tabbar { padding-right: 116px; }
 /* Drop target de drag & drop (tab de otro pane o archivo del Explorer). */
 .editor-pane.drop-target { outline: 2px dashed #7c3aed88; outline-offset: -2px; }
 
+/* Badges de diff vs HEAD en el Explorer (+N verde / −M rojo / U untracked). */
+.explorer-diff { margin-left: auto; display: flex; gap: 5px; font-size: 10px; font-variant-numeric: tabular-nums; padding-right: 6px; flex-shrink: 0; }
+.diff-added { color: #3fb950; }
+.diff-deleted { color: #f85149; }
+.diff-untracked { color: #3fb950; opacity: 0.85; }
+
+/* Líneas agregadas/cambiadas vs HEAD dentro del editor. */
+.nest-diff-added { background: rgba(63, 185, 80, 0.13); }
+.nest-diff-added-gutter { border-left: 3px solid #3fb950; margin-left: 3px; }
+
 
 /* ── Hub Overlay ─────────────────────────────────────────── */
 
