@@ -436,11 +436,18 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
               e.dataTransfer.effectAllowed = 'move'
             }}
             onDragEnd={() => {
-              // La tab sigue en este pane → la mudanza no ocurrió (drag
-              // cancelado o drop en el mismo pane): descartar el stash.
-              if (worktreePath && tabsRef.current.some((t) => t.relPath === tab.relPath)) {
-                dropTabBuffer(worktreePath, tab.relPath)
-              }
+              // dragend dispara SINCRÓNICO tras el drop, ANTES de que React
+              // aplique la mudanza — chequear tabsRef acá veía la tab todavía
+              // en el origen y descartaba el stash que el destino iba a
+              // consumir. Diferir un macrotask: para entonces el commit de
+              // React ya corrió (y el destino, si mudó, ya consumió).
+              const rel = tab.relPath
+              const wt = worktreePath
+              setTimeout(() => {
+                if (wt && tabsRef.current.some((t) => t.relPath === rel)) {
+                  dropTabBuffer(wt, rel)
+                }
+              }, 0)
             }}
           >
             <FileIcon name={tab.relPath} />

@@ -270,6 +270,11 @@ describe('Open in new pane con cambios sin guardar', () => {
     const dt = makeDataTransfer()
     fireEvent.dragStart(screen.getByText('a.ts'), { dataTransfer: dt })
     fireEvent.dragEnd(screen.getByText('a.ts'), { dataTransfer: dt })
+    // La limpieza es diferida (dragend corre antes del commit de React que
+    // aplicaría una mudanza real — ver onDragEnd): esperar el macrotask.
+    // takeTabBuffer consume al leer — un waitFor lo vaciaría solo y pasaría
+    // vacuo; espera fija y UNA sola lectura.
+    await act(async () => { await new Promise((r) => setTimeout(r, 10)) })
     expect(takeTabBuffer('/repo', 'a.ts')).toBeUndefined()
   })
 

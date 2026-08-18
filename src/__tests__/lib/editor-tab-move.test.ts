@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { moveTabBetweenPanes, openFileInPane } from '../../lib/editor-tab-move'
-import type { PaneNode } from '../../types'
+import { moveTabBetweenPanes, openFileInPane, splitEditorTabFromHub } from '../../lib/editor-tab-move'
+import type { PaneNode, WorkspaceTab } from '../../types'
 
 function editorPane(id: string, tabs: Array<{ relPath: string; dirty: boolean }>, active?: string, repoPath = '/wt'): PaneNode {
   return {
@@ -76,6 +76,42 @@ describe('moveTabBetweenPanes (drag & drop de tabs)', () => {
     expect(moveTabBetweenPanes(panes, 'src', 'src', 'a.ts', false)).toBeNull()
     expect(moveTabBetweenPanes(panes, 'src', 'nope', 'a.ts', false)).toBeNull()
     expect(moveTabBetweenPanes(panes, 'src', 't', 'a.ts', false)).toBeNull()
+  })
+})
+
+describe('splitEditorTabFromHub (Open in new pane desde el Hub)', () => {
+  function makeTabs(): WorkspaceTab[] {
+    return [
+      {
+        id: 'ws-1', name: 'Workspace', layoutId: '1',
+        panes: [editorPane('e1', [{ relPath: 'a.ts', dirty: true }, { relPath: 'b.ts', dirty: false }])],
+      },
+      { id: 'hub', name: 'Hub', layoutId: '1', isHub: true, panes: [], hubPanes: ['e1'] },
+    ] as unknown as WorkspaceTab[]
+  }
+
+  it('creates the split pane in the SOURCE workspace and pins it to the hub', () => {
+    const res = splitEditorTabFromHub(makeTabs(), 'hub', 'e1', 'a.ts', 'nuevo-pane')
+    expect(res).not.toBeNull()
+    const ws = res!.find(t => t.id === 'ws-1')!
+    const hub = res!.find(t => t.id === 'hub')!
+    expect(ws.panes.map(p => p.id)).toEqual(['e1', 'nuevo-pane'])
+    const nuevo = ws.panes.find(p => p.id === 'nuevo-pane')!
+    expect(nuevo.aiType).toBe('editor')
+    expect(nuevo.editorTabs).toEqual([{ relPath: 'a.ts', dirty: true }]) // el dirty viaja
+    expect(nuevo.repoPath).toBe('/wt')
+    expect(ws.panes.find(p => p.id === 'e1')!.editorTabs).toEqual([{ relPath: 'b.ts', dirty: false }])
+    expect(hub.hubPanes).toEqual(['e1', 'nuevo-pane']) // pinneado: visible donde estás
+  })
+
+  it('no-ops when the tab is the pane only tab', () => {
+    const tabs = makeTabs()
+    ;(tabs[0].panes[0] as PaneNode).editorTabs = [{ relPath: 'a.ts', dirty: false }]
+    expect(splitEditorTabFromHub(tabs, 'hub', 'e1', 'a.ts', 'x')).toBeNull()
+  })
+
+  it('no-ops when the source pane is not found in any workspace', () => {
+    expect(splitEditorTabFromHub(makeTabs(), 'hub', 'fantasma', 'a.ts', 'x')).toBeNull()
   })
 })
 

@@ -1,4 +1,7 @@
-import type { PaneNode } from '../types'
+import type { LayoutId, PaneNode, WorkspaceTab } from '../types'
+import { AI_CONFIG } from '../types'
+import { defaultLayoutFor } from '../layout/select'
+import { getPreset } from '../layout/presets'
 
 // Lógica pura de la mudanza de tabs entre panes de editor (drag & drop y
 // futuros gestos). El buffer sin guardar viaja aparte, por
@@ -59,6 +62,58 @@ export function moveTabBetweenPanes(
     return [p]
   })
   return { panes: nextPanes, dropStash: destHasFile }
+}
+
+// "Open in new pane" invocado DESDE el Hub: el pane origen vive en otro
+// workspace (el Hub no posee panes), así que el split se crea EN el
+// workspace de origen y se auto-pinnea al Hub — el usuario lo ve aparecer
+// donde está mirando, igual que el patrón de abrir un browser desde el Hub.
+// El buffer sin guardar viaja por editor-buffer-handoff (el EditorPane
+// origen stashea antes de invocar el gesto), acá solo viaja la metadata.
+export function splitEditorTabFromHub(
+  tabs: readonly WorkspaceTab[],
+  hubTabId: string,
+  sourcePaneId: string,
+  relPath: string,
+  newPaneId: string,
+): WorkspaceTab[] | null {
+  const sourceTab = tabs.find((t) => !t.isHub && t.panes.some((p) => p.id === sourcePaneId))
+  if (!sourceTab) return null
+  const sourcePane = sourceTab.panes.find((p) => p.id === sourcePaneId)!
+  if (sourcePane.aiType !== 'editor') return null
+  const paneTabs = sourcePane.editorTabs ?? []
+  // Única tab: mover "a un pane nuevo" es un no-op conceptual.
+  if (paneTabs.length <= 1) return null
+  const movedTab = paneTabs.find((tb) => tb.relPath === relPath)
+  if (!movedTab) return null
+
+  const newPane: PaneNode = {
+    id: newPaneId, aiType: 'editor', accountName: '', accountDir: '',
+    borderColor: AI_CONFIG.editor.color, cmd: '',
+    repoPath: sourcePane.repoPath,
+    editorTabs: [{ relPath, dirty: movedTab.dirty }],
+    activeEditorTabPath: relPath,
+  }
+  return tabs.map((t) => {
+    if (t.id === sourceTab.id) {
+      const remaining = paneTabs.filter((tb) => tb.relPath !== relPath)
+      const nextPanes = t.panes
+        .map((p) => p.id === sourcePaneId
+          ? { ...p, editorTabs: remaining, activeEditorTabPath: p.activeEditorTabPath === relPath ? remaining[0]?.relPath : p.activeEditorTabPath }
+          : p)
+        .concat(newPane)
+      // Promoción de layout del workspace origen — mismo patrón que addPane.
+      const promoted = nextPanes.length > getPreset(t.layoutId).slotCount
+      const layoutId: LayoutId = promoted ? defaultLayoutFor(nextPanes.length) : t.layoutId
+      return promoted
+        ? { ...t, panes: nextPanes, layoutId, splitRatios: {} }
+        : { ...t, panes: nextPanes, layoutId }
+    }
+    if (t.id === hubTabId && t.isHub) {
+      return { ...t, hubPanes: [...(t.hubPanes ?? []), newPaneId] }
+    }
+    return t
+  })
 }
 
 // Drop de un archivo del Explorer sobre un pane de editor concreto: lo abre

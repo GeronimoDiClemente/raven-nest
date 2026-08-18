@@ -36,7 +36,7 @@ import logoUrl from './assets/logo.png'
 import { useProfile } from './hooks/useProfile'
 import { PLAN_LIMITS } from './lib/stripe'
 import { broadcastTargets, isAgentPane } from './lib/broadcast'
-import { moveTabBetweenPanes, openFileInPane } from './lib/editor-tab-move'
+import { moveTabBetweenPanes, openFileInPane, splitEditorTabFromHub } from './lib/editor-tab-move'
 import { dropTabBuffer } from './lib/editor-buffer-handoff'
 import UpgradeModal from './components/UpgradeModal'
 import TeamsWorkspace from './components/TeamsWorkspace'
@@ -595,6 +595,21 @@ export default function App() {
   const handleEditorFileDropped = useCallback((paneId: string, relPath: string) => {
     updateActiveTab(t => ({ ...t, panes: openFileInPane(t.panes, paneId, relPath) }))
   }, [updateActiveTab])
+
+  // "Open in new pane" desde el Hub: el split se crea en el workspace de
+  // ORIGEN del pane y se auto-pinnea al Hub (mismo patrón que el browser).
+  const moveEditorTabToNewPaneFromHub = useCallback((paneId: string, relPath: string) => {
+    const hubTabId = activeTabIdRef.current
+    const sourceTab = tabsRef.current.find(t => !t.isHub && t.panes.some(p => p.id === paneId))
+    if (!sourceTab) return
+    if (sourceTab.panes.length >= MAX_PANES) return
+    if (sourceTab.panes.length >= planLimits.maxPanes) {
+      setShowUpgrade(true)
+      return
+    }
+    const newId = generateId()
+    setTabs(prev => splitEditorTabFromHub(prev, hubTabId, paneId, relPath, newId) ?? prev)
+  }, [planLimits.maxPanes])
 
   const handlePtyStarted = useCallback((paneId: string, runningRepoPath: string | undefined) => {
     updateActiveTab(t => ({
@@ -1324,9 +1339,7 @@ export default function App() {
           onTabsChange={(editorTabs, activeEditorTabPath) => updatePaneAnywhere(pane.id, p => ({ ...p, editorTabs, activeEditorTabPath }))}
           onClose={() => removePaneAnywhere(pane.id)}
           onFocus={() => { setFocusedPaneId(pane.id); focusedPaneIdRef.current = pane.id }}
-          // Desde el Hub no hay workspace destino claro para "un pane nuevo"
-          // (la tab activa es el Hub, que no posee panes) — no-op deliberado.
-          onOpenInNewPane={() => {}}
+          onOpenInNewPane={(relPath) => moveEditorTabToNewPaneFromHub(pane.id, relPath)}
           editorOptions={userPrefs.prefs.ui_settings.editorOptions}
           editorTheme={userPrefs.prefs.ui_settings.editorTheme}
         />
