@@ -36,7 +36,7 @@ import logoUrl from './assets/logo.png'
 import { useProfile } from './hooks/useProfile'
 import { PLAN_LIMITS } from './lib/stripe'
 import { broadcastTargets, isAgentPane } from './lib/broadcast'
-import { moveTabBetweenPanes, openFileInPane, splitEditorTabFromHub } from './lib/editor-tab-move'
+import { moveTabAcrossWorkspaces, openFileInPane, splitEditorTabFromHub } from './lib/editor-tab-move'
 import { dropTabBuffer } from './lib/editor-buffer-handoff'
 import UpgradeModal from './components/UpgradeModal'
 import TeamsWorkspace from './components/TeamsWorkspace'
@@ -569,27 +569,22 @@ export default function App() {
     })
   }, [activeTab, updateActiveTab, addPane, planLimits.maxPanes])
 
-  // Drag & drop: una tab soltada sobre OTRO pane de editor del workspace.
+  // Drag & drop: una tab soltada sobre OTRO pane de editor — del mismo
+  // workspace o, en el Hub, de workspaces distintos (mismo worktree).
   const handleEditorTabDropped = useCallback((destPaneId: string, drop: { sourcePaneId: string; relPath: string; dirty: boolean }) => {
-    updateActiveTab(t => {
-      const res = moveTabBetweenPanes(t.panes, drop.sourcePaneId, destPaneId, drop.relPath, drop.dirty)
-      if (!res) return t
+    setTabs(prev => {
+      const res = moveTabAcrossWorkspaces(prev, drop.sourcePaneId, destPaneId, drop.relPath, drop.dirty)
+      if (!res) return prev
       if (res.dropStash) {
         // El destino ya tenía el archivo (con su propio buffer): no va a
         // consumir el handoff — descartarlo. Idempotente si corre dos veces.
-        const dest = t.panes.find(p => p.id === destPaneId)
+        const destTab = prev.find(t => t.panes.some(p => p.id === destPaneId))
+        const dest = destTab?.panes.find(p => p.id === destPaneId)
         if (dest?.repoPath) dropTabBuffer(dest.repoPath, drop.relPath)
       }
-      // Si la mudanza vació (y removió) el pane origen, demotear el layout —
-      // mismo patrón que removePane.
-      const naturalDefault = defaultLayoutFor(res.panes.length)
-      const demoted = getPreset(naturalDefault).slotCount < getPreset(t.layoutId).slotCount
-      const layoutId: LayoutId = demoted ? naturalDefault : t.layoutId
-      return demoted
-        ? { ...t, panes: res.panes, layoutId, splitRatios: {} }
-        : { ...t, panes: res.panes, layoutId }
+      return res.tabs
     })
-  }, [updateActiveTab])
+  }, [])
 
   // Drag & drop: un archivo del Explorer soltado sobre un pane de editor.
   const handleEditorFileDropped = useCallback((paneId: string, relPath: string) => {
@@ -1340,6 +1335,7 @@ export default function App() {
           onClose={() => removePaneAnywhere(pane.id)}
           onFocus={() => { setFocusedPaneId(pane.id); focusedPaneIdRef.current = pane.id }}
           onOpenInNewPane={(relPath) => moveEditorTabToNewPaneFromHub(pane.id, relPath)}
+          onTabDropped={(drop) => handleEditorTabDropped(pane.id, drop)}
           editorOptions={userPrefs.prefs.ui_settings.editorOptions}
           editorTheme={userPrefs.prefs.ui_settings.editorTheme}
         />

@@ -64,6 +64,83 @@ export function moveTabBetweenPanes(
   return { panes: nextPanes, dropStash: destHasFile }
 }
 
+export interface CrossMoveResult {
+  tabs: WorkspaceTab[]
+  dropStash: boolean
+}
+
+// Mudanza de una tab entre panes que pueden vivir en WORKSPACES DISTINTOS —
+// el caso del Hub, que muestra panes de todos lados. Misma semántica que
+// moveTabBetweenPanes (merge limpio, no-merge con buffers divergentes,
+// rechazo cross-worktree, remoción del pane origen vaciado con demote de
+// layout) más: el pane removido sale de hubPanes de cualquier tab Hub.
+export function moveTabAcrossWorkspaces(
+  tabs: readonly WorkspaceTab[],
+  sourcePaneId: string,
+  destPaneId: string,
+  relPath: string,
+  dirty: boolean,
+): CrossMoveResult | null {
+  if (sourcePaneId === destPaneId) return null
+  const sourceTab = tabs.find((t) => !t.isHub && t.panes.some((p) => p.id === sourcePaneId))
+  const destTab = tabs.find((t) => !t.isHub && t.panes.some((p) => p.id === destPaneId))
+  if (!sourceTab || !destTab) return null
+  const source = sourceTab.panes.find((p) => p.id === sourcePaneId)!
+  const dest = destTab.panes.find((p) => p.id === destPaneId)!
+  if (source.aiType !== 'editor' || dest.aiType !== 'editor') return null
+  if (source.repoPath !== dest.repoPath) return null
+  if (!(source.editorTabs ?? []).some((t) => t.relPath === relPath)) return null
+
+  const destTabs = dest.editorTabs ?? []
+  const destHasFile = destTabs.some((t) => t.relPath === relPath)
+
+  if (destHasFile && dirty) {
+    // Buffers divergentes: activar la copia del destino, el origen no se toca.
+    return {
+      tabs: tabs.map((t) => t.id === destTab.id
+        ? { ...t, panes: t.panes.map((p) => (p.id === destPaneId ? { ...p, activeEditorTabPath: relPath } : p)) }
+        : t),
+      dropStash: false,
+    }
+  }
+
+  let removedSourcePane = false
+  const nextTabs = tabs.map((t) => {
+    let panes = t.panes
+    if (t.id === sourceTab.id) {
+      panes = panes.flatMap((p) => {
+        if (p.id !== sourcePaneId) return [p]
+        const remaining = (p.editorTabs ?? []).filter((tb) => tb.relPath !== relPath)
+        if (remaining.length === 0) { removedSourcePane = true; return [] }
+        return [{
+          ...p,
+          editorTabs: remaining,
+          activeEditorTabPath: p.activeEditorTabPath === relPath ? remaining[0]?.relPath : p.activeEditorTabPath,
+        }]
+      })
+    }
+    if (t.id === destTab.id) {
+      panes = panes.map((p) => {
+        if (p.id !== destPaneId) return p
+        const editorTabs = destHasFile ? destTabs : [...destTabs, { relPath, dirty }]
+        return { ...p, editorTabs, activeEditorTabPath: relPath }
+      })
+    }
+    if (panes === t.panes) return t
+    // Demote del layout del workspace que perdió un pane (patrón removePane).
+    const naturalDefault = defaultLayoutFor(panes.length)
+    const demoted = getPreset(naturalDefault).slotCount < getPreset(t.layoutId).slotCount
+    const layoutId: LayoutId = demoted ? naturalDefault : t.layoutId
+    return demoted
+      ? { ...t, panes, layoutId, splitRatios: {} }
+      : { ...t, panes, layoutId }
+  }).map((t) => (t.isHub && removedSourcePane && (t.hubPanes ?? []).includes(sourcePaneId)
+    ? { ...t, hubPanes: (t.hubPanes ?? []).filter((id) => id !== sourcePaneId) }
+    : t))
+
+  return { tabs: nextTabs, dropStash: destHasFile }
+}
+
 // "Open in new pane" invocado DESDE el Hub: el pane origen vive en otro
 // workspace (el Hub no posee panes), así que el split se crea EN el
 // workspace de origen y se auto-pinnea al Hub — el usuario lo ve aparecer

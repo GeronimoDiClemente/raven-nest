@@ -263,19 +263,34 @@ describe('Open in new pane con cambios sin guardar', () => {
     expect(takeTabBuffer('/repo', 'a.ts')?.content).toBe('hello arrastrado')
   })
 
-  it('a cancelled drag (tab still here on dragend) discards the stash', async () => {
+  // Protocolo dirty-only: una tab limpia tiene su contenido EN disco, así
+  // que no stashea (el destino lee disco, correcto) — y un stash rancio de
+  // un drag cancelado jamás se consume porque solo una tab que LLEGA dirty
+  // consume, y toda llegada dirty viene de un gesto que stashea fresco.
+  it('dragging a clean tab does not stash (disk already matches)', async () => {
     __resetHandoffForTests()
     renderMove(false)
     await waitFor(() => expect(screen.getByTestId('monaco-stub')).toHaveValue('hello'))
     const dt = makeDataTransfer()
     fireEvent.dragStart(screen.getByText('a.ts'), { dataTransfer: dt })
-    fireEvent.dragEnd(screen.getByText('a.ts'), { dataTransfer: dt })
-    // La limpieza es diferida (dragend corre antes del commit de React que
-    // aplicaría una mudanza real — ver onDragEnd): esperar el macrotask.
-    // takeTabBuffer consume al leer — un waitFor lo vaciaría solo y pasaría
-    // vacuo; espera fija y UNA sola lectura.
-    await act(async () => { await new Promise((r) => setTimeout(r, 10)) })
+    expect(JSON.parse(dt.getData('application/x-nest-editor-tab')).dirty).toBe(false)
     expect(takeTabBuffer('/repo', 'a.ts')).toBeUndefined()
+  })
+
+  it('a clean incoming tab ignores a lingering stash and reads disk', async () => {
+    __resetHandoffForTests()
+    stashTabBuffer('/repo', 'a.ts', { content: 'rancio de un drag cancelado', eol: '\n', dirty: true })
+    const { bridge } = makeMockBridge()
+    render(
+      <BridgeProvider value={bridge}>
+        <EditorPane
+          pane={makePane({ editorTabs: [{ relPath: 'a.ts', dirty: false }], activeEditorTabPath: 'a.ts' })}
+          onTabsChange={vi.fn()} onClose={vi.fn()} onFocus={vi.fn()} onOpenInNewPane={vi.fn()}
+        />
+      </BridgeProvider>,
+    )
+    await waitFor(() => expect(screen.getByTestId('monaco-stub')).toHaveValue('hello'))
+    expect((bridge as unknown as { fs: { readFile: ReturnType<typeof vi.fn> } }).fs.readFile).toHaveBeenCalled()
   })
 
   it('dropping a tab payload on the pane reports the move (same worktree only)', async () => {

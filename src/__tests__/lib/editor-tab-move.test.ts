@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { moveTabBetweenPanes, openFileInPane, splitEditorTabFromHub } from '../../lib/editor-tab-move'
+import { moveTabBetweenPanes, moveTabAcrossWorkspaces, openFileInPane, splitEditorTabFromHub } from '../../lib/editor-tab-move'
 import type { PaneNode, WorkspaceTab } from '../../types'
 
 function editorPane(id: string, tabs: Array<{ relPath: string; dirty: boolean }>, active?: string, repoPath = '/wt'): PaneNode {
@@ -76,6 +76,55 @@ describe('moveTabBetweenPanes (drag & drop de tabs)', () => {
     expect(moveTabBetweenPanes(panes, 'src', 'src', 'a.ts', false)).toBeNull()
     expect(moveTabBetweenPanes(panes, 'src', 'nope', 'a.ts', false)).toBeNull()
     expect(moveTabBetweenPanes(panes, 'src', 't', 'a.ts', false)).toBeNull()
+  })
+})
+
+describe('moveTabAcrossWorkspaces (DnD en el Hub: panes de workspaces distintos)', () => {
+  function makeWorkspaces(): WorkspaceTab[] {
+    return [
+      { id: 'ws-1', name: 'W1', layoutId: '1', panes: [editorPane('e1', [{ relPath: 'a.ts', dirty: true }])] },
+      { id: 'ws-2', name: 'W2', layoutId: '1', panes: [editorPane('e2', [{ relPath: 'c.ts', dirty: false }])] },
+      { id: 'hub', name: 'Hub', layoutId: '1', isHub: true, panes: [], hubPanes: ['e1', 'e2'] },
+    ] as unknown as WorkspaceTab[]
+  }
+
+  it('moves a tab between panes of DIFFERENT workspaces (same worktree)', () => {
+    const res = moveTabAcrossWorkspaces(makeWorkspaces(), 'e1', 'e2', 'a.ts', true)
+    expect(res).not.toBeNull()
+    const ws1 = res!.tabs.find(t => t.id === 'ws-1')!
+    const ws2 = res!.tabs.find(t => t.id === 'ws-2')!
+    const hub = res!.tabs.find(t => t.id === 'hub')!
+    expect(ws1.panes).toHaveLength(0) // el pane origen quedó vacío y se fue
+    expect(ws2.panes[0].editorTabs).toEqual([{ relPath: 'c.ts', dirty: false }, { relPath: 'a.ts', dirty: true }])
+    expect(ws2.panes[0].activeEditorTabPath).toBe('a.ts')
+    expect(hub.hubPanes).toEqual(['e2']) // el pane removido sale del Hub
+  })
+
+  it('still handles both panes in the SAME workspace', () => {
+    const tabs = [
+      { id: 'ws-1', name: 'W1', layoutId: '2V', panes: [
+        editorPane('e1', [{ relPath: 'a.ts', dirty: false }, { relPath: 'b.ts', dirty: false }]),
+        editorPane('e2', [{ relPath: 'c.ts', dirty: false }]),
+      ] },
+    ] as unknown as WorkspaceTab[]
+    const res = moveTabAcrossWorkspaces(tabs, 'e1', 'e2', 'a.ts', false)
+    const ws = res!.tabs[0]
+    expect(ws.panes.find(p => p.id === 'e1')!.editorTabs).toEqual([{ relPath: 'b.ts', dirty: false }])
+    expect(ws.panes.find(p => p.id === 'e2')!.activeEditorTabPath).toBe('a.ts')
+  })
+
+  it('rejects cross-worktree moves', () => {
+    const tabs = makeWorkspaces()
+    ;(tabs[1].panes[0] as PaneNode).repoPath = '/otro-wt'
+    expect(moveTabAcrossWorkspaces(tabs, 'e1', 'e2', 'a.ts', true)).toBeNull()
+  })
+
+  it('keeps both tabs when the incoming one is dirty and the destination already has the file', () => {
+    const tabs = makeWorkspaces()
+    ;(tabs[1].panes[0] as PaneNode).editorTabs = [{ relPath: 'a.ts', dirty: false }]
+    const res = moveTabAcrossWorkspaces(tabs, 'e1', 'e2', 'a.ts', true)
+    expect(res!.tabs.find(t => t.id === 'ws-1')!.panes[0].editorTabs).toHaveLength(1) // origen intacto
+    expect(res!.tabs.find(t => t.id === 'ws-2')!.panes[0].activeEditorTabPath).toBe('a.ts')
   })
 })
 

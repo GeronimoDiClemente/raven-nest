@@ -187,10 +187,13 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
     if (!worktreePath) return
     tabs.forEach((tab) => {
       if (contentsRef.current[tab.relPath] !== undefined) return
-      // Tab mudada desde otro pane (botón o drag & drop): su buffer viaja por
-      // el handoff — consumirlo evita la lectura de disco que pisaría el
-      // edit sin guardar del pane origen.
-      const handoff = takeTabBuffer(worktreePath, tab.relPath)
+      // Tab DIRTY mudada desde otro pane (botón o drag & drop): su buffer
+      // viaja por el handoff — consumirlo evita la lectura de disco que
+      // pisaría el edit sin guardar. Solo tabs dirty: una limpia tiene su
+      // contenido EN disco (leer disco es correcto), y así una tab reabierta
+      // tras cerrarse (llega dirty:false) jamás consume un stash rancio de
+      // un drag cancelado.
+      const handoff = tab.dirty ? takeTabBuffer(worktreePath, tab.relPath) : undefined
       if (handoff) {
         eolRef.current[tab.relPath] = handoff.eol
         setContents((c) => ({ ...c, [tab.relPath]: handoff.content }))
@@ -374,9 +377,11 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
     return () => el.removeEventListener('keydown', onKeyDown)
   }, [activePath, save])
 
+  // Aceptar (y mostrar el outline) SOLO si hay handler para ese payload —
+  // un pane que resalta pero no recibe se siente roto.
   const acceptsDrop = (e: React.DragEvent) =>
-    e.dataTransfer.types.includes('application/x-nest-editor-tab') ||
-    e.dataTransfer.types.includes('application/x-nest-file')
+    (!!onTabDropped && e.dataTransfer.types.includes('application/x-nest-editor-tab')) ||
+    (!!onFileDropped && e.dataTransfer.types.includes('application/x-nest-file'))
 
   return (
     <div
@@ -420,34 +425,26 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
             draggable
             onDragStart={(e) => {
               if (!worktreePath) return
-              // El buffer viaja con la tab (ver editor-buffer-handoff); si el
-              // drag termina sin mudanza, onDragEnd lo descarta.
+              // Solo tabs DIRTY stashean: una limpia tiene su contenido en
+              // disco y el destino lee disco. Sin limpieza en dragend a
+              // propósito — el pane origen se desmonta con la mudanza y
+              // cualquier chequeo post-unmount (tabsRef congelado) corría una
+              // carrera contra el consumo del destino (pisaba el stash y el
+              // edit se perdía). Un stash de un drag cancelado es inofensivo:
+              // solo lo consume una tab que LLEGA dirty, y toda llegada dirty
+              // viene de un gesto de mudanza que stashea fresco primero.
               const content = contentsRef.current[tab.relPath]
-              if (content !== undefined) {
+              if (tab.dirty && content !== undefined) {
                 stashTabBuffer(worktreePath, tab.relPath, {
                   content,
                   eol: eolRef.current[tab.relPath] ?? '\n',
-                  dirty: tab.dirty,
+                  dirty: true,
                 })
               }
               e.dataTransfer.setData('application/x-nest-editor-tab', JSON.stringify({
                 sourcePaneId: pane.id, relPath: tab.relPath, dirty: tab.dirty, worktreePath,
               }))
               e.dataTransfer.effectAllowed = 'move'
-            }}
-            onDragEnd={() => {
-              // dragend dispara SINCRÓNICO tras el drop, ANTES de que React
-              // aplique la mudanza — chequear tabsRef acá veía la tab todavía
-              // en el origen y descartaba el stash que el destino iba a
-              // consumir. Diferir un macrotask: para entonces el commit de
-              // React ya corrió (y el destino, si mudó, ya consumió).
-              const rel = tab.relPath
-              const wt = worktreePath
-              setTimeout(() => {
-                if (wt && tabsRef.current.some((t) => t.relPath === rel)) {
-                  dropTabBuffer(wt, rel)
-                }
-              }, 0)
             }}
           >
             <FileIcon name={tab.relPath} />
@@ -464,14 +461,15 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
                 title="Open in new pane"
                 onClick={(e) => {
                   e.stopPropagation()
-                  // El buffer viaja con la tab: el pane destino lo consume en
-                  // su carga en lugar de leer disco (nada sin guardar se pierde).
+                  // Tab dirty: el buffer viaja con la tab vía handoff y el
+                  // destino lo consume en su carga (nada sin guardar se
+                  // pierde). Limpia: el disco ya tiene el contenido.
                   const content = contentsRef.current[tab.relPath]
-                  if (worktreePath && content !== undefined) {
+                  if (worktreePath && tab.dirty && content !== undefined) {
                     stashTabBuffer(worktreePath, tab.relPath, {
                       content,
                       eol: eolRef.current[tab.relPath] ?? '\n',
-                      dirty: tab.dirty,
+                      dirty: true,
                     })
                   }
                   onOpenInNewPane(tab.relPath)
