@@ -667,15 +667,6 @@ body {
   flex-shrink: 0;
 }
 
-/* Desplegable "More tools" — header siempre visible, contenido con scroll
-   interno cuando abierto. flex-shrink:0 + max-height en la lista hace que
-   no robe altura a la sección de worktrees. */
-.sidebar-more {
-  flex-shrink: 0;
-  display: flex;
-  flex-direction: column;
-}
-
 .sidebar-more-toggle {
   color: var(--text-muted);
   font-size: 12px;
@@ -690,10 +681,22 @@ body {
   color: var(--text-primary);
 }
 
+/* El grupo More tools participa del flex del sidebar: cuando se abre, la
+   lista se ENCOGE dentro del espacio disponible (scroll propio) en vez de
+   desbordar el contenedor externo — sin esto convivían DOS scrollbars (la
+   del sidebar entero + la de la lista) y las secciones quedaban aplastadas. */
+.sidebar-more {
+  display: flex;
+  flex-direction: column;
+  flex: 0 1 auto;
+  min-height: 0;
+}
+.sidebar-more-toggle { flex: 0 0 auto; }
 .sidebar-more-list {
   display: flex;
   flex-direction: column;
-  max-height: 40vh;
+  flex: 0 1 auto;
+  min-height: 120px;
   overflow-y: auto;
   overflow-x: hidden;
   border-top: 1px solid var(--border);
@@ -10888,3 +10891,28 @@ body.platform-mac .tabbar { padding-right: 116px; }
 .ed-area-fill{height:100%;background:var(--raven-blue);border-radius:4px}
 .ed-area-n{font-size:11px;color:var(--text-secondary);text-align:right}
 .ed-empty{font-size:12px;color:var(--text-muted)}
+
+/* ── Pane filter chips (TabBar rightSlot): reusan el estilo hub-chip ── */
+.pane-filter-chips{display:flex;align-items:center;gap:4px;margin-right:8px;-webkit-app-region:no-drag}
+
+/* ── Sidebar split (Worktrees / Explorer, reparto ajustable) ──
+   min-height = piso PROTEGIDO: abrir More tools nunca aplasta estas dos
+   secciones por debajo de un alto usable (~200px worktrees + ~140 explorer);
+   lo que se encoge es la lista de tools (ver .sidebar-more-list). */
+.sidebar-split{flex:1 1 auto;min-height:340px}
+.sidebar-split .sidebar-worktrees-wrap,
+.sidebar-split .sidebar-explorer-wrap{height:100%;min-height:0;flex:1}
+.sidebar-split-handle{flex:0 0 5px;position:relative;background:transparent}
+.sidebar-split-handle::after{content:'';position:absolute;left:8px;right:8px;top:2px;height:1px;background:var(--border,#2a2a2a)}
+.sidebar-split-handle:hover::after,.sidebar-split-handle[data-resize-handle-active]::after{background:var(--raven-blue,#0066FF);height:2px}
+
+/* ── Pane filter trigger (embudo del sidebar) + popover ── */
+.pane-filter-trigger.active{color:var(--raven-blue,#4f9eff)}
+.pane-filter-badge{margin-left:auto;font-size:10px;padding:1px 6px;border-radius:8px;background:rgba(79,158,255,.18);color:var(--raven-blue,#4f9eff)}
+.pane-filter-popover{background:#161616;border:1px solid #2a2a2a;border-radius:8px;padding:8px;box-shadow:0 8px 24px rgba(0,0,0,.5)}
+.pane-filter-popover .pane-filter-chips{margin-right:0;display:flex;flex-direction:column;align-items:stretch;gap:4px}
+.pane-filter-popover .hub-chip{justify-content:space-between;display:flex}
+
+/* Borde entre editores: sin esto el texto clipeado toca al pane vecino y se
+   lee como superposición aunque el layout sea correcto. */
+.editor-pane{border-left:1px solid #262626;border-right:1px solid #262626}

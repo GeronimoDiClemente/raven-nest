@@ -46,7 +46,9 @@ import { usePendingInvitesCount } from './hooks/usePendingInvitesCount'
 import { useSpeechRecognition } from './hooks/useSpeechRecognition'
 import { useSettings } from './hooks/useSettings'
 import { matchesBinding, formatBinding } from './lib/keybindings'
-import { WORKTREE_DRAG_MIME } from './lib/dragTypes'
+import { workspaceAcceptsDrag, workspaceDropAction, workspaceDropEffect } from './lib/dragTypes'
+import { sameWorktree } from './lib/worktree-path'
+import { applyPaneFilter, newPaneBreaksFilter, type PaneFilter } from './lib/pane-filter'
 import { useUserPreferences } from './hooks/useUserPreferences'
 import SharedTerminalViewer from './components/SharedTerminalViewer'
 import { terminalShareService } from './lib/terminalShareService'
@@ -525,7 +527,10 @@ export default function App() {
     if (!worktreePath) return
     const focusedId = focusedPaneIdRef.current
     const focusedPane = focusedId ? activeTab.panes.find(p => p.id === focusedId) : undefined
-    const sameWorktreeEditor = (p: PaneNode) => p.aiType === 'editor' && p.repoPath === worktreePath
+    // sameWorktree y no ===: repoPath tiene dos productores con normalización
+    // distinta en Windows (C:/ de worktree-store vs C:\ de dialog/clone) —
+    // la comparación cruda abría un pane NUEVO en vez de reusar el existente.
+    const sameWorktreeEditor = (p: PaneNode) => p.aiType === 'editor' && sameWorktree(p.repoPath, worktreePath)
     const targetPane = focusedPane && sameWorktreeEditor(focusedPane) ? focusedPane : activeTab.panes.find(sameWorktreeEditor)
 
     if (targetPane) {
@@ -1266,9 +1271,10 @@ export default function App() {
   const workspaceRef = useRef<HTMLDivElement>(null)
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
-    if (!Array.from(e.dataTransfer.types).includes(WORKTREE_DRAG_MIME)) return
+    const types = Array.from(e.dataTransfer.types)
+    if (!workspaceAcceptsDrag(types)) return
     e.preventDefault()
-    e.dataTransfer.dropEffect = 'copy'
+    e.dataTransfer.dropEffect = workspaceDropEffect(types)
     if (!dropActive) setDropActive(true)
   }, [dropActive])
 
@@ -1278,12 +1284,32 @@ export default function App() {
   }, [])
 
   const handleDrop = useCallback((e: React.DragEvent) => {
-    const path = e.dataTransfer.getData(WORKTREE_DRAG_MIME)
     setDropActive(false)
-    if (!path) return
+    const action = workspaceDropAction(e.dataTransfer)
+    if (!action) return
     e.preventDefault()
-    setAddingPane({ worktreePath: path })
-  }, [])
+    if (action.kind === 'worktree') {
+      setAddingPane({ worktreePath: action.path })
+      return
+    }
+    if (action.kind === 'editorTab') {
+      // Tab soltada en el fondo (o rechazada por un pane cross-worktree que
+      // la dejó burbujear): mismo gesto que el botón "Open in new pane" —
+      // el buffer dirty ya viaja por el handoff stasheado en el dragstart.
+      moveEditorTabToNewPane(action.sourcePaneId, action.relPath)
+      return
+    }
+    // Archivo del Explorer soltado fuera de un pane de editor: pane de editor
+    // NUEVO (soltarlo SOBRE un editor lo abre ahí — EditorPane corta el
+    // burbujeo). El repoPath sale del payload, no del estado activo: el
+    // payload es la autoridad sobre qué worktree es el archivo. Los topes de
+    // panes (MAX_PANES / plan) los aplica addPane solo.
+    addPane('editor', '', '', AI_CONFIG.editor.color, '', undefined, undefined, undefined, {
+      editorTabs: [{ relPath: action.relPath, dirty: false }],
+      activeEditorTabPath: action.relPath,
+      repoPath: action.worktreePath,
+    })
+  }, [addPane, moveEditorTabToNewPane])
 
   // ResourceBar payload — flatten ALL tabs (not just active) so the panel
   // reflects every running PTY in the app. Memoize on a structural key so the
@@ -1337,6 +1363,60 @@ export default function App() {
     return { panes, layoutId: hubLayoutFor(activeTab.layoutId, panes.length), hiddenCount: Math.max(0, picked.length - MAX_PANES) }
   }, [activeTab.isHub, activeTab.hubPanes, activeTab.layoutId, tabs])
   hubPanesRef.current = hubData?.panes ?? []
+
+  // ── Filtro de vista por tipo de pane (agentes / editor / terminal / browser) ──
+  // Per-tab y TRANSITORIO: default 'all', sin persistencia — cada sesión
+  // arranca con todo junto y filtrar es un gesto explícito. Nunca muta
+  // panes/layoutId/splitRatios del tab: la vista se deriva al render y al
+  // volver a 'all' el layout real reaparece intacto. Los panes filtrados se
+  // desmontan — el mismo ciclo ya blindado del cambio de workspace tab.
+  const [paneFilters, setPaneFilters] = useState<Record<string, PaneFilter>>({})
+  const paneFilter: PaneFilter = paneFilters[activeTab.id] ?? 'all'
+  const filterablePanes = activeTab.isHub ? (hubData?.panes ?? []) : panes
+  const filteredView = useMemo(() => applyPaneFilter(filterablePanes, paneFilter), [filterablePanes, paneFilter])
+  const paneFilterActive = filteredView.active
+
+  const handlePaneFilterChange = useCallback((next: PaneFilter) => {
+    setPaneFilters(f => ({ ...f, [activeTab.id]: next }))
+    if (next === 'all') return
+    const source = activeTab.isHub ? hubPanesRef.current : activeTab.panes
+    const visible = applyPaneFilter(source, next).panes
+    // Un pane zoomeado que el filtro oculta se desmonta pero dejaría el
+    // backdrop del zoom colgado sobre la nada.
+    if (zoomedPaneId !== null && !visible.some(p => p.id === zoomedPaneId)) handleUnzoom()
+    // Los atajos y el broadcast escriben en el pane focuseado: si el filtro
+    // lo oculta, el foco pasa al primer pane visible.
+    const focused = focusedPaneIdRef.current
+    if (focused && visible.some(p => p.id === focused)) return
+    if (visible[0]) { setFocusedPaneId(visible[0].id); focusedPaneIdRef.current = visible[0].id }
+  }, [activeTab, zoomedPaneId, handleUnzoom])
+
+  // Pane nuevo que el filtro ocultaría (p.ej. filtro Agents activo y un drop
+  // del Explorer abre un editor): resetear a 'all' — un pane recién creado
+  // invisible parece un bug, no un filtro. DELIBERADAMENTE distinto del
+  // Hub-overlay (HubView), que solo cae a 'all' si el grupo se vacía: el
+  // overlay monitorea TODOS los workspaces y resetear su filtro por panes
+  // que spawnean otros tabs le arrancaría la vista al usuario a cada rato.
+  const prevPaneIdsRef = useRef<{ tabId: string; ids: Set<string> }>({ tabId: '', ids: new Set() })
+  useEffect(() => {
+    const prev = prevPaneIdsRef.current
+    const sameTab = prev.tabId === activeTab.id
+    prevPaneIdsRef.current = { tabId: activeTab.id, ids: new Set(filterablePanes.map(p => p.id)) }
+    if (!sameTab) return
+    if (newPaneBreaksFilter(prev.ids, filterablePanes, paneFilter)) {
+      setPaneFilters(f => ({ ...f, [activeTab.id]: 'all' }))
+    }
+  }, [filterablePanes, paneFilter, activeTab.id])
+
+  // Mientras el filtro está activo el layout es DERIVADO: persistir un
+  // resize ahí pisaría los splitRatios del layout real del tab.
+  const ignoreSplitResize = useCallback(() => {}, [])
+  // Un solo switch filtro-activo para AMBOS surfaces (Hub y workspace):
+  // duplicar estos ternarios por branch invitaba a arreglar uno y olvidar
+  // el otro (finding del review).
+  const filteredSplitProps = paneFilterActive
+    ? { splitRatios: undefined, onResize: ignoreSplitResize }
+    : { splitRatios: activeTab.splitRatios, onResize: handleSplitResize }
 
   const hubWorkspaces = useMemo(() => tabs.filter(t => !t.isHub).map(t => ({
     id: t.id,
@@ -1536,6 +1616,9 @@ export default function App() {
         onOpenTutorial={(id) => setTutorialTour(id)}
         onFileOpen={openFileInEditor}
         userPrefs={userPrefs}
+        paneFilterPanes={filterablePanes}
+        paneFilter={paneFilter}
+        onPaneFilterChange={handlePaneFilterChange}
       />
       <div
         ref={workspaceRef}
@@ -1543,14 +1626,17 @@ export default function App() {
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
+        // Captura: corre ANTES que cualquier onDrop hijo y no lo frena su
+        // stopPropagation — sin esto, un drop consumido por un EditorPane
+        // dejaba el outline de drop-target colgado (handleDrop nunca corría).
+        onDropCapture={() => setDropActive(false)}
       >
         {activeTab.isHub ? (
           <HubWorkspace
-            panes={hubData?.panes ?? []}
-            layoutId={hubData?.layoutId ?? '1'}
-            splitRatios={activeTab.splitRatios}
-            hiddenCount={hubData?.hiddenCount ?? 0}
-            onResize={handleSplitResize}
+            panes={filteredView.panes}
+            layoutId={paneFilterActive ? hubLayoutFor(activeTab.layoutId, filteredView.panes.length) : (hubData?.layoutId ?? '1')}
+            hiddenCount={paneFilterActive ? 0 : (hubData?.hiddenCount ?? 0)}
+            {...filteredSplitProps}
             onDragStart={handleDragStart}
             onDragEnd={handleHubDragEnd}
             draggingId={draggingId}
@@ -1577,12 +1663,14 @@ export default function App() {
               onDragStart={handleDragStart}
               onDragEnd={handleDragEnd}
             >
-              <SortableContext items={panes.map(p => p.id)} strategy={rectSortingStrategy}>
+              <SortableContext items={filteredView.panes.map(p => p.id)} strategy={rectSortingStrategy}>
+                {/* Con filtro activo el layout/ratios son derivados para el
+                    conteo visible; el swap del drag-end busca por id en el
+                    array REAL, así que reordenar filtrado sigue andando. */}
                 <PaneLayoutEngine
-                  layoutId={activeTab.layoutId}
-                  panes={panes}
-                  splitRatios={activeTab.splitRatios}
-                  onResize={handleSplitResize}
+                  layoutId={paneFilterActive ? defaultLayoutFor(filteredView.panes.length) : activeTab.layoutId}
+                  panes={filteredView.panes}
+                  {...filteredSplitProps}
                   renderPane={(pane) => pane.aiType === 'editor'
                     ? (
                       // Boundary solo en el editor: es el único pane que corre
