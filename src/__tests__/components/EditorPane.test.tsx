@@ -369,14 +369,120 @@ describe('Open in new pane con cambios sin guardar', () => {
     dt.setData('application/x-nest-file', JSON.stringify({ relPath: 'src/nuevo.ts', worktreePath: '/repo' }))
     fireEvent.drop(screen.getByTestId('editor-pane'), { dataTransfer: dt })
     expect(onFileDropped).toHaveBeenCalledWith('src/nuevo.ts')
-    // cross-worktree: el relPath significa OTRO archivo allá — se ignora
-    // (mismo guard que el drop de tabs; sin él, soltar un archivo del
-    // worktree X sobre un pane de Y abría la versión de Y en silencio).
-    onFileDropped.mockClear()
-    const dt2 = makeDataTransfer()
-    dt2.setData('application/x-nest-file', JSON.stringify({ relPath: 'src/nuevo.ts', worktreePath: '/OTRO' }))
-    fireEvent.drop(screen.getByTestId('editor-pane'), { dataTransfer: dt2 })
+  })
+
+  // cross-worktree: el relPath significa OTRO archivo allá — este pane NO lo
+  // abre, pero tampoco se lo traga: el drop tiene que BURBUJEAR al workspace,
+  // que sabe abrir un pane nuevo con el worktree del payload. (El review
+  // encontró que stopPropagation antes del guard hacía desaparecer el drop.)
+  it('lets a cross-worktree file drop bubble up to the workspace instead of swallowing it', async () => {
+    const { bridge } = makeMockBridge()
+    const onFileDropped = vi.fn()
+    const workspaceDrop = vi.fn()
+    render(
+      <div onDrop={workspaceDrop}>
+        <BridgeProvider value={bridge}>
+          <EditorPane
+            pane={makePane()}
+            onTabsChange={vi.fn()} onClose={vi.fn()} onFocus={vi.fn()} onOpenInNewPane={vi.fn()}
+            onFileDropped={onFileDropped}
+          />
+        </BridgeProvider>
+      </div>,
+    )
+    await waitFor(() => expect(screen.getByTestId('monaco-stub')).toHaveValue('hello'))
+    const dt = makeDataTransfer()
+    dt.setData('application/x-nest-file', JSON.stringify({ relPath: 'src/nuevo.ts', worktreePath: '/OTRO' }))
+    fireEvent.drop(screen.getByTestId('editor-pane'), { dataTransfer: dt })
     expect(onFileDropped).not.toHaveBeenCalled()
+    expect(workspaceDrop).toHaveBeenCalled()
+  })
+
+  it('rejects a file payload with empty relPath (decoder compartido con el workspace)', async () => {
+    const { bridge } = makeMockBridge()
+    const onFileDropped = vi.fn()
+    render(
+      <BridgeProvider value={bridge}>
+        <EditorPane
+          pane={makePane()}
+          onTabsChange={vi.fn()} onClose={vi.fn()} onFocus={vi.fn()} onOpenInNewPane={vi.fn()}
+          onFileDropped={onFileDropped}
+        />
+      </BridgeProvider>,
+    )
+    await waitFor(() => expect(screen.getByTestId('monaco-stub')).toHaveValue('hello'))
+    const dt = makeDataTransfer()
+    dt.setData('application/x-nest-file', JSON.stringify({ relPath: '', worktreePath: '/repo' }))
+    fireEvent.drop(screen.getByTestId('editor-pane'), { dataTransfer: dt })
+    expect(onFileDropped).not.toHaveBeenCalled()
+  })
+
+  it('accepts a file drop whose payload carries the other Windows form of the same worktree', async () => {
+    // Payload POSIX (C:/, del Explorer alimentado por worktree-store) contra
+    // pane con repoPath nativo (C:\, de local-paths): mismo worktree físico.
+    // Con comparación estricta el drop moría en silencio SOLO en Windows.
+    const { bridge } = makeMockBridge()
+    const onFileDropped = vi.fn()
+    render(
+      <BridgeProvider value={bridge}>
+        <EditorPane
+          pane={makePane({ repoPath: 'C:\\dev\\repo' })}
+          onTabsChange={vi.fn()} onClose={vi.fn()} onFocus={vi.fn()} onOpenInNewPane={vi.fn()}
+          onFileDropped={onFileDropped}
+        />
+      </BridgeProvider>,
+    )
+    await waitFor(() => expect(screen.getByTestId('monaco-stub')).toHaveValue('hello'))
+    const dt = makeDataTransfer()
+    dt.setData('application/x-nest-file', JSON.stringify({ relPath: 'src/nuevo.ts', worktreePath: 'C:/dev/repo' }))
+    fireEvent.drop(screen.getByTestId('editor-pane'), { dataTransfer: dt })
+    expect(onFileDropped).toHaveBeenCalledWith('src/nuevo.ts')
+  })
+
+  it('a tab drop handled by the pane does not bubble to the workspace either', async () => {
+    // Mismo contrato que el drop de archivos: el gesto lo consume este pane.
+    const { bridge } = makeMockBridge()
+    const workspaceDrop = vi.fn()
+    render(
+      <div onDrop={workspaceDrop}>
+        <BridgeProvider value={bridge}>
+          <EditorPane
+            pane={makePane()}
+            onTabsChange={vi.fn()} onClose={vi.fn()} onFocus={vi.fn()} onOpenInNewPane={vi.fn()}
+            onTabDropped={vi.fn()}
+          />
+        </BridgeProvider>
+      </div>,
+    )
+    await waitFor(() => expect(screen.getByTestId('monaco-stub')).toHaveValue('hello'))
+    const dt = makeDataTransfer()
+    dt.setData('application/x-nest-editor-tab', JSON.stringify({ sourcePaneId: 'otro', relPath: 'a.ts', dirty: false, worktreePath: '/repo' }))
+    fireEvent.drop(screen.getByTestId('editor-pane'), { dataTransfer: dt })
+    expect(workspaceDrop).not.toHaveBeenCalled()
+  })
+
+  // El workspace (App.tsx) también acepta drops de archivo — abre un pane
+  // NUEVO. Si el drop sobre un pane de editor burbujea hasta ahí, un solo
+  // gesto abre el archivo DOS veces: tab en este pane + pane nuevo.
+  it('a file drop handled by the pane does not bubble to the workspace', async () => {
+    const { bridge } = makeMockBridge()
+    const workspaceDrop = vi.fn()
+    render(
+      <div onDrop={workspaceDrop}>
+        <BridgeProvider value={bridge}>
+          <EditorPane
+            pane={makePane()}
+            onTabsChange={vi.fn()} onClose={vi.fn()} onFocus={vi.fn()} onOpenInNewPane={vi.fn()}
+            onFileDropped={vi.fn()}
+          />
+        </BridgeProvider>
+      </div>,
+    )
+    await waitFor(() => expect(screen.getByTestId('monaco-stub')).toHaveValue('hello'))
+    const dt = makeDataTransfer()
+    dt.setData('application/x-nest-file', JSON.stringify({ relPath: 'src/nuevo.ts', worktreePath: '/repo' }))
+    fireEvent.drop(screen.getByTestId('editor-pane'), { dataTransfer: dt })
+    expect(workspaceDrop).not.toHaveBeenCalled()
   })
 
   // El pane destino puede REMONTARSE entero (la remoción del pane origen
@@ -981,7 +1087,7 @@ describe('EditorPane', () => {
     await waitFor(() => expect(screen.getByTestId('monaco-stub')).toHaveValue('hello'))
     // El minimap va apagado por DEFAULT (en panes chicos es ruido puro) pero
     // las opciones del usuario lo pueden re-activar (spread después).
-    expect(monacoStub.lastOptions).toEqual({ minimap: { enabled: false }, fontSize: 18, tabSize: 2 })
+    expect(monacoStub.lastOptions).toEqual({ minimap: { enabled: false }, wordWrap: 'on', fontSize: 18, tabSize: 2 })
     expect(monacoStub.lastTheme).toBe('vs')
   })
 
@@ -996,7 +1102,36 @@ describe('EditorPane', () => {
       </BridgeProvider>,
     )
     await waitFor(() => expect(screen.getByTestId('monaco-stub')).toHaveValue('hello'))
-    expect(monacoStub.lastOptions).toEqual({ minimap: { enabled: true } })
+    expect(monacoStub.lastOptions).toEqual({ minimap: { enabled: true }, wordWrap: 'on' })
+  })
+
+  // En un multiplexor los panes de editor viven ANGOSTOS: sin wrap, la línea
+  // larga se clipea seca contra el borde del pane vecino y se lee como
+  // superposición (reporte de Bautista con captura, 2026-08-18). Wrap ON por
+  // default; la config del usuario (Settings / IDE import) lo puede apagar.
+  it('turns word wrap ON by default', async () => {
+    const { bridge } = makeMockBridge()
+    render(
+      <BridgeProvider value={bridge}>
+        <EditorPane pane={makePane()} onTabsChange={vi.fn()} onClose={vi.fn()} onFocus={vi.fn()} onOpenInNewPane={vi.fn()} />
+      </BridgeProvider>,
+    )
+    await waitFor(() => expect(screen.getByTestId('monaco-stub')).toHaveValue('hello'))
+    expect(monacoStub.lastOptions).toMatchObject({ wordWrap: 'on' })
+  })
+
+  it('lets user options turn word wrap off over the default', async () => {
+    const { bridge } = makeMockBridge()
+    render(
+      <BridgeProvider value={bridge}>
+        <EditorPane
+          pane={makePane()} onTabsChange={vi.fn()} onClose={vi.fn()} onFocus={vi.fn()} onOpenInNewPane={vi.fn()}
+          editorOptions={{ wordWrap: 'off' } as never}
+        />
+      </BridgeProvider>,
+    )
+    await waitFor(() => expect(screen.getByTestId('monaco-stub')).toHaveValue('hello'))
+    expect(monacoStub.lastOptions).toMatchObject({ wordWrap: 'off' })
   })
 
   it('disables TS SEMANTIC validation on mount (no LSP: module errors are noise)', async () => {

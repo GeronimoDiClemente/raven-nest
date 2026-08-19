@@ -5,6 +5,8 @@ import { FileIcon } from './ExplorerPanel'
 import { applyTheme, ensureLanguage, isMonacoBuiltinTheme } from '../lib/shiki-monaco'
 import { stashTabBuffer, takeTabBuffer, dropTabBuffer } from '../lib/editor-buffer-handoff'
 import { modelPathFor } from '../lib/editor-model-path'
+import { sameWorktree } from '../lib/worktree-path'
+import { FILE_DRAG_MIME, EDITOR_TAB_DRAG_MIME, decodeFileDrag, workspaceDropEffect } from '../lib/dragTypes'
 import type { MonacoLike } from '../lib/shiki-monaco'
 import type { EditorTab, PaneNode } from '../types'
 import type { EditorPreferences, EditorTheme } from '../lib/ide-config-mappings'
@@ -551,8 +553,8 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
   // Aceptar (y mostrar el outline) SOLO si hay handler para ese payload —
   // un pane que resalta pero no recibe se siente roto.
   const acceptsDrop = (e: React.DragEvent) =>
-    (!!onTabDropped && e.dataTransfer.types.includes('application/x-nest-editor-tab')) ||
-    (!!onFileDropped && e.dataTransfer.types.includes('application/x-nest-file'))
+    (!!onTabDropped && e.dataTransfer.types.includes(EDITOR_TAB_DRAG_MIME)) ||
+    (!!onFileDropped && e.dataTransfer.types.includes(FILE_DRAG_MIME))
 
   return (
     <div
@@ -567,32 +569,42 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
         // dropEffect DEBE ser compatible con el effectAllowed del origen: el
         // Explorer arrastra con 'copy' y forzar 'move' acá INVALIDA el drop
         // en Chromium (el pane resaltaba pero el drop jamás disparaba).
-        e.dataTransfer.dropEffect = e.dataTransfer.types.includes('application/x-nest-editor-tab') ? 'move' : 'copy'
+        e.dataTransfer.dropEffect = workspaceDropEffect(Array.from(e.dataTransfer.types))
         setDropActive(true)
       }}
       onDragLeave={() => setDropActive(false)}
       onDrop={(e) => {
         setDropActive(false)
-        const tabRaw = e.dataTransfer.getData('application/x-nest-editor-tab')
+        // stopPropagation SOLO al consumir: el workspace (App.tsx) también
+        // escucha drops, y un drop consumido acá abriría ADEMÁS un pane
+        // nuevo allá. Pero un payload que este pane RECHAZA (cross-worktree)
+        // debe burbujear — el workspace sabe abrirlo en un pane nuevo con el
+        // worktree del payload; tragárselo hacía desaparecer el drop.
+        const tabRaw = e.dataTransfer.getData(EDITOR_TAB_DRAG_MIME)
         if (tabRaw) {
-          e.preventDefault()
           try {
             const p = JSON.parse(tabRaw) as { sourcePaneId: string; relPath: string; dirty: boolean; worktreePath: string }
             // relPath es relativo al worktree del pane origen: en otro
-            // worktree apunta a otro archivo — cross-worktree se ignora.
-            if (p.worktreePath === worktreePath) onTabDropped?.({ sourcePaneId: p.sourcePaneId, relPath: p.relPath, dirty: p.dirty })
+            // worktree apunta a otro archivo — cross-worktree no es nuestro.
+            if (sameWorktree(p.worktreePath, worktreePath)) {
+              e.preventDefault()
+              e.stopPropagation()
+              onTabDropped?.({ sourcePaneId: p.sourcePaneId, relPath: p.relPath, dirty: p.dirty })
+            }
           } catch { /* payload ajeno, no es nuestro */ }
           return
         }
-        const fileRaw = e.dataTransfer.getData('application/x-nest-file')
+        const fileRaw = e.dataTransfer.getData(FILE_DRAG_MIME)
         if (fileRaw) {
-          e.preventDefault()
-          try {
-            const p = JSON.parse(fileRaw) as { relPath: string; worktreePath?: string }
-            // Mismo guard cross-worktree que el drop de tabs: el relPath de
-            // otro worktree significa OTRO archivo acá.
-            if (p.worktreePath === worktreePath) onFileDropped?.(p.relPath)
-          } catch { /* payload ajeno */ }
+          // Decoder compartido con el workspace (dragTypes): mismos guards
+          // para el mismo wire format. sameWorktree colapsa las dos formas
+          // Windows del repoPath (C:\ nativo vs C:/ POSIX).
+          const p = decodeFileDrag(fileRaw)
+          if (p && sameWorktree(p.worktreePath, worktreePath)) {
+            e.preventDefault()
+            e.stopPropagation()
+            onFileDropped?.(p.relPath)
+          }
         }
       }}
     >
@@ -622,7 +634,7 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
                   dirty: true,
                 })
               }
-              e.dataTransfer.setData('application/x-nest-editor-tab', JSON.stringify({
+              e.dataTransfer.setData(EDITOR_TAB_DRAG_MIME, JSON.stringify({
                 sourcePaneId: pane.id, relPath: tab.relPath, dirty: tab.dirty, worktreePath,
               }))
               e.dataTransfer.effectAllowed = 'move'
@@ -698,9 +710,11 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
           theme={editorTheme && isMonacoBuiltinTheme(editorTheme) ? editorTheme : 'vs-dark'}
           onMount={handleEditorMount}
           // Minimap apagado por DEFAULT: en panes chicos renderiza texto
-          // microscópico ilegible (ruido visual puro). Las opciones del
-          // usuario (Settings / import de config) pueden re-activarlo.
-          options={{ minimap: { enabled: false }, ...(editorOptions ?? {}) }}
+          // microscópico ilegible (ruido visual puro). Word wrap ON por
+          // default: en panes angostos la línea clipeada seca contra el borde
+          // del vecino se lee como superposición. Las opciones del usuario
+          // (Settings / import de config) pisan ambos (spread después).
+          options={{ minimap: { enabled: false }, wordWrap: 'on', ...(editorOptions ?? {}) }}
         />
       )}
     </div>

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 import { useBridge } from '../lib/bridge'
+import { FILE_DRAG_MIME } from '../lib/dragTypes'
 import type { DirEntry } from '../types'
 
 interface ExplorerPanelProps {
@@ -200,7 +201,7 @@ export function ExplorerPanel({ worktreePath, onFileOpen }: ExplorerPanelProps) 
             // Arrastrable a cualquier pane de editor (drop lo abre AHÍ). El
             // worktree viaja en el payload: el pane receptor lo valida — un
             // relPath de otro worktree es otro archivo.
-            e.dataTransfer.setData('application/x-nest-file', JSON.stringify({ relPath: entry.path, worktreePath }))
+            e.dataTransfer.setData(FILE_DRAG_MIME, JSON.stringify({ relPath: entry.path, worktreePath }))
             e.dataTransfer.effectAllowed = 'copy'
           }}
         >
