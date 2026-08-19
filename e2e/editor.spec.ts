@@ -29,10 +29,14 @@ test('abrir un archivo desde el Explorer, editarlo y guardarlo actualiza el disc
     const editorContent = h.page.locator('.monaco-editor .view-lines')
     await expect(editorContent).toBeVisible({ timeout: 10_000 })
     await editorContent.click()
-    await h.page.keyboard.press('Control+A')
+
+    // Select-all es Cmd+A en Mac; Ctrl+A en macOS mueve el cursor al inicio de
+    // línea (estilo emacs) y no selecciona nada, dejando el contenido viejo sin
+    // reemplazar. Mismo distingo que aplicamos abajo para el guardado.
+    const isMac = process.platform === 'darwin'
+    await h.page.keyboard.press(isMac ? 'Meta+A' : 'Control+A')
     await h.page.keyboard.type('# edited by e2e\n')
 
-    const isMac = process.platform === 'darwin'
     await h.page.keyboard.press(isMac ? 'Meta+S' : 'Control+S')
 
     await expect(async () => {
