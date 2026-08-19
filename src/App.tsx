@@ -1736,6 +1736,9 @@ export default function App() {
                         key={pane.id}
                         pane={pane}
                         borderColor={pane.borderColor}
+                        zoomed={zoomedPaneId === pane.id}
+                        zoomingOut={zoomedPaneId === pane.id && zoomingOut}
+                        onZoom={() => handleZoom(pane.id)}
                         siblingPaneIds={panes.filter(p => p.id !== pane.id).map(p => p.id)}
                         workspaceRepoPath={activeTab.repoPath ?? pane.repoPath}
                         siblingRepoPaths={Array.from(new Set(

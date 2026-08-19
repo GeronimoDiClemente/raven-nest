@@ -23,6 +23,13 @@ interface Props {
   // workspaceRepoPath alone would miss it. Each path is scanned for
   // external processes independently.
   siblingRepoPaths?: string[]
+  // Zoom: este browser está maximizado (ocupa todo el workspace). El
+  // WebContentsView es una capa nativa sin z-index, así que el zoom se
+  // coordina reposicionando el view (ver el effect de reposition).
+  zoomed?: boolean
+  zoomingOut?: boolean
+  // Maximiza/restaura este pane (botón de la barra).
+  onZoom?: () => void
 }
 
 const HEADER_HEIGHT = 36
@@ -66,7 +73,7 @@ function isOwnOrigin(rawUrl: string): boolean {
   }
 }
 
-export default function BrowserCell({ pane, onClose, onNavigate, borderColor, siblingPaneIds, workspaceRepoPath, siblingRepoPaths }: Props) {
+export default function BrowserCell({ pane, onClose, onNavigate, borderColor, siblingPaneIds, workspaceRepoPath, siblingRepoPaths, zoomed = false, zoomingOut = false, onZoom }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const { setNodeRef: setSortableRef, attributes, listeners, transform, transition } = useSortable({ id: pane.id })
   const sortableStyle: React.CSSProperties = {
@@ -78,6 +85,10 @@ export default function BrowserCell({ pane, onClose, onNavigate, borderColor, si
     ;(containerRef as React.MutableRefObject<HTMLDivElement | null>).current = el
   }
   const placeholderRef = useRef<HTMLDivElement>(null)
+  // send() (en el effect de reposition) lee esto para no colapsar el view
+  // cuando ESTE browser es el que está zoomeado — hay que agrandarlo.
+  const zoomedRef = useRef(zoomed)
+  zoomedRef.current = zoomed
   const createdRef = useRef(false)
   const [url, setUrl] = useState<string>(pane.url ?? 'about:blank')
   // Hide data: URLs (BLANK_PAGE placeholder) from the input — they're internal
@@ -196,6 +207,10 @@ export default function BrowserCell({ pane, onClose, onNavigate, borderColor, si
     // covered. Includes: dialogs, full-screen workspaces, sidebar popovers,
     // pane-level overlays.
     const OVERLAY_SELECTOR = [
+      // Zoom de OTRO pane: su backdrop cubre todo, así que el browser debe
+      // colapsar para no taparlo. Si ESTE browser es el zoomeado, send() lo
+      // excluye vía zoomedRef y lo agranda en su lugar.
+      '.zoom-backdrop',
       // Dialogs / modals (full-screen backdrops)
       '.dialog-overlay',
       '.confirm-overlay',
@@ -235,10 +250,15 @@ export default function BrowserCell({ pane, onClose, onNavigate, borderColor, si
     ].join(', ')
 
     const send = () => {
-      const overlayOpen = !!document.querySelector(OVERLAY_SELECTOR)
-      if (overlayOpen) {
-        void window.browser.reposition(pane.id, { x: 0, y: 0, width: 0, height: 0 })
-        return
+      // Si ESTE browser está zoomeado, saltar el colapso por overlay: el
+      // .zoom-backdrop está en el DOM pero acá hay que AGRANDAR el view al rect
+      // (fullscreen por la clase .browser-cell.zoomed), no ocultarlo.
+      if (!zoomedRef.current) {
+        const overlayOpen = !!document.querySelector(OVERLAY_SELECTOR)
+        if (overlayOpen) {
+          void window.browser.reposition(pane.id, { x: 0, y: 0, width: 0, height: 0 })
+          return
+        }
       }
       const rect = el.getBoundingClientRect()
       void window.browser.reposition(pane.id, {
@@ -375,7 +395,7 @@ export default function BrowserCell({ pane, onClose, onNavigate, borderColor, si
   return (
     <div
       ref={setNodeRef}
-      className="browser-cell"
+      className={`browser-cell${zoomed ? ' zoomed' : ''}${zoomed && zoomingOut ? ' zooming-out' : ''}`}
       data-pane-id={pane.id}
       data-browser-untouched={isUntouched ? 'true' : undefined}
       style={{ ...sortableStyle, '--pane-color': accent } as React.CSSProperties}
@@ -512,6 +532,9 @@ export default function BrowserCell({ pane, onClose, onNavigate, borderColor, si
           onClick={() => window.electronShell.openExternal(url)}
           title="Open in external browser"
         >↗</button>
+        {onZoom && (
+          <button className="browser-btn" onClick={onZoom} title={zoomed ? 'Restore' : 'Zoom'}>⤢</button>
+        )}
         <button className="browser-btn browser-btn-close" onClick={onClose} title="Close">×</button>
       </div>
       <div ref={placeholderRef} className="browser-placeholder">

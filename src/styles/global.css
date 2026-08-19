@@ -2103,6 +2103,24 @@ body {
   animation: zoomOut 0.3s cubic-bezier(0.32, 0.72, 0, 1) forwards;
 }
 
+/* El browser zoomeado ocupa todo el workspace igual que la terminal. Sin
+   border-top de color (el browser va sin borde). El WebContentsView se
+   reposiciona al rect grande vía el effect de reposition de BrowserCell. */
+.browser-cell.zoomed {
+  position: fixed;
+  top: var(--titlebar-height);
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 50;
+  border-radius: 0;
+  animation: zoomIn 0.3s cubic-bezier(0.32, 0.72, 0, 1) forwards;
+}
+
+.browser-cell.zoomed.zooming-out {
+  animation: zoomOut 0.3s cubic-bezier(0.32, 0.72, 0, 1) forwards;
+}
+
 @keyframes zoomIn {
   from {
     transform: scale(0.93) translateY(8px);
