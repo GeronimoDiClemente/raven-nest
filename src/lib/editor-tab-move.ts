@@ -132,7 +132,11 @@ export function moveTabAcrossWorkspaces(
       })
     }
     if (panes === t.panes) return t
-    // Demote del layout del workspace que perdió un pane (patrón removePane).
+    // Demote SOLO cuando el workspace perdió un pane (source vaciado): un tab
+    // que sólo cambió sus editorTabs (el destino, o el source con tabs
+    // restantes) reconstruye igual su array de panes, y degradarlo colapsaba el
+    // layout holgado y borraba los splitRatios custom del usuario sin motivo.
+    if (panes.length >= t.panes.length) return { ...t, panes }
     const naturalDefault = defaultLayoutFor(panes.length)
     const demoted = getPreset(naturalDefault).slotCount < getPreset(t.layoutId).slotCount
     const layoutId: LayoutId = demoted ? naturalDefault : t.layoutId
@@ -196,6 +200,18 @@ export function splitEditorTabFromHub(
     }
     return t
   })
+}
+
+// Saca una tab de un pane de editor. La vista activa SÓLO se mueve si la tab
+// removida era la activa; sacar una tab de fondo no debe saltar lo que el
+// usuario está mirando (mismo criterio que moveTabBetweenPanes/AcrossWorkspaces).
+export function removeEditorTab(pane: PaneNode, relPath: string): PaneNode {
+  const remaining = (pane.editorTabs ?? []).filter((t) => t.relPath !== relPath)
+  return {
+    ...pane,
+    editorTabs: remaining,
+    activeEditorTabPath: pane.activeEditorTabPath === relPath ? remaining[0]?.relPath : pane.activeEditorTabPath,
+  }
 }
 
 // Drop de un archivo del Explorer sobre un pane de editor concreto: lo abre

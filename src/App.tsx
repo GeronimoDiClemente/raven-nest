@@ -36,7 +36,7 @@ import logoUrl from './assets/logo.png'
 import { useProfile } from './hooks/useProfile'
 import { PLAN_LIMITS } from './lib/stripe'
 import { broadcastTargets, isAgentPane } from './lib/broadcast'
-import { moveTabAcrossWorkspaces, openFileInPane, splitEditorTabFromHub } from './lib/editor-tab-move'
+import { moveTabAcrossWorkspaces, openFileInPane, splitEditorTabFromHub, removeEditorTab } from './lib/editor-tab-move'
 import { openFileFromHub } from './lib/hub-open-file'
 import { pruneHubPanes } from './lib/hub-panes'
 import { dropTabBuffer } from './lib/editor-buffer-handoff'
@@ -572,11 +572,9 @@ export default function App() {
     }
     updateActiveTab(t => ({
       ...t,
-      panes: t.panes.map(p => {
-        if (p.id !== paneId) return p
-        const remaining = (p.editorTabs ?? []).filter(tab => tab.relPath !== relPath)
-        return { ...p, editorTabs: remaining, activeEditorTabPath: remaining[0]?.relPath }
-      }),
+      // removeEditorTab preserva la vista activa si el tab movido no era el
+      // activo (antes saltaba a remaining[0] siempre — bug del review).
+      panes: t.panes.map(p => p.id === paneId ? removeEditorTab(p, relPath) : p),
     }))
     // El dirty viaja con la tab: el buffer sin guardar llega por el handoff
     // (el EditorPane origen lo stashea antes de invocar este handler).

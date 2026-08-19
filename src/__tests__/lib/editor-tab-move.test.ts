@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { moveTabBetweenPanes, moveTabAcrossWorkspaces, openFileInPane, splitEditorTabFromHub } from '../../lib/editor-tab-move'
+import { moveTabBetweenPanes, moveTabAcrossWorkspaces, openFileInPane, splitEditorTabFromHub, removeEditorTab } from '../../lib/editor-tab-move'
 import type { PaneNode, WorkspaceTab } from '../../types'
 
 function editorPane(id: string, tabs: Array<{ relPath: string; dirty: boolean }>, active?: string, repoPath = '/wt'): PaneNode {
@@ -8,6 +8,24 @@ function editorPane(id: string, tabs: Array<{ relPath: string; dirty: boolean }>
     repoPath, editorTabs: tabs, activeEditorTabPath: active ?? tabs[0]?.relPath,
   }
 }
+
+describe('removeEditorTab (sacar una tab de un pane preservando la activa)', () => {
+  it('keeps the active tab when a NON-active tab is removed', () => {
+    const pane = editorPane('e1', [
+      { relPath: 'a.ts', dirty: false }, { relPath: 'b.ts', dirty: false }, { relPath: 'c.ts', dirty: false },
+    ], 'b.ts')
+    const res = removeEditorTab(pane, 'c.ts')
+    expect(res.editorTabs!.map(t => t.relPath)).toEqual(['a.ts', 'b.ts'])
+    expect(res.activeEditorTabPath).toBe('b.ts')   // no salta a a.ts
+  })
+
+  it('moves the active view to the first remaining when the ACTIVE tab is removed', () => {
+    const pane = editorPane('e1', [{ relPath: 'a.ts', dirty: false }, { relPath: 'b.ts', dirty: false }], 'b.ts')
+    const res = removeEditorTab(pane, 'b.ts')
+    expect(res.editorTabs!.map(t => t.relPath)).toEqual(['a.ts'])
+    expect(res.activeEditorTabPath).toBe('a.ts')
+  })
+})
 
 describe('moveTabBetweenPanes (drag & drop de tabs)', () => {
   it('moves the tab with its dirty flag and activates it in the destination', () => {
@@ -143,6 +161,24 @@ describe('moveTabAcrossWorkspaces (DnD en el Hub: panes de workspaces distintos)
     const tabs = makeWorkspaces()
     ;(tabs[1].panes[0] as PaneNode).repoPath = '/otro-wt'
     expect(moveTabAcrossWorkspaces(tabs, 'e1', 'e2', 'a.ts', true)).toBeNull()
+  })
+
+  // El demote de layout es SOLO para un workspace que perdió un pane. Un move
+  // que no vacía ningún pane (destino, o source con tabs restantes) no debe
+  // degradar el layout holgado custom ni borrar los splitRatios del usuario.
+  it('does not demote the layout or wipe splitRatios when no pane is removed', () => {
+    const tabs = [
+      { id: 'ws-1', name: 'W1', layoutId: '3C', splitRatios: { root: [30, 40, 30] }, panes: [
+        editorPane('e1', [{ relPath: 'a.ts', dirty: false }, { relPath: 'b.ts', dirty: false }], 'b.ts'),
+        editorPane('e2', [{ relPath: 'c.ts', dirty: false }]),
+      ] },
+    ] as unknown as WorkspaceTab[]
+    const res = moveTabAcrossWorkspaces(tabs, 'e1', 'e2', 'a.ts', false)!
+    const ws = res.tabs[0]
+    expect(ws.layoutId).toBe('3C')                          // sigue con el layout holgado
+    expect(ws.splitRatios).toEqual({ root: [30, 40, 30] })  // splitRatios intactos
+    expect(ws.panes.find(p => p.id === 'e2')!.editorTabs!.map(t => t.relPath)).toEqual(['c.ts', 'a.ts'])
+    expect(ws.panes.find(p => p.id === 'e1')!.editorTabs!.map(t => t.relPath)).toEqual(['b.ts'])
   })
 
   it('keeps both tabs when the incoming one is dirty and the destination already has the file', () => {
