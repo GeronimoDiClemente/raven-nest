@@ -4518,6 +4518,32 @@ kbd {
   box-shadow: 0 0 0 2px rgba(255,255,255,0.3);
 }
 
+/* "Sin borde": apaga el marco de color del pane (borderColor = transparent). */
+.color-swatch-off {
+  background: transparent;
+  border: 2px dashed var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1;
+}
+.color-swatch-off.selected {
+  border-color: #fff;
+  color: #fff;
+}
+.pane-color-btn.off {
+  background: transparent;
+  border: 1px dashed var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: 7px;
+  line-height: 1;
+}
+
 /* ── Global Search ───────────────────────────────────────── */
 
 .global-search-overlay {

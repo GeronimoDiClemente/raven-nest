@@ -661,6 +661,14 @@ export default function App() {
     }
   }, [])
 
+  // dnd-kit dispara onDragCancel (NO onDragEnd) al cancelar con Escape / perder
+  // el puntero. Sin esto, draggingId nunca volvía a null y los browsers quedaban
+  // colapsados en blanco con el fantasma pegado.
+  const handleDragCancel = useCallback(() => {
+    setDraggingId(null)
+    setDragSnapshot(null)
+  }, [])
+
   const handleDragEnd = useCallback((e: DragEndEvent) => {
     setDraggingId(null)
     setDragSnapshot(null)
@@ -1725,6 +1733,7 @@ export default function App() {
               collisionDetection={closestCenter}
               onDragStart={handleDragStart}
               onDragEnd={handleDragEnd}
+              onDragCancel={handleDragCancel}
             >
               <SortableContext items={filteredView.panes.map(p => p.id)} strategy={rectSortingStrategy}>
                 {/* Con filtro activo el layout/ratios son derivados para el
@@ -1818,24 +1827,27 @@ export default function App() {
                   const pane = panes.find(p => p.id === draggingId)
                   return pane ? (
                     <div className="drag-overlay-pane" style={{ '--pane-color': pane.borderColor } as React.CSSProperties}>
-                      <div className="pane-header" style={{ borderBottom: `1px solid ${pane.borderColor}44` }}>
-                        {(() => {
-                          const info = paneOverlayLabel(pane)
-                          return info.fileName ? (
-                            <span className="pane-ai-label" style={{ paddingLeft: 10, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                              <FileIcon name={info.fileName} />
-                              <span className={extClass(info.fileName)}>{info.text}</span>
-                            </span>
-                          ) : (
-                            <span className="pane-ai-label" style={{ color: info.color, paddingLeft: 10 }}>
-                              {info.text}
-                            </span>
-                          )
-                        })()}
-                        <span className="pane-account-name" style={{ paddingLeft: 6 }}>{pane.accountName}</span>
-                      </div>
-                      {dragSnapshot && (
+                      {dragSnapshot ? (
+                        // La foto ya incluye la barra del pane (captura del rect
+                        // completo); mostrarla sola evita el header duplicado.
                         <img className="drag-overlay-snapshot" src={dragSnapshot} alt="" draggable={false} />
+                      ) : (
+                        <div className="pane-header" style={{ borderBottom: `1px solid ${pane.borderColor}44` }}>
+                          {(() => {
+                            const info = paneOverlayLabel(pane)
+                            return info.fileName ? (
+                              <span className="pane-ai-label" style={{ paddingLeft: 10, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                                <FileIcon name={info.fileName} />
+                                <span className={extClass(info.fileName)}>{info.text}</span>
+                              </span>
+                            ) : (
+                              <span className="pane-ai-label" style={{ color: info.color, paddingLeft: 10 }}>
+                                {info.text}
+                              </span>
+                            )
+                          })()}
+                          <span className="pane-account-name" style={{ paddingLeft: 6 }}>{pane.accountName}</span>
+                        </div>
                       )}
                     </div>
                   ) : null

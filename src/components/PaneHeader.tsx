@@ -110,13 +110,20 @@ export default function PaneHeader({ pane, zoomed, onZoom, onClose, onColorChang
       <div className="pane-header-left">
         <div className="pane-color-btn-wrap" ref={pickerRef}>
           <button
-            className="pane-color-btn"
-            style={{ background: pane.borderColor }}
+            className={`pane-color-btn${pane.borderColor === 'transparent' ? ' off' : ''}`}
+            style={pane.borderColor === 'transparent' ? undefined : { background: pane.borderColor }}
             onClick={() => setShowPicker((v) => !v)}
-            title="Change border color"
-          />
+            title={pane.borderColor === 'transparent' ? 'Border off' : 'Change border color'}
+          >{pane.borderColor === 'transparent' ? '✕' : ''}</button>
           {showPicker && (
             <div className="pane-color-popover">
+              {/* Cruz = apagar el borde del pane (marco transparente). El acento
+                  del header/label no depende de borderColor, así que sigue visible. */}
+              <button
+                className={`color-swatch color-swatch-off${pane.borderColor === 'transparent' ? ' selected' : ''}`}
+                onClick={() => { onColorChange('transparent'); setShowPicker(false) }}
+                title="Sin borde"
+              >✕</button>
               {COLOR_PALETTE.map((c) => (
                 <button
                   key={c}

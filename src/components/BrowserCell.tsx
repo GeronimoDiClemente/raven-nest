@@ -83,6 +83,9 @@ export default function BrowserCell({ pane, onClose, onNavigate, borderColor, si
   const sortableStyle: React.CSSProperties = {
     transform: CSS.Transform.toString(transform),
     transition,
+    // Como terminal/editor: al arrastrar, la celda origen se atenúa (el
+    // WebContentsView ya se colapsa aparte) en vez de quedar sólida en la grilla.
+    opacity: isDragging ? 0.3 : 1,
   }
   const setNodeRef = (el: HTMLDivElement | null) => {
     setSortableRef(el)
