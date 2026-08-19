@@ -15,7 +15,7 @@ interface ExplorerPanelProps {
 // Tint family per extension. One hue per language family, drawn from the
 // platform palette (raven blue, the settings-accent violet) — not VS Code's
 // icon theme.
-function extClass(name: string): string {
+export function extClass(name: string): string {
   const ext = name.slice(name.lastIndexOf('.') + 1).toLowerCase()
   if (ext === 'ts' || ext === 'tsx') return 'ic-ts'
   if (ext === 'js' || ext === 'jsx' || ext === 'mjs' || ext === 'cjs') return 'ic-js'
