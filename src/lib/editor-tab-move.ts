@@ -2,6 +2,7 @@ import type { LayoutId, PaneNode, WorkspaceTab } from '../types'
 import { AI_CONFIG } from '../types'
 import { defaultLayoutFor } from '../layout/select'
 import { getPreset } from '../layout/presets'
+import { sameWorktree } from './worktree-path'
 
 // Lógica pura de la mudanza de tabs entre panes de editor (drag & drop y
 // futuros gestos). El buffer sin guardar viaja aparte, por
@@ -28,7 +29,11 @@ export function moveTabBetweenPanes(
   if (source.aiType !== 'editor' || dest.aiType !== 'editor') return null
   // relPath es relativo al worktree del pane: en otro worktree apunta a OTRO
   // archivo (o a ninguno) — una mudanza cross-worktree no tiene semántica.
-  if (source.repoPath !== dest.repoPath) return null
+  // sameWorktree: C:\repo y C:/repo (dos productores de repoPath) son el
+  // mismo worktree — la comparación cruda rechazaba el move en Windows. El
+  // === conserva el caso legacy de workspaces guardados: dos panes SIN
+  // repoPath (loadWorkspace no backfillea) siempre pudieron moverse entre sí.
+  if (source.repoPath !== dest.repoPath && !sameWorktree(source.repoPath, dest.repoPath)) return null
   if (!(source.editorTabs ?? []).some((t) => t.relPath === relPath)) return null
 
   const destTabs = dest.editorTabs ?? []
@@ -88,7 +93,7 @@ export function moveTabAcrossWorkspaces(
   const source = sourceTab.panes.find((p) => p.id === sourcePaneId)!
   const dest = destTab.panes.find((p) => p.id === destPaneId)!
   if (source.aiType !== 'editor' || dest.aiType !== 'editor') return null
-  if (source.repoPath !== dest.repoPath) return null
+  if (source.repoPath !== dest.repoPath && !sameWorktree(source.repoPath, dest.repoPath)) return null
   if (!(source.editorTabs ?? []).some((t) => t.relPath === relPath)) return null
 
   const destTabs = dest.editorTabs ?? []

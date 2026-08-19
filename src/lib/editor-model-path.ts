@@ -10,11 +10,17 @@
 //
 // El token del worktree es un hash (djb2) y no el path crudo: los paths de
 // Windows traen ":" y "\" que monaco.Uri.parse malinterpreta como scheme.
+// Se hashea la forma CANÓNICA (worktreeKey): C:\repo y C:/repo son el mismo
+// worktree físico — dos tokens serían dos buffers divergentes del mismo
+// archivo y el último Ctrl+S pisaría al otro.
+
+import { worktreeKey } from './worktree-path'
 
 function worktreeToken(worktreePath: string): string {
+  const canonical = worktreeKey(worktreePath)
   let h = 5381
-  for (let i = 0; i < worktreePath.length; i++) {
-    h = ((h << 5) + h + worktreePath.charCodeAt(i)) >>> 0
+  for (let i = 0; i < canonical.length; i++) {
+    h = ((h << 5) + h + canonical.charCodeAt(i)) >>> 0
   }
   return h.toString(36)
 }

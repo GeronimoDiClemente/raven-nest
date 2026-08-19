@@ -26,6 +26,32 @@ describe('moveTabBetweenPanes (drag & drop de tabs)', () => {
     expect(res!.dropStash).toBe(false)
   })
 
+  // Workspaces guardados legacy restauran panes de editor SIN repoPath
+  // (loadWorkspace no backfillea): entre dos panes así la mudanza siempre
+  // estuvo permitida — sameWorktree estricto la rompía en silencio (review).
+  it('still allows the move between two panes that both lack repoPath (legacy workspaces)', () => {
+    const panes = [
+      { ...editorPane('src', [{ relPath: 'a.ts', dirty: false }, { relPath: 'b.ts', dirty: false }]), repoPath: undefined },
+      { ...editorPane('dst', [{ relPath: 'c.ts', dirty: false }]), repoPath: undefined },
+    ]
+    const res = moveTabBetweenPanes(panes, 'src', 'dst', 'a.ts', false)
+    expect(res).not.toBeNull()
+    expect(res!.panes.find(p => p.id === 'dst')!.editorTabs!.map(t => t.relPath)).toContain('a.ts')
+  })
+
+  it('allows the move when source and dest carry the two Windows forms of the same worktree', () => {
+    // repoPath tiene dos productores con normalización distinta (POSIX de
+    // worktree-store, nativo de dialog/clone): mismo worktree físico, string
+    // distinta. El guard cross-worktree no debe rechazar este caso.
+    const panes = [
+      editorPane('src', [{ relPath: 'a.ts', dirty: false }, { relPath: 'b.ts', dirty: false }], undefined, 'C:\\dev\\repo'),
+      editorPane('dst', [{ relPath: 'c.ts', dirty: false }], undefined, 'C:/dev/repo'),
+    ]
+    const res = moveTabBetweenPanes(panes, 'src', 'dst', 'a.ts', false)
+    expect(res).not.toBeNull()
+    expect(res!.panes.find(p => p.id === 'dst')!.editorTabs!.map(t => t.relPath)).toContain('a.ts')
+  })
+
   it('removes the source pane when the moved tab was its last one', () => {
     const panes = [
       editorPane('src', [{ relPath: 'a.ts', dirty: false }]),

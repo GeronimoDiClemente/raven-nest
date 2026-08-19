@@ -26,6 +26,14 @@ describe('modelPathFor', () => {
     expect(p).not.toMatch(/[:\\]/)
   })
 
+  it('collapses the two Windows forms of the same worktree into ONE model', () => {
+    // git worktree list entrega C:/dev/repo (POSIX) y dialog/clone C:\dev\repo
+    // (nativo) — es el MISMO worktree físico. Dos tokens distintos = dos
+    // buffers Monaco divergentes del mismo archivo y el último Ctrl+S pisa
+    // al otro.
+    expect(modelPathFor('C:\\dev\\repo', 'src/a.ts')).toBe(modelPathFor('C:/dev/repo', 'src/a.ts'))
+  })
+
   it('distinguishes root-level foo.ts from nested src/foo.ts in the SAME worktree', () => {
     // El matching viejo por sufijo endsWith('/foo.ts') confundía estos dos
     // (finding crítico #3): el path calificado exacto no puede.

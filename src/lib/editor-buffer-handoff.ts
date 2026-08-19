@@ -12,9 +12,14 @@ export interface TabHandoff {
   dirty: boolean
 }
 
+import { worktreeKey } from './worktree-path'
+
 const stash = new Map<string, TabHandoff>()
 
-const key = (worktreePath: string, relPath: string) => `${worktreePath}::${relPath}`
+// worktreeKey: el origen puede stashear con la forma nativa del repoPath
+// (C:\) y el destino tomar con la POSIX (C:/) — sin colapsarlas el buffer
+// dirty no se consume y el edit sin guardar se pierde en la mudanza.
+const key = (worktreePath: string, relPath: string) => `${worktreeKey(worktreePath)}::${relPath}`
 
 export function stashTabBuffer(worktreePath: string, relPath: string, handoff: TabHandoff): void {
   stash.set(key(worktreePath, relPath), handoff)

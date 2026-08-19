@@ -21,6 +21,14 @@ describe('editor-buffer-handoff', () => {
     expect(takeTabBuffer('/wt-a', 'src/a.ts')?.content).toBe('de wt-a')
   })
 
+  it('hands off across the two Windows forms of the same worktree', () => {
+    // El pane origen puede tener el repoPath nativo (C:\, de local-paths) y
+    // el destino la forma POSIX (C:/, de worktree-store). Si la key no los
+    // colapsa, el buffer dirty no se consume y el edit se pierde al mover.
+    stashTabBuffer('C:\\dev\\repo', 'src/a.ts', { content: 'editado', eol: '\r\n', dirty: true })
+    expect(takeTabBuffer('C:/dev/repo', 'src/a.ts')?.content).toBe('editado')
+  })
+
   it('drop discards a stash that never got consumed (drag cancelado)', () => {
     stashTabBuffer('/wt', 'src/a.ts', { content: 'x', eol: '\r\n', dirty: false })
     dropTabBuffer('/wt', 'src/a.ts')
