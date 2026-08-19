@@ -30,6 +30,10 @@ interface Props {
   zoomingOut?: boolean
   // Maximiza/restaura este pane (botón de la barra).
   onZoom?: () => void
+  // Hay un drag de panes en curso (cualquiera). El WebContentsView nativo
+  // pinta sobre el DOM sin z-index, así que taparía el fantasma del drag —
+  // lo colapsamos mientras dura el arrastre.
+  dragging?: boolean
 }
 
 const HEADER_HEIGHT = 36
@@ -73,7 +77,7 @@ function isOwnOrigin(rawUrl: string): boolean {
   }
 }
 
-export default function BrowserCell({ pane, onClose, onNavigate, borderColor, siblingPaneIds, workspaceRepoPath, siblingRepoPaths, zoomed = false, zoomingOut = false, onZoom }: Props) {
+export default function BrowserCell({ pane, onClose, onNavigate, borderColor, siblingPaneIds, workspaceRepoPath, siblingRepoPaths, zoomed = false, zoomingOut = false, onZoom, dragging = false }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const { setNodeRef: setSortableRef, attributes, listeners, transform, transition, isDragging } = useSortable({ id: pane.id })
   const sortableStyle: React.CSSProperties = {
@@ -94,7 +98,10 @@ export default function BrowserCell({ pane, onClose, onNavigate, borderColor, si
   // el contenido nativo clavado atrás; la foto del contenido la muestra el
   // overlay (ver pane snapshot en App).
   const hiddenForDragRef = useRef(false)
-  hiddenForDragRef.current = isDragging
+  // Cualquier drag de panes (no sólo el de este browser): el fantasma DOM del
+  // DragOverlay pasaría por debajo del WebContentsView nativo. Lo colapsamos
+  // mientras dure el arrastre y vuelve al soltar.
+  hiddenForDragRef.current = isDragging || dragging
   const createdRef = useRef(false)
   const [url, setUrl] = useState<string>(pane.url ?? 'about:blank')
   // Hide data: URLs (BLANK_PAGE placeholder) from the input — they're internal

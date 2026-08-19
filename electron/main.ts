@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell, nativeImage, dialog, session, safeStorage, clipboard, net } from 'electron'
+import { app, BrowserWindow, ipcMain, shell, nativeImage, dialog, session, safeStorage, clipboard, net, screen } from 'electron'
 import { autoUpdater } from 'electron-updater'
 import { resolve as pathResolve } from 'path'
 
@@ -1255,13 +1255,20 @@ ipcMain.handle('pane:capture', async (evt, opts: unknown) => {
     if (!r || [r.x, r.y, r.width, r.height].some((v) => !Number.isFinite(v))) return null
     const win = BrowserWindow.fromWebContents(evt.sender)
     if (!win) return null
-    const img = await win.webContents.capturePage({
-      x: Math.max(0, Math.round(r.x)),
-      y: Math.max(0, Math.round(r.y)),
-      width: Math.max(1, Math.round(r.width)),
-      height: Math.max(1, Math.round(r.height)),
+    // capturePage(rect) interpreta mal el rect en pantallas retina (mezcla DIP y
+    // device px y la captura sale vacía/desplazada). Capturamos toda la ventana
+    // (device px) y recortamos con NativeImage.crop escalando el rect (CSS px)
+    // por el scaleFactor del display. Robusto en retina y no-retina.
+    const full = await win.webContents.capturePage()
+    if (full.isEmpty()) return null
+    const sf = screen.getDisplayMatching(win.getBounds()).scaleFactor || 1
+    const cropped = full.crop({
+      x: Math.max(0, Math.round(r.x * sf)),
+      y: Math.max(0, Math.round(r.y * sf)),
+      width: Math.max(1, Math.round(r.width * sf)),
+      height: Math.max(1, Math.round(r.height * sf)),
     })
-    return img.isEmpty() ? null : img.toDataURL()
+    return cropped.isEmpty() ? null : cropped.toDataURL()
   } catch {
     return null
   }
