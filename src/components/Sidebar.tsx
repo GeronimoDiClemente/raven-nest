@@ -19,6 +19,10 @@ import { basename } from '../lib/path'
 import { useGitInfo } from '../hooks/useGitInfo'
 import { useFixedPopover } from '../hooks/useFixedPopover'
 import { ExplorerPanel } from './ExplorerPanel'
+import SidebarSplit from './SidebarSplit'
+import PaneFilterControl from './PaneFilterControl'
+import type { PaneFilter } from '../lib/pane-filter'
+import type { PaneNode } from '../types'
 import type { UserPreferencesApi } from '../hooks/useUserPreferences'
 
 interface Props {
@@ -61,6 +65,10 @@ interface Props {
   onLayoutChange: (id: LayoutId) => void
   onOpenTutorial?: (tourId: import('../tutorial/types').TourId) => void
   onFileOpen: (relPath: string) => void
+  // Filtro de panes por tipo (embudo en la columna del sidebar)
+  paneFilterPanes?: readonly PaneNode[]
+  paneFilter?: PaneFilter
+  onPaneFilterChange?: (f: PaneFilter) => void
   // Lifted to App.tsx (the single shared instance) — threaded through to
   // SettingsPanel. See UserPreferencesApi's doc comment for why.
   userPrefs: UserPreferencesApi
@@ -83,6 +91,7 @@ export default function Sidebar({
   isTrialActive, trialDaysLeft, profileLoading, onUpgrade, onTeamsOpen, pendingInvitesCount = 0, onMyReposOpen, plan, repoPath, onRepoLink, onRepoUnlink, onJoinTerminal,
   activeCellRepoPath, onWorktreeSelect, onNewWorktree, worktreeRefreshKey,
   layoutId, paneCount, onLayoutChange, onOpenTutorial, onFileOpen, userPrefs,
+  paneFilterPanes, paneFilter, onPaneFilterChange,
   isHub = false, hubWorkspaces, onSelectWorkspace, onJumpToPane, onToggleTerminal, onToggleWorkspace, onNewWorkspace, onAddTerminalToWorkspace,
 }: Props) {
   const { branch, githubUrl, isDirty } = useGitInfo(repoPath)
@@ -567,26 +576,30 @@ export default function Sidebar({
           </div>
         )}
 
-        {/* ── 2. WORKTREES (foco principal, flex-grow) ───── */}
-        {expanded && (
-          <div className="sidebar-worktrees-wrap">
-            <WorktreesSection
-              repoPath={repoPath ?? null}
-              activeRepoPath={activeCellRepoPath}
-              onSelect={onWorktreeSelect}
-              onNewClick={onNewWorktree}
-              refreshKey={worktreeRefreshKey}
-              onStartTutorial={onOpenTutorial ? () => onOpenTutorial('worktrees') : undefined}
-            />
-          </div>
-        )}
         </>)}
 
-        {/* ── EXPLORER (árbol de archivos del worktree activo) ───── */}
+        {/* ── 2. WORKTREES + EXPLORER — reparto vertical AJUSTABLE (drag del
+             handle, como entre panes); el tamaño persiste vía autoSaveId. ── */}
         {expanded && (
-          <div className="sidebar-explorer-wrap">
-            <ExplorerPanel worktreePath={activeCellRepoPath ?? null} onFileOpen={onFileOpen} />
-          </div>
+          <SidebarSplit
+            worktrees={!isHub ? (
+              <div className="sidebar-worktrees-wrap">
+                <WorktreesSection
+                  repoPath={repoPath ?? null}
+                  activeRepoPath={activeCellRepoPath}
+                  onSelect={onWorktreeSelect}
+                  onNewClick={onNewWorktree}
+                  refreshKey={worktreeRefreshKey}
+                  onStartTutorial={onOpenTutorial ? () => onOpenTutorial('worktrees') : undefined}
+                />
+              </div>
+            ) : null}
+            explorer={
+              <div className="sidebar-explorer-wrap">
+                <ExplorerPanel worktreePath={activeCellRepoPath ?? null} onFileOpen={onFileOpen} />
+              </div>
+            }
+          />
         )}
 
         {/* ── 3. TEAMS + MY REPOS ───────────────────────────── */}
@@ -670,6 +683,16 @@ export default function Sidebar({
           {moreOpen && (
             <div className="sidebar-more-list">
               {LayoutItem}
+              {/* Filtro de panes — junto al layout selector: ambos son
+                  controles de vista del workspace (pedido de Bautista). */}
+              {onPaneFilterChange && (
+                <PaneFilterControl
+                  panes={paneFilterPanes ?? []}
+                  filter={paneFilter ?? 'all'}
+                  onChange={onPaneFilterChange}
+                  expanded={expanded}
+                />
+              )}
               {SnippetsItem}
               {WorkspacesItem}
               {MCPItem}
