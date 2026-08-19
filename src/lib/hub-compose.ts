@@ -1,4 +1,5 @@
 import type { PaneNode } from '../types'
+import { paneGroup } from './pane-filter'
 
 // One terminal as it appears in the Hub: the live pane plus its origin
 // workspace and runtime flags. accentColor drives the group-header dot.
@@ -13,11 +14,19 @@ export interface HubEntry {
 
 // Cross-cutting Hub filters. There is NO per-workspace filter chip: the
 // per-workspace view is the grouping itself (see composeHubGroups).
-export type HubFilter = 'all' | 'active' | 'pinned'
+// 'agents'/'terminals' separan por tipo los dos grupos que viven en el
+// overlay (solo panes con PTY) — misma noción de agente que el broadcast.
+// Estos dos NO se restauran de localStorage (loadFilter en HubView): por
+// default siempre se arranca con todo junto.
+export type HubFilter = 'all' | 'active' | 'pinned' | 'agents' | 'terminals'
 
 export function filterEntries(entries: HubEntry[], filter: HubFilter): HubEntry[] {
   if (filter === 'active') return entries.filter(e => e.busy)
   if (filter === 'pinned') return entries.filter(e => e.pane.pinned)
+  // paneGroup es LA taxonomía de tipos (pane-filter.ts) — un branch propio
+  // acá driftearía al agregar el próximo tipo de pane.
+  if (filter === 'agents') return entries.filter(e => paneGroup(e.pane.aiType) === 'agents')
+  if (filter === 'terminals') return entries.filter(e => paneGroup(e.pane.aiType) === 'terminal')
   return entries  // 'all'
 }
 

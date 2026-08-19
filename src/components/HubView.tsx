@@ -47,7 +47,19 @@ export default function HubView({ tabs, activeTabId, activePanes, onJump, onTogg
         }))
     ), [sourceTabs, activeTabId, activePanes])
 
-  const filtered = useMemo(() => filterEntries(entries, filter), [entries, filter])
+  const counts = useMemo(() => ({
+    all: entries.length,
+    active: entries.filter(e => e.busy).length,
+    pinned: entries.filter(e => e.pane.pinned).length,
+    agents: filterEntries(entries, 'agents').length,
+    terminals: filterEntries(entries, 'terminals').length,
+  }), [entries])
+
+  // Filtro de tipo cuyo grupo quedó vacío (se cerró el último agente): sus
+  // chips ya no se renderizan, así que caería trabado e invisible — cae a 'all'.
+  const effectiveFilter: HubFilter =
+    (filter === 'agents' && counts.agents === 0) || (filter === 'terminals' && counts.terminals === 0) ? 'all' : filter
+  const filtered = useMemo(() => filterEntries(entries, effectiveFilter), [entries, effectiveFilter])
   const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
   const clampedPage = Math.min(page, pageCount - 1)
   const visible = filtered.slice(clampedPage * PAGE_SIZE, (clampedPage + 1) * PAGE_SIZE)
@@ -96,12 +108,6 @@ export default function HubView({ tabs, activeTabId, activePanes, onJump, onTogg
     return () => window.removeEventListener('keydown', handler, true)
   }, [visible, focusedPaneId, onJump])
 
-  const counts = useMemo(() => ({
-    all: entries.length,
-    active: entries.filter(e => e.busy).length,
-    pinned: entries.filter(e => e.pane.pinned).length,
-  }), [entries])
-
   return (
     <div className="hub-view">
       <div className="hub-toolbar">
@@ -114,6 +120,15 @@ export default function HubView({ tabs, activeTabId, activePanes, onJump, onTogg
         <button className={`hub-chip${filter === 'pinned' ? ' on' : ''}`} onClick={() => changeFilter('pinned')}>
           Pinned <span className="hub-chip-n">{counts.pinned}</span>
         </button>
+        {/* Chips de tipo: solo si hay mezcla — con un solo grupo no separan nada. */}
+        {counts.agents > 0 && counts.terminals > 0 && <>
+          <button className={`hub-chip${filter === 'agents' ? ' on' : ''}`} onClick={() => changeFilter(filter === 'agents' ? 'all' : 'agents')}>
+            Agents <span className="hub-chip-n">{counts.agents}</span>
+          </button>
+          <button className={`hub-chip${filter === 'terminals' ? ' on' : ''}`} onClick={() => changeFilter(filter === 'terminals' ? 'all' : 'terminals')}>
+            Terminals <span className="hub-chip-n">{counts.terminals}</span>
+          </button>
+        </>}
         {pageCount > 1 && (
           <span className="hub-pager">
             <button className="hub-chip hub-pager-btn" disabled={clampedPage === 0} onClick={() => setPage(p => Math.max(0, p - 1))} aria-label="Previous page">

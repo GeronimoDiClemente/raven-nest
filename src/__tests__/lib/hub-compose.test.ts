@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { composeHubGroups, type HubEntry } from '../../lib/hub-compose'
+import { composeHubGroups, filterEntries, type HubEntry } from '../../lib/hub-compose'
 import type { PaneNode } from '../../types'
 
 // Minimal pane; only the fields the composer reads.
@@ -13,6 +13,25 @@ const entry = (
 ): HubEntry => ({
   pane: pane(id, { pinned: opts.pinned }),
   tabId, tabName, accentColor: '#123456', isActiveTab: false, busy: opts.busy ?? false,
+})
+
+// El overlay solo espeja panes con PTY (agentes + terminales planas): los
+// chips de tipo separan esos dos grupos — misma noción de "agente" que el
+// broadcast y el filtro de workspace (custom ES agente).
+describe('filterEntries por tipo', () => {
+  const mixed = [
+    { ...entry('a1', 'wsA', 'API'), pane: pane('a1', { aiType: 'claude' }) },
+    { ...entry('t1', 'wsA', 'API'), pane: pane('t1', { aiType: 'terminal' }) },
+    { ...entry('c1', 'wsA', 'API'), pane: pane('c1', { aiType: 'custom' }) },
+  ]
+
+  it("'agents' keeps only AI agent panes (custom incluido)", () => {
+    expect(filterEntries(mixed, 'agents').map(e => e.pane.id)).toEqual(['a1', 'c1'])
+  })
+
+  it("'terminals' keeps only plain shells", () => {
+    expect(filterEntries(mixed, 'terminals').map(e => e.pane.id)).toEqual(['t1'])
+  })
 })
 
 describe('composeHubGroups', () => {
