@@ -387,7 +387,11 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
     const watched = tabsRef.current.map((t) => t.relPath)
     watched.forEach((relPath) => sequencedWatch(worktreePath, relPath))
     const unsubscribe = bridge.fs.onChanged((changedWorktree, relPath) => {
-      if (changedWorktree !== worktreePath) return
+      // sameWorktree y no ===: el registry de watchers deduplica dos formas del
+      // mismo worktree (C:/ vs C:\) en un chokidar que emite UNA sola forma; con
+      // === el pane de la otra forma quedaba ciego a cambios externos y su Ctrl+S
+      // los pisaba sin conflicto. Misma normalización que el resto del archivo.
+      if (!sameWorktree(changedWorktree, worktreePath)) return
       const tab = tabsRef.current.find((t) => t.relPath === relPath)
       if (!tab) return
       if (tab.dirty) {
@@ -694,7 +698,7 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
           <span className="editor-unavailable-text">{loadErrors[activePath]}</span>
           <button className="editor-banner-btn" onClick={() => closeTab(activePath)}>Close tab</button>
         </div>
-      ) : activePath && monacoSetupReady && (
+      ) : activePath && contents[activePath] !== undefined && monacoSetupReady ? (
         <Editor
           // Path de modelo calificado por worktree: el mismo relPath en dos
           // worktrees son DOS modelos (ver lib/editor-model-path.ts).
@@ -716,7 +720,15 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
           // (Settings / import de config) pisan ambos (spread después).
           options={{ minimap: { enabled: false }, wordWrap: 'on', ...(editorOptions ?? {}) }}
         />
-      )}
+      ) : activePath ? (
+        // Contenido aún no cargado del disco: mostrar carga en vez de montar un
+        // <Editor> editable con buffer vacío — tipear ahí descartaba el disco al
+        // resolver la lectura y un Ctrl+S truncaba el archivo (finding #1).
+        <div className="editor-file-unavailable" data-testid="editor-loading">
+          <FileIcon name={activePath} />
+          <span className="editor-unavailable-text">Loading…</span>
+        </div>
+      ) : null}
     </div>
   )
 }

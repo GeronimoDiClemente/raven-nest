@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 import { useBridge } from '../lib/bridge'
 import { FILE_DRAG_MIME } from '../lib/dragTypes'
+import { sameWorktree } from '../lib/worktree-path'
 import type { DirEntry } from '../types'
 
 interface ExplorerPanelProps {
@@ -126,7 +127,11 @@ export function ExplorerPanel({ worktreePath, onFileOpen, treeOnly = false }: Ex
     refreshDiff()
     sequencedWatch(worktreePath, '', { depth: 0 })
     const unsubscribe = bridge.fs.onChanged((wt, relPath) => {
-      if (wt !== worktreePath) return
+      // sameWorktree y no ===: el registry deduplica dos formas del mismo
+      // worktree (C:/ vs C:\) en un chokidar que emite UNA forma, y el Hub monta
+      // este Explorer con tab.repoPath (otra forma en Windows). Con === el árbol
+      // y los badges quedaban stale ante cambios externos.
+      if (!sameWorktree(wt, worktreePath)) return
       // El watcher reporta el relPath de la CARPETA watcheada (ver Task 2);
       // si la tenemos cargada, se re-lista.
       if (entriesByDirRef.current[relPath] !== undefined) loadDir(relPath)
@@ -136,7 +141,7 @@ export function ExplorerPanel({ worktreePath, onFileOpen, treeOnly = false }: Ex
     // EditorPane lo anuncia con este evento para refrescar los badges al toque.
     const onSaved = (e: Event) => {
       const ce = e as CustomEvent<{ worktreePath?: string }>
-      if (ce.detail?.worktreePath === worktreePath) refreshDiff()
+      if (sameWorktree(ce.detail?.worktreePath, worktreePath)) refreshDiff()
     }
     window.addEventListener('nest:file-saved', onSaved)
     return () => {

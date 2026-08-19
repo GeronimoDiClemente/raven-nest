@@ -40,6 +40,9 @@ export function validateVSCodeTheme(raw: unknown): ThemeValidation {
 // limpian primero con un walker consciente de strings — un regex ingenuo
 // rompería valores como "http://...".
 export function stripJsonc(text: string): string {
+  // BOM UTF-8 inicial: archivos guardados en Windows (Notepad, PowerShell
+  // Out-File) arrancan con U+FEFF, que JSON.parse rechaza como token inesperado.
+  if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1)
   let out = ''
   let inString = false
   let inLine = false

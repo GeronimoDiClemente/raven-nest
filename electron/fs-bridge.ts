@@ -142,6 +142,19 @@ interface WatchEntry {
   ready: Promise<void>
 }
 
+// Identidad canónica del worktreePath para keyear watchers. Dos productores
+// nombran el MISMO dir con formas distintas (worktree-store POSIX 'C:/repo' vs
+// dialog/clone nativo 'C:\repo', o un trailing slash). Sin colapsarlas, cada
+// forma abría su propio chokidar → eventos duplicados y el refcount de abajo
+// quedaba bypasseado. Espeja worktreeKey del renderer, pero acá SÍ hay
+// process.platform: win32 (NTFS case-insensitive) se lowercasea; en POSIX se
+// respeta el case (Linux ext4 es case-SENSITIVE, lowercasear colapsaría dos
+// worktrees reales).
+function normalizeWatchPath(worktreePath: string): string {
+  const posix = worktreePath.replace(/\\/g, '/').replace(/\/+$/, '') || '/'
+  return process.platform === 'win32' ? posix.toLowerCase() : posix
+}
+
 export class FsWatchRegistry {
   // Refcount por key: el mismo archivo abierto en dos panes produce dos
   // watch() (dedupeados a UN chokidar) y dos unwatch() al cerrarse cada uno.
@@ -157,7 +170,7 @@ export class FsWatchRegistry {
   private watchers = new Map<string, WatchEntry>()
 
   private key(worktreePath: string, relPath: string): string {
-    return `${worktreePath}::${relPath}`
+    return `${normalizeWatchPath(worktreePath)}::${relPath}`
   }
 
   async watch(worktreePath: string, relPath: string, onChange: FsChangeCallback, opts?: { depth?: number }): Promise<void> {

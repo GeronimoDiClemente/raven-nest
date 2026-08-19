@@ -273,6 +273,33 @@ describe('ExplorerPanel — badges de diff', () => {
     fireEvent(window, new CustomEvent('nest:file-saved', { detail: { worktreePath: '/wt' } }))
     await waitFor(() => expect(gitDiff.stats).toHaveBeenCalledTimes(2))
   })
+
+  // sameWorktree y no ===: el dedup de watchers (#9) emite fs:changed / el editor
+  // emite nest:file-saved con UNA forma del worktree; el Explorer del Hub monta
+  // con tab.repoPath (otra forma en Windows) y con === no refrescaba los badges.
+  it('refreshes the stats when the watcher reports a change in a different path form', async () => {
+    const { bridge, gitDiff, fireChange } = makeDiffBridge()
+    render(
+      <BridgeProvider value={bridge}>
+        <ExplorerPanel worktreePath="/wt" onFileOpen={vi.fn()} />
+      </BridgeProvider>,
+    )
+    await waitFor(() => expect(gitDiff.stats).toHaveBeenCalledTimes(1))
+    fireChange('/wt/', '')   // forma variante del mismo worktree
+    await waitFor(() => expect(gitDiff.stats).toHaveBeenCalledTimes(2))
+  })
+
+  it('refreshes the stats on nest:file-saved carrying a different path form of the same worktree', async () => {
+    const { bridge, gitDiff } = makeDiffBridge()
+    render(
+      <BridgeProvider value={bridge}>
+        <ExplorerPanel worktreePath="/wt" onFileOpen={vi.fn()} />
+      </BridgeProvider>,
+    )
+    await waitFor(() => expect(gitDiff.stats).toHaveBeenCalledTimes(1))
+    fireEvent(window, new CustomEvent('nest:file-saved', { detail: { worktreePath: '/wt/' } }))
+    await waitFor(() => expect(gitDiff.stats).toHaveBeenCalledTimes(2))
+  })
 })
 
 // Modo anidado: dentro del HubExplorerPanel cada raíz aporta su propio header

@@ -167,6 +167,32 @@ describe('fs-bridge', () => {
     await registry.closeAll()
   })
 
+  it('dedupes two watches of the same worktree given as different path strings', async () => {
+    // Dos productores del MISMO worktree con normalización distinta (worktree
+    // -store POSIX vs dialog/clone nativo, o trailing slash) llegaban con formas
+    // de path distintas → la key cruda abría un chokidar por forma → eventos
+    // DUPLICADOS y el refcount que evita eso quedaba bypasseado.
+    writeFileSync(join(root, 'shared2.txt'), 'v1')
+    const registry = new FsWatchRegistry()
+    const aCalls: string[] = []
+    const bCalls: string[] = []
+    await registry.watch(root, 'shared2.txt', () => aCalls.push('a'))          // forma A
+    await registry.watch(root + '/', 'shared2.txt', () => bCalls.push('b'))    // forma B (mismo dir)
+    await new Promise((r) => setTimeout(r, 300))
+    writeFileSync(join(root, 'shared2.txt'), 'v2')
+    await new Promise((r) => setTimeout(r, 500))
+    // Dedupe: la 2da watch() sólo sube el refcount; su callback NO se registra.
+    expect(bCalls.length).toBe(0)
+    expect(aCalls.length).toBeGreaterThan(0)
+    // Y por el refcount, UN unwatch (forma B) no mata al consumidor A.
+    aCalls.length = 0
+    await registry.unwatch(root + '/', 'shared2.txt')
+    writeFileSync(join(root, 'shared2.txt'), 'v3')
+    await new Promise((r) => setTimeout(r, 500))
+    expect(aCalls.length).toBeGreaterThan(0)
+    await registry.closeAll()
+  })
+
   it('watch() on a directory with depth 0 fires (with the DIR relPath) when a direct child is created, but not for a grandchild two levels down', async () => {
     mkdirSync(join(root, 'dir'))
     const registry = new FsWatchRegistry()

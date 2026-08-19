@@ -681,23 +681,23 @@ body {
   color: var(--text-primary);
 }
 
-/* El grupo More tools participa del flex del sidebar: cuando se abre, la
-   lista se ENCOGE dentro del espacio disponible (scroll propio) en vez de
-   desbordar el contenedor externo — sin esto convivían DOS scrollbars (la
-   del sidebar entero + la de la lista) y las secciones quedaban aplastadas. */
+/* More tools se dimensiona por CONTENIDO y deja que scrollee el sidebar
+   entero (un solo scrollbar, el de .sidebar-scroll). El scroll propio +
+   min-height:120px que tenía antes topeaba la lista a ~2.7 items (44px c/u)
+   y cortaba el último (Cmd Hist) sin affordance de scroll — se veía como un
+   glitch. El split de arriba (grow:1) ya absorbe el alto libre y trae su
+   propio scroll interno, así que la lista no necesita competir por espacio. */
 .sidebar-more {
   display: flex;
   flex-direction: column;
-  flex: 0 1 auto;
+  flex: 0 0 auto;
   min-height: 0;
 }
 .sidebar-more-toggle { flex: 0 0 auto; }
 .sidebar-more-list {
   display: flex;
   flex-direction: column;
-  flex: 0 1 auto;
-  min-height: 120px;
-  overflow-y: auto;
+  flex: 0 0 auto;
   overflow-x: hidden;
   border-top: 1px solid var(--border);
   border-bottom: 1px solid var(--border);

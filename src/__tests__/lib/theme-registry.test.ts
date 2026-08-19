@@ -88,6 +88,14 @@ describe('parseThemeJson', () => {
     const res = parseThemeJson('{"foo": 1}')
     expect(res.ok).toBe(false)
   })
+
+  // BOM UTF-8: archivos guardados en Windows (Notepad, PowerShell Out-File)
+  // arrancan con ﻿, que JSON.parse rechaza. stripJsonc debe pelarlo.
+  it('tolerates a leading UTF-8 BOM (Windows-authored files)', () => {
+    const res = parseThemeJson('﻿' + JSON.stringify(dracula))
+    expect(res.ok).toBe(true)
+    if (res.ok) expect(res.theme.name).toBe('Dracula')
+  })
 })
 
 describe('themeDisplayName', () => {

@@ -38,6 +38,7 @@ import { PLAN_LIMITS } from './lib/stripe'
 import { broadcastTargets, isAgentPane } from './lib/broadcast'
 import { moveTabAcrossWorkspaces, openFileInPane, splitEditorTabFromHub } from './lib/editor-tab-move'
 import { openFileFromHub } from './lib/hub-open-file'
+import { pruneHubPanes } from './lib/hub-panes'
 import { dropTabBuffer } from './lib/editor-buffer-handoff'
 import UpgradeModal from './components/UpgradeModal'
 import TeamsWorkspace from './components/TeamsWorkspace'
@@ -440,25 +441,28 @@ export default function App() {
 
   const removePane = useCallback((paneId: string) => {
     window.pty.kill(paneId)
-    updateActiveTab(t => {
+    // Sacar el pane de la tab activa Y podar su id de cualquier tab Hub que lo
+    // tuviera pinneado (auto-pin del Hub Explorer): sin la poda quedaba un id
+    // colgante que persistía en sesión y disparaba el confirm falso al cerrar
+    // el Hub (mismo motivo por el que removePaneAnywhere ya podaba).
+    setTabs(prev => pruneHubPanes(prev.map(t => {
+      if (t.id !== activeTabIdRef.current) return t
       const nextPanes = t.panes.filter(p => p.id !== paneId)
       // Demote layoutId if a smaller default fits the remaining panes.
       // Clear splitRatios when the layout shape changes so the persisted
       // weights from a different tree don't bleed into the new one.
       const naturalDefault = defaultLayoutFor(nextPanes.length)
-      const naturalSlots = getPreset(naturalDefault).slotCount
-      const demoted = naturalSlots < getPreset(t.layoutId).slotCount
-      const layoutId: LayoutId = demoted ? naturalDefault : t.layoutId
+      const demoted = getPreset(naturalDefault).slotCount < getPreset(t.layoutId).slotCount
       return demoted
-        ? { ...t, panes: nextPanes, layoutId, splitRatios: {} }
-        : { ...t, panes: nextPanes, layoutId }
-    })
+        ? { ...t, panes: nextPanes, layoutId: naturalDefault, splitRatios: {} }
+        : { ...t, panes: nextPanes, layoutId: t.layoutId }
+    }), new Set([paneId])))
     if (zoomedPaneId === paneId) { setZoomedPaneId(null); setZoomingOut(false) }
     if (focusedPaneIdRef.current === paneId) {
       focusedPaneIdRef.current = null
       setFocusedPaneId(null)
     }
-  }, [updateActiveTab, zoomedPaneId])
+  }, [zoomedPaneId])
 
   // ── Hub: the panes live in OTHER workspaces, so these handlers operate on
   // the pane's origin tab (not on the active tab, which is the Hub). ──
@@ -472,21 +476,18 @@ export default function App() {
 
   const removePaneAnywhere = useCallback((paneId: string) => {
     window.pty.kill(paneId)
-    setTabs(prev => prev.map(t => {
-      // Podar el id de los hubPanes de CUALQUIER tab Hub: sin esto quedaban
-      // ids colgantes en la sesión persistida (y shouldConfirmTabClose
-      // preguntaba por contenido que ya no existe).
-      const prunedHub = t.isHub && (t.hubPanes ?? []).includes(paneId)
-        ? { ...t, hubPanes: (t.hubPanes ?? []).filter(id => id !== paneId) }
-        : t
-      if (!prunedHub.panes.some(p => p.id === paneId)) return prunedHub
-      const nextPanes = prunedHub.panes.filter(p => p.id !== paneId)
+    // Sacar el pane de su tab dueña y podar su id de cualquier tab Hub: sin la
+    // poda quedaban ids colgantes en la sesión (y shouldConfirmTabClose
+    // preguntaba por contenido que ya no existe). Poda compartida con removePane.
+    setTabs(prev => pruneHubPanes(prev.map(t => {
+      if (!t.panes.some(p => p.id === paneId)) return t
+      const nextPanes = t.panes.filter(p => p.id !== paneId)
       const naturalDefault = defaultLayoutFor(nextPanes.length)
-      const demoted = getPreset(naturalDefault).slotCount < getPreset(prunedHub.layoutId).slotCount
+      const demoted = getPreset(naturalDefault).slotCount < getPreset(t.layoutId).slotCount
       return demoted
-        ? { ...prunedHub, panes: nextPanes, layoutId: naturalDefault, splitRatios: {} }
-        : { ...prunedHub, panes: nextPanes }
-    }))
+        ? { ...t, panes: nextPanes, layoutId: naturalDefault, splitRatios: {} }
+        : { ...t, panes: nextPanes }
+    }), new Set([paneId])))
     if (zoomedPaneIdRef.current === paneId) { setZoomedPaneId(null); setZoomingOut(false) }
     if (focusedPaneIdRef.current === paneId) { focusedPaneIdRef.current = null; setFocusedPaneId(null) }
   }, [])
@@ -880,7 +881,10 @@ export default function App() {
       return next
     })
     setTabs(prev => {
-      const next = prev.filter(t => t.id !== id)
+      // Podar del Hub los panes del workspace que se cierra: sus ids seguían
+      // en hubPanes (id colgante + confirm falso al cerrar el Hub).
+      const closedPaneIds = new Set((prev.find(t => t.id === id)?.panes ?? []).map(p => p.id))
+      const next = pruneHubPanes(prev.filter(t => t.id !== id), closedPaneIds)
       if (next.length === 0) {
         const fallbackId = generateTabId()
         setActiveTabId(fallbackId)
@@ -1455,8 +1459,19 @@ export default function App() {
       borderColor: AI_CONFIG.editor.color, cmd: '', repoPath,
       editorTabs: [{ relPath, dirty: false }], activeEditorTabPath: relPath,
     }
-    setTabs(prev => openFileFromHub(prev, activeTabIdRef.current, workspaceTabId, repoPath, relPath, newPane).tabs)
-  }, [])
+    // Respetar el cap del workspace destino (hard MAX_PANES + tope de plan) igual
+    // que addPane, y el del Hub (MAX_PANES, lo que hubData muestra).
+    const res = openFileFromHub(tabsRef.current, activeTabIdRef.current, workspaceTabId, repoPath, relPath, newPane, {
+      workspaceCapacity: Math.min(MAX_PANES, planLimits.maxPanes),
+      hubCapacity: MAX_PANES,
+    })
+    if (res.status === 'workspace-full') {
+      // Bloqueado por el tope del plan (no el hard cap) → ofrecer upgrade, como addPane.
+      if (planLimits.maxPanes < MAX_PANES) setShowUpgrade(true)
+      return
+    }
+    setTabs(res.tabs)
+  }, [planLimits.maxPanes])
 
   // El Hub muestra panes de OTROS workspaces: toda mutación va vía los
   // helpers *Anywhere (la tab activa es la del Hub y no posee estos panes).

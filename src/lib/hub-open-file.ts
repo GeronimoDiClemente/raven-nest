@@ -10,15 +10,31 @@ import { getPreset } from '../layout/presets'
 import { defaultLayoutFor } from '../layout/select'
 import type { LayoutId } from '../types'
 
+export type OpenFileFromHubStatus = 'ok' | 'workspace-full' | 'hub-full'
+
 export interface OpenFileFromHubResult {
   tabs: WorkspaceTab[]
-  paneId: string   // pane (reusado o creado) que quedó mostrando el archivo; '' si el workspace no existe
+  paneId: string   // pane (reusado o creado) que quedó mostrando el archivo; '' si no se abrió
+  status: OpenFileFromHubStatus
+}
+
+export interface OpenFileFromHubOpts {
+  // Tope de panes del workspace destino (min(MAX_PANES, cap del plan)). Al
+  // superarlo NO se crea pane nuevo (reusar uno existente siempre se permite).
+  workspaceCapacity?: number
+  // Tope de panes del Hub (MAX_PANES): hubData los slicea a este número, así
+  // que pinnear más allá sería un drop silencioso — mejor no pinnear.
+  hubCapacity?: number
 }
 
 /**
  * Abre `relPath` (del worktree `repoPath`) en el workspace `workspaceTabId`:
  * reusa un pane de editor del mismo worktree o crea uno con `newPane`, y ancla
  * ese pane al Hub `hubTabId` (auto-pin). Idempotente en tabs y en hubPanes.
+ *
+ * Respeta capacidades (finding del review): si hay que CREAR y el workspace ya
+ * está en su tope → no crea (status 'workspace-full', tabs sin cambios). Si el
+ * Hub está lleno → abre igual en el workspace pero no pinnea (status 'hub-full').
  */
 export function openFileFromHub(
   tabs: WorkspaceTab[],
@@ -27,13 +43,22 @@ export function openFileFromHub(
   repoPath: string,
   relPath: string,
   newPane: PaneNode,
+  opts: OpenFileFromHubOpts = {},
 ): OpenFileFromHubResult {
+  const workspaceCapacity = opts.workspaceCapacity ?? Infinity
+  const hubCapacity = opts.hubCapacity ?? Infinity
+
   const ws = tabs.find(t => t.id === workspaceTabId)
-  if (!ws) return { tabs, paneId: '' }
+  if (!ws) return { tabs, paneId: '', status: 'ok' }
 
   const reused = ws.panes.find(p => p.aiType === 'editor' && sameWorktree(p.repoPath, repoPath))
+  // Crear requiere capacidad; reusar un pane existente nunca la consume.
+  if (!reused && ws.panes.length >= workspaceCapacity) {
+    return { tabs, paneId: '', status: 'workspace-full' }
+  }
   const paneId = reused?.id ?? newPane.id
 
+  let status: OpenFileFromHubStatus = 'ok'
   const nextTabs = tabs.map(t => {
     if (t.id === workspaceTabId) {
       if (reused) {
@@ -62,10 +87,13 @@ export function openFileFromHub(
     }
     if (t.id === hubTabId) {
       const cur = t.hubPanes ?? []
-      return cur.includes(paneId) ? t : { ...t, hubPanes: [...cur, paneId] }
+      if (cur.includes(paneId)) return t
+      // Hub lleno: no pinnear (hubData lo sliceaba fuera de vista igual).
+      if (cur.length >= hubCapacity) { status = 'hub-full'; return t }
+      return { ...t, hubPanes: [...cur, paneId] }
     }
     return t
   })
 
-  return { tabs: nextTabs, paneId }
+  return { tabs: nextTabs, paneId, status }
 }

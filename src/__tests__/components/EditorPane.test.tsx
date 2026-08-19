@@ -137,11 +137,12 @@ describe('cargas de disco vs onChange de Monaco', () => {
     return { model, monaco: { editor: { setTheme: vi.fn(), getModels: vi.fn(() => [model]), setModelLanguage: vi.fn() } } }
   }
 
-  it('a disk load writing the model does not mark the tab dirty', async () => {
-    const { bridge } = makeMockBridge()
-    let resolveRead: (r: { ok: true; content: string }) => void = () => {}
-    ;(bridge as unknown as { fs: { readFile: unknown } }).fs.readFile =
-      vi.fn(() => new Promise((r) => { resolveRead = r }))
+  // La carga INICIAL ahora llega por defaultValue (el editor recién monta con
+  // el contenido ya leído, ver finding #1). El path de setModelText→setValue
+  // que dispara onChange programático es la RECARGA por watcher (tab limpia,
+  // el archivo cambió en disco): ésa tampoco debe marcar la tab dirty.
+  it('a disk RELOAD writing the model does not mark the tab dirty', async () => {
+    const { bridge, fireChange } = makeMockBridge()
     const onTabsChange = vi.fn()
     const { model, monaco } = makeEchoingMonaco()
     render(
@@ -149,10 +150,13 @@ describe('cargas de disco vs onChange de Monaco', () => {
         <EditorPane pane={makePane()} onTabsChange={onTabsChange} onClose={vi.fn()} onFocus={vi.fn()} onOpenInNewPane={vi.fn()} />
       </BridgeProvider>,
     )
-    await waitFor(() => expect(screen.getByTestId('monaco-stub')).toBeInTheDocument())
+    // Carga inicial: el editor monta con el contenido del disco (defaultValue).
+    await waitFor(() => expect(screen.getByTestId('monaco-stub')).toHaveValue('hello'))
     act(() => { monacoStub.latestOnMount?.({}, monaco) })
-    await act(async () => { resolveRead({ ok: true, content: 'hello' }) })
-    expect(model.setValue).toHaveBeenCalledWith('hello')
+    // El archivo cambia en disco → recarga programática vía setModelText.
+    ;(bridge.fs.readFile as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: true, content: 'hello v2' })
+    await act(async () => { fireChange('/repo', 'a.ts') })
+    expect(model.setValue).toHaveBeenCalledWith('hello v2')
     const dirtyCalls = onTabsChange.mock.calls.filter(
       (call) => (call[0] as Array<{ dirty: boolean }>).some((t) => t.dirty),
     )
@@ -813,6 +817,28 @@ describe('EditorPane', () => {
     await waitFor(() => expect(screen.getByTestId('conflict-banner')).toBeInTheDocument())
   })
 
+  // Regresión del dedup de watchers (#9): el registry deduplica dos formas del
+  // MISMO worktree (C:/ vs C:\) en un chokidar que emite fs:changed con UNA sola
+  // forma. El pane con la OTRA forma debe reconocerlo igual (sameWorktree), o se
+  // queda ciego a cambios externos y su Ctrl+S los pisa sin banner de conflicto.
+  it('shows a conflict banner even when fs:changed carries a different path form of the same worktree', async () => {
+    const { bridge, fireChange } = makeMockBridge()
+    render(
+      <BridgeProvider value={bridge}>
+        <EditorPane
+          pane={makePane({ editorTabs: [{ relPath: 'a.ts', dirty: true }] })}
+          onTabsChange={vi.fn()}
+          onClose={vi.fn()}
+          onFocus={vi.fn()}
+          onOpenInNewPane={vi.fn()}
+        />
+      </BridgeProvider>,
+    )
+    await waitFor(() => expect(bridge.fs.watch).toHaveBeenCalledWith('/repo', 'a.ts'))
+    fireChange('/repo/', 'a.ts')   // forma variante (trailing slash) del mismo worktree
+    await waitFor(() => expect(screen.getByTestId('conflict-banner')).toBeInTheDocument())
+  })
+
   it('does not show a conflict banner when the file changes and there are no unsaved edits', async () => {
     const { bridge, fireChange } = makeMockBridge()
     render(
@@ -1358,5 +1384,45 @@ describe('EditorPane', () => {
     // A second real disk read for 'a.ts' proves the cache was actually
     // purged (not just coincidentally overwritten).
     expect((bridge.fs.readFile as ReturnType<typeof vi.fn>).mock.calls.filter(([, rel]) => rel === 'a.ts').length).toBeGreaterThanOrEqual(2)
+  })
+})
+
+// #1 del review (data-loss): si la lectura inicial del disco está EN VUELO, el
+// editor no debe ser editable. Antes se montaba un <Editor> con defaultValue ''
+// (buffer vacío editable): si el usuario tipeaba, el guard de editSeq descartaba
+// el contenido del disco al resolver y un Ctrl+S posterior TRUNCABA el archivo a
+// lo tipeado. La carga tardía se cubre con un estado de "loading".
+describe('EditorPane — carga inicial (anti-truncación)', () => {
+  it('no monta un editor editable hasta que el contenido cargó del disco', async () => {
+    let resolveRead!: (v: { ok: true; content: string }) => void
+    const readPromise = new Promise<{ ok: true; content: string }>((r) => { resolveRead = r })
+    const fs = {
+      readFile: vi.fn().mockReturnValue(readPromise),
+      writeFile: vi.fn().mockResolvedValue({ ok: true }),
+      watch: vi.fn().mockResolvedValue({ ok: true }),
+      unwatch: vi.fn().mockResolvedValue(undefined),
+      onChanged: vi.fn(() => () => {}),
+    }
+    const bridge = { fs } as unknown as Window & typeof globalThis
+    render(
+      <BridgeProvider value={bridge}>
+        <EditorPane
+          pane={makePane({ editorTabs: [{ relPath: 'a.ts', dirty: false }], activeEditorTabPath: 'a.ts' })}
+          onTabsChange={vi.fn()}
+          onClose={vi.fn()}
+          onFocus={vi.fn()}
+          onOpenInNewPane={vi.fn()}
+        />
+      </BridgeProvider>,
+    )
+
+    // Lectura en vuelo → estado de carga, NADA de editor editable.
+    await waitFor(() => expect(screen.getByTestId('editor-loading')).toBeInTheDocument())
+    expect(screen.queryByTestId('monaco-stub')).not.toBeInTheDocument()
+
+    // Resuelve la lectura → aparece el editor con el contenido REAL del disco.
+    await act(async () => { resolveRead({ ok: true, content: 'REAL DISK CONTENT' }); await readPromise })
+    await waitFor(() => expect(screen.getByTestId('monaco-stub')).toBeInTheDocument())
+    expect(screen.getByTestId('monaco-stub')).toHaveValue('REAL DISK CONTENT')
   })
 })

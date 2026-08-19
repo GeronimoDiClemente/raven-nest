@@ -76,6 +76,40 @@ describe('openFileFromHub', () => {
     expect(next.find(t => t.id === 'ws1')!.panes.map(p => p.id)).toEqual(['ed1'])
   })
 
+  it('does not create a pane when the workspace is at capacity (workspace-full)', () => {
+    const tabs = [hubTab([]), wsTab([pane('t1'), pane('t2')])]
+    const fresh = editorPane('ed-new', '/repo', ['src/a.ts'])
+
+    const res = openFileFromHub(tabs, 'hub', 'ws1', '/repo', 'src/a.ts', fresh, { workspaceCapacity: 2 })
+
+    expect(res.status).toBe('workspace-full')
+    expect(res.tabs).toBe(tabs)   // sin cambios
+    expect(res.paneId).toBe('')
+  })
+
+  it('reuses even when the workspace is at capacity (no new pane needed)', () => {
+    const existing = editorPane('ed1', '/repo', ['src/x.ts'])
+    const tabs = [hubTab([]), wsTab([existing, pane('t2')])]
+    const fresh = editorPane('ed-new', '/repo', ['src/y.ts'])
+
+    const res = openFileFromHub(tabs, 'hub', 'ws1', '/repo', 'src/y.ts', fresh, { workspaceCapacity: 2 })
+
+    expect(res.status).toBe('ok')
+    expect(res.paneId).toBe('ed1')
+    expect(res.tabs.find(t => t.id === 'hub')!.hubPanes).toContain('ed1')
+  })
+
+  it('opens the file but does not pin it when the Hub is at capacity (hub-full)', () => {
+    const tabs = [hubTab(['p1', 'p2']), wsTab([pane('t1')])]
+    const fresh = editorPane('ed-new', '/repo', ['src/a.ts'])
+
+    const res = openFileFromHub(tabs, 'hub', 'ws1', '/repo', 'src/a.ts', fresh, { hubCapacity: 2 })
+
+    expect(res.status).toBe('hub-full')
+    expect(res.tabs.find(t => t.id === 'ws1')!.panes.map(p => p.id)).toContain('ed-new')  // sí se abrió
+    expect(res.tabs.find(t => t.id === 'hub')!.hubPanes).toEqual(['p1', 'p2'])             // no se pinneó
+  })
+
   it('promotes the workspace layout when the created pane overflows the current preset', () => {
     const tabs = [hubTab([]), wsTab([pane('term1')], { layoutId: '1', splitRatios: { root: [50, 50] } })]
     const fresh = editorPane('ed-new', '/repo', ['src/a.ts'])
