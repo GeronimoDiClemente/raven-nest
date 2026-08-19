@@ -2029,6 +2029,37 @@ body {
   cursor: grabbing;
 }
 
+.editor-pane-drag-handle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  align-self: stretch;
+  cursor: grab;
+  color: var(--text-muted);
+  opacity: 0;
+  transition: opacity 0.15s;
+  flex: 0 0 auto;
+}
+
+.editor-pane:hover .editor-pane-drag-handle {
+  opacity: 0.6;
+}
+
+.editor-pane-drag-handle:hover {
+  opacity: 1;
+}
+
+.editor-pane-drag-handle::before {
+  content: '⠿';
+  font-size: 14px;
+  line-height: 1;
+}
+
+.editor-pane-drag-handle:active {
+  cursor: grabbing;
+}
+
 .drag-overlay-pane {
   background: var(--bg-surface);
   border: 1.5px solid color-mix(in srgb, var(--pane-color, var(--border)) 60%, transparent);
