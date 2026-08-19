@@ -6,6 +6,9 @@ import type { DirEntry } from '../types'
 interface ExplorerPanelProps {
   worktreePath: string | null
   onFileOpen: (relPath: string) => void
+  // Anidado bajo el HubExplorerPanel: la raíz aporta su propio header (nombre
+  // del workspace), así que acá se omite el header "EXPLORER" y la fila de root.
+  treeOnly?: boolean
 }
 
 // Tint family per extension. One hue per language family, drawn from the
@@ -50,7 +53,7 @@ export const FileIcon = ({ name }: { name: string }) => (
   </svg>
 )
 
-export function ExplorerPanel({ worktreePath, onFileOpen }: ExplorerPanelProps) {
+export function ExplorerPanel({ worktreePath, onFileOpen, treeOnly = false }: ExplorerPanelProps) {
   const bridge = useBridge()
   const [entriesByDir, setEntriesByDir] = useState<Record<string, DirEntry[]>>({})
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
@@ -232,6 +235,10 @@ export function ExplorerPanel({ worktreePath, onFileOpen }: ExplorerPanelProps) 
         )}
       </div>
     ))
+  }
+
+  if (treeOnly) {
+    return <div className="explorer-tree explorer-tree-nested">{renderEntries('', 0)}</div>
   }
 
   return (

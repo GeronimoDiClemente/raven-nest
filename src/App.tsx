@@ -37,6 +37,7 @@ import { useProfile } from './hooks/useProfile'
 import { PLAN_LIMITS } from './lib/stripe'
 import { broadcastTargets, isAgentPane } from './lib/broadcast'
 import { moveTabAcrossWorkspaces, openFileInPane, splitEditorTabFromHub } from './lib/editor-tab-move'
+import { openFileFromHub } from './lib/hub-open-file'
 import { dropTabBuffer } from './lib/editor-buffer-handoff'
 import UpgradeModal from './components/UpgradeModal'
 import TeamsWorkspace from './components/TeamsWorkspace'
@@ -1435,6 +1436,28 @@ export default function App() {
     })),
   })), [tabs, hubPaneSet, activePanes])
 
+  // Explorer multi-raíz del Hub: una raíz por workspace abierto CON repo. El
+  // Explorer atado a la celda activa no sirve en el Hub (no hay celda enfocada);
+  // acá listamos los repos de todos los workspaces para navegarlos sin salir.
+  const hubExplorerRoots = useMemo(
+    () => tabs
+      .filter(t => !t.isHub && t.repoPath)
+      .map(t => ({ tabId: t.id, name: t.name, repoPath: t.repoPath! })),
+    [tabs],
+  )
+
+  // Abrir un archivo desde el Hub: se abre en su WORKSPACE (pane de editor real
+  // ahí, reusado o nuevo) y ese pane se ancla al Hub (auto-pin) para verlo sin
+  // salir. Ver openFileFromHub para la transformación pura.
+  const handleOpenFileFromHub = useCallback((workspaceTabId: string, repoPath: string, relPath: string) => {
+    const newPane: PaneNode = {
+      id: generateId(), aiType: 'editor', accountName: '', accountDir: '',
+      borderColor: AI_CONFIG.editor.color, cmd: '', repoPath,
+      editorTabs: [{ relPath, dirty: false }], activeEditorTabPath: relPath,
+    }
+    setTabs(prev => openFileFromHub(prev, activeTabIdRef.current, workspaceTabId, repoPath, relPath, newPane).tabs)
+  }, [])
+
   // El Hub muestra panes de OTROS workspaces: toda mutación va vía los
   // helpers *Anywhere (la tab activa es la del Hub y no posee estos panes).
   // Sin el branch por tipo, un pane de editor agregado al Hub se renderizaba
@@ -1596,6 +1619,8 @@ export default function App() {
         onToggleWorkspace={handleHubToggleWorkspace}
         onNewWorkspace={handleTabNew}
         onAddTerminalToWorkspace={(tabId) => { setActiveTabId(tabId); setAddingPane({}) }}
+        hubExplorerRoots={hubExplorerRoots}
+        onOpenFileFromHub={handleOpenFileFromHub}
         onRepoLink={handleRepoLink}
         onRepoUnlink={handleRepoUnlink}
         isListening={isListening}

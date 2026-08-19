@@ -9422,6 +9422,36 @@ body.platform-mac .tabbar { padding-right: 116px; }
 }
 .explorer-tree:hover { scrollbar-color: rgba(128,128,128,0.3) transparent; }
 
+/* Hub Explorer multi-raíz: una raíz colapsable por workspace abierto con repo. */
+.hub-explorer { display: flex; flex-direction: column; min-height: 0; overflow-y: auto; }
+.hub-explorer-root { display: flex; flex-direction: column; }
+.hub-explorer-root-head {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px 3px 8px;
+  cursor: pointer;
+  user-select: none;
+}
+.hub-explorer-root-head:hover { background: var(--bg-surface); }
+.hub-explorer-root-name {
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hub-explorer-root-repo {
+  font-size: 10.5px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.explorer-tree-nested { padding: 0 4px 4px; }
+
 .explorer-entry {
   display: flex;
   align-items: center;

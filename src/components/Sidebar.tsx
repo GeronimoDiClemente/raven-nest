@@ -19,6 +19,7 @@ import { basename } from '../lib/path'
 import { useGitInfo } from '../hooks/useGitInfo'
 import { useFixedPopover } from '../hooks/useFixedPopover'
 import { ExplorerPanel } from './ExplorerPanel'
+import HubExplorerPanel, { type ExplorerRoot } from './HubExplorerPanel'
 import SidebarSplit from './SidebarSplit'
 import PaneFilterControl from './PaneFilterControl'
 import type { PaneFilter } from '../lib/pane-filter'
@@ -81,6 +82,9 @@ interface Props {
   onToggleWorkspace?: (tabId: string) => void
   onNewWorkspace?: () => void
   onAddTerminalToWorkspace?: (tabId: string) => void
+  // Hub Explorer multi-raíz: una raíz por workspace abierto con repo.
+  hubExplorerRoots?: ExplorerRoot[]
+  onOpenFileFromHub?: (tabId: string, repoPath: string, relPath: string) => void
 }
 
 export default function Sidebar({
@@ -93,6 +97,7 @@ export default function Sidebar({
   layoutId, paneCount, onLayoutChange, onOpenTutorial, onFileOpen, userPrefs,
   paneFilterPanes, paneFilter, onPaneFilterChange,
   isHub = false, hubWorkspaces, onSelectWorkspace, onJumpToPane, onToggleTerminal, onToggleWorkspace, onNewWorkspace, onAddTerminalToWorkspace,
+  hubExplorerRoots, onOpenFileFromHub,
 }: Props) {
   const { branch, githubUrl, isDirty } = useGitInfo(repoPath)
   const { githubToken } = useGitHub()
@@ -596,7 +601,11 @@ export default function Sidebar({
             ) : null}
             explorer={
               <div className="sidebar-explorer-wrap">
-                <ExplorerPanel worktreePath={activeCellRepoPath ?? null} onFileOpen={onFileOpen} />
+                {isHub ? (
+                  <HubExplorerPanel roots={hubExplorerRoots ?? []} onOpenFile={onOpenFileFromHub ?? (() => {})} />
+                ) : (
+                  <ExplorerPanel worktreePath={activeCellRepoPath ?? null} onFileOpen={onFileOpen} />
+                )}
               </div>
             }
           />

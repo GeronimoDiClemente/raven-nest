@@ -274,3 +274,20 @@ describe('ExplorerPanel — badges de diff', () => {
     await waitFor(() => expect(gitDiff.stats).toHaveBeenCalledTimes(2))
   })
 })
+
+// Modo anidado: dentro del HubExplorerPanel cada raíz aporta su propio header
+// (nombre del workspace), así que el ExplorerPanel embebido no debe pintar su
+// header "EXPLORER" ni la fila de root — solo el árbol.
+describe('ExplorerPanel — treeOnly (anidado en el Hub)', () => {
+  it('omite el header EXPLORER y la fila de root pero igual lista el árbol', async () => {
+    const { bridge } = makeMockBridge()
+    render(
+      <BridgeProvider value={bridge}>
+        <ExplorerPanel worktreePath="/home/user/my-repo" treeOnly onFileOpen={vi.fn()} />
+      </BridgeProvider>,
+    )
+    await waitFor(() => expect(screen.getByText('README.md')).toBeInTheDocument())
+    expect(screen.queryByText('EXPLORER')).not.toBeInTheDocument()
+    expect(screen.queryByText('MY-REPO')).not.toBeInTheDocument()
+  })
+})
