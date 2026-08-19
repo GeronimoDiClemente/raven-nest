@@ -75,7 +75,7 @@ function isOwnOrigin(rawUrl: string): boolean {
 
 export default function BrowserCell({ pane, onClose, onNavigate, borderColor, siblingPaneIds, workspaceRepoPath, siblingRepoPaths, zoomed = false, zoomingOut = false, onZoom }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
-  const { setNodeRef: setSortableRef, attributes, listeners, transform, transition } = useSortable({ id: pane.id })
+  const { setNodeRef: setSortableRef, attributes, listeners, transform, transition, isDragging } = useSortable({ id: pane.id })
   const sortableStyle: React.CSSProperties = {
     transform: CSS.Transform.toString(transform),
     transition,
@@ -89,6 +89,12 @@ export default function BrowserCell({ pane, onClose, onNavigate, borderColor, si
   // cuando ESTE browser es el que está zoomeado — hay que agrandarlo.
   const zoomedRef = useRef(zoomed)
   zoomedRef.current = zoomed
+  // Mientras se arrastra ESTE browser, el pane real queda quieto (dnd-kit lo
+  // "levanta" a un overlay). Colapsamos el WebContentsView para que no quede
+  // el contenido nativo clavado atrás; la foto del contenido la muestra el
+  // overlay (ver pane snapshot en App).
+  const hiddenForDragRef = useRef(false)
+  hiddenForDragRef.current = isDragging
   const createdRef = useRef(false)
   const [url, setUrl] = useState<string>(pane.url ?? 'about:blank')
   // Hide data: URLs (BLANK_PAGE placeholder) from the input — they're internal
@@ -249,61 +255,39 @@ export default function BrowserCell({ pane, onClose, onNavigate, borderColor, si
       '.browser-self-origin-overlay',
     ].join(', ')
 
-    const send = () => {
-      // Si ESTE browser está zoomeado, saltar el colapso por overlay: el
+    const computeBounds = (): { x: number; y: number; width: number; height: number } => {
+      // Si el drag oculta este browser, colapsar (la foto la muestra el overlay).
+      if (hiddenForDragRef.current) return { x: 0, y: 0, width: 0, height: 0 }
+      // Si ESTE browser está zoomeado, ignorar el colapso por overlay: el
       // .zoom-backdrop está en el DOM pero acá hay que AGRANDAR el view al rect
       // (fullscreen por la clase .browser-cell.zoomed), no ocultarlo.
-      if (!zoomedRef.current) {
-        const overlayOpen = !!document.querySelector(OVERLAY_SELECTOR)
-        if (overlayOpen) {
-          void window.browser.reposition(pane.id, { x: 0, y: 0, width: 0, height: 0 })
-          return
-        }
+      if (!zoomedRef.current && document.querySelector(OVERLAY_SELECTOR)) {
+        return { x: 0, y: 0, width: 0, height: 0 }
       }
-      const rect = el.getBoundingClientRect()
-      void window.browser.reposition(pane.id, {
-        x: rect.left,
-        y: rect.top,
-        width: rect.width,
-        height: rect.height,
-      })
+      const r = el.getBoundingClientRect()
+      return { x: r.left, y: r.top, width: r.width, height: r.height }
     }
-    // MutationObserver fires on every xterm log line in sibling panes — RAF
-    // coalescing wasn't enough when terminals are spammy (still one IPC per
-    // frame = up to 60/s). Leading + trailing 100ms debounce: first trigger
-    // fires immediately so opening an overlay collapses the view without a
-    // visible lag, then coalesces follow-ups and emits a final send().
-    let timeoutId: ReturnType<typeof setTimeout> | null = null
-    let pendingTrailing = false
-    const sendDebounced = () => {
-      if (timeoutId !== null) { pendingTrailing = true; return }
-      send()
-      timeoutId = setTimeout(() => {
-        timeoutId = null
-        if (pendingTrailing) { pendingTrailing = false; send() }
-      }, 100)
-    }
-    send()
-    const ro = new ResizeObserver(sendDebounced)
-    ro.observe(el)
-    window.addEventListener('resize', send)
-    // Watch the body for overlay nodes appearing/disappearing.
-    const mo = new MutationObserver(sendDebounced)
-    mo.observe(document.body, { childList: true, subtree: true })
-    // Safety net for parent layout shifts not detected by ResizeObserver or
-    // MutationObserver (CSS animations on ancestors that don't resize this
-    // element or mutate the DOM). Cheap because send() is idempotent.
-    const intervalId = setInterval(sendDebounced, 1000)
-    return () => {
-      ro.disconnect()
-      mo.disconnect()
-      window.removeEventListener('resize', send)
-      clearInterval(intervalId)
-      if (timeoutId !== null) {
-        clearTimeout(timeoutId)
-        timeoutId = null
+
+    // Reposición en TIEMPO REAL: un loop de requestAnimationFrame recalcula el
+    // rect cada frame y sólo emite IPC cuando cambió (dedupe por string). Un
+    // ResizeObserver no alcanza: no detecta cambios de POSICIÓN — reordenar
+    // panes, abrir un pane hermano o la animación de zoom mueven el browser sin
+    // redimensionarlo, y el WebContentsView (capa nativa) quedaba clavado en la
+    // posición vieja hasta el siguiente tick. getBoundingClientRect por frame es
+    // barato y el IPC sólo sale en cambios, así que en reposo no hay tráfico.
+    let raf = 0
+    let last = ''
+    const tick = () => {
+      const b = computeBounds()
+      const key = `${Math.round(b.x)},${Math.round(b.y)},${Math.round(b.width)},${Math.round(b.height)}`
+      if (key !== last) {
+        last = key
+        void window.browser.reposition(pane.id, b)
       }
+      raf = requestAnimationFrame(tick)
     }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
   }, [pane.id])
 
   const submitUrl = () => {

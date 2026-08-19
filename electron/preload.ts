@@ -347,6 +347,7 @@ contextBridge.exposeInMainWorld('browser', {
   forward: (paneId: string) => ipcRenderer.invoke('browser:forward', paneId),
   reload: (paneId: string) => ipcRenderer.invoke('browser:reload', paneId),
   destroy: (paneId: string) => ipcRenderer.invoke('browser:destroy', paneId),
+  capturePane: (opts: unknown) => ipcRenderer.invoke('pane:capture', opts),
   onNavigated: (cb: (paneId: string, url: string) => void) => {
     const handler = (_e: IpcRendererEvent, paneId: string, url: string) => cb(paneId, url)
     ipcRenderer.on('browser:navigated', handler)

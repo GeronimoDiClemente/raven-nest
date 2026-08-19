@@ -2069,6 +2069,20 @@ body {
   opacity: 0.9;
   box-shadow: 0 20px 60px rgba(0,0,0,0.6), 0 0 20px color-mix(in srgb, var(--pane-color, transparent) 30%, transparent);
   transform: scale(1.02);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Foto del contenido del pane arrastrado: llena el fantasma debajo del header
+   para que "el contenido siga" el cursor. */
+.drag-overlay-snapshot {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  object-fit: cover;
+  object-position: top left;
+  display: block;
 }
 
 .zoom-backdrop {

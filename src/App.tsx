@@ -99,6 +99,9 @@ export default function App() {
   const [zoomedPaneId, setZoomedPaneId] = useState<string | null>(null)
   const [zoomingOut, setZoomingOut] = useState(false)
   const [draggingId, setDraggingId] = useState<string | null>(null)
+  // Foto del contenido del pane arrastrado (dataURL), mostrada en el fantasma
+  // del DragOverlay para que "el contenido siga" el cursor.
+  const [dragSnapshot, setDragSnapshot] = useState<string | null>(null)
   const [broadcastMode, setBroadcastMode] = useState(false)
   const [focusedPaneId, setFocusedPaneId] = useState<string | null>(null)
   const [panePorts, setPanePorts] = useState<Record<string, number[]>>({})
@@ -636,11 +639,26 @@ export default function App() {
   }, [updateActiveTab])
 
   const handleDragStart = useCallback((e: DragStartEvent) => {
-    setDraggingId(String(e.active.id))
+    const id = String(e.active.id)
+    setDraggingId(id)
+    setDragSnapshot(null)
+    const pane = panesRef.current.find(p => p.id === id)
+    if (!pane) return
+    // El rect inicial del elemento arrastrado (coords de viewport) sirve para
+    // recortar la captura de la ventana en terminal/editor. El browser se
+    // captura entero por su WebContentsView.
+    const init = e.active.rect.current.initial
+    const rect = init
+      ? { x: init.left, y: init.top, width: init.width, height: init.height }
+      : undefined
+    void window.browser
+      .capturePane({ paneId: id, kind: pane.aiType === 'browser' ? 'browser' : 'dom', rect })
+      .then((img) => { if (img) setDragSnapshot(img) })
   }, [])
 
   const handleDragEnd = useCallback((e: DragEndEvent) => {
     setDraggingId(null)
+    setDragSnapshot(null)
     const { active, over } = e
     if (!over || active.id === over.id) return
     updateActiveTab(t => {
@@ -1810,6 +1828,9 @@ export default function App() {
                         })()}
                         <span className="pane-account-name" style={{ paddingLeft: 6 }}>{pane.accountName}</span>
                       </div>
+                      {dragSnapshot && (
+                        <img className="drag-overlay-snapshot" src={dragSnapshot} alt="" draggable={false} />
+                      )}
                     </div>
                   ) : null
                 })()}

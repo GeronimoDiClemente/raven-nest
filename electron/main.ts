@@ -1242,6 +1242,31 @@ ipcMain.handle('browser:navigate', async (_evt, paneId: string, url: string) => 
   browserPanes.navigate(paneId, url)
 })
 
+// Snapshot de un pane para el fantasma del drag. 'browser' captura el
+// WebContentsView nativo; 'dom' captura la región `rect` de la ventana host
+// (terminal/editor viven en el renderer). Devuelve un dataURL o null.
+ipcMain.handle('pane:capture', async (evt, opts: unknown) => {
+  const o = (opts ?? {}) as { paneId?: string; kind?: string; rect?: { x: number; y: number; width: number; height: number } }
+  try {
+    if (o.kind === 'browser' && typeof o.paneId === 'string') {
+      return await browserPanes.capture(o.paneId)
+    }
+    const r = o.rect
+    if (!r || [r.x, r.y, r.width, r.height].some((v) => !Number.isFinite(v))) return null
+    const win = BrowserWindow.fromWebContents(evt.sender)
+    if (!win) return null
+    const img = await win.webContents.capturePage({
+      x: Math.max(0, Math.round(r.x)),
+      y: Math.max(0, Math.round(r.y)),
+      width: Math.max(1, Math.round(r.width)),
+      height: Math.max(1, Math.round(r.height)),
+    })
+    return img.isEmpty() ? null : img.toDataURL()
+  } catch {
+    return null
+  }
+})
+
 ipcMain.handle('browser:back', async (_evt, paneId: string) => browserPanes.back(paneId))
 ipcMain.handle('browser:forward', async (_evt, paneId: string) => browserPanes.forward(paneId))
 ipcMain.handle('browser:reload', async (_evt, paneId: string) => browserPanes.reload(paneId))

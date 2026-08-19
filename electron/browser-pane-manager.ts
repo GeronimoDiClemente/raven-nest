@@ -146,6 +146,18 @@ export class BrowserPaneManager {
     })
   }
 
+  // Snapshot (dataURL PNG) del contenido del view, para el fantasma del drag.
+  async capture(paneId: string): Promise<string | null> {
+    const e = this.panes.get(paneId)
+    if (!e) return null
+    try {
+      const img = await e.view.webContents.capturePage()
+      return img.isEmpty() ? null : img.toDataURL()
+    } catch {
+      return null
+    }
+  }
+
   navigate(paneId: string, url: string): void {
     const e = this.panes.get(paneId)
     if (!e) return
