@@ -642,18 +642,23 @@ export default function App() {
     const id = String(e.active.id)
     setDraggingId(id)
     setDragSnapshot(null)
-    const pane = panesRef.current.find(p => p.id === id)
-    if (!pane) return
-    // El rect inicial del elemento arrastrado (coords de viewport) sirve para
-    // recortar la captura de la ventana en terminal/editor. El browser se
-    // captura entero por su WebContentsView.
-    const init = e.active.rect.current.initial
-    const rect = init
-      ? { x: init.left, y: init.top, width: init.width, height: init.height }
-      : undefined
-    void window.browser
-      .capturePane({ paneId: id, kind: pane.aiType === 'browser' ? 'browser' : 'dom', rect })
-      .then((img) => { if (img) setDragSnapshot(img) })
+    // La captura para el fantasma es best-effort: NUNCA debe lanzar ni romper
+    // el drag/reorder. Envuelta en try/catch y con guardas (capturePane puede
+    // no existir si el proceso principal aún no tomó el IPC nuevo).
+    try {
+      const pane = panesRef.current?.find(p => p.id === id)
+      if (!pane || typeof window.browser?.capturePane !== 'function') return
+      const init = e.active.rect.current.initial
+      const rect = init
+        ? { x: init.left, y: init.top, width: init.width, height: init.height }
+        : undefined
+      void window.browser
+        .capturePane({ paneId: id, kind: pane.aiType === 'browser' ? 'browser' : 'dom', rect })
+        .then((img) => { if (img) setDragSnapshot(img) })
+        .catch(() => {})
+    } catch {
+      /* la captura es opcional; el reorder debe seguir funcionando */
+    }
   }, [])
 
   const handleDragEnd = useCallback((e: DragEndEvent) => {
