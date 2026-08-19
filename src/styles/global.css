@@ -7683,8 +7683,12 @@ button.ci-badge:hover {
   display: flex; flex-direction: column;
   height: 100%; width: 100%;
   background: var(--bg-app);
-  border: 2px solid var(--raven-blue);
+  /* Mismo borde sutil que .terminal-pane (atenuado al color del pane vía
+     --pane-color) en vez del azul sólido 2px que quedaba muy fuerte. */
+  border: 1.5px solid color-mix(in srgb, var(--pane-color, var(--border)) 40%, transparent);
   border-radius: 4px; overflow: hidden;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--pane-color, transparent) 12%, transparent),
+              0 0 12px -4px color-mix(in srgb, var(--pane-color, transparent) 30%, transparent);
 }
 .browser-header {
   display: flex; align-items: center; gap: 6px;

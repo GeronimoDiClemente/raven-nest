@@ -378,7 +378,7 @@ export default function BrowserCell({ pane, onClose, onNavigate, borderColor, si
       className="browser-cell"
       data-pane-id={pane.id}
       data-browser-untouched={isUntouched ? 'true' : undefined}
-      style={{ ...sortableStyle, borderColor: accent }}
+      style={{ ...sortableStyle, '--pane-color': accent } as React.CSSProperties}
     >
       <div className="browser-header" style={{ height: HEADER_HEIGHT }}>
         <span className="browser-drag-handle" {...listeners} {...attributes} />
