@@ -5,6 +5,8 @@ import { BridgeProvider } from '../../lib/bridge'
 import { EditorPane } from '../../components/EditorPane'
 import { stashTabBuffer, takeTabBuffer, __resetHandoffForTests } from '../../lib/editor-buffer-handoff'
 import { modelPathFor } from '../../lib/editor-model-path'
+import { DndContext } from '@dnd-kit/core'
+import { SortableContext } from '@dnd-kit/sortable'
 import type { PaneNode } from '../../types'
 
 // Real Monaco's onChange reports the model's raw text verbatim (it keeps its
@@ -1424,5 +1426,36 @@ describe('EditorPane — carga inicial (anti-truncación)', () => {
     await act(async () => { resolveRead({ ok: true, content: 'REAL DISK CONTENT' }); await readPromise })
     await waitFor(() => expect(screen.getByTestId('monaco-stub')).toBeInTheDocument())
     expect(screen.getByTestId('monaco-stub')).toHaveValue('REAL DISK CONTENT')
+  })
+})
+
+describe('reorder del pane (handle sortable)', () => {
+  it('renderiza un handle de arrastre con los atributos de dnd-kit', () => {
+    const bridge = { fs: {
+      readFile: vi.fn().mockResolvedValue({ ok: true, content: 'hello' }),
+      writeFile: vi.fn().mockResolvedValue({ ok: true }),
+      watch: vi.fn().mockResolvedValue({ ok: true }),
+      unwatch: vi.fn().mockResolvedValue(undefined),
+      onChanged: vi.fn(() => () => {}),
+    } } as unknown as Window & typeof globalThis
+    const pane = makePane()
+    render(
+      <BridgeProvider value={bridge}>
+        <DndContext>
+          <SortableContext items={[pane.id]}>
+            <EditorPane
+              pane={pane}
+              onTabsChange={() => {}}
+              onClose={() => {}}
+              onFocus={() => {}}
+              onOpenInNewPane={() => {}}
+            />
+          </SortableContext>
+        </DndContext>
+      </BridgeProvider>,
+    )
+    const handle = document.querySelector('.editor-pane-drag-handle')
+    expect(handle).not.toBeNull()
+    expect(handle).toHaveAttribute('aria-roledescription', 'sortable')
   })
 })

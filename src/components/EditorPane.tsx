@@ -7,6 +7,8 @@ import { stashTabBuffer, takeTabBuffer, dropTabBuffer } from '../lib/editor-buff
 import { modelPathFor } from '../lib/editor-model-path'
 import { sameWorktree } from '../lib/worktree-path'
 import { FILE_DRAG_MIME, EDITOR_TAB_DRAG_MIME, decodeFileDrag, workspaceDropEffect } from '../lib/dragTypes'
+import { useSortable } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import type { MonacoLike } from '../lib/shiki-monaco'
 import type { EditorTab, PaneNode } from '../types'
 import type { EditorPreferences, EditorTheme } from '../lib/ide-config-mappings'
@@ -117,7 +119,23 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
   // the last toggle always wins.
   const pendingOpsRef = useRef(new Map<string, Promise<void>>())
   const eolRef = useRef<Record<string, '\n' | '\r\n'>>({})
-  const containerRef = useRef<HTMLDivElement>(null)
+  const containerRef = useRef<HTMLDivElement | null>(null)
+
+  const { setNodeRef, attributes, listeners, transform, transition, isDragging } = useSortable({ id: pane.id })
+
+  // El editor ya usa containerRef para el listener Ctrl+S; dnd-kit necesita su
+  // propio nodeRef sobre el MISMO root. Los combinamos en un solo callback ref,
+  // igual que TerminalPane (combinedRef).
+  const setRootRef = useCallback((el: HTMLDivElement | null) => {
+    setNodeRef(el)
+    containerRef.current = el
+  }, [setNodeRef])
+
+  const sortableStyle: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.3 : 1,
+  }
 
   // --- Shiki (tokenización TextMate + temas) -----------------------------
   // La instancia de monaco recién existe en onMount; hasta entonces el prop
@@ -566,7 +584,8 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
       data-testid="editor-pane"
       onFocus={onFocus}
       tabIndex={-1}
-      ref={containerRef}
+      ref={setRootRef}
+      style={sortableStyle}
       onDragOver={(e) => {
         if (!acceptsDrop(e)) return
         e.preventDefault()
@@ -613,6 +632,7 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
       }}
     >
       <div className="editor-pane-tabs">
+        <div className="editor-pane-drag-handle" {...listeners} {...attributes} title="Mover panel" />
         {tabs.map((tab) => (
           <div
             key={tab.relPath}
