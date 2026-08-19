@@ -2062,7 +2062,9 @@ body {
 
 .drag-overlay-pane {
   background: var(--bg-surface);
-  border: 1.5px solid color-mix(in srgb, var(--pane-color, var(--border)) 60%, transparent);
+  /* Borde neutro (no el --pane-color, que en el browser es azul y quedaba
+     fuerte). La sombra da la elevación del fantasma. */
+  border: 1px solid var(--border);
   border-radius: 4px;
   height: 100%;
   min-height: 80px;
