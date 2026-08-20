@@ -13,6 +13,7 @@ import { composeNodeInput, artifactPath, type UpstreamArtifact } from './graph-h
 import type { DomainEvent } from './bus-types'
 import type { WorkerAgent } from './worker-spec-store'
 import { parseVerdict, type Verdict } from './graph-verdict'
+import { applyDecision } from './graph-review'
 
 const TERMINAL: ReadonlySet<NodeRunState> = new Set<NodeRunState>(['done', 'failed', 'skipped'])
 
@@ -163,9 +164,16 @@ export function planTick(t: GraphTemplate, run: GraphRun, samples: Record<string
     }
   }
 
-  const adv = advanceGraph(t, synced2)
-  const nodes: Record<string, NodeRuntime> = { ...synced2.nodes }
+  // Apply any queued human decision (approve/requestChanges) before advancing,
+  // so an approve unblocks the gate this same tick and a requestChanges rewind
+  // is what advanceGraph reasons about next. Single-writer: the IPC handlers
+  // only ever set pendingDecision; the tick is the sole place that applies it.
+  const decided = synced2.pendingDecision ? applyDecision(t, synced2) : synced2
+
+  const adv = advanceGraph(t, decided)
+  const nodes: Record<string, NodeRuntime> = { ...decided.nodes }
   const start: StartAction[] = []
+  const heldGates: string[] = [] // gates held for human approval (gate/step mode)
 
   for (const id of adv.toSkip) {
     nodes[id] = { ...nodes[id], state: 'skipped' }
@@ -175,13 +183,19 @@ export function planTick(t: GraphTemplate, run: GraphRun, samples: Record<string
     const node = byId.get(id)
     if (!node) continue
     if (node.kind === 'gate') {
-      // A passed gate has no pane — resolve it so downstream unblocks next tick.
-      nodes[id] = { ...nodes[id], state: 'done', endedAt: ports.now }
+      // A passed gate has no pane. In 'auto' mode resolve it immediately so
+      // downstream unblocks next tick; in 'gate'/'step' mode hold it for a
+      // human decision instead of auto-resolving.
+      if (decided.mode === 'auto') {
+        nodes[id] = { ...nodes[id], state: 'done', endedAt: ports.now }
+      } else {
+        heldGates.push(id)
+      }
       continue
     }
     const paneId = `${run.runId}:${id}`
     nodes[id] = { ...nodes[id], state: 'running', paneId, startedAt: ports.now }
-    const input = composeNodeInput(node, upstreamArtifacts(t, node, ports, run.worktreePath), isLeaf(t, id))
+    const input = composeNodeInput(node, upstreamArtifacts(t, node, ports, run.worktreePath), isLeaf(t, id), decided.revisionNotes?.[id])
     const action: StartAction = { nodeId: id, paneId, input }
     if (node.agent !== undefined) action.agent = node.agent
     if (node.model !== undefined) action.model = node.model
@@ -190,10 +204,10 @@ export function planTick(t: GraphTemplate, run: GraphRun, samples: Record<string
   }
 
   return {
-    run: { ...synced2, nodes },
+    run: { ...decided, nodes },
     start,
     events: [...doneEvents, ...adv.events],
     completed: adv.completed,
-    blockedOn: adv.blockedOn,
+    blockedOn: [...adv.blockedOn, ...heldGates],
   }
 }

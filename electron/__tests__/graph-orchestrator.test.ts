@@ -180,6 +180,44 @@ describe('planTick', () => {
     expect(plan.run.nodes.rev.state).toBe('blocked')
     expect(plan.run.nodes.rev.verdict).toEqual({ concerns: ['reviewer produced no parseable verdict'], blocking: true })
   })
+
+  it('applies a pending approve before advancing (gate resolves next)', () => {
+    const t = makeReviewTemplate() // coder → rev → gate
+    const run = makeRun(t, {
+      coder: { state: 'done' }, rev: { state: 'blocked', verdict: { concerns: ['x'], blocking: true } },
+      gate: { state: 'queued' },
+    })
+    run.pendingDecision = { kind: 'approve', gateId: 'gate' }
+    const plan = planTick(t, run, {}, { now: 1, maxReviewRounds: 2, readArtifact: () => null })
+    expect(plan.run.nodes.rev.state).toBe('done')
+    expect(plan.run.pendingDecision).toBeUndefined()
+  })
+
+  it('mode "gate": a clean passed gate is NOT auto-resolved, it waits', () => {
+    const t = makeReviewTemplate()
+    const run = makeRun(t, { coder: { state: 'done' }, rev: { state: 'done' }, gate: { state: 'queued' } })
+    run.mode = 'gate'
+    const plan = planTick(t, run, {}, { now: 1, maxReviewRounds: 2, readArtifact: () => null })
+    expect(plan.run.nodes.gate.state).toBe('queued')       // held, not done
+    expect(plan.blockedOn).toContain('gate')
+  })
+
+  it('mode "auto": a clean passed gate auto-resolves to done', () => {
+    const t = makeReviewTemplate()
+    const run = makeRun(t, { coder: { state: 'done' }, rev: { state: 'done' }, gate: { state: 'queued' } })
+    run.mode = 'auto'
+    const plan = planTick(t, run, {}, { now: 1, maxReviewRounds: 2, readArtifact: () => null })
+    expect(plan.run.nodes.gate.state).toBe('done')
+  })
+
+  it('relaunched coder gets its revisionNote in the composed input', () => {
+    const t = makeReviewTemplate() // coder → rev → gate
+    const run = makeRun(t, { coder: { state: 'queued' } })
+    run.revisionNotes = { coder: 'scope key per attempt' }
+    const plan = planTick(t, run, {}, { now: 1, maxReviewRounds: 2, readArtifact: () => null })
+    const coderStart = plan.start.find(s => s.nodeId === 'coder')!
+    expect(coderStart.input).toContain('Revision requested: scope key per attempt')
+  })
 })
 
 describe('dedupePersistentSignals', () => {
