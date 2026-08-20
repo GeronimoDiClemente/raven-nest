@@ -10,7 +10,7 @@ import {
 } from './types'
 import { PaneLayoutEngine } from './components/PaneLayoutEngine'
 import { defaultLayoutFor, hubLayoutFor, mapLegacyToPreset } from './layout/select'
-import { reorder } from './layout/reorder'
+import { swap } from './layout/swap'
 import { collectDragCaptures } from './layout/dragCaptures'
 import { getPreset } from './layout/presets'
 import TerminalPane from './components/TerminalPane'
@@ -684,7 +684,7 @@ export default function App() {
       const from = t.panes.findIndex(p => p.id === active.id)
       const to = t.panes.findIndex(p => p.id === over.id)
       if (from < 0 || to < 0 || from === to) return t
-      return { ...t, panes: reorder(t.panes, from, to) }
+      return { ...t, panes: swap(t.panes, from, to) }
     })
   }, [updateActiveTab])
 
@@ -884,7 +884,7 @@ export default function App() {
     const from = ids.indexOf(String(active.id))
     const to = ids.indexOf(String(over.id))
     if (from < 0 || to < 0 || from === to) return
-    updateActiveTab(t => ({ ...t, hubPanes: reorder(ids, from, to) }))
+    updateActiveTab(t => ({ ...t, hubPanes: swap(ids, from, to) }))
   }, [updateActiveTab])
 
   const handleHubDragEnd = useCallback(() => {
