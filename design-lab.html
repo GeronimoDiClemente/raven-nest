@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nest — Design Lab (forma, no color)</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    background: #060607; color: #e6e6e6;
+    font-family: "Segoe UI", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    display: flex; flex-direction: column; min-height: 100vh;
+    padding: 18px 20px 28px; gap: 14px;
+  }
+
+  /* ---- Barra de control (switcher de estilo) ---- */
+  .lab { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding: 10px 12px; border: 1px solid #1c1c1f; border-radius: 12px; background: #0e0e10; }
+  .lab h1 { font-size: 13px; font-weight: 600; color: #f2f2f2; display: flex; align-items: center; gap: 8px; }
+  .lab h1 .k { color: #6f7378; font-weight: 500; }
+  .seg { display: flex; gap: 4px; padding: 4px; border-radius: 10px; background: #161618; border: 1px solid #232326; }
+  .seg button { font: inherit; font-size: 12px; font-weight: 500; color: #b6b7bb; background: transparent; border: 0; padding: 7px 12px; border-radius: 7px; cursor: pointer; white-space: nowrap; transition: background .12s, color .12s; }
+  .seg button:hover { color: #fff; background: #202024; }
+  .seg button.on { color: #0c0c0d; background: #e9e9ec; }
+  .caption { margin-left: auto; font-size: 11.5px; color: #9a9ba0; max-width: 460px; }
+  .caption b { color: #e6e6e6; font-weight: 600; }
+
+  /* =========================================================
+     PALETA OSCURA — CONSTANTE en todos los estilos (no cambia).
+     Lo único que varía entre estilos = la FORMA (structure vars).
+     ========================================================= */
+  .frame {
+    --bg:#0a0b0d; --panel:#0d0e11; --elevated:#121316;
+    --fg:#e6e7ea; --muted:#8a8f98; --faint:#565a63;
+    --border:#212227; --border-lite:#17181c;
+    --brand:#4f8cff; --brand-fg:#ffffff;
+    --active:#16171b;
+
+    /* structure vars (defaults = Nest actual; se sobreescriben por [data-style]) */
+    --font-sans:"Segoe UI", system-ui, sans-serif;
+    --font-mono:"Cascadia Code","Cascadia Mono",Consolas,monospace;
+    --radius:8px; --hdr:32px; --tab-h:38px; --pad:12px; --row-h:30px; --side-w:234px;
+    --fs:12px; --fs-label:11px; --tracking:.5px; --weight:600; --label-tt:uppercase;
+    --bw:1px; --sep:var(--border);
+
+    flex: 1; display: flex; flex-direction: column;
+    border-radius: 12px; overflow: hidden;
+    border: 1px solid var(--border); background: var(--bg);
+    box-shadow: 0 24px 70px -20px rgba(0,0,0,.75);
+    font-family: var(--font-sans); color: var(--fg); min-height: 620px;
+  }
+
+  /* ---- ESTILO: Linear (denso, tight, hairline) ---- */
+  .frame[data-style="linear"] {
+    --radius:6px; --hdr:28px; --tab-h:34px; --pad:9px; --row-h:25px;
+    --fs:12px; --fs-label:10px; --tracking:.4px; --weight:500; --label-tt:uppercase;
+    --bw:1px; --border:#1e1f24; --sep:#191a1e;
+  }
+  /* ---- ESTILO: Mono Terminal (todo mono, sharp, denso) ---- */
+  .frame[data-style="mono"] {
+    --font-sans:"Cascadia Code","Cascadia Mono",Consolas,monospace;
+    --radius:2px; --hdr:26px; --tab-h:32px; --pad:8px; --row-h:24px;
+    --fs:12px; --fs-label:10.5px; --tracking:.5px; --weight:500; --label-tt:uppercase;
+    --bw:1px; --border:#242529;
+  }
+  /* ---- ESTILO: Soft Modern (aire, radios grandes, menos cajas) ---- */
+  .frame[data-style="soft"] {
+    --radius:14px; --hdr:40px; --tab-h:44px; --pad:16px; --row-h:36px;
+    --fs:13px; --fs-label:11px; --tracking:.1px; --weight:500; --label-tt:none;
+    --bw:1px; --border:#20222a; --sep:transparent;
+  }
+  /* ---- ESTILO: Brutalist (radio 0, bordes gruesos, bold) ---- */
+  .frame[data-style="brutalist"] {
+    --radius:0px; --hdr:34px; --tab-h:40px; --pad:12px; --row-h:30px;
+    --fs:12px; --fs-label:11px; --tracking:1px; --weight:700; --label-tt:uppercase;
+    --bw:2px; --border:#2f3138; --sep:var(--border);
+  }
+
+  /* ---------- Title bar ---------- */
+  .titlebar { height: calc(var(--tab-h) + 4px); display: flex; align-items: stretch; background: var(--elevated); border-bottom: var(--bw) solid var(--border); flex-shrink: 0; }
+  .tabs { display: flex; align-items: stretch; overflow: hidden; }
+  .tab { display: flex; align-items: center; gap: 7px; padding: 0 13px; font-size: var(--fs); color: var(--muted); border-right: var(--bw) solid var(--sep); max-width: 150px; white-space: nowrap; }
+  .tab.active { color: var(--fg); background: var(--bg); box-shadow: inset 0 -2px 0 var(--brand); }
+  .tab .dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+  .tab .x { color: var(--faint); font-size: 12px; }
+  .tab-add { display: flex; align-items: center; padding: 0 12px; color: var(--muted); font-size: 15px; }
+  .titlebar-right { margin-left: auto; display: flex; align-items: center; gap: 4px; padding-right: 6px; }
+  .mem { font-size: 11.5px; color: var(--muted); padding: 0 10px; font-variant-numeric: tabular-nums; }
+  .winbtn { width: 34px; display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 12px; }
+
+  .body { flex: 1; display: flex; min-height: 0; }
+
+  /* ---------- Sidebar ---------- */
+  .sidebar { width: var(--side-w); flex-shrink: 0; background: var(--panel); border-right: var(--bw) solid var(--border); display: flex; flex-direction: column; font-size: var(--fs); }
+  .side-scroll { flex: 1; overflow-y: auto; padding: 10px 8px 8px; }
+  .side-h { display: flex; align-items: center; gap: 6px; padding: 8px 8px 6px; text-transform: uppercase; font-size: 10px; letter-spacing: .6px; color: var(--faint); font-weight: 600; }
+  .side-h .count { margin-left: 2px; color: var(--muted); background: var(--active); border-radius: calc(var(--radius) * .7); padding: 0 6px; }
+  .side-h .grow { flex: 1; } .side-h .plus { color: var(--muted); font-size: 13px; }
+  .hub-item, .ws, .child { display: flex; align-items: center; gap: 8px; height: var(--row-h); padding: 0 8px; border-radius: var(--radius); color: var(--fg); white-space: nowrap; overflow: hidden; }
+  .hub-item .sub { color: var(--faint); font-size: 10.5px; margin-left: auto; }
+  .hub-item.active { background: var(--active); box-shadow: inset 2px 0 0 var(--brand); }
+  .hub-item .glyph, .ws .glyph { color: var(--muted); font-size: 11px; width: 12px; text-align: center; }
+  .star { color: var(--brand); font-size: 10px; }
+  .ws { color: var(--fg); font-weight: 500; margin-top: 2px; }
+  .ws .cnt { margin-left: auto; color: var(--muted); font-size: 10.5px; }
+  .child { padding-left: 26px; color: var(--muted); font-weight: 400; }
+  .child.pin { color: var(--fg); } .child .star { margin-left: auto; }
+  .side-foot { border-top: var(--bw) solid var(--border); padding: 8px; display: flex; flex-direction: column; gap: 2px; }
+  .foot-row { display: flex; align-items: center; gap: 9px; height: var(--row-h); padding: 0 8px; border-radius: var(--radius); color: var(--muted); }
+  .foot-row .glyph { width: 14px; text-align: center; }
+  .user { display: flex; align-items: center; gap: 9px; padding: 8px; margin-top: 4px; border-top: var(--bw) solid var(--border); }
+  .avatar { width: 26px; height: 26px; border-radius: 50%; background: linear-gradient(135deg, var(--brand), var(--muted)); flex-shrink: 0; }
+  .user .name { font-size: 12px; color: var(--fg); font-weight: 500; line-height: 1.2; }
+  .user .role { font-size: 10px; color: var(--muted); }
+
+  /* ---------- Workspace / panes ---------- */
+  .workspace { flex: 1; min-width: 0; padding: 8px; gap: 8px; display: grid; grid-template-columns: 1.35fr 1fr; grid-template-rows: 1fr 1fr; }
+  .pane { background: var(--panel); border: var(--bw) solid var(--border); border-radius: var(--radius); display: flex; flex-direction: column; overflow: hidden; min-height: 0; }
+  .pane.p1 { grid-row: 1 / 3; grid-column: 1; } .pane.p2 { grid-column: 2; grid-row: 1; } .pane.p3 { grid-column: 2; grid-row: 2; }
+  .pane.lead { box-shadow: inset 0 0 0 var(--bw) var(--brand); }
+  .pane-hd { height: var(--hdr); flex-shrink: 0; display: flex; align-items: center; gap: 8px; padding: 0 10px; background: var(--elevated); border-bottom: var(--bw) solid var(--border); }
+  .pane-hd .tl { display: flex; align-items: center; gap: 8px; font-size: var(--fs-label); letter-spacing: var(--tracking); text-transform: var(--label-tt); font-weight: var(--weight); color: var(--fg); }
+  .pane-hd .tl .led { width: 8px; height: 8px; border-radius: 50%; background: var(--brand); box-shadow: 0 0 6px var(--brand); }
+  .pane-hd .tools { margin-left: auto; display: flex; align-items: center; gap: 10px; color: var(--faint); font-size: 12px; }
+  .pane-hd .tools .n { color: var(--muted); font-size: 10.5px; }
+  .pane-bd { flex: 1; overflow: auto; padding: var(--pad) 14px; font-family: var(--font-mono); font-size: var(--fs); line-height: 1.6; color: var(--fg); }
+  .term .mut { color: var(--muted); } .term .ac { color: var(--brand); } .term .rule { color: var(--faint); }
+  .term p { white-space: pre-wrap; word-break: break-word; }
+  .code .ln { display: flex; } .code .g { color: var(--faint); width: 26px; text-align: right; padding-right: 14px; flex-shrink: 0; }
+  .kw { color: #c586c0; } .str { color: #ce9178; } .fn { color: #dcdcaa; } .com { color: #6a9955; } .num { color: #b5cea8; } .var { color: #9cdcfe; } .pu { color: #c8c8c8; }
+
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 6px; border: 2px solid transparent; background-clip: padding-box; }
+</style>
+</head>
+<body>
+  <div class="lab">
+    <h1>Nest <span class="k">· Design Lab — forma, no color</span></h1>
+    <div class="seg" id="seg">
+      <button data-s="actual" class="on">Nest actual</button>
+      <button data-s="linear">Linear</button>
+      <button data-s="mono">Mono Terminal</button>
+      <button data-s="soft">Soft Modern</button>
+      <button data-s="brutalist">Brutalist</button>
+    </div>
+    <div class="caption" id="caption"></div>
+  </div>
+
+  <div class="frame" id="frame" data-style="actual">
+    <div class="titlebar">
+      <div class="tabs">
+        <div class="tab active"><span class="dot" style="background:#4ade80"></span>EFICIE…<span class="x">✕</span></div>
+        <div class="tab"><span class="dot" style="background:#60a5fa"></span>STI-API<span class="x">✕</span></div>
+        <div class="tab"><span class="dot" style="background:#f59e0b"></span>app-scrip…<span class="x">✕</span></div>
+        <div class="tab"><span class="dot" style="background:#ec4899"></span>raven-nest<span class="x">✕</span></div>
+        <div class="tab"><span class="dot" style="background:#4ade80"></span>voxia<span class="x">✕</span></div>
+        <div class="tab-add">+</div>
+      </div>
+      <div class="titlebar-right">
+        <span class="mem">9.01 GB</span>
+        <span class="winbtn">─</span><span class="winbtn">▢</span><span class="winbtn">✕</span>
+      </div>
+    </div>
+    <div class="body">
+      <div class="sidebar">
+        <div class="side-scroll">
+          <div class="side-h">In the Hub <span class="count">3</span></div>
+          <div class="hub-item active"><span class="glyph">▸</span>PRE …<span class="sub">app-script-lan</span><span class="star">★</span></div>
+          <div class="hub-item"><span class="glyph">▸</span>INTEGR…<span class="sub">raven-nest</span><span class="star">★</span></div>
+          <div class="hub-item"><span class="glyph">▸</span>EDITOR…<span class="sub">raven-nest</span><span class="star">★</span></div>
+          <div class="side-h" style="margin-top:8px">Workspaces <span class="grow"></span><span class="plus">+</span></div>
+          <div class="ws"><span class="glyph">▾</span>STI-API<span class="cnt">2</span></div>
+          <div class="child">PRODUCCION L…</div>
+          <div class="child">ESTADO APIS</div>
+          <div class="ws"><span class="glyph">▾</span>app-script…<span class="star" style="margin-left:6px">★</span><span class="cnt">1</span></div>
+          <div class="child pin">PRE PRODUCCI…<span class="star">★</span></div>
+          <div class="ws"><span class="glyph">▾</span>raven-nest<span class="cnt">3</span></div>
+          <div class="child">NEST MAIN</div>
+          <div class="child pin">INTEGRATIONS …<span class="star">★</span></div>
+          <div class="child pin">EDITOR CODIGO<span class="star">★</span></div>
+          <div class="ws"><span class="glyph">▸</span>voxia<span class="cnt">1</span></div>
+          <div class="ws"><span class="glyph">▸</span>moneytrack<span class="cnt">1</span></div>
+        </div>
+        <div class="side-foot">
+          <div class="foot-row"><span class="glyph">◱</span>Team</div>
+          <div class="foot-row"><span class="glyph">▦</span>My Repos</div>
+          <div class="foot-row"><span class="glyph">⚙</span>More tools <span style="margin-left:auto">▾</span></div>
+          <div class="user"><div class="avatar"></div><div><div class="name">Geronimo di Clemente</div><div class="role">Team</div></div></div>
+        </div>
+      </div>
+      <div class="workspace">
+        <div class="pane p1">
+          <div class="pane-hd"><div class="tl"><span class="led"></span>Pre Produccion</div><div class="tools"><span class="n">7</span><span>⧉</span><span>⭳</span><span>↗</span><span>⤢</span><span>✕</span></div></div>
+          <div class="pane-bd term">
+<p><span class="rule">┌──────────────────────────────────────────┐</span>
+<span class="rule">│</span> AOG aprobación (secretaria auto-pasa tope)
+<span class="rule">└──────────────────────────────────────────┘</span>
+
+<span class="mut">Suite 105/105 · backend intacto · commiteado.</span>
+
+<span class="ac">›</span> <span class="ac">enviarReserva</span>(formData, sesionToken) valida la
+  sesión del solicitante vía google.script.run.
+
+<span class="ac">›</span> Mapa de retornos:
+  <span class="mut">– auto + rateKey  → necesitaConfirmarAsync</span>
+  <span class="mut">– auto sin rateKey → Reserva auto-aprobada</span>
+  <span class="mut">– jefe/fuera de política → requiereAprobacion</span>
+
+<span class="ac">›</span> <span class="mut">bypass permissions on · esc to interrupt</span> <span class="ac">▍</span></p>
+          </div>
+        </div>
+        <div class="pane p2 lead">
+          <div class="pane-hd"><div class="tl"><span class="led"></span>Editor Codigo</div><div class="tools"><span class="n">13</span><span>⧉</span><span>⭳</span><span>↗</span><span>⤢</span><span>✕</span></div></div>
+          <div class="pane-bd code">
+            <div class="ln"><span class="g">1</span><span class="com">// pane-layout.ts</span></div>
+            <div class="ln"><span class="g">2</span><span class="kw">export</span> <span class="kw">interface</span> <span class="fn">PaneNode</span> <span class="pu">{</span></div>
+            <div class="ln"><span class="g">3</span>&nbsp;&nbsp;<span class="var">id</span><span class="pu">:</span> <span class="fn">string</span></div>
+            <div class="ln"><span class="g">4</span>&nbsp;&nbsp;<span class="var">kind</span><span class="pu">:</span> <span class="str">'terminal'</span> <span class="pu">|</span> <span class="str">'editor'</span></div>
+            <div class="ln"><span class="g">5</span>&nbsp;&nbsp;<span class="var">slot</span><span class="pu">:</span> <span class="fn">number</span></div>
+            <div class="ln"><span class="g">6</span><span class="pu">}</span></div>
+            <div class="ln"><span class="g">7</span></div>
+            <div class="ln"><span class="g">8</span><span class="kw">const</span> <span class="var">panes</span><span class="pu">:</span> <span class="fn">PaneNode</span><span class="pu">[]</span> <span class="pu">=</span> <span class="pu">[]</span></div>
+          </div>
+        </div>
+        <div class="pane p3">
+          <div class="pane-hd"><div class="tl"><span class="led"></span>Integrations Nest</div><div class="tools"><span class="n">15</span><span>⧉</span><span>⭳</span><span>↗</span><span>⤢</span><span>✕</span></div></div>
+          <div class="pane-bd term">
+<p>frena y notifica <span class="mut">(nunca auto-mergea flageado).</span>
+  <span class="ac">–</span> <span class="ac">gate</span>: espera tu OK
+  <span class="ac">–</span> <span class="ac">step</span>: pausa tras cada nodo.
+
+<span class="mut">6 tasks · 3 done · 1 in progress · 2 open</span>
+<span class="ac">✓</span> <span class="mut">Explorar contexto (graph + editor)</span>
+<span class="ac">✓</span> <span class="mut">Preguntas de clarificación</span>
+
+<span class="ac">›</span> <span class="mut">política a</span> <span class="ac">▍</span></p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+  var STYLES = {
+    actual:    "<b>Nest actual</b> — baseline. Radio 8px, densidad media, labels en mayúscula, bordes 1px.",
+    linear:    "<b>Linear</b> — denso y tight: menos padding, tipografía compacta, hairline borders, radios 6px, pesos medios. Se ve técnico y caro.",
+    mono:      "<b>Mono Terminal</b> — todo monoespaciado, esquinas casi rectas (2px), máxima densidad. Estética hacker/terminal pura.",
+    soft:      "<b>Soft Modern</b> — más aire, radios grandes (14px), separadores suaves (menos cajas), tipografía en Title Case. Amable y espacioso.",
+    brutalist: "<b>Brutalist</b> — radio 0, bordes gruesos (2px), pesos altos (700), tracking amplio. Blocky, industrial, alto contraste estructural."
+  };
+  var frame = document.getElementById('frame');
+  var caption = document.getElementById('caption');
+  var seg = document.getElementById('seg');
+  function paint(s) {
+    frame.setAttribute('data-style', s);
+    caption.innerHTML = STYLES[s];
+    Array.prototype.forEach.call(seg.children, function(b){ b.classList.toggle('on', b.getAttribute('data-s') === s); });
+  }
+  seg.addEventListener('click', function(e){ var b = e.target.closest('button'); if (b) paint(b.getAttribute('data-s')); });
+  paint('actual');
+</script>
+</body>
+</html>
