@@ -27,7 +27,7 @@ function roleDefault(node: GraphNode): string {
     case 'coder':
       return 'Implement the change following the plan above. Keep the diff focused and self-contained.'
     case 'reviewer':
-      return `Review the current diff for ${node.focus ?? 'correctness'}. Report your findings as JSON: {"concerns": [...], "blocking": true|false}.`
+      return `Review the current diff for ${node.focus ?? 'correctness'}. Report your findings as a JSON object with ONLY these two top-level keys and nothing else: {"concerns": ["..."], "blocking": true|false}. "concerns" is an array of short strings; "blocking" is a top-level boolean (true if any concern must block the change). Do NOT wrap the verdict inside another object (no "result", "analysis", or "verdict" key) — "concerns" and "blocking" must be at the top level.`
     case 'tester':
       return 'Run the test suite for the change and report pass/fail with any failing output.'
     default:

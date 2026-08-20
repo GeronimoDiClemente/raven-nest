@@ -55,4 +55,16 @@ describe('graph-handoff', () => {
     const out = composeNodeInput(node({ id: 'coder', role: 'coder' }), [], false, 'scope the key per attempt')
     expect(out).toContain('Revision requested: scope the key per attempt')
   })
+
+  // Real reviewers wrapped the verdict in a richer object, costing a wasted
+  // auto-repair round (live smoke). The prompt must demand the exact top-level
+  // shape parseVerdict prompts for, so the first pass parses.
+  it('reviewer instructions demand a strict top-level {concerns, blocking} JSON', () => {
+    const out = composeNodeInput(node({ id: 'rev', role: 'reviewer', focus: 'security' }), [], true)
+    expect(out).toContain('"concerns"')
+    expect(out).toContain('"blocking"')
+    expect(out.toLowerCase()).toContain('top-level')
+    // must steer away from wrapping/nesting the verdict
+    expect(out.toLowerCase()).toContain('only these two')
+  })
 })
