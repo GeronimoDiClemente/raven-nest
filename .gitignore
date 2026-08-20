@@ -35,3 +35,7 @@ _check-*.mjs
 
 # Claude Code scheduled tasks (local-only)
 .claude/scheduled_tasks.lock
+
+# tweakcn live-preview del workspace (dev-only: carga script externo de
+# tweakcn.com y NO debe ir a producción; se sirve en localhost:5173/theme-preview.html)
+src/public/theme-preview.html
