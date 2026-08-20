@@ -743,7 +743,7 @@ body {
 }
 
 .sidebar-new-terminal:hover {
-  color: #0066FF;
+  color: var(--primary);
 }
 
 /* En modo colapsado (sin .expanded) la sidebar es de 44px y los labels van
@@ -1081,7 +1081,7 @@ body {
   background: none;
   border: none;
   cursor: pointer;
-  color: #EF4444;
+  color: var(--destructive);
   font-size: 11px;
   padding: 6px 10px;
   border-radius: 6px;
@@ -1213,7 +1213,7 @@ body {
 .snippet-add-btn:hover {
   background: #0066FF22;
   color: var(--raven-blue);
-  border-color: #0066FF44;
+  border-color: var(--raven-blue-dim);
 }
 
 .snippet-form {
@@ -1377,7 +1377,7 @@ body {
 .snippet-send-btn:hover {
   background: #0066FF22;
   color: var(--raven-blue);
-  border-color: #0066FF44;
+  border-color: var(--raven-blue-dim);
 }
 
 .snippet-broadcast-btn:hover {
@@ -1397,7 +1397,7 @@ body {
   transition: color 0.15s;
 }
 
-.snippet-delete-btn:hover { color: #EF4444; }
+.snippet-delete-btn:hover { color: var(--destructive); }
 
 /* ── Conversation Sidebar ────────────────────────────────── */
 
@@ -1565,7 +1565,7 @@ body {
 .conv-item:hover .conv-item-delete,
 .conv-item:hover .conv-item-export,
 .conv-item:hover .conv-item-rename { opacity: 1; }
-.conv-item-delete:hover { color: #EF4444; }
+.conv-item-delete:hover { color: var(--destructive); }
 .conv-item-export:hover { color: var(--raven-blue); }
 .conv-item-rename:hover { color: var(--raven-blue); }
 
@@ -1694,7 +1694,7 @@ body {
   font-size: 11px;
   font-family: inherit;
   background: #ffffff0a;
-  border: 1px solid #0066FF44;
+  border: 1px solid var(--raven-blue-dim);
   border-radius: 3px;
   color: var(--text-primary);
   padding: 1px 5px;
@@ -1933,7 +1933,7 @@ body {
   font-weight: 600;
   letter-spacing: 0.6px;
   text-transform: uppercase;
-  color: #888;
+  color: var(--muted-foreground);
   background: #88888818;
   border: 1px solid #88888840;
   border-radius: 3px;
@@ -1961,7 +1961,7 @@ body {
   align-items: center;
   gap: 4px;
   background: transparent;
-  border: 1px solid #0066FF44;
+  border: 1px solid var(--raven-blue-dim);
   color: var(--raven-blue);
   font-size: 11px;
   font-weight: 500;
@@ -2412,18 +2412,18 @@ body {
   background: #1a1a1a;
   border: 1px solid #333;
   border-radius: 4px;
-  color: #e8e8e8;
+  color: var(--foreground);
   font-size: 12px;
   padding: 5px 8px;
   outline: none;
 }
 
 .file-staging-input:focus {
-  border-color: #0066FF;
+  border-color: var(--primary);
 }
 
 .file-staging-send {
-  background: #0066FF;
+  background: var(--primary);
   border: none;
   border-radius: 4px;
   color: #fff;
@@ -2886,7 +2886,7 @@ body {
 .pr-deletions {
   font-size: 11px;
   font-weight: 600;
-  color: #ef4444;
+  color: var(--destructive);
 }
 
 .pr-diff-pre {
@@ -2960,7 +2960,7 @@ body {
 .pr-review-state.changes_requested { background: #f59e0b22; color: #f59e0b; border: 1px solid #f59e0b44; }
 .pr-review-state.commented { background: #3b82f622; color: #3b82f6; border: 1px solid #3b82f644; }
 .pr-review-state.pending { background: #6b728022; color: #9ca3af; border: 1px solid #6b728044; }
-.pr-review-state.dismissed { background: #1e1e1e; color: var(--text-muted); border: 1px solid var(--border); }
+.pr-review-state.dismissed { background: var(--border); color: var(--text-muted); border: 1px solid var(--border); }
 
 .pr-review-body-text {
   padding: 8px 10px;
@@ -3865,7 +3865,7 @@ body {
 
 .update-banner--error {
   background: #2a0f0f;
-  color: #EF4444;
+  color: var(--destructive);
   border-bottom: 1px solid #EF444433;
 }
 
@@ -4291,7 +4291,7 @@ kbd {
 }
 
 .cli-banner-log {
-  background: #111;
+  background: var(--popover);
   border: 1px solid #333;
   border-radius: 4px;
   padding: 6px 8px;
@@ -4443,7 +4443,7 @@ kbd {
 }
 
 .account-item:hover {
-  background: #1e1e1e;
+  background: var(--border);
   border-color: var(--raven-blue);
 }
 
@@ -4470,7 +4470,7 @@ kbd {
 }
 .account-item:hover .account-delete-btn { opacity: 1; }
 .account-delete-btn:hover {
-  color: #ef4444;
+  color: var(--destructive);
   background: rgba(239, 68, 68, 0.1);
 }
 
@@ -4965,7 +4965,7 @@ kbd {
 
 .mcp-save-error {
   font-size: 11px;
-  color: #EF4444;
+  color: var(--destructive);
   padding: 3px 2px 0;
 }
 
@@ -5281,7 +5281,7 @@ kbd {
   background: none;
   border: none;
   cursor: pointer;
-  color: #EF4444;
+  color: var(--destructive);
   font-size: 11px;
   padding: 6px 10px;
   border-radius: 6px;
@@ -5603,11 +5603,11 @@ button.ci-badge:hover {
 }
 
 .ci-badge--failure {
-  color: #ef4444;
+  color: var(--destructive);
   border-color: #ef444433;
 }
 .ci-badge--failure .ci-badge-dot {
-  background: #ef4444;
+  background: var(--destructive);
 }
 
 .ci-badge--running {
@@ -5881,7 +5881,7 @@ button.ci-badge:hover {
   background: rgba(239,68,68,0.1);
   border: 1px solid rgba(239,68,68,0.3);
   border-radius: 5px;
-  color: #ef4444;
+  color: var(--destructive);
   font-size: 11px;
 }
 
@@ -6029,7 +6029,7 @@ button.ci-badge:hover {
   cursor: not-allowed;
 }
 .repo-menu-item.danger {
-  color: #ef4444;
+  color: var(--destructive);
 }
 .repo-menu-item.danger:hover {
   background: rgba(239, 68, 68, 0.1);
@@ -6345,7 +6345,7 @@ button.ci-badge:hover {
   flex-shrink: 0;
 }
 .chat-row:hover .chat-delete-btn { opacity: 0.45; }
-.chat-delete-btn:hover { opacity: 1 !important; color: #ef4444; }
+.chat-delete-btn:hover { opacity: 1 !important; color: var(--destructive); }
 
 .chat-reactions {
   display: flex;
@@ -6481,7 +6481,7 @@ button.ci-badge:hover {
   top: -22px;
   left: 16px;
   font-size: 11px;
-  color: #ef4444;
+  color: var(--destructive);
 }
 
 /* ── RepoStatusPanel ─────────────────────────────────────── */
@@ -6839,7 +6839,7 @@ button.ci-badge:hover {
 .sp-btn-danger {
   padding: 5px 12px;
   background: transparent;
-  color: #ef4444;
+  color: var(--destructive);
   border: 1px solid #ef444455;
   border-radius: 6px;
   font-size: 12px;
@@ -6999,7 +6999,7 @@ button.ci-badge:hover {
   width: 10px;
   height: 10px;
   border-radius: 50%;
-  border: 2px solid var(--bg-surface, #0a0a0a);
+  border: 2px solid var(--bg-surface, var(--card));
   box-sizing: border-box;
 }
 .user-menu-dot--free       { background: #6b6b6b; }
@@ -7039,7 +7039,7 @@ button.ci-badge:hover {
 .user-menu-popover {
   position: fixed;
   width: 280px;
-  background: var(--bg-elevated, #111);
+  background: var(--bg-elevated, var(--popover));
   border: 1px solid var(--border);
   border-radius: 10px;
   box-shadow: 0 12px 32px rgba(0,0,0,0.6);
@@ -7180,7 +7180,7 @@ button.ci-badge:hover {
   flex-direction: column;
   border: 1px solid var(--border);
   border-radius: 6px;
-  background: var(--bg-elevated, #111);
+  background: var(--bg-elevated, var(--popover));
   overflow: hidden;
 }
 
@@ -7270,7 +7270,7 @@ button.ci-badge:hover {
 }
 .actions-row:focus-visible {
   background: var(--bg-app, #050505);
-  box-shadow: 0 0 0 1px var(--raven-blue, #0066FF);
+  box-shadow: 0 0 0 1px var(--raven-blue, var(--primary));
 }
 .actions-row--empty,
 .actions-row--error {
@@ -7366,7 +7366,7 @@ button.ci-badge:hover {
   gap: 8px;
   padding: 6px 8px;
   border-radius: 6px;
-  background: var(--bg-elevated, #111);
+  background: var(--bg-elevated, var(--popover));
   border: 1px solid var(--border);
   cursor: pointer;
   font-size: 12px;
@@ -7376,11 +7376,11 @@ button.ci-badge:hover {
 }
 .actions-bar:hover {
   background: var(--bg-app, #050505);
-  border-color: var(--raven-blue, #0066FF);
+  border-color: var(--raven-blue, var(--primary));
 }
 .actions-bar:focus-visible {
-  border-color: var(--raven-blue, #0066FF);
-  box-shadow: 0 0 0 1px var(--raven-blue, #0066FF);
+  border-color: var(--raven-blue, var(--primary));
+  box-shadow: 0 0 0 1px var(--raven-blue, var(--primary));
 }
 .actions-bar--muted,
 .actions-bar--error {
@@ -7389,7 +7389,7 @@ button.ci-badge:hover {
 }
 .actions-bar--muted:hover,
 .actions-bar--error:hover {
-  background: var(--bg-elevated, #111);
+  background: var(--bg-elevated, var(--popover));
   border-color: var(--border);
 }
 
@@ -7496,7 +7496,7 @@ button.ci-badge:hover {
   padding: 6px 12px; cursor: pointer; font-size: 12px;
   color: var(--text-secondary);
 }
-.wt-item:hover { background: #111; color: var(--text-primary); }
+.wt-item:hover { background: var(--popover); color: var(--text-primary); }
 .wt-item-active {
   background: rgba(0, 102, 255, 0.10); color: var(--text-primary);
   border-left: 2px solid var(--raven-blue); padding-left: 10px;
@@ -7743,14 +7743,14 @@ button.ci-badge:hover {
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 1px;
-  color: var(--text-muted, #888);
+  color: var(--text-muted, var(--muted-foreground));
   padding: 6px 10px 4px;
 }
 .ports-section-label--muted { opacity: 0.7; }
 .ports-item--muted { opacity: 0.7; }
 .ports-empty {
   padding: 8px 10px;
-  color: var(--text-muted, #888);
+  color: var(--text-muted, var(--muted-foreground));
   font-size: 11px;
   font-style: italic;
 }
@@ -8322,7 +8322,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
   height: 16px;
   padding: 0 5px;
   border-radius: 8px;
-  background: #EF4444;
+  background: var(--destructive);
   color: #fff;
   font-size: 10px;
   font-weight: 700;
@@ -8386,7 +8386,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
   font-size: 11px;
   margin-top: 6px;
 }
-.join-code-message.error { color: #EF4444; }
+.join-code-message.error { color: var(--destructive); }
 .join-code-message.success { color: #22C55E; }
 
 .join-code-pending-list {
@@ -9024,8 +9024,8 @@ body.platform-mac .tabbar { padding-right: 116px; }
   width: 100%;
   box-sizing: border-box;
   padding: 16px 14px;
-  background: var(--bg-surface, #0a0a0a);
-  border: 1px solid var(--border, #1e1e1e);
+  background: var(--bg-surface, var(--card));
+  border: 1px solid var(--border, var(--border));
   border-radius: 10px;
   color: var(--text-primary, #fff);
   font-family: 'JetBrains Mono', 'Menlo', 'Consolas', monospace;
@@ -9048,7 +9048,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
 }
 
 .jcf-input:focus {
-  border-color: var(--raven-blue, #0066FF);
+  border-color: var(--raven-blue, var(--primary));
   background: #0d0d0d;
   box-shadow: 0 0 0 3px rgba(0, 102, 255, 0.16);
 }
@@ -9065,8 +9065,8 @@ body.platform-mac .tabbar { padding-right: 116px; }
   gap: 8px;
   width: 100%;
   padding: 11px 14px;
-  background: var(--raven-blue, #0066FF);
-  border: 1px solid var(--raven-blue, #0066FF);
+  background: var(--raven-blue, var(--primary));
+  border: 1px solid var(--raven-blue, var(--primary));
   border-radius: 9px;
   color: #fff;
   font-family: inherit;
@@ -9150,7 +9150,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
 .jcf-pending {
   margin-top: 4px;
   padding-top: 14px;
-  border-top: 1px solid var(--border, #1e1e1e);
+  border-top: 1px solid var(--border, var(--border));
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -9177,7 +9177,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
   gap: 10px;
   padding: 9px 12px;
   background: rgba(255, 255, 255, 0.02);
-  border: 1px solid var(--border, #1e1e1e);
+  border: 1px solid var(--border, var(--border));
   border-radius: 8px;
   transition: border-color 150ms ease, background-color 150ms ease;
 }
@@ -9213,7 +9213,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
   flex-shrink: 0;
   padding: 5px 10px;
   background: transparent;
-  border: 1px solid var(--border, #1e1e1e);
+  border: 1px solid var(--border, var(--border));
   border-radius: 6px;
   color: var(--text-secondary, #aaa);
   font-family: inherit;
@@ -10503,7 +10503,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
 
 /* ── Team Stats ──────────────────────────────────────────── */
 .ts-container {
-  --ts-accent: #0066ff;
+  --ts-accent: var(--primary);
   display: flex;
   flex-direction: column;
   gap: 20px;
@@ -11062,7 +11062,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
 .sidebar-split .sidebar-explorer-wrap{height:100%;min-height:0;flex:1}
 .sidebar-split-handle{flex:0 0 5px;position:relative;background:transparent}
 .sidebar-split-handle::after{content:'';position:absolute;left:8px;right:8px;top:2px;height:1px;background:var(--border,#2a2a2a)}
-.sidebar-split-handle:hover::after,.sidebar-split-handle[data-resize-handle-active]::after{background:var(--raven-blue,#0066FF);height:2px}
+.sidebar-split-handle:hover::after,.sidebar-split-handle[data-resize-handle-active]::after{background:var(--raven-blue,var(--primary));height:2px}
 
 /* ── Pane filter trigger (embudo del sidebar) + popover ── */
 .pane-filter-trigger.active{color:var(--raven-blue,#4f9eff)}
