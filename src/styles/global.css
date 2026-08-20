@@ -6,15 +6,46 @@
 }
 
 :root {
-  --raven-blue: #0066FF;
-  --raven-blue-dim: #0066FF44;
-  --bg-app: #000000;
-  --bg-surface: #0a0a0a;
-  --bg-elevated: #111111;
+  /* ── Contrato de tokens shadcn / tweakcn ─────────────────────────────
+     Estos son los tokens que exporta tweakcn.com. Editá acá (o pegá un
+     export de tweakcn con el botón "{} Code") para re-skinear TODA la app.
+     Los valores de arranque son los actuales de Nest → cero cambio visual. */
+  --background: #000000;
+  --foreground: #e8e8e8;
+  --card: #0a0a0a;
+  --card-foreground: #e8e8e8;
+  --popover: #111111;
+  --popover-foreground: #e8e8e8;
+  --primary: #0066FF;
+  --primary-foreground: #ffffff;
+  --secondary: #0a0a0a;
+  --secondary-foreground: #e8e8e8;
+  --muted: #111111;
+  --muted-foreground: #888;
+  --accent: #111111;
+  --accent-foreground: #e8e8e8;
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
   --border: #1e1e1e;
-  --text-primary: #e8e8e8;
-  --text-secondary: #888;
+  --input: #1e1e1e;
+  --ring: #0066FF;
+  --radius: 0.5rem;
+
+  /* ── Puente hacia los tokens propios de Nest ─────────────────────────
+     Los nombres que Nest ya usa en las 11k líneas de CSS ahora SIGUEN a
+     los tokens de arriba. Así tweakcn controla la UI sin tocar todo el CSS. */
+  --raven-blue: var(--primary);
+  --bg-app: var(--background);
+  --bg-surface: var(--card);
+  --bg-elevated: var(--popover);
+  --text-primary: var(--foreground);
+  --text-secondary: var(--muted-foreground);
+
+  /* Pendiente de bridge (Paso 3 — todavía sin fuente shadcn exacta) */
+  --raven-blue-dim: #0066FF44;
   --text-muted: #555;
+
+  /* Layout (no son color — se quedan como están) */
   --titlebar-height: 44px;
   --header-height: 32px;
 }
