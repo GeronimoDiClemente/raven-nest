@@ -2973,6 +2973,8 @@ ipcMain.handle('graph:run:start', async (_e, input: { repoPath: string; template
     branch: input.branch,
     nodes,
     startedAt: now,
+    mode: 'auto',
+    round: 0,
   }
   graphRunStore.save(run, [])
   return { ok: true as const, runId: run.runId, worktreePath: wt.worktreePath }

@@ -6,7 +6,7 @@ import type { DomainEvent } from '../integrations/bus-types'
 
 const full = defaultGraphTemplates().find((t) => t.id === 'full')!
 
-const base = { runId: 'r1', ticketId: 't1', templateId: 'full', worktreePath: '/w', branch: 'b', startedAt: 0 }
+const base = { runId: 'r1', ticketId: 't1', templateId: 'full', worktreePath: '/w', branch: 'b', startedAt: 0, mode: 'auto' as const, round: 0 }
 const mkRun = (nodes: Record<string, NodeRuntime>): GraphRun => ({ ...base, nodes })
 const withStates = (m: Record<string, NodeRuntime['state']>): GraphRun =>
   mkRun(Object.fromEntries(full.nodes.map((n) => [n.id, { state: m[n.id] ?? 'queued' }])))

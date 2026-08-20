@@ -21,6 +21,8 @@ function makeRun(overrides: Partial<GraphRun> = {}): GraphRun {
     worktreePath: '/w',
     branch: 'feat/x',
     startedAt: 0,
+    mode: 'auto',
+    round: 0,
     nodes: { architect: { state: 'running' } },
     ...overrides,
   }
@@ -98,5 +100,29 @@ describe('GraphRunStore', () => {
       JSON.stringify({ version: 1, runs: [{ run: makeRun() }] }),
     )
     expect(new GraphRunStore(file).get('r1')!.seen).toEqual([])
+  })
+
+  it('round-trips mode, round, revisionNotes, pendingDecision and node verdict/exitCode', () => {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), 'graphrun-')))
+    const file = join(dir, 'graph-runs.json')
+    const store = new GraphRunStore(file)
+    const run: GraphRun = {
+      runId: 'r1', ticketId: 't1', templateId: 'full', worktreePath: dir, branch: 'b',
+      startedAt: 1, mode: 'gate', round: 2,
+      revisionNotes: { coder: 'fix the key' },
+      pendingDecision: { kind: 'requestChanges', feedback: 'scope per attempt' },
+      nodes: {
+        rev: { state: 'blocked', verdict: { concerns: ['x'], blocking: true } },
+        coder: { state: 'failed', exitCode: 2 },
+      },
+    }
+    store.save(run, [])
+    const loaded = store.get('r1')!.run
+    expect(loaded.mode).toBe('gate')
+    expect(loaded.round).toBe(2)
+    expect(loaded.revisionNotes).toEqual({ coder: 'fix the key' })
+    expect(loaded.pendingDecision).toEqual({ kind: 'requestChanges', feedback: 'scope per attempt' })
+    expect(loaded.nodes.rev.verdict).toEqual({ concerns: ['x'], blocking: true })
+    expect(loaded.nodes.coder.exitCode).toBe(2)
   })
 })

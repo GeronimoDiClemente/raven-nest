@@ -30,6 +30,16 @@ function toNodeRuntime(x: unknown): NodeRuntime | null {
   if (typeof r.endedAt === 'number') out.endedAt = r.endedAt
   if (typeof r.summary === 'string') out.summary = r.summary
   if (typeof r.artifact === 'string') out.artifact = r.artifact
+  if (r.verdict && typeof r.verdict === 'object') {
+    const v = r.verdict as Record<string, unknown>
+    if (typeof v.blocking === 'boolean') {
+      out.verdict = {
+        blocking: v.blocking,
+        concerns: Array.isArray(v.concerns) ? v.concerns.filter((c): c is string => typeof c === 'string') : [],
+      }
+    }
+  }
+  if (typeof r.exitCode === 'number') out.exitCode = r.exitCode
   return out
 }
 
@@ -51,15 +61,21 @@ function toGraphRun(x: unknown): GraphRun | null {
     if (!rt) return null
     nodes[id] = rt
   }
-  return {
-    runId: r.runId,
-    ticketId: r.ticketId,
-    templateId: r.templateId,
-    worktreePath: r.worktreePath,
-    branch: r.branch,
-    startedAt: r.startedAt,
-    nodes,
+  const mode = r.mode === 'gate' || r.mode === 'step' ? r.mode : 'auto'
+  const out: GraphRun = {
+    runId: r.runId, ticketId: r.ticketId, templateId: r.templateId,
+    worktreePath: r.worktreePath, branch: r.branch, startedAt: r.startedAt,
+    nodes, mode, round: typeof r.round === 'number' ? r.round : 0,
   }
+  if (r.revisionNotes && typeof r.revisionNotes === 'object') {
+    const rn: Record<string, string> = {}
+    for (const [k, v] of Object.entries(r.revisionNotes as Record<string, unknown>)) if (typeof v === 'string') rn[k] = v
+    out.revisionNotes = rn
+  }
+  const pd = r.pendingDecision as Record<string, unknown> | undefined
+  if (pd && (pd.kind === 'approve' && typeof pd.gateId === 'string')) out.pendingDecision = { kind: 'approve', gateId: pd.gateId }
+  else if (pd && (pd.kind === 'requestChanges' && typeof pd.feedback === 'string')) out.pendingDecision = { kind: 'requestChanges', feedback: pd.feedback }
+  return out
 }
 
 function toPersistedGraphRun(x: unknown): PersistedGraphRun | null {

@@ -6,6 +6,7 @@ const full = defaultGraphTemplates().find((t) => t.id === 'full')!
 
 const run = (states: Record<string, NodeRunState>): GraphRun => ({
   runId: 'r', ticketId: 't', templateId: 'full', worktreePath: '/w', branch: 'b', startedAt: 0,
+  mode: 'auto', round: 0,
   nodes: Object.fromEntries(full.nodes.map((n) => [n.id, { state: states[n.id] ?? 'queued' }])),
 })
 

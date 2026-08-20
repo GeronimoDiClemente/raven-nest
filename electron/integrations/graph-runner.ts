@@ -6,6 +6,7 @@
 // agent-status.ts / automation-runner.ts.
 import type { GraphTemplate } from './graph-template'
 import type { DomainEvent } from './bus-types'
+import type { Verdict } from './graph-verdict'
 
 export type NodeRunState =
   | 'queued'        // not started; waiting on upstream
@@ -16,6 +17,12 @@ export type NodeRunState =
   | 'failed'        // exited non-zero / errored
   | 'skipped'       // an upstream failure cut this branch
 
+export type GraphMode = 'auto' | 'gate' | 'step'
+
+export type PendingDecision =
+  | { kind: 'approve'; gateId: string }
+  | { kind: 'requestChanges'; feedback: string }
+
 export interface NodeRuntime {
   state: NodeRunState
   paneId?: string      // pane/PTY running this node (kind 'agent')
@@ -23,6 +30,8 @@ export interface NodeRuntime {
   endedAt?: number
   summary?: string     // one-liner for the card/inspector
   artifact?: string    // path of the handoff artifact it wrote
+  verdict?: Verdict    // a reviewer node's parsed {concerns, blocking}
+  exitCode?: number    // last pane exit code (≠0 → the node 'failed')
 }
 
 export interface GraphRun {
@@ -33,6 +42,10 @@ export interface GraphRun {
   branch: string
   nodes: Record<string, NodeRuntime>  // by node.id
   startedAt: number
+  mode: GraphMode                          // auto (default) | gate | step
+  round: number                            // current review round (retry cap)
+  revisionNotes?: Record<string, string>   // nodeId → feedback to prepend on re-run
+  pendingDecision?: PendingDecision         // human action queued for the tick to apply
 }
 
 export type GateState = 'waiting' | 'blocked' | 'passed'

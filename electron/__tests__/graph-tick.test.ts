@@ -3,7 +3,7 @@ import { sampleGraph, launchCommand, type PaneSignals } from '../integrations/gr
 import type { GraphRun } from '../integrations/graph-runner'
 
 function run(nodes: GraphRun['nodes']): GraphRun {
-  return { runId: 'r', ticketId: 't', templateId: 'full', worktreePath: '/w', branch: 'b', startedAt: 0, nodes }
+  return { runId: 'r', ticketId: 't', templateId: 'full', worktreePath: '/w', branch: 'b', startedAt: 0, mode: 'auto', round: 0, nodes }
 }
 
 const alive: PaneSignals = { hasPty: true, lastOutputAt: 1000, cpuPercent: 50, bufferTail: '' }
