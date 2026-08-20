@@ -160,8 +160,9 @@ import { WorkerSpecStore, newWorkerSpecId, type WorkerSpec } from './integration
 import { GraphTemplateStore, newGraphTemplateId } from './integrations/graph-template-store'
 import { toGraphTemplate, type GraphTemplate } from './integrations/graph-template'
 import { GraphRunStore } from './integrations/graph-run-store'
+import { GraphConfigStore } from './integrations/graph-config'
 import { planTick, dedupePersistentSignals } from './integrations/graph-orchestrator'
-import type { GraphRun, NodeRuntime } from './integrations/graph-runner'
+import type { GraphRun, NodeRuntime, GraphMode } from './integrations/graph-runner'
 import { sampleGraph, launchCommand, type PaneSignals } from './integrations/graph-tick'
 import { readHandoff, writeHandoff } from './integrations/handoff'
 import { makeRunAutomation, type AutomationRunnerPorts } from './integrations/automation-runner'
@@ -170,6 +171,10 @@ const ptyManager = new PtyManager()
 // Per-pane last-output timestamp. deriveAgentState (graph orchestrator sampling)
 // needs it and pty-manager doesn't track it — fed from the on('data') forward.
 const paneLastOutputAt = new Map<string, number>()
+// Per-pane exit code, last one wins. Fed from ptyManager's 'exit' event so the
+// graph orchestrator's exitCode port can tell a clean finish from a crash
+// without polling — see graphOrchestratorTick / OrchestratorPorts.exitCode.
+const paneExitCode = new Map<string, number>()
 const accountStore = new AccountStore()
 // Ensure every existing Claude account has the shared config (CLAUDE.md,
 // settings.json, skills, etc.) linked from ~/.claude. Idempotent — only
@@ -179,6 +184,7 @@ const customCLIStore = new CustomCLIStore()
 const workerSpecStore = new WorkerSpecStore()
 const graphTemplateStore = new GraphTemplateStore()
 const graphRunStore = new GraphRunStore()
+const graphConfigStore = new GraphConfigStore()
 const snippetStore = new SnippetStore()
 const localPathsStore = new LocalPathsStore()
 const conversationStore = new ConversationStore()
@@ -999,8 +1005,9 @@ ptyManager.on('data', (paneId: string, data: string) => {
   if (win) win.webContents.send('pty:data', paneId, data)
 })
 
-ptyManager.on('exit', (paneId: string) => {
+ptyManager.on('exit', (paneId: string, exitCode: number) => {
   paneLastOutputAt.delete(paneId)
+  if (typeof exitCode === 'number') paneExitCode.set(paneId, exitCode)
   const win = BrowserWindow.getAllWindows()[0]
   if (win) win.webContents.send('pty:exit', paneId)
 })
@@ -2918,6 +2925,18 @@ function accountDirForAgent(agent: string): string {
   return names.length ? accountStore.getDir(agent, names[0]) : ''
 }
 
+// Best-effort pane kill: ptyManager.kill() already swallows its own errors,
+// but a caller-side try/catch keeps a future throw from ever escaping into
+// the tick (same warn-no-throw contract as the rest of this file's effects).
+function killPaneBestEffort(paneId: string, reason: string): void {
+  try {
+    ptyManager.kill(paneId)
+    paneExitCode.delete(paneId)
+  } catch (err) {
+    console.warn('[graph] failed to kill pane', reason, paneId, err)
+  }
+}
+
 function graphOrchestratorTick(): void {
   const runs = graphRunStore.list()
   if (runs.length === 0) return  // zero cost at rest
@@ -2927,12 +2946,39 @@ function graphOrchestratorTick(): void {
     const template = templates.find((t) => t.id === run.templateId)
     if (!template) continue
     const samples = sampleGraph(run, samplePane, now)
-    const plan = planTick(template, run, samples, { now, readArtifact: readGraphArtifact })
+    const cfg = graphConfigStore.get(run.repoPath ?? '')
+    const plan = planTick(template, run, samples, {
+      now,
+      readArtifact: readGraphArtifact,
+      maxReviewRounds: cfg.maxReviewRounds,
+      exitCode: (paneId) => paneExitCode.get(paneId) ?? null,
+    })
+
+    // A re-run (auto-repair rewind or human "request changes") resets the
+    // coder branch to 'queued' and clears its paneId. If that happens without
+    // a same-tick relaunch (the auto-repair path returns start:[] this tick),
+    // kill the stale PTY now instead of leaving it running idle until the
+    // node is picked up again.
+    for (const [id, oldRt] of Object.entries(run.nodes)) {
+      const newRt = plan.run.nodes[id]
+      if (oldRt.paneId && newRt?.state === 'queued' && !newRt.paneId) {
+        killPaneBestEffort(oldRt.paneId, 're-run reset')
+      }
+    }
 
     // Spawn the panes the plan says to start — headless PTYs main owns.
     for (const action of plan.start) {
       const cmd = launchCommand(action)
       if (!cmd) continue  // gate or custom/unknown agent → nothing to spawn
+      if (run.nodes[action.nodeId]?.paneId) {
+        // Paneids are deterministic (`${runId}:${nodeId}`), so a node that
+        // already ran before and is being (re)launched again this same tick
+        // (human "request changes" rewinds + advanceGraph relaunches it in
+        // one planTick call) would reuse the old paneId — ptyManager.create's
+        // "already running" guard would then skip spawning and the revision
+        // prompt would land in the stale session. Kill it first.
+        killPaneBestEffort(action.paneId, 're-run relaunch')
+      }
       const accountDir = action.agent ? accountDirForAgent(action.agent) : ''
       void ptyManager.create(action.paneId, cmd, accountDir, run.worktreePath).then((res) => {
         if (!res.ok) { console.warn('[graph] pane spawn failed', action.paneId, res.error); return }
@@ -2965,15 +3011,17 @@ ipcMain.handle('graph:run:start', async (_e, input: { repoPath: string; template
   const now = Date.now()
   const nodes: Record<string, NodeRuntime> = {}
   for (const n of template.nodes) nodes[n.id] = { state: 'queued' }
+  const cfg = graphConfigStore.get(input.repoPath)
   const run: GraphRun = {
     runId: newGraphTemplateId(),
     ticketId: input.ticketId,
     templateId: template.id,
     worktreePath: wt.worktreePath,
+    repoPath: input.repoPath,
     branch: input.branch,
     nodes,
     startedAt: now,
-    mode: 'auto',
+    mode: cfg.defaultMode,
     round: 0,
   }
   graphRunStore.save(run, [])
@@ -2986,6 +3034,24 @@ ipcMain.handle('graph:run:start', async (_e, input: { repoPath: string; template
 ipcMain.handle('graph:node:attach', (_e, runId: string, nodeId: string) => {
   const paneId = `${runId}:${nodeId}`
   return { paneId, exists: ptyManager.exists(paneId), buffer: ptyManager.getBuffer(paneId) }
+})
+
+// Human-in-the-loop graph controls. These IPC handlers only ever read state or
+// queue a `pendingDecision` — the tick (graphOrchestratorTick → planTick) is
+// the sole place that applies a decision and advances the run. Single-writer.
+ipcMain.handle('graph:run:list', () => graphRunStore.list().map((p) => p.run))
+ipcMain.handle('graph:run:get', (_e, runId: string) => graphRunStore.get(runId)?.run ?? null)
+ipcMain.handle('graph:run:setMode', (_e, runId: string, mode: GraphMode) => {
+  const p = graphRunStore.get(runId); if (!p) return { ok: false as const }
+  graphRunStore.save({ ...p.run, mode }, p.seen); return { ok: true as const }
+})
+ipcMain.handle('graph:gate:approve', (_e, runId: string, gateId: string) => {
+  const p = graphRunStore.get(runId); if (!p) return { ok: false as const }
+  graphRunStore.save({ ...p.run, pendingDecision: { kind: 'approve', gateId } }, p.seen); return { ok: true as const }
+})
+ipcMain.handle('graph:gate:requestChanges', (_e, runId: string, feedback: string) => {
+  const p = graphRunStore.get(runId); if (!p) return { ok: false as const }
+  graphRunStore.save({ ...p.run, pendingDecision: { kind: 'requestChanges', feedback } }, p.seen); return { ok: true as const }
 })
 
 ipcMain.handle('slack:open-oauth', async () => {

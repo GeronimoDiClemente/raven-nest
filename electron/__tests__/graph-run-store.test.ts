@@ -125,4 +125,16 @@ describe('GraphRunStore', () => {
     expect(loaded.nodes.rev.verdict).toEqual({ concerns: ['x'], blocking: true })
     expect(loaded.nodes.coder.exitCode).toBe(2)
   })
+
+  it('round-trips repoPath', () => {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), 'graphrun-')))
+    const file = join(dir, 'graph-runs.json')
+    const store = new GraphRunStore(file)
+    const run: GraphRun = {
+      runId: 'r2', ticketId: 't1', templateId: 'full', worktreePath: dir, repoPath: '/repo/a',
+      branch: 'b', startedAt: 1, mode: 'auto', round: 0, nodes: {},
+    }
+    store.save(run, [])
+    expect(store.get('r2')!.run.repoPath).toBe('/repo/a')
+  })
 })

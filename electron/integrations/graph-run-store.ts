@@ -67,6 +67,7 @@ function toGraphRun(x: unknown): GraphRun | null {
     worktreePath: r.worktreePath, branch: r.branch, startedAt: r.startedAt,
     nodes, mode, round: typeof r.round === 'number' ? r.round : 0,
   }
+  if (typeof r.repoPath === 'string') out.repoPath = r.repoPath
   if (r.revisionNotes && typeof r.revisionNotes === 'object') {
     const rn: Record<string, string> = {}
     for (const [k, v] of Object.entries(r.revisionNotes as Record<string, unknown>)) if (typeof v === 'string') rn[k] = v

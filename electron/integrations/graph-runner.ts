@@ -39,6 +39,7 @@ export interface GraphRun {
   ticketId: string
   templateId: string
   worktreePath: string  // shared worktree for the ticket
+  repoPath?: string      // source repo the worktree was created from (config lookup key)
   branch: string
   nodes: Record<string, NodeRuntime>  // by node.id
   startedAt: number

@@ -164,7 +164,7 @@ export class PtyManager extends EventEmitter {
         this.buffers.set(paneId, lines)
       })
 
-      ptyProcess.onExit(() => {
+      ptyProcess.onExit((e) => {
         // Identity guard: if a kill→create raced, the slot is already owned by a new
         // process. Don't wipe its state or fire 'exit' for a stale paneId.
         const current = this.ptys.get(paneId)
@@ -179,7 +179,9 @@ export class PtyManager extends EventEmitter {
         }
         this.ptys.delete(paneId)
         this.buffers.delete(paneId)
-        this.emit('exit', paneId)
+        // exitCode: forwarded so callers (graph orchestration) can distinguish
+        // a clean exit from a crash without polling — see main.ts's paneExitCode.
+        this.emit('exit', paneId, e.exitCode)
       })
 
       this.ptys.set(paneId, ptyProcess)
