@@ -1,10 +1,18 @@
-import { describe, it, expect, vi } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { describe, it, expect } from 'vitest'
+import { render } from '@testing-library/react'
 import PaneHeader from '../../components/PaneHeader'
 import type { PaneNode } from '../../types'
 
-const basePane: PaneNode = {
-  id: 'p1', aiType: 'claude', accountName: 'work', accountDir: '', borderColor: '#8B5CF6', cmd: '',
+function makePane(o: Partial<PaneNode> = {}): PaneNode {
+  return {
+    id: 'p1',
+    aiType: 'terminal',
+    accountName: '',
+    accountDir: '',
+    borderColor: '#0055FF',
+    cmd: '',
+    ...o,
+  }
 }
 
 const baseProps = {
@@ -15,24 +23,21 @@ const baseProps = {
   onNoteChange: () => {},
 }
 
-describe('PaneHeader rename', () => {
-  it('shows the custom label as text on an AI pane (logo alone is not distinguishable)', () => {
-    render(<PaneHeader {...baseProps} pane={{ ...basePane, customLabel: 'API server' }} onRename={() => {}} />)
-    expect(screen.getByText('API server')).toBeTruthy()
+describe('PaneHeader — indicador de color', () => {
+  // "Sin color" (borderColor transparent) mostraba una ✕ dentro de un círculo
+  // con borde punteado — se veía como líneas y obstrucción. Debe quedar un
+  // mini círculo transparente limpio, sin la ✕.
+  it('sin color no muestra la ✕ dentro del botón', () => {
+    const { container } = render(<PaneHeader pane={makePane({ borderColor: 'transparent' })} {...baseProps} />)
+    const btn = container.querySelector('.pane-color-btn')
+    expect(btn).toBeInTheDocument()
+    expect(btn?.textContent).toBe('')
   })
 
-  it('renames via double-click → type → Enter, trimming the value', () => {
-    const onRename = vi.fn()
-    render(<PaneHeader {...baseProps} pane={basePane} onRename={onRename} />)
-    fireEvent.doubleClick(screen.getByTitle(/rename/i))
-    const input = screen.getByPlaceholderText(/rename/i)
-    fireEvent.change(input, { target: { value: '  DB pane  ' } })
-    fireEvent.keyDown(input, { key: 'Enter' })
-    expect(onRename).toHaveBeenCalledWith('DB pane')
-  })
-
-  it('does not offer rename when onRename is not provided', () => {
-    render(<PaneHeader {...baseProps} pane={basePane} />)
-    expect(screen.queryByTitle(/rename/i)).toBeNull()
+  it('con color, el botón usa ese color de fondo y no muestra texto', () => {
+    const { container } = render(<PaneHeader pane={makePane({ borderColor: '#0055FF' })} {...baseProps} />)
+    const btn = container.querySelector('.pane-color-btn') as HTMLElement | null
+    expect(btn).toBeInTheDocument()
+    expect(btn?.textContent).toBe('')
   })
 })

@@ -114,7 +114,7 @@ export default function PaneHeader({ pane, zoomed, onZoom, onClose, onColorChang
             style={pane.borderColor === 'transparent' ? undefined : { background: pane.borderColor }}
             onClick={() => setShowPicker((v) => !v)}
             title={pane.borderColor === 'transparent' ? 'Border off' : 'Change border color'}
-          >{pane.borderColor === 'transparent' ? '✕' : ''}</button>
+          />
           {showPicker && (
             <div className="pane-color-popover">
               {/* Cruz = apagar el borde del pane (marco transparente). El acento

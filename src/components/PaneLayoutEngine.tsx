@@ -67,14 +67,24 @@ function renderSplit(
       direction={direction}
       onLayout={(sizes) => onResize(path, sizes)}
     >
-      {split.children.map((child, i) => (
-        <Fragment key={i}>
-          {i > 0 && <PanelResizeHandle className={handleClass} />}
-          <Panel defaultSize={ratios[i]} minSize={8}>
-            {renderSplit(child, `${path}/${i}`, panes, splitRatios, onResize, renderPane, renderEmpty)}
-          </Panel>
-        </Fragment>
-      ))}
+      {split.children.map((child, i) => {
+        // Key por IDENTIDAD del pane (no por la posición del slot) para que al
+        // reordenar React MUEVA el Panel ya montado en vez de remontarlo.
+        // Remontar recreaba el editor (Monaco vacío/negro), destruía+recreaba el
+        // WebContentsView del browser y dejaba huecos al mover. Los splits
+        // anidados (branches) mantienen key por posición: su forma es estable.
+        const key = child.kind === 'pane'
+          ? (panes[child.slot]?.id ?? `empty-${child.slot}`)
+          : `split-${i}`
+        return (
+          <Fragment key={key}>
+            {i > 0 && <PanelResizeHandle className={handleClass} />}
+            <Panel id={String(key)} order={i} defaultSize={ratios[i]} minSize={8}>
+              {renderSplit(child, `${path}/${i}`, panes, splitRatios, onResize, renderPane, renderEmpty)}
+            </Panel>
+          </Fragment>
+        )
+      })}
     </PanelGroup>
   )
 }

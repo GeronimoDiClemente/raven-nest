@@ -14,6 +14,7 @@ const baseProps = {
   onDragStart: () => {},
   onDragEnd: () => {},
   draggingId: null,
+  dragSnapshot: null,
   sensors: [],
   renderPane: (p: PaneNode) => <div data-testid={`pane-${p.id}`}>{p.id}</div>,
 }

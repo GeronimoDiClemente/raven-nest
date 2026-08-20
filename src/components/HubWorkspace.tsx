@@ -6,6 +6,7 @@ import {
 } from '@dnd-kit/core'
 import { SortableContext, rectSortingStrategy } from '@dnd-kit/sortable'
 import { PaneLayoutEngine } from './PaneLayoutEngine'
+import { PaneDragGhost } from './PaneDragGhost'
 import type { PaneNode, LayoutId } from '../types'
 
 interface Props {
@@ -17,6 +18,9 @@ interface Props {
   onDragStart: (e: DragStartEvent) => void
   onDragEnd: (e: DragEndEvent) => void
   draggingId: string | null
+  // Foto (dataURL) del pane arrastrado para el fantasma; null hasta que la
+  // captura async resuelve. Igual que el workspace normal.
+  dragSnapshot: string | null
   sensors: SensorDescriptor<SensorOptions>[]
   renderPane: (pane: PaneNode) => ReactNode
 }
@@ -28,7 +32,7 @@ interface Props {
 // workspace view of the chosen set.
 export default function HubWorkspace({
   panes, layoutId, splitRatios, hiddenCount,
-  onResize, onDragStart, onDragEnd, draggingId, sensors, renderPane,
+  onResize, onDragStart, onDragEnd, draggingId, dragSnapshot, sensors, renderPane,
 }: Props) {
   if (panes.length === 0) {
     return (
@@ -64,7 +68,11 @@ export default function HubWorkspace({
           />
         </SortableContext>
         <DragOverlay>
-          {draggingId ? <div className="drag-overlay-pane hub-drag-overlay" /> : null}
+          {(() => {
+            if (!draggingId) return null
+            const pane = panes.find(p => p.id === draggingId)
+            return pane ? <PaneDragGhost pane={pane} snapshot={dragSnapshot} /> : null
+          })()}
         </DragOverlay>
       </DndContext>
       {hiddenCount > 0 && (

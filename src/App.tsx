@@ -10,13 +10,12 @@ import {
 } from './types'
 import { PaneLayoutEngine } from './components/PaneLayoutEngine'
 import { defaultLayoutFor, hubLayoutFor, mapLegacyToPreset } from './layout/select'
-import { swap } from './layout/swap'
+import { reorder } from './layout/reorder'
 import { getPreset } from './layout/presets'
 import TerminalPane from './components/TerminalPane'
 import BrowserCell from './components/BrowserCell'
 import { EditorPane } from './components/EditorPane'
-import { FileIcon, extClass } from './components/ExplorerPanel'
-import { paneOverlayLabel } from './lib/pane-overlay-label'
+import { PaneDragGhost } from './components/PaneDragGhost'
 import { PaneErrorBoundary } from './components/PaneErrorBoundary'
 import NewPaneDialog from './components/NewPaneDialog'
 import TabBar from './components/TabBar'
@@ -678,7 +677,7 @@ export default function App() {
       const from = t.panes.findIndex(p => p.id === active.id)
       const to = t.panes.findIndex(p => p.id === over.id)
       if (from < 0 || to < 0) return t
-      return { ...t, panes: swap(t.panes, from, to) }
+      return { ...t, panes: reorder(t.panes, from, to) }
     })
   }, [updateActiveTab])
 
@@ -861,7 +860,7 @@ export default function App() {
     const from = ids.indexOf(String(active.id))
     const to = ids.indexOf(String(over.id))
     if (from < 0 || to < 0) return
-    updateActiveTab(t => ({ ...t, hubPanes: swap(ids, from, to) }))
+    updateActiveTab(t => ({ ...t, hubPanes: reorder(ids, from, to) }))
   }, [updateActiveTab])
 
   // Sidebar terminal click: ensure it's in the Hub, then focus its pane.
@@ -1711,6 +1710,7 @@ export default function App() {
             onDragStart={handleDragStart}
             onDragEnd={handleHubDragEnd}
             draggingId={draggingId}
+            dragSnapshot={dragSnapshot}
             sensors={sensors}
             renderPane={renderHubPane}
           />
@@ -1825,32 +1825,7 @@ export default function App() {
               <DragOverlay>
                 {draggingId !== null && (() => {
                   const pane = panes.find(p => p.id === draggingId)
-                  return pane ? (
-                    <div className="drag-overlay-pane" style={{ '--pane-color': pane.borderColor } as React.CSSProperties}>
-                      {dragSnapshot ? (
-                        // La foto ya incluye la barra del pane (captura del rect
-                        // completo); mostrarla sola evita el header duplicado.
-                        <img className="drag-overlay-snapshot" src={dragSnapshot} alt="" draggable={false} />
-                      ) : (
-                        <div className="pane-header" style={{ borderBottom: `1px solid ${pane.borderColor}44` }}>
-                          {(() => {
-                            const info = paneOverlayLabel(pane)
-                            return info.fileName ? (
-                              <span className="pane-ai-label" style={{ paddingLeft: 10, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                                <FileIcon name={info.fileName} />
-                                <span className={extClass(info.fileName)}>{info.text}</span>
-                              </span>
-                            ) : (
-                              <span className="pane-ai-label" style={{ color: info.color, paddingLeft: 10 }}>
-                                {info.text}
-                              </span>
-                            )
-                          })()}
-                          <span className="pane-account-name" style={{ paddingLeft: 6 }}>{pane.accountName}</span>
-                        </div>
-                      )}
-                    </div>
-                  ) : null
+                  return pane ? <PaneDragGhost pane={pane} snapshot={dragSnapshot} /> : null
                 })()}
               </DragOverlay>
             </DndContext>
