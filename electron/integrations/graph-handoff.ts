@@ -43,8 +43,9 @@ function label(u: UpstreamArtifact): string {
  *  prepended labeled by role/focus, then the node's own instructions (or a role
  *  default), then — for non-leaf nodes — the instruction to write its artifact
  *  so downstream nodes can read it. `isLeaf` = the node has no dependents. */
-export function composeNodeInput(node: GraphNode, upstream: UpstreamArtifact[], isLeaf: boolean): string {
+export function composeNodeInput(node: GraphNode, upstream: UpstreamArtifact[], isLeaf: boolean, revisionNote?: string): string {
   const parts: string[] = []
+  if (revisionNote) parts.push(`Revision requested: ${revisionNote}`)
   for (const u of upstream) parts.push(`Handoff from ${label(u)}:\n\n${u.content}`)
   const instructions = node.instructions ?? roleDefault(node)
   if (instructions) parts.push(instructions)

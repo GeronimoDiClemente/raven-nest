@@ -50,4 +50,9 @@ describe('graph-handoff', () => {
     const input = composeNodeInput(node({ id: 'coder', role: 'coder', instructions: 'CUSTOM ORDER' }), [], false)
     expect(input).toContain('CUSTOM ORDER')
   })
+
+  it('prepends a revision note when re-running a node', () => {
+    const out = composeNodeInput(node({ id: 'coder', role: 'coder' }), [], false, 'scope the key per attempt')
+    expect(out).toContain('Revision requested: scope the key per attempt')
+  })
 })
