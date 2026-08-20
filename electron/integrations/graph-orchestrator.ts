@@ -152,6 +152,19 @@ export function planTick(t: GraphTemplate, run: GraphRun, samples: Record<string
     const verdict: Verdict = parsed ?? { concerns: ['reviewer produced no parseable verdict'], blocking: true }
     withVerdicts[id] = { ...rt, verdict, state: verdict.blocking ? 'blocked' : 'done' }
   }
+
+  // Exit-code pass: a node whose pane just finished but exited non-zero is
+  // 'failed', not 'done' (descendantsOfFailed in advanceGraph then cuts its
+  // branch). Only applies to nodes that transitioned to done this tick.
+  if (ports.exitCode) {
+    for (const [id, rt] of Object.entries(withVerdicts)) {
+      const justDone = rt.state === 'done' && run.nodes[id]?.state !== 'done'
+      if (!justDone || !rt.paneId) continue
+      const code = ports.exitCode(rt.paneId)
+      if (typeof code === 'number' && code !== 0) withVerdicts[id] = { ...rt, state: 'failed', exitCode: code }
+    }
+  }
+
   const synced2 = { ...synced, nodes: withVerdicts }
 
   // Nodes whose pane just finished → node_done (advanceGraph never emits this;

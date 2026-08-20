@@ -247,6 +247,17 @@ describe('planTick', () => {
     expect(plan.events.some(e => e.type === 'graph.escalated')).toBe(true)
     expect(plan.blockedOn).toContain('gate')
   })
+
+  it('a node whose pane exited non-zero becomes failed (not done)', () => {
+    const t = makeReviewTemplate() // coder → rev → gate
+    const run = makeRun(t, { coder: { state: 'running', paneId: 'p:coder' } })
+    const plan = planTick(t, run, { coder: 'done' }, {
+      now: 1, maxReviewRounds: 2, readArtifact: () => null,
+      exitCode: (paneId) => (paneId === 'p:coder' ? 2 : null),
+    })
+    expect(plan.run.nodes.coder.state).toBe('failed')
+    expect(plan.run.nodes.coder.exitCode).toBe(2)
+  })
 })
 
 describe('dedupePersistentSignals', () => {
