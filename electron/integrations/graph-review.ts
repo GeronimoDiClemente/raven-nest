@@ -37,3 +37,26 @@ export function resetBranchForRerun(t: GraphTemplate, run: GraphRun, feedback: s
   for (const c of coders) revisionNotes[c] = feedback
   return { ...run, nodes, revisionNotes, round: run.round + 1 }
 }
+
+/** Apply a human's queued decision. approve → mark the gate's blocked upstream
+ *  reviewers and the gate 'done' so downstream unblocks. requestChanges →
+ *  resetBranchForRerun with the feedback. Always clears pendingDecision. Pure. */
+export function applyDecision(t: GraphTemplate, run: GraphRun): GraphRun {
+  const d = run.pendingDecision
+  if (!d) return run
+  if (d.kind === 'requestChanges') {
+    const next = resetBranchForRerun(t, run, d.feedback)
+    delete next.pendingDecision
+    return next
+  }
+  // approve: force the gate's dependencies (and the gate) to done
+  const gate = t.nodes.find((n) => n.id === d.gateId)
+  const force = new Set<string>([d.gateId, ...(gate?.dependsOn ?? [])])
+  const nodes: Record<string, NodeRuntime> = {}
+  for (const [id, rt] of Object.entries(run.nodes)) {
+    nodes[id] = force.has(id) && rt.state !== 'done' ? { ...rt, state: 'done' } : rt
+  }
+  const next = { ...run, nodes }
+  delete next.pendingDecision
+  return next
+}

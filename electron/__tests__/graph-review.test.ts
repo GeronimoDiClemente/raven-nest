@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { resetBranchForRerun } from '../integrations/graph-review'
+import { resetBranchForRerun, applyDecision } from '../integrations/graph-review'
 import type { GraphTemplate } from '../integrations/graph-template'
 import type { GraphRun } from '../integrations/graph-runner'
 
@@ -42,5 +42,27 @@ describe('resetBranchForRerun', () => {
   it('does not mutate the input run', () => {
     const r = run(); resetBranchForRerun(T, r, 'f')
     expect(r.nodes.coder.state).toBe('done')
+  })
+})
+
+describe('applyDecision', () => {
+  it('approve: overrides blocked reviewers + gate to done and clears the decision', () => {
+    const r = run(); r.pendingDecision = { kind: 'approve', gateId: 'gate' }
+    const next = applyDecision(T, r)
+    expect(next.nodes.rev.state).toBe('done')
+    expect(next.nodes.gate.state).toBe('done')
+    expect(next.pendingDecision).toBeUndefined()
+  })
+  it('requestChanges: re-runs the coder branch with the feedback and clears the decision', () => {
+    const r = run(); r.pendingDecision = { kind: 'requestChanges', feedback: 'per-attempt key' }
+    const next = applyDecision(T, r)
+    expect(next.nodes.coder.state).toBe('queued')
+    expect(next.revisionNotes!.coder).toBe('per-attempt key')
+    expect(next.round).toBe(1)
+    expect(next.pendingDecision).toBeUndefined()
+  })
+  it('no-op when there is no pending decision', () => {
+    const r = run()
+    expect(applyDecision(T, r)).toEqual(r)
   })
 })
