@@ -278,6 +278,14 @@ describe('dedupePersistentSignals', () => {
     expect(again.fresh).toHaveLength(0)
   })
 
+  it('dedupes graph.escalated by gate, so it fires once at the cap (not every tick)', () => {
+    const escalated: DomainEvent = { type: 'graph.escalated', ticketId: 't1', gateId: 'gate', round: 2 }
+    const first = dedupePersistentSignals([escalated], new Set())
+    expect(first.fresh).toHaveLength(1)
+    const second = dedupePersistentSignals([escalated], first.seen)
+    expect(second.fresh).toHaveLength(0)
+  })
+
   it('never dedupes transient events (started/done/completed)', () => {
     const transient: DomainEvent[] = [
       { type: 'graph.node_started', ticketId: 't1', nodeId: 'coder', role: 'coder' },

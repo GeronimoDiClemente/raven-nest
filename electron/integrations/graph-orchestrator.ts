@@ -109,8 +109,9 @@ function upstreamArtifacts(t: GraphTemplate, node: GraphNode, ports: Orchestrato
   return out
 }
 
-/** Persistent signals (a gate staying blocked, a node staying needs_input) are
- *  re-derived every tick while the condition holds, so emitting them raw would
+/** Persistent signals (a gate staying blocked, a node staying needs_input, a
+ *  run escalated at the retry cap) are re-derived every tick while the
+ *  condition holds, so emitting them raw would
  *  spam the team. Dedupe by a stable key against a caller-persisted set (same
  *  contract as worktree-signals' ciNotified/reviewNotified). Transient
  *  transitions (started/done/completed) always pass — they fire once by nature.
@@ -122,6 +123,7 @@ export function dedupePersistentSignals(events: DomainEvent[], seen: ReadonlySet
     let key: string | null = null
     if (ev.type === 'graph.gate_blocked') key = `gate_blocked:${ev.ticketId}:${ev.gateId}`
     else if (ev.type === 'graph.node_needs_input') key = `needs_input:${ev.ticketId}:${ev.nodeId}`
+    else if (ev.type === 'graph.escalated') key = `escalated:${ev.ticketId}:${ev.gateId}`
     if (key === null) {
       fresh.push(ev)
       continue
