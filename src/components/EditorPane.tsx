@@ -8,7 +8,6 @@ import { modelPathFor } from '../lib/editor-model-path'
 import { sameWorktree } from '../lib/worktree-path'
 import { FILE_DRAG_MIME, EDITOR_TAB_DRAG_MIME, decodeFileDrag, workspaceDropEffect } from '../lib/dragTypes'
 import { useSortable } from '@dnd-kit/sortable'
-import { CSS } from '@dnd-kit/utilities'
 import type { MonacoLike } from '../lib/shiki-monaco'
 import type { EditorTab, PaneNode } from '../types'
 import type { EditorPreferences, EditorTheme } from '../lib/ide-config-mappings'
@@ -121,7 +120,7 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
   const eolRef = useRef<Record<string, '\n' | '\r\n'>>({})
   const containerRef = useRef<HTMLDivElement | null>(null)
 
-  const { setNodeRef, attributes, listeners, transform, transition, isDragging } = useSortable({ id: pane.id })
+  const { setNodeRef, attributes, listeners, isDragging } = useSortable({ id: pane.id })
 
   // El editor ya usa containerRef para el listener Ctrl+S; dnd-kit necesita su
   // propio nodeRef sobre el MISMO root. Los combinamos en un solo callback ref,
@@ -132,8 +131,9 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
   }, [setNodeRef])
 
   const sortableStyle: React.CSSProperties = {
-    transform: CSS.Transform.toString(transform),
-    transition,
+    // Sin transform de dnd-kit: reordenamos los panes de VERDAD en onDragOver,
+    // así react-resizable-panels los pone en su nuevo slot con contenido. Aplicar
+    // el transform acá los movía dentro del slot y escalaba/ennegrecía a Monaco.
     opacity: isDragging ? 0.3 : 1,
   }
 

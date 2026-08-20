@@ -12,7 +12,6 @@ import { registerPane, unregisterPane } from '../pty-events'
 import { registerTerminalFocus, unregisterTerminalFocus } from '../terminal-registry'
 import { safeWriteText } from '../lib/clipboard'
 import { useSortable } from '@dnd-kit/sortable'
-import { CSS } from '@dnd-kit/utilities'
 import { stripAnsi, PROMPT_RE, UI_CHROME_RE, filterChrome } from '../lib/terminal-chrome'
 
 const BUSY_THRESHOLD_MS = 2000
@@ -72,7 +71,7 @@ export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZ
       terminalShareService.broadcastSize(pane.id, cols, rows)
     }, [pane.id])
   )
-  const { setNodeRef, attributes, listeners, transform, transition, isOver } = useSortable({ id: pane.id })
+  const { setNodeRef, attributes, listeners, isOver } = useSortable({ id: pane.id })
   const outputBuf = useRef('')       // notification buffer (last 2000 chars)
   const convBuf = useRef('')         // full conversation buffer
   const busyTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -371,8 +370,7 @@ export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZ
 
   const sortableStyle: React.CSSProperties = {
     ...style,
-    transform: CSS.Transform.toString(transform),
-    transition,
+    // Sin transform de dnd-kit: el reorder en vivo (onDragOver) mueve los panes.
     opacity: isDragging ? 0.3 : 1,
     outline: isOver && !isDragging ? '2px solid #0066FF66' : undefined,
     outlineOffset: isOver && !isDragging ? '-2px' : undefined,

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import {
-  DndContext, DragEndEvent, DragOverlay, DragStartEvent,
+  DndContext, DragEndEvent, DragOverEvent, DragOverlay, DragStartEvent,
   PointerSensor, useSensor, useSensors, closestCenter,
 } from '@dnd-kit/core'
 import { SortableContext, rectSortingStrategy } from '@dnd-kit/sortable'
@@ -11,6 +11,7 @@ import {
 import { PaneLayoutEngine } from './components/PaneLayoutEngine'
 import { defaultLayoutFor, hubLayoutFor, mapLegacyToPreset } from './layout/select'
 import { reorder } from './layout/reorder'
+import { collectDragCaptures } from './layout/dragCaptures'
 import { getPreset } from './layout/presets'
 import TerminalPane from './components/TerminalPane'
 import BrowserCell from './components/BrowserCell'
@@ -100,7 +101,12 @@ export default function App() {
   const [draggingId, setDraggingId] = useState<string | null>(null)
   // Foto del contenido del pane arrastrado (dataURL), mostrada en el fantasma
   // del DragOverlay para que "el contenido siga" el cursor.
-  const [dragSnapshot, setDragSnapshot] = useState<string | null>(null)
+  // Fotos congeladas por paneId: cada browser muestra la suya EN SU LUGAR
+  // durante el drag (el view nativo se colapsa) y el fantasma del overlay usa
+  // la del pane arrastrado — así no quedan huecos negros. Ver collectDragCaptures.
+  const [dragSnapshots, setDragSnapshots] = useState<Record<string, string>>({})
+  // Último pane-objetivo del reorder en vivo (anti-flicker). Ver handleDragOver.
+  const dragOverLastId = useRef<string | null>(null)
   const [broadcastMode, setBroadcastMode] = useState(false)
   const [focusedPaneId, setFocusedPaneId] = useState<string | null>(null)
   const [panePorts, setPanePorts] = useState<Record<string, number[]>>({})
@@ -640,46 +646,62 @@ export default function App() {
   const handleDragStart = useCallback((e: DragStartEvent) => {
     const id = String(e.active.id)
     setDraggingId(id)
-    setDragSnapshot(null)
-    // La captura para el fantasma es best-effort: NUNCA debe lanzar ni romper
-    // el drag/reorder. Envuelta en try/catch y con guardas (capturePane puede
-    // no existir si el proceso principal aún no tomó el IPC nuevo).
+    setDragSnapshots({})
+    dragOverLastId.current = null
+    // Captura best-effort: NUNCA debe lanzar ni romper el drag/reorder
+    // (try/catch + guardas). Fotografiamos TODOS los browser (freeze-frame en
+    // su lugar mientras el view se colapsa) + el pane arrastrado (fantasma).
     try {
-      const pane = panesRef.current?.find(p => p.id === id)
-      if (!pane || typeof window.browser?.capturePane !== 'function') return
+      if (typeof window.browser?.capturePane !== 'function') return
+      const candidates = [...(panesRef.current ?? []), ...(hubPanesRef.current ?? [])]
       const init = e.active.rect.current.initial
-      const rect = init
+      const draggedRect = init
         ? { x: init.left, y: init.top, width: init.width, height: init.height }
         : undefined
-      void window.browser
-        .capturePane({ paneId: id, kind: pane.aiType === 'browser' ? 'browser' : 'dom', rect })
-        .then((img) => { if (img) setDragSnapshot(img) })
-        .catch(() => {})
+      for (const spec of collectDragCaptures(candidates, id)) {
+        const rect = spec.paneId === id ? draggedRect : undefined
+        void window.browser
+          .capturePane({ paneId: spec.paneId, kind: spec.kind, rect })
+          .then((img) => { if (img) setDragSnapshots(prev => ({ ...prev, [spec.paneId]: img })) })
+          .catch(() => {})
+      }
     } catch {
       /* la captura es opcional; el reorder debe seguir funcionando */
     }
   }, [])
+
+  // Reorder EN VIVO: al pasar por encima de otro pane movemos el array de
+  // VERDAD → react-resizable-panels reubica cada pane en su nuevo slot CON
+  // contenido, sin esperar a soltar y sin transforms (que ennegrecían a Monaco).
+  // Guardamos el último objetivo para no hacer ping-pong (flicker).
+  const handlePaneDragOver = useCallback((e: DragOverEvent) => {
+    const { active, over } = e
+    if (!over || over.id === active.id) return
+    const overId = String(over.id)
+    if (overId === dragOverLastId.current) return
+    dragOverLastId.current = overId
+    updateActiveTab(t => {
+      const from = t.panes.findIndex(p => p.id === active.id)
+      const to = t.panes.findIndex(p => p.id === over.id)
+      if (from < 0 || to < 0 || from === to) return t
+      return { ...t, panes: reorder(t.panes, from, to) }
+    })
+  }, [updateActiveTab])
 
   // dnd-kit dispara onDragCancel (NO onDragEnd) al cancelar con Escape / perder
   // el puntero. Sin esto, draggingId nunca volvía a null y los browsers quedaban
   // colapsados en blanco con el fantasma pegado.
   const handleDragCancel = useCallback(() => {
     setDraggingId(null)
-    setDragSnapshot(null)
+    setDragSnapshots({})
   }, [])
 
-  const handleDragEnd = useCallback((e: DragEndEvent) => {
+  const handleDragEnd = useCallback(() => {
+    // El reorder ya ocurrió en vivo (onDragOver); acá sólo limpiamos.
     setDraggingId(null)
-    setDragSnapshot(null)
-    const { active, over } = e
-    if (!over || active.id === over.id) return
-    updateActiveTab(t => {
-      const from = t.panes.findIndex(p => p.id === active.id)
-      const to = t.panes.findIndex(p => p.id === over.id)
-      if (from < 0 || to < 0) return t
-      return { ...t, panes: reorder(t.panes, from, to) }
-    })
-  }, [updateActiveTab])
+    setDragSnapshots({})
+    dragOverLastId.current = null
+  }, [])
 
   const handleSplitResize = useCallback((path: string, sizes: number[]) => {
     updateActiveTab(t => ({
@@ -851,17 +873,25 @@ export default function App() {
     })
   }, [updateActiveTab])
 
-  // Reorder the Hub's curated panes by drag (same gesture as a workspace).
-  const handleHubDragEnd = useCallback((e: DragEndEvent) => {
-    setDraggingId(null)
+  // Reorder EN VIVO del Hub (mismo gesto que el workspace).
+  const handleHubDragOver = useCallback((e: DragOverEvent) => {
     const { active, over } = e
-    if (!over || active.id === over.id) return
+    if (!over || over.id === active.id) return
+    const overId = String(over.id)
+    if (overId === dragOverLastId.current) return
+    dragOverLastId.current = overId
     const ids = hubPanesRef.current.map(p => p.id)
     const from = ids.indexOf(String(active.id))
     const to = ids.indexOf(String(over.id))
-    if (from < 0 || to < 0) return
+    if (from < 0 || to < 0 || from === to) return
     updateActiveTab(t => ({ ...t, hubPanes: reorder(ids, from, to) }))
   }, [updateActiveTab])
+
+  const handleHubDragEnd = useCallback(() => {
+    setDraggingId(null)
+    setDragSnapshots({})
+    dragOverLastId.current = null
+  }, [])
 
   // Sidebar terminal click: ensure it's in the Hub, then focus its pane.
   const handleHubFocus = useCallback((paneId: string) => {
@@ -1529,6 +1559,8 @@ export default function App() {
         key={pane.id}
         pane={pane}
         borderColor={pane.borderColor}
+        dragging={draggingId !== null}
+        dragSnapshot={dragSnapshots[pane.id]}
         siblingPaneIds={hubPanesRef.current.filter(p => p.id !== pane.id).map(p => p.id)}
         workspaceRepoPath={pane.repoPath}
         siblingRepoPaths={Array.from(new Set(
@@ -1708,9 +1740,10 @@ export default function App() {
             hiddenCount={paneFilterActive ? 0 : (hubData?.hiddenCount ?? 0)}
             {...filteredSplitProps}
             onDragStart={handleDragStart}
+            onDragOver={handleHubDragOver}
             onDragEnd={handleHubDragEnd}
             draggingId={draggingId}
-            dragSnapshot={dragSnapshot}
+            dragSnapshot={draggingId ? dragSnapshots[draggingId] ?? null : null}
             sensors={sensors}
             renderPane={renderHubPane}
           />
@@ -1732,6 +1765,7 @@ export default function App() {
               sensors={sensors}
               collisionDetection={closestCenter}
               onDragStart={handleDragStart}
+              onDragOver={handlePaneDragOver}
               onDragEnd={handleDragEnd}
               onDragCancel={handleDragCancel}
             >
@@ -1772,6 +1806,7 @@ export default function App() {
                         zoomingOut={zoomedPaneId === pane.id && zoomingOut}
                         onZoom={() => handleZoom(pane.id)}
                         dragging={draggingId !== null}
+                        dragSnapshot={dragSnapshots[pane.id]}
                         siblingPaneIds={panes.filter(p => p.id !== pane.id).map(p => p.id)}
                         workspaceRepoPath={activeTab.repoPath ?? pane.repoPath}
                         siblingRepoPaths={Array.from(new Set(
@@ -1825,7 +1860,7 @@ export default function App() {
               <DragOverlay>
                 {draggingId !== null && (() => {
                   const pane = panes.find(p => p.id === draggingId)
-                  return pane ? <PaneDragGhost pane={pane} snapshot={dragSnapshot} /> : null
+                  return pane ? <PaneDragGhost pane={pane} snapshot={dragSnapshots[draggingId] ?? null} /> : null
                 })()}
               </DragOverlay>
             </DndContext>

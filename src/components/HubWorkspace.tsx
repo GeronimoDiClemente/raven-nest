@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import {
   DndContext, DragOverlay, closestCenter,
-  type DragStartEvent, type DragEndEvent,
+  type DragStartEvent, type DragEndEvent, type DragOverEvent,
   type SensorDescriptor, type SensorOptions,
 } from '@dnd-kit/core'
 import { SortableContext, rectSortingStrategy } from '@dnd-kit/sortable'
@@ -16,6 +16,7 @@ interface Props {
   hiddenCount: number                        // curated beyond the 12-pane cap
   onResize: (path: string, sizes: number[]) => void
   onDragStart: (e: DragStartEvent) => void
+  onDragOver: (e: DragOverEvent) => void
   onDragEnd: (e: DragEndEvent) => void
   draggingId: string | null
   // Foto (dataURL) del pane arrastrado para el fantasma; null hasta que la
@@ -32,7 +33,7 @@ interface Props {
 // workspace view of the chosen set.
 export default function HubWorkspace({
   panes, layoutId, splitRatios, hiddenCount,
-  onResize, onDragStart, onDragEnd, draggingId, dragSnapshot, sensors, renderPane,
+  onResize, onDragStart, onDragOver, onDragEnd, draggingId, dragSnapshot, sensors, renderPane,
 }: Props) {
   if (panes.length === 0) {
     return (
@@ -55,6 +56,7 @@ export default function HubWorkspace({
         sensors={sensors}
         collisionDetection={closestCenter}
         onDragStart={onDragStart}
+        onDragOver={onDragOver}
         onDragEnd={onDragEnd}
       >
         <SortableContext items={panes.map(p => p.id)} strategy={rectSortingStrategy}>

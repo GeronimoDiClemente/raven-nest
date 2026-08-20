@@ -1,7 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { PaneNode } from '../types'
 import { useSortable } from '@dnd-kit/sortable'
-import { CSS } from '@dnd-kit/utilities'
 
 interface Props {
   pane: PaneNode
@@ -34,6 +33,9 @@ interface Props {
   // pinta sobre el DOM sin z-index, así que taparía el fantasma del drag —
   // lo colapsamos mientras dura el arrastre.
   dragging?: boolean
+  // Foto congelada del contenido (dataURL PNG). Mientras el view nativo está
+  // colapsado por un drag, la mostramos EN SU LUGAR para no dejar un hueco negro.
+  dragSnapshot?: string
 }
 
 const HEADER_HEIGHT = 36
@@ -77,14 +79,13 @@ function isOwnOrigin(rawUrl: string): boolean {
   }
 }
 
-export default function BrowserCell({ pane, onClose, onNavigate, borderColor, siblingPaneIds, workspaceRepoPath, siblingRepoPaths, zoomed = false, zoomingOut = false, onZoom, dragging = false }: Props) {
+export default function BrowserCell({ pane, onClose, onNavigate, borderColor, siblingPaneIds, workspaceRepoPath, siblingRepoPaths, zoomed = false, zoomingOut = false, onZoom, dragging = false, dragSnapshot }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
-  const { setNodeRef: setSortableRef, attributes, listeners, transform, transition, isDragging } = useSortable({ id: pane.id })
+  const { setNodeRef: setSortableRef, attributes, listeners, isDragging } = useSortable({ id: pane.id })
   const sortableStyle: React.CSSProperties = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    // Como terminal/editor: al arrastrar, la celda origen se atenúa (el
-    // WebContentsView ya se colapsa aparte) en vez de quedar sólida en la grilla.
+    // Sin transform de dnd-kit: el reorder en vivo (onDragOver) mueve los panes.
+    // Al arrastrar, la celda origen se atenúa (el WebContentsView ya se colapsa
+    // aparte) en vez de quedar sólida en la grilla.
     opacity: isDragging ? 0.3 : 1,
   }
   const setNodeRef = (el: HTMLDivElement | null) => {
@@ -105,6 +106,9 @@ export default function BrowserCell({ pane, onClose, onNavigate, borderColor, si
   // DragOverlay pasaría por debajo del WebContentsView nativo. Lo colapsamos
   // mientras dure el arrastre y vuelve al soltar.
   hiddenForDragRef.current = isDragging || dragging
+  // Mientras el view está colapsado por un drag, si tenemos foto la mostramos
+  // en el placeholder (en vez del hueco negro del bg-app).
+  const showDragFreeze = (isDragging || dragging) && !!dragSnapshot
   const createdRef = useRef(false)
   const [url, setUrl] = useState<string>(pane.url ?? 'about:blank')
   // Hide data: URLs (BLANK_PAGE placeholder) from the input — they're internal
@@ -532,6 +536,14 @@ export default function BrowserCell({ pane, onClose, onNavigate, borderColor, si
         <button className="browser-btn browser-btn-close" onClick={onClose} title="Close">×</button>
       </div>
       <div ref={placeholderRef} className="browser-placeholder">
+        {showDragFreeze && (
+          <img
+            src={dragSnapshot}
+            alt=""
+            draggable={false}
+            style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', pointerEvents: 'none', zIndex: 1 }}
+          />
+        )}
         {selfOriginAttempt && (
           <div className="browser-self-origin-overlay" role="status">
             <div className="browser-self-origin-icon" aria-hidden="true">

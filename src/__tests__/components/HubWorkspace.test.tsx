@@ -12,6 +12,7 @@ const baseProps = {
   hiddenCount: 0,
   onResize: () => {},
   onDragStart: () => {},
+  onDragOver: () => {},
   onDragEnd: () => {},
   draggingId: null,
   dragSnapshot: null,
