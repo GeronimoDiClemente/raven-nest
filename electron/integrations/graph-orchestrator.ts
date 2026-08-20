@@ -12,6 +12,7 @@ import type { AgentState } from './agent-status'
 import { composeNodeInput, artifactPath, type UpstreamArtifact } from './graph-handoff'
 import type { DomainEvent } from './bus-types'
 import type { WorkerAgent } from './worker-spec-store'
+import { parseVerdict, type Verdict } from './graph-verdict'
 
 const TERMINAL: ReadonlySet<NodeRunState> = new Set<NodeRunState>(['done', 'failed', 'skipped'])
 
@@ -68,6 +69,8 @@ export interface OrchestratorPorts {
   now: number
   /** Read an upstream node's handoff artifact (relative to the run worktree). */
   readArtifact: (worktreePath: string, relPath: string) => string | null
+  maxReviewRounds: number                       // auto-repair retry cap
+  exitCode?: (paneId: string) => number | null | undefined  // last pane exit code
 }
 
 export interface TickPlan {
@@ -134,18 +137,34 @@ export function planTick(t: GraphTemplate, run: GraphRun, samples: Record<string
   const byId = new Map(t.nodes.map((n) => [n.id, n]))
   const synced = syncNodeStates(run, samples, ports.now)
 
+  // Verdict pass: a reviewer whose pane just finished (sample→done) has its
+  // verdict artifact read now. blocking:true (or a missing/unparseable verdict)
+  // overrides the node to 'blocked'; a clean verdict stays 'done'. The Verdict
+  // is attached for the card. Non-reviewer nodes are untouched.
+  const withVerdicts: Record<string, NodeRuntime> = { ...synced.nodes }
+  for (const [id, rt] of Object.entries(synced.nodes)) {
+    const node = byId.get(id)
+    if (!node || node.role !== 'reviewer') continue
+    const justDone = rt.state === 'done' && run.nodes[id]?.state !== 'done'
+    if (!justDone) continue
+    const parsed = parseVerdict(ports.readArtifact(run.worktreePath, artifactPath(node)))
+    const verdict: Verdict = parsed ?? { concerns: ['reviewer produced no parseable verdict'], blocking: true }
+    withVerdicts[id] = { ...rt, verdict, state: verdict.blocking ? 'blocked' : 'done' }
+  }
+  const synced2 = { ...synced, nodes: withVerdicts }
+
   // Nodes whose pane just finished → node_done (advanceGraph never emits this;
   // it's the real transition the caller owns, carrying an optional summary).
   const doneEvents: DomainEvent[] = []
-  for (const [id, rt] of Object.entries(synced.nodes)) {
+  for (const [id, rt] of Object.entries(synced2.nodes)) {
     if (rt.state === 'done' && run.nodes[id]?.state !== 'done') {
       const node = byId.get(id)
       if (node) doneEvents.push({ type: 'graph.node_done', ticketId: run.ticketId, nodeId: id, role: node.role })
     }
   }
 
-  const adv = advanceGraph(t, synced)
-  const nodes: Record<string, NodeRuntime> = { ...synced.nodes }
+  const adv = advanceGraph(t, synced2)
+  const nodes: Record<string, NodeRuntime> = { ...synced2.nodes }
   const start: StartAction[] = []
 
   for (const id of adv.toSkip) {
@@ -171,7 +190,7 @@ export function planTick(t: GraphTemplate, run: GraphRun, samples: Record<string
   }
 
   return {
-    run: { ...synced, nodes },
+    run: { ...synced2, nodes },
     start,
     events: [...doneEvents, ...adv.events],
     completed: adv.completed,

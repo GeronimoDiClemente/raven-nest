@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { defaultGraphTemplates } from '../integrations/graph-template'
 import { mapAgentState, syncNodeStates, planTick, dedupePersistentSignals } from '../integrations/graph-orchestrator'
+import type { GraphTemplate } from '../integrations/graph-template'
 import type { GraphRun, NodeRuntime } from '../integrations/graph-runner'
 import type { DomainEvent } from '../integrations/bus-types'
 
@@ -11,6 +12,20 @@ const mkRun = (nodes: Record<string, NodeRuntime>): GraphRun => ({ ...base, node
 const withStates = (m: Record<string, NodeRuntime['state']>): GraphRun =>
   mkRun(Object.fromEntries(full.nodes.map((n) => [n.id, { state: m[n.id] ?? 'queued' }])))
 const noArtifacts = () => null
+
+// 2-node-plus-gate template used by the eval-loop tests: coder → rev (reviewer) → gate.
+const reviewTemplate: GraphTemplate = {
+  id: 'review', name: 'review', nodes: [
+    { id: 'coder', role: 'coder', kind: 'agent', agent: 'claude', dependsOn: [] },
+    { id: 'rev', role: 'reviewer', kind: 'agent', agent: 'claude', dependsOn: ['coder'] },
+    { id: 'gate', role: 'gate', kind: 'gate', dependsOn: ['rev'] },
+  ], createdAt: 0, updatedAt: 0,
+}
+const makeReviewTemplate = (): GraphTemplate => reviewTemplate
+const makeRun = (t: GraphTemplate, m: Record<string, Partial<NodeRuntime> & { state: NodeRuntime['state'] }>): GraphRun => ({
+  ...base, templateId: t.id,
+  nodes: Object.fromEntries(t.nodes.map((n) => [n.id, m[n.id] ?? { state: 'queued' }])),
+})
 
 describe('mapAgentState', () => {
   it('maps the 4 pane states to node run states', () => {
@@ -54,7 +69,7 @@ describe('syncNodeStates', () => {
 describe('planTick', () => {
   it('launches the root architect with a composed input and marks it running', () => {
     const run = withStates({})
-    const plan = planTick(full, run, {}, { now: 10, readArtifact: noArtifacts })
+    const plan = planTick(full, run, {}, { now: 10, maxReviewRounds: 2, readArtifact: noArtifacts })
     expect(plan.start.map((s) => s.nodeId)).toEqual(['architect'])
     const a = plan.start[0]
     expect(a.agent).toBe('claude')
@@ -72,7 +87,7 @@ describe('planTick', () => {
   it('fans out to the 3 reviewers after the coder is done, each carrying the coder artifact', () => {
     const run = withStates({ architect: 'done', coder: 'done' })
     const plan = planTick(full, run, {}, {
-      now: 20,
+      now: 20, maxReviewRounds: 2,
       readArtifact: (_wt, rel) => (rel.endsWith('coder.md') ? 'CODER DIFF' : null),
     })
     expect(plan.start.map((s) => s.nodeId).sort()).toEqual(['rev-perf', 'rev-security', 'rev-types'])
@@ -84,7 +99,7 @@ describe('planTick', () => {
       architect: 'done', coder: 'done',
       'rev-security': 'done', 'rev-types': 'done', 'rev-perf': 'done',
     })
-    const plan = planTick(full, run, {}, { now: 30, readArtifact: noArtifacts })
+    const plan = planTick(full, run, {}, { now: 30, maxReviewRounds: 2, readArtifact: noArtifacts })
     expect(plan.run.nodes.gate.state).toBe('done')
     expect(plan.start.map((s) => s.nodeId)).not.toContain('gate')
   })
@@ -95,7 +110,7 @@ describe('planTick', () => {
       'rev-security': 'done', 'rev-types': 'done', 'rev-perf': 'done', gate: 'done',
     })
     const plan = planTick(full, run, {}, {
-      now: 40,
+      now: 40, maxReviewRounds: 2,
       readArtifact: (_wt, rel) => (rel.includes('review-') ? `SEEN ${rel}` : null),
     })
     const tester = plan.start.find((s) => s.nodeId === 'tester')
@@ -107,7 +122,7 @@ describe('planTick', () => {
 
   it('skips descendants of a failed node', () => {
     const run = withStates({ architect: 'done', coder: 'failed' })
-    const plan = planTick(full, run, {}, { now: 50, readArtifact: noArtifacts })
+    const plan = planTick(full, run, {}, { now: 50, maxReviewRounds: 2, readArtifact: noArtifacts })
     for (const id of ['rev-security', 'rev-types', 'rev-perf', 'tester']) {
       expect(plan.run.nodes[id].state).toBe('skipped')
     }
@@ -120,7 +135,7 @@ describe('planTick', () => {
       'rev-security': { state: 'queued' }, 'rev-types': { state: 'queued' },
       'rev-perf': { state: 'queued' }, gate: { state: 'queued' }, tester: { state: 'queued' },
     })
-    const plan = planTick(full, run, { architect: 'done' }, { now: 60, readArtifact: noArtifacts })
+    const plan = planTick(full, run, { architect: 'done' }, { now: 60, maxReviewRounds: 2, readArtifact: noArtifacts })
     expect(plan.events.some((e) => e.type === 'graph.node_done' && (e as { nodeId: string }).nodeId === 'architect')).toBe(true)
     // architect done → coder becomes ready and launches
     expect(plan.start.map((s) => s.nodeId)).toContain('coder')
@@ -128,9 +143,42 @@ describe('planTick', () => {
 
   it('reports completed when the tester is done', () => {
     const run = withStates(Object.fromEntries(full.nodes.map((n) => [n.id, 'done'])) as Record<string, NodeRuntime['state']>)
-    const plan = planTick(full, run, {}, { now: 70, readArtifact: noArtifacts })
+    const plan = planTick(full, run, {}, { now: 70, maxReviewRounds: 2, readArtifact: noArtifacts })
     expect(plan.completed).toBe(true)
     expect(plan.events.some((e) => e.type === 'graph.completed')).toBe(true)
+  })
+
+  it('a reviewer that finished with a blocking verdict becomes blocked, not done', () => {
+    const t = makeReviewTemplate()
+    const run = makeRun(t, { coder: { state: 'done' }, rev: { state: 'running', paneId: 'p:rev' } })
+    const plan = planTick(t, run, { rev: 'done' }, {
+      now: 100, maxReviewRounds: 2,
+      readArtifact: (_wt, rel) => rel.endsWith('review-rev.json')
+        ? JSON.stringify({ concerns: ['double-charge'], blocking: true }) : null,
+    })
+    expect(plan.run.nodes.rev.state).toBe('blocked')
+    expect(plan.run.nodes.rev.verdict).toEqual({ concerns: ['double-charge'], blocking: true })
+  })
+
+  it('a reviewer with a clean verdict stays done and carries concerns', () => {
+    const t = makeReviewTemplate()
+    const run = makeRun(t, { coder: { state: 'done' }, rev: { state: 'running', paneId: 'p:rev' } })
+    const plan = planTick(t, run, { rev: 'done' }, {
+      now: 100, maxReviewRounds: 2,
+      readArtifact: () => JSON.stringify({ concerns: ['nit: rename'], blocking: false }),
+    })
+    expect(plan.run.nodes.rev.state).toBe('done')
+    expect(plan.run.nodes.rev.verdict!.blocking).toBe(false)
+  })
+
+  it('a reviewer that finished with NO verdict is treated as blocked (conservative)', () => {
+    const t = makeReviewTemplate()
+    const run = makeRun(t, { coder: { state: 'done' }, rev: { state: 'running', paneId: 'p:rev' } })
+    const plan = planTick(t, run, { rev: 'done' }, {
+      now: 100, maxReviewRounds: 2, readArtifact: () => null,
+    })
+    expect(plan.run.nodes.rev.state).toBe('blocked')
+    expect(plan.run.nodes.rev.verdict).toEqual({ concerns: ['reviewer produced no parseable verdict'], blocking: true })
   })
 })
 
