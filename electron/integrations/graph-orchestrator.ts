@@ -7,13 +7,13 @@
 // of agent-status.ts / automation-runner.ts.
 import type { GraphTemplate, GraphNode } from './graph-template'
 import type { GraphRun, NodeRunState, NodeRuntime } from './graph-runner'
-import { advanceGraph } from './graph-runner'
+import { advanceGraph, gateState } from './graph-runner'
 import type { AgentState } from './agent-status'
 import { composeNodeInput, artifactPath, type UpstreamArtifact } from './graph-handoff'
 import type { DomainEvent } from './bus-types'
 import type { WorkerAgent } from './worker-spec-store'
 import { parseVerdict, type Verdict } from './graph-verdict'
-import { applyDecision } from './graph-review'
+import { applyDecision, resetBranchForRerun } from './graph-review'
 
 const TERMINAL: ReadonlySet<NodeRunState> = new Set<NodeRunState>(['done', 'failed', 'skipped'])
 
@@ -171,6 +171,27 @@ export function planTick(t: GraphTemplate, run: GraphRun, samples: Record<string
   const decided = synced2.pendingDecision ? applyDecision(t, synced2) : synced2
 
   const adv = advanceGraph(t, decided)
+
+  // Auto-repair (mode 'auto'): a blocked gate under the retry cap rewinds the
+  // coder branch with the aggregated blocking concerns instead of waiting for a
+  // human. At the cap it escalates (emits graph.escalated + stays blocked).
+  if (decided.mode === 'auto') {
+    const blockedGate = t.nodes.find(
+      (n) => n.kind === 'gate' && gateState(t, decided, n.id) === 'blocked',
+    )
+    if (blockedGate) {
+      if (decided.round < ports.maxReviewRounds) {
+        const feedback = blockedGate.dependsOn
+          .map((d) => decided.nodes[d]?.verdict?.concerns ?? [])
+          .flat().join('; ') || 'address the blocking review concerns'
+        const rerun = resetBranchForRerun(t, decided, feedback)
+        return { run: rerun, start: [], events: [...doneEvents], completed: false, blockedOn: [] }
+      }
+      // at cap → escalate (fall through to normal advance, add the event)
+      adv.events.push({ type: 'graph.escalated', ticketId: decided.ticketId, gateId: blockedGate.id, round: decided.round })
+    }
+  }
+
   const nodes: Record<string, NodeRuntime> = { ...decided.nodes }
   const start: StartAction[] = []
   const heldGates: string[] = [] // gates held for human approval (gate/step mode)

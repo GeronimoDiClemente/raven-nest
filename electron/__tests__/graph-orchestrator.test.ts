@@ -151,6 +151,8 @@ describe('planTick', () => {
   it('a reviewer that finished with a blocking verdict becomes blocked, not done', () => {
     const t = makeReviewTemplate()
     const run = makeRun(t, { coder: { state: 'done' }, rev: { state: 'running', paneId: 'p:rev' } })
+    run.mode = 'gate' // isolate the verdict pass from auto-repair (Task 7), which would
+    // otherwise rewind this same-tick blocked gate immediately in 'auto' mode
     const plan = planTick(t, run, { rev: 'done' }, {
       now: 100, maxReviewRounds: 2,
       readArtifact: (_wt, rel) => rel.endsWith('review-rev.json')
@@ -174,6 +176,7 @@ describe('planTick', () => {
   it('a reviewer that finished with NO verdict is treated as blocked (conservative)', () => {
     const t = makeReviewTemplate()
     const run = makeRun(t, { coder: { state: 'done' }, rev: { state: 'running', paneId: 'p:rev' } })
+    run.mode = 'gate' // isolate the verdict pass from auto-repair (Task 7)
     const plan = planTick(t, run, { rev: 'done' }, {
       now: 100, maxReviewRounds: 2, readArtifact: () => null,
     })
@@ -217,6 +220,32 @@ describe('planTick', () => {
     const plan = planTick(t, run, {}, { now: 1, maxReviewRounds: 2, readArtifact: () => null })
     const coderStart = plan.start.find(s => s.nodeId === 'coder')!
     expect(coderStart.input).toContain('Revision requested: scope key per attempt')
+  })
+
+  it('mode "auto": a blocked gate under the retry cap re-runs the coder (no gate_blocked)', () => {
+    const t = makeReviewTemplate()
+    const run = makeRun(t, {
+      coder: { state: 'done' }, rev: { state: 'blocked', verdict: { concerns: ['x'], blocking: true } },
+      gate: { state: 'queued' },
+    })
+    run.mode = 'auto'; run.round = 0
+    const plan = planTick(t, run, {}, { now: 1, maxReviewRounds: 2, readArtifact: () => null })
+    expect(plan.run.nodes.coder.state).toBe('queued')   // re-run triggered
+    expect(plan.run.round).toBe(1)
+    expect(plan.events.some(e => e.type === 'graph.gate_blocked')).toBe(false)
+  })
+
+  it('mode "auto": at the retry cap it escalates instead of re-running', () => {
+    const t = makeReviewTemplate()
+    const run = makeRun(t, {
+      coder: { state: 'done' }, rev: { state: 'blocked', verdict: { concerns: ['x'], blocking: true } },
+      gate: { state: 'queued' },
+    })
+    run.mode = 'auto'; run.round = 2
+    const plan = planTick(t, run, {}, { now: 1, maxReviewRounds: 2, readArtifact: () => null })
+    expect(plan.run.nodes.coder.state).toBe('done')     // not re-run
+    expect(plan.events.some(e => e.type === 'graph.escalated')).toBe(true)
+    expect(plan.blockedOn).toContain('gate')
   })
 })
 

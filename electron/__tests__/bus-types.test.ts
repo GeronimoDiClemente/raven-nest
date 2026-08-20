@@ -27,6 +27,7 @@ const events: DomainEvent[] = [
   { type: 'graph.node_needs_input', ticketId: 't1', nodeId: 'rev-perf', role: 'reviewer', question: 'ttl?' },
   { type: 'graph.gate_blocked', ticketId: 't1', gateId: 'gate', blockedBy: ['rev-perf'] },
   { type: 'graph.completed', ticketId: 't1', templateId: 'full' },
+  { type: 'graph.escalated', ticketId: 't1', gateId: 'gate', round: 2 },
 ]
 
 const commands: Command[] = [
@@ -64,6 +65,8 @@ describe('isDomainEvent', () => {
     expect(isDomainEvent({ type: 'graph.gate_blocked', ticketId: 't', gateId: 'g', blockedBy: 'x' })).toBe(false) // blockedBy no-array
     expect(isDomainEvent({ type: 'graph.gate_blocked', ticketId: 't', gateId: 'g', blockedBy: [1, 2] })).toBe(false) // blockedBy no-string
     expect(isDomainEvent({ type: 'graph.completed', ticketId: 't' })).toBe(false) // falta templateId
+    expect(isDomainEvent({ type: 'graph.escalated', ticketId: 't', gateId: 'g' })).toBe(false) // falta round
+    expect(isDomainEvent({ type: 'graph.escalated', ticketId: 't', gateId: 'g', round: '2' })).toBe(false) // round mal tipado
   })
 
   it('rechaza eventos con campos requeridos faltantes o mal tipados', () => {

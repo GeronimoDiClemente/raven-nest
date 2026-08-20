@@ -127,6 +127,15 @@ export interface GraphCompletedEvent {
   templateId: string
 }
 
+// Auto-repair (mode 'auto') hit its retry cap without converging — the tick
+// stops re-running the coder and surfaces the gate for a human decision.
+export interface GraphEscalatedEvent {
+  type: 'graph.escalated'
+  ticketId: string
+  gateId: string
+  round: number
+}
+
 export type DomainEvent =
   | TaskCreatedEvent
   | SessionOpenedEvent
@@ -144,6 +153,7 @@ export type DomainEvent =
   | GraphNodeNeedsInputEvent
   | GraphGateBlockedEvent
   | GraphCompletedEvent
+  | GraphEscalatedEvent
 
 // ── Comandos (unión discriminada por `cmd`) ─────────────────────────────────
 
@@ -265,6 +275,8 @@ export function isDomainEvent(x: unknown): x is DomainEvent {
         && Array.isArray(e.blockedBy) && e.blockedBy.every(isStr)
     case 'graph.completed':
       return isStr(e.ticketId) && isStr(e.templateId)
+    case 'graph.escalated':
+      return isStr(e.ticketId) && isStr(e.gateId) && typeof e.round === 'number'
     default:
       return false
   }
