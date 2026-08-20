@@ -120,7 +120,7 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
   const eolRef = useRef<Record<string, '\n' | '\r\n'>>({})
   const containerRef = useRef<HTMLDivElement | null>(null)
 
-  const { setNodeRef, attributes, listeners, isDragging } = useSortable({ id: pane.id })
+  const { setNodeRef, attributes, listeners, isDragging, isOver } = useSortable({ id: pane.id })
 
   // El editor ya usa containerRef para el listener Ctrl+S; dnd-kit necesita su
   // propio nodeRef sobre el MISMO root. Los combinamos en un solo callback ref,
@@ -131,10 +131,12 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
   }, [setNodeRef])
 
   const sortableStyle: React.CSSProperties = {
-    // Sin transform de dnd-kit: reordenamos los panes de VERDAD en onDragOver,
-    // así react-resizable-panels los pone en su nuevo slot con contenido. Aplicar
-    // el transform acá los movía dentro del slot y escalaba/ennegrecía a Monaco.
+    // Sin transform de dnd-kit: el swap es al soltar. Sin transform, Monaco no
+    // se escala/ennegrece. Resaltamos el pane objetivo mientras se arrastra otro,
+    // para ver con cuál se va a intercambiar.
     opacity: isDragging ? 0.3 : 1,
+    outline: isOver && !isDragging ? '2px solid #0066FF66' : undefined,
+    outlineOffset: isOver && !isDragging ? '-2px' : undefined,
   }
 
   // --- Shiki (tokenización TextMate + temas) -----------------------------

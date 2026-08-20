@@ -81,12 +81,14 @@ function isOwnOrigin(rawUrl: string): boolean {
 
 export default function BrowserCell({ pane, onClose, onNavigate, borderColor, siblingPaneIds, workspaceRepoPath, siblingRepoPaths, zoomed = false, zoomingOut = false, onZoom, dragging = false, dragSnapshot }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
-  const { setNodeRef: setSortableRef, attributes, listeners, isDragging } = useSortable({ id: pane.id })
+  const { setNodeRef: setSortableRef, attributes, listeners, isDragging, isOver } = useSortable({ id: pane.id })
   const sortableStyle: React.CSSProperties = {
-    // Sin transform de dnd-kit: el reorder en vivo (onDragOver) mueve los panes.
-    // Al arrastrar, la celda origen se atenúa (el WebContentsView ya se colapsa
-    // aparte) en vez de quedar sólida en la grilla.
+    // Sin transform de dnd-kit (el swap es al soltar). Al arrastrar, la celda
+    // origen se atenúa (el WebContentsView ya se colapsa aparte). Resaltamos el
+    // pane objetivo para ver con cuál se intercambia.
     opacity: isDragging ? 0.3 : 1,
+    outline: isOver && !isDragging ? '2px solid #0066FF66' : undefined,
+    outlineOffset: isOver && !isDragging ? '-2px' : undefined,
   }
   const setNodeRef = (el: HTMLDivElement | null) => {
     setSortableRef(el)
