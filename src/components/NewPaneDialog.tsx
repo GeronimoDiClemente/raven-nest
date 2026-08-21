@@ -16,7 +16,6 @@ const CLI_INSTALL: Partial<Record<AIType, { cmd: string; cmdWin?: string; manual
   deepseek: { cmd: 'npm install -g @deepseek-ai/dsh',          url: 'https://www.npmjs.com/package/@deepseek-ai/dsh' },
   grok:     { cmd: 'npm install -g @xai-official/grok',        url: 'https://docs.x.ai/build' },
   qwen:     { cmd: 'npm install -g @qwen-code/qwen-code',      url: 'https://github.com/QwenLM/qwen-code' },
-  aider:    { cmd: 'python -m pip install -U aider-chat',      url: 'https://aider.chat' },
   // Cursor no publica en npm: instalador propio. El de Windows es
   // irm 'https://cursor.com/install?win32=true' | iex — esta en la url.
   cursor:   { cmd: 'curl https://cursor.com/install -fsS | bash', manual: true, url: 'https://cursor.com/docs/cli/installation' },

@@ -7,7 +7,7 @@ export type InstallState = 'done' | 'failed' | 'cancelled'
  * only the aiType; the main process resolves the command here so the renderer
  * can never hand an arbitrary shell string to the spawner.
  *
- * REGLA: solo gestores de paquetes (npm, gh, pip). Nada de bajar un script y
+ * REGLA: solo gestores de paquetes (npm, gh). Nada de bajar un script y
  * ejecutarlo (`curl | bash`, `irm | iex`): ese patron es el que usa el malware
  * real para ejecutar en memoria, y Windows Defender lo levanta como
  * Trojan:Win32/Commando.A!ml aunque el script sea el instalador oficial del
@@ -25,8 +25,6 @@ export const INSTALL_COMMANDS: Record<string, string> = {
   deepseek: 'npm install -g @deepseek-ai/dsh',
   grok:     'npm install -g @xai-official/grok',
   qwen:     'npm install -g @qwen-code/qwen-code',
-  // Aider es Python: pip tambien es gestor de paquetes, cumple la regla.
-  aider:    'python -m pip install -U aider-chat',
   // Cursor no publica en npm: instalador propio, y el de Windows es otro
   // comando. Como el runner spawnea esto de verdad, mandar el de curl en
   // Windows seria mandarlo a fallar.

@@ -1,6 +1,6 @@
 import type { EditorPreferences, EditorTheme } from './lib/ide-config-mappings'
 
-export type AIType = 'claude' | 'gemini' | 'codex' | 'copilot' | 'opencode' | 'deepseek' | 'grok' | 'qwen' | 'aider' | 'cursor' | 'terminal' | 'custom' | 'browser' | 'editor'
+export type AIType = 'claude' | 'gemini' | 'codex' | 'copilot' | 'opencode' | 'deepseek' | 'grok' | 'qwen' | 'cursor' | 'terminal' | 'custom' | 'browser' | 'editor'
 
 export type LayoutId =
   | '1'
@@ -225,21 +225,19 @@ export const COLOR_PALETTE = [
 ]
 
 export const AI_CONFIG: Record<AIType, { label: string; color: string; bg: string; cmd: string; noAccount?: boolean }> = {
-  // ORDEN = como se ven en el picker (4 columnas). Esta puesto para que no
-  // queden dos tiles de la misma familia de color pegados, ni al lado ni
-  // arriba/abajo: hay cinco acromaticos (codex, opencode, cursor, grok,
-  // terminal), tres azules (gemini, deepseek, browser) y dos violetas
-  // (copilot, qwen), asi que sin intercalarlos el menu se lee como manchas.
-  // Los mas usados quedan igual en la primera fila.
+  // ORDEN = como se ven en el picker (4 columnas, 3 filas + Add CLI). Puesto
+  // para que no queden dos tiles de la misma familia de color pegados, ni al
+  // lado ni arriba/abajo: hay cinco acromaticos (codex, opencode, cursor,
+  // grok, terminal), tres azules (gemini, deepseek, browser) y dos violetas
+  // (copilot, qwen). Los mas usados quedan en la primera fila.
   claude:   { label: 'Claude',   color: '#E07B54', bg: '#2a1a14', cmd: 'claude'     },
-  codex:    { label: 'Codex',    color: '#aaaaaa', bg: '#1c1c1c', cmd: 'codex'      },
   gemini:   { label: 'Gemini',   color: '#4F9EFF', bg: '#0d1f35', cmd: 'gemini'     },
+  codex:    { label: 'Codex',    color: '#aaaaaa', bg: '#1c1c1c', cmd: 'codex'      },
   copilot:  { label: 'Copilot',  color: '#7C5CFC', bg: '#150d2e', cmd: 'gh copilot' },
-  opencode: { label: 'OpenCode', color: '#FFFFFF', bg: '#111111', cmd: 'opencode', noAccount: true },
   deepseek: { label: 'DeepSeek', color: '#4D6BFE', bg: '#0c1330', cmd: 'dsh',          noAccount: true },
-  cursor:   { label: 'Cursor',   color: '#D4D4D4', bg: '#181818', cmd: 'cursor-agent', noAccount: true },
-  aider:    { label: 'Aider',    color: '#4EC9A0', bg: '#0d221d', cmd: 'aider',        noAccount: true },
+  opencode: { label: 'OpenCode', color: '#FFFFFF', bg: '#111111', cmd: 'opencode', noAccount: true },
   qwen:     { label: 'Qwen',     color: '#6950EF', bg: '#14103a', cmd: 'qwen',         noAccount: true },
+  cursor:   { label: 'Cursor',   color: '#D4D4D4', bg: '#181818', cmd: 'cursor-agent', noAccount: true },
   grok:     { label: 'Grok',     color: '#E8E8E8', bg: '#141414', cmd: 'grok',         noAccount: true },
   browser:  { label: 'Browser',  color: '#0066FF', bg: '#0a1428', cmd: '',           noAccount: true },
   terminal: { label: 'Terminal', color: '#888888', bg: '#1a1a1a', cmd: '',           noAccount: true },

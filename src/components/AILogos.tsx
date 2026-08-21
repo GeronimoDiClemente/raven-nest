@@ -115,26 +115,6 @@ export function DeepSeekLogo({ size = 40 }: LogoProps) {
   )
 }
 
-// Aider no tiene simbolo: su logo oficial es un wordmark de 200x60 hecho con
-// <text> y una fuente de terminal embebida en base64 (estetica CRT verde). A
-// 36px de ancho "aider" son cinco letras de 7px, y en el header de 14 no se
-// lee. El >_ que habia antes era peor: identico al icono de Terminal.
-// Esta "a" monoespaciada conserva su identidad y se lee en los dos tamanos.
-export function AiderLogo({ size = 40, color = '#4EC9A0' }: LogoProps) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-      <text
-        x="12"
-        y="17.5"
-        textAnchor="middle"
-        fontSize="17"
-        fontFamily="ui-monospace, SFMono-Regular, Consolas, monospace"
-        fontWeight="700"
-        fill={color}
-      >a</text>
-    </svg>
-  )
-}
 
 export function CursorLogo({ size = 40, color = '#D4D4D4' }: LogoProps) {
   return (
@@ -230,7 +210,6 @@ export const AI_LOGOS: Partial<Record<AIType, LogoComponent>> = {
   deepseek: DeepSeekLogo,
   grok:     GrokLogo,
   qwen:     QwenLogo,
-  aider:    AiderLogo,
   cursor:   CursorLogo,
   browser:  BrowserLogo,
 }

@@ -68,7 +68,7 @@ export interface PlanLimits {
   isEnterprise: boolean
 }
 
-const ALL_AIS = ['claude', 'gemini', 'codex', 'copilot', 'opencode', 'deepseek', 'grok', 'qwen', 'aider', 'cursor', 'terminal', 'custom', 'browser']
+const ALL_AIS = ['claude', 'gemini', 'codex', 'copilot', 'opencode', 'deepseek', 'grok', 'qwen', 'cursor', 'terminal', 'custom', 'browser']
 
 const FULL_FEATURES: Omit<PlanLimits, 'allowTeam' | 'isEnterprise'> = {
   maxPanes: 12,

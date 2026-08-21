@@ -57,9 +57,9 @@ describe('CliInstallRunner', () => {
     expect(result.log).toContain('timed out')
   }, 10000)
 
-  it('INSTALL_COMMANDS cubre los 9 que se instalan por gestor de paquetes', () => {
+  it('INSTALL_COMMANDS cubre los 8 que se instalan por gestor de paquetes', () => {
     expect(Object.keys(INSTALL_COMMANDS).sort()).toEqual(
-      ['aider', 'claude', 'codex', 'copilot', 'deepseek', 'gemini', 'grok', 'opencode', 'qwen'],
+      ['claude', 'codex', 'copilot', 'deepseek', 'gemini', 'grok', 'opencode', 'qwen'],
     )
   })
 
@@ -127,7 +127,7 @@ describe('installCommandFor — solo gestores de paquetes', () => {
 
   it('todos arrancan con un gestor de paquetes', () => {
     for (const ai of Object.keys(INSTALL_COMMANDS)) {
-      expect(installCommandFor(ai)).toMatch(/^(npm install -g |gh extension install |python -m pip install )/)
+      expect(installCommandFor(ai)).toMatch(/^(npm install -g |gh extension install )/)
     }
   })
 
