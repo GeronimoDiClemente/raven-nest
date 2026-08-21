@@ -300,7 +300,7 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
 
   return (
     <div className="dialog-overlay" onClick={onCancel}>
-      <div className="dialog" onClick={(e) => e.stopPropagation()}>
+      <div className={`dialog${step === 'select-ai' ? ' dialog--picker' : ''}`} onClick={(e) => e.stopPropagation()}>
         {step === 'select-ai' ? (
           <>
             <h2 className="dialog-title">Choose AI</h2>

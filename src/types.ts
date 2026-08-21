@@ -236,8 +236,8 @@ export const AI_CONFIG: Record<AIType, { label: string; color: string; bg: strin
   // o API key, Nest no les administra cuentas como a claude/gemini/codex.
   deepseek: { label: 'DeepSeek', color: '#4D6BFE', bg: '#0c1330', cmd: 'dsh',          noAccount: true },
   grok:     { label: 'Grok',     color: '#E8E8E8', bg: '#141414', cmd: 'grok',         noAccount: true },
-  qwen:     { label: 'Qwen',     color: '#A855F7', bg: '#1c1030', cmd: 'qwen',         noAccount: true },
-  amp:      { label: 'Amp',      color: '#FF3E00', bg: '#2a1008', cmd: 'amp',          noAccount: true },
+  qwen:     { label: 'Qwen',     color: '#6950EF', bg: '#14103a', cmd: 'qwen',         noAccount: true },
+  amp:      { label: 'Amp',      color: '#9DBF6E', bg: '#13261c', cmd: 'amp',          noAccount: true },
   cursor:   { label: 'Cursor',   color: '#D4D4D4', bg: '#181818', cmd: 'cursor-agent', noAccount: true },
   terminal: { label: 'Terminal', color: '#888888', bg: '#1a1a1a', cmd: '',           noAccount: true },
   custom:   { label: 'Custom',   color: '#888888', bg: '#1a1a1a', cmd: '',           noAccount: true },
