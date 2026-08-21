@@ -29,6 +29,9 @@ class TerminalJoinService {
   private _rejected = false
 
   private history: string[] = []
+  private snapshot: string | null = null
+  private hostCols = 0
+  private hostRows = 0
   private onData: ((data: string) => void) | null = null
   private onSize: ((cols: number, rows: number) => void) | null = null
   private listeners = new Set<Listener>()
@@ -94,7 +97,16 @@ class TerminalJoinService {
         this.onData?.(data)
       })
       .on('broadcast', { event: 'size' }, ({ payload }) => {
-        this.onSize?.(payload.cols as number, payload.rows as number)
+        this.hostCols = payload.cols as number
+        this.hostRows = payload.rows as number
+        this.onSize?.(this.hostCols, this.hostRows)
+      })
+      .on('broadcast', { event: 'snapshot' }, ({ payload }) => {
+        // Foto de la pantalla del host al momento de entrar. Reemplaza al
+        // historial incremental: lo que venga despues son deltas sobre ESTA base.
+        this.snapshot = payload.data as string
+        this.history = []
+        if (this.onData) this.writeSnapshot(this.onData)
       })
       .on('broadcast', { event: 'join-approved' }, () => {
         console.log('[TerminalJoin] join approved by host')
@@ -133,15 +145,26 @@ class TerminalJoinService {
   }
 
   attachViewer(fn: (data: string) => void) {
-    this.onData = fn
     if (this.replayTimer) { clearTimeout(this.replayTimer); this.replayTimer = null }
-    if (this.history.length > 0) {
-      const snapshot = this.history.slice()
-      this.replayTimer = setTimeout(() => {
-        this.replayTimer = null
-        for (const data of snapshot) fn(data)
-      }, 50)
-    }
+    // El estado conocido se escribe ANTES de enganchar el stream vivo, y de
+    // forma sincrona. Antes era al reves: onData se enganchaba ya y el historial
+    // se replayeaba 50ms despues, asi que los primeros chunks nuevos se escribian
+    // ANTES que los viejos y la pantalla quedaba corrupta en cada join.
+    this.writeSnapshot(fn)
+    for (const data of this.history) fn(data)
+    this.onData = fn
+  }
+
+  /** Limpia la pantalla y escribe la foto del host, si la tenemos. */
+  private writeSnapshot(fn: (data: string) => void) {
+    if (!this.snapshot) return
+    fn('\x1b[H\x1b[2J\x1b[3J')
+    fn(this.snapshot)
+  }
+
+  /** Tamano del host, para que el viewer adopte sus columnas. */
+  get hostSize(): { cols: number; rows: number } | null {
+    return this.hostCols > 0 ? { cols: this.hostCols, rows: this.hostRows } : null
   }
 
   detachViewer() {

@@ -13,13 +13,31 @@ export default function SharedTerminalViewer({ onClose }: Props) {
   const fitAddonRef = useRef<FitAddon | null>(null)
   const [fontSize, setFontSize] = useState(14)
 
-  const applyFontSize = useCallback((size: number) => {
-    if (!termRef.current || !fitAddonRef.current) return
-    termRef.current.options.fontSize = size
-    requestAnimationFrame(() => {
-      try { fitAddonRef.current?.fit() } catch { /* ignore */ }
-    })
+  /**
+   * El viewer NO reflowea: adopta las cols/rows del host y escala para entrar
+   * en su ventana. Reflowear implicaba redimensionar el PTY del host, que le
+   * rompia la terminal al que comparte (y se la dejaba rota al irse el invitado).
+   */
+  const applyScale = useCallback(() => {
+    const cont = containerRef.current
+    const el = cont?.querySelector('.xterm') as HTMLElement | null
+    if (!cont || !el) return
+    el.style.transformOrigin = 'top left'
+    el.style.transform = 'none'
+    const natW = el.offsetWidth
+    const natH = el.offsetHeight
+    if (!natW || !natH) return
+    const k = Math.min(1, cont.clientWidth / natW, cont.clientHeight / natH)
+    el.style.transform = k < 1 ? `scale(${k})` : 'none'
   }, [])
+
+  // Ctrl+= / Ctrl+- cambia el cuerpo de la letra; las columnas siguen siendo las
+  // del host, asi que solo cambia cuanto ocupa y por ende la escala.
+  const applyFontSize = useCallback((size: number) => {
+    if (!termRef.current) return
+    termRef.current.options.fontSize = size
+    requestAnimationFrame(() => applyScale())
+  }, [applyScale])
 
   // Ctrl+= aumenta, Ctrl+- reduce (igual que VS Code / iTerm)
   useEffect(() => {
@@ -64,8 +82,10 @@ export default function SharedTerminalViewer({ onClose }: Props) {
 
     requestAnimationFrame(() => {
       try {
-        fitAddon.fit()
-        terminalJoinService.sendResize(term.cols, term.rows)
+        // Si el 'size' del host ya llego (puede adelantarse al mount), lo tomamos.
+        const hs = terminalJoinService.hostSize
+        if (hs) term.resize(hs.cols, hs.rows)
+        applyScale()
       } catch { /* ignore */ }
     })
 
@@ -83,16 +103,23 @@ export default function SharedTerminalViewer({ onClose }: Props) {
       }
     })
 
+    // El host dicta el tamano (attachSizeListener existia y no lo llamaba nadie:
+    // todos los broadcasts de 'size' se tiraban a la basura).
+    terminalJoinService.attachSizeListener((cols, rows) => {
+      try {
+        if (cols > 0 && rows > 0) term.resize(cols, rows)
+        applyScale()
+      } catch { /* ignore */ }
+    })
+
     // Replay history and attach for live data
     terminalJoinService.attachViewer(write)
 
-    // ResizeObserver — keeps the terminal fitted to the container and notifies the host
+    // ResizeObserver — re-escala para entrar en la ventana. NO toca las columnas
+    // ni le avisa al host: su terminal no es nuestra para redimensionar.
     const resizeObserver = new ResizeObserver(() => {
       requestAnimationFrame(() => {
-        try {
-          fitAddon.fit()
-          terminalJoinService.sendResize(term.cols, term.rows)
-        } catch { /* ignore */ }
+        try { applyScale() } catch { /* ignore */ }
       })
     })
     resizeObserver.observe(containerRef.current!)
