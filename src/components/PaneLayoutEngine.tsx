@@ -1,4 +1,5 @@
 import { Fragment, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { beginResizeSuppression, endResizeSuppression } from '../lib/pane-resize-gate'
 import { createPortal } from 'react-dom'
 import { PanelGroup, Panel, PanelResizeHandle } from 'react-resizable-panels'
 import type { PaneNode, LayoutId } from '../types'
@@ -152,7 +153,14 @@ function renderSplit(
         const key = child.kind === 'pane' ? `slot-${child.slot}` : `split-${i}`
         return (
           <Fragment key={key}>
-            {i > 0 && <PanelResizeHandle className={handleClass} />}
+            {i > 0 && (
+              <PanelResizeHandle
+                className={handleClass}
+                // Arrastrar el divisor pasa por decenas de tamanos intermedios:
+                // el pty se entera recien cuando lo soltas.
+                onDragging={(dragging) => dragging ? beginResizeSuppression() : endResizeSuppression()}
+              />
+            )}
             <Panel id={String(key)} order={i} defaultSize={ratios[i]} minSize={8}>
               {renderSplit(child, `${path}/${i}`, panes, splitRatios, onResize, renderEmpty, slotRef)}
             </Panel>

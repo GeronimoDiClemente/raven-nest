@@ -43,8 +43,8 @@ contextBridge.exposeInMainWorld('pty', {
     ipcRenderer.invoke('pty:create', paneId, cmd, accountDir, repoPath, shellId),
   write: (paneId: string, data: string) =>
     ipcRenderer.send('pty:write', paneId, data),
-  resize: (paneId: string, cols: number, rows: number) =>
-    ipcRenderer.send('pty:resize', paneId, cols, rows),
+  resize: (paneId: string, cols: number, rows: number, source?: string) =>
+    ipcRenderer.send('pty:resize', paneId, cols, rows, source),
   kill: (paneId: string) =>
     ipcRenderer.invoke('pty:kill', paneId),
   exists: (paneId: string) =>

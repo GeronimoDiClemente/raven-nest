@@ -212,8 +212,10 @@ export class PtyManager extends EventEmitter {
     this.ptys.get(paneId)?.write(data)
   }
 
-  resize(paneId: string, cols: number, rows: number): void {
+  resize(paneId: string, cols: number, rows: number, source?: string): void {
     if (!this.ptys.has(paneId)) return
+    // TRAZA temporal: quien pide cada resize y cual termina llegando al proceso.
+    console.log(`[resize-trace] req  pane=${paneId} ${cols}x${rows} from=${source ?? '?'}`)
     const last = this.lastSize.get(paneId)
     if (last && last.cols === cols && last.rows === rows) {
       // Volvio al tamano que el pty ya tiene: lo que estuviera agendado sobra.
@@ -243,6 +245,7 @@ export class PtyManager extends EventEmitter {
       const last = this.lastSize.get(paneId)
       if (last && last.cols === size.cols && last.rows === size.rows) return
       this.lastSize.set(paneId, size)
+      console.log(`[resize-trace] APPLY pane=${paneId} ${size.cols}x${size.rows}`)
       try {
         ptyProc.resize(size.cols, size.rows)
       } catch (err) {

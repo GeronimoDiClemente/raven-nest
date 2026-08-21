@@ -13,6 +13,7 @@ import { defaultLayoutFor, hubLayoutFor, mapLegacyToPreset } from './layout/sele
 import { swap } from './layout/swap'
 import { reorderById } from './layout/reorder'
 import { paneAccentColor } from './lib/pane-accent-color'
+import { beginResizeSuppression, endResizeSuppression } from './lib/pane-resize-gate'
 import { nextFontSize, FONT_SIZE_DEFAULT } from './lib/pane-font-size'
 import { isInsideCodeEditor } from './lib/editor-owns-shortcut'
 import { basename } from './lib/path'
@@ -680,6 +681,7 @@ export default function App() {
     // varios MB que quedaban en memoria hasta el drag siguiente, y una foto
     // vieja podia mostrarse como freeze-frame de un pane cuyo contenido ya
     // cambio.
+    beginResizeSuppression()
     const gen = ++dragGenRef.current
     // Captura best-effort: NUNCA debe lanzar ni romper el drag/reorder
     // (try/catch + guardas). Fotografiamos TODOS los browser para mostrar su
@@ -710,12 +712,14 @@ export default function App() {
   // el puntero. Sin esto, draggingId nunca volvía a null y los browsers quedaban
   // colapsados en blanco con el fantasma pegado.
   const handleDragCancel = useCallback(() => {
+    endResizeSuppression()
     dragGenRef.current++
     setDraggingId(null)
     setDragSnapshots({})
   }, [])
 
   const handleDragEnd = useCallback((e: DragEndEvent) => {
+    endResizeSuppression()
     dragGenRef.current++
     setDraggingId(null)
     setDragSnapshots({})
@@ -903,6 +907,7 @@ export default function App() {
 
   // Reorder del Hub: swap AL SOLTAR (mismo gesto que el workspace).
   const handleHubDragEnd = useCallback((e: DragEndEvent) => {
+    endResizeSuppression()
     setDraggingId(null)
     setDragSnapshots({})
     const { active, over } = e

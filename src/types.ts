@@ -336,7 +336,7 @@ declare global {
     pty: {
       create: (paneId: string, cmd: string, accountDir: string, repoPath?: string, shellId?: string) => Promise<{ ok: true } | { ok: false; error: string }>
       write: (paneId: string, data: string) => void
-      resize: (paneId: string, cols: number, rows: number) => void
+      resize: (paneId: string, cols: number, rows: number, source?: string) => void
       kill: (paneId: string) => Promise<void>
       exists: (paneId: string) => Promise<boolean>
       getBuffer: (paneId: string) => Promise<string>

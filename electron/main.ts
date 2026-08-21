@@ -891,8 +891,8 @@ ipcMain.on('pty:write', (_event, paneId: string, data: string) => {
   ptyManager.write(paneId, data)
 })
 
-ipcMain.on('pty:resize', (_event, paneId: string, cols: number, rows: number) => {
-  ptyManager.resize(paneId, cols, rows)
+ipcMain.on('pty:resize', (_event, paneId: string, cols: number, rows: number, source?: string) => {
+  ptyManager.resize(paneId, cols, rows, source)
 })
 
 ipcMain.handle('pty:kill', (_event, paneId: string) => {

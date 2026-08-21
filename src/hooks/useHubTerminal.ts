@@ -86,7 +86,7 @@ export function useHubTerminal(paneId: string, canResizePty: boolean) {
           if (!container.clientWidth || !container.clientHeight) return
           fit.fit()
           if (canResizeRef.current && container.contains(document.activeElement)) {
-            window.pty.resize(paneId, term.cols, term.rows)
+            window.pty.resize(paneId, term.cols, term.rows, 'hub-tile')
           }
         } catch { /* ignore */ }
       })
@@ -109,7 +109,7 @@ export function useHubTerminal(paneId: string, canResizePty: boolean) {
     if (canResizeRef.current && fitRef.current) {
       try {
         fitRef.current.fit()
-        window.pty.resize(paneId, term.cols, term.rows)
+        window.pty.resize(paneId, term.cols, term.rows, 'hub-tile')
       } catch { /* ignore */ }
     }
   }, [paneId])
