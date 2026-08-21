@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { minimapEnabledFor } from '../lib/editor-minimap'
 import Editor from '@monaco-editor/react'
 import { useBridge } from '../lib/bridge'
 import { FileIcon } from './ExplorerPanel'
@@ -47,9 +48,15 @@ interface EditorPaneProps {
   onFileDropped?: (relPath: string) => void
   editorOptions?: EditorPreferences
   editorTheme?: EditorTheme
+  /** Zoom de pane, igual que terminal y browser: el editor no lo tenía. */
+  zoomed?: boolean
+  zoomingOut?: boolean
+  onZoom?: () => void
+  /** Tamaño de fuente del editor. Por pane, con fallback al global. */
+  fontSize?: number
 }
 
-export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPane, onTabDropped, onFileDropped, editorOptions, editorTheme }: EditorPaneProps) {
+export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPane, onTabDropped, onFileDropped, editorOptions, editorTheme, zoomed, zoomingOut, onZoom, fontSize }: EditorPaneProps) {
   const bridge = useBridge()
   const worktreePath = pane.repoPath
   const tabs = pane.editorTabs ?? []
@@ -125,10 +132,25 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
   // El editor ya usa containerRef para el listener Ctrl+S; dnd-kit necesita su
   // propio nodeRef sobre el MISMO root. Los combinamos en un solo callback ref,
   // igual que TerminalPane (combinedRef).
+  const [rootEl, setRootEl] = useState<HTMLDivElement | null>(null)
   const setRootRef = useCallback((el: HTMLDivElement | null) => {
     setNodeRef(el)
     containerRef.current = el
+    setRootEl(el)
   }, [setNodeRef])
+
+  // El minimap sigue al ANCHO del pane: aparece con un pane único, con dos en
+  // paralelo o al agrandarlo con el zoom de Nest, y se esconde cuando el pane
+  // se angosta (ahí roba ~80px y el texto es ilegible). Monaco no lo hace solo.
+  const [paneWidth, setPaneWidth] = useState(0)
+  useEffect(() => {
+    if (!rootEl) return
+    const measure = () => setPaneWidth(rootEl.clientWidth)
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(rootEl)
+    return () => ro.disconnect()
+  }, [rootEl])
 
   const sortableStyle: React.CSSProperties = {
     // Sin transform de dnd-kit: el swap es al soltar. Sin transform, Monaco no
@@ -582,7 +604,7 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
 
   return (
     <div
-      className={`editor-pane${dropActive ? ' drop-target' : ''}`}
+      className={`editor-pane${zoomed ? ' zoomed' : ''}${zoomed && zoomingOut ? ' zooming-out' : ''}${dropActive ? ' drop-target' : ''}`}
       data-testid="editor-pane"
       onFocus={onFocus}
       tabIndex={-1}
@@ -706,6 +728,19 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
             </span>
           </div>
         ))}
+        {onZoom && (
+          <button
+            className="editor-pane-zoom"
+            title={zoomed ? 'Restore' : 'Zoom'}
+            onClick={(e) => { e.stopPropagation(); onZoom() }}
+          >
+            <svg width="11" height="11" viewBox="0 0 16 16" fill="none">
+              {zoomed
+                ? <path d="M9.5 6.5h4M9.5 6.5v-4M9.5 6.5L14 2M6.5 9.5h-4M6.5 9.5v4M6.5 9.5L2 14" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+                : <path d="M10 2.5h3.5V6M6 13.5H2.5V10M13.5 2.5L9 7M2.5 13.5L7 9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />}
+            </svg>
+          </button>
+        )}
       </div>
       {activePath && conflicts[activePath] && (
         <div className="editor-conflict-banner" data-testid="conflict-banner">
@@ -735,12 +770,18 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
           // Los no built-in los aplica applyTheme; acá va el fallback seguro.
           theme={editorTheme && isMonacoBuiltinTheme(editorTheme) ? editorTheme : 'vs-dark'}
           onMount={handleEditorMount}
-          // Minimap apagado por DEFAULT: en panes chicos renderiza texto
-          // microscópico ilegible (ruido visual puro). Word wrap ON por
+          // Minimap SEGÚN EL ANCHO del pane (ver lib/editor-minimap): en panes
+          // chicos renderiza texto microscópico ilegible y roba ancho útil, en
+          // uno grande es la barra de VS Code que sí sirve. Word wrap ON por
           // default: en panes angostos la línea clipeada seca contra el borde
           // del vecino se lee como superposición. Las opciones del usuario
-          // (Settings / import de config) pisan ambos (spread después).
-          options={{ minimap: { enabled: false }, wordWrap: 'on', ...(editorOptions ?? {}) }}
+          // (Settings / import de config) pisan todo (spread después).
+          options={{
+            minimap: { enabled: minimapEnabledFor(paneWidth) },
+            wordWrap: 'on',
+            ...(fontSize ? { fontSize } : {}),
+            ...(editorOptions ?? {}),
+          }}
         />
       ) : activePath ? (
         // Contenido aún no cargado del disco: mostrar carga en vez de montar un

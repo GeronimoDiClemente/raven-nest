@@ -31,6 +31,8 @@ export interface EditorTab {
 
 export interface PaneNode {
   id: string
+  /** Tamano de fuente propio del pane. Sin valor, hereda el global. */
+  fontSize?: number
   aiType: AIType
   accountName: string
   accountDir: string

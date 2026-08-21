@@ -2163,6 +2163,41 @@ body {
   animation: zoomIn 0.3s cubic-bezier(0.32, 0.72, 0, 1) forwards;
 }
 
+/* El editor zoomeado ocupa todo el workspace igual que la terminal. */
+.editor-pane.zoomed {
+  position: fixed;
+  top: var(--titlebar-height);
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 50;
+  border-radius: 0;
+  animation: zoomIn 0.3s cubic-bezier(0.32, 0.72, 0, 1) forwards;
+}
+
+.editor-pane.zoomed.zooming-out {
+  animation: zoomOut 0.3s cubic-bezier(0.32, 0.72, 0, 1) forwards;
+}
+
+.editor-pane-zoom {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  margin-left: auto;
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.1s, color 0.1s;
+}
+
+.editor-pane:hover .editor-pane-zoom { opacity: 1; }
+.editor-pane-zoom:hover { color: var(--text-primary); }
+
 .terminal-pane.zoomed.zooming-out {
   animation: zoomOut 0.3s cubic-bezier(0.32, 0.72, 0, 1) forwards;
 }

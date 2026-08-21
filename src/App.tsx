@@ -13,6 +13,7 @@ import { defaultLayoutFor, hubLayoutFor, mapLegacyToPreset } from './layout/sele
 import { swap } from './layout/swap'
 import { reorderById } from './layout/reorder'
 import { paneAccentColor } from './lib/pane-accent-color'
+import { nextFontSize, FONT_SIZE_DEFAULT } from './lib/pane-font-size'
 import { isInsideCodeEditor } from './lib/editor-owns-shortcut'
 import { basename } from './lib/path'
 import { collectDragCaptures } from './layout/dragCaptures'
@@ -112,6 +113,7 @@ export default function App() {
   const [broadcastMode, setBroadcastMode] = useState(false)
   const [focusedPaneId, setFocusedPaneId] = useState<string | null>(null)
   const [panePorts, setPanePorts] = useState<Record<string, number[]>>({})
+  const fontSizeRef = useRef(13)
   const focusedPaneIdRef = useRef<string | null>(null)
   const zoomedPaneIdRef = useRef<string | null>(null)
   zoomedPaneIdRef.current = zoomedPaneId
@@ -235,6 +237,8 @@ export default function App() {
   const userPrefs = useUserPreferences()
 
   useLocalPathsMigration()
+
+  useEffect(() => { fontSizeRef.current = fontSize }, [fontSize])
 
   // Sync fontSize from Supabase once loaded
   useEffect(() => {
@@ -647,6 +651,26 @@ export default function App() {
 
   // Invalida las capturas en vuelo de un drag ya terminado (ver handleDragStart).
   const dragGenRef = useRef(0)
+
+  // El zoom de letra es POR PANE: agrandar una terminal no debe agrandar todas.
+  // Con un pane enfocado el atajo toca SU tamano; sin foco (o al resetear) cae
+  // al global, que sigue siendo el default de los panes nuevos y lo que se
+  // persiste en las prefs.
+  const bumpPaneFontSize = useCallback((step: number | 'reset') => {
+    const paneId = focusedPaneIdRef.current
+    if (!paneId) {
+      const n = step === 'reset' ? FONT_SIZE_DEFAULT : nextFontSize(fontSizeRef.current, step)
+      setFontSize(n)
+      localStorage.setItem('nest-font-size', String(n))
+      userPrefs.setFontSize(n)
+      return
+    }
+    updatePaneAnywhere(paneId, p => (
+      step === 'reset'
+        ? { ...p, fontSize: undefined }
+        : { ...p, fontSize: nextFontSize(p.fontSize ?? fontSizeRef.current, step) }
+    ))
+  }, [updatePaneAnywhere, userPrefs])
 
   const handleDragStart = useCallback((e: DragStartEvent) => {
     const id = String(e.active.id)
@@ -1250,17 +1274,17 @@ export default function App() {
 
       if (matchesBinding(e, kb.fontSizeUp)) {
         e.preventDefault()
-        setFontSize(s => { const n = Math.min(s + 1, 20); localStorage.setItem('nest-font-size', String(n)); userPrefs.setFontSize(n); return n })
+        bumpPaneFontSize(1)
         return
       }
       if (matchesBinding(e, kb.fontSizeDown)) {
         e.preventDefault()
-        setFontSize(s => { const n = Math.max(s - 1, 9); localStorage.setItem('nest-font-size', String(n)); userPrefs.setFontSize(n); return n })
+        bumpPaneFontSize(-1)
         return
       }
       if (matchesBinding(e, kb.fontSizeReset)) {
         e.preventDefault()
-        setFontSize(13); localStorage.setItem('nest-font-size', '13'); userPrefs.setFontSize(13)
+        bumpPaneFontSize('reset')
         return
       }
 
@@ -1547,6 +1571,10 @@ export default function App() {
           onFileDropped={(relPath) => handleEditorFileDropped(pane.id, relPath)}
           editorOptions={userPrefs.prefs.ui_settings.editorOptions}
           editorTheme={userPrefs.prefs.ui_settings.editorTheme}
+          zoomed={zoomedPaneId === pane.id}
+          zoomingOut={zoomedPaneId === pane.id && zoomingOut}
+          onZoom={() => handleZoom(pane.id)}
+          fontSize={pane.fontSize ?? fontSize}
         />
       </PaneErrorBoundary>
     )
@@ -1579,7 +1607,7 @@ export default function App() {
       onClose={() => removePaneAnywhere(pane.id)}
       onColorChange={(c) => updatePaneAnywhere(pane.id, p => ({ ...p, borderColor: c }))}
       onNoteChange={(note) => updatePaneAnywhere(pane.id, p => ({ ...p, note }))}
-      fontSize={fontSize}
+      fontSize={pane.fontSize ?? fontSize}
       onInput={(data) => {
         // El broadcast también aplica DESDE el Hub: los targets son los panes
         // agentes visibles en el Hub (el onInput del workspace no corre acá —
@@ -1789,6 +1817,10 @@ export default function App() {
                           onFileDropped={(relPath) => handleEditorFileDropped(pane.id, relPath)}
                           editorOptions={userPrefs.prefs.ui_settings.editorOptions}
                           editorTheme={userPrefs.prefs.ui_settings.editorTheme}
+                          zoomed={zoomedPaneId === pane.id}
+                          zoomingOut={zoomedPaneId === pane.id && zoomingOut}
+                          onZoom={() => handleZoom(pane.id)}
+                          fontSize={pane.fontSize ?? fontSize}
                         />
                       </PaneErrorBoundary>
                     )
@@ -1826,7 +1858,7 @@ export default function App() {
                         onClose={() => removePane(pane.id)}
                         onColorChange={(c) => updatePaneColor(pane.id, c)}
                         onNoteChange={(note) => updatePaneNote(pane.id, note)}
-                        fontSize={fontSize}
+                        fontSize={pane.fontSize ?? fontSize}
                         onInput={(data) => {
                           // Broadcast solo a panes de AGENTE (más la propia):
                           // editor/browser no tienen PTY y una shell plana
