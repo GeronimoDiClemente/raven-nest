@@ -21,13 +21,11 @@ const makePane = (id: string): PaneNode =>
 describe('PaneLayoutEngine — identidad en layouts anidados', () => {
   beforeEach(() => { for (const k of Object.keys(mounts)) delete mounts[k] })
 
-  // BUG CONOCIDO (pendiente de decisión): React no puede mover un elemento
-  // entre padres, así que un swap que cruza de PanelGroup remonta ambos panes
-  // (Monaco negro, WebContentsView recreado). Arreglarlo de raíz exige
-  // reparenting: montar cada pane en un contenedor estable y mover ese nodo
-  // entre slots. it.fails documenta el límite sin dejar la suite en rojo:
-  // cuando se arregle, este test pasa a it() normal y sigue verde.
-  it.fails('un swap que cruza de PanelGroup tampoco debe remontar', () => {
+  // Regresion: React no puede mover un elemento entre padres, asi que con el
+  // arbol keyeado por pane un swap entre grupos remontaba ambos (Monaco negro,
+  // WebContentsView recreado). El motor hace reparenting: el pane vive en su
+  // host y ese nodo se muda de slot.
+  it('un swap que cruza de PanelGroup tampoco debe remontar', () => {
     const a = makePane('a')
     const b = makePane('b')
     const c = makePane('c')
