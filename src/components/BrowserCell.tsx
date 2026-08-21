@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { overlaySelectorFor } from '../lib/browser-overlay-selectors'
 import type { PaneNode } from '../types'
 import { useSortable } from '@dnd-kit/sortable'
 
@@ -228,56 +229,14 @@ export default function BrowserCell({ pane, onClose, onNavigate, borderColor, si
     // so any sidebar popover or modal must collapse this pane to avoid being
     // covered. Includes: dialogs, full-screen workspaces, sidebar popovers,
     // pane-level overlays.
-    const OVERLAY_SELECTOR = [
-      // Zoom de OTRO pane: su backdrop cubre todo, así que el browser debe
-      // colapsar para no taparlo. Si ESTE browser es el zoomeado, send() lo
-      // excluye vía zoomedRef y lo agranda en su lugar.
-      '.zoom-backdrop',
-      // Dialogs / modals (full-screen backdrops)
-      '.dialog-overlay',
-      '.confirm-overlay',
-      '.team-modal-overlay',
-      '.modal-overlay',
-      '.cmd-overlay',
-      '.global-search-overlay',
-      '.repo-picker-overlay',
-      '.repo-picker-modal',
-      '.upgrade-modal',
-      // Full-screen workspace views
-      '.teams-workspace',
-      // Sidebars / panels
-      '.snippet-panel',
-      '.mcp-panel',
-      '.notification-panel',
-      '.conv-overlay',
-      '.conv-sidebar',
-      '.diff-drawer',
-      '.repo-status-panel',
-      '.ts-panel',
-      // Popovers / inline overlays
-      '.layout-popover',
-      '.layout-selector-popover',
-      '.user-menu-popover',
-      '.cmd-panel',
-      '.pane-color-popover',
-      '.resource-bar-popover',
-      '.rb-overlay',
-      '.port-chips-popover',
-      '.wt-context-menu',
-      '.ide-picker-menu',
-      '.repo-menu-pop',
-      // Pane-level overlays
-      '.browser-port-dropdown',
-      '.browser-self-origin-overlay',
-    ].join(', ')
 
     const computeBounds = (): { x: number; y: number; width: number; height: number } => {
       // Si el drag oculta este browser, colapsar (la foto la muestra el overlay).
       if (hiddenForDragRef.current) return { x: 0, y: 0, width: 0, height: 0 }
-      // Si ESTE browser está zoomeado, ignorar el colapso por overlay: el
-      // .zoom-backdrop está en el DOM pero acá hay que AGRANDAR el view al rect
-      // (fullscreen por la clase .browser-cell.zoomed), no ocultarlo.
-      if (!zoomedRef.current && document.querySelector(OVERLAY_SELECTOR)) {
+      // Zoomeado, este pane ignora SU propio .zoom-backdrop (hay que agrandar el
+      // view al rect, no ocultarlo) pero NO el resto de los overlays: la capa
+      // nativa va por encima del DOM y taparia cualquier modal abierto.
+      if (document.querySelector(overlaySelectorFor(zoomedRef.current))) {
         return { x: 0, y: 0, width: 0, height: 0 }
       }
       const r = el.getBoundingClientRect()

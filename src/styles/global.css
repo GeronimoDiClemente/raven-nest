@@ -9661,6 +9661,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
 }
 
 .editor-tab {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -9693,7 +9694,24 @@ body.platform-mac .tabbar { padding-right: 116px; }
 .editor-tab-name { overflow: hidden; text-overflow: ellipsis; }
 
 .editor-tab-dirty { color: #a78bfa; font-size: 10px; line-height: 1; }
-.editor-tab-actions { display: none; align-items: center; gap: 1px; }
+/* Los botones flotan sobre el final de la tab. Con min-width 38px y overflow
+   hidden quedaban clipeados fuera del box: el x y el "abrir en otro pane" eran
+   inalcanzables y no se podia cerrar un archivo sin cerrar otros antes.
+   Absolutos entran siempre, sin ensanchar la tab ni empujar a las vecinas. */
+.editor-tab-actions {
+  display: none;
+  align-items: center;
+  gap: 1px;
+  position: absolute;
+  right: 2px;
+  top: 50%;
+  transform: translateY(-50%);
+  padding-left: 12px;
+  background: linear-gradient(to right, transparent 0, var(--bg-surface) 12px);
+}
+.editor-tab.active .editor-tab-actions {
+  background: linear-gradient(to right, transparent 0, var(--bg-elevated) 12px);
+}
 .editor-tab:hover .editor-tab-actions { display: flex; }
 .editor-tab.dirty:hover .editor-tab-dirty { display: none; }
 
