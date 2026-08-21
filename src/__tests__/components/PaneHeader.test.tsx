@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest'
-import { render } from '@testing-library/react'
+import { describe, it, expect, vi } from 'vitest'
+import { render, screen, fireEvent } from '@testing-library/react'
 import PaneHeader from '../../components/PaneHeader'
 import type { PaneNode } from '../../types'
 
@@ -66,5 +66,33 @@ describe('PaneHeader — borde del header al apagar el color', () => {
     )
     const style = container.querySelector('.pane-header')?.getAttribute('style') ?? ''
     expect(style).not.toContain('transparent44')
+  })
+})
+
+// Recuperados: estos tres tests existian y se perdieron al reemplazar el
+// archivo por los de color. La feature de rename sigue viva en PaneHeader
+// (editingLabel / commitLabel con trim / prop onRename), asi que sin ellos
+// una regresion en el trim o en el doble click pasaba desapercibida.
+describe('PaneHeader — rename', () => {
+  const aiPane = () => makePane({ aiType: 'claude', accountName: 'work', borderColor: '#8B5CF6' })
+
+  it('muestra el label custom como texto en un pane de agente', () => {
+    render(<PaneHeader {...baseProps} pane={{ ...aiPane(), customLabel: 'API server' }} onRename={() => {}} />)
+    expect(screen.getByText('API server')).toBeTruthy()
+  })
+
+  it('renombra con doble click, tipeo y Enter, recortando el valor', () => {
+    const onRename = vi.fn()
+    render(<PaneHeader {...baseProps} pane={aiPane()} onRename={onRename} />)
+    fireEvent.doubleClick(screen.getByTitle(/rename/i))
+    const input = screen.getByPlaceholderText(/rename/i)
+    fireEvent.change(input, { target: { value: '  DB pane  ' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(onRename).toHaveBeenCalledWith('DB pane')
+  })
+
+  it('no ofrece rename si no le pasan onRename', () => {
+    render(<PaneHeader {...baseProps} pane={aiPane()} />)
+    expect(screen.queryByTitle(/rename/i)).toBeNull()
   })
 })

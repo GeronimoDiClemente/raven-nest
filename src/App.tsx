@@ -645,41 +645,54 @@ export default function App() {
     }))
   }, [updateActiveTab])
 
+  // Invalida las capturas en vuelo de un drag ya terminado (ver handleDragStart).
+  const dragGenRef = useRef(0)
+
   const handleDragStart = useCallback((e: DragStartEvent) => {
     const id = String(e.active.id)
-    setDraggingId(id)
     setDragSnapshots({})
+    // Generacion del drag: las capturas son async y pueden resolver DESPUES de
+    // que el drag termino. Sin este token repoblaban dragSnapshots con PNGs de
+    // varios MB que quedaban en memoria hasta el drag siguiente, y una foto
+    // vieja podia mostrarse como freeze-frame de un pane cuyo contenido ya
+    // cambio.
+    const gen = ++dragGenRef.current
     // Captura best-effort: NUNCA debe lanzar ni romper el drag/reorder
-    // (try/catch + guardas). Fotografiamos TODOS los browser (freeze-frame en
-    // su lugar mientras el view se colapsa) + el pane arrastrado (fantasma).
+    // (try/catch + guardas). Fotografiamos TODOS los browser para mostrar su
+    // freeze-frame en su lugar mientras el view nativo se colapsa.
+    //
+    // Se pide ANTES de setDraggingId a proposito: ese estado dispara el colapso
+    // del WebContentsView a 0x0 y capturePage sobre un view colapsado vuelve
+    // vacio. Pedir primero le da a la captura el frame de ventaja.
     try {
-      if (typeof window.browser?.capturePane !== 'function') return
-      const candidates = [...(panesRef.current ?? []), ...(hubPanesRef.current ?? [])]
-      const init = e.active.rect.current.initial
-      const draggedRect = init
-        ? { x: init.left, y: init.top, width: init.width, height: init.height }
-        : undefined
-      for (const spec of collectDragCaptures(candidates, id)) {
-        const rect = spec.paneId === id ? draggedRect : undefined
-        void window.browser
-          .capturePane({ paneId: spec.paneId, kind: spec.kind, rect })
-          .then((img) => { if (img) setDragSnapshots(prev => ({ ...prev, [spec.paneId]: img })) })
-          .catch(() => {})
+      if (typeof window.browser?.capturePane === 'function') {
+        const candidates = [...(panesRef.current ?? []), ...(hubPanesRef.current ?? [])]
+        for (const spec of collectDragCaptures(candidates)) {
+          void window.browser
+            .capturePane({ paneId: spec.paneId, kind: spec.kind })
+            .then((img) => {
+              if (img && dragGenRef.current === gen) setDragSnapshots(prev => ({ ...prev, [spec.paneId]: img }))
+            })
+            .catch(() => {})
+        }
       }
     } catch {
       /* la captura es opcional; el reorder debe seguir funcionando */
     }
+    setDraggingId(id)
   }, [])
 
   // dnd-kit dispara onDragCancel (NO onDragEnd) al cancelar con Escape / perder
   // el puntero. Sin esto, draggingId nunca volvía a null y los browsers quedaban
   // colapsados en blanco con el fantasma pegado.
   const handleDragCancel = useCallback(() => {
+    dragGenRef.current++
     setDraggingId(null)
     setDragSnapshots({})
   }, [])
 
   const handleDragEnd = useCallback((e: DragEndEvent) => {
+    dragGenRef.current++
     setDraggingId(null)
     setDragSnapshots({})
     // Swap AL SOLTAR: intercambia sólo los dos panes (el arrastrado y el que

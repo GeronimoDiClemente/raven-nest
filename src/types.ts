@@ -605,7 +605,7 @@ declare global {
       // Snapshot (dataURL PNG) del contenido de un pane para el fantasma del
       // drag. kind 'browser' captura el WebContentsView nativo; 'dom' captura
       // la región `rect` de la ventana (terminal/editor). Devuelve null si falla.
-      capturePane: (opts: { paneId: string; kind: 'browser' | 'dom'; rect?: { x: number; y: number; width: number; height: number } }) => Promise<string | null>
+      capturePane: (opts: { paneId: string; kind: 'browser' | 'dom'; dpr?: number; rect?: { x: number; y: number; width: number; height: number } }) => Promise<string | null>
     }
     settings: {
       get: () => Promise<{

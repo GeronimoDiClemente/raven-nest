@@ -2964,7 +2964,7 @@ body {
 .pr-review-state.changes_requested { background: #f59e0b22; color: #f59e0b; border: 1px solid #f59e0b44; }
 .pr-review-state.commented { background: #3b82f622; color: #3b82f6; border: 1px solid #3b82f644; }
 .pr-review-state.pending { background: #6b728022; color: #9ca3af; border: 1px solid #6b728044; }
-.pr-review-state.dismissed { background: var(--border); color: var(--text-muted); border: 1px solid var(--border); }
+.pr-review-state.dismissed { background: var(--muted); color: var(--text-muted); border: 1px solid var(--border); }
 
 .pr-review-body-text {
   padding: 8px 10px;
@@ -9044,7 +9044,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
   box-sizing: border-box;
   padding: 16px 14px;
   background: var(--bg-surface, var(--card));
-  border: 1px solid var(--border, var(--border));
+  border: 1px solid var(--border);
   border-radius: 10px;
   color: var(--text-primary, #fff);
   font-family: 'JetBrains Mono', 'Menlo', 'Consolas', monospace;
@@ -9169,7 +9169,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
 .jcf-pending {
   margin-top: 4px;
   padding-top: 14px;
-  border-top: 1px solid var(--border, var(--border));
+  border-top: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -9196,7 +9196,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
   gap: 10px;
   padding: 9px 12px;
   background: rgba(255, 255, 255, 0.02);
-  border: 1px solid var(--border, var(--border));
+  border: 1px solid var(--border);
   border-radius: 8px;
   transition: border-color 150ms ease, background-color 150ms ease;
 }
@@ -9232,7 +9232,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
   flex-shrink: 0;
   padding: 5px 10px;
   background: transparent;
-  border: 1px solid var(--border, var(--border));
+  border: 1px solid var(--border);
   border-radius: 6px;
   color: var(--text-secondary, #aaa);
   font-family: inherit;

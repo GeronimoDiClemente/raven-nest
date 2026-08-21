@@ -1246,7 +1246,7 @@ ipcMain.handle('browser:navigate', async (_evt, paneId: string, url: string) => 
 // WebContentsView nativo; 'dom' captura la región `rect` de la ventana host
 // (terminal/editor viven en el renderer). Devuelve un dataURL o null.
 ipcMain.handle('pane:capture', async (evt, opts: unknown) => {
-  const o = (opts ?? {}) as { paneId?: string; kind?: string; rect?: { x: number; y: number; width: number; height: number } }
+  const o = (opts ?? {}) as { paneId?: string; kind?: string; dpr?: number; rect?: { x: number; y: number; width: number; height: number } }
   try {
     if (o.kind === 'browser' && typeof o.paneId === 'string') {
       return await browserPanes.capture(o.paneId)
@@ -1261,7 +1261,12 @@ ipcMain.handle('pane:capture', async (evt, opts: unknown) => {
     // por el scaleFactor del display. Robusto en retina y no-retina.
     const full = await win.webContents.capturePage()
     if (full.isEmpty()) return null
-    const sf = screen.getDisplayMatching(win.getBounds()).scaleFactor || 1
+    // El renderer sabe su devicePixelRatio exacto; getDisplayMatching solo
+    // adivina por solapamiento de ventana y erra con escalado fraccional de
+    // Windows (125/150%) o con la ventana a caballo entre dos monitores.
+    const sf = (typeof o.dpr === 'number' && o.dpr > 0)
+      ? o.dpr
+      : (screen.getDisplayMatching(win.getBounds()).scaleFactor || 1)
     const cropped = full.crop({
       x: Math.max(0, Math.round(r.x * sf)),
       y: Math.max(0, Math.round(r.y * sf)),
