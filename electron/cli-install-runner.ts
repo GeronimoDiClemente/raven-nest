@@ -7,7 +7,9 @@ export type InstallState = 'done' | 'failed' | 'cancelled'
  * only the aiType; the main process resolves the command here so the renderer
  * can never hand an arbitrary shell string to the spawner.
  */
-export type InstallCommand = string | { win: string; posix: string }
+// `win` opcional: si falta, en Windows no hay instalacion automatica y la UI
+// manda al usuario a la web.
+export type InstallCommand = string | { win?: string; posix: string }
 
 export const INSTALL_COMMANDS: Record<string, InstallCommand> = {
   claude:   'npm install -g @anthropic-ai/claude-code',
@@ -23,8 +25,12 @@ export const INSTALL_COMMANDS: Record<string, InstallCommand> = {
   // Cursor no publica en npm: instalador propio, y el de Windows es otro
   // comando. Como el runner spawnea esto de verdad, mandar el de curl en
   // Windows seria mandarlo a fallar.
+  // En Windows su instalador es `irm ... | iex`, que Windows Defender marca
+  // como Trojan:Win32/Commando.A!ml: detecta el patron "descargar y ejecutar en
+  // memoria", tipico de malware. No es malware —es el instalador oficial— pero
+  // la alerta la dispara NUESTRA app y Defender aborta la instalacion igual.
+  // En Windows se instala a mano desde la web.
   cursor: {
-    win:   'powershell -NoProfile -Command "irm \'https://cursor.com/install?win32=true\' | iex"',
     posix: 'curl https://cursor.com/install -fsS | bash',
   },
 }
@@ -52,6 +58,8 @@ const DEFAULT_TIMEOUT_MS = 180_000
 interface ActiveRun {
   child: ChildProcess | null
   cancelled: boolean
+  /** Resuelve la promesa del run sin esperar el exit del proceso. */
+  finish: (state: InstallState) => void
 }
 
 export interface RunOpts {
@@ -76,7 +84,7 @@ export class CliInstallRunner {
 
     return new Promise((resolve) => {
       const log: string[] = []
-      const slot: ActiveRun = { child: null, cancelled: false }
+      const slot: ActiveRun = { child: null, cancelled: false, finish: () => {} }
       this.active.set(key, slot)
 
       let finished = false
@@ -86,6 +94,7 @@ export class CliInstallRunner {
         this.active.delete(key)
         resolve({ state, log: log.join('\n') })
       }
+      slot.finish = finish
 
       const push = (chunk: string) => {
         for (const line of chunk.split(/\r?\n/)) {
@@ -140,15 +149,22 @@ export class CliInstallRunner {
     if (!slot) return false
     slot.cancelled = true
     const child = slot.child
-    if (!child) return true
-    if (isWindows()) {
-      try {
-        const pid = child.pid
-        if (pid) spawn('taskkill', ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore' })
-      } catch {}
-    } else {
-      try { child.kill('SIGTERM') } catch {}
+    if (child) {
+      if (isWindows()) {
+        try {
+          const pid = child.pid
+          if (pid) spawn('taskkill', ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore' })
+        } catch { /* si taskkill falla igual resolvemos abajo */ }
+      } else {
+        try { child.kill('SIGTERM') } catch { /* idem */ }
+      }
     }
+    // NO esperamos el 'exit'. Un proceso puede quedar zombi —bloqueado por el
+    // antivirus, esperando input— y entonces ese evento no llega nunca: la UI
+    // se quedaba en "Installing..." para siempre con el boton Cancel sin
+    // efecto visible. Resolvemos ya; si el exit llega despues, finish() esta
+    // protegido contra doble resolucion.
+    slot.finish('cancelled')
     return true
   }
 

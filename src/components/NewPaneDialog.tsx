@@ -7,7 +7,7 @@ import ConfirmDialog from './ConfirmDialog'
 
 // El banner muestra el comando del SO en el que estas: el de Cursor difiere en
 // Windows y ensenar el de curl ahi seria mentirle al usuario.
-const CLI_INSTALL: Partial<Record<AIType, { cmd: string; cmdWin?: string; url: string }>> = {
+const CLI_INSTALL: Partial<Record<AIType, { cmd: string; cmdWin?: string; winManual?: boolean; url: string }>> = {
   claude:   { cmd: 'npm install -g @anthropic-ai/claude-code', url: 'https://docs.anthropic.com/en/docs/claude-code/getting-started' },
   gemini:   { cmd: 'npm install -g @google/gemini-cli',        url: 'https://github.com/google-gemini/gemini-cli' },
   codex:    { cmd: 'npm install -g @openai/codex',             url: 'https://github.com/openai/codex' },
@@ -19,7 +19,7 @@ const CLI_INSTALL: Partial<Record<AIType, { cmd: string; cmdWin?: string; url: s
   amp:      { cmd: 'npm install -g @ampcode/cli',              url: 'https://ampcode.com' },
   // Cursor no publica en npm: instalador propio. El de Windows es
   // irm 'https://cursor.com/install?win32=true' | iex — esta en la url.
-  cursor:   { cmd: 'curl https://cursor.com/install -fsS | bash', cmdWin: 'powershell -NoProfile -Command "irm \'https://cursor.com/install?win32=true\' | iex"', url: 'https://cursor.com/docs/cli/installation' },
+  cursor:   { cmd: 'curl https://cursor.com/install -fsS | bash', winManual: true, url: 'https://cursor.com/docs/cli/installation' },
 }
 
 type LogoComponent = React.FC<{ size?: number; color?: string }>
@@ -110,6 +110,8 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
   const [shells, setShells] = useState<ShellInfo[]>([])
   const [shellsError, setShellsError] = useState<string | null>(null)
   const isWindows = bridge.platform?.isWin ?? false
+  // Este CLI no se puede instalar solo en este SO (ver CLI_INSTALL.winManual).
+  const manualInstall = isWindows && !!(selectedAI && CLI_INSTALL[selectedAI]?.winManual)
 
   useEffect(() => {
     bridge.shells?.detect()
@@ -416,6 +418,9 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
             </h2>
 
             {/* CLI detection banner */}
+            {/* Cursor en Windows se instala con `irm ... | iex`, que Defender marca
+                como troyano (detecta el patron "descargar y ejecutar en memoria")
+                y aborta. No lo ejecutamos: mandamos al usuario a la web. */}
             {cliFound === false && selectedAI && CLI_INSTALL[selectedAI] && (
               <div style={{
                 background:
@@ -442,12 +447,16 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
                       ⚠ {AI_CONFIG[selectedAI].label} CLI not found
                     </div>
                     <div style={{ color: '#aaa', marginBottom: 8 }}>
-                      Raven Nest can install it for you.
+                      {manualInstall
+                        ? 'On Windows this one installs from the web.'
+                        : 'Raven Nest can install it for you.'}
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <button className="cli-banner-install" onClick={installCli}>
-                        Install {AI_CONFIG[selectedAI].label} CLI
-                      </button>
+                      {!manualInstall && (
+                        <button className="cli-banner-install" onClick={installCli}>
+                          Install {AI_CONFIG[selectedAI].label} CLI
+                        </button>
+                      )}
                       <button
                         className="cli-banner-link"
                         onClick={() => bridge.electronShell.openExternal(CLI_INSTALL[selectedAI!]!.url)}

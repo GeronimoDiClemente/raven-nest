@@ -73,13 +73,6 @@ describe('CliInstallRunner', () => {
       try { fn() } finally { Object.defineProperty(process, 'platform', orig) }
     }
 
-    it('en Windows, Cursor se instala con PowerShell', () => {
-      withPlatform('win32', () => {
-        expect(installCommandFor('cursor')).toContain('powershell')
-        expect(installCommandFor('cursor')).not.toContain('curl')
-      })
-    })
-
     it('fuera de Windows, Cursor usa el script de curl', () => {
       withPlatform('darwin', () => {
         expect(installCommandFor('cursor')).toContain('curl')
@@ -97,5 +90,63 @@ describe('CliInstallRunner', () => {
     it('un aiType desconocido no devuelve comando', () => {
       expect(installCommandFor('noexiste')).toBeUndefined()
     })
+  })
+})
+
+describe('CliInstallRunner — cancelar no debe colgarse', () => {
+  // Bug real (2026-08-21): Defender bloqueó el instalador de Cursor, el proceso
+  // quedó zombi y el evento 'exit' nunca llegó. Como cancel() sólo mataba y
+  // esperaba ese exit para resolver, el modal quedaba en "Installing..." para
+  // siempre, con el botón Cancel sin efecto visible.
+  it('resuelve cancelled aunque el proceso no muera', async () => {
+    const runner = new CliInstallRunner()
+    // un comando que no termina solo
+    const p = runner.run('zombie', 'node -e "setInterval(()=>{},1000)"', () => {})
+    await new Promise((r) => setTimeout(r, 150))
+    expect(runner.cancel('zombie')).toBe(true)
+    const res = await Promise.race([
+      p,
+      new Promise((_, rej) => setTimeout(() => rej(new Error('se colgó: nunca resolvió')), 3000)),
+    ]) as { state: string }
+    expect(res.state).toBe('cancelled')
+  }, 10000)
+
+  it('cancelar algo que no está corriendo devuelve false', () => {
+    const runner = new CliInstallRunner()
+    expect(runner.cancel('nada')).toBe(false)
+  })
+})
+
+describe('installCommandFor — Windows no ejecuta instaladores fileless', () => {
+  const withPlatform = (value: string, fn: () => void) => {
+    const orig = Object.getOwnPropertyDescriptor(process, 'platform')!
+    Object.defineProperty(process, 'platform', { value, configurable: true })
+    try { fn() } finally { Object.defineProperty(process, 'platform', orig) }
+  }
+
+  // Windows Defender marca `irm ... | iex` como Trojan:Win32/Commando.A!ml —
+  // detección heurística del patrón "descargar y ejecutar en memoria". No es
+  // malware (es el instalador oficial de Cursor), pero la alerta la dispara
+  // NUESTRA app. En Windows se instala a mano desde la web.
+  it('en Windows, Cursor no tiene comando automático', () => {
+    withPlatform('win32', () => {
+      expect(installCommandFor('cursor')).toBeUndefined()
+    })
+  })
+
+  it('fuera de Windows, Cursor sigue instalándose con su script', () => {
+    withPlatform('darwin', () => {
+      expect(installCommandFor('cursor')).toContain('curl')
+    })
+  })
+
+  it('ningún comando de instalación usa iex', () => {
+    for (const plat of ['win32', 'darwin', 'linux']) {
+      withPlatform(plat, () => {
+        for (const ai of Object.keys(INSTALL_COMMANDS)) {
+          expect(installCommandFor(ai) ?? '').not.toContain('iex')
+        }
+      })
+    }
   })
 })

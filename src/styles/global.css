@@ -4266,10 +4266,10 @@ kbd {
 }
 
 /* El picker de agentes tiene 13 tiles en 4 columnas: con los 480px del dialogo
-   generico quedaban de 100px y se comprimia todo. 720px devuelve tiles de ~160,
-   mas holgados que los ~136px que habia con 3 columnas. */
+   generico quedaban de 100px y se comprimia todo. 640px devuelve tiles de ~140,
+   practicamente los mismos ~136px que tenian con 3 columnas. */
 .dialog--picker {
-  width: 720px;
+  width: 640px;
 }
 
 .dialog-title {
