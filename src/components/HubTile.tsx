@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { paneAccentColor } from '../lib/pane-accent-color'
 import { AI_CONFIG } from '../types'
 import { useHubTerminal } from '../hooks/useHubTerminal'
 import { subscribeToPtyExit } from '../pty-events'
@@ -43,7 +44,7 @@ export default function HubTile({
   // Keyboard selection (Tab cycling) only moves the selection ring — it does
   // NOT pull DOM focus into the xterm. That keeps Tab/Enter as Hub gestures
   // (cycle / jump); typing into a tile is opt-in via click (see onMouseDown).
-  const aiColor = pane.borderColor ?? pane.customColor ?? AI_CONFIG[pane.aiType]?.color ?? '#888888'
+  const aiColor = paneAccentColor(pane)
   // What identifies the tile: the user's rename, else their note, else the agent
   // type (same for every tile, so it's the weakest identifier).
   const hubLabel = pane.customLabel ?? pane.note ?? AI_CONFIG[pane.aiType]?.label ?? 'Terminal'

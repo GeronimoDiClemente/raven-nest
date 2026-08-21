@@ -44,3 +44,16 @@ describe('paneOverlayLabel', () => {
     expect(info.fileName).toBeUndefined()
   })
 })
+
+describe('paneOverlayLabel — rutas de Windows', () => {
+  // Bug: usaba split('/') propio en vez del basename de lib/path.ts, que es el
+  // que maneja '\'. Con un relPath de Windows el fantasma mostraba la ruta
+  // entera en vez del nombre del archivo.
+  it('toma el basename de una ruta con backslashes', () => {
+    const pane = {
+      id: 'p1', aiType: 'editor', accountName: '', accountDir: '', borderColor: '#888', cmd: '',
+      activeEditorTabPath: String.raw`src\tools\generar_sheet.py`,
+    } as unknown as Parameters<typeof paneOverlayLabel>[0]
+    expect(paneOverlayLabel(pane).text).toBe('generar_sheet.py')
+  })
+})

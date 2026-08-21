@@ -1,4 +1,5 @@
 import { AI_CONFIG } from '../types'
+import { basename } from './path'
 import type { PaneNode } from '../types'
 
 export interface PaneOverlayLabel {
@@ -32,7 +33,8 @@ function hostname(url: string | undefined): string | null {
  */
 export function paneOverlayLabel(pane: PaneNode): PaneOverlayLabel {
   if (pane.aiType === 'editor') {
-    const file = pane.activeEditorTabPath?.split('/').pop()
+    // basename de lib/path: los relPath llegan con backslash en Windows.
+    const file = pane.activeEditorTabPath ? basename(pane.activeEditorTabPath) : undefined
     if (file) return { text: file, color: '', fileName: file }
     return { text: AI_CONFIG.editor.label, color: AI_CONFIG.editor.color }
   }

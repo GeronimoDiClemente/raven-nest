@@ -119,7 +119,7 @@ export default function PaneHeader({ pane, zoomed, onZoom, onClose, onColorChang
               <button
                 className={`color-swatch color-swatch-off${pane.borderColor === 'transparent' ? ' selected' : ''}`}
                 onClick={() => { onColorChange('transparent'); setShowPicker(false) }}
-                title="Sin borde"
+                title="No border"
               >✕</button>
               {COLOR_PALETTE.map((c) => (
                 <button

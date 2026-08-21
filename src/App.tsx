@@ -12,6 +12,9 @@ import { PaneLayoutEngine } from './components/PaneLayoutEngine'
 import { defaultLayoutFor, hubLayoutFor, mapLegacyToPreset } from './layout/select'
 import { swap } from './layout/swap'
 import { reorderById } from './layout/reorder'
+import { paneAccentColor } from './lib/pane-accent-color'
+import { isInsideCodeEditor } from './lib/editor-owns-shortcut'
+import { basename } from './lib/path'
 import { collectDragCaptures } from './layout/dragCaptures'
 import { getPreset } from './layout/presets'
 import TerminalPane from './components/TerminalPane'
@@ -1269,6 +1272,10 @@ export default function App() {
         return
       }
 
+      // Dentro del editor, Ctrl+F es de Monaco (buscar en el archivo). Este
+      // listener corre en CAPTURA: sin ceder, abría la búsqueda global Y dejaba
+      // pasar el evento a Monaco, que abría su Find encima.
+      if (matchesBinding(e, kb.globalSearch) && isInsideCodeEditor(e.target)) return
       if (matchesBinding(e, kb.globalSearch)) { e.preventDefault(); setGlobalSearchOpen(true); return }
       if (matchesBinding(e, kb.commandPalette)) { e.preventDefault(); setCommandPaletteOpen(v => !v); return }
       if (matchesBinding(e, kb.hubOverlay)) {
@@ -1371,7 +1378,7 @@ export default function App() {
         // header's color picker) wins so the panel mirrors what they see
         // in the pane header. Falls back to customColor (custom CLIs) and
         // then to the AI's default color.
-        const aiColor = pane.borderColor ?? pane.customColor ?? AI_CONFIG[pane.aiType]?.color ?? '#888888'
+        const aiColor = paneAccentColor(pane)
         out.push({ paneId: pane.id, repoPath: pane.repoPath, label, note: pane.note, workspaceName: tab.name, aiColor, aiType: pane.aiType })
       }
     }
@@ -1468,9 +1475,9 @@ export default function App() {
       id: p.id,
       // Un pane de editor se identifica por su archivo activo, no por "Editor".
       label: p.customLabel ?? p.note
-        ?? (p.aiType === 'editor' ? p.activeEditorTabPath?.split('/').pop() : undefined)
+        ?? (p.aiType === 'editor' && p.activeEditorTabPath ? basename(p.activeEditorTabPath) : undefined)
         ?? AI_CONFIG[p.aiType]?.label ?? 'Terminal',
-      color: p.borderColor ?? p.customColor ?? AI_CONFIG[p.aiType]?.color ?? '#888888',
+      color: paneAccentColor(p),
       aiType: p.aiType,
       inHub: hubPaneSet.has(p.id),
       busy: activePanes.has(p.id),
@@ -1718,6 +1725,7 @@ export default function App() {
             {...filteredSplitProps}
             onDragStart={handleDragStart}
             onDragEnd={handleHubDragEnd}
+            onDragCancel={handleDragCancel}
             draggingId={draggingId}
             dragSnapshot={draggingId ? dragSnapshots[draggingId] ?? null : null}
             sensors={sensors}

@@ -17,6 +17,8 @@ interface Props {
   onResize: (path: string, sizes: number[]) => void
   onDragStart: (e: DragStartEvent) => void
   onDragEnd: (e: DragEndEvent) => void
+  /** dnd-kit dispara esto (NO onDragEnd) al cancelar con Escape o perder el puntero. */
+  onDragCancel: () => void
   draggingId: string | null
   // Foto (dataURL) del pane arrastrado para el fantasma; null hasta que la
   // captura async resuelve. Igual que el workspace normal.
@@ -32,7 +34,7 @@ interface Props {
 // workspace view of the chosen set.
 export default function HubWorkspace({
   panes, layoutId, splitRatios, hiddenCount,
-  onResize, onDragStart, onDragEnd, draggingId, dragSnapshot, sensors, renderPane,
+  onResize, onDragStart, onDragEnd, onDragCancel, draggingId, dragSnapshot, sensors, renderPane,
 }: Props) {
   if (panes.length === 0) {
     return (
@@ -56,6 +58,7 @@ export default function HubWorkspace({
         collisionDetection={pointerWithin}
         onDragStart={onDragStart}
         onDragEnd={onDragEnd}
+        onDragCancel={onDragCancel}
       >
         <SortableContext items={panes.map(p => p.id)} strategy={rectSortingStrategy}>
           <PaneLayoutEngine

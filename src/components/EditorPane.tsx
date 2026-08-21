@@ -634,7 +634,7 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
       }}
     >
       <div className="editor-pane-tabs">
-        <div className="editor-pane-drag-handle" {...listeners} {...attributes} title="Mover panel" />
+        <div className="editor-pane-drag-handle" {...listeners} {...attributes} title="Move pane" />
         {tabs.map((tab) => (
           <div
             key={tab.relPath}

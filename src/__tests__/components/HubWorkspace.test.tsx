@@ -13,6 +13,7 @@ const baseProps = {
   onResize: () => {},
   onDragStart: () => {},
   onDragEnd: () => {},
+  onDragCancel: () => {},
   draggingId: null,
   dragSnapshot: null,
   sensors: [],
