@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { AIType, AI_CONFIG, COLOR_PALETTE, CustomCLI, ShellInfo , PICKER_AI_TYPES } from '../types'
 import { safeWriteText } from '../lib/clipboard'
 import { bridge } from '../lib/bridge'
-import { ClaudeLogo, GeminiLogo, CodexLogo, CopilotLogo, OpenCodeLogo } from './AILogos'
+import { ClaudeLogo, GeminiLogo, CodexLogo, CopilotLogo, OpenCodeLogo, DeepSeekLogo, GrokLogo, QwenLogo, AmpLogo, CursorLogo } from './AILogos'
 import ConfirmDialog from './ConfirmDialog'
 
 const CLI_INSTALL: Partial<Record<AIType, { cmd: string; url: string }>> = {
@@ -11,6 +11,13 @@ const CLI_INSTALL: Partial<Record<AIType, { cmd: string; url: string }>> = {
   codex:    { cmd: 'npm install -g @openai/codex',             url: 'https://github.com/openai/codex' },
   copilot:  { cmd: 'gh extension install github/gh-copilot',   url: 'https://docs.github.com/en/copilot/github-copilot-in-the-cli' },
   opencode: { cmd: 'npm install -g opencode-ai',                url: 'https://opencode.ai' },
+  deepseek: { cmd: 'npm install -g @deepseek-ai/dsh',          url: 'https://www.npmjs.com/package/@deepseek-ai/dsh' },
+  grok:     { cmd: 'npm install -g @xai-official/grok',        url: 'https://docs.x.ai/build' },
+  qwen:     { cmd: 'npm install -g @qwen-code/qwen-code',      url: 'https://github.com/QwenLM/qwen-code' },
+  amp:      { cmd: 'npm install -g @ampcode/cli',              url: 'https://ampcode.com' },
+  // Cursor no publica en npm: instalador propio. El de Windows es
+  // irm 'https://cursor.com/install?win32=true' | iex — esta en la url.
+  cursor:   { cmd: 'curl https://cursor.com/install -fsS | bash', url: 'https://cursor.com/docs/cli/installation' },
 }
 
 type LogoComponent = React.FC<{ size?: number; color?: string }>
@@ -21,6 +28,11 @@ const AI_LOGOS: Partial<Record<AIType, LogoComponent>> = {
   codex:     CodexLogo,
   copilot:   CopilotLogo,
   opencode:  OpenCodeLogo,
+  deepseek:  DeepSeekLogo,
+  grok:      GrokLogo,
+  qwen:      QwenLogo,
+  amp:       AmpLogo,
+  cursor:    CursorLogo,
 }
 
 interface Props {

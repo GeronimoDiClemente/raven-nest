@@ -164,3 +164,31 @@ export function PlandexLogo({ size = 40, color = '#60A5FA' }: LogoProps) {
     </svg>
   )
 }
+
+// Aproximaciones, NO los logos oficiales: alcanzan para distinguir los tiles
+// del picker. Si los queremos fieles hay que traer los SVG de cada marca.
+export function GrokLogo({ size = 40, color = '#E8E8E8' }: LogoProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M12 8L28 32" stroke={color} strokeWidth="3" strokeLinecap="round" />
+      <path d="M28 8L12 32" stroke={color} strokeWidth="3" strokeLinecap="round" opacity="0.5" />
+    </svg>
+  )
+}
+
+export function QwenLogo({ size = 40, color = '#A855F7' }: LogoProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M20 7l11 6.5v13L20 33 9 26.5v-13L20 7z" stroke={color} strokeWidth="2.5" strokeLinejoin="round" />
+      <path d="M15 20h10" stroke={color} strokeWidth="2.5" strokeLinecap="round" opacity="0.55" />
+    </svg>
+  )
+}
+
+export function AmpLogo({ size = 40, color = '#FF3E00' }: LogoProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M23 6L11 23h6.5L15 34l12-17h-6.5L23 6z" fill={color} />
+    </svg>
+  )
+}

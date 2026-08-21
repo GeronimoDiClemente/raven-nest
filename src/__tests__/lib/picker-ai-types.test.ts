@@ -7,7 +7,7 @@ describe('PICKER_AI_TYPES', () => {
     expect(PICKER_AI_TYPES).not.toContain('custom')
   })
   it('mantiene los agentes y la terminal', () => {
-    for (const t of ['claude', 'gemini', 'codex', 'copilot', 'opencode', 'terminal']) {
+    for (const t of ['claude', 'gemini', 'codex', 'copilot', 'opencode', 'deepseek', 'grok', 'qwen', 'amp', 'cursor', 'terminal']) {
       expect(PICKER_AI_TYPES).toContain(t)
     }
   })
