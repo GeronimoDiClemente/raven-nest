@@ -1844,6 +1844,10 @@ body {
 .pane-header {
   height: var(--header-height);
   background: color-mix(in srgb, var(--pane-color, var(--bg-surface)) 8%, var(--bg-surface));
+  /* 27% ~ el 0x44 que antes se concatenaba al color en el estilo inline. Con
+     --pane-color: transparent el color-mix da transparente y la linea
+     desaparece, en vez de quedar pegado el color anterior. */
+  border-bottom: 1px solid color-mix(in srgb, var(--pane-color, var(--border)) 27%, transparent);
   display: flex;
   align-items: center;
   justify-content: space-between;

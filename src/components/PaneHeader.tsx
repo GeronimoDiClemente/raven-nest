@@ -100,10 +100,7 @@ export default function PaneHeader({ pane, zoomed, onZoom, onClose, onColorChang
   }
 
   return (
-    <div
-      className="pane-header"
-      style={{ borderBottom: `1px solid ${pane.borderColor}44` }}
-    >
+    <div className="pane-header">
       {dragHandleProps && (
         <div className="pane-drag-handle" {...dragHandleProps} />
       )}
