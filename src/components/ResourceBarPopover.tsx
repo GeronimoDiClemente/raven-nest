@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FC, type ReactNode } from 'react'
-import type { MetricsSnapshot, RepoMetric, WorktreeMetricInfo, PaneMetric, DiskBucket } from '../types'
-import { AILogo } from './AILogos'
+import type { MetricsSnapshot, RepoMetric, WorktreeMetricInfo, PaneMetric, DiskBucket, AIType } from '../types'
+import { AILogo, AI_LOGOS } from './AILogos'
 import { formatBytes, formatPct, diskLabel } from '../lib/formatMetrics'
 
 type PrimaryMetric = 'memory' | 'cpu'
@@ -398,12 +398,17 @@ const EXTERNAL_LOGOS: Record<string, FC<{ size: number; color: string }>> = {
 }
 
 function PaneAILogo({ aiType, color, size }: { aiType: string | undefined; color: string; size: number }): ReactNode {
-  return <AILogo aiType={aiType as AIType} size={size} color={color} />
-
+  // Procesos externos primero: su 'aiType' no es un agente sino el runtime
+  // detectado (external, external-java...), y tiene su propio juego de logos.
   if (aiType === 'external' || aiType?.startsWith('external-')) {
     const kind = aiType === 'external' ? 'external' : aiType.slice('external-'.length)
     const Logo = EXTERNAL_LOGOS[kind] ?? ShellLogo
     return <Logo size={size} color={color} />
+  }
+
+  // Agente conocido → el logo compartido (mismo mapa que el picker y el header).
+  if (aiType && AI_LOGOS[aiType as AIType]) {
+    return <AILogo aiType={aiType as AIType} size={size} color={color} />
   }
 
   // Custom CLIs (or panes whose aiType isn't surfaced) → colored square.
