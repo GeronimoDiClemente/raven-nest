@@ -11,6 +11,7 @@ import {
 import { PaneLayoutEngine } from './components/PaneLayoutEngine'
 import { defaultLayoutFor, hubLayoutFor, mapLegacyToPreset } from './layout/select'
 import { swap } from './layout/swap'
+import { reorderById } from './layout/reorder'
 import { collectDragCaptures } from './layout/dragCaptures'
 import { getPreset } from './layout/presets'
 import TerminalPane from './components/TerminalPane'
@@ -958,15 +959,11 @@ export default function App() {
     setTabs(prev => prev.map(t => t.id === tabId ? { ...t, accentColor: color } : t))
   }, [])
 
+  // Los tabs se INSERTAN (arrayMove), no se intercambian: mandar un workspace
+  // al fondo debe correr a los demas, no cambiarlo por el ultimo. El swap es
+  // solo para los panes, donde cada slot es una posicion fija de la grilla.
   const handleTabReorder = useCallback((fromId: string, toId: string) => {
-    setTabs(prev => {
-      const fromIdx = prev.findIndex(t => t.id === fromId)
-      const toIdx = prev.findIndex(t => t.id === toId)
-      if (fromIdx === -1 || toIdx === -1) return prev
-      const next = [...prev]
-      ;[next[fromIdx], next[toIdx]] = [next[toIdx], next[fromIdx]]
-      return next
-    })
+    setTabs(prev => reorderById(prev, fromId, toId))
   }, [])
 
   const openBrowserCell = useCallback((url: string) => {
