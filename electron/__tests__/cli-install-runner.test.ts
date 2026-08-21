@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { CliInstallRunner, INSTALL_COMMANDS } from '../cli-install-runner'
+import { CliInstallRunner, INSTALL_COMMANDS, installCommandFor } from '../cli-install-runner'
 
 describe('CliInstallRunner', () => {
   let runner: CliInstallRunner
@@ -57,9 +57,45 @@ describe('CliInstallRunner', () => {
     expect(result.log).toContain('timed out')
   }, 10000)
 
-  it('INSTALL_COMMANDS covers the five known AIs', () => {
+  it('INSTALL_COMMANDS cubre los 10 agentes con CLI instalable', () => {
     expect(Object.keys(INSTALL_COMMANDS).sort()).toEqual(
-      ['claude', 'codex', 'copilot', 'gemini', 'opencode'],
+      ['amp', 'claude', 'codex', 'copilot', 'cursor', 'deepseek', 'gemini', 'grok', 'opencode', 'qwen'],
     )
+  })
+
+  // Cursor no publica en npm: su instalador es un script y difiere por SO.
+  // El runner spawnea el comando de verdad, asi que mandarle el de curl en
+  // Windows seria mandarlo a fallar.
+  describe('installCommandFor', () => {
+    const withPlatform = (value: string, fn: () => void) => {
+      const orig = Object.getOwnPropertyDescriptor(process, 'platform')!
+      Object.defineProperty(process, 'platform', { value, configurable: true })
+      try { fn() } finally { Object.defineProperty(process, 'platform', orig) }
+    }
+
+    it('en Windows, Cursor se instala con PowerShell', () => {
+      withPlatform('win32', () => {
+        expect(installCommandFor('cursor')).toContain('powershell')
+        expect(installCommandFor('cursor')).not.toContain('curl')
+      })
+    })
+
+    it('fuera de Windows, Cursor usa el script de curl', () => {
+      withPlatform('darwin', () => {
+        expect(installCommandFor('cursor')).toContain('curl')
+      })
+    })
+
+    it('los que son npm son iguales en los tres SO', () => {
+      for (const plat of ['win32', 'darwin', 'linux']) {
+        withPlatform(plat, () => {
+          expect(installCommandFor('deepseek')).toBe('npm install -g @deepseek-ai/dsh')
+        })
+      }
+    })
+
+    it('un aiType desconocido no devuelve comando', () => {
+      expect(installCommandFor('noexiste')).toBeUndefined()
+    })
   })
 })

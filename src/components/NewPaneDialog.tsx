@@ -5,7 +5,9 @@ import { bridge } from '../lib/bridge'
 import { ClaudeLogo, GeminiLogo, CodexLogo, CopilotLogo, OpenCodeLogo, DeepSeekLogo, GrokLogo, QwenLogo, AmpLogo, CursorLogo } from './AILogos'
 import ConfirmDialog from './ConfirmDialog'
 
-const CLI_INSTALL: Partial<Record<AIType, { cmd: string; url: string }>> = {
+// El banner muestra el comando del SO en el que estas: el de Cursor difiere en
+// Windows y ensenar el de curl ahi seria mentirle al usuario.
+const CLI_INSTALL: Partial<Record<AIType, { cmd: string; cmdWin?: string; url: string }>> = {
   claude:   { cmd: 'npm install -g @anthropic-ai/claude-code', url: 'https://docs.anthropic.com/en/docs/claude-code/getting-started' },
   gemini:   { cmd: 'npm install -g @google/gemini-cli',        url: 'https://github.com/google-gemini/gemini-cli' },
   codex:    { cmd: 'npm install -g @openai/codex',             url: 'https://github.com/openai/codex' },
@@ -17,7 +19,7 @@ const CLI_INSTALL: Partial<Record<AIType, { cmd: string; url: string }>> = {
   amp:      { cmd: 'npm install -g @ampcode/cli',              url: 'https://ampcode.com' },
   // Cursor no publica en npm: instalador propio. El de Windows es
   // irm 'https://cursor.com/install?win32=true' | iex — esta en la url.
-  cursor:   { cmd: 'curl https://cursor.com/install -fsS | bash', url: 'https://cursor.com/docs/cli/installation' },
+  cursor:   { cmd: 'curl https://cursor.com/install -fsS | bash', cmdWin: 'powershell -NoProfile -Command "irm \'https://cursor.com/install?win32=true\' | iex"', url: 'https://cursor.com/docs/cli/installation' },
 }
 
 type LogoComponent = React.FC<{ size?: number; color?: string }>
@@ -33,6 +35,11 @@ const AI_LOGOS: Partial<Record<AIType, LogoComponent>> = {
   qwen:      QwenLogo,
   amp:       AmpLogo,
   cursor:    CursorLogo,
+}
+
+/** El comando del SO en el que corre la app (Cursor difiere en Windows). */
+function installCmdFor(entry: { cmd: string; cmdWin?: string }, isWindows: boolean): string {
+  return isWindows && entry.cmdWin ? entry.cmdWin : entry.cmd
 }
 
 interface Props {
@@ -519,7 +526,7 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
                         textOverflow: 'ellipsis',
                         whiteSpace: 'nowrap',
                       }}>
-                        {CLI_INSTALL[selectedAI]!.cmd}
+                        {installCmdFor(CLI_INSTALL[selectedAI]!, isWindows)}
                       </code>
                       <button
                         style={{

@@ -7,12 +7,34 @@ export type InstallState = 'done' | 'failed' | 'cancelled'
  * only the aiType; the main process resolves the command here so the renderer
  * can never hand an arbitrary shell string to the spawner.
  */
-export const INSTALL_COMMANDS: Record<string, string> = {
+export type InstallCommand = string | { win: string; posix: string }
+
+export const INSTALL_COMMANDS: Record<string, InstallCommand> = {
   claude:   'npm install -g @anthropic-ai/claude-code',
   gemini:   'npm install -g @google/gemini-cli',
   codex:    'npm install -g @openai/codex',
   copilot:  'gh extension install github/gh-copilot',
   opencode: 'npm install -g opencode-ai',
+  // Binarios verificados contra el registry de npm (campo bin), no supuestos.
+  deepseek: 'npm install -g @deepseek-ai/dsh',
+  grok:     'npm install -g @xai-official/grok',
+  qwen:     'npm install -g @qwen-code/qwen-code',
+  amp:      'npm install -g @ampcode/cli',
+  // Cursor no publica en npm: instalador propio, y el de Windows es otro
+  // comando. Como el runner spawnea esto de verdad, mandar el de curl en
+  // Windows seria mandarlo a fallar.
+  cursor: {
+    win:   'powershell -NoProfile -Command "irm \'https://cursor.com/install?win32=true\' | iex"',
+    posix: 'curl https://cursor.com/install -fsS | bash',
+  },
+}
+
+/** Comando de instalacion para este SO, o undefined si el agente no tiene. */
+export function installCommandFor(aiType: string): string | undefined {
+  const entry = INSTALL_COMMANDS[aiType]
+  if (!entry) return undefined
+  if (typeof entry === 'string') return entry
+  return isWindows() ? entry.win : entry.posix
 }
 
 const SECRET_RE = /(?:^|[\s=:])(?:token|key|password|secret|api[_-]?key)\s*[=:]\s*\S+/gi

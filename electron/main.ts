@@ -113,7 +113,7 @@ import { WorkspaceStore } from './workspace-store'
 import { WorktreeStore } from './worktree-store'
 import { PresetStore } from './preset-store'
 import { SetupRunner } from './setup-runner'
-import { CliInstallRunner, INSTALL_COMMANDS } from './cli-install-runner'
+import { CliInstallRunner, installCommandFor } from './cli-install-runner'
 import { scanPid } from './port-monitor'
 import { getCwdForPid, getProcessInfo, listListeningPidsPosix, listListeningPidsWindows } from './cwd-reader'
 // pidtree resolves a pid's full descendant tree. Used so port scans cover the
@@ -851,7 +851,7 @@ ipcMain.handle('cli:check', (_event, cmd: string) => {
 })
 
 ipcMain.handle('cli:install', async (event, aiType: string) => {
-  const cmd = INSTALL_COMMANDS[aiType]
+  const cmd = installCommandFor(aiType)
   if (!cmd) return { state: 'failed' as const, log: `No install command for "${aiType}"` }
   return cliInstallRunner.run(
     aiType,
