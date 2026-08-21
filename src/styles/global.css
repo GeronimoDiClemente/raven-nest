@@ -3307,20 +3307,35 @@ body {
 /* ── Resize Handle ───────────────────────────────────────── */
 
 .resize-handle {
+  position: relative;
   background: transparent;
   transition: background 0.15s;
   z-index: 10;
   flex-shrink: 0;
 }
 
+/* El separador se ve de 2px pero se agarra en 10px: el ::after extiende el
+   area de hit 4px hacia cada pane vecino sin ocupar espacio en el layout. */
 .resize-handle--col {
   cursor: col-resize;
-  width: 6px;
+  width: 2px;
 }
 
 .resize-handle--row {
   cursor: row-resize;
-  height: 6px;
+  height: 2px;
+}
+
+.resize-handle--col::after {
+  content: '';
+  position: absolute;
+  inset: 0 -4px;
+}
+
+.resize-handle--row::after {
+  content: '';
+  position: absolute;
+  inset: -4px 0;
 }
 
 .resize-handle:hover,
