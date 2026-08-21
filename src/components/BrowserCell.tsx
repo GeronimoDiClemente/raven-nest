@@ -252,12 +252,27 @@ export default function BrowserCell({ pane, onClose, onNavigate, borderColor, si
     // barato y el IPC sólo sale en cambios, así que en reposo no hay tráfico.
     let raf = 0
     let last = ''
-    const tick = () => {
-      const b = computeBounds()
-      const key = `${Math.round(b.x)},${Math.round(b.y)},${Math.round(b.width)},${Math.round(b.height)}`
-      if (key !== last) {
-        last = key
-        void window.browser.reposition(pane.id, b)
+    let lastCheck = 0
+    // El trabajo del tick no es gratis: getBoundingClientRect fuerza layout
+    // sincrono y computeBounds ademas matchea una lista de ~30 selectores
+    // contra el documento, por browser abierto. A 60 fps constantes eso es CPU
+    // quemada de fondo con la app quieta (y con 4 browsers, x4).
+    //
+    // Full rate solo mientras algo esta MOVIENDO el pane sin redimensionarlo
+    // (drag en curso, zoom): ahi el view nativo tiene que seguir al DOM frame a
+    // frame o se ve corrido. En reposo alcanza con ~10 Hz para levantar los
+    // casos que el ResizeObserver no ve (abrir un pane hermano, mover un split).
+    const CHECK_MS_IDLE = 100
+    const tick = (now: number) => {
+      const moving = hiddenForDragRef.current || zoomedRef.current
+      if (moving || now - lastCheck >= CHECK_MS_IDLE) {
+        lastCheck = now
+        const b = computeBounds()
+        const key = `${Math.round(b.x)},${Math.round(b.y)},${Math.round(b.width)},${Math.round(b.height)}`
+        if (key !== last) {
+          last = key
+          void window.browser.reposition(pane.id, b)
+        }
       }
       raf = requestAnimationFrame(tick)
     }
