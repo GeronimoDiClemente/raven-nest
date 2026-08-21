@@ -94,3 +94,46 @@ describe('PtyManager.resize — lo que llega al proceso', () => {
     expect(resize).not.toHaveBeenCalled()
   })
 })
+
+describe('PtyManager.resize — descartar tamaños degenerados', () => {
+  beforeEach(() => { vi.clearAllMocks(); vi.useFakeTimers() })
+  afterEach(() => { vi.useRealTimers() })
+
+  // Un panel colapsado a su minSize (8% del ancho) mide ~15 columnas, y el
+  // reflow deja formas de 6 filas. No son tamaños de trabajo: aplicarlos hace
+  // que la TUI repinte su banner en una tira vertical de 4 caracteres, y esa
+  // basura queda en el scrollback para siempre. Preferimos que el pty conserve
+  // el último tamaño usable a corromper la sesión.
+  it('ignora un ancho de panel colapsado', () => {
+    const { mgr, resize } = withFakePty()
+    mgr.resize('p1', 15, 30)
+    settle()
+    expect(resize).not.toHaveBeenCalled()
+  })
+
+  it('ignora un alto degenerado del reflow', () => {
+    const { mgr, resize } = withFakePty()
+    mgr.resize('p1', 120, 4)
+    settle()
+    expect(resize).not.toHaveBeenCalled()
+  })
+
+  it('un tamaño chico pero usable sí pasa', () => {
+    const { mgr, resize } = withFakePty()
+    mgr.resize('p1', 40, 10)
+    settle()
+    expect(resize).toHaveBeenCalledWith(40, 10)
+  })
+
+  it('el tamaño degenerado no pisa al último bueno', () => {
+    const { mgr, resize } = withFakePty()
+    mgr.resize('p1', 100, 30)
+    settle()
+    mgr.resize('p1', 15, 30)
+    settle()
+    // vuelve al mismo tamaño bueno: como el pty nunca dejó de tenerlo, no hay que remandarlo
+    mgr.resize('p1', 100, 30)
+    settle()
+    expect(resize).toHaveBeenCalledTimes(1)
+  })
+})
