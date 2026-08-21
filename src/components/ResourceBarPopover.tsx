@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FC, type ReactNode } from 'react'
 import type { MetricsSnapshot, RepoMetric, WorktreeMetricInfo, PaneMetric, DiskBucket } from '../types'
-import { ClaudeLogo, GeminiLogo, CodexLogo, CopilotLogo, OpenCodeLogo } from './AILogos'
+import { AILogo } from './AILogos'
 import { formatBytes, formatPct, diskLabel } from '../lib/formatMetrics'
 
 type PrimaryMetric = 'memory' | 'cpu'
@@ -398,13 +398,7 @@ const EXTERNAL_LOGOS: Record<string, FC<{ size: number; color: string }>> = {
 }
 
 function PaneAILogo({ aiType, color, size }: { aiType: string | undefined; color: string; size: number }): ReactNode {
-  switch (aiType) {
-    case 'claude':   return <ClaudeLogo size={size} />
-    case 'gemini':   return <GeminiLogo size={size} />
-    case 'codex':    return <CodexLogo size={size} color={color} />
-    case 'copilot':  return <CopilotLogo size={size} />
-    case 'opencode': return <OpenCodeLogo size={size} color={color} />
-  }
+  return <AILogo aiType={aiType as AIType} size={size} color={color} />
 
   if (aiType === 'external' || aiType?.startsWith('external-')) {
     const kind = aiType === 'external' ? 'external' : aiType.slice('external-'.length)

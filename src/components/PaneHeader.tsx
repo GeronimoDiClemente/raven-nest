@@ -1,19 +1,8 @@
 import { useState, useRef, useEffect } from 'react'
 import { PaneNode, AI_CONFIG, COLOR_PALETTE, AIType } from '../types'
-import { ClaudeLogo, GeminiLogo, CodexLogo, CopilotLogo, OpenCodeLogo } from './AILogos'
+import { AILogo } from './AILogos'
 import ConfirmDialog from './ConfirmDialog'
 import { PortChipsGroup } from './PortChipsGroup'
-
-function AILogo({ aiType, color, size = 14 }: { aiType: AIType; color: string; size?: number }) {
-  switch (aiType) {
-    case 'claude':   return <ClaudeLogo size={size} />
-    case 'gemini':   return <GeminiLogo size={size} />
-    case 'codex':    return <CodexLogo size={size} color={color} />
-    case 'copilot':  return <CopilotLogo size={size} />
-    case 'opencode': return <OpenCodeLogo size={size} color={color} />
-    default:         return null
-  }
-}
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type DragHandleProps = Record<string, any>

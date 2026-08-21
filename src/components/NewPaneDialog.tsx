@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { AIType, AI_CONFIG, COLOR_PALETTE, CustomCLI, ShellInfo , PICKER_AI_TYPES } from '../types'
 import { safeWriteText } from '../lib/clipboard'
 import { bridge } from '../lib/bridge'
-import { ClaudeLogo, GeminiLogo, CodexLogo, CopilotLogo, OpenCodeLogo, DeepSeekLogo, GrokLogo, QwenLogo, AmpLogo, CursorLogo } from './AILogos'
+import { AI_LOGOS } from './AILogos'
 import ConfirmDialog from './ConfirmDialog'
 
 // El banner muestra el comando del SO en el que estas: el de Cursor difiere en
@@ -22,20 +22,6 @@ const CLI_INSTALL: Partial<Record<AIType, { cmd: string; cmdWin?: string; manual
   cursor:   { cmd: 'curl https://cursor.com/install -fsS | bash', manual: true, url: 'https://cursor.com/docs/cli/installation' },
 }
 
-type LogoComponent = React.FC<{ size?: number; color?: string }>
-
-const AI_LOGOS: Partial<Record<AIType, LogoComponent>> = {
-  claude:    ClaudeLogo,
-  gemini:    GeminiLogo,
-  codex:     CodexLogo,
-  copilot:   CopilotLogo,
-  opencode:  OpenCodeLogo,
-  deepseek:  DeepSeekLogo,
-  grok:      GrokLogo,
-  qwen:      QwenLogo,
-  amp:       AmpLogo,
-  cursor:    CursorLogo,
-}
 
 /** El comando del SO en el que corre la app (Cursor difiere en Windows). */
 function installCmdFor(entry: { cmd: string; cmdWin?: string }, isWindows: boolean): string {

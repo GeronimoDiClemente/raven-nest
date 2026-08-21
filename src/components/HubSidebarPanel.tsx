@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { AIType } from '../types'
-import { ClaudeLogo, GeminiLogo, CodexLogo, CopilotLogo, OpenCodeLogo } from './AILogos'
+import { AILogo } from './AILogos'
 
 export interface HubTerminal {
   id: string
@@ -32,13 +32,7 @@ interface Props {
 // Agent logo (Claude/Gemini/…) with a colored-dot fallback for plain shells, plus
 // a live-status ring when the terminal is emitting output. Replaces the bullet.
 function TermAvatar({ aiType, color, busy }: { aiType: AIType; color: string; busy: boolean }) {
-  const logo =
-    aiType === 'claude' ? <ClaudeLogo size={13} />
-    : aiType === 'gemini' ? <GeminiLogo size={13} />
-    : aiType === 'codex' ? <CodexLogo size={13} color={color} />
-    : aiType === 'copilot' ? <CopilotLogo size={13} />
-    : aiType === 'opencode' ? <OpenCodeLogo size={13} color={color} />
-    : null
+  const logo = <AILogo aiType={aiType} size={13} color={color} />
   return (
     <span className={`hub-av${busy ? ' busy' : ''}`} style={{ '--av-color': color } as React.CSSProperties}>
       {logo ?? <span className="hub-av-dot" style={{ background: color }} />}

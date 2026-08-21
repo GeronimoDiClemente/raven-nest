@@ -1,3 +1,4 @@
+import type { AIType } from '../types'
 interface LogoProps {
   size?: number
   color?: string
@@ -192,4 +193,33 @@ export function AmpLogo({ size = 40, color = '#9DBF6E' }: LogoProps) {
       <path d="M8 14.5h8" stroke={color} strokeWidth="2.2" strokeLinecap="round" />
     </svg>
   )
+}
+
+type LogoComponent = React.FC<{ size?: number; color?: string }>
+
+/**
+ * Unico mapa agente -> logo.
+ *
+ * Estaba duplicado en cuatro componentes (picker, header del pane, sidebar del
+ * Hub y popover de recursos), asi que sumar un agente pedia tocar los cuatro:
+ * los cinco CLIs nuevos entraron al picker con logo y quedaron con un punto
+ * gris en todos los demas lugares. El test ai-logos cubre que no vuelva a pasar.
+ */
+export const AI_LOGOS: Partial<Record<AIType, LogoComponent>> = {
+  claude:   ClaudeLogo,
+  gemini:   GeminiLogo,
+  codex:    CodexLogo,
+  copilot:  CopilotLogo,
+  opencode: OpenCodeLogo,
+  deepseek: DeepSeekLogo,
+  grok:     GrokLogo,
+  qwen:     QwenLogo,
+  amp:      AmpLogo,
+  cursor:   CursorLogo,
+}
+
+/** El logo del agente, o null si ese tipo no tiene (terminal, browser…). */
+export function AILogo({ aiType, color, size = 14 }: { aiType: AIType; color?: string; size?: number }) {
+  const Logo = AI_LOGOS[aiType]
+  return Logo ? <Logo size={size} color={color} /> : null
 }
