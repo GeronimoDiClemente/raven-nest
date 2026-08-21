@@ -207,6 +207,20 @@ type LogoComponent = React.FC<{ size?: number; color?: string }>
  * los cinco CLIs nuevos entraron al picker con logo y quedaron con un punto
  * gris en todos los demas lugares. El test ai-logos cubre que no vuelva a pasar.
  */
+// El browser caia al icono generico, que es el MISMO >_ del Terminal: dos
+// tiles distintos con el mismo dibujo. Una ventana con su barra se lee de una.
+export function BrowserLogo({ size = 40, color = '#0066FF' }: LogoProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="3" y="5" width="18" height="14" rx="2.5" stroke={color} strokeWidth="1.8" />
+      <path d="M3 9h18" stroke={color} strokeWidth="1.8" />
+      <circle cx="6" cy="7" r="0.9" fill={color} />
+      <circle cx="8.8" cy="7" r="0.9" fill={color} opacity="0.6" />
+      <circle cx="11.6" cy="7" r="0.9" fill={color} opacity="0.35" />
+    </svg>
+  )
+}
+
 export const AI_LOGOS: Partial<Record<AIType, LogoComponent>> = {
   claude:   ClaudeLogo,
   gemini:   GeminiLogo,
@@ -218,6 +232,7 @@ export const AI_LOGOS: Partial<Record<AIType, LogoComponent>> = {
   qwen:     QwenLogo,
   aider:    AiderLogo,
   cursor:   CursorLogo,
+  browser:  BrowserLogo,
 }
 
 /** El logo del agente, o null si ese tipo no tiene (terminal, browser…). */

@@ -4,7 +4,7 @@ import { PICKER_AI_TYPES, AI_CONFIG } from '../../types'
 import type { AIType } from '../../types'
 
 // Tipos que NO son agentes: no llevan logo de marca.
-const SIN_LOGO: AIType[] = ['terminal', 'browser', 'custom', 'editor']
+const SIN_LOGO: AIType[] = ['terminal', 'custom', 'editor']
 
 describe('AI_LOGOS — el mapa único de logos', () => {
   // Antes este mapa estaba duplicado en cuatro componentes (picker, header del
@@ -21,7 +21,7 @@ describe('AI_LOGOS — el mapa único de logos', () => {
     for (const t of agentes) expect(AI_LOGOS[t]).toBeTruthy()
   })
 
-  it('no le inventa logo a la terminal ni al browser', () => {
+  it('no le inventa logo a la terminal ni a los tipos internos', () => {
     for (const t of SIN_LOGO) expect(AI_LOGOS[t]).toBeUndefined()
   })
 })
