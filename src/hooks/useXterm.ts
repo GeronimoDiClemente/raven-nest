@@ -200,15 +200,35 @@ export function useXterm(paneId: string, onInput?: (data: string) => void, fontS
 
     // Al terminar el drag mandamos el tamano YA asentado: durante el
     // movimiento se suprimieron todos, incluidos los degenerados del reflow.
+    //
+    // "Asentado" no es "un frame despues de soltar": el reflow del grid y la
+    // animacion de zoom siguen corriendo, y medir ahi daba formas imposibles
+    // (21x6, 15x37) que el proceso tomaba como reales — la TUI repintaba y
+    // cortaba las respuestas en curso. Medimos hasta que DOS lecturas
+    // consecutivas coincidan, y recien ahi mandamos.
+    let settleTimer: ReturnType<typeof setTimeout> | null = null
     const offSettled = onResizeSettled(() => {
-      requestAnimationFrame(() => {
+      if (settleTimer) clearTimeout(settleTimer)
+      let lastKey = ''
+      let tries = 0
+      const check = () => {
+        settleTimer = null
         try {
-          if (!container.clientWidth || !container.clientHeight) return
-          fitAddon.fit()
-          window.pty.resize(paneId, term.cols, term.rows, 'settled')
-          onResizeRef.current?.(term.cols, term.rows)
+          if (container.clientWidth && container.clientHeight) {
+            fitAddon.fit()
+            const key = `${term.cols}x${term.rows}`
+            if (key === lastKey) {
+              window.pty.resize(paneId, term.cols, term.rows, 'settled')
+              onResizeRef.current?.(term.cols, term.rows)
+              return
+            }
+            lastKey = key
+          }
         } catch { /* ignore */ }
-      })
+        // ~1s de techo: si nunca se estabiliza, no insistimos para siempre.
+        if (++tries < 12) settleTimer = setTimeout(check, 80)
+      }
+      settleTimer = setTimeout(check, 80)
     })
 
     // Re-fit and re-focus after the window comes back from win.hide() on macOS.
@@ -231,6 +251,7 @@ export function useXterm(paneId: string, onInput?: (data: string) => void, fontS
       container.removeEventListener('paste', onPaste, true)
       resizeObserver.disconnect()
       offSettled()
+      if (settleTimer) clearTimeout(settleTimer)
       document.removeEventListener('visibilitychange', onVisibilityChange)
       unregisterTerminal(paneId)
       term.dispose()
