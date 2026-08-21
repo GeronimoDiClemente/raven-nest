@@ -26,6 +26,12 @@ const BUFFER_MAX_LINES = 10_000
 export class PtyManager extends EventEmitter {
   private ptys = new Map<string, pty.IPty>()
   private buffers = new Map<string, string[]>()
+  // Ultimo tamano REALMENTE enviado al pty, por pane. El renderer pide resize
+  // en cada cambio de pixeles del contenedor (ResizeObserver), asi que llegan
+  // muchos con cols/rows identicos; reenviarlos igual le llega al proceso como
+  // un cambio de tamano y las TUIs tipo Ink (Claude Code) repintan su bloque
+  // estatico, acumulando el banner de arranque una y otra vez.
+  private lastSize = new Map<string, { cols: number; rows: number }>()
   // cwd at spawn time, per pane. Used by `killByCwdPrefix` so worktree:remove
   // can tear down every PTY whose working directory is inside the worktree
   // being deleted — otherwise Windows holds the directory handle open and
@@ -179,6 +185,7 @@ export class PtyManager extends EventEmitter {
         }
         this.ptys.delete(paneId)
         this.buffers.delete(paneId)
+    this.lastSize.delete(paneId)
         this.emit('exit', paneId)
       })
 
@@ -199,6 +206,9 @@ export class PtyManager extends EventEmitter {
   resize(paneId: string, cols: number, rows: number): void {
     const ptyProc = this.ptys.get(paneId)
     if (ptyProc) {
+      const last = this.lastSize.get(paneId)
+      if (last && last.cols === cols && last.rows === rows) return
+      this.lastSize.set(paneId, { cols, rows })
       try {
         ptyProc.resize(cols, rows)
       } catch (err) {
@@ -253,6 +263,7 @@ export class PtyManager extends EventEmitter {
       this.ptys.delete(paneId)
     }
     this.buffers.delete(paneId)
+    this.lastSize.delete(paneId)
     this.cwdByPaneId.delete(paneId)
   }
 
