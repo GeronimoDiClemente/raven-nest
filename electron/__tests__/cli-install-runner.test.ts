@@ -57,9 +57,9 @@ describe('CliInstallRunner', () => {
     expect(result.log).toContain('timed out')
   }, 10000)
 
-  it('INSTALL_COMMANDS cubre los 10 agentes con CLI instalable', () => {
+  it('INSTALL_COMMANDS cubre los 9 que se instalan por gestor de paquetes', () => {
     expect(Object.keys(INSTALL_COMMANDS).sort()).toEqual(
-      ['amp', 'claude', 'codex', 'copilot', 'cursor', 'deepseek', 'gemini', 'grok', 'opencode', 'qwen'],
+      ['amp', 'claude', 'codex', 'copilot', 'deepseek', 'gemini', 'grok', 'opencode', 'qwen'],
     )
   })
 
@@ -72,12 +72,6 @@ describe('CliInstallRunner', () => {
       Object.defineProperty(process, 'platform', { value, configurable: true })
       try { fn() } finally { Object.defineProperty(process, 'platform', orig) }
     }
-
-    it('fuera de Windows, Cursor usa el script de curl', () => {
-      withPlatform('darwin', () => {
-        expect(installCommandFor('cursor')).toContain('curl')
-      })
-    })
 
     it('los que son npm son iguales en los tres SO', () => {
       for (const plat of ['win32', 'darwin', 'linux']) {
@@ -117,36 +111,29 @@ describe('CliInstallRunner — cancelar no debe colgarse', () => {
   })
 })
 
-describe('installCommandFor — Windows no ejecuta instaladores fileless', () => {
-  const withPlatform = (value: string, fn: () => void) => {
-    const orig = Object.getOwnPropertyDescriptor(process, 'platform')!
-    Object.defineProperty(process, 'platform', { value, configurable: true })
-    try { fn() } finally { Object.defineProperty(process, 'platform', orig) }
-  }
-
-  // Windows Defender marca `irm ... | iex` como Trojan:Win32/Commando.A!ml —
-  // detección heurística del patrón "descargar y ejecutar en memoria". No es
-  // malware (es el instalador oficial de Cursor), pero la alerta la dispara
-  // NUESTRA app. En Windows se instala a mano desde la web.
-  it('en Windows, Cursor no tiene comando automático', () => {
-    withPlatform('win32', () => {
-      expect(installCommandFor('cursor')).toBeUndefined()
-    })
-  })
-
-  it('fuera de Windows, Cursor sigue instalándose con su script', () => {
-    withPlatform('darwin', () => {
-      expect(installCommandFor('cursor')).toContain('curl')
-    })
-  })
-
-  it('ningún comando de instalación usa iex', () => {
-    for (const plat of ['win32', 'darwin', 'linux']) {
-      withPlatform(plat, () => {
-        for (const ai of Object.keys(INSTALL_COMMANDS)) {
-          expect(installCommandFor(ai) ?? '').not.toContain('iex')
-        }
-      })
+describe('installCommandFor — solo gestores de paquetes', () => {
+  // Windows Defender marca `irm ... | iex` (y el patron equivalente con curl)
+  // como Trojan:Win32/Commando.A!ml: heuristica sobre "descargar y ejecutar en
+  // memoria". No es malware —son instaladores oficiales— pero la alerta la
+  // dispara NUESTRA app. Nest instala solo por npm/gh; el resto va a la web.
+  it('ningun comando baja y ejecuta un script', () => {
+    for (const ai of Object.keys(INSTALL_COMMANDS)) {
+      const cmd = installCommandFor(ai) ?? ''
+      for (const patron of ['iex', 'curl', 'irm', '| bash', '|bash', 'wget']) {
+        expect(cmd).not.toContain(patron)
+      }
     }
+  })
+
+  it('todos arrancan con un gestor de paquetes', () => {
+    for (const ai of Object.keys(INSTALL_COMMANDS)) {
+      expect(installCommandFor(ai)).toMatch(/^(npm install -g |gh extension install )/)
+    }
+  })
+
+  // Cursor solo publica instalador por script: no se instala desde Nest.
+  it('un CLI sin instalacion segura no devuelve comando', () => {
+    expect(installCommandFor('cursor')).toBeUndefined()
+    expect(installCommandFor('noexiste')).toBeUndefined()
   })
 })

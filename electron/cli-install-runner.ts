@@ -6,12 +6,16 @@ export type InstallState = 'done' | 'failed' | 'cancelled'
  * Allowlist of install commands keyed by AIType string. The renderer passes
  * only the aiType; the main process resolves the command here so the renderer
  * can never hand an arbitrary shell string to the spawner.
+ *
+ * REGLA: solo gestores de paquetes (npm, gh). Nada de bajar un script y
+ * ejecutarlo (`curl | bash`, `irm | iex`): ese patron es el que usa el malware
+ * real para ejecutar en memoria, y Windows Defender lo levanta como
+ * Trojan:Win32/Commando.A!ml aunque el script sea el instalador oficial del
+ * proveedor — con nuestra app como causante de la alerta. Un CLI que solo se
+ * instale asi (Cursor) NO va en esta lista: la UI manda al usuario a la web.
  */
-// `win` opcional: si falta, en Windows no hay instalacion automatica y la UI
-// manda al usuario a la web.
-export type InstallCommand = string | { win?: string; posix: string }
 
-export const INSTALL_COMMANDS: Record<string, InstallCommand> = {
+export const INSTALL_COMMANDS: Record<string, string> = {
   claude:   'npm install -g @anthropic-ai/claude-code',
   gemini:   'npm install -g @google/gemini-cli',
   codex:    'npm install -g @openai/codex',
@@ -25,22 +29,11 @@ export const INSTALL_COMMANDS: Record<string, InstallCommand> = {
   // Cursor no publica en npm: instalador propio, y el de Windows es otro
   // comando. Como el runner spawnea esto de verdad, mandar el de curl en
   // Windows seria mandarlo a fallar.
-  // En Windows su instalador es `irm ... | iex`, que Windows Defender marca
-  // como Trojan:Win32/Commando.A!ml: detecta el patron "descargar y ejecutar en
-  // memoria", tipico de malware. No es malware —es el instalador oficial— pero
-  // la alerta la dispara NUESTRA app y Defender aborta la instalacion igual.
-  // En Windows se instala a mano desde la web.
-  cursor: {
-    posix: 'curl https://cursor.com/install -fsS | bash',
-  },
 }
 
-/** Comando de instalacion para este SO, o undefined si el agente no tiene. */
+/** Comando de instalacion, o undefined si ese CLI no se instala desde Nest. */
 export function installCommandFor(aiType: string): string | undefined {
-  const entry = INSTALL_COMMANDS[aiType]
-  if (!entry) return undefined
-  if (typeof entry === 'string') return entry
-  return isWindows() ? entry.win : entry.posix
+  return INSTALL_COMMANDS[aiType]
 }
 
 const SECRET_RE = /(?:^|[\s=:])(?:token|key|password|secret|api[_-]?key)\s*[=:]\s*\S+/gi
