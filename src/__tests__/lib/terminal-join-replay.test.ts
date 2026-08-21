@@ -4,7 +4,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 // deja disparar los eventos del host a mano.
 type Handler = (msg: { payload: Record<string, unknown> }) => void
 const handlers = new Map<string, Handler>()
-let subscribeCb: ((status: string, err?: unknown) => void) | null = null
 const send = vi.fn()
 
 const fakeChannel = {
@@ -13,7 +12,8 @@ const fakeChannel = {
     return fakeChannel
   },
   subscribe(cb: (status: string, err?: unknown) => void) {
-    subscribeCb = cb
+    // El canal real confirma la suscripcion; el servicio manda el join-request ahi.
+    cb('SUBSCRIBED')
     return fakeChannel
   },
   send,
@@ -35,10 +35,8 @@ function hostSends(event: string, payload: Record<string, unknown>) {
 describe('terminalJoinService — lo que ve el invitado al entrar', () => {
   beforeEach(() => {
     handlers.clear()
-    subscribeCb = null
     send.mockClear()
     terminalJoinService.join('ABC123')
-    subscribeCb?.('SUBSCRIBED')
   })
 
   // Bug: attachViewer enganchaba el stream vivo YA y replayeaba el historial

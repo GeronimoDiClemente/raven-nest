@@ -32,6 +32,14 @@ export class PtyManager extends EventEmitter {
   // un cambio de tamano y las TUIs tipo Ink (Claude Code) repintan su bloque
   // estatico, acumulando el banner de arranque una y otra vez.
   private lastSize = new Map<string, { cols: number; rows: number }>()
+  // Un drag o un resize de split hace pasar al pane por decenas de tamanos
+  // REALES distintos, uno por frame. Mandarlos todos hace repintar la TUI en
+  // cada paso (el banner de Claude Code se multiplicaba, cada copia con un
+  // ancho distinto), asi que esperamos a que el tamano se quede quieto y
+  // mandamos solo el ultimo.
+  private static readonly RESIZE_SETTLE_MS = 150
+  private resizeTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  private pendingSize = new Map<string, { cols: number; rows: number }>()
   // cwd at spawn time, per pane. Used by `killByCwdPrefix` so worktree:remove
   // can tear down every PTY whose working directory is inside the worktree
   // being deleted — otherwise Windows holds the directory handle open and
@@ -186,6 +194,7 @@ export class PtyManager extends EventEmitter {
         this.ptys.delete(paneId)
         this.buffers.delete(paneId)
     this.lastSize.delete(paneId)
+    this.clearPendingResize(paneId)
         this.emit('exit', paneId)
       })
 
@@ -204,13 +213,38 @@ export class PtyManager extends EventEmitter {
   }
 
   resize(paneId: string, cols: number, rows: number): void {
+    if (!this.ptys.has(paneId)) return
+    const last = this.lastSize.get(paneId)
+    if (last && last.cols === cols && last.rows === rows) {
+      // Volvio al tamano que el pty ya tiene: lo que estuviera agendado sobra.
+      this.clearPendingResize(paneId)
+      return
+    }
+    this.pendingSize.set(paneId, { cols, rows })
+    const prev = this.resizeTimers.get(paneId)
+    if (prev) clearTimeout(prev)
+    this.resizeTimers.set(paneId, setTimeout(() => this.flushResize(paneId), PtyManager.RESIZE_SETTLE_MS))
+  }
+
+  private clearPendingResize(paneId: string): void {
+    const t = this.resizeTimers.get(paneId)
+    if (t) clearTimeout(t)
+    this.resizeTimers.delete(paneId)
+    this.pendingSize.delete(paneId)
+  }
+
+  private flushResize(paneId: string): void {
+    this.resizeTimers.delete(paneId)
+    const size = this.pendingSize.get(paneId)
+    this.pendingSize.delete(paneId)
+    if (!size) return
     const ptyProc = this.ptys.get(paneId)
     if (ptyProc) {
       const last = this.lastSize.get(paneId)
-      if (last && last.cols === cols && last.rows === rows) return
-      this.lastSize.set(paneId, { cols, rows })
+      if (last && last.cols === size.cols && last.rows === size.rows) return
+      this.lastSize.set(paneId, size)
       try {
-        ptyProc.resize(cols, rows)
+        ptyProc.resize(size.cols, size.rows)
       } catch (err) {
         // Resize on an exited PTY is the common case during teardown — keep it
         // as debug (not warn) so we don't spam main.log, but DO log it so a
@@ -264,6 +298,7 @@ export class PtyManager extends EventEmitter {
     }
     this.buffers.delete(paneId)
     this.lastSize.delete(paneId)
+    this.clearPendingResize(paneId)
     this.cwdByPaneId.delete(paneId)
   }
 
