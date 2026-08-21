@@ -184,16 +184,6 @@ export function QwenLogo({ size = 40, color = '#6950EF' }: LogoProps) {
   )
 }
 
-// Amp no publica un simbolo compacto: su icono oficial es un wordmark de
-// 1024px con gradientes, ilegible a 36px. Esta "A" toma el verde de su marca.
-export function AmpLogo({ size = 40, color = '#9DBF6E' }: LogoProps) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M4.5 20L12 4l7.5 16" stroke={color} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M8 14.5h8" stroke={color} strokeWidth="2.2" strokeLinecap="round" />
-    </svg>
-  )
-}
 
 type LogoComponent = React.FC<{ size?: number; color?: string }>
 
@@ -214,7 +204,7 @@ export const AI_LOGOS: Partial<Record<AIType, LogoComponent>> = {
   deepseek: DeepSeekLogo,
   grok:     GrokLogo,
   qwen:     QwenLogo,
-  amp:      AmpLogo,
+  aider:    AiderLogo,
   cursor:   CursorLogo,
 }
 

@@ -1,6 +1,6 @@
 import type { EditorPreferences, EditorTheme } from './lib/ide-config-mappings'
 
-export type AIType = 'claude' | 'gemini' | 'codex' | 'copilot' | 'opencode' | 'deepseek' | 'grok' | 'qwen' | 'amp' | 'cursor' | 'terminal' | 'custom' | 'browser' | 'editor'
+export type AIType = 'claude' | 'gemini' | 'codex' | 'copilot' | 'opencode' | 'deepseek' | 'grok' | 'qwen' | 'aider' | 'cursor' | 'terminal' | 'custom' | 'browser' | 'editor'
 
 export type LayoutId =
   | '1'
@@ -231,13 +231,14 @@ export const AI_CONFIG: Record<AIType, { label: string; color: string; bg: strin
   copilot:  { label: 'Copilot',  color: '#7C5CFC', bg: '#150d2e', cmd: 'gh copilot' },
   opencode: { label: 'OpenCode', color: '#FFFFFF', bg: '#111111', cmd: 'opencode', noAccount: true },
   // CLIs agregados el 2026-08-21 por uso real (descargas npm/semana medidas ese
-  // dia): dsh 648k, qwen 64k, grok 41k, amp ~38k. Cursor no esta en npm pero su
+  // dia): dsh 648k, qwen 64k, grok 41k. Aider suma 797k/mes en PyPI, el mas
+  // usado de los candidatos. Cursor no esta en npm pero su
   // CLI es de los mas usados. Todos van con noAccount: manejan su propio login
   // o API key, Nest no les administra cuentas como a claude/gemini/codex.
   deepseek: { label: 'DeepSeek', color: '#4D6BFE', bg: '#0c1330', cmd: 'dsh',          noAccount: true },
   grok:     { label: 'Grok',     color: '#E8E8E8', bg: '#141414', cmd: 'grok',         noAccount: true },
   qwen:     { label: 'Qwen',     color: '#6950EF', bg: '#14103a', cmd: 'qwen',         noAccount: true },
-  amp:      { label: 'Amp',      color: '#9DBF6E', bg: '#13261c', cmd: 'amp',          noAccount: true },
+  aider:    { label: 'Aider',    color: '#4EC9A0', bg: '#0d221d', cmd: 'aider',        noAccount: true },
   cursor:   { label: 'Cursor',   color: '#D4D4D4', bg: '#181818', cmd: 'cursor-agent', noAccount: true },
   terminal: { label: 'Terminal', color: '#888888', bg: '#1a1a1a', cmd: '',           noAccount: true },
   custom:   { label: 'Custom',   color: '#888888', bg: '#1a1a1a', cmd: '',           noAccount: true },
