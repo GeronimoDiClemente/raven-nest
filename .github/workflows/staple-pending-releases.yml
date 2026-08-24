@@ -62,7 +62,7 @@ jobs:
           #
           # The list below is only for OLDER releases still waiting. Trim them
           # as they get stapled.
-          PENDING="v1.2.0 v1.2.1 v1.2.2 v1.2.3 v1.2.4 v1.2.5 v1.2.6 v1.2.7 v1.3.1 v1.3.2"
+          PENDING="v1.4.0 v1.4.1 v1.4.2 v1.2.0 v1.2.1 v1.2.2 v1.2.3 v1.2.4 v1.2.5 v1.2.6 v1.2.7 v1.3.1 v1.3.2"
 
           LATEST=$(gh release view --repo GeronimoDiClemente/raven-nest --json tagName --jq .tagName 2>/dev/null || echo "")
           RELEASES="$LATEST"
