@@ -156,6 +156,16 @@ jobs:
           export DEBUG=electron-builder
           npx electron-vite build && npx electron-builder --mac --publish never $EXTRA_FLAGS
         env:
+          # Node sizes its heap from available RAM and lands near 2 GB on the
+          # macOS runner, vs ~4 GB on the Linux/Windows ones. That was enough
+          # until v1.5.0, when Monaco and shiki pushed the renderer bundle past
+          # it and this step died twice with "Ineffective mark-compacts near
+          # heap limit" (the rerun failed too — it topped out at 2002 of 2002 MB,
+          # not at the edge). The repo's .npmrc sets the same ceiling for local
+          # builds but cannot help here: these jobs consume the decrypted-source
+          # artifact instead of checking out, and upload-artifact drops hidden
+          # files, so no dotfile ever reaches this runner.
+          NODE_OPTIONS: --max-old-space-size=4096
           MAC_CSC_LINK_SECRET: ${{ secrets.MAC_CSC_LINK }}
           MAIN_VITE_GITHUB_CLIENT_ID: ${{ secrets.MAIN_VITE_GITHUB_CLIENT_ID }}
           MAIN_VITE_GITLAB_CLIENT_ID: ${{ secrets.MAIN_VITE_GITLAB_CLIENT_ID }}
@@ -274,6 +284,9 @@ jobs:
       - name: Build Windows
         run: npx electron-vite build && npx electron-builder --win --publish never
         env:
+          # Same ceiling as the mac job — this runner has more RAM so it has not
+          # OOMed yet, but it builds the identical bundle.
+          NODE_OPTIONS: --max-old-space-size=4096
           # Code signing: if WIN_CSC_LINK is not set, electron-builder skips signing.
           CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
@@ -309,6 +322,8 @@ jobs:
       - name: Build Linux
         run: npx electron-vite build && npx electron-builder --linux --publish never
         env:
+          # Same ceiling as the mac job — see the comment there.
+          NODE_OPTIONS: --max-old-space-size=4096
           MAIN_VITE_GITHUB_CLIENT_ID: ${{ secrets.MAIN_VITE_GITHUB_CLIENT_ID }}
           MAIN_VITE_GITLAB_CLIENT_ID: ${{ secrets.MAIN_VITE_GITLAB_CLIENT_ID }}
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
