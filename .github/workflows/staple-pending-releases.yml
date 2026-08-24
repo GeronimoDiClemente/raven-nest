@@ -1,7 +1,7 @@
 name: Staple pending Mac releases
 
-# Generic auto-staple: every 2 hours, for each release in RELEASES list,
-# if the .dmg in that release is NOT yet stapled and Apple has accepted
+# Generic auto-staple: every 10 minutes, for the newest release plus any
+# older ones still listed: if the .dmg is NOT yet stapled and Apple has accepted
 # at least one notarization submission for it, download + staple + re-upload.
 #
 # Replaces the v1.1.2-specific check-mac-staple.yml. Trim the RELEASES list
@@ -54,8 +54,24 @@ jobs:
           set -e
           export PATH=/usr/bin:$PATH
 
-          # Add new releases here as they ship. Trim old ones after they're stapled.
-          RELEASES="v1.2.0 v1.2.1 v1.2.2 v1.2.3 v1.2.4 v1.2.5 v1.2.6 v1.2.7 v1.3.1 v1.3.2"
+          # The newest release is always checked, so shipping one no longer
+          # depends on remembering to add it here — v1.4.x and v1.5.0 were
+          # missing, which quietly meant nobody ever stapled them despite
+          # release.yml promising "staple-pending-releases.yml will pick it up
+          # later" when Apple takes longer than its 15m window.
+          #
+          # The list below is only for OLDER releases still waiting. Trim them
+          # as they get stapled.
+          PENDING="v1.2.0 v1.2.1 v1.2.2 v1.2.3 v1.2.4 v1.2.5 v1.2.6 v1.2.7 v1.3.1 v1.3.2"
+
+          LATEST=$(gh release view --repo GeronimoDiClemente/raven-nest --json tagName --jq .tagName 2>/dev/null || echo "")
+          RELEASES="$LATEST"
+          for V in $PENDING; do
+            if [ "$V" != "$LATEST" ]; then
+              RELEASES="$RELEASES $V"
+            fi
+          done
+          echo "==> Releases to check: $RELEASES"
 
           # We don't need to match submission ID to release — Apple's notary
           # accepts by binary hash, so any Accepted submission whose hash
