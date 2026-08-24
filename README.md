@@ -2,12 +2,12 @@
 
 # 🪺 NestMux
 
-**Multi-AI Terminal Workspace · v1.4.2**
+**Multi-AI Terminal Workspace · v1.5.0**
 
 Run Claude, Gemini, Codex, Copilot and more — side by side in a single window. Each pane is its own AI session, with its own account, history, and environment.
 
 [![Latest Release](https://img.shields.io/github/v/release/GeronimoDiClemente/raven-nest?style=flat-square&color=18c376)](https://github.com/GeronimoDiClemente/raven-nest/releases/latest)
-[![v1.4.2](https://img.shields.io/badge/v1.4.2-current%20release-18c376?style=flat-square)](#whats-new-in-v14)
+[![v1.5.0](https://img.shields.io/badge/v1.5.0-current%20release-18c376?style=flat-square)](#whats-new-in-v15)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey?style=flat-square)](https://github.com/GeronimoDiClemente/raven-nest/releases/latest)
 [![License: PolyForm Strict](https://img.shields.io/badge/license-PolyForm%20Strict%201.0.0-orange?style=flat-square)](./LICENSE)
 [![Source-available](https://img.shields.io/badge/source--available-official%20binaries%20only-orange?style=flat-square)](#license--redistribution)
@@ -22,7 +22,38 @@ Run Claude, Gemini, Codex, Copilot and more — side by side in a single window.
 
 Think of it as a terminal multiplexer — but built specifically for AI agents and the way teams ship code. Instead of juggling tabs and windows, you get a flexible **grid workspace** where every cell is an independent AI session, on top of the things developers actually need every day: native **git worktrees**, a real **Teams workspace** with team **flow & health analytics**, a **Hub** that gathers your most-used terminals in one place, your personal **My Repos** dashboard, GitHub & GitLab integration, CI runs, and live terminal sharing.
 
-> **v1.2 builds on the v1.1 foundation** with per-device repo paths, Teams crash fixes, and macOS bugfixes (credential persistence, port detection, auto-update). **v1.2.5 fixed the macOS auto-updater** — if you're on a version older than v1.2.5, download once manually; from v1.2.5 onwards `Install and restart` works automatically. **v1.2.6** restored terminal sessions after Cmd+Q. **v1.2.7** fixes port attribution for reparented background processes on macOS and Linux. **v1.3** adds an interactive onboarding tutorial, and **v1.3.1** lets you install an agent's CLI straight from the pane banner. **v1.4** adds the **Hub** (your most-used terminals in one workspace) and **Team Analytics** (team flow & health, not a leaderboard). **v1.4.1** brought the Layout selector back into the *More tools* menu, and **v1.4.2** makes it work in the **Hub** too — so you can arrange your curated terminals like any workspace.
+> **v1.2 builds on the v1.1 foundation** with per-device repo paths, Teams crash fixes, and macOS bugfixes (credential persistence, port detection, auto-update). **v1.2.5 fixed the macOS auto-updater** — if you're on a version older than v1.2.5, download once manually; from v1.2.5 onwards `Install and restart` works automatically. **v1.2.6** restored terminal sessions after Cmd+Q. **v1.2.7** fixes port attribution for reparented background processes on macOS and Linux. **v1.3** adds an interactive onboarding tutorial, and **v1.3.1** lets you install an agent's CLI straight from the pane banner. **v1.4** adds the **Hub** (your most-used terminals in one workspace) and **Team Analytics** (team flow & health, not a leaderboard). **v1.4.1** brought the Layout selector back into the *More tools* menu, and **v1.4.2** makes it work in the **Hub** too — so you can arrange your curated terminals like any workspace. **v1.5.0** puts a real **code editor** in the grid.
+
+---
+
+## What's new in v1.5
+
+### A real code editor, in a pane
+
+Open an **Editor** pane and you get **Monaco** — the engine behind VS Code — sitting in the grid next to your agents, scoped to a worktree. Tabs, save, and conflict detection when a file changed on disk under you. A lazy-loading **Explorer** shows the tree, and **diff vs HEAD** is visible where you work: `+N`/`−M`/`U` badges in the Explorer, changed lines marked in the gutter. You can see what an agent just wrote without leaving the window.
+
+Files and tabs move by **drag & drop** — between editor panes, or onto the workspace to open in a new one — and a tab with unsaved changes carries its buffer along (moving a dirty tab asks first). Each editor pane has its own **zoom** and **font size**, and the minimap appears only when the pane is wide enough to earn it.
+
+### Your editor's look, imported
+
+Themes come from **shiki**, so syntax highlighting matches what you already use. Bring a **VS Code theme** in from a local file or **Open VSX**, and import your **VS Code or IntelliJ settings** — Nest maps them onto Monaco's options and shows you a preview before applying anything.
+
+### Explorer in the Hub — multi-root
+
+The Hub's Explorer spans **every worktree you've curated**, not just one. Open a file from any root and it lands in the right workspace, auto-pinned.
+
+### More agents
+
+**DeepSeek**, **Grok**, **Qwen** and **Cursor** join the picker, each with its real logo. The **Install** button now covers the new CLIs too, and installs strictly through your **package manager** on all three OSes — no fileless installers, and Cancel actually cancels.
+
+### Also in v1.5
+
+- **Filter the grid by pane type** — agents, editor, terminal or browser. Per-tab and transient: your real layout comes back untouched when you clear it.
+- **Broadcast is agent-only** — typing to all panes no longer feeds your prompt to a plain shell as a command.
+- **Browsers can be pinned to the Hub**, and dragging a browser pane now shows a real snapshot instead of a black hole, with the native view repositioned in real time.
+- **Adjustable Worktrees/Explorer split** in the sidebar.
+- **Cleaner resizes** — dragging a divider no longer floods the terminal process with intermediate sizes, so agent output stops getting mangled mid-drag.
+- **A crash in the editor no longer takes the app down** — each editor pane has its own error boundary.
 
 ---
 
@@ -164,14 +195,14 @@ Versions up to and including **v1.0.1** were published under the Apache License 
 
 ## Download
 
-Latest: **v1.4.2** — the **Hub** (your most-used terminals in one workspace) and **Team Analytics** (team flow & health), on top of v1.3's interactive onboarding tutorial and the CLI-install banner.
+Latest: **v1.5.0** — a real **code editor** in the grid (Monaco, Explorer, diff vs HEAD, VS Code themes and settings), a **multi-root Explorer** in the Hub, and four more agent CLIs (DeepSeek, Grok, Qwen, Cursor).
 
 | Platform | Download |
 |----------|----------|
-| **macOS** (Apple Silicon) | [Nest-1.4.2-arm64.dmg](../../releases/latest) |
-| **Windows** | [Nest-Setup-1.4.2.exe](../../releases/latest) |
-| **Linux** (universal) | [Nest-1.4.2.AppImage](../../releases/latest) |
-| **Linux** (Debian / Ubuntu) | [nest_1.4.2_amd64.deb](../../releases/latest) |
+| **macOS** (Apple Silicon) | [Nest-1.5.0-arm64.dmg](../../releases/latest) |
+| **Windows** | [Nest-Setup-1.5.0.exe](../../releases/latest) |
+| **Linux** (universal) | [Nest-1.5.0.AppImage](../../releases/latest) |
+| **Linux** (Debian / Ubuntu) | [nest_1.5.0_amd64.deb](../../releases/latest) |
 
 > Nest auto-updates in the background. **If you're upgrading from a version older than v1.2.5, this first download is manual** — the auto-updater was broken on macOS before v1.2.5. After installing v1.2.5 or later, future updates install automatically via `Install and restart`.
 
@@ -192,8 +223,8 @@ Two formats, pick whichever fits your distro.
 Works on Ubuntu, Fedora, Arch, openSUSE, Mint, Pop!_OS and most others. No system-wide install.
 
 ```bash
-chmod +x ~/Downloads/Nest-1.4.2.AppImage
-~/Downloads/Nest-1.4.2.AppImage
+chmod +x ~/Downloads/Nest-1.5.0.AppImage
+~/Downloads/Nest-1.5.0.AppImage
 ```
 
 To integrate it into your apps menu, use [AppImageLauncher](https://github.com/TheAssassin/AppImageLauncher) or move it to `~/Applications/`.
@@ -203,7 +234,7 @@ To integrate it into your apps menu, use [AppImageLauncher](https://github.com/T
 Installs system-wide, registers the desktop entry and the `nest://` deep link handler.
 
 ```bash
-sudo apt install ~/Downloads/nest_1.4.2_amd64.deb
+sudo apt install ~/Downloads/nest_1.5.0_amd64.deb
 ```
 
 Required packages (auto-installed by `apt`): `libgtk-3-0`, `libnotify4`, `libnss3`, `libxss1`, `libxtst6`, `libatspi2.0-0`, `libdrm2`, `libgbm1`, `libxcb-dri3-0`, `xdg-utils`.
