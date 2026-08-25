@@ -45,3 +45,5 @@ src/public/theme-preview.html
 capture/*.mp4
 capture/*.png
 capture/f/
+capture/rec/
+capture/stats-rec/
