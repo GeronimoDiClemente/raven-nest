@@ -39,3 +39,9 @@ _check-*.mjs
 # tweakcn live-preview del workspace (dev-only: carga script externo de
 # tweakcn.com y NO debe ir a producción; se sirve en localhost:5173/theme-preview.html)
 src/public/theme-preview.html
+
+# Worktrees locales de Nest y salidas binarias de las capturas: no van al repo.
+.claude/worktrees/
+capture/*.mp4
+capture/*.png
+capture/f/
