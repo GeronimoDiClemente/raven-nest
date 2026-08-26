@@ -23,11 +23,19 @@ describe('provenanceBlock', () => {
     expect(out).toContain('t-42')
     expect(out).toContain('Ronda: 2')
     expect(out).toContain('[[run-r1]]')
+    expect(out).toContain('Veredicto: blocking')
   })
 
   it('omits the node line when there is no node', () => {
     const out = provenanceBlock(run, {})
     expect(out).not.toContain('Nodo:')
     expect(out).toContain('[[run-r1]]')
+  })
+
+  it('renders the nodeId without parens when the node has no role', () => {
+    const out = provenanceBlock(run, { nodeId: 'rev-security' })
+    expect(out).toContain('Nodo: rev-security')
+    expect(out).not.toContain('undefined')
+    expect(out).not.toContain('()')
   })
 })

@@ -19,8 +19,11 @@ export function runLink(runId: string): string {
 export function provenanceBlock(run: GraphRun, src: ProvenanceSource): string {
   const lines = ['---']
   if (src.nodeId) {
-    const role = src.focus ? `${src.role}/${src.focus}` : src.role
-    lines.push(`Nodo: ${src.nodeId} (${role})`)
+    // A template lookup can miss (`nodes.find(...)` → undefined) and hand us a
+    // nodeId with no role. Rendering `(undefined)` would be worse than omitting
+    // the parens, so only append them once we actually have a role.
+    const role = src.role ? (src.focus ? `${src.role}/${src.focus}` : src.role) : undefined
+    lines.push(role ? `Nodo: ${src.nodeId} (${role})` : `Nodo: ${src.nodeId}`)
   }
   lines.push(`Origen: run ${run.runId} · template ${run.templateId}`)
   lines.push(`Branch: ${run.branch} · Ticket: ${run.ticketId} · Ronda: ${run.round}`)
