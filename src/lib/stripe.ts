@@ -64,13 +64,23 @@ export interface PlanLimits {
   // Team
   allowTeam: boolean
 
+  // Nest Memory — docs/nest-memory-architecture.md §7.1
+  memoryLocal: boolean          // always true — Free keeps full local memory (the demo, §7.1)
+  memoryCloud: boolean          // Pro+: replication + multi-device
+  memoryTeamShare: boolean      // Team only: promote to team scope (Phase 3)
+  maxMemoryProjects: number     // free: Infinity (local, unlimited), pro: 50, team: 200
+  maxCloudObservations: number  // pro: 50_000, team: 250_000 — soft caps, warn at 80%
+
   // Enterprise meta
   isEnterprise: boolean
 }
 
 const ALL_AIS = ['claude', 'gemini', 'codex', 'copilot', 'opencode', 'terminal', 'custom', 'browser']
 
-const FULL_FEATURES: Omit<PlanLimits, 'allowTeam' | 'isEnterprise'> = {
+// memoryLocal/memoryCloud are common to every paid tier (pro/team/enterprise all get
+// cloud replication); memoryTeamShare and the two caps differ per plan, so they're set
+// explicitly below rather than folded into this shared object.
+const FULL_FEATURES: Omit<PlanLimits, 'allowTeam' | 'isEnterprise' | 'memoryTeamShare' | 'maxMemoryProjects' | 'maxCloudObservations'> = {
   maxPanes: 12,
   allowedAIs: ALL_AIS,
   allowBroadcast: true,
@@ -85,6 +95,8 @@ const FULL_FEATURES: Omit<PlanLimits, 'allowTeam' | 'isEnterprise'> = {
   allowActions: true,
   allowGitHubGitLab: true,
   allowMcpWrite: true,
+  memoryLocal: true,
+  memoryCloud: true,
 }
 
 export const PLAN_LIMITS: Record<Plan, PlanLimits> = {
@@ -104,21 +116,38 @@ export const PLAN_LIMITS: Record<Plan, PlanLimits> = {
     allowGitHubGitLab: false,
     allowMcpWrite: false,
     allowTeam: false,
+    memoryLocal: true,
+    memoryCloud: false,
+    memoryTeamShare: false,
+    maxMemoryProjects: Infinity,
+    maxCloudObservations: 0,
     isEnterprise: false,
   },
   pro: {
     ...FULL_FEATURES,
     allowTeam: false,
+    memoryTeamShare: false,
+    maxMemoryProjects: 50,
+    maxCloudObservations: 50_000,
     isEnterprise: false,
   },
   team: {
     ...FULL_FEATURES,
     allowTeam: true,
+    memoryTeamShare: true,
+    maxMemoryProjects: 200,
+    maxCloudObservations: 250_000,
     isEnterprise: false,
   },
   enterprise: {
     ...FULL_FEATURES,
     allowTeam: true,
     isEnterprise: true,
+    // Sales-led, negotiated tier — memory caps are effectively unlimited pending an
+    // actual enterprise contract term; revisit if/when a real enterprise customer
+    // needs a concrete number here.
+    memoryTeamShare: true,
+    maxMemoryProjects: Infinity,
+    maxCloudObservations: Infinity,
   },
 }

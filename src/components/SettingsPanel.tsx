@@ -4,9 +4,15 @@ import { supabase } from '../lib/supabase'
 import { useSettings } from '../hooks/useSettings'
 import { useGitHub } from '../hooks/useGitHub'
 import { useGitlab } from '../hooks/useGitlab'
+import { useMemory } from '../hooks/useMemory'
+import { useProfile } from '../hooks/useProfile'
+import { useUserRepos } from '../hooks/useUserRepos'
+import { PLAN_LIMITS } from '../lib/stripe'
 import { formatBinding, eventToBinding, Keybindings } from '../lib/keybindings'
 import { PresetEditor } from './PresetEditor'
 import { BenchmarkDashboard } from './BenchmarkDashboard'
+import UpgradeModal from './UpgradeModal'
+import logoUrl from '../assets/logo.png'
 
 type Tab = 'keybinds' | 'presets' | 'benchmarks' | 'updates' | 'account' | 'tutorial'
 
@@ -86,6 +92,21 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
   const { settings, updateKeybinding, updateVoiceLanguage } = useSettings()
   const { isConnected: githubConnected, githubLogin, connectGitHub, disconnectGitHub } = useGitHub()
   const { isConnected: gitlabConnected, gitlabLogin, connectGitlab, disconnectGitlab } = useGitlab()
+  const memory = useMemory()
+  const { repos: userRepos } = useUserRepos()
+  const { plan } = useProfile()
+  const [memoryUpgradeOpen, setMemoryUpgradeOpen] = useState(false)
+  // M10 / §6.6 "Right to delete": disconnect never touches local data regardless of
+  // this — it only controls whether main also calls memory-sync's delete-cloud-data
+  // action (see electron/main.ts's memory:disconnect handler) before clearing the
+  // local connection state.
+  const [deleteCloudOnDisconnect, setDeleteCloudOnDisconnect] = useState(false)
+  // Sync push progress for the card's progress bar. itemCount is the running local
+  // total; pendingCount is the outstanding push queue and can exceed itemCount
+  // mid-migration (it also counts update mutations, not just inserts), so clamp.
+  const memorySyncProgress = memory.itemCount > 0
+    ? Math.min(1, Math.max(0, (memory.itemCount - memory.pendingCount) / memory.itemCount))
+    : 0
   const kb = settings.keybindings
 
   useEffect(() => {
@@ -259,6 +280,76 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                     </div>
                   </div>
 
+                  <div className="sp-card">
+                    <div className="sp-card-row">
+                      <div className="sp-card-left">
+                        <img src={logoUrl} alt="" aria-hidden="true" width={15} height={15} style={{ display: 'block' }} />
+                        <span className="sp-card-label">Nest Memory</span>
+                        {memory.state === 'connected' && (
+                          <span style={{ fontSize: 11, opacity: 0.65, marginLeft: 6 }}>
+                            {memory.itemCount} items{memory.pendingCount > 0 ? ` · ${memory.pendingCount} pending` : ' · synced'}
+                          </span>
+                        )}
+                        {memory.state === 'paused' && (
+                          <span style={{ fontSize: 11, color: '#f59e0b', marginLeft: 6 }}>
+                            Offline — {memory.pendingCount} change{memory.pendingCount === 1 ? '' : 's'} will sync when you're back
+                          </span>
+                        )}
+                        {memory.state === 'error' && (
+                          <span style={{ fontSize: 11, color: '#ef4444', marginLeft: 6 }}>
+                            Couldn't sync{memory.error ? ` — ${memory.error}` : ''}
+                          </span>
+                        )}
+                        {memory.state === 'disconnected' && !PLAN_LIMITS[plan].memoryCloud && (
+                          <span style={{ fontSize: 11, opacity: 0.65, marginLeft: 6 }}>
+                            Local memory active — cloud sync is a Pro feature
+                          </span>
+                        )}
+                        {(memory.state === 'connecting' || memory.state === 'migrating') && (
+                          <span style={{ fontSize: 11, opacity: 0.65, marginLeft: 6 }}>
+                            {memory.state === 'connecting' ? 'Connecting…' : 'Importing your memory…'}
+                          </span>
+                        )}
+                      </div>
+                      {memory.state === 'connected' || memory.state === 'paused' ? (
+                        <button className="sp-btn-danger" onClick={() => memory.disconnect(deleteCloudOnDisconnect)}>Disconnect</button>
+                      ) : memory.state === 'error' ? (
+                        <button className="sp-btn-purple" onClick={() => memory.connect()}>Retry</button>
+                      ) : memory.state === 'connecting' || memory.state === 'migrating' ? (
+                        <button className="sp-btn-purple" disabled>…</button>
+                      ) : PLAN_LIMITS[plan].memoryCloud ? (
+                        <button className="sp-btn-purple" onClick={() => memory.connect()}>Connect</button>
+                      ) : (
+                        <button className="sp-btn-purple" onClick={() => setMemoryUpgradeOpen(true)}>Upgrade</button>
+                      )}
+                    </div>
+                    {memory.state === 'disconnected' && userRepos.length === 0 && (
+                      <div className="sp-mem-no-repos-banner">
+                        <span className="sp-mem-no-repos-banner-icon">⚠</span>
+                        <span>
+                          No repositories linked yet. Link your repos first so imported memory gets
+                          organized per project — memory connected without repos goes to the global
+                          space and won't be re-organized later.
+                        </span>
+                      </div>
+                    )}
+                    {memory.state === 'connected' && memory.pendingCount > 0 && (
+                      <div className="sp-mem-progress" title={`${memory.itemCount} items · ${memory.pendingCount} pending`}>
+                        <div className="sp-mem-progress-fill" style={{ width: `${memorySyncProgress * 100}%` }} />
+                      </div>
+                    )}
+                    {(memory.state === 'connected' || memory.state === 'paused') && (
+                      <label className="sp-checkbox-row">
+                        <input
+                          type="checkbox"
+                          checked={deleteCloudOnDisconnect}
+                          onChange={(e) => setDeleteCloudOnDisconnect(e.target.checked)}
+                        />
+                        Also delete my cloud memory (your local memory is never affected)
+                      </label>
+                    )}
+                  </div>
+
                   <button className="sp-action-btn" onClick={() => supabase.auth.signOut()}>
                     Sign out
                   </button>
@@ -274,6 +365,10 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                     Tutorial: Worktrees
                   </button>
                 </div>
+              )}
+
+              {memoryUpgradeOpen && (
+                <UpgradeModal currentPlan={plan} onClose={() => setMemoryUpgradeOpen(false)} />
               )}
 
             </div>

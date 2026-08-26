@@ -96,8 +96,9 @@ if (process.defaultApp) {
   app.setAsDefaultProtocolClient('nest')
 }
 import { join as pathJoin, join, isAbsolute, basename, dirname } from 'path'
-import { readFileSync, writeFileSync, mkdirSync, statSync, copyFileSync, unlinkSync, rmSync, existsSync, promises as fsp } from 'fs'
+import { readFileSync, writeFileSync, mkdirSync, statSync, copyFileSync, unlinkSync, rmSync, existsSync, chmodSync, promises as fsp } from 'fs'
 import { tmpdir, homedir } from 'os'
+import { lookup } from 'dns/promises'
 import { ravenHome, userHome } from './raven-home'
 import { loadSession, saveSession } from './session-store'
 import { execSync, execFile, execFileSync, spawn } from 'child_process'
@@ -128,6 +129,15 @@ import { getDiff } from './diff-engine'
 import { detectIDEs, openInIDE, clearCache as clearIDECache } from './ide-launcher'
 import { MCPStore } from './mcp-store'
 import { SettingsStore } from './settings-store'
+import { MemoryStore } from './memory-store'
+import { MemoryIpcServer } from './memory-ipc-server'
+import { MemoryDaemon } from './memory-daemon'
+import { daemonSocketPath } from './memory-protocol'
+import { provisionClaudeAccount, deprovisionClaudeAccount, type ProvisionerPaths } from './memory-provisioner'
+import { ensureLocalAuthMaterial } from './memory-local-auth'
+import { importAllMarkdownSources } from './memory-importers/markdown'
+import { importEngramDatabase, discoverEngramDatabases } from './memory-importers/engram'
+import { resolveProjectKey, GLOBAL_PROJECT_KEY } from './memory-project-key'
 import { MetricsCollector, PaneInput } from './metrics-collector'
 import { transcribeAudio, checkWhisperAvailable, initWhisper, shutdownWhisper, setWhisperStatusCallback } from './whisper'
 import { getWindowOptions, getIconsDir, ICON_FILENAME, isMac } from './platform'
@@ -167,7 +177,7 @@ import { sampleGraph, launchCommand, type PaneSignals } from './integrations/gra
 import { readHandoff, writeHandoff } from './integrations/handoff'
 import { makeRunAutomation, type AutomationRunnerPorts } from './integrations/automation-runner'
 import { bridgeEvent, bridgeDecision, type BridgeContext } from './integrations/memory-bridge'
-import { NULL_SINK, type MemorySink } from './integrations/memory-port'
+import { type MemorySink } from './integrations/memory-port'
 
 const ptyManager = new PtyManager()
 // Per-pane last-output timestamp. deriveAgentState (graph orchestrator sampling)
@@ -178,6 +188,137 @@ const paneLastOutputAt = new Map<string, number>()
 // without polling — see graphOrchestratorTick / OrchestratorPorts.exitCode.
 const paneExitCode = new Map<string, number>()
 const accountStore = new AccountStore()
+
+// ── Nest Memory (docs/nest-memory-architecture.md) ──────────────────────────
+// Configured before accountStore.migrateClaudeAccounts() so a machine that's already
+// connected re-provisions every account on startup, same as the existing
+// setupClaudeConfig() link-repair pass it runs alongside.
+import { credentialPath, deleteCredential, ensureDeviceId, getMemoryConnectionState, setMemoryConnectionState } from './memory-connection-state'
+
+let memoryConnectionState = getMemoryConnectionState(ravenHome())
+
+function memoryProvisionerPaths(): ProvisionerPaths {
+  // dist-electron/memory-mcp.js is built as a sibling entry to main.js (electron.vite.config.ts).
+  return { execPath: process.execPath, shimPath: pathJoin(__dirname, 'memory-mcp.js') }
+}
+
+function getMemorySupabaseUrl(): string | null {
+  return (import.meta.env.MAIN_VITE_SUPABASE_URL as string | undefined) ?? null
+}
+
+let memoryToken: string | null = null
+function loadMemoryToken(): string | null {
+  if (memoryToken) return memoryToken
+  const path = credentialPath(ravenHome())
+  if (!existsSync(path)) return null
+  try {
+    const encrypted = readFileSync(path)
+    if (!safeStorage.isEncryptionAvailable()) return null
+    memoryToken = safeStorage.decryptString(encrypted)
+    return memoryToken
+  } catch {
+    return null
+  }
+}
+
+let memoryOnline = true // updated by a lightweight periodic DNS check below
+
+interface MemorySubsystem {
+  store: MemoryStore
+  daemon: MemoryDaemon
+  ipcServer: MemoryIpcServer
+}
+
+// C7 fix: `new MemoryStore(...)` (better-sqlite3) used to run unguarded at module scope.
+// A native-module load failure (verified live in this repo's own dev sandbox: no
+// prebuilt better-sqlite3 binding for the local Node version, no Visual Studio Build
+// Tools to compile one — see docs/nest-memory-architecture.md §10 R-5) threw during
+// module evaluation and crashed the ENTIRE app before a single window could open —
+// PTYs, accounts, everything, taken down by a memory-feature dependency. Memory must be
+// able to fail independently and degrade to "disabled", exactly like a missing
+// `safeStorage.isEncryptionAvailable()` already does for connect. Every consumer below
+// checks `memory` for null; account provisioning and pty env injection are simply never
+// configured when it's null (both already no-op safely without a configured integration).
+let memory: MemorySubsystem | null = null
+try {
+  const store = new MemoryStore(pathJoin(ravenHome(), '.raven-nest', 'memory', 'memory.db'))
+  const authMaterial = ensureLocalAuthMaterial(ravenHome())
+  const memorySocketPath = daemonSocketPath(ravenHome(), process.platform === 'win32', authMaterial.pipeId)
+
+  const daemon = new MemoryDaemon({
+    store,
+    getSupabaseUrl: getMemorySupabaseUrl,
+    getToken: loadMemoryToken,
+    getDeviceId: () => memoryConnectionState.deviceId,
+    isOnline: () => memoryOnline,
+    onStatusChange: (status) => {
+      const win = BrowserWindow.getAllWindows()[0]
+      if (win) win.webContents.send('memory:status', status)
+    },
+  })
+
+  const ipcServer = new MemoryIpcServer({
+    store,
+    socketPath: memorySocketPath,
+    authToken: authMaterial.token,
+    resolveGitInfo: (cwd) => {
+      try {
+        if (!existsSync(cwd)) return null
+        const branch = execSync('git rev-parse --abbrev-ref HEAD', { cwd, encoding: 'utf8', timeout: 3000 }).trim()
+        let remoteUrl: string | null = null
+        try { remoteUrl = execSync('git remote get-url origin', { cwd, encoding: 'utf8', timeout: 3000 }).trim() } catch { /* no remote */ }
+        return { branch, remoteUrl }
+      } catch {
+        return null
+      }
+    },
+    onMutation: () => daemon.scheduleMutationPush(),
+    // M26: lets memory.search's pull-through fallback trigger/await this same daemon's
+    // pull() on a local zero-result miss instead of waiting up to its ~5-minute interval
+    // — see memory-ipc-server.ts's memory.search case for the full rationale.
+    daemon,
+  })
+
+  accountStore.configureMemory({ paths: memoryProvisionerPaths(), isEnabled: () => memoryConnectionState.connected })
+  ptyManager.setMemoryIntegration({
+    socketPath: memorySocketPath,
+    authToken: authMaterial.token,
+    isEnabled: () => memoryConnectionState.connected,
+    ensureClaudeProvisioned: (accountDir) => {
+      const { settingsFlagPath } = provisionClaudeAccount(accountDir, memoryProvisionerPaths(), process.platform === 'win32')
+      return ['--settings', settingsFlagPath]
+    },
+  })
+
+  memory = { store, daemon, ipcServer }
+} catch (err) {
+  console.error('[main] Nest Memory subsystem failed to initialize — memory features disabled for this session', err instanceof Error ? err.message : err)
+  memory = null
+}
+
+// Explicit "really quitting" teardown — docs/GUIA-TESTEO-BAUTISTA.md pitfall:
+// "No hagas teardown en before-quit." `before-quit` fires on every Cmd+Q attempt even
+// when macOS's win.on('close') cancels it right after (preventDefault + hide to tray),
+// and the app's actual exit paths call app.exit(0) directly, which never emits
+// before-quit/will-quit at all. This function is called ONLY from those real exit
+// paths (tray "Salir", updater install) — never from the before-quit listener.
+// isReallyQuittingMemory guards against a double call if a user mashes the tray Quit
+// item, or if both a tray-quit and an updater-quit somehow race.
+let isReallyQuittingMemory = false
+async function finalizeMemoryBeforeQuit(): Promise<void> {
+  if (!memory || isReallyQuittingMemory) return
+  isReallyQuittingMemory = true
+  // §4.1 "App quit": best-effort push within a 2s budget (memory.daemon.onQuit()
+  // internally races the push against that budget) — never blocks exit indefinitely
+  // (the mutation_log queue is durable across restarts regardless, §4.5), but DOES
+  // block the caller until that bounded attempt settles, so store.close() right after
+  // never races an in-flight write.
+  await memory.daemon.onQuit()
+  memory.daemon.stop()
+  memory.ipcServer.stop()
+  memory.store.close()
+}
+
 // Ensure every existing Claude account has the shared config (CLAUDE.md,
 // settings.json, skills, etc.) linked from ~/.claude. Idempotent — only
 // fills in missing links, never replaces a user's real file or dir.
@@ -188,9 +329,56 @@ const graphTemplateStore = new GraphTemplateStore()
 const graphRunStore = new GraphRunStore()
 const graphConfigStore = new GraphConfigStore()
 
-// Swapped for the real adapter over MemoryStore.save({source:'pty'}) once
-// feat/nest-memory-phase1 merges. Until then the bridge runs and writes nowhere.
-const memorySink: MemorySink = NULL_SINK
+// Real adapter over MemoryStore.save({source:'pty'}), now that
+// feat/nest-memory-phase1 is merged. Bridges MemorySaveInput
+// (electron/integrations/memory-port.ts) to the memory subsystem's own
+// SaveInput/ensureProject shape. projectKey resolution mirrors
+// memory-ipc-server.ts's 'memory.save' case (projectKeyForCwd): resolve a git
+// remote for the cwd, feed it plus the cwd itself to resolveProjectKey, then
+// register the project with ensureProject before writing the observation. An
+// empty cwd (graph events whose repo couldn't be resolved to a local path —
+// see bridgeCtx.resolveRepo above) skips the remote lookup entirely and falls
+// through resolveProjectKey straight to GLOBAL_PROJECT_KEY.
+//
+// 'pty' is the Layer C source reserved for this bridge in the design docs —
+// nothing else writes with it yet.
+//
+// Must never throw: memorySink.save() is called from the event-bus observer
+// (bridgeEvent, below) and from IPC decision handlers (bridgeDecision) — an
+// uncaught error here would take down whichever caller invoked it, not just
+// drop one memory write.
+const memorySink: MemorySink = {
+  save(input) {
+    try {
+      if (!memory || !memoryConnectionState.connected) return
+      const remoteUrl = input.cwd ? getRemoteUrl(input.cwd) : null
+      const projectKey = resolveProjectKey({ remoteUrl, rootPath: input.cwd || null })
+      memory.store.ensureProject({
+        projectKey,
+        displayName: input.cwd ? (input.cwd.split(/[\\/]/).filter(Boolean).pop() ?? input.cwd) : GLOBAL_PROJECT_KEY,
+        rootPath: input.cwd || null,
+        remoteUrl,
+      })
+      memory.store.save({
+        projectKey,
+        scope: 'personal', // graph-bridge writes are auto-capture, same rule as memory.save's IPC case (§2.1)
+        type: input.type,
+        title: input.title,
+        content: input.content,
+        source: 'pty',
+        topicKey: input.topicKey,
+        tags: input.tags,
+        sourceRef: input.sourceRef,
+        originAi: input.originAi,
+        gitBranch: input.gitBranch,
+      })
+      // §4.1 "on write" trigger — same debounce memory.save's IPC path fires via onMutation.
+      memory.daemon.scheduleMutationPush()
+    } catch (err) {
+      console.warn('[main] memorySink.save failed — dropping this memory write', err instanceof Error ? err.message : err)
+    }
+  },
+}
 
 // getRun accepts a ticketId OR a branch: graph events carry ticketId, pr.merged carries
 // the branch. Both resolve to the same run. One `list()` call covers both lookup
@@ -2211,6 +2399,14 @@ function setupAutoUpdater(): void {
 }
 
 ipcMain.on('updater:install', () => {
+  // Real quit path (electron-updater calls app.quit()/app.exit() internally) — fire the
+  // memory push best-effort. NOT awaited here: the isMac branch below has its own
+  // carefully-tuned 500ms force-exit deadline (event-loop-refs workaround, see comment),
+  // and stretching that to accommodate the full 2s push budget risks reintroducing the
+  // exact "helper waits forever" failure mode this code exists to avoid. Whatever
+  // portion of the push completes in whatever time is actually available is strictly
+  // better than the push never being attempted at all.
+  void finalizeMemoryBeforeQuit()
   if (isMac) {
     // quitAndInstall schedules the helper process then calls app.quit() internally.
     // On macOS, async before-quit work (spotlight watcher, browser panes) can keep
@@ -2244,6 +2440,182 @@ ipcMain.handle('safeStorage:encrypt', (_event, plaintext: string) => {
 ipcMain.handle('safeStorage:decrypt', (_event, encrypted: string) => {
   if (!safeStorage.isEncryptionAvailable()) throw new Error('safeStorage not available')
   return safeStorage.decryptString(Buffer.from(encrypted, 'base64'))
+})
+
+// ── Nest Memory IPC (docs/nest-memory-architecture.md §5.1, §6.2, §8.1) ─────────────
+//
+// The renderer owns the Supabase JS client bound to the user's session (it already
+// calls supabase.functions.invoke('memory-token', ...) to get a plaintext token —
+// see §5.1 step 1). Main only ever receives that plaintext once, stores it encrypted,
+// and does local-only work from here on: provisioning accounts, running importers,
+// and letting the daemon push/pull over plain HTTPS with the token as a Bearer header.
+const MEMORY_UNAVAILABLE = { ok: false, error: 'Nest Memory is unavailable on this device (failed to initialize) — see main process logs.' }
+
+ipcMain.handle('memory:connect', async (_event, token: string, deviceId: string) => {
+  if (!memory) return MEMORY_UNAVAILABLE
+  if (!safeStorage.isEncryptionAvailable()) {
+    return { ok: false, error: 'Encryption is not available on this system — memory connect is refused (§6.2).' }
+  }
+  // §6.2: credential.bin must be mode 0600, in addition to being safeStorage-encrypted
+  // (defense in depth — the ciphertext alone shouldn't be world/group-readable either).
+  // writeFileSync's `mode` option is subject to the process umask, so follow with an
+  // explicit chmodSync — same belt-and-braces pattern memory-ipc-server.ts uses for the
+  // unix socket. chmod is a no-op on Windows (NTFS ACLs, not POSIX mode bits); on
+  // Windows, safeStorage's DPAPI encryption is the actual protection (§6.2), so this is
+  // best-effort hardening there, not the primary control.
+  const credPath = credentialPath(ravenHome())
+  mkdirSync(dirname(credPath), { recursive: true })
+  writeFileSync(credPath, safeStorage.encryptString(token), { mode: 0o600 })
+  try { chmodSync(credPath, 0o600) } catch { /* best effort, e.g. unsupported on this fs */ }
+  memoryToken = token
+  memoryConnectionState = { connected: true, deviceId, connectedAt: Date.now() }
+  setMemoryConnectionState(ravenHome(), memoryConnectionState)
+
+  // Provision (or re-provision) every existing Claude account now that memory is enabled.
+  accountStore.migrateClaudeAccounts()
+
+  // First-connect import (§5.1 step 5 — always runs before any push). Best-effort: a
+  // partial import beats a failed connect (R-7).
+  const globalKey = resolveProjectKey({})
+
+  // Every repo with a known local path on THIS device (v1.2 local-paths-store, §per-device
+  // local paths in CLAUDE.md) is a candidate to import into its own project instead of
+  // __global__. Resolve each one's project_key the exact same way resolveGitInfo +
+  // resolveProjectKey do for live captures (memory-ipc-server.ts projectKeyForCwd) — remote
+  // URL first, path hash as fallback — so an imported observation and a live capture for
+  // the same repo land under the SAME project_key. Best-effort end to end: a missing/corrupt
+  // local-paths store, or a repo whose `git remote` call fails, must never break connect.
+  const knownRepoRoots: Array<{ path: string; projectKey: string; remoteUrl: string | null }> = []
+  try {
+    for (const localPath of Object.values(localPathsStore.getAllLocalPaths())) {
+      if (!existsSync(localPath)) continue // stale entry — repo no longer on disk
+      let remoteUrl: string | null = null
+      try {
+        remoteUrl = execSync('git remote get-url origin', { cwd: localPath, encoding: 'utf8', timeout: 3000 }).trim()
+      } catch { /* no remote configured — resolveProjectKey falls back to the path hash */ }
+      knownRepoRoots.push({ path: localPath, projectKey: resolveProjectKey({ remoteUrl, rootPath: localPath }), remoteUrl })
+    }
+  } catch (err) {
+    console.warn('[memory:connect] failed to enumerate known repo roots for import', err instanceof Error ? err.message : err)
+  }
+
+  // Fix (gap #1, see CLAUDE.md task notes): the importers below assign every imported
+  // observation a project_key but never create a matching `projects` row for it — only
+  // a LIVE capture does that, via memory-ipc-server.ts's projectKeyForCwd calling
+  // store.ensureProject() per request. A device that only ever imported (never had a
+  // live capture through the socket) ended connect with zero `projects` rows.
+  // memory-daemon.ts's doPull() reads store.listProjects() to build one pull cursor per
+  // known project and bails out entirely when that list is empty
+  // (`if (projects.length === 0) return`) — so pull silently never ran on such a
+  // device, even though push worked. Register every known repo root, plus the
+  // `__global__` partition (imports with no matching known repo land there), before the
+  // importers run so listProjects() is populated regardless of whether this device ever
+  // captures anything live. ensureProject() is idempotent (no-op if the row already
+  // exists) and always inserts with enrolled=1 — matching the column's documented
+  // meaning ("user can opt a repo out of memory entirely", §schema) and its default.
+  // Nothing reads `enrolled` as a gate yet (not doPull, not the live-capture path), so
+  // every known/imported project should stay enrolled=1 until an opt-out UI exists;
+  // there's no reason to import a repo's memories and then hide it from pull.
+  try {
+    for (const repo of knownRepoRoots) {
+      memory.store.ensureProject({
+        projectKey: repo.projectKey,
+        displayName: basename(repo.path) || repo.path,
+        rootPath: repo.path,
+        remoteUrl: repo.remoteUrl,
+      })
+    }
+    memory.store.ensureProject({ projectKey: globalKey, displayName: GLOBAL_PROJECT_KEY })
+  } catch (err) {
+    console.warn('[memory:connect] failed to register known projects', err instanceof Error ? err.message : err)
+  }
+
+  try {
+    importAllMarkdownSources(memory.store, {
+      ravenHomeDir: ravenHome(),
+      claudeAccountDirs: accountStore.list('claude').map((name) => accountStore.getDir('claude', name)),
+      projectRoots: knownRepoRoots.map((r) => ({ rootPath: r.path, projectKey: r.projectKey })),
+      globalProjectKey: globalKey,
+    })
+  } catch (err) {
+    console.warn('[memory:connect] markdown import failed', err instanceof Error ? err.message : err)
+  }
+  try {
+    // engram's `project` column is a lowercased folder basename (§5.2.A), never a full
+    // path — key this map the same way so resolveProjectKeyForEngramProject can match it.
+    const knownProjects = new Map(knownRepoRoots.map((r) => [basename(r.path).toLowerCase(), r.projectKey]))
+    const accountDirs = accountStore.list('claude').map((name) => accountStore.getDir('claude', name))
+    for (const dbPath of discoverEngramDatabases(ravenHome(), accountDirs)) {
+      importEngramDatabase(memory.store, dbPath, { knownProjects })
+    }
+  } catch (err) {
+    console.warn('[memory:connect] engram import failed', err instanceof Error ? err.message : err)
+  }
+
+  memory.daemon.onNetworkRegain() // drains everything just seeded
+  return { ok: true, itemCount: memory.store.count() }
+})
+
+ipcMain.handle('memory:disconnect', async (_event, opts?: { deleteCloud?: boolean }) => {
+  if (!memory) return MEMORY_UNAVAILABLE
+  // M10 / §6.6 "Right to delete": issued BEFORE clearing the local token/credential
+  // below — this is the only place main still holds the nmk_ token needed to call the
+  // memory-sync 'delete-cloud-data' action. Best-effort: a failed cloud delete must not
+  // block disconnecting locally (the user can retry by reconnecting then disconnecting
+  // again). Local data is NEVER deleted by disconnecting regardless of this flag — only
+  // this explicit server call touches cloud data, never local rows.
+  //
+  // Finding 2 fix: this used to swallow a failed delete-cloud-data call behind a
+  // console.warn and still return { ok: true } unconditionally — the renderer (and the
+  // user) had no way to know the cloud copy might still exist. Capture the failure
+  // reason and return it; the caller decides what to do with it (useMemory.ts surfaces
+  // it into the hook's error state). Local disconnect still proceeds regardless — only
+  // the REPORTING changed, not the best-effort semantics.
+  let cloudDeleteFailed: string | undefined
+  if (opts?.deleteCloud) {
+    const url = getMemorySupabaseUrl()
+    const token = loadMemoryToken()
+    if (url && token) {
+      try {
+        const res = await fetch(`${url}/functions/v1/memory-sync/delete-cloud-data`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: '{}',
+        })
+        if (!res.ok) {
+          const body = await res.text().catch(() => '')
+          cloudDeleteFailed = `HTTP ${res.status}${body ? `: ${body}` : ''}`
+          console.warn('[memory:disconnect] cloud data delete failed', res.status, body)
+        }
+      } catch (err) {
+        cloudDeleteFailed = err instanceof Error ? err.message : String(err)
+        console.warn('[memory:disconnect] cloud data delete failed', err instanceof Error ? err.message : err)
+      }
+    }
+  }
+  accountStore.disconnectMemoryFromAllClaudeAccounts()
+  deleteCredential(ravenHome())
+  memoryToken = null
+  memoryConnectionState = { connected: false, deviceId: memoryConnectionState.deviceId, connectedAt: null }
+  setMemoryConnectionState(ravenHome(), memoryConnectionState)
+  return cloudDeleteFailed ? { ok: true, cloudDeleteFailed } : { ok: true }
+})
+
+ipcMain.handle('memory:status', () => {
+  if (!memory) return { connected: false, deviceId: null, itemCount: 0, pendingCount: 0, daemonStatus: 'error' as const, unavailable: true }
+  return {
+    connected: memoryConnectionState.connected,
+    deviceId: memoryConnectionState.deviceId,
+    itemCount: memory.store.count(),
+    pendingCount: memory.store.pendingMutationCount(),
+    daemonStatus: memory.daemon.getStatus(),
+  }
+})
+
+ipcMain.handle('memory:ensureDeviceId', () => {
+  const deviceId = ensureDeviceId(ravenHome())
+  memoryConnectionState = { ...memoryConnectionState, deviceId }
+  return deviceId
 })
 
 ipcMain.handle('clipboard:writeImage', (_event, filePath: string): { ok: boolean; error?: string } => {
@@ -3254,6 +3626,33 @@ app.whenReady().then(async () => {
   }
   createWindow()
   setupAutoUpdater()
+
+  // Nest Memory: start the IPC server (the MCP shim's only entry point) and the sync
+  // daemon. Both are safe to start even when memory is disconnected — the IPC server
+  // just serves local reads/writes to memory.db (which always works, offline-first,
+  // §1.2), and the daemon no-ops push/pull without a token (§4.1 guards on getToken()).
+  // C7: skipped entirely when the subsystem failed to initialize.
+  if (memory) {
+    memory.ipcServer.start()
+    memory.daemon.start()
+    // §4.1 "Window focus" trigger.
+    app.on('browser-window-focus', () => memory?.daemon.onWindowFocus())
+    // Lightweight connectivity probe — Electron main has no `navigator.onLine`; a short
+    // DNS lookup against the Supabase host is cheap and avoids adding an IPC round-trip
+    // from the renderer just to learn online/offline (§4.1 "Network regain").
+    setInterval(() => {
+      const url = getMemorySupabaseUrl()
+      if (!url) return
+      try {
+        const host = new URL(url).hostname
+        void lookup(host).then(
+          () => { const wasOffline = !memoryOnline; memoryOnline = true; if (wasOffline) memory?.daemon.onNetworkRegain() },
+          () => { memoryOnline = false }
+        )
+      } catch { /* invalid URL — leave memoryOnline as-is */ }
+    }, 15_000)
+  }
+
   setWhisperStatusCallback((status) => {
     const win = BrowserWindow.getAllWindows()[0]
     if (win) win.webContents.send('speech:status', status)
@@ -3269,8 +3668,15 @@ app.whenReady().then(async () => {
       }
     },
     () => {
-      ptyManager.killAll()
-      app.exit(0)
+      // Real quit path — the tray "Salir"/"Quit" item is one of exactly two ways this
+      // app actually exits (the other is updater:install above). Await the bounded
+      // (2s budget) memory push before killing PTYs / force-exiting, since nothing
+      // here is time-constrained the way the updater's quit path is.
+      void (async () => {
+        await finalizeMemoryBeforeQuit()
+        ptyManager.killAll()
+        app.exit(0)
+      })()
     },
     () => {
       if (updaterState === 'downloading') {
@@ -3356,6 +3762,12 @@ app.on('before-quit', () => {
   // alive (hidden to tray). PTY cleanup is handled by the tray "Quit" handler
   // (explicit killAll + app.exit) and the updater:install path (explicit killAll
   // before quitAndInstall). Those are the only real-quit paths.
+  //
+  // Nest Memory teardown is DELIBERATELY NOT here either, for the identical reason
+  // (docs/GUIA-TESTEO-BAUTISTA.md pitfall: "No hagas teardown en before-quit" — this
+  // handler fires on every Cmd+Q attempt even when win.on('close') cancels it right
+  // after). See finalizeMemoryBeforeQuit(), wired into the same two real-quit paths
+  // as ptyManager.killAll() below.
   setupRunner.removeAllListeners()
   spotlight.removeAllListeners()
   metricsCollector.dispose()

@@ -9,7 +9,12 @@ export default defineConfig({
       outDir: 'dist-electron',
       rollupOptions: {
         input: {
-          main: resolve(__dirname, 'electron/main.ts')
+          main: resolve(__dirname, 'electron/main.ts'),
+          // Standalone stdio MCP shim — run outside Electron's normal window process via
+          // ELECTRON_RUN_AS_NODE=1 (see docs/nest-memory-architecture.md §1.1). Built as
+          // its own entry so it ships as a small, independently invokable script rather
+          // than being bundled into main.js.
+          'memory-mcp': resolve(__dirname, 'electron/memory-mcp/index.ts')
         }
       }
     }

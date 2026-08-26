@@ -6817,6 +6817,88 @@ button.ci-badge:hover {
 .sp-action-btn:hover:not(:disabled) { background: var(--bg-elevated); color: var(--text-primary); }
 .sp-action-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
+/* "Link repos first" notice — Nest Memory card, shown while disconnected with zero
+   repos linked. Same amber tone as .wt-env-banner / .rb-heavy-banner / .pane-sync-cwd-btn
+   so all "watch out" hints look alike across the app. Warn, don't block: Connect stays
+   enabled underneath this. */
+.sp-mem-no-repos-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: #FFB80018;
+  border: 1px solid #FFB80066;
+  color: #FFB800;
+  border-radius: 6px;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.sp-mem-no-repos-banner-icon { font-size: 12px; flex-shrink: 0; }
+
+/* Sync progress bar — Nest Memory card, shown while the push queue is draining. */
+.sp-mem-progress {
+  margin-top: 6px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--bg-elevated);
+  overflow: hidden;
+}
+.sp-mem-progress-fill {
+  height: 100%;
+  background: #a78bfa;
+  border-radius: 2px;
+  transition: width 0.4s ease;
+}
+
+/* Custom checkbox for destructive/opt-in settings rows (e.g. "delete my cloud
+   memory"). Styled in the danger palette to match .sp-btn-danger since checking it
+   is itself a destructive choice. */
+.sp-checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+}
+.sp-checkbox-row input[type='checkbox'] {
+  appearance: none;
+  -webkit-appearance: none;
+  margin: 0;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  cursor: pointer;
+  position: relative;
+  transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.sp-checkbox-row input[type='checkbox']:hover { border-color: #ef444455; }
+.sp-checkbox-row input[type='checkbox']:checked {
+  background: #ef4444;
+  border-color: #ef4444;
+}
+.sp-checkbox-row input[type='checkbox']:checked::after {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 1px;
+  width: 3px;
+  height: 7px;
+  border: solid #fff;
+  border-width: 0 1.5px 1.5px 0;
+  transform: rotate(45deg);
+}
+.sp-checkbox-row input[type='checkbox']:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px #ef444440;
+}
+
 /* ── Terminal Share Panel ────────────────────────────────── */
 
 .ts-panel {
