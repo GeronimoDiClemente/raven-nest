@@ -112,10 +112,10 @@ export function bridgeDecision(
       content:
         `Un humano aprobo el gate ${decision.gateId} sabiendo que estos concerns estaban ` +
         `marcados como bloqueantes. En este contexto no lo eran:\n${overridden.join('\n')}\n\n` +
-        provenanceBlock(run, { nodeId: decision.gateId, role: 'gate', verdict: 'human-approved' }),
+        provenanceBlock(run, { nodeId: decision.gateId, role: gate?.role, verdict: 'human-approved' }),
       type: 'decision',
       tags: ['graph', 'human-decision'],
-      sourceRef: `graph:${run.runId}:approve:${decision.gateId}`,
+      sourceRef: `graph:${run.runId}:approve:${decision.gateId}:${run.round}`,
       gitBranch: run.branch,
     }]
   }

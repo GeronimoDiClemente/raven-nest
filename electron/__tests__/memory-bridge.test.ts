@@ -104,7 +104,7 @@ describe('bridgeDecision · approve', () => {
     const out = bridgeDecision({ kind: 'approve', gateId: 'gate' }, run, full)
     expect(out).toHaveLength(1)
     expect(out[0].type).toBe('decision')
-    expect(out[0].sourceRef).toBe('graph:r1:approve:gate')
+    expect(out[0].sourceRef).toBe('graph:r1:approve:gate:0')
     expect(out[0].content).toContain('token logueado en claro')
     expect(out[0].content).toContain('human-approved')
   })
@@ -112,6 +112,23 @@ describe('bridgeDecision · approve', () => {
   it('produces nothing when the gate had no blocking concerns to override', () => {
     const run = mkRun({ 'rev-security': { state: 'done', verdict: { blocking: false, concerns: [] } } })
     expect(bridgeDecision({ kind: 'approve', gateId: 'gate' }, run, full)).toEqual([])
+  })
+
+  it('keys by round so a re-approval after a reset does not overwrite the first one', () => {
+    const run = mkRun({
+      'rev-security': { state: 'done', verdict: { blocking: true, concerns: ['token logueado en claro'] } },
+    })
+    run.round = 0
+    const firstPass = bridgeDecision({ kind: 'approve', gateId: 'gate' }, run, full)
+
+    run.round = 1
+    const secondPass = bridgeDecision({ kind: 'approve', gateId: 'gate' }, run, full)
+
+    expect(firstPass).toHaveLength(1)
+    expect(secondPass).toHaveLength(1)
+    expect(firstPass[0].sourceRef).toBe('graph:r1:approve:gate:0')
+    expect(secondPass[0].sourceRef).toBe('graph:r1:approve:gate:1')
+    expect(firstPass[0].sourceRef).not.toBe(secondPass[0].sourceRef)
   })
 })
 
