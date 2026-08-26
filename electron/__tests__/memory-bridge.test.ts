@@ -114,6 +114,30 @@ describe('bridgeEvent · fallas duras', () => {
     expect(out).toEqual([])
   })
 
+  it('sin runUrl, dos fallas con summary distinto en la misma branch no colisionan', () => {
+    const a = bridgeEvent(
+      { type: 'ci.failed', branch: 'feat/x', repoFullName: 'o/r', summary: '3 tests rojos en auth' },
+      ctxFor(mkRun({}))
+    )
+    const b = bridgeEvent(
+      { type: 'ci.failed', branch: 'feat/x', repoFullName: 'o/r', summary: '5 tests rojos en billing' },
+      ctxFor(mkRun({}))
+    )
+    expect(a[0].sourceRef).not.toBe(b[0].sourceRef)
+  })
+
+  it('sin runUrl, el mismo summary en la misma branch produce la misma clave', () => {
+    const a = bridgeEvent(
+      { type: 'ci.failed', branch: 'feat/x', repoFullName: 'o/r', summary: '3 tests rojos en auth' },
+      ctxFor(mkRun({}))
+    )
+    const b = bridgeEvent(
+      { type: 'ci.failed', branch: 'feat/x', repoFullName: 'o/r', summary: '3 tests rojos en auth' },
+      ctxFor(mkRun({}))
+    )
+    expect(a[0].sourceRef).toBe(b[0].sourceRef)
+  })
+
   it('traduce error.detected', () => {
     const out = bridgeEvent(
       { type: 'error.detected', source: 'sentry', ref: 'ISSUE-9', summary: 'null deref en UserList' },

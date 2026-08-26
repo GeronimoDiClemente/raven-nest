@@ -10,7 +10,7 @@ import { provenanceBlock } from './memory-provenance'
 
 export interface BridgeContext {
   /** Accepts either a ticketId (graph.* events) or a branch (pr.merged, which
-   *  carries no ticketId). The context injected in main.ts resolves both. */
+   *  carries no ticketId). Whoever injects this context must resolve both. */
   getRun(key: string): GraphRun | null
   getTemplate(templateId: string): GraphTemplate | null
 }
@@ -50,6 +50,20 @@ function runCloseMemory(run: GraphRun, merged: boolean): MemorySaveInput {
     sourceRef: `graph:${run.runId}:run`,
     gitBranch: run.branch,
   }
+}
+
+/** Deterministic fallback key for `ci.failed` when there is no `runUrl` to disambiguate on:
+ *  same summary on the same branch = same fact (the same test failing again) and must
+ *  collapse into one memory; different summary = different fact and must stay separate.
+ *  Never derive this from a timestamp — that breaks determinism and turns a re-emitted
+ *  event into a brand-new memory every time, defeating the point of the sourceRef upsert. */
+function slug(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 40)
+    .replace(/-+$/g, '')
 }
 
 export function bridgeEvent(ev: DomainEvent, ctx: BridgeContext): MemorySaveInput[] {
@@ -124,7 +138,7 @@ export function bridgeEvent(ev: DomainEvent, ctx: BridgeContext): MemorySaveInpu
         content: `${ev.summary}${ev.runUrl ? `\n\nRun: ${ev.runUrl}` : ''}\n\n---\nRepo: ${ev.repoFullName} · Branch: ${ev.branch}`,
         type: 'bugfix',
         tags: ['ci', 'graph'],
-        sourceRef: `ci:${ev.repoFullName}:${ev.branch}:${ev.runUrl ?? 'sin-url'}`,
+        sourceRef: `ci:${ev.repoFullName}:${ev.branch}:${ev.runUrl ?? slug(ev.summary)}`,
         gitBranch: ev.branch,
       }]
     }
