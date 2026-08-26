@@ -157,10 +157,11 @@ nuestro, pero si querés blindarlo de tu lado, alcanza con que el importer respe
 
 ---
 
-## 3. Tres bugs que solo aparecen al juntar las ramas
+## 3. Cuatro bugs que solo aparecen al juntar las ramas
 
-No los podés ver desde la tuya porque necesitan el orquestador de graph. El merge entre las dos,
-probado con `git merge-tree`, da **un solo conflicto y es `.env.example`**.
+No los podés ver desde la tuya porque necesitan el orquestador de graph. **Ya hicimos el merge de
+verdad** en un worktree de prueba (`smoke/memory-bridge`, descartable): dio **un solo conflicto y
+fue `.env.example`**, y los cuatro bugs de abajo son todo lo que apareció.
 
 **3.1 — `cmd === 'claude'` es comparación exacta.** `pty-manager.ts:185`. Los nodos del graph se
 lanzan con `launchCommand()`, que devuelve `claude --model <x>` cuando el nodo tiene modelo
@@ -176,6 +177,23 @@ el HOME real queda afuera de memoria por completo.
 **3.3 — El coder del template `full` corre con codex, que no está provisionado.** Solo `claude`
 recibe el shim MCP en Phase 1. El nodo que más decisiones toma en el pipeline por defecto es justo
 el que no tiene memoria. No es un bug tuyo: es tu Phase 2 llegando antes de lo previsto.
+
+**3.4 — `useMemory` explota si `window.memory` no existe.** Este apareció al correr la suite sobre
+el merge real, y es el único que rompe tests en verde: `src/__tests__/components/Sidebar-integrations.test.tsx`
+falla con `TypeError: Cannot read properties of undefined (reading 'onStatus')`.
+
+La causa está en `src/hooks/useMemory.ts`: la línea 32 hace `window.memory.status()` y la 51
+`window.memory.onStatus(...)`, las dos sin guard. Cuando `SettingsPanel` monta el hook y esa API del
+preload no está expuesta, el componente entero se cae y arrastra a cualquier árbol que lo contenga.
+
+**Es tentador arreglarlo como un mock faltante en el test de la otra rama, y creemos que sería el
+fix equivocado.** El test solo expuso el problema: `window.memory` es una API del preload, y un hook
+de renderer no debería asumir que existe. Cualquier contexto donde el preload no la haya expuesto
+(un preload viejo tras un update parcial, un render fuera de Electron, un harness de test que no la
+conoce) tumba la pantalla de Settings completa. Un par de optional chainings en esas dos líneas, más
+un estado inicial de "memoria no disponible", lo cierran de raíz. De hecho `main.ts` ya trata la
+memoria como algo que puede fallar y degradar a deshabilitado (todo el try/catch alrededor de
+`new MemoryStore(...)`); el hook es la única pieza que no sigue esa misma regla.
 
 ---
 
