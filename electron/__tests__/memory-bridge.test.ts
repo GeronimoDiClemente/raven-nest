@@ -10,9 +10,10 @@ const mkRun = (nodes: Record<string, NodeRuntime>): GraphRun => ({
   branch: 'feat/x', nodes, startedAt: 0, mode: 'auto', round: 0,
 })
 
-const ctxFor = (run: GraphRun): BridgeContext => ({
+const ctxFor = (run: GraphRun, resolveRepo: BridgeContext['resolveRepo'] = () => null): BridgeContext => ({
   getRun: () => run,
   getTemplate: () => full,
+  resolveRepo,
 })
 
 describe('bridgeEvent · gate_blocked', () => {
@@ -54,9 +55,22 @@ describe('bridgeEvent · gate_blocked', () => {
   it('produces nothing when the run is unknown', () => {
     const out = bridgeEvent(
       { type: 'graph.gate_blocked', ticketId: 'nope', gateId: 'gate', blockedBy: ['rev-security'] },
-      { getRun: () => null, getTemplate: () => full }
+      { getRun: () => null, getTemplate: () => full, resolveRepo: () => null }
     )
     expect(out).toEqual([])
+  })
+
+  it('carries the reviewer node agent and model into the provenance block', () => {
+    const run = mkRun({
+      'rev-security': { state: 'done', verdict: { blocking: true, concerns: ['x'] } },
+    })
+    const out = bridgeEvent(
+      { type: 'graph.gate_blocked', ticketId: 't-42', gateId: 'gate', blockedBy: ['rev-security'] },
+      ctxFor(run)
+    )
+    // The 'full' template's rev-security node has agent 'claude' and no model.
+    expect(out[0].originAi).toBe('claude')
+    expect(out[0].content).toContain('Agente: claude')
   })
 })
 
@@ -71,10 +85,20 @@ describe('bridgeEvent · escalated', () => {
     )
     expect(out).toHaveLength(1)
     expect(out[0].type).toBe('discovery')
-    expect(out[0].sourceRef).toBe('graph:r1:escalated')
-    expect(out[0].title).toContain('3')
+    expect(out[0].sourceRef).toBe('graph:r1:escalated:gate')
+    // ev.round is 0-indexed (3 = fourth pass); the title shows the 1-indexed count.
+    expect(out[0].title).toContain('4')
     expect(out[0].content).toContain('el fix no cubre el caso de token vacio')
     expect(out[0].content).toContain('[[run-r1]]')
+  })
+
+  it('keys by gateId so two gates escalating independently do not collide', () => {
+    const run = mkRun({ coder: { state: 'done' } })
+    const gateA = bridgeEvent({ type: 'graph.escalated', ticketId: 't-42', gateId: 'gate-a', round: 3 }, ctxFor(run))
+    const gateB = bridgeEvent({ type: 'graph.escalated', ticketId: 't-42', gateId: 'gate-b', round: 3 }, ctxFor(run))
+    expect(gateA[0].sourceRef).toBe('graph:r1:escalated:gate-a')
+    expect(gateB[0].sourceRef).toBe('graph:r1:escalated:gate-b')
+    expect(gateA[0].sourceRef).not.toBe(gateB[0].sourceRef)
   })
 
   it('omits the "Revisiones pedidas" block when there are no revision notes', () => {
@@ -138,6 +162,30 @@ describe('bridgeEvent · fallas duras', () => {
     expect(a[0].sourceRef).toBe(b[0].sourceRef)
   })
 
+  it('sin summary alfanumerico, el slug de sourceRef no colapsa a vacio', () => {
+    const out = bridgeEvent(
+      { type: 'ci.failed', branch: 'feat/x', repoFullName: 'o/r', summary: '💥💥💥' },
+      ctxFor(mkRun({}))
+    )
+    expect(out[0].sourceRef).toBe('ci:o/r:feat/x:sin-summary')
+  })
+
+  it('resuelve cwd con resolveRepo cuando el repo tiene path local', () => {
+    const out = bridgeEvent(
+      { type: 'ci.failed', branch: 'feat/x', repoFullName: 'o/r', summary: '3 tests rojos en auth' },
+      ctxFor(mkRun({}), (fullName) => (fullName === 'o/r' ? '/local/o-r' : null))
+    )
+    expect(out[0].cwd).toBe('/local/o-r')
+  })
+
+  it('cwd queda vacio si resolveRepo no encuentra el repo localmente', () => {
+    const out = bridgeEvent(
+      { type: 'ci.failed', branch: 'feat/x', repoFullName: 'o/r', summary: '3 tests rojos en auth' },
+      ctxFor(mkRun({}))
+    )
+    expect(out[0].cwd).toBe('')
+  })
+
   it('traduce error.detected', () => {
     const out = bridgeEvent(
       { type: 'error.detected', source: 'sentry', ref: 'ISSUE-9', summary: 'null deref en UserList' },
@@ -146,6 +194,10 @@ describe('bridgeEvent · fallas duras', () => {
     expect(out).toHaveLength(1)
     expect(out[0].sourceRef).toBe('error:sentry:ISSUE-9')
     expect(out[0].content).toContain('null deref en UserList')
+    // error.detected carries no repoFullName to resolve a cwd from (see the
+    // comment in memory-bridge.ts) — locked in here so a future change to the
+    // event's shape has to update this deliberately, not by accident.
+    expect(out[0].cwd).toBe('')
   })
 })
 
@@ -160,7 +212,7 @@ describe('bridgeDecision · approve', () => {
     expect(out[0].type).toBe('decision')
     expect(out[0].sourceRef).toBe('graph:r1:approve:gate:0')
     expect(out[0].content).toContain('token logueado en claro')
-    expect(out[0].content).toContain('human-approved')
+    expect(out[0].content).toContain('aprobado por humano')
   })
 
   it('produces nothing when the gate had no blocking concerns to override', () => {
@@ -195,7 +247,7 @@ describe('bridgeDecision · requestChanges', () => {
     expect(out[0].type).toBe('decision')
     expect(out[0].sourceRef).toBe('graph:r1:changes:1')
     expect(out[0].content).toContain('esto rompe el flujo de onboarding')
-    expect(out[0].content).toContain('human-rejected')
+    expect(out[0].content).toContain('rechazado por humano')
   })
 
   it('ignores empty feedback', () => {
@@ -226,6 +278,7 @@ describe('bridgeEvent · cierre de run', () => {
     const out = bridgeEvent({ type: 'pr.merged', branch: 'feat/x', repoFullName: 'o/r' }, {
       getRun: () => run,
       getTemplate: () => full,
+      resolveRepo: () => null,
     })
     expect(out).toHaveLength(1)
     expect(out[0].sourceRef).toBe('graph:r1:run')
@@ -234,7 +287,7 @@ describe('bridgeEvent · cierre de run', () => {
 
   it('pr.merged sin run asociado no produce nada', () => {
     const out = bridgeEvent({ type: 'pr.merged', branch: 'feat/x', repoFullName: 'o/r' }, {
-      getRun: () => null, getTemplate: () => full,
+      getRun: () => null, getTemplate: () => full, resolveRepo: () => null,
     })
     expect(out).toEqual([])
   })

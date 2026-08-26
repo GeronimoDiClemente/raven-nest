@@ -193,16 +193,38 @@ const graphConfigStore = new GraphConfigStore()
 const memorySink: MemorySink = NULL_SINK
 
 // getRun accepts a ticketId OR a branch: graph events carry ticketId, pr.merged carries
-// the branch. Both resolve to the same run.
+// the branch. Both resolve to the same run. One `list()` call covers both lookup
+// paths — graph-run-store.ts has no cache, so getByTicket() followed by a separate
+// list() on miss was two full disk reads per event; a single list() plus two
+// in-memory finds is one.
 const bridgeCtx: BridgeContext = {
-  getRun: (key) =>
-    graphRunStore.getByTicket(key)?.run
-    ?? graphRunStore.list().find((p) => p.run.branch === key)?.run
-    ?? null,
+  getRun: (key) => {
+    const runs = graphRunStore.list()
+    return runs.find((p) => p.run.ticketId === key)?.run
+      ?? runs.find((p) => p.run.branch === key)?.run
+      ?? null
+  },
   getTemplate: (id) => graphTemplateStore.list().find((t) => t.id === id) ?? null,
+  resolveRepo: (fullName) => resolveRepoForMemory(fullName),
 }
 const snippetStore = new SnippetStore()
 const localPathsStore = new LocalPathsStore()
+
+// Resolves a GitHub "owner/repo" full name to a local path via this device's
+// per-machine local-paths store (v1.2, ~/.raven-nest/local-paths.json — see
+// local-paths-store.ts): same git-remote match as resolveRepoPathForBot further
+// down, but keyed off every repo this device has a local path for, not just
+// worktree roots. Used by the memory bridge so ci.failed gets a real cwd
+// instead of '' — see bridgeCtx.resolveRepo above.
+function resolveRepoForMemory(fullName: string): string | null {
+  const wanted = fullName.toLowerCase()
+  for (const path of Object.values(localPathsStore.getAllLocalPaths())) {
+    const url = getRemoteUrl(path)
+    const or = url ? parseOwnerRepo(url) : null
+    if (or && `${or.owner}/${or.repo}`.toLowerCase() === wanted) return path
+  }
+  return null
+}
 const conversationStore = new ConversationStore()
 const workspaceStore = new WorkspaceStore()
 const worktreeStore = new WorktreeStore(pathJoin(ravenHome(), '.raven-nest'))
@@ -3011,13 +3033,20 @@ function graphOrchestratorTick(): void {
       })
     }
 
-    // Dedup persistent signals against the run's saved `seen`, emit the fresh
-    // ones, persist the grown set.
+    // Dedup persistent signals against the run's saved `seen`, persist the
+    // grown set, THEN emit the fresh ones. Order matters: EventBus.emit calls
+    // its onEmit observer synchronously on its first line (event-bus.ts), and
+    // the memory bridge is hooked there — it reads the run back from
+    // graphRunStore via bridgeCtx.getRun. Emitting before save would hand the
+    // bridge the previous tick's persisted state (verdicts not attached yet),
+    // so a gate_blocked fired by a reviewer that just resolved this tick would
+    // read as having no verdict and silently produce zero memories. Save
+    // first — including on a completed run, so `getRun` still finds it during
+    // this tick's emit — then emit, then delete if the run is done.
     const { fresh, seen: nextSeen } = dedupePersistentSignals(plan.events, new Set(seen))
+    graphRunStore.save(plan.run, [...nextSeen])
     for (const ev of fresh) void eventBus.emit(ev, panelDeps())
-
     if (plan.completed) graphRunStore.delete(run.runId)
-    else graphRunStore.save(plan.run, [...nextSeen])
   }
 }
 

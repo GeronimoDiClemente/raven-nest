@@ -13,6 +13,12 @@ export interface BridgeContext {
    *  carries no ticketId). Whoever injects this context must resolve both. */
   getRun(key: string): GraphRun | null
   getTemplate(templateId: string): GraphTemplate | null
+  /** Resolves a GitHub "owner/repo" full name to this device's local working
+   *  directory for that repo, or null when there is none (repo never cloned
+   *  locally on this machine, or the caller only knows the full name and not
+   *  a device-local path). Used to give a real `cwd` to memories triggered by
+   *  events that carry a repo full name but no local path of their own. */
+  resolveRepo(repoFullName: string): string | null
 }
 
 /** A reviewer whose focus is about correctness produces a bugfix-flavoured memory;
@@ -32,10 +38,14 @@ function runSummary(run: GraphRun, merged: boolean): string {
   const concerns = Object.entries(run.nodes)
     .flatMap(([id, rt]) => (rt.verdict?.blocking ? rt.verdict.concerns.map((c) => `- ${id}: ${c}`) : []))
   return [
+    // `run.round` is 0-indexed (round 0 = first pass); +1 here for the human
+    // count, matching provenanceBlock's "Ronda:" line below and the other
+    // round mentions in this module (escalated, requestChanges) — see
+    // memory-provenance.ts for the full note.
     `Ticket ${run.ticketId} · template ${run.templateId} · ${run.round + 1} ronda(s).`,
     `Nodos completados: ${done.join(', ') || 'ninguno'}.`,
     concerns.length ? `Concerns bloqueantes durante el run:\n${concerns.join('\n')}` : 'Sin concerns bloqueantes.',
-    merged ? `Mergeado a ${run.branch}: el cambio sobrevivio.` : '',
+    merged ? `Mergeado a ${run.branch}: el cambio sobrevivió.` : '',
     provenanceBlock(run, {}),
   ].filter(Boolean).join('\n\n')
 }
@@ -58,12 +68,15 @@ function runCloseMemory(run: GraphRun, merged: boolean): MemorySaveInput {
  *  Never derive this from a timestamp — that breaks determinism and turns a re-emitted
  *  event into a brand-new memory every time, defeating the point of the sourceRef upsert. */
 function slug(text: string): string {
-  return text
+  const s = text
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, 40)
     .replace(/-+$/g, '')
+  // A summary with no alphanumeric chars (e.g. all emoji/punctuation) slugs to
+  // '', which would collapse every such ci.failed into the same sourceRef.
+  return s || 'sin-summary'
 }
 
 export function bridgeEvent(ev: DomainEvent, ctx: BridgeContext): MemorySaveInput[] {
@@ -75,6 +88,12 @@ export function bridgeEvent(ev: DomainEvent, ctx: BridgeContext): MemorySaveInpu
       const out: MemorySaveInput[] = []
       for (const nodeId of ev.blockedBy) {
         const rt = run.nodes[nodeId]
+        // `blockedBy` lists every gate dependency that isn't 'done' yet (see
+        // gateState in graph-runner.ts) — that includes dependencies still
+        // running/queued this tick and ones that failed outright, not only
+        // ones with a parsed blocking verdict. A dependency with no blocking
+        // verdict here is the expected case for those, not a bug to chase:
+        // there is nothing to write yet, so this produces nothing.
         if (!rt?.verdict?.blocking) continue
         const node = template?.nodes.find((n) => n.id === nodeId)
         rt.verdict.concerns.forEach((concern, i) => {
@@ -82,7 +101,7 @@ export function bridgeEvent(ev: DomainEvent, ctx: BridgeContext): MemorySaveInpu
             cwd: cwdOf(run),
             title: concern.slice(0, 120),
             content: `${concern}\n\n${provenanceBlock(run, {
-              nodeId, role: node?.role, focus: node?.focus, verdict: 'blocking',
+              nodeId, role: node?.role, focus: node?.focus, agent: node?.agent, model: node?.model, verdict: 'blocking',
             })}`,
             type: typeForReviewer(node),
             tags: [node?.focus, node?.role, 'graph'].filter((t): t is string => !!t),
@@ -108,15 +127,20 @@ export function bridgeEvent(ev: DomainEvent, ctx: BridgeContext): MemorySaveInpu
         .join('\n')
       return [{
         cwd: cwdOf(run),
-        title: `Auto-repair no convergio despues de ${ev.round} rondas`,
+        // ev.round is 0-indexed like run.round; +1 for the human count (see
+        // memory-provenance.ts).
+        title: `Auto-repair no convergió después de ${ev.round + 1} rondas`,
         content:
-          `El ciclo de review y re-run llego al tope de rondas sin resolver los concerns. ` +
-          `Requiere decision humana.\n\n` +
+          `El ciclo de review y re-run llegó al tope de rondas sin resolver los concerns. ` +
+          `Requiere decisión humana.\n\n` +
           (notes ? `Revisiones pedidas:\n${notes}\n\n` : '') +
           provenanceBlock(run, { verdict: 'blocking' }),
         type: 'discovery',
         tags: ['graph', 'escalation'],
-        sourceRef: `graph:${run.runId}:escalated`,
+        // gateId in the key: a template with two gates escalating independently
+        // must produce two memories, not collapse the second escalation into
+        // the first (source_ref upsert would silently overwrite it otherwise).
+        sourceRef: `graph:${run.runId}:escalated:${ev.gateId}`,
         gitBranch: run.branch,
       }]
     }
@@ -133,7 +157,7 @@ export function bridgeEvent(ev: DomainEvent, ctx: BridgeContext): MemorySaveInpu
     case 'ci.failed': {
       if (!ev.summary) return []
       return [{
-        cwd: '',
+        cwd: ctx.resolveRepo(ev.repoFullName) ?? '',
         title: `CI en rojo · ${ev.branch}`,
         content: `${ev.summary}${ev.runUrl ? `\n\nRun: ${ev.runUrl}` : ''}\n\n---\nRepo: ${ev.repoFullName} · Branch: ${ev.branch}`,
         type: 'bugfix',
@@ -145,6 +169,11 @@ export function bridgeEvent(ev: DomainEvent, ctx: BridgeContext): MemorySaveInpu
 
     case 'error.detected': {
       if (!ev.summary) return []
+      // Unlike ci.failed, ErrorDetectedEvent (bus-types.ts) carries no
+      // repoFullName — `source`/`ref` are a generic error-tracker identity
+      // (e.g. 'sentry'/'ISSUE-9'), not a repo. There is nothing to hand
+      // ctx.resolveRepo, so cwd stays unresolved until this event's shape
+      // grows a repo identifier.
       return [{
         cwd: '',
         title: `Error detectado · ${ev.source}`,
@@ -186,7 +215,7 @@ export function bridgeDecision(
       cwd: cwdOf(run),
       title: `Aprobado a pesar de ${overridden.length} concern(s) bloqueante(s)`,
       content:
-        `Un humano aprobo el gate ${decision.gateId} sabiendo que estos concerns estaban ` +
+        `Un humano aprobó el gate ${decision.gateId} sabiendo que estos concerns estaban ` +
         `marcados como bloqueantes. En este contexto no lo eran:\n${overridden.join('\n')}\n\n` +
         provenanceBlock(run, { nodeId: decision.gateId, role: gate?.role, verdict: 'human-approved' }),
       type: 'decision',
@@ -200,7 +229,8 @@ export function bridgeDecision(
   if (!feedback) return []
   return [{
     cwd: cwdOf(run),
-    title: `Cambios pedidos por un humano (ronda ${run.round})`,
+    // +1 for the human count, same convention as everywhere else in this module.
+    title: `Cambios pedidos por un humano (ronda ${run.round + 1})`,
     content: `${feedback}\n\n${provenanceBlock(run, { verdict: 'human-rejected' })}`,
     type: 'decision',
     tags: ['graph', 'human-decision'],
