@@ -166,6 +166,8 @@ import type { GraphRun, NodeRuntime, GraphMode } from './integrations/graph-runn
 import { sampleGraph, launchCommand, type PaneSignals } from './integrations/graph-tick'
 import { readHandoff, writeHandoff } from './integrations/handoff'
 import { makeRunAutomation, type AutomationRunnerPorts } from './integrations/automation-runner'
+import { bridgeEvent, bridgeDecision, type BridgeContext } from './integrations/memory-bridge'
+import { NULL_SINK, type MemorySink } from './integrations/memory-port'
 
 const ptyManager = new PtyManager()
 // Per-pane last-output timestamp. deriveAgentState (graph orchestrator sampling)
@@ -185,6 +187,20 @@ const workerSpecStore = new WorkerSpecStore()
 const graphTemplateStore = new GraphTemplateStore()
 const graphRunStore = new GraphRunStore()
 const graphConfigStore = new GraphConfigStore()
+
+// Swapped for the real adapter over MemoryStore.save({source:'pty'}) once
+// feat/nest-memory-phase1 merges. Until then the bridge runs and writes nowhere.
+const memorySink: MemorySink = NULL_SINK
+
+// getRun accepts a ticketId OR a branch: graph events carry ticketId, pr.merged carries
+// the branch. Both resolve to the same run.
+const bridgeCtx: BridgeContext = {
+  getRun: (key) =>
+    graphRunStore.getByTicket(key)?.run
+    ?? graphRunStore.list().find((p) => p.run.branch === key)?.run
+    ?? null,
+  getTemplate: (id) => graphTemplateStore.list().find((t) => t.id === id) ?? null,
+}
 const snippetStore = new SnippetStore()
 const localPathsStore = new LocalPathsStore()
 const conversationStore = new ConversationStore()
@@ -2416,6 +2432,12 @@ eventBus.setOnEmit((ev) => {
   const ts = Date.now()
   activityLog.record(ev, ts)
   for (const w of BrowserWindow.getAllWindows()) w.webContents.send('activity:append', { ev, ts })
+  // Memory bridge: best-effort, never breaks the activity rail.
+  try {
+    for (const input of bridgeEvent(ev, bridgeCtx)) memorySink.save(input)
+  } catch (err) {
+    console.warn('[memory-bridge] failed to translate event', ev.type, err)
+  }
 })
 ipcMain.handle('activity:list', () => activityLog.list())
 
@@ -3047,10 +3069,18 @@ ipcMain.handle('graph:run:setMode', (_e, runId: string, mode: GraphMode) => {
 })
 ipcMain.handle('graph:gate:approve', (_e, runId: string, gateId: string) => {
   const p = graphRunStore.get(runId); if (!p) return { ok: false as const }
+  try {
+    const t = graphTemplateStore.list().find((x) => x.id === p.run.templateId) ?? null
+    for (const input of bridgeDecision({ kind: 'approve', gateId }, p.run, t)) memorySink.save(input)
+  } catch (err) { console.warn('[memory-bridge] approve', err) }
   graphRunStore.save({ ...p.run, pendingDecision: { kind: 'approve', gateId } }, p.seen); return { ok: true as const }
 })
 ipcMain.handle('graph:gate:requestChanges', (_e, runId: string, feedback: string) => {
   const p = graphRunStore.get(runId); if (!p) return { ok: false as const }
+  try {
+    const t = graphTemplateStore.list().find((x) => x.id === p.run.templateId) ?? null
+    for (const input of bridgeDecision({ kind: 'requestChanges', feedback }, p.run, t)) memorySink.save(input)
+  } catch (err) { console.warn('[memory-bridge] requestChanges', err) }
   graphRunStore.save({ ...p.run, pendingDecision: { kind: 'requestChanges', feedback } }, p.seen); return { ok: true as const }
 })
 
