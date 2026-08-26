@@ -45,6 +45,12 @@ export function bridgeEvent(ev: DomainEvent, ctx: BridgeContext): MemorySaveInpu
             })}`,
             type: typeForReviewer(node),
             tags: [node?.focus, node?.role, 'graph'].filter((t): t is string => !!t),
+            // No `round` in this key on purpose, and it's only safe because
+            // dedupePersistentSignals (graph-orchestrator.ts) dedupes gate_blocked by
+            // `${ticketId}:${gateId}` without the round, so a (ticket, gate) pair emits
+            // this event once per run's lifetime. If that dedup key ever changed to
+            // re-notify a gate, a second batch of concerns for the same node would
+            // silently overwrite the first here.
             sourceRef: `graph:${run.runId}:${nodeId}:${i}`,
             originAi: node?.agent,
             gitBranch: run.branch,
@@ -52,6 +58,26 @@ export function bridgeEvent(ev: DomainEvent, ctx: BridgeContext): MemorySaveInpu
         })
       }
       return out
+    }
+    case 'graph.escalated': {
+      const run = ctx.getRun(ev.ticketId)
+      if (!run) return []
+      const notes = Object.entries(run.revisionNotes ?? {})
+        .map(([nodeId, note]) => `- ${nodeId}: ${note}`)
+        .join('\n')
+      return [{
+        cwd: cwdOf(run),
+        title: `Auto-repair no convergio despues de ${ev.round} rondas`,
+        content:
+          `El ciclo de review y re-run llego al tope de rondas sin resolver los concerns. ` +
+          `Requiere decision humana.\n\n` +
+          (notes ? `Revisiones pedidas:\n${notes}\n\n` : '') +
+          provenanceBlock(run, { verdict: 'blocking' }),
+        type: 'discovery',
+        tags: ['graph', 'escalation'],
+        sourceRef: `graph:${run.runId}:escalated`,
+        gitBranch: run.branch,
+      }]
     }
     default:
       return []

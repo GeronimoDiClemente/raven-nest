@@ -60,6 +60,24 @@ describe('bridgeEvent · gate_blocked', () => {
   })
 })
 
+describe('bridgeEvent · escalated', () => {
+  it('records the rounds and what each revision asked for', () => {
+    const run = mkRun({ coder: { state: 'done' } })
+    run.round = 3
+    run.revisionNotes = { coder: 'el fix no cubre el caso de token vacio' }
+    const out = bridgeEvent(
+      { type: 'graph.escalated', ticketId: 't-42', gateId: 'gate', round: 3 },
+      ctxFor(run)
+    )
+    expect(out).toHaveLength(1)
+    expect(out[0].type).toBe('discovery')
+    expect(out[0].sourceRef).toBe('graph:r1:escalated')
+    expect(out[0].title).toContain('3')
+    expect(out[0].content).toContain('el fix no cubre el caso de token vacio')
+    expect(out[0].content).toContain('[[run-r1]]')
+  })
+})
+
 describe('bridgeEvent · descartes', () => {
   it('ignores transient and milestone-only events', () => {
     const run = mkRun({})
