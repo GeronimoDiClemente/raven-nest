@@ -3,7 +3,7 @@
 // verdict, summary, artifact path and exitCode — graph-runner.ts:26-35), so this module
 // never touches the filesystem.
 import type { DomainEvent } from './bus-types'
-import type { GraphRun } from './graph-runner'
+import type { GraphRun, PendingDecision } from './graph-runner'
 import type { GraphTemplate, GraphNode } from './graph-template'
 import type { MemorySaveInput, MemoryObservationType } from './memory-port'
 import { provenanceBlock } from './memory-provenance'
@@ -82,4 +82,53 @@ export function bridgeEvent(ev: DomainEvent, ctx: BridgeContext): MemorySaveInpu
     default:
       return []
   }
+}
+
+/** Human judgement over machine judgement. This is the highest-value memory in the
+ *  system and the one no MCP-only competitor can capture: an approve says "these
+ *  concerns were not blocking in this context", which is what stops the reviewers
+ *  from blocking on the same thing next run.
+ *
+ *  Decisions don't travel on the bus — the IPC handlers in main.ts only queue
+ *  `run.pendingDecision` for planTick to apply later, so this takes the run
+ *  directly instead of a DomainEvent (see Task 7 for where this gets called,
+ *  before that overwrite happens). */
+export function bridgeDecision(
+  decision: PendingDecision,
+  run: GraphRun,
+  template: GraphTemplate | null,
+): MemorySaveInput[] {
+  if (decision.kind === 'approve') {
+    const gate = template?.nodes.find((n) => n.id === decision.gateId)
+    const overridden = (gate?.dependsOn ?? [])
+      .flatMap((nodeId) => {
+        const v = run.nodes[nodeId]?.verdict
+        return v?.blocking ? v.concerns.map((c) => `- ${nodeId}: ${c}`) : []
+      })
+    if (overridden.length === 0) return []
+    return [{
+      cwd: cwdOf(run),
+      title: `Aprobado a pesar de ${overridden.length} concern(s) bloqueante(s)`,
+      content:
+        `Un humano aprobo el gate ${decision.gateId} sabiendo que estos concerns estaban ` +
+        `marcados como bloqueantes. En este contexto no lo eran:\n${overridden.join('\n')}\n\n` +
+        provenanceBlock(run, { nodeId: decision.gateId, role: 'gate', verdict: 'human-approved' }),
+      type: 'decision',
+      tags: ['graph', 'human-decision'],
+      sourceRef: `graph:${run.runId}:approve:${decision.gateId}`,
+      gitBranch: run.branch,
+    }]
+  }
+
+  const feedback = decision.feedback.trim()
+  if (!feedback) return []
+  return [{
+    cwd: cwdOf(run),
+    title: `Cambios pedidos por un humano (ronda ${run.round})`,
+    content: `${feedback}\n\n${provenanceBlock(run, { verdict: 'human-rejected' })}`,
+    type: 'decision',
+    tags: ['graph', 'human-decision'],
+    sourceRef: `graph:${run.runId}:changes:${run.round}`,
+    gitBranch: run.branch,
+  }]
 }

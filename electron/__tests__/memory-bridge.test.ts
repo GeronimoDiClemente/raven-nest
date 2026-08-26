@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { bridgeEvent, type BridgeContext } from '../integrations/memory-bridge'
+import { bridgeEvent, bridgeDecision, type BridgeContext } from '../integrations/memory-bridge'
 import { defaultGraphTemplates } from '../integrations/graph-template'
 import type { GraphRun, NodeRuntime } from '../integrations/graph-runner'
 
@@ -75,6 +75,61 @@ describe('bridgeEvent · escalated', () => {
     expect(out[0].title).toContain('3')
     expect(out[0].content).toContain('el fix no cubre el caso de token vacio')
     expect(out[0].content).toContain('[[run-r1]]')
+  })
+
+  it('omits the "Revisiones pedidas" block when there are no revision notes', () => {
+    const noNotes = mkRun({ coder: { state: 'done' } })
+    noNotes.round = 2
+    const withEmptyNotes = mkRun({ coder: { state: 'done' } })
+    withEmptyNotes.round = 2
+    withEmptyNotes.revisionNotes = {}
+
+    for (const run of [noNotes, withEmptyNotes]) {
+      const out = bridgeEvent(
+        { type: 'graph.escalated', ticketId: 't-42', gateId: 'gate', round: 2 },
+        ctxFor(run)
+      )
+      expect(out).toHaveLength(1)
+      expect(out[0].content).not.toContain('Revisiones pedidas:')
+    }
+  })
+})
+
+describe('bridgeDecision · approve', () => {
+  it('records which concerns a human accepted anyway', () => {
+    const run = mkRun({
+      'rev-security': { state: 'done', verdict: { blocking: true, concerns: ['token logueado en claro'] } },
+      'rev-perf': { state: 'done', verdict: { blocking: false, concerns: [] } },
+    })
+    const out = bridgeDecision({ kind: 'approve', gateId: 'gate' }, run, full)
+    expect(out).toHaveLength(1)
+    expect(out[0].type).toBe('decision')
+    expect(out[0].sourceRef).toBe('graph:r1:approve:gate')
+    expect(out[0].content).toContain('token logueado en claro')
+    expect(out[0].content).toContain('human-approved')
+  })
+
+  it('produces nothing when the gate had no blocking concerns to override', () => {
+    const run = mkRun({ 'rev-security': { state: 'done', verdict: { blocking: false, concerns: [] } } })
+    expect(bridgeDecision({ kind: 'approve', gateId: 'gate' }, run, full)).toEqual([])
+  })
+})
+
+describe('bridgeDecision · requestChanges', () => {
+  it('keeps the human feedback verbatim and keys by round', () => {
+    const run = mkRun({ coder: { state: 'done' } })
+    run.round = 1
+    const out = bridgeDecision({ kind: 'requestChanges', feedback: 'esto rompe el flujo de onboarding' }, run, full)
+    expect(out).toHaveLength(1)
+    expect(out[0].type).toBe('decision')
+    expect(out[0].sourceRef).toBe('graph:r1:changes:1')
+    expect(out[0].content).toContain('esto rompe el flujo de onboarding')
+    expect(out[0].content).toContain('human-rejected')
+  })
+
+  it('ignores empty feedback', () => {
+    const run = mkRun({ coder: { state: 'done' } })
+    expect(bridgeDecision({ kind: 'requestChanges', feedback: '   ' }, run, full)).toEqual([])
   })
 })
 
