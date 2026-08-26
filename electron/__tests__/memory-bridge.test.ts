@@ -180,6 +180,42 @@ describe('bridgeDecision · requestChanges', () => {
   })
 })
 
+describe('bridgeEvent · cierre de run', () => {
+  it('resume el run: nodos hechos, concerns y rondas', () => {
+    const run = mkRun({
+      coder: { state: 'done' },
+      'rev-security': { state: 'done', verdict: { blocking: true, concerns: ['token en claro'] } },
+      tester: { state: 'done', exitCode: 0 },
+    })
+    run.round = 2
+    const out = bridgeEvent({ type: 'graph.completed', ticketId: 't-42', templateId: 'full' }, ctxFor(run))
+    expect(out).toHaveLength(1)
+    expect(out[0].type).toBe('session')
+    expect(out[0].sourceRef).toBe('graph:r1:run')
+    expect(out[0].content).toContain('token en claro')
+    expect(out[0].content).toContain('t-42')
+    expect(out[0].content).toContain('[[run-r1]]')
+  })
+
+  it('pr.merged reusa la sourceRef del cierre para actualizar, no duplicar', () => {
+    const run = mkRun({ coder: { state: 'done' } })
+    const out = bridgeEvent({ type: 'pr.merged', branch: 'feat/x', repoFullName: 'o/r' }, {
+      getRun: () => run,
+      getTemplate: () => full,
+    })
+    expect(out).toHaveLength(1)
+    expect(out[0].sourceRef).toBe('graph:r1:run')
+    expect(out[0].content).toContain('Mergeado')
+  })
+
+  it('pr.merged sin run asociado no produce nada', () => {
+    const out = bridgeEvent({ type: 'pr.merged', branch: 'feat/x', repoFullName: 'o/r' }, {
+      getRun: () => null, getTemplate: () => full,
+    })
+    expect(out).toEqual([])
+  })
+})
+
 describe('bridgeEvent · descartes', () => {
   it('ignores transient and milestone-only events', () => {
     const run = mkRun({})

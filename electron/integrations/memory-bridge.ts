@@ -9,7 +9,9 @@ import type { MemorySaveInput, MemoryObservationType } from './memory-port'
 import { provenanceBlock } from './memory-provenance'
 
 export interface BridgeContext {
-  getRun(ticketId: string): GraphRun | null
+  /** Accepts either a ticketId (graph.* events) or a branch (pr.merged, which
+   *  carries no ticketId). The context injected in main.ts resolves both. */
+  getRun(key: string): GraphRun | null
   getTemplate(templateId: string): GraphTemplate | null
 }
 
@@ -23,6 +25,31 @@ function typeForReviewer(node: GraphNode | undefined): MemoryObservationType {
 
 function cwdOf(run: GraphRun): string {
   return run.repoPath ?? run.worktreePath
+}
+
+function runSummary(run: GraphRun, merged: boolean): string {
+  const done = Object.entries(run.nodes).filter(([, rt]) => rt.state === 'done').map(([id]) => id)
+  const concerns = Object.entries(run.nodes)
+    .flatMap(([id, rt]) => (rt.verdict?.blocking ? rt.verdict.concerns.map((c) => `- ${id}: ${c}`) : []))
+  return [
+    `Ticket ${run.ticketId} · template ${run.templateId} · ${run.round + 1} ronda(s).`,
+    `Nodos completados: ${done.join(', ') || 'ninguno'}.`,
+    concerns.length ? `Concerns bloqueantes durante el run:\n${concerns.join('\n')}` : 'Sin concerns bloqueantes.',
+    merged ? `Mergeado a ${run.branch}: el cambio sobrevivio.` : '',
+    provenanceBlock(run, {}),
+  ].filter(Boolean).join('\n\n')
+}
+
+function runCloseMemory(run: GraphRun, merged: boolean): MemorySaveInput {
+  return {
+    cwd: cwdOf(run),
+    title: `Run ${run.templateId} · ticket ${run.ticketId}`,
+    content: runSummary(run, merged),
+    type: 'session',
+    tags: ['graph', 'run'],
+    sourceRef: `graph:${run.runId}:run`,
+    gitBranch: run.branch,
+  }
 }
 
 export function bridgeEvent(ev: DomainEvent, ctx: BridgeContext): MemorySaveInput[] {
@@ -79,6 +106,16 @@ export function bridgeEvent(ev: DomainEvent, ctx: BridgeContext): MemorySaveInpu
         gitBranch: run.branch,
       }]
     }
+    case 'graph.completed': {
+      const run = ctx.getRun(ev.ticketId)
+      return run ? [runCloseMemory(run, false)] : []
+    }
+
+    case 'pr.merged': {
+      const run = ctx.getRun(ev.branch)
+      return run ? [runCloseMemory(run, true)] : []
+    }
+
     case 'ci.failed': {
       if (!ev.summary) return []
       return [{
