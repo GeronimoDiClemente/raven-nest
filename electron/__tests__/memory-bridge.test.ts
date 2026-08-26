@@ -95,6 +95,36 @@ describe('bridgeEvent · escalated', () => {
   })
 })
 
+describe('bridgeEvent · fallas duras', () => {
+  it('traduce ci.failed usando su propio summary', () => {
+    const out = bridgeEvent(
+      { type: 'ci.failed', branch: 'feat/x', repoFullName: 'o/r', runUrl: 'https://ci/1', summary: '3 tests rojos en auth' },
+      ctxFor(mkRun({}))
+    )
+    expect(out).toHaveLength(1)
+    expect(out[0].type).toBe('bugfix')
+    expect(out[0].content).toContain('3 tests rojos en auth')
+    expect(out[0].content).toContain('https://ci/1')
+    expect(out[0].sourceRef).toBe('ci:o/r:feat/x:https://ci/1')
+    expect(out[0].gitBranch).toBe('feat/x')
+  })
+
+  it('no produce memoria si ci.failed no trae summary', () => {
+    const out = bridgeEvent({ type: 'ci.failed', branch: 'feat/x', repoFullName: 'o/r' }, ctxFor(mkRun({})))
+    expect(out).toEqual([])
+  })
+
+  it('traduce error.detected', () => {
+    const out = bridgeEvent(
+      { type: 'error.detected', source: 'sentry', ref: 'ISSUE-9', summary: 'null deref en UserList' },
+      ctxFor(mkRun({}))
+    )
+    expect(out).toHaveLength(1)
+    expect(out[0].sourceRef).toBe('error:sentry:ISSUE-9')
+    expect(out[0].content).toContain('null deref en UserList')
+  })
+})
+
 describe('bridgeDecision · approve', () => {
   it('records which concerns a human accepted anyway', () => {
     const run = mkRun({

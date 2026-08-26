@@ -79,6 +79,31 @@ export function bridgeEvent(ev: DomainEvent, ctx: BridgeContext): MemorySaveInpu
         gitBranch: run.branch,
       }]
     }
+    case 'ci.failed': {
+      if (!ev.summary) return []
+      return [{
+        cwd: '',
+        title: `CI en rojo · ${ev.branch}`,
+        content: `${ev.summary}${ev.runUrl ? `\n\nRun: ${ev.runUrl}` : ''}\n\n---\nRepo: ${ev.repoFullName} · Branch: ${ev.branch}`,
+        type: 'bugfix',
+        tags: ['ci', 'graph'],
+        sourceRef: `ci:${ev.repoFullName}:${ev.branch}:${ev.runUrl ?? 'sin-url'}`,
+        gitBranch: ev.branch,
+      }]
+    }
+
+    case 'error.detected': {
+      if (!ev.summary) return []
+      return [{
+        cwd: '',
+        title: `Error detectado · ${ev.source}`,
+        content: `${ev.summary}\n\n---\nFuente: ${ev.source} · Ref: ${ev.ref}`,
+        type: 'bugfix',
+        tags: ['error', ev.source],
+        sourceRef: `error:${ev.source}:${ev.ref}`,
+      }]
+    }
+
     default:
       return []
   }
