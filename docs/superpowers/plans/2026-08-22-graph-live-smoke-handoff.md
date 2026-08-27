@@ -48,14 +48,40 @@ of the graph eval-loop, done on 2026-08-22 by reading the wiring end to end.
 > (codex → `exec codex exec --dangerously-bypass-approvals-and-sandbox "$(cat …)"`);
 > PowerShell variant `& … ; exit $LASTEXITCODE`. main.ts writes the prompt file
 > before spawn and no longer does the delayed `ptyManager.write`. 7 new unit
-> tests, full suite (896) + typecheck green. **Still to do:** the in-app live
-> smoke in `auto` mode, and **C** below. Two caveats surfaced while fixing:
+> tests, full suite (896) + typecheck green. Commit `744dcd7`. Two caveats
+> surfaced while fixing:
 > - **codex is unverified** — its `exec` + `--dangerously-bypass-approvals-and-sandbox`
 >   flags are best-guess (codex is broken on the current Mac: missing vendored
 >   binary), tune in the smoke. Smoke a claude-only template (`review-only`) first.
 > - **gemini/copilot/opencode are now skipped** (return '' from `launchCommand`)
 >   — no verified headless flags yet, so a custom template using them won't spawn
 >   until their `HEADLESS` entry is added. Not in any built-in template.
+
+> **STATUS 2026-08-27 (Mac): A + B VERIFICADOS EN VIVO, contra la PTY real.**
+> El live test viejo (`graph-eval-loop.live.test.ts`) no probaba esto — spawnea
+> `claude` con `spawnSync` directo, sin pasar por `launchCommand` ni por la pty,
+> que es justo donde vivían A y B. Nuevo test gateado:
+> `electron/__tests__/graph-pty-launch.live.test.ts` (`GRAPH_PTY_SMOKE=1`), dos
+> casos, ambos verdes:
+> 1. **Exit code (mecanismo puro, sin LLM)** — `exec sh -c 'exit N'` a través de
+>    `PtyManager.create` devuelve N en el evento `exit` para N ∈ {0, 3, 42} y
+>    `pm.exists()` queda en false. El camino exit-code→`failed` de `planTick`
+>    tiene de dónde leer.
+> 2. **Nodo claude real** — repo git descartable, `composeNodeInput` → archivo
+>    `.prompt` → `launchCommand` → pty (`/bin/zsh -l -i`) → claude headless.
+>    Resultado: **exit 0 en ~45 s, `pm.exists()` false** (→ A muerto: el nodo
+>    llega a `done`) y **escribió solo `add.js` y `.nest/graph/coder.md`** sin
+>    pedir un solo permiso (→ B muerto).
+>
+> El comando generado, tal cual sale en la Mac:
+> `exec claude -p "$(cat '<wt>/.nest/graph/coder.prompt')" --dangerously-skip-permissions`
+>
+> **Sigue pendiente:** el smoke *in-app* en modo `auto` (varios nodos encadenados
+> por `graphOrchestratorTick` + el board, que es lo único que este test no toca:
+> el tick de 3 s, el dedupe de señales y el render), y **C**. `codex` sigue sin
+> verificar: en esta Mac el paquete global está roto
+> (`@openai/codex-darwin-arm64/vendor/.../codex` ENOENT), ni `codex --version`
+> arranca — reinstalar el global antes de smokearlo.
 
 **A. No node can ever reach `done`.**
 `deriveAgentState` only returns `done` when `!hasPty` (`agent-status.ts:37`), and
