@@ -130,7 +130,7 @@ import { MCPStore } from './mcp-store'
 import { SettingsStore } from './settings-store'
 import { MetricsCollector, PaneInput } from './metrics-collector'
 import { transcribeAudio, checkWhisperAvailable, initWhisper, shutdownWhisper, setWhisperStatusCallback } from './whisper'
-import { getWindowOptions, getIconsDir, ICON_FILENAME, isMac } from './platform'
+import { getWindowOptions, getIconsDir, ICON_FILENAME, isMac, isWin } from './platform'
 import { createTray } from './tray'
 import { PluginsStore } from './plugins-store'
 import { PluginCredentialStore } from './plugin-credentials'
@@ -2939,8 +2939,8 @@ let ticketPollInterval: ReturnType<typeof setInterval> | null = setInterval(() =
 // (deduped + persisted so a still-blocked gate isn't re-notified), and saves the
 // advanced run. The renderer attaches a visible xterm to any node's pane
 // on demand (graph:node:attach) — pty-manager already decouples PTY from view.
-// ⚠️ Unit-untested integration (spawn/emit/persist + prompt timing); the pure
-// core (planTick/sampleGraph/launchCommand) is tested, but this glue needs a
+// ⚠️ Unit-untested integration (spawn/emit/persist); the pure core
+// (planTick/sampleGraph/launchCommand) is tested, but this glue needs a
 // LIVE smoke — see docs/superpowers/plans/2026-08-17-graph-orchestration.md T7.
 const GRAPH_TICK_MS = 3_000
 
@@ -3012,8 +3012,13 @@ function graphOrchestratorTick(): void {
 
     // Spawn the panes the plan says to start — headless PTYs main owns.
     for (const action of plan.start) {
-      const cmd = launchCommand(action)
-      if (!cmd) continue  // gate or custom/unknown agent → nothing to spawn
+      // The composed handoff prompt is written to a file in the worktree and
+      // read back by the CLI (`… "$(cat 'file')"`) — a multi-KB multi-line
+      // prompt never has to be typed into the pty. Path is deterministic per
+      // node so a re-run overwrites the previous prompt with the revised one.
+      const promptPath = pathJoin(run.worktreePath, '.nest', 'graph', `${action.nodeId}.prompt`)
+      const cmd = launchCommand(action, { promptPath, isWin })
+      if (!cmd) continue  // gate or custom/headless-incapable agent → nothing to spawn
       if (run.nodes[action.nodeId]?.paneId) {
         // Paneids are deterministic (`${runId}:${nodeId}`), so a node that
         // already ran before and is being (re)launched again this same tick
@@ -3023,13 +3028,20 @@ function graphOrchestratorTick(): void {
         // prompt would land in the stale session. Kill it first.
         killPaneBestEffort(action.paneId, 're-run relaunch')
       }
+      try {
+        mkdirSync(dirname(promptPath), { recursive: true })
+        writeFileSync(promptPath, action.input, 'utf8')
+      } catch (err) {
+        console.warn('[graph] failed to write prompt file', action.paneId, err)
+        continue
+      }
       const accountDir = action.agent ? accountDirForAgent(action.agent) : ''
+      // Headless launch: the CLI runs the prompt unattended and `exec` replaces
+      // the shell, so the pty closes with the CLI's exit code → the node reaches
+      // 'done' (and a real exit code) instead of stalling behind a live shell.
+      // No delayed write — the prompt is baked into `cmd`.
       void ptyManager.create(action.paneId, cmd, accountDir, run.worktreePath).then((res) => {
-        if (!res.ok) { console.warn('[graph] pane spawn failed', action.paneId, res.error); return }
-        // pty-manager writes `cmd` after the shell warms up; give the CLI a
-        // moment to boot, then feed the composed handoff as its first prompt.
-        // Timing is smoke-tuned per CLI.
-        setTimeout(() => ptyManager.write(action.paneId, `${action.input}\r`), 1500)
+        if (!res.ok) console.warn('[graph] pane spawn failed', action.paneId, res.error)
       })
     }
 

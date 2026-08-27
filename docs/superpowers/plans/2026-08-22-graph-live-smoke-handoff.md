@@ -41,6 +41,22 @@ of the graph eval-loop, done on 2026-08-22 by reading the wiring end to end.
 
 ### Blockers (code) — A and B are hard blockers
 
+> **STATUS 2026-08-25: A + B are FIXED** (this branch). `launchCommand`
+> (`graph-tick.ts`) now emits a headless command that reads the composed prompt
+> from a file and `exec`s the CLI so the pty closes with its exit code:
+> POSIX `exec claude -p "$(cat '<wt>/.nest/graph/<node>.prompt')" --dangerously-skip-permissions`
+> (codex → `exec codex exec --dangerously-bypass-approvals-and-sandbox "$(cat …)"`);
+> PowerShell variant `& … ; exit $LASTEXITCODE`. main.ts writes the prompt file
+> before spawn and no longer does the delayed `ptyManager.write`. 7 new unit
+> tests, full suite (896) + typecheck green. **Still to do:** the in-app live
+> smoke in `auto` mode, and **C** below. Two caveats surfaced while fixing:
+> - **codex is unverified** — its `exec` + `--dangerously-bypass-approvals-and-sandbox`
+>   flags are best-guess (codex is broken on the current Mac: missing vendored
+>   binary), tune in the smoke. Smoke a claude-only template (`review-only`) first.
+> - **gemini/copilot/opencode are now skipped** (return '' from `launchCommand`)
+>   — no verified headless flags yet, so a custom template using them won't spawn
+>   until their `HEADLESS` entry is added. Not in any built-in template.
+
 **A. No node can ever reach `done`.**
 `deriveAgentState` only returns `done` when `!hasPty` (`agent-status.ts:37`), and
 `samplePane` derives `hasPty` from `ptyManager.exists(paneId)` (`main.ts:2907`).

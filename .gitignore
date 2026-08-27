@@ -34,3 +34,6 @@ _check-*.mjs
 
 # Claude Code scheduled tasks (local-only)
 .claude/scheduled_tasks.lock
+
+# Worktrees locales de Claude Code
+.claude/worktrees/
