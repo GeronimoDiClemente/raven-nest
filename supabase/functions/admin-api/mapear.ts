@@ -1,4 +1,4 @@
-import { montoMensualCents, planLabel, trialEndsAt, type SubResumen } from './pricing.ts'
+import { esSubViva, montoMensualCents, planLabel, trialEndsAt, type SubResumen } from './pricing.ts'
 import type { AccountDetail, AccountSummary, HealthItem, Meter } from './tipos.ts'
 
 export interface UsuarioAuth {
@@ -31,6 +31,13 @@ export function aAccountSummary(
   u: UsuarioAuth,
   p: PerfilFila | null,
   sub: SubResumen | null,
+  /**
+   * `user_last_activity.last_refresh_at`. Va aparte porque no sale de
+   * `profiles` sino de una vista, y `null` cuando la cuenta nunca refrescó o
+   * cuando la vista no se pudo leer: en las dos "no sabemos", que es lo
+   * honesto para una columna de último uso.
+   */
+  lastActivityAt: string | null = null,
 ): AccountSummary {
   const plan = p?.plan ?? 'free'
   return {
@@ -42,6 +49,9 @@ export function aAccountSummary(
     status: sub?.status ?? 'sin_suscripcion',
     created_at: u.created_at ?? null,
     trial_ends_at: trialEndsAt(p?.trial_started_at ?? null),
+    // El dato con el que se calculan DAU/WAU/MAU y con el que se compara la
+    // paridad contra raven-admin antes de apagarlo (Task 10 del plan).
+    last_activity_at: lastActivityAt,
     // Concepto de AiraMed que el core exige. Nest no tiene voz.
     voz_suspendida: false,
   }
@@ -68,6 +78,17 @@ function saludSuscripcion(
       detail: `Plan ${plan} asignado sin suscripcion de Stripe`,
     }
   }
+  // Una suscripción que existe pero no está viva (`past_due`, `unpaid`,
+  // `canceled`, `paused`…) no es `ok`: es exactamente la cuenta sobre la que
+  // hay que actuar. Se emite `suspendido` y no `parcial` porque `parcial` ya
+  // significa otra cosa en este mismo campo — "no pudimos leer el dato" — y
+  // acá el dato se leyó perfecto: dice que el cobro está frenado.
+  if (sub && !esSubViva(sub)) {
+    return {
+      ...base, status: 'suspendido',
+      detail: `Suscripcion en estado ${sub.status}: no se esta cobrando`,
+    }
+  }
   return { ...base, status: 'ok', detail: sub ? null : 'Sin suscripcion activa' }
 }
 
@@ -76,11 +97,17 @@ export function aAccountDetail(
   p: PerfilFila | null,
   sub: SubResumen | null,
   extra: DatosFicha,
+  lastActivityAt: string | null = null,
 ): AccountDetail {
   return {
-    ...aAccountSummary(u, p, sub),
+    ...aAccountSummary(u, p, sub, lastActivityAt),
     meters: [
-      medidor('seats', 'Seats', 'seats', extra.seats),
+      // Con Stripe caído el meter `seats` **se omite**, no se manda en cero:
+      // el campo `seats` de más abajo es `null` en ese caso y una UI genérica
+      // dibujaría "Seats 0" al lado de un null, contradiciéndose sola. No se
+      // hace `used` nullable porque el zod del core lo exige `number` y un
+      // null le rompería el parseo de la ficha entera.
+      ...(extra.stripeCaido ? [] : [medidor('seats', 'Seats', 'seats', extra.seats)]),
       medidor('repos', 'Repos conectados', 'repos', extra.repos),
       medidor('teams', 'Equipos', 'equipos', extra.teams),
     ],

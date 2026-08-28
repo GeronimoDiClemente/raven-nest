@@ -41,6 +41,18 @@ export interface AccountSummary {
   status: string
   created_at: string | null
   trial_ends_at: string | null
+  /**
+   * `user_last_activity.last_refresh_at`: el último uso real de la cuenta.
+   *
+   * Es la fuente de DAU/WAU/MAU y el dato con el que la Task 10 del plan manda
+   * comparar cuenta por cuenta contra raven-admin antes de apagarlo — sin este
+   * campo ese gate no se puede cumplir. `null` cuando la cuenta nunca refrescó
+   * o cuando la vista no se pudo leer.
+   *
+   * Campo extra igual que `price_id`: el core del back-office parsea sin
+   * `.strict()`, así que no le rompe nada.
+   */
+  last_activity_at: string | null
   /** Concepto de AiraMed que el core exige. En Nest siempre `false`. */
   voz_suspendida: boolean
 }

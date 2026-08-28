@@ -2,11 +2,50 @@
 # el gateway de Supabase, con el default en true, exige un JWT de Supabase y
 # rechaza el `Authorization: Bearer <token de producto>` del back-office y la
 # firma de Stripe, ambos con 401 antes de llegar al código de la función.
+#
+# Están declaradas **las 7** funciones del repo a propósito. Este archivo no
+# existía antes de esta rama; ahora que existe, el repo es un proyecto CLI y un
+# `supabase functions deploy` sin nombre toma lo que diga acá. Declarar sólo
+# algunas dejaría al resto en el default `verify_jwt = true` y las rompería en
+# silencio — el caso de `gitlab-oauth`, que además tampoco está en el deploy
+# del CI (`.github/workflows/release.yml`) y devolvería 401 sin que nadie lo
+# note hasta que un usuario intente conectar GitLab.
 project_id = "qkqlsytxtshgjxwmafpw"
 
+# Autentica con `Authorization: Bearer <NEST_ADMIN_API_TOKEN>` + X-Admin-Actor,
+# validados adentro por `auth.ts`. Un JWT de Supabase no aplica: el que llama
+# es el back-office, no un usuario de Nest.
 [functions.admin-api]
 verify_jwt = false
 
-# Su guard real es la firma de Stripe, que se valida adentro.
+# Su guard real es la firma de Stripe (`stripe-signature`), que se valida
+# adentro. El CI lo deploya sin `--no-verify-jwt` y por eso hoy responde 401 a
+# todo webhook: este archivo es la corrección.
 [functions.stripe-webhook]
+verify_jwt = false
+
+# La invoca el checkout desde la app antes de que exista sesión de Stripe;
+# valida al usuario adentro. El CI ya la deploya con `--no-verify-jwt`.
+[functions.stripe-checkout]
+verify_jwt = false
+
+# Hook de auth: lo llama GoTrue al crear el usuario, no hay JWT que mandar.
+# El CI ya la deploya con `--no-verify-jwt`.
+[functions.on-signup]
+verify_jwt = false
+
+# Intercambio de código OAuth: el que llega es el `code` de GitHub, no un JWT.
+# El CI ya la deploya con `--no-verify-jwt`.
+[functions.github-oauth]
+verify_jwt = false
+
+# Gemela de `github-oauth`, con el `code` de GitLab. **No está en el deploy del
+# CI**: sin esta línea quedaría con el default `true` y el OAuth de GitLab
+# devolvería 401 sin ninguna señal.
+[functions.gitlab-oauth]
+verify_jwt = false
+
+# La dispara el flujo de invitaciones desde la app; valida adentro quién invita.
+# El CI ya la deploya con `--no-verify-jwt`.
+[functions.send-invite-email]
 verify_jwt = false

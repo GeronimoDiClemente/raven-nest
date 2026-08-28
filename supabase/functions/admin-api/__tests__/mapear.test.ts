@@ -47,6 +47,19 @@ describe('aAccountSummary', () => {
   it('voz_suspendida siempre false: es un campo de AiraMed', () => {
     expect(aAccountSummary(USUARIO, PERFIL, SUB).voz_suspendida).toBe(false)
   })
+
+  // El dato de `user_last_activity` con el que se calculan DAU/WAU/MAU y con
+  // el que la Task 10 compara paridad contra raven-admin antes de apagarlo.
+  it('expone el ultimo uso de la cuenta', () => {
+    const r = aAccountSummary(USUARIO, PERFIL, SUB, '2026-08-27T09:30:00.000Z')
+    expect(r.last_activity_at).toBe('2026-08-27T09:30:00.000Z')
+  })
+
+  it('sin actividad conocida el campo existe en null, no ausente', () => {
+    const r = aAccountSummary(USUARIO, PERFIL, SUB)
+    expect(r.last_activity_at).toBe(null)
+    expect('last_activity_at' in r).toBe(true)
+  })
 })
 
 describe('aAccountDetail', () => {
@@ -60,6 +73,21 @@ describe('aAccountDetail', () => {
     const m = aAccountDetail(USUARIO, PERFIL, SUB, FICHA).meters[0]
     expect(m.quota).toBe(null)
     expect(m.pct).toBe(0)
+  })
+
+  // Con Stripe caído `seats` es null: un meter "Seats 0" al lado de ese null
+  // se contradice solo. `Meter.used` no puede ser nullable (el zod del core lo
+  // exige `number`), así que la salida honesta es omitir el meter.
+  it('con Stripe caido omite el meter seats, no lo manda en cero', () => {
+    const r = aAccountDetail(USUARIO, PERFIL, null, { ...FICHA, stripeCaido: true })
+    expect(r.meters.map((m) => m.key)).toEqual(['repos', 'teams'])
+    expect(r.seats).toBe(null)
+  })
+
+  it('repos y teams no dependen de Stripe y se quedan', () => {
+    const r = aAccountDetail(USUARIO, PERFIL, null, { ...FICHA, stripeCaido: true })
+    expect(r.meters.find((m) => m.key === 'repos')?.used).toBe(4)
+    expect(r.meters.find((m) => m.key === 'teams')?.used).toBe(2)
   })
 
   it('flags vacio: Nest no tiene flags de staff', () => {
@@ -102,6 +130,43 @@ describe('aAccountDetail', () => {
     expect(item?.detail).toBe('Stripe no responde: el dato de cobro no esta disponible')
   })
 
+  // El caso que quedaba mudo: `montoMensualCents` filtraba por status y la
+  // salud no, así que un Team moroso salía con monto 0 y `health: ok` — el
+  // único campo diseñado para levantar la mano, callado con la cuenta que hay
+  // que mirar.
+  it('una suscripcion past_due no esta ok: esta suspendida', () => {
+    const morosa: SubResumen = { ...SUB, status: 'past_due', quantity: 5 }
+    const r = aAccountDetail(USUARIO, PERFIL, morosa, { ...FICHA, seats: 5 })
+    const item = r.health.find((h) => h.key === 'suscripcion')
+    expect(item?.status).toBe('suspendido')
+    expect(item?.detail).toBe('Suscripcion en estado past_due: no se esta cobrando')
+    // Los dos campos ahora cuentan la misma historia.
+    expect(r.monto_mensual_cents).toBe(0)
+  })
+
+  it('canceled, unpaid y paused tambien son suspendido', () => {
+    for (const status of ['canceled', 'unpaid', 'paused', 'incomplete_expired']) {
+      const item = aAccountDetail(USUARIO, PERFIL, { ...SUB, status }, FICHA).health
+        .find((h) => h.key === 'suscripcion')
+      expect(item?.status).toBe('suspendido')
+    }
+  })
+
+  it('trialing sigue siendo ok: es una suscripcion viva', () => {
+    const item = aAccountDetail(USUARIO, PERFIL, { ...SUB, status: 'trialing' }, FICHA).health
+      .find((h) => h.key === 'suscripcion')
+    expect(item?.status).toBe('ok')
+    expect(item?.detail).toBe(null)
+  })
+
+  // Stripe caído gana: con el dato no disponible no se puede afirmar que el
+  // cobro está frenado.
+  it('Stripe caido gana sobre suspendido', () => {
+    const item = aAccountDetail(USUARIO, PERFIL, { ...SUB, status: 'past_due' },
+      { ...FICHA, stripeCaido: true }).health.find((h) => h.key === 'suscripcion')
+    expect(item?.status).toBe('parcial')
+  })
+
   it('expone la facturacion, con el monto multiplicado por seats', () => {
     const r = aAccountDetail(USUARIO, PERFIL, SUB, FICHA)
     expect(r.price_id).toBe('price_team_monthly')
@@ -122,6 +187,11 @@ describe('aAccountDetail', () => {
     const r = aAccountDetail(USUARIO, PERFIL, null, { ...FICHA, stripeCaido: true })
     expect(r.monto_mensual_cents).toBe(null)
     expect(r.seats).toBe(null)
+  })
+
+  it('la ficha tambien trae el ultimo uso, no solo la lista', () => {
+    const r = aAccountDetail(USUARIO, PERFIL, SUB, FICHA, '2026-08-27T09:30:00.000Z')
+    expect(r.last_activity_at).toBe('2026-08-27T09:30:00.000Z')
   })
 
   it('no filtra ninguna clave prohibida', () => {

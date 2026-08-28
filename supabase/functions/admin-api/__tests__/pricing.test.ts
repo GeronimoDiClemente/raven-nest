@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
-  montoMensualCents, planLabel, trialEndsAt, aSubResumen, PLANES_VALIDOS, TRIAL_DIAS,
+  montoMensualCents, planLabel, trialEndsAt, aSubResumen, elegirSub, esSubViva,
+  PLANES_VALIDOS, TRIAL_DIAS,
   type SubResumen, type StripeSubscripcionMinima,
 } from '../pricing.ts'
 
@@ -55,6 +56,72 @@ describe('montoMensualCents', () => {
 
   it('status trialing genera monto', () => {
     expect(montoMensualCents(sub({ status: 'trialing' }))).toBe(3500)
+  })
+})
+
+describe('esSubViva', () => {
+  it('active y trialing estan vivas', () => {
+    expect(esSubViva(sub({ status: 'active' }))).toBe(true)
+    expect(esSubViva(sub({ status: 'trialing' }))).toBe(true)
+  })
+
+  it('cualquier otro status no lo esta', () => {
+    for (const s of ['past_due', 'canceled', 'unpaid', 'paused', 'incomplete', 'incomplete_expired']) {
+      expect(esSubViva(sub({ status: s }))).toBe(false)
+    }
+  })
+
+  it('sin suscripcion no esta viva', () => {
+    expect(esSubViva(null)).toBe(false)
+  })
+})
+
+// Stripe devuelve la lista por fecha de creación descendente: el primer
+// elemento del array es el más reciente.
+describe('elegirSub', () => {
+  it('sin suscripciones no hay elegida', () => {
+    expect(elegirSub([])).toBe(null)
+  })
+
+  it('con una sola la elige aunque no este viva', () => {
+    // "No hay ninguna viva" es un dato: `sin_suscripcion` sería otra cosa.
+    expect(elegirSub([sub({ status: 'canceled' })])?.status).toBe('canceled')
+  })
+
+  // El caso que rompía: "la primera gana" tomaba el incomplete_expired más
+  // nuevo y la cuenta que paga salía con MRR 0.
+  it('prefiere la viva sobre una mas reciente que no lo esta', () => {
+    const elegida = elegirSub([
+      sub({ status: 'incomplete_expired', price_id: 'price_nueva' }),
+      sub({ status: 'active', price_id: 'price_vieja' }),
+    ])
+    expect(elegida?.status).toBe('active')
+    expect(elegida?.price_id).toBe('price_vieja')
+  })
+
+  it('entre dos vivas gana la mas reciente', () => {
+    const elegida = elegirSub([
+      sub({ status: 'active', price_id: 'price_nueva' }),
+      sub({ status: 'trialing', price_id: 'price_vieja' }),
+    ])
+    expect(elegida?.price_id).toBe('price_nueva')
+  })
+
+  it('entre dos muertas gana la mas reciente', () => {
+    const elegida = elegirSub([
+      sub({ status: 'canceled', price_id: 'price_nueva' }),
+      sub({ status: 'unpaid', price_id: 'price_vieja' }),
+    ])
+    expect(elegida?.price_id).toBe('price_nueva')
+  })
+
+  it('una viva sepultada al final igual gana', () => {
+    const elegida = elegirSub([
+      sub({ status: 'canceled' }),
+      sub({ status: 'incomplete_expired' }),
+      sub({ status: 'trialing', price_id: 'price_viva' }),
+    ])
+    expect(elegida?.price_id).toBe('price_viva')
   })
 })
 

@@ -31,6 +31,9 @@ describe('MANIFEST', () => {
   })
 
   it('las secciones traen key, label y module', () => {
+    // Sin esto el test pasaba en vacío: con `sections: []` el for no itera y
+    // el back-office se quedaba sin navegación sin que nadie lo notara.
+    expect(MANIFEST.sections.length).toBeGreaterThan(0)
     for (const s of MANIFEST.sections) {
       expect(typeof s.key).toBe('string')
       expect(typeof s.label).toBe('string')

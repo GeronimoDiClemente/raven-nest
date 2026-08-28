@@ -7,7 +7,7 @@ import { verificarAuth, type Actor } from './auth.ts'
 import { rutaDe } from './router.ts'
 import { MANIFEST } from './manifest.ts'
 import { aAccountDetail, aAccountSummary } from './mapear.ts'
-import { PLANES_VALIDOS, aSubResumen, type SubResumen } from './pricing.ts'
+import { PLANES_VALIDOS, aSubResumen, elegirSub, esSubViva, type SubResumen } from './pricing.ts'
 
 const admin = createClient(
   Deno.env.get('SUPABASE_URL')!,
@@ -25,7 +25,31 @@ const json = (body: unknown, status = 200) =>
     headers: { 'content-type': 'application/json' },
   })
 
-/** El audit se escribe también cuando la acción falla. */
+const NO_PERMITIDO = () => json({ error: 'Metodo no permitido' }, 405)
+
+/**
+ * `admin_audit_log.target_id` es `uuid NOT NULL`.
+ *
+ * Un id que no tenga forma de uuid hace fallar el insert **siempre**, así que
+ * se chequea antes: mandar a la base una escritura que ya sabemos que rebota
+ * sólo ensucia los logs. Los ids del contrato salen del path, que acepta
+ * cualquier cosa (`/api/internal/accounts/pepito`).
+ */
+const ES_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/**
+ * El audit se escribe también cuando la acción falla.
+ *
+ * Devuelve **si la fila quedó escrita**. El invariante del contrato es que
+ * toda escritura queda auditada con actor y motivo, y el modo de falla más
+ * probable es deployar la función antes de correr la migración
+ * `20260828000000_admin_audit_actor.sql`: ahí el insert rebota por columnas
+ * inexistentes mientras `PUT /plan` y `DELETE` responden 200 perfectos, sin
+ * dejar una sola fila de auditoría y con la única señal en logs que nadie
+ * mira. Por eso el resultado viaja hasta el body de la respuesta.
+ *
+ * No hace rollback de la acción: ya ocurrió y ocultarla sería peor.
+ */
 async function auditar(
   actor: Actor,
   action: string,
@@ -35,7 +59,14 @@ async function auditar(
   after: unknown,
   ok: boolean,
   error: string | null,
-) {
+): Promise<boolean> {
+  if (!ES_UUID.test(targetId)) {
+    console.error('[admin-api] audit omitido: target_id no es un uuid', {
+      action, targetId, actor: actor.id,
+    })
+    return false
+  }
+
   const { error: errorAudit } = await admin.from('admin_audit_log').insert({
     action,
     target_type: 'user',
@@ -49,14 +80,13 @@ async function auditar(
     ok,
     error,
   })
-  // Un audit que falla en silencio es el peor modo de falla para un contrato
-  // cuya razón de ser es la auditabilidad. No cambia el status de la
-  // respuesta: la acción de negocio ya ocurrió y ocultarla sería peor.
   if (errorAudit) {
     console.error('[admin-api] fallo al escribir el audit log', {
       action, targetId, actor: actor.id, error: errorAudit.message,
     })
+    return false
   }
+  return true
 }
 
 /**
@@ -64,13 +94,24 @@ async function auditar(
  *
  * Una llamada paginada en vez de una por cuenta: con 82 usuarios, pedirlas de
  * a una son 82 round-trips en cada carga de la lista.
+ *
+ * `status: 'all'` y la misma regla de desempate que `subDe`, a propósito: con
+ * criterios distintos, un customer con una cancelada reciente y una activa
+ * vieja salía `canceled` en la lista y `active` en la ficha — dos pantallas
+ * con dos verdades sobre la misma cuenta.
  */
 async function todasLasSubs(): Promise<Map<string, SubResumen>> {
   const porCustomer = new Map<string, SubResumen>()
   for await (const s of stripe.subscriptions.list({ limit: 100, status: 'all' })) {
     const cus = typeof s.customer === 'string' ? s.customer : s.customer?.id
-    // La primera gana: `list` viene ordenada por fecha de creación desc.
-    if (cus && !porCustomer.has(cus)) porCustomer.set(cus, aSubResumen(s))
+    if (!cus) continue
+    const candidata = aSubResumen(s)
+    const actual = porCustomer.get(cus)
+    // `list` viene por fecha de creación desc: la primera es la más reciente y
+    // sólo la desplaza una viva cuando la que está no lo es.
+    if (!actual || (!esSubViva(actual) && esSubViva(candidata))) {
+      porCustomer.set(cus, candidata)
+    }
   }
   return porCustomer
 }
@@ -78,9 +119,37 @@ async function todasLasSubs(): Promise<Map<string, SubResumen>> {
 /** Trae la suscripción de un customer. `null` si no tiene; tira si Stripe falla. */
 async function subDe(customerId: string | null): Promise<SubResumen | null> {
   if (!customerId) return null
-  const subs = await stripe.subscriptions.list({ customer: customerId, limit: 1 })
-  const s = subs.data[0]
-  return s ? aSubResumen(s) : null
+  // `status: 'all'` + `limit: 100` para mirar lo mismo que la lista. Con el
+  // default de Stripe ("todas menos las canceladas") y `limit: 1`, la ficha
+  // veía un universo distinto al de la lista.
+  const subs = await stripe.subscriptions.list({
+    customer: customerId, status: 'all', limit: 100,
+  })
+  return elegirSub(subs.data.map(aSubResumen))
+}
+
+/**
+ * `user_last_activity.last_refresh_at` de una o todas las cuentas.
+ *
+ * Degrada a vacío en vez de tumbar la respuesta: la vista vive fuera de las
+ * migraciones de este repo (viene de raven-admin), así que que no esté es un
+ * escenario real, y el último uso es contexto, no la identidad de la cuenta.
+ */
+async function actividadPorUsuario(userId?: string): Promise<Map<string, string | null>> {
+  const porUsuario = new Map<string, string | null>()
+  let q = admin.from('user_last_activity').select('user_id, last_refresh_at')
+  if (userId) q = q.eq('user_id', userId)
+  const { data, error } = await q
+  if (error) {
+    console.error('[admin-api] no se pudo leer user_last_activity', {
+      userId: userId ?? null, error: error.message,
+    })
+    return porUsuario
+  }
+  for (const fila of data ?? []) {
+    porUsuario.set(fila.user_id, fila.last_refresh_at ?? null)
+  }
+  return porUsuario
 }
 
 Deno.serve(async (req) => {
@@ -97,15 +166,25 @@ Deno.serve(async (req) => {
   const { actor } = auth
 
   try {
-    if (ruta.nombre === 'manifest') return json(MANIFEST)
+    // Las dos rutas sin id son de sólo lectura. Sin este guard, un
+    // `DELETE /api/internal/accounts` corría el handler de lectura y devolvía
+    // `200 {accounts:[...]}`, que un cliente puede leer como "borrado".
+    if (ruta.nombre === 'manifest') {
+      if (req.method !== 'GET') return NO_PERMITIDO()
+      return json(MANIFEST)
+    }
 
     if (ruta.nombre === 'accounts') {
+      if (req.method !== 'GET') return NO_PERMITIDO()
+
       const [
         { data: usuarios, error: errUsuarios },
         { data: perfiles, error: errPerfiles },
+        actividad,
       ] = await Promise.all([
         admin.auth.admin.listUsers({ perPage: 1000 }),
         admin.from('profiles').select('id, plan, stripe_customer_id, trial_started_at'),
+        actividadPorUsuario(),
       ])
       // Sin esto, un fallo de auth o de la base devuelve `data` vacío sin
       // tirar: una lista vacía se vería idéntica a "no hay usuarios".
@@ -113,6 +192,23 @@ Deno.serve(async (req) => {
         return json({ error: 'No se pudo leer la lista de cuentas' }, 500)
       }
       const porId = new Map((perfiles ?? []).map((p) => [p.id, p]))
+
+      // `listUsers` no pagina sola y acá se usa lo que venga: si GoTrue
+      // clampea el `per_page` o el día que se pasen los 1000 usuarios, el
+      // back-office mostraría un subconjunto sin ninguna señal. Paginar
+      // entero es otra tarea; hacer visible el problema es esta.
+      const paginado = usuarios as unknown as
+        { total?: number; nextPage?: number | null } | null
+      const devueltos = usuarios?.users?.length ?? 0
+      const truncado = Boolean(paginado?.nextPage) ||
+        (typeof paginado?.total === 'number' && paginado.total > devueltos)
+      if (truncado) {
+        console.error('[admin-api] la lista de cuentas vino truncada', {
+          devueltos,
+          total: paginado?.total ?? null,
+          nextPage: paginado?.nextPage ?? null,
+        })
+      }
 
       // Una llamada paginada, no una por cuenta: sin esto la columna de estado
       // diría "sin_suscripcion" para todos, incluidos los que pagan.
@@ -130,9 +226,10 @@ Deno.serve(async (req) => {
           { id: u.id, email: u.email ?? null, created_at: u.created_at },
           perfil,
           cus ? subs.get(cus) ?? null : null,
+          actividad.get(u.id) ?? null,
         )
       })
-      return json({ accounts: cuentas })
+      return json({ accounts: cuentas, truncado })
     }
 
     const id = ruta.id!
@@ -146,11 +243,17 @@ Deno.serve(async (req) => {
         { data: perfil, error: errPerfil },
         { count: repos, error: errRepos },
         { count: teams, error: errTeams },
+        actividad,
       ] = await Promise.all([
         admin.from('profiles')
           .select('plan, stripe_customer_id, trial_started_at').eq('id', id).maybeSingle(),
         admin.from('user_repos').select('id', { count: 'exact', head: true }).eq('user_id', id),
-        admin.from('team_members').select('team_id', { count: 'exact', head: true }).eq('user_id', id),
+        // `status = 'active'` o el meter cuenta también invitaciones y pedidos
+        // de join: alguien que pidió entrar a 3 equipos y no fue aprobado en
+        // ninguno figuraba con "Equipos: 3".
+        admin.from('team_members').select('team_id', { count: 'exact', head: true })
+          .eq('user_id', id).eq('status', 'active'),
+        actividadPorUsuario(id),
       ])
       // Un fallo acá no puede degradar en silencio a "plan free, salud ok":
       // sería el mismo diagnóstico falso que el caso de Stripe caído evita
@@ -175,6 +278,7 @@ Deno.serve(async (req) => {
           perfil ?? null,
           sub,
           { repos: repos ?? 0, teams: teams ?? 0, seats: sub?.quantity ?? 0, stripeCaido },
+          actividad.get(id) ?? null,
         ),
       )
     }
@@ -182,7 +286,13 @@ Deno.serve(async (req) => {
     if (ruta.nombre === 'plan' && req.method === 'PUT') {
       const { data: u, error: errUsuario } = await admin.auth.admin.getUserById(id)
       if (errUsuario) return json({ error: 'No se pudo verificar la cuenta' }, 500)
-      if (!u?.user) return json({ error: 'Cuenta no encontrada' }, 404)
+      // Una escritura contra un id inexistente se audita igual que el email de
+      // confirmación que no coincide: es justo el patrón de alguien probando
+      // ids, y era el único intento fallido que no dejaba rastro.
+      if (!u?.user) {
+        await auditar(actor, 'change_plan', id, null, null, null, false, 'Cuenta no encontrada')
+        return json({ error: 'Cuenta no encontrada' }, 404)
+      }
       const email = u.user.email ?? null
 
       const body = await req.json().catch(() => null) as { plan?: string } | null
@@ -210,18 +320,27 @@ Deno.serve(async (req) => {
       const ok = !error && !sinFila
       const mensaje = error?.message ?? (sinFila ? 'La cuenta no tiene perfil' : null)
 
-      await auditar(actor, 'change_plan', id, email,
+      const auditado = await auditar(actor, 'change_plan', id, email,
         { plan: antes?.plan ?? null }, { plan }, ok, mensaje)
 
       if (error) return json({ error: error.message }, 500)
       if (sinFila) return json({ error: 'La cuenta no tiene perfil' }, 404)
-      return json({ cambios: [{ key: 'plan', de: antes?.plan ?? null, a: plan }] })
+      // El cambio se aplicó, así que no se esconde; pero tampoco se reporta
+      // éxito limpio si nadie lo registró: `auditado: false` es el aviso de
+      // que hay una escritura sin fila de auditoría.
+      return json({
+        cambios: [{ key: 'plan', de: antes?.plan ?? null, a: plan }],
+        ...(auditado ? {} : { auditado: false }),
+      })
     }
 
     if (ruta.nombre === 'account' && req.method === 'DELETE') {
       const { data: u, error: errUsuario } = await admin.auth.admin.getUserById(id)
       if (errUsuario) return json({ error: 'No se pudo verificar la cuenta' }, 500)
-      if (!u?.user) return json({ error: 'Cuenta no encontrada' }, 404)
+      if (!u?.user) {
+        await auditar(actor, 'delete_user', id, null, null, null, false, 'Cuenta no encontrada')
+        return json({ error: 'Cuenta no encontrada' }, 404)
+      }
       const email = u.user.email ?? null
 
       const body = await req.json().catch(() => null) as { email_confirm?: string } | null
@@ -244,32 +363,55 @@ Deno.serve(async (req) => {
       // El audit registra nombres de campos, nunca valores sensibles:
       // `stripe_customer_id` no sale de acá, sólo si la cuenta tenía o no
       // facturación asociada.
+      const teniaStripe = Boolean(perfil?.stripe_customer_id)
       const antes = perfil
-        ? { plan: perfil.plan, tenia_stripe: Boolean(perfil.stripe_customer_id) }
+        ? { plan: perfil.plan, tenia_stripe: teniaStripe }
         : null
 
       const { error } = await admin.auth.admin.deleteUser(id)
 
-      await auditar(actor, 'delete_user', id, email, antes, null,
+      const auditado = await auditar(actor, 'delete_user', id, email, antes, null,
         !error, error?.message ?? null)
 
       if (error) return json({ error: error.message }, 500)
-      return json({ borrado: true })
+      // Cancelar cobros está fuera de alcance del contrato, pero una vez
+      // borrado el usuario **este es el único lugar que sabe** que tenía
+      // `stripe_customer_id`. Sin este campo el panel daría la ilusión
+      // contraria mientras Stripe le sigue cobrando a una cuenta que ya no
+      // existe.
+      return json({
+        borrado: true,
+        tenia_stripe: teniaStripe,
+        ...(auditado ? {} : { auditado: false }),
+      })
     }
 
-    return json({ error: 'Metodo no permitido' }, 405)
+    return NO_PERMITIDO()
   } catch (e) {
     const mensaje = e instanceof Error ? e.message : 'Error interno'
+    // El detalle va al log, no al cliente: las excepciones del SDK de Stripe
+    // traen el sufijo de la key redactada y el request id. El audit sí guarda
+    // el mensaje real, que es interno y lo lee staff.
+    console.error('[admin-api] excepcion no anticipada', {
+      ruta: ruta.nombre, id: ruta.id ?? null, actor: actor.id, error: mensaje,
+    })
     if (esEscritura) {
-      // Un error no anticipado en una escritura es tan auditable como uno
-      // anticipado: `ok: false` con lo que se sabe, sin inventar el resto.
-      try {
-        await auditar(actor, `${ruta.nombre}_error`, ruta.id ?? '', null, null, null, false, mensaje)
-      } catch {
-        // Ya estamos en el peor camino: si tampoco se pudo auditar, no hay
-        // más red de seguridad que devolver igual la respuesta al llamador.
+      // `target_id` es `uuid NOT NULL`: sin id no hay insert posible. El que
+      // había (`target_id: ''`) fallaba siempre, así que ni se intenta y
+      // queda el `console.error` de arriba como único rastro.
+      if (ruta.id) {
+        try {
+          await auditar(actor, `${ruta.nombre}_error`, ruta.id, null, null, null, false, mensaje)
+        } catch {
+          // Ya estamos en el peor camino: si tampoco se pudo auditar, no hay
+          // más red de seguridad que devolver igual la respuesta al llamador.
+        }
+      } else {
+        console.error('[admin-api] sin id: la excepcion no se pudo auditar', {
+          ruta: ruta.nombre, actor: actor.id,
+        })
       }
     }
-    return json({ error: mensaje }, 500)
+    return json({ error: 'Error interno' }, 500)
   }
 })

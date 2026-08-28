@@ -18,19 +18,51 @@ export interface SubResumen {
 }
 
 /**
+ * Una suscripción "viva" es la que se está cobrando hoy: `active` o `trialing`.
+ *
+ * Es la **única** definición de "viva" del contrato, a propósito. Antes cada
+ * módulo tenía la suya: `montoMensualCents` filtraba por status y la salud de
+ * la ficha no, así que un Team `past_due` de 5 seats salía con
+ * `monto_mensual_cents: 0` y `health: ok` — el único campo diseñado para
+ * levantar la mano callado justo con la cuenta morosa.
+ */
+export function esSubViva(sub: SubResumen | null): boolean {
+  return sub?.status === 'active' || sub?.status === 'trialing'
+}
+
+/**
+ * Elige la suscripción que representa a la cuenta.
+ *
+ * `subs` viene como la devuelve Stripe: ordenada por fecha de creación
+ * descendente. La regla es **preferir una viva sobre cualquier otra** y recién
+ * después la más reciente. Quedarse con la primera y ya elegía un
+ * `incomplete_expired` posterior por sobre la `active` que la cuenta paga, y
+ * mostraba MRR 0 para un suscriptor real.
+ */
+export function elegirSub(subs: SubResumen[]): SubResumen | null {
+  let elegida: SubResumen | null = null
+  for (const s of subs) {
+    // La primera es la más reciente; sólo la desplaza una viva cuando la que
+    // está no lo es.
+    if (!elegida || (!esSubViva(elegida) && esSubViva(s))) elegida = s
+  }
+  return elegida
+}
+
+/**
  * Monto mensual en centavos.
  *
  * Multiplica por `quantity` porque Team y Enterprise se cobran **por seat**
  * (mínimo 2 y 4). raven-admin no lo hacía: un equipo de 5 seats figuraba como
  * $35 en vez de $175, y el MRR quedaba subestimado.
  *
- * Solo genera monto si el status es `active` o `trialing`. Cualquier otro
- * status (canceled, incomplete, unpaid, past_due, paused, etc.) devuelve 0,
- * para evitar que suscripciones canceladas se sumen al MRR.
+ * Solo genera monto si la suscripción está viva. Cualquier otro status
+ * (canceled, incomplete, unpaid, past_due, paused, etc.) devuelve 0, para
+ * evitar que suscripciones canceladas se sumen al MRR.
  */
 export function montoMensualCents(sub: SubResumen | null): number {
   if (!sub || !sub.unit_amount) return 0
-  if (sub.status !== 'active' && sub.status !== 'trialing') return 0
+  if (!esSubViva(sub)) return 0
   const count = sub.interval_count || 1
   const porSeat = sub.unit_amount
   let mensual: number
