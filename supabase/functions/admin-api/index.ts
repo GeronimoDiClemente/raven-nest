@@ -67,6 +67,42 @@ const ES_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
  *
  * No hace rollback de la acción: ya ocurrió y ocultarla sería peor.
  */
+/**
+ * Busca un usuario distinguiendo "no existe" de "no pude preguntar".
+ *
+ * `getUserById` devuelve un **error** cuando el id no existe, no un `user`
+ * nulo. Chequear `error` a secas —como hacía cada call site— convierte una
+ * cuenta inexistente en un 500, y el back-office dice "Nest no responde"
+ * cuando lo cierto es "esa cuenta no está". Verificado en el smoke del
+ * 2026-08-28 contra producción: un uuid válido inexistente daba 500.
+ *
+ * GoTrue marca ese caso con `status: 404`; cualquier otro error sí es un
+ * fallo real y tiene que seguir siendo 500.
+ */
+async function buscarUsuario(
+  id: string,
+): Promise<
+  | { estado: 'ok'; user: { id: string; email: string | null; created_at: string } }
+  | { estado: 'no_encontrado' }
+  | { estado: 'error'; detalle: string }
+> {
+  const { data, error } = await admin.auth.admin.getUserById(id)
+  if (error) {
+    const status = (error as { status?: number }).status
+    if (status === 404) return { estado: 'no_encontrado' }
+    return { estado: 'error', detalle: error.message }
+  }
+  if (!data?.user) return { estado: 'no_encontrado' }
+  return {
+    estado: 'ok',
+    user: {
+      id: data.user.id,
+      email: data.user.email ?? null,
+      created_at: data.user.created_at,
+    },
+  }
+}
+
 async function auditar(
   actor: Actor,
   action: string,
@@ -277,9 +313,15 @@ Deno.serve(async (req) => {
     const id = ruta.id!
 
     if (ruta.nombre === 'account' && req.method === 'GET') {
-      const { data: authUser, error: errAuthUser } = await admin.auth.admin.getUserById(id)
-      if (errAuthUser) return json({ error: 'No se pudo verificar la cuenta' }, 500)
-      if (!authUser?.user) return json({ error: 'Cuenta no encontrada' }, 404)
+      const buscado = await buscarUsuario(id)
+      if (buscado.estado === 'error') {
+        console.error('[admin-api] getUserById fallo', { id, detalle: buscado.detalle })
+        return json({ error: 'No se pudo verificar la cuenta' }, 500)
+      }
+      if (buscado.estado === 'no_encontrado') {
+        return json({ error: 'Cuenta no encontrada' }, 404)
+      }
+      const authUser = { user: buscado.user }
 
       const [
         { data: perfil, error: errPerfil },
@@ -326,15 +368,19 @@ Deno.serve(async (req) => {
     }
 
     if (ruta.nombre === 'plan' && req.method === 'PUT') {
-      const { data: u, error: errUsuario } = await admin.auth.admin.getUserById(id)
-      if (errUsuario) return json({ error: 'No se pudo verificar la cuenta' }, 500)
+      const buscadoPlan = await buscarUsuario(id)
+      if (buscadoPlan.estado === 'error') {
+        console.error('[admin-api] getUserById fallo', { id, detalle: buscadoPlan.detalle })
+        return json({ error: 'No se pudo verificar la cuenta' }, 500)
+      }
       // Una escritura contra un id inexistente se audita igual que el email de
       // confirmación que no coincide: es justo el patrón de alguien probando
       // ids, y era el único intento fallido que no dejaba rastro.
-      if (!u?.user) {
+      if (buscadoPlan.estado === 'no_encontrado') {
         await auditar(actor, 'change_plan', id, null, null, null, false, 'Cuenta no encontrada')
         return json({ error: 'Cuenta no encontrada' }, 404)
       }
+      const u = { user: buscadoPlan.user }
       const email = u.user.email ?? null
 
       const body = await req.json().catch(() => null) as { plan?: string } | null
@@ -377,12 +423,16 @@ Deno.serve(async (req) => {
     }
 
     if (ruta.nombre === 'account' && req.method === 'DELETE') {
-      const { data: u, error: errUsuario } = await admin.auth.admin.getUserById(id)
-      if (errUsuario) return json({ error: 'No se pudo verificar la cuenta' }, 500)
-      if (!u?.user) {
+      const buscadoDel = await buscarUsuario(id)
+      if (buscadoDel.estado === 'error') {
+        console.error('[admin-api] getUserById fallo', { id, detalle: buscadoDel.detalle })
+        return json({ error: 'No se pudo verificar la cuenta' }, 500)
+      }
+      if (buscadoDel.estado === 'no_encontrado') {
         await auditar(actor, 'delete_user', id, null, null, null, false, 'Cuenta no encontrada')
         return json({ error: 'Cuenta no encontrada' }, 404)
       }
+      const u = { user: buscadoDel.user }
       const email = u.user.email ?? null
 
       const body = await req.json().catch(() => null) as { email_confirm?: string } | null
