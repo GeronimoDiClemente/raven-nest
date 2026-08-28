@@ -6,8 +6,9 @@ import Stripe from 'https://esm.sh/stripe@14?target=deno'
 import { verificarAuth, type Actor } from './auth.ts'
 import { rutaDe } from './router.ts'
 import { MANIFEST } from './manifest.ts'
-import { aAccountDetail, aAccountSummary } from './mapear.ts'
+import { aAccountDetail, aAccountSummary, type UsuarioAuth } from './mapear.ts'
 import { PLANES_VALIDOS, aSubResumen, elegirSub, esSubViva, type SubResumen } from './pricing.ts'
+import { paginarTodo } from './paginar.ts'
 
 const admin = createClient(
   Deno.env.get('SUPABASE_URL')!,
@@ -26,6 +27,22 @@ const json = (body: unknown, status = 200) =>
   })
 
 const NO_PERMITIDO = () => json({ error: 'Metodo no permitido' }, 405)
+
+/**
+ * 200 en vez de los 1000 que pedía la versión vieja: GoTrue no respeta un
+ * `perPage` grande (el bug del 2026-08-28 nació de ahí), así que se pide un
+ * número modesto y se pagina de verdad con `paginarTodo` en vez de confiar en
+ * que una sola llamada alcance.
+ */
+const PER_PAGE_USUARIOS = 200
+
+/**
+ * Tope de seguridad: 50 páginas x 200 = 10.000 usuarios. Muy por encima de lo
+ * que tiene Nest hoy: si algún día se alcanza, es una señal real de que algo
+ * anda mal (o de que el producto creció mucho), no un límite arbitrario que
+ * se vaya a pisar por accidente.
+ */
+const MAX_PAGINAS_USUARIOS = 50
 
 /**
  * `admin_audit_log.target_id` es `uuid NOT NULL`.
@@ -152,6 +169,48 @@ async function actividadPorUsuario(userId?: string): Promise<Map<string, string 
   return porUsuario
 }
 
+/**
+ * Todos los usuarios de `auth.users`, paginando de verdad.
+ *
+ * `listUsers` no trae "todos" con una sola llamada aunque se le pida un
+ * `perPage` grande: es exactamente el bug del 2026-08-28, donde una sola
+ * llamada con `perPage: 1000` devolvía 80 cuentas de 82 reales sin ningún
+ * aviso. `paginarTodo` (módulo puro, testeado sin red en
+ * `__tests__/paginar.test.ts`) pide páginas sucesivas hasta que una vuelve
+ * vacía o incompleta — la única señal de "se acabó" que no depende del
+ * header `link` ni de `total`, que GoTrue no siempre manda.
+ *
+ * Un error de GoTrue en cualquier página tira: no tiene sentido mostrar un
+ * subconjunto parcial de cuentas como si fuera la lista completa.
+ */
+async function todosLosUsuarios(): Promise<
+  { users: UsuarioAuth[]; truncado: boolean; error: string | null }
+> {
+  try {
+    const { items, truncado } = await paginarTodo<UsuarioAuth>(async (page) => {
+      const { data, error } = await admin.auth.admin.listUsers({
+        page, perPage: PER_PAGE_USUARIOS,
+      })
+      if (error) throw error
+      return (data?.users ?? []).map((u) => (
+        { id: u.id, email: u.email ?? null, created_at: u.created_at }
+      ))
+    }, PER_PAGE_USUARIOS, MAX_PAGINAS_USUARIOS)
+
+    if (truncado) {
+      console.error('[admin-api] listUsers alcanzo el tope de paginas de seguridad', {
+        maxPaginas: MAX_PAGINAS_USUARIOS, perPage: PER_PAGE_USUARIOS, devueltos: items.length,
+      })
+    }
+    return { users: items, truncado, error: null }
+  } catch (e) {
+    return {
+      users: [], truncado: false,
+      error: e instanceof Error ? e.message : 'Error desconocido al listar usuarios',
+    }
+  }
+}
+
 Deno.serve(async (req) => {
   const ruta = rutaDe(new URL(req.url).pathname)
   if (!ruta) return json({ error: 'No encontrado' }, 404)
@@ -178,11 +237,11 @@ Deno.serve(async (req) => {
       if (req.method !== 'GET') return NO_PERMITIDO()
 
       const [
-        { data: usuarios, error: errUsuarios },
+        { users: usuarios, truncado, error: errUsuarios },
         { data: perfiles, error: errPerfiles },
         actividad,
       ] = await Promise.all([
-        admin.auth.admin.listUsers({ perPage: 1000 }),
+        todosLosUsuarios(),
         admin.from('profiles').select('id, plan, stripe_customer_id, trial_started_at'),
         actividadPorUsuario(),
       ])
@@ -193,23 +252,6 @@ Deno.serve(async (req) => {
       }
       const porId = new Map((perfiles ?? []).map((p) => [p.id, p]))
 
-      // `listUsers` no pagina sola y acá se usa lo que venga: si GoTrue
-      // clampea el `per_page` o el día que se pasen los 1000 usuarios, el
-      // back-office mostraría un subconjunto sin ninguna señal. Paginar
-      // entero es otra tarea; hacer visible el problema es esta.
-      const paginado = usuarios as unknown as
-        { total?: number; nextPage?: number | null } | null
-      const devueltos = usuarios?.users?.length ?? 0
-      const truncado = Boolean(paginado?.nextPage) ||
-        (typeof paginado?.total === 'number' && paginado.total > devueltos)
-      if (truncado) {
-        console.error('[admin-api] la lista de cuentas vino truncada', {
-          devueltos,
-          total: paginado?.total ?? null,
-          nextPage: paginado?.nextPage ?? null,
-        })
-      }
-
       // Una llamada paginada, no una por cuenta: sin esto la columna de estado
       // diría "sin_suscripcion" para todos, incluidos los que pagan.
       let subs = new Map<string, SubResumen>()
@@ -219,11 +261,11 @@ Deno.serve(async (req) => {
         // Stripe caído no vacía la lista: los datos de la base valen igual.
       }
 
-      const cuentas = (usuarios?.users ?? []).map((u) => {
+      const cuentas = usuarios.map((u) => {
         const perfil = porId.get(u.id) ?? null
         const cus = perfil?.stripe_customer_id ?? null
         return aAccountSummary(
-          { id: u.id, email: u.email ?? null, created_at: u.created_at },
+          u,
           perfil,
           cus ? subs.get(cus) ?? null : null,
           actividad.get(u.id) ?? null,
