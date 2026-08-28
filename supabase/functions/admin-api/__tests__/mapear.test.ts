@@ -116,6 +116,14 @@ describe('aAccountDetail', () => {
     expect(r.seats).toBe(0)
   })
 
+  // Cero es un monto válido: con Stripe caído no se sabe cuánto paga la
+  // cuenta, así que mentiría mostrar `0` en la pantalla donde se decide.
+  it('con Stripe caido la facturacion es null, no cero', () => {
+    const r = aAccountDetail(USUARIO, PERFIL, null, { ...FICHA, stripeCaido: true })
+    expect(r.monto_mensual_cents).toBe(null)
+    expect(r.seats).toBe(null)
+  })
+
   it('no filtra ninguna clave prohibida', () => {
     const r = aAccountDetail(USUARIO, PERFIL, SUB, FICHA)
     expect(clavesNoPermitidas(r, ACCOUNT_ALLOWED_KEYS)).toEqual([])

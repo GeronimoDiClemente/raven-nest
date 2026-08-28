@@ -59,3 +59,40 @@ export function trialEndsAt(trialStartedAt: string | null): string | null {
   if (Number.isNaN(inicio.getTime())) return null
   return new Date(inicio.getTime() + TRIAL_DIAS * 24 * 60 * 60 * 1000).toISOString()
 }
+
+/**
+ * Lo mínimo que `aSubResumen` necesita leer de una suscripción de Stripe.
+ *
+ * Un tipo estructural en vez de `Stripe.Subscription`: así este módulo sigue
+ * puro (sin importar el SDK de Stripe) y `aSubResumen` queda testeable sin
+ * Deno ni red, igual que el resto de `pricing.ts`.
+ */
+export interface StripeSubscripcionMinima {
+  status: string
+  items: {
+    data: Array<{
+      quantity?: number | null
+      price: {
+        id?: string | null
+        unit_amount?: number | null
+        recurring?: {
+          interval?: 'day' | 'week' | 'month' | 'year' | null
+          interval_count?: number | null
+        } | null
+      }
+    }>
+  }
+}
+
+/** Mapea una suscripción de Stripe (o su forma mínima) al resumen del contrato. */
+export function aSubResumen(s: StripeSubscripcionMinima): SubResumen {
+  const item = s.items.data[0]
+  return {
+    status: s.status,
+    unit_amount: item?.price.unit_amount ?? null,
+    quantity: item?.quantity ?? 1,
+    interval: item?.price.recurring?.interval ?? null,
+    interval_count: item?.price.recurring?.interval_count ?? 1,
+    price_id: item?.price.id ?? null,
+  }
+}

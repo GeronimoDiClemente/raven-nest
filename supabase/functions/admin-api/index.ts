@@ -7,7 +7,7 @@ import { verificarAuth, type Actor } from './auth.ts'
 import { rutaDe } from './router.ts'
 import { MANIFEST } from './manifest.ts'
 import { aAccountDetail, aAccountSummary } from './mapear.ts'
-import { PLANES_VALIDOS, type SubResumen } from './pricing.ts'
+import { PLANES_VALIDOS, aSubResumen, type SubResumen } from './pricing.ts'
 
 const admin = createClient(
   Deno.env.get('SUPABASE_URL')!,
@@ -25,7 +25,7 @@ const json = (body: unknown, status = 200) =>
     headers: { 'content-type': 'application/json' },
   })
 
-/** El audit se escribe siempre, también cuando la acción falla. */
+/** El audit se escribe también cuando la acción falla. */
 async function auditar(
   actor: Actor,
   action: string,
@@ -36,7 +36,7 @@ async function auditar(
   ok: boolean,
   error: string | null,
 ) {
-  await admin.from('admin_audit_log').insert({
+  const { error: errorAudit } = await admin.from('admin_audit_log').insert({
     action,
     target_type: 'user',
     target_id: targetId,
@@ -49,17 +49,13 @@ async function auditar(
     ok,
     error,
   })
-}
-
-function aSubResumen(s: Stripe.Subscription): SubResumen {
-  const item = s.items.data[0]
-  return {
-    status: s.status,
-    unit_amount: item?.price.unit_amount ?? null,
-    quantity: item?.quantity ?? 1,
-    interval: item?.price.recurring?.interval ?? null,
-    interval_count: item?.price.recurring?.interval_count ?? 1,
-    price_id: item?.price.id ?? null,
+  // Un audit que falla en silencio es el peor modo de falla para un contrato
+  // cuya razón de ser es la auditabilidad. No cambia el status de la
+  // respuesta: la acción de negocio ya ocurrió y ocultarla sería peor.
+  if (errorAudit) {
+    console.error('[admin-api] fallo al escribir el audit log', {
+      action, targetId, actor: actor.id, error: errorAudit.message,
+    })
   }
 }
 
@@ -104,10 +100,18 @@ Deno.serve(async (req) => {
     if (ruta.nombre === 'manifest') return json(MANIFEST)
 
     if (ruta.nombre === 'accounts') {
-      const [{ data: usuarios }, { data: perfiles }] = await Promise.all([
+      const [
+        { data: usuarios, error: errUsuarios },
+        { data: perfiles, error: errPerfiles },
+      ] = await Promise.all([
         admin.auth.admin.listUsers({ perPage: 1000 }),
         admin.from('profiles').select('id, plan, stripe_customer_id, trial_started_at'),
       ])
+      // Sin esto, un fallo de auth o de la base devuelve `data` vacío sin
+      // tirar: una lista vacía se vería idéntica a "no hay usuarios".
+      if (errUsuarios || errPerfiles) {
+        return json({ error: 'No se pudo leer la lista de cuentas' }, 500)
+      }
       const porId = new Map((perfiles ?? []).map((p) => [p.id, p]))
 
       // Una llamada paginada, no una por cuenta: sin esto la columna de estado
@@ -134,15 +138,26 @@ Deno.serve(async (req) => {
     const id = ruta.id!
 
     if (ruta.nombre === 'account' && req.method === 'GET') {
-      const { data: authUser } = await admin.auth.admin.getUserById(id)
+      const { data: authUser, error: errAuthUser } = await admin.auth.admin.getUserById(id)
+      if (errAuthUser) return json({ error: 'No se pudo verificar la cuenta' }, 500)
       if (!authUser?.user) return json({ error: 'Cuenta no encontrada' }, 404)
 
-      const [{ data: perfil }, { count: repos }, { count: teams }] = await Promise.all([
+      const [
+        { data: perfil, error: errPerfil },
+        { count: repos, error: errRepos },
+        { count: teams, error: errTeams },
+      ] = await Promise.all([
         admin.from('profiles')
           .select('plan, stripe_customer_id, trial_started_at').eq('id', id).maybeSingle(),
         admin.from('user_repos').select('id', { count: 'exact', head: true }).eq('user_id', id),
         admin.from('team_members').select('team_id', { count: 'exact', head: true }).eq('user_id', id),
       ])
+      // Un fallo acá no puede degradar en silencio a "plan free, salud ok":
+      // sería el mismo diagnóstico falso que el caso de Stripe caído evita
+      // del otro lado, entrando por la puerta del error ignorado.
+      if (errPerfil || errRepos || errTeams) {
+        return json({ error: 'No se pudo leer la ficha de la cuenta' }, 500)
+      }
 
       // Stripe caído degrada la ficha, no la tumba: los datos de la base valen
       // igual, y "no disponible" no es lo mismo que "no paga".
@@ -165,45 +180,77 @@ Deno.serve(async (req) => {
     }
 
     if (ruta.nombre === 'plan' && req.method === 'PUT') {
+      const { data: u, error: errUsuario } = await admin.auth.admin.getUserById(id)
+      if (errUsuario) return json({ error: 'No se pudo verificar la cuenta' }, 500)
+      if (!u?.user) return json({ error: 'Cuenta no encontrada' }, 404)
+      const email = u.user.email ?? null
+
       const body = await req.json().catch(() => null) as { plan?: string } | null
       const plan = body?.plan
       if (!plan || !PLANES_VALIDOS.includes(plan as typeof PLANES_VALIDOS[number])) {
-        return json({ error: `Plan invalido. Validos: ${PLANES_VALIDOS.join(', ')}` }, 400)
+        const msg = `Plan invalido. Validos: ${PLANES_VALIDOS.join(', ')}`
+        // Un intento fallido es información operativa igual que uno exitoso.
+        await auditar(actor, 'change_plan', id, email, null, { plan: plan ?? null }, false, msg)
+        return json({ error: msg }, 400)
       }
 
-      const { data: antes } = await admin.from('profiles')
+      const { data: antes, error: errAntes } = await admin.from('profiles')
         .select('plan').eq('id', id).maybeSingle()
-      const { data: u } = await admin.auth.admin.getUserById(id)
-      const email = u?.user?.email ?? null
+      if (errAntes) return json({ error: 'No se pudo leer el plan actual' }, 500)
 
-      const { error } = await admin.from('profiles')
-        .update({ plan, updated_at: new Date().toISOString() }).eq('id', id)
+      // `.select()` en el update para distinguir "no matcheó ninguna fila"
+      // (sin error, 0 filas) de "sí se actualizó": pasa cuando la cuenta
+      // existe en auth.users pero no tiene fila en `profiles`.
+      const { data: actualizados, error } = await admin.from('profiles')
+        .update({ plan, updated_at: new Date().toISOString() })
+        .eq('id', id)
+        .select('plan')
+
+      const sinFila = !error && (actualizados?.length ?? 0) === 0
+      const ok = !error && !sinFila
+      const mensaje = error?.message ?? (sinFila ? 'La cuenta no tiene perfil' : null)
 
       await auditar(actor, 'change_plan', id, email,
-        { plan: antes?.plan ?? null }, { plan }, !error, error?.message ?? null)
+        { plan: antes?.plan ?? null }, { plan }, ok, mensaje)
 
       if (error) return json({ error: error.message }, 500)
+      if (sinFila) return json({ error: 'La cuenta no tiene perfil' }, 404)
       return json({ cambios: [{ key: 'plan', de: antes?.plan ?? null, a: plan }] })
     }
 
     if (ruta.nombre === 'account' && req.method === 'DELETE') {
-      const { data: u } = await admin.auth.admin.getUserById(id)
+      const { data: u, error: errUsuario } = await admin.auth.admin.getUserById(id)
+      if (errUsuario) return json({ error: 'No se pudo verificar la cuenta' }, 500)
       if (!u?.user) return json({ error: 'Cuenta no encontrada' }, 404)
       const email = u.user.email ?? null
 
       const body = await req.json().catch(() => null) as { email_confirm?: string } | null
-      // Misma confirmación que pedía raven-admin: borrar es irreversible.
-      if ((body?.email_confirm ?? '').trim().toLowerCase() !== (email ?? '').toLowerCase()) {
+      const emailConfirm = (body?.email_confirm ?? '').trim()
+      // Misma confirmación que pedía raven-admin: borrar es irreversible. Los
+      // dos casos degenerados se rechazan explícitamente antes de comparar:
+      // si la cuenta no tiene email, o si `email_confirm` viene vacío o
+      // ausente, comparar contra `''` daría un match falso (`'' !== ''` es
+      // `false`) y el borrado pasaría sin ninguna confirmación real.
+      if (!email || !emailConfirm || emailConfirm.toLowerCase() !== email.toLowerCase()) {
         await auditar(actor, 'delete_user', id, email, null, null, false,
           'El email de confirmacion no coincide')
         return json({ error: 'El email de confirmacion no coincide' }, 400)
       }
 
-      const { data: perfil } = await admin.from('profiles')
+      const { data: perfil, error: errPerfil } = await admin.from('profiles')
         .select('plan, stripe_customer_id').eq('id', id).maybeSingle()
+      if (errPerfil) return json({ error: 'No se pudo leer el perfil' }, 500)
+
+      // El audit registra nombres de campos, nunca valores sensibles:
+      // `stripe_customer_id` no sale de acá, sólo si la cuenta tenía o no
+      // facturación asociada.
+      const antes = perfil
+        ? { plan: perfil.plan, tenia_stripe: Boolean(perfil.stripe_customer_id) }
+        : null
+
       const { error } = await admin.auth.admin.deleteUser(id)
 
-      await auditar(actor, 'delete_user', id, email, perfil ?? null, null,
+      await auditar(actor, 'delete_user', id, email, antes, null,
         !error, error?.message ?? null)
 
       if (error) return json({ error: error.message }, 500)
@@ -212,6 +259,17 @@ Deno.serve(async (req) => {
 
     return json({ error: 'Metodo no permitido' }, 405)
   } catch (e) {
-    return json({ error: e instanceof Error ? e.message : 'Error interno' }, 500)
+    const mensaje = e instanceof Error ? e.message : 'Error interno'
+    if (esEscritura) {
+      // Un error no anticipado en una escritura es tan auditable como uno
+      // anticipado: `ok: false` con lo que se sabe, sin inventar el resto.
+      try {
+        await auditar(actor, `${ruta.nombre}_error`, ruta.id ?? '', null, null, null, false, mensaje)
+      } catch {
+        // Ya estamos en el peor camino: si tampoco se pudo auditar, no hay
+        // más red de seguridad que devolver igual la respuesta al llamador.
+      }
+    }
+    return json({ error: mensaje }, 500)
   }
 })

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
-  montoMensualCents, planLabel, trialEndsAt, PLANES_VALIDOS, TRIAL_DIAS,
-  type SubResumen,
+  montoMensualCents, planLabel, trialEndsAt, aSubResumen, PLANES_VALIDOS, TRIAL_DIAS,
+  type SubResumen, type StripeSubscripcionMinima,
 } from '../pricing.ts'
 
 function sub(over: Partial<SubResumen> = {}): SubResumen {
@@ -91,4 +91,43 @@ describe('trialEndsAt', () => {
 it('los 4 tiers son los validos', () => {
   expect([...PLANES_VALIDOS]).toEqual(['free', 'pro', 'team', 'enterprise'])
   expect(TRIAL_DIAS).toBe(15)
+})
+
+// Movida desde index.ts (no testeado: corre en Deno) a pricing.ts (puro,
+// testeable sin red) para que la lógica de plata quede bajo cobertura.
+describe('aSubResumen', () => {
+  it('mapea una suscripcion completa', () => {
+    const s: StripeSubscripcionMinima = {
+      status: 'active',
+      items: {
+        data: [{
+          quantity: 3,
+          price: { id: 'price_x', unit_amount: 3500, recurring: { interval: 'month', interval_count: 1 } },
+        }],
+      },
+    }
+    expect(aSubResumen(s)).toEqual({
+      status: 'active', unit_amount: 3500, quantity: 3,
+      interval: 'month', interval_count: 1, price_id: 'price_x',
+    })
+  })
+
+  it('items vacio cae a los defaults', () => {
+    const s: StripeSubscripcionMinima = { status: 'canceled', items: { data: [] } }
+    expect(aSubResumen(s)).toEqual({
+      status: 'canceled', unit_amount: null, quantity: 1,
+      interval: null, interval_count: 1, price_id: null,
+    })
+  })
+
+  it('campos ausentes en el item caen a sus defaults', () => {
+    const s: StripeSubscripcionMinima = {
+      status: 'trialing',
+      items: { data: [{ price: {} }] },
+    }
+    expect(aSubResumen(s)).toEqual({
+      status: 'trialing', unit_amount: null, quantity: 1,
+      interval: null, interval_count: 1, price_id: null,
+    })
+  })
 })

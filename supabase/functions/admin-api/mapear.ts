@@ -90,7 +90,9 @@ export function aAccountDetail(
     // El price_id es lo único que distingue a un suscriptor en un precio
     // legacy (hay dos anuales al 15% off) de uno en el precio actual.
     price_id: sub?.price_id ?? null,
-    monto_mensual_cents: montoMensualCents(sub),
-    seats: extra.seats,
+    // Con Stripe caído, `null` en vez de `0`: cero es un monto válido y acá
+    // mentiría. Con Stripe sano y sin suscripción, `0` sí es la verdad.
+    monto_mensual_cents: extra.stripeCaido ? null : montoMensualCents(sub),
+    seats: extra.stripeCaido ? null : extra.seats,
   }
 }

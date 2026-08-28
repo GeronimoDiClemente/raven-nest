@@ -54,8 +54,13 @@ export interface AccountDetail extends AccountSummary {
    * Facturación. El core del back-office parsea con zod sin `.strict()`, así
    * que ignora estos campos; los dibuja el módulo `products/nest`. Están acá
    * porque la paridad con raven-admin incluye ver cuánto paga cada cuenta.
+   *
+   * `monto_mensual_cents` y `seats` son `null` cuando Stripe está caído: cero
+   * es un monto válido y mentiría en la pantalla donde se decide sobre una
+   * cuenta. Con Stripe sano y sin suscripción siguen siendo `0`, que ahí sí
+   * es la verdad.
    */
   price_id: string | null
-  monto_mensual_cents: number
-  seats: number
+  monto_mensual_cents: number | null
+  seats: number | null
 }
