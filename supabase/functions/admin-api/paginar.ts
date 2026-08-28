@@ -1,13 +1,22 @@
 /**
  * Acumula todas las páginas que devuelva un fetcher paginado genérico.
  *
- * Nace del bug del 2026-08-28: `admin.auth.admin.listUsers({ perPage: 1000 })`
- * se llamaba **una sola vez**, asumiendo que ese `perPage` alcanzaba para
- * traer todo. GoTrue no lo respeta tal cual, así que la función devolvía
- * nada más que la primera página — en producción, 80 cuentas de 82 reales,
- * sin ningún aviso. El flag `truncado` de esa versión comparaba contra
- * `total`, un número que GoTrue sólo manda si viene el header `link`, y no
- * vino: un flag que depende de un header opcional no es una red de seguridad.
+ * Antes, `admin.auth.admin.listUsers({ perPage: 1000 })` se llamaba **una sola
+ * vez**, asumiendo que ese `perPage` alcanzaba para traer todo. GoTrue no
+ * garantiza respetarlo: el día que lo clampee, o que se pasen los 1000
+ * usuarios, la lista mostraría un subconjunto y nadie se enteraría.
+ *
+ * Que hoy no truncara no era mérito del código sino del tamaño de la base, y
+ * la red que supuestamente lo cubría no servía: el flag `truncado` comparaba
+ * contra `total`, un número que GoTrue sólo manda si viene el header `link`.
+ * En el smoke del 2026-08-28 contra producción ese header no vino, así que
+ * `total` llegó en 0 y el flag habría dicho `false` ante cualquier
+ * truncamiento real. Un flag que depende de un header opcional no es una red.
+ *
+ * (Ese mismo smoke mostró 80 cuentas contra 82 filas en `auth.users`, y por un
+ * rato pareció un truncamiento. No lo era: dos filas se insertaron a mano sin
+ * `instance_id`, `aud` ni `role`, y la API de GoTrue no las lista. El contrato
+ * estaba bien; este módulo no arregla eso ni pretende hacerlo.)
  *
  * Módulo puro a propósito: sin este archivo, la lógica de paginación vive
  * pegada a `Deno.serve` y a las credenciales de `index.ts`, y no hay forma de
