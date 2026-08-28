@@ -90,6 +90,18 @@ describe('aAccountDetail', () => {
     expect(item?.detail).toBe('Stripe no responde: el dato de cobro no esta disponible')
   })
 
+  // Prueba combinada: Stripe caído toma precedencia sobre "plan sin customer".
+  // Razonamiento: con Stripe no disponible no se sabe si hay suscripción o no,
+  // así que afirmar "sin_configurar" sería especular con datos que no se tienen.
+  // Por eso "parcial" debe ganar, reportando que la información es incompleta.
+  it('Stripe caido + plan de pago sin customer: parcial gana sobre sin_configurar', () => {
+    const p = { plan: 'team', stripe_customer_id: null, trial_started_at: null }
+    const item = aAccountDetail(USUARIO, p, null, { ...FICHA, stripeCaido: true }).health
+      .find((h) => h.key === 'suscripcion')
+    expect(item?.status).toBe('parcial')
+    expect(item?.detail).toBe('Stripe no responde: el dato de cobro no esta disponible')
+  })
+
   it('expone la facturacion, con el monto multiplicado por seats', () => {
     const r = aAccountDetail(USUARIO, PERFIL, SUB, FICHA)
     expect(r.price_id).toBe('price_team_monthly')
