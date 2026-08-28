@@ -22,7 +22,7 @@ function uniqueTmp(prefix: string): string {
   return mkdtempSync(join(tmpdir(), prefix))
 }
 
-export async function launchHarness(opts?: { withRepo?: boolean }): Promise<Harness> {
+export async function launchHarness(opts?: { withRepo?: boolean; keepRealHome?: boolean }): Promise<Harness> {
   const homeDir = uniqueTmp('raven-e2e-home-')
   let repoDir = ''
   if (opts?.withRepo !== false) {
@@ -42,8 +42,15 @@ export async function launchHarness(opts?: { withRepo?: boolean }): Promise<Harn
   // HOME / USERPROFILE alone are not sufficient on Windows, where os.homedir()
   // can read the user token rather than env vars.
   env.RAVEN_HOME = homeDir
-  env.HOME = homeDir
-  env.USERPROFILE = homeDir
+  // `keepRealHome` deja el HOME real intacto: RAVEN_HOME ya aisla TODO el
+  // storage de Nest (ravenHome() lo consulta primero), pero las CLIs que Nest
+  // spawnea en una pty heredan HOME y buscan ahí sus credenciales. Un HOME
+  // descartable las deja sin login y el smoke se cuelga en una pantalla de
+  // auth. Solo lo usan los smokes que corren agentes de verdad.
+  if (!opts?.keepRealHome) {
+    env.HOME = homeDir
+    env.USERPROFILE = homeDir
+  }
 
   const app = await electron.launch({
     args: [MAIN_JS, `--user-data-dir=${userDataDir}`],

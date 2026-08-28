@@ -107,6 +107,39 @@ asks to trust the folder and then asks per-tool permission → the agent never w
 > multi-line prompt-injection timing risk. `graph:node:attach` still works for watching
 > the scrollback live.
 
+> **STATUS 2026-08-28 (Mac): C CERRADO y SMOKE IN-APP VERDE.** Commits
+> `b37611b` (control) y el de este smoke. El bridge del preload expone
+> `setMode`/`approve`/`requestChanges`, y `GraphRunDecision` los usa desde el
+> detalle del board. Vive a nivel de run, no del nodo: el gate no es clickeable
+> en el flow (`FlowNode` devuelve un div sin `onClick` para `kind: 'gate'`), así
+> que colgarlo de la selección lo habría dejado inalcanzable.
+>
+> **Trampa que costó dos corridas del smoke, anotada para el que siga:** un gate
+> retenido para decisión **no escribe estado en `run.nodes`**. `planTick` lo mete
+> en `heldGates` → `plan.blockedOn`, y `main.ts` solo persiste `plan.run`, así
+> que `blockedOn` muere en cada tick y nunca llega al renderer. Un gate solo pasa
+> de `queued` a `done` (lo aplica `applyDecision` o el modo `auto`) o a `skipped`:
+> **jamás vale `blocked` ni `needs_input`**. El estado hay que derivarlo de los
+> upstream, igual que `gateState` en `graph-runner.ts` — eso hace
+> `src/lib/graph-decision.ts`, espejo del lado renderer (misma convención que
+> `src/lib/graph-view.ts`, que no cruza el borde main/renderer).
+>
+> El smoke in-app quedó como e2e gateado: `e2e/02-graph-in-app.spec.ts`
+> (`GRAPH_APP_SMOKE=1`). Arranca la app de verdad con `RAVEN_HOME` descartable y
+> `--user-data-dir` propio, linkea un repo tirable, corre `review-only` en modo
+> `gate` con dos reviewers `claude` reales, espera que el gate frene, aprueba y
+> verifica que el run se complete. **Verde en 56 s.** Cubre lo único que ningún
+> otro test toca: el tick de 3 s encadenando nodos solo, el worktree que crea
+> `graph:run:start`, el dedupe de señales, el board actualizándose, y la decisión
+> humana de punta a punta (botón → preload → IPC → `pendingDecision` → el tick lo
+> aplica).
+>
+> El spec **no** afirma en qué estado terminan los reviewers. Son LLMs reales
+> sobre un repo vacío: pueden cerrar limpios (`done`) o reportar un concern
+> bloqueante, y ahí el verdict pass los deja en `blocked`. Las dos corridas son
+> sanas. Afirmar `done === 2` hardcodeaba lo que decide un modelo y hacía fallar
+> la corrida buena.
+
 **C. Human decisions are not reachable from the renderer** (only needed to smoke
 `gate`/`step` mode). `graph:run:setMode`, `graph:gate:approve` and
 `graph:gate:requestChanges` exist in main but are **not exposed in `preload.ts`**

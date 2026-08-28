@@ -26,8 +26,10 @@ function makeRun(over: Partial<GraphRun> = {}, nodes: Record<string, NodeRuntime
     startedAt: 0, mode: 'gate', round: 1,
     nodes: {
       coder: { state: 'done' },
-      sec: { state: 'done', verdict: { concerns: ['el token se loguea en claro'], blocking: true } },
-      gate: { state: 'blocked' },
+      // Un reviewer que bloquea queda en 'blocked' (lo deja ahi el verdict pass),
+      // y el gate NUNCA sale de 'queued' mientras lo retienen: su estado se deriva.
+      sec: { state: 'blocked', verdict: { concerns: ['el token se loguea en claro'], blocking: true } },
+      gate: { state: 'queued' },
       tester: { state: 'queued' },
       ...nodes,
     },
@@ -94,7 +96,7 @@ describe('GraphRunDecision', () => {
   })
 
   it('sin gate esperando no muestra la decisión, pero el modo se sigue pudiendo cambiar', () => {
-    const run = makeRun({}, { gate: { state: 'queued' }, sec: { state: 'running' } })
+    const run = makeRun({}, { sec: { state: 'running' } })
     render(<GraphRunDecision run={run} template={TEMPLATE} onChanged={vi.fn()} />)
     expect(screen.queryByRole('button', { name: /approve anyway/i })).toBeNull()
     expect(screen.getByRole('button', { name: 'auto' })).toBeTruthy()

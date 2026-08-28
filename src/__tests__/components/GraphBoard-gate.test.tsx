@@ -23,8 +23,8 @@ const RUN: PersistedGraphRun = {
     startedAt: 0, mode: 'gate', round: 1,
     nodes: {
       coder: { state: 'done' },
-      sec: { state: 'done', verdict: { concerns: ['el token se loguea en claro'], blocking: true } },
-      gate: { state: 'blocked' },
+      sec: { state: 'blocked', verdict: { concerns: ['el token se loguea en claro'], blocking: true } },
+      gate: { state: 'queued' },
     },
   },
 }
