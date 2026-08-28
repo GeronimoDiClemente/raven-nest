@@ -1029,7 +1029,19 @@ Expected: aparecen `id, action, target_type, target_id, target_label, before, af
 
 - [ ] **Step 3: Aplicar la migración**
 
-Aplicarla desde el dashboard de Supabase (SQL editor) o con `npx supabase db push` si el CLI está linkeado al proyecto.
+Aplicarla **sólo** desde el dashboard de Supabase (SQL editor): pegar el SQL del Step 1 y correrlo.
+
+> ⚠️ **No usar `npx supabase db push`.** Esta rama suma `supabase/config.toml`, así que a
+> partir de acá el repo **es** un proyecto de la CLI. `supabase/migrations/` tiene 30+
+> archivos que se aplicaron a mano y **no están registrados en `schema_migrations`**: para
+> la CLI son todos pendientes, y `db push` los listaría e intentaría re-aplicarlos sobre
+> **producción** — re-creando políticas RLS, triggers y tablas que ya existen. El fallo no
+> es "no pasa nada": es un `CREATE POLICY` a mitad de camino sobre la base en vivo.
+>
+> Esto vale para toda migración de este repo mientras el historial no esté reparado
+> (`supabase migration repair --status applied` archivo por archivo, que es otra tarea y
+> necesita decisión de Gero). Si alguien "arregla" este paso poniendo `db push` de vuelta,
+> está re-introduciendo eso.
 
 - [ ] **Step 4: Verificar que quedó aplicada**
 
