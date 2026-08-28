@@ -9822,3 +9822,19 @@ body.platform-mac .tabbar { padding-right: 116px; }
 .gb-hint { font-size: 11px; color: var(--text-muted); }
 .gb-isec-term { border-bottom: none; }
 .gb-term-live { height: 260px; width: 100%; }
+
+/* Control humano del run: modo + decisión del gate (GraphRunDecision). */
+.gb-dec { display: flex; flex-direction: column; gap: 10px; }
+.gb-modes { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; align-self: flex-start; }
+.gb-mode { font-size: 11px; padding: 5px 12px; background: transparent; border: none; border-right: 1px solid var(--border); color: var(--text-secondary); cursor: pointer; }
+.gb-mode:last-child { border-right: none; }
+.gb-mode:hover:not(:disabled) { background: var(--bg-elevated); color: var(--text-primary); }
+.gb-mode.on { background: var(--raven-blue-dim); color: var(--raven-blue); font-weight: 600; }
+.gb-mode:disabled { opacity: .5; cursor: default; }
+.gb-concerns { display: flex; flex-direction: column; gap: 8px; }
+.gb-concern { background: #F59E0B0d; border: 1px solid #F59E0B33; border-radius: 8px; padding: 9px 11px; }
+.gb-concern-from { font-size: 9.5px; letter-spacing: .6px; text-transform: uppercase; color: #F59E0B; font-weight: 600; margin-bottom: 5px; }
+.gb-concern ul { margin: 0; padding-left: 15px; display: flex; flex-direction: column; gap: 4px; }
+.gb-concern li { font-size: 12px; color: var(--text-primary); line-height: 1.45; }
+.gb-dec-fb { width: 100%; resize: vertical; font-family: inherit; }
+.gb-dec .gb-acts { flex-direction: row; flex-wrap: wrap; align-items: center; }
