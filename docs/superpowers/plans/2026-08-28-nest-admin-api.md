@@ -499,8 +499,8 @@ export const ACCOUNT_ALLOWED_KEYS: ReadonlySet<string> = new Set([
   // Items de meters / health / onboarding
   'key', 'label', 'unit', 'used', 'quota', 'pct',
   'detail', 'done', 'manual',
-  // Datos de facturación que sí se muestran
-  'price_id', 'monto_mensual_cents', 'seats', 'moneda',
+  // Datos de facturación que sí se muestran. Sin moneda: Nest cobra sólo en USD.
+  'price_id', 'monto_mensual_cents', 'seats',
 ])
 
 /**
@@ -666,6 +666,14 @@ export interface AccountDetail extends AccountSummary {
   health: HealthItem[]
   flags: Record<string, boolean>
   onboarding: OnboardingItem[]
+  /**
+   * Facturación. El core del back-office parsea con zod sin `.strict()`, así
+   * que ignora estos campos; los dibuja el módulo `products/nest`. Están acá
+   * porque la paridad con raven-admin incluye ver cuánto paga cada cuenta.
+   */
+  price_id: string | null
+  monto_mensual_cents: number
+  seats: number
 }
 ```
 
@@ -819,6 +827,20 @@ describe('aAccountDetail', () => {
     expect(item?.detail).toBe('Stripe no responde: el dato de cobro no esta disponible')
   })
 
+  it('expone la facturacion, con el monto multiplicado por seats', () => {
+    const r = aAccountDetail(USUARIO, PERFIL, SUB, FICHA)
+    expect(r.price_id).toBe('price_team_monthly')
+    expect(r.monto_mensual_cents).toBe(10500) // 3500 x 3 seats
+    expect(r.seats).toBe(3)
+  })
+
+  it('sin suscripcion la facturacion queda en cero, no en null', () => {
+    const r = aAccountDetail(USUARIO, PERFIL, null, { ...FICHA, seats: 0 })
+    expect(r.price_id).toBe(null)
+    expect(r.monto_mensual_cents).toBe(0)
+    expect(r.seats).toBe(0)
+  })
+
   it('no filtra ninguna clave prohibida', () => {
     const r = aAccountDetail(USUARIO, PERFIL, SUB, FICHA)
     expect(clavesNoPermitidas(r, ACCOUNT_ALLOWED_KEYS)).toEqual([])
@@ -842,7 +864,7 @@ Expected: FAIL — no existe `../mapear.ts`.
 Crear `supabase/functions/admin-api/mapear.ts`:
 
 ```ts
-import { planLabel, trialEndsAt, type SubResumen } from './pricing.ts'
+import { montoMensualCents, planLabel, trialEndsAt, type SubResumen } from './pricing.ts'
 import type { AccountDetail, AccountSummary, HealthItem, Meter } from './tipos.ts'
 
 export interface UsuarioAuth {
@@ -931,6 +953,11 @@ export function aAccountDetail(
     health: [saludSuscripcion(p, sub, extra.stripeCaido)],
     flags: {},
     onboarding: [],
+    // El price_id es lo único que distingue a un suscriptor en un precio
+    // legacy (hay dos anuales al 15% off) de uno en el precio actual.
+    price_id: sub?.price_id ?? null,
+    monto_mensual_cents: montoMensualCents(sub),
+    seats: extra.seats,
   }
 }
 ```
@@ -1024,6 +1051,7 @@ Cáscara fina: routing, auth, base de datos, Stripe. Toda la lógica ya está te
 
 **Files:**
 - Create: `supabase/config.toml`
+- Create: `supabase/functions/admin-api/router.ts`
 - Create: `supabase/functions/admin-api/index.ts`
 - Test: `supabase/functions/admin-api/__tests__/router.test.ts`
 
@@ -1199,12 +1227,7 @@ async function auditar(
   })
 }
 
-/** Trae la suscripción de un customer. `null` si no tiene; tira si Stripe falla. */
-async function subDe(customerId: string | null): Promise<SubResumen | null> {
-  if (!customerId) return null
-  const subs = await stripe.subscriptions.list({ customer: customerId, limit: 1 })
-  const s = subs.data[0]
-  if (!s) return null
+function aSubResumen(s: Stripe.Subscription): SubResumen {
   const item = s.items.data[0]
   return {
     status: s.status,
@@ -1214,6 +1237,30 @@ async function subDe(customerId: string | null): Promise<SubResumen | null> {
     interval_count: item?.price.recurring?.interval_count ?? 1,
     price_id: item?.price.id ?? null,
   }
+}
+
+/**
+ * Todas las suscripciones, indexadas por customer.
+ *
+ * Una llamada paginada en vez de una por cuenta: con 82 usuarios, pedirlas de
+ * a una son 82 round-trips en cada carga de la lista.
+ */
+async function todasLasSubs(): Promise<Map<string, SubResumen>> {
+  const porCustomer = new Map<string, SubResumen>()
+  for await (const s of stripe.subscriptions.list({ limit: 100, status: 'all' })) {
+    const cus = typeof s.customer === 'string' ? s.customer : s.customer?.id
+    // La primera gana: `list` viene ordenada por fecha de creación desc.
+    if (cus && !porCustomer.has(cus)) porCustomer.set(cus, aSubResumen(s))
+  }
+  return porCustomer
+}
+
+/** Trae la suscripción de un customer. `null` si no tiene; tira si Stripe falla. */
+async function subDe(customerId: string | null): Promise<SubResumen | null> {
+  if (!customerId) return null
+  const subs = await stripe.subscriptions.list({ customer: customerId, limit: 1 })
+  const s = subs.data[0]
+  return s ? aSubResumen(s) : null
 }
 
 Deno.serve(async (req) => {
@@ -1238,15 +1285,25 @@ Deno.serve(async (req) => {
         admin.from('profiles').select('id, plan, stripe_customer_id, trial_started_at'),
       ])
       const porId = new Map((perfiles ?? []).map((p) => [p.id, p]))
-      // Sin Stripe en la lista a propósito: son 82 cuentas y serían 82 llamadas.
-      // El dato de cobro aparece en la ficha.
-      const cuentas = (usuarios?.users ?? []).map((u) =>
-        aAccountSummary(
+
+      // Una llamada paginada, no una por cuenta: sin esto la columna de estado
+      // diría "sin_suscripcion" para todos, incluidos los que pagan.
+      let subs = new Map<string, SubResumen>()
+      try {
+        subs = await todasLasSubs()
+      } catch {
+        // Stripe caído no vacía la lista: los datos de la base valen igual.
+      }
+
+      const cuentas = (usuarios?.users ?? []).map((u) => {
+        const perfil = porId.get(u.id) ?? null
+        const cus = perfil?.stripe_customer_id ?? null
+        return aAccountSummary(
           { id: u.id, email: u.email ?? null, created_at: u.created_at },
-          porId.get(u.id) ?? null,
-          null,
-        ),
-      )
+          perfil,
+          cus ? subs.get(cus) ?? null : null,
+        )
+      })
       return json({ accounts: cuentas })
     }
 
