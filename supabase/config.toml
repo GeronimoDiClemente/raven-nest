@@ -1,0 +1,12 @@
+# Las funciones que autentican por su cuenta necesitan verify_jwt = false:
+# el gateway de Supabase, con el default en true, exige un JWT de Supabase y
+# rechaza el `Authorization: Bearer <token de producto>` del back-office y la
+# firma de Stripe, ambos con 401 antes de llegar al código de la función.
+project_id = "qkqlsytxtshgjxwmafpw"
+
+[functions.admin-api]
+verify_jwt = false
+
+# Su guard real es la firma de Stripe, que se valida adentro.
+[functions.stripe-webhook]
+verify_jwt = false
