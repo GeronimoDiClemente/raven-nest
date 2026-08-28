@@ -1,0 +1,61 @@
+export interface Manifest {
+  product: string
+  account_label: { singular: string; plural: string }
+  capabilities: string[]
+  flags: { key: string; label: string; default: boolean; staff_only: boolean }[]
+  usage_meters: { key: string; label: string; unit: string }[]
+  sections: { key: string; label: string; module: string }[]
+}
+
+export interface Meter {
+  key: string
+  label: string
+  unit: string
+  used: number
+  quota: number | null
+  pct: number
+}
+
+export type EstadoSalud = 'ok' | 'parcial' | 'sin_configurar' | 'suspendido'
+
+export interface HealthItem {
+  key: string
+  label: string
+  status: EstadoSalud
+  detail: string | null
+}
+
+export interface OnboardingItem {
+  key: string
+  label: string
+  done: boolean
+  manual: boolean
+  detail: string | null
+}
+
+export interface AccountSummary {
+  id: string
+  name: string
+  plan: string
+  plan_label: string
+  status: string
+  created_at: string | null
+  trial_ends_at: string | null
+  /** Concepto de AiraMed que el core exige. En Nest siempre `false`. */
+  voz_suspendida: boolean
+}
+
+export interface AccountDetail extends AccountSummary {
+  meters: Meter[]
+  health: HealthItem[]
+  flags: Record<string, boolean>
+  onboarding: OnboardingItem[]
+  /**
+   * Facturación. El core del back-office parsea con zod sin `.strict()`, así
+   * que ignora estos campos; los dibuja el módulo `products/nest`. Están acá
+   * porque la paridad con raven-admin incluye ver cuánto paga cada cuenta.
+   */
+  price_id: string | null
+  monto_mensual_cents: number
+  seats: number
+}
