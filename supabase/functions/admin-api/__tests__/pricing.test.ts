@@ -34,6 +34,28 @@ describe('montoMensualCents', () => {
   it('sin unit_amount es 0', () => {
     expect(montoMensualCents(sub({ unit_amount: null }))).toBe(0)
   })
+
+  // Fix: quantity: 0 debe dar 0, no 1 seat
+  it('quantity 0 devuelve 0', () => {
+    expect(montoMensualCents(sub({ quantity: 0 }))).toBe(0)
+  })
+
+  // Fix: status invalido devuelve 0
+  it('status canceled devuelve 0', () => {
+    expect(montoMensualCents(sub({ status: 'canceled' }))).toBe(0)
+  })
+
+  it('status past_due devuelve 0', () => {
+    expect(montoMensualCents(sub({ status: 'past_due' }))).toBe(0)
+  })
+
+  it('status active genera monto', () => {
+    expect(montoMensualCents(sub({ status: 'active' }))).toBe(3500)
+  })
+
+  it('status trialing genera monto', () => {
+    expect(montoMensualCents(sub({ status: 'trialing' }))).toBe(3500)
+  })
 })
 
 describe('planLabel', () => {

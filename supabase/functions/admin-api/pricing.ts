@@ -23,9 +23,14 @@ export interface SubResumen {
  * Multiplica por `quantity` porque Team y Enterprise se cobran **por seat**
  * (mínimo 2 y 4). raven-admin no lo hacía: un equipo de 5 seats figuraba como
  * $35 en vez de $175, y el MRR quedaba subestimado.
+ *
+ * Solo genera monto si el status es `active` o `trialing`. Cualquier otro
+ * status (canceled, incomplete, unpaid, past_due, paused, etc.) devuelve 0,
+ * para evitar que suscripciones canceladas se sumen al MRR.
  */
 export function montoMensualCents(sub: SubResumen | null): number {
   if (!sub || !sub.unit_amount) return 0
+  if (sub.status !== 'active' && sub.status !== 'trialing') return 0
   const count = sub.interval_count || 1
   const porSeat = sub.unit_amount
   let mensual: number
@@ -35,7 +40,7 @@ export function montoMensualCents(sub: SubResumen | null): number {
     case 'day':   mensual = (porSeat * 365) / 12 / count; break
     default:      mensual = porSeat / count
   }
-  return Math.round(mensual * (sub.quantity || 1))
+  return Math.round(mensual * (sub.quantity ?? 1))
 }
 
 /**
