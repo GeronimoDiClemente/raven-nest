@@ -16,5 +16,5 @@ export const MANIFEST: Manifest = {
     { key: 'repos', label: 'Repos conectados', unit: 'repos' },
     { key: 'teams', label: 'Equipos', unit: 'equipos' },
   ],
-  sections: [{ key: 'equipos', label: 'Equipos', module: 'nest.equipos' }],
+  sections: [{ key: 'equipos', label: 'Equipos', module: 'nest/equipos' }],
 }
