@@ -16,6 +16,20 @@ interface MemoryHookState {
   error: string | null
 }
 
+/**
+ * `window.memory` puede no estar expuesta: el preload la publica solo cuando el
+ * subsistema de memoria levanto bien, y `main.ts` ya trata a memoria como algo que
+ * puede fallar y degradar. Este hook era la unica pieza que asumia que siempre esta,
+ * asi que montar `SettingsPanel` sin ella tiraba
+ * `Cannot read properties of undefined (reading 'onStatus')` y se llevaba puesto todo
+ * el arbol que lo contuviera. Es el bug 3.4 de docs/MEMORY_INTEGRATIONS_CONTRACT.md:
+ * aparece solo al juntar esta rama con la de integrations, porque ninguna de las dos
+ * monta el panel sin la API.
+ */
+function memoryApi(): typeof window.memory | undefined {
+  return typeof window === 'undefined' ? undefined : window.memory
+}
+
 export function useMemory() {
   const [state, setState] = useState<MemoryHookState>({
     state: 'disconnected',
@@ -29,7 +43,9 @@ export function useMemory() {
   const connectingRef = useRef(false)
 
   const refresh = useCallback(async () => {
-    const status = await window.memory.status()
+    const api = memoryApi()
+    if (!api) return
+    const status = await api.status()
     if (connectingRef.current) return
     setState((s) => ({
       ...s,
@@ -47,16 +63,20 @@ export function useMemory() {
   }, [])
 
   useEffect(() => {
+    const api = memoryApi()
+    if (!api) return
     refresh()
-    window.memory.onStatus(() => { void refresh() })
-    return () => window.memory.removeStatusListener()
+    api.onStatus(() => { void refresh() })
+    return () => api.removeStatusListener()
   }, [refresh])
 
   const connect = useCallback(async () => {
     connectingRef.current = true
     setState((s) => ({ ...s, state: 'connecting', error: null }))
     try {
-      const deviceId = await window.memory.ensureDeviceId()
+      const api = memoryApi()
+      if (!api) throw new Error('Memory is not available in this build')
+      const deviceId = await api.ensureDeviceId()
       setState((s) => ({ ...s, state: 'migrating' }))
 
       const { data, error } = await supabase.functions.invoke('memory-token', {
@@ -64,7 +84,7 @@ export function useMemory() {
       })
       if (error) throw error
 
-      const result = await window.memory.connect(data.token, data.device_id ?? deviceId)
+      const result = await api.connect(data.token, data.device_id ?? deviceId)
       if (!result.ok) throw new Error(result.error ?? 'Connect failed')
 
       connectingRef.current = false
@@ -82,7 +102,9 @@ export function useMemory() {
       // call with the locally stored nmk_ token, so it MUST run before we revoke that same
       // token below. Revoking first (the old order) made the server reject the delete
       // request with 401 revoked_token, silently leaving all cloud data intact.
-      const disconnectResult = await window.memory.disconnect({ deleteCloud })
+      const api = memoryApi()
+      if (!api) throw new Error('Memory is not available in this build')
+      const disconnectResult = await api.disconnect({ deleteCloud })
       if (deleteCloud) {
         // Finding 2 fix: supabase-js's functions.invoke() RESOLVES { data, error } instead
         // of throwing on a failed revoke (5xx, offline) — connect() above already does

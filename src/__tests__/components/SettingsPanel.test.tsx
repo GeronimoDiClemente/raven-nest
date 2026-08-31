@@ -7,10 +7,20 @@ import type { EditorPreferences, EditorTheme } from '../../lib/ide-config-mappin
 // "Sign out" button) — mocked here the same way useLocalPathsMigration.test.tsx
 // does it, resolving no user so those effects bail out early without hitting
 // the network.
-const supabaseMock = vi.hoisted(() => ({
-  auth: { getUser: vi.fn(), signOut: vi.fn() },
-  from: vi.fn(),
-}))
+const supabaseMock = vi.hoisted(() => {
+  // Al juntarse con la rama de memoria, SettingsPanel monta ademas useUserRepos,
+  // que encadena from().select().order() y lo await-ea. Con `from` devolviendo
+  // undefined la promesa rechazaba y vitest contaba un unhandled error por test:
+  // no rompian, pero un rechazo suelto puede enmascarar un fallo real.
+  const query = {
+    select: vi.fn(() => query),
+    order: vi.fn(() => Promise.resolve({ data: [], error: null })),
+  }
+  return {
+    auth: { getUser: vi.fn(), signOut: vi.fn() },
+    from: vi.fn(() => query),
+  }
+})
 vi.mock('../../lib/supabase', () => ({ supabase: supabaseMock }))
 
 // SettingsPanel no longer calls useUserPreferences() itself (Critical
@@ -63,6 +73,9 @@ describe('SettingsPanel — editor config import', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     supabaseMock.auth.getUser.mockResolvedValue({ data: { user: null } })
+    // useUserRepos cruza los repos con los paths locales de esta maquina.
+    ;(window as unknown as { localPaths: { getAll: () => Promise<Record<string, string>> } })
+      .localPaths = { getAll: async () => ({}) }
     mockThemesBridge()
   })
 
