@@ -20,6 +20,19 @@ import { afterEach } from 'vitest'
   }
 }
 
+// jsdom no implementa ResizeObserver y los componentes que miden su caja
+// (EditorPane para el minimap, TerminalPane, BrowserCell) lo instancian al
+// montar. Stub inerte: en jsdom nada cambia de tamano, asi que nunca tendria
+// que disparar; lo que importa es que construirlo no explote.
+if (typeof globalThis.ResizeObserver === 'undefined') {
+  class ResizeObserverStub {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
+  globalThis.ResizeObserver = ResizeObserverStub as unknown as typeof ResizeObserver
+}
+
 afterEach(() => {
   cleanup()
 })

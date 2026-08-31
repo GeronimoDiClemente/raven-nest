@@ -30,6 +30,7 @@ import { safeWriteText } from '../lib/clipboard'
 import ErrorBoundary from './ErrorBoundary'
 import JoinByCodeForm from './JoinByCodeForm'
 import TeamJoinCodePanel from './TeamJoinCodePanel'
+import TeamStats from './TeamStats'
 
 interface TeamsWorkspaceProps {
   onClose: () => void
@@ -41,7 +42,7 @@ interface TeamsWorkspaceProps {
   onStartTutorial?: () => void
 }
 
-type WorkspaceSection = 'activity' | 'chat' | 'repos' | 'issues' | 'members' | 'snippets' | 'workspaces' | 'mcp' | 'pendings'
+type WorkspaceSection = 'activity' | 'chat' | 'repos' | 'issues' | 'members' | 'stats' | 'snippets' | 'workspaces' | 'mcp' | 'pendings'
 type ReposView = 'list' | 'prs' | 'pr-detail'
 type IssuesView = 'repo-select' | 'list' | 'detail'
 
@@ -362,6 +363,18 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal, on
       label: 'Members',
       icon: <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><circle cx="6" cy="5" r="2" stroke="currentColor" strokeWidth="1.3"/><path d="M2 13c0-2.21 1.79-4 4-4s4 1.79 4 4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/><circle cx="11.5" cy="5.5" r="1.5" stroke="currentColor" strokeWidth="1.2" opacity="0.7"/><path d="M13.5 12.5c0-1.38-.9-2.55-2.14-2.87" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" opacity="0.7"/></svg>,
     },
+    // Stats is only for team leaders/managers — members don't see it.
+    ...(isTeamLeader ? [{
+      id: 'stats' as WorkspaceSection,
+      label: 'Stats',
+      icon: (
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+          <rect x="1" y="9" width="3" height="5" rx="0.5" stroke="currentColor" strokeWidth="1.3"/>
+          <rect x="6" y="5" width="3" height="9" rx="0.5" stroke="currentColor" strokeWidth="1.3"/>
+          <rect x="11" y="2" width="3" height="12" rx="0.5" stroke="currentColor" strokeWidth="1.3"/>
+        </svg>
+      ),
+    }] : []),
     {
       id: 'snippets',
       label: 'Snippets',
@@ -1287,6 +1300,16 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal, on
                 </div>
               )}
 
+              {/* STATS */}
+              {/* Defense in depth: only leaders render Stats, even though
+                  the tab is already hidden from members in NAV_ITEMS. */}
+              {!creatingTeam && section === 'stats' && isTeamLeader && (
+                <TeamStats
+                  repos={repos.map(r => ({ repo_full_name: r.repo_full_name }))}
+                  githubToken={githubToken}
+                  presence={presence}
+                />
+              )}
               </></ErrorBoundary>
 
             </div>

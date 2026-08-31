@@ -78,6 +78,22 @@ export function parseAccountDir(accountDir: string): { aiType: string; accountNa
 export class PtyManager extends EventEmitter {
   private ptys = new Map<string, pty.IPty>()
   private buffers = new Map<string, string[]>()
+  // Ultimo tamano REALMENTE enviado al pty, por pane. El renderer pide resize
+  // en cada cambio de pixeles del contenedor (ResizeObserver), asi que llegan
+  // muchos con cols/rows identicos; reenviarlos igual le llega al proceso como
+  // un cambio de tamano y las TUIs tipo Ink (Claude Code) repintan su bloque
+  // estatico, acumulando el banner de arranque una y otra vez.
+  private lastSize = new Map<string, { cols: number; rows: number }>()
+  // Un drag o un resize de split hace pasar al pane por decenas de tamanos
+  // REALES distintos, uno por frame. Mandarlos todos hace repintar la TUI en
+  // cada paso (el banner de Claude Code se multiplicaba, cada copia con un
+  // ancho distinto), asi que esperamos a que el tamano se quede quieto y
+  // mandamos solo el ultimo.
+  private static readonly MIN_COLS = 20
+  private static readonly MIN_ROWS = 5
+  private static readonly RESIZE_SETTLE_MS = 150
+  private resizeTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  private pendingSize = new Map<string, { cols: number; rows: number }>()
   // cwd at spawn time, per pane. Used by `killByCwdPrefix` so worktree:remove
   // can tear down every PTY whose working directory is inside the worktree
   // being deleted — otherwise Windows holds the directory handle open and
@@ -272,6 +288,8 @@ export class PtyManager extends EventEmitter {
         }
         this.ptys.delete(paneId)
         this.buffers.delete(paneId)
+        this.lastSize.delete(paneId)
+        this.clearPendingResize(paneId)
         // exitCode: forwarded so callers (graph orchestration) can distinguish
         // a clean exit from a crash without polling — see main.ts's paneExitCode.
         this.emit('exit', paneId, e.exitCode)
@@ -291,11 +309,52 @@ export class PtyManager extends EventEmitter {
     this.ptys.get(paneId)?.write(data)
   }
 
-  resize(paneId: string, cols: number, rows: number): void {
+  resize(paneId: string, cols: number, rows: number, source?: string): void {
+    if (!this.ptys.has(paneId)) return
+    // Un panel colapsado a su minSize mide ~15 columnas y el reflow deja
+    // formas de 4-6 filas. No son tamanos de trabajo: aplicarlos hace que la
+    // TUI repinte en una tira vertical de 4 caracteres y esa basura queda en
+    // el scrollback para siempre. Que el pty conserve el ultimo tamano usable
+    // es preferible a corromper la sesion (mismo criterio que la guarda del
+    // 2x1 en useXterm).
+    if (cols < PtyManager.MIN_COLS || rows < PtyManager.MIN_ROWS) {
+      console.log(`[resize-trace] SKIP pane=${paneId} ${cols}x${rows} (degenerado) from=${source ?? '?'}`)
+      return
+    }
+    // TRAZA temporal: quien pide cada resize y cual termina llegando al proceso.
+    console.log(`[resize-trace] req  pane=${paneId} ${cols}x${rows} from=${source ?? '?'}`)
+    const last = this.lastSize.get(paneId)
+    if (last && last.cols === cols && last.rows === rows) {
+      // Volvio al tamano que el pty ya tiene: lo que estuviera agendado sobra.
+      this.clearPendingResize(paneId)
+      return
+    }
+    this.pendingSize.set(paneId, { cols, rows })
+    const prev = this.resizeTimers.get(paneId)
+    if (prev) clearTimeout(prev)
+    this.resizeTimers.set(paneId, setTimeout(() => this.flushResize(paneId), PtyManager.RESIZE_SETTLE_MS))
+  }
+
+  private clearPendingResize(paneId: string): void {
+    const t = this.resizeTimers.get(paneId)
+    if (t) clearTimeout(t)
+    this.resizeTimers.delete(paneId)
+    this.pendingSize.delete(paneId)
+  }
+
+  private flushResize(paneId: string): void {
+    this.resizeTimers.delete(paneId)
+    const size = this.pendingSize.get(paneId)
+    this.pendingSize.delete(paneId)
+    if (!size) return
     const ptyProc = this.ptys.get(paneId)
     if (ptyProc) {
+      const last = this.lastSize.get(paneId)
+      if (last && last.cols === size.cols && last.rows === size.rows) return
+      this.lastSize.set(paneId, size)
+      console.log(`[resize-trace] APPLY pane=${paneId} ${size.cols}x${size.rows}`)
       try {
-        ptyProc.resize(cols, rows)
+        ptyProc.resize(size.cols, size.rows)
       } catch (err) {
         // Resize on an exited PTY is the common case during teardown — keep it
         // as debug (not warn) so we don't spam main.log, but DO log it so a
@@ -348,6 +407,8 @@ export class PtyManager extends EventEmitter {
       this.ptys.delete(paneId)
     }
     this.buffers.delete(paneId)
+    this.lastSize.delete(paneId)
+    this.clearPendingResize(paneId)
     this.cwdByPaneId.delete(paneId)
   }
 

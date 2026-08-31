@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FC, type ReactNode } from 'react'
-import type { MetricsSnapshot, RepoMetric, WorktreeMetricInfo, PaneMetric, DiskBucket } from '../types'
-import { ClaudeLogo, GeminiLogo, CodexLogo, CopilotLogo, OpenCodeLogo } from './AILogos'
+import type { MetricsSnapshot, RepoMetric, WorktreeMetricInfo, PaneMetric, DiskBucket, AIType } from '../types'
+import { AILogo, AI_LOGOS } from './AILogos'
 import { formatBytes, formatPct, diskLabel } from '../lib/formatMetrics'
 
 type PrimaryMetric = 'memory' | 'cpu'
@@ -134,7 +134,12 @@ export default function ResourceBarPopover({
           <>
             {heaviestCallout && (
               <div className="rb-heavy-banner" role="status">
-                <span className="rb-heavy-icon">⚠</span>
+                <span className="rb-heavy-icon" aria-hidden="true">
+                  <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+                    <path d="M8 1.7 15 14.3H1L8 1.7Z" strokeLinejoin="round" />
+                    <path d="M8 6.4v3.4M8 11.8v.5" strokeLinecap="round" />
+                  </svg>
+                </span>
                 <span className="rb-heavy-text">
                   Heaviest pane: <strong>{heaviestCallout.pane.label}</strong> using {formatBytes(heaviestCallout.pane.memBytes)}
                   {' · '}
@@ -393,18 +398,17 @@ const EXTERNAL_LOGOS: Record<string, FC<{ size: number; color: string }>> = {
 }
 
 function PaneAILogo({ aiType, color, size }: { aiType: string | undefined; color: string; size: number }): ReactNode {
-  switch (aiType) {
-    case 'claude':   return <ClaudeLogo size={size} />
-    case 'gemini':   return <GeminiLogo size={size} />
-    case 'codex':    return <CodexLogo size={size} color={color} />
-    case 'copilot':  return <CopilotLogo size={size} />
-    case 'opencode': return <OpenCodeLogo size={size} color={color} />
-  }
-
+  // Procesos externos primero: su 'aiType' no es un agente sino el runtime
+  // detectado (external, external-java...), y tiene su propio juego de logos.
   if (aiType === 'external' || aiType?.startsWith('external-')) {
     const kind = aiType === 'external' ? 'external' : aiType.slice('external-'.length)
     const Logo = EXTERNAL_LOGOS[kind] ?? ShellLogo
     return <Logo size={size} color={color} />
+  }
+
+  // Agente conocido → el logo compartido (mismo mapa que el picker y el header).
+  if (aiType && AI_LOGOS[aiType as AIType]) {
+    return <AILogo aiType={aiType as AIType} size={size} color={color} />
   }
 
   // Custom CLIs (or panes whose aiType isn't surfaced) → colored square.

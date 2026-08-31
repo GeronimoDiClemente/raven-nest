@@ -47,13 +47,12 @@ export function useProfile(): Profile {
     let alive = true
 
     const load = async () => {
-      // e2e harness bypasses auth entirely (see src/main.tsx), so there is no
-      // real Supabase session/user and this hook would otherwise settle on
-      // 'free'. My Repos is gated to pro/team/enterprise (Sidebar.tsx), so
-      // e2e needs a plan that clears that gate without touching the
-      // production gate itself.
-      if (window.appFlags?.e2eBypass) {
-        setProfile({ plan: 'pro', loading: false, isTrialActive: false, trialDaysLeft: 0 })
+      // Override E2E/demo (RAVEN_E2E_PLAN): gateado DOBLE al bypass — en una
+      // sesión real appFlags.e2eBypass es false y esto nunca corre. Permite
+      // probar features gateadas por plan sin un perfil Supabase.
+      const e2ePlan = window.appFlags?.e2eBypass ? window.appFlags.e2ePlan : null
+      if (e2ePlan === 'free' || e2ePlan === 'pro' || e2ePlan === 'team' || e2ePlan === 'enterprise') {
+        setProfile({ plan: e2ePlan, loading: false, isTrialActive: false, trialDaysLeft: 0 })
         return
       }
       const { data: { user } } = await supabase.auth.getUser()

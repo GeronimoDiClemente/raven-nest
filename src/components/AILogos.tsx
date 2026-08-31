@@ -1,3 +1,4 @@
+import type { AIType } from '../types'
 interface LogoProps {
   size?: number
   color?: string
@@ -114,20 +115,11 @@ export function DeepSeekLogo({ size = 40 }: LogoProps) {
   )
 }
 
-export function AiderLogo({ size = 40, color = '#A78BFA' }: LogoProps) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M8 14L16 20L8 26" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M18 28H32" stroke={color} strokeWidth="2.5" strokeLinecap="round" opacity="0.6" />
-    </svg>
-  )
-}
 
-export function CursorLogo({ size = 40, color = '#d4d4d4' }: LogoProps) {
+export function CursorLogo({ size = 40, color = '#D4D4D4' }: LogoProps) {
   return (
-    <svg width={size} height={size} viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <rect x="8" y="8" width="16" height="16" rx="3" fill={color} opacity="0.9" />
-      <rect x="16" y="16" width="16" height="16" rx="3" fill={color} opacity="0.4" />
+    <svg width={size} height={size} viewBox="0 0 24 24" fill={color} xmlns="http://www.w3.org/2000/svg">
+      <path d="M11.503.131 1.891 5.678a.84.84 0 0 0-.42.726v11.188c0 .3.162.575.42.724l9.609 5.55a1 1 0 0 0 .998 0l9.61-5.55a.84.84 0 0 0 .42-.724V6.404a.84.84 0 0 0-.42-.726L12.497.131a1.01 1.01 0 0 0-.996 0M2.657 6.338h18.55c.263 0 .43.287.297.515L12.23 22.918c-.062.107-.229.064-.229-.06V12.335a.59.59 0 0 0-.295-.51l-9.11-5.257c-.109-.063-.064-.23.061-.23" />
     </svg>
   )
 }
@@ -163,4 +155,67 @@ export function PlandexLogo({ size = 40, color = '#60A5FA' }: LogoProps) {
       <rect x="22" y="22" width="10" height="10" rx="2" fill={color} opacity="0.8" />
     </svg>
   )
+}
+
+// Logos de Simple Icons (CC0). Grok no tiene icono propio ahi, asi que usa la
+// X de xAI, que es la marca madre. Amp de Sourcegraph tampoco esta —el "amp"
+// de Simple Icons es el AMP de Google— asi que ese sigue siendo dibujo propio.
+export function GrokLogo({ size = 40, color = '#E8E8E8' }: LogoProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill={color} xmlns="http://www.w3.org/2000/svg">
+      <path d="M14.234 10.162 22.977 0h-2.072l-7.591 8.824L7.251 0H.258l9.168 13.343L.258 24H2.33l8.016-9.318L16.749 24h6.993zm-2.837 3.299-.929-1.329L3.076 1.56h3.182l5.965 8.532.929 1.329 7.754 11.09h-3.182z" />
+    </svg>
+  )
+}
+
+export function QwenLogo({ size = 40, color = '#6950EF' }: LogoProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill={color} xmlns="http://www.w3.org/2000/svg">
+      <path d="M23.919 14.545 20.817 9.17l1.47-2.544a.56.56 0 0 0 0-.566l-1.633-2.83a.57.57 0 0 0-.49-.283h-6.207L12.487.402a.57.57 0 0 0-.49-.284H8.732a.56.56 0 0 0-.49.284L5.139 5.775h-2.94a.56.56 0 0 0-.49.284L.077 8.887a.56.56 0 0 0 0 .567L3.18 14.83l-1.47 2.545a.56.56 0 0 0 0 .566l1.634 2.83a.57.57 0 0 0 .49.283h6.205l1.47 2.545a.57.57 0 0 0 .49.284h3.266a.57.57 0 0 0 .49-.284l3.104-5.375h2.94a.57.57 0 0 0 .49-.283l1.634-2.828a.55.55 0 0 0-.004-.568M8.733.686l1.634 2.828-1.634 2.828H21.8L20.164 9.17H7.425L5.63 6.06Zm1.306 19.801-6.205-.002 1.634-2.83h3.265L2.201 6.344h3.267q3.182 5.517 6.367 11.032zm10.124-5.66L18.53 12l-6.532 11.315-1.634-2.83c2.129-3.673 4.25-7.351 6.373-11.028h3.592l3.102 5.374z" />
+    </svg>
+  )
+}
+
+
+type LogoComponent = React.FC<{ size?: number; color?: string }>
+
+/**
+ * Unico mapa agente -> logo.
+ *
+ * Estaba duplicado en cuatro componentes (picker, header del pane, sidebar del
+ * Hub y popover de recursos), asi que sumar un agente pedia tocar los cuatro:
+ * los cinco CLIs nuevos entraron al picker con logo y quedaron con un punto
+ * gris en todos los demas lugares. El test ai-logos cubre que no vuelva a pasar.
+ */
+// El browser caia al icono generico, que es el MISMO >_ del Terminal: dos
+// tiles distintos con el mismo dibujo. Una ventana con su barra se lee de una.
+export function BrowserLogo({ size = 40, color = '#0066FF' }: LogoProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="3" y="5" width="18" height="14" rx="2.5" stroke={color} strokeWidth="1.8" />
+      <path d="M3 9h18" stroke={color} strokeWidth="1.8" />
+      <circle cx="6" cy="7" r="0.9" fill={color} />
+      <circle cx="8.8" cy="7" r="0.9" fill={color} opacity="0.6" />
+      <circle cx="11.6" cy="7" r="0.9" fill={color} opacity="0.35" />
+    </svg>
+  )
+}
+
+export const AI_LOGOS: Partial<Record<AIType, LogoComponent>> = {
+  claude:   ClaudeLogo,
+  gemini:   GeminiLogo,
+  codex:    CodexLogo,
+  copilot:  CopilotLogo,
+  opencode: OpenCodeLogo,
+  deepseek: DeepSeekLogo,
+  grok:     GrokLogo,
+  qwen:     QwenLogo,
+  cursor:   CursorLogo,
+  browser:  BrowserLogo,
+}
+
+/** El logo del agente, o null si ese tipo no tiene (terminal, browser…). */
+export function AILogo({ aiType, color, size = 14 }: { aiType: AIType; color?: string; size?: number }) {
+  const Logo = AI_LOGOS[aiType]
+  return Logo ? <Logo size={size} color={color} /> : null
 }

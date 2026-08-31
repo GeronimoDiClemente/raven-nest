@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { defaultLayoutFor, alternativesFor, mapLegacyToPreset } from '../../layout/select'
+import { defaultLayoutFor, alternativesFor, mapLegacyToPreset, hubLayoutFor } from '../../layout/select'
 
 describe('defaultLayoutFor', () => {
   it.each([
@@ -37,6 +37,32 @@ describe('alternativesFor', () => {
 
   it('falls back to the default beyond MAX_PANES', () => {
     expect(alternativesFor(13)).toEqual(['12G'])
+  })
+})
+
+describe('hubLayoutFor', () => {
+  it('keeps the chosen layout when it fits the current pane count', () => {
+    // User picked the master variant for 4 panes — honor it.
+    expect(hubLayoutFor('4M', 4)).toBe('4M')
+    expect(hubLayoutFor('2H', 2)).toBe('2H')
+    expect(hubLayoutFor('6C', 6)).toBe('6C')
+  })
+
+  it('falls back to the default when the chosen layout no longer fits', () => {
+    // Chose a 4-pane layout, but now only 2 terminals are pinned.
+    expect(hubLayoutFor('4M', 2)).toBe('2V')
+    // Chose a 2-pane layout, but pinned a 3rd terminal.
+    expect(hubLayoutFor('2H', 3)).toBe('3C')
+  })
+
+  it('falls back to the default when there is no chosen layout', () => {
+    expect(hubLayoutFor(undefined, 3)).toBe('3C')
+    expect(hubLayoutFor(undefined, 0)).toBe('1')
+  })
+
+  it('returns the single valid layout for 0/1 panes regardless of choice', () => {
+    expect(hubLayoutFor('4M', 1)).toBe('1')
+    expect(hubLayoutFor('2H', 0)).toBe('1')
   })
 })
 

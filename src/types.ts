@@ -1,4 +1,6 @@
-export type AIType = 'claude' | 'gemini' | 'codex' | 'copilot' | 'opencode' | 'terminal' | 'custom' | 'browser'
+import type { EditorPreferences, EditorTheme } from './lib/ide-config-mappings'
+
+export type AIType = 'claude' | 'gemini' | 'codex' | 'copilot' | 'opencode' | 'deepseek' | 'grok' | 'qwen' | 'cursor' | 'terminal' | 'custom' | 'browser' | 'editor'
 
 export type LayoutId =
   | '1'
@@ -22,8 +24,15 @@ export interface Account {
   dir: string
 }
 
+export interface EditorTab {
+  relPath: string  // path relativo al repoPath del pane, POSIX-style
+  dirty: boolean
+}
+
 export interface PaneNode {
   id: string
+  /** Tamano de fuente propio del pane. Sin valor, hereda el global. */
+  fontSize?: number
   aiType: AIType
   accountName: string
   accountDir: string
@@ -38,6 +47,9 @@ export interface PaneNode {
   sessionPartition?: string  // browser only: persist:browser-<workspaceId>
   shellId?: string      // terminal panes only: which shell to spawn (Windows shell picker)
   initialInput?: string // one-shot: input written to the PTY once when it first produces output (e.g. "arreglá el rojo")
+  editorTabs?: EditorTab[]        // editor panes only: open files
+  activeEditorTabPath?: string    // editor panes only: which tab is focused
+  pinned?: boolean      // Hub: user-pinned pane, shows under the "Pinned" filter
 }
 
 export interface ShellInfo {
@@ -46,14 +58,14 @@ export interface ShellInfo {
 }
 
 export interface WorktreeMeta {
-  repoPath: string                   // path absoluto canónico del worktree
-  rootRepoPath: string               // path del repo principal (igual a repoPath si es root)
+  repoPath: string                   // canonical absolute path of the worktree
+  rootRepoPath: string               // path of the main repo (equal to repoPath if it is the root)
   branch: string                     // branch checked out
-  presetId?: string                  // opaco en Plan 1; consumido en Plan 2
+  presetId?: string                  // opaque in Plan 1; consumed in Plan 2
   setupState: 'idle' | 'running' | 'done' | 'failed' | 'cancelled' | 'orphaned'
-  setupLog?: string                  // últimas ~200 líneas
-  declaredPorts: number[]            // del preset (vacío en Plan 1)
-  detectedPorts: number[]            // discovered runtime (vacío en Plan 1)
+  setupLog?: string                  // last ~200 lines
+  declaredPorts: number[]            // from the preset (empty in Plan 1)
+  detectedPorts: number[]            // discovered runtime (empty in Plan 1)
   devCmd?: string
   devPid?: number
   createdAt: number
@@ -337,7 +349,24 @@ export interface DiffFile {
 }
 export interface DiffResult { base: string; files: DiffFile[] }
 
+export interface DirEntry {
+  name: string
+  path: string
+  isDirectory: boolean
+}
+
 export interface DetectedIDE { id: string; name: string; binPath: string }
+
+// === Sistema de temas del editor (kept in sync with electron/theme-bridge.ts) ===
+export interface InstalledThemeInfo {
+  name: string        // slug estable; es lo que se guarda en ui_settings.editorTheme
+  displayName: string
+  isDark: boolean
+  theme: import('./lib/theme-registry').VSCodeThemeJson
+}
+export interface ScannedThemeInfo { label: string; path: string }
+export interface OpenVSXThemeResult { namespace: string; name: string; displayName: string; description: string }
+export type ThemeOpResult = { ok: true; name: string } | { ok: false; error: string }
 
 // === Resource usage metrics (kept in sync with electron/metrics-collector.ts) ===
 export interface NestProcessMetric {
@@ -397,7 +426,7 @@ export interface MetricsPaneInput {
 }
 
 export interface RavenPreset {
-  id: string                  // slug, ej "nextjs-dev"
+  id: string                  // slug, e.g. "nextjs-dev"
   name: string
   description?: string
   setup?: string[]            // shell commands, sequential
@@ -579,17 +608,40 @@ export const AI_CONFIG: Record<AIType, {
   models?: string[]    // known selectable model ids/aliases for a picker
   effortFlag?: string  // CLI flag for reasoning effort, e.g. '--effort'. Absent = no effort control. (capability-only for now)
 }> = {
+  // ORDEN = como se ven en el picker (4 columnas, 3 filas + Add CLI). Puesto
+  // para que no queden dos tiles de la misma familia de color pegados, ni al
+  // lado ni arriba/abajo: hay cinco acromaticos (codex, opencode, cursor,
+  // grok, terminal), tres azules (gemini, deepseek, browser) y dos violetas
+  // (copilot, qwen). Los mas usados quedan en la primera fila.
   claude:   { label: 'Claude',   color: '#E07B54', bg: '#2a1a14', cmd: 'claude',     modelFlag: '--model', models: ['opus', 'sonnet', 'haiku'], effortFlag: '--effort' },
   gemini:   { label: 'Gemini',   color: '#4F9EFF', bg: '#0d1f35', cmd: 'gemini',     modelFlag: '--model', models: ['gemini-2.5-pro', 'gemini-2.5-flash'] },
   codex:    { label: 'Codex',    color: '#aaaaaa', bg: '#1c1c1c', cmd: 'codex',      modelFlag: '--model' },
   copilot:  { label: 'Copilot',  color: '#7C5CFC', bg: '#150d2e', cmd: 'gh copilot' },
+  deepseek: { label: 'DeepSeek', color: '#4D6BFE', bg: '#0c1330', cmd: 'dsh',          noAccount: true },
   opencode: { label: 'OpenCode', color: '#FFFFFF', bg: '#111111', cmd: 'opencode', noAccount: true, modelFlag: '--model' },
+  qwen:     { label: 'Qwen',     color: '#6950EF', bg: '#14103a', cmd: 'qwen',         noAccount: true },
+  cursor:   { label: 'Cursor',   color: '#D4D4D4', bg: '#181818', cmd: 'cursor-agent', noAccount: true },
+  grok:     { label: 'Grok',     color: '#E8E8E8', bg: '#141414', cmd: 'grok',         noAccount: true },
+  browser:  { label: 'Browser',  color: '#0066FF', bg: '#0a1428', cmd: '',           noAccount: true },
   terminal: { label: 'Terminal', color: '#888888', bg: '#1a1a1a', cmd: '',           noAccount: true },
   custom:   { label: 'Custom',   color: '#888888', bg: '#1a1a1a', cmd: '',           noAccount: true },
-  browser:  { label: 'Browser',  color: '#0066FF', bg: '#0a1428', cmd: '',           noAccount: true },
+  editor:   { label: 'Editor',   color: '#4EC9B0', bg: '#0d1f1c', cmd: '',           noAccount: true },
 }
 
+// Tipos elegibles en el picker de "New Terminal". 'custom' tiene su propia
+// card (Add CLI) y 'editor' NO es creable desde acá: un pane de editor sin
+// editorTabs iniciales es un cascarón sin tabs, sin Monaco y sin cierre —
+// los editores nacen desde el Explorer.
+export const PICKER_AI_TYPES: AIType[] = (Object.keys(AI_CONFIG) as AIType[]).filter(
+  (t) => t !== 'custom' && t !== 'editor',
+)
+
 export interface SessionPane {
+  // Persistido para que hubPanes (que referencia ids) sobreviva el restart:
+  // regenerar ids en el restore dejaba el Hub restaurado vacío. Los
+  // workspaces GUARDADOS (plantillas re-cargables) siguen regenerando id al
+  // cargar — ver loadWorkspace.
+  id?: string
   aiType: AIType
   accountName: string
   accountDir: string
@@ -601,6 +653,11 @@ export interface SessionPane {
   repoPath?: string
   shellId?: string
   url?: string  // browser only: last navigated URL, restored on session load
+  pinned?: boolean  // Hub pin — survives session restore
+  // editor only: sin estos dos, un pane de editor restauraba como cascarón
+  // sin tabs — negro y sin affordance de cierre (el × vive por-tab).
+  editorTabs?: EditorTab[]
+  activeEditorTabPath?: string
 }
 
 export interface SessionData {
@@ -613,6 +670,8 @@ export interface SessionData {
     layoutId?: LayoutId
     panes?: SessionPane[]
     splitRatios?: Record<string, number[]>
+    isHub?: boolean
+    hubPanes?: string[]
     // v2 legacy (kept optional for migration)
     layout?: GridLayout
     cells?: (SessionPane | null)[]
@@ -646,6 +705,8 @@ export interface WorkspaceTab {
   layoutId: LayoutId
   panes: PaneNode[]
   splitRatios?: Record<string, number[]>
+  isHub?: boolean  // true = tab that shows the Hub, with no panes of its own
+  hubPanes?: string[]  // Hub: ORDERED pane ids the user curated into the Hub (membership + order)
 }
 
 export function equalSizes(count: number): number[] {
@@ -667,7 +728,7 @@ declare global {
     pty: {
       create: (paneId: string, cmd: string, accountDir: string, repoPath?: string, shellId?: string) => Promise<{ ok: true } | { ok: false; error: string }>
       write: (paneId: string, data: string) => void
-      resize: (paneId: string, cols: number, rows: number) => void
+      resize: (paneId: string, cols: number, rows: number, source?: string) => void
       kill: (paneId: string) => Promise<void>
       exists: (paneId: string) => Promise<boolean>
       getBuffer: (paneId: string) => Promise<string>
@@ -729,9 +790,28 @@ declare global {
       isMac: boolean
       isLinux: boolean
     }
+    // Diff vs HEAD del worktree (electron/git-diff.ts): badges del Explorer
+    // y líneas agregadas del editor. Opcional: preloads viejos no lo exponen.
+    gitDiff?: {
+      stats: (worktreePath: string) => Promise<
+        | { ok: true; files: Array<{ relPath: string; added: number; deleted: number }>; untracked: string[] }
+        | { ok: false; error: string }
+      >
+      addedLines: (worktreePath: string, relPath: string) => Promise<
+        | { ok: true; ranges: Array<{ start: number; end: number }> }
+        | { ok: false; error: string }
+      >
+    }
     appFlags?: {
       e2eBypass: boolean
+      // Plan simulado para demos/E2E (RAVEN_E2E_PLAN); null fuera de RAVEN_E2E.
+      e2ePlan?: string | null
     }
+    // Test-only hook, installed by App.tsx only when appFlags.e2eBypass is
+    // true. Lets Playwright link a repo to the active tab without driving
+    // the native OS folder-picker dialog (window.dialog.openFolder), which
+    // is not automatable.
+    __e2e_linkRepo?: (path: string) => void
     windowControls: {
       send: (action: 'minimize' | 'maximize' | 'close') => void
       onShown: (callback: () => void) => void
@@ -880,6 +960,30 @@ declare global {
     diff: {
       get: (worktreePath: string, base?: string) => Promise<DiffResult>
     }
+    fs: {
+      readFile: (worktreePath: string, relPath: string) => Promise<{ ok: true; content: string } | { ok: false; error: string }>
+      writeFile: (worktreePath: string, relPath: string, content: string) => Promise<{ ok: true } | { ok: false; error: string }>
+      listDir: (worktreePath: string, relPath: string) => Promise<{ ok: true; entries: DirEntry[] } | { ok: false; error: string }>
+      watch: (worktreePath: string, relPath: string, opts?: { depth?: number }) => Promise<{ ok: true } | { ok: false; error: string }>
+      unwatch: (worktreePath: string, relPath: string) => Promise<{ ok: true } | { ok: false; error: string }>
+      onChanged: (cb: (worktreePath: string, relPath: string) => void) => () => void
+    }
+    ideConfig: {
+      import: (source: 'vscode' | 'intellij') => Promise<
+        | { ok: true; options: EditorPreferences; theme?: EditorTheme; unmappedTheme?: string }
+        | { ok: false; error: string }
+      >
+    }
+    themes: {
+      listInstalled: () => Promise<InstalledThemeInfo[]>
+      saveInstalled: (displayName: string, theme: import('./lib/theme-registry').VSCodeThemeJson) => Promise<ThemeOpResult>
+      deleteInstalled: (name: string) => Promise<{ ok: true } | { ok: false; error: string }>
+      scanVSCode: () => Promise<{ ok: true; themes: ScannedThemeInfo[] } | { ok: false; error: string }>
+      importVSCode: (themePath: string) => Promise<ThemeOpResult>
+      searchOpenVSX: (query: string) => Promise<{ ok: true; results: OpenVSXThemeResult[] } | { ok: false; error: string }>
+      installOpenVSX: (namespace: string, name: string) => Promise<{ ok: true; installed: string[] } | { ok: false; error: string }>
+      loadFromFile: () => Promise<ThemeOpResult | null>
+    }
     ide: {
       detect: (force?: boolean) => Promise<DetectedIDE[]>
       open: (binPath: string, worktreePath: string) => Promise<void>
@@ -910,6 +1014,10 @@ declare global {
       destroy: (paneId: string) => Promise<void>
       onNavigated: (cb: (paneId: string, url: string) => void) => void
       removeListeners: () => void
+      // Snapshot (dataURL PNG) del contenido de un pane para el fantasma del
+      // drag. kind 'browser' captura el WebContentsView nativo; 'dom' captura
+      // la región `rect` de la ventana (terminal/editor). Devuelve null si falla.
+      capturePane: (opts: { paneId: string; kind: 'browser' | 'dom'; dpr?: number; rect?: { x: number; y: number; width: number; height: number } }) => Promise<string | null>
     }
     settings: {
       get: () => Promise<{

@@ -97,6 +97,24 @@ export class WorktreeStore {
     return removed
   }
 
+  /**
+   * Full `worktree:list` pipeline: hydrate → reconcile → prune → filter by
+   * root. Filters by the root RESOLVED from git's porcelain output, not the
+   * raw `repoPath` argument — after `handleWorktreeSelect` the tab's repoPath
+   * points at the selected worktree, and filtering by that raw path matches
+   * nothing (the sidebar showed "No worktrees" with no way back).
+   */
+  listForRepo(repoPath: string): WorktreeMeta[] {
+    const live = this.hydrateFromGit(repoPath)
+    this.reconcile(live.map((m) => m.repoPath))
+    this.pruneMissing()
+    const rootPosix = (live[0]?.rootRepoPath ?? repoPath).replace(/\\/g, '/').replace(/\/+$/, '')
+    return this.list().filter((m) => {
+      const mRoot = m.rootRepoPath.replace(/\\/g, '/').replace(/\/+$/, '')
+      return mRoot === rootPosix
+    })
+  }
+
   hydrateFromGit(repoPath: string): WorktreeMeta[] {
     const normalizedInput = repoPath.replace(/\\/g, '/')
     let raw: string

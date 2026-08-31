@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { supabase } from '../lib/supabase'
 import { useSettings } from '../hooks/useSettings'
@@ -8,13 +8,18 @@ import { useMemory } from '../hooks/useMemory'
 import { useProfile } from '../hooks/useProfile'
 import { useUserRepos } from '../hooks/useUserRepos'
 import { PLAN_LIMITS } from '../lib/stripe'
+import type { UserPreferencesApi } from '../hooks/useUserPreferences'
 import { formatBinding, eventToBinding, Keybindings } from '../lib/keybindings'
+import type { EditorPreferences, EditorTheme } from '../lib/ide-config-mappings'
+import { BUNDLED_THEMES } from '../lib/shiki-monaco'
+import { matchThemeName } from '../lib/theme-registry'
+import type { InstalledThemeInfo, ScannedThemeInfo, OpenVSXThemeResult } from '../types'
 import { PresetEditor } from './PresetEditor'
 import { BenchmarkDashboard } from './BenchmarkDashboard'
 import UpgradeModal from './UpgradeModal'
 import logoUrl from '../assets/logo.png'
 
-type Tab = 'keybinds' | 'presets' | 'benchmarks' | 'updates' | 'account' | 'tutorial'
+type Tab = 'keybinds' | 'presets' | 'benchmarks' | 'updates' | 'account' | 'tutorial' | 'editor'
 
 interface KeybindRowProps {
   label: string
@@ -84,9 +89,12 @@ interface Props {
   userEmail: string
   activeRepoPath?: string
   onOpenTutorial?: (tourId: import('../tutorial/types').TourId) => void
+  // Lifted from App.tsx (the single shared instance) — see UserPreferencesApi's
+  // doc comment for why this must not be a local useUserPreferences() call.
+  userPrefs: UserPreferencesApi
 }
 
-export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, activeRepoPath, onOpenTutorial }: Props) {
+export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, activeRepoPath, onOpenTutorial, userPrefs }: Props) {
   const [open, setOpen] = useState(false)
   const [tab, setTab] = useState<Tab>('keybinds')
   const { settings, updateKeybinding, updateVoiceLanguage } = useSettings()
@@ -107,7 +115,106 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
   const memorySyncProgress = memory.itemCount > 0
     ? Math.min(1, Math.max(0, (memory.itemCount - memory.pendingCount) / memory.itemCount))
     : 0
+  const [importPreview, setImportPreview] = useState<{ source: 'vscode' | 'intellij'; options: EditorPreferences; theme?: EditorTheme; unmappedTheme?: string } | null>(null)
+  const [importError, setImportError] = useState<string | null>(null)
   const kb = settings.keybindings
+
+  // --- Sistema de temas del editor ---------------------------------------
+  const [installedThemes, setInstalledThemes] = useState<InstalledThemeInfo[]>([])
+  const [scannedThemes, setScannedThemes] = useState<ScannedThemeInfo[] | null>(null)
+  const [themeError, setThemeError] = useState<string | null>(null)
+  const [vsxOpen, setVsxOpen] = useState(false)
+  const [vsxQuery, setVsxQuery] = useState('')
+  const [vsxResults, setVsxResults] = useState<OpenVSXThemeResult[] | null>(null)
+  const [vsxError, setVsxError] = useState<string | null>(null)
+  const [vsxBusy, setVsxBusy] = useState(false)
+
+  const refreshInstalledThemes = useCallback(async () => {
+    try {
+      setInstalledThemes(await window.themes.listInstalled())
+    } catch {
+      // sin bridge (o falla IPC): el selector muestra solo built-in + bundled
+    }
+  }, [])
+
+  useEffect(() => {
+    if (open && tab === 'editor') void refreshInstalledThemes()
+  }, [open, tab, refreshInstalledThemes])
+
+  const handleScanVSCodeThemes = useCallback(async () => {
+    setThemeError(null)
+    setScannedThemes(null)
+    const res = await window.themes.scanVSCode()
+    if (!res.ok) { setThemeError(res.error); return }
+    setScannedThemes(res.themes)
+  }, [])
+
+  const handleInstallScanned = useCallback(async (path: string) => {
+    setThemeError(null)
+    const res = await window.themes.importVSCode(path)
+    if (!res.ok) { setThemeError(res.error); return }
+    await refreshInstalledThemes()
+  }, [refreshInstalledThemes])
+
+  const handleLoadThemeFile = useCallback(async () => {
+    setThemeError(null)
+    const res = await window.themes.loadFromFile()
+    if (res === null) return  // diálogo cancelado
+    if (!res.ok) { setThemeError(res.error); return }
+    await refreshInstalledThemes()
+  }, [refreshInstalledThemes])
+
+  const handleVsxSearch = useCallback(async () => {
+    setVsxError(null)
+    setVsxResults(null)
+    setVsxBusy(true)
+    try {
+      const res = await window.themes.searchOpenVSX(vsxQuery)
+      if (!res.ok) { setVsxError(res.error); return }
+      setVsxResults(res.results)
+    } finally {
+      setVsxBusy(false)
+    }
+  }, [vsxQuery])
+
+  const handleVsxInstall = useCallback(async (namespace: string, name: string) => {
+    setVsxError(null)
+    setVsxBusy(true)
+    try {
+      const res = await window.themes.installOpenVSX(namespace, name)
+      if (!res.ok) { setVsxError(res.error); return }
+      await refreshInstalledThemes()
+    } finally {
+      setVsxBusy(false)
+    }
+  }, [refreshInstalledThemes])
+
+  const handleImportEditorConfig = useCallback(async (source: 'vscode' | 'intellij') => {
+    setImportError(null)
+    setImportPreview(null)
+    const result = await window.ideConfig.import(source)
+    if (!result.ok) {
+      setImportError(result.error)
+      return
+    }
+    setImportPreview({ source, options: result.options, theme: result.theme, unmappedTheme: result.unmappedTheme })
+  }, [])
+
+  const confirmImportEditorConfig = useCallback(() => {
+    if (!importPreview) return
+    // unmappedTheme (workbench.colorTheme que no era vs/vs-dark): si matchea
+    // un tema bundled o instalado, se aplica directo — cierra el loop que el
+    // import de config dejaba abierto.
+    // Match EXACTO primero (bundled/instalados); el heurístico vs/vs-dark de
+    // parseVSCodeSettings es solo el fallback — al revés degradaba temas que
+    // SÍ existen ("One Dark Pro" terminaba en vs-dark genérico).
+    const exact = importPreview.unmappedTheme
+      ? matchThemeName(importPreview.unmappedTheme, [...BUNDLED_THEMES, ...installedThemes])
+      : undefined
+    const theme = exact ?? importPreview.theme
+    userPrefs.setEditorOptions(importPreview.options, theme)
+    setImportPreview(null)
+  }, [importPreview, userPrefs, installedThemes])
 
   useEffect(() => {
     if (!open) return
@@ -159,7 +266,7 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
 
             {/* Tabs */}
             <div className="sp-tabs">
-              {(['keybinds', 'presets', 'benchmarks', 'updates', 'account', 'tutorial'] as Tab[]).map(t => (
+              {(['keybinds', 'presets', 'benchmarks', 'updates', 'account', 'tutorial', 'editor'] as Tab[]).map(t => (
                 <button
                   key={t}
                   className={`sp-tab${tab === t ? ' active' : ''}`}
@@ -369,6 +476,102 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
 
               {memoryUpgradeOpen && (
                 <UpgradeModal currentPlan={plan} onClose={() => setMemoryUpgradeOpen(false)} />
+              )}
+              {tab === 'editor' && (
+                <div className="sp-section">
+                  <div className="sp-row">
+                    <span className="sp-row-label">Theme</span>
+                    <select
+                      className="sp-select"
+                      data-testid="theme-select"
+                      value={userPrefs.prefs.ui_settings.editorTheme ?? 'vs-dark'}
+                      onChange={e => userPrefs.setEditorTheme(e.target.value)}
+                    >
+                      <optgroup label="Built-in">
+                        <option value="vs-dark">Dark (Monaco)</option>
+                        <option value="vs">Light (Monaco)</option>
+                      </optgroup>
+                      <optgroup label="Bundled">
+                        {BUNDLED_THEMES.map(t => (
+                          <option key={t.name} value={t.name}>{t.displayName}</option>
+                        ))}
+                      </optgroup>
+                      <optgroup label="Installed">
+                        {installedThemes.map(t => (
+                          <option key={t.name} value={t.name}>{t.displayName}</option>
+                        ))}
+                      </optgroup>
+                    </select>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, margin: '10px 0' }}>
+                    <button className="sp-action-btn" onClick={handleScanVSCodeThemes}>Import themes from VS Code</button>
+                    <button className="sp-action-btn" onClick={handleLoadThemeFile}>Load theme file…</button>
+                    <button className="sp-action-btn" onClick={() => setVsxOpen(v => !v)}>Browse Open VSX…</button>
+                  </div>
+                  {themeError && <p style={{ color: '#ef4444', fontSize: 12 }}>{themeError}</p>}
+                  {scannedThemes && (
+                    <div data-testid="scanned-themes">
+                      {scannedThemes.length === 0 && (
+                        <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>No themes found in your VS Code extensions.</p>
+                      )}
+                      {scannedThemes.map(t => (
+                        <div key={t.path} className="sp-row">
+                          <span className="sp-row-label">{t.label}</span>
+                          <button className="sp-action-btn" onClick={() => handleInstallScanned(t.path)}>Install</button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {vsxOpen && (
+                    <div data-testid="openvsx-browser">
+                      <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                        <input
+                          className="sp-select"
+                          style={{ flex: 1 }}
+                          placeholder="Search themes on Open VSX"
+                          value={vsxQuery}
+                          onChange={e => setVsxQuery(e.target.value)}
+                          onKeyDown={e => { if (e.key === 'Enter') void handleVsxSearch() }}
+                        />
+                        <button className="sp-action-btn" onClick={handleVsxSearch} disabled={vsxBusy}>Search</button>
+                      </div>
+                      {vsxError && <p style={{ color: '#ef4444', fontSize: 12 }}>{vsxError}</p>}
+                      {vsxResults && vsxResults.length === 0 && (
+                        <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>No theme extensions matched your search.</p>
+                      )}
+                      {vsxResults?.map(r => (
+                        <div key={`${r.namespace}.${r.name}`} className="sp-row">
+                          <span className="sp-row-label" title={r.description}>{r.displayName}</span>
+                          <button
+                            className="sp-action-btn"
+                            disabled={vsxBusy}
+                            onClick={() => handleVsxInstall(r.namespace, r.name)}
+                          >Install</button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div className="sp-divider" />
+                  <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '0 0 12px' }}>
+                    Import your editor preferences from VS Code or IntelliJ.
+                  </p>
+                  <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+                    <button className="sp-action-btn" onClick={() => handleImportEditorConfig('vscode')}>Import from VS Code</button>
+                    <button className="sp-action-btn" onClick={() => handleImportEditorConfig('intellij')}>Import from IntelliJ</button>
+                  </div>
+                  {importError && <p style={{ color: '#ef4444', fontSize: 12 }}>{importError}</p>}
+                  {importPreview && (
+                    <div data-testid="ide-config-preview">
+                      <ul>
+                        {Object.entries(importPreview.options).map(([key, value]) => (
+                          <li key={key}>{key}: {JSON.stringify(value)}</li>
+                        ))}
+                      </ul>
+                      <button className="sp-action-btn" onClick={confirmImportEditorConfig}>Apply</button>
+                      <button className="sp-btn-danger" onClick={() => setImportPreview(null)}>Cancel</button>
+                    </div>
+                  )}
+                </div>
               )}
 
             </div>

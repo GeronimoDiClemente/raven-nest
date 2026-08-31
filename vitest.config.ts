@@ -11,6 +11,7 @@ export default defineConfig({
           include: [
             'electron/__tests__/**/*.test.ts',
             'src/__tests__/**/*.test.ts',
+            'supabase/functions/**/__tests__/**/*.test.ts',
           ],
           exclude: ['src/__tests__/tutorial/**'],
           setupFiles: ['electron/__tests__/setup.ts'],

@@ -1,0 +1,17 @@
+[
+  "electron/benchmark-recorder.ts|TS7016|Could not find a declaration file for module 'pidusage'. 'C:/Users/gerod/Dev/raven-nest/node_modules/pidusage/index.js' implicitly has an 'any' type.",
+  "electron/main.ts|TS2339|Property 'env' does not exist on type 'ImportMeta'.",
+  "electron/main.ts|TS2345|Argument of type '{ properties: readonly [\"openDirectory\"]; title: string; }' is not assignable to parameter of type 'OpenDialogOptions'.",
+  "electron/metrics-collector.ts|TS2322|Type 'ExecFileException | null' is not assignable to type 'CmdErr | null'.",
+  "src/components/MyReposPanel.tsx|TS2554|Expected 0 arguments, but got 1.",
+  "src/components/RepoPicker.tsx|TS2554|Expected 0 arguments, but got 1.",
+  "src/components/ResourceBarPopover.tsx|TS2339|Property 'aiColor' does not exist on type 'PaneMetric'.",
+  "src/components/ResourceBarPopover.tsx|TS2339|Property 'aiType' does not exist on type 'PaneMetric'.",
+  "src/components/SharedTerminalViewer.tsx|TS2339|Property 'WebkitAppRegion' does not exist on type 'CSSProperties'.",
+  "src/components/SharedTerminalViewer.tsx|TS2345|Argument of type '() => () => boolean' is not assignable to parameter of type 'EffectCallback'.",
+  "src/components/Sidebar.tsx|TS2345|Argument of type '() => () => boolean' is not assignable to parameter of type 'EffectCallback'.",
+  "src/components/TeamsWorkspace.tsx|TS2554|Expected 0 arguments, but got 1.",
+  "src/hooks/useTerminalShare.ts|TS2345|Argument of type '() => () => boolean' is not assignable to parameter of type 'EffectCallback'.",
+  "src/main.tsx|TS2339|Property 'consumePendingDeepLink' does not exist on type '{ openExternal: (url: string) => void; onDeepLink: (cb: (url: string) => void) => void; }'.",
+  "src/main.tsx|TS7006|Parameter 'url' implicitly has an 'any' type."
+]

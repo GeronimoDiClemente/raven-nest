@@ -75,7 +75,7 @@ export interface PlanLimits {
   isEnterprise: boolean
 }
 
-const ALL_AIS = ['claude', 'gemini', 'codex', 'copilot', 'opencode', 'terminal', 'custom', 'browser']
+const ALL_AIS = ['claude', 'gemini', 'codex', 'copilot', 'opencode', 'deepseek', 'grok', 'qwen', 'cursor', 'terminal', 'custom', 'browser']
 
 // memoryLocal/memoryCloud are common to every paid tier (pro/team/enterprise all get
 // cloud replication); memoryTeamShare and the two caps differ per plan, so they're set

@@ -1,27 +1,31 @@
 import { useState, useEffect, useRef } from 'react'
-import { AIType, AI_CONFIG, COLOR_PALETTE, CustomCLI, ShellInfo } from '../types'
+import { AIType, AI_CONFIG, COLOR_PALETTE, CustomCLI, ShellInfo , PICKER_AI_TYPES } from '../types'
 import { safeWriteText } from '../lib/clipboard'
 import { bridge } from '../lib/bridge'
 import { appendModelFlag } from '../lib/launch-cmd'
-import { ClaudeLogo, GeminiLogo, CodexLogo, CopilotLogo, OpenCodeLogo } from './AILogos'
+import { AI_LOGOS } from './AILogos'
 import ConfirmDialog from './ConfirmDialog'
 
-const CLI_INSTALL: Partial<Record<AIType, { cmd: string; url: string }>> = {
+// El banner muestra el comando del SO en el que estas: el de Cursor difiere en
+// Windows y ensenar el de curl ahi seria mentirle al usuario.
+const CLI_INSTALL: Partial<Record<AIType, { cmd: string; cmdWin?: string; manual?: boolean; url: string }>> = {
   claude:   { cmd: 'npm install -g @anthropic-ai/claude-code', url: 'https://docs.anthropic.com/en/docs/claude-code/getting-started' },
   gemini:   { cmd: 'npm install -g @google/gemini-cli',        url: 'https://github.com/google-gemini/gemini-cli' },
   codex:    { cmd: 'npm install -g @openai/codex',             url: 'https://github.com/openai/codex' },
   copilot:  { cmd: 'gh extension install github/gh-copilot',   url: 'https://docs.github.com/en/copilot/github-copilot-in-the-cli' },
   opencode: { cmd: 'npm install -g opencode-ai',                url: 'https://opencode.ai' },
+  deepseek: { cmd: 'npm install -g @deepseek-ai/dsh',          url: 'https://www.npmjs.com/package/@deepseek-ai/dsh' },
+  grok:     { cmd: 'npm install -g @xai-official/grok',        url: 'https://docs.x.ai/build' },
+  qwen:     { cmd: 'npm install -g @qwen-code/qwen-code',      url: 'https://github.com/QwenLM/qwen-code' },
+  // Cursor no publica en npm: instalador propio. El de Windows es
+  // irm 'https://cursor.com/install?win32=true' | iex — esta en la url.
+  cursor:   { cmd: 'curl https://cursor.com/install -fsS | bash', manual: true, url: 'https://cursor.com/docs/cli/installation' },
 }
 
-type LogoComponent = React.FC<{ size?: number; color?: string }>
 
-const AI_LOGOS: Partial<Record<AIType, LogoComponent>> = {
-  claude:    ClaudeLogo,
-  gemini:    GeminiLogo,
-  codex:     CodexLogo,
-  copilot:   CopilotLogo,
-  opencode:  OpenCodeLogo,
+/** El comando del SO en el que corre la app (Cursor difiere en Windows). */
+function installCmdFor(entry: { cmd: string; cmdWin?: string }, isWindows: boolean): string {
+  return isWindows && entry.cmdWin ? entry.cmdWin : entry.cmd
 }
 
 interface Props {
@@ -114,6 +118,9 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
   const [shells, setShells] = useState<ShellInfo[]>([])
   const [shellsError, setShellsError] = useState<string | null>(null)
   const isWindows = bridge.platform?.isWin ?? false
+  // Nest solo instala por gestor de paquetes; los que piden bajar y ejecutar
+  // un script se instalan a mano desde la web (ver INSTALL_COMMANDS en el main).
+  const manualInstall = !!(selectedAI && CLI_INSTALL[selectedAI]?.manual)
 
   useEffect(() => {
     bridge.shells?.detect()
@@ -397,7 +404,7 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
 
   return (
     <div className="dialog-overlay" onClick={onCancel}>
-      <div className="dialog" onClick={(e) => e.stopPropagation()}>
+      <div className={`dialog${step === 'select-ai' ? ' dialog--picker' : ''}`} onClick={(e) => e.stopPropagation()}>
         {step === 'select-ai' ? (
           <>
             <h2 className="dialog-title">Choose AI</h2>
@@ -415,7 +422,7 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
               </div>
             )}
             <div className="ai-grid">
-              {(Object.keys(AI_CONFIG) as AIType[]).filter((t) => t !== 'custom').map((aiType) => {
+              {PICKER_AI_TYPES.map((aiType) => {
                 const cfg = AI_CONFIG[aiType]
                 const Logo = AI_LOGOS[aiType]
                 const locked = allowedAIs && !allowedAIs.includes(aiType)
@@ -530,6 +537,9 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
             ) : null}
 
             {/* CLI detection banner */}
+            {/* Cursor solo se instala bajando y ejecutando un script. Ese patron
+                (`curl | bash`, `irm | iex`) es el que Defender levanta como
+                troyano, asi que no lo ejecutamos en ningun SO: va a la web. */}
             {cliFound === false && selectedAI && CLI_INSTALL[selectedAI] && (
               <div style={{
                 background:
@@ -556,12 +566,16 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
                       ⚠ {AI_CONFIG[selectedAI].label} CLI not found
                     </div>
                     <div style={{ color: '#aaa', marginBottom: 8 }}>
-                      Raven Nest can install it for you.
+                      {manualInstall
+                        ? 'This one installs from its website.'
+                        : 'Raven Nest can install it for you.'}
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <button className="cli-banner-install" onClick={installCli}>
-                        Install {AI_CONFIG[selectedAI].label} CLI
-                      </button>
+                      {!manualInstall && (
+                        <button className="cli-banner-install" onClick={installCli}>
+                          Install {AI_CONFIG[selectedAI].label} CLI
+                        </button>
+                      )}
                       <button
                         className="cli-banner-link"
                         onClick={() => bridge.electronShell.openExternal(CLI_INSTALL[selectedAI!]!.url)}
@@ -640,7 +654,7 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
                         textOverflow: 'ellipsis',
                         whiteSpace: 'nowrap',
                       }}>
-                        {CLI_INSTALL[selectedAI]!.cmd}
+                        {installCmdFor(CLI_INSTALL[selectedAI]!, isWindows)}
                       </code>
                       <button
                         style={{

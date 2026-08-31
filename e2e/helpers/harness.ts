@@ -44,6 +44,10 @@ export async function launchHarness(opts?: { withRepo?: boolean }): Promise<Harn
   env.RAVEN_HOME = homeDir
   env.HOME = homeDir
   env.USERPROFILE = homeDir
+  // Main process's ide-config:import handler reads editor configs (VS Code
+  // settings.json, IntelliJ XML) from here instead of the real developer
+  // machine's actual editor config — same isolation as RAVEN_HOME.
+  env.RAVEN_IDE_CONFIG_HOME = homeDir
 
   const app = await electron.launch({
     args: [MAIN_JS, `--user-data-dir=${userDataDir}`],

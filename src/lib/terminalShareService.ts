@@ -3,6 +3,7 @@
  * Survives component mount/unmount cycles.
  */
 import { supabase } from './supabase'
+import { getTerminal } from '../terminal-instances'
 import { subscribeToPtyData } from '../pty-events'
 
 function generateCode(): string {
@@ -59,6 +60,11 @@ class TerminalShareService {
 
     ch.on('broadcast', { event: 'join-request' }, () => {
       session.onJoinRequest?.()
+      // El invitado arranca con un xterm vacio y solo recibe deltas: una TUI
+      // (Ink/Claude Code) emite updates direccionados por cursor sobre una
+      // pantalla que el invitado nunca vio, asi que veia basura. Le mandamos el
+      // tamano del host y el scrollback completo para que parta del mismo estado.
+      void this.sendHandshake(session, paneId)
     })
 
     ch.on('broadcast', { event: 'input' }, ({ payload }) => {
@@ -68,17 +74,15 @@ class TerminalShareService {
       window.pty.write(paneId, data)
     })
 
-    // The viewer dictates its size — resize the PTY so output is formatted for the viewer
-    // cols=0,rows=0 means "restore to host size"
-    ch.on('broadcast', { event: 'resize' }, ({ payload }) => {
-      const cols = Math.floor(payload.cols as number)
-      const rows = Math.floor(payload.rows as number)
-      if (cols > 0 && rows > 0 && cols <= 500 && rows <= 500) {
-        window.pty.resize(paneId, cols, rows)
-      } else if (cols === 0 && session.hostCols > 0) {
-        window.pty.resize(paneId, session.hostCols, session.hostRows)
-      }
-    })
+    // El PTY lo redimensiona SOLO su dueno. Antes el invitado dictaba su tamano
+    // ("the viewer dictates its size") y el host terminaba con las columnas del
+    // otro mientras su propio xterm seguia en las suyas: doble wrap, scroll
+    // descontrolado y, como hostCols nunca se poblaba en el flujo normal, el
+    // tamano NO se restauraba al irse el invitado. Encima no estaba gateado por
+    // la aprobacion, asi que alguien recien rechazado ya te habia roto la
+    // terminal. Ahora el invitado adopta el tamano del host (evento 'size') y
+    // escala; este mensaje queda ignorado por compatibilidad con clientes viejos.
+    ch.on('broadcast', { event: 'resize' }, () => { /* ignorado a proposito */ })
 
     ch.subscribe((status) => {
       console.log('[TerminalShare] pane', paneId, 'status:', status)
@@ -115,6 +119,23 @@ class TerminalShareService {
     session.channel = ch
   }
 
+  /** Tamano + foto de la pantalla del host, para que el invitado arranque igual. */
+  private async sendHandshake(session: PaneSession, paneId: string) {
+    const term = getTerminal(paneId)
+    if (term) {
+      session.hostCols = term.cols
+      session.hostRows = term.rows
+    }
+    if (!session.ready) return
+    if (session.hostCols > 0) {
+      session.channel.send({ type: 'broadcast', event: 'size', payload: { cols: session.hostCols, rows: session.hostRows } })
+    }
+    try {
+      const buffer = await window.pty.getBuffer(paneId)
+      if (buffer) session.channel.send({ type: 'broadcast', event: 'snapshot', payload: { data: buffer } })
+    } catch { /* el snapshot es best-effort: sin el, el invitado ve solo lo nuevo */ }
+  }
+
   start(paneId: string) {
     if (this.sessions.has(paneId)) this.stop(paneId)
 
@@ -130,8 +151,11 @@ class TerminalShareService {
       queue: [],
       ready: false,
       dead: false,
-      hostCols: 0,
-      hostRows: 0,
+      // Se poblaba SOLO desde broadcastSize, que en el flujo normal (abrir Share
+      // no cambia el tamano del contenedor) nunca corria: quedaba en 0 y la
+      // restauracion del tamano del host era codigo muerto.
+      hostCols: getTerminal(paneId)?.cols ?? 0,
+      hostRows: getTerminal(paneId)?.rows ?? 0,
       retryCount: 0,
       retryTimer: null,
       inputAllowed: false,

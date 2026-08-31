@@ -1,5 +1,16 @@
 # Raven Nest — Instrucciones para Claude
 
+## Typecheck — OJO
+
+`npx tsc --noEmit` en la raíz NO CHEQUEA NADA (tsconfig solution-style con
+`files: []`). El chequeo real es `npx tsc -b` — que además emite .js/.d.ts
+junto a los sources (composite): limpiar con `git clean -fd` después.
+**OJO: `git add` los archivos fuente NUEVOS ANTES del `git clean`** — clean
+borra todo lo untracked y no distingue un .tsx recién creado de un .js
+emitido (pasó el 2026-08-18: se llevó un componente nuevo y su test). Hay
+~15 errores de tipo preexistentes bajo `tsc -b` en código de main
+(pidusage, metrics-collector, etc.) anteriores al branch del editor.
+
 ## v1.2 — per-device local paths
 
 A partir de v1.2 los paths locales de los repos se guardan **por máquina** en `~/.raven-nest/local-paths.json`, no en Supabase. Al actualizar desde v1.1.x, el primer arranque importa los paths existentes desde Supabase (solo los que existan en disco) y los guarda en el store local. Una segunda PC entrando a la misma cuenta partirá sin paths y ofrecerá **Clone** o **Link existing folder** por repo. Las columnas Supabase `user_repos.local_path` y la tabla `team_repo_local_paths` quedan deprecated en v1.2 (read-only para clientes viejos) y serán dropeadas en v1.3.

@@ -84,8 +84,8 @@ contextBridge.exposeInMainWorld('pty', {
     ipcRenderer.invoke('pty:create', paneId, cmd, accountDir, repoPath, shellId),
   write: (paneId: string, data: string) =>
     ipcRenderer.send('pty:write', paneId, data),
-  resize: (paneId: string, cols: number, rows: number) =>
-    ipcRenderer.send('pty:resize', paneId, cols, rows),
+  resize: (paneId: string, cols: number, rows: number, source?: string) =>
+    ipcRenderer.send('pty:resize', paneId, cols, rows, source),
   kill: (paneId: string) =>
     ipcRenderer.invoke('pty:kill', paneId),
   exists: (paneId: string) =>
@@ -135,8 +135,16 @@ contextBridge.exposeInMainWorld('platform', {
   isLinux: process.platform === 'linux',
 })
 
+contextBridge.exposeInMainWorld('gitDiff', {
+  stats: (worktreePath: string) => ipcRenderer.invoke('git:diffStats', worktreePath),
+  addedLines: (worktreePath: string, relPath: string) => ipcRenderer.invoke('git:addedLines', worktreePath, relPath),
+})
+
 contextBridge.exposeInMainWorld('appFlags', {
   e2eBypass: process.env.RAVEN_E2E === '1',
+  // Plan simulado para demos/E2E de features gateadas por plan. Solo se
+  // expone bajo RAVEN_E2E=1 — useProfile además re-chequea e2eBypass.
+  e2ePlan: process.env.RAVEN_E2E === '1' ? (process.env.RAVEN_E2E_PLAN ?? null) : null,
 })
 
 contextBridge.exposeInMainWorld('windowControls', {
@@ -412,6 +420,35 @@ contextBridge.exposeInMainWorld('diff', {
   get: (worktreePath: string, base?: string) => ipcRenderer.invoke('diff:get', worktreePath, base),
 })
 
+contextBridge.exposeInMainWorld('fs', {
+  readFile: (worktreePath: string, relPath: string) => ipcRenderer.invoke('fs:readFile', worktreePath, relPath),
+  writeFile: (worktreePath: string, relPath: string, content: string) =>
+    ipcRenderer.invoke('fs:writeFile', worktreePath, relPath, content),
+  listDir: (worktreePath: string, relPath: string) => ipcRenderer.invoke('fs:listDir', worktreePath, relPath),
+  watch: (worktreePath: string, relPath: string, opts?: { depth?: number }) => ipcRenderer.invoke('fs:watch', worktreePath, relPath, opts),
+  unwatch: (worktreePath: string, relPath: string) => ipcRenderer.invoke('fs:unwatch', worktreePath, relPath),
+  onChanged: (cb: (worktreePath: string, relPath: string) => void) => {
+    const handler = (_e: IpcRendererEvent, worktreePath: string, relPath: string) => cb(worktreePath, relPath)
+    ipcRenderer.on('fs:changed', handler)
+    return () => ipcRenderer.removeListener('fs:changed', handler)
+  },
+})
+
+contextBridge.exposeInMainWorld('ideConfig', {
+  import: (source: 'vscode' | 'intellij') => ipcRenderer.invoke('ide-config:import', source),
+})
+
+contextBridge.exposeInMainWorld('themes', {
+  listInstalled: () => ipcRenderer.invoke('themes:listInstalled'),
+  saveInstalled: (displayName: string, theme: unknown) => ipcRenderer.invoke('themes:saveInstalled', displayName, theme),
+  deleteInstalled: (name: string) => ipcRenderer.invoke('themes:deleteInstalled', name),
+  scanVSCode: () => ipcRenderer.invoke('themes:scanVSCode'),
+  importVSCode: (themePath: string) => ipcRenderer.invoke('themes:importVSCode', themePath),
+  searchOpenVSX: (query: string) => ipcRenderer.invoke('themes:searchOpenVSX', query),
+  installOpenVSX: (namespace: string, name: string) => ipcRenderer.invoke('themes:installOpenVSX', namespace, name),
+  loadFromFile: () => ipcRenderer.invoke('themes:loadFromFile'),
+})
+
 contextBridge.exposeInMainWorld('ide', {
   detect: (force?: boolean) => ipcRenderer.invoke('ide:detect', force),
   open: (binPath: string, worktreePath: string) => ipcRenderer.invoke('ide:open', binPath, worktreePath),
@@ -455,6 +492,7 @@ contextBridge.exposeInMainWorld('browser', {
   forward: (paneId: string) => ipcRenderer.invoke('browser:forward', paneId),
   reload: (paneId: string) => ipcRenderer.invoke('browser:reload', paneId),
   destroy: (paneId: string) => ipcRenderer.invoke('browser:destroy', paneId),
+  capturePane: (opts: unknown) => ipcRenderer.invoke('pane:capture', opts),
   onNavigated: (cb: (paneId: string, url: string) => void) => {
     const handler = (_e: IpcRendererEvent, paneId: string, url: string) => cb(paneId, url)
     ipcRenderer.on('browser:navigated', handler)

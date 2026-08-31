@@ -7,6 +7,7 @@ import SettingsPanel from './SettingsPanel'
 import UserMenu from './UserMenu'
 import RepoActionsBar from './RepoActionsBar'
 import { WorktreesSection } from './WorktreesSection'
+import HubSidebarPanel, { type HubWorkspace } from './HubSidebarPanel'
 import { useGitHub } from '../hooks/useGitHub'
 import { useGitlab } from '../hooks/useGitlab'
 import { LayoutId, Workspace, MAX_PANES } from '../types'
@@ -17,6 +18,13 @@ import { terminalJoinService } from '../lib/terminalJoinService'
 import { basename } from '../lib/path'
 import { useGitInfo } from '../hooks/useGitInfo'
 import { useFixedPopover } from '../hooks/useFixedPopover'
+import { ExplorerPanel } from './ExplorerPanel'
+import HubExplorerPanel, { type ExplorerRoot } from './HubExplorerPanel'
+import SidebarSplit from './SidebarSplit'
+import PaneFilterControl from './PaneFilterControl'
+import type { PaneFilter } from '../lib/pane-filter'
+import type { PaneNode } from '../types'
+import type { UserPreferencesApi } from '../hooks/useUserPreferences'
 
 interface Props {
   expanded: boolean
@@ -60,6 +68,26 @@ interface Props {
   paneCount: number
   onLayoutChange: (id: LayoutId) => void
   onOpenTutorial?: (tourId: import('../tutorial/types').TourId) => void
+  onFileOpen: (relPath: string) => void
+  // Filtro de panes por tipo (embudo en la columna del sidebar)
+  paneFilterPanes?: readonly PaneNode[]
+  paneFilter?: PaneFilter
+  onPaneFilterChange?: (f: PaneFilter) => void
+  // Lifted to App.tsx (the single shared instance) — threaded through to
+  // SettingsPanel. See UserPreferencesApi's doc comment for why.
+  userPrefs: UserPreferencesApi
+  // Hub-tab sidebar (#2/#3): swap the repo context group for a workspace builder.
+  isHub?: boolean
+  hubWorkspaces?: HubWorkspace[]
+  onSelectWorkspace?: (tabId: string) => void
+  onJumpToPane?: (tabId: string, paneId: string) => void
+  onToggleTerminal?: (paneId: string) => void
+  onToggleWorkspace?: (tabId: string) => void
+  onNewWorkspace?: () => void
+  onAddTerminalToWorkspace?: (tabId: string) => void
+  // Hub Explorer multi-raíz: una raíz por workspace abierto con repo.
+  hubExplorerRoots?: ExplorerRoot[]
+  onOpenFileFromHub?: (tabId: string, repoPath: string, relPath: string) => void
 }
 
 export default function Sidebar({
@@ -69,7 +97,10 @@ export default function Sidebar({
   onSnippetSend, onSnippetBroadcast, onCommandRun, onWorkspaceSave, onWorkspaceLoad, isWin,
   isTrialActive, trialDaysLeft, profileLoading, onUpgrade, onTeamsOpen, pendingInvitesCount = 0, onMyReposOpen, onIntegrationsOpen, onGraphBoardOpen, plan, repoPath, onRepoLink, onRepoUnlink, onJoinTerminal,
   activeCellRepoPath, onWorktreeSelect, onNewWorktree, onFixCi, worktreeRefreshKey,
-  layoutId, paneCount, onLayoutChange, onOpenTutorial,
+  layoutId, paneCount, onLayoutChange, onOpenTutorial, onFileOpen, userPrefs,
+  paneFilterPanes, paneFilter, onPaneFilterChange,
+  isHub = false, hubWorkspaces, onSelectWorkspace, onJumpToPane, onToggleTerminal, onToggleWorkspace, onNewWorkspace, onAddTerminalToWorkspace,
+  hubExplorerRoots, onOpenFileFromHub,
 }: Props) {
   const { branch, githubUrl, isDirty } = useGitInfo(repoPath)
   const { githubToken } = useGitHub()
@@ -396,7 +427,7 @@ export default function Sidebar({
           <path d="M5 12v2M11 12v2M3 14h10" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
         </svg>
       </span>
-      <span className="sidebar-label">Workspaces</span>
+      <span className="sidebar-label">Saved layouts</span>
       <WorkspacePanel onSave={onWorkspaceSave} onLoad={onWorkspaceLoad} onRequireUpgrade={onUpgrade} />
     </div>
   )
@@ -441,6 +472,26 @@ export default function Sidebar({
     </div>
   )
 
+  // Layout selector — lives inside "More tools". Icon is outlined (transparent)
+  // to match the other tools and avoid the solid white square the '1' preset
+  // used to render as. Clicking toggles the popover; Ctrl/⌘+L cycles.
+  const LayoutItem = (
+    <div
+      className="sidebar-item sidebar-item-panel"
+      ref={layoutAnchorRef}
+      style={{ cursor: 'pointer' }}
+      onClick={() => setLayoutOpen(v => !v)}
+      title={`Layout: ${layoutPreset.label} (${isWin ? 'Ctrl+L' : '⌘L'})`}
+    >
+      <span className="sidebar-icon">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <path d={layoutPreset.icon} stroke="currentColor" strokeWidth="1.3" />
+        </svg>
+      </span>
+      <span className="sidebar-label">Layout</span>
+    </div>
+  )
+
   return (
     <div className={`sidebar${expanded ? ' expanded' : ''}`}>
 
@@ -462,6 +513,20 @@ export default function Sidebar({
       </button>
 
       <div className="sidebar-scroll">
+        {isHub && onSelectWorkspace && onJumpToPane && onToggleTerminal && onToggleWorkspace && onNewWorkspace && onAddTerminalToWorkspace && (
+          <HubSidebarPanel
+            workspaces={hubWorkspaces ?? []}
+            expanded={expanded}
+            onSelectWorkspace={onSelectWorkspace}
+            onJumpToPane={onJumpToPane}
+            onToggleTerminal={onToggleTerminal}
+            onToggleWorkspace={onToggleWorkspace}
+            onNewWorkspace={onNewWorkspace}
+            onAddTerminal={onAddTerminalToWorkspace}
+          />
+        )}
+
+        {!isHub && (<>
         {/* ── 1. REPO (top focus) ───────────────────────────── */}
         <div
           className="sidebar-item sidebar-repo"
@@ -519,19 +584,35 @@ export default function Sidebar({
           </div>
         )}
 
-        {/* ── 2. WORKTREES (foco principal, flex-grow) ───── */}
+        </>)}
+
+        {/* ── 2. WORKTREES + EXPLORER — reparto vertical AJUSTABLE (drag del
+             handle, como entre panes); el tamaño persiste vía autoSaveId. ── */}
         {expanded && (
-          <div className="sidebar-worktrees-wrap">
-            <WorktreesSection
-              repoPath={repoPath ?? null}
-              activeRepoPath={activeCellRepoPath}
-              onSelect={onWorktreeSelect}
-              onNewClick={onNewWorktree}
-              onFixCi={onFixCi}
-              refreshKey={worktreeRefreshKey}
-              onStartTutorial={onOpenTutorial ? () => onOpenTutorial('worktrees') : undefined}
-            />
-          </div>
+          <SidebarSplit
+            worktrees={!isHub ? (
+              <div className="sidebar-worktrees-wrap">
+                <WorktreesSection
+                  repoPath={repoPath ?? null}
+                  activeRepoPath={activeCellRepoPath}
+                  onSelect={onWorktreeSelect}
+                  onNewClick={onNewWorktree}
+                  onFixCi={onFixCi}
+                  refreshKey={worktreeRefreshKey}
+                  onStartTutorial={onOpenTutorial ? () => onOpenTutorial('worktrees') : undefined}
+                />
+              </div>
+            ) : null}
+            explorer={
+              <div className="sidebar-explorer-wrap">
+                {isHub ? (
+                  <HubExplorerPanel roots={hubExplorerRoots ?? []} onOpenFile={onOpenFileFromHub ?? (() => {})} />
+                ) : (
+                  <ExplorerPanel worktreePath={activeCellRepoPath ?? null} onFileOpen={onFileOpen} />
+                )}
+              </div>
+            }
+          />
         )}
 
         {/* ── 3. TEAMS + MY REPOS ───────────────────────────── */}
@@ -646,6 +727,17 @@ export default function Sidebar({
 
           {moreOpen && (
             <div className="sidebar-more-list">
+              {LayoutItem}
+              {/* Filtro de panes — junto al layout selector: ambos son
+                  controles de vista del workspace (pedido de Bautista). */}
+              {onPaneFilterChange && (
+                <PaneFilterControl
+                  panes={paneFilterPanes ?? []}
+                  filter={paneFilter ?? 'all'}
+                  onChange={onPaneFilterChange}
+                  expanded={expanded}
+                />
+              )}
               {SnippetsItem}
               {WorkspacesItem}
               {MCPItem}
@@ -658,21 +750,9 @@ export default function Sidebar({
           )}
         </div>
 
-        {/* ── 4.5. LAYOUT SELECTOR (replaces v1.0 LayoutPicker) ── */}
-        <div
-          className="sidebar-item sidebar-item-panel"
-          ref={layoutAnchorRef}
-          style={{ cursor: 'pointer' }}
-          onClick={() => setLayoutOpen(v => !v)}
-          title={`Layout: ${layoutPreset.label} (${isWin ? 'Ctrl+L' : '⌘L'})`}
-        >
-          <span className="sidebar-icon">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-              <path d={layoutPreset.icon} />
-            </svg>
-          </span>
-          <span className="sidebar-label">Layout</span>
-        </div>
+        {/* ── 4.5. LAYOUT SELECTOR — trigger now lives inside "More tools"
+             (see LayoutItem). Only the popover renders here (position:fixed,
+             anchored to the LayoutItem). ── */}
         {layoutOpen && layoutPopPos && (
           <div
             ref={layoutPopoverRef}
@@ -694,8 +774,8 @@ export default function Sidebar({
                     onClick={() => { onLayoutChange(id); setLayoutCycleIdx(null); setLayoutOpen(false) }}
                     title={preset.label}
                   >
-                    <svg viewBox="0 0 16 16" fill="currentColor">
-                      <path d={preset.icon} />
+                    <svg viewBox="0 0 16 16" fill="none">
+                      <path d={preset.icon} stroke="currentColor" strokeWidth="1.3" />
                     </svg>
                     <span>{preset.label}</span>
                   </button>
@@ -706,7 +786,7 @@ export default function Sidebar({
         )}
 
         {/* ── 5. NEW TERMINAL (acción primaria; oculto al tope) ── */}
-        {paneCount < MAX_PANES && (
+        {!isHub && paneCount < MAX_PANES && (
           <button
             className="sidebar-item sidebar-new-terminal"
             onClick={onNewPane}
@@ -747,6 +827,7 @@ export default function Sidebar({
           userEmail={userEmail}
           activeRepoPath={activeCellRepoPath}
           onOpenTutorial={onOpenTutorial}
+          userPrefs={userPrefs}
         />
       </div>
 

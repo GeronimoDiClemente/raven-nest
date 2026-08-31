@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { CliInstallRunner, INSTALL_COMMANDS } from '../cli-install-runner'
+import { CliInstallRunner, INSTALL_COMMANDS, installCommandFor } from '../cli-install-runner'
 
 describe('CliInstallRunner', () => {
   let runner: CliInstallRunner
@@ -57,9 +57,83 @@ describe('CliInstallRunner', () => {
     expect(result.log).toContain('timed out')
   }, 10000)
 
-  it('INSTALL_COMMANDS covers the five known AIs', () => {
+  it('INSTALL_COMMANDS cubre los 8 que se instalan por gestor de paquetes', () => {
     expect(Object.keys(INSTALL_COMMANDS).sort()).toEqual(
-      ['claude', 'codex', 'copilot', 'gemini', 'opencode'],
+      ['claude', 'codex', 'copilot', 'deepseek', 'gemini', 'grok', 'opencode', 'qwen'],
     )
+  })
+
+  // Cursor no publica en npm: su instalador es un script y difiere por SO.
+  // El runner spawnea el comando de verdad, asi que mandarle el de curl en
+  // Windows seria mandarlo a fallar.
+  describe('installCommandFor', () => {
+    const withPlatform = (value: string, fn: () => void) => {
+      const orig = Object.getOwnPropertyDescriptor(process, 'platform')!
+      Object.defineProperty(process, 'platform', { value, configurable: true })
+      try { fn() } finally { Object.defineProperty(process, 'platform', orig) }
+    }
+
+    it('los que son npm son iguales en los tres SO', () => {
+      for (const plat of ['win32', 'darwin', 'linux']) {
+        withPlatform(plat, () => {
+          expect(installCommandFor('deepseek')).toBe('npm install -g @deepseek-ai/dsh')
+        })
+      }
+    })
+
+    it('un aiType desconocido no devuelve comando', () => {
+      expect(installCommandFor('noexiste')).toBeUndefined()
+    })
+  })
+})
+
+describe('CliInstallRunner — cancelar no debe colgarse', () => {
+  // Bug real (2026-08-21): Defender bloqueó el instalador de Cursor, el proceso
+  // quedó zombi y el evento 'exit' nunca llegó. Como cancel() sólo mataba y
+  // esperaba ese exit para resolver, el modal quedaba en "Installing..." para
+  // siempre, con el botón Cancel sin efecto visible.
+  it('resuelve cancelled aunque el proceso no muera', async () => {
+    const runner = new CliInstallRunner()
+    // un comando que no termina solo
+    const p = runner.run('zombie', 'node -e "setInterval(()=>{},1000)"', () => {})
+    await new Promise((r) => setTimeout(r, 150))
+    expect(runner.cancel('zombie')).toBe(true)
+    const res = await Promise.race([
+      p,
+      new Promise((_, rej) => setTimeout(() => rej(new Error('se colgó: nunca resolvió')), 3000)),
+    ]) as { state: string }
+    expect(res.state).toBe('cancelled')
+  }, 10000)
+
+  it('cancelar algo que no está corriendo devuelve false', () => {
+    const runner = new CliInstallRunner()
+    expect(runner.cancel('nada')).toBe(false)
+  })
+})
+
+describe('installCommandFor — solo gestores de paquetes', () => {
+  // Windows Defender marca `irm ... | iex` (y el patron equivalente con curl)
+  // como Trojan:Win32/Commando.A!ml: heuristica sobre "descargar y ejecutar en
+  // memoria". No es malware —son instaladores oficiales— pero la alerta la
+  // dispara NUESTRA app. Nest instala solo por npm/gh; el resto va a la web.
+  it('ningun comando baja y ejecuta un script', () => {
+    for (const ai of Object.keys(INSTALL_COMMANDS)) {
+      const cmd = installCommandFor(ai) ?? ''
+      for (const patron of ['iex', 'curl', 'irm', '| bash', '|bash', 'wget']) {
+        expect(cmd).not.toContain(patron)
+      }
+    }
+  })
+
+  it('todos arrancan con un gestor de paquetes', () => {
+    for (const ai of Object.keys(INSTALL_COMMANDS)) {
+      expect(installCommandFor(ai)).toMatch(/^(npm install -g |gh extension install )/)
+    }
+  })
+
+  // Cursor solo publica instalador por script: no se instala desde Nest.
+  it('un CLI sin instalacion segura no devuelve comando', () => {
+    expect(installCommandFor('cursor')).toBeUndefined()
+    expect(installCommandFor('noexiste')).toBeUndefined()
   })
 })

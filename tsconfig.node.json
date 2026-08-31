@@ -7,5 +7,5 @@
     "strict": true,
     "skipLibCheck": true
   },
-  "include": ["electron.vite.config.ts", "electron/**/*.ts", "src/types.ts"]
+  "include": ["electron.vite.config.ts", "electron/**/*.ts", "src/types.ts", "src/lib/ide-config-mappings.ts", "src/lib/theme-registry.ts"]
 }

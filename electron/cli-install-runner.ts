@@ -6,13 +6,33 @@ export type InstallState = 'done' | 'failed' | 'cancelled'
  * Allowlist of install commands keyed by AIType string. The renderer passes
  * only the aiType; the main process resolves the command here so the renderer
  * can never hand an arbitrary shell string to the spawner.
+ *
+ * REGLA: solo gestores de paquetes (npm, gh). Nada de bajar un script y
+ * ejecutarlo (`curl | bash`, `irm | iex`): ese patron es el que usa el malware
+ * real para ejecutar en memoria, y Windows Defender lo levanta como
+ * Trojan:Win32/Commando.A!ml aunque el script sea el instalador oficial del
+ * proveedor — con nuestra app como causante de la alerta. Un CLI que solo se
+ * instale asi (Cursor) NO va en esta lista: la UI manda al usuario a la web.
  */
+
 export const INSTALL_COMMANDS: Record<string, string> = {
   claude:   'npm install -g @anthropic-ai/claude-code',
   gemini:   'npm install -g @google/gemini-cli',
   codex:    'npm install -g @openai/codex',
   copilot:  'gh extension install github/gh-copilot',
   opencode: 'npm install -g opencode-ai',
+  // Binarios verificados contra el registry de npm (campo bin), no supuestos.
+  deepseek: 'npm install -g @deepseek-ai/dsh',
+  grok:     'npm install -g @xai-official/grok',
+  qwen:     'npm install -g @qwen-code/qwen-code',
+  // Cursor no publica en npm: instalador propio, y el de Windows es otro
+  // comando. Como el runner spawnea esto de verdad, mandar el de curl en
+  // Windows seria mandarlo a fallar.
+}
+
+/** Comando de instalacion, o undefined si ese CLI no se instala desde Nest. */
+export function installCommandFor(aiType: string): string | undefined {
+  return INSTALL_COMMANDS[aiType]
 }
 
 const SECRET_RE = /(?:^|[\s=:])(?:token|key|password|secret|api[_-]?key)\s*[=:]\s*\S+/gi
@@ -30,6 +50,8 @@ const DEFAULT_TIMEOUT_MS = 180_000
 interface ActiveRun {
   child: ChildProcess | null
   cancelled: boolean
+  /** Resuelve la promesa del run sin esperar el exit del proceso. */
+  finish: (state: InstallState) => void
 }
 
 export interface RunOpts {
@@ -54,7 +76,7 @@ export class CliInstallRunner {
 
     return new Promise((resolve) => {
       const log: string[] = []
-      const slot: ActiveRun = { child: null, cancelled: false }
+      const slot: ActiveRun = { child: null, cancelled: false, finish: () => {} }
       this.active.set(key, slot)
 
       let finished = false
@@ -64,6 +86,7 @@ export class CliInstallRunner {
         this.active.delete(key)
         resolve({ state, log: log.join('\n') })
       }
+      slot.finish = finish
 
       const push = (chunk: string) => {
         for (const line of chunk.split(/\r?\n/)) {
@@ -118,15 +141,22 @@ export class CliInstallRunner {
     if (!slot) return false
     slot.cancelled = true
     const child = slot.child
-    if (!child) return true
-    if (isWindows()) {
-      try {
-        const pid = child.pid
-        if (pid) spawn('taskkill', ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore' })
-      } catch {}
-    } else {
-      try { child.kill('SIGTERM') } catch {}
+    if (child) {
+      if (isWindows()) {
+        try {
+          const pid = child.pid
+          if (pid) spawn('taskkill', ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore' })
+        } catch { /* si taskkill falla igual resolvemos abajo */ }
+      } else {
+        try { child.kill('SIGTERM') } catch { /* idem */ }
+      }
     }
+    // NO esperamos el 'exit'. Un proceso puede quedar zombi —bloqueado por el
+    // antivirus, esperando input— y entonces ese evento no llega nunca: la UI
+    // se quedaba en "Installing..." para siempre con el boton Cancel sin
+    // efecto visible. Resolvemos ya; si el exit llega despues, finish() esta
+    // protegido contra doble resolucion.
+    slot.finish('cancelled')
     return true
   }
 

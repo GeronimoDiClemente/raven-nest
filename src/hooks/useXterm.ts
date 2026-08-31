@@ -1,4 +1,5 @@
 import { useEffect, useRef, useCallback } from 'react'
+import { isResizeSuppressed, onResizeSettled } from '../lib/pane-resize-gate'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
@@ -83,7 +84,7 @@ export function useXterm(paneId: string, onInput?: (data: string) => void, fontS
       requestAnimationFrame(() => {
         try {
           fitAddon.fit()
-          window.pty.resize(paneId, term.cols, term.rows)
+          if (!isResizeSuppressed()) window.pty.resize(paneId, term.cols, term.rows, 'pane')
           onResizeRef.current?.(term.cols, term.rows)
         } catch { /* ignore */ }
         term.focus()
@@ -190,12 +191,45 @@ export function useXterm(paneId: string, onInput?: (data: string) => void, fontS
         try {
           if (!container.clientWidth || !container.clientHeight) return
           fitAddon.fit()
-          window.pty.resize(paneId, term.cols, term.rows)
+          if (!isResizeSuppressed()) window.pty.resize(paneId, term.cols, term.rows, 'pane')
           onResizeRef.current?.(term.cols, term.rows)
         } catch { /* ignore */ }
       })
     })
     resizeObserver.observe(container)
+
+    // Al terminar el drag mandamos el tamano YA asentado: durante el
+    // movimiento se suprimieron todos, incluidos los degenerados del reflow.
+    //
+    // "Asentado" no es "un frame despues de soltar": el reflow del grid y la
+    // animacion de zoom siguen corriendo, y medir ahi daba formas imposibles
+    // (21x6, 15x37) que el proceso tomaba como reales — la TUI repintaba y
+    // cortaba las respuestas en curso. Medimos hasta que DOS lecturas
+    // consecutivas coincidan, y recien ahi mandamos.
+    let settleTimer: ReturnType<typeof setTimeout> | null = null
+    const offSettled = onResizeSettled(() => {
+      if (settleTimer) clearTimeout(settleTimer)
+      let lastKey = ''
+      let tries = 0
+      const check = () => {
+        settleTimer = null
+        try {
+          if (container.clientWidth && container.clientHeight) {
+            fitAddon.fit()
+            const key = `${term.cols}x${term.rows}`
+            if (key === lastKey) {
+              window.pty.resize(paneId, term.cols, term.rows, 'settled')
+              onResizeRef.current?.(term.cols, term.rows)
+              return
+            }
+            lastKey = key
+          }
+        } catch { /* ignore */ }
+        // ~1s de techo: si nunca se estabiliza, no insistimos para siempre.
+        if (++tries < 12) settleTimer = setTimeout(check, 80)
+      }
+      settleTimer = setTimeout(check, 80)
+    })
 
     // Re-fit and re-focus after the window comes back from win.hide() on macOS.
     // Without this, the terminal stays at the corrupted 2×1 dimensions until the
@@ -205,7 +239,7 @@ export function useXterm(paneId: string, onInput?: (data: string) => void, fontS
       requestAnimationFrame(() => {
         try {
           fitAddon.fit()
-          window.pty.resize(paneId, term.cols, term.rows)
+          if (!isResizeSuppressed()) window.pty.resize(paneId, term.cols, term.rows, 'pane')
           onResizeRef.current?.(term.cols, term.rows)
         } catch { /* ignore */ }
       })
@@ -216,6 +250,8 @@ export function useXterm(paneId: string, onInput?: (data: string) => void, fontS
       container.removeEventListener('mousedown', onMouseDown)
       container.removeEventListener('paste', onPaste, true)
       resizeObserver.disconnect()
+      offSettled()
+      if (settleTimer) clearTimeout(settleTimer)
       document.removeEventListener('visibilitychange', onVisibilityChange)
       unregisterTerminal(paneId)
       term.dispose()
@@ -229,7 +265,7 @@ export function useXterm(paneId: string, onInput?: (data: string) => void, fontS
     termRef.current.options.fontSize = fontSize
     try {
       fitAddonRef.current.fit()
-      window.pty.resize(paneId, termRef.current.cols, termRef.current.rows)
+      if (!isResizeSuppressed()) window.pty.resize(paneId, termRef.current.cols, termRef.current.rows, 'pane-fontsize')
     } catch { /* ignore */ }
   }, [fontSize, paneId])
 
@@ -239,7 +275,7 @@ export function useXterm(paneId: string, onInput?: (data: string) => void, fontS
     if (!fitAddonRef.current || !termRef.current) return
     try {
       fitAddonRef.current.fit()
-      window.pty.resize(paneId, termRef.current.cols, termRef.current.rows)
+      if (!isResizeSuppressed()) window.pty.resize(paneId, termRef.current.cols, termRef.current.rows, 'pane-fontsize')
     } catch { /* ignore */ }
   }, [paneId])
 

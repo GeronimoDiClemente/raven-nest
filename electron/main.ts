@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell, nativeImage, dialog, session, safeStorage, clipboard, net } from 'electron'
+import { app, BrowserWindow, ipcMain, shell, nativeImage, dialog, session, safeStorage, clipboard, net, screen } from 'electron'
 import { autoUpdater } from 'electron-updater'
 import { resolve as pathResolve } from 'path'
 
@@ -114,7 +114,7 @@ import { WorkspaceStore } from './workspace-store'
 import { WorktreeStore } from './worktree-store'
 import { PresetStore } from './preset-store'
 import { SetupRunner } from './setup-runner'
-import { CliInstallRunner, INSTALL_COMMANDS } from './cli-install-runner'
+import { CliInstallRunner, installCommandFor } from './cli-install-runner'
 import { scanPid } from './port-monitor'
 import { getCwdForPid, getProcessInfo, listListeningPidsPosix, listListeningPidsWindows } from './cwd-reader'
 // pidtree resolves a pid's full descendant tree. Used so port scans cover the
@@ -126,6 +126,11 @@ import { BrowserPaneManager } from './browser-pane-manager'
 import { SpotlightEngine } from './spotlight-engine'
 import { BenchmarkRecorder } from './benchmark-recorder'
 import { getDiff } from './diff-engine'
+import { readFile as fsReadFile, writeFile as fsWriteFile, listDir as fsListDir, FsWatchRegistry } from './fs-bridge'
+import { importVSCodeConfig, importIntelliJConfig } from './ide-config-bridge'
+import { listInstalledThemes, saveInstalledTheme, deleteInstalledTheme, scanVSCodeThemes, importVSCodeTheme, searchOpenVSX, installOpenVSX } from './theme-bridge'
+import { getDiffStats, getAddedLines } from './git-diff'
+import type { VSCodeThemeJson } from '../src/lib/theme-registry'
 import { detectIDEs, openInIDE, clearCache as clearIDECache } from './ide-launcher'
 import { MCPStore } from './mcp-store'
 import { SettingsStore } from './settings-store'
@@ -423,6 +428,8 @@ const browserPanes = new BrowserPaneManager(() => BrowserWindow.getAllWindows()[
 const spotlight = new SpotlightEngine()
 const benchmark = new BenchmarkRecorder()
 const metricsCollector = new MetricsCollector()
+const fsWatchRegistry = new FsWatchRegistry()
+app.on('before-quit', () => { fsWatchRegistry.closeAll() })
 
 spotlight.on('start', (wt: string) => broadcast('spotlight:status', { active: true, worktreePath: wt }))
 spotlight.on('stop', () => broadcast('spotlight:status', { active: false }))
@@ -469,7 +476,7 @@ function createWindow(): void {
     minHeight: 600,
     backgroundColor: '#0d0d0d',
     ...getWindowOptions(),
-    title: 'Nest',
+    title: 'NestMux',
     icon: icon.isEmpty() ? undefined : icon,
     webPreferences: {
       preload: join(__dirname, 'preload.js'),
@@ -1121,7 +1128,7 @@ ipcMain.handle('cli:check', (_event, cmd: string) => {
 })
 
 ipcMain.handle('cli:install', async (event, aiType: string) => {
-  const cmd = INSTALL_COMMANDS[aiType]
+  const cmd = installCommandFor(aiType)
   if (!cmd) return { state: 'failed' as const, log: `No install command for "${aiType}"` }
   return cliInstallRunner.run(
     aiType,
@@ -1204,8 +1211,8 @@ ipcMain.on('pty:write', (_event, paneId: string, data: string) => {
   ptyManager.write(paneId, data)
 })
 
-ipcMain.on('pty:resize', (_event, paneId: string, cols: number, rows: number) => {
-  ptyManager.resize(paneId, cols, rows)
+ipcMain.on('pty:resize', (_event, paneId: string, cols: number, rows: number, source?: string) => {
+  ptyManager.resize(paneId, cols, rows, source)
 })
 
 ipcMain.handle('pty:kill', (_event, paneId: string) => {
@@ -1291,26 +1298,7 @@ ipcMain.handle('workspace:import', async () => {
 
 ipcMain.handle('worktree:list', async (_evt, repoPath: string) => {
   if (!isAbsolute(repoPath)) return { ok: false as const, error: 'repoPath must be absolute' }
-  const live = worktreeStore.hydrateFromGit(repoPath)
-  // Mark store entries that git no longer reports as `orphaned`. Without
-  // this, a worktree the user removed externally (`rm -rf <wt>` or
-  // `git worktree remove`) stays in the store as `done` forever, and every
-  // other consumer (metrics, ports, spotlight) treats it as live.
-  worktreeStore.reconcile(live.map((m) => m.repoPath))
-  // Drop entries whose directory is gone (worktrees removed outside the app, or
-  // older clones that no longer exist on this machine). reconcile only marks
-  // them `orphaned`; without this they pile up in the sidebar forever.
-  worktreeStore.pruneMissing()
-  // Filter by rootRepoPath in posix form on both sides so backslash variants
-  // from session restore don't cause an empty list (the store always stores
-  // POSIX-keyed rootRepoPath after the hydrate fix, but the IPC `repoPath`
-  // can still arrive with backslashes).
-  const rootPosix = repoPath.replace(/\\/g, '/').replace(/\/+$/, '')
-  const worktrees = worktreeStore.list().filter((m) => {
-    const mRoot = m.rootRepoPath.replace(/\\/g, '/').replace(/\/+$/, '')
-    return mRoot === rootPosix
-  })
-  return { ok: true as const, worktrees }
+  return { ok: true as const, worktrees: worktreeStore.listForRepo(repoPath) }
 })
 
 // Unfiltered worktree list across every repo the store knows about — the
@@ -1637,6 +1625,43 @@ ipcMain.handle('browser:reposition', async (_evt, paneId: string, bounds: unknow
 ipcMain.handle('browser:navigate', async (_evt, paneId: string, url: string) => {
   if (!safeBrowserUrl(url)) throw new Error('url must be http(s)')
   browserPanes.navigate(paneId, url)
+})
+
+// Snapshot de un pane para el fantasma del drag. 'browser' captura el
+// WebContentsView nativo; 'dom' captura la región `rect` de la ventana host
+// (terminal/editor viven en el renderer). Devuelve un dataURL o null.
+ipcMain.handle('pane:capture', async (evt, opts: unknown) => {
+  const o = (opts ?? {}) as { paneId?: string; kind?: string; dpr?: number; rect?: { x: number; y: number; width: number; height: number } }
+  try {
+    if (o.kind === 'browser' && typeof o.paneId === 'string') {
+      return await browserPanes.capture(o.paneId)
+    }
+    const r = o.rect
+    if (!r || [r.x, r.y, r.width, r.height].some((v) => !Number.isFinite(v))) return null
+    const win = BrowserWindow.fromWebContents(evt.sender)
+    if (!win) return null
+    // capturePage(rect) interpreta mal el rect en pantallas retina (mezcla DIP y
+    // device px y la captura sale vacía/desplazada). Capturamos toda la ventana
+    // (device px) y recortamos con NativeImage.crop escalando el rect (CSS px)
+    // por el scaleFactor del display. Robusto en retina y no-retina.
+    const full = await win.webContents.capturePage()
+    if (full.isEmpty()) return null
+    // El renderer sabe su devicePixelRatio exacto; getDisplayMatching solo
+    // adivina por solapamiento de ventana y erra con escalado fraccional de
+    // Windows (125/150%) o con la ventana a caballo entre dos monitores.
+    const sf = (typeof o.dpr === 'number' && o.dpr > 0)
+      ? o.dpr
+      : (screen.getDisplayMatching(win.getBounds()).scaleFactor || 1)
+    const cropped = full.crop({
+      x: Math.max(0, Math.round(r.x * sf)),
+      y: Math.max(0, Math.round(r.y * sf)),
+      width: Math.max(1, Math.round(r.width * sf)),
+      height: Math.max(1, Math.round(r.height * sf)),
+    })
+    return cropped.isEmpty() ? null : cropped.toDataURL()
+  } catch {
+    return null
+  }
 })
 
 ipcMain.handle('browser:back', async (_evt, paneId: string) => browserPanes.back(paneId))
@@ -2059,6 +2084,101 @@ ipcMain.handle('metrics:portsByPids', async (_evt, pids: number[]) => {
 ipcMain.handle('diff:get', async (_evt, worktreePath: string, base?: string) => {
   if (!isAbsolute(worktreePath)) throw new Error('worktreePath must be absolute')
   return getDiff(worktreePath, base ?? 'HEAD')
+})
+
+ipcMain.handle('fs:readFile', async (_evt, worktreePath: string, relPath: string) => {
+  if (!isAbsolute(worktreePath)) return { ok: false as const, error: 'worktreePath must be absolute' }
+  try {
+    const content = await fsReadFile(worktreePath, relPath)
+    return { ok: true as const, content }
+  } catch (err) {
+    return { ok: false as const, error: err instanceof Error ? err.message : String(err) }
+  }
+})
+
+ipcMain.handle('fs:writeFile', async (_evt, worktreePath: string, relPath: string, content: string) => {
+  if (!isAbsolute(worktreePath)) return { ok: false as const, error: 'worktreePath must be absolute' }
+  try {
+    await fsWriteFile(worktreePath, relPath, content)
+    return { ok: true as const }
+  } catch (err) {
+    return { ok: false as const, error: err instanceof Error ? err.message : String(err) }
+  }
+})
+
+ipcMain.handle('fs:listDir', async (_evt, worktreePath: string, relPath: string) => {
+  if (!isAbsolute(worktreePath)) return { ok: false as const, error: 'worktreePath must be absolute' }
+  try {
+    const entries = await fsListDir(worktreePath, relPath)
+    return { ok: true as const, entries }
+  } catch (err) {
+    return { ok: false as const, error: err instanceof Error ? err.message : String(err) }
+  }
+})
+
+ipcMain.handle('fs:watch', async (_evt, worktreePath: string, relPath: string, opts?: { depth?: number }) => {
+  if (!isAbsolute(worktreePath)) return { ok: false as const, error: 'worktreePath must be absolute' }
+  try {
+    await fsWatchRegistry.watch(worktreePath, relPath, (wt, rp) => broadcast('fs:changed', wt, rp), opts)
+    return { ok: true as const }
+  } catch (err) {
+    return { ok: false as const, error: err instanceof Error ? err.message : String(err) }
+  }
+})
+
+ipcMain.handle('fs:unwatch', async (_evt, worktreePath: string, relPath: string) => {
+  if (!isAbsolute(worktreePath)) return { ok: false as const, error: 'worktreePath must be absolute' }
+  try {
+    await fsWatchRegistry.unwatch(worktreePath, relPath)
+    return { ok: true as const }
+  } catch (err) {
+    return { ok: false as const, error: err instanceof Error ? err.message : String(err) }
+  }
+})
+
+ipcMain.handle('ide-config:import', async (_evt, source: 'vscode' | 'intellij') => {
+  try {
+    const homeDir = process.env.RAVEN_IDE_CONFIG_HOME ?? userHome()
+    return source === 'vscode'
+      ? await importVSCodeConfig(homeDir, process.platform)
+      : await importIntelliJConfig(homeDir, process.platform)
+  } catch (err) {
+    return { ok: false as const, error: err instanceof Error ? err.message : String(err) }
+  }
+})
+
+// Sistema de temas del editor. Los archivos de tema son per-device (como los
+// local-paths de v1.2); el NOMBRE seleccionado viaja por Supabase en
+// ui_settings.editorTheme. El scan de VS Code honra RAVEN_IDE_CONFIG_HOME
+// igual que ide-config:import para el aislamiento E2E.
+const themesDir = () => pathJoin(ravenHome(), '.raven-nest', 'themes')
+
+ipcMain.handle('themes:listInstalled', () => listInstalledThemes(themesDir()))
+ipcMain.handle('themes:saveInstalled', (_evt, displayName: string, theme: unknown) =>
+  saveInstalledTheme(themesDir(), displayName, theme as VSCodeThemeJson))
+ipcMain.handle('themes:deleteInstalled', (_evt, name: string) => deleteInstalledTheme(themesDir(), name))
+ipcMain.handle('themes:scanVSCode', () => scanVSCodeThemes(process.env.RAVEN_IDE_CONFIG_HOME ?? userHome()))
+
+// Diff vs HEAD para el editor: badges +N −M en el Explorer y líneas
+// agregadas en verde (ver electron/git-diff.ts).
+ipcMain.handle('git:diffStats', (_e, worktreePath: string) => getDiffStats(worktreePath))
+ipcMain.handle('git:addedLines', (_e, worktreePath: string, relPath: string) => getAddedLines(worktreePath, relPath))
+ipcMain.handle('themes:importVSCode', (_evt, themePath: string) => importVSCodeTheme(themesDir(), themePath))
+ipcMain.handle('themes:searchOpenVSX', (_evt, query: string) => searchOpenVSX(String(query ?? '')))
+ipcMain.handle('themes:installOpenVSX', (_evt, namespace: string, name: string) =>
+  installOpenVSX(themesDir(), namespace, name))
+ipcMain.handle('themes:loadFromFile', async () => {
+  const win = BrowserWindow.getFocusedWindow()
+  const opts: Electron.OpenDialogOptions = {
+    filters: [{ name: 'VS Code theme', extensions: ['json'] }],
+    properties: ['openFile'],
+    title: 'Load a VS Code theme file',
+  }
+  const { filePaths, canceled } = win
+    ? await dialog.showOpenDialog(win, opts)
+    : await dialog.showOpenDialog(opts)
+  if (canceled || filePaths.length === 0) return null
+  return importVSCodeTheme(themesDir(), filePaths[0])
 })
 
 // Lightweight shortstat for the worktree sidebar chip. `git diff --shortstat`

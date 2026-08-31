@@ -1,19 +1,8 @@
 import { useState, useRef, useEffect } from 'react'
 import { PaneNode, AI_CONFIG, COLOR_PALETTE, AIType } from '../types'
-import { ClaudeLogo, GeminiLogo, CodexLogo, CopilotLogo, OpenCodeLogo } from './AILogos'
+import { AILogo } from './AILogos'
 import ConfirmDialog from './ConfirmDialog'
 import { PortChipsGroup } from './PortChipsGroup'
-
-function AILogo({ aiType, color, size = 14 }: { aiType: AIType; color: string; size?: number }) {
-  switch (aiType) {
-    case 'claude':   return <ClaudeLogo size={size} />
-    case 'gemini':   return <GeminiLogo size={size} />
-    case 'codex':    return <CodexLogo size={size} color={color} />
-    case 'copilot':  return <CopilotLogo size={size} />
-    case 'opencode': return <OpenCodeLogo size={size} color={color} />
-    default:         return null
-  }
-}
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type DragHandleProps = Record<string, any>
@@ -43,9 +32,10 @@ interface Props {
    *  exists — show "Hand off →" to advance to it. */
   hasNextStep?: boolean
   onHandoff?: () => void
+  onRename?: (label: string) => void  // rename the pane (sets customLabel; '' clears it back to the default)
 }
 
-export default function PaneHeader({ pane, zoomed, onZoom, onClose, onColorChange, onNoteChange, dragHandleProps, processEnded, isBusy, onRestart, onSaveConversation, onCopyLastResponse, showBlocks, blockCount, onToggleBlocks, onShare, isSharing, repoPathDiverged, onSyncCwd, hasNextStep, onHandoff, ports = [] }: Props) {
+export default function PaneHeader({ pane, zoomed, onZoom, onClose, onColorChange, onNoteChange, dragHandleProps, processEnded, isBusy, onRestart, onSaveConversation, onCopyLastResponse, showBlocks, blockCount, onToggleBlocks, onShare, isSharing, repoPathDiverged, onSyncCwd, hasNextStep, onHandoff, ports = [], onRename }: Props) {
   const config = AI_CONFIG[pane.aiType]
   const displayLabel = pane.customLabel ?? config.label
   const displayColor = pane.customColor ?? config.color
@@ -57,6 +47,9 @@ export default function PaneHeader({ pane, zoomed, onZoom, onClose, onColorChang
   const [noteValue, setNoteValue] = useState(pane.note ?? '')
   const noteInputRef = useRef<HTMLInputElement>(null)
   const pickerRef = useRef<HTMLDivElement>(null)
+  const [editingLabel, setEditingLabel] = useState(false)
+  const [labelValue, setLabelValue] = useState(pane.customLabel ?? '')
+  const labelInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     if (!showPicker) return
@@ -72,6 +65,10 @@ export default function PaneHeader({ pane, zoomed, onZoom, onClose, onColorChang
   useEffect(() => {
     if (editingNote) noteInputRef.current?.focus()
   }, [editingNote])
+
+  useEffect(() => {
+    if (editingLabel) { labelInputRef.current?.focus(); labelInputRef.current?.select() }
+  }, [editingLabel])
 
   const handleSave = async () => {
     await onSaveConversation?.()
@@ -90,24 +87,33 @@ export default function PaneHeader({ pane, zoomed, onZoom, onClose, onColorChang
     onNoteChange(noteValue)
   }
 
+  const commitLabel = () => {
+    setEditingLabel(false)
+    onRename?.(labelValue.trim())
+  }
+
   return (
-    <div
-      className="pane-header"
-      style={{ borderBottom: `1px solid ${pane.borderColor}44` }}
-    >
+    <div className="pane-header">
       {dragHandleProps && (
         <div className="pane-drag-handle" {...dragHandleProps} />
       )}
       <div className="pane-header-left">
         <div className="pane-color-btn-wrap" ref={pickerRef}>
           <button
-            className="pane-color-btn"
-            style={{ background: pane.borderColor }}
+            className={`pane-color-btn${pane.borderColor === 'transparent' ? ' off' : ''}`}
+            style={pane.borderColor === 'transparent' ? undefined : { background: pane.borderColor }}
             onClick={() => setShowPicker((v) => !v)}
-            title="Change border color"
+            title={pane.borderColor === 'transparent' ? 'Border off' : 'Change border color'}
           />
           {showPicker && (
             <div className="pane-color-popover">
+              {/* Cruz = apagar el borde del pane (marco transparente). El acento
+                  del header/label no depende de borderColor, así que sigue visible. */}
+              <button
+                className={`color-swatch color-swatch-off${pane.borderColor === 'transparent' ? ' selected' : ''}`}
+                onClick={() => { onColorChange('transparent'); setShowPicker(false) }}
+                title="No border"
+              >✕</button>
               {COLOR_PALETTE.map((c) => (
                 <button
                   key={c}
@@ -120,11 +126,32 @@ export default function PaneHeader({ pane, zoomed, onZoom, onClose, onColorChang
           )}
         </div>
 
-        <span className="pane-ai-label" style={{ color: displayColor }} title={pane.accountName ? `${displayLabel} · ${pane.accountName}` : displayLabel}>
-          {(pane.aiType === 'terminal' || pane.aiType === 'custom')
-            ? displayLabel
-            : <AILogo aiType={pane.aiType} color={displayColor} size={14} />}
-        </span>
+        {editingLabel && onRename ? (
+          <input
+            ref={labelInputRef}
+            className="pane-label-input"
+            value={labelValue}
+            onChange={(e) => setLabelValue(e.target.value)}
+            onBlur={commitLabel}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') commitLabel()
+              if (e.key === 'Escape') { setLabelValue(pane.customLabel ?? ''); setEditingLabel(false) }
+            }}
+            placeholder="Rename pane…"
+            maxLength={40}
+          />
+        ) : (
+          <span
+            className="pane-ai-label"
+            style={{ color: displayColor }}
+            title={onRename ? 'Double-click to rename' : (pane.accountName ? `${displayLabel} · ${pane.accountName}` : displayLabel)}
+            onDoubleClick={onRename ? () => { setLabelValue(pane.customLabel ?? ''); setEditingLabel(true) } : undefined}
+          >
+            {(pane.aiType === 'terminal' || pane.aiType === 'custom')
+              ? displayLabel
+              : <><AILogo aiType={pane.aiType} color={displayColor} size={14} />{pane.customLabel && <span className="pane-custom-label">{pane.customLabel}</span>}</>}
+          </span>
+        )}
 
         <PortChipsGroup ports={ports} paneId={pane.id} />
 

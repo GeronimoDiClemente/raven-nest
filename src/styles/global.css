@@ -6,15 +6,46 @@
 }
 
 :root {
-  --raven-blue: #0066FF;
-  --raven-blue-dim: #0066FF44;
-  --bg-app: #000000;
-  --bg-surface: #0a0a0a;
-  --bg-elevated: #111111;
+  /* ── Contrato de tokens shadcn / tweakcn ─────────────────────────────
+     Estos son los tokens que exporta tweakcn.com. Editá acá (o pegá un
+     export de tweakcn con el botón "{} Code") para re-skinear TODA la app.
+     Los valores de arranque son los actuales de Nest → cero cambio visual. */
+  --background: #000000;
+  --foreground: #e8e8e8;
+  --card: #0a0a0a;
+  --card-foreground: #e8e8e8;
+  --popover: #111111;
+  --popover-foreground: #e8e8e8;
+  --primary: #0066FF;
+  --primary-foreground: #ffffff;
+  --secondary: #0a0a0a;
+  --secondary-foreground: #e8e8e8;
+  --muted: #111111;
+  --muted-foreground: #888;
+  --accent: #111111;
+  --accent-foreground: #e8e8e8;
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
   --border: #1e1e1e;
-  --text-primary: #e8e8e8;
-  --text-secondary: #888;
+  --input: #1e1e1e;
+  --ring: #0066FF;
+  --radius: 0.5rem;
+
+  /* ── Puente hacia los tokens propios de Nest ─────────────────────────
+     Los nombres que Nest ya usa en las 11k líneas de CSS ahora SIGUEN a
+     los tokens de arriba. Así tweakcn controla la UI sin tocar todo el CSS. */
+  --raven-blue: var(--primary);
+  --bg-app: var(--background);
+  --bg-surface: var(--card);
+  --bg-elevated: var(--popover);
+  --text-primary: var(--foreground);
+  --text-secondary: var(--muted-foreground);
+
+  /* Pendiente de bridge (Paso 3 — todavía sin fuente shadcn exacta) */
+  --raven-blue-dim: #0066FF44;
   --text-muted: #555;
+
+  /* Layout (no son color — se quedan como están) */
   --titlebar-height: 44px;
   --header-height: 32px;
 }
@@ -124,7 +155,9 @@ body {
   cursor: pointer;
   flex-shrink: 1;
   flex-basis: 180px;
-  min-width: 140px;
+  /* Compress to keep every workspace tab visible when the window is narrow
+     (they shrink to a clickable chip) instead of overflowing out of reach. */
+  min-width: 44px;
   max-width: 200px;
   color: var(--text-secondary);
   border: 1px solid transparent;
@@ -136,7 +169,7 @@ body {
 
 /* Active tab keeps a touch more breathing room when crowded */
 .tab.active {
-  min-width: 160px;
+  min-width: 56px;
 }
 
 /* When a tab shrinks below readable width, hide the close button so the
@@ -286,6 +319,10 @@ body {
 @keyframes activityPulse {
   0%, 100% { opacity: 1; transform: scale(1); }
   50% { opacity: 0.4; transform: scale(0.8); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tab-activity-dot { animation: none; }
 }
 
 /* ── Sidebar ─────────────────────────────────────────────── */
@@ -661,15 +698,6 @@ body {
   flex-shrink: 0;
 }
 
-/* Desplegable "More tools" — header siempre visible, contenido con scroll
-   interno cuando abierto. flex-shrink:0 + max-height en la lista hace que
-   no robe altura a la sección de worktrees. */
-.sidebar-more {
-  flex-shrink: 0;
-  display: flex;
-  flex-direction: column;
-}
-
 .sidebar-more-toggle {
   color: var(--text-muted);
   font-size: 12px;
@@ -684,11 +712,23 @@ body {
   color: var(--text-primary);
 }
 
+/* More tools se dimensiona por CONTENIDO y deja que scrollee el sidebar
+   entero (un solo scrollbar, el de .sidebar-scroll). El scroll propio +
+   min-height:120px que tenía antes topeaba la lista a ~2.7 items (44px c/u)
+   y cortaba el último (Cmd Hist) sin affordance de scroll — se veía como un
+   glitch. El split de arriba (grow:1) ya absorbe el alto libre y trae su
+   propio scroll interno, así que la lista no necesita competir por espacio. */
+.sidebar-more {
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 auto;
+  min-height: 0;
+}
+.sidebar-more-toggle { flex: 0 0 auto; }
 .sidebar-more-list {
   display: flex;
   flex-direction: column;
-  max-height: 40vh;
-  overflow-y: auto;
+  flex: 0 0 auto;
   overflow-x: hidden;
   border-top: 1px solid var(--border);
   border-bottom: 1px solid var(--border);
@@ -703,7 +743,7 @@ body {
 }
 
 .sidebar-new-terminal:hover {
-  color: #0066FF;
+  color: var(--primary);
 }
 
 /* En modo colapsado (sin .expanded) la sidebar es de 44px y los labels van
@@ -719,6 +759,19 @@ body {
 }
 
 /* ── Grid Workspace ─────────────────────────────────────── */
+
+/* Reparenting del layout: el arbol de panels solo renderiza huecos y cada pane
+   vive en su propio host, que se muda de hueco con appendChild sin remontar
+   (ver PaneLayoutEngine). Los dos son cajas transparentes que llenan el panel. */
+.pane-slot,
+.pane-host {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
 
 .grid-workspace {
   flex: 1;
@@ -1041,7 +1094,7 @@ body {
   background: none;
   border: none;
   cursor: pointer;
-  color: #EF4444;
+  color: var(--destructive);
   font-size: 11px;
   padding: 6px 10px;
   border-radius: 6px;
@@ -1173,7 +1226,7 @@ body {
 .snippet-add-btn:hover {
   background: #0066FF22;
   color: var(--raven-blue);
-  border-color: #0066FF44;
+  border-color: var(--raven-blue-dim);
 }
 
 .snippet-form {
@@ -1337,7 +1390,7 @@ body {
 .snippet-send-btn:hover {
   background: #0066FF22;
   color: var(--raven-blue);
-  border-color: #0066FF44;
+  border-color: var(--raven-blue-dim);
 }
 
 .snippet-broadcast-btn:hover {
@@ -1357,7 +1410,7 @@ body {
   transition: color 0.15s;
 }
 
-.snippet-delete-btn:hover { color: #EF4444; }
+.snippet-delete-btn:hover { color: var(--destructive); }
 
 /* ── Conversation Sidebar ────────────────────────────────── */
 
@@ -1525,7 +1578,7 @@ body {
 .conv-item:hover .conv-item-delete,
 .conv-item:hover .conv-item-export,
 .conv-item:hover .conv-item-rename { opacity: 1; }
-.conv-item-delete:hover { color: #EF4444; }
+.conv-item-delete:hover { color: var(--destructive); }
 .conv-item-export:hover { color: var(--raven-blue); }
 .conv-item-rename:hover { color: var(--raven-blue); }
 
@@ -1654,7 +1707,7 @@ body {
   font-size: 11px;
   font-family: inherit;
   background: #ffffff0a;
-  border: 1px solid #0066FF44;
+  border: 1px solid var(--raven-blue-dim);
   border-radius: 3px;
   color: var(--text-primary);
   padding: 1px 5px;
@@ -1804,6 +1857,10 @@ body {
 .pane-header {
   height: var(--header-height);
   background: color-mix(in srgb, var(--pane-color, var(--bg-surface)) 8%, var(--bg-surface));
+  /* 27% ~ el 0x44 que antes se concatenaba al color en el estilo inline. Con
+     --pane-color: transparent el color-mix da transparente y la linea
+     desaparece, en vez de quedar pegado el color anterior. */
+  border-bottom: 1px solid color-mix(in srgb, var(--pane-color, var(--border)) 27%, transparent);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1893,7 +1950,7 @@ body {
   font-weight: 600;
   letter-spacing: 0.6px;
   text-transform: uppercase;
-  color: #888;
+  color: var(--muted-foreground);
   background: #88888818;
   border: 1px solid #88888840;
   border-radius: 3px;
@@ -1921,7 +1978,7 @@ body {
   align-items: center;
   gap: 4px;
   background: transparent;
-  border: 1px solid #0066FF44;
+  border: 1px solid var(--raven-blue-dim);
   color: var(--raven-blue);
   font-size: 11px;
   font-weight: 500;
@@ -2044,15 +2101,62 @@ body {
   cursor: grabbing;
 }
 
+.editor-pane-drag-handle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  align-self: stretch;
+  cursor: grab;
+  color: var(--text-muted);
+  opacity: 0;
+  transition: opacity 0.15s;
+  flex: 0 0 auto;
+}
+
+.editor-pane:hover .editor-pane-drag-handle {
+  opacity: 0.6;
+}
+
+.editor-pane-drag-handle:hover {
+  opacity: 1;
+}
+
+.editor-pane-drag-handle::before {
+  content: '⠿';
+  font-size: 14px;
+  line-height: 1;
+}
+
+.editor-pane-drag-handle:active {
+  cursor: grabbing;
+}
+
 .drag-overlay-pane {
   background: var(--bg-surface);
-  border: 1.5px solid color-mix(in srgb, var(--pane-color, var(--border)) 60%, transparent);
+  /* Borde neutro (no el --pane-color, que en el browser es azul y quedaba
+     fuerte). La sombra da la elevación del fantasma. */
+  border: 1px solid var(--border);
   border-radius: 4px;
   height: 100%;
   min-height: 80px;
   opacity: 0.9;
   box-shadow: 0 20px 60px rgba(0,0,0,0.6), 0 0 20px color-mix(in srgb, var(--pane-color, transparent) 30%, transparent);
   transform: scale(1.02);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Foto del contenido del pane arrastrado: llena el fantasma debajo del header
+   para que "el contenido siga" el cursor. */
+.drag-overlay-snapshot {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  object-fit: cover;
+  object-position: top left;
+  display: block;
 }
 
 .zoom-backdrop {
@@ -2083,7 +2187,60 @@ body {
   animation: zoomIn 0.3s cubic-bezier(0.32, 0.72, 0, 1) forwards;
 }
 
+/* El editor zoomeado ocupa todo el workspace igual que la terminal. */
+.editor-pane.zoomed {
+  position: fixed;
+  top: var(--titlebar-height);
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 50;
+  border-radius: 0;
+  animation: zoomIn 0.3s cubic-bezier(0.32, 0.72, 0, 1) forwards;
+}
+
+.editor-pane.zoomed.zooming-out {
+  animation: zoomOut 0.3s cubic-bezier(0.32, 0.72, 0, 1) forwards;
+}
+
+.editor-pane-zoom {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  margin-left: auto;
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.1s, color 0.1s;
+}
+
+.editor-pane:hover .editor-pane-zoom { opacity: 1; }
+.editor-pane-zoom:hover { color: var(--text-primary); }
+
 .terminal-pane.zoomed.zooming-out {
+  animation: zoomOut 0.3s cubic-bezier(0.32, 0.72, 0, 1) forwards;
+}
+
+/* El browser zoomeado ocupa todo el workspace igual que la terminal. Sin
+   border-top de color (el browser va sin borde). El WebContentsView se
+   reposiciona al rect grande vía el effect de reposition de BrowserCell. */
+.browser-cell.zoomed {
+  position: fixed;
+  top: var(--titlebar-height);
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 50;
+  border-radius: 0;
+  animation: zoomIn 0.3s cubic-bezier(0.32, 0.72, 0, 1) forwards;
+}
+
+.browser-cell.zoomed.zooming-out {
   animation: zoomOut 0.3s cubic-bezier(0.32, 0.72, 0, 1) forwards;
 }
 
@@ -2331,18 +2488,18 @@ body {
   background: #1a1a1a;
   border: 1px solid #333;
   border-radius: 4px;
-  color: #e8e8e8;
+  color: var(--foreground);
   font-size: 12px;
   padding: 5px 8px;
   outline: none;
 }
 
 .file-staging-input:focus {
-  border-color: #0066FF;
+  border-color: var(--primary);
 }
 
 .file-staging-send {
-  background: #0066FF;
+  background: var(--primary);
   border: none;
   border-radius: 4px;
   color: #fff;
@@ -2805,7 +2962,7 @@ body {
 .pr-deletions {
   font-size: 11px;
   font-weight: 600;
-  color: #ef4444;
+  color: var(--destructive);
 }
 
 .pr-diff-pre {
@@ -2879,7 +3036,7 @@ body {
 .pr-review-state.changes_requested { background: #f59e0b22; color: #f59e0b; border: 1px solid #f59e0b44; }
 .pr-review-state.commented { background: #3b82f622; color: #3b82f6; border: 1px solid #3b82f644; }
 .pr-review-state.pending { background: #6b728022; color: #9ca3af; border: 1px solid #6b728044; }
-.pr-review-state.dismissed { background: #1e1e1e; color: var(--text-muted); border: 1px solid var(--border); }
+.pr-review-state.dismissed { background: var(--muted); color: var(--text-muted); border: 1px solid var(--border); }
 
 .pr-review-body-text {
   padding: 8px 10px;
@@ -3226,20 +3383,35 @@ body {
 /* ── Resize Handle ───────────────────────────────────────── */
 
 .resize-handle {
+  position: relative;
   background: transparent;
   transition: background 0.15s;
   z-index: 10;
   flex-shrink: 0;
 }
 
+/* El separador se ve de 2px pero se agarra en 10px: el ::after extiende el
+   area de hit 4px hacia cada pane vecino sin ocupar espacio en el layout. */
 .resize-handle--col {
   cursor: col-resize;
-  width: 6px;
+  width: 2px;
 }
 
 .resize-handle--row {
   cursor: row-resize;
-  height: 6px;
+  height: 2px;
+}
+
+.resize-handle--col::after {
+  content: '';
+  position: absolute;
+  inset: 0 -4px;
+}
+
+.resize-handle--row::after {
+  content: '';
+  position: absolute;
+  inset: -4px 0;
 }
 
 .resize-handle:hover,
@@ -3784,7 +3956,7 @@ body {
 
 .update-banner--error {
   background: #2a0f0f;
-  color: #EF4444;
+  color: var(--destructive);
   border-bottom: 1px solid #EF444433;
 }
 
@@ -4117,6 +4289,13 @@ kbd {
   position: relative;
 }
 
+/* El picker de agentes tiene 13 tiles en 4 columnas: con los 480px del dialogo
+   generico quedaban de 100px y se comprimia todo. 640px devuelve tiles de ~140,
+   practicamente los mismos ~136px que tenian con 3 columnas. */
+.dialog--picker {
+  width: 640px;
+}
+
 .dialog-title {
   font-size: 18px;
   font-weight: 600;
@@ -4231,7 +4410,7 @@ kbd {
 }
 
 .cli-banner-log {
-  background: #111;
+  background: var(--popover);
   border: 1px solid #333;
   border-radius: 4px;
   padding: 6px 8px;
@@ -4249,7 +4428,9 @@ kbd {
 
 .ai-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  /* 4 columnas: con 13 agentes en la lista, a 3 el dialogo se estiraba a 5
+     filas. A 4 entra en 4 filas y se lee de un vistazo. */
+  grid-template-columns: repeat(4, 1fr);
   gap: 8px;
   margin-bottom: 16px;
 }
@@ -4406,7 +4587,7 @@ kbd {
 }
 
 .account-item:hover {
-  background: #1e1e1e;
+  background: var(--border);
   border-color: var(--raven-blue);
 }
 
@@ -4433,7 +4614,7 @@ kbd {
 }
 .account-item:hover .account-delete-btn { opacity: 1; }
 .account-delete-btn:hover {
-  color: #ef4444;
+  color: var(--destructive);
   background: rgba(239, 68, 68, 0.1);
 }
 
@@ -4510,6 +4691,28 @@ kbd {
   border-color: #fff;
   transform: scale(1.15);
   box-shadow: 0 0 0 2px rgba(255,255,255,0.3);
+}
+
+/* "Sin borde": apaga el marco de color del pane (borderColor = transparent). */
+.color-swatch-off {
+  background: transparent;
+  border: 2px dashed var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1;
+}
+.color-swatch-off.selected {
+  border-color: #fff;
+  color: #fff;
+}
+/* "Sin color": mini círculo transparente con un aro sólido MUY sutil — sin la
+   ✕ ni el borde punteado (que se leían como líneas / obstrucción). */
+.pane-color-btn.off {
+  background: transparent;
+  border: 1px solid var(--border);
 }
 
 /* ── Global Search ───────────────────────────────────────── */
@@ -4906,7 +5109,7 @@ kbd {
 
 .mcp-save-error {
   font-size: 11px;
-  color: #EF4444;
+  color: var(--destructive);
   padding: 3px 2px 0;
 }
 
@@ -5222,7 +5425,7 @@ kbd {
   background: none;
   border: none;
   cursor: pointer;
-  color: #EF4444;
+  color: var(--destructive);
   font-size: 11px;
   padding: 6px 10px;
   border-radius: 6px;
@@ -5544,11 +5747,11 @@ button.ci-badge:hover {
 }
 
 .ci-badge--failure {
-  color: #ef4444;
+  color: var(--destructive);
   border-color: #ef444433;
 }
 .ci-badge--failure .ci-badge-dot {
-  background: #ef4444;
+  background: var(--destructive);
 }
 
 .ci-badge--running {
@@ -5822,7 +6025,7 @@ button.ci-badge:hover {
   background: rgba(239,68,68,0.1);
   border: 1px solid rgba(239,68,68,0.3);
   border-radius: 5px;
-  color: #ef4444;
+  color: var(--destructive);
   font-size: 11px;
 }
 
@@ -5970,7 +6173,7 @@ button.ci-badge:hover {
   cursor: not-allowed;
 }
 .repo-menu-item.danger {
-  color: #ef4444;
+  color: var(--destructive);
 }
 .repo-menu-item.danger:hover {
   background: rgba(239, 68, 68, 0.1);
@@ -6286,7 +6489,7 @@ button.ci-badge:hover {
   flex-shrink: 0;
 }
 .chat-row:hover .chat-delete-btn { opacity: 0.45; }
-.chat-delete-btn:hover { opacity: 1 !important; color: #ef4444; }
+.chat-delete-btn:hover { opacity: 1 !important; color: var(--destructive); }
 
 .chat-reactions {
   display: flex;
@@ -6422,7 +6625,7 @@ button.ci-badge:hover {
   top: -22px;
   left: 16px;
   font-size: 11px;
-  color: #ef4444;
+  color: var(--destructive);
 }
 
 /* ── RepoStatusPanel ─────────────────────────────────────── */
@@ -6585,7 +6788,8 @@ button.ci-badge:hover {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  width: 480px;
+  /* 7 tabs no longer fit in 480px; cap to the viewport on small windows */
+  width: min(640px, calc(100vw - 32px));
   max-height: 560px;
   background: var(--bg-elevated);
   border: 1px solid var(--border);
@@ -6635,6 +6839,7 @@ button.ci-badge:hover {
 
 .sp-tabs {
   display: flex;
+  flex-wrap: wrap; /* never clip tabs against the modal edge */
   gap: 2px;
   padding: 10px 16px;
   border-bottom: 1px solid var(--border);
@@ -6642,7 +6847,7 @@ button.ci-badge:hover {
 }
 
 .sp-tab {
-  padding: 6px 16px;
+  padding: 6px 12px;
   border-radius: 6px;
   background: transparent;
   color: var(--text-secondary);
@@ -6778,7 +6983,7 @@ button.ci-badge:hover {
 .sp-btn-danger {
   padding: 5px 12px;
   background: transparent;
-  color: #ef4444;
+  color: var(--destructive);
   border: 1px solid #ef444455;
   border-radius: 6px;
   font-size: 12px;
@@ -7020,7 +7225,7 @@ button.ci-badge:hover {
   width: 10px;
   height: 10px;
   border-radius: 50%;
-  border: 2px solid var(--bg-surface, #0a0a0a);
+  border: 2px solid var(--bg-surface, var(--card));
   box-sizing: border-box;
 }
 .user-menu-dot--free       { background: #6b6b6b; }
@@ -7060,7 +7265,7 @@ button.ci-badge:hover {
 .user-menu-popover {
   position: fixed;
   width: 280px;
-  background: var(--bg-elevated, #111);
+  background: var(--bg-elevated, var(--popover));
   border: 1px solid var(--border);
   border-radius: 10px;
   box-shadow: 0 12px 32px rgba(0,0,0,0.6);
@@ -7201,7 +7406,7 @@ button.ci-badge:hover {
   flex-direction: column;
   border: 1px solid var(--border);
   border-radius: 6px;
-  background: var(--bg-elevated, #111);
+  background: var(--bg-elevated, var(--popover));
   overflow: hidden;
 }
 
@@ -7291,7 +7496,7 @@ button.ci-badge:hover {
 }
 .actions-row:focus-visible {
   background: var(--bg-app, #050505);
-  box-shadow: 0 0 0 1px var(--raven-blue, #0066FF);
+  box-shadow: 0 0 0 1px var(--raven-blue, var(--primary));
 }
 .actions-row--empty,
 .actions-row--error {
@@ -7387,7 +7592,7 @@ button.ci-badge:hover {
   gap: 8px;
   padding: 6px 8px;
   border-radius: 6px;
-  background: var(--bg-elevated, #111);
+  background: var(--bg-elevated, var(--popover));
   border: 1px solid var(--border);
   cursor: pointer;
   font-size: 12px;
@@ -7397,11 +7602,11 @@ button.ci-badge:hover {
 }
 .actions-bar:hover {
   background: var(--bg-app, #050505);
-  border-color: var(--raven-blue, #0066FF);
+  border-color: var(--raven-blue, var(--primary));
 }
 .actions-bar:focus-visible {
-  border-color: var(--raven-blue, #0066FF);
-  box-shadow: 0 0 0 1px var(--raven-blue, #0066FF);
+  border-color: var(--raven-blue, var(--primary));
+  box-shadow: 0 0 0 1px var(--raven-blue, var(--primary));
 }
 .actions-bar--muted,
 .actions-bar--error {
@@ -7410,7 +7615,7 @@ button.ci-badge:hover {
 }
 .actions-bar--muted:hover,
 .actions-bar--error:hover {
-  background: var(--bg-elevated, #111);
+  background: var(--bg-elevated, var(--popover));
   border-color: var(--border);
 }
 
@@ -7517,7 +7722,7 @@ button.ci-badge:hover {
   padding: 6px 12px; cursor: pointer; font-size: 12px;
   color: var(--text-secondary);
 }
-.wt-item:hover { background: #111; color: var(--text-primary); }
+.wt-item:hover { background: var(--popover); color: var(--text-primary); }
 .wt-item-active {
   background: rgba(0, 102, 255, 0.10); color: var(--text-primary);
   border-left: 2px solid var(--raven-blue); padding-left: 10px;
@@ -7764,14 +7969,14 @@ button.ci-badge:hover {
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 1px;
-  color: var(--text-muted, #888);
+  color: var(--text-muted, var(--muted-foreground));
   padding: 6px 10px 4px;
 }
 .ports-section-label--muted { opacity: 0.7; }
 .ports-item--muted { opacity: 0.7; }
 .ports-empty {
   padding: 8px 10px;
-  color: var(--text-muted, #888);
+  color: var(--text-muted, var(--muted-foreground));
   font-size: 11px;
   font-style: italic;
 }
@@ -7791,7 +7996,9 @@ button.ci-badge:hover {
   display: flex; flex-direction: column;
   height: 100%; width: 100%;
   background: var(--bg-app);
-  border: 2px solid var(--raven-blue);
+  /* Sin borde: el azul sólido quedaba muy fuerte y el usuario lo prefiere
+     limpio. (El borde opcional por pane queda como feature futura.) */
+  border: none;
   border-radius: 4px; overflow: hidden;
 }
 .browser-header {
@@ -8341,7 +8548,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
   height: 16px;
   padding: 0 5px;
   border-radius: 8px;
-  background: #EF4444;
+  background: var(--destructive);
   color: #fff;
   font-size: 10px;
   font-weight: 700;
@@ -8405,7 +8612,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
   font-size: 11px;
   margin-top: 6px;
 }
-.join-code-message.error { color: #EF4444; }
+.join-code-message.error { color: var(--destructive); }
 .join-code-message.success { color: #22C55E; }
 
 .join-code-pending-list {
@@ -9043,8 +9250,8 @@ body.platform-mac .tabbar { padding-right: 116px; }
   width: 100%;
   box-sizing: border-box;
   padding: 16px 14px;
-  background: var(--bg-surface, #0a0a0a);
-  border: 1px solid var(--border, #1e1e1e);
+  background: var(--bg-surface, var(--card));
+  border: 1px solid var(--border);
   border-radius: 10px;
   color: var(--text-primary, #fff);
   font-family: 'JetBrains Mono', 'Menlo', 'Consolas', monospace;
@@ -9067,7 +9274,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
 }
 
 .jcf-input:focus {
-  border-color: var(--raven-blue, #0066FF);
+  border-color: var(--raven-blue, var(--primary));
   background: #0d0d0d;
   box-shadow: 0 0 0 3px rgba(0, 102, 255, 0.16);
 }
@@ -9084,8 +9291,8 @@ body.platform-mac .tabbar { padding-right: 116px; }
   gap: 8px;
   width: 100%;
   padding: 11px 14px;
-  background: var(--raven-blue, #0066FF);
-  border: 1px solid var(--raven-blue, #0066FF);
+  background: var(--raven-blue, var(--primary));
+  border: 1px solid var(--raven-blue, var(--primary));
   border-radius: 9px;
   color: #fff;
   font-family: inherit;
@@ -9169,7 +9376,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
 .jcf-pending {
   margin-top: 4px;
   padding-top: 14px;
-  border-top: 1px solid var(--border, #1e1e1e);
+  border-top: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -9196,7 +9403,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
   gap: 10px;
   padding: 9px 12px;
   background: rgba(255, 255, 255, 0.02);
-  border: 1px solid var(--border, #1e1e1e);
+  border: 1px solid var(--border);
   border-radius: 8px;
   transition: border-color 150ms ease, background-color 150ms ease;
 }
@@ -9232,7 +9439,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
   flex-shrink: 0;
   padding: 5px 10px;
   background: transparent;
-  border: 1px solid var(--border, #1e1e1e);
+  border: 1px solid var(--border);
   border-radius: 6px;
   color: var(--text-secondary, #aaa);
   font-family: inherit;
@@ -9904,3 +10111,1634 @@ body.platform-mac .tabbar { padding-right: 116px; }
 .gb-hint { font-size: 11px; color: var(--text-muted); }
 .gb-isec-term { border-bottom: none; }
 .gb-term-live { height: 260px; width: 100%; }
+/* ── ExplorerPanel (File Tree) ──────────────────────────────────
+   Estructura VS Code (header / fila del repo con acciones / árbol con
+   chevrons, íconos e indent guides) con la piel de la plataforma:
+   radios en los items, hover suave y el mismo acento violeta que
+   .sp-tab.active para la selección. */
+
+/* Región de scroll propia, calcada del patrón de .sidebar-worktrees-wrap:
+   el árbol scrollea adentro y las secciones de abajo (Team/Settings/...)
+   quedan siempre alcanzables. Header y fila del repo quedan fijos. */
+.sidebar-explorer-wrap {
+  flex: 1 1 auto;
+  min-height: 160px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.explorer-panel { font-size: 12.5px; display: flex; flex-direction: column; flex: 1; min-height: 0; }
+
+.explorer-panel-empty {
+  padding: 14px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.explorer-empty-title { color: var(--text-secondary); font-weight: 500; }
+.explorer-empty-hint { color: var(--text-muted); font-size: 11.5px; }
+
+.explorer-header {
+  padding: 8px 10px 4px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  user-select: none;
+}
+
+.explorer-root-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 2px 6px 2px 10px;
+  user-select: none;
+}
+.explorer-root-name {
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.explorer-root-actions { display: flex; gap: 2px; opacity: 0; transition: opacity 0.12s; }
+.explorer-root-row:hover .explorer-root-actions,
+.explorer-panel:focus-within .explorer-root-actions { opacity: 1; }
+.explorer-action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+.explorer-action-btn:hover { background: var(--bg-surface); color: var(--text-primary); }
+
+.explorer-tree {
+  padding: 0 4px 6px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+.explorer-tree:hover { scrollbar-color: rgba(128,128,128,0.3) transparent; }
+
+/* Hub Explorer multi-raíz: una raíz colapsable por workspace abierto con repo. */
+.hub-explorer { display: flex; flex-direction: column; min-height: 0; overflow-y: auto; }
+.hub-explorer-root { display: flex; flex-direction: column; }
+.hub-explorer-root-head {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px 3px 8px;
+  cursor: pointer;
+  user-select: none;
+}
+.hub-explorer-root-head:hover { background: var(--bg-surface); }
+.hub-explorer-root-name {
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hub-explorer-root-repo {
+  font-size: 10.5px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.explorer-tree-nested { padding: 0 4px 4px; }
+
+.explorer-entry {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding-right: 6px;
+  border-radius: 5px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  transition: background 0.1s, color 0.1s;
+}
+.explorer-entry:hover { background: rgba(255, 255, 255, 0.05); color: var(--text-primary); }
+.explorer-entry.selected { background: #7c3aed22; color: #a78bfa; }
+.explorer-entry.selected .explorer-type-icon { color: #a78bfa; }
+
+.explorer-entry-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 10px;
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+.explorer-chevron { transition: transform 0.12s; }
+.explorer-chevron.open { transform: rotate(90deg); }
+
+.explorer-type-icon { flex-shrink: 0; }
+.ic-folder { color: #8f9aa8; }
+.ic-ts   { color: #4d94ff; }  /* raven blue family */
+.ic-js   { color: #e8c545; }
+.ic-json { color: #d19a66; }
+.ic-md   { color: #a78bfa; }  /* platform violet */
+.ic-css  { color: #56b6c2; }
+.ic-html { color: #e0876c; }
+.ic-img  { color: #6cc27e; }
+.ic-file { color: var(--text-muted); }
+
+.explorer-entry-name { overflow: hidden; text-overflow: ellipsis; }
+
+.explorer-subtree { position: relative; }
+.explorer-subtree::before {
+  content: '';
+  position: absolute;
+  left: var(--guide-left, 11px);
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: rgba(255, 255, 255, 0.07);
+}
+
+/* ── EditorPane (Monaco) ─────────────────────────────────────── */
+
+.editor-pane { display: flex; flex-direction: column; height: 100%; }
+
+/* Tab bar estilo VS Code con la piel de la plataforma: barra hundida,
+   tab activa elevada con hilo de acento violeta arriba, punto dirty que
+   el hover reemplaza por las acciones. */
+.editor-pane-tabs {
+  display: flex;
+  height: 32px;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+  scrollbar-width: none;
+  flex-shrink: 0;
+}
+
+.editor-tab {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px 0 10px;
+  /* Se comprimen a un chip clickeable cuando hay muchos archivos, igual que
+     las tabs de workspace, para que TODAS queden a la vista/alcance en vez de
+     desbordarse fuera de la barra. El scroll oculto cubre el resto. */
+  flex: 0 1 140px;
+  min-width: 38px;
+  max-width: 180px;
+  overflow: hidden;
+  font-size: 12px;
+  color: var(--text-secondary);
+  border-right: 1px solid var(--border);
+  border-top: 1px solid transparent;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  transition: background 0.1s, color 0.1s;
+}
+/* La tab activa mantiene ancho suficiente para leer el archivo abierto. */
+.editor-tab.active { min-width: 96px; }
+.editor-tab:hover { background: rgba(255, 255, 255, 0.04); color: var(--text-primary); }
+.editor-tab.active {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  border-top-color: #7c3aed;
+}
+.editor-tab .explorer-type-icon { flex-shrink: 0; }
+.editor-tab-name { overflow: hidden; text-overflow: ellipsis; }
+
+.editor-tab-dirty { color: #a78bfa; font-size: 10px; line-height: 1; }
+/* Los botones flotan sobre el final de la tab. Con min-width 38px y overflow
+   hidden quedaban clipeados fuera del box: el x y el "abrir en otro pane" eran
+   inalcanzables y no se podia cerrar un archivo sin cerrar otros antes.
+   Absolutos entran siempre, sin ensanchar la tab ni empujar a las vecinas. */
+.editor-tab-actions {
+  display: none;
+  align-items: center;
+  gap: 1px;
+  position: absolute;
+  right: 2px;
+  top: 50%;
+  transform: translateY(-50%);
+  padding-left: 12px;
+  background: linear-gradient(to right, transparent 0, var(--bg-surface) 12px);
+}
+.editor-tab.active .editor-tab-actions {
+  background: linear-gradient(to right, transparent 0, var(--bg-elevated) 12px);
+}
+.editor-tab:hover .editor-tab-actions { display: flex; }
+.editor-tab.dirty:hover .editor-tab-dirty { display: none; }
+
+.editor-tab-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+}
+.editor-tab-btn:hover { background: var(--bg-surface); color: var(--text-primary); }
+
+/* Banner de conflicto: aviso ámbar sutil de la plataforma, no un bloque
+   marrón sólido. */
+.editor-conflict-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: rgba(255, 184, 0, 0.08);
+  border-bottom: 1px solid rgba(255, 184, 0, 0.25);
+  font-size: 12px;
+  flex-shrink: 0;
+}
+.editor-conflict-text { color: #ffcf66; margin-right: auto; }
+
+.editor-banner-btn {
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 11.5px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.editor-banner-btn:hover { background: var(--bg-surface); color: var(--text-primary); }
+.editor-banner-btn.primary { border-color: #7c3aed55; color: #a78bfa; }
+.editor-banner-btn.primary:hover { background: #7c3aed22; }
+
+/* Archivo no cargable (binario / oversized): empty state centrado. */
+.editor-file-unavailable {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 24px;
+  font-size: 12.5px;
+}
+.editor-file-unavailable .explorer-type-icon { width: 28px; height: 28px; opacity: 0.5; }
+.editor-unavailable-text { color: var(--text-muted); text-align: center; }
+
+/* Pane crasheado (error boundary): mismo empty state, con acciones lado a lado. */
+.pane-crashed-actions { display: flex; gap: 8px; }
+
+/* Drop target de drag & drop (tab de otro pane o archivo del Explorer). */
+.editor-pane.drop-target { outline: 2px dashed #7c3aed88; outline-offset: -2px; }
+
+/* Badges de diff vs HEAD en el Explorer (+N verde / −M rojo / U untracked). */
+.explorer-diff { margin-left: auto; display: flex; gap: 5px; font-size: 10px; font-variant-numeric: tabular-nums; padding-right: 6px; flex-shrink: 0; }
+.diff-added { color: #3fb950; }
+.diff-deleted { color: #f85149; }
+.diff-untracked { color: #3fb950; opacity: 0.85; }
+
+/* Líneas agregadas/cambiadas vs HEAD dentro del editor: tinte sutil (que se
+   lea el código, no la marca) + barra de gutter como señal principal. */
+.nest-diff-added { background: rgba(63, 185, 80, 0.07); }
+.nest-diff-added-gutter { border-left: 3px solid #3fb950cc; margin-left: 3px; }
+
+
+/* ── Hub Overlay ─────────────────────────────────────────── */
+
+.hub-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 28px;
+}
+
+.hub-panel {
+  width: 100%;
+  height: 100%;
+  max-width: 1400px;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-app);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 32px 80px rgba(0, 0, 0, 0.75);
+  overflow: hidden;
+}
+
+.hub-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-surface);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  user-select: none;
+}
+
+.hub-title-hint {
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
+.hub-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-surface);
+  user-select: none;
+}
+
+.hub-chip {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 2px 8px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+
+.hub-chip:hover:not(:disabled) {
+  color: var(--text-primary);
+  border-color: var(--text-muted);
+}
+
+.hub-chip.on {
+  color: var(--text-primary);
+  background: #161616;
+  border-color: #2a2a2a;
+}
+
+.hub-chip:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.hub-chip-n {
+  color: var(--text-muted);
+  margin-left: 3px;
+}
+
+.hub-chip.on .hub-chip-n {
+  color: var(--text-secondary);
+}
+
+.hub-pager {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.hub-pager-label {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.hub-pager-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px 5px;
+}
+
+.hub-pager-btn svg {
+  width: 11px;
+  height: 11px;
+}
+
+.hub-grid {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 380px));
+  grid-auto-rows: 210px;
+  align-content: start;
+  justify-content: start;
+  gap: 8px;
+  padding: 8px;
+  overflow-y: auto;
+}
+
+.hub-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 13px;
+  text-align: center;
+  padding: 24px;
+}
+.hub-empty-icon { color: var(--text-muted); opacity: 0.7; margin-bottom: 4px; }
+.hub-empty-title { color: var(--text-secondary); font-size: 14px; font-weight: 600; }
+.hub-empty-sub { color: var(--text-muted); font-size: 12px; max-width: 320px; line-height: 1.5; }
+
+.hub-workspace--empty { display: flex; }
+
+/* Curated-beyond-cap note pinned to the bottom of the Hub workspace */
+.hub-cap-note {
+  position: absolute;
+  bottom: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 10px;
+  color: var(--text-muted);
+  background: color-mix(in srgb, var(--bg-surface) 92%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 3px 10px;
+  pointer-events: none;
+}
+
+/* ═══ Hub sidebar picker (curation) — pin-on-hover, agent logos, no checkboxes ═══ */
+.hub-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px 0;
+}
+
+.hub-sec { padding: 2px 0 6px; }
+.hub-sec + .hub-sec { border-top: 1px solid var(--border); margin-top: 2px; padding-top: 8px; }
+
+.hub-sec-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 12px 6px;
+}
+.hub-sec-title {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.hub-sec-n {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  min-width: 16px;
+  text-align: center;
+  padding: 0 5px;
+  font-variant-numeric: tabular-nums;
+}
+.hub-sec-head .hub-add { margin-left: auto; }
+
+.hub-sec-empty {
+  font-size: 11px;
+  color: var(--text-muted);
+  padding: 4px 12px 6px;
+  line-height: 1.4;
+}
+
+/* Terminal row — the whole row is the click target (focus); pin on the right */
+.hub-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  height: 32px;
+  padding: 0 10px 0 12px;
+  cursor: pointer;
+  border-left: 2px solid transparent;
+  transition: background 0.12s;
+}
+.hub-row:hover { background: rgba(255, 255, 255, 0.045); }
+.hub-row.is-pinned {
+  background: color-mix(in srgb, var(--raven-blue) 8%, transparent);
+  border-left-color: var(--raven-blue);
+}
+.hub-row.is-pinned:hover { background: color-mix(in srgb, var(--raven-blue) 13%, transparent); }
+
+.hub-row-label {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hub-row-ws {
+  font-size: 10px;
+  color: var(--text-muted);
+  max-width: 84px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Agent avatar / colored-dot fallback, with a live-status ring when busy */
+.hub-av {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+.hub-av-dot { width: 8px; height: 8px; border-radius: 50%; }
+/* No busy ring: the colored agent logo already reads the terminal; a pulsing
+   circle around it felt heavy and broke the app's minimal look. */
+
+/* Pin toggle — hidden until row hover; always shown once pinned */
+.hub-pin {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s, color 0.12s, transform 0.1s;
+}
+.hub-pin svg { width: 14px; height: 14px; }
+.hub-row:hover .hub-pin,
+.hub-ws-head:hover .hub-pin,
+.hub-pin.on { opacity: 1; }
+.hub-pin:hover { color: var(--text-secondary); transform: scale(1.12); }
+.hub-pin.on { color: var(--raven-blue); }
+
+/* Workspace group header */
+.hub-ws-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 30px;
+  padding: 0 8px 0 10px;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.hub-ws-head:hover { background: rgba(255, 255, 255, 0.03); }
+.hub-caret {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  flex-shrink: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 10px;
+  cursor: pointer;
+}
+.hub-caret:hover { color: var(--text-primary); }
+.hub-ws-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hub-ws-n {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+/* Terminal rows sit indented under their workspace header */
+.hub-ws .hub-row { padding-left: 24px; }
+
+/* + buttons (new workspace / new terminal) */
+.hub-add {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  transition: color 0.12s, border-color 0.12s;
+}
+.hub-add:hover { color: var(--text-primary); border-color: var(--border); }
+.hub-ws-add { opacity: 0; }
+.hub-ws-head:hover .hub-ws-add { opacity: 1; }
+
+.hub-tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--bg-app);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+/* Única marca de color del tile: franja fina con el color del agente/pane. */
+.hub-tile::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--pane-color, transparent);
+  z-index: 1;
+}
+
+.hub-tile.focused {
+  border-color: #565656;
+  box-shadow: 0 0 0 1px #565656;
+}
+
+.hub-tile-header {
+  height: 26px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 8px;
+  background: var(--bg-surface);
+  font-size: 10px;
+  user-select: none;
+}
+
+.hub-tile-header .pane-ai-label {
+  font-size: 10px;
+}
+
+.hub-tile-header .pane-account-name {
+  font-size: 10px;
+}
+
+.hub-tile-ws {
+  font-size: 9px;
+  font-weight: 600;
+  font-family: 'SF Mono', 'Menlo', monospace;
+  letter-spacing: 0.4px;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 1px 5px;
+  flex-shrink: 0;
+  max-width: 110px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hub-tile-busy {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #22C55E;
+  flex-shrink: 0;
+  /* Steady dot: shown only while the pane emits visible output (see
+     hub-activity.ts). No pulse — a constant blink communicates nothing about
+     real cadence and re-flashes on every remount. A soft glow reads as "lit". */
+  box-shadow: 0 0 4px rgba(34, 197, 94, 0.55);
+}
+
+.hub-tile-label {
+  font-size: 10px;
+  font-weight: 600;
+  max-width: 110px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Custom pane name shown next to the AI logo in the pane header */
+.pane-custom-label {
+  margin-left: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 140px;
+}
+
+.pane-label-input {
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--raven-blue);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 600;
+  outline: none;
+  width: 120px;
+  padding: 0;
+  margin-left: 4px;
+}
+
+/* ── Hub-tab sidebar (reuses the .wt-* / .sidebar-* aesthetic) ── */
+.hub-ws-caret {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 10px;
+  cursor: pointer;
+  flex-shrink: 0;
+  padding: 0;
+}
+
+.hub-ws-caret:hover {
+  color: var(--text-primary);
+}
+
+/* Terminal rows sit indented under their workspace row */
+.hub-term-item {
+  padding-left: 18px;
+}
+
+.hub-tile-spacer {
+  flex: 1;
+}
+
+.hub-tile-pin {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 2px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+
+.hub-tile-pin svg {
+  width: 12px;
+  height: 12px;
+}
+
+.hub-tile-pin:hover {
+  color: var(--text-secondary);
+  border-color: var(--border);
+}
+
+.hub-tile-pin.pinned {
+  color: var(--text-primary);
+}
+
+.hub-tile-terminal {
+  flex: 1;
+  min-height: 0;
+  padding: 4px 6px;
+  overflow: hidden;
+}
+
+/* El Hub ya no tiene botón en la tab bar: se entra desde el estado vacío
+   (como workspace) o con el atajo Ctrl/Cmd+Shift+O (overlay). */
+
+.hub-view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.hub-workspace {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* El Hub-como-workspace usa el motor de layout normal: que llene el alto. */
+.hub-workspace .grid-workspace {
+  flex: 1;
+  min-height: 0;
+}
+
+.hub-hidden-note {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+/* ── Hub-tab: grouped, scrollable mirror grid ── */
+.hub-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* Inside a group the outer .hub-scroll owns the scroll — the per-group grid
+   just lays out its tiles and grows to fit. */
+.hub-scroll .hub-grid {
+  flex: none;
+  overflow: visible;
+  padding: 6px 8px 12px;
+}
+
+.hub-group + .hub-group {
+  border-top: 1px solid var(--border);
+}
+
+.hub-group-header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border);
+  user-select: none;
+}
+
+.hub-group-name {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.hub-group-count {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.hub-group-show {
+  margin-left: 6px;
+  font-size: 10px;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 1px 7px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.hub-group-show:hover {
+  color: var(--text-primary);
+  border-color: var(--text-muted);
+}
+
+/* Tile actions: open-in-workspace (↗) and remove-from-Hub (×) */
+.hub-tile-open,
+.hub-tile-hide {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 2px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+
+.hub-tile-open svg,
+.hub-tile-hide svg {
+  width: 12px;
+  height: 12px;
+}
+
+.hub-tile-open:hover {
+  color: var(--text-primary);
+  border-color: var(--border);
+}
+
+.hub-tile-hide:hover {
+  color: #ff6b6b;
+  border-color: var(--border);
+}
+
+/* Sidebar picker checkbox (compose which terminals show in the Hub) */
+.hub-check {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+  margin: 0 1px 0 0;
+  cursor: pointer;
+  accent-color: var(--raven-blue);
+}
+
+.hub-term-hidden {
+  opacity: 0.45;
+}
+
+.hub-empty-slot {
+  width: 100%;
+  height: 100%;
+  background: var(--bg-app);
+}
+
+.hub-drag-overlay {
+  width: 220px;
+  height: 120px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-surface);
+  opacity: 0.9;
+}
+
+.tab-hub-icon {
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-secondary);
+  margin-right: 6px;
+}
+
+.tab-hub-icon svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* Entrada al Hub desde el estado vacío: camino secundario, discreto,
+   separado por una hairline "o". */
+.empty-or {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 236px;
+  margin: 26px 0 2px;
+  color: var(--text-muted);
+  font-size: 10.5px;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  user-select: none;
+}
+
+.empty-or::before,
+.empty-or::after {
+  content: "";
+  height: 1px;
+  flex: 1;
+  background: var(--border);
+}
+
+.empty-hub-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  border-radius: 7px;
+  padding: 9px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.empty-hub-btn:hover {
+  color: var(--text-primary);
+  border-color: #333;
+}
+
+.empty-hub-btn svg {
+  width: 15px;
+  height: 15px;
+  color: var(--text-muted);
+}
+
+.empty-hub-btn:hover svg {
+  color: var(--text-secondary);
+}
+
+.empty-hub-count {
+  font-family: 'SF Mono', 'Menlo', monospace;
+  font-size: 11px;
+  color: var(--text-muted);
+  border-left: 1px solid var(--border);
+  padding-left: 9px;
+  margin-left: 2px;
+}
+
+/* ── Team Stats ──────────────────────────────────────────── */
+.ts-container {
+  --ts-accent: var(--primary);
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 18px;
+  height: 100%;
+  overflow-y: auto;
+}
+
+.ts-overview-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+@media (max-width: 520px) {
+  .ts-overview-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* PR size distribution (S/M/L/XL) */
+.ts-prsize {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 2px;
+}
+.ts-prsize-row {
+  display: grid;
+  grid-template-columns: 26px 1fr 28px auto;
+  align-items: center;
+  gap: 10px;
+}
+.ts-prsize-key {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.ts-prsize-track {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+.ts-prsize-fill {
+  height: 100%;
+  border-radius: 4px 0 0 4px;
+  min-width: 2px;
+  transition: width 0.3s ease;
+}
+.ts-prsize-n {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.ts-prsize-hint {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.ts-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 13px 15px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.ts-card-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--text-muted);
+}
+
+.ts-card-value {
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+.ts-card-sub {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.ts-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  margin-bottom: 8px;
+}
+
+.ts-cards-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.ts-cards-header .ts-section-title { margin-bottom: 0; }
+
+.ts-toggle {
+  display: inline-flex;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 2px;
+  gap: 2px;
+}
+.ts-toggle-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 12px;
+  border-radius: 6px;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.ts-toggle-btn:hover { color: var(--text-primary); }
+.ts-toggle-btn.active { background: var(--bg-elevated); color: var(--text-primary); }
+
+.ts-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-surface);
+}
+
+.ts-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.ts-table th {
+  text-align: left;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  padding: 10px 12px;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--border);
+}
+
+.ts-table td {
+  padding: 9px 12px;
+  color: var(--text-primary);
+  border-top: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+.ts-table tr:first-child td { border-top: none; }
+.ts-table tr:hover td { background: var(--bg-elevated); }
+.ts-top-row td { background: var(--bg-elevated); }
+
+.ts-dev-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ts-dev-info {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.ts-dev-name {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 220px;
+}
+
+.ts-top-row .ts-dev-name { font-weight: 600; }
+
+.ts-rank {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  width: 14px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.ts-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+@keyframes ts-online-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 #3fb95055; }
+  50%       { box-shadow: 0 0 0 4px #3fb95000; }
+}
+
+.ts-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.ts-status-dot.online  { background: #3fb950; animation: ts-online-pulse 2.5s ease-in-out infinite; }
+.ts-status-dot.offline { background: #3a3a3a; }
+
+.ts-num {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.ts-muted { color: var(--text-muted); }
+
+.ts-empty {
+  padding: 40px 0;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+/* ── Team Stats — sparklines (SVG area) ─────────────── */
+
+.ts-spark { display: block; }
+
+/* ── Team Stats — sortable column headers ───────────── */
+
+.ts-th-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.ts-th-btn:hover { color: var(--text-secondary); }
+
+.ts-sort-icon {
+  font-size: 9px;
+  opacity: 0.35;
+  line-height: 1;
+}
+
+.ts-sort-icon.active {
+  opacity: 1;
+  color: var(--text-secondary);
+}
+
+/* ── Team Stats — PR feed ───────────────────────────── */
+
+.ts-pr-feed {
+  display: flex;
+  flex-direction: column;
+}
+
+.ts-pr-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 0;
+  border-top: 1px solid #ffffff08;
+}
+
+.ts-pr-item:first-child { border-top: none; }
+
+.ts-pr-meta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ts-pr-title {
+  font-size: 12px;
+  color: #ffffffcc;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ts-pr-sub {
+  font-size: 10px;
+  color: #ffffff44;
+}
+
+.ts-pr-merged-badge {
+  font-size: 10px;
+  padding: 2px 7px;
+  border-radius: 10px;
+  background: #22c55e18;
+  border: 1px solid #22c55e30;
+  color: #22c55e;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* ── Team Stats — skeleton ──────────────────────────── */
+@keyframes ts-skeleton-shimmer {
+  0%   { background-position: -180px 0; }
+  100% { background-position: 180px 0; }
+}
+.ts-skeleton {
+  background: #ffffff0c;
+  border-radius: 6px;
+  background-image: linear-gradient(90deg, #ffffff00 0, #ffffff14 50%, #ffffff00 100%);
+  background-size: 180px 100%;
+  background-repeat: no-repeat;
+  animation: ts-skeleton-shimmer 1.2s ease-in-out infinite;
+}
+.ts-skel-card { height: 78px; border-radius: 10px; }
+.ts-skel-row {
+  height: 40px;
+  border-radius: 8px;
+  margin-top: 6px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ts-skeleton { animation: none; }
+}
+
+/* ── Team Stats — empty state icon ──────────────────── */
+.ts-empty-icon {
+  display: block;
+  margin: 0 auto 10px;
+  opacity: 0.35;
+}
+
+/* ── Team Stats — partial-load warning ──────────────── */
+.ts-warning {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-surface);
+  color: #d9a441;
+  font-size: 12px;
+}
+.ts-warning svg { flex-shrink: 0; }
+
+/* ── Team Stats — delta badges (▲▼ vs período anterior) ─ */
+.ts-delta {
+  font-size: 10px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  margin-left: 3px;
+  white-space: nowrap;
+}
+.ts-delta.up   { color: #3fb950; }
+.ts-delta.down { color: #f85149; }
+.ts-delta.flat { color: var(--text-muted); }
+
+/* ── Team Stats — team activity bar chart ───────────── */
+.ts-chart { position: relative; }
+.ts-chart-plot {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px;
+}
+.ts-chart-axis {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  height: 120px;
+  font-size: 10px;
+  color: var(--text-muted);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  padding-bottom: 1px;
+}
+.ts-chart-grid {
+  position: relative;
+  height: 120px;
+}
+.ts-grid-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 0;
+  border-top: 1px dashed var(--border);
+  pointer-events: none;
+}
+.ts-chart-bars {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+}
+.ts-bar-col {
+  flex: 1;
+  height: 100%;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  position: relative;
+}
+.ts-bar {
+  width: 100%;
+  max-width: 34px;
+  min-height: 2px;
+  background: color-mix(in srgb, var(--ts-accent) 55%, transparent);
+  border-radius: 4px 4px 0 0;
+  transition: filter 0.12s ease, background 0.12s ease;
+}
+.ts-bar.today { background: var(--ts-accent); }
+.ts-bar-col:hover .ts-bar,
+.ts-bar-col.hover .ts-bar { filter: brightness(1.2); background: var(--ts-accent); }
+.ts-bar-tip {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translate(-50%, calc(-100% - 4px));
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 11px;
+  color: var(--text-primary);
+  white-space: nowrap;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  z-index: 5;
+  pointer-events: none;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+}
+.ts-bar-tip span { color: var(--text-secondary); font-size: 10px; }
+.ts-chart-foot {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 6px;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+.ts-chart-total { color: var(--text-secondary); font-weight: 600; }
+
+/* ── Team Stats — activity heatmap (devs × days) ────── */
+.ts-heatmap { display: flex; flex-direction: column; gap: 4px; }
+.ts-heat-row {
+  display: grid;
+  grid-template-columns: 116px 1fr;
+  align-items: center;
+  gap: 10px;
+}
+.ts-heat-name {
+  font-size: 11px; color: var(--text-secondary);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ts-heat-cells { display: grid; gap: 3px; }
+.ts-heat-cell {
+  aspect-ratio: 1;
+  min-height: 12px;
+  border-radius: 2px;
+  background: var(--bg-elevated);
+}
+.ts-heat-more { font-size: 11px; color: var(--text-muted); margin-top: 2px; padding-left: 126px; }
+
+/* Team member list (analytics per-employee) */
+.tm-list{border:1px solid var(--border);border-radius:10px;overflow:hidden;background:var(--bg-surface)}
+.tm-row{display:grid;grid-template-columns:30px 1.6fr 1fr 78px 150px;align-items:center;gap:12px;padding:11px 14px;border-top:1px solid var(--border);cursor:pointer}
+.tm-row:first-child{border-top:0}
+.tm-row:hover{background:#141414}
+.tm-row:focus-visible{outline:2px solid var(--raven-blue);outline-offset:-2px}
+.tm-nolink{cursor:default;opacity:.6}
+.tm-av{position:relative;width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font-size:10px;font-weight:600;color:#fff;background:#2a2a2a}
+.tm-av img{width:100%;height:100%;border-radius:50%;object-fit:cover}
+.tm-dot{position:absolute;right:-1px;bottom:-1px;width:8px;height:8px;border-radius:50%;border:2px solid var(--bg-surface)}
+.tm-name{font-weight:500;font-size:13px}
+.tm-login{color:var(--text-muted);font-size:11px;margin-left:6px}
+.tm-act{color:var(--text-secondary);font-size:12px}
+.tm-act b{color:var(--text-primary);font-weight:600}
+.tm-muted{color:var(--text-muted)}
+.tm-trend{font-size:12px}
+.tm-trend.up{color:#22C55E}.tm-trend.down{color:#FF4500}.tm-trend.flat{color:var(--text-muted)}
+.tm-chip-cell{text-align:right}
+.tm-chip{font-size:11px;padding:3px 8px;border-radius:20px;white-space:nowrap}
+.tm-chip.warn{background:rgba(255,184,0,.12);color:#FFB800;border:1px solid rgba(255,184,0,.25)}
+.tm-chip.review{background:rgba(0,102,255,.1);color:#4d94ff;border:1px solid rgba(0,102,255,.22)}
+
+/* Employee drill-down drawer (mirrors .confirm-overlay behavior) */
+.ed-scrim{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:60}
+.ed-drawer{position:fixed;top:0;right:0;height:100%;width:440px;max-width:92vw;background:var(--bg-elevated);border-left:1px solid var(--border);overflow-y:auto;z-index:61;animation:ed-in .18s ease}
+@keyframes ed-in{from{transform:translateX(100%)}to{transform:none}}
+.ed-head{display:flex;align-items:center;gap:12px;padding:16px 18px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--bg-elevated)}
+.ed-av{width:38px;height:38px;border-radius:50%;background:#2a2a2a;display:grid;place-items:center;font-size:13px;font-weight:600;overflow:hidden}
+.ed-av img{width:100%;height:100%;border-radius:50%;object-fit:cover}
+.ed-name{font-size:15px;font-weight:600}
+.ed-sub{font-size:11px;color:var(--text-secondary);margin-top:2px;display:flex;align-items:center;gap:6px}
+.ed-mdot{width:7px;height:7px;border-radius:50%}
+.ed-close{margin-left:auto;background:none;border:0;color:var(--text-secondary);font-size:18px;cursor:pointer}
+.ed-sec{padding:15px 18px;border-bottom:1px solid var(--border)}
+.ed-last{border-bottom:0}
+.ed-sec h4{margin:0 0 11px;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary)}
+.ed-mini{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.ed-k{background:var(--bg-surface);border:1px solid var(--border);border-radius:9px;padding:10px 12px}
+.ed-v{font-size:20px;font-weight:600}
+.ed-l{font-size:11px;color:var(--text-secondary);margin-top:2px;display:flex;gap:6px;align-items:center}
+.ed-d.up{color:#22C55E}.ed-d.down{color:#FF4500}.ed-d.flat{color:var(--text-muted)}
+.ed-spark{margin-top:12px;display:flex;align-items:flex-end;gap:3px;height:36px}
+.ed-spark i{flex:1;background:var(--raven-blue);opacity:.55;border-radius:2px 2px 0 0}
+.ed-spark i.today{opacity:1}
+.ed-pr{padding:9px 0;border-top:1px solid var(--border)}
+.ed-pr:first-of-type{border-top:0}
+.ed-pr-t{font-size:12.5px}
+.ed-pr-m{font-size:11px;color:var(--text-muted);margin-top:3px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.ed-flag{font-size:11px;padding:1px 7px;border-radius:20px}
+.ed-flag.warn{background:rgba(255,184,0,.12);color:#FFB800}
+.ed-flag.review{background:rgba(0,102,255,.1);color:#4d94ff}
+.ed-size{font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px}
+.ed-size.s-S{background:rgba(34,197,94,.15);color:#22C55E}
+.ed-size.s-M{background:rgba(0,102,255,.15);color:#4d94ff}
+.ed-size.s-L{background:rgba(255,184,0,.15);color:#FFB800}
+.ed-size.s-XL{background:rgba(255,69,0,.15);color:#FF4500}
+.ed-area{display:grid;grid-template-columns:120px 1fr 48px;align-items:center;gap:10px;margin-bottom:8px}
+.ed-area-p{font-size:12px;font-family:ui-monospace,monospace}
+.ed-area-track{height:7px;background:#181818;border-radius:4px;overflow:hidden}
+.ed-area-fill{height:100%;background:var(--raven-blue);border-radius:4px}
+.ed-area-n{font-size:11px;color:var(--text-secondary);text-align:right}
+.ed-empty{font-size:12px;color:var(--text-muted)}
+
+/* ── Pane filter chips (TabBar rightSlot): reusan el estilo hub-chip ── */
+.pane-filter-chips{display:flex;align-items:center;gap:4px;margin-right:8px;-webkit-app-region:no-drag}
+
+/* ── Sidebar split (Worktrees / Explorer, reparto ajustable) ──
+   min-height = piso PROTEGIDO: abrir More tools nunca aplasta estas dos
+   secciones por debajo de un alto usable (~200px worktrees + ~140 explorer);
+   lo que se encoge es la lista de tools (ver .sidebar-more-list). */
+.sidebar-split{flex:1 1 auto;min-height:340px}
+.sidebar-split .sidebar-worktrees-wrap,
+.sidebar-split .sidebar-explorer-wrap{height:100%;min-height:0;flex:1}
+.sidebar-split-handle{flex:0 0 5px;position:relative;background:transparent}
+.sidebar-split-handle::after{content:'';position:absolute;left:8px;right:8px;top:2px;height:1px;background:var(--border,#2a2a2a)}
+.sidebar-split-handle:hover::after,.sidebar-split-handle[data-resize-handle-active]::after{background:var(--raven-blue,var(--primary));height:2px}
+
+/* ── Pane filter trigger (embudo del sidebar) + popover ── */
+.pane-filter-trigger.active{color:var(--raven-blue,#4f9eff)}
+.pane-filter-badge{margin-left:auto;font-size:10px;padding:1px 6px;border-radius:8px;background:rgba(79,158,255,.18);color:var(--raven-blue,#4f9eff)}
+.pane-filter-popover{background:#161616;border:1px solid #2a2a2a;border-radius:8px;padding:8px;box-shadow:0 8px 24px rgba(0,0,0,.5)}
+.pane-filter-popover .pane-filter-chips{margin-right:0;display:flex;flex-direction:column;align-items:stretch;gap:4px}
+.pane-filter-popover .hub-chip{justify-content:space-between;display:flex}
+
+/* Borde entre editores: sin esto el texto clipeado toca al pane vecino y se
+   lee como superposición aunque el layout sea correcto. */
+.editor-pane{border-left:1px solid #262626;border-right:1px solid #262626}

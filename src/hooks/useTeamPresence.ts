@@ -4,10 +4,39 @@ import { supabase } from '../lib/supabase'
 
 export interface PresenceState {
   userId: string
-  displayName: string  // email o nombre
+  displayName: string  // email or name
+  githubLogin: string | null
   repo: string | null
   branch: string | null
   lastSeen: string
+}
+
+// Builds the presence payload including the profile's real github_login,
+// so Stats can match "online" against the dev's GitHub login
+// (previously it was guessed from the email prefix and almost never matched).
+async function buildPresencePayload(
+  currentUserId: string,
+  repo: string | null,
+  branch: string | null,
+): Promise<PresenceState> {
+  const { data: { user } } = await supabase.auth.getUser()
+  let githubLogin: string | null = null
+  if (user) {
+    const { data } = await supabase
+      .from('profiles')
+      .select('github_login')
+      .eq('id', user.id)
+      .maybeSingle()
+    githubLogin = data?.github_login ?? null
+  }
+  return {
+    userId: currentUserId,
+    displayName: user?.email ?? currentUserId,
+    githubLogin,
+    repo,
+    branch,
+    lastSeen: new Date().toISOString(),
+  }
 }
 
 export function useTeamPresence(teamId: string | null, currentUserId: string | null) {
@@ -36,14 +65,7 @@ export function useTeamPresence(teamId: string | null, currentUserId: string | n
       })
       .subscribe(async (status) => {
         if (status === 'SUBSCRIBED') {
-          const { data: { user } } = await supabase.auth.getUser()
-          await channel.track({
-            userId: currentUserId,
-            displayName: user?.email ?? currentUserId,
-            repo: null,
-            branch: null,
-            lastSeen: new Date().toISOString(),
-          })
+          await channel.track(await buildPresencePayload(currentUserId, null, null))
         }
       })
 
@@ -65,14 +87,7 @@ export function useTeamPresence(teamId: string | null, currentUserId: string | n
     if (!teamId || !currentUserId) return
     const channel = channelRef.current
     if (!channel) return
-    const { data: { user } } = await supabase.auth.getUser()
-    await channel.track({
-      userId: currentUserId,
-      displayName: user?.email ?? currentUserId,
-      repo,
-      branch,
-      lastSeen: new Date().toISOString(),
-    })
+    await channel.track(await buildPresencePayload(currentUserId, repo, branch))
   }, [teamId, currentUserId])
 
   return { presence, updatePresence }

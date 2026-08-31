@@ -4,7 +4,7 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   main: {
-    plugins: [externalizeDepsPlugin()],
+    plugins: [externalizeDepsPlugin({ exclude: ['chokidar'] })],
     build: {
       outDir: 'dist-electron',
       rollupOptions: {
@@ -41,6 +41,9 @@ export default defineConfig({
         }
       }
     },
-    plugins: [react()]
+    plugins: [react()],
+    optimizeDeps: {
+      include: ['monaco-editor'],
+    }
   }
 })

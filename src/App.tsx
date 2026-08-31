@@ -1,23 +1,34 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import {
   DndContext, DragEndEvent, DragOverlay, DragStartEvent,
-  PointerSensor, useSensor, useSensors, closestCenter,
+  PointerSensor, useSensor, useSensors, pointerWithin,
 } from '@dnd-kit/core'
 import { SortableContext, rectSortingStrategy } from '@dnd-kit/sortable'
 import {
   PaneNode, AIType, AI_CONFIG, SessionData, SessionPane, Workspace,
-  WorkspaceTab, LayoutId, MAX_PANES, WorktreeMeta, WorkerSpec,
+  WorkspaceTab, LayoutId, MAX_PANES, WorktreeMeta, WorkerSpec, EditorTab,
 } from './types'
 import { PaneLayoutEngine } from './components/PaneLayoutEngine'
-import { defaultLayoutFor, mapLegacyToPreset } from './layout/select'
+import { defaultLayoutFor, hubLayoutFor, mapLegacyToPreset } from './layout/select'
 import { swap } from './layout/swap'
+import { reorderById } from './layout/reorder'
+import { paneAccentColor } from './lib/pane-accent-color'
+import { beginResizeSuppression, endResizeSuppression } from './lib/pane-resize-gate'
+import { nextFontSize, FONT_SIZE_DEFAULT } from './lib/pane-font-size'
+import { isInsideCodeEditor } from './lib/editor-owns-shortcut'
+import { basename } from './lib/path'
+import { collectDragCaptures } from './layout/dragCaptures'
 import { getPreset } from './layout/presets'
 import TerminalPane from './components/TerminalPane'
 import BrowserCell from './components/BrowserCell'
+import { EditorPane } from './components/EditorPane'
+import { PaneDragGhost } from './components/PaneDragGhost'
+import { PaneErrorBoundary } from './components/PaneErrorBoundary'
 import NewPaneDialog from './components/NewPaneDialog'
 import TabBar from './components/TabBar'
 import { PortsBanner } from './components/PortsBanner'
 import ConfirmDialog from './components/ConfirmDialog'
+import { shouldConfirmTabClose } from './lib/tab-close'
 import ConversationSidebar from './components/ConversationSidebar'
 import Sidebar from './components/Sidebar'
 import { NewWorktreeModal } from './components/NewWorktreeModal'
@@ -25,10 +36,18 @@ import { QuickWorktreePalette } from './components/QuickWorktreePalette'
 import { DiffViewerPanel } from './components/DiffViewerPanel'
 import GlobalSearch from './components/GlobalSearch'
 import CommandPalette from './components/CommandPalette'
+import HubOverlay from './components/HubOverlay'
+import HubWorkspace from './components/HubWorkspace'
+import { useHubActivity } from './hub-activity'
 import { focusTerminal } from './terminal-registry'
 import logoUrl from './assets/logo.png'
 import { useProfile } from './hooks/useProfile'
 import { PLAN_LIMITS } from './lib/stripe'
+import { broadcastTargets, isAgentPane } from './lib/broadcast'
+import { moveTabAcrossWorkspaces, openFileInPane, splitEditorTabFromHub, removeEditorTab } from './lib/editor-tab-move'
+import { openFileFromHub } from './lib/hub-open-file'
+import { pruneHubPanes } from './lib/hub-panes'
+import { dropTabBuffer } from './lib/editor-buffer-handoff'
 import UpgradeModal from './components/UpgradeModal'
 import TeamsWorkspace from './components/TeamsWorkspace'
 import MyReposPanel from './components/MyReposPanel'
@@ -38,8 +57,10 @@ import { useGitHub } from './hooks/useGitHub'
 import { usePendingInvitesCount } from './hooks/usePendingInvitesCount'
 import { useSpeechRecognition } from './hooks/useSpeechRecognition'
 import { useSettings } from './hooks/useSettings'
-import { matchesBinding } from './lib/keybindings'
-import { WORKTREE_DRAG_MIME } from './lib/dragTypes'
+import { matchesBinding, formatBinding } from './lib/keybindings'
+import { workspaceAcceptsDrag, workspaceDropAction, workspaceDropEffect } from './lib/dragTypes'
+import { sameWorktree } from './lib/worktree-path'
+import { applyPaneFilter, newPaneBreaksFilter, type PaneFilter } from './lib/pane-filter'
 import { useUserPreferences } from './hooks/useUserPreferences'
 import SharedTerminalViewer from './components/SharedTerminalViewer'
 import { terminalShareService } from './lib/terminalShareService'
@@ -55,6 +76,7 @@ import { getTour } from './tutorial/registry'
 let paneCounter = 0
 const generateId = () => `pane-${++paneCounter}-${Date.now()}`
 
+
 export default function App() {
   const generateTabId = () => `tab-${Date.now()}`
 
@@ -66,7 +88,7 @@ export default function App() {
     panes: [],
   }])
   const [activeTabId, setActiveTabId] = useState<string>(initialTabId)
-  const [confirmClose, setConfirmClose] = useState<{ tabId: string; name: string } | null>(null)
+  const [confirmClose, setConfirmClose] = useState<{ tabId: string; name: string; isHub?: boolean } | null>(null)
 
   // Derive active tab data
   const activeTab = tabs.find(t => t.id === activeTabId) ?? tabs[0]
@@ -104,9 +126,16 @@ export default function App() {
   const [zoomedPaneId, setZoomedPaneId] = useState<string | null>(null)
   const [zoomingOut, setZoomingOut] = useState(false)
   const [draggingId, setDraggingId] = useState<string | null>(null)
+  // Foto del contenido del pane arrastrado (dataURL), mostrada en el fantasma
+  // del DragOverlay para que "el contenido siga" el cursor.
+  // Fotos congeladas por paneId: cada browser muestra la suya EN SU LUGAR
+  // durante el drag (el view nativo se colapsa) y el fantasma del overlay usa
+  // la del pane arrastrado — así no quedan huecos negros. Ver collectDragCaptures.
+  const [dragSnapshots, setDragSnapshots] = useState<Record<string, string>>({})
   const [broadcastMode, setBroadcastMode] = useState(false)
   const [focusedPaneId, setFocusedPaneId] = useState<string | null>(null)
   const [panePorts, setPanePorts] = useState<Record<string, number[]>>({})
+  const fontSizeRef = useRef(13)
   const focusedPaneIdRef = useRef<string | null>(null)
   const zoomedPaneIdRef = useRef<string | null>(null)
   zoomedPaneIdRef.current = zoomedPaneId
@@ -121,6 +150,12 @@ export default function App() {
   const [convSidebarOpen, setConvSidebarOpen] = useState(false)
   const [globalSearchOpen, setGlobalSearchOpen] = useState(false)
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
+  const [hubOpen, setHubOpen] = useState(false)
+  const hubOpenRef = useRef(false)
+  hubOpenRef.current = hubOpen
+  const hubPrevFocusRef = useRef<string | null>(null)
+  // Panes currently rendered in the Hub (curated subset), for drag-reorder.
+  const hubPanesRef = useRef<PaneNode[]>([])
   const [sidebarExpanded, setSidebarExpanded] = useState(false)
   const [fontSize, setFontSize] = useState<number>(() => {
     const saved = localStorage.getItem('nest-font-size')
@@ -132,6 +167,7 @@ export default function App() {
 
   // Busy state: paneId -> boolean
   const [busyPanes, setBusyPanes] = useState<Set<string>>(new Set())
+  const activePanes = useHubActivity()
 
   const handleBusyChange = useCallback((paneId: string, busy: boolean) => {
     setBusyPanes(prev => {
@@ -182,7 +218,10 @@ export default function App() {
     let cancelled = false
     const tick = async () => {
       try {
-        const livePanes = panesRef.current.filter(p => p.aiType !== 'browser')
+        // Editor tampoco: no tiene PTY, y con repoPath poblado el fallback
+        // por cwd del main podía atribuirle el puerto de un dev server — el
+        // chip desaparecía (el editor no renderiza chips de puertos).
+        const livePanes = panesRef.current.filter(p => p.aiType !== 'browser' && p.aiType !== 'editor')
         if (livePanes.length === 0) {
           if (!cancelled) setPanePorts({})
           return
@@ -223,6 +262,8 @@ export default function App() {
 
   useLocalPathsMigration()
 
+  useEffect(() => { fontSizeRef.current = fontSize }, [fontSize])
+
   // Sync fontSize from Supabase once loaded
   useEffect(() => {
     if (userPrefs.loaded && userPrefs.prefs.ui_settings.fontSize != null) {
@@ -254,14 +295,11 @@ export default function App() {
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
   )
 
-  const activePaneIds = useMemo(
-    () => panes.map(p => p.id),
-    [panes]
-  )
 
   const addPane = useCallback((
     aiType: AIType, accountName: string, accountDir: string, borderColor: string,
-    cmd: string, customLabel?: string, customColor?: string, shellId?: string
+    cmd: string, customLabel?: string, customColor?: string, shellId?: string,
+    initial?: Partial<Pick<PaneNode, 'editorTabs' | 'activeEditorTabPath' | 'repoPath'>>,
   ) => {
     if (panesRef.current.length >= MAX_PANES) {
       setAddingPane(null)
@@ -273,6 +311,25 @@ export default function App() {
       setShowUpgrade(true)
       return
     }
+    // A Hub tab owns no terminals of its own (HubView filters isHub tabs out
+    // of the grid). Pushing a pane onto it would create an invisible,
+    // unclosable pane, so route the new terminal into a fresh workspace.
+    const activeNow = tabsRef.current.find(t => t.id === activeTabIdRef.current)
+    if (activeNow?.isHub) {
+      const newTabId = generateTabId()
+      const pane: PaneNode = {
+        id: generateId(), aiType, accountName, accountDir, borderColor, cmd,
+        customLabel, customColor, shellId,
+        repoPath: addingPaneRef.current?.worktreePath,
+        // Sin el spread, un pane de editor creado desde el Hub perdía sus
+        // editorTabs iniciales y nacía cascarón (finding del review).
+        ...initial,
+      }
+      setTabs(prev => [...prev, { id: newTabId, name: 'Workspace', layoutId: '1', panes: [pane] }])
+      setActiveTabId(newTabId)
+      setAddingPane(null)
+      return
+    }
     const worktreePath = addingPaneRef.current?.worktreePath
     const initialInput = addingPaneRef.current?.initialInput
     updateActiveTab(t => {
@@ -280,6 +337,7 @@ export default function App() {
         id: generateId(), aiType, accountName, accountDir, borderColor, cmd,
         customLabel, customColor, shellId,
         repoPath: worktreePath ?? t.repoPath,
+        ...initial,
         ...(initialInput ? { initialInput } : {}),
       }
       const nextPanes = [...t.panes, pane]
@@ -454,6 +512,23 @@ export default function App() {
     }))
   }, [updateActiveTab])
 
+  // E2E-only bypass for handleRepoLink's native folder dialog (not
+  // automatable via Playwright). Mirrors the tab-update half of
+  // handleRepoLink; skips the pty cd-push, which is irrelevant for tests
+  // that link a fresh repo before any pane exists. Gated behind the same
+  // appFlags.e2eBypass flag (RAVEN_E2E=1) used for auth bypass.
+  useEffect(() => {
+    if (!window.appFlags?.e2eBypass) return
+    window.__e2e_linkRepo = (path: string) => {
+      updateActiveTab(t => ({
+        ...t,
+        repoPath: path,
+        panes: t.panes.map(p => ({ ...p, repoPath: path })),
+      }))
+    }
+    return () => { delete window.__e2e_linkRepo }
+  }, [updateActiveTab])
+
   const [worktreeRefreshKey, setWorktreeRefreshKey] = useState(0)
 
   const handleWorktreeSelect = useCallback(async (worktreePath: string) => {
@@ -504,6 +579,9 @@ export default function App() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // The Hub overlay owns the keyboard while open — don't open worktree/diff
+      // modals behind it using the hidden workspace's context.
+      if (hubOpenRef.current) return
       const isCmdShift = (e.metaKey || e.ctrlKey) && e.shiftKey
       if (isCmdShift && e.key.toLowerCase() === 'w') {
         if (!activeTab.repoPath) return
@@ -524,25 +602,56 @@ export default function App() {
 
   const removePane = useCallback((paneId: string) => {
     window.pty.kill(paneId)
-    updateActiveTab(t => {
+    // Sacar el pane de la tab activa Y podar su id de cualquier tab Hub que lo
+    // tuviera pinneado (auto-pin del Hub Explorer): sin la poda quedaba un id
+    // colgante que persistía en sesión y disparaba el confirm falso al cerrar
+    // el Hub (mismo motivo por el que removePaneAnywhere ya podaba).
+    setTabs(prev => pruneHubPanes(prev.map(t => {
+      if (t.id !== activeTabIdRef.current) return t
       const nextPanes = t.panes.filter(p => p.id !== paneId)
       // Demote layoutId if a smaller default fits the remaining panes.
       // Clear splitRatios when the layout shape changes so the persisted
       // weights from a different tree don't bleed into the new one.
       const naturalDefault = defaultLayoutFor(nextPanes.length)
-      const naturalSlots = getPreset(naturalDefault).slotCount
-      const demoted = naturalSlots < getPreset(t.layoutId).slotCount
-      const layoutId: LayoutId = demoted ? naturalDefault : t.layoutId
+      const demoted = getPreset(naturalDefault).slotCount < getPreset(t.layoutId).slotCount
       return demoted
-        ? { ...t, panes: nextPanes, layoutId, splitRatios: {} }
-        : { ...t, panes: nextPanes, layoutId }
-    })
+        ? { ...t, panes: nextPanes, layoutId: naturalDefault, splitRatios: {} }
+        : { ...t, panes: nextPanes, layoutId: t.layoutId }
+    }), new Set([paneId])))
     if (zoomedPaneId === paneId) { setZoomedPaneId(null); setZoomingOut(false) }
     if (focusedPaneIdRef.current === paneId) {
       focusedPaneIdRef.current = null
       setFocusedPaneId(null)
     }
-  }, [updateActiveTab, zoomedPaneId])
+  }, [zoomedPaneId])
+
+  // ── Hub: the panes live in OTHER workspaces, so these handlers operate on
+  // the pane's origin tab (not on the active tab, which is the Hub). ──
+  const updatePaneAnywhere = useCallback((paneId: string, updater: (p: PaneNode) => PaneNode) => {
+    setTabs(prev => prev.map(t =>
+      t.panes.some(p => p.id === paneId)
+        ? { ...t, panes: t.panes.map(p => p.id === paneId ? updater(p) : p) }
+        : t
+    ))
+  }, [])
+
+  const removePaneAnywhere = useCallback((paneId: string) => {
+    window.pty.kill(paneId)
+    // Sacar el pane de su tab dueña y podar su id de cualquier tab Hub: sin la
+    // poda quedaban ids colgantes en la sesión (y shouldConfirmTabClose
+    // preguntaba por contenido que ya no existe). Poda compartida con removePane.
+    setTabs(prev => pruneHubPanes(prev.map(t => {
+      if (!t.panes.some(p => p.id === paneId)) return t
+      const nextPanes = t.panes.filter(p => p.id !== paneId)
+      const naturalDefault = defaultLayoutFor(nextPanes.length)
+      const demoted = getPreset(naturalDefault).slotCount < getPreset(t.layoutId).slotCount
+      return demoted
+        ? { ...t, panes: nextPanes, layoutId: naturalDefault, splitRatios: {} }
+        : { ...t, panes: nextPanes }
+    }), new Set([paneId])))
+    if (zoomedPaneIdRef.current === paneId) { setZoomedPaneId(null); setZoomingOut(false) }
+    if (focusedPaneIdRef.current === paneId) { focusedPaneIdRef.current = null; setFocusedPaneId(null) }
+  }, [])
 
   const updatePaneColor = useCallback((paneId: string, borderColor: string) => {
     updateActiveTab(t => ({
@@ -569,6 +678,115 @@ export default function App() {
     }))
   }, [updateActiveTab])
 
+  const updatePaneEditorTabs = useCallback((paneId: string, tabs: EditorTab[], activeEditorTabPath: string | undefined) => {
+    updateActiveTab(t => ({
+      ...t,
+      panes: t.panes.map(p => p.id === paneId ? { ...p, editorTabs: tabs, activeEditorTabPath } : p),
+    }))
+  }, [updateActiveTab])
+
+  const openFileInEditor = useCallback((relPath: string) => {
+    const worktreePath = activeCellRepoPath
+    if (!worktreePath) return
+    const focusedId = focusedPaneIdRef.current
+    const focusedPane = focusedId ? activeTab.panes.find(p => p.id === focusedId) : undefined
+    // sameWorktree y no ===: repoPath tiene dos productores con normalización
+    // distinta en Windows (C:/ de worktree-store vs C:\ de dialog/clone) —
+    // la comparación cruda abría un pane NUEVO en vez de reusar el existente.
+    const sameWorktreeEditor = (p: PaneNode) => p.aiType === 'editor' && sameWorktree(p.repoPath, worktreePath)
+    const targetPane = focusedPane && sameWorktreeEditor(focusedPane) ? focusedPane : activeTab.panes.find(sameWorktreeEditor)
+
+    if (targetPane) {
+      updateActiveTab(t => ({
+        ...t,
+        panes: t.panes.map(p => {
+          if (p.id !== targetPane.id) return p
+          const existing = p.editorTabs ?? []
+          const tabs = existing.some(tab => tab.relPath === relPath) ? existing : [...existing, { relPath, dirty: false }]
+          return { ...p, editorTabs: tabs, activeEditorTabPath: relPath }
+        }),
+      }))
+      return
+    }
+
+    addPane('editor', '', '', AI_CONFIG.editor.color, '', undefined, undefined, undefined, {
+      editorTabs: [{ relPath, dirty: false }],
+      activeEditorTabPath: relPath,
+      repoPath: worktreePath,
+    })
+  }, [activeTab, activeCellRepoPath, updateActiveTab, addPane])
+
+  const moveEditorTabToNewPane = useCallback((paneId: string, relPath: string) => {
+    const sourcePane = activeTab.panes.find(p => p.id === paneId)
+    if (!sourcePane) return
+    // Única tab del pane: mover "a un pane nuevo" es un no-op conceptual (ya
+    // está sola en el suyo). El botón ni se renderiza en ese caso, pero el
+    // guard evita que cualquier otro caller deje un pane cascarón sin tabs.
+    if ((sourcePane.editorTabs ?? []).length <= 1) return
+    // Chequear el cap ANTES de sacar la tab del pane origen: addPane corre
+    // después y se bloquea silencioso en el tope de plan/MAX_PANES — sin este
+    // pre-check la tab ya removida no se agregaba a ningún lado (se perdía).
+    if (panesRef.current.length >= MAX_PANES) return
+    if (panesRef.current.length >= planLimits.maxPanes) {
+      setShowUpgrade(true)
+      return
+    }
+    updateActiveTab(t => ({
+      ...t,
+      // removeEditorTab preserva la vista activa si el tab movido no era el
+      // activo (antes saltaba a remaining[0] siempre — bug del review).
+      panes: t.panes.map(p => p.id === paneId ? removeEditorTab(p, relPath) : p),
+    }))
+    // El dirty viaja con la tab: el buffer sin guardar llega por el handoff
+    // (el EditorPane origen lo stashea antes de invocar este handler).
+    const sourceTab = (sourcePane.editorTabs ?? []).find(tb => tb.relPath === relPath)
+    addPane('editor', '', '', AI_CONFIG.editor.color, '', undefined, undefined, undefined, {
+      editorTabs: [{ relPath, dirty: sourceTab?.dirty ?? false }],
+      activeEditorTabPath: relPath,
+      repoPath: sourcePane.repoPath,
+    })
+  }, [activeTab, updateActiveTab, addPane, planLimits.maxPanes])
+
+  // Drag & drop: una tab soltada sobre OTRO pane de editor — del mismo
+  // workspace o, en el Hub, de workspaces distintos (mismo worktree).
+  const handleEditorTabDropped = useCallback((destPaneId: string, drop: { sourcePaneId: string; relPath: string; dirty: boolean }) => {
+    setTabs(prev => {
+      const res = moveTabAcrossWorkspaces(prev, drop.sourcePaneId, destPaneId, drop.relPath, drop.dirty)
+      if (!res) return prev
+      if (res.dropStash) {
+        // El destino ya tenía el archivo (con su propio buffer): no va a
+        // consumir el handoff — descartarlo. Idempotente si corre dos veces.
+        const destTab = prev.find(t => t.panes.some(p => p.id === destPaneId))
+        const dest = destTab?.panes.find(p => p.id === destPaneId)
+        if (dest?.repoPath) dropTabBuffer(dest.repoPath, drop.relPath)
+      }
+      return res.tabs
+    })
+  }, [])
+
+  // Drag & drop: un archivo del Explorer soltado sobre un pane de editor.
+  // Cross-workspace a propósito (funciona igual desde el Hub, donde el pane
+  // destino vive en otro tab): openFileInPane no-opea para todo pane que no
+  // sea el destino, así que mapear todos los workspaces es inocuo.
+  const handleEditorFileDropped = useCallback((paneId: string, relPath: string) => {
+    setTabs(prev => prev.map(t => t.isHub ? t : { ...t, panes: openFileInPane(t.panes, paneId, relPath) }))
+  }, [])
+
+  // "Open in new pane" desde el Hub: el split se crea en el workspace de
+  // ORIGEN del pane y se auto-pinnea al Hub (mismo patrón que el browser).
+  const moveEditorTabToNewPaneFromHub = useCallback((paneId: string, relPath: string) => {
+    const hubTabId = activeTabIdRef.current
+    const sourceTab = tabsRef.current.find(t => !t.isHub && t.panes.some(p => p.id === paneId))
+    if (!sourceTab) return
+    if (sourceTab.panes.length >= MAX_PANES) return
+    if (sourceTab.panes.length >= planLimits.maxPanes) {
+      setShowUpgrade(true)
+      return
+    }
+    const newId = generateId()
+    setTabs(prev => splitEditorTabFromHub(prev, hubTabId, paneId, relPath, newId) ?? prev)
+  }, [planLimits.maxPanes])
+
   const handlePtyStarted = useCallback((paneId: string, runningRepoPath: string | undefined) => {
     updateActiveTab(t => ({
       ...t,
@@ -576,18 +794,87 @@ export default function App() {
     }))
   }, [updateActiveTab])
 
+  // Invalida las capturas en vuelo de un drag ya terminado (ver handleDragStart).
+  const dragGenRef = useRef(0)
+
+  // El zoom de letra es POR PANE: agrandar una terminal no debe agrandar todas.
+  // Con un pane enfocado el atajo toca SU tamano; sin foco (o al resetear) cae
+  // al global, que sigue siendo el default de los panes nuevos y lo que se
+  // persiste en las prefs.
+  const bumpPaneFontSize = useCallback((step: number | 'reset') => {
+    const paneId = focusedPaneIdRef.current
+    if (!paneId) {
+      const n = step === 'reset' ? FONT_SIZE_DEFAULT : nextFontSize(fontSizeRef.current, step)
+      setFontSize(n)
+      localStorage.setItem('nest-font-size', String(n))
+      userPrefs.setFontSize(n)
+      return
+    }
+    updatePaneAnywhere(paneId, p => (
+      step === 'reset'
+        ? { ...p, fontSize: undefined }
+        : { ...p, fontSize: nextFontSize(p.fontSize ?? fontSizeRef.current, step) }
+    ))
+  }, [updatePaneAnywhere, userPrefs])
+
   const handleDragStart = useCallback((e: DragStartEvent) => {
-    setDraggingId(String(e.active.id))
+    const id = String(e.active.id)
+    setDragSnapshots({})
+    // Generacion del drag: las capturas son async y pueden resolver DESPUES de
+    // que el drag termino. Sin este token repoblaban dragSnapshots con PNGs de
+    // varios MB que quedaban en memoria hasta el drag siguiente, y una foto
+    // vieja podia mostrarse como freeze-frame de un pane cuyo contenido ya
+    // cambio.
+    beginResizeSuppression()
+    const gen = ++dragGenRef.current
+    // Captura best-effort: NUNCA debe lanzar ni romper el drag/reorder
+    // (try/catch + guardas). Fotografiamos TODOS los browser para mostrar su
+    // freeze-frame en su lugar mientras el view nativo se colapsa.
+    //
+    // Se pide ANTES de setDraggingId a proposito: ese estado dispara el colapso
+    // del WebContentsView a 0x0 y capturePage sobre un view colapsado vuelve
+    // vacio. Pedir primero le da a la captura el frame de ventaja.
+    try {
+      if (typeof window.browser?.capturePane === 'function') {
+        const candidates = [...(panesRef.current ?? []), ...(hubPanesRef.current ?? [])]
+        for (const spec of collectDragCaptures(candidates)) {
+          void window.browser
+            .capturePane({ paneId: spec.paneId, kind: spec.kind })
+            .then((img) => {
+              if (img && dragGenRef.current === gen) setDragSnapshots(prev => ({ ...prev, [spec.paneId]: img }))
+            })
+            .catch(() => {})
+        }
+      }
+    } catch {
+      /* la captura es opcional; el reorder debe seguir funcionando */
+    }
+    setDraggingId(id)
+  }, [])
+
+  // dnd-kit dispara onDragCancel (NO onDragEnd) al cancelar con Escape / perder
+  // el puntero. Sin esto, draggingId nunca volvía a null y los browsers quedaban
+  // colapsados en blanco con el fantasma pegado.
+  const handleDragCancel = useCallback(() => {
+    endResizeSuppression()
+    dragGenRef.current++
+    setDraggingId(null)
+    setDragSnapshots({})
   }, [])
 
   const handleDragEnd = useCallback((e: DragEndEvent) => {
+    endResizeSuppression()
+    dragGenRef.current++
     setDraggingId(null)
+    setDragSnapshots({})
+    // Swap AL SOLTAR: intercambia sólo los dos panes (el arrastrado y el que
+    // está bajo el cursor), dejando el resto quieto. Ver #2 del drag.
     const { active, over } = e
     if (!over || active.id === over.id) return
     updateActiveTab(t => {
       const from = t.panes.findIndex(p => p.id === active.id)
       const to = t.panes.findIndex(p => p.id === over.id)
-      if (from < 0 || to < 0) return t
+      if (from < 0 || to < 0 || from === to) return t
       return { ...t, panes: swap(t.panes, from, to) }
     })
   }, [updateActiveTab])
@@ -640,6 +927,12 @@ export default function App() {
         customColor: p.customColor,
         note: p.note,
         shellId: p.shellId,
+        // Misma omisión que tenía el save de sesión: sin repoPath el editor
+        // restaurado no sabe su worktree, y sin editorTabs queda cascarón.
+        repoPath: p.repoPath,
+        url: p.url,
+        editorTabs: p.editorTabs,
+        activeEditorTabPath: p.activeEditorTabPath,
       })),
       resumeLastSession: false,
       createdAt: Date.now(),
@@ -700,6 +993,91 @@ export default function App() {
     setActiveTabId(id)
   }, [])
 
+  const openHub = useCallback(() => {
+    // Already viewing the Hub as a workspace tab — don't stack the overlay on
+    // top (would mount a second HubView / duplicate xterms for the same PTYs).
+    if (activeTab.isHub) return
+    hubPrevFocusRef.current = focusedPaneIdRef.current
+    setHubOpen(true)
+  }, [activeTab.isHub])
+
+  const closeHub = useCallback(() => {
+    setHubOpen(false)
+    const prev = hubPrevFocusRef.current
+    // Restore focus after the overlay unmounts and the pane below re-renders.
+    if (prev) setTimeout(() => focusTerminal(prev), 50)
+  }, [])
+
+  const handleHubJump = useCallback((tabId: string, paneId: string) => {
+    setHubOpen(false)
+    setActiveTabId(tabId)
+    setFocusedPaneId(paneId)
+    focusedPaneIdRef.current = paneId
+    // The pane's xterm mounts on tab switch; focus once it registered.
+    setTimeout(() => focusTerminal(paneId), 150)
+  }, [])
+
+  const handleHubTogglePin = useCallback((tabId: string, paneId: string) => {
+    setTabs(prev => prev.map(t => t.id !== tabId ? t : {
+      ...t,
+      panes: t.panes.map(p => p.id !== paneId ? p : { ...p, pinned: !p.pinned }),
+    }))
+  }, [])
+
+  // ── Hub composition — `hubPanes` on the active Hub tab is the ORDERED set of
+  // pane ids the user curated into the Hub (the terminals they use most). The Hub
+  // then renders exactly like a workspace with those panes (real TerminalPane). ──
+  const handleHubToggleTerminal = useCallback((paneId: string) => {
+    updateActiveTab(t => {
+      const cur = t.hubPanes ?? []
+      return cur.includes(paneId)
+        ? { ...t, hubPanes: cur.filter(id => id !== paneId) }
+        : { ...t, hubPanes: [...cur, paneId] }
+    })
+  }, [updateActiveTab])
+
+  const handleHubToggleWorkspace = useCallback((tabId: string) => {
+    const src = tabsRef.current.find(t => t.id === tabId)
+    if (!src) return
+    const ids = src.panes.filter(p => p.aiType !== 'browser').map(p => p.id)
+    updateActiveTab(t => {
+      const cur = t.hubPanes ?? []
+      const allIn = ids.length > 0 && ids.every(id => cur.includes(id))
+      return allIn
+        ? { ...t, hubPanes: cur.filter(id => !ids.includes(id)) }
+        : { ...t, hubPanes: [...cur, ...ids.filter(id => !cur.includes(id))] }
+    })
+  }, [updateActiveTab])
+
+  // Reorder del Hub: swap AL SOLTAR (mismo gesto que el workspace).
+  const handleHubDragEnd = useCallback((e: DragEndEvent) => {
+    endResizeSuppression()
+    setDraggingId(null)
+    setDragSnapshots({})
+    const { active, over } = e
+    if (!over || active.id === over.id) return
+    const ids = hubPanesRef.current.map(p => p.id)
+    const from = ids.indexOf(String(active.id))
+    const to = ids.indexOf(String(over.id))
+    if (from < 0 || to < 0 || from === to) return
+    updateActiveTab(t => ({ ...t, hubPanes: swap(ids, from, to) }))
+  }, [updateActiveTab])
+
+  // Sidebar terminal click: ensure it's in the Hub, then focus its pane.
+  const handleHubFocus = useCallback((paneId: string) => {
+    updateActiveTab(t =>
+      (t.hubPanes ?? []).includes(paneId) ? t : { ...t, hubPanes: [...(t.hubPanes ?? []), paneId] }
+    )
+    setTimeout(() => focusTerminal(paneId), 120)
+  }, [updateActiveTab])
+
+  const convertActiveTabToHub = useCallback(() => {
+    // A Hub tab owns no panes (HubView would filter them out → invisible,
+    // uncloseable). Only reached from EmptyState (panes already []), but clear
+    // defensively so a Hub tab can never hold orphan panes.
+    updateActiveTab(t => ({ ...t, isHub: true, name: 'Hub', panes: [] }))
+  }, [updateActiveTab])
+
   const tabsRef = useRef(tabs)
   tabsRef.current = tabs
   const activeTabIdRef = useRef(activeTabId)
@@ -733,7 +1111,10 @@ export default function App() {
       return next
     })
     setTabs(prev => {
-      const next = prev.filter(t => t.id !== id)
+      // Podar del Hub los panes del workspace que se cierra: sus ids seguían
+      // en hubPanes (id colgante + confirm falso al cerrar el Hub).
+      const closedPaneIds = new Set((prev.find(t => t.id === id)?.panes ?? []).map(p => p.id))
+      const next = pruneHubPanes(prev.filter(t => t.id !== id), closedPaneIds)
       if (next.length === 0) {
         const fallbackId = generateTabId()
         setActiveTabId(fallbackId)
@@ -752,9 +1133,8 @@ export default function App() {
   const handleTabClose = useCallback((id: string) => {
     const tab = tabsRef.current.find(t => t.id === id)
     if (!tab) return
-    const hasTerminals = tab.panes.length > 0
-    if (hasTerminals) {
-      setConfirmClose({ tabId: id, name: tab.name })
+    if (shouldConfirmTabClose(tab)) {
+      setConfirmClose({ tabId: id, name: tab.name, isHub: tab.isHub })
     } else {
       closeTab(id)
     }
@@ -768,21 +1148,34 @@ export default function App() {
     setTabs(prev => prev.map(t => t.id === tabId ? { ...t, accentColor: color } : t))
   }, [])
 
+  // Los tabs se INSERTAN (arrayMove), no se intercambian: mandar un workspace
+  // al fondo debe correr a los demas, no cambiarlo por el ultimo. El swap es
+  // solo para los panes, donde cada slot es una posicion fija de la grilla.
   const handleTabReorder = useCallback((fromId: string, toId: string) => {
-    setTabs(prev => {
-      const fromIdx = prev.findIndex(t => t.id === fromId)
-      const toIdx = prev.findIndex(t => t.id === toId)
-      if (fromIdx === -1 || toIdx === -1) return prev
-      const next = [...prev]
-      ;[next[fromIdx], next[toIdx]] = [next[toIdx], next[fromIdx]]
-      return next
-    })
+    setTabs(prev => reorderById(prev, fromId, toId))
   }, [])
 
   const openBrowserCell = useCallback((url: string) => {
     if (panesRef.current.length >= MAX_PANES) return
     if (panesRef.current.length >= planLimits.maxPanes) {
       setShowUpgrade(true)
+      return
+    }
+    // Hub tabs own no panes — el browser vive en un workspace nuevo, pero se
+    // auto-pinnea al Hub y el usuario SE QUEDA en el Hub (antes esto
+    // navegaba al workspace nuevo, dejando la sensación de "no puedo tener
+    // un browser en el Hub").
+    const activeNow = tabsRef.current.find(t => t.id === activeTabIdRef.current)
+    if (activeNow?.isHub) {
+      const newTabId = generateTabId()
+      const pane: PaneNode = {
+        id: generateId(), aiType: 'browser', accountName: 'browser', accountDir: '',
+        borderColor: '#0066FF', cmd: '', url,
+        sessionPartition: `persist:browser-${newTabId}`,
+      }
+      setTabs(prev => prev
+        .map(t => t.id === activeNow.id ? { ...t, hubPanes: [...(t.hubPanes ?? []), pane.id] } : t)
+        .concat({ id: newTabId, name: 'Workspace', layoutId: '1', panes: [pane] }))
       return
     }
     const pane: PaneNode = {
@@ -861,7 +1254,10 @@ export default function App() {
         const borderColor = COLOR_MIGRATION[sp.borderColor] ?? sp.borderColor
         return {
           ...sp,
-          id: generateId(),
+          // Reusar el id persistido: hubPanes referencia ids — regenerarlos
+          // dejaba el Hub restaurado vacío (curación perdida en cada
+          // relanzamiento). Sesiones viejas sin id siguen generando uno.
+          id: sp.id ?? generateId(),
           cmd: sp.cmd ?? AI_CONFIG[sp.aiType]?.cmd ?? '',
           borderColor,
         } as PaneNode
@@ -874,6 +1270,8 @@ export default function App() {
             layoutId: raw.layoutId,
             panes: raw.panes.map(sessionToPane),
             splitRatios: raw.splitRatios ?? {},
+            isHub: raw.isHub,
+            hubPanes: raw.hubPanes,
           }
         }
         // v2: layout + cells
@@ -961,16 +1359,28 @@ export default function App() {
           repoPath: tab.repoPath,
           layoutId: tab.layoutId,
           panes: tab.panes.map(p => ({
+            // El id viaja: hubPanes referencia ids y regenerarlos en el
+            // restore dejaba el Hub vacío tras cada relanzamiento.
+            id: p.id,
             aiType: p.aiType, accountName: p.accountName, accountDir: p.accountDir,
             borderColor: p.borderColor, cmd: p.cmd,
             customLabel: p.customLabel, customColor: p.customColor, note: p.note,
             repoPath: p.repoPath,
             shellId: p.shellId,
+            pinned: p.pinned,
             // Persist the browser pane's current URL so reopening Nest (or
             // switching workspaces) restores the page instead of the placeholder.
             url: p.url,
+            // Editor: sin estos dos, el pane restauraba como cascarón sin
+            // tabs (negro, incerrable). Las tabs dirty recargan de disco al
+            // restaurar (el buffer no sobrevive el proceso) pero conservan
+            // la señal de "tenías trabajo sin guardar".
+            editorTabs: p.editorTabs,
+            activeEditorTabPath: p.activeEditorTabPath,
           })),
           splitRatios: tab.splitRatios,
+          isHub: tab.isHub,
+          hubPanes: tab.hubPanes,
         })),
         activeTabId,
       }
@@ -992,25 +1402,38 @@ export default function App() {
         return
       }
 
+      if (e.key === 'Escape' && hubOpenRef.current) { closeHub(); return }
       if (e.key === 'Escape' && zoomedPaneIdRef.current !== null) { handleUnzoom(); return }
 
       if (!e.metaKey && !e.ctrlKey) return
+
+      // While the Hub overlay is open, its own listener owns the keyboard.
+      // Swallow every App-level Meta/Ctrl binding (pane cycling, Cmd+1-9, new
+      // pane, zoom, font size…) so a shell shortcut typed into a Hub tile
+      // (e.g. Ctrl+←/→ word-jump) can't redirect focus to a hidden pane
+      // behind the overlay. Only the Hub toggle still acts here (to close);
+      // Escape is handled above. Returning without preventDefault lets the
+      // keystroke reach the focused tile's terminal.
+      if (hubOpenRef.current) {
+        if (matchesBinding(e, kb.hubOverlay)) { e.preventDefault(); closeHub(); return }
+        return
+      }
 
       if (matchesBinding(e, kb.newPane)) { e.preventDefault(); addNextPane(); return }
 
       if (matchesBinding(e, kb.fontSizeUp)) {
         e.preventDefault()
-        setFontSize(s => { const n = Math.min(s + 1, 20); localStorage.setItem('nest-font-size', String(n)); userPrefs.setFontSize(n); return n })
+        bumpPaneFontSize(1)
         return
       }
       if (matchesBinding(e, kb.fontSizeDown)) {
         e.preventDefault()
-        setFontSize(s => { const n = Math.max(s - 1, 9); localStorage.setItem('nest-font-size', String(n)); userPrefs.setFontSize(n); return n })
+        bumpPaneFontSize(-1)
         return
       }
       if (matchesBinding(e, kb.fontSizeReset)) {
         e.preventDefault()
-        setFontSize(13); localStorage.setItem('nest-font-size', '13'); userPrefs.setFontSize(13)
+        bumpPaneFontSize('reset')
         return
       }
 
@@ -1035,8 +1458,18 @@ export default function App() {
         return
       }
 
+      // Dentro del editor, Ctrl+F es de Monaco (buscar en el archivo). Este
+      // listener corre en CAPTURA: sin ceder, abría la búsqueda global Y dejaba
+      // pasar el evento a Monaco, que abría su Find encima.
+      if (matchesBinding(e, kb.globalSearch) && isInsideCodeEditor(e.target)) return
       if (matchesBinding(e, kb.globalSearch)) { e.preventDefault(); setGlobalSearchOpen(true); return }
       if (matchesBinding(e, kb.commandPalette)) { e.preventDefault(); setCommandPaletteOpen(v => !v); return }
+      if (matchesBinding(e, kb.hubOverlay)) {
+        e.preventDefault()
+        if (hubOpenRef.current) closeHub()
+        else openHub()
+        return
+      }
 
       if (matchesBinding(e, kb.nextPane) || matchesBinding(e, kb.prevPane)) {
         e.preventDefault()
@@ -1064,7 +1497,7 @@ export default function App() {
     // means non-modified keystrokes still flow through to the terminal.
     window.addEventListener('keydown', handler, true)
     return () => window.removeEventListener('keydown', handler, true)
-  }, [addNextPane, toggleListening, cycleTab, handleUnzoom, handleZoom, planLimits.allowVoice])
+  }, [addNextPane, toggleListening, cycleTab, handleUnzoom, handleZoom, planLimits.allowVoice, openHub, closeHub])
 
   const isInitialState = panes.length === 0
 
@@ -1073,9 +1506,10 @@ export default function App() {
   const workspaceRef = useRef<HTMLDivElement>(null)
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
-    if (!Array.from(e.dataTransfer.types).includes(WORKTREE_DRAG_MIME)) return
+    const types = Array.from(e.dataTransfer.types)
+    if (!workspaceAcceptsDrag(types)) return
     e.preventDefault()
-    e.dataTransfer.dropEffect = 'copy'
+    e.dataTransfer.dropEffect = workspaceDropEffect(types)
     if (!dropActive) setDropActive(true)
   }, [dropActive])
 
@@ -1085,12 +1519,32 @@ export default function App() {
   }, [])
 
   const handleDrop = useCallback((e: React.DragEvent) => {
-    const path = e.dataTransfer.getData(WORKTREE_DRAG_MIME)
     setDropActive(false)
-    if (!path) return
+    const action = workspaceDropAction(e.dataTransfer)
+    if (!action) return
     e.preventDefault()
-    setAddingPane({ worktreePath: path })
-  }, [])
+    if (action.kind === 'worktree') {
+      setAddingPane({ worktreePath: action.path })
+      return
+    }
+    if (action.kind === 'editorTab') {
+      // Tab soltada en el fondo (o rechazada por un pane cross-worktree que
+      // la dejó burbujear): mismo gesto que el botón "Open in new pane" —
+      // el buffer dirty ya viaja por el handoff stasheado en el dragstart.
+      moveEditorTabToNewPane(action.sourcePaneId, action.relPath)
+      return
+    }
+    // Archivo del Explorer soltado fuera de un pane de editor: pane de editor
+    // NUEVO (soltarlo SOBRE un editor lo abre ahí — EditorPane corta el
+    // burbujeo). El repoPath sale del payload, no del estado activo: el
+    // payload es la autoridad sobre qué worktree es el archivo. Los topes de
+    // panes (MAX_PANES / plan) los aplica addPane solo.
+    addPane('editor', '', '', AI_CONFIG.editor.color, '', undefined, undefined, undefined, {
+      editorTabs: [{ relPath: action.relPath, dirty: false }],
+      activeEditorTabPath: action.relPath,
+      repoPath: action.worktreePath,
+    })
+  }, [addPane, moveEditorTabToNewPane])
 
   // ResourceBar payload — flatten ALL tabs (not just active) so the panel
   // reflects every running PTY in the app. Memoize on a structural key so the
@@ -1110,12 +1564,216 @@ export default function App() {
         // header's color picker) wins so the panel mirrors what they see
         // in the pane header. Falls back to customColor (custom CLIs) and
         // then to the AI's default color.
-        const aiColor = pane.borderColor ?? pane.customColor ?? AI_CONFIG[pane.aiType]?.color ?? '#888888'
+        const aiColor = paneAccentColor(pane)
         out.push({ paneId: pane.id, repoPath: pane.repoPath, label, note: pane.note, workspaceName: tab.name, aiColor, aiType: pane.aiType })
       }
     }
     return out
   }, [tabs])
+
+  // Todos los panes de los workspaces son elegibles para el Hub — terminales,
+  // editores y browsers (renderHubPane branchea por tipo).
+  const hubTermCount = useMemo(
+    () => tabs.reduce((n, t) => t.isHub ? n : n + t.panes.length, 0),
+    [tabs]
+  )
+
+  // The Hub is a normal workspace whose panes are a CURATED subset the user pulls
+  // from across every workspace (the terminals they use most). Same layout engine
+  // + real TerminalPane as any workspace — the Hub tab replaces the whole view
+  // (not an overlay), so the real pane mounts here safely. Membership AND order
+  // both live in `hubPanes` (ids); capped at MAX_PANES like any workspace.
+  const hubPaneSet = useMemo(() => new Set(activeTab.hubPanes ?? []), [activeTab.hubPanes])
+  const hubData = useMemo(() => {
+    if (!activeTab.isHub) return null
+    const byId = new Map<string, PaneNode>()
+    for (const t of tabs) {
+      if (t.isHub) continue
+      for (const p of t.panes) byId.set(p.id, p)
+    }
+    const picked = (activeTab.hubPanes ?? [])
+      .map(id => byId.get(id))
+      .filter((p): p is PaneNode => !!p)
+    const panes = picked.slice(0, MAX_PANES)
+    return { panes, layoutId: hubLayoutFor(activeTab.layoutId, panes.length), hiddenCount: Math.max(0, picked.length - MAX_PANES) }
+  }, [activeTab.isHub, activeTab.hubPanes, activeTab.layoutId, tabs])
+  hubPanesRef.current = hubData?.panes ?? []
+
+  // ── Filtro de vista por tipo de pane (agentes / editor / terminal / browser) ──
+  // Per-tab y TRANSITORIO: default 'all', sin persistencia — cada sesión
+  // arranca con todo junto y filtrar es un gesto explícito. Nunca muta
+  // panes/layoutId/splitRatios del tab: la vista se deriva al render y al
+  // volver a 'all' el layout real reaparece intacto. Los panes filtrados se
+  // desmontan — el mismo ciclo ya blindado del cambio de workspace tab.
+  const [paneFilters, setPaneFilters] = useState<Record<string, PaneFilter>>({})
+  const paneFilter: PaneFilter = paneFilters[activeTab.id] ?? 'all'
+  const filterablePanes = activeTab.isHub ? (hubData?.panes ?? []) : panes
+  const filteredView = useMemo(() => applyPaneFilter(filterablePanes, paneFilter), [filterablePanes, paneFilter])
+  const paneFilterActive = filteredView.active
+
+  const handlePaneFilterChange = useCallback((next: PaneFilter) => {
+    setPaneFilters(f => ({ ...f, [activeTab.id]: next }))
+    if (next === 'all') return
+    const source = activeTab.isHub ? hubPanesRef.current : activeTab.panes
+    const visible = applyPaneFilter(source, next).panes
+    // Un pane zoomeado que el filtro oculta se desmonta pero dejaría el
+    // backdrop del zoom colgado sobre la nada.
+    if (zoomedPaneId !== null && !visible.some(p => p.id === zoomedPaneId)) handleUnzoom()
+    // Los atajos y el broadcast escriben en el pane focuseado: si el filtro
+    // lo oculta, el foco pasa al primer pane visible.
+    const focused = focusedPaneIdRef.current
+    if (focused && visible.some(p => p.id === focused)) return
+    if (visible[0]) { setFocusedPaneId(visible[0].id); focusedPaneIdRef.current = visible[0].id }
+  }, [activeTab, zoomedPaneId, handleUnzoom])
+
+  // Pane nuevo que el filtro ocultaría (p.ej. filtro Agents activo y un drop
+  // del Explorer abre un editor): resetear a 'all' — un pane recién creado
+  // invisible parece un bug, no un filtro. DELIBERADAMENTE distinto del
+  // Hub-overlay (HubView), que solo cae a 'all' si el grupo se vacía: el
+  // overlay monitorea TODOS los workspaces y resetear su filtro por panes
+  // que spawnean otros tabs le arrancaría la vista al usuario a cada rato.
+  const prevPaneIdsRef = useRef<{ tabId: string; ids: Set<string> }>({ tabId: '', ids: new Set() })
+  useEffect(() => {
+    const prev = prevPaneIdsRef.current
+    const sameTab = prev.tabId === activeTab.id
+    prevPaneIdsRef.current = { tabId: activeTab.id, ids: new Set(filterablePanes.map(p => p.id)) }
+    if (!sameTab) return
+    if (newPaneBreaksFilter(prev.ids, filterablePanes, paneFilter)) {
+      setPaneFilters(f => ({ ...f, [activeTab.id]: 'all' }))
+    }
+  }, [filterablePanes, paneFilter, activeTab.id])
+
+  // Mientras el filtro está activo el layout es DERIVADO: persistir un
+  // resize ahí pisaría los splitRatios del layout real del tab.
+  const ignoreSplitResize = useCallback(() => {}, [])
+  // Un solo switch filtro-activo para AMBOS surfaces (Hub y workspace):
+  // duplicar estos ternarios por branch invitaba a arreglar uno y olvidar
+  // el otro (finding del review).
+  const filteredSplitProps = paneFilterActive
+    ? { splitRatios: undefined, onResize: ignoreSplitResize }
+    : { splitRatios: activeTab.splitRatios, onResize: handleSplitResize }
+
+  const hubWorkspaces = useMemo(() => tabs.filter(t => !t.isHub).map(t => ({
+    id: t.id,
+    name: t.name,
+    accentColor: t.accentColor,
+    terminals: t.panes.map(p => ({
+      id: p.id,
+      // Un pane de editor se identifica por su archivo activo, no por "Editor".
+      label: p.customLabel ?? p.note
+        ?? (p.aiType === 'editor' && p.activeEditorTabPath ? basename(p.activeEditorTabPath) : undefined)
+        ?? AI_CONFIG[p.aiType]?.label ?? 'Terminal',
+      color: paneAccentColor(p),
+      aiType: p.aiType,
+      inHub: hubPaneSet.has(p.id),
+      busy: activePanes.has(p.id),
+    })),
+  })), [tabs, hubPaneSet, activePanes])
+
+  // Explorer multi-raíz del Hub: una raíz por workspace abierto CON repo. El
+  // Explorer atado a la celda activa no sirve en el Hub (no hay celda enfocada);
+  // acá listamos los repos de todos los workspaces para navegarlos sin salir.
+  const hubExplorerRoots = useMemo(
+    () => tabs
+      .filter(t => !t.isHub && t.repoPath)
+      .map(t => ({ tabId: t.id, name: t.name, repoPath: t.repoPath! })),
+    [tabs],
+  )
+
+  // Abrir un archivo desde el Hub: se abre en su WORKSPACE (pane de editor real
+  // ahí, reusado o nuevo) y ese pane se ancla al Hub (auto-pin) para verlo sin
+  // salir. Ver openFileFromHub para la transformación pura.
+  const handleOpenFileFromHub = useCallback((workspaceTabId: string, repoPath: string, relPath: string) => {
+    const newPane: PaneNode = {
+      id: generateId(), aiType: 'editor', accountName: '', accountDir: '',
+      borderColor: AI_CONFIG.editor.color, cmd: '', repoPath,
+      editorTabs: [{ relPath, dirty: false }], activeEditorTabPath: relPath,
+    }
+    // Respetar el cap del workspace destino (hard MAX_PANES + tope de plan) igual
+    // que addPane, y el del Hub (MAX_PANES, lo que hubData muestra).
+    const res = openFileFromHub(tabsRef.current, activeTabIdRef.current, workspaceTabId, repoPath, relPath, newPane, {
+      workspaceCapacity: Math.min(MAX_PANES, planLimits.maxPanes),
+      hubCapacity: MAX_PANES,
+    })
+    if (res.status === 'workspace-full') {
+      // Bloqueado por el tope del plan (no el hard cap) → ofrecer upgrade, como addPane.
+      if (planLimits.maxPanes < MAX_PANES) setShowUpgrade(true)
+      return
+    }
+    setTabs(res.tabs)
+  }, [planLimits.maxPanes])
+
+  // El Hub muestra panes de OTROS workspaces: toda mutación va vía los
+  // helpers *Anywhere (la tab activa es la del Hub y no posee estos panes).
+  // Sin el branch por tipo, un pane de editor agregado al Hub se renderizaba
+  // como TerminalPane — un xterm sin PTY, roto.
+  const renderHubPane = (pane: PaneNode) => pane.aiType === 'editor'
+    ? (
+      <PaneErrorBoundary key={pane.id} onClose={() => removePaneAnywhere(pane.id)}>
+        <EditorPane
+          pane={pane}
+          onTabsChange={(editorTabs, activeEditorTabPath) => updatePaneAnywhere(pane.id, p => ({ ...p, editorTabs, activeEditorTabPath }))}
+          onClose={() => removePaneAnywhere(pane.id)}
+          onFocus={() => { setFocusedPaneId(pane.id); focusedPaneIdRef.current = pane.id }}
+          onOpenInNewPane={(relPath) => moveEditorTabToNewPaneFromHub(pane.id, relPath)}
+          onTabDropped={(drop) => handleEditorTabDropped(pane.id, drop)}
+          onFileDropped={(relPath) => handleEditorFileDropped(pane.id, relPath)}
+          editorOptions={userPrefs.prefs.ui_settings.editorOptions}
+          editorTheme={userPrefs.prefs.ui_settings.editorTheme}
+          zoomed={zoomedPaneId === pane.id}
+          zoomingOut={zoomedPaneId === pane.id && zoomingOut}
+          onZoom={() => handleZoom(pane.id)}
+          fontSize={pane.fontSize ?? fontSize}
+        />
+      </PaneErrorBoundary>
+    )
+    : pane.aiType === 'browser'
+    ? (
+      <BrowserCell
+        key={pane.id}
+        pane={pane}
+        borderColor={pane.borderColor}
+        dragging={draggingId !== null}
+        dragSnapshot={dragSnapshots[pane.id]}
+        siblingPaneIds={hubPanesRef.current.filter(p => p.id !== pane.id).map(p => p.id)}
+        workspaceRepoPath={pane.repoPath}
+        siblingRepoPaths={Array.from(new Set(
+          hubPanesRef.current.map(p => p.repoPath).filter((p): p is string => !!p)
+        ))}
+        onClose={() => removePaneAnywhere(pane.id)}
+        onNavigate={(url) => updatePaneAnywhere(pane.id, p => ({ ...p, url }))}
+      />
+    )
+    : (
+    <TerminalPane
+      key={pane.id}
+      pane={pane}
+      ports={panePorts[pane.id] ?? []}
+      isDragging={draggingId === pane.id}
+      zoomed={zoomedPaneId === pane.id}
+      zoomingOut={zoomedPaneId === pane.id && zoomingOut}
+      onZoom={() => handleZoom(pane.id)}
+      onClose={() => removePaneAnywhere(pane.id)}
+      onColorChange={(c) => updatePaneAnywhere(pane.id, p => ({ ...p, borderColor: c }))}
+      onNoteChange={(note) => updatePaneAnywhere(pane.id, p => ({ ...p, note }))}
+      fontSize={pane.fontSize ?? fontSize}
+      onInput={(data) => {
+        // El broadcast también aplica DESDE el Hub: los targets son los panes
+        // agentes visibles en el Hub (el onInput del workspace no corre acá —
+        // este es el camino que faltaba y por el que "no funcionaba").
+        const targets = broadcastMode ? broadcastTargets(hubPanesRef.current, pane.id) : [pane.id]
+        targets.forEach((id) => window.pty.write(id, data))
+      }}
+      onFocus={() => { setFocusedPaneId(pane.id); focusedPaneIdRef.current = pane.id }}
+      onBusyChange={handleBusyChange}
+      onActivity={handlePaneActivity}
+      onJoinRequest={() => setJoinRequest({ paneId: pane.id, paneTitle: pane.customLabel ?? pane.accountName ?? 'Terminal' })}
+      onPtyStarted={(id, rp) => updatePaneAnywhere(id, p => ({ ...p, runningRepoPath: rp }))}
+      allowSharing={planLimits.allowSharing}
+      onRequireUpgrade={() => setShowUpgrade(true)}
+      onRename={(label) => updatePaneAnywhere(pane.id, p => ({ ...p, customLabel: label || undefined }))}
+    />
+    )
 
   return (
     <div className="app" style={{ '--tab-accent': activeTab.accentColor ?? 'var(--raven-blue)' } as React.CSSProperties}>
@@ -1171,7 +1829,10 @@ export default function App() {
           if (id) window.pty.write(id, content + '\r')
         }}
         onSnippetBroadcast={(content) => {
-          activePaneIds.forEach((id) => window.pty.write(id, content + '\r'))
+          // Vista-consciente: en el Hub la tab activa no posee panes — los
+          // targets salen de los panes del Hub. Y siempre solo agentes.
+          const viewPanes = activeTab.isHub ? hubPanesRef.current : panes
+          viewPanes.filter((p) => isAgentPane(p.aiType)).forEach((p) => window.pty.write(p.id, content + '\r'))
         }}
         onCommandRun={(cmd) => {
           const id = focusedPaneIdRef.current
@@ -1198,6 +1859,22 @@ export default function App() {
         onGraphBoardOpen={() => setGraphBoardOpen(true)}
         plan={plan}
         repoPath={activeTab.repoPath}
+        isHub={activeTab.isHub ?? false}
+        hubWorkspaces={hubWorkspaces}
+        onSelectWorkspace={(id) => {
+          // Hub is a curated workspace: clicking a workspace focuses its first
+          // pane *inside* the Hub (adding it if needed), never navigates away.
+          const t = tabs.find(x => x.id === id)
+          const p = t?.panes[0]
+          if (p) handleHubFocus(p.id)
+        }}
+        onJumpToPane={(_tabId, paneId) => handleHubFocus(paneId)}
+        onToggleTerminal={handleHubToggleTerminal}
+        onToggleWorkspace={handleHubToggleWorkspace}
+        onNewWorkspace={handleTabNew}
+        onAddTerminalToWorkspace={(tabId) => { setActiveTabId(tabId); setAddingPane({}) }}
+        hubExplorerRoots={hubExplorerRoots}
+        onOpenFileFromHub={handleOpenFileFromHub}
         onRepoLink={handleRepoLink}
         onRepoUnlink={handleRepoUnlink}
         isListening={isListening}
@@ -1213,10 +1890,15 @@ export default function App() {
         onNewWorktree={handleNewWorktree}
         onFixCi={onFixCi}
         worktreeRefreshKey={worktreeRefreshKey}
-        layoutId={activeTab.layoutId}
-        paneCount={panes.length}
+        layoutId={activeTab.isHub ? (hubData?.layoutId ?? '1') : activeTab.layoutId}
+        paneCount={activeTab.isHub ? (hubData?.panes.length ?? 0) : panes.length}
         onLayoutChange={handleLayoutIdChange}
         onOpenTutorial={(id) => setTutorialTour(id)}
+        onFileOpen={openFileInEditor}
+        userPrefs={userPrefs}
+        paneFilterPanes={filterablePanes}
+        paneFilter={paneFilter}
+        onPaneFilterChange={handlePaneFilterChange}
       />
       <div
         ref={workspaceRef}
@@ -1224,9 +1906,31 @@ export default function App() {
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
+        // Captura: corre ANTES que cualquier onDrop hijo y no lo frena su
+        // stopPropagation — sin esto, un drop consumido por un EditorPane
+        // dejaba el outline de drop-target colgado (handleDrop nunca corría).
+        onDropCapture={() => setDropActive(false)}
       >
-        {isInitialState ? (
-          <EmptyState onNewPane={addNextPane} />
+        {activeTab.isHub ? (
+          <HubWorkspace
+            panes={filteredView.panes}
+            layoutId={paneFilterActive ? hubLayoutFor(activeTab.layoutId, filteredView.panes.length) : (hubData?.layoutId ?? '1')}
+            hiddenCount={paneFilterActive ? 0 : (hubData?.hiddenCount ?? 0)}
+            {...filteredSplitProps}
+            onDragStart={handleDragStart}
+            onDragEnd={handleHubDragEnd}
+            onDragCancel={handleDragCancel}
+            draggingId={draggingId}
+            dragSnapshot={draggingId ? dragSnapshots[draggingId] ?? null : null}
+            sensors={sensors}
+            renderPane={renderHubPane}
+          />
+        ) : isInitialState ? (
+          <EmptyState
+            onNewPane={addNextPane}
+            onShowHub={hubTermCount > 0 ? convertActiveTabToHub : undefined}
+            hubCount={hubTermCount}
+          />
         ) : (
           <>
             {zoomedPaneId !== null && (
@@ -1237,22 +1941,52 @@ export default function App() {
             )}
             <DndContext
               sensors={sensors}
-              collisionDetection={closestCenter}
+              collisionDetection={pointerWithin}
               onDragStart={handleDragStart}
               onDragEnd={handleDragEnd}
+              onDragCancel={handleDragCancel}
             >
-              <SortableContext items={panes.map(p => p.id)} strategy={rectSortingStrategy}>
+              <SortableContext items={filteredView.panes.map(p => p.id)} strategy={rectSortingStrategy}>
+                {/* Con filtro activo el layout/ratios son derivados para el
+                    conteo visible; el swap del drag-end busca por id en el
+                    array REAL, así que reordenar filtrado sigue andando. */}
                 <PaneLayoutEngine
-                  layoutId={activeTab.layoutId}
-                  panes={panes}
-                  splitRatios={activeTab.splitRatios}
-                  onResize={handleSplitResize}
+                  layoutId={paneFilterActive ? defaultLayoutFor(filteredView.panes.length) : activeTab.layoutId}
+                  panes={filteredView.panes}
+                  {...filteredSplitProps}
                   renderPane={(pane) => {
+                    // Boundary solo en el editor: es el unico pane que corre
+                    // codigo de terceros patcheando globals (Monaco/shiki) —
+                    // un throw ahi en pleno commit desmontaba la app entera.
+                    if (pane.aiType === 'editor') return (
+                      <PaneErrorBoundary key={pane.id} onClose={() => removePane(pane.id)}>
+                        <EditorPane
+                          pane={pane}
+                          onTabsChange={(tabs, activeEditorTabPath) => updatePaneEditorTabs(pane.id, tabs, activeEditorTabPath)}
+                          onClose={() => removePane(pane.id)}
+                          onFocus={() => { setFocusedPaneId(pane.id); focusedPaneIdRef.current = pane.id }}
+                          onOpenInNewPane={(relPath) => moveEditorTabToNewPane(pane.id, relPath)}
+                          onTabDropped={(drop) => handleEditorTabDropped(pane.id, drop)}
+                          onFileDropped={(relPath) => handleEditorFileDropped(pane.id, relPath)}
+                          editorOptions={userPrefs.prefs.ui_settings.editorOptions}
+                          editorTheme={userPrefs.prefs.ui_settings.editorTheme}
+                          zoomed={zoomedPaneId === pane.id}
+                          zoomingOut={zoomedPaneId === pane.id && zoomingOut}
+                          onZoom={() => handleZoom(pane.id)}
+                          fontSize={pane.fontSize ?? fontSize}
+                        />
+                      </PaneErrorBoundary>
+                    )
                     if (pane.aiType === 'browser') return (
                       <BrowserCell
                         key={pane.id}
                         pane={pane}
                         borderColor={pane.borderColor}
+                        zoomed={zoomedPaneId === pane.id}
+                        zoomingOut={zoomedPaneId === pane.id && zoomingOut}
+                        onZoom={() => handleZoom(pane.id)}
+                        dragging={draggingId !== null}
+                        dragSnapshot={dragSnapshots[pane.id]}
                         siblingPaneIds={panes.filter(p => p.id !== pane.id).map(p => p.id)}
                         workspaceRepoPath={activeTab.repoPath ?? pane.repoPath}
                         siblingRepoPaths={Array.from(new Set(
@@ -1281,9 +2015,12 @@ export default function App() {
                         onClose={() => removePane(pane.id)}
                         onColorChange={(c) => updatePaneColor(pane.id, c)}
                         onNoteChange={(note) => updatePaneNote(pane.id, note)}
-                        fontSize={fontSize}
+                        fontSize={pane.fontSize ?? fontSize}
                         onInput={(data) => {
-                          const targets = broadcastMode ? panes.map(p => p.id) : [pane.id]
+                          // Broadcast solo a panes de AGENTE (más la propia):
+                          // editor/browser no tienen PTY y una shell plana
+                          // ejecutaría el prompt como comando.
+                          const targets = broadcastMode ? broadcastTargets(panes, pane.id) : [pane.id]
                           targets.forEach((id) => window.pty.write(id, data))
                         }}
                         onFocus={() => {
@@ -1298,6 +2035,7 @@ export default function App() {
                         onRequireUpgrade={() => setShowUpgrade(true)}
                         hasNextStep={hasNextStep}
                         onHandoff={() => { if (pane.repoPath) void advanceHandoff(pane.repoPath) }}
+                        onRename={(label) => updatePaneAnywhere(pane.id, p => ({ ...p, customLabel: label || undefined }))}
                       />
                     )
                   }}
@@ -1309,16 +2047,7 @@ export default function App() {
               <DragOverlay>
                 {draggingId !== null && (() => {
                   const pane = panes.find(p => p.id === draggingId)
-                  return pane ? (
-                    <div className="drag-overlay-pane" style={{ '--pane-color': pane.borderColor } as React.CSSProperties}>
-                      <div className="pane-header" style={{ borderBottom: `1px solid ${pane.borderColor}44` }}>
-                        <span className="pane-ai-label" style={{ color: AI_CONFIG[pane.aiType].color, paddingLeft: 10 }}>
-                          {AI_CONFIG[pane.aiType].label}
-                        </span>
-                        <span className="pane-account-name" style={{ paddingLeft: 6 }}>{pane.accountName}</span>
-                      </div>
-                    </div>
-                  ) : null
+                  return pane ? <PaneDragGhost pane={pane} snapshot={dragSnapshots[draggingId] ?? null} /> : null
                 })()}
               </DragOverlay>
             </DndContext>
@@ -1333,6 +2062,17 @@ export default function App() {
         <GlobalSearch onClose={() => setGlobalSearchOpen(false)} />
       )}
 
+      {hubOpen && (
+        <HubOverlay
+          tabs={tabs}
+          activeTabId={activeTabId}
+          activePanes={activePanes}
+          onClose={closeHub}
+          onJump={handleHubJump}
+          onTogglePin={handleHubTogglePin}
+        />
+      )}
+
       {commandPaletteOpen && (
         <CommandPalette
           onClose={() => setCommandPaletteOpen(false)}
@@ -1343,11 +2083,15 @@ export default function App() {
           onTabSelect={(id) => { handleTabSelect(id) }}
           onWorkspaceLoad={loadWorkspace}
           onSnippetSend={(content) => { if (focusedPaneId) window.pty.write(focusedPaneId, content + '\n') }}
-          onSnippetBroadcast={(content) => { panes.forEach(p => window.pty.write(p.id, content + '\n')) }}
+          onSnippetBroadcast={(content) => {
+            const viewPanes = activeTab.isHub ? hubPanesRef.current : panes
+            viewPanes.filter(p => isAgentPane(p.aiType)).forEach(p => window.pty.write(p.id, content + '\n'))
+          }}
           onHistoryOpen={() => setConvSidebarOpen(true)}
           onNewTab={handleTabNew}
           onNewPane={addNextPane}
           onBroadcastToggle={() => setBroadcastMode(v => !v)}
+          onHubOpen={openHub}
         />
       )}
 
@@ -1438,9 +2182,11 @@ export default function App() {
 
       {confirmClose && (
         <ConfirmDialog
-          title={`Close "${confirmClose.name}"?`}
-          message="There are terminals running in this workspace. They will all be closed."
-          confirmLabel="Close"
+          title={confirmClose.isHub ? 'Close the Hub?' : `Close "${confirmClose.name}"?`}
+          message={confirmClose.isHub
+            ? 'This clears the terminals you pinned into the Hub. They stay open in their own workspaces — only the Hub set is cleared.'
+            : 'There are terminals running in this workspace. They will all be closed.'}
+          confirmLabel={confirmClose.isHub ? 'Close Hub' : 'Close'}
           confirmDanger
           onConfirm={() => { closeTab(confirmClose.tabId); setConfirmClose(null) }}
           onCancel={() => setConfirmClose(null)}
@@ -1494,7 +2240,7 @@ function EmptyCell({ onClick }: { onClick: () => void }) {
   )
 }
 
-function EmptyState({ onNewPane }: { onNewPane: () => void }) {
+function EmptyState({ onNewPane, onShowHub, hubCount }: { onNewPane: () => void; onShowHub?: () => void; hubCount?: number }) {
   return (
     <div className="empty-state">
       <div className="empty-logo">
@@ -1506,6 +2252,19 @@ function EmptyState({ onNewPane }: { onNewPane: () => void }) {
         + New Terminal
       </button>
       <p className="empty-hint">or press <kbd>{window.platform?.isWin ? 'Ctrl+T' : '⌘T'}</kbd></p>
+      {onShowHub && (
+        <>
+          <div className="empty-or">or</div>
+          <button className="empty-hub-btn" onClick={onShowHub}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+              <rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" />
+              <rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" />
+            </svg>
+            View all terminals in the Hub
+            {hubCount ? <span className="empty-hub-count">{hubCount}</span> : null}
+          </button>
+        </>
+      )}
     </div>
   )
 }

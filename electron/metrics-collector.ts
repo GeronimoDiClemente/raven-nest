@@ -836,9 +836,18 @@ export class MetricsCollector {
       externalTrees.set(root, await this.getTreeForPid(root))
     }))
 
-    // Single bulk pidusage for every external pid we'll need stats for.
+    // Assign each external PID to a SINGLE worktree so a shared process tree
+    // (e.g. one Vite dev server matching several worktree paths at once) is
+    // never summed into the grand total more than once. `accounted` (Nest pane
+    // pids) is passed so an external tree containing a pane descendant can't
+    // re-count it either. See assignExternalPidsToWorktrees for the rationale.
+    const worktreeRoots = Array.from(externalRootsByPath, ([worktreePath, roots]) => ({ worktreePath, roots }))
+    const pidsByWorktree = assignExternalPidsToWorktrees(worktreeRoots, externalTrees, accounted)
+    if (pidsByWorktree.size === 0) return
+
+    // Single bulk pidusage for every external pid we'll actually attribute.
     const allExternalPids = new Set<number>()
-    for (const tree of externalTrees.values()) for (const p of tree) allExternalPids.add(p)
+    for (const pids of pidsByWorktree.values()) for (const p of pids) allExternalPids.add(p)
     if (allExternalPids.size === 0) return
 
     let stats: Record<number, PidUsageStat | null> = {}
@@ -865,17 +874,12 @@ export class MetricsCollector {
     const snap = await this.getWindowsSnapshot()
     const nameByPid = snap.nameByPid
 
-    for (const [worktreePath, roots] of externalRootsByPath) {
-      // Collect every pid in the trees of this worktree's external roots,
-      // dedup, then group by classified kind (node / electron / python / ...).
-      const allPidsForWt = new Set<number>()
-      for (const root of roots) {
-        const tree = externalTrees.get(root) ?? [root]
-        for (const pid of tree) allPidsForWt.add(pid)
-      }
+    for (const [worktreePath, allPidsForWt] of pidsByWorktree) {
       if (allPidsForWt.size === 0) continue
 
-      // Group by kind. Each kind is rendered as its own row with its own logo.
+      // Group this worktree's exclusively-owned external pids by classified
+      // kind (node / electron / python / ...). Each kind is rendered as its own
+      // row with its own logo.
       interface Group { pids: Set<number>; cpu: number; memory: number }
       const groups = new Map<string, Group>()
       for (const pid of allPidsForWt) {
@@ -930,6 +934,47 @@ export class MetricsCollector {
       })
     }
   }
+}
+
+/**
+ * Assign every discovered external process PID (each root plus its resolved
+ * descendant tree) to AT MOST ONE worktree.
+ *
+ * External discovery (`findProcessesUnderPath`) matches on ExecutablePath /
+ * CommandLine substrings, so a single shared process tree — the classic case
+ * being a Vite dev server on :5173 whose command line references the repo root
+ * — legitimately matches SEVERAL worktree paths at once (e.g. two panes of the
+ * same repo that resolved to two slightly different `repoPath` keys, or nested
+ * worktrees). If each matching group sums that tree independently, the same
+ * PIDs are counted multiple times and the grand total (which rolls up worktree
+ * → repo → totals by summation) is inflated by several GB.
+ *
+ * Here we walk the worktrees in order and let the first one to see a PID own
+ * it; every later worktree skips PIDs already claimed. PIDs already `accounted`
+ * for by Nest's own panes are seeded as claimed so an external tree that
+ * happens to contain a pane descendant never re-counts it either. The result:
+ * summing memory across all returned sets counts each PID exactly once.
+ */
+export function assignExternalPidsToWorktrees(
+  worktreeRoots: ReadonlyArray<{ worktreePath: string; roots: number[] }>,
+  treesByRoot: ReadonlyMap<number, number[]>,
+  accounted: ReadonlySet<number> = new Set<number>(),
+): Map<string, Set<number>> {
+  const claimed = new Set<number>(accounted)
+  const byWorktree = new Map<string, Set<number>>()
+  for (const { worktreePath, roots } of worktreeRoots) {
+    const pids = new Set<number>()
+    for (const root of roots) {
+      const tree = treesByRoot.get(root) ?? [root]
+      for (const pid of tree) {
+        if (claimed.has(pid)) continue
+        claimed.add(pid)
+        pids.add(pid)
+      }
+    }
+    if (pids.size > 0) byWorktree.set(worktreePath, pids)
+  }
+  return byWorktree
 }
 
 // Classify a Windows process Name to a UI "kind". Each kind has a logo and
