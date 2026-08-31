@@ -537,6 +537,15 @@ export interface GraphTemplateInput {
 
 export type NodeRunState =
   | 'queued' | 'running' | 'needs_input' | 'blocked' | 'done' | 'failed' | 'skipped'
+export type GraphMode = 'auto' | 'gate' | 'step'
+export type PendingDecision =
+  | { kind: 'approve'; gateId: string }
+  | { kind: 'requestChanges'; feedback: string }
+/** Lo que un reviewer dejó escrito en su artefacto, ya parseado. */
+export interface GraphVerdict {
+  concerns: string[]
+  blocking: boolean
+}
 export interface NodeRuntime {
   state: NodeRunState
   paneId?: string
@@ -544,15 +553,22 @@ export interface NodeRuntime {
   endedAt?: number
   summary?: string
   artifact?: string
+  verdict?: GraphVerdict
+  exitCode?: number
 }
 export interface GraphRun {
   runId: string
   ticketId: string
   templateId: string
   worktreePath: string
+  repoPath?: string
   branch: string
   nodes: Record<string, NodeRuntime>
   startedAt: number
+  mode: GraphMode
+  round: number
+  revisionNotes?: Record<string, string>
+  pendingDecision?: PendingDecision
 }
 export interface PersistedGraphRun {
   run: GraphRun
@@ -576,6 +592,10 @@ export interface GraphRunsBridge {
     { ok: true; runId: string; worktreePath: string } | { ok: false; error: string }
   >
   attach: (runId: string, nodeId: string) => Promise<{ paneId: string; exists: boolean; buffer: string }>
+  // Decisiones humanas: encolan un pendingDecision que aplica el tick, no aplican nada acá.
+  setMode: (runId: string, mode: GraphMode) => Promise<{ ok: boolean }>
+  approve: (runId: string, gateId: string) => Promise<{ ok: boolean }>
+  requestChanges: (runId: string, feedback: string) => Promise<{ ok: boolean }>
 }
 
 export interface GridLayout {

@@ -41,6 +41,48 @@ of the graph eval-loop, done on 2026-08-22 by reading the wiring end to end.
 
 ### Blockers (code) — A and B are hard blockers
 
+> **STATUS 2026-08-25: A + B are FIXED** (this branch). `launchCommand`
+> (`graph-tick.ts`) now emits a headless command that reads the composed prompt
+> from a file and `exec`s the CLI so the pty closes with its exit code:
+> POSIX `exec claude -p "$(cat '<wt>/.nest/graph/<node>.prompt')" --dangerously-skip-permissions`
+> (codex → `exec codex exec --dangerously-bypass-approvals-and-sandbox "$(cat …)"`);
+> PowerShell variant `& … ; exit $LASTEXITCODE`. main.ts writes the prompt file
+> before spawn and no longer does the delayed `ptyManager.write`. 7 new unit
+> tests, full suite (896) + typecheck green. Commit `744dcd7`. Two caveats
+> surfaced while fixing:
+> - **codex is unverified** — its `exec` + `--dangerously-bypass-approvals-and-sandbox`
+>   flags are best-guess (codex is broken on the current Mac: missing vendored
+>   binary), tune in the smoke. Smoke a claude-only template (`review-only`) first.
+> - **gemini/copilot/opencode are now skipped** (return '' from `launchCommand`)
+>   — no verified headless flags yet, so a custom template using them won't spawn
+>   until their `HEADLESS` entry is added. Not in any built-in template.
+
+> **STATUS 2026-08-27 (Mac): A + B VERIFICADOS EN VIVO, contra la PTY real.**
+> El live test viejo (`graph-eval-loop.live.test.ts`) no probaba esto — spawnea
+> `claude` con `spawnSync` directo, sin pasar por `launchCommand` ni por la pty,
+> que es justo donde vivían A y B. Nuevo test gateado:
+> `electron/__tests__/graph-pty-launch.live.test.ts` (`GRAPH_PTY_SMOKE=1`), dos
+> casos, ambos verdes:
+> 1. **Exit code (mecanismo puro, sin LLM)** — `exec sh -c 'exit N'` a través de
+>    `PtyManager.create` devuelve N en el evento `exit` para N ∈ {0, 3, 42} y
+>    `pm.exists()` queda en false. El camino exit-code→`failed` de `planTick`
+>    tiene de dónde leer.
+> 2. **Nodo claude real** — repo git descartable, `composeNodeInput` → archivo
+>    `.prompt` → `launchCommand` → pty (`/bin/zsh -l -i`) → claude headless.
+>    Resultado: **exit 0 en ~45 s, `pm.exists()` false** (→ A muerto: el nodo
+>    llega a `done`) y **escribió solo `add.js` y `.nest/graph/coder.md`** sin
+>    pedir un solo permiso (→ B muerto).
+>
+> El comando generado, tal cual sale en la Mac:
+> `exec claude -p "$(cat '<wt>/.nest/graph/coder.prompt')" --dangerously-skip-permissions`
+>
+> **Sigue pendiente:** el smoke *in-app* en modo `auto` (varios nodos encadenados
+> por `graphOrchestratorTick` + el board, que es lo único que este test no toca:
+> el tick de 3 s, el dedupe de señales y el render), y **C**. `codex` sigue sin
+> verificar: en esta Mac el paquete global está roto
+> (`@openai/codex-darwin-arm64/vendor/.../codex` ENOENT), ni `codex --version`
+> arranca — reinstalar el global antes de smokearlo.
+
 **A. No node can ever reach `done`.**
 `deriveAgentState` only returns `done` when `!hasPty` (`agent-status.ts:37`), and
 `samplePane` derives `hasPty` from `ptyManager.exists(paneId)` (`main.ts:2907`).
@@ -64,6 +106,39 @@ asks to trust the folder and then asks per-tool permission → the agent never w
 > That makes the pty close on finish (→ `done` + a real exit code) and removes the
 > multi-line prompt-injection timing risk. `graph:node:attach` still works for watching
 > the scrollback live.
+
+> **STATUS 2026-08-28 (Mac): C CERRADO y SMOKE IN-APP VERDE.** Commits
+> `b37611b` (control) y el de este smoke. El bridge del preload expone
+> `setMode`/`approve`/`requestChanges`, y `GraphRunDecision` los usa desde el
+> detalle del board. Vive a nivel de run, no del nodo: el gate no es clickeable
+> en el flow (`FlowNode` devuelve un div sin `onClick` para `kind: 'gate'`), así
+> que colgarlo de la selección lo habría dejado inalcanzable.
+>
+> **Trampa que costó dos corridas del smoke, anotada para el que siga:** un gate
+> retenido para decisión **no escribe estado en `run.nodes`**. `planTick` lo mete
+> en `heldGates` → `plan.blockedOn`, y `main.ts` solo persiste `plan.run`, así
+> que `blockedOn` muere en cada tick y nunca llega al renderer. Un gate solo pasa
+> de `queued` a `done` (lo aplica `applyDecision` o el modo `auto`) o a `skipped`:
+> **jamás vale `blocked` ni `needs_input`**. El estado hay que derivarlo de los
+> upstream, igual que `gateState` en `graph-runner.ts` — eso hace
+> `src/lib/graph-decision.ts`, espejo del lado renderer (misma convención que
+> `src/lib/graph-view.ts`, que no cruza el borde main/renderer).
+>
+> El smoke in-app quedó como e2e gateado: `e2e/02-graph-in-app.spec.ts`
+> (`GRAPH_APP_SMOKE=1`). Arranca la app de verdad con `RAVEN_HOME` descartable y
+> `--user-data-dir` propio, linkea un repo tirable, corre `review-only` en modo
+> `gate` con dos reviewers `claude` reales, espera que el gate frene, aprueba y
+> verifica que el run se complete. **Verde en 56 s.** Cubre lo único que ningún
+> otro test toca: el tick de 3 s encadenando nodos solo, el worktree que crea
+> `graph:run:start`, el dedupe de señales, el board actualizándose, y la decisión
+> humana de punta a punta (botón → preload → IPC → `pendingDecision` → el tick lo
+> aplica).
+>
+> El spec **no** afirma en qué estado terminan los reviewers. Son LLMs reales
+> sobre un repo vacío: pueden cerrar limpios (`done`) o reportar un concern
+> bloqueante, y ahí el verdict pass los deja en `blocked`. Las dos corridas son
+> sanas. Afirmar `done === 2` hardcodeaba lo que decide un modelo y hacía fallar
+> la corrida buena.
 
 **C. Human decisions are not reachable from the renderer** (only needed to smoke
 `gate`/`step` mode). `graph:run:setMode`, `graph:gate:approve` and

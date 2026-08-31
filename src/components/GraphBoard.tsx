@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { GraphTemplate, GraphRun, PersistedGraphRun, NodeRunState } from '../types'
 import { toFlow, type FlowInputNode, type FlowNodeState } from '../lib/graph-view'
 import { GraphNodeTerminal } from './GraphNodeTerminal'
+import { GraphRunDecision } from './GraphRunDecision'
 
 interface GraphBoardProps {
   onClose: () => void
@@ -275,6 +276,7 @@ export function GraphBoard({ onClose, activeRepoPath }: GraphBoardProps) {
               onSelectNode={(id) => { setSelectedNodeId(id); setShowTerm(false) }}
               showTerm={showTerm}
               onToggleTerm={() => setShowTerm((v) => !v)}
+              onChanged={refresh}
             />
           )}
         </div>
@@ -283,13 +285,14 @@ export function GraphBoard({ onClose, activeRepoPath }: GraphBoardProps) {
   )
 }
 
-function DetailView({ persisted, template, selectedNodeId, onSelectNode, showTerm, onToggleTerm }: {
+function DetailView({ persisted, template, selectedNodeId, onSelectNode, showTerm, onToggleTerm, onChanged }: {
   persisted: PersistedGraphRun
   template: GraphTemplate | null
   selectedNodeId: string | null
   onSelectNode: (id: string) => void
   showTerm: boolean
   onToggleTerm: () => void
+  onChanged: () => void
 }) {
   const { run } = persisted
   if (!template) return <div className="gb-empty"><div className="gb-empty-title">Template not found</div></div>
@@ -303,6 +306,7 @@ function DetailView({ persisted, template, selectedNodeId, onSelectNode, showTer
         <FlowGraph input={input} selected={selectedNodeId} onSelect={onSelectNode} />
       </div>
       <div className="gb-insp">
+        <GraphRunDecision run={run} template={template} onChanged={onChanged} />
         {!node ? (
           <div className="gb-insp-empty">Select a node to inspect it.</div>
         ) : (

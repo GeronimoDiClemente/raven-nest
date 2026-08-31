@@ -55,6 +55,12 @@ contextBridge.exposeInMainWorld('graphRuns', {
   list: () => ipcRenderer.invoke('graph:runs:list'),
   start: (input: unknown) => ipcRenderer.invoke('graph:run:start', input),
   attach: (runId: string, nodeId: string) => ipcRenderer.invoke('graph:node:attach', runId, nodeId),
+  // Decisiones humanas. Ninguna aplica nada por sí misma: main encola un
+  // `pendingDecision` y el tick del orquestador es el único que lo aplica.
+  setMode: (runId: string, mode: string) => ipcRenderer.invoke('graph:run:setMode', runId, mode),
+  approve: (runId: string, gateId: string) => ipcRenderer.invoke('graph:gate:approve', runId, gateId),
+  requestChanges: (runId: string, feedback: string) =>
+    ipcRenderer.invoke('graph:gate:requestChanges', runId, feedback),
 })
 
 contextBridge.exposeInMainWorld('dialog', {
