@@ -38,33 +38,44 @@ async function call(path, body) {
   return res.json()
 }
 
-// Everything this checker sends is unique per run. The service under test is stateful and
-// dedupes by (device_id, seq), so a second run reusing the same seqs would hit the first
-// run's receipts and then assert against rows it never actually wrote. Found the hard way:
-// running the checker twice against one stub reported 11 broken properties, every one of
-// them this bug rather than a real defect.
+// Every identifier this checker writes must be unique per run — sync_id, project_key,
+// device_id, and seq alike. The service under test is stateful and dedupes by
+// (device_id, seq), so anything reused from a prior run risks hitting that run's stored
+// receipts and then asserting against rows this run never actually wrote. Found the hard
+// way, in stages: first sync_id and project_key, then the device ids, then — after those
+// two fixes still weren't enough against a server that resolves device identity from the
+// auth token rather than the body — seq itself. Treat this as the rule, not three
+// one-off patches: anything new this checker sends needs to fold RUN in too.
 const RUN = Date.now().toString(36)
 const PROJECT = `contract-check-${RUN}`
 const NOW = Date.now()
 
 const id = (name) => `obs_${RUN}_${name}`
 
-// The device ids have to be per-run too, not just the sync ids and the project key. The
-// receipt cache is keyed on (device_id, seq) and nothing else — not the project — so a
-// second run reusing `device-a` with seq 1 replays the FIRST run's receipt and the service
-// correctly declines to write anything. That is the idempotency rule working exactly as
-// designed; it just makes a fixed-name checker assert against rows that were never
-// created. Cost me two debugging rounds.
+// These device ids are varied per run for readability and to match what the stub keys
+// receipts on (body.device_id). Against a CORRECT server they buy no isolation at all:
+// device identity is resolved from the bearer token, not from this field, so every call
+// in every run authenticates as the one real device behind --token regardless of what
+// string is sent here. That is why seq (below) still has to be unique on its own — the
+// device id cannot do that job against the real service, only against a stub that trusts it.
 const DEVICE_A = `device-a-${RUN}`
 const DEVICE_B = `device-b-${RUN}`
 const DEVICE_C = `device-c-${RUN}`
 
+// Every identifier this checker writes must be unique per run — including the seq. The
+// receipt key is (device_id, seq), and a correct server resolves device_id from the TOKEN
+// rather than from the request body, so two runs sharing a token share a device. Making
+// only sync_id and project_key unique is not enough: run 2 replays run 1's seqs, the
+// server correctly returns the stored receipts, and nothing is written for run 2's rows.
+// That is not a server bug — it is this checker lying about what it wrote.
+const SEQ_BASE = Date.now() * 100
 let seqCounter = 0
+const nextSeq = () => SEQ_BASE + ++seqCounter
 
 function mutation(name, overrides = {}) {
   const syncId = id(name)
   return {
-    seq: overrides.seq ?? ++seqCounter,
+    seq: overrides.seq ?? nextSeq(),
     sync_id: syncId,
     op: overrides.op ?? 'upsert',
     payload: {
@@ -154,9 +165,10 @@ console.log('\n2. tombstones — el borrado cruza de una maquina a la otra')
 // to return the stored outcome instead of applying anything a second time.
 console.log('\n3. idempotencia — reintentar el mismo (device_id, seq) no duplica')
 {
+  const idemSeq = nextSeq()
   const body = {
     device_id: DEVICE_C,
-    mutations: [mutation('idem', { seq: 900, payload: { title: 'una sola vez' } })],
+    mutations: [mutation('idem', { seq: idemSeq, payload: { title: 'una sola vez' } })],
   }
   const first = await call('/v1/sync/push', body)
   const replay = await call('/v1/sync/push', body)

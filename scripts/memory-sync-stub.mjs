@@ -177,13 +177,27 @@ function parseClientTimestamp(value) {
   return Date.now()
 }
 
+// §9.1/§5.1: device identity for idempotency is resolved from the auth token, never from
+// the request body. `body.device_id` is still accepted on the wire (the real client sends
+// it) and used only for the `devices` map below, which is display bookkeeping, not the
+// receipt key. A receipt key a client can pick at will is not idempotency, it is a
+// client-chosen namespace — a device could pick a fresh device_id on every retry and
+// double-apply anything it wanted. Keying it on the token instead is what the real service
+// does (server/src/push.ts resolves `auth.deviceId` from the bearer token and comments
+// that the body field must never drive receipt lookups); a stub that trusted the body
+// field instead was hiding exactly the mismatch that a contract check against the real
+// service caught: two runs sharing a token do NOT get isolated receipt buckets just
+// because they claim different device_id strings.
 function handlePush(body) {
-  const deviceId = body.device_id ?? 'unknown-device'
+  const claimedDeviceId = body.device_id ?? 'unknown-device'
+  const deviceId = TOKEN_HASH
   const mutations = Array.isArray(body.mutations) ? body.mutations : []
   if (mutations.length > 500) return { status: 413, body: { error: 'batch_too_large' } }
 
+  // `name` keeps the client-claimed device_id for readability in logs/state dumps — it is
+  // never used as a lookup key. The map key (`deviceId`) is the token-derived identity.
   state.devices.set(deviceId, {
-    name: state.devices.get(deviceId)?.name ?? deviceId,
+    name: state.devices.get(deviceId)?.name ?? claimedDeviceId,
     lastSeenAt: Date.now(),
   })
 
