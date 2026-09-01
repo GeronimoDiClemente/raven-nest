@@ -335,7 +335,14 @@ export class MemoryDaemon {
               op: m.op,
               payload: {
                 ...rest,
-                tags: normalizeTags(payload.tags) ?? null,
+                // `?? []`, not `?? null`: the push RPC does `tags = COALESCE(v_payload->'tags',
+                // '[]'::jsonb)` (supabase/migrations/20260730000000_nest_memory.sql) using `->`,
+                // which yields jsonb, not text. A present key holding JSON `null` is a jsonb null
+                // *scalar*, not SQL NULL, so COALESCE never fires and the column would silently
+                // store `null` instead of `[]` — contradicting its own `NOT NULL DEFAULT '[]'`.
+                // Sending `[]` here matches what COALESCE would have produced without depending
+                // on it firing, and keeps the key always present with the shape the wire expects.
+                tags: normalizeTags(payload.tags) ?? [],
                 project_display_name: displayNameByProjectKey.get(projectKey) ?? projectKey,
               },
             }

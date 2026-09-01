@@ -883,6 +883,11 @@ describe('wire de tags y source_ref (C5)', () => {
     expect(mapRawPulledRow({ sync_id: 'a', tags: 7 }).tags).toBeUndefined()
   })
 
+  it('mapRawPulledRow descarta los elementos que no son string', () => {
+    expect(mapRawPulledRow({ sync_id: 'a', tags: ['uno', 7, null, 'dos'] }).tags).toEqual(['uno', 'dos'])
+    expect(mapRawPulledRow({ sync_id: 'a', tags: '["uno",7,null,"dos"]' }).tags).toEqual(['uno', 'dos'])
+  })
+
   it('el push manda tags como array y no manda source_ref', async () => {
     const pending: MutationLogRow[] = [
       {
@@ -913,5 +918,34 @@ describe('wire de tags y source_ref (C5)', () => {
     const payload = (sent!.mutations as Array<{ payload: Record<string, unknown> }>)[0].payload
     expect(payload.tags).toEqual(['uno', 'dos'])
     expect(payload).not.toHaveProperty('source_ref')
+  })
+
+  it('el push manda tags: [] (no null) cuando la mutacion no trae tags', async () => {
+    // Locks in the ?? [] fix: the push RPC's COALESCE(v_payload->'tags', '[]'::jsonb)
+    // never fires on a present-but-null key (jsonb null scalar, not SQL NULL), so a
+    // stray `?? null` here would silently defeat the column's own NOT NULL DEFAULT '[]'.
+    const pending: MutationLogRow[] = [
+      {
+        seq: 1,
+        sync_id: 'a',
+        op: 'upsert',
+        payload: JSON.stringify({ sync_id: 'a', project_key: 'proj-1' }),
+        created_at: 1,
+        pushed_at: null,
+        last_error: null,
+      },
+    ]
+    const store = fakeStore({ pendingMutations: vi.fn(() => pending) })
+    let sent: Record<string, unknown> | null = null
+    const fetchImpl = vi.fn(async (_url: string, init: RequestInit) => {
+      sent = JSON.parse(init.body as string)
+      return new Response(JSON.stringify({ results: [{ sync_id: 'a', outcome: 'applied', project_seq: 1 }] }), { status: 200 })
+    }) as unknown as typeof fetch
+
+    const daemon = new MemoryDaemon(baseDaemonDeps(store, { fetchImpl }))
+    await daemon.push()
+
+    const payload = (sent!.mutations as Array<{ payload: Record<string, unknown> }>)[0].payload
+    expect(payload.tags).toEqual([])
   })
 })
