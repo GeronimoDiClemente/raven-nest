@@ -284,11 +284,11 @@ try {
     daemon,
   })
 
-  accountStore.configureMemory({ paths: memoryProvisionerPaths(), isEnabled: () => memoryConnectionState.connected })
+  accountStore.configureMemory({ paths: memoryProvisionerPaths(), isEnabled: () => memoryConnectionState.localEnabled })
   ptyManager.setMemoryIntegration({
     socketPath: memorySocketPath,
     authToken: authMaterial.token,
-    isEnabled: () => memoryConnectionState.connected,
+    isEnabled: () => memoryConnectionState.localEnabled,
     ensureClaudeProvisioned: (accountDir) => {
       const { settingsFlagPath } = provisionClaudeAccount(accountDir, memoryProvisionerPaths(), process.platform === 'win32')
       return ['--settings', settingsFlagPath]
@@ -355,7 +355,9 @@ const graphConfigStore = new GraphConfigStore()
 const memorySink: MemorySink = {
   save(input) {
     try {
-      if (!memory || !memoryConnectionState.connected) return
+      // C1: local capture does not depend on the cloud. `connected` still gates only the
+      // sync daemon (getToken/getDeviceId), not whether a memory gets saved.
+      if (!memory || !memoryConnectionState.localEnabled) return
       const remoteUrl = input.cwd ? getRemoteUrl(input.cwd) : null
       const projectKey = resolveProjectKey({ remoteUrl, rootPath: input.cwd || null })
       memory.store.ensureProject({
@@ -2588,7 +2590,7 @@ ipcMain.handle('memory:connect', async (_event, token: string, deviceId: string)
   writeFileSync(credPath, safeStorage.encryptString(token), { mode: 0o600 })
   try { chmodSync(credPath, 0o600) } catch { /* best effort, e.g. unsupported on this fs */ }
   memoryToken = token
-  memoryConnectionState = { connected: true, deviceId, connectedAt: Date.now() }
+  memoryConnectionState = { ...memoryConnectionState, connected: true, deviceId, connectedAt: Date.now() }
   setMemoryConnectionState(ravenHome(), memoryConnectionState)
 
   // Provision (or re-provision) every existing Claude account now that memory is enabled.
@@ -2716,7 +2718,7 @@ ipcMain.handle('memory:disconnect', async (_event, opts?: { deleteCloud?: boolea
   accountStore.disconnectMemoryFromAllClaudeAccounts()
   deleteCredential(ravenHome())
   memoryToken = null
-  memoryConnectionState = { connected: false, deviceId: memoryConnectionState.deviceId, connectedAt: null }
+  memoryConnectionState = { ...memoryConnectionState, connected: false, connectedAt: null }
   setMemoryConnectionState(ravenHome(), memoryConnectionState)
   return cloudDeleteFailed ? { ok: true, cloudDeleteFailed } : { ok: true }
 })

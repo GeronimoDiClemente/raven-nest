@@ -9,11 +9,24 @@ import { randomUUID, randomBytes } from 'crypto'
 
 export interface MemoryConnectionState {
   connected: boolean
+  /**
+   * C1: local capture, independent of the cloud. Defaults to true because that is the
+   * promise the free plan's card already makes ("Local memory active") and which used to
+   * be false: all three capture points in main.ts hung off `connected`, so without
+   * pressing Connect nothing was saved at all, silently. `connected` now gates only the
+   * sync daemon, nothing else.
+   */
+  localEnabled: boolean
   deviceId: string | null
   connectedAt: number | null
 }
 
-const DEFAULT_STATE: MemoryConnectionState = { connected: false, deviceId: null, connectedAt: null }
+const DEFAULT_STATE: MemoryConnectionState = {
+  connected: false,
+  localEnabled: true,
+  deviceId: null,
+  connectedAt: null,
+}
 
 function statePath(ravenHomeDir: string): string {
   return join(ravenHomeDir, '.raven-nest', 'memory', 'connection.json')
