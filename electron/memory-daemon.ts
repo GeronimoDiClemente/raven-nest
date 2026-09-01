@@ -93,6 +93,23 @@ function parseServerTimestamp(value: unknown): number {
 }
 
 /**
+ * C5: the store persists `tags` as a JSON string in a TEXT column, and a queued
+ * mutation's payload is a raw snapshot of that row, so without this the push sends a
+ * string where the contract expects an array (spec §5.2) and the pull discards anything
+ * that isn't already an Array. Tags were lost in both directions with no error at all.
+ */
+function normalizeTags(value: unknown): string[] | undefined {
+  if (Array.isArray(value)) return value.filter((t): t is string => typeof t === 'string')
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value)
+      if (Array.isArray(parsed)) return parsed.filter((t): t is string => typeof t === 'string')
+    } catch { /* not JSON — treat as no tags */ }
+  }
+  return undefined
+}
+
+/**
  * C1 fix: the RPCs return `to_jsonb(o)` — real Postgres column names (snake_case) and
  * real Postgres types (timestamptz -> an ISO 8601 string, not a ms-epoch number). The
  * previous code read `incoming.syncId`/`.updatedAt`/`.topicKey`/`.projectId` directly off
@@ -118,7 +135,7 @@ export function mapRawPulledRow(raw: Record<string, unknown>): PulledRow {
     title: raw.title != null ? String(raw.title) : undefined,
     content: raw.content == null ? null : String(raw.content),
     type: raw.type != null ? String(raw.type) : undefined,
-    tags: Array.isArray(raw.tags) ? (raw.tags as string[]) : undefined,
+    tags: normalizeTags(raw.tags),
     originAi: (raw.origin_ai as string | undefined) ?? undefined,
     originAccount: (raw.origin_account as string | undefined) ?? undefined,
     gitBranch: (raw.git_branch as string | undefined) ?? undefined,
@@ -307,11 +324,20 @@ export class MemoryDaemon {
           mutations: pending.map((m: MutationLogRow) => {
             const payload = JSON.parse(m.payload) as Record<string, unknown>
             const projectKey = (payload.project_key as string | undefined) ?? GLOBAL_PROJECT_KEY
+            // C5: `source_ref` carries an absolute path with the user's real name
+            // (memory-importers/markdown.ts:51) and the server doesn't even store it —
+            // it only rode along to end up in the logs of whatever proxy sits in
+            // between. Pruned here, the end that controls the wire.
+            const { source_ref: _dropped, ...rest } = payload
             return {
               seq: m.seq,
               sync_id: m.sync_id,
               op: m.op,
-              payload: { ...payload, project_display_name: displayNameByProjectKey.get(projectKey) ?? projectKey },
+              payload: {
+                ...rest,
+                tags: normalizeTags(payload.tags) ?? null,
+                project_display_name: displayNameByProjectKey.get(projectKey) ?? projectKey,
+              },
             }
           }),
         }),

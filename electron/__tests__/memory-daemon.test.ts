@@ -868,3 +868,50 @@ describe('applyPulledRow — colisión de topic cuando la entrante gana (C2)', (
     )
   })
 })
+
+describe('wire de tags y source_ref (C5)', () => {
+  it('mapRawPulledRow acepta tags como string JSON', () => {
+    expect(mapRawPulledRow({ sync_id: 'a', tags: '["uno","dos"]' }).tags).toEqual(['uno', 'dos'])
+  })
+
+  it('mapRawPulledRow sigue aceptando tags como array', () => {
+    expect(mapRawPulledRow({ sync_id: 'a', tags: ['uno'] }).tags).toEqual(['uno'])
+  })
+
+  it('mapRawPulledRow no explota con tags basura', () => {
+    expect(mapRawPulledRow({ sync_id: 'a', tags: 'no soy json' }).tags).toBeUndefined()
+    expect(mapRawPulledRow({ sync_id: 'a', tags: 7 }).tags).toBeUndefined()
+  })
+
+  it('el push manda tags como array y no manda source_ref', async () => {
+    const pending: MutationLogRow[] = [
+      {
+        seq: 1,
+        sync_id: 'a',
+        op: 'upsert',
+        payload: JSON.stringify({
+          sync_id: 'a',
+          project_key: 'proj-1',
+          tags: '["uno","dos"]',
+          source_ref: 'markdown:C:\\Users\\real\\notas.md#topic',
+        }),
+        created_at: 1,
+        pushed_at: null,
+        last_error: null,
+      },
+    ]
+    const store = fakeStore({ pendingMutations: vi.fn(() => pending) })
+    let sent: Record<string, unknown> | null = null
+    const fetchImpl = vi.fn(async (_url: string, init: RequestInit) => {
+      sent = JSON.parse(init.body as string)
+      return new Response(JSON.stringify({ results: [{ sync_id: 'a', outcome: 'applied', project_seq: 1 }] }), { status: 200 })
+    }) as unknown as typeof fetch
+
+    const daemon = new MemoryDaemon(baseDaemonDeps(store, { fetchImpl }))
+    await daemon.push()
+
+    const payload = (sent!.mutations as Array<{ payload: Record<string, unknown> }>)[0].payload
+    expect(payload.tags).toEqual(['uno', 'dos'])
+    expect(payload).not.toHaveProperty('source_ref')
+  })
+})
