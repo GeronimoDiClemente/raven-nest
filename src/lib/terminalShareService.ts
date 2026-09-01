@@ -37,7 +37,10 @@ class TerminalShareService {
 
   subscribe(fn: Listener) {
     this.listeners.add(fn)
-    return () => this.listeners.delete(fn)
+    // Block body (not an implicit-return arrow) so the unsubscribe closure
+    // returns void, not Set.delete's boolean — React's EffectCallback
+    // cleanup type rejects a non-void return.
+    return () => { this.listeners.delete(fn) }
   }
 
   private notify(paneId: string) {

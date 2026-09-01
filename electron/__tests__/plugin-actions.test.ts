@@ -5,7 +5,7 @@ const okFetch = () => Promise.resolve({ json: () => Promise.resolve({ ok: true }
 
 describe('runPluginAction — slack.notify', () => {
   it('postea a chat.postMessage con el token y el canal', async () => {
-    const fetchSpy = vi.fn(okFetch)
+    const fetchSpy = vi.fn<typeof fetch>(okFetch)
     const deps: ActionDeps = { getToken: () => 'xoxb-1', fetch: fetchSpy as unknown as typeof fetch }
     const r = await runPluginAction('slack', 'notify', { channel: '#dev', text: 'listo' }, deps)
     expect(r.ok).toBe(true)

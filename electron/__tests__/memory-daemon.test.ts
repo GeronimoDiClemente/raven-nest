@@ -224,7 +224,6 @@ describe('MemoryDaemon — push resolves project_display_name (gap #2 fix)', () 
     const store = fakeStore({
       pendingMutations: vi.fn(() => PENDING_MUTATION_A), // payload.project_key === 'proj-1'
       listProjects: vi.fn(() => [{ projectKey: 'proj-1', displayName: 'raven-nest', enrolled: true }]),
-      fetchImpl,
     })
     const daemon = new MemoryDaemon(baseDaemonDeps(store, { fetchImpl }))
 
@@ -493,7 +492,7 @@ describe('MemoryDaemon — chained batch drain (M22, PUSH_BATCH_SIZE=200)', () =
           results: body.mutations.map((m) => ({ sync_id: m.sync_id, outcome: 'applied' as const, project_seq: 1 })),
         }),
       }
-    })
+    }) as unknown as typeof fetch
 
     const store = fakeStore({ pendingMutations, markPushed, pendingMutationCount })
     const daemon = new MemoryDaemon(baseDaemonDeps(store, { fetchImpl }))

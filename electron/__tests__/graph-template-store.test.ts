@@ -3,6 +3,7 @@ import { mkdtempSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
 import { GraphTemplateStore } from '../integrations/graph-template-store'
+import type { GraphTemplate } from '../integrations/graph-template'
 
 let file: string
 beforeEach(() => {
@@ -31,7 +32,7 @@ describe('GraphTemplateStore', () => {
 
   it('save replaces a custom template with the same id (upsert)', () => {
     const s = new GraphTemplateStore(file)
-    const base = { id: 'c1', name: 'v1', createdAt: 1, updatedAt: 1, nodes: [{ id: 'a', role: 'coder', kind: 'agent', dependsOn: [] }] }
+    const base: GraphTemplate = { id: 'c1', name: 'v1', createdAt: 1, updatedAt: 1, nodes: [{ id: 'a', role: 'coder', kind: 'agent', dependsOn: [] }] }
     s.save(base)
     s.save({ ...base, name: 'v2', updatedAt: 2 })
     const customs = new GraphTemplateStore(file).list().filter((t) => !t.builtIn)

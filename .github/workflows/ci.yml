@@ -15,7 +15,15 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
-      - run: npx tsc --noEmit
+      # The root tsconfig.json is solution-style (`files: []` + `references`),
+      # so `tsc --noEmit` there type-checks nothing and always exits 0. The
+      # two referenced projects are the real checks — run both explicitly
+      # (--composite false + --noEmit so this stays a pure check: composite
+      # projects normally require emitted .tsbuildinfo, which we don't want
+      # from a CI type-check step, and would also emit .js/.d.ts next to
+      # sources under `-b`).
+      - run: npx tsc -p tsconfig.node.json --noEmit --composite false
+      - run: npx tsc -p tsconfig.web.json --noEmit --composite false
 
   test:
     runs-on: ubuntu-latest

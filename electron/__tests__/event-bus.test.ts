@@ -27,7 +27,7 @@ describe('EventBus', () => {
 
   it('emit sin recetas devuelve [] y no invoca handlers', async () => {
     const bus = new EventBus()
-    const handler = vi.fn<Parameters<CommandHandler>, ReturnType<CommandHandler>>()
+    const handler = vi.fn<CommandHandler>()
     bus.registerHandler('updateStatus', handler)
     const out = await bus.emit(prOpened, deps)
     expect(out.commands).toEqual([])
@@ -36,7 +36,7 @@ describe('EventBus', () => {
 
   it('emit con receta que matchea invoca el handler con el comando resuelto', async () => {
     const bus = new EventBus()
-    const handler = vi.fn<Parameters<CommandHandler>, ReturnType<CommandHandler>>()
+    const handler = vi.fn<CommandHandler>()
     bus.registerHandler('updateStatus', handler)
     bus.setRecipes([updateStatusRecipe('in_review', 'pr.opened')])
     const out = await bus.emit(prOpened, deps)
@@ -47,7 +47,7 @@ describe('EventBus', () => {
 
   it('solo dispara recetas cuyo `when` matchea el type del evento', async () => {
     const bus = new EventBus()
-    const handler = vi.fn<Parameters<CommandHandler>, ReturnType<CommandHandler>>()
+    const handler = vi.fn<CommandHandler>()
     bus.registerHandler('updateStatus', handler)
     bus.setRecipes([
       updateStatusRecipe('in_review', 'pr.opened'),
@@ -60,7 +60,7 @@ describe('EventBus', () => {
 
   it('respeta el predicado `match` opcional de la receta', async () => {
     const bus = new EventBus()
-    const handler = vi.fn<Parameters<CommandHandler>, ReturnType<CommandHandler>>()
+    const handler = vi.fn<CommandHandler>()
     bus.registerHandler('updateStatus', handler)
     bus.setRecipes([
       {
@@ -133,7 +133,7 @@ describe('EventBus', () => {
 
   it('setRecipes reemplaza el set anterior', async () => {
     const bus = new EventBus()
-    const handler = vi.fn<Parameters<CommandHandler>, ReturnType<CommandHandler>>()
+    const handler = vi.fn<CommandHandler>()
     bus.registerHandler('updateStatus', handler)
     bus.setRecipes([updateStatusRecipe('in_review', 'pr.opened')])
     bus.setRecipes([updateStatusRecipe('done', 'pr.merged')])
@@ -163,7 +163,7 @@ describe('EventBus', () => {
 
     it('does not affect commands/failed or handler execution', async () => {
       const bus = new EventBus()
-      const handler = vi.fn<Parameters<CommandHandler>, ReturnType<CommandHandler>>()
+      const handler = vi.fn<CommandHandler>()
       bus.registerHandler('updateStatus', handler)
       bus.setRecipes([updateStatusRecipe('in_review', 'pr.opened')])
       bus.setOnEmit(vi.fn())

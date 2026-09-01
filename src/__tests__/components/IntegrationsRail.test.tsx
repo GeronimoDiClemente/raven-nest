@@ -64,7 +64,6 @@ describe('<IntegrationsRail> activity feed', () => {
   })
 
   it('loads entries from window.activity.list() on mount', async () => {
-    // @ts-expect-error partial bridge is enough for this test
     window.activity = {
       list: vi.fn().mockResolvedValue([entry]),
       onAppend: vi.fn().mockReturnValue(() => {}),
@@ -75,7 +74,6 @@ describe('<IntegrationsRail> activity feed', () => {
   })
 
   it('shows the empty state when there are no entries', () => {
-    // @ts-expect-error partial bridge is enough for this test
     window.activity = {
       list: vi.fn().mockResolvedValue([]),
       onAppend: vi.fn().mockReturnValue(() => {}),
@@ -86,7 +84,6 @@ describe('<IntegrationsRail> activity feed', () => {
 
   it('prepends entries pushed live via onAppend', async () => {
     let pushed: ((e: ActivityEntry) => void) | undefined
-    // @ts-expect-error partial bridge is enough for this test
     window.activity = {
       list: vi.fn().mockResolvedValue([entry]),
       onAppend: vi.fn((cb: (e: ActivityEntry) => void) => { pushed = cb; return () => {} }),

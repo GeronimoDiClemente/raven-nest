@@ -380,6 +380,11 @@ export interface PaneMetric {
   pid: number
   cpuPercent: number
   memBytes: number
+  // CSS color for the AI bullet / which AI logo to render — passed through
+  // unchanged from MetricsPaneInput (see electron/metrics-collector.ts's
+  // own PaneMetric, which already carries these).
+  aiColor?: string
+  aiType?: AIType
 }
 export interface DiskBucket {
   name: string
@@ -859,6 +864,9 @@ declare global {
     electronShell: {
       openExternal: (url: string) => void
       onDeepLink: (cb: (url: string) => void) => void
+      // Cold-launch pull: consumes any deep-link URL buffered before the
+      // renderer was ready (see electron/preload.ts's deeplink:consume call).
+      consumePendingDeepLink: () => Promise<string | null>
     }
     mcp: {
       read: (filePath: string) => Promise<Record<string, unknown>>
@@ -896,7 +904,10 @@ declare global {
         branches: string[]
         defaultBranch: string | null
       }>
-      pickRepoFolder: () => Promise<string | null>
+      // expectedRemote (optional): validates the picked folder's `origin`
+      // remote matches before accepting it — prevents linking the wrong
+      // repo's folder (see electron/main.ts's dialog:pickRepoFolder handler).
+      pickRepoFolder: (expectedRemote?: string) => Promise<string | null>
       shortstat: (
         worktreePath: string,
         base?: string,

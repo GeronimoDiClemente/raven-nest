@@ -90,6 +90,15 @@ const baseProps = {
   layoutId: '1' as const,
   paneCount: 0,
   onLayoutChange: vi.fn(),
+  onFileOpen: vi.fn(),
+  userPrefs: {
+    prefs: { active_team_id: null, ui_settings: {} },
+    loaded: true,
+    setActiveTeam: vi.fn(),
+    setFontSize: vi.fn(),
+    setEditorOptions: vi.fn(),
+    setEditorTheme: vi.fn(),
+  },
 }
 
 describe('Sidebar — entry point global de Integraciones', () => {

@@ -92,7 +92,7 @@ describe('registerBusCommands', () => {
   // ── notify (Slack) ────────────────────────────────────────────────────────
   it('notify POSTea chat.postMessage con el bot token y el body correcto', async () => {
     const { bus, handlers } = capturingBus()
-    const fetch = vi.fn(async () => new Response(JSON.stringify({ ok: true }), { status: 200 }))
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response(JSON.stringify({ ok: true }), { status: 200 }))
     const deps = makeDeps({ getToken: (id: string) => (id === 'slack' ? 'xoxb-tok' : null), fetch: fetch as unknown as typeof globalThis.fetch })
     registerBusCommands(bus, { ticketLoop: { providerFor: () => null } })
     await handlers.get('notify')!(
@@ -176,7 +176,7 @@ describe('registerBusCommands', () => {
   // ── openSession ───────────────────────────────────────────────────────────
   it('openSession delega en el callback inyectado con el comando y el evento', async () => {
     const { bus, handlers } = capturingBus()
-    const openSession = vi.fn<Parameters<OpenSessionFn>, ReturnType<OpenSessionFn>>(async () => {})
+    const openSession = vi.fn<OpenSessionFn>(async () => {})
     registerBusCommands(bus, { ticketLoop: { providerFor: () => null }, openSession })
     const cmd = { cmd: 'openSession', branch: 'feat/x', repoFullName: 'o/r', context: 'ctx' } as const
     await handlers.get('openSession')!(cmd, evTaskCreated, makeDeps())

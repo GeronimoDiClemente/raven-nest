@@ -7,7 +7,7 @@
 // orden con los IDs del tracking resueltos. Este test ES la demostración del
 // enrutamiento evento→comando de punta a punta.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { EventBus } from '../integrations/event-bus'
+import { EventBus, type CommandHandler } from '../integrations/event-bus'
 import { defaultRecipes, type TrackedLookup, type TrackedRef } from '../integrations/recipes'
 import { registerBusCommands, type TicketProviderResolver } from '../integrations/bus-commands'
 import type { Command, DomainEvent } from '../integrations/bus-types'
@@ -92,8 +92,8 @@ describe('bus-integration: todos los buses (evento → receta → comando → pr
 
   it('con handlers espiados (vi.fn), los comandos llegan al handler correcto en la secuencia', async () => {
     const { lookup } = makeTracking()
-    const updateStatus = vi.fn(async () => {})
-    const notify = vi.fn(async () => {})
+    const updateStatus = vi.fn<CommandHandler>(async () => {})
+    const notify = vi.fn<CommandHandler>(async () => {})
 
     const bus = new EventBus()
     bus.setRecipes(defaultRecipes(lookup))

@@ -55,7 +55,7 @@ describe('createSlackServerAdapter', () => {
   it('fetchSections mapea canales (con member count) y DMs (con nombre resuelto)', async () => {
     const calls: { method: string; url: string }[] = []
     const deps = makeDeps({
-      'conversations.list': (url) => (url.searchParams.get('types') === 'im' ? IMS_LIST : CHANNELS_LIST),
+      'conversations.list': (url: URL) => (url.searchParams.get('types') === 'im' ? IMS_LIST : CHANNELS_LIST),
       'users.list': USERS_LIST,
     }, calls)
     const adapter = createSlackServerAdapter(deps)

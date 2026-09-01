@@ -34,10 +34,10 @@ describe('graph-view.toFlow', () => {
   })
 
   it('carries node role/focus/state into data for the custom node renderer', () => {
-    const withState = inputs().map((n) => (n.id === 'coder' ? { ...n, state: 'working' as const } : n))
+    const withState = inputs().map((n) => (n.id === 'coder' ? { ...n, state: 'running' as const } : n))
     const { nodes } = toFlow(withState)
     const coder = nodes.find((n) => n.id === 'coder')!
-    expect(coder.data.state).toBe('working')
+    expect(coder.data.state).toBe('running')
     const revSec = nodes.find((n) => n.id === 'rev-security')!
     expect(revSec.data.focus).toBe('security')
     expect(nodes.find((n) => n.id === 'gate')!.data.kind).toBe('gate')

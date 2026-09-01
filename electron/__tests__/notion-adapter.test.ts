@@ -148,7 +148,7 @@ describe('parseNotionToken', () => {
 
 describe('createNotionServerAdapter', () => {
   it('fetchSections separa "Recent pages" y "Databases" y extrae títulos', async () => {
-    const fetchMock = vi.fn(async () => jsonResponse({
+    const fetchMock = vi.fn<typeof fetch>(async () => jsonResponse({
       results: [
         {
           object: 'page', id: 'p1', last_edited_time: '2026-07-01T10:00:00.000Z',
@@ -208,7 +208,7 @@ describe('createNotionServerAdapter', () => {
   })
 
   it('fetchDetail de una database no pisa el scope: bloque de texto "Database · open in Notion"', async () => {
-    const fetchMock = vi.fn(async () => jsonResponse({
+    const fetchMock = vi.fn<typeof fetch>(async () => jsonResponse({
       object: 'database', id: 'd1',
       created_time: '2026-05-01T00:00:00.000Z',
       last_edited_time: '2026-07-02T00:00:00.000Z',
@@ -228,7 +228,7 @@ describe('createNotionServerAdapter', () => {
   })
 
   it('compose arma children con paragraph + code cuando hay terminalOutput', async () => {
-    const fetchMock = vi.fn(async () => jsonResponse({}))
+    const fetchMock = vi.fn<typeof fetch>(async () => jsonResponse({}))
     const deps = makeDeps({ fetch: fetchMock as unknown as typeof fetch })
     const adapter = createNotionServerAdapter(deps)
     await adapter.compose({ sectionId: 'recent', itemId: 'p1' }, { text: 'hola', terminalOutput: '$ npm test' })
@@ -244,7 +244,7 @@ describe('createNotionServerAdapter', () => {
   })
 
   it('compose sin terminalOutput solo agrega el paragraph', async () => {
-    const fetchMock = vi.fn(async () => jsonResponse({}))
+    const fetchMock = vi.fn<typeof fetch>(async () => jsonResponse({}))
     const deps = makeDeps({ fetch: fetchMock as unknown as typeof fetch })
     const adapter = createNotionServerAdapter(deps)
     await adapter.compose({ sectionId: 'recent', itemId: 'p1' }, { text: 'hola' })
