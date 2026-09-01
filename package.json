@@ -19,7 +19,7 @@
     "package:mac": "electron-vite build && electron-builder --mac --publish never",
     "package:linux": "electron-vite build && electron-builder --linux --publish never",
     "release:linux": "electron-vite build && electron-builder --linux --publish always",
-    "postinstall": "electron-rebuild -f -w node-pty -w better-sqlite3",
+    "postinstall": "electron-rebuild -f -o node-pty,better-sqlite3",
     "native:node": "cd node_modules/better-sqlite3 && (prebuild-install -r node --tag-prefix v || node ../node-gyp/bin/node-gyp.js rebuild --release)",
     "native:electron": "electron-rebuild -f -o better-sqlite3",
     "pretest": "npm run native:node",
