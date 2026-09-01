@@ -619,3 +619,85 @@ describe('MemoryStore — topic-aware import identity (Finding 1 fix)', () => {
     }
   })
 })
+
+describe('MemoryStore — supersede local en la colisión de topic (C2)', () => {
+  let dir: string
+  let store: MemoryStore
+
+  beforeEach(() => {
+    dir = makeTmpDir('raven-memory-c2-')
+    store = new MemoryStore(join(dir, 'memory.db'))
+  })
+
+  afterEach(() => {
+    store.close()
+    cleanupTmp(dir)
+  })
+
+  it('supersede la local y aplica la entrante sin violar idx_obs_topic', () => {
+    store.ensureProject({ projectKey: 'proj-a', displayName: 'proj-a' })
+    store.save({
+      projectKey: 'proj-a',
+      scope: 'personal',
+      type: 'decision',
+      topicKey: 'deploy-target',
+      title: 'local gana por ahora',
+      content: 'escrita en esta maquina',
+      source: 'mcp',
+    })
+    const local = store.context('proj-a', 10)[0]
+
+    expect(() =>
+      store.applyIncomingObservation({
+        syncId: 'obs_remota',
+        projectKey: 'proj-a',
+        scope: 'personal',
+        topicKey: 'deploy-target',
+        type: 'decision',
+        title: 'la remota gana',
+        content: 'escrita en la otra maquina',
+        updatedAt: Date.now() + 60_000,
+        lamport: 99,
+        deleted: false,
+        supersedeLocal: local.syncId,
+      })
+    ).not.toThrow()
+
+    const activos = store.context('proj-a', 10)
+    expect(activos).toHaveLength(1)
+    expect(activos[0].syncId).toBe('obs_remota')
+    expect(store.get(local.syncId)?.superseded_by).toBe('obs_remota')
+  })
+
+  it('no deja la local supersedida si la entrante falla', () => {
+    store.ensureProject({ projectKey: 'proj-a', displayName: 'proj-a' })
+    store.save({
+      projectKey: 'proj-a',
+      scope: 'personal',
+      type: 'decision',
+      topicKey: 'deploy-target',
+      title: 'local',
+      content: 'x',
+      source: 'mcp',
+    })
+    const local = store.context('proj-a', 10)[0]
+
+    expect(() =>
+      store.applyIncomingObservation({
+        syncId: 'obs_rota',
+        projectKey: 'proj-a',
+        scope: 'no-pasa-el-CHECK',
+        topicKey: 'deploy-target',
+        type: 'decision',
+        title: 'rompe el CHECK de scope',
+        content: 'x',
+        updatedAt: Date.now(),
+        lamport: 1,
+        deleted: false,
+        supersedeLocal: local.syncId,
+      })
+    ).toThrow()
+
+    expect(store.get(local.syncId)?.superseded_by).toBeNull()
+  })
+})

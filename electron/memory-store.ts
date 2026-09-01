@@ -722,6 +722,20 @@ export class MemoryStore {
     deleted: boolean
     supersededBy?: string | null
     serverSeq?: number | null
+    /**
+     * C2: el `sync_id` de una fila LOCAL que perdió la colisión de topic contra esta
+     * entrante. Se marca `superseded_by = row.syncId` ANTES de escribir la entrante y en
+     * la MISMA transacción, porque `idx_obs_topic` no admite dos filas activas sobre el
+     * mismo (project_key, scope, topic_key): escribir primero y supersedir después no es
+     * un orden más lento, es un orden imposible.
+     *
+     * No se encola mutación por este supersede. El servidor aplica la misma regla del
+     * lado suyo (spec §8.1) y la fila supersedida vuelve en el pull, así que esto es
+     * convergencia sobre un hecho que el servidor ya conoce, no un hecho nuevo de este
+     * device. Encolarlo haría que las dos puntas se manden el mismo supersede para
+     * siempre.
+     */
+    supersedeLocal?: string | null
   }): void {
     // C4 fix: this used to write `row.lamport` into the row without ever advancing
     // MemoryStore's own `lamportCounter`. A local save() right after a pull could then
@@ -741,54 +755,66 @@ export class MemoryStore {
     const { text: safeTitle } = redact(row.title)
     const safeContent = row.content !== null ? redact(row.content).text : null
 
-    const existing = this.get(row.syncId)
-    const now = Date.now()
-    if (existing) {
-      this.db
-        .prepare(
-          `UPDATE observations SET title = ?, content = ?, tags = ?, updated_at = ?, lamport = ?,
-           deleted = ?, superseded_by = ?, server_seq = ? WHERE sync_id = ?`
-        )
-        .run(
-          safeTitle,
-          safeContent,
-          row.tags ? JSON.stringify(row.tags) : existing.tags,
-          row.updatedAt,
-          row.lamport,
-          row.deleted ? 1 : 0,
-          row.supersededBy ?? null,
-          row.serverSeq ?? existing.server_seq,
-          row.syncId
-        )
-    } else {
-      this.insertRow({
-        sync_id: row.syncId,
-        project_key: row.projectKey,
-        scope: row.scope,
-        topic_key: row.topicKey,
-        type: row.type,
-        title: safeTitle,
-        content: safeContent,
-        tags: row.tags ? JSON.stringify(row.tags) : null,
-        source: 'import',
-        origin_ai: row.originAi ?? null,
-        origin_account: row.originAccount ?? null,
-        git_branch: row.gitBranch ?? null,
-        author_user_id: row.authorUserId ?? null,
-        author_display: row.authorDisplay ?? null,
-        content_hash: row.contentHash ?? contentHash(safeTitle, safeContent),
-        revision_count: 0,
-        duplicate_count: 0,
-        last_seen_at: now,
-        created_at: now,
-        updated_at: row.updatedAt,
-        lamport: row.lamport,
-        deleted: row.deleted ? 1 : 0,
-        superseded_by: row.supersededBy ?? null,
-        source_ref: null,
-        server_seq: row.serverSeq ?? null,
-      })
-    }
+    const applyAll = this.db.transaction(() => {
+      // C2: supersede the losing local row BEFORE writing the incoming one, in the same
+      // transaction — see the doc comment on `supersedeLocal` above for why this order
+      // is not optional.
+      if (row.supersedeLocal && row.supersedeLocal !== row.syncId) {
+        this.db
+          .prepare('UPDATE observations SET superseded_by = ? WHERE sync_id = ? AND superseded_by IS NULL')
+          .run(row.syncId, row.supersedeLocal)
+      }
+
+      const existing = this.get(row.syncId)
+      const now = Date.now()
+      if (existing) {
+        this.db
+          .prepare(
+            `UPDATE observations SET title = ?, content = ?, tags = ?, updated_at = ?, lamport = ?,
+             deleted = ?, superseded_by = ?, server_seq = ? WHERE sync_id = ?`
+          )
+          .run(
+            safeTitle,
+            safeContent,
+            row.tags ? JSON.stringify(row.tags) : existing.tags,
+            row.updatedAt,
+            row.lamport,
+            row.deleted ? 1 : 0,
+            row.supersededBy ?? null,
+            row.serverSeq ?? existing.server_seq,
+            row.syncId
+          )
+      } else {
+        this.insertRow({
+          sync_id: row.syncId,
+          project_key: row.projectKey,
+          scope: row.scope,
+          topic_key: row.topicKey,
+          type: row.type,
+          title: safeTitle,
+          content: safeContent,
+          tags: row.tags ? JSON.stringify(row.tags) : null,
+          source: 'import',
+          origin_ai: row.originAi ?? null,
+          origin_account: row.originAccount ?? null,
+          git_branch: row.gitBranch ?? null,
+          author_user_id: row.authorUserId ?? null,
+          author_display: row.authorDisplay ?? null,
+          content_hash: row.contentHash ?? contentHash(safeTitle, safeContent),
+          revision_count: 0,
+          duplicate_count: 0,
+          last_seen_at: now,
+          created_at: now,
+          updated_at: row.updatedAt,
+          lamport: row.lamport,
+          deleted: row.deleted ? 1 : 0,
+          superseded_by: row.supersededBy ?? null,
+          source_ref: null,
+          server_seq: row.serverSeq ?? null,
+        })
+      }
+    })
+    applyAll()
   }
 
   /**

@@ -518,6 +518,11 @@ export class MemoryDaemon {
     }
     // Topic collision check against a DIFFERENT sync_id sharing the same topic slot.
     let supersededBy: string | null = null
+    // C2: el caso que faltaba. Si la entrante GANA, la local tiene que quedar
+    // supersedida en la misma transacción del insert; si no, las dos quedan activas
+    // sobre el mismo slot, idx_obs_topic explota, la excepción sube hasta el catch de
+    // doPull(), el cursor no avanza y el device no vuelve a sincronizar nunca.
+    let supersedeLocal: string | null = null
     if (incoming.topicKey) {
       const existingTopicOwner = this.deps.store.findActiveTopicOwner(
         incoming.projectKey || '__global__',
@@ -531,6 +536,7 @@ export class MemoryDaemon {
           { syncId: incoming.syncId, updatedAt: incoming.updatedAt, lamport: incoming.lamport }
         )
         if (loser.syncId === incoming.syncId) supersededBy = winner.syncId
+        else supersedeLocal = loser.syncId
       }
     }
 
@@ -553,6 +559,7 @@ export class MemoryDaemon {
       lamport: incoming.lamport,
       deleted: incoming.deleted,
       supersededBy,
+      supersedeLocal,
       serverSeq: incoming.projectSeq,
     })
   }

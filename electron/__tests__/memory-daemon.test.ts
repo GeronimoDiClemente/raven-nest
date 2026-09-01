@@ -816,3 +816,55 @@ describe('MemoryDaemon — applyPulledRow (§4.3/§4.4 pull-apply)', () => {
     expect(applyIncomingObservation).toHaveBeenCalledWith(expect.objectContaining({ syncId: 'BBB', supersededBy: 'AAA' }))
   })
 })
+
+describe('applyPulledRow — colisión de topic cuando la entrante gana (C2)', () => {
+  it('pide supersedir la local antes de aplicar la entrante', () => {
+    const applyIncomingObservation = vi.fn()
+    const store = fakeStore({
+      get: vi.fn(() => null),
+      findActiveTopicOwner: vi.fn(() => ({ sync_id: 'obs_local', updated_at: 1_000, lamport: 1 })),
+      applyIncomingObservation,
+    })
+    const daemon = new MemoryDaemon(baseDaemonDeps(store))
+
+    daemon.applyPulledRow({
+      syncId: 'obs_remota',
+      updatedAt: 2_000,
+      lamport: 5,
+      deleted: false,
+      topicKey: 'deploy-target',
+      scope: 'personal',
+      projectKey: 'proj-1',
+      supersededBy: null,
+    })
+
+    expect(applyIncomingObservation).toHaveBeenCalledWith(
+      expect.objectContaining({ syncId: 'obs_remota', supersedeLocal: 'obs_local', supersededBy: null })
+    )
+  })
+
+  it('cuando la entrante pierde, la marca supersedida y no toca la local', () => {
+    const applyIncomingObservation = vi.fn()
+    const store = fakeStore({
+      get: vi.fn(() => null),
+      findActiveTopicOwner: vi.fn(() => ({ sync_id: 'obs_local', updated_at: 9_000, lamport: 20 })),
+      applyIncomingObservation,
+    })
+    const daemon = new MemoryDaemon(baseDaemonDeps(store))
+
+    daemon.applyPulledRow({
+      syncId: 'obs_remota',
+      updatedAt: 2_000,
+      lamport: 5,
+      deleted: false,
+      topicKey: 'deploy-target',
+      scope: 'personal',
+      projectKey: 'proj-1',
+      supersededBy: null,
+    })
+
+    expect(applyIncomingObservation).toHaveBeenCalledWith(
+      expect.objectContaining({ supersededBy: 'obs_local', supersedeLocal: null })
+    )
+  })
+})
