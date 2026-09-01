@@ -191,7 +191,12 @@ export async function handlePush(
             String(p.type ?? 'discovery'),
             topicKey,
             String(p.title ?? ''),
-            (p.content as string | null) ?? null,
+            // §8.2: the old server never read `op` at all, so a delete on one machine
+            // never reached the other. `incomingDeleted` already reads `op` for the
+            // topic-collision guard above; reuse it here so a tombstone that only sets
+            // `op: 'delete'` (without redundantly setting `payload.deleted`) still nulls
+            // its content and marks the row deleted below.
+            incomingDeleted ? null : ((p.content as string | null) ?? null),
             JSON.stringify(normalizeTags(p.tags)),
             (p.content_hash as string | null) ?? null,
             (p.origin_ai as string | null) ?? null,
@@ -202,7 +207,7 @@ export async function handlePush(
             Number(p.lamport ?? 0),
             parseClientTimestamp(p.updated_at ?? p.client_updated_at, now),
             parseClientTimestamp(p.created_at ?? p.client_created_at, now),
-            Boolean(p.deleted),
+            incomingDeleted,
             supersededBy,
           ]
         )
