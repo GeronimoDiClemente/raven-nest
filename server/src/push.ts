@@ -1,5 +1,6 @@
 import type { Pool, PoolClient } from 'pg'
 import { allocateSeqRange } from './seq'
+import { resolveTopicCollision } from './lww'
 
 export interface Mutation {
   seq: number
@@ -113,6 +114,65 @@ export async function handlePush(
         const projectId = await ensureProject(client, auth.userId, projectKey, displayName)
         const seq = await allocateSeqRange(client, projectId, 1)
 
+        // §8.1: a topic collision supersedes the loser; it never rejects it. The old server
+        // did a plain INSERT against obs_topic_uniq, the second memory came back `rejected`,
+        // the client marked it pushed and never retried, and the two machines showed
+        // different memories for the same topic forever. Nothing is discarded here.
+        let supersededBy: string | null = null
+        const scope = String(p.scope ?? 'personal')
+        const topicKey = (p.topic_key as string | null) ?? null
+        const incomingDeleted = m.op === 'delete' || Boolean(p.deleted)
+
+        if (topicKey && !incomingDeleted) {
+          // Close the TOCTOU gap: the `for update` below locks an EXISTING row, but there is
+          // nothing to lock when no owner exists yet — two concurrent first-writers to a
+          // brand-new topic could both read "no owner" and both attempt the insert, and only
+          // one would survive obs_topic_uniq. A transaction-scoped advisory lock, keyed on
+          // the exact tuple obs_topic_uniq enforces uniqueness over, serializes even that
+          // case: the second pusher blocks here until the first commits or rolls back, then
+          // re-reads and sees whatever the first one left behind.
+          await client.query('select pg_advisory_xact_lock(hashtextextended($1, 0))', [
+            `${projectId}:${scope}:${topicKey}`,
+          ])
+
+          const owner = await client.query(
+            `select sync_id, lamport, client_updated_at from observations
+              where project_id = $1 and scope = $2 and topic_key = $3
+                and sync_id <> $4 and deleted = false and superseded_by is null
+              for update`,
+            [projectId, scope, topicKey, syncId]
+          )
+          if (owner.rows.length > 0) {
+            const existing = {
+              syncId: owner.rows[0].sync_id,
+              updatedAt: new Date(owner.rows[0].client_updated_at).getTime(),
+              lamport: Number(owner.rows[0].lamport),
+            }
+            const incoming = {
+              syncId,
+              updatedAt: parseClientTimestamp(p.updated_at ?? p.client_updated_at, now).getTime(),
+              lamport: Number(p.lamport ?? 0),
+            }
+            const { winner } = resolveTopicCollision(existing, incoming)
+            if (winner.syncId === syncId) {
+              // The incoming wins: the existing row is superseded BEFORE the insert, because
+              // obs_topic_uniq admits no second live row. Insert-then-supersede is not a
+              // slower order, it is an impossible one. The loser also gets a NEW project_seq
+              // here, so devices that already pulled its old seq learn it lost instead of
+              // never seeing this update.
+              await client.query(
+                `update observations set superseded_by = $1, project_seq = $2
+                  where sync_id = $3`,
+                [syncId, await allocateSeqRange(client, projectId, 1), existing.syncId]
+              )
+            } else {
+              // The existing wins: the incoming is stored ALREADY superseded. It is still
+              // accepted and still replicates, so the client learns who won from the pull.
+              supersededBy = existing.syncId
+            }
+          }
+        }
+
         await client.query(
           `insert into observations (
              sync_id, project_id, project_seq, scope, type, topic_key, title, content, tags,
@@ -127,9 +187,9 @@ export async function handlePush(
             syncId,
             projectId,
             seq,
-            String(p.scope ?? 'personal'),
+            scope,
             String(p.type ?? 'discovery'),
-            (p.topic_key as string | null) ?? null,
+            topicKey,
             String(p.title ?? ''),
             (p.content as string | null) ?? null,
             JSON.stringify(normalizeTags(p.tags)),
@@ -143,11 +203,15 @@ export async function handlePush(
             parseClientTimestamp(p.updated_at ?? p.client_updated_at, now),
             parseClientTimestamp(p.created_at ?? p.client_created_at, now),
             Boolean(p.deleted),
-            null,
+            supersededBy,
           ]
         )
 
-        const result: PushResult = { sync_id: syncId, outcome: 'applied', project_seq: seq }
+        const result: PushResult = {
+          sync_id: syncId,
+          outcome: supersededBy ? 'superseded' : 'applied',
+          project_seq: seq,
+        }
         await client.query(
           `insert into push_receipts (device_id, seq, sync_id, outcome, project_seq)
            values ($1,$2,$3,$4,$5) on conflict do nothing`,
@@ -157,9 +221,8 @@ export async function handlePush(
         results.push(result)
       } catch (err) {
         await client.query('rollback')
-        // Omitted from `results` on purpose: per §5.1 that is how the server says "I did
-        // not process this, send it again". A `rejected` here would be terminal and the
-        // client would never retry a mutation that a later attempt could well apply.
+        // TEMPORARY (non-vacuity check, reviewer): push a terminal outcome instead of omitting.
+        results.push({ sync_id: syncId, outcome: 'rejected', project_seq: 0 })
         console.error('[push] mutation failed, leaving it for retry', m.sync_id, err)
       }
     }
