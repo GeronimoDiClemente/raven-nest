@@ -152,6 +152,32 @@ El cliente hoy pega contra `{base}/functions/v1/memory-sync/{push,pull}`, que es
 Supabase. El servicio **sirve esas dos rutas como alias** de las de arriba. Eso permite levantar
 el backend y probarlo contra un Nest sin recompilar, y se borra cuando el cliente cambie la URL.
 
+### 5.5 El borrado de datos de nube — agujero de esta spec, hay que cerrarlo
+
+**Agregado el 2026-09-01, encontrado en el review final del plan de cliente.** Las §5.1 a §5.3
+definen push, pull y status, y nada más. Pero el cliente tiene una cuarta llamada que nadie
+enumeró: `memory:disconnect` postea a `{base}/functions/v1/memory-sync/delete-cloud-data`
+(`electron/main.ts:2716`) cuando el usuario desconecta pidiendo borrar la copia de nube. Es el
+"derecho al borrado" de §6.6 y §7.5 del doc de arquitectura, o sea un requisito, no un extra.
+
+Verificado con grep: es **la única** ruta con forma de Supabase que queda en el cliente después
+del C4.
+
+Esto es un **release blocker con fecha de activación**: el día que `syncBaseUrl` apunte fuera de
+Supabase, esa llamada pega contra un host que no la sirve y el borrado se rompe **en silencio**,
+que es exactamente la clase de falla que esta spec existe para eliminar. No se migró del lado
+cliente a propósito: no hay endpoint definido al cual migrarla, e inventar el contrato del
+servidor desde el cliente sería adivinar.
+
+**El servicio nuevo tiene que hacer una de las dos, y decidirlo antes de la primera release:**
+
+1. Definir `POST /v1/sync/delete-data` (o el nombre que sea) y migrar el cliente en la misma
+   release. Es lo correcto.
+2. Servir `/functions/v1/memory-sync/delete-cloud-data` como alias, igual que §5.4 hace con push
+   y pull, y migrarlo después.
+
+Lo que **no** es una opción es dejarlo como está y mover `syncBaseUrl`.
+
 ## 6. Schema
 
 Multi-tenant desde el día uno: `user_id` en todo, aunque hoy haya una sola fila.
@@ -371,13 +397,18 @@ observación, rate limit por device, y purga de tombstones más viejos que la ve
 
 Esta es la lista que convierte el beta de una persona en un producto. Ninguno es opcional.
 
-1. C1 a C8 shippeados, y los 41 tests de memoria corriendo en CI (hoy nunca corrieron).
-2. Emisión de token contra el login (9.2) y gate de plan server side (9.3).
-3. Backup restaurado en una prueba real.
-4. Rate limits y cuotas activas.
-5. Observabilidad de rechazos.
-6. Un mes de datos del beta de una cuenta: bytes reales, requests reales, costo real por usuario.
-7. Prueba de carga a 100x el tráfico medido.
+1. C1 a C8 shippeados, y los tests de memoria corriendo en CI (hoy nunca corrieron).
+   **Estado al 2026-09-01**: C1, C2, C3, C5 hechos; C4, C6, C7, C8 parciales — el detalle y la
+   razón de cada parcial están en el review final del plan de cliente. La suite pasó de 41 tests
+   que no podían ni ejecutarse a 198 verdes.
+2. **El endpoint de borrado de nube resuelto** (5.5). Es la única llamada del cliente que la spec
+   nunca definió, y se rompe en silencio el día que `syncBaseUrl` se mueva.
+3. Emisión de token contra el login (9.2) y gate de plan server side (9.3).
+4. Backup restaurado en una prueba real.
+5. Rate limits y cuotas activas.
+6. Observabilidad de rechazos.
+7. Un mes de datos del beta de una cuenta: bytes reales, requests reales, costo real por usuario.
+8. Prueba de carga a 100x el tráfico medido.
 
 ## 13. Testing
 
