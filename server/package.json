@@ -1,0 +1,19 @@
+{
+  "name": "nest-memory-sync",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "start": "tsx src/index.ts",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "pg": "^8.13.1",
+    "tsx": "^4.19.2"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.11.10",
+    "vitest": "^4.1.5"
+  }
+}
