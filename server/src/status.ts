@@ -10,7 +10,22 @@ export interface StatusResponse {
   quota: { used_bytes: number; max_bytes: number }
 }
 
-const MAX_BYTES = Number(process.env.MAX_BYTES_PER_USER ?? 1024 * 1024 * 1024)
+const DEFAULT_MAX_BYTES = 1024 * 1024 * 1024
+
+/**
+ * `Number(...)` alone put whatever the env said straight into every status response, so
+ * `MAX_BYTES_PER_USER=1gb` — or an empty value, which Number() reads as 0 — surfaced as
+ * `NaN` (or a zero quota) in the client's UI, on every request, with nothing logged.
+ * A misconfigured env var should fall back to the documented default, not silently make
+ * the quota unreadable.
+ */
+export function resolveMaxBytes(raw: string | undefined): number {
+  if (raw === undefined) return DEFAULT_MAX_BYTES
+  const parsed = Number(raw)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_MAX_BYTES
+}
+
+const MAX_BYTES = resolveMaxBytes(process.env.MAX_BYTES_PER_USER)
 
 // §5.3: this is the device's health check — today the client has no way to tell a dead
 // subsystem from a healthy-but-unsynced one — and it is where the server hands back

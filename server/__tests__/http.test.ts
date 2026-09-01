@@ -91,4 +91,73 @@ describe('http', () => {
     })
     expect(res.status).toBe(400)
   })
+
+  it('400s valid JSON that is not an object, instead of 500ing on it', async () => {
+    // `null` is the one that used to hurt: it parsed fine and then `body.mutations` threw a
+    // TypeError inside the handler's try, which got reported as a 500. Bad client input
+    // must not show up in the 500 channel — that channel is for OUR faults.
+    for (const body of ['null', '42', '"a string"', '[]']) {
+      const res = await fetch(`${base}/v1/sync/push`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${TOKEN}`, 'Content-Type': 'application/json' },
+        body,
+      })
+      expect([body, res.status]).toEqual([body, 400])
+    }
+  })
+
+  it('round-trips multibyte content in a body far larger than one chunk, byte-identically', async () => {
+    // THE bug this test exists for: `data += chunk` decoded every ~64 KB Buffer on its
+    // own, so any multibyte character straddling a chunk boundary became U+FFFD — in a
+    // push that still answered `applied`, so the client marked it pushed and the damage
+    // was permanent. 680 KB is the typical batch (200 mutations x ~3407 B), and the corpus
+    // is Spanish markdown, so this was the DEFAULT case.
+    const unit = 'ñandú «acentos» — em dash 🙂🎉 café · año\n'
+    const content = unit.repeat(8000)
+    const bytes = Buffer.byteLength(content, 'utf8')
+    expect(bytes).toBeGreaterThan(400_000) // several chunks, guaranteed
+
+    const project = `${RUN}-utf8`
+    const syncId = `${RUN}-utf8-obs`
+    const push = await post('/v1/sync/push', {
+      mutations: [
+        {
+          seq: 7100,
+          sync_id: syncId,
+          op: 'upsert',
+          payload: {
+            sync_id: syncId, project_key: project, project_display_name: project,
+            scope: 'personal', type: 'decision', topic_key: null,
+            title: 'títulos con ñ y 🙂', content, tags: ['acentós', '🎉'],
+            lamport: 1, updated_at: Date.now(), created_at: Date.now(),
+          },
+        },
+      ],
+    })
+    expect(push.status).toBe(200)
+    expect((await push.json()).results[0].outcome).toBe('applied')
+
+    // What is actually STORED, not just what came back — a lossy decode on the way in is
+    // invisible to a response that only echoes outcomes.
+    const stored = await pool.query('select content, title, tags from observations where sync_id = $1', [syncId])
+    expect(stored.rows[0].content).not.toContain('�')
+    expect(Buffer.byteLength(stored.rows[0].content, 'utf8')).toBe(bytes)
+    expect(Buffer.from(stored.rows[0].content, 'utf8').equals(Buffer.from(content, 'utf8'))).toBe(true)
+    expect(stored.rows[0].title).toBe('títulos con ñ y 🙂')
+    expect(stored.rows[0].tags).toEqual(['acentós', '🎉'])
+
+    // And the whole way back out again.
+    const pull = await post('/v1/sync/pull', { cursors: { [project]: 0 }, limit: 500 })
+    const row = (await pull.json()).rows.find((r: { sync_id: string }) => r.sync_id === syncId)
+    expect(row.content).not.toContain('�')
+    expect(Buffer.from(row.content, 'utf8').equals(Buffer.from(content, 'utf8'))).toBe(true)
+  })
+
+  it('serves the §5.5 delete route and its Supabase-shaped alias', async () => {
+    for (const path of ['/v1/sync/delete-data', '/functions/v1/memory-sync/delete-cloud-data']) {
+      const res = await post(path, {})
+      expect([path, res.status]).toEqual([path, 200])
+      expect((await res.json()).ok).toBe(true)
+    }
+  })
 })

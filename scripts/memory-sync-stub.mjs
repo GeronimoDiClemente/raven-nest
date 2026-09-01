@@ -352,7 +352,14 @@ function handlePull(body) {
   }
 }
 
-function handleStatus(deviceId) {
+// §5.3. The device identity here is the TOKEN-derived one, never a client-supplied
+// `device_id` query parameter. This used to echo `?device_id=` straight back, which made
+// the stub model an identity a client can pick at will — precisely the spoofable shape the
+// real service refuses (src/auth.ts resolves the device from the bearer token). A stub
+// that is more permissive than the service under test weakens every result obtained
+// against it, which already cost one round of evidence here.
+function handleStatus() {
+  const deviceId = TOKEN_HASH
   const used = [...state.observations.values()].reduce(
     (n, r) => n + (r.content ? Buffer.byteLength(r.content) : 0),
     0
@@ -360,7 +367,7 @@ function handleStatus(deviceId) {
   return {
     status: 200,
     body: {
-      device_id: deviceId ?? null,
+      device_id: deviceId,
       user_id: 'stub-user',
       plan: 'pro',
       // §11.4: the interval is the server's call, not the client's. It is the only real
@@ -426,7 +433,7 @@ const server = createServer(async (req, res) => {
   }
 
   try {
-    if (isStatus) return send(res, 200, handleStatus(url.searchParams.get('device_id')).body)
+    if (isStatus) return send(res, 200, handleStatus().body)
     const body = await readBody(req)
     const out = isPush ? handlePush(body) : handlePull(body)
     if (isPush) {

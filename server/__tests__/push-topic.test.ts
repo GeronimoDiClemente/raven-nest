@@ -49,7 +49,9 @@ describe('topic collision (§8.1)', () => {
       mutations: [topicMutation(101, SYNC('obs-late'), p, now + 60_000, 6)],
     })
 
-    expect(late.results[0].outcome).not.toBe('rejected')
+    // Positive assertion: `not.toBe('rejected')` was unfalsifiable while nothing in the
+    // handler ever assigned `rejected`. The late writer wins the topic, so it is `applied`.
+    expect(late.results[0].outcome).toBe('applied')
 
     const { rows } = await pool.query(
       `select sync_id, superseded_by from observations where sync_id in ($1, $2)
@@ -123,8 +125,11 @@ describe('topic collision (§8.1)', () => {
 
     expect(r1.results).toHaveLength(1)
     expect(r2.results).toHaveLength(1)
-    expect(r1.results[0].outcome).not.toBe('rejected')
-    expect(r2.results[0].outcome).not.toBe('rejected')
+    // Positive form of "neither is rejected": which one is `applied` and which is
+    // `superseded` genuinely depends on arrival order (see the comment above), so the
+    // assertion names the set of legal outcomes instead of the single illegal one.
+    expect(['applied', 'superseded']).toContain(r1.results[0].outcome)
+    expect(['applied', 'superseded']).toContain(r2.results[0].outcome)
 
     const { rows } = await pool.query(
       `select sync_id, superseded_by from observations where sync_id in ($1, $2)`,

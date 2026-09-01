@@ -2,8 +2,18 @@
 
 Backend propio para la sincronización de memoria entre devices (spec:
 `docs/superpowers/specs/2026-08-31-memory-sync-backend-design.md`). Un contenedor sin
-estado propio — todo vive en Postgres — que habla el contrato de wire §5: `push`, `pull` y
-`status`, más los alias con forma de Supabase para el bring-up (§5.4).
+estado propio — todo vive en Postgres — que habla el contrato de wire §5: `push`, `pull`,
+`status` y `delete-data`, más los alias con forma de Supabase para el bring-up (§5.4/§5.5).
+
+## Rutas
+
+| Ruta | Alias con forma de Supabase | Qué hace |
+|---|---|---|
+| `POST /v1/sync/push` | `/functions/v1/memory-sync/push` | §5.1 — aplica mutaciones, una transacción por mutación, idempotente por `(device_id, seq)`. |
+| `POST /v1/sync/pull` | `/functions/v1/memory-sync/pull` | §5.2 — filas nuevas por cursor de proyecto. |
+| `GET /v1/sync/status` | — | §5.3 — identidad del device, plan, cuota y `next_poll_ms`. |
+| `POST /v1/sync/delete-data` | `/functions/v1/memory-sync/delete-cloud-data` | §5.5 — el derecho al borrado (§6.6/§7.5 del doc de arquitectura). Borra las observaciones, los proyectos y los push receipts del usuario autenticado en **una** transacción y devuelve los conteos. **No** borra el usuario ni sus devices: es "borrá mi copia de nube", no "borrá mi cuenta", así que el token con el que llamó sigue sirviendo. El alias existe porque `electron/main.ts` todavía postea a la ruta vieja y sólo mira `res.ok` — un 404 ahí rompe el borrado **en silencio**. |
+| `GET /health` | — | Sin token. |
 
 ## Levantarlo en local
 
@@ -48,7 +58,7 @@ en producción hay que fijar al menos `DATABASE_URL`.
 | `DATABASE_URL` | `postgres://postgres:nestmem@127.0.0.1:55432/nest_memory` | Connection string de Postgres. El default apunta al contenedor de desarrollo local — nunca usarlo en producción. |
 | `PORT` | `8080` | Puerto donde escucha el servidor HTTP. |
 | `NEXT_POLL_MS` | `300000` (5 min) | El intervalo que el servidor le dice al cliente que espere antes del próximo `pull`, devuelto en la respuesta de `pull` y de `status` (§11.4). Es la única palanca de costo real: ~99% de los pulls vuelven vacíos. Se puede aflojar a 15-30 min sin tocar ningún cliente. |
-| `MAX_BYTES_PER_USER` | `1073741824` (1 GiB) | Tope de cuota por usuario, informado en `status.quota.max_bytes`. **Hoy sólo se reporta — no se aplica.** Rechazar pushes por cuota excedida es trabajo de §11.6, todavía no implementado. |
+| `MAX_BYTES_PER_USER` | `1073741824` (1 GiB) | Tope de cuota por usuario, informado en `status.quota.max_bytes`. **Hoy sólo se reporta — no se aplica.** Rechazar pushes por cuota excedida es trabajo de §11.6, todavía no implementado. Un valor no numérico, vacío o ≤ 0 cae al default en vez de mandar `NaN` en cada respuesta de status (que es lo que hacía antes, y el usuario lo veía). |
 | `PG_POOL_MAX` | `10` | Tamaño máximo del pool de conexiones a Postgres (`pg.Pool`). |
 
 ## Dar de alta una cuenta y un device a mano

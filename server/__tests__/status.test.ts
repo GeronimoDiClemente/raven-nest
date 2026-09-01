@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { randomUUID } from 'node:crypto'
 import { getPool, migrate } from '../src/db'
 import { handlePush } from '../src/push'
-import { handleStatus } from '../src/status'
+import { handleStatus, resolveMaxBytes } from '../src/status'
 
 const pool = getPool()
 let auth: { deviceId: string; userId: string; plan: string }
@@ -26,7 +26,30 @@ beforeAll(async () => {
 
 afterAll(async () => { await pool.end() })
 
+const GIB = 1024 * 1024 * 1024
+
+describe('resolveMaxBytes', () => {
+  it('takes a sane value from the env', () => {
+    expect(resolveMaxBytes('2048')).toBe(2048)
+    expect(resolveMaxBytes(String(GIB * 2))).toBe(GIB * 2)
+  })
+
+  it('falls back to the default instead of putting NaN in every status response', () => {
+    // A quota the user can see, so a typo in the env used to surface as `NaN` in the UI on
+    // every single request, with nothing logged anywhere.
+    for (const bad of [undefined, '', '   ', '1gb', 'lots', 'NaN', '-1', '0', 'Infinity']) {
+      expect([bad, resolveMaxBytes(bad)]).toEqual([bad, GIB])
+    }
+  })
+})
+
 describe('handleStatus', () => {
+  it('reports a finite quota ceiling', async () => {
+    const res = await handleStatus(pool, auth)
+    expect(Number.isFinite(res.quota.max_bytes)).toBe(true)
+    expect(res.quota.max_bytes).toBeGreaterThan(0)
+  })
+
   it('reports the device, the plan and when to poll again', async () => {
     const res = await handleStatus(pool, auth)
     expect(res.device_id).toBe(auth.deviceId)

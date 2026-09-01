@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { randomUUID } from 'node:crypto'
+import type { Pool, PoolClient } from 'pg'
 import { getPool, migrate } from '../src/db'
 import { handlePush } from '../src/push'
 
@@ -117,13 +118,89 @@ describe('handlePush', () => {
     expect(rows).toHaveLength(0)
   })
 
-  it('omits a failed mutation from results, keeps the batch going, and leaves it retryable', async () => {
+  it('upserts each project ONCE per batch, not once per mutation', async () => {
+    // `ensureProject` used to run inside the loop, so a 200-mutation batch fired 200
+    // upserts at the same `projects` row — ~400 dead tuples per push (the seq allocation
+    // updates it once more per mutation) on the one row every push has to lock anyway.
+    // Counted at the statement level because pg_stat_user_tables is sampled asynchronously
+    // and cannot answer "how many times" precisely.
+    const projects: string[] = []
+    const counting = {
+      connect: async () => {
+        const client: PoolClient = await pool.connect()
+        return new Proxy(client, {
+          get(target, prop, receiver) {
+            if (prop === 'query') {
+              return (text: unknown, params?: unknown[]) => {
+                if (typeof text === 'string' && text.includes('insert into projects')) {
+                  projects.push(String(params?.[1]))
+                }
+                return (target.query as (t: unknown, p?: unknown[]) => Promise<unknown>)(text, params)
+              }
+            }
+            const value = Reflect.get(target, prop, receiver)
+            return typeof value === 'function' ? value.bind(target) : value
+          },
+        })
+      },
+    } as unknown as Pool
+
+    const a = PROJECT()
+    const b = PROJECT()
+    const res = await handlePush(counting, auth, {
+      mutations: [
+        mutation(95, SYNC('hoist-1'), a),
+        mutation(96, SYNC('hoist-2'), a),
+        mutation(97, SYNC('hoist-3'), b),
+        mutation(98, SYNC('hoist-4'), a),
+        mutation(99, SYNC('hoist-5'), b),
+      ],
+    })
+
+    expect(res.results.map((r) => r.outcome)).toEqual(Array(5).fill('applied'))
+    expect(projects).toEqual([a, b]) // one upsert per DISTINCT project_key, in first-seen order
+    // And the seq allocation is untouched: still one per mutation, still gapless per project.
+    const seqs = res.results.map((r) => r.project_seq)
+    expect([seqs[0], seqs[1], seqs[3]]).toEqual([1, 2, 3]) // project a
+    expect([seqs[2], seqs[4]]).toEqual([1, 2]) // project b
+  })
+
+  it('rejects a mutation with no sync_id instead of collapsing them all onto one row', async () => {
+    // `m.sync_id ?? String(p.sync_id ?? '')` used to yield the empty string, which is a
+    // perfectly valid text primary key — so every malformed push from every account in the
+    // world upserted the SAME row, overwriting each other. Terminal: no retry of this
+    // payload can grow a sync_id.
+    const p = PROJECT()
+    const countEmpty = async () =>
+      (await pool.query(`select count(*)::int as n from observations where sync_id = ''`)).rows[0].n
+    const before = await countEmpty()
+
+    const res = await handlePush(pool, auth, {
+      mutations: [
+        {
+          seq: 90,
+          sync_id: undefined as unknown as string,
+          op: 'upsert',
+          payload: { project_key: p, title: 'sin id', content: 'x', lamport: 1, updated_at: Date.now() },
+        },
+        mutation(91, SYNC('after-no-id'), p),
+      ],
+    })
+
+    expect(res.results[0]).toMatchObject({ sync_id: '', outcome: 'rejected', error: 'missing_sync_id' })
+    expect(res.results[1]).toMatchObject({ sync_id: SYNC('after-no-id'), outcome: 'applied' })
+    expect(await countEmpty()).toBe(before)
+  })
+
+  it('rejects a terminally-broken mutation, keeps the batch going, and persists nothing', async () => {
     const p = PROJECT()
     const res = await handlePush(pool, auth, {
       mutations: [
         mutation(70, SYNC('ok-before'), p),
         // A real 22P02 from Postgres: lamport is bigint and this is not a number. No mock,
-        // no schema change — the transaction genuinely fails mid-flight.
+        // no schema change — the transaction genuinely fails mid-flight. SQLSTATE class 22
+        // is a data exception, so no retry of this exact payload can ever get past it:
+        // reporting it as `rejected` is what stops the client resending it forever.
         mutation(71, SYNC('bad'), p, { lamport: 'not-a-number' }),
         mutation(72, SYNC('ok-after'), p),
       ],
@@ -132,9 +209,10 @@ describe('handlePush', () => {
     const ids = res.results.map((r) => r.sync_id)
     expect(ids).toContain(SYNC('ok-before'))
     expect(ids).toContain(SYNC('ok-after')) // the loop kept going after the failure
-    expect(ids).not.toContain(SYNC('bad')) // omitted, NOT rejected — this is the contract
+    const bad = res.results.find((r) => r.sync_id === SYNC('bad'))
+    expect(bad).toMatchObject({ outcome: 'rejected', error: 'invalid_payload' })
 
-    // Nothing landed for the failed one, so a retry can still work.
+    // Rejected is a REPORT, not a write: the transaction still rolled back whole.
     const { rows } = await pool.query('select count(*)::int as n from observations where sync_id = $1', [SYNC('bad')])
     expect(rows[0].n).toBe(0)
     const receipts = await pool.query(
@@ -144,7 +222,7 @@ describe('handlePush', () => {
     expect(receipts.rows[0].n).toBe(0)
   })
 
-  it('a retry of the failed mutation with the same device seq succeeds afterwards', async () => {
+  it('a retry of the rejected mutation with the same device seq succeeds afterwards', async () => {
     const p = PROJECT()
     const seq = 80
     const syncId = SYNC('retry-me')
@@ -152,7 +230,10 @@ describe('handlePush', () => {
     const failed = await handlePush(pool, auth, {
       mutations: [mutation(seq, syncId, p, { lamport: 'not-a-number' })],
     })
-    expect(failed.results.map((r) => r.sync_id)).not.toContain(syncId)
+    // The rejection rolled back with the receipt claim, so the seq is free again. The real
+    // client would not resend a `rejected` mutation, but a FIXED payload under the same
+    // device seq must not be locked out by the failed attempt's claim.
+    expect(failed.results[0]).toMatchObject({ sync_id: syncId, outcome: 'rejected' })
 
     const retried = await handlePush(pool, auth, { mutations: [mutation(seq, syncId, p)] })
     expect(retried.results[0]).toMatchObject({ sync_id: syncId, outcome: 'applied' })

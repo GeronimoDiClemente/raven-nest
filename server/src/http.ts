@@ -4,6 +4,7 @@ import { authenticate } from './auth'
 import { handlePush } from './push'
 import { handlePull } from './pull'
 import { handleStatus } from './status'
+import { handleDeleteData } from './delete-data'
 
 const MAX_BATCH = 500
 const MAX_BODY_BYTES = 20 * 1024 * 1024
@@ -17,20 +18,55 @@ function send(res: ServerResponse, status: number, body: unknown): void {
   res.end(payload)
 }
 
+/**
+ * Reads the request body as ONE utf8 decode over the concatenated bytes.
+ *
+ * The previous version did `data += chunk` with `data` a string, which decodes every
+ * chunk INDEPENDENTLY. Node hands `data` events out in ~64 KB Buffers, so any multibyte
+ * character that straddles a chunk boundary is split across two decodes and each half
+ * becomes U+FFFD. Reproduced end to end: a 680 KB body of Spanish markdown came back with
+ * 9 replacement characters, and the push still answered `applied` — so the client marked
+ * it pushed and the corruption was permanent. 680 KB is the TYPICAL batch (200 mutations
+ * at the spec's measured 3407 B average), so this was the default case, not an edge one.
+ *
+ * The size cap sums `chunk.length`, which is BYTES. `data.length` on the old string was
+ * UTF-16 code units, which undercounts every non-ASCII body.
+ */
 function readBody(req: IncomingMessage): Promise<unknown> {
   return new Promise((resolve, reject) => {
-    let data = ''
-    req.on('data', (chunk) => {
-      data += chunk
-      if (data.length > MAX_BODY_BYTES) reject(Object.assign(new Error('too large'), { status: 413 }))
+    const chunks: Buffer[] = []
+    let bytes = 0
+    let done = false
+
+    const fail = (message: string, status: number) => {
+      done = true
+      chunks.length = 0
+      reject(Object.assign(new Error(message), { status }))
+    }
+
+    req.on('data', (chunk: Buffer) => {
+      if (done) return
+      bytes += chunk.length
+      if (bytes > MAX_BODY_BYTES) return fail('too large', 413)
+      chunks.push(chunk)
     })
     req.on('end', () => {
-      if (!data) return resolve({})
+      if (done) return
+      if (chunks.length === 0) return resolve({})
+      let parsed: unknown
       try {
-        resolve(JSON.parse(data))
+        parsed = JSON.parse(Buffer.concat(chunks).toString('utf8'))
       } catch {
-        reject(Object.assign(new Error('bad json'), { status: 400 }))
+        return fail('bad json', 400)
       }
+      // Valid JSON that is not an object (`null`, `42`, `"x"`, `[]`) used to sail through
+      // and blow up downstream — `body.mutations` on a null body throws a TypeError inside
+      // the caller's try and got reported as a 500. It is bad client input, so it is a 400
+      // here, and the 500 channel stays clean for actual server faults.
+      if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        return fail('bad json', 400)
+      }
+      resolve(parsed)
     })
     req.on('error', reject)
   })
@@ -57,14 +93,23 @@ async function handleRequest(pool: Pool, req: IncomingMessage, res: ServerRespon
   const isPush = path === '/v1/sync/push' || path === '/functions/v1/memory-sync/push'
   const isPull = path === '/v1/sync/pull' || path === '/functions/v1/memory-sync/pull'
   const isStatus = path === '/v1/sync/status'
+  // §5.5, option 2: the right-to-delete endpoint the spec left undefined. `/v1/sync/
+  // delete-data` is the real name; the Supabase-shaped path is served as an alias exactly
+  // like §5.4 does for push and pull, because `electron/main.ts` still posts to it and a
+  // 404 there breaks the right to delete SILENTLY (the client only reads `res.ok`).
+  const isDelete =
+    path === '/v1/sync/delete-data' || path === '/functions/v1/memory-sync/delete-cloud-data'
 
-  if (!isPush && !isPull && !isStatus) return send(res, 404, { error: 'not_found' })
+  if (!isPush && !isPull && !isStatus && !isDelete) return send(res, 404, { error: 'not_found' })
 
   try {
     const auth = await authenticate(pool, req.headers.authorization)
     if (!auth.ok) return send(res, auth.status, { error: auth.error })
 
     if (isStatus) return send(res, 200, await handleStatus(pool, auth))
+    // Takes no input — everything it deletes is scoped by the authenticated identity — so
+    // the body is deliberately not read. The client posts `{}`.
+    if (isDelete) return send(res, 200, await handleDeleteData(pool, auth))
 
     const body = (await readBody(req)) as Record<string, unknown>
     if (isPush) {

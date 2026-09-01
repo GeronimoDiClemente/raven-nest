@@ -41,7 +41,10 @@ describe('tombstones (§8.2)', () => {
     await handlePush(pool, auth, { mutations: [base(400, SYNC('obs-del'), p, 'upsert', 'alive')] })
     const res = await handlePush(pool, auth, { mutations: [base(401, SYNC('obs-del'), p, 'delete', null)] })
 
-    expect(res.results[0].outcome).not.toBe('rejected')
+    // Positive on purpose: `not.toBe('rejected')` could never fail while nothing in the
+    // handler assigned `rejected`. It can now, so the assertion has to name the outcome it
+    // actually expects rather than the one it does not want.
+    expect(res.results[0].outcome).toBe('applied')
     const { rows } = await pool.query(
       'select deleted, content from observations where sync_id = $1', [SYNC('obs-del')]
     )
