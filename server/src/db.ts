@@ -10,12 +10,20 @@ const MIGRATIONS_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'migr
 // duplicate-object error at startup, which reads as a crash loop rather than a race.
 const MIGRATION_LOCK_KEY = 8127346512
 
+// Memoized: HTTP handlers call getPool() per request, and pg.Pool already pools
+// connections internally, so handing out a fresh Pool per call would open a fresh set of
+// connections per request instead of reusing one, exhausting Postgres under load.
+let pool: Pool | undefined
+
 export function getPool(): Pool {
-  return new Pool({
-    connectionString:
-      process.env.DATABASE_URL ?? 'postgres://postgres:nestmem@127.0.0.1:55432/nest_memory',
-    max: Number(process.env.PG_POOL_MAX ?? 10),
-  })
+  if (!pool) {
+    pool = new Pool({
+      connectionString:
+        process.env.DATABASE_URL ?? 'postgres://postgres:nestmem@127.0.0.1:55432/nest_memory',
+      max: Number(process.env.PG_POOL_MAX ?? 10),
+    })
+  }
+  return pool
 }
 
 /** Applies every unapplied migration inside one advisory lock. Returns how many ran. */
