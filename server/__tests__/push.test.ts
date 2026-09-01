@@ -116,4 +116,47 @@ describe('handlePush', () => {
     )
     expect(rows).toHaveLength(0)
   })
+
+  it('omits a failed mutation from results, keeps the batch going, and leaves it retryable', async () => {
+    const p = PROJECT()
+    const res = await handlePush(pool, auth, {
+      mutations: [
+        mutation(70, SYNC('ok-before'), p),
+        // A real 22P02 from Postgres: lamport is bigint and this is not a number. No mock,
+        // no schema change — the transaction genuinely fails mid-flight.
+        mutation(71, SYNC('bad'), p, { lamport: 'not-a-number' }),
+        mutation(72, SYNC('ok-after'), p),
+      ],
+    })
+
+    const ids = res.results.map((r) => r.sync_id)
+    expect(ids).toContain(SYNC('ok-before'))
+    expect(ids).toContain(SYNC('ok-after')) // the loop kept going after the failure
+    expect(ids).not.toContain(SYNC('bad')) // omitted, NOT rejected — this is the contract
+
+    // Nothing landed for the failed one, so a retry can still work.
+    const { rows } = await pool.query('select count(*)::int as n from observations where sync_id = $1', [SYNC('bad')])
+    expect(rows[0].n).toBe(0)
+    const receipts = await pool.query(
+      'select count(*)::int as n from push_receipts where device_id = $1 and sync_id = $2',
+      [auth.deviceId, SYNC('bad')]
+    )
+    expect(receipts.rows[0].n).toBe(0)
+  })
+
+  it('a retry of the failed mutation with the same device seq succeeds afterwards', async () => {
+    const p = PROJECT()
+    const seq = 80
+    const syncId = SYNC('retry-me')
+
+    const failed = await handlePush(pool, auth, {
+      mutations: [mutation(seq, syncId, p, { lamport: 'not-a-number' })],
+    })
+    expect(failed.results.map((r) => r.sync_id)).not.toContain(syncId)
+
+    const retried = await handlePush(pool, auth, { mutations: [mutation(seq, syncId, p)] })
+    expect(retried.results[0]).toMatchObject({ sync_id: syncId, outcome: 'applied' })
+    const { rows } = await pool.query('select count(*)::int as n from observations where sync_id = $1', [syncId])
+    expect(rows[0].n).toBe(1)
+  })
 })

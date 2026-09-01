@@ -9,6 +9,10 @@ export interface Mutation {
 }
 
 export interface PushBody {
+  // Accepted on the wire for backward/forward compatibility but deliberately never read:
+  // the device identity that matters is the authenticated one in `auth.deviceId`. A
+  // client-supplied device id must never be allowed to drive authorization or receipt
+  // lookups — wiring this up "to use the field" would reopen a spoofing hole.
   device_id?: string
   mutations: Mutation[]
 }
@@ -36,10 +40,20 @@ export function normalizeTags(value: unknown): string[] {
   return []
 }
 
-/** §5.2: the client may send epoch ms or ISO 8601, and the value is the CLIENT's clock. */
+/**
+ * §5.2: the client may send epoch ms or ISO 8601, and the value is the CLIENT's clock.
+ *
+ * Also guards against a raw NaN (JSON cannot encode one, but a caller could still pass a
+ * number that is NaN) and a numeric-string epoch (the real client types these fields as
+ * `number`, so it never sends one today, but Number() alone would otherwise silently drop
+ * it to `fallback` instead of recognizing it). Neither case is reachable through the real
+ * client — this is robustness, not a bug fix.
+ */
 export function parseClientTimestamp(value: unknown, fallback: number): Date {
-  if (typeof value === 'number') return new Date(value)
-  if (typeof value === 'string') {
+  if (typeof value === 'number' && Number.isFinite(value)) return new Date(value)
+  if (typeof value === 'string' && value.trim() !== '') {
+    const asNumber = Number(value)
+    if (Number.isFinite(asNumber)) return new Date(asNumber)
     const parsed = Date.parse(value)
     if (!Number.isNaN(parsed)) return new Date(parsed)
   }
