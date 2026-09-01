@@ -22,6 +22,7 @@
     "postinstall": "electron-rebuild -f -w node-pty -w better-sqlite3",
     "native:node": "cd node_modules/better-sqlite3 && prebuild-install -r node --tag-prefix v",
     "native:electron": "electron-rebuild -f -o better-sqlite3",
+    "pretest": "npm run native:node",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:ui": "vitest --ui",
