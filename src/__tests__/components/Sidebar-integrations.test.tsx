@@ -17,7 +17,16 @@ vi.mock('../../lib/supabase', () => ({
       getUser: vi.fn().mockResolvedValue({ data: { user: null } }),
       onAuthStateChange: vi.fn(() => ({ data: { subscription: { unsubscribe: vi.fn() } } })),
     },
-    from: vi.fn(() => ({ select: vi.fn().mockReturnThis(), eq: vi.fn().mockReturnThis(), maybeSingle: vi.fn().mockResolvedValue({ data: null }) })),
+    from: vi.fn(() => ({
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      maybeSingle: vi.fn().mockResolvedValue({ data: null }),
+      // useUserRepos (rendered via Sidebar → SettingsPanel) chains
+      // .select(...).order(...); this must resolve like a real supabase-js
+      // query result or it escapes as an unhandled rejection from the
+      // hook's passive-effect refresh().
+      order: vi.fn().mockResolvedValue({ data: [], error: null }),
+    })),
     channel: vi.fn(() => ({ on: vi.fn().mockReturnThis(), subscribe: vi.fn() })),
     removeChannel: vi.fn(),
   },
