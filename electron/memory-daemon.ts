@@ -20,6 +20,12 @@ const PUSH_BATCH_SIZE = 200
 const PULL_PAGE_SIZE = 500
 // M20: §4.5 "hard cap 50 000, after which the daemon compacts the queue".
 const QUEUE_HARD_CAP = 50_000
+// C6: without this, a hung backend wedges the daemon until the app restarts. The
+// in-flight dedupe (M19) caches the request promise, and a promise that never settles
+// never runs its `.finally`, so pullInFlight/pushInFlight stay set forever and every
+// subsequent call returns the same dead promise. 30s is generous for a push of 200
+// mutations over a bad connection and is still a cutoff, not a wait.
+const FETCH_TIMEOUT_MS = 30_000
 
 export type DaemonStatus = 'idle' | 'syncing' | 'paused' | 'error'
 
@@ -272,7 +278,9 @@ export class MemoryDaemon {
 
   private fetch(input: string, init: RequestInit): Promise<Response> {
     const impl = this.deps.fetchImpl ?? fetch
-    return impl(input, init)
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
+    return impl(input, { ...init, signal: controller.signal }).finally(() => clearTimeout(timer))
   }
 
   push(): Promise<void> {

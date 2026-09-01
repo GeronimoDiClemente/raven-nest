@@ -300,6 +300,35 @@ describe('MemoryDaemon — in-flight dedupe (M19)', () => {
   })
 })
 
+describe('MemoryDaemon — network timeout (C6)', () => {
+  beforeEach(() => { vi.useFakeTimers() })
+  afterEach(() => { vi.useRealTimers() })
+
+  it('aborts a hung fetch and releases the in-flight dedupe', async () => {
+    const store = fakeStore()
+    let aborted = false
+    const fetchImpl = vi.fn((_url: string, init: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init.signal?.addEventListener('abort', () => {
+          aborted = true
+          reject(new DOMException('Aborted', 'AbortError'))
+        })
+      })
+    ) as unknown as typeof fetch
+
+    const daemon = new MemoryDaemon(baseDaemonDeps(store, { fetchImpl }))
+    const first = daemon.pull()
+    await vi.advanceTimersByTimeAsync(31_000)
+    await first
+
+    expect(aborted).toBe(true)
+
+    // The in-flight dedupe was released: a second call fires a fresh request.
+    void daemon.pull()
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+  })
+})
+
 describe('MemoryDaemon — pull (§4.4, M17 per-project cursors)', () => {
   it('sends one cursor per known local project and writes each back to its own partition', async () => {
     const setSyncState = vi.fn()
