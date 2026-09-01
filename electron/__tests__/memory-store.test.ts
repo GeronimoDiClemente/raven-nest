@@ -620,7 +620,7 @@ describe('MemoryStore — topic-aware import identity (Finding 1 fix)', () => {
   })
 })
 
-describe('MemoryStore — supersede local en la colisión de topic (C2)', () => {
+describe('MemoryStore — superseding the local row on a topic collision (C2)', () => {
   let dir: string
   let store: MemoryStore
 
@@ -634,15 +634,15 @@ describe('MemoryStore — supersede local en la colisión de topic (C2)', () => 
     cleanupTmp(dir)
   })
 
-  it('supersede la local y aplica la entrante sin violar idx_obs_topic', () => {
+  it('supersedes the local row and applies the incoming one without violating idx_obs_topic', () => {
     store.ensureProject({ projectKey: 'proj-a', displayName: 'proj-a' })
     store.save({
       projectKey: 'proj-a',
       scope: 'personal',
       type: 'decision',
       topicKey: 'deploy-target',
-      title: 'local gana por ahora',
-      content: 'escrita en esta maquina',
+      title: 'local wins for now',
+      content: 'written on this machine',
       source: 'mcp',
     })
     const local = store.context('proj-a', 10)[0]
@@ -654,8 +654,8 @@ describe('MemoryStore — supersede local en la colisión de topic (C2)', () => 
         scope: 'personal',
         topicKey: 'deploy-target',
         type: 'decision',
-        title: 'la remota gana',
-        content: 'escrita en la otra maquina',
+        title: 'the remote one wins',
+        content: 'written on the other machine',
         updatedAt: Date.now() + 60_000,
         lamport: 99,
         deleted: false,
@@ -663,13 +663,13 @@ describe('MemoryStore — supersede local en la colisión de topic (C2)', () => 
       })
     ).not.toThrow()
 
-    const activos = store.context('proj-a', 10)
-    expect(activos).toHaveLength(1)
-    expect(activos[0].syncId).toBe('obs_remota')
+    const active = store.context('proj-a', 10)
+    expect(active).toHaveLength(1)
+    expect(active[0].syncId).toBe('obs_remota')
     expect(store.get(local.syncId)?.superseded_by).toBe('obs_remota')
   })
 
-  it('no deja la local supersedida si la entrante falla', () => {
+  it('leaves the local row untouched when applying the incoming one throws', () => {
     store.ensureProject({ projectKey: 'proj-a', displayName: 'proj-a' })
     store.save({
       projectKey: 'proj-a',
@@ -686,10 +686,10 @@ describe('MemoryStore — supersede local en la colisión de topic (C2)', () => 
       store.applyIncomingObservation({
         syncId: 'obs_rota',
         projectKey: 'proj-a',
-        scope: 'no-pasa-el-CHECK',
+        scope: 'fails-the-CHECK',
         topicKey: 'deploy-target',
         type: 'decision',
-        title: 'rompe el CHECK de scope',
+        title: 'breaks the scope CHECK',
         content: 'x',
         updatedAt: Date.now(),
         lamport: 1,
@@ -702,17 +702,17 @@ describe('MemoryStore — supersede local en la colisión de topic (C2)', () => 
   })
 })
 
-describe('MemoryStore — versionado del schema (C3)', () => {
+describe('MemoryStore — schema versioning (C3)', () => {
   let dir: string
 
   beforeEach(() => { dir = makeTmpDir('raven-memory-c3-') })
   afterEach(() => { cleanupTmp(dir) })
 
-  it('SCHEMA_VERSION esta anclada al valor publicado', () => {
+  it('SCHEMA_VERSION is pinned to the published value', () => {
     expect(SCHEMA_VERSION).toBe(1)
   })
 
-  it('una base nueva queda en la versión actual', () => {
+  it('a fresh database lands on the current version', () => {
     const store = new MemoryStore(join(dir, 'memory.db'))
     expect(store.schemaVersion).toBe(SCHEMA_VERSION)
     const userVersion = (store as unknown as { db: { pragma(s: string, o?: { simple?: boolean }): unknown } })
@@ -721,14 +721,14 @@ describe('MemoryStore — versionado del schema (C3)', () => {
     store.close()
   })
 
-  it('reabrir una base existente no pierde datos', () => {
+  it('reopening an existing database loses no data', () => {
     const first = new MemoryStore(join(dir, 'memory.db'))
     first.ensureProject({ projectKey: 'proj-a', displayName: 'proj-a' })
     first.save({
       projectKey: 'proj-a',
       scope: 'personal',
       type: 'decision',
-      title: 'sobrevive al reopen',
+      title: 'survives the reopen',
       content: 'x',
       source: 'mcp',
     })
@@ -743,18 +743,32 @@ describe('MemoryStore — versionado del schema (C3)', () => {
     second.close()
   })
 
-  it('una base vieja sin user_version se adopta sin borrar nada', () => {
+  // Two machines share one synced memory dir, so the day SCHEMA_VERSION becomes 2 the
+  // machine still on 1 WILL open a v2 database. The loop simply doesn't run in that
+  // direction, so the old code no-op'd, adopted the higher number and then wrote against
+  // a schema it has never seen. main.ts's try/catch turns this throw into "memory
+  // disabled for this session".
+  it('refuses to open a database whose schema is newer than this build', () => {
+    const dbPath = join(dir, 'memory.db')
+    const store = new MemoryStore(dbPath)
+    ;(store as unknown as { db: { pragma(s: string): unknown } }).db.pragma(`user_version = ${SCHEMA_VERSION + 1}`)
+    store.close()
+
+    expect(() => new MemoryStore(dbPath)).toThrow(/newer than this build/)
+  })
+
+  it('an old database with no user_version is adopted without deleting anything', () => {
     const legacy = new MemoryStore(join(dir, 'memory.db'))
     legacy.ensureProject({ projectKey: 'proj-a', displayName: 'proj-a' })
     legacy.save({
       projectKey: 'proj-a',
       scope: 'personal',
       type: 'decision',
-      title: 'escrita antes del versionado',
+      title: 'written before schema versioning existed',
       content: 'x',
       source: 'mcp',
     })
-    // simula el estado de campo: tablas creadas, user_version nunca seteado
+    // simulates the field state: tables created, user_version never set
     ;(legacy as unknown as { db: { pragma(s: string): unknown } }).db.pragma('user_version = 0')
     legacy.close()
 

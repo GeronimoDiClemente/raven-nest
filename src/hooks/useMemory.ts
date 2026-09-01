@@ -24,14 +24,14 @@ interface MemoryHookState {
 }
 
 /**
- * `window.memory` puede no estar expuesta: el preload la publica solo cuando el
- * subsistema de memoria levanto bien, y `main.ts` ya trata a memoria como algo que
- * puede fallar y degradar. Este hook era la unica pieza que asumia que siempre esta,
- * asi que montar `SettingsPanel` sin ella tiraba
- * `Cannot read properties of undefined (reading 'onStatus')` y se llevaba puesto todo
- * el arbol que lo contuviera. Es el bug 3.4 de docs/MEMORY_INTEGRATIONS_CONTRACT.md:
- * aparece solo al juntar esta rama con la de integrations, porque ninguna de las dos
- * monta el panel sin la API.
+ * `window.memory` may not be exposed at all — not in a real build (preload.ts exposes it
+ * unconditionally; the "memory is dead" signal there is `status().unavailable`, handled in
+ * refresh()), but in tests and anywhere the renderer runs outside Electron. This hook was
+ * the only piece that assumed the API is always there, so mounting `SettingsPanel` without
+ * it threw `Cannot read properties of undefined (reading 'onStatus')` and took down the
+ * whole tree containing it. That is bug 3.4 in docs/MEMORY_INTEGRATIONS_CONTRACT.md: it
+ * only shows up when this branch meets the integrations branch, because neither one mounts
+ * the panel without the API on its own.
  */
 function memoryApi(): typeof window.memory | undefined {
   return typeof window === 'undefined' ? undefined : window.memory
@@ -56,13 +56,24 @@ export function useMemory() {
     if (connectingRef.current) return
     setState((s) => ({
       ...s,
-      state: !status.connected
-        ? 'disconnected'
-        : status.daemonStatus === 'paused'
-          ? 'paused'
-          : status.daemonStatus === 'error'
-            ? 'error'
-            : 'connected',
+      // `unavailable` MUST be checked first. The `!api` guard below only catches the
+      // non-Electron/test case: `electron/preload.ts` calls exposeInMainWorld('memory', …)
+      // unconditionally, with no knowledge of whether main's subsystem came up, so in a
+      // real build `window.memory` always exists. main.ts's memory:status handler returns
+      // `{ connected: false, daemonStatus: 'error', unavailable: true }` when the
+      // subsystem is null, and this hook used to discard that flag: `!status.connected`
+      // matched first, the card rendered 'disconnected', and SettingsPanel told a free
+      // user "Local memory active — cloud sync is a Pro feature" on a machine where
+      // memory was completely dead.
+      state: status.unavailable
+        ? 'unavailable'
+        : !status.connected
+          ? 'disconnected'
+          : status.daemonStatus === 'paused'
+            ? 'paused'
+            : status.daemonStatus === 'error'
+              ? 'error'
+              : 'connected',
       itemCount: status.itemCount,
       pendingCount: status.pendingCount,
       deviceId: status.deviceId,

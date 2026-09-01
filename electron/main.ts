@@ -2728,7 +2728,15 @@ ipcMain.handle('memory:disconnect', async (_event, opts?: { deleteCloud?: boolea
       }
     }
   }
-  accountStore.disconnectMemoryFromAllClaudeAccounts()
+  // C1: disconnecting from the CLOUD is not the same as turning local capture off.
+  // This call removes the MCP entry and rmSync's the nest dir from every Claude account
+  // — i.e. it de-provisions local capture. With localEnabled still true (the state C1
+  // introduced, and the state a plain Disconnect leaves behind), that deletes
+  // provisioning the client believes should exist, and it is self-undoing anyway: the
+  // next `claude` pane re-provisions it via pty-manager.ts. Pure churn plus a window in
+  // which the app and the disk disagree. Only tear it down when local capture is
+  // actually off.
+  if (!memoryConnectionState.localEnabled) accountStore.disconnectMemoryFromAllClaudeAccounts()
   deleteCredential(ravenHome())
   memoryToken = null
   memoryConnectionState = { ...memoryConnectionState, connected: false, connectedAt: null }

@@ -28,7 +28,13 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # 22, not 20, ONLY on this job: `npm test` runs `native:node`, which needs a
+          # better-sqlite3 binary for the Node ABI. better-sqlite3@12.11.1 publishes no
+          # prebuild for ABI 115 (Node 20) — that asset 404s, while 127/137/141 exist — so
+          # on 20 `prebuild-install` always failed and every single CI run fell through to
+          # compiling from source. Node 22 is ABI 127, which has a published prebuild, so
+          # the download succeeds and CI stops compiling native code entirely.
+          node-version: 22
           cache: npm
       - run: npm ci
       - run: npm test

@@ -801,6 +801,12 @@ declare global {
         itemCount: number
         pendingCount: number
         daemonStatus: 'idle' | 'syncing' | 'paused' | 'error'
+        /**
+         * True when main's memory subsystem never initialized. The preload exposes
+         * `window.memory` unconditionally, so its mere presence proves nothing — this
+         * flag is the only signal the renderer gets that memory is dead on this machine.
+         */
+        unavailable?: boolean
       }>
       onStatus: (cb: (status: 'idle' | 'syncing' | 'paused' | 'error') => void) => void
       removeStatusListener: () => void

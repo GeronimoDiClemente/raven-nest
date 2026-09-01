@@ -1,6 +1,9 @@
 // Sync scheduler — lives in Electron main, owns the only network connection to
 // Supabase for memory replication. See docs/nest-memory-architecture.md §1.3, §4.
 //
+// Citation convention in this file: a bare `§X` refers to that architecture doc; `spec §X`
+// refers to the sync-backend spec, docs/superpowers/specs/2026-08-31-memory-sync-backend-design.md.
+//
 // Deliberately takes its dependencies as plain functions/objects (no direct `electron`
 // import) so the scheduling/backoff/apply logic is unit-testable with a mocked fetch and
 // vitest fake timers, without spinning up a BrowserWindow or a real network call.
@@ -277,11 +280,37 @@ export class MemoryDaemon {
     await this.push()
   }
 
-  private fetch(input: string, init: RequestInit): Promise<Response> {
+  /**
+   * C6 part 2: `fetch` settles as soon as the RESPONSE HEADERS arrive, so the original
+   * `.finally(() => clearTimeout(timer))` disarmed the abort right there — before
+   * `await response.json()` had read a single byte. A server that answers 200 + headers
+   * and then stalls the body left that `.json()` promise pending forever, which is
+   * exactly the wedge C6 was written to close, just moved one step later: the in-flight
+   * dedupe (M19) caches a promise that never settles, so pushInFlight/pullInFlight stay
+   * set and every later call returns the same dead promise.
+   *
+   * So the timer stays ARMED across the handoff and the caller disarms it with
+   * `release()` only after the body is consumed (or after it decides not to read one).
+   * An abort that fires while the body is still streaming errors the body stream, so
+   * `response.json()` rejects and the caller's normal error path takes over instead of
+   * hanging. `fetchImpl` keeps its exact contract — a plain fetch-shaped function — so
+   * every test can still substitute it unchanged.
+   */
+  private async fetchWithTimeout(
+    input: string,
+    init: RequestInit
+  ): Promise<{ response: Response; release: () => void }> {
     const impl = this.deps.fetchImpl ?? fetch
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
-    return impl(input, { ...init, signal: controller.signal }).finally(() => clearTimeout(timer))
+    try {
+      const response = await impl(input, { ...init, signal: controller.signal })
+      return { response, release: () => clearTimeout(timer) }
+    } catch (err) {
+      // Never reached the handoff, so nobody will ever call release() — disarm here.
+      clearTimeout(timer)
+      throw err
+    }
   }
 
   push(): Promise<void> {
@@ -310,6 +339,9 @@ export class MemoryDaemon {
     }
 
     this.setStatus('syncing')
+    // C6 part 2: disarmed in this try's `finally`, i.e. only AFTER `response.json()` has
+    // consumed the body — see fetchWithTimeout().
+    let release: (() => void) | null = null
     try {
       const deviceId = this.deps.getDeviceId()
       // Gap #2 fix (cloud display_name defaulting to the raw project_key hash, see
@@ -325,7 +357,7 @@ export class MemoryDaemon {
       // go stale while still sitting in the offline queue. One listProjects() call per
       // batch is a single indexed-PK read per row, not a per-mutation query.
       const displayNameByProjectKey = new Map(store.listProjects().map((p) => [p.projectKey, p.displayName]))
-      const response = await this.fetch(`${url}/v1/sync/push`, {
+      const { response, release: releaseTimer } = await this.fetchWithTimeout(`${url}/v1/sync/push`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -358,6 +390,7 @@ export class MemoryDaemon {
           }),
         }),
       })
+      release = releaseTimer
 
       if (response.status === 401 || response.status === 403) {
         this.consecutiveAuthFailures += 1
@@ -421,6 +454,8 @@ export class MemoryDaemon {
       store.setSyncState('__account__', { lastError: err instanceof Error ? err.message : String(err) })
       this.setStatus('error', err instanceof Error ? err.message : String(err))
       this.scheduleBackoffRetry(() => void this.push())
+    } finally {
+      release?.()
     }
   }
 
@@ -458,12 +493,16 @@ export class MemoryDaemon {
       cursors[project.projectKey] = store.getSyncState(project.projectKey).pullCursor
     }
 
+    // C6 part 2: disarmed in this try's `finally`, i.e. only AFTER `response.json()` has
+    // consumed the body — see fetchWithTimeout().
+    let release: (() => void) | null = null
     try {
-      const response = await this.fetch(`${url}/v1/sync/pull`, {
+      const { response, release: releaseTimer } = await this.fetchWithTimeout(`${url}/v1/sync/pull`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ cursors, limit: PULL_PAGE_SIZE }),
       })
+      release = releaseTimer
       if (!response.ok) throw new Error(`pull failed: ${response.status}`)
       const body = (await response.json()) as { rows: Array<Record<string, unknown>>; cursors: Record<string, number> }
       for (const raw of body.rows) this.applyPulledRow(mapRawPulledRow(raw))
@@ -540,6 +579,8 @@ export class MemoryDaemon {
     } catch (err) {
       store.setSyncState('__account__', { lastError: err instanceof Error ? err.message : String(err) })
       this.setStatus('error', err instanceof Error ? err.message : String(err))
+    } finally {
+      release?.()
     }
   }
 
@@ -560,14 +601,21 @@ export class MemoryDaemon {
     }
     // Topic collision check against a DIFFERENT sync_id sharing the same topic slot.
     let supersededBy: string | null = null
-    // C2: el caso que faltaba. Si la entrante GANA, la local tiene que quedar
-    // supersedida en la misma transacción del insert; si no, las dos quedan activas
-    // sobre el mismo slot, idx_obs_topic explota, la excepción sube hasta el catch de
-    // doPull(), el cursor no avanza y el device no vuelve a sincronizar nunca.
+    // C2: the case that was missing. If the incoming row WINS, the local one must be
+    // superseded inside the same transaction as the insert; otherwise both stay active on
+    // the same slot, idx_obs_topic blows up, the exception bubbles to doPull()'s catch,
+    // the cursor never advances and the device never syncs again.
     let supersedeLocal: string | null = null
-    if (incoming.topicKey) {
+    // `&& !incoming.deleted`: a tombstone must NEVER take a topic slot away from a live
+    // row. findActiveTopicOwner only returns live rows, so without this guard a pulled
+    // tombstone that is merely NEWER than a live local row on the same
+    // (project_key, scope, topic_key) marks that live row superseded_by = <the tombstone>.
+    // The slot goes empty and the local memory disappears from search(), context() and
+    // count(), all of which filter superseded_by IS NULL. A tombstone deletes its own
+    // sync_id and nothing else.
+    if (incoming.topicKey && !incoming.deleted) {
       const existingTopicOwner = this.deps.store.findActiveTopicOwner(
-        incoming.projectKey || '__global__',
+        incoming.projectKey || GLOBAL_PROJECT_KEY,
         incoming.scope,
         incoming.topicKey,
         incoming.syncId

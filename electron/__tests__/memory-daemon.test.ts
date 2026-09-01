@@ -353,6 +353,39 @@ describe('MemoryDaemon — network timeout (C6)', () => {
     void daemon.pull()
     expect(fetchImpl).toHaveBeenCalledTimes(2)
   })
+
+  // C6 part 2: `fetch` settles on HEADERS, so a `.finally(clearTimeout)` on that promise
+  // disarmed the abort before `response.json()` read a byte. This server answers 200 +
+  // headers instantly and then stalls the body forever — the exact same wedge, one step
+  // later. The timeout has to still be armed here.
+  it('aborts and settles when the response BODY stalls after the headers arrive', async () => {
+    const store = fakeStore()
+    let bodyAborted = false
+    const fetchImpl = vi.fn((_url: string, init: RequestInit) =>
+      Promise.resolve({
+        ok: true,
+        status: 200,
+        // Headers are already here; the body never arrives.
+        json: () => new Promise((_resolve, reject) => {
+          init.signal?.addEventListener('abort', () => {
+            bodyAborted = true
+            reject(new DOMException('Aborted', 'AbortError'))
+          })
+        }),
+      } as unknown as Response)
+    ) as unknown as typeof fetch
+
+    const daemon = new MemoryDaemon(baseDaemonDeps(store, { fetchImpl }))
+    const first = daemon.pull()
+    await vi.advanceTimersByTimeAsync(31_000)
+    await first
+
+    expect(bodyAborted).toBe(true)
+
+    // And the in-flight dedupe was released, so the daemon is not wedged.
+    void daemon.pull()
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+  })
 })
 
 describe('MemoryDaemon — pull (§4.4, M17 per-project cursors)', () => {
@@ -872,12 +905,12 @@ describe('MemoryDaemon — applyPulledRow (§4.3/§4.4 pull-apply)', () => {
   })
 })
 
-describe('applyPulledRow — colisión de topic cuando la entrante gana (C2)', () => {
-  it('pide supersedir la local antes de aplicar la entrante', () => {
+describe('applyPulledRow — topic collision where the incoming row wins (C2)', () => {
+  it('asks for the local row to be superseded in the same call that applies the incoming one', () => {
     const applyIncomingObservation = vi.fn()
     const store = fakeStore({
       get: vi.fn(() => null),
-      findActiveTopicOwner: vi.fn(() => ({ sync_id: 'obs_local', updated_at: 1_000, lamport: 1 })),
+      findActiveTopicOwner: vi.fn(() => ({ sync_id: 'obs_local', updated_at: 1_000, lamport: 1 }) as never),
       applyIncomingObservation,
     })
     const daemon = new MemoryDaemon(baseDaemonDeps(store))
@@ -898,11 +931,11 @@ describe('applyPulledRow — colisión de topic cuando la entrante gana (C2)', (
     )
   })
 
-  it('cuando la entrante pierde, la marca supersedida y no toca la local', () => {
+  it('marks the incoming row superseded and leaves the local one alone when the incoming row loses', () => {
     const applyIncomingObservation = vi.fn()
     const store = fakeStore({
       get: vi.fn(() => null),
-      findActiveTopicOwner: vi.fn(() => ({ sync_id: 'obs_local', updated_at: 9_000, lamport: 20 })),
+      findActiveTopicOwner: vi.fn(() => ({ sync_id: 'obs_local', updated_at: 9_000, lamport: 20 }) as never),
       applyIncomingObservation,
     })
     const daemon = new MemoryDaemon(baseDaemonDeps(store))
@@ -922,28 +955,56 @@ describe('applyPulledRow — colisión de topic cuando la entrante gana (C2)', (
       expect.objectContaining({ supersededBy: 'obs_local', supersedeLocal: null })
     )
   })
+
+  // findActiveTopicOwner only ever returns LIVE rows, so without the `!incoming.deleted`
+  // guard a pulled TOMBSTONE that merely happens to be newer than the live local row on
+  // the same (project_key, scope, topic_key) marked that live row
+  // superseded_by = <the tombstone>. The slot went empty and the local memory vanished
+  // from search(), context() and count(), all of which filter superseded_by IS NULL.
+  it('a deleted incoming row never supersedes the live local owner of the topic slot', () => {
+    const applyIncomingObservation = vi.fn()
+    const findActiveTopicOwner = vi.fn(() => ({ sync_id: 'obs_local', updated_at: 1_000, lamport: 1 }) as never)
+    const store = fakeStore({ get: vi.fn(() => null), findActiveTopicOwner, applyIncomingObservation })
+    const daemon = new MemoryDaemon(baseDaemonDeps(store))
+
+    daemon.applyPulledRow({
+      syncId: 'obs_tombstone',
+      updatedAt: 2_000, // newer than the live local row, so it WOULD win the collision
+      lamport: 5,
+      deleted: true,
+      topicKey: 'deploy-target',
+      scope: 'personal',
+      projectKey: 'proj-1',
+      supersededBy: null,
+    })
+
+    expect(findActiveTopicOwner).not.toHaveBeenCalled()
+    expect(applyIncomingObservation).toHaveBeenCalledWith(
+      expect.objectContaining({ syncId: 'obs_tombstone', deleted: true, supersedeLocal: null, supersededBy: null })
+    )
+  })
 })
 
-describe('wire de tags y source_ref (C5)', () => {
-  it('mapRawPulledRow acepta tags como string JSON', () => {
+describe('tags and source_ref on the wire (C5)', () => {
+  it('mapRawPulledRow accepts tags as a JSON string', () => {
     expect(mapRawPulledRow({ sync_id: 'a', tags: '["uno","dos"]' }).tags).toEqual(['uno', 'dos'])
   })
 
-  it('mapRawPulledRow sigue aceptando tags como array', () => {
+  it('mapRawPulledRow still accepts tags as a plain array', () => {
     expect(mapRawPulledRow({ sync_id: 'a', tags: ['uno'] }).tags).toEqual(['uno'])
   })
 
-  it('mapRawPulledRow no explota con tags basura', () => {
+  it('mapRawPulledRow returns undefined for junk tags instead of throwing', () => {
     expect(mapRawPulledRow({ sync_id: 'a', tags: 'no soy json' }).tags).toBeUndefined()
     expect(mapRawPulledRow({ sync_id: 'a', tags: 7 }).tags).toBeUndefined()
   })
 
-  it('mapRawPulledRow descarta los elementos que no son string', () => {
+  it('mapRawPulledRow drops non-string elements from tags', () => {
     expect(mapRawPulledRow({ sync_id: 'a', tags: ['uno', 7, null, 'dos'] }).tags).toEqual(['uno', 'dos'])
     expect(mapRawPulledRow({ sync_id: 'a', tags: '["uno",7,null,"dos"]' }).tags).toEqual(['uno', 'dos'])
   })
 
-  it('el push manda tags como array y no manda source_ref', async () => {
+  it('push sends tags as an array and never sends source_ref', async () => {
     const pending: MutationLogRow[] = [
       {
         seq: 1,
@@ -975,7 +1036,7 @@ describe('wire de tags y source_ref (C5)', () => {
     expect(payload).not.toHaveProperty('source_ref')
   })
 
-  it('el push manda tags: [] (no null) cuando la mutacion no trae tags', async () => {
+  it('push sends tags: [] (not null) when the mutation carries no tags', async () => {
     // Locks in the ?? [] fix: the push RPC's COALESCE(v_payload->'tags', '[]'::jsonb)
     // never fires on a present-but-null key (jsonb null scalar, not SQL NULL), so a
     // stray `?? null` here would silently defeat the column's own NOT NULL DEFAULT '[]'.

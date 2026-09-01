@@ -117,18 +117,40 @@ describe('useMemory disconnect', () => {
   })
 })
 
-describe('useMemory — unavailable y token a mano (C7)', () => {
+describe('useMemory — unavailable and hand-pasted token (C7)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    delete (globalThis as unknown as { window: Window & { memory?: unknown } }).window.memory
+    // Assign undefined rather than `delete`: the property is non-optional on the Window
+    // type, and `delete` on it is a TS2790 error under tsconfig.web.json.
+    ;(globalThis as unknown as { window: { memory?: unknown } }).window.memory = undefined
   })
 
-  it('reporta unavailable cuando el subsistema no levanto', async () => {
+  it('reports unavailable when window.memory is missing entirely (non-Electron / test case)', async () => {
     const { result } = renderHook(() => useMemory())
     await waitFor(() => expect(result.current.state).toBe('unavailable'))
   })
 
-  it('conecta con un token pegado a mano y le saca los espacios', async () => {
+  // The shape production actually produces: preload.ts exposes `window.memory`
+  // unconditionally, so the API is always there and main reports the dead subsystem via
+  // `unavailable: true` on a status() that is ALSO `connected: false`. Before this fix
+  // `!status.connected` matched first and the card showed 'disconnected', which
+  // SettingsPanel renders for a free user as "Local memory active".
+  it('reports unavailable when status() flags it, even though window.memory exists and reports disconnected', async () => {
+    ;(globalThis as unknown as { window: Window }).window.memory = memoryMock as never
+    memoryMock.status.mockResolvedValue({
+      connected: false,
+      deviceId: null,
+      itemCount: 0,
+      pendingCount: 0,
+      daemonStatus: 'error',
+      unavailable: true,
+    })
+
+    const { result } = renderHook(() => useMemory())
+    await waitFor(() => expect(result.current.state).toBe('unavailable'))
+  })
+
+  it('connects with a hand-pasted token and trims its whitespace', async () => {
     ;(globalThis as unknown as { window: Window }).window.memory = memoryMock as never
     memoryMock.ensureDeviceId.mockResolvedValue('dev-1')
     memoryMock.connect.mockResolvedValue({ ok: true })
@@ -143,7 +165,7 @@ describe('useMemory — unavailable y token a mano (C7)', () => {
     await waitFor(() => expect(result.current.state).toBe('connected'))
   })
 
-  it('NO llama a la edge function memory-token', async () => {
+  it('never calls the memory-token edge function', async () => {
     ;(globalThis as unknown as { window: Window }).window.memory = memoryMock as never
     memoryMock.ensureDeviceId.mockResolvedValue('dev-1')
     memoryMock.connect.mockResolvedValue({ ok: true })
@@ -157,7 +179,7 @@ describe('useMemory — unavailable y token a mano (C7)', () => {
     expect(supabaseMock.functions.invoke).not.toHaveBeenCalled()
   })
 
-  it('deja el estado en error si connect devuelve ok:false', async () => {
+  it('leaves the state in error when connect resolves ok:false', async () => {
     ;(globalThis as unknown as { window: Window }).window.memory = memoryMock as never
     memoryMock.ensureDeviceId.mockResolvedValue('dev-1')
     memoryMock.connect.mockResolvedValue({ ok: false, error: 'invalid token' })

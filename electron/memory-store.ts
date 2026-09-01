@@ -327,17 +327,17 @@ const BASE_SCHEMA = `
     `
 
 /**
- * C3: versión del schema local, persistida en `PRAGMA user_version`.
+ * C3: version of the local schema, persisted in `PRAGMA user_version`.
  *
- * Para agregar un paso: subir esta constante, agregar la entrada en MIGRATIONS con el
- * número NUEVO como clave, y no tocar nunca un paso ya publicado. Cada paso corre dentro
- * de una transacción y aun así conviene que sea idempotente: SQLite no revierte un ALTER
- * TABLE si el proceso muere en el medio de un `exec` multi-statement.
+ * To add a step: raise this constant, add the MIGRATIONS entry keyed by the NEW number,
+ * and never touch an already-published step. Every step runs inside a transaction and
+ * should STILL be idempotent: SQLite does not roll back an ALTER TABLE if the process
+ * dies halfway through a multi-statement `exec`.
  *
- * La versión 1 es el schema base tal como salió de Phase 1. Una base creada antes de este
- * cambio reporta user_version = 0 igual que una base vacía, y adoptarla es correcto
- * justamente porque todo el paso 1 es CREATE ... IF NOT EXISTS: correrlo sobre una base ya
- * poblada no escribe nada y no toca una sola fila.
+ * Version 1 is the base schema exactly as it shipped in Phase 1. A database created
+ * before this change reports user_version = 0 just like an empty one, and adopting it is
+ * correct precisely because all of step 1 is CREATE ... IF NOT EXISTS: running it over an
+ * already-populated database writes nothing and does not touch a single row.
  */
 export const SCHEMA_VERSION = 1
 
@@ -366,9 +366,19 @@ export class MemoryStore {
 
   private migrate(): void {
     let current = this.db.pragma('user_version', { simple: true }) as number
+    // Refuse a database from the FUTURE. The loop below simply doesn't run when
+    // `current > SCHEMA_VERSION`, so the old behaviour was to no-op, adopt the higher
+    // number as `schemaVersion` and then write against a schema this build has never
+    // heard of. That is not hypothetical here: the memory dir is synced across two
+    // machines, so the day SCHEMA_VERSION becomes 2 the machine still on 1 opens a v2
+    // database. Throwing is caught by main.ts's existing try/catch around the memory
+    // subsystem, which degrades to "memory disabled for this session" — the safe outcome.
+    if (current > SCHEMA_VERSION) {
+      throw new Error(`memory-store: database schema v${current} is newer than this build (v${SCHEMA_VERSION}) — update Nest`)
+    }
     for (let next = current + 1; next <= SCHEMA_VERSION; next++) {
       const step = MIGRATIONS[next]
-      if (!step) throw new Error(`memory-store: falta la migración ${next}`)
+      if (!step) throw new Error(`memory-store: missing migration step ${next}`)
       this.db.transaction(() => {
         this.db.exec(step)
         this.db.pragma(`user_version = ${next}`)
@@ -755,17 +765,16 @@ export class MemoryStore {
     supersededBy?: string | null
     serverSeq?: number | null
     /**
-     * C2: el `sync_id` de una fila LOCAL que perdió la colisión de topic contra esta
-     * entrante. Se marca `superseded_by = row.syncId` ANTES de escribir la entrante y en
-     * la MISMA transacción, porque `idx_obs_topic` no admite dos filas activas sobre el
-     * mismo (project_key, scope, topic_key): escribir primero y supersedir después no es
-     * un orden más lento, es un orden imposible.
+     * C2: the `sync_id` of a LOCAL row that lost the topic collision against this incoming
+     * one. It is marked `superseded_by = row.syncId` BEFORE the incoming row is written and
+     * inside the SAME transaction, because `idx_obs_topic` does not allow two active rows
+     * on the same (project_key, scope, topic_key): writing first and superseding after is
+     * not a slower ordering, it is an impossible one.
      *
-     * No se encola mutación por este supersede. El servidor aplica la misma regla del
-     * lado suyo (spec §8.1) y la fila supersedida vuelve en el pull, así que esto es
-     * convergencia sobre un hecho que el servidor ya conoce, no un hecho nuevo de este
-     * device. Encolarlo haría que las dos puntas se manden el mismo supersede para
-     * siempre.
+     * No mutation is queued for this supersede. The server applies the same rule on its
+     * side (spec §8.1) and the superseded row comes back on the pull, so this is
+     * convergence on a fact the server already knows, not a new fact from this device.
+     * Queueing it would make both ends send each other the same supersede forever.
      */
     supersedeLocal?: string | null
   }): void {

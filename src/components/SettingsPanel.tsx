@@ -110,6 +110,14 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
   // local connection state.
   const [deleteCloudOnDisconnect, setDeleteCloudOnDisconnect] = useState(false)
   const [memoryToken, setMemoryToken] = useState('')
+  // Once the token has done its job, drop it. main.ts persists it in the credential
+  // store, so keeping the plaintext value in React state for the rest of the session
+  // buys nothing and leaves it in every heap snapshot and devtools inspection of the
+  // panel. Keyed on the card reaching 'connected' so it covers both the Connect and the
+  // Retry button.
+  useEffect(() => {
+    if (memory.state === 'connected') setMemoryToken('')
+  }, [memory.state])
   // Sync push progress for the card's progress bar. itemCount is the running local
   // total; pendingCount is the outstanding push queue and can exceed itemCount
   // mid-migration (it also counts update mutations, not just inserts), so clamp.
