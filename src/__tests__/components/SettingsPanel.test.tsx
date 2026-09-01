@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import SettingsPanel from '../../components/SettingsPanel'
 import type { EditorPreferences, EditorTheme } from '../../lib/ide-config-mappings'
@@ -299,5 +299,61 @@ describe('SettingsPanel — el match exacto le gana al heurístico', () => {
     await waitFor(() => expect(screen.getByTestId('ide-config-preview')).toBeInTheDocument())
     fireEvent.click(screen.getByText('Apply'))
     expect(setEditorOptionsMock).toHaveBeenCalledWith({ fontSize: 18 }, 'one-dark-pro')
+  })
+})
+
+// Fix round 1 review, Finding 1 (Important): the token <input> used to require
+// PLAN_LIMITS[plan].memoryCloud even in the `error` state. `error` is reachable
+// while already connected (refresh() maps daemonStatus === 'error' to it), and
+// useProfile() re-fetches plan on every window focus — so a Pro user downgraded
+// to free while their daemon was erroring saw a permanently-disabled Retry
+// button with no input to type a new token into, and no Disconnect escape
+// hatch either. The fix widens the input's render condition so `error` always
+// shows it, regardless of plan.
+function mockMemoryBridge(status: {
+  connected: boolean
+  deviceId: string | null
+  itemCount: number
+  pendingCount: number
+  daemonStatus: 'idle' | 'syncing' | 'paused' | 'error'
+}) {
+  const memory = {
+    ensureDeviceId: vi.fn().mockResolvedValue('dev-1'),
+    connect: vi.fn().mockResolvedValue({ ok: true }),
+    disconnect: vi.fn().mockResolvedValue({ ok: true }),
+    status: vi.fn().mockResolvedValue(status),
+    onStatus: vi.fn(),
+    removeStatusListener: vi.fn(),
+  }
+  ;(window as unknown as { memory: typeof memory }).memory = memory
+  return memory
+}
+
+describe('SettingsPanel — memory token input stays reachable in the error state (C7 fix round 1)', () => {
+  beforeEach(() => {
+    supabaseMock.auth.getUser.mockResolvedValue({ data: { user: null } })
+    // useProfile() also bails out on a null user and keeps its initial
+    // `plan: 'free'` — PLAN_LIMITS.free.memoryCloud is false, which is exactly
+    // the plan/state combination Finding 1 describes (downgraded-to-free user
+    // whose daemon is in `error`).
+    ;(window as unknown as { localPaths: { getAll: () => Promise<Record<string, string>> } })
+      .localPaths = { getAll: async () => ({}) }
+  })
+
+  afterEach(() => {
+    delete (window as unknown as { memory?: unknown }).memory
+  })
+
+  it('renders the sync-token input in the error state even without the memoryCloud entitlement', async () => {
+    mockMemoryBridge({ connected: true, deviceId: 'dev-1', itemCount: 0, pendingCount: 0, daemonStatus: 'error' })
+    render(<SettingsPanel updateState="idle" onCheckUpdates={vi.fn()} userEmail="test@example.com" userPrefs={makeUserPrefs(vi.fn())} />)
+    fireEvent.click(screen.getByTitle('Settings'))
+    fireEvent.click(screen.getByText('Account'))
+
+    await waitFor(() => expect(screen.getByText(/Couldn't sync/)).toBeInTheDocument())
+    expect(screen.getByPlaceholderText('Paste your sync token')).toBeInTheDocument()
+    // Retry itself is still disabled until a token is typed — this test is
+    // about the input existing at all, not about auto-filling it.
+    expect(screen.getByText('Retry')).toBeDisabled()
   })
 })

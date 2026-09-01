@@ -438,10 +438,11 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                         <button className="sp-btn-purple" onClick={() => setMemoryUpgradeOpen(true)}>Upgrade</button>
                       )}
                     </div>
-                    {(memory.state === 'disconnected' || memory.state === 'error') && PLAN_LIMITS[plan].memoryCloud && (
+                    {((memory.state === 'disconnected' && PLAN_LIMITS[plan].memoryCloud) || memory.state === 'error') && (
                       <input
                         type="password"
                         className="sp-select"
+                        style={{ width: '100%', marginTop: 8, cursor: 'text' }}
                         placeholder="Paste your sync token"
                         aria-label="Memory sync token"
                         value={memoryToken}
