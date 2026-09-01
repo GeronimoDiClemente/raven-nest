@@ -9,7 +9,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { join } from 'path'
 import { makeTmpDir, cleanupTmp } from './setup'
-import { MemoryStore, deriveImportSyncId, computeContentIdentity } from '../memory-store'
+import { MemoryStore, SCHEMA_VERSION, deriveImportSyncId, computeContentIdentity } from '../memory-store'
 
 describe('MemoryStore — write path resolution (§3.1)', () => {
   let dir: string
@@ -699,5 +699,58 @@ describe('MemoryStore — supersede local en la colisión de topic (C2)', () => 
     ).toThrow()
 
     expect(store.get(local.syncId)?.superseded_by).toBeNull()
+  })
+})
+
+describe('MemoryStore — versionado del schema (C3)', () => {
+  let dir: string
+
+  beforeEach(() => { dir = makeTmpDir('raven-memory-c3-') })
+  afterEach(() => { cleanupTmp(dir) })
+
+  it('una base nueva queda en la versión actual', () => {
+    const store = new MemoryStore(join(dir, 'memory.db'))
+    expect(store.schemaVersion).toBe(SCHEMA_VERSION)
+    store.close()
+  })
+
+  it('reabrir una base existente no pierde datos', () => {
+    const first = new MemoryStore(join(dir, 'memory.db'))
+    first.ensureProject({ projectKey: 'proj-a', displayName: 'proj-a' })
+    first.save({
+      projectKey: 'proj-a',
+      scope: 'personal',
+      type: 'decision',
+      title: 'sobrevive al reopen',
+      content: 'x',
+      source: 'mcp',
+    })
+    first.close()
+
+    const second = new MemoryStore(join(dir, 'memory.db'))
+    expect(second.schemaVersion).toBe(SCHEMA_VERSION)
+    expect(second.count()).toBe(1)
+    second.close()
+  })
+
+  it('una base vieja sin user_version se adopta sin borrar nada', () => {
+    const legacy = new MemoryStore(join(dir, 'memory.db'))
+    legacy.ensureProject({ projectKey: 'proj-a', displayName: 'proj-a' })
+    legacy.save({
+      projectKey: 'proj-a',
+      scope: 'personal',
+      type: 'decision',
+      title: 'escrita antes del versionado',
+      content: 'x',
+      source: 'mcp',
+    })
+    // simula el estado de campo: tablas creadas, user_version nunca seteado
+    ;(legacy as unknown as { db: { pragma(s: string): unknown } }).db.pragma('user_version = 0')
+    legacy.close()
+
+    const migrated = new MemoryStore(join(dir, 'memory.db'))
+    expect(migrated.schemaVersion).toBe(SCHEMA_VERSION)
+    expect(migrated.count()).toBe(1)
+    migrated.close()
   })
 })

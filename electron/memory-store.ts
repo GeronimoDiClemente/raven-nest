@@ -196,26 +196,7 @@ export interface MarkPushedEntry {
   error?: string | null
 }
 
-export class MemoryStore {
-  private db: Database.Database
-  private lamportCounter = 0
-
-  constructor(dbPath: string) {
-    mkdirSync(dirname(dbPath), { recursive: true })
-    this.db = new Database(dbPath)
-    this.db.pragma('journal_mode = WAL')
-    this.db.pragma('synchronous = NORMAL')
-    this.migrate()
-    const row = this.db.prepare('SELECT MAX(lamport) as m FROM observations').get() as { m: number | null }
-    this.lamportCounter = row?.m ?? 0
-  }
-
-  close(): void {
-    this.db.close()
-  }
-
-  private migrate(): void {
-    this.db.exec(`
+const BASE_SCHEMA = `
       CREATE TABLE IF NOT EXISTS observations (
         sync_id        TEXT PRIMARY KEY,
         project_key    TEXT NOT NULL,
@@ -343,7 +324,58 @@ export class MemoryStore {
         finished_at INTEGER,
         error       TEXT
       );
-    `)
+    `
+
+/**
+ * C3: versión del schema local, persistida en `PRAGMA user_version`.
+ *
+ * Para agregar un paso: subir esta constante, agregar la entrada en MIGRATIONS con el
+ * número NUEVO como clave, y no tocar nunca un paso ya publicado. Cada paso corre dentro
+ * de una transacción y aun así conviene que sea idempotente: SQLite no revierte un ALTER
+ * TABLE si el proceso muere en el medio de un `exec` multi-statement.
+ *
+ * La versión 1 es el schema base tal como salió de Phase 1. Una base creada antes de este
+ * cambio reporta user_version = 0 igual que una base vacía, y adoptarla es correcto
+ * justamente porque todo el paso 1 es CREATE ... IF NOT EXISTS: correrlo sobre una base ya
+ * poblada no escribe nada y no toca una sola fila.
+ */
+export const SCHEMA_VERSION = 1
+
+const MIGRATIONS: Record<number, string> = {
+  1: BASE_SCHEMA,
+}
+
+export class MemoryStore {
+  private db: Database.Database
+  private lamportCounter = 0
+  readonly schemaVersion: number = 0
+
+  constructor(dbPath: string) {
+    mkdirSync(dirname(dbPath), { recursive: true })
+    this.db = new Database(dbPath)
+    this.db.pragma('journal_mode = WAL')
+    this.db.pragma('synchronous = NORMAL')
+    this.migrate()
+    const row = this.db.prepare('SELECT MAX(lamport) as m FROM observations').get() as { m: number | null }
+    this.lamportCounter = row?.m ?? 0
+  }
+
+  close(): void {
+    this.db.close()
+  }
+
+  private migrate(): void {
+    let current = this.db.pragma('user_version', { simple: true }) as number
+    for (let next = current + 1; next <= SCHEMA_VERSION; next++) {
+      const step = MIGRATIONS[next]
+      if (!step) throw new Error(`memory-store: falta la migración ${next}`)
+      this.db.transaction(() => {
+        this.db.exec(step)
+        this.db.pragma(`user_version = ${next}`)
+      })()
+      current = next
+    }
+    ;(this as { schemaVersion: number }).schemaVersion = current
   }
 
   private nextLamport(): number {
