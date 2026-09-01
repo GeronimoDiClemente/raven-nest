@@ -442,11 +442,30 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                       ) : memory.state === 'connected' || memory.state === 'paused' ? (
                         <button className="sp-btn-danger" onClick={() => memory.disconnect(deleteCloudOnDisconnect)}>Disconnect</button>
                       ) : memory.state === 'error' ? (
-                        <button className="sp-btn-purple" disabled={!memoryToken.trim()} onClick={() => void memory.connectWithToken(memoryToken)}>Retry</button>
+                        // §6.6/§7.5 "right to delete": `error` here means a connection that
+                        // WAS established (refresh() only reaches it when status.connected is
+                        // true) whose daemon is now failing — the stored token is still valid,
+                        // so Disconnect (and an optional cloud delete via the checkbox below)
+                        // still authenticates. Without it, a user stuck in a persistent error
+                        // state had no way to get their cloud copy deleted except fixing the
+                        // underlying failure first.
+                        <div style={{ display: 'flex', gap: 8 }}>
+                          <button className="sp-btn-purple" disabled={!memoryToken.trim()} onClick={() => void memory.connectWithToken(memoryToken)}>Retry</button>
+                          <button className="sp-btn-danger" onClick={() => memory.disconnect(deleteCloudOnDisconnect)}>Disconnect</button>
+                        </div>
                       ) : memory.state === 'plan_required' ? (
-                        // Reuses the same Upgrade affordance the free-plan disconnected
-                        // branch below already has — no second upgrade path invented.
-                        <button className="sp-btn-purple" onClick={() => setMemoryUpgradeOpen(true)}>Upgrade</button>
+                        // Same right-to-delete gap as `error`: the connection still exists —
+                        // the token is valid and the device is registered, the server is just
+                        // refusing pushes for plan reasons — so Disconnect is meaningful and
+                        // the delete-cloud-data call will authenticate. A downgraded user is
+                        // exactly someone who may want their data off the server, and the
+                        // Upgrade-only button gave them no way to ask for that.
+                        <div style={{ display: 'flex', gap: 8 }}>
+                          {/* Reuses the same Upgrade affordance the free-plan disconnected
+                              branch below already has — no second upgrade path invented. */}
+                          <button className="sp-btn-purple" onClick={() => setMemoryUpgradeOpen(true)}>Upgrade</button>
+                          <button className="sp-btn-danger" onClick={() => memory.disconnect(deleteCloudOnDisconnect)}>Disconnect</button>
+                        </div>
                       ) : memory.state === 'connecting' || memory.state === 'migrating' ? (
                         <button className="sp-btn-purple" disabled>…</button>
                       ) : PLAN_LIMITS[plan].memoryCloud ? (
@@ -481,7 +500,13 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                         <div className="sp-mem-progress-fill" style={{ width: `${memorySyncProgress * 100}%` }} />
                       </div>
                     )}
-                    {(memory.state === 'connected' || memory.state === 'paused') && (
+                    {(memory.state === 'connected' || memory.state === 'paused'
+                      // Extends to the two states whose Disconnect button was just made
+                      // reachable above — otherwise the button existing wouldn't actually
+                      // let these users ask for deletion, since deleteCloudOnDisconnect
+                      // would silently stay at its unchecked default with no control to
+                      // flip it in this session.
+                      || memory.state === 'error' || memory.state === 'plan_required') && (
                       <label className="sp-checkbox-row">
                         <input
                           type="checkbox"

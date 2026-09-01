@@ -391,3 +391,123 @@ describe('SettingsPanel — plan_required reuses the existing Upgrade affordance
     await waitFor(() => expect(screen.getByText('Free')).toBeInTheDocument())
   })
 })
+
+// plan-required-disconnect task: `plan_required` and `error` both describe a
+// connection that's still real (valid token, registered device) — the server is
+// just refusing pushes (plan) or the daemon is failing (error). Before this fix,
+// `memory.disconnect(deleteCloudOnDisconnect)` — the only path to the delete-
+// cloud-data call (§6.6/§7.5 "right to delete") — was unreachable from either
+// state: plan_required only offered Upgrade, error only offered Retry.
+describe('SettingsPanel — Disconnect is reachable from plan_required and error (right to delete)', () => {
+  beforeEach(() => {
+    supabaseMock.auth.getUser.mockResolvedValue({ data: { user: null } })
+    ;(window as unknown as { localPaths: { getAll: () => Promise<Record<string, string>> } })
+      .localPaths = { getAll: async () => ({}) }
+  })
+
+  afterEach(() => {
+    delete (window as unknown as { memory?: unknown }).memory
+  })
+
+  it('plan_required shows a Disconnect button (alongside Upgrade) that calls memory.disconnect', async () => {
+    const memory = mockMemoryBridge({ connected: true, deviceId: 'dev-1', itemCount: 5, pendingCount: 2, daemonStatus: 'plan_required' })
+    render(<SettingsPanel updateState="idle" onCheckUpdates={vi.fn()} userEmail="test@example.com" userPrefs={makeUserPrefs(vi.fn())} />)
+    fireEvent.click(screen.getByTitle('Settings'))
+    fireEvent.click(screen.getByText('Account'))
+
+    await waitFor(() => expect(screen.getByText(/doesn't include cloud sync/)).toBeInTheDocument())
+    expect(screen.getByText('Upgrade')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByText('Disconnect'))
+    await waitFor(() => expect(memory.disconnect).toHaveBeenCalledWith({ deleteCloud: false }))
+  })
+
+  it('plan_required also exposes the delete-cloud-data checkbox, so a downgraded user can actually ask for deletion', async () => {
+    const memory = mockMemoryBridge({ connected: true, deviceId: 'dev-1', itemCount: 5, pendingCount: 2, daemonStatus: 'plan_required' })
+    render(<SettingsPanel updateState="idle" onCheckUpdates={vi.fn()} userEmail="test@example.com" userPrefs={makeUserPrefs(vi.fn())} />)
+    fireEvent.click(screen.getByTitle('Settings'))
+    fireEvent.click(screen.getByText('Account'))
+    await waitFor(() => expect(screen.getByText(/doesn't include cloud sync/)).toBeInTheDocument())
+
+    fireEvent.click(screen.getByLabelText(/Also delete my cloud memory/))
+    fireEvent.click(screen.getByText('Disconnect'))
+    await waitFor(() => expect(memory.disconnect).toHaveBeenCalledWith({ deleteCloud: true }))
+  })
+
+  it('error shows a Disconnect button (alongside Retry) that calls memory.disconnect', async () => {
+    const memory = mockMemoryBridge({ connected: true, deviceId: 'dev-1', itemCount: 0, pendingCount: 0, daemonStatus: 'error' })
+    render(<SettingsPanel updateState="idle" onCheckUpdates={vi.fn()} userEmail="test@example.com" userPrefs={makeUserPrefs(vi.fn())} />)
+    fireEvent.click(screen.getByTitle('Settings'))
+    fireEvent.click(screen.getByText('Account'))
+
+    await waitFor(() => expect(screen.getByText(/Couldn't sync/)).toBeInTheDocument())
+    expect(screen.getByText('Retry')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByText('Disconnect'))
+    await waitFor(() => expect(memory.disconnect).toHaveBeenCalledWith({ deleteCloud: false }))
+  })
+})
+
+// Guards against the exact failure mode the ternary-chain warning calls out: adding
+// a branch (or reordering one) can silently steal another state's rendering. These
+// assert every OTHER memory-card state still renders precisely the control it did
+// before plan_required/error were touched — one button, no stray Disconnect/Upgrade/
+// Retry leaking in from a neighbouring branch.
+describe('SettingsPanel — neighbouring memory-card states are unaffected by the disconnect fix', () => {
+  beforeEach(() => {
+    supabaseMock.auth.getUser.mockResolvedValue({ data: { user: null } })
+    ;(window as unknown as { localPaths: { getAll: () => Promise<Record<string, string>> } })
+      .localPaths = { getAll: async () => ({}) }
+  })
+
+  afterEach(() => {
+    delete (window as unknown as { memory?: unknown }).memory
+  })
+
+  it('connected still shows exactly one Disconnect button', async () => {
+    mockMemoryBridge({ connected: true, deviceId: 'dev-1', itemCount: 3, pendingCount: 0, daemonStatus: 'idle' })
+    render(<SettingsPanel updateState="idle" onCheckUpdates={vi.fn()} userEmail="test@example.com" userPrefs={makeUserPrefs(vi.fn())} />)
+    fireEvent.click(screen.getByTitle('Settings'))
+    fireEvent.click(screen.getByText('Account'))
+
+    // getByText itself throws on more than one match — this proves there's exactly
+    // one Disconnect control, not a stray second one from the plan_required/error fix.
+    await waitFor(() => expect(screen.getByText('Disconnect')).toBeInTheDocument())
+    expect(screen.queryByText('Upgrade')).not.toBeInTheDocument()
+    expect(screen.queryByText('Retry')).not.toBeInTheDocument()
+  })
+
+  it('paused still shows exactly one Disconnect button', async () => {
+    mockMemoryBridge({ connected: true, deviceId: 'dev-1', itemCount: 3, pendingCount: 1, daemonStatus: 'paused' })
+    render(<SettingsPanel updateState="idle" onCheckUpdates={vi.fn()} userEmail="test@example.com" userPrefs={makeUserPrefs(vi.fn())} />)
+    fireEvent.click(screen.getByTitle('Settings'))
+    fireEvent.click(screen.getByText('Account'))
+
+    await waitFor(() => expect(screen.getByText('Disconnect')).toBeInTheDocument())
+    expect(screen.queryByText('Upgrade')).not.toBeInTheDocument()
+    expect(screen.queryByText('Retry')).not.toBeInTheDocument()
+  })
+
+  it('disconnected on a free plan still shows only Upgrade, no Disconnect', async () => {
+    mockMemoryBridge({ connected: false, deviceId: null, itemCount: 0, pendingCount: 0, daemonStatus: 'idle' })
+    render(<SettingsPanel updateState="idle" onCheckUpdates={vi.fn()} userEmail="test@example.com" userPrefs={makeUserPrefs(vi.fn())} />)
+    fireEvent.click(screen.getByTitle('Settings'))
+    fireEvent.click(screen.getByText('Account'))
+
+    await waitFor(() => expect(screen.getByText('Upgrade')).toBeInTheDocument())
+    expect(screen.queryByText('Disconnect')).not.toBeInTheDocument()
+    expect(screen.queryByText('Retry')).not.toBeInTheDocument()
+  })
+
+  it('unavailable (no memory bridge) still shows a disabled Unavailable button, no Disconnect', async () => {
+    // No mockMemoryBridge() call — window.memory stays undefined, which is exactly
+    // what drives useMemory() to the 'unavailable' state (see its effect's `!api` guard).
+    render(<SettingsPanel updateState="idle" onCheckUpdates={vi.fn()} userEmail="test@example.com" userPrefs={makeUserPrefs(vi.fn())} />)
+    fireEvent.click(screen.getByTitle('Settings'))
+    fireEvent.click(screen.getByText('Account'))
+
+    await waitFor(() => expect(screen.getByText('Unavailable')).toBeInTheDocument())
+    expect(screen.getByText('Unavailable')).toBeDisabled()
+    expect(screen.queryByText('Disconnect')).not.toBeInTheDocument()
+  })
+})
