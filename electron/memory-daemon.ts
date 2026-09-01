@@ -30,7 +30,11 @@ const QUEUE_HARD_CAP = 50_000
 // mutations over a bad connection and is still a cutoff, not a wait.
 const FETCH_TIMEOUT_MS = 30_000
 
-export type DaemonStatus = 'idle' | 'syncing' | 'paused' | 'error'
+// 'plan_required' is distinct from 'error': it is not a credential problem (spec §9.3),
+// the UI hangs its own Upgrade affordance off it (SettingsPanel.tsx), and — unlike a real
+// auth failure — it must never trip the three-strikes breaker or stop the daemon. See
+// classifyAuthFailure() and its call sites in push()/pull()/status() below.
+export type DaemonStatus = 'idle' | 'syncing' | 'paused' | 'error' | 'plan_required'
 
 export interface PushResultItem {
   sync_id: string
@@ -360,6 +364,30 @@ export class MemoryDaemon {
     }
   }
 
+  /**
+   * spec §9.3: on a 401/403 the server names the reason with `{ error: <code> }` —
+   * `plan_required`, `not_in_beta`, or `unauthorized` — so push()/pull()/status() can
+   * branch on WHY instead of lumping every 401/403 into "the token is bad". Consumes the
+   * response body, so callers must not read it again afterwards (none of the 401/403
+   * branches below do).
+   *
+   * Never throws: a non-JSON or empty body — e.g. a 403 from a proxy sitting in front of
+   * the service rather than from the service itself — falls back to `'unauthorized'`,
+   * which is exactly the pre-existing treatment for an unrecognized 401/403. That keeps
+   * the real auth breaker (M18) as the safe default: an unparseable body must never be
+   * silently treated as a non-auth-failure code and skip the breaker.
+   */
+  private async classifyAuthFailure(response: Response): Promise<'plan_required' | 'not_in_beta' | 'unauthorized'> {
+    try {
+      const body = (await response.json()) as { error?: unknown }
+      if (body?.error === 'plan_required') return 'plan_required'
+      if (body?.error === 'not_in_beta') return 'not_in_beta'
+    } catch {
+      // Not JSON, or no body at all — treat like any other unrecognized 401/403.
+    }
+    return 'unauthorized'
+  }
+
   push(): Promise<void> {
     // M19: dedupe concurrent callers onto the same in-flight request.
     if (this.pushInFlight) return this.pushInFlight
@@ -440,6 +468,30 @@ export class MemoryDaemon {
       release = releaseTimer
 
       if (response.status === 401 || response.status === 403) {
+        const code = await this.classifyAuthFailure(response)
+        if (code === 'plan_required') {
+          // spec §9.3: the token is fine — the account's plan just doesn't include cloud
+          // sync. NOT an auth failure: must not touch consecutiveAuthFailures/authBlocked,
+          // or the daemon would stay dead (M18's gate at the top of every entry point)
+          // even after the user upgrades, until the app is restarted. Leaving authBlocked
+          // false keeps every trigger — the interval, window focus, on-write debounce,
+          // pane exit — retrying normally, so sync resumes on its own the moment the
+          // server starts accepting again, no restart required.
+          this.setStatus('plan_required')
+          return
+        }
+        if (code === 'not_in_beta') {
+          // Also not a credential problem (spec §9.1's single-account allowlist), but
+          // unlike plan_required there is nothing in the UI the user can click to fix it
+          // — only an operator adding a row server-side helps. So this doesn't get its
+          // own DaemonStatus; it stays a generic 'error' but with a distinct detail
+          // ('not_in_beta', not 'auth'). What matters most: it must NOT touch the auth
+          // breaker either. A perfectly valid token must never read to the user (or to
+          // this daemon's own retry logic) as "your credentials are revoked" — it just
+          // keeps quietly retrying on the normal interval until the allowlist changes.
+          this.setStatus('error', 'not_in_beta')
+          return
+        }
         this.consecutiveAuthFailures += 1
         if (this.consecutiveAuthFailures >= 3) {
           this.authBlocked = true
@@ -540,6 +592,17 @@ export class MemoryDaemon {
       release = releaseTimer
 
       if (response.status === 401 || response.status === 403) {
+        const code = await this.classifyAuthFailure(response)
+        if (code === 'plan_required') {
+          // See doPush()'s identical branch — not an auth failure, breaker untouched.
+          this.setStatus('plan_required')
+          return null
+        }
+        if (code === 'not_in_beta') {
+          // See doPush()'s identical branch — not a credential problem, breaker untouched.
+          this.setStatus('error', 'not_in_beta')
+          return null
+        }
         // Feeds the SAME shared counter/flag doPush() trips on 401/403 (M18), rather than
         // keeping an independent one — status() must not gate push/pull any differently
         // than a push auth failure already does, and both push() and pull() already check
@@ -662,6 +725,33 @@ export class MemoryDaemon {
         body: JSON.stringify({ cursors, limit: PULL_PAGE_SIZE }),
       })
       release = releaseTimer
+
+      if (response.status === 401 || response.status === 403) {
+        const code = await this.classifyAuthFailure(response)
+        if (code === 'plan_required') {
+          // See doPush()'s identical branch — not an auth failure, breaker untouched.
+          this.setStatus('plan_required')
+          return
+        }
+        if (code === 'not_in_beta') {
+          // See doPush()'s identical branch — not a credential problem, breaker untouched.
+          this.setStatus('error', 'not_in_beta')
+          return
+        }
+        // Coherence fix: doPull() used to have NO 401/403 handling at all — it fell
+        // through to the generic `!response.ok` throw below, landed in the catch block,
+        // and never touched consecutiveAuthFailures. Three real revoked-token responses
+        // from pull() alone never tripped the breaker, unlike push()/status() already did
+        // — an inconsistency across the three entry points that gate identically on
+        // `authBlocked` (M18) but disagreed on what counted toward it. Feeds the same
+        // shared counter/flag push()/status() use.
+        this.consecutiveAuthFailures += 1
+        if (this.consecutiveAuthFailures >= 3) {
+          this.authBlocked = true
+          this.setStatus('error', 'auth')
+        }
+        return
+      }
       if (!response.ok) throw new Error(`pull failed: ${response.status}`)
       const body = (await response.json()) as { rows: Array<Record<string, unknown>>; cursors: Record<string, number> }
       for (const raw of body.rows) this.applyPulledRow(mapRawPulledRow(raw))

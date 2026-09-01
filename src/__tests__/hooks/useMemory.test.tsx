@@ -179,6 +179,20 @@ describe('useMemory — unavailable and hand-pasted token (C7)', () => {
     expect(supabaseMock.functions.invoke).not.toHaveBeenCalled()
   })
 
+  // smoke/memory-bridge task: a 403 plan_required from the server surfaces through the
+  // daemon as daemonStatus: 'plan_required' (electron/memory-daemon.ts), which must map
+  // to its own MemoryCardState — not 'error' — so SettingsPanel can show the Upgrade
+  // button instead of "Couldn't sync".
+  it('maps daemonStatus "plan_required" to its own state, distinct from "error"', async () => {
+    ;(globalThis as unknown as { window: Window }).window.memory = memoryMock as never
+    memoryMock.status.mockResolvedValue({
+      connected: true, deviceId: 'dev-1', itemCount: 5, pendingCount: 2, daemonStatus: 'plan_required',
+    })
+
+    const { result } = renderHook(() => useMemory())
+    await waitFor(() => expect(result.current.state).toBe('plan_required'))
+  })
+
   it('leaves the state in error when connect resolves ok:false', async () => {
     ;(globalThis as unknown as { window: Window }).window.memory = memoryMock as never
     memoryMock.ensureDeviceId.mockResolvedValue('dev-1')

@@ -76,7 +76,7 @@ contextBridge.exposeInMainWorld('memory', {
   connect: (token: string, deviceId: string) => ipcRenderer.invoke('memory:connect', token, deviceId),
   disconnect: (opts?: { deleteCloud?: boolean }) => ipcRenderer.invoke('memory:disconnect', opts),
   status: () => ipcRenderer.invoke('memory:status'),
-  onStatus: (cb: (status: 'idle' | 'syncing' | 'paused' | 'error') => void) => {
+  onStatus: (cb: (status: 'idle' | 'syncing' | 'paused' | 'error' | 'plan_required') => void) => {
     ipcRenderer.removeAllListeners('memory:status')
     ipcRenderer.on('memory:status', (_event, status) => cb(status))
   },

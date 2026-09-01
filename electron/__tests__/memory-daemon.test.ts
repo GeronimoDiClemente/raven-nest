@@ -218,6 +218,158 @@ describe('MemoryDaemon — offline / online transitions (§4.1)', () => {
   })
 })
 
+// smoke/memory-bridge task: the server enforces the plan gate correctly (server/src/auth.ts
+// returns 403 plan_required), but before this the client could not tell that apart from a
+// bad token — doPush() treated ANY 401/403 as an auth failure, so a free-plan user got
+// "authentication error" instead of "upgrade to sync", and sync stayed dead after they
+// upgraded until the app restarted (authBlocked never clears itself). These tests prove
+// the fix at the SCENARIO level (per the task's own framing), not just the branch, and
+// that pull()/status() are now coherent with push() rather than each doing something
+// different on the same 401/403.
+describe('MemoryDaemon — plan-gate branch on 401/403 (spec §9.3)', () => {
+  it('push(): 403 plan_required three times in a row does not block — the daemon still syncs on the 4th attempt once the server accepts', async () => {
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce({ ok: false, status: 403, json: async () => ({ error: 'plan_required' }) })
+      .mockResolvedValueOnce({ ok: false, status: 403, json: async () => ({ error: 'plan_required' }) })
+      .mockResolvedValueOnce({ ok: false, status: 403, json: async () => ({ error: 'plan_required' }) })
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ results: [{ sync_id: 'a', outcome: 'applied', project_seq: 1 }] }) })
+    const markPushed = vi.fn()
+    const store = fakeStore({ pendingMutations: vi.fn(() => PENDING_MUTATION_A), markPushed })
+    const statuses: string[] = []
+    const daemon = new MemoryDaemon(baseDaemonDeps(store, { fetchImpl, onStatusChange: (s) => statuses.push(s) }))
+
+    await daemon.push()
+    await daemon.push()
+    await daemon.push()
+    expect(statuses).toContain('plan_required')
+    expect(statuses).not.toContain('error') // never trips the auth breaker
+
+    await daemon.push() // server now accepts — must NOT be authBlocked
+    expect(fetchImpl).toHaveBeenCalledTimes(4)
+    expect(markPushed).toHaveBeenCalledWith([1])
+    expect(daemon.getStatus()).toBe('idle')
+  })
+
+  it('mirror: three real 401 unauthorized responses still block push() — the breaker is not weakened by the new branching', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({ ok: false, status: 401, json: async () => ({ error: 'unauthorized' }) })
+    const store = fakeStore({ pendingMutations: vi.fn(() => PENDING_MUTATION_A) })
+    const daemon = new MemoryDaemon(baseDaemonDeps(store, { fetchImpl }))
+
+    vi.useFakeTimers()
+    await daemon.push()
+    await vi.runOnlyPendingTimersAsync()
+    await daemon.push()
+    await vi.runOnlyPendingTimersAsync()
+    await daemon.push() // 3rd real failure -> authBlocked = true
+    vi.useRealTimers()
+
+    expect(daemon.getStatus()).toBe('error')
+    const callsBeforeExtra = fetchImpl.mock.calls.length
+    await daemon.push() // blocked entirely — no 4th network call
+    expect(fetchImpl.mock.calls.length).toBe(callsBeforeExtra)
+    daemon.stop()
+  })
+
+  it('push(): 403 not_in_beta does not touch the auth breaker either, and does not present as a bad token (distinct error detail from real auth)', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({ ok: false, status: 403, json: async () => ({ error: 'not_in_beta' }) })
+    const store = fakeStore({ pendingMutations: vi.fn(() => PENDING_MUTATION_A) })
+    const details: Array<string | undefined> = []
+    const daemon = new MemoryDaemon(baseDaemonDeps(store, { fetchImpl, onStatusChange: (_s, d) => details.push(d) }))
+
+    await daemon.push()
+    await daemon.push()
+    await daemon.push() // would be the 3rd real auth failure if this counted toward the breaker
+
+    expect(details).toContain('not_in_beta')
+    expect(details).not.toContain('auth') // never classified as a credential failure
+
+    await daemon.push() // still not authBlocked — a 4th call still hits the network
+    expect(fetchImpl).toHaveBeenCalledTimes(4)
+  })
+
+  it('pull(): 403 plan_required does not throw and does not touch the auth breaker', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({ ok: false, status: 403, json: async () => ({ error: 'plan_required' }) })
+    const store = fakeStore()
+    const daemon = new MemoryDaemon(baseDaemonDeps(store, { fetchImpl }))
+
+    await daemon.pull()
+    await daemon.pull()
+    await daemon.pull()
+
+    expect(daemon.getStatus()).toBe('plan_required')
+    await daemon.pull() // still not blocked
+    expect(fetchImpl).toHaveBeenCalledTimes(4)
+  })
+
+  it('pull(): three real 401s from pull() ALONE now trip the shared breaker (coherence fix — pull() used to never touch this counter)', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({ ok: false, status: 401, json: async () => ({ error: 'unauthorized' }) })
+    const store = fakeStore()
+    const daemon = new MemoryDaemon(baseDaemonDeps(store, { fetchImpl }))
+
+    await daemon.pull()
+    await daemon.pull()
+    await daemon.pull() // 3rd real failure -> authBlocked = true
+
+    expect(daemon.getStatus()).toBe('error')
+    const callsBeforeExtra = fetchImpl.mock.calls.length
+    await daemon.pull()
+    await daemon.push() // every entry point gated identically (M18)
+    expect(fetchImpl.mock.calls.length).toBe(callsBeforeExtra)
+  })
+
+  it('status(): 403 plan_required does not touch the breaker', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({ ok: false, status: 403, json: async () => ({ error: 'plan_required' }) })
+    const store = fakeStore()
+    const daemon = new MemoryDaemon(baseDaemonDeps(store, { fetchImpl }))
+
+    await daemon.status()
+    await daemon.status()
+    await daemon.status()
+
+    expect(daemon.getStatus()).toBe('plan_required')
+    await daemon.status() // still not blocked
+    expect(fetchImpl).toHaveBeenCalledTimes(4)
+  })
+
+  it('an unparseable 403 body falls back to the pre-existing unauthorized treatment instead of silently disabling the breaker', async () => {
+    // A 403 from a proxy in front of the service, not from the service itself — no JSON
+    // body at all. Must not be treated as plan_required/not_in_beta.
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 403,
+      json: async () => { throw new SyntaxError('Unexpected end of JSON input') },
+    })
+    const store = fakeStore({ pendingMutations: vi.fn(() => PENDING_MUTATION_A) })
+    const daemon = new MemoryDaemon(baseDaemonDeps(store, { fetchImpl }))
+
+    vi.useFakeTimers()
+    await daemon.push()
+    await vi.runOnlyPendingTimersAsync()
+    await daemon.push()
+    await vi.runOnlyPendingTimersAsync()
+    await daemon.push() // 3rd -> must still trip the breaker
+    vi.useRealTimers()
+
+    expect(daemon.getStatus()).toBe('error')
+    daemon.stop()
+  })
+
+  it('a plan_required push does not chain the setImmediate re-push (no queued mutation was acknowledged)', async () => {
+    vi.useFakeTimers()
+    const fetchImpl = vi.fn().mockResolvedValue({ ok: false, status: 403, json: async () => ({ error: 'plan_required' }) })
+    const store = fakeStore({ pendingMutations: vi.fn(() => PENDING_MUTATION_A), pendingMutationCount: vi.fn(() => 1) })
+    const daemon = new MemoryDaemon(baseDaemonDeps(store, { fetchImpl }))
+
+    await daemon.push()
+    await vi.runOnlyPendingTimersAsync()
+    await vi.runOnlyPendingTimersAsync()
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1) // no hot loop
+    daemon.stop()
+    vi.useRealTimers()
+  })
+})
+
 describe('MemoryDaemon — push resolves project_display_name (gap #2 fix)', () => {
   it('joins each mutation payload against listProjects() and sends the local display name', async () => {
     const fetchImpl = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ results: [] }) })

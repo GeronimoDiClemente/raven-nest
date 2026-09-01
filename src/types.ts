@@ -805,7 +805,7 @@ declare global {
         deviceId: string | null
         itemCount: number
         pendingCount: number
-        daemonStatus: 'idle' | 'syncing' | 'paused' | 'error'
+        daemonStatus: 'idle' | 'syncing' | 'paused' | 'error' | 'plan_required'
         /**
          * True when main's memory subsystem never initialized. The preload exposes
          * `window.memory` unconditionally, so its mere presence proves nothing — this
@@ -813,7 +813,7 @@ declare global {
          */
         unavailable?: boolean
       }>
-      onStatus: (cb: (status: 'idle' | 'syncing' | 'paused' | 'error') => void) => void
+      onStatus: (cb: (status: 'idle' | 'syncing' | 'paused' | 'error' | 'plan_required') => void) => void
       removeStatusListener: () => void
     }
     platform: {

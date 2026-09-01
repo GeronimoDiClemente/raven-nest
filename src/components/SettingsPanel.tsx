@@ -416,6 +416,11 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                             Couldn't sync{memory.error ? ` — ${memory.error}` : ''}
                           </span>
                         )}
+                        {memory.state === 'plan_required' && (
+                          <span style={{ fontSize: 11, color: '#f59e0b', marginLeft: 6 }}>
+                            Your plan doesn't include cloud sync — upgrade to resume
+                          </span>
+                        )}
                         {memory.state === 'unavailable' && (
                           <span style={{ fontSize: 11, color: '#f59e0b', marginLeft: 6 }}>
                             Memory didn't start on this machine — restart Nest
@@ -438,6 +443,10 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                         <button className="sp-btn-danger" onClick={() => memory.disconnect(deleteCloudOnDisconnect)}>Disconnect</button>
                       ) : memory.state === 'error' ? (
                         <button className="sp-btn-purple" disabled={!memoryToken.trim()} onClick={() => void memory.connectWithToken(memoryToken)}>Retry</button>
+                      ) : memory.state === 'plan_required' ? (
+                        // Reuses the same Upgrade affordance the free-plan disconnected
+                        // branch below already has — no second upgrade path invented.
+                        <button className="sp-btn-purple" onClick={() => setMemoryUpgradeOpen(true)}>Upgrade</button>
                       ) : memory.state === 'connecting' || memory.state === 'migrating' ? (
                         <button className="sp-btn-purple" disabled>…</button>
                       ) : PLAN_LIMITS[plan].memoryCloud ? (

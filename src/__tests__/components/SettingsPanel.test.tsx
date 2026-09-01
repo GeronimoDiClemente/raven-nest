@@ -315,7 +315,7 @@ function mockMemoryBridge(status: {
   deviceId: string | null
   itemCount: number
   pendingCount: number
-  daemonStatus: 'idle' | 'syncing' | 'paused' | 'error'
+  daemonStatus: 'idle' | 'syncing' | 'paused' | 'error' | 'plan_required'
 }) {
   const memory = {
     ensureDeviceId: vi.fn().mockResolvedValue('dev-1'),
@@ -355,5 +355,39 @@ describe('SettingsPanel — memory token input stays reachable in the error stat
     // Retry itself is still disabled until a token is typed — this test is
     // about the input existing at all, not about auto-filling it.
     expect(screen.getByText('Retry')).toBeDisabled()
+  })
+})
+
+// smoke/memory-bridge task: a 403 plan_required is not an auth failure — the card must
+// show an Upgrade path, not "Couldn't sync" / a Retry-a-token flow, and that Upgrade
+// button must be the SAME affordance the free-plan disconnected branch already has
+// (setMemoryUpgradeOpen), not a second one.
+describe('SettingsPanel — plan_required reuses the existing Upgrade affordance', () => {
+  beforeEach(() => {
+    supabaseMock.auth.getUser.mockResolvedValue({ data: { user: null } })
+    ;(window as unknown as { localPaths: { getAll: () => Promise<Record<string, string>> } })
+      .localPaths = { getAll: async () => ({}) }
+  })
+
+  afterEach(() => {
+    delete (window as unknown as { memory?: unknown }).memory
+  })
+
+  it('shows an Upgrade button (not Retry, not the token input) and opens the same UpgradeModal the free-plan path uses', async () => {
+    mockMemoryBridge({ connected: true, deviceId: 'dev-1', itemCount: 5, pendingCount: 2, daemonStatus: 'plan_required' })
+    render(<SettingsPanel updateState="idle" onCheckUpdates={vi.fn()} userEmail="test@example.com" userPrefs={makeUserPrefs(vi.fn())} />)
+    fireEvent.click(screen.getByTitle('Settings'))
+    fireEvent.click(screen.getByText('Account'))
+
+    await waitFor(() => expect(screen.getByText(/doesn't include cloud sync/)).toBeInTheDocument())
+    expect(screen.queryByPlaceholderText('Paste your sync token')).not.toBeInTheDocument()
+    expect(screen.queryByText('Retry')).not.toBeInTheDocument()
+
+    const upgradeButton = screen.getByText('Upgrade')
+    fireEvent.click(upgradeButton)
+
+    // UpgradeModal renders plan tiers, e.g. "Free" — proves the SAME modal component
+    // mounts here as it does off the free-plan disconnected branch's Upgrade button.
+    await waitFor(() => expect(screen.getByText('Free')).toBeInTheDocument())
   })
 })

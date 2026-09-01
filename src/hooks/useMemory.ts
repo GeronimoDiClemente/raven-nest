@@ -14,6 +14,11 @@ export type MemoryCardState =
   | 'connected'
   | 'paused'
   | 'error'
+  // spec §9.3: the token is valid but the account's plan doesn't include cloud sync — a
+  // 403 plan_required, not a credential problem. Distinct from 'error' so SettingsPanel
+  // can hang an Upgrade affordance off it (reusing the existing free-plan Upgrade button
+  // path, see setMemoryUpgradeOpen) instead of showing a generic "couldn't sync" message.
+  | 'plan_required'
 
 interface MemoryHookState {
   state: MemoryCardState
@@ -69,11 +74,13 @@ export function useMemory() {
         ? 'unavailable'
         : !status.connected
           ? 'disconnected'
-          : status.daemonStatus === 'paused'
-            ? 'paused'
-            : status.daemonStatus === 'error'
-              ? 'error'
-              : 'connected',
+          : status.daemonStatus === 'plan_required'
+            ? 'plan_required'
+            : status.daemonStatus === 'paused'
+              ? 'paused'
+              : status.daemonStatus === 'error'
+                ? 'error'
+                : 'connected',
       itemCount: status.itemCount,
       pendingCount: status.pendingCount,
       deviceId: status.deviceId,
