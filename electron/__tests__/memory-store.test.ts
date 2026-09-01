@@ -708,9 +708,16 @@ describe('MemoryStore — versionado del schema (C3)', () => {
   beforeEach(() => { dir = makeTmpDir('raven-memory-c3-') })
   afterEach(() => { cleanupTmp(dir) })
 
+  it('SCHEMA_VERSION esta anclada al valor publicado', () => {
+    expect(SCHEMA_VERSION).toBe(1)
+  })
+
   it('una base nueva queda en la versión actual', () => {
     const store = new MemoryStore(join(dir, 'memory.db'))
     expect(store.schemaVersion).toBe(SCHEMA_VERSION)
+    const userVersion = (store as unknown as { db: { pragma(s: string, o?: { simple?: boolean }): unknown } })
+      .db.pragma('user_version', { simple: true })
+    expect(userVersion).toBe(1)
     store.close()
   })
 
@@ -730,6 +737,9 @@ describe('MemoryStore — versionado del schema (C3)', () => {
     const second = new MemoryStore(join(dir, 'memory.db'))
     expect(second.schemaVersion).toBe(SCHEMA_VERSION)
     expect(second.count()).toBe(1)
+    const userVersion = (second as unknown as { db: { pragma(s: string, o?: { simple?: boolean }): unknown } })
+      .db.pragma('user_version', { simple: true })
+    expect(userVersion).toBe(1)
     second.close()
   })
 
@@ -751,6 +761,9 @@ describe('MemoryStore — versionado del schema (C3)', () => {
     const migrated = new MemoryStore(join(dir, 'memory.db'))
     expect(migrated.schemaVersion).toBe(SCHEMA_VERSION)
     expect(migrated.count()).toBe(1)
+    const userVersion = (migrated as unknown as { db: { pragma(s: string, o?: { simple?: boolean }): unknown } })
+      .db.pragma('user_version', { simple: true })
+    expect(userVersion).toBe(1)
     migrated.close()
   })
 })
