@@ -331,8 +331,12 @@ Sin esto el backend nuevo no sirve de nada. Ordenados por lo que bloquea.
 | C7 | Token pegado a mano en la card, y estado `unavailable` | `useMemory.ts`, `SettingsPanel.tsx` | Reemplaza el Connect contra la edge function; y con el subsistema caído la card hoy se disfraza de sana |
 | C8 | Nombre de device real | `main.ts` | `navigator.platform` da `Win32` en las dos PCs y el servidor las colapsa en una |
 
-C2 y C3 son de Bauti según el contrato vigente. C1 lo toca de costado. Los demás son de la capa
-que ya manejamos nosotros. La división final depende de la decisión que sigue abierta.
+**Los ocho son nuestros.** El contrato del 26-ago (`docs/MEMORY_INTEGRATIONS_CONTRACT.md`) nos
+prohibía tocar `electron/memory-*.ts` para no pisarle trabajo a Bauti mientras su rama estaba viva.
+Verificado el 2026-09-01: `feat/nest-memory-phase1` entró entera en `smoke/memory-bridge` (0 commits
+afuera), su último commit es de Gero, y Bauti no toca un archivo de memoria desde el 1 de agosto.
+No hay con qué conflictuar, así que la regla venció. Queda la cortesía de avisarle que tomamos el
+subsistema, que no bloquea código.
 
 ## 11. Operación
 
@@ -406,8 +410,8 @@ el usuario. Todos tienen lugar reservado en el schema o en la config, ninguno se
 
 ## 16. Decisiones abiertas
 
-1. **El contrato de no invasión con Bauti.** C2 y C3 son suyos. Tomamos el subsistema, dividimos
-   por capa, o le pasamos la spec.
+1. ~~El contrato de no invasión con Bauti.~~ **Cerrada el 2026-09-01**: la rama está mergeada y él
+   no toca memoria desde el 1 de agosto. Los ocho cambios de cliente son nuestros (ver §10).
 2. **Identidad cuando se abra** (9.2), sin apuro.
 3. **Retención de tombstones y de prompts**, que toca schema y conviene cerrarla antes de la
    primera release.
