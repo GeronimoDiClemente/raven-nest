@@ -70,7 +70,7 @@ describe('handlePull', () => {
     expect(res.rows.some((r) => r.project_key === unknown)).toBe(false)
   })
 
-  it('honours the limit and orders by project_seq', async () => {
+  it('honours the limit, orders by project_seq, and advances the cursor to the last row actually returned', async () => {
     const p = `pull-${randomUUID().slice(0, 8)}`
     await handlePush(pool, auth, {
       mutations: [mut(730, sid('l-1'), p), mut(731, sid('l-2'), p), mut(732, sid('l-3'), p)],
@@ -78,6 +78,16 @@ describe('handlePull', () => {
     const res = await handlePull(pool, auth, { cursors: { [p]: 0 }, limit: 2 })
     expect(res.rows).toHaveLength(2)
     expect(res.rows[0].project_seq).toBeLessThan(res.rows[1].project_seq)
+
+    // The cursor must land on the second row's project_seq — the last row actually
+    // returned — not the third row's, which was cut off by the limit. A cursor that
+    // jumped past a truncated row would silently drop it forever: the next pull would
+    // never ask for it again.
+    expect(res.cursors[p]).toBe(res.rows[1].project_seq)
+
+    const rest = await handlePull(pool, auth, { cursors: res.cursors, limit: 500 })
+    expect(rest.rows).toHaveLength(1)
+    expect(rest.rows[0].sync_id).toBe(sid('l-3'))
   })
 
   it('tells the client when to come back', async () => {
@@ -101,5 +111,69 @@ describe('handlePull', () => {
     const res = await handlePull(pool, auth, { cursors: { [shared]: 0 }, limit: 500 })
     expect(res.rows.some((r) => r.sync_id === sid('mine'))).toBe(true)
     expect(res.rows.some((r) => r.sync_id === sid('theirs'))).toBe(false)
+  })
+
+  describe('malformed device input is clamped, not trusted', () => {
+    // `limit` and every cursor value are device-controlled and go straight into a
+    // parameterized bigint query. Passed through raw, each of these four throws out of
+    // handlePull against real Postgres (verified before this fix): a negative limit
+    // ("LIMIT must not be negative"), a non-numeric limit or cursor (bigint "NaN"), and a
+    // fractional limit (bigint "2.7"). A malformed client field must never turn into a
+    // 500 — it must be clamped to a safe, well-defined value instead.
+
+    it('resolves instead of throwing on a negative limit, falling back to the max', async () => {
+      const p = `pull-${randomUUID().slice(0, 8)}`
+      await handlePush(pool, auth, { mutations: [mut(750, sid('bad-limit-neg'), p)] })
+
+      const call = handlePull(pool, auth, { cursors: { [p]: 0 }, limit: -5 })
+      await expect(call).resolves.toBeDefined()
+      const res = await call
+      expect(res.rows.some((r) => r.sync_id === sid('bad-limit-neg'))).toBe(true)
+    })
+
+    it('resolves instead of throwing on a non-numeric limit, falling back to the max', async () => {
+      const p = `pull-${randomUUID().slice(0, 8)}`
+      await handlePush(pool, auth, { mutations: [mut(751, sid('bad-limit-nan'), p)] })
+
+      const call = handlePull(pool, auth, {
+        cursors: { [p]: 0 },
+        limit: 'not-a-number' as unknown as number,
+      })
+      await expect(call).resolves.toBeDefined()
+      const res = await call
+      expect(res.rows.some((r) => r.sync_id === sid('bad-limit-nan'))).toBe(true)
+    })
+
+    it('resolves instead of throwing on a fractional limit, flooring it', async () => {
+      const p = `pull-${randomUUID().slice(0, 8)}`
+      await handlePush(pool, auth, {
+        mutations: [mut(752, sid('frac-1'), p), mut(753, sid('frac-2'), p), mut(754, sid('frac-3'), p)],
+      })
+
+      const call = handlePull(pool, auth, { cursors: { [p]: 0 }, limit: 2.7 })
+      await expect(call).resolves.toBeDefined()
+      const res = await call
+      // 2.7 must floor to 2 rows, not be passed through as-is (which Postgres rejects)
+      // and not silently become 0 or all 3 rows either.
+      expect(res.rows).toHaveLength(2)
+    })
+
+    it('resolves instead of throwing on a non-numeric cursor, falling back to 0', async () => {
+      const p = `pull-${randomUUID().slice(0, 8)}`
+      await handlePush(pool, auth, { mutations: [mut(755, sid('bad-cursor'), p)] })
+
+      const call = handlePull(pool, auth, {
+        cursors: { [p]: 'not-a-number' as unknown as number },
+        limit: 500,
+      })
+      await expect(call).resolves.toBeDefined()
+      const res = await call
+      // A cursor that cannot be parsed falls back to 0 — "send everything for this
+      // project" — the same safe starting point as a device that has never synced it.
+      expect(res.rows.some((r) => r.sync_id === sid('bad-cursor'))).toBe(true)
+      // And the bad value must not silently round-trip back to the client unchanged.
+      expect(res.cursors[p]).not.toBe('not-a-number')
+      expect(typeof res.cursors[p]).toBe('number')
+    })
   })
 })

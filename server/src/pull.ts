@@ -44,15 +44,36 @@ export async function handlePull(
   body: PullBody
 ): Promise<PullResponse> {
   const cursors = body.cursors ?? {}
-  const limit = Math.min(Number(body.limit ?? MAX_LIMIT), MAX_LIMIT)
   const keys = Object.keys(cursors)
 
+  // `limit` is device-controlled input, not trusted. A non-finite, fractional, or
+  // non-positive value falls back to the max rather than being passed through to a bigint
+  // SQL parameter, where Postgres would throw ("invalid input syntax for type bigint") and
+  // turn a malformed client request into a 500 instead of a well-defined response.
+  const rawLimit = Number(body.limit)
+  const limit =
+    Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(Math.floor(rawLimit), MAX_LIMIT) : MAX_LIMIT
+
+  // Empty cursors deliberately means "nothing to report" and returns nothing — NOT "give
+  // me everything." Iterating every project the caller has is exactly the hot-loop
+  // regression described below that this handler exists to prevent: a device must name a
+  // project before this handler will ever return rows for it.
   if (keys.length === 0) return { rows: [], cursors: {}, next_poll_ms: NEXT_POLL_MS }
 
   // Only projects whose cursor this device actually sent. Returning rows for unsent
   // cursors is what made the old client hot-loop: the server iterated every account
   // project and defaulted an unsent cursor to 0, so a project the device did not know
   // restarted from 0 on every pull, forever.
+  //
+  // Each cursor value is likewise device-controlled: a non-finite or negative value falls
+  // back to 0, which means "send me everything for this project" — the same starting
+  // point as a device that has never synced it. That is always safe: it can only cause
+  // rows already seen to be re-sent, never a row to be skipped.
+  const cursorValues = keys.map((k) => {
+    const n = Number(cursors[k])
+    return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0
+  })
+
   const { rows } = await pool.query(
     `select o.sync_id, p.project_key, o.project_seq, o.client_updated_at, o.lamport, o.scope,
             o.type, o.topic_key, o.title, o.content, o.tags, o.deleted, o.superseded_by,
@@ -63,10 +84,15 @@ export async function handlePull(
       where p.user_id = $1 and o.project_seq > c.cursor
       order by o.project_seq asc
       limit $4`,
-    [auth.userId, keys, keys.map((k) => Number(cursors[k] ?? 0)), limit]
+    [auth.userId, keys, cursorValues, limit]
   )
 
-  const next: Record<string, number> = { ...cursors }
+  // Seed `next` from the clamped values, not the raw `cursors` input — otherwise a
+  // malformed cursor (e.g. a non-numeric string) would round-trip back to the client
+  // unchanged: `seq > "not-a-number"` coerces to `seq > NaN`, which is always false, so
+  // the bad value would never get overwritten by a real project_seq.
+  const next: Record<string, number> = {}
+  keys.forEach((k, i) => { next[k] = cursorValues[i] })
   const mapped: PulledRow[] = rows.map((r) => {
     const seq = Number(r.project_seq)
     if (seq > (next[r.project_key] ?? 0)) next[r.project_key] = seq
