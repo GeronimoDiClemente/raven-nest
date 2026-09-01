@@ -45,6 +45,9 @@ export function useProfile(): Profile {
   useEffect(() => {
 
     let alive = true
+    // Evita apilar lecturas: tres `focus` seguidos (alt-tab nervioso) dispararian
+    // tres consultas identicas, y la ultima en resolver decide el estado.
+    let enVuelo = false
 
     const load = async () => {
       // Override E2E/demo (RAVEN_E2E_PLAN): gateado DOBLE al bypass — en una
@@ -55,6 +58,16 @@ export function useProfile(): Profile {
         setProfile({ plan: e2ePlan, loading: false, isTrialActive: false, trialDaysLeft: 0 })
         return
       }
+      if (enVuelo) return
+      enVuelo = true
+      try {
+        await leerPerfil()
+      } finally {
+        enVuelo = false
+      }
+    }
+
+    const leerPerfil = async () => {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) { setProfile(p => ({ ...p, loading: false })); return }
 
@@ -77,7 +90,18 @@ export function useProfile(): Profile {
     }
 
     load()
-    return () => { alive = false }
+
+    // Un pago exitoso lo escribe el webhook de Stripe directo en `profiles`, sin
+    // avisarle al cliente. Sin esto el hook leia una sola vez al montar, asi que
+    // el que pagaba seguia viendo su plan viejo hasta reiniciar la app y la
+    // compra parecia no haber funcionado. `profiles` no esta en la publicacion
+    // de realtime, asi que no hay push posible: se re-lee al volver el foco, que
+    // es exactamente cuando el usuario vuelve del navegador de pagar.
+    window.addEventListener('focus', load)
+    return () => {
+      alive = false
+      window.removeEventListener('focus', load)
+    }
   }, [])
 
   return profile
