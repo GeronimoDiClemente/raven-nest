@@ -52,6 +52,24 @@ todos los artifacts. Se dispara automáticamente al pushear a `main` un cambio d
   - Si no está instalado, el botón de micrófono simplemente no transcribe (sin crash).
   - En releases: documentar en README y en el onboarding que voice input requiere whisper.
 
+## better-sqlite3: binarios nativos — OJO
+
+**El problema:** `better-sqlite3` compila un binding nativo que varía según el **Node ABI**. Cuando corres `npm install`, el script `postinstall` deja el binding para **Electron** (que tiene su propio ABI). Pero `npm test` corre bajo Node puro, que tiene otro ABI distinto. Si dejas el binding de Electron, los tests fallan con `NODE_MODULE_VERSION` mismatch.
+
+**La solución:** Dos scripts que swapean el binding:
+- `npm run native:node` — baja/compila el binding para Node puro (requisito antes de correr tests)
+- `npm run native:electron` — deja el binding de Electron (requisito antes de correr la app)
+
+**El flujo:**
+1. `npm test` dispara automáticamente `pretest`, que corre `npm run native:node`
+2. `pretest` intenta bajar un prebuild de mejor-sqlite3 para el Node ABI de este runner
+3. Si el prebuild NO existe (ej: Node 20 es ABI 115, pero mejor-sqlite3 solo publica prebuilds para 127/137/141/147), el script fallback compila desde source con node-gyp
+4. Luego vitest corre con el binding correcto y los tests pasan
+
+**Después de `npm test` en local:** el app no arranca hasta que corras `npm run native:electron`. Es el swap manual al revés; `pretest` sólo automatiza un lado.
+
+**En CI:** el fallback a compilación desde source corre una sola vez por cambio de Node ABI, nunca en Windows (los prebuilds de Windows siempre existen).
+
 ## Stack
 - Electron + Vite + React + TypeScript
 - Terminal: xterm.js con PTY (node-pty)
