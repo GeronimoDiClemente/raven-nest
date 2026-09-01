@@ -221,8 +221,9 @@ export async function handlePush(
         results.push(result)
       } catch (err) {
         await client.query('rollback')
-        // TEMPORARY (non-vacuity check, reviewer): push a terminal outcome instead of omitting.
-        results.push({ sync_id: syncId, outcome: 'rejected', project_seq: 0 })
+        // Omitted from `results` on purpose: per §5.1 that is how the server says "I did
+        // not process this, send it again". A `rejected` here would be terminal and the
+        // client would never retry a mutation that a later attempt could well apply.
         console.error('[push] mutation failed, leaving it for retry', m.sync_id, err)
       }
     }
