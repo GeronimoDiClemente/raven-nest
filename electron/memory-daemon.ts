@@ -58,7 +58,8 @@ export interface PulledRow extends LWWRow {
 
 export interface MemoryDaemonDeps {
   store: MemoryStore
-  getSupabaseUrl: () => string | null
+  /** C4: base of the sync service, not necessarily Supabase. See spec §5.4. */
+  getSyncBaseUrl: () => string | null
   getToken: () => string | null
   getDeviceId: () => string | null
   isOnline: () => boolean
@@ -292,13 +293,13 @@ export class MemoryDaemon {
   }
 
   private async doPush(): Promise<void> {
-    const { store, getSupabaseUrl, getToken, isOnline } = this.deps
+    const { store, getSyncBaseUrl, getToken, isOnline } = this.deps
     if (this.authBlocked) return // M18: gate every entry point, not just the backoff chain
     if (!isOnline()) {
       this.setStatus('paused', 'offline')
       return
     }
-    const url = getSupabaseUrl()
+    const url = getSyncBaseUrl()
     const token = getToken()
     if (!url || !token) return
 
@@ -324,7 +325,7 @@ export class MemoryDaemon {
       // go stale while still sitting in the offline queue. One listProjects() call per
       // batch is a single indexed-PK read per row, not a per-mutation query.
       const displayNameByProjectKey = new Map(store.listProjects().map((p) => [p.projectKey, p.displayName]))
-      const response = await this.fetch(`${url}/functions/v1/memory-sync/push`, {
+      const response = await this.fetch(`${url}/v1/sync/push`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -432,13 +433,13 @@ export class MemoryDaemon {
   }
 
   private async doPull(): Promise<void> {
-    const { store, getSupabaseUrl, getToken, isOnline } = this.deps
+    const { store, getSyncBaseUrl, getToken, isOnline } = this.deps
     if (this.authBlocked) return // M18
     if (!isOnline()) {
       this.setStatus('paused', 'offline')
       return
     }
-    const url = getSupabaseUrl()
+    const url = getSyncBaseUrl()
     const token = getToken()
     if (!url || !token) return
 
@@ -458,7 +459,7 @@ export class MemoryDaemon {
     }
 
     try {
-      const response = await this.fetch(`${url}/functions/v1/memory-sync/pull`, {
+      const response = await this.fetch(`${url}/v1/sync/pull`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ cursors, limit: PULL_PAGE_SIZE }),

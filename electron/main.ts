@@ -207,8 +207,15 @@ function memoryProvisionerPaths(): ProvisionerPaths {
   return { execPath: process.execPath, shimPath: pathJoin(__dirname, 'memory-mcp.js') }
 }
 
-function getMemorySupabaseUrl(): string | null {
-  return (import.meta.env.MAIN_VITE_SUPABASE_URL as string | undefined) ?? null
+function getMemorySyncBaseUrl(): string | null {
+  // `|| undefined` (not `??`) so an empty string in the stored state does not count
+  // as "set" — falling through to the build-time env instead of producing requests
+  // to a path with no host (e.g. `/v1/sync/push`).
+  return (
+    (memoryConnectionState.syncBaseUrl || undefined) ??
+    (import.meta.env.MAIN_VITE_SUPABASE_URL as string | undefined) ??
+    null
+  )
 }
 
 let memoryToken: string | null = null
@@ -252,7 +259,7 @@ try {
 
   const daemon = new MemoryDaemon({
     store,
-    getSupabaseUrl: getMemorySupabaseUrl,
+    getSyncBaseUrl: getMemorySyncBaseUrl,
     getToken: loadMemoryToken,
     getDeviceId: () => memoryConnectionState.deviceId,
     isOnline: () => memoryOnline,
@@ -2695,7 +2702,7 @@ ipcMain.handle('memory:disconnect', async (_event, opts?: { deleteCloud?: boolea
   // the REPORTING changed, not the best-effort semantics.
   let cloudDeleteFailed: string | undefined
   if (opts?.deleteCloud) {
-    const url = getMemorySupabaseUrl()
+    const url = getMemorySyncBaseUrl()
     const token = loadMemoryToken()
     if (url && token) {
       try {
@@ -3775,7 +3782,7 @@ app.whenReady().then(async () => {
     // DNS lookup against the Supabase host is cheap and avoids adding an IPC round-trip
     // from the renderer just to learn online/offline (§4.1 "Network regain").
     setInterval(() => {
-      const url = getMemorySupabaseUrl()
+      const url = getMemorySyncBaseUrl()
       if (!url) return
       try {
         const host = new URL(url).hostname

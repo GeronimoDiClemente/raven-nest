@@ -28,7 +28,7 @@ function fakeStore(overrides: Partial<MemoryStore> = {}): MemoryStore {
 function baseDaemonDeps(store: MemoryStore, extra: Partial<ConstructorParameters<typeof MemoryDaemon>[0]> = {}) {
   return {
     store,
-    getSupabaseUrl: () => 'https://example.supabase.co',
+    getSyncBaseUrl: () => 'https://example.supabase.co',
     getToken: () => 'nmk_test',
     getDeviceId: () => 'device-1',
     isOnline: () => true,
@@ -265,6 +265,32 @@ describe('MemoryDaemon — push resolves project_display_name (gap #2 fix)', () 
 
     const sentBody = JSON.parse(fetchImpl.mock.calls[0][1].body) as { mutations: Array<{ payload: Record<string, unknown> }> }
     expect(sentBody.mutations[0].payload.project_display_name).toBe('__global__')
+  })
+})
+
+describe('MemoryDaemon — configurable sync base URL (C4)', () => {
+  it('pushes against /v1/sync/push with the configured base', async () => {
+    const pending: MutationLogRow[] = [
+      { seq: 1, sync_id: 'a', op: 'upsert', payload: JSON.stringify({ sync_id: 'a', project_key: 'proj-1' }), created_at: 1, pushed_at: null, last_error: null },
+    ]
+    const store = fakeStore({ pendingMutations: vi.fn(() => pending) })
+    const urls: string[] = []
+    const fetchImpl = vi.fn(async (url: string) => {
+      urls.push(url)
+      return new Response(JSON.stringify({ results: [] }), { status: 200 })
+    }) as unknown as typeof fetch
+
+    const daemon = new MemoryDaemon({
+      store,
+      getSyncBaseUrl: () => 'https://memory.nestmux.com',
+      getToken: () => 'nmk_test',
+      getDeviceId: () => 'device-1',
+      isOnline: () => true,
+      fetchImpl,
+    })
+    await daemon.push()
+
+    expect(urls[0]).toBe('https://memory.nestmux.com/v1/sync/push')
   })
 })
 
@@ -782,7 +808,7 @@ describe('MemoryDaemon — applyPulledRow (§4.3/§4.4 pull-apply)', () => {
   it('applies an incoming row when there is no local copy', () => {
     const applyIncomingObservation = vi.fn()
     const store = fakeStore({ get: vi.fn(() => null), applyIncomingObservation })
-    const daemon = new MemoryDaemon(baseDaemonDeps(store, { getSupabaseUrl: () => null, getToken: () => null, getDeviceId: () => null }))
+    const daemon = new MemoryDaemon(baseDaemonDeps(store, { getSyncBaseUrl: () => null, getToken: () => null, getDeviceId: () => null }))
 
     daemon.applyPulledRow({
       syncId: 'obs-1',
@@ -806,7 +832,7 @@ describe('MemoryDaemon — applyPulledRow (§4.3/§4.4 pull-apply)', () => {
       get: vi.fn(() => ({ sync_id: 'obs-1', updated_at: 999, lamport: 9 }) as never),
       applyIncomingObservation,
     })
-    const daemon = new MemoryDaemon(baseDaemonDeps(store, { getSupabaseUrl: () => null, getToken: () => null, getDeviceId: () => null }))
+    const daemon = new MemoryDaemon(baseDaemonDeps(store, { getSyncBaseUrl: () => null, getToken: () => null, getDeviceId: () => null }))
 
     daemon.applyPulledRow({
       syncId: 'obs-1',
@@ -829,7 +855,7 @@ describe('MemoryDaemon — applyPulledRow (§4.3/§4.4 pull-apply)', () => {
       findActiveTopicOwner: vi.fn(() => ({ sync_id: 'AAA', updated_at: 2000, lamport: 2 }) as never),
       applyIncomingObservation,
     })
-    const daemon = new MemoryDaemon(baseDaemonDeps(store, { getSupabaseUrl: () => null, getToken: () => null, getDeviceId: () => null }))
+    const daemon = new MemoryDaemon(baseDaemonDeps(store, { getSyncBaseUrl: () => null, getToken: () => null, getDeviceId: () => null }))
 
     daemon.applyPulledRow({
       syncId: 'BBB',

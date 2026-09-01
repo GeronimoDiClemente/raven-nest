@@ -28,9 +28,21 @@ describe('MemoryConnectionState — local vs nube (C1)', () => {
   })
 
   it('apagar la captura local persiste y no toca el estado de nube', () => {
-    setMemoryConnectionState(home, { connected: true, localEnabled: false, deviceId: 'dev-1', connectedAt: 123 })
+    setMemoryConnectionState(home, { connected: true, localEnabled: false, deviceId: 'dev-1', connectedAt: 123, syncBaseUrl: null })
     const state = getMemoryConnectionState(home)
     expect(state.localEnabled).toBe(false)
     expect(state.connected).toBe(true)
+  })
+
+  it('syncBaseUrl arranca en null y persiste cuando se setea', () => {
+    expect(getMemoryConnectionState(home).syncBaseUrl).toBeNull()
+    setMemoryConnectionState(home, {
+      connected: false,
+      localEnabled: true,
+      deviceId: null,
+      connectedAt: null,
+      syncBaseUrl: 'https://memory.nestmux.com',
+    })
+    expect(getMemoryConnectionState(home).syncBaseUrl).toBe('https://memory.nestmux.com')
   })
 })

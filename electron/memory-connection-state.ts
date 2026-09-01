@@ -19,6 +19,14 @@ export interface MemoryConnectionState {
   localEnabled: boolean
   deviceId: string | null
   connectedAt: number | null
+  /**
+   * C4: base of the sync service. `null` means "use the one from the build" (the
+   * MAIN_VITE_SUPABASE_URL env var), which is what keeps an existing installation
+   * working without anyone touching a file. Lives here and not in settings-store.ts
+   * because it is memory-subsystem state, same as deviceId, and because pointing at a
+   * different backend should not require recompiling the app.
+   */
+  syncBaseUrl: string | null
 }
 
 const DEFAULT_STATE: MemoryConnectionState = {
@@ -26,6 +34,7 @@ const DEFAULT_STATE: MemoryConnectionState = {
   localEnabled: true,
   deviceId: null,
   connectedAt: null,
+  syncBaseUrl: null,
 }
 
 function statePath(ravenHomeDir: string): string {
