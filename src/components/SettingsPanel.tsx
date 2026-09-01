@@ -109,6 +109,7 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
   // action (see electron/main.ts's memory:disconnect handler) before clearing the
   // local connection state.
   const [deleteCloudOnDisconnect, setDeleteCloudOnDisconnect] = useState(false)
+  const [memoryToken, setMemoryToken] = useState('')
   // Sync push progress for the card's progress bar. itemCount is the running local
   // total; pendingCount is the outstanding push queue and can exceed itemCount
   // mid-migration (it also counts update mutations, not just inserts), so clamp.
@@ -407,6 +408,11 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                             Couldn't sync{memory.error ? ` — ${memory.error}` : ''}
                           </span>
                         )}
+                        {memory.state === 'unavailable' && (
+                          <span style={{ fontSize: 11, color: '#f59e0b', marginLeft: 6 }}>
+                            Memory didn't start on this machine — restart Nest
+                          </span>
+                        )}
                         {memory.state === 'disconnected' && !PLAN_LIMITS[plan].memoryCloud && (
                           <span style={{ fontSize: 11, opacity: 0.65, marginLeft: 6 }}>
                             Local memory active — cloud sync is a Pro feature
@@ -418,18 +424,30 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                           </span>
                         )}
                       </div>
-                      {memory.state === 'connected' || memory.state === 'paused' ? (
+                      {memory.state === 'unavailable' ? (
+                        <button className="sp-btn-purple" disabled>Unavailable</button>
+                      ) : memory.state === 'connected' || memory.state === 'paused' ? (
                         <button className="sp-btn-danger" onClick={() => memory.disconnect(deleteCloudOnDisconnect)}>Disconnect</button>
                       ) : memory.state === 'error' ? (
-                        <button className="sp-btn-purple" onClick={() => memory.connect()}>Retry</button>
+                        <button className="sp-btn-purple" disabled={!memoryToken.trim()} onClick={() => void memory.connectWithToken(memoryToken)}>Retry</button>
                       ) : memory.state === 'connecting' || memory.state === 'migrating' ? (
                         <button className="sp-btn-purple" disabled>…</button>
                       ) : PLAN_LIMITS[plan].memoryCloud ? (
-                        <button className="sp-btn-purple" onClick={() => memory.connect()}>Connect</button>
+                        <button className="sp-btn-purple" disabled={!memoryToken.trim()} onClick={() => void memory.connectWithToken(memoryToken)}>Connect</button>
                       ) : (
                         <button className="sp-btn-purple" onClick={() => setMemoryUpgradeOpen(true)}>Upgrade</button>
                       )}
                     </div>
+                    {(memory.state === 'disconnected' || memory.state === 'error') && PLAN_LIMITS[plan].memoryCloud && (
+                      <input
+                        type="password"
+                        className="sp-select"
+                        placeholder="Paste your sync token"
+                        aria-label="Memory sync token"
+                        value={memoryToken}
+                        onChange={(e) => setMemoryToken(e.target.value)}
+                      />
+                    )}
                     {memory.state === 'disconnected' && userRepos.length === 0 && (
                       <div className="sp-mem-no-repos-banner">
                         <span className="sp-mem-no-repos-banner-icon">⚠</span>

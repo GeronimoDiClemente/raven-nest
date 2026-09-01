@@ -116,3 +116,59 @@ describe('useMemory disconnect', () => {
     expect(calls).toEqual(['disconnect', 'revoke'])
   })
 })
+
+describe('useMemory — unavailable y token a mano (C7)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    delete (globalThis as unknown as { window: Window & { memory?: unknown } }).window.memory
+  })
+
+  it('reporta unavailable cuando el subsistema no levanto', async () => {
+    const { result } = renderHook(() => useMemory())
+    await waitFor(() => expect(result.current.state).toBe('unavailable'))
+  })
+
+  it('conecta con un token pegado a mano y le saca los espacios', async () => {
+    ;(globalThis as unknown as { window: Window }).window.memory = memoryMock as never
+    memoryMock.ensureDeviceId.mockResolvedValue('dev-1')
+    memoryMock.connect.mockResolvedValue({ ok: true })
+    memoryMock.status.mockResolvedValue({
+      connected: true, deviceId: 'dev-1', itemCount: 3, pendingCount: 0, daemonStatus: 'idle',
+    })
+
+    const { result } = renderHook(() => useMemory())
+    await act(async () => { await result.current.connectWithToken('  nmk_pegado_a_mano  ') })
+
+    expect(memoryMock.connect).toHaveBeenCalledWith('nmk_pegado_a_mano', 'dev-1')
+    await waitFor(() => expect(result.current.state).toBe('connected'))
+  })
+
+  it('NO llama a la edge function memory-token', async () => {
+    ;(globalThis as unknown as { window: Window }).window.memory = memoryMock as never
+    memoryMock.ensureDeviceId.mockResolvedValue('dev-1')
+    memoryMock.connect.mockResolvedValue({ ok: true })
+    memoryMock.status.mockResolvedValue({
+      connected: true, deviceId: 'dev-1', itemCount: 0, pendingCount: 0, daemonStatus: 'idle',
+    })
+
+    const { result } = renderHook(() => useMemory())
+    await act(async () => { await result.current.connectWithToken('nmk_x') })
+
+    expect(supabaseMock.functions.invoke).not.toHaveBeenCalled()
+  })
+
+  it('deja el estado en error si connect devuelve ok:false', async () => {
+    ;(globalThis as unknown as { window: Window }).window.memory = memoryMock as never
+    memoryMock.ensureDeviceId.mockResolvedValue('dev-1')
+    memoryMock.connect.mockResolvedValue({ ok: false, error: 'invalid token' })
+    memoryMock.status.mockResolvedValue({
+      connected: false, deviceId: null, itemCount: 0, pendingCount: 0, daemonStatus: 'idle',
+    })
+
+    const { result } = renderHook(() => useMemory())
+    await act(async () => { await result.current.connectWithToken('nmk_malo') })
+
+    expect(result.current.state).toBe('error')
+    expect(result.current.error).toBe('invalid token')
+  })
+})

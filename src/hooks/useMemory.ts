@@ -6,7 +6,14 @@ import { supabase } from '../lib/supabase'
 // first status poll resolves; Phase 1 shows a single spinner rather than the full
 // per-source checklist UI (§5.4's line-by-line progress), which is a Phase 3 dashboard
 // refinement, not a Phase 1 acceptance requirement.
-export type MemoryCardState = 'disconnected' | 'connecting' | 'migrating' | 'connected' | 'paused' | 'error'
+export type MemoryCardState =
+  | 'unavailable'
+  | 'disconnected'
+  | 'connecting'
+  | 'migrating'
+  | 'connected'
+  | 'paused'
+  | 'error'
 
 interface MemoryHookState {
   state: MemoryCardState
@@ -64,13 +71,26 @@ export function useMemory() {
 
   useEffect(() => {
     const api = memoryApi()
-    if (!api) return
+    if (!api) {
+      // C7: without this the card sits at 'disconnected', which is indistinguishable from
+      // "all good, you just haven't connected" — with the subsystem down the UI disguised
+      // itself as healthy.
+      setState((s) => ({ ...s, state: 'unavailable' }))
+      return
+    }
     refresh()
     api.onStatus(() => { void refresh() })
     return () => api.removeStatusListener()
   }, [refresh])
 
-  const connect = useCallback(async () => {
+  /**
+   * C7: the single-account beta issues no credentials (spec §9.1) — the token is generated
+   * with `openssl rand`, pasted here, and the service stores only its sha256. This replaces
+   * the previous `supabase.functions.invoke('memory-token')`, which additionally called an
+   * edge function that was never deployed to production: pressing Connect returned a 404
+   * dressed up as "Couldn't sync".
+   */
+  const connectWithToken = useCallback(async (token: string) => {
     connectingRef.current = true
     setState((s) => ({ ...s, state: 'connecting', error: null }))
     try {
@@ -78,15 +98,8 @@ export function useMemory() {
       if (!api) throw new Error('Memory is not available in this build')
       const deviceId = await api.ensureDeviceId()
       setState((s) => ({ ...s, state: 'migrating' }))
-
-      const { data, error } = await supabase.functions.invoke('memory-token', {
-        body: { action: 'issue', device: { name: navigator.platform || 'Device', platform: navigator.platform } },
-      })
-      if (error) throw error
-
-      const result = await api.connect(data.token, data.device_id ?? deviceId)
+      const result = await api.connect(token.trim(), deviceId)
       if (!result.ok) throw new Error(result.error ?? 'Connect failed')
-
       connectingRef.current = false
       await refresh()
     } catch (err) {
@@ -127,5 +140,5 @@ export function useMemory() {
     }
   }, [refresh])
 
-  return { ...state, connect, disconnect, refresh }
+  return { ...state, connectWithToken, disconnect, refresh }
 }
