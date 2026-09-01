@@ -142,9 +142,42 @@ Tres cosas que el servidor está obligado a cumplir y que el servidor viejo no c
 
 ### 5.3 `GET /v1/sync/status`
 
-Devuelve `{ device_id, user_id, plan, next_poll_ms, server_time, quota: { used_bytes, max_bytes } }`.
-Existe por dos razones: es el health check del device (hoy la UI no tiene forma de diagnosticar
-nada) y es donde el servidor le dice al cliente cada cuánto volver (sección 11.4).
+Devuelve `{ device_id, user_id, plan, next_poll_ms, server_time, quota: { used_bytes, max_bytes },
+projects: [{ project_key, display_name }] }`.
+
+Existe por tres razones: es el health check del device (hoy la UI no tiene forma de diagnosticar
+nada), es donde el servidor le dice al cliente cada cuánto volver (sección 11.4), y — agregado el
+2026-09-01 — **es el único lugar donde un device puede enterarse de que un proyecto existe**.
+
+### 5.3.1 Descubrimiento de proyectos — el agujero que hace que un device nuevo no reciba nada
+
+**Encontrado el 2026-09-01, después de construir el servicio.** El pull sólo devuelve filas de los
+proyectos cuyo cursor el device mandó, y eso es correcto: el servidor viejo iteraba todos los
+proyectos de la cuenta y defaulteaba a 0 los no enviados, lo que hacía que el cliente entrara en un
+hot loop re-puleando la misma página para siempre (es el fix M25 de `memory-daemon.ts`).
+
+Pero el cliente arma esos cursores desde `store.listProjects()`, o sea desde lo que **ya** tiene
+local, y `doPull` arranca con `if (projects.length === 0) return`. Las dos cosas juntas dan:
+
+- **Un device recién instalado no pulea NADA, nunca**, hasta que el usuario escriba algo local que
+  cree la primera fila de `projects`. No hay error, no hay síntoma: la card dice "connected" y no
+  baja una sola memoria.
+- **Un proyecto que sólo existe en la otra máquina no cruza jamás**, aunque las dos estén
+  sincronizando bien todo lo demás.
+
+El round trip de §13 pasa igual porque las dos máquinas del test ya tienen los mismos repos abiertos
+y por lo tanto los mismos `project_key` derivados del remote de git.
+
+**La solución no puede ser que el pull devuelva proyectos no pedidos**, porque eso es exactamente el
+hot loop que M25 arregló. Va separada: **el status devuelve el ROSTER — sólo claves y nombres, sin
+filas.** El cliente hace `ensureProject()` de las que no conoce, y en el pull siguiente esas claves
+viajan en `cursors` de forma natural, en 0. Ninguna fila se devuelve sin cursor pedido, así que la
+garantía de M25 se mantiene intacta.
+
+Eso obliga a algo que igual había que hacer: **el daemon tiene que llamar a `status`**, cosa que hoy
+no hace. Hasta el 2026-09-01 el endpoint no tenía un solo caller, y por lo tanto `next_poll_ms` — la
+única palanca de costo real que tiene este diseño, la razón por la que el intervalo lo manda el
+servidor — se calculaba y nadie la leía. Los dos huecos se cierran con el mismo cambio.
 
 ### 5.4 Compatibilidad para el bring up
 

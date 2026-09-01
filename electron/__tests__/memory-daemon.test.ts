@@ -425,6 +425,13 @@ describe('MemoryDaemon — pull (§4.4, M17 per-project cursors)', () => {
 })
 
 describe('MemoryDaemon — offline-queue maintenance (M20)', () => {
+  // drain() now calls status() before pull() (§5.3.1), so every drain() trigger in this
+  // file needs a fetchImpl — without one, fetchWithTimeout() falls back to the REAL global
+  // `fetch` (see MemoryDaemonDeps.fetchImpl), which would make an actual network request
+  // in a unit test. A bare 200 with no body is enough: status() treats a missing
+  // `next_poll_ms`/`projects` as "nothing to do" (both are optional).
+  const quietStatus = () => vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({}) })
+
   it('drain() prunes acked mutations and compacts the log only past the hard cap', async () => {
     const pruneAckedMutations = vi.fn(() => 0)
     const compactMutationLog = vi.fn(() => 0)
@@ -434,7 +441,7 @@ describe('MemoryDaemon — offline-queue maintenance (M20)', () => {
       pendingMutationCount: vi.fn(() => 50_001),
       listProjects: vi.fn(() => []),
     })
-    const daemon = new MemoryDaemon(baseDaemonDeps(store))
+    const daemon = new MemoryDaemon(baseDaemonDeps(store, { fetchImpl: quietStatus() }))
 
     // drain() is private; exercised via the interval trigger through start()+timer, but
     // simplest here is to call the public onNetworkRegain() which drains immediately.
@@ -448,7 +455,7 @@ describe('MemoryDaemon — offline-queue maintenance (M20)', () => {
   it('does not compact when under the hard cap', async () => {
     const compactMutationLog = vi.fn(() => 0)
     const store = fakeStore({ compactMutationLog, pendingMutationCount: vi.fn(() => 10), listProjects: vi.fn(() => []) })
-    const daemon = new MemoryDaemon(baseDaemonDeps(store))
+    const daemon = new MemoryDaemon(baseDaemonDeps(store, { fetchImpl: quietStatus() }))
 
     daemon.onNetworkRegain()
     await new Promise((r) => setTimeout(r, 10))
@@ -740,6 +747,230 @@ describe('MemoryDaemon — M25 pull heals unknown-project cursors (Finding 3)', 
     await vi.runOnlyPendingTimersAsync() // would fire a 3rd (and Nth) request if still hot-looping
 
     expect(fetchImpl).toHaveBeenCalledTimes(2)
+    daemon.stop()
+  })
+})
+
+// spec §5.3.1: GET /v1/sync/status is the ONLY place a device can learn a project exists —
+// handlePull returns rows only for cursors the device already sent, so a project never
+// registered locally can never surface through pull, no matter how long the device waits.
+// status() closes that from the other end.
+describe('MemoryDaemon — status() roster discovery (§5.3.1)', () => {
+  it('registers a roster project the local store does not have, and skips one it already knows', async () => {
+    const ensureProject = vi.fn()
+    const store = fakeStore({
+      listProjects: vi.fn(() => [{ projectKey: 'proj-known', displayName: 'known', enrolled: true }]),
+      ensureProject,
+    })
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        projects: [
+          { project_key: 'proj-known', display_name: 'known (renamed upstream)' },
+          { project_key: 'proj-new', display_name: 'brand new' },
+        ],
+      }),
+    })
+    const daemon = new MemoryDaemon(baseDaemonDeps(store, { fetchImpl }))
+
+    await daemon.status()
+
+    // Only the unknown one is registered — a known project is never re-written just
+    // because it reappeared in the roster (renamed or not; display-name drift is not
+    // this call's job).
+    expect(ensureProject).toHaveBeenCalledTimes(1)
+    expect(ensureProject).toHaveBeenCalledWith({ projectKey: 'proj-new', displayName: 'brand new' })
+    const url = (fetchImpl.mock.calls[0] as [string, RequestInit])[0]
+    expect(url).toBe('https://example.supabase.co/v1/sync/status')
+  })
+
+  it('an unchanging roster performs zero registrations after the first status() call (no busy-loop of writes)', async () => {
+    const known: Array<{ projectKey: string; displayName: string; enrolled: boolean }> = []
+    const ensureProject = vi.fn((input: { projectKey: string; displayName: string }) => {
+      known.push({ projectKey: input.projectKey, displayName: input.displayName, enrolled: true })
+    })
+    const store = fakeStore({ listProjects: vi.fn(() => [...known]), ensureProject })
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ projects: [{ project_key: 'proj-new', display_name: 'brand new' }] }),
+    })
+    const daemon = new MemoryDaemon(baseDaemonDeps(store, { fetchImpl }))
+
+    await daemon.status()
+    await daemon.status()
+    await daemon.status()
+
+    expect(ensureProject).toHaveBeenCalledTimes(1)
+  })
+
+  it('a missing `projects` field means "no discovery available" (older service / pre-roster stub), not an error', async () => {
+    const ensureProject = vi.fn()
+    const store = fakeStore({ ensureProject })
+    const fetchImpl = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ next_poll_ms: 300_000 }) })
+    const daemon = new MemoryDaemon(baseDaemonDeps(store, { fetchImpl }))
+
+    const result = await daemon.status()
+
+    expect(ensureProject).not.toHaveBeenCalled()
+    expect(result).not.toBeNull()
+  })
+
+  it('honors next_poll_ms from the server, rescheduling the interval timer to it', async () => {
+    vi.useFakeTimers()
+    const store = fakeStore({ listProjects: vi.fn(() => []) })
+    const fetchImpl = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ next_poll_ms: 60_000 }) })
+    const daemon = new MemoryDaemon(baseDaemonDeps(store, { fetchImpl }))
+
+    daemon.start()
+    await daemon.status() // same call drain() makes before pull() on connect / each tick
+    fetchImpl.mockClear()
+
+    // Still short of the NEW 60s interval: must not have fired yet.
+    await vi.advanceTimersByTimeAsync(59_999)
+    expect(fetchImpl).not.toHaveBeenCalled()
+    // The last millisecond fires the rescheduled interval's drain(), whose first call is
+    // status() — proving the timer was actually re-armed to the server's number, not just
+    // left on the 5-minute default.
+    await vi.advanceTimersByTimeAsync(1)
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+
+    daemon.stop()
+    vi.useRealTimers()
+  })
+
+  it('a non-positive or non-numeric next_poll_ms falls back to the constant instead of leaving the daemon with no interval', async () => {
+    vi.useFakeTimers()
+    const store = fakeStore({ listProjects: vi.fn(() => []) })
+    const fetchImpl = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ next_poll_ms: -5 }) })
+    const daemon = new MemoryDaemon(baseDaemonDeps(store, { fetchImpl }))
+
+    daemon.start()
+    await daemon.status()
+    fetchImpl.mockClear()
+
+    // Still on the original 5-minute default — a bad value must not have rescheduled it to
+    // something else (e.g. "-5" clamped to firing immediately, or no timer at all).
+    await vi.advanceTimersByTimeAsync(5 * 60_000 - 1)
+    expect(fetchImpl).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(1)
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+
+    daemon.stop()
+    vi.useRealTimers()
+  })
+
+  it('a 401/403 from status() feeds the SAME auth-failure counter doPush() uses (M18) — status() must not gate push/pull any differently than a push failure already does', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({ ok: false, status: 401, json: async () => ({}) })
+    const store = fakeStore({ pendingMutations: vi.fn(() => PENDING_MUTATION_A) })
+    const daemon = new MemoryDaemon(baseDaemonDeps(store, { fetchImpl }))
+
+    await daemon.status() // failure 1 of the shared counter
+    await daemon.status() // failure 2
+    await daemon.push() // failure 3 — trips the SAME breaker push() alone would trip
+
+    expect(daemon.getStatus()).toBe('error')
+    expect(fetchImpl).toHaveBeenCalledTimes(3)
+
+    // The breaker now blocks EVERY entry point identically, status() included — a further
+    // call makes no network request at all rather than hitting the revoked token again.
+    await daemon.status()
+    await daemon.push()
+    expect(fetchImpl).toHaveBeenCalledTimes(3)
+  })
+})
+
+// The scenario the spec calls out as the one worth proving: a freshly installed device
+// (an EMPTY local store — no projects, ever pushed anything) receives the account's
+// roster via status() and, in the very same drain cycle, pulls rows for a project it
+// could never have named on its own. Before this change, `doPull()`'s cursors came only
+// from `store.listProjects()`, so this device would have pulled NOTHING, forever, with no
+// error and no symptom (§5.3.1's "the agujero").
+describe('MemoryDaemon — §5.3.1 an empty device discovers and pulls a remote-only project', () => {
+  function makeEmptyStatefulStore() {
+    const projects: Array<{ projectKey: string; displayName: string; enrolled: boolean }> = []
+    const syncState = new Map<string, { pullCursor: number; lastPushSeq: number }>()
+
+    const ensureProject = vi.fn((input: { projectKey: string; displayName: string }) => {
+      if (!projects.some((p) => p.projectKey === input.projectKey)) {
+        projects.push({ projectKey: input.projectKey, displayName: input.displayName, enrolled: true })
+        syncState.set(input.projectKey, { pullCursor: 0, lastPushSeq: 0 })
+      }
+    })
+    const listProjects = vi.fn(() => [...projects])
+    const getSyncState = vi.fn((key: string) => syncState.get(key) ?? { pullCursor: 0, lastPushSeq: 0 })
+    const setSyncState = vi.fn((key: string, patch: Partial<{ pullCursor: number }>) => {
+      const current = syncState.get(key) ?? { pullCursor: 0, lastPushSeq: 0 }
+      syncState.set(key, { ...current, ...patch })
+    })
+    const applyIncomingObservation = vi.fn()
+    const store = fakeStore({
+      listProjects,
+      ensureProject,
+      getSyncState,
+      setSyncState,
+      applyIncomingObservation,
+      get: vi.fn(() => null),
+      findActiveTopicOwner: vi.fn(() => null),
+    })
+    return { store, ensureProject, listProjects, applyIncomingObservation }
+  }
+
+  it('registers "proj-remote" from the roster and pulls its row, sending its cursor at 0 — impossible before status() existed', async () => {
+    const { store, ensureProject, applyIncomingObservation } = makeEmptyStatefulStore()
+
+    const fetchImpl = vi.fn(async (url: string, init: RequestInit) => {
+      if (url.endsWith('/v1/sync/status')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            next_poll_ms: 300_000,
+            projects: [{ project_key: 'proj-remote', display_name: 'Remote Project' }],
+          }),
+        }
+      }
+      if (url.endsWith('/v1/sync/pull')) {
+        const body = JSON.parse(init.body as string) as { cursors: Record<string, number> }
+        // This IS the scenario: before status() ran this device had zero local projects,
+        // so a pull could never have named 'proj-remote' at all — doPull()'s own early
+        // return (`projects.length === 0`) would have fired and no request would even
+        // have been sent on the very first drain.
+        expect(body.cursors).toEqual({ 'proj-remote': 0 })
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            rows: [{
+              sync_id: 'obs-remote-1',
+              project_key: 'proj-remote',
+              client_updated_at: '2026-01-05T21:00:00+00:00',
+              lamport: 1,
+              deleted: false,
+              project_seq: 1,
+              scope: 'personal',
+              title: 'written on the other machine',
+            }],
+            cursors: { 'proj-remote': 1 },
+          }),
+        }
+      }
+      throw new Error(`unexpected fetch in this test: ${url}`)
+    }) as unknown as typeof fetch
+
+    const daemon = new MemoryDaemon(baseDaemonDeps(store, { fetchImpl }))
+
+    // onNetworkRegain() is what the memory:connect IPC handler calls, i.e. the spec's "on
+    // connect" trigger, and drain() runs status() before pull() — exactly the sequence
+    // §5.3.1 requires.
+    daemon.onNetworkRegain()
+    await new Promise((r) => setTimeout(r, 10))
+
+    expect(ensureProject).toHaveBeenCalledWith({ projectKey: 'proj-remote', displayName: 'Remote Project' })
+    expect(applyIncomingObservation).toHaveBeenCalledWith(
+      expect.objectContaining({ syncId: 'obs-remote-1', projectKey: 'proj-remote' })
+    )
     daemon.stop()
   })
 })

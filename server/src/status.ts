@@ -1,6 +1,11 @@
 import type { Pool } from 'pg'
 import { NEXT_POLL_MS } from './pull'
 
+export interface StatusRosterProject {
+  project_key: string
+  display_name: string
+}
+
 export interface StatusResponse {
   device_id: string
   user_id: string
@@ -8,6 +13,14 @@ export interface StatusResponse {
   next_poll_ms: number
   server_time: string
   quota: { used_bytes: number; max_bytes: number }
+  // §5.3.1: the roster — keys and display names only, NEVER rows. `handlePull` only ever
+  // returns rows for cursors the device already sent (the M25 hot-loop guarantee), so a
+  // project a device has never seen locally can never surface through pull no matter how
+  // long it waits. This is the only place a device can learn a project exists at all: the
+  // client calls `ensureProject()` for anything here it doesn't already know, and that
+  // project's cursor (starting at 0) then travels in the NEXT pull's `cursors` naturally —
+  // no row is ever handed back for a cursor the device didn't ask for.
+  projects: StatusRosterProject[]
 }
 
 const DEFAULT_MAX_BYTES = 1024 * 1024 * 1024
@@ -44,6 +57,14 @@ export async function handleStatus(
       where p.user_id = $1`,
     [auth.userId]
   )
+
+  // `where user_id = $1` is load-bearing here too, same as the quota query above: without
+  // it every user's project roster leaks into every other user's status response.
+  const { rows: projectRows } = await pool.query(
+    `select project_key, display_name from projects where user_id = $1 order by project_key`,
+    [auth.userId]
+  )
+
   return {
     device_id: auth.deviceId,
     user_id: auth.userId,
@@ -51,5 +72,6 @@ export async function handleStatus(
     next_poll_ms: NEXT_POLL_MS,
     server_time: new Date().toISOString(),
     quota: { used_bytes: Number(rows[0].used), max_bytes: MAX_BYTES },
+    projects: projectRows.map((r) => ({ project_key: r.project_key, display_name: r.display_name })),
   }
 }

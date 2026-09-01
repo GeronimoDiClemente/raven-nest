@@ -103,4 +103,65 @@ describe('handleStatus', () => {
     const afterOther = await handleStatus(pool, auth)
     expect(afterOther.quota.used_bytes).toBe(afterMine.quota.used_bytes)
   })
+
+  // §5.3.1: this is the ONLY place a device can learn a project exists (handlePull only
+  // ever returns rows for cursors the device already sent). A roster leaking across
+  // tenants would be as bad as the quota leak the test above guards against — it would
+  // hand one user another user's project names.
+  it('lists the caller project roster and none of a second user project', async () => {
+    const p1 = sid('roster-mine')
+    const p2 = sid('roster-mine-2')
+    await handlePush(pool, auth, {
+      mutations: [
+        {
+          seq: 900, sync_id: sid('roster-1'), op: 'upsert',
+          payload: {
+            sync_id: sid('roster-1'), project_key: p1, project_display_name: 'Mine One', scope: 'personal',
+            type: 'decision', topic_key: null, title: 't', content: 'x',
+            tags: [], lamport: 1, updated_at: Date.now(), created_at: Date.now(),
+          },
+        },
+        {
+          seq: 901, sync_id: sid('roster-2'), op: 'upsert',
+          payload: {
+            sync_id: sid('roster-2'), project_key: p2, project_display_name: 'Mine Two', scope: 'personal',
+            type: 'decision', topic_key: null, title: 't', content: 'x',
+            tags: [], lamport: 1, updated_at: Date.now(), created_at: Date.now(),
+          },
+        },
+      ],
+    })
+
+    const otherUserId = randomUUID()
+    const otherDeviceId = randomUUID()
+    await pool.query(`insert into users (id, plan) values ($1, 'pro')`, [otherUserId])
+    await pool.query(
+      `insert into devices (id, user_id, name, token_hash) values ($1, $2, 'status-roster-other', $3)`,
+      [otherDeviceId, otherUserId, `hash-${otherDeviceId}`]
+    )
+    const otherAuth = { deviceId: otherDeviceId, userId: otherUserId, plan: 'pro' }
+    const pOther = sid('roster-not-mine')
+    await handlePush(pool, otherAuth, {
+      mutations: [{
+        seq: 900, sync_id: sid('roster-other-1'), op: 'upsert',
+        payload: {
+          sync_id: sid('roster-other-1'), project_key: pOther, project_display_name: 'Not Mine', scope: 'personal',
+          type: 'decision', topic_key: null, title: 't', content: 'x',
+          tags: [], lamport: 1, updated_at: Date.now(), created_at: Date.now(),
+        },
+      }],
+    })
+
+    const res = await handleStatus(pool, auth)
+    const keys = res.projects.map((p) => p.project_key)
+    expect(keys).toEqual(expect.arrayContaining([p1, p2]))
+    expect(keys).not.toContain(pOther)
+    const mine = res.projects.find((p) => p.project_key === p1)
+    expect(mine?.display_name).toBe('Mine One')
+
+    const otherRes = await handleStatus(pool, otherAuth)
+    const otherKeys = otherRes.projects.map((p) => p.project_key)
+    expect(otherKeys).toContain(pOther)
+    expect(otherKeys).not.toEqual(expect.arrayContaining([p1, p2]))
+  })
 })

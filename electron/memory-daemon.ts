@@ -39,6 +39,27 @@ export interface PushResultItem {
   error?: string
 }
 
+/** spec §5.3.1: one entry in the status roster — keys and display names, never rows. */
+export interface StatusRosterProject {
+  project_key: string
+  display_name?: string
+}
+
+export interface StatusResponseBody {
+  device_id?: string
+  user_id?: string
+  plan?: string
+  next_poll_ms?: number
+  server_time?: string
+  quota?: { used_bytes: number; max_bytes: number }
+  /**
+   * Absent entirely on an older service or the pre-roster stub — that means "no discovery
+   * available", not an error, so `status()` must treat a missing field as a no-op rather
+   * than a failure.
+   */
+  projects?: StatusRosterProject[]
+}
+
 export interface PulledRow extends LWWRow {
   deleted: boolean
   topicKey: string | null
@@ -164,7 +185,11 @@ export class MemoryDaemon {
   private lastFocusPullAt = 0
   private consecutiveAuthFailures = 0
   private backoff = new Backoff()
-  private status: DaemonStatus = 'idle'
+  // Renamed from `status` (the field) to `currentStatus` so the public `status()` method
+  // (§5.3.1, GET /v1/sync/status) can have that name — the field and the method are
+  // unrelated: this one is the daemon's idle/syncing/paused/error indicator surfaced via
+  // getStatus()/onStatusChange, not the sync service's health-check response.
+  private currentStatus: DaemonStatus = 'idle'
   private running = false
   // M18: 3 consecutive auth failures used to only stop the BACKOFF chain from
   // re-scheduling itself — every OTHER trigger (a fresh on-write debounce, pane-exit,
@@ -180,6 +205,13 @@ export class MemoryDaemon {
   // second request.
   private pushInFlight: Promise<void> | null = null
   private pullInFlight: Promise<void> | null = null
+  // §11.4 / spec §5.3.1: the server's call, not a client constant. `status()` reads
+  // `next_poll_ms` off every response and, when it names a different number, reschedules
+  // the interval to it via applyPollInterval(). Starts at the hard-coded fallback because
+  // nothing has answered a status() call yet — see spec §5.3.1's "next_poll_ms — the only
+  // real cost lever, which had no reader until this change" for why this used to just be
+  // INTERVAL_MS forever, unread server value or not.
+  private pollIntervalMs = INTERVAL_MS
 
   constructor(deps: MemoryDaemonDeps) {
     this.deps = deps
@@ -188,7 +220,13 @@ export class MemoryDaemon {
   start(): void {
     if (this.running) return
     this.running = true
-    this.intervalTimer = setInterval(() => void this.drain(), INTERVAL_MS)
+    this.scheduleIntervalTimer()
+  }
+
+  /** Re-armed by applyPollInterval() whenever the server's next_poll_ms changes. */
+  private scheduleIntervalTimer(): void {
+    if (this.intervalTimer) clearInterval(this.intervalTimer)
+    this.intervalTimer = setInterval(() => void this.drain(), this.pollIntervalMs)
   }
 
   stop(): void {
@@ -201,12 +239,12 @@ export class MemoryDaemon {
   }
 
   private setStatus(status: DaemonStatus, detail?: string): void {
-    this.status = status
+    this.currentStatus = status
     this.deps.onStatusChange?.(status, detail)
   }
 
   getStatus(): DaemonStatus {
-    return this.status
+    return this.currentStatus
   }
 
   // M26: exposed so memory-ipc-server.ts's pull-through search fallback (a zero-result
@@ -276,6 +314,15 @@ export class MemoryDaemon {
     if (this.deps.store.pendingMutationCount() > QUEUE_HARD_CAP) {
       this.deps.store.compactMutationLog()
     }
+    // spec §5.3.1: drain() is reached from exactly the two triggers the spec names —
+    // start()'s interval timer ("on each interval tick") and onNetworkRegain(), which is
+    // what the memory:connect IPC handler calls after seeding known projects ("on
+    // connect") — so calling status() here, before pull(), covers both without a second
+    // call site. ensureProject() inside status() writes synchronously, so a project this
+    // call just discovered is already in store.listProjects() by the time pull() (right
+    // below) builds its cursors — not just "the next pull" as the spec describes, but
+    // this very same drain cycle's pull.
+    await this.status()
     await this.pull()
     await this.push()
   }
@@ -459,6 +506,103 @@ export class MemoryDaemon {
     }
   }
 
+  /**
+   * spec §5.3.1: the ONLY place a device can learn a project exists. `handlePull` returns
+   * rows only for cursors the device already sent — correct, deliberate, and it's what
+   * keeps M25's fix intact (see doPull's own `cursors` comment below) — so a project this
+   * device has never seen locally can never appear in a pull response no matter how long
+   * it waits, and a freshly installed device with an empty `projects` table would pull
+   * nothing, forever, with no error and no symptom. `status()` closes that from the other
+   * end: it fetches the account's roster (project keys and display names, never rows) and
+   * registers anything not already known via `store.ensureProject()`. That project then
+   * has a sync_state cursor of 0 and shows up in `store.listProjects()` — and therefore in
+   * doPull()'s `cursors` — on the very next pull. No row is ever handed back for a cursor
+   * the device didn't ask for, so nothing here reintroduces the hot loop M25 fixed.
+   *
+   * Uses the same fetchWithTimeout() push/pull already go through, so a hung status
+   * endpoint can't wedge the daemon any differently than a hung push or pull already
+   * could (C6).
+   */
+  async status(): Promise<StatusResponseBody | null> {
+    const { store, getSyncBaseUrl, getToken, isOnline } = this.deps
+    if (this.authBlocked) return null // M18: gate every entry point, not just push/pull
+    if (!isOnline()) return null
+    const url = getSyncBaseUrl()
+    const token = getToken()
+    if (!url || !token) return null
+
+    let release: (() => void) | null = null
+    try {
+      const { response, release: releaseTimer } = await this.fetchWithTimeout(`${url}/v1/sync/status`, {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      release = releaseTimer
+
+      if (response.status === 401 || response.status === 403) {
+        // Feeds the SAME shared counter/flag doPush() trips on 401/403 (M18), rather than
+        // keeping an independent one — status() must not gate push/pull any differently
+        // than a push auth failure already does, and both push() and pull() already check
+        // this exact flag at entry.
+        this.consecutiveAuthFailures += 1
+        if (this.consecutiveAuthFailures >= 3) {
+          this.authBlocked = true
+          this.setStatus('error', 'auth')
+        }
+        return null
+      }
+      if (!response.ok) return null
+
+      const body = (await response.json()) as StatusResponseBody
+      this.consecutiveAuthFailures = 0
+
+      this.applyPollInterval(body.next_poll_ms)
+
+      // A missing `projects` field means "no discovery available" — an older service, or
+      // the pre-roster stub — not an error. Nothing to register, not a failure.
+      if (Array.isArray(body.projects)) {
+        const known = new Set(store.listProjects().map((p) => p.projectKey))
+        for (const project of body.projects) {
+          const projectKey = project?.project_key
+          if (typeof projectKey !== 'string' || projectKey === '' || known.has(projectKey)) continue
+          // ensureProject() is itself idempotent, but the `known` check above means an
+          // unchanging roster does ZERO writes per tick after the first, not just zero
+          // EFFECTIVE ones — so a roster that never changes can't turn this into a
+          // repeated-write (or repeated-pull) loop of its own.
+          store.ensureProject({
+            projectKey,
+            displayName:
+              typeof project.display_name === 'string' && project.display_name ? project.display_name : projectKey,
+          })
+          known.add(projectKey)
+        }
+      }
+
+      return body
+    } catch {
+      // Network/timeout failure, not an auth failure — nothing to count. Quiet by design:
+      // pull() runs right after this inside drain() and reports its own error state; a
+      // status() that also screamed here would just be noise on top of that.
+      return null
+    } finally {
+      release?.()
+    }
+  }
+
+  /**
+   * §11.4: the interval is the server's call, not a client constant. Falls back to
+   * whatever is already armed (the hard-coded INTERVAL_MS the first time) when the field
+   * is absent or not a positive number — an older service or the stub before it grew this
+   * field must not leave the daemon with no interval at all.
+   */
+  private applyPollInterval(nextPollMs: unknown): void {
+    if (typeof nextPollMs !== 'number' || !Number.isFinite(nextPollMs) || nextPollMs <= 0) return
+    const next = Math.floor(nextPollMs)
+    if (next === this.pollIntervalMs) return
+    this.pollIntervalMs = next
+    if (this.running) this.scheduleIntervalTimer()
+  }
+
   pull(): Promise<void> {
     // M19: dedupe concurrent callers onto the same in-flight request.
     if (this.pullInFlight) return this.pullInFlight
@@ -486,7 +630,22 @@ export class MemoryDaemon {
     // read from and written back to its own sync_state partition (keyed by project_key,
     // matching how push() already scopes mutations per project).
     const projects = store.listProjects()
-    if (projects.length === 0) return // nothing pushed yet — nothing to pull
+    // spec §5.3.1: this used to be the OTHER half of the "a fresh device pulls nothing,
+    // ever" bug — `store.listProjects()` reflects only what this device already has
+    // locally, so a device that has never written anything of its own returned here on
+    // every single pull, forever, with no error and no symptom. It is no longer fatal:
+    // status() runs immediately before this, in the same drain() cycle (see drain()'s own
+    // comment), and registers every project in the account's roster via ensureProject()
+    // BEFORE this line runs — so a fresh device's very first drain() already has a
+    // non-empty `projects` here. It stays as a real early return rather than falling
+    // through to an empty-cursors request: a project-less device (one that hasn't
+    // connected, or whose account genuinely has no projects yet) would otherwise send
+    // `{cursors: {}}` on every pull, which the server already treats as "nothing to
+    // report" (pull.ts's own `keys.length === 0` short-circuit) — so removing this line
+    // would trade a local no-op for a pointless round trip that accomplishes the exact
+    // same nothing, working against §11.4's whole point (~99% of pulls come back empty;
+    // don't make one on purpose when it's known in advance to be empty).
+    if (projects.length === 0) return
 
     const cursors: Record<string, number> = {}
     for (const project of projects) {

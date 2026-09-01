@@ -358,12 +358,23 @@ function handlePull(body) {
 // real service refuses (src/auth.ts resolves the device from the bearer token). A stub
 // that is more permissive than the service under test weakens every result obtained
 // against it, which already cost one round of evidence here.
+// §5.3.1: the roster — every project this stub knows about, keys and display names only,
+// never rows. It is populated the same way the real service's `projects` table is: by
+// `allocateSeqRange` on every push, so anything pushed by ANY device sharing this token
+// shows up here. This is what makes a fresh second device's `status()` call register the
+// first device's projects locally and pull them on the next request — the whole point of
+// §5.3.1. The real service scopes this by `user_id`; the stub has exactly one tenant (the
+// token), so every project it knows is already "this caller's".
 function handleStatus() {
   const deviceId = TOKEN_HASH
   const used = [...state.observations.values()].reduce(
     (n, r) => n + (r.content ? Buffer.byteLength(r.content) : 0),
     0
   )
+  const projects = [...state.projects.entries()].map(([projectKey, p]) => ({
+    project_key: projectKey,
+    display_name: p.displayName ?? projectKey,
+  }))
   return {
     status: 200,
     body: {
@@ -375,6 +386,7 @@ function handleStatus() {
       next_poll_ms: NEXT_POLL_MS,
       server_time: new Date().toISOString(),
       quota: { used_bytes: used, max_bytes: 1024 * 1024 * 1024 },
+      projects,
     },
   }
 }
