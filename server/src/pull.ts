@@ -47,12 +47,16 @@ export async function handlePull(
   const keys = Object.keys(cursors)
 
   // `limit` is device-controlled input, not trusted. A non-finite, fractional, or
-  // non-positive value falls back to the max rather than being passed through to a bigint
-  // SQL parameter, where Postgres would throw ("invalid input syntax for type bigint") and
-  // turn a malformed client request into a 500 instead of a well-defined response.
+  // negative value falls back to the max rather than being passed through to a bigint SQL
+  // parameter, where Postgres would throw ("invalid input syntax for type bigint") and turn
+  // a malformed client request into a 500 instead of a well-defined response.
+  //
+  // `limit: 0` is treated as a genuine zero-row request, not "unspecified" — a client
+  // polling only to read `next_poll_ms` should get back zero rows, not up to MAX_LIMIT.
+  // Only an omitted or malformed limit (undefined, NaN, negative) falls back to the max.
   const rawLimit = Number(body.limit)
   const limit =
-    Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(Math.floor(rawLimit), MAX_LIMIT) : MAX_LIMIT
+    Number.isFinite(rawLimit) && rawLimit >= 0 ? Math.min(Math.floor(rawLimit), MAX_LIMIT) : MAX_LIMIT
 
   // Empty cursors deliberately means "nothing to report" and returns nothing — NOT "give
   // me everything." Iterating every project the caller has is exactly the hot-loop

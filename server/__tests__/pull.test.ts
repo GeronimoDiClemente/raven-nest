@@ -90,6 +90,44 @@ describe('handlePull', () => {
     expect(rest.rows[0].sync_id).toBe(sid('l-3'))
   })
 
+  // A flat `cursor + limit` bump is indistinguishable from correct per-row tracking
+  // when a single fresh project returns exactly `limit` contiguous rows starting at 0 —
+  // which is why a single-project version of this test cannot tell the two apart (both
+  // land on the same number by arithmetic coincidence, not because the bump is correct).
+  // The bug only shows itself when one `limit` is shared across projects: the project
+  // that contributed fewer rows than the limit would have its cursor jumped past rows it
+  // never received, and a flat bump gives every requested project the same wrong jump.
+  it('advances each project cursor only to the rows that project actually returned', async () => {
+    const pa = `pull-${randomUUID().slice(0, 8)}`
+    const pb = `pull-${randomUUID().slice(0, 8)}`
+    await handlePush(pool, auth, {
+      mutations: [mut(760, sid('a1'), pa), mut(761, sid('a2'), pa), mut(762, sid('a3'), pa)],
+    })
+    await handlePush(pool, auth, {
+      mutations: [mut(763, sid('b1'), pb), mut(764, sid('b2'), pb), mut(765, sid('b3'), pb)],
+    })
+
+    // One page, limit 4: ordering is by project_seq across both, so the page cannot
+    // contain all six. Whatever the split, each cursor must land on that project's own
+    // highest RETURNED seq — never on cursor + 4.
+    const page = await handlePull(pool, auth, { cursors: { [pa]: 0, [pb]: 0 }, limit: 4 })
+    expect(page.rows).toHaveLength(4)
+
+    for (const key of [pa, pb]) {
+      const returned = page.rows.filter((r) => r.project_key === key).map((r) => r.project_seq)
+      const expected = returned.length > 0 ? Math.max(...returned) : 0
+      expect(page.cursors[key]).toBe(expected)
+    }
+
+    // The decisive part: draining from those cursors must surface every remaining row
+    // exactly once. A flat bump would have skipped some of them forever.
+    const rest = await handlePull(pool, auth, { cursors: page.cursors, limit: 500 })
+    const allIds = [...page.rows, ...rest.rows].map((r) => r.sync_id).sort()
+    const expectedIds = [sid('a1'), sid('a2'), sid('a3'), sid('b1'), sid('b2'), sid('b3')].sort()
+    expect(new Set(allIds).size).toBe(6)
+    expect(allIds).toEqual(expectedIds)
+  })
+
   it('tells the client when to come back', async () => {
     const p = `pull-${randomUUID().slice(0, 8)}`
     const res = await handlePull(pool, auth, { cursors: { [p]: 0 }, limit: 10 })
@@ -174,6 +212,26 @@ describe('handlePull', () => {
       // And the bad value must not silently round-trip back to the client unchanged.
       expect(res.cursors[p]).not.toBe('not-a-number')
       expect(typeof res.cursors[p]).toBe('number')
+    })
+  })
+
+  describe('limit: 0 is a genuine zero-row request, not "unspecified"', () => {
+    // Decided deliberately: a client polling only to read `next_poll_ms` (a heartbeat,
+    // not a data fetch) should get back zero rows when it asks for zero, not be
+    // surprised by up to MAX_LIMIT. Only an omitted or malformed limit falls back to
+    // the max — an explicit 0 is honoured literally.
+    it('returns zero rows and leaves the cursor untouched, even though matching rows exist', async () => {
+      const p = `pull-${randomUUID().slice(0, 8)}`
+      await handlePush(pool, auth, { mutations: [mut(766, sid('zero-limit'), p)] })
+
+      const res = await handlePull(pool, auth, { cursors: { [p]: 0 }, limit: 0 })
+      expect(res.rows).toHaveLength(0)
+      expect(res.cursors[p]).toBe(0)
+      expect(typeof res.next_poll_ms).toBe('number')
+
+      // The row is still there on a real pull — limit: 0 did not consume or skip it.
+      const real = await handlePull(pool, auth, { cursors: res.cursors, limit: 500 })
+      expect(real.rows.some((r) => r.sync_id === sid('zero-limit'))).toBe(true)
     })
   })
 })
