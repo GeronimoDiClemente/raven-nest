@@ -28,7 +28,7 @@ describe('MemoryConnectionState — local vs nube (C1)', () => {
   })
 
   it('apagar la captura local persiste y no toca el estado de nube', () => {
-    setMemoryConnectionState(home, { connected: true, localEnabled: false, deviceId: 'dev-1', connectedAt: 123, syncBaseUrl: null })
+    setMemoryConnectionState(home, { connected: true, localEnabled: false, deviceId: 'dev-1', connectedAt: 123, syncBaseUrl: null, deviceName: null })
     const state = getMemoryConnectionState(home)
     expect(state.localEnabled).toBe(false)
     expect(state.connected).toBe(true)
@@ -42,7 +42,28 @@ describe('MemoryConnectionState — local vs nube (C1)', () => {
       deviceId: null,
       connectedAt: null,
       syncBaseUrl: 'https://memory.nestmux.com',
+      deviceName: null,
     })
     expect(getMemoryConnectionState(home).syncBaseUrl).toBe('https://memory.nestmux.com')
+  })
+
+  it('deviceName arranca en null', () => {
+    expect(getMemoryConnectionState(home).deviceName).toBeNull()
+  })
+
+  it('deviceName persiste y sobrevive a un cambio de estado de nube', () => {
+    setMemoryConnectionState(home, {
+      connected: true,
+      localEnabled: true,
+      deviceId: 'dev-1',
+      connectedAt: 123,
+      syncBaseUrl: null,
+      deviceName: 'PC-GERO',
+    })
+    expect(getMemoryConnectionState(home).deviceName).toBe('PC-GERO')
+
+    const previo = getMemoryConnectionState(home)
+    setMemoryConnectionState(home, { ...previo, connected: false, connectedAt: null })
+    expect(getMemoryConnectionState(home).deviceName).toBe('PC-GERO')
   })
 })

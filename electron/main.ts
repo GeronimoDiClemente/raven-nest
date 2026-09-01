@@ -97,7 +97,7 @@ if (process.defaultApp) {
 }
 import { join as pathJoin, join, isAbsolute, basename, dirname } from 'path'
 import { readFileSync, writeFileSync, mkdirSync, statSync, copyFileSync, unlinkSync, rmSync, existsSync, chmodSync, promises as fsp } from 'fs'
-import { tmpdir, homedir } from 'os'
+import { tmpdir, homedir, hostname } from 'os'
 import { lookup } from 'dns/promises'
 import { ravenHome, userHome } from './raven-home'
 import { loadSession, saveSession } from './session-store'
@@ -2597,7 +2597,13 @@ ipcMain.handle('memory:connect', async (_event, token: string, deviceId: string)
   writeFileSync(credPath, safeStorage.encryptString(token), { mode: 0o600 })
   try { chmodSync(credPath, 0o600) } catch { /* best effort, e.g. unsupported on this fs */ }
   memoryToken = token
-  memoryConnectionState = { ...memoryConnectionState, connected: true, deviceId, connectedAt: Date.now() }
+  memoryConnectionState = {
+    ...memoryConnectionState,
+    connected: true,
+    deviceId,
+    deviceName: hostname(),
+    connectedAt: Date.now(),
+  }
   setMemoryConnectionState(ravenHome(), memoryConnectionState)
 
   // Provision (or re-provision) every existing Claude account now that memory is enabled.

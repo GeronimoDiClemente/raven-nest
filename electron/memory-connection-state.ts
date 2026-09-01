@@ -27,6 +27,17 @@ export interface MemoryConnectionState {
    * different backend should not require recompiling the app.
    */
   syncBaseUrl: string | null
+  /**
+   * C8: this machine's real hostname. The renderer only has `navigator.platform`, which
+   * reports 'Win32' on any Windows machine — a user's two PCs were reaching the server
+   * with the same name and collapsing into one device, with cursors stomping each other.
+   * The hostname only exists in the main process, so it is resolved and persisted here.
+   *
+   * Getting this name TO the server is part of the new backend: the spec's §5.3 puts
+   * `GET /v1/sync/status` as the point where the device is identified, and that endpoint
+   * does not exist client-side yet.
+   */
+  deviceName: string | null
 }
 
 const DEFAULT_STATE: MemoryConnectionState = {
@@ -35,6 +46,7 @@ const DEFAULT_STATE: MemoryConnectionState = {
   deviceId: null,
   connectedAt: null,
   syncBaseUrl: null,
+  deviceName: null,
 }
 
 function statePath(ravenHomeDir: string): string {
