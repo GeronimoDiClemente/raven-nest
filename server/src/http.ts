@@ -5,15 +5,28 @@ import { handlePush } from './push'
 import { handlePull } from './pull'
 import { handleStatus } from './status'
 import { handleDeleteData } from './delete-data'
+import { createRateLimiter } from './rate-limit'
 
 const MAX_BATCH = 500
 const MAX_BODY_BYTES = 20 * 1024 * 1024
 
-function send(res: ServerResponse, status: number, body: unknown): void {
+// §11.6. 60 por minuto es ~300 veces el ritmo real del cliente (un pull cada 5 minutos), así
+// que sólo lo toca un bug de loop o un ataque. Uno por verbo: un push agresivo no tiene por
+// qué dejar al device sin poder leer.
+const pushLimiter = createRateLimiter({ limit: 60, windowMs: 60_000 })
+const pullLimiter = createRateLimiter({ limit: 60, windowMs: 60_000 })
+
+function send(
+  res: ServerResponse,
+  status: number,
+  body: unknown,
+  headers: Record<string, string> = {}
+): void {
   const payload = JSON.stringify(body)
   res.writeHead(status, {
     'Content-Type': 'application/json',
     'Content-Length': Buffer.byteLength(payload),
+    ...headers,
   })
   res.end(payload)
 }
@@ -105,6 +118,17 @@ async function handleRequest(pool: Pool, req: IncomingMessage, res: ServerRespon
   try {
     const auth = await authenticate(pool, req.headers.authorization)
     if (!auth.ok) return send(res, auth.status, { error: auth.error })
+
+    // Después de autenticar, no antes: la clave es el device, y el device sale del token.
+    // Limitar por IP dejaría a una oficina entera detrás de un NAT compartiendo cuota.
+    if (isPush || isPull) {
+      const verdict = (isPush ? pushLimiter : pullLimiter).check(auth.deviceId)
+      if (!verdict.ok) {
+        return send(res, 429, { error: 'rate_limited' }, {
+          'Retry-After': String(verdict.retryAfterSeconds),
+        })
+      }
+    }
 
     if (isStatus) return send(res, 200, await handleStatus(pool, auth))
     // Takes no input — everything it deletes is scoped by the authenticated identity — so
