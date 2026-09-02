@@ -1,5 +1,5 @@
 import type { Pool } from 'pg'
-import { NEXT_POLL_MS } from './pull'
+import { limitsFor } from './limits'
 
 export interface StatusRosterProject {
   project_key: string
@@ -38,7 +38,12 @@ export function resolveMaxBytes(raw: string | undefined): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_MAX_BYTES
 }
 
-const MAX_BYTES = resolveMaxBytes(process.env.MAX_BYTES_PER_USER)
+// Override de INSTANCIA DEDICADA (§10 de la spec de pricing): cuando un deploy sirve a un
+// solo cliente, el techo por usuario de la tabla no significa nada y el disco de la máquina
+// es el límite real. Sin setear — que es el caso del servicio compartido — manda el plan.
+const MAX_BYTES_OVERRIDE = process.env.MAX_BYTES_PER_USER
+  ? resolveMaxBytes(process.env.MAX_BYTES_PER_USER)
+  : null
 
 // §5.3: this is the device's health check — today the client has no way to tell a dead
 // subsystem from a healthy-but-unsynced one — and it is where the server hands back
@@ -65,13 +70,15 @@ export async function handleStatus(
     [auth.userId]
   )
 
+  const limits = limitsFor(auth.plan)
+
   return {
     device_id: auth.deviceId,
     user_id: auth.userId,
     plan: auth.plan,
-    next_poll_ms: NEXT_POLL_MS,
+    next_poll_ms: limits.nextPollMs,
     server_time: new Date().toISOString(),
-    quota: { used_bytes: Number(rows[0].used), max_bytes: MAX_BYTES },
+    quota: { used_bytes: Number(rows[0].used), max_bytes: MAX_BYTES_OVERRIDE ?? limits.maxBytes },
     projects: projectRows.map((r) => ({ project_key: r.project_key, display_name: r.display_name })),
   }
 }

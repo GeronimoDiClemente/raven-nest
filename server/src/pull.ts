@@ -1,4 +1,5 @@
 import type { Pool } from 'pg'
+import { limitsFor } from './limits'
 
 export interface PullBody {
   cursors?: Record<string, number>
@@ -34,15 +35,15 @@ export interface PullResponse {
 
 const MAX_LIMIT = 500
 
-// §11.4: the interval is the server's call, not the client's. It is the only real cost
-// lever, because ~99% of pulls come back empty.
-export const NEXT_POLL_MS = Number(process.env.NEXT_POLL_MS ?? 300_000)
-
 export async function handlePull(
   pool: Pool,
-  auth: { userId: string },
+  auth: { userId: string; plan: string },
   body: PullBody
 ): Promise<PullResponse> {
+  // §11.4: the interval is the server's call, not the client's. It is the only real cost
+  // lever, because ~99% of pulls come back empty — and it now depends on the caller's
+  // plan, same as the quota in `handleStatus`.
+  const nextPollMs = limitsFor(auth.plan).nextPollMs
   const cursors = body.cursors ?? {}
   const keys = Object.keys(cursors)
 
@@ -62,7 +63,7 @@ export async function handlePull(
   // me everything." Iterating every project the caller has is exactly the hot-loop
   // regression described below that this handler exists to prevent: a device must name a
   // project before this handler will ever return rows for it.
-  if (keys.length === 0) return { rows: [], cursors: {}, next_poll_ms: NEXT_POLL_MS }
+  if (keys.length === 0) return { rows: [], cursors: {}, next_poll_ms: nextPollMs }
 
   // Only projects whose cursor this device actually sent. Returning rows for unsent
   // cursors is what made the old client hot-loop: the server iterated every account
@@ -122,5 +123,5 @@ export async function handlePull(
     }
   })
 
-  return { rows: mapped, cursors: next, next_poll_ms: NEXT_POLL_MS }
+  return { rows: mapped, cursors: next, next_poll_ms: nextPollMs }
 }
