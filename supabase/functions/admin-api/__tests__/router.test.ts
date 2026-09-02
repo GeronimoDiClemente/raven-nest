@@ -56,6 +56,18 @@ describe('rutaDe', () => {
     })
   })
 
+  it('reconoce la ruta de un miembro con el prefijo de la function', () => {
+    expect(rutaDe('/admin-api/api/internal/equipos/t1/miembros/m1')).toEqual({
+      nombre: 'equipo_miembro', teamId: 't1', memberId: 'm1',
+    })
+  })
+
+  it('reconoce la ruta de owner con el prefijo de la function', () => {
+    expect(rutaDe('/admin-api/api/internal/equipos/t1/owner')).toEqual({
+      nombre: 'equipo_owner', teamId: 't1',
+    })
+  })
+
   // Un sufijo que no conocemos no puede caer en la ruta del equipo entero: eso
   // convertiría un typo en una escritura sobre el objeto equivocado.
   it('no reconoce un sufijo desconocido de equipos', () => {
