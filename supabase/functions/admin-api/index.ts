@@ -435,7 +435,11 @@ Deno.serve(async (req) => {
       // decidir, y evita pedir el usuario de la ficha que acá no viaja.
       const equipos = await leerEquipos(fila.owner_id as string)
       const equipo = equipos.find((e) => e.id === teamId)
-      if (!equipo) return json({ error: 'Equipo no encontrado' }, 404)
+      if (!equipo) {
+        await auditar(actor, 'team_member_removed', 'team', teamId, null, null, null,
+          false, 'Equipo no encontrado')
+        return json({ error: 'Equipo no encontrado' }, 404)
+      }
 
       const veredicto = validarSacarMiembro(equipo, ruta.memberId!)
       if (!veredicto.ok) {
@@ -455,7 +459,15 @@ Deno.serve(async (req) => {
       if (error) return json({ error: error.message }, 500)
 
       const actualizado = (await leerEquipos(fila.owner_id as string)).find((e) => e.id === teamId)
-      return json({ equipo: actualizado, ...(auditado ? {} : { auditado: false }) })
+      // Si el equipo desaparecio entre el delete y esta relectura, la accion
+      // ya ocurrio y ya quedo auditada: informar un error mentiria. Se deja
+      // `null` explicito (en vez de dejar que `JSON.stringify` descarte la
+      // clave) para que el cliente pueda distinguir "sin equipo" de "no vino
+      // el campo".
+      if (!actualizado) {
+        console.error('[admin-api] el equipo desaparecio entre el delete y la relectura', { teamId })
+      }
+      return json({ equipo: actualizado ?? null, ...(auditado ? {} : { auditado: false }) })
     }
 
     const id = ruta.id!
