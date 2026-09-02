@@ -115,3 +115,63 @@ export function aEquipos(
     }
   })
 }
+
+export type Veredicto = { ok: true } | { ok: false; status: number; error: string }
+
+/** Los candidatos reales a dueño: activos, con cuenta viva, y que no sean el dueño actual. */
+function candidatos(equipo: Equipo): MiembroEquipo[] {
+  return equipo.miembros.filter(
+    (m) => m.status === 'active' && m.user_id !== null && m.user_id !== equipo.dueno.id,
+  )
+}
+
+/**
+ * ¿Se puede sacar esta fila de `team_members`?
+ *
+ * Vale igual para un miembro activo y para una invitación pendiente: son la
+ * misma fila. Lo único que no se puede sacar es al dueño, porque dejaría el
+ * equipo con un `owner_id` que ya no está entre sus miembros.
+ */
+export function validarSacarMiembro(equipo: Equipo, memberId: string): Veredicto {
+  const miembro = equipo.miembros.find((m) => m.id === memberId)
+  if (!miembro) {
+    return { ok: false, status: 404, error: 'Ese miembro no pertenece a este equipo' }
+  }
+  if (miembro.es_dueno) {
+    return {
+      ok: false,
+      status: 409,
+      error: 'No se puede sacar al dueño del equipo. Transferí la propiedad primero.',
+    }
+  }
+  return { ok: true }
+}
+
+/**
+ * ¿Se le puede pasar la propiedad del equipo a `nuevoOwnerId`?
+ *
+ * El orden importa: primero "no hay a quién transferirle" (409) y después "a
+ * ese no" (400). Sin candidatos el problema no es el id que mandaron, y la UI
+ * necesita saber que el camino entero está cerrado en vez de invitar a probar
+ * con otro.
+ */
+export function validarTransferencia(equipo: Equipo, nuevoOwnerId: string): Veredicto {
+  if (candidatos(equipo).length === 0) {
+    return {
+      ok: false,
+      status: 409,
+      error: 'El equipo no tiene otro miembro activo al que transferirle la propiedad',
+    }
+  }
+  if (nuevoOwnerId === equipo.dueno.id) {
+    return { ok: false, status: 400, error: 'Esa persona ya es la dueña del equipo' }
+  }
+  if (!candidatos(equipo).some((m) => m.user_id === nuevoOwnerId)) {
+    return {
+      ok: false,
+      status: 400,
+      error: 'El nuevo dueño tiene que ser miembro activo del equipo',
+    }
+  }
+  return { ok: true }
+}

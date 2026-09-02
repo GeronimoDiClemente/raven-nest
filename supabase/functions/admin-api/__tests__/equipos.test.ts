@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { aEquipos, type FilaTeam, type FilaMiembro, type FilaRepo } from '../equipos.ts'
+import {
+  aEquipos, validarSacarMiembro, validarTransferencia,
+  type FilaTeam, type FilaMiembro, type FilaRepo,
+} from '../equipos.ts'
 
 const DUENO = '10663452-fd04-401f-8e92-f5927f503703'
 const OTRO = '7d5ad196-a62c-4065-bfb9-f5d7119ddcea'
@@ -104,5 +107,83 @@ describe('aEquipos', () => {
     const ajeno: FilaTeam = { ...TEAM, id: 't2', name: 'AAA ajeno', owner_id: OTRO }
     const equipos = aEquipos(DUENO, [ajeno, TEAM], [], [], {})
     expect(equipos.map((e) => e.id)).toEqual(['t1', 't2'])
+  })
+})
+
+const equipoDe = (miembros: FilaMiembro[]) => aEquipos(DUENO, [TEAM], miembros, [], {})[0]
+
+describe('validarSacarMiembro', () => {
+  it('deja sacar a un miembro que no es el dueno', () => {
+    const e = equipoDe([MIEMBRO_DUENO, MIEMBRO_OTRO])
+    expect(validarSacarMiembro(e, 'm2')).toEqual({ ok: true })
+  })
+
+  it('404 si la fila no pertenece a ese equipo', () => {
+    const e = equipoDe([MIEMBRO_DUENO])
+    expect(validarSacarMiembro(e, 'm2')).toEqual({
+      ok: false, status: 404, error: 'Ese miembro no pertenece a este equipo',
+    })
+  })
+
+  // Un equipo sin owner_id valido no es un estado que la app sepa dibujar.
+  it('409 al intentar sacar al dueno', () => {
+    const e = equipoDe([MIEMBRO_DUENO, MIEMBRO_OTRO])
+    expect(validarSacarMiembro(e, 'm1')).toEqual({
+      ok: false, status: 409,
+      error: 'No se puede sacar al dueño del equipo. Transferí la propiedad primero.',
+    })
+  })
+
+  it('deja cancelar una invitacion pendiente', () => {
+    const pendiente: FilaMiembro = { ...MIEMBRO_OTRO, status: 'pending', accepted_at: null }
+    expect(validarSacarMiembro(equipoDe([MIEMBRO_DUENO, pendiente]), 'm2')).toEqual({ ok: true })
+  })
+})
+
+describe('validarTransferencia', () => {
+  it('deja transferir a un miembro activo', () => {
+    const e = equipoDe([MIEMBRO_DUENO, MIEMBRO_OTRO])
+    expect(validarTransferencia(e, OTRO)).toEqual({ ok: true })
+  })
+
+  it('409 si no hay ningun otro miembro activo a quien transferirle', () => {
+    const e = equipoDe([MIEMBRO_DUENO])
+    expect(validarTransferencia(e, OTRO)).toEqual({
+      ok: false, status: 409,
+      error: 'El equipo no tiene otro miembro activo al que transferirle la propiedad',
+    })
+  })
+
+  // El 409 va antes que el 400: sin candidatos, el problema no es el id que
+  // mandaron sino que no hay ninguno posible, y eso es lo que la UI muestra.
+  it('el 409 gana sobre el 400 cuando no hay candidatos', () => {
+    const e = equipoDe([MIEMBRO_DUENO])
+    expect(validarTransferencia(e, 'no-existe')).toMatchObject({ status: 409 })
+  })
+
+  it('400 si el destinatario no es miembro del equipo', () => {
+    const e = equipoDe([MIEMBRO_DUENO, MIEMBRO_OTRO])
+    expect(validarTransferencia(e, 'ajeno')).toEqual({
+      ok: false, status: 400, error: 'El nuevo dueño tiene que ser miembro activo del equipo',
+    })
+  })
+
+  it('400 si el destinatario es miembro pero no acepto la invitacion', () => {
+    const pendiente: FilaMiembro = { ...MIEMBRO_OTRO, status: 'pending' }
+    const e = equipoDe([MIEMBRO_DUENO, pendiente, { ...MIEMBRO_OTRO, id: 'm3', user_id: 'tercero' }])
+    expect(validarTransferencia(e, OTRO)).toMatchObject({ status: 400 })
+  })
+
+  it('400 si ya es el dueno, para no auditar un cambio que no ocurre', () => {
+    const e = equipoDe([MIEMBRO_DUENO, MIEMBRO_OTRO])
+    expect(validarTransferencia(e, DUENO)).toEqual({
+      ok: false, status: 400, error: 'Esa persona ya es la dueña del equipo',
+    })
+  })
+
+  it('no permite transferir a un miembro cuya cuenta se borro', () => {
+    const huerfano: FilaMiembro = { ...MIEMBRO_OTRO, user_id: null }
+    const e = equipoDe([MIEMBRO_DUENO, huerfano])
+    expect(validarTransferencia(e, OTRO)).toMatchObject({ status: 409 })
   })
 })
