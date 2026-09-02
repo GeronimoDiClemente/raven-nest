@@ -23,10 +23,15 @@ function send(
   headers: Record<string, string> = {}
 ): void {
   const payload = JSON.stringify(body)
+  // El spread va PRIMERO y los propios después, para que los propios siempre ganen. Al revés
+  // — que es como estaba — un caller que pasara `Content-Type` o `Content-Length` en los
+  // extra los pisaba en silencio: el `Content-Length` de esta función es el único que
+  // corresponde al `payload` que se manda acá abajo, y anunciar otro deja al cliente leyendo
+  // de menos (respuesta truncada) o esperando bytes que nunca llegan hasta el timeout.
   res.writeHead(status, {
+    ...headers,
     'Content-Type': 'application/json',
     'Content-Length': Buffer.byteLength(payload),
-    ...headers,
   })
   res.end(payload)
 }
