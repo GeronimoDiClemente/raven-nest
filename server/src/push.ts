@@ -119,9 +119,16 @@ async function ensureProject(
   return Number(rows[0].id)
 }
 
+// Plans whose memory can be shared with other people. `scope: 'team'` is the field that
+// makes an observation visible beyond its author, so this is an authorization boundary, not
+// a pricing detail: it decides who can read a memory, and it is enforced server-side for the
+// same reason as the cloud gate itself (§9.3 — what is checked only in the renderer is not
+// checked at all).
+const TEAM_SCOPE_PLANS = new Set(['team', 'enterprise'])
+
 export async function handlePush(
   pool: Pool,
-  auth: { deviceId: string; userId: string },
+  auth: { deviceId: string; userId: string; plan: string },
   body: PushBody
 ): Promise<PushResponse> {
   const mutations = Array.isArray(body.mutations) ? body.mutations : []
@@ -176,6 +183,21 @@ export async function handlePush(
           outcome: 'rejected',
           project_seq: 0,
           error: 'missing_sync_id',
+        })
+        continue
+      }
+
+      // The scope travels in the payload, so without this check the client is the only
+      // thing deciding whether a memory is private or shared with the whole account.
+      // Terminal on purpose: the same payload on the same plan can never succeed, and
+      // omitting it instead would make the device retry a write it is not allowed to make,
+      // forever.
+      if (String(p.scope ?? 'personal') === 'team' && !TEAM_SCOPE_PLANS.has(auth.plan)) {
+        results.push({
+          sync_id: syncId,
+          outcome: 'rejected',
+          project_seq: 0,
+          error: 'team_scope_not_allowed',
         })
         continue
       }

@@ -4,7 +4,7 @@ import { getPool, migrate } from '../src/db'
 import { handlePush } from '../src/push'
 
 const pool = getPool()
-let auth: { deviceId: string; userId: string }
+let auth: { deviceId: string; userId: string; plan: string }
 
 // The test DB persists between runs and observations.sync_id is a GLOBAL primary key, so a
 // fixed literal like 'obs-del' collides with the row a previous run left behind. Prefix
@@ -21,7 +21,7 @@ beforeAll(async () => {
     `insert into devices (id, user_id, name, token_hash) values ($1, $2, 'tomb', $3)`,
     [deviceId, userId, `hash-${deviceId}`]
   )
-  auth = { deviceId, userId }
+  auth = { deviceId, userId, plan: 'pro' }
 })
 
 afterAll(async () => { await pool.end() })

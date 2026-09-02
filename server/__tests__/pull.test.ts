@@ -5,7 +5,7 @@ import { handlePush } from '../src/push'
 import { handlePull } from '../src/pull'
 
 const pool = getPool()
-let auth: { deviceId: string; userId: string }
+let auth: { deviceId: string; userId: string; plan: string }
 
 // observations.sync_id is a global primary key and the test DB persists between runs, so
 // every sync_id used here must be unique per run — prefix with a fresh token each run.
@@ -21,7 +21,7 @@ beforeAll(async () => {
     `insert into devices (id, user_id, name, token_hash) values ($1, $2, 'pull', $3)`,
     [deviceId, userId, `hash-${deviceId}`]
   )
-  auth = { deviceId, userId }
+  auth = { deviceId, userId, plan: 'pro' }
 })
 
 afterAll(async () => { await pool.end() })
@@ -143,7 +143,7 @@ describe('handlePull', () => {
       [otherDevice, otherUser, `hash-${otherDevice}`]
     )
     const shared = `pull-shared-${randomUUID().slice(0, 8)}`
-    await handlePush(pool, { deviceId: otherDevice, userId: otherUser }, { mutations: [mut(740, sid('theirs'), shared)] })
+    await handlePush(pool, { deviceId: otherDevice, userId: otherUser, plan: 'pro' }, { mutations: [mut(740, sid('theirs'), shared)] })
     await handlePush(pool, auth, { mutations: [mut(741, sid('mine'), shared)] })
 
     const res = await handlePull(pool, auth, { cursors: { [shared]: 0 }, limit: 500 })

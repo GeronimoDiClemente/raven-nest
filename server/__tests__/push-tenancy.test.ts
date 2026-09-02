@@ -4,8 +4,8 @@ import { getPool, migrate } from '../src/db'
 import { handlePush } from '../src/push'
 
 const pool = getPool()
-let alice: { deviceId: string; userId: string }
-let bob: { deviceId: string; userId: string }
+let alice: { deviceId: string; userId: string; plan: string }
+let bob: { deviceId: string; userId: string; plan: string }
 
 // The test DB persists between runs and observations.sync_id is a GLOBAL primary key —
 // which is the very thing this file is about — so every id here is per-run.
@@ -21,7 +21,7 @@ async function seedAccount(label: string) {
     `insert into devices (id, user_id, name, token_hash) values ($1, $2, $3, $4)`,
     [deviceId, userId, label, `hash-${deviceId}`]
   )
-  return { deviceId, userId }
+  return { deviceId, userId, plan: 'pro' }
 }
 
 beforeAll(async () => {

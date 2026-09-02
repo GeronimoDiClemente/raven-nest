@@ -12,8 +12,8 @@ const RUN = randomUUID().slice(0, 8)
 const SYNC = (id: string) => `${RUN}-${id}`
 const PROJECT = (label: string) => `del-${RUN}-${label}`
 
-let mine: { deviceId: string; userId: string }
-let theirs: { deviceId: string; userId: string }
+let mine: { deviceId: string; userId: string; plan: string }
+let theirs: { deviceId: string; userId: string; plan: string }
 let base: string
 let server: ReturnType<typeof createApp>
 const TOKEN = `nmk_del_${RUN}`
@@ -27,7 +27,7 @@ async function seedAccount(label: string, token?: string) {
     [deviceId, userId, label, token ? hashToken(token) : `hash-${deviceId}`]
   )
   await pool.query('insert into allowlist (user_id) values ($1)', [userId])
-  return { deviceId, userId }
+  return { deviceId, userId, plan: 'pro' }
 }
 
 const mutation = (seq: number, syncId: string, projectKey: string) => ({

@@ -5,7 +5,7 @@ import { getPool, migrate } from '../src/db'
 import { handlePush, classifyPushError, TerminalPushError } from '../src/push'
 
 const pool = getPool()
-let auth: { deviceId: string; userId: string }
+let auth: { deviceId: string; userId: string; plan: string }
 
 const RUN = randomUUID().slice(0, 8)
 const SYNC = (id: string) => `${RUN}-${id}`
@@ -20,7 +20,7 @@ beforeAll(async () => {
     `insert into devices (id, user_id, name, token_hash) values ($1, $2, 'classify', $3)`,
     [deviceId, userId, `hash-${deviceId}`]
   )
-  auth = { deviceId, userId }
+  auth = { deviceId, userId, plan: 'pro' }
 })
 
 afterAll(async () => { await pool.end() })
