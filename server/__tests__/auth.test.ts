@@ -72,7 +72,14 @@ describe('authenticate', () => {
     })
   })
 
-  it('rejects a free plan with 403 plan_required', async () => {
+  // Was: "rejects a free plan with 403 plan_required". That protected a rule that's no
+  // longer the rule — the pricing spec (§4) gives Free 1 project in the cloud, the hook
+  // that lets someone open a second machine and find the first one's memory. Free was
+  // pulled out of CLOUD_PLANS entirely, which made that free project unreachable and the
+  // whole project cap built for it dead code. Free now authenticates; what bounds it is
+  // the limits already built on top of the gate (1 project, 100 MB, 15-minute poll), not
+  // the gate itself. See task-6-brief.md / progress.md's Task 3 ruling.
+  it('accepts a free plan (bounded by its own limits, not the gate)', async () => {
     const freeId = randomUUID()
     const freeDevice = randomUUID()
     const freeToken = `nmk_free_${RUN}`
@@ -83,7 +90,7 @@ describe('authenticate', () => {
     )
     await pool.query('insert into allowlist (user_id) values ($1)', [freeId])
     expect(await authenticate(pool, `Bearer ${freeToken}`)).toMatchObject({
-      ok: false, status: 403, error: 'plan_required',
+      ok: true, deviceId: freeDevice, userId: freeId, plan: 'free',
     })
   })
 })
