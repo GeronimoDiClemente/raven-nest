@@ -150,10 +150,10 @@ export function validarSacarMiembro(equipo: Equipo, memberId: string): Veredicto
 /**
  * ¿Se le puede pasar la propiedad del equipo a `nuevoOwnerId`?
  *
- * El orden importa: primero "no hay a quién transferirle" (409) y después "a
- * ese no" (400). Sin candidatos el problema no es el id que mandaron, y la UI
- * necesita saber que el camino entero está cerrado en vez de invitar a probar
- * con otro.
+ * El orden importa: primero "no hay a quién transferirle" (409), después "el
+ * dueño actual quedaría afuera" (409 propio), y recién ahí "a ese no" (400).
+ * Sin candidatos el problema no es el id que mandaron, y la UI necesita saber
+ * que el camino entero está cerrado en vez de invitar a probar con otro.
  */
 export function validarTransferencia(equipo: Equipo, nuevoOwnerId: string): Veredicto {
   if (candidatos(equipo).length === 0) {
@@ -161,6 +161,19 @@ export function validarTransferencia(equipo: Equipo, nuevoOwnerId: string): Vere
       ok: false,
       status: 409,
       error: 'El equipo no tiene otro miembro activo al que transferirle la propiedad',
+    }
+  }
+  // El dueño puede haberse ido del equipo por RLS ("User can leave their
+  // team") sin que nadie se lo impida: sin una fila propia y activa en
+  // `team_members`, sólo pertenece al equipo por `teams.owner_id`, y la app
+  // arma la lista de equipos de un usuario exclusivamente desde
+  // `team_members` (`useTeam.ts`). Transferir en ese estado lo dejaría fuera
+  // del equipo, justo lo que la spec promete que nunca pasa.
+  if (!equipo.miembros.some((m) => m.es_dueno && m.status === 'active')) {
+    return {
+      ok: false,
+      status: 409,
+      error: 'El dueño actual no figura como miembro activo: transferir lo dejaría fuera del equipo',
     }
   }
   if (nuevoOwnerId === equipo.dueno.id) {

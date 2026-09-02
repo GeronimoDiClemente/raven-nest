@@ -186,4 +186,27 @@ describe('validarTransferencia', () => {
     const e = equipoDe([MIEMBRO_DUENO, huerfano])
     expect(validarTransferencia(e, OTRO)).toMatchObject({ status: 409 })
   })
+
+  // El dueño puede irse del equipo por RLS ("User can leave their team") sin
+  // que nadie se lo impida: si eso pasó, el dueño sólo pertenece al equipo por
+  // `teams.owner_id`, y `useTeam.ts` arma la lista de equipos exclusivamente
+  // desde `team_members`. Transferir en ese estado lo dejaría fuera del
+  // equipo, que es justo lo que la spec promete que nunca pasa.
+  it('409 si el dueno actual no tiene su propia fila de miembro activo', () => {
+    const e = equipoDe([MIEMBRO_OTRO])
+    expect(validarTransferencia(e, OTRO)).toEqual({
+      ok: false, status: 409,
+      error: 'El dueño actual no figura como miembro activo: transferir lo dejaría fuera del equipo',
+    })
+  })
+
+  // El 409 de "sin candidatos" sigue ganando: sin este orden, un equipo sin
+  // fila del dueño Y sin otros miembros mostraría el mensaje equivocado.
+  it('el 409 de sin-candidatos sigue ganando sobre el del dueno sin fila propia', () => {
+    const e = equipoDe([])
+    expect(validarTransferencia(e, OTRO)).toEqual({
+      ok: false, status: 409,
+      error: 'El equipo no tiene otro miembro activo al que transferirle la propiedad',
+    })
+  })
 })
