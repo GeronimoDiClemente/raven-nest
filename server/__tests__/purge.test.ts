@@ -103,4 +103,21 @@ describe('purgeTombstones', () => {
     const { rows } = await pool.query('select 1 from observations where sync_id = $1', [syncId])
     expect(rows).toHaveLength(1)
   })
+
+  // Fija la opción segura ya implementada (ronda de arreglo 2): esta fila no debería existir
+  // en operación normal -- el `on conflict` de push.ts siempre estampa `tombstoned_at` en la
+  // transición a `deleted` -- pero si igual apareciera (un bug en otro lado, una migración
+  // salteada), la purga no debe interpretar "no sé desde cuándo" como "hace mucho".
+  it('un tombstone con tombstoned_at nulo sobrevive a la purga', async () => {
+    const p = `purge-${randomUUID().slice(0, 8)}`
+    const syncId = SYNC('null-tombstoned-at')
+    await handlePush(pool, auth, { mutations: [mutation(730, syncId, p, 'upsert', 'x')] })
+    await handlePush(pool, auth, { mutations: [mutation(731, syncId, p, 'delete', null)] })
+    // Fuerza el estado que push.ts nunca debería dejar: tombstone sin sello.
+    await pool.query('update observations set tombstoned_at = null where sync_id = $1', [syncId])
+
+    await purgeTombstones(pool, 90)
+    const { rows } = await pool.query('select 1 from observations where sync_id = $1', [syncId])
+    expect(rows).toHaveLength(1)
+  })
 })

@@ -95,4 +95,54 @@ describe('tombstones (§8.2)', () => {
     )
     expect(rows[0].superseded_by).toBeNull() // the live row keeps the slot
   })
+
+  // Las siguientes dos cubren propiedades de `tombstoned_at` que hoy sólo viven en el SQL
+  // del `on conflict` de push.ts (ronda de arreglo 2 de la Tarea 7). Van por handlePush de
+  // punta a punta a propósito -- SQL directo no ejercita el `on conflict` real, que es
+  // exactamente cómo el bug original de `server_created_at` se coló sin que ningún test lo
+  // viera.
+
+  it('reenviar el mismo delete no le renueva la vida al tombstone', async () => {
+    const p = `tomb-${randomUUID().slice(0, 8)}`
+    const syncId = SYNC('resend-del')
+    await handlePush(pool, auth, { mutations: [base(800, syncId, p, 'upsert', 'alive')] })
+    await handlePush(pool, auth, { mutations: [base(801, syncId, p, 'delete', null)] })
+    const first = await pool.query(
+      'select tombstoned_at from observations where sync_id = $1', [syncId]
+    )
+    const firstStamp = first.rows[0].tombstoned_at as Date
+    expect(firstStamp).not.toBeNull()
+
+    // Delay real, no simulado: si el coalesce estuviera del lado equivocado y reestampara
+    // `now()` en cada escritura, dos llamadas a now() separadas por microsegundos podrían
+    // coincidir por casualidad y esconder el bug. 50ms lo hace imposible de esconder.
+    await new Promise((resolve) => setTimeout(resolve, 50))
+
+    // El mismo delete, reenviado -- con un seq NUEVO, porque la idempotencia por
+    // (device_id, seq) frenaría un replay del mismo seq antes de que llegue al upsert.
+    await handlePush(pool, auth, { mutations: [base(802, syncId, p, 'delete', null)] })
+    const second = await pool.query(
+      'select tombstoned_at from observations where sync_id = $1', [syncId]
+    )
+
+    expect((second.rows[0].tombstoned_at as Date).getTime()).toBe(firstStamp.getTime())
+  })
+
+  it('resucitar una observacion borrada limpia tombstoned_at', async () => {
+    const p = `tomb-${randomUUID().slice(0, 8)}`
+    const syncId = SYNC('resurrect')
+    await handlePush(pool, auth, { mutations: [base(810, syncId, p, 'upsert', 'alive')] })
+    await handlePush(pool, auth, { mutations: [base(811, syncId, p, 'delete', null)] })
+    const deleted = await pool.query(
+      'select tombstoned_at from observations where sync_id = $1', [syncId]
+    )
+    expect(deleted.rows[0].tombstoned_at).not.toBeNull()
+
+    await handlePush(pool, auth, { mutations: [base(812, syncId, p, 'upsert', 'de nuevo viva')] })
+    const revived = await pool.query(
+      'select deleted, tombstoned_at from observations where sync_id = $1', [syncId]
+    )
+    expect(revived.rows[0].deleted).toBe(false)
+    expect(revived.rows[0].tombstoned_at).toBeNull()
+  })
 })
