@@ -420,15 +420,24 @@ export async function handlePush(
           `insert into observations (
              sync_id, project_id, project_seq, scope, type, topic_key, title, content, tags,
              content_hash, origin_ai, origin_account, git_branch, author_id, author_display,
-             lamport, client_updated_at, client_created_at, deleted, superseded_by)
-           values ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
+             lamport, client_updated_at, client_created_at, deleted, superseded_by, tombstoned_at)
+           values ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,
+             case when $19 then now() else null end)
            on conflict (sync_id) do update set
              project_id = excluded.project_id, project_seq = excluded.project_seq,
              scope = excluded.scope, type = excluded.type, topic_key = excluded.topic_key,
              title = excluded.title, content = excluded.content, tags = excluded.tags,
              content_hash = excluded.content_hash, lamport = excluded.lamport,
              client_updated_at = excluded.client_updated_at, deleted = excluded.deleted,
-             superseded_by = excluded.superseded_by
+             superseded_by = excluded.superseded_by,
+             -- Stamped on the TRANSITION into deleted, not on every write: coalesce()
+             -- means a tombstone re-pushed (the same delete resent, or a later unrelated
+             -- update to an already-deleted row) does not get its clock reset and its
+             -- purge-eligibility pushed back out. A row that comes back to life (deleted
+             -- flips false) clears it, so it starts clean if it is ever deleted again.
+             tombstoned_at = case when excluded.deleted
+               then coalesce(observations.tombstoned_at, now())
+               else null end
            where observations.author_id = excluded.author_id`,
           [
             syncId,
