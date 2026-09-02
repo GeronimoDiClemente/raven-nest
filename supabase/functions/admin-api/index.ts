@@ -5,6 +5,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import Stripe from 'https://esm.sh/stripe@14?target=deno'
 import { verificarAuth, type Actor } from './auth.ts'
 import { rutaDe } from './router.ts'
+import { sobre } from './respuesta.ts'
 import { MANIFEST } from './manifest.ts'
 import { aAccountDetail, aAccountSummary, type UsuarioAuth } from './mapear.ts'
 import { PLANES_VALIDOS, aSubResumen, elegirSub, esSubViva, type SubResumen } from './pricing.ts'
@@ -25,7 +26,7 @@ const stripe = new Stripe(Deno.env.get('STRIPE_SECRET_KEY') ?? '', {
 })
 
 const json = (body: unknown, status = 200) =>
-  new Response(JSON.stringify(body), {
+  new Response(JSON.stringify(sobre(body, status)), {
     status,
     headers: { 'content-type': 'application/json' },
   })
@@ -374,7 +375,10 @@ Deno.serve(async (req) => {
     // `200 {accounts:[...]}`, que un cliente puede leer como "borrado".
     if (ruta.nombre === 'manifest') {
       if (req.method !== 'GET') return NO_PERMITIDO()
-      return json(MANIFEST)
+      // Bajo la clave `manifest`, no en la raíz: el cliente del back-office
+      // parsea `cuerpo.manifest` (`client.ts`: `manifestSchema.parse(c.manifest)`).
+      // En la raíz llegaba como `undefined` y la nav del producto no se armaba.
+      return json({ manifest: MANIFEST })
     }
 
     if (ruta.nombre === 'accounts') {
@@ -660,15 +664,19 @@ Deno.serve(async (req) => {
         stripeCaido = true
       }
 
-      return json(
-        aAccountDetail(
+      // Bajo la clave `account`, por lo mismo que el manifest: el cliente parsea
+      // `cuerpo.account` y `cuerpo.credenciales`. Nest no manda `credenciales`
+      // —son Vapi y WhatsApp, de AiraMed— y el cliente ya trata su ausencia como
+      // "no cargada", así que sólo hace falta la ficha.
+      return json({
+        account: aAccountDetail(
           { id: authUser.user.id, email: authUser.user.email ?? null, created_at: authUser.user.created_at },
           perfil ?? null,
           sub,
           { repos: repos ?? 0, teams: teams ?? 0, seats: sub?.quantity ?? 0, stripeCaido },
           actividad.get(id) ?? null,
         ),
-      )
+      })
     }
 
     if (ruta.nombre === 'plan' && req.method === 'PUT') {
