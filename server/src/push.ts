@@ -157,33 +157,74 @@ export async function handlePush(
     }
     // El tope se cuenta ANTES de crear nada, y sólo lo pagan las claves NUEVAS: un usuario
     // que ya tiene su proyecto en la nube sigue escribiendo en él aunque esté en el tope.
-    const { rows: existing } = await client.query(
-      'select project_key from projects where user_id = $1',
-      [auth.userId]
-    )
-    const known = new Set(existing.map((r) => r.project_key as string))
-    const maxProjects = limitsFor(auth.plan).maxProjects
-    let slotsLeft = Math.max(0, maxProjects - known.size)
-
+    //
+    // El count-y-luego-insert de acá abajo tiene que correr bajo un lock propio: dos pushes
+    // concurrentes del mismo usuario (dos devices sincronizando a la vez, cada uno con un
+    // project_key nuevo) pueden leer el mismo `known.size` ANTES de que el otro haya
+    // insertado su fila — ambos ven un lugar libre y ambos lo ocupan, dejando al usuario con
+    // más proyectos de los que su plan permite. `pg_advisory_xact_lock` sobre una clave
+    // derivada del user_id serializa a los pushes concurrentes de la MISMA cuenta (cuentas
+    // distintas no se pisan: hashtextextended de distintos user_id no colisiona en la
+    // práctica) sin tocar el resto de las cuentas.
+    //
+    // Esta transacción es corta y propia — no la misma que envuelve cada mutación más abajo
+    // — así que el comentario de arriba sigue siendo cierto: como ella comitea ANTES de que
+    // arranque el loop de mutaciones, los ids resueltos acá quedan válidos pase lo que pase
+    // después, sin importar qué transacción de mutación haga rollback.
+    //
+    // El mismo patrón de advisory lock transaccional que usa la colisión de topic más abajo
+    // (`pg_advisory_xact_lock(hashtextextended($1, 0))`) — misma función, mismo namespace de
+    // 64 bits compartido con CUALQUIER otro advisory lock del proceso (incluido
+    // MIGRATION_LOCK_KEY en db.ts), así que la clave usada acá (`project-limit:<user_id>`)
+    // tiene que seguir siendo distinguible del formato que usa esa otra clave
+    // (`<projectId>:<scope>:<topicKey>`, siempre numérica al inicio) para que una colisión
+    // real sea, como ahí, no creíble.
     const projectIds = new Map<string, number>()
     const projectErrors = new Map<string, unknown>()
     const overLimit = new Set<string>()
-    for (const [key, displayName] of displayNames) {
-      if (!known.has(key)) {
-        if (slotsLeft <= 0) {
-          overLimit.add(key)
-          continue
+    await client.query('begin')
+    try {
+      await client.query('select pg_advisory_xact_lock(hashtextextended($1, 0))', [
+        `project-limit:${auth.userId}`,
+      ])
+
+      const { rows: existing } = await client.query(
+        'select project_key from projects where user_id = $1',
+        [auth.userId]
+      )
+      const known = new Set(existing.map((r) => r.project_key as string))
+      const maxProjects = limitsFor(auth.plan).maxProjects
+      let slotsLeft = Math.max(0, maxProjects - known.size)
+
+      for (const [key, displayName] of displayNames) {
+        if (!known.has(key)) {
+          if (slotsLeft <= 0) {
+            overLimit.add(key)
+            continue
+          }
+          slotsLeft--
         }
-        slotsLeft--
+        try {
+          // A savepoint per key, not a bare try/catch: a real SQL error inside an explicit
+          // transaction poisons it until something rolls back, so without this a single
+          // unusable project_key would take the WHOLE batch's project resolution down with
+          // it — exactly the failure the surrounding try/catch was written to prevent
+          // before this block ran in a transaction at all.
+          await client.query('savepoint ensure_project')
+          projectIds.set(key, await ensureProject(client, auth.userId, key, displayName))
+          await client.query('release savepoint ensure_project')
+        } catch (err) {
+          await client.query('rollback to savepoint ensure_project')
+          // Kept per-key instead of thrown: one unusable project_key must not take down the
+          // whole batch. The error is re-thrown inside each affected mutation's transaction
+          // below, so it goes through the same terminal/transient classification.
+          projectErrors.set(key, err)
+        }
       }
-      try {
-        projectIds.set(key, await ensureProject(client, auth.userId, key, displayName))
-      } catch (err) {
-        // Kept per-key instead of thrown: one unusable project_key must not take down the
-        // whole batch. The error is re-thrown inside each affected mutation's transaction
-        // below, so it goes through the same terminal/transient classification.
-        projectErrors.set(key, err)
-      }
+      await client.query('commit')
+    } catch (err) {
+      await client.query('rollback')
+      throw err
     }
 
     for (const m of mutations) {
