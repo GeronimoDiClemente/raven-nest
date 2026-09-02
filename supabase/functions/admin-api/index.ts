@@ -118,20 +118,41 @@ const COLUMNAS_MIEMBRO = 'id, team_id, user_id, email, role, status, invited_at,
  * lo mandan como parámetro.
  */
 async function leerEquipos(usuarioId: string): Promise<Equipo[]> {
-  const { data: membresías } = await admin
+  const { data: membresías, error: errMembresías } = await admin
     .from('team_members').select('team_id').eq('user_id', usuarioId)
+  if (errMembresías) {
+    console.error('[admin-api] leerEquipos: fallo al leer las membresías del usuario', {
+      usuarioId, error: errMembresías.message,
+    })
+    throw new Error('No se pudieron leer los equipos')
+  }
   const idsPorMembresía = [...new Set((membresías ?? []).map((m) => m.team_id as string))]
 
   const columnas = 'id, name, owner_id, created_at'
-  const propios = (await admin.from('teams').select(columnas).eq('owner_id', usuarioId)).data ?? []
+  const { data: propios, error: errPropios } = await admin
+    .from('teams').select(columnas).eq('owner_id', usuarioId)
+  if (errPropios) {
+    console.error('[admin-api] leerEquipos: fallo al leer los equipos propios', {
+      usuarioId, error: errPropios.message,
+    })
+    throw new Error('No se pudieron leer los equipos')
+  }
   // Sin ids no se consulta: `.in('id', [])` arma un filtro vacío y no vale la
   // pena averiguar cómo lo interpreta PostgREST.
-  const ajenos = idsPorMembresía.length
-    ? (await admin.from('teams').select(columnas).in('id', idsPorMembresía)).data ?? []
-    : []
+  let ajenos: FilaTeam[] = []
+  if (idsPorMembresía.length) {
+    const { data, error: errAjenos } = await admin.from('teams').select(columnas).in('id', idsPorMembresía)
+    if (errAjenos) {
+      console.error('[admin-api] leerEquipos: fallo al leer los equipos ajenos', {
+        usuarioId, error: errAjenos.message,
+      })
+      throw new Error('No se pudieron leer los equipos')
+    }
+    ajenos = (data ?? []) as FilaTeam[]
+  }
 
   const porId = new Map<string, FilaTeam>()
-  for (const t of [...propios, ...ajenos] as FilaTeam[]) {
+  for (const t of [...(propios ?? []), ...ajenos] as FilaTeam[]) {
     porId.set(t.id, t)
   }
   const teams = [...porId.values()]
@@ -142,17 +163,37 @@ async function leerEquipos(usuarioId: string): Promise<Equipo[]> {
     admin.from('team_members').select(COLUMNAS_MIEMBRO).in('team_id', ids),
     // `local_path` es de la máquina de cada uno y no se expone.
     admin.from('team_repos').select('team_id, repo_full_name, provider, added_at').in('team_id', ids),
-    // Conteo por equipo con `head: true`: nunca trae el contenido de un mensaje.
+    // Conteo por equipo con `head: true`: nunca trae el contenido de un
+    // mensaje. A diferencia de las cinco consultas de arriba, éste es un dato
+    // decorativo —igual que el último uso en `actividadPorUsuario`—: un
+    // fallo acá degrada a 0 en vez de tumbar toda la ficha por un contador.
     Promise.all(
       ids.map(async (id) => {
-        const { count } = await admin
+        const { count, error: errMensajes } = await admin
           .from('team_chat_messages')
           .select('id', { count: 'exact', head: true })
           .eq('team_id', id)
+        if (errMensajes) {
+          console.error('[admin-api] leerEquipos: fallo al contar los mensajes del equipo', {
+            teamId: id, error: errMensajes.message,
+          })
+        }
         return [id, count ?? 0] as const
       }),
     ),
   ])
+  if (miembros.error) {
+    console.error('[admin-api] leerEquipos: fallo al leer los miembros', {
+      usuarioId, error: miembros.error.message,
+    })
+    throw new Error('No se pudieron leer los equipos')
+  }
+  if (repos.error) {
+    console.error('[admin-api] leerEquipos: fallo al leer los repos', {
+      usuarioId, error: repos.error.message,
+    })
+    throw new Error('No se pudieron leer los equipos')
+  }
 
   return aEquipos(
     usuarioId,
