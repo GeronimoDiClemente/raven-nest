@@ -418,6 +418,46 @@ Deno.serve(async (req) => {
       return json({ accounts: cuentas, truncado })
     }
 
+    if (ruta.nombre === 'equipo_miembro') {
+      if (req.method !== 'DELETE') return NO_PERMITIDO()
+      const teamId = ruta.teamId!
+
+      const { data: fila, error: errEquipo } = await admin
+        .from('teams').select('id, name, owner_id, created_at').eq('id', teamId).maybeSingle()
+      if (errEquipo) return json({ error: 'No se pudo leer el equipo' }, 500)
+      if (!fila) {
+        await auditar(actor, 'team_member_removed', 'team', teamId, null, null, null,
+          false, 'Equipo no encontrado')
+        return json({ error: 'Equipo no encontrado' }, 404)
+      }
+
+      // Se arman los equipos desde la perspectiva del dueño: alcanza para
+      // decidir, y evita pedir el usuario de la ficha que acá no viaja.
+      const equipos = await leerEquipos(fila.owner_id as string)
+      const equipo = equipos.find((e) => e.id === teamId)
+      if (!equipo) return json({ error: 'Equipo no encontrado' }, 404)
+
+      const veredicto = validarSacarMiembro(equipo, ruta.memberId!)
+      if (!veredicto.ok) {
+        await auditar(actor, 'team_member_removed', 'team', teamId, equipo.name, null, null,
+          false, veredicto.error)
+        return json({ error: veredicto.error }, veredicto.status)
+      }
+
+      const sacado = equipo.miembros.find((m) => m.id === ruta.memberId)!
+      const { error } = await admin.from('team_members').delete().eq('id', ruta.memberId!)
+
+      const auditado = await auditar(
+        actor, 'team_member_removed', 'team', teamId, equipo.name,
+        { miembro: sacado.email, role: sacado.role, status: sacado.status }, null,
+        !error, error?.message ?? null,
+      )
+      if (error) return json({ error: error.message }, 500)
+
+      const actualizado = (await leerEquipos(fila.owner_id as string)).find((e) => e.id === teamId)
+      return json({ equipo: actualizado, ...(auditado ? {} : { auditado: false }) })
+    }
+
     const id = ruta.id!
 
     if (ruta.nombre === 'account' && req.method === 'GET') {
