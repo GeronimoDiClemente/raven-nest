@@ -1,6 +1,7 @@
 import type { Pool, PoolClient } from 'pg'
 import { allocateSeqRange } from './seq'
 import { resolveTopicCollision } from './lww'
+import { limitsFor } from './limits'
 
 export interface Mutation {
   seq: number
@@ -154,9 +155,27 @@ export async function handlePush(
       const key = String(p.project_key ?? '__global__')
       displayNames.set(key, String(p.project_display_name ?? key))
     }
+    // El tope se cuenta ANTES de crear nada, y sólo lo pagan las claves NUEVAS: un usuario
+    // que ya tiene su proyecto en la nube sigue escribiendo en él aunque esté en el tope.
+    const { rows: existing } = await client.query(
+      'select project_key from projects where user_id = $1',
+      [auth.userId]
+    )
+    const known = new Set(existing.map((r) => r.project_key as string))
+    const maxProjects = limitsFor(auth.plan).maxProjects
+    let slotsLeft = Math.max(0, maxProjects - known.size)
+
     const projectIds = new Map<string, number>()
     const projectErrors = new Map<string, unknown>()
+    const overLimit = new Set<string>()
     for (const [key, displayName] of displayNames) {
+      if (!known.has(key)) {
+        if (slotsLeft <= 0) {
+          overLimit.add(key)
+          continue
+        }
+        slotsLeft--
+      }
       try {
         projectIds.set(key, await ensureProject(client, auth.userId, key, displayName))
       } catch (err) {
@@ -198,6 +217,19 @@ export async function handlePush(
           outcome: 'rejected',
           project_seq: 0,
           error: 'team_scope_not_allowed',
+        })
+        continue
+      }
+
+      // El proyecto de más no se rechaza para siempre ni se borra: sigue vivo y completo en
+      // la máquina del usuario. Esto sólo dice "en la nube, no". Terminal porque el mismo
+      // payload con el mismo plan no puede funcionar nunca.
+      if (overLimit.has(projectKey)) {
+        results.push({
+          sync_id: syncId,
+          outcome: 'rejected',
+          project_seq: 0,
+          error: 'project_limit_reached',
         })
         continue
       }
