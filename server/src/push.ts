@@ -132,6 +132,27 @@ const TEAM_SCOPE_PLANS = new Set(['team', 'enterprise'])
 // legítimo lo toca.
 const MAX_OBSERVATION_BYTES = 1024 * 1024
 
+/**
+ * La partición interna donde cae toda mutación sin `project_key`. NO es un proyecto del
+ * usuario: no cuenta contra `maxProjects` y nunca se rechaza con `project_limit_reached`.
+ *
+ * Por qué es especial, que dentro de un año nadie lo va a adivinar leyendo el código: el
+ * CLIENTE la crea SOLO, sin que el usuario pida nada. `electron/main.ts` llama
+ * `ensureProject('__global__')` en CADA connect, y `electron/memory-project-key.ts` la usa
+ * de fallback para toda captura cuyo repo no se puede resolver. Como la cola de push es un
+ * log plano ordenado por `seq` sobre TODOS los proyectos, si esta clave pagara el tope, en
+ * una cuenta Free (`maxProjects: 1`) el único lugar se lo podría llevar `__global__` en vez
+ * del repo del usuario — según cuál clave apareciera primero en el batch más viejo. El
+ * gancho central del producto (abrir la segunda máquina y encontrar la memoria de la
+ * primera) quedaría librado al azar, y el usuario vería `project_limit_reached` sobre su
+ * repo real sin entender por qué. Un Free tiene entonces su `__global__` MÁS un proyecto
+ * real.
+ *
+ * Mismo valor que `GLOBAL_PROJECT_KEY` en `electron/memory-project-key.ts` — es el
+ * contrato de wire entre cliente y servicio, no una constante local.
+ */
+const GLOBAL_PROJECT_KEY = '__global__'
+
 export async function handlePush(
   pool: Pool,
   auth: { deviceId: string; userId: string; plan: string },
@@ -157,7 +178,7 @@ export async function handlePush(
     const displayNames = new Map<string, string>()
     for (const m of mutations) {
       const p = m.payload ?? {}
-      const key = String(p.project_key ?? '__global__')
+      const key = String(p.project_key ?? GLOBAL_PROJECT_KEY)
       displayNames.set(key, String(p.project_display_name ?? key))
     }
     // El tope se cuenta ANTES de crear nada, y sólo lo pagan las claves NUEVAS: un usuario
@@ -199,10 +220,15 @@ export async function handlePush(
       )
       const known = new Set(existing.map((r) => r.project_key as string))
       const maxProjects = limitsFor(auth.plan).maxProjects
-      let slotsLeft = Math.max(0, maxProjects - known.size)
+      // `__global__` se descuenta de lo YA existente por la misma razón por la que abajo no
+      // pide lugar (ver GLOBAL_PROJECT_KEY): es una partición interna, no un repo. Sin este
+      // descuento el usuario que ya tiene su `__global__` en la nube — o sea, todos, porque
+      // el cliente la crea en cada connect — arrancaría con el tope de Free ya consumido.
+      const ownedProjects = [...known].filter((k) => k !== GLOBAL_PROJECT_KEY).length
+      let slotsLeft = Math.max(0, maxProjects - ownedProjects)
 
       for (const [key, displayName] of displayNames) {
-        if (!known.has(key)) {
+        if (key !== GLOBAL_PROJECT_KEY && !known.has(key)) {
           if (slotsLeft <= 0) {
             overLimit.add(key)
             continue
@@ -247,7 +273,7 @@ export async function handlePush(
     for (const m of mutations) {
       const p = m.payload ?? {}
       const syncId = m.sync_id ?? String(p.sync_id ?? '')
-      const projectKey = String(p.project_key ?? '__global__')
+      const projectKey = String(p.project_key ?? GLOBAL_PROJECT_KEY)
       const now = Date.now()
 
       // Without this, a mutation carrying neither `sync_id` nor `payload.sync_id` became
