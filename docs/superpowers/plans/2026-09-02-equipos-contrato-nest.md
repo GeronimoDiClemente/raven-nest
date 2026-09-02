@@ -742,17 +742,36 @@ const COLUMNAS_MIEMBRO = 'id, team_id, user_id, email, role, status, invited_at,
  * lo mandan como parámetro.
  */
 async function leerEquipos(usuarioId: string): Promise<Equipo[]> {
-  const { data: membresías } = await admin
+  const { data: membresías, error: errMembresías } = await admin
     .from('team_members').select('team_id').eq('user_id', usuarioId)
+  if (errMembresías) {
+    console.error('[admin-api] leerEquipos: fallo al leer las membresias',
+      { usuarioId, error: errMembresías.message })
+    throw new Error('No se pudieron leer los equipos')
+  }
   const idsPorMembresía = [...new Set((membresías ?? []).map((m) => m.team_id as string))]
 
   const columnas = 'id, name, owner_id, created_at'
-  const propios = (await admin.from('teams').select(columnas).eq('owner_id', usuarioId)).data ?? []
+  const { data: propios, error: errPropios } = await admin
+    .from('teams').select(columnas).eq('owner_id', usuarioId)
+  if (errPropios) {
+    console.error('[admin-api] leerEquipos: fallo al leer los equipos propios',
+      { usuarioId, error: errPropios.message })
+    throw new Error('No se pudieron leer los equipos')
+  }
+
   // Sin ids no se consulta: `.in('id', [])` arma un filtro vacío y no vale la
   // pena averiguar cómo lo interpreta PostgREST.
-  const ajenos = idsPorMembresía.length
-    ? (await admin.from('teams').select(columnas).in('id', idsPorMembresía)).data ?? []
-    : []
+  let ajenos: FilaTeam[] = []
+  if (idsPorMembresía.length) {
+    const { data, error } = await admin.from('teams').select(columnas).in('id', idsPorMembresía)
+    if (error) {
+      console.error('[admin-api] leerEquipos: fallo al leer los equipos por membresia',
+        { usuarioId, error: error.message })
+      throw new Error('No se pudieron leer los equipos')
+    }
+    ajenos = (data ?? []) as FilaTeam[]
+  }
 
   const porId = new Map<string, FilaTeam>()
   for (const t of [...propios, ...ajenos] as FilaTeam[]) {
@@ -769,14 +788,32 @@ async function leerEquipos(usuarioId: string): Promise<Equipo[]> {
     // Conteo por equipo con `head: true`: nunca trae el contenido de un mensaje.
     Promise.all(
       ids.map(async (id) => {
-        const { count } = await admin
+        const { count, error } = await admin
           .from('team_chat_messages')
           .select('id', { count: 'exact', head: true })
           .eq('team_id', id)
+        // Este sí degrada, al revés que los de arriba: el conteo de mensajes es
+        // decorativo, y perderlo no vuelve engañosa la respuesta. Un miembro o
+        // un repo que falta sí, porque sobre eso se decide.
+        if (error) {
+          console.error('[admin-api] leerEquipos: fallo el conteo de mensajes',
+            { teamId: id, error: error.message })
+        }
         return [id, count ?? 0] as const
       }),
     ),
   ])
+
+  // Los miembros y los repos son el payload: si no se pudieron leer, la
+  // respuesta tiene que fallar y no decir "este equipo no tiene ninguno".
+  if (miembros.error || repos.error) {
+    console.error('[admin-api] leerEquipos: fallo al leer miembros o repos', {
+      usuarioId,
+      errorMiembros: miembros.error?.message ?? null,
+      errorRepos: repos.error?.message ?? null,
+    })
+    throw new Error('No se pudieron leer los equipos')
+  }
 
   return aEquipos(
     usuarioId,
@@ -856,7 +893,14 @@ Después del handler de la Task 5:
       // decidir, y evita pedir el usuario de la ficha que acá no viaja.
       const equipos = await leerEquipos(fila.owner_id as string)
       const equipo = equipos.find((e) => e.id === teamId)
-      if (!equipo) return json({ error: 'Equipo no encontrado' }, 404)
+      if (!equipo) {
+        // Mismo error que la rama de arriba, así que también deja rastro: dos
+        // rechazos indistinguibles para el cliente y uno solo auditado es
+        // justo el agujero por donde no se ve quién intentó qué.
+        await auditar(actor, 'team_member_removed', 'team', teamId, null, null, null,
+          false, 'Equipo no encontrado')
+        return json({ error: 'Equipo no encontrado' }, 404)
+      }
 
       const veredicto = validarSacarMiembro(equipo, ruta.memberId!)
       if (!veredicto.ok) {
@@ -876,7 +920,14 @@ Después del handler de la Task 5:
       if (error) return json({ error: error.message }, 500)
 
       const actualizado = (await leerEquipos(fila.owner_id as string)).find((e) => e.id === teamId)
-      return json({ equipo: actualizado, ...(auditado ? {} : { auditado: false }) })
+      if (!actualizado) {
+        console.error('[admin-api] el equipo desaparecio entre el delete y la relectura', { teamId })
+      }
+      // `null` explícito y no un error: el miembro se sacó y quedó auditado, así
+      // que reportar fallo sería mentir. Y `undefined` tampoco sirve, porque
+      // `JSON.stringify` borra la clave y el cliente recibe una respuesta sin
+      // `equipo` y sin error.
+      return json({ equipo: actualizado ?? null, ...(auditado ? {} : { auditado: false }) })
     }
 ```
 
@@ -926,7 +977,13 @@ Después del handler de la Task 6:
 
       const duenoViejo = fila.owner_id as string
       const equipo = (await leerEquipos(duenoViejo)).find((e) => e.id === teamId)
-      if (!equipo) return json({ error: 'Equipo no encontrado' }, 404)
+      if (!equipo) {
+        // Mismo criterio que la rama de arriba: un rechazo sin rastro es el
+        // agujero por donde no se ve quién intentó qué.
+        await auditar(actor, 'team_owner_transferred', 'team', teamId, null, null, null,
+          false, 'Equipo no encontrado')
+        return json({ error: 'Equipo no encontrado' }, 404)
+      }
 
       const body = await req.json().catch(() => null) as { owner_id?: string } | null
       const nuevo = body?.owner_id?.trim() ?? ''
@@ -962,8 +1019,15 @@ Después del handler de la Task 6:
       )
 
       const actualizado = (await leerEquipos(nuevo)).find((e) => e.id === teamId)
+      if (!actualizado) {
+        console.error('[admin-api] el equipo desaparecio entre la transferencia y la relectura',
+          { teamId })
+      }
+      // `null` explícito, no un error ni `undefined`: la propiedad ya se movió y
+      // quedó auditada, y `JSON.stringify` borraría la clave dejando al cliente
+      // sin `equipo` y sin señal de por qué.
       return json({
-        equipo: actualizado,
+        equipo: actualizado ?? null,
         cambios: [{ key: 'owner', de: duenoViejo, a: nuevo }],
         ...(auditado ? {} : { auditado: false }),
       })

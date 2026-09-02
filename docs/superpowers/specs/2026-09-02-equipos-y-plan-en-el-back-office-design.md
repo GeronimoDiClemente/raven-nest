@@ -216,6 +216,14 @@ intento fallido deja su fila igual que uno exitoso.
 | Transferir a alguien que no es miembro activo | 400 |
 | Transferir en un equipo sin otro miembro activo | 409 |
 | El audit no se pudo escribir | La acción se aplica igual y la respuesta trae `auditado: false` |
+| Falla una consulta que arma la lista de equipos | 500 con el error en el log, **nunca** una lista vacía |
+| Falla sólo el conteo de mensajes | Se registra en el log y ese equipo va con `mensajes: 0` |
+
+Las dos últimas filas son la misma regla que el contrato ya aplica a la facturación, donde
+`monto_mensual_cents` y `seats` viajan en `null` con Stripe caído: **cero es un valor válido y
+mentiría en la pantalla donde se decide sobre una cuenta.** Un equipo que aparece sin miembros
+porque la base falló es esa misma mentira, así que lo que sostiene la respuesta falla ruidoso y
+sólo lo decorativo degrada.
 
 ## Testing y verificación
 
@@ -225,9 +233,14 @@ intento fallido deja su fila igual que uno exitoso.
 vitest como el resto de la función.
 
 **Verificación real, antes de tocar el otro repo:** deploy de `admin-api` y smoke con `curl`
-contra producción — listar los equipos de un usuario real, y una transferencia de ida y vuelta
-sobre uno de los tres equipos sin miembros, que no afecta a nadie. Recién con eso verde, el PR
-a `aira-admin`.
+contra producción — listar los equipos de un usuario real, y ejercitar los rechazos contra los
+equipos sin miembros y contra un equipo real con ids inexistentes, que no modifican nada.
+
+**El camino feliz necesita datos que hoy no existen.** Una transferencia exitosa no se puede
+smokear sobre los equipos vacíos: la regla 4 los rechaza con 409 justamente por no tener a quién
+transferirle. Hace falta un equipo de prueba con **dos miembros aceptados**; hasta que exista, la
+baja de un miembro y la transferencia quedan verificadas por sus tests unitarios y por los
+rechazos en vivo, pero no ejecutadas contra la base real.
 
 **En `aira-admin`:** tests de los dos paneles y de los métodos nuevos del client. Su CI corre
 aislamiento, lint, typecheck, tests y build.
