@@ -1,5 +1,5 @@
 import type { Pool } from 'pg'
-import { limitsFor } from './limits'
+import { limitsFor, maxBytesFor } from './limits'
 
 export interface StatusRosterProject {
   project_key: string
@@ -22,28 +22,6 @@ export interface StatusResponse {
   // no row is ever handed back for a cursor the device didn't ask for.
   projects: StatusRosterProject[]
 }
-
-const DEFAULT_MAX_BYTES = 1024 * 1024 * 1024
-
-/**
- * `Number(...)` alone put whatever the env said straight into every status response, so
- * `MAX_BYTES_PER_USER=1gb` — or an empty value, which Number() reads as 0 — surfaced as
- * `NaN` (or a zero quota) in the client's UI, on every request, with nothing logged.
- * A misconfigured env var should fall back to the documented default, not silently make
- * the quota unreadable.
- */
-export function resolveMaxBytes(raw: string | undefined): number {
-  if (raw === undefined) return DEFAULT_MAX_BYTES
-  const parsed = Number(raw)
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_MAX_BYTES
-}
-
-// Override de INSTANCIA DEDICADA (§10 de la spec de pricing): cuando un deploy sirve a un
-// solo cliente, el techo por usuario de la tabla no significa nada y el disco de la máquina
-// es el límite real. Sin setear — que es el caso del servicio compartido — manda el plan.
-const MAX_BYTES_OVERRIDE = process.env.MAX_BYTES_PER_USER
-  ? resolveMaxBytes(process.env.MAX_BYTES_PER_USER)
-  : null
 
 // §5.3: this is the device's health check — today the client has no way to tell a dead
 // subsystem from a healthy-but-unsynced one — and it is where the server hands back
@@ -78,7 +56,10 @@ export async function handleStatus(
     plan: auth.plan,
     next_poll_ms: limits.nextPollMs,
     server_time: new Date().toISOString(),
-    quota: { used_bytes: Number(rows[0].used), max_bytes: MAX_BYTES_OVERRIDE ?? limits.maxBytes },
+    // `maxBytesFor`, no `limits.maxBytes`: es la MISMA vía por la que `push.ts` decide
+    // `quota_exceeded`, así que lo que el cliente ve informado acá es exactamente el techo
+    // que se le va a aplicar — override de instancia dedicada incluido.
+    quota: { used_bytes: Number(rows[0].used), max_bytes: maxBytesFor(auth.plan) },
     projects: projectRows.map((r) => ({ project_key: r.project_key, display_name: r.display_name })),
   }
 }

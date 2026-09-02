@@ -1,7 +1,7 @@
 import type { Pool, PoolClient } from 'pg'
 import { allocateSeqRange } from './seq'
 import { resolveTopicCollision } from './lww'
-import { limitsFor } from './limits'
+import { limitsFor, maxBytesFor } from './limits'
 
 export interface Mutation {
   seq: number
@@ -189,7 +189,9 @@ export async function handlePush(
         where p.user_id = $1`,
       [auth.userId]
     )
-    const overQuota = Number(usedRows[0].used) >= limitsFor(auth.plan).maxBytes
+    // `maxBytesFor`, no `limitsFor(plan).maxBytes`: el override de instancia dedicada
+    // (`MAX_BYTES_PER_USER`) tiene que APLICAR, no sólo salir informado en `status`.
+    const overQuota = Number(usedRows[0].used) >= maxBytesFor(auth.plan)
 
     // PASADA 1 — los cuatro rechazos que NO dependen del id del proyecto: `missing_sync_id`,
     // `team_scope_not_allowed`, `observation_too_large` y `quota_exceeded`.

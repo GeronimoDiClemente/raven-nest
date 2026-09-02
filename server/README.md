@@ -41,9 +41,10 @@ Notas:
   observación también en `push.ts` (`observation_too_large`); el de `scope: 'team'` en
   `push.ts` (`team_scope_not_allowed`); y el rate limit en `http.ts`, por verbo (push y
   pull tienen cada uno su propio contador de 60/min, así que agotar uno no bloquea al otro).
-- `MAX_BYTES_PER_USER` puede pisar el número que **reporta** `status.quota.max_bytes` para
-  una instancia dedicada — ver la tabla de variables de entorno más abajo por el detalle
-  importante de qué NO cambia.
+- `MAX_BYTES_PER_USER` pisa el techo de bytes de la tabla de arriba para una **instancia
+  dedicada**, y lo pisa en los **dos** caminos: lo que `status.quota.max_bytes` reporta y lo
+  que `push` hace cumplir con `quota_exceeded`. Ver la tabla de variables de entorno más
+  abajo.
 
 ## Códigos de error
 
@@ -110,7 +111,7 @@ en producción hay que fijar al menos `DATABASE_URL`.
 |---|---|---|
 | `DATABASE_URL` | `postgres://postgres:nestmem@127.0.0.1:55432/nest_memory` | Connection string de Postgres. El default apunta al contenedor de desarrollo local — nunca usarlo en producción. |
 | `PORT` | `8080` | Puerto donde escucha el servidor HTTP. |
-| `MAX_BYTES_PER_USER` | ninguno (manda el plan) | Override de **instancia dedicada** (§10 de la spec de pricing): cuando un deploy sirve a un solo cliente, el techo por usuario de la tabla de planes no significa nada y el disco de la máquina es el límite real. Si está seteada, gana sobre `limitsFor(plan).maxBytes` **en lo que `GET /v1/sync/status` informa** (`quota.max_bytes`). Sin setear — el caso del servicio compartido — manda el plan. Un valor no numérico, vacío o ≤ 0 se ignora y cae al plan, en vez de mandar `NaN` en cada respuesta de status (que es lo que hacía antes, y el usuario lo veía). ⚠️ **Ojo:** el rechazo real de pushes por cuota (`quota_exceeded`, en `push.ts`) compara siempre contra `limitsFor(plan).maxBytes` — nunca contra este override. Hoy una instancia dedicada que sube este valor cambia lo que `status` reporta pero no lo que `push` hace cumplir. |
+| `MAX_BYTES_PER_USER` | ninguno (manda el plan) | Override de **instancia dedicada** (§10 de la spec de pricing): cuando un deploy sirve a un solo cliente, el techo por usuario de la tabla de planes no significa nada y el disco de la máquina es el límite real. Si está seteada, gana sobre `limitsFor(plan).maxBytes` **en los dos caminos que dependen de ese número**: lo que `GET /v1/sync/status` informa (`quota.max_bytes`) y el rechazo real de pushes por cuota (`quota_exceeded`, en `push.ts`). Los dos lo resuelven por la misma función, `maxBytesFor(plan)` en `limits.ts`. Sin setear — el caso del servicio compartido — manda el plan. Un valor no numérico, vacío o ≤ 0 se ignora y cae **al límite del plan** (antes caía a 1 GiB fijo, así que un `MAX_BYTES_PER_USER=abc` le reportaba 1 GiB a todo plan, Free incluido: un typo aflojaba el techo en vez de ignorarse). |
 | `PG_POOL_MAX` | `10` | Tamaño máximo del pool de conexiones a Postgres (`pg.Pool`). |
 
 `NEXT_POLL_MS` existió como env var pero ya no se lee en ningún lado del código: el

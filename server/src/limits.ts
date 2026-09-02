@@ -54,3 +54,41 @@ const BY_PLAN: Record<string, PlanLimits> = {
 export function limitsFor(plan: string): PlanLimits {
   return BY_PLAN[plan] ?? FREE
 }
+
+/**
+ * Aplica el override de `MAX_BYTES_PER_USER` sobre el techo de un plan.
+ *
+ * Un valor no numérico, vacío o ≤ 0 cae AL LÍMITE DEL PLAN — no a una constante propia. Antes
+ * caía a 1 GiB fijo, y eso tenía dos consecuencias: `MAX_BYTES_PER_USER=abc` le reportaba
+ * 1 GiB a TODO plan, Free (100 MiB) incluido, o sea que un typo en el env AFLOJABA el techo
+ * en vez de ignorarse; y el README ya documentaba "se ignora y cae al plan", que es lo que
+ * ahora hace de verdad. `Number('')` y `Number('   ')` son 0, así que un valor vacío entra
+ * por la misma puerta que uno inválido.
+ */
+export function resolveMaxBytes(raw: string | undefined, planMaxBytes: number): number {
+  if (raw === undefined) return planMaxBytes
+  const parsed = Number(raw)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : planMaxBytes
+}
+
+/**
+ * El techo de bytes que EFECTIVAMENTE rige para un plan, override incluido.
+ *
+ * Override de INSTANCIA DEDICADA (§10 de la spec de pricing): cuando un deploy sirve a un
+ * solo cliente, el techo por usuario de la tabla de planes no significa nada y el disco de la
+ * máquina es el límite real. Sin setear — el caso del servicio compartido — manda el plan.
+ *
+ * Los DOS caminos que dependen de este número tienen que pasar por acá y por ningún otro
+ * lado: lo que `GET /v1/sync/status` informa en `quota.max_bytes`, y el rechazo
+ * `quota_exceeded` de `push.ts`. Antes `status` leía el override y `push` comparaba contra
+ * `limitsFor(plan).maxBytes` directo, así que una instancia dedicada que subiera la variable
+ * mostraba una cuota grande y seguía frenando al tope del plan — un límite que se muestra
+ * pero no se aplica, o al revés, es peor que no tenerlo.
+ *
+ * Lee `process.env` en cada llamada en vez de una sola vez al cargar el módulo: el costo es
+ * un acceso a un objeto por request y a cambio el override es testeable sin remockear el
+ * módulo entero.
+ */
+export function maxBytesFor(plan: string): number {
+  return resolveMaxBytes(process.env.MAX_BYTES_PER_USER, limitsFor(plan).maxBytes)
+}
