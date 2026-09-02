@@ -10,10 +10,18 @@ const PROJECT = `quota-${RUN}`
 
 let auth: { deviceId: string; userId: string; plan: string }
 
-const mut = (seq: number, syncId: string, content: string) => ({
+// `op` es parametro y no una constante: el helper hardcodeaba `'upsert'`, y por eso la
+// excepcion del delete -- la garantia mas dura de la spec sobre la cuota -- no tenia como
+// testearse desde aca.
+const mut = (
+  seq: number,
+  syncId: string,
+  content: string,
+  op: 'upsert' | 'delete' = 'upsert'
+) => ({
   seq,
   sync_id: syncId,
-  op: 'upsert' as const,
+  op,
   payload: {
     sync_id: syncId,
     project_key: PROJECT,
@@ -62,6 +70,17 @@ afterAll(async () => {
   await pool.end()
 })
 
+// La misma suma que usa `push.ts` para decidir `quota_exceeded`, leida desde el test.
+async function usedBytes(): Promise<number> {
+  const { rows } = await pool.query(
+    `select coalesce(sum(octet_length(coalesce(o.content, ''))), 0)::bigint as used
+       from observations o join projects p on p.id = o.project_id
+      where p.user_id = $1`,
+    [auth.userId]
+  )
+  return Number(rows[0].used)
+}
+
 describe('push — la cuota de bytes frena la escritura', () => {
   it('acepta mientras haya lugar', async () => {
     const res = await handlePush(pool, auth, { mutations: [mut(1, SYNC('chica'), 'hola')] })
@@ -90,4 +109,31 @@ describe('push — la cuota de bytes frena la escritura', () => {
     )
     expect(rows[0].n).toBeGreaterThanOrEqual(100)
   })
+
+  // La otra mitad de esa promesa, y la garantia mas dura de la spec: la cuota llena nunca
+  // ENCIERRA al usuario. Un `op: 'delete'` pasa aunque no quede lugar, porque borrar es lo
+  // unico que puede bajar el uso — si tambien se frenara, el usuario quedaria sin ninguna
+  // forma de recuperar espacio, con la sincronizacion muerta para siempre.
+  //
+  // Va ultimo a proposito: baja el uso del usuario, asi que correr antes del test de arriba
+  // le sacaria una observacion de las que ese cuenta.
+  it('deja pasar un delete con la cuota llena, y el uso baja', async () => {
+    // Sigue llena: el rechazo de una escritura nueva es la premisa del caso.
+    const nueva = await handlePush(pool, auth, {
+      mutations: [mut(900, SYNC('sigue-llena'), 'hola')],
+    })
+    expect(nueva.results[0]).toMatchObject({ outcome: 'rejected', error: 'quota_exceeded' })
+
+    const antes = await usedBytes()
+    const res = await handlePush(pool, auth, {
+      mutations: [mut(901, SYNC('relleno-0'), '', 'delete')],
+    })
+    expect(res.results[0].outcome).toBe('applied')
+
+    // No alcanza con que el delete se acepte: tiene que LIBERAR. Un tombstone que dejara el
+    // contenido puesto seria una via muerta igual que el rechazo.
+    const despues = await usedBytes()
+    expect(despues).toBeLessThan(antes)
+    expect(antes - despues).toBeGreaterThanOrEqual(1024 * 1024)
+  }, 30_000)
 })
