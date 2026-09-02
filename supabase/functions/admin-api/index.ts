@@ -106,6 +106,13 @@ async function buscarUsuario(
 async function auditar(
   actor: Actor,
   action: string,
+  /**
+   * Qué clase de objeto se tocó. Las acciones de equipos apuntan a un equipo,
+   * no a un usuario, y `target_type` es la única columna que lo distingue:
+   * sin esto una transferencia quedaría registrada como si el objetivo fuera
+   * una cuenta con un uuid que no existe en `auth.users`.
+   */
+  targetType: 'user' | 'team',
   targetId: string,
   targetLabel: string | null,
   before: unknown,
@@ -122,7 +129,7 @@ async function auditar(
 
   const { error: errorAudit } = await admin.from('admin_audit_log').insert({
     action,
-    target_type: 'user',
+    target_type: targetType,
     target_id: targetId,
     target_label: targetLabel,
     before,
@@ -377,7 +384,7 @@ Deno.serve(async (req) => {
       // confirmación que no coincide: es justo el patrón de alguien probando
       // ids, y era el único intento fallido que no dejaba rastro.
       if (buscadoPlan.estado === 'no_encontrado') {
-        await auditar(actor, 'change_plan', id, null, null, null, false, 'Cuenta no encontrada')
+        await auditar(actor, 'change_plan', 'user', id, null, null, null, false, 'Cuenta no encontrada')
         return json({ error: 'Cuenta no encontrada' }, 404)
       }
       const u = { user: buscadoPlan.user }
@@ -388,7 +395,7 @@ Deno.serve(async (req) => {
       if (!plan || !PLANES_VALIDOS.includes(plan as typeof PLANES_VALIDOS[number])) {
         const msg = `Plan invalido. Validos: ${PLANES_VALIDOS.join(', ')}`
         // Un intento fallido es información operativa igual que uno exitoso.
-        await auditar(actor, 'change_plan', id, email, null, { plan: plan ?? null }, false, msg)
+        await auditar(actor, 'change_plan', 'user', id, email, null, { plan: plan ?? null }, false, msg)
         return json({ error: msg }, 400)
       }
 
@@ -408,7 +415,7 @@ Deno.serve(async (req) => {
       const ok = !error && !sinFila
       const mensaje = error?.message ?? (sinFila ? 'La cuenta no tiene perfil' : null)
 
-      const auditado = await auditar(actor, 'change_plan', id, email,
+      const auditado = await auditar(actor, 'change_plan', 'user', id, email,
         { plan: antes?.plan ?? null }, { plan }, ok, mensaje)
 
       if (error) return json({ error: error.message }, 500)
@@ -429,7 +436,7 @@ Deno.serve(async (req) => {
         return json({ error: 'No se pudo verificar la cuenta' }, 500)
       }
       if (buscadoDel.estado === 'no_encontrado') {
-        await auditar(actor, 'delete_user', id, null, null, null, false, 'Cuenta no encontrada')
+        await auditar(actor, 'delete_user', 'user', id, null, null, null, false, 'Cuenta no encontrada')
         return json({ error: 'Cuenta no encontrada' }, 404)
       }
       const u = { user: buscadoDel.user }
@@ -443,7 +450,7 @@ Deno.serve(async (req) => {
       // ausente, comparar contra `''` daría un match falso (`'' !== ''` es
       // `false`) y el borrado pasaría sin ninguna confirmación real.
       if (!email || !emailConfirm || emailConfirm.toLowerCase() !== email.toLowerCase()) {
-        await auditar(actor, 'delete_user', id, email, null, null, false,
+        await auditar(actor, 'delete_user', 'user', id, email, null, null, false,
           'El email de confirmacion no coincide')
         return json({ error: 'El email de confirmacion no coincide' }, 400)
       }
@@ -462,7 +469,7 @@ Deno.serve(async (req) => {
 
       const { error } = await admin.auth.admin.deleteUser(id)
 
-      const auditado = await auditar(actor, 'delete_user', id, email, antes, null,
+      const auditado = await auditar(actor, 'delete_user', 'user', id, email, antes, null,
         !error, error?.message ?? null)
 
       if (error) return json({ error: error.message }, 500)
@@ -493,7 +500,7 @@ Deno.serve(async (req) => {
       // queda el `console.error` de arriba como único rastro.
       if (ruta.id) {
         try {
-          await auditar(actor, `${ruta.nombre}_error`, ruta.id, null, null, null, false, mensaje)
+          await auditar(actor, `${ruta.nombre}_error`, 'user', ruta.id, null, null, null, false, mensaje)
         } catch {
           // Ya estamos en el peor camino: si tampoco se pudo auditar, no hay
           // más red de seguridad que devolver igual la respuesta al llamador.
