@@ -55,7 +55,7 @@ sin límite de cantidad.
 | Cuota de almacenamiento | 100 MB | 1 GiB | 5 GiB por asiento |
 | Tamaño por observación | 1 MB | 1 MB | 1 MB |
 | Intervalo de sync (`next_poll_ms`) | 15 min | 5 min | 5 min |
-| Rate limit por device | 60 push/min · 60 pull/min · 200 mutaciones por request | igual | igual |
+| Rate limit por device | 60 push/min · 60 pull/min · tope de 500 mutaciones por request | igual | igual |
 | Memoria compartida (`scope: 'team'`) | No | No | **Sí** |
 | Instancia dedicada | No | No | Opcional |
 | Retención de tombstones | 90 días | 90 días | 90 días |
@@ -86,8 +86,10 @@ razonamiento que el cuarto pane en el pricing viejo.
 - **15 minutos en Free** es la única palanca de costo real del diseño (§11.4) y ya vive en el
   servidor: se mueve sin actualizarle la app a nadie. El ~99% de los pulls vuelven vacíos.
 - **60 requests por minuto por device** es 300 veces el ritmo real del cliente (0,2 pulls por
-  minuto). Con 200 mutaciones por request, una primera sincronización de 559 memorias entra
-  en 3 requests. Es un límite que sólo toca un bug o un ataque.
+  minuto). El cliente empuja de a 200 mutaciones (`PUSH_BATCH_SIZE`, `memory-daemon.ts:22`) y
+  el servidor ya acepta hasta 500 (`MAX_BATCH`, `http.ts:9`), así que una primera
+  sincronización de 559 memorias entra en 3 requests. Es un límite que sólo toca un bug o un
+  ataque.
 - **3 máquinas en Free** cubren PC + Mac + una tercera; el límite no es la razón para pagar,
   el proyecto lo es.
 - Los **topes técnicos** (100 proyectos, 10 máquinas) no se comunican como límite de
