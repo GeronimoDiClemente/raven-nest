@@ -532,7 +532,146 @@ git commit -m "feat(pricing): se apaga el plan pro"
 
 ---
 
-### Task 8: Verificación en la app real
+### Task 8: Un rechazo reversible no puede perder la memoria para siempre
+
+> Agregada el 2026-09-02 por la revisión final del plan hermano, que encontró este hueco y señaló que no tenía dueño en ningún plan.
+
+**Files:**
+- Modify: `electron/memory-store.ts` (el schema de `mutation_log`, `pendingMutations`, `markPushed`)
+- Modify: `electron/memory-daemon.ts:526` (la clasificación del `outcome: 'rejected'`)
+- Test: `electron/__tests__/memory-daemon.test.ts` y `memory-store.test.ts`
+
+**Interfaces:**
+- Consumes: los códigos de error del servidor (`project_limit_reached`, `quota_exceeded`), que ya existen.
+- Produces: mutaciones que quedan en cola en vez de perderse, y se reintentan cuando el límite se levanta.
+
+Hoy el daemon marca **todo** `outcome: 'rejected'` como pusheado, y `pruneAckedMutations` lo borra a los 7 días. El comentario del código dice "un item permanentemente rechazado, por ejemplo un límite de plan, no debe loopear" — pero `project_limit_reached` y `quota_exceeded` **no son permanentes**: se revierten pagando o borrando.
+
+**La consecuencia es exactamente el momento de la venta**: el usuario Free que paga por su segundo repo recibe un proyecto **vacío** en la nube. Todo lo que escribió mientras estaba capado no se sube nunca, sólo lo nuevo. Es §4.1 de la spec de pricing ("el segundo repo es el momento de pago") entregado roto.
+
+- [ ] **Step 1: Escribir el test que falla**
+
+```typescript
+// electron/__tests__/memory-daemon.test.ts
+it('no descarta una mutacion rechazada por un limite que se puede revertir', async () => {
+  // El servidor rechaza por tope de proyectos: reversible pagando.
+  const daemon = makeDaemon({
+    push: async () => ({
+      results: [{ sync_id: 'obs-1', outcome: 'rejected', project_seq: 0, error: 'project_limit_reached' }],
+    }),
+  })
+  store.saveObservation({ syncId: 'obs-1', title: 't', content: 'c', projectKey: 'repo-b' })
+
+  await daemon.push()
+
+  // No se reintenta ahora (no loopea), pero TAMPOCO se da por entregada.
+  expect(store.pendingMutations(10).map((m) => m.sync_id)).not.toContain('obs-1')
+  expect(store.blockedMutations().map((m) => m.sync_id)).toContain('obs-1')
+})
+
+it('vuelve a encolar lo bloqueado cuando el limite se levanta', async () => {
+  // ... misma preparacion, y despues un status que informa un plan distinto
+  await daemon.onStatus({ plan: 'cloud', quota: { used_bytes: 0, max_bytes: 1024 ** 3 } })
+
+  expect(store.pendingMutations(10).map((m) => m.sync_id)).toContain('obs-1')
+})
+```
+
+- [ ] **Step 2: Correrlo y verificar que falla**
+
+Run: `npx vitest run electron/__tests__/memory-daemon.test.ts`
+Expected: FAIL — `store.blockedMutations is not a function`, y la mutación aparece como entregada.
+
+- [ ] **Step 3: Implementación**
+
+En `electron/memory-store.ts`, sumar la columna `blocked_reason TEXT` a `mutation_log` (con su paso de migración, como el resto del schema del store). `pendingMutations` filtra `blocked_reason IS NULL` además de `pushed_at IS NULL`. Sumar `blockedMutations()` y `unblockMutations(reasons: string[])`, que pone `blocked_reason = NULL` para los motivos dados.
+
+En `electron/memory-daemon.ts`, donde hoy se arma `toMark`, separar los códigos:
+
+```typescript
+// Un rechazo es TERMINAL o REVERSIBLE, y tratarlos igual pierde datos. Terminal es lo que
+// no puede funcionar nunca con ese payload (`missing_sync_id`, `observation_too_large`,
+// `team_scope_not_allowed`): se marca entregado para que no loopee. Reversible es un límite
+// que el usuario puede levantar pagando o borrando: se bloquea, no se entrega, y se
+// reintenta cuando `status` dice que el límite ya no está.
+const REVERSIBLE = new Set(['project_limit_reached', 'quota_exceeded'])
+```
+
+y en el handler de `status`, si el `plan` cambió respecto del último visto, o si `used_bytes` bajó por debajo de `max_bytes`, llamar a `unblockMutations([...])` con los motivos que corresponda.
+
+- [ ] **Step 4: Correr y verificar**
+
+Run: `npx vitest run electron/__tests__/; echo EXIT=$?`
+Expected: verde y `EXIT=0`.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add electron/memory-store.ts electron/memory-daemon.ts electron/__tests__/
+git commit -m "fix(memory): un rechazo reversible se bloquea, no se descarta"
+```
+
+---
+
+### Task 9: `device_limit_reached` no puede leerse como "tus credenciales no sirven"
+
+> Agregada el 2026-09-02 por la revisión final del plan hermano.
+
+**Files:**
+- Modify: `electron/memory-daemon.ts:380` (`classifyAuthFailure`) y el caller que cuenta los fallos
+- Test: `electron/__tests__/memory-daemon.test.ts`
+
+**Interfaces:**
+- Consumes: el 403 `device_limit_reached` que devuelve el servidor.
+- Produces: un estado propio, que no dispara el breaker de auth.
+
+`classifyAuthFailure` sólo conoce `plan_required`, `not_in_beta` y `unauthorized`. **Cualquier otro 403 cae en `unauthorized`**, que incrementa `consecutiveAuthFailures` y a los 3 pone `authBlocked = true`, apagando el subsistema hasta que el usuario haga algo.
+
+O sea que la cuarta máquina de una cuenta Free le dice al usuario que sus credenciales están revocadas, y **deja de reintentar** aunque después se libere un lugar. Es el mismo modo de falla que los commits `c708635` y `9353d28` ya arreglaron para `plan_required` en esta misma rama, reintroducido por el tope de máquinas.
+
+- [ ] **Step 1: Escribir el test que falla**
+
+```typescript
+it('un 403 por tope de maquinas no cuenta como fallo de credenciales', async () => {
+  const daemon = makeDaemon({
+    push: async () => new Response(JSON.stringify({ error: 'device_limit_reached' }), { status: 403 }),
+  })
+
+  await daemon.push()
+  await daemon.push()
+  await daemon.push()
+  await daemon.push()
+
+  // El breaker de auth NO se dispara: las credenciales estan bien, sobra la maquina.
+  expect(daemon.status()).not.toBe('auth')
+  expect(daemon.lastError()).toMatch(/device/i)
+})
+```
+
+- [ ] **Step 2: Correrlo y verificar que falla**
+
+Run: `npx vitest run electron/__tests__/memory-daemon.test.ts`
+Expected: FAIL — el estado es `auth` a partir del tercer intento.
+
+- [ ] **Step 3: Implementación**
+
+Sumar `'device_limit'` al tipo de retorno de `classifyAuthFailure` y reconocer el código, y en el caller darle el mismo tratamiento que ya tiene `plan_required`: es una respuesta legítima del servidor, no un problema de credenciales, así que **no** incrementa `consecutiveAuthFailures`. El mensaje al usuario tiene que decir que sobra una máquina, no que el token está mal.
+
+- [ ] **Step 4: Correr y verificar**
+
+Run: `npx vitest run electron/__tests__/; echo EXIT=$?`
+Expected: verde y `EXIT=0`.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add electron/memory-daemon.ts electron/__tests__/
+git commit -m "fix(memory): el tope de maquinas no dispara el breaker de credenciales"
+```
+
+---
+
+### Task 10: Verificación en la app real
 
 **Files:**
 - Ninguno. Es verificación.
