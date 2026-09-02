@@ -48,12 +48,18 @@ export async function authenticate(pool: Pool, header: string | undefined): Prom
   // Determinístico, y no le saca la nube a una máquina que ya la tenía porque el usuario
   // registró otra. Las revocadas no ocupan lugar: si lo ocuparan, revocar y volver a
   // registrar dejaría al usuario afuera de su propia cuenta para siempre.
+  //
+  // Ronda de arreglo 1: created_at por si solo no da un orden total — dos devices con el
+  // mismo instante exacto no se cuentan como "mas viejo" uno al otro bajo `<` estricto, y
+  // ambos pasaban el gate. Se desempata comparando la tupla (created_at, id): Postgres la
+  // compara lexicograficamente, asi que ante un empate de timestamp gana el id menor,
+  // siempre el mismo id, en cualquier corrida.
   const { rows: olderRows } = await pool.query(
     `select count(*)::int as n
        from devices
       where user_id = $1
         and revoked_at is null
-        and created_at < (select created_at from devices where id = $2)`,
+        and (created_at, id) < (select created_at, id from devices where id = $2)`,
     [row.user_id, row.device_id]
   )
   if (olderRows[0].n >= limitsFor(row.plan).maxDevices) {

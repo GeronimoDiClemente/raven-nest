@@ -64,4 +64,25 @@ describe('authenticate — tope de maquinas por plan', () => {
 
     expect((await authenticate(pool, `Bearer ${t4}`)).ok).toBe(true)
   })
+
+  // Ronda de arreglo 1: created_at empatado no tenia por si solo un orden total. Con `<`
+  // estricto en ambas direcciones, ninguno de los dos dispositivos empatados contaba al
+  // otro como "mas viejo", asi que en el margen del cupo entraban los DOS en vez de uno
+  // solo. Corrido contra el codigo previo al desempate por id: los dos autenticaban ok.
+  it('desempata por id cuando created_at queda exactamente empatado', async () => {
+    const userId = await seedUser('free')
+    await addDevice(userId, 'e1', '2026-01-01')
+    await addDevice(userId, 'e2', '2026-01-02')
+    const empateA = await addDevice(userId, 'e3a', '2026-01-03')
+    const empateB = await addDevice(userId, 'e3b', '2026-01-03')
+
+    const resA = await authenticate(pool, `Bearer ${empateA}`)
+    const resB = await authenticate(pool, `Bearer ${empateB}`)
+
+    const oks = [resA, resB].filter((r) => r.ok)
+    const rejected = [resA, resB].filter((r) => !r.ok)
+    expect(oks).toHaveLength(1)
+    expect(rejected).toHaveLength(1)
+    expect(rejected[0]).toMatchObject({ ok: false, status: 403, error: 'device_limit_reached' })
+  })
 })
