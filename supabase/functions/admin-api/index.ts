@@ -470,6 +470,77 @@ Deno.serve(async (req) => {
       return json({ equipo: actualizado ?? null, ...(auditado ? {} : { auditado: false }) })
     }
 
+    if (ruta.nombre === 'equipo_owner') {
+      if (req.method !== 'PUT') return NO_PERMITIDO()
+      const teamId = ruta.teamId!
+
+      const { data: fila, error: errEquipo } = await admin
+        .from('teams').select('id, name, owner_id, created_at').eq('id', teamId).maybeSingle()
+      if (errEquipo) return json({ error: 'No se pudo leer el equipo' }, 500)
+      if (!fila) {
+        await auditar(actor, 'team_owner_transferred', 'team', teamId, null, null, null,
+          false, 'Equipo no encontrado')
+        return json({ error: 'Equipo no encontrado' }, 404)
+      }
+
+      const duenoViejo = fila.owner_id as string
+      const equipo = (await leerEquipos(duenoViejo)).find((e) => e.id === teamId)
+      if (!equipo) {
+        // Mismo criterio que la rama de arriba: un rechazo sin rastro es el
+        // agujero por donde no se ve quién intentó qué.
+        await auditar(actor, 'team_owner_transferred', 'team', teamId, null, null, null,
+          false, 'Equipo no encontrado')
+        return json({ error: 'Equipo no encontrado' }, 404)
+      }
+
+      const body = await req.json().catch(() => null) as { owner_id?: string } | null
+      const nuevo = body?.owner_id?.trim() ?? ''
+      const veredicto = nuevo
+        ? validarTransferencia(equipo, nuevo)
+        : { ok: false as const, status: 400, error: 'Falta owner_id' }
+      if (!veredicto.ok) {
+        await auditar(actor, 'team_owner_transferred', 'team', teamId, equipo.name,
+          { owner: duenoViejo }, { owner: nuevo || null }, false, veredicto.error)
+        return json({ error: veredicto.error }, veredicto.status)
+      }
+
+      const { error } = await admin.from('teams').update({ owner_id: nuevo }).eq('id', teamId)
+      if (error) {
+        await auditar(actor, 'team_owner_transferred', 'team', teamId, equipo.name,
+          { owner: duenoViejo }, { owner: nuevo }, false, error.message)
+        return json({ error: error.message }, 500)
+      }
+
+      // El dueño nuevo pasa a `leader` si no lo era. El viejo NO se toca: sigue
+      // siendo miembro, así la transferencia no le saca el acceso a nadie ni
+      // cambia la cantidad de seats facturados.
+      const { error: errRole } = await admin
+        .from('team_members').update({ role: 'leader' })
+        .eq('team_id', teamId).eq('user_id', nuevo)
+
+      const auditado = await auditar(
+        actor, 'team_owner_transferred', 'team', teamId, equipo.name,
+        { owner: duenoViejo }, { owner: nuevo }, true,
+        // La propiedad ya se movió; que el role no haya seguido es un aviso,
+        // no un fallo de la acción.
+        errRole ? `owner movido, role no actualizado: ${errRole.message}` : null,
+      )
+
+      const actualizado = (await leerEquipos(nuevo)).find((e) => e.id === teamId)
+      if (!actualizado) {
+        console.error('[admin-api] el equipo desaparecio entre la transferencia y la relectura',
+          { teamId })
+      }
+      // `null` explícito, no un error ni `undefined`: la propiedad ya se movió y
+      // quedó auditada, y `JSON.stringify` borraría la clave dejando al cliente
+      // sin `equipo` y sin señal de por qué.
+      return json({
+        equipo: actualizado ?? null,
+        cambios: [{ key: 'owner', de: duenoViejo, a: nuevo }],
+        ...(auditado ? {} : { auditado: false }),
+      })
+    }
+
     const id = ruta.id!
 
     if (ruta.nombre === 'account' && req.method === 'GET') {
