@@ -232,6 +232,18 @@ export async function handlePush(
       throw err
     }
 
+    // Una sola lectura por batch, no una por mutación: esta suma escanea todas las
+    // observaciones del usuario y hacerla 200 veces por push sería un escaneo por memoria.
+    // El costo de leerla una vez es que un batch puede pasarse un poco antes de frenar, lo
+    // que es aceptable: el techo existe contra abuso, no para cortar al byte exacto.
+    const { rows: usedRows } = await client.query(
+      `select coalesce(sum(octet_length(coalesce(o.content, ''))), 0)::bigint as used
+         from observations o join projects p on p.id = o.project_id
+        where p.user_id = $1`,
+      [auth.userId]
+    )
+    const overQuota = Number(usedRows[0].used) >= limitsFor(auth.plan).maxBytes
+
     for (const m of mutations) {
       const p = m.payload ?? {}
       const syncId = m.sync_id ?? String(p.sync_id ?? '')
@@ -288,6 +300,19 @@ export async function handlePush(
           outcome: 'rejected',
           project_seq: 0,
           error: 'observation_too_large',
+        })
+        continue
+      }
+
+      // Frena lo nuevo y no toca nada de lo viejo: la cuota llena NUNCA borra para hacer
+      // lugar. Un borrado (`op: 'delete'`) sí pasa — es lo único que puede bajar el uso, y
+      // bloquearlo dejaría al usuario encerrado sin forma de recuperar espacio.
+      if (overQuota && m.op !== 'delete') {
+        results.push({
+          sync_id: syncId,
+          outcome: 'rejected',
+          project_seq: 0,
+          error: 'quota_exceeded',
         })
         continue
       }
