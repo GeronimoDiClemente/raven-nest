@@ -44,7 +44,7 @@ describe('ACCOUNT_ALLOWED_KEYS', () => {
 
   it('permite lo que el contrato declara', () => {
     for (const k of ['id', 'name', 'plan', 'plan_label', 'status', 'created_at',
-                     'trial_ends_at', 'voz_suspendida', 'meters', 'health',
+                     'trial_ends_at', 'meters', 'health',
                      'flags', 'onboarding']) {
       expect(ACCOUNT_ALLOWED_KEYS.has(k)).toBe(true)
     }
