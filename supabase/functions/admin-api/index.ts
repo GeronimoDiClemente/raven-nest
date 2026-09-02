@@ -9,6 +9,10 @@ import { MANIFEST } from './manifest.ts'
 import { aAccountDetail, aAccountSummary, type UsuarioAuth } from './mapear.ts'
 import { PLANES_VALIDOS, aSubResumen, elegirSub, esSubViva, type SubResumen } from './pricing.ts'
 import { paginarTodo } from './paginar.ts'
+import {
+  aEquipos, validarSacarMiembro, validarTransferencia,
+  type Equipo, type FilaMiembro, type FilaRepo, type FilaTeam,
+} from './equipos.ts'
 
 const admin = createClient(
   Deno.env.get('SUPABASE_URL')!,
@@ -103,9 +107,113 @@ async function buscarUsuario(
   }
 }
 
+const COLUMNAS_MIEMBRO = 'id, team_id, user_id, email, role, status, invited_at, accepted_at'
+
+/**
+ * Los equipos donde el usuario es dueño **o** miembro, con todo lo que la
+ * ficha muestra.
+ *
+ * Dos consultas separadas en vez de un `.or()` con el id interpolado: el id
+ * viene del path y arma el filtro de PostgREST como texto. `.eq()` y `.in()`
+ * lo mandan como parámetro.
+ */
+async function leerEquipos(usuarioId: string): Promise<Equipo[]> {
+  const { data: membresías, error: errMembresías } = await admin
+    .from('team_members').select('team_id').eq('user_id', usuarioId)
+  if (errMembresías) {
+    console.error('[admin-api] leerEquipos: fallo al leer las membresías del usuario', {
+      usuarioId, error: errMembresías.message,
+    })
+    throw new Error('No se pudieron leer los equipos')
+  }
+  const idsPorMembresía = [...new Set((membresías ?? []).map((m) => m.team_id as string))]
+
+  const columnas = 'id, name, owner_id, created_at'
+  const { data: propios, error: errPropios } = await admin
+    .from('teams').select(columnas).eq('owner_id', usuarioId)
+  if (errPropios) {
+    console.error('[admin-api] leerEquipos: fallo al leer los equipos propios', {
+      usuarioId, error: errPropios.message,
+    })
+    throw new Error('No se pudieron leer los equipos')
+  }
+  // Sin ids no se consulta: `.in('id', [])` arma un filtro vacío y no vale la
+  // pena averiguar cómo lo interpreta PostgREST.
+  let ajenos: FilaTeam[] = []
+  if (idsPorMembresía.length) {
+    const { data, error: errAjenos } = await admin.from('teams').select(columnas).in('id', idsPorMembresía)
+    if (errAjenos) {
+      console.error('[admin-api] leerEquipos: fallo al leer los equipos ajenos', {
+        usuarioId, error: errAjenos.message,
+      })
+      throw new Error('No se pudieron leer los equipos')
+    }
+    ajenos = (data ?? []) as FilaTeam[]
+  }
+
+  const porId = new Map<string, FilaTeam>()
+  for (const t of [...(propios ?? []), ...ajenos] as FilaTeam[]) {
+    porId.set(t.id, t)
+  }
+  const teams = [...porId.values()]
+  if (teams.length === 0) return []
+
+  const ids = teams.map((t) => t.id)
+  const [miembros, repos, mensajes] = await Promise.all([
+    admin.from('team_members').select(COLUMNAS_MIEMBRO).in('team_id', ids),
+    // `local_path` es de la máquina de cada uno y no se expone.
+    admin.from('team_repos').select('team_id, repo_full_name, provider, added_at').in('team_id', ids),
+    // Conteo por equipo con `head: true`: nunca trae el contenido de un
+    // mensaje. A diferencia de las cinco consultas de arriba, éste es un dato
+    // decorativo —igual que el último uso en `actividadPorUsuario`—: un
+    // fallo acá degrada a 0 en vez de tumbar toda la ficha por un contador.
+    Promise.all(
+      ids.map(async (id) => {
+        const { count, error: errMensajes } = await admin
+          .from('team_chat_messages')
+          .select('id', { count: 'exact', head: true })
+          .eq('team_id', id)
+        if (errMensajes) {
+          console.error('[admin-api] leerEquipos: fallo al contar los mensajes del equipo', {
+            teamId: id, error: errMensajes.message,
+          })
+        }
+        return [id, count ?? 0] as const
+      }),
+    ),
+  ])
+  if (miembros.error) {
+    console.error('[admin-api] leerEquipos: fallo al leer los miembros', {
+      usuarioId, error: miembros.error.message,
+    })
+    throw new Error('No se pudieron leer los equipos')
+  }
+  if (repos.error) {
+    console.error('[admin-api] leerEquipos: fallo al leer los repos', {
+      usuarioId, error: repos.error.message,
+    })
+    throw new Error('No se pudieron leer los equipos')
+  }
+
+  return aEquipos(
+    usuarioId,
+    teams,
+    (miembros.data ?? []) as FilaMiembro[],
+    (repos.data ?? []) as FilaRepo[],
+    Object.fromEntries(mensajes),
+  )
+}
+
 async function auditar(
   actor: Actor,
   action: string,
+  /**
+   * Qué clase de objeto se tocó. Las acciones de equipos apuntan a un equipo,
+   * no a un usuario, y `target_type` es la única columna que lo distingue:
+   * sin esto una transferencia quedaría registrada como si el objetivo fuera
+   * una cuenta con un uuid que no existe en `auth.users`.
+   */
+  targetType: 'user' | 'team',
   targetId: string,
   targetLabel: string | null,
   before: unknown,
@@ -122,7 +230,7 @@ async function auditar(
 
   const { error: errorAudit } = await admin.from('admin_audit_log').insert({
     action,
-    target_type: 'user',
+    target_type: targetType,
     target_id: targetId,
     target_label: targetLabel,
     before,
@@ -310,6 +418,202 @@ Deno.serve(async (req) => {
       return json({ accounts: cuentas, truncado })
     }
 
+    if (ruta.nombre === 'equipo_miembro') {
+      if (req.method !== 'DELETE') return NO_PERMITIDO()
+      const teamId = ruta.teamId!
+
+      // `teams.id` es `uuid`: un teamId mal formado (path arbitrario) hace
+      // rebotar el `.eq()` contra PostgREST con un 500 y sin auditar, cuando
+      // la spec promete 404. Se corta acá, antes de ir a la base.
+      if (!ES_UUID.test(teamId)) {
+        await auditar(actor, 'team_member_removed', 'team', teamId, null, null, null,
+          false, 'Equipo no encontrado')
+        return json({ error: 'Equipo no encontrado' }, 404)
+      }
+
+      const { data: fila, error: errEquipo } = await admin
+        .from('teams').select('id, name, owner_id, created_at').eq('id', teamId).maybeSingle()
+      if (errEquipo) {
+        await auditar(actor, 'team_member_removed', 'team', teamId, null, null, null,
+          false, errEquipo.message)
+        return json({ error: 'No se pudo leer el equipo' }, 500)
+      }
+      if (!fila) {
+        await auditar(actor, 'team_member_removed', 'team', teamId, null, null, null,
+          false, 'Equipo no encontrado')
+        return json({ error: 'Equipo no encontrado' }, 404)
+      }
+
+      // Se arman los equipos desde la perspectiva del dueño: alcanza para
+      // decidir, y evita pedir el usuario de la ficha que acá no viaja.
+      const equipos = await leerEquipos(fila.owner_id as string)
+      const equipo = equipos.find((e) => e.id === teamId)
+      if (!equipo) {
+        await auditar(actor, 'team_member_removed', 'team', teamId, null, null, null,
+          false, 'Equipo no encontrado')
+        return json({ error: 'Equipo no encontrado' }, 404)
+      }
+
+      const veredicto = validarSacarMiembro(equipo, ruta.memberId!)
+      if (!veredicto.ok) {
+        await auditar(actor, 'team_member_removed', 'team', teamId, equipo.name, null, null,
+          false, veredicto.error)
+        return json({ error: veredicto.error }, veredicto.status)
+      }
+
+      const sacado = equipo.miembros.find((m) => m.id === ruta.memberId)!
+      // `.eq('team_id', teamId)` además de `.eq('id', ...)`: el chequeo de
+      // pertenencia ya existe en `validarSacarMiembro`, pero es secuencial, no
+      // estructural. Repetirlo acá hace que sea la base la que sostiene la
+      // garantía de "nunca se saca una fila por id suelto sin verificar el
+      // team_id", no el orden de los `if` de arriba.
+      const { data: borrados, error } = await admin
+        .from('team_members').delete().eq('id', ruta.memberId!).eq('team_id', teamId).select('id')
+
+      // Sin `.select()`, un borrado que no matchea ninguna fila (la fila ya no
+      // estaba) vuelve con `error: null` igual que uno que sí borró: la
+      // respuesta diría 200 y el audit `ok: true` para un delete que no borró
+      // nada. Se trata como el mismo 404 que hubiera dado el validador.
+      if (!error && (borrados?.length ?? 0) === 0) {
+        const msg = 'Ese miembro no pertenece a este equipo'
+        await auditar(actor, 'team_member_removed', 'team', teamId, equipo.name, null, null,
+          false, msg)
+        return json({ error: msg }, 404)
+      }
+
+      const auditado = await auditar(
+        actor, 'team_member_removed', 'team', teamId, equipo.name,
+        { miembro: sacado.email, role: sacado.role, status: sacado.status }, null,
+        !error, error?.message ?? null,
+      )
+      if (error) return json({ error: error.message }, 500)
+
+      // `leerEquipos` tira si alguna de sus consultas falla. Acá corre
+      // *después* de que el miembro ya se sacó y ya quedó auditado: si tira,
+      // la acción ya ocurrió y devolver 500 le mentiría al operador. Se
+      // degrada a `equipo: null`, igual que cuando la relectura sí vuelve
+      // pero el equipo ya no está.
+      let actualizado: Equipo | null = null
+      let relecturaFallo = false
+      try {
+        actualizado = (await leerEquipos(fila.owner_id as string)).find((e) => e.id === teamId) ?? null
+      } catch (e) {
+        relecturaFallo = true
+        console.error('[admin-api] fallo la relectura tras sacar al miembro: la acción ya ocurrió y ya quedó auditada', {
+          teamId, error: e instanceof Error ? e.message : String(e),
+        })
+      }
+      // Si el equipo desapareció entre el delete y esta relectura, la acción
+      // ya ocurrió y ya quedó auditada: informar un error mentiría. Se deja
+      // `null` explícito (en vez de dejar que `JSON.stringify` descarte la
+      // clave) para que el cliente pueda distinguir "sin equipo" de "no vino
+      // el campo".
+      if (!actualizado && !relecturaFallo) {
+        console.error('[admin-api] el equipo desapareció entre el delete y la relectura', { teamId })
+      }
+      return json({ equipo: actualizado, ...(auditado ? {} : { auditado: false }) })
+    }
+
+    if (ruta.nombre === 'equipo_owner') {
+      if (req.method !== 'PUT') return NO_PERMITIDO()
+      const teamId = ruta.teamId!
+
+      // Mismo guard que en `equipo_miembro`: `teams.id` es `uuid`, y un
+      // teamId mal formado no puede llegar a PostgREST — rebotaría con un 500
+      // sin auditar, cuando la spec promete 404.
+      if (!ES_UUID.test(teamId)) {
+        await auditar(actor, 'team_owner_transferred', 'team', teamId, null, null, null,
+          false, 'Equipo no encontrado')
+        return json({ error: 'Equipo no encontrado' }, 404)
+      }
+
+      const { data: fila, error: errEquipo } = await admin
+        .from('teams').select('id, name, owner_id, created_at').eq('id', teamId).maybeSingle()
+      if (errEquipo) {
+        await auditar(actor, 'team_owner_transferred', 'team', teamId, null, null, null,
+          false, errEquipo.message)
+        return json({ error: 'No se pudo leer el equipo' }, 500)
+      }
+      if (!fila) {
+        await auditar(actor, 'team_owner_transferred', 'team', teamId, null, null, null,
+          false, 'Equipo no encontrado')
+        return json({ error: 'Equipo no encontrado' }, 404)
+      }
+
+      const duenoViejo = fila.owner_id as string
+      const equipo = (await leerEquipos(duenoViejo)).find((e) => e.id === teamId)
+      if (!equipo) {
+        // Mismo criterio que la rama de arriba: un rechazo sin rastro es el
+        // agujero por donde no se ve quién intentó qué.
+        await auditar(actor, 'team_owner_transferred', 'team', teamId, null, null, null,
+          false, 'Equipo no encontrado')
+        return json({ error: 'Equipo no encontrado' }, 404)
+      }
+
+      const body = await req.json().catch(() => null) as { owner_id?: string } | null
+      // `body?.owner_id?.trim()` sólo cubre `null`/`undefined`: un JSON válido
+      // como `{ "owner_id": 5 }` parsea bien y no tiene `.trim`, y tiraba 500
+      // en vez de un 400 limpio.
+      const nuevo = typeof body?.owner_id === 'string' ? body.owner_id.trim() : ''
+      const veredicto = nuevo
+        ? validarTransferencia(equipo, nuevo)
+        : { ok: false as const, status: 400, error: 'Falta owner_id' }
+      if (!veredicto.ok) {
+        await auditar(actor, 'team_owner_transferred', 'team', teamId, equipo.name,
+          { owner: duenoViejo }, { owner: nuevo || null }, false, veredicto.error)
+        return json({ error: veredicto.error }, veredicto.status)
+      }
+
+      const { error } = await admin.from('teams').update({ owner_id: nuevo }).eq('id', teamId)
+      if (error) {
+        await auditar(actor, 'team_owner_transferred', 'team', teamId, equipo.name,
+          { owner: duenoViejo }, { owner: nuevo }, false, error.message)
+        return json({ error: error.message }, 500)
+      }
+
+      // El dueño nuevo pasa a `leader` si no lo era. El viejo NO se toca: sigue
+      // siendo miembro, así la transferencia no le saca el acceso a nadie ni
+      // cambia la cantidad de seats facturados.
+      const { error: errRole } = await admin
+        .from('team_members').update({ role: 'leader' })
+        .eq('team_id', teamId).eq('user_id', nuevo)
+
+      const auditado = await auditar(
+        actor, 'team_owner_transferred', 'team', teamId, equipo.name,
+        { owner: duenoViejo }, { owner: nuevo }, true,
+        // La propiedad ya se movió; que el role no haya seguido es un aviso,
+        // no un fallo de la acción.
+        errRole ? `owner movido, role no actualizado: ${errRole.message}` : null,
+      )
+
+      // Mismo criterio que en `equipo_miembro`: `leerEquipos` tira si alguna
+      // consulta falla, y esto corre *después* de que la propiedad ya se
+      // movió y ya quedó auditada. Un 500 acá le mentiría al operador sobre
+      // una transferencia que sí ocurrió.
+      let actualizado: Equipo | null = null
+      let relecturaFallo = false
+      try {
+        actualizado = (await leerEquipos(nuevo)).find((e) => e.id === teamId) ?? null
+      } catch (e) {
+        relecturaFallo = true
+        console.error('[admin-api] fallo la relectura tras la transferencia: la acción ya ocurrió y ya quedó auditada', {
+          teamId, error: e instanceof Error ? e.message : String(e),
+        })
+      }
+      if (!actualizado && !relecturaFallo) {
+        console.error('[admin-api] el equipo desapareció entre la transferencia y la relectura',
+          { teamId })
+      }
+      // `null` explícito, no un error ni `undefined`: la propiedad ya se movió y
+      // quedó auditada, y `JSON.stringify` borraría la clave dejando al cliente
+      // sin `equipo` y sin señal de por qué.
+      return json({
+        equipo: actualizado,
+        cambios: [{ key: 'owner', de: duenoViejo, a: nuevo }],
+        ...(auditado ? {} : { auditado: false }),
+      })
+    }
+
     const id = ruta.id!
 
     if (ruta.nombre === 'account' && req.method === 'GET') {
@@ -377,7 +681,7 @@ Deno.serve(async (req) => {
       // confirmación que no coincide: es justo el patrón de alguien probando
       // ids, y era el único intento fallido que no dejaba rastro.
       if (buscadoPlan.estado === 'no_encontrado') {
-        await auditar(actor, 'change_plan', id, null, null, null, false, 'Cuenta no encontrada')
+        await auditar(actor, 'change_plan', 'user', id, null, null, null, false, 'Cuenta no encontrada')
         return json({ error: 'Cuenta no encontrada' }, 404)
       }
       const u = { user: buscadoPlan.user }
@@ -388,7 +692,7 @@ Deno.serve(async (req) => {
       if (!plan || !PLANES_VALIDOS.includes(plan as typeof PLANES_VALIDOS[number])) {
         const msg = `Plan invalido. Validos: ${PLANES_VALIDOS.join(', ')}`
         // Un intento fallido es información operativa igual que uno exitoso.
-        await auditar(actor, 'change_plan', id, email, null, { plan: plan ?? null }, false, msg)
+        await auditar(actor, 'change_plan', 'user', id, email, null, { plan: plan ?? null }, false, msg)
         return json({ error: msg }, 400)
       }
 
@@ -408,7 +712,7 @@ Deno.serve(async (req) => {
       const ok = !error && !sinFila
       const mensaje = error?.message ?? (sinFila ? 'La cuenta no tiene perfil' : null)
 
-      const auditado = await auditar(actor, 'change_plan', id, email,
+      const auditado = await auditar(actor, 'change_plan', 'user', id, email,
         { plan: antes?.plan ?? null }, { plan }, ok, mensaje)
 
       if (error) return json({ error: error.message }, 500)
@@ -422,6 +726,18 @@ Deno.serve(async (req) => {
       })
     }
 
+    if (ruta.nombre === 'equipos') {
+      if (req.method !== 'GET') return NO_PERMITIDO()
+      const buscado = await buscarUsuario(id)
+      if (buscado.estado === 'error') {
+        console.error('[admin-api] getUserById fallo', { id, detalle: buscado.detalle })
+        return json({ error: 'No se pudo verificar la cuenta' }, 500)
+      }
+      // Es lectura: no se audita, igual que la ficha y la lista de cuentas.
+      if (buscado.estado === 'no_encontrado') return json({ error: 'Cuenta no encontrada' }, 404)
+      return json({ equipos: await leerEquipos(id) })
+    }
+
     if (ruta.nombre === 'account' && req.method === 'DELETE') {
       const buscadoDel = await buscarUsuario(id)
       if (buscadoDel.estado === 'error') {
@@ -429,21 +745,24 @@ Deno.serve(async (req) => {
         return json({ error: 'No se pudo verificar la cuenta' }, 500)
       }
       if (buscadoDel.estado === 'no_encontrado') {
-        await auditar(actor, 'delete_user', id, null, null, null, false, 'Cuenta no encontrada')
+        await auditar(actor, 'delete_user', 'user', id, null, null, null, false, 'Cuenta no encontrada')
         return json({ error: 'Cuenta no encontrada' }, 404)
       }
       const u = { user: buscadoDel.user }
       const email = u.user.email ?? null
 
       const body = await req.json().catch(() => null) as { email_confirm?: string } | null
-      const emailConfirm = (body?.email_confirm ?? '').trim()
+      // Mismo guard que `owner_id` en la transferencia: un `email_confirm` que
+      // no sea string (JSON válido, forma inesperada) no tiene `.trim` y
+      // tiraba 500 en vez de un 400 limpio.
+      const emailConfirm = typeof body?.email_confirm === 'string' ? body.email_confirm.trim() : ''
       // Misma confirmación que pedía raven-admin: borrar es irreversible. Los
       // dos casos degenerados se rechazan explícitamente antes de comparar:
       // si la cuenta no tiene email, o si `email_confirm` viene vacío o
       // ausente, comparar contra `''` daría un match falso (`'' !== ''` es
       // `false`) y el borrado pasaría sin ninguna confirmación real.
       if (!email || !emailConfirm || emailConfirm.toLowerCase() !== email.toLowerCase()) {
-        await auditar(actor, 'delete_user', id, email, null, null, false,
+        await auditar(actor, 'delete_user', 'user', id, email, null, null, false,
           'El email de confirmacion no coincide')
         return json({ error: 'El email de confirmacion no coincide' }, 400)
       }
@@ -462,7 +781,7 @@ Deno.serve(async (req) => {
 
       const { error } = await admin.auth.admin.deleteUser(id)
 
-      const auditado = await auditar(actor, 'delete_user', id, email, antes, null,
+      const auditado = await auditar(actor, 'delete_user', 'user', id, email, antes, null,
         !error, error?.message ?? null)
 
       if (error) return json({ error: error.message }, 500)
@@ -485,15 +804,25 @@ Deno.serve(async (req) => {
     // traen el sufijo de la key redactada y el request id. El audit sí guarda
     // el mensaje real, que es interno y lo lee staff.
     console.error('[admin-api] excepcion no anticipada', {
-      ruta: ruta.nombre, id: ruta.id ?? null, actor: actor.id, error: mensaje,
+      ruta: ruta.nombre, id: ruta.id ?? ruta.teamId ?? null, actor: actor.id, error: mensaje,
     })
     if (esEscritura) {
+      // Las rutas de equipo (`equipo_miembro`, `equipo_owner`) traen
+      // `teamId` y no `id`: sin este fallback, cualquier excepción no
+      // anticipada ahí —incluida la que puede tirar `leerEquipos`— quedaba
+      // sin auditar, mientras la misma falla en `plan`/`account` sí se
+      // registraba. `target_type` sigue el mismo criterio: un id de equipo
+      // audita como `'team'`, no como `'user'`.
+      const targetId = ruta.id ?? ruta.teamId
       // `target_id` es `uuid NOT NULL`: sin id no hay insert posible. El que
       // había (`target_id: ''`) fallaba siempre, así que ni se intenta y
       // queda el `console.error` de arriba como único rastro.
-      if (ruta.id) {
+      if (targetId) {
         try {
-          await auditar(actor, `${ruta.nombre}_error`, ruta.id, null, null, null, false, mensaje)
+          await auditar(
+            actor, `${ruta.nombre}_error`, ruta.teamId ? 'team' : 'user', targetId,
+            null, null, null, false, mensaje,
+          )
         } catch {
           // Ya estamos en el peor camino: si tampoco se pudo auditar, no hay
           // más red de seguridad que devolver igual la respuesta al llamador.
