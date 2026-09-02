@@ -33,4 +33,40 @@ describe('rutaDe', () => {
     expect(rutaDe('/api/internal/accounts/u1/otra')).toBe(null)
     expect(rutaDe('/')).toBe(null)
   })
+
+  it('reconoce los equipos de una cuenta', () => {
+    expect(rutaDe('/api/internal/accounts/u1/equipos')).toEqual({ nombre: 'equipos', id: 'u1' })
+  })
+
+  it('reconoce los equipos con el prefijo de la function', () => {
+    expect(rutaDe('/admin-api/api/internal/accounts/u1/equipos')).toEqual({
+      nombre: 'equipos', id: 'u1',
+    })
+  })
+
+  it('reconoce la ruta de un miembro y saca los dos ids', () => {
+    expect(rutaDe('/api/internal/equipos/t1/miembros/m1')).toEqual({
+      nombre: 'equipo_miembro', teamId: 't1', memberId: 'm1',
+    })
+  })
+
+  it('reconoce la ruta de owner de un equipo', () => {
+    expect(rutaDe('/api/internal/equipos/t1/owner')).toEqual({
+      nombre: 'equipo_owner', teamId: 't1',
+    })
+  })
+
+  // Un sufijo que no conocemos no puede caer en la ruta del equipo entero: eso
+  // convertiría un typo en una escritura sobre el objeto equivocado.
+  it('no reconoce un sufijo desconocido de equipos', () => {
+    expect(rutaDe('/api/internal/equipos/t1/cualquiera')).toBeNull()
+  })
+
+  it('no reconoce la coleccion de equipos sin id', () => {
+    expect(rutaDe('/api/internal/equipos')).toBeNull()
+  })
+
+  it('no reconoce un miembro sin id de miembro', () => {
+    expect(rutaDe('/api/internal/equipos/t1/miembros')).toBeNull()
+  })
 })
