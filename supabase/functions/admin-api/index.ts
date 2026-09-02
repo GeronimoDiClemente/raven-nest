@@ -9,6 +9,10 @@ import { MANIFEST } from './manifest.ts'
 import { aAccountDetail, aAccountSummary, type UsuarioAuth } from './mapear.ts'
 import { PLANES_VALIDOS, aSubResumen, elegirSub, esSubViva, type SubResumen } from './pricing.ts'
 import { paginarTodo } from './paginar.ts'
+import {
+  aEquipos, validarSacarMiembro, validarTransferencia,
+  type Equipo, type FilaMiembro, type FilaRepo, type FilaTeam,
+} from './equipos.ts'
 
 const admin = createClient(
   Deno.env.get('SUPABASE_URL')!,
@@ -101,6 +105,62 @@ async function buscarUsuario(
       created_at: data.user.created_at,
     },
   }
+}
+
+const COLUMNAS_MIEMBRO = 'id, team_id, user_id, email, role, status, invited_at, accepted_at'
+
+/**
+ * Los equipos donde el usuario es dueño **o** miembro, con todo lo que la
+ * ficha muestra.
+ *
+ * Dos consultas separadas en vez de un `.or()` con el id interpolado: el id
+ * viene del path y arma el filtro de PostgREST como texto. `.eq()` y `.in()`
+ * lo mandan como parámetro.
+ */
+async function leerEquipos(usuarioId: string): Promise<Equipo[]> {
+  const { data: membresías } = await admin
+    .from('team_members').select('team_id').eq('user_id', usuarioId)
+  const idsPorMembresía = [...new Set((membresías ?? []).map((m) => m.team_id as string))]
+
+  const columnas = 'id, name, owner_id, created_at'
+  const propios = (await admin.from('teams').select(columnas).eq('owner_id', usuarioId)).data ?? []
+  // Sin ids no se consulta: `.in('id', [])` arma un filtro vacío y no vale la
+  // pena averiguar cómo lo interpreta PostgREST.
+  const ajenos = idsPorMembresía.length
+    ? (await admin.from('teams').select(columnas).in('id', idsPorMembresía)).data ?? []
+    : []
+
+  const porId = new Map<string, FilaTeam>()
+  for (const t of [...propios, ...ajenos] as FilaTeam[]) {
+    porId.set(t.id, t)
+  }
+  const teams = [...porId.values()]
+  if (teams.length === 0) return []
+
+  const ids = teams.map((t) => t.id)
+  const [miembros, repos, mensajes] = await Promise.all([
+    admin.from('team_members').select(COLUMNAS_MIEMBRO).in('team_id', ids),
+    // `local_path` es de la máquina de cada uno y no se expone.
+    admin.from('team_repos').select('team_id, repo_full_name, provider, added_at').in('team_id', ids),
+    // Conteo por equipo con `head: true`: nunca trae el contenido de un mensaje.
+    Promise.all(
+      ids.map(async (id) => {
+        const { count } = await admin
+          .from('team_chat_messages')
+          .select('id', { count: 'exact', head: true })
+          .eq('team_id', id)
+        return [id, count ?? 0] as const
+      }),
+    ),
+  ])
+
+  return aEquipos(
+    usuarioId,
+    teams,
+    (miembros.data ?? []) as FilaMiembro[],
+    (repos.data ?? []) as FilaRepo[],
+    Object.fromEntries(mensajes),
+  )
 }
 
 async function auditar(
@@ -427,6 +487,18 @@ Deno.serve(async (req) => {
         cambios: [{ key: 'plan', de: antes?.plan ?? null, a: plan }],
         ...(auditado ? {} : { auditado: false }),
       })
+    }
+
+    if (ruta.nombre === 'equipos') {
+      if (req.method !== 'GET') return NO_PERMITIDO()
+      const buscado = await buscarUsuario(id)
+      if (buscado.estado === 'error') {
+        console.error('[admin-api] getUserById fallo', { id, detalle: buscado.detalle })
+        return json({ error: 'No se pudo verificar la cuenta' }, 500)
+      }
+      // Es lectura: no se audita, igual que la ficha y la lista de cuentas.
+      if (buscado.estado === 'no_encontrado') return json({ error: 'Cuenta no encontrada' }, 404)
+      return json({ equipos: await leerEquipos(id) })
     }
 
     if (ruta.nombre === 'account' && req.method === 'DELETE') {
