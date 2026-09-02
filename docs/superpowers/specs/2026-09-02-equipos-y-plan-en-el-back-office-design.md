@@ -133,7 +133,13 @@ Body: `{ "owner_id": "uuid" }`. Transfiere la propiedad. Devuelve el equipo actu
    facturados**.
 4. Si el equipo no tiene ningún otro miembro activo, la ruta responde **409** con un mensaje que
    dice exactamente eso, y la UI lo muestra en vez de ofrecer un selector vacío. Es el caso de
-   los 3 equipos sin miembros que hay hoy en la base.
+   los 3 equipos sin miembros que hay hoy en la base. Un miembro cuya cuenta se borró
+   (`user_id: null`) no cuenta como candidato.
+5. Transferirle a quien **ya es el dueño** responde **400** en vez de ser idempotente: no cambia
+   nada, y dejarlo pasar llenaría el audit de transferencias que no ocurrieron.
+6. El orden de las validaciones es **409 antes que 400**. Sin candidatos, el problema no es el id
+   que mandaron sino que no hay ninguno posible, y la UI necesita saber que el camino está
+   cerrado en vez de invitar a probar con otro.
 
 ## Auditoría
 
