@@ -127,6 +127,11 @@ async function ensureProject(
 // checked at all).
 const TEAM_SCOPE_PLANS = new Set(['team', 'enterprise'])
 
+// §11.6. Igual para todos los planes: existe contra abuso, no como palanca de precio. Son
+// 17 veces la memoria más grande del corpus real medido (59,4 KB), o sea que ningún uso
+// legítimo lo toca.
+const MAX_OBSERVATION_BYTES = 1024 * 1024
+
 export async function handlePush(
   pool: Pool,
   auth: { deviceId: string; userId: string; plan: string },
@@ -271,6 +276,18 @@ export async function handlePush(
           outcome: 'rejected',
           project_seq: 0,
           error: 'project_limit_reached',
+        })
+        continue
+      }
+
+      // Bytes utf-8, no `.length`: `.length` cuenta unidades utf-16 y subcuenta cualquier
+      // texto no ASCII — el mismo error que ya había corrompido cuerpos enteros en readBody.
+      if (Buffer.byteLength(String(p.content ?? ''), 'utf8') > MAX_OBSERVATION_BYTES) {
+        results.push({
+          sync_id: syncId,
+          outcome: 'rejected',
+          project_seq: 0,
+          error: 'observation_too_large',
         })
         continue
       }
