@@ -153,6 +153,18 @@ const MAX_OBSERVATION_BYTES = 1024 * 1024
  */
 const GLOBAL_PROJECT_KEY = '__global__'
 
+/**
+ * Una mutación después de la pasada 1 de `handlePush`: o ya quedó rechazada — y su resultado
+ * sólo espera su lugar en `results` — o sobrevivió y va a intentar aplicarse en la pasada 2.
+ *
+ * Existe para que separar los rechazos de la aplicación NO reordene las respuestas: cada
+ * mutación de entrada produce EXACTAMENTE una entrada de esta lista, en su posición
+ * original, y la pasada 2 recorre la lista, no `body.mutations`.
+ */
+type PreparedMutation =
+  | { kind: 'rejected'; result: PushResult }
+  | { kind: 'pending'; m: Mutation; syncId: string; projectKey: string }
+
 export async function handlePush(
   pool: Pool,
   auth: { deviceId: string; userId: string; plan: string },
@@ -163,23 +175,129 @@ export async function handlePush(
 
   const client = await pool.connect()
   try {
+    // Una sola lectura por batch, no una por mutación: esta suma escanea todas las
+    // observaciones del usuario y hacerla 200 veces por push sería un escaneo por memoria.
+    // El costo de leerla una vez es que un batch puede pasarse un poco antes de frenar, lo
+    // que es aceptable: el techo existe contra abuso, no para cortar al byte exacto.
+    //
+    // Se lee acá arriba, antes de resolver ningún proyecto, porque `quota_exceeded` es uno
+    // de los cuatro rechazos de la pasada 1 y esa pasada tiene que correr ANTES de que se
+    // pueda crear una fila en `projects`.
+    const { rows: usedRows } = await client.query(
+      `select coalesce(sum(octet_length(coalesce(o.content, ''))), 0)::bigint as used
+         from observations o join projects p on p.id = o.project_id
+        where p.user_id = $1`,
+      [auth.userId]
+    )
+    const overQuota = Number(usedRows[0].used) >= limitsFor(auth.plan).maxBytes
+
+    // PASADA 1 — los cuatro rechazos que NO dependen del id del proyecto: `missing_sync_id`,
+    // `team_scope_not_allowed`, `observation_too_large` y `quota_exceeded`.
+    //
+    // Corren antes de resolver proyectos, y ese orden no es cosmético. `ensureProject` corría
+    // para toda clave nueva con lugar disponible ANTES de que se evaluara ningún rechazo, así
+    // que un batch cuya única mutación después rebotaba dejaba igual la fila en `projects`:
+    // un proyecto VACÍO ocupando para siempre el único lugar de una cuenta Free. Y borrar
+    // todas las observaciones no lo liberaba, porque nada borra filas de `projects` salvo
+    // `delete-data`, que borra todo. El usuario quedaba sin poder sincronizar su repo de
+    // verdad por una mutación que el servidor ni siquiera aceptó.
+    //
+    // Tres cosas que este reordenamiento NO cambia, y que hay que seguir respetando al tocar
+    // esto: el orden de `results` (cada mutación de entrada deja exactamente una entrada en
+    // `prepared`, en su posición, y la pasada 2 recorre `prepared`), la idempotencia por
+    // (device_id, seq) — el recibo se sigue reclamando dentro de la transacción de cada
+    // mutación, en la pasada 2, ese mecanismo no se toca — y el advisory lock y la
+    // transacción de resolución de proyectos, que quedan igual: lo único que cambia es QUÉ
+    // claves entran a ese bloque.
+    const prepared: PreparedMutation[] = []
+    for (const m of mutations) {
+      const p = m.payload ?? {}
+      const syncId = m.sync_id ?? String(p.sync_id ?? '')
+
+      // Without this, a mutation carrying neither `sync_id` nor `payload.sync_id` became
+      // the empty string — a perfectly valid text primary key — so EVERY malformed push
+      // from every account in the world collided on one row and overwrote each other.
+      // Terminal on purpose: no retry of the same payload can grow a sync_id.
+      if (!syncId) {
+        prepared.push({
+          kind: 'rejected',
+          result: { sync_id: '', outcome: 'rejected', project_seq: 0, error: 'missing_sync_id' },
+        })
+        continue
+      }
+
+      // The scope travels in the payload, so without this check the client is the only
+      // thing deciding whether a memory is private or shared with the whole account.
+      // Terminal on purpose: the same payload on the same plan can never succeed, and
+      // omitting it instead would make the device retry a write it is not allowed to make,
+      // forever.
+      if (String(p.scope ?? 'personal') === 'team' && !TEAM_SCOPE_PLANS.has(auth.plan)) {
+        prepared.push({
+          kind: 'rejected',
+          result: {
+            sync_id: syncId,
+            outcome: 'rejected',
+            project_seq: 0,
+            error: 'team_scope_not_allowed',
+          },
+        })
+        continue
+      }
+
+      // Bytes utf-8, no `.length`: `.length` cuenta unidades utf-16 y subcuenta cualquier
+      // texto no ASCII — el mismo error que ya había corrompido cuerpos enteros en readBody.
+      if (Buffer.byteLength(String(p.content ?? ''), 'utf8') > MAX_OBSERVATION_BYTES) {
+        prepared.push({
+          kind: 'rejected',
+          result: {
+            sync_id: syncId,
+            outcome: 'rejected',
+            project_seq: 0,
+            error: 'observation_too_large',
+          },
+        })
+        continue
+      }
+
+      // Frena lo nuevo y no toca nada de lo viejo: la cuota llena NUNCA borra para hacer
+      // lugar. Un borrado (`op: 'delete'`) sí pasa — es lo único que puede bajar el uso, y
+      // bloquearlo dejaría al usuario encerrado sin forma de recuperar espacio.
+      if (overQuota && m.op !== 'delete') {
+        prepared.push({
+          kind: 'rejected',
+          result: { sync_id: syncId, outcome: 'rejected', project_seq: 0, error: 'quota_exceeded' },
+        })
+        continue
+      }
+
+      prepared.push({
+        kind: 'pending',
+        m,
+        syncId,
+        projectKey: String(p.project_key ?? GLOBAL_PROJECT_KEY),
+      })
+    }
+
     // `ensureProject` used to run once PER MUTATION, so a 200-mutation batch for one
     // project did 200 upserts against the same `projects` row — ~400 dead tuples per push
     // on a row that is also the seq counter every push has to lock. Resolve each distinct
     // project_key ONCE, up front. The last display_name in the batch still wins, exactly
     // as it did when each mutation overwrote the previous one's.
     //
+    // Sólo las claves de las mutaciones que SOBREVIVIERON la pasada 1: una clave que sólo
+    // aparecía en mutaciones ya rechazadas no llega hasta acá y por lo tanto no se crea.
+    //
     // Deliberately BEFORE the per-mutation transactions rather than hoisted inside one:
     // the transaction boundaries are unchanged (still one per mutation), and a project id
     // cached from a transaction that later rolled back would name a row that no longer
     // exists. Resolving them here, in autocommit, means the id stays valid no matter which
-    // mutations fail. A project created for a batch whose mutations all fail is an empty
-    // row holding a seq counter — harmless, and the retry reuses it.
+    // mutations fail. A project created for a batch whose surviving mutations then fail on
+    // a DB error is an empty row holding a seq counter — harmless, and the retry reuses it.
     const displayNames = new Map<string, string>()
-    for (const m of mutations) {
-      const p = m.payload ?? {}
-      const key = String(p.project_key ?? GLOBAL_PROJECT_KEY)
-      displayNames.set(key, String(p.project_display_name ?? key))
+    for (const entry of prepared) {
+      if (entry.kind !== 'pending') continue
+      const p = entry.m.payload ?? {}
+      displayNames.set(entry.projectKey, String(p.project_display_name ?? entry.projectKey))
     }
     // El tope se cuenta ANTES de crear nada, y sólo lo pagan las claves NUEVAS: un usuario
     // que ya tiene su proyecto en la nube sigue escribiendo en él aunque esté en el tope.
@@ -258,52 +376,20 @@ export async function handlePush(
       throw err
     }
 
-    // Una sola lectura por batch, no una por mutación: esta suma escanea todas las
-    // observaciones del usuario y hacerla 200 veces por push sería un escaneo por memoria.
-    // El costo de leerla una vez es que un batch puede pasarse un poco antes de frenar, lo
-    // que es aceptable: el techo existe contra abuso, no para cortar al byte exacto.
-    const { rows: usedRows } = await client.query(
-      `select coalesce(sum(octet_length(coalesce(o.content, ''))), 0)::bigint as used
-         from observations o join projects p on p.id = o.project_id
-        where p.user_id = $1`,
-      [auth.userId]
-    )
-    const overQuota = Number(usedRows[0].used) >= limitsFor(auth.plan).maxBytes
-
-    for (const m of mutations) {
+    // PASADA 2 — aplicar. Acá ya sólo queda un rechazo posible, `project_limit_reached`: es
+    // el único de los cinco que depende de haber resuelto los proyectos, y por eso es el
+    // único que no se pudo evaluar en la pasada 1.
+    //
+    // Se recorre `prepared`, NO `mutations`: así los rechazos de la pasada 1 vuelven a
+    // `results` en la posición exacta que tenía su mutación en la entrada.
+    for (const entry of prepared) {
+      if (entry.kind === 'rejected') {
+        results.push(entry.result)
+        continue
+      }
+      const { m, syncId, projectKey } = entry
       const p = m.payload ?? {}
-      const syncId = m.sync_id ?? String(p.sync_id ?? '')
-      const projectKey = String(p.project_key ?? GLOBAL_PROJECT_KEY)
       const now = Date.now()
-
-      // Without this, a mutation carrying neither `sync_id` nor `payload.sync_id` became
-      // the empty string — a perfectly valid text primary key — so EVERY malformed push
-      // from every account in the world collided on one row and overwrote each other.
-      // Terminal on purpose: no retry of the same payload can grow a sync_id.
-      if (!syncId) {
-        results.push({
-          sync_id: '',
-          outcome: 'rejected',
-          project_seq: 0,
-          error: 'missing_sync_id',
-        })
-        continue
-      }
-
-      // The scope travels in the payload, so without this check the client is the only
-      // thing deciding whether a memory is private or shared with the whole account.
-      // Terminal on purpose: the same payload on the same plan can never succeed, and
-      // omitting it instead would make the device retry a write it is not allowed to make,
-      // forever.
-      if (String(p.scope ?? 'personal') === 'team' && !TEAM_SCOPE_PLANS.has(auth.plan)) {
-        results.push({
-          sync_id: syncId,
-          outcome: 'rejected',
-          project_seq: 0,
-          error: 'team_scope_not_allowed',
-        })
-        continue
-      }
 
       // El proyecto de más no se rechaza para siempre ni se borra: sigue vivo y completo en
       // la máquina del usuario. Esto sólo dice "en la nube, no". Terminal porque el mismo
@@ -314,31 +400,6 @@ export async function handlePush(
           outcome: 'rejected',
           project_seq: 0,
           error: 'project_limit_reached',
-        })
-        continue
-      }
-
-      // Bytes utf-8, no `.length`: `.length` cuenta unidades utf-16 y subcuenta cualquier
-      // texto no ASCII — el mismo error que ya había corrompido cuerpos enteros en readBody.
-      if (Buffer.byteLength(String(p.content ?? ''), 'utf8') > MAX_OBSERVATION_BYTES) {
-        results.push({
-          sync_id: syncId,
-          outcome: 'rejected',
-          project_seq: 0,
-          error: 'observation_too_large',
-        })
-        continue
-      }
-
-      // Frena lo nuevo y no toca nada de lo viejo: la cuota llena NUNCA borra para hacer
-      // lugar. Un borrado (`op: 'delete'`) sí pasa — es lo único que puede bajar el uso, y
-      // bloquearlo dejaría al usuario encerrado sin forma de recuperar espacio.
-      if (overQuota && m.op !== 'delete') {
-        results.push({
-          sync_id: syncId,
-          outcome: 'rejected',
-          project_seq: 0,
-          error: 'quota_exceeded',
         })
         continue
       }

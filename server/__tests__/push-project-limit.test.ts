@@ -25,7 +25,7 @@ async function seed(plan: string) {
   return { deviceId, userId, plan }
 }
 
-const mut = (seq: number, syncId: string, projectKey: string) => ({
+const mut = (seq: number, syncId: string, projectKey: string, content = 'a body') => ({
   seq,
   sync_id: syncId,
   op: 'upsert' as const,
@@ -37,7 +37,7 @@ const mut = (seq: number, syncId: string, projectKey: string) => ({
     type: 'decision',
     topic_key: null,
     title: 'a title',
-    content: 'a body',
+    content,
     tags: [],
     lamport: 1,
     updated_at: Date.now(),
@@ -141,5 +141,58 @@ describe('push — `__global__` no compite por el lugar del plan Free', () => {
       acc.userId,
     ])
     expect(rows.map((r) => r.project_key).sort()).toEqual([GLOBAL, PROJECT('h-uno')].sort())
+  })
+})
+
+// `ensureProject` corria para toda clave nueva con lugar ANTES de que se evaluara ningun
+// rechazo, asi que un batch cuya unica mutacion despues rebotaba dejaba igual la fila en
+// `projects`: un proyecto VACIO ocupando para siempre el unico lugar de una cuenta Free. Y
+// borrar todas las observaciones no lo liberaba, porque nada borra filas de `projects` salvo
+// `delete-data`, que borra todo.
+describe('push — una mutacion rechazada no deja el proyecto creado', () => {
+  it('un batch rechazado por tamaño no crea la fila, y el Free despues sincroniza su repo real', async () => {
+    const acc = await seed('free')
+
+    const res = await handlePush(pool, acc, {
+      mutations: [mut(1, SYNC('ghost'), PROJECT('fantasma'), 'x'.repeat(1024 * 1024 + 1))],
+    })
+    expect(res.results[0]).toMatchObject({
+      outcome: 'rejected',
+      error: 'observation_too_large',
+    })
+
+    const { rows } = await pool.query('select project_key from projects where user_id = $1', [
+      acc.userId,
+    ])
+    expect(rows).toHaveLength(0)
+
+    // Lo que el bug le costaba al usuario: el unico lugar del plan sigue libre, asi que su
+    // repo de verdad entra.
+    const real = await handlePush(pool, acc, {
+      mutations: [mut(2, SYNC('real'), PROJECT('real'))],
+    })
+    expect(real.results[0].outcome).toBe('applied')
+  })
+
+  // Los rechazos ya no se evaluan en el mismo loop que aplica, asi que el orden de `results`
+  // deja de salir gratis: hay que probarlo. Cada mutacion de entrada tiene que dejar una — y
+  // solo una — entrada en `results`, en su posicion.
+  it('mantiene el orden de results mezclando aplicados y rechazos de distinto tipo', async () => {
+    const acc = await seed('cloud')
+    const res = await handlePush(pool, acc, {
+      mutations: [
+        mut(1, SYNC('ord-a'), PROJECT('ord')),
+        { seq: 2, sync_id: '', op: 'upsert' as const, payload: { project_key: PROJECT('ord') } },
+        mut(3, SYNC('ord-c'), PROJECT('ord'), 'x'.repeat(1024 * 1024 + 1)),
+        mut(4, SYNC('ord-d'), PROJECT('ord')),
+      ],
+    })
+
+    expect(res.results.map((r) => [r.sync_id, r.outcome, r.error ?? null])).toEqual([
+      [SYNC('ord-a'), 'applied', null],
+      ['', 'rejected', 'missing_sync_id'],
+      [SYNC('ord-c'), 'rejected', 'observation_too_large'],
+      [SYNC('ord-d'), 'applied', null],
+    ])
   })
 })
