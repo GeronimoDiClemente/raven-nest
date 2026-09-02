@@ -15,6 +15,59 @@ estado propio — todo vive en Postgres — que habla el contrato de wire §5: `
 | `POST /v1/sync/delete-data` | `/functions/v1/memory-sync/delete-cloud-data` | §5.5 — el derecho al borrado (§6.6/§7.5 del doc de arquitectura). Borra las observaciones, los proyectos y los push receipts del usuario autenticado en **una** transacción y devuelve los conteos. **No** borra el usuario ni sus devices: es "borrá mi copia de nube", no "borrá mi cuenta", así que el token con el que llamó sigue sirviendo. El alias existe porque `electron/main.ts` todavía postea a la ruta vieja y sólo mira `res.ok` — un 404 ahí rompe el borrado **en silencio**. |
 | `GET /health` | — | Sin token. |
 
+## Límites por plan
+
+La única fuente de verdad es `src/limits.ts` (`limitsFor(plan)`), verificado en producción
+el 2026-09-02 contra `https://sync-production-75a4.up.railway.app` (ver
+`.superpowers/sdd/2026-09-02-limites-del-servicio-de-sync/task-9-report.md`). El nombre de
+plan que efectivamente llega en `auth.plan` sigue siendo el histórico: `pro` mapea a los
+límites de **Cloud** y `team`/`enterprise` mapean a los de **Teams** — el rename comercial
+(`pro` → `cloud`) es trabajo aparte, no tocado acá.
+
+| Límite | Free | Cloud | Teams |
+|---|---|---|---|
+| Proyectos en la nube | 1 | 100 | 100 |
+| Máquinas (devices) | 3 | 10 | 10 |
+| Cuota total (bytes de contenido) | 100 MiB | 1 GiB | 5 GiB |
+| Tamaño máximo por observación | 1 MB | 1 MB | 1 MB |
+| `next_poll_ms` (intervalo entre `pull`) | 900000 (15 min) | 300000 (5 min) | 300000 (5 min) |
+| Rate limit | 60 push/min y 60 pull/min por device | igual | igual |
+| Memoria compartida (`scope: 'team'`) | no | no | sí |
+
+Notas:
+
+- El tope de proyectos y el de bytes se aplican en `push.ts` (`project_limit_reached` y
+  `quota_exceeded`); el de devices en `auth.ts` (`device_limit_reached`); el de tamaño por
+  observación también en `push.ts` (`observation_too_large`); el de `scope: 'team'` en
+  `push.ts` (`team_scope_not_allowed`); y el rate limit en `http.ts`, por verbo (push y
+  pull tienen cada uno su propio contador de 60/min, así que agotar uno no bloquea al otro).
+- `MAX_BYTES_PER_USER` puede pisar el número que **reporta** `status.quota.max_bytes` para
+  una instancia dedicada — ver la tabla de variables de entorno más abajo por el detalle
+  importante de qué NO cambia.
+
+## Códigos de error
+
+Un `push` nunca corta la conexión por un error de negocio: cada mutación mala vuelve con
+`outcome: "rejected"` y un `error` dentro de `results[]`, junto a las mutaciones que sí
+aplicaron en el mismo batch.
+
+| `error` (dentro de `results[]` de un push) | Cuándo |
+|---|---|
+| `missing_sync_id` | La mutación no trae `sync_id` ni `payload.sync_id`. |
+| `team_scope_not_allowed` | `payload.scope: 'team'` en un plan sin memoria compartida (todo menos `team`/`enterprise`). |
+| `project_limit_reached` | El `project_key` es nuevo para esa cuenta y ya no quedan lugares (tope de proyectos del plan). Un `project_key` que la cuenta ya tenía sigue aceptando pushes aunque esté en el tope. |
+| `observation_too_large` | `payload.content` supera 1 MB medido en bytes utf-8 (no en `.length`). |
+| `quota_exceeded` | La suma de bytes de contenido del usuario ya llegó al tope de su plan. Sólo frena mutaciones nuevas — un `op: 'delete'` siempre pasa, porque es la única forma de liberar espacio. |
+
+| HTTP | `error` | Cuándo |
+|---|---|---|
+| 401 | `unauthorized` | Sin token, o un token que no resuelve a ningún device (`d.token_hash` no matchea, o el device tiene `revoked_at` seteado). |
+| 403 | `not_in_beta` | El token es válido pero el usuario no está en la tabla `allowlist`. |
+| 403 | `plan_required` | El plan del usuario no incluye sync (hoy todos los planes conocidos lo incluyen; cae acá un plan desconocido, porque `limitsFor` falla cerrado a Free y Free SÍ está en `CLOUD_PLANS`, así que en la práctica este código está reservado para el día que exista un plan sin nube). |
+| 403 | `device_limit_reached` | El device autenticado no está entre las N máquinas más antiguas (por `created_at`, `id`) que el tope de su plan permite. |
+| 413 | `batch_too_large` | El `push` trae más de 500 mutaciones en un solo batch. Se rechaza el batch entero antes de abrir ninguna transacción. |
+| 429 | `rate_limited` | Más de 60 requests en 60 segundos del mismo verbo (push o pull) para el mismo device. Vuelve con el header `Retry-After` (segundos hasta que se libera la ventana). |
+
 ## Levantarlo en local
 
 Necesita un Postgres 16 accesible. La forma más rápida es un contenedor descartable:
@@ -57,9 +110,12 @@ en producción hay que fijar al menos `DATABASE_URL`.
 |---|---|---|
 | `DATABASE_URL` | `postgres://postgres:nestmem@127.0.0.1:55432/nest_memory` | Connection string de Postgres. El default apunta al contenedor de desarrollo local — nunca usarlo en producción. |
 | `PORT` | `8080` | Puerto donde escucha el servidor HTTP. |
-| `NEXT_POLL_MS` | `300000` (5 min) | El intervalo que el servidor le dice al cliente que espere antes del próximo `pull`, devuelto en la respuesta de `pull` y de `status` (§11.4). Es la única palanca de costo real: ~99% de los pulls vuelven vacíos. Se puede aflojar a 15-30 min sin tocar ningún cliente. |
-| `MAX_BYTES_PER_USER` | `1073741824` (1 GiB) | Tope de cuota por usuario, informado en `status.quota.max_bytes`. **Hoy sólo se reporta — no se aplica.** Rechazar pushes por cuota excedida es trabajo de §11.6, todavía no implementado. Un valor no numérico, vacío o ≤ 0 cae al default en vez de mandar `NaN` en cada respuesta de status (que es lo que hacía antes, y el usuario lo veía). |
+| `MAX_BYTES_PER_USER` | ninguno (manda el plan) | Override de **instancia dedicada** (§10 de la spec de pricing): cuando un deploy sirve a un solo cliente, el techo por usuario de la tabla de planes no significa nada y el disco de la máquina es el límite real. Si está seteada, gana sobre `limitsFor(plan).maxBytes` **en lo que `GET /v1/sync/status` informa** (`quota.max_bytes`). Sin setear — el caso del servicio compartido — manda el plan. Un valor no numérico, vacío o ≤ 0 se ignora y cae al plan, en vez de mandar `NaN` en cada respuesta de status (que es lo que hacía antes, y el usuario lo veía). ⚠️ **Ojo:** el rechazo real de pushes por cuota (`quota_exceeded`, en `push.ts`) compara siempre contra `limitsFor(plan).maxBytes` — nunca contra este override. Hoy una instancia dedicada que sube este valor cambia lo que `status` reporta pero no lo que `push` hace cumplir. |
 | `PG_POOL_MAX` | `10` | Tamaño máximo del pool de conexiones a Postgres (`pg.Pool`). |
+
+`NEXT_POLL_MS` existió como env var pero ya no se lee en ningún lado del código: el
+intervalo que ve el cliente sale siempre de `next_poll_ms` en la tabla de límites por plan
+(ver abajo), no de una variable de entorno global.
 
 ## Dar de alta una cuenta y un device a mano
 
@@ -89,9 +145,12 @@ values ('22222222-2222-2222-2222-222222222222',
 
 Notas:
 
-- `plan` tiene que ser uno de `pro`, `team` o `enterprise` — el servidor gatea el acceso a
-  sync por plan del lado del servidor (§9.3), `free` responde 403 `plan_required` aunque el
-  device esté en el allowlist.
+- `plan` tiene que ser uno de `free`, `cloud`, `pro`, `team` o `enterprise` (los que están
+  en `CLOUD_PLANS`, `src/auth.ts`) — cualquier otro valor responde 403 `plan_required`
+  aunque el device esté en el allowlist. `free` SÍ está habilitado a propósito: la spec de
+  pricing le da 1 proyecto en la nube, el gancho para que alguien note que su memoria
+  sincroniza al abrir una segunda máquina. Lo que lo acota no es este gate sino los límites
+  de la tabla de arriba (1 proyecto, 100 MiB, poll cada 15 min).
 - Si `digest()` no existe y `create extension pgcrypto` no es una opción, se puede calcular
   el sha256 fuera de Postgres y pegar el hex resultante en `token_hash` directamente:
   ```bash
