@@ -79,7 +79,7 @@ Los equipos donde el usuario es **dueño** y donde es **miembro**, en una sola l
       "id": "uuid",
       "name": "STI-PROJECTS",
       "creado": "2026-05-…",
-      "es_dueno": true,           // el usuario de la ficha es teams.owner_id
+      "es_dueno": true,           // ⚠️ RELATIVO a quien pregunta: `owner_id === el id del path`
       "dueno": { "id": "uuid", "email": "…" },
       "miembros": [
         {
@@ -106,6 +106,17 @@ grabaciones de AiraMed, que son un caso propio de ese producto.
 **`user_id` puede ser `null`.** La FK es `ON DELETE SET NULL`, así que un miembro cuya cuenta
 se borró sigue en la tabla ocupando un seat. El mapeo no lo esconde: lo devuelve con
 `user_id: null` y su email, que es justamente la fila que alguien tiene que poder sacar.
+
+### ⚠️ `es_dueno` del equipo es relativo a quién pregunta
+
+Se calcula contra el usuario por el que se consultó, no es una propiedad del equipo. En este `GET`
+ese usuario es el del path y el valor es el que la ficha necesita. **Pero las dos escrituras
+devuelven el equipo releído desde la perspectiva de su dueño** —no reciben el usuario de la ficha—
+así que su `equipo.es_dueno` viene **siempre en `true`** y no significa lo mismo.
+
+Quien consuma esas respuestas no puede usar ese campo para dibujar: o recarga con el `GET` (que sí
+está calculado contra la cuenta que se está mirando), o lo recalcula con `equipo.dueno.id`. La
+lista de `miembros[].es_dueno` no tiene este problema: se compara contra `owner_id` y es absoluta.
 
 ### `DELETE /api/internal/equipos/:teamId/miembros/:memberId`
 
@@ -140,6 +151,12 @@ Body: `{ "owner_id": "uuid" }`. Transfiere la propiedad. Devuelve el equipo actu
 6. El orden de las validaciones es **409 antes que 400**. Sin candidatos, el problema no es el id
    que mandaron sino que no hay ninguno posible, y la UI necesita saber que el camino está
    cerrado en vez de invitar a probar con otro.
+7. Si el **dueño actual no figura como miembro activo**, la transferencia se rechaza con **409**.
+   Sin esa fila, el dueño pertenece al equipo sólo por `teams.owner_id`, y la app arma la lista de
+   equipos de cada uno exclusivamente desde `team_members`: moverle la propiedad lo dejaría afuera
+   del equipo, que es justo lo que la regla 3 promete que no pasa. Hoy ningún equipo está en ese
+   estado —6 de 9 tienen al dueño como miembro y 3 no tienen miembros— pero es alcanzable, porque
+   la RLS le permite al dueño borrar su propia fila de miembro.
 
 ## Auditoría
 
@@ -242,8 +259,16 @@ transferirle. Hace falta un equipo de prueba con **dos miembros aceptados**; has
 baja de un miembro y la transferencia quedan verificadas por sus tests unitarios y por los
 rechazos en vivo, pero no ejecutadas contra la base real.
 
-**En `aira-admin`:** tests de los dos paneles y de los métodos nuevos del client. Su CI corre
-aislamiento, lint, typecheck, tests y build.
+**En `aira-admin`:** tests de los schemas y de los métodos nuevos del client. **De los paneles no**:
+`src/products/` no tiene un solo test en ese repo, y esa convención es de Lucas — la rama la respeta
+en vez de estrenar un patrón en su casa. Su CI corre aislamiento, lint (bloqueante), typecheck,
+tests y build.
+
+**Y una verificación que no es opcional: correr el `ProductClient` real contra la función real
+deployada**, no sólo los tests con mocks. El contrato estuvo roto desde el primer día sin que nadie
+lo viera —faltaba el sobre `ok: true` y el manifest y la ficha iban en la raíz en vez de bajo su
+clave— porque todo se verificaba con `curl`, que muestra el JSON y no valida lo que el cliente
+exige. Los mocks tampoco lo prueban: prueban que el código hace lo que el mock espera.
 
 ## Orden de entrega
 
