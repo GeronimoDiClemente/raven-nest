@@ -768,7 +768,7 @@ describe('MemoryStore — schema versioning (C3)', () => {
   afterEach(() => { cleanupTmp(dir) })
 
   it('SCHEMA_VERSION is pinned to the published value', () => {
-    expect(SCHEMA_VERSION).toBe(2)
+    expect(SCHEMA_VERSION).toBe(3)
   })
 
   // Task 8 (smoke/memory-bridge): the memory dir syncs across two machines, so a v1
@@ -783,7 +783,7 @@ describe('MemoryStore — schema versioning (C3)', () => {
     v1.close()
 
     const v2 = new MemoryStore(dbPath)
-    expect(v2.schemaVersion).toBe(2)
+    expect(v2.schemaVersion).toBe(SCHEMA_VERSION)
     expect(v2.count()).toBe(1)
     // The real point of the test: the new column exists and is usable, not just that the
     // migration ran without throwing.
@@ -860,5 +860,100 @@ describe('MemoryStore — schema versioning (C3)', () => {
       .db.pragma('user_version', { simple: true })
     expect(userVersion).toBe(SCHEMA_VERSION)
     migrated.close()
+  })
+})
+
+// La memoria es de la CUENTA DE NEST, no de la máquina ni de la IA. El store, en cambio,
+// vive en `{home}/.raven-nest/memory/memory.db` — uno por máquina — y `pendingMutations()`
+// no filtraba por nadie. Con un sign out / sign in (un botón de Settings), el daemon de la
+// segunda cuenta empujaba a SU nube las memorias de la primera.
+//
+// Esto sella el autor en cada escritura y filtra el push. La partición de la base por
+// cuenta es el paso siguiente; esto cierra la fuga a la nube ajena, que es la parte grave.
+describe('MemoryStore — la memoria es de una cuenta de Nest', () => {
+  let dir: string
+  let store: MemoryStore
+
+  const USER_A = 'user-aaaa'
+  const USER_B = 'user-bbbb'
+
+  function guardar(store: MemoryStore, title: string) {
+    return store.save({
+      projectKey: 'proj-a',
+      type: 'decision',
+      title,
+      content: `Contenido de ${title}, con largo suficiente para no ser descartado.`,
+      source: 'pty',
+    })
+  }
+
+  beforeEach(() => {
+    dir = makeTmpDir('raven-memory-owner-')
+    store = new MemoryStore(join(dir, 'memory.db'))
+  })
+
+  afterEach(() => {
+    store.close()
+    cleanupTmp(dir)
+  })
+
+  it('sin cuenta activa no hay dueño', () => {
+    expect(store.getOwnerUserId()).toBeNull()
+  })
+
+  it('la primera cuenta que entra reclama el store y adopta lo que ya habia', () => {
+    guardar(store, 'Escrito antes de loguearse')
+
+    const r = store.setCurrentUser(USER_A)
+
+    expect(r.claimed).toBe(true)
+    expect(r.adopted).toBeGreaterThan(0)
+    expect(store.getOwnerUserId()).toBe(USER_A)
+  })
+
+  it('una segunda cuenta NO adopta lo de la primera', () => {
+    guardar(store, 'De la primera cuenta')
+    store.setCurrentUser(USER_A)
+
+    const r = store.setCurrentUser(USER_B)
+
+    expect(r.claimed).toBe(false)
+    expect(r.adopted).toBe(0)
+    expect(store.getOwnerUserId()).toBe(USER_A)
+  })
+
+  it('el push de una cuenta no arrastra las memorias de la otra', () => {
+    guardar(store, 'De la primera cuenta')
+    store.setCurrentUser(USER_A)
+    expect(store.pendingMutations().length).toBe(1)
+
+    store.setCurrentUser(USER_B)
+
+    // Lo de A no aparece para B, que es la fuga que esto cierra.
+    expect(store.pendingMutations()).toEqual([])
+    expect(store.pendingMutationCount()).toBe(0)
+
+    guardar(store, 'De la segunda cuenta')
+    const deB = store.pendingMutations()
+    expect(deB.length).toBe(1)
+    expect(JSON.parse(deB[0].payload).title).toBe('De la segunda cuenta')
+  })
+
+  it('lo de la primera cuenta sigue ahi cuando vuelve, no se perdio', () => {
+    guardar(store, 'De la primera cuenta')
+    store.setCurrentUser(USER_A)
+    store.setCurrentUser(USER_B)
+
+    store.setCurrentUser(USER_A)
+
+    expect(store.pendingMutations().length).toBe(1)
+  })
+
+  it('sella el autor en cada escritura nueva', () => {
+    store.setCurrentUser(USER_A)
+    guardar(store, 'Con dueño')
+
+    const [m] = store.pendingMutations()
+    expect(m.author_user_id).toBe(USER_A)
   })
 })

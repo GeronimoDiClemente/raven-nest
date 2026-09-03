@@ -2592,6 +2592,23 @@ const MEMORY_UNAVAILABLE = { ok: false, error: 'Nest Memory is unavailable on th
  * NO guarda nada: devuelve el token al renderer, que lo pasa por `memory:connect`, el mismo
  * camino que el token pegado a mano. Así hay una sola pieza que escribe la credencial.
  */
+/**
+ * Le dice al store qué cuenta de Nest está activa. Lo llama el renderer al montar y en cada
+ * cambio de sesión, porque la sesión de Supabase vive ahí.
+ *
+ * Si esto nunca llega, el store queda sin cuenta activa y `pendingMutations()` devuelve
+ * sólo las filas sin autor — o sea que **falla cerrado**: el daemon no empuja lo de nadie
+ * en vez de empujarlo a la nube equivocada.
+ */
+ipcMain.handle('memory:setUser', (_event, userId: string | null) => {
+  if (!memory) return { ok: false as const }
+  const r = memory.store.setCurrentUser(typeof userId === 'string' && userId ? userId : null)
+  if (r.claimed) {
+    console.log('[memory] store reclamado por la cuenta', userId, '— filas adoptadas:', r.adopted)
+  }
+  return { ok: true as const, ...r }
+})
+
 ipcMain.handle('memory:registerDevice', async (_event, jwt: string) => {
   const base = getMemorySyncBaseUrl()
   if (!base) return { ok: false, error: 'No sync service configured for this build' }

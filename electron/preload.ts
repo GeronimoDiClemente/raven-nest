@@ -78,6 +78,7 @@ contextBridge.exposeInMainWorld('memory', {
   // (es donde vive la sesión de Supabase) y la request la hace main, que es quien conoce la
   // URL del servicio.
   registerDevice: (jwt: string) => ipcRenderer.invoke('memory:registerDevice', jwt),
+  setUser: (userId: string | null) => ipcRenderer.invoke('memory:setUser', userId),
   disconnect: (opts?: { deleteCloud?: boolean }) => ipcRenderer.invoke('memory:disconnect', opts),
   status: () => ipcRenderer.invoke('memory:status'),
   onStatus: (cb: (status: 'idle' | 'syncing' | 'paused' | 'error' | 'plan_required') => void) => {

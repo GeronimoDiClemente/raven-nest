@@ -93,6 +93,32 @@ export function useMemory() {
     }))
   }, [])
 
+  // Las memorias son de la CUENTA DE NEST, no de la máquina ni de la IA. El store vive en
+  // la máquina (una sola base bajo `{home}/.raven-nest/memory/`), así que alguien tiene que
+  // decirle cuál es la cuenta activa: el renderer, que es donde está la sesión. Con eso el
+  // store sella el autor de cada escritura y el daemon empuja sólo lo de esa cuenta.
+  //
+  // Efecto propio, separado del de status: no depende de `refresh` y tiene que correr
+  // aunque la memoria esté desconectada, porque la captura local pasa igual.
+  useEffect(() => {
+    const api = memoryApi()
+    if (!api?.setUser) return
+    let vivo = true
+
+    void supabase.auth.getUser().then(({ data }) => {
+      if (vivo) void api.setUser?.(data.user?.id ?? null)
+    })
+
+    const { data } = supabase.auth.onAuthStateChange((_evento, sesion) => {
+      void api.setUser?.(sesion?.user?.id ?? null)
+    })
+    return () => {
+      vivo = false
+      data?.subscription?.unsubscribe()
+    }
+  }, [])
+
+
   useEffect(() => {
     const api = memoryApi()
     if (!api) {

@@ -800,6 +800,11 @@ declare global {
       ensureDeviceId: () => Promise<string>
       connect: (token: string, deviceId: string) => Promise<{ ok: boolean; error?: string; itemCount?: number }>
       /**
+       * Declara qué cuenta de Nest está usando el store. Sella el autor de cada escritura y
+       * acota el push a esa cuenta. Opcional: un preload viejo no lo expone.
+       */
+      setUser?: (userId: string | null) => Promise<unknown>
+      /**
        * §9.2 — pide un token al servicio de sync con el JWT del login. Opcional: un preload
        * viejo no lo expone, y el hook cae al token pegado a mano.
        */

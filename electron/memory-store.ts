@@ -179,6 +179,8 @@ export interface ObservationRow {
 }
 
 export interface MutationLogRow {
+  /** La cuenta de Nest que la escribió. Null en filas anteriores al sellado. */
+  author_user_id?: string | null
   seq: number
   sync_id: string
   op: 'upsert' | 'delete' | 'promote'
@@ -345,7 +347,7 @@ const BASE_SCHEMA = `
  * correct precisely because all of step 1 is CREATE ... IF NOT EXISTS: running it over an
  * already-populated database writes nothing and does not touch a single row.
  */
-export const SCHEMA_VERSION = 2
+export const SCHEMA_VERSION = 3
 
 // Task 8 (smoke/memory-bridge): the memory dir syncs across two machines (C3's whole
 // reason for existing), so a v1 database opened by a build that knows v2 is the routine
@@ -365,11 +367,22 @@ const MIGRATIONS: Record<number, string | ((db: Database.Database) => void)> = {
       db.exec('ALTER TABLE mutation_log ADD COLUMN blocked_reason TEXT;')
     }
   },
+  // La memoria es de una CUENTA DE NEST. El store es uno por máquina, así que hay que
+  // poder decir de quién es cada fila: `meta` guarda al dueño y `mutation_log` lleva el
+  // autor para que el push no arrastre lo de otra cuenta.
+  3: (db) => {
+    db.exec('CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);')
+    const columns = db.prepare('PRAGMA table_info(mutation_log)').all() as Array<{ name: string }>
+    if (!columns.some((c) => c.name === 'author_user_id')) {
+      db.exec('ALTER TABLE mutation_log ADD COLUMN author_user_id TEXT;')
+    }
+  },
 }
 
 export class MemoryStore {
   private db: Database.Database
   private lamportCounter = 0
+  private currentUserId: string | null = null
   readonly schemaVersion: number = 0
 
   constructor(dbPath: string) {
@@ -457,8 +470,52 @@ export class MemoryStore {
 
   private appendMutation(op: 'upsert' | 'delete' | 'promote', row: ObservationRow): void {
     this.db
-      .prepare('INSERT INTO mutation_log (sync_id, op, payload, created_at) VALUES (?, ?, ?, ?)')
-      .run(row.sync_id, op, JSON.stringify(row), Date.now())
+      .prepare('INSERT INTO mutation_log (sync_id, op, payload, created_at, author_user_id) VALUES (?, ?, ?, ?, ?)')
+      .run(row.sync_id, op, JSON.stringify(row), Date.now(), row.author_user_id ?? this.currentUserId ?? null)
+  }
+
+  private metaGet(key: string): string | null {
+    const row = this.db.prepare('SELECT value FROM meta WHERE key = ?').get(key) as { value: string } | undefined
+    return row?.value ?? null
+  }
+
+  /** La cuenta de Nest dueña de este store, o null si todavía no entró ninguna. */
+  getOwnerUserId(): string | null {
+    return this.metaGet('owner_user_id')
+  }
+
+  /**
+   * Declara qué cuenta de Nest está usando el store. Sella las escrituras que vienen y
+   * acota el push: `pendingMutations()` sólo devuelve lo de esta cuenta.
+   *
+   * **La primera cuenta que entra reclama el store y adopta las filas sin autor.** Es lo
+   * correcto para la única máquina que existe hoy —una persona, todo lo capturado antes de
+   * loguearse es suyo— y es también lo que hace que un usuario que ya venía usando la
+   * memoria local no pierda nada al conectar. Una SEGUNDA cuenta en la misma máquina no
+   * adopta nada: sus escrituras se sellan con lo suyo y lo ajeno le queda invisible al
+   * push. Sin esto, su daemon empujaba a su nube las memorias de la primera.
+   *
+   * Esto NO es aislamiento completo: en local las dos cuentas siguen leyendo la misma
+   * base. El aislamiento de verdad es una base por cuenta, que es el paso siguiente.
+   */
+  setCurrentUser(userId: string | null): { claimed: boolean; adopted: number } {
+    this.currentUserId = userId
+    if (!userId) return { claimed: false, adopted: 0 }
+
+    const owner = this.getOwnerUserId()
+    if (owner !== null) return { claimed: false, adopted: 0 }
+
+    const claim = this.db.transaction(() => {
+      this.db.prepare('INSERT INTO meta (key, value) VALUES (?, ?)').run('owner_user_id', userId)
+      const obs = this.db
+        .prepare('UPDATE observations SET author_user_id = ? WHERE author_user_id IS NULL')
+        .run(userId)
+      const log = this.db
+        .prepare('UPDATE mutation_log SET author_user_id = ? WHERE author_user_id IS NULL')
+        .run(userId)
+      return (obs.changes ?? 0) + (log.changes ?? 0)
+    })
+    return { claimed: true, adopted: claim() }
   }
 
   private toSummary(row: ObservationRow): ObservationSummary {
@@ -657,7 +714,7 @@ export class MemoryStore {
         origin_ai: input.originAi ?? null,
         origin_account: input.originAccount ?? null,
         git_branch: input.gitBranch ?? null,
-        author_user_id: input.authorUserId ?? null,
+        author_user_id: input.authorUserId ?? this.currentUserId ?? null,
         author_display: input.authorDisplay ?? null,
         content_hash: hash,
         revision_count: 0,
@@ -930,14 +987,14 @@ export class MemoryStore {
   // against the same still-standing limit). It comes back via unblockMutations().
   pendingMutations(limit = 200): MutationLogRow[] {
     return this.db
-      .prepare('SELECT * FROM mutation_log WHERE pushed_at IS NULL AND blocked_reason IS NULL ORDER BY seq ASC LIMIT ?')
-      .all(limit) as MutationLogRow[]
+      .prepare('SELECT * FROM mutation_log WHERE pushed_at IS NULL AND blocked_reason IS NULL AND author_user_id IS ? ORDER BY seq ASC LIMIT ?')
+      .all(this.currentUserId, limit) as MutationLogRow[]
   }
 
   pendingMutationCount(): number {
     const row = this.db
-      .prepare('SELECT COUNT(*) as c FROM mutation_log WHERE pushed_at IS NULL AND blocked_reason IS NULL')
-      .get() as { c: number }
+      .prepare('SELECT COUNT(*) as c FROM mutation_log WHERE pushed_at IS NULL AND blocked_reason IS NULL AND author_user_id IS ?')
+      .get(this.currentUserId) as { c: number }
     return row.c
   }
 

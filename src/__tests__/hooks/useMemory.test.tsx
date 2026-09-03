@@ -4,8 +4,9 @@ import { useMemory } from '../../hooks/useMemory'
 
 const supabaseMock = vi.hoisted(() => ({
   functions: { invoke: vi.fn() },
-  // §9.2: connectWithLogin saca el JWT de la sesion.
-  auth: { getSession: vi.fn() },
+  // §9.2: connectWithLogin saca el JWT de la sesion. getUser: la cuenta de Nest duena
+  // de las memorias.
+  auth: { getSession: vi.fn(), getUser: vi.fn(), onAuthStateChange: vi.fn((_cb?: (evento: string, sesion: { user: { id: string } } | null) => void) => ({ data: { subscription: { unsubscribe: vi.fn() } } })) },
 }))
 
 vi.mock('../../lib/supabase', () => ({ supabase: supabaseMock }))
@@ -263,5 +264,53 @@ describe('useMemory — connect contra el login (§9.2)', () => {
     await waitFor(() => expect(result.current.error).toBe('not_in_beta'))
     expect(result.current.state).toBe('error')
     expect(memoryMock.connect).not.toHaveBeenCalled()
+  })
+})
+
+// Las memorias son de la CUENTA DE NEST. El store vive en la máquina, así que alguien tiene
+// que decirle cuál es la cuenta activa: lo hace el renderer, que es donde está la sesión de
+// Supabase. Sin esto el store no sella el autor y el push no puede acotarse a nadie.
+describe('useMemory — le dice al store de quien son las memorias', () => {
+  const memoriaConUser = { ...memoryMock, setUser: vi.fn() }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    ;(globalThis as unknown as { window: Window }).window.memory = memoriaConUser as never
+    memoryMock.status.mockResolvedValue({
+      connected: false, deviceId: null, itemCount: 0, pendingCount: 0, daemonStatus: 'idle',
+    })
+    supabaseMock.auth.onAuthStateChange.mockReturnValue({ data: { subscription: { unsubscribe: vi.fn() } } })
+  })
+
+  it('al montar le pasa la cuenta logueada', async () => {
+    supabaseMock.auth.getUser.mockResolvedValue({ data: { user: { id: 'user-aaaa' } } })
+
+    renderHook(() => useMemory())
+
+    await waitFor(() => expect(memoriaConUser.setUser).toHaveBeenCalledWith('user-aaaa'))
+  })
+
+  it('sin sesion le pasa null, en vez de dejar el store sin dueno declarado', async () => {
+    supabaseMock.auth.getUser.mockResolvedValue({ data: { user: null } })
+
+    renderHook(() => useMemory())
+
+    await waitFor(() => expect(memoriaConUser.setUser).toHaveBeenCalledWith(null))
+  })
+
+  it('se entera de un cambio de cuenta sin reiniciar la app', async () => {
+    supabaseMock.auth.getUser.mockResolvedValue({ data: { user: { id: 'user-aaaa' } } })
+    let notificar: ((evento: string, sesion: { user: { id: string } } | null) => void) | undefined
+    supabaseMock.auth.onAuthStateChange.mockImplementation((cb) => {
+      notificar = cb
+      return { data: { subscription: { unsubscribe: vi.fn() } } }
+    })
+
+    renderHook(() => useMemory())
+    await waitFor(() => expect(memoriaConUser.setUser).toHaveBeenCalledWith('user-aaaa'))
+
+    await act(async () => { notificar?.('SIGNED_IN', { user: { id: 'user-bbbb' } }) })
+
+    expect(memoriaConUser.setUser).toHaveBeenCalledWith('user-bbbb')
   })
 })
