@@ -26,6 +26,8 @@ interface MemoryHookState {
   pendingCount: number
   deviceId: string | null
   error: string | null
+  /** Lo que reporto el servidor. `null` mientras no reporto nada. */
+  quota: { used_bytes: number; max_bytes: number } | null
 }
 
 /**
@@ -49,6 +51,7 @@ export function useMemory() {
     pendingCount: 0,
     deviceId: null,
     error: null,
+    quota: null,
   })
   // Guards refresh() from clobbering an in-flight connect()'s 'migrating' state with a
   // stale 'disconnected' read that a background status poll could otherwise race in.
@@ -84,6 +87,9 @@ export function useMemory() {
       itemCount: status.itemCount,
       pendingCount: status.pendingCount,
       deviceId: status.deviceId,
+      // Se conserva la ultima conocida si esta respuesta no la trae: un status sin
+      // cuota significa "no vino", no "el usuario se quedo sin nube".
+      quota: status.quota ?? s.quota,
     }))
   }, [])
 

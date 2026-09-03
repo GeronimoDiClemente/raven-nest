@@ -220,6 +220,11 @@ export class MemoryDaemon {
   // and unblocks on spec. Worst case the very next push is rejected again and re-blocks it.
   // Starts undefined so the very FIRST status() response never counts as "a change".
   private lastSeenPlan: string | undefined
+  // La ultima cuota que reporto el servidor. El cliente NO la calcula: los limites de
+  // nube los hace cumplir el servicio y el cliente los muestra (corte comercial, Task 3).
+  // Se retiene entre respuestas porque un `status` sin el campo significa "no vino este
+  // tick", no "el usuario ya no tiene cuota".
+  private lastQuota: { used_bytes: number; max_bytes: number } | null = null
   // M19: concurrent triggers (e.g. a debounced push firing at the same moment as the
   // 5-minute interval's drain) used to fire independent overlapping requests — double
   // POSTs of the same batch, or a later pull's cursor write racing an earlier one's.
@@ -267,6 +272,11 @@ export class MemoryDaemon {
 
   getStatus(): DaemonStatus {
     return this.currentStatus
+  }
+
+  /** La ultima cuota reportada por el servidor, o null si todavia no reporto ninguna. */
+  getQuota(): { used_bytes: number; max_bytes: number } | null {
+    return this.lastQuota
   }
 
   // M26: exposed so memory-ipc-server.ts's pull-through search fallback (a zero-result
@@ -699,8 +709,11 @@ export class MemoryDaemon {
         }
         this.lastSeenPlan = body.plan
       }
-      if (body.quota && body.quota.used_bytes < body.quota.max_bytes) {
-        store.unblockMutations(['quota_exceeded'])
+      if (body.quota) {
+        this.lastQuota = body.quota
+        if (body.quota.used_bytes < body.quota.max_bytes) {
+          store.unblockMutations(['quota_exceeded'])
+        }
       }
 
       // A missing `projects` field means "no discovery available" — an older service, or

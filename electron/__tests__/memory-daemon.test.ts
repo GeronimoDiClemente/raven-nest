@@ -240,6 +240,35 @@ describe('MemoryDaemon — offline / online transitions (§4.1)', () => {
     expect(unblockMutations).toHaveBeenCalledWith(['quota_exceeded'])
   })
 
+  // Task 3 del corte comercial: la cuota que se ve en Settings sale del servidor, no de
+  // una constante del cliente. El daemon leia `body.quota` para desbloquear mutaciones y
+  // lo tiraba; sin retenerlo no habia forma de que llegara a la pantalla.
+  it('status(): retiene la ultima cuota reportada para que la UI la pueda leer', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ plan: 'cloud', quota: { used_bytes: 3_183_898, max_bytes: 1024 ** 3 } }),
+    })
+    const daemon = new MemoryDaemon(baseDaemonDeps(fakeStore(), { fetchImpl }))
+
+    expect(daemon.getQuota()).toBeNull()
+    await daemon.status()
+
+    expect(daemon.getQuota()).toEqual({ used_bytes: 3_183_898, max_bytes: 1024 ** 3 })
+  })
+
+  it('status(): una respuesta sin cuota no borra la ultima conocida', async () => {
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ quota: { used_bytes: 5, max_bytes: 100 } }) })
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({}) })
+    const daemon = new MemoryDaemon(baseDaemonDeps(fakeStore(), { fetchImpl }))
+
+    await daemon.status()
+    await daemon.status()
+
+    expect(daemon.getQuota()).toEqual({ used_bytes: 5, max_bytes: 100 })
+  })
+
   it('status(): quota still at or over the max does NOT unblock quota_exceeded', async () => {
     const fetchImpl = vi.fn().mockResolvedValue({
       ok: true,

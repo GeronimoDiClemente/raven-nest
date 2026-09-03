@@ -7042,6 +7042,7 @@ button.ci-badge:hover {
 .sp-mem-no-repos-banner-icon { font-size: 12px; flex-shrink: 0; }
 
 /* Sync progress bar — Nest Memory card, shown while the push queue is draining. */
+.sp-mem-quota { font-size: 11px; opacity: 0.65; margin-top: 6px; }
 .sp-mem-progress {
   margin-top: 6px;
   height: 3px;

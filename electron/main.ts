@@ -2752,6 +2752,7 @@ ipcMain.handle('memory:status', () => {
     itemCount: memory.store.count(),
     pendingCount: memory.store.pendingMutationCount(),
     daemonStatus: memory.daemon.getStatus(),
+    quota: memory.daemon.getQuota() ?? undefined,
   }
 })
 

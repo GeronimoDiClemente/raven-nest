@@ -316,6 +316,7 @@ function mockMemoryBridge(status: {
   itemCount: number
   pendingCount: number
   daemonStatus: 'idle' | 'syncing' | 'paused' | 'error' | 'plan_required'
+  quota?: { used_bytes: number; max_bytes: number }
 }) {
   const memory = {
     ensureDeviceId: vi.fn().mockResolvedValue('dev-1'),
@@ -509,5 +510,52 @@ describe('SettingsPanel — neighbouring memory-card states are unaffected by th
     await waitFor(() => expect(screen.getByText('Unavailable')).toBeInTheDocument())
     expect(screen.getByText('Unavailable')).toBeDisabled()
     expect(screen.queryByText('Disconnect')).not.toBeInTheDocument()
+  })
+})
+
+// Task 3 del corte comercial: los limites de nube los hace cumplir el servidor, y el
+// cliente los MUESTRA. La cuota llega en la respuesta de `GET /v1/sync/status`; antes el
+// daemon la leia para desbloquear mutaciones y la tiraba, asi que nunca llegaba a la
+// pantalla. Ojo con la condicion de render: NO cuelga de PLAN_LIMITS[plan].memoryCloud —
+// gatear el dato del servidor detras de una constante del cliente es justo lo que esta
+// tarea saca del medio. Si el servidor reporto cuota, el usuario tiene nube.
+describe('SettingsPanel — la cuota de memoria sale del servidor', () => {
+  beforeEach(() => {
+    supabaseMock.auth.getUser.mockResolvedValue({ data: { user: null } })
+    ;(window as unknown as { localPaths: { getAll: () => Promise<Record<string, string>> } })
+      .localPaths = { getAll: async () => ({}) }
+  })
+
+  afterEach(() => {
+    delete (window as unknown as { memory?: unknown }).memory
+  })
+
+  it('muestra la cuota que devuelve el servidor, no una constante del cliente', async () => {
+    mockMemoryBridge({
+      connected: true,
+      deviceId: 'dev-1',
+      itemCount: 12,
+      pendingCount: 0,
+      daemonStatus: 'idle',
+      quota: { used_bytes: 3_183_898, max_bytes: 1024 ** 3 },
+    })
+    render(<SettingsPanel updateState="idle" onCheckUpdates={vi.fn()} userEmail="test@example.com" userPrefs={makeUserPrefs(vi.fn())} />)
+    fireEvent.click(screen.getByTitle('Settings'))
+    fireEvent.click(screen.getByText('Account'))
+
+    // 3,18 MB de 1 GiB. El texto exacto lo define la implementacion; lo que este test fija
+    // es que los dos numeros salen del servidor y llegan a la pantalla.
+    expect(await screen.findByText(/3\.[0-9] MB/)).toBeInTheDocument()
+    expect(await screen.findByText(/1 GB/)).toBeInTheDocument()
+  })
+
+  it('no inventa una cuota cuando el servidor todavia no reporto ninguna', async () => {
+    mockMemoryBridge({ connected: true, deviceId: 'dev-1', itemCount: 12, pendingCount: 0, daemonStatus: 'idle' })
+    render(<SettingsPanel updateState="idle" onCheckUpdates={vi.fn()} userEmail="test@example.com" userPrefs={makeUserPrefs(vi.fn())} />)
+    fireEvent.click(screen.getByTitle('Settings'))
+    fireEvent.click(screen.getByText('Account'))
+
+    await waitFor(() => expect(screen.getByText(/12 items/)).toBeInTheDocument())
+    expect(screen.queryByText(/ of /)).toBeNull()
   })
 })

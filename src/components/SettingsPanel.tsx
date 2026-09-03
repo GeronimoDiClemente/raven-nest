@@ -121,6 +121,16 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
   // Sync push progress for the card's progress bar. itemCount is the running local
   // total; pendingCount is the outstanding push queue and can exceed itemCount
   // mid-migration (it also counts update mutations, not just inserts), so clamp.
+  // Bytes legibles. Un valor entero no lleva decimal ("1 GB"), uno fraccionario lleva uno
+  // ("3.0 MB"): la cuota tope suele ser redondo y el usado nunca lo es.
+  const formatBytes = (bytes: number): string => {
+    const unidades = ['B', 'KB', 'MB', 'GB', 'TB']
+    let v = bytes
+    let i = 0
+    while (v >= 1024 && i < unidades.length - 1) { v /= 1024; i++ }
+    return `${Number.isInteger(v) ? v : v.toFixed(1)} ${unidades[i]}`
+  }
+
   const memorySyncProgress = memory.itemCount > 0
     ? Math.min(1, Math.max(0, (memory.itemCount - memory.pendingCount) / memory.itemCount))
     : 0
@@ -493,6 +503,16 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                           organized per project — memory connected without repos goes to the global
                           space and won't be re-organized later.
                         </span>
+                      </div>
+                    )}
+                    {/* La cuota la manda el servidor. La condicion NO cuelga de
+                        PLAN_LIMITS[plan].memoryCloud a proposito: gatear el dato del
+                        servidor detras de una constante del cliente es justo lo que el
+                        corte comercial saca del medio. Si el servidor reporto cuota, el
+                        usuario tiene nube. */}
+                    {memory.quota && (memory.state === 'connected' || memory.state === 'paused') && (
+                      <div className="sp-mem-quota">
+                        {formatBytes(memory.quota.used_bytes)} of {formatBytes(memory.quota.max_bytes)} used
                       </div>
                     )}
                     {memory.state === 'connected' && memory.pendingCount > 0 && (

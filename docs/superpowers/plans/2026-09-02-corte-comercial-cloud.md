@@ -306,7 +306,28 @@ git commit -m "feat(pricing): lo local es gratis — se borran los 14 gates de f
 
 `GET /v1/sync/status` ya devuelve `quota: { used_bytes, max_bytes }` y `plan`. El cliente hoy no los muestra. Los campos muertos `maxMemoryProjects` y `maxCloudObservations` ya se fueron con la Task 2 — esta tarea es la que pone en pantalla el dato de verdad, el del servidor.
 
-- [ ] **Step 1: Escribir el test que falla**
+> **Hecho (2026-09-03).** La premisa de esta tarea era optimista en un punto: **`status` NO
+> devolvía la cuota al renderer**. `MemoryDaemon.status()` leía `body.quota` sólo para desbloquear
+> `quota_exceeded` y la tiraba, así que no había nada que "propagar" — hubo que retenerla y abrirle
+> el camino entero: `lastQuota` + `getQuota()` en el daemon, el campo en el handler `memory:status`
+> de `main.ts`, el tipo en `src/types.ts`, y recién ahí `useMemory` y el panel.
+>
+> Dos decisiones que el plan no fija:
+>
+> - **Un `status` sin `quota` no borra la última conocida**, ni en el daemon ni en el hook. Significa
+>   "no vino en este tick", no "el usuario se quedó sin nube".
+> - **La línea NO cuelga de `PLAN_LIMITS[plan].memoryCloud`** (la línea 471 que menciona el plan es
+>   el ternario del botón, no un lugar donde vaya un dato). Se muestra cuando el servidor reportó
+>   cuota y la memoria está `connected`/`paused`. Gatear el dato del servidor detrás de una
+>   constante del cliente es justo lo que esta tarea saca del medio: si el servidor reportó cuota,
+>   el usuario tiene nube.
+>
+> El helper `renderSettings` que menciona el Step 1 no existe en ese archivo; se extendió el
+> `mockMemoryBridge` que sí está.
+>
+> Suite: 1838 verdes, 3 skipped. Typecheck: 3 errores, los mismos preexistentes.
+
+- [x] **Step 1: Escribir el test que falla**
 
 ```typescript
 // agregar a src/__tests__/components/SettingsPanel.test.tsx
@@ -328,21 +349,21 @@ it('muestra la cuota que devuelve el servidor, no una constante del cliente', as
 
 (El helper `renderSettings` ya existe en ese archivo; extender su tipo de `memory` con `quota` opcional.)
 
-- [ ] **Step 2: Correrlo y verificar que falla**
+- [x] **Step 2: Correrlo y verificar que falla**
 
 Run: `npx vitest run src/__tests__/components/SettingsPanel.test.tsx`
 Expected: FAIL — `Unable to find an element with the text: /3\.[0-9] MB/`, porque el panel no muestra cuota.
 
-- [ ] **Step 3: Implementación mínima**
+- [x] **Step 3: Implementación mínima**
 
 En `src/hooks/useMemory.ts`, propagar `quota` desde la respuesta de `status` al estado que expone el hook. En `SettingsPanel.tsx`, dentro de la rama `PLAN_LIMITS[plan].memoryCloud` (línea 471), renderizar una línea con usado y total formateados en unidades legibles.
 
-- [ ] **Step 4: Correr y verificar**
+- [x] **Step 4: Correr y verificar**
 
 Run: `npx vitest run src/__tests__/components/SettingsPanel.test.tsx; echo EXIT=$?`
 Expected: PASS, `EXIT=0`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/components/SettingsPanel.tsx src/hooks/useMemory.ts src/__tests__/components/SettingsPanel.test.tsx

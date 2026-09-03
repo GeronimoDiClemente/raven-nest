@@ -807,6 +807,12 @@ declare global {
         pendingCount: number
         daemonStatus: 'idle' | 'syncing' | 'paused' | 'error' | 'plan_required'
         /**
+         * Lo que el servidor reporta en `GET /v1/sync/status`. Ausente hasta que el
+         * daemon recibe su primera respuesta. El cliente NO calcula estos numeros: los
+         * limites de nube los hace cumplir el servicio y el cliente los muestra.
+         */
+        quota?: { used_bytes: number; max_bytes: number }
+        /**
          * True when main's memory subsystem never initialized. The preload exposes
          * `window.memory` unconditionally, so its mere presence proves nothing — this
          * flag is the only signal the renderer gets that memory is dead on this machine.
