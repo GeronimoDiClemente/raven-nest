@@ -163,16 +163,43 @@ No los podés ver desde la tuya porque necesitan el orquestador de graph. **Ya h
 verdad** en un worktree de prueba (`smoke/memory-bridge`, descartable): dio **un solo conflicto y
 fue `.env.example`**, y los cuatro bugs de abajo son todo lo que apareció.
 
+> **Actualización (2026-09-03) — 3.1, 3.2 y 3.4 están arreglados.** El código es tuyo, así que no
+> lo tocamos en tu rama: el fix vive en el worktree del merge (`smoke/memory-bridge`, commit
+> `2061c84`) y viaja como **`docs/memory-merge-fixes.patch`**, acá al lado. Aplica limpio sobre
+> `feat/nest-memory-phase1` (verificado con `git apply --check`); toca `electron/pty-manager.ts`,
+> `src/hooks/useMemory.ts` y los dos tests de esos archivos. Sobre el merge queda en **1096 tests
+> verdes, 1 skipped**, y el typecheck da los mismos 72 errores preexistentes que antes del cambio.
+> Cada bug de abajo cierra con la nota de qué se hizo. **3.3 sigue abierto** — es tu Phase 2.
+
 **3.1 — `cmd === 'claude'` es comparación exacta.** `pty-manager.ts:185`. Los nodos del graph se
 lanzan con `launchCommand()`, que devuelve `claude --model <x>` cuando el nodo tiene modelo
 asignado. Ese caso no matchea, así que el nodo arranca **sin `--settings`**: sin hooks de memoria,
 en silencio. Los nodos sin modelo sí funcionan, lo que lo hace peor porque falla de a ratos. Fix:
 comparar contra `cmd.split(' ')[0]` e insertar el flag en vez de reconstruir el comando.
 
+> **Arreglado** tal cual: se compara el binario y los flags se insertan justo después de él, así
+> los argumentos del que llama (`--model`, y cualquier otro que venga) sobreviven. Cubierto por
+> dos tests nuevos, uno de ellos el caso negativo (`codex --model x` no debe tocarse).
+
 **3.2 — `accountDir` vacío saltea el bloque completo.** `pty-manager.ts:133` envuelve toda la
 inyección de memoria en `if (accountDir && cmd)`. En integrations, `accountDirForAgent()` devuelve
 `''` cuando el agente no tiene ninguna cuenta guardada. Resultado: un nodo headless corriendo con
 el HOME real queda afuera de memoria por completo.
+
+> **Arreglado**, y acá hubo una decisión que te toca revisar. La inyección de memoria ahora es
+> independiente del redirect de HOME: sale del `if (accountDir && cmd)` y corre para cualquier
+> pane con comando. Lo que faltaba definir es **dónde provisionar** cuando no hay accountDir, y
+> elegimos `{ravenHome}/.raven-nest/accounts/<ai>/__headless__` — un dir con forma de cuenta, así
+> tu `parseAccountDir` saca la procedencia sola (`claude:__headless__`).
+>
+> **Descartamos provisionar en el home real**, que era lo más directo: `provisionMcpConfig`
+> escribe `mcpServers.nest_memory` en `{accountDir}/.claude.json`, y con el home real eso es el
+> `~/.claude.json` global de la máquina. Es idempotente y namespaceado, pero es config del usuario,
+> no nuestra. La contra de la opción que elegimos es que con el HOME real claude nunca lee ese
+> `.claude.json`, así que el launch tiene que nombrarlo: sumamos `--mcp-config <headless>/.claude.json`
+> **solo** en ese caso (en un pane de cuenta normal HOME ya apunta ahí y no hace falta). El dir
+> headless se deriva únicamente de un nombre de binario limpio, para que un `cmd` raro no pueda
+> elegir dónde escribimos.
 
 **3.3 — El coder del template `full` corre con codex, que no está provisionado.** Solo `claude`
 recibe el shim MCP en Phase 1. El nodo que más decisiones toma en el pipeline por defecto es justo
@@ -194,6 +221,15 @@ conoce) tumba la pantalla de Settings completa. Un par de optional chainings en 
 un estado inicial de "memoria no disponible", lo cierran de raíz. De hecho `main.ts` ya trata la
 memoria como algo que puede fallar y degradar a deshabilitado (todo el try/catch alrededor de
 `new MemoryStore(...)`); el hook es la única pieza que no sigue esa misma regla.
+
+> **Arreglado por el lado del hook**, como decía el párrafo de arriba. `MemoryCardState` suma
+> `'unavailable'`, que es el estado inicial cuando el preload no expuso la API y es *sticky*
+> (`refresh()` no lo pisa), y `connect`/`disconnect` cortan temprano en vez de explotar. Cuatro
+> tests nuevos.
+>
+> **Queda una punta suelta que es tuya**: `SettingsPanel` no conoce `'unavailable'`, así que en ese
+> estado el ternario del botón cae en la rama `Connect`, que ahora es un no-op silencioso en vez de
+> un crash. No lo tocamos porque es tu UI — alcanza con una rama más antes del ternario.
 
 ---
 
