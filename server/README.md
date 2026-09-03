@@ -208,3 +208,40 @@ arranque reintenta exactamente esa migración (nunca quedó registrada en
 
 Migraciones nuevas van en `migrations/`, numeradas (`002_...sql`, `003_...sql`, ...) — no
 hay ORM ni herramienta de migraciones, es SQL plano leído en orden alfabético.
+
+## Backups y restauración
+
+El servicio hace un `pg_dump -Fc` por día y lo sube a Cloudflare R2. La retención de 30 días la
+hace **la regla de ciclo de vida del bucket**, no el código.
+
+Cada intento deja una fila en `backups`, buena o mala. El último backup bueno:
+
+```sql
+select object_key, finished_at, bytes, row_counts from backups where ok order by id desc limit 1;
+```
+
+Y los que fallaron, que es la consulta que de verdad importa:
+
+```sql
+select started_at, error from backups where not ok order by id desc limit 10;
+```
+
+**Restaurar y verificar** (`scripts/restore-check.mjs`). Crea una base nueva, restaura ahí,
+compara los conteos contra los que se guardaron cuando se tomó el dump, imprime el checksum del
+contenido y borra la base. No toca la base de origen.
+
+```bash
+npx tsx scripts/restore-check.mjs --from-r2          # el último dump real
+npx tsx scripts/restore-check.mjs --file x.dump      # un dump local, sin R2
+npx tsx scripts/restore-check.mjs --from-r2 --keep   # deja la base para inspeccionarla
+```
+
+Va con `npx tsx` y no con `node` pelado porque importa módulos TypeScript de `src/`.
+
+En una máquina sin cliente de Postgres instalado (Windows), apuntar los binarios al contenedor
+de la base **y darles su propia URL**, que no es la del driver:
+
+```bash
+export PG_RESTORE_CMD="docker exec -i nest-memory-pg pg_restore"
+export PG_BIN_DATABASE_URL="postgres://postgres:nestmem@127.0.0.1:5432/nest_memory"
+```
