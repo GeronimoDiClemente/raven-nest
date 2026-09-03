@@ -79,6 +79,10 @@ describe('registerDevice', () => {
 
   it('un usuario nuevo entra como free, que es un plan de nube valido (1 proyecto)', async () => {
     const nuevo = randomUUID()
+    // `allowlist.user_id` tiene FK a `users(id)` (igual que en producción: mint-device-token.mjs
+    // siempre crea el usuario antes de allowlistearlo). El insert directo no toca `plan`, así
+    // que sigue quedando en el default de la tabla ('free'), que es lo que este test verifica.
+    await pool.query('insert into users (id) values ($1)', [nuevo])
     await pool.query('insert into allowlist (user_id) values ($1)', [nuevo])
 
     const r = await registerDevice(pool, { userId: nuevo, email: null }, { name: 'Primera' })
@@ -90,6 +94,7 @@ describe('registerDevice', () => {
 
   it('registrar dos veces da dos devices distintos con tokens distintos', async () => {
     const dos = randomUUID()
+    await pool.query('insert into users (id) values ($1)', [dos])
     await pool.query('insert into allowlist (user_id) values ($1)', [dos])
 
     const a = await registerDevice(pool, { userId: dos, email: null }, { name: 'Mac' })
