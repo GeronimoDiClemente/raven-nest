@@ -40,8 +40,6 @@ interface Props {
     shellId?: string
   ) => void
   onCancel: () => void
-  allowedAIs?: string[]
-  onUpgrade?: () => void
   /** Board "Run with worker": zero-click launch on this agent with `presetModel`.
    *  Resolved once on mount — if the CLI is found and there's exactly one saved
    *  account (or the agent needs no account at all), it launches immediately
@@ -88,7 +86,7 @@ const SHELL_COLORS: Record<string, string> = {
 
 const CUSTOM_COLORS = ['#E07B54', '#4F9EFF', '#22C55E', '#A78BFA', '#F59E0B', '#EC4899', '#14B8A6', '#60A5FA', '#888888']
 
-export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgrade, presetAgent, presetModel, presetAccount }: Props) {
+export default function NewPaneDialog({ onConfirm, onCancel, presetAgent, presetModel, presetAccount }: Props) {
   const presetCfg = presetAgent ? AI_CONFIG[presetAgent] : null
   // While a preset resolves (see the mount effect below), render a minimal
   // placeholder instead of any step UI — no flash of an account form the user
@@ -425,23 +423,20 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
               {PICKER_AI_TYPES.map((aiType) => {
                 const cfg = AI_CONFIG[aiType]
                 const Logo = AI_LOGOS[aiType]
-                const locked = allowedAIs && !allowedAIs.includes(aiType)
                 return (
                   <button
                     key={aiType}
-                    className={`ai-card${locked ? ' locked' : ''}`}
+                    className="ai-card"
                     style={{ '--ai-color': cfg.color, '--ai-bg': cfg.bg } as React.CSSProperties}
-                    onClick={() => locked ? onUpgrade?.() : selectAI(aiType)}
-                    title={locked ? 'Requires Pro plan' : undefined}
+                    onClick={() => selectAI(aiType)}
                   >
                     <div className="ai-card-logo">
                       {Logo
-                        ? <Logo size={36} color={locked ? '#555' : cfg.color} />
-                        : <TerminalIcon size={36} color={locked ? '#555' : cfg.color} />
+                        ? <Logo size={36} color={cfg.color} />
+                        : <TerminalIcon size={36} color={cfg.color} />
                       }
                     </div>
                     <span className="ai-card-label">{cfg.label}</span>
-                    {locked && <span className="ai-card-lock">Pro</span>}
                   </button>
                 )
               })}

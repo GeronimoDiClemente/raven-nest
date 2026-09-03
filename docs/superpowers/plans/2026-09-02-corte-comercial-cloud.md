@@ -176,7 +176,23 @@ git commit -m "feat(pricing): el plan cloud existe de punta a punta, junto a pro
 
 **Ningún test del repo depende hoy de estos gates** — verificado: el único test que toca `PLAN_LIMITS` es `src/__tests__/components/SettingsPanel.test.tsx`, y sólo usa `memoryCloud`, que sobrevive. Que catorce gates comerciales no tengan un solo test es, en sí, parte de por qué se van.
 
-- [ ] **Step 1: Escribir el test que falla**
+> **Hecho (2026-09-03).** Cuatro sitios de `App.tsx` que la lista de líneas de arriba no tenía, y
+> que había que sacar igual porque son parte de los mismos catorce gates: `onMyReposOpen`
+> (línea 1854, `allowMyRepos`), `onMicToggle` (1884, `allowVoice`), el `allowSharing` +
+> `onRequireUpgrade` del `TerminalPane` de la grilla (2034, además del pane suelto de 1772) y
+> `allowedAIs` en el `NewPaneDialog` (2102).
+>
+> Ese último arrastró un gate que el plan no nombra: `NewPaneDialog` pintaba las CLIs no incluidas
+> en `allowedAIs` con un candado y la etiqueta "Pro", y el click llamaba a `onUpgrade` en vez de
+> abrir el pane. Se fue entero — junto con el gate de My Repos en `Sidebar.tsx` (línea 666) y su
+> badge "Pro", que no se ven desde el typecheck porque leen `plan` directo, no `planLimits`.
+>
+> `UserMenu.tsx` no hizo falta tocarlo: ya toma `Plan` de `stripe.ts`.
+>
+> Suite: 1834 verdes, 3 skipped (sigue la roja ambiental de `worktree-path.test.ts` en Mac).
+> Typecheck: 3 errores, los mismos 3 `TS6307` preexistentes.
+
+- [x] **Step 1: Escribir el test que falla**
 
 Agregar a `src/__tests__/lib/planes.test.ts`:
 
@@ -206,12 +222,12 @@ describe('lo local es gratis', () => {
 })
 ```
 
-- [ ] **Step 2: Correrlo y verificar que falla**
+- [x] **Step 2: Correrlo y verificar que falla**
 
 Run: `npx vitest run src/__tests__/lib/planes.test.ts`
 Expected: FAIL en los dos — hoy `PLAN_LIMITS.free` tiene `maxPanes: 3` y `PLAN_LIMITS.cloud` tiene `maxPanes: 12`, así que ni son iguales ni están limpios de gates.
 
-- [ ] **Step 3: Vaciar `PlanLimits`**
+- [x] **Step 3: Vaciar `PlanLimits`**
 
 En `src/lib/stripe.ts`, la interfaz queda sólo con lo de nube:
 
@@ -249,7 +265,7 @@ export const PLAN_LIMITS: Record<Plan, PlanLimits> = {
 
 Borrar además `FULL_FEATURES` y `ALL_AIS`, que quedan sin uso.
 
-- [ ] **Step 4: Sacar los gates de `App.tsx`**
+- [x] **Step 4: Sacar los gates de `App.tsx`**
 
 El typecheck va a marcar cada sitio. En todos, la forma es la misma: se borra la condición y se deja pasar la acción.
 
@@ -263,12 +279,12 @@ El typecheck va a marcar cada sitio. En todos, la forma es la misma: se borra la
 
 En `src/components/TerminalPane.tsx`, borrar la prop `allowSharing` y el gate del handler de Share; el botón queda siempre habilitado.
 
-- [ ] **Step 5: Correr y verificar que pasa**
+- [x] **Step 5: Correr y verificar que pasa**
 
 Run: `npx vitest run; echo EXIT=$?` y `npx tsc -b`
 Expected: verde, `EXIT=0`, typecheck limpio. `SettingsPanel.test.tsx` tiene que seguir pasando sin tocarlo: usa `memoryCloud`, que no cambió.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/lib/stripe.ts src/App.tsx src/components/TerminalPane.tsx src/components/Sidebar.tsx src/components/UserMenu.tsx src/__tests__/lib/planes.test.ts

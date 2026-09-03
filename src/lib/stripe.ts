@@ -36,130 +36,32 @@ export const ENTERPRISE_CONTACT_EMAIL = 'bautista@nestmux.com'
 // of showing a card.
 export const BOOK_DEMO_URL = 'https://calendly.com/matias-nestmux/new-meeting'
 
+/**
+ * Lo que un plan habilita. Después del pricing del 2026-09-02 esto describe SÓLO la nube:
+ * lo que corre en la máquina del usuario no nos cuesta nada y por lo tanto no se cobra, así
+ * que no hay nada local que gatear. Los catorce flags que había acá antes gateaban panes,
+ * worktrees, voice, sharing y diff viewer — todo local, todo regalado por la competencia
+ * OSS, y cada uno un motivo para que nos comparen y perdamos.
+ *
+ * Los límites numéricos de nube (proyectos, bytes) NO viven acá: los hace cumplir el
+ * servidor y el cliente los lee de `GET /v1/sync/status`.
+ */
 export interface PlanLimits {
-  // Hard caps
-  maxPanes: number
-
-  // AI access
-  allowedAIs: string[]
-
-  // Productivity features
-  allowBroadcast: boolean
-  allowVoice: boolean
-  allowSharing: boolean
-  allowSnippets: boolean
-  allowWorkspaces: boolean
-
-  // Worktrees & git
-  allowCreateWorktree: boolean
-  allowSpotlight: boolean
-  allowDiffViewer: boolean
-
-  // Repo integrations
-  allowMyRepos: boolean
-  allowActions: boolean
-  allowGitHubGitLab: boolean
-
-  // MCP
-  allowMcpWrite: boolean
-
-  // Team
-  allowTeam: boolean
-
-  // Nest Memory — docs/nest-memory-architecture.md §7.1
-  memoryLocal: boolean          // always true — Free keeps full local memory (the demo, §7.1)
-  memoryCloud: boolean          // Pro+: replication + multi-device
-  memoryTeamShare: boolean      // Team only: promote to team scope (Phase 3)
-  maxMemoryProjects: number     // free: Infinity (local, unlimited), pro: 50, team: 200
-  maxCloudObservations: number  // pro: 50_000, team: 250_000 — soft caps, warn at 80%
-
-  // Enterprise meta
+  /** Siempre true, en todos los planes. Está explícito porque es la promesa del producto. */
+  memoryLocal: boolean
+  /** Si la memoria se aloja en nuestra nube y se replica entre máquinas. */
+  memoryCloud: boolean
+  /** Sólo Teams: promover una memoria a `scope: 'team'`, visible para el resto del equipo. */
+  memoryTeamShare: boolean
+  /** Meta: si el plan es la punta de Teams (SSO, instancia dedicada, SLA). */
   isEnterprise: boolean
 }
 
-const ALL_AIS = ['claude', 'gemini', 'codex', 'copilot', 'opencode', 'deepseek', 'grok', 'qwen', 'cursor', 'terminal', 'custom', 'browser']
-
-// memoryLocal/memoryCloud are common to every paid tier (pro/team/enterprise all get
-// cloud replication); memoryTeamShare and the two caps differ per plan, so they're set
-// explicitly below rather than folded into this shared object.
-const FULL_FEATURES: Omit<PlanLimits, 'allowTeam' | 'isEnterprise' | 'memoryTeamShare' | 'maxMemoryProjects' | 'maxCloudObservations'> = {
-  maxPanes: 12,
-  allowedAIs: ALL_AIS,
-  allowBroadcast: true,
-  allowVoice: true,
-  allowSharing: true,
-  allowSnippets: true,
-  allowWorkspaces: true,
-  allowCreateWorktree: true,
-  allowSpotlight: true,
-  allowDiffViewer: true,
-  allowMyRepos: true,
-  allowActions: true,
-  allowGitHubGitLab: true,
-  allowMcpWrite: true,
-  memoryLocal: true,
-  memoryCloud: true,
-}
-
 export const PLAN_LIMITS: Record<Plan, PlanLimits> = {
-  free: {
-    maxPanes: 3,
-    allowedAIs: ALL_AIS,
-    allowBroadcast: false,
-    allowVoice: false,
-    allowSharing: false,
-    allowSnippets: false,
-    allowWorkspaces: false,
-    allowCreateWorktree: false,
-    allowSpotlight: false,
-    allowDiffViewer: false,
-    allowMyRepos: false,
-    allowActions: false,
-    allowGitHubGitLab: false,
-    allowMcpWrite: false,
-    allowTeam: false,
-    memoryLocal: true,
-    memoryCloud: false,
-    memoryTeamShare: false,
-    maxMemoryProjects: Infinity,
-    maxCloudObservations: 0,
-    isEnterprise: false,
-  },
-  // Cloud es el tier INDIVIDUAL del corte comercial: paga por alojar su memoria en la
-  // nube, no por compartirla. Idéntico a `pro`, que es su alias heredado hasta la Task 7.
-  cloud: {
-    ...FULL_FEATURES,
-    allowTeam: false,
-    memoryTeamShare: false,
-    maxMemoryProjects: 50,
-    maxCloudObservations: 50_000,
-    isEnterprise: false,
-  },
-  pro: {
-    ...FULL_FEATURES,
-    allowTeam: false,
-    memoryTeamShare: false,
-    maxMemoryProjects: 50,
-    maxCloudObservations: 50_000,
-    isEnterprise: false,
-  },
-  team: {
-    ...FULL_FEATURES,
-    allowTeam: true,
-    memoryTeamShare: true,
-    maxMemoryProjects: 200,
-    maxCloudObservations: 250_000,
-    isEnterprise: false,
-  },
-  enterprise: {
-    ...FULL_FEATURES,
-    allowTeam: true,
-    isEnterprise: true,
-    // Sales-led, negotiated tier — memory caps are effectively unlimited pending an
-    // actual enterprise contract term; revisit if/when a real enterprise customer
-    // needs a concrete number here.
-    memoryTeamShare: true,
-    maxMemoryProjects: Infinity,
-    maxCloudObservations: Infinity,
-  },
+  free:       { memoryLocal: true, memoryCloud: false, memoryTeamShare: false, isEnterprise: false },
+  cloud:      { memoryLocal: true, memoryCloud: true,  memoryTeamShare: false, isEnterprise: false },
+  // Alias heredado de cloud hasta que la Task 6 migre los perfiles.
+  pro:        { memoryLocal: true, memoryCloud: true,  memoryTeamShare: false, isEnterprise: false },
+  team:       { memoryLocal: true, memoryCloud: true,  memoryTeamShare: true,  isEnterprise: false },
+  enterprise: { memoryLocal: true, memoryCloud: true,  memoryTeamShare: true,  isEnterprise: true },
 }

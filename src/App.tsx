@@ -305,12 +305,6 @@ export default function App() {
       setAddingPane(null)
       return
     }
-    if (panesRef.current.length >= planLimits.maxPanes) {
-      // Plan cap (e.g. Free is 3) — offer upgrade rather than silently no-op.
-      setAddingPane(null)
-      setShowUpgrade(true)
-      return
-    }
     // A Hub tab owns no terminals of its own (HubView filters isHub tabs out
     // of the grid). Pushing a pane onto it would create an invisible,
     // unclosable pane, so route the new terminal into a fresh workspace.
@@ -354,7 +348,7 @@ export default function App() {
         : { ...t, panes: nextPanes, layoutId }
     })
     setAddingPane(null)
-  }, [updateActiveTab, planLimits.maxPanes])
+  }, [updateActiveTab])
 
   // "Arreglá el rojo" (H4): baja en main el log del run fallido del worktree y lo
   // inyecta al agente. Si ya hay un pane en ese worktree, lo escribe y lo enfoca;
@@ -567,9 +561,8 @@ export default function App() {
 
   const [showNewWorktree, setShowNewWorktree] = useState(false)
   const handleNewWorktree = useCallback(() => {
-    if (!planLimits.allowCreateWorktree) { setShowUpgrade(true); return }
     setShowNewWorktree(true)
-  }, [planLimits.allowCreateWorktree])
+  }, [])
   const [quickWorktreeOpen, setQuickWorktreeOpen] = useState(false)
   const [diffViewerOpen, setDiffViewerOpen] = useState(false)
   // The tutorial is launched on demand: from the "?" button in the Worktrees
@@ -586,19 +579,17 @@ export default function App() {
       if (isCmdShift && e.key.toLowerCase() === 'w') {
         if (!activeTab.repoPath) return
         e.preventDefault()
-        if (!planLimits.allowCreateWorktree) { setShowUpgrade(true); return }
         setQuickWorktreeOpen(true)
       }
       if (isCmdShift && e.key.toLowerCase() === 'd') {
         if (!activeCellRepoPath) return
         e.preventDefault()
-        if (!planLimits.allowDiffViewer) { setShowUpgrade(true); return }
         setDiffViewerOpen((v) => !v)
       }
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
-  }, [activeTab.repoPath, activeCellRepoPath, planLimits.allowCreateWorktree, planLimits.allowDiffViewer])
+  }, [activeTab.repoPath, activeCellRepoPath])
 
   const removePane = useCallback((paneId: string) => {
     window.pty.kill(paneId)
@@ -727,10 +718,6 @@ export default function App() {
     // después y se bloquea silencioso en el tope de plan/MAX_PANES — sin este
     // pre-check la tab ya removida no se agregaba a ningún lado (se perdía).
     if (panesRef.current.length >= MAX_PANES) return
-    if (panesRef.current.length >= planLimits.maxPanes) {
-      setShowUpgrade(true)
-      return
-    }
     updateActiveTab(t => ({
       ...t,
       // removeEditorTab preserva la vista activa si el tab movido no era el
@@ -745,7 +732,7 @@ export default function App() {
       activeEditorTabPath: relPath,
       repoPath: sourcePane.repoPath,
     })
-  }, [activeTab, updateActiveTab, addPane, planLimits.maxPanes])
+  }, [activeTab, updateActiveTab, addPane])
 
   // Drag & drop: una tab soltada sobre OTRO pane de editor — del mismo
   // workspace o, en el Hub, de workspaces distintos (mismo worktree).
@@ -779,13 +766,9 @@ export default function App() {
     const sourceTab = tabsRef.current.find(t => !t.isHub && t.panes.some(p => p.id === paneId))
     if (!sourceTab) return
     if (sourceTab.panes.length >= MAX_PANES) return
-    if (sourceTab.panes.length >= planLimits.maxPanes) {
-      setShowUpgrade(true)
-      return
-    }
     const newId = generateId()
     setTabs(prev => splitEditorTabFromHub(prev, hubTabId, paneId, relPath, newId) ?? prev)
-  }, [planLimits.maxPanes])
+  }, [])
 
   const handlePtyStarted = useCallback((paneId: string, runningRepoPath: string | undefined) => {
     updateActiveTab(t => ({
@@ -1157,10 +1140,6 @@ export default function App() {
 
   const openBrowserCell = useCallback((url: string) => {
     if (panesRef.current.length >= MAX_PANES) return
-    if (panesRef.current.length >= planLimits.maxPanes) {
-      setShowUpgrade(true)
-      return
-    }
     // Hub tabs own no panes — el browser vive en un workspace nuevo, pero se
     // auto-pinnea al Hub y el usuario SE QUEDA en el Hub (antes esto
     // navegaba al workspace nuevo, dejando la sensación de "no puedo tener
@@ -1197,7 +1176,7 @@ export default function App() {
         ? { ...t, panes: nextPanes, layoutId, splitRatios: {} }
         : { ...t, panes: nextPanes, layoutId }
     })
-  }, [activeTabId, updateActiveTab, planLimits.maxPanes])
+  }, [activeTabId, updateActiveTab])
 
   // When a link click in xterm or a PortChip dispatches nest:pty-url and no
   // BrowserCell is mounted to capture it, create one. If a BrowserCell IS
@@ -1397,7 +1376,6 @@ export default function App() {
       // Voice input toggle
       if (matchesBinding(e, kb.voiceInput)) {
         e.preventDefault()
-        if (!planLimits.allowVoice) { setShowUpgrade(true); return }
         toggleListening()
         return
       }
@@ -1497,7 +1475,7 @@ export default function App() {
     // means non-modified keystrokes still flow through to the terminal.
     window.addEventListener('keydown', handler, true)
     return () => window.removeEventListener('keydown', handler, true)
-  }, [addNextPane, toggleListening, cycleTab, handleUnzoom, handleZoom, planLimits.allowVoice, openHub, closeHub])
+  }, [addNextPane, toggleListening, cycleTab, handleUnzoom, handleZoom, openHub, closeHub])
 
   const isInitialState = panes.length === 0
 
@@ -1689,19 +1667,15 @@ export default function App() {
       borderColor: AI_CONFIG.editor.color, cmd: '', repoPath,
       editorTabs: [{ relPath, dirty: false }], activeEditorTabPath: relPath,
     }
-    // Respetar el cap del workspace destino (hard MAX_PANES + tope de plan) igual
-    // que addPane, y el del Hub (MAX_PANES, lo que hubData muestra).
+    // Respetar el cap del workspace destino (MAX_PANES) igual que addPane, y el
+    // del Hub (MAX_PANES, lo que hubData muestra).
     const res = openFileFromHub(tabsRef.current, activeTabIdRef.current, workspaceTabId, repoPath, relPath, newPane, {
-      workspaceCapacity: Math.min(MAX_PANES, planLimits.maxPanes),
+      workspaceCapacity: MAX_PANES,
       hubCapacity: MAX_PANES,
     })
-    if (res.status === 'workspace-full') {
-      // Bloqueado por el tope del plan (no el hard cap) → ofrecer upgrade, como addPane.
-      if (planLimits.maxPanes < MAX_PANES) setShowUpgrade(true)
-      return
-    }
+    if (res.status === 'workspace-full') return
     setTabs(res.tabs)
-  }, [planLimits.maxPanes])
+  }, [])
 
   // El Hub muestra panes de OTROS workspaces: toda mutación va vía los
   // helpers *Anywhere (la tab activa es la del Hub y no posee estos panes).
@@ -1769,8 +1743,6 @@ export default function App() {
       onActivity={handlePaneActivity}
       onJoinRequest={() => setJoinRequest({ paneId: pane.id, paneTitle: pane.customLabel ?? pane.accountName ?? 'Terminal' })}
       onPtyStarted={(id, rp) => updatePaneAnywhere(id, p => ({ ...p, runningRepoPath: rp }))}
-      allowSharing={planLimits.allowSharing}
-      onRequireUpgrade={() => setShowUpgrade(true)}
       onRename={(label) => updatePaneAnywhere(pane.id, p => ({ ...p, customLabel: label || undefined }))}
     />
     )
@@ -1846,14 +1818,11 @@ export default function App() {
         profileLoading={profileLoading}
         onUpgrade={() => setShowUpgrade(true)}
         onTeamsOpen={() => {
-          if (!planLimits.allowTeam) { setShowUpgrade(true); return }
+          if (!planLimits.memoryTeamShare) { setShowUpgrade(true); return }
           setTeamsOpen(true)
         }}
         pendingInvitesCount={pendingInvitesCount}
-        onMyReposOpen={() => {
-          if (!planLimits.allowMyRepos) { setShowUpgrade(true); return }
-          setMyReposOpen(true)
-        }}
+        onMyReposOpen={() => setMyReposOpen(true)}
         // TODO: gate behind plan tier if needed
         onIntegrationsOpen={() => setIntegrationsHubOpen(true)}
         onGraphBoardOpen={() => setGraphBoardOpen(true)}
@@ -1880,10 +1849,7 @@ export default function App() {
         isListening={isListening}
         isTranscribing={isTranscribing}
         isModelLoading={isModelLoading}
-        onMicToggle={() => {
-          if (!planLimits.allowVoice) { setShowUpgrade(true); return }
-          toggleListening()
-        }}
+        onMicToggle={toggleListening}
         onJoinTerminal={() => setShowJoinViewer(true)}
         activeCellRepoPath={activeCellRepoPath}
         onWorktreeSelect={handleWorktreeSelect}
@@ -2031,8 +1997,6 @@ export default function App() {
                         onActivity={handlePaneActivity}
                         onJoinRequest={() => setJoinRequest({ paneId: pane.id, paneTitle: pane.customLabel ?? pane.accountName ?? 'Terminal' })}
                         onPtyStarted={handlePtyStarted}
-                        allowSharing={planLimits.allowSharing}
-                        onRequireUpgrade={() => setShowUpgrade(true)}
                         hasNextStep={hasNextStep}
                         onHandoff={() => { if (pane.repoPath) void advanceHandoff(pane.repoPath) }}
                         onRename={(label) => updatePaneAnywhere(pane.id, p => ({ ...p, customLabel: label || undefined }))}
@@ -2099,8 +2063,6 @@ export default function App() {
         <NewPaneDialog
           onConfirm={addPane}
           onCancel={() => setAddingPane(null)}
-          allowedAIs={planLimits.allowedAIs}
-          onUpgrade={() => { setAddingPane(null); setShowUpgrade(true) }}
           presetAgent={addingPane.presetAgent}
           presetModel={addingPane.presetModel}
           presetAccount={addingPane.presetAccount}

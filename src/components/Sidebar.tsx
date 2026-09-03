@@ -664,7 +664,7 @@ export default function Sidebar({
         <div
           className="sidebar-item sidebar-item-panel sidebar-item-team"
           style={{ cursor: 'pointer' }}
-          onClick={plan === 'cloud' || plan === 'pro' || plan === 'team' || plan === 'enterprise' ? onMyReposOpen : onUpgrade}
+          onClick={onMyReposOpen}
           title="My Repos"
         >
           <span className="sidebar-icon">
@@ -676,7 +676,6 @@ export default function Sidebar({
             </svg>
           </span>
           <span className="sidebar-label">My Repos</span>
-          {expanded && plan === 'free' && <span className="sidebar-plan-badge">Pro</span>}
         </div>
 
         <div

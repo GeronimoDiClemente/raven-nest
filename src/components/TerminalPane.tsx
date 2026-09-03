@@ -44,8 +44,6 @@ interface Props {
   ports?: number[]
   fontSize: number
   style?: React.CSSProperties
-  allowSharing?: boolean
-  onRequireUpgrade?: () => void
   /** True when this pane's worktree is running a multi-step worker and a next
    *  step exists — arms the "Hand off →" action in the header. */
   hasNextStep?: boolean
@@ -53,7 +51,7 @@ interface Props {
   onRename?: (label: string) => void  // rename the pane (sets customLabel)
 }
 
-export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZoom, onClose, onColorChange, onNoteChange, onInput, onBusyChange, onFocus, onActivity, onJoinRequest, onPtyStarted, ports = [], fontSize, style, allowSharing = true, onRequireUpgrade, hasNextStep, onHandoff, onRename }: Props) {
+export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZoom, onClose, onColorChange, onNoteChange, onInput, onBusyChange, onFocus, onActivity, onJoinRequest, onPtyStarted, ports = [], fontSize, style, hasNextStep, onHandoff, onRename }: Props) {
   const cmdBufferRef = useRef('')
   const wrappedOnInput = useCallback((data: string) => {
     for (const ch of data) {
@@ -428,7 +426,6 @@ export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZ
         blockCount={blocks.length}
         onToggleBlocks={handleToggleBlocks}
         onShare={() => {
-          if (!allowSharing) { onRequireUpgrade?.(); return }
           setShowShare(v => !v)
         }}
         isSharing={isSharing}
