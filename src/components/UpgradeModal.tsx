@@ -2,8 +2,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import {
   STRIPE_PRICES,
-  PLAN_PRICING,
-  ANNUAL_DISCOUNT_PERCENT,
+  CLOUD_MONTHLY_PRICE,
   BOOK_DEMO_URL,
   TEAM_MIN_SEATS,
   type Plan,
@@ -28,63 +27,46 @@ const PLAN_LIST: PlanInfo[] = [
   {
     id: 'free',
     name: 'Free',
-    tagline: 'Feel the multi-agent flow — free forever, no card',
-    highlight: 'Run Claude, Codex & Gemini in 3 panes at once',
+    tagline: 'Everything on your machine — free forever, no card',
+    highlight: 'Unlimited local memory, all the CLIs, the editor, worktrees',
     features: [
-      'All 7 AIs — Claude, Codex, Gemini, Copilot, OpenCode, Terminal + your own',
+      'All the AIs — Claude, Codex, Gemini, Copilot, OpenCode, Terminal + your own',
       'Bring your own keys — we never meter usage · local-first, no telemetry',
-      'Preview localhost in an in-app browser, ports auto-detected',
-      'Sessions survive restarts — pick up where you left off',
-      'Command palette + global search across every pane',
-      'Browse worktrees & MCP servers (read-only)',
+      'Unlimited panes, worktrees, snippets, workspaces and MCP servers',
+      'Voice-to-prompt, broadcast, diff viewer, Spotlight and the editor',
+      'One project synced to the cloud',
     ],
   },
   {
-    id: 'pro',
-    name: 'Pro',
-    tagline: 'Everything in Free — built out for one developer',
+    id: 'cloud',
+    name: 'Cloud',
+    tagline: 'Your memory, on every machine you use',
     popular: true,
-    highlight: 'Up to 12 isolated worktrees side by side — a branch per pane, no stashing',
+    highlight: 'Every project synced, backed up, and yours if the disk dies',
     features: [
-      'Review, merge & open PRs without leaving Nest',
-      'Branch straight from an issue, CI runs inline',
-      'GitHub + GitLab · per-pane port detection',
-      'Voice-to-prompt (local Whisper) + broadcast to every pane',
-      'Diff viewer + open in any IDE (VS Code, Cursor, JetBrains, Zed…)',
-      'Jump anywhere instantly (Spotlight) + benchmark across models',
-      'Unlimited snippets, workspaces & auto standup',
-      'Full read/write MCP + isolated HOME per account',
+      'Every project replicated, not just one',
+      'Pick up on another machine mid-thought — same context, same memories',
+      'Your memory survives the laptop',
+      'Everything in Free, which is everything that runs locally',
     ],
   },
   {
     id: 'team',
-    name: 'Team',
-    tagline: 'Everything in Pro — for a team that ships together',
-    highlight: 'See where every teammate is working in real time, and jump in',
+    name: 'Teams',
+    tagline: 'Shared memory for the whole team',
+    highlight: 'What one teammate learned, the next one already knows',
     features: [
-      'Team chat with reactions + shared activity feed (GitHub/GitLab)',
+      'Promote a memory to the team and everyone sees it',
       'Shared repos, snippets, workspaces & MCP servers',
-      "Per-user local paths — one repo, everyone's machine",
-      'Clone private repos over HTTPS with OAuth, one click',
-      'Multi-leader roles + join by 8-char code',
-      'Shared team standup',
+      'SSO and a dedicated instance if you need one',
       `Priority support (24h) · min ${TEAM_MIN_SEATS} seats`,
     ],
   },
 ]
 
-function priceFor(planId: Plan, billing: 'monthly' | 'annual'): { amount: string; annualTotal?: string } {
-  if (planId !== 'pro' && planId !== 'team') return { amount: '$0' }
-  const pricing = PLAN_PRICING[planId]
-  const monthlyEquiv = billing === 'monthly' ? pricing.monthly : pricing.annual
-  const annualTotal = billing === 'annual' ? `$${pricing.annual * 12}/year` : undefined
-  return { amount: `$${monthlyEquiv}`, annualTotal }
-}
-
 export default function UpgradeModal({ currentPlan, onClose }: Props) {
   const [userId, setUserId] = useState<string | null>(null)
   const [userEmail, setUserEmail] = useState<string | null>(null)
-  const [billing, setBilling] = useState<'monthly' | 'annual'>('monthly')
   const [loading, setLoading] = useState<string | null>(null)
 
   useEffect(() => {
@@ -94,12 +76,16 @@ export default function UpgradeModal({ currentPlan, onClose }: Props) {
     })
   }, [])
 
-  const handleUpgrade = async (plan: 'pro' | 'team') => {
-    if (!userId) return
-    setLoading(plan)
+  // Cloud es el unico plan self-serve. Sin price ID (Task 5 del corte comercial todavia
+  // no lo creo) el boton esta deshabilitado: abrir el checkout con el price de `pro`
+  // cobraria $20 por una card que dice $10.
+  const checkoutReady = STRIPE_PRICES.cloud_monthly !== ''
+
+  const handleUpgrade = async () => {
+    if (!userId || !checkoutReady) return
+    setLoading('cloud')
     try {
-      const priceKey = `${plan}_${billing}` as keyof typeof STRIPE_PRICES
-      const priceId = STRIPE_PRICES[priceKey]
+      const priceId = STRIPE_PRICES.cloud_monthly
       const { data, error } = await supabase.functions.invoke('stripe-checkout', {
         body: { priceId, userId, email: userEmail ?? undefined },
       })
@@ -135,26 +121,11 @@ export default function UpgradeModal({ currentPlan, onClose }: Props) {
           </p>
         </div>
 
-        <div className="upgrade-billing-toggle">
-          <button
-            className={`upgrade-billing-btn${billing === 'monthly' ? ' active' : ''}`}
-            onClick={() => setBilling('monthly')}
-          >Monthly</button>
-          <button
-            className={`upgrade-billing-btn${billing === 'annual' ? ' active' : ''}`}
-            onClick={() => setBilling('annual')}
-          >
-            Annual
-            <span className="upgrade-save-badge">Save {ANNUAL_DISCOUNT_PERCENT}%</span>
-          </button>
-        </div>
-
         <div className="upgrade-plans">
           {PLAN_LIST.map(plan => {
-            const isCurrent = currentPlan === plan.id
-            const { amount, annualTotal } = priceFor(plan.id, billing)
-            const isPaid = plan.id === 'pro' || plan.id === 'team'
-            const showSeatLabel = plan.id === 'team'
+            // `pro` es el alias heredado de `cloud` hasta que la Task 6 migre los
+            // perfiles: un usuario en `pro` tiene que ver su card marcada como actual.
+            const isCurrent = currentPlan === plan.id || (plan.id === 'cloud' && currentPlan === 'pro')
             return (
               <div
                 key={plan.id}
@@ -170,12 +141,16 @@ export default function UpgradeModal({ currentPlan, onClose }: Props) {
                 </div>
 
                 <div className="upgrade-plan-pricing">
-                  <span className="upgrade-plan-price">{amount}</span>
-                  {isPaid && <span className="upgrade-plan-period">/{showSeatLabel ? 'seat/mo' : 'mo'}</span>}
+                  {plan.id === 'team' ? (
+                    // Teams es venta asistida: sin precio de lista, el CTA es la demo.
+                    <span className="upgrade-plan-price">Custom</span>
+                  ) : (
+                    <>
+                      <span className="upgrade-plan-price">{plan.id === 'cloud' ? `$${CLOUD_MONTHLY_PRICE}` : '$0'}</span>
+                      {plan.id === 'cloud' && <span className="upgrade-plan-period">/mo</span>}
+                    </>
+                  )}
                 </div>
-                {billing === 'annual' && annualTotal && (
-                  <div className="upgrade-plan-annual">{annualTotal}{showSeatLabel ? ' / seat' : ''}</div>
-                )}
 
                 <div className="upgrade-plan-feature-list">
                   <div className="upgrade-plan-highlight">
@@ -197,13 +172,16 @@ export default function UpgradeModal({ currentPlan, onClose }: Props) {
                     <span className="upgrade-plan-badge">Current plan</span>
                   ) : plan.id === 'free' ? (
                     <button className="upgrade-plan-btn ghost" disabled>Free forever</button>
+                  ) : plan.id === 'team' ? (
+                    <button className="upgrade-plan-btn" onClick={handleBookDemo}>Book a demo</button>
                   ) : (
                     <button
                       className={`upgrade-plan-btn${plan.popular ? ' primary' : ''}`}
-                      onClick={() => handleUpgrade(plan.id as 'pro' | 'team')}
-                      disabled={!userId || loading === plan.id}
+                      onClick={handleUpgrade}
+                      disabled={!userId || !checkoutReady || loading === 'cloud'}
+                      title={checkoutReady ? undefined : 'Checkout opens once the $10 price is live in Stripe'}
                     >
-                      {loading === plan.id ? '…' : `Upgrade to ${plan.name}`}
+                      {loading === 'cloud' ? '…' : `Upgrade to ${plan.name}`}
                     </button>
                   )}
                 </div>
@@ -212,12 +190,6 @@ export default function UpgradeModal({ currentPlan, onClose }: Props) {
           })}
         </div>
 
-        <button className="upgrade-enterprise-link" onClick={handleBookDemo}>
-          <span className="upgrade-enterprise-link-text">
-            Need SSO, audit logs or org-wide rollout?
-          </span>
-          <span className="upgrade-enterprise-link-cta">Book a demo →</span>
-        </button>
       </div>
     </div>
   )

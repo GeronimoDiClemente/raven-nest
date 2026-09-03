@@ -385,7 +385,28 @@ git commit -m "feat(pricing): la cuota de memoria sale del servidor y se ve en S
 
 El disparador del modal cambia de raíz. Antes era "querés un cuarto pane"; ahora es "querés que este segundo proyecto viva en la nube". Las tres cards son Free, Cloud y Teams, y Teams no muestra precio: lleva a Book a demo.
 
-- [ ] **Step 1: Escribir el test que falla**
+> **Hecho (2026-09-03).** El corolario que el plan no saca: **con Free en $0, Cloud mensual y
+> Teams sin precio, el toggle mensual/anual no tiene nada que togglear**. Se fue, y con él
+> `PLAN_PRICING`, `ANNUAL_DISCOUNT_PERCENT`, `BillingCycle` y los cuatro price IDs de `pro`/`team`.
+> Queda una sola constante de precio, `CLOUD_MONTHLY_PRICE = 10`, que es lo que la card lee.
+>
+> **`STRIPE_PRICES.cloud_monthly` quedó vacío a propósito** — el price ID lo crea la Task 5. Con
+> el string vacío el botón de Cloud queda deshabilitado (con su title explicando por qué) en vez
+> de abrir el checkout. La alternativa tentadora era apuntarlo al price de `pro` mientras tanto,
+> y eso **cobraría $20 por una card que dice $10**. La Task 5 sólo tiene que pegar el ID.
+>
+> También se fue el link de abajo ("Need SSO, audit logs or org-wide rollout? Book a demo →"):
+> la card de Teams ya *es* Book a demo y su copy cubre SSO e instancia dedicada, así que había
+> dos botones con el mismo nombre — el test lo agarró antes que nadie.
+>
+> Un detalle del alias heredado: la card de Cloud se marca como "Current plan" también cuando el
+> perfil dice `pro`, hasta que la Task 6 migre los perfiles.
+>
+> Del snippet del Step 1: `UpgradeModal` es default export y no tiene prop `open`, y "Book a demo"
+> es un `<button>` (un `<a href>` navegaría la ventana de Electron), así que el test consulta por
+> rol `button`. Diez bloques de CSS muerto borrados de `global.css`.
+
+- [x] **Step 1: Escribir el test que falla**
 
 ```typescript
 // src/__tests__/components/UpgradeModal.test.tsx
@@ -409,12 +430,12 @@ describe('UpgradeModal', () => {
 })
 ```
 
-- [ ] **Step 2: Correrlo y verificar que falla**
+- [x] **Step 2: Correrlo y verificar que falla**
 
 Run: `npx vitest run src/__tests__/components/UpgradeModal.test.tsx`
 Expected: FAIL — encuentra "Pro" y no encuentra "Cloud".
 
-- [ ] **Step 3: Implementación**
+- [x] **Step 3: Implementación**
 
 Reescribir el array de planes del modal con tres entradas. Copy de las cards, en inglés:
 
@@ -422,12 +443,12 @@ Reescribir el array de planes del modal con tres entradas. Copy de las cards, en
 - **Cloud — $10/mo** — ★ "Your memory, on every machine you use. Every project synced, backed up, and yours if the disk dies."
 - **Teams — Custom** — "Shared memory for the whole team, SSO, and a dedicated instance if you need one." CTA: Book a demo (`BOOK_DEMO_URL`, que ya existe en `src/lib/stripe.ts`).
 
-- [ ] **Step 4: Correr y verificar**
+- [x] **Step 4: Correr y verificar**
 
 Run: `npx vitest run src/__tests__/components/UpgradeModal.test.tsx; echo EXIT=$?`
 Expected: PASS, `EXIT=0`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/components/UpgradeModal.tsx src/styles/global.css src/__tests__/components/UpgradeModal.test.tsx

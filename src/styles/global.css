@@ -3774,11 +3774,6 @@ body {
   font-weight: 500;
 }
 
-.upgrade-plan-annual {
-  font-size: 10.5px;
-  color: var(--text-muted);
-  margin-bottom: 4px;
-}
 
 .upgrade-plan-feature-list {
   display: flex;
@@ -3902,33 +3897,7 @@ body {
 }
 
 /* Enterprise — sales-led, linked out to a demo instead of an in-app card */
-.upgrade-enterprise-link {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  width: 100%;
-  margin-top: 16px;
-  padding: 11px 16px;
-  background: transparent;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  font-family: inherit;
-  font-size: 11.5px;
-  color: var(--text-muted);
-  cursor: pointer;
-  transition: background 0.15s, border-color 0.15s;
-}
-.upgrade-enterprise-link:hover {
-  background: rgba(255, 255, 255, 0.03);
-  border-color: rgba(255, 255, 255, 0.16);
-}
 
-.upgrade-enterprise-link-cta {
-  color: var(--raven-blue);
-  font-weight: 600;
-}
 
 /* ── Update Banner ───────────────────────────────────────── */
 
@@ -5210,55 +5179,10 @@ kbd {
 }
 
 /* Paddle billing toggle */
-.upgrade-billing-toggle {
-  display: flex;
-  gap: 4px;
-  padding: 3px;
-  background: var(--bg-surface);
-  border: 1px solid var(--border);
-  border-radius: 9px;
-  margin: 6px auto 22px;
-  width: fit-content;
-}
 
-.upgrade-billing-btn {
-  background: transparent;
-  border: none;
-  color: var(--text-secondary);
-  font-size: 12px;
-  font-weight: 500;
-  font-family: inherit;
-  padding: 7px 18px;
-  border-radius: 6px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  transition: background 0.15s, color 0.15s;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-}
 
-.upgrade-billing-btn:hover:not(.active) {
-  color: var(--text-primary);
-}
 
-.upgrade-billing-btn.active {
-  background: var(--bg-elevated);
-  color: var(--text-primary);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
-}
 
-.upgrade-save-badge {
-  background: #0066FF22;
-  color: var(--raven-blue);
-  font-size: 10px;
-  font-weight: 600;
-  padding: 1px 5px;
-  border-radius: 4px;
-}
 
 .upgrade-plan-period {
   font-size: 12px;
@@ -5266,12 +5190,6 @@ kbd {
   font-weight: 400;
 }
 
-.upgrade-plan-annual {
-  font-size: 11px;
-  color: var(--text-muted);
-  margin-top: -4px;
-  margin-bottom: 8px;
-}
 
 @keyframes voice-orb-pulse {
   0% {
