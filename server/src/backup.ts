@@ -115,3 +115,16 @@ export function backupDepsFromEnv(env: NodeJS.ProcessEnv = process.env): BackupD
     now: () => new Date(),
   }
 }
+
+/**
+ * Si corresponde correr un backup ahora. Separado del timer para poder testearlo sin esperar
+ * un día: sin R2 no hay adónde subir, y con un backup bueno reciente no hace falta otro.
+ */
+export async function shouldRunBackup(
+  pool: Pool,
+  deps: BackupDeps | null,
+  hours: number
+): Promise<boolean> {
+  if (!deps) return false
+  return !(await hadRecentSuccess(pool, hours))
+}

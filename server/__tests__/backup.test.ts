@@ -2,7 +2,8 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { createHash } from 'node:crypto'
 import { getPool, migrate } from '../src/db'
 import {
-  backupKey, countRows, runBackup, hadRecentSuccess, backupDepsFromEnv, type BackupDeps,
+  backupKey, countRows, runBackup, hadRecentSuccess, shouldRunBackup, backupDepsFromEnv,
+  type BackupDeps,
 } from '../src/backup'
 
 const pool = getPool()
@@ -157,5 +158,30 @@ describe('backupDepsFromEnv', () => {
       DATABASE_URL: 'postgres://u:p@h:5432/d',
       R2_ACCOUNT_ID: 'a', R2_ACCESS_KEY_ID: 'b', R2_SECRET_ACCESS_KEY: 'c', R2_BUCKET: 'd',
     } as NodeJS.ProcessEnv)).not.toBeNull()
+  })
+})
+
+// Va en ESTE archivo y no en uno propio a propósito. `shouldRunBackup` pregunta "¿hubo algún
+// backup bueno?" sobre la tabla ENTERA — no puede acotarse por prefijo, porque esa es
+// justamente la pregunta. Con vitest corriendo los archivos en paralelo, un `ok = true`
+// escrito por el otro archivo lo daría por respondido. Compartir archivo los hace secuenciales,
+// que es la única separación que sirve para una consulta global.
+describe('shouldRunBackup', () => {
+  it('es false sin R2 configurado: no hay adonde subir', async () => {
+    await limpiarBackups()
+    expect(await shouldRunBackup(pool, null, 20)).toBe(false)
+  })
+
+  it('es true si nunca hubo backup', async () => {
+    await limpiarBackups()
+    expect(await shouldRunBackup(pool, deps(), 20)).toBe(true)
+  })
+
+  // Railway redeploya en cada push. Sin esto, una tarde de trabajo son veinte dumps de la base
+  // entera, y cada uno cuesta plata y lectura sobre la base de producción.
+  it('es false justo despues de uno bueno', async () => {
+    await limpiarBackups()
+    await runBackup(pool, deps())
+    expect(await shouldRunBackup(pool, deps(), 20)).toBe(false)
   })
 })

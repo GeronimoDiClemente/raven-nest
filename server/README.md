@@ -113,6 +113,13 @@ en producción hay que fijar al menos `DATABASE_URL`.
 | `PORT` | `8080` | Puerto donde escucha el servidor HTTP. |
 | `MAX_BYTES_PER_USER` | ninguno (manda el plan) | Override de **instancia dedicada** (§10 de la spec de pricing): cuando un deploy sirve a un solo cliente, el techo por usuario de la tabla de planes no significa nada y el disco de la máquina es el límite real. Si está seteada, gana sobre `limitsFor(plan).maxBytes` **en los dos caminos que dependen de ese número**: lo que `GET /v1/sync/status` informa (`quota.max_bytes`) y el rechazo real de pushes por cuota (`quota_exceeded`, en `push.ts`). Los dos lo resuelven por la misma función, `maxBytesFor(plan)` en `limits.ts`. Sin setear — el caso del servicio compartido — manda el plan. Un valor no numérico, vacío o ≤ 0 se ignora y cae **al límite del plan** (antes caía a 1 GiB fijo, así que un `MAX_BYTES_PER_USER=abc` le reportaba 1 GiB a todo plan, Free incluido: un typo aflojaba el techo en vez de ignorarse). |
 | `PG_POOL_MAX` | `10` | Tamaño máximo del pool de conexiones a Postgres (`pg.Pool`). |
+| `R2_ACCOUNT_ID` | ninguno | ID de cuenta de Cloudflare, la primera parte del endpoint S3 de R2. **Sin las cuatro `R2_*` el servicio arranca igual pero no hace backups**, y lo dice en el log al arrancar. |
+| `R2_ACCESS_KEY_ID` | ninguno | Access key del API token de R2, **acotado al bucket de backups**. |
+| `R2_SECRET_ACCESS_KEY` | ninguno | Secret del mismo token. |
+| `R2_BUCKET` | ninguno | Nombre del bucket, por ejemplo `nest-memory-backups`. **La retención de 30 días es una regla de ciclo de vida del bucket, no del código.** |
+| `PG_DUMP_CMD` | `pg_dump` | Con qué correr `pg_dump`, como lista de palabras. Existe para desarrollo en máquinas sin cliente de Postgres instalado: `docker exec -i nest-memory-pg pg_dump`. En el contenedor del servicio no se setea. |
+| `PG_RESTORE_CMD` | `pg_restore` | Lo mismo para `pg_restore`, que usa el script de restauración. |
+| `PG_BIN_DATABASE_URL` | el valor de `DATABASE_URL` | La URL que ven los **binarios** de Postgres, que no siempre es la que ve el driver `pg`. En producción son la misma y esto no hace falta. En desarrollo sí: el driver corre en Windows y llega por `127.0.0.1:55432`, mientras que `pg_dump` corre adentro del contenedor por `docker exec` y desde ahí la base es `127.0.0.1:5432`. |
 
 `NEXT_POLL_MS` existió como env var pero ya no se lee en ningún lado del código: el
 intervalo que ve el cliente sale siempre de `next_poll_ms` en la tabla de límites por plan
