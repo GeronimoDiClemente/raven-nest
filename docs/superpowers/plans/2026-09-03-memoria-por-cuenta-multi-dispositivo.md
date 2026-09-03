@@ -107,10 +107,14 @@ Opciones, para decidir:
 3. **Nunca adoptar**: lo de `_local` se queda ahí y sólo se ve sin sesión. Lo más seguro y lo más
    confuso: el usuario capturó cosas que "desaparecen" al loguearse.
 
-**Recomendación: la 2.** Es un diálogo y resuelve el caso que este plan declara bloqueante.
+**DECIDIDO (Gero, 2026-09-03): la 2 — adopción con aviso.**
 
-- [ ] **Step 1:** Que Gero elija.
-- [ ] **Step 2:** Implementar la elegida, con su test.
+- [x] **Step 1:** ~~Que Gero elija.~~ Adopción con aviso.
+- [ ] **Step 2:** El diálogo al primer login cuando hay memorias sin cuenta: cuántas son, de qué
+      proyectos, y dos salidas — "son mías" (adopta) y "no" (quedan en `_local`, invisibles para esta
+      cuenta). Copy en inglés, como toda la UI.
+- [ ] **Step 3:** Que "no" sea recuperable: si más tarde entra la cuenta dueña, adopta. Lo que no
+      puede pasar es que un "no" borre nada.
 
 ### Task 3: El contexto de sesión viaja
 
@@ -127,9 +131,21 @@ observación** y por lo tanto ya replica — y que lo que falta no es replicar `
 `Stop` hook efectivamente escriba ese rollup, que hoy **no escribe nada** (es la Layer B que el plan
 de cliente C1-C8 dejó anotada como la deuda más grande del subsistema).
 
-- [ ] **Step 1:** Decidir: ¿replicar `sessions`, o cerrar Layer B y que el rollup sea la memoria?
-- [ ] **Step 2:** Si es lo segundo — y creo que lo es — este task se convierte en "cerrar Layer B" y
-      no toca el schema del servicio.
+**DECIDIDO (Gero, 2026-09-03): el rollup.** No se replican `sessions`: se cierra Layer B y el
+resumen de sesión pasa a ser una observación como cualquier otra, con lo cual replica sola y no toca
+el schema del servicio.
+
+Esto convierte la Task 3 en **cerrar Layer B**, que es la deuda que el plan de cliente C1-C8 dejó
+anotada como la más grande del subsistema: hoy `SessionStart` sólo lee, **`Stop` no escribe nada** y
+`PreCompact` deja un placeholder que nadie resuelve.
+
+- [x] **Step 1:** ~~Decidir.~~ El rollup.
+- [ ] **Step 2:** Que `Stop` escriba el rollup de la sesión como observación. La pregunta abierta es
+      **quién resume**: el propio agente antes de cerrar (barato, y ya tiene el contexto) o una
+      pasada aparte (cara, y necesita el transcript). Va la primera salvo que falle en la prueba.
+- [ ] **Step 3:** `PreCompact` resuelve su placeholder por el mismo camino.
+- [ ] **Step 4:** Smoke real: sesión con trabajo de verdad, cerrarla, y que el resumen aparezca en la
+      otra máquina.
 
 ### Task 4: Los handoffs dejan de ser un archivo del worktree
 
@@ -178,6 +194,36 @@ máquina, no de memoria:
 - [ ] **Step 3:** codex (el que más vale). El smoke va en la PC: en esta Mac el paquete global está
       roto (`vendor/.../codex` ENOENT, ni `--version` arranca).
 - [ ] **Step 4:** Verificar los demás uno por uno antes de prometerlos.
+
+### Task 7: El hub in-app — que todo usuario vea para qué sirve
+
+**Files:** `src/tutorial/` (registry + un tour nuevo), la card de memoria de `SettingsPanel.tsx`, y
+un componente de hub nuevo.
+
+Pedido de Gero: al salir la release, **todo usuario** tiene que ver el fuerte del producto y el
+mayor sanante de dolores — no un tutorial opcional escondido en un menú que sólo abre el curioso.
+
+Tres cosas que definen el diseño:
+
+- **No es un tour más.** El framework de tours ya existe (`src/tutorial/registry.ts`, con tours de
+  worktrees, my-repos y teams) y sirve para el paso a paso, pero se lanza a pedido. El hub va en el
+  primer arranque y lo ve todo el mundo, incluido Free.
+- **Muestra el dolor con los datos del propio usuario.** Ahora que el import trae de verdad
+  (`2f04e74`: 80 chunks contra datos reales, antes 17), el hub puede abrir con "importamos N
+  memorias de M proyectos tuyos" en vez de una promesa abstracta. Ese es el momento en que se
+  entiende: la IA deja de arrancar de cero.
+- **Y recién ahí, qué agrega Cloud.** Ojo: **el plan pago se llama `Cloud`, no `Pro`** — el rename
+  entró hoy en la Task 1 del corte comercial. Un hub que diga "Pro" nace desactualizado. Lo que
+  agrega Cloud es una sola cosa y hay que decirla así: **tu memoria en todas tus máquinas**. Lo
+  local es gratis y completo, que es justamente el argumento.
+- **Copy en inglés**, como toda la UI de la app.
+
+- [ ] **Step 1:** Definir el guion: qué dolor, en qué orden, y en cuántas pantallas. Tres como
+      máximo.
+- [ ] **Step 2:** El hub, con el conteo real del import.
+- [ ] **Step 3:** Que aparezca una sola vez y se pueda volver a abrir desde Settings.
+- [ ] **Step 4:** La pantalla de Cloud, leyendo el precio de `CLOUD_MONTHLY_PRICE` y no de un
+      literal.
 
 ---
 
