@@ -3,7 +3,7 @@ import { MemoryDaemon, Backoff, mapRawPulledRow } from '../memory-daemon'
 import type { MemoryStore, MutationLogRow } from '../memory-store'
 
 const PENDING_MUTATION_A: MutationLogRow[] = [
-  { seq: 1, sync_id: 'a', op: 'upsert', payload: JSON.stringify({ sync_id: 'a', project_key: 'proj-1' }), created_at: 1, pushed_at: null, last_error: null },
+  { seq: 1, sync_id: 'a', op: 'upsert', payload: JSON.stringify({ sync_id: 'a', project_key: 'proj-1' }), created_at: 1, pushed_at: null, last_error: null, blocked_reason: null },
 ]
 
 function fakeStore(overrides: Partial<MemoryStore> = {}): MemoryStore {
@@ -11,6 +11,9 @@ function fakeStore(overrides: Partial<MemoryStore> = {}): MemoryStore {
   return {
     pendingMutations: vi.fn(() => pending),
     markPushed: vi.fn(),
+    blockMutations: vi.fn(),
+    blockedMutations: vi.fn(() => []),
+    unblockMutations: vi.fn(),
     setSyncState: vi.fn(),
     getSyncState: vi.fn(() => ({ pullCursor: 0, lastPushSeq: 0 })),
     listProjects: vi.fn(() => [{ projectKey: 'proj-1', displayName: 'proj-1', enrolled: true }]),
@@ -152,6 +155,106 @@ describe('MemoryDaemon — offline / online transitions (§4.1)', () => {
     expect(markPushed).toHaveBeenCalledWith([])
   })
 
+  // Task 8 (smoke/memory-bridge): a REVERSIBLE rejection (project_limit_reached,
+  // quota_exceeded) must not go through markPushed() — that's the M21 path that discards a
+  // mutation forever, and this one can still succeed once the user pays or frees space.
+  // §4.1 "the second repo is the moment of payment" delivered broken: a Free user paying
+  // for their second repo would get a cloud project with nothing in it, because everything
+  // they wrote while capped was silently discarded instead of held.
+  it("blocks (doesn't mark pushed) a mutation rejected for project_limit_reached", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ results: [{ sync_id: 'a', outcome: 'rejected', project_seq: 0, error: 'project_limit_reached' }] }),
+    })
+    const markPushed = vi.fn()
+    const blockMutations = vi.fn()
+    const store = fakeStore({ pendingMutations: vi.fn(() => PENDING_MUTATION_A), markPushed, blockMutations })
+    const daemon = new MemoryDaemon(baseDaemonDeps(store, { fetchImpl }))
+
+    await daemon.push()
+
+    expect(blockMutations).toHaveBeenCalledWith([{ seq: 1, reason: 'project_limit_reached' }])
+    expect(markPushed).toHaveBeenCalledWith([]) // NOT marked pushed — that would discard it
+  })
+
+  it('blocks a mutation rejected for quota_exceeded the same way', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ results: [{ sync_id: 'a', outcome: 'rejected', project_seq: 0, error: 'quota_exceeded' }] }),
+    })
+    const blockMutations = vi.fn()
+    const store = fakeStore({ pendingMutations: vi.fn(() => PENDING_MUTATION_A), blockMutations })
+    const daemon = new MemoryDaemon(baseDaemonDeps(store, { fetchImpl }))
+
+    await daemon.push()
+
+    expect(blockMutations).toHaveBeenCalledWith([{ seq: 1, reason: 'quota_exceeded' }])
+  })
+
+  it('a TERMINAL rejection (e.g. observation_too_large) still goes through markPushed, unaffected by the reversible split', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ results: [{ sync_id: 'a', outcome: 'rejected', project_seq: 0, error: 'observation_too_large' }] }),
+    })
+    const markPushed = vi.fn()
+    const blockMutations = vi.fn()
+    const store = fakeStore({ pendingMutations: vi.fn(() => PENDING_MUTATION_A), markPushed, blockMutations })
+    const daemon = new MemoryDaemon(baseDaemonDeps(store, { fetchImpl }))
+
+    await daemon.push()
+
+    expect(markPushed).toHaveBeenCalledWith([{ seq: 1, error: 'observation_too_large' }])
+    expect(blockMutations).toHaveBeenCalledWith([])
+  })
+
+  it("status(): a plan change unblocks project_limit_reached — the client can't evaluate the new plan's cap itself", async () => {
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ plan: 'free' }) })
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ plan: 'cloud' }) })
+    const unblockMutations = vi.fn()
+    const store = fakeStore({ unblockMutations })
+    const daemon = new MemoryDaemon(baseDaemonDeps(store, { fetchImpl }))
+
+    await daemon.status() // first response only establishes lastSeenPlan — nothing to unblock yet
+    expect(unblockMutations).not.toHaveBeenCalled()
+
+    await daemon.status() // plan changed free -> cloud
+    expect(unblockMutations).toHaveBeenCalledWith(['project_limit_reached'])
+  })
+
+  it('status(): quota under the max unblocks quota_exceeded, independent of any plan change', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ plan: 'free', quota: { used_bytes: 10, max_bytes: 1000 } }),
+    })
+    const unblockMutations = vi.fn()
+    const store = fakeStore({ unblockMutations })
+    const daemon = new MemoryDaemon(baseDaemonDeps(store, { fetchImpl }))
+
+    await daemon.status()
+
+    expect(unblockMutations).toHaveBeenCalledWith(['quota_exceeded'])
+  })
+
+  it('status(): quota still at or over the max does NOT unblock quota_exceeded', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ plan: 'free', quota: { used_bytes: 1000, max_bytes: 1000 } }),
+    })
+    const unblockMutations = vi.fn()
+    const store = fakeStore({ unblockMutations })
+    const daemon = new MemoryDaemon(baseDaemonDeps(store, { fetchImpl }))
+
+    await daemon.status()
+
+    expect(unblockMutations).not.toHaveBeenCalled()
+  })
+
   it('stops retrying after 3 consecutive auth failures and surfaces an error state', async () => {
     const fetchImpl = vi.fn().mockResolvedValue({ ok: false, status: 401, json: async () => ({}) })
     const store = fakeStore({ pendingMutations: vi.fn(() => PENDING_MUTATION_A) })
@@ -287,6 +390,58 @@ describe('MemoryDaemon — plan-gate branch on 401/403 (spec §9.3)', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(4)
   })
 
+  // Task 9 (smoke/memory-bridge): the FOURTH machine on a Free account (maxDevices=1) gets
+  // this 403 from server/src/auth.ts's device-count check. The token is completely valid —
+  // one machine too many is registered — so this must be indistinguishable from
+  // not_in_beta/plan_required in every way that matters: no breaker, no "credentials
+  // revoked" reading, and it keeps retrying so a freed slot resumes sync on its own.
+  it('push(): 403 device_limit_reached does not touch the auth breaker either, and reads as a device-limit detail, not a bad token', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({ ok: false, status: 403, json: async () => ({ error: 'device_limit_reached' }) })
+    const store = fakeStore({ pendingMutations: vi.fn(() => PENDING_MUTATION_A) })
+    const details: Array<string | undefined> = []
+    const daemon = new MemoryDaemon(baseDaemonDeps(store, { fetchImpl, onStatusChange: (_s, d) => details.push(d) }))
+
+    await daemon.push()
+    await daemon.push()
+    await daemon.push() // would be the 3rd real auth failure if this counted toward the breaker
+
+    expect(details).toContain('device_limit')
+    expect(details).not.toContain('auth') // never classified as a credential failure
+
+    await daemon.push() // still not authBlocked — a 4th call still hits the network
+    expect(fetchImpl).toHaveBeenCalledTimes(4)
+  })
+
+  it('pull(): 403 device_limit_reached does not throw and does not touch the auth breaker', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({ ok: false, status: 403, json: async () => ({ error: 'device_limit_reached' }) })
+    const store = fakeStore()
+    const details: Array<string | undefined> = []
+    const daemon = new MemoryDaemon(baseDaemonDeps(store, { fetchImpl, onStatusChange: (_s, d) => details.push(d) }))
+
+    await daemon.pull()
+    await daemon.pull()
+    await daemon.pull() // would be the 3rd real auth failure if this counted toward the breaker
+
+    expect(details).toContain('device_limit')
+    await daemon.pull() // still not blocked
+    expect(fetchImpl).toHaveBeenCalledTimes(4)
+  })
+
+  it('status(): 403 device_limit_reached does not touch the breaker', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({ ok: false, status: 403, json: async () => ({ error: 'device_limit_reached' }) })
+    const store = fakeStore()
+    const details: Array<string | undefined> = []
+    const daemon = new MemoryDaemon(baseDaemonDeps(store, { fetchImpl, onStatusChange: (_s, d) => details.push(d) }))
+
+    await daemon.status()
+    await daemon.status()
+    await daemon.status() // would be the 3rd real auth failure if this counted toward the breaker
+
+    expect(details).toContain('device_limit')
+    await daemon.status() // still not blocked
+    expect(fetchImpl).toHaveBeenCalledTimes(4)
+  })
+
   it('pull(): 403 plan_required does not throw and does not touch the auth breaker', async () => {
     const fetchImpl = vi.fn().mockResolvedValue({ ok: false, status: 403, json: async () => ({ error: 'plan_required' }) })
     const store = fakeStore()
@@ -404,7 +559,7 @@ describe('MemoryDaemon — push resolves project_display_name (gap #2 fix)', () 
   it('falls back to GLOBAL_PROJECT_KEY when a mutation payload has no project_key at all', async () => {
     const fetchImpl = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ results: [] }) })
     const noProjectKeyMutation: MutationLogRow[] = [
-      { seq: 1, sync_id: 'g', op: 'upsert', payload: JSON.stringify({ sync_id: 'g' }), created_at: 1, pushed_at: null, last_error: null },
+      { seq: 1, sync_id: 'g', op: 'upsert', payload: JSON.stringify({ sync_id: 'g' }), created_at: 1, pushed_at: null, last_error: null, blocked_reason: null },
     ]
     const store = fakeStore({
       pendingMutations: vi.fn(() => noProjectKeyMutation),
@@ -422,7 +577,7 @@ describe('MemoryDaemon — push resolves project_display_name (gap #2 fix)', () 
 describe('MemoryDaemon — configurable sync base URL (C4)', () => {
   it('pushes against /v1/sync/push with the configured base', async () => {
     const pending: MutationLogRow[] = [
-      { seq: 1, sync_id: 'a', op: 'upsert', payload: JSON.stringify({ sync_id: 'a', project_key: 'proj-1' }), created_at: 1, pushed_at: null, last_error: null },
+      { seq: 1, sync_id: 'a', op: 'upsert', payload: JSON.stringify({ sync_id: 'a', project_key: 'proj-1' }), created_at: 1, pushed_at: null, last_error: null, blocked_reason: null },
     ]
     const store = fakeStore({ pendingMutations: vi.fn(() => pending) })
     const urls: string[] = []
@@ -629,6 +784,7 @@ describe('MemoryDaemon — chained batch drain (M22, PUSH_BATCH_SIZE=200)', () =
       created_at: n,
       pushed_at: null,
       last_error: null,
+      blocked_reason: null,
     }
   }
 
@@ -1401,6 +1557,7 @@ describe('tags and source_ref on the wire (C5)', () => {
         created_at: 1,
         pushed_at: null,
         last_error: null,
+        blocked_reason: null,
       },
     ]
     const store = fakeStore({ pendingMutations: vi.fn(() => pending) })
@@ -1431,6 +1588,7 @@ describe('tags and source_ref on the wire (C5)', () => {
         created_at: 1,
         pushed_at: null,
         last_error: null,
+        blocked_reason: null,
       },
     ]
     const store = fakeStore({ pendingMutations: vi.fn(() => pending) })

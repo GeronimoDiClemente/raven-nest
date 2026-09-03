@@ -36,6 +36,18 @@ const FETCH_TIMEOUT_MS = 30_000
 // classifyAuthFailure() and its call sites in push()/pull()/status() below.
 export type DaemonStatus = 'idle' | 'syncing' | 'paused' | 'error' | 'plan_required'
 
+// Task 8 (smoke/memory-bridge): a per-mutation rejection is TERMINAL or REVERSIBLE, and
+// treating them the same loses data. Terminal (missing_sync_id, observation_too_large,
+// team_scope_not_allowed, or anything unrecognized) can never succeed with this exact
+// payload — markPushed() records it and moves on so it doesn't loop forever. Reversible is
+// a plan limit the user can lift by paying or freeing space (server/src/push.ts's two
+// PASADA-1/PASADA-2 rejections) — losing the mutation here is losing it at the exact moment
+// of the sale: the Free user who pays for their second repo would get a cloud project with
+// nothing in it, because everything they wrote while capped was already discarded. Blocked
+// via store.blockMutations() instead — held, not retried every cycle, until status()'s
+// unblock check (see doStatus() below) says the limit no longer applies.
+const REVERSIBLE_REJECTIONS = new Set(['project_limit_reached', 'quota_exceeded'])
+
 export interface PushResultItem {
   sync_id: string
   outcome: 'applied' | 'superseded' | 'rejected'
@@ -202,6 +214,12 @@ export class MemoryDaemon {
   // and pull(), so every entry point is gated the same way. Cleared by
   // onNetworkRegain() — the reconnect flow's actual "the user acted" signal.
   private authBlocked = false
+  // Task 8: the plan last reported by status(), used only to detect a CHANGE — a project
+  // cap the client has no way to evaluate itself (unlike a byte quota, it doesn't know the
+  // new plan's limit), so any change is treated as "might have lifted project_limit_reached"
+  // and unblocks on spec. Worst case the very next push is rejected again and re-blocks it.
+  // Starts undefined so the very FIRST status() response never counts as "a change".
+  private lastSeenPlan: string | undefined
   // M19: concurrent triggers (e.g. a debounced push firing at the same moment as the
   // 5-minute interval's drain) used to fire independent overlapping requests — double
   // POSTs of the same batch, or a later pull's cursor write racing an earlier one's.
@@ -377,11 +395,23 @@ export class MemoryDaemon {
    * the real auth breaker (M18) as the safe default: an unparseable body must never be
    * silently treated as a non-auth-failure code and skip the breaker.
    */
-  private async classifyAuthFailure(response: Response): Promise<'plan_required' | 'not_in_beta' | 'unauthorized'> {
+  private async classifyAuthFailure(
+    response: Response
+  ): Promise<'plan_required' | 'not_in_beta' | 'device_limit' | 'unauthorized'> {
     try {
       const body = (await response.json()) as { error?: unknown }
       if (body?.error === 'plan_required') return 'plan_required'
       if (body?.error === 'not_in_beta') return 'not_in_beta'
+      // Task 9 (smoke/memory-bridge): server/src/auth.ts returns this 403 when the
+      // authenticated device isn't among the N oldest machines the plan's device cap
+      // allows. A perfectly valid token — the account just registered one machine too
+      // many — so this must NOT count toward consecutiveAuthFailures/authBlocked (M18)
+      // any more than plan_required or not_in_beta do. Reintroduced the exact "any other
+      // 401/403 reads as a bad token" bug those two already fixed: before this, the
+      // FOURTH machine on a Free account read "your credentials are revoked" and the
+      // daemon stopped retrying — even after a slot freed up, since authBlocked only
+      // clears on onNetworkRegain(), not on its own.
+      if (body?.error === 'device_limit_reached') return 'device_limit'
     } catch {
       // Not JSON, or no body at all — treat like any other unrecognized 401/403.
     }
@@ -492,6 +522,16 @@ export class MemoryDaemon {
           this.setStatus('error', 'not_in_beta')
           return
         }
+        if (code === 'device_limit') {
+          // Task 9: same shape as not_in_beta — no click-to-fix affordance in this UI today
+          // (that would be "remove another device", not implemented), so this stays a
+          // generic 'error' with its own detail. Must not touch the auth breaker: the
+          // token is fine, the account just has one machine too many registered, and a
+          // freed slot should resume sync on its own via status()'s unblock check — not
+          // require the user to notice "credentials revoked" and manually reconnect.
+          this.setStatus('error', 'device_limit')
+          return
+        }
         this.consecutiveAuthFailures += 1
         if (this.consecutiveAuthFailures >= 3) {
           this.authBlocked = true
@@ -511,21 +551,30 @@ export class MemoryDaemon {
       // M21 fix: this used to unconditionally `store.markPushed(pending.map(seq))` and
       // discard `body.results` entirely (`void body`) — no distinction between what the
       // server actually applied/superseded/rejected vs. what it may never have touched
-      // at all, and rejected mutations left no error trail. Per §4.2: accepted AND
-      // rejected mutations are both marked pushed (so a permanently-rejected item, e.g.
-      // a plan limit, doesn't loop forever) — rejected ones just also record why. A
-      // mutation with NO matching result (the whole call errored before reaching it, or
-      // the server response is malformed) is left in the queue for the next attempt.
+      // at all, and rejected mutations left no error trail. Per §4.2: accepted mutations
+      // are marked pushed. A rejected one is TERMINAL or REVERSIBLE (Task 8, see
+      // REVERSIBLE_REJECTIONS above) — terminal is marked pushed too, with the reason, so
+      // it doesn't loop forever; reversible is blocked instead of marked pushed, so it
+      // isn't discarded. A mutation with NO matching result (the whole call errored before
+      // reaching it, or the server response is malformed) is left in the queue for retry.
       const resultBySyncId = new Map(results.map((r) => [r.sync_id, r]))
       const toMark: Array<number | { seq: number; error?: string | null }> = []
+      const toBlock: Array<{ seq: number; reason: string }> = []
       for (const m of pending) {
         let payloadSyncId: string | undefined
         try { payloadSyncId = JSON.parse(m.payload).sync_id } catch { /* leave undefined */ }
         const result = payloadSyncId ? resultBySyncId.get(payloadSyncId) : undefined
         if (!result) continue // not acknowledged by the server — retry next cycle
-        toMark.push(result.outcome === 'rejected' ? { seq: m.seq, error: result.error ?? 'rejected' } : m.seq)
+        if (result.outcome !== 'rejected') {
+          toMark.push(m.seq)
+          continue
+        }
+        const reason = result.error ?? 'rejected'
+        if (REVERSIBLE_REJECTIONS.has(reason)) toBlock.push({ seq: m.seq, reason })
+        else toMark.push({ seq: m.seq, error: reason })
       }
       store.markPushed(toMark)
+      store.blockMutations(toBlock)
 
       store.setSyncState('__account__', { lastSuccessAt: Date.now(), lastError: null })
       this.setStatus('idle')
@@ -535,18 +584,22 @@ export class MemoryDaemon {
       // etc.) — per §4 the daemon is supposed to *drain* the queue, not push one batch per
       // trigger. A ~2000-mutation initial migration measured ~25 minutes to finish because
       // of this. Chain the next batch immediately, but only when THIS batch made real
-      // progress (`toMark` non-empty, i.e. the server acknowledged at least one mutation)
-      // — chaining on a zero-progress response (malformed body / nothing matched) would
-      // hot-loop the same unacknowledged batch against the server instead of leaving it to
-      // the existing retry/backoff path. `setImmediate` (not `queueMicrotask`) is
-      // deliberate: doPush() is still executing here, so `push()`'s `.finally` hasn't
-      // cleared `pushInFlight` yet — a microtask-scheduled call lands BEFORE that `.finally`
-      // runs (queued earlier in the same microtask flush) and would see pushInFlight still
-      // set, silently deduping into a no-op per M19. A macrotask runs after the entire
-      // microtask queue (including that `.finally`) has drained, so by the time it fires
+      // progress (`toMark` or `toBlock` non-empty, i.e. the server acknowledged at least
+      // one mutation either way) — chaining on a zero-progress response (malformed body /
+      // nothing matched) would hot-loop the same unacknowledged batch against the server
+      // instead of leaving it to the existing retry/backoff path. `toBlock` counts as
+      // progress too (Task 8): if this whole batch got blocked by ONE project's limit,
+      // there may still be pendingMutationCount() > 0 left over from OTHER projects that
+      // have nothing to do with that limit — worth draining right away rather than waiting
+      // for the next external trigger. `setImmediate` (not `queueMicrotask`) is deliberate:
+      // doPush() is still executing here, so `push()`'s `.finally` hasn't cleared
+      // `pushInFlight` yet — a microtask-scheduled call lands BEFORE that `.finally` runs
+      // (queued earlier in the same microtask flush) and would see pushInFlight still set,
+      // silently deduping into a no-op per M19. A macrotask runs after the entire microtask
+      // queue (including that `.finally`) has drained, so by the time it fires
       // pushInFlight is guaranteed clear and the chained push() actually starts a new
       // request instead of returning the just-finished promise.
-      if (toMark.length > 0 && store.pendingMutationCount() > 0) {
+      if ((toMark.length > 0 || toBlock.length > 0) && store.pendingMutationCount() > 0) {
         setImmediate(() => void this.push())
       }
     } catch (err) {
@@ -603,6 +656,11 @@ export class MemoryDaemon {
           this.setStatus('error', 'not_in_beta')
           return null
         }
+        if (code === 'device_limit') {
+          // Task 9: see doPush()'s identical branch — not a credential problem, breaker untouched.
+          this.setStatus('error', 'device_limit')
+          return null
+        }
         // Feeds the SAME shared counter/flag doPush() trips on 401/403 (M18), rather than
         // keeping an independent one — status() must not gate push/pull any differently
         // than a push auth failure already does, and both push() and pull() already check
@@ -620,6 +678,30 @@ export class MemoryDaemon {
       this.consecutiveAuthFailures = 0
 
       this.applyPollInterval(body.next_poll_ms)
+
+      // Task 8: re-admit mutations blocked by a REVERSIBLE server rejection once the limit
+      // that caused it no longer applies — see doPush()'s REVERSIBLE_REJECTIONS split.
+      //
+      // project_limit_reached can't be evaluated from numbers the client has: it doesn't
+      // know the new plan's project cap, only that the plan CHANGED. So any plan change
+      // (skipped on the very first status() response, where "changed" is meaningless)
+      // unblocks it unconditionally — worst case the next push is rejected again and
+      // re-blocks it, which is a wasted request, not a correctness problem.
+      //
+      // quota_exceeded IS a number the client has: `used_bytes < max_bytes` is checked
+      // fresh on every status() response, plan change or not, rather than piggybacking on
+      // the plan-change branch — an upgrade's relief shows up here automatically once the
+      // server reports the new max_bytes, and deleting old memories to free space (with no
+      // plan change at all) has to work exactly the same way.
+      if (typeof body.plan === 'string') {
+        if (this.lastSeenPlan !== undefined && body.plan !== this.lastSeenPlan) {
+          store.unblockMutations(['project_limit_reached'])
+        }
+        this.lastSeenPlan = body.plan
+      }
+      if (body.quota && body.quota.used_bytes < body.quota.max_bytes) {
+        store.unblockMutations(['quota_exceeded'])
+      }
 
       // A missing `projects` field means "no discovery available" — an older service, or
       // the pre-roster stub — not an error. Nothing to register, not a failure.
@@ -736,6 +818,11 @@ export class MemoryDaemon {
         if (code === 'not_in_beta') {
           // See doPush()'s identical branch — not a credential problem, breaker untouched.
           this.setStatus('error', 'not_in_beta')
+          return
+        }
+        if (code === 'device_limit') {
+          // Task 9: see doPush()'s identical branch — not a credential problem, breaker untouched.
+          this.setStatus('error', 'device_limit')
           return
         }
         // Coherence fix: doPull() used to have NO 401/403 handling at all — it fell
