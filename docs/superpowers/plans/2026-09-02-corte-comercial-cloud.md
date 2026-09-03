@@ -549,7 +549,7 @@ Hoy el daemon marca **todo** `outcome: 'rejected'` como pusheado, y `pruneAckedM
 
 **La consecuencia es exactamente el momento de la venta**: el usuario Free que paga por su segundo repo recibe un proyecto **vacío** en la nube. Todo lo que escribió mientras estaba capado no se sube nunca, sólo lo nuevo. Es §4.1 de la spec de pricing ("el segundo repo es el momento de pago") entregado roto.
 
-- [ ] **Step 1: Escribir el test que falla**
+- [x] **Step 1: Escribir el test que falla**
 
 ```typescript
 // electron/__tests__/memory-daemon.test.ts
@@ -577,12 +577,12 @@ it('vuelve a encolar lo bloqueado cuando el limite se levanta', async () => {
 })
 ```
 
-- [ ] **Step 2: Correrlo y verificar que falla**
+- [x] **Step 2: Correrlo y verificar que falla**
 
 Run: `npx vitest run electron/__tests__/memory-daemon.test.ts`
 Expected: FAIL — `store.blockedMutations is not a function`, y la mutación aparece como entregada.
 
-- [ ] **Step 3: Implementación**
+- [x] **Step 3: Implementación**
 
 En `electron/memory-store.ts`, sumar la columna `blocked_reason TEXT` a `mutation_log` (con su paso de migración, como el resto del schema del store). `pendingMutations` filtra `blocked_reason IS NULL` además de `pushed_at IS NULL`. Sumar `blockedMutations()` y `unblockMutations(reasons: string[])`, que pone `blocked_reason = NULL` para los motivos dados.
 
@@ -599,12 +599,12 @@ const REVERSIBLE = new Set(['project_limit_reached', 'quota_exceeded'])
 
 y en el handler de `status`, si el `plan` cambió respecto del último visto, o si `used_bytes` bajó por debajo de `max_bytes`, llamar a `unblockMutations([...])` con los motivos que corresponda.
 
-- [ ] **Step 4: Correr y verificar**
+- [x] **Step 4: Correr y verificar**
 
 Run: `npx vitest run electron/__tests__/; echo EXIT=$?`
 Expected: verde y `EXIT=0`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add electron/memory-store.ts electron/memory-daemon.ts electron/__tests__/
@@ -629,7 +629,7 @@ git commit -m "fix(memory): un rechazo reversible se bloquea, no se descarta"
 
 O sea que la cuarta máquina de una cuenta Free le dice al usuario que sus credenciales están revocadas, y **deja de reintentar** aunque después se libere un lugar. Es el mismo modo de falla que los commits `c708635` y `9353d28` ya arreglaron para `plan_required` en esta misma rama, reintroducido por el tope de máquinas.
 
-- [ ] **Step 1: Escribir el test que falla**
+- [x] **Step 1: Escribir el test que falla**
 
 ```typescript
 it('un 403 por tope de maquinas no cuenta como fallo de credenciales', async () => {
@@ -648,21 +648,21 @@ it('un 403 por tope de maquinas no cuenta como fallo de credenciales', async () 
 })
 ```
 
-- [ ] **Step 2: Correrlo y verificar que falla**
+- [x] **Step 2: Correrlo y verificar que falla**
 
 Run: `npx vitest run electron/__tests__/memory-daemon.test.ts`
 Expected: FAIL — el estado es `auth` a partir del tercer intento.
 
-- [ ] **Step 3: Implementación**
+- [x] **Step 3: Implementación**
 
 Sumar `'device_limit'` al tipo de retorno de `classifyAuthFailure` y reconocer el código, y en el caller darle el mismo tratamiento que ya tiene `plan_required`: es una respuesta legítima del servidor, no un problema de credenciales, así que **no** incrementa `consecutiveAuthFailures`. El mensaje al usuario tiene que decir que sobra una máquina, no que el token está mal.
 
-- [ ] **Step 4: Correr y verificar**
+- [x] **Step 4: Correr y verificar**
 
 Run: `npx vitest run electron/__tests__/; echo EXIT=$?`
 Expected: verde y `EXIT=0`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add electron/memory-daemon.ts electron/__tests__/
