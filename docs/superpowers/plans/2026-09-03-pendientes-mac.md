@@ -1,6 +1,6 @@
 # Pendientes al cerrar la tanda de la Mac (2026-09-03)
 
-Todo lo de esta tanda está en `origin/smoke/memory-bridge`, `1267de1..280b10b`.
+Todo lo de esta tanda está en `origin/smoke/memory-bridge`, `1267de1..4e69973`.
 
 > **Bloqueante de release nuevo, y es el más grande de la lista:** las memorias tienen que ser de la
 > **cuenta de Nest** —no de la máquina, no de la IA— y hay que poder retomar desde cualquier
@@ -34,8 +34,10 @@ Desde la PC alcanza con `git pull`.
 | `2f04e74` | El import de markdown traía casi nada: carpeta equivocada **y** chunker equivocado |
 | `33b691c` | Las memorias son de una cuenta de Nest: sellado del autor y push acotado |
 | `280b10b` | El handoff dejaba `.nest/` en el `git status` del repo del usuario + el plan de memoria por cuenta |
+| `e992c0c` | Las dos decisiones tomadas (adopción con aviso, el rollup) y la Task 7 del hub in-app |
+| `4e69973` | **Layer B** — la sesión deja memoria al cerrarse. Era la deuda más grande del subsistema |
 
-Verificación al cerrar: **1873 tests verdes, 3 skipped y CERO rojas** en el cliente — la primera
+Verificación al cerrar: **1889 tests verdes, 3 skipped y CERO rojas** en el cliente — la primera
 corrida limpia en esta máquina. `npx tsc -b` con **3 errores**, los mismos tres `TS6307`
 preexistentes. En `server/`, los 11 tests de `devices-jwt.test.ts` en verde.
 
@@ -165,6 +167,11 @@ se puede hacer ya. Necesita la receta del `--user-data-dir` propio por el lock d
 
 Los **Steps 3 y 4** no son verificables hasta que 2.4 y §9.2 estén desplegados.
 
+**Y se suma uno nuevo, que es el que más vale de todos**: el smoke de punta a punta de Layer B
+(`4e69973`). Una sesión con trabajo de verdad, cerrarla, y que el resumen aparezca **en la otra
+máquina**. Necesita las dos máquinas y el servicio desplegado, así que es tuyo. Es la primera vez
+que se puede probar la promesa entera del producto de una sentada.
+
 ### 3.7 — ~~`worktree-path.test.ts` falla siempre en Mac~~ · **hecho** (`a2493fc`)
 
 Era del test: no fijaba la plataforma y usaba el default de la máquina, así que en darwin fallaba
@@ -187,3 +194,29 @@ da una roja, es nueva.
 - **`node_modules` del worktree se queda viejo.** 359 commits trajeron dependencias nuevas
   (`@shikijs/themes`) y la suite ni compilaba hasta correr `npm install`. `server/` tiene su propio
   `package.json` y también hacía falta instalarlo aparte.
+
+---
+
+## 5. Arrancar en la PC
+
+```bash
+git fetch --all --prune
+git checkout smoke/memory-bridge && git pull      # NO feat/integrations: quedó 385 commits atrás
+
+npm install                                       # la rama trajo deps nuevas (@shikijs/themes y otras)
+npm --prefix server install                       # server/ tiene su propio package.json
+
+npm run native:node                               # antes de los tests
+npx vitest run                                    # esperado: 1889 verdes, 3 skipped, CERO rojas
+npx tsc -b                                        # esperado: 3 errores TS6307 preexistentes
+git clean -fd                                     # tsc -b emite .js/.d.ts al lado de los fuentes
+
+npm run native:electron                           # antes de levantar la app
+```
+
+Lo que **no** viaja por git y hay que tener ahí: `.env` / `.env.local`, el `node_modules` con sus
+binarios nativos, y el Postgres de los tests de `server/` (`DATABASE_URL`, o el default
+`postgres://postgres:nestmem@127.0.0.1:55432/nest_memory`). **Ese Postgres es lo primero**: son 14
+tests escritos hoy que nunca corrieron.
+
+Si `npx vitest run` te da una roja, es nueva — hoy quedó en cero.
