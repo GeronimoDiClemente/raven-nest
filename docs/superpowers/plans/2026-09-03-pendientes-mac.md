@@ -24,10 +24,11 @@ Desde la PC alcanza con `git pull`.
 | `e612f86` | **Task 4** — `UpgradeModal` de tres planes |
 | `73a8083` | **Task 6 Step 1** — la migración `pro → cloud` escrita |
 | `8634e1d` | **§9.2** — el token se emite contra el login |
+| `a2493fc` | La revocación, el gemelo de §9.2, + el test de `worktree-path` que fallaba en Mac |
 
-Verificación al cerrar: **1847 tests verdes, 3 skipped** en el cliente; `npx tsc -b` con **3
-errores**, los mismos tres `TS6307` preexistentes. En `server/`, los 11 tests de
-`devices-jwt.test.ts` en verde.
+Verificación al cerrar: **1848 tests verdes, 3 skipped y CERO rojas** en el cliente — la primera
+corrida limpia en esta máquina. `npx tsc -b` con **3 errores**, los mismos tres `TS6307`
+preexistentes. En `server/`, los 11 tests de `devices-jwt.test.ts` en verde.
 
 ---
 
@@ -88,13 +89,16 @@ Y sigue pendiente de antes: **apuntar el build al servicio de Railway**. `getMem
 
 ### 3.1 — Correr los tests de `server/` que tocan la base
 
-**Lo primero que hay que hacer en la PC.** `server/__tests__/devices-register.test.ts` son 7 tests
-escritos y typechequeados que **nunca se ejecutaron**: en la Mac no hay Docker ni Postgres, y todos
+**Lo primero que hay que hacer en la PC.** `server/__tests__/devices-register.test.ts` (7 tests) y
+`server/__tests__/devices-revoke.test.ts` (7 más) están escritos y typechequeados pero **nunca se
+ejecutaron**: en la Mac no hay Docker ni Postgres, y todos
 los tests de `server/` corren contra una base real (`DATABASE_URL`, o el default
 `postgres://postgres:nestmem@127.0.0.1:55432/nest_memory`).
 
 Cubren el allowlist, que el token emitido pasa `authenticate`, que se guarda el hash y no el token,
-que un plan existente no se pisa y que dos registros dan dos devices distintos.
+que un plan existente no se pisa, que dos registros dan dos devices distintos, que un token revocado
+deja de autenticar, que el revoke por default no toca las otras máquinas del usuario y que un token
+ya revocado responde igual que uno inventado.
 
 Ojo con la clase de bug que vive ahí: escribiendo esto apareció que **`devices.id` es
 `uuid primary key` SIN default** en `001_init.sql`, así que el insert tiene que generar el uuid.
@@ -104,16 +108,13 @@ Se arregló antes de commitear, pero sólo porque se leyó el schema — el type
 
 Bloqueada por 2.2, no por código. Está toda escrita en el plan, paso por paso.
 
-### 3.3 — La revocación no tiene contraparte en el servicio
+### 3.3 — ~~La revocación no tiene contraparte en el servicio~~ · **hecho** (`a2493fc`)
 
-`useMemory.disconnect()` con `deleteCloud` sigue llamando a
-`supabase.functions.invoke('memory-token', { action: 'revoke' })` — la misma edge function que C7
-sacó del camino de Connect **porque nunca se deployó a producción**. O sea: hoy el borrado de nube
-revoca contra algo que no existe.
+`POST /v1/devices/revoke`, autenticado con el token `nmk_` y **sin** los gates de allowlist y plan
+(poder cerrar una credencial no puede depender de seguir siendo cliente). El revoke salió del
+renderer: lo hace main, siempre que se desconecta, no sólo cuando se pide borrar la nube.
 
-El servicio no tiene endpoint de revocación. Falta un `DELETE /v1/devices/:id` (o un
-`POST /v1/devices/revoke`) y cambiar esa llamada. Es el gemelo de §9.2 y quedó afuera a propósito
-para no mezclar dos caminos en un commit.
+Lo que queda de esto es **correr sus 7 tests**, que están en el mismo bote que 3.1.
 
 ### 3.4 — El plan del usuario no se sincroniza con el servicio
 
@@ -141,12 +142,12 @@ se puede hacer ya. Necesita la receta del `--user-data-dir` propio por el lock d
 
 Los **Steps 3 y 4** no son verificables hasta que 2.4 y §9.2 estén desplegados.
 
-### 3.7 — `worktree-path.test.ts` falla siempre en Mac
+### 3.7 — ~~`worktree-path.test.ts` falla siempre en Mac~~ · **hecho** (`a2493fc`)
 
-`stays case-sensitive for unix paths on linux`: `worktreeKey` lowercasea en darwin y el test no
-está gateado por plataforma. **Es del test, no del código.** Preexistente; se dejó como estaba para
-no mezclarlo con esta tanda, pero conviene gatearlo por `process.platform` antes de que alguien lo
-tome por una regresión.
+Era del test: no fijaba la plataforma y usaba el default de la máquina, así que en darwin fallaba
+siempre. Ahora la fija con `__setUnixCaseInsensitiveForTests(false)`, igual que su hermano de
+macOS. **La suite quedó en 1848 verdes y cero rojas**, que es la primera corrida limpia acá — si te
+da una roja, es nueva.
 
 ---
 
