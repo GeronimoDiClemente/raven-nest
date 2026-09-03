@@ -178,6 +178,65 @@ describe('MemoryStore — mutation log / offline queue (§4.5)', () => {
     expect(pending).toHaveLength(2)
     expect(pending.every((p) => p.sync_id === first.syncId)).toBe(true)
   })
+
+  // Task 8 (smoke/memory-bridge): a REVERSIBLE server rejection (project_limit_reached,
+  // quota_exceeded) must not be discarded the way markPushed() discards a terminal one —
+  // the user can lift these by paying or freeing space, so the mutation has to survive
+  // somewhere the daemon can find it again, without also being retried every single cycle.
+  describe('blockMutations / blockedMutations / unblockMutations', () => {
+    it('a blocked mutation disappears from pendingMutations but not from the log', () => {
+      store.save({ projectKey: 'proj-a', type: 'decision', title: 'X', content: 'x', source: 'mcp' })
+      const [row] = store.pendingMutations()
+
+      store.blockMutations([{ seq: row.seq, reason: 'project_limit_reached' }])
+
+      expect(store.pendingMutations().map((m) => m.seq)).not.toContain(row.seq)
+      expect(store.blockedMutations().map((m) => m.seq)).toContain(row.seq)
+    })
+
+    it('a blocked mutation is not counted as pending either', () => {
+      store.save({ projectKey: 'proj-a', type: 'decision', title: 'X', content: 'x', source: 'mcp' })
+      const [row] = store.pendingMutations()
+      store.blockMutations([{ seq: row.seq, reason: 'quota_exceeded' }])
+
+      expect(store.pendingMutationCount()).toBe(0)
+    })
+
+    it('blockMutations records the reason as last_error too, for visibility', () => {
+      store.save({ projectKey: 'proj-a', type: 'decision', title: 'X', content: 'x', source: 'mcp' })
+      const [row] = store.pendingMutations()
+      store.blockMutations([{ seq: row.seq, reason: 'project_limit_reached' }])
+
+      expect(store.blockedMutations()[0].last_error).toBe('project_limit_reached')
+    })
+
+    it('unblockMutations only lifts the reasons named, not every blocked row', () => {
+      store.save({ projectKey: 'proj-a', type: 'decision', title: 'A', content: 'a', source: 'mcp' })
+      store.save({ projectKey: 'proj-a', type: 'decision', title: 'B', content: 'b', source: 'mcp' })
+      const [rowA, rowB] = store.pendingMutations()
+      store.blockMutations([
+        { seq: rowA.seq, reason: 'project_limit_reached' },
+        { seq: rowB.seq, reason: 'quota_exceeded' },
+      ])
+
+      store.unblockMutations(['quota_exceeded'])
+
+      const pendingSeqs = store.pendingMutations().map((m) => m.seq)
+      expect(pendingSeqs).toContain(rowB.seq) // freed
+      expect(pendingSeqs).not.toContain(rowA.seq) // still blocked
+      expect(store.blockedMutations().map((m) => m.seq)).toEqual([rowA.seq])
+    })
+
+    it('an empty reasons list is a no-op, not "unblock everything"', () => {
+      store.save({ projectKey: 'proj-a', type: 'decision', title: 'X', content: 'x', source: 'mcp' })
+      const [row] = store.pendingMutations()
+      store.blockMutations([{ seq: row.seq, reason: 'project_limit_reached' }])
+
+      store.unblockMutations([])
+
+      expect(store.blockedMutations().map((m) => m.seq)).toContain(row.seq)
+    })
+  })
 })
 
 describe('MemoryStore — applyIncomingObservation (daemon pull-apply path, §4.4)', () => {
@@ -709,7 +768,29 @@ describe('MemoryStore — schema versioning (C3)', () => {
   afterEach(() => { cleanupTmp(dir) })
 
   it('SCHEMA_VERSION is pinned to the published value', () => {
-    expect(SCHEMA_VERSION).toBe(1)
+    expect(SCHEMA_VERSION).toBe(2)
+  })
+
+  // Task 8 (smoke/memory-bridge): the memory dir syncs across two machines, so a v1
+  // database (blocked_reason column absent) opened by a build that already knows v2 is
+  // the routine case, not an edge case — it's every existing user's database on upgrade.
+  it('a v1 database gains blocked_reason via migration without losing data', () => {
+    const dbPath = join(dir, 'memory.db')
+    const v1 = new MemoryStore(dbPath)
+    v1.ensureProject({ projectKey: 'proj-a', displayName: 'proj-a' })
+    v1.save({ projectKey: 'proj-a', scope: 'personal', type: 'decision', title: 'pre-migration', content: 'x', source: 'mcp' })
+    ;(v1 as unknown as { db: { pragma(s: string): unknown } }).db.pragma('user_version = 1')
+    v1.close()
+
+    const v2 = new MemoryStore(dbPath)
+    expect(v2.schemaVersion).toBe(2)
+    expect(v2.count()).toBe(1)
+    // The real point of the test: the new column exists and is usable, not just that the
+    // migration ran without throwing.
+    const [row] = v2.pendingMutations()
+    v2.blockMutations([{ seq: row.seq, reason: 'quota_exceeded' }])
+    expect(v2.blockedMutations()).toHaveLength(1)
+    v2.close()
   })
 
   it('a fresh database lands on the current version', () => {
@@ -717,7 +798,7 @@ describe('MemoryStore — schema versioning (C3)', () => {
     expect(store.schemaVersion).toBe(SCHEMA_VERSION)
     const userVersion = (store as unknown as { db: { pragma(s: string, o?: { simple?: boolean }): unknown } })
       .db.pragma('user_version', { simple: true })
-    expect(userVersion).toBe(1)
+    expect(userVersion).toBe(SCHEMA_VERSION)
     store.close()
   })
 
@@ -739,7 +820,7 @@ describe('MemoryStore — schema versioning (C3)', () => {
     expect(second.count()).toBe(1)
     const userVersion = (second as unknown as { db: { pragma(s: string, o?: { simple?: boolean }): unknown } })
       .db.pragma('user_version', { simple: true })
-    expect(userVersion).toBe(1)
+    expect(userVersion).toBe(SCHEMA_VERSION)
     second.close()
   })
 
@@ -777,7 +858,7 @@ describe('MemoryStore — schema versioning (C3)', () => {
     expect(migrated.count()).toBe(1)
     const userVersion = (migrated as unknown as { db: { pragma(s: string, o?: { simple?: boolean }): unknown } })
       .db.pragma('user_version', { simple: true })
-    expect(userVersion).toBe(1)
+    expect(userVersion).toBe(SCHEMA_VERSION)
     migrated.close()
   })
 })

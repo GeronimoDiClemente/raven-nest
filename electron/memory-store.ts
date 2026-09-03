@@ -188,6 +188,12 @@ export interface MutationLogRow {
   // M21: set when the server reported this specific mutation as 'rejected' (plan limit,
   // revoked access, etc.) — surfaced once rather than silently discarded.
   last_error: string | null
+  // Task 8 (smoke/memory-bridge): non-null only for a REVERSIBLE server rejection
+  // (project_limit_reached, quota_exceeded — see memory-daemon.ts's REVERSIBLE_REJECTIONS).
+  // Distinct from `pushed_at`: a blocked row is NOT pushed (it was never delivered) and
+  // NOT pending (retrying it every cycle would just get rejected again) — it sits here
+  // until unblockMutations() clears it.
+  blocked_reason: string | null
 }
 
 export interface MarkPushedEntry {
@@ -339,10 +345,26 @@ const BASE_SCHEMA = `
  * correct precisely because all of step 1 is CREATE ... IF NOT EXISTS: running it over an
  * already-populated database writes nothing and does not touch a single row.
  */
-export const SCHEMA_VERSION = 1
+export const SCHEMA_VERSION = 2
 
-const MIGRATIONS: Record<number, string> = {
+// Task 8 (smoke/memory-bridge): the memory dir syncs across two machines (C3's whole
+// reason for existing), so a v1 database opened by a build that knows v2 is the routine
+// upgrade path for every existing user, not an edge case.
+//
+// A FUNCTION step, not a plain SQL string like step 1: unlike `CREATE TABLE`/`CREATE
+// INDEX`, SQLite's `ALTER TABLE ... ADD COLUMN` has no `IF NOT EXISTS` clause at all —
+// confirmed against this repo's own better-sqlite3 (`near "EXISTS": syntax error`), not
+// assumed. C3's docstring above requires every step to survive a re-run (SQLite does not
+// roll back an ALTER on a mid-transaction crash), so idempotency has to be done by hand:
+// check `pragma table_info` first, and only ALTER if the column is actually missing.
+const MIGRATIONS: Record<number, string | ((db: Database.Database) => void)> = {
   1: BASE_SCHEMA,
+  2: (db) => {
+    const columns = db.prepare('PRAGMA table_info(mutation_log)').all() as Array<{ name: string }>
+    if (!columns.some((c) => c.name === 'blocked_reason')) {
+      db.exec('ALTER TABLE mutation_log ADD COLUMN blocked_reason TEXT;')
+    }
+  },
 }
 
 export class MemoryStore {
@@ -380,7 +402,8 @@ export class MemoryStore {
       const step = MIGRATIONS[next]
       if (!step) throw new Error(`memory-store: missing migration step ${next}`)
       this.db.transaction(() => {
-        this.db.exec(step)
+        if (typeof step === 'string') this.db.exec(step)
+        else step(this.db)
         this.db.pragma(`user_version = ${next}`)
       })()
       current = next
@@ -902,17 +925,56 @@ export class MemoryStore {
 
   // ── Mutation log / offline queue (§4.5) ──────────────────────────────────
 
+  // Task 8: excludes `blocked_reason IS NOT NULL` — a reversibly-rejected mutation is
+  // neither pushed nor eligible for the next retry cycle (that would just re-reject it
+  // against the same still-standing limit). It comes back via unblockMutations().
   pendingMutations(limit = 200): MutationLogRow[] {
     return this.db
-      .prepare('SELECT * FROM mutation_log WHERE pushed_at IS NULL ORDER BY seq ASC LIMIT ?')
+      .prepare('SELECT * FROM mutation_log WHERE pushed_at IS NULL AND blocked_reason IS NULL ORDER BY seq ASC LIMIT ?')
       .all(limit) as MutationLogRow[]
   }
 
   pendingMutationCount(): number {
-    const row = this.db.prepare('SELECT COUNT(*) as c FROM mutation_log WHERE pushed_at IS NULL').get() as {
-      c: number
-    }
+    const row = this.db
+      .prepare('SELECT COUNT(*) as c FROM mutation_log WHERE pushed_at IS NULL AND blocked_reason IS NULL')
+      .get() as { c: number }
     return row.c
+  }
+
+  /**
+   * Task 8: a REVERSIBLE server rejection (project_limit_reached, quota_exceeded) is not
+   * discarded the way markPushed() discards a terminal one. Leaves `pushed_at` NULL — it
+   * was never delivered — and stamps `blocked_reason` so pendingMutations() stops
+   * offering it up every cycle. Also records the reason as `last_error`, same convention
+   * markPushed() already uses for a rejected-but-terminal mutation, so `SELECT * FROM
+   * mutation_log` shows a consistent "why" column regardless of which state a row is in.
+   */
+  blockMutations(entries: Array<{ seq: number; reason: string }>): void {
+    if (entries.length === 0) return
+    const stmt = this.db.prepare('UPDATE mutation_log SET blocked_reason = ?, last_error = ? WHERE seq = ?')
+    const txn = this.db.transaction((rows: Array<{ seq: number; reason: string }>) => {
+      for (const e of rows) stmt.run(e.reason, e.reason, e.seq)
+    })
+    txn(entries)
+  }
+
+  blockedMutations(): MutationLogRow[] {
+    return this.db
+      .prepare('SELECT * FROM mutation_log WHERE blocked_reason IS NOT NULL ORDER BY seq ASC')
+      .all() as MutationLogRow[]
+  }
+
+  /**
+   * Re-admits blocked mutations whose reason no longer applies back into
+   * pendingMutations(). Scoped by reason, not "unblock everything": a project-limit
+   * block lifting says nothing about a quota block also lifting.
+   */
+  unblockMutations(reasons: string[]): void {
+    if (reasons.length === 0) return
+    const placeholders = reasons.map(() => '?').join(',')
+    this.db
+      .prepare(`UPDATE mutation_log SET blocked_reason = NULL WHERE blocked_reason IN (${placeholders})`)
+      .run(...reasons)
   }
 
   /**
