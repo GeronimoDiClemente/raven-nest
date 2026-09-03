@@ -8,6 +8,11 @@
 
 **Tech Stack:** Node 22 · TypeScript con `tsx`, sin paso de build · `pg` sobre Postgres 16 · `aws4fetch` 1.0.20 (cero dependencias, 65 KB) · vitest contra Postgres real · Alpine `postgresql16-client` en el contenedor.
 
+**Estado (2026-09-03):** Tasks 1 a 6 **HECHAS y verificadas** — 159 tests verdes, typecheck en 0,
+restauración probada de punta a punta contra la base local (y probada también fallando: archivo
+que no es un dump, y dump truncado). **La Task 7 —la corrida real contra producción— sigue
+bloqueada por el bucket de R2 y sus cuatro variables.**
+
 **Spec:** `docs/superpowers/specs/2026-08-31-memory-sync-backend-design.md` §11.3
 
 **Memoria relacionada:** `nest-memory/raven-nest/nest-memory-sync-service.md`, sección "Backups — diseño aprobado el 2026-09-02". Este plan implementa ese diseño; no lo redecide.
@@ -29,6 +34,7 @@
   ```
   En producción no se setea ninguna y caen a `pg_dump` / `pg_restore` pelados, que es como corren adentro del contenedor del servicio.
 - **Tests:** `cd server && npx vitest run; echo EXIT=$?`. **La barra es el código de salida**, no el conteo de tests.
+- 🔴 **`npx tsx -e "..."` NO SIRVE si el código tiene un `import` o un `await` de nivel superior.** No falla: **no ejecuta nada, no imprime nada y sale con código 0** (medido el 2026-09-03, tsx 4.23.13 sobre Node 25.4.0). Con un `console.log` pelado anda, y por eso parece que funciona. Es la misma trampa que el `ts-node` roto de Render. **Todo snippet suelto de este plan va a un archivo bajo `server/tmp/` y se corre con `npx tsx tmp/loquesea.ts`**, nunca con `-e`.
 - **Typecheck del paquete:** `cd server && npx tsc --noEmit -p tsconfig.json; echo EXIT=$?`. Este `tsconfig.json` **sí** chequea (tiene `include`, no es solution-style como el de la raíz). Tiene que quedar en 0.
 - **Comentarios y documentos en español**, código y nombres de identificadores en inglés, como el resto de `server/`.
 - **Nada de secretos en el repo ni en el chat.** Las cuatro variables `R2_*` las carga Gero desde el dashboard de Railway.
@@ -67,7 +73,7 @@ Las cuatro variables (`R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY
 
 `row_counts` es la columna que hace posible una restauración *verificable*: guarda cuántas filas tenía cada tabla cuando se tomó ese dump, así el script de restore no tiene que compararse contra una base viva que ya se movió.
 
-- [ ] **Step 1: Escribir el test que falla**
+- [x] **Step 1: Escribir el test que falla**
 
 ```typescript
 // server/__tests__/backups-schema.test.ts
@@ -108,12 +114,12 @@ describe('la tabla backups', () => {
 })
 ```
 
-- [ ] **Step 2: Correrlo y verificar que falla**
+- [x] **Step 2: Correrlo y verificar que falla**
 
 Run: `cd server && npx vitest run __tests__/backups-schema.test.ts; echo EXIT=$?`
 Expected: FAIL — el primer test falla en `falta la columna id` (la consulta devuelve cero filas porque la tabla no existe), `EXIT=1`.
 
-- [ ] **Step 3: Escribir la migración**
+- [x] **Step 3: Escribir la migración**
 
 ```sql
 -- server/migrations/003_backups.sql
@@ -144,17 +150,17 @@ create table if not exists backups (
 create index if not exists backups_recent on backups (started_at desc);
 ```
 
-- [ ] **Step 4: Correr y verificar que pasa**
+- [x] **Step 4: Correr y verificar que pasa**
 
 Run: `cd server && npx vitest run __tests__/backups-schema.test.ts; echo EXIT=$?`
 Expected: PASS, 2 tests, `EXIT=0`.
 
-- [ ] **Step 5: Verificar que no rompió el resto**
+- [x] **Step 5: Verificar que no rompió el resto**
 
 Run: `cd server && npx vitest run; echo EXIT=$?`
 Expected: PASS, `EXIT=0`. La suite era de 127 tests; ahora son 129.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add server/migrations/003_backups.sql server/__tests__/backups-schema.test.ts
@@ -182,7 +188,7 @@ git commit -m "feat(sync-service): tabla backups, el rastro de cada intento de d
 
 La costura para testear es `AwsClient.sign()`, que devuelve un `Request` **firmado sin mandarlo**. Así el test verifica la URL, el método y que la firma se haya puesto, sin salir a la red y sin mockear la librería de firma.
 
-- [ ] **Step 1: Instalar la dependencia**
+- [x] **Step 1: Instalar la dependencia**
 
 ```bash
 cd server && npm install aws4fetch@1.0.20
@@ -193,7 +199,7 @@ Verificar que quedó una sola dependencia nueva y que no arrastró nada:
 Run: `cd server && npm ls aws4fetch`
 Expected: `aws4fetch@1.0.20` sin hijos.
 
-- [ ] **Step 2: Escribir el test que falla**
+- [x] **Step 2: Escribir el test que falla**
 
 ```typescript
 // server/__tests__/r2.test.ts
@@ -301,12 +307,12 @@ describe('listKeys', () => {
 })
 ```
 
-- [ ] **Step 3: Correrlo y verificar que falla**
+- [x] **Step 3: Correrlo y verificar que falla**
 
 Run: `cd server && npx vitest run __tests__/r2.test.ts; echo EXIT=$?`
 Expected: FAIL — `Cannot find module '../src/r2'`, `EXIT=1`.
 
-- [ ] **Step 4: Implementación**
+- [x] **Step 4: Implementación**
 
 ```typescript
 // server/src/r2.ts
@@ -414,17 +420,17 @@ export async function listKeys(
 }
 ```
 
-- [ ] **Step 5: Correr y verificar que pasa**
+- [x] **Step 5: Correr y verificar que pasa**
 
 Run: `cd server && npx vitest run __tests__/r2.test.ts; echo EXIT=$?`
 Expected: PASS, 7 tests, `EXIT=0`.
 
-- [ ] **Step 6: Typecheck**
+- [x] **Step 6: Typecheck**
 
 Run: `cd server && npx tsc --noEmit -p tsconfig.json; echo EXIT=$?`
 Expected: `EXIT=0`.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add server/src/r2.ts server/__tests__/r2.test.ts server/package.json server/package-lock.json
@@ -450,7 +456,7 @@ git commit -m "feat(sync-service): cliente de R2 firmado con aws4fetch"
 
 Dos decisiones que este módulo encapsula. **La contraseña no viaja en `argv`**: se saca de la URL y se pasa por `PGPASSWORD` en el ambiente del hijo, porque `argv` es legible por cualquier proceso de la máquina. Y **el binario es una lista de argumentos configurable**, no un nombre fijo, porque en la máquina de desarrollo (Windows) no hay cliente de Postgres instalado y hay que entrar por `docker exec`.
 
-- [ ] **Step 1: Escribir el test que falla**
+- [x] **Step 1: Escribir el test que falla**
 
 ```typescript
 // server/__tests__/pg-dump.test.ts
@@ -507,12 +513,12 @@ describe('pgDump', () => {
 })
 ```
 
-- [ ] **Step 2: Correrlo y verificar que falla**
+- [x] **Step 2: Correrlo y verificar que falla**
 
 Run: `cd server && npx vitest run __tests__/pg-dump.test.ts; echo EXIT=$?`
 Expected: FAIL — `Cannot find module '../src/pg-dump'`, `EXIT=1`.
 
-- [ ] **Step 3: Implementación**
+- [x] **Step 3: Implementación**
 
 ```typescript
 // server/src/pg-dump.ts
@@ -617,27 +623,31 @@ export async function pgRestore(
 }
 ```
 
-- [ ] **Step 4: Correr y verificar que pasa**
+- [x] **Step 4: Correr y verificar que pasa**
 
 Run: `cd server && npx vitest run __tests__/pg-dump.test.ts; echo EXIT=$?`
 Expected: PASS, 6 tests, `EXIT=0`.
 
-- [ ] **Step 5: Probar `pg_dump` de verdad, a mano, contra la base local**
+- [x] **Step 5: Probar `pg_dump` de verdad, a mano, contra la base local**
 
 Esto no es un test automatizado —depende de Docker— pero **no se puede saltear**: es la primera vez que el módulo habla con un `pg_dump` real.
 
 ```bash
-cd server && PG_DUMP_CMD="docker exec -i nest-memory-pg pg_dump" npx tsx -e "
-import { pgDump } from './src/pg-dump.ts'
+cd server && mkdir -p tmp
+cat > tmp/probe.ts <<'TS'
+import { pgDump } from '../src/pg-dump.ts'
 const b = await pgDump('postgres://postgres:nestmem@127.0.0.1:5432/nest_memory')
-console.log('bytes:', b.length, 'magia:', Buffer.from(b.slice(0,5)).toString())
-"
+console.log('bytes:', b.length, 'magia:', Buffer.from(b.slice(0, 5)).toString())
+TS
+PG_DUMP_CMD="docker exec -i nest-memory-pg pg_dump" npx tsx tmp/probe.ts; echo EXIT=$?
 ```
-Expected: unos miles de bytes y `magia: PGDMP`. Ese header es la firma del formato custom: si no está, no es un dump.
+Expected: cientos de miles de bytes y `magia: PGDMP`. Ese header es la firma del formato custom: si no está, no es un dump.
+
+**Un archivo, no `npx tsx -e`**: con un `import` adentro, `-e` sale 0 sin ejecutar ni imprimir nada, o sea que este paso "pasaría" sin haber probado nada.
 
 Ojo con el host: adentro del contenedor la base es `127.0.0.1:5432`, no el `:55432` que se ve desde Windows.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add server/src/pg-dump.ts server/__tests__/pg-dump.test.ts
@@ -666,7 +676,7 @@ git commit -m "feat(sync-service): correr pg_dump y pg_restore sin la password e
 
 Este módulo no sabe de red ni de procesos hijos: los recibe inyectados. Por eso se puede testear entero contra Postgres real sin tocar R2 ni `pg_dump`, que es exactamente el reparto que pide la regla del paquete.
 
-- [ ] **Step 1: Escribir el test que falla**
+- [x] **Step 1: Escribir el test que falla**
 
 ```typescript
 // server/__tests__/backup.test.ts
@@ -828,12 +838,12 @@ describe('backupDepsFromEnv', () => {
 })
 ```
 
-- [ ] **Step 2: Correrlo y verificar que falla**
+- [x] **Step 2: Correrlo y verificar que falla**
 
 Run: `cd server && npx vitest run __tests__/backup.test.ts; echo EXIT=$?`
 Expected: FAIL — `Cannot find module '../src/backup'`, `EXIT=1`.
 
-- [ ] **Step 3: Implementación**
+- [x] **Step 3: Implementación**
 
 ```typescript
 // server/src/backup.ts
@@ -956,17 +966,17 @@ export function backupDepsFromEnv(env: NodeJS.ProcessEnv = process.env): BackupD
 }
 ```
 
-- [ ] **Step 4: Correr y verificar que pasa**
+- [x] **Step 4: Correr y verificar que pasa**
 
 Run: `cd server && npx vitest run __tests__/backup.test.ts; echo EXIT=$?`
 Expected: PASS, 13 tests, `EXIT=0`.
 
-- [ ] **Step 5: Correr la suite entera y el typecheck**
+- [x] **Step 5: Correr la suite entera y el typecheck**
 
 Run: `cd server && npx vitest run; echo EXIT=$?` y después `npx tsc --noEmit -p tsconfig.json; echo EXIT=$?`
 Expected: los dos en `EXIT=0`.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add server/src/backup.ts server/__tests__/backup.test.ts
@@ -990,7 +1000,7 @@ git commit -m "feat(sync-service): el backup diario, con rastro de cada intento"
 
 `index.ts` no se puede testear con vitest (tiene top-level await, `listen()` y timers), así que la lógica que vale sale del timer y se testea aparte. Es el mismo motivo por el que `purgeTombstones` vive en `purge.ts` y no adentro del `setInterval`.
 
-- [ ] **Step 1: Escribir el test que falla**
+- [x] **Step 1: Escribir el test que falla**
 
 ```typescript
 // server/__tests__/backup-schedule.test.ts
@@ -1029,12 +1039,12 @@ describe('shouldRunBackup', () => {
 })
 ```
 
-- [ ] **Step 2: Correrlo y verificar que falla**
+- [x] **Step 2: Correrlo y verificar que falla**
 
 Run: `cd server && npx vitest run __tests__/backup-schedule.test.ts; echo EXIT=$?`
 Expected: FAIL — `shouldRunBackup` no está exportada, `EXIT=1`.
 
-- [ ] **Step 3: Sumar `shouldRunBackup` a `src/backup.ts`**
+- [x] **Step 3: Sumar `shouldRunBackup` a `src/backup.ts`**
 
 Al final del archivo:
 
@@ -1053,12 +1063,12 @@ export async function shouldRunBackup(
 }
 ```
 
-- [ ] **Step 4: Correr y verificar que pasa**
+- [x] **Step 4: Correr y verificar que pasa**
 
 Run: `cd server && npx vitest run __tests__/backup-schedule.test.ts; echo EXIT=$?`
 Expected: PASS, 3 tests, `EXIT=0`.
 
-- [ ] **Step 5: Prender el timer en `src/index.ts`**
+- [x] **Step 5: Prender el timer en `src/index.ts`**
 
 En los imports de arriba de todo, sumar:
 
@@ -1097,7 +1107,7 @@ void runBackupIfDue()
 setInterval(() => void runBackupIfDue(), BACKUP_EVERY_MS).unref()
 ```
 
-- [ ] **Step 6: Sumar el cliente de Postgres y los scripts al `Dockerfile`**
+- [x] **Step 6: Sumar el cliente de Postgres y los scripts al `Dockerfile`**
 
 Dos cambios. El `Dockerfile` queda entero así:
 
@@ -1129,7 +1139,7 @@ CMD ["npx", "tsx", "src/index.ts"]
 
 `tsx` queda disponible en la imagen aun con `--omit=dev` porque está en `dependencies`, no en `devDependencies` — es con lo que arranca el propio servicio.
 
-- [ ] **Step 7: Verificar que la imagen buildea y que `pg_dump` quedó adentro**
+- [x] **Step 7: Verificar que la imagen buildea y que `pg_dump` quedó adentro**
 
 ```bash
 cd server && docker build -t nest-memory-sync:backup-check .
@@ -1137,7 +1147,7 @@ docker run --rm nest-memory-sync:backup-check pg_dump --version
 ```
 Expected: `pg_dump (PostgreSQL) 16.x`. Si dice 15 o 17, el paquete de Alpine cambió y hay que ajustar el nombre.
 
-- [ ] **Step 8: Documentar las variables en `server/README.md`**
+- [x] **Step 8: Documentar las variables en `server/README.md`**
 
 Sumar a la tabla de variables de ambiente, después de la fila `PG_POOL_MAX`:
 
@@ -1151,12 +1161,12 @@ Sumar a la tabla de variables de ambiente, después de la fila `PG_POOL_MAX`:
 | `PG_BIN_DATABASE_URL` | el valor de `DATABASE_URL` | La URL que ven los **binarios** de Postgres, que no siempre es la que ve el driver `pg`. En producción son la misma y esto no hace falta. En desarrollo sí: el driver corre en Windows y llega por `127.0.0.1:55432`, mientras que `pg_dump` corre adentro del contenedor por `docker exec` y desde ahí la base es `127.0.0.1:5432`. |
 ```
 
-- [ ] **Step 9: Correr la suite entera y el typecheck**
+- [x] **Step 9: Correr la suite entera y el typecheck**
 
 Run: `cd server && npx vitest run; echo EXIT=$?` y `npx tsc --noEmit -p tsconfig.json; echo EXIT=$?`
 Expected: los dos en `EXIT=0`.
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add server/src/index.ts server/src/backup.ts server/Dockerfile server/README.md server/__tests__/backup-schedule.test.ts
@@ -1180,7 +1190,7 @@ Es la mitad que convierte esto en un backup de verdad: *un backup que nunca se r
 
 La verificación no se compara contra la base viva, que para cuando el script corre ya se movió: se compara contra los conteos que quedaron guardados en `backups.row_counts` **cuando se tomó ese dump**. Es la razón por la que existe esa columna.
 
-- [ ] **Step 1: Escribir el script**
+- [x] **Step 1: Escribir el script**
 
 ```javascript
 #!/usr/bin/env node
@@ -1325,7 +1335,7 @@ async function main() {
 await main()
 ```
 
-- [ ] **Step 2: Probar el modo `--file` de punta a punta contra la base local**
+- [x] **Step 2: Probar el modo `--file` de punta a punta contra la base local**
 
 Este es el paso que demuestra que el mecanismo entero funciona, y **no necesita R2**.
 
@@ -1347,15 +1357,18 @@ export PG_BIN_DATABASE_URL="postgres://postgres:nestmem@127.0.0.1:5432/nest_memo
 
 # 1. Un backup real contra la base local: dump real, subida de mentira. Deja la fila en
 #    `backups` con sus row_counts, que es contra lo que después se verifica.
-npx tsx -e "
-import { getPool, migrate } from './src/db.ts'
-import { runBackup, backupDepsFromEnv } from './src/backup.ts'
-import { pgDump } from './src/pg-dump.ts'
+#    VA A UN ARCHIVO, no a `tsx -e`: con imports, `-e` no ejecuta nada y sale 0.
+cat > tmp/hacer-backup-local.ts <<'TS'
 import { writeFileSync } from 'node:fs'
-const pool = getPool(); await migrate(pool)
+import { getPool, migrate } from '../src/db.ts'
+import { runBackup } from '../src/backup.ts'
+import { pgDump } from '../src/pg-dump.ts'
+
+const pool = getPool()
+await migrate(pool)
 const r = await runBackup(pool, {
   dump: async () => {
-    const b = await pgDump(process.env.PG_BIN_DATABASE_URL)
+    const b = await pgDump(process.env.PG_BIN_DATABASE_URL!)
     writeFileSync('tmp/local.dump', b)
     return b
   },
@@ -1364,14 +1377,15 @@ const r = await runBackup(pool, {
 })
 console.log('backup', r.key, r.bytes, 'bytes')
 await pool.end()
-"
+TS
+npx tsx tmp/hacer-backup-local.ts; echo EXIT=$?
 
 # 2. Restaurarlo y verificarlo.
 npx tsx scripts/restore-check.mjs --file tmp/local.dump; echo EXIT=$?
 ```
 Expected: la tabla de conteos con `esperado` == `restaurado` en las seis tablas, el checksum, `✓ restauración verificada` y `EXIT=0`.
 
-- [ ] **Step 3: Probar que el script FALLA cuando tiene que fallar**
+- [x] **Step 3: Probar que el script FALLA cuando tiene que fallar**
 
 Un verificador que nunca falló no verificó nada.
 
@@ -1394,7 +1408,7 @@ docker exec nest-memory-pg psql -U postgres -lqt | grep restorecheck
 ```
 Expected: sin salida.
 
-- [ ] **Step 4: Documentar en `server/README.md`**
+- [x] **Step 4: Documentar en `server/README.md`**
 
 Sumar una sección nueva al final:
 
@@ -1437,12 +1451,12 @@ export PG_BIN_DATABASE_URL="postgres://postgres:nestmem@127.0.0.1:5432/nest_memo
 ```
 ````
 
-- [ ] **Step 5: Correr la suite entera y el typecheck una vez más**
+- [x] **Step 5: Correr la suite entera y el typecheck una vez más**
 
 Run: `cd server && npx vitest run; echo EXIT=$?` y `npx tsc --noEmit -p tsconfig.json; echo EXIT=$?`
 Expected: los dos en `EXIT=0`.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add server/scripts/restore-check.mjs server/.gitignore server/README.md
@@ -1474,10 +1488,14 @@ Expected: la migración 003 aplicada, `[sync] listening on 8080`, y una línea `
 
 - [ ] **Step 3: Verificar que el objeto existe en R2**
 
+Nada de `tsx -e` acá tampoco: con imports adentro no ejecuta y sale 0, o sea que imprimiría una lista vacía indistinguible de "el bucket está vacío". Va por un archivo escrito en el contenedor:
+
 ```bash
-ssh railway-sync "cd /app && npx tsx -e \"
-import { r2ConfigFromEnv, listKeys } from './src/r2.ts'
-console.log(await listKeys(r2ConfigFromEnv(), 'nest-memory/'))\""
+ssh railway-sync "cd /app && cat > /tmp/listar.ts <<'TS'
+import { r2ConfigFromEnv, listKeys } from '/app/src/r2.ts'
+console.log(await listKeys(r2ConfigFromEnv()!, 'nest-memory/'))
+TS
+npx tsx /tmp/listar.ts"
 ```
 Expected: al menos una clave. (Recordar el gotcha ya documentado: `railway ssh` del CLI falla con "Host key verification failed"; lo que funciona es `ssh railway-sync "<comando>"` directo.)
 
