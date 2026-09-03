@@ -132,6 +132,42 @@ export function useMemory() {
     }
   }, [refresh])
 
+  /**
+   * §9.2 — Connect contra el login. Reemplaza al token pegado a mano de C7 para el usuario
+   * final: el renderer saca el JWT de la sesión de Supabase, main lo postea a
+   * `POST /v1/devices` del servicio de sync, y el servicio devuelve el token del device una
+   * sola vez. `connectWithToken` se queda igual: sigue siendo el camino del beta de una
+   * cuenta y el escape cuando el emisor está caído.
+   */
+  const connectWithLogin = useCallback(async () => {
+    connectingRef.current = true
+    setState((s) => ({ ...s, state: 'connecting', error: null }))
+    try {
+      const api = memoryApi()
+      if (!api) throw new Error('Memory is not available in this build')
+      if (!api.registerDevice) throw new Error('This build cannot request a token — paste one instead')
+
+      const { data } = await supabase.auth.getSession()
+      const jwt = data.session?.access_token
+      // Sin sesión no hay identidad que el servicio pueda verificar: pedirle un token sería
+      // un 401 garantizado, y el usuario leería "tus credenciales no sirven" cuando lo que
+      // pasa es que no está logueado.
+      if (!jwt) throw new Error('Sign in first — the service issues the token against your login')
+
+      setState((s) => ({ ...s, state: 'migrating' }))
+      const emitido = await api.registerDevice(jwt)
+      if (!emitido.ok) throw new Error(emitido.error ?? 'Could not register this device')
+
+      const result = await api.connect(emitido.token, emitido.deviceId)
+      if (!result.ok) throw new Error(result.error ?? 'Connect failed')
+      connectingRef.current = false
+      await refresh()
+    } catch (err) {
+      connectingRef.current = false
+      setState((s) => ({ ...s, state: 'error', error: err instanceof Error ? err.message : String(err) }))
+    }
+  }, [refresh])
+
   const disconnect = useCallback(async (deleteCloud = false) => {
     try {
       // §7.5 / §6.6 "Right to delete" — best-effort; local data is never touched by this.
@@ -164,5 +200,5 @@ export function useMemory() {
     }
   }, [refresh])
 
-  return { ...state, connectWithToken, disconnect, refresh }
+  return { ...state, connectWithToken, connectWithLogin, disconnect, refresh }
 }

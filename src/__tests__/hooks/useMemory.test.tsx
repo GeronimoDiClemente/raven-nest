@@ -4,6 +4,8 @@ import { useMemory } from '../../hooks/useMemory'
 
 const supabaseMock = vi.hoisted(() => ({
   functions: { invoke: vi.fn() },
+  // §9.2: connectWithLogin saca el JWT de la sesion.
+  auth: { getSession: vi.fn() },
 }))
 
 vi.mock('../../lib/supabase', () => ({ supabase: supabaseMock }))
@@ -206,5 +208,57 @@ describe('useMemory — unavailable and hand-pasted token (C7)', () => {
 
     expect(result.current.state).toBe('error')
     expect(result.current.error).toBe('invalid token')
+  })
+})
+
+// §9.2 — Connect contra el login, que es lo que reemplaza al token pegado a mano de C7.
+// El renderer tiene el JWT de Supabase; main lo postea a `POST /v1/devices` del servicio,
+// que verifica la firma y devuelve el token del device UNA sola vez. El token vuelve por el
+// mismo camino que el pegado a mano (`api.connect`), así que no hay exposición nueva.
+describe('useMemory — connect contra el login (§9.2)', () => {
+  const memoriaConRegistro = {
+    ...memoryMock,
+    registerDevice: vi.fn(),
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    ;(globalThis as unknown as { window: Window }).window.memory = memoriaConRegistro as never
+    memoryMock.status.mockResolvedValue({
+      connected: true, deviceId: 'dev-1', itemCount: 0, pendingCount: 0, daemonStatus: 'idle',
+    })
+    memoryMock.connect.mockResolvedValue({ ok: true })
+    supabaseMock.auth.getSession.mockResolvedValue({ data: { session: { access_token: 'jwt-de-login' } } })
+  })
+
+  it('manda el JWT del login y conecta con el token que devuelve el servicio', async () => {
+    memoriaConRegistro.registerDevice.mockResolvedValue({ ok: true, deviceId: 'dev-9', token: 'nmk_del_servicio' })
+    const { result } = renderHook(() => useMemory())
+
+    await act(async () => { await result.current.connectWithLogin() })
+
+    expect(memoriaConRegistro.registerDevice).toHaveBeenCalledWith('jwt-de-login')
+    expect(memoryMock.connect).toHaveBeenCalledWith('nmk_del_servicio', 'dev-9')
+  })
+
+  it('sin sesion no llama al servicio: pedir un token sin login no tiene sentido', async () => {
+    supabaseMock.auth.getSession.mockResolvedValue({ data: { session: null } })
+    const { result } = renderHook(() => useMemory())
+
+    await act(async () => { await result.current.connectWithLogin() })
+
+    expect(memoriaConRegistro.registerDevice).not.toHaveBeenCalled()
+    await waitFor(() => expect(result.current.state).toBe('error'))
+  })
+
+  it('surfacea el error del servicio en vez de dejar la card en connecting para siempre', async () => {
+    memoriaConRegistro.registerDevice.mockResolvedValue({ ok: false, error: 'not_in_beta' })
+    const { result } = renderHook(() => useMemory())
+
+    await act(async () => { await result.current.connectWithLogin() })
+
+    await waitFor(() => expect(result.current.error).toBe('not_in_beta'))
+    expect(result.current.state).toBe('error')
+    expect(memoryMock.connect).not.toHaveBeenCalled()
   })
 })

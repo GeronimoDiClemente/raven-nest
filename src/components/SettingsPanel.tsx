@@ -131,6 +131,14 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
     return `${Number.isInteger(v) ? v : v.toFixed(1)} ${unidades[i]}`
   }
 
+  // §9.2: Connect y Retry pasan a pedirle el token al servicio con el JWT del login. El
+  // token pegado a mano (C7) sigue ganando cuando está: es el camino del beta de una cuenta
+  // y el escape para cuando el emisor está caído.
+  const conectarMemoria = () => {
+    const pegado = memoryToken.trim()
+    return pegado ? memory.connectWithToken(pegado) : memory.connectWithLogin()
+  }
+
   const memorySyncProgress = memory.itemCount > 0
     ? Math.min(1, Math.max(0, (memory.itemCount - memory.pendingCount) / memory.itemCount))
     : 0
@@ -460,7 +468,7 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                         // state had no way to get their cloud copy deleted except fixing the
                         // underlying failure first.
                         <div style={{ display: 'flex', gap: 8 }}>
-                          <button className="sp-btn-purple" disabled={!memoryToken.trim()} onClick={() => void memory.connectWithToken(memoryToken)}>Retry</button>
+                          <button className="sp-btn-purple" onClick={() => void conectarMemoria()}>Retry</button>
                           <button className="sp-btn-danger" onClick={() => memory.disconnect(deleteCloudOnDisconnect)}>Disconnect</button>
                         </div>
                       ) : memory.state === 'plan_required' ? (
@@ -479,7 +487,7 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                       ) : memory.state === 'connecting' || memory.state === 'migrating' ? (
                         <button className="sp-btn-purple" disabled>…</button>
                       ) : PLAN_LIMITS[plan].memoryCloud ? (
-                        <button className="sp-btn-purple" disabled={!memoryToken.trim()} onClick={() => void memory.connectWithToken(memoryToken)}>Connect</button>
+                        <button className="sp-btn-purple" onClick={() => void conectarMemoria()}>Connect</button>
                       ) : (
                         <button className="sp-btn-purple" onClick={() => setMemoryUpgradeOpen(true)}>Upgrade</button>
                       )}
@@ -489,7 +497,7 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                         type="password"
                         className="sp-select"
                         style={{ width: '100%', marginTop: 8, cursor: 'text' }}
-                        placeholder="Paste your sync token"
+                        placeholder="Paste a sync token (optional)"
                         aria-label="Memory sync token"
                         value={memoryToken}
                         onChange={(e) => setMemoryToken(e.target.value)}

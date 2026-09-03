@@ -6,6 +6,7 @@ import { handlePull } from './pull'
 import { handleStatus } from './status'
 import { handleDeleteData } from './delete-data'
 import { createRateLimiter } from './rate-limit'
+import { registerDevice, verifySupabaseJwt } from './devices'
 
 const MAX_BATCH = 500
 const MAX_BODY_BYTES = 20 * 1024 * 1024
@@ -15,6 +16,10 @@ const MAX_BODY_BYTES = 20 * 1024 * 1024
 // qué dejar al device sin poder leer.
 const pushLimiter = createRateLimiter({ limit: 60, windowMs: 60_000 })
 const pullLimiter = createRateLimiter({ limit: 60, windowMs: 60_000 })
+// §9.2. El registro no lleva token de device (todavía no hay uno), así que la clave del
+// límite no puede ser el device: es la IP. Mucho más bajo que el de push/pull porque un
+// registro por máquina y por vida es lo normal — diez por hora ya es un bug o un abuso.
+const registerLimiter = createRateLimiter({ limit: 10, windowMs: 60 * 60_000 })
 
 function send(
   res: ServerResponse,
@@ -105,6 +110,14 @@ async function handleRequest(pool: Pool, req: IncomingMessage, res: ServerRespon
 
   if (path === '/health') return send(res, 200, { ok: true })
 
+  // §9.2 — la emisión del token. Va ANTES de `authenticate` y fuera de su try/catch porque
+  // es el único camino que NO lleva un token `nmk_`: la credencial es el JWT del login que
+  // Nest ya tiene, y este endpoint es justamente el que devuelve el `nmk_` por primera vez.
+  if (path === '/v1/devices') {
+    if (req.method !== 'POST') return send(res, 405, { error: 'method_not_allowed' })
+    return handleRegisterDevice(pool, req, res)
+  }
+
   // §5.4: the old Supabase-shaped routes are served as aliases so this service can be
   // pointed at a Nest build that predates the client's route change. This is a bring-up
   // affordance, not a permanent surface — delete the aliases once nothing depends on them.
@@ -155,6 +168,51 @@ async function handleRequest(pool: Pool, req: IncomingMessage, res: ServerRespon
     // a generic code instead of leaking internals (a stack trace, a driver error message).
     const status = (err as { status?: number }).status ?? 500
     if (status === 500) console.error('[http]', path, err)
+    return send(res, status, { error: status === 500 ? 'internal_error' : (err as Error).message })
+  }
+}
+
+/**
+ * `POST /v1/devices` (§9.2). Recibe el JWT del login en `Authorization`, verifica la firma
+ * contra `SUPABASE_JWT_SECRET` y devuelve el token del device UNA sola vez.
+ *
+ * El secreto se lee en cada request en vez de una sola vez al cargar el módulo: el costo es
+ * nulo y permite arrancar el proceso sin la variable (todo el resto del servicio funciona
+ * sin ella) y setearla después, en vez de morir al importar.
+ */
+async function handleRegisterDevice(pool: Pool, req: IncomingMessage, res: ServerResponse): Promise<void> {
+  try {
+    const secret = process.env.SUPABASE_JWT_SECRET ?? ''
+    if (!secret) {
+      // Configuración faltante, no culpa del cliente. Con un 401 acá el usuario vería
+      // "tus credenciales no sirven" cuando lo que falta es una variable del servicio.
+      console.error('[http] /v1/devices sin SUPABASE_JWT_SECRET: no se puede emitir ningún token')
+      return send(res, 503, { error: 'issuer_unavailable' })
+    }
+
+    const jwt = (req.headers.authorization ?? '').replace(/^Bearer\s+/i, '').trim()
+    const identity = verifySupabaseJwt(jwt, secret, Date.now())
+    if (!identity) return send(res, 401, { error: 'unauthorized' })
+
+    const verdict = registerLimiter.check(req.socket.remoteAddress ?? 'sin-ip')
+    if (!verdict.ok) {
+      return send(res, 429, { error: 'rate_limited' }, { 'Retry-After': String(verdict.retryAfterSeconds) })
+    }
+
+    const body = (await readBody(req)) as Record<string, unknown>
+    // El nombre lo manda el cliente (C8: `navigator.platform` daba `Win32` en las dos PCs y
+    // el servidor las colapsaba en una). Si no viene, uno genérico antes que fallar.
+    const name = typeof body.name === 'string' && body.name.trim() !== '' ? body.name.trim().slice(0, 120) : 'Nest'
+    const platform = typeof body.platform === 'string' ? body.platform.slice(0, 120) : null
+
+    const result = await registerDevice(pool, identity, { name, platform })
+    if (!result.ok) return send(res, result.status, { error: result.error })
+
+    // `token` viaja una sola vez y no se puede volver a pedir: el servicio guarda el hash.
+    return send(res, 201, { device_id: result.deviceId, token: result.token })
+  } catch (err) {
+    const status = (err as { status?: number }).status ?? 500
+    if (status === 500) console.error('[http] /v1/devices', err)
     return send(res, status, { error: status === 500 ? 'internal_error' : (err as Error).message })
   }
 }

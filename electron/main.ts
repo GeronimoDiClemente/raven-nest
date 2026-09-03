@@ -2580,6 +2580,52 @@ ipcMain.handle('safeStorage:decrypt', (_event, encrypted: string) => {
 // and letting the daemon push/pull over plain HTTPS with the token as a Bearer header.
 const MEMORY_UNAVAILABLE = { ok: false, error: 'Nest Memory is unavailable on this device (failed to initialize) — see main process logs.' }
 
+/**
+ * §9.2 — la emisión del token, del lado del cliente. Postea el JWT del login a
+ * `POST /v1/devices` del servicio de sync, que verifica la firma y devuelve el token del
+ * device UNA sola vez.
+ *
+ * El nombre de la máquina lo pone main, no el renderer (C8: `navigator.platform` daba
+ * `Win32` en las dos PCs del usuario y el servidor las colapsaba en una). `hostname()` es
+ * el mismo valor que ya se guarda como `deviceName` al conectar.
+ *
+ * NO guarda nada: devuelve el token al renderer, que lo pasa por `memory:connect`, el mismo
+ * camino que el token pegado a mano. Así hay una sola pieza que escribe la credencial.
+ */
+ipcMain.handle('memory:registerDevice', async (_event, jwt: string) => {
+  const base = getMemorySyncBaseUrl()
+  if (!base) return { ok: false, error: 'No sync service configured for this build' }
+  if (typeof jwt !== 'string' || jwt.trim() === '') return { ok: false, error: 'Missing login token' }
+
+  // Timeout explícito: sin esto un servicio colgado deja el botón Connect girando hasta que
+  // el usuario cierra la app (es el mismo motivo de C6 en el daemon).
+  const abort = new AbortController()
+  const timer = setTimeout(() => abort.abort(), 15_000)
+  try {
+    const res = await fetch(`${base.replace(/\/+$/, '')}/v1/devices`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt.trim()}` },
+      body: JSON.stringify({ name: hostname(), platform: process.platform }),
+      signal: abort.signal,
+    })
+    const body = await res.json().catch(() => null) as { device_id?: string; token?: string; error?: string } | null
+    if (!res.ok) {
+      // El código del servicio se pasa tal cual: el renderer ya sabe leer `not_in_beta` y
+      // `plan_required`, y traducirlos acá los volvería un string genérico.
+      return { ok: false, error: body?.error ?? `HTTP ${res.status}` }
+    }
+    if (!body?.token || !body?.device_id) return { ok: false, error: 'The service returned no token' }
+    return { ok: true, deviceId: body.device_id, token: body.token }
+  } catch (err) {
+    const message = (err as Error)?.name === 'AbortError'
+      ? 'The sync service did not answer in time'
+      : (err instanceof Error ? err.message : String(err))
+    return { ok: false, error: message }
+  } finally {
+    clearTimeout(timer)
+  }
+})
+
 ipcMain.handle('memory:connect', async (_event, token: string, deviceId: string) => {
   if (!memory) return MEMORY_UNAVAILABLE
   if (!safeStorage.isEncryptionAvailable()) {

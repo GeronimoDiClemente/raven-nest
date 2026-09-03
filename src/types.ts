@@ -799,6 +799,13 @@ declare global {
     memory: {
       ensureDeviceId: () => Promise<string>
       connect: (token: string, deviceId: string) => Promise<{ ok: boolean; error?: string; itemCount?: number }>
+      /**
+       * §9.2 — pide un token al servicio de sync con el JWT del login. Opcional: un preload
+       * viejo no lo expone, y el hook cae al token pegado a mano.
+       */
+      registerDevice?: (jwt: string) => Promise<
+        { ok: true; deviceId: string; token: string } | { ok: false; error: string }
+      >
       disconnect: (opts?: { deleteCloud?: boolean }) => Promise<{ ok: boolean; cloudDeleteFailed?: string }>
       status: () => Promise<{
         connected: boolean

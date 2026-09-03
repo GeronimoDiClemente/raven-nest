@@ -74,6 +74,10 @@ contextBridge.exposeInMainWorld('dialog', {
 contextBridge.exposeInMainWorld('memory', {
   ensureDeviceId: () => ipcRenderer.invoke('memory:ensureDeviceId'),
   connect: (token: string, deviceId: string) => ipcRenderer.invoke('memory:connect', token, deviceId),
+  // §9.2 — pide el token al servicio de sync con el JWT del login. El JWT sale del renderer
+  // (es donde vive la sesión de Supabase) y la request la hace main, que es quien conoce la
+  // URL del servicio.
+  registerDevice: (jwt: string) => ipcRenderer.invoke('memory:registerDevice', jwt),
   disconnect: (opts?: { deleteCloud?: boolean }) => ipcRenderer.invoke('memory:disconnect', opts),
   status: () => ipcRenderer.invoke('memory:status'),
   onStatus: (cb: (status: 'idle' | 'syncing' | 'paused' | 'error' | 'plan_required') => void) => {

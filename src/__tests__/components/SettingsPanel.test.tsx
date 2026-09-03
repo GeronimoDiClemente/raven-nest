@@ -17,7 +17,7 @@ const supabaseMock = vi.hoisted(() => {
     order: vi.fn(() => Promise.resolve({ data: [], error: null })),
   }
   return {
-    auth: { getUser: vi.fn(), signOut: vi.fn() },
+    auth: { getUser: vi.fn(), signOut: vi.fn(), getSession: vi.fn() },
     from: vi.fn(() => query),
   }
 })
@@ -323,6 +323,7 @@ function mockMemoryBridge(status: {
     connect: vi.fn().mockResolvedValue({ ok: true }),
     disconnect: vi.fn().mockResolvedValue({ ok: true }),
     status: vi.fn().mockResolvedValue(status),
+    registerDevice: vi.fn().mockResolvedValue({ ok: true, deviceId: 'dev-1', token: 'nmk_del_servicio' }),
     onStatus: vi.fn(),
     removeStatusListener: vi.fn(),
   }
@@ -352,10 +353,9 @@ describe('SettingsPanel — memory token input stays reachable in the error stat
     fireEvent.click(screen.getByText('Account'))
 
     await waitFor(() => expect(screen.getByText(/Couldn't sync/)).toBeInTheDocument())
-    expect(screen.getByPlaceholderText('Paste your sync token')).toBeInTheDocument()
-    // Retry itself is still disabled until a token is typed — this test is
-    // about the input existing at all, not about auto-filling it.
-    expect(screen.getByText('Retry')).toBeDisabled()
+    expect(screen.getByPlaceholderText('Paste a sync token (optional)')).toBeInTheDocument()
+    // Ya NO está deshabilitado sin token: desde §9.2, Retry sin nada pegado le pide uno al
+    // servicio con el JWT del login. Este test sigue siendo sobre que el input exista.
   })
 })
 
@@ -557,5 +557,50 @@ describe('SettingsPanel — la cuota de memoria sale del servidor', () => {
 
     await waitFor(() => expect(screen.getByText(/12 items/)).toBeInTheDocument())
     expect(screen.queryByText(/ of /)).toBeNull()
+  })
+})
+
+// §9.2: el token deja de pegarse a mano. Connect (y Retry) le piden uno al servicio con el
+// JWT del login; el input de token sigue existiendo como escape — para el beta de una
+// cuenta, y para cuando el emisor está caído — pero ya no es obligatorio.
+describe('SettingsPanel — Connect pide el token al servicio (§9.2)', () => {
+  beforeEach(() => {
+    supabaseMock.auth.getUser.mockResolvedValue({ data: { user: null } })
+    supabaseMock.auth.getSession.mockResolvedValue({ data: { session: { access_token: 'jwt-de-login' } } })
+    ;(window as unknown as { localPaths: { getAll: () => Promise<Record<string, string>> } })
+      .localPaths = { getAll: async () => ({}) }
+  })
+
+  afterEach(() => {
+    delete (window as unknown as { memory?: unknown }).memory
+  })
+
+  it('Retry ya no esta deshabilitado sin token, y pide uno con el login', async () => {
+    const memoria = mockMemoryBridge({ connected: true, deviceId: 'dev-1', itemCount: 0, pendingCount: 0, daemonStatus: 'error' })
+    render(<SettingsPanel updateState="idle" onCheckUpdates={vi.fn()} userEmail="test@example.com" userPrefs={makeUserPrefs(vi.fn())} />)
+    fireEvent.click(screen.getByTitle('Settings'))
+    fireEvent.click(screen.getByText('Account'))
+
+    await waitFor(() => expect(screen.getByText(/Couldn't sync/)).toBeInTheDocument())
+    const retry = screen.getByText('Retry')
+    expect(retry).not.toBeDisabled()
+
+    fireEvent.click(retry)
+
+    await waitFor(() => expect(memoria.registerDevice).toHaveBeenCalledWith('jwt-de-login'))
+  })
+
+  it('con un token pegado usa ese y no molesta al servicio', async () => {
+    const memoria = mockMemoryBridge({ connected: true, deviceId: 'dev-1', itemCount: 0, pendingCount: 0, daemonStatus: 'error' })
+    render(<SettingsPanel updateState="idle" onCheckUpdates={vi.fn()} userEmail="test@example.com" userPrefs={makeUserPrefs(vi.fn())} />)
+    fireEvent.click(screen.getByTitle('Settings'))
+    fireEvent.click(screen.getByText('Account'))
+
+    await waitFor(() => expect(screen.getByPlaceholderText(/Paste a sync token/i)).toBeInTheDocument())
+    fireEvent.change(screen.getByPlaceholderText(/Paste a sync token/i), { target: { value: 'nmk_a_mano' } })
+    fireEvent.click(screen.getByText('Retry'))
+
+    await waitFor(() => expect(memoria.connect).toHaveBeenCalledWith('nmk_a_mano', expect.anything()))
+    expect(memoria.registerDevice).not.toHaveBeenCalled()
   })
 })
