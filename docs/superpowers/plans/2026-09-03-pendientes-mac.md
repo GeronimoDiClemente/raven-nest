@@ -1,6 +1,6 @@
 # Pendientes al cerrar la tanda de la Mac (2026-09-03)
 
-Todo lo de esta tanda está en `origin/smoke/memory-bridge`, `1267de1..d05b80b`.
+Todo lo de esta tanda está en `origin/smoke/memory-bridge`, `1267de1..2f04e74`.
 Desde la PC alcanza con `git pull`.
 
 > **Lo primero, porque cuesta una tanda entera:** el handoff `2026-08-28-handoff-mac-a-pc.md` y el
@@ -25,8 +25,9 @@ Desde la PC alcanza con `git pull`.
 | `73a8083` | **Task 6 Step 1** — la migración `pro → cloud` escrita |
 | `8634e1d` | **§9.2** — el token se emite contra el login |
 | `a2493fc` | La revocación, el gemelo de §9.2, + el test de `worktree-path` que fallaba en Mac |
+| `2f04e74` | El import de markdown traía casi nada: carpeta equivocada **y** chunker equivocado |
 
-Verificación al cerrar: **1848 tests verdes, 3 skipped y CERO rojas** en el cliente — la primera
+Verificación al cerrar: **1859 tests verdes, 3 skipped y CERO rojas** en el cliente — la primera
 corrida limpia en esta máquina. `npx tsc -b` con **3 errores**, los mismos tres `TS6307`
 preexistentes. En `server/`, los 11 tests de `devices-jwt.test.ts` en verde.
 
@@ -115,6 +116,20 @@ Bloqueada por 2.2, no por código. Está toda escrita en el plan, paso por paso.
 renderer: lo hace main, siempre que se desconecta, no sólo cuando se pide borrar la nube.
 
 Lo que queda de esto es **correr sus 7 tests**, que están en el mismo bote que 3.1.
+
+### 3.3.b — Lo que sigue faltando del import (`2f04e74` arregló lo grueso)
+
+El import de primer connect pasó de traer 17 chunks a traer 80 contra los datos reales de esta
+máquina, pero quedan dos cosas que sólo se ven con datos de verdad:
+
+- **`chunkMemoryNote` mete la nota entera como un solo `content`.** Para una nota de 20 líneas está
+  bien; para las tres o cuatro largas de verdad, la recuperación va a ser gruesa. No es urgente: el
+  formato lo escribe la misma herramienta y las notas tienden a ser cortas.
+- **El matcheo por slug depende de que el repo esté enrolado.** Un repo con memorias que el usuario
+  nunca linkeó en My Repos cae a `__global__`. Es lo correcto (no hay project_key que darle), pero
+  significa que enrolar un repo *después* no reubica lo ya importado. Reimportar tampoco lo mueve:
+  el `sync_id` derivado lleva el `projectKey` adentro, así que el mismo archivo bajo otro proyecto
+  entra como fila nueva en vez de mudarse.
 
 ### 3.4 — El plan del usuario no se sincroniza con el servicio
 
