@@ -523,7 +523,21 @@ git commit -m "feat(pricing): price de Cloud a \$10 y su mapeo en el webhook"
 
 Medido el 2026-09-02: 83 usuarios (66 `free`, 16 `team`, 1 `pro`), **cero con `stripe_subscription_id`**. La tabla `profiles` **no tiene check constraint sobre `plan`** (verificado contra `pg_constraint`), así que no hace falta tocar el schema: la migración es un `UPDATE`.
 
-- [ ] **Step 1: Escribir la migración**
+> **Estado (2026-09-03): la migración está escrita y commiteada; los Steps 2 y 3 siguen abiertos.**
+>
+> - **Step 2 no se pudo correr en la Mac.** El stack local de Supabase no levanta: la CLI
+>   instalada rechaza el `supabase/config.toml` del repo (`'api' has invalid keys:
+>   auto_expose_new_tables`, `'config.config' has invalid keys: local_smtp`). Es un desajuste de
+>   versión de CLI en esa máquina, no del repo. **La migración no está verificada contra ninguna
+>   base.**
+> - **Step 3 es de Gero** y sigue sin hacer. Hasta que esté aplicada **la Task 7 no puede
+>   arrancar**: si queda un solo perfil en `pro` cuando `pro` sale del código, ese usuario cae a
+>   Free y pierde la nube en silencio.
+>
+> Un detalle del título: la tabla tiene 17 perfiles en planes pagos, pero **este UPDATE toca una
+> sola fila** — 16 son `team`, que se queda como está. El único `pro` es el que migra.
+
+- [x] **Step 1: Escribir la migración**
 
 ```sql
 -- Los 17 perfiles en planes pagos son asignaciones manuales de testeo: cero de ellos tiene
