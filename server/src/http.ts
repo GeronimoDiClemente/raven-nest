@@ -6,7 +6,7 @@ import { handlePull } from './pull'
 import { handleStatus } from './status'
 import { handleDeleteData } from './delete-data'
 import { createRateLimiter } from './rate-limit'
-import { registerDevice, verifySupabaseJwt } from './devices'
+import { registerDevice, revokeDevices, verifySupabaseJwt } from './devices'
 
 const MAX_BATCH = 500
 const MAX_BODY_BYTES = 20 * 1024 * 1024
@@ -118,6 +118,14 @@ async function handleRequest(pool: Pool, req: IncomingMessage, res: ServerRespon
     return handleRegisterDevice(pool, req, res)
   }
 
+  // El gemelo del registro. Tampoco pasa por `authenticate`: autentica con el token `nmk_`
+  // pero SIN los gates de allowlist y plan, porque alguien que quedó fuera del beta o bajó
+  // de plan tiene que poder cerrar su credencial igual.
+  if (path === '/v1/devices/revoke') {
+    if (req.method !== 'POST') return send(res, 405, { error: 'method_not_allowed' })
+    return handleRevokeDevice(pool, req, res)
+  }
+
   // §5.4: the old Supabase-shaped routes are served as aliases so this service can be
   // pointed at a Nest build that predates the client's route change. This is a bring-up
   // affordance, not a permanent surface — delete the aliases once nothing depends on them.
@@ -213,6 +221,20 @@ async function handleRegisterDevice(pool: Pool, req: IncomingMessage, res: Serve
   } catch (err) {
     const status = (err as { status?: number }).status ?? 500
     if (status === 500) console.error('[http] /v1/devices', err)
+    return send(res, status, { error: status === 500 ? 'internal_error' : (err as Error).message })
+  }
+}
+
+/** `POST /v1/devices/revoke` — ver `revokeDevices`. Body opcional: `{ all?: boolean }`. */
+async function handleRevokeDevice(pool: Pool, req: IncomingMessage, res: ServerResponse): Promise<void> {
+  try {
+    const body = (await readBody(req)) as Record<string, unknown>
+    const result = await revokeDevices(pool, req.headers.authorization ?? '', { all: body.all === true })
+    if (!result.ok) return send(res, result.status, { error: result.error })
+    return send(res, 200, { ok: true, revoked: result.revoked })
+  } catch (err) {
+    const status = (err as { status?: number }).status ?? 500
+    if (status === 500) console.error('[http] /v1/devices/revoke', err)
     return send(res, status, { error: status === 500 ? 'internal_error' : (err as Error).message })
   }
 }

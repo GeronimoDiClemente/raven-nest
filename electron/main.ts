@@ -2753,6 +2753,7 @@ ipcMain.handle('memory:disconnect', async (_event, opts?: { deleteCloud?: boolea
   // it into the hook's error state). Local disconnect still proceeds regardless — only
   // the REPORTING changed, not the best-effort semantics.
   let cloudDeleteFailed: string | undefined
+  let tokenRevokeFailed: string | undefined
   if (opts?.deleteCloud) {
     const url = getMemorySyncBaseUrl()
     const token = loadMemoryToken()
@@ -2774,6 +2775,39 @@ ipcMain.handle('memory:disconnect', async (_event, opts?: { deleteCloud?: boolea
       }
     }
   }
+  // Revocar la credencial de ESTA máquina en el servicio, siempre — no sólo cuando se pide
+  // borrar la nube. Sin esto el token sigue siendo válido para siempre del lado del
+  // servidor, que es lo que pasaba: el renderer "revocaba" contra la edge function
+  // `memory-token`, la misma que C7 sacó del camino de Connect porque nunca se deployó.
+  //
+  // Va DESPUÉS del borrado de nube (ese request se autentica con este mismo token) y ANTES
+  // de limpiar la credencial local, que es la última ventana en la que main la tiene.
+  // Best-effort, igual que el borrado: no poder revocar no puede dejar a alguien pegado a
+  // una sesión que quiere cerrar. Se reporta, no se traga.
+  {
+    const url = getMemorySyncBaseUrl()
+    const token = loadMemoryToken()
+    if (url && token) {
+      try {
+        const res = await fetch(`${url.replace(/\/+$/, '')}/v1/devices/revoke`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: '{}',
+        })
+        // Un 401 acá NO es un fallo: significa que el token ya no servía (revocado antes, o
+        // la cuenta borrada del otro lado). El objetivo ya está cumplido.
+        if (!res.ok && res.status !== 401) {
+          const body = await res.text().catch(() => '')
+          tokenRevokeFailed = `HTTP ${res.status}${body ? `: ${body}` : ''}`
+          console.warn('[memory:disconnect] token revoke failed', res.status, body)
+        }
+      } catch (err) {
+        tokenRevokeFailed = err instanceof Error ? err.message : String(err)
+        console.warn('[memory:disconnect] token revoke failed', err instanceof Error ? err.message : err)
+      }
+    }
+  }
+
   // C1: disconnecting from the CLOUD is not the same as turning local capture off.
   // This call removes the MCP entry and rmSync's the nest dir from every Claude account
   // — i.e. it de-provisions local capture. With localEnabled still true (the state C1
@@ -2787,7 +2821,13 @@ ipcMain.handle('memory:disconnect', async (_event, opts?: { deleteCloud?: boolea
   memoryToken = null
   memoryConnectionState = { ...memoryConnectionState, connected: false, connectedAt: null }
   setMemoryConnectionState(ravenHome(), memoryConnectionState)
-  return cloudDeleteFailed ? { ok: true, cloudDeleteFailed } : { ok: true }
+  // Los dos son best-effort y se reportan por separado: el renderer prioriza el borrado
+  // fallido (es el que el usuario pidió explícitamente) y cae al del revoke si no hubo.
+  return {
+    ok: true as const,
+    ...(cloudDeleteFailed ? { cloudDeleteFailed } : {}),
+    ...(tokenRevokeFailed ? { tokenRevokeFailed } : {}),
+  }
 })
 
 ipcMain.handle('memory:status', () => {

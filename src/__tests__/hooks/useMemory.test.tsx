@@ -44,18 +44,34 @@ describe('useMemory disconnect', () => {
     })
   })
 
-  it('calls window.memory.disconnect BEFORE revoking the nmk_ token, so delete-cloud-data still authenticates', async () => {
+  // El revoke salio del renderer: lo hace main contra POST /v1/devices/revoke del servicio,
+  // en el mismo handler que ya borra la nube y que es el unico que todavia tiene el token.
+  // Antes esto llamaba a la edge function `memory-token`, la misma que C7 saco del camino de
+  // Connect PORQUE NUNCA SE DEPLOYO: o sea que el token quedaba valido para siempre.
+  it('no llama mas a la edge function: el revoke lo hace main contra el servicio', async () => {
     const { result } = renderHook(() => useMemory())
 
     await act(async () => {
       await result.current.disconnect(true)
     })
 
-    expect(calls).toEqual(['disconnect', 'revoke'])
+    expect(calls).toEqual(['disconnect'])
     expect(memoryMock.disconnect).toHaveBeenCalledWith({ deleteCloud: true })
-    expect(supabaseMock.functions.invoke).toHaveBeenCalledWith('memory-token', {
-      body: { action: 'revoke', all: true },
+    expect(supabaseMock.functions.invoke).not.toHaveBeenCalled()
+  })
+
+  it('surfacea tokenRevokeFailed, que es lo que deja una credencial viva en el servidor', async () => {
+    memoryMock.disconnect.mockImplementation(async () => {
+      calls.push('disconnect')
+      return { ok: true, tokenRevokeFailed: 'HTTP 503' }
     })
+    const { result } = renderHook(() => useMemory())
+
+    await act(async () => {
+      await result.current.disconnect(false)
+    })
+
+    await waitFor(() => expect(result.current.error).toBe('This device\u2019s sync token may still be valid on the server: HTTP 503'))
   })
 
   it('does not revoke tokens when deleteCloud is false', async () => {
@@ -84,20 +100,7 @@ describe('useMemory disconnect', () => {
   // Finding 2 fix: supabase-js's functions.invoke() resolves { data, error } instead of
   // throwing on a failed revoke — the old code discarded this result, so a 5xx/offline
   // revoke still reported a clean disconnect and left the nmk_ token valid server-side.
-  it('surfaces an error when the token revoke call resolves with an error instead of throwing', async () => {
-    supabaseMock.functions.invoke.mockImplementation(async () => {
-      calls.push('revoke')
-      return { data: null, error: new Error('revoke failed: 503') }
-    })
-    const { result } = renderHook(() => useMemory())
 
-    await act(async () => {
-      await result.current.disconnect(true)
-    })
-
-    await waitFor(() => expect(result.current.error).toBe('revoke failed: 503'))
-    expect(calls).toEqual(['disconnect', 'revoke'])
-  })
 
   // Finding 2 fix: main.ts's memory:disconnect handler now reports a failed
   // delete-cloud-data call via `cloudDeleteFailed` instead of swallowing it — the hook
@@ -115,7 +118,7 @@ describe('useMemory disconnect', () => {
     })
 
     await waitFor(() => expect(result.current.error).toBe('Cloud data may not have been deleted: HTTP 500'))
-    expect(calls).toEqual(['disconnect', 'revoke'])
+    expect(calls).toEqual(['disconnect'])
   })
 })
 

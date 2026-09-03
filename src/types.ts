@@ -806,7 +806,12 @@ declare global {
       registerDevice?: (jwt: string) => Promise<
         { ok: true; deviceId: string; token: string } | { ok: false; error: string }
       >
-      disconnect: (opts?: { deleteCloud?: boolean }) => Promise<{ ok: boolean; cloudDeleteFailed?: string }>
+      disconnect: (opts?: { deleteCloud?: boolean }) => Promise<{
+        ok: boolean
+        cloudDeleteFailed?: string
+        /** El token quedó vivo en el servidor: el revoke contra `/v1/devices/revoke` falló. */
+        tokenRevokeFailed?: string
+      }>
       status: () => Promise<{
         connected: boolean
         deviceId: string | null

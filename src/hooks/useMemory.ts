@@ -178,15 +178,11 @@ export function useMemory() {
       const api = memoryApi()
       if (!api) throw new Error('Memory is not available in this build')
       const disconnectResult = await api.disconnect({ deleteCloud })
-      if (deleteCloud) {
-        // Finding 2 fix: supabase-js's functions.invoke() RESOLVES { data, error } instead
-        // of throwing on a failed revoke (5xx, offline) — connect() above already does
-        // `if (error) throw error` for the same client; disconnect() used to discard the
-        // result entirely, so a failed revoke still reported a clean disconnect while
-        // leaving the nmk_ token valid server-side forever.
-        const { error } = await supabase.functions.invoke('memory-token', { body: { action: 'revoke', all: true } })
-        if (error) throw error
-      }
+      // El revoke ya no vive acá. Lo hace main contra `POST /v1/devices/revoke` del servicio,
+      // en el mismo handler que borra la nube y que es el único que todavía tiene el token.
+      // Antes esto llamaba a la edge function `memory-token` — la misma que C7 sacó del
+      // camino de Connect PORQUE NUNCA SE DEPLOYÓ a producción. O sea que el token seguía
+      // valido en el servidor para siempre, y el renderer reportaba un revoke exitoso.
       await refresh()
       // Local disconnect still proceeds regardless of a cloud-delete failure (best-effort
       // semantics, unchanged) — only surface it so the UI can tell the user the cloud copy
@@ -194,6 +190,10 @@ export function useMemory() {
       // touches `error`) can't clobber this.
       if (disconnectResult.cloudDeleteFailed) {
         setState((s) => ({ ...s, error: `Cloud data may not have been deleted: ${disconnectResult.cloudDeleteFailed}` }))
+      } else if (disconnectResult.tokenRevokeFailed) {
+        // Menos ruidoso que el borrado fallido, pero es lo que deja una credencial viva en
+        // el servidor: si el usuario se desconectó porque perdió la máquina, importa.
+        setState((s) => ({ ...s, error: `This device\u2019s sync token may still be valid on the server: ${disconnectResult.tokenRevokeFailed}` }))
       }
     } catch (err) {
       setState((s) => ({ ...s, error: err instanceof Error ? err.message : String(err) }))

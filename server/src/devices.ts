@@ -149,3 +149,53 @@ export async function registerDevice(
     client.release()
   }
 }
+
+export type RevokeResult =
+  | { ok: true; revoked: number }
+  | { ok: false; status: 401; error: string }
+
+/**
+ * Revoca la credencial de un device. Es el gemelo de `registerDevice`: sin él, un token
+ * emitido vive para siempre y desconectar una máquina no invalida nada del lado del
+ * servicio — que es exactamente lo que pasaba, porque el cliente "revocaba" contra una edge
+ * function de Supabase que nunca se deployó.
+ *
+ * Autentica con el token `nmk_` en vez del JWT del login: es lo único que tiene la máquina
+ * que se está desconectando, y alcanza — un token identifica un device sin ambigüedad.
+ *
+ * **No pasa por `authenticate`, y es a propósito.** `authenticate` rechaza con 403 a quien
+ * quedó fuera del allowlist o del plan, y esa gente tiene que poder revocar igual: es la
+ * misma razón por la que la UI ofrece Disconnect desde los estados `plan_required` y
+ * `error`. Poder cerrar una credencial no puede depender de seguir siendo cliente.
+ *
+ * Un token ya revocado devuelve 401 igual que uno inventado: no hay nada que decirle a
+ * alguien que trae una credencial muerta, y distinguir los dos casos filtra si existió.
+ */
+export async function revokeDevices(
+  pool: Pool,
+  token: string,
+  opts: { all?: boolean } = {}
+): Promise<RevokeResult> {
+  const limpio = (token ?? '').replace(/^Bearer\s+/i, '').trim()
+  if (!limpio) return { ok: false, status: 401, error: 'unauthorized' }
+
+  const { rows } = await pool.query(
+    'select id, user_id from devices where token_hash = $1 and revoked_at is null',
+    [hashToken(limpio)]
+  )
+  if (rows.length === 0) return { ok: false, status: 401, error: 'unauthorized' }
+
+  // `all` es para un "cerrar sesión en todas las máquinas". El default revoca sólo la que
+  // llama: desconectar una máquina no tiene por qué dejar al resto afuera.
+  const { rowCount } = opts.all
+    ? await pool.query(
+        'update devices set revoked_at = now() where user_id = $1 and revoked_at is null',
+        [rows[0].user_id]
+      )
+    : await pool.query(
+        'update devices set revoked_at = now() where id = $1 and revoked_at is null',
+        [rows[0].id]
+      )
+
+  return { ok: true, revoked: rowCount ?? 0 }
+}
