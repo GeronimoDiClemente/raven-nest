@@ -56,6 +56,109 @@ describe('markdown importer — idempotency (§5.3 guard 1: UNIQUE(source, sourc
     expect(store.count()).toBe(1) // NOT 2
   })
 
+  // La carpeta equivocada: Claude Code NO guarda las memorias en
+  // `{accountDir}/.claude/memory/` sino en `{accountDir}/.claude/projects/<slug>/memory/`,
+  // una carpeta por proyecto. Medido en la Mac del 2026-09-03: cero archivos en la ruta
+  // vieja, 63 en la nueva. El importer escaneaba sólo la vieja, así que el import de
+  // primer connect traía 0 sobre 63.
+  describe('las memorias por proyecto de Claude Code', () => {
+    function escribirMemoria(accountDir: string, slug: string, nombre: string, texto: string): string {
+      const dirMem = join(accountDir, '.claude', 'projects', slug, 'memory')
+      mkdirSync(dirMem, { recursive: true })
+      const path = join(dirMem, nombre)
+      writeFileSync(path, texto)
+      return path
+    }
+
+    it('importa los .md de .claude/projects/<slug>/memory/', () => {
+      const accountDir = join(dir, 'accounts', 'claude', 'Gero')
+      escribirMemoria(
+        accountDir,
+        '-tmp-proyecto-x',
+        'convencion.md',
+        '## Convención del repo\nEsta convención es lo bastante larga como para pasar el mínimo de longitud del chunker.\n'
+      )
+
+      const r = importAllMarkdownSources(store, {
+        ravenHomeDir: dir,
+        claudeAccountDirs: [accountDir],
+        projectRoots: [],
+        globalProjectKey: '__global__',
+      })
+
+      expect(r.chunksImported).toBe(1)
+    })
+
+    it('las manda al proyecto cuyo path slugifica a esa carpeta, no a __global__', () => {
+      const accountDir = join(dir, 'accounts', 'claude', 'Gero')
+      const rootPath = '/Users/gero/RavenProjects/STI-API'
+      escribirMemoria(
+        accountDir,
+        '-Users-gero-RavenProjects-STI-API',
+        'estado.md',
+        '## Estado del proyecto\nEste texto describe el estado del proyecto con largo suficiente para el chunker.\n'
+      )
+
+      importAllMarkdownSources(store, {
+        ravenHomeDir: dir,
+        claudeAccountDirs: [accountDir],
+        projectRoots: [{ rootPath, projectKey: 'proj-sti' }],
+        globalProjectKey: '__global__',
+      })
+
+      // `search` siempre suma __global__ al proyecto que se le pide, así que "está en
+      // proj-sti" se prueba por descarte: aparece desde proj-sti y NO desde un proyecto
+      // cualquiera. Si hubiera caído en global, aparecería desde los dos.
+      expect(store.search('proj-sti', 'estado').length).toBe(1)
+      expect(store.search('proj-cualquier-otro', 'estado').length).toBe(0)
+    })
+
+    it('un slug que no matchea ningun root conocido cae a global, no se pierde', () => {
+      const accountDir = join(dir, 'accounts', 'claude', 'Gero')
+      escribirMemoria(
+        accountDir,
+        '-Users-gero-repo-que-nadie-enrolo',
+        'suelta.md',
+        '## Nota suelta\nEsta nota pertenece a un repo que no está enrolado y tiene largo de sobra.\n'
+      )
+
+      importAllMarkdownSources(store, {
+        ravenHomeDir: dir,
+        claudeAccountDirs: [accountDir],
+        projectRoots: [{ rootPath: '/Users/gero/otro', projectKey: 'proj-otro' }],
+        globalProjectKey: '__global__',
+      })
+
+      // Al revés que el test de arriba: como `search` siempre incluye __global__, que
+      // aparezca desde un proyecto con el que no tiene nada que ver es la prueba de que
+      // quedó en global y no se perdió.
+      expect(store.search('proj-cualquier-otro', 'suelta').length).toBe(1)
+    })
+
+    // El dedupe por hash existe para el CLAUDE.md global symlinkeado en cada cuenta. Con
+    // memorias por proyecto, dos repos con un archivo de contenido idéntico son dos
+    // memorias distintas, y deduplicarlas entre proyectos tiraba una.
+    it('dos proyectos con el mismo contenido importan los dos, no uno', () => {
+      const accountDir = join(dir, 'accounts', 'claude', 'Gero')
+      const texto = '## Convención compartida\nEste texto es idéntico en los dos repos y tiene largo de sobra para el chunker.\n'
+      escribirMemoria(accountDir, '-Users-gero-uno', 'nota.md', texto)
+      escribirMemoria(accountDir, '-Users-gero-dos', 'nota.md', texto)
+
+      importAllMarkdownSources(store, {
+        ravenHomeDir: dir,
+        claudeAccountDirs: [accountDir],
+        projectRoots: [
+          { rootPath: '/Users/gero/uno', projectKey: 'proj-uno' },
+          { rootPath: '/Users/gero/dos', projectKey: 'proj-dos' },
+        ],
+        globalProjectKey: '__global__',
+      })
+
+      expect(store.search('proj-uno', 'compartida').length).toBe(1)
+      expect(store.search('proj-dos', 'compartida').length).toBe(1)
+    })
+  })
+
   it('a symlinked/duplicated file (same content, different path is not tested — hash dedupe is) imports once via importAllMarkdownSources', () => {
     const globalMd = join(dir, '.claude', 'CLAUDE.md')
     mkdirSync(join(dir, '.claude'), { recursive: true })

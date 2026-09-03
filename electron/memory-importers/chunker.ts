@@ -82,3 +82,44 @@ export function chunkMarkdown(markdown: string, sourceLabel: string): MarkdownCh
 
   return chunks
 }
+
+/**
+ * Una nota de memoria de Claude Code — `{accountDir}/.claude/projects/<slug>/memory/*.md` —
+ * es **un hecho por archivo**, con frontmatter YAML, no un documento largo para cortar.
+ * `chunkMarkdown` está pensado para lo otro (un CLAUDE.md de 3000 líneas) y corta en `##`:
+ * medido en la Mac del 2026-09-03, **60 de los 63 archivos reales no tienen un solo `##`**,
+ * así que devolvía cero para casi todos y el import traía nada.
+ *
+ * Acá el archivo entero es una memoria. `description` es el título (es literalmente para lo
+ * que está en ese formato), `name` el topic key — estable aunque se renombre el archivo — y
+ * el frontmatter no viaja en el contenido, que es metadata y no memoria.
+ */
+export function chunkMemoryNote(raw: string, sourceLabel: string, fileName: string): MarkdownChunk[] {
+  const frontmatter = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(raw)
+  const cuerpo = (frontmatter ? raw.slice(frontmatter[0].length) : raw).trim()
+  if (cuerpo.length < MIN_CHUNK_LENGTH) return []
+
+  // Sólo las dos claves de primer nivel que nos importan. Nada de un parser de YAML: el
+  // formato lo escribe la misma herramienta siempre, y un valor multilínea acá sería un
+  // título de varias líneas, que no queremos igual.
+  const leer = (clave: string): string | null => {
+    if (!frontmatter) return null
+    const m = new RegExp(`^${clave}:[ \\t]*(.+)$`, 'm').exec(frontmatter[1])
+    return m ? m[1].trim().replace(/^["']|["']$/g, '') : null
+  }
+
+  const name = leer('name')
+  const description = leer('description')
+  // Sin frontmatter, el nombre del archivo es lo único que describe la nota — mejor eso que
+  // tirar el contenido.
+  const base = fileName.replace(/\.md$/i, '')
+  const title = description || name || base
+  const topicSeed = name || base
+
+  return [{
+    headingPath: title,
+    title,
+    content: cuerpo,
+    topicKey: `${sourceLabel}/${slugify(topicSeed)}`,
+  }]
+}

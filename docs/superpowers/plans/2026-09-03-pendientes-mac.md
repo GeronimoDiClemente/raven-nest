@@ -1,6 +1,6 @@
 # Pendientes al cerrar la tanda de la Mac (2026-09-03)
 
-Todo lo de esta tanda está en `origin/smoke/memory-bridge`, siete commits, `1267de1..8634e1d`.
+Todo lo de esta tanda está en `origin/smoke/memory-bridge`, `1267de1..d05b80b`.
 Desde la PC alcanza con `git pull`.
 
 > **Lo primero, porque cuesta una tanda entera:** el handoff `2026-08-28-handoff-mac-a-pc.md` y el

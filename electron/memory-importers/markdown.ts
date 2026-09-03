@@ -3,11 +3,11 @@
 // (§5.2 preamble: "All adapters are read-only against their sources and write through
 // the normal memory-store path").
 import { existsSync, readFileSync, readdirSync, statSync } from 'fs'
-import { join } from 'path'
+import { basename, join } from 'path'
 import { createHash } from 'crypto'
 import { MemoryStore, deriveImportSyncId, computeContentIdentity } from '../memory-store'
 import { isDeniedImportPath } from '../memory-redaction'
-import { chunkMarkdown } from './chunker'
+import { chunkMarkdown, chunkMemoryNote } from './chunker'
 
 export interface MarkdownImportResult {
   filesScanned: number
@@ -29,7 +29,13 @@ export function importMarkdownFile(
 ): number {
   if (isDeniedImportPath(filePath) || !existsSync(filePath)) return 0
   const raw = readFileSync(filePath, 'utf8')
-  const chunks = chunkMarkdown(raw, sourceLabel)
+  // Dos formatos distintos bajo el mismo importer. Un CLAUDE.md es un documento largo que
+  // hay que cortar en secciones; una nota de `memory/` es UN hecho por archivo con
+  // frontmatter, y cortarla por `##` la tira entera (60 de 63 archivos reales no tienen
+  // ninguno). El label ya distingue cuál es cuál.
+  const chunks = sourceLabel === 'claude-memory'
+    ? chunkMemoryNote(raw, sourceLabel, basename(filePath))
+    : chunkMarkdown(raw, sourceLabel)
   const scope = 'personal' as const
   const type = 'pattern' as const
   for (const chunk of chunks) {
@@ -57,6 +63,29 @@ export function importMarkdownFile(
 
 function fileHash(path: string): string {
   return createHash('sha256').update(readFileSync(path)).digest('hex')
+}
+
+function listDirs(dir: string): string[] {
+  if (!existsSync(dir)) return []
+  try {
+    return readdirSync(dir, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name)
+  } catch {
+    return []
+  }
+}
+
+/**
+ * El nombre que Claude Code le da a la carpeta de un proyecto dentro de
+ * `{accountDir}/.claude/projects/`: el path absoluto con **todo lo que no es alfanumérico
+ * convertido en `-`**. Verificado el 2026-09-03 contra cuatro carpetas reales de esta
+ * máquina, incluida una con `@` y `,` en el nombre.
+ *
+ * La función va en un solo sentido a propósito: del slug NO se puede volver al path (un `-`
+ * real y un `/` producen el mismo carácter). Por eso el matcheo se hace slugificando los
+ * roots que ya conocemos, nunca parseando el slug.
+ */
+export function claudeProjectSlug(rootPath: string): string {
+  return rootPath.replace(/[^A-Za-z0-9]/g, '-')
 }
 
 function listMdFiles(dir: string): string[] {
@@ -100,6 +129,26 @@ export function importAllMarkdownSources(store: MemoryStore, sources: MarkdownIm
     for (const f of memoryFiles) candidates.push({ path: f, projectKey: sources.globalProjectKey, label: 'claude-memory' })
     const memoryMd = join(accountDir, '.claude', 'MEMORY.md')
     if (existsSync(memoryMd)) candidates.push({ path: memoryMd, projectKey: sources.globalProjectKey, label: 'claude-memory' })
+
+    // Donde viven de verdad. `{accountDir}/.claude/memory/` de arriba es una ruta que este
+    // importer buscaba y que Claude Code no usa: las memorias van en una carpeta POR
+    // PROYECTO, `{accountDir}/.claude/projects/<slug>/memory/`. Medido en la Mac del
+    // 2026-09-03: cero archivos en la vieja, 63 en la nueva — o sea que el import del primer
+    // connect traía nada. La ruta vieja se conserva por si alguna versión la usó.
+    //
+    // Y como cada carpeta ES un proyecto, sus memorias van al project_key de ese repo en vez
+    // de amontonarse en `__global__`. El slug no se parsea (no se puede: es ambiguo); se
+    // slugifican los roots conocidos y se compara.
+    const porSlug = new Map(sources.projectRoots.map((p) => [claudeProjectSlug(p.rootPath), p.projectKey]))
+    const proyectosDir = join(accountDir, '.claude', 'projects')
+    for (const slug of listDirs(proyectosDir)) {
+      // Un repo que el usuario no enroló todavía no tiene project_key propio: sus memorias
+      // van a global antes que perderse.
+      const projectKey = porSlug.get(slug) ?? sources.globalProjectKey
+      for (const f of listMdFiles(join(proyectosDir, slug, 'memory'))) {
+        candidates.push({ path: f, projectKey, label: 'claude-memory' })
+      }
+    }
   }
 
   for (const project of sources.projectRoots) {
@@ -116,7 +165,11 @@ export function importAllMarkdownSources(store: MemoryStore, sources: MarkdownIm
     try { stat = statSync(candidate.path) } catch { continue }
     if (!stat.isFile()) continue
 
-    const hash = fileHash(candidate.path)
+    // La clave del dedupe lleva el project_key. Sin él, dos proyectos con un `MEMORY.md` de
+    // contenido idéntico perdían uno de los dos — el dedupe existe para el CLAUDE.md global
+    // symlinkeado en cada cuenta, que siempre cae en el mismo project_key, así que sumarle
+    // el proyecto no afloja ese caso y deja de tirar memorias de proyectos distintos.
+    const hash = `${fileHash(candidate.path)}|${candidate.projectKey}`
     if (seenHashes.has(hash)) { result.filesSkippedDuplicate += 1; continue }
     seenHashes.add(hash)
 
