@@ -9,6 +9,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "aws4fetch": "^1.0.20",
     "pg": "^8.13.1",
     "tsx": "^4.19.2"
   },
