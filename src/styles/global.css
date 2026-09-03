@@ -7229,6 +7229,7 @@ button.ci-badge:hover {
   box-sizing: border-box;
 }
 .user-menu-dot--free       { background: #6b6b6b; }
+.user-menu-dot--cloud      { background: var(--raven-blue); }
 .user-menu-dot--pro        { background: var(--raven-blue); }
 .user-menu-dot--team       { background: #FFB800; }
 .user-menu-dot--enterprise { background: #7C5CFC; }
@@ -7339,6 +7340,7 @@ button.ci-badge:hover {
   color: #fff;
 }
 .user-menu-popover-badge.user-menu-dot--free       { background: #444; color: #ccc; }
+.user-menu-popover-badge.user-menu-dot--cloud      { background: rgba(0,102,255,0.2); color: var(--raven-blue); }
 .user-menu-popover-badge.user-menu-dot--pro        { background: rgba(0,102,255,0.2); color: var(--raven-blue); }
 .user-menu-popover-badge.user-menu-dot--team       { background: rgba(255,184,0,0.18); color: #FFB800; }
 .user-menu-popover-badge.user-menu-dot--enterprise { background: rgba(124,92,252,0.2); color: #b8a3ff; }

@@ -8,6 +8,7 @@ import UserMenu from './UserMenu'
 import RepoActionsBar from './RepoActionsBar'
 import { WorktreesSection } from './WorktreesSection'
 import HubSidebarPanel, { type HubWorkspace } from './HubSidebarPanel'
+import type { Plan } from '../lib/stripe'
 import { useGitHub } from '../hooks/useGitHub'
 import { useGitlab } from '../hooks/useGitlab'
 import { LayoutId, Workspace, MAX_PANES } from '../types'
@@ -52,7 +53,7 @@ interface Props {
   onMyReposOpen?: () => void
   onIntegrationsOpen?: () => void
   onGraphBoardOpen?: () => void
-  plan?: 'free' | 'pro' | 'team' | 'enterprise'
+  plan?: Plan
   repoPath?: string
   onRepoLink: () => void
   onRepoUnlink: () => void
@@ -663,7 +664,7 @@ export default function Sidebar({
         <div
           className="sidebar-item sidebar-item-panel sidebar-item-team"
           style={{ cursor: 'pointer' }}
-          onClick={plan === 'pro' || plan === 'team' || plan === 'enterprise' ? onMyReposOpen : onUpgrade}
+          onClick={plan === 'cloud' || plan === 'pro' || plan === 'team' || plan === 'enterprise' ? onMyReposOpen : onUpgrade}
           title="My Repos"
         >
           <span className="sidebar-icon">

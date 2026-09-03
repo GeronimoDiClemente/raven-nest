@@ -102,3 +102,41 @@ describe('useProfile — se entera de un cambio de plan sin reiniciar', () => {
     expect(supabaseMock.from).not.toHaveBeenCalled()
   })
 })
+
+// El corte comercial (Task 1): `cloud` tiene que valer lo mismo que `pro` en todo el
+// camino del plan mientras los dos conviven. Un perfil ya migrado a `cloud` que cayera a
+// `free` le apagaria la nube al que paga.
+describe('useProfile — el plan cloud', () => {
+  const USER = { id: 'u-1' }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    ;(window as unknown as { appFlags: unknown }).appFlags = { e2eBypass: false }
+  })
+
+  it('deja pasar un perfil guardado como cloud en vez de caerlo a free', async () => {
+    supabaseMock.getUser.mockResolvedValue({ data: { user: USER } })
+    supabaseMock.from.mockImplementation(() => ({
+      select: () => ({
+        eq: () => ({
+          maybeSingle: () => Promise.resolve({ data: { plan: 'cloud', trial_started_at: null } }),
+        }),
+      }),
+    }))
+
+    const { result } = renderHook(() => useProfile())
+
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    expect(result.current.plan).toBe('cloud')
+    expect(result.current.isTrialActive).toBe(false)
+  })
+
+  it('honra e2ePlan cloud bajo el bypass, como cualquier otro plan conocido', async () => {
+    ;(window as unknown as { appFlags: unknown }).appFlags = { e2eBypass: true, e2ePlan: 'cloud' }
+
+    const { result } = renderHook(() => useProfile())
+
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    expect(result.current.plan).toBe('cloud')
+  })
+})

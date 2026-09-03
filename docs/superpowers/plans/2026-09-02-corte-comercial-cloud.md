@@ -41,7 +41,35 @@
 
 Esta tarea es **puramente aditiva**: al terminar, `pro` y `cloud` funcionan igual de bien. Nada se rompe, y eso es el punto: el corte destructivo viene después, sobre una base que ya soporta el vocabulario nuevo.
 
-- [ ] **Step 1: Escribir el test que falla**
+> **Hecho (2026-09-03).** Dos desvíos respecto de lo escrito acá, los dos por cosas que el plan no
+> podía ver:
+>
+> - **`server/src/auth.ts` ya estaba.** `CLOUD_PLANS` es hoy
+>   `new Set(['free', 'cloud', 'pro', 'team', 'enterprise'])`. El snippet de este plan **no lleva
+>   `free`**, y aplicarlo tal cual le hubiera sacado al plan Free su proyecto en la nube. Lo dejó
+>   así la Task 1 del plan hermano. No se tocó el archivo.
+> - **`supabase/functions/stripe-webhook/eventos.ts` no se tocó** tampoco: `PRECIO_A_PLAN` mapea
+>   price IDs, y el price ID de $10 recién aparece en la Task 5. No hay nada que mapear a `cloud`
+>   todavía.
+>
+> Y tres archivos de más, que el typecheck y la lectura de los call sites destaparon. Sin ellos
+> `cloud` existía en el tipo pero se comportaba como `free`, que es justo lo que esta tarea dice
+> que no puede pasar:
+>
+> - **`src/components/Sidebar.tsx`** — repetía el union a mano (`plan?: 'free' | 'pro' | ...`), así
+>   que sumar `cloud` a `Plan` rompía el typecheck. Ahora importa `Plan`. Y su gate de My Repos
+>   (línea 666) chequeaba `pro`/`team`/`enterprise`: un usuario `cloud` perdía My Repos. Ese gate
+>   se borra entero en la Task 2.
+> - **`src/components/UserMenu.tsx`** (+ dos reglas en `global.css`) — `planLabel` y `planDotClass`
+>   sólo conocían `pro`, así que un perfil migrado caía en el `return 'Free'` final: el que paga se
+>   veía como gratis.
+> - **`src/hooks/useProfile.ts:57`** — la whitelist del override `e2ePlan` tampoco tenía `cloud`,
+>   o sea que no se podía probar el plan nuevo en e2e.
+>
+> Suite: 1832 verdes, 3 skipped (la única roja es `worktree-path.test.ts`, que asume Linux y falla
+> en Mac; preexistente). Typecheck: 3 errores, los mismos 3 de antes del cambio.
+
+- [x] **Step 1: Escribir el test que falla**
 
 ```typescript
 // src/__tests__/lib/planes.test.ts
@@ -70,12 +98,12 @@ describe('el plan Cloud', () => {
 })
 ```
 
-- [ ] **Step 2: Correrlo y verificar que falla**
+- [x] **Step 2: Correrlo y verificar que falla**
 
 Run: `npx vitest run src/__tests__/lib/planes.test.ts`
 Expected: FAIL — `expected undefined to be defined`, porque `PLAN_LIMITS` sólo tiene `free`, `pro`, `team` y `enterprise`.
 
-- [ ] **Step 3: Implementación mínima**
+- [x] **Step 3: Implementación mínima**
 
 En `src/lib/stripe.ts`, línea 12, sumar el valor al tipo:
 
@@ -114,17 +142,17 @@ En `server/src/auth.ts`, sumar `cloud` al set:
 const CLOUD_PLANS = new Set(['cloud', 'pro', 'team', 'enterprise'])
 ```
 
-- [ ] **Step 4: Correr y verificar que pasa**
+- [x] **Step 4: Correr y verificar que pasa**
 
 Run: `npx vitest run src/__tests__/lib/planes.test.ts; echo EXIT=$?`
 Expected: PASS, 4 tests, `EXIT=0`.
 
-- [ ] **Step 5: Correr el suite entero y el typecheck**
+- [x] **Step 5: Correr el suite entero y el typecheck**
 
 Run: `npx vitest run; echo EXIT=$?` y después `npx tsc -b`
 Expected: verde y `EXIT=0`. Ojo: `tsc -b` emite archivos al lado de los fuentes. Hacer `git add` de los archivos nuevos y después `git clean -fd`.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/lib/stripe.ts src/hooks/useProfile.ts server/src/auth.ts src/__tests__/lib/planes.test.ts supabase/functions/stripe-webhook/eventos.ts

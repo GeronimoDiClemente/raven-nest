@@ -9,7 +9,9 @@ export const STRIPE_PRICES = {
   team_annual:  'price_1TbX66JarRYFmNbKqTA1AoEA',  // $312/yr ($26/mo) — 25% off
 }
 
-export type Plan = 'free' | 'pro' | 'team' | 'enterprise'
+// `pro` sigue en el tipo mientras haya perfiles con ese valor guardado en Supabase. Se
+// borra en la Task 7 del corte comercial, después de migrarlos.
+export type Plan = 'free' | 'cloud' | 'pro' | 'team' | 'enterprise'
 export type BillingCycle = 'monthly' | 'annual'
 
 export interface PlanPricing {
@@ -121,6 +123,16 @@ export const PLAN_LIMITS: Record<Plan, PlanLimits> = {
     memoryTeamShare: false,
     maxMemoryProjects: Infinity,
     maxCloudObservations: 0,
+    isEnterprise: false,
+  },
+  // Cloud es el tier INDIVIDUAL del corte comercial: paga por alojar su memoria en la
+  // nube, no por compartirla. Idéntico a `pro`, que es su alias heredado hasta la Task 7.
+  cloud: {
+    ...FULL_FEATURES,
+    allowTeam: false,
+    memoryTeamShare: false,
+    maxMemoryProjects: 50,
+    maxCloudObservations: 50_000,
     isEnterprise: false,
   },
   pro: {
