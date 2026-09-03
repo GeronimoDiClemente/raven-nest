@@ -4,7 +4,7 @@ import { mkdirSync } from 'fs'
 import * as fs from 'fs'
 import * as pty from 'node-pty'
 import { SHELL, SHELL_ARGS, isWin, isMac } from './platform'
-import { userHome } from './raven-home'
+import { ravenHome, userHome } from './raven-home'
 
 async function cwdReachable(p: string): Promise<boolean> {
   try {
@@ -73,6 +73,22 @@ export function parseAccountDir(accountDir: string): { aiType: string; accountNa
   const idx = parts.lastIndexOf('accounts')
   if (idx === -1 || idx + 2 >= parts.length) return null
   return { aiType: parts[idx + 1], accountName: parts[idx + 2] }
+}
+
+/**
+ * Provisioning target for an AI pane that runs with the REAL home — a headless graph
+ * node whose agent has no saved account (main.ts's `accountDirForAgent` returns '' and
+ * PtyManager deliberately does NOT redirect HOME, so the CLI keeps its own credentials).
+ *
+ * MEMORY_INTEGRATIONS_CONTRACT §3.2: the memory block used to live inside
+ * `if (accountDir && cmd)`, so those nodes fell out of memory entirely. They need a
+ * place to hold the Nest-owned hooks/MCP files, and it must NOT be the user's real home
+ * — provisioning there would write `mcpServers.nest_memory` into the machine's global
+ * ~/.claude.json. This dir is inside Nest's own storage root, shaped like any account
+ * dir so `parseAccountDir` reads provenance out of it (`claude:__headless__`).
+ */
+export function headlessAccountDir(aiType: string): string {
+  return join(ravenHome(), '.raven-nest', 'accounts', aiType, '__headless__')
 }
 
 export class PtyManager extends EventEmitter {
@@ -181,34 +197,56 @@ export class PtyManager extends EventEmitter {
         }
       }
 
-      // Nest Memory: env injection at PtyManager.create() (§2.5) — the one place every
-      // AI pane passes through, same reasoning as the HOME rewrite above. Only claude is
-      // provisioned in Phase 1; env is still injected for every AI type so a future
-      // Codex/Gemini adapter (Phase 2) needs no pty-manager change.
-      if (this.memory) {
-        const parsed = parseAccountDir(accountDir)
-        if (parsed) {
-          env.NEST_MEMORY_SOCKET = this.memory.socketPath
-          env.NEST_MEMORY_TOKEN = this.memory.authToken
-          env.NEST_MEMORY_ACCOUNT = `${parsed.aiType}:${parsed.accountName}`
-          env.NEST_MEMORY_AI = parsed.aiType
-          env.NEST_MEMORY_PANE = paneId
-          env.NEST_MEMORY_ENABLED = this.memory.isEnabled() ? '1' : '0'
+    } else if (accountDir) {
+      mkdirSync(accountDir, { recursive: true })
+    }
 
-          // §2.5 "the shared-config hazard": hooks load ONLY via the isolated
-          // --settings file, never by writing accountDir/.claude/settings.json.
-          // M11: ensureClaudeProvisioned (RE-)PROVISIONS the account, not just checks it.
-          if (cmd === 'claude' && this.memory.isEnabled()) {
-            const flagArgs = this.memory.ensureClaudeProvisioned(accountDir)
-            if (flagArgs.length > 0) {
-              const quoted = flagArgs.map((a) => (a.startsWith('-') ? a : quoteShellArg(a, isWin)))
-              launchCmd = `claude ${quoted.join(' ')}`
-            }
+    // Nest Memory: env injection at PtyManager.create() (§2.5) — the one place every
+    // AI pane passes through, same reasoning as the HOME rewrite above. Only claude is
+    // provisioned in Phase 1; env is still injected for every AI type so a future
+    // Codex/Gemini adapter (Phase 2) needs no pty-manager change.
+    //
+    // §3.2 fix: this deliberately sits OUTSIDE the `accountDir` branch above. Memory is
+    // not a consequence of the HOME redirection — a headless graph node runs with the
+    // real HOME and an empty accountDir, and used to be skipped in silence.
+    if (cmd && this.memory) {
+      const bin = cmd.split(' ')[0]
+      // Only a plain binary name can name a headless dir; anything else (a path, a
+      // shell fragment) would let cmd steer where we write.
+      const memoryHome = accountDir || (/^[A-Za-z0-9_-]+$/.test(bin) ? headlessAccountDir(bin) : '')
+      const parsed = memoryHome ? parseAccountDir(memoryHome) : null
+      if (parsed) {
+        env.NEST_MEMORY_SOCKET = this.memory.socketPath
+        env.NEST_MEMORY_TOKEN = this.memory.authToken
+        env.NEST_MEMORY_ACCOUNT = `${parsed.aiType}:${parsed.accountName}`
+        env.NEST_MEMORY_AI = parsed.aiType
+        env.NEST_MEMORY_PANE = paneId
+        env.NEST_MEMORY_ENABLED = this.memory.isEnabled() ? '1' : '0'
+
+        // §2.5 "the shared-config hazard": hooks load ONLY via the isolated
+        // --settings file, never by writing accountDir/.claude/settings.json.
+        // M11: ensureClaudeProvisioned (RE-)PROVISIONS the account, not just checks it.
+        //
+        // §3.1 fix: match the BINARY, not the whole command. The graph orchestrator
+        // launches nodes with `claude --model <x>` (graph-tick.ts `launchCommand`), and
+        // the old `cmd === 'claude'` missed exactly those — a node with a model assigned
+        // started with no hooks and no memory, silently, while nodes without one worked.
+        if (bin === 'claude' && this.memory.isEnabled()) {
+          const flagArgs = this.memory.ensureClaudeProvisioned(memoryHome)
+          if (flagArgs.length > 0) {
+            const args = [...flagArgs]
+            // With the real HOME, claude reads ITS ~/.claude.json, never the headless
+            // one the provisioner just wrote — so the MCP server has to be named
+            // explicitly. Not needed for an account pane, where HOME is the account dir.
+            if (!accountDir) args.push('--mcp-config', join(memoryHome, '.claude.json'))
+            const quoted = args.map((a) => (a.startsWith('-') ? a : quoteShellArg(a, isWin)))
+            // Insert the flags after the binary instead of rebuilding the command, so
+            // the caller's own arguments (--model, --print, …) survive.
+            const rest = cmd.slice(bin.length).trimStart()
+            launchCmd = rest ? `${bin} ${quoted.join(' ')} ${rest}` : `${bin} ${quoted.join(' ')}`
           }
         }
       }
-    } else if (accountDir) {
-      mkdirSync(accountDir, { recursive: true })
     }
 
     const spawnBin = shell?.bin ?? SHELL

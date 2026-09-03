@@ -163,16 +163,47 @@ No los podés ver desde la tuya porque necesitan el orquestador de graph. **Ya h
 verdad** en un worktree de prueba (`smoke/memory-bridge`, descartable): dio **un solo conflicto y
 fue `.env.example`**, y los cuatro bugs de abajo son todo lo que apareció.
 
+> **Actualización (2026-09-03).** **3.1 y 3.2 están arreglados** en esta rama; el diff aislado, listo
+> para aplicar sobre `feat/nest-memory-phase1`, está en **`docs/memory-merge-fixes.patch`** acá al
+> lado (verificado con `git apply --check`). **3.4 ya lo cerraste vos** en `bc647ee`, y quedó mejor
+> que la propuesta de este doc: además del guard en el hook, `main.ts` reporta
+> `status().unavailable`, así que el estado se distingue de "hay memoria pero está desconectada" en
+> vez de adivinarse desde el renderer. **3.3 sigue abierto**: es tu Phase 2.
+>
+> Suite tras el cambio: **1824 verdes, 3 skipped**. La única roja es
+> `src/__tests__/lib/worktree-path.test.ts` ("stays case-sensitive for unix paths on linux"), que
+> falla en Mac porque `worktreeKey` lowercasea en darwin y el test no está gateado por plataforma —
+> preexistente y ajena a esto.
+
 **3.1 — `cmd === 'claude'` es comparación exacta.** `pty-manager.ts:185`. Los nodos del graph se
 lanzan con `launchCommand()`, que devuelve `claude --model <x>` cuando el nodo tiene modelo
 asignado. Ese caso no matchea, así que el nodo arranca **sin `--settings`**: sin hooks de memoria,
 en silencio. Los nodos sin modelo sí funcionan, lo que lo hace peor porque falla de a ratos. Fix:
 comparar contra `cmd.split(' ')[0]` e insertar el flag en vez de reconstruir el comando.
 
+> **Arreglado** tal cual: se compara el binario y los flags se insertan justo después de él, así los
+> argumentos del que llama (`--model`, y cualquier otro que venga) sobreviven. Dos tests nuevos, uno
+> de ellos el caso negativo (`codex --model x` no debe tocarse).
+
 **3.2 — `accountDir` vacío saltea el bloque completo.** `pty-manager.ts:133` envuelve toda la
 inyección de memoria en `if (accountDir && cmd)`. En integrations, `accountDirForAgent()` devuelve
 `''` cuando el agente no tiene ninguna cuenta guardada. Resultado: un nodo headless corriendo con
 el HOME real queda afuera de memoria por completo.
+
+> **Arreglado**, y acá hubo una decisión que te toca revisar. La inyección de memoria ahora es
+> independiente del redirect de HOME: sale del `if (accountDir && cmd)` y corre para cualquier pane
+> con comando. Lo que faltaba definir es **dónde provisionar** cuando no hay accountDir, y elegimos
+> `{ravenHome}/.raven-nest/accounts/<ai>/__headless__` — un dir con forma de cuenta, así tu
+> `parseAccountDir` saca la procedencia sola (`claude:__headless__`).
+>
+> **Descartamos provisionar en el home real**, que era lo más directo: `provisionMcpConfig` escribe
+> `mcpServers.nest_memory` en `{accountDir}/.claude.json`, y con el home real eso es el
+> `~/.claude.json` global de la máquina. Es idempotente y namespaceado, pero es config del usuario,
+> no nuestra. La contra de lo que elegimos es que con el HOME real claude nunca lee ese
+> `.claude.json`, así que el launch tiene que nombrarlo: sumamos
+> `--mcp-config <headless>/.claude.json` **solo** en ese caso (en un pane de cuenta normal HOME ya
+> apunta ahí y no hace falta). El dir headless se deriva únicamente de un nombre de binario limpio,
+> para que un `cmd` raro no pueda elegir dónde escribimos.
 
 **3.3 — El coder del template `full` corre con codex, que no está provisionado.** Solo `claude`
 recibe el shim MCP en Phase 1. El nodo que más decisiones toma en el pipeline por defecto es justo

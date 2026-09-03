@@ -161,4 +161,127 @@ describe('PtyManager — Nest Memory integration point (M11)', () => {
     const result = await manager.create('pane-1', 'claude', join(dir, 'accounts', 'claude', 'Bautista'), dir)
     expect(result.ok).toBe(true)
   })
+
+  // ---- Bug 3.1 (MEMORY_INTEGRATIONS_CONTRACT §3) ----
+  // `cmd === 'claude'` was an exact comparison, but the graph orchestrator launches
+  // nodes via launchCommand(), which returns `claude --model <x>` whenever the node
+  // has a model assigned. That case silently missed the whole memory branch: no
+  // --settings flag, no hooks, no memory — and only for nodes WITH a model, so it
+  // failed intermittently.
+  it('provisions and injects the --settings flag when the claude command carries its own args', async () => {
+    const fake = fakePty()
+    spawnMock.mockReturnValue(fake)
+    const settingsPath = join(dir, '.nest', 'memory-settings.json')
+    const integration = memoryIntegration({ ensureClaudeProvisioned: vi.fn(() => ['--settings', settingsPath]) })
+    manager = new PtyManager(integration)
+
+    const accountDir = join(dir, 'accounts', 'claude', 'Bautista')
+    await manager.create('pane-1', 'claude --model claude-opus-5', accountDir, dir)
+    await vi.runAllTimersAsync()
+
+    expect(integration.ensureClaudeProvisioned).toHaveBeenCalledWith(accountDir)
+    const written = fake.write.mock.calls[0][0] as string
+    expect(written).toContain(`claude --settings "${settingsPath}"`)
+    // the caller's own args must survive — the old code rebuilt the command from
+    // scratch as `claude ${flags}` and would have dropped --model entirely
+    expect(written).toContain('--model claude-opus-5')
+  })
+
+  it('leaves a non-claude command untouched even though its first token differs', async () => {
+    const fake = fakePty()
+    spawnMock.mockReturnValue(fake)
+    const integration = memoryIntegration()
+    manager = new PtyManager(integration)
+
+    const accountDir = join(dir, 'accounts', 'codex', 'Bautista')
+    await manager.create('pane-1', 'codex --model gpt-5', accountDir, dir)
+    await vi.runAllTimersAsync()
+
+    expect(integration.ensureClaudeProvisioned).not.toHaveBeenCalled()
+    expect(fake.write.mock.calls[0][0]).toBe('codex --model gpt-5\r')
+  })
+
+  // ---- Bug 3.2 (MEMORY_INTEGRATIONS_CONTRACT §3) ----
+  // The whole memory block lived inside `if (accountDir && cmd)`. A headless graph
+  // node whose agent has no saved account gets accountDir '' from
+  // accountDirForAgent() and runs with the REAL HOME — so it fell out of memory
+  // entirely. Memory must not depend on the HOME redirection.
+  describe('headless pane with no account dir (real HOME)', () => {
+    const realHome = process.env.HOME
+    // ravenHome() reads RAVEN_HOME on every call, so pointing it at the tmp dir keeps
+    // the headless provisioning target out of the developer's real ~/.raven-nest.
+    const prevRavenHome = process.env.RAVEN_HOME
+
+    beforeEach(() => { process.env.RAVEN_HOME = dir })
+    afterEach(() => {
+      if (prevRavenHome === undefined) delete process.env.RAVEN_HOME
+      else process.env.RAVEN_HOME = prevRavenHome
+    })
+
+    it('still injects the NEST_MEMORY_* env', async () => {
+      const fake = fakePty()
+      spawnMock.mockReturnValue(fake)
+      const integration = memoryIntegration()
+      manager = new PtyManager(integration)
+
+      await manager.create('pane-1', 'claude --model claude-opus-5', '', dir)
+
+      const spawnEnv = spawnMock.mock.calls[0][2].env
+      expect(spawnEnv.NEST_MEMORY_SOCKET).toBe(integration.socketPath)
+      expect(spawnEnv.NEST_MEMORY_TOKEN).toBe('test-token-value')
+      expect(spawnEnv.NEST_MEMORY_ENABLED).toBe('1')
+      expect(spawnEnv.NEST_MEMORY_AI).toBe('claude')
+      expect(spawnEnv.NEST_MEMORY_ACCOUNT).toBe('claude:__headless__')
+    })
+
+    it('does not redirect HOME — the node keeps the real one for its credentials', async () => {
+      const fake = fakePty()
+      spawnMock.mockReturnValue(fake)
+      manager = new PtyManager(memoryIntegration())
+
+      await manager.create('pane-1', 'claude', '', dir)
+
+      expect(spawnMock.mock.calls[0][2].env.HOME).toBe(realHome)
+    })
+
+    it('provisions into a Nest-owned headless dir instead of the real home', async () => {
+      const fake = fakePty()
+      spawnMock.mockReturnValue(fake)
+      const integration = memoryIntegration()
+      manager = new PtyManager(integration)
+
+      await manager.create('pane-1', 'claude', '', dir)
+
+      const target = (integration.ensureClaudeProvisioned as ReturnType<typeof vi.fn>).mock.calls[0][0] as string
+      expect(target).toBe(join(dir, '.raven-nest', 'accounts', 'claude', '__headless__'))
+      expect(target.startsWith(realHome as string)).toBe(false)
+    })
+
+    it('passes --mcp-config too, because with a real HOME claude never reads the headless .claude.json', async () => {
+      const fake = fakePty()
+      spawnMock.mockReturnValue(fake)
+      const headlessDir = join(dir, '.raven-nest', 'accounts', 'claude', '__headless__')
+      const settingsPath = join(headlessDir, '.nest', 'memory-settings.json')
+      const integration = memoryIntegration({ ensureClaudeProvisioned: vi.fn(() => ['--settings', settingsPath]) })
+      manager = new PtyManager(integration)
+
+      await manager.create('pane-1', 'claude', '', dir)
+      await vi.runAllTimersAsync()
+
+      const written = fake.write.mock.calls[0][0] as string
+      expect(written).toContain(`--settings "${settingsPath}"`)
+      expect(written).toContain(`--mcp-config "${join(headlessDir, '.claude.json')}"`)
+    })
+
+    it('does not pass --mcp-config for a normal account pane, where HOME already points at it', async () => {
+      const fake = fakePty()
+      spawnMock.mockReturnValue(fake)
+      manager = new PtyManager(memoryIntegration())
+
+      await manager.create('pane-1', 'claude', join(dir, 'accounts', 'claude', 'Bautista'), dir)
+      await vi.runAllTimersAsync()
+
+      expect(fake.write.mock.calls[0][0]).not.toContain('--mcp-config')
+    })
+  })
 })
