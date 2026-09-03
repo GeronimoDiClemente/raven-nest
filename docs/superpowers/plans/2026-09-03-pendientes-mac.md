@@ -1,6 +1,12 @@
 # Pendientes al cerrar la tanda de la Mac (2026-09-03)
 
-Todo lo de esta tanda está en `origin/smoke/memory-bridge`, `1267de1..2f04e74`.
+Todo lo de esta tanda está en `origin/smoke/memory-bridge`, `1267de1..280b10b`.
+
+> **Bloqueante de release nuevo, y es el más grande de la lista:** las memorias tienen que ser de la
+> **cuenta de Nest** —no de la máquina, no de la IA— y hay que poder retomar desde cualquier
+> dispositivo con el contexto. La fuga grave ya está cerrada (`33b691c`), el resto está planificado
+> en **`2026-09-03-memoria-por-cuenta-multi-dispositivo.md`**, que tiene dos decisiones tuyas
+> adentro (Task 2 y Task 3) antes de que se pueda construir.
 Desde la PC alcanza con `git pull`.
 
 > **Lo primero, porque cuesta una tanda entera:** el handoff `2026-08-28-handoff-mac-a-pc.md` y el
@@ -26,8 +32,10 @@ Desde la PC alcanza con `git pull`.
 | `8634e1d` | **§9.2** — el token se emite contra el login |
 | `a2493fc` | La revocación, el gemelo de §9.2, + el test de `worktree-path` que fallaba en Mac |
 | `2f04e74` | El import de markdown traía casi nada: carpeta equivocada **y** chunker equivocado |
+| `33b691c` | Las memorias son de una cuenta de Nest: sellado del autor y push acotado |
+| `280b10b` | El handoff dejaba `.nest/` en el `git status` del repo del usuario + el plan de memoria por cuenta |
 
-Verificación al cerrar: **1859 tests verdes, 3 skipped y CERO rojas** en el cliente — la primera
+Verificación al cerrar: **1873 tests verdes, 3 skipped y CERO rojas** en el cliente — la primera
 corrida limpia en esta máquina. `npx tsc -b` con **3 errores**, los mismos tres `TS6307`
 preexistentes. En `server/`, los 11 tests de `devices-jwt.test.ts` en verde.
 
