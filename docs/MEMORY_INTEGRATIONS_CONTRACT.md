@@ -163,6 +163,11 @@ No los podés ver desde la tuya porque necesitan el orquestador de graph. **Ya h
 verdad** en un worktree de prueba (`smoke/memory-bridge`, descartable): dio **un solo conflicto y
 fue `.env.example`**, y los cuatro bugs de abajo son todo lo que apareció.
 
+> **Nota de rama (2026-09-03):** donde este doc dice que `smoke/memory-bridge` es un merge
+> descartable que no se mergea a ningún lado (§3 y §5), ya no es cierto: es la línea de trabajo
+> activa, con `feat/integrations` contenida entera adentro. Ver
+> `docs/superpowers/plans/2026-09-03-pendientes-mac.md`.
+
 > **Actualización (2026-09-03).** **3.1 y 3.2 están arreglados** en esta rama; el diff aislado, listo
 > para aplicar sobre `feat/nest-memory-phase1`, está en **`docs/memory-merge-fixes.patch`** acá al
 > lado (verificado con `git apply --check`). **3.4 ya lo cerraste vos** en `bc647ee`, y quedó mejor
