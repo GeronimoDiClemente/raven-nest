@@ -95,11 +95,17 @@ export interface HookSessionStartResult {
 export interface HookStopParams {
   cwd: string
   sessionId: string
+  /**
+   * El transcript que la CLI ya escribió. Opcional: un shim viejo no lo manda, y sin él
+   * el cierre sigue funcionando — sólo que sin resumen.
+   */
+  transcriptPath?: string
 }
 
 export interface HookPreCompactParams {
   cwd: string
   sessionId: string
+  transcriptPath?: string
 }
 
 // M12: local delete/tombstone origination. Not exposed as an MCP tool in Phase 1 (the

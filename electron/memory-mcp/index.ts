@@ -175,6 +175,9 @@ async function runHook(event: string): Promise<void> {
 
   const cwd = (payload.cwd as string) ?? process.cwd()
   const sessionId = (payload.session_id as string) ?? `unknown-${Date.now()}`
+  // Lo único que dice qué pasó en la sesión. El hook lo recibe y hasta ahora se tiraba, que
+  // es la razón de fondo por la que `Stop` no tenía nada que guardar (Layer B).
+  const transcriptPath = typeof payload.transcript_path === 'string' ? payload.transcript_path : undefined
 
   try {
     switch (event) {
@@ -194,10 +197,10 @@ async function runHook(event: string): Promise<void> {
         return
       }
       case 'stop':
-        await client.call('hook.stop', { cwd, sessionId })
+        await client.call('hook.stop', { cwd, sessionId, transcriptPath })
         return
       case 'pre-compact':
-        await client.call('hook.preCompact', { cwd, sessionId })
+        await client.call('hook.preCompact', { cwd, sessionId, transcriptPath })
         return
       default:
         console.error(`[nest-memory] unknown hook event: ${event}`)

@@ -140,12 +140,24 @@ anotada como la más grande del subsistema: hoy `SessionStart` sólo lee, **`Sto
 `PreCompact` deja un placeholder que nadie resuelve.
 
 - [x] **Step 1:** ~~Decidir.~~ El rollup.
-- [ ] **Step 2:** Que `Stop` escriba el rollup de la sesión como observación. La pregunta abierta es
-      **quién resume**: el propio agente antes de cerrar (barato, y ya tiene el contexto) o una
-      pasada aparte (cara, y necesita el transcript). Va la primera salvo que falle en la prueba.
-- [ ] **Step 3:** `PreCompact` resuelve su placeholder por el mismo camino.
+- [x] **Step 2:** `Stop` escribe el rollup. **La pregunta de "quién resume" se disolvió al mirar un
+      transcript de verdad**: ninguna de las dos opciones que tenía anotadas. Claude Code ya escribe
+      en el `.jsonl` un `ai-title` —un título generado de la sesión— y los prompts del usuario. El
+      resumen ya estaba hecho; lo único que faltaba era leerlo. **Cero tokens**, que además es lo
+      correcto para un producto BYOK que promete no medir el uso.
+- [x] **Step 3:** `PreCompact` guarda el mismo resumen en vez del placeholder que prometía uno
+      "on session close" que nunca llegaba.
 - [ ] **Step 4:** Smoke real: sesión con trabajo de verdad, cerrarla, y que el resumen aparezca en la
-      otra máquina.
+      otra máquina. **Esto va en la PC** — necesita las dos máquinas y el servicio desplegado.
+
+> **Lo que faltaba de verdad era el plomería, no el resumen.** El shim recibía el payload entero del
+> hook y **reenviaba sólo `cwd` y `session_id`**: tiraba `transcript_path`, que es el único dato que
+> dice qué pasó en la sesión. Por eso `Stop` no tenía nada que guardar.
+>
+> Dos cosas más que salieron leyendo transcripts reales y que ninguna documentación decía: los
+> mensajes `isMeta` son ruido que la CLI se inyecta a sí misma (el caveat de `local-command`) y no
+> se pueden guardar como si fueran del usuario, y `session_prompts` es una tabla **muerta** en el
+> schema — nadie escribió nunca en ella.
 
 ### Task 4: Los handoffs dejan de ser un archivo del worktree
 

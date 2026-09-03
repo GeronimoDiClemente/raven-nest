@@ -3,11 +3,12 @@
 // C2 (token validation) and M22 (message-size cap) from the review-round-1 findings.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { connect } from 'net'
+import { writeFileSync } from 'fs'
 import { join } from 'path'
 import { platform } from 'os'
 import { makeTmpDir, cleanupTmp } from './setup'
 import { MemoryIpcServer } from '../memory-ipc-server'
-import type { MemoryStore } from '../memory-store'
+import type { MemoryStore, SaveInput } from '../memory-store'
 import type { MemoryRequest, MemoryResponse, ObservationSummary } from '../memory-protocol'
 
 const TOKEN = 'a'.repeat(64)
@@ -82,7 +83,7 @@ describe('MemoryIpcServer — token validation (C2)', () => {
   })
 
   it('rejects a request with the wrong token before it reaches the store', async () => {
-    const save = vi.fn(() => ({ syncId: 'obs-1', outcome: 'inserted' as const, redacted: false }))
+    const save = vi.fn((_input: SaveInput) => ({ syncId: 'obs-1', outcome: 'inserted' as const, redacted: false }))
     const store = fakeStore({ save })
     server = new MemoryIpcServer({ store, socketPath, authToken: TOKEN })
     server.start()
@@ -107,7 +108,7 @@ describe('MemoryIpcServer — token validation (C2)', () => {
   })
 
   it('accepts a request with the correct token and dispatches it', async () => {
-    const save = vi.fn(() => ({ syncId: 'obs-1', outcome: 'inserted' as const, redacted: false }))
+    const save = vi.fn((_input: SaveInput) => ({ syncId: 'obs-1', outcome: 'inserted' as const, redacted: false }))
     const store = fakeStore({ save })
     server = new MemoryIpcServer({ store, socketPath, authToken: TOKEN })
     server.start()
@@ -274,5 +275,114 @@ describe('MemoryIpcServer — pull-through search fallback (M26)', () => {
     expect(response.ok).toBe(true)
     if (!response.ok) throw new Error('unreachable')
     expect(response.result).toEqual({ items: [] })
+  })
+})
+
+// Layer B: `Stop` cerraba la sesión y NO escribía nada, y `PreCompact` dejaba un
+// placeholder que prometía un rollup "on session close" que nunca llegaba. La memoria no
+// capturaba lo que decía capturar.
+describe('MemoryIpcServer — el rollup de sesion (Layer B)', () => {
+  let dir: string
+  let socketPath: string
+  let server: MemoryIpcServer
+
+  const TRANSCRIPT = [
+    JSON.stringify({ type: 'user', message: { role: 'user', content: 'arreglá el 500 del login' } }),
+    JSON.stringify({ type: 'ai-title', aiTitle: 'Arreglar el 500 del login', sessionId: 's1' }),
+  ].join('\n')
+
+  beforeEach(() => {
+    dir = makeTmpDir('raven-ipc-rollup-')
+    socketPath = uniqueSocketPath(dir)
+  })
+
+  afterEach(async () => {
+    await server?.stop()
+    cleanupTmp(dir)
+  })
+
+  async function llamar(store: MemoryStore, method: string, params: Record<string, unknown>) {
+    server = new MemoryIpcServer({ store, socketPath, authToken: TOKEN })
+    await server.start()
+    const req: MemoryRequest = { id: '1', token: TOKEN, method, params } as unknown as MemoryRequest
+    const raw = await sendRaw(socketPath, `${JSON.stringify(req)}\n`)
+    return JSON.parse(raw.trim()) as MemoryResponse
+  }
+
+  it('al cerrar escribe el resumen de la sesion como memoria', async () => {
+    const transcriptPath = join(dir, 'sesion.jsonl')
+    writeFileSync(transcriptPath, TRANSCRIPT)
+    const save = vi.fn((_input: SaveInput) => ({ syncId: 'obs-1', outcome: 'inserted' as const, redacted: false }))
+    const store = fakeStore({
+      save,
+      getSession: vi.fn(() => ({ project_key: 'proj-a', ended_at: null })) as unknown as MemoryStore['getSession'],
+    })
+
+    await llamar(store, 'hook.stop', { cwd: dir, sessionId: 's1', transcriptPath })
+
+    expect(save).toHaveBeenCalledTimes(1)
+    expect(save.mock.calls[0]![0]).toMatchObject({
+      type: 'session',
+      title: 'Arreglar el 500 del login',
+      source: 'hook',
+    })
+  })
+
+  it('la memoria de una sesion es idempotente: reintentar no duplica', async () => {
+    const transcriptPath = join(dir, 'sesion.jsonl')
+    writeFileSync(transcriptPath, TRANSCRIPT)
+    const save = vi.fn((_input: SaveInput) => ({ syncId: 'obs-1', outcome: 'inserted' as const, redacted: false }))
+    const store = fakeStore({
+      save,
+      getSession: vi.fn(() => ({ project_key: 'proj-a', ended_at: null })) as unknown as MemoryStore['getSession'],
+    })
+
+    await llamar(store, 'hook.stop', { cwd: dir, sessionId: 's1', transcriptPath })
+
+    // El sourceRef lleva el sessionId, así que el índice UNIQUE(source, source_ref) del
+    // store hace que un segundo Stop actualice en vez de insertar otra.
+    expect(save.mock.calls[0]![0].sourceRef).toContain('s1')
+  })
+
+  it('cierra la sesion igual cuando no hay transcript, en vez de fallar', async () => {
+    const closeSession = vi.fn()
+    const save = vi.fn((_input: SaveInput) => ({ syncId: 'obs-1', outcome: 'inserted' as const, redacted: false }))
+    const store = fakeStore({ closeSession, save })
+
+    const res = await llamar(store, 'hook.stop', { cwd: dir, sessionId: 's1' }) as unknown as Record<string, unknown>
+
+    expect(res.error).toBeUndefined()
+    expect(closeSession).toHaveBeenCalledWith('s1')
+    expect(save).not.toHaveBeenCalled()
+  })
+
+  it('una sesion sin prompts no deja memoria: el ruido es peor que el silencio', async () => {
+    const transcriptPath = join(dir, 'vacia.jsonl')
+    writeFileSync(transcriptPath, JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: 'hola' } }))
+    const save = vi.fn((_input: SaveInput) => ({ syncId: 'obs-1', outcome: 'inserted' as const, redacted: false }))
+    const store = fakeStore({
+      save,
+      getSession: vi.fn(() => ({ project_key: 'proj-a', ended_at: null })) as unknown as MemoryStore['getSession'],
+    })
+
+    await llamar(store, 'hook.stop', { cwd: dir, sessionId: 's1', transcriptPath })
+
+    expect(save).not.toHaveBeenCalled()
+  })
+
+  it('preCompact deja el resumen de verdad, no un placeholder que promete otro', async () => {
+    const transcriptPath = join(dir, 'sesion.jsonl')
+    writeFileSync(transcriptPath, TRANSCRIPT)
+    const save = vi.fn((_input: SaveInput) => ({ syncId: 'obs-1', outcome: 'inserted' as const, redacted: false }))
+    const store = fakeStore({
+      save,
+      getSession: vi.fn(() => ({ project_key: 'proj-a', ended_at: null })) as unknown as MemoryStore['getSession'],
+    })
+
+    await llamar(store, 'hook.preCompact', { cwd: dir, sessionId: 's1', transcriptPath })
+
+    const guardado = save.mock.calls[0]![0]
+    expect(guardado.title).toBe('Arreglar el 500 del login')
+    expect(guardado.content).not.toContain('Rollup pending')
   })
 })

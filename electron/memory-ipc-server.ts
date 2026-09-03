@@ -4,7 +4,7 @@
 // (electron/memory-mcp/) is the only client; one connection per CLI session.
 
 import { createServer, Server, Socket } from 'net'
-import { existsSync, unlinkSync, mkdirSync, chmodSync } from 'fs'
+import { existsSync, readFileSync, unlinkSync, mkdirSync, chmodSync } from 'fs'
 import { dirname } from 'path'
 import { timingSafeEqual } from 'crypto'
 // Deliberately NOT importing isWin from ./platform — that module imports `electron`
@@ -15,6 +15,7 @@ import { timingSafeEqual } from 'crypto'
 const isWin = process.platform === 'win32'
 import { MemoryStore } from './memory-store'
 import { resolveProjectKey } from './memory-project-key'
+import { buildSessionRollup } from './memory-rollup'
 import type {
   ContextMemoryParams,
   DeleteMemoryParams,
@@ -207,6 +208,37 @@ export class MemoryIpcServer {
     return projectKey
   }
 
+  /**
+   * Guarda el resumen de la sesión como una observación. Best-effort de punta a punta: que
+   * no se pueda leer el transcript no puede impedir que la sesión cierre.
+   *
+   * El `sourceRef` lleva el sessionId, así que el índice `UNIQUE (source, source_ref)` del
+   * store convierte un segundo Stop —o el PreCompact seguido del Stop— en un update de la
+   * misma memoria en vez de una fila nueva por cada vez.
+   */
+  private guardarRollup(sessionId: string, cwd: string, transcriptPath: string | undefined, origen: string): void {
+    if (!transcriptPath) return  // shim viejo, o una CLI que no pasa transcript
+    try {
+      if (!existsSync(transcriptPath)) return
+      const rollup = buildSessionRollup(readFileSync(transcriptPath, 'utf8'))
+      if (!rollup) return  // sesión sin prompts: no hay nada que recordar
+
+      const session = this.deps.store.getSession(sessionId)
+      const projectKey = session?.project_key ?? this.projectKeyForCwd(cwd)
+      this.deps.store.save({
+        projectKey,
+        scope: 'personal',
+        type: 'session',
+        title: rollup.title,
+        content: rollup.content,
+        source: 'hook',
+        sourceRef: `session:${sessionId}`,
+      })
+    } catch (err) {
+      console.warn('[memory-ipc] no se pudo guardar el rollup de la sesion', origen, err)
+    }
+  }
+
   private async dispatch(request: MemoryRequest): Promise<unknown> {
     const { store } = this.deps
     switch (request.method) {
@@ -297,6 +329,7 @@ export class MemoryIpcServer {
 
       case 'hook.stop': {
         const params = request.params as HookStopParams
+        this.guardarRollup(params.sessionId, params.cwd, params.transcriptPath, 'stop')
         store.closeSession(params.sessionId)
         this.deps.onMutation?.()
         return { ok: true }
@@ -304,21 +337,11 @@ export class MemoryIpcServer {
 
       case 'hook.preCompact': {
         const params = request.params as HookPreCompactParams
-        const session = store.getSession(params.sessionId)
-        if (session && !session.ended_at) {
-          // Force a rollup marker so PreCompact-triggered summaries aren't lost — the
-          // actual rollup observation is written by whichever hook closes the session.
-          store.save({
-            projectKey: session.project_key,
-            scope: 'personal',
-            type: 'session',
-            title: `Pre-compaction checkpoint — ${new Date().toISOString()}`,
-            content: 'Session reached context compaction. Rollup pending on session close.',
-            source: 'hook',
-            sourceRef: `precompact:${generateSyncId('sess')}`,
-          })
-          this.deps.onMutation?.()
-        }
+        // Antes escribía un placeholder que decía "rollup pending on session close" — y ese
+        // rollup NUNCA llegaba, porque `Stop` no escribía nada. Ahora guarda el resumen de
+        // verdad: si la sesión se compacta, lo hablado hasta acá ya quedó.
+        this.guardarRollup(params.sessionId, params.cwd, params.transcriptPath, 'precompact')
+        this.deps.onMutation?.()
         return { ok: true }
       }
 
