@@ -186,11 +186,18 @@ commitea. Dos cosas separadas:
 
 - [x] **Step 1:** Excluir `.nest/` vía `.git/info/exclude` al escribir el handoff. Hecho — era de
       una línea y no tenía por qué esperar al resto del plan.
-- [ ] **Step 2:** Que el handoff se guarde **además** como observación (`type: 'handoff'`, project
+- [x] **Step 2:** Que el handoff se guarde **además** como observación (`type: 'handoff'`, project
       key del repo). Con eso replica solo, se busca solo y aparece en el vault. El archivo se
-      mantiene como espejo local, porque es lo que el agente lee al arrancar.
-- [ ] **Step 3:** Al abrir un worktree sin `handoff.md`, reconstruirlo desde la memoria si hay uno
-      más nuevo en la nube. Esto es lo que hace que "retomar en la otra máquina" se sienta.
+      mantiene como espejo local, porque es lo que el agente lee al arrancar. Hecho 2026-09-04
+      (`b56aae3`): tipo `'handoff'` nuevo en `ObservationType`, `handoff:write` guarda vía
+      `memory.store.save()` con el mismo `projectKey` que `memory.save`/`memory.search` ya resuelven
+      para ese worktree (`resolveGitInfoForCwd`, extraída de `MemoryIpcServer` para no duplicarla).
+- [x] **Step 3:** Al abrir un worktree sin `handoff.md`, reconstruirlo desde la memoria si hay uno
+      más nuevo en la nube. Esto es lo que hace que "retomar en la otra máquina" se sienta. Hecho
+      junto al Step 2: `MemoryStore.latestByType(projectKey, type)` + `handoff:read` reconstruye a
+      disco antes de devolver. Sin test directo del handler (main.ts no es importable en vitest,
+      mismo gap ya documentado para `queueSwap` en la Task 1) — la lógica que orquesta sí está
+      cubierta donde vive.
 
 ### Task 5: El vault, para eficientizar contextos
 
