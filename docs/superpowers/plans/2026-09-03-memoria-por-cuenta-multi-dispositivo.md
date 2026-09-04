@@ -163,8 +163,22 @@ anotada como la más grande del subsistema: hoy `SessionStart` sólo lee, **`Sto
       correcto para un producto BYOK que promete no medir el uso.
 - [x] **Step 3:** `PreCompact` guarda el mismo resumen en vez del placeholder que prometía uno
       "on session close" que nunca llegaba.
-- [ ] **Step 4:** Smoke real: sesión con trabajo de verdad, cerrarla, y que el resumen aparezca en la
-      otra máquina. **Esto va en la PC** — necesita las dos máquinas y el servicio desplegado.
+- [x] **Step 4:** Smoke real, hecho el 2026-09-04 sin la Mac física — simulado con DOS
+      `MemoryStore` locales ("dispositivo A"/"dispositivo B") contra el server real corriendo
+      LOCAL (mismo Postgres Docker que usa `server/__tests__`), en vez de dos máquinas físicas.
+      **Lo que prueba de verdad**: el riesgo específico que este Step existía para cerrar —
+      ¿el rollup viaja por el protocolo de sync real (push → HTTP real → Postgres → pull) y
+      aparece en OTRO dispositivo? — sí. Device A escribió el rollup con el mismo `save()`
+      exacto que `memory-ipc-server.ts`'s `guardarRollup()` usa de verdad
+      (`scope:'personal', type:'session', source:'hook', sourceRef:'session:<id>'`),
+      `daemon.push()` lo mandó al server real, `daemon.pull()` en Device B lo trajo, y
+      `store.context()` en B lo encontró. **Lo que NO prueba** (ya cubierto por los Steps 2-3
+      por separado): que el hook `Stop` de una sesión de Claude Code real dispare
+      `buildSessionRollup()` sobre un transcript real — acá el rollup se sembró directo, no
+      salió de una sesión viva. Ni la Mac física, ni Railway: server + Postgres 100% locales,
+      sin tocar la cuenta real de Gero. Filas de prueba sembradas y borradas del Postgres
+      local al terminar (verificado con un `select count(*)` en cero antes de dar el smoke por
+      bueno).
 
 > **Lo que faltaba de verdad era el plomería, no el resumen.** El shim recibía el payload entero del
 > hook y **reenviaba sólo `cwd` y `session_id`**: tiraba `transcript_path`, que es el único dato que
