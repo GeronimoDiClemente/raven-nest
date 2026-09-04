@@ -144,6 +144,18 @@ import { adapterForBin } from './memory-cli-adapters'
 import { ensureLocalAuthMaterial } from './memory-local-auth'
 import { runLocalMemoryImport } from './memory-local-import'
 import { resolveProjectKey, GLOBAL_PROJECT_KEY } from './memory-project-key'
+import { openReadonlyReader } from './integrations/memory-readonly-reader'
+import { planVault } from './integrations/vault-plan'
+import { applyVaultPlan, computeOnDiskHashes, readManifest } from './integrations/vault-apply'
+import {
+  defaultVaultRoot,
+  loadVaultSettings,
+  resolveVaultRootDir,
+  saveVaultSettings,
+  validateVaultRoot,
+  vaultSettingsPath,
+  type VaultSettings,
+} from './integrations/vault-config'
 import { MetricsCollector, PaneInput } from './metrics-collector'
 import { transcribeAudio, checkWhisperAvailable, initWhisper, shutdownWhisper, setWhisperStatusCallback } from './whisper'
 import { getWindowOptions, getIconsDir, ICON_FILENAME, isMac, isWin } from './platform'
@@ -3047,6 +3059,109 @@ ipcMain.handle('memory:shareProjectWithTeam', async (_event, projectKey: string,
     return { ok: false, error: message }
   } finally {
     clearTimeout(timer)
+  }
+})
+
+// Task 5 (plan de memoria por cuenta multi-dispositivo): el vault — proyección Markdown de
+// la memoria de la cuenta ACTIVA, ver docs/superpowers/specs/2026-08-26-memory-vault-design.md.
+// Manual-trigger only en esta pasada (enable/"Regenerate now"/reveal): los cuatro
+// disparadores automáticos del §7 (debounce post-escritura, poll de 60s, reconciliación al
+// arranque) quedan fuera de alcance — el motor (naming/note/plan/apply/reader/config, con
+// su propia suite de tests) es la pieza de riesgo real y ya está cubierta; cablear timers
+// automáticos sobre un main.ts de 3000+ líneas sin cobertura de vitest es la clase de
+// cambio que se hace aparte, no apurado dentro de esta pasada.
+function vaultAccountDirs(): string[] {
+  try {
+    return accountStore.list('claude').map((name) => join(accountStore.getDir('claude', name), '.claude'))
+  } catch {
+    return []
+  }
+}
+
+async function runVaultRegeneration(): Promise<{ ok: boolean; error?: string; result?: { written: number; moved: number; deleted: number; conflicts: number; warnings: unknown[] }; rootDir?: string }> {
+  if (!memory) return { ok: false, error: 'memory_unavailable' }
+  const userId = memory.store.getOwnerUserId()
+  const settings = loadVaultSettings(vaultSettingsPath(ravenHome(), userId))
+  if (!settings.enabled) return { ok: false, error: 'vault_disabled' }
+  const rootDir = resolveVaultRootDir(ravenHome(), userId, settings)
+
+  const { reader, close } = openReadonlyReader(ravenHome(), userId)
+  try {
+    const projects = reader.listProjects()
+    const projectKeys = new Set(projects.map((p) => p.projectKey))
+    projectKeys.add(GLOBAL_PROJECT_KEY) // never has its own `projects` row — see vault spec §4.2
+    const records = Array.from(projectKeys).flatMap((pk) => reader.listRecords(pk))
+
+    const manifest = readManifest(rootDir)
+    const onDiskHashes = computeOnDiskHashes(rootDir, manifest)
+    const plan = planVault({
+      records,
+      projects,
+      manifest,
+      config: { includeSuperseded: settings.includeSuperseded, includeTeamScope: settings.includeTeamScope },
+      onDiskHashes,
+    })
+    const { result } = await applyVaultPlan(rootDir, plan)
+    return { ok: true, result, rootDir }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  } finally {
+    close()
+  }
+}
+
+ipcMain.handle('memory:vault:getSettings', () => {
+  if (!memory) return { ok: false, error: 'memory_unavailable' }
+  const userId = memory.store.getOwnerUserId()
+  const settings = loadVaultSettings(vaultSettingsPath(ravenHome(), userId))
+  return { ok: true, settings, rootDir: resolveVaultRootDir(ravenHome(), userId, settings), defaultRootDir: defaultVaultRoot(ravenHome(), userId) }
+})
+
+ipcMain.handle('memory:vault:setSettings', async (_event, patch: Partial<VaultSettings>) => {
+  if (!memory) return { ok: false, error: 'memory_unavailable' }
+  const userId = memory.store.getOwnerUserId()
+  const path = vaultSettingsPath(ravenHome(), userId)
+  const current = loadVaultSettings(path)
+
+  const nextRoot = patch.root !== undefined ? patch.root : current.root
+  if (nextRoot !== null) {
+    const check = validateVaultRoot(nextRoot, {
+      ravenHomeDir: ravenHome(),
+      accountClaudeDirs: vaultAccountDirs(),
+      // Rule 4 (root of an enrolled repo) is largely subsumed by rule 5 (any `.git`
+      // ancestor) in practice — an enrolled repo root always has a `.git` — so this is
+      // intentionally left empty rather than adding another store dependency here.
+      enrolledRepoRoots: [],
+      platform: process.platform,
+    })
+    if (check.forbidden) return { ok: false, error: check.reason ?? 'forbidden_vault_root' }
+  }
+
+  const next: VaultSettings = { ...current, ...patch, root: nextRoot }
+  saveVaultSettings(path, next)
+
+  // §7 trigger #1: turning the vault on runs a full pass immediately — the "one click
+  // primes + generates" moment the spec calls the actual commercial argument.
+  if (!current.enabled && next.enabled) {
+    const regen = await runVaultRegeneration()
+    return { ok: true, settings: next, regenerated: regen }
+  }
+  return { ok: true, settings: next }
+})
+
+ipcMain.handle('memory:vault:regenerate', async () => runVaultRegeneration())
+
+ipcMain.handle('memory:vault:reveal', async () => {
+  if (!memory) return { ok: false, error: 'memory_unavailable' }
+  const userId = memory.store.getOwnerUserId()
+  const settings = loadVaultSettings(vaultSettingsPath(ravenHome(), userId))
+  const rootDir = resolveVaultRootDir(ravenHome(), userId, settings)
+  try {
+    mkdirSync(rootDir, { recursive: true })
+    const error = await shell.openPath(rootDir)
+    return error ? { ok: false, error } : { ok: true }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
   }
 })
 

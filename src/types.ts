@@ -859,6 +859,37 @@ declare global {
        * todavía (fuera de alcance de este paso) — se llama a mano desde devtools o un test.
        */
       shareProjectWithTeam?: (projectKey: string, teamId: string) => Promise<{ ok: boolean; error?: string }>
+      /**
+       * Task 5 (plan de memoria por cuenta multi-dispositivo) — el vault, proyección
+       * Markdown de la memoria de la cuenta activa a `.raven-nest/memory-vault/<userId>/`.
+       * Sin panel en Settings todavía (fuera de alcance de esta pasada) — optional, un
+       * preload viejo no los expone.
+       */
+      vaultGetSettings?: () => Promise<{
+        ok: boolean
+        error?: string
+        settings?: { version: number; enabled: boolean; root: string | null; includeSuperseded: boolean; includeTeamScope: boolean }
+        rootDir?: string
+        defaultRootDir?: string
+      }>
+      vaultSetSettings?: (patch: {
+        enabled?: boolean
+        root?: string | null
+        includeSuperseded?: boolean
+        includeTeamScope?: boolean
+      }) => Promise<{
+        ok: boolean
+        error?: string
+        settings?: { version: number; enabled: boolean; root: string | null; includeSuperseded: boolean; includeTeamScope: boolean }
+        regenerated?: { ok: boolean; error?: string; rootDir?: string }
+      }>
+      vaultRegenerate?: () => Promise<{
+        ok: boolean
+        error?: string
+        rootDir?: string
+        result?: { written: number; moved: number; deleted: number; conflicts: number; warnings: unknown[] }
+      }>
+      vaultReveal?: () => Promise<{ ok: boolean; error?: string }>
     }
     platform: {
       isWin: boolean

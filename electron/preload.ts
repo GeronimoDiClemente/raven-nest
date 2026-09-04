@@ -90,6 +90,14 @@ contextBridge.exposeInMainWorld('memory', {
   // o un test.
   shareProjectWithTeam: (projectKey: string, teamId: string) =>
     ipcRenderer.invoke('memory:shareProjectWithTeam', projectKey, teamId),
+  // Task 5 — el vault (proyección Markdown de la memoria a `.raven-nest/memory-vault/`).
+  // Sin panel en Settings todavía (fuera de alcance de esta pasada); se prueba desde
+  // devtools o un test hasta que exista el toggle real.
+  vaultGetSettings: () => ipcRenderer.invoke('memory:vault:getSettings'),
+  vaultSetSettings: (patch: { enabled?: boolean; root?: string | null; includeSuperseded?: boolean; includeTeamScope?: boolean }) =>
+    ipcRenderer.invoke('memory:vault:setSettings', patch),
+  vaultRegenerate: () => ipcRenderer.invoke('memory:vault:regenerate'),
+  vaultReveal: () => ipcRenderer.invoke('memory:vault:reveal'),
   onStatus: (cb: (status: 'idle' | 'syncing' | 'paused' | 'error' | 'plan_required') => void) => {
     ipcRenderer.removeAllListeners('memory:status')
     ipcRenderer.on('memory:status', (_event, status) => cb(status))
