@@ -230,9 +230,10 @@ máquina, no de memoria:
 | claude | sí (`.claude.json`) | sí (`--settings`) | sí | Es lo único provisionado hoy |
 | **gemini** | **sí** (`gemini mcp add/list/remove`) | **sí** (`gemini hooks`, con un `hooks migrate` que importa los de Claude Code) | sí | **El más barato de los que faltan** |
 | **codex** | sí | a verificar | sí | El que más importa: el coder del template `full` corre con codex |
-| opencode | sí (`opencode mcp`) | a verificar | no (`noAccount`) | Corre con el HOME real → ya cae en el dir `__headless__` |
-| copilot | a verificar | a verificar | vía `gh` | La extensión ni siquiera está instalada acá |
-| cursor / qwen / grok / deepseek | a verificar | a verificar | no | Ninguno instalado en esta máquina |
+| **opencode** | **sí, verificado** (config `mcp.<name> = {type:'local', command:[...], enabled:true}` en `{HOME}/.config/opencode/opencode.json`; `opencode mcp list` confirma la conexión real) | **NO hay hooks simples** — sólo `opencode plugin <npm-module>`, un sistema de plugins JS instalable, no un JSON declarativo como Claude/Gemini. Lift bastante mayor, no comparable | **sí, corregido** — `USERPROFILE`/`HOME` SÍ aíslan de verdad (`opencode debug paths` verificado con un override real: `data/config/cache/state` se mueven enteros). La nota vieja ("no, `noAccount`") describía el adapter que no existe todavía, no una limitación real de opencode | El único de los 4 que faltaban con MCP + aislamiento reales y baratos — candidato más fuerte después de codex |
+| **qwen** *(no estaba en la tabla original — se instaló después del 03-09)* | **sí, verificado** (mismo formato `mcpServers` que Gemini, `qwen mcp list` lo confirma conectando) | `qwen hooks` existe pero es **100% interactivo** (`/hooks` en la TUI) — cero subcomandos CLI, ni `list` ni `migrate`. El JSON acepta una clave `hooks` sin tirar error y `--safe-mode` lista "hooks" como categoría real, pero **los nombres de evento NO están verificados** (es fork de gemini-cli, es plausible que hereden los mismos, pero no se corrió nada que lo probara) | sí — mismo patrón que gemini, `USERPROFILE`/`HOME` aíslan (`.qwen` aparece en el home real Y en el redirigido) | MCP tan barato como gemini; hooks necesitan lanzar la TUI real para confirmar antes de prometerlos |
+| copilot | — | — | vía `gh` | **Corregido**: la nota anterior decía "instalado acá", es falso — `gh copilot` (subcomando nativo de `gh`, ya no extensión) **descarga un binario nuevo la primera vez que se corre**. No se ejecutó sin preguntar — instalar software nuevo no es parte de "verificar" |
+| cursor / grok / deepseek | a verificar | a verificar | no | Ninguno instalado en esta máquina |
 
 - [x] **Step 1:** Generalizar el provisioner de claude-only a un registro por `aiType`. Hecho
       2026-09-04 (`2b40bc0`): `electron/memory-cli-adapters.ts` nuevo (interfaz `AiMemoryAdapter`
@@ -251,9 +252,16 @@ máquina, no de memoria:
       solo `CODEX_HOME` explícito — se descubrió intentando lo primero, que escribió brevemente en
       el `~/.codex/config.toml` real de esta máquina (detectado y limpiado en el momento, confirmado
       restaurado). Smoke real contra codex-cli 0.140.0.
-- [ ] **Step 4:** Verificar los demás uno por uno antes de prometerlos. Pendiente, prioridad menor
-      (copilot/opencode instalados acá pero sin verificar aún; cursor/qwen/grok/deepseek ni
-      instalados).
+- [x] **Step 4:** Verificar los demás uno por uno antes de prometerlos. Hecho 2026-09-04, sólo
+      recon (esta task es "verificar", no "implementar adapter" — eso es trabajo aparte si Gero
+      lo pide). **opencode y qwen quedaron verificados de verdad** (ver tabla) contra los binarios
+      reales instalados (`opencode 1.17.18`, `qwen 0.21.15`), con un hallazgo que corrige la
+      tabla vieja: `USERPROFILE`/`HOME` SÍ aíslan tanto a opencode como a qwen — confirmado
+      sobreescribiendo la variable y viendo que `debug paths`/las carpetas de config se mueven
+      enteras. Eso los pone en la misma categoría que gemini (aislamiento barato, sin necesitar
+      un `CODEX_HOME` especial). **copilot sigue sin instalar** — la nota vieja que decía lo
+      contrario era falsa; `gh copilot` descargaría un binario nuevo al primer uso y eso no se
+      hizo sin preguntar. cursor/grok/deepseek siguen sin instalar, sin cambios.
 
 ### Task 7: El hub in-app — que todo usuario vea para qué sirve
 
