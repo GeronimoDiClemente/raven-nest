@@ -913,6 +913,22 @@ export class MemoryStore {
     return rows.map((r) => this.toSummary(r))
   }
 
+  /**
+   * Task 4: la observacion mas reciente de un tipo dado para un proyecto — usado para
+   * reconstruir .nest/handoff.md en una maquina donde el worktree local no lo tiene
+   * (type='handoff'), pero generico por si otro caso similar aparece despues.
+   */
+  latestByType(projectKey: string, type: ObservationType): ObservationSummary | null {
+    const row = this.db
+      .prepare(
+        `SELECT * FROM observations
+         WHERE project_key = ? AND type = ? AND deleted = 0 AND superseded_by IS NULL
+         ORDER BY updated_at DESC, lamport DESC LIMIT 1`
+      )
+      .get(projectKey, type) as ObservationRow | undefined
+    return row ? this.toSummary(row) : null
+  }
+
   get(syncId: string): ObservationRow | null {
     return (this.db.prepare('SELECT * FROM observations WHERE sync_id = ?').get(syncId) as ObservationRow) ?? null
   }

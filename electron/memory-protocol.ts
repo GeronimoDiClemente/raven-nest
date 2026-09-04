@@ -21,6 +21,11 @@ export type ObservationType =
   | 'config'
   | 'preference'
   | 'session'
+  // Task 4 (plan de memoria por cuenta multi-dispositivo): el resumen que un agente deja
+  // en .nest/handoff.md, guardado ADEMÁS como observación para que "retomar en otra
+  // máquina" funcione aunque el worktree local no tenga el archivo — ver
+  // electron/main.ts's handoff:write/handoff:read.
+  | 'handoff'
 
 export type ObservationSource = 'mcp' | 'hook' | 'pty' | 'import' | 'ui'
 

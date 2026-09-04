@@ -257,6 +257,32 @@ interface MemorySubsystem {
 // `safeStorage.isEncryptionAvailable()` already does for connect. Every consumer below
 // checks `memory` for null; account provisioning and pty env injection are simply never
 // configured when it's null (both already no-op safely without a configured integration).
+/**
+ * Branch + remote origin for a cwd, best-effort (null on any failure — not a git repo, no
+ * remote, git missing). Shared by MemoryIpcServer's `memory.save`/`memory.search` project-key
+ * resolution AND (Task 4) the handoff:read/write handlers below, which used to each carry
+ * their own copy of this exact git plumbing.
+ */
+function resolveGitInfoForCwd(cwd: string): { branch: string; remoteUrl: string | null } | null {
+  try {
+    if (!existsSync(cwd)) return null
+    const branch = execSync('git rev-parse --abbrev-ref HEAD', { cwd, encoding: 'utf8', timeout: 3000 }).trim()
+    let remoteUrl: string | null = null
+    try { remoteUrl = execSync('git remote get-url origin', { cwd, encoding: 'utf8', timeout: 3000 }).trim() } catch { /* no remote */ }
+    return { branch, remoteUrl }
+  } catch {
+    return null
+  }
+}
+
+/** Task 4: same project-key resolution memory-ipc-server.ts's `projectKeyForCwd` uses for
+ *  every other write path, so a handoff observation lands under the exact project a
+ *  `memory.search`/`memory.save` from that same worktree would. */
+function projectKeyForWorktree(worktreePath: string): string {
+  const info = resolveGitInfoForCwd(worktreePath)
+  return resolveProjectKey({ remoteUrl: info?.remoteUrl, rootPath: worktreePath })
+}
+
 let memory: MemorySubsystem | null = null
 try {
   // Step 3d, correction #9 (CRÍTICO — no perder datos reales): hasta esta Task el store
@@ -290,17 +316,7 @@ try {
     store,
     socketPath: memorySocketPath,
     authToken: authMaterial.token,
-    resolveGitInfo: (cwd) => {
-      try {
-        if (!existsSync(cwd)) return null
-        const branch = execSync('git rev-parse --abbrev-ref HEAD', { cwd, encoding: 'utf8', timeout: 3000 }).trim()
-        let remoteUrl: string | null = null
-        try { remoteUrl = execSync('git remote get-url origin', { cwd, encoding: 'utf8', timeout: 3000 }).trim() } catch { /* no remote */ }
-        return { branch, remoteUrl }
-      } catch {
-        return null
-      }
-    },
+    resolveGitInfo: resolveGitInfoForCwd,
     onMutation: () => daemon.scheduleMutationPush(),
     // M26: lets memory.search's pull-through fallback trigger/await this same daemon's
     // pull() on a local zero-result miss instead of waiting up to its ~5-minute interval
@@ -1276,8 +1292,52 @@ ipcMain.handle('graph:templates:delete', (_event, id: string) => graphTemplateSt
 ipcMain.handle('graph:runs:list', () => graphRunStore.list())
 
 // Handoff IPC handlers
-ipcMain.handle('handoff:read', (_e, worktreePath: string) => readHandoff(worktreePath))
-ipcMain.handle('handoff:write', (_e, worktreePath: string, content: string) => writeHandoff(worktreePath, content))
+//
+// Task 4 (los handoffs dejan de ser un archivo del worktree): `.nest/handoff.md` no viaja
+// entre máquinas — writeHandoff() sólo toca el disco local. Read/write ahora también pasan
+// por la memoria de la cuenta (type:'handoff'), que sí replica, así que "retomar en otra
+// máquina" tiene de dónde reconstruir el archivo que el propio worker-run.ts (composeStepInput)
+// espera encontrar.
+ipcMain.handle('handoff:read', (_e, worktreePath: string) => {
+  const local = readHandoff(worktreePath)
+  if (local !== null) return local
+  // Step 3: sin archivo local, ¿hay uno más nuevo en la nube? (llegó por sync desde otra
+  // máquina, o esta es una copia fresca del worktree que nunca escribió uno propio.)
+  if (!memory) return null
+  try {
+    const projectKey = projectKeyForWorktree(worktreePath)
+    const latest = memory.store.latestByType(projectKey, 'handoff')
+    if (!latest) return null
+    // Materializa el archivo (writeHandoff es la función pura de siempre, sin volver a
+    // guardar esto como observación — ya lo es, es de donde vino) para que el próximo
+    // readHandoff() lo encuentre local sin tener que volver a preguntarle a la memoria.
+    writeHandoff(worktreePath, latest.content)
+    return latest.content
+  } catch (err) {
+    console.warn('[main] handoff:read — no se pudo reconstruir desde la memoria', err instanceof Error ? err.message : err)
+    return null
+  }
+})
+ipcMain.handle('handoff:write', (_e, worktreePath: string, content: string) => {
+  writeHandoff(worktreePath, content)
+  if (!memory) return
+  try {
+    const projectKey = projectKeyForWorktree(worktreePath)
+    const folder = worktreePath.split(/[\\/]/).filter(Boolean).pop() ?? worktreePath
+    memory.store.ensureProject({ projectKey, displayName: folder, rootPath: worktreePath })
+    memory.store.save({
+      projectKey,
+      scope: 'personal',
+      type: 'handoff',
+      title: `Handoff — ${folder}`,
+      content,
+      source: 'ui',
+    })
+    memory.daemon.scheduleMutationPush()
+  } catch (err) {
+    console.warn('[main] handoff:write — no se pudo guardar como memoria', err instanceof Error ? err.message : err)
+  }
+})
 
 // PTY IPC handlers
 ipcMain.handle('pty:create', (_event, paneId: string, cmd: string, accountDir: string, repoPath?: string, shellId?: string) => {

@@ -1094,3 +1094,56 @@ describe('MemoryStore — countUnclaimedRows (Task 2, el diagnostico para el dia
     expect(store.countUnclaimedRows()).toEqual({ count: 0, projects: [] })
   })
 })
+
+// Task 4 (los handoffs dejan de ser un archivo del worktree): el handoff se guarda ADEMAS
+// como observacion type:'handoff', para poder reconstruirlo en otra maquina cuando el
+// worktree local no tiene .nest/handoff.md. latestByType() es el lado de lectura.
+describe('MemoryStore — latestByType (Task 4, reconstruir el handoff en otra maquina)', () => {
+  let dir: string
+  let store: MemoryStore
+
+  beforeEach(() => {
+    dir = makeTmpDir('raven-memory-latestbytype-')
+    store = new MemoryStore(join(dir, 'memory.db'))
+    store.ensureProject({ projectKey: 'proj-a', displayName: 'Proyecto A' })
+  })
+
+  afterEach(() => {
+    store.close()
+    cleanupTmp(dir)
+  })
+
+  it('null cuando no hay ninguna observacion de ese tipo', () => {
+    expect(store.latestByType('proj-a', 'handoff')).toBeNull()
+  })
+
+  it('devuelve la mas reciente cuando hay varias', () => {
+    store.save({ projectKey: 'proj-a', type: 'handoff', title: 'h1', content: 'primer handoff', source: 'ui' })
+    store.save({ projectKey: 'proj-a', type: 'handoff', title: 'h2', content: 'segundo handoff, mas nuevo', source: 'ui' })
+
+    const latest = store.latestByType('proj-a', 'handoff')
+    expect(latest?.content).toBe('segundo handoff, mas nuevo')
+  })
+
+  it('no confunde tipos: un "session" mas nuevo no tapa al ultimo "handoff"', () => {
+    store.save({ projectKey: 'proj-a', type: 'handoff', title: 'h1', content: 'el handoff que importa', source: 'ui' })
+    store.save({ projectKey: 'proj-a', type: 'session', title: 's1', content: 'un rollup de sesion, no es un handoff', source: 'hook' })
+
+    const latest = store.latestByType('proj-a', 'handoff')
+    expect(latest?.content).toBe('el handoff que importa')
+  })
+
+  it('no confunde proyectos: el handoff de otro proyecto no aparece', () => {
+    store.ensureProject({ projectKey: 'proj-b', displayName: 'Proyecto B' })
+    store.save({ projectKey: 'proj-b', type: 'handoff', title: 'hb', content: 'handoff de B', source: 'ui' })
+
+    expect(store.latestByType('proj-a', 'handoff')).toBeNull()
+  })
+
+  it('ignora una observacion borrada', () => {
+    const saved = store.save({ projectKey: 'proj-a', type: 'handoff', title: 'h1', content: 'handoff borrado', source: 'ui' })
+    store.deleteObservation(saved.syncId)
+
+    expect(store.latestByType('proj-a', 'handoff')).toBeNull()
+  })
+})
