@@ -139,7 +139,8 @@ import { MemoryIpcServer } from './memory-ipc-server'
 import { MemoryDaemon } from './memory-daemon'
 import { daemonSocketPath } from './memory-protocol'
 import { swapMemoryStore, type SwapContext } from './memory-account-switch'
-import { provisionClaudeAccount, deprovisionClaudeAccount, type ProvisionerPaths } from './memory-provisioner'
+import type { ProvisionerPaths } from './memory-provisioner'
+import { adapterForBin } from './memory-cli-adapters'
 import { ensureLocalAuthMaterial } from './memory-local-auth'
 import { runLocalMemoryImport } from './memory-local-import'
 import { resolveProjectKey, GLOBAL_PROJECT_KEY } from './memory-project-key'
@@ -329,9 +330,9 @@ try {
     socketPath: memorySocketPath,
     authToken: authMaterial.token,
     isEnabled: () => memoryConnectionState.localEnabled,
-    ensureClaudeProvisioned: (accountDir) => {
-      const { settingsFlagPath } = provisionClaudeAccount(accountDir, memoryProvisionerPaths(), process.platform === 'win32')
-      return ['--settings', settingsFlagPath]
+    ensureProvisioned: (bin, accountDir) => {
+      const result = adapterForBin(bin)?.provision(accountDir, memoryProvisionerPaths(), process.platform === 'win32') ?? {}
+      return { args: result.args ?? [], env: result.env ?? {} }
     },
   })
 

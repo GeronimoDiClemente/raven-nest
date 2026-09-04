@@ -1,7 +1,8 @@
 import { join } from 'path'
 import { mkdirSync, readdirSync, rmSync, existsSync, lstatSync, symlinkSync, linkSync, cpSync } from 'fs'
 import { ravenHome } from './raven-home'
-import { provisionClaudeAccount, deprovisionClaudeAccount, type ProvisionerPaths } from './memory-provisioner'
+import { deprovisionClaudeAccount, type ProvisionerPaths } from './memory-provisioner'
+import { adapterForAiType } from './memory-cli-adapters'
 import { isWin } from './platform'
 
 const BASE_DIR = join(ravenHome(), '.raven-nest', 'accounts')
@@ -154,9 +155,11 @@ export class AccountStore {
   }
 
   private provisionMemoryIfEnabled(aiType: string, dir: string): void {
-    if (aiType !== 'claude' || !this.memory || !this.memory.isEnabled()) return
+    if (!this.memory || !this.memory.isEnabled()) return
+    const adapter = adapterForAiType(aiType)
+    if (!adapter) return
     try {
-      provisionClaudeAccount(dir, this.memory.paths, isWin)
+      adapter.provision(dir, this.memory.paths, isWin)
     } catch (err) {
       console.warn('[account-store] memory provisioning failed', { dir, error: err instanceof Error ? err.message : String(err) })
     }
@@ -194,8 +197,8 @@ export class AccountStore {
       if (failed.length > 0) {
         console.warn('[account-store] save: some claude config items did not link', { aiType, name, failed })
       }
-      this.provisionMemoryIfEnabled(aiType, dir)
     }
+    this.provisionMemoryIfEnabled(aiType, dir)
     return dir
   }
 

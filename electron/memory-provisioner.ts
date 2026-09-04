@@ -55,13 +55,17 @@ function claudeJsonPath(accountDir: string): string {
 // session-store.ts/local-paths-store.ts (docs/GUIA-TESTEO-BAUTISTA.md). A per-call
 // random tmp suffix avoids two concurrent provision calls (e.g. AccountStore.save() and
 // a PtyManager.create() self-heal racing) clobbering each other's in-flight write.
-function writeFileAtomic(path: string, content: string, mode?: number): void {
+export function writeFileAtomic(path: string, content: string, mode?: number): void {
   const tmp = `${path}.${randomBytes(6).toString('hex')}.tmp`
   writeFileSync(tmp, content, mode !== undefined ? { mode } : undefined)
   renameSync(tmp, path)
 }
 
-function writeWrapperScript(accountDir: string, paths: ProvisionerPaths, isWin: boolean): string {
+/** Exported for reuse by other AI adapters (e.g. memory-provisioner-gemini.ts) — the
+ *  wrapper script itself is AI-agnostic (execs the shim with `ELECTRON_RUN_AS_NODE=1`)
+ *  and lives at `{accountDir}/.nest/`, which never collides across AI types because
+ *  accountDir already encodes the AI type (`accounts/{aiType}/{name}`). */
+export function writeWrapperScript(accountDir: string, paths: ProvisionerPaths, isWin: boolean): string {
   const dir = nestDir(accountDir)
   mkdirSync(dir, { recursive: true })
   const target = wrapperPath(accountDir, isWin)
@@ -75,7 +79,7 @@ function writeWrapperScript(accountDir: string, paths: ProvisionerPaths, isWin: 
   return target
 }
 
-interface JsonFile {
+export interface JsonFile {
   [key: string]: unknown
 }
 
@@ -93,7 +97,7 @@ interface JsonFile {
  * logs — provisioning simply retries on the next PtyManager.create() (M11), so
  * aborting here costs nothing but safety.
  */
-function readJsonOrThrow(path: string): JsonFile {
+export function readJsonOrThrow(path: string): JsonFile {
   let raw: string
   try {
     raw = readFileSync(path, 'utf8')
@@ -108,7 +112,7 @@ function readJsonOrThrow(path: string): JsonFile {
   return parsed as JsonFile
 }
 
-function writeJson(path: string, data: JsonFile): void {
+export function writeJson(path: string, data: JsonFile): void {
   writeFileAtomic(path, `${JSON.stringify(data, null, 2)}\n`)
 }
 

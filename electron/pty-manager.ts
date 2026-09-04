@@ -40,10 +40,16 @@ export interface PtyMemoryIntegration {
    * never got the `--settings` flag or working hooks, forever, with no retry. Per
    * §2.5 ("defensively from PtyManager.create() before spawn"), this is now the
    * (idempotent) provisioning call itself — every AI pane spawn is the one integration
-   * point that can self-heal a missing/stale provisioning state. Returns the
-   * `['--settings', '<path>']` args to use.
+   * point that can self-heal a missing/stale provisioning state.
+   *
+   * Generalized (multi-AI memory registry, Step 1): this used to be
+   * `ensureClaudeProvisioned(accountDir): string[]`, hardcoded to Claude. Dispatch by
+   * binary name now lives in the caller (main.ts, via `adapterForBin` from
+   * memory-cli-adapters.ts), so pty-manager.ts calls this the same way for every AI
+   * type and needs no change when a Gemini/Codex adapter is registered — an
+   * unrecognized `bin` simply comes back as `{args: [], env: {}}`, a no-op.
    */
-  ensureClaudeProvisioned: (accountDir: string) => string[]
+  ensureProvisioned: (bin: string, accountDir: string) => { args: string[]; env: Record<string, string> }
 }
 
 const BUFFER_MAX_LINES = 10_000
@@ -202,14 +208,20 @@ export class PtyManager extends EventEmitter {
     }
 
     // Nest Memory: env injection at PtyManager.create() (§2.5) — the one place every
-    // AI pane passes through, same reasoning as the HOME rewrite above. Only claude is
-    // provisioned in Phase 1; env is still injected for every AI type so a future
-    // Codex/Gemini adapter (Phase 2) needs no pty-manager change.
+    // AI pane passes through, same reasoning as the HOME rewrite above. env is injected
+    // for every AI type; provisioning itself is dispatched generically by binary name
+    // through the adapter registry (memory-cli-adapters.ts, via `ensureProvisioned` on
+    // this integration). Phase 1 only registers 'claude' there, so a bin with no
+    // adapter comes back as `{args: [], env: {}}` and launchCmd is left untouched —
+    // same observable behavior as before this file knew Codex/Gemini could exist.
     //
     // §3.2 fix: this deliberately sits OUTSIDE the `accountDir` branch above. Memory is
     // not a consequence of the HOME redirection — a headless graph node runs with the
     // real HOME and an empty accountDir, and used to be skipped in silence.
     if (cmd && this.memory) {
+      // §3.1 fix: match the BINARY, not the whole command. The graph orchestrator
+      // launches nodes with `claude --model <x>` (graph-tick.ts `launchCommand`), and a
+      // plain `cmd === 'claude'` comparison would miss exactly those.
       const bin = cmd.split(' ')[0]
       // Only a plain binary name can name a headless dir; anything else (a path, a
       // shell fragment) would let cmd steer where we write.
@@ -225,20 +237,18 @@ export class PtyManager extends EventEmitter {
 
         // §2.5 "the shared-config hazard": hooks load ONLY via the isolated
         // --settings file, never by writing accountDir/.claude/settings.json.
-        // M11: ensureClaudeProvisioned (RE-)PROVISIONS the account, not just checks it.
-        //
-        // §3.1 fix: match the BINARY, not the whole command. The graph orchestrator
-        // launches nodes with `claude --model <x>` (graph-tick.ts `launchCommand`), and
-        // the old `cmd === 'claude'` missed exactly those — a node with a model assigned
-        // started with no hooks and no memory, silently, while nodes without one worked.
-        if (bin === 'claude' && this.memory.isEnabled()) {
-          const flagArgs = this.memory.ensureClaudeProvisioned(memoryHome)
-          if (flagArgs.length > 0) {
-            const args = [...flagArgs]
+        // M11: ensureProvisioned (RE-)PROVISIONS the account, not just checks it.
+        if (this.memory.isEnabled()) {
+          const { args: extraArgs, env: extraEnv } = this.memory.ensureProvisioned(bin, memoryHome)
+          Object.assign(env, extraEnv)
+          if (extraArgs.length > 0) {
+            const args = [...extraArgs]
             // With the real HOME, claude reads ITS ~/.claude.json, never the headless
             // one the provisioner just wrote — so the MCP server has to be named
             // explicitly. Not needed for an account pane, where HOME is the account dir.
-            if (!accountDir) args.push('--mcp-config', join(memoryHome, '.claude.json'))
+            // Claude-specific — Gemini/Codex use their own isolated-home mechanism
+            // (GEMINI_CLI_HOME above, etc.) and don't need this; not generalized yet.
+            if (bin === 'claude' && !accountDir) args.push('--mcp-config', join(memoryHome, '.claude.json'))
             const quoted = args.map((a) => (a.startsWith('-') ? a : quoteShellArg(a, isWin)))
             // Insert the flags after the binary instead of rebuilding the command, so
             // the caller's own arguments (--model, --print, …) survive.

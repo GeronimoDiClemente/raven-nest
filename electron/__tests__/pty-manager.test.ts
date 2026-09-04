@@ -65,25 +65,33 @@ describe('PtyManager — Nest Memory integration point (M11)', () => {
     cleanupTmp(dir)
   })
 
+  // Mirrors what main.ts's real `ensureProvisioned` does — dispatch by `bin` through the
+  // adapter registry (memory-cli-adapters.ts) — so these tests exercise PtyManager's own
+  // logic (env building, quoting, launchCmd construction) exactly as production wires it:
+  // a 'claude' bin gets the --settings flag, anything else is a no-op.
   function memoryIntegration(overrides: Partial<PtyMemoryIntegration> = {}): PtyMemoryIntegration {
     return {
       socketPath: '\\\\.\\pipe\\nest-memory-test',
       authToken: 'test-token-value',
       isEnabled: () => true,
-      ensureClaudeProvisioned: vi.fn(() => ['--settings', join(dir, '.nest', 'memory-settings.json')]),
+      ensureProvisioned: vi.fn((bin: string) =>
+        bin === 'claude'
+          ? { args: ['--settings', join(dir, '.nest', 'memory-settings.json')], env: {} }
+          : { args: [], env: {} }
+      ),
       ...overrides,
     }
   }
 
   // NOTE: PtyManager.create() became async on main (the cwd-existence check switched
   // from sync existsSync to an async cwdReachable() with its own race/timeout — see
-  // main's pty-manager.ts). ensureClaudeProvisioned and every NEST_MEMORY_* env write
+  // main's pty-manager.ts). ensureProvisioned and every NEST_MEMORY_* env write
   // still happen synchronously BEFORE that first `await`, but pty.spawn() itself now
   // only runs after it resolves — so any assertion touching spawnMock must await the
   // full create() call first (fake timers alone aren't enough: cwdReachable's happy
   // path resolves via real fs.promises.stat, not a timer).
 
-  it('calls ensureClaudeProvisioned (not just a read-only check) on every claude pane spawn', async () => {
+  it('calls ensureProvisioned (not just a read-only check) on every claude pane spawn', async () => {
     const fake = fakePty()
     spawnMock.mockReturnValue(fake)
     const integration = memoryIntegration()
@@ -92,7 +100,7 @@ describe('PtyManager — Nest Memory integration point (M11)', () => {
     const accountDir = join(dir, 'accounts', 'claude', 'Bautista')
     await manager.create('pane-1', 'claude', accountDir, dir)
 
-    expect(integration.ensureClaudeProvisioned).toHaveBeenCalledWith(accountDir)
+    expect(integration.ensureProvisioned).toHaveBeenCalledWith('claude', accountDir)
   })
 
   it('injects NEST_MEMORY_SOCKET, NEST_MEMORY_TOKEN and NEST_MEMORY_ACCOUNT into the spawned env', async () => {
@@ -115,7 +123,7 @@ describe('PtyManager — Nest Memory integration point (M11)', () => {
     const fake = fakePty()
     spawnMock.mockReturnValue(fake)
     const settingsPath = join(dir, '.nest', 'memory-settings.json')
-    const integration = memoryIntegration({ ensureClaudeProvisioned: vi.fn(() => ['--settings', settingsPath]) })
+    const integration = memoryIntegration({ ensureProvisioned: vi.fn(() => ({ args: ['--settings', settingsPath], env: {} })) })
     manager = new PtyManager(integration)
 
     const accountDir = join(dir, 'accounts', 'claude', 'Bautista')
@@ -137,7 +145,7 @@ describe('PtyManager — Nest Memory integration point (M11)', () => {
     const accountDir = join(dir, 'accounts', 'claude', 'Bautista')
     await manager.create('pane-1', 'claude', accountDir, dir)
 
-    expect(integration.ensureClaudeProvisioned).not.toHaveBeenCalled()
+    expect(integration.ensureProvisioned).not.toHaveBeenCalled()
     const spawnEnv = spawnMock.mock.calls[0][2].env
     expect(spawnEnv.NEST_MEMORY_ENABLED).toBe('0')
   })
@@ -150,7 +158,7 @@ describe('PtyManager — Nest Memory integration point (M11)', () => {
 
     await manager.create('pane-1', '', join(dir, 'accounts', 'claude', 'Bautista'), dir)
 
-    expect(integration.ensureClaudeProvisioned).not.toHaveBeenCalled()
+    expect(integration.ensureProvisioned).not.toHaveBeenCalled()
   })
 
   it('works with no memory integration configured at all (existing behavior unaffected)', async () => {
@@ -172,14 +180,14 @@ describe('PtyManager — Nest Memory integration point (M11)', () => {
     const fake = fakePty()
     spawnMock.mockReturnValue(fake)
     const settingsPath = join(dir, '.nest', 'memory-settings.json')
-    const integration = memoryIntegration({ ensureClaudeProvisioned: vi.fn(() => ['--settings', settingsPath]) })
+    const integration = memoryIntegration({ ensureProvisioned: vi.fn(() => ({ args: ['--settings', settingsPath], env: {} })) })
     manager = new PtyManager(integration)
 
     const accountDir = join(dir, 'accounts', 'claude', 'Bautista')
     await manager.create('pane-1', 'claude --model claude-opus-5', accountDir, dir)
     await vi.runAllTimersAsync()
 
-    expect(integration.ensureClaudeProvisioned).toHaveBeenCalledWith(accountDir)
+    expect(integration.ensureProvisioned).toHaveBeenCalledWith('claude', accountDir)
     const written = fake.write.mock.calls[0][0] as string
     expect(written).toContain(`claude --settings "${settingsPath}"`)
     // the caller's own args must survive — the old code rebuilt the command from
@@ -197,7 +205,10 @@ describe('PtyManager — Nest Memory integration point (M11)', () => {
     await manager.create('pane-1', 'codex --model gpt-5', accountDir, dir)
     await vi.runAllTimersAsync()
 
-    expect(integration.ensureClaudeProvisioned).not.toHaveBeenCalled()
+    // ensureProvisioned is called generically for every bin (dispatch by adapter lives
+    // in the integration, e.g. main.ts's adapterForBin) — but with no adapter for
+    // 'codex' it comes back as a no-op, so launchCmd is untouched, same as before.
+    expect(integration.ensureProvisioned).toHaveBeenCalledWith('codex', accountDir)
     expect(fake.write.mock.calls[0][0]).toBe('codex --model gpt-5\r')
   })
 
@@ -252,7 +263,7 @@ describe('PtyManager — Nest Memory integration point (M11)', () => {
 
       await manager.create('pane-1', 'claude', '', dir)
 
-      const target = (integration.ensureClaudeProvisioned as ReturnType<typeof vi.fn>).mock.calls[0][0] as string
+      const target = (integration.ensureProvisioned as ReturnType<typeof vi.fn>).mock.calls[0][1] as string
       expect(target).toBe(join(dir, '.raven-nest', 'accounts', 'claude', '__headless__'))
       expect(target.startsWith(realHome as string)).toBe(false)
     })
@@ -262,7 +273,7 @@ describe('PtyManager — Nest Memory integration point (M11)', () => {
       spawnMock.mockReturnValue(fake)
       const headlessDir = join(dir, '.raven-nest', 'accounts', 'claude', '__headless__')
       const settingsPath = join(headlessDir, '.nest', 'memory-settings.json')
-      const integration = memoryIntegration({ ensureClaudeProvisioned: vi.fn(() => ['--settings', settingsPath]) })
+      const integration = memoryIntegration({ ensureProvisioned: vi.fn(() => ({ args: ['--settings', settingsPath], env: {} })) })
       manager = new PtyManager(integration)
 
       await manager.create('pane-1', 'claude', '', dir)
