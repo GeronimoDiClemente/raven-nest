@@ -78,7 +78,10 @@ contextBridge.exposeInMainWorld('memory', {
   // (es donde vive la sesión de Supabase) y la request la hace main, que es quien conoce la
   // URL del servicio.
   registerDevice: (jwt: string) => ipcRenderer.invoke('memory:registerDevice', jwt),
-  setUser: (userId: string | null) => ipcRenderer.invoke('memory:setUser', userId),
+  setUser: (userId: string | null, opts?: { adopt?: boolean }) => ipcRenderer.invoke('memory:setUser', userId, opts),
+  // Task 2 (adopcion con aviso) — puramente informativo, se llama ANTES de setUser para
+  // saber si hay que preguntar "son tuyas?" en vez de adoptar en silencio.
+  checkPendingAdoption: (userId: string | null) => ipcRenderer.invoke('memory:checkPendingAdoption', userId),
   disconnect: (opts?: { deleteCloud?: boolean }) => ipcRenderer.invoke('memory:disconnect', opts),
   status: () => ipcRenderer.invoke('memory:status'),
   hubStats: () => ipcRenderer.invoke('memory:hub-stats'),

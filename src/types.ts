@@ -802,8 +802,17 @@ declare global {
       /**
        * Declara qué cuenta de Nest está usando el store. Sella el autor de cada escritura y
        * acota el push a esa cuenta. Opcional: un preload viejo no lo expone.
+       * `opts.adopt: false` (Task 2) sigue adelante con el swap pero sin reclamar lo que
+       * haya en `_local` — el usuario contestó "no son mías" en MemoryAdoptionDialog.
        */
-      setUser?: (userId: string | null) => Promise<unknown>
+      setUser?: (userId: string | null, opts?: { adopt?: boolean }) => Promise<unknown>
+      /**
+       * Task 2 (adopción con aviso): antes de llamar a setUser() con una cuenta que todavía
+       * no tiene base propia, chequea si `_local` tiene memorias sin dueño para preguntar en
+       * vez de adoptarlas en silencio. Opcional: un preload viejo no lo expone — en ese caso
+       * el hook cae directo a setUser(), igual que se comportaba antes de la Task 2.
+       */
+      checkPendingAdoption?: (userId: string | null) => Promise<{ hasPending: boolean; count: number; projects: string[] }>
       /**
        * §9.2 — pide un token al servicio de sync con el JWT del login. Opcional: un preload
        * viejo no lo expone, y el hook cae al token pegado a mano.

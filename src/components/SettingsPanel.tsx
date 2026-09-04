@@ -18,6 +18,7 @@ import { PresetEditor } from './PresetEditor'
 import { BenchmarkDashboard } from './BenchmarkDashboard'
 import UpgradeModal from './UpgradeModal'
 import MemoryHub from './MemoryHub'
+import MemoryAdoptionDialog from './MemoryAdoptionDialog'
 import logoUrl from '../assets/logo.png'
 
 type Tab = 'keybinds' | 'presets' | 'benchmarks' | 'updates' | 'account' | 'tutorial' | 'editor'
@@ -279,6 +280,18 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
   return (
     <>
       <button className="titlebar-btn" onClick={() => setOpen(v => !v)} title="Settings" />
+
+      {/* Task 2 (adopción con aviso): no depende de `open` — el login que lo dispara puede
+          pasar con el panel de Settings cerrado, y el usuario tiene que verlo igual. */}
+      {memory.pendingAdoption && createPortal(
+        <MemoryAdoptionDialog
+          count={memory.pendingAdoption.count}
+          projects={memory.pendingAdoption.projects}
+          onAdopt={() => memory.resolveAdoption(true)}
+          onDecline={() => memory.resolveAdoption(false)}
+        />,
+        document.body
+      )}
 
       {open && createPortal(
         <>

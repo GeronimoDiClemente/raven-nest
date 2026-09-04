@@ -349,7 +349,7 @@ function queueSwap<T>(task: () => Promise<T>): Promise<T> {
 // module-level `memory` variable to swapMemoryStore()'s result so every other memory
 // consumer (memorySink, the status/hub-stats/registerDevice handlers, ...) reads the
 // post-swap store from here on. Always queued (see queueSwap above); never called directly.
-async function performUserSwap(userId: string | null): Promise<{ ok: true } | { ok: false; error: string }> {
+async function performUserSwap(userId: string | null, adopt = true): Promise<{ ok: true } | { ok: false; error: string }> {
   if (!memory) return { ok: false, error: 'Nest Memory is unavailable on this device — see main process logs.' }
   const ctx: SwapContext = {
     store: memory.store,
@@ -368,7 +368,7 @@ async function performUserSwap(userId: string | null): Promise<{ ok: true } | { 
     // swapMemoryStore() itself never throws (see its own doc comment) — it always resolves
     // to a valid { store, currentStorePath, error? }, degrading rather than leaving
     // daemon/ipc wired to a closed store.
-    const result = await swapMemoryStore(ctx, ravenHome(), userId)
+    const result = await swapMemoryStore(ctx, ravenHome(), userId, adopt)
     memory = { store: result.store, daemon: memory.daemon, ipcServer: memory.ipcServer, currentStorePath: result.currentStorePath }
     return result.error ? { ok: false, error: result.error } : { ok: true }
   } finally {
@@ -2689,15 +2689,60 @@ const MEMORY_UNAVAILABLE = { ok: false, error: 'Nest Memory is unavailable on th
 // as `{ ok: false, error }` to the renderer instead of an invoke rejection; the renderer
 // side (useMemory.ts) currently fires this and forgets the result, but a precise
 // success/failure signal here is what makes that safe to change later without touching main.
-ipcMain.handle('memory:setUser', async (_event, userId: string | null) => {
+ipcMain.handle('memory:setUser', async (_event, userId: string | null, opts?: { adopt?: boolean }) => {
   const normalizedUserId = typeof userId === 'string' && userId ? userId : null
+  // Task 2 (adopcion con aviso): default true — el comportamiento de siempre para el caso
+  // comun (nada que reclamar, o el usuario ya dijo que si). `opts.adopt === false` es la
+  // unica forma de llegar acá con "no": el dialogo del renderer (MemoryAdoptionDialog) la
+  // manda explicita cuando el usuario contesta "no son mias".
+  const adopt = opts?.adopt !== false
   try {
     // Awaits THIS call's own swap specifically (not just "the queue drained") — `run` from
     // queueSwap() is the promise for this exact task, so success/failure is reported with
     // precision even if other swaps are queued ahead of or behind it.
-    return await queueSwap(() => performUserSwap(normalizedUserId))
+    return await queueSwap(() => performUserSwap(normalizedUserId, adopt))
   } catch (err) {
     return { ok: false as const, error: err instanceof Error ? err.message : String(err) }
+  }
+})
+
+/**
+ * Task 2 (adopcion con aviso): lo que MemoryAdoptionDialog necesita para preguntar ANTES de
+ * que swapMemoryStore() adopte en silencio. Puramente informativo — no toca nada, no
+ * suspende el daemon/ipc, no cuenta como un swap (no pasa por queueSwap). Devuelve
+ * hasPending=false en cualquier situacion donde no tenga sentido preguntar: sin cuenta, sin
+ * subsistema de memoria, esta cuenta ya tiene su propia base, o `_local` no existe o esta
+ * vacio de filas sin dueno.
+ */
+ipcMain.handle('memory:checkPendingAdoption', (_event, userId: string | null) => {
+  const NADA = { hasPending: false, count: 0, projects: [] as string[] }
+  if (!memory) return NADA
+  const normalizedUserId = typeof userId === 'string' && userId ? userId : null
+  if (!normalizedUserId) return NADA
+
+  const targetPath = resolveStorePath(ravenHome(), normalizedUserId)
+  if (existsSync(targetPath)) return NADA // esta cuenta ya tiene su propia base — nada que preguntar
+
+  const localPath = resolveStorePath(ravenHome(), null)
+  if (!existsSync(localPath)) return NADA
+
+  try {
+    // Si `_local` es el store YA abierto (el caso comun: nadie logueado todavia), lo
+    // consulta directo — abrir un segundo handle sobre el mismo archivo no hace falta y
+    // suma riesgo por las dudas. Si no, es una cuenta ya activa mirando de reojo un
+    // `_local` ajeno (poco comun, pero valido): abre un handle de solo-lectura efectivo,
+    // pregunta, y lo cierra — no queda nada colgado.
+    const isCurrentlyOpenLocal = memory.currentStorePath === localPath
+    const probe = isCurrentlyOpenLocal ? memory.store : new MemoryStore(localPath)
+    try {
+      const { count, projects } = probe.countUnclaimedRows()
+      return { hasPending: count > 0, count, projects }
+    } finally {
+      if (!isCurrentlyOpenLocal) probe.close()
+    }
+  } catch (err) {
+    console.warn('[main] checkPendingAdoption failed', err instanceof Error ? err.message : err)
+    return NADA
   }
 })
 

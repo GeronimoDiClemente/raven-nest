@@ -103,7 +103,15 @@ export interface SwapResult {
 export async function swapMemoryStore(
   ctx: SwapContext,
   ravenHomeDir: string,
-  userId: string | null
+  userId: string | null,
+  // Task 2 (adopcion con aviso): `_local` puede tener memorias sin dueno de una sesion
+  // anterior sin cuenta. Antes de reclamarlas EN SILENCIO, el renderer le pregunta al
+  // usuario ("encontramos N memorias, son tuyas?") — ver MemoryStore.countUnclaimedRows()
+  // y el IPC 'memory:checkPendingAdoption'. `adopt=false` es la respuesta "no": el swap
+  // sigue adelante (la cuenta igual necesita SU base), pero sin mover `_local` — esos datos
+  // quedan intactos y siguen invisibles para esta cuenta, recuperables mas adelante si
+  // alguien vuelve a decidir que si son suyas (nada se borra nunca).
+  adopt = true
 ): Promise<SwapResult> {
   const targetPath = resolveStorePath(ravenHomeDir, userId)
 
@@ -170,7 +178,7 @@ export async function swapMemoryStore(
       const movingFromLocalToRealAccount =
         Boolean(userId && userId.trim()) && basename(currentDir) === '_local' && existsSync(currentDir)
 
-      if (!targetAlreadyHasStore && !targetDirAlreadyExists && movingFromLocalToRealAccount) {
+      if (!targetAlreadyHasStore && !targetDirAlreadyExists && movingFromLocalToRealAccount && adopt) {
         // WAL mode leaves -wal/-shm files next to the .db (memory-store.ts's constructor
         // sets `journal_mode = WAL`) — a directory-level rename moves all three together
         // atomically, which per-file renames could not guarantee under a mid-move crash.
@@ -181,9 +189,10 @@ export async function swapMemoryStore(
       // else: the target account already has its own store (a returning device/session),
       // the target's directory already exists without a .db in it (BUG 1 — some leftover
       // empty folder; degrade gracefully to a fresh base there instead of failing the swap
-      // outright), or the source wasn't `_local` at all (switching between two real
-      // accounts) — nothing to move; MemoryStore's own constructor creates the directory if
-      // this is genuinely a brand-new file (or reuses the existing empty one).
+      // outright), the source wasn't `_local` at all (switching between two real accounts),
+      // or `adopt` is false (the user said "not mine" to the pending-adoption dialog) —
+      // nothing to move; MemoryStore's own constructor creates the directory if this is
+      // genuinely a brand-new file (or reuses the existing empty one).
 
       finalStore = new MemoryStore(targetPath)
       // §2: claims/adopts NULL-authored rows on the FIRST real account to ever open this

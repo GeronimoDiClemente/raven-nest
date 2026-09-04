@@ -1045,3 +1045,52 @@ describe('resolveStorePath (Task 1, Step 2)', () => {
     expect(b).not.toBe(local)
   })
 })
+
+// Task 2 del plan de memoria por cuenta multi-dispositivo (adopcion con aviso): antes de
+// que swapMemoryStore() reclame en silencio lo que hay en `_local`, el renderer necesita
+// saber CUANTO hay y DE QUE proyectos, para poder preguntar "¿son tuyas?" en vez de
+// adoptar sin avisar.
+describe('MemoryStore — countUnclaimedRows (Task 2, el diagnostico para el dialogo de adopcion)', () => {
+  let dir: string
+  let store: MemoryStore
+
+  beforeEach(() => {
+    dir = makeTmpDir('raven-memory-unclaimed-')
+    store = new MemoryStore(join(dir, 'memory.db'))
+  })
+
+  afterEach(() => {
+    store.close()
+    cleanupTmp(dir)
+  })
+
+  it('base recien creada, sin nadie logueado nunca: 0 filas, 0 proyectos', () => {
+    expect(store.countUnclaimedRows()).toEqual({ count: 0, projects: [] })
+  })
+
+  it('cuenta las filas guardadas antes de que exista una cuenta activa', () => {
+    store.ensureProject({ projectKey: 'proj-a', displayName: 'Proyecto A' })
+    store.save({ projectKey: 'proj-a', type: 'discovery', title: 't1', content: 'contenido uno con largo suficiente', source: 'pty' })
+    store.save({ projectKey: 'proj-a', type: 'discovery', title: 't2', content: 'contenido dos con largo suficiente', source: 'pty' })
+
+    expect(store.countUnclaimedRows()).toEqual({ count: 2, projects: ['Proyecto A'] })
+  })
+
+  it('junta proyectos distintos sin duplicar, ordenados', () => {
+    store.ensureProject({ projectKey: 'proj-b', displayName: 'Zeta' })
+    store.ensureProject({ projectKey: 'proj-a', displayName: 'Alfa' })
+    store.save({ projectKey: 'proj-b', type: 'discovery', title: 't1', content: 'contenido en zeta con largo suficiente', source: 'pty' })
+    store.save({ projectKey: 'proj-a', type: 'discovery', title: 't2', content: 'contenido en alfa con largo suficiente', source: 'pty' })
+    store.save({ projectKey: 'proj-a', type: 'discovery', title: 't3', content: 'otro contenido en alfa con largo suficiente', source: 'pty' })
+
+    expect(store.countUnclaimedRows()).toEqual({ count: 3, projects: ['Alfa', 'Zeta'] })
+  })
+
+  it('una vez que una cuenta reclamo el store, ya no queda nada sin dueno', () => {
+    store.ensureProject({ projectKey: 'proj-a', displayName: 'Proyecto A' })
+    store.save({ projectKey: 'proj-a', type: 'discovery', title: 't1', content: 'contenido con largo suficiente', source: 'pty' })
+    store.setCurrentUser('user-aaaa')
+
+    expect(store.countUnclaimedRows()).toEqual({ count: 0, projects: [] })
+  })
+})

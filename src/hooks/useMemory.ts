@@ -30,6 +30,13 @@ interface MemoryHookState {
   quota: { used_bytes: number; max_bytes: number } | null
 }
 
+/** Task 2 (adopción con aviso): lo que MemoryAdoptionDialog necesita para preguntar. */
+export interface PendingAdoption {
+  userId: string
+  count: number
+  projects: string[]
+}
+
 /**
  * `window.memory` may not be exposed at all — not in a real build (preload.ts exposes it
  * unconditionally; the "memory is dead" signal there is `status().unavailable`, handled in
@@ -93,6 +100,39 @@ export function useMemory() {
     }))
   }, [])
 
+  // Task 2 (adopción con aviso): `_local` puede tener memorias sin dueño de antes de que
+  // existiera cuenta. Antes de reclamarlas EN SILENCIO (el comportamiento de la Task 1),
+  // se pregunta — MemoryAdoptionDialog se muestra cuando esto trae algo, y el efecto de
+  // abajo se detiene hasta que resolveAdoption() conteste.
+  const [pendingAdoption, setPendingAdoption] = useState<PendingAdoption | null>(null)
+
+  const applyUser = useCallback(async (userId: string | null) => {
+    const api = memoryApi()
+    if (!api?.setUser) return
+    if (!userId) {
+      // Logout no tiene nada que adoptar — directo, como siempre.
+      void api.setUser(userId)
+      return
+    }
+    // `checkPendingAdoption` es opcional (preload viejo): si no está, cae directo a
+    // setUser(), igual que se comportaba antes de la Task 2.
+    const pending = await api.checkPendingAdoption?.(userId)
+    if (pending?.hasPending) {
+      setPendingAdoption({ userId, count: pending.count, projects: pending.projects })
+      return
+    }
+    void api.setUser(userId)
+  }, [])
+
+  /** La respuesta de MemoryAdoptionDialog. `adopt=false` no borra nada — ver swapMemoryStore. */
+  const resolveAdoption = useCallback(async (adopt: boolean) => {
+    const api = memoryApi()
+    const pending = pendingAdoption
+    if (!api?.setUser || !pending) return
+    setPendingAdoption(null)
+    await api.setUser(pending.userId, adopt ? undefined : { adopt: false })
+  }, [pendingAdoption])
+
   // Las memorias son de la CUENTA DE NEST, no de la máquina ni de la IA. El store vive en
   // la máquina (una sola base bajo `{home}/.raven-nest/memory/`), así que alguien tiene que
   // decirle cuál es la cuenta activa: el renderer, que es donde está la sesión. Con eso el
@@ -106,17 +146,17 @@ export function useMemory() {
     let vivo = true
 
     void supabase.auth.getUser().then(({ data }) => {
-      if (vivo) void api.setUser?.(data.user?.id ?? null)
+      if (vivo) void applyUser(data.user?.id ?? null)
     })
 
     const { data } = supabase.auth.onAuthStateChange((_evento, sesion) => {
-      void api.setUser?.(sesion?.user?.id ?? null)
+      void applyUser(sesion?.user?.id ?? null)
     })
     return () => {
       vivo = false
       data?.subscription?.unsubscribe()
     }
-  }, [])
+  }, [applyUser])
 
 
   useEffect(() => {
@@ -226,5 +266,5 @@ export function useMemory() {
     }
   }, [refresh])
 
-  return { ...state, connectWithToken, connectWithLogin, disconnect, refresh }
+  return { ...state, connectWithToken, connectWithLogin, disconnect, refresh, pendingAdoption, resolveAdoption }
 }

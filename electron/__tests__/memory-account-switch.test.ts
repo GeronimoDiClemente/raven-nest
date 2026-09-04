@@ -335,3 +335,84 @@ describe('swapMemoryStore (Task 1 Step 3c)', () => {
     }
   })
 })
+
+// Task 2 (adopcion con aviso): el 5to parametro `adopt`. `true` (default) es el
+// comportamiento de siempre (Task 1). `false` es la respuesta "no, no son mias" al dialogo
+// de adopcion — el swap tiene que seguir dando una base funcional a la cuenta, sin tocar
+// `_local`.
+describe('swapMemoryStore — adopt=false (Task 2, "no son mias")', () => {
+  let home: string
+
+  beforeEach(() => {
+    home = makeTmpDir('raven-swap-noadopt-')
+  })
+
+  afterEach(() => {
+    cleanupTmp(home)
+  })
+
+  it('no renombra _local: la cuenta arranca con una base propia vacia y _local queda intacto', async () => {
+    const localPath = resolveStorePath(home, null)
+    const store = new MemoryStore(localPath)
+    store.save({ projectKey: 'proj-a', type: 'discovery', title: 'no es mio', content: 'contenido de otra persona', source: 'mcp' })
+
+    const daemon = fakeDaemon()
+    const ipcServer = fakeIpcServer()
+    const ctx: SwapContext = { store, daemon, ipcServer, currentStorePath: localPath }
+
+    const result = await swapMemoryStore(ctx, home, 'user-declino', false)
+
+    expect(result.error).toBeUndefined()
+    const targetPath = resolveStorePath(home, 'user-declino')
+    expect(result.currentStorePath).toBe(targetPath)
+
+    // _local sigue exactamente donde estaba, con su data adentro — nada se movio.
+    expect(existsSync(localPath)).toBe(true)
+    expect(existsSync(targetPath)).toBe(true)
+
+    // La cuenta nueva no ve nada de lo que habia en _local.
+    expect(result.store.search('proj-a', 'no es mio')).toHaveLength(0)
+    expect(result.store.getOwnerUserId()).toBe('user-declino')
+
+    result.store.close()
+  })
+
+  it('lo declinado sigue recuperable: una cuenta que entra despues SI puede adoptarlo', async () => {
+    const localPath = resolveStorePath(home, null)
+    let store = new MemoryStore(localPath)
+    store.save({ projectKey: 'proj-a', type: 'discovery', title: 'dato huerfano', content: 'contenido sin dueno todavia', source: 'mcp' })
+
+    let ctx: SwapContext = { store, daemon: fakeDaemon(), ipcServer: fakeIpcServer(), currentStorePath: localPath }
+    const declined = await swapMemoryStore(ctx, home, 'user-declino', false)
+    expect(declined.error).toBeUndefined()
+    declined.store.close()
+
+    // _local sigue ahi, sin dueno: otra persona entra a la MISMA maquina despues y esta
+    // vez dice que si.
+    store = new MemoryStore(localPath)
+    ctx = { store, daemon: fakeDaemon(), ipcServer: fakeIpcServer(), currentStorePath: localPath }
+    const adopted = await swapMemoryStore(ctx, home, 'user-real-dueno', true)
+
+    expect(adopted.error).toBeUndefined()
+    expect(adopted.store.getOwnerUserId()).toBe('user-real-dueno')
+    expect(adopted.store.search('proj-a', 'dato huerfano')).toHaveLength(1)
+    expect(existsSync(localPath)).toBe(false) // esta vez si se reclamo/renombro
+
+    adopted.store.close()
+  })
+
+  it('el default sigue siendo adopt=true: no pasar el parametro no cambia el comportamiento de la Task 1', async () => {
+    const localPath = resolveStorePath(home, null)
+    const store = new MemoryStore(localPath)
+    store.save({ projectKey: 'proj-a', type: 'discovery', title: 'default adopta', content: 'contenido de siempre', source: 'mcp' })
+
+    const ctx: SwapContext = { store, daemon: fakeDaemon(), ipcServer: fakeIpcServer(), currentStorePath: localPath }
+    const result = await swapMemoryStore(ctx, home, 'user-sin-parametro') // sin 4to arg
+
+    expect(result.store.getOwnerUserId()).toBe('user-sin-parametro')
+    expect(result.store.search('proj-a', 'default adopta')).toHaveLength(1)
+    expect(existsSync(localPath)).toBe(false)
+
+    result.store.close()
+  })
+})

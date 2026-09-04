@@ -314,3 +314,83 @@ describe('useMemory — le dice al store de quien son las memorias', () => {
     expect(memoriaConUser.setUser).toHaveBeenCalledWith('user-bbbb')
   })
 })
+
+// Task 2 (adopción con aviso): antes de adoptar en silencio lo que haya en `_local`, se
+// pregunta. `checkPendingAdoption` es lo que decide si corresponde preguntar.
+describe('useMemory — adopción con aviso (Task 2)', () => {
+  const memoriaConAdopcion = { ...memoryMock, setUser: vi.fn(), checkPendingAdoption: vi.fn() }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    ;(globalThis as unknown as { window: Window }).window.memory = memoriaConAdopcion as never
+    memoryMock.status.mockResolvedValue({
+      connected: false, deviceId: null, itemCount: 0, pendingCount: 0, daemonStatus: 'idle',
+    })
+    supabaseMock.auth.onAuthStateChange.mockReturnValue({ data: { subscription: { unsubscribe: vi.fn() } } })
+  })
+
+  it('sin nada pendiente, llama setUser directo — no bloquea el login por las dudas', async () => {
+    supabaseMock.auth.getUser.mockResolvedValue({ data: { user: { id: 'user-aaaa' } } })
+    memoriaConAdopcion.checkPendingAdoption.mockResolvedValue({ hasPending: false, count: 0, projects: [] })
+
+    const { result } = renderHook(() => useMemory())
+
+    await waitFor(() => expect(memoriaConAdopcion.setUser).toHaveBeenCalledWith('user-aaaa'))
+    expect(result.current.pendingAdoption).toBeNull()
+  })
+
+  it('con datos pendientes, NO llama setUser todavia — expone pendingAdoption para el dialogo', async () => {
+    supabaseMock.auth.getUser.mockResolvedValue({ data: { user: { id: 'user-aaaa' } } })
+    memoriaConAdopcion.checkPendingAdoption.mockResolvedValue({ hasPending: true, count: 7, projects: ['Alfa', 'Zeta'] })
+
+    const { result } = renderHook(() => useMemory())
+
+    await waitFor(() => expect(result.current.pendingAdoption).toEqual({ userId: 'user-aaaa', count: 7, projects: ['Alfa', 'Zeta'] }))
+    expect(memoriaConAdopcion.setUser).not.toHaveBeenCalled()
+  })
+
+  it('resolveAdoption(true): llama setUser sin adopt:false y limpia pendingAdoption', async () => {
+    supabaseMock.auth.getUser.mockResolvedValue({ data: { user: { id: 'user-aaaa' } } })
+    memoriaConAdopcion.checkPendingAdoption.mockResolvedValue({ hasPending: true, count: 3, projects: ['Alfa'] })
+
+    const { result } = renderHook(() => useMemory())
+    await waitFor(() => expect(result.current.pendingAdoption).not.toBeNull())
+
+    await act(async () => { await result.current.resolveAdoption(true) })
+
+    expect(memoriaConAdopcion.setUser).toHaveBeenCalledWith('user-aaaa', undefined)
+    expect(result.current.pendingAdoption).toBeNull()
+  })
+
+  it('resolveAdoption(false): llama setUser con adopt:false — nada se pierde, solo no se reclama', async () => {
+    supabaseMock.auth.getUser.mockResolvedValue({ data: { user: { id: 'user-aaaa' } } })
+    memoriaConAdopcion.checkPendingAdoption.mockResolvedValue({ hasPending: true, count: 3, projects: ['Alfa'] })
+
+    const { result } = renderHook(() => useMemory())
+    await waitFor(() => expect(result.current.pendingAdoption).not.toBeNull())
+
+    await act(async () => { await result.current.resolveAdoption(false) })
+
+    expect(memoriaConAdopcion.setUser).toHaveBeenCalledWith('user-aaaa', { adopt: false })
+    expect(result.current.pendingAdoption).toBeNull()
+  })
+
+  it('logout (userId null) nunca pregunta: no hay nada que adoptar al salir', async () => {
+    supabaseMock.auth.getUser.mockResolvedValue({ data: { user: null } })
+
+    renderHook(() => useMemory())
+
+    await waitFor(() => expect(memoriaConAdopcion.setUser).toHaveBeenCalledWith(null))
+    expect(memoriaConAdopcion.checkPendingAdoption).not.toHaveBeenCalled()
+  })
+
+  it('preload viejo sin checkPendingAdoption: cae directo a setUser, como antes de la Task 2', async () => {
+    const memoriaVieja = { ...memoryMock, setUser: vi.fn() } // sin checkPendingAdoption
+    ;(globalThis as unknown as { window: Window }).window.memory = memoriaVieja as never
+    supabaseMock.auth.getUser.mockResolvedValue({ data: { user: { id: 'user-aaaa' } } })
+
+    renderHook(() => useMemory())
+
+    await waitFor(() => expect(memoriaVieja.setUser).toHaveBeenCalledWith('user-aaaa'))
+  })
+})

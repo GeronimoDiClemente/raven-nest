@@ -1091,6 +1091,28 @@ export class MemoryStore {
     return row.c
   }
 
+  /**
+   * Task 2 (adopcion con aviso): lo que el renderer necesita para preguntar "encontramos N
+   * memorias de tus proyectos X, Y — ¿son tuyas?" ANTES de que setCurrentUser() las adopte
+   * en silencio. Mismos filtros que count() (deleted=0, no superseded) para no mostrarle al
+   * usuario un numero que no coincide con lo que despues ve en la app.
+   */
+  countUnclaimedRows(): { count: number; projects: string[] } {
+    const countRow = this.db
+      .prepare('SELECT COUNT(*) as c FROM observations WHERE author_user_id IS NULL AND deleted = 0 AND superseded_by IS NULL')
+      .get() as { c: number }
+    if (countRow.c === 0) return { count: 0, projects: [] }
+    const projectRows = this.db
+      .prepare(
+        `SELECT DISTINCT p.display_name FROM observations o
+         JOIN projects p ON p.project_key = o.project_key
+         WHERE o.author_user_id IS NULL AND o.deleted = 0 AND o.superseded_by IS NULL
+         ORDER BY p.display_name`
+      )
+      .all() as Array<{ display_name: string }>
+    return { count: countRow.c, projects: projectRows.map((r) => r.display_name) }
+  }
+
   // ── Mutation log / offline queue (§4.5) ──────────────────────────────────
 
   // Task 8: excludes `blocked_reason IS NOT NULL` — a reversibly-rejected mutation is
