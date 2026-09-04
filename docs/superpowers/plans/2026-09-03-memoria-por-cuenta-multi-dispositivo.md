@@ -224,11 +224,26 @@ máquina, no de memoria:
 | copilot | a verificar | a verificar | vía `gh` | La extensión ni siquiera está instalada acá |
 | cursor / qwen / grok / deepseek | a verificar | a verificar | no | Ninguno instalado en esta máquina |
 
-- [ ] **Step 1:** Generalizar el provisioner de claude-only a un registro por `aiType`.
-- [ ] **Step 2:** gemini (el más barato, y su `hooks migrate` puede ahorrarnos el diseño).
-- [ ] **Step 3:** codex (el que más vale). El smoke va en la PC: en esta Mac el paquete global está
-      roto (`vendor/.../codex` ENOENT, ni `--version` arranca).
-- [ ] **Step 4:** Verificar los demás uno por uno antes de prometerlos.
+- [x] **Step 1:** Generalizar el provisioner de claude-only a un registro por `aiType`. Hecho
+      2026-09-04 (`2b40bc0`): `electron/memory-cli-adapters.ts` nuevo (interfaz `AiMemoryAdapter`
+      + registro), `pty-manager.ts`/`account-store.ts` despachan por ahí en vez de
+      `if (aiType === 'claude')`. Refactor puro, cero cambio de comportamiento verificado.
+- [x] **Step 2:** gemini. **`hooks migrate` NO ahorró el diseño — al revés**: verificado corriendo
+      el comando real, lee de un `.claude/settings.json` de proyecto (nunca el nuestro, aislado por
+      cuenta) y a veces no-opea en silencio con mensaje de éxito falso. Se escribió el JSON a mano.
+      Hallazgo aparte no anticipado: Gemini ya tenía un home de identidad propio
+      (`GEMINI_CLI_HOME={accountDir}/gemini`, armado por `pty-manager.ts`) — la memoria se
+      provisiona ahí con merge quirúrgico, no en un home aislado nuevo (eso hubiera dejado el login
+      real huérfano). Smoke real contra gemini 0.55.1 instalado.
+- [x] **Step 3:** codex (el que más vale). El smoke se corrió en esta PC (Windows), donde el paquete
+      SÍ funciona. Confirmado con comandos reales: `--dangerously-bypass-hook-trust` es válido en el
+      modo interactivo (no solo `codex exec`); `HOME`/`USERPROFILE` NO aíslan la config de Codex —
+      solo `CODEX_HOME` explícito — se descubrió intentando lo primero, que escribió brevemente en
+      el `~/.codex/config.toml` real de esta máquina (detectado y limpiado en el momento, confirmado
+      restaurado). Smoke real contra codex-cli 0.140.0.
+- [ ] **Step 4:** Verificar los demás uno por uno antes de prometerlos. Pendiente, prioridad menor
+      (copilot/opencode instalados acá pero sin verificar aún; cursor/qwen/grok/deepseek ni
+      instalados).
 
 ### Task 7: El hub in-app — que todo usuario vea para qué sirve
 
