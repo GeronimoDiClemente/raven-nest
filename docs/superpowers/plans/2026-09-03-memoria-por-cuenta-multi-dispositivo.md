@@ -84,11 +84,21 @@ Un `close()` + `open()` en caliente con el daemon corriendo es la parte delicada
 daemon, cerrar, mover, abrir y volver a arrancarlo, y `memory-ipc-server` tiene que rechazar
 escrituras mientras tanto en vez de escribir en un handle muerto.
 
-- [ ] **Step 1:** Test que falla — dos cuentas en la misma máquina no se ven las memorias en local.
-- [ ] **Step 2:** `resolveStorePath(ravenHome, userId | null)` puro, con sus tests.
-- [ ] **Step 3:** El swap en caliente: parar daemon → cerrar → mover/abrir → arrancar.
-- [ ] **Step 4:** Que el IPC server rechace durante el swap (y que el shim lo lea como "reintentá").
-- [ ] **Step 5:** Suite entera + typecheck.
+- [x] **Step 1:** Test que falla — dos cuentas en la misma máquina no se ven las memorias en local.
+- [x] **Step 2:** `resolveStorePath(ravenHome, userId | null)` puro, con sus tests.
+- [x] **Step 3:** El swap en caliente: parar daemon → cerrar → mover/abrir → arrancar.
+- [x] **Step 4:** Que el IPC server rechace durante el swap (y que el shim lo lea como "reintentá").
+- [x] **Step 5:** Suite entera + typecheck.
+
+5/5 hecho 2026-09-04 (`b8fe6b2`): diseño + revisión adversarial primero (encontró un bug crítico —
+el fallback dejaba `daemon`/`ipcServer` apuntando a un store ya cerrado), después TDD completo
+(`electron/memory-account-switch.ts` nuevo, `resolveStorePath`/`migrateLegacyStorePath` en
+`memory-store.ts`, `pause()`/`resume()`/`setStore()` en el daemon, `suspend()`/`resume()`/`setStore()`
++ reject `store_swapping` en el IPC server, retry en el cliente MCP), y una SEGUNDA revisión
+adversarial sobre el código final que encontró 6 bugs más (carrera en `daemon.status()`, dos bugs de
+Windows/rename, `memorySink` sin pasar por el protocolo de swap, etc.) — todos corregidos antes de
+commitear. Verificado con 1947 tests + un check manual end-to-end contra datos realistas (25 memorias
+legado → migración → dos cuentas reales → aislamiento confirmado).
 
 ### Task 2: Qué pasa con lo capturado antes de loguearse
 
@@ -110,11 +120,17 @@ Opciones, para decidir:
 **DECIDIDO (Gero, 2026-09-03): la 2 — adopción con aviso.**
 
 - [x] **Step 1:** ~~Que Gero elija.~~ Adopción con aviso.
-- [ ] **Step 2:** El diálogo al primer login cuando hay memorias sin cuenta: cuántas son, de qué
+- [x] **Step 2:** El diálogo al primer login cuando hay memorias sin cuenta: cuántas son, de qué
       proyectos, y dos salidas — "son mías" (adopta) y "no" (quedan en `_local`, invisibles para esta
-      cuenta). Copy en inglés, como toda la UI.
-- [ ] **Step 3:** Que "no" sea recuperable: si más tarde entra la cuenta dueña, adopta. Lo que no
-      puede pasar es que un "no" borre nada.
+      cuenta). Copy en inglés, como toda la UI. Hecho 2026-09-04 (`43581d2`): `MemoryStore.countUnclaimedRows()`
+      + IPC `memory:checkPendingAdoption` + `useMemory()`'s `pendingAdoption`/`resolveAdoption` +
+      `MemoryAdoptionDialog` (reusa la cáscara visual de `MemoryHub`, Task 7).
+- [x] **Step 3:** Que "no" sea recuperable: si más tarde entra la cuenta dueña, adopta. Lo que no
+      puede pasar es que un "no" borre nada. Hecho: `swapMemoryStore()` gana un 5to parámetro
+      `adopt` (default `true`) — `adopt=false` da una base propia a la cuenta sin tocar `_local`,
+      que queda intacto para que cualquier cuenta futura lo reclame. Sin verificación visual en vivo
+      (Electron con login real) — cubierto con tests de render real (RTL) y el contrato real de IPC;
+      ver el mensaje del commit para el porqué.
 
 ### Task 3: El contexto de sesión viaja
 
