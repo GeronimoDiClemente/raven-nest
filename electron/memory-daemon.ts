@@ -29,6 +29,12 @@ const QUEUE_HARD_CAP = 50_000
 // subsequent call returns the same dead promise. 30s is generous for a push of 200
 // mutations over a bad connection and is still a cutoff, not a wait.
 const FETCH_TIMEOUT_MS = 30_000
+// Task 1 (plan de memoria por cuenta multi-dispositivo), Step 3a: pause() waits for any
+// in-flight push()/pull() to settle before the hot-swap orchestrator (memory-account-switch.ts)
+// closes the old store and renames its directory. A push/pull that never settles (a fetch
+// stuck past FETCH_TIMEOUT_MS would already be a bug, but defense in depth costs nothing
+// here) must not wedge the swap forever — see the adversarial review's finding 3.
+const PAUSE_DRAIN_TIMEOUT_MS = 5_000
 
 // 'plan_required' is distinct from 'error': it is not a credential problem (spec §9.3),
 // the UI hangs its own Upgrade affordance off it (SettingsPanel.tsx), and — unlike a real
@@ -127,6 +133,25 @@ export class Backoff {
   }
 }
 
+/**
+ * Task 1, Step 3a: races `settle` against a timer, same shape as memory-ipc-server.ts's
+ * own `withTimeout` (M26, for memory.search's pull-through fallback) — replicated here
+ * rather than imported because that one is a module-private helper in a different file
+ * with its own reasoning about what it wraps. Never rejects: resolves `true` when
+ * `settle` finished first (fulfilled OR rejected — pause() only cares that the in-flight
+ * work is DONE, not how it ended) and `false` when the timeout fired first, so the caller
+ * can log a warning without the drain wait ever hanging indefinitely.
+ */
+function withTimeout(settle: Promise<unknown>, ms: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(false), ms)
+    settle.then(
+      () => { clearTimeout(timer); resolve(true) },
+      () => { clearTimeout(timer); resolve(true) }
+    )
+  })
+}
+
 function parseServerTimestamp(value: unknown): number {
   if (typeof value === 'number') return value
   if (typeof value === 'string') {
@@ -207,6 +232,12 @@ export class MemoryDaemon {
   // getStatus()/onStatusChange, not the sync service's health-check response.
   private currentStatus: DaemonStatus = 'idle'
   private running = false
+  // Task 1, Step 3a: set for the duration of a hot-swap (pause() -> ... -> resume()).
+  // Every trigger entry point that can schedule a NEW push/pull (as opposed to one
+  // already in flight, which pause() drains separately) must no-op while this is true —
+  // otherwise a timer or a chained setImmediate() can fire mid-swap and touch a store
+  // that is mid-close/mid-rename or already reassigned to a different account's file.
+  private swapping = false
   // M18: 3 consecutive auth failures used to only stop the BACKOFF chain from
   // re-scheduling itself — every OTHER trigger (a fresh on-write debounce, pane-exit,
   // window focus, the 5-minute interval) still called push()/pull() directly and hit
@@ -232,6 +263,16 @@ export class MemoryDaemon {
   // second request.
   private pushInFlight: Promise<void> | null = null
   private pullInFlight: Promise<void> | null = null
+  // Task 8 (smoke/memory-bridge) adversarial review, bug found in drain(): status()'s own
+  // network fetch is awaited BUT — unlike push()/pull() — was never tracked here, so a
+  // status() in flight was invisible to pause()'s drain-wait (see pause() below). drain()
+  // calls status() BEFORE pull()/push(), so the exact window this closes is: pause() called
+  // while a drain()'s status() fetch is still in the air and pushInFlight/pullInFlight are
+  // both still null (pull()/push() haven't been reached yet) — pause() used to see an empty
+  // in-flight list and return immediately, and the swap would close/rename the store while
+  // status()'s eventual `this.deps.store`-reading continuation was still pending against it.
+  // Same set/clear-in-finally shape as pushInFlight/pullInFlight (M19), just for status().
+  private statusInFlight: Promise<StatusResponseBody | null> | null = null
   // §11.4 / spec §5.3.1: the server's call, not a client constant. `status()` reads
   // `next_poll_ms` off every response and, when it names a different number, reschedules
   // the interval to it via applyPollInterval(). Starts at the hard-coded fallback because
@@ -265,6 +306,61 @@ export class MemoryDaemon {
     this.debounceTimer = this.maxWaitTimer = this.intervalTimer = this.backoffTimer = null
   }
 
+  /**
+   * Task 1, Step 3a: the daemon side of a hot-swap. Called by the swap orchestrator
+   * (memory-account-switch.ts) BEFORE it closes the current store — stops scheduling any
+   * new push/pull (via `swapping`, checked by every trigger entry point below) and waits
+   * for whatever push/pull is already in flight to settle, so the swap's close()+rename
+   * never races a request still reading/writing the old file.
+   *
+   * Bounded by PAUSE_DRAIN_TIMEOUT_MS: a push/pull that never settles must not wedge the
+   * swap forever (adversarial review finding 3) — this resolves regardless, just with a
+   * warning logged, and the swap proceeds. Idempotent-ish in the sense that calling it
+   * again while already swapping just re-drains whatever is in flight at that moment; the
+   * orchestrator's own mutex (queued in main.ts) is what actually prevents overlapping
+   * swaps, not this method.
+   */
+  async pause(): Promise<void> {
+    this.swapping = true
+    this.stop() // running = false + clears the 4 timers (debounce/maxWait/interval/backoff)
+
+    const inFlight: Array<Promise<unknown>> = []
+    if (this.pushInFlight) inFlight.push(this.pushInFlight)
+    if (this.pullInFlight) inFlight.push(this.pullInFlight)
+    if (this.statusInFlight) inFlight.push(this.statusInFlight)
+    if (inFlight.length === 0) return
+
+    const settledInTime = await withTimeout(Promise.allSettled(inFlight), PAUSE_DRAIN_TIMEOUT_MS)
+    if (!settledInTime) {
+      console.warn(
+        '[memory-daemon] pause(): timed out after %dms waiting for an in-flight push/pull to settle — proceeding with the swap anyway',
+        PAUSE_DRAIN_TIMEOUT_MS
+      )
+    }
+  }
+
+  /**
+   * Task 1, Step 3a: the other half of pause() — clears `swapping` and restarts the
+   * interval timer. `start()` is already idempotent (no-ops if `running` is true), so
+   * this is safe to call even if something else already restarted the daemon.
+   */
+  resume(): void {
+    this.swapping = false
+    this.start()
+  }
+
+  /**
+   * Task 1, Step 3a: the actual "hot" part of the hot-swap — reassigns the store this
+   * daemon reads/writes without recreating the daemon (which would lose backoff state,
+   * pending timers' closures, etc.). Must only be called while paused (swapping === true)
+   * so no in-flight push/pull is mid-request against the OLD store when this reassigns
+   * `deps.store` out from under it — the orchestrator's ordering (pause -> close old ->
+   * rename/reopen -> setStore -> resume) is what guarantees that, not this method itself.
+   */
+  setStore(store: MemoryStore): void {
+    this.deps.store = store
+  }
+
   private setStatus(status: DaemonStatus, detail?: string): void {
     this.currentStatus = status
     this.deps.onStatusChange?.(status, detail)
@@ -291,6 +387,7 @@ export class MemoryDaemon {
 
   /** §4.1 "On write" trigger — debounce 3s, max-wait 30s so a chatty session still pushes. */
   scheduleMutationPush(): void {
+    if (this.swapping) return // Task 1 Step 3a: no new timers while a store hot-swap is in flight
     if (this.debounceTimer) clearTimeout(this.debounceTimer)
     this.debounceTimer = setTimeout(() => {
       this.debounceTimer = null
@@ -309,6 +406,7 @@ export class MemoryDaemon {
 
   /** §4.1 "Window focus" trigger — rate-limited to once per 30s. */
   onWindowFocus(): void {
+    if (this.swapping) return // Task 1 Step 3a: no new pull while a store hot-swap is in flight
     const now = Date.now()
     if (now - this.lastFocusPullAt < FOCUS_PULL_RATE_LIMIT_MS) return
     this.lastFocusPullAt = now
@@ -317,6 +415,7 @@ export class MemoryDaemon {
 
   /** §4.1 "Network regain" trigger — full drain. Also the "user acted" reset for M18. */
   onNetworkRegain(): void {
+    if (this.swapping) return // Task 1 Step 3a: no new drain while a store hot-swap is in flight
     this.backoff.reset()
     this.consecutiveAuthFailures = 0
     this.authBlocked = false
@@ -325,6 +424,7 @@ export class MemoryDaemon {
 
   /** §4.1 "Pane exit" trigger. */
   onPaneExit(): void {
+    if (this.swapping) return // Task 1 Step 3a: no new push while a store hot-swap is in flight
     void this.push()
   }
 
@@ -610,7 +710,17 @@ export class MemoryDaemon {
       // pushInFlight is guaranteed clear and the chained push() actually starts a new
       // request instead of returning the just-finished promise.
       if ((toMark.length > 0 || toBlock.length > 0) && store.pendingMutationCount() > 0) {
-        setImmediate(() => void this.push())
+        // Task 1 Step 3a: this macrotask can still fire AFTER pause()'s drain-wait already
+        // observed pushInFlight settle (the .finally() that clears pushInFlight runs as a
+        // microtask before this setImmediate's macrotask does — see the M22 comment above
+        // for why this is a macrotask at all) but BEFORE the swap actually closes/renames
+        // the store. Re-check swapping here, at the moment this callback actually runs, not
+        // just at schedule time — a swap started in that exact window must not have this
+        // chained push slip through against a store that's mid-swap.
+        setImmediate(() => {
+          if (this.swapping) return
+          void this.push()
+        })
       }
     } catch (err) {
       store.setSyncState('__account__', { lastError: err instanceof Error ? err.message : String(err) })
@@ -638,7 +748,16 @@ export class MemoryDaemon {
    * endpoint can't wedge the daemon any differently than a hung push or pull already
    * could (C6).
    */
-  async status(): Promise<StatusResponseBody | null> {
+  status(): Promise<StatusResponseBody | null> {
+    // Same in-flight dedupe/tracking shape as push()/pull() (M19) — see statusInFlight's
+    // own comment for why this was the missing half of the Task 8 pause() race.
+    if (this.statusInFlight) return this.statusInFlight
+    const run = this.doStatus().finally(() => { this.statusInFlight = null })
+    this.statusInFlight = run
+    return run
+  }
+
+  private async doStatus(): Promise<StatusResponseBody | null> {
     const { store, getSyncBaseUrl, getToken, isOnline } = this.deps
     if (this.authBlocked) return null // M18: gate every entry point, not just push/pull
     if (!isOnline()) return null
@@ -923,7 +1042,12 @@ export class MemoryDaemon {
       // `.finally` and see `pullInFlight` still set, silently deduping into a no-op. A
       // macrotask fires only after the microtask queue (including that `.finally`) drains.
       if (body.rows.length === PULL_PAGE_SIZE && cursorAdvanced) {
-        setImmediate(() => void this.pull())
+        // Task 1 Step 3a: same race as M22's chained push above — re-check swapping at the
+        // moment this macrotask actually runs, not just at schedule time.
+        setImmediate(() => {
+          if (this.swapping) return
+          void this.pull()
+        })
       }
     } catch (err) {
       store.setSyncState('__account__', { lastError: err instanceof Error ? err.message : String(err) })

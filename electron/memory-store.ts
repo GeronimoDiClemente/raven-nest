@@ -8,8 +8,8 @@
 // FTS5 MATCH, sub-millisecond on the data volumes this product targets (§10 R-6).
 
 import Database from 'better-sqlite3'
-import { mkdirSync } from 'fs'
-import { dirname } from 'path'
+import { mkdirSync, existsSync, renameSync } from 'fs'
+import { dirname, join } from 'path'
 import { randomBytes, createHash } from 'crypto'
 import { redact } from './memory-redaction'
 import { GLOBAL_PROJECT_KEY } from './memory-project-key'
@@ -21,6 +21,117 @@ import type {
 } from './memory-protocol'
 
 const DEDUPE_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
+
+/**
+ * Task 1 (plan de memoria por cuenta multi-dispositivo): calcula el path del store físico
+ * de UNA cuenta. Pura, sin fs — no crea el directorio ni decide si hay que migrar un store
+ * `_local` preexistente a esta cuenta; eso es responsabilidad de quien orqueste el swap
+ * (electron/memory-account-switch.ts), que sí puede usar existsSync para esa decisión.
+ *
+ * `userId` null o string vacía (sesión sin cuenta logueada) cae en la partición `_local`,
+ * separada de cualquier cuenta real — así una sesión anónima nunca comparte archivo con
+ * una cuenta ni con otra.
+ */
+export function resolveStorePath(ravenHomeDir: string, userId: string | null): string {
+  const account = userId && userId.trim() ? userId : '_local'
+  return join(ravenHomeDir, '.raven-nest', 'memory', account, 'memory.db')
+}
+
+// Adversarial-review fix (smoke/memory-bridge), BUG 1 (ALTO): renameSync has no retry of
+// its own. On Windows a transient EBUSY/EPERM (antivirus or an indexer — OneDrive included
+// — holding a handle on the .db an instant after MemoryStore.close() released it) used to
+// throw straight out of migrateLegacyStorePath, up through main.ts's unguarded call site,
+// into the try/catch that sets `memory = null` — disabling the ENTIRE memory feature for
+// the session over a one-off timing fluke, not a real failure. Same retry shape as
+// renameDirWithRetry in memory-account-switch.ts (that file's sibling fix for the same
+// class of Windows timing issue): a few short attempts, only for EBUSY/EPERM, anything else
+// rethrows immediately.
+const RENAME_RETRY_ATTEMPTS = 3
+const RENAME_RETRY_DELAY_MS = 50
+
+// migrateLegacyStorePath runs at module scope in main.ts (electron/main.ts ~line 267),
+// synchronously, before `new MemoryStore(...)` and before any window exists — there is no
+// event loop turn anything else is waiting on yet. Turning it async would mean wrapping
+// that whole module-scope initialization block in an async IIFE, a much bigger structural
+// change to main.ts for a one-time startup delay measured in tens of milliseconds. A
+// synchronous sleep via Atomics.wait blocks this thread for real (no busy CPU spin, unlike
+// a Date.now() poll loop) without turning any part of main.ts async — the lowest-risk shape
+// for a fix that only ever fires while retrying a transient rename at startup.
+function sleepSync(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+}
+
+function renameSyncWithRetry(from: string, to: string): void {
+  for (let attempt = 1; attempt <= RENAME_RETRY_ATTEMPTS; attempt++) {
+    try {
+      renameSync(from, to)
+      return
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException)?.code
+      if (code !== 'EBUSY' && code !== 'EPERM') throw err
+      if (attempt === RENAME_RETRY_ATTEMPTS) throw err
+      sleepSync(RENAME_RETRY_DELAY_MS)
+    }
+  }
+}
+
+/**
+ * Task 1 (plan de memoria por cuenta multi-dispositivo), Step 3d: migración de una sola vez
+ * del store PLANO legado (`{home}/.raven-nest/memory/memory.db`, sin subcarpeta de cuenta —
+ * el layout de antes de esta Task) al nuevo layout por-cuenta (`resolveStorePath(home,
+ * null)` = `{home}/.raven-nest/memory/_local/memory.db`).
+ *
+ * Máquinas reales — incluida la que corrió esta implementación — YA TIENEN datos
+ * capturados bajo el path viejo. Esta función tiene que correr ANTES de construir el
+ * MemoryStore inicial (main.ts la llama ahí): si el primer arranque bajo el nuevo layout
+ * simplemente abriera `resolveStorePath(home, null)`, encontraría una base vacía y el
+ * historial real quedaría huérfano para siempre en el path legado, nunca más leído por
+ * nada.
+ *
+ * No-op si el path nuevo YA existe (la migración ya corrió, o es una instalación nueva sin
+ * legado que mover) o si no hay legado (`memory.db` no existe en el path plano viejo) — en
+ * cualquiera de los dos casos no se toca ni se crea nada.
+ *
+ * Mueve el `.db` y, si están presentes, sus compañeros `-wal`/`-shm` de WAL mode (el
+ * constructor de MemoryStore deja el store en `journal_mode = WAL`, así que una escritura
+ * sin checkpointear puede vivir en cualquiera de los tres archivos — moverlos junto con el
+ * `.db` es la única forma de no perder esas filas). Nunca borra nada: sólo `renameSync` (con
+ * reintento, ver renameSyncWithRetry) por archivo, y sólo para los que efectivamente
+ * existen.
+ *
+ * Adversarial-review fix, BUG 2 (CRÍTICO, pérdida de datos real): el `.db` se mueve AL
+ * FINAL, no primero. Con el `.db` primero, si el proceso moría entre mover el `.db` y mover
+ * el `-wal`, el próximo arranque veía `existsSync(newPath) === true` (el `.db` ya estaba
+ * ahí) y el guard de arriba cortaba con `return` inmediato — sin mover jamás el `-wal`
+ * legado que quedó atrás, que puede tener filas commiteadas pero no checkpointeadas
+ * (`journal_mode = WAL`, `synchronous = NORMAL`, ver el constructor de MemoryStore):
+ * huérfanas para siempre, en silencio. Con los compañeros primero y el `.db` al final, el
+ * `.db` en el path nuevo es la señal de "migración completa" recién cuando de verdad lo
+ * está: si el proceso muere ANTES de ese último paso, `existsSync(newPath)` sigue siendo
+ * `false` en el próximo arranque, el guard no corta, y el loop reintenta desde el principio
+ * — el `existsSync(from)` por archivo hace que reintentar sea un no-op para lo que ya se
+ * movió (idempotente en la práctica). Si el proceso muere DESPUÉS de mover el `.db` (el
+ * último paso), la migración ya estaba completa de verdad — no hay ventana de pérdida en
+ * ningún punto del loop.
+ *
+ * Pura respecto al store: usa `fs` directo, nunca abre un `Database` — corre antes de que
+ * exista ningún `MemoryStore` (evita abrir-para-migrar/cerrar/reabrir en el path nuevo) y es
+ * trivialmente testeable sin levantar better-sqlite3 dos veces por test.
+ */
+export function migrateLegacyStorePath(ravenHomeDir: string): void {
+  const legacyPath = join(ravenHomeDir, '.raven-nest', 'memory', 'memory.db')
+  const newPath = resolveStorePath(ravenHomeDir, null)
+  if (existsSync(newPath) || !existsSync(legacyPath)) return
+
+  mkdirSync(dirname(newPath), { recursive: true })
+  // Companions first, bare `.db` last — see the BUG 2 fix note above for why this order is
+  // the whole point.
+  for (const suffix of ['-wal', '-shm', '']) {
+    const from = `${legacyPath}${suffix}`
+    const to = `${newPath}${suffix}`
+    if (existsSync(from)) renameSyncWithRetry(from, to)
+  }
+}
 
 export function generateSyncId(prefix: 'obs' | 'sess' | 'prom'): string {
   return `${prefix}-${randomBytes(16).toString('hex')}`

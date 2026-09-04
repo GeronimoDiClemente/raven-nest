@@ -134,10 +134,11 @@ import type { VSCodeThemeJson } from '../src/lib/theme-registry'
 import { detectIDEs, openInIDE, clearCache as clearIDECache } from './ide-launcher'
 import { MCPStore } from './mcp-store'
 import { SettingsStore } from './settings-store'
-import { MemoryStore } from './memory-store'
+import { MemoryStore, resolveStorePath, migrateLegacyStorePath } from './memory-store'
 import { MemoryIpcServer } from './memory-ipc-server'
 import { MemoryDaemon } from './memory-daemon'
 import { daemonSocketPath } from './memory-protocol'
+import { swapMemoryStore, type SwapContext } from './memory-account-switch'
 import { provisionClaudeAccount, deprovisionClaudeAccount, type ProvisionerPaths } from './memory-provisioner'
 import { ensureLocalAuthMaterial } from './memory-local-auth'
 import { runLocalMemoryImport } from './memory-local-import'
@@ -181,7 +182,8 @@ import { sampleGraph, launchCommand, type PaneSignals } from './integrations/gra
 import { readHandoff, writeHandoff } from './integrations/handoff'
 import { makeRunAutomation, type AutomationRunnerPorts } from './integrations/automation-runner'
 import { bridgeEvent, bridgeDecision, type BridgeContext } from './integrations/memory-bridge'
-import { type MemorySink } from './integrations/memory-port'
+import { type MemorySink, type MemorySaveInput } from './integrations/memory-port'
+import { SwapWriteGate } from './memory-write-gate'
 
 const ptyManager = new PtyManager()
 // Per-pane last-output timestamp. deriveAgentState (graph orchestrator sampling)
@@ -238,6 +240,11 @@ interface MemorySubsystem {
   store: MemoryStore
   daemon: MemoryDaemon
   ipcServer: MemoryIpcServer
+  // Task 1 (plan de memoria por cuenta multi-dispositivo), Step 3d: el path físico del
+  // store actualmente wireado en daemon/ipcServer. swapMemoryStore() (memory-account-switch.ts)
+  // lo necesita como `ctx.currentStorePath` para decidir si un swap es un no-op (mismo
+  // archivo ya abierto) y, si no lo es, desde qué directorio renombrar.
+  currentStorePath: string
 }
 
 // C7 fix: `new MemoryStore(...)` (better-sqlite3) used to run unguarded at module scope.
@@ -252,7 +259,18 @@ interface MemorySubsystem {
 // configured when it's null (both already no-op safely without a configured integration).
 let memory: MemorySubsystem | null = null
 try {
-  const store = new MemoryStore(pathJoin(ravenHome(), '.raven-nest', 'memory', 'memory.db'))
+  // Step 3d, correction #9 (CRÍTICO — no perder datos reales): hasta esta Task el store
+  // vivía en un path PLANO ({home}/.raven-nest/memory/memory.db, sin subcarpeta de
+  // cuenta). Máquinas reales — incluida esta — ya tienen historial capturado ahí. Tiene
+  // que correr ANTES de `new MemoryStore(...)`, o el primer arranque bajo el nuevo layout
+  // por-cuenta abriría una base vacía en `_local/` y dejaría ese historial huérfano en el
+  // path legado para siempre. Ver memory-store.ts's migrateLegacyStorePath() doc comment.
+  migrateLegacyStorePath(ravenHome())
+  // Sin cuenta logueada todavía al arrancar (memory:setUser llega recién cuando el
+  // renderer monta useMemory()'s effect) — resolveStorePath(home, null) es la partición
+  // `_local` anónima, exactamente el nuevo home de lo que antes vivía en el path plano.
+  const initialStorePath = resolveStorePath(ravenHome(), null)
+  const store = new MemoryStore(initialStorePath)
   const authMaterial = ensureLocalAuthMaterial(ravenHome())
   const memorySocketPath = daemonSocketPath(ravenHome(), process.platform === 'win32', authMaterial.pipeId)
 
@@ -301,10 +319,64 @@ try {
     },
   })
 
-  memory = { store, daemon, ipcServer }
+  memory = { store, daemon, ipcServer, currentStorePath: initialStorePath }
 } catch (err) {
   console.error('[main] Nest Memory subsystem failed to initialize — memory features disabled for this session', err instanceof Error ? err.message : err)
   memory = null
+}
+
+// Step 3d, correction #2 (ALTO): a chained promise every call to swapMemoryStore() has to
+// pass through, so a rapid logout+login (two 'memory:setUser' invokes close together) can't
+// run two swaps concurrently and clobber the same store twice. Nothing outside queueSwap()
+// below may call swapMemoryStore() directly.
+//
+// `swapQueue` is always kept as a promise that never rejects (the `.then(() => undefined, ()
+// => undefined)` normalization below): a task that throws must not break the chain for
+// whatever is queued after it. The task's own outcome is still observable — `queueSwap`
+// returns the (possibly rejecting) `run` promise, not the normalized `swapQueue` — so the
+// caller of this particular swap can still see and report its own failure.
+let swapQueue: Promise<void> = Promise.resolve()
+function queueSwap<T>(task: () => Promise<T>): Promise<T> {
+  const run = swapQueue.then(task)
+  swapQueue = run.then(
+    () => undefined,
+    () => undefined
+  )
+  return run
+}
+
+// Step 3d, correction #6: the actual swap for one 'memory:setUser' call — reassigns the
+// module-level `memory` variable to swapMemoryStore()'s result so every other memory
+// consumer (memorySink, the status/hub-stats/registerDevice handlers, ...) reads the
+// post-swap store from here on. Always queued (see queueSwap above); never called directly.
+async function performUserSwap(userId: string | null): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (!memory) return { ok: false, error: 'Nest Memory is unavailable on this device — see main process logs.' }
+  const ctx: SwapContext = {
+    store: memory.store,
+    daemon: memory.daemon,
+    ipcServer: memory.ipcServer,
+    currentStorePath: memory.currentStorePath,
+  }
+  // Adversarial review (alto): swapMemoryStore() closes the old store synchronously and
+  // only reopens/rewires it once this await resolves — any memorySink.save() landing in
+  // that window would otherwise hit an already-closed store and be dropped silently.
+  // beginSwap()/endSwap() defer those writes instead; the `finally` guarantees endSwap()
+  // runs on every path (including an unexpected throw, even though swapMemoryStore's own
+  // doc comment says it never does) so the gate can never get stuck open.
+  memorySwapGate.beginSwap()
+  try {
+    // swapMemoryStore() itself never throws (see its own doc comment) — it always resolves
+    // to a valid { store, currentStorePath, error? }, degrading rather than leaving
+    // daemon/ipc wired to a closed store.
+    const result = await swapMemoryStore(ctx, ravenHome(), userId)
+    memory = { store: result.store, daemon: memory.daemon, ipcServer: memory.ipcServer, currentStorePath: result.currentStorePath }
+    return result.error ? { ok: false, error: result.error } : { ok: true }
+  } finally {
+    // Reruns every deferred write against memorySink.save() — by now `memory` (if the try
+    // block above completed normally) points at the post-swap store, so these retries land
+    // on the right file instead of the one that was closed at beginSwap() time.
+    memorySwapGate.endSwap((item) => memorySink.save(item))
+  }
 }
 
 // Explicit "really quitting" teardown — docs/GUIA-TESTEO-BAUTISTA.md pitfall:
@@ -358,8 +430,19 @@ const graphConfigStore = new GraphConfigStore()
 // (bridgeEvent, below) and from IPC decision handlers (bridgeDecision) — an
 // uncaught error here would take down whichever caller invoked it, not just
 // drop one memory write.
+// Adversarial review (alto, see performUserSwap): guards memorySink.save() against the
+// store-swap window the way memory-ipc-server.ts's dispatch() guards the MCP socket path
+// (rejecting with 'store_swapping' while memory-mcp/client.ts retries) — here, deferring
+// the write in-process instead of rejecting a caller that has no retry loop of its own.
+const memorySwapGate = new SwapWriteGate<MemorySaveInput>()
+
 const memorySink: MemorySink = {
   save(input) {
+    // Adversarial review (alto): during a swap the store gets closed out from under any
+    // in-flight write — queue this one instead of losing it. offer() returns false only
+    // while swapping; the deferred write is replayed by performUserSwap's endSwap() once
+    // the post-swap store is wired in, so do nothing else on this call.
+    if (!memorySwapGate.offer(input)) return
     try {
       // C1: local capture does not depend on the cloud. `connected` still gates only the
       // sync daemon (getToken/getDeviceId), not whether a memory gets saved.
@@ -2599,13 +2682,23 @@ const MEMORY_UNAVAILABLE = { ok: false, error: 'Nest Memory is unavailable on th
  * sólo las filas sin autor — o sea que **falla cerrado**: el daemon no empuja lo de nadie
  * en vez de empujarlo a la nube equivocada.
  */
-ipcMain.handle('memory:setUser', (_event, userId: string | null) => {
-  if (!memory) return { ok: false as const }
-  const r = memory.store.setCurrentUser(typeof userId === 'string' && userId ? userId : null)
-  if (r.claimed) {
-    console.log('[memory] store reclamado por la cuenta', userId, '— filas adoptadas:', r.adopted)
+// Step 3d, correction #6: hot-swaps the local store to the account's own file (or back to
+// the `_local` anonymous partition on logout) via swapMemoryStore(), queued through
+// queueSwap() so a rapid logout+login can't run two swaps at once. Explicit try/catch so a
+// bug in the swap path — or in performUserSwap()'s own reassignment of `memory` — surfaces
+// as `{ ok: false, error }` to the renderer instead of an invoke rejection; the renderer
+// side (useMemory.ts) currently fires this and forgets the result, but a precise
+// success/failure signal here is what makes that safe to change later without touching main.
+ipcMain.handle('memory:setUser', async (_event, userId: string | null) => {
+  const normalizedUserId = typeof userId === 'string' && userId ? userId : null
+  try {
+    // Awaits THIS call's own swap specifically (not just "the queue drained") — `run` from
+    // queueSwap() is the promise for this exact task, so success/failure is reported with
+    // precision even if other swaps are queued ahead of or behind it.
+    return await queueSwap(() => performUserSwap(normalizedUserId))
+  } catch (err) {
+    return { ok: false as const, error: err instanceof Error ? err.message : String(err) }
   }
-  return { ok: true as const, ...r }
 })
 
 ipcMain.handle('memory:registerDevice', async (_event, jwt: string) => {

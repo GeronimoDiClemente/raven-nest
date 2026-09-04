@@ -1634,3 +1634,210 @@ describe('tags and source_ref on the wire (C5)', () => {
     expect(payload.tags).toEqual([])
   })
 })
+
+// Task 1 (plan de memoria por cuenta multi-dispositivo), Step 3a: pause()/resume()/setStore()
+// are the daemon side of a safe hot-swap of the underlying MemoryStore (see
+// electron/memory-account-switch.ts, added in a later step). pause() must (1) stop
+// scheduling ANY new push/pull while a swap is in flight, and (2) actually wait for
+// whatever push/pull was already running to settle — bounded by an internal timeout so a
+// wedged request can never hang the swap forever (adversarial review finding 3).
+describe('MemoryDaemon — pause()/resume()/setStore() hot-swap support (Task 1 Step 3a)', () => {
+  beforeEach(() => vi.useFakeTimers())
+  afterEach(() => vi.useRealTimers())
+
+  it('pause(): clears already-armed timers (debounce/max-wait) so they never fire once the swap starts', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ results: [] }) })
+    const store = fakeStore({ pendingMutations: vi.fn(() => PENDING_MUTATION_A) })
+    const daemon = new MemoryDaemon(baseDaemonDeps(store, { fetchImpl }))
+
+    daemon.scheduleMutationPush() // arms the debounce timer
+    await daemon.pause() // nothing in flight yet -> resolves immediately, but must clear the armed timer
+
+    await vi.advanceTimersByTimeAsync(35_000) // past both the 3s debounce and the 30s max-wait
+    expect(fetchImpl).not.toHaveBeenCalled()
+  })
+
+  it('pause(): waits for an in-flight push to settle before resolving', async () => {
+    let resolvePush: (v: unknown) => void = () => {}
+    const pushPromise = new Promise((resolve) => { resolvePush = resolve })
+    const fetchImpl = vi.fn().mockReturnValue(pushPromise)
+    const store = fakeStore({ pendingMutations: vi.fn(() => PENDING_MUTATION_A) })
+    const daemon = new MemoryDaemon(baseDaemonDeps(store, { fetchImpl }))
+
+    daemon.start()
+    const inFlightPush = daemon.push() // fetchImpl now pending — pushInFlight is set
+
+    let pauseSettled = false
+    const pausePromise = daemon.pause().then(() => { pauseSettled = true })
+
+    // The push hasn't resolved yet — pause() must still be waiting on it.
+    await vi.advanceTimersByTimeAsync(0)
+    expect(pauseSettled).toBe(false)
+
+    // While swapping, a new scheduled push must not sneak in ahead of the drain.
+    daemon.scheduleMutationPush()
+    await vi.advanceTimersByTimeAsync(3_500)
+    expect(fetchImpl).toHaveBeenCalledTimes(1) // still just the original in-flight call
+
+    resolvePush({ ok: true, status: 200, json: async () => ({ results: [] }) })
+    await inFlightPush
+    await pausePromise
+
+    expect(pauseSettled).toBe(true)
+  })
+
+  it('pause(): waits for an in-flight status() to settle before resolving (Task 8 adversarial review: drain() calls status() before pull()/push(), so a status() fetch in flight left pushInFlight/pullInFlight both null and pause() used to return immediately without waiting for it)', async () => {
+    let resolveStatus: (v: unknown) => void = () => {}
+    const statusPromise = new Promise((resolve) => { resolveStatus = resolve })
+    const fetchImpl = vi.fn().mockReturnValue(statusPromise)
+    const store = fakeStore()
+    const daemon = new MemoryDaemon(baseDaemonDeps(store, { fetchImpl }))
+
+    const inFlightStatus = daemon.status() // fetchImpl now pending — statusInFlight is set; pushInFlight/pullInFlight are still null
+
+    let pauseSettled = false
+    const pausePromise = daemon.pause().then(() => { pauseSettled = true })
+
+    // The status() fetch hasn't resolved yet — pause() must still be waiting on it, not
+    // returning immediately just because pushInFlight/pullInFlight happen to both be null.
+    await vi.advanceTimersByTimeAsync(0)
+    expect(pauseSettled).toBe(false)
+
+    resolveStatus({ ok: true, status: 200, json: async () => ({}) })
+    await inFlightStatus
+    await pausePromise
+
+    expect(pauseSettled).toBe(true)
+  })
+
+  it('pause(): does not hang forever when an in-flight push never settles (bounded by an internal timeout)', async () => {
+    const neverSettles = new Promise(() => { /* deliberately never resolves/rejects */ })
+    const fetchImpl = vi.fn().mockReturnValue(neverSettles)
+    const store = fakeStore({ pendingMutations: vi.fn(() => PENDING_MUTATION_A) })
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const daemon = new MemoryDaemon(baseDaemonDeps(store, { fetchImpl }))
+
+    void daemon.push() // wedged in flight forever, on purpose
+
+    let pauseSettled = false
+    const pausePromise = daemon.pause().then(() => { pauseSettled = true })
+
+    await vi.advanceTimersByTimeAsync(4_999)
+    expect(pauseSettled).toBe(false) // internal drain timeout hasn't fired yet
+
+    await vi.advanceTimersByTimeAsync(50) // crosses the internal drain timeout
+    await pausePromise
+
+    expect(pauseSettled).toBe(true) // resolved anyway — never hangs the swap
+    expect(warnSpy).toHaveBeenCalled() // and it says so
+    warnSpy.mockRestore()
+  })
+
+  it('resume(): swapping clears (blocked triggers work again) and the daemon restarts', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ results: [] }) })
+    const store = fakeStore({ pendingMutations: vi.fn(() => PENDING_MUTATION_A) })
+    const daemon = new MemoryDaemon(baseDaemonDeps(store, { fetchImpl }))
+
+    daemon.start()
+    await daemon.pause() // nothing in flight -> resolves immediately, swapping = true
+
+    daemon.onPaneExit() // no-op while swapping
+    await vi.advanceTimersByTimeAsync(0)
+    expect(fetchImpl).not.toHaveBeenCalled()
+
+    daemon.resume()
+    daemon.onPaneExit() // fires now that swapping is cleared
+    await vi.advanceTimersByTimeAsync(0)
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+
+    daemon.stop()
+  })
+
+  it('setStore(): a push() after the swap reads pendingMutations from the NEW store, not the old one', async () => {
+    const oldPending = vi.fn(() => PENDING_MUTATION_A)
+    const newPending = vi.fn(() => []) // new account's store starts with nothing queued
+    const oldStore = fakeStore({ pendingMutations: oldPending })
+    const newStore = fakeStore({ pendingMutations: newPending })
+    const fetchImpl = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ results: [] }) })
+    const daemon = new MemoryDaemon(baseDaemonDeps(oldStore, { fetchImpl }))
+
+    daemon.setStore(newStore)
+    await daemon.push()
+
+    expect(oldPending).not.toHaveBeenCalled()
+    expect(newPending).toHaveBeenCalled()
+    expect(fetchImpl).not.toHaveBeenCalled() // nothing pending on the new store -> no request at all
+  })
+
+  it('setStore(): a pull() after the swap reads listProjects/cursors from the NEW store, not the old one', async () => {
+    const oldListProjects = vi.fn(() => [{ projectKey: 'proj-old', displayName: 'old', enrolled: true }])
+    const newListProjects = vi.fn(() => [{ projectKey: 'proj-new', displayName: 'new', enrolled: true }])
+    const oldStore = fakeStore({ listProjects: oldListProjects })
+    const newStore = fakeStore({
+      listProjects: newListProjects,
+      getSyncState: vi.fn(() => ({ pullCursor: 0, lastPushSeq: 0 })),
+    })
+    const fetchImpl = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ rows: [], cursors: {} }) })
+    const daemon = new MemoryDaemon(baseDaemonDeps(oldStore, { fetchImpl }))
+
+    daemon.setStore(newStore)
+    await daemon.pull()
+
+    expect(oldListProjects).not.toHaveBeenCalled()
+    expect(newListProjects).toHaveBeenCalled()
+    const sentBody = JSON.parse(fetchImpl.mock.calls[0][1].body)
+    expect(sentBody.cursors).toEqual({ 'proj-new': 0 })
+  })
+})
+
+describe('MemoryDaemon — swapping guard: trigger entry points no-op mid-swap (Task 1 Step 3a)', () => {
+  it('scheduleMutationPush() schedules nothing while swapping', async () => {
+    vi.useFakeTimers()
+    const fetchImpl = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ results: [] }) })
+    const store = fakeStore({ pendingMutations: vi.fn(() => PENDING_MUTATION_A) })
+    const daemon = new MemoryDaemon(baseDaemonDeps(store, { fetchImpl }))
+
+    await daemon.pause() // swapping = true, nothing in flight so this resolves immediately
+    daemon.scheduleMutationPush()
+    await vi.advanceTimersByTimeAsync(35_000) // past debounce AND max-wait
+
+    expect(fetchImpl).not.toHaveBeenCalled()
+    vi.useRealTimers()
+  })
+
+  it('onWindowFocus() triggers no pull while swapping', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ rows: [], cursors: {} }) })
+    const store = fakeStore({ listProjects: vi.fn(() => [{ projectKey: 'proj-1', displayName: 'p', enrolled: true }]) })
+    const daemon = new MemoryDaemon(baseDaemonDeps(store, { fetchImpl }))
+
+    await daemon.pause()
+    daemon.onWindowFocus()
+    await new Promise((r) => setTimeout(r, 10))
+
+    expect(fetchImpl).not.toHaveBeenCalled()
+  })
+
+  it('onPaneExit() triggers no push while swapping', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ results: [] }) })
+    const store = fakeStore({ pendingMutations: vi.fn(() => PENDING_MUTATION_A) })
+    const daemon = new MemoryDaemon(baseDaemonDeps(store, { fetchImpl }))
+
+    await daemon.pause()
+    daemon.onPaneExit()
+    await new Promise((r) => setTimeout(r, 10))
+
+    expect(fetchImpl).not.toHaveBeenCalled()
+  })
+
+  it('onNetworkRegain() triggers no drain while swapping', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({}) })
+    const store = fakeStore({ pendingMutations: vi.fn(() => PENDING_MUTATION_A), listProjects: vi.fn(() => []) })
+    const daemon = new MemoryDaemon(baseDaemonDeps(store, { fetchImpl }))
+
+    await daemon.pause()
+    daemon.onNetworkRegain()
+    await new Promise((r) => setTimeout(r, 10))
+
+    expect(fetchImpl).not.toHaveBeenCalled()
+  })
+})

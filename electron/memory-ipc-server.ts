@@ -59,6 +59,17 @@ const CONNECTION_IDLE_TIMEOUT_MS = 30_000
 // sets it, so this default is what actually runs.
 const DEFAULT_SEARCH_PULL_TIMEOUT_MS = 8_000
 
+// Task 1 (plan de memoria por cuenta multi-dispositivo), Step 3b: how long suspend()
+// waits for MemoryIpcServer's OWN in-flight dispatch() call(s) to drain before giving up
+// and proceeding anyway. Independent from memory-daemon.ts's PAUSE_DRAIN_TIMEOUT_MS —
+// that one drains push()/pull() network calls; this one drains in-progress LOCAL
+// dispatch() invocations, which is the guarantee the adversarial review's finding 4
+// asked for (see suspend()'s own doc comment below). Overridable via deps for tests
+// only, mirrors DEFAULT_SEARCH_PULL_TIMEOUT_MS / searchPullTimeoutMs (M26) just above —
+// production wiring (main.ts) never sets it, so this default is what actually runs.
+const DEFAULT_SUSPEND_DRAIN_TIMEOUT_MS = 5_000
+const SUSPEND_POLL_INTERVAL_MS = 10
+
 /**
  * M26: the subset of MemoryDaemon the pull-through search fallback needs. Narrower than
  * the whole class so memory-ipc-server.test.ts can pass a plain `{ pull, isOnline }`
@@ -80,6 +91,8 @@ export interface MemoryIpcServerDeps {
   daemon?: MemoryIpcServerDaemon
   /** M26: test-only override of DEFAULT_SEARCH_PULL_TIMEOUT_MS — see that constant. */
   searchPullTimeoutMs?: number
+  /** Task 1 Step 3b: test-only override of DEFAULT_SUSPEND_DRAIN_TIMEOUT_MS — see that constant. */
+  suspendDrainTimeoutMs?: number
 }
 
 /**
@@ -112,6 +125,10 @@ function tokensMatch(a: string, b: string): boolean {
 export class MemoryIpcServer {
   private server: Server | null = null
   private readonly deps: MemoryIpcServerDeps
+  // Task 1 Step 3b: hot-swap support — see suspend()/resume()/setStore() below and their
+  // use in dispatch()'s guard + increment/decrement.
+  private swapping = false
+  private inFlightDispatches = 0
 
   constructor(deps: MemoryIpcServerDeps) {
     this.deps = deps
@@ -142,6 +159,60 @@ export class MemoryIpcServer {
     if (!isWin && existsSync(this.deps.socketPath)) {
       try { unlinkSync(this.deps.socketPath) } catch { /* ignore */ }
     }
+  }
+
+  /**
+   * Task 1 Step 3b: the IPC-server side of a hot-swap (see memory-daemon.ts's pause() for
+   * the daemon side, and memory-account-switch.ts for the orchestrator that calls both).
+   * Rejects every NEW request from this point on — dispatch()'s `if (this.swapping)`
+   * guard at its top — and waits for whatever dispatch() call(s) were already in flight
+   * when this was called to actually finish.
+   *
+   * That in-flight count is this class's OWN tracking (`inFlightDispatches`), not
+   * borrowed from the daemon's pushInFlight/pullInFlight (adversarial review finding 4):
+   * a dispatch can be sitting in the M26 pull-through search fallback — awaiting
+   * `daemon.pull()` — without the daemon itself being paused yet, so only a counter
+   * local to dispatch() itself can guarantee nothing is still touching `this.deps.store`
+   * once this resolves.
+   *
+   * Bounded by `suspendDrainTimeoutMs` (default DEFAULT_SUSPEND_DRAIN_TIMEOUT_MS): a
+   * dispatch that never settles must not wedge the swap forever — same reasoning as
+   * memory-daemon.ts's own pause(). Resolves regardless, just with a warning logged, and
+   * the swap proceeds; it is up to the orchestrator's ordering (never this method) to
+   * make that safe.
+   */
+  async suspend(): Promise<void> {
+    this.swapping = true
+    const timeoutMs = this.deps.suspendDrainTimeoutMs ?? DEFAULT_SUSPEND_DRAIN_TIMEOUT_MS
+    const deadline = Date.now() + timeoutMs
+    while (this.inFlightDispatches > 0 && Date.now() < deadline) {
+      await new Promise<void>((resolve) => setTimeout(resolve, SUSPEND_POLL_INTERVAL_MS))
+    }
+    if (this.inFlightDispatches > 0) {
+      console.warn(
+        '[memory-ipc-server] suspend(): timed out after %dms waiting for %d in-flight dispatch(es) to drain — proceeding with the swap anyway',
+        timeoutMs,
+        this.inFlightDispatches
+      )
+    }
+  }
+
+  /** Task 1 Step 3b: the other half of suspend() — reopens the door to new requests. */
+  resume(): void {
+    this.swapping = false
+  }
+
+  /**
+   * Task 1 Step 3b: reassigns the store this server reads/writes without recreating the
+   * server (which would mean re-listen()ing the socket). Must only be called while
+   * suspended — after suspend()'s await has actually returned — so no in-flight
+   * dispatch() is mid-request against the OLD store when this reassigns `deps.store` out
+   * from under it. The orchestrator's ordering (suspend -> pause daemon -> close old
+   * store -> rename/reopen -> setStore on both -> resume) is what guarantees that, not
+   * this method itself.
+   */
+  setStore(store: MemoryStore): void {
+    this.deps.store = store
   }
 
   private handleConnection(socket: Socket): void {
@@ -240,113 +311,132 @@ export class MemoryIpcServer {
   }
 
   private async dispatch(request: MemoryRequest): Promise<unknown> {
-    const { store } = this.deps
-    switch (request.method) {
-      case 'ping':
-        return { pong: true }
+    // Task 1 Step 3b: reject before touching the store at all — a hot-swap in progress
+    // (see suspend() below) must never let a new request read/write a store that's about
+    // to be (or already is) closed/renamed out from under it. 'store_swapping' is a
+    // string convention, not a `code` field — MemoryResponseErr only carries
+    // `error: string` (memory-protocol.ts) — and client.ts (electron/memory-mcp/client.ts)
+    // retries ONLY on this exact message, with a short fixed backoff.
+    if (this.swapping) throw new Error('store_swapping')
+    // Task 1 Step 3b: this class's OWN in-flight tracking (adversarial review finding 4)
+    // — NOT borrowed from the daemon's pushInFlight/pullInFlight. A dispatch can be
+    // sitting in the M26 pull-through search fallback (awaiting daemon.pull()) without
+    // the daemon itself being paused yet; this counter is the only real guarantee that
+    // nothing is still executing dispatch() against `this.deps.store` when suspend()
+    // resolves. Incremented here, before the switch; decremented in the `finally` below
+    // no matter how this call ends (return OR throw).
+    this.inFlightDispatches++
+    try {
+      const { store } = this.deps
+      switch (request.method) {
+        case 'ping':
+          return { pong: true }
 
-      case 'memory.save': {
-        const params = request.params as SaveMemoryParams
-        const projectKey = this.projectKeyForCwd(params.cwd)
-        const gitInfo = this.deps.resolveGitInfo?.(params.cwd) ?? null
-        const result = store.save({
-          projectKey,
-          scope: 'personal', // auto-capture ALWAYS writes personal — no code path can override this (§2.1)
-          topicKey: params.topicKey ?? null,
-          type: params.type,
-          title: params.title,
-          content: params.content,
-          tags: params.tags,
-          source: params.source,
-          originAi: params.originAi ?? null,
-          originAccount: params.originAccount ?? null,
-          gitBranch: params.gitBranch ?? gitInfo?.branch ?? null,
-        })
-        this.deps.onMutation?.()
-        return result
+        case 'memory.save': {
+          const params = request.params as SaveMemoryParams
+          const projectKey = this.projectKeyForCwd(params.cwd)
+          const gitInfo = this.deps.resolveGitInfo?.(params.cwd) ?? null
+          const result = store.save({
+            projectKey,
+            scope: 'personal', // auto-capture ALWAYS writes personal — no code path can override this (§2.1)
+            topicKey: params.topicKey ?? null,
+            type: params.type,
+            title: params.title,
+            content: params.content,
+            tags: params.tags,
+            source: params.source,
+            originAi: params.originAi ?? null,
+            originAccount: params.originAccount ?? null,
+            gitBranch: params.gitBranch ?? gitInfo?.branch ?? null,
+          })
+          this.deps.onMutation?.()
+          return result
+        }
+
+        case 'memory.search': {
+          const params = request.params as SearchMemoryParams
+          const projectKey = this.projectKeyForCwd(params.cwd)
+          const limit = params.limit ?? 10
+          const items = store.search(projectKey, params.query, limit)
+          if (items.length > 0) return { items } as SearchMemoryResult
+
+          // M26 pull-through search: a LOCAL zero-result miss is exactly the shape of "an
+          // agent asks about something just saved on another device" — sync only lands
+          // locally on the daemon's own ~5-minute interval (memory-daemon.ts's
+          // INTERVAL_MS), so without this the answer is a false "nothing here" for up to
+          // that long. Server data stays non-authoritative for reads: this only narrows a
+          // MISS, it never runs (or overrides) a local HIT — see the `items.length > 0`
+          // return above. Skip entirely (no pull attempt at all) when there's no daemon
+          // wired or it reports offline/disconnected — daemon.pull() already dedupes
+          // concurrent callers via pullInFlight (M19) and chains full pages via M25, so
+          // calling it here piggybacks on whatever pull is already in flight rather than
+          // starting a redundant one.
+          const daemon = this.deps.daemon
+          if (!daemon || !daemon.isOnline()) return { items } as SearchMemoryResult
+
+          const timeoutMs = this.deps.searchPullTimeoutMs ?? DEFAULT_SEARCH_PULL_TIMEOUT_MS
+          await withTimeout(daemon.pull(), timeoutMs)
+          const refreshedItems = store.search(projectKey, params.query, limit)
+          return { items: refreshedItems, refreshed: true } as SearchMemoryResult
+        }
+
+        case 'memory.context': {
+          const params = request.params as ContextMemoryParams
+          const projectKey = this.projectKeyForCwd(params.cwd)
+          return { items: store.context(projectKey, params.limit ?? 10) }
+        }
+
+        case 'memory.delete': {
+          const params = request.params as DeleteMemoryParams
+          const ok = store.deleteObservation(params.syncId)
+          if (ok) this.deps.onMutation?.()
+          return { ok }
+        }
+
+        case 'hook.sessionStart': {
+          const params = request.params as HookSessionStartParams
+          const projectKey = this.projectKeyForCwd(params.cwd)
+          const gitInfo = this.deps.resolveGitInfo?.(params.cwd) ?? null
+          store.openSession({
+            id: params.sessionId,
+            projectKey,
+            aiType: params.aiType,
+            account: params.account,
+            gitBranch: gitInfo?.branch ?? undefined,
+          })
+          const recent = store.context(projectKey, 5)
+          const lines = recent.map((o) => `- [${o.type}] ${o.title}`)
+          const additionalContext =
+            recent.length > 0
+              ? `Nest Memory — relevant context for this project:\n${lines.join('\n')}\n\nCall memory_context for full detail before answering.`
+              : 'Nest Memory is active for this project. No prior memories yet — call memory_save after decisions, fixes, or discoveries.'
+          const result: HookSessionStartResult = { additionalContext }
+          return result
+        }
+
+        case 'hook.stop': {
+          const params = request.params as HookStopParams
+          this.guardarRollup(params.sessionId, params.cwd, params.transcriptPath, 'stop')
+          store.closeSession(params.sessionId)
+          this.deps.onMutation?.()
+          return { ok: true }
+        }
+
+        case 'hook.preCompact': {
+          const params = request.params as HookPreCompactParams
+          // Antes escribía un placeholder que decía "rollup pending on session close" — y ese
+          // rollup NUNCA llegaba, porque `Stop` no escribía nada. Ahora guarda el resumen de
+          // verdad: si la sesión se compacta, lo hablado hasta acá ya quedó.
+          this.guardarRollup(params.sessionId, params.cwd, params.transcriptPath, 'precompact')
+          this.deps.onMutation?.()
+          return { ok: true }
+        }
+
+        default:
+          throw new Error(`Unknown method: ${request.method}`)
       }
-
-      case 'memory.search': {
-        const params = request.params as SearchMemoryParams
-        const projectKey = this.projectKeyForCwd(params.cwd)
-        const limit = params.limit ?? 10
-        const items = store.search(projectKey, params.query, limit)
-        if (items.length > 0) return { items } as SearchMemoryResult
-
-        // M26 pull-through search: a LOCAL zero-result miss is exactly the shape of "an
-        // agent asks about something just saved on another device" — sync only lands
-        // locally on the daemon's own ~5-minute interval (memory-daemon.ts's
-        // INTERVAL_MS), so without this the answer is a false "nothing here" for up to
-        // that long. Server data stays non-authoritative for reads: this only narrows a
-        // MISS, it never runs (or overrides) a local HIT — see the `items.length > 0`
-        // return above. Skip entirely (no pull attempt at all) when there's no daemon
-        // wired or it reports offline/disconnected — daemon.pull() already dedupes
-        // concurrent callers via pullInFlight (M19) and chains full pages via M25, so
-        // calling it here piggybacks on whatever pull is already in flight rather than
-        // starting a redundant one.
-        const daemon = this.deps.daemon
-        if (!daemon || !daemon.isOnline()) return { items } as SearchMemoryResult
-
-        const timeoutMs = this.deps.searchPullTimeoutMs ?? DEFAULT_SEARCH_PULL_TIMEOUT_MS
-        await withTimeout(daemon.pull(), timeoutMs)
-        const refreshedItems = store.search(projectKey, params.query, limit)
-        return { items: refreshedItems, refreshed: true } as SearchMemoryResult
-      }
-
-      case 'memory.context': {
-        const params = request.params as ContextMemoryParams
-        const projectKey = this.projectKeyForCwd(params.cwd)
-        return { items: store.context(projectKey, params.limit ?? 10) }
-      }
-
-      case 'memory.delete': {
-        const params = request.params as DeleteMemoryParams
-        const ok = store.deleteObservation(params.syncId)
-        if (ok) this.deps.onMutation?.()
-        return { ok }
-      }
-
-      case 'hook.sessionStart': {
-        const params = request.params as HookSessionStartParams
-        const projectKey = this.projectKeyForCwd(params.cwd)
-        const gitInfo = this.deps.resolveGitInfo?.(params.cwd) ?? null
-        store.openSession({
-          id: params.sessionId,
-          projectKey,
-          aiType: params.aiType,
-          account: params.account,
-          gitBranch: gitInfo?.branch ?? undefined,
-        })
-        const recent = store.context(projectKey, 5)
-        const lines = recent.map((o) => `- [${o.type}] ${o.title}`)
-        const additionalContext =
-          recent.length > 0
-            ? `Nest Memory — relevant context for this project:\n${lines.join('\n')}\n\nCall memory_context for full detail before answering.`
-            : 'Nest Memory is active for this project. No prior memories yet — call memory_save after decisions, fixes, or discoveries.'
-        const result: HookSessionStartResult = { additionalContext }
-        return result
-      }
-
-      case 'hook.stop': {
-        const params = request.params as HookStopParams
-        this.guardarRollup(params.sessionId, params.cwd, params.transcriptPath, 'stop')
-        store.closeSession(params.sessionId)
-        this.deps.onMutation?.()
-        return { ok: true }
-      }
-
-      case 'hook.preCompact': {
-        const params = request.params as HookPreCompactParams
-        // Antes escribía un placeholder que decía "rollup pending on session close" — y ese
-        // rollup NUNCA llegaba, porque `Stop` no escribía nada. Ahora guarda el resumen de
-        // verdad: si la sesión se compacta, lo hablado hasta acá ya quedó.
-        this.guardarRollup(params.sessionId, params.cwd, params.transcriptPath, 'precompact')
-        this.deps.onMutation?.()
-        return { ok: true }
-      }
-
-      default:
-        throw new Error(`Unknown method: ${request.method}`)
+    } finally {
+      this.inFlightDispatches--
     }
   }
 }

@@ -6,10 +6,11 @@
 // the store's implementation and are written to run unmodified on any machine with a
 // working `npm run postinstall` (electron-rebuild) or a compatible better-sqlite3
 // prebuild. Run `npx vitest run electron/__tests__/memory-store.test.ts` to verify.
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { join } from 'path'
 import { makeTmpDir, cleanupTmp } from './setup'
-import { MemoryStore, SCHEMA_VERSION, deriveImportSyncId, computeContentIdentity } from '../memory-store'
+import { MemoryStore, SCHEMA_VERSION, deriveImportSyncId, computeContentIdentity, resolveStorePath } from '../memory-store'
+import { swapMemoryStore, type SwapContext } from '../memory-account-switch'
 
 describe('MemoryStore — write path resolution (§3.1)', () => {
   let dir: string
@@ -955,5 +956,92 @@ describe('MemoryStore — la memoria es de una cuenta de Nest', () => {
 
     const [m] = store.pendingMutations()
     expect(m.author_user_id).toBe(USER_A)
+  })
+})
+
+// Task 1 del plan de memoria por cuenta multi-dispositivo (Step 1): originalmente este test
+// llamaba setCurrentUser() dos veces sobre UNA sola instancia de MemoryStore compartida —
+// eso prueba si search() filtra por autor DENTRO de un mismo archivo, que nunca fue el
+// diseño elegido (setCurrentUser sella el autor de cada fila, pero no fue pensado para
+// filtrar cada búsqueda) y por eso quedaba rojo para siempre incluso después de implementar
+// el resto de la Task 1: physical separation vive en swapMemoryStore()/resolveStorePath(),
+// no en MemoryStore.search(). Reescrito para ejercitar el camino real — el mismo que usa
+// electron/main.ts en cada 'memory:setUser' — probando lo que la Task 1 realmente prometía:
+// dos cuentas en la misma máquina terminan en archivos .db físicamente distintos.
+describe('MemoryStore — la memoria de una cuenta no aparece en la busqueda de otra (Task 1)', () => {
+  let home: string
+
+  const USER_A = 'user-aaaa'
+  const USER_B = 'user-bbbb'
+
+  function fakeDaemon() {
+    return { pause: vi.fn(async () => {}), resume: vi.fn(() => {}), setStore: vi.fn((_s: MemoryStore) => {}) }
+  }
+  function fakeIpcServer() {
+    return { suspend: vi.fn(async () => {}), resume: vi.fn(() => {}), setStore: vi.fn((_s: MemoryStore) => {}) }
+  }
+
+  beforeEach(() => {
+    home = makeTmpDir('raven-memory-isolation-')
+  })
+
+  afterEach(() => {
+    cleanupTmp(home)
+  })
+
+  it('B no encuentra en la busqueda lo que A guardo antes de que B entrara', async () => {
+    const localPath = resolveStorePath(home, null)
+    const localStore = new MemoryStore(localPath)
+    let ctx: SwapContext = { store: localStore, daemon: fakeDaemon(), ipcServer: fakeIpcServer(), currentStorePath: localPath }
+
+    // A entra primero: adopta el _local (mismo flujo que 'memory:setUser' en main.ts).
+    const afterA = await swapMemoryStore(ctx, home, USER_A)
+    afterA.store.save({
+      projectKey: 'proj-a',
+      type: 'decision',
+      title: 'Secreto de A',
+      content: 'ContenidoUnicoDeLaCuentaA con largo suficiente para no ser descartado.',
+      source: 'pty',
+    })
+
+    // B entra despues, en la misma maquina: es una cuenta real nueva, no hereda _local.
+    ctx = { store: afterA.store, daemon: fakeDaemon(), ipcServer: fakeIpcServer(), currentStorePath: afterA.currentStorePath }
+    const afterB = await swapMemoryStore(ctx, home, USER_B)
+
+    const results = afterB.store.search('proj-a', 'ContenidoUnicoDeLaCuentaA')
+
+    // Cada cuenta tiene su propia base fisica: B no ve nada de A.
+    expect(results.length).toBe(0)
+    expect(afterB.currentStorePath).not.toBe(afterA.currentStorePath)
+
+    afterB.store.close()
+  })
+})
+
+// Task 1 del plan de memoria por cuenta multi-dispositivo (Step 2): resolveStorePath es
+// pura (cero fs) — sólo calcula el path, no decide si hay que migrar un store `_local`
+// preexistente. Esa decisión la toma quien orquesta el swap (memory-account-switch.ts).
+describe('resolveStorePath (Task 1, Step 2)', () => {
+  const home = join('C:', 'Users', 'gero')
+
+  it('userId null cae en la particion _local', () => {
+    expect(resolveStorePath(home, null)).toBe(join(home, '.raven-nest', 'memory', '_local', 'memory.db'))
+  })
+
+  it('userId string vacia tambien cae en _local', () => {
+    expect(resolveStorePath(home, '')).toBe(join(home, '.raven-nest', 'memory', '_local', 'memory.db'))
+  })
+
+  it('un userId concreto usa su propia subcarpeta', () => {
+    expect(resolveStorePath(home, 'user-aaaa')).toBe(join(home, '.raven-nest', 'memory', 'user-aaaa', 'memory.db'))
+  })
+
+  it('dos userIds distintos no colisionan entre si ni con _local', () => {
+    const a = resolveStorePath(home, 'user-aaaa')
+    const b = resolveStorePath(home, 'user-bbbb')
+    const local = resolveStorePath(home, null)
+    expect(a).not.toBe(b)
+    expect(a).not.toBe(local)
+    expect(b).not.toBe(local)
   })
 })
