@@ -208,7 +208,17 @@ El puente ya escribe `[[run-<runId>]]` dentro del contenido, así que las arista
 día uno. Con el vault, cualquiera abre la carpeta con Obsidian y tiene la vista de grafo gratis — y
 es la prueba verificable de la promesa de portabilidad.
 
-- [ ] **Step 1:** Ejecutar la spec del vault, con el path por cuenta.
+- [x] **Step 1:** Ejecutar la spec del vault, con el path por cuenta. Hecho 2026-09-04
+      (`2285f0f`): motor puro completo (naming/note/plan) + los dos lados efectivos
+      (apply/reader) + config por cuenta, con 72 tests nuevos y `tsc -b` en los mismos 3
+      errores preexistentes de siempre. Wiring real en main.ts (4 IPC: getSettings/
+      setSettings/regenerate/reveal) — enable corre una pasada completa al toque.
+      **Deliberadamente sin los 3 disparadores automáticos** (debounce post-escritura,
+      poll 60s, reconciliación al arranque) **ni panel en Settings**: el motor es "el 80%
+      de la lógica y el 100% de los bugs posibles" (spec §3.3) y ya está cubierto; cablear
+      timers sobre un `main.ts` de 3000+ líneas sin cobertura de vitest es cambio aparte.
+      Sin smoke real con datos de una cuenta viva todavía (mismo gap que el resto del plan
+      — necesita loguearse de verdad, no un test).
 
 ### Task 6: El cableado por CLI
 
