@@ -536,7 +536,7 @@ export class MetricsCollector {
     // `execFile`'s callback err is an `ExecFileException` (Error + optional
     // code/signal). We only consume code/message — pick a wider shape so this
     // compiles without casting.
-    type CmdErr = Error & { code?: string | number }
+    type CmdErr = Error & { code?: string | number | null }
     const { json, error: psError } = await new Promise<{ json: string; error: CmdErr | null }>((resolveOut) => {
       execFile(
         'powershell.exe',

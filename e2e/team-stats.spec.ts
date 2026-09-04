@@ -8,7 +8,7 @@ test('TeamsWorkspace opens without crash after Stats tab integration', async () 
     // .sidebar-item-team class, so target the panel by its title.
     await h.page.locator('.sidebar-item-team[title="Team"]').click()
 
-    // The Teams click is plan-gated (planLimits.allowTeam): with a team/trial
+    // The Teams click is plan-gated (planLimits.memoryTeamShare): with a team/trial
     // plan the TeamsWorkspace mounts; on a clean local Supabase the bypass
     // user has no profile (plan 'free') and the UpgradeModal opens instead.
     // Either way the point of this spec holds: the click must not crash.

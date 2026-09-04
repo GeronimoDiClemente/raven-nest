@@ -17,10 +17,12 @@ export interface Keybindings {
 export interface AppSettings {
   keybindings: Keybindings
   voiceLanguage: string
+  hasSeenMemoryHub: boolean
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
   voiceLanguage: 'es',
+  hasSeenMemoryHub: false,
   keybindings: {
     voiceInput: 'F5',
     newPane: 'Meta+t',

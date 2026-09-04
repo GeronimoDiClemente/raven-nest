@@ -1,0 +1,676 @@
+import type { Pool, PoolClient } from 'pg'
+import { allocateSeqRange } from './seq'
+import { resolveTopicCollision } from './lww'
+import { limitsFor, maxBytesFor } from './limits'
+
+export interface Mutation {
+  seq: number
+  sync_id: string
+  op: 'upsert' | 'delete' | 'promote'
+  payload: Record<string, unknown>
+}
+
+export interface PushBody {
+  // Accepted on the wire for backward/forward compatibility but deliberately never read:
+  // the device identity that matters is the authenticated one in `auth.deviceId`. A
+  // client-supplied device id must never be allowed to drive authorization or receipt
+  // lookups — wiring this up "to use the field" would reopen a spoofing hole.
+  device_id?: string
+  mutations: Mutation[]
+}
+
+export interface PushResult {
+  sync_id: string
+  outcome: 'applied' | 'superseded' | 'rejected'
+  project_seq: number
+  error?: string
+}
+
+export interface PushResponse {
+  results: PushResult[]
+}
+
+/** §5.2: tags travel as a real array. The client may still send a JSON string. */
+export function normalizeTags(value: unknown): string[] {
+  if (Array.isArray(value)) return value.filter((t): t is string => typeof t === 'string')
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value)
+      if (Array.isArray(parsed)) return parsed.filter((t): t is string => typeof t === 'string')
+    } catch { /* not JSON — treat as untagged */ }
+  }
+  return []
+}
+
+/**
+ * §5.2: the client may send epoch ms or ISO 8601, and the value is the CLIENT's clock.
+ *
+ * Also guards against a raw NaN (JSON cannot encode one, but a caller could still pass a
+ * number that is NaN) and a numeric-string epoch (the real client types these fields as
+ * `number`, so it never sends one today, but Number() alone would otherwise silently drop
+ * it to `fallback` instead of recognizing it). Neither case is reachable through the real
+ * client — this is robustness, not a bug fix.
+ */
+export function parseClientTimestamp(value: unknown, fallback: number): Date {
+  if (typeof value === 'number' && Number.isFinite(value)) return new Date(value)
+  if (typeof value === 'string' && value.trim() !== '') {
+    const asNumber = Number(value)
+    if (Number.isFinite(asNumber)) return new Date(asNumber)
+    const parsed = Date.parse(value)
+    if (!Number.isNaN(parsed)) return new Date(parsed)
+  }
+  return new Date(fallback)
+}
+
+/**
+ * A failure this handler has decided is TERMINAL, carrying the code the client will store
+ * against the mutation. Thrown from inside a mutation's transaction so it takes the same
+ * rollback path as a real database error and gets classified alongside one.
+ */
+export class TerminalPushError extends Error {
+  constructor(readonly code: string, message?: string) {
+    super(message ?? code)
+    this.name = 'TerminalPushError'
+  }
+}
+
+// SQLSTATE classes (the first two characters) that a retry of the SAME payload can never
+// get past, because the payload itself is what Postgres is refusing:
+//   22 — data exception     (a bigint field that is not a number, a bad timestamp, a NUL
+//                            byte in a text column…)
+//   23 — integrity violation (not-null, foreign key, check, unique)
+// Everything else — 08 connection, 40 rollback/deadlock/serialization, 53 out of
+// resources, 57 operator intervention, and every non-SQLSTATE driver error — is transient
+// by assumption and stays OMITTED so the client sends it again. Getting this backwards in
+// either direction loses data: a terminal error omitted is retried forever and never
+// reported, and a transient error rejected is dropped on the floor by a client that (per
+// §5.1) treats `rejected` as final and never retries.
+const TERMINAL_SQLSTATE_CLASSES: Record<string, string> = {
+  '22': 'invalid_payload',
+  '23': 'constraint_violation',
+}
+
+/**
+ * Returns the error code to report with `outcome: 'rejected'`, or null when the failure is
+ * transient and the mutation must be omitted from `results` instead (§5.1: omitting is how
+ * the server says "I did not process this, send it again").
+ */
+export function classifyPushError(err: unknown): string | null {
+  if (err instanceof TerminalPushError) return err.code
+  const code = (err as { code?: unknown } | null | undefined)?.code
+  // A real SQLSTATE is exactly five characters of [0-9A-Z]. Driver-level codes like
+  // ECONNREFUSED or ETIMEDOUT also land in `.code` and must not be pattern-matched as if
+  // their first two characters were a SQLSTATE class.
+  if (typeof code !== 'string' || !/^[0-9A-Z]{5}$/.test(code)) return null
+  return TERMINAL_SQLSTATE_CLASSES[code.slice(0, 2)] ?? null
+}
+
+async function ensureProject(
+  client: PoolClient,
+  userId: string,
+  projectKey: string,
+  displayName: string
+): Promise<number> {
+  const { rows } = await client.query(
+    `insert into projects (user_id, project_key, display_name) values ($1, $2, $3)
+     on conflict (user_id, project_key) do update set display_name = excluded.display_name
+     returning id`,
+    [userId, projectKey, displayName]
+  )
+  return Number(rows[0].id)
+}
+
+// Plans whose memory can be shared with other people. `scope: 'team'` is the field that
+// makes an observation visible beyond its author, so this is an authorization boundary, not
+// a pricing detail: it decides who can read a memory, and it is enforced server-side for the
+// same reason as the cloud gate itself (§9.3 — what is checked only in the renderer is not
+// checked at all).
+const TEAM_SCOPE_PLANS = new Set(['team', 'enterprise'])
+
+// §11.6. Igual para todos los planes: existe contra abuso, no como palanca de precio. Son
+// 17 veces la memoria más grande del corpus real medido (59,4 KB), o sea que ningún uso
+// legítimo lo toca.
+const MAX_OBSERVATION_BYTES = 1024 * 1024
+
+/**
+ * La partición interna donde cae toda mutación sin `project_key`. NO es un proyecto del
+ * usuario: no cuenta contra `maxProjects` y nunca se rechaza con `project_limit_reached`.
+ *
+ * Por qué es especial, que dentro de un año nadie lo va a adivinar leyendo el código: el
+ * CLIENTE la crea SOLO, sin que el usuario pida nada. `electron/main.ts` llama
+ * `ensureProject('__global__')` en CADA connect, y `electron/memory-project-key.ts` la usa
+ * de fallback para toda captura cuyo repo no se puede resolver. Como la cola de push es un
+ * log plano ordenado por `seq` sobre TODOS los proyectos, si esta clave pagara el tope, en
+ * una cuenta Free (`maxProjects: 1`) el único lugar se lo podría llevar `__global__` en vez
+ * del repo del usuario — según cuál clave apareciera primero en el batch más viejo. El
+ * gancho central del producto (abrir la segunda máquina y encontrar la memoria de la
+ * primera) quedaría librado al azar, y el usuario vería `project_limit_reached` sobre su
+ * repo real sin entender por qué. Un Free tiene entonces su `__global__` MÁS un proyecto
+ * real.
+ *
+ * Mismo valor que `GLOBAL_PROJECT_KEY` en `electron/memory-project-key.ts` — es el
+ * contrato de wire entre cliente y servicio, no una constante local.
+ */
+const GLOBAL_PROJECT_KEY = '__global__'
+
+/**
+ * Una mutación después de la pasada 1 de `handlePush`: o ya quedó rechazada — y su resultado
+ * sólo espera su lugar en `results` — o sobrevivió y va a intentar aplicarse en la pasada 2.
+ *
+ * Existe para que separar los rechazos de la aplicación NO reordene las respuestas: cada
+ * mutación de entrada produce EXACTAMENTE una entrada de esta lista, en su posición
+ * original, y la pasada 2 recorre la lista, no `body.mutations`.
+ */
+type PreparedMutation =
+  | { kind: 'rejected'; result: PushResult }
+  | { kind: 'pending'; m: Mutation; syncId: string; projectKey: string }
+
+export async function handlePush(
+  pool: Pool,
+  auth: { deviceId: string; userId: string; plan: string },
+  body: PushBody
+): Promise<PushResponse> {
+  const mutations = Array.isArray(body.mutations) ? body.mutations : []
+  const results: PushResult[] = []
+
+  const client = await pool.connect()
+  try {
+    // Una sola lectura por batch, no una por mutación: esta suma escanea todas las
+    // observaciones del usuario y hacerla 200 veces por push sería un escaneo por memoria.
+    // El costo de leerla una vez es que un batch puede pasarse un poco antes de frenar, lo
+    // que es aceptable: el techo existe contra abuso, no para cortar al byte exacto.
+    //
+    // Se lee acá arriba, antes de resolver ningún proyecto, porque `quota_exceeded` es uno
+    // de los cinco rechazos de la pasada 1 y esa pasada tiene que correr ANTES de que se
+    // pueda crear una fila en `projects`.
+    const { rows: usedRows } = await client.query(
+      `select coalesce(sum(octet_length(coalesce(o.content, ''))), 0)::bigint as used
+         from observations o join projects p on p.id = o.project_id
+        where p.user_id = $1`,
+      [auth.userId]
+    )
+    // `maxBytesFor`, no `limitsFor(plan).maxBytes`: el override de instancia dedicada
+    // (`MAX_BYTES_PER_USER`) tiene que APLICAR, no sólo salir informado en `status`.
+    const overQuota = Number(usedRows[0].used) >= maxBytesFor(auth.plan)
+
+    // Team Memory Layer 1, Parte 4. Un query por batch, no por mutación — mismo motivo que
+    // el de arriba: escanearlo una vez cuesta lo mismo que doscientas. Sólo los
+    // project_key que YA tienen `team_id` seteado — compartidos vía POST
+    // /v1/projects/share (Parte 3) — porque eso es justo lo que separa un push
+    // `scope: 'team'` legítimo de uno a un proyecto que nunca se compartió con nadie.
+    const { rows: sharedRows } = await client.query(
+      `select project_key from projects where user_id = $1 and team_id is not null`,
+      [auth.userId]
+    )
+    const sharedProjectKeys = new Set(sharedRows.map((r) => r.project_key as string))
+
+    // PASADA 1 — los cinco rechazos que NO dependen del id del proyecto: `missing_sync_id`,
+    // `team_scope_not_allowed`, `project_not_shared_with_team`, `observation_too_large` y
+    // `quota_exceeded`.
+    //
+    // Corren antes de resolver proyectos, y ese orden no es cosmético. `ensureProject` corría
+    // para toda clave nueva con lugar disponible ANTES de que se evaluara ningún rechazo, así
+    // que un batch cuya única mutación después rebotaba dejaba igual la fila en `projects`:
+    // un proyecto VACÍO ocupando para siempre el único lugar de una cuenta Free. Y borrar
+    // todas las observaciones no lo liberaba, porque nada borra filas de `projects` salvo
+    // `delete-data`, que borra todo. El usuario quedaba sin poder sincronizar su repo de
+    // verdad por una mutación que el servidor ni siquiera aceptó.
+    //
+    // Tres cosas que este reordenamiento NO cambia, y que hay que seguir respetando al tocar
+    // esto: el orden de `results` (cada mutación de entrada deja exactamente una entrada en
+    // `prepared`, en su posición, y la pasada 2 recorre `prepared`), la idempotencia por
+    // (device_id, seq) — el recibo se sigue reclamando dentro de la transacción de cada
+    // mutación, en la pasada 2, ese mecanismo no se toca — y el advisory lock y la
+    // transacción de resolución de proyectos, que quedan igual: lo único que cambia es QUÉ
+    // claves entran a ese bloque.
+    const prepared: PreparedMutation[] = []
+    for (const m of mutations) {
+      const p = m.payload ?? {}
+      const syncId = m.sync_id ?? String(p.sync_id ?? '')
+      const projectKey = String(p.project_key ?? GLOBAL_PROJECT_KEY)
+      const scope = String(p.scope ?? 'personal')
+
+      // Without this, a mutation carrying neither `sync_id` nor `payload.sync_id` became
+      // the empty string — a perfectly valid text primary key — so EVERY malformed push
+      // from every account in the world collided on one row and overwrote each other.
+      // Terminal on purpose: no retry of the same payload can grow a sync_id.
+      if (!syncId) {
+        prepared.push({
+          kind: 'rejected',
+          result: { sync_id: '', outcome: 'rejected', project_seq: 0, error: 'missing_sync_id' },
+        })
+        continue
+      }
+
+      // The scope travels in the payload, so without this check the client is the only
+      // thing deciding whether a memory is private or shared with the whole account.
+      // Terminal on purpose: the same payload on the same plan can never succeed, and
+      // omitting it instead would make the device retry a write it is not allowed to make,
+      // forever.
+      if (scope === 'team' && !TEAM_SCOPE_PLANS.has(auth.plan)) {
+        prepared.push({
+          kind: 'rejected',
+          result: {
+            sync_id: syncId,
+            outcome: 'rejected',
+            project_seq: 0,
+            error: 'team_scope_not_allowed',
+          },
+        })
+        continue
+      }
+
+      // Team Memory Layer 1, Parte 4. El plan solo no alcanza: `scope: 'team'` también
+      // exige que ESE proyecto se haya compartido explícitamente con un equipo (POST
+      // /v1/projects/share, Parte 3). Sin este gate, cualquier device con plan de equipo
+      // podía marcar `scope: 'team'` sobre CUALQUIER project_key — incluso uno que el
+      // usuario nunca compartió con nadie — y esa observation quedaría visible para todo
+      // el equipo en cuanto el pull team-scoped (Parte 5) la trajera. Terminal por la
+      // misma razón que el gate de arriba: el mismo payload nunca va a poder aplicar
+      // mientras el proyecto siga sin compartir, y omitirlo dejaría al device reintentando
+      // para siempre una escritura que no le corresponde.
+      if (scope === 'team' && !sharedProjectKeys.has(projectKey)) {
+        prepared.push({
+          kind: 'rejected',
+          result: {
+            sync_id: syncId,
+            outcome: 'rejected',
+            project_seq: 0,
+            error: 'project_not_shared_with_team',
+          },
+        })
+        continue
+      }
+
+      // Bytes utf-8, no `.length`: `.length` cuenta unidades utf-16 y subcuenta cualquier
+      // texto no ASCII — el mismo error que ya había corrompido cuerpos enteros en readBody.
+      if (Buffer.byteLength(String(p.content ?? ''), 'utf8') > MAX_OBSERVATION_BYTES) {
+        prepared.push({
+          kind: 'rejected',
+          result: {
+            sync_id: syncId,
+            outcome: 'rejected',
+            project_seq: 0,
+            error: 'observation_too_large',
+          },
+        })
+        continue
+      }
+
+      // Frena lo nuevo y no toca nada de lo viejo: la cuota llena NUNCA borra para hacer
+      // lugar. Un borrado (`op: 'delete'`) sí pasa — es lo único que puede bajar el uso, y
+      // bloquearlo dejaría al usuario encerrado sin forma de recuperar espacio.
+      if (overQuota && m.op !== 'delete') {
+        prepared.push({
+          kind: 'rejected',
+          result: { sync_id: syncId, outcome: 'rejected', project_seq: 0, error: 'quota_exceeded' },
+        })
+        continue
+      }
+
+      prepared.push({ kind: 'pending', m, syncId, projectKey })
+    }
+
+    // `ensureProject` used to run once PER MUTATION, so a 200-mutation batch for one
+    // project did 200 upserts against the same `projects` row — ~400 dead tuples per push
+    // on a row that is also the seq counter every push has to lock. Resolve each distinct
+    // project_key ONCE, up front. The last display_name in the batch still wins, exactly
+    // as it did when each mutation overwrote the previous one's.
+    //
+    // Sólo las claves de las mutaciones que SOBREVIVIERON la pasada 1: una clave que sólo
+    // aparecía en mutaciones ya rechazadas no llega hasta acá y por lo tanto no se crea.
+    //
+    // Deliberately BEFORE the per-mutation transactions rather than hoisted inside one:
+    // the transaction boundaries are unchanged (still one per mutation), and a project id
+    // cached from a transaction that later rolled back would name a row that no longer
+    // exists. Resolving them here, in autocommit, means the id stays valid no matter which
+    // mutations fail. A project created for a batch whose surviving mutations then fail on
+    // a DB error is an empty row holding a seq counter — harmless, and the retry reuses it.
+    const displayNames = new Map<string, string>()
+    for (const entry of prepared) {
+      if (entry.kind !== 'pending') continue
+      const p = entry.m.payload ?? {}
+      displayNames.set(entry.projectKey, String(p.project_display_name ?? entry.projectKey))
+    }
+    // El tope se cuenta ANTES de crear nada, y sólo lo pagan las claves NUEVAS: un usuario
+    // que ya tiene su proyecto en la nube sigue escribiendo en él aunque esté en el tope.
+    //
+    // El count-y-luego-insert de acá abajo tiene que correr bajo un lock propio: dos pushes
+    // concurrentes del mismo usuario (dos devices sincronizando a la vez, cada uno con un
+    // project_key nuevo) pueden leer el mismo `known.size` ANTES de que el otro haya
+    // insertado su fila — ambos ven un lugar libre y ambos lo ocupan, dejando al usuario con
+    // más proyectos de los que su plan permite. `pg_advisory_xact_lock` sobre una clave
+    // derivada del user_id serializa a los pushes concurrentes de la MISMA cuenta (cuentas
+    // distintas no se pisan: hashtextextended de distintos user_id no colisiona en la
+    // práctica) sin tocar el resto de las cuentas.
+    //
+    // Esta transacción es corta y propia — no la misma que envuelve cada mutación más abajo
+    // — así que el comentario de arriba sigue siendo cierto: como ella comitea ANTES de que
+    // arranque el loop de mutaciones, los ids resueltos acá quedan válidos pase lo que pase
+    // después, sin importar qué transacción de mutación haga rollback.
+    //
+    // El mismo patrón de advisory lock transaccional que usa la colisión de topic más abajo
+    // (`pg_advisory_xact_lock(hashtextextended($1, 0))`) — misma función, mismo namespace de
+    // 64 bits compartido con CUALQUIER otro advisory lock del proceso (incluido
+    // MIGRATION_LOCK_KEY en db.ts), así que la clave usada acá (`project-limit:<user_id>`)
+    // tiene que seguir siendo distinguible del formato que usa esa otra clave
+    // (`<projectId>:<scope>:<topicKey>`, siempre numérica al inicio) para que una colisión
+    // real sea, como ahí, no creíble.
+    const projectIds = new Map<string, number>()
+    const projectErrors = new Map<string, unknown>()
+    const overLimit = new Set<string>()
+    await client.query('begin')
+    try {
+      await client.query('select pg_advisory_xact_lock(hashtextextended($1, 0))', [
+        `project-limit:${auth.userId}`,
+      ])
+
+      const { rows: existing } = await client.query(
+        'select project_key from projects where user_id = $1',
+        [auth.userId]
+      )
+      const known = new Set(existing.map((r) => r.project_key as string))
+      const maxProjects = limitsFor(auth.plan).maxProjects
+      // `__global__` se descuenta de lo YA existente por la misma razón por la que abajo no
+      // pide lugar (ver GLOBAL_PROJECT_KEY): es una partición interna, no un repo. Sin este
+      // descuento el usuario que ya tiene su `__global__` en la nube — o sea, todos, porque
+      // el cliente la crea en cada connect — arrancaría con el tope de Free ya consumido.
+      const ownedProjects = [...known].filter((k) => k !== GLOBAL_PROJECT_KEY).length
+      let slotsLeft = Math.max(0, maxProjects - ownedProjects)
+
+      for (const [key, displayName] of displayNames) {
+        if (key !== GLOBAL_PROJECT_KEY && !known.has(key)) {
+          if (slotsLeft <= 0) {
+            overLimit.add(key)
+            continue
+          }
+          slotsLeft--
+        }
+        try {
+          // A savepoint per key, not a bare try/catch: a real SQL error inside an explicit
+          // transaction poisons it until something rolls back, so without this a single
+          // unusable project_key would take the WHOLE batch's project resolution down with
+          // it — exactly the failure the surrounding try/catch was written to prevent
+          // before this block ran in a transaction at all.
+          await client.query('savepoint ensure_project')
+          projectIds.set(key, await ensureProject(client, auth.userId, key, displayName))
+          await client.query('release savepoint ensure_project')
+        } catch (err) {
+          await client.query('rollback to savepoint ensure_project')
+          // Kept per-key instead of thrown: one unusable project_key must not take down the
+          // whole batch. The error is re-thrown inside each affected mutation's transaction
+          // below, so it goes through the same terminal/transient classification.
+          projectErrors.set(key, err)
+        }
+      }
+      await client.query('commit')
+    } catch (err) {
+      await client.query('rollback')
+      throw err
+    }
+
+    // PASADA 2 — aplicar. Acá ya sólo queda un rechazo posible, `project_limit_reached`: es
+    // el único de los seis que depende de haber resuelto los proyectos, y por eso es el
+    // único que no se pudo evaluar en la pasada 1.
+    //
+    // Se recorre `prepared`, NO `mutations`: así los rechazos de la pasada 1 vuelven a
+    // `results` en la posición exacta que tenía su mutación en la entrada.
+    for (const entry of prepared) {
+      if (entry.kind === 'rejected') {
+        results.push(entry.result)
+        continue
+      }
+      const { m, syncId, projectKey } = entry
+      const p = m.payload ?? {}
+      const now = Date.now()
+
+      // El proyecto de más no se rechaza para siempre ni se borra: sigue vivo y completo en
+      // la máquina del usuario. Esto sólo dice "en la nube, no". Terminal porque el mismo
+      // payload con el mismo plan no puede funcionar nunca.
+      if (overLimit.has(projectKey)) {
+        results.push({
+          sync_id: syncId,
+          outcome: 'rejected',
+          project_seq: 0,
+          error: 'project_limit_reached',
+        })
+        continue
+      }
+
+      await client.query('begin')
+      let rolledBack = false
+      try {
+        // §5.1 idempotency, and the MUTEX for it. The receipt used to be read before the
+        // transaction and written at the end, which left the whole apply unguarded: two
+        // concurrent pushes of the same (device_id, seq) — precisely what the client
+        // produces when its AbortSignal timeout fires and it retries while the first
+        // request is still in flight — both read "no receipt", both applied, and the
+        // receipt ended up naming a project_seq that no row had, leaving a permanent hole
+        // in the seq space.
+        //
+        // Claiming the receipt FIRST closes that: the second transaction blocks on the
+        // uncommitted primary key, and when the first commits, `do nothing` returns no
+        // row. `outcome` is a placeholder until the outcome is actually known — it is
+        // updated below, in this same transaction, so the placeholder can never be
+        // observed by anyone.
+        const claim = await client.query(
+          `insert into push_receipts (device_id, seq, sync_id, outcome, project_seq)
+           values ($1, $2, $3, 'pending', null)
+           on conflict do nothing returning device_id`,
+          [auth.deviceId, m.seq, syncId]
+        )
+        if (claim.rowCount === 0) {
+          // Somebody else owns this (device_id, seq). Since the insert above waits out any
+          // in-flight conflicting transaction, "no row" means that one COMMITTED — so the
+          // stored receipt is there to be read and returned, exactly as a replay would.
+          rolledBack = true
+          await client.query('rollback')
+          const prior = await client.query(
+            'select sync_id, outcome, project_seq from push_receipts where device_id = $1 and seq = $2',
+            [auth.deviceId, m.seq]
+          )
+          if (prior.rows.length > 0) {
+            results.push({
+              sync_id: prior.rows[0].sync_id,
+              outcome: prior.rows[0].outcome,
+              project_seq: Number(prior.rows[0].project_seq ?? 0),
+            })
+          }
+          // No stored receipt after all (the other transaction rolled back between the
+          // conflict and this read): omit it and let the client send it again.
+          continue
+        }
+
+        const projectId = projectIds.get(projectKey)
+        if (projectId === undefined) throw projectErrors.get(projectKey) ?? new Error('no project')
+        const seq = await allocateSeqRange(client, projectId, 1)
+
+        // §8.1: a topic collision supersedes the loser; it never rejects it. The old server
+        // did a plain INSERT against obs_topic_uniq, the second memory came back `rejected`,
+        // the client marked it pushed and never retried, and the two machines showed
+        // different memories for the same topic forever. Nothing is discarded here.
+        let supersededBy: string | null = null
+        const scope = String(p.scope ?? 'personal')
+        const topicKey = (p.topic_key as string | null) ?? null
+        const incomingDeleted = m.op === 'delete' || Boolean(p.deleted)
+
+        if (topicKey && !incomingDeleted) {
+          // DEFENSE IN DEPTH, and redundant TODAY — kept deliberately, so read this before
+          // deleting it as dead weight or copying it as a pattern:
+          //
+          // (a) The TOCTOU window this closes is already shut. `allocateSeqRange` ran a few
+          //     lines up and its `update projects ... where id = $1` takes a row lock on
+          //     this project that Postgres holds until commit. Two concurrent pushes to the
+          //     same project therefore cannot both sit between the owner read below and the
+          //     insert further down: the second one is already waiting on that row.
+          // (b) This lock is what keeps the §8.1 guarantee true if seq allocation ever
+          //     STOPS locking the projects row. Note which direction the risk runs: the
+          //     batching optimization the plan contemplates (one range per project per
+          //     push instead of one per mutation) makes that row lock STRONGER, not weaker.
+          //     The real hazard is replacing the counter with a Postgres sequence, with a
+          //     separate table, or with an in-process cached range — any of those drops the
+          //     row lock, and without this line the topic guarantee would evaporate in
+          //     silence, with nothing failing and nobody noticing.
+          // (c) `pg_advisory_xact_lock` shares ONE 64-bit key space with every other
+          //     advisory lock in this process, including `MIGRATION_LOCK_KEY` in db.ts.
+          //     The key here is a hash of a tuple string, so a collision with that constant
+          //     is not credible, but any new advisory lock added anywhere in this service
+          //     lands in the same namespace and has to be chosen with that in mind.
+          //
+          // Keyed on the exact tuple obs_topic_uniq enforces uniqueness over, and
+          // transaction-scoped: a session-scoped lock would leak across pooled requests.
+          await client.query('select pg_advisory_xact_lock(hashtextextended($1, 0))', [
+            `${projectId}:${scope}:${topicKey}`,
+          ])
+
+          const owner = await client.query(
+            `select sync_id, lamport, client_updated_at from observations
+              where project_id = $1 and scope = $2 and topic_key = $3
+                and sync_id <> $4 and deleted = false and superseded_by is null
+              for update`,
+            [projectId, scope, topicKey, syncId]
+          )
+          if (owner.rows.length > 0) {
+            const existing = {
+              syncId: owner.rows[0].sync_id,
+              updatedAt: new Date(owner.rows[0].client_updated_at).getTime(),
+              lamport: Number(owner.rows[0].lamport),
+            }
+            const incoming = {
+              syncId,
+              updatedAt: parseClientTimestamp(p.updated_at ?? p.client_updated_at, now).getTime(),
+              lamport: Number(p.lamport ?? 0),
+            }
+            const { winner } = resolveTopicCollision(existing, incoming)
+            if (winner.syncId === syncId) {
+              // The incoming wins: the existing row is superseded BEFORE the insert, because
+              // obs_topic_uniq admits no second live row. Insert-then-supersede is not a
+              // slower order, it is an impossible one. The loser also gets a NEW project_seq
+              // here, so devices that already pulled its old seq learn it lost instead of
+              // never seeing this update.
+              await client.query(
+                `update observations set superseded_by = $1, project_seq = $2
+                  where sync_id = $3`,
+                [syncId, await allocateSeqRange(client, projectId, 1), existing.syncId]
+              )
+            } else {
+              // The existing wins: the incoming is stored ALREADY superseded. It is still
+              // accepted and still replicates, so the client learns who won from the pull.
+              supersededBy = existing.syncId
+            }
+          }
+        }
+
+        const upsert = await client.query(
+          `insert into observations (
+             sync_id, project_id, project_seq, scope, type, topic_key, title, content, tags,
+             content_hash, origin_ai, origin_account, git_branch, author_id, author_display,
+             lamport, client_updated_at, client_created_at, deleted, superseded_by, tombstoned_at)
+           values ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,
+             case when $19 then now() else null end)
+           on conflict (sync_id) do update set
+             project_id = excluded.project_id, project_seq = excluded.project_seq,
+             scope = excluded.scope, type = excluded.type, topic_key = excluded.topic_key,
+             title = excluded.title, content = excluded.content, tags = excluded.tags,
+             content_hash = excluded.content_hash, lamport = excluded.lamport,
+             client_updated_at = excluded.client_updated_at, deleted = excluded.deleted,
+             superseded_by = excluded.superseded_by,
+             -- Stamped on the TRANSITION into deleted, not on every write: coalesce()
+             -- means a tombstone re-pushed (the same delete resent, or a later unrelated
+             -- update to an already-deleted row) does not get its clock reset and its
+             -- purge-eligibility pushed back out. A row that comes back to life (deleted
+             -- flips false) clears it, so it starts clean if it is ever deleted again.
+             tombstoned_at = case when excluded.deleted
+               then coalesce(observations.tombstoned_at, now())
+               else null end
+           where observations.author_id = excluded.author_id`,
+          [
+            syncId,
+            projectId,
+            seq,
+            scope,
+            String(p.type ?? 'discovery'),
+            topicKey,
+            String(p.title ?? ''),
+            // §8.2: the old server never read `op` at all, so a delete on one machine
+            // never reached the other. `incomingDeleted` already reads `op` for the
+            // topic-collision guard above; reuse it here so a tombstone that only sets
+            // `op: 'delete'` (without redundantly setting `payload.deleted`) still nulls
+            // its content and marks the row deleted below.
+            incomingDeleted ? null : ((p.content as string | null) ?? null),
+            JSON.stringify(normalizeTags(p.tags)),
+            (p.content_hash as string | null) ?? null,
+            (p.origin_ai as string | null) ?? null,
+            (p.origin_account as string | null) ?? null,
+            (p.git_branch as string | null) ?? null,
+            auth.userId,
+            (p.author_display as string | null) ?? null,
+            Number(p.lamport ?? 0),
+            parseClientTimestamp(p.updated_at ?? p.client_updated_at, now),
+            parseClientTimestamp(p.created_at ?? p.client_created_at, now),
+            incomingDeleted,
+            supersededBy,
+          ]
+        )
+
+        // Three things depend on that SET list being complete and on this guard:
+        //
+        // - `where observations.author_id = excluded.author_id` makes the update
+        //   SAME-TENANT. `sync_id` is a GLOBAL primary key and the client derives it
+        //   deterministically from (projectKey, scope, type, contentHash, topicKey) with no
+        //   per-user salt (`deriveImportSyncId` in electron/memory-store.ts), so two
+        //   accounts genuinely collide on it. Without the guard, user B's push overwrote
+        //   user A's row and answered `applied` — a cross-tenant write that also silently
+        //   discarded B's own memory. A conflict the guard blocks updates no rows, which is
+        //   what `rowCount === 0` detects, and it is terminal: retrying can never succeed.
+        // - `superseded_by = excluded.superseded_by` — without it a re-pushed row kept a
+        //   STALE marker. Reproduced: A loses to B, A is re-pushed as the LWW winner, so B
+        //   gets superseded_by = A while A still says superseded_by = B. A cycle, zero live
+        //   owners for the topic, and the memory vanishes from the active view everywhere.
+        // - `project_id = excluded.project_id` — `project_seq` was already in the SET list
+        //   without it, so a row whose project_key changed (a repo re-cloned to a different
+        //   path) kept its OLD project while taking a seq from the NEW project's counter,
+        //   violating unique (project_id, project_seq). The mutation was then omitted and
+        //   retried forever, invisibly.
+        if (upsert.rowCount === 0) {
+          throw new TerminalPushError(
+            'sync_id_conflict',
+            `sync_id ${syncId} already belongs to another account`
+          )
+        }
+
+        const result: PushResult = {
+          sync_id: syncId,
+          outcome: supersededBy ? 'superseded' : 'applied',
+          project_seq: seq,
+        }
+        await client.query(
+          `update push_receipts set sync_id = $3, outcome = $4, project_seq = $5
+            where device_id = $1 and seq = $2`,
+          [auth.deviceId, m.seq, syncId, result.outcome, seq]
+        )
+        await client.query('commit')
+        results.push(result)
+      } catch (err) {
+        if (!rolledBack) await client.query('rollback')
+        const rejection = classifyPushError(err)
+        if (rejection) {
+          // Terminal: no retry of this payload can ever succeed, so saying `rejected` (with
+          // the reason) is the honest answer. Omitting it instead is the mirror image of
+          // the bug this service exists to fix — the client would resend it forever and
+          // nothing anywhere would report a problem.
+          console.error('[push] mutation rejected as terminal', syncId, rejection, err)
+          results.push({ sync_id: syncId, outcome: 'rejected', project_seq: 0, error: rejection })
+        } else {
+          // Transient: omitted from `results` on purpose. Per §5.1 that is how the server
+          // says "I did not process this, send it again" — and the receipt claim rolled
+          // back with the rest, so the retry can take it cleanly.
+          console.error('[push] mutation failed, leaving it for retry', syncId, err)
+        }
+      }
+    }
+    return { results }
+  } finally {
+    client.release()
+  }
+}

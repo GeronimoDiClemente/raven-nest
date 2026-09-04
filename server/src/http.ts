@@ -1,0 +1,266 @@
+import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
+import type { Pool } from 'pg'
+import { authenticate } from './auth'
+import { handlePush } from './push'
+import { handlePull } from './pull'
+import { handleStatus } from './status'
+import { handleDeleteData } from './delete-data'
+import { createRateLimiter } from './rate-limit'
+import { registerDevice, revokeDevices, verifySupabaseJwt } from './devices'
+import { handleShareProject } from './share'
+
+const MAX_BATCH = 500
+const MAX_BODY_BYTES = 20 * 1024 * 1024
+
+// §11.6. 60 por minuto es ~300 veces el ritmo real del cliente (un pull cada 5 minutos), así
+// que sólo lo toca un bug de loop o un ataque. Uno por verbo: un push agresivo no tiene por
+// qué dejar al device sin poder leer.
+const pushLimiter = createRateLimiter({ limit: 60, windowMs: 60_000 })
+const pullLimiter = createRateLimiter({ limit: 60, windowMs: 60_000 })
+// §9.2. El registro no lleva token de device (todavía no hay uno), así que la clave del
+// límite no puede ser el device: es la IP. Mucho más bajo que el de push/pull porque un
+// registro por máquina y por vida es lo normal — diez por hora ya es un bug o un abuso.
+const registerLimiter = createRateLimiter({ limit: 10, windowMs: 60 * 60_000 })
+
+function send(
+  res: ServerResponse,
+  status: number,
+  body: unknown,
+  headers: Record<string, string> = {}
+): void {
+  const payload = JSON.stringify(body)
+  // El spread va PRIMERO y los propios después, para que los propios siempre ganen. Al revés
+  // — que es como estaba — un caller que pasara `Content-Type` o `Content-Length` en los
+  // extra los pisaba en silencio: el `Content-Length` de esta función es el único que
+  // corresponde al `payload` que se manda acá abajo, y anunciar otro deja al cliente leyendo
+  // de menos (respuesta truncada) o esperando bytes que nunca llegan hasta el timeout.
+  res.writeHead(status, {
+    ...headers,
+    'Content-Type': 'application/json',
+    'Content-Length': Buffer.byteLength(payload),
+  })
+  res.end(payload)
+}
+
+/**
+ * Reads the request body as ONE utf8 decode over the concatenated bytes.
+ *
+ * The previous version did `data += chunk` with `data` a string, which decodes every
+ * chunk INDEPENDENTLY. Node hands `data` events out in ~64 KB Buffers, so any multibyte
+ * character that straddles a chunk boundary is split across two decodes and each half
+ * becomes U+FFFD. Reproduced end to end: a 680 KB body of Spanish markdown came back with
+ * 9 replacement characters, and the push still answered `applied` — so the client marked
+ * it pushed and the corruption was permanent. 680 KB is the TYPICAL batch (200 mutations
+ * at the spec's measured 3407 B average), so this was the default case, not an edge one.
+ *
+ * The size cap sums `chunk.length`, which is BYTES. `data.length` on the old string was
+ * UTF-16 code units, which undercounts every non-ASCII body.
+ */
+function readBody(req: IncomingMessage): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = []
+    let bytes = 0
+    let done = false
+
+    const fail = (message: string, status: number) => {
+      done = true
+      chunks.length = 0
+      reject(Object.assign(new Error(message), { status }))
+    }
+
+    req.on('data', (chunk: Buffer) => {
+      if (done) return
+      bytes += chunk.length
+      if (bytes > MAX_BODY_BYTES) return fail('too large', 413)
+      chunks.push(chunk)
+    })
+    req.on('end', () => {
+      if (done) return
+      if (chunks.length === 0) return resolve({})
+      let parsed: unknown
+      try {
+        parsed = JSON.parse(Buffer.concat(chunks).toString('utf8'))
+      } catch {
+        return fail('bad json', 400)
+      }
+      // Valid JSON that is not an object (`null`, `42`, `"x"`, `[]`) used to sail through
+      // and blow up downstream — `body.mutations` on a null body throws a TypeError inside
+      // the caller's try and got reported as a 500. It is bad client input, so it is a 400
+      // here, and the 500 channel stays clean for actual server faults.
+      if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        return fail('bad json', 400)
+      }
+      resolve(parsed)
+    })
+    req.on('error', reject)
+  })
+}
+
+/**
+ * Everything from `authenticate` down runs inside this try/catch, not just the JSON
+ * parsing and the handler calls. `authenticate` itself does a DB query and can reject
+ * (e.g. the pool is briefly unreachable) — if that rejection happened outside a catch, it
+ * would surface as an unhandled rejection on the async request listener, which crashes the
+ * whole process on one bad request. Routing a request that never reaches `authenticate`
+ * needs no such guard (nothing async has happened yet), so only the auth-and-onward path is
+ * wrapped.
+ */
+async function handleRequest(pool: Pool, req: IncomingMessage, res: ServerResponse): Promise<void> {
+  const url = new URL(req.url ?? '/', `http://${req.headers.host}`)
+  const path = url.pathname
+
+  if (path === '/health') return send(res, 200, { ok: true })
+
+  // §9.2 — la emisión del token. Va ANTES de `authenticate` y fuera de su try/catch porque
+  // es el único camino que NO lleva un token `nmk_`: la credencial es el JWT del login que
+  // Nest ya tiene, y este endpoint es justamente el que devuelve el `nmk_` por primera vez.
+  if (path === '/v1/devices') {
+    if (req.method !== 'POST') return send(res, 405, { error: 'method_not_allowed' })
+    return handleRegisterDevice(pool, req, res)
+  }
+
+  // El gemelo del registro. Tampoco pasa por `authenticate`: autentica con el token `nmk_`
+  // pero SIN los gates de allowlist y plan, porque alguien que quedó fuera del beta o bajó
+  // de plan tiene que poder cerrar su credencial igual.
+  if (path === '/v1/devices/revoke') {
+    if (req.method !== 'POST') return send(res, 405, { error: 'method_not_allowed' })
+    return handleRevokeDevice(pool, req, res)
+  }
+
+  // §5.4: the old Supabase-shaped routes are served as aliases so this service can be
+  // pointed at a Nest build that predates the client's route change. This is a bring-up
+  // affordance, not a permanent surface — delete the aliases once nothing depends on them.
+  const isPush = path === '/v1/sync/push' || path === '/functions/v1/memory-sync/push'
+  const isPull = path === '/v1/sync/pull' || path === '/functions/v1/memory-sync/pull'
+  const isStatus = path === '/v1/sync/status'
+  // §5.5, option 2: the right-to-delete endpoint the spec left undefined. `/v1/sync/
+  // delete-data` is the real name; the Supabase-shaped path is served as an alias exactly
+  // like §5.4 does for push and pull, because `electron/main.ts` still posts to it and a
+  // 404 there breaks the right to delete SILENTLY (the client only reads `res.ok`).
+  const isDelete =
+    path === '/v1/sync/delete-data' || path === '/functions/v1/memory-sync/delete-cloud-data'
+  // Team Memory Layer 1, Parte 3: la única vía por la que `projects.team_id` se escribe.
+  const isShare = path === '/v1/projects/share'
+
+  if (!isPush && !isPull && !isStatus && !isDelete && !isShare) {
+    return send(res, 404, { error: 'not_found' })
+  }
+
+  try {
+    const auth = await authenticate(pool, req.headers.authorization)
+    if (!auth.ok) return send(res, auth.status, { error: auth.error })
+
+    // Después de autenticar, no antes: la clave es el device, y el device sale del token.
+    // Limitar por IP dejaría a una oficina entera detrás de un NAT compartiendo cuota.
+    if (isPush || isPull) {
+      const verdict = (isPush ? pushLimiter : pullLimiter).check(auth.deviceId)
+      if (!verdict.ok) {
+        return send(res, 429, { error: 'rate_limited' }, {
+          'Retry-After': String(verdict.retryAfterSeconds),
+        })
+      }
+    }
+
+    if (isStatus) return send(res, 200, await handleStatus(pool, auth))
+    // Takes no input — everything it deletes is scoped by the authenticated identity — so
+    // the body is deliberately not read. The client posts `{}`.
+    if (isDelete) return send(res, 200, await handleDeleteData(pool, auth))
+    if (isShare) {
+      const body = (await readBody(req)) as Record<string, unknown>
+      const result = await handleShareProject(pool, auth, body as never)
+      if (!result.ok) return send(res, result.status, { error: result.error })
+      return send(res, 200, { ok: true })
+    }
+
+    const body = (await readBody(req)) as Record<string, unknown>
+    if (isPush) {
+      const mutations = Array.isArray(body.mutations) ? body.mutations : []
+      // Decided on the mutation count alone, before handlePush ever opens a connection or
+      // starts a transaction — a batch this large is rejected outright, not partially run.
+      if (mutations.length > MAX_BATCH) return send(res, 413, { error: 'batch_too_large' })
+      return send(res, 200, await handlePush(pool, auth, { mutations } as never))
+    }
+    return send(res, 200, await handlePull(pool, auth, body as never))
+  } catch (err) {
+    // A `status` on the error means it is the client's fault (bad JSON, an oversized body)
+    // and safe to echo back. Anything else is ours — log it server-side and hand the client
+    // a generic code instead of leaking internals (a stack trace, a driver error message).
+    const status = (err as { status?: number }).status ?? 500
+    if (status === 500) console.error('[http]', path, err)
+    return send(res, status, { error: status === 500 ? 'internal_error' : (err as Error).message })
+  }
+}
+
+/**
+ * `POST /v1/devices` (§9.2). Recibe el JWT del login en `Authorization`, verifica la firma
+ * contra `SUPABASE_JWT_SECRET` y devuelve el token del device UNA sola vez.
+ *
+ * El secreto se lee en cada request en vez de una sola vez al cargar el módulo: el costo es
+ * nulo y permite arrancar el proceso sin la variable (todo el resto del servicio funciona
+ * sin ella) y setearla después, en vez de morir al importar.
+ */
+async function handleRegisterDevice(pool: Pool, req: IncomingMessage, res: ServerResponse): Promise<void> {
+  try {
+    const secret = process.env.SUPABASE_JWT_SECRET ?? ''
+    if (!secret) {
+      // Configuración faltante, no culpa del cliente. Con un 401 acá el usuario vería
+      // "tus credenciales no sirven" cuando lo que falta es una variable del servicio.
+      console.error('[http] /v1/devices sin SUPABASE_JWT_SECRET: no se puede emitir ningún token')
+      return send(res, 503, { error: 'issuer_unavailable' })
+    }
+
+    const jwt = (req.headers.authorization ?? '').replace(/^Bearer\s+/i, '').trim()
+    const identity = verifySupabaseJwt(jwt, secret, Date.now())
+    if (!identity) return send(res, 401, { error: 'unauthorized' })
+
+    const verdict = registerLimiter.check(req.socket.remoteAddress ?? 'sin-ip')
+    if (!verdict.ok) {
+      return send(res, 429, { error: 'rate_limited' }, { 'Retry-After': String(verdict.retryAfterSeconds) })
+    }
+
+    const body = (await readBody(req)) as Record<string, unknown>
+    // El nombre lo manda el cliente (C8: `navigator.platform` daba `Win32` en las dos PCs y
+    // el servidor las colapsaba en una). Si no viene, uno genérico antes que fallar.
+    const name = typeof body.name === 'string' && body.name.trim() !== '' ? body.name.trim().slice(0, 120) : 'Nest'
+    const platform = typeof body.platform === 'string' ? body.platform.slice(0, 120) : null
+
+    // El JWT crudo viaja también acá — no sólo la identidad ya decodificada — porque
+    // `registerDevice` lo necesita para autenticar la sincronización de `team_memberships`
+    // contra Supabase REST con la MISMA credencial (Team Memory Layer 1, Parte 2).
+    const result = await registerDevice(pool, identity, { name, platform }, jwt)
+    if (!result.ok) return send(res, result.status, { error: result.error })
+
+    // `token` viaja una sola vez y no se puede volver a pedir: el servicio guarda el hash.
+    return send(res, 201, { device_id: result.deviceId, token: result.token })
+  } catch (err) {
+    const status = (err as { status?: number }).status ?? 500
+    if (status === 500) console.error('[http] /v1/devices', err)
+    return send(res, status, { error: status === 500 ? 'internal_error' : (err as Error).message })
+  }
+}
+
+/** `POST /v1/devices/revoke` — ver `revokeDevices`. Body opcional: `{ all?: boolean }`. */
+async function handleRevokeDevice(pool: Pool, req: IncomingMessage, res: ServerResponse): Promise<void> {
+  try {
+    const body = (await readBody(req)) as Record<string, unknown>
+    const result = await revokeDevices(pool, req.headers.authorization ?? '', { all: body.all === true })
+    if (!result.ok) return send(res, result.status, { error: result.error })
+    return send(res, 200, { ok: true, revoked: result.revoked })
+  } catch (err) {
+    const status = (err as { status?: number }).status ?? 500
+    if (status === 500) console.error('[http] /v1/devices/revoke', err)
+    return send(res, status, { error: status === 500 ? 'internal_error' : (err as Error).message })
+  }
+}
+
+export function createApp(pool: Pool) {
+  return createServer((req, res) => {
+    handleRequest(pool, req, res).catch((err) => {
+      // Last-resort net: handleRequest already catches everything reachable through the
+      // routes above. This exists only so a bug in that catch itself still can't produce
+      // an unhandled rejection that takes the process down.
+      console.error('[http] unhandled', err)
+      if (!res.headersSent) send(res, 500, { error: 'internal_error' })
+    })
+  })
+}

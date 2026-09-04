@@ -26,29 +26,37 @@ export function useUserRepos() {
 
   const refresh = useCallback(async () => {
     setLoading(true)
-    const [reposRes, localPaths] = await Promise.all([
-      supabase
-        .from('user_repos')
-        .select('id, user_id, repo_full_name, repo_url, added_at, provider')
-        .order('added_at', { ascending: false }),
-      window.localPaths.getAll(),
-    ])
-    if (reposRes.error) {
-      console.warn('[useUserRepos.refresh] select user_repos failed; keeping previous state', reposRes.error)
+    // This runs unawaited from a passive effect (see below), so any rejection
+    // here — a network failure, a dropped IPC call to window.localPaths — must
+    // be caught locally. Otherwise it escapes as an unhandled rejection instead
+    // of the "keep previous state" behavior the rest of this hook relies on.
+    try {
+      const [reposRes, localPaths] = await Promise.all([
+        supabase
+          .from('user_repos')
+          .select('id, user_id, repo_full_name, repo_url, added_at, provider')
+          .order('added_at', { ascending: false }),
+        window.localPaths.getAll(),
+      ])
+      if (reposRes.error) {
+        console.warn('[useUserRepos.refresh] select user_repos failed; keeping previous state', reposRes.error)
+        return
+      }
+      const rows = (reposRes.data ?? []) as UserRepoRow[]
+      setRepos(rows.map((r) => ({
+        id: r.id,
+        user_id: r.user_id,
+        repo_full_name: r.repo_full_name,
+        repo_url: r.repo_url,
+        added_at: r.added_at,
+        provider: r.provider ?? 'github',
+        local_path: localPaths[r.id] ?? null,
+      })))
+    } catch (err) {
+      console.warn('[useUserRepos.refresh] unexpected error; keeping previous state', err)
+    } finally {
       setLoading(false)
-      return
     }
-    const rows = (reposRes.data ?? []) as UserRepoRow[]
-    setRepos(rows.map((r) => ({
-      id: r.id,
-      user_id: r.user_id,
-      repo_full_name: r.repo_full_name,
-      repo_url: r.repo_url,
-      added_at: r.added_at,
-      provider: r.provider ?? 'github',
-      local_path: localPaths[r.id] ?? null,
-    })))
-    setLoading(false)
   }, [])
 
   useEffect(() => { refresh() }, [refresh])

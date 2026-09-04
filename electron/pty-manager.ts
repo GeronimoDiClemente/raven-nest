@@ -4,7 +4,7 @@ import { mkdirSync } from 'fs'
 import * as fs from 'fs'
 import * as pty from 'node-pty'
 import { SHELL, SHELL_ARGS, isWin, isMac } from './platform'
-import { userHome } from './raven-home'
+import { ravenHome, userHome } from './raven-home'
 
 async function cwdReachable(p: string): Promise<boolean> {
   try {
@@ -21,7 +21,81 @@ export interface ShellOverride {
   args: string[]
 }
 
+/**
+ * Nest Memory integration point (docs/nest-memory-architecture.md §2.5). Injected as a
+ * constructor dependency rather than imported directly so existing PtyManager tests
+ * (worktree-integration, etc.) keep working with `new PtyManager()` and no memory
+ * wiring at all.
+ */
+export interface PtyMemoryIntegration {
+  socketPath: string
+  /** C2: shared secret injected as NEST_MEMORY_TOKEN — see memory-local-auth.ts. */
+  authToken: string
+  isEnabled: () => boolean
+  /**
+   * M11 fix: this used to be `getClaudeSettingsFlagArgs`, a READ-ONLY check of whether
+   * `.nest/memory-settings.json` already existed — nothing ever actually called
+   * `provisionClaudeAccount` here. An account created before Connect Memory, or one
+   * whose provisioning failed once (disk error, race with account creation), silently
+   * never got the `--settings` flag or working hooks, forever, with no retry. Per
+   * §2.5 ("defensively from PtyManager.create() before spawn"), this is now the
+   * (idempotent) provisioning call itself — every AI pane spawn is the one integration
+   * point that can self-heal a missing/stale provisioning state.
+   *
+   * Generalized (multi-AI memory registry, Step 1): this used to be
+   * `ensureClaudeProvisioned(accountDir): string[]`, hardcoded to Claude. Dispatch by
+   * binary name now lives in the caller (main.ts, via `adapterForBin` from
+   * memory-cli-adapters.ts), so pty-manager.ts calls this the same way for every AI
+   * type and needs no change when a Gemini/Codex adapter is registered — an
+   * unrecognized `bin` simply comes back as `{args: [], env: {}}`, a no-op.
+   */
+  ensureProvisioned: (bin: string, accountDir: string) => { args: string[]; env: Record<string, string> }
+}
+
 const BUFFER_MAX_LINES = 10_000
+
+/**
+ * Minor hardening: `launchCmd` is typed literally into the shell via `ptyProcess.write()`
+ * (see below), so a `--settings <path>` argument must be safely quoted for the
+ * platform's shell — a path or account name containing a literal `"` would otherwise
+ * break out of the quoted argument. PowerShell escapes an embedded `"` inside a
+ * double-quoted string as `""`; POSIX shells (bash/zsh) escape it as `\"`.
+ */
+export function quoteShellArg(value: string, isWinShell: boolean): string {
+  const escaped = isWinShell ? value.replace(/"/g, '""') : value.replace(/(["\\$`])/g, '\\$1')
+  return `"${escaped}"`
+}
+
+/**
+ * accountDir is always `{ravenHome}/.raven-nest/accounts/{aiType}/{accountName}` (see
+ * account-store.ts `getDir`). Parsing it here — rather than widening
+ * `PtyManager.create()`'s signature to take aiType/accountName explicitly — keeps every
+ * existing call site (main.ts's `pty:create` handler, and transitively preload/renderer)
+ * unchanged. docs/nest-memory-architecture.md §2.5 calls the signature-change path
+ * "cleaner" but explicitly allows derivation from accountDir as the alternative.
+ */
+export function parseAccountDir(accountDir: string): { aiType: string; accountName: string } | null {
+  const parts = accountDir.split(/[\\/]/).filter(Boolean)
+  const idx = parts.lastIndexOf('accounts')
+  if (idx === -1 || idx + 2 >= parts.length) return null
+  return { aiType: parts[idx + 1], accountName: parts[idx + 2] }
+}
+
+/**
+ * Provisioning target for an AI pane that runs with the REAL home — a headless graph
+ * node whose agent has no saved account (main.ts's `accountDirForAgent` returns '' and
+ * PtyManager deliberately does NOT redirect HOME, so the CLI keeps its own credentials).
+ *
+ * MEMORY_INTEGRATIONS_CONTRACT §3.2: the memory block used to live inside
+ * `if (accountDir && cmd)`, so those nodes fell out of memory entirely. They need a
+ * place to hold the Nest-owned hooks/MCP files, and it must NOT be the user's real home
+ * — provisioning there would write `mcpServers.nest_memory` into the machine's global
+ * ~/.claude.json. This dir is inside Nest's own storage root, shaped like any account
+ * dir so `parseAccountDir` reads provenance out of it (`claude:__headless__`).
+ */
+export function headlessAccountDir(aiType: string): string {
+  return join(ravenHome(), '.raven-nest', 'accounts', aiType, '__headless__')
+}
 
 export class PtyManager extends EventEmitter {
   private ptys = new Map<string, pty.IPty>()
@@ -51,6 +125,18 @@ export class PtyManager extends EventEmitter {
   // kill() and on onExit so a teardown during the 3 s Windows delay doesn't
   // fire a write into a dead (or recreated) PTY.
   private startupTimers = new Map<string, NodeJS.Timeout>()
+  private memory?: PtyMemoryIntegration
+
+  constructor(memory?: PtyMemoryIntegration) {
+    super()
+    this.memory = memory
+  }
+
+  /** Late-binds the memory integration when it can't be ready at PtyManager construction
+   *  time (main.ts constructs ptyManager before the memory subsystem). */
+  setMemoryIntegration(memory: PtyMemoryIntegration): void {
+    this.memory = memory
+  }
 
   async create(paneId: string, cmd: string, accountDir: string, repoPath?: string, shell?: ShellOverride): Promise<{ ok: true } | { ok: false; error: string }> {
     if (this.ptys.has(paneId)) return { ok: true }  // already running, don't recreate
@@ -77,6 +163,8 @@ export class PtyManager extends EventEmitter {
       const toAdd = extra.filter(p => !current.includes(p))
       if (toAdd.length) env.PATH = [...toAdd, ...current].join(':')
     }
+
+    let launchCmd = cmd
 
     // Only redirect HOME for AI agent panes — plain terminals keep the real HOME
     // so system credentials (gh, git, ssh, etc.) work without reconfiguration.
@@ -114,8 +202,61 @@ export class PtyManager extends EventEmitter {
           } catch { /* race or already exists — ignore */ }
         }
       }
+
     } else if (accountDir) {
       mkdirSync(accountDir, { recursive: true })
+    }
+
+    // Nest Memory: env injection at PtyManager.create() (§2.5) — the one place every
+    // AI pane passes through, same reasoning as the HOME rewrite above. env is injected
+    // for every AI type; provisioning itself is dispatched generically by binary name
+    // through the adapter registry (memory-cli-adapters.ts, via `ensureProvisioned` on
+    // this integration). Phase 1 only registers 'claude' there, so a bin with no
+    // adapter comes back as `{args: [], env: {}}` and launchCmd is left untouched —
+    // same observable behavior as before this file knew Codex/Gemini could exist.
+    //
+    // §3.2 fix: this deliberately sits OUTSIDE the `accountDir` branch above. Memory is
+    // not a consequence of the HOME redirection — a headless graph node runs with the
+    // real HOME and an empty accountDir, and used to be skipped in silence.
+    if (cmd && this.memory) {
+      // §3.1 fix: match the BINARY, not the whole command. The graph orchestrator
+      // launches nodes with `claude --model <x>` (graph-tick.ts `launchCommand`), and a
+      // plain `cmd === 'claude'` comparison would miss exactly those.
+      const bin = cmd.split(' ')[0]
+      // Only a plain binary name can name a headless dir; anything else (a path, a
+      // shell fragment) would let cmd steer where we write.
+      const memoryHome = accountDir || (/^[A-Za-z0-9_-]+$/.test(bin) ? headlessAccountDir(bin) : '')
+      const parsed = memoryHome ? parseAccountDir(memoryHome) : null
+      if (parsed) {
+        env.NEST_MEMORY_SOCKET = this.memory.socketPath
+        env.NEST_MEMORY_TOKEN = this.memory.authToken
+        env.NEST_MEMORY_ACCOUNT = `${parsed.aiType}:${parsed.accountName}`
+        env.NEST_MEMORY_AI = parsed.aiType
+        env.NEST_MEMORY_PANE = paneId
+        env.NEST_MEMORY_ENABLED = this.memory.isEnabled() ? '1' : '0'
+
+        // §2.5 "the shared-config hazard": hooks load ONLY via the isolated
+        // --settings file, never by writing accountDir/.claude/settings.json.
+        // M11: ensureProvisioned (RE-)PROVISIONS the account, not just checks it.
+        if (this.memory.isEnabled()) {
+          const { args: extraArgs, env: extraEnv } = this.memory.ensureProvisioned(bin, memoryHome)
+          Object.assign(env, extraEnv)
+          if (extraArgs.length > 0) {
+            const args = [...extraArgs]
+            // With the real HOME, claude reads ITS ~/.claude.json, never the headless
+            // one the provisioner just wrote — so the MCP server has to be named
+            // explicitly. Not needed for an account pane, where HOME is the account dir.
+            // Claude-specific — Gemini/Codex use their own isolated-home mechanism
+            // (GEMINI_CLI_HOME above, etc.) and don't need this; not generalized yet.
+            if (bin === 'claude' && !accountDir) args.push('--mcp-config', join(memoryHome, '.claude.json'))
+            const quoted = args.map((a) => (a.startsWith('-') ? a : quoteShellArg(a, isWin)))
+            // Insert the flags after the binary instead of rebuilding the command, so
+            // the caller's own arguments (--model, --print, …) survive.
+            const rest = cmd.slice(bin.length).trimStart()
+            launchCmd = rest ? `${bin} ${quoted.join(' ')} ${rest}` : `${bin} ${quoted.join(' ')}`
+          }
+        }
+      }
     }
 
     const spawnBin = shell?.bin ?? SHELL
@@ -159,7 +300,7 @@ export class PtyManager extends EventEmitter {
           // between scheduling and firing would otherwise write the cmd into
           // a fresh pty that wasn't asked to run it.
           if (this.ptys.get(paneId) === ptyProcess) {
-            ptyProcess.write(`${cmd}\r`)
+            ptyProcess.write(`${launchCmd}\r`)
           }
         }
         if (isWin) {
@@ -180,7 +321,7 @@ export class PtyManager extends EventEmitter {
         this.buffers.set(paneId, lines)
       })
 
-      ptyProcess.onExit(() => {
+      ptyProcess.onExit((e) => {
         // Identity guard: if a kill→create raced, the slot is already owned by a new
         // process. Don't wipe its state or fire 'exit' for a stale paneId.
         const current = this.ptys.get(paneId)
@@ -195,9 +336,11 @@ export class PtyManager extends EventEmitter {
         }
         this.ptys.delete(paneId)
         this.buffers.delete(paneId)
-    this.lastSize.delete(paneId)
-    this.clearPendingResize(paneId)
-        this.emit('exit', paneId)
+        this.lastSize.delete(paneId)
+        this.clearPendingResize(paneId)
+        // exitCode: forwarded so callers (graph orchestration) can distinguish
+        // a clean exit from a crash without polling — see main.ts's paneExitCode.
+        this.emit('exit', paneId, e.exitCode)
       })
 
       this.ptys.set(paneId, ptyProcess)

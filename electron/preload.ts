@@ -34,8 +34,77 @@ contextBridge.exposeInMainWorld('customCLIs', {
   delete: (id: string) => ipcRenderer.invoke('customcli:delete', id),
 })
 
+contextBridge.exposeInMainWorld('workerSpecs', {
+  list: () => ipcRenderer.invoke('workerspec:list'),
+  save: (input: unknown) => ipcRenderer.invoke('workerspec:save', input),
+  delete: (id: string) => ipcRenderer.invoke('workerspec:delete', id),
+})
+
+contextBridge.exposeInMainWorld('handoff', {
+  read: (worktreePath: string) => ipcRenderer.invoke('handoff:read', worktreePath),
+  write: (worktreePath: string, content: string) => ipcRenderer.invoke('handoff:write', worktreePath, content),
+})
+
+contextBridge.exposeInMainWorld('graphTemplates', {
+  list: () => ipcRenderer.invoke('graph:templates:list'),
+  save: (input: unknown) => ipcRenderer.invoke('graph:templates:save', input),
+  delete: (id: string) => ipcRenderer.invoke('graph:templates:delete', id),
+})
+
+contextBridge.exposeInMainWorld('graphRuns', {
+  list: () => ipcRenderer.invoke('graph:runs:list'),
+  start: (input: unknown) => ipcRenderer.invoke('graph:run:start', input),
+  attach: (runId: string, nodeId: string) => ipcRenderer.invoke('graph:node:attach', runId, nodeId),
+  // Decisiones humanas. Ninguna aplica nada por sí misma: main encola un
+  // `pendingDecision` y el tick del orquestador es el único que lo aplica.
+  setMode: (runId: string, mode: string) => ipcRenderer.invoke('graph:run:setMode', runId, mode),
+  approve: (runId: string, gateId: string) => ipcRenderer.invoke('graph:gate:approve', runId, gateId),
+  requestChanges: (runId: string, feedback: string) =>
+    ipcRenderer.invoke('graph:gate:requestChanges', runId, feedback),
+})
+
 contextBridge.exposeInMainWorld('dialog', {
   openFolder: () => ipcRenderer.invoke('dialog:openFolder'),
+})
+
+// Nest Memory (docs/nest-memory-architecture.md §8.1). `connect` takes the plaintext
+// token the renderer already obtained from supabase.functions.invoke('memory-token',
+// {action:'issue', device}) — see §5.1 step 1-2. Main never calls that function itself;
+// it only ever receives the token here, once, and encrypts it immediately.
+contextBridge.exposeInMainWorld('memory', {
+  ensureDeviceId: () => ipcRenderer.invoke('memory:ensureDeviceId'),
+  connect: (token: string, deviceId: string) => ipcRenderer.invoke('memory:connect', token, deviceId),
+  // §9.2 — pide el token al servicio de sync con el JWT del login. El JWT sale del renderer
+  // (es donde vive la sesión de Supabase) y la request la hace main, que es quien conoce la
+  // URL del servicio.
+  registerDevice: (jwt: string) => ipcRenderer.invoke('memory:registerDevice', jwt),
+  setUser: (userId: string | null, opts?: { adopt?: boolean }) => ipcRenderer.invoke('memory:setUser', userId, opts),
+  // Task 2 (adopcion con aviso) — puramente informativo, se llama ANTES de setUser para
+  // saber si hay que preguntar "son tuyas?" en vez de adoptar en silencio.
+  checkPendingAdoption: (userId: string | null) => ipcRenderer.invoke('memory:checkPendingAdoption', userId),
+  disconnect: (opts?: { deleteCloud?: boolean }) => ipcRenderer.invoke('memory:disconnect', opts),
+  status: () => ipcRenderer.invoke('memory:status'),
+  hubStats: () => ipcRenderer.invoke('memory:hub-stats'),
+  // Team Memory Layer 1, Parte 8 — comparte un proyecto LOCAL con un equipo, vía
+  // POST /v1/projects/share (server/src/share.ts). Sin UI todavía; se prueba desde devtools
+  // o un test.
+  shareProjectWithTeam: (projectKey: string, teamId: string) =>
+    ipcRenderer.invoke('memory:shareProjectWithTeam', projectKey, teamId),
+  // Task 5 — el vault (proyección Markdown de la memoria a `.raven-nest/memory-vault/`).
+  // Sin panel en Settings todavía (fuera de alcance de esta pasada); se prueba desde
+  // devtools o un test hasta que exista el toggle real.
+  vaultGetSettings: () => ipcRenderer.invoke('memory:vault:getSettings'),
+  vaultSetSettings: (patch: { enabled?: boolean; root?: string | null; includeSuperseded?: boolean; includeTeamScope?: boolean }) =>
+    ipcRenderer.invoke('memory:vault:setSettings', patch),
+  vaultRegenerate: () => ipcRenderer.invoke('memory:vault:regenerate'),
+  vaultReveal: () => ipcRenderer.invoke('memory:vault:reveal'),
+  onStatus: (cb: (status: 'idle' | 'syncing' | 'paused' | 'error' | 'plan_required') => void) => {
+    ipcRenderer.removeAllListeners('memory:status')
+    ipcRenderer.on('memory:status', (_event, status) => cb(status))
+  },
+  removeStatusListener: () => {
+    ipcRenderer.removeAllListeners('memory:status')
+  },
 })
 
 contextBridge.exposeInMainWorld('pty', {
@@ -251,6 +320,109 @@ contextBridge.exposeInMainWorld('gitlab', {
   removeOAuthListener: () => ipcRenderer.removeAllListeners('gitlab-oauth-code'),
 })
 
+contextBridge.exposeInMainWorld('plugins', {
+  list: () => ipcRenderer.invoke('plugins:list'),
+  save: (p: unknown) => ipcRenderer.invoke('plugins:save', p),
+  delete: (id: string) => ipcRenderer.invoke('plugins:delete', id),
+})
+contextBridge.exposeInMainWorld('pluginCreds', {
+  set: (id: string, token: string) => ipcRenderer.invoke('pluginCreds:set', id, token),
+  has: (id: string) => ipcRenderer.invoke('pluginCreds:has', id),
+  delete: (id: string) => ipcRenderer.invoke('pluginCreds:delete', id),
+})
+contextBridge.exposeInMainWorld('pluginActions', {
+  run: (id: string, actionId: string, params: unknown) =>
+    ipcRenderer.invoke('pluginActions:run', id, actionId, params),
+})
+contextBridge.exposeInMainWorld('slack', {
+  openOAuth: () => ipcRenderer.invoke('slack:open-oauth'),
+  // Antes no devolvía unsubscribe y por eso apilaba listeners entre reintentos
+  // de Connect (mismo bug que había en github/gitlab). Mirror del patrón de
+  // arriba: devuelve la función de unsubscribe.
+  onOAuthCode: (cb: (code: string) => void) => {
+    const handler = (_e: IpcRendererEvent, code: string) => cb(code)
+    ipcRenderer.on('slack-oauth-code', handler)
+    return () => ipcRenderer.removeListener('slack-oauth-code', handler)
+  },
+  removeOAuthListener: () => ipcRenderer.removeAllListeners('slack-oauth-code'),
+  exchangeCode: (code: string) => ipcRenderer.invoke('slack:exchange-code', code),
+})
+contextBridge.exposeInMainWorld('pluginPanels', {
+  call: (pluginId: string, method: string, args: unknown[]) =>
+    ipcRenderer.invoke('plugins:panel:call', pluginId, method, args),
+})
+contextBridge.exposeInMainWorld('tickets', {
+  list: (pluginId: string) => ipcRenderer.invoke('tickets:list', pluginId),
+  branchName: (user: string, key: string, title: string) =>
+    ipcRenderer.invoke('tickets:branchName', user, key, title),
+  startWork: (args: { pluginId: string; ticket: unknown; branch: string; worktreePath: string }) =>
+    ipcRenderer.invoke('tickets:startWork', args),
+  tracked: () => ipcRenderer.invoke('tickets:tracked'),
+})
+
+contextBridge.exposeInMainWorld('recipes', {
+  list: () => ipcRenderer.invoke('recipes:list'),
+})
+
+contextBridge.exposeInMainWorld('automations', {
+  list: () => ipcRenderer.invoke('automations:list'),
+  create: (input: unknown) => ipcRenderer.invoke('automations:create', input),
+  update: (id: string, patch: unknown) => ipcRenderer.invoke('automations:update', id, patch),
+  delete: (id: string) => ipcRenderer.invoke('automations:delete', id),
+})
+
+contextBridge.exposeInMainWorld('signals', {
+  list: () => ipcRenderer.invoke('signals:list'),
+  fixCiPrompt: (repoPath: string) => ipcRenderer.invoke('signals:fixCiPrompt', repoPath),
+  onUpdate: (cb: () => void) => {
+    const h = () => cb()
+    ipcRenderer.on('signals:update', h)
+    return () => ipcRenderer.removeListener('signals:update', h)
+  },
+})
+
+// Hub Activity rail: `list()` reads the ring buffer for the initial paint;
+// `onAppend` is the live push, one call per DomainEvent emitted on the bus
+// (same push pattern as `signals:update`/`slack:mention`).
+contextBridge.exposeInMainWorld('activity', {
+  list: () => ipcRenderer.invoke('activity:list'),
+  onAppend: (cb: (entry: { ev: unknown; ts: number }) => void) => {
+    const h = (_e: IpcRendererEvent, entry: { ev: unknown; ts: number }) => cb(entry)
+    ipcRenderer.on('activity:append', h)
+    return () => ipcRenderer.removeListener('activity:append', h)
+  },
+})
+
+// H7 — @Nest desde Slack (Socket Mode). El main empuja menciones/acciones por
+// IPC push (patrón `signals:update`); postThread invoca el bot token main-side.
+contextBridge.exposeInMainWorld('slackMentions', {
+  onMention: (cb: (m: { channel: string; threadTs: string; user: string; text: string }) => void) => {
+    const h = (_e: IpcRendererEvent, m: { channel: string; threadTs: string; user: string; text: string }) => cb(m)
+    ipcRenderer.on('slack:mention', h)
+    return () => ipcRenderer.removeListener('slack:mention', h)
+  },
+  onAction: (cb: (a: { actionId: string; value?: string; channel: string; threadTs?: string; user: string }) => void) => {
+    const h = (_e: IpcRendererEvent, a: { actionId: string; value?: string; channel: string; threadTs?: string; user: string }) => cb(a)
+    ipcRenderer.on('slack:action', h)
+    return () => ipcRenderer.removeListener('slack:action', h)
+  },
+  postThread: (args: { channel: string; threadTs: string; text: string }) =>
+    ipcRenderer.invoke('slack:postThread', args),
+})
+
+contextBridge.exposeInMainWorld('notion', {
+  specToWorktree: (pageId: string, worktreePath: string) =>
+    ipcRenderer.invoke('notion:specToWorktree', { pageId, worktreePath }),
+})
+
+contextBridge.exposeInMainWorld('gcal', {
+  openOAuth: () => ipcRenderer.invoke('gcal:openOAuth'),
+  listEvents: (timeMin: string, timeMax: string) =>
+    ipcRenderer.invoke('gcal:listEvents', timeMin, timeMax),
+  startSession: (args: { title: string; context: string; worktreePath: string }) =>
+    ipcRenderer.invoke('gcal:startSession', args),
+})
+
 contextBridge.exposeInMainWorld('worktree', {
   list: (repoPath: string) => ipcRenderer.invoke('worktree:list', repoPath),
   create: (opts: unknown) => ipcRenderer.invoke('worktree:create', opts),
@@ -260,6 +432,7 @@ contextBridge.exposeInMainWorld('worktree', {
     ipcRenderer.invoke('worktree:setPreset', worktreePath, presetId),
   copyFiles: (srcRepoPath: string, dstWorktreePath: string, files: string[]) =>
     ipcRenderer.invoke('worktree:copyFiles', srcRepoPath, dstWorktreePath, files),
+  listAll: () => ipcRenderer.invoke('worktree:listAll'),
 })
 
 contextBridge.exposeInMainWorld('port', {

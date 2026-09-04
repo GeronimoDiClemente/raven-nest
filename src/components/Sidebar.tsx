@@ -8,6 +8,7 @@ import UserMenu from './UserMenu'
 import RepoActionsBar from './RepoActionsBar'
 import { WorktreesSection } from './WorktreesSection'
 import HubSidebarPanel, { type HubWorkspace } from './HubSidebarPanel'
+import type { Plan } from '../lib/stripe'
 import { useGitHub } from '../hooks/useGitHub'
 import { useGitlab } from '../hooks/useGitlab'
 import { LayoutId, Workspace, MAX_PANES } from '../types'
@@ -50,7 +51,9 @@ interface Props {
   onTeamsOpen?: () => void
   pendingInvitesCount?: number
   onMyReposOpen?: () => void
-  plan?: 'free' | 'pro' | 'team' | 'enterprise'
+  onIntegrationsOpen?: () => void
+  onGraphBoardOpen?: () => void
+  plan?: Plan
   repoPath?: string
   onRepoLink: () => void
   onRepoUnlink: () => void
@@ -58,6 +61,7 @@ interface Props {
   activeCellRepoPath?: string
   onWorktreeSelect: (worktreePath: string) => void
   onNewWorktree: () => void
+  onFixCi: (repoPath: string) => void
   worktreeRefreshKey?: number
   // Layout selector (replaces the old LayoutPicker). Sidebar renders the
   // trigger; the engine in App.tsx owns the state.
@@ -92,8 +96,8 @@ export default function Sidebar({
   isListening, isTranscribing, isModelLoading, onMicToggle,
   onNewPane, onHistoryOpen,
   onSnippetSend, onSnippetBroadcast, onCommandRun, onWorkspaceSave, onWorkspaceLoad, isWin,
-  isTrialActive, trialDaysLeft, profileLoading, onUpgrade, onTeamsOpen, pendingInvitesCount = 0, onMyReposOpen, plan, repoPath, onRepoLink, onRepoUnlink, onJoinTerminal,
-  activeCellRepoPath, onWorktreeSelect, onNewWorktree, worktreeRefreshKey,
+  isTrialActive, trialDaysLeft, profileLoading, onUpgrade, onTeamsOpen, pendingInvitesCount = 0, onMyReposOpen, onIntegrationsOpen, onGraphBoardOpen, plan, repoPath, onRepoLink, onRepoUnlink, onJoinTerminal,
+  activeCellRepoPath, onWorktreeSelect, onNewWorktree, onFixCi, worktreeRefreshKey,
   layoutId, paneCount, onLayoutChange, onOpenTutorial, onFileOpen, userPrefs,
   paneFilterPanes, paneFilter, onPaneFilterChange,
   isHub = false, hubWorkspaces, onSelectWorkspace, onJumpToPane, onToggleTerminal, onToggleWorkspace, onNewWorkspace, onAddTerminalToWorkspace,
@@ -594,6 +598,7 @@ export default function Sidebar({
                   activeRepoPath={activeCellRepoPath}
                   onSelect={onWorktreeSelect}
                   onNewClick={onNewWorktree}
+                  onFixCi={onFixCi}
                   refreshKey={worktreeRefreshKey}
                   onStartTutorial={onOpenTutorial ? () => onOpenTutorial('worktrees') : undefined}
                 />
@@ -659,7 +664,7 @@ export default function Sidebar({
         <div
           className="sidebar-item sidebar-item-panel sidebar-item-team"
           style={{ cursor: 'pointer' }}
-          onClick={plan === 'pro' || plan === 'team' || plan === 'enterprise' ? onMyReposOpen : onUpgrade}
+          onClick={onMyReposOpen}
           title="My Repos"
         >
           <span className="sidebar-icon">
@@ -671,7 +676,38 @@ export default function Sidebar({
             </svg>
           </span>
           <span className="sidebar-label">My Repos</span>
-          {expanded && plan === 'free' && <span className="sidebar-plan-badge">Pro</span>}
+        </div>
+
+        <div
+          className="sidebar-item sidebar-item-panel sidebar-item-team"
+          style={{ cursor: 'pointer' }}
+          onClick={onIntegrationsOpen}
+          title="Integrations"
+        >
+          <span className="sidebar-icon">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <rect x="2" y="2" width="12" height="12" rx="3.5" stroke="currentColor" strokeWidth="1.4" />
+              <path d="M5.5 8h5M8 5.5v5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+            </svg>
+          </span>
+          <span className="sidebar-label">Integrations</span>
+        </div>
+
+        <div
+          className="sidebar-item sidebar-item-panel sidebar-item-team"
+          style={{ cursor: 'pointer' }}
+          onClick={onGraphBoardOpen}
+          title="Orchestration"
+        >
+          <span className="sidebar-icon">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <circle cx="3.5" cy="8" r="1.6" stroke="currentColor" strokeWidth="1.3" />
+              <circle cx="12.5" cy="4" r="1.6" stroke="currentColor" strokeWidth="1.3" />
+              <circle cx="12.5" cy="12" r="1.6" stroke="currentColor" strokeWidth="1.3" />
+              <path d="M5 7l6-2.3M5 9l6 2.3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+            </svg>
+          </span>
+          <span className="sidebar-label">Orchestration</span>
         </div>
 
         {/* ── 4. MORE TOOLS (desplegable) ─────────────────── */}

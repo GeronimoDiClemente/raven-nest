@@ -96,8 +96,9 @@ if (process.defaultApp) {
   app.setAsDefaultProtocolClient('nest')
 }
 import { join as pathJoin, join, isAbsolute, basename, dirname } from 'path'
-import { readFileSync, writeFileSync, mkdirSync, statSync, copyFileSync, unlinkSync, rmSync, existsSync, promises as fsp } from 'fs'
-import { tmpdir, homedir } from 'os'
+import { readFileSync, writeFileSync, mkdirSync, statSync, copyFileSync, unlinkSync, rmSync, existsSync, chmodSync, promises as fsp } from 'fs'
+import { tmpdir, homedir, hostname } from 'os'
+import { lookup } from 'dns/promises'
 import { ravenHome, userHome } from './raven-home'
 import { loadSession, saveSession } from './session-store'
 import { execSync, execFile, execFileSync, spawn } from 'child_process'
@@ -133,20 +134,419 @@ import type { VSCodeThemeJson } from '../src/lib/theme-registry'
 import { detectIDEs, openInIDE, clearCache as clearIDECache } from './ide-launcher'
 import { MCPStore } from './mcp-store'
 import { SettingsStore } from './settings-store'
+import { MemoryStore, resolveStorePath, migrateLegacyStorePath } from './memory-store'
+import { MemoryIpcServer } from './memory-ipc-server'
+import { MemoryDaemon } from './memory-daemon'
+import { daemonSocketPath } from './memory-protocol'
+import { swapMemoryStore, type SwapContext } from './memory-account-switch'
+import type { ProvisionerPaths } from './memory-provisioner'
+import { adapterForBin } from './memory-cli-adapters'
+import { ensureLocalAuthMaterial } from './memory-local-auth'
+import { runLocalMemoryImport } from './memory-local-import'
+import { resolveProjectKey, GLOBAL_PROJECT_KEY } from './memory-project-key'
+import { openReadonlyReader } from './integrations/memory-readonly-reader'
+import { planVault } from './integrations/vault-plan'
+import { applyVaultPlan, computeOnDiskHashes, readManifest } from './integrations/vault-apply'
+import {
+  defaultVaultRoot,
+  loadVaultSettings,
+  resolveVaultRootDir,
+  saveVaultSettings,
+  validateVaultRoot,
+  vaultSettingsPath,
+  type VaultSettings,
+} from './integrations/vault-config'
 import { MetricsCollector, PaneInput } from './metrics-collector'
 import { transcribeAudio, checkWhisperAvailable, initWhisper, shutdownWhisper, setWhisperStatusCallback } from './whisper'
-import { getWindowOptions, getIconsDir, ICON_FILENAME, isMac } from './platform'
+import { getWindowOptions, getIconsDir, ICON_FILENAME, isMac, isWin } from './platform'
 import { createTray } from './tray'
+import { PluginsStore } from './plugins-store'
+import { PluginCredentialStore } from './plugin-credentials'
+import { runPluginAction } from './plugin-actions'
+import { callPanel, type PanelAdapterDeps } from './integration-panels'
+import { registerAllPanelAdapters, registerAllTicketProviders } from './integrations/register'
+import { ticketLoop } from './ticket-loop'
+import { WorktreeSignals } from './integrations/worktree-signals'
+import { SlackSocket } from './integrations/slack-socket'
+import { fetchPageMarkdown } from './integrations/notion'
+import { createGcalAdapter, type GcalEvent } from './integrations/gcal'
+import { refreshAccessToken, startLoopbackFlow, GcalAuthError, type GcalCreds } from './integrations/gcal-oauth'
+import { EventBus } from './integrations/event-bus'
+import { ActivityLog } from './integrations/activity-log'
+import { loadRecipes, recipeDescriptors } from './integrations/recipes'
+import { registerBusCommands } from './integrations/bus-commands'
+import {
+  loadAutomations, saveAutomations, nextRun, describeSchedule, newAutomationId, Scheduler,
+  type Automation,
+} from './integrations/scheduler'
+import { ticketBranchName } from './integrations/branch-name'
+import { performWorktreeAdd } from './worktree-create'
+import { getRemoteUrl, parseOwnerRepo } from './integrations/github'
+import { isTicket, type Ticket } from './integrations/ticket-types'
+import { handleMention, type NestBotDeps } from './integrations/nest-bot'
+import { WorkerSpecStore, newWorkerSpecId, type WorkerSpec } from './integrations/worker-spec-store'
+import { GraphTemplateStore, newGraphTemplateId } from './integrations/graph-template-store'
+import { toGraphTemplate, type GraphTemplate } from './integrations/graph-template'
+import { GraphRunStore } from './integrations/graph-run-store'
+import { GraphConfigStore } from './integrations/graph-config'
+import { planTick, dedupePersistentSignals } from './integrations/graph-orchestrator'
+import type { GraphRun, NodeRuntime, GraphMode } from './integrations/graph-runner'
+import { sampleGraph, launchCommand, type PaneSignals } from './integrations/graph-tick'
+import { readHandoff, writeHandoff } from './integrations/handoff'
+import { makeRunAutomation, type AutomationRunnerPorts } from './integrations/automation-runner'
+import { bridgeEvent, bridgeDecision, type BridgeContext } from './integrations/memory-bridge'
+import { type MemorySink, type MemorySaveInput } from './integrations/memory-port'
+import { SwapWriteGate } from './memory-write-gate'
 
 const ptyManager = new PtyManager()
+// Per-pane last-output timestamp. deriveAgentState (graph orchestrator sampling)
+// needs it and pty-manager doesn't track it — fed from the on('data') forward.
+const paneLastOutputAt = new Map<string, number>()
+// Per-pane exit code, last one wins. Fed from ptyManager's 'exit' event so the
+// graph orchestrator's exitCode port can tell a clean finish from a crash
+// without polling — see graphOrchestratorTick / OrchestratorPorts.exitCode.
+const paneExitCode = new Map<string, number>()
 const accountStore = new AccountStore()
+
+// ── Nest Memory (docs/nest-memory-architecture.md) ──────────────────────────
+// Configured before accountStore.migrateClaudeAccounts() so a machine that's already
+// connected re-provisions every account on startup, same as the existing
+// setupClaudeConfig() link-repair pass it runs alongside.
+import { credentialPath, deleteCredential, ensureDeviceId, getMemoryConnectionState, setMemoryConnectionState } from './memory-connection-state'
+
+let memoryConnectionState = getMemoryConnectionState(ravenHome())
+
+function memoryProvisionerPaths(): ProvisionerPaths {
+  // dist-electron/memory-mcp.js is built as a sibling entry to main.js (electron.vite.config.ts).
+  return { execPath: process.execPath, shimPath: pathJoin(__dirname, 'memory-mcp.js') }
+}
+
+function getMemorySyncBaseUrl(): string | null {
+  // `|| undefined` (not `??`) so an empty string in the stored state does not count
+  // as "set" — falling through to the build-time env instead of producing requests
+  // to a path with no host (e.g. `/v1/sync/push`).
+  return (
+    (memoryConnectionState.syncBaseUrl || undefined) ??
+    (import.meta.env.MAIN_VITE_SUPABASE_URL as string | undefined) ??
+    null
+  )
+}
+
+let memoryToken: string | null = null
+function loadMemoryToken(): string | null {
+  if (memoryToken) return memoryToken
+  const path = credentialPath(ravenHome())
+  if (!existsSync(path)) return null
+  try {
+    const encrypted = readFileSync(path)
+    if (!safeStorage.isEncryptionAvailable()) return null
+    memoryToken = safeStorage.decryptString(encrypted)
+    return memoryToken
+  } catch {
+    return null
+  }
+}
+
+let memoryOnline = true // updated by a lightweight periodic DNS check below
+
+interface MemorySubsystem {
+  store: MemoryStore
+  daemon: MemoryDaemon
+  ipcServer: MemoryIpcServer
+  // Task 1 (plan de memoria por cuenta multi-dispositivo), Step 3d: el path físico del
+  // store actualmente wireado en daemon/ipcServer. swapMemoryStore() (memory-account-switch.ts)
+  // lo necesita como `ctx.currentStorePath` para decidir si un swap es un no-op (mismo
+  // archivo ya abierto) y, si no lo es, desde qué directorio renombrar.
+  currentStorePath: string
+}
+
+// C7 fix: `new MemoryStore(...)` (better-sqlite3) used to run unguarded at module scope.
+// A native-module load failure (verified live in this repo's own dev sandbox: no
+// prebuilt better-sqlite3 binding for the local Node version, no Visual Studio Build
+// Tools to compile one — see docs/nest-memory-architecture.md §10 R-5) threw during
+// module evaluation and crashed the ENTIRE app before a single window could open —
+// PTYs, accounts, everything, taken down by a memory-feature dependency. Memory must be
+// able to fail independently and degrade to "disabled", exactly like a missing
+// `safeStorage.isEncryptionAvailable()` already does for connect. Every consumer below
+// checks `memory` for null; account provisioning and pty env injection are simply never
+// configured when it's null (both already no-op safely without a configured integration).
+/**
+ * Branch + remote origin for a cwd, best-effort (null on any failure — not a git repo, no
+ * remote, git missing). Shared by MemoryIpcServer's `memory.save`/`memory.search` project-key
+ * resolution AND (Task 4) the handoff:read/write handlers below, which used to each carry
+ * their own copy of this exact git plumbing.
+ */
+function resolveGitInfoForCwd(cwd: string): { branch: string; remoteUrl: string | null } | null {
+  try {
+    if (!existsSync(cwd)) return null
+    const branch = execSync('git rev-parse --abbrev-ref HEAD', { cwd, encoding: 'utf8', timeout: 3000 }).trim()
+    let remoteUrl: string | null = null
+    try { remoteUrl = execSync('git remote get-url origin', { cwd, encoding: 'utf8', timeout: 3000 }).trim() } catch { /* no remote */ }
+    return { branch, remoteUrl }
+  } catch {
+    return null
+  }
+}
+
+/** Task 4: same project-key resolution memory-ipc-server.ts's `projectKeyForCwd` uses for
+ *  every other write path, so a handoff observation lands under the exact project a
+ *  `memory.search`/`memory.save` from that same worktree would. */
+function projectKeyForWorktree(worktreePath: string): string {
+  const info = resolveGitInfoForCwd(worktreePath)
+  return resolveProjectKey({ remoteUrl: info?.remoteUrl, rootPath: worktreePath })
+}
+
+let memory: MemorySubsystem | null = null
+try {
+  // Step 3d, correction #9 (CRÍTICO — no perder datos reales): hasta esta Task el store
+  // vivía en un path PLANO ({home}/.raven-nest/memory/memory.db, sin subcarpeta de
+  // cuenta). Máquinas reales — incluida esta — ya tienen historial capturado ahí. Tiene
+  // que correr ANTES de `new MemoryStore(...)`, o el primer arranque bajo el nuevo layout
+  // por-cuenta abriría una base vacía en `_local/` y dejaría ese historial huérfano en el
+  // path legado para siempre. Ver memory-store.ts's migrateLegacyStorePath() doc comment.
+  migrateLegacyStorePath(ravenHome())
+  // Sin cuenta logueada todavía al arrancar (memory:setUser llega recién cuando el
+  // renderer monta useMemory()'s effect) — resolveStorePath(home, null) es la partición
+  // `_local` anónima, exactamente el nuevo home de lo que antes vivía en el path plano.
+  const initialStorePath = resolveStorePath(ravenHome(), null)
+  const store = new MemoryStore(initialStorePath)
+  const authMaterial = ensureLocalAuthMaterial(ravenHome())
+  const memorySocketPath = daemonSocketPath(ravenHome(), process.platform === 'win32', authMaterial.pipeId)
+
+  const daemon = new MemoryDaemon({
+    store,
+    getSyncBaseUrl: getMemorySyncBaseUrl,
+    getToken: loadMemoryToken,
+    getDeviceId: () => memoryConnectionState.deviceId,
+    isOnline: () => memoryOnline,
+    onStatusChange: (status) => {
+      const win = BrowserWindow.getAllWindows()[0]
+      if (win) win.webContents.send('memory:status', status)
+    },
+  })
+
+  const ipcServer = new MemoryIpcServer({
+    store,
+    socketPath: memorySocketPath,
+    authToken: authMaterial.token,
+    resolveGitInfo: resolveGitInfoForCwd,
+    onMutation: () => daemon.scheduleMutationPush(),
+    // M26: lets memory.search's pull-through fallback trigger/await this same daemon's
+    // pull() on a local zero-result miss instead of waiting up to its ~5-minute interval
+    // — see memory-ipc-server.ts's memory.search case for the full rationale.
+    daemon,
+  })
+
+  accountStore.configureMemory({ paths: memoryProvisionerPaths(), isEnabled: () => memoryConnectionState.localEnabled })
+  ptyManager.setMemoryIntegration({
+    socketPath: memorySocketPath,
+    authToken: authMaterial.token,
+    isEnabled: () => memoryConnectionState.localEnabled,
+    ensureProvisioned: (bin, accountDir) => {
+      const result = adapterForBin(bin)?.provision(accountDir, memoryProvisionerPaths(), process.platform === 'win32') ?? {}
+      return { args: result.args ?? [], env: result.env ?? {} }
+    },
+  })
+
+  memory = { store, daemon, ipcServer, currentStorePath: initialStorePath }
+} catch (err) {
+  console.error('[main] Nest Memory subsystem failed to initialize — memory features disabled for this session', err instanceof Error ? err.message : err)
+  memory = null
+}
+
+// Step 3d, correction #2 (ALTO): a chained promise every call to swapMemoryStore() has to
+// pass through, so a rapid logout+login (two 'memory:setUser' invokes close together) can't
+// run two swaps concurrently and clobber the same store twice. Nothing outside queueSwap()
+// below may call swapMemoryStore() directly.
+//
+// `swapQueue` is always kept as a promise that never rejects (the `.then(() => undefined, ()
+// => undefined)` normalization below): a task that throws must not break the chain for
+// whatever is queued after it. The task's own outcome is still observable — `queueSwap`
+// returns the (possibly rejecting) `run` promise, not the normalized `swapQueue` — so the
+// caller of this particular swap can still see and report its own failure.
+let swapQueue: Promise<void> = Promise.resolve()
+function queueSwap<T>(task: () => Promise<T>): Promise<T> {
+  const run = swapQueue.then(task)
+  swapQueue = run.then(
+    () => undefined,
+    () => undefined
+  )
+  return run
+}
+
+// Step 3d, correction #6: the actual swap for one 'memory:setUser' call — reassigns the
+// module-level `memory` variable to swapMemoryStore()'s result so every other memory
+// consumer (memorySink, the status/hub-stats/registerDevice handlers, ...) reads the
+// post-swap store from here on. Always queued (see queueSwap above); never called directly.
+async function performUserSwap(userId: string | null, adopt = true): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (!memory) return { ok: false, error: 'Nest Memory is unavailable on this device — see main process logs.' }
+  const ctx: SwapContext = {
+    store: memory.store,
+    daemon: memory.daemon,
+    ipcServer: memory.ipcServer,
+    currentStorePath: memory.currentStorePath,
+  }
+  // Adversarial review (alto): swapMemoryStore() closes the old store synchronously and
+  // only reopens/rewires it once this await resolves — any memorySink.save() landing in
+  // that window would otherwise hit an already-closed store and be dropped silently.
+  // beginSwap()/endSwap() defer those writes instead; the `finally` guarantees endSwap()
+  // runs on every path (including an unexpected throw, even though swapMemoryStore's own
+  // doc comment says it never does) so the gate can never get stuck open.
+  memorySwapGate.beginSwap()
+  try {
+    // swapMemoryStore() itself never throws (see its own doc comment) — it always resolves
+    // to a valid { store, currentStorePath, error? }, degrading rather than leaving
+    // daemon/ipc wired to a closed store.
+    const result = await swapMemoryStore(ctx, ravenHome(), userId, adopt)
+    memory = { store: result.store, daemon: memory.daemon, ipcServer: memory.ipcServer, currentStorePath: result.currentStorePath }
+    // A watermark cached from the PREVIOUS account's store must never suppress a legitimate
+    // vault regen for the account that just became active (project keys can collide across
+    // accounts on the same machine — same repos, same derived keys).
+    resetVaultPollState()
+    return result.error ? { ok: false, error: result.error } : { ok: true }
+  } finally {
+    // Reruns every deferred write against memorySink.save() — by now `memory` (if the try
+    // block above completed normally) points at the post-swap store, so these retries land
+    // on the right file instead of the one that was closed at beginSwap() time.
+    memorySwapGate.endSwap((item) => memorySink.save(item))
+  }
+}
+
+// Explicit "really quitting" teardown — docs/GUIA-TESTEO-BAUTISTA.md pitfall:
+// "No hagas teardown en before-quit." `before-quit` fires on every Cmd+Q attempt even
+// when macOS's win.on('close') cancels it right after (preventDefault + hide to tray),
+// and the app's actual exit paths call app.exit(0) directly, which never emits
+// before-quit/will-quit at all. This function is called ONLY from those real exit
+// paths (tray "Salir", updater install) — never from the before-quit listener.
+// isReallyQuittingMemory guards against a double call if a user mashes the tray Quit
+// item, or if both a tray-quit and an updater-quit somehow race.
+let isReallyQuittingMemory = false
+async function finalizeMemoryBeforeQuit(): Promise<void> {
+  if (!memory || isReallyQuittingMemory) return
+  isReallyQuittingMemory = true
+  // §4.1 "App quit": best-effort push within a 2s budget (memory.daemon.onQuit()
+  // internally races the push against that budget) — never blocks exit indefinitely
+  // (the mutation_log queue is durable across restarts regardless, §4.5), but DOES
+  // block the caller until that bounded attempt settles, so store.close() right after
+  // never races an in-flight write.
+  await memory.daemon.onQuit()
+  memory.daemon.stop()
+  memory.ipcServer.stop()
+  memory.store.close()
+}
+
 // Ensure every existing Claude account has the shared config (CLAUDE.md,
 // settings.json, skills, etc.) linked from ~/.claude. Idempotent — only
 // fills in missing links, never replaces a user's real file or dir.
 accountStore.migrateClaudeAccounts()
 const customCLIStore = new CustomCLIStore()
+const workerSpecStore = new WorkerSpecStore()
+const graphTemplateStore = new GraphTemplateStore()
+const graphRunStore = new GraphRunStore()
+const graphConfigStore = new GraphConfigStore()
+
+// Real adapter over MemoryStore.save({source:'pty'}), now that
+// feat/nest-memory-phase1 is merged. Bridges MemorySaveInput
+// (electron/integrations/memory-port.ts) to the memory subsystem's own
+// SaveInput/ensureProject shape. projectKey resolution mirrors
+// memory-ipc-server.ts's 'memory.save' case (projectKeyForCwd): resolve a git
+// remote for the cwd, feed it plus the cwd itself to resolveProjectKey, then
+// register the project with ensureProject before writing the observation. An
+// empty cwd (graph events whose repo couldn't be resolved to a local path —
+// see bridgeCtx.resolveRepo above) skips the remote lookup entirely and falls
+// through resolveProjectKey straight to GLOBAL_PROJECT_KEY.
+//
+// 'pty' is the Layer C source reserved for this bridge in the design docs —
+// nothing else writes with it yet.
+//
+// Must never throw: memorySink.save() is called from the event-bus observer
+// (bridgeEvent, below) and from IPC decision handlers (bridgeDecision) — an
+// uncaught error here would take down whichever caller invoked it, not just
+// drop one memory write.
+// Adversarial review (alto, see performUserSwap): guards memorySink.save() against the
+// store-swap window the way memory-ipc-server.ts's dispatch() guards the MCP socket path
+// (rejecting with 'store_swapping' while memory-mcp/client.ts retries) — here, deferring
+// the write in-process instead of rejecting a caller that has no retry loop of its own.
+const memorySwapGate = new SwapWriteGate<MemorySaveInput>()
+
+const memorySink: MemorySink = {
+  save(input) {
+    // Adversarial review (alto): during a swap the store gets closed out from under any
+    // in-flight write — queue this one instead of losing it. offer() returns false only
+    // while swapping; the deferred write is replayed by performUserSwap's endSwap() once
+    // the post-swap store is wired in, so do nothing else on this call.
+    if (!memorySwapGate.offer(input)) return
+    try {
+      // C1: local capture does not depend on the cloud. `connected` still gates only the
+      // sync daemon (getToken/getDeviceId), not whether a memory gets saved.
+      if (!memory || !memoryConnectionState.localEnabled) return
+      const remoteUrl = input.cwd ? getRemoteUrl(input.cwd) : null
+      const projectKey = resolveProjectKey({ remoteUrl, rootPath: input.cwd || null })
+      memory.store.ensureProject({
+        projectKey,
+        displayName: input.cwd ? (input.cwd.split(/[\\/]/).filter(Boolean).pop() ?? input.cwd) : GLOBAL_PROJECT_KEY,
+        rootPath: input.cwd || null,
+        remoteUrl,
+      })
+      memory.store.save({
+        projectKey,
+        scope: 'personal', // graph-bridge writes are auto-capture, same rule as memory.save's IPC case (§2.1)
+        type: input.type,
+        title: input.title,
+        content: input.content,
+        source: 'pty',
+        topicKey: input.topicKey,
+        tags: input.tags,
+        sourceRef: input.sourceRef,
+        originAi: input.originAi,
+        gitBranch: input.gitBranch,
+      })
+      // §4.1 "on write" trigger — same debounce memory.save's IPC path fires via onMutation.
+      memory.daemon.scheduleMutationPush()
+      // Vault spec §7 trigger 2: this is the ONLY write path memorySink sees (the graph
+      // bridge). mcp/hook/ui writes go straight through the store without telling us —
+      // that's what the 60s poll (trigger 3, wired near the daemon's own startup below) is
+      // for, not a gap here.
+      scheduleVaultRegenDebounced()
+    } catch (err) {
+      console.warn('[main] memorySink.save failed — dropping this memory write', err instanceof Error ? err.message : err)
+    }
+  },
+}
+
+// getRun accepts a ticketId OR a branch: graph events carry ticketId, pr.merged carries
+// the branch. Both resolve to the same run. One `list()` call covers both lookup
+// paths — graph-run-store.ts has no cache, so getByTicket() followed by a separate
+// list() on miss was two full disk reads per event; a single list() plus two
+// in-memory finds is one.
+const bridgeCtx: BridgeContext = {
+  getRun: (key) => {
+    const runs = graphRunStore.list()
+    return runs.find((p) => p.run.ticketId === key)?.run
+      ?? runs.find((p) => p.run.branch === key)?.run
+      ?? null
+  },
+  getTemplate: (id) => graphTemplateStore.list().find((t) => t.id === id) ?? null,
+  resolveRepo: (fullName) => resolveRepoForMemory(fullName),
+}
 const snippetStore = new SnippetStore()
 const localPathsStore = new LocalPathsStore()
+
+// Resolves a GitHub "owner/repo" full name to a local path via this device's
+// per-machine local-paths store (v1.2, ~/.raven-nest/local-paths.json — see
+// local-paths-store.ts): same git-remote match as resolveRepoPathForBot further
+// down, but keyed off every repo this device has a local path for, not just
+// worktree roots. Used by the memory bridge so ci.failed gets a real cwd
+// instead of '' — see bridgeCtx.resolveRepo above.
+function resolveRepoForMemory(fullName: string): string | null {
+  const wanted = fullName.toLowerCase()
+  for (const path of Object.values(localPathsStore.getAllLocalPaths())) {
+    const url = getRemoteUrl(path)
+    const or = url ? parseOwnerRepo(url) : null
+    if (or && `${or.owner}/${or.repo}`.toLowerCase() === wanted) return path
+  }
+  return null
+}
 const conversationStore = new ConversationStore()
 const workspaceStore = new WorkspaceStore()
 const worktreeStore = new WorktreeStore(pathJoin(ravenHome(), '.raven-nest'))
@@ -165,6 +565,12 @@ spotlight.on('stop', () => broadcast('spotlight:status', { active: false }))
 spotlight.on('warning', (msg: string) => broadcast('spotlight:warning', msg))
 const mcpStore = new MCPStore()
 const settingsStore = new SettingsStore()
+const pluginsStore = new PluginsStore()
+const pluginCreds = new PluginCredentialStore({
+  isEncryptionAvailable: () => safeStorage.isEncryptionAvailable(),
+  encryptString: (s) => safeStorage.encryptString(s),
+  decryptString: (b) => safeStorage.decryptString(b),
+})
 
 function broadcast(channel: string, ...args: unknown[]): void {
   const win = BrowserWindow.getAllWindows()[0]
@@ -649,7 +1055,7 @@ ipcMain.handle('git:clone', async (
 // null. Callers don't need to handle each rejection case manually.
 ipcMain.handle('dialog:pickRepoFolder', async (_evt, expectedRemote?: string) => {
   const win = BrowserWindow.getFocusedWindow()
-  const opts = { properties: ['openDirectory'] as const, title: 'Link local repo folder' }
+  const opts: Electron.OpenDialogOptions = { properties: ['openDirectory'], title: 'Link local repo folder' }
   const { filePaths, canceled } = win
     ? await dialog.showOpenDialog(win, opts)
     : await dialog.showOpenDialog(opts)
@@ -868,6 +1274,93 @@ ipcMain.handle('customcli:list', () => customCLIStore.list())
 ipcMain.handle('customcli:save', (_event, cli) => customCLIStore.save(cli))
 ipcMain.handle('customcli:delete', (_event, id: string) => customCLIStore.delete(id))
 
+// Worker-spec IPC handlers
+ipcMain.handle('workerspec:list', () => workerSpecStore.list())
+ipcMain.handle('workerspec:save', (_event, input: { id?: string; name: string; description?: string; steps: WorkerSpec['steps'] }) => {
+  const now = Date.now()
+  const existing = input.id ? workerSpecStore.list().find((s) => s.id === input.id) : undefined
+  const spec: WorkerSpec = {
+    id: input.id ?? newWorkerSpecId(),
+    name: input.name,
+    description: input.description,
+    steps: input.steps,
+    createdAt: existing?.createdAt ?? now,
+    updatedAt: now,
+  }
+  return workerSpecStore.save(spec)
+})
+ipcMain.handle('workerspec:delete', (_event, id: string) => workerSpecStore.delete(id))
+
+// Graph-orchestration IPC handlers (template CRUD + run listing; the run
+// lifecycle / tick lives in the orchestrator wiring below)
+ipcMain.handle('graph:templates:list', () => graphTemplateStore.list())
+ipcMain.handle('graph:templates:save', (_event, input: { id?: string; name: string; description?: string; nodes: GraphTemplate['nodes'] }) => {
+  const now = Date.now()
+  const existing = input.id ? graphTemplateStore.list().find((t) => t.id === input.id) : undefined
+  // Validate through the same guard the store loads with, so a malformed graph
+  // (dangling dependsOn, cycle, bad node) is rejected here instead of persisted.
+  const candidate = toGraphTemplate({
+    id: input.id ?? newGraphTemplateId(),
+    name: input.name,
+    description: input.description,
+    nodes: input.nodes,
+    createdAt: existing?.createdAt ?? now,
+    updatedAt: now,
+  })
+  if (!candidate) throw new Error('Invalid graph template (dangling dependency, cycle, or bad node)')
+  return graphTemplateStore.save(candidate)
+})
+ipcMain.handle('graph:templates:delete', (_event, id: string) => graphTemplateStore.delete(id))
+ipcMain.handle('graph:runs:list', () => graphRunStore.list())
+
+// Handoff IPC handlers
+//
+// Task 4 (los handoffs dejan de ser un archivo del worktree): `.nest/handoff.md` no viaja
+// entre máquinas — writeHandoff() sólo toca el disco local. Read/write ahora también pasan
+// por la memoria de la cuenta (type:'handoff'), que sí replica, así que "retomar en otra
+// máquina" tiene de dónde reconstruir el archivo que el propio worker-run.ts (composeStepInput)
+// espera encontrar.
+ipcMain.handle('handoff:read', (_e, worktreePath: string) => {
+  const local = readHandoff(worktreePath)
+  if (local !== null) return local
+  // Step 3: sin archivo local, ¿hay uno más nuevo en la nube? (llegó por sync desde otra
+  // máquina, o esta es una copia fresca del worktree que nunca escribió uno propio.)
+  if (!memory) return null
+  try {
+    const projectKey = projectKeyForWorktree(worktreePath)
+    const latest = memory.store.latestByType(projectKey, 'handoff')
+    if (!latest) return null
+    // Materializa el archivo (writeHandoff es la función pura de siempre, sin volver a
+    // guardar esto como observación — ya lo es, es de donde vino) para que el próximo
+    // readHandoff() lo encuentre local sin tener que volver a preguntarle a la memoria.
+    writeHandoff(worktreePath, latest.content)
+    return latest.content
+  } catch (err) {
+    console.warn('[main] handoff:read — no se pudo reconstruir desde la memoria', err instanceof Error ? err.message : err)
+    return null
+  }
+})
+ipcMain.handle('handoff:write', (_e, worktreePath: string, content: string) => {
+  writeHandoff(worktreePath, content)
+  if (!memory) return
+  try {
+    const projectKey = projectKeyForWorktree(worktreePath)
+    const folder = worktreePath.split(/[\\/]/).filter(Boolean).pop() ?? worktreePath
+    memory.store.ensureProject({ projectKey, displayName: folder, rootPath: worktreePath })
+    memory.store.save({
+      projectKey,
+      scope: 'personal',
+      type: 'handoff',
+      title: `Handoff — ${folder}`,
+      content,
+      source: 'ui',
+    })
+    memory.daemon.scheduleMutationPush()
+  } catch (err) {
+    console.warn('[main] handoff:write — no se pudo guardar como memoria', err instanceof Error ? err.message : err)
+  }
+})
+
 // PTY IPC handlers
 ipcMain.handle('pty:create', (_event, paneId: string, cmd: string, accountDir: string, repoPath?: string, shellId?: string) => {
   const shell = shellId ? getShellById(shellId) : undefined
@@ -913,11 +1406,14 @@ ipcMain.handle('pty:pid', (_event, paneId: string) => {
 
 // Forward PTY output to renderer
 ptyManager.on('data', (paneId: string, data: string) => {
+  paneLastOutputAt.set(paneId, Date.now())
   const win = BrowserWindow.getAllWindows()[0]
   if (win) win.webContents.send('pty:data', paneId, data)
 })
 
-ptyManager.on('exit', (paneId: string) => {
+ptyManager.on('exit', (paneId: string, exitCode: number) => {
+  paneLastOutputAt.delete(paneId)
+  if (typeof exitCode === 'number') paneExitCode.set(paneId, exitCode)
   const win = BrowserWindow.getAllWindows()[0]
   if (win) win.webContents.send('pty:exit', paneId)
 })
@@ -978,6 +1474,17 @@ ipcMain.handle('worktree:list', async (_evt, repoPath: string) => {
   return { ok: true as const, worktrees: worktreeStore.listForRepo(repoPath) }
 })
 
+// Unfiltered worktree list across every repo the store knows about — the
+// orchestration board (Plan 2) shows worktrees from all repos at once,
+// unlike worktree:list above which scopes to a single repoPath.
+ipcMain.handle('worktree:listAll', () => {
+  try {
+    return { ok: true as const, worktrees: worktreeStore.list() }
+  } catch (e) {
+    return { ok: false as const, error: String(e) }
+  }
+})
+
 ipcMain.handle('worktree:get', async (_evt, worktreePath: string) => {
   if (!isAbsolute(worktreePath)) return { ok: false as const, error: 'worktreePath must be absolute' }
   return { ok: true as const, meta: worktreeStore.get(worktreePath) }
@@ -990,6 +1497,33 @@ ipcMain.handle('worktree:setPreset', async (_evt, worktreePath: string, presetId
   worktreeStore.setMeta({ ...meta, presetId: presetId ?? undefined })
   return { ok: true as const }
 })
+
+// git worktree add — decision + invocation live in performWorktreeAdd
+// (electron/worktree-create.ts) so the idempotency behaviour is unit-tested.
+// Array args, no shell interpolation. Factored out of the worktree:create
+// handler so the @Nest bot's grab intent (H7 §6) can run the exact same
+// git-level flow (it doesn't offer preset selection, so it stops here and
+// persists a plain meta itself — see createWorktreeForBot below).
+function runWorktreeAdd(repoPath: string, branch: string, wtPath: string, fromBranch: string) {
+  return performWorktreeAdd(
+    {
+      worktreeExists: (p) => worktreeStore.get(p) != null,
+      branchExists: (repoPath, branch) => {
+        try {
+          execFileSync('git', ['-C', repoPath, 'show-ref', '--verify', '--quiet', `refs/heads/${branch}`], {
+            timeout: 3000,
+            stdio: ['pipe', 'pipe', 'pipe'],
+          })
+          return true
+        } catch { return false }
+      },
+      runGit: (args) => {
+        execFileSync('git', args, { encoding: 'utf8', timeout: 10000, stdio: ['pipe', 'pipe', 'pipe'] })
+      },
+    },
+    { repoPath, branch, wtPath, fromBranch },
+  )
+}
 
 ipcMain.handle('worktree:create', async (_evt, opts: {
   repoPath: string
@@ -1027,25 +1561,14 @@ ipcMain.handle('worktree:create', async (_evt, opts: {
     return { ok: false as const, error: `Invalid fromBranch name: ${opts.fromBranch}` }
   }
 
-  // Check if branch exists — execFileSync (no shell)
-  let branchExists = false
-  try {
-    execFileSync('git', ['-C', opts.repoPath, 'show-ref', '--verify', '--quiet', `refs/heads/${opts.branch}`], {
-      timeout: 3000,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    })
-    branchExists = true
-  } catch { branchExists = false }
-
-  // git worktree add — array args, no shell interpolation.
   const from = opts.fromBranch ?? 'HEAD'
-  const addArgs = branchExists
-    ? ['-C', opts.repoPath, 'worktree', 'add', wtPath, opts.branch]
-    : ['-C', opts.repoPath, 'worktree', 'add', '-b', opts.branch, wtPath, from]
-  try {
-    execFileSync('git', addArgs, { encoding: 'utf8', timeout: 10000, stdio: ['pipe', 'pipe', 'pipe'] })
-  } catch (err) {
-    return { ok: false as const, error: `git worktree add failed: ${err instanceof Error ? err.message : String(err)}` }
+  const addResult = runWorktreeAdd(opts.repoPath, opts.branch, wtPath, from)
+  if (!addResult.ok) return { ok: false as const, error: addResult.error }
+  if (!addResult.created) {
+    // Reused an existing worktree ("Work on this" clicked twice): return its
+    // stored meta and skip re-persisting / re-running setup.
+    const existing = worktreeStore.get(wtPath)
+    if (existing) return { ok: true as const, meta: existing }
   }
 
   // Persist meta
@@ -1080,6 +1603,41 @@ ipcMain.handle('worktree:create', async (_evt, opts: {
 
   return { ok: true as const, meta }
 })
+
+// @Nest bot's grab intent (H7 §6): the same git-level flow as worktree:create
+// above (path/slug computation, runWorktreeAdd, idempotent reuse), minus the
+// preset/setup-runner step — the bot only creates a worktree and starts work,
+// same scope as "Do NOT open a real terminal pane" in the spec.
+function createWorktreeForBot(repoPath: string, branch: string): Promise<
+  { ok: true; worktreePath: string } | { ok: false; error: string }
+> {
+  if (!isAbsolute(repoPath)) return Promise.resolve({ ok: false, error: 'repoPath must be absolute' })
+  if (!branch || !/^[a-zA-Z0-9._/\-]+$/.test(branch)) {
+    return Promise.resolve({ ok: false, error: `Invalid branch name: ${branch}` })
+  }
+  const slug = branch.replace(/[\/]/g, '-').replace(/[^a-zA-Z0-9._\-]/g, '')
+  const wtPath = pathJoin(dirname(repoPath), `${basename(repoPath)}-${slug}`)
+
+  const addResult = runWorktreeAdd(repoPath, branch, wtPath, 'HEAD')
+  if (!addResult.ok) return Promise.resolve({ ok: false, error: addResult.error })
+  if (!addResult.created) {
+    const existing = worktreeStore.get(wtPath)
+    if (existing) return Promise.resolve({ ok: true, worktreePath: existing.repoPath })
+  }
+
+  const now = Date.now()
+  worktreeStore.setMeta({
+    repoPath: wtPath,
+    rootRepoPath: repoPath,
+    branch,
+    setupState: 'idle' as const,
+    declaredPorts: [],
+    detectedPorts: [],
+    createdAt: now,
+    updatedAt: now,
+  })
+  return Promise.resolve({ ok: true, worktreePath: wtPath })
+}
 
 ipcMain.handle('worktree:remove', async (_evt, worktreePath: string) => {
   if (!isAbsolute(worktreePath)) return { ok: false as const, error: 'worktreePath must be absolute' }
@@ -2134,6 +2692,14 @@ function setupAutoUpdater(): void {
 }
 
 ipcMain.on('updater:install', () => {
+  // Real quit path (electron-updater calls app.quit()/app.exit() internally) — fire the
+  // memory push best-effort. NOT awaited here: the isMac branch below has its own
+  // carefully-tuned 500ms force-exit deadline (event-loop-refs workaround, see comment),
+  // and stretching that to accommodate the full 2s push budget risks reintroducing the
+  // exact "helper waits forever" failure mode this code exists to avoid. Whatever
+  // portion of the push completes in whatever time is actually available is strictly
+  // better than the push never being attempted at all.
+  void finalizeMemoryBeforeQuit()
   if (isMac) {
     // quitAndInstall schedules the helper process then calls app.quit() internally.
     // On macOS, async before-quit work (spotlight watcher, browser panes) can keep
@@ -2167,6 +2733,510 @@ ipcMain.handle('safeStorage:encrypt', (_event, plaintext: string) => {
 ipcMain.handle('safeStorage:decrypt', (_event, encrypted: string) => {
   if (!safeStorage.isEncryptionAvailable()) throw new Error('safeStorage not available')
   return safeStorage.decryptString(Buffer.from(encrypted, 'base64'))
+})
+
+// ── Nest Memory IPC (docs/nest-memory-architecture.md §5.1, §6.2, §8.1) ─────────────
+//
+// The renderer owns the Supabase JS client bound to the user's session (it already
+// calls supabase.functions.invoke('memory-token', ...) to get a plaintext token —
+// see §5.1 step 1). Main only ever receives that plaintext once, stores it encrypted,
+// and does local-only work from here on: provisioning accounts, running importers,
+// and letting the daemon push/pull over plain HTTPS with the token as a Bearer header.
+const MEMORY_UNAVAILABLE = { ok: false, error: 'Nest Memory is unavailable on this device (failed to initialize) — see main process logs.' }
+
+/**
+ * §9.2 — la emisión del token, del lado del cliente. Postea el JWT del login a
+ * `POST /v1/devices` del servicio de sync, que verifica la firma y devuelve el token del
+ * device UNA sola vez.
+ *
+ * El nombre de la máquina lo pone main, no el renderer (C8: `navigator.platform` daba
+ * `Win32` en las dos PCs del usuario y el servidor las colapsaba en una). `hostname()` es
+ * el mismo valor que ya se guarda como `deviceName` al conectar.
+ *
+ * NO guarda nada: devuelve el token al renderer, que lo pasa por `memory:connect`, el mismo
+ * camino que el token pegado a mano. Así hay una sola pieza que escribe la credencial.
+ */
+/**
+ * Le dice al store qué cuenta de Nest está activa. Lo llama el renderer al montar y en cada
+ * cambio de sesión, porque la sesión de Supabase vive ahí.
+ *
+ * Si esto nunca llega, el store queda sin cuenta activa y `pendingMutations()` devuelve
+ * sólo las filas sin autor — o sea que **falla cerrado**: el daemon no empuja lo de nadie
+ * en vez de empujarlo a la nube equivocada.
+ */
+// Step 3d, correction #6: hot-swaps the local store to the account's own file (or back to
+// the `_local` anonymous partition on logout) via swapMemoryStore(), queued through
+// queueSwap() so a rapid logout+login can't run two swaps at once. Explicit try/catch so a
+// bug in the swap path — or in performUserSwap()'s own reassignment of `memory` — surfaces
+// as `{ ok: false, error }` to the renderer instead of an invoke rejection; the renderer
+// side (useMemory.ts) currently fires this and forgets the result, but a precise
+// success/failure signal here is what makes that safe to change later without touching main.
+ipcMain.handle('memory:setUser', async (_event, userId: string | null, opts?: { adopt?: boolean }) => {
+  const normalizedUserId = typeof userId === 'string' && userId ? userId : null
+  // Task 2 (adopcion con aviso): default true — el comportamiento de siempre para el caso
+  // comun (nada que reclamar, o el usuario ya dijo que si). `opts.adopt === false` es la
+  // unica forma de llegar acá con "no": el dialogo del renderer (MemoryAdoptionDialog) la
+  // manda explicita cuando el usuario contesta "no son mias".
+  const adopt = opts?.adopt !== false
+  try {
+    // Awaits THIS call's own swap specifically (not just "the queue drained") — `run` from
+    // queueSwap() is the promise for this exact task, so success/failure is reported with
+    // precision even if other swaps are queued ahead of or behind it.
+    return await queueSwap(() => performUserSwap(normalizedUserId, adopt))
+  } catch (err) {
+    return { ok: false as const, error: err instanceof Error ? err.message : String(err) }
+  }
+})
+
+/**
+ * Task 2 (adopcion con aviso): lo que MemoryAdoptionDialog necesita para preguntar ANTES de
+ * que swapMemoryStore() adopte en silencio. Puramente informativo — no toca nada, no
+ * suspende el daemon/ipc, no cuenta como un swap (no pasa por queueSwap). Devuelve
+ * hasPending=false en cualquier situacion donde no tenga sentido preguntar: sin cuenta, sin
+ * subsistema de memoria, esta cuenta ya tiene su propia base, o `_local` no existe o esta
+ * vacio de filas sin dueno.
+ */
+ipcMain.handle('memory:checkPendingAdoption', (_event, userId: string | null) => {
+  const NADA = { hasPending: false, count: 0, projects: [] as string[] }
+  if (!memory) return NADA
+  const normalizedUserId = typeof userId === 'string' && userId ? userId : null
+  if (!normalizedUserId) return NADA
+
+  const targetPath = resolveStorePath(ravenHome(), normalizedUserId)
+  if (existsSync(targetPath)) return NADA // esta cuenta ya tiene su propia base — nada que preguntar
+
+  const localPath = resolveStorePath(ravenHome(), null)
+  if (!existsSync(localPath)) return NADA
+
+  try {
+    // Si `_local` es el store YA abierto (el caso comun: nadie logueado todavia), lo
+    // consulta directo — abrir un segundo handle sobre el mismo archivo no hace falta y
+    // suma riesgo por las dudas. Si no, es una cuenta ya activa mirando de reojo un
+    // `_local` ajeno (poco comun, pero valido): abre un handle de solo-lectura efectivo,
+    // pregunta, y lo cierra — no queda nada colgado.
+    const isCurrentlyOpenLocal = memory.currentStorePath === localPath
+    const probe = isCurrentlyOpenLocal ? memory.store : new MemoryStore(localPath)
+    try {
+      const { count, projects } = probe.countUnclaimedRows()
+      return { hasPending: count > 0, count, projects }
+    } finally {
+      if (!isCurrentlyOpenLocal) probe.close()
+    }
+  } catch (err) {
+    console.warn('[main] checkPendingAdoption failed', err instanceof Error ? err.message : err)
+    return NADA
+  }
+})
+
+ipcMain.handle('memory:registerDevice', async (_event, jwt: string) => {
+  const base = getMemorySyncBaseUrl()
+  if (!base) return { ok: false, error: 'No sync service configured for this build' }
+  if (typeof jwt !== 'string' || jwt.trim() === '') return { ok: false, error: 'Missing login token' }
+
+  // Timeout explícito: sin esto un servicio colgado deja el botón Connect girando hasta que
+  // el usuario cierra la app (es el mismo motivo de C6 en el daemon).
+  const abort = new AbortController()
+  const timer = setTimeout(() => abort.abort(), 15_000)
+  try {
+    const res = await fetch(`${base.replace(/\/+$/, '')}/v1/devices`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt.trim()}` },
+      body: JSON.stringify({ name: hostname(), platform: process.platform }),
+      signal: abort.signal,
+    })
+    const body = await res.json().catch(() => null) as { device_id?: string; token?: string; error?: string } | null
+    if (!res.ok) {
+      // El código del servicio se pasa tal cual: el renderer ya sabe leer `not_in_beta` y
+      // `plan_required`, y traducirlos acá los volvería un string genérico.
+      return { ok: false, error: body?.error ?? `HTTP ${res.status}` }
+    }
+    if (!body?.token || !body?.device_id) return { ok: false, error: 'The service returned no token' }
+    return { ok: true, deviceId: body.device_id, token: body.token }
+  } catch (err) {
+    const message = (err as Error)?.name === 'AbortError'
+      ? 'The sync service did not answer in time'
+      : (err instanceof Error ? err.message : String(err))
+    return { ok: false, error: message }
+  } finally {
+    clearTimeout(timer)
+  }
+})
+
+ipcMain.handle('memory:connect', async (_event, token: string, deviceId: string) => {
+  if (!memory) return MEMORY_UNAVAILABLE
+  if (!safeStorage.isEncryptionAvailable()) {
+    return { ok: false, error: 'Encryption is not available on this system — memory connect is refused (§6.2).' }
+  }
+  // §6.2: credential.bin must be mode 0600, in addition to being safeStorage-encrypted
+  // (defense in depth — the ciphertext alone shouldn't be world/group-readable either).
+  // writeFileSync's `mode` option is subject to the process umask, so follow with an
+  // explicit chmodSync — same belt-and-braces pattern memory-ipc-server.ts uses for the
+  // unix socket. chmod is a no-op on Windows (NTFS ACLs, not POSIX mode bits); on
+  // Windows, safeStorage's DPAPI encryption is the actual protection (§6.2), so this is
+  // best-effort hardening there, not the primary control.
+  const credPath = credentialPath(ravenHome())
+  mkdirSync(dirname(credPath), { recursive: true })
+  writeFileSync(credPath, safeStorage.encryptString(token), { mode: 0o600 })
+  try { chmodSync(credPath, 0o600) } catch { /* best effort, e.g. unsupported on this fs */ }
+  memoryToken = token
+  memoryConnectionState = {
+    ...memoryConnectionState,
+    connected: true,
+    deviceId,
+    deviceName: hostname(),
+    connectedAt: Date.now(),
+  }
+  setMemoryConnectionState(ravenHome(), memoryConnectionState)
+
+  // Provision (or re-provision) every existing Claude account now that memory is enabled.
+  accountStore.migrateClaudeAccounts()
+
+  // First-connect import (§5.1 step 5 — always runs before any push, and also runs at
+  // plain app startup without a connect — see the `runLocalMemoryImport` call in
+  // app.whenReady() and its own module for why). Best-effort: a partial import beats a
+  // failed connect (R-7). Re-running on every connect is safe: every importer underneath
+  // is idempotent (§5.3 guard 1).
+  runLocalMemoryImport(memory.store, {
+    ravenHomeDir: ravenHome(),
+    localPathRepos: Object.values(localPathsStore.getAllLocalPaths()),
+    claudeAccountDirs: accountStore.list('claude').map((name) => accountStore.getDir('claude', name)),
+  })
+
+  memory.daemon.onNetworkRegain() // drains everything just seeded
+  return { ok: true, itemCount: memory.store.count() }
+})
+
+ipcMain.handle('memory:disconnect', async (_event, opts?: { deleteCloud?: boolean }) => {
+  if (!memory) return MEMORY_UNAVAILABLE
+  // M10 / §6.6 "Right to delete": issued BEFORE clearing the local token/credential
+  // below — this is the only place main still holds the nmk_ token needed to call the
+  // memory-sync 'delete-cloud-data' action. Best-effort: a failed cloud delete must not
+  // block disconnecting locally (the user can retry by reconnecting then disconnecting
+  // again). Local data is NEVER deleted by disconnecting regardless of this flag — only
+  // this explicit server call touches cloud data, never local rows.
+  //
+  // Finding 2 fix: this used to swallow a failed delete-cloud-data call behind a
+  // console.warn and still return { ok: true } unconditionally — the renderer (and the
+  // user) had no way to know the cloud copy might still exist. Capture the failure
+  // reason and return it; the caller decides what to do with it (useMemory.ts surfaces
+  // it into the hook's error state). Local disconnect still proceeds regardless — only
+  // the REPORTING changed, not the best-effort semantics.
+  let cloudDeleteFailed: string | undefined
+  let tokenRevokeFailed: string | undefined
+  if (opts?.deleteCloud) {
+    const url = getMemorySyncBaseUrl()
+    const token = loadMemoryToken()
+    if (url && token) {
+      try {
+        const res = await fetch(`${url}/functions/v1/memory-sync/delete-cloud-data`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: '{}',
+        })
+        if (!res.ok) {
+          const body = await res.text().catch(() => '')
+          cloudDeleteFailed = `HTTP ${res.status}${body ? `: ${body}` : ''}`
+          console.warn('[memory:disconnect] cloud data delete failed', res.status, body)
+        }
+      } catch (err) {
+        cloudDeleteFailed = err instanceof Error ? err.message : String(err)
+        console.warn('[memory:disconnect] cloud data delete failed', err instanceof Error ? err.message : err)
+      }
+    }
+  }
+  // Revocar la credencial de ESTA máquina en el servicio, siempre — no sólo cuando se pide
+  // borrar la nube. Sin esto el token sigue siendo válido para siempre del lado del
+  // servidor, que es lo que pasaba: el renderer "revocaba" contra la edge function
+  // `memory-token`, la misma que C7 sacó del camino de Connect porque nunca se deployó.
+  //
+  // Va DESPUÉS del borrado de nube (ese request se autentica con este mismo token) y ANTES
+  // de limpiar la credencial local, que es la última ventana en la que main la tiene.
+  // Best-effort, igual que el borrado: no poder revocar no puede dejar a alguien pegado a
+  // una sesión que quiere cerrar. Se reporta, no se traga.
+  {
+    const url = getMemorySyncBaseUrl()
+    const token = loadMemoryToken()
+    if (url && token) {
+      try {
+        const res = await fetch(`${url.replace(/\/+$/, '')}/v1/devices/revoke`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: '{}',
+        })
+        // Un 401 acá NO es un fallo: significa que el token ya no servía (revocado antes, o
+        // la cuenta borrada del otro lado). El objetivo ya está cumplido.
+        if (!res.ok && res.status !== 401) {
+          const body = await res.text().catch(() => '')
+          tokenRevokeFailed = `HTTP ${res.status}${body ? `: ${body}` : ''}`
+          console.warn('[memory:disconnect] token revoke failed', res.status, body)
+        }
+      } catch (err) {
+        tokenRevokeFailed = err instanceof Error ? err.message : String(err)
+        console.warn('[memory:disconnect] token revoke failed', err instanceof Error ? err.message : err)
+      }
+    }
+  }
+
+  // C1: disconnecting from the CLOUD is not the same as turning local capture off.
+  // This call removes the MCP entry and rmSync's the nest dir from every Claude account
+  // — i.e. it de-provisions local capture. With localEnabled still true (the state C1
+  // introduced, and the state a plain Disconnect leaves behind), that deletes
+  // provisioning the client believes should exist, and it is self-undoing anyway: the
+  // next `claude` pane re-provisions it via pty-manager.ts. Pure churn plus a window in
+  // which the app and the disk disagree. Only tear it down when local capture is
+  // actually off.
+  if (!memoryConnectionState.localEnabled) accountStore.disconnectMemoryFromAllClaudeAccounts()
+  deleteCredential(ravenHome())
+  memoryToken = null
+  memoryConnectionState = { ...memoryConnectionState, connected: false, connectedAt: null }
+  setMemoryConnectionState(ravenHome(), memoryConnectionState)
+  // Los dos son best-effort y se reportan por separado: el renderer prioriza el borrado
+  // fallido (es el que el usuario pidió explícitamente) y cae al del revoke si no hubo.
+  return {
+    ok: true as const,
+    ...(cloudDeleteFailed ? { cloudDeleteFailed } : {}),
+    ...(tokenRevokeFailed ? { tokenRevokeFailed } : {}),
+  }
+})
+
+ipcMain.handle('memory:status', () => {
+  if (!memory) return { connected: false, deviceId: null, itemCount: 0, pendingCount: 0, daemonStatus: 'error' as const, unavailable: true }
+  return {
+    connected: memoryConnectionState.connected,
+    deviceId: memoryConnectionState.deviceId,
+    itemCount: memory.store.count(),
+    pendingCount: memory.store.pendingMutationCount(),
+    daemonStatus: memory.daemon.getStatus(),
+    quota: memory.daemon.getQuota() ?? undefined,
+  }
+})
+
+// The memory hub's opening screen (Task 7): "we found N memories across M projects".
+// Local-first and login-independent, unlike memory:status's `connected`/`quota` fields —
+// this has to work for a Free user who never connects to Cloud. `__global__` is excluded
+// from the project count: it's the catch-all bucket for unenrolled repos, not a project
+// the user would recognize as one of theirs.
+ipcMain.handle('memory:hub-stats', () => {
+  if (!memory) return { itemCount: 0, projectCount: 0 }
+  return {
+    itemCount: memory.store.count(),
+    projectCount: memory.store.listProjects().filter((p) => p.projectKey !== GLOBAL_PROJECT_KEY).length,
+  }
+})
+
+ipcMain.handle('memory:ensureDeviceId', () => {
+  const deviceId = ensureDeviceId(ravenHome())
+  memoryConnectionState = { ...memoryConnectionState, deviceId }
+  return deviceId
+})
+
+// Team Memory Layer 1, Parte 8 (smoke/memory-bridge): la única acción de este paso que pega
+// contra el endpoint nuevo del server, POST /v1/projects/share (server/src/share.ts) — la
+// ÚNICA forma de que `projects.team_id` quede seteado. Mismo patrón de auth que el resto de
+// las llamadas al servicio de sync desde acá (memory:disconnect's revoke, memory-daemon.ts's
+// push/pull/status): el device token (`nmk_`) ya guardado en credential.bin
+// (loadMemoryToken()), NUNCA el JWT de Supabase — ese solo vive en el renderer y se usa una
+// vez, para registerDevice. Mismo timeout explícito que memory:registerDevice: un servicio
+// colgado no puede dejar este IPC esperando para siempre.
+//
+// Sin UI todavía (fuera de alcance de este paso, según el plan) — alcanza con que el IPC
+// funcione y esté tipado; se prueba desde devtools con window.memory.shareProjectWithTeam(...)
+// o desde un test.
+ipcMain.handle('memory:shareProjectWithTeam', async (_event, projectKey: string, teamId: string) => {
+  const url = getMemorySyncBaseUrl()
+  const token = loadMemoryToken()
+  if (!url || !token) return { ok: false, error: 'Not connected to Nest Memory' }
+  if (typeof projectKey !== 'string' || !projectKey.trim()) return { ok: false, error: 'Missing project_key' }
+  if (typeof teamId !== 'string' || !teamId.trim()) return { ok: false, error: 'Missing team_id' }
+
+  const abort = new AbortController()
+  const timer = setTimeout(() => abort.abort(), 15_000)
+  try {
+    const res = await fetch(`${url.replace(/\/+$/, '')}/v1/projects/share`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ project_key: projectKey, team_id: teamId }),
+      signal: abort.signal,
+    })
+    const body = await res.json().catch(() => null) as { error?: string } | null
+    if (!res.ok) return { ok: false, error: body?.error ?? `HTTP ${res.status}` }
+    return { ok: true }
+  } catch (err) {
+    const message = (err as Error)?.name === 'AbortError'
+      ? 'The sync service did not answer in time'
+      : (err instanceof Error ? err.message : String(err))
+    return { ok: false, error: message }
+  } finally {
+    clearTimeout(timer)
+  }
+})
+
+// Task 5 (plan de memoria por cuenta multi-dispositivo): el vault — proyección Markdown de
+// la memoria de la cuenta ACTIVA, ver docs/superpowers/specs/2026-08-26-memory-vault-design.md.
+//
+// Los cuatro disparadores del §7, ahora cableados:
+//   1. Enable / "Regenerate now"        -> memory:vault:setSettings / memory:vault:regenerate
+//   2. Debounce 5s post-escritura        -> scheduleVaultRegenDebounced(), llamado desde memorySink.save()
+//   3. Poll de 60s del watermark          -> startVaultWatermarkPoll(), abajo
+//   4. Reconciliación al arranque         -> llamado una vez en app.whenReady()
+//
+// `runVaultRegeneration()` ya hace, internamente, "no escribir nada si nada cambió" (el
+// hash-compare de vault-plan.ts) — así que los triggers 3/4 pueden llamarla directo sin
+// reimplementar esa optimización acá; el ÚNICO trabajo real que este archivo hace antes de
+// llamarla es decidir SI vale la pena (vault apagado, o watermark sin cambios).
+let vaultDebounceTimer: NodeJS.Timeout | null = null
+const VAULT_DEBOUNCE_MS = 5_000
+
+function scheduleVaultRegenDebounced(): void {
+  if (vaultDebounceTimer) clearTimeout(vaultDebounceTimer)
+  vaultDebounceTimer = setTimeout(() => {
+    vaultDebounceTimer = null
+    void runVaultRegeneration()
+  }, VAULT_DEBOUNCE_MS)
+}
+
+// Trigger 3's cheap gate: per-project `maxUpdatedAt` as of the last time we actually ran a
+// regeneration (poll OR debounce OR manual — reconciled() below updates it after any of
+// them). Reset on an account swap (performUserSwap) — a stale value from a DIFFERENT
+// account's store must never suppress a legitimate regen for the account that just became
+// active. §7's own caveat applies here too: `applyIncomingObservation()` can write an
+// `updated_at` LOWER than the local max (a pulled row), so this is a "did anything change
+// at all" signal, not a precise cursor — the full `planVault` pass it triggers is what
+// actually decides what (if anything) needs writing.
+let vaultLastSeenWatermarks: Record<string, number> = {}
+
+function resetVaultPollState(): void {
+  vaultLastSeenWatermarks = {}
+}
+
+async function vaultWatermarksChanged(): Promise<boolean> {
+  if (!memory) return false
+  const userId = memory.store.getOwnerUserId()
+  const settings = loadVaultSettings(vaultSettingsPath(ravenHome(), userId))
+  if (!settings.enabled) return false
+
+  const { reader, close } = openReadonlyReader(ravenHome(), userId)
+  try {
+    const projectKeys = new Set(reader.listProjects().map((p) => p.projectKey))
+    projectKeys.add(GLOBAL_PROJECT_KEY)
+    let changed = false
+    const fresh: Record<string, number> = {}
+    for (const pk of projectKeys) {
+      const wm = reader.watermark(pk)
+      fresh[pk] = wm.maxUpdatedAt
+      if (vaultLastSeenWatermarks[pk] !== wm.maxUpdatedAt) changed = true
+    }
+    vaultLastSeenWatermarks = fresh
+    return changed
+  } finally {
+    close()
+  }
+}
+
+/** Trigger 3 — starts the 60s poll. Called once from app.whenReady(); safe to call even
+ *  when the vault is off (vaultWatermarksChanged() itself checks and returns false cheaply,
+ *  without opening a reader). */
+function startVaultWatermarkPoll(): void {
+  setInterval(() => {
+    void vaultWatermarksChanged().then((changed) => {
+      if (changed) void runVaultRegeneration()
+    })
+  }, 60_000)
+}
+
+function vaultAccountDirs(): string[] {
+  try {
+    return accountStore.list('claude').map((name) => join(accountStore.getDir('claude', name), '.claude'))
+  } catch {
+    return []
+  }
+}
+
+async function runVaultRegeneration(): Promise<{ ok: boolean; error?: string; result?: { written: number; moved: number; deleted: number; conflicts: number; warnings: unknown[] }; rootDir?: string }> {
+  if (!memory) return { ok: false, error: 'memory_unavailable' }
+  const userId = memory.store.getOwnerUserId()
+  const settings = loadVaultSettings(vaultSettingsPath(ravenHome(), userId))
+  if (!settings.enabled) return { ok: false, error: 'vault_disabled' }
+  const rootDir = resolveVaultRootDir(ravenHome(), userId, settings)
+
+  const { reader, close } = openReadonlyReader(ravenHome(), userId)
+  try {
+    const projects = reader.listProjects()
+    const projectKeys = new Set(projects.map((p) => p.projectKey))
+    projectKeys.add(GLOBAL_PROJECT_KEY) // never has its own `projects` row — see vault spec §4.2
+    const records = Array.from(projectKeys).flatMap((pk) => reader.listRecords(pk))
+
+    const manifest = readManifest(rootDir)
+    const onDiskHashes = computeOnDiskHashes(rootDir, manifest)
+    const plan = planVault({
+      records,
+      projects,
+      manifest,
+      config: { includeSuperseded: settings.includeSuperseded, includeTeamScope: settings.includeTeamScope },
+      onDiskHashes,
+    })
+    const { result } = await applyVaultPlan(rootDir, plan)
+    return { ok: true, result, rootDir }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  } finally {
+    close()
+  }
+}
+
+ipcMain.handle('memory:vault:getSettings', () => {
+  if (!memory) return { ok: false, error: 'memory_unavailable' }
+  const userId = memory.store.getOwnerUserId()
+  const settings = loadVaultSettings(vaultSettingsPath(ravenHome(), userId))
+  return { ok: true, settings, rootDir: resolveVaultRootDir(ravenHome(), userId, settings), defaultRootDir: defaultVaultRoot(ravenHome(), userId) }
+})
+
+ipcMain.handle('memory:vault:setSettings', async (_event, patch: Partial<VaultSettings>) => {
+  if (!memory) return { ok: false, error: 'memory_unavailable' }
+  const userId = memory.store.getOwnerUserId()
+  const path = vaultSettingsPath(ravenHome(), userId)
+  const current = loadVaultSettings(path)
+
+  const nextRoot = patch.root !== undefined ? patch.root : current.root
+  if (nextRoot !== null) {
+    const check = validateVaultRoot(nextRoot, {
+      ravenHomeDir: ravenHome(),
+      accountClaudeDirs: vaultAccountDirs(),
+      // Rule 4 (root of an enrolled repo) is largely subsumed by rule 5 (any `.git`
+      // ancestor) in practice — an enrolled repo root always has a `.git` — so this is
+      // intentionally left empty rather than adding another store dependency here.
+      enrolledRepoRoots: [],
+      platform: process.platform,
+    })
+    if (check.forbidden) return { ok: false, error: check.reason ?? 'forbidden_vault_root' }
+  }
+
+  const next: VaultSettings = { ...current, ...patch, root: nextRoot }
+  saveVaultSettings(path, next)
+
+  // §7 trigger #1: turning the vault on runs a full pass immediately — the "one click
+  // primes + generates" moment the spec calls the actual commercial argument.
+  if (!current.enabled && next.enabled) {
+    const regen = await runVaultRegeneration()
+    return { ok: true, settings: next, regenerated: regen }
+  }
+  return { ok: true, settings: next }
+})
+
+ipcMain.handle('memory:vault:regenerate', async () => runVaultRegeneration())
+
+ipcMain.handle('memory:vault:reveal', async () => {
+  if (!memory) return { ok: false, error: 'memory_unavailable' }
+  const userId = memory.store.getOwnerUserId()
+  const settings = loadVaultSettings(vaultSettingsPath(ravenHome(), userId))
+  const rootDir = resolveVaultRootDir(ravenHome(), userId, settings)
+  try {
+    mkdirSync(rootDir, { recursive: true })
+    const error = await shell.openPath(rootDir)
+    return error ? { ok: false, error } : { ok: true }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  }
 })
 
 ipcMain.handle('clipboard:writeImage', (_event, filePath: string): { ok: boolean; error?: string } => {
@@ -2229,9 +3299,10 @@ ipcMain.on('shell:openExternal', (_event, url: string) => {
 // when the user clicks Connect and only honor a deep-link if its `state` matches
 // the most recent expected nonce — this prevents an attacker from tricking the
 // running app into exchanging an attacker-controlled `code` (account hijack).
-const expectedOAuthState: { github: string | null; gitlab: string | null } = {
+const expectedOAuthState: { github: string | null; gitlab: string | null; slack: string | null } = {
   github: null,
   gitlab: null,
+  slack: null,
 }
 function newOAuthState(): string {
   return randomBytes(16).toString('hex')
@@ -2259,6 +3330,19 @@ function handleDeepLink(url: string) {
       const win = BrowserWindow.getAllWindows()[0]
       if (win) win.webContents.send('gitlab-oauth-code', code)
     }
+    return
+  }
+  if (url.startsWith('nest://slack-callback')) {
+    const urlObj = new URL(url)
+    const code = urlObj.searchParams.get('code')
+    const state = urlObj.searchParams.get('state')
+    if (!code || !state || state !== expectedOAuthState.slack) {
+      console.warn('[slack-oauth] rejected deep-link: state mismatch or missing code/state', { state, expected: expectedOAuthState.slack })
+      return
+    }
+    expectedOAuthState.slack = null
+    const win = BrowserWindow.getAllWindows()[0]
+    if (win) win.webContents.send('slack-oauth-code', code)
     return
   }
   // Buffer URL — renderer will pull it via deeplink:consume once ready
@@ -2313,6 +3397,798 @@ ipcMain.handle('gitlab:open-oauth', async () => {
   expectedOAuthState.gitlab = state
   const url = `https://gitlab.com/oauth/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${encodeURIComponent(scope)}&state=${state}`
   await shell.openExternal(url)
+})
+
+ipcMain.handle('plugins:list', () => pluginsStore.list())
+ipcMain.handle('plugins:save', (_e, p) => pluginsStore.save(p))
+ipcMain.handle('plugins:delete', (_e, id) => pluginsStore.delete(id))
+
+ipcMain.handle('pluginCreds:set', (_e, id: string, token: string) => {
+  try { pluginCreds.setToken(id, token); return { ok: true } }
+  catch (err) { return { ok: false, error: err instanceof Error ? err.message : 'error' } }
+})
+ipcMain.handle('pluginCreds:has', (_e, id: string) => pluginCreds.has(id))
+ipcMain.handle('pluginCreds:delete', (_e, id: string) => pluginCreds.delete(id))
+
+ipcMain.handle('pluginActions:run', (_e, id: string, actionId: string, params) =>
+  runPluginAction(id, actionId, params ?? {}, { getToken: (p) => pluginCreds.getToken(p), fetch }))
+
+// Host genérico de paneles de integración (Hito 2+ Task F1): el renderer
+// nunca ve el token, solo el resultado plano del adapter server-side
+// registrado en electron/integrations/register.ts (Fase 2 del plan).
+registerAllPanelAdapters()
+registerAllTicketProviders()
+
+// Branch→ticket tracking persists across restarts (spec Motor 1: the PR
+// usually opens/merges days after the worktree was created). At boot, drop
+// entries whose worktree no longer exists — the worktree is the unit of work.
+ticketLoop.attachStorage(pathJoin(ravenHome(), '.raven-nest', 'ticket-loop.json'))
+ticketLoop.retainBranches(worktreeStore.list().map((m) => m.branch))
+
+// Bus de eventos v1 (H8/T7): cablea el ticket loop como primer emisor/consumidor.
+// Las DEFAULT_RECIPES (recipes.json inexistente → defaults) REPLICAN H3:
+// pr.opened → updateStatus(in_review), pr.merged → updateStatus(done), con
+// pluginId/providerId resueltos por lookup branch→tracking. El handler
+// updateStatus (registerBusCommands) hace la transición real vía el provider que
+// resuelve el propio loop; credential-free (los tokens llegan por panelDeps() al
+// emitir, nunca acá). Con el bus adjunto, onPrStateChanged EMITE en vez de
+// transicionar directo — misma resolución in_review/done que H3 en el happy path.
+// Retry parity con H3: el emit reporta en `failed` los handlers que tiraron, y el
+// loop sólo destrackea/marca lastPr si el updateStatus del ticket NO falló, así un
+// 500 transitorio de Jira/Linear reintenta al próximo poll (no deja el ticket stuck).
+const eventBus = new EventBus()
+
+// Hub Activity rail: every DomainEvent emitted on the shared bus (ticket
+// loop, worktree signals, scheduler) gets recorded in a ring buffer and
+// pushed live to the renderer. Wired right after the bus is created so it
+// observes every emitter — purely additive, does not touch EmitResult.
+const activityLog = new ActivityLog()
+eventBus.setOnEmit((ev) => {
+  const ts = Date.now()
+  activityLog.record(ev, ts)
+  for (const w of BrowserWindow.getAllWindows()) w.webContents.send('activity:append', { ev, ts })
+  // Memory bridge: best-effort, never breaks the activity rail.
+  try {
+    for (const input of bridgeEvent(ev, bridgeCtx)) memorySink.save(input)
+  } catch (err) {
+    console.warn('[memory-bridge] failed to translate event', ev.type, err)
+  }
+})
+ipcMain.handle('activity:list', () => activityLog.list())
+
+eventBus.setRecipes(loadRecipes(
+  pathJoin(ravenHome(), '.raven-nest', 'recipes.json'),
+  (branch) => ticketLoop.trackedTicket(branch),
+))
+// Recipes tab (Plan 5 Task 1) — read-only display of the ACTIVE recipes
+// above (same recipes.json, same swap-not-merge rule as loadRecipes).
+ipcMain.handle('recipes:list', () => recipeDescriptors())
+// Epic C (H11) — scheduled agents. automations.json lives next to
+// recipes.json/ticket-loop.json under .raven-nest.
+const automationsFilePath = pathJoin(ravenHome(), '.raven-nest', 'automations.json')
+// H6 Motor 4 — Calendar: el sink de outcomes se resuelve con `gcalDeps()`, que
+// desenvuelve el access token de las creds guardadas (JSON) y refresca en
+// background si venció. Sin creds gcal, `gcalDeps().getToken('gcal')` devuelve
+// null y el adapter degrada a NotConnectedError → el handler logOutcome lo traga.
+registerBusCommands(eventBus, {
+  ticketLoop,
+  gcal: () => createGcalAdapter(gcalDeps()),
+  // scheduleBlock (epic C reactivation): turns the command into a persisted,
+  // enabled automation so the tick loop below picks it up on its next pass.
+  scheduleBlock: (cmd) => {
+    const list = loadAutomations(automationsFilePath)
+    const now = Date.now()
+    list.push({
+      id: newAutomationId(), name: cmd.label, trigger: cmd.when, prompt: cmd.label,
+      enabled: true, createdAt: now, updatedAt: now,
+    })
+    saveAutomations(automationsFilePath, list)
+  },
+})
+ticketLoop.attachBus(eventBus)
+
+// Single source of adapter deps (tokens/config/fetch) shared by the panel
+// host and the ticket loop — tokens never leave the main process.
+const panelDeps = (): PanelAdapterDeps => ({
+  getToken: (id) => pluginCreds.getToken(id),
+  getConfig: (id) => pluginsStore.list().find(p => p.pluginId === id)?.config ?? {},
+  fetch,
+})
+
+// Epic C (H11) — automations DTO adds two main-computed fields the renderer
+// needs but the persisted model doesn't carry: `nextRunAt` (from `nextRun`)
+// and `scheduleLabel` (from `describeSchedule`). Keeps all cron logic on this
+// side of the IPC boundary — src/ never imports electron/ (same convention as
+// RecipeDescriptor mirroring Command in recipes.ts/types.ts).
+function automationDTO(a: Automation, now: Date) {
+  return { ...a, nextRunAt: nextRun(a, now)?.getTime() ?? null, scheduleLabel: describeSchedule(a) }
+}
+
+// Epic C (H11) — real headless execution. The pure orchestration
+// (create worktree → run agent → summarize → remove) lives in
+// automation-runner.ts; these ports inject the git/child-process side effects.
+// ⚠️ The child-process path (`runAgent`) is unit-untested integration and needs
+// a LIVE smoke test on Windows (claude `.cmd` resolution + reading the prompt
+// from stdin). See docs/INTEGRATIONS_ORCA_EXECUTION_PLAN.md, Fase 2.
+const automationRunnerPorts: AutomationRunnerPorts = {
+  // Create an ephemeral worktree in a sibling dir (same layout as
+  // worktree:create) but WITHOUT persisting store meta — it must never show up
+  // in the worktrees UI. The unique `nest-auto/<id>-<hex>` branch guarantees no
+  // collision, so runWorktreeAdd's idempotency check never trips.
+  createWorktree: async (repoPath, branch) => {
+    if (!isAbsolute(repoPath)) return { ok: false, error: 'repoPath must be absolute' }
+    const slug = branch.replace(/[\/]/g, '-').replace(/[^a-zA-Z0-9._\-]/g, '')
+    const wtPath = pathJoin(dirname(repoPath), `${basename(repoPath)}-${slug}`)
+    try {
+      const res = runWorktreeAdd(repoPath, branch, wtPath, 'HEAD')
+      if (!res.ok) return { ok: false, error: res.error }
+      return { ok: true, wtPath }
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) }
+    }
+  },
+  // Run the agent CLI non-interactively. SECURITY: the untrusted `prompt` (the
+  // argv tail after `-p`) is fed via STDIN and never placed on the shell command
+  // line — only the fixed provider name, `--model`, the SAFE_MODEL-validated
+  // model, and `-p` reach the shell, so there is nothing to inject. shell:true is
+  // required on Windows to resolve `claude.cmd`. A 10-min timeout kills a hang.
+  runAgent: (argv, cwd) => new Promise((resolveRun) => {
+    const pIdx = argv.lastIndexOf('-p')
+    const prompt = pIdx >= 0 ? argv.slice(pIdx + 1).join(' ') : ''
+    const cmdLine = (pIdx >= 0 ? argv.slice(0, pIdx + 1) : argv).join(' ')
+    let output = ''
+    let done = false
+    let child: ReturnType<typeof spawn> | undefined
+    const finish = (ok: boolean) => {
+      if (done) return
+      done = true
+      clearTimeout(timer)
+      resolveRun({ ok, output })
+    }
+    const timer = setTimeout(() => {
+      try {
+        if (process.platform === 'win32' && child?.pid) spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore' })
+        else child?.kill('SIGTERM')
+      } catch {}
+      output += '\n[automation timed out after 600s]'
+      finish(false)
+    }, 600_000)
+    try {
+      child = spawn(cmdLine, { cwd, env: { ...process.env }, shell: true })
+    } catch (err) {
+      output += `spawn failed: ${err instanceof Error ? err.message : String(err)}`
+      finish(false)
+      return
+    }
+    child.stdout?.on('data', (d) => { output += d.toString('utf8') })
+    child.stderr?.on('data', (d) => { output += d.toString('utf8') })
+    child.on('error', (err) => { output += `\nerror: ${err.message}`; finish(false) })
+    child.on('exit', (code) => finish(code === 0))
+    try { child.stdin?.write(prompt); child.stdin?.end() } catch {}
+  }),
+  // Best-effort cleanup, never throws: capture the ephemeral branch, remove the
+  // worktree (--force), prune on failure, then delete the `nest-auto/…` branch.
+  removeWorktree: async (repoPath, wtPath) => {
+    let branch = ''
+    try {
+      branch = execFileSync('git', ['-C', wtPath, 'branch', '--show-current'], { encoding: 'utf8', timeout: 5000, stdio: ['pipe', 'pipe', 'pipe'] }).trim()
+    } catch {}
+    try { ptyManager.killByCwdPrefix(wtPath) } catch {}
+    try {
+      execFileSync('git', ['-C', repoPath, 'worktree', 'remove', wtPath, '--force'], { encoding: 'utf8', timeout: 10000, stdio: ['pipe', 'pipe', 'pipe'] })
+    } catch (err) {
+      console.warn('[automations] worktree remove failed', wtPath, err instanceof Error ? err.message : err)
+      try { execFileSync('git', ['-C', repoPath, 'worktree', 'prune'], { timeout: 5000, stdio: ['pipe', 'pipe', 'pipe'] }) } catch {}
+    }
+    if (branch && branch.startsWith('nest-auto/')) {
+      try { execFileSync('git', ['-C', repoPath, 'branch', '-D', branch], { timeout: 5000, stdio: ['pipe', 'pipe', 'pipe'] }) } catch {}
+    }
+  },
+  // model-per-task (worker-spec Capa 1): inline model wins, else the referenced
+  // worker-spec's first step.
+  resolveModel: (automation) => automation.model
+    ?? (automation.workerId ? workerSpecStore.list().find((w) => w.id === automation.workerId)?.steps[0]?.model : undefined),
+  makeId: () => randomBytes(6).toString('hex'),
+}
+
+const automationScheduler = new Scheduler({
+  runAutomation: makeRunAutomation(automationRunnerPorts),
+  onEvent: (ev) => { void eventBus.emit(ev, panelDeps()) },
+})
+
+ipcMain.handle('automations:list', () => {
+  const now = new Date()
+  return loadAutomations(automationsFilePath).map((a) => automationDTO(a, now))
+})
+
+ipcMain.handle('automations:create', (_e, input: {
+  name: string; trigger: string; time?: string; timezone?: string; prompt: string; repo?: string; provider?: string
+  workerId?: string; model?: string; effort?: 'low' | 'medium' | 'high'
+}) => {
+  const now = Date.now()
+  const automation: Automation = {
+    id: newAutomationId(),
+    name: input.name,
+    trigger: input.trigger,
+    time: input.time,
+    timezone: input.timezone,
+    prompt: input.prompt,
+    repo: input.repo,
+    provider: input.provider,
+    workerId: input.workerId,
+    model: input.model,
+    effort: input.effort,
+    enabled: true,
+    createdAt: now,
+    updatedAt: now,
+  }
+  const list = loadAutomations(automationsFilePath)
+  list.push(automation)
+  saveAutomations(automationsFilePath, list)
+  return automationDTO(automation, new Date(now))
+})
+
+ipcMain.handle('automations:update', (_e, id: string, patch: Partial<Pick<Automation,
+  'name' | 'trigger' | 'time' | 'timezone' | 'prompt' | 'repo' | 'provider' | 'workerId' | 'model' | 'effort' | 'enabled'>>) => {
+  const list = loadAutomations(automationsFilePath)
+  const idx = list.findIndex((a) => a.id === id)
+  if (idx === -1) return null
+  const updated: Automation = { ...list[idx], ...patch, updatedAt: Date.now() }
+  list[idx] = updated
+  saveAutomations(automationsFilePath, list)
+  return automationDTO(updated, new Date())
+})
+
+ipcMain.handle('automations:delete', (_e, id: string) => {
+  const list = loadAutomations(automationsFilePath)
+  const next = list.filter((a) => a.id !== id)
+  const removed = next.length !== list.length
+  if (removed) saveAutomations(automationsFilePath, next)
+  return removed
+})
+
+// Scheduler tick — once a minute, check for due automations and dispatch
+// them. No-ops cleanly when automations.json is empty/absent: loadAutomations
+// already degrades to `[]` robustly, and the early return below skips the
+// tick/save work entirely so an install with nothing configured never
+// touches disk on a timer.
+const AUTOMATIONS_TICK_MS = 60_000
+let automationsTickInterval: ReturnType<typeof setInterval> | null = setInterval(() => {
+  const automations = loadAutomations(automationsFilePath)
+  if (automations.length === 0) return
+  void automationScheduler.tick(automations, new Date()).then(({ automations: updated, fired }) => {
+    if (fired.length > 0) saveAutomations(automationsFilePath, updated)
+  })
+}, AUTOMATIONS_TICK_MS)
+
+// Credenciales de Google Calendar guardadas por el OAuth loopback (JSON
+// {accessToken, refreshToken, expiresAt}). Parse tolerante: token mal formado → null.
+function gcalCreds(): GcalCreds | null {
+  const raw = pluginCreds.getToken('gcal')
+  if (!raw) return null
+  try {
+    const c = JSON.parse(raw) as GcalCreds
+    return typeof c?.accessToken === 'string' ? c : null
+  } catch {
+    return null
+  }
+}
+
+// Refresca el access token si venció (best-effort, persiste las nuevas creds).
+// Sin refresh token o sin client id, no hace nada. Se usa antes del read path
+// (gcal:listEvents) y en background desde gcalDeps() para el bus.
+async function refreshGcalIfNeeded(): Promise<void> {
+  const creds = gcalCreds()
+  const clientId = import.meta.env.MAIN_VITE_GCAL_CLIENT_ID ?? ''
+  if (!creds || !creds.refreshToken || !clientId) return
+  if (creds.expiresAt > Date.now()) return
+  try {
+    const next = await refreshAccessToken({ clientId, refreshToken: creds.refreshToken, fetch })
+    pluginCreds.setToken('gcal', JSON.stringify({ ...creds, accessToken: next.accessToken, expiresAt: next.expiresAt }))
+  } catch (err) {
+    // Terminal (invalid_grant): el refresh token murió; no reintentar. Limpiamos
+    // las creds para no dejar la integración "conectada" pero zombie (Calendar
+    // vacío para siempre). Un transitorio (5xx/red) se conserva y reintenta.
+    // (El push "reconectá Calendar" al renderer + su UI es la pasada en vivo.)
+    if (err instanceof GcalAuthError) {
+      console.warn('[gcal] refresh token revocado/expirado — limpiando creds', err)
+      pluginCreds.delete('gcal')
+    } else {
+      console.warn('[gcal] refresh falló (transitorio, conservo creds)', err)
+    }
+  }
+}
+
+// Arma PanelAdapterDeps con el access token de Calendar. Síncrono (el bus llama
+// al factory de forma síncrona): si el token venció, dispara el refresh en
+// background para el próximo ciclo y usa el token actual en este.
+function gcalDeps(): PanelAdapterDeps {
+  const creds = gcalCreds()
+  if (creds && creds.refreshToken && creds.expiresAt <= Date.now()) void refreshGcalIfNeeded()
+  return {
+    getToken: (id) => (id === 'gcal' ? (creds?.accessToken ?? null) : pluginCreds.getToken(id)),
+    getConfig: (id) => pluginsStore.list().find(p => p.pluginId === id)?.config ?? {},
+    fetch,
+  }
+}
+
+// Motor 3 (H4): señales por worktree (CI/review) en el main. Fuente única de
+// `ci.failed` (se retiró de ticket-loop). Resuelve owner/repo con el mismo
+// getRemoteUrl+parseOwnerRepo del ticket loop; token nunca sale del main.
+const worktreeSignals = new WorktreeSignals((repoPath) => {
+  const url = getRemoteUrl(repoPath)
+  const or = url ? parseOwnerRepo(url) : null
+  return or ? `${or.owner}/${or.repo}` : null
+})
+// El dedup de ci.failed/review.requested se persiste a disco para no re-spamear
+// notificaciones tras reiniciar la app (mismo patrón que ticket-loop.json).
+worktreeSignals.attachStorage(pathJoin(ravenHome(), '.raven-nest', 'worktree-signals.json'))
+worktreeSignals.attachBus(eventBus)
+
+// @Nest bot orchestration intents (H7 §6, on top of the Socket Mode mention
+// handler below). Resolves a GitHub "owner/repo" full name to a LOCAL base
+// repoPath by looking at repos this app already knows about (worktreeStore) —
+// the ticket key alone never gives us a filesystem path. Jira/Linear keys
+// carry no repo info at all, so grabTicket() never calls this for them (see
+// nest-bot.ts: only pluginId 'github' resolves fullName from the key).
+function resolveRepoPathForBot(fullName: string): string | null {
+  const wanted = fullName.toLowerCase()
+  const roots = new Set(worktreeStore.list().map((m) => m.rootRepoPath))
+  for (const root of roots) {
+    const url = getRemoteUrl(root)
+    const or = url ? parseOwnerRepo(url) : null
+    if (or && `${or.owner}/${or.repo}`.toLowerCase() === wanted) return root
+  }
+  return null
+}
+
+// Wires the real implementations into NestBotDeps — same building blocks the
+// "Work on this" picker uses (ticketBranchName, the worktree:create git flow
+// via createWorktreeForBot, tickets:startWork's flow via startWorkOnWorktree).
+function nestBotDeps(): NestBotDeps {
+  return {
+    ticketPluginIds: () => ticketLoop.registeredIds(),
+    listTickets: (pluginId) => ticketLoop.list(pluginId, panelDeps()),
+    branchName: ticketBranchName,
+    resolveRepoPath: resolveRepoPathForBot,
+    createWorktree: createWorktreeForBot,
+    startWork: startWorkOnWorktree,
+  }
+}
+
+// H7 Motor 5 — @Nest desde Slack (Socket Mode). Sólo arranca si hay un
+// app-level token (`xapp-...`, distinto del bot token) guardado en
+// pluginCreds('slack-app'). Sin él, la feature queda apagada sin romper el
+// resto de Slack. El main NO abre panes: rutea los eventos al renderer por IPC
+// push (`slack:mention`/`slack:action`, mismo patrón que `signals:update`) Y,
+// además (H7 §6), corre el bot orchestration (parseIntent/handleMention) y
+// responde in-thread con el bot token. Un fallo del bot (fetch caído, provider
+// caído) sólo genera un console.warn — nunca debe tumbar el socket ni dejar de
+// empujar `slack:mention` al renderer.
+const slackAppToken = pluginCreds.getToken('slack-app')
+if (slackAppToken) {
+  const slackSocket = new SlackSocket({
+    appToken: slackAppToken,
+    fetch,
+    onAppMention: (m) => {
+      for (const w of BrowserWindow.getAllWindows()) w.webContents.send('slack:mention', m)
+      void handleMention(m, nestBotDeps())
+        .then((res) => postToSlackThread(m.channel, m.threadTs, res.reply))
+        .catch((err) => console.warn('[nest-bot] handleMention failed', err))
+    },
+    onBlockAction: (a) => { for (const w of BrowserWindow.getAllWindows()) w.webContents.send('slack:action', a) },
+  })
+  void slackSocket.connect().catch((e) => console.warn('[slack-socket] connect failed', e))
+}
+
+ipcMain.handle('plugins:panel:call', (_e, pluginId: string, method: string, args: unknown[]) =>
+  callPanel(pluginId, method, args ?? [], panelDeps()))
+
+// === Worktree signals IPC (H4 Motor 3) ===
+ipcMain.handle('signals:list', () => worktreeSignals.list())
+ipcMain.handle('signals:fixCiPrompt', (_e, repoPath: string) =>
+  typeof repoPath === 'string' ? worktreeSignals.fixCiPrompt(repoPath, panelDeps()) : Promise.resolve(null))
+
+// === Ticket loop IPC (H3 Motor 1) ===
+ipcMain.handle('tickets:list', (_e, pluginId: string) => {
+  if (typeof pluginId !== 'string') return []
+  return ticketLoop.list(pluginId, panelDeps())
+})
+
+ipcMain.handle('tickets:branchName', (_e, user: string, key: string, title: string) =>
+  ticketBranchName(String(user ?? ''), String(key ?? ''), String(title ?? '')))
+
+// All tracked branch→ticket links, for the orchestration board (Plan 2).
+ipcMain.handle('tickets:tracked', () => ticketLoop.trackedList())
+
+// Writes TASK.md with the ticket context and fires the in_progress
+// transition. worktreePath must be a worktree THIS app registered — never an
+// arbitrary directory. Shared by the tickets:startWork IPC handler (the
+// "Work on this" picker) and the @Nest bot's grab intent (H7 §6) — same flow,
+// two callers.
+async function startWorkOnWorktree(
+  pluginId: string, ticket: Ticket, branch: string, worktreePath: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (!worktreeStore.get(worktreePath) || !existsSync(worktreePath) || !statSync(worktreePath).isDirectory()) {
+    return { ok: false, error: 'NO_WORKTREE' }
+  }
+  try {
+    const dir = join(worktreePath, '.nest')
+    mkdirSync(dir, { recursive: true })
+    // The last line covers the "Fixes <ID>" rule from the spec: the agent
+    // working in this worktree reads it and includes it in the PR description.
+    writeFileSync(join(dir, 'TASK.md'),
+      `# ${ticket.key}: ${ticket.title}\n\n${ticket.url}\n\n${ticket.context}\n\n---\n` +
+      `When you open the PR for this task, include "Fixes ${ticket.key}" in the description.\n`)
+  } catch (err) {
+    console.warn('[startWorkOnWorktree] TASK.md write failed', err)
+  }
+  // The worktree's GitHub repo travels with the tracked branch so the 90s
+  // poll below only asks that repo about it (non-GitHub remotes parse to
+  // null and are skipped; v1 only infers PR state on GitHub remotes).
+  const remoteUrl = getRemoteUrl(worktreePath)
+  const ownerRepo = remoteUrl ? parseOwnerRepo(remoteUrl) : null
+  await ticketLoop.startWork(pluginId, ticket, branch, panelDeps(),
+    ownerRepo ? `${ownerRepo.owner}/${ownerRepo.repo}` : null)
+  return { ok: true }
+}
+
+// Called AFTER worktree:create returned ok. The ticket shape is validated at
+// this IPC boundary (its fields are interpolated into TASK.md) — the actual
+// work happens in startWorkOnWorktree above.
+ipcMain.handle('tickets:startWork', async (_e, args: {
+  pluginId: string; ticket: unknown; branch: string; worktreePath: string
+}) => {
+  const { pluginId, ticket, branch, worktreePath } = args ?? {}
+  if (typeof pluginId !== 'string' || typeof branch !== 'string' || typeof worktreePath !== 'string' || !isTicket(ticket)) {
+    return { ok: false as const, error: 'BAD_ARGS' }
+  }
+  return startWorkOnWorktree(pluginId, ticket, branch, worktreePath)
+})
+
+// H5 Motor 2 — Notion spec→worktree: baja la página como markdown, la escribe
+// en <worktree>/.nest/spec.md (mismo patrón que TASK.md en tickets:startWork) y
+// devuelve el markdown para inyectarlo como prompt inicial del agente
+// (initialInput). worktreePath debe ser un worktree que ESTA app registró.
+ipcMain.handle('notion:specToWorktree', async (_e, args: { pageId: string; worktreePath: string }) => {
+  const { pageId, worktreePath } = args ?? {}
+  if (typeof pageId !== 'string' || typeof worktreePath !== 'string') return { ok: false as const, error: 'BAD_ARGS' }
+  if (!worktreeStore.get(worktreePath) || !existsSync(worktreePath)) return { ok: false as const, error: 'NO_WORKTREE' }
+  try {
+    const md = await fetchPageMarkdown(panelDeps(), pageId)
+    mkdirSync(join(worktreePath, '.nest'), { recursive: true })
+    writeFileSync(join(worktreePath, '.nest', 'spec.md'), md)
+    return { ok: true as const, prompt: md }
+  } catch (err) {
+    return { ok: false as const, error: err instanceof Error ? err.message : 'error' }
+  }
+})
+
+// === Google Calendar IPC (H6 Motor 4) ===
+// OAuth desktop: loopback server + PKCE (sin client secret). El token nunca sale
+// del main; se guarda en pluginCreds('gcal') como JSON {accessToken, refreshToken,
+// expiresAt}. Sin client id configurado → NOT_CONFIGURED (igual patrón que Slack).
+ipcMain.handle('gcal:openOAuth', async () => {
+  const clientId = import.meta.env.MAIN_VITE_GCAL_CLIENT_ID ?? ''
+  if (!clientId) return { ok: false, error: 'NOT_CONFIGURED' }
+  try {
+    const creds = await startLoopbackFlow({ clientId, openExternal: (u) => shell.openExternal(u), fetch })
+    pluginCreds.setToken('gcal', JSON.stringify(creds))
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : 'error' }
+  }
+})
+
+// Bloques del día (block→session). Refresca el token si venció antes de leer;
+// cualquier error (sin conexión / API) degrada a [] para que el panel no crashee.
+ipcMain.handle('gcal:listEvents', async (_e, timeMin: string, timeMax: string): Promise<GcalEvent[]> => {
+  if (typeof timeMin !== 'string' || typeof timeMax !== 'string') return []
+  await refreshGcalIfNeeded()
+  return createGcalAdapter(gcalDeps()).listEvents(timeMin, timeMax).catch(() => [])
+})
+
+// Block → Session (un click, JAMÁS automático): escribe <worktree>/.nest/spec.md
+// con el título/contexto del evento (mismo patrón que notion:specToWorktree) y
+// devuelve el prompt para inyectar como initialInput del pane (reusa H4).
+ipcMain.handle('gcal:startSession', async (_e, args: { title: string; context: string; worktreePath: string }) => {
+  const { title, context, worktreePath } = args ?? {}
+  if (typeof title !== 'string' || typeof context !== 'string' || typeof worktreePath !== 'string') {
+    return { ok: false as const, error: 'BAD_ARGS' }
+  }
+  if (!worktreeStore.get(worktreePath) || !existsSync(worktreePath)) return { ok: false as const, error: 'NO_WORKTREE' }
+  try {
+    const md = `# ${title}\n\n${context}`
+    mkdirSync(join(worktreePath, '.nest'), { recursive: true })
+    writeFileSync(join(worktreePath, '.nest', 'spec.md'), md)
+    return { ok: true as const, prompt: md }
+  } catch (err) {
+    return { ok: false as const, error: err instanceof Error ? err.message : 'error' }
+  }
+})
+
+// PR polling → ticket transitions (in_review/done). Every 90s ask GitHub for
+// PRs on each tracked branch, per repo the branch belongs to. Zero requests
+// at rest: trackedRepos() is empty until a ticket is started.
+const TICKET_POLL_MS = 90_000
+let ticketPollInterval: ReturnType<typeof setInterval> | null = setInterval(() => {
+  for (const repoFullName of ticketLoop.trackedRepos()) {
+    void ticketLoop.pollOnce(repoFullName, panelDeps())
+  }
+  // Motor 3 (H4): pollea CI/review de TODOS los worktrees vivos (no sólo los con
+  // ticket) y empuja `signals:update` al renderer para refrescar los badges.
+  void worktreeSignals
+    .poll(worktreeStore.list().map((m) => ({ repoPath: m.repoPath, branch: m.branch })), panelDeps())
+    .then(() => { for (const w of BrowserWindow.getAllWindows()) w.webContents.send('signals:update') })
+  // Motor 4 (H5): review-requested es global (no por worktree) — un solo search
+  // /issues?q=review-requested:@me por ciclo, que emite review.requested al bus.
+  void worktreeSignals.pollReviewRequests(panelDeps())
+}, TICKET_POLL_MS)
+
+// ── Graph orchestration wiring (F6) ─────────────────────────────────────────
+// main OWNS the graph nodes' PTYs (headless multi-agent orchestration): each
+// tick samples every launched pane via deriveAgentState, folds the states into
+// the run (planTick), spawns the panes it says to start, emits its events
+// (deduped + persisted so a still-blocked gate isn't re-notified), and saves the
+// advanced run. The renderer attaches a visible xterm to any node's pane
+// on demand (graph:node:attach) — pty-manager already decouples PTY from view.
+// ⚠️ Unit-untested integration (spawn/emit/persist); the pure core
+// (planTick/sampleGraph/launchCommand) is tested, but this glue needs a
+// LIVE smoke — see docs/superpowers/plans/2026-08-17-graph-orchestration.md T7.
+const GRAPH_TICK_MS = 3_000
+
+// Signals for one graph pane. A node in the run always has a paneId only if it
+// was launched, so a missing PTY here means the process exited → deriveAgentState
+// resolves it to 'done'. cpu is 0 for now (TODO: wire per-pane cpu from
+// metricsCollector); recent-output/quiescence already drive working/needs_input.
+function samplePane(paneId: string): PaneSignals | null {
+  const hasPty = ptyManager.exists(paneId)
+  return {
+    hasPty,
+    lastOutputAt: paneLastOutputAt.get(paneId) ?? null,
+    cpuPercent: 0,
+    bufferTail: hasPty ? ptyManager.getBuffer(paneId).slice(-2000) : '',
+  }
+}
+
+function readGraphArtifact(worktreePath: string, relPath: string): string | null {
+  try { return readFileSync(pathJoin(worktreePath, relPath), 'utf8') } catch { return null }
+}
+
+// Headless launch has no account picker: use the agent's first saved account
+// (its config/HOME dir), or '' (real HOME) when it has none.
+function accountDirForAgent(agent: string): string {
+  const names = accountStore.list(agent)
+  return names.length ? accountStore.getDir(agent, names[0]) : ''
+}
+
+// Best-effort pane kill: ptyManager.kill() already swallows its own errors,
+// but a caller-side try/catch keeps a future throw from ever escaping into
+// the tick (same warn-no-throw contract as the rest of this file's effects).
+function killPaneBestEffort(paneId: string, reason: string): void {
+  try {
+    ptyManager.kill(paneId)
+    paneExitCode.delete(paneId)
+  } catch (err) {
+    console.warn('[graph] failed to kill pane', reason, paneId, err)
+  }
+}
+
+function graphOrchestratorTick(): void {
+  const runs = graphRunStore.list()
+  if (runs.length === 0) return  // zero cost at rest
+  const templates = graphTemplateStore.list()
+  const now = Date.now()
+  for (const { run, seen } of runs) {
+    const template = templates.find((t) => t.id === run.templateId)
+    if (!template) continue
+    const samples = sampleGraph(run, samplePane, now)
+    const cfg = graphConfigStore.get(run.repoPath ?? '')
+    const plan = planTick(template, run, samples, {
+      now,
+      readArtifact: readGraphArtifact,
+      maxReviewRounds: cfg.maxReviewRounds,
+      exitCode: (paneId) => paneExitCode.get(paneId) ?? null,
+    })
+
+    // A re-run (auto-repair rewind or human "request changes") resets the
+    // coder branch to 'queued' and clears its paneId. If that happens without
+    // a same-tick relaunch (the auto-repair path returns start:[] this tick),
+    // kill the stale PTY now instead of leaving it running idle until the
+    // node is picked up again.
+    for (const [id, oldRt] of Object.entries(run.nodes)) {
+      const newRt = plan.run.nodes[id]
+      if (oldRt.paneId && newRt?.state === 'queued' && !newRt.paneId) {
+        killPaneBestEffort(oldRt.paneId, 're-run reset')
+      }
+    }
+
+    // Spawn the panes the plan says to start — headless PTYs main owns.
+    for (const action of plan.start) {
+      // The composed handoff prompt is written to a file in the worktree and
+      // read back by the CLI (`… "$(cat 'file')"`) — a multi-KB multi-line
+      // prompt never has to be typed into the pty. Path is deterministic per
+      // node so a re-run overwrites the previous prompt with the revised one.
+      const promptPath = pathJoin(run.worktreePath, '.nest', 'graph', `${action.nodeId}.prompt`)
+      const cmd = launchCommand(action, { promptPath, isWin })
+      if (!cmd) continue  // gate or custom/headless-incapable agent → nothing to spawn
+      if (run.nodes[action.nodeId]?.paneId) {
+        // Paneids are deterministic (`${runId}:${nodeId}`), so a node that
+        // already ran before and is being (re)launched again this same tick
+        // (human "request changes" rewinds + advanceGraph relaunches it in
+        // one planTick call) would reuse the old paneId — ptyManager.create's
+        // "already running" guard would then skip spawning and the revision
+        // prompt would land in the stale session. Kill it first.
+        killPaneBestEffort(action.paneId, 're-run relaunch')
+      }
+      try {
+        mkdirSync(dirname(promptPath), { recursive: true })
+        writeFileSync(promptPath, action.input, 'utf8')
+      } catch (err) {
+        console.warn('[graph] failed to write prompt file', action.paneId, err)
+        continue
+      }
+      const accountDir = action.agent ? accountDirForAgent(action.agent) : ''
+      // Headless launch: the CLI runs the prompt unattended and `exec` replaces
+      // the shell, so the pty closes with the CLI's exit code → the node reaches
+      // 'done' (and a real exit code) instead of stalling behind a live shell.
+      // No delayed write — the prompt is baked into `cmd`.
+      void ptyManager.create(action.paneId, cmd, accountDir, run.worktreePath).then((res) => {
+        if (!res.ok) console.warn('[graph] pane spawn failed', action.paneId, res.error)
+      })
+    }
+
+    // Dedup persistent signals against the run's saved `seen`, persist the
+    // grown set, THEN emit the fresh ones. Order matters: EventBus.emit calls
+    // its onEmit observer synchronously on its first line (event-bus.ts), and
+    // the memory bridge is hooked there — it reads the run back from
+    // graphRunStore via bridgeCtx.getRun. Emitting before save would hand the
+    // bridge the previous tick's persisted state (verdicts not attached yet),
+    // so a gate_blocked fired by a reviewer that just resolved this tick would
+    // read as having no verdict and silently produce zero memories. Save
+    // first — including on a completed run, so `getRun` still finds it during
+    // this tick's emit — then emit, then delete if the run is done.
+    const { fresh, seen: nextSeen } = dedupePersistentSignals(plan.events, new Set(seen))
+    graphRunStore.save(plan.run, [...nextSeen])
+    for (const ev of fresh) void eventBus.emit(ev, panelDeps())
+    if (plan.completed) graphRunStore.delete(run.runId)
+  }
+}
+
+let graphTickInterval: ReturnType<typeof setInterval> | null = setInterval(graphOrchestratorTick, GRAPH_TICK_MS)
+
+// Start a graph run for a ticket: create/reuse the shared worktree, seed every
+// node as queued, persist. The tick picks it up next cycle and launches the root.
+ipcMain.handle('graph:run:start', async (_e, input: { repoPath: string; templateId: string; ticketId: string; branch: string }) => {
+  const template = graphTemplateStore.list().find((t) => t.id === input.templateId)
+  if (!template) return { ok: false as const, error: 'Unknown template' }
+  const wt = await createWorktreeForBot(input.repoPath, input.branch)
+  if (!wt.ok) return wt
+  const now = Date.now()
+  const nodes: Record<string, NodeRuntime> = {}
+  for (const n of template.nodes) nodes[n.id] = { state: 'queued' }
+  const cfg = graphConfigStore.get(input.repoPath)
+  const run: GraphRun = {
+    runId: newGraphTemplateId(),
+    ticketId: input.ticketId,
+    templateId: template.id,
+    worktreePath: wt.worktreePath,
+    repoPath: input.repoPath,
+    branch: input.branch,
+    nodes,
+    startedAt: now,
+    mode: cfg.defaultMode,
+    round: 0,
+  }
+  graphRunStore.save(run, [])
+  return { ok: true as const, runId: run.runId, worktreePath: wt.worktreePath }
+})
+
+// Attach a visible terminal to a node's headless pane: the renderer mounts an
+// xterm on the returned paneId (backfilling scrollback), then uses the existing
+// pty:data / pty:write / pty:getBuffer channels. Same paneId scheme planTick uses.
+ipcMain.handle('graph:node:attach', (_e, runId: string, nodeId: string) => {
+  const paneId = `${runId}:${nodeId}`
+  return { paneId, exists: ptyManager.exists(paneId), buffer: ptyManager.getBuffer(paneId) }
+})
+
+// Human-in-the-loop graph controls. These IPC handlers only ever read state or
+// queue a `pendingDecision` — the tick (graphOrchestratorTick → planTick) is
+// the sole place that applies a decision and advances the run. Single-writer.
+ipcMain.handle('graph:run:list', () => graphRunStore.list().map((p) => p.run))
+ipcMain.handle('graph:run:get', (_e, runId: string) => graphRunStore.get(runId)?.run ?? null)
+ipcMain.handle('graph:run:setMode', (_e, runId: string, mode: GraphMode) => {
+  const p = graphRunStore.get(runId); if (!p) return { ok: false as const }
+  graphRunStore.save({ ...p.run, mode }, p.seen); return { ok: true as const }
+})
+ipcMain.handle('graph:gate:approve', (_e, runId: string, gateId: string) => {
+  const p = graphRunStore.get(runId); if (!p) return { ok: false as const }
+  try {
+    const t = graphTemplateStore.list().find((x) => x.id === p.run.templateId) ?? null
+    for (const input of bridgeDecision({ kind: 'approve', gateId }, p.run, t)) memorySink.save(input)
+  } catch (err) { console.warn('[memory-bridge] approve', err) }
+  graphRunStore.save({ ...p.run, pendingDecision: { kind: 'approve', gateId } }, p.seen); return { ok: true as const }
+})
+ipcMain.handle('graph:gate:requestChanges', (_e, runId: string, feedback: string) => {
+  const p = graphRunStore.get(runId); if (!p) return { ok: false as const }
+  try {
+    const t = graphTemplateStore.list().find((x) => x.id === p.run.templateId) ?? null
+    for (const input of bridgeDecision({ kind: 'requestChanges', feedback }, p.run, t)) memorySink.save(input)
+  } catch (err) { console.warn('[memory-bridge] requestChanges', err) }
+  graphRunStore.save({ ...p.run, pendingDecision: { kind: 'requestChanges', feedback } }, p.seen); return { ok: true as const }
+})
+
+ipcMain.handle('slack:open-oauth', async () => {
+  const clientId = import.meta.env.MAIN_VITE_SLACK_CLIENT_ID ?? ''
+  const scope = 'chat:write,channels:read,channels:history,groups:read,im:read,users:read'
+  const state = newOAuthState()
+  expectedOAuthState.slack = state
+  const url = `https://slack.com/oauth/v2/authorize?client_id=${clientId}&scope=${scope}&redirect_uri=${encodeURIComponent('nest://slack-callback')}&state=${state}`
+  await shell.openExternal(url)
+})
+
+// Exchange del `code` de Slack OAuth por un access token (spec §6/§7: el
+// token nunca sale del main process). En producción el spec prevé una Edge
+// Function; acá lo hacemos main-side para poder testear local sin infra
+// (plan Hito 2+, decisión documentada). Guardamos el token *bot* (`access_token`
+// de la raíz de la respuesta) en vez de `authed_user.access_token`: los
+// adapters de paneles pegan a endpoints con scopes de bot (conversations.*,
+// chat.postMessage), no a los del usuario que instaló la app.
+ipcMain.handle('slack:exchange-code', async (_e, code: string) => {
+  const clientId = import.meta.env.MAIN_VITE_SLACK_CLIENT_ID ?? ''
+  const clientSecret = import.meta.env.MAIN_VITE_SLACK_CLIENT_SECRET ?? ''
+  if (!clientId || !clientSecret) {
+    return { ok: false, error: 'NOT_CONFIGURED' }
+  }
+  try {
+    const body = new URLSearchParams({
+      client_id: clientId,
+      client_secret: clientSecret,
+      code,
+      redirect_uri: 'nest://slack-callback',
+    })
+    const res = await fetch('https://slack.com/api/oauth.v2.access', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: body.toString(),
+    })
+    const json = (await res.json()) as { ok: boolean; access_token?: string; error?: string }
+    if (!json.ok || !json.access_token) {
+      return { ok: false, error: json.error ?? 'slack_error' }
+    }
+    pluginCreds.setToken('slack', json.access_token)
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : 'error' }
+  }
+})
+
+// H7 — postea un mensaje al MISMO thread de Slack (bot token, no el app token).
+// Lo llama el renderer al crear la sesión ("🪺 Trabajando en esto…") y en
+// updates, y el @Nest bot (H7 §6) para responder in-thread a una mención. Sin
+// bot token → no-op silencioso (ok:false) para no romper el flujo.
+async function postToSlackThread(channel: string, threadTs: string, text: string): Promise<{ ok: boolean }> {
+  const token = pluginCreds.getToken('slack')
+  if (!token) return { ok: false }
+  try {
+    await fetch('https://slack.com/api/chat.postMessage', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json; charset=utf-8' },
+      body: JSON.stringify({ channel, thread_ts: threadTs, text }),
+    })
+    return { ok: true }
+  } catch (err) {
+    console.warn('[postToSlackThread] failed', err)
+    return { ok: false }
+  }
+}
+
+ipcMain.handle('slack:postThread', async (_e, args: { channel: string; threadTs: string; text: string }) => {
+  const { channel, threadTs, text } = args ?? {}
+  if (typeof channel !== 'string' || typeof threadTs !== 'string' || typeof text !== 'string') {
+    return { ok: false as const }
+  }
+  return postToSlackThread(channel, threadTs, text)
 })
 
 // macOS: open-url event
@@ -2383,6 +4259,51 @@ app.whenReady().then(async () => {
   }
   createWindow()
   setupAutoUpdater()
+
+  // Nest Memory: start the IPC server (the MCP shim's only entry point) and the sync
+  // daemon. Both are safe to start even when memory is disconnected — the IPC server
+  // just serves local reads/writes to memory.db (which always works, offline-first,
+  // §1.2), and the daemon no-ops push/pull without a token (§4.1 guards on getToken()).
+  // C7: skipped entirely when the subsystem failed to initialize.
+  if (memory) {
+    memory.ipcServer.start()
+    memory.daemon.start()
+    // Local-first import (Task 7 of docs/superpowers/plans/
+    // 2026-09-03-memoria-por-cuenta-multi-dispositivo.md): runs on every plain app
+    // startup, not only on `memory:connect`, so the memory hub has real numbers to show
+    // even to a Free user who never connects to Cloud. Idempotent, best-effort — see
+    // memory-local-import.ts.
+    runLocalMemoryImport(memory.store, {
+      ravenHomeDir: ravenHome(),
+      localPathRepos: Object.values(localPathsStore.getAllLocalPaths()),
+      claudeAccountDirs: accountStore.list('claude').map((name) => accountStore.getDir('claude', name)),
+    })
+    // §4.1 "Window focus" trigger.
+    app.on('browser-window-focus', () => memory?.daemon.onWindowFocus())
+    // Lightweight connectivity probe — Electron main has no `navigator.onLine`; a short
+    // DNS lookup against the Supabase host is cheap and avoids adding an IPC round-trip
+    // from the renderer just to learn online/offline (§4.1 "Network regain").
+    setInterval(() => {
+      const url = getMemorySyncBaseUrl()
+      if (!url) return
+      try {
+        const host = new URL(url).hostname
+        void lookup(host).then(
+          () => { const wasOffline = !memoryOnline; memoryOnline = true; if (wasOffline) memory?.daemon.onNetworkRegain() },
+          () => { memoryOnline = false }
+        )
+      } catch { /* invalid URL — leave memoryOnline as-is */ }
+    }, 15_000)
+
+    // Vault spec §7 trigger 4 — reconciliation at startup. `runVaultRegeneration()` no-ops
+    // instantly (zero writes, zero stats) when nothing changed since the manifest was last
+    // written, so there is no need to compare a row count before calling it here the way
+    // trigger 3's poll does to avoid opening a reader every 60s — this runs exactly once.
+    void runVaultRegeneration()
+    // Vault spec §7 trigger 3.
+    startVaultWatermarkPoll()
+  }
+
   setWhisperStatusCallback((status) => {
     const win = BrowserWindow.getAllWindows()[0]
     if (win) win.webContents.send('speech:status', status)
@@ -2398,8 +4319,15 @@ app.whenReady().then(async () => {
       }
     },
     () => {
-      ptyManager.killAll()
-      app.exit(0)
+      // Real quit path — the tray "Salir"/"Quit" item is one of exactly two ways this
+      // app actually exits (the other is updater:install above). Await the bounded
+      // (2s budget) memory push before killing PTYs / force-exiting, since nothing
+      // here is time-constrained the way the updater's quit path is.
+      void (async () => {
+        await finalizeMemoryBeforeQuit()
+        ptyManager.killAll()
+        app.exit(0)
+      })()
     },
     () => {
       if (updaterState === 'downloading') {
@@ -2449,6 +4377,18 @@ app.on('before-quit', () => {
     clearInterval(updaterInterval)
     updaterInterval = null
   }
+  if (ticketPollInterval) {
+    clearInterval(ticketPollInterval)
+    ticketPollInterval = null
+  }
+  if (automationsTickInterval) {
+    clearInterval(automationsTickInterval)
+    automationsTickInterval = null
+  }
+  if (graphTickInterval) {
+    clearInterval(graphTickInterval)
+    graphTickInterval = null
+  }
   // Tear down every long-lived resource on quit. Without these, dev-mode HMR
   // reloads (and any future "soft restart" path) would accumulate intervals,
   // file watchers, PTYs and detached child processes across reloads —
@@ -2473,6 +4413,12 @@ app.on('before-quit', () => {
   // alive (hidden to tray). PTY cleanup is handled by the tray "Quit" handler
   // (explicit killAll + app.exit) and the updater:install path (explicit killAll
   // before quitAndInstall). Those are the only real-quit paths.
+  //
+  // Nest Memory teardown is DELIBERATELY NOT here either, for the identical reason
+  // (docs/GUIA-TESTEO-BAUTISTA.md pitfall: "No hagas teardown en before-quit" — this
+  // handler fires on every Cmd+Q attempt even when win.on('close') cancels it right
+  // after). See finalizeMemoryBeforeQuit(), wired into the same two real-quit paths
+  // as ptyManager.killAll() below.
   setupRunner.removeAllListeners()
   spotlight.removeAllListeners()
   metricsCollector.dispose()

@@ -1,0 +1,250 @@
+diff --git a/electron/__tests__/pty-manager.test.ts b/electron/__tests__/pty-manager.test.ts
+index 6d84490..15600c4 100644
+--- a/electron/__tests__/pty-manager.test.ts
++++ b/electron/__tests__/pty-manager.test.ts
+@@ -161,4 +161,127 @@ describe('PtyManager — Nest Memory integration point (M11)', () => {
+     const result = await manager.create('pane-1', 'claude', join(dir, 'accounts', 'claude', 'Bautista'), dir)
+     expect(result.ok).toBe(true)
+   })
++
++  // ---- Bug 3.1 (MEMORY_INTEGRATIONS_CONTRACT §3) ----
++  // `cmd === 'claude'` was an exact comparison, but the graph orchestrator launches
++  // nodes via launchCommand(), which returns `claude --model <x>` whenever the node
++  // has a model assigned. That case silently missed the whole memory branch: no
++  // --settings flag, no hooks, no memory — and only for nodes WITH a model, so it
++  // failed intermittently.
++  it('provisions and injects the --settings flag when the claude command carries its own args', async () => {
++    const fake = fakePty()
++    spawnMock.mockReturnValue(fake)
++    const settingsPath = join(dir, '.nest', 'memory-settings.json')
++    const integration = memoryIntegration({ ensureClaudeProvisioned: vi.fn(() => ['--settings', settingsPath]) })
++    manager = new PtyManager(integration)
++
++    const accountDir = join(dir, 'accounts', 'claude', 'Bautista')
++    await manager.create('pane-1', 'claude --model claude-opus-5', accountDir, dir)
++    await vi.runAllTimersAsync()
++
++    expect(integration.ensureClaudeProvisioned).toHaveBeenCalledWith(accountDir)
++    const written = fake.write.mock.calls[0][0] as string
++    expect(written).toContain(`claude --settings "${settingsPath}"`)
++    // the caller's own args must survive — the old code rebuilt the command from
++    // scratch as `claude ${flags}` and would have dropped --model entirely
++    expect(written).toContain('--model claude-opus-5')
++  })
++
++  it('leaves a non-claude command untouched even though its first token differs', async () => {
++    const fake = fakePty()
++    spawnMock.mockReturnValue(fake)
++    const integration = memoryIntegration()
++    manager = new PtyManager(integration)
++
++    const accountDir = join(dir, 'accounts', 'codex', 'Bautista')
++    await manager.create('pane-1', 'codex --model gpt-5', accountDir, dir)
++    await vi.runAllTimersAsync()
++
++    expect(integration.ensureClaudeProvisioned).not.toHaveBeenCalled()
++    expect(fake.write.mock.calls[0][0]).toBe('codex --model gpt-5\r')
++  })
++
++  // ---- Bug 3.2 (MEMORY_INTEGRATIONS_CONTRACT §3) ----
++  // The whole memory block lived inside `if (accountDir && cmd)`. A headless graph
++  // node whose agent has no saved account gets accountDir '' from
++  // accountDirForAgent() and runs with the REAL HOME — so it fell out of memory
++  // entirely. Memory must not depend on the HOME redirection.
++  describe('headless pane with no account dir (real HOME)', () => {
++    const realHome = process.env.HOME
++    // ravenHome() reads RAVEN_HOME on every call, so pointing it at the tmp dir keeps
++    // the headless provisioning target out of the developer's real ~/.raven-nest.
++    const prevRavenHome = process.env.RAVEN_HOME
++
++    beforeEach(() => { process.env.RAVEN_HOME = dir })
++    afterEach(() => {
++      if (prevRavenHome === undefined) delete process.env.RAVEN_HOME
++      else process.env.RAVEN_HOME = prevRavenHome
++    })
++
++    it('still injects the NEST_MEMORY_* env', async () => {
++      const fake = fakePty()
++      spawnMock.mockReturnValue(fake)
++      const integration = memoryIntegration()
++      manager = new PtyManager(integration)
++
++      await manager.create('pane-1', 'claude --model claude-opus-5', '', dir)
++
++      const spawnEnv = spawnMock.mock.calls[0][2].env
++      expect(spawnEnv.NEST_MEMORY_SOCKET).toBe(integration.socketPath)
++      expect(spawnEnv.NEST_MEMORY_TOKEN).toBe('test-token-value')
++      expect(spawnEnv.NEST_MEMORY_ENABLED).toBe('1')
++      expect(spawnEnv.NEST_MEMORY_AI).toBe('claude')
++      expect(spawnEnv.NEST_MEMORY_ACCOUNT).toBe('claude:__headless__')
++    })
++
++    it('does not redirect HOME — the node keeps the real one for its credentials', async () => {
++      const fake = fakePty()
++      spawnMock.mockReturnValue(fake)
++      manager = new PtyManager(memoryIntegration())
++
++      await manager.create('pane-1', 'claude', '', dir)
++
++      expect(spawnMock.mock.calls[0][2].env.HOME).toBe(realHome)
++    })
++
++    it('provisions into a Nest-owned headless dir instead of the real home', async () => {
++      const fake = fakePty()
++      spawnMock.mockReturnValue(fake)
++      const integration = memoryIntegration()
++      manager = new PtyManager(integration)
++
++      await manager.create('pane-1', 'claude', '', dir)
++
++      const target = (integration.ensureClaudeProvisioned as ReturnType<typeof vi.fn>).mock.calls[0][0] as string
++      expect(target).toBe(join(dir, '.raven-nest', 'accounts', 'claude', '__headless__'))
++      expect(target.startsWith(realHome as string)).toBe(false)
++    })
++
++    it('passes --mcp-config too, because with a real HOME claude never reads the headless .claude.json', async () => {
++      const fake = fakePty()
++      spawnMock.mockReturnValue(fake)
++      const headlessDir = join(dir, '.raven-nest', 'accounts', 'claude', '__headless__')
++      const settingsPath = join(headlessDir, '.nest', 'memory-settings.json')
++      const integration = memoryIntegration({ ensureClaudeProvisioned: vi.fn(() => ['--settings', settingsPath]) })
++      manager = new PtyManager(integration)
++
++      await manager.create('pane-1', 'claude', '', dir)
++      await vi.runAllTimersAsync()
++
++      const written = fake.write.mock.calls[0][0] as string
++      expect(written).toContain(`--settings "${settingsPath}"`)
++      expect(written).toContain(`--mcp-config "${join(headlessDir, '.claude.json')}"`)
++    })
++
++    it('does not pass --mcp-config for a normal account pane, where HOME already points at it', async () => {
++      const fake = fakePty()
++      spawnMock.mockReturnValue(fake)
++      manager = new PtyManager(memoryIntegration())
++
++      await manager.create('pane-1', 'claude', join(dir, 'accounts', 'claude', 'Bautista'), dir)
++      await vi.runAllTimersAsync()
++
++      expect(fake.write.mock.calls[0][0]).not.toContain('--mcp-config')
++    })
++  })
+ })
+diff --git a/electron/pty-manager.ts b/electron/pty-manager.ts
+index 667629f..212e6bb 100644
+--- a/electron/pty-manager.ts
++++ b/electron/pty-manager.ts
+@@ -4,7 +4,7 @@ import { mkdirSync } from 'fs'
+ import * as fs from 'fs'
+ import * as pty from 'node-pty'
+ import { SHELL, SHELL_ARGS, isWin, isMac } from './platform'
+-import { userHome } from './raven-home'
++import { ravenHome, userHome } from './raven-home'
+ 
+ async function cwdReachable(p: string): Promise<boolean> {
+   try {
+@@ -75,6 +75,22 @@ export function parseAccountDir(accountDir: string): { aiType: string; accountNa
+   return { aiType: parts[idx + 1], accountName: parts[idx + 2] }
+ }
+ 
++/**
++ * Provisioning target for an AI pane that runs with the REAL home — a headless graph
++ * node whose agent has no saved account (main.ts's `accountDirForAgent` returns '' and
++ * PtyManager deliberately does NOT redirect HOME, so the CLI keeps its own credentials).
++ *
++ * MEMORY_INTEGRATIONS_CONTRACT §3.2: the memory block used to live inside
++ * `if (accountDir && cmd)`, so those nodes fell out of memory entirely. They need a
++ * place to hold the Nest-owned hooks/MCP files, and it must NOT be the user's real home
++ * — provisioning there would write `mcpServers.nest_memory` into the machine's global
++ * ~/.claude.json. This dir is inside Nest's own storage root, shaped like any account
++ * dir so `parseAccountDir` reads provenance out of it (`claude:__headless__`).
++ */
++export function headlessAccountDir(aiType: string): string {
++  return join(ravenHome(), '.raven-nest', 'accounts', aiType, '__headless__')
++}
++
+ export class PtyManager extends EventEmitter {
+   private ptys = new Map<string, pty.IPty>()
+   private buffers = new Map<string, string[]>()
+@@ -181,34 +197,56 @@ export class PtyManager extends EventEmitter {
+         }
+       }
+ 
+-      // Nest Memory: env injection at PtyManager.create() (§2.5) — the one place every
+-      // AI pane passes through, same reasoning as the HOME rewrite above. Only claude is
+-      // provisioned in Phase 1; env is still injected for every AI type so a future
+-      // Codex/Gemini adapter (Phase 2) needs no pty-manager change.
+-      if (this.memory) {
+-        const parsed = parseAccountDir(accountDir)
+-        if (parsed) {
+-          env.NEST_MEMORY_SOCKET = this.memory.socketPath
+-          env.NEST_MEMORY_TOKEN = this.memory.authToken
+-          env.NEST_MEMORY_ACCOUNT = `${parsed.aiType}:${parsed.accountName}`
+-          env.NEST_MEMORY_AI = parsed.aiType
+-          env.NEST_MEMORY_PANE = paneId
+-          env.NEST_MEMORY_ENABLED = this.memory.isEnabled() ? '1' : '0'
+-
+-          // §2.5 "the shared-config hazard": hooks load ONLY via the isolated
+-          // --settings file, never by writing accountDir/.claude/settings.json.
+-          // M11: ensureClaudeProvisioned (RE-)PROVISIONS the account, not just checks it.
+-          if (cmd === 'claude' && this.memory.isEnabled()) {
+-            const flagArgs = this.memory.ensureClaudeProvisioned(accountDir)
+-            if (flagArgs.length > 0) {
+-              const quoted = flagArgs.map((a) => (a.startsWith('-') ? a : quoteShellArg(a, isWin)))
+-              launchCmd = `claude ${quoted.join(' ')}`
+-            }
++    } else if (accountDir) {
++      mkdirSync(accountDir, { recursive: true })
++    }
++
++    // Nest Memory: env injection at PtyManager.create() (§2.5) — the one place every
++    // AI pane passes through, same reasoning as the HOME rewrite above. Only claude is
++    // provisioned in Phase 1; env is still injected for every AI type so a future
++    // Codex/Gemini adapter (Phase 2) needs no pty-manager change.
++    //
++    // §3.2 fix: this deliberately sits OUTSIDE the `accountDir` branch above. Memory is
++    // not a consequence of the HOME redirection — a headless graph node runs with the
++    // real HOME and an empty accountDir, and used to be skipped in silence.
++    if (cmd && this.memory) {
++      const bin = cmd.split(' ')[0]
++      // Only a plain binary name can name a headless dir; anything else (a path, a
++      // shell fragment) would let cmd steer where we write.
++      const memoryHome = accountDir || (/^[A-Za-z0-9_-]+$/.test(bin) ? headlessAccountDir(bin) : '')
++      const parsed = memoryHome ? parseAccountDir(memoryHome) : null
++      if (parsed) {
++        env.NEST_MEMORY_SOCKET = this.memory.socketPath
++        env.NEST_MEMORY_TOKEN = this.memory.authToken
++        env.NEST_MEMORY_ACCOUNT = `${parsed.aiType}:${parsed.accountName}`
++        env.NEST_MEMORY_AI = parsed.aiType
++        env.NEST_MEMORY_PANE = paneId
++        env.NEST_MEMORY_ENABLED = this.memory.isEnabled() ? '1' : '0'
++
++        // §2.5 "the shared-config hazard": hooks load ONLY via the isolated
++        // --settings file, never by writing accountDir/.claude/settings.json.
++        // M11: ensureClaudeProvisioned (RE-)PROVISIONS the account, not just checks it.
++        //
++        // §3.1 fix: match the BINARY, not the whole command. The graph orchestrator
++        // launches nodes with `claude --model <x>` (graph-tick.ts `launchCommand`), and
++        // the old `cmd === 'claude'` missed exactly those — a node with a model assigned
++        // started with no hooks and no memory, silently, while nodes without one worked.
++        if (bin === 'claude' && this.memory.isEnabled()) {
++          const flagArgs = this.memory.ensureClaudeProvisioned(memoryHome)
++          if (flagArgs.length > 0) {
++            const args = [...flagArgs]
++            // With the real HOME, claude reads ITS ~/.claude.json, never the headless
++            // one the provisioner just wrote — so the MCP server has to be named
++            // explicitly. Not needed for an account pane, where HOME is the account dir.
++            if (!accountDir) args.push('--mcp-config', join(memoryHome, '.claude.json'))
++            const quoted = args.map((a) => (a.startsWith('-') ? a : quoteShellArg(a, isWin)))
++            // Insert the flags after the binary instead of rebuilding the command, so
++            // the caller's own arguments (--model, --print, …) survive.
++            const rest = cmd.slice(bin.length).trimStart()
++            launchCmd = rest ? `${bin} ${quoted.join(' ')} ${rest}` : `${bin} ${quoted.join(' ')}`
+           }
+         }
+       }
+-    } else if (accountDir) {
+-      mkdirSync(accountDir, { recursive: true })
+     }
+ 
+     const spawnBin = shell?.bin ?? SHELL

@@ -1,6 +1,9 @@
 import { join } from 'path'
 import { mkdirSync, readdirSync, rmSync, existsSync, lstatSync, symlinkSync, linkSync, cpSync } from 'fs'
 import { ravenHome } from './raven-home'
+import { deprovisionClaudeAccount, type ProvisionerPaths } from './memory-provisioner'
+import { adapterForAiType } from './memory-cli-adapters'
+import { isWin } from './platform'
 
 const BASE_DIR = join(ravenHome(), '.raven-nest', 'accounts')
 
@@ -11,9 +14,17 @@ function assertSafe(aiType: string, name?: string): void {
   if (name === undefined) return
   // '' and '.' resolve to the aiType root itself: delete() with either would
   // rmSync EVERY account of that type. join() swallows empty segments, so the
-  // traversal checks below never see them.
+  // traversal checks below never see them. (PR #14, main)
+  //
+  // Quote characters are additionally rejected (minor, Nest Memory review round 1):
+  // an account name becomes part of `accountDir`, which the Nest Memory provisioner can
+  // pass through `--settings <accountDir>/.nest/memory-settings.json` on the literal
+  // shell command line PtyManager writes into the pane (see quoteShellArg there). This
+  // is defense in depth — quoteShellArg already escapes embedded quotes correctly — but
+  // an account name should never need one, so rejecting it here removes the class of
+  // input entirely rather than relying solely on correct escaping downstream.
   const trimmed = name.trim()
-  if (trimmed === '' || trimmed === '.' || name.includes('..') || name.includes('/') || name.includes('\\')) {
+  if (trimmed === '' || trimmed === '.' || name.includes('..') || name.includes('/') || name.includes('\\') || name.includes('"')) {
     throw new Error(`Invalid account name: ${name}`)
   }
 }
@@ -133,6 +144,35 @@ export function detachClaudeConfig(accountDir: string): void {
 }
 
 export class AccountStore {
+  // Nest Memory (§2.5). Optional and injected — AccountStore has no other Electron
+  // dependency today, and existing callers/tests construct it with `new AccountStore()`.
+  // When unset, save()/migrateClaudeAccounts() simply skip provisioning (memory
+  // disconnected / not yet configured).
+  private memory?: { paths: ProvisionerPaths; isEnabled: () => boolean }
+
+  configureMemory(memory: { paths: ProvisionerPaths; isEnabled: () => boolean }): void {
+    this.memory = memory
+  }
+
+  private provisionMemoryIfEnabled(aiType: string, dir: string): void {
+    if (!this.memory || !this.memory.isEnabled()) return
+    const adapter = adapterForAiType(aiType)
+    if (!adapter) return
+    try {
+      adapter.provision(dir, this.memory.paths, isWin)
+    } catch (err) {
+      console.warn('[account-store] memory provisioning failed', { dir, error: err instanceof Error ? err.message : String(err) })
+    }
+  }
+
+  /** Removes Nest Memory provisioning from a Claude account without deleting the account itself. */
+  disconnectMemoryFromAllClaudeAccounts(): void {
+    for (const name of this.list('claude')) {
+      try { deprovisionClaudeAccount(this.getDir('claude', name)) }
+      catch (err) { console.warn('[account-store] memory deprovisioning failed', { name, error: err instanceof Error ? err.message : String(err) }) }
+    }
+  }
+
   list(aiType: string): string[] {
     assertSafe(aiType)
     const dir = join(BASE_DIR, aiType)
@@ -158,6 +198,7 @@ export class AccountStore {
         console.warn('[account-store] save: some claude config items did not link', { aiType, name, failed })
       }
     }
+    this.provisionMemoryIfEnabled(aiType, dir)
     return dir
   }
 
@@ -175,12 +216,14 @@ export class AccountStore {
   /** Run on app startup: ensure all existing Claude accounts have the shared config linked. */
   migrateClaudeAccounts(): void {
     for (const name of this.list('claude')) {
-      const { failed } = setupClaudeConfig(this.getDir('claude', name))
+      const dir = this.getDir('claude', name)
+      const { failed } = setupClaudeConfig(dir)
       if (failed.length > 0) {
         // Best-effort at startup — just log. The user already has a working
         // account dir; the missing shared items will retry next launch.
         console.warn('[account-store] migrate: some claude config items did not link', { name, failed })
       }
+      this.provisionMemoryIfEnabled('claude', dir)
     }
   }
 }

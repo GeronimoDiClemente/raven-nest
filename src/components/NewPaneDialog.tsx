@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { AIType, AI_CONFIG, COLOR_PALETTE, CustomCLI, ShellInfo , PICKER_AI_TYPES } from '../types'
 import { safeWriteText } from '../lib/clipboard'
 import { bridge } from '../lib/bridge'
+import { appendModelFlag } from '../lib/launch-cmd'
 import { AI_LOGOS } from './AILogos'
 import ConfirmDialog from './ConfirmDialog'
 
@@ -39,8 +40,20 @@ interface Props {
     shellId?: string
   ) => void
   onCancel: () => void
-  allowedAIs?: string[]
-  onUpgrade?: () => void
+  /** Board "Run with worker": zero-click launch on this agent with `presetModel`.
+   *  Resolved once on mount — if the CLI is found and there's exactly one saved
+   *  account (or the agent needs no account at all), it launches immediately
+   *  with no dialog shown. Falls back to the normal account-step UI only when
+   *  it's genuinely ambiguous (0 or >1 saved accounts) or impossible (CLI
+   *  missing). Initial values only — the manual (no-preset) flow is untouched. */
+  presetAgent?: AIType
+  presetModel?: string
+  /** Worker-step-configured account (see worker-spec-store.ts's WorkerStep.account).
+   *  When it names an account that still exists in the saved list, the resolve
+   *  effect launches with it directly and skips the manual account picker even
+   *  when there are 0/>1 saved accounts. A stale/missing value (account deleted
+   *  since the worker was configured) is ignored and the existing rules apply. */
+  presetAccount?: string
 }
 
 type Step = 'select-ai' | 'select-account' | 'add-custom' | 'select-shell'
@@ -73,13 +86,21 @@ const SHELL_COLORS: Record<string, string> = {
 
 const CUSTOM_COLORS = ['#E07B54', '#4F9EFF', '#22C55E', '#A78BFA', '#F59E0B', '#EC4899', '#14B8A6', '#60A5FA', '#888888']
 
-export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgrade }: Props) {
+export default function NewPaneDialog({ onConfirm, onCancel, presetAgent, presetModel, presetAccount }: Props) {
+  const presetCfg = presetAgent ? AI_CONFIG[presetAgent] : null
+  // While a preset resolves (see the mount effect below), render a minimal
+  // placeholder instead of any step UI — no flash of an account form the user
+  // never needs to touch. `step`/`selectedAI` still seed the manual-flow-shaped
+  // fallback (select-account) the resolve effect uses when it can't launch blind.
+  const [autoResolving, setAutoResolving] = useState<boolean>(!!presetAgent)
+  const autoLaunchedRef = useRef(false)
   const [step, setStep] = useState<Step>('select-ai')
-  const [selectedAI, setSelectedAI] = useState<AIType | null>(null)
+  const [selectedAI, setSelectedAI] = useState<AIType | null>(presetAgent ?? null)
+  const [model, setModel] = useState<string>(presetModel ?? '') // '' = agent default; reset on agent change
   const [accounts, setAccounts] = useState<string[]>([])
   const [newAccountName, setNewAccountName] = useState('')
   const [creatingNew, setCreatingNew] = useState(false)
-  const [borderColor, setBorderColor] = useState(COLOR_PALETTE[0])
+  const [borderColor, setBorderColor] = useState(presetCfg ? presetCfg.color : COLOR_PALETTE[0])
   const [customCLIs, setCustomCLIs] = useState<CustomCLI[]>([])
   const [customCmd, setCustomCmd] = useState('')
   const [customLabel, setCustomLabel] = useState('')
@@ -123,6 +144,75 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
     bridge.customCLIs.list().then(setCustomCLIs)
   }, [])
 
+  // Preset agent: resolve automatically so a worker launches with zero clicks —
+  // no account picking, no Enter. Launches immediately when it's unambiguous
+  // (noAccount agent with its CLI present; account agent with exactly one saved
+  // account and its CLI present). Otherwise falls back to the normal
+  // select-account UI — same shape `selectAI` produces for a manual pick — so
+  // the user finishes by hand rather than auto-launching into a broken state.
+  // Mount-only — preset is an initial value, not a live prop. `autoLaunchedRef`
+  // guards against a double-launch if this ever re-runs (e.g. dev StrictMode).
+  useEffect(() => {
+    if (!presetAgent) return
+    const cfg = AI_CONFIG[presetAgent]
+    let cancelled = false
+    ;(async () => {
+      try {
+        if (cfg.noAccount) {
+          const found = cfg.cmd ? (await bridge.cli.check(cfg.cmd)).found : true
+          if (cancelled || autoLaunchedRef.current) return
+          if (found) {
+            autoLaunchedRef.current = true
+            onConfirm(presetAgent, 'default', '', cfg.color, appendModelFlag(cfg.cmd, cfg.modelFlag, presetModel ?? ''))
+            return
+          }
+          // CLI missing: same install-banner UI a manual noAccount pick shows
+          // (see selectAI below) — can't launch blind without the CLI.
+          setCliFound(false)
+          setStep('select-account')
+          setAutoResolving(false)
+          return
+        }
+
+        const existing = await bridge.accounts.list(presetAgent)
+        if (cancelled || autoLaunchedRef.current) return
+        setAccounts(existing)
+
+        // A worker-configured account that's still valid bypasses the "exactly
+        // one saved account" requirement entirely — it's an explicit choice,
+        // not a guess, so it wins even with 0 (unless the account itself has
+        // since been deleted — in that case it wouldn't be in `existing`) or
+        // >1 saved accounts. A missing/stale presetAccount falls back to the
+        // original "auto-launch only when unambiguous" rule.
+        const chosenAccount = presetAccount && existing.includes(presetAccount)
+          ? presetAccount
+          : existing.length === 1 ? existing[0] : null
+
+        if (chosenAccount) {
+          const { found } = await bridge.cli.check(cfg.cmd)
+          if (cancelled || autoLaunchedRef.current) return
+          if (found) {
+            const dir = await bridge.accounts.getDir(presetAgent, chosenAccount)
+            if (cancelled || autoLaunchedRef.current) return
+            autoLaunchedRef.current = true
+            onConfirm(presetAgent, chosenAccount, dir, cfg.color, appendModelFlag(cfg.cmd, cfg.modelFlag, presetModel ?? ''))
+            return
+          }
+          setCliFound(false)
+        }
+
+        // 0 accounts (login needed), >1 with no valid stored pick (ambiguous),
+        // or CLI missing → the user finishes manually on the account step,
+        // accounts already loaded above.
+        setStep('select-account')
+        setAutoResolving(false)
+      } catch {
+        if (!cancelled) setAutoResolving(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     if (step !== 'select-account' || !selectedAI) return
     const cmd = AI_CONFIG[selectedAI].cmd
@@ -142,6 +232,7 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
   async function selectAI(aiType: AIType) {
     const cfg = AI_CONFIG[aiType]
     setSelectedAI(aiType)
+    setModel('') // switching agents: don't let a leftover model pick leak into the new one
     setBorderColor(cfg.color)
     // Windows shell submenu: clicking "Terminal" on Windows with detected shells
     // opens a sub-step to pick which shell, instead of cluttering the main grid.
@@ -159,7 +250,10 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
           return
         }
       }
-      onConfirm(aiType, 'default', '', cfg.color, cfg.cmd)
+      // This launch happens for a just-selected agent, before any model dropdown for it
+      // could have rendered — pass '' explicitly rather than the `model` state var, which
+      // (inside this same closure) would still hold the PREVIOUS agent's stale value.
+      onConfirm(aiType, 'default', '', cfg.color, appendModelFlag(cfg.cmd, cfg.modelFlag, ''))
       return
     }
     const existing = await bridge.accounts.list(aiType)
@@ -174,7 +268,8 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
   async function selectAccount(name: string) {
     if (!selectedAI) return
     const dir = await bridge.accounts.getDir(selectedAI, name)
-    onConfirm(selectedAI, name, dir, borderColor, AI_CONFIG[selectedAI].cmd)
+    const cfg = AI_CONFIG[selectedAI]
+    onConfirm(selectedAI, name, dir, borderColor, appendModelFlag(cfg.cmd, cfg.modelFlag, model))
   }
 
   async function installCli() {
@@ -202,7 +297,7 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
       if (installAbortRef.current) return
       const cfg = AI_CONFIG[ai]
       if (cfg.noAccount) {
-        onConfirm(ai, 'default', '', cfg.color, cfg.cmd)
+        onConfirm(ai, 'default', '', cfg.color, appendModelFlag(cfg.cmd, cfg.modelFlag, model))
       } else {
         setCliFound(true)
         setInstallState('idle')
@@ -214,7 +309,8 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
     if (!selectedAI || !newAccountName.trim()) return
     setCreatingNew(true)
     const dir = await bridge.accounts.save(selectedAI, newAccountName.trim())
-    onConfirm(selectedAI, newAccountName.trim(), dir, borderColor, AI_CONFIG[selectedAI].cmd)
+    const cfg = AI_CONFIG[selectedAI]
+    onConfirm(selectedAI, newAccountName.trim(), dir, borderColor, appendModelFlag(cfg.cmd, cfg.modelFlag, model))
   }
 
   async function saveCustomCLI() {
@@ -236,6 +332,24 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
     e.stopPropagation()
     const cli = customCLIs.find(c => c.id === id)
     setConfirmDelete({ type: 'cli', id, label: cli?.label ?? id, e })
+  }
+
+  if (autoResolving) {
+    // Preset resolve is in flight (see the mount effect above): no account
+    // form, no agent grid — just a brief "Opening…" beat. onCancel (overlay
+    // click / Escape) still works while this is up.
+    return (
+      <div className="dialog-overlay" onClick={onCancel}>
+        <div className="dialog" onClick={(e) => e.stopPropagation()}>
+          <div className="npd-resolving">
+            <span className="npd-resolving-spinner" style={presetCfg ? { borderTopColor: presetCfg.color } : undefined} />
+            <span>
+              Opening{presetCfg ? <> <span style={{ color: presetCfg.color }}>{presetCfg.label}</span></> : null}…
+            </span>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   if (step === 'add-custom') {
@@ -309,23 +423,20 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
               {PICKER_AI_TYPES.map((aiType) => {
                 const cfg = AI_CONFIG[aiType]
                 const Logo = AI_LOGOS[aiType]
-                const locked = allowedAIs && !allowedAIs.includes(aiType)
                 return (
                   <button
                     key={aiType}
-                    className={`ai-card${locked ? ' locked' : ''}`}
+                    className="ai-card"
                     style={{ '--ai-color': cfg.color, '--ai-bg': cfg.bg } as React.CSSProperties}
-                    onClick={() => locked ? onUpgrade?.() : selectAI(aiType)}
-                    title={locked ? 'Requires Pro plan' : undefined}
+                    onClick={() => selectAI(aiType)}
                   >
                     <div className="ai-card-logo">
                       {Logo
-                        ? <Logo size={36} color={locked ? '#555' : cfg.color} />
-                        : <TerminalIcon size={36} color={locked ? '#555' : cfg.color} />
+                        ? <Logo size={36} color={cfg.color} />
+                        : <TerminalIcon size={36} color={cfg.color} />
                       }
                     </div>
                     <span className="ai-card-label">{cfg.label}</span>
-                    {locked && <span className="ai-card-lock">Pro</span>}
                   </button>
                 )
               })}
@@ -402,6 +513,23 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
               <span style={{ color: AI_CONFIG[selectedAI!].color }}>{AI_CONFIG[selectedAI!].label}</span>
               {' '}Account
             </h2>
+
+            {AI_CONFIG[selectedAI!]?.models?.length ? (
+              <div className="npd-model-row">
+                <p className="account-list-label">Model</p>
+                <select
+                  aria-label="Model"
+                  value={model}
+                  onChange={(e) => setModel(e.target.value)}
+                  className="npd-model-select"
+                >
+                  <option value="">Default model</option>
+                  {AI_CONFIG[selectedAI!]!.models!.map((m) => (
+                    <option key={m} value={m}>{m}</option>
+                  ))}
+                </select>
+              </div>
+            ) : null}
 
             {/* CLI detection banner */}
             {/* Cursor solo se instala bajando y ejecutando un script. Ese patron
@@ -563,7 +691,10 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
               <button
                 className="btn-primary"
                 style={{ width: '100%', marginBottom: 8 }}
-                onClick={() => onConfirm(selectedAI!, 'default', '', AI_CONFIG[selectedAI!].color, AI_CONFIG[selectedAI!].cmd)}
+                onClick={() => {
+                  const cfg = AI_CONFIG[selectedAI!]
+                  onConfirm(selectedAI!, 'default', '', cfg.color, appendModelFlag(cfg.cmd, cfg.modelFlag, model))
+                }}
               >
                 Open anyway
               </button>

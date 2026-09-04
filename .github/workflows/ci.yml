@@ -15,7 +15,15 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
-      - run: npx tsc --noEmit
+      # The root tsconfig.json is solution-style (`files: []` + `references`),
+      # so `tsc --noEmit` there type-checks nothing and always exits 0. The
+      # two referenced projects are the real checks — run both explicitly
+      # (--composite false + --noEmit so this stays a pure check: composite
+      # projects normally require emitted .tsbuildinfo, which we don't want
+      # from a CI type-check step, and would also emit .js/.d.ts next to
+      # sources under `-b`).
+      - run: npx tsc -p tsconfig.node.json --noEmit --composite false
+      - run: npx tsc -p tsconfig.web.json --noEmit --composite false
 
   test:
     runs-on: ubuntu-latest
@@ -28,7 +36,13 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # 22, not 20, ONLY on this job: `npm test` runs `native:node`, which needs a
+          # better-sqlite3 binary for the Node ABI. better-sqlite3@12.11.1 publishes no
+          # prebuild for ABI 115 (Node 20) — that asset 404s, while 127/137/141 exist — so
+          # on 20 `prebuild-install` always failed and every single CI run fell through to
+          # compiling from source. Node 22 is ABI 127, which has a published prebuild, so
+          # the download succeeds and CI stops compiling native code entirely.
+          node-version: 22
           cache: npm
       - run: npm ci
       - run: npm test
