@@ -1147,3 +1147,140 @@ describe('MemoryStore — latestByType (Task 4, reconstruir el handoff en otra m
     expect(store.latestByType('proj-a', 'handoff')).toBeNull()
   })
 })
+
+// Team Memory Layer 1, Parte 6 (lado cliente): promoteToTeam() es la unica forma de que una
+// fila salga de scope 'personal'/'project'. Sin cola de aprobacion (decision ya tomada), pero
+// deja registro en promotion_queue con status 'approved'.
+describe('MemoryStore — promoteToTeam (Team Memory Layer 1, Parte 6)', () => {
+  let dir: string
+  let store: MemoryStore
+
+  function promotionQueueRow(syncId: string): { sync_id: string; to_scope: string; reason: string | null; status: string } | undefined {
+    return (store as unknown as { db: { prepare(sql: string): { get(...args: unknown[]): unknown } } }).db
+      .prepare('SELECT sync_id, to_scope, reason, status FROM promotion_queue WHERE sync_id = ?')
+      .get(syncId) as { sync_id: string; to_scope: string; reason: string | null; status: string } | undefined
+  }
+
+  beforeEach(() => {
+    dir = makeTmpDir('raven-memory-promote-')
+    store = new MemoryStore(join(dir, 'memory.db'))
+    store.ensureProject({ projectKey: 'proj-a', displayName: 'Proyecto A' })
+  })
+
+  afterEach(() => {
+    store.close()
+    cleanupTmp(dir)
+  })
+
+  it('caso feliz: cambia el scope a team y crea la fila de promotion_queue con status approved', () => {
+    const saved = store.save({
+      projectKey: 'proj-a',
+      scope: 'personal',
+      type: 'decision',
+      title: 'Decision a compartir',
+      content: 'Contenido con largo suficiente para no ser descartado.',
+      source: 'mcp',
+    })
+
+    const result = store.promoteToTeam(saved.syncId, 'lo necesita todo el equipo')
+
+    expect(result.promoted).toBe(true)
+    expect(store.get(saved.syncId)?.scope).toBe('team')
+
+    const queueRow = promotionQueueRow(saved.syncId)
+    expect(queueRow).toMatchObject({
+      sync_id: saved.syncId,
+      to_scope: 'team',
+      reason: 'lo necesita todo el equipo',
+      status: 'approved',
+    })
+  })
+
+  it('deja una mutacion op:promote en el mutation_log', () => {
+    const saved = store.save({
+      projectKey: 'proj-a',
+      type: 'decision',
+      title: 'Decision a compartir',
+      content: 'Contenido con largo suficiente para no ser descartado.',
+      source: 'mcp',
+    })
+
+    store.promoteToTeam(saved.syncId)
+
+    const promoteMutations = store.pendingMutations().filter((m) => m.op === 'promote')
+    expect(promoteMutations).toHaveLength(1)
+    expect(JSON.parse(promoteMutations[0].payload).scope).toBe('team')
+  })
+
+  it('no-op sobre un syncId inexistente, sin tirar', () => {
+    const result = store.promoteToTeam('obs-no-existe')
+
+    expect(result).toEqual({ promoted: false })
+    expect(promotionQueueRow('obs-no-existe')).toBeUndefined()
+  })
+
+  it('no-op sobre una observacion borrada (deleted)', () => {
+    const saved = store.save({
+      projectKey: 'proj-a',
+      type: 'decision',
+      title: 'A borrar',
+      content: 'Contenido con largo suficiente para no ser descartado.',
+      source: 'mcp',
+    })
+    store.deleteObservation(saved.syncId)
+
+    const result = store.promoteToTeam(saved.syncId)
+
+    expect(result).toEqual({ promoted: false })
+    expect(promotionQueueRow(saved.syncId)).toBeUndefined()
+  })
+
+  it('no-op sobre una observacion superseded (perdio una colision de topic)', () => {
+    store.save({
+      projectKey: 'proj-a',
+      scope: 'personal',
+      type: 'decision',
+      topicKey: 'deploy-target',
+      title: 'local, va a perder',
+      content: 'contenido local',
+      source: 'mcp',
+    })
+    const local = store.context('proj-a', 10)[0]
+    store.applyIncomingObservation({
+      syncId: 'obs_remota',
+      projectKey: 'proj-a',
+      scope: 'personal',
+      topicKey: 'deploy-target',
+      type: 'decision',
+      title: 'remota, gana',
+      content: 'contenido remoto',
+      updatedAt: Date.now() + 60_000,
+      lamport: 99,
+      deleted: false,
+      supersedeLocal: local.syncId,
+    })
+    expect(store.get(local.syncId)?.superseded_by).toBe('obs_remota')
+
+    const result = store.promoteToTeam(local.syncId)
+
+    expect(result).toEqual({ promoted: false })
+    expect(promotionQueueRow(local.syncId)).toBeUndefined()
+  })
+
+  it('es idempotente: promover la misma fila dos veces no revienta la PK de promotion_queue', () => {
+    const saved = store.save({
+      projectKey: 'proj-a',
+      type: 'decision',
+      title: 'Decision a compartir',
+      content: 'Contenido con largo suficiente para no ser descartado.',
+      source: 'mcp',
+    })
+
+    store.promoteToTeam(saved.syncId, 'primer motivo')
+    const result = store.promoteToTeam(saved.syncId, 'motivo actualizado')
+
+    expect(result.promoted).toBe(true)
+    expect(store.get(saved.syncId)?.scope).toBe('team')
+    expect(promotionQueueRow(saved.syncId)?.reason).toBe('motivo actualizado')
+  })
+})

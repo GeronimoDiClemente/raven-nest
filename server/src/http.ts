@@ -7,6 +7,7 @@ import { handleStatus } from './status'
 import { handleDeleteData } from './delete-data'
 import { createRateLimiter } from './rate-limit'
 import { registerDevice, revokeDevices, verifySupabaseJwt } from './devices'
+import { handleShareProject } from './share'
 
 const MAX_BATCH = 500
 const MAX_BODY_BYTES = 20 * 1024 * 1024
@@ -138,8 +139,12 @@ async function handleRequest(pool: Pool, req: IncomingMessage, res: ServerRespon
   // 404 there breaks the right to delete SILENTLY (the client only reads `res.ok`).
   const isDelete =
     path === '/v1/sync/delete-data' || path === '/functions/v1/memory-sync/delete-cloud-data'
+  // Team Memory Layer 1, Parte 3: la única vía por la que `projects.team_id` se escribe.
+  const isShare = path === '/v1/projects/share'
 
-  if (!isPush && !isPull && !isStatus && !isDelete) return send(res, 404, { error: 'not_found' })
+  if (!isPush && !isPull && !isStatus && !isDelete && !isShare) {
+    return send(res, 404, { error: 'not_found' })
+  }
 
   try {
     const auth = await authenticate(pool, req.headers.authorization)
@@ -160,6 +165,12 @@ async function handleRequest(pool: Pool, req: IncomingMessage, res: ServerRespon
     // Takes no input — everything it deletes is scoped by the authenticated identity — so
     // the body is deliberately not read. The client posts `{}`.
     if (isDelete) return send(res, 200, await handleDeleteData(pool, auth))
+    if (isShare) {
+      const body = (await readBody(req)) as Record<string, unknown>
+      const result = await handleShareProject(pool, auth, body as never)
+      if (!result.ok) return send(res, result.status, { error: result.error })
+      return send(res, 200, { ok: true })
+    }
 
     const body = (await readBody(req)) as Record<string, unknown>
     if (isPush) {
@@ -213,7 +224,10 @@ async function handleRegisterDevice(pool: Pool, req: IncomingMessage, res: Serve
     const name = typeof body.name === 'string' && body.name.trim() !== '' ? body.name.trim().slice(0, 120) : 'Nest'
     const platform = typeof body.platform === 'string' ? body.platform.slice(0, 120) : null
 
-    const result = await registerDevice(pool, identity, { name, platform })
+    // El JWT crudo viaja también acá — no sólo la identidad ya decodificada — porque
+    // `registerDevice` lo necesita para autenticar la sincronización de `team_memberships`
+    // contra Supabase REST con la MISMA credencial (Team Memory Layer 1, Parte 2).
+    const result = await registerDevice(pool, identity, { name, platform }, jwt)
     if (!result.ok) return send(res, result.status, { error: result.error })
 
     // `token` viaja una sola vez y no se puede volver a pedir: el servicio guarda el hash.

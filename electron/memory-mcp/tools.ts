@@ -1,6 +1,9 @@
-// Phase 1 MCP tool manifest — memory_save / memory_search / memory_context only, per
-// docs/nest-memory-architecture.md §9 Phase 1 scope. memory_update, memory_get and
-// memory_suggest_promotion are designed in §2.1 but land in a later phase.
+// Phase 1 MCP tool manifest — memory_save / memory_search / memory_context, per
+// docs/nest-memory-architecture.md §9 Phase 1 scope. memory_update and memory_get are
+// designed in §2.1 but land in a later phase. memory_promote is Team Memory Layer 1
+// (Parte 7 del plan, lado cliente): promueve una memoria ya guardada a scope 'team' — sin
+// cola de aprobacion (decision ya tomada), pero SOLO a pedido explicito del usuario, nunca
+// por iniciativa propia del modelo (ver su description abajo).
 //
 // Tool descriptions are the prompt — see §2.1. They are copied close to verbatim from
 // the design doc; do not "clean them up" without re-reading why they're phrased this way.
@@ -80,6 +83,24 @@ export const TOOL_MANIFEST = [
       properties: {
         limit: { type: 'number' },
       },
+    },
+  },
+  {
+    name: 'memory_promote',
+    description:
+      "Share a saved memory with the whole team, so every teammate connected to this project " +
+      "sees it too. CALL THIS ONLY when the user explicitly asks to share/promote a memory " +
+      "with the team, or says something is 'team-wide', 'for everyone', 'todo el equipo' — " +
+      "never on your own initiative, and never speculatively. Requires the sync_id returned " +
+      "by a prior memory_save call for the memory being promoted. Promotion is immediate, not " +
+      "queued for approval — confirm with the user what is being shared before calling this.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        sync_id: { type: 'string', description: 'The syncId returned by memory_save for the memory to promote.' },
+        reason: { type: 'string', description: 'Optional short note on why this is being shared with the team.' },
+      },
+      required: ['sync_id'],
     },
   },
 ] as const

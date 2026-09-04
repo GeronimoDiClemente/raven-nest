@@ -85,6 +85,11 @@ contextBridge.exposeInMainWorld('memory', {
   disconnect: (opts?: { deleteCloud?: boolean }) => ipcRenderer.invoke('memory:disconnect', opts),
   status: () => ipcRenderer.invoke('memory:status'),
   hubStats: () => ipcRenderer.invoke('memory:hub-stats'),
+  // Team Memory Layer 1, Parte 8 — comparte un proyecto LOCAL con un equipo, vía
+  // POST /v1/projects/share (server/src/share.ts). Sin UI todavía; se prueba desde devtools
+  // o un test.
+  shareProjectWithTeam: (projectKey: string, teamId: string) =>
+    ipcRenderer.invoke('memory:shareProjectWithTeam', projectKey, teamId),
   onStatus: (cb: (status: 'idle' | 'syncing' | 'paused' | 'error' | 'plan_required') => void) => {
     ipcRenderer.removeAllListeners('memory:status')
     ipcRenderer.on('memory:status', (_event, status) => cb(status))

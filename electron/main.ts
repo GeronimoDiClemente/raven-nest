@@ -3009,6 +3009,47 @@ ipcMain.handle('memory:ensureDeviceId', () => {
   return deviceId
 })
 
+// Team Memory Layer 1, Parte 8 (smoke/memory-bridge): la única acción de este paso que pega
+// contra el endpoint nuevo del server, POST /v1/projects/share (server/src/share.ts) — la
+// ÚNICA forma de que `projects.team_id` quede seteado. Mismo patrón de auth que el resto de
+// las llamadas al servicio de sync desde acá (memory:disconnect's revoke, memory-daemon.ts's
+// push/pull/status): el device token (`nmk_`) ya guardado en credential.bin
+// (loadMemoryToken()), NUNCA el JWT de Supabase — ese solo vive en el renderer y se usa una
+// vez, para registerDevice. Mismo timeout explícito que memory:registerDevice: un servicio
+// colgado no puede dejar este IPC esperando para siempre.
+//
+// Sin UI todavía (fuera de alcance de este paso, según el plan) — alcanza con que el IPC
+// funcione y esté tipado; se prueba desde devtools con window.memory.shareProjectWithTeam(...)
+// o desde un test.
+ipcMain.handle('memory:shareProjectWithTeam', async (_event, projectKey: string, teamId: string) => {
+  const url = getMemorySyncBaseUrl()
+  const token = loadMemoryToken()
+  if (!url || !token) return { ok: false, error: 'Not connected to Nest Memory' }
+  if (typeof projectKey !== 'string' || !projectKey.trim()) return { ok: false, error: 'Missing project_key' }
+  if (typeof teamId !== 'string' || !teamId.trim()) return { ok: false, error: 'Missing team_id' }
+
+  const abort = new AbortController()
+  const timer = setTimeout(() => abort.abort(), 15_000)
+  try {
+    const res = await fetch(`${url.replace(/\/+$/, '')}/v1/projects/share`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ project_key: projectKey, team_id: teamId }),
+      signal: abort.signal,
+    })
+    const body = await res.json().catch(() => null) as { error?: string } | null
+    if (!res.ok) return { ok: false, error: body?.error ?? `HTTP ${res.status}` }
+    return { ok: true }
+  } catch (err) {
+    const message = (err as Error)?.name === 'AbortError'
+      ? 'The sync service did not answer in time'
+      : (err instanceof Error ? err.message : String(err))
+    return { ok: false, error: message }
+  } finally {
+    clearTimeout(timer)
+  }
+})
+
 ipcMain.handle('clipboard:writeImage', (_event, filePath: string): { ok: boolean; error?: string } => {
   try {
     const img = nativeImage.createFromPath(filePath)

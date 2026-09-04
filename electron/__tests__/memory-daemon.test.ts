@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { join } from 'path'
 import { MemoryDaemon, Backoff, mapRawPulledRow } from '../memory-daemon'
-import type { MemoryStore, MutationLogRow } from '../memory-store'
+import { MemoryStore, type MutationLogRow } from '../memory-store'
+import { makeTmpDir, cleanupTmp } from './setup'
 
 const PENDING_MUTATION_A: MutationLogRow[] = [
   { seq: 1, sync_id: 'a', op: 'upsert', payload: JSON.stringify({ sync_id: 'a', project_key: 'proj-1' }), created_at: 1, pushed_at: null, last_error: null, blocked_reason: null },
@@ -1363,6 +1365,22 @@ describe('mapRawPulledRow (C1 — realistic to_jsonb(o) shaped payload)', () => 
     expect(mapped.projectSeq).toBe(42)
   })
 
+  // Task 9 (smoke/memory-bridge), Parte B: `authorUserId` was declared on `PulledRow` and
+  // threaded all the way through `applyPulledRow`/`applyIncomingObservation`, but nothing
+  // in this mapper ever READ it off the raw payload — every pulled row silently landed
+  // with `author_user_id = null` locally, regardless of who actually authored it. See the
+  // fix's own comment on the `authorUserId:` line in memory-daemon.ts for why `author_id`
+  // (not `author_user_id`) is the wire field name.
+  it('maps author_id to authorUserId (Task 9 fix — this was silently dropped before)', () => {
+    const mapped = mapRawPulledRow({ ...realisticRawRow, author_id: '33333333-3333-3333-3333-333333333333' })
+    expect(mapped.authorUserId).toBe('33333333-3333-3333-3333-333333333333')
+  })
+
+  it('authorUserId is undefined when the raw row carries no author_id (e.g. an older service)', () => {
+    const mapped = mapRawPulledRow(realisticRawRow)
+    expect(mapped.authorUserId).toBeUndefined()
+  })
+
   it('parses the timestamptz ISO string into a ms-epoch number, not NaN or the raw string', () => {
     const mapped = mapRawPulledRow(realisticRawRow)
     expect(typeof mapped.updatedAt).toBe('number')
@@ -1549,6 +1567,154 @@ describe('applyPulledRow — topic collision where the incoming row wins (C2)', 
     expect(applyIncomingObservation).toHaveBeenCalledWith(
       expect.objectContaining({ syncId: 'obs_tombstone', deleted: true, supersedeLocal: null, supersededBy: null })
     )
+  })
+})
+
+// Task 9 (smoke/memory-bridge), Parte B — EL CHEQUEO CRÍTICO de este paso: la fila que
+// applyPulledRow() aplica puede tener un author_user_id DISTINTO del dueño de la cuenta de
+// esta máquina (llegada por pull de un proyecto scope='team' compartido). Usa un
+// MemoryStore REAL (no el fakeStore mockeado del resto de este archivo): los tres
+// invariantes a confirmar (buscable, no cuenta como pendingMutation propia, no cuenta como
+// "sin dueño") viven en consultas SQL reales de memory-store.ts, no en algo que un mock de
+// applyIncomingObservation pueda demostrar por sí solo.
+describe('MemoryDaemon — applyPulledRow con autor ajeno (Task 9, EL CHEQUEO CRÍTICO)', () => {
+  let dir: string
+  let store: MemoryStore
+  let daemon: MemoryDaemon
+
+  beforeEach(() => {
+    dir = makeTmpDir('raven-memory-daemon-foreign-author-')
+    store = new MemoryStore(join(dir, 'memory.db'))
+    // La cuenta de Nest de ESTA máquina — la que `pendingMutations()`/`pendingMutationCount()`
+    // usan como filtro (memory-store.ts's `author_user_id IS this.currentUserId`).
+    store.setCurrentUser('user-A')
+    daemon = new MemoryDaemon(baseDaemonDeps(store))
+  })
+
+  afterEach(() => {
+    store.close()
+    cleanupTmp(dir)
+  })
+
+  it('se aplica, queda buscable, y no se cuenta ni como mutación propia pendiente ni como fila sin dueño', () => {
+    // Simula exactamente lo que un pull team-scoped trae: una fila de un COMPAÑERO de
+    // equipo ('user-B'), no de la cuenta local ('user-A').
+    daemon.applyPulledRow({
+      syncId: 'obs-team-1',
+      updatedAt: Date.now(),
+      lamport: 1,
+      deleted: false,
+      topicKey: null,
+      scope: 'team',
+      projectKey: 'proj-shared',
+      supersededBy: null,
+      title: 'Decision del equipo',
+      content: 'Usamos Postgres, no Mongo.',
+      type: 'decision',
+      authorUserId: 'user-B',
+      authorDisplay: 'Bautista',
+    })
+
+    // (a) queda en observations y es buscable via search()/context().
+    expect(store.search('proj-shared', 'Postgres').map((r) => r.syncId)).toContain('obs-team-1')
+    expect(store.context('proj-shared').map((r) => r.syncId)).toContain('obs-team-1')
+
+    // (b) pendingMutationCount()/pendingMutations() de la cuenta LOCAL no la cuenta: nunca
+    // pasó por appendMutation() (applyIncomingObservation no la usa, sólo save()/
+    // deleteObservation()/promoteToTeam() lo hacen) — no es una mutación propia esperando
+    // push, ya vino aplicada desde el pull.
+    expect(store.pendingMutationCount()).toBe(0)
+    expect(store.pendingMutations().some((m) => m.sync_id === 'obs-team-1')).toBe(false)
+
+    // (c) countUnclaimedRows() (Task 2) tampoco la cuenta como "sin dueño" — tiene autor,
+    // sólo que no es el mío. Antes del fix de mapRawPulledRow esto habría sido el caso
+    // real: toda fila pulled quedaba con author_user_id = null.
+    expect(store.countUnclaimedRows()).toEqual({ count: 0, projects: [] })
+
+    // Confirmación directa: el autor que persistió es el ajeno, ni null ni adoptado como
+    // propio.
+    expect(store.get('obs-team-1')?.author_user_id).toBe('user-B')
+  })
+
+  it('una mutación propia pendiente sigue contando normalmente junto a la fila ajena ya aplicada', () => {
+    // Una fila propia, sin pushear todavía — la mutación real que pendingMutations() SÍ
+    // tiene que seguir devolviendo, sin que la fila ajena de al lado la tape ni la infle.
+    store.save({
+      projectKey: 'proj-shared',
+      type: 'decision',
+      title: 'Mi propia nota',
+      content: 'todavia no la pusheo',
+      source: 'mcp',
+    })
+
+    daemon.applyPulledRow({
+      syncId: 'obs-team-2',
+      updatedAt: Date.now(),
+      lamport: 1,
+      deleted: false,
+      topicKey: null,
+      scope: 'team',
+      projectKey: 'proj-shared',
+      supersededBy: null,
+      title: 'Otra decision del equipo',
+      content: 'body',
+      type: 'decision',
+      authorUserId: 'user-B',
+    })
+
+    expect(store.pendingMutationCount()).toBe(1)
+    const pending = store.pendingMutations()
+    expect(pending).toHaveLength(1)
+    expect(pending[0].sync_id).not.toBe('obs-team-2')
+  })
+})
+
+// Mismo chequeo que el describe de arriba, pero por el camino REAL de punta a punta — fetch
+// mockeado -> mapRawPulledRow -> applyPulledRow -> MemoryStore real — para confirmar que el
+// fix de mapRawPulledRow (el `author_id` que antes se perdía en el mapeo del payload crudo)
+// efectivamente llega hasta acá y no sólo cuando se invoca applyPulledRow() a mano con un
+// PulledRow ya armado.
+describe('doPull() de punta a punta con una fila de otro autor (Task 9, fix de mapRawPulledRow)', () => {
+  it('un raw pulled row con author_id ajeno persiste con authorUserId seteado, no null', async () => {
+    const dir = makeTmpDir('raven-memory-daemon-pull-foreign-author-')
+    const store = new MemoryStore(join(dir, 'memory.db'))
+    store.setCurrentUser('user-A')
+    try {
+      store.ensureProject({ projectKey: 'proj-shared', displayName: 'proj-shared' })
+      const rawRow = {
+        sync_id: 'obs-team-3',
+        project_key: 'proj-shared',
+        scope: 'team',
+        topic_key: null,
+        type: 'decision',
+        title: 'Decision via pull real',
+        content: 'body',
+        tags: [],
+        client_updated_at: new Date().toISOString(),
+        lamport: 1,
+        deleted: false,
+        superseded_by: null,
+        author_id: 'user-B',
+        author_display: 'Bautista',
+        project_seq: 1,
+      }
+      const fetchImpl = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ rows: [rawRow], cursors: { 'proj-shared': 1 } }),
+      })
+      const daemon = new MemoryDaemon(baseDaemonDeps(store, { fetchImpl }))
+
+      await daemon.pull()
+
+      const row = store.get('obs-team-3')
+      expect(row?.author_user_id).toBe('user-B')
+      expect(store.pendingMutationCount()).toBe(0)
+      expect(store.countUnclaimedRows()).toEqual({ count: 0, projects: [] })
+    } finally {
+      store.close()
+      cleanupTmp(dir)
+    }
   })
 })
 

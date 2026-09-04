@@ -23,6 +23,7 @@ export interface PulledRow {
   origin_ai: string | null
   origin_account: string | null
   git_branch: string | null
+  author_id: string | null
   author_display: string | null
   content_hash: string | null
 }
@@ -79,14 +80,29 @@ export async function handlePull(
     return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0
   })
 
+  // Team Memory Layer 1, Parte 5. Dos caminos por los que una fila puede volver, y sólo
+  // dos: la propia (`p.user_id = $1`, sin cambios) o una ajena que además cumple LAS DOS
+  // cosas a la vez — `o.scope = 'team'` en ESA fila puntual (no alcanza con que el
+  // proyecto esté compartido: una fila 'personal' o 'project' en un proyecto ya
+  // compartido tiene que seguir sin viajar) y `p.team_id` uno de los equipos donde el
+  // llamante es miembro ACTIVO hoy (el espejo `team_memberships` que `registerDevice`
+  // sincroniza desde Supabase — Parte 2). Sin la unión de las dos condiciones sobre LA
+  // FILA, alcanzaría con que el proyecto tuviera team_id para filtrar por scope="team" de
+  // cualquier fila del proyecto — exactamente la fuga que el test dedicado
+  // (`pull-team-scope.test.ts`) existe para cerrar.
   const { rows } = await pool.query(
     `select o.sync_id, p.project_key, o.project_seq, o.client_updated_at, o.lamport, o.scope,
             o.type, o.topic_key, o.title, o.content, o.tags, o.deleted, o.superseded_by,
-            o.origin_ai, o.origin_account, o.git_branch, o.author_display, o.content_hash
+            o.origin_ai, o.origin_account, o.git_branch, o.author_id, o.author_display, o.content_hash
        from observations o
        join projects p on p.id = o.project_id
        join unnest($2::text[], $3::bigint[]) as c(project_key, cursor) on c.project_key = p.project_key
-      where p.user_id = $1 and o.project_seq > c.cursor
+      where (p.user_id = $1
+             or (o.scope = 'team' and p.team_id in (
+                  select team_id from team_memberships
+                   where user_id = $1 and status = 'active'
+                )))
+        and o.project_seq > c.cursor
       order by o.project_seq asc
       limit $4`,
     [auth.userId, keys, cursorValues, limit]
@@ -118,6 +134,7 @@ export async function handlePull(
       origin_ai: r.origin_ai,
       origin_account: r.origin_account,
       git_branch: r.git_branch,
+      author_id: r.author_id,
       author_display: r.author_display,
       content_hash: r.content_hash,
     }

@@ -573,3 +573,68 @@ describe('MemoryIpcServer — suspend()/resume()/setStore() hot-swap support (Ta
     await searchPromise
   })
 })
+
+// Team Memory Layer 1, Parte 6/7 (lado cliente): el caso 'memory.promote' de dispatch().
+describe('MemoryIpcServer — memory.promote (Team Memory Layer 1, Parte 6/7)', () => {
+  let dir: string
+  let server: MemoryIpcServer
+  let socketPath: string
+
+  beforeEach(() => {
+    dir = makeTmpDir('raven-ipc-promote-')
+    socketPath = uniqueSocketPath(dir)
+  })
+
+  afterEach(async () => {
+    server?.stop()
+    await new Promise((r) => setTimeout(r, 20))
+    cleanupTmp(dir)
+  })
+
+  it('forwards syncId/reason to store.promoteToTeam and calls onMutation on success', async () => {
+    const promoteToTeam = vi.fn(() => ({ promoted: true }))
+    const store = fakeStore({ promoteToTeam })
+    const onMutation = vi.fn()
+    server = new MemoryIpcServer({ store, socketPath, authToken: TOKEN, onMutation })
+    server.start()
+    await sleep(20)
+
+    const request: MemoryRequest = {
+      id: '1',
+      method: 'memory.promote',
+      params: { cwd: '/tmp', syncId: 'obs-1', reason: 'para el equipo' },
+      token: TOKEN,
+    }
+    const raw = await sendRaw(socketPath, `${JSON.stringify(request)}\n`)
+    const response = JSON.parse(raw.trim()) as MemoryResponse
+
+    expect(response.ok).toBe(true)
+    if (!response.ok) throw new Error('unreachable')
+    expect(response.result).toEqual({ promoted: true })
+    expect(promoteToTeam).toHaveBeenCalledWith('obs-1', 'para el equipo')
+    expect(onMutation).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not call onMutation when the store reports promoted: false', async () => {
+    const promoteToTeam = vi.fn(() => ({ promoted: false }))
+    const store = fakeStore({ promoteToTeam })
+    const onMutation = vi.fn()
+    server = new MemoryIpcServer({ store, socketPath, authToken: TOKEN, onMutation })
+    server.start()
+    await sleep(20)
+
+    const request: MemoryRequest = {
+      id: '1',
+      method: 'memory.promote',
+      params: { cwd: '/tmp', syncId: 'obs-no-existe' },
+      token: TOKEN,
+    }
+    const raw = await sendRaw(socketPath, `${JSON.stringify(request)}\n`)
+    const response = JSON.parse(raw.trim()) as MemoryResponse
+
+    expect(response.ok).toBe(true)
+    if (!response.ok) throw new Error('unreachable')
+    expect(response.result).toEqual({ promoted: false })
+    expect(onMutation).not.toHaveBeenCalled()
+  })
+})

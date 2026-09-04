@@ -852,6 +852,13 @@ declare global {
        * login. `projectCount` excluye `__global__` (no es un proyecto reconocible).
        */
       hubStats: () => Promise<{ itemCount: number; projectCount: number }>
+      /**
+       * Team Memory Layer 1, Parte 8: comparte un proyecto LOCAL con un equipo — pega
+       * contra POST /v1/projects/share (server/src/share.ts), la única forma de que
+       * `projects.team_id` quede seteado. Opcional: un preload viejo no lo expone. Sin UI
+       * todavía (fuera de alcance de este paso) — se llama a mano desde devtools o un test.
+       */
+      shareProjectWithTeam?: (projectKey: string, teamId: string) => Promise<{ ok: boolean; error?: string }>
     }
     platform: {
       isWin: boolean

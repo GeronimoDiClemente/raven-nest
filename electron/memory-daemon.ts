@@ -211,6 +211,17 @@ export function mapRawPulledRow(raw: Record<string, unknown>): PulledRow {
     originAi: (raw.origin_ai as string | undefined) ?? undefined,
     originAccount: (raw.origin_account as string | undefined) ?? undefined,
     gitBranch: (raw.git_branch as string | undefined) ?? undefined,
+    // Task 9 (smoke/memory-bridge), Parte B: this was missing entirely — `PulledRow`
+    // already declared `authorUserId`, `applyPulledRow` already threaded it through to
+    // `applyIncomingObservation` (which correctly persists it, see memory-store.ts), but
+    // nothing here ever READ it off the raw wire payload, so every pulled row silently
+    // landed with `author_user_id = null` regardless of who actually authored it —
+    // defeating the one thing `countUnclaimedRows()`/`pendingMutations()` need it for
+    // (telling "no author" apart from "an author who isn't me", see memory-store.ts's
+    // `author_user_id IS NULL` filters). `author_id` (not `author_user_id`) matches the
+    // wire field name the server would use for the raw column (see server/src/push.ts's
+    // `observations.author_id`) — same convention as `author_display` right below.
+    authorUserId: (raw.author_id as string | undefined) ?? undefined,
     authorDisplay: (raw.author_display as string | undefined) ?? undefined,
     contentHash: (raw.content_hash as string | undefined) ?? undefined,
     projectSeq: raw.project_seq != null ? Number(raw.project_seq) : undefined,

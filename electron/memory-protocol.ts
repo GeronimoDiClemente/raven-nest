@@ -127,6 +127,19 @@ export interface DeleteMemoryResult {
   ok: boolean
 }
 
+// Team Memory Layer 1, Parte 6/7 (lado cliente): promueve una observacion existente a
+// scope 'team' — la unica forma de que una fila salga de 'personal'/'project'. Expuesta
+// como la tool MCP memory_promote (memory-mcp/tools.ts) junto a memory_save/search/context.
+export interface PromoteMemoryParams {
+  cwd: string
+  syncId: string
+  reason?: string
+}
+
+export interface PromoteMemoryResult {
+  promoted: boolean
+}
+
 // ── Request/response envelope ────────────────────────────────────────────────
 
 export type MemoryMethod =
@@ -134,6 +147,7 @@ export type MemoryMethod =
   | 'memory.search'
   | 'memory.context'
   | 'memory.delete'
+  | 'memory.promote'
   | 'hook.sessionStart'
   | 'hook.stop'
   | 'hook.preCompact'

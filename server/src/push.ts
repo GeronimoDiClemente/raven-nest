@@ -181,7 +181,7 @@ export async function handlePush(
     // que es aceptable: el techo existe contra abuso, no para cortar al byte exacto.
     //
     // Se lee acá arriba, antes de resolver ningún proyecto, porque `quota_exceeded` es uno
-    // de los cuatro rechazos de la pasada 1 y esa pasada tiene que correr ANTES de que se
+    // de los cinco rechazos de la pasada 1 y esa pasada tiene que correr ANTES de que se
     // pueda crear una fila en `projects`.
     const { rows: usedRows } = await client.query(
       `select coalesce(sum(octet_length(coalesce(o.content, ''))), 0)::bigint as used
@@ -193,8 +193,20 @@ export async function handlePush(
     // (`MAX_BYTES_PER_USER`) tiene que APLICAR, no sólo salir informado en `status`.
     const overQuota = Number(usedRows[0].used) >= maxBytesFor(auth.plan)
 
-    // PASADA 1 — los cuatro rechazos que NO dependen del id del proyecto: `missing_sync_id`,
-    // `team_scope_not_allowed`, `observation_too_large` y `quota_exceeded`.
+    // Team Memory Layer 1, Parte 4. Un query por batch, no por mutación — mismo motivo que
+    // el de arriba: escanearlo una vez cuesta lo mismo que doscientas. Sólo los
+    // project_key que YA tienen `team_id` seteado — compartidos vía POST
+    // /v1/projects/share (Parte 3) — porque eso es justo lo que separa un push
+    // `scope: 'team'` legítimo de uno a un proyecto que nunca se compartió con nadie.
+    const { rows: sharedRows } = await client.query(
+      `select project_key from projects where user_id = $1 and team_id is not null`,
+      [auth.userId]
+    )
+    const sharedProjectKeys = new Set(sharedRows.map((r) => r.project_key as string))
+
+    // PASADA 1 — los cinco rechazos que NO dependen del id del proyecto: `missing_sync_id`,
+    // `team_scope_not_allowed`, `project_not_shared_with_team`, `observation_too_large` y
+    // `quota_exceeded`.
     //
     // Corren antes de resolver proyectos, y ese orden no es cosmético. `ensureProject` corría
     // para toda clave nueva con lugar disponible ANTES de que se evaluara ningún rechazo, así
@@ -215,6 +227,8 @@ export async function handlePush(
     for (const m of mutations) {
       const p = m.payload ?? {}
       const syncId = m.sync_id ?? String(p.sync_id ?? '')
+      const projectKey = String(p.project_key ?? GLOBAL_PROJECT_KEY)
+      const scope = String(p.scope ?? 'personal')
 
       // Without this, a mutation carrying neither `sync_id` nor `payload.sync_id` became
       // the empty string — a perfectly valid text primary key — so EVERY malformed push
@@ -233,7 +247,7 @@ export async function handlePush(
       // Terminal on purpose: the same payload on the same plan can never succeed, and
       // omitting it instead would make the device retry a write it is not allowed to make,
       // forever.
-      if (String(p.scope ?? 'personal') === 'team' && !TEAM_SCOPE_PLANS.has(auth.plan)) {
+      if (scope === 'team' && !TEAM_SCOPE_PLANS.has(auth.plan)) {
         prepared.push({
           kind: 'rejected',
           result: {
@@ -241,6 +255,28 @@ export async function handlePush(
             outcome: 'rejected',
             project_seq: 0,
             error: 'team_scope_not_allowed',
+          },
+        })
+        continue
+      }
+
+      // Team Memory Layer 1, Parte 4. El plan solo no alcanza: `scope: 'team'` también
+      // exige que ESE proyecto se haya compartido explícitamente con un equipo (POST
+      // /v1/projects/share, Parte 3). Sin este gate, cualquier device con plan de equipo
+      // podía marcar `scope: 'team'` sobre CUALQUIER project_key — incluso uno que el
+      // usuario nunca compartió con nadie — y esa observation quedaría visible para todo
+      // el equipo en cuanto el pull team-scoped (Parte 5) la trajera. Terminal por la
+      // misma razón que el gate de arriba: el mismo payload nunca va a poder aplicar
+      // mientras el proyecto siga sin compartir, y omitirlo dejaría al device reintentando
+      // para siempre una escritura que no le corresponde.
+      if (scope === 'team' && !sharedProjectKeys.has(projectKey)) {
+        prepared.push({
+          kind: 'rejected',
+          result: {
+            sync_id: syncId,
+            outcome: 'rejected',
+            project_seq: 0,
+            error: 'project_not_shared_with_team',
           },
         })
         continue
@@ -272,12 +308,7 @@ export async function handlePush(
         continue
       }
 
-      prepared.push({
-        kind: 'pending',
-        m,
-        syncId,
-        projectKey: String(p.project_key ?? GLOBAL_PROJECT_KEY),
-      })
+      prepared.push({ kind: 'pending', m, syncId, projectKey })
     }
 
     // `ensureProject` used to run once PER MUTATION, so a 200-mutation batch for one
@@ -379,7 +410,7 @@ export async function handlePush(
     }
 
     // PASADA 2 — aplicar. Acá ya sólo queda un rechazo posible, `project_limit_reached`: es
-    // el único de los cinco que depende de haber resuelto los proyectos, y por eso es el
+    // el único de los seis que depende de haber resuelto los proyectos, y por eso es el
     // único que no se pudo evaluar en la pasada 1.
     //
     // Se recorre `prepared`, NO `mutations`: así los rechazos de la pasada 1 vuelven a

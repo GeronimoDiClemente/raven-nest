@@ -1089,6 +1089,55 @@ export class MemoryStore {
     return true
   }
 
+  /**
+   * Team Memory Layer 1, Parte 6 (lado cliente): promueve una observacion existente a
+   * scope 'team' — la UNICA forma de que una fila salga de 'personal'/'project' (junto con
+   * el endpoint POST /v1/projects/share del lado server, que decide si el PROYECTO puede
+   * llevar filas 'team' — ver server/src/share.ts). No pasa por una cola de aprobacion: el
+   * cambio de `observations.scope` es inmediato, sin gate humano en esta pasada (decision
+   * ya tomada en el plan). De todos modos deja un registro en `promotion_queue` con
+   * `status: 'approved'` — le da uso real a una tabla que hoy existe en el schema pero
+   * nadie escribe, y queda como historial auditable de que se promovio y por que.
+   * Idempotente por syncId: promover la misma fila dos veces (doble click, reintento de la
+   * tool MCP) pisa la fila de `promotion_queue` en vez de violar su PK.
+   *
+   * No usa `applyRowUpdate()` (el UPDATE compartido de save()/deleteObservation()) a
+   * proposito: esa funcion NO incluye `scope` en su SET list porque NINGUN otro caller
+   * cambia el scope de una fila existente — agregarlo ahi tocaria una ruta compartida y ya
+   * probada por una sola necesidad nueva. Un UPDATE acotado a esta funcion es mas seguro.
+   *
+   * No-op (`promoted: false`, sin tirar) si el syncId no existe o esta muerto (deleted o
+   * superseded) — promover algo que ya no es la version activa no tiene sentido: nadie lo
+   * ve, y la fila jamas pasaria los filtros `deleted = 0 AND superseded_by IS NULL` que
+   * search()/context()/el pull team-scoped usan en todos lados.
+   */
+  promoteToTeam(syncId: string, reason?: string | null): { promoted: boolean } {
+    const existing = this.get(syncId)
+    if (!existing || existing.deleted !== 0 || existing.superseded_by !== null) {
+      return { promoted: false }
+    }
+
+    const promote = this.db.transaction(() => {
+      const now = Date.now()
+      const lamport = this.nextLamport()
+      this.db
+        .prepare('UPDATE observations SET scope = ?, updated_at = ?, lamport = ? WHERE sync_id = ?')
+        .run('team', now, lamport, syncId)
+      this.appendMutation('promote', { ...existing, scope: 'team', updated_at: now, lamport })
+      this.db
+        .prepare(
+          `INSERT INTO promotion_queue (sync_id, to_scope, reason, status, created_at)
+           VALUES (?, 'team', ?, 'approved', ?)
+           ON CONFLICT(sync_id) DO UPDATE SET
+             to_scope = excluded.to_scope, reason = excluded.reason,
+             status = excluded.status, created_at = excluded.created_at`
+        )
+        .run(syncId, reason ?? null, now)
+    })
+    promote()
+    return { promoted: true }
+  }
+
   getBySourceRef(source: string, sourceRef: string): ObservationRow | null {
     return (
       (this.db

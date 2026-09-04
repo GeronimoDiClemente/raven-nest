@@ -25,6 +25,7 @@ import type {
   HookStopParams,
   MemoryRequest,
   MemoryResponse,
+  PromoteMemoryParams,
   SaveMemoryParams,
   SearchMemoryParams,
   SearchMemoryResult,
@@ -391,6 +392,16 @@ export class MemoryIpcServer {
           const ok = store.deleteObservation(params.syncId)
           if (ok) this.deps.onMutation?.()
           return { ok }
+        }
+
+        // Team Memory Layer 1, Parte 6/7 (lado cliente): promueve una observacion
+        // existente a scope 'team' — ver el doc comment de promoteToTeam() en
+        // memory-store.ts para el diseño completo (idempotencia, promotion_queue, etc.).
+        case 'memory.promote': {
+          const params = request.params as PromoteMemoryParams
+          const result = store.promoteToTeam(params.syncId, params.reason ?? null)
+          if (result.promoted) this.deps.onMutation?.()
+          return result
         }
 
         case 'hook.sessionStart': {

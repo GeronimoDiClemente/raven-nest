@@ -101,13 +101,22 @@ export type RegisterResult =
  * El tope de máquinas por plan NO se aplica acá: lo aplica `authenticate` en cada request,
  * que es donde ya está testeado y donde el cliente sabe leer `device_limit_reached`.
  * Registrar siempre y fallar al sincronizar mantiene una sola fuente de esa regla.
+ *
+ * `supabaseJwt` es el mismo JWT que `verifySupabaseJwt` ya validó para esta request (lo
+ * manda `http.ts`, que es quien lo tiene crudo). Se usa DESPUÉS de que el device quedó
+ * registrado, para sincronizar `team_memberships` (Team Memory Layer 1, Parte 2) — nunca
+ * antes, y nunca dentro de la misma transacción: es un fetch de red a Supabase, y colgar la
+ * transacción de registro del device esperando esa red convertiría un timeout de Supabase
+ * en un timeout del registro. Ver `syncTeamMemberships`.
  */
 export async function registerDevice(
   pool: Pool,
   identity: JwtIdentity,
-  device: { name: string; platform?: string | null }
+  device: { name: string; platform?: string | null },
+  supabaseJwt?: string
 ): Promise<RegisterResult> {
   const client = await pool.connect()
+  let result: RegisterResult
   try {
     await client.query('begin')
 
@@ -125,7 +134,9 @@ export async function registerDevice(
     )
     if (permitido.length === 0) {
       // Rollback y no 401: la credencial es buena, lo que falta es el beta. El mismo código
-      // que devuelve `authenticate`, para que el cliente no tenga que aprender otro.
+      // que devuelve `authenticate`, para que el cliente no tenga que aprender otro. Retorno
+      // directo (no cae a la sincronización de equipos de más abajo): sin device no hay nada
+      // que registrar y no tiene sentido gastar el fetch a Supabase.
       await client.query('rollback')
       return { ok: false, status: 403, error: 'not_in_beta' }
     }
@@ -141,12 +152,144 @@ export async function registerDevice(
     )
 
     await client.query('commit')
-    return { ok: true, deviceId, token }
+    result = { ok: true, deviceId, token }
   } catch (err) {
     await client.query('rollback').catch(() => { /* la conexión ya puede estar rota */ })
     throw err
   } finally {
     client.release()
+  }
+
+  // Fuera del try/finally de arriba a propósito: `client` ya se liberó, y esto usa su propia
+  // conexión y su propia transacción corta (ver `syncTeamMemberships`). Best-effort: nunca
+  // lanza, así que nunca puede convertir un registro de device exitoso en uno fallido.
+  await syncTeamMemberships(pool, identity.userId, supabaseJwt)
+  return result
+}
+
+// --- Team Memory Layer 1, Parte 2 — sincronización de membresía ---------------------------
+
+/** Timeout del fetch a Supabase REST: ni tan corto que rebote una red lenta, ni tan largo
+ * que un Supabase caído demore la respuesta del registro de device más de lo razonable. */
+const SUPABASE_MEMBERSHIPS_TIMEOUT_MS = 5000
+
+export interface TeamMembership {
+  teamId: string
+  teamName: string | null
+  role: string | null
+}
+
+/** La forma cruda que devuelve PostgREST para `select=team_id,role,teams(name)`. */
+interface SupabaseTeamMemberRow {
+  team_id?: unknown
+  role?: unknown
+  // PostgREST embebe una relación many-to-one como objeto ({name: "..."}), que es lo que
+  // devuelve en la práctica y lo que testean los tests de este archivo. Se acepta también el
+  // array por si la config de la FK del lado de Supabase cambiara la cardinalidad que
+  // PostgREST infiere — defensivo, no ejercitado.
+  teams?: { name?: unknown } | { name?: unknown }[] | null
+}
+
+/**
+ * Trae las membresías ACTIVAS del usuario desde Supabase REST, autenticada con el MISMO JWT
+ * que ya validó `verifySupabaseJwt` para esta request — nunca una service-role key, para que
+ * la consulta quede sujeta a la misma RLS que vería el usuario si la hiciera él mismo.
+ */
+export async function fetchActiveTeamMemberships(
+  supabaseUrl: string,
+  anonKey: string,
+  userId: string,
+  jwt: string
+): Promise<TeamMembership[]> {
+  const url =
+    `${supabaseUrl.replace(/\/+$/, '')}/rest/v1/team_members` +
+    `?user_id=eq.${encodeURIComponent(userId)}&status=eq.active&select=team_id,role,teams(name)`
+
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), SUPABASE_MEMBERSHIPS_TIMEOUT_MS)
+  let res: Response
+  try {
+    res = await fetch(url, {
+      headers: { Authorization: `Bearer ${jwt}`, apikey: anonKey },
+      signal: controller.signal,
+    })
+  } finally {
+    clearTimeout(timer)
+  }
+  if (!res.ok) {
+    throw new Error(`supabase team_members respondió ${res.status}`)
+  }
+
+  const body = (await res.json()) as unknown
+  if (!Array.isArray(body)) return []
+  return body.map((row) => {
+    const r = row as SupabaseTeamMemberRow
+    const teamsField = Array.isArray(r.teams) ? r.teams[0] : r.teams
+    const rawName =
+      teamsField && typeof teamsField === 'object' ? (teamsField as { name?: unknown }).name : undefined
+    return {
+      teamId: String(r.team_id),
+      teamName: typeof rawName === 'string' ? rawName : null,
+      role: typeof r.role === 'string' ? r.role : null,
+    }
+  })
+}
+
+/**
+ * Reemplaza (delete + insert) las filas de `team_memberships` de un usuario, en una sola
+ * transacción — nunca un insert incremental: la respuesta de Supabase es el set completo de
+ * membresías activas de ESTE momento, así que lo que ya no viene ahí ya no es cierto.
+ */
+async function replaceTeamMemberships(
+  pool: Pool,
+  userId: string,
+  memberships: TeamMembership[]
+): Promise<void> {
+  const client = await pool.connect()
+  try {
+    await client.query('begin')
+    await client.query('delete from team_memberships where user_id = $1', [userId])
+    for (const m of memberships) {
+      await client.query(
+        `insert into team_memberships (user_id, team_id, team_name, role, status, synced_at)
+         values ($1, $2, $3, $4, 'active', now())`,
+        [userId, m.teamId, m.teamName, m.role]
+      )
+    }
+    await client.query('commit')
+  } catch (err) {
+    await client.query('rollback').catch(() => { /* la conexión ya puede estar rota */ })
+    throw err
+  } finally {
+    client.release()
+  }
+}
+
+/**
+ * Sincroniza `team_memberships` desde Supabase — BEST EFFORT, siempre.
+ *
+ * Sin `SUPABASE_URL`, sin `SUPABASE_ANON_KEY`, o sin el JWT del login (los tres hacen
+ * falta), simplemente no hace nada: es el caso de test/dev sin Supabase configurado, y el
+ * registro de device tiene que seguir funcionando exactamente igual que antes de que esto
+ * existiera. Un fallo del fetch o de la escritura tampoco propaga — sólo se loguea como
+ * warning — porque nada de esto puede tumbar un registro de device por un problema ajeno
+ * (Supabase caído, un 500, la red). El estado que YA hubiera en `team_memberships` para ese
+ * usuario queda tal cual quedó la última vez que esto sí funcionó.
+ */
+export async function syncTeamMemberships(
+  pool: Pool,
+  userId: string,
+  supabaseJwt: string | undefined
+): Promise<void> {
+  const supabaseUrl = process.env.SUPABASE_URL
+  const anonKey = process.env.SUPABASE_ANON_KEY
+  if (!supabaseUrl || !anonKey || !supabaseJwt) return
+
+  try {
+    const memberships = await fetchActiveTeamMemberships(supabaseUrl, anonKey, userId, supabaseJwt)
+    await replaceTeamMemberships(pool, userId, memberships)
+  } catch (err) {
+    console.warn('[devices] no se pudo sincronizar team_memberships', err)
   }
 }
 

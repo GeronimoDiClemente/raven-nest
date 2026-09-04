@@ -120,6 +120,8 @@ en producción hay que fijar al menos `DATABASE_URL`.
 | `PG_DUMP_CMD` | `pg_dump` | Con qué correr `pg_dump`, como lista de palabras. Existe para desarrollo en máquinas sin cliente de Postgres instalado: `docker exec -i nest-memory-pg pg_dump`. En el contenedor del servicio no se setea. |
 | `PG_RESTORE_CMD` | `pg_restore` | Lo mismo para `pg_restore`, que usa el script de restauración. |
 | `PG_BIN_DATABASE_URL` | el valor de `DATABASE_URL` | La URL que ven los **binarios** de Postgres, que no siempre es la que ve el driver `pg`. En producción son la misma y esto no hace falta. En desarrollo sí: el driver corre en Windows y llega por `127.0.0.1:55432`, mientras que `pg_dump` corre adentro del contenedor por `docker exec` y desde ahí la base es `127.0.0.1:5432`. |
+| `SUPABASE_URL` | ninguno | Base de la API REST de Supabase (`https://<ref>.supabase.co`), usada para sincronizar `team_memberships` en cada `POST /v1/devices` (Team Memory Layer 1, Parte 2). **Sin ella, el registro de device funciona exactamente igual que hoy** — la sincronización de membresía es best-effort y simplemente no escribe nada. |
+| `SUPABASE_ANON_KEY` | ninguno | La anon key pública del mismo proyecto de Supabase. Va como header `apikey`; la identidad real la aporta el JWT del propio login del usuario como `Authorization: Bearer`, así que la consulta a `team_members` respeta la RLS de Supabase — nunca se usa una `service_role` key acá. Sin `SUPABASE_URL` **y** `SUPABASE_ANON_KEY` juntas, la sincronización no corre. |
 
 `NEXT_POLL_MS` existió como env var pero ya no se lee en ningún lado del código: el
 intervalo que ve el cliente sale siempre de `next_poll_ms` en la tabla de límites por plan

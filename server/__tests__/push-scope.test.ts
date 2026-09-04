@@ -87,12 +87,26 @@ describe('push — the team scope is gated by plan', () => {
 
   // Pins the other half of the gate: an implementation that simply refused every
   // team-scoped write would pass the test above and still be wrong.
+  //
+  // Team Memory Layer 1, Parte 4 added a SECOND gate on top of this one: the plan alone is
+  // not enough, the project also has to be explicitly shared (`projects.team_id` set).
+  // Without seeding that here, this test would now fail with `project_not_shared_with_team`
+  // instead of pinning what it was written to pin — so the project is created with a
+  // harmless personal push and shared directly via SQL before the real assertion.
   it('accepts a team-scoped memory from a plan that includes shared memory', async () => {
-    const syncId = SYNC('team-team-scope')
+    const project = PROJECT('team')
+    const teamId = randomUUID()
+    await handlePush(pool, team, {
+      mutations: [mutation(900, SYNC('team-team-scope-seed'), project)],
+    })
+    await pool.query('update projects set team_id = $1 where user_id = $2 and project_key = $3', [
+      teamId, team.userId, project,
+    ])
 
+    const syncId = SYNC('team-team-scope')
     const res = await handlePush(pool, team, {
       device_id: team.deviceId,
-      mutations: [mutation(1, syncId, PROJECT('team'), { scope: 'team' })],
+      mutations: [mutation(1, syncId, project, { scope: 'team' })],
     })
 
     expect(res.results[0]).toMatchObject({ sync_id: syncId, outcome: 'applied' })
@@ -115,5 +129,67 @@ describe('push — the team scope is gated by plan', () => {
 
     expect(res.results.find((r) => r.sync_id === refused)?.outcome).toBe('rejected')
     expect(res.results.find((r) => r.sync_id === kept)?.outcome).toBe('applied')
+  })
+})
+
+// Team Memory Layer 1, Parte 4 — `scope: 'team'` no sólo exige el plan (el gate de arriba):
+// exige además que ESE project_key en particular esté compartido (`projects.team_id`
+// seteado, la única vía es POST /v1/projects/share — ver projects-share.test.ts). El plan
+// solo con la memoria compartida habilitada no basta si el usuario nunca compartió el
+// proyecto puntual.
+describe('push — team scope also requires the project itself to be shared (Parte 4)', () => {
+  it('rejects scope:team when the project_key was never pushed before (no row in projects at all)', async () => {
+    const syncId = SYNC('never-existed-team-scope')
+
+    const res = await handlePush(pool, team, {
+      mutations: [mutation(700, syncId, PROJECT('never-existed'), { scope: 'team' })],
+    })
+
+    expect(res.results[0]).toMatchObject({
+      sync_id: syncId,
+      outcome: 'rejected',
+      error: 'project_not_shared_with_team',
+    })
+    const { rows } = await pool.query('select scope from observations where sync_id = $1', [syncId])
+    expect(rows).toHaveLength(0)
+  })
+
+  it('rejects scope:team when the project exists but was never shared (team_id is null)', async () => {
+    const project = PROJECT('exists-unshared')
+    // Crea la fila en `projects` sin tocar team_id — sigue en NULL, el default.
+    await handlePush(pool, team, {
+      mutations: [mutation(701, SYNC('exists-unshared-seed'), project)],
+    })
+
+    const syncId = SYNC('exists-unshared-team-scope')
+    const res = await handlePush(pool, team, {
+      mutations: [mutation(702, syncId, project, { scope: 'team' })],
+    })
+
+    expect(res.results[0]).toMatchObject({
+      sync_id: syncId,
+      outcome: 'rejected',
+      error: 'project_not_shared_with_team',
+    })
+    const { rows } = await pool.query('select scope from observations where sync_id = $1', [syncId])
+    expect(rows).toHaveLength(0)
+  })
+
+  it('accepts scope:team once the project has team_id set', async () => {
+    const project = PROJECT('shared-directly')
+    const teamId = randomUUID()
+    await handlePush(pool, team, {
+      mutations: [mutation(703, SYNC('shared-directly-seed'), project)],
+    })
+    await pool.query('update projects set team_id = $1 where user_id = $2 and project_key = $3', [
+      teamId, team.userId, project,
+    ])
+
+    const syncId = SYNC('shared-directly-team-scope')
+    const res = await handlePush(pool, team, {
+      mutations: [mutation(704, syncId, project, { scope: 'team' })],
+    })
+
+    expect(res.results[0]).toMatchObject({ sync_id: syncId, outcome: 'applied' })
   })
 })
