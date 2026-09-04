@@ -399,6 +399,10 @@ async function performUserSwap(userId: string | null, adopt = true): Promise<{ o
     // daemon/ipc wired to a closed store.
     const result = await swapMemoryStore(ctx, ravenHome(), userId, adopt)
     memory = { store: result.store, daemon: memory.daemon, ipcServer: memory.ipcServer, currentStorePath: result.currentStorePath }
+    // A watermark cached from the PREVIOUS account's store must never suppress a legitimate
+    // vault regen for the account that just became active (project keys can collide across
+    // accounts on the same machine — same repos, same derived keys).
+    resetVaultPollState()
     return result.error ? { ok: false, error: result.error } : { ok: true }
   } finally {
     // Reruns every deferred write against memorySink.save() — by now `memory` (if the try
@@ -499,6 +503,11 @@ const memorySink: MemorySink = {
       })
       // §4.1 "on write" trigger — same debounce memory.save's IPC path fires via onMutation.
       memory.daemon.scheduleMutationPush()
+      // Vault spec §7 trigger 2: this is the ONLY write path memorySink sees (the graph
+      // bridge). mcp/hook/ui writes go straight through the store without telling us —
+      // that's what the 60s poll (trigger 3, wired near the daemon's own startup below) is
+      // for, not a gap here.
+      scheduleVaultRegenDebounced()
     } catch (err) {
       console.warn('[main] memorySink.save failed — dropping this memory write', err instanceof Error ? err.message : err)
     }
@@ -3064,12 +3073,77 @@ ipcMain.handle('memory:shareProjectWithTeam', async (_event, projectKey: string,
 
 // Task 5 (plan de memoria por cuenta multi-dispositivo): el vault — proyección Markdown de
 // la memoria de la cuenta ACTIVA, ver docs/superpowers/specs/2026-08-26-memory-vault-design.md.
-// Manual-trigger only en esta pasada (enable/"Regenerate now"/reveal): los cuatro
-// disparadores automáticos del §7 (debounce post-escritura, poll de 60s, reconciliación al
-// arranque) quedan fuera de alcance — el motor (naming/note/plan/apply/reader/config, con
-// su propia suite de tests) es la pieza de riesgo real y ya está cubierta; cablear timers
-// automáticos sobre un main.ts de 3000+ líneas sin cobertura de vitest es la clase de
-// cambio que se hace aparte, no apurado dentro de esta pasada.
+//
+// Los cuatro disparadores del §7, ahora cableados:
+//   1. Enable / "Regenerate now"        -> memory:vault:setSettings / memory:vault:regenerate
+//   2. Debounce 5s post-escritura        -> scheduleVaultRegenDebounced(), llamado desde memorySink.save()
+//   3. Poll de 60s del watermark          -> startVaultWatermarkPoll(), abajo
+//   4. Reconciliación al arranque         -> llamado una vez en app.whenReady()
+//
+// `runVaultRegeneration()` ya hace, internamente, "no escribir nada si nada cambió" (el
+// hash-compare de vault-plan.ts) — así que los triggers 3/4 pueden llamarla directo sin
+// reimplementar esa optimización acá; el ÚNICO trabajo real que este archivo hace antes de
+// llamarla es decidir SI vale la pena (vault apagado, o watermark sin cambios).
+let vaultDebounceTimer: NodeJS.Timeout | null = null
+const VAULT_DEBOUNCE_MS = 5_000
+
+function scheduleVaultRegenDebounced(): void {
+  if (vaultDebounceTimer) clearTimeout(vaultDebounceTimer)
+  vaultDebounceTimer = setTimeout(() => {
+    vaultDebounceTimer = null
+    void runVaultRegeneration()
+  }, VAULT_DEBOUNCE_MS)
+}
+
+// Trigger 3's cheap gate: per-project `maxUpdatedAt` as of the last time we actually ran a
+// regeneration (poll OR debounce OR manual — reconciled() below updates it after any of
+// them). Reset on an account swap (performUserSwap) — a stale value from a DIFFERENT
+// account's store must never suppress a legitimate regen for the account that just became
+// active. §7's own caveat applies here too: `applyIncomingObservation()` can write an
+// `updated_at` LOWER than the local max (a pulled row), so this is a "did anything change
+// at all" signal, not a precise cursor — the full `planVault` pass it triggers is what
+// actually decides what (if anything) needs writing.
+let vaultLastSeenWatermarks: Record<string, number> = {}
+
+function resetVaultPollState(): void {
+  vaultLastSeenWatermarks = {}
+}
+
+async function vaultWatermarksChanged(): Promise<boolean> {
+  if (!memory) return false
+  const userId = memory.store.getOwnerUserId()
+  const settings = loadVaultSettings(vaultSettingsPath(ravenHome(), userId))
+  if (!settings.enabled) return false
+
+  const { reader, close } = openReadonlyReader(ravenHome(), userId)
+  try {
+    const projectKeys = new Set(reader.listProjects().map((p) => p.projectKey))
+    projectKeys.add(GLOBAL_PROJECT_KEY)
+    let changed = false
+    const fresh: Record<string, number> = {}
+    for (const pk of projectKeys) {
+      const wm = reader.watermark(pk)
+      fresh[pk] = wm.maxUpdatedAt
+      if (vaultLastSeenWatermarks[pk] !== wm.maxUpdatedAt) changed = true
+    }
+    vaultLastSeenWatermarks = fresh
+    return changed
+  } finally {
+    close()
+  }
+}
+
+/** Trigger 3 — starts the 60s poll. Called once from app.whenReady(); safe to call even
+ *  when the vault is off (vaultWatermarksChanged() itself checks and returns false cheaply,
+ *  without opening a reader). */
+function startVaultWatermarkPoll(): void {
+  setInterval(() => {
+    void vaultWatermarksChanged().then((changed) => {
+      if (changed) void runVaultRegeneration()
+    })
+  }, 60_000)
+}
+
 function vaultAccountDirs(): string[] {
   try {
     return accountStore.list('claude').map((name) => join(accountStore.getDir('claude', name), '.claude'))
@@ -4220,6 +4294,14 @@ app.whenReady().then(async () => {
         )
       } catch { /* invalid URL — leave memoryOnline as-is */ }
     }, 15_000)
+
+    // Vault spec §7 trigger 4 — reconciliation at startup. `runVaultRegeneration()` no-ops
+    // instantly (zero writes, zero stats) when nothing changed since the manifest was last
+    // written, so there is no need to compare a row count before calling it here the way
+    // trigger 3's poll does to avoid opening a reader every 60s — this runs exactly once.
+    void runVaultRegeneration()
+    // Vault spec §7 trigger 3.
+    startVaultWatermarkPoll()
   }
 
   setWhisperStatusCallback((status) => {

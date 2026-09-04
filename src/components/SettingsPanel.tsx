@@ -19,6 +19,7 @@ import { BenchmarkDashboard } from './BenchmarkDashboard'
 import UpgradeModal from './UpgradeModal'
 import MemoryHub from './MemoryHub'
 import MemoryAdoptionDialog from './MemoryAdoptionDialog'
+import MemoryVaultCard from './MemoryVaultCard'
 import logoUrl from '../assets/logo.png'
 
 type Tab = 'keybinds' | 'presets' | 'benchmarks' | 'updates' | 'account' | 'tutorial' | 'editor'
@@ -569,6 +570,8 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                       </label>
                     )}
                   </div>
+
+                  <MemoryVaultCard />
 
                   <button className="sp-action-btn" onClick={() => supabase.auth.signOut()}>
                     Sign out
