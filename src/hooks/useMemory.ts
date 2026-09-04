@@ -71,7 +71,7 @@ export function useMemory() {
       // `{ connected: false, daemonStatus: 'error', unavailable: true }` when the
       // subsystem is null, and this hook used to discard that flag: `!status.connected`
       // matched first, the card rendered 'disconnected', and SettingsPanel told a free
-      // user "Local memory active — cloud sync is a Pro feature" on a machine where
+      // user "Local memory active — cloud sync is a Cloud feature" on a machine where
       // memory was completely dead.
       state: status.unavailable
         ? 'unavailable'

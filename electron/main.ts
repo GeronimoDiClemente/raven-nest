@@ -140,8 +140,7 @@ import { MemoryDaemon } from './memory-daemon'
 import { daemonSocketPath } from './memory-protocol'
 import { provisionClaudeAccount, deprovisionClaudeAccount, type ProvisionerPaths } from './memory-provisioner'
 import { ensureLocalAuthMaterial } from './memory-local-auth'
-import { importAllMarkdownSources } from './memory-importers/markdown'
-import { importEngramDatabase, discoverEngramDatabases } from './memory-importers/engram'
+import { runLocalMemoryImport } from './memory-local-import'
 import { resolveProjectKey, GLOBAL_PROJECT_KEY } from './memory-project-key'
 import { MetricsCollector, PaneInput } from './metrics-collector'
 import { transcribeAudio, checkWhisperAvailable, initWhisper, shutdownWhisper, setWhisperStatusCallback } from './whisper'
@@ -2672,83 +2671,16 @@ ipcMain.handle('memory:connect', async (_event, token: string, deviceId: string)
   // Provision (or re-provision) every existing Claude account now that memory is enabled.
   accountStore.migrateClaudeAccounts()
 
-  // First-connect import (§5.1 step 5 — always runs before any push). Best-effort: a
-  // partial import beats a failed connect (R-7).
-  const globalKey = resolveProjectKey({})
-
-  // Every repo with a known local path on THIS device (v1.2 local-paths-store, §per-device
-  // local paths in CLAUDE.md) is a candidate to import into its own project instead of
-  // __global__. Resolve each one's project_key the exact same way resolveGitInfo +
-  // resolveProjectKey do for live captures (memory-ipc-server.ts projectKeyForCwd) — remote
-  // URL first, path hash as fallback — so an imported observation and a live capture for
-  // the same repo land under the SAME project_key. Best-effort end to end: a missing/corrupt
-  // local-paths store, or a repo whose `git remote` call fails, must never break connect.
-  const knownRepoRoots: Array<{ path: string; projectKey: string; remoteUrl: string | null }> = []
-  try {
-    for (const localPath of Object.values(localPathsStore.getAllLocalPaths())) {
-      if (!existsSync(localPath)) continue // stale entry — repo no longer on disk
-      let remoteUrl: string | null = null
-      try {
-        remoteUrl = execSync('git remote get-url origin', { cwd: localPath, encoding: 'utf8', timeout: 3000 }).trim()
-      } catch { /* no remote configured — resolveProjectKey falls back to the path hash */ }
-      knownRepoRoots.push({ path: localPath, projectKey: resolveProjectKey({ remoteUrl, rootPath: localPath }), remoteUrl })
-    }
-  } catch (err) {
-    console.warn('[memory:connect] failed to enumerate known repo roots for import', err instanceof Error ? err.message : err)
-  }
-
-  // Fix (gap #1, see CLAUDE.md task notes): the importers below assign every imported
-  // observation a project_key but never create a matching `projects` row for it — only
-  // a LIVE capture does that, via memory-ipc-server.ts's projectKeyForCwd calling
-  // store.ensureProject() per request. A device that only ever imported (never had a
-  // live capture through the socket) ended connect with zero `projects` rows.
-  // memory-daemon.ts's doPull() reads store.listProjects() to build one pull cursor per
-  // known project and bails out entirely when that list is empty
-  // (`if (projects.length === 0) return`) — so pull silently never ran on such a
-  // device, even though push worked. Register every known repo root, plus the
-  // `__global__` partition (imports with no matching known repo land there), before the
-  // importers run so listProjects() is populated regardless of whether this device ever
-  // captures anything live. ensureProject() is idempotent (no-op if the row already
-  // exists) and always inserts with enrolled=1 — matching the column's documented
-  // meaning ("user can opt a repo out of memory entirely", §schema) and its default.
-  // Nothing reads `enrolled` as a gate yet (not doPull, not the live-capture path), so
-  // every known/imported project should stay enrolled=1 until an opt-out UI exists;
-  // there's no reason to import a repo's memories and then hide it from pull.
-  try {
-    for (const repo of knownRepoRoots) {
-      memory.store.ensureProject({
-        projectKey: repo.projectKey,
-        displayName: basename(repo.path) || repo.path,
-        rootPath: repo.path,
-        remoteUrl: repo.remoteUrl,
-      })
-    }
-    memory.store.ensureProject({ projectKey: globalKey, displayName: GLOBAL_PROJECT_KEY })
-  } catch (err) {
-    console.warn('[memory:connect] failed to register known projects', err instanceof Error ? err.message : err)
-  }
-
-  try {
-    importAllMarkdownSources(memory.store, {
-      ravenHomeDir: ravenHome(),
-      claudeAccountDirs: accountStore.list('claude').map((name) => accountStore.getDir('claude', name)),
-      projectRoots: knownRepoRoots.map((r) => ({ rootPath: r.path, projectKey: r.projectKey })),
-      globalProjectKey: globalKey,
-    })
-  } catch (err) {
-    console.warn('[memory:connect] markdown import failed', err instanceof Error ? err.message : err)
-  }
-  try {
-    // engram's `project` column is a lowercased folder basename (§5.2.A), never a full
-    // path — key this map the same way so resolveProjectKeyForEngramProject can match it.
-    const knownProjects = new Map(knownRepoRoots.map((r) => [basename(r.path).toLowerCase(), r.projectKey]))
-    const accountDirs = accountStore.list('claude').map((name) => accountStore.getDir('claude', name))
-    for (const dbPath of discoverEngramDatabases(ravenHome(), accountDirs)) {
-      importEngramDatabase(memory.store, dbPath, { knownProjects })
-    }
-  } catch (err) {
-    console.warn('[memory:connect] engram import failed', err instanceof Error ? err.message : err)
-  }
+  // First-connect import (§5.1 step 5 — always runs before any push, and also runs at
+  // plain app startup without a connect — see the `runLocalMemoryImport` call in
+  // app.whenReady() and its own module for why). Best-effort: a partial import beats a
+  // failed connect (R-7). Re-running on every connect is safe: every importer underneath
+  // is idempotent (§5.3 guard 1).
+  runLocalMemoryImport(memory.store, {
+    ravenHomeDir: ravenHome(),
+    localPathRepos: Object.values(localPathsStore.getAllLocalPaths()),
+    claudeAccountDirs: accountStore.list('claude').map((name) => accountStore.getDir('claude', name)),
+  })
 
   memory.daemon.onNetworkRegain() // drains everything just seeded
   return { ok: true, itemCount: memory.store.count() }
@@ -2856,6 +2788,19 @@ ipcMain.handle('memory:status', () => {
     pendingCount: memory.store.pendingMutationCount(),
     daemonStatus: memory.daemon.getStatus(),
     quota: memory.daemon.getQuota() ?? undefined,
+  }
+})
+
+// The memory hub's opening screen (Task 7): "we found N memories across M projects".
+// Local-first and login-independent, unlike memory:status's `connected`/`quota` fields —
+// this has to work for a Free user who never connects to Cloud. `__global__` is excluded
+// from the project count: it's the catch-all bucket for unenrolled repos, not a project
+// the user would recognize as one of theirs.
+ipcMain.handle('memory:hub-stats', () => {
+  if (!memory) return { itemCount: 0, projectCount: 0 }
+  return {
+    itemCount: memory.store.count(),
+    projectCount: memory.store.listProjects().filter((p) => p.projectKey !== GLOBAL_PROJECT_KEY).length,
   }
 })
 
@@ -3894,6 +3839,16 @@ app.whenReady().then(async () => {
   if (memory) {
     memory.ipcServer.start()
     memory.daemon.start()
+    // Local-first import (Task 7 of docs/superpowers/plans/
+    // 2026-09-03-memoria-por-cuenta-multi-dispositivo.md): runs on every plain app
+    // startup, not only on `memory:connect`, so the memory hub has real numbers to show
+    // even to a Free user who never connects to Cloud. Idempotent, best-effort — see
+    // memory-local-import.ts.
+    runLocalMemoryImport(memory.store, {
+      ravenHomeDir: ravenHome(),
+      localPathRepos: Object.values(localPathsStore.getAllLocalPaths()),
+      claudeAccountDirs: accountStore.list('claude').map((name) => accountStore.getDir('claude', name)),
+    })
     // §4.1 "Window focus" trigger.
     app.on('browser-window-focus', () => memory?.daemon.onWindowFocus())
     // Lightweight connectivity probe — Electron main has no `navigator.onLine`; a short

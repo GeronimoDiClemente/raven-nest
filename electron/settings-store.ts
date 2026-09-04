@@ -23,10 +23,12 @@ export interface Keybindings {
 export interface AppSettings {
   keybindings: Keybindings
   voiceLanguage: string
+  hasSeenMemoryHub: boolean
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
   voiceLanguage: 'es',
+  hasSeenMemoryHub: false,
   keybindings: {
     voiceInput: 'F5',
     newPane: 'Meta+t',
@@ -48,6 +50,7 @@ function load(): AppSettings {
     const data = JSON.parse(readFileSync(FILE, 'utf8'))
     return {
       voiceLanguage: data.voiceLanguage ?? DEFAULT_SETTINGS.voiceLanguage,
+      hasSeenMemoryHub: data.hasSeenMemoryHub ?? DEFAULT_SETTINGS.hasSeenMemoryHub,
       keybindings: { ...DEFAULT_SETTINGS.keybindings, ...(data.keybindings ?? {}) }
     }
   } catch {

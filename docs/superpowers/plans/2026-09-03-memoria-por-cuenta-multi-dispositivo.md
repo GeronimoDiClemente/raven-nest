@@ -230,12 +230,25 @@ Tres cosas que definen el diseño:
   local es gratis y completo, que es justamente el argumento.
 - **Copy en inglés**, como toda la UI de la app.
 
-- [ ] **Step 1:** Definir el guion: qué dolor, en qué orden, y en cuántas pantallas. Tres como
-      máximo.
-- [ ] **Step 2:** El hub, con el conteo real del import.
-- [ ] **Step 3:** Que aparezca una sola vez y se pueda volver a abrir desde Settings.
-- [ ] **Step 4:** La pantalla de Cloud, leyendo el precio de `CLOUD_MONTHLY_PRICE` y no de un
-      literal.
+- [x] **Step 1:** ~~Definir el guion.~~ 3 pantallas: reconocimiento (datos reales) → cómo
+      funciona (local-first, automático) → qué suma Cloud (precio real + CTA).
+- [x] **Step 2:** `MemoryHub` (`src/components/MemoryHub.tsx`), con el conteo real. Requirió
+      sacar el import de markdown/engram de adentro de `memory:connect` a una función propia
+      (`electron/memory-local-import.ts`) y correrla también en el arranque local plano — si
+      no, un usuario Free que nunca conecta a Cloud nunca dispara el import y el hub no tiene
+      qué mostrarle. Nuevo IPC `memory:hub-stats` (excluye `__global__` del conteo de
+      proyectos).
+- [x] **Step 3:** Flag `hasSeenMemoryHub` en `electron/settings-store.ts` (default `false`,
+      así que todo usuario existente lo ve una vez al actualizar). Reabrir desde Settings vía
+      el link "Learn more" en la card de Nest Memory — no toca el flag persistido.
+- [x] **Step 4:** Hecho, lee `CLOUD_MONTHLY_PRICE` de `src/lib/stripe.ts`.
+
+De paso: `SettingsPanel.tsx` todavía decía "cloud sync is a **Pro** feature" — quedó
+desactualizado del rename a Cloud (Task 1 del corte comercial). Corregido de paso, ya que un
+hub que dice Cloud al lado de una card que dice Pro hubiera sido inconsistente al toque.
+
+13 tests nuevos, suite completa en 1901 verdes + 4 skipped (0 rojas), `tsc -b` en los mismos 3
+errores preexistentes de siempre.
 
 ---
 

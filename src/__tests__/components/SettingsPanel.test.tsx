@@ -323,6 +323,7 @@ function mockMemoryBridge(status: {
     connect: vi.fn().mockResolvedValue({ ok: true }),
     disconnect: vi.fn().mockResolvedValue({ ok: true }),
     status: vi.fn().mockResolvedValue(status),
+    hubStats: vi.fn().mockResolvedValue({ itemCount: 0, projectCount: 0 }),
     registerDevice: vi.fn().mockResolvedValue({ ok: true, deviceId: 'dev-1', token: 'nmk_del_servicio' }),
     onStatus: vi.fn(),
     removeStatusListener: vi.fn(),
@@ -602,5 +603,54 @@ describe('SettingsPanel — Connect pide el token al servicio (§9.2)', () => {
 
     await waitFor(() => expect(memoria.connect).toHaveBeenCalledWith('nmk_a_mano', expect.anything()))
     expect(memoria.registerDevice).not.toHaveBeenCalled()
+  })
+})
+
+// El rename `pro` -> `cloud` (Task 1 del corte comercial) dejó esta linea desactualizada:
+// seguia hablando de un plan que ya no existe.
+describe('SettingsPanel — el plan pago se llama Cloud, no Pro', () => {
+  beforeEach(() => {
+    supabaseMock.auth.getUser.mockResolvedValue({ data: { user: null } })
+    ;(window as unknown as { localPaths: { getAll: () => Promise<Record<string, string>> } })
+      .localPaths = { getAll: async () => ({}) }
+  })
+
+  afterEach(() => {
+    delete (window as unknown as { memory?: unknown }).memory
+  })
+
+  it('la memoria local sin nube dice "Cloud feature", no "Pro feature"', async () => {
+    mockMemoryBridge({ connected: false, deviceId: null, itemCount: 0, pendingCount: 0, daemonStatus: 'idle' })
+    render(<SettingsPanel updateState="idle" onCheckUpdates={vi.fn()} userEmail="test@example.com" userPrefs={makeUserPrefs(vi.fn())} />)
+    fireEvent.click(screen.getByTitle('Settings'))
+    fireEvent.click(screen.getByText('Account'))
+
+    await waitFor(() => expect(screen.getByText(/cloud sync is a/)).toBeInTheDocument())
+    expect(screen.getByText(/cloud sync is a Cloud feature/)).toBeInTheDocument()
+    expect(screen.queryByText(/cloud sync is a Pro feature/)).not.toBeInTheDocument()
+  })
+})
+
+describe('SettingsPanel — reabrir el hub de memoria', () => {
+  beforeEach(() => {
+    supabaseMock.auth.getUser.mockResolvedValue({ data: { user: null } })
+    ;(window as unknown as { localPaths: { getAll: () => Promise<Record<string, string>> } })
+      .localPaths = { getAll: async () => ({}) }
+  })
+
+  afterEach(() => {
+    delete (window as unknown as { memory?: unknown }).memory
+  })
+
+  it('el link "Learn more" de la card de Nest Memory reabre el hub', async () => {
+    mockMemoryBridge({ connected: false, deviceId: null, itemCount: 0, pendingCount: 0, daemonStatus: 'idle' })
+    render(<SettingsPanel updateState="idle" onCheckUpdates={vi.fn()} userEmail="test@example.com" userPrefs={makeUserPrefs(vi.fn())} />)
+    fireEvent.click(screen.getByTitle('Settings'))
+    fireEvent.click(screen.getByText('Account'))
+
+    await waitFor(() => expect(screen.getByText('Learn more')).toBeInTheDocument())
+    fireEvent.click(screen.getByText('Learn more'))
+
+    await waitFor(() => expect(screen.getByText('Skip')).toBeInTheDocument())
   })
 })

@@ -17,6 +17,7 @@ import type { InstalledThemeInfo, ScannedThemeInfo, OpenVSXThemeResult } from '.
 import { PresetEditor } from './PresetEditor'
 import { BenchmarkDashboard } from './BenchmarkDashboard'
 import UpgradeModal from './UpgradeModal'
+import MemoryHub from './MemoryHub'
 import logoUrl from '../assets/logo.png'
 
 type Tab = 'keybinds' | 'presets' | 'benchmarks' | 'updates' | 'account' | 'tutorial' | 'editor'
@@ -104,6 +105,10 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
   const { repos: userRepos } = useUserRepos()
   const { plan } = useProfile()
   const [memoryUpgradeOpen, setMemoryUpgradeOpen] = useState(false)
+  // Reopen from Settings (Task 7 Step 3): local UI state only — never touches the
+  // persisted `hasSeenMemoryHub` flag, so reopening here doesn't affect whether the
+  // hub auto-shows again on next launch.
+  const [memoryHubOpen, setMemoryHubOpen] = useState(false)
   // M10 / §6.6 "Right to delete": disconnect never touches local data regardless of
   // this — it only controls whether main also calls memory-sync's delete-cloud-data
   // action (see electron/main.ts's memory:disconnect handler) before clearing the
@@ -419,6 +424,12 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                       <div className="sp-card-left">
                         <img src={logoUrl} alt="" aria-hidden="true" width={15} height={15} style={{ display: 'block' }} />
                         <span className="sp-card-label">Nest Memory</span>
+                        <button
+                          onClick={() => setMemoryHubOpen(true)}
+                          style={{ fontSize: 11, opacity: 0.65, marginLeft: 6, background: 'transparent', border: 'none', textDecoration: 'underline', cursor: 'pointer', padding: 0 }}
+                        >
+                          Learn more
+                        </button>
                         {memory.state === 'connected' && (
                           <span style={{ fontSize: 11, opacity: 0.65, marginLeft: 6 }}>
                             {memory.itemCount} items{memory.pendingCount > 0 ? ` · ${memory.pendingCount} pending` : ' · synced'}
@@ -446,7 +457,7 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                         )}
                         {memory.state === 'disconnected' && !PLAN_LIMITS[plan].memoryCloud && (
                           <span style={{ fontSize: 11, opacity: 0.65, marginLeft: 6 }}>
-                            Local memory active — cloud sync is a Pro feature
+                            Local memory active — cloud sync is a Cloud feature
                           </span>
                         )}
                         {(memory.state === 'connecting' || memory.state === 'migrating') && (
@@ -565,6 +576,13 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
 
               {memoryUpgradeOpen && (
                 <UpgradeModal currentPlan={plan} onClose={() => setMemoryUpgradeOpen(false)} />
+              )}
+
+              {memoryHubOpen && (
+                <MemoryHub
+                  onClose={() => setMemoryHubOpen(false)}
+                  onUpgrade={() => { setMemoryHubOpen(false); setMemoryUpgradeOpen(true) }}
+                />
               )}
               {tab === 'editor' && (
                 <div className="sp-section">

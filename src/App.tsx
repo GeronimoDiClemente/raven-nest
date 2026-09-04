@@ -49,6 +49,7 @@ import { openFileFromHub } from './lib/hub-open-file'
 import { pruneHubPanes } from './lib/hub-panes'
 import { dropTabBuffer } from './lib/editor-buffer-handoff'
 import UpgradeModal from './components/UpgradeModal'
+import MemoryHub from './components/MemoryHub'
 import TeamsWorkspace from './components/TeamsWorkspace'
 import MyReposPanel from './components/MyReposPanel'
 import { IntegrationsHub } from './components/IntegrationsHub'
@@ -271,9 +272,12 @@ export default function App() {
     }
   }, [userPrefs.loaded]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const { settings } = useSettings()
+  const { settings, markMemoryHubSeen } = useSettings()
   const settingsRef = useRef(settings)
   settingsRef.current = settings
+  // e2eBypass runs every test against a fresh RAVEN_HOME (no settings.json yet), which
+  // would otherwise pop this over every e2e spec — see the one existing check below.
+  const showMemoryHub = !settings.hasSeenMemoryHub && !window.appFlags?.e2eBypass
 
   const { isListening, isTranscribing, isModelLoading, toggle: toggleListening } = useSpeechRecognition(
     useCallback((text: string) => {
@@ -2075,6 +2079,13 @@ export default function App() {
 
       {showUpgrade && (
         <UpgradeModal currentPlan={plan} onClose={() => setShowUpgrade(false)} />
+      )}
+
+      {showMemoryHub && (
+        <MemoryHub
+          onClose={markMemoryHubSeen}
+          onUpgrade={() => { markMemoryHubSeen(); setShowUpgrade(true) }}
+        />
       )}
 
       {teamsOpen && (

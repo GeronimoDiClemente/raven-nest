@@ -3898,6 +3898,91 @@ body {
 
 /* Enterprise — sales-led, linked out to a demo instead of an in-app card */
 
+/* ── Memory Hub (Task 7) ─────────────────────────────────── */
+
+.memory-hub {
+  position: relative;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  width: 520px;
+  max-width: 92vw;
+  padding: 36px 32px 26px;
+  box-shadow: 0 32px 80px rgba(0, 0, 0, 0.7);
+  text-align: center;
+}
+
+.memory-hub-body h2 {
+  font-size: 20px;
+  margin: 0 0 12px;
+}
+
+.memory-hub-body p {
+  color: var(--text-muted);
+  line-height: 1.5;
+  margin: 0;
+}
+
+.memory-hub-price {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 4px;
+  margin: 20px 0 16px;
+}
+.memory-hub-price-amount {
+  font-size: 32px;
+  font-weight: 600;
+}
+.memory-hub-price-period {
+  color: var(--text-muted);
+}
+
+.memory-hub-cta {
+  padding: 10px 22px;
+  border-radius: 8px;
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.memory-hub-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 28px;
+}
+
+.memory-hub-skip,
+.memory-hub-next {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 13px;
+  padding: 6px 10px;
+}
+.memory-hub-next {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.memory-hub-dots {
+  display: flex;
+  gap: 6px;
+}
+.memory-hub-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--border);
+}
+.memory-hub-dot.active {
+  background: var(--accent);
+}
+
 
 /* ── Update Banner ───────────────────────────────────────── */
 
