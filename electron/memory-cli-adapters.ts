@@ -16,6 +16,7 @@ import {
 } from './memory-provisioner'
 import { provisionGeminiAccount, deprovisionGeminiAccount } from './memory-provisioner-gemini'
 import { provisionCodexAccount, deprovisionCodexAccount } from './memory-provisioner-codex'
+import { provisionQwenAccount, deprovisionQwenAccount } from './memory-provisioner-qwen'
 
 export interface AiMemoryAdapter {
   aiType: string
@@ -82,10 +83,28 @@ const codexAdapter: AiMemoryAdapter = {
   },
 }
 
+/**
+ * Wraps the qwen provisioning functions (memory-provisioner-qwen.ts) the same thin way the
+ * others wrap theirs. See that module's header for why qwen needs no isolated identity
+ * home or CLI flags — pty-manager.ts's generic HOME/USERPROFILE redirection already
+ * isolates it, unlike Gemini's GEMINI_CLI_HOME or Codex's CODEX_HOME.
+ */
+const qwenAdapter: AiMemoryAdapter = {
+  aiType: 'qwen',
+  binNames: ['qwen'],
+  provision(accountDir, paths, isWin) {
+    return provisionQwenAccount(accountDir, paths, isWin)
+  },
+  deprovision(accountDir) {
+    deprovisionQwenAccount(accountDir)
+  },
+}
+
 const ADAPTERS: Record<string, AiMemoryAdapter> = {
   claude: claudeAdapter,
   gemini: geminiAdapter,
   codex: codexAdapter,
+  qwen: qwenAdapter,
 }
 
 /** Looked up by pty-manager.ts using `cmd.split(' ')[0]` — the binary actually launched. */
