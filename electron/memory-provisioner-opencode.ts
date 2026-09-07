@@ -18,7 +18,7 @@
 // parse-mutate-stringify. Only writeFileAtomic is reused, for the final write.
 import { existsSync, mkdirSync, readFileSync } from 'fs'
 import { join } from 'path'
-import { modify, applyEdits, parse } from 'jsonc-parser'
+import { modify, applyEdits, parse, type ParseError } from 'jsonc-parser'
 import { writeFileAtomic, type ProvisionerPaths } from './memory-provisioner'
 
 const FORMATTING = { insertSpaces: true, tabSize: 2 } as const
@@ -35,9 +35,20 @@ function opencodeConfigPath(accountDir: string): string {
  * Reads the raw JSONC text to edit, defaulting to a minimal document ('{}') when the file
  * doesn't exist yet — never an actually-empty string, to avoid depending on whether
  * jsonc-parser's modify() special-cases that (untested, not worth the risk per the spec).
+ * Throws on genuine corruption (anything beyond the comments/trailing-commas JSONC always
+ * tolerates) instead of silently editing on top of broken content — same discipline
+ * memory-provisioner.ts's readJsonOrThrow documents for .claude.json, and the same reason:
+ * aborting this cycle costs nothing, PtyManager.create() retries provisioning on next launch.
  */
-function readConfigText(configPath: string): string {
-  return existsSync(configPath) ? readFileSync(configPath, 'utf8') : '{}'
+function readConfigTextOrThrow(configPath: string): string {
+  if (!existsSync(configPath)) return '{}'
+  const raw = readFileSync(configPath, 'utf8')
+  const errors: ParseError[] = []
+  parse(raw, errors, { allowTrailingComma: true })
+  if (errors.length > 0) {
+    throw new Error(`${configPath} is not valid JSONC (error code ${errors[0].error} at offset ${errors[0].offset})`)
+  }
+  return raw
 }
 
 /**
@@ -51,7 +62,7 @@ function readConfigText(configPath: string): string {
 export function provisionOpencodeAccount(accountDir: string, paths: ProvisionerPaths, _isWin: boolean): { args?: string[]; env?: Record<string, string> } {
   mkdirSync(opencodeConfigDir(accountDir), { recursive: true })
   const configPath = opencodeConfigPath(accountDir)
-  const text = readConfigText(configPath)
+  const text = readConfigTextOrThrow(configPath)
 
   const value = {
     type: 'local',
@@ -76,7 +87,7 @@ export function deprovisionOpencodeAccount(accountDir: string): void {
   const configPath = opencodeConfigPath(accountDir)
   if (!existsSync(configPath)) return
 
-  const text = readConfigText(configPath)
+  const text = readConfigTextOrThrow(configPath)
   const edits = modify(text, ['mcp', 'nest_memory'], undefined, { formattingOptions: FORMATTING })
   writeFileAtomic(configPath, applyEdits(text, edits))
 }

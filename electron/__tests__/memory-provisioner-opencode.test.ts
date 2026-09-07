@@ -130,4 +130,20 @@ describe('memory-provisioner-opencode', () => {
     provisionOpencodeAccount(accountDir, paths, true)
     expect(isOpencodeAccountProvisioned(accountDir)).toBe(true)
   })
+
+  it('provision throws instead of overwriting when opencode.jsonc is genuinely corrupted (not just JSONC comments/trailing commas)', () => {
+    mkdirSync(join(accountDir, '.config', 'opencode'), { recursive: true })
+    writeFileSync(configPath, '{ this is not valid json or jsonc at all ][')
+
+    expect(() => provisionOpencodeAccount(accountDir, paths, true)).toThrow()
+    // The corrupted content must survive untouched — never silently replaced with a fresh document.
+    expect(readFileSync(configPath, 'utf8')).toBe('{ this is not valid json or jsonc at all ][')
+  })
+
+  it('provision does NOT throw for valid JSONC quirks — comments and trailing commas', () => {
+    mkdirSync(join(accountDir, '.config', 'opencode'), { recursive: true })
+    writeFileSync(configPath, '{\n  // a comment\n  "username": "gerod",\n}\n')
+
+    expect(() => provisionOpencodeAccount(accountDir, paths, true)).not.toThrow()
+  })
 })
