@@ -47,6 +47,45 @@ jobs:
       - run: npm ci
       - run: npm test
 
+  # server/ (docs/superpowers/specs/2026-08-31-memory-sync-backend-design.md §12.1) es un
+  # paquete npm propio, aislado del Electron de arriba — nunca corrió en CI hasta este job.
+  # Sus 214 tests (vitest) van contra Postgres REAL, nunca mocks, así que hace falta el
+  # servicio de abajo — mismas credenciales que server/README.md documenta para levantarlo
+  # en local (postgres:16-alpine, DB nest_memory, password nestmem), sólo que acá vive en
+  # localhost:5432 (el puerto por defecto del contenedor de servicio de Actions), no 55432.
+  server:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: nestmem
+          POSTGRES_DB: nest_memory
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgres://postgres:nestmem@localhost:5432/nest_memory
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - working-directory: server
+        run: npm ci
+      # migrate() corre sola al primer query de cada archivo de test (db.ts) — no hace
+      # falta un paso de "aplicar migraciones" aparte.
+      - working-directory: server
+        run: npx tsc --noEmit
+      - working-directory: server
+        run: npm test
+
   build:
     runs-on: ubuntu-latest
     steps:
