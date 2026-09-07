@@ -10,6 +10,7 @@ export function useSettings() {
         const s = await window.settings.get()
         setSettings({
           voiceLanguage: (s as AppSettings).voiceLanguage ?? DEFAULT_SETTINGS.voiceLanguage,
+          hasSeenMemoryHub: (s as AppSettings).hasSeenMemoryHub ?? DEFAULT_SETTINGS.hasSeenMemoryHub,
           keybindings: { ...DEFAULT_SETTINGS.keybindings, ...s.keybindings }
         })
       } catch (err) {
@@ -39,5 +40,13 @@ export function useSettings() {
     })
   }, [])
 
-  return { settings, updateKeybinding, updateVoiceLanguage }
+  const markMemoryHubSeen = useCallback(() => {
+    setSettings(prev => {
+      const next: AppSettings = { ...DEFAULT_SETTINGS, ...prev, hasSeenMemoryHub: true }
+      window.settings.set(next)
+      return next
+    })
+  }, [])
+
+  return { settings, updateKeybinding, updateVoiceLanguage, markMemoryHubSeen }
 }

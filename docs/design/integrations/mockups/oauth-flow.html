@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>OAuth flow</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,system-ui,sans-serif;background:#050506;color:#d9d9dd;-webkit-font-smoothing:antialiased;padding:24px}
+  .q{font-size:12.5px;color:#5a5a60;margin:0 auto 14px;max-width:1100px}.q b{color:#b8b8be;font-weight:600}
+  .step{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#5a7bb5;max-width:1100px;margin:18px auto 8px}
+  .win{max-width:1100px;margin:0 auto;background:#08080a;border:1px solid #141416;border-radius:14px;overflow:hidden;box-shadow:0 30px 90px -30px rgba(0,0,0,.85);position:relative}
+  /* ---- frame 1: modal esperando ---- */
+  .f1{height:330px;display:flex;align-items:center;justify-content:center}
+  .f1 .bg{position:absolute;inset:0;padding:20px 24px;opacity:.25;filter:blur(1px)}
+  .hero{display:flex;align-items:center;gap:14px}
+  .hlogo{width:48px;height:48px;border-radius:12px;background:#0e0e12;border:1px solid #1c1c20;display:flex;align-items:center;justify-content:center}
+  .hlogo svg{width:30px;height:30px}
+  .hname{font-size:18px;font-weight:650;color:#f0f0f3}
+  .hsub{font-size:12px;color:#5e5e64;margin-top:2px}
+  .modal{position:relative;width:400px;background:#0c0c0f;border:1px solid #1e1e24;border-radius:14px;padding:26px 26px 20px;text-align:center;box-shadow:0 40px 100px -20px rgba(0,0,0,.9)}
+  .mlogo{width:46px;height:46px;border-radius:12px;background:#0e0e12;border:1px solid #1c1c20;display:flex;align-items:center;justify-content:center;margin:0 auto 14px}
+  .mlogo svg{width:28px;height:28px}
+  .mt{font-size:15px;font-weight:650;color:#eef0f4}
+  .ms{font-size:12.5px;color:#8a8a92;line-height:1.55;margin-top:8px}
+  .spin{margin:16px auto 6px;width:22px;height:22px;border-radius:50%;border:2.5px solid #1c2436;border-top-color:#0066FF}
+  .wait{font-size:12px;color:#6f7f9c;margin-top:6px}
+  .cancel{display:inline-block;margin-top:14px;font-size:12px;color:#6a6a72;border-bottom:1px dotted #3a3a42;cursor:pointer}
+  .trust{margin-top:16px;padding-top:13px;border-top:1px solid #16161a;font-size:11px;color:#55606f;display:flex;align-items:center;justify-content:center;gap:6px}
+  /* ---- frame 2: browser del sistema ---- */
+  .browser{max-width:760px;margin:0 auto;background:#0d0d10;border:1px solid #1a1a1e;border-radius:12px;overflow:hidden}
+  .chrome{display:flex;align-items:center;gap:8px;background:#111114;border-bottom:1px solid #1a1a1e;padding:9px 12px}
+  .dot{width:9px;height:9px;border-radius:50%;background:#2a2a30}
+  .url{flex:1;margin-left:8px;background:#0a0a0c;border:1px solid #1c1c20;border-radius:7px;font-size:11.5px;color:#7c8494;padding:5px 11px}
+  .url b{color:#b8c2d4;font-weight:500}
+  .consent{padding:28px 34px 26px;display:flex;gap:26px;align-items:flex-start}
+  .capp{display:flex;align-items:center;gap:10px}
+  .cico{width:40px;height:40px;border-radius:10px;background:#141419;border:1px solid #22222a;display:flex;align-items:center;justify-content:center}
+  .cico svg{width:24px;height:24px}
+  .arrows{color:#3e3e46;font-size:15px;align-self:center}
+  .cbody{flex:1}
+  .cbt{font-size:15.5px;font-weight:650;color:#eef0f4}
+  .cbs{font-size:12.5px;color:#8a8a92;margin-top:5px;line-height:1.5}
+  .scopes{margin-top:14px;border:1px solid #1a1a20;border-radius:9px;overflow:hidden}
+  .scope{display:flex;align-items:center;gap:9px;font-size:12px;color:#a9a9b1;padding:8px 13px;border-top:1px solid #16161a}
+  .scope:first-child{border-top:none}
+  .scope svg{color:#4e8f5f;flex-shrink:0}
+  .allow{margin-top:16px;display:inline-block;font-size:13px;font-weight:600;color:#fff;background:#4A154B;border-radius:8px;padding:9px 22px}
+  /* ---- frame 3: conectado ---- */
+  .f3{display:flex;height:330px}
+  .side{width:200px;flex-shrink:0;background:#0a0a0c;border-right:1px solid #141416;display:flex;flex-direction:column}
+  .team{display:flex;align-items:center;gap:10px;padding:15px 15px 13px;border-bottom:1px solid #111113}
+  .team .av{width:26px;height:26px;border-radius:7px;background:linear-gradient(135deg,#0066FF,#7a3dff)}
+  .team .nm{font-size:12.5px;font-weight:600;color:#e6e6ea}.team .nm small{display:block;font-size:10px;color:#55555b;font-weight:400}
+  .nav{padding:9px 7px;display:flex;flex-direction:column;gap:2px}
+  .nv{display:flex;align-items:center;gap:9px;padding:7px 10px;border-radius:8px;color:#7c7c83;font-size:12.5px}
+  .navsep{height:1px;background:#141416;margin:9px 12px}
+  .nlogo{width:16px;height:16px;display:flex;align-items:center;justify-content:center;flex-shrink:0}.nlogo svg{width:15px;height:15px}
+  .nv.new{background:#0c1220;color:#dfe7f6;border:1px solid #16233b}
+  .badge-new{margin-left:auto;font-size:9px;font-weight:700;letter-spacing:.06em;color:#7da6ff;background:#101a2e;border-radius:4px;padding:2px 5px}
+  .cmain{flex:1;display:flex;align-items:center;justify-content:center;position:relative}
+  .done{text-align:center}
+  .check{width:52px;height:52px;border-radius:50%;background:#0d1a12;border:1px solid #1d3a26;display:flex;align-items:center;justify-content:center;margin:0 auto 14px;color:#57c273}
+  .dt{font-size:16px;font-weight:650;color:#eef0f4}
+  .ds{font-size:12.5px;color:#8a8a92;margin-top:7px;line-height:1.55}
+  .ds b{color:#c9d4e6;font-weight:600}
+  .open{margin-top:18px;display:inline-block;font-size:13px;font-weight:600;color:#fff;background:#0066FF;border-radius:9px;padding:10px 22px;box-shadow:0 8px 24px -10px #0066FF}
+  .toast{position:absolute;top:16px;right:16px;display:flex;align-items:center;gap:8px;font-size:12px;color:#cfe0d4;background:#0d1a12;border:1px solid #1d3a26;border-radius:9px;padding:8px 13px}
+</style></head><body>
+  <div class="q">Flujo <b>Conectar → OAuth → conectado</b>. El canje code→token pasa por la Edge Function (server-side, state nonce); el token queda cifrado en tu equipo. Al volver, la integración se promueve a ítem del menú.</div>
+
+  <div class="step">1 · Click en "Conectar Slack" — Nest espera, el navegador del sistema se abre</div>
+  <div class="win f1">
+    <div class="bg"><div class="hero"><div class="hlogo"><svg viewBox="0 0 2447.6 2452.5"><g clip-rule="evenodd" fill-rule="evenodd"><path d="m897.4 0c-135.3.1-244.8 109.9-244.7 245.2-.1 135.3 109.5 245.1 244.8 245.2h244.8v-245.1c.1-135.3-109.5-245.1-244.9-245.3zm0 654h-652.6c-135.3.1-244.9 109.9-244.8 245.2-.2 135.3 109.4 245.1 244.7 245.3h652.7c135.3-.1 244.9-109.9 244.8-245.2.1-135.4-109.5-245.2-244.8-245.3z" fill="#36c5f0"/><path d="m2447.6 899.2c.1-135.3-109.5-245.1-244.8-245.2-135.3.1-244.9 109.9-244.8 245.2v245.3h244.8c135.3-.1 244.9-109.9 244.8-245.3zm-652.7 0v-654c.1-135.2-109.4-245-244.7-245.2-135.3.1-244.9 109.9-244.8 245.2v654c-.2 135.3 109.4 245.1 244.7 245.3 135.3-.1 244.9-109.9 244.8-245.3z" fill="#2eb67d"/><path d="m1550.1 2452.5c135.3-.1 244.9-109.9 244.8-245.2.1-135.3-109.5-245.1-244.8-245.2h-244.8v245.2c-.1 135.2 109.5 245 244.8 245.2zm0-654.1h652.7c135.3-.1 244.9-109.9 244.8-245.2.2-135.3-109.4-245.1-244.7-245.3h-652.7c-135.3.1-244.9 109.9-244.8 245.2-.1 135.4 109.4 245.2 244.7 245.3z" fill="#ecb22e"/><path d="m0 1553.2c-.1 135.3 109.5 245.1 244.8 245.2 135.3-.1 244.9-109.9 244.8-245.2v-245.2h-244.8c-135.3.1-244.9 109.9-244.8 245.2zm652.7 0v654c-.2 135.3 109.4 245.1 244.7 245.3 135.3-.1 244.9-109.9 244.8-245.2v-653.9c.2-135.3-109.4-245.1-244.7-245.3-135.4 0-244.9 109.8-244.8 245.1z" fill="#e01e5a"/></g></svg></div><div><div class="hname">Slack</div><div class="hsub">Comunicación · ✦ Integración nativa de Nest</div></div></div></div>
+    <div class="modal">
+      <div class="mlogo"><svg viewBox="0 0 2447.6 2452.5"><g clip-rule="evenodd" fill-rule="evenodd"><path d="m897.4 0c-135.3.1-244.8 109.9-244.7 245.2-.1 135.3 109.5 245.1 244.8 245.2h244.8v-245.1c.1-135.3-109.5-245.1-244.9-245.3zm0 654h-652.6c-135.3.1-244.9 109.9-244.8 245.2-.2 135.3 109.4 245.1 244.7 245.3h652.7c135.3-.1 244.9-109.9 244.8-245.2.1-135.4-109.5-245.2-244.8-245.3z" fill="#36c5f0"/><path d="m2447.6 899.2c.1-135.3-109.5-245.1-244.8-245.2-135.3.1-244.9 109.9-244.8 245.2v245.3h244.8c135.3-.1 244.9-109.9 244.8-245.3zm-652.7 0v-654c.1-135.2-109.4-245-244.7-245.2-135.3.1-244.9 109.9-244.8 245.2v654c-.2 135.3 109.4 245.1 244.7 245.3 135.3-.1 244.9-109.9 244.8-245.3z" fill="#2eb67d"/><path d="m1550.1 2452.5c135.3-.1 244.9-109.9 244.8-245.2.1-135.3-109.5-245.1-244.8-245.2h-244.8v245.2c-.1 135.2 109.5 245 244.8 245.2zm0-654.1h652.7c135.3-.1 244.9-109.9 244.8-245.2.2-135.3-109.4-245.1-244.7-245.3h-652.7c-135.3.1-244.9 109.9-244.8 245.2-.1 135.4 109.4 245.2 244.7 245.3z" fill="#ecb22e"/><path d="m0 1553.2c-.1 135.3 109.5 245.1 244.8 245.2 135.3-.1 244.9-109.9 244.8-245.2v-245.2h-244.8c-135.3.1-244.9 109.9-244.8 245.2zm652.7 0v654c-.2 135.3 109.4 245.1 244.7 245.3 135.3-.1 244.9-109.9 244.8-245.2v-653.9c.2-135.3-109.4-245.1-244.7-245.3-135.4 0-244.9 109.8-244.8 245.1z" fill="#e01e5a"/></g></svg></div>
+      <div class="mt">Autorizá Raven Nest en tu navegador</div>
+      <div class="ms">Se abrió <b style="color:#b8c2d4">slack.com</b> en tu navegador. Cuando aceptes, volvés acá automáticamente.</div>
+      <div class="spin"></div>
+      <div class="wait">Esperando autorización…</div>
+      <div class="cancel">Cancelar</div>
+      <div class="trust"><svg width="11" height="11" viewBox="0 0 16 16" fill="none"><rect x="3" y="7" width="10" height="7" rx="1.5" stroke="currentColor" stroke-width="1.3"/><path d="M5 7V5a3 3 0 0 1 6 0v2" stroke="currentColor" stroke-width="1.3"/></svg> El token se cifra en tu equipo · nunca pasa por nuestros servidores</div>
+    </div>
+  </div>
+
+  <div class="step">2 · Navegador del sistema — consent de Slack (no es un webview de Nest)</div>
+  <div class="win" style="padding:22px 0 26px">
+    <div class="browser">
+      <div class="chrome"><div class="dot"></div><div class="dot"></div><div class="dot"></div><div class="url">🔒 <b>slack.com</b>/oauth/v2/authorize?client_id=…&state=a91f…</div></div>
+      <div class="consent">
+        <div class="capp">
+          <div class="cico"><svg viewBox="0 0 24 24" fill="none"><rect x="3" y="3" width="18" height="18" rx="5" fill="#0066FF"/><path d="M8 15l4-7 4 7" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+          <div class="arrows">⇄</div>
+          <div class="cico"><svg viewBox="0 0 2447.6 2452.5"><g clip-rule="evenodd" fill-rule="evenodd"><path d="m897.4 0c-135.3.1-244.8 109.9-244.7 245.2-.1 135.3 109.5 245.1 244.8 245.2h244.8v-245.1c.1-135.3-109.5-245.1-244.9-245.3zm0 654h-652.6c-135.3.1-244.9 109.9-244.8 245.2-.2 135.3 109.4 245.1 244.7 245.3h652.7c135.3-.1 244.9-109.9 244.8-245.2.1-135.4-109.5-245.2-244.8-245.3z" fill="#36c5f0"/><path d="m2447.6 899.2c.1-135.3-109.5-245.1-244.8-245.2-135.3.1-244.9 109.9-244.8 245.2v245.3h244.8c135.3-.1 244.9-109.9 244.8-245.3zm-652.7 0v-654c.1-135.2-109.4-245-244.7-245.2-135.3.1-244.9 109.9-244.8 245.2v654c-.2 135.3 109.4 245.1 244.7 245.3 135.3-.1 244.9-109.9 244.8-245.3z" fill="#2eb67d"/><path d="m1550.1 2452.5c135.3-.1 244.9-109.9 244.8-245.2.1-135.3-109.5-245.1-244.8-245.2h-244.8v245.2c-.1 135.2 109.5 245 244.8 245.2zm0-654.1h652.7c135.3-.1 244.9-109.9 244.8-245.2.2-135.3-109.4-245.1-244.7-245.3h-652.7c-135.3.1-244.9 109.9-244.8 245.2-.1 135.4 109.4 245.2 244.7 245.3z" fill="#ecb22e"/><path d="m0 1553.2c-.1 135.3 109.5 245.1 244.8 245.2 135.3-.1 244.9-109.9 244.8-245.2v-245.2h-244.8c-135.3.1-244.9 109.9-244.8 245.2zm652.7 0v654c-.2 135.3 109.4 245.1 244.7 245.3 135.3-.1 244.9-109.9 244.8-245.2v-653.9c.2-135.3-109.4-245.1-244.7-245.3-135.4 0-244.9 109.8-244.8 245.1z" fill="#e01e5a"/></g></svg></div>
+        </div>
+        <div class="cbody">
+          <div class="cbt">Raven Nest quiere acceder al workspace RAVEN</div>
+          <div class="cbs">Autorizando como <b style="color:#c9d4e6">geronimo@raven.dev</b></div>
+          <div class="scopes">
+            <div class="scope"><svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M3 8l3 3 7-7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg> Ver canales y mensajes</div>
+            <div class="scope"><svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M3 8l3 3 7-7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg> Enviar mensajes en tu nombre</div>
+            <div class="scope"><svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M3 8l3 3 7-7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg> Buscar en el workspace</div>
+          </div>
+          <div class="allow">Permitir</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="step">3 · Deep-link de vuelta a Nest — conectado, Slack ya es un ítem del menú</div>
+  <div class="win f3">
+    <div class="side">
+      <div class="team"><div class="av"></div><div class="nm">RAVEN<small>Team</small></div></div>
+      <div class="nav">
+        <div class="nv"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M2 8h3l2-5 3 10 2-5h2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>Activity</div>
+        <div class="nv"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M2 4a1.5 1.5 0 0 1 1.5-1.5h9A1.5 1.5 0 0 1 14 4v6a1.5 1.5 0 0 1-1.5 1.5H6L3 14v-2.5A1.5 1.5 0 0 1 2 10V4z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>Chat</div>
+        <div class="nv"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><circle cx="4" cy="4" r="1.5" stroke="currentColor" stroke-width="1.3"/><circle cx="12" cy="4" r="1.5" stroke="currentColor" stroke-width="1.3"/><circle cx="4" cy="12" r="1.5" stroke="currentColor" stroke-width="1.3"/><path d="M4 5.5v5M5.5 4h5M4 5.5c2 0 4 1 4 3.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>Repos</div>
+        <div class="nv"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><circle cx="6" cy="5" r="2" stroke="currentColor" stroke-width="1.3"/><path d="M2 13c0-2.2 1.8-4 4-4s4 1.8 4 4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>Members</div>
+        <div class="navsep"></div>
+        <div class="nv"><span class="nlogo"><svg viewBox="0 0 24 24" fill="#2684FF"><path d="M11.571 11.513H0a5.218 5.218 0 0 0 5.232 5.215h2.13v2.057A5.215 5.215 0 0 0 12.575 24V12.518a1.005 1.005 0 0 0-1.005-1.005zm5.723-5.756H5.736a5.215 5.215 0 0 0 5.215 5.214h2.129v2.058a5.218 5.218 0 0 0 5.215 5.214V6.758a1.001 1.001 0 0 0-1.001-1.001zM23.013 0H11.455a5.215 5.215 0 0 0 5.215 5.215h2.129v2.057A5.215 5.215 0 0 0 24 12.483V1.005A1.001 1.001 0 0 0 23.013 0Z"/></svg></span>Jira</div>
+        <div class="nv new"><span class="nlogo"><svg viewBox="0 0 2447.6 2452.5"><g clip-rule="evenodd" fill-rule="evenodd"><path d="m897.4 0c-135.3.1-244.8 109.9-244.7 245.2-.1 135.3 109.5 245.1 244.8 245.2h244.8v-245.1c.1-135.3-109.5-245.1-244.9-245.3zm0 654h-652.6c-135.3.1-244.9 109.9-244.8 245.2-.2 135.3 109.4 245.1 244.7 245.3h652.7c135.3-.1 244.9-109.9 244.8-245.2.1-135.4-109.5-245.2-244.8-245.3z" fill="#36c5f0"/><path d="m2447.6 899.2c.1-135.3-109.5-245.1-244.8-245.2-135.3.1-244.9 109.9-244.8 245.2v245.3h244.8c135.3-.1 244.9-109.9 244.8-245.3zm-652.7 0v-654c.1-135.2-109.4-245-244.7-245.2-135.3.1-244.9 109.9-244.8 245.2v654c-.2 135.3 109.4 245.1 244.7 245.3 135.3-.1 244.9-109.9 244.8-245.3z" fill="#2eb67d"/><path d="m1550.1 2452.5c135.3-.1 244.9-109.9 244.8-245.2.1-135.3-109.5-245.1-244.8-245.2h-244.8v245.2c-.1 135.2 109.5 245 244.8 245.2zm0-654.1h652.7c135.3-.1 244.9-109.9 244.8-245.2.2-135.3-109.4-245.1-244.7-245.3h-652.7c-135.3.1-244.9 109.9-244.8 245.2-.1 135.4 109.4 245.2 244.7 245.3z" fill="#ecb22e"/><path d="m0 1553.2c-.1 135.3 109.5 245.1 244.8 245.2 135.3-.1 244.9-109.9 244.8-245.2v-245.2h-244.8c-135.3.1-244.9 109.9-244.8 245.2zm652.7 0v654c-.2 135.3 109.4 245.1 244.7 245.3 135.3-.1 244.9-109.9 244.8-245.2v-653.9c.2-135.3-109.4-245.1-244.7-245.3-135.4 0-244.9 109.8-244.8 245.1z" fill="#e01e5a"/></g></svg></span>Slack<span class="badge-new">NUEVO</span></div>
+      </div>
+    </div>
+    <div class="cmain">
+      <div class="toast"><svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M3 8l3 3 7-7" stroke="#57c273" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg> Slack conectado</div>
+      <div class="done">
+        <div class="check"><svg width="24" height="24" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3.2 3L13 4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+        <div class="dt">Slack conectado</div>
+        <div class="ds">Workspace <b>RAVEN</b> · autorizado como <b>geronimo@raven.dev</b><br>Ya lo tenés en el menú, junto a tus otras secciones.</div>
+        <div class="open">Abrir Slack</div>
+      </div>
+    </div>
+  </div>
+</body></html>

@@ -18,6 +18,7 @@ const planLabel = (plan: Plan | null, isTrialActive: boolean, trialDaysLeft: num
   if (isTrialActive) return `Trial · ${trialDaysLeft}d`
   if (plan === 'enterprise') return 'Enterprise'
   if (plan === 'team') return 'Team'
+  if (plan === 'cloud') return 'Cloud'
   if (plan === 'pro') return 'Pro'
   return 'Free'
 }
@@ -26,6 +27,7 @@ const planDotClass = (plan: Plan | null, isTrialActive: boolean) => {
   if (isTrialActive) return 'user-menu-dot--trial'
   if (plan === 'enterprise') return 'user-menu-dot--enterprise'
   if (plan === 'team') return 'user-menu-dot--team'
+  if (plan === 'cloud') return 'user-menu-dot--cloud'
   if (plan === 'pro') return 'user-menu-dot--pro'
   return 'user-menu-dot--free'
 }

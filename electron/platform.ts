@@ -1,4 +1,3 @@
-import { app } from 'electron'
 import { join } from 'path'
 
 export const isWin = process.platform === 'win32'
@@ -27,8 +26,15 @@ export const ICON_FILENAME = isWin ? 'icon.ico' : isMac ? 'icon.icns' : 'icon.pn
  * Returns the icons directory path — works in both dev and packaged app.
  * In dev:       <project>/resources/icons/
  * In packaged:  <resources>/icons/   (via extraResources in electron-builder)
+ *
+ * `electron` is required lazily here (not imported at module scope) so every OTHER
+ * export in this file — isWin/SHELL/SHELL_ARGS in particular, used by pty-manager.ts
+ * and account-store.ts — stays loadable under plain Node (vitest), which cannot resolve
+ * a real `electron` binary. Behaviorally identical: this function itself is only ever
+ * called from actual Electron main-process code (tray.ts, main.ts window creation).
  */
 export function getIconsDir(): string {
+  const { app } = require('electron') as typeof import('electron')
   return app.isPackaged
     ? join(process.resourcesPath, 'icons')
     : join(__dirname, '../resources/icons')

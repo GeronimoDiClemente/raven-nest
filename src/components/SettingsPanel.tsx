@@ -4,6 +4,10 @@ import { supabase } from '../lib/supabase'
 import { useSettings } from '../hooks/useSettings'
 import { useGitHub } from '../hooks/useGitHub'
 import { useGitlab } from '../hooks/useGitlab'
+import { useMemory } from '../hooks/useMemory'
+import { useProfile } from '../hooks/useProfile'
+import { useUserRepos } from '../hooks/useUserRepos'
+import { PLAN_LIMITS } from '../lib/stripe'
 import type { UserPreferencesApi } from '../hooks/useUserPreferences'
 import { formatBinding, eventToBinding, Keybindings } from '../lib/keybindings'
 import type { EditorPreferences, EditorTheme } from '../lib/ide-config-mappings'
@@ -12,6 +16,11 @@ import { matchThemeName } from '../lib/theme-registry'
 import type { InstalledThemeInfo, ScannedThemeInfo, OpenVSXThemeResult } from '../types'
 import { PresetEditor } from './PresetEditor'
 import { BenchmarkDashboard } from './BenchmarkDashboard'
+import UpgradeModal from './UpgradeModal'
+import MemoryHub from './MemoryHub'
+import MemoryAdoptionDialog from './MemoryAdoptionDialog'
+import MemoryVaultCard from './MemoryVaultCard'
+import logoUrl from '../assets/logo.png'
 
 type Tab = 'keybinds' | 'presets' | 'benchmarks' | 'updates' | 'account' | 'tutorial' | 'editor'
 
@@ -94,6 +103,52 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
   const { settings, updateKeybinding, updateVoiceLanguage } = useSettings()
   const { isConnected: githubConnected, githubLogin, connectGitHub, disconnectGitHub } = useGitHub()
   const { isConnected: gitlabConnected, gitlabLogin, connectGitlab, disconnectGitlab } = useGitlab()
+  const memory = useMemory()
+  const { repos: userRepos } = useUserRepos()
+  const { plan } = useProfile()
+  const [memoryUpgradeOpen, setMemoryUpgradeOpen] = useState(false)
+  // Reopen from Settings (Task 7 Step 3): local UI state only — never touches the
+  // persisted `hasSeenMemoryHub` flag, so reopening here doesn't affect whether the
+  // hub auto-shows again on next launch.
+  const [memoryHubOpen, setMemoryHubOpen] = useState(false)
+  // M10 / §6.6 "Right to delete": disconnect never touches local data regardless of
+  // this — it only controls whether main also calls memory-sync's delete-cloud-data
+  // action (see electron/main.ts's memory:disconnect handler) before clearing the
+  // local connection state.
+  const [deleteCloudOnDisconnect, setDeleteCloudOnDisconnect] = useState(false)
+  const [memoryToken, setMemoryToken] = useState('')
+  // Once the token has done its job, drop it. main.ts persists it in the credential
+  // store, so keeping the plaintext value in React state for the rest of the session
+  // buys nothing and leaves it in every heap snapshot and devtools inspection of the
+  // panel. Keyed on the card reaching 'connected' so it covers both the Connect and the
+  // Retry button.
+  useEffect(() => {
+    if (memory.state === 'connected') setMemoryToken('')
+  }, [memory.state])
+  // Sync push progress for the card's progress bar. itemCount is the running local
+  // total; pendingCount is the outstanding push queue and can exceed itemCount
+  // mid-migration (it also counts update mutations, not just inserts), so clamp.
+  // Bytes legibles. Un valor entero no lleva decimal ("1 GB"), uno fraccionario lleva uno
+  // ("3.0 MB"): la cuota tope suele ser redondo y el usado nunca lo es.
+  const formatBytes = (bytes: number): string => {
+    const unidades = ['B', 'KB', 'MB', 'GB', 'TB']
+    let v = bytes
+    let i = 0
+    while (v >= 1024 && i < unidades.length - 1) { v /= 1024; i++ }
+    return `${Number.isInteger(v) ? v : v.toFixed(1)} ${unidades[i]}`
+  }
+
+  // §9.2: Connect y Retry pasan a pedirle el token al servicio con el JWT del login. El
+  // token pegado a mano (C7) sigue ganando cuando está: es el camino del beta de una cuenta
+  // y el escape para cuando el emisor está caído.
+  const conectarMemoria = () => {
+    const pegado = memoryToken.trim()
+    return pegado ? memory.connectWithToken(pegado) : memory.connectWithLogin()
+  }
+
+  const memorySyncProgress = memory.itemCount > 0
+    ? Math.min(1, Math.max(0, (memory.itemCount - memory.pendingCount) / memory.itemCount))
+    : 0
   const [importPreview, setImportPreview] = useState<{ source: 'vscode' | 'intellij'; options: EditorPreferences; theme?: EditorTheme; unmappedTheme?: string } | null>(null)
   const [importError, setImportError] = useState<string | null>(null)
   const kb = settings.keybindings
@@ -226,6 +281,18 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
   return (
     <>
       <button className="titlebar-btn" onClick={() => setOpen(v => !v)} title="Settings" />
+
+      {/* Task 2 (adopción con aviso): no depende de `open` — el login que lo dispara puede
+          pasar con el panel de Settings cerrado, y el usuario tiene que verlo igual. */}
+      {memory.pendingAdoption && createPortal(
+        <MemoryAdoptionDialog
+          count={memory.pendingAdoption.count}
+          projects={memory.pendingAdoption.projects}
+          onAdopt={() => memory.resolveAdoption(true)}
+          onDecline={() => memory.resolveAdoption(false)}
+        />,
+        document.body
+      )}
 
       {open && createPortal(
         <>
@@ -366,6 +433,146 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                     </div>
                   </div>
 
+                  <div className="sp-card">
+                    <div className="sp-card-row">
+                      <div className="sp-card-left">
+                        <img src={logoUrl} alt="" aria-hidden="true" width={15} height={15} style={{ display: 'block' }} />
+                        <span className="sp-card-label">Nest Memory</span>
+                        <button
+                          onClick={() => setMemoryHubOpen(true)}
+                          style={{ fontSize: 11, opacity: 0.65, marginLeft: 6, background: 'transparent', border: 'none', textDecoration: 'underline', cursor: 'pointer', padding: 0 }}
+                        >
+                          Learn more
+                        </button>
+                        {memory.state === 'connected' && (
+                          <span style={{ fontSize: 11, opacity: 0.65, marginLeft: 6 }}>
+                            {memory.itemCount} items{memory.pendingCount > 0 ? ` · ${memory.pendingCount} pending` : ' · synced'}
+                          </span>
+                        )}
+                        {memory.state === 'paused' && (
+                          <span style={{ fontSize: 11, color: '#f59e0b', marginLeft: 6 }}>
+                            Offline — {memory.pendingCount} change{memory.pendingCount === 1 ? '' : 's'} will sync when you're back
+                          </span>
+                        )}
+                        {memory.state === 'error' && (
+                          <span style={{ fontSize: 11, color: '#ef4444', marginLeft: 6 }}>
+                            Couldn't sync{memory.error ? ` — ${memory.error}` : ''}
+                          </span>
+                        )}
+                        {memory.state === 'plan_required' && (
+                          <span style={{ fontSize: 11, color: '#f59e0b', marginLeft: 6 }}>
+                            Your plan doesn't include cloud sync — upgrade to resume
+                          </span>
+                        )}
+                        {memory.state === 'unavailable' && (
+                          <span style={{ fontSize: 11, color: '#f59e0b', marginLeft: 6 }}>
+                            Memory didn't start on this machine — restart Nest
+                          </span>
+                        )}
+                        {memory.state === 'disconnected' && !PLAN_LIMITS[plan].memoryCloud && (
+                          <span style={{ fontSize: 11, opacity: 0.65, marginLeft: 6 }}>
+                            Local memory active — cloud sync is a Cloud feature
+                          </span>
+                        )}
+                        {(memory.state === 'connecting' || memory.state === 'migrating') && (
+                          <span style={{ fontSize: 11, opacity: 0.65, marginLeft: 6 }}>
+                            {memory.state === 'connecting' ? 'Connecting…' : 'Importing your memory…'}
+                          </span>
+                        )}
+                      </div>
+                      {memory.state === 'unavailable' ? (
+                        <button className="sp-btn-purple" disabled>Unavailable</button>
+                      ) : memory.state === 'connected' || memory.state === 'paused' ? (
+                        <button className="sp-btn-danger" onClick={() => memory.disconnect(deleteCloudOnDisconnect)}>Disconnect</button>
+                      ) : memory.state === 'error' ? (
+                        // §6.6/§7.5 "right to delete": `error` here means a connection that
+                        // WAS established (refresh() only reaches it when status.connected is
+                        // true) whose daemon is now failing — the stored token is still valid,
+                        // so Disconnect (and an optional cloud delete via the checkbox below)
+                        // still authenticates. Without it, a user stuck in a persistent error
+                        // state had no way to get their cloud copy deleted except fixing the
+                        // underlying failure first.
+                        <div style={{ display: 'flex', gap: 8 }}>
+                          <button className="sp-btn-purple" onClick={() => void conectarMemoria()}>Retry</button>
+                          <button className="sp-btn-danger" onClick={() => memory.disconnect(deleteCloudOnDisconnect)}>Disconnect</button>
+                        </div>
+                      ) : memory.state === 'plan_required' ? (
+                        // Same right-to-delete gap as `error`: the connection still exists —
+                        // the token is valid and the device is registered, the server is just
+                        // refusing pushes for plan reasons — so Disconnect is meaningful and
+                        // the delete-cloud-data call will authenticate. A downgraded user is
+                        // exactly someone who may want their data off the server, and the
+                        // Upgrade-only button gave them no way to ask for that.
+                        <div style={{ display: 'flex', gap: 8 }}>
+                          {/* Reuses the same Upgrade affordance the free-plan disconnected
+                              branch below already has — no second upgrade path invented. */}
+                          <button className="sp-btn-purple" onClick={() => setMemoryUpgradeOpen(true)}>Upgrade</button>
+                          <button className="sp-btn-danger" onClick={() => memory.disconnect(deleteCloudOnDisconnect)}>Disconnect</button>
+                        </div>
+                      ) : memory.state === 'connecting' || memory.state === 'migrating' ? (
+                        <button className="sp-btn-purple" disabled>…</button>
+                      ) : PLAN_LIMITS[plan].memoryCloud ? (
+                        <button className="sp-btn-purple" onClick={() => void conectarMemoria()}>Connect</button>
+                      ) : (
+                        <button className="sp-btn-purple" onClick={() => setMemoryUpgradeOpen(true)}>Upgrade</button>
+                      )}
+                    </div>
+                    {((memory.state === 'disconnected' && PLAN_LIMITS[plan].memoryCloud) || memory.state === 'error') && (
+                      <input
+                        type="password"
+                        className="sp-select"
+                        style={{ width: '100%', marginTop: 8, cursor: 'text' }}
+                        placeholder="Paste a sync token (optional)"
+                        aria-label="Memory sync token"
+                        value={memoryToken}
+                        onChange={(e) => setMemoryToken(e.target.value)}
+                      />
+                    )}
+                    {memory.state === 'disconnected' && userRepos.length === 0 && (
+                      <div className="sp-mem-no-repos-banner">
+                        <span className="sp-mem-no-repos-banner-icon">⚠</span>
+                        <span>
+                          No repositories linked yet. Link your repos first so imported memory gets
+                          organized per project — memory connected without repos goes to the global
+                          space and won't be re-organized later.
+                        </span>
+                      </div>
+                    )}
+                    {/* La cuota la manda el servidor. La condicion NO cuelga de
+                        PLAN_LIMITS[plan].memoryCloud a proposito: gatear el dato del
+                        servidor detras de una constante del cliente es justo lo que el
+                        corte comercial saca del medio. Si el servidor reporto cuota, el
+                        usuario tiene nube. */}
+                    {memory.quota && (memory.state === 'connected' || memory.state === 'paused') && (
+                      <div className="sp-mem-quota">
+                        {formatBytes(memory.quota.used_bytes)} of {formatBytes(memory.quota.max_bytes)} used
+                      </div>
+                    )}
+                    {memory.state === 'connected' && memory.pendingCount > 0 && (
+                      <div className="sp-mem-progress" title={`${memory.itemCount} items · ${memory.pendingCount} pending`}>
+                        <div className="sp-mem-progress-fill" style={{ width: `${memorySyncProgress * 100}%` }} />
+                      </div>
+                    )}
+                    {(memory.state === 'connected' || memory.state === 'paused'
+                      // Extends to the two states whose Disconnect button was just made
+                      // reachable above — otherwise the button existing wouldn't actually
+                      // let these users ask for deletion, since deleteCloudOnDisconnect
+                      // would silently stay at its unchecked default with no control to
+                      // flip it in this session.
+                      || memory.state === 'error' || memory.state === 'plan_required') && (
+                      <label className="sp-checkbox-row">
+                        <input
+                          type="checkbox"
+                          checked={deleteCloudOnDisconnect}
+                          onChange={(e) => setDeleteCloudOnDisconnect(e.target.checked)}
+                        />
+                        Also delete my cloud memory (your local memory is never affected)
+                      </label>
+                    )}
+                  </div>
+
+                  <MemoryVaultCard />
+
                   <button className="sp-action-btn" onClick={() => supabase.auth.signOut()}>
                     Sign out
                   </button>
@@ -383,6 +590,16 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                 </div>
               )}
 
+              {memoryUpgradeOpen && (
+                <UpgradeModal currentPlan={plan} onClose={() => setMemoryUpgradeOpen(false)} />
+              )}
+
+              {memoryHubOpen && (
+                <MemoryHub
+                  onClose={() => setMemoryHubOpen(false)}
+                  onUpgrade={() => { setMemoryHubOpen(false); setMemoryUpgradeOpen(true) }}
+                />
+              )}
               {tab === 'editor' && (
                 <div className="sp-section">
                   <div className="sp-row">

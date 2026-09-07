@@ -44,12 +44,14 @@ interface Props {
   ports?: number[]
   fontSize: number
   style?: React.CSSProperties
-  allowSharing?: boolean
-  onRequireUpgrade?: () => void
+  /** True when this pane's worktree is running a multi-step worker and a next
+   *  step exists — arms the "Hand off →" action in the header. */
+  hasNextStep?: boolean
+  onHandoff?: () => void
   onRename?: (label: string) => void  // rename the pane (sets customLabel)
 }
 
-export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZoom, onClose, onColorChange, onNoteChange, onInput, onBusyChange, onFocus, onActivity, onJoinRequest, onPtyStarted, ports = [], fontSize, style, allowSharing = true, onRequireUpgrade, onRename }: Props) {
+export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZoom, onClose, onColorChange, onNoteChange, onInput, onBusyChange, onFocus, onActivity, onJoinRequest, onPtyStarted, ports = [], fontSize, style, hasNextStep, onHandoff, onRename }: Props) {
   const cmdBufferRef = useRef('')
   const wrappedOnInput = useCallback((data: string) => {
     for (const ch of data) {
@@ -95,6 +97,9 @@ export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZ
   const [showBlocks, setShowBlocks] = useState(false)
   const [isBusy, setIsBusy] = useState(false)
   const isBusyRef = useRef(false)
+  // One-shot: inyecta pane.initialInput al PTY la primera vez que produce output
+  // (señal de que el REPL del agente arrancó). Ver "arreglá el rojo" (H4).
+  const injectedRef = useRef(false)
   const [showShare, setShowShare] = useState(false)
   const { shareCode, isSharing, startSharing, stopSharing } = useTerminalShare(
     pane.id,
@@ -144,6 +149,19 @@ export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZ
 
     registerPane(pane.id, (data) => {
       if (!alive) return
+      // Primera data del pane → inyectar el prompt pendiente una sola vez. El
+      // delay le da aire al REPL del agente para montar su input antes de escribir.
+      // El texto y el Enter se escriben en writes SEPARADOS (con otro delay entre
+      // medio): un \r pegado al texto llega antes de que el REPL termine de
+      // renderizar un input multilínea y no llega a submitear.
+      if (pane.initialInput && !injectedRef.current) {
+        injectedRef.current = true
+        const text = pane.initialInput!
+        setTimeout(() => {
+          window.pty.write(pane.id, text)
+          setTimeout(() => window.pty.write(pane.id, '\r'), 350)
+        }, 400)
+      }
       write(data)
       if (!activityDebounce) {
         onActivityRef.current?.(pane.id, true)
@@ -408,12 +426,13 @@ export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZ
         blockCount={blocks.length}
         onToggleBlocks={handleToggleBlocks}
         onShare={() => {
-          if (!allowSharing) { onRequireUpgrade?.(); return }
           setShowShare(v => !v)
         }}
         isSharing={isSharing}
         repoPathDiverged={repoPathDiverged}
         onSyncCwd={handleSyncCwd}
+        hasNextStep={hasNextStep}
+        onHandoff={onHandoff}
         onRename={onRename}
       />
       {searchOpen && (

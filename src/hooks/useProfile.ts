@@ -16,7 +16,7 @@ function computeEffectivePlan(rawPlan: string, trialStartedAt: string | null): {
   isTrialActive: boolean
   trialDaysLeft: number
 } {
-  if (rawPlan === 'pro' || rawPlan === 'team' || rawPlan === 'enterprise') {
+  if (rawPlan === 'cloud' || rawPlan === 'pro' || rawPlan === 'team' || rawPlan === 'enterprise') {
     return { plan: rawPlan as Plan, isTrialActive: false, trialDaysLeft: 0 }
   }
 
@@ -54,7 +54,7 @@ export function useProfile(): Profile {
       // sesión real appFlags.e2eBypass es false y esto nunca corre. Permite
       // probar features gateadas por plan sin un perfil Supabase.
       const e2ePlan = window.appFlags?.e2eBypass ? window.appFlags.e2ePlan : null
-      if (e2ePlan === 'free' || e2ePlan === 'pro' || e2ePlan === 'team' || e2ePlan === 'enterprise') {
+      if (e2ePlan === 'free' || e2ePlan === 'cloud' || e2ePlan === 'pro' || e2ePlan === 'team' || e2ePlan === 'enterprise') {
         setProfile({ plan: e2ePlan, loading: false, isTrialActive: false, trialDaysLeft: 0 })
         return
       }

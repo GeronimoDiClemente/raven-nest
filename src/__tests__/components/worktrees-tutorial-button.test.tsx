@@ -23,6 +23,7 @@ beforeEach(() => {
     spotlight: { status: vi.fn(async () => ({ active: false })), onStatus: vi.fn(), start: vi.fn(async () => {}), stop: vi.fn(async () => {}), removeListeners: vi.fn() },
     preset: { onSetupState: vi.fn(), cancel: vi.fn(async () => {}), removeListeners: vi.fn() },
     electronShell: { openExternal: vi.fn() },
+    signals: { list: vi.fn(async () => []), fixCiPrompt: vi.fn(async () => null), onUpdate: vi.fn(() => () => {}) },
   })
 })
 
@@ -36,6 +37,7 @@ describe('Worktrees tutorial launch button', () => {
         onSelect={() => {}}
         onNewClick={() => {}}
         onStartTutorial={onStartTutorial}
+        onFixCi={() => {}}
       />,
     )
     const btn = await waitFor(() => screen.getByTitle('Tutorial: Worktrees'))
@@ -45,7 +47,7 @@ describe('Worktrees tutorial launch button', () => {
 
   it('does not render the "?" button when onStartTutorial is absent', async () => {
     render(
-      <WorktreesSection repoPath={ROOT} activeRepoPath={ROOT} onSelect={() => {}} onNewClick={() => {}} />,
+      <WorktreesSection repoPath={ROOT} activeRepoPath={ROOT} onSelect={() => {}} onNewClick={() => {}} onFixCi={() => {}} />,
     )
     await waitFor(() => expect(screen.getByText(/Worktrees/)).toBeInTheDocument())
     expect(screen.queryByTitle('Tutorial: Worktrees')).toBeNull()

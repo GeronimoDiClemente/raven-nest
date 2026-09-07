@@ -6,7 +6,7 @@ import {
 import { SortableContext, rectSortingStrategy } from '@dnd-kit/sortable'
 import {
   PaneNode, AIType, AI_CONFIG, SessionData, SessionPane, Workspace,
-  WorkspaceTab, LayoutId, MAX_PANES, EditorTab,
+  WorkspaceTab, LayoutId, MAX_PANES, WorktreeMeta, WorkerSpec, EditorTab,
 } from './types'
 import { PaneLayoutEngine } from './components/PaneLayoutEngine'
 import { defaultLayoutFor, hubLayoutFor, mapLegacyToPreset } from './layout/select'
@@ -49,8 +49,11 @@ import { openFileFromHub } from './lib/hub-open-file'
 import { pruneHubPanes } from './lib/hub-panes'
 import { dropTabBuffer } from './lib/editor-buffer-handoff'
 import UpgradeModal from './components/UpgradeModal'
+import MemoryHub from './components/MemoryHub'
 import TeamsWorkspace from './components/TeamsWorkspace'
 import MyReposPanel from './components/MyReposPanel'
+import { IntegrationsHub } from './components/IntegrationsHub'
+import { GraphBoard } from './components/GraphBoard'
 import { useGitHub } from './hooks/useGitHub'
 import { usePendingInvitesCount } from './hooks/usePendingInvitesCount'
 import { useSpeechRecognition } from './hooks/useSpeechRecognition'
@@ -65,6 +68,8 @@ import { terminalShareService } from './lib/terminalShareService'
 import ResourceBar from './components/ResourceBar'
 import { useLocalPathsMigration } from './hooks/useLocalPathsMigration'
 import type { MetricsPaneInput } from './types'
+import { nextStep, composeStepInput, upsertWorkerSpec } from './lib/worker-run'
+import type { WorkerRun } from './lib/worker-run'
 import { OnboardingTour } from './tutorial/OnboardingTour'
 import { getTour } from './tutorial/registry'
 
@@ -96,12 +101,29 @@ export default function App() {
     setTabs(prev => prev.map(t => t.id === activeTabId ? updater(t) : t))
   }, [activeTabId])
 
-  const [addingPane, setAddingPane] = useState<null | { worktreePath?: string }>(null)
+  // presetAgent/presetModel/presetAccount seed NewPaneDialog (agent + model
+  // dropdown, and — when the worker step stored one — the CLI account to
+  // launch with) when a board task is opened "with a worker"; worktreePath/
+  // initialInput are threaded into the created pane by addPane below.
+  const [addingPane, setAddingPane] = useState<null | { worktreePath?: string; initialInput?: string; presetAgent?: AIType; presetModel?: string; presetAccount?: string }>(null)
   // Mirror addingPane in a ref so addPane reads the freshest value without
   // depending on a closure that React may not have updated yet — the dialog
   // sometimes captures the previous addPane closure where worktreePath is null.
-  const addingPaneRef = useRef<null | { worktreePath?: string }>(null)
+  const addingPaneRef = useRef<null | { worktreePath?: string; initialInput?: string; presetAgent?: AIType; presetModel?: string; presetAccount?: string }>(null)
   addingPaneRef.current = addingPane
+  // Cooperative worker pipelines: which worker+step each worktree is running, so
+  // the pane header can offer "Hand off →" to advance to the next step. Keyed by
+  // worktree path (a pane's repoPath). Set when a worktree opens with a worker.
+  const [activeWorkerRun, setActiveWorkerRun] = useState<Record<string, WorkerRun>>({})
+  // Worker-specs loaded once so a running run is resolvable to its spec by id.
+  const [workerSpecs, setWorkerSpecs] = useState<WorkerSpec[]>([])
+  useEffect(() => {
+    let cancelled = false
+    window.workerSpecs?.list?.()
+      .then((list) => { if (!cancelled) setWorkerSpecs(list) })
+      .catch(() => { /* no bridge / failed load → handoff simply never arms */ })
+    return () => { cancelled = true }
+  }, [])
   const [zoomedPaneId, setZoomedPaneId] = useState<string | null>(null)
   const [zoomingOut, setZoomingOut] = useState(false)
   const [draggingId, setDraggingId] = useState<string | null>(null)
@@ -231,6 +253,8 @@ export default function App() {
   const [teamsOpen, setTeamsOpen] = useState(false)
   const { count: pendingInvitesCount, refresh: refreshPendingInvitesCount } = usePendingInvitesCount()
   const [myReposOpen, setMyReposOpen] = useState(false)
+  const [integrationsHubOpen, setIntegrationsHubOpen] = useState(false)
+  const [graphBoardOpen, setGraphBoardOpen] = useState(false)
   const [showJoinViewer, setShowJoinViewer] = useState(false)
   const [joinRequest, setJoinRequest] = useState<{ paneId: string; paneTitle: string } | null>(null)
   const { githubToken, githubLogin, connectGitHub } = useGitHub()
@@ -248,9 +272,12 @@ export default function App() {
     }
   }, [userPrefs.loaded]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const { settings } = useSettings()
+  const { settings, markMemoryHubSeen } = useSettings()
   const settingsRef = useRef(settings)
   settingsRef.current = settings
+  // e2eBypass runs every test against a fresh RAVEN_HOME (no settings.json yet), which
+  // would otherwise pop this over every e2e spec — see the one existing check below.
+  const showMemoryHub = !settings.hasSeenMemoryHub && !window.appFlags?.e2eBypass
 
   const { isListening, isTranscribing, isModelLoading, toggle: toggleListening } = useSpeechRecognition(
     useCallback((text: string) => {
@@ -282,12 +309,6 @@ export default function App() {
       setAddingPane(null)
       return
     }
-    if (panesRef.current.length >= planLimits.maxPanes) {
-      // Plan cap (e.g. Free is 3) — offer upgrade rather than silently no-op.
-      setAddingPane(null)
-      setShowUpgrade(true)
-      return
-    }
     // A Hub tab owns no terminals of its own (HubView filters isHub tabs out
     // of the grid). Pushing a pane onto it would create an invisible,
     // unclosable pane, so route the new terminal into a fresh workspace.
@@ -308,12 +329,14 @@ export default function App() {
       return
     }
     const worktreePath = addingPaneRef.current?.worktreePath
+    const initialInput = addingPaneRef.current?.initialInput
     updateActiveTab(t => {
       const pane: PaneNode = {
         id: generateId(), aiType, accountName, accountDir, borderColor, cmd,
         customLabel, customColor, shellId,
         repoPath: worktreePath ?? t.repoPath,
         ...initial,
+        ...(initialInput ? { initialInput } : {}),
       }
       const nextPanes = [...t.panes, pane]
       // Promote layoutId if current preset is full and there's a default for the
@@ -329,7 +352,126 @@ export default function App() {
         : { ...t, panes: nextPanes, layoutId }
     })
     setAddingPane(null)
-  }, [updateActiveTab, planLimits.maxPanes])
+  }, [updateActiveTab])
+
+  // "Arreglá el rojo" (H4): baja en main el log del run fallido del worktree y lo
+  // inyecta al agente. Si ya hay un pane en ese worktree, lo escribe y lo enfoca;
+  // si no, abre un pane nuevo con initialInput (se escribe al arrancar el PTY).
+  const onFixCi = useCallback(async (worktreePath: string) => {
+    const prompt = await window.signals?.fixCiPrompt(worktreePath).catch(() => null)
+    if (!prompt) return
+    const existing = panesRef.current.find((p) => p.repoPath === worktreePath)
+    if (existing) {
+      window.pty.write(existing.id, prompt + '\r')
+      setFocusedPaneId(existing.id)
+    } else {
+      setAddingPane({ worktreePath, initialInput: prompt })
+    }
+  }, [])
+
+  // "Hand off →": advance the worktree's worker pipeline to the next step. Reads
+  // the handoff the current agent wrote (.nest/handoff.md), composes the next
+  // step's input (prior handoff + its instructions + a "write your handoff"
+  // note when it isn't the final step) and opens a fresh pane on that step's
+  // agent/model via the same preset seam the board-open flow uses.
+  // Worktrees whose handoff is mid-flight, so a double-click can't resolve the
+  // same `next` twice (two panes + a double stepIndex bump) during the async
+  // handoff.read window. Set synchronously before the await, cleared after.
+  const handoffInFlightRef = useRef<Set<string>>(new Set())
+  const advanceHandoff = useCallback(async (worktreePath: string) => {
+    if (handoffInFlightRef.current.has(worktreePath)) return
+    const run = activeWorkerRun[worktreePath]
+    const spec = workerSpecs.find((s) => s.id === run?.workerId)
+    if (!run || !spec) return
+    const next = nextStep(spec, run)
+    if (!next) return
+    handoffInFlightRef.current.add(worktreePath)
+    try {
+      const handoff = await window.handoff.read(worktreePath)
+      const isFinal = next.index === spec.steps.length - 1
+      const initialInput = composeStepInput(next.step.instructions, handoff, isFinal)
+      setAddingPane({ worktreePath, initialInput, presetAgent: next.step.agent, presetModel: next.step.model, presetAccount: next.step.account })
+      setActiveWorkerRun((m) => ({ ...m, [worktreePath]: { ...run, stepIndex: next.index } }))
+    } finally {
+      handoffInFlightRef.current.delete(worktreePath)
+    }
+  }, [activeWorkerRun, workerSpecs])
+
+  // Shared by every "open a worktree, optionally running a worker" entry
+  // point (board flow via IntegrationsHub, My Repos via MyReposPanel): with a
+  // worker spec, step 0 seeds the first pane (compose its input — no prior
+  // handoff yet; append the "write your handoff" note unless it's a
+  // single-step worker) and initializes NewPaneDialog's agent/model, then
+  // arms the run so the pane can offer "Hand off →". No spec → the plain flow
+  // (calendar/None): use initialInput as-is. Callers own closing their own
+  // panel before/after calling this — it only does the pane/worker wiring.
+  const openWorktreeWithWorker = useCallback((worktreePath: string, initialInput?: string, worker?: WorkerSpec) => {
+    const step0 = worker?.steps[0]
+    const isFinal = !worker || worker.steps.length <= 1
+    setAddingPane({
+      worktreePath,
+      initialInput: step0 ? composeStepInput(step0.instructions, null, isFinal) : initialInput,
+      presetAgent: step0?.agent,
+      presetModel: step0?.model,
+      presetAccount: step0?.account,
+    })
+    if (worker) {
+      // Resolve the run's spec from the one that just flowed through, not the
+      // mount-loaded list: a worker created/edited in AutomationsView after
+      // App mounted isn't in `workerSpecs`, so hasNextStep/advanceHandoff
+      // would silently miss it. Upsert (filter-then-append) so an edited
+      // worker's fresh steps also replace any stale copy. Mount-load stays
+      // the initial seed.
+      setWorkerSpecs((list) => upsertWorkerSpec(list, worker))
+      setActiveWorkerRun((m) => ({ ...m, [worktreePath]: { workerId: worker.id, stepIndex: 0 } }))
+    }
+  }, [])
+
+  // === H7 Motor 5 — @Nest desde Slack ===
+  // Refs para leer valores frescos dentro de los listeners del socket sin tener
+  // que re-suscribir el effect en cada render.
+  const activeRepoPathRef = useRef<string | undefined>(undefined)
+  activeRepoPathRef.current = activeCellRepoPath
+  const githubLoginRef = useRef<string | null>(null)
+  githubLoginRef.current = githubLogin
+  // worktreePath → {channel, threadTs}: qué thread de Slack originó cada sesión.
+  // Se llena al crear la sesión (el "Trabajando en esto…" inicial ya se postea);
+  // queda como enganche para que un follow-up postee updates por evento del bus.
+  const paneThreadRef = useRef<Record<string, { channel: string; threadTs: string }>>({})
+
+  useEffect(() => {
+    if (!window.slackMentions) return
+    // Mención @Nest → worktree + pane con el texto del thread como initialInput
+    // (reusa H4). El main ya ACKeó el envelope; acá sólo abrimos la sesión.
+    const offMention = window.slackMentions.onMention(async (m) => {
+      try {
+        const repoPath = activeRepoPathRef.current
+        if (!repoPath) return // sin repo activo no hay de dónde ramificar
+        const branch = await window.tickets.branchName(githubLoginRef.current ?? '', 'slack', m.text.slice(0, 24))
+        const res = await window.worktree.create({ repoPath, branch }) as unknown as
+          ({ ok: true; meta: WorktreeMeta } | { ok: false; error: string })
+        if (!res.ok) { console.warn('[slack] worktree.create falló', res.error); return }
+        const worktreePath = res.meta.repoPath
+        paneThreadRef.current[worktreePath] = { channel: m.channel, threadTs: m.threadTs }
+        setAddingPane({ worktreePath, initialInput: m.text })
+        void window.slackMentions.postThread({
+          channel: m.channel, threadTs: m.threadTs,
+          text: '🪺 Trabajando en esto — abrí Nest para ver el terminal.',
+        })
+      } catch (err) {
+        console.warn('[slack] onMention falló', err)
+      }
+    })
+    // Click de botón Block Kit → acción sobre el pane del worktree (a.value = worktreePath).
+    const offAction = window.slackMentions.onAction((a) => {
+      if (a.actionId === 'fix_ci' && a.value) { void onFixCi(a.value); return }
+      if (a.actionId === 'relaunch' && a.value) {
+        const pane = panesRef.current.find((p) => p.repoPath === a.value)
+        if (pane) setFocusedPaneId(pane.id)
+      }
+    })
+    return () => { offMention?.(); offAction?.() }
+  }, [onFixCi])
 
   const handleRepoLink = useCallback(async () => {
     try {
@@ -423,9 +565,8 @@ export default function App() {
 
   const [showNewWorktree, setShowNewWorktree] = useState(false)
   const handleNewWorktree = useCallback(() => {
-    if (!planLimits.allowCreateWorktree) { setShowUpgrade(true); return }
     setShowNewWorktree(true)
-  }, [planLimits.allowCreateWorktree])
+  }, [])
   const [quickWorktreeOpen, setQuickWorktreeOpen] = useState(false)
   const [diffViewerOpen, setDiffViewerOpen] = useState(false)
   // The tutorial is launched on demand: from the "?" button in the Worktrees
@@ -442,19 +583,17 @@ export default function App() {
       if (isCmdShift && e.key.toLowerCase() === 'w') {
         if (!activeTab.repoPath) return
         e.preventDefault()
-        if (!planLimits.allowCreateWorktree) { setShowUpgrade(true); return }
         setQuickWorktreeOpen(true)
       }
       if (isCmdShift && e.key.toLowerCase() === 'd') {
         if (!activeCellRepoPath) return
         e.preventDefault()
-        if (!planLimits.allowDiffViewer) { setShowUpgrade(true); return }
         setDiffViewerOpen((v) => !v)
       }
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
-  }, [activeTab.repoPath, activeCellRepoPath, planLimits.allowCreateWorktree, planLimits.allowDiffViewer])
+  }, [activeTab.repoPath, activeCellRepoPath])
 
   const removePane = useCallback((paneId: string) => {
     window.pty.kill(paneId)
@@ -583,10 +722,6 @@ export default function App() {
     // después y se bloquea silencioso en el tope de plan/MAX_PANES — sin este
     // pre-check la tab ya removida no se agregaba a ningún lado (se perdía).
     if (panesRef.current.length >= MAX_PANES) return
-    if (panesRef.current.length >= planLimits.maxPanes) {
-      setShowUpgrade(true)
-      return
-    }
     updateActiveTab(t => ({
       ...t,
       // removeEditorTab preserva la vista activa si el tab movido no era el
@@ -601,7 +736,7 @@ export default function App() {
       activeEditorTabPath: relPath,
       repoPath: sourcePane.repoPath,
     })
-  }, [activeTab, updateActiveTab, addPane, planLimits.maxPanes])
+  }, [activeTab, updateActiveTab, addPane])
 
   // Drag & drop: una tab soltada sobre OTRO pane de editor — del mismo
   // workspace o, en el Hub, de workspaces distintos (mismo worktree).
@@ -635,13 +770,9 @@ export default function App() {
     const sourceTab = tabsRef.current.find(t => !t.isHub && t.panes.some(p => p.id === paneId))
     if (!sourceTab) return
     if (sourceTab.panes.length >= MAX_PANES) return
-    if (sourceTab.panes.length >= planLimits.maxPanes) {
-      setShowUpgrade(true)
-      return
-    }
     const newId = generateId()
     setTabs(prev => splitEditorTabFromHub(prev, hubTabId, paneId, relPath, newId) ?? prev)
-  }, [planLimits.maxPanes])
+  }, [])
 
   const handlePtyStarted = useCallback((paneId: string, runningRepoPath: string | undefined) => {
     updateActiveTab(t => ({
@@ -1013,10 +1144,6 @@ export default function App() {
 
   const openBrowserCell = useCallback((url: string) => {
     if (panesRef.current.length >= MAX_PANES) return
-    if (panesRef.current.length >= planLimits.maxPanes) {
-      setShowUpgrade(true)
-      return
-    }
     // Hub tabs own no panes — el browser vive en un workspace nuevo, pero se
     // auto-pinnea al Hub y el usuario SE QUEDA en el Hub (antes esto
     // navegaba al workspace nuevo, dejando la sensación de "no puedo tener
@@ -1053,7 +1180,7 @@ export default function App() {
         ? { ...t, panes: nextPanes, layoutId, splitRatios: {} }
         : { ...t, panes: nextPanes, layoutId }
     })
-  }, [activeTabId, updateActiveTab, planLimits.maxPanes])
+  }, [activeTabId, updateActiveTab])
 
   // When a link click in xterm or a PortChip dispatches nest:pty-url and no
   // BrowserCell is mounted to capture it, create one. If a BrowserCell IS
@@ -1253,7 +1380,6 @@ export default function App() {
       // Voice input toggle
       if (matchesBinding(e, kb.voiceInput)) {
         e.preventDefault()
-        if (!planLimits.allowVoice) { setShowUpgrade(true); return }
         toggleListening()
         return
       }
@@ -1353,7 +1479,7 @@ export default function App() {
     // means non-modified keystrokes still flow through to the terminal.
     window.addEventListener('keydown', handler, true)
     return () => window.removeEventListener('keydown', handler, true)
-  }, [addNextPane, toggleListening, cycleTab, handleUnzoom, handleZoom, planLimits.allowVoice, openHub, closeHub])
+  }, [addNextPane, toggleListening, cycleTab, handleUnzoom, handleZoom, openHub, closeHub])
 
   const isInitialState = panes.length === 0
 
@@ -1545,19 +1671,15 @@ export default function App() {
       borderColor: AI_CONFIG.editor.color, cmd: '', repoPath,
       editorTabs: [{ relPath, dirty: false }], activeEditorTabPath: relPath,
     }
-    // Respetar el cap del workspace destino (hard MAX_PANES + tope de plan) igual
-    // que addPane, y el del Hub (MAX_PANES, lo que hubData muestra).
+    // Respetar el cap del workspace destino (MAX_PANES) igual que addPane, y el
+    // del Hub (MAX_PANES, lo que hubData muestra).
     const res = openFileFromHub(tabsRef.current, activeTabIdRef.current, workspaceTabId, repoPath, relPath, newPane, {
-      workspaceCapacity: Math.min(MAX_PANES, planLimits.maxPanes),
+      workspaceCapacity: MAX_PANES,
       hubCapacity: MAX_PANES,
     })
-    if (res.status === 'workspace-full') {
-      // Bloqueado por el tope del plan (no el hard cap) → ofrecer upgrade, como addPane.
-      if (planLimits.maxPanes < MAX_PANES) setShowUpgrade(true)
-      return
-    }
+    if (res.status === 'workspace-full') return
     setTabs(res.tabs)
-  }, [planLimits.maxPanes])
+  }, [])
 
   // El Hub muestra panes de OTROS workspaces: toda mutación va vía los
   // helpers *Anywhere (la tab activa es la del Hub y no posee estos panes).
@@ -1625,8 +1747,6 @@ export default function App() {
       onActivity={handlePaneActivity}
       onJoinRequest={() => setJoinRequest({ paneId: pane.id, paneTitle: pane.customLabel ?? pane.accountName ?? 'Terminal' })}
       onPtyStarted={(id, rp) => updatePaneAnywhere(id, p => ({ ...p, runningRepoPath: rp }))}
-      allowSharing={planLimits.allowSharing}
-      onRequireUpgrade={() => setShowUpgrade(true)}
       onRename={(label) => updatePaneAnywhere(pane.id, p => ({ ...p, customLabel: label || undefined }))}
     />
     )
@@ -1702,14 +1822,14 @@ export default function App() {
         profileLoading={profileLoading}
         onUpgrade={() => setShowUpgrade(true)}
         onTeamsOpen={() => {
-          if (!planLimits.allowTeam) { setShowUpgrade(true); return }
+          if (!planLimits.memoryTeamShare) { setShowUpgrade(true); return }
           setTeamsOpen(true)
         }}
         pendingInvitesCount={pendingInvitesCount}
-        onMyReposOpen={() => {
-          if (!planLimits.allowMyRepos) { setShowUpgrade(true); return }
-          setMyReposOpen(true)
-        }}
+        onMyReposOpen={() => setMyReposOpen(true)}
+        // TODO: gate behind plan tier if needed
+        onIntegrationsOpen={() => setIntegrationsHubOpen(true)}
+        onGraphBoardOpen={() => setGraphBoardOpen(true)}
         plan={plan}
         repoPath={activeTab.repoPath}
         isHub={activeTab.isHub ?? false}
@@ -1733,14 +1853,12 @@ export default function App() {
         isListening={isListening}
         isTranscribing={isTranscribing}
         isModelLoading={isModelLoading}
-        onMicToggle={() => {
-          if (!planLimits.allowVoice) { setShowUpgrade(true); return }
-          toggleListening()
-        }}
+        onMicToggle={toggleListening}
         onJoinTerminal={() => setShowJoinViewer(true)}
         activeCellRepoPath={activeCellRepoPath}
         onWorktreeSelect={handleWorktreeSelect}
         onNewWorktree={handleNewWorktree}
+        onFixCi={onFixCi}
         worktreeRefreshKey={worktreeRefreshKey}
         layoutId={activeTab.isHub ? (hubData?.layoutId ?? '1') : activeTab.layoutId}
         paneCount={activeTab.isHub ? (hubData?.panes.length ?? 0) : panes.length}
@@ -1806,11 +1924,11 @@ export default function App() {
                   layoutId={paneFilterActive ? defaultLayoutFor(filteredView.panes.length) : activeTab.layoutId}
                   panes={filteredView.panes}
                   {...filteredSplitProps}
-                  renderPane={(pane) => pane.aiType === 'editor'
-                    ? (
-                      // Boundary solo en el editor: es el único pane que corre
-                      // código de terceros patcheando globals (Monaco/shiki) —
-                      // un throw ahí en pleno commit desmontaba la app entera.
+                  renderPane={(pane) => {
+                    // Boundary solo en el editor: es el unico pane que corre
+                    // codigo de terceros patcheando globals (Monaco/shiki) —
+                    // un throw ahi en pleno commit desmontaba la app entera.
+                    if (pane.aiType === 'editor') return (
                       <PaneErrorBoundary key={pane.id} onClose={() => removePane(pane.id)}>
                         <EditorPane
                           pane={pane}
@@ -1829,8 +1947,7 @@ export default function App() {
                         />
                       </PaneErrorBoundary>
                     )
-                    : pane.aiType === 'browser'
-                    ? (
+                    if (pane.aiType === 'browser') return (
                       <BrowserCell
                         key={pane.id}
                         pane={pane}
@@ -1851,7 +1968,12 @@ export default function App() {
                         onNavigate={(url) => updatePaneUrl(pane.id, url)}
                       />
                     )
-                    : (
+                    // Cooperative worker handoff: this pane's worktree may be
+                    // mid-pipeline. Offer "Hand off →" only when a next step exists.
+                    const run = pane.repoPath ? activeWorkerRun[pane.repoPath] : undefined
+                    const spec = run ? workerSpecs.find((s) => s.id === run.workerId) : undefined
+                    const hasNextStep = !!(spec && run && nextStep(spec, run))
+                    return (
                       <TerminalPane
                         key={pane.id}
                         pane={pane}
@@ -1879,12 +2001,12 @@ export default function App() {
                         onActivity={handlePaneActivity}
                         onJoinRequest={() => setJoinRequest({ paneId: pane.id, paneTitle: pane.customLabel ?? pane.accountName ?? 'Terminal' })}
                         onPtyStarted={handlePtyStarted}
-                        allowSharing={planLimits.allowSharing}
-                        onRequireUpgrade={() => setShowUpgrade(true)}
+                        hasNextStep={hasNextStep}
+                        onHandoff={() => { if (pane.repoPath) void advanceHandoff(pane.repoPath) }}
                         onRename={(label) => updatePaneAnywhere(pane.id, p => ({ ...p, customLabel: label || undefined }))}
                       />
                     )
-                  }
+                  }}
                   renderEmpty={() => (
                     <EmptyCell onClick={() => setAddingPane({})} />
                   )}
@@ -1945,8 +2067,9 @@ export default function App() {
         <NewPaneDialog
           onConfirm={addPane}
           onCancel={() => setAddingPane(null)}
-          allowedAIs={planLimits.allowedAIs}
-          onUpgrade={() => { setAddingPane(null); setShowUpgrade(true) }}
+          presetAgent={addingPane.presetAgent}
+          presetModel={addingPane.presetModel}
+          presetAccount={addingPane.presetAccount}
         />
       )}
 
@@ -1956,6 +2079,13 @@ export default function App() {
 
       {showUpgrade && (
         <UpgradeModal currentPlan={plan} onClose={() => setShowUpgrade(false)} />
+      )}
+
+      {showMemoryHub && (
+        <MemoryHub
+          onClose={markMemoryHubSeen}
+          onUpgrade={() => { markMemoryHubSeen(); setShowUpgrade(true) }}
+        />
       )}
 
       {teamsOpen && (
@@ -1977,6 +2107,27 @@ export default function App() {
           onConnectGitHub={connectGitHub}
           onOpenRepoTerminal={openRepoInNewTab}
           onStartTutorial={() => setTutorialTour('my-repos')}
+          activeRepoPath={activeCellRepoPath ?? null}
+          focusedPaneId={focusedPaneId}
+          onOpenWorktree={(path, initialInput, worker) => { setMyReposOpen(false); openWorktreeWithWorker(path, initialInput, worker) }}
+        />
+      )}
+
+      {integrationsHubOpen && (
+        <IntegrationsHub
+          onClose={() => setIntegrationsHubOpen(false)}
+          activeRepoPath={activeCellRepoPath ?? null}
+          onOpenWorktree={(path, initialInput, spec) => {
+            setIntegrationsHubOpen(false)
+            openWorktreeWithWorker(path, initialInput, spec)
+          }}
+        />
+      )}
+
+      {graphBoardOpen && (
+        <GraphBoard
+          onClose={() => setGraphBoardOpen(false)}
+          activeRepoPath={activeCellRepoPath ?? null}
         />
       )}
 

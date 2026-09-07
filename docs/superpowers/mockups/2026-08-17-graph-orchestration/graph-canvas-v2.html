@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nest — Orchestration: canvas (aligned)</title>
+<style>
+  :root{
+    --bg-app:#000; --bg-surface:#0a0a0a; --bg-elevated:#111; --border:#1e1e1e; --border-2:#2a2a2a;
+    --text:#e8e8e8; --text-2:#888; --text-3:#555;
+    --blue:#0066FF; --green:#22C55E; --amber:#F59E0B;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{background:var(--bg-app);color:var(--text);
+    font-family:'Inter',system-ui,-apple-system,sans-serif;font-size:13px;-webkit-font-smoothing:antialiased;display:flex}
+  .mono{font-family:'SFMono-Regular','Consolas',ui-monospace,monospace}
+
+  .rail{width:50px;flex:0 0 50px;background:var(--bg-surface);border-right:1px solid var(--border);
+    display:flex;flex-direction:column;align-items:center;gap:4px;padding:13px 0;min-height:100vh}
+  .rail .d{width:30px;height:30px;border-radius:8px;display:grid;place-items:center;color:var(--text-3);font-size:14px}
+  .rail .d.on{background:#0066FF18;color:var(--blue)}
+  .main{flex:1;min-width:0;display:flex;flex-direction:column;min-height:100vh}
+  .top{height:44px;flex:0 0 44px;border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 18px}
+  .crumb{color:var(--text-2);font-size:12.5px}.crumb b{color:var(--text)}.crumb .sep{color:var(--text-3);margin:0 8px}
+  .toggle{margin-left:auto;display:flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;font-size:11.5px}
+  .toggle span{padding:5px 12px;color:var(--text-2)}
+  .toggle span.on{background:var(--bg-elevated);color:var(--text)}
+  .toggle span+span{border-left:1px solid var(--border)}
+
+  .canvas{position:relative;flex:1;overflow:hidden;display:flex;align-items:center;justify-content:center;cursor:grab;
+    background-color:var(--bg-app);
+    background-image:radial-gradient(circle,#ffffff0d 1px,transparent 1px);
+    background-size:22px 22px}
+  .plane{position:relative;width:980px;height:540px;flex:0 0 auto}
+  svg.edges{position:absolute;left:0;top:0}
+  .edge{fill:none;stroke:var(--border-2);stroke-width:1.5}
+  .edge.on{stroke:var(--green);opacity:.7}
+  .edge.flow{stroke:var(--blue);stroke-dasharray:4 5;animation:dash 1.4s linear infinite;opacity:.85}
+  .edge.dash{stroke:var(--border-2);stroke-dasharray:2 6}
+  @keyframes dash{to{stroke-dashoffset:-18}}
+
+  .clabel{position:absolute;font-size:11px;color:var(--text-2);display:flex;gap:7px;align-items:center;white-space:nowrap}
+  .clabel .id{color:var(--text-3)}
+  .clabel .st{width:7px;height:7px;border-radius:50%}
+
+  .gn{position:absolute;display:flex;align-items:center;gap:8px;width:112px;
+    background:var(--bg-elevated);border:1px solid var(--border);border-radius:9px;padding:8px 10px;cursor:pointer;
+    box-shadow:0 1px 3px #0006;transition:border-color .15s,transform .12s;z-index:2}
+  .gn:hover{border-color:var(--border-2);transform:translateY(-1px)}
+  .gn .dot{width:8px;height:8px;border-radius:50%;flex:0 0 8px;background:var(--text-3)}
+  .gn .lb{font-size:11.5px;font-weight:600;white-space:nowrap;line-height:1.15}
+  .gn .lb small{display:block;font-weight:400;font-size:9.5px;color:var(--text-3)}
+  .gn.done .dot{background:var(--green)}
+  .gn.working .dot{background:var(--blue);animation:pulse 1.7s ease-in-out infinite}
+  .gn.working{border-color:#0066FF55}
+  .gn.needs .dot{background:var(--amber);animation:pulse 1.7s ease-in-out infinite}
+  .gn.needs{border-color:#F59E0B44}
+  .gn.queued{opacity:.6}
+  .gn.sel{border-color:var(--blue);box-shadow:0 0 0 1px var(--blue) inset,0 1px 3px #0006}
+  @keyframes pulse{50%{opacity:.35}}
+  .gate{position:absolute;z-index:2;font-size:10px;color:var(--text-2);background:var(--bg-elevated);
+    border:1px dashed var(--border-2);border-radius:8px;padding:6px 9px;text-align:center;white-space:nowrap;line-height:1.25}
+
+  .zoom{position:absolute;right:16px;bottom:16px;display:flex;flex-direction:column;
+    background:var(--bg-surface);border:1px solid var(--border);border-radius:9px;overflow:hidden;z-index:5}
+  .zoom button{background:none;border:none;color:var(--text-2);width:34px;height:32px;font-size:15px;cursor:pointer}
+  .zoom button:hover{background:var(--bg-elevated);color:var(--text)}
+  .zoom button+button{border-top:1px solid var(--border)}
+  .mmap{position:absolute;left:16px;bottom:16px;width:172px;height:104px;background:var(--bg-surface);
+    border:1px solid var(--border);border-radius:9px;z-index:5;overflow:hidden}
+  .mmap .blob{position:absolute;height:9px;border-radius:3px;background:var(--border-2)}
+  .mmap .blob.hot{background:#0066FF66}.mmap .blob.done{background:#22C55E55}.mmap .blob.warn{background:#F59E0B66}
+  .mmap .vp{position:absolute;border:1px solid var(--blue);border-radius:3px;background:#0066FF14}
+  .help{position:absolute;left:50%;bottom:16px;transform:translateX(-50%);color:var(--text-3);font-size:11px;z-index:4;
+    background:#0a0a0acc;border:1px solid var(--border);border-radius:20px;padding:5px 14px}
+  .help .kbd{color:var(--text-2)}
+</style>
+</head>
+<body>
+  <div class="rail">
+    <div class="d">◆</div><div class="d">▤</div><div class="d on">◇</div><div class="d">◷</div><div class="d" style="margin-top:auto">⚙</div>
+  </div>
+  <div class="main">
+    <div class="top">
+      <span class="crumb"><b>Integrations</b><span class="sep">›</span>Orchestration<span class="sep">›</span><b>Graph</b></span>
+      <span class="toggle"><span>◫ Swimlanes</span><span class="on">⋔ Canvas</span></span>
+    </div>
+
+    <div class="canvas">
+      <div class="plane">
+        <svg class="edges" width="980" height="540" viewBox="0 0 980 540">
+          <!-- #4821 fan-out (nodes: center y of top row=109) -->
+          <path class="edge on"   d="M172,109 L240,109"/>
+          <path class="edge flow" d="M352,109 C398,109 398,39 440,39"/>
+          <path class="edge flow" d="M352,109 L440,109"/>
+          <path class="edge flow" d="M352,109 C398,109 398,179 440,179"/>
+          <path class="edge dash" d="M552,39  C598,39 598,110 640,110"/>
+          <path class="edge dash" d="M552,109 C598,109 598,110 640,110"/>
+          <path class="edge dash" d="M552,179 C598,179 598,110 640,110"/>
+          <path class="edge dash" d="M706,110 L770,109"/>
+          <!-- #4816 linear (center y=419) -->
+          <path class="edge on"   d="M232,419 L320,419"/>
+          <path class="edge flow" d="M432,419 L520,419"/>
+          <path class="edge dash" d="M632,419 L720,419"/>
+        </svg>
+
+        <div class="clabel" style="left:60px;top:62px"><span class="st" style="background:var(--blue)"></span><span class="id mono">#4821</span> Rate-limit the public API</div>
+        <div class="clabel" style="left:120px;top:372px"><span class="st" style="background:var(--blue)"></span><span class="id mono">#4816</span> Fix OAuth token refresh</div>
+
+        <!-- #4821 -->
+        <div class="gn done" style="left:60px;top:90px"><span class="dot"></span><span class="lb">Architect</span></div>
+        <div class="gn done" style="left:240px;top:90px"><span class="dot"></span><span class="lb">Coder</span></div>
+        <div class="gn working sel" style="left:440px;top:20px"><span class="dot"></span><span class="lb">Reviewer<small>security</small></span></div>
+        <div class="gn working" style="left:440px;top:90px"><span class="dot"></span><span class="lb">Reviewer<small>types</small></span></div>
+        <div class="gn needs" style="left:440px;top:160px"><span class="dot"></span><span class="lb">Reviewer<small>perf</small></span></div>
+        <div class="gate" style="left:640px;top:96px">Gate<br>0/3</div>
+        <div class="gn queued" style="left:770px;top:90px"><span class="dot"></span><span class="lb">Tester</span></div>
+
+        <!-- #4816 -->
+        <div class="gn done" style="left:120px;top:400px"><span class="dot"></span><span class="lb">Architect</span></div>
+        <div class="gn working" style="left:320px;top:400px"><span class="dot"></span><span class="lb">Coder</span></div>
+        <div class="gn queued" style="left:520px;top:400px"><span class="dot"></span><span class="lb">Reviewer</span></div>
+        <div class="gn queued" style="left:720px;top:400px"><span class="dot"></span><span class="lb">Tester</span></div>
+      </div>
+
+      <div class="mmap">
+        <div class="blob hot"  style="left:14px;top:34px;width:66px"></div>
+        <div class="blob warn" style="left:70px;top:22px;width:26px"></div>
+        <div class="blob hot"  style="left:20px;top:70px;width:54px"></div>
+        <div class="blob done" style="left:120px;top:20px;width:34px"></div>
+        <div class="blob"      style="left:118px;top:74px;width:30px"></div>
+        <div class="vp" style="left:8px;top:14px;width:120px;height:78px"></div>
+      </div>
+      <div class="zoom"><button>+</button><button>−</button><button title="fit to screen">⤢</button></div>
+      <div class="help"><span class="kbd">drag</span> pan · <span class="kbd">scroll</span> zoom · <span class="kbd">click</span> node → terminal · handoffs → Slack</div>
+    </div>
+  </div>
+</body>
+</html>

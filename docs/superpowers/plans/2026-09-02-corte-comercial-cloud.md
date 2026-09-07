@@ -1,0 +1,805 @@
+# El corte comercial: de 4 tiers a 3 — Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Que la app cobre por alojar memoria en la nube y regale todo lo que corre en la máquina del usuario: `Pro` desaparece, nace `Cloud` a $10, y los catorce gates que hoy cierran features locales se borran.
+
+**Architecture:** El cambio es aditivo primero y destructivo después, en ese orden a propósito. Primero `cloud` pasa a existir en todo el camino (servicio, cliente, webhook, perfil) conviviendo con `pro`, así nada se rompe mientras se construye. Recién después se borran los gates locales, se migran los usuarios y se apaga `pro`. Los límites de nube los hace cumplir el servidor — este plan **no** los reimplementa en el cliente: el cliente los muestra.
+
+**Tech Stack:** Electron + React + TypeScript · vitest desde la raíz (`npx vitest run`) · Supabase Edge Functions en Deno · Stripe.
+
+**Spec:** `docs/superpowers/specs/2026-09-02-pricing-memoria-limites-design.md`
+
+**Plan hermano:** `docs/superpowers/plans/2026-09-02-limites-del-servicio-de-sync.md` — hace cumplir los límites del lado del servidor. Este plan asume que su Task 1 (`server/src/limits.ts`, con `cloud` ya en la tabla) está hecha.
+
+## Global Constraints
+
+- **La estructura final son tres niveles**: `Free` ($0, todo lo local más 1 proyecto en la nube) · `Cloud` ($10/mes, proyectos ilimitados) · `Teams` (a medida, memoria compartida), con `enterprise` como el extremo superior de Teams, no como un cuarto plan de venta.
+- **Vocabulario de planes en la base y en el código**: `free` · `cloud` · `team` · `enterprise`. `pro` es un alias heredado que mapea a `cloud` hasta la Task 6, y se apaga en la Task 7.
+- **Todo lo local es gratis en los tres planes**: panes, los CLIs, el editor, worktrees, diff viewer, spotlight, voice, broadcast, sharing, snippets, workspaces, My Repos, Actions, GitHub/GitLab, MCP, y la memoria local completa.
+- **El cliente no decide límites de nube.** Los aplica el servidor (§9.3 de la spec del backend). El cliente muestra lo que `GET /v1/sync/status` le devuelve: `plan`, `quota.used_bytes`, `quota.max_bytes`.
+- **Precio: $10/mes.** El precio anual no está definido y **no** se implementa en este plan.
+- **Copy del producto en inglés.** Los nombres de los tiers son `Free`, `Cloud`, `Teams`. Los comentarios de código y estos documentos, en español, como el resto del repo.
+- **`npx tsc -b` desde la raíz es el typecheck real**; `npx tsc --noEmit` no chequea nada (tsconfig solution-style con `files: []`). `tsc -b` emite `.js`/`.d.ts` al lado de los fuentes: después hay que limpiar con `git clean -fd`, y **`git add` de los archivos nuevos ANTES del clean**, porque clean borra todo lo no trackeado sin distinguir un `.tsx` recién creado de un `.js` emitido.
+- **La barra es el código de salida**, no el conteo de tests. Verificar siempre con `; echo EXIT=$?`.
+- **Nada que le saque una feature a un usuario existente.** Los 17 usuarios en `pro`/`team` son asignaciones manuales sin un solo cobro detrás (medido el 2026-09-02: cero `stripe_subscription_id` en toda la base), así que la migración es reversible y no rompe ninguna suscripción.
+
+---
+
+### Task 1: `cloud` existe de punta a punta, conviviendo con `pro`
+
+**Files:**
+- Modify: `server/src/auth.ts` (la constante `CLOUD_PLANS`)
+- Modify: `src/lib/stripe.ts` (el tipo `Plan` y el registro `PLAN_LIMITS`)
+- Modify: `src/hooks/useProfile.ts:19` (`computeEffectivePlan`)
+- Modify: `supabase/functions/stripe-webhook/eventos.ts:10-15` (el mapa de precios)
+- Test: `src/__tests__/lib/planes.test.ts` (nuevo)
+
+**Interfaces:**
+- Consumes: `limitsFor` de `server/src/limits.ts`, que ya conoce `cloud` (Task 1 del plan hermano).
+- Produces: el valor de plan `'cloud'`, válido en `Plan`, en `PLAN_LIMITS`, en `computeEffectivePlan` y en el gate de nube del servidor. Las tareas siguientes lo asumen existente.
+
+Esta tarea es **puramente aditiva**: al terminar, `pro` y `cloud` funcionan igual de bien. Nada se rompe, y eso es el punto: el corte destructivo viene después, sobre una base que ya soporta el vocabulario nuevo.
+
+> **Hecho (2026-09-03).** Dos desvíos respecto de lo escrito acá, los dos por cosas que el plan no
+> podía ver:
+>
+> - **`server/src/auth.ts` ya estaba.** `CLOUD_PLANS` es hoy
+>   `new Set(['free', 'cloud', 'pro', 'team', 'enterprise'])`. El snippet de este plan **no lleva
+>   `free`**, y aplicarlo tal cual le hubiera sacado al plan Free su proyecto en la nube. Lo dejó
+>   así la Task 1 del plan hermano. No se tocó el archivo.
+> - **`supabase/functions/stripe-webhook/eventos.ts` no se tocó** tampoco: `PRECIO_A_PLAN` mapea
+>   price IDs, y el price ID de $10 recién aparece en la Task 5. No hay nada que mapear a `cloud`
+>   todavía.
+>
+> Y tres archivos de más, que el typecheck y la lectura de los call sites destaparon. Sin ellos
+> `cloud` existía en el tipo pero se comportaba como `free`, que es justo lo que esta tarea dice
+> que no puede pasar:
+>
+> - **`src/components/Sidebar.tsx`** — repetía el union a mano (`plan?: 'free' | 'pro' | ...`), así
+>   que sumar `cloud` a `Plan` rompía el typecheck. Ahora importa `Plan`. Y su gate de My Repos
+>   (línea 666) chequeaba `pro`/`team`/`enterprise`: un usuario `cloud` perdía My Repos. Ese gate
+>   se borra entero en la Task 2.
+> - **`src/components/UserMenu.tsx`** (+ dos reglas en `global.css`) — `planLabel` y `planDotClass`
+>   sólo conocían `pro`, así que un perfil migrado caía en el `return 'Free'` final: el que paga se
+>   veía como gratis.
+> - **`src/hooks/useProfile.ts:57`** — la whitelist del override `e2ePlan` tampoco tenía `cloud`,
+>   o sea que no se podía probar el plan nuevo en e2e.
+>
+> Suite: 1832 verdes, 3 skipped (la única roja es `worktree-path.test.ts`, que asume Linux y falla
+> en Mac; preexistente). Typecheck: 3 errores, los mismos 3 de antes del cambio.
+
+- [x] **Step 1: Escribir el test que falla**
+
+```typescript
+// src/__tests__/lib/planes.test.ts
+import { describe, it, expect } from 'vitest'
+import { PLAN_LIMITS, type Plan } from '../../lib/stripe'
+
+describe('el plan Cloud', () => {
+  it('existe en PLAN_LIMITS', () => {
+    expect(PLAN_LIMITS.cloud).toBeDefined()
+  })
+
+  it('tiene la nube prendida, igual que pro', () => {
+    expect(PLAN_LIMITS.cloud.memoryCloud).toBe(true)
+  })
+
+  // Cloud es el tier INDIVIDUAL: paga por alojar SU memoria, no por compartirla.
+  it('no puede compartir memoria con un equipo', () => {
+    expect(PLAN_LIMITS.cloud.memoryTeamShare).toBe(false)
+    expect(PLAN_LIMITS.team.memoryTeamShare).toBe(true)
+  })
+
+  it('acepta cloud como valor del tipo Plan', () => {
+    const p: Plan = 'cloud'
+    expect(PLAN_LIMITS[p]).toBeDefined()
+  })
+})
+```
+
+- [x] **Step 2: Correrlo y verificar que falla**
+
+Run: `npx vitest run src/__tests__/lib/planes.test.ts`
+Expected: FAIL — `expected undefined to be defined`, porque `PLAN_LIMITS` sólo tiene `free`, `pro`, `team` y `enterprise`.
+
+- [x] **Step 3: Implementación mínima**
+
+En `src/lib/stripe.ts`, línea 12, sumar el valor al tipo:
+
+```typescript
+// `pro` sigue en el tipo mientras haya perfiles con ese valor guardado en Supabase. Se
+// borra en la Task 7, después de migrarlos.
+export type Plan = 'free' | 'cloud' | 'pro' | 'team' | 'enterprise'
+```
+
+y en `PLAN_LIMITS`, una entrada `cloud` idéntica a la de `pro`:
+
+```typescript
+  cloud: {
+    ...FULL_FEATURES,
+    allowTeam: false,
+    memoryTeamShare: false,
+    maxMemoryProjects: 50,
+    maxCloudObservations: 50_000,
+    isEnterprise: false,
+  },
+```
+
+(`maxMemoryProjects` y `maxCloudObservations` se copian tal cual acá y se **borran** en la Task 3: hoy son código muerto y sacarlos ahora mezclaría dos cambios en una tarea.)
+
+En `src/hooks/useProfile.ts:19`, sumar `cloud` a la lista de planes que se toman tal cual:
+
+```typescript
+  if (rawPlan === 'cloud' || rawPlan === 'pro' || rawPlan === 'team' || rawPlan === 'enterprise') {
+    return { plan: rawPlan as Plan, isTrialActive: false, trialDaysLeft: 0 }
+  }
+```
+
+En `server/src/auth.ts`, sumar `cloud` al set:
+
+```typescript
+const CLOUD_PLANS = new Set(['cloud', 'pro', 'team', 'enterprise'])
+```
+
+- [x] **Step 4: Correr y verificar que pasa**
+
+Run: `npx vitest run src/__tests__/lib/planes.test.ts; echo EXIT=$?`
+Expected: PASS, 4 tests, `EXIT=0`.
+
+- [x] **Step 5: Correr el suite entero y el typecheck**
+
+Run: `npx vitest run; echo EXIT=$?` y después `npx tsc -b`
+Expected: verde y `EXIT=0`. Ojo: `tsc -b` emite archivos al lado de los fuentes. Hacer `git add` de los archivos nuevos y después `git clean -fd`.
+
+- [x] **Step 6: Commit**
+
+```bash
+git add src/lib/stripe.ts src/hooks/useProfile.ts server/src/auth.ts src/__tests__/lib/planes.test.ts supabase/functions/stripe-webhook/eventos.ts
+git commit -m "feat(pricing): el plan cloud existe de punta a punta, junto a pro"
+```
+
+---
+
+### Task 2: Se borran los catorce gates locales
+
+**Files:**
+- Modify: `src/lib/stripe.ts` (la interfaz `PlanLimits`, `FULL_FEATURES` y las cinco entradas de `PLAN_LIMITS`)
+- Modify: `src/App.tsx` (líneas 308, 357, 570-572, 589-601, 730-748, 782-788, 1160-1200, 1400, 1500, 1695-1704, 1772, 1849)
+- Modify: `src/components/TerminalPane.tsx` (la prop `allowSharing` y el gate del botón Share)
+- Modify: `src/components/Sidebar.tsx` y `src/components/UserMenu.tsx` (los tipos de plan)
+- Test: `src/__tests__/lib/planes.test.ts` (extender el de la Task 1)
+
+**Interfaces:**
+- Consumes: el tipo `Plan` con `cloud` de la Task 1.
+- Produces: una `PlanLimits` que sólo describe la nube: `{ memoryLocal, memoryCloud, memoryTeamShare, isEnterprise }`. Todo lo demás deja de existir, y con ello los catorce puntos donde el cliente decidía qué podés hacer en tu propia máquina.
+
+**Ningún test del repo depende hoy de estos gates** — verificado: el único test que toca `PLAN_LIMITS` es `src/__tests__/components/SettingsPanel.test.tsx`, y sólo usa `memoryCloud`, que sobrevive. Que catorce gates comerciales no tengan un solo test es, en sí, parte de por qué se van.
+
+> **Hecho (2026-09-03).** Cuatro sitios de `App.tsx` que la lista de líneas de arriba no tenía, y
+> que había que sacar igual porque son parte de los mismos catorce gates: `onMyReposOpen`
+> (línea 1854, `allowMyRepos`), `onMicToggle` (1884, `allowVoice`), el `allowSharing` +
+> `onRequireUpgrade` del `TerminalPane` de la grilla (2034, además del pane suelto de 1772) y
+> `allowedAIs` en el `NewPaneDialog` (2102).
+>
+> Ese último arrastró un gate que el plan no nombra: `NewPaneDialog` pintaba las CLIs no incluidas
+> en `allowedAIs` con un candado y la etiqueta "Pro", y el click llamaba a `onUpgrade` en vez de
+> abrir el pane. Se fue entero — junto con el gate de My Repos en `Sidebar.tsx` (línea 666) y su
+> badge "Pro", que no se ven desde el typecheck porque leen `plan` directo, no `planLimits`.
+>
+> `UserMenu.tsx` no hizo falta tocarlo: ya toma `Plan` de `stripe.ts`.
+>
+> Suite: 1834 verdes, 3 skipped (sigue la roja ambiental de `worktree-path.test.ts` en Mac).
+> Typecheck: 3 errores, los mismos 3 `TS6307` preexistentes.
+
+- [x] **Step 1: Escribir el test que falla**
+
+Agregar a `src/__tests__/lib/planes.test.ts`:
+
+```typescript
+describe('lo local es gratis', () => {
+  // La regla del pricing nuevo: lo que corre en la maquina del usuario no nos cuesta
+  // nada, asi que no se cobra. Este test es esa regla, ejecutable.
+  it('Free y Cloud tienen exactamente las mismas capacidades locales', () => {
+    const { memoryCloud: _a, memoryTeamShare: _b, isEnterprise: _c, ...localFree } =
+      PLAN_LIMITS.free
+    const { memoryCloud: _d, memoryTeamShare: _e, isEnterprise: _f, ...localCloud } =
+      PLAN_LIMITS.cloud
+    expect(localFree).toEqual(localCloud)
+  })
+
+  it('PlanLimits ya no tiene ningun gate de features locales', () => {
+    const gatesLocales = [
+      'maxPanes', 'allowedAIs', 'allowBroadcast', 'allowVoice', 'allowSharing',
+      'allowSnippets', 'allowWorkspaces', 'allowCreateWorktree', 'allowSpotlight',
+      'allowDiffViewer', 'allowMyRepos', 'allowActions', 'allowGitHubGitLab',
+      'allowMcpWrite', 'allowTeam',
+    ]
+    for (const gate of gatesLocales) {
+      expect(Object.keys(PLAN_LIMITS.free)).not.toContain(gate)
+    }
+  })
+})
+```
+
+- [x] **Step 2: Correrlo y verificar que falla**
+
+Run: `npx vitest run src/__tests__/lib/planes.test.ts`
+Expected: FAIL en los dos — hoy `PLAN_LIMITS.free` tiene `maxPanes: 3` y `PLAN_LIMITS.cloud` tiene `maxPanes: 12`, así que ni son iguales ni están limpios de gates.
+
+- [x] **Step 3: Vaciar `PlanLimits`**
+
+En `src/lib/stripe.ts`, la interfaz queda sólo con lo de nube:
+
+```typescript
+/**
+ * Lo que un plan habilita. Después del pricing del 2026-09-02 esto describe SÓLO la nube:
+ * lo que corre en la máquina del usuario no nos cuesta nada y por lo tanto no se cobra, así
+ * que no hay nada local que gatear. Los catorce flags que había acá antes gateaban panes,
+ * worktrees, voice, sharing y diff viewer — todo local, todo regalado por la competencia
+ * OSS, y cada uno un motivo para que nos comparen y perdamos.
+ *
+ * Los límites numéricos de nube (proyectos, bytes) NO viven acá: los hace cumplir el
+ * servidor y el cliente los lee de `GET /v1/sync/status`.
+ */
+export interface PlanLimits {
+  /** Siempre true, en todos los planes. Está explícito porque es la promesa del producto. */
+  memoryLocal: boolean
+  /** Si la memoria se aloja en nuestra nube y se replica entre máquinas. */
+  memoryCloud: boolean
+  /** Sólo Teams: promover una memoria a `scope: 'team'`, visible para el resto del equipo. */
+  memoryTeamShare: boolean
+  /** Meta: si el plan es la punta de Teams (SSO, instancia dedicada, SLA). */
+  isEnterprise: boolean
+}
+
+export const PLAN_LIMITS: Record<Plan, PlanLimits> = {
+  free:       { memoryLocal: true, memoryCloud: false, memoryTeamShare: false, isEnterprise: false },
+  cloud:      { memoryLocal: true, memoryCloud: true,  memoryTeamShare: false, isEnterprise: false },
+  // Alias heredado de cloud hasta que la Task 6 migre los perfiles.
+  pro:        { memoryLocal: true, memoryCloud: true,  memoryTeamShare: false, isEnterprise: false },
+  team:       { memoryLocal: true, memoryCloud: true,  memoryTeamShare: true,  isEnterprise: false },
+  enterprise: { memoryLocal: true, memoryCloud: true,  memoryTeamShare: true,  isEnterprise: true },
+}
+```
+
+Borrar además `FULL_FEATURES` y `ALL_AIS`, que quedan sin uso.
+
+- [x] **Step 4: Sacar los gates de `App.tsx`**
+
+El typecheck va a marcar cada sitio. En todos, la forma es la misma: se borra la condición y se deja pasar la acción.
+
+- Los cinco usos de `planLimits.maxPanes` (líneas 308, 730, 782, 1160, 1695) pasan a usar la constante `MAX_PANES` que ya existe en el archivo. En `1695`, `workspaceCapacity: Math.min(MAX_PANES, planLimits.maxPanes)` queda `workspaceCapacity: MAX_PANES`, y el `setShowUpgrade(true)` de la línea 1700 se borra entero.
+- `if (!planLimits.allowCreateWorktree) { setShowUpgrade(true); return }` (líneas 570 y 589): se borra la línea completa.
+- `if (!planLimits.allowDiffViewer) { ... }` (línea 595): se borra.
+- `if (!planLimits.allowVoice) { ... }` (línea 1400): se borra.
+- `allowSharing={planLimits.allowSharing}` (línea 1772): se borra la prop.
+- `if (!planLimits.allowTeam) { setShowUpgrade(true); return }` (línea 1849): **se conserva la idea pero cambia el gate** — Teams sigue siendo pago. Queda `if (!PLAN_LIMITS[plan].memoryTeamShare) { setShowUpgrade(true); return }`.
+- Cada `planLimits.X` que se borre hay que sacarlo también del array de dependencias del `useCallback`/`useMemo` correspondiente (líneas 357, 572, 601, 748, 788, 1200, 1500, 1704).
+
+En `src/components/TerminalPane.tsx`, borrar la prop `allowSharing` y el gate del handler de Share; el botón queda siempre habilitado.
+
+- [x] **Step 5: Correr y verificar que pasa**
+
+Run: `npx vitest run; echo EXIT=$?` y `npx tsc -b`
+Expected: verde, `EXIT=0`, typecheck limpio. `SettingsPanel.test.tsx` tiene que seguir pasando sin tocarlo: usa `memoryCloud`, que no cambió.
+
+- [x] **Step 6: Commit**
+
+```bash
+git add src/lib/stripe.ts src/App.tsx src/components/TerminalPane.tsx src/components/Sidebar.tsx src/components/UserMenu.tsx src/__tests__/lib/planes.test.ts
+git commit -m "feat(pricing): lo local es gratis — se borran los 14 gates de features locales"
+```
+
+---
+
+### Task 3: La cuota se lee del servidor, no de constantes del cliente
+
+**Files:**
+- Modify: `src/components/SettingsPanel.tsx` (la tarjeta de memoria)
+- Modify: `src/hooks/useMemory.ts` (exponer la cuota que ya devuelve `status`)
+- Test: `src/__tests__/components/SettingsPanel.test.tsx` (extender)
+
+**Interfaces:**
+- Consumes: `PLAN_LIMITS` reducida de la Task 2.
+- Produces: la cuota visible en la UI, tomada de `status`.
+
+`GET /v1/sync/status` ya devuelve `quota: { used_bytes, max_bytes }` y `plan`. El cliente hoy no los muestra. Los campos muertos `maxMemoryProjects` y `maxCloudObservations` ya se fueron con la Task 2 — esta tarea es la que pone en pantalla el dato de verdad, el del servidor.
+
+> **Hecho (2026-09-03).** La premisa de esta tarea era optimista en un punto: **`status` NO
+> devolvía la cuota al renderer**. `MemoryDaemon.status()` leía `body.quota` sólo para desbloquear
+> `quota_exceeded` y la tiraba, así que no había nada que "propagar" — hubo que retenerla y abrirle
+> el camino entero: `lastQuota` + `getQuota()` en el daemon, el campo en el handler `memory:status`
+> de `main.ts`, el tipo en `src/types.ts`, y recién ahí `useMemory` y el panel.
+>
+> Dos decisiones que el plan no fija:
+>
+> - **Un `status` sin `quota` no borra la última conocida**, ni en el daemon ni en el hook. Significa
+>   "no vino en este tick", no "el usuario se quedó sin nube".
+> - **La línea NO cuelga de `PLAN_LIMITS[plan].memoryCloud`** (la línea 471 que menciona el plan es
+>   el ternario del botón, no un lugar donde vaya un dato). Se muestra cuando el servidor reportó
+>   cuota y la memoria está `connected`/`paused`. Gatear el dato del servidor detrás de una
+>   constante del cliente es justo lo que esta tarea saca del medio: si el servidor reportó cuota,
+>   el usuario tiene nube.
+>
+> El helper `renderSettings` que menciona el Step 1 no existe en ese archivo; se extendió el
+> `mockMemoryBridge` que sí está.
+>
+> Suite: 1838 verdes, 3 skipped. Typecheck: 3 errores, los mismos preexistentes.
+
+- [x] **Step 1: Escribir el test que falla**
+
+```typescript
+// agregar a src/__tests__/components/SettingsPanel.test.tsx
+it('muestra la cuota que devuelve el servidor, no una constante del cliente', async () => {
+  renderSettings({
+    plan: 'cloud',
+    memory: {
+      state: 'connected',
+      quota: { used_bytes: 3_183_898, max_bytes: 1024 ** 3 },
+    },
+  })
+
+  // 3,18 MB de 1 GiB. El texto exacto lo define la implementacion; lo que este test fija
+  // es que los dos numeros salen del servidor y llegan a la pantalla.
+  expect(await screen.findByText(/3\.[0-9] MB/)).toBeInTheDocument()
+  expect(await screen.findByText(/1 GB/)).toBeInTheDocument()
+})
+```
+
+(El helper `renderSettings` ya existe en ese archivo; extender su tipo de `memory` con `quota` opcional.)
+
+- [x] **Step 2: Correrlo y verificar que falla**
+
+Run: `npx vitest run src/__tests__/components/SettingsPanel.test.tsx`
+Expected: FAIL — `Unable to find an element with the text: /3\.[0-9] MB/`, porque el panel no muestra cuota.
+
+- [x] **Step 3: Implementación mínima**
+
+En `src/hooks/useMemory.ts`, propagar `quota` desde la respuesta de `status` al estado que expone el hook. En `SettingsPanel.tsx`, dentro de la rama `PLAN_LIMITS[plan].memoryCloud` (línea 471), renderizar una línea con usado y total formateados en unidades legibles.
+
+- [x] **Step 4: Correr y verificar**
+
+Run: `npx vitest run src/__tests__/components/SettingsPanel.test.tsx; echo EXIT=$?`
+Expected: PASS, `EXIT=0`.
+
+- [x] **Step 5: Commit**
+
+```bash
+git add src/components/SettingsPanel.tsx src/hooks/useMemory.ts src/__tests__/components/SettingsPanel.test.tsx
+git commit -m "feat(pricing): la cuota de memoria sale del servidor y se ve en Settings"
+```
+
+---
+
+### Task 4: El `UpgradeModal` pasa a tres planes
+
+**Files:**
+- Modify: `src/components/UpgradeModal.tsx`
+- Modify: `src/styles/global.css` (las clases del modal que queden sin uso)
+- Test: `src/__tests__/components/UpgradeModal.test.tsx` (nuevo)
+
+**Interfaces:**
+- Consumes: `PLAN_PRICING` con el precio nuevo (Task 5 lo cambia a 10; esta tarea lee la constante, no el número).
+- Produces: nada que otras tareas consuman.
+
+El disparador del modal cambia de raíz. Antes era "querés un cuarto pane"; ahora es "querés que este segundo proyecto viva en la nube". Las tres cards son Free, Cloud y Teams, y Teams no muestra precio: lleva a Book a demo.
+
+> **Hecho (2026-09-03).** El corolario que el plan no saca: **con Free en $0, Cloud mensual y
+> Teams sin precio, el toggle mensual/anual no tiene nada que togglear**. Se fue, y con él
+> `PLAN_PRICING`, `ANNUAL_DISCOUNT_PERCENT`, `BillingCycle` y los cuatro price IDs de `pro`/`team`.
+> Queda una sola constante de precio, `CLOUD_MONTHLY_PRICE = 10`, que es lo que la card lee.
+>
+> **`STRIPE_PRICES.cloud_monthly` quedó vacío a propósito** — el price ID lo crea la Task 5. Con
+> el string vacío el botón de Cloud queda deshabilitado (con su title explicando por qué) en vez
+> de abrir el checkout. La alternativa tentadora era apuntarlo al price de `pro` mientras tanto,
+> y eso **cobraría $20 por una card que dice $10**. La Task 5 sólo tiene que pegar el ID.
+>
+> También se fue el link de abajo ("Need SSO, audit logs or org-wide rollout? Book a demo →"):
+> la card de Teams ya *es* Book a demo y su copy cubre SSO e instancia dedicada, así que había
+> dos botones con el mismo nombre — el test lo agarró antes que nadie.
+>
+> Un detalle del alias heredado: la card de Cloud se marca como "Current plan" también cuando el
+> perfil dice `pro`, hasta que la Task 6 migre los perfiles.
+>
+> Del snippet del Step 1: `UpgradeModal` es default export y no tiene prop `open`, y "Book a demo"
+> es un `<button>` (un `<a href>` navegaría la ventana de Electron), así que el test consulta por
+> rol `button`. Diez bloques de CSS muerto borrados de `global.css`.
+
+- [x] **Step 1: Escribir el test que falla**
+
+```typescript
+// src/__tests__/components/UpgradeModal.test.tsx
+import { describe, it, expect } from 'vitest'
+import { render, screen } from '@testing-library/react'
+import { UpgradeModal } from '../../components/UpgradeModal'
+
+describe('UpgradeModal', () => {
+  it('muestra los tres planes y ninguno mas', () => {
+    render(<UpgradeModal open onClose={() => {}} currentPlan="free" />)
+    expect(screen.getByText('Free')).toBeInTheDocument()
+    expect(screen.getByText('Cloud')).toBeInTheDocument()
+    expect(screen.getByText('Teams')).toBeInTheDocument()
+    expect(screen.queryByText('Pro')).not.toBeInTheDocument()
+  })
+
+  it('Teams no muestra precio: es venta asistida', () => {
+    render(<UpgradeModal open onClose={() => {}} currentPlan="free" />)
+    expect(screen.getByRole('link', { name: /book a demo/i })).toBeInTheDocument()
+  })
+})
+```
+
+- [x] **Step 2: Correrlo y verificar que falla**
+
+Run: `npx vitest run src/__tests__/components/UpgradeModal.test.tsx`
+Expected: FAIL — encuentra "Pro" y no encuentra "Cloud".
+
+- [x] **Step 3: Implementación**
+
+Reescribir el array de planes del modal con tres entradas. Copy de las cards, en inglés:
+
+- **Free** — "Everything on your machine. Unlimited local memory, all the CLIs, the editor, worktrees. One project synced to the cloud."
+- **Cloud — $10/mo** — ★ "Your memory, on every machine you use. Every project synced, backed up, and yours if the disk dies."
+- **Teams — Custom** — "Shared memory for the whole team, SSO, and a dedicated instance if you need one." CTA: Book a demo (`BOOK_DEMO_URL`, que ya existe en `src/lib/stripe.ts`).
+
+- [x] **Step 4: Correr y verificar**
+
+Run: `npx vitest run src/__tests__/components/UpgradeModal.test.tsx; echo EXIT=$?`
+Expected: PASS, `EXIT=0`.
+
+- [x] **Step 5: Commit**
+
+```bash
+git add src/components/UpgradeModal.tsx src/styles/global.css src/__tests__/components/UpgradeModal.test.tsx
+git commit -m "feat(pricing): UpgradeModal de tres planes, disparado por la nube"
+```
+
+---
+
+### Task 5: Stripe — el precio de $10
+
+**Files:**
+- Modify: `src/lib/stripe.ts` (`STRIPE_PRICES` y `PLAN_PRICING`)
+- Modify: `supabase/functions/stripe-webhook/eventos.ts:10-15`
+- Test: `supabase/functions/stripe-webhook/__tests__/` (extender el que exista para el mapa de precios)
+
+**Interfaces:**
+- Consumes: el plan `cloud` de la Task 1.
+- Produces: el price ID nuevo mapeado a `cloud` en el webhook.
+
+⚠️ **Este paso tiene un efecto fuera del repo: crea un Price en la cuenta de Stripe.** Crear el Price lo hace Gero, o requiere su aprobación explícita antes de correr nada contra la API de Stripe. El resto de la tarea es código.
+
+- [ ] **Step 1: Pedir el price ID**
+
+Crear en Stripe un Price recurrente mensual de USD 10 sobre el producto que ya existe, y anotar su id (`price_...`). **No** crear el anual: el precio anual no está definido y queda fuera de este plan.
+
+- [ ] **Step 2: Escribir el test que falla**
+
+```typescript
+// en el __tests__ del webhook
+import { PRECIO_A_PLAN } from '../eventos.ts'
+
+Deno.test('el precio de Cloud mapea al plan cloud', () => {
+  assertEquals(PRECIO_A_PLAN['price_EL_ID_NUEVO'], 'cloud')
+})
+
+Deno.test('los precios viejos de pro siguen mapeando, para no romper una suscripcion viva', () => {
+  assertEquals(PRECIO_A_PLAN['price_1TJmwsJarRYFmNbKh7G6JXnF'], 'pro')
+})
+```
+
+- [ ] **Step 3: Correrlo y verificar que falla**
+
+Expected: FAIL — el id nuevo no está en el mapa.
+
+- [ ] **Step 4: Implementación**
+
+Sumar la entrada al mapa de `eventos.ts` sin borrar ninguna de las seis que ya están: un price viejo que desaparece del mapa deja una suscripción viva sin plan.
+
+```typescript
+  price_EL_ID_NUEVO: 'cloud',  // cloud mensual $10
+```
+
+y en `src/lib/stripe.ts`, `STRIPE_PRICES.cloud_monthly` más `PLAN_PRICING.cloud = { monthly: 10, annual: 10 }` (anual igual al mensual mientras no exista descuento anual).
+
+- [ ] **Step 5: Correr, verificar y commitear**
+
+```bash
+git add src/lib/stripe.ts supabase/functions/stripe-webhook/
+git commit -m "feat(pricing): price de Cloud a \$10 y su mapeo en el webhook"
+```
+
+---
+
+### Task 6: Migrar los 17 perfiles existentes
+
+**Files:**
+- Create: `supabase/migrations/20260902000000_plan_cloud.sql`
+
+**Interfaces:**
+- Consumes: el vocabulario de planes de la Task 1.
+- Produces: cero perfiles con `plan = 'pro'` en producción.
+
+Medido el 2026-09-02: 83 usuarios (66 `free`, 16 `team`, 1 `pro`), **cero con `stripe_subscription_id`**. La tabla `profiles` **no tiene check constraint sobre `plan`** (verificado contra `pg_constraint`), así que no hace falta tocar el schema: la migración es un `UPDATE`.
+
+> **Estado (2026-09-03): la migración está escrita y commiteada; los Steps 2 y 3 siguen abiertos.**
+>
+> - **Step 2 no se pudo correr en la Mac.** El stack local de Supabase no levanta: la CLI
+>   instalada rechaza el `supabase/config.toml` del repo (`'api' has invalid keys:
+>   auto_expose_new_tables`, `'config.config' has invalid keys: local_smtp`). Es un desajuste de
+>   versión de CLI en esa máquina, no del repo. **La migración no está verificada contra ninguna
+>   base.**
+> - **Step 3 es de Gero** y sigue sin hacer. Hasta que esté aplicada **la Task 7 no puede
+>   arrancar**: si queda un solo perfil en `pro` cuando `pro` sale del código, ese usuario cae a
+>   Free y pierde la nube en silencio.
+>
+> Un detalle del título: la tabla tiene 17 perfiles en planes pagos, pero **este UPDATE toca una
+> sola fila** — 16 son `team`, que se queda como está. El único `pro` es el que migra.
+
+- [x] **Step 1: Escribir la migración**
+
+```sql
+-- Los 17 perfiles en planes pagos son asignaciones manuales de testeo: cero de ellos tiene
+-- una suscripción de Stripe detrás (verificado el 2026-09-02). Por eso esto es un UPDATE y
+-- no una migración con período de gracia: no hay un solo cobro que romper.
+--
+-- `team` se mantiene: sigue existiendo como tier a medida, y los 16 que lo tienen son los
+-- testers de las features de equipo.
+update public.profiles
+   set plan = 'cloud', updated_at = now()
+ where plan = 'pro';
+```
+
+- [ ] **Step 2: Verificar en local antes de tocar producción**
+
+Correr la migración contra el Supabase local y confirmar con `select plan, count(*) from profiles group by plan` que no queda ningún `pro`.
+
+- [ ] **Step 3: Aplicar a producción**
+
+⚠️ **Efecto fuera del repo.** `release.yml` deploya edge functions pero **no corre migraciones**: es un paso manual, y lo aprueba Gero. Aplicar por el SQL editor del proyecto `qkqlsytxtshgjxwmafpw` y después marcarla como aplicada:
+
+```sql
+insert into supabase_migrations.schema_migrations (version) values ('20260902000000');
+```
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add supabase/migrations/20260902000000_plan_cloud.sql
+git commit -m "feat(pricing): migrar los perfiles pro a cloud"
+```
+
+---
+
+### Task 7: Apagar `pro`
+
+**Files:**
+- Modify: `src/lib/stripe.ts` (el tipo `Plan` y `PLAN_LIMITS`)
+- Modify: `src/hooks/useProfile.ts`
+- Modify: `server/src/auth.ts` y `server/src/limits.ts`
+- Test: `src/__tests__/lib/planes.test.ts` y `server/__tests__/limits.test.ts`
+
+**Interfaces:**
+- Consumes: la Task 6 aplicada **en producción**, no sólo commiteada.
+- Produces: el vocabulario final `free | cloud | team | enterprise`.
+
+⚠️ **No arrancar esta tarea hasta que la migración de la Task 6 esté aplicada en producción y verificada.** Si queda un solo perfil con `plan = 'pro'` cuando `pro` sale del código, ese usuario cae a Free y pierde la nube en silencio.
+
+- [ ] **Step 1: Verificar que no queda ningún `pro`**
+
+```sql
+select count(*) from public.profiles where plan = 'pro';
+```
+Expected: `0`. Si no es 0, **parar**: la Task 6 no está aplicada.
+
+- [ ] **Step 2: Invertir los tests que hoy protegen a `pro`**
+
+En `server/__tests__/limits.test.ts`, el test `trata a pro igual que a cloud mientras dure la transicion` pasa a:
+
+```typescript
+  it('pro ya no existe: cae a Free como cualquier plan desconocido', () => {
+    expect(limitsFor('pro')).toEqual(limitsFor('free'))
+  })
+```
+
+y en `src/__tests__/lib/planes.test.ts` agregar:
+
+```typescript
+  it('el tipo Plan ya no acepta pro', () => {
+    expect(Object.keys(PLAN_LIMITS)).not.toContain('pro')
+  })
+```
+
+- [ ] **Step 3: Correr y verificar que fallan**
+
+Run: `npx vitest run src/__tests__/lib/planes.test.ts; cd server && npx vitest run __tests__/limits.test.ts`
+Expected: los dos FAIL — `pro` sigue existiendo en ambos lados.
+
+- [ ] **Step 4: Borrar `pro`**
+
+Sacar `'pro'` del tipo `Plan`, de `PLAN_LIMITS`, de `computeEffectivePlan`, de `CLOUD_PLANS` y de `BY_PLAN` en `server/src/limits.ts`. **No** sacar los price IDs viejos del webhook: un Price desaparecido del mapa deja una suscripción sin plan, y esos ids pasan a mapear a `cloud`.
+
+- [ ] **Step 5: Correr todo y commitear**
+
+Run: `npx vitest run; echo EXIT=$?`, `npx tsc -b`, y en `server/`: `npx vitest run; echo EXIT=$?` más `npx tsc --noEmit -p tsconfig.json`
+Expected: todo verde y en 0.
+
+```bash
+git add -A
+git commit -m "feat(pricing): se apaga el plan pro"
+```
+
+---
+
+### Task 8: Un rechazo reversible no puede perder la memoria para siempre
+
+> Agregada el 2026-09-02 por la revisión final del plan hermano, que encontró este hueco y señaló que no tenía dueño en ningún plan.
+
+**Files:**
+- Modify: `electron/memory-store.ts` (el schema de `mutation_log`, `pendingMutations`, `markPushed`)
+- Modify: `electron/memory-daemon.ts:526` (la clasificación del `outcome: 'rejected'`)
+- Test: `electron/__tests__/memory-daemon.test.ts` y `memory-store.test.ts`
+
+**Interfaces:**
+- Consumes: los códigos de error del servidor (`project_limit_reached`, `quota_exceeded`), que ya existen.
+- Produces: mutaciones que quedan en cola en vez de perderse, y se reintentan cuando el límite se levanta.
+
+Hoy el daemon marca **todo** `outcome: 'rejected'` como pusheado, y `pruneAckedMutations` lo borra a los 7 días. El comentario del código dice "un item permanentemente rechazado, por ejemplo un límite de plan, no debe loopear" — pero `project_limit_reached` y `quota_exceeded` **no son permanentes**: se revierten pagando o borrando.
+
+**La consecuencia es exactamente el momento de la venta**: el usuario Free que paga por su segundo repo recibe un proyecto **vacío** en la nube. Todo lo que escribió mientras estaba capado no se sube nunca, sólo lo nuevo. Es §4.1 de la spec de pricing ("el segundo repo es el momento de pago") entregado roto.
+
+- [x] **Step 1: Escribir el test que falla**
+
+```typescript
+// electron/__tests__/memory-daemon.test.ts
+it('no descarta una mutacion rechazada por un limite que se puede revertir', async () => {
+  // El servidor rechaza por tope de proyectos: reversible pagando.
+  const daemon = makeDaemon({
+    push: async () => ({
+      results: [{ sync_id: 'obs-1', outcome: 'rejected', project_seq: 0, error: 'project_limit_reached' }],
+    }),
+  })
+  store.saveObservation({ syncId: 'obs-1', title: 't', content: 'c', projectKey: 'repo-b' })
+
+  await daemon.push()
+
+  // No se reintenta ahora (no loopea), pero TAMPOCO se da por entregada.
+  expect(store.pendingMutations(10).map((m) => m.sync_id)).not.toContain('obs-1')
+  expect(store.blockedMutations().map((m) => m.sync_id)).toContain('obs-1')
+})
+
+it('vuelve a encolar lo bloqueado cuando el limite se levanta', async () => {
+  // ... misma preparacion, y despues un status que informa un plan distinto
+  await daemon.onStatus({ plan: 'cloud', quota: { used_bytes: 0, max_bytes: 1024 ** 3 } })
+
+  expect(store.pendingMutations(10).map((m) => m.sync_id)).toContain('obs-1')
+})
+```
+
+- [x] **Step 2: Correrlo y verificar que falla**
+
+Run: `npx vitest run electron/__tests__/memory-daemon.test.ts`
+Expected: FAIL — `store.blockedMutations is not a function`, y la mutación aparece como entregada.
+
+- [x] **Step 3: Implementación**
+
+En `electron/memory-store.ts`, sumar la columna `blocked_reason TEXT` a `mutation_log` (con su paso de migración, como el resto del schema del store). `pendingMutations` filtra `blocked_reason IS NULL` además de `pushed_at IS NULL`. Sumar `blockedMutations()` y `unblockMutations(reasons: string[])`, que pone `blocked_reason = NULL` para los motivos dados.
+
+En `electron/memory-daemon.ts`, donde hoy se arma `toMark`, separar los códigos:
+
+```typescript
+// Un rechazo es TERMINAL o REVERSIBLE, y tratarlos igual pierde datos. Terminal es lo que
+// no puede funcionar nunca con ese payload (`missing_sync_id`, `observation_too_large`,
+// `team_scope_not_allowed`): se marca entregado para que no loopee. Reversible es un límite
+// que el usuario puede levantar pagando o borrando: se bloquea, no se entrega, y se
+// reintenta cuando `status` dice que el límite ya no está.
+const REVERSIBLE = new Set(['project_limit_reached', 'quota_exceeded'])
+```
+
+y en el handler de `status`, si el `plan` cambió respecto del último visto, o si `used_bytes` bajó por debajo de `max_bytes`, llamar a `unblockMutations([...])` con los motivos que corresponda.
+
+- [x] **Step 4: Correr y verificar**
+
+Run: `npx vitest run electron/__tests__/; echo EXIT=$?`
+Expected: verde y `EXIT=0`.
+
+- [x] **Step 5: Commit**
+
+```bash
+git add electron/memory-store.ts electron/memory-daemon.ts electron/__tests__/
+git commit -m "fix(memory): un rechazo reversible se bloquea, no se descarta"
+```
+
+---
+
+### Task 9: `device_limit_reached` no puede leerse como "tus credenciales no sirven"
+
+> Agregada el 2026-09-02 por la revisión final del plan hermano.
+
+**Files:**
+- Modify: `electron/memory-daemon.ts:380` (`classifyAuthFailure`) y el caller que cuenta los fallos
+- Test: `electron/__tests__/memory-daemon.test.ts`
+
+**Interfaces:**
+- Consumes: el 403 `device_limit_reached` que devuelve el servidor.
+- Produces: un estado propio, que no dispara el breaker de auth.
+
+`classifyAuthFailure` sólo conoce `plan_required`, `not_in_beta` y `unauthorized`. **Cualquier otro 403 cae en `unauthorized`**, que incrementa `consecutiveAuthFailures` y a los 3 pone `authBlocked = true`, apagando el subsistema hasta que el usuario haga algo.
+
+O sea que la cuarta máquina de una cuenta Free le dice al usuario que sus credenciales están revocadas, y **deja de reintentar** aunque después se libere un lugar. Es el mismo modo de falla que los commits `c708635` y `9353d28` ya arreglaron para `plan_required` en esta misma rama, reintroducido por el tope de máquinas.
+
+- [x] **Step 1: Escribir el test que falla**
+
+```typescript
+it('un 403 por tope de maquinas no cuenta como fallo de credenciales', async () => {
+  const daemon = makeDaemon({
+    push: async () => new Response(JSON.stringify({ error: 'device_limit_reached' }), { status: 403 }),
+  })
+
+  await daemon.push()
+  await daemon.push()
+  await daemon.push()
+  await daemon.push()
+
+  // El breaker de auth NO se dispara: las credenciales estan bien, sobra la maquina.
+  expect(daemon.status()).not.toBe('auth')
+  expect(daemon.lastError()).toMatch(/device/i)
+})
+```
+
+- [x] **Step 2: Correrlo y verificar que falla**
+
+Run: `npx vitest run electron/__tests__/memory-daemon.test.ts`
+Expected: FAIL — el estado es `auth` a partir del tercer intento.
+
+- [x] **Step 3: Implementación**
+
+Sumar `'device_limit'` al tipo de retorno de `classifyAuthFailure` y reconocer el código, y en el caller darle el mismo tratamiento que ya tiene `plan_required`: es una respuesta legítima del servidor, no un problema de credenciales, así que **no** incrementa `consecutiveAuthFailures`. El mensaje al usuario tiene que decir que sobra una máquina, no que el token está mal.
+
+- [x] **Step 4: Correr y verificar**
+
+Run: `npx vitest run electron/__tests__/; echo EXIT=$?`
+Expected: verde y `EXIT=0`.
+
+- [x] **Step 5: Commit**
+
+```bash
+git add electron/memory-daemon.ts electron/__tests__/
+git commit -m "fix(memory): el tope de maquinas no dispara el breaker de credenciales"
+```
+
+---
+
+### Task 10: Verificación en la app real
+
+**Files:**
+- Ninguno. Es verificación.
+
+- [ ] **Step 1: Levantar la app**
+
+Seguir la receta de la memoria del proyecto para correr el dev al lado del host (necesita su propio `--user-data-dir` por el single-instance lock).
+
+- [ ] **Step 2: Con una cuenta Free, comprobar que no queda ningún gate local**
+
+Abrir 12 panes, crear un worktree, abrir el diff viewer, apretar el botón de Share, activar voice con F5.
+Expected: **todo funciona y el `UpgradeModal` no aparece ni una vez.**
+
+- [ ] **Step 3: Comprobar que el gate de nube sí existe**
+
+Con la misma cuenta Free, conectar memoria y sincronizar un segundo proyecto.
+Expected: el segundo proyecto **no** sube, sigue funcionando local, y la UI ofrece Cloud.
+
+- [ ] **Step 4: Con una cuenta Cloud, comprobar la cuota**
+
+Expected: Settings muestra el uso y el total que devuelve `status`, no un número del cliente.
+
+---
+
+## Lo que este plan NO hace
+
+- **No cierra §9.2, y eso importa más que todo lo demás acá.** La emisión de tokens sigue viviendo en la edge function `memory-token` de Supabase, que guarda el hash en Supabase, mientras el servicio autentica contra su propia tabla `devices`. **Mientras eso siga así, un usuario real que apriete Connect recibe 401**, tenga el plan que tenga. Este plan deja lista la estructura para cobrar por un producto que todavía no puede conectarse: no cobrarle a nadie hasta que §9.2 esté cerrado.
+- **No apunta el build al servicio de Railway.** `getMemorySyncBaseUrl()` (`electron/main.ts:210`) sigue cayendo a `MAIN_VITE_SUPABASE_URL`.
+- **No toca `nestmux.com`**, que es otro repo (`pagina-nest`) y tiene su propio flujo de deploy, con el gotcha de que Vercel bloquea en silencio los deploys cuyo autor no es Gero.
+- **No define ni implementa el precio anual.**
+- **No implementa asientos de Teams**: el servicio no los modela, y los 5 GiB por asiento de la spec son hoy el techo de la cuenta entera.

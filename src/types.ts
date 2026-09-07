@@ -46,6 +46,7 @@ export interface PaneNode {
   url?: string          // browser only: initial url
   sessionPartition?: string  // browser only: persist:browser-<workspaceId>
   shellId?: string      // terminal panes only: which shell to spawn (Windows shell picker)
+  initialInput?: string // one-shot: input written to the PTY once when it first produces output (e.g. "arreglá el rojo")
   editorTabs?: EditorTab[]        // editor panes only: open files
   activeEditorTabPath?: string    // editor panes only: which tab is focused
   pinned?: boolean      // Hub: user-pinned pane, shows under the "Pinned" filter
@@ -69,6 +70,269 @@ export interface WorktreeMeta {
   devPid?: number
   createdAt: number
   updatedAt: number
+}
+
+// === Ticket loop (kept in sync with electron/integrations/ticket-types.ts —
+// src/ never imports from electron/, same pattern as WorktreeMeta above) ===
+export type TicketState = 'todo' | 'in_progress' | 'in_review' | 'done'
+
+export interface Ticket {
+  /** visible id like "PROJ-142" (Jira), "ENG-42" (Linear), "owner/repo#7" (GitHub) */
+  key: string
+  /** internal id the provider needs for its API (issueId, node id, number) */
+  providerId: string
+  title: string
+  url: string
+  state: TicketState
+  /** markdown: description + comments, for TASK.md */
+  context: string
+}
+
+export interface TicketsBridge {
+  list: (pluginId: string) => Promise<Ticket[]>
+  branchName: (user: string, key: string, title: string) => Promise<string>
+  startWork: (args: {
+    pluginId: string
+    ticket: Ticket
+    branch: string
+    worktreePath: string
+  }) => Promise<{ ok: true } | { ok: false; error: string }>
+  tracked: () => Promise<Array<{ branch: string; ticketKey: string }>>
+}
+
+// === Worktree signals (H4 Motor 3) — espejo de WorktreeSignal de
+// electron/integrations/worktree-signals.ts (src/ nunca importa de electron/) ===
+export interface WorktreeSignalDTO {
+  repoPath: string
+  ci: 'success' | 'failure' | 'running' | 'unknown'
+  runId?: number
+  runUrl?: string
+  changesRequested: boolean
+  prNumber?: number
+  /** "owner/repo" resolved during the poll; undefined until the first poll cycle. */
+  repo?: string
+}
+
+export interface SignalsBridge {
+  list: () => Promise<WorktreeSignalDTO[]>
+  fixCiPrompt: (repoPath: string) => Promise<string | null>
+  onUpdate: (cb: () => void) => () => void
+}
+
+// === Activity feed (event bus) — espejo de DomainEvent de
+// electron/integrations/bus-types.ts (src/ nunca importa de electron/, mismo
+// patrón que WorktreeSignalDTO arriba). Sólo los tipos, sin los guards
+// runtime (`isDomainEvent` vive en el borde de main, no acá). ===
+export interface TaskCreatedEvent {
+  type: 'task.created'
+  taskId: string
+  pluginId: string
+  providerId: string
+  repoFullName: string | null
+  branch: string
+  title?: string
+}
+export interface SessionOpenedEvent {
+  type: 'session.opened'
+  branch: string
+  repoPath: string
+  pluginId?: string
+  providerId?: string
+}
+export interface SessionClosedEvent {
+  type: 'session.closed'
+  branch: string
+}
+export interface PrOpenedEvent {
+  type: 'pr.opened'
+  branch: string
+  repoFullName: string
+}
+export interface PrMergedEvent {
+  type: 'pr.merged'
+  branch: string
+  repoFullName: string
+}
+export interface CiFailedEvent {
+  type: 'ci.failed'
+  branch: string
+  repoFullName: string
+  runUrl?: string
+  summary?: string
+}
+export interface ErrorDetectedEvent {
+  type: 'error.detected'
+  source: string
+  ref: string
+  summary: string
+}
+export interface BlockStartedEvent {
+  type: 'block.started'
+  taskId?: string
+  label: string
+}
+export interface MeetingTranscribedEvent {
+  type: 'meeting.transcribed'
+  title: string
+  items: string[]
+}
+export interface ChangesRequestedEvent {
+  type: 'changes.requested'
+  branch: string
+  repoFullName: string
+  prNumber: number
+}
+export interface ReviewRequestedEvent {
+  type: 'review.requested'
+  repoFullName: string
+  prNumber: number
+  prTitle: string
+}
+
+export type DomainEvent =
+  | TaskCreatedEvent
+  | SessionOpenedEvent
+  | SessionClosedEvent
+  | PrOpenedEvent
+  | PrMergedEvent
+  | CiFailedEvent
+  | ErrorDetectedEvent
+  | BlockStartedEvent
+  | MeetingTranscribedEvent
+  | ChangesRequestedEvent
+  | ReviewRequestedEvent
+
+export interface ActivityEntry {
+  ev: DomainEvent
+  ts: number
+}
+
+export interface ActivityBridge {
+  /** Snapshot of the ring buffer (newest first) for the initial paint. */
+  list: () => Promise<ActivityEntry[]>
+  /** Live push, one call per event emitted on the bus. Returns the unsubscribe. */
+  onAppend: (cb: (entry: ActivityEntry) => void) => () => void
+}
+
+// === Recipes tab (H8/Plan 5 Task 1) — espejo de RecipeDescriptor de
+// electron/integrations/recipes.ts (src/ nunca importa de electron/). Read-only:
+// "when event → commands" display for the built-in/stored bus recipes. ===
+export interface RecipeDescriptor {
+  id: string
+  when: string
+  commands: string[]
+}
+
+export interface RecipesBridge {
+  list: () => Promise<RecipeDescriptor[]>
+}
+
+// === Automations tab (epic C/H11) — mirror of Automation in
+// electron/integrations/scheduler.ts (src/ nunca importa de electron/, same
+// convention as RecipeDescriptor above). `nextRunAt`/`scheduleLabel` are NOT
+// part of the persisted model — the main process computes them fresh on every
+// `list()`/`create()`/`update()` call and attaches them to the DTO. ===
+export interface Automation {
+  id: string
+  name: string
+  trigger: string
+  time?: string
+  timezone?: string
+  prompt: string
+  repo?: string
+  provider?: string
+  /** References a saved worker-spec (electron/integrations/worker-spec-store.ts)
+   *  to resolve model/effort/instructions from. `model`/`effort` below, when
+   *  set, take precedence (inline override of the referenced worker's first step). */
+  workerId?: string
+  model?: string
+  effort?: 'low' | 'medium' | 'high'
+  enabled: boolean
+  createdAt: number
+  updatedAt: number
+  lastRunAt?: number
+  lastResult?: 'ok' | 'error'
+  lastSummary?: string
+  /** Epoch ms of the next scheduled fire, or null if the trigger doesn't
+   *  parse. Computed server-side by `nextRun`. */
+  nextRunAt: number | null
+  /** Human label for the list row, e.g. "Daily at 18:00". Computed
+   *  server-side by `describeSchedule`. */
+  scheduleLabel: string
+}
+
+export interface AutomationInput {
+  name: string
+  trigger: string
+  time?: string
+  timezone?: string
+  prompt: string
+  repo?: string
+  provider?: string
+  workerId?: string
+  model?: string
+  effort?: 'low' | 'medium' | 'high'
+}
+
+export interface AutomationsBridge {
+  list: () => Promise<Automation[]>
+  create: (input: AutomationInput) => Promise<Automation>
+  update: (id: string, patch: Partial<AutomationInput & { enabled: boolean }>) => Promise<Automation | null>
+  delete: (id: string) => Promise<boolean>
+}
+
+// === @Nest desde Slack (H7 Motor 5) — espejo de SlackMention/SlackAction de
+// electron/integrations/slack-envelopes.ts (src/ nunca importa de electron/) ===
+export interface SlackMentionDTO {
+  channel: string
+  threadTs: string
+  user: string
+  text: string
+}
+
+export interface SlackActionDTO {
+  actionId: string
+  value?: string
+  channel: string
+  threadTs?: string
+  user: string
+}
+
+export interface SlackMentionsBridge {
+  /** Menciones `@Nest` empujadas desde el socket (main). Devuelve el unsubscribe. */
+  onMention: (cb: (m: SlackMentionDTO) => void) => () => void
+  /** Clicks de botones Block Kit empujados desde el socket. Devuelve el unsubscribe. */
+  onAction: (cb: (a: SlackActionDTO) => void) => () => void
+  /** Postea al MISMO thread (bot token main-side). Sin token → { ok: false }. */
+  postThread: (args: { channel: string; threadTs: string; text: string }) => Promise<{ ok: boolean }>
+}
+
+// === Notion spec→worktree (H5 Motor 2) ===
+export interface NotionBridge {
+  /** Baja la página como markdown, la escribe en <worktree>/.nest/spec.md y
+   *  devuelve el markdown para inyectarlo como prompt inicial del agente. */
+  specToWorktree: (pageId: string, worktreePath: string) =>
+    Promise<{ ok: true; prompt: string } | { ok: false; error: string }>
+}
+
+// === Google Calendar (H6 Motor 4) — espejo de GcalEvent de
+// electron/integrations/gcal.ts (src/ nunca importa de electron/) ===
+export interface GcalEventDTO {
+  id: string
+  summary?: string
+  description?: string
+  start?: { dateTime?: string; date?: string }
+  end?: { dateTime?: string; date?: string }
+}
+
+export interface GcalBridge {
+  /** OAuth desktop (loopback + PKCE). Guarda las creds en pluginCreds('gcal'). */
+  openOAuth: () => Promise<{ ok: true } | { ok: false; error: string }>
+  /** Bloques del rango (block→session). Errores degradan a []. */
+  listEvents: (timeMin: string, timeMax: string) => Promise<GcalEventDTO[]>
+  /** Escribe <worktree>/.nest/spec.md con el título/contexto y devuelve el prompt. */
+  startSession: (args: { title: string; context: string; worktreePath: string }) =>
+    Promise<{ ok: true; prompt: string } | { ok: false; error: string }>
 }
 
 export type DiffLineType = 'add' | 'del' | 'context' | 'meta'
@@ -116,6 +380,11 @@ export interface PaneMetric {
   pid: number
   cpuPercent: number
   memBytes: number
+  // CSS color for the AI bullet / which AI logo to render — passed through
+  // unchanged from MetricsPaneInput (see electron/metrics-collector.ts's
+  // own PaneMetric, which already carries these).
+  aiColor?: string
+  aiType?: AIType
 }
 export interface DiskBucket {
   name: string
@@ -204,6 +473,136 @@ export interface CustomCLI {
   color: string
 }
 
+// === Worker-spec / model-per-task — mirror of WorkerStep/WorkerSpec in
+// electron/integrations/worker-spec-store.ts (src/ nunca importa de
+// electron/, same convention as Automation above). ===
+export interface WorkerStep {
+  agent: AIType
+  customCliId?: string
+  model?: string
+  effort?: 'low' | 'medium' | 'high'
+  instructions?: string
+  role?: string
+  /** Saved CLI account to launch this step with (bypasses the account picker
+   *  at run time). Unset = ask at launch, same as before this field existed. */
+  account?: string
+}
+export interface WorkerSpec {
+  id: string
+  name: string
+  description?: string
+  steps: WorkerStep[]
+  createdAt: number
+  updatedAt: number
+}
+export interface WorkerSpecInput {
+  name: string
+  description?: string
+  steps: WorkerStep[]
+}
+export interface WorkerSpecsBridge {
+  list: () => Promise<WorkerSpec[]>
+  save: (input: WorkerSpecInput & { id?: string }) => Promise<WorkerSpec>
+  delete: (id: string) => Promise<boolean>
+}
+
+export interface HandoffBridge {
+  read: (worktreePath: string) => Promise<string | null>
+  write: (worktreePath: string, content: string) => Promise<void>
+}
+
+// === Graph orchestration (renderer mirror of electron/integrations/graph-*) ===
+export type GraphRole = 'architect' | 'coder' | 'reviewer' | 'tester' | (string & {})
+export type GraphNodeKind = 'agent' | 'gate'
+export interface GraphNode {
+  id: string
+  role: GraphRole
+  kind: GraphNodeKind
+  agent?: AIType
+  model?: string
+  effort?: 'low' | 'medium' | 'high'
+  focus?: string
+  instructions?: string
+  dependsOn: string[]
+}
+export interface GraphTemplate {
+  id: string
+  name: string
+  description?: string
+  builtIn?: boolean
+  nodes: GraphNode[]
+  createdAt: number
+  updatedAt: number
+}
+export interface GraphTemplateInput {
+  name: string
+  description?: string
+  nodes: GraphNode[]
+}
+
+export type NodeRunState =
+  | 'queued' | 'running' | 'needs_input' | 'blocked' | 'done' | 'failed' | 'skipped'
+export type GraphMode = 'auto' | 'gate' | 'step'
+export type PendingDecision =
+  | { kind: 'approve'; gateId: string }
+  | { kind: 'requestChanges'; feedback: string }
+/** Lo que un reviewer dejó escrito en su artefacto, ya parseado. */
+export interface GraphVerdict {
+  concerns: string[]
+  blocking: boolean
+}
+export interface NodeRuntime {
+  state: NodeRunState
+  paneId?: string
+  startedAt?: number
+  endedAt?: number
+  summary?: string
+  artifact?: string
+  verdict?: GraphVerdict
+  exitCode?: number
+}
+export interface GraphRun {
+  runId: string
+  ticketId: string
+  templateId: string
+  worktreePath: string
+  repoPath?: string
+  branch: string
+  nodes: Record<string, NodeRuntime>
+  startedAt: number
+  mode: GraphMode
+  round: number
+  revisionNotes?: Record<string, string>
+  pendingDecision?: PendingDecision
+}
+export interface PersistedGraphRun {
+  run: GraphRun
+  seen: string[]
+}
+
+export interface GraphTemplatesBridge {
+  list: () => Promise<GraphTemplate[]>
+  save: (input: GraphTemplateInput & { id?: string }) => Promise<GraphTemplate>
+  delete: (id: string) => Promise<boolean>
+}
+export interface GraphRunStartInput {
+  repoPath: string
+  templateId: string
+  ticketId: string
+  branch: string
+}
+export interface GraphRunsBridge {
+  list: () => Promise<PersistedGraphRun[]>
+  start: (input: GraphRunStartInput) => Promise<
+    { ok: true; runId: string; worktreePath: string } | { ok: false; error: string }
+  >
+  attach: (runId: string, nodeId: string) => Promise<{ paneId: string; exists: boolean; buffer: string }>
+  // Decisiones humanas: encolan un pendingDecision que aplica el tick, no aplican nada acá.
+  setMode: (runId: string, mode: GraphMode) => Promise<{ ok: boolean }>
+  approve: (runId: string, gateId: string) => Promise<{ ok: boolean }>
+  requestChanges: (runId: string, feedback: string) => Promise<{ ok: boolean }>
+}
+
 export interface GridLayout {
   rows: number
   cols: number
@@ -224,18 +623,27 @@ export const COLOR_PALETTE = [
   '#666666', // gray
 ]
 
-export const AI_CONFIG: Record<AIType, { label: string; color: string; bg: string; cmd: string; noAccount?: boolean }> = {
+export const AI_CONFIG: Record<AIType, {
+  label: string
+  color: string
+  bg: string
+  cmd: string
+  noAccount?: boolean
+  modelFlag?: string   // CLI flag that selects a model, e.g. '--model'. Absent = no model selection.
+  models?: string[]    // known selectable model ids/aliases for a picker
+  effortFlag?: string  // CLI flag for reasoning effort, e.g. '--effort'. Absent = no effort control. (capability-only for now)
+}> = {
   // ORDEN = como se ven en el picker (4 columnas, 3 filas + Add CLI). Puesto
   // para que no queden dos tiles de la misma familia de color pegados, ni al
   // lado ni arriba/abajo: hay cinco acromaticos (codex, opencode, cursor,
   // grok, terminal), tres azules (gemini, deepseek, browser) y dos violetas
   // (copilot, qwen). Los mas usados quedan en la primera fila.
-  claude:   { label: 'Claude',   color: '#E07B54', bg: '#2a1a14', cmd: 'claude'     },
-  gemini:   { label: 'Gemini',   color: '#4F9EFF', bg: '#0d1f35', cmd: 'gemini'     },
-  codex:    { label: 'Codex',    color: '#aaaaaa', bg: '#1c1c1c', cmd: 'codex'      },
+  claude:   { label: 'Claude',   color: '#E07B54', bg: '#2a1a14', cmd: 'claude',     modelFlag: '--model', models: ['opus', 'sonnet', 'haiku'], effortFlag: '--effort' },
+  gemini:   { label: 'Gemini',   color: '#4F9EFF', bg: '#0d1f35', cmd: 'gemini',     modelFlag: '--model', models: ['gemini-2.5-pro', 'gemini-2.5-flash'] },
+  codex:    { label: 'Codex',    color: '#aaaaaa', bg: '#1c1c1c', cmd: 'codex',      modelFlag: '--model' },
   copilot:  { label: 'Copilot',  color: '#7C5CFC', bg: '#150d2e', cmd: 'gh copilot' },
   deepseek: { label: 'DeepSeek', color: '#4D6BFE', bg: '#0c1330', cmd: 'dsh',          noAccount: true },
-  opencode: { label: 'OpenCode', color: '#FFFFFF', bg: '#111111', cmd: 'opencode', noAccount: true },
+  opencode: { label: 'OpenCode', color: '#FFFFFF', bg: '#111111', cmd: 'opencode', noAccount: true, modelFlag: '--model' },
   qwen:     { label: 'Qwen',     color: '#6950EF', bg: '#14103a', cmd: 'qwen',         noAccount: true },
   cursor:   { label: 'Cursor',   color: '#D4D4D4', bg: '#181818', cmd: 'cursor-agent', noAccount: true },
   grok:     { label: 'Grok',     color: '#E8E8E8', bg: '#141414', cmd: 'grok',         noAccount: true },
@@ -388,6 +796,101 @@ declare global {
     dialog: {
       openFolder: () => Promise<string | null>
     }
+    memory: {
+      ensureDeviceId: () => Promise<string>
+      connect: (token: string, deviceId: string) => Promise<{ ok: boolean; error?: string; itemCount?: number }>
+      /**
+       * Declara qué cuenta de Nest está usando el store. Sella el autor de cada escritura y
+       * acota el push a esa cuenta. Opcional: un preload viejo no lo expone.
+       * `opts.adopt: false` (Task 2) sigue adelante con el swap pero sin reclamar lo que
+       * haya en `_local` — el usuario contestó "no son mías" en MemoryAdoptionDialog.
+       */
+      setUser?: (userId: string | null, opts?: { adopt?: boolean }) => Promise<unknown>
+      /**
+       * Task 2 (adopción con aviso): antes de llamar a setUser() con una cuenta que todavía
+       * no tiene base propia, chequea si `_local` tiene memorias sin dueño para preguntar en
+       * vez de adoptarlas en silencio. Opcional: un preload viejo no lo expone — en ese caso
+       * el hook cae directo a setUser(), igual que se comportaba antes de la Task 2.
+       */
+      checkPendingAdoption?: (userId: string | null) => Promise<{ hasPending: boolean; count: number; projects: string[] }>
+      /**
+       * §9.2 — pide un token al servicio de sync con el JWT del login. Opcional: un preload
+       * viejo no lo expone, y el hook cae al token pegado a mano.
+       */
+      registerDevice?: (jwt: string) => Promise<
+        { ok: true; deviceId: string; token: string } | { ok: false; error: string }
+      >
+      disconnect: (opts?: { deleteCloud?: boolean }) => Promise<{
+        ok: boolean
+        cloudDeleteFailed?: string
+        /** El token quedó vivo en el servidor: el revoke contra `/v1/devices/revoke` falló. */
+        tokenRevokeFailed?: string
+      }>
+      status: () => Promise<{
+        connected: boolean
+        deviceId: string | null
+        itemCount: number
+        pendingCount: number
+        daemonStatus: 'idle' | 'syncing' | 'paused' | 'error' | 'plan_required'
+        /**
+         * Lo que el servidor reporta en `GET /v1/sync/status`. Ausente hasta que el
+         * daemon recibe su primera respuesta. El cliente NO calcula estos numeros: los
+         * limites de nube los hace cumplir el servicio y el cliente los muestra.
+         */
+        quota?: { used_bytes: number; max_bytes: number }
+        /**
+         * True when main's memory subsystem never initialized. The preload exposes
+         * `window.memory` unconditionally, so its mere presence proves nothing — this
+         * flag is the only signal the renderer gets that memory is dead on this machine.
+         */
+        unavailable?: boolean
+      }>
+      onStatus: (cb: (status: 'idle' | 'syncing' | 'paused' | 'error' | 'plan_required') => void) => void
+      removeStatusListener: () => void
+      /**
+       * Para la pantalla de reconocimiento del hub (Task 7): local-first, funciona sin
+       * login. `projectCount` excluye `__global__` (no es un proyecto reconocible).
+       */
+      hubStats: () => Promise<{ itemCount: number; projectCount: number }>
+      /**
+       * Team Memory Layer 1, Parte 8: comparte un proyecto LOCAL con un equipo — pega
+       * contra POST /v1/projects/share (server/src/share.ts), la única forma de que
+       * `projects.team_id` quede seteado. Opcional: un preload viejo no lo expone. Sin UI
+       * todavía (fuera de alcance de este paso) — se llama a mano desde devtools o un test.
+       */
+      shareProjectWithTeam?: (projectKey: string, teamId: string) => Promise<{ ok: boolean; error?: string }>
+      /**
+       * Task 5 (plan de memoria por cuenta multi-dispositivo) — el vault, proyección
+       * Markdown de la memoria de la cuenta activa a `.raven-nest/memory-vault/<userId>/`.
+       * Sin panel en Settings todavía (fuera de alcance de esta pasada) — optional, un
+       * preload viejo no los expone.
+       */
+      vaultGetSettings?: () => Promise<{
+        ok: boolean
+        error?: string
+        settings?: { version: number; enabled: boolean; root: string | null; includeSuperseded: boolean; includeTeamScope: boolean }
+        rootDir?: string
+        defaultRootDir?: string
+      }>
+      vaultSetSettings?: (patch: {
+        enabled?: boolean
+        root?: string | null
+        includeSuperseded?: boolean
+        includeTeamScope?: boolean
+      }) => Promise<{
+        ok: boolean
+        error?: string
+        settings?: { version: number; enabled: boolean; root: string | null; includeSuperseded: boolean; includeTeamScope: boolean }
+        regenerated?: { ok: boolean; error?: string; rootDir?: string }
+      }>
+      vaultRegenerate?: () => Promise<{
+        ok: boolean
+        error?: string
+        rootDir?: string
+        result?: { written: number; moved: number; deleted: number; conflicts: number; warnings: unknown[] }
+      }>
+      vaultReveal?: () => Promise<{ ok: boolean; error?: string }>
+    }
     platform: {
       isWin: boolean
       isMac: boolean
@@ -436,6 +939,9 @@ declare global {
     electronShell: {
       openExternal: (url: string) => void
       onDeepLink: (cb: (url: string) => void) => void
+      // Cold-launch pull: consumes any deep-link URL buffered before the
+      // renderer was ready (see electron/preload.ts's deeplink:consume call).
+      consumePendingDeepLink: () => Promise<string | null>
     }
     mcp: {
       read: (filePath: string) => Promise<Record<string, unknown>>
@@ -473,7 +979,10 @@ declare global {
         branches: string[]
         defaultBranch: string | null
       }>
-      pickRepoFolder: () => Promise<string | null>
+      // expectedRemote (optional): validates the picked folder's `origin`
+      // remote matches before accepting it — prevents linking the wrong
+      // repo's folder (see electron/main.ts's dialog:pickRepoFolder handler).
+      pickRepoFolder: (expectedRemote?: string) => Promise<string | null>
       shortstat: (
         worktreePath: string,
         base?: string,
@@ -539,6 +1048,10 @@ declare global {
         dstWorktreePath: string,
         files: string[],
       ) => Promise<{ copied: number; skipped: number; errors: string[] }>
+      listAll: () => Promise<
+        | { ok: true; worktrees: WorktreeMeta[] }
+        | { ok: false; error: string }
+      >
     }
     preset: {
       list: (repoPath: string) => Promise<RavenPreset[]>
@@ -620,6 +1133,8 @@ declare global {
     }
     settings: {
       get: () => Promise<{
+        voiceLanguage?: string
+        hasSeenMemoryHub?: boolean
         keybindings: {
           voiceInput: string
           newPane: string
@@ -640,5 +1155,80 @@ declare global {
       killPid: (pid: number) => Promise<{ ok: true } | { ok: false; error: string }>
       portsByPids: (pids: number[]) => Promise<Record<number, number[]>>
     }
+    tickets: TicketsBridge
+    signals: SignalsBridge
+    activity: ActivityBridge
+    slackMentions: SlackMentionsBridge
+    notion: NotionBridge
+    gcal: GcalBridge
+    recipes: RecipesBridge
+    automations: AutomationsBridge
+    workerSpecs: WorkerSpecsBridge
+    handoff: HandoffBridge
+    graphTemplates: GraphTemplatesBridge
+    graphRuns: GraphRunsBridge
   }
+}
+
+// === Marketplace de integraciones ===
+export type PluginType = 'action' | 'panel' | 'integration'
+export type PluginCategory =
+  | 'comms' | 'docs' | 'pm' | 'ci' | 'design' | 'observability' | 'other'
+
+export interface ConfigField {
+  key: string
+  label: string
+  type: 'text' | 'password' | 'select'
+  required?: boolean
+  options?: { value: string; label: string }[]
+  placeholder?: string
+}
+
+export interface AuthSpec {
+  kind: 'oauth' | 'apiKey' | 'none'
+  fields?: ConfigField[]
+}
+
+export interface MenuContribution {
+  id: string          // 'slack.notify'
+  label: string       // 'Notificar a Slack'
+  actionId: string    // se pasa a window.pluginActions.run(pluginId, actionId, ...)
+  surface: 'sidebar' | 'repoActions'
+}
+
+export interface EventHook {
+  on: 'onAgentDone' | 'onWorktreeReady' | 'onPrPushed'
+  actionId: string
+}
+
+export interface PluginContributions {
+  menuItems?: MenuContribution[]
+  events?: EventHook[]
+  // paneType: diferido a slices futuros
+}
+
+export interface PluginManifest {
+  id: string
+  name: string
+  description: string
+  category: PluginCategory
+  icon: string
+  color: string
+  type: PluginType
+  // `(string & {})` keeps the 'raven' literal as an autocomplete hint while
+  // still accepting any third-party publisher id (a plain `'raven' | string`
+  // collapses to `string`). 'raven' = curated/built-in.
+  publisher: 'raven' | (string & {})
+  tier: 'free' | 'pro' | 'team-enterprise'
+  comingSoon?: boolean
+  auth?: AuthSpec
+  configSchema?: ConfigField[]
+  contributes?: PluginContributions
+}
+
+export interface InstalledPlugin {
+  pluginId: string
+  scope: 'personal' | 'team'
+  enabled: boolean
+  config: Record<string, unknown>
 }

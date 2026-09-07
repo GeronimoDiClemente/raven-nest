@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nest — Orchestration: graph detail</title>
+<style>
+  :root{
+    --bg-app:#000; --bg-surface:#0a0a0a; --bg-elevated:#111; --bg-hover:#161616; --border:#1e1e1e; --border-2:#2a2a2a;
+    --text:#e8e8e8; --text-2:#888; --text-3:#555;
+    --blue:#0066FF; --green:#22C55E; --amber:#F59E0B;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{background:var(--bg-app);color:var(--text);
+    font-family:'Inter',system-ui,-apple-system,sans-serif;font-size:13px;-webkit-font-smoothing:antialiased;display:flex}
+  .mono{font-family:'SFMono-Regular','Consolas',ui-monospace,monospace}
+
+  .rail{width:50px;flex:0 0 50px;background:var(--bg-surface);border-right:1px solid var(--border);
+    display:flex;flex-direction:column;align-items:center;gap:4px;padding:13px 0;min-height:100vh}
+  .rail .d{width:30px;height:30px;border-radius:8px;display:grid;place-items:center;color:var(--text-3);font-size:14px}
+  .rail .d.on{background:#0066FF18;color:var(--blue)}
+  .main{flex:1;min-width:0;display:flex;flex-direction:column;min-height:100vh}
+
+  .top{height:44px;flex:0 0 44px;border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 18px;gap:10px}
+  .back{color:var(--text-2);font-size:12px;display:flex;align-items:center;gap:6px;border:1px solid var(--border);border-radius:7px;padding:4px 9px;cursor:pointer}
+  .back:hover{background:var(--bg-elevated);color:var(--text)}
+  .crumb{color:var(--text-2);font-size:12.5px}.crumb b{color:var(--text)}.crumb .sep{color:var(--text-3);margin:0 8px}
+  .tstate{margin-left:auto;display:flex;align-items:center;gap:7px;color:var(--text-2);font-size:11.5px}
+  .tstate .s{width:8px;height:8px;border-radius:50%;background:var(--blue)}
+
+  .body{flex:1;display:flex;min-height:0}
+  .stage{flex:1;min-width:0;padding:26px 24px;overflow:auto;
+    background-image:radial-gradient(circle,#ffffff08 1px,transparent 1px);background-size:22px 22px}
+  .flow{display:flex;align-items:center;gap:0;min-width:max-content}
+  .conn{flex:0 0 26px;height:1.5px;background:var(--border-2)}
+  .conn.on{background:var(--green);opacity:.7}
+  .conn.dash{background:repeating-linear-gradient(90deg,var(--border-2) 0 4px,transparent 4px 9px)}
+  .grp{display:flex;flex-direction:column;gap:12px}
+
+  .node{flex:0 0 auto;width:172px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:11px;
+    padding:12px;cursor:pointer;transition:border-color .15s,transform .12s;box-shadow:0 1px 3px #0006}
+  .node:hover{border-color:var(--border-2);transform:translateY(-1px)}
+  .node .r1{display:flex;align-items:center;gap:8px}
+  .node .r1 .role{font-size:12.5px;font-weight:600}
+  .node .r1 .st{margin-left:auto;font-size:9.5px;text-transform:uppercase;letter-spacing:.3px;display:flex;align-items:center;gap:5px;color:var(--text-2)}
+  .node .r1 .st .s{width:7px;height:7px;border-radius:50%;background:var(--text-3)}
+  .node .focus{font-size:10.5px;color:var(--text-3);margin-top:2px}
+  .node .model{margin-top:8px;display:inline-flex;align-items:center;gap:5px;font-size:10px;color:var(--text-2);
+    background:var(--bg-surface);border:1px solid var(--border);border-radius:6px;padding:2px 7px}
+  .node .model .m{width:5px;height:5px;border-radius:50%;background:var(--text-3)}
+  .node .sum{margin-top:9px;font-size:10.5px;color:var(--text-2);border-top:1px solid var(--border);padding-top:8px}
+  .node .open{margin-top:9px;font-size:10px;color:var(--blue);opacity:0;transition:opacity .15s}
+  .node:hover .open{opacity:1}
+  .node.done{border-color:#22C55E33}.node.done .st{color:var(--green)}.done .st .s{background:var(--green)}
+  .node.working{border-color:#0066FF55}.node.working .st{color:var(--blue)}.working .st .s{background:var(--blue);animation:pulse 1.7s infinite}
+  .node.needs .st{color:var(--amber)}.needs .st .s{background:var(--amber);animation:pulse 1.7s infinite}
+  .node.needs{border-color:#F59E0B55}
+  .node.queued{opacity:.6}
+  .node.sel{border-color:var(--amber);box-shadow:0 0 0 1px var(--amber) inset,0 1px 3px #0006}
+  @keyframes pulse{50%{opacity:.35}}
+  .gate{flex:0 0 auto;font-size:10px;color:var(--text-2);background:var(--bg-elevated);border:1px dashed var(--border-2);
+    border-radius:9px;padding:9px 11px;text-align:center;white-space:nowrap;line-height:1.3}
+
+  /* inspector */
+  .insp{width:340px;flex:0 0 340px;border-left:1px solid var(--border);background:var(--bg-surface);display:flex;flex-direction:column;overflow:auto}
+  .ihead{padding:15px 16px;border-bottom:1px solid var(--border)}
+  .ihead .role{font-size:14px;font-weight:600;display:flex;align-items:center;gap:8px}
+  .ihead .role .s{width:9px;height:9px;border-radius:50%;background:var(--amber);animation:pulse 1.7s infinite}
+  .ihead .meta{margin-top:6px;color:var(--text-2);font-size:11.5px;display:flex;gap:10px}
+  .ihead .meta b{color:var(--text);font-weight:600}
+  .isec{padding:14px 16px;border-bottom:1px solid var(--border)}
+  .isec h5{font-size:9.5px;letter-spacing:.6px;text-transform:uppercase;color:var(--text-3);font-weight:600;margin-bottom:9px}
+  .qbox{background:#F59E0B0d;border:1px solid #F59E0B33;border-radius:8px;padding:10px 11px;font-size:12px;color:var(--text);line-height:1.45}
+  .term{background:#000;border:1px solid var(--border);border-radius:8px;padding:10px;font-size:11px;line-height:1.5;color:var(--text-2)}
+  .term .p{color:var(--green)}.term .w{color:var(--amber)}.term .c{color:var(--text-3)}
+  .acts{display:flex;flex-direction:column;gap:8px}
+  .btn{width:100%;text-align:center;border-radius:8px;padding:8px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid var(--border-2);background:var(--bg-elevated);color:var(--text)}
+  .btn.pri{background:var(--blue);border-color:var(--blue);color:#fff}
+  .btn.gh{background:none;color:var(--text-2)}
+  .stream{display:flex;flex-direction:column;gap:8px}
+  .ev{font-size:11.5px;color:var(--text-2);display:flex;gap:8px}
+  .ev .t{color:var(--text-3);flex:0 0 36px}.ev b{color:var(--text);font-weight:600}.ev .ar{color:var(--green)}
+</style>
+</head>
+<body>
+  <div class="rail">
+    <div class="d">◆</div><div class="d">▤</div><div class="d on">◇</div><div class="d">◷</div><div class="d" style="margin-top:auto">⚙</div>
+  </div>
+  <div class="main">
+    <div class="top">
+      <span class="back">← Graphs</span>
+      <span class="crumb"><b>Integrations</b><span class="sep">›</span>Orchestration<span class="sep">›</span><span class="mono">#4821</span> <b>Rate-limit the public API</b></span>
+      <span class="tstate"><span class="s"></span>working · 04:12 · 4 nodes</span>
+    </div>
+
+    <div class="body">
+      <div class="stage">
+        <div class="flow">
+          <div class="node done">
+            <div class="r1"><span class="role">Architect</span><span class="st"><span class="s"></span>done</span></div>
+            <div class="focus">plan the change</div>
+            <div class="model"><span class="m"></span>claude-opus</div>
+            <div class="sum">3-step plan · handed to Coder</div>
+            <div class="open">↳ open terminal</div>
+          </div>
+          <div class="conn on"></div>
+          <div class="node done">
+            <div class="r1"><span class="role">Coder</span><span class="st"><span class="s"></span>done</span></div>
+            <div class="focus">implement</div>
+            <div class="model"><span class="m"></span>codex</div>
+            <div class="sum">2 files · +84 −12 · fanned to 3 reviewers</div>
+            <div class="open">↳ open terminal</div>
+          </div>
+          <div class="conn on"></div>
+          <div class="grp">
+            <div class="node working">
+              <div class="r1"><span class="role">Reviewer</span><span class="st"><span class="s"></span>working</span></div>
+              <div class="focus">security</div>
+              <div class="model"><span class="m"></span>claude-sonnet</div>
+              <div class="sum">scanning auth &amp; token paths</div>
+              <div class="open">↳ open terminal</div>
+            </div>
+            <div class="node working">
+              <div class="r1"><span class="role">Reviewer</span><span class="st"><span class="s"></span>working</span></div>
+              <div class="focus">types</div>
+              <div class="model"><span class="m"></span>claude-sonnet</div>
+              <div class="sum">checking public API surface</div>
+              <div class="open">↳ open terminal</div>
+            </div>
+            <div class="node needs sel">
+              <div class="r1"><span class="role">Reviewer</span><span class="st"><span class="s"></span>needs you</span></div>
+              <div class="focus">performance</div>
+              <div class="model"><span class="m"></span>claude-sonnet</div>
+              <div class="sum">paused — waiting on your call</div>
+              <div class="open">↳ open terminal</div>
+            </div>
+          </div>
+          <div class="conn dash"></div>
+          <div class="gate">⋈ Gate<br>0 / 3 ready</div>
+          <div class="conn dash"></div>
+          <div class="node queued">
+            <div class="r1"><span class="role">Tester</span><span class="st"><span class="s"></span>queued</span></div>
+            <div class="focus">run &amp; verify</div>
+            <div class="model"><span class="m"></span>haiku</div>
+            <div class="sum">waiting for the gate</div>
+            <div class="open">↳ open terminal</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="insp">
+        <div class="ihead">
+          <div class="role"><span class="s"></span>Reviewer · performance</div>
+          <div class="meta"><span><b>claude-sonnet</b></span><span>node 3 / 3</span><span>needs you</span></div>
+        </div>
+        <div class="isec">
+          <h5>What it's waiting on</h5>
+          <div class="qbox">Cache TTL for the limiter — <b>60s or 300s?</b> Blocking my review until you decide; 300s risks stale quota, 60s adds load.</div>
+        </div>
+        <div class="isec">
+          <h5>Terminal (last lines)</h5>
+          <div class="term mono"><span class="c">$ reviewing rate_limit.ts…</span><br><span class="p">✓</span> no auth regressions<br><span class="w">?</span> cache TTL unresolved — asking human<br><span class="c">▍ awaiting input</span></div>
+        </div>
+        <div class="isec">
+          <h5>Actions</h5>
+          <div class="acts">
+            <button class="btn pri">Open terminal</button>
+            <button class="btn">Reply…</button>
+            <button class="btn gh">Approve 300s &amp; continue</button>
+          </div>
+        </div>
+        <div class="isec" style="border-bottom:none">
+          <h5>Coordination stream</h5>
+          <div class="stream">
+            <div class="ev"><span class="t">04:02</span><span><b>Architect</b> <span class="ar">→</span> <b>Coder</b></span></div>
+            <div class="ev"><span class="t">04:07</span><span><b>Coder</b> <span class="ar">→</span> <b>3 reviewers</b></span></div>
+            <div class="ev"><span class="t">04:11</span><span><b>Reviewer·perf</b> paused · pinged Slack</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

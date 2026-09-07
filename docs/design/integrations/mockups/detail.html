@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Detail</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,system-ui,sans-serif;background:#050506;color:#d9d9dd;-webkit-font-smoothing:antialiased;padding:24px}
+  .q{font-size:12.5px;color:#5a5a60;margin:0 auto 12px;max-width:1100px}.q b{color:#b8b8be;font-weight:600}
+  .win{max-width:1100px;height:660px;margin:0 auto;display:flex;background:#08080a;border:1px solid #141416;border-radius:14px;overflow:hidden;box-shadow:0 30px 90px -30px rgba(0,0,0,.85)}
+  .side{width:200px;flex-shrink:0;background:#0a0a0c;border-right:1px solid #141416;display:flex;flex-direction:column}
+  .team{display:flex;align-items:center;gap:10px;padding:15px 15px 13px;border-bottom:1px solid #111113}
+  .team .av{width:26px;height:26px;border-radius:7px;background:linear-gradient(135deg,#0066FF,#7a3dff)}
+  .team .nm{font-size:12.5px;font-weight:600;color:#e6e6ea}.team .nm small{display:block;font-size:10px;color:#55555b;font-weight:400}
+  .nav{padding:9px 7px;display:flex;flex-direction:column;gap:2px}
+  .nv{display:flex;align-items:center;gap:9px;padding:7px 10px;border-radius:8px;color:#7c7c83;font-size:12.5px;cursor:pointer}
+  .nv svg{opacity:.7}.nv.on{background:#121319;color:#eaeaef}.nv.on svg{opacity:1}
+  .navsep{height:1px;background:#141416;margin:9px 12px}
+  .nlogo{width:16px;height:16px;display:flex;align-items:center;justify-content:center;flex-shrink:0}.nlogo svg{width:15px;height:15px}
+  .sfoot{margin-top:auto}
+  .addbtn{margin:10px 15px 8px;width:30px;height:30px;border-radius:9px;border:1px dashed #2a2a30;display:flex;align-items:center;justify-content:center;color:#9aa6d6;background:#0c1018;cursor:pointer}
+  .me{display:flex;align-items:center;gap:8px;padding:11px 15px;border-top:1px solid #111113;font-size:11.5px;color:#7c7c83}.me .av{width:20px;height:20px;border-radius:50%;background:#333}
+  .content{flex:1;display:flex;flex-direction:column;min-width:0;overflow-y:auto}
+  .crumb{padding:14px 24px 0;font-size:12px;color:#6a6a70}
+  .hero{display:flex;align-items:center;gap:16px;padding:18px 24px 18px}
+  .hlogo{width:60px;height:60px;border-radius:15px;background:#0e0e12;border:1px solid #1c1c20;display:flex;align-items:center;justify-content:center}
+  .hlogo svg{width:38px;height:38px}
+  .hname{font-size:21px;font-weight:650;letter-spacing:-0.02em;color:#f0f0f3}
+  .hsub{font-size:12.5px;color:#5e5e64;margin-top:3px;display:flex;align-items:center;gap:8px}
+  .verified{color:#5a7bb5}
+  .connect{margin-left:auto;font-size:13px;font-weight:600;color:#fff;background:#0066FF;border-radius:9px;padding:10px 20px;cursor:pointer;box-shadow:0 8px 24px -10px #0066FF}
+  .tagline{padding:0 24px 6px;font-size:13.5px;color:#c2c2c8;line-height:1.55;max-width:680px}
+  .cols{display:flex;gap:24px;padding:14px 24px 24px}
+  .main{flex:1}
+  .aside{width:250px;flex-shrink:0}
+  .lbl{font-size:10.5px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;color:#45454b;margin:10px 0 12px}
+  .cap{display:flex;gap:11px;padding:9px 0;border-top:1px solid #121214}
+  .cap:first-of-type{border-top:none}
+  .cic{width:26px;height:26px;border-radius:7px;background:#0e0e12;border:1px solid #1c1c20;display:flex;align-items:center;justify-content:center;flex-shrink:0;color:#7da6ff}
+  .ct{font-size:13px;font-weight:600;color:#dcdce0}.cs{font-size:12px;color:#6c6c72;margin-top:2px}
+  .perm{font-size:12.5px;color:#8a8a90;padding:7px 0;display:flex;align-items:center;gap:8px}
+  .perm svg{color:#4e8f5f}
+  .pro{margin-top:18px;background:#0c1018;border:1px solid #16233b;border-radius:10px;padding:13px}
+  .pro .t{font-size:12.5px;font-weight:600;color:#cfe0ff;display:flex;align-items:center;gap:7px}
+  .pro .s{font-size:11.5px;color:#6f7f9c;margin-top:6px;line-height:1.5}
+</style></head><body>
+  <div class="q">Detail-page: click en el logo de Slack en el marketplace → <b>"qué te da" + Conectar</b>. Sidebar de Teams visible, "+" abajo (marketplace). Al conectar, Slack pasa a ser un ítem del menú.</div>
+  <div class="win">
+    <div class="side">
+      <div class="team"><div class="av"></div><div class="nm">RAVEN<small>Team</small></div></div>
+      <div class="nav">
+        <div class="nv"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M2 8h3l2-5 3 10 2-5h2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>Activity</div>
+        <div class="nv"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M2 4a1.5 1.5 0 0 1 1.5-1.5h9A1.5 1.5 0 0 1 14 4v6a1.5 1.5 0 0 1-1.5 1.5H6L3 14v-2.5A1.5 1.5 0 0 1 2 10V4z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>Chat</div>
+        <div class="nv"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><circle cx="4" cy="4" r="1.5" stroke="currentColor" stroke-width="1.3"/><circle cx="12" cy="4" r="1.5" stroke="currentColor" stroke-width="1.3"/><circle cx="4" cy="12" r="1.5" stroke="currentColor" stroke-width="1.3"/><path d="M4 5.5v5M5.5 4h5M4 5.5c2 0 4 1 4 3.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>Repos</div>
+        <div class="nv"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><circle cx="6" cy="5" r="2" stroke="currentColor" stroke-width="1.3"/><path d="M2 13c0-2.2 1.8-4 4-4s4 1.8 4 4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>Members</div>
+        <div class="navsep"></div>
+        <div class="nv"><span class="nlogo"><svg viewBox="0 0 24 24" fill="#2684FF"><path d="M11.571 11.513H0a5.218 5.218 0 0 0 5.232 5.215h2.13v2.057A5.215 5.215 0 0 0 12.575 24V12.518a1.005 1.005 0 0 0-1.005-1.005zm5.723-5.756H5.736a5.215 5.215 0 0 0 5.215 5.214h2.129v2.058a5.218 5.218 0 0 0 5.215 5.214V6.758a1.001 1.001 0 0 0-1.001-1.001zM23.013 0H11.455a5.215 5.215 0 0 0 5.215 5.215h2.129v2.057A5.215 5.215 0 0 0 24 12.483V1.005A1.001 1.001 0 0 0 23.013 0Z"/></svg></span>Jira</div>
+      </div>
+      <div class="sfoot">
+        <div class="addbtn" title="Marketplace"><svg width="15" height="15" viewBox="0 0 16 16"><path d="M8 3.2v9.6M3.2 8h9.6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></div>
+        <div class="me"><div class="av"></div>Gerónimo · Pro</div>
+      </div>
+    </div>
+    <div class="content">
+      <div class="crumb">‹ Integraciones</div>
+      <div class="hero">
+        <div class="hlogo"><svg viewBox="0 0 2447.6 2452.5"><g clip-rule="evenodd" fill-rule="evenodd"><path d="m897.4 0c-135.3.1-244.8 109.9-244.7 245.2-.1 135.3 109.5 245.1 244.8 245.2h244.8v-245.1c.1-135.3-109.5-245.1-244.9-245.3zm0 654h-652.6c-135.3.1-244.9 109.9-244.8 245.2-.2 135.3 109.4 245.1 244.7 245.3h652.7c135.3-.1 244.9-109.9 244.8-245.2.1-135.4-109.5-245.2-244.8-245.3z" fill="#36c5f0"/><path d="m2447.6 899.2c.1-135.3-109.5-245.1-244.8-245.2-135.3.1-244.9 109.9-244.8 245.2v245.3h244.8c135.3-.1 244.9-109.9 244.8-245.3zm-652.7 0v-654c.1-135.2-109.4-245-244.7-245.2-135.3.1-244.9 109.9-244.8 245.2v654c-.2 135.3 109.4 245.1 244.7 245.3 135.3-.1 244.9-109.9 244.8-245.3z" fill="#2eb67d"/><path d="m1550.1 2452.5c135.3-.1 244.9-109.9 244.8-245.2.1-135.3-109.5-245.1-244.8-245.2h-244.8v245.2c-.1 135.2 109.5 245 244.8 245.2zm0-654.1h652.7c135.3-.1 244.9-109.9 244.8-245.2.2-135.3-109.4-245.1-244.7-245.3h-652.7c-135.3.1-244.9 109.9-244.8 245.2-.1 135.4 109.4 245.2 244.7 245.3z" fill="#ecb22e"/><path d="m0 1553.2c-.1 135.3 109.5 245.1 244.8 245.2 135.3-.1 244.9-109.9 244.8-245.2v-245.2h-244.8c-135.3.1-244.9 109.9-244.8 245.2zm652.7 0v654c-.2 135.3 109.4 245.1 244.7 245.3 135.3-.1 244.9-109.9 244.8-245.2v-653.9c.2-135.3-109.4-245.1-244.7-245.3-135.4 0-244.9 109.8-244.8 245.1z" fill="#e01e5a"/></g></svg></div>
+        <div><div class="hname">Slack</div><div class="hsub">Comunicación · <span class="verified">✦ Integración nativa de Nest</span></div></div>
+        <div class="connect">Conectar Slack</div>
+      </div>
+      <div class="tagline">Tu Slack adentro de Nest: leé y respondé sin cambiar de ventana, mandá el output de un comando a un canal, y tené el canal del worktree a mano.</div>
+      <div class="cols">
+        <div class="main">
+          <div class="lbl">Qué podés hacer</div>
+          <div class="cap"><div class="cic"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M2 4h12M2 8h12M2 12h7" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg></div><div><div class="ct">Leer canales, no leídos y threads</div><div class="cs">Tus mensajes recientes, refrescados periódicamente.</div></div></div>
+          <div class="cap"><div class="cic"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M2 14l12-6L2 2v5l7 1-7 1z" fill="currentColor"/></svg></div><div><div class="ct">Mandar mensajes y responder</div><div class="cs">Escribí en cualquier canal o DM desde Nest.</div></div></div>
+          <div class="cap"><div class="cic"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><circle cx="7" cy="7" r="4.5" stroke="currentColor" stroke-width="1.3"/><path d="M11 11l3 3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg></div><div><div class="ct">Buscar en tu workspace</div><div class="cs">Encontrá mensajes y conversaciones.</div></div></div>
+          <div class="cap"><div class="cic"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="2" y="3" width="12" height="10" rx="2" stroke="currentColor" stroke-width="1.2"/><path d="M5 7h6M5 9h4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg></div><div><div class="ct">Enviar el output del terminal a un canal</div><div class="cs">El resultado de un comando, formateado, en 1 click.</div></div></div>
+          <div class="cap"><div class="cic"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><circle cx="4" cy="4" r="1.5" stroke="currentColor" stroke-width="1.3"/><circle cx="12" cy="4" r="1.5" stroke="currentColor" stroke-width="1.3"/><path d="M4 5.5v5M5.5 4h5M4 5.5c2 0 4 1 4 3.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg></div><div><div class="ct">Canal automático por worktree</div><div class="cs">El canal del branch en el que estás, a mano.</div></div></div>
+        </div>
+        <div class="aside">
+          <div class="lbl">Permisos que pide</div>
+          <div class="perm"><svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M3 8l3 3 7-7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg> Ver tus canales y mensajes</div>
+          <div class="perm"><svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M3 8l3 3 7-7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg> Enviar mensajes como vos</div>
+          <div class="perm"><svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M3 8l3 3 7-7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg> Buscar en el workspace</div>
+          <div class="pro"><div class="t"><svg width="13" height="13" viewBox="0 0 16 16" fill="none"><rect x="3" y="7" width="10" height="7" rx="1.5" stroke="#7da6ff" stroke-width="1.3"/><path d="M5 7V5a3 3 0 0 1 6 0v2" stroke="#7da6ff" stroke-width="1.3"/></svg> Incluido en Pro</div><div class="s">El token se guarda cifrado en tu equipo (keychain). Tus mensajes nunca pasan por nuestros servidores.</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body></html>

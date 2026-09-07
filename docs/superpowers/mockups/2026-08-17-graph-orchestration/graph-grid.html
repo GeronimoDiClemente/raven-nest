@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nest — Orchestration: auto-packed graphs</title>
+<style>
+  :root{
+    --bg-app:#000; --bg-surface:#0a0a0a; --bg-elevated:#111; --border:#1e1e1e; --border-2:#2a2a2a;
+    --text:#e8e8e8; --text-2:#888; --text-3:#555;
+    --blue:#0066FF; --green:#22C55E; --amber:#F59E0B;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{background:var(--bg-app);color:var(--text);
+    font-family:'Inter',system-ui,-apple-system,sans-serif;font-size:13px;-webkit-font-smoothing:antialiased;display:flex}
+  .mono{font-family:'SFMono-Regular','Consolas',ui-monospace,monospace}
+
+  .rail{width:50px;flex:0 0 50px;background:var(--bg-surface);border-right:1px solid var(--border);
+    display:flex;flex-direction:column;align-items:center;gap:4px;padding:13px 0;min-height:100vh}
+  .rail .d{width:30px;height:30px;border-radius:8px;display:grid;place-items:center;color:var(--text-3);font-size:14px}
+  .rail .d.on{background:#0066FF18;color:var(--blue)}
+  .main{flex:1;min-width:0;display:flex;flex-direction:column;min-height:100vh}
+  .top{height:44px;flex:0 0 44px;border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 18px}
+  .crumb{color:var(--text-2);font-size:12.5px}.crumb b{color:var(--text)}.crumb .sep{color:var(--text-3);margin:0 8px}
+  .toggle{margin-left:auto;display:flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;font-size:11.5px}
+  .toggle span{padding:5px 12px;color:var(--text-2)}
+  .toggle span.on{background:var(--bg-elevated);color:var(--text)}
+  .toggle span+span{border-left:1px solid var(--border)}
+
+  .sub{display:flex;align-items:center;gap:14px;padding:11px 20px;border-bottom:1px solid var(--border);color:var(--text-2);font-size:11.5px}
+  .sub .n{color:var(--text);font-weight:600}
+  .sub .af{margin-left:auto;display:flex;align-items:center;gap:6px;color:var(--blue);
+    border:1px solid #0066FF44;border-radius:7px;padding:4px 9px;font-size:11px}
+
+  .board{padding:16px 20px;overflow:auto;
+    display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px;align-items:start}
+
+  .tile{background:var(--bg-surface);border:1px solid var(--border);border-radius:10px;padding:12px 13px;cursor:pointer;transition:border-color .15s}
+  .tile:hover{border-color:var(--border-2)}
+  .thead{display:flex;align-items:center;gap:8px}
+  .thead .id{font-size:10px;color:var(--text-3)}
+  .thead .ti{font-size:12px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .thead .st{margin-left:auto;width:8px;height:8px;border-radius:50%;flex:0 0 8px}
+  .st.blue{background:var(--blue)}.st.green{background:var(--green)}.st.amber{background:var(--amber)}.st.grey{background:var(--text-3)}
+
+  .mini{display:flex;align-items:center;gap:0;margin-top:11px;flex-wrap:nowrap}
+  .mn{flex:0 0 auto;display:flex;align-items:center;gap:6px;background:var(--bg-elevated);border:1px solid var(--border);
+    border-radius:7px;padding:5px 8px;font-size:10.5px;font-weight:600;white-space:nowrap;line-height:1.05}
+  .mn small{font-weight:400;color:var(--text-3);font-size:9px}
+  .mn .dot{width:6px;height:6px;border-radius:50%;flex:0 0 6px;background:var(--text-3)}
+  .mn.done .dot{background:var(--green)}
+  .mn.working{border-color:#0066FF55}.mn.working .dot{background:var(--blue);animation:pulse 1.7s ease-in-out infinite}
+  .mn.needs{border-color:#F59E0B44}.mn.needs .dot{background:var(--amber);animation:pulse 1.7s ease-in-out infinite}
+  .mn.queued{opacity:.55}
+  @keyframes pulse{50%{opacity:.35}}
+  .mc{flex:0 0 10px;height:1px;background:var(--border-2)}
+  .mc.on{background:var(--green);opacity:.7}
+  .mc.dash{background:repeating-linear-gradient(90deg,var(--border-2) 0 3px,transparent 3px 6px)}
+  .grp{display:flex;flex-direction:column;gap:4px}
+  .gate{flex:0 0 auto;font-size:8.5px;color:var(--text-2);border:1px dashed var(--border-2);border-radius:6px;padding:4px 6px;text-align:center;white-space:nowrap}
+
+  .foot{padding:12px 20px;color:var(--text-3);font-size:11px}
+  .foot .kbd{color:var(--text-2);border:1px solid var(--border);border-radius:5px;padding:1px 6px;background:var(--bg-elevated)}
+</style>
+</head>
+<body>
+  <div class="rail">
+    <div class="d">◆</div><div class="d">▤</div><div class="d on">◇</div><div class="d">◷</div><div class="d" style="margin-top:auto">⚙</div>
+  </div>
+  <div class="main">
+    <div class="top">
+      <span class="crumb"><b>Integrations</b><span class="sep">›</span>Orchestration<span class="sep">›</span><b>Graph</b></span>
+      <span class="toggle"><span>◫ List</span><span class="on">⋔ Graphs</span></span>
+    </div>
+    <div class="sub">
+      <span><span class="n">8</span> graphs</span><span><span class="n">4</span> working</span><span><span class="n">1</span> needs you</span><span><span class="n">2</span> done</span>
+      <span class="af">⤢ auto-fit · re-packs as graphs change</span>
+    </div>
+
+    <div class="board">
+      <!-- 1: fan-out 3 reviewers -->
+      <div class="tile">
+        <div class="thead"><span class="id mono">#4821</span><span class="ti">Rate-limit the public API</span><span class="st blue"></span></div>
+        <div class="mini">
+          <div class="mn done"><span class="dot"></span>Arch</div><div class="mc on"></div>
+          <div class="mn done"><span class="dot"></span>Coder</div><div class="mc on"></div>
+          <div class="grp">
+            <div class="mn working"><span class="dot"></span>Rev<small>sec</small></div>
+            <div class="mn working"><span class="dot"></span>Rev<small>type</small></div>
+            <div class="mn needs"><span class="dot"></span>Rev<small>perf</small></div>
+          </div>
+          <div class="mc dash"></div><div class="gate">⋈0/3</div><div class="mc dash"></div>
+          <div class="mn queued"><span class="dot"></span>Test</div>
+        </div>
+      </div>
+
+      <!-- 2 -->
+      <div class="tile">
+        <div class="thead"><span class="id mono">#4816</span><span class="ti">Fix OAuth token refresh</span><span class="st blue"></span></div>
+        <div class="mini">
+          <div class="mn done"><span class="dot"></span>Arch</div><div class="mc on"></div>
+          <div class="mn working"><span class="dot"></span>Coder</div><div class="mc dash"></div>
+          <div class="mn queued"><span class="dot"></span>Rev</div><div class="mc dash"></div>
+          <div class="mn queued"><span class="dot"></span>Test</div>
+        </div>
+      </div>
+
+      <!-- 3 needs you -->
+      <div class="tile">
+        <div class="thead"><span class="id mono">#4818</span><span class="ti">Flaky e2e on Windows</span><span class="st amber"></span></div>
+        <div class="mini">
+          <div class="mn done"><span class="dot"></span>Arch</div><div class="mc on"></div>
+          <div class="mn done"><span class="dot"></span>Coder</div><div class="mc on"></div>
+          <div class="mn needs"><span class="dot"></span>Rev</div><div class="mc dash"></div>
+          <div class="mn queued"><span class="dot"></span>Test</div>
+        </div>
+      </div>
+
+      <!-- 4 just started -->
+      <div class="tile">
+        <div class="thead"><span class="id mono">#4822</span><span class="ti">Add dark-mode toggle</span><span class="st blue"></span></div>
+        <div class="mini">
+          <div class="mn working"><span class="dot"></span>Arch</div><div class="mc dash"></div>
+          <div class="mn queued"><span class="dot"></span>Coder</div><div class="mc dash"></div>
+          <div class="mn queued"><span class="dot"></span>Rev</div><div class="mc dash"></div>
+          <div class="mn queued"><span class="dot"></span>Test</div>
+        </div>
+      </div>
+
+      <!-- 5 fan-out 2 -->
+      <div class="tile">
+        <div class="thead"><span class="id mono">#4820</span><span class="ti">Rate-limit dashboard</span><span class="st blue"></span></div>
+        <div class="mini">
+          <div class="mn done"><span class="dot"></span>Arch</div><div class="mc on"></div>
+          <div class="mn working"><span class="dot"></span>Coder</div><div class="mc dash"></div>
+          <div class="grp">
+            <div class="mn queued"><span class="dot"></span>Rev<small>ui</small></div>
+            <div class="mn queued"><span class="dot"></span>Rev<small>a11y</small></div>
+          </div>
+          <div class="mc dash"></div><div class="gate">⋈0/2</div><div class="mc dash"></div>
+          <div class="mn queued"><span class="dot"></span>Test</div>
+        </div>
+      </div>
+
+      <!-- 6 done -->
+      <div class="tile">
+        <div class="thead"><span class="id mono">#4809</span><span class="ti">Migrate stats to GraphQL</span><span class="st green"></span></div>
+        <div class="mini">
+          <div class="mn done"><span class="dot"></span>Arch</div><div class="mc on"></div>
+          <div class="mn done"><span class="dot"></span>Coder</div><div class="mc on"></div>
+          <div class="mn done"><span class="dot"></span>Rev</div><div class="mc on"></div>
+          <div class="mn done"><span class="dot"></span>Test</div>
+        </div>
+      </div>
+
+      <!-- 7 queued -->
+      <div class="tile">
+        <div class="thead"><span class="id mono">#4823</span><span class="ti">Webhook delivery retries</span><span class="st grey"></span></div>
+        <div class="mini">
+          <div class="mn queued"><span class="dot"></span>Arch</div><div class="mc dash"></div>
+          <div class="mn queued"><span class="dot"></span>Coder</div><div class="mc dash"></div>
+          <div class="mn queued"><span class="dot"></span>Rev</div><div class="mc dash"></div>
+          <div class="mn queued"><span class="dot"></span>Test</div>
+        </div>
+      </div>
+
+      <!-- 8 done -->
+      <div class="tile">
+        <div class="thead"><span class="id mono">#4805</span><span class="ti">Rework pricing page</span><span class="st green"></span></div>
+        <div class="mini">
+          <div class="mn done"><span class="dot"></span>Arch</div><div class="mc on"></div>
+          <div class="mn done"><span class="dot"></span>Coder</div><div class="mc on"></div>
+          <div class="mn done"><span class="dot"></span>Rev</div><div class="mc on"></div>
+          <div class="mn done"><span class="dot"></span>Test</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="foot"><span class="kbd">click</span> a graph → open it full-canvas &nbsp;·&nbsp; <span class="kbd">click</span> a node → its terminal &nbsp;·&nbsp; board auto-packs as tickets come &amp; go</div>
+  </div>
+</body>
+</html>
