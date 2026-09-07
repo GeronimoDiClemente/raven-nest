@@ -18,7 +18,7 @@
 // parse-mutate-stringify. Only writeFileAtomic is reused, for the final write.
 import { existsSync, mkdirSync, readFileSync } from 'fs'
 import { join } from 'path'
-import { modify, applyEdits } from 'jsonc-parser'
+import { modify, applyEdits, parse } from 'jsonc-parser'
 import { writeFileAtomic, type ProvisionerPaths } from './memory-provisioner'
 
 const FORMATTING = { insertSpaces: true, tabSize: 2 } as const
@@ -62,4 +62,34 @@ export function provisionOpencodeAccount(accountDir: string, paths: ProvisionerP
   writeFileAtomic(configPath, applyEdits(text, edits))
 
   return {}
+}
+
+/**
+ * Reverses provisioning: removes mcp.nest_memory from opencode.jsonc via the same
+ * text-level edit mechanism (passing `undefined` as the value tells jsonc-parser's
+ * modify() to generate a removal edit), WITHOUT deleting the file or any other key in it —
+ * it is opencode's real config, not a Nest-exclusive file (same principle
+ * memory-provisioner-gemini.ts and memory-provisioner-qwen.ts apply to their own files).
+ * A no-op (no file created, nothing thrown) when nothing was ever provisioned.
+ */
+export function deprovisionOpencodeAccount(accountDir: string): void {
+  const configPath = opencodeConfigPath(accountDir)
+  if (!existsSync(configPath)) return
+
+  const text = readConfigText(configPath)
+  const edits = modify(text, ['mcp', 'nest_memory'], undefined, { formattingOptions: FORMATTING })
+  writeFileAtomic(configPath, applyEdits(text, edits))
+}
+
+export function isOpencodeAccountProvisioned(accountDir: string): boolean {
+  const configPath = opencodeConfigPath(accountDir)
+  if (!existsSync(configPath)) return false
+  try {
+    // jsonc-parser's own parse() — never a hand-rolled comment-stripping regex, which would
+    // mistake a real value like "https://opencode.ai/config.json" for a `//` comment start.
+    const parsed = parse(readFileSync(configPath, 'utf8'))
+    return !!parsed?.mcp?.nest_memory
+  } catch {
+    return false
+  }
 }

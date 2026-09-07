@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { join } from 'path'
 import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'fs'
 import { makeTmpDir, cleanupTmp } from './setup'
-import { provisionOpencodeAccount } from '../memory-provisioner-opencode'
+import { provisionOpencodeAccount, deprovisionOpencodeAccount, isOpencodeAccountProvisioned } from '../memory-provisioner-opencode'
 
 // opencode needs no isolated identity home like Gemini's GEMINI_CLI_HOME: pty-manager.ts
 // already redirects HOME/USERPROFILE to accountDir for every AI pane, and opencode resolves
@@ -76,5 +76,58 @@ describe('memory-provisioner-opencode', () => {
 
     const raw = readFileSync(configPath, 'utf8')
     expect(raw).toContain('// my own note about this config')
+  })
+
+  it('deprovision removes mcp.nest_memory but preserves other keys and other mcp servers', () => {
+    mkdirSync(join(accountDir, '.config', 'opencode'), { recursive: true })
+    writeFileSync(
+      configPath,
+      JSON.stringify({
+        username: 'gerod',
+        mcp: { other_server: { type: 'local', command: ['foo'] } },
+      }),
+    )
+    provisionOpencodeAccount(accountDir, paths, true)
+
+    deprovisionOpencodeAccount(accountDir)
+
+    expect(existsSync(configPath)).toBe(true) // file itself survives — it's not Nest-exclusive
+    const parsed = JSON.parse(readFileSync(configPath, 'utf8'))
+    expect(parsed.username).toBe('gerod')
+    expect(parsed.mcp.other_server).toEqual({ type: 'local', command: ['foo'] })
+    expect(parsed.mcp.nest_memory).toBeUndefined()
+  })
+
+  it('deprovision preserves a real // comment in the file', () => {
+    mkdirSync(join(accountDir, '.config', 'opencode'), { recursive: true })
+    writeFileSync(configPath, '{\n  // my own note about this config\n  "username": "gerod"\n}\n')
+    provisionOpencodeAccount(accountDir, paths, true)
+
+    deprovisionOpencodeAccount(accountDir)
+
+    const raw = readFileSync(configPath, 'utf8')
+    expect(raw).toContain('// my own note about this config')
+  })
+
+  it('deprovision is a no-op (does not throw, does not create the file) when nothing was ever provisioned', () => {
+    expect(() => deprovisionOpencodeAccount(accountDir)).not.toThrow()
+    expect(existsSync(configPath)).toBe(false)
+  })
+
+  it('isOpencodeAccountProvisioned reflects provision/deprovision state', () => {
+    expect(isOpencodeAccountProvisioned(accountDir)).toBe(false)
+    provisionOpencodeAccount(accountDir, paths, true)
+    expect(isOpencodeAccountProvisioned(accountDir)).toBe(true)
+    deprovisionOpencodeAccount(accountDir)
+    expect(isOpencodeAccountProvisioned(accountDir)).toBe(false)
+  })
+
+  it('isOpencodeAccountProvisioned is not fooled by a real $schema URL containing //', () => {
+    mkdirSync(join(accountDir, '.config', 'opencode'), { recursive: true })
+    writeFileSync(configPath, JSON.stringify({ $schema: 'https://opencode.ai/config.json' }))
+
+    expect(isOpencodeAccountProvisioned(accountDir)).toBe(false)
+    provisionOpencodeAccount(accountDir, paths, true)
+    expect(isOpencodeAccountProvisioned(accountDir)).toBe(true)
   })
 })
