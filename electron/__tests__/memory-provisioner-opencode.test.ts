@@ -42,12 +42,19 @@ describe('memory-provisioner-opencode', () => {
     expect(result.env).toBeUndefined()
   })
 
-  it('is idempotent — provisioning twice does not duplicate or corrupt the entry', () => {
+  it('is idempotent — provisioning twice does not duplicate or corrupt the entry, and updates it when paths change', () => {
     provisionOpencodeAccount(accountDir, paths, true)
     provisionOpencodeAccount(accountDir, paths, true)
 
     const parsed = JSON.parse(readFileSync(configPath, 'utf8'))
     expect(Object.keys(parsed.mcp)).toEqual(['nest_memory'])
+
+    const newPaths = { execPath: 'C:/new/electron.exe', shimPath: 'C:/new/dist-electron/memory-mcp.js' }
+    provisionOpencodeAccount(accountDir, newPaths, true)
+
+    const updated = JSON.parse(readFileSync(configPath, 'utf8'))
+    expect(Object.keys(updated.mcp)).toEqual(['nest_memory'])
+    expect(updated.mcp.nest_memory.command).toEqual([newPaths.execPath, newPaths.shimPath])
   })
 
   it('preserves other keys and other mcp servers already in the file', () => {
@@ -115,6 +122,17 @@ describe('memory-provisioner-opencode', () => {
     expect(existsSync(configPath)).toBe(false)
   })
 
+  it('deprovision is a no-op (does not throw) on a file that exists but was never provisioned — no mcp key at all', () => {
+    mkdirSync(join(accountDir, '.config', 'opencode'), { recursive: true })
+    writeFileSync(configPath, JSON.stringify({ username: 'gerod' }))
+
+    expect(() => deprovisionOpencodeAccount(accountDir)).not.toThrow()
+
+    const parsed = JSON.parse(readFileSync(configPath, 'utf8'))
+    expect(parsed.username).toBe('gerod')
+    expect(parsed.mcp).toBeUndefined()
+  })
+
   it('isOpencodeAccountProvisioned reflects provision/deprovision state', () => {
     expect(isOpencodeAccountProvisioned(accountDir)).toBe(false)
     provisionOpencodeAccount(accountDir, paths, true)
@@ -146,6 +164,33 @@ describe('memory-provisioner-opencode', () => {
     writeFileSync(configPath, '{\n  // a comment\n  "username": "gerod",\n}\n')
 
     expect(() => provisionOpencodeAccount(accountDir, paths, true)).not.toThrow()
+  })
+
+  it('provision treats an empty opencode.jsonc the same as a missing one — writes mcp.nest_memory instead of throwing', () => {
+    mkdirSync(join(accountDir, '.config', 'opencode'), { recursive: true })
+    writeFileSync(configPath, '')
+
+    expect(() => provisionOpencodeAccount(accountDir, paths, true)).not.toThrow()
+
+    const parsed = JSON.parse(readFileSync(configPath, 'utf8'))
+    expect(parsed.mcp.nest_memory).toBeDefined()
+  })
+
+  it('provision treats a whitespace-only opencode.jsonc the same as a missing one', () => {
+    mkdirSync(join(accountDir, '.config', 'opencode'), { recursive: true })
+    writeFileSync(configPath, '   \n  \n')
+
+    expect(() => provisionOpencodeAccount(accountDir, paths, true)).not.toThrow()
+
+    const parsed = JSON.parse(readFileSync(configPath, 'utf8'))
+    expect(parsed.mcp.nest_memory).toBeDefined()
+  })
+
+  it('provision throws with a clear message when the JSONC root is valid but not an object (e.g. an array)', () => {
+    mkdirSync(join(accountDir, '.config', 'opencode'), { recursive: true })
+    writeFileSync(configPath, '[1, 2, 3]')
+
+    expect(() => provisionOpencodeAccount(accountDir, paths, true)).toThrow(/did not contain a JSON object/)
   })
 
   it('is registered in the adapter registry by aiType and by bin name', () => {

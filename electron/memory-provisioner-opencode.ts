@@ -18,7 +18,7 @@
 // parse-mutate-stringify. Only writeFileAtomic is reused, for the final write.
 import { existsSync, mkdirSync, readFileSync } from 'fs'
 import { join } from 'path'
-import { modify, applyEdits, parse, type ParseError } from 'jsonc-parser'
+import { modify, applyEdits, parse, printParseErrorCode, type ParseError } from 'jsonc-parser'
 import { writeFileAtomic, type ProvisionerPaths } from './memory-provisioner'
 
 const FORMATTING = { insertSpaces: true, tabSize: 2 } as const
@@ -43,10 +43,19 @@ function opencodeConfigPath(accountDir: string): string {
 function readConfigTextOrThrow(configPath: string): string {
   if (!existsSync(configPath)) return '{}'
   const raw = readFileSync(configPath, 'utf8')
+  // An empty or whitespace-only file (e.g. `touch opencode.jsonc`) is a reasonable starting
+  // state, not corruption — jsonc-parser's parse() reports ValueExpected for it same as it
+  // would for real corruption, so treat it the same as a missing file before checking further.
+  if (raw.trim() === '') return '{}'
   const errors: ParseError[] = []
-  parse(raw, errors, { allowTrailingComma: true })
+  const value = parse(raw, errors, { allowTrailingComma: true })
   if (errors.length > 0) {
-    throw new Error(`${configPath} is not valid JSONC (error code ${errors[0].error} at offset ${errors[0].offset})`)
+    throw new Error(
+      `${configPath} is not valid JSONC (${printParseErrorCode(errors[0].error)} at offset ${errors[0].offset})`,
+    )
+  }
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new Error(`${configPath} did not contain a JSON object`)
   }
   return raw
 }
@@ -86,6 +95,10 @@ export function provisionOpencodeAccount(accountDir: string, paths: ProvisionerP
 export function deprovisionOpencodeAccount(accountDir: string): void {
   const configPath = opencodeConfigPath(accountDir)
   if (!existsSync(configPath)) return
+  // jsonc-parser's modify() throws "Can not delete in empty document" when the PARENT path
+  // segment (`mcp`) is missing from the document, not just when the leaf key is missing — so
+  // this guard is required for the no-op contract documented above, not just an optimization.
+  if (!isOpencodeAccountProvisioned(accountDir)) return
 
   const text = readConfigTextOrThrow(configPath)
   const edits = modify(text, ['mcp', 'nest_memory'], undefined, { formattingOptions: FORMATTING })
@@ -98,7 +111,7 @@ export function isOpencodeAccountProvisioned(accountDir: string): boolean {
   try {
     // jsonc-parser's own parse() — never a hand-rolled comment-stripping regex, which would
     // mistake a real value like "https://opencode.ai/config.json" for a `//` comment start.
-    const parsed = parse(readFileSync(configPath, 'utf8'))
+    const parsed = parse(readFileSync(configPath, 'utf8'), [], { allowTrailingComma: true })
     return !!parsed?.mcp?.nest_memory
   } catch {
     return false
