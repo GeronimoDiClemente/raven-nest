@@ -86,10 +86,14 @@ export function isOpencodeAccountProvisioned(accountDir: string): boolean
 ```
 
 - `provision()`: lee el texto crudo de `{accountDir}/.config/opencode/opencode.jsonc`
-  (`'{}'` si no existe — se siembra un documento mínimo en vez de string vacío, para no
-  depender de si `modify()` de jsonc-parser maneja texto vacío sin caso especial; queda
-  para el plan de implementación verificar con un test si hiciera falta relajar esto),
-  calcula el edit para `['mcp', 'nest_memory']` con
+  (`'{}'` si no existe). **Nota post-implementación (review final, 2026-09-07):** el miedo
+  original de este párrafo — que `modify()` de jsonc-parser no manejara texto vacío — resultó
+  infundado, verificado empíricamente: `modify('', ...)` funciona perfecto. La implementación
+  real terminó siendo *más* estricta que este miedo: un archivo vacío/sólo-espacios pasaba por
+  el chequeo de corrupción y `provision()` tiraba (bug real, corregido en el fix wave de la
+  review final). La lección para el próximo adapter JSONC: no asumir el comportamiento de una
+  librería de terceros en el spec — un `node -e` de 10 segundos lo confirma o lo refuta.
+  Calcula el edit para `['mcp', 'nest_memory']` con
   `{ type: 'local', command: [paths.execPath, paths.shimPath], environment: { ELECTRON_RUN_AS_NODE: '1' } }`,
   aplica el edit y escribe atómico. Devuelve `{}` — sin flags de CLI ni env extra, opencode
   lee su propio `mcp` de config al arrancar, igual que gemini/qwen no necesitan nada
