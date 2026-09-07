@@ -20,7 +20,7 @@ import { useGitInfo } from '../hooks/useGitInfo'
 import { useFixedPopover } from '../hooks/useFixedPopover'
 import { ExplorerPanel } from './ExplorerPanel'
 import HubExplorerPanel, { type ExplorerRoot } from './HubExplorerPanel'
-import SidebarSplit from './SidebarSplit'
+import SidebarTabBar, { type SidebarTabId } from './SidebarTabBar'
 import PaneFilterControl from './PaneFilterControl'
 import type { PaneFilter } from '../lib/pane-filter'
 import type { PaneNode } from '../types'
@@ -119,6 +119,7 @@ export default function Sidebar({
   const [joinConnected, setJoinConnected] = useState(terminalJoinService.isConnected)
   const [, forceUpdate] = useState(0)
   const [moreOpen, setMoreOpen] = useState(false)
+  const [activeTab, setActiveTab] = useState<SidebarTabId>('worktrees')
   const [layoutOpen, setLayoutOpen] = useState(false)
   // Index into layoutOptions while the user is cycling with Ctrl+L. null when
   // the popover was opened by click (no active cycling — selection commits on
@@ -489,6 +490,98 @@ export default function Sidebar({
     </div>
   )
 
+  // Team + My Repos — shared between the collapsed icon rail (always icon-only
+  // rows, unchanged) and the expanded "Personal" tab (see SidebarTabBar).
+  const TeamItem = (
+    <div
+      className="sidebar-item sidebar-item-panel sidebar-item-team"
+      style={{ cursor: 'pointer', position: 'relative' }}
+      onClick={onTeamsOpen}
+      title={pendingInvitesCount > 0 ? `Team — ${pendingInvitesCount} pending invite${pendingInvitesCount === 1 ? '' : 's'}` : 'Team'}
+    >
+      <span className="sidebar-icon" style={{ position: 'relative' }}>
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <circle cx="6" cy="5" r="2" stroke="currentColor" strokeWidth="1.3"/>
+          <path d="M2 13c0-2.21 1.79-4 4-4s4 1.79 4 4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+          <circle cx="11.5" cy="5.5" r="1.5" stroke="currentColor" strokeWidth="1.2" opacity="0.7"/>
+          <path d="M13.5 12.5c0-1.38-.9-2.55-2.14-2.87" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" opacity="0.7"/>
+        </svg>
+        {pendingInvitesCount > 0 && (
+          <span
+            aria-label={`${pendingInvitesCount} pending invites`}
+            style={{
+              position: 'absolute',
+              top: -4,
+              right: -6,
+              minWidth: 14,
+              height: 14,
+              padding: '0 3px',
+              borderRadius: 7,
+              background: '#EF4444',
+              color: '#fff',
+              fontSize: 9,
+              fontWeight: 700,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              lineHeight: 1,
+              boxShadow: '0 0 0 1.5px var(--bg-primary, #0a0a0a)',
+            }}
+          >
+            {pendingInvitesCount > 9 ? '9+' : pendingInvitesCount}
+          </span>
+        )}
+      </span>
+      <span className="sidebar-label">Team</span>
+    </div>
+  )
+
+  const MyReposItem = (
+    <div
+      className="sidebar-item sidebar-item-panel sidebar-item-team"
+      style={{ cursor: 'pointer' }}
+      onClick={plan === 'pro' || plan === 'team' || plan === 'enterprise' ? onMyReposOpen : onUpgrade}
+      title="My Repos"
+    >
+      <span className="sidebar-icon">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <circle cx="4" cy="4" r="1.5" stroke="currentColor" strokeWidth="1.3"/>
+          <circle cx="12" cy="4" r="1.5" stroke="currentColor" strokeWidth="1.3"/>
+          <circle cx="4" cy="12" r="1.5" stroke="currentColor" strokeWidth="1.3"/>
+          <path d="M4 5.5v5M5.5 4h5M4 5.5c2 0 4 1 4 3.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+        </svg>
+      </span>
+      <span className="sidebar-label">My Repos</span>
+      {expanded && plan === 'free' && <span className="sidebar-plan-badge">Pro</span>}
+    </div>
+  )
+
+  // Shared between the collapsed "More tools" flyout and the expanded
+  // "Tools" tab (see SidebarTabBar) — same items, two different containers.
+  const ToolsListContent = (
+    <>
+      {LayoutItem}
+      {/* Filtro de panes — junto al layout selector: ambos son
+          controles de vista del workspace (pedido de Bautista). */}
+      {onPaneFilterChange && (
+        <PaneFilterControl
+          panes={paneFilterPanes ?? []}
+          filter={paneFilter ?? 'all'}
+          onChange={onPaneFilterChange}
+          expanded={expanded}
+        />
+      )}
+      {SnippetsItem}
+      {WorkspacesItem}
+      {MCPItem}
+      {VoiceItem}
+      {BroadcastItem}
+      {JoinTerminalItem}
+      {ConversationHistoryItem}
+      {CommandHistoryItem}
+    </>
+  )
+
   return (
     <div className={`sidebar${expanded ? ' expanded' : ''}`}>
 
@@ -583,136 +676,83 @@ export default function Sidebar({
 
         </>)}
 
-        {/* ── 2. WORKTREES + EXPLORER — reparto vertical AJUSTABLE (drag del
-             handle, como entre panes); el tamaño persiste vía autoSaveId. ── */}
-        {expanded && (
-          <SidebarSplit
-            worktrees={!isHub ? (
-              <div className="sidebar-worktrees-wrap">
-                <WorktreesSection
-                  repoPath={repoPath ?? null}
-                  activeRepoPath={activeCellRepoPath}
-                  onSelect={onWorktreeSelect}
-                  onNewClick={onNewWorktree}
-                  refreshKey={worktreeRefreshKey}
-                  onStartTutorial={onOpenTutorial ? () => onOpenTutorial('worktrees') : undefined}
-                />
-              </div>
-            ) : null}
-            explorer={
-              <div className="sidebar-explorer-wrap">
-                {isHub ? (
-                  <HubExplorerPanel roots={hubExplorerRoots ?? []} onOpenFile={onOpenFileFromHub ?? (() => {})} />
-                ) : (
-                  <ExplorerPanel worktreePath={activeCellRepoPath ?? null} onFileOpen={onFileOpen} />
-                )}
-              </div>
-            }
-          />
+        {/* ── 2. HUB MODE: Explorer only, same split shell as before ── */}
+        {isHub && expanded && (
+          <div className="sidebar-explorer-wrap">
+            <HubExplorerPanel roots={hubExplorerRoots ?? []} onOpenFile={onOpenFileFromHub ?? (() => {})} />
+          </div>
         )}
 
-        {/* ── 3. TEAMS + MY REPOS ───────────────────────────── */}
-        <div className="sidebar-section-divider" />
-
-        <div
-          className="sidebar-item sidebar-item-panel sidebar-item-team"
-          style={{ cursor: 'pointer', position: 'relative' }}
-          onClick={onTeamsOpen}
-          title={pendingInvitesCount > 0 ? `Team — ${pendingInvitesCount} pending invite${pendingInvitesCount === 1 ? '' : 's'}` : 'Team'}
-        >
-          <span className="sidebar-icon" style={{ position: 'relative' }}>
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <circle cx="6" cy="5" r="2" stroke="currentColor" strokeWidth="1.3"/>
-              <path d="M2 13c0-2.21 1.79-4 4-4s4 1.79 4 4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-              <circle cx="11.5" cy="5.5" r="1.5" stroke="currentColor" strokeWidth="1.2" opacity="0.7"/>
-              <path d="M13.5 12.5c0-1.38-.9-2.55-2.14-2.87" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" opacity="0.7"/>
-            </svg>
-            {pendingInvitesCount > 0 && (
-              <span
-                aria-label={`${pendingInvitesCount} pending invites`}
-                style={{
-                  position: 'absolute',
-                  top: -4,
-                  right: -6,
-                  minWidth: 14,
-                  height: 14,
-                  padding: '0 3px',
-                  borderRadius: 7,
-                  background: '#EF4444',
-                  color: '#fff',
-                  fontSize: 9,
-                  fontWeight: 700,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  lineHeight: 1,
-                  boxShadow: '0 0 0 1.5px var(--bg-primary, #0a0a0a)',
-                }}
-              >
-                {pendingInvitesCount > 9 ? '9+' : pendingInvitesCount}
-              </span>
-            )}
-          </span>
-          <span className="sidebar-label">Team</span>
-        </div>
-
-        <div
-          className="sidebar-item sidebar-item-panel sidebar-item-team"
-          style={{ cursor: 'pointer' }}
-          onClick={plan === 'pro' || plan === 'team' || plan === 'enterprise' ? onMyReposOpen : onUpgrade}
-          title="My Repos"
-        >
-          <span className="sidebar-icon">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <circle cx="4" cy="4" r="1.5" stroke="currentColor" strokeWidth="1.3"/>
-              <circle cx="12" cy="4" r="1.5" stroke="currentColor" strokeWidth="1.3"/>
-              <circle cx="4" cy="12" r="1.5" stroke="currentColor" strokeWidth="1.3"/>
-              <path d="M4 5.5v5M5.5 4h5M4 5.5c2 0 4 1 4 3.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-            </svg>
-          </span>
-          <span className="sidebar-label">My Repos</span>
-          {expanded && plan === 'free' && <span className="sidebar-plan-badge">Pro</span>}
-        </div>
-
-        {/* ── 4. MORE TOOLS (desplegable) ─────────────────── */}
-        <div className={`sidebar-more${moreOpen ? ' open' : ''}`}>
-          <button
-            className="sidebar-item sidebar-more-toggle"
-            onClick={() => setMoreOpen(v => !v)}
-            title={moreOpen ? 'Hide more tools' : 'Show more tools'}
-          >
-            <span className="sidebar-icon">
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style={{ transform: moreOpen ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 150ms ease' }}>
-                <path d="M6 4l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-            </span>
-            <span className="sidebar-label">More tools</span>
-          </button>
-
-          {moreOpen && (
-            <div className="sidebar-more-list">
-              {LayoutItem}
-              {/* Filtro de panes — junto al layout selector: ambos son
-                  controles de vista del workspace (pedido de Bautista). */}
-              {onPaneFilterChange && (
-                <PaneFilterControl
-                  panes={paneFilterPanes ?? []}
-                  filter={paneFilter ?? 'all'}
-                  onChange={onPaneFilterChange}
-                  expanded={expanded}
-                />
+        {/* ── 2. NORMAL MODE, expanded: Worktrees/Explorer/Personal/Tools as
+             exclusive tabs (VS Code style) instead of the old always-stacked
+             split + flyout. Collapsed rail (below) is untouched. ── */}
+        {!isHub && expanded && (
+          <>
+            <SidebarTabBar active={activeTab} onChange={setActiveTab} pendingInvitesCount={pendingInvitesCount} />
+            <div className="sidebar-tab-panel">
+              {activeTab === 'worktrees' && (
+                <div className="sidebar-worktrees-wrap">
+                  <WorktreesSection
+                    repoPath={repoPath ?? null}
+                    activeRepoPath={activeCellRepoPath}
+                    onSelect={onWorktreeSelect}
+                    onNewClick={onNewWorktree}
+                    refreshKey={worktreeRefreshKey}
+                    onStartTutorial={onOpenTutorial ? () => onOpenTutorial('worktrees') : undefined}
+                  />
+                </div>
               )}
-              {SnippetsItem}
-              {WorkspacesItem}
-              {MCPItem}
-              {VoiceItem}
-              {BroadcastItem}
-              {JoinTerminalItem}
-              {ConversationHistoryItem}
-              {CommandHistoryItem}
+              {activeTab === 'explorer' && (
+                <div className="sidebar-explorer-wrap">
+                  <ExplorerPanel worktreePath={activeCellRepoPath ?? null} onFileOpen={onFileOpen} />
+                </div>
+              )}
+              {activeTab === 'personal' && (
+                <div className="sidebar-tab-tools-list">
+                  {TeamItem}
+                  {MyReposItem}
+                </div>
+              )}
+              {activeTab === 'tools' && (
+                <div className="sidebar-tab-tools-list">
+                  {ToolsListContent}
+                </div>
+              )}
             </div>
-          )}
-        </div>
+          </>
+        )}
+
+        {/* ── 3. COLLAPSED ICON RAIL (any mode) + HUB MODE (any expanded
+             state) — unchanged: Team/My Repos/More tools stay icon rows,
+             not tabs. Hub mode never got the tab treatment (out of scope). ── */}
+        {(isHub || !expanded) && (
+          <>
+            <div className="sidebar-section-divider" />
+            {TeamItem}
+            {MyReposItem}
+
+            <div className={`sidebar-more${moreOpen ? ' open' : ''}`}>
+              <button
+                className="sidebar-item sidebar-more-toggle"
+                onClick={() => setMoreOpen(v => !v)}
+                title={moreOpen ? 'Hide more tools' : 'Show more tools'}
+              >
+                <span className="sidebar-icon">
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style={{ transform: moreOpen ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 150ms ease' }}>
+                    <path d="M6 4l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                </span>
+                <span className="sidebar-label">More tools</span>
+              </button>
+
+              {moreOpen && (
+                <div className="sidebar-more-list">
+                  {ToolsListContent}
+                </div>
+              )}
+            </div>
+          </>
+        )}
 
         {/* ── 4.5. LAYOUT SELECTOR — trigger now lives inside "More tools"
              (see LayoutItem). Only the popover renders here (position:fixed,

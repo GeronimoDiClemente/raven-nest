@@ -7552,9 +7552,8 @@ button.ci-badge:hover {
 .wt-section-header {
   display: flex; justify-content: space-between; align-items: center;
   padding: 6px 12px; color: var(--text-muted); font-size: 10px;
-  text-transform: uppercase; letter-spacing: 0.5px; cursor: pointer;
+  text-transform: uppercase; letter-spacing: 0.5px;
 }
-.wt-section-header:hover { color: var(--text-secondary); }
 .wt-header-actions { display: flex; align-items: center; gap: 2px; }
 .wt-add-btn {
   background: transparent; border: none; color: var(--raven-blue);
@@ -11147,16 +11146,43 @@ body.platform-mac .tabbar { padding-right: 116px; }
 /* ── Pane filter chips (TabBar rightSlot): reusan el estilo hub-chip ── */
 .pane-filter-chips{display:flex;align-items:center;gap:4px;margin-right:8px;-webkit-app-region:no-drag}
 
-/* ── Sidebar split (Worktrees / Explorer, reparto ajustable) ──
-   min-height = piso PROTEGIDO: abrir More tools nunca aplasta estas dos
-   secciones por debajo de un alto usable (~200px worktrees + ~140 explorer);
-   lo que se encoge es la lista de tools (ver .sidebar-more-list). */
-.sidebar-split{flex:1 1 auto;min-height:340px}
-.sidebar-split .sidebar-worktrees-wrap,
-.sidebar-split .sidebar-explorer-wrap{height:100%;min-height:0;flex:1}
-.sidebar-split-handle{flex:0 0 5px;position:relative;background:transparent}
-.sidebar-split-handle::after{content:'';position:absolute;left:8px;right:8px;top:2px;height:1px;background:var(--border,#2a2a2a)}
-.sidebar-split-handle:hover::after,.sidebar-split-handle[data-resize-handle-active]::after{background:var(--raven-blue,var(--primary));height:2px}
+/* ── Sidebar tab bar (Worktrees / Explorer / Personal / Tools) ──
+   Horizontal row below the repo header, exclusive tabs (VS Code Activity
+   Bar-ish, but horizontal per Gero's feedback — no side icons, no emoji).
+   Only one panel visible at a time; .sidebar-tab-panel fills the rest of
+   .sidebar-scroll's height so each tab's own wrap (Worktrees/Explorer) can
+   scroll internally. */
+.sidebar-tabbar{
+  display:flex;
+  border-bottom:1px solid var(--border);
+  flex-shrink:0;
+}
+.sidebar-tab{
+  flex:1;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap:4px;
+  padding:7px 2px 6px;
+  font-size:10px;
+  color:var(--text-muted);
+  background:transparent;
+  border:none;
+  border-bottom:2px solid transparent;
+  cursor:pointer;
+}
+.sidebar-tab:hover{color:var(--text-secondary)}
+.sidebar-tab.active{color:var(--text-primary);border-bottom-color:var(--raven-blue,var(--primary))}
+.sidebar-tab-icon{position:relative;display:flex}
+.sidebar-tab-label{white-space:nowrap}
+.sidebar-tab-badge{
+  position:absolute;top:-4px;right:-8px;min-width:13px;height:13px;padding:0 3px;
+  border-radius:7px;background:#EF4444;color:#fff;font-size:9px;font-weight:700;
+  display:flex;align-items:center;justify-content:center;line-height:1;
+  box-shadow:0 0 0 1.5px var(--bg-primary,#0a0a0a);
+}
+.sidebar-tab-panel{flex:1 1 auto;min-height:0;display:flex;flex-direction:column}
+.sidebar-tab-tools-list{display:flex;flex-direction:column;overflow-y:auto}
 
 /* ── Pane filter trigger (embudo del sidebar) + popover ── */
 .pane-filter-trigger.active{color:var(--raven-blue,#4f9eff)}

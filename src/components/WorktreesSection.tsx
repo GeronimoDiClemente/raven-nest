@@ -45,7 +45,6 @@ interface ContextMenuState {
 export function WorktreesSection({ repoPath, activeRepoPath, onSelect, onNewClick, refreshKey, onStartTutorial }: Props) {
   const bridge = useBridge()
   const [worktrees, setWorktrees] = useState<WorktreeMeta[]>([])
-  const [expanded, setExpanded] = useState(true)
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
   const [spotlightPath, setSpotlightPath] = useState<string | null>(null)
   const [idePickerAt, setIdePickerAt] = useState<{ x: number; y: number; worktreePath: string } | null>(null)
@@ -198,8 +197,8 @@ export function WorktreesSection({ repoPath, activeRepoPath, onSelect, onNewClic
 
   return (
     <div className="worktrees-section">
-      <div className="wt-section-header" data-tour-id="wt-header" onClick={() => setExpanded(!expanded)}>
-        <span>{expanded ? '▾' : '▸'} Worktrees</span>
+      <div className="wt-section-header" data-tour-id="wt-header">
+        <span>Worktrees</span>
         <span className="wt-header-actions">
           {onStartTutorial && (
             <button
@@ -231,7 +230,6 @@ export function WorktreesSection({ repoPath, activeRepoPath, onSelect, onNewClic
       )
       return (
       <>
-      {expanded && (
         <div className="wt-list" data-tour-id="wt-list">
           {worktrees.map((wt, index) => {
             const isRoot = wt.repoPath === wt.rootRepoPath
@@ -298,7 +296,6 @@ export function WorktreesSection({ repoPath, activeRepoPath, onSelect, onNewClic
             <div className="wt-empty">No worktrees</div>
           )}
         </div>
-      )}
       </>
       )
       })()}
