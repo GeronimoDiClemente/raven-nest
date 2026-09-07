@@ -3,6 +3,7 @@ import { join } from 'path'
 import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'fs'
 import { makeTmpDir, cleanupTmp } from './setup'
 import { provisionOpencodeAccount, deprovisionOpencodeAccount, isOpencodeAccountProvisioned } from '../memory-provisioner-opencode'
+import { adapterForAiType, adapterForBin } from '../memory-cli-adapters'
 
 // opencode needs no isolated identity home like Gemini's GEMINI_CLI_HOME: pty-manager.ts
 // already redirects HOME/USERPROFILE to accountDir for every AI pane, and opencode resolves
@@ -145,5 +146,17 @@ describe('memory-provisioner-opencode', () => {
     writeFileSync(configPath, '{\n  // a comment\n  "username": "gerod",\n}\n')
 
     expect(() => provisionOpencodeAccount(accountDir, paths, true)).not.toThrow()
+  })
+
+  it('is registered in the adapter registry by aiType and by bin name', () => {
+    expect(adapterForAiType('opencode')?.aiType).toBe('opencode')
+    expect(adapterForBin('opencode')?.aiType).toBe('opencode')
+  })
+
+  it('the adapter.provision() return shape carries neither args nor env', () => {
+    const adapter = adapterForAiType('opencode')!
+    const result = adapter.provision(accountDir, paths, true)
+    expect(result.args).toBeUndefined()
+    expect(result.env).toBeUndefined()
   })
 })

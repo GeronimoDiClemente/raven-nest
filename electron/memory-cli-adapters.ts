@@ -17,6 +17,7 @@ import {
 import { provisionGeminiAccount, deprovisionGeminiAccount } from './memory-provisioner-gemini'
 import { provisionCodexAccount, deprovisionCodexAccount } from './memory-provisioner-codex'
 import { provisionQwenAccount, deprovisionQwenAccount } from './memory-provisioner-qwen'
+import { provisionOpencodeAccount, deprovisionOpencodeAccount } from './memory-provisioner-opencode'
 
 export interface AiMemoryAdapter {
   aiType: string
@@ -100,11 +101,30 @@ const qwenAdapter: AiMemoryAdapter = {
   },
 }
 
+/**
+ * Wraps the opencode provisioning functions (memory-provisioner-opencode.ts) the same thin
+ * way the others wrap theirs. See that module's header for why opencode needs no isolated
+ * identity home or CLI flags/env override — pty-manager.ts's generic HOME/USERPROFILE
+ * redirection already isolates it, same as qwen. MCP only in this entry — hooks are a
+ * separate, not-yet-built adapter (see the module header and the spec).
+ */
+const opencodeAdapter: AiMemoryAdapter = {
+  aiType: 'opencode',
+  binNames: ['opencode'],
+  provision(accountDir, paths, isWin) {
+    return provisionOpencodeAccount(accountDir, paths, isWin)
+  },
+  deprovision(accountDir) {
+    deprovisionOpencodeAccount(accountDir)
+  },
+}
+
 const ADAPTERS: Record<string, AiMemoryAdapter> = {
   claude: claudeAdapter,
   gemini: geminiAdapter,
   codex: codexAdapter,
   qwen: qwenAdapter,
+  opencode: opencodeAdapter,
 }
 
 /** Looked up by pty-manager.ts using `cmd.split(' ')[0]` — the binary actually launched. */
