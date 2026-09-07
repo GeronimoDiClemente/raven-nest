@@ -38,9 +38,18 @@ const MAX_LIMIT = 500
 
 export async function handlePull(
   pool: Pool,
-  auth: { userId: string; plan: string },
+  auth: { userId: string; plan: string; deviceId: string },
   body: PullBody
 ): Promise<PullResponse> {
+  // Observabilidad (005_observability.sql): un incremento por LLAMADA, no por fila
+  // devuelta — corre antes del early-return de cursores vacíos a propósito, porque ese
+  // caso (sin nada que traer) es ~99% del tráfico real (§11.4) y el contador mide
+  // actividad, no resultados. A diferencia del rechazo terminal en push.ts, acá no hay
+  // ninguna transacción abierta que pueda hacer rollback de este UPDATE: es un statement
+  // suelto en autocommit, así que no hace falta el patrón de "loguear después del
+  // rollback" que usa push.ts para rejected_pushes.
+  await pool.query(`update devices set pull_count = pull_count + 1 where id = $1`, [auth.deviceId])
+
   // §11.4: the interval is the server's call, not the client's. It is the only real cost
   // lever, because ~99% of pulls come back empty — and it now depends on the caller's
   // plan, same as the quota in `handleStatus`.

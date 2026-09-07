@@ -134,7 +134,7 @@ afterAll(async () => {
 
 describe('handlePull — Team Memory Layer 1, Parte 5 (pull team-scoped)', () => {
   it("el pull de B sobre el proyecto de A trae EXACTAMENTE la fila scope='team' de A, cero más", async () => {
-    const res = await handlePull(pool, { userId: userB.userId, plan: userB.plan }, {
+    const res = await handlePull(pool, { deviceId: userB.deviceId, userId: userB.userId, plan: userB.plan }, {
       cursors: { [projectA]: 0 },
       limit: 500,
     })
@@ -155,7 +155,7 @@ describe('handlePull — Team Memory Layer 1, Parte 5 (pull team-scoped)', () =>
   })
 
   it('el pull de A sobre su propio proyecto sigue viendo las 3 filas propias, como siempre', async () => {
-    const res = await handlePull(pool, { userId: userA.userId, plan: userA.plan }, {
+    const res = await handlePull(pool, { deviceId: userA.deviceId, userId: userA.userId, plan: userA.plan }, {
       cursors: { [projectA]: 0 },
       limit: 500,
     })
@@ -167,7 +167,7 @@ describe('handlePull — Team Memory Layer 1, Parte 5 (pull team-scoped)', () =>
   })
 
   it('un tercer usuario C, que NO es miembro del equipo, no ve nada del proyecto de A — ni siquiera la fila team', async () => {
-    const res = await handlePull(pool, { userId: userC.userId, plan: userC.plan }, {
+    const res = await handlePull(pool, { deviceId: userC.deviceId, userId: userC.userId, plan: userC.plan }, {
       cursors: { [projectA]: 0 },
       limit: 500,
     })
@@ -181,7 +181,7 @@ describe('handlePull — Team Memory Layer 1, Parte 5 (pull team-scoped)', () =>
     // team, puede pedirlo: el project_key de B no está en NINGÚN cursor de A ni de nadie
     // más, y aunque lo estuviera, `p.team_id in (...)` no matchea contra NULL.
     const projectB = PROJECT('b')
-    const res = await handlePull(pool, { userId: userA.userId, plan: userA.plan }, {
+    const res = await handlePull(pool, { deviceId: userA.deviceId, userId: userA.userId, plan: userA.plan }, {
       cursors: { [projectB]: 0 },
       limit: 500,
     })

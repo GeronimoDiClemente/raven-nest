@@ -175,6 +175,15 @@ export async function handlePush(
 
   const client = await pool.connect()
   try {
+    // Observabilidad (005_observability.sql): un solo incremento por LLAMADA al handler, no
+    // por mutación — así el contador refleja actividad de sync (cuántas veces este device
+    // pusheó), no el tamaño de cada batch. Corre en autocommit, antes de abrir cualquier
+    // transacción de mutación, así que cuenta pase lo que pase después: body vacío, las
+    // cinco mutaciones rechazadas en la pasada 1, o un error a mitad de la pasada 2.
+    await client.query('update devices set push_count = push_count + 1 where id = $1', [
+      auth.deviceId,
+    ])
+
     // Una sola lectura por batch, no una por mutación: esta suma escanea todas las
     // observaciones del usuario y hacerla 200 veces por push sería un escaneo por memoria.
     // El costo de leerla una vez es que un batch puede pasarse un poco antes de frenar, lo
@@ -660,6 +669,17 @@ export async function handlePush(
           // the bug this service exists to fix — the client would resend it forever and
           // nothing anywhere would report a problem.
           console.error('[push] mutation rejected as terminal', syncId, rejection, err)
+          // Observabilidad (005_observability.sql). A PROPÓSITO fuera de la transacción de
+          // arriba, que el `rollback` de la línea de más arriba ya cerró: escribir esto
+          // DENTRO de esa transacción sería un no-op silencioso, porque esa fila nunca
+          // sobreviviría al rollback (mismo destino que el claim de push_receipts, unas
+          // líneas más arriba). Mismo `client`: al no haber transacción abierta vuelve a
+          // autocommit implícito, así que este insert commitea solo, sin depender de nada
+          // de lo que la mutación rechazada intentó hacer.
+          await client.query(
+            `insert into rejected_pushes (device_id, sync_id, error) values ($1, $2, $3)`,
+            [auth.deviceId, syncId, rejection]
+          )
           results.push({ sync_id: syncId, outcome: 'rejected', project_seq: 0, error: rejection })
         } else {
           // Transient: omitted from `results` on purpose. Per §5.1 that is how the server
