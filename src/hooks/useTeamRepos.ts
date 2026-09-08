@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { PROVIDER_HOST } from '../components/ProviderAvatar'
 
@@ -35,8 +35,13 @@ export function useTeamRepos(teamId: string | null) {
   const [loading, setLoading] = useState(false)
   const [userLocalPaths, setUserLocalPaths] = useState<Record<string, string>>({})
 
+  // The id whose fetch is allowed to win. Switching teams mid-flight must not
+  // let the slower response overwrite the newer team's list.
+  const inFlightTeamId = useRef<string | null>(null)
+
   const refresh = useCallback(async () => {
     if (!teamId) { setRepos([]); setUserLocalPaths({}); return }
+    inFlightTeamId.current = teamId
     setLoading(true)
 
     const [reposRes, localPaths] = await Promise.all([
@@ -47,6 +52,7 @@ export function useTeamRepos(teamId: string | null) {
         .order('added_at', { ascending: false }),
       window.localPaths.getAll(),
     ])
+    if (inFlightTeamId.current !== teamId) return
     if (reposRes.error) {
       console.warn('[useTeamRepos.refresh] select team_repos failed; keeping previous state', { teamId }, reposRes.error)
       setLoading(false)
