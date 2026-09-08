@@ -928,7 +928,7 @@ declare global {
        * Task 10 (el panel) — projectKey se resuelve del lado main (mismo camino que
        * `handoff:read` usa para lo mismo); el renderer nunca lo calcula.
        */
-      teamThreadProjectKeyForWorktree?: (worktreePath: string) => Promise<string>
+      teamThreadProjectKeyForWorktree?: (worktreePath: string) => Promise<{ ok: boolean; error?: string; projectKey?: string }>
       /** Task 10 — proyeccion de solo lectura del indice, para pintar el grafo. */
       teamThreadRead?: (worktreePath: string) => Promise<{ ok: boolean; error?: string; branches?: TeamThreadBranch[] }>
     }

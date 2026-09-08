@@ -24,12 +24,28 @@ const COLOR_FRESCURA: Record<string, string> = {
   viejo: 'var(--muted-dim, #334155)',
 }
 
+// Color y frescura son el punto entero del panel (spec §7.6) — sin estas dos, un lector de
+// pantalla puede abrir las notas pero se pierde exactamente lo que el panel viene a
+// aportar (review de Task 10, hallazgo 5). Van al aria-label, no solo al color/borde.
+const ESTADO_LABEL: Record<string, string> = {
+  activa: 'active',
+  'sin-worktree': 'no local worktree',
+  cerrada: 'closed',
+}
+
+const FRESCURA_LABEL: Record<string, string> = {
+  hoy: 'updated today',
+  semana: 'updated this week',
+  mes: 'updated this month',
+  viejo: 'stale',
+}
+
 export function TeamThreadGraph({ branches, focus, ahora, enabled, onToggle, onOpenNote }: Props) {
-  // Arranca mostrando TODAS las ramas: es lo que hace del grafo un vistazo del equipo
-  // entero (spec §7.6), no solo de la propia. "Show current branch" angosta a foco+nada
-  // cuando el volumen del proyecto lo pide (spec §7.3 documenta el caso local/global; el
-  // default en que arranca este panel es el global de los dos).
-  const [showGlobal, setShowGlobal] = useState(true)
+  // Local por default (constraint explicita + buildThreadGraph's doc-comment, spec §7.3):
+  // arriba de cierto tamano el grafo global es ilegible, y la evidencia de esta clase de
+  // vista dice que el local rinde mucho mejor. "Show all branches" pasa a global bajo
+  // demanda.
+  const [showGlobal, setShowGlobal] = useState(false)
   const graph = useMemo(
     () => buildThreadGraph({ branches, focus, ahora, global: showGlobal }),
     [branches, focus, ahora, showGlobal],
@@ -78,7 +94,7 @@ export function TeamThreadGraph({ branches, focus, ahora, enabled, onToggle, onO
                 strokeDasharray={n.estado === 'sin-worktree' ? '3 3' : undefined}
                 role="button"
                 tabIndex={0}
-                aria-label={`Open note for ${n.label}`}
+                aria-label={`Open note for ${n.label} — ${ESTADO_LABEL[n.estado]}, ${FRESCURA_LABEL[n.frescura]}`}
                 data-estado={n.estado}
                 data-frescura={n.frescura}
                 onClick={() => openNote(n.id)}

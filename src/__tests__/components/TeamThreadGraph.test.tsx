@@ -11,8 +11,14 @@ const BRANCHES: TeamThreadBranch[] = [
 ]
 
 describe('TeamThreadGraph', () => {
-  it('dibuja un nodo por rama mas el indice', () => {
+  it('local por default: con foco, solo se ve la rama en foco (mas el indice)', () => {
     render(<TeamThreadGraph branches={BRANCHES} focus="sidebar" ahora={AHORA} enabled onToggle={vi.fn()} onOpenNote={vi.fn()} />)
+    expect(screen.getAllByRole('button', { name: /open note/i })).toHaveLength(1)
+  })
+
+  it('"Show all branches" pasa a global: dibuja un nodo por rama mas el indice', () => {
+    render(<TeamThreadGraph branches={BRANCHES} focus="sidebar" ahora={AHORA} enabled onToggle={vi.fn()} onOpenNote={vi.fn()} />)
+    fireEvent.click(screen.getByText('Show all branches'))
     expect(screen.getAllByRole('button', { name: /open note/i })).toHaveLength(2)
   })
 
@@ -25,9 +31,17 @@ describe('TeamThreadGraph', () => {
 
   it('distingue visualmente lo cerrado y lo viejo', () => {
     render(<TeamThreadGraph branches={BRANCHES} focus="sidebar" ahora={AHORA} enabled onToggle={vi.fn()} onOpenNote={vi.fn()} />)
+    fireEvent.click(screen.getByText('Show all branches'))
     const cerrada = screen.getByRole('button', { name: /open note for smoke\/memory-bridge/i })
     expect(cerrada).toHaveAttribute('data-estado', 'cerrada')
     expect(cerrada).toHaveAttribute('data-frescura', 'viejo')
+  })
+
+  it('el estado y la frescura tambien viajan en el aria-label, no solo en color/borde', () => {
+    render(<TeamThreadGraph branches={BRANCHES} focus="sidebar" ahora={AHORA} enabled onToggle={vi.fn()} onOpenNote={vi.fn()} />)
+    fireEvent.click(screen.getByText('Show all branches'))
+    expect(screen.getByRole('button', { name: /open note for feat\/sidebar-tabs — active, updated today/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /open note for smoke\/memory-bridge — closed, stale/i })).toBeInTheDocument()
   })
 
   it('apagado muestra el llamado a activarlo y ningun nodo', () => {

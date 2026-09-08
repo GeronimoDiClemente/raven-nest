@@ -7,7 +7,13 @@
 // resolveProjectKey, necesita normalizar el remote y hashear). Nunca se calcula aca.
 //
 // Self-contained como MemoryVaultCard: no worktree activo -> no se muestra nada, no hay
-// estado vacio que inventar.
+// estado vacio que inventar. Un error de IPC SI se muestra (a diferencia de una version
+// anterior de este archivo, que dejaba `ready` en false para siempre y el panel quedaba
+// invisible — indistinguible de "no hay worktree activo"; review de Task 10, hallazgo 4):
+// - si falla la carga inicial, no hay `enabled`/`branches` de los que fiarse -> se
+//   reemplaza el panel entero por el error.
+// - si falla el toggle, el grafo ya cargado sigue siendo valido -> se muestra un error
+//   corto arriba, sin tapar el grafo.
 import { useCallback, useEffect, useState } from 'react'
 import { TeamThreadGraph } from './TeamThreadGraph'
 import type { TeamThreadBranch } from '../types'
@@ -19,54 +25,76 @@ interface Props {
   onOpenFile: (relPath: string) => void
 }
 
+const LOAD_ERROR = "Couldn't load the team thread. Try again in a moment."
+const TOGGLE_ERROR = "Couldn't update the team thread setting. Try again in a moment."
+
 export default function TeamThreadPanel({ activeRepoPath, onOpenFile }: Props) {
   const [projectKey, setProjectKey] = useState<string | null>(null)
   const [enabled, setEnabled] = useState(false)
   const [branches, setBranches] = useState<TeamThreadBranch[]>([])
   const [focus, setFocus] = useState<string | null>(null)
   const [ready, setReady] = useState(false)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [toggleError, setToggleError] = useState<string | null>(null)
 
   const load = useCallback(async (worktreePath: string) => {
-    const key = await window.memory?.teamThreadProjectKeyForWorktree?.(worktreePath)
-    if (!key) { setReady(true); return }
-    setProjectKey(key)
+    try {
+      const keyRes = await window.memory?.teamThreadProjectKeyForWorktree?.(worktreePath)
+      if (!keyRes?.ok || !keyRes.projectKey) { setLoadError(LOAD_ERROR); setReady(true); return }
+      const key = keyRes.projectKey
+      setProjectKey(key)
 
-    const settingsRes = await window.memory?.teamThreadGetSettings?.(key)
-    const isEnabled = settingsRes?.ok ? (settingsRes.settings?.enabled ?? false) : false
-    setEnabled(isEnabled)
+      const settingsRes = await window.memory?.teamThreadGetSettings?.(key)
+      if (!settingsRes?.ok) { setLoadError(LOAD_ERROR); setReady(true); return }
+      const isEnabled = settingsRes.settings?.enabled ?? false
+      setEnabled(isEnabled)
 
-    if (!isEnabled) {
-      setBranches([])
-      setFocus(null)
+      if (!isEnabled) {
+        setBranches([])
+        setFocus(null)
+        setLoadError(null)
+        setReady(true)
+        return
+      }
+
+      const [readRes, gitInfo] = await Promise.all([
+        window.memory?.teamThreadRead?.(worktreePath),
+        window.git?.info?.(worktreePath),
+      ])
+      if (!readRes?.ok) { setLoadError(LOAD_ERROR); setReady(true); return }
+      const nextBranches = readRes.branches ?? []
+      setBranches(nextBranches)
+      // El foco es la rama del worktree activo: se busca por nombre de rama entre las filas
+      // ya traidas (no hay que reimplementar branchSlug() en el renderer para esto).
+      setFocus(gitInfo?.branch ? nextBranches.find((b) => b.branch === gitInfo.branch)?.slug ?? null : null)
+      setLoadError(null)
       setReady(true)
-      return
+    } catch {
+      setLoadError(LOAD_ERROR)
+      setReady(true)
     }
-
-    const [readRes, gitInfo] = await Promise.all([
-      window.memory?.teamThreadRead?.(worktreePath),
-      window.git?.info?.(worktreePath),
-    ])
-    const nextBranches = readRes?.ok ? (readRes.branches ?? []) : []
-    setBranches(nextBranches)
-    // El foco es la rama del worktree activo: se busca por nombre de rama entre las filas
-    // ya traidas (no hay que reimplementar branchSlug() en el renderer para esto).
-    setFocus(gitInfo?.branch ? nextBranches.find((b) => b.branch === gitInfo.branch)?.slug ?? null : null)
-    setReady(true)
   }, [])
 
   useEffect(() => {
     setReady(false)
+    setLoadError(null)
+    setToggleError(null)
     if (activeRepoPath) void load(activeRepoPath)
     else setReady(true)
   }, [activeRepoPath, load])
 
   const handleToggle = useCallback(async (next: boolean) => {
     if (!activeRepoPath || !projectKey) return
-    const res = await window.memory?.teamThreadSetSettings?.(projectKey, activeRepoPath, { enabled: next })
-    if (!res?.ok) return
-    setEnabled(next)
-    if (next) void load(activeRepoPath)
-    else { setBranches([]); setFocus(null) }
+    try {
+      const res = await window.memory?.teamThreadSetSettings?.(projectKey, activeRepoPath, { enabled: next })
+      if (!res?.ok) { setToggleError(TOGGLE_ERROR); return }
+      setToggleError(null)
+      setEnabled(next)
+      if (next) void load(activeRepoPath)
+      else { setBranches([]); setFocus(null) }
+    } catch {
+      setToggleError(TOGGLE_ERROR)
+    }
   }, [activeRepoPath, projectKey, load])
 
   const handleOpenNote = useCallback((slug: string) => {
@@ -75,14 +103,29 @@ export default function TeamThreadPanel({ activeRepoPath, onOpenFile }: Props) {
 
   if (!activeRepoPath || !ready) return null
 
+  if (loadError) {
+    return (
+      <div className="team-thread-error">
+        <p>{loadError}</p>
+      </div>
+    )
+  }
+
   return (
-    <TeamThreadGraph
-      branches={branches}
-      focus={focus}
-      ahora={Date.now()}
-      enabled={enabled}
-      onToggle={handleToggle}
-      onOpenNote={handleOpenNote}
-    />
+    <div className="team-thread-panel">
+      {toggleError && (
+        <div className="team-thread-error">
+          <p>{toggleError}</p>
+        </div>
+      )}
+      <TeamThreadGraph
+        branches={branches}
+        focus={focus}
+        ahora={Date.now()}
+        enabled={enabled}
+        onToggle={handleToggle}
+        onOpenNote={handleOpenNote}
+      />
+    </div>
   )
 }

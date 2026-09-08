@@ -2,6 +2,7 @@
 //
 // A diferencia del vault personal (una nota por observacion), aca la unidad es la RAMA:
 // una nota agrupa todas las entradas de esa rama, en orden cronologico inverso.
+import type { ObservationType } from '../memory-protocol'
 import type { MemoryRecord } from './memory-port'
 import { vaultSlug } from './vault-naming'
 
@@ -123,4 +124,98 @@ export function renderThreadIndex(input: ThreadIndexInput): string {
   }
 
   return [...head, ...cuerpo, ...pie].join('\n') + '\n'
+}
+
+// === Agrupamiento compartido entre el camino de ESCRITURA (team-thread-plan.ts, Task 2) y
+// el de LECTURA (team-thread-index-query.ts, Task 10). Antes vivia duplicado caracter por
+// caracter en los dos modulos — el review de Task 10 lo marco: si EL GUARDIA suma una
+// exclusion en un lado, el otro no se entera. Vive aca porque este ya es el modulo comun
+// de ambos (branchSlug y ThreadIndexBranch ya estaban aca). ===
+
+export interface ThreadGroupingConfig {
+  projectKey: string
+  includedTypes: ObservationType[]
+}
+
+/** EL GUARDIA (spec §9, test 1): solo scope team, solo este proyecto, solo tipos del
+ *  hilo, sin tombstones ni superseded. Todo lo demas no existe para el hilo de equipo. */
+export function eligibleTeamThreadRecords(records: MemoryRecord[], config: ThreadGroupingConfig): MemoryRecord[] {
+  const tipos = new Set(config.includedTypes)
+  return records.filter(
+    (r) =>
+      r.scope === 'team' &&
+      r.projectKey === config.projectKey &&
+      tipos.has(r.type) &&
+      !r.deleted &&
+      r.supersededBy === null,
+  )
+}
+
+/**
+ * Dos ramas distintas pueden slugear igual (`feat/sidebar-tabs` y `feat_sidebar-tabs` ->
+ * `feat-sidebar-tabs`, ver vaultSlug). El caller no garantiza el orden de `records`, asi
+ * que `entries[0].gitBranch` no es determinista: un reordenamiento cambiaria que rama
+ * "gana" para el lookup de `estado`, y con eso el `sourceHash` del camino de escritura —
+ * reescrituras fantasma o escondidas. Se desempata por orden lexicografico, no por orden
+ * de llegada.
+ */
+export function ramaCanonica(entries: MemoryRecord[]): string | null {
+  let branch: string | null = null
+  for (const e of entries) {
+    if (e.gitBranch === null) continue
+    if (branch === null || e.gitBranch < branch) branch = e.gitBranch
+  }
+  return branch
+}
+
+export interface ThreadBranchGroup {
+  slug: string
+  /** Rama canonica del grupo, o null si ninguna fila tiene gitBranch (todas caen en
+   *  `general`). Nullable a proposito: `renderBranchNote` distingue "general" de una rama
+   *  real con este mismo tipo. */
+  branch: string | null
+  estado: EstadoRama
+  entries: MemoryRecord[]
+}
+
+export interface ThreadGroupingConfigWithStates extends ThreadGroupingConfig {
+  /** Estado de cada rama, consultado a git por el caller: este modulo no toca git. */
+  branchStates: Record<string, EstadoRama>
+}
+
+/** Filtra (EL GUARDIA) y agrupa por slug de rama, con el estado de cada grupo ya resuelto.
+ *  Comun a `planTeamThread` (escritura) y `queryThreadIndexBranches` (lectura, Task 10) —
+ *  ver el comentario de seccion arriba. */
+export function groupThreadBranches(records: MemoryRecord[], config: ThreadGroupingConfigWithStates): ThreadBranchGroup[] {
+  const elegibles = eligibleTeamThreadRecords(records, config)
+
+  const porRama = new Map<string, MemoryRecord[]>()
+  for (const r of elegibles) {
+    const slug = branchSlug(r.gitBranch)
+    const bucket = porRama.get(slug)
+    if (bucket) bucket.push(r)
+    else porRama.set(slug, [r])
+  }
+
+  const groups: ThreadBranchGroup[] = []
+  for (const [slug, entries] of porRama) {
+    const branch = ramaCanonica(entries)
+    const estado = (branch ? config.branchStates[branch] : undefined) ?? 'sin-worktree'
+    groups.push({ slug, branch, estado, entries })
+  }
+  return groups
+}
+
+/** La fila de indice de un grupo — misma forma para el `_index.md` real (escritura) y para
+ *  el panel (lectura). */
+export function threadIndexRowFor(group: ThreadBranchGroup): ThreadIndexBranch {
+  const ordenadas = [...group.entries].sort((a, b) => b.createdAt - a.createdAt)
+  return {
+    slug: group.slug,
+    branch: group.branch ?? 'general',
+    estado: group.estado,
+    ultimoAutor: ordenadas[0].authorDisplay ?? 'desconocido',
+    ultimaEntrada: ordenadas[0].createdAt,
+    entradas: group.entries.length,
+  }
 }

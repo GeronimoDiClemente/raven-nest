@@ -3354,9 +3354,13 @@ ipcMain.handle('memory:teamThread:regenerate', (_e, worktreePath: string, projec
 // patron que `handoff:read` (projectKeyForWorktree ya hace exactamente esto). src/ no
 // puede reimplementar resolveProjectKey (necesita normalizar el remote y hashear), asi que
 // esto es la unica via limpia para que el panel sepa que projectKey pedirle a
-// getSettings/setSettings.
-ipcMain.handle('memory:teamThread:projectKeyForWorktree', (_e, worktreePath: string) =>
-  projectKeyForWorktree(worktreePath))
+// getSettings/setSettings. Misma guarda y mismo envelope `{ ok, ... }` que el handler
+// `read` de aca abajo (review de Task 10: un worktreePath invalido no debe producir un
+// projectKey basura indistinguible de uno valido).
+ipcMain.handle('memory:teamThread:projectKeyForWorktree', (_e, worktreePath: string) => {
+  if (!worktreePath || !isAbsolute(worktreePath)) return { ok: false, error: 'invalid_worktree_path' }
+  return { ok: true, projectKey: projectKeyForWorktree(worktreePath) }
+})
 
 // Task 10 (el panel): proyeccion de solo lectura del indice, para pintar el grafo. Separado
 // de getSettings/setSettings/regenerate (que son config y pase de escritura) — este handler

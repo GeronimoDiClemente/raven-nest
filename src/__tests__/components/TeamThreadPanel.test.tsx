@@ -16,7 +16,7 @@ function mockApi(overrides: {
 } = {}) {
   const settings: TeamThreadSettings = overrides.settings ?? { enabled: true, includedTypes: ['handoff', 'decision'], writeAgentsPointer: true }
   const memoryApi = {
-    teamThreadProjectKeyForWorktree: vi.fn().mockResolvedValue('proj1111aaaaaaaa'),
+    teamThreadProjectKeyForWorktree: vi.fn().mockResolvedValue({ ok: true, projectKey: 'proj1111aaaaaaaa' }),
     teamThreadGetSettings: vi.fn().mockResolvedValue({ ok: true, settings }),
     teamThreadRead: vi.fn().mockResolvedValue({ ok: true, branches: overrides.branches ?? BRANCHES }),
     teamThreadSetSettings:
@@ -40,17 +40,21 @@ describe('TeamThreadPanel', () => {
     expect(container.firstChild).toBeNull()
   })
 
-  it('loads settings + branches for the worktree and shows the graph enabled', async () => {
+  it('loads settings + branches for the worktree and shows the graph enabled, focused on the current branch (local by default)', async () => {
     mockApi()
     render(<TeamThreadPanel activeRepoPath="C:/repo/worktree" onOpenFile={vi.fn()} />)
-    await waitFor(() => expect(screen.getAllByRole('button', { name: /open note/i })).toHaveLength(2))
+    await waitFor(() => expect(screen.getAllByRole('button', { name: /open note/i })).toHaveLength(1))
+    expect(screen.getByRole('button', { name: /open note for feat\/sidebar-tabs/i })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByText('Show all branches'))
+    expect(screen.getAllByRole('button', { name: /open note/i })).toHaveLength(2)
   })
 
   it('clicking a node opens the note through onOpenFile with the right relative path', async () => {
     const onOpenFile = vi.fn()
     mockApi()
     render(<TeamThreadPanel activeRepoPath="C:/repo/worktree" onOpenFile={onOpenFile} />)
-    await waitFor(() => expect(screen.getAllByRole('button', { name: /open note/i })).toHaveLength(2))
+    await waitFor(() => expect(screen.getByRole('button', { name: /open note for feat\/sidebar-tabs/i })).toBeInTheDocument())
     fireEvent.click(screen.getByRole('button', { name: /open note for feat\/sidebar-tabs/i }))
     expect(onOpenFile).toHaveBeenCalledWith('.nest/team/ramas/sidebar.md')
   })
@@ -66,5 +70,31 @@ describe('TeamThreadPanel', () => {
 
     fireEvent.click(screen.getByText('Turn on'))
     await waitFor(() => expect(setSettings).toHaveBeenCalledWith('proj1111aaaaaaaa', 'C:/repo/worktree', { enabled: true }))
+  })
+
+  it('shows a visible error (not a silent blank panel) when the initial load fails', async () => {
+    const { memoryApi } = mockApi()
+    memoryApi.teamThreadGetSettings.mockResolvedValue({ ok: false, error: 'memory_unavailable' })
+    render(<TeamThreadPanel activeRepoPath="C:/repo/worktree" onOpenFile={vi.fn()} />)
+    await waitFor(() => expect(screen.getByText(/couldn't load the team thread/i)).toBeInTheDocument())
+    expect(screen.queryAllByRole('button', { name: /open note/i })).toHaveLength(0)
+  })
+
+  it('shows a visible error (not a silent blank panel) when the IPC call rejects outright', async () => {
+    const { memoryApi } = mockApi()
+    memoryApi.teamThreadProjectKeyForWorktree.mockRejectedValue(new Error('ipc down'))
+    render(<TeamThreadPanel activeRepoPath="C:/repo/worktree" onOpenFile={vi.fn()} />)
+    await waitFor(() => expect(screen.getByText(/couldn't load the team thread/i)).toBeInTheDocument())
+  })
+
+  it('a failed toggle shows an inline error but keeps the already-loaded graph visible', async () => {
+    const setSettings = vi.fn().mockResolvedValue({ ok: false, error: 'memory_unavailable' })
+    mockApi({ setSettings })
+    render(<TeamThreadPanel activeRepoPath="C:/repo/worktree" onOpenFile={vi.fn()} />)
+    await waitFor(() => expect(screen.getByRole('button', { name: /open note for feat\/sidebar-tabs/i })).toBeInTheDocument())
+
+    fireEvent.click(screen.getByText('Turn off'))
+    await waitFor(() => expect(screen.getByText(/couldn't update the team thread setting/i)).toBeInTheDocument())
+    expect(screen.getByRole('button', { name: /open note for feat\/sidebar-tabs/i })).toBeInTheDocument()
   })
 })

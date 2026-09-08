@@ -9,9 +9,10 @@ import type { ObservationType } from '../memory-protocol'
 import { redact } from '../memory-redaction'
 import type { MemoryRecord } from './memory-port'
 import {
-  branchSlug,
+  groupThreadBranches,
   renderBranchNote,
   renderThreadIndex,
+  threadIndexRowFor,
   type EstadoRama,
   type ThreadIndexBranch,
 } from './team-thread-note'
@@ -55,22 +56,6 @@ function filePathFor(slug: string): string {
   return slug === 'general' ? 'general.md' : `ramas/${slug}.md`
 }
 
-/**
- * Dos ramas distintas pueden slugear igual (`feat/sidebar-tabs` y `feat_sidebar-tabs` ->
- * `feat-sidebar-tabs`, ver vaultSlug). El caller no garantiza el orden de `records`, asi
- * que `entries[0].gitBranch` no es determinista: un reordenamiento cambiaria que rama
- * "gana" para el lookup de `estado`, y con eso el `sourceHash` — reescrituras fantasma o
- * escondidas. Se desempata por orden lexicografico, no por orden de llegada.
- */
-function ramaCanonica(entries: MemoryRecord[]): string | null {
-  let branch: string | null = null
-  for (const e of entries) {
-    if (e.gitBranch === null) continue
-    if (branch === null || e.gitBranch < branch) branch = e.gitBranch
-  }
-  return branch
-}
-
 export function planTeamThread(input: PlanTeamThreadInput): VaultPlan {
   const { records, manifest, config, onDiskHashes } = input
 
@@ -80,35 +65,16 @@ export function planTeamThread(input: PlanTeamThreadInput): VaultPlan {
   const warnings: VaultWarning[] = []
   const indexWrites: VaultIndexWrite[] = []
 
-  const tipos = new Set(config.includedTypes)
+  // EL GUARDIA (spec §9, test 1) + agrupamiento por rama: compartido con el camino de
+  // lectura del panel (team-thread-index-query.ts, Task 10) via team-thread-note.ts, para
+  // que una exclusion nueva de EL GUARDIA no pueda quedar aplicada de un solo lado.
+  const groups = groupThreadBranches(records, config)
 
-  // EL GUARDIA (spec §9, test 1): solo scope team, solo este proyecto, solo tipos del
-  // hilo, sin tombstones ni superseded. Todo lo demas no existe para este modulo.
-  const elegibles = records.filter(
-    (r) =>
-      r.scope === 'team' &&
-      r.projectKey === config.projectKey &&
-      tipos.has(r.type) &&
-      !r.deleted &&
-      r.supersededBy === null,
-  )
-
-  const porRama = new Map<string, MemoryRecord[]>()
-  for (const r of elegibles) {
-    const slug = branchSlug(r.gitBranch)
-    const bucket = porRama.get(slug)
-    if (bucket) bucket.push(r)
-    else porRama.set(slug, [r])
-  }
-
-  const slugs = [...porRama.keys()].sort()
+  const slugs = groups.map((g) => g.slug).sort()
   const ramasDelIndice: ThreadIndexBranch[] = []
   let algoCambio = false
 
-  for (const [slug, entries] of porRama) {
-    const branch = ramaCanonica(entries)
-    const estado = (branch ? config.branchStates[branch] : undefined) ?? 'sin-worktree'
-
+  for (const { slug, branch, estado, entries } of groups) {
     for (const e of entries) {
       const { redacted } = redact(`${e.title}\n${e.content ?? ''}`)
       if (redacted) {
@@ -132,15 +98,7 @@ export function planTeamThread(input: PlanTeamThreadInput): VaultPlan {
     const filePath = filePathFor(slug)
     const previous = manifest.entries[id]
 
-    const ordenadas = [...entries].sort((a, b) => b.createdAt - a.createdAt)
-    ramasDelIndice.push({
-      slug,
-      branch: branch ?? 'general',
-      estado,
-      ultimoAutor: ordenadas[0].authorDisplay ?? 'desconocido',
-      ultimaEntrada: ordenadas[0].createdAt,
-      entradas: entries.length,
-    })
+    ramasDelIndice.push(threadIndexRowFor({ slug, branch, estado, entries }))
 
     if (previous) {
       const onDisk = onDiskHashes[previous.filePath]
@@ -165,7 +123,7 @@ export function planTeamThread(input: PlanTeamThreadInput): VaultPlan {
   }
 
   // Una rama que se quedo sin filas (o que dejo de ser elegible) pierde su nota.
-  const vivos = new Set([...porRama.keys()].map(branchNoteId))
+  const vivos = new Set(groups.map((g) => branchNoteId(g.slug)))
   for (const [id, entry] of Object.entries(manifest.entries)) {
     if (!id.startsWith('rama:')) continue
     if (vivos.has(id)) continue
