@@ -4,7 +4,8 @@ import { useTeamRepos } from './useTeamRepos'
 
 export type RepoScope = { kind: 'personal' } | { kind: 'team'; teamId: string }
 
-/** One repo, whoever owns it. `canAdd` is the only permission the list needs. */
+/** One repo, whoever owns it. Permissions are scope-wide, not per row — see
+ *  `canManage` on the hook's return. */
 export interface Repo {
   id: string
   fullName: string
@@ -12,7 +13,6 @@ export interface Repo {
   provider: 'github' | 'gitlab'
   addedAt: string
   localPath: string | null
-  canAdd: boolean
 }
 
 /**
@@ -41,7 +41,6 @@ export function useScopedRepos(scope: RepoScope, isTeamLeader = false) {
         provider: r.provider,
         addedAt: r.added_at,
         localPath: r.local_path,
-        canAdd: true,
       }))
     }
     return team.repos.map(r => ({
@@ -53,11 +52,21 @@ export function useScopedRepos(scope: RepoScope, isTeamLeader = false) {
       // The team row's own local_path is the deprecated v1.1 column and is
       // always null; the per-device path lives in userLocalPaths.
       localPath: team.userLocalPaths[r.id] ?? null,
-      canAdd: isTeamLeader,
     }))
-  }, [scope.kind, personal.repos, team.repos, team.userLocalPaths, isTeamLeader])
+  }, [scope.kind, personal.repos, team.repos, team.userLocalPaths])
 
   const isTeam = scope.kind === 'team'
+
+  /**
+   * May the user change the scope's repo list — add one, remove one? Adding and
+   * removing are the same permission (your own list is always yours; a team's
+   * list belongs to its leaders), and the answer never varies row by row, so it
+   * belongs to the scope, not to a Repo. Keeping it here is what stops the two
+   * call sites in the view from drifting apart: an inline copy of this rule at
+   * one of them is how "Remove from list" ended up unguarded in team scope,
+   * letting any member delete a repo for everyone.
+   */
+  const canManage = !isTeam || isTeamLeader
 
   const refresh = useCallback(async () => {
     await (isTeam ? team.refresh() : personal.refresh())
@@ -82,6 +91,7 @@ export function useScopedRepos(scope: RepoScope, isTeamLeader = false) {
 
   return {
     repos,
+    canManage,
     loading: isTeam ? team.loading : personal.loading,
     refresh,
     addRepo,

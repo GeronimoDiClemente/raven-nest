@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import PersonalWorkspace from '../../components/PersonalWorkspace'
 import type { Team, TeamMember, PendingInvite } from '../../hooks/useTeam'
-import type { Repo } from '../../hooks/useScopedRepos'
+import type { Repo, RepoScope } from '../../hooks/useScopedRepos'
 
 const team = (id: string, name: string): Team => ({ id, name, owner_id: 'u1', created_at: '' })
 
@@ -13,7 +13,6 @@ const repo = (fullName: string): Repo => ({
   provider: 'github',
   addedAt: '',
   localPath: null,
-  canAdd: true,
 })
 
 const leaderMember = (): TeamMember => ({
@@ -48,7 +47,15 @@ const scopedState = {
 }
 
 vi.mock('../../hooks/useTeam', () => ({ useTeam: () => teamState }))
-vi.mock('../../hooks/useScopedRepos', () => ({ useScopedRepos: () => scopedState }))
+// The stand-in mirrors the real hook's one permission rule so these tests can
+// drive it the way the product does — through the team roster. The rule itself
+// is owned and tested by useScopedRepos.test.tsx.
+vi.mock('../../hooks/useScopedRepos', () => ({
+  useScopedRepos: (scope: RepoScope, isTeamLeader = false) => ({
+    ...scopedState,
+    canManage: scope.kind !== 'team' || isTeamLeader,
+  }),
+}))
 vi.mock('../../hooks/useGitHubNotifications', () => ({
   useGitHubNotifications: () => ({ notifications: [], unreadCount: 0, markAsRead: vi.fn() }),
 }))
@@ -209,5 +216,38 @@ describe('PersonalWorkspace', () => {
     await waitFor(() => {
       expect(onOpenRepoTerminal).toHaveBeenCalledWith('org/repo', 'C:/dev/repo')
     })
+  })
+
+  // In team scope "Remove from list" deletes the row for the whole team. The
+  // surface this replaced only offered it to leaders; here it was offered to
+  // everyone, so any member could delete a team's repo for all of them.
+  it('does not offer removing a team repo to a plain member', () => {
+    teamState.teams = [team('t1', 'Nest')]
+    teamState.members = [plainMember()]
+    scopedState.repos = [repo('org/repo')]
+    render(<PersonalWorkspace {...props} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Nest' }))
+    fireEvent.click(screen.getByRole('button', { name: /more actions/i }))
+    expect(screen.queryByRole('menuitem', { name: /remove/i })).not.toBeInTheDocument()
+  })
+
+  // …and the copy has to stop pretending the row is only yours.
+  it('tells a team leader that removing hits the whole team', () => {
+    teamState.teams = [team('t1', 'Nest')]
+    teamState.members = [leaderMember()]
+    scopedState.repos = [repo('org/repo')]
+    render(<PersonalWorkspace {...props} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Nest' }))
+    fireEvent.click(screen.getByRole('button', { name: /more actions/i }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Remove from team' }))
+    expect(screen.getByText(/every member loses access/i)).toBeInTheDocument()
+  })
+
+  it('keeps the personal wording in personal scope', () => {
+    scopedState.repos = [repo('org/repo')]
+    render(<PersonalWorkspace {...props} />)
+    fireEvent.click(screen.getByRole('button', { name: /more actions/i }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Remove from list' }))
+    expect(screen.getByText(/from your list/i)).toBeInTheDocument()
   })
 })

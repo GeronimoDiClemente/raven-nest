@@ -46,7 +46,7 @@ export default function PersonalWorkspace({ onClose, githubToken, githubLogin, o
   const isTeamLeader = scope.kind === 'team' && members.some(
     m => m.user_id === userId && m.role === 'leader',
   )
-  const { repos, loading, refresh, addRepo, updateLocalPath, removeRepo } =
+  const { repos, canManage, loading, refresh, addRepo, updateLocalPath, removeRepo } =
     useScopedRepos(scope, isTeamLeader)
   const { notifications, unreadCount, markAsRead } = useGitHubNotifications(githubToken)
   const { gitlabLogin, gitlabToken } = useGitlab()
@@ -437,7 +437,7 @@ export default function PersonalWorkspace({ onClose, githubToken, githubLogin, o
                   <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
                     {repos.length} {repos.length === 1 ? 'repo' : 'repos'}
                   </span>
-                  {(scope.kind === 'personal' || isTeamLeader) && (
+                  {canManage && (
                     <button className="repo-action-btn primary" data-tour-id="myrepos-add" onClick={() => setShowPicker(true)}>
                       <svg className="ra-icon" width="11" height="11" viewBox="0 0 16 16" fill="none">
                         <path d="M8 3.5v9M3.5 8h9" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/>
@@ -506,20 +506,29 @@ export default function PersonalWorkspace({ onClose, githubToken, githubLogin, o
                                 ),
                               })
                             }
-                            overflow.push({
-                              label: 'Remove from list',
-                              danger: true,
-                              onClick: () => setConfirmAction({
-                                title: 'Remove repo',
-                                message: `Remove "${repo.fullName}" from your list? The local folder will not be deleted.`,
-                                onConfirm: () => removeRepo(repo.id),
-                              }),
-                              icon: (
-                                <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
-                                  <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-                                </svg>
-                              ),
-                            })
+                            // Same permission as adding, so it reads the same
+                            // scope-level flag. In team scope this deletes the
+                            // row for the WHOLE team, which is why a plain
+                            // member is not offered it at all and why the copy
+                            // below cannot keep saying "your list".
+                            if (canManage) {
+                              overflow.push({
+                                label: scope.kind === 'team' ? 'Remove from team' : 'Remove from list',
+                                danger: true,
+                                onClick: () => setConfirmAction({
+                                  title: 'Remove repo',
+                                  message: scope.kind === 'team'
+                                    ? `Remove "${repo.fullName}" from the team? Every member loses access to it. Nobody's local folder is deleted.`
+                                    : `Remove "${repo.fullName}" from your list? The local folder will not be deleted.`,
+                                  onConfirm: () => removeRepo(repo.id),
+                                }),
+                                icon: (
+                                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+                                    <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                                  </svg>
+                                ),
+                              })
+                            }
                             return (
                               <div key={repo.id} className="snippet-item" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 6 }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>

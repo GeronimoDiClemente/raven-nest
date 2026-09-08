@@ -110,7 +110,13 @@ export function useTeamRepos(teamId: string | null) {
 
   const removeRepo = useCallback(async (repoId: string) => {
     const { error } = await supabase.from('team_repos').delete().eq('id', repoId)
-    if (error) console.warn('[useTeamRepos.removeRepo] delete failed', { repoId }, error)
+    if (error) {
+      // The row survived (RLS rejected it, network died…), so the repo is still
+      // in the list. Forgetting the local path here would leave it there with
+      // its folder unlinked and no way back other than re-picking it by hand.
+      console.warn('[useTeamRepos.removeRepo] delete failed', { repoId }, error)
+      return
+    }
     await window.localPaths.delete(repoId)
     await refresh()
   }, [refresh])

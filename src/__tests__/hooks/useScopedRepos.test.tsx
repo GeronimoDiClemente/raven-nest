@@ -56,7 +56,7 @@ describe('useScopedRepos', () => {
     vi.clearAllMocks()
   })
 
-  it('normalises personal repos and always allows adding', () => {
+  it('normalises personal repos and always allows managing the list', () => {
     const { result } = renderHook(() => useScopedRepos({ kind: 'personal' }))
     expect(result.current.repos).toEqual([{
       id: 'u-gero/raven-nest',
@@ -65,8 +65,8 @@ describe('useScopedRepos', () => {
       provider: 'github',
       addedAt: '2026-09-01',
       localPath: 'C:/dev/raven-nest',
-      canAdd: true,
     }])
+    expect(result.current.canManage).toBe(true)
   })
 
   it('passes null as the team id in personal scope so the team hook stays idle', () => {
@@ -83,12 +83,23 @@ describe('useScopedRepos', () => {
     expect(result.current.repos[0].localPath).toBe('D:/work/api')
   })
 
-  it('sets canAdd from isTeamLeader in team scope', () => {
+  // Adding and removing are the same permission, and it never varies row by
+  // row — so it lives on the scope, not on a Repo. A per-row flag would also
+  // have no value to read at all in an empty team, where a leader must still
+  // be allowed to add the first repo.
+  it('sets canManage from isTeamLeader in team scope', () => {
     teamState.repos = [teamRepo('nest/api')]
     const asMember = renderHook(() => useScopedRepos({ kind: 'team', teamId: 'team1' }, false))
-    expect(asMember.result.current.repos[0].canAdd).toBe(false)
+    expect(asMember.result.current.canManage).toBe(false)
     const asLeader = renderHook(() => useScopedRepos({ kind: 'team', teamId: 'team1' }, true))
-    expect(asLeader.result.current.repos[0].canAdd).toBe(true)
+    expect(asLeader.result.current.canManage).toBe(true)
+  })
+
+  it('still lets a leader manage an empty team list', () => {
+    teamState.repos = []
+    const { result } = renderHook(() => useScopedRepos({ kind: 'team', teamId: 'team1' }, true))
+    expect(result.current.repos).toEqual([])
+    expect(result.current.canManage).toBe(true)
   })
 
   // useTeamRepos has no useEffect of its own: nothing refreshes it.
