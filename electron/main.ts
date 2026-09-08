@@ -156,6 +156,11 @@ import {
   vaultSettingsPath,
   type VaultSettings,
 } from './integrations/vault-config'
+import { planTeamThread } from './integrations/team-thread-plan'
+import type { EstadoRama } from './integrations/team-thread-note'
+import { loadTeamThreadSettings, saveTeamThreadSettings, teamThreadSettingsPath, type TeamThreadSettings } from './integrations/team-thread-config'
+import { ensureAgentsPointer, removeAgentsPointer } from './integrations/agents-md-pointer'
+import { TEAM_THREAD_PATHS, teamThreadRootDir } from './integrations/team-thread-paths'
 import { MetricsCollector, PaneInput } from './metrics-collector'
 import { transcribeAudio, checkWhisperAvailable, initWhisper, shutdownWhisper, setWhisperStatusCallback } from './whisper'
 import { getWindowOptions, getIconsDir, ICON_FILENAME, isMac, isWin } from './platform'
@@ -192,7 +197,7 @@ import { GraphConfigStore } from './integrations/graph-config'
 import { planTick, dedupePersistentSignals } from './integrations/graph-orchestrator'
 import type { GraphRun, NodeRuntime, GraphMode } from './integrations/graph-runner'
 import { sampleGraph, launchCommand, type PaneSignals } from './integrations/graph-tick'
-import { readHandoff, writeHandoff } from './integrations/handoff'
+import { readHandoff, writeHandoff, excluirNestDelRepo } from './integrations/handoff'
 import { makeRunAutomation, type AutomationRunnerPorts } from './integrations/automation-runner'
 import { bridgeEvent, bridgeDecision, type BridgeContext } from './integrations/memory-bridge'
 import { type MemorySink, type MemorySaveInput } from './integrations/memory-port'
@@ -3238,6 +3243,106 @@ ipcMain.handle('memory:vault:reveal', async () => {
     return { ok: false, error: err instanceof Error ? err.message : String(err) }
   }
 })
+
+// Team Memory Layer 2 (Task 7): el hilo de equipo — indice + una nota por rama, escrito
+// dentro de `.nest/team/` de CADA worktree (a diferencia del vault personal, que tiene un
+// solo root por cuenta). Ver docs/superpowers/sdd/2026-09-08-team-memory-layer-2.
+
+/** `activa` si hay un worktree abierto en esa rama, `sin-worktree` si la rama existe pero
+ *  nadie la tiene abierta, `cerrada` si ya no existe. Es lo UNICO de este flujo que
+ *  consulta git — el planner (`planTeamThread`) es puro a proposito. */
+function collectBranchStates(worktreePath: string, branches: string[]): Record<string, EstadoRama> {
+  const out: Record<string, EstadoRama> = {}
+  let existentes = new Set<string>()
+  let conWorktree = new Set<string>()
+  try {
+    existentes = new Set(
+      execFileSync('git', ['branch', '--format=%(refname:short)'], { cwd: worktreePath, encoding: 'utf8' })
+        .split('\n').map((l) => l.trim()).filter(Boolean),
+    )
+    conWorktree = new Set(
+      execFileSync('git', ['worktree', 'list', '--porcelain'], { cwd: worktreePath, encoding: 'utf8' })
+        .split('\n').filter((l) => l.startsWith('branch '))
+        .map((l) => l.slice('branch refs/heads/'.length).trim()).filter(Boolean),
+    )
+  } catch {
+    // Sin git no hay estado que informar: todo queda `sin-worktree`, que es el default
+    // menos afirmativo. No es motivo para no escribir el hilo.
+  }
+  for (const b of branches) {
+    out[b] = conWorktree.has(b) ? 'activa' : existentes.has(b) ? 'sin-worktree' : 'cerrada'
+  }
+  return out
+}
+
+async function runTeamThreadRegeneration(
+  worktreePath: string,
+  projectKey: string,
+): Promise<{ ok: boolean; error?: string; warnings?: unknown[] }> {
+  if (!memory) return { ok: false, error: 'memory_unavailable' }
+  const userId = memory.store.getOwnerUserId()
+  const settings = loadTeamThreadSettings(teamThreadSettingsPath(ravenHome(), userId), projectKey)
+
+  const rootDir = teamThreadRootDir(worktreePath)
+
+  if (!settings.enabled) {
+    // Apagar el toggle borra la carpeta local y saca el puntero, pero NO des-promueve lo
+    // que ya se compartio: eso es una accion explicita y aparte (spec §8.2).
+    rmSync(rootDir, { recursive: true, force: true })
+    removeAgentsPointer(worktreePath)
+    return { ok: true }
+  }
+
+  const { reader, close } = openReadonlyReader(ravenHome(), userId)
+  try {
+    const records = reader.listRecords(projectKey)
+    const project = reader.listProjects().find((p) => p.projectKey === projectKey) ?? null
+
+    const branches = [...new Set(records.map((r) => r.gitBranch).filter((b): b is string => b !== null))]
+
+    const manifest = readManifest(rootDir, TEAM_THREAD_PATHS)
+    const plan = planTeamThread({
+      records,
+      manifest,
+      config: {
+        projectKey,
+        displayName: project?.displayName ?? projectKey,
+        includedTypes: settings.includedTypes,
+        branchStates: collectBranchStates(worktreePath, branches),
+        ultimaSync: Date.now(),
+      },
+      onDiskHashes: computeOnDiskHashes(rootDir, manifest),
+    })
+    const { result } = await applyVaultPlan(rootDir, plan, TEAM_THREAD_PATHS)
+
+    excluirNestDelRepo(worktreePath)
+    if (settings.writeAgentsPointer) ensureAgentsPointer(worktreePath)
+    else removeAgentsPointer(worktreePath)
+
+    return { ok: true, warnings: result.warnings }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  } finally {
+    close()
+  }
+}
+
+ipcMain.handle('memory:teamThread:getSettings', (_e, projectKey: string) => {
+  if (!memory) return { ok: false, error: 'memory_unavailable' }
+  const userId = memory.store.getOwnerUserId()
+  return { ok: true, settings: loadTeamThreadSettings(teamThreadSettingsPath(ravenHome(), userId), projectKey) }
+})
+
+ipcMain.handle('memory:teamThread:setSettings', async (_e, projectKey: string, worktreePath: string, patch: Partial<TeamThreadSettings>) => {
+  if (!memory) return { ok: false, error: 'memory_unavailable' }
+  const userId = memory.store.getOwnerUserId()
+  const settings = saveTeamThreadSettings(teamThreadSettingsPath(ravenHome(), userId), projectKey, patch)
+  const res = await runTeamThreadRegeneration(worktreePath, projectKey)
+  return { ...res, settings }
+})
+
+ipcMain.handle('memory:teamThread:regenerate', (_e, worktreePath: string, projectKey: string) =>
+  runTeamThreadRegeneration(worktreePath, projectKey))
 
 ipcMain.handle('clipboard:writeImage', (_event, filePath: string): { ok: boolean; error?: string } => {
   try {

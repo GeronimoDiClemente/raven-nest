@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { mkdtempSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { loadTeamThreadSettings, saveTeamThreadSettings } from '../integrations/team-thread-config'
+import { loadTeamThreadSettings, saveTeamThreadSettings, teamThreadSettingsPath } from '../integrations/team-thread-config'
 
 let dir: string
 let path: string
@@ -63,5 +63,22 @@ describe('saveTeamThreadSettings', () => {
     expect(s.enabled).toBe(true)
     expect(s.includedTypes).toEqual(['handoff', 'decision', 'architecture'])
     expect(s.writeAgentsPointer).toBe(false)
+  })
+})
+
+describe('teamThreadSettingsPath', () => {
+  it('un archivo por cuenta, bajo team-thread-settings', () => {
+    const p = teamThreadSettingsPath('/home/gero', 'user-123')
+    expect(p).toBe(join('/home/gero', '.raven-nest', 'team-thread-settings', 'user-123.json'))
+  })
+
+  it('sin userId cae en _local', () => {
+    const p = teamThreadSettingsPath('/home/gero', null)
+    expect(p).toBe(join('/home/gero', '.raven-nest', 'team-thread-settings', '_local.json'))
+  })
+
+  it('userId vacio/blanco tambien cae en _local', () => {
+    expect(teamThreadSettingsPath('/home/gero', '')).toBe(join('/home/gero', '.raven-nest', 'team-thread-settings', '_local.json'))
+    expect(teamThreadSettingsPath('/home/gero', '   ')).toBe(join('/home/gero', '.raven-nest', 'team-thread-settings', '_local.json'))
   })
 })

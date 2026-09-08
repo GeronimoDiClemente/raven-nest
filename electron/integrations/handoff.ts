@@ -35,7 +35,7 @@ function gitDir(worktreePath: string): string | null {
  * Best-effort de punta a punta: que no se pueda excluir no puede impedir escribir el
  * handoff, que es lo que el usuario pidió.
  */
-function excluirNestDelRepo(worktreePath: string): void {
+export function excluirNestDelRepo(worktreePath: string): void {
   try {
     const dir = gitDir(worktreePath)
     if (!dir) return  // no es un repo — no hay status que ensuciar

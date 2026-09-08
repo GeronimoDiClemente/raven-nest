@@ -98,6 +98,12 @@ contextBridge.exposeInMainWorld('memory', {
     ipcRenderer.invoke('memory:vault:setSettings', patch),
   vaultRegenerate: () => ipcRenderer.invoke('memory:vault:regenerate'),
   vaultReveal: () => ipcRenderer.invoke('memory:vault:reveal'),
+  // Task 7 (Team Memory Layer 2) — el hilo de equipo, por worktree.
+  teamThreadGetSettings: (projectKey: string) => ipcRenderer.invoke('memory:teamThread:getSettings', projectKey),
+  teamThreadSetSettings: (projectKey: string, worktreePath: string, patch: unknown) =>
+    ipcRenderer.invoke('memory:teamThread:setSettings', projectKey, worktreePath, patch),
+  teamThreadRegenerate: (worktreePath: string, projectKey: string) =>
+    ipcRenderer.invoke('memory:teamThread:regenerate', worktreePath, projectKey),
   onStatus: (cb: (status: 'idle' | 'syncing' | 'paused' | 'error' | 'plan_required') => void) => {
     ipcRenderer.removeAllListeners('memory:status')
     ipcRenderer.on('memory:status', (_event, status) => cb(status))

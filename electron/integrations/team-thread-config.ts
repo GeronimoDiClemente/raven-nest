@@ -1,9 +1,22 @@
 // Settings del hilo de equipo, por proyecto. Un solo JSON con un objeto por projectKey.
 // El default es apagado a proposito (spec §3, decision 2): compartir es opt-in.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
-import { dirname } from 'path'
+import { dirname, join } from 'path'
 import type { ObservationType } from '../memory-protocol'
 import { DEFAULT_THREAD_TYPES } from './team-thread-plan'
+
+// Mismo patron que `accountSegment` en vault-config.ts (privada ahi, replicada aca a
+// proposito: son 3 lineas triviales y exportarla obligaria a tocar un modulo del vault
+// que no es de esta task).
+function accountSegment(userId: string | null): string {
+  return userId && userId.trim() ? userId : '_local'
+}
+
+/** `{ravenHome}/.raven-nest/team-thread-settings/<account>.json` — un archivo por cuenta,
+ *  mismo layout que `vaultSettingsPath`. */
+export function teamThreadSettingsPath(ravenHomeDir: string, userId: string | null): string {
+  return join(ravenHomeDir, '.raven-nest', 'team-thread-settings', `${accountSegment(userId)}.json`)
+}
 
 export interface TeamThreadSettings {
   enabled: boolean
