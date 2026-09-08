@@ -30,15 +30,17 @@ interface PersonalWorkspaceProps {
   allowTeam: boolean
   /** When provided, the header shows a "?" button that launches the My Repos tutorial. */
   onStartTutorial?: () => void
+  /** Preselects the section shown on mount. Defaults to 'repos' when omitted. */
+  initialSection?: Section
 }
 
-type Section = 'activity' | 'repos' | 'issues' | 'standup'
+export type Section = 'activity' | 'repos' | 'issues' | 'standup' | 'pendings'
 type ReposView = 'list' | 'prs' | 'pr-detail'
 type IssuesView = 'repo-select' | 'list' | 'detail'
 
-export default function PersonalWorkspace({ onClose, githubToken, githubLogin, onConnectGitHub, onOpenRepoTerminal, onOpenTeamWorkspace, allowTeam, onStartTutorial }: PersonalWorkspaceProps) {
+export default function PersonalWorkspace({ onClose, githubToken, githubLogin, onConnectGitHub, onOpenRepoTerminal, onOpenTeamWorkspace, allowTeam, onStartTutorial, initialSection }: PersonalWorkspaceProps) {
   const [scope, setScope] = useState<RepoScope>({ kind: 'personal' })
-  const { teams, members, userId, switchTeam } = useTeam()
+  const { teams, members, userId, switchTeam, pendingInvites, acceptInvite, rejectInvite } = useTeam()
   const isTeamLeader = scope.kind === 'team' && members.some(
     m => m.user_id === userId && m.role === 'leader',
   )
@@ -49,7 +51,9 @@ export default function PersonalWorkspace({ onClose, githubToken, githubLogin, o
   const tokenForProvider = (provider: 'github' | 'gitlab') =>
     provider === 'gitlab' ? gitlabToken : githubToken
 
-  const [section, setSection] = useState<Section>('repos')
+  const [section, setSection] = useState<Section>(initialSection ?? 'repos')
+  const [acceptError, setAcceptError] = useState<string | null>(null)
+  const [acceptingId, setAcceptingId] = useState<string | null>(null)
   const [showPicker, setShowPicker] = useState(false)
   const [showNotifications, setShowNotifications] = useState(false)
   const [statusRepo, setStatusRepo] = useState<Repo | null>(null)
@@ -230,6 +234,19 @@ export default function PersonalWorkspace({ onClose, githubToken, githubLogin, o
     if (s === 'issues') { setIssuesView('repo-select'); setSelectedIssueRepo(null); setSelectedIssue(null) }
   }
 
+  const handleAcceptInvite = async (memberId: string) => {
+    setAcceptError(null)
+    setAcceptingId(memberId)
+    const result = await acceptInvite(memberId)
+    setAcceptingId(null)
+    if (!result.ok) setAcceptError(result.error ?? 'Could not accept invite')
+  }
+
+  const handleRejectInvite = async (memberId: string) => {
+    setAcceptError(null)
+    await rejectInvite(memberId)
+  }
+
   // Picking a team scope also makes that team the active team: useTeam only
   // loads `members` for activeTeamId, and isTeamLeader above reads `members`,
   // so scope and active team must be the same team or the leader check runs
@@ -264,6 +281,11 @@ export default function PersonalWorkspace({ onClose, githubToken, githubLogin, o
       id: 'standup',
       label: 'Standup',
       icon: <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="2" y="3" width="12" height="11" rx="1.5" stroke="currentColor" strokeWidth="1.3"/><path d="M5 6h6M5 9h4M5 12h3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>,
+    },
+    {
+      id: 'pendings',
+      label: pendingInvites.length > 0 ? `Invites (${pendingInvites.length})` : 'Invites',
+      icon: <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M2 4.5h12v7a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1v-7z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/><path d="M2 5l6 4 6-4" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/></svg>,
     },
   ]
 
@@ -687,6 +709,49 @@ export default function PersonalWorkspace({ onClose, githubToken, githubLogin, o
                   githubToken={githubToken}
                   teamMembers={githubLogin ? [{ email: githubLogin, user_id: githubLogin }] : []}
                 />
+              </div>
+            )}
+
+            {/* PENDINGS */}
+            {section === 'pendings' && (
+              <div className="team-tab-pane">
+                {pendingInvites.length === 0 ? (
+                  <p className="snippet-empty">No pending invites.</p>
+                ) : (
+                  <>
+                    <p style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 12 }}>
+                      Accept or decline invitations to other teams.
+                    </p>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                      {pendingInvites.map(inv => (
+                        <div key={inv.memberId} className="team-pending-banner" style={{ alignItems: 'center' }}>
+                          <div>
+                            <div style={{ fontSize: 13, fontWeight: 600 }}>{inv.team.name}</div>
+                            <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>
+                              Invited {new Date(inv.invitedAt).toLocaleDateString()}
+                            </div>
+                          </div>
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            <button
+                              className="snippet-save-btn"
+                              style={{ fontSize: 11, padding: '3px 8px' }}
+                              onClick={() => handleAcceptInvite(inv.memberId)}
+                              disabled={acceptingId === inv.memberId}
+                            >
+                              {acceptingId === inv.memberId ? '…' : 'Accept'}
+                            </button>
+                            <button
+                              className="snippet-cancel-btn"
+                              style={{ fontSize: 11, padding: '3px 8px' }}
+                              onClick={() => handleRejectInvite(inv.memberId)}
+                            >Decline</button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    {acceptError && <p style={{ color: '#EF4444', fontSize: 11, marginTop: 10 }}>{acceptError}</p>}
+                  </>
+                )}
               </div>
             )}
 

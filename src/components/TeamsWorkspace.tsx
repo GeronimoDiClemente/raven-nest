@@ -40,9 +40,11 @@ interface TeamsWorkspaceProps {
   onPendingInvitesChange?: () => void
   /** When provided, the header shows a "?" button that launches the Teams tutorial. */
   onStartTutorial?: () => void
+  /** Pending invites now live in Personal. When provided, call sites that used to jump to the local 'pendings' section call this instead. */
+  onOpenPersonalInvites?: () => void
 }
 
-type WorkspaceSection = 'activity' | 'chat' | 'repos' | 'issues' | 'members' | 'stats' | 'snippets' | 'workspaces' | 'mcp' | 'pendings'
+type WorkspaceSection = 'activity' | 'chat' | 'repos' | 'issues' | 'members' | 'stats' | 'snippets' | 'workspaces' | 'mcp'
 type ReposView = 'list' | 'prs' | 'pr-detail'
 type IssuesView = 'repo-select' | 'list' | 'detail'
 
@@ -51,7 +53,7 @@ const PRESENCE_COLORS = [
   '#00CCCC', '#FF2D78', '#4455FF', '#88FF00',
 ]
 
-export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal, onPendingInvitesChange, onStartTutorial }: TeamsWorkspaceProps) {
+export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal, onPendingInvitesChange, onStartTutorial, onOpenPersonalInvites }: TeamsWorkspaceProps) {
   const [section, setSection] = useState<WorkspaceSection>('activity')
   const [acceptError, setAcceptError] = useState<string | null>(null)
   const [acceptingId, setAcceptingId] = useState<string | null>(null)
@@ -390,11 +392,6 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal, on
       label: 'MCP Servers',
       icon: <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><rect x="1" y="2" width="8" height="10" rx="1.2" stroke="currentColor" strokeWidth="1.3"/><path d="M4 5h2M4 7.5h3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/><circle cx="11" cy="5" r="2" stroke="currentColor" strokeWidth="1.3"/><path d="M11 7v4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>,
     },
-    ...(pendingInvites.length > 0 ? [{
-      id: 'pendings' as WorkspaceSection,
-      label: `Pending invites (${pendingInvites.length})`,
-      icon: <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 4h10v8a1 1 0 01-1 1H4a1 1 0 01-1-1V4z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/><path d="M3 4l5 4 5-4" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/></svg>,
-    }] : []),
   ]
 
   // Presence: merge Supabase Realtime data with member list
@@ -460,7 +457,7 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal, on
                       <button
                         className="team-switcher-item"
                         style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'space-between' }}
-                        onClick={() => { setShowSwitcher(false); setCreatingTeam(false); setSection('pendings') }}
+                        onClick={() => { setShowSwitcher(false); setCreatingTeam(false); onOpenPersonalInvites?.() }}
                         title="Review teams that invited you"
                       >
                         <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -1045,49 +1042,6 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal, on
                 </div>
               )}
 
-              {/* PENDINGS */}
-              {!creatingTeam && section === 'pendings' && (
-                <div className="team-tab-pane">
-                  {pendingInvites.length === 0 ? (
-                    <p className="snippet-empty">No pending invites.</p>
-                  ) : (
-                    <>
-                      <p style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 12 }}>
-                        Accept or decline invitations to other teams.
-                      </p>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                        {pendingInvites.map(inv => (
-                          <div key={inv.memberId} className="team-pending-banner" style={{ alignItems: 'center' }}>
-                            <div>
-                              <div style={{ fontSize: 13, fontWeight: 600 }}>{inv.team.name}</div>
-                              <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>
-                                Invited {new Date(inv.invitedAt).toLocaleDateString()}
-                              </div>
-                            </div>
-                            <div style={{ display: 'flex', gap: 6 }}>
-                              <button
-                                className="snippet-save-btn"
-                                style={{ fontSize: 11, padding: '3px 8px' }}
-                                onClick={() => handleAccept(inv.memberId)}
-                                disabled={acceptingId === inv.memberId}
-                              >
-                                {acceptingId === inv.memberId ? '…' : 'Accept'}
-                              </button>
-                              <button
-                                className="snippet-cancel-btn"
-                                style={{ fontSize: 11, padding: '3px 8px' }}
-                                onClick={() => handleReject(inv.memberId)}
-                              >Decline</button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                      {acceptError && <p style={{ color: '#EF4444', fontSize: 11, marginTop: 10 }}>{acceptError}</p>}
-                    </>
-                  )}
-                </div>
-              )}
-
               {/* MEMBERS */}
               {!creatingTeam && section === 'members' && (
                 <div className="team-tab-pane">
@@ -1095,7 +1049,7 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal, on
                     <div
                       className="team-pending-banner"
                       style={{ cursor: 'pointer' }}
-                      onClick={() => setSection('pendings')}
+                      onClick={() => onOpenPersonalInvites?.()}
                       title="View all pending invites"
                     >
                       <span>
@@ -1107,7 +1061,7 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal, on
                         <button
                           className="snippet-save-btn"
                           style={{ fontSize: 11, padding: '3px 8px' }}
-                          onClick={(e) => { e.stopPropagation(); setSection('pendings') }}
+                          onClick={(e) => { e.stopPropagation(); onOpenPersonalInvites?.() }}
                         >View</button>
                       </div>
                     </div>

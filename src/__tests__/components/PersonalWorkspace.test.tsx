@@ -123,4 +123,26 @@ describe('PersonalWorkspace', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Nest' }))
     expect(teamState.switchTeam).toHaveBeenCalledWith('t1')
   })
+
+  // Without this, someone in no team at all cannot accept the invite that would
+  // put them in one: the Team door is gone from the sidebar.
+  it('lets a user with zero teams reach their pending invites', () => {
+    teamState.teams = []
+    teamState.pendingInvites = [{
+      memberId: 'm1', team: team('t9', 'Nest'), invitedAt: '2026-09-08',
+    }]
+    render(<PersonalWorkspace {...props} />)
+    fireEvent.click(screen.getByRole('button', { name: /invites/i }))
+    expect(screen.getByText('Nest')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /accept/i })).toBeInTheDocument()
+  })
+
+  it('shows the invite count on the nav item', () => {
+    teamState.pendingInvites = [
+      { memberId: 'm1', team: team('t9', 'Nest'), invitedAt: '' },
+      { memberId: 'm2', team: team('t8', 'STI'), invitedAt: '' },
+    ]
+    render(<PersonalWorkspace {...props} />)
+    expect(screen.getByRole('button', { name: /invites/i })).toHaveTextContent('2')
+  })
 })

@@ -50,7 +50,7 @@ import { pruneHubPanes } from './lib/hub-panes'
 import { dropTabBuffer } from './lib/editor-buffer-handoff'
 import UpgradeModal from './components/UpgradeModal'
 import TeamsWorkspace from './components/TeamsWorkspace'
-import PersonalWorkspace from './components/PersonalWorkspace'
+import PersonalWorkspace, { type Section as PersonalWorkspaceSection } from './components/PersonalWorkspace'
 import { useGitHub } from './hooks/useGitHub'
 import { usePendingInvitesCount } from './hooks/usePendingInvitesCount'
 import { useSpeechRecognition } from './hooks/useSpeechRecognition'
@@ -231,6 +231,7 @@ export default function App() {
   const [teamsOpen, setTeamsOpen] = useState(false)
   const { count: pendingInvitesCount, refresh: refreshPendingInvitesCount } = usePendingInvitesCount()
   const [myReposOpen, setMyReposOpen] = useState(false)
+  const [personalSection, setPersonalSection] = useState<PersonalWorkspaceSection>('repos')
   const [showJoinViewer, setShowJoinViewer] = useState(false)
   const [joinRequest, setJoinRequest] = useState<{ paneId: string; paneTitle: string } | null>(null)
   const { githubToken, githubLogin, connectGitHub } = useGitHub()
@@ -1708,6 +1709,7 @@ export default function App() {
         pendingInvitesCount={pendingInvitesCount}
         onMyReposOpen={() => {
           if (!planLimits.allowMyRepos) { setShowUpgrade(true); return }
+          setPersonalSection('repos')
           setMyReposOpen(true)
         }}
         plan={plan}
@@ -1966,6 +1968,7 @@ export default function App() {
           onOpenRepoTerminal={openRepoInNewTab}
           onPendingInvitesChange={refreshPendingInvitesCount}
           onStartTutorial={() => setTutorialTour('teams')}
+          onOpenPersonalInvites={() => { setPersonalSection('pendings'); setTeamsOpen(false); setMyReposOpen(true) }}
         />
       )}
 
@@ -1979,6 +1982,7 @@ export default function App() {
           onOpenTeamWorkspace={() => setTeamsOpen(true)}
           allowTeam={planLimits.allowTeam}
           onStartTutorial={() => setTutorialTour('my-repos')}
+          initialSection={personalSection}
         />
       )}
 
