@@ -92,10 +92,9 @@ export default function PersonalWorkspace({ onClose, githubToken, githubLogin, o
 
   const excludedNames = useMemo(() => new Set(repos.map(r => r.fullName)), [repos])
 
-  // ActivityFeed and DailyStandup still take the pre-scope shape (shared with
-  // TeamsWorkspace, which hasn't moved to useScopedRepos yet) — adapt locally
-  // rather than widen their prop types out from under that caller.
-  const legacyRepos = useMemo(() => repos.map(r => ({ repo_full_name: r.fullName })), [repos])
+  // ActivityFeed and DailyStandup only ever reduce `repos` to a list of full
+  // names, so that's the prop they take — no adapter object needed.
+  const repoNames = useMemo(() => repos.map(r => r.fullName), [repos])
 
   const handlePickerAdd = async (repoFullName: string, provider: 'github' | 'gitlab', localPath: string | null) => {
     await addRepo(repoFullName, provider, localPath)
@@ -417,7 +416,7 @@ export default function PersonalWorkspace({ onClose, githubToken, githubLogin, o
             {section === 'activity' && githubToken && (
               <div className="team-tab-pane">
                 <ActivityFeed
-                  repos={legacyRepos}
+                  repoNames={repoNames}
                   githubToken={githubToken}
                   teamMembers={[]}
                 />
@@ -729,7 +728,7 @@ export default function PersonalWorkspace({ onClose, githubToken, githubLogin, o
             {githubToken && section === 'standup' && (
               <div className="team-tab-pane">
                 <DailyStandup
-                  repos={legacyRepos}
+                  repoNames={repoNames}
                   githubToken={githubToken}
                   teamMembers={githubLogin ? [{ email: githubLogin, user_id: githubLogin }] : []}
                 />

@@ -11186,12 +11186,6 @@ body.platform-mac .tabbar { padding-right: 116px; }
 .sidebar-tab.active{color:var(--text-primary);border-bottom-color:var(--raven-blue,var(--primary))}
 .sidebar-tab-icon{position:relative;display:flex}
 .sidebar-tab-label{white-space:nowrap}
-.sidebar-tab-badge{
-  position:absolute;top:-4px;right:-8px;min-width:13px;height:13px;padding:0 3px;
-  border-radius:7px;background:#EF4444;color:#fff;font-size:9px;font-weight:700;
-  display:flex;align-items:center;justify-content:center;line-height:1;
-  box-shadow:0 0 0 1.5px var(--bg-primary,#0a0a0a);
-}
 .sidebar-tab-panel{flex:1 1 auto;min-height:0;display:flex;flex-direction:column}
 .sidebar-tab-tools-list{display:flex;flex-direction:column;overflow-y:auto}
 
@@ -11219,33 +11213,6 @@ body.platform-mac .tabbar { padding-right: 116px; }
 .sidebar-tab-branch.dirty{color:#F59E0B}
 
 .sidebar-hub-wrap{display:flex;flex-direction:column;min-height:0;overflow-y:auto}
-
-/* ── Personal tab: a preview of Team and Repos ──
-   Same row rhythm as the worktree list, so the sidebar reads as one thing. */
-.personal-panel{display:flex;flex-direction:column;min-height:0;overflow-y:auto}
-.personal-section-name{color:var(--text-secondary);text-transform:none;letter-spacing:0}
-.personal-row{
-  display:flex;align-items:center;gap:7px;
-  padding:6px 12px;
-  background:transparent;border:none;
-  font-family:inherit;font-size:var(--ui-font-size);
-  color:var(--text-secondary);text-align:left;width:100%;
-  cursor:pointer;
-}
-.personal-row:hover{background:var(--popover);color:var(--text-primary)}
-.personal-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
-.personal-avatar{
-  width:16px;height:16px;border-radius:50%;flex-shrink:0;
-  background:var(--muted);color:var(--text-secondary);
-  font-size:9px;font-weight:600;
-  display:flex;align-items:center;justify-content:center;
-}
-.personal-tag{
-  flex-shrink:0;font-size:9px;color:var(--text-muted);
-  border:1px solid var(--border);border-radius:3px;padding:0 4px;
-}
-.personal-invites{color:#EF4444}
-.personal-more,.personal-empty{color:var(--text-muted);font-size:11px}
 
 /* ── Pane filter trigger (embudo del sidebar) + popover ── */
 .pane-filter-trigger.active{color:var(--raven-blue,#4f9eff)}

@@ -18,7 +18,7 @@ interface GitHubEvent {
 }
 
 interface ActivityFeedProps {
-  repos: Array<{ repo_full_name: string }>
+  repoNames: string[]
   githubToken: string | null
   teamMembers: Array<{ email: string; user_id: string | null }>
 }
@@ -103,18 +103,18 @@ function SkeletonFeed() {
   )
 }
 
-export default function ActivityFeed({ repos, githubToken, teamMembers: _teamMembers }: ActivityFeedProps) {
+export default function ActivityFeed({ repoNames, githubToken, teamMembers: _teamMembers }: ActivityFeedProps) {
   const [events, setEvents] = useState<GitHubEvent[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const { connectGitHub } = useGitHub()
 
   // Estabilizar la dependencia del useEffect — evita re-fetch si el array cambia de referencia pero no de contenido
-  const repoNames = useMemo(() => repos.map(r => r.repo_full_name).join(','), [repos])
+  const repoNamesKey = useMemo(() => repoNames.join(','), [repoNames])
 
   useEffect(() => {
-    if (!githubToken || !repoNames) return
-    const repoList = repoNames.split(',').filter(Boolean)
+    if (!githubToken || !repoNamesKey) return
+    const repoList = repoNamesKey.split(',').filter(Boolean)
 
     let alive = true
     setLoading(true)
@@ -163,7 +163,7 @@ export default function ActivityFeed({ repos, githubToken, teamMembers: _teamMem
 
     load()
     return () => { alive = false }
-  }, [repoNames, githubToken])
+  }, [repoNamesKey, githubToken])
 
   // No token
   if (!githubToken) {
@@ -182,7 +182,7 @@ export default function ActivityFeed({ repos, githubToken, teamMembers: _teamMem
   }
 
   // No repos
-  if (!repoNames) {
+  if (!repoNamesKey) {
     return (
       <div className="feed-empty-state">
         <p className="feed-empty-text">Add repos to your team to see activity</p>
