@@ -104,7 +104,7 @@ function renameSyncWithRetry(from: string, to: string): void {
  * el `-wal`, el próximo arranque veía `existsSync(newPath) === true` (el `.db` ya estaba
  * ahí) y el guard de arriba cortaba con `return` inmediato — sin mover jamás el `-wal`
  * legado que quedó atrás, que puede tener filas commiteadas pero no checkpointeadas
- * (`journal_mode = WAL`, `synchronous = NORMAL`, ver el constructor de MemoryStore):
+ * (`journal_mode = WAL`, `synchronous = FULL`, ver el constructor de MemoryStore):
  * huérfanas para siempre, en silencio. Con los compañeros primero y el `.db` al final, el
  * `.db` en el path nuevo es la señal de "migración completa" recién cuando de verdad lo
  * está: si el proceso muere ANTES de ese último paso, `existsSync(newPath)` sigue siendo
@@ -500,7 +500,11 @@ export class MemoryStore {
     mkdirSync(dirname(dbPath), { recursive: true })
     this.db = new Database(dbPath)
     this.db.pragma('journal_mode = WAL')
-    this.db.pragma('synchronous = NORMAL')
+    // FULL y no NORMAL: NORMAL aguanta que se caiga la app o el SO, pero un corte de luz
+    // puede perder las ultimas transacciones — y con memoria de equipo eso es contexto que
+    // un companero nunca va a recibir. La base escribe poco y chico, y con WAL el costo de
+    // FULL es muy inferior al de rollback-journal. Spec Layer 2 §8.3.
+    this.db.pragma('synchronous = FULL')
     this.migrate()
     const row = this.db.prepare('SELECT MAX(lamport) as m FROM observations').get() as { m: number | null }
     this.lamportCounter = row?.m ?? 0

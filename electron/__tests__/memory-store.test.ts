@@ -12,6 +12,20 @@ import { makeTmpDir, cleanupTmp } from './setup'
 import { MemoryStore, SCHEMA_VERSION, deriveImportSyncId, computeContentIdentity, resolveStorePath } from '../memory-store'
 import { swapMemoryStore, type SwapContext } from '../memory-account-switch'
 
+describe('MemoryStore — constructor pragmas', () => {
+  it('el store corre en synchronous FULL: sobrevive a un corte de luz (spec Layer 2 §8.3)', () => {
+    const dir = makeTmpDir('ms-constructor-test-')
+    const store = new MemoryStore(join(dir, 'memory.db'))
+    const db = (store as unknown as { db: { pragma(s: string, o?: { simple?: boolean }): unknown } }).db
+
+    // 2 = FULL en SQLite. 1 = NORMAL, que es lo que habia antes.
+    expect(db.pragma('synchronous', { simple: true })).toBe(2)
+    expect(db.pragma('journal_mode', { simple: true })).toBe('wal')
+    store.close()
+    cleanupTmp(dir)
+  })
+})
+
 describe('MemoryStore — write path resolution (§3.1)', () => {
   let dir: string
   let store: MemoryStore
