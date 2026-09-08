@@ -101,7 +101,7 @@ el bug latente de casing que zeroeaba stats) y excluye bots (`[bot]`) y `unknown
    miembros") y es lo útil para un dashboard de coaching del equipo.
 4. **Aparte (drill-down de miembros registrados):** para que un miembro registrado
    traiga su avatar/online y no dependa del match por GitHub, conviene tener la
-   migración `20260730000000_team_members_github_login.sql` aplicada y
+   migración `20260730010000_team_members_github_login.sql` aplicada y
    `profiles.github_login` poblado.
 
 ---
