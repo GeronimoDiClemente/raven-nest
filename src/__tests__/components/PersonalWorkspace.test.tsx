@@ -116,4 +116,11 @@ describe('PersonalWorkspace', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Nest' }))
     expect(screen.queryByRole('button', { name: 'Add repo' })).not.toBeInTheDocument()
   })
+
+  it('makes the picked team the active team when scoping to it', () => {
+    teamState.teams = [team('t1', 'Nest')]
+    render(<PersonalWorkspace {...props} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Nest' }))
+    expect(teamState.switchTeam).toHaveBeenCalledWith('t1')
+  })
 })
