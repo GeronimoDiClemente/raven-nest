@@ -21,7 +21,7 @@
     "release:linux": "electron-vite build && electron-builder --linux --publish always",
     "postinstall": "electron-rebuild -f -o node-pty,better-sqlite3",
     "native:node": "cd node_modules/better-sqlite3 && (prebuild-install -r node --tag-prefix v || node ../node-gyp/bin/node-gyp.js rebuild --release)",
-    "native:electron": "electron-rebuild -f -o better-sqlite3",
+    "native:electron": "node scripts/native-electron.mjs",
     "pretest": "npm run native:node",
     "test": "vitest run",
     "test:watch": "vitest",
