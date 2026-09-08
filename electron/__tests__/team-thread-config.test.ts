@@ -30,6 +30,30 @@ describe('loadTeamThreadSettings', () => {
     expect(loadTeamThreadSettings(path, 'proj1').enabled).toBe(true)
     expect(loadTeamThreadSettings(path, 'proj2').enabled).toBe(false)
   })
+
+  it('enabled: string en disco cae al default (no truthy/falsy)', () => {
+    writeFileSync(path, JSON.stringify({ proj1: { enabled: 'yes' } }))
+    expect(loadTeamThreadSettings(path, 'proj1').enabled).toBe(false)
+  })
+
+  it('enabled: number en disco cae al default', () => {
+    writeFileSync(path, JSON.stringify({ proj1: { enabled: 1 } }))
+    expect(loadTeamThreadSettings(path, 'proj1').enabled).toBe(false)
+  })
+
+  it('includedTypes: no-array en disco cae al default', () => {
+    writeFileSync(path, JSON.stringify({ proj1: { includedTypes: 'handoff' } }))
+    expect(loadTeamThreadSettings(path, 'proj1').includedTypes).toEqual(['handoff', 'decision'])
+  })
+
+  it('campos desconocidos no persisten', () => {
+    writeFileSync(path, JSON.stringify({ proj1: { enabled: true, campoViejo: 42 } }))
+    const loaded = loadTeamThreadSettings(path, 'proj1')
+    expect(loaded).not.toHaveProperty('campoViejo')
+    saveTeamThreadSettings(path, 'proj1', {})
+    const raw = JSON.parse(require('fs').readFileSync(path, 'utf8'))
+    expect(raw.proj1).not.toHaveProperty('campoViejo')
+  })
 })
 
 describe('saveTeamThreadSettings', () => {

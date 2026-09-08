@@ -19,11 +19,37 @@ function defaults(): TeamThreadSettings {
 
 type Archivo = Record<string, Partial<TeamThreadSettings>>
 
+function validarSettings(data: unknown): Partial<TeamThreadSettings> {
+  if (!data || typeof data !== 'object') return {}
+  const obj = data as Record<string, unknown>
+  const result: Partial<TeamThreadSettings> = {}
+
+  if (typeof obj.enabled === 'boolean') {
+    result.enabled = obj.enabled
+  }
+
+  if (typeof obj.writeAgentsPointer === 'boolean') {
+    result.writeAgentsPointer = obj.writeAgentsPointer
+  }
+
+  if (Array.isArray(obj.includedTypes) && obj.includedTypes.every((v) => typeof v === 'string')) {
+    result.includedTypes = obj.includedTypes as ObservationType[]
+  }
+
+  return result
+}
+
 function leerArchivo(path: string): Archivo {
   try {
     const raw = readFileSync(path, 'utf8')
     const data = JSON.parse(raw) as unknown
-    return data && typeof data === 'object' ? (data as Archivo) : {}
+    if (!data || typeof data !== 'object') return {}
+    const archivo = data as Record<string, unknown>
+    const resultado: Archivo = {}
+    for (const [key, value] of Object.entries(archivo)) {
+      resultado[key] = validarSettings(value)
+    }
+    return resultado
   } catch {
     return {}
   }
