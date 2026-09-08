@@ -157,4 +157,13 @@ describe('PersonalWorkspace', () => {
     fireEvent.click(screen.getByRole('button', { name: /accept/i }))
     await waitFor(() => expect(onPendingInvitesChange).toHaveBeenCalled())
   })
+
+  it('notifies the caller after declining an invite', async () => {
+    teamState.pendingInvites = [{ memberId: 'm1', team: team('t9', 'Nest'), invitedAt: '' }]
+    const onPendingInvitesChange = vi.fn()
+    render(<PersonalWorkspace {...props} onPendingInvitesChange={onPendingInvitesChange} />)
+    fireEvent.click(screen.getByRole('button', { name: /invites/i }))
+    fireEvent.click(screen.getByRole('button', { name: /decline/i }))
+    await waitFor(() => expect(onPendingInvitesChange).toHaveBeenCalled())
+  })
 })
