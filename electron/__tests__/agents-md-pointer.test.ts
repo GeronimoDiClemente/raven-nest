@@ -62,4 +62,42 @@ describe('removeAgentsPointer', () => {
     expect(texto).not.toContain(POINTER_MARKER)
     expect(texto).toContain('Correr npm test.')
   })
+
+  it('el round-trip deja el archivo BYTE A BYTE como estaba (con newline final)', () => {
+    const original = '# Reglas\n\nCorrer npm test.\n'
+    writeFileSync(join(wt, 'AGENTS.md'), original)
+    ensureAgentsPointer(wt)
+    removeAgentsPointer(wt)
+    expect(readFileSync(join(wt, 'AGENTS.md'), 'utf8')).toBe(original)
+  })
+
+  it('el round-trip funciona tambien con archivo sin newline final', () => {
+    const original = '# Reglas'
+    writeFileSync(join(wt, 'AGENTS.md'), original)
+    ensureAgentsPointer(wt)
+    removeAgentsPointer(wt)
+    expect(readFileSync(join(wt, 'AGENTS.md'), 'utf8')).toBe(original)
+  })
+
+  it('citar el marcador en un bloque de codigo no impide agregar el puntero real', () => {
+    const conCita = '# Instrucciones\n\n```\n<!-- nest:team-thread --> esto es un ejemplo\n```\n'
+    writeFileSync(join(wt, 'AGENTS.md'), conCita)
+    expect(ensureAgentsPointer(wt)).toBe('written')
+
+    const texto = readFileSync(join(wt, 'AGENTS.md'), 'utf8')
+    expect(texto).toContain('esto es un ejemplo')
+    const count = (texto.match(/<!-- nest:team-thread -->/g) || []).length
+    expect(count).toBe(2)
+  })
+
+  it('remove no elimina citas del usuario del marcador, solo la linea del puntero', () => {
+    const conCita = '# Instrucciones\n\n```\n<!-- nest:team-thread --> esto es un ejemplo\n```\n'
+    writeFileSync(join(wt, 'AGENTS.md'), conCita)
+    ensureAgentsPointer(wt)
+    removeAgentsPointer(wt)
+
+    const texto = readFileSync(join(wt, 'AGENTS.md'), 'utf8')
+    expect(texto).toContain('esto es un ejemplo')
+    expect(texto).not.toContain('El contexto vivo del equipo')
+  })
 })

@@ -23,6 +23,10 @@ function targetFile(worktreePath: string): string | null {
   return null
 }
 
+function hasPointerLine(text: string): boolean {
+  return text.split('\n').some((linea) => linea.trim() === POINTER_LINE)
+}
+
 /**
  * Best-effort de punta a punta: que no se pueda escribir el puntero NUNCA puede impedir
  * que se escriba el hilo, que es lo que el usuario pidio. Mismo criterio que
@@ -34,10 +38,15 @@ export function ensureAgentsPointer(worktreePath: string): 'written' | 'already'
     if (!path) return 'skipped'
 
     const actual = readFileSync(path, 'utf8')
-    if (actual.includes(POINTER_MARKER)) return 'already'
+    if (hasPointerLine(actual)) return 'already'
 
+    // Agregar el POINTER_LINE preservando si el original tenia trailing newline.
+    // Si actual termina en \n o esta vacio: NO agregar separador, el \n ya esta.
+    // Si actual NO termina en \n: agregar \n para separar, luego otro \n antes del POINTER_LINE.
+    // Esto permite que remove() distinga basado en si hay linea vacia antes del POINTER_LINE.
+    const prefix = actual === '' || actual.endsWith('\n') ? '' : '\n'
     const sep = actual === '' || actual.endsWith('\n') ? '' : '\n'
-    writeFileSync(path, `${actual}${sep}\n${POINTER_LINE}\n`, 'utf8')
+    writeFileSync(path, `${actual}${prefix}${sep}${POINTER_LINE}\n`, 'utf8')
     return 'written'
   } catch (err) {
     console.warn('[team-thread] no se pudo escribir el puntero en AGENTS.md', err)
@@ -50,12 +59,28 @@ export function removeAgentsPointer(worktreePath: string): void {
     const path = targetFile(worktreePath)
     if (!path) return
     const actual = readFileSync(path, 'utf8')
-    if (!actual.includes(POINTER_MARKER)) return
-    const limpio = actual
-      .split('\n')
-      .filter((linea) => !linea.includes(POINTER_MARKER))
+    if (!hasPointerLine(actual)) return
+
+    const lines = actual.split('\n')
+    const pointerIdx = lines.findIndex((l) => l.trim() === POINTER_LINE)
+
+    // Detectar si el original tenia trailing newline basado en la posicion del POINTER_LINE:
+    // - Si pointerIdx es 1: no hay linea vacia antes (original tenia newline)
+    // - Si pointerIdx es 2+ y hay linea vacia antes: original no tenia newline
+    const hadOriginalNewline = pointerIdx > 0 && (pointerIdx === 1 || lines[pointerIdx - 1] !== '')
+
+    let limpio = lines
+      .filter((linea) => linea.trim() !== POINTER_LINE)
       .join('\n')
-      .replace(/\n{3,}$/, '\n')
+
+    // Colapsar multiples newlines al final (artefacto del filter)
+    limpio = limpio.replace(/\n{2,}$/, '\n')
+
+    // Restaurar el trailing newline original: si el original no tenia, remover el final
+    if (!hadOriginalNewline && limpio.endsWith('\n')) {
+      limpio = limpio.slice(0, -1)
+    }
+
     writeFileSync(path, limpio, 'utf8')
   } catch (err) {
     console.warn('[team-thread] no se pudo quitar el puntero de AGENTS.md', err)
