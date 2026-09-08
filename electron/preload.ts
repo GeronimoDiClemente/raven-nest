@@ -104,6 +104,10 @@ contextBridge.exposeInMainWorld('memory', {
     ipcRenderer.invoke('memory:teamThread:setSettings', projectKey, worktreePath, patch),
   teamThreadRegenerate: (worktreePath: string, projectKey: string) =>
     ipcRenderer.invoke('memory:teamThread:regenerate', worktreePath, projectKey),
+  // Task 10 (el panel) — projectKey resuelto del lado main, ver el comentario en main.ts.
+  teamThreadProjectKeyForWorktree: (worktreePath: string) =>
+    ipcRenderer.invoke('memory:teamThread:projectKeyForWorktree', worktreePath),
+  teamThreadRead: (worktreePath: string) => ipcRenderer.invoke('memory:teamThread:read', worktreePath),
   onStatus: (cb: (status: 'idle' | 'syncing' | 'paused' | 'error' | 'plan_required') => void) => {
     ipcRenderer.removeAllListeners('memory:status')
     ipcRenderer.on('memory:status', (_event, status) => cb(status))

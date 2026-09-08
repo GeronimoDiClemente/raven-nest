@@ -163,6 +163,7 @@ import { scopeForCapture } from './integrations/team-thread-promotion'
 import { ensureAgentsPointer, removeAgentsPointer } from './integrations/agents-md-pointer'
 import { TEAM_THREAD_PATHS, teamThreadRootDir } from './integrations/team-thread-paths'
 import { parseBranchStates } from './integrations/team-thread-git'
+import { queryThreadIndexBranches } from './integrations/team-thread-index-query'
 import { MetricsCollector, PaneInput } from './metrics-collector'
 import { transcribeAudio, checkWhisperAvailable, initWhisper, shutdownWhisper, setWhisperStatusCallback } from './whisper'
 import { getWindowOptions, getIconsDir, ICON_FILENAME, isMac, isWin } from './platform'
@@ -3348,6 +3349,41 @@ ipcMain.handle('memory:teamThread:setSettings', async (_e, projectKey: string, w
 
 ipcMain.handle('memory:teamThread:regenerate', (_e, worktreePath: string, projectKey: string) =>
   runTeamThreadRegeneration(worktreePath, projectKey))
+
+// Task 10 (el panel): projectKey se resuelve del lado main, nunca en el renderer — mismo
+// patron que `handoff:read` (projectKeyForWorktree ya hace exactamente esto). src/ no
+// puede reimplementar resolveProjectKey (necesita normalizar el remote y hashear), asi que
+// esto es la unica via limpia para que el panel sepa que projectKey pedirle a
+// getSettings/setSettings.
+ipcMain.handle('memory:teamThread:projectKeyForWorktree', (_e, worktreePath: string) =>
+  projectKeyForWorktree(worktreePath))
+
+// Task 10 (el panel): proyeccion de solo lectura del indice, para pintar el grafo. Separado
+// de getSettings/setSettings/regenerate (que son config y pase de escritura) — este handler
+// no toca disco, solo lee memoria + git y devuelve filas. worktreePath alcanza: projectKey
+// sale de el, igual que arriba.
+ipcMain.handle('memory:teamThread:read', (_e, worktreePath: string) => {
+  if (!worktreePath || !isAbsolute(worktreePath)) return { ok: false, error: 'invalid_worktree_path' }
+  if (!memory) return { ok: false, error: 'memory_unavailable' }
+  const userId = memory.store.getOwnerUserId()
+  const projectKey = projectKeyForWorktree(worktreePath)
+  const settings = loadTeamThreadSettings(teamThreadSettingsPath(ravenHome(), userId), projectKey)
+
+  const { reader, close } = openReadonlyReader(ravenHome(), userId)
+  try {
+    const records = reader.listRecords(projectKey)
+    const branches = [...new Set(records.map((r) => r.gitBranch).filter((b): b is string => b !== null))]
+    const branchStates = collectBranchStates(worktreePath, branches)
+    return {
+      ok: true,
+      branches: queryThreadIndexBranches(records, { projectKey, includedTypes: settings.includedTypes, branchStates }),
+    }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  } finally {
+    close()
+  }
+})
 
 ipcMain.handle('clipboard:writeImage', (_event, filePath: string): { ok: boolean; error?: string } => {
   try {

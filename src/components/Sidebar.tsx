@@ -828,6 +828,7 @@ export default function Sidebar({
           activeRepoPath={activeCellRepoPath}
           onOpenTutorial={onOpenTutorial}
           userPrefs={userPrefs}
+          onFileOpen={onFileOpen}
         />
       </div>
 

@@ -20,6 +20,7 @@ import UpgradeModal from './UpgradeModal'
 import MemoryHub from './MemoryHub'
 import MemoryAdoptionDialog from './MemoryAdoptionDialog'
 import MemoryVaultCard from './MemoryVaultCard'
+import TeamThreadPanel from './TeamThreadPanel'
 import logoUrl from '../assets/logo.png'
 
 type Tab = 'keybinds' | 'presets' | 'benchmarks' | 'updates' | 'account' | 'tutorial' | 'editor'
@@ -95,9 +96,14 @@ interface Props {
   // Lifted from App.tsx (the single shared instance) — see UserPreferencesApi's
   // doc comment for why this must not be a local useUserPreferences() call.
   userPrefs: UserPreferencesApi
+  // Task 10 (team thread panel): same path the file explorer already uses to open a file
+  // in the editor (App.tsx's openFileInEditor, threaded down through Sidebar's onFileOpen).
+  // Optional so existing callers/tests that don't care about the team thread panel keep
+  // compiling unchanged.
+  onFileOpen?: (relPath: string) => void
 }
 
-export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, activeRepoPath, onOpenTutorial, userPrefs }: Props) {
+export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, activeRepoPath, onOpenTutorial, userPrefs, onFileOpen }: Props) {
   const [open, setOpen] = useState(false)
   const [tab, setTab] = useState<Tab>('keybinds')
   const { settings, updateKeybinding, updateVoiceLanguage } = useSettings()
@@ -572,6 +578,10 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                   </div>
 
                   <MemoryVaultCard />
+
+                  {onFileOpen && (
+                    <TeamThreadPanel activeRepoPath={activeRepoPath ?? null} onOpenFile={onFileOpen} />
+                  )}
 
                   <button className="sp-action-btn" onClick={() => supabase.auth.signOut()}>
                     Sign out

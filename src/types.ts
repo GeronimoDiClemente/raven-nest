@@ -295,6 +295,15 @@ export interface TeamThreadBranch {
   entradas: number
 }
 
+/** Espejo de `TeamThreadSettings` de electron/integrations/team-thread-config.ts.
+ *  `includedTypes` queda `string[]` aca (no `ObservationType[]`) porque ese tipo no esta
+ *  espejado en src/ todavia y el panel (Task 10) no edita esta lista, solo lee `enabled`. */
+export interface TeamThreadSettings {
+  enabled: boolean
+  includedTypes: string[]
+  writeAgentsPointer: boolean
+}
+
 // === @Nest desde Slack (H7 Motor 5) — espejo de SlackMention/SlackAction de
 // electron/integrations/slack-envelopes.ts (src/ nunca importa de electron/) ===
 export interface SlackMentionDTO {
@@ -904,6 +913,24 @@ declare global {
         result?: { written: number; moved: number; deleted: number; conflicts: number; warnings: unknown[] }
       }>
       vaultReveal?: () => Promise<{ ok: boolean; error?: string }>
+      /**
+       * Team Memory Layer 2 (Task 7/10) — el hilo de equipo, por worktree. Optional: un
+       * preload viejo no los expone, mismo motivo que el vault arriba.
+       */
+      teamThreadGetSettings?: (projectKey: string) => Promise<{ ok: boolean; error?: string; settings?: TeamThreadSettings }>
+      teamThreadSetSettings?: (
+        projectKey: string,
+        worktreePath: string,
+        patch: Partial<TeamThreadSettings>,
+      ) => Promise<{ ok: boolean; error?: string; warnings?: unknown[]; settings?: TeamThreadSettings }>
+      teamThreadRegenerate?: (worktreePath: string, projectKey: string) => Promise<{ ok: boolean; error?: string; warnings?: unknown[] }>
+      /**
+       * Task 10 (el panel) — projectKey se resuelve del lado main (mismo camino que
+       * `handoff:read` usa para lo mismo); el renderer nunca lo calcula.
+       */
+      teamThreadProjectKeyForWorktree?: (worktreePath: string) => Promise<string>
+      /** Task 10 — proyeccion de solo lectura del indice, para pintar el grafo. */
+      teamThreadRead?: (worktreePath: string) => Promise<{ ok: boolean; error?: string; branches?: TeamThreadBranch[] }>
     }
     platform: {
       isWin: boolean
