@@ -38,7 +38,7 @@ type IssuesView = 'repo-select' | 'list' | 'detail'
 
 export default function PersonalWorkspace({ onClose, githubToken, githubLogin, onConnectGitHub, onOpenRepoTerminal, onOpenTeamWorkspace, allowTeam, onStartTutorial }: PersonalWorkspaceProps) {
   const [scope, setScope] = useState<RepoScope>({ kind: 'personal' })
-  const { teams, members, userId } = useTeam()
+  const { teams, members, userId, switchTeam } = useTeam()
   const isTeamLeader = scope.kind === 'team' && members.some(
     m => m.user_id === userId && m.role === 'leader',
   )
@@ -230,6 +230,20 @@ export default function PersonalWorkspace({ onClose, githubToken, githubLogin, o
     if (s === 'issues') { setIssuesView('repo-select'); setSelectedIssueRepo(null); setSelectedIssue(null) }
   }
 
+  // Picking a team scope also makes that team the active team: useTeam only
+  // loads `members` for activeTeamId, and isTeamLeader above reads `members`,
+  // so scope and active team must be the same team or the leader check runs
+  // against the wrong roster. Also drop any view state that points at a repo
+  // from the scope we're leaving — it won't exist in the new list.
+  const handleScopeChange = (next: RepoScope) => {
+    if (next.kind === 'team') void switchTeam(next.teamId)
+    setScope(next)
+    setSelectedRepo(null)
+    setReposView('list')
+    setSelectedIssueRepo(null)
+    setStatusRepo(null)
+  }
+
   const NAV_ITEMS: { id: Section; label: string; icon: React.ReactNode }[] = [
     {
       id: 'activity',
@@ -328,7 +342,7 @@ export default function PersonalWorkspace({ onClose, githubToken, githubLogin, o
             scope={scope}
             teams={teams}
             allowTeam={allowTeam}
-            onScopeChange={setScope}
+            onScopeChange={handleScopeChange}
             onOpenTeamWorkspace={onOpenTeamWorkspace}
           />
           {NAV_ITEMS.map(item => (
