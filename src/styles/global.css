@@ -5245,6 +5245,15 @@ kbd {
   overflow: hidden;
 }
 
+/* Personal stays mounted underneath the team workspace — closing Teams has to
+   return you to Personal, so Personal is never unmounted. Both surfaces are
+   .teams-workspace, and with an equal z-index the later sibling (Personal)
+   would paint over Teams, hiding it completely. The team surface gets its own
+   layer instead of relying on render order. */
+.teams-workspace.teams-workspace--front {
+  z-index: 1100;
+}
+
 .teams-workspace-header {
   display: flex;
   align-items: center;

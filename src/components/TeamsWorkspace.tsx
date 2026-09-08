@@ -246,7 +246,7 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal, on
   const onlineUserIds = new Set(Object.keys(presence))
 
   return (
-    <div className="teams-workspace">
+    <div className="teams-workspace teams-workspace--front">
 
       {/* Header */}
       <div className="teams-workspace-header">
