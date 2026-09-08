@@ -53,6 +53,28 @@ describe('planTeamThread', () => {
     expect(plan.writes).toHaveLength(0)
   })
 
+  it('EL GUARDIA: una fila team con deleted true NUNCA entra al hilo del equipo', () => {
+    const plan = planTeamThread({
+      records: [record({ syncId: 'obs-tombstone', deleted: true })],
+      manifest: emptyManifest(),
+      config: CONFIG,
+      onDiskHashes: {},
+    })
+
+    expect(plan.writes).toHaveLength(0)
+  })
+
+  it('EL GUARDIA: una fila team con supersededBy no nulo NUNCA entra al hilo del equipo', () => {
+    const plan = planTeamThread({
+      records: [record({ syncId: 'obs-vieja', supersededBy: 'obs-nueva' })],
+      manifest: emptyManifest(),
+      config: CONFIG,
+      onDiskHashes: {},
+    })
+
+    expect(plan.writes).toHaveLength(0)
+  })
+
   it('agrupa por rama: una nota por rama, no una por fila', () => {
     const plan = planTeamThread({
       records: [
@@ -173,5 +195,35 @@ describe('planTeamThread', () => {
   it('siempre emite el indice cuando algo cambio', () => {
     const plan = planTeamThread({ records: [record()], manifest: emptyManifest(), config: CONFIG, onDiskHashes: {} })
     expect(plan.indexWrites.map((i) => i.filePath)).toEqual(['_index.md'])
+  })
+
+  it('DETERMINISMO: dos ramas que colisionan de slug producen el mismo sourceHash sin importar el orden', () => {
+    // 'feat/sidebar-tabs' y 'feat_sidebar-tabs' slugean igual (vaultSlug trata '/' y '_'
+    // como el mismo separador) y caen en el mismo bucket. Tienen `estado` distinto en
+    // branchStates: si el desempate dependiera del orden de `records`, el `sourceHash`
+    // cambiaria segun como llegue el array.
+    const config: TeamThreadConfig = {
+      ...CONFIG,
+      branchStates: { 'feat/sidebar-tabs': 'activa', 'feat_sidebar-tabs': 'cerrada' },
+    }
+    const filaSlash = record({ syncId: 'obs-slash', gitBranch: 'feat/sidebar-tabs' })
+    const filaGuion = record({ syncId: 'obs-guion', gitBranch: 'feat_sidebar-tabs' })
+
+    const planOrdenA = planTeamThread({
+      records: [filaSlash, filaGuion],
+      manifest: emptyManifest(),
+      config,
+      onDiskHashes: {},
+    })
+    const planOrdenB = planTeamThread({
+      records: [filaGuion, filaSlash],
+      manifest: emptyManifest(),
+      config,
+      onDiskHashes: {},
+    })
+
+    expect(planOrdenA.writes).toHaveLength(1)
+    expect(planOrdenB.writes).toHaveLength(1)
+    expect(planOrdenA.writes[0].sourceHash).toBe(planOrdenB.writes[0].sourceHash)
   })
 })

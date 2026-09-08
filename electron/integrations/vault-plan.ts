@@ -1,8 +1,8 @@
 // The heart of the vault (§3.3): turns `MemoryRecord[]` + the previous manifest into a
 // plan of filesystem effects, without touching `fs` itself. Pure, so this is where the
 // bulk of the tests live (vault spec §13).
-import { createHash } from 'crypto'
 import { redact } from '../memory-redaction'
+import { conflictPathFor, sha256 } from './vault-hash'
 import type { MemoryProject, MemoryRecord } from './memory-port'
 import { projectFolderName, resolveVaultFileNames } from './vault-naming'
 import { renderNote, scrubSourceRef, type NoteContext } from './vault-note'
@@ -81,17 +81,6 @@ export interface VaultPlan {
   warnings: VaultWarning[]
   indexWrites: VaultIndexWrite[]
   readme: string
-}
-
-function sha256(text: string): string {
-  return createHash('sha256').update(text).digest('hex')
-}
-
-function conflictPathFor(filePath: string): string {
-  const slash = filePath.lastIndexOf('/')
-  const dir = slash === -1 ? '' : filePath.slice(0, slash + 1)
-  const name = slash === -1 ? filePath : filePath.slice(slash + 1)
-  return `${dir}_conflicts/${name}`
 }
 
 interface Disposition {

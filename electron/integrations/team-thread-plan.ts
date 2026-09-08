@@ -5,7 +5,6 @@
 // por decision de producto (privacidad de companeros, Task 5 del vault). Un bug de config
 // ahi filtraria notas de companeros al vault personal. Aca la separacion la garantiza la
 // estructura, no un booleano.
-import { createHash } from 'crypto'
 import type { ObservationType } from '../memory-protocol'
 import { redact } from '../memory-redaction'
 import type { MemoryRecord } from './memory-port'
@@ -16,6 +15,7 @@ import {
   type EstadoRama,
   type ThreadIndexBranch,
 } from './team-thread-note'
+import { conflictPathFor, sha256 } from './vault-hash'
 import type {
   VaultConflict,
   VaultDelete,
@@ -46,10 +46,6 @@ export interface PlanTeamThreadInput {
   onDiskHashes: Record<string, string>
 }
 
-function sha256(text: string): string {
-  return createHash('sha256').update(text).digest('hex')
-}
-
 /** El id sintetico estable que ocupa el lugar del `syncId` del vault. Spec §4.1. */
 export function branchNoteId(slug: string): string {
   return `rama:${slug}`
@@ -59,11 +55,20 @@ function filePathFor(slug: string): string {
   return slug === 'general' ? 'general.md' : `ramas/${slug}.md`
 }
 
-function conflictPathFor(filePath: string): string {
-  const slash = filePath.lastIndexOf('/')
-  const dir = slash === -1 ? '' : filePath.slice(0, slash + 1)
-  const name = slash === -1 ? filePath : filePath.slice(slash + 1)
-  return `${dir}_conflicts/${name}`
+/**
+ * Dos ramas distintas pueden slugear igual (`feat/sidebar-tabs` y `feat_sidebar-tabs` ->
+ * `feat-sidebar-tabs`, ver vaultSlug). El caller no garantiza el orden de `records`, asi
+ * que `entries[0].gitBranch` no es determinista: un reordenamiento cambiaria que rama
+ * "gana" para el lookup de `estado`, y con eso el `sourceHash` — reescrituras fantasma o
+ * escondidas. Se desempata por orden lexicografico, no por orden de llegada.
+ */
+function ramaCanonica(entries: MemoryRecord[]): string | null {
+  let branch: string | null = null
+  for (const e of entries) {
+    if (e.gitBranch === null) continue
+    if (branch === null || e.gitBranch < branch) branch = e.gitBranch
+  }
+  return branch
 }
 
 export function planTeamThread(input: PlanTeamThreadInput): VaultPlan {
@@ -101,7 +106,7 @@ export function planTeamThread(input: PlanTeamThreadInput): VaultPlan {
   let algoCambio = false
 
   for (const [slug, entries] of porRama) {
-    const branch = entries[0].gitBranch
+    const branch = ramaCanonica(entries)
     const estado = (branch ? config.branchStates[branch] : undefined) ?? 'sin-worktree'
 
     for (const e of entries) {
