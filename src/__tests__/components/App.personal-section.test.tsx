@@ -1,15 +1,21 @@
 // Regression test for the "Personal reopens on the wrong section" bug: the
 // invites redirect (TeamsWorkspace -> "you have pending invites" -> Personal)
-// sets personalSection to 'pendings', and if the normal Personal door doesn't
-// reset it back to 'repos' on its own click, closing and reopening Personal
-// from the sidebar leaves the user staring at the invites list instead of
-// their repos — for the rest of the session, since nothing else resets it.
+// sets personalSection to 'pendings', and if Personal doesn't reset it back
+// to 'repos' on its own click, closing and reopening Personal from the
+// sidebar leaves the user staring at the invites list instead of their
+// repos — for the rest of the session, since nothing else resets it.
 //
-// This mounts the real App component (the state machine under test lives
-// there — onPersonalOpen, onOpenPersonalInvites, personalSection) with every
-// other heavy dependency (data-fetching hooks, Sidebar's own internals,
-// TeamsWorkspace/PersonalWorkspace's own internals) replaced by a minimal
-// stand-in that only exposes the props relevant to this sequence.
+// This mounts the real App AND the real PersonalWorkspace (the section
+// contract under test spans both: App writes personalSection to steer the
+// panel, PersonalWorkspace owns it from then on and must react when the prop
+// changes while it stays mounted — TeamsWorkspace renders on top of it, not
+// in its place, so the invites redirect never remounts it). A stub here
+// would only prove the test's own assumptions, not the product — see the
+// review note this file's history carries.
+//
+// Everything NOT part of that contract (Sidebar's own internals, Teams'
+// own internals, PersonalWorkspace's own data-fetching hooks) is replaced
+// by a minimal stand-in.
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import App from '../../App'
@@ -50,6 +56,37 @@ vi.mock('../../lib/supabase', () => ({
   },
 }))
 
+// PersonalWorkspace's own data-fetching hooks — irrelevant to the section
+// contract under test, mocked the same way Sidebar-tabs.test.tsx mocks
+// Sidebar's. One team is provided so ScopeSelector (real, unmocked) renders
+// the "Open team workspace" button our sequence needs to click.
+vi.mock('../../hooks/useTeam', () => ({
+  useTeam: () => ({
+    teams: [{ id: 't1', name: 'Nest', owner_id: 'u1', created_at: '2024-01-01' }],
+    activeTeamId: null,
+    members: [],
+    pendingInvites: [],
+    myPendingRequests: [],
+    loading: false,
+    userId: null,
+    userEmail: null,
+    activeTeam: null,
+    switchTeam: vi.fn(),
+    loadMembers: vi.fn(),
+    acceptInvite: vi.fn(async () => ({ ok: true })),
+    rejectInvite: vi.fn(async () => {}),
+  }),
+}))
+vi.mock('../../hooks/useScopedRepos', () => ({
+  useScopedRepos: () => ({ repos: [], loading: false, refresh: vi.fn(), addRepo: vi.fn(), updateLocalPath: vi.fn(), removeRepo: vi.fn() }),
+}))
+vi.mock('../../hooks/useGitHubNotifications', () => ({
+  useGitHubNotifications: () => ({ notifications: [], unreadCount: 0, markAsRead: vi.fn() }),
+}))
+vi.mock('../../hooks/useGitlab', () => ({
+  useGitlab: () => ({ isConnected: false, gitlabLogin: null, gitlabToken: null, loading: false, error: null, connectGitlab: vi.fn(), disconnectGitlab: vi.fn() }),
+}))
+
 // The heavy visual chrome (tab strip, hub, panes engine) isn't relevant to
 // the personalSection state machine and pulls in dnd-kit/terminal internals
 // that don't need exercising here.
@@ -65,8 +102,8 @@ vi.mock('../../components/Sidebar', () => ({
   ),
 }))
 
-// TeamsWorkspace and PersonalWorkspace are stand-ins that expose exactly the
-// props under test: the invites redirect, initialSection, and close.
+// TeamsWorkspace's only relevant surface is the invites redirect and close —
+// its own internals are covered by its own test file.
 vi.mock('../../components/TeamsWorkspace', () => ({
   default: (props: { onOpenPersonalInvites?: () => void; onClose: () => void }) => (
     <div data-testid="teams-workspace">
@@ -75,15 +112,11 @@ vi.mock('../../components/TeamsWorkspace', () => ({
     </div>
   ),
 }))
-vi.mock('../../components/PersonalWorkspace', () => ({
-  default: (props: { initialSection?: string; onClose: () => void; onOpenTeamWorkspace: () => void }) => (
-    <div data-testid="personal-workspace">
-      <span data-testid="personal-section">{props.initialSection}</span>
-      <button data-testid="close-personal" onClick={props.onClose}>close personal</button>
-      <button data-testid="open-team-from-personal" onClick={props.onOpenTeamWorkspace}>open team</button>
-    </div>
-  ),
-}))
+
+// PersonalWorkspace itself is NOT mocked — the section-reaction contract
+// this test protects lives inside it (see PersonalWorkspace.tsx's
+// `initialSectionMountedRef` effect), so a stub would only prove the stub,
+// not the product.
 
 describe('App — Personal section reset', () => {
   beforeEach(() => {
@@ -94,26 +127,40 @@ describe('App — Personal section reset', () => {
     })
   })
 
+  // Which section PersonalWorkspace is showing, read from its own nav —
+  // real markup, not a test-only probe (mirrors switchSection's `active`
+  // class at PersonalWorkspace.tsx's NAV_ITEMS render).
+  function activeNavLabel() {
+    return screen.getAllByRole('button').find(b => b.className.includes('tw-nav-btn active'))?.textContent
+  }
+
   function openTeamFromPersonal() {
     fireEvent.click(screen.getByTestId('open-personal'))
-    fireEvent.click(screen.getByTestId('open-team-from-personal'))
+    fireEvent.click(screen.getByRole('button', { name: 'Nest' })) // ScopeSelector team chip
+    fireEvent.click(screen.getByRole('button', { name: 'Open team workspace' }))
   }
 
   it('reopens on repos, not on whatever section was open when it was last closed', () => {
     render(<App />)
 
-    // Reach the invites redirect: Personal -> Team -> "open invites".
+    // Reach the invites redirect: Personal -> pick the team scope -> open
+    // the team workspace -> "open invites". PersonalWorkspace stays mounted
+    // throughout (Teams renders on top of it, not in its place).
     openTeamFromPersonal()
+    expect(screen.getByTestId('teams-workspace')).toBeInTheDocument()
     fireEvent.click(screen.getByTestId('open-invites'))
-    expect(screen.getByTestId('personal-section')).toHaveTextContent('pendings')
+    expect(screen.queryByTestId('teams-workspace')).not.toBeInTheDocument()
+    expect(activeNavLabel()).toBe('Invites')
+    expect(screen.getByText('No pending invites.')).toBeInTheDocument()
 
     // Close Personal (still parked on 'pendings' — nothing resets it here).
-    fireEvent.click(screen.getByTestId('close-personal'))
-    expect(screen.queryByTestId('personal-workspace')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByText('Back'))
+    expect(screen.queryByText('No pending invites.')).not.toBeInTheDocument()
 
     // Reopen Personal normally, from the sidebar door — not via the invites
     // redirect. It must show repos, not the stale invites section.
     fireEvent.click(screen.getByTestId('open-personal'))
-    expect(screen.getByTestId('personal-section')).toHaveTextContent('repos')
+    expect(activeNavLabel()).toBe('Repos')
+    expect(screen.queryByText('No pending invites.')).not.toBeInTheDocument()
   })
 })

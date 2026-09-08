@@ -236,6 +236,23 @@ export default function PersonalWorkspace({ onClose, githubToken, githubLogin, o
     if (s === 'issues') { setIssuesView('repo-select'); setSelectedIssueRepo(null); setSelectedIssue(null) }
   }
 
+  // App only ever writes `initialSection` to steer this panel from outside —
+  // once on mount (the useState initializer above) and once more via the
+  // invites redirect, which flips it while this same instance stays mounted
+  // (TeamsWorkspace renders on top of Personal, not in its place — closing
+  // Teams never remounts Personal). React to that later change through the
+  // same switchSection path a click uses, so the view-state resets
+  // (reposView, selectedRepo, etc.) stay consistent. Skip the very first
+  // run: mount already applied initialSection via the useState initializer,
+  // so re-running here would just be redundant — and once this instance
+  // navigates on its own, App has no way to know the current section, so a
+  // later re-render with the same initialSection must NOT force it back.
+  const initialSectionMountedRef = useRef(true)
+  useEffect(() => {
+    if (initialSectionMountedRef.current) { initialSectionMountedRef.current = false; return }
+    if (initialSection !== undefined) switchSection(initialSection)
+  }, [initialSection]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const handleAcceptInvite = async (memberId: string) => {
     setAcceptError(null)
     setAcceptingId(memberId)
