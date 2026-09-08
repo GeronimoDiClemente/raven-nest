@@ -20,6 +20,7 @@ import ErrorBoundary from './ErrorBoundary'
 import JoinByCodeForm from './JoinByCodeForm'
 import TeamJoinCodePanel from './TeamJoinCodePanel'
 import TeamStats from './TeamStats'
+import type { WorkspaceSection } from './teamSections'
 
 interface TeamsWorkspaceProps {
   onClose: () => void
@@ -33,7 +34,7 @@ interface TeamsWorkspaceProps {
   onOpenPersonalInvites?: () => void
 }
 
-export type WorkspaceSection = 'chat' | 'members' | 'stats' | 'snippets' | 'workspaces' | 'mcp'
+export { WORKSPACE_SECTIONS, type WorkspaceSection } from './teamSections'
 
 const PRESENCE_COLORS = [
   '#0066FF', '#00CC44', '#CC44FF', '#FFB800', '#FF6600',
