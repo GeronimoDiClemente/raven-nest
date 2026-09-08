@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import PersonalWorkspace from '../../components/PersonalWorkspace'
 import type { Team, TeamMember, PendingInvite } from '../../hooks/useTeam'
 import type { Repo } from '../../hooks/useScopedRepos'
@@ -34,7 +34,7 @@ const teamState = {
   members: [] as TeamMember[],
   pendingInvites: [] as PendingInvite[],
   userId: 'u1',
-  acceptInvite: vi.fn(async () => {}),
+  acceptInvite: vi.fn(async () => ({ ok: true })),
   rejectInvite: vi.fn(async () => {}),
   switchTeam: vi.fn(async () => {}),
 }
@@ -144,5 +144,17 @@ describe('PersonalWorkspace', () => {
     ]
     render(<PersonalWorkspace {...props} />)
     expect(screen.getByRole('button', { name: /invites/i })).toHaveTextContent('2')
+  })
+
+  // The sidebar badge for pending invites lives outside Personal (a separate
+  // usePendingInvitesCount hook in App). Without this callback firing, that
+  // badge keeps advertising an invite the user already accepted here.
+  it('notifies the caller after accepting an invite', async () => {
+    teamState.pendingInvites = [{ memberId: 'm1', team: team('t9', 'Nest'), invitedAt: '' }]
+    const onPendingInvitesChange = vi.fn()
+    render(<PersonalWorkspace {...props} onPendingInvitesChange={onPendingInvitesChange} />)
+    fireEvent.click(screen.getByRole('button', { name: /invites/i }))
+    fireEvent.click(screen.getByRole('button', { name: /accept/i }))
+    await waitFor(() => expect(onPendingInvitesChange).toHaveBeenCalled())
   })
 })

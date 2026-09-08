@@ -32,13 +32,15 @@ interface PersonalWorkspaceProps {
   onStartTutorial?: () => void
   /** Preselects the section shown on mount. Defaults to 'repos' when omitted. */
   initialSection?: Section
+  /** Called after a pending invite is successfully accepted or rejected, so callers can refresh their own invite-count state (e.g. a sidebar badge). */
+  onPendingInvitesChange?: () => void
 }
 
 export type Section = 'activity' | 'repos' | 'issues' | 'standup' | 'pendings'
 type ReposView = 'list' | 'prs' | 'pr-detail'
 type IssuesView = 'repo-select' | 'list' | 'detail'
 
-export default function PersonalWorkspace({ onClose, githubToken, githubLogin, onConnectGitHub, onOpenRepoTerminal, onOpenTeamWorkspace, allowTeam, onStartTutorial, initialSection }: PersonalWorkspaceProps) {
+export default function PersonalWorkspace({ onClose, githubToken, githubLogin, onConnectGitHub, onOpenRepoTerminal, onOpenTeamWorkspace, allowTeam, onStartTutorial, initialSection, onPendingInvitesChange }: PersonalWorkspaceProps) {
   const [scope, setScope] = useState<RepoScope>({ kind: 'personal' })
   const { teams, members, userId, switchTeam, pendingInvites, acceptInvite, rejectInvite } = useTeam()
   const isTeamLeader = scope.kind === 'team' && members.some(
@@ -239,12 +241,17 @@ export default function PersonalWorkspace({ onClose, githubToken, githubLogin, o
     setAcceptingId(memberId)
     const result = await acceptInvite(memberId)
     setAcceptingId(null)
-    if (!result.ok) setAcceptError(result.error ?? 'Could not accept invite')
+    if (!result.ok) {
+      setAcceptError(result.error ?? 'Could not accept invite')
+    } else {
+      onPendingInvitesChange?.()
+    }
   }
 
   const handleRejectInvite = async (memberId: string) => {
     setAcceptError(null)
     await rejectInvite(memberId)
+    onPendingInvitesChange?.()
   }
 
   // Picking a team scope also makes that team the active team: useTeam only

@@ -1983,6 +1983,7 @@ export default function App() {
           allowTeam={planLimits.allowTeam}
           onStartTutorial={() => setTutorialTour('my-repos')}
           initialSection={personalSection}
+          onPendingInvitesChange={refreshPendingInvitesCount}
         />
       )}
 
