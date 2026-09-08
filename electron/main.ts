@@ -159,6 +159,7 @@ import {
 import { planTeamThread } from './integrations/team-thread-plan'
 import type { EstadoRama } from './integrations/team-thread-note'
 import { loadTeamThreadSettings, saveTeamThreadSettings, teamThreadSettingsPath, type TeamThreadSettings } from './integrations/team-thread-config'
+import { scopeForCapture } from './integrations/team-thread-promotion'
 import { ensureAgentsPointer, removeAgentsPointer } from './integrations/agents-md-pointer'
 import { TEAM_THREAD_PATHS, teamThreadRootDir } from './integrations/team-thread-paths'
 import { parseBranchStates } from './integrations/team-thread-git'
@@ -1352,15 +1353,21 @@ ipcMain.handle('handoff:write', (_e, worktreePath: string, content: string) => {
   try {
     const projectKey = projectKeyForWorktree(worktreePath)
     const folder = worktreePath.split(/[\\/]/).filter(Boolean).pop() ?? worktreePath
+    const title = `Handoff — ${folder}`
     memory.store.ensureProject({ projectKey, displayName: folder, rootPath: worktreePath })
+    const ttSettings = loadTeamThreadSettings(teamThreadSettingsPath(ravenHome(), memory.store.getOwnerUserId()), projectKey)
+    const { scope, heldBack } = scopeForCapture(ttSettings, 'handoff', title, content)
     memory.store.save({
       projectKey,
-      scope: 'personal',
+      scope,
       type: 'handoff',
-      title: `Handoff — ${folder}`,
+      title,
       content,
       source: 'ui',
     })
+    if (heldBack) {
+      console.warn('[team-thread] handoff retenido como personal: matchea un patron de secreto')
+    }
     memory.daemon.scheduleMutationPush()
   } catch (err) {
     console.warn('[main] handoff:write — no se pudo guardar como memoria', err instanceof Error ? err.message : err)
