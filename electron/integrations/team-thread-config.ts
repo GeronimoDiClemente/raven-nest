@@ -72,6 +72,35 @@ export function loadTeamThreadSettings(path: string, projectKey: string): TeamTh
   return { ...defaults(), ...(leerArchivo(path)[projectKey] ?? {}) }
 }
 
+/**
+ * Espejo de `TEAM_SCOPE_PLANS` de server/src/push.ts. El servidor sigue siendo el que
+ * manda (§9.3: lo que se chequea solo en el cliente no esta chequeado); esto existe para
+ * que prender el toggle NO produzca filas que el servidor va a rechazar con
+ * `team_scope_not_allowed` mientras el usuario ve el hilo local poblado y cree que
+ * compartio (I1 de la review final de rama).
+ *
+ * `undefined` = todavia no hubo una respuesta de `status()` que diga el plan. En ese caso
+ * NO se bloquea: no saber no es lo mismo que saber que no. El servidor rechaza igual y la
+ * fila queda personal, que es el estado de hoy — pero no se le niega al usuario una accion
+ * legitima porque la app arranco hace 3 segundos.
+ */
+export function planAllowsTeamSharing(plan: string | undefined | null): boolean {
+  if (plan === undefined || plan === null || plan === '') return true
+  return plan === 'team' || plan === 'enterprise'
+}
+
+/**
+ * Los projectKeys con el hilo PRENDIDO. Es el gate barato del poll de 60s y de la
+ * reconciliacion al arranque (spec §8.1): leer un JSON chico es mucho mas barato que
+ * enumerar worktrees y preguntarle a git el remote de cada repo, y con el hilo apagado en
+ * todos lados —el estado por default— esos dos disparadores no hacen nada mas que esto.
+ */
+export function enabledTeamThreadProjectKeys(path: string): string[] {
+  return Object.entries(leerArchivo(path))
+    .filter(([, s]) => s.enabled === true)
+    .map(([projectKey]) => projectKey)
+}
+
 export function saveTeamThreadSettings(
   path: string,
   projectKey: string,

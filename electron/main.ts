@@ -158,8 +158,10 @@ import {
 } from './integrations/vault-config'
 import { planTeamThread } from './integrations/team-thread-plan'
 import type { EstadoRama } from './integrations/team-thread-note'
-import { loadTeamThreadSettings, saveTeamThreadSettings, teamThreadSettingsPath, type TeamThreadSettings } from './integrations/team-thread-config'
-import { scopeForCapture } from './integrations/team-thread-promotion'
+import { enabledTeamThreadProjectKeys, loadTeamThreadSettings, planAllowsTeamSharing, saveTeamThreadSettings, teamThreadSettingsPath, type TeamThreadSettings } from './integrations/team-thread-config'
+import { buildHandoffSave } from './integrations/handoff-capture'
+import { KeyedLock } from './integrations/keyed-lock'
+import { groupWorktreesByRepo, normalizeWorktreeKey, worktreesOfSameRepo } from './integrations/team-thread-worktrees'
 import { ensureAgentsPointer, removeAgentsPointer } from './integrations/agents-md-pointer'
 import { TEAM_THREAD_PATHS, teamThreadRootDir } from './integrations/team-thread-paths'
 import { parseBranchStates } from './integrations/team-thread-git'
@@ -411,6 +413,13 @@ async function performUserSwap(userId: string | null, adopt = true): Promise<{ o
     // vault regen for the account that just became active (project keys can collide across
     // accounts on the same machine — same repos, same derived keys).
     resetVaultPollState()
+    resetTeamThreadPollState()
+    // La reconciliacion de arranque (§8.1, disparador 4) corre en app.whenReady(), cuando
+    // todavia no hay cuenta activa: ahi `getOwnerUserId()` es null y los settings que se
+    // leen son los de la particion `_local`, no los del usuario. Este es el primer momento
+    // en que la cuenta real esta montada, asi que la reconciliacion de verdad es esta. Sin
+    // ella el hilo de un usuario logueado esperaria hasta el primer tick del poll.
+    void reconcileTeamThreads({ soloSiCambio: false })
     return result.error ? { ok: false, error: result.error } : { ok: true }
   } finally {
     // Reruns every deferred write against memorySink.save() — by now `memory` (if the try
@@ -1357,19 +1366,21 @@ ipcMain.handle('handoff:write', (_e, worktreePath: string, content: string) => {
     const title = `Handoff — ${folder}`
     memory.store.ensureProject({ projectKey, displayName: folder, rootPath: worktreePath })
     const ttSettings = loadTeamThreadSettings(teamThreadSettingsPath(ravenHome(), memory.store.getOwnerUserId()), projectKey)
-    const { scope, heldBack } = scopeForCapture(ttSettings, 'handoff', title, content)
-    memory.store.save({
-      projectKey,
-      scope,
-      type: 'handoff',
-      title,
-      content,
-      source: 'ui',
-    })
+    // C1: el input (scope + gitBranch incluidos) se arma en handoff-capture.ts, que es
+    // testeable. Sin el `gitBranch` que agrega ahi, TODA fila del hilo caia en general.md.
+    const { input, heldBack } = buildHandoffSave(
+      { worktreePath, projectKey, title, content, settings: ttSettings },
+      { resolveGitInfo: resolveGitInfoForCwd },
+    )
+    memory.store.save(input)
     if (heldBack) {
       console.warn('[team-thread] handoff retenido como personal: matchea un patron de secreto')
     }
     memory.daemon.scheduleMutationPush()
+    // C2 / spec §8.1, disparador 2 (debounce de 5s post-escritura): este es el UNICO camino
+    // que produce filas `team`, asi que es el unico lugar donde tiene sentido el debounce.
+    // Lo que llega de un companero por pull lo levanta el poll de 60s.
+    scheduleTeamThreadRegenDebounced(worktreePath)
   } catch (err) {
     console.warn('[main] handoff:write — no se pudo guardar como memoria', err instanceof Error ? err.message : err)
   }
@@ -3074,6 +3085,12 @@ ipcMain.handle('memory:shareProjectWithTeam', async (_event, projectKey: string,
     })
     const body = await res.json().catch(() => null) as { error?: string } | null
     if (!res.ok) return { ok: false, error: body?.error ?? `HTTP ${res.status}` }
+    // I1: todo handoff que se haya escrito ANTES de compartir el proyecto quedo retenido
+    // con `project_not_shared_with_team` (reversible, ver memory-daemon.ts). Este es el
+    // momento exacto en que esa razon dejo de aplicar — sin este desbloqueo, la retencion
+    // esperaria hasta el proximo cambio de plan, que puede no llegar nunca.
+    memory?.store.unblockMutations(['project_not_shared_with_team'])
+    memory?.daemon.scheduleMutationPush()
     return { ok: true }
   } catch (err) {
     const message = (err as Error)?.name === 'AbortError'
@@ -3256,6 +3273,20 @@ ipcMain.handle('memory:vault:reveal', async () => {
 // Team Memory Layer 2 (Task 7): el hilo de equipo — indice + una nota por rama, escrito
 // dentro de `.nest/team/` de CADA worktree (a diferencia del vault personal, que tiene un
 // solo root por cuenta). Ver docs/superpowers/sdd/2026-09-08-team-memory-layer-2.
+//
+// Los cuatro disparadores de la spec §8.1, cableados igual que los del vault (arriba):
+//   1. Prender el toggle / "Regenerate"  -> memory:teamThread:setSettings / :regenerate
+//   2. Debounce 5s post-escritura        -> scheduleTeamThreadRegenDebounced(), llamado
+//                                           desde el handler `handoff:write` (el UNICO
+//                                           camino que produce filas `team`)
+//   3. Poll de 60s del watermark         -> startTeamThreadWatermarkPoll(), abajo. Es lo
+//                                           que hace aparecer el handoff de un COMPANERO,
+//                                           que llega por pull y no pasa por el debounce
+//   4. Reconciliacion al arranque        -> reconcileTeamThreads(), en app.whenReady()
+//
+// La diferencia con el vault: el vault tiene UN root por cuenta, el hilo se escribe uno por
+// worktree y su config es por proyecto (I3 de la review final de rama). Por eso todo lo de
+// abajo trabaja sobre el CONJUNTO de worktrees de un repo, no sobre uno.
 
 /** Wrapper que consulta git — es lo UNICO de este flujo que lo hace, el planner
  *  (`planTeamThread`) es puro a proposito. El parseo en si (y el caso "git fallo") vive en
@@ -3275,6 +3306,11 @@ function collectBranchStates(worktreePath: string, branches: string[]): Record<s
   return parseBranchStates(branchOutput, worktreeOutput, branches, gitDisponible)
 }
 
+// Un cerrojo por `rootDir`. Con un solo disparador (un click humano) no hacia falta; con
+// los cuatro de §8.1 por N worktrees, dos pasadas sobre el mismo directorio pueden
+// intercalar el read-modify-write del manifest que hace applyVaultPlan.
+const teamThreadLock = new KeyedLock()
+
 async function runTeamThreadRegeneration(
   worktreePath: string,
   projectKey: string,
@@ -3285,6 +3321,14 @@ async function runTeamThreadRegeneration(
   // los dos caminos (apagado y escritura), por eso va antes que todo lo demas.
   if (!worktreePath || !isAbsolute(worktreePath)) return { ok: false, error: 'invalid_worktree_path' }
 
+  return teamThreadLock.run(normalizeWorktreeKey(teamThreadRootDir(worktreePath)), () =>
+    runTeamThreadRegenerationLocked(worktreePath, projectKey))
+}
+
+async function runTeamThreadRegenerationLocked(
+  worktreePath: string,
+  projectKey: string,
+): Promise<{ ok: boolean; error?: string; warnings?: unknown[] }> {
   if (!memory) return { ok: false, error: 'memory_unavailable' }
   const userId = memory.store.getOwnerUserId()
   const settings = loadTeamThreadSettings(teamThreadSettingsPath(ravenHome(), userId), projectKey)
@@ -3318,6 +3362,10 @@ async function runTeamThreadRegeneration(
         ultimaSync: Date.now(),
       },
       onDiskHashes: computeOnDiskHashes(rootDir, manifest),
+      // I4: el puntero de AGENTS.md (abajo) no puede quedar apuntando a un `_index.md` que
+      // no existe — el caso del primer dia de todo usuario, con el toggle prendido y cero
+      // filas `team`.
+      indexOnDisk: existsSync(join(rootDir, '_index.md')),
     })
     const { result } = await applyVaultPlan(rootDir, plan, TEAM_THREAD_PATHS)
 
@@ -3333,6 +3381,157 @@ async function runTeamThreadRegeneration(
   }
 }
 
+/**
+ * I3: los settings son por PROYECTO, el hilo se escribe por WORKTREE. Prender, apagar o
+ * regenerar desde un worktree tiene que alcanzar a TODOS los del mismo repo — si no,
+ * apagar deja `.nest/team/` y la linea de AGENTS.md vivos en los otros 7, y prender no
+ * escribe el hilo en ninguno de ellos.
+ *
+ * Los worktrees que ya no estan en disco se saltean: escribir ahi los recrearia.
+ */
+async function runTeamThreadForRepo(
+  worktreePath: string,
+  projectKey: string,
+): Promise<{ ok: boolean; error?: string; warnings?: unknown[] }> {
+  if (!worktreePath || !isAbsolute(worktreePath)) return { ok: false, error: 'invalid_worktree_path' }
+
+  const objetivos = worktreesOfSameRepo(worktreeStore.list(), worktreePath).filter((p) => existsSync(p))
+  if (objetivos.length === 0) return { ok: false, error: 'invalid_worktree_path' }
+
+  const resultados = await Promise.all(objetivos.map((p) => runTeamThreadRegeneration(p, projectKey)))
+  // El primer fallo manda: el usuario apreto UN boton y necesita un error, no una lista.
+  // Igual se intentaron todos, para no dejar la mitad de los worktrees a medio actualizar.
+  const fallo = resultados.find((r) => !r.ok)
+  if (fallo) return fallo
+  return { ok: true, warnings: resultados.flatMap((r) => r.warnings ?? []) }
+}
+
+// --- Disparadores 2, 3 y 4 (spec §8.1) ------------------------------------------------
+
+const TEAM_THREAD_DEBOUNCE_MS = 5_000
+let teamThreadDebounceTimer: NodeJS.Timeout | null = null
+// El worktree que acaba de escribir un handoff puede no estar en `worktreeStore` todavia
+// (repo suelto, o worktree recien creado), asi que viaja como semilla en vez de depender
+// de que la enumeracion lo encuentre.
+const teamThreadSemillas = new Set<string>()
+
+function scheduleTeamThreadRegenDebounced(worktreePath: string): void {
+  teamThreadSemillas.add(worktreePath)
+  if (teamThreadDebounceTimer) clearTimeout(teamThreadDebounceTimer)
+  teamThreadDebounceTimer = setTimeout(() => {
+    teamThreadDebounceTimer = null
+    const semillas = [...teamThreadSemillas]
+    teamThreadSemillas.clear()
+    void reconcileTeamThreads({ soloSiCambio: false, semillas })
+  }, TEAM_THREAD_DEBOUNCE_MS)
+}
+
+// Resolver el projectKey de un repo cuesta dos llamadas a git (rev-parse + remote get-url)
+// y el remote no cambia en caliente, asi que el poll no las repite cada 60s. La clave es el
+// worktree, no el proyecto: dos clones del mismo repo comparten projectKey pero son dos
+// entradas distintas aca.
+const teamThreadProjectKeyCache = new Map<string, string>()
+
+function cachedProjectKeyForWorktree(worktreePath: string): string {
+  const clave = normalizeWorktreeKey(worktreePath)
+  const cacheado = teamThreadProjectKeyCache.get(clave)
+  if (cacheado !== undefined) return cacheado
+  const projectKey = projectKeyForWorktree(worktreePath)
+  teamThreadProjectKeyCache.set(clave, projectKey)
+  return projectKey
+}
+
+// Mismo rol que `vaultLastSeenWatermarks`: "cambio ALGO" por proyecto, no un cursor
+// preciso. Se resetea en el swap de cuenta, porque un valor de OTRA cuenta no puede
+// suprimir una regeneracion legitima de la que acaba de entrar.
+let teamThreadLastSeenWatermarks: Record<string, number> = {}
+
+function resetTeamThreadPollState(): void {
+  teamThreadLastSeenWatermarks = {}
+  teamThreadProjectKeyCache.clear()
+}
+
+/** Subconjunto de `projectKeys` cuyo watermark cambio desde la pasada anterior. Actualiza
+ *  el estado siempre, incluso cuando el caller va a ignorar el resultado. */
+function teamThreadWatermarksChanged(projectKeys: string[]): Set<string> {
+  const cambiados = new Set<string>()
+  if (!memory || projectKeys.length === 0) return cambiados
+  const { reader, close } = openReadonlyReader(ravenHome(), memory.store.getOwnerUserId())
+  try {
+    for (const pk of projectKeys) {
+      const wm = reader.watermark(pk).maxUpdatedAt
+      if (teamThreadLastSeenWatermarks[pk] !== wm) cambiados.add(pk)
+      teamThreadLastSeenWatermarks[pk] = wm
+    }
+  } catch {
+    // Sin lectura no hay senal: mejor no regenerar que regenerar a ciegas cada 60s.
+  } finally {
+    close()
+  }
+  return cambiados
+}
+
+/**
+ * Una pasada sobre TODOS los proyectos con el hilo prendido. Es el cuerpo compartido de
+ * los disparadores 2, 3 y 4: el debounce y el arranque la llaman sin filtro de watermark,
+ * el poll con `soloSiCambio`.
+ *
+ * El gate barato va primero: con el hilo apagado en todos lados —el default— esto no
+ * enumera worktrees, no llama a git y no abre el reader. Solo lee un JSON chico.
+ */
+async function reconcileTeamThreads(opts: { soloSiCambio: boolean; semillas?: string[] }): Promise<void> {
+  if (!memory) return
+  let habilitados: Set<string>
+  try {
+    habilitados = new Set(enabledTeamThreadProjectKeys(teamThreadSettingsPath(ravenHome(), memory.store.getOwnerUserId())))
+  } catch {
+    return
+  }
+  if (habilitados.size === 0) return
+
+  const cambiados = teamThreadWatermarksChanged([...habilitados])
+
+  const representantes = [...(opts.semillas ?? [])]
+  for (const grupo of groupWorktreesByRepo(worktreeStore.list())) {
+    const vivo = grupo.worktrees.find((p) => existsSync(p))
+    if (vivo) representantes.push(vivo)
+  }
+
+  const hechos = new Set<string>()
+  for (const rep of representantes) {
+    if (!rep || !isAbsolute(rep) || !existsSync(rep)) continue
+    let projectKey: string
+    try {
+      projectKey = cachedProjectKeyForWorktree(rep)
+    } catch {
+      continue
+    }
+    if (!habilitados.has(projectKey)) continue
+    if (opts.soloSiCambio && !cambiados.has(projectKey)) continue
+
+    // Dedupe por worktree, no por proyecto: dos clones del mismo repo comparten projectKey
+    // y los dos tienen que escribirse.
+    const objetivos = worktreesOfSameRepo(worktreeStore.list(), rep)
+      .filter((p) => existsSync(p))
+      .filter((p) => !hechos.has(normalizeWorktreeKey(p)))
+    if (objetivos.length === 0) continue
+    for (const p of objetivos) hechos.add(normalizeWorktreeKey(p))
+
+    const resultados = await Promise.all(objetivos.map((p) => runTeamThreadRegeneration(p, projectKey)))
+    for (const r of resultados) {
+      if (!r.ok) console.warn('[team-thread] regeneracion fallida', r.error)
+    }
+  }
+}
+
+/** Disparador 3. Se llama una vez desde app.whenReady(); es seguro con el hilo apagado —
+ *  `reconcileTeamThreads` sale por el gate barato sin tocar git ni el store. */
+function startTeamThreadWatermarkPoll(): void {
+  setInterval(() => {
+    void reconcileTeamThreads({ soloSiCambio: true })
+  }, 60_000)
+}
+
 ipcMain.handle('memory:teamThread:getSettings', (_e, projectKey: string) => {
   if (!memory) return { ok: false, error: 'memory_unavailable' }
   const userId = memory.store.getOwnerUserId()
@@ -3342,13 +3541,27 @@ ipcMain.handle('memory:teamThread:getSettings', (_e, projectKey: string) => {
 ipcMain.handle('memory:teamThread:setSettings', async (_e, projectKey: string, worktreePath: string, patch: Partial<TeamThreadSettings>) => {
   if (!memory) return { ok: false, error: 'memory_unavailable' }
   const userId = memory.store.getOwnerUserId()
+  // I1: prender el hilo con un plan que no admite `scope: 'team'` produce filas que el
+  // servidor rechaza (`team_scope_not_allowed`, terminal) mientras el usuario ve el hilo
+  // local poblado y cree que compartio. Se chequea ANTES de guardar el setting: mejor no
+  // prender que prender en falso. Si todavia no se sabe el plan no se bloquea nada — ver
+  // planAllowsTeamSharing.
+  if (patch.enabled === true && !planAllowsTeamSharing(memory.daemon.getPlan())) {
+    return {
+      ok: false,
+      error: 'team_plan_required',
+      message: 'Sharing this thread needs a Team plan. Upgrade the account, then turn it on again.',
+    }
+  }
+
   const settings = saveTeamThreadSettings(teamThreadSettingsPath(ravenHome(), userId), projectKey, patch)
-  const res = await runTeamThreadRegeneration(worktreePath, projectKey)
+  // I3: por REPO, no por worktree. Apagar tiene que limpiar los 8 worktrees, no uno.
+  const res = await runTeamThreadForRepo(worktreePath, projectKey)
   return { ...res, settings }
 })
 
 ipcMain.handle('memory:teamThread:regenerate', (_e, worktreePath: string, projectKey: string) =>
-  runTeamThreadRegeneration(worktreePath, projectKey))
+  runTeamThreadForRepo(worktreePath, projectKey))
 
 // Task 10 (el panel): projectKey se resuelve del lado main, nunca en el renderer — mismo
 // patron que `handoff:read` (projectKeyForWorktree ya hace exactamente esto). src/ no
@@ -4452,6 +4665,11 @@ app.whenReady().then(async () => {
     void runVaultRegeneration()
     // Vault spec §7 trigger 3.
     startVaultWatermarkPoll()
+    // Hilo de equipo, spec §8.1 disparadores 4 y 3. Mismo par que el vault: una pasada de
+    // reconciliacion al arranque (el hilo puede haber quedado viejo con la app cerrada,
+    // sobre todo si entraron handoffs de companeros por pull) y despues el poll.
+    void reconcileTeamThreads({ soloSiCambio: false })
+    startTeamThreadWatermarkPoll()
   }
 
   setWhisperStatusCallback((status) => {

@@ -212,7 +212,7 @@ describe('MemoryDaemon — offline / online transitions (§4.1)', () => {
     expect(blockMutations).toHaveBeenCalledWith([])
   })
 
-  it("status(): a plan change unblocks project_limit_reached — the client can't evaluate the new plan's cap itself", async () => {
+  it("status(): a plan change unblocks project_limit_reached and project_not_shared_with_team — the client can't evaluate either from numbers it has", async () => {
     const fetchImpl = vi.fn()
       .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ plan: 'free' }) })
       .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ plan: 'cloud' }) })
@@ -224,7 +224,56 @@ describe('MemoryDaemon — offline / online transitions (§4.1)', () => {
     expect(unblockMutations).not.toHaveBeenCalled()
 
     await daemon.status() // plan changed free -> cloud
-    expect(unblockMutations).toHaveBeenCalledWith(['project_limit_reached'])
+    // I1: `project_not_shared_with_team` viaja con el otro. El status roster no dice que
+    // proyectos estan compartidos, asi que el cliente no puede evaluarlo solo — y un cambio
+    // de plan es justo cuando una cuenta pasa a poder compartir. El desbloqueo DIRECTO (el
+    // que importa) lo hace el handler `memory:shareProjectWithTeam` de main.ts.
+    expect(unblockMutations).toHaveBeenCalledWith(['project_limit_reached', 'project_not_shared_with_team'])
+  })
+
+  it('I1: project_not_shared_with_team es REVERSIBLE — la fila se retiene, no se descarta', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ results: [{ sync_id: 'a', outcome: 'rejected', project_seq: 0, error: 'project_not_shared_with_team' }] }),
+    })
+    const markPushed = vi.fn()
+    const blockMutations = vi.fn()
+    const store = fakeStore({ pendingMutations: vi.fn(() => PENDING_MUTATION_A), markPushed, blockMutations })
+    const daemon = new MemoryDaemon(baseDaemonDeps(store, { fetchImpl }))
+
+    await daemon.push()
+
+    // Terminal la habria dado por pusheada y perdida para siempre, incluso despues de que
+    // el usuario compartiera el proyecto.
+    expect(markPushed).toHaveBeenCalledWith([])
+    expect(blockMutations).toHaveBeenCalledWith([{ seq: 1, reason: 'project_not_shared_with_team' }])
+  })
+
+  it('I1: team_scope_not_allowed sigue siendo TERMINAL — ahi el plan no admite scope team', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ results: [{ sync_id: 'a', outcome: 'rejected', project_seq: 0, error: 'team_scope_not_allowed' }] }),
+    })
+    const markPushed = vi.fn()
+    const blockMutations = vi.fn()
+    const store = fakeStore({ pendingMutations: vi.fn(() => PENDING_MUTATION_A), markPushed, blockMutations })
+    const daemon = new MemoryDaemon(baseDaemonDeps(store, { fetchImpl }))
+
+    await daemon.push()
+
+    expect(markPushed).toHaveBeenCalledWith([{ seq: 1, error: 'team_scope_not_allowed' }])
+    expect(blockMutations).toHaveBeenCalledWith([])
+  })
+
+  it('I1: getPlan() expone el ultimo plan del servidor — undefined mientras no haya status()', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ plan: 'team' }) })
+    const daemon = new MemoryDaemon(baseDaemonDeps(fakeStore({}), { fetchImpl }))
+
+    expect(daemon.getPlan()).toBeUndefined()
+    await daemon.status()
+    expect(daemon.getPlan()).toBe('team')
   })
 
   it('status(): quota under the max unblocks quota_exceeded, independent of any plan change', async () => {

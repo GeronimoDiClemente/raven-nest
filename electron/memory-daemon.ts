@@ -52,7 +52,14 @@ export type DaemonStatus = 'idle' | 'syncing' | 'paused' | 'error' | 'plan_requi
 // nothing in it, because everything they wrote while capped was already discarded. Blocked
 // via store.blockMutations() instead — held, not retried every cycle, until status()'s
 // unblock check (see doStatus() below) says the limit no longer applies.
-const REVERSIBLE_REJECTIONS = new Set(['project_limit_reached', 'quota_exceeded'])
+//
+// Team Memory Layer 2 (I1 de la review final de rama): `project_not_shared_with_team` se
+// suma a los reversibles. Es reversible POR DEFINICION — el usuario comparte el proyecto
+// (POST /v1/projects/share) y el mismo payload aplica — y tratarlo como terminal hacia que
+// el handoff que el usuario creyo compartir se descartara para siempre, incluso despues de
+// compartir el proyecto. `team_scope_not_allowed` SI se queda terminal: ahi el plan de la
+// cuenta no admite `scope: 'team'`, y la fila ya se guardo local como corresponde.
+const REVERSIBLE_REJECTIONS = new Set(['project_limit_reached', 'quota_exceeded', 'project_not_shared_with_team'])
 
 export interface PushResultItem {
   sync_id: string
@@ -384,6 +391,17 @@ export class MemoryDaemon {
   /** La ultima cuota reportada por el servidor, o null si todavia no reporto ninguna. */
   getQuota(): { used_bytes: number; max_bytes: number } | null {
     return this.lastQuota
+  }
+
+  /**
+   * El ultimo plan que reporto `status()`, o undefined si todavia no contesto ninguno.
+   * Expuesto para el gate de I1 (prender el hilo de equipo con un plan que no permite
+   * `scope: 'team'` produce filas que el servidor rechaza y el daemon descarta como
+   * terminales). Undefined significa "no se sabe", NO "no permitido" — ver
+   * `planAllowsTeamSharing`.
+   */
+  getPlan(): string | undefined {
+    return this.lastSeenPlan
   }
 
   // M26: exposed so memory-ipc-server.ts's pull-through search fallback (a zero-result
@@ -833,9 +851,15 @@ export class MemoryDaemon {
       // the plan-change branch — an upgrade's relief shows up here automatically once the
       // server reports the new max_bytes, and deleting old memories to free space (with no
       // plan change at all) has to work exactly the same way.
+      //
+      // `project_not_shared_with_team` viaja con project_limit_reached por la misma razon:
+      // el cliente no puede evaluarlo con numeros propios (el status roster no dice que
+      // proyectos estan compartidos), y un cambio de plan es justo cuando una cuenta pasa
+      // a poder compartir. El otro camino de desbloqueo —el directo— es el handler
+      // `memory:shareProjectWithTeam` de main.ts, que desbloquea apenas el share vuelve ok.
       if (typeof body.plan === 'string') {
         if (this.lastSeenPlan !== undefined && body.plan !== this.lastSeenPlan) {
-          store.unblockMutations(['project_limit_reached'])
+          store.unblockMutations(['project_limit_reached', 'project_not_shared_with_team'])
         }
         this.lastSeenPlan = body.plan
       }

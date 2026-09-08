@@ -197,6 +197,38 @@ describe('planTeamThread', () => {
     expect(plan.indexWrites.map((i) => i.filePath)).toEqual(['_index.md'])
   })
 
+  // I4: el puntero de AGENTS.md se escribe siempre; si el indice no se emite hasta que algo
+  // cambie, el primer dia de todo usuario deja una linea commiteable apuntando a la nada.
+  it('I4: sin indice en disco lo emite AUNQUE no haya cambiado nada — ni una sola fila team', () => {
+    const plan = planTeamThread({
+      records: [],
+      manifest: emptyManifest(),
+      config: CONFIG,
+      onDiskHashes: {},
+      indexOnDisk: false,
+    })
+
+    expect(plan.writes).toHaveLength(0)
+    expect(plan.indexWrites.map((i) => i.filePath)).toEqual(['_index.md'])
+  })
+
+  it('I4: con el indice ya en disco y nada que cambiar, NO lo reescribe', () => {
+    const primera = planTeamThread({ records: [record()], manifest: emptyManifest(), config: CONFIG, onDiskHashes: {} })
+    const w = primera.writes[0]
+    const manifest = { entries: { [w.syncId]: { filePath: w.filePath, sourceHash: w.sourceHash, fileHash: w.fileHash } } }
+
+    const segunda = planTeamThread({
+      records: [record()],
+      manifest,
+      config: CONFIG,
+      onDiskHashes: { [w.filePath]: w.fileHash },
+      indexOnDisk: true,
+    })
+
+    expect(segunda.writes).toHaveLength(0)
+    expect(segunda.indexWrites).toHaveLength(0)
+  })
+
   it('DETERMINISMO: dos ramas que colisionan de slug producen el mismo sourceHash sin importar el orden', () => {
     // 'feat/sidebar-tabs' y 'feat_sidebar-tabs' slugean igual (vaultSlug trata '/' y '_'
     // como el mismo separador) y caen en el mismo bucket. Tienen `estado` distinto en

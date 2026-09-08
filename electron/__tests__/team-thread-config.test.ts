@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { mkdtempSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { loadTeamThreadSettings, saveTeamThreadSettings, teamThreadSettingsPath } from '../integrations/team-thread-config'
+import { enabledTeamThreadProjectKeys, loadTeamThreadSettings, planAllowsTeamSharing, saveTeamThreadSettings, teamThreadSettingsPath } from '../integrations/team-thread-config'
 
 let dir: string
 let path: string
@@ -80,5 +80,53 @@ describe('teamThreadSettingsPath', () => {
   it('userId vacio/blanco tambien cae en _local', () => {
     expect(teamThreadSettingsPath('/home/gero', '')).toBe(join('/home/gero', '.raven-nest', 'team-thread-settings', '_local.json'))
     expect(teamThreadSettingsPath('/home/gero', '   ')).toBe(join('/home/gero', '.raven-nest', 'team-thread-settings', '_local.json'))
+  })
+})
+
+// C2: el gate barato de los disparadores 3 y 4 (poll de 60s y arranque). Con el hilo
+// apagado en todos lados —el default— esos dos no pueden hacer NADA mas que esta lectura.
+describe('enabledTeamThreadProjectKeys', () => {
+  it('sin archivo todavia no hay ningun proyecto prendido', () => {
+    expect(enabledTeamThreadProjectKeys(path)).toEqual([])
+  })
+
+  it('devuelve solo los prendidos', () => {
+    saveTeamThreadSettings(path, 'proj-on', { enabled: true })
+    saveTeamThreadSettings(path, 'proj-off', { enabled: false })
+    saveTeamThreadSettings(path, 'proj-on-2', { enabled: true })
+
+    expect(enabledTeamThreadProjectKeys(path).sort()).toEqual(['proj-on', 'proj-on-2'])
+  })
+
+  it('un `enabled` que no es booleano NO prende nada (misma validacion que load)', () => {
+    writeFileSync(path, JSON.stringify({ proj1: { enabled: 'yes' }, proj2: { enabled: 1 } }), 'utf8')
+    expect(enabledTeamThreadProjectKeys(path)).toEqual([])
+  })
+
+  it('un archivo ilegible no rompe el poll', () => {
+    writeFileSync(path, 'no soy json', 'utf8')
+    expect(enabledTeamThreadProjectKeys(path)).toEqual([])
+  })
+})
+
+// I1: prender el toggle con un plan que no permite `scope: 'team'` produce filas que el
+// servidor rechaza con `team_scope_not_allowed` — terminal, o sea que se descartan — y el
+// usuario ve el hilo local poblado creyendo que compartio.
+describe('planAllowsTeamSharing', () => {
+  it('team y enterprise si', () => {
+    expect(planAllowsTeamSharing('team')).toBe(true)
+    expect(planAllowsTeamSharing('enterprise')).toBe(true)
+  })
+
+  it('free, pro y cualquier otro no', () => {
+    expect(planAllowsTeamSharing('free')).toBe(false)
+    expect(planAllowsTeamSharing('pro')).toBe(false)
+    expect(planAllowsTeamSharing('cloud')).toBe(false)
+  })
+
+  it('no saber el plan NO bloquea: recien arrancada la app todavia no hubo status()', () => {
+    expect(planAllowsTeamSharing(undefined)).toBe(true)
+    expect(planAllowsTeamSharing(null)).toBe(true)
+    expect(planAllowsTeamSharing('')).toBe(true)
   })
 })

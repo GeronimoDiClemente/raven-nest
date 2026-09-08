@@ -45,6 +45,17 @@ export interface PlanTeamThreadInput {
   manifest: VaultManifest
   config: TeamThreadConfig
   onDiskHashes: Record<string, string>
+  /**
+   * Si `_index.md` ya existe en disco. Lo mira el caller (es lo unico de este input que
+   * sale de fs, igual que `onDiskHashes`).
+   *
+   * I4 de la review final de rama: el indice se emitia SOLO si algo cambio, pero el puntero
+   * de AGENTS.md se escribe siempre. Con el toggle recien prendido y sin filas `team`
+   * todavia —el estado de TODO usuario el primer dia— quedaba una linea commiteable en un
+   * archivo versionado apuntando a un `_index.md` inexistente. Default `false` = "no esta,
+   * emitilo": la eleccion segura es escribirlo de mas, no de menos.
+   */
+  indexOnDisk?: boolean
 }
 
 /** El id sintetico estable que ocupa el lugar del `syncId` del vault. Spec §4.1. */
@@ -57,7 +68,7 @@ function filePathFor(slug: string): string {
 }
 
 export function planTeamThread(input: PlanTeamThreadInput): VaultPlan {
-  const { records, manifest, config, onDiskHashes } = input
+  const { records, manifest, config, onDiskHashes, indexOnDisk = false } = input
 
   const writes: VaultWrite[] = []
   const deletes: VaultDelete[] = []
@@ -131,7 +142,11 @@ export function planTeamThread(input: PlanTeamThreadInput): VaultPlan {
     algoCambio = true
   }
 
-  if (algoCambio) {
+  // `!indexOnDisk` cubre la primera pasada (y cualquier pasada posterior en la que el
+  // usuario haya borrado el indice a mano): el puntero de AGENTS.md tiene que poder apuntar
+  // a un archivo que exista. Con el indice ya en disco y nada que cambiar, no se reescribe
+  // — el hash-compare del resto sigue mandando.
+  if (algoCambio || !indexOnDisk) {
     indexWrites.push({
       filePath: '_index.md',
       content: renderThreadIndex({
