@@ -1,13 +1,12 @@
 import type { ReactNode } from 'react'
 
-export type SidebarTabId = 'worktrees' | 'explorer' | 'personal' | 'tools' | 'hub'
+export type SidebarTabId = 'worktrees' | 'explorer' | 'tools' | 'hub'
 
 interface Props {
   active: SidebarTabId
   onChange: (tab: SidebarTabId) => void
-  pendingInvitesCount?: number
-  /** Which tabs to show, in order. Hub mode swaps Worktrees for Hub and drops
-   *  Personal; the normal repo sidebar takes the default. */
+  /** Which tabs to show, in order. Hub mode swaps Worktrees for Hub; the
+   *  normal repo sidebar takes the default. */
   tabs?: readonly SidebarTabId[]
   /** Rendered below the tabs, inside the same box — the repo row. Under the
    *  tabs and not above them: on top it still read as a separate block sitting
@@ -32,14 +31,6 @@ const ExplorerIcon = (
   </svg>
 )
 
-// Same silhouette as the old standalone "Team" item.
-const PersonalIcon = (
-  <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
-    <circle cx="6" cy="5" r="2" stroke="currentColor" strokeWidth="1.3"/>
-    <path d="M2 13c0-2.21 1.79-4 4-4s4 1.79 4 4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-  </svg>
-)
-
 const ToolsIcon = (
   <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
     <path d="M9.5 2.5l1 1-6 6-2 1 1-2 6-6z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
@@ -60,15 +51,14 @@ const HubIcon = (
 const TAB_DEFS: Record<SidebarTabId, { label: string; icon: JSX.Element }> = {
   worktrees: { label: 'Worktrees', icon: WorktreesIcon },
   explorer: { label: 'Explorer', icon: ExplorerIcon },
-  personal: { label: 'Personal', icon: PersonalIcon },
   tools: { label: 'Tools', icon: ToolsIcon },
   hub: { label: 'Hub', icon: HubIcon },
 }
 
-export const REPO_TABS = ['worktrees', 'explorer', 'personal', 'tools'] as const
+export const REPO_TABS = ['worktrees', 'explorer', 'tools'] as const
 export const HUB_TABS = ['hub', 'explorer', 'tools'] as const
 
-export default function SidebarTabBar({ active, onChange, pendingInvitesCount = 0, tabs = REPO_TABS, footer }: Props) {
+export default function SidebarTabBar({ active, onChange, tabs = REPO_TABS, footer }: Props) {
   return (
     <div className="sidebar-menu-box">
       <div className="sidebar-tabbar" role="tablist">
@@ -84,9 +74,6 @@ export default function SidebarTabBar({ active, onChange, pendingInvitesCount = 
           >
             <span className="sidebar-tab-icon">
               {tab.icon}
-              {tab.id === 'personal' && pendingInvitesCount > 0 && (
-                <span className="sidebar-tab-badge">{pendingInvitesCount > 9 ? '9+' : pendingInvitesCount}</span>
-              )}
             </span>
             <span className="sidebar-tab-label">{tab.label}</span>
           </button>

@@ -230,7 +230,7 @@ export default function App() {
   const [showUpgrade, setShowUpgrade] = useState(false)
   const [teamsOpen, setTeamsOpen] = useState(false)
   const { count: pendingInvitesCount, refresh: refreshPendingInvitesCount } = usePendingInvitesCount()
-  const [myReposOpen, setMyReposOpen] = useState(false)
+  const [personalOpen, setPersonalOpen] = useState(false)
   const [personalSection, setPersonalSection] = useState<PersonalWorkspaceSection>('repos')
   const [showJoinViewer, setShowJoinViewer] = useState(false)
   const [joinRequest, setJoinRequest] = useState<{ paneId: string; paneTitle: string } | null>(null)
@@ -842,7 +842,7 @@ export default function App() {
     const folderName = repoFullName.includes('/') ? repoFullName.split('/').pop()! : repoFullName
     setTabs(prev => [...prev, { id, name: folderName, layoutId: '1', panes: [], repoPath: localPath }])
     setActiveTabId(id)
-    setMyReposOpen(false)
+    setPersonalOpen(false)
     setTeamsOpen(false)
   }, [])
 
@@ -1702,16 +1702,11 @@ export default function App() {
         trialDaysLeft={trialDaysLeft}
         profileLoading={profileLoading}
         onUpgrade={() => setShowUpgrade(true)}
-        onTeamsOpen={() => {
-          if (!planLimits.allowTeam) { setShowUpgrade(true); return }
-          setTeamsOpen(true)
+        onPersonalOpen={() => {
+          if (!planLimits.allowMyRepos) { setShowUpgrade(true); return }
+          setPersonalOpen(true)
         }}
         pendingInvitesCount={pendingInvitesCount}
-        onMyReposOpen={() => {
-          if (!planLimits.allowMyRepos) { setShowUpgrade(true); return }
-          setPersonalSection('repos')
-          setMyReposOpen(true)
-        }}
         plan={plan}
         repoPath={activeTab.repoPath}
         isHub={activeTab.isHub ?? false}
@@ -1968,13 +1963,13 @@ export default function App() {
           onOpenRepoTerminal={openRepoInNewTab}
           onPendingInvitesChange={refreshPendingInvitesCount}
           onStartTutorial={() => setTutorialTour('teams')}
-          onOpenPersonalInvites={() => { setPersonalSection('pendings'); setTeamsOpen(false); setMyReposOpen(true) }}
+          onOpenPersonalInvites={() => { setPersonalSection('pendings'); setTeamsOpen(false); setPersonalOpen(true) }}
         />
       )}
 
-      {myReposOpen && (
+      {personalOpen && (
         <PersonalWorkspace
-          onClose={() => setMyReposOpen(false)}
+          onClose={() => setPersonalOpen(false)}
           githubToken={githubToken}
           githubLogin={githubLogin}
           onConnectGitHub={connectGitHub}

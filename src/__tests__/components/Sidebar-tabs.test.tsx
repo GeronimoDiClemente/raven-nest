@@ -1,7 +1,9 @@
-// New sidebar tab bar (Worktrees / Explorer / Personal / Tools): when the
-// sidebar is expanded, exactly one panel is visible at a time and clicking a
-// tab swaps which one. Collapsed-rail behaviour is untouched by this feature
-// and isn't exercised here.
+// New sidebar tab bar (Worktrees / Explorer / Tools): when the sidebar is
+// expanded, exactly one panel is visible at a time and clicking a tab swaps
+// which one. Personal is not a tab — it's a single row in the footer, above
+// the user menu, covered separately below.
+// Collapsed-rail behaviour is untouched by this feature and isn't exercised
+// here.
 import type { ComponentProps } from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
@@ -132,23 +134,51 @@ describe('Sidebar tabs', () => {
     expect(screen.queryByText(/pre-produccion/)).not.toBeInTheDocument()
   })
 
-  it('swaps Worktrees for Hub and drops Personal in Hub mode', () => {
+  it('swaps Worktrees for Hub in Hub mode', () => {
     renderSidebar(hubProps)
     expect(screen.getByRole('tab', { name: /Hub/ })).toHaveAttribute('aria-selected', 'true')
     expect(screen.getByRole('tab', { name: /Explorer/ })).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: /Tools/ })).toBeInTheDocument()
     expect(screen.queryByRole('tab', { name: /Worktrees/ })).not.toBeInTheDocument()
-    expect(screen.queryByRole('tab', { name: /Personal/ })).not.toBeInTheDocument()
   })
 
-  // Personal is gone in Hub mode, so its two items live under the Hub tab
-  // instead of disappearing from the expanded sidebar.
-  it('keeps Team and Repos reachable inside the Hub tab', () => {
+  // The Personal row lives outside the tabs entirely (in the footer, above
+  // the user menu), so it stays put across tab switches and Hub/repo modes —
+  // this is what gives the Hub sidebar and the repo sidebar the same shape.
+  it('keeps Personal reachable in Hub mode regardless of the active tab', () => {
     renderSidebar(hubProps)
-    expect(screen.getByText('Team')).toBeInTheDocument()
-    expect(screen.getByText('Repos')).toBeInTheDocument()
+    expect(screen.getByTitle(/^Personal/)).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('tab', { name: /Tools/ }))
+    fireEvent.click(screen.getByRole('tab', { name: 'Tools' }))
+    expect(screen.getByTitle(/^Personal/)).toBeInTheDocument()
+  })
+
+  it('shows three tabs, without Personal', () => {
+    renderSidebar()
+    expect(screen.getByRole('tab', { name: 'Worktrees' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Explorer' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Tools' })).toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: 'Personal' })).not.toBeInTheDocument()
+  })
+
+  it('puts a single Personal row above the user menu', () => {
+    renderSidebar()
+    expect(screen.getByTitle(/^Personal/)).toBeInTheDocument()
     expect(screen.queryByText('Team')).not.toBeInTheDocument()
+    expect(screen.queryByText('Repos')).not.toBeInTheDocument()
+  })
+
+  it('badges the Personal row with the pending invite count', () => {
+    renderSidebar({ pendingInvitesCount: 3 })
+    expect(screen.getByLabelText('3 pending invites')).toBeInTheDocument()
+  })
+
+  it('sends Free users to the upgrade modal instead of Personal', () => {
+    const onUpgrade = vi.fn()
+    const onPersonalOpen = vi.fn()
+    renderSidebar({ plan: 'free', onUpgrade, onPersonalOpen })
+    fireEvent.click(screen.getByTitle(/^Personal/))
+    expect(onUpgrade).toHaveBeenCalled()
+    expect(onPersonalOpen).not.toHaveBeenCalled()
   })
 })

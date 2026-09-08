@@ -21,7 +21,6 @@ import { useFixedPopover } from '../hooks/useFixedPopover'
 import { ExplorerPanel } from './ExplorerPanel'
 import HubExplorerPanel, { type ExplorerRoot } from './HubExplorerPanel'
 import SidebarTabBar, { type SidebarTabId, REPO_TABS, HUB_TABS } from './SidebarTabBar'
-import PersonalPanel from './PersonalPanel'
 import PaneFilterControl from './PaneFilterControl'
 import type { PaneFilter } from '../lib/pane-filter'
 import type { PaneNode } from '../types'
@@ -48,9 +47,8 @@ interface Props {
   trialDaysLeft?: number
   profileLoading?: boolean
   onUpgrade?: () => void
-  onTeamsOpen?: () => void
+  onPersonalOpen?: () => void
   pendingInvitesCount?: number
-  onMyReposOpen?: () => void
   plan?: 'free' | 'pro' | 'team' | 'enterprise'
   repoPath?: string
   onRepoLink: () => void
@@ -93,7 +91,7 @@ export default function Sidebar({
   isListening, isTranscribing, isModelLoading, onMicToggle,
   onNewPane, onHistoryOpen,
   onSnippetSend, onSnippetBroadcast, onCommandRun, onWorkspaceSave, onWorkspaceLoad, isWin,
-  isTrialActive, trialDaysLeft, profileLoading, onUpgrade, onTeamsOpen, pendingInvitesCount = 0, onMyReposOpen, plan, repoPath, onRepoLink, onRepoUnlink, onJoinTerminal,
+  isTrialActive, trialDaysLeft, profileLoading, onUpgrade, onPersonalOpen, pendingInvitesCount = 0, plan, repoPath, onRepoLink, onRepoUnlink, onJoinTerminal,
   activeCellRepoPath, onWorktreeSelect, onNewWorktree, worktreeRefreshKey,
   layoutId, paneCount, onLayoutChange, onOpenTutorial, onFileOpen, userPrefs,
   paneFilterPanes, paneFilter, onPaneFilterChange,
@@ -121,8 +119,8 @@ export default function Sidebar({
   const [, forceUpdate] = useState(0)
   const [moreOpen, setMoreOpen] = useState(false)
   const [activeTab, setActiveTab] = useState<SidebarTabId>('worktrees')
-  // Hub swaps Worktrees for Hub and has no Personal, so the remembered tab can
-  // be one this mode doesn't offer — fall back to the mode's first tab.
+  // Hub swaps Worktrees for Hub, so the remembered tab can be one this mode
+  // doesn't offer — fall back to the mode's first tab.
   const tabs = isHub ? HUB_TABS : REPO_TABS
   const currentTab: SidebarTabId = (tabs as readonly SidebarTabId[]).includes(activeTab) ? activeTab : tabs[0]
   const [layoutOpen, setLayoutOpen] = useState(false)
@@ -569,42 +567,30 @@ export default function Sidebar({
     </>
   )
 
-  // Team + Repos — the collapsed icon rail (icon-only rows) and the Hub tab.
-  // The expanded Personal tab shows PersonalPanel instead: the same two things,
-  // but previewed rather than hidden behind a click.
-  const TeamItem = (
+  // One door for everything that is yours: your repos, each team's repos, and
+  // your pending invites. Free plans hit the upgrade modal, as My Repos did.
+  const PersonalItem = (
     <div
       className="sidebar-item sidebar-item-panel sidebar-item-team"
       style={{ cursor: 'pointer', position: 'relative' }}
-      onClick={onTeamsOpen}
-      title={pendingInvitesCount > 0 ? `Team — ${pendingInvitesCount} pending invite${pendingInvitesCount === 1 ? '' : 's'}` : 'Team'}
+      onClick={plan === 'free' ? onUpgrade : onPersonalOpen}
+      title={pendingInvitesCount > 0
+        ? `Personal — ${pendingInvitesCount} pending invite${pendingInvitesCount === 1 ? '' : 's'}`
+        : 'Personal'}
     >
       <span className="sidebar-icon" style={{ position: 'relative' }}>
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-          <circle cx="6" cy="5" r="2" stroke="currentColor" strokeWidth="1.3"/>
-          <path d="M2 13c0-2.21 1.79-4 4-4s4 1.79 4 4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-          <circle cx="11.5" cy="5.5" r="1.5" stroke="currentColor" strokeWidth="1.2" opacity="0.7"/>
-          <path d="M13.5 12.5c0-1.38-.9-2.55-2.14-2.87" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" opacity="0.7"/>
+          <circle cx="8" cy="5" r="2.5" stroke="currentColor" strokeWidth="1.3"/>
+          <path d="M3 13.5c0-2.5 2.24-4.5 5-4.5s5 2 5 4.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
         </svg>
         {pendingInvitesCount > 0 && (
           <span
             aria-label={`${pendingInvitesCount} pending invites`}
             style={{
-              position: 'absolute',
-              top: -4,
-              right: -6,
-              minWidth: 14,
-              height: 14,
-              padding: '0 3px',
-              borderRadius: 7,
-              background: '#EF4444',
-              color: '#fff',
-              fontSize: 9,
-              fontWeight: 700,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              lineHeight: 1,
+              position: 'absolute', top: -4, right: -6, minWidth: 14, height: 14,
+              padding: '0 3px', borderRadius: 7, background: '#EF4444', color: '#fff',
+              fontSize: 9, fontWeight: 700, display: 'flex', alignItems: 'center',
+              justifyContent: 'center', lineHeight: 1,
               boxShadow: '0 0 0 1.5px var(--bg-primary, #0a0a0a)',
             }}
           >
@@ -612,26 +598,7 @@ export default function Sidebar({
           </span>
         )}
       </span>
-      <span className="sidebar-label">Team</span>
-    </div>
-  )
-
-  const MyReposItem = (
-    <div
-      className="sidebar-item sidebar-item-panel sidebar-item-team"
-      style={{ cursor: 'pointer' }}
-      onClick={plan === 'pro' || plan === 'team' || plan === 'enterprise' ? onMyReposOpen : onUpgrade}
-      title="Repos"
-    >
-      <span className="sidebar-icon">
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-          <circle cx="4" cy="4" r="1.5" stroke="currentColor" strokeWidth="1.3"/>
-          <circle cx="12" cy="4" r="1.5" stroke="currentColor" strokeWidth="1.3"/>
-          <circle cx="4" cy="12" r="1.5" stroke="currentColor" strokeWidth="1.3"/>
-          <path d="M4 5.5v5M5.5 4h5M4 5.5c2 0 4 1 4 3.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-        </svg>
-      </span>
-      <span className="sidebar-label">Repos</span>
+      <span className="sidebar-label">Personal</span>
       {expanded && plan === 'free' && <span className="sidebar-plan-badge">Pro</span>}
     </div>
   )
@@ -701,15 +668,13 @@ export default function Sidebar({
         )}
 
         {/* ── 2. EXPANDED: one menu box — repo row as its title, then the
-             tabs. Hub gets the same menu with Hub in place of Worktrees and
-             no Personal (its two items live under the Hub tab). ── */}
+             tabs. Hub gets the same menu with Hub in place of Worktrees. ── */}
         {expanded && (
           <>
             <SidebarTabBar
               tabs={tabs}
               active={currentTab}
               onChange={setActiveTab}
-              pendingInvitesCount={pendingInvitesCount}
               footer={isHub ? undefined : repoRow(false)}
             />
             <div className="sidebar-tab-panel">
@@ -738,9 +703,6 @@ export default function Sidebar({
                     onNewWorkspace={onNewWorkspace}
                     onAddTerminal={onAddTerminalToWorkspace}
                   />
-                  <div className="sidebar-section-divider" />
-                  {TeamItem}
-                  {MyReposItem}
                 </div>
               )}
               {currentTab === 'explorer' && (
@@ -752,11 +714,6 @@ export default function Sidebar({
                   )}
                 </div>
               )}
-              {currentTab === 'personal' && (
-                <div className="sidebar-tab-tools-list">
-                  <PersonalPanel plan={plan} onTeamsOpen={onTeamsOpen} onReposOpen={onMyReposOpen} />
-                </div>
-              )}
               {currentTab === 'tools' && (
                 <div className="sidebar-tab-tools-list">
                   {ToolsListContent}
@@ -766,13 +723,11 @@ export default function Sidebar({
           </>
         )}
 
-        {/* ── 3. COLLAPSED ICON RAIL — unchanged: Team/Repos/More tools
-             stay icon rows, not tabs. ── */}
+        {/* ── 3. COLLAPSED ICON RAIL — unchanged: More tools stays an icon
+             row, not a tab. ── */}
         {!expanded && (
           <>
             <div className="sidebar-section-divider" />
-            {TeamItem}
-            {MyReposItem}
 
             <div className={`sidebar-more${moreOpen ? ' open' : ''}`}>
               <button
@@ -848,6 +803,12 @@ export default function Sidebar({
           </button>
         )}
       </div>{/* /.sidebar-scroll */}
+
+      {/* Personal — the one door for repos, teams and pending invites. Lives
+          outside the scroll area and the tabs so it renders the same way in
+          every mode (expanded/collapsed, repo/Hub sidebar) directly above
+          the user row. */}
+      {PersonalItem}
 
       {/* User menu — hidden while loading to avoid flash */}
       {!profileLoading && (
