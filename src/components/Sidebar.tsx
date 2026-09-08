@@ -20,7 +20,8 @@ import { useGitInfo } from '../hooks/useGitInfo'
 import { useFixedPopover } from '../hooks/useFixedPopover'
 import { ExplorerPanel } from './ExplorerPanel'
 import HubExplorerPanel, { type ExplorerRoot } from './HubExplorerPanel'
-import SidebarTabBar, { type SidebarTabId } from './SidebarTabBar'
+import SidebarTabBar, { type SidebarTabId, REPO_TABS, HUB_TABS } from './SidebarTabBar'
+import PersonalPanel from './PersonalPanel'
 import PaneFilterControl from './PaneFilterControl'
 import type { PaneFilter } from '../lib/pane-filter'
 import type { PaneNode } from '../types'
@@ -120,6 +121,10 @@ export default function Sidebar({
   const [, forceUpdate] = useState(0)
   const [moreOpen, setMoreOpen] = useState(false)
   const [activeTab, setActiveTab] = useState<SidebarTabId>('worktrees')
+  // Hub swaps Worktrees for Hub and has no Personal, so the remembered tab can
+  // be one this mode doesn't offer — fall back to the mode's first tab.
+  const tabs = isHub ? HUB_TABS : REPO_TABS
+  const currentTab: SidebarTabId = (tabs as readonly SidebarTabId[]).includes(activeTab) ? activeTab : tabs[0]
   const [layoutOpen, setLayoutOpen] = useState(false)
   // Index into layoutOptions while the user is cycling with Ctrl+L. null when
   // the popover was opened by click (no active cycling — selection commits on
@@ -490,8 +495,83 @@ export default function Sidebar({
     </div>
   )
 
-  // Team + My Repos — shared between the collapsed icon rail (always icon-only
-  // rows, unchanged) and the expanded "Personal" tab (see SidebarTabBar).
+  // The repo row. Expanded it is the menu's title (first row of the same box
+  // as the tabs, with a chevron for "this is where you swap repo"); the branch
+  // and the CI bar moved into the Worktrees tab, the only place they mean
+  // something. On the collapsed rail it stays the plain icon row it always was,
+  // branch included.
+  const repoRow = (showBranch: boolean) => (
+    <div
+      className="sidebar-item sidebar-repo"
+      title={repoPath ?? 'Link repo to this tab'}
+      onClick={onRepoLink}
+      style={{ cursor: 'pointer' }}
+    >
+      <span className="sidebar-icon">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <circle cx="4" cy="4" r="1.5" stroke="currentColor" strokeWidth="1.3"/>
+          <circle cx="12" cy="4" r="1.5" stroke="currentColor" strokeWidth="1.3"/>
+          <circle cx="4" cy="12" r="1.5" stroke="currentColor" strokeWidth="1.3"/>
+          <path d="M4 5.5v5M4 5.5C4 7 5 8 8 8s4 1 4 2.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+        </svg>
+      </span>
+      {repoPath ? (
+        <div className="sidebar-repo-info">
+          <div className="sidebar-repo-row">
+            <span className="sidebar-label sidebar-repo-name">{basename(repoPath)}</span>
+            {expanded && <span className="sidebar-repo-chevron" aria-hidden="true">▾</span>}
+            {expanded && githubUrl && (
+              <button
+                className="sidebar-github-btn"
+                title="Open on GitHub"
+                onClick={e => { e.stopPropagation(); window.electronShell.openExternal(githubUrl!) }}
+              >
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+                </svg>
+              </button>
+            )}
+            {expanded && (
+              <button className="sidebar-repo-unlink" onClick={e => { e.stopPropagation(); onRepoUnlink() }} title="Unlink repo">×</button>
+            )}
+          </div>
+          {showBranch && branch && (
+            <span className={`sidebar-branch-badge${isDirty ? ' dirty' : ''}`}>
+              {branch}{isDirty ? ' ●' : ''}
+            </span>
+          )}
+        </div>
+      ) : (
+        <button className="sidebar-label sidebar-repo-link">Link repo</button>
+      )}
+    </div>
+  )
+
+  // Branch + last CI run: the head of the Worktrees tab, right above the list
+  // of worktrees they describe.
+  const WorktreesHeader = (
+    <>
+      {branch && (
+        <div className={`sidebar-tab-branch${isDirty ? ' dirty' : ''}`} title={branch}>
+          {branch}{isDirty ? ' ●' : ''}
+        </div>
+      )}
+      {repoPath && repoCi && (
+        <div style={{ padding: '0 8px 4px' }}>
+          <RepoActionsBar
+            repoFullName={repoCi.repoFullName}
+            provider={repoCi.provider}
+            token={repoCi.token}
+            branch={branch ?? undefined}
+          />
+        </div>
+      )}
+    </>
+  )
+
+  // Team + Repos — the collapsed icon rail (icon-only rows) and the Hub tab.
+  // The expanded Personal tab shows PersonalPanel instead: the same two things,
+  // but previewed rather than hidden behind a click.
   const TeamItem = (
     <div
       className="sidebar-item sidebar-item-panel sidebar-item-team"
@@ -541,7 +621,7 @@ export default function Sidebar({
       className="sidebar-item sidebar-item-panel sidebar-item-team"
       style={{ cursor: 'pointer' }}
       onClick={plan === 'pro' || plan === 'team' || plan === 'enterprise' ? onMyReposOpen : onUpgrade}
-      title="My Repos"
+      title="Repos"
     >
       <span className="sidebar-icon">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
@@ -551,7 +631,7 @@ export default function Sidebar({
           <path d="M4 5.5v5M5.5 4h5M4 5.5c2 0 4 1 4 3.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
         </svg>
       </span>
-      <span className="sidebar-label">My Repos</span>
+      <span className="sidebar-label">Repos</span>
       {expanded && plan === 'free' && <span className="sidebar-plan-badge">Pro</span>}
     </div>
   )
@@ -603,10 +683,14 @@ export default function Sidebar({
       </button>
 
       <div className="sidebar-scroll">
-        {isHub && onSelectWorkspace && onJumpToPane && onToggleTerminal && onToggleWorkspace && onNewWorkspace && onAddTerminalToWorkspace && (
+        {/* ── 1. COLLAPSED RAIL: repo (normal) or workspaces (Hub), same as
+             before — the rail has no room for tabs. ── */}
+        {!expanded && !isHub && repoRow(true)}
+
+        {!expanded && isHub && onSelectWorkspace && onJumpToPane && onToggleTerminal && onToggleWorkspace && onNewWorkspace && onAddTerminalToWorkspace && (
           <HubSidebarPanel
             workspaces={hubWorkspaces ?? []}
-            expanded={expanded}
+            expanded={false}
             onSelectWorkspace={onSelectWorkspace}
             onJumpToPane={onJumpToPane}
             onToggleTerminal={onToggleTerminal}
@@ -616,82 +700,22 @@ export default function Sidebar({
           />
         )}
 
-        {!isHub && (<>
-        {/* ── 1. REPO (top focus) ───────────────────────────── */}
-        <div
-          className="sidebar-item sidebar-repo"
-          title={repoPath ?? 'Link repo to this tab'}
-          onClick={onRepoLink}
-          style={{ cursor: 'pointer' }}
-        >
-          <span className="sidebar-icon">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <circle cx="4" cy="4" r="1.5" stroke="currentColor" strokeWidth="1.3"/>
-              <circle cx="12" cy="4" r="1.5" stroke="currentColor" strokeWidth="1.3"/>
-              <circle cx="4" cy="12" r="1.5" stroke="currentColor" strokeWidth="1.3"/>
-              <path d="M4 5.5v5M4 5.5C4 7 5 8 8 8s4 1 4 2.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-            </svg>
-          </span>
-          {repoPath ? (
-            <div className="sidebar-repo-info">
-              <div className="sidebar-repo-row">
-                <span className="sidebar-label sidebar-repo-name">{basename(repoPath)}</span>
-                {expanded && githubUrl && (
-                  <button
-                    className="sidebar-github-btn"
-                    title="Open on GitHub"
-                    onClick={e => { e.stopPropagation(); window.electronShell.openExternal(githubUrl!) }}
-                  >
-                    <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
-                      <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
-                    </svg>
-                  </button>
-                )}
-                {expanded && (
-                  <button className="sidebar-repo-unlink" onClick={e => { e.stopPropagation(); onRepoUnlink() }} title="Unlink repo">×</button>
-                )}
-              </div>
-              {branch && (
-                <span className={`sidebar-branch-badge${isDirty ? ' dirty' : ''}`}>
-                  {branch}{isDirty ? ' ●' : ''}
-                </span>
-              )}
-            </div>
-          ) : (
-            <button className="sidebar-label sidebar-repo-link">Link repo</button>
-          )}
-        </div>
-
-        {/* CI Actions bar — última run del repo activo */}
-        {expanded && repoPath && repoCi && (
-          <div style={{ padding: '0 8px 4px' }}>
-            <RepoActionsBar
-              repoFullName={repoCi.repoFullName}
-              provider={repoCi.provider}
-              token={repoCi.token}
-              branch={branch ?? undefined}
-            />
-          </div>
-        )}
-
-        </>)}
-
-        {/* ── 2. HUB MODE: Explorer only, same split shell as before ── */}
-        {isHub && expanded && (
-          <div className="sidebar-explorer-wrap">
-            <HubExplorerPanel roots={hubExplorerRoots ?? []} onOpenFile={onOpenFileFromHub ?? (() => {})} />
-          </div>
-        )}
-
-        {/* ── 2. NORMAL MODE, expanded: Worktrees/Explorer/Personal/Tools as
-             exclusive tabs (VS Code style) instead of the old always-stacked
-             split + flyout. Collapsed rail (below) is untouched. ── */}
-        {!isHub && expanded && (
+        {/* ── 2. EXPANDED: one menu box — repo row as its title, then the
+             tabs. Hub gets the same menu with Hub in place of Worktrees and
+             no Personal (its two items live under the Hub tab). ── */}
+        {expanded && (
           <>
-            <SidebarTabBar active={activeTab} onChange={setActiveTab} pendingInvitesCount={pendingInvitesCount} />
+            <SidebarTabBar
+              tabs={tabs}
+              active={currentTab}
+              onChange={setActiveTab}
+              pendingInvitesCount={pendingInvitesCount}
+              footer={isHub ? undefined : repoRow(false)}
+            />
             <div className="sidebar-tab-panel">
-              {activeTab === 'worktrees' && (
+              {currentTab === 'worktrees' && (
                 <div className="sidebar-worktrees-wrap">
+                  {WorktreesHeader}
                   <WorktreesSection
                     repoPath={repoPath ?? null}
                     activeRepoPath={activeCellRepoPath}
@@ -702,18 +726,38 @@ export default function Sidebar({
                   />
                 </div>
               )}
-              {activeTab === 'explorer' && (
-                <div className="sidebar-explorer-wrap">
-                  <ExplorerPanel worktreePath={activeCellRepoPath ?? null} onFileOpen={onFileOpen} />
-                </div>
-              )}
-              {activeTab === 'personal' && (
-                <div className="sidebar-tab-tools-list">
+              {currentTab === 'hub' && onSelectWorkspace && onJumpToPane && onToggleTerminal && onToggleWorkspace && onNewWorkspace && onAddTerminalToWorkspace && (
+                <div className="sidebar-hub-wrap">
+                  <HubSidebarPanel
+                    workspaces={hubWorkspaces ?? []}
+                    expanded
+                    onSelectWorkspace={onSelectWorkspace}
+                    onJumpToPane={onJumpToPane}
+                    onToggleTerminal={onToggleTerminal}
+                    onToggleWorkspace={onToggleWorkspace}
+                    onNewWorkspace={onNewWorkspace}
+                    onAddTerminal={onAddTerminalToWorkspace}
+                  />
+                  <div className="sidebar-section-divider" />
                   {TeamItem}
                   {MyReposItem}
                 </div>
               )}
-              {activeTab === 'tools' && (
+              {currentTab === 'explorer' && (
+                <div className="sidebar-explorer-wrap">
+                  {isHub ? (
+                    <HubExplorerPanel roots={hubExplorerRoots ?? []} onOpenFile={onOpenFileFromHub ?? (() => {})} />
+                  ) : (
+                    <ExplorerPanel worktreePath={activeCellRepoPath ?? null} onFileOpen={onFileOpen} />
+                  )}
+                </div>
+              )}
+              {currentTab === 'personal' && (
+                <div className="sidebar-tab-tools-list">
+                  <PersonalPanel plan={plan} onTeamsOpen={onTeamsOpen} onReposOpen={onMyReposOpen} />
+                </div>
+              )}
+              {currentTab === 'tools' && (
                 <div className="sidebar-tab-tools-list">
                   {ToolsListContent}
                 </div>
@@ -722,10 +766,9 @@ export default function Sidebar({
           </>
         )}
 
-        {/* ── 3. COLLAPSED ICON RAIL (any mode) + HUB MODE (any expanded
-             state) — unchanged: Team/My Repos/More tools stay icon rows,
-             not tabs. Hub mode never got the tab treatment (out of scope). ── */}
-        {(isHub || !expanded) && (
+        {/* ── 3. COLLAPSED ICON RAIL — unchanged: Team/Repos/More tools
+             stay icon rows, not tabs. ── */}
+        {!expanded && (
           <>
             <div className="sidebar-section-divider" />
             {TeamItem}

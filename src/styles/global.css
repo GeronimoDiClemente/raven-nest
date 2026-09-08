@@ -45,6 +45,17 @@
   --raven-blue-dim: #0066FF44;
   --text-muted: #555;
 
+  /* ── Tipografía ──────────────────────────────────────────────────────
+     Igual que VS Code: la UI usa la fuente del sistema (Segoe UI en Windows,
+     San Francisco en Mac, la que haya en Linux) en vez de una web font. Antes
+     acá decía 'Inter', que el repo nunca empaquetó — o sea que caía en el
+     sans-serif genérico del navegador sin que nadie lo eligiera. */
+  --font-ui: 'Segoe WPC', 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, 'Ubuntu', 'Droid Sans', sans-serif;
+  --font-mono: 'Cascadia Mono', 'Cascadia Code', Consolas, 'SF Mono', 'Droid Sans Mono', monospace;
+  /* Tamaño de texto de la UI (el de VS Code). El alto de las filas NO se
+     comprime: probado a 22px como VS Code y quedaba todo pegado. */
+  --ui-font-size: 13px;
+
   /* Layout (no son color — se quedan como están) */
   --titlebar-height: 44px;
   --header-height: 32px;
@@ -63,7 +74,7 @@ html, body, #root {
 }
 
 body {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: var(--font-ui);
   background: var(--bg-app);
   color: var(--text-primary);
   -webkit-font-smoothing: antialiased;
@@ -482,16 +493,16 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 11px;
+  font-size: var(--ui-font-size);
   color: #00CC44;
   font-weight: 500;
   min-width: 0;
 }
 
 .sidebar-branch-badge {
-  font-size: 9px;
+  font-size: 11px;
   color: var(--text-muted);
-  font-family: 'SFMono-Regular', 'Consolas', monospace;
+  font-family: var(--font-mono);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -6731,7 +6742,7 @@ button.ci-badge:hover {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: var(--font-ui);
 }
 
 .sp-header {
@@ -6865,7 +6876,7 @@ button.ci-badge:hover {
   border-radius: 5px;
   padding: 3px 10px;
   font-size: 12px;
-  font-family: 'Inter', monospace;
+  font-family: var(--font-mono);
   min-width: 70px;
   text-align: center;
 }
@@ -7551,7 +7562,7 @@ button.ci-badge:hover {
 .worktrees-section { padding: 8px 0; border-top: 1px solid var(--border); }
 .wt-section-header {
   display: flex; justify-content: space-between; align-items: center;
-  padding: 6px 12px; color: var(--text-muted); font-size: 10px;
+  padding: 6px 12px; color: var(--text-muted); font-size: 11px; font-weight: 600;
   text-transform: uppercase; letter-spacing: 0.5px;
 }
 .wt-header-actions { display: flex; align-items: center; gap: 2px; }
@@ -7568,7 +7579,7 @@ button.ci-badge:hover {
 .wt-list { display: flex; flex-direction: column; }
 .wt-item {
   display: flex; flex-direction: column; align-items: stretch; gap: 2px;
-  padding: 6px 12px; cursor: pointer; font-size: 12px;
+  padding: 6px 12px; cursor: pointer; font-size: var(--ui-font-size);
   color: var(--text-secondary);
 }
 .wt-item:hover { background: var(--popover); color: var(--text-primary); }
@@ -7586,15 +7597,15 @@ button.ci-badge:hover {
 .wt-dot-gray { background: #555; }
 .wt-branch { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .wt-meta {
-  color: var(--text-muted); font-size: 9px; font-family: 'JetBrains Mono', monospace;
+  color: var(--text-muted); font-size: 11px; font-family: var(--font-mono);
 }
-.wt-empty { padding: 6px 12px; color: var(--text-muted); font-size: 11px; font-style: italic; }
+.wt-empty { padding: 6px 12px; color: var(--text-muted); font-size: var(--ui-font-size); font-style: italic; }
 
 /* Slug: directory basename under the branch line. Muted, monospace so it
    reads as "this is where it lives on disk", not as content. */
 .wt-slug {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 10px;
+  font-family: var(--font-mono);
+  font-size: 11px;
   color: var(--text-muted);
   padding-left: 12px; /* visually nests under the branch text */
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -7603,7 +7614,7 @@ button.ci-badge:hover {
 /* +X / -Y diff chip — green/red tones tuned to read on the dark sidebar. */
 .wt-diff-chip {
   display: inline-flex; align-items: center; gap: 4px;
-  font-family: 'JetBrains Mono', monospace; font-size: 10px;
+  font-family: var(--font-mono); font-size: 10px;
   flex-shrink: 0;
 }
 .wt-diff-add { color: #4ade80; }
@@ -7618,7 +7629,7 @@ button.ci-badge:hover {
   border-radius: 4px;
   padding: 0 5px;
   font-size: 10px;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   cursor: pointer;
   flex-shrink: 0;
   line-height: 1.4;
@@ -7641,7 +7652,7 @@ button.ci-badge:hover {
   width: 100%; box-sizing: border-box; background: var(--bg-elevated);
   border: 1px solid var(--border); border-radius: 4px;
   padding: 8px 10px; color: var(--text-primary);
-  font-size: 12px; font-family: 'JetBrains Mono', monospace;
+  font-size: 12px; font-family: var(--font-mono);
 }
 .field-input:focus { outline: none; border-color: var(--raven-blue); }
 .modal-error {
@@ -7668,7 +7679,7 @@ button.ci-badge:hover {
 .wt-env-banner-list {
   list-style: none;
   margin: 6px 0 0 22px;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 10px;
   color: #FFB800cc;
 }
@@ -7700,7 +7711,7 @@ button.ci-badge:hover {
   width: 100%; box-sizing: border-box; background: var(--bg-app);
   border: 1px solid var(--border); border-radius: 4px;
   padding: 10px 12px; color: var(--text-primary);
-  font-size: 14px; font-family: 'JetBrains Mono', monospace;
+  font-size: 14px; font-family: var(--font-mono);
 }
 .qw-input:focus { outline: none; border-color: var(--raven-blue); }
 .qw-hint { color: var(--text-muted); font-size: 10px; margin-top: 8px; }
@@ -7738,7 +7749,7 @@ button.ci-badge:hover {
 .preset-card-name { font-size: 12px; font-weight: 600; }
 .preset-card-desc {
   font-size: 11px; color: var(--text-secondary);
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;
 }
 
@@ -7763,7 +7774,7 @@ button.ci-badge:hover {
 .preset-row-name { font-size: 12px; font-weight: 600; color: var(--text-primary); }
 .preset-row-id {
   font-size: 11px; color: var(--text-muted);
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
 }
 .preset-row-desc { font-size: 11px; color: var(--text-secondary); }
 .preset-row-actions { display: flex; gap: 6px; }
@@ -7772,7 +7783,7 @@ button.ci-badge:hover {
   width: 100%; box-sizing: border-box; background: var(--bg-app);
   border: 1px solid var(--border); border-radius: 4px;
   padding: 8px 10px; color: var(--text-primary);
-  font-size: 11px; font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; font-family: var(--font-mono);
   resize: vertical; min-height: 200px;
 }
 .preset-editor-textarea:focus { outline: none; border-color: var(--raven-blue); }
@@ -7799,13 +7810,13 @@ button.ci-badge:hover {
 }
 .ports-group { display: flex; align-items: center; gap: 6px; }
 .ports-group-label {
-  color: var(--text-muted); font-family: 'JetBrains Mono', monospace;
+  color: var(--text-muted); font-family: var(--font-mono);
   white-space: nowrap;
 }
 .port-pill {
   background: var(--bg-elevated); border: 1px solid var(--border);
   border-radius: 4px; padding: 2px 8px;
-  color: var(--raven-blue); font-family: 'JetBrains Mono', monospace;
+  color: var(--raven-blue); font-family: var(--font-mono);
   font-size: 11px; cursor: pointer; transition: background 0.12s, border-color 0.12s;
 }
 .port-pill:hover {
@@ -7869,7 +7880,7 @@ button.ci-badge:hover {
   flex: 1; min-width: 0; background: var(--bg-elevated);
   border: 1px solid var(--border); border-radius: 3px;
   padding: 4px 8px; color: var(--text-primary);
-  font-size: 11px; font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; font-family: var(--font-mono);
 }
 .browser-url:focus { outline: none; border-color: var(--raven-blue); }
 .browser-placeholder {
@@ -7929,7 +7940,7 @@ button.ci-badge:hover {
   display: grid;
   grid-template-columns: 1.5fr 0.8fr 1fr 0.8fr 1fr 1fr 1fr;
   gap: 8px; padding: 6px 8px;
-  font-size: 11px; font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; font-family: var(--font-mono);
   background: var(--bg-elevated); border: 1px solid var(--border);
   border-radius: 4px; align-items: center;
 }
@@ -7983,7 +7994,7 @@ button.ci-badge:hover {
   width: 100%; background: transparent; border: 1px solid transparent;
   border-radius: 4px; padding: 6px 8px; cursor: pointer;
   color: var(--text-primary); font-size: 11px;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   text-align: left;
 }
 .diff-file:hover { background: var(--bg-elevated); }
@@ -7994,7 +8005,7 @@ button.ci-badge:hover {
 .diff-del { color: #FF6666; }
 .diff-content {
   overflow: auto; padding: 8px 12px;
-  font-family: 'JetBrains Mono', monospace; font-size: 11px;
+  font-family: var(--font-mono); font-size: 11px;
 }
 .diff-hunk { margin-bottom: 12px; }
 .diff-hunk-header {
@@ -8024,7 +8035,7 @@ button.ci-badge:hover {
 }
 .ide-picker-item:hover { background: rgba(0, 102, 255, 0.10); }
 .ide-picker-name { font-size: 12px; font-weight: 500; }
-.ide-picker-path { font-size: 10px; color: var(--text-muted); font-family: 'JetBrains Mono', monospace; }
+.ide-picker-path { font-size: 10px; color: var(--text-muted); font-family: var(--font-mono); }
 .ide-picker-divider { height: 1px; background: var(--border); margin: 4px 0; }
 .ide-picker-redetect { color: var(--text-secondary); font-size: 11px; }
 
@@ -8058,7 +8069,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
   border: 1px solid var(--border);
   color: var(--text-secondary);
   font-size: 12px;
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: var(--font-ui);
   font-variant-numeric: tabular-nums;
   border-radius: 6px;
   padding: 4px 12px;
@@ -8919,7 +8930,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
   display: flex;
   flex-direction: column;
   gap: 12px;
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: var(--font-ui);
   transition: border-color 150ms ease, background-color 150ms ease;
 }
 .tjcp-card:hover {
@@ -9041,7 +9052,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
 .tjcp-primary-btn {
   height: 28px;
   padding: 0 14px;
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: var(--font-ui);
   font-size: 12px;
   font-weight: 600;
   color: #fff;
@@ -9079,7 +9090,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
   display: flex;
   flex-direction: column;
   gap: 14px;
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: var(--font-ui);
 }
 
 .jcf-subtitle {
@@ -9447,7 +9458,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
   border-radius: 10px;
   padding: 2px 8px;
   font-size: 11px;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   cursor: pointer;
   margin: 0 4px;
   white-space: nowrap;
@@ -9553,7 +9564,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
   overflow: hidden;
 }
 
-.explorer-panel { font-size: 12.5px; display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.explorer-panel { font-size: var(--ui-font-size); display: flex; flex-direction: column; flex: 1; min-height: 0; }
 
 .explorer-panel-empty {
   padding: 14px 12px;
@@ -11164,7 +11175,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
   align-items:center;
   gap:4px;
   padding:7px 2px 6px;
-  font-size:10px;
+  font-size:11px;
   color:var(--text-muted);
   background:transparent;
   border:none;
@@ -11183,6 +11194,58 @@ body.platform-mac .tabbar { padding-right: 116px; }
 }
 .sidebar-tab-panel{flex:1 1 auto;min-height:0;display:flex;flex-direction:column}
 .sidebar-tab-tools-list{display:flex;flex-direction:column;overflow-y:auto}
+
+/* ── The menu box: repo row + tabs are ONE thing ──
+   The repo name is the menu's title, not a block sitting above it, so the box
+   owns the bottom border and the tab bar drops its own. */
+.sidebar-menu-box{border-bottom:1px solid var(--border);flex-shrink:0}
+.sidebar-menu-box .sidebar-tabbar{border-bottom:none}
+.sidebar-menu-box .sidebar-repo{padding-top:7px;padding-bottom:6px}
+/* Chevron hugs the repo name; margin-right:auto pushes the GitHub and unlink
+   buttons to the far edge whether or not the GitHub one is there. */
+.sidebar-menu-box .sidebar-repo-name{flex:0 1 auto}
+.sidebar-repo-chevron{color:var(--text-muted);font-size:9px;line-height:1;flex-shrink:0;margin-right:auto}
+
+/* Branch line at the head of the Worktrees tab (it left the repo row along
+   with the CI bar — both only mean something next to the worktrees). */
+.sidebar-tab-branch{
+  padding:8px 12px 4px;
+  font-size:11px;
+  color:var(--text-muted);
+  font-family:var(--font-mono);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  flex-shrink:0;
+}
+.sidebar-tab-branch.dirty{color:#F59E0B}
+
+.sidebar-hub-wrap{display:flex;flex-direction:column;min-height:0;overflow-y:auto}
+
+/* ── Personal tab: a preview of Team and Repos ──
+   Same row rhythm as the worktree list, so the sidebar reads as one thing. */
+.personal-panel{display:flex;flex-direction:column;min-height:0;overflow-y:auto}
+.personal-section-name{color:var(--text-secondary);text-transform:none;letter-spacing:0}
+.personal-row{
+  display:flex;align-items:center;gap:7px;
+  padding:6px 12px;
+  background:transparent;border:none;
+  font-family:inherit;font-size:var(--ui-font-size);
+  color:var(--text-secondary);text-align:left;width:100%;
+  cursor:pointer;
+}
+.personal-row:hover{background:var(--popover);color:var(--text-primary)}
+.personal-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.personal-avatar{
+  width:16px;height:16px;border-radius:50%;flex-shrink:0;
+  background:var(--muted);color:var(--text-secondary);
+  font-size:9px;font-weight:600;
+  display:flex;align-items:center;justify-content:center;
+}
+.personal-tag{
+  flex-shrink:0;font-size:9px;color:var(--text-muted);
+  border:1px solid var(--border);border-radius:3px;padding:0 4px;
+}
+.personal-invites{color:#EF4444}
+.personal-more,.personal-empty{color:var(--text-muted);font-size:11px}
 
 /* ── Pane filter trigger (embudo del sidebar) + popover ── */
 .pane-filter-trigger.active{color:var(--raven-blue,#4f9eff)}

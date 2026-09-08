@@ -27,4 +27,25 @@ describe('SidebarTabBar', () => {
     render(<SidebarTabBar active="worktrees" onChange={() => {}} pendingInvitesCount={0} />)
     expect(screen.getByRole('tab', { name: /Personal/ })).not.toHaveTextContent(/\d/)
   })
+
+  it('renders only the tabs it is given (Hub mode has no Worktrees or Personal)', () => {
+    render(<SidebarTabBar tabs={['hub', 'explorer', 'tools']} active="hub" onChange={() => {}} />)
+    expect(screen.getByRole('tab', { name: /Hub/ })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('tab', { name: /Explorer/ })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: /Tools/ })).toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: /Worktrees/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: /Personal/ })).not.toBeInTheDocument()
+  })
+
+  it('renders the footer below the tabs inside the same menu box', () => {
+    const { container } = render(
+      <SidebarTabBar active="worktrees" onChange={() => {}} footer={<span>my-repo</span>} />,
+    )
+    const box = container.querySelector('.sidebar-menu-box')
+    expect(box).not.toBeNull()
+    expect(box).toHaveTextContent('my-repo')
+    // Tabs first, repo row under them, one box: above the tabs it still read
+    // as a separate block sitting on top of the menu.
+    expect(box!.querySelector('.sidebar-tabbar')).not.toBeNull()
+  })
 })

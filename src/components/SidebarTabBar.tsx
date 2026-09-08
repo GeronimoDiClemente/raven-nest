@@ -1,9 +1,18 @@
-export type SidebarTabId = 'worktrees' | 'explorer' | 'personal' | 'tools'
+import type { ReactNode } from 'react'
+
+export type SidebarTabId = 'worktrees' | 'explorer' | 'personal' | 'tools' | 'hub'
 
 interface Props {
   active: SidebarTabId
   onChange: (tab: SidebarTabId) => void
   pendingInvitesCount?: number
+  /** Which tabs to show, in order. Hub mode swaps Worktrees for Hub and drops
+   *  Personal; the normal repo sidebar takes the default. */
+  tabs?: readonly SidebarTabId[]
+  /** Rendered below the tabs, inside the same box — the repo row. Under the
+   *  tabs and not above them: on top it still read as a separate block sitting
+   *  over the menu, which is what we were trying to get rid of. */
+  footer?: ReactNode
 }
 
 // Reuses the repo-header's branch-graph icon (worktrees ARE branches) so the
@@ -38,35 +47,52 @@ const ToolsIcon = (
   </svg>
 )
 
-const TABS: { id: SidebarTabId; label: string; icon: JSX.Element }[] = [
-  { id: 'worktrees', label: 'Worktrees', icon: WorktreesIcon },
-  { id: 'explorer', label: 'Explorer', icon: ExplorerIcon },
-  { id: 'personal', label: 'Personal', icon: PersonalIcon },
-  { id: 'tools', label: 'Tools', icon: ToolsIcon },
-]
+// One tile per open workspace — the Hub's own shape, not a repo's.
+const HubIcon = (
+  <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
+    <rect x="2" y="2" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.2"/>
+    <rect x="9" y="2" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.2"/>
+    <rect x="2" y="9" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.2"/>
+    <rect x="9" y="9" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.2"/>
+  </svg>
+)
 
-export default function SidebarTabBar({ active, onChange, pendingInvitesCount = 0 }: Props) {
+const TAB_DEFS: Record<SidebarTabId, { label: string; icon: JSX.Element }> = {
+  worktrees: { label: 'Worktrees', icon: WorktreesIcon },
+  explorer: { label: 'Explorer', icon: ExplorerIcon },
+  personal: { label: 'Personal', icon: PersonalIcon },
+  tools: { label: 'Tools', icon: ToolsIcon },
+  hub: { label: 'Hub', icon: HubIcon },
+}
+
+export const REPO_TABS = ['worktrees', 'explorer', 'personal', 'tools'] as const
+export const HUB_TABS = ['hub', 'explorer', 'tools'] as const
+
+export default function SidebarTabBar({ active, onChange, pendingInvitesCount = 0, tabs = REPO_TABS, footer }: Props) {
   return (
-    <div className="sidebar-tabbar" role="tablist">
-      {TABS.map((tab) => (
-        <button
-          key={tab.id}
-          type="button"
-          role="tab"
-          aria-selected={active === tab.id}
-          className={`sidebar-tab${active === tab.id ? ' active' : ''}`}
-          onClick={() => onChange(tab.id)}
-          title={tab.label}
-        >
-          <span className="sidebar-tab-icon">
-            {tab.icon}
-            {tab.id === 'personal' && pendingInvitesCount > 0 && (
-              <span className="sidebar-tab-badge">{pendingInvitesCount > 9 ? '9+' : pendingInvitesCount}</span>
-            )}
-          </span>
-          <span className="sidebar-tab-label">{tab.label}</span>
-        </button>
-      ))}
+    <div className="sidebar-menu-box">
+      <div className="sidebar-tabbar" role="tablist">
+        {tabs.map((id) => ({ id, ...TAB_DEFS[id] })).map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            role="tab"
+            aria-selected={active === tab.id}
+            className={`sidebar-tab${active === tab.id ? ' active' : ''}`}
+            onClick={() => onChange(tab.id)}
+            title={tab.label}
+          >
+            <span className="sidebar-tab-icon">
+              {tab.icon}
+              {tab.id === 'personal' && pendingInvitesCount > 0 && (
+                <span className="sidebar-tab-badge">{pendingInvitesCount > 9 ? '9+' : pendingInvitesCount}</span>
+              )}
+            </span>
+            <span className="sidebar-tab-label">{tab.label}</span>
+          </button>
+        ))}
+      </div>
+      {footer}
     </div>
   )
 }

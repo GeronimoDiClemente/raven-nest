@@ -2,11 +2,13 @@
 // sidebar is expanded, exactly one panel is visible at a time and clicking a
 // tab swaps which one. Collapsed-rail behaviour is untouched by this feature
 // and isn't exercised here.
+import type { ComponentProps } from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import Sidebar from '../../components/Sidebar'
 import type { UserPreferencesApi } from '../../hooks/useUserPreferences'
 
+vi.mock('../../hooks/useGitInfo', () => ({ useGitInfo: () => ({ branch: 'pre-produccion', githubUrl: null, isDirty: false }) }))
 vi.mock('../../hooks/useGitHub', () => ({ useGitHub: () => ({ githubToken: null, githubLogin: null, isConnected: false, loading: false, error: null, connectGitHub: vi.fn(), disconnectGitHub: vi.fn() }) }))
 vi.mock('../../hooks/useGitlab', () => ({ useGitlab: () => ({ gitlabToken: null, gitlabLogin: null, isConnected: false, loading: false, error: null, connectGitlab: vi.fn(), disconnectGitlab: vi.fn() }) }))
 vi.mock('../../lib/supabase', () => ({
@@ -29,7 +31,7 @@ function userPrefs(): UserPreferencesApi {
   }
 }
 
-function renderSidebar() {
+function renderSidebar(extra: Partial<ComponentProps<typeof Sidebar>> = {}) {
   return render(
     <Sidebar
       expanded
@@ -57,9 +59,21 @@ function renderSidebar() {
       onLayoutChange={() => {}}
       onFileOpen={() => {}}
       userPrefs={userPrefs()}
+      {...extra}
     />,
   )
 }
+
+const hubProps: Partial<ComponentProps<typeof Sidebar>> = {
+  isHub: true,
+  hubWorkspaces: [],
+  onSelectWorkspace: () => {},
+  onJumpToPane: () => {},
+  onToggleTerminal: () => {},
+  onToggleWorkspace: () => {},
+  onNewWorkspace: () => {},
+  onAddTerminalToWorkspace: () => {},
+} as const
 
 describe('Sidebar tabs', () => {
   beforeEach(() => {
@@ -73,6 +87,11 @@ describe('Sidebar tabs', () => {
       spotlight: { status: vi.fn(async () => ({ active: false })), onStatus: vi.fn(), start: vi.fn(async () => {}), stop: vi.fn(async () => {}), removeListeners: vi.fn() },
       preset: { onSetupState: vi.fn(), cancel: vi.fn(async () => {}), removeListeners: vi.fn() },
       electronShell: { openExternal: vi.fn() },
+      // The Tools tab mounts the panels, which fetch on mount.
+      snippets: { list: vi.fn(async () => []) },
+      commandHistory: { list: vi.fn(async () => []) },
+      workspaces: { list: vi.fn(async () => []) },
+      mcp: { list: vi.fn(async () => []) },
     })
   })
 
@@ -87,5 +106,49 @@ describe('Sidebar tabs', () => {
     fireEvent.click(screen.getByRole('tab', { name: /Explorer/ }))
     expect(screen.getByRole('tab', { name: /Explorer/ })).toHaveAttribute('aria-selected', 'true')
     expect(screen.getByRole('tab', { name: /Worktrees/ })).toHaveAttribute('aria-selected', 'false')
+  })
+
+  // The repo name is the menu's title, not a block above it: it sits inside
+  // the same box as the tabs, so it stays visible on every tab.
+  it('puts the repo name inside the menu box, in the same box as the tabs', () => {
+    const { container } = renderSidebar({ repoPath: '/home/gero/app-script-lan' })
+    const box = container.querySelector('.sidebar-menu-box')
+    expect(box).not.toBeNull()
+    expect(box).toHaveTextContent('app-script-lan')
+    expect(box!.querySelector('.sidebar-tabbar')).not.toBeNull()
+
+    fireEvent.click(screen.getByRole('tab', { name: /Tools/ }))
+    expect(container.querySelector('.sidebar-menu-box')).toHaveTextContent('app-script-lan')
+  })
+
+  // Branch and CI only mean something next to the worktrees, so they moved
+  // into that tab instead of taking room on every one.
+  it('shows the branch only inside the Worktrees tab', () => {
+    const { container } = renderSidebar({ repoPath: '/home/gero/app-script-lan' })
+    expect(screen.getByText(/pre-produccion/)).toBeInTheDocument()
+    expect(container.querySelector('.sidebar-menu-box')).not.toHaveTextContent('pre-produccion')
+
+    fireEvent.click(screen.getByRole('tab', { name: /Explorer/ }))
+    expect(screen.queryByText(/pre-produccion/)).not.toBeInTheDocument()
+  })
+
+  it('swaps Worktrees for Hub and drops Personal in Hub mode', () => {
+    renderSidebar(hubProps)
+    expect(screen.getByRole('tab', { name: /Hub/ })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('tab', { name: /Explorer/ })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: /Tools/ })).toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: /Worktrees/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: /Personal/ })).not.toBeInTheDocument()
+  })
+
+  // Personal is gone in Hub mode, so its two items live under the Hub tab
+  // instead of disappearing from the expanded sidebar.
+  it('keeps Team and Repos reachable inside the Hub tab', () => {
+    renderSidebar(hubProps)
+    expect(screen.getByText('Team')).toBeInTheDocument()
+    expect(screen.getByText('Repos')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('tab', { name: /Tools/ }))
+    expect(screen.queryByText('Team')).not.toBeInTheDocument()
   })
 })
