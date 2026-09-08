@@ -143,8 +143,10 @@ describe('applyVaultPlan — end to end', () => {
 })
 
 describe('rutas de contabilidad parametrizables', () => {
-  it('por default deja el manifest donde siempre', () => {
+  it('por default deja todos los archivos de contabilidad donde siempre', () => {
     expect(DEFAULT_APPLY_PATHS.manifest).toBe('.nest-vault/manifest.json')
+    expect(DEFAULT_APPLY_PATHS.tombstones).toBe('.nest-vault/tombstones.jsonl')
+    expect(DEFAULT_APPLY_PATHS.readme).toBe('README.md')
   })
 
   it('respeta rutas propias y no pisa las del vault', async () => {
@@ -154,7 +156,7 @@ describe('rutas de contabilidad parametrizables', () => {
     const plan = {
       writes: [{ syncId: 'rama:main', filePath: 'ramas/main.md', content: '# main\n', fileHash: 'fh', sourceHash: 'sh' }],
       moves: [],
-      deletes: [],
+      deletes: [{ syncId: 'old-entry', filePath: 'old.md', reason: 'tombstone' as const }],
       conflicts: [],
       warnings: [],
       indexWrites: [],
@@ -163,8 +165,18 @@ describe('rutas de contabilidad parametrizables', () => {
 
     await applyVaultPlan(rootDir, plan, paths)
 
+    // Manifest en ruta custom, no en default
     expect(existsSync(join(rootDir, '.manifest.json'))).toBe(true)
     expect(existsSync(join(rootDir, '.nest-vault', 'manifest.json'))).toBe(false)
     expect(readManifest(rootDir, paths).entries['rama:main'].filePath).toBe('ramas/main.md')
+
+    // Tombstones en ruta custom, no en default
+    expect(existsSync(join(rootDir, '.tombstones.jsonl'))).toBe(true)
+    expect(existsSync(join(rootDir, '.nest-vault', 'tombstones.jsonl'))).toBe(false)
+
+    // README en ruta custom, no en default
+    expect(existsSync(join(rootDir, 'README.md'))).toBe(true)
+    const readmeContent = readFileSync(join(rootDir, 'README.md'), 'utf8')
+    expect(readmeContent).toBe('# hilo\n')
   })
 })
