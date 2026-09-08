@@ -9,7 +9,7 @@
 export const ACCOUNT_ALLOWED_KEYS: ReadonlySet<string> = new Set([
   // Resumen
   'id', 'name', 'plan', 'plan_label', 'status', 'created_at',
-  'trial_ends_at', 'last_activity_at', 'voz_suspendida',
+  'trial_ends_at', 'last_activity_at',
   // Ficha
   'meters', 'health', 'flags', 'onboarding',
   // Items de meters / health / onboarding

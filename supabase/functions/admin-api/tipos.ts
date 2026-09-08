@@ -53,8 +53,6 @@ export interface AccountSummary {
    * `.strict()`, así que no le rompe nada.
    */
   last_activity_at: string | null
-  /** Concepto de AiraMed que el core exige. En Nest siempre `false`. */
-  voz_suspendida: boolean
 }
 
 export interface AccountDetail extends AccountSummary {

@@ -40,4 +40,8 @@ describe('MANIFEST', () => {
       expect(typeof s.module).toBe('string')
     }
   })
+
+  it('declara la seccion de plan ademas de la de equipos', () => {
+    expect(MANIFEST.sections.map((s) => s.module)).toEqual(['nest/equipos', 'nest/plan'])
+  })
 })

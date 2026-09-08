@@ -21,7 +21,7 @@ import { useGitInfo } from '../hooks/useGitInfo'
 import { useFixedPopover } from '../hooks/useFixedPopover'
 import { ExplorerPanel } from './ExplorerPanel'
 import HubExplorerPanel, { type ExplorerRoot } from './HubExplorerPanel'
-import SidebarSplit from './SidebarSplit'
+import SidebarTabBar, { type SidebarTabId, REPO_TABS, HUB_TABS } from './SidebarTabBar'
 import PaneFilterControl from './PaneFilterControl'
 import type { PaneFilter } from '../lib/pane-filter'
 import type { PaneNode } from '../types'
@@ -48,9 +48,8 @@ interface Props {
   trialDaysLeft?: number
   profileLoading?: boolean
   onUpgrade?: () => void
-  onTeamsOpen?: () => void
+  onPersonalOpen?: () => void
   pendingInvitesCount?: number
-  onMyReposOpen?: () => void
   onIntegrationsOpen?: () => void
   onGraphBoardOpen?: () => void
   plan?: Plan
@@ -96,7 +95,7 @@ export default function Sidebar({
   isListening, isTranscribing, isModelLoading, onMicToggle,
   onNewPane, onHistoryOpen,
   onSnippetSend, onSnippetBroadcast, onCommandRun, onWorkspaceSave, onWorkspaceLoad, isWin,
-  isTrialActive, trialDaysLeft, profileLoading, onUpgrade, onTeamsOpen, pendingInvitesCount = 0, onMyReposOpen, onIntegrationsOpen, onGraphBoardOpen, plan, repoPath, onRepoLink, onRepoUnlink, onJoinTerminal,
+  isTrialActive, trialDaysLeft, profileLoading, onUpgrade, onPersonalOpen, onIntegrationsOpen, onGraphBoardOpen, pendingInvitesCount = 0, plan, repoPath, onRepoLink, onRepoUnlink, onJoinTerminal,
   activeCellRepoPath, onWorktreeSelect, onNewWorktree, onFixCi, worktreeRefreshKey,
   layoutId, paneCount, onLayoutChange, onOpenTutorial, onFileOpen, userPrefs,
   paneFilterPanes, paneFilter, onPaneFilterChange,
@@ -123,6 +122,11 @@ export default function Sidebar({
   const [joinConnected, setJoinConnected] = useState(terminalJoinService.isConnected)
   const [, forceUpdate] = useState(0)
   const [moreOpen, setMoreOpen] = useState(false)
+  const [activeTab, setActiveTab] = useState<SidebarTabId>('worktrees')
+  // Hub swaps Worktrees for Hub, so the remembered tab can be one this mode
+  // doesn't offer — fall back to the mode's first tab.
+  const tabs = isHub ? HUB_TABS : REPO_TABS
+  const currentTab: SidebarTabId = (tabs as readonly SidebarTabId[]).includes(activeTab) ? activeTab : tabs[0]
   const [layoutOpen, setLayoutOpen] = useState(false)
   // Index into layoutOptions while the user is cycling with Ctrl+L. null when
   // the popover was opened by click (no active cycling — selection commits on
@@ -493,6 +497,202 @@ export default function Sidebar({
     </div>
   )
 
+  // The repo row. Expanded it is the menu's title (first row of the same box
+  // as the tabs, with a chevron for "this is where you swap repo"); the branch
+  // and the CI bar moved into the Worktrees tab, the only place they mean
+  // something. On the collapsed rail it stays the plain icon row it always was,
+  // branch included.
+  const repoRow = (showBranch: boolean) => (
+    <div
+      className="sidebar-item sidebar-repo"
+      title={repoPath ?? 'Link repo to this tab'}
+      onClick={onRepoLink}
+      style={{ cursor: 'pointer' }}
+    >
+      <span className="sidebar-icon">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <circle cx="4" cy="4" r="1.5" stroke="currentColor" strokeWidth="1.3"/>
+          <circle cx="12" cy="4" r="1.5" stroke="currentColor" strokeWidth="1.3"/>
+          <circle cx="4" cy="12" r="1.5" stroke="currentColor" strokeWidth="1.3"/>
+          <path d="M4 5.5v5M4 5.5C4 7 5 8 8 8s4 1 4 2.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+        </svg>
+      </span>
+      {repoPath ? (
+        <div className="sidebar-repo-info">
+          <div className="sidebar-repo-row">
+            <span className="sidebar-label sidebar-repo-name">{basename(repoPath)}</span>
+            {expanded && <span className="sidebar-repo-chevron" aria-hidden="true">▾</span>}
+            {expanded && githubUrl && (
+              <button
+                className="sidebar-github-btn"
+                title="Open on GitHub"
+                onClick={e => { e.stopPropagation(); window.electronShell.openExternal(githubUrl!) }}
+              >
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+                </svg>
+              </button>
+            )}
+            {expanded && (
+              <button className="sidebar-repo-unlink" onClick={e => { e.stopPropagation(); onRepoUnlink() }} title="Unlink repo">×</button>
+            )}
+          </div>
+          {showBranch && branch && (
+            <span className={`sidebar-branch-badge${isDirty ? ' dirty' : ''}`}>
+              {branch}{isDirty ? ' ●' : ''}
+            </span>
+          )}
+        </div>
+      ) : (
+        <button className="sidebar-label sidebar-repo-link">Link repo</button>
+      )}
+    </div>
+  )
+
+  // Branch + last CI run: the head of the Worktrees tab, right above the list
+  // of worktrees they describe.
+  const WorktreesHeader = (
+    <>
+      {branch && (
+        <div className={`sidebar-tab-branch${isDirty ? ' dirty' : ''}`} title={branch}>
+          {branch}{isDirty ? ' ●' : ''}
+        </div>
+      )}
+      {repoPath && repoCi && (
+        <div style={{ padding: '0 8px 4px' }}>
+          <RepoActionsBar
+            repoFullName={repoCi.repoFullName}
+            provider={repoCi.provider}
+            token={repoCi.token}
+            branch={branch ?? undefined}
+          />
+        </div>
+      )}
+    </>
+  )
+
+  // One door for everything that is yours: your repos, each team's repos, and
+  // your pending invites. Free plans hit the upgrade modal, as My Repos did.
+  const PersonalItem = (
+    <div
+      className="sidebar-item sidebar-item-panel sidebar-item-team"
+      style={{ cursor: 'pointer', position: 'relative' }}
+      onClick={plan === 'free' ? onUpgrade : onPersonalOpen}
+      title={pendingInvitesCount > 0
+        ? `Personal — ${pendingInvitesCount} pending invite${pendingInvitesCount === 1 ? '' : 's'}`
+        : 'Personal'}
+    >
+      <span className="sidebar-icon" style={{ position: 'relative' }}>
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <circle cx="8" cy="5" r="2.5" stroke="currentColor" strokeWidth="1.3"/>
+          <path d="M3 13.5c0-2.5 2.24-4.5 5-4.5s5 2 5 4.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+        </svg>
+        {pendingInvitesCount > 0 && (
+          <span
+            aria-label={`${pendingInvitesCount} pending invites`}
+            style={{
+              position: 'absolute', top: -4, right: -6, minWidth: 14, height: 14,
+              padding: '0 3px', borderRadius: 7, background: '#EF4444', color: '#fff',
+              fontSize: 9, fontWeight: 700, display: 'flex', alignItems: 'center',
+              justifyContent: 'center', lineHeight: 1,
+              boxShadow: '0 0 0 1.5px var(--bg-primary, #0a0a0a)',
+            }}
+          >
+            {pendingInvitesCount > 9 ? '9+' : pendingInvitesCount}
+          </span>
+        )}
+      </span>
+      <span className="sidebar-label">Personal</span>
+      {expanded && plan === 'free' && <span className="sidebar-plan-badge">Pro</span>}
+    </div>
+  )
+
+  // Shared between the collapsed "More tools" flyout and the expanded
+  // "Tools" tab (see SidebarTabBar) — same items, two different containers.
+  const ToolsListContent = (
+    <>
+      {LayoutItem}
+      {/* Filtro de panes — junto al layout selector: ambos son
+          controles de vista del workspace (pedido de Bautista). */}
+      {onPaneFilterChange && (
+        <PaneFilterControl
+          panes={paneFilterPanes ?? []}
+          filter={paneFilter ?? 'all'}
+          onChange={onPaneFilterChange}
+          expanded={expanded}
+        />
+      )}
+      {SnippetsItem}
+      {WorkspacesItem}
+      {MCPItem}
+      {VoiceItem}
+      {BroadcastItem}
+      {JoinTerminalItem}
+      {/* Integrations y Orchestration eran filas fijas de la sidebar vieja. Con las
+          pestanas viven en Tools, que es la lista que comparten el flyout colapsado y
+          la pestana: asi siguen alcanzables en los dos modos. */}
+      <div
+        className="sidebar-item sidebar-item-panel sidebar-item-team"
+        style={{ cursor: 'pointer' }}
+        onClick={onIntegrationsOpen}
+        title="Integrations"
+      >
+        <span className="sidebar-icon">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <rect x="2" y="2" width="12" height="12" rx="3.5" stroke="currentColor" strokeWidth="1.4" />
+            <path d="M5.5 8h5M8 5.5v5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+          </svg>
+        </span>
+        <span className="sidebar-label">Integrations</span>
+      </div>
+      <div
+        className="sidebar-item sidebar-item-panel sidebar-item-team"
+        style={{ cursor: 'pointer' }}
+        onClick={onGraphBoardOpen}
+        title="Orchestration"
+      >
+        <span className="sidebar-icon">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <circle cx="3.5" cy="8" r="1.6" stroke="currentColor" strokeWidth="1.3" />
+            <circle cx="12.5" cy="4" r="1.6" stroke="currentColor" strokeWidth="1.3" />
+            <circle cx="12.5" cy="12" r="1.6" stroke="currentColor" strokeWidth="1.3" />
+            <path d="M5 7l6-2.3M5 9l6 2.3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+          </svg>
+        </span>
+        <span className="sidebar-label">Orchestration</span>
+      </div>
+      {/* ── 4. MORE TOOLS (desplegable) ─────────────────── */}
+      <div className={`sidebar-more${moreOpen ? ' open' : ''}`}>
+        <button
+          className="sidebar-item sidebar-more-toggle"
+          onClick={() => setMoreOpen(v => !v)}
+          title={moreOpen ? 'Hide more tools' : 'Show more tools'}
+        >
+          <span className="sidebar-icon">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style={{ transform: moreOpen ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 150ms ease' }}>
+              <path d="M6 4l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </span>
+          <span className="sidebar-label">More tools</span>
+        </button>
+        {moreOpen && (
+          <div className="sidebar-more-list">
+            {LayoutItem}
+            {/* Filtro de panes — junto al layout selector: ambos son
+                controles de vista del workspace (pedido de Bautista). */}
+            {onPaneFilterChange && (
+              <PaneFilterControl
+                panes={paneFilterPanes ?? []}
+                filter={paneFilter ?? 'all'}
+                onChange={onPaneFilterChange}
+                expanded={expanded}
+              />
+
+      {ConversationHistoryItem}
+      {CommandHistoryItem}
+    </>
+  )
+
   return (
     <div className={`sidebar${expanded ? ' expanded' : ''}`}>
 
@@ -514,10 +714,14 @@ export default function Sidebar({
       </button>
 
       <div className="sidebar-scroll">
-        {isHub && onSelectWorkspace && onJumpToPane && onToggleTerminal && onToggleWorkspace && onNewWorkspace && onAddTerminalToWorkspace && (
+        {/* ── 1. COLLAPSED RAIL: repo (normal) or workspaces (Hub), same as
+             before — the rail has no room for tabs. ── */}
+        {!expanded && !isHub && repoRow(true)}
+
+        {!expanded && isHub && onSelectWorkspace && onJumpToPane && onToggleTerminal && onToggleWorkspace && onNewWorkspace && onAddTerminalToWorkspace && (
           <HubSidebarPanel
             workspaces={hubWorkspaces ?? []}
-            expanded={expanded}
+            expanded={false}
             onSelectWorkspace={onSelectWorkspace}
             onJumpToPane={onJumpToPane}
             onToggleTerminal={onToggleTerminal}
@@ -527,228 +731,91 @@ export default function Sidebar({
           />
         )}
 
-        {!isHub && (<>
-        {/* ── 1. REPO (top focus) ───────────────────────────── */}
-        <div
-          className="sidebar-item sidebar-repo"
-          title={repoPath ?? 'Link repo to this tab'}
-          onClick={onRepoLink}
-          style={{ cursor: 'pointer' }}
-        >
-          <span className="sidebar-icon">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <circle cx="4" cy="4" r="1.5" stroke="currentColor" strokeWidth="1.3"/>
-              <circle cx="12" cy="4" r="1.5" stroke="currentColor" strokeWidth="1.3"/>
-              <circle cx="4" cy="12" r="1.5" stroke="currentColor" strokeWidth="1.3"/>
-              <path d="M4 5.5v5M4 5.5C4 7 5 8 8 8s4 1 4 2.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-            </svg>
-          </span>
-          {repoPath ? (
-            <div className="sidebar-repo-info">
-              <div className="sidebar-repo-row">
-                <span className="sidebar-label sidebar-repo-name">{basename(repoPath)}</span>
-                {expanded && githubUrl && (
-                  <button
-                    className="sidebar-github-btn"
-                    title="Open on GitHub"
-                    onClick={e => { e.stopPropagation(); window.electronShell.openExternal(githubUrl!) }}
-                  >
-                    <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
-                      <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
-                    </svg>
-                  </button>
-                )}
-                {expanded && (
-                  <button className="sidebar-repo-unlink" onClick={e => { e.stopPropagation(); onRepoUnlink() }} title="Unlink repo">×</button>
-                )}
-              </div>
-              {branch && (
-                <span className={`sidebar-branch-badge${isDirty ? ' dirty' : ''}`}>
-                  {branch}{isDirty ? ' ●' : ''}
-                </span>
-              )}
-            </div>
-          ) : (
-            <button className="sidebar-label sidebar-repo-link">Link repo</button>
-          )}
-        </div>
-
-        {/* CI Actions bar — última run del repo activo */}
-        {expanded && repoPath && repoCi && (
-          <div style={{ padding: '0 8px 4px' }}>
-            <RepoActionsBar
-              repoFullName={repoCi.repoFullName}
-              provider={repoCi.provider}
-              token={repoCi.token}
-              branch={branch ?? undefined}
-            />
-          </div>
-        )}
-
-        </>)}
-
-        {/* ── 2. WORKTREES + EXPLORER — reparto vertical AJUSTABLE (drag del
-             handle, como entre panes); el tamaño persiste vía autoSaveId. ── */}
+        {/* ── 2. EXPANDED: one menu box — repo row as its title, then the
+             tabs. Hub gets the same menu with Hub in place of Worktrees. ── */}
         {expanded && (
-          <SidebarSplit
-            worktrees={!isHub ? (
-              <div className="sidebar-worktrees-wrap">
-                <WorktreesSection
-                  repoPath={repoPath ?? null}
-                  activeRepoPath={activeCellRepoPath}
-                  onSelect={onWorktreeSelect}
-                  onNewClick={onNewWorktree}
-                  onFixCi={onFixCi}
-                  refreshKey={worktreeRefreshKey}
-                  onStartTutorial={onOpenTutorial ? () => onOpenTutorial('worktrees') : undefined}
-                />
-              </div>
-            ) : null}
-            explorer={
-              <div className="sidebar-explorer-wrap">
-                {isHub ? (
-                  <HubExplorerPanel roots={hubExplorerRoots ?? []} onOpenFile={onOpenFileFromHub ?? (() => {})} />
-                ) : (
-                  <ExplorerPanel worktreePath={activeCellRepoPath ?? null} onFileOpen={onFileOpen} />
-                )}
-              </div>
-            }
-          />
+          <>
+            <SidebarTabBar
+              tabs={tabs}
+              active={currentTab}
+              onChange={setActiveTab}
+              footer={isHub ? undefined : repoRow(false)}
+            />
+            <div className="sidebar-tab-panel">
+              {currentTab === 'worktrees' && (
+                <div className="sidebar-worktrees-wrap">
+                  {WorktreesHeader}
+                  <WorktreesSection
+                    repoPath={repoPath ?? null}
+                    activeRepoPath={activeCellRepoPath}
+                    onSelect={onWorktreeSelect}
+                    onNewClick={onNewWorktree}
+                    onFixCi={onFixCi}
+                    refreshKey={worktreeRefreshKey}
+                    onStartTutorial={onOpenTutorial ? () => onOpenTutorial('worktrees') : undefined}
+                  />
+                </div>
+              )}
+              {currentTab === 'hub' && onSelectWorkspace && onJumpToPane && onToggleTerminal && onToggleWorkspace && onNewWorkspace && onAddTerminalToWorkspace && (
+                <div className="sidebar-hub-wrap">
+                  <HubSidebarPanel
+                    workspaces={hubWorkspaces ?? []}
+                    expanded
+                    onSelectWorkspace={onSelectWorkspace}
+                    onJumpToPane={onJumpToPane}
+                    onToggleTerminal={onToggleTerminal}
+                    onToggleWorkspace={onToggleWorkspace}
+                    onNewWorkspace={onNewWorkspace}
+                    onAddTerminal={onAddTerminalToWorkspace}
+                  />
+                </div>
+              )}
+              {currentTab === 'explorer' && (
+                <div className="sidebar-explorer-wrap">
+                  {isHub ? (
+                    <HubExplorerPanel roots={hubExplorerRoots ?? []} onOpenFile={onOpenFileFromHub ?? (() => {})} />
+                  ) : (
+                    <ExplorerPanel worktreePath={activeCellRepoPath ?? null} onFileOpen={onFileOpen} />
+                  )}
+                </div>
+              )}
+              {currentTab === 'tools' && (
+                <div className="sidebar-tab-tools-list">
+                  {ToolsListContent}
+                </div>
+              )}
+            </div>
+          </>
         )}
 
-        {/* ── 3. TEAMS + MY REPOS ───────────────────────────── */}
-        <div className="sidebar-section-divider" />
+        {/* ── 3. COLLAPSED ICON RAIL — unchanged: More tools stays an icon
+             row, not a tab. ── */}
+        {!expanded && (
+          <>
+            <div className="sidebar-section-divider" />
 
-        <div
-          className="sidebar-item sidebar-item-panel sidebar-item-team"
-          style={{ cursor: 'pointer', position: 'relative' }}
-          onClick={onTeamsOpen}
-          title={pendingInvitesCount > 0 ? `Team — ${pendingInvitesCount} pending invite${pendingInvitesCount === 1 ? '' : 's'}` : 'Team'}
-        >
-          <span className="sidebar-icon" style={{ position: 'relative' }}>
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <circle cx="6" cy="5" r="2" stroke="currentColor" strokeWidth="1.3"/>
-              <path d="M2 13c0-2.21 1.79-4 4-4s4 1.79 4 4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-              <circle cx="11.5" cy="5.5" r="1.5" stroke="currentColor" strokeWidth="1.2" opacity="0.7"/>
-              <path d="M13.5 12.5c0-1.38-.9-2.55-2.14-2.87" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" opacity="0.7"/>
-            </svg>
-            {pendingInvitesCount > 0 && (
-              <span
-                aria-label={`${pendingInvitesCount} pending invites`}
-                style={{
-                  position: 'absolute',
-                  top: -4,
-                  right: -6,
-                  minWidth: 14,
-                  height: 14,
-                  padding: '0 3px',
-                  borderRadius: 7,
-                  background: '#EF4444',
-                  color: '#fff',
-                  fontSize: 9,
-                  fontWeight: 700,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  lineHeight: 1,
-                  boxShadow: '0 0 0 1.5px var(--bg-primary, #0a0a0a)',
-                }}
+            <div className={`sidebar-more${moreOpen ? ' open' : ''}`}>
+              <button
+                className="sidebar-item sidebar-more-toggle"
+                onClick={() => setMoreOpen(v => !v)}
+                title={moreOpen ? 'Hide more tools' : 'Show more tools'}
               >
-                {pendingInvitesCount > 9 ? '9+' : pendingInvitesCount}
-              </span>
-            )}
-          </span>
-          <span className="sidebar-label">Team</span>
-        </div>
+                <span className="sidebar-icon">
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style={{ transform: moreOpen ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 150ms ease' }}>
+                    <path d="M6 4l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                </span>
+                <span className="sidebar-label">More tools</span>
+              </button>
 
-        <div
-          className="sidebar-item sidebar-item-panel sidebar-item-team"
-          style={{ cursor: 'pointer' }}
-          onClick={onMyReposOpen}
-          title="My Repos"
-        >
-          <span className="sidebar-icon">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <circle cx="4" cy="4" r="1.5" stroke="currentColor" strokeWidth="1.3"/>
-              <circle cx="12" cy="4" r="1.5" stroke="currentColor" strokeWidth="1.3"/>
-              <circle cx="4" cy="12" r="1.5" stroke="currentColor" strokeWidth="1.3"/>
-              <path d="M4 5.5v5M5.5 4h5M4 5.5c2 0 4 1 4 3.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-            </svg>
-          </span>
-          <span className="sidebar-label">My Repos</span>
-        </div>
-
-        <div
-          className="sidebar-item sidebar-item-panel sidebar-item-team"
-          style={{ cursor: 'pointer' }}
-          onClick={onIntegrationsOpen}
-          title="Integrations"
-        >
-          <span className="sidebar-icon">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <rect x="2" y="2" width="12" height="12" rx="3.5" stroke="currentColor" strokeWidth="1.4" />
-              <path d="M5.5 8h5M8 5.5v5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-            </svg>
-          </span>
-          <span className="sidebar-label">Integrations</span>
-        </div>
-
-        <div
-          className="sidebar-item sidebar-item-panel sidebar-item-team"
-          style={{ cursor: 'pointer' }}
-          onClick={onGraphBoardOpen}
-          title="Orchestration"
-        >
-          <span className="sidebar-icon">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <circle cx="3.5" cy="8" r="1.6" stroke="currentColor" strokeWidth="1.3" />
-              <circle cx="12.5" cy="4" r="1.6" stroke="currentColor" strokeWidth="1.3" />
-              <circle cx="12.5" cy="12" r="1.6" stroke="currentColor" strokeWidth="1.3" />
-              <path d="M5 7l6-2.3M5 9l6 2.3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-            </svg>
-          </span>
-          <span className="sidebar-label">Orchestration</span>
-        </div>
-
-        {/* ── 4. MORE TOOLS (desplegable) ─────────────────── */}
-        <div className={`sidebar-more${moreOpen ? ' open' : ''}`}>
-          <button
-            className="sidebar-item sidebar-more-toggle"
-            onClick={() => setMoreOpen(v => !v)}
-            title={moreOpen ? 'Hide more tools' : 'Show more tools'}
-          >
-            <span className="sidebar-icon">
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style={{ transform: moreOpen ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 150ms ease' }}>
-                <path d="M6 4l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-            </span>
-            <span className="sidebar-label">More tools</span>
-          </button>
-
-          {moreOpen && (
-            <div className="sidebar-more-list">
-              {LayoutItem}
-              {/* Filtro de panes — junto al layout selector: ambos son
-                  controles de vista del workspace (pedido de Bautista). */}
-              {onPaneFilterChange && (
-                <PaneFilterControl
-                  panes={paneFilterPanes ?? []}
-                  filter={paneFilter ?? 'all'}
-                  onChange={onPaneFilterChange}
-                  expanded={expanded}
-                />
+              {moreOpen && (
+                <div className="sidebar-more-list">
+                  {ToolsListContent}
+                </div>
               )}
-              {SnippetsItem}
-              {WorkspacesItem}
-              {MCPItem}
-              {VoiceItem}
-              {BroadcastItem}
-              {JoinTerminalItem}
-              {ConversationHistoryItem}
-              {CommandHistoryItem}
             </div>
-          )}
-        </div>
+          </>
+        )}
 
         {/* ── 4.5. LAYOUT SELECTOR — trigger now lives inside "More tools"
              (see LayoutItem). Only the popover renders here (position:fixed,
@@ -801,6 +868,12 @@ export default function Sidebar({
           </button>
         )}
       </div>{/* /.sidebar-scroll */}
+
+      {/* Personal — the one door for repos, teams and pending invites. Lives
+          outside the scroll area and the tabs so it renders the same way in
+          every mode (expanded/collapsed, repo/Hub sidebar) directly above
+          the user row. */}
+      {PersonalItem}
 
       {/* User menu — hidden while loading to avoid flash */}
       {!profileLoading && (

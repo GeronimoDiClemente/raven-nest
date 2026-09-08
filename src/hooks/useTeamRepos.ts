@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { PROVIDER_HOST } from '../components/ProviderAvatar'
 
@@ -35,8 +35,13 @@ export function useTeamRepos(teamId: string | null) {
   const [loading, setLoading] = useState(false)
   const [userLocalPaths, setUserLocalPaths] = useState<Record<string, string>>({})
 
+  // The id whose fetch is allowed to win. Switching teams mid-flight must not
+  // let the slower response overwrite the newer team's list.
+  const inFlightTeamId = useRef<string | null>(null)
+
   const refresh = useCallback(async () => {
     if (!teamId) { setRepos([]); setUserLocalPaths({}); return }
+    inFlightTeamId.current = teamId
     setLoading(true)
 
     const [reposRes, localPaths] = await Promise.all([
@@ -47,6 +52,7 @@ export function useTeamRepos(teamId: string | null) {
         .order('added_at', { ascending: false }),
       window.localPaths.getAll(),
     ])
+    if (inFlightTeamId.current !== teamId) return
     if (reposRes.error) {
       console.warn('[useTeamRepos.refresh] select team_repos failed; keeping previous state', { teamId }, reposRes.error)
       setLoading(false)
@@ -104,7 +110,13 @@ export function useTeamRepos(teamId: string | null) {
 
   const removeRepo = useCallback(async (repoId: string) => {
     const { error } = await supabase.from('team_repos').delete().eq('id', repoId)
-    if (error) console.warn('[useTeamRepos.removeRepo] delete failed', { repoId }, error)
+    if (error) {
+      // The row survived (RLS rejected it, network died…), so the repo is still
+      // in the list. Forgetting the local path here would leave it there with
+      // its folder unlinked and no way back other than re-picking it by hand.
+      console.warn('[useTeamRepos.removeRepo] delete failed', { repoId }, error)
+      return
+    }
     await window.localPaths.delete(repoId)
     await refresh()
   }, [refresh])

@@ -52,8 +52,6 @@ export function aAccountSummary(
     // El dato con el que se calculan DAU/WAU/MAU y con el que se compara la
     // paridad contra raven-admin antes de apagarlo (Task 10 del plan).
     last_activity_at: lastActivityAt,
-    // Concepto de AiraMed que el core exige. Nest no tiene voz.
-    voz_suspendida: false,
   }
 }
 

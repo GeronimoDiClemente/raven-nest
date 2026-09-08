@@ -51,7 +51,7 @@ import { dropTabBuffer } from './lib/editor-buffer-handoff'
 import UpgradeModal from './components/UpgradeModal'
 import MemoryHub from './components/MemoryHub'
 import TeamsWorkspace from './components/TeamsWorkspace'
-import MyReposPanel from './components/MyReposPanel'
+import PersonalWorkspace, { type Section as PersonalWorkspaceSection } from './components/PersonalWorkspace'
 import { IntegrationsHub } from './components/IntegrationsHub'
 import { GraphBoard } from './components/GraphBoard'
 import { useGitHub } from './hooks/useGitHub'
@@ -252,7 +252,8 @@ export default function App() {
   const [showUpgrade, setShowUpgrade] = useState(false)
   const [teamsOpen, setTeamsOpen] = useState(false)
   const { count: pendingInvitesCount, refresh: refreshPendingInvitesCount } = usePendingInvitesCount()
-  const [myReposOpen, setMyReposOpen] = useState(false)
+  const [personalOpen, setPersonalOpen] = useState(false)
+  const [personalSection, setPersonalSection] = useState<PersonalWorkspaceSection>('repos')
   const [integrationsHubOpen, setIntegrationsHubOpen] = useState(false)
   const [graphBoardOpen, setGraphBoardOpen] = useState(false)
   const [showJoinViewer, setShowJoinViewer] = useState(false)
@@ -972,7 +973,7 @@ export default function App() {
     const folderName = repoFullName.includes('/') ? repoFullName.split('/').pop()! : repoFullName
     setTabs(prev => [...prev, { id, name: folderName, layoutId: '1', panes: [], repoPath: localPath }])
     setActiveTabId(id)
-    setMyReposOpen(false)
+    setPersonalOpen(false)
     setTeamsOpen(false)
   }, [])
 
@@ -1821,12 +1822,16 @@ export default function App() {
         trialDaysLeft={trialDaysLeft}
         profileLoading={profileLoading}
         onUpgrade={() => setShowUpgrade(true)}
-        onTeamsOpen={() => {
-          if (!planLimits.memoryTeamShare) { setShowUpgrade(true); return }
-          setTeamsOpen(true)
+        onPersonalOpen={() => {
+          if (!planLimits.allowMyRepos) { setShowUpgrade(true); return }
+          // Reset to 'repos': personalSection can be left on 'pendings' by
+          // the invites redirect (onOpenPersonalInvites below). Without this,
+          // the next normal open of Personal would show the stale invites
+          // list instead of repos, for the rest of the session.
+          setPersonalSection('repos')
+          setPersonalOpen(true)
         }}
         pendingInvitesCount={pendingInvitesCount}
-        onMyReposOpen={() => setMyReposOpen(true)}
         // TODO: gate behind plan tier if needed
         onIntegrationsOpen={() => setIntegrationsHubOpen(true)}
         onGraphBoardOpen={() => setGraphBoardOpen(true)}
@@ -2093,23 +2098,27 @@ export default function App() {
           onClose={() => { setTeamsOpen(false); refreshPendingInvitesCount() }}
           onLoad={loadWorkspace}
           onRequireUpgrade={() => setShowUpgrade(true)}
-          onOpenRepoTerminal={openRepoInNewTab}
           onPendingInvitesChange={refreshPendingInvitesCount}
           onStartTutorial={() => setTutorialTour('teams')}
+          onOpenPersonalInvites={() => { setPersonalSection('pendings'); setTeamsOpen(false); setPersonalOpen(true) }}
         />
       )}
 
-      {myReposOpen && (
-        <MyReposPanel
-          onClose={() => setMyReposOpen(false)}
+      {personalOpen && (
+        <PersonalWorkspace
+          onClose={() => setPersonalOpen(false)}
           githubToken={githubToken}
           githubLogin={githubLogin}
           onConnectGitHub={connectGitHub}
           onOpenRepoTerminal={openRepoInNewTab}
+          onOpenTeamWorkspace={() => setTeamsOpen(true)}
+          allowTeam={planLimits.allowTeam}
           onStartTutorial={() => setTutorialTour('my-repos')}
           activeRepoPath={activeCellRepoPath ?? null}
           focusedPaneId={focusedPaneId}
-          onOpenWorktree={(path, initialInput, worker) => { setMyReposOpen(false); openWorktreeWithWorker(path, initialInput, worker) }}
+          onOpenWorktree={(path, initialInput, worker) => { setPersonalOpen(false); openWorktreeWithWorker(path, initialInput, worker) }}
+          initialSection={personalSection}
+          onPendingInvitesChange={refreshPendingInvitesCount}
         />
       )}
 

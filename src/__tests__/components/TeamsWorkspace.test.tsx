@@ -1,17 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { describe, it, expect, vi } from 'vitest'
+import { render, screen } from '@testing-library/react'
 import TeamsWorkspace from '../../components/TeamsWorkspace'
-
-const teamRepo = {
-  id: 'tr-1',
-  team_id: 't-1',
-  repo_full_name: 'org/repo',
-  repo_url: 'https://github.com/org/repo',
-  added_by: 'u-1',
-  added_at: '2026-05-20T00:00:00Z',
-  provider: 'github' as const,
-  local_path: null,
-}
 
 vi.mock('../../hooks/useTeam', () => ({
   useTeam: () => ({
@@ -29,9 +18,9 @@ vi.mock('../../hooks/useTeam', () => ({
 
 vi.mock('../../hooks/useTeamRepos', () => ({
   useTeamRepos: () => ({
-    repos: [teamRepo],
+    repos: [],
     loading: false,
-    userLocalPaths: { 'tr-1': 'C:/dev/repo' },
+    userLocalPaths: {},
     refresh: vi.fn(),
     addRepo: vi.fn(),
     updateUserLocalPath: vi.fn(),
@@ -47,11 +36,9 @@ vi.mock('../../hooks/useSharedMcpConfigs', () => ({ useSharedMcpConfigs: () => (
 vi.mock('../../hooks/useGitHub', () => ({ useGitHub: () => ({ githubLogin: 'me', githubToken: 't', isConnected: true, connectGitHub: vi.fn() }) }))
 vi.mock('../../hooks/useGitlab', () => ({ useGitlab: () => ({ gitlabLogin: null, gitlabToken: null, isConnected: false, connectGitlab: vi.fn() }) }))
 vi.mock('../../hooks/useGitHubNotifications', () => ({ useGitHubNotifications: () => ({ notifications: [], unreadCount: 0, markAsRead: vi.fn() }) }))
-vi.mock('../../hooks/useTeamChat', () => ({ useTeamChat: () => ({}) }))
+vi.mock('../../hooks/useTeamChat', () => ({ useTeamChat: () => ({ timeline: [], reactions: {}, loading: false, error: null, postMessage: vi.fn(), deleteMessage: vi.fn(), toggleReaction: vi.fn() }) }))
 vi.mock('../../hooks/useTeamsKeyboard', () => ({ useTeamsKeyboard: () => {} }))
 
-// ProviderAvatar is referenced in the Clone/Link dialog but not exported from ProviderAvatar.tsx.
-// Mock the module to provide all names the component uses.
 vi.mock('../../components/ProviderAvatar', () => ({
   ProviderAvatarPill: () => null,
   ProviderIcon: () => null,
@@ -68,30 +55,30 @@ vi.mock('../../lib/supabase', () => ({
   },
 }))
 
-describe('TeamsWorkspace.handleOpenTerminal regression', () => {
-  beforeEach(() => {
-    ;(globalThis as unknown as { window: Window }).window.pathUtils = { exists: vi.fn().mockResolvedValue(true) } as never
-    ;(globalThis as unknown as { window: Window }).window.git = {
-      getRemoteUrl: vi.fn().mockRejectedValue(new Error('git missing')),
-    } as never
+function renderWorkspace() {
+  render(
+    <TeamsWorkspace onClose={vi.fn()} />,
+  )
+}
+
+describe('TeamsWorkspace nav', () => {
+  it('no longer offers the sections that moved to Personal', () => {
+    renderWorkspace()
+    for (const label of [/^Activity$/, /^Repos$/, /^Issues$/, /^Pendings$/]) {
+      expect(screen.queryByRole('button', { name: label })).not.toBeInTheDocument()
+    }
   })
 
-  it('opens the Clone/Link dialog when getRemoteUrl throws (does not crash)', async () => {
-    const onOpenRepoTerminal = vi.fn()
-    render(
-      <TeamsWorkspace
-        onClose={vi.fn()}
-        onOpenRepoTerminal={onOpenRepoTerminal}
-      />,
-    )
-    fireEvent.click(await screen.findByRole('button', { name: /repos/i }))
-    const terminalBtns = await screen.findAllByRole('button', { name: /terminal/i })
-    // Pick the repo-action "Open terminal" button (not the bottom panel toggle)
-    const terminalBtn = terminalBtns.find(b => b.classList.contains('repo-action-btn')) ?? terminalBtns[0]
-    fireEvent.click(terminalBtn)
-    await waitFor(() => {
-      expect(screen.getByText('org/repo')).toBeInTheDocument()
-    })
-    expect(onOpenRepoTerminal).not.toHaveBeenCalled()
+  it('keeps the collaboration sections', () => {
+    renderWorkspace()
+    for (const label of ['Chat', 'Members', 'Stats', 'Snippets', 'Workspaces', 'MCP Servers']) {
+      expect(screen.getByRole('button', { name: label })).toBeInTheDocument()
+    }
+  })
+
+  it('defaults to the Chat section on mount', () => {
+    renderWorkspace()
+    expect(screen.getByRole('button', { name: 'Chat' })).toHaveClass('active')
+    expect(screen.getByRole('button', { name: 'Members' })).not.toHaveClass('active')
   })
 })

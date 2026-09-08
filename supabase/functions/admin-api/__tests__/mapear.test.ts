@@ -44,8 +44,11 @@ describe('aAccountSummary', () => {
     expect(aAccountSummary(USUARIO, p, null).trial_ends_at).toBe('2026-02-16T00:00:00.000Z')
   })
 
-  it('voz_suspendida siempre false: es un campo de AiraMed', () => {
-    expect(aAccountSummary(USUARIO, PERFIL, SUB).voz_suspendida).toBe(false)
+  // Nest no tiene voz. Mandaba `voz_suspendida: false` fijo porque el schema del
+  // back-office exigia el campo; desde que es opcional, NO mandarlo es la forma
+  // de decir que el concepto no aplica, y por eso su tabla no dibuja la columna.
+  it('no manda voz_suspendida: es un campo de AiraMed y Nest no tiene voz', () => {
+    expect('voz_suspendida' in aAccountSummary(USUARIO, PERFIL, SUB)).toBe(false)
   })
 
   // El dato de `user_last_activity` con el que se calculan DAU/WAU/MAU y con

@@ -17,7 +17,7 @@ interface GitHubEvent {
 }
 
 interface DailyStandupProps {
-  repos: Array<{ repo_full_name: string }>
+  repoNames: string[]
   githubToken: string | null
   // H6: To correctly attribute GitHub events to team members, callers SHOULD
   // pass `github_login` per member. The previous code matched `member.user_id`
@@ -190,7 +190,7 @@ function SkeletonStandup() {
   )
 }
 
-export default function DailyStandup({ repos, githubToken, teamMembers }: DailyStandupProps) {
+export default function DailyStandup({ repoNames, githubToken, teamMembers }: DailyStandupProps) {
   const [actorMap, setActorMap] = useState<Map<string, ActorSummary>>(new Map())
   const [pendingPRs, setPendingPRs] = useState(0)
   const [loading, setLoading] = useState(false)
@@ -200,7 +200,7 @@ export default function DailyStandup({ repos, githubToken, teamMembers }: DailyS
   const dateLabel = formatDateEn(new Date())
 
   useEffect(() => {
-    if (!githubToken || repos.length === 0) return
+    if (!githubToken || repoNames.length === 0) return
 
     let alive = true
     setLoading(true)
@@ -209,8 +209,8 @@ export default function DailyStandup({ repos, githubToken, teamMembers }: DailyS
     const load = async () => {
       try {
         const results = await Promise.allSettled(
-          repos.map(r =>
-            fetch(`https://api.github.com/repos/${r.repo_full_name}/events?per_page=30`, {
+          repoNames.map(name =>
+            fetch(`https://api.github.com/repos/${name}/events?per_page=30`, {
               headers: {
                 Authorization: `Bearer ${githubToken}`,
                 Accept: 'application/vnd.github.v3+json',
@@ -252,7 +252,7 @@ export default function DailyStandup({ repos, githubToken, teamMembers }: DailyS
 
     load()
     return () => { alive = false }
-  }, [repos, githubToken])
+  }, [repoNames, githubToken])
 
   const standupText = buildStandupText(actorMap, teamMembers, pendingPRs, dateLabel)
 
@@ -273,10 +273,10 @@ export default function DailyStandup({ repos, githubToken, teamMembers }: DailyS
     )
   }
 
-  if (repos.length === 0) {
+  if (repoNames.length === 0) {
     return (
       <div className="feed-empty-state">
-        <p className="feed-empty-text">Add repos to the team</p>
+        <p className="feed-empty-text">Add repos to see the standup</p>
       </div>
     )
   }
