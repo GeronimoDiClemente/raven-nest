@@ -3296,8 +3296,8 @@ function collectBranchStates(worktreePath: string, branches: string[]): Record<s
   let worktreeOutput = ''
   let gitDisponible = false
   try {
-    branchOutput = execFileSync('git', ['branch', '--format=%(refname:short)'], { cwd: worktreePath, encoding: 'utf8' })
-    worktreeOutput = execFileSync('git', ['worktree', 'list', '--porcelain'], { cwd: worktreePath, encoding: 'utf8' })
+    branchOutput = execFileSync('git', ['branch', '--format=%(refname:short)'], { cwd: worktreePath, encoding: 'utf8', timeout: 5000 })
+    worktreeOutput = execFileSync('git', ['worktree', 'list', '--porcelain'], { cwd: worktreePath, encoding: 'utf8', timeout: 5000 })
     gitDisponible = true
   } catch {
     // Sin git no hay estado que informar: parseBranchStates devuelve `sin-worktree` para
@@ -3335,16 +3335,16 @@ async function runTeamThreadRegenerationLocked(
 
   const rootDir = teamThreadRootDir(worktreePath)
 
-  if (!settings.enabled) {
-    // Apagar el toggle borra la carpeta local y saca el puntero, pero NO des-promueve lo
-    // que ya se compartio: eso es una accion explicita y aparte (spec §8.2).
-    rmSync(rootDir, { recursive: true, force: true })
-    removeAgentsPointer(worktreePath)
-    return { ok: true }
-  }
-
   const { reader, close } = openReadonlyReader(ravenHome(), userId)
   try {
+    if (!settings.enabled) {
+      // Apagar el toggle borra la carpeta local y saca el puntero, pero NO des-promueve lo
+      // que ya se compartio: eso es una accion explicita y aparte (spec §8.2).
+      rmSync(rootDir, { recursive: true, force: true })
+      removeAgentsPointer(worktreePath)
+      return { ok: true }
+    }
+
     const records = reader.listRecords(projectKey)
     const project = reader.listProjects().find((p) => p.projectKey === projectKey) ?? null
 
