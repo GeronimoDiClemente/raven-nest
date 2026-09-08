@@ -57,10 +57,7 @@ vi.mock('../../lib/supabase', () => ({
 
 function renderWorkspace() {
   render(
-    <TeamsWorkspace
-      onClose={vi.fn()}
-      onOpenRepoTerminal={vi.fn()}
-    />,
+    <TeamsWorkspace onClose={vi.fn()} />,
   )
 }
 

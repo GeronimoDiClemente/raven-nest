@@ -276,7 +276,7 @@ export default function DailyStandup({ repoNames, githubToken, teamMembers }: Da
   if (repoNames.length === 0) {
     return (
       <div className="feed-empty-state">
-        <p className="feed-empty-text">Add repos to the team</p>
+        <p className="feed-empty-text">Add repos to see the standup</p>
       </div>
     )
   }

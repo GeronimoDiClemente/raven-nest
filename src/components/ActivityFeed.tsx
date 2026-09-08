@@ -185,7 +185,7 @@ export default function ActivityFeed({ repoNames, githubToken, teamMembers: _tea
   if (!repoNamesKey) {
     return (
       <div className="feed-empty-state">
-        <p className="feed-empty-text">Add repos to your team to see activity</p>
+        <p className="feed-empty-text">Add repos to see activity</p>
       </div>
     )
   }

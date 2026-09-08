@@ -26,7 +26,6 @@ interface TeamsWorkspaceProps {
   onClose: () => void
   onLoad?: (ws: Workspace) => void
   onRequireUpgrade?: () => void
-  onOpenRepoTerminal: (repoFullName: string, localPath: string) => void
   onPendingInvitesChange?: () => void
   /** When provided, the header shows a "?" button that launches the Teams tutorial. */
   onStartTutorial?: () => void
@@ -41,7 +40,7 @@ const PRESENCE_COLORS = [
   '#00CCCC', '#FF2D78', '#4455FF', '#88FF00',
 ]
 
-export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal, onPendingInvitesChange, onStartTutorial, onOpenPersonalInvites }: TeamsWorkspaceProps) {
+export default function TeamsWorkspace({ onClose, onLoad, onPendingInvitesChange, onStartTutorial, onOpenPersonalInvites }: TeamsWorkspaceProps) {
   const [section, setSection] = useState<WorkspaceSection>('chat')
   const [acceptError, setAcceptError] = useState<string | null>(null)
   const [acceptingId, setAcceptingId] = useState<string | null>(null)

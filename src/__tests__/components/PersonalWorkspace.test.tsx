@@ -286,4 +286,15 @@ describe('PersonalWorkspace', () => {
     })
     expect(screen.queryByText(/Querés|carpeta/i)).not.toBeInTheDocument()
   })
+
+  // ActivityFeed and DailyStandup serve both scopes now; their empty states
+  // still told a solo user to add repos "to your team".
+  it('does not talk about a team in the personal empty states', () => {
+    scopedState.repos = []
+    render(<PersonalWorkspace {...props} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Activity' }))
+    expect(screen.getByText('Add repos to see activity')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Standup' }))
+    expect(screen.getByText('Add repos to see the standup')).toBeInTheDocument()
+  })
 })

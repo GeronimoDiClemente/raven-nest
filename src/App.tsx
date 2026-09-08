@@ -1965,7 +1965,6 @@ export default function App() {
           onClose={() => { setTeamsOpen(false); refreshPendingInvitesCount() }}
           onLoad={loadWorkspace}
           onRequireUpgrade={() => setShowUpgrade(true)}
-          onOpenRepoTerminal={openRepoInNewTab}
           onPendingInvitesChange={refreshPendingInvitesCount}
           onStartTutorial={() => setTutorialTour('teams')}
           onOpenPersonalInvites={() => { setPersonalSection('pendings'); setTeamsOpen(false); setPersonalOpen(true) }}
