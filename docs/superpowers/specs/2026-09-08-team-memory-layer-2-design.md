@@ -411,6 +411,9 @@ toggle, y el techo del índice.
 - El grafo con color por estado y frescura, local por default.
 - `synchronous = FULL`.
 - Checkpoints por turno.
+- **El briefing de arranque entrega el hilo del equipo** (§10.1).
+- **El puntero desde `AGENTS.md` / `CLAUDE.md`** (§10.2).
+- **Los roles se aplican al hilo** (§10.3).
 
 **No entra:**
 
@@ -420,14 +423,107 @@ toggle, y el techo del índice.
   equipo crece a miles de entradas, hay que revisarla.
 - Editar el hilo desde Nest y que vuelva al store. Sigue siendo one-way, igual que el
   vault.
-- Leer `AGENTS.md` (ver §12).
+- Un feed de actividad propio. `ActivityFeed.tsx` es de eventos de GitHub y no aplica. El
+  índice ordenado por recencia más el grafo coloreado cubren el caso; si al usarlo se ve
+  que no alcanza, es una feature aparte y chica.
+
+### 10.1 El briefing de arranque entrega el hilo
+
+`memory-provisioner.ts:23` ya registra `['SessionStart', 'Stop', 'PreCompact']` en los
+cinco CLIs. El mecanismo está; lo que falta es que `session-start` entregue **el hilo del
+equipo** y no sólo lo personal.
+
+Presupuesto: el índice, no las notas (§4.3). Las notas se leen on-demand, que es el patrón
+híbrido que usan Claude Code y Basic Memory y el único que no se degrada al crecer.
+
+En opencode no hay inyección posible (medido en el spike): ahí el hilo llega por el archivo
+en disco y por el `context[]` de la compactación, que es el único punto de inyección real
+que tiene.
+
+### 10.2 El puntero desde `AGENTS.md` / `CLAUDE.md`
+
+Cierra el pendiente que §12 dejaba abierto, y es la línea de código con mejor relación
+costo/beneficio de toda la spec.
+
+`AGENTS.md` está bajo la Linux Foundation, lo usan +60k repos y lo soportan ~25
+herramientas. Zed llega a leer `.cursorrules`, `.windsurfrules`, `.clinerules` y
+`CLAUDE.md` como fallbacks.
+
+Nest agrega **una línea idempotente** al `AGENTS.md` del repo (o al `CLAUDE.md` si es el
+que existe) apuntando a `.nest/team/_index.md`. Con eso el hilo pasa a ser alcanzable por
+**Cursor, Codex, Copilot, Zed, Aider y las demás**, no sólo por los CLIs donde nosotros
+provisionamos hooks.
+
+Reglas, porque este archivo es del usuario y está versionado:
+
+- **Una sola línea, con marcador**, para poder reconocerla y actualizarla sin tocar nada
+  más. Mismo criterio que `excluirNestDelRepo`.
+- **Idempotente**: si ya está, no se duplica.
+- **Best-effort**: si el archivo no existe o no se puede escribir, no se crea drama y el
+  hilo se escribe igual.
+- **Se puede apagar**, junto al toggle del proyecto. Es el único artefacto de esta feature
+  que toca un archivo versionado del usuario, y esa asimetría merece un interruptor.
+
+Esto mitiga parcialmente el riesgo 2 (§11): no garantiza obediencia, pero elimina el caso
+"el agente ni sabía que el archivo existía".
+
+### 10.3 Los roles ya existen y se aplican
+
+No hay que construirlos: `team_memberships.role` existe desde la migración
+`004_team_scope.sql`, `devices.ts` los sincroniza y `useTeam.ts` ya distingue `leader`.
+
+Lo que Layer 2 agrega es **usarlos**: quién puede promover al hilo compartido y quién sólo
+lo lee. El default conservador (§3, decisión 2) no cambia; los roles deciden quién puede
+ampliarlo.
+
+### 10.4 Contra el competidor más cercano — pero es otra forma, no la misma peor
+
+**Primero el encuadre, porque la tabla de abajo se puede leer mal.**
+
+Basic Memory es una **base de conocimiento**: entidades, observaciones categorizadas
+(`[method]`, `[fact]`), relaciones semánticas. Contesta *"¿qué sabemos sobre X?"*.
+
+Layer 2 es un **registro de trabajo**: qué pasó, en qué rama, quién y cuándo. Contesta
+*"¿qué viene pasando y de quién es?"*.
+
+Son dos formas distintas para dos preguntas distintas, y **el dolor que originó esta spec
+es el segundo**: nadie se manda una base de conocimiento por mano; la gente se manda
+handoffs. La tabla sirve como checklist de que no nos falte nada obvio — **no como una
+lista de cosas que alcanzar**. Tomar de un competidor lo que funciona es sumar; perseguir
+su cancha es otra cosa y no es lo que estamos haciendo.
+
+Sobre calidad de ejecución tampoco hay motivo para asumir que estamos atrás: el motor de
+notas que Layer 2 reusa ya tiene escritura atómica (`tmp` + `rename`), manifest con
+hash-compare y detección de ediciones, preservación de los bytes del usuario en
+`_conflicts/`, tombstones, slugs estables en NTFS/APFS/ext4 y redacción — entregado y con
+tests en Task 5.
+
+La comparación, con lo verificado en el código de este repo:
+
+| | Basic Memory Teams | Nest Layer 2 |
+|---|---|---|
+| Markdown en disco, wikilinks, Obsidian | sí | sí |
+| Workspace de org separado del personal | sí | sí (Layer 1) |
+| Roles | sí | sí, ya en `team_memberships` |
+| Historial de versiones | sí | sí (`mutation_log` + el hilo mismo) |
+| Briefing al inicio de sesión | sí, sólo Claude Code | sí, **5 CLIs** |
+| Checkpoints pre-compactación | sí | sí |
+| Feed de actividad | sí | índice + grafo (§10) |
+| **Write-back automático de agentes** | **anunciado, no entregado** | **construido** |
+| **Por rama / worktree** | no | sí |
+| **Autor y fecha por entrada** | no | sí |
+
+El hilo con autor y fecha **es** el historial de versiones: entradas que no se reescriben
+nunca (§6.4). No hace falta construir un visor de versiones aparte.
 
 ## 11. Riesgos
 
 1. **Basic Memory Teams llega primero.** Es el riesgo competitivo real y no es hipotético:
-   tienen todo salvo el write-back automático, y lo anunciaron. Mitigación: nuestro
-   diferencial no es el formato (que ellos ya tienen mejor pulido) sino la captura pasiva
-   ya construida y la membresía con autorización fila por fila.
+   anunciaron el write-back automático de agentes, que es la pieza que hoy no tienen.
+   Mitigación: no compartimos forma con ellos (§10.4) — son una base de conocimiento y
+   nosotros un registro de trabajo por rama —, y las piezas que nos diferencian (captura
+   pasiva, membresía con autorización fila por fila, rama y autor por entrada) ya están
+   construidas, no anunciadas.
 2. **El agente ignora el archivo.** Es el modo de falla universal de la categoría: Claude
    Code #19471, Codex #2927/#5093/#6502, Continue #6905 — y Codex además trunca a 32 KB
    sin avisar. Inyectar garantiza entrega, no obediencia. Mitigación parcial: índice corto
@@ -439,14 +535,18 @@ toggle, y el techo del índice.
    no técnico: si se vende como onboarding, decepciona al primer equipo que lo use en
    serio.
 
-## 12. Pendientes que esto NO resuelve
+## 12. Los dos que quedaban abiertos, cerrados
 
-- **`AGENTS.md`**: está bajo la Linux Foundation, lo usan +60k repos y lo soportan ~25
-  herramientas (Zed llega a leer `.cursorrules`, `.windsurfrules`, `.clinerules` y
-  `CLAUDE.md` como fallbacks). Si Nest no lo lee, queda afuera de un estándar de facto. No
-  es parte de Layer 2, pero es un pendiente real y conviene que no se pierda.
-- **El disparador para mover el dibujado al servidor**: hoy lo dibuja cada Nest, local,
-  porque la mitad del contenido (ramas, worktrees, paths) sólo lo sabe la máquina y porque
-  el formato no debe volverse deuda versionada server-side. **El día que el contexto del
-  equipo tenga que verse sin Nest instalado —una web, alguien no técnico—, lo compone el
-  servidor.** Esa es la condición, escrita de antemano.
+**`AGENTS.md` — CERRADO, entra en la v1.** Estaba anotado como "fuera de alcance". Se
+movió a §10.2: Nest agrega una línea idempotente apuntando a `.nest/team/_index.md`, con
+marcador, best-effort y apagable. Es lo que hace al hilo alcanzable por las ~25
+herramientas que soportan el estándar y no sólo por los CLIs donde provisionamos hooks.
+
+**Quién dibuja el archivo — CERRADO, con su condición de reapertura escrita.** Lo dibuja
+cada Nest, local, por dos razones que no son "offline": la mitad del contenido (ramas,
+worktrees, nombres de carpetas) sólo lo sabe la máquina, y componer markdown en el
+servidor convertiría el formato en deuda versionada server-side, que hoy no existe.
+
+No es un pendiente: es una decisión con disparador. **El día que el contexto del equipo
+tenga que verse sin Nest instalado —una web, alguien no técnico—, lo compone el
+servidor.** Escrito de antemano para que ese día sea una ejecución y no una discusión.
