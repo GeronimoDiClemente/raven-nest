@@ -281,6 +281,20 @@ export interface AutomationsBridge {
   delete: (id: string) => Promise<boolean>
 }
 
+// === Hilo del equipo — espejo de ThreadIndexBranch/EstadoRama de
+// electron/integrations/team-thread-note.ts (src/ nunca importa de electron/, mismo
+// patron que arriba). Si cambia alla, cambia aca. ===
+export type TeamThreadEstado = 'activa' | 'sin-worktree' | 'cerrada'
+
+export interface TeamThreadBranch {
+  slug: string
+  branch: string
+  estado: TeamThreadEstado
+  ultimoAutor: string
+  ultimaEntrada: number
+  entradas: number
+}
+
 // === @Nest desde Slack (H7 Motor 5) — espejo de SlackMention/SlackAction de
 // electron/integrations/slack-envelopes.ts (src/ nunca importa de electron/) ===
 export interface SlackMentionDTO {
