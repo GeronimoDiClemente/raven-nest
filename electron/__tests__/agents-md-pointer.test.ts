@@ -71,33 +71,50 @@ describe('removeAgentsPointer', () => {
     expect(readFileSync(join(wt, 'AGENTS.md'), 'utf8')).toBe(original)
   })
 
-  it('el round-trip funciona tambien con archivo sin newline final', () => {
+  it('el round-trip agrega un newline final a archivos sin newline (normalizacion)', () => {
     const original = '# Reglas'
+    writeFileSync(join(wt, 'AGENTS.md'), original)
+    ensureAgentsPointer(wt)
+    removeAgentsPointer(wt)
+    expect(readFileSync(join(wt, 'AGENTS.md'), 'utf8')).toBe(original + '\n')
+  })
+
+  it('NO se come una linea en blanco final del usuario', () => {
+    const original = 'A\n\n'
     writeFileSync(join(wt, 'AGENTS.md'), original)
     ensureAgentsPointer(wt)
     removeAgentsPointer(wt)
     expect(readFileSync(join(wt, 'AGENTS.md'), 'utf8')).toBe(original)
   })
 
-  it('citar el marcador en un bloque de codigo no impide agregar el puntero real', () => {
-    const conCita = '# Instrucciones\n\n```\n<!-- nest:team-thread --> esto es un ejemplo\n```\n'
+  it('NO se come multiples lineas en blanco finales del usuario', () => {
+    const original = 'A\n\n\n'
+    writeFileSync(join(wt, 'AGENTS.md'), original)
+    ensureAgentsPointer(wt)
+    removeAgentsPointer(wt)
+    expect(readFileSync(join(wt, 'AGENTS.md'), 'utf8')).toBe(original)
+  })
+
+  it('citar el marcador dentro de un bloque no lo confunde con el puntero real', () => {
+    // El marcador aqui esta indentado/precedido, no al inicio de la linea
+    const conCita = '# Instrucciones\n\n```\nEste es un ejemplo: <!-- nest:team-thread --> referencia\n```\n'
     writeFileSync(join(wt, 'AGENTS.md'), conCita)
     expect(ensureAgentsPointer(wt)).toBe('written')
 
     const texto = readFileSync(join(wt, 'AGENTS.md'), 'utf8')
-    expect(texto).toContain('esto es un ejemplo')
+    expect(texto).toContain('Este es un ejemplo:')
     const count = (texto.match(/<!-- nest:team-thread -->/g) || []).length
     expect(count).toBe(2)
   })
 
   it('remove no elimina citas del usuario del marcador, solo la linea del puntero', () => {
-    const conCita = '# Instrucciones\n\n```\n<!-- nest:team-thread --> esto es un ejemplo\n```\n'
+    const conCita = '# Instrucciones\n\n```\nEste es un ejemplo: <!-- nest:team-thread --> referencia\n```\n'
     writeFileSync(join(wt, 'AGENTS.md'), conCita)
     ensureAgentsPointer(wt)
     removeAgentsPointer(wt)
 
     const texto = readFileSync(join(wt, 'AGENTS.md'), 'utf8')
-    expect(texto).toContain('esto es un ejemplo')
+    expect(texto).toContain('Este es un ejemplo:')
     expect(texto).not.toContain('El contexto vivo del equipo')
   })
 })

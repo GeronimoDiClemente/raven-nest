@@ -24,7 +24,7 @@ function targetFile(worktreePath: string): string | null {
 }
 
 function hasPointerLine(text: string): boolean {
-  return text.split('\n').some((linea) => linea.trim() === POINTER_LINE)
+  return text.split('\n').some((linea) => linea.trim().startsWith(POINTER_MARKER))
 }
 
 /**
@@ -40,13 +40,13 @@ export function ensureAgentsPointer(worktreePath: string): 'written' | 'already'
     const actual = readFileSync(path, 'utf8')
     if (hasPointerLine(actual)) return 'already'
 
-    // Agregar el POINTER_LINE preservando si el original tenia trailing newline.
-    // Si actual termina en \n o esta vacio: NO agregar separador, el \n ya esta.
-    // Si actual NO termina en \n: agregar \n para separar, luego otro \n antes del POINTER_LINE.
-    // Esto permite que remove() distinga basado en si hay linea vacia antes del POINTER_LINE.
-    const prefix = actual === '' || actual.endsWith('\n') ? '' : '\n'
+    // Agregar el POINTER_LINE:
+    // - Si actual termina en \n: escribir actual + POINTER_LINE + \n (sin separador)
+    // - Si actual NO termina en \n: escribir actual + \n + POINTER_LINE + \n
+    // Round-trip es byte-exacto para archivos CON newline final (el caso comun).
+    // Para archivos sin newline final se agrega uno (normalizacion aceptable).
     const sep = actual === '' || actual.endsWith('\n') ? '' : '\n'
-    writeFileSync(path, `${actual}${prefix}${sep}${POINTER_LINE}\n`, 'utf8')
+    writeFileSync(path, `${actual}${sep}${POINTER_LINE}\n`, 'utf8')
     return 'written'
   } catch (err) {
     console.warn('[team-thread] no se pudo escribir el puntero en AGENTS.md', err)
@@ -61,25 +61,11 @@ export function removeAgentsPointer(worktreePath: string): void {
     const actual = readFileSync(path, 'utf8')
     if (!hasPointerLine(actual)) return
 
-    const lines = actual.split('\n')
-    const pointerIdx = lines.findIndex((l) => l.trim() === POINTER_LINE)
-
-    // Detectar si el original tenia trailing newline basado en la posicion del POINTER_LINE:
-    // - Si pointerIdx es 1: no hay linea vacia antes (original tenia newline)
-    // - Si pointerIdx es 2+ y hay linea vacia antes: original no tenia newline
-    const hadOriginalNewline = pointerIdx > 0 && (pointerIdx === 1 || lines[pointerIdx - 1] !== '')
-
-    let limpio = lines
-      .filter((linea) => linea.trim() !== POINTER_LINE)
+    // Sacar exactamente la linea del puntero, nada mas. Zero heuristica, zero inferencia.
+    const limpio = actual
+      .split('\n')
+      .filter((linea) => !linea.trim().startsWith(POINTER_MARKER))
       .join('\n')
-
-    // Colapsar multiples newlines al final (artefacto del filter)
-    limpio = limpio.replace(/\n{2,}$/, '\n')
-
-    // Restaurar el trailing newline original: si el original no tenia, remover el final
-    if (!hadOriginalNewline && limpio.endsWith('\n')) {
-      limpio = limpio.slice(0, -1)
-    }
 
     writeFileSync(path, limpio, 'utf8')
   } catch (err) {
