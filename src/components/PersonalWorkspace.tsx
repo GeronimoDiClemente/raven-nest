@@ -1,5 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
-import { useUserRepos, UserRepo } from '../hooks/useUserRepos'
+import { useScopedRepos, type RepoScope, type Repo } from '../hooks/useScopedRepos'
+import { useTeam } from '../hooks/useTeam'
+import ScopeSelector from './ScopeSelector'
 import { useGitHubNotifications } from '../hooks/useGitHubNotifications'
 import PRList, { GitHubPR } from './PRList'
 import PRReview from './PRReview'
@@ -18,12 +20,14 @@ import RepoActionsMenu, { type RepoAction } from './RepoActionsMenu'
 import { useGitlab } from '../hooks/useGitlab'
 import { ProviderAvatarPill, providerAvatar } from './ProviderAvatar'
 
-interface MyReposPanelProps {
+interface PersonalWorkspaceProps {
   onClose: () => void
   githubToken: string | null
   githubLogin: string | null
   onConnectGitHub: () => void
   onOpenRepoTerminal: (repoFullName: string, localPath: string) => void
+  onOpenTeamWorkspace: () => void
+  allowTeam: boolean
   /** When provided, the header shows a "?" button that launches the My Repos tutorial. */
   onStartTutorial?: () => void
 }
@@ -32,8 +36,14 @@ type Section = 'activity' | 'repos' | 'issues' | 'standup'
 type ReposView = 'list' | 'prs' | 'pr-detail'
 type IssuesView = 'repo-select' | 'list' | 'detail'
 
-export default function MyReposPanel({ onClose, githubToken, githubLogin, onConnectGitHub, onOpenRepoTerminal, onStartTutorial }: MyReposPanelProps) {
-  const { repos, loading, refresh, addRepo, updateLocalPath, removeRepo } = useUserRepos()
+export default function PersonalWorkspace({ onClose, githubToken, githubLogin, onConnectGitHub, onOpenRepoTerminal, onOpenTeamWorkspace, allowTeam, onStartTutorial }: PersonalWorkspaceProps) {
+  const [scope, setScope] = useState<RepoScope>({ kind: 'personal' })
+  const { teams, members, userId } = useTeam()
+  const isTeamLeader = scope.kind === 'team' && members.some(
+    m => m.user_id === userId && m.role === 'leader',
+  )
+  const { repos, loading, refresh, addRepo, updateLocalPath, removeRepo } =
+    useScopedRepos(scope, isTeamLeader)
   const { notifications, unreadCount, markAsRead } = useGitHubNotifications(githubToken)
   const { gitlabLogin, gitlabToken } = useGitlab()
   const tokenForProvider = (provider: 'github' | 'gitlab') =>
@@ -42,7 +52,7 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
   const [section, setSection] = useState<Section>('repos')
   const [showPicker, setShowPicker] = useState(false)
   const [showNotifications, setShowNotifications] = useState(false)
-  const [statusRepo, setStatusRepo] = useState<UserRepo | null>(null)
+  const [statusRepo, setStatusRepo] = useState<Repo | null>(null)
   const [confirmAction, setConfirmAction] = useState<{
     title: string
     message: string
@@ -52,7 +62,7 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
 
   // Repos section
   const [reposView, setReposView] = useState<ReposView>('list')
-  const [selectedRepo, setSelectedRepo] = useState<UserRepo | null>(null)
+  const [selectedRepo, setSelectedRepo] = useState<Repo | null>(null)
   const [selectedPR, setSelectedPR] = useState<GitHubPR | null>(null)
   const [stackedOnPR, setStackedOnPR] = useState<GitHubPR | null>(null)
   const [repoPermission, setRepoPermission] = useState<string | null>(null)
@@ -60,7 +70,7 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
 
   // Issues section
   const [issuesView, setIssuesView] = useState<IssuesView>('repo-select')
-  const [selectedIssueRepo, setSelectedIssueRepo] = useState<UserRepo | null>(null)
+  const [selectedIssueRepo, setSelectedIssueRepo] = useState<Repo | null>(null)
   const [selectedIssue, setSelectedIssue] = useState<GitHubIssue | null>(null)
 
   useEffect(() => { refresh() }, [refresh])
@@ -74,15 +84,20 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
     return () => document.removeEventListener('mousedown', handler)
   }, [])
 
-  const excludedNames = useMemo(() => new Set(repos.map(r => r.repo_full_name)), [repos])
+  const excludedNames = useMemo(() => new Set(repos.map(r => r.fullName)), [repos])
+
+  // ActivityFeed and DailyStandup still take the pre-scope shape (shared with
+  // TeamsWorkspace, which hasn't moved to useScopedRepos yet) — adapt locally
+  // rather than widen their prop types out from under that caller.
+  const legacyRepos = useMemo(() => repos.map(r => ({ repo_full_name: r.fullName })), [repos])
 
   const handlePickerAdd = async (repoFullName: string, provider: 'github' | 'gitlab', localPath: string | null) => {
     await addRepo(repoFullName, provider, localPath)
     setShowPicker(false)
   }
 
-  const handleLinkExisting = async (repo: UserRepo) => {
-    const folder = await window.git.pickRepoFolder(repo.repo_url)
+  const handleLinkExisting = async (repo: Repo) => {
+    const folder = await window.git.pickRepoFolder(repo.url)
     if (folder) await updateLocalPath(repo.id, folder)
   }
 
@@ -92,19 +107,19 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
   // When the linked folder is missing or its remote doesn't match the repo,
   // surface the same "Clone vs Link" dialog TeamsWorkspace uses instead of
   // silently opening a terminal pointed at a dead/wrong path.
-  const [openTarget, setOpenTarget] = useState<UserRepo | null>(null)
+  const [openTarget, setOpenTarget] = useState<Repo | null>(null)
   const [openTargetReason, setOpenTargetReason] = useState<string | null>(null)
   const [openTargetCloning, setOpenTargetCloning] = useState(false)
   const [openTargetError, setOpenTargetError] = useState<string | null>(null)
 
-  const handleCloneExisting = async (repo: UserRepo) => {
+  const handleCloneExisting = async (repo: Repo) => {
     if (cloningRepoId) return
     setCloningRepoId(repo.id)
     setCloneErrorMsg(null)
     const token = repo.provider === 'gitlab' ? gitlabToken : githubToken
     const result = await window.git.clone(
-      `${repo.repo_url}.git`,
-      repo.repo_full_name,
+      `${repo.url}.git`,
+      repo.fullName,
       undefined,
       { provider: repo.provider, token: token ?? null },
     )
@@ -117,7 +132,7 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
   }
 
   // Normalize remote URLs (strip .git suffix, trailing slashes, embedded
-  // basic-auth credentials, case) so a comparison against repo.repo_url
+  // basic-auth credentials, case) so a comparison against repo.url
   // doesn't flag identical repos as mismatches. Mirrors TeamsWorkspace.
   const normalizeRemote = (u: string) => u
     .replace(/\.git$/, '')
@@ -125,29 +140,29 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
     .replace(/^https?:\/\/[^@/]+@/, 'https://')
     .toLowerCase()
 
-  const handleOpenTerminal = async (repo: UserRepo) => {
+  const handleOpenTerminal = async (repo: Repo) => {
     if (terminalOpening) return
-    if (!repo.local_path) {
-      setOpenTargetReason(`No local folder linked for "${repo.repo_full_name}".`)
+    if (!repo.localPath) {
+      setOpenTargetReason(`No local folder linked for "${repo.fullName}".`)
       setOpenTarget(repo)
       return
     }
     setTerminalOpening(repo.id)
     try {
-      const exists = await window.pathUtils.exists(repo.local_path)
+      const exists = await window.pathUtils.exists(repo.localPath)
       if (!exists) {
-        setOpenTargetReason(`La carpeta \`${repo.local_path}\` ya no existe. ¿Querés re-linkear o clonar de nuevo?`)
+        setOpenTargetReason(`La carpeta \`${repo.localPath}\` ya no existe. ¿Querés re-linkear o clonar de nuevo?`)
         setOpenTarget(repo)
         return
       }
       // Verify the remote actually matches the repo — guards against the
-      // wrong-folder bug where a stale local_path points at a different repo.
+      // wrong-folder bug where a stale localPath points at a different repo.
       // New IPC shape: { ok: true, url } | { ok: false, reason }. Falls back
       // gracefully if main returns the legacy string|null.
       try {
         const rawResult: unknown = await (window.git as unknown as {
           getRemoteUrl: (folder: string) => Promise<unknown>
-        }).getRemoteUrl(repo.local_path)
+        }).getRemoteUrl(repo.localPath)
         let remoteUrl: string | null = null
         if (typeof rawResult === 'string') {
           remoteUrl = rawResult
@@ -155,8 +170,8 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
           const r = rawResult as { ok: boolean; url?: string | null; reason?: string }
           if (r.ok && r.url) remoteUrl = r.url
         }
-        if (remoteUrl && normalizeRemote(remoteUrl) !== normalizeRemote(repo.repo_url)) {
-          setOpenTargetReason(`La carpeta \`${repo.local_path}\` apunta a otro repo (${remoteUrl}). ¿Querés re-linkear o clonar de nuevo?`)
+        if (remoteUrl && normalizeRemote(remoteUrl) !== normalizeRemote(repo.url)) {
+          setOpenTargetReason(`La carpeta \`${repo.localPath}\` apunta a otro repo (${remoteUrl}). ¿Querés re-linkear o clonar de nuevo?`)
           setOpenTarget(repo)
           return
         }
@@ -164,7 +179,7 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
         // getRemoteUrl failures (git missing, IPC throw) are non-fatal — fall
         // through and open the terminal. The user can manually re-link later.
       }
-      onOpenRepoTerminal(repo.repo_full_name, repo.local_path)
+      onOpenRepoTerminal(repo.fullName, repo.localPath)
     } finally {
       setTerminalOpening(null)
     }
@@ -176,8 +191,8 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
     setOpenTargetError(null)
     const token = openTarget.provider === 'gitlab' ? gitlabToken : githubToken
     const result = await window.git.clone(
-      `${openTarget.repo_url}.git`,
-      openTarget.repo_full_name,
+      `${openTarget.url}.git`,
+      openTarget.fullName,
       undefined,
       { provider: openTarget.provider, token: token ?? null },
     )
@@ -187,7 +202,7 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
       const target = openTarget
       setOpenTarget(null)
       setOpenTargetReason(null)
-      onOpenRepoTerminal(target.repo_full_name, result.path)
+      onOpenRepoTerminal(target.fullName, result.path)
     } else {
       setOpenTargetError(result.error ?? 'Clone failed')
     }
@@ -199,13 +214,13 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
     // typed as 0-args in src/types.ts (pre-existing mismatch — see line 83
     // and TeamsWorkspace for the same call). Cast around the type until
     // types.ts is updated to match the preload signature.
-    const folder = await (window.git.pickRepoFolder as unknown as (expected?: string) => Promise<string | null>)(openTarget.repo_url)
+    const folder = await (window.git.pickRepoFolder as unknown as (expected?: string) => Promise<string | null>)(openTarget.url)
     if (folder) {
       await updateLocalPath(openTarget.id, folder)
       const target = openTarget
       setOpenTarget(null)
       setOpenTargetReason(null)
-      onOpenRepoTerminal(target.repo_full_name, folder)
+      onOpenRepoTerminal(target.fullName, folder)
     }
   }
 
@@ -261,7 +276,7 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
             <circle cx="4" cy="12" r="1.5" stroke="currentColor" strokeWidth="1.3"/>
             <path d="M4 5.5v5M5.5 4h5M4 5.5c2 0 4 1 4 3.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
           </svg>
-          <span className="tw-header-title" data-tour-id="myrepos-header">My Repos</span>
+          <span className="tw-header-title" data-tour-id="myrepos-header">Personal</span>
         </div>
 
         <div className="tw-header-right">
@@ -309,6 +324,13 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
       {/* Body: sidebar + content */}
       <div className="teams-workspace-body">
         <nav className="teams-workspace-nav" data-tour-id="myrepos-nav">
+          <ScopeSelector
+            scope={scope}
+            teams={teams}
+            allowTeam={allowTeam}
+            onScopeChange={setScope}
+            onOpenTeamWorkspace={onOpenTeamWorkspace}
+          />
           {NAV_ITEMS.map(item => (
             <button
               key={item.id}
@@ -326,7 +348,7 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
 
             {!githubToken && !gitlabToken && (
               <div className="tw-placeholder">
-                <p className="tw-placeholder-title">Connect GitHub or GitLab to use My Repos</p>
+                <p className="tw-placeholder-title">Connect GitHub or GitLab to use Personal</p>
                 <p className="tw-placeholder-text">Activity, PRs and issues require GitHub. Repos and Actions work with both providers — connect one or both from Settings → Account.</p>
                 <button className="snippet-save-btn" onClick={onConnectGitHub}>Connect GitHub</button>
               </div>
@@ -335,7 +357,7 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
             {section === 'activity' && githubToken && (
               <div className="team-tab-pane">
                 <ActivityFeed
-                  repos={repos}
+                  repos={legacyRepos}
                   githubToken={githubToken}
                   teamMembers={[]}
                 />
@@ -356,12 +378,14 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
                   <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
                     {repos.length} {repos.length === 1 ? 'repo' : 'repos'}
                   </span>
-                  <button className="repo-action-btn primary" data-tour-id="myrepos-add" onClick={() => setShowPicker(true)}>
-                    <svg className="ra-icon" width="11" height="11" viewBox="0 0 16 16" fill="none">
-                      <path d="M8 3.5v9M3.5 8h9" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/>
-                    </svg>
-                    Add repo
-                  </button>
+                  {(scope.kind === 'personal' || isTeamLeader) && (
+                    <button className="repo-action-btn primary" data-tour-id="myrepos-add" onClick={() => setShowPicker(true)}>
+                      <svg className="ra-icon" width="11" height="11" viewBox="0 0 16 16" fill="none">
+                        <path d="M8 3.5v9M3.5 8h9" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/>
+                      </svg>
+                      Add repo
+                    </button>
+                  )}
                 </div>
 
                 {loading && <p className="snippet-empty">Loading…</p>}
@@ -392,7 +416,7 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
                           {group.items.map(repo => {
                             const repoProvider: 'github' | 'gitlab' = repo.provider ?? 'github'
                             const overflow: RepoAction[] = []
-                            if (repo.local_path) {
+                            if (repo.localPath) {
                               overflow.push({
                                 label: 'Git status',
                                 onClick: () => setStatusRepo(repo),
@@ -428,7 +452,7 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
                               danger: true,
                               onClick: () => setConfirmAction({
                                 title: 'Remove repo',
-                                message: `Remove "${repo.repo_full_name}" from your list? The local folder will not be deleted.`,
+                                message: `Remove "${repo.fullName}" from your list? The local folder will not be deleted.`,
                                 onConfirm: () => removeRepo(repo.id),
                               }),
                               icon: (
@@ -441,10 +465,10 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
                               <div key={repo.id} className="snippet-item" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 6 }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                                   <div style={{ flex: 1, minWidth: 0 }}>
-                                    <span className="snippet-name">{repo.repo_full_name}</span>
-                                    {repo.local_path ? (
+                                    <span className="snippet-name">{repo.fullName}</span>
+                                    {repo.localPath ? (
                                       <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                        📁 {repo.local_path}
+                                        📁 {repo.localPath}
                                       </div>
                                     ) : (
                                       <div style={{ fontSize: 10, color: '#f59e0b', marginTop: 2 }}>
@@ -454,9 +478,9 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
                                   </div>
                                   <div className="snippet-item-actions" data-tour-id="myrepos-actions">
                                     {repoProvider === 'github' && (
-                                      <RepoCIBadge repoFullName={repo.repo_full_name} githubToken={githubToken} />
+                                      <RepoCIBadge repoFullName={repo.fullName} githubToken={githubToken} />
                                     )}
-                                    {repo.local_path ? (
+                                    {repo.localPath ? (
                                       <button
                                         className="repo-action-btn subtle-accent"
                                         onClick={() => handleOpenTerminal(repo)}
@@ -492,7 +516,7 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
                                           if (githubToken && githubLogin) {
                                             try {
                                               const res = await fetch(
-                                                `https://api.github.com/repos/${repo.repo_full_name}/collaborators/${githubLogin}/permission`,
+                                                `https://api.github.com/repos/${repo.fullName}/collaborators/${githubLogin}/permission`,
                                                 { headers: { Authorization: `Bearer ${githubToken}`, Accept: 'application/vnd.github.v3+json' } }
                                               )
                                               if (res.ok) {
@@ -517,7 +541,7 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
                                   </div>
                                 </div>
                                 <RepoActionsAccordion
-                                  repoFullName={repo.repo_full_name}
+                                  repoFullName={repo.fullName}
                                   provider={repoProvider}
                                   token={tokenForProvider(repoProvider)}
                                 />
@@ -536,8 +560,8 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
             {githubToken && section === 'repos' && reposView === 'prs' && selectedRepo && (
               <>
                 <div className="tw-subnav">
-                  <button className="tw-back-btn" onClick={() => { setSelectedRepo(null); setReposView('list') }}>← My Repos</button>
-                  <span className="tw-subnav-title">{selectedRepo.repo_full_name} · Pull Requests</span>
+                  <button className="tw-back-btn" onClick={() => { setSelectedRepo(null); setReposView('list') }}>← Personal</button>
+                  <span className="tw-subnav-title">{selectedRepo.fullName} · Pull Requests</span>
                   {(repoPermission === 'admin' || repoPermission === 'maintain') && (
                     <button
                       className="snippet-cancel-btn"
@@ -550,7 +574,7 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
                   )}
                 </div>
                 <PRList
-                  repoFullName={selectedRepo.repo_full_name}
+                  repoFullName={selectedRepo.fullName}
                   githubToken={githubToken}
                   onSelectPR={(pr, parent) => { setSelectedPR(pr); setStackedOnPR(parent ?? null); setReposView('pr-detail') }}
                 />
@@ -560,7 +584,7 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
             {/* REPOS — PR detail */}
             {githubToken && section === 'repos' && reposView === 'pr-detail' && selectedRepo && selectedPR && (
               <PRReview
-                repoFullName={selectedRepo.repo_full_name}
+                repoFullName={selectedRepo.fullName}
                 pr={selectedPR}
                 githubToken={githubToken}
                 canReview={true}
@@ -600,7 +624,7 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
                           style={{ cursor: 'pointer' }}
                           onClick={() => { setSelectedIssueRepo(repo); setIssuesView('list') }}
                         >
-                          <span className="snippet-name">{repo.repo_full_name}</span>
+                          <span className="snippet-name">{repo.fullName}</span>
                           <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style={{ color: 'var(--text-muted)', flexShrink: 0 }}>
                             <path d="M4 2l4 4-4 4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
                           </svg>
@@ -618,10 +642,10 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
               <>
                 <div className="tw-subnav">
                   <button className="tw-back-btn" onClick={() => { setSelectedIssueRepo(null); setIssuesView('repo-select') }}>← Repos</button>
-                  <span className="tw-subnav-title">{selectedIssueRepo.repo_full_name} · Issues</span>
+                  <span className="tw-subnav-title">{selectedIssueRepo.fullName} · Issues</span>
                 </div>
                 <IssueList
-                  repoFullName={selectedIssueRepo.repo_full_name}
+                  repoFullName={selectedIssueRepo.fullName}
                   githubToken={githubToken}
                   currentUserLogin={githubLogin ?? ''}
                   onSelectIssue={(issue) => { setSelectedIssue(issue); setIssuesView('detail') }}
@@ -632,10 +656,10 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
             {/* ISSUES — detail */}
             {githubToken && section === 'issues' && issuesView === 'detail' && selectedIssueRepo && selectedIssue && (
               <IssueDetail
-                repoFullName={selectedIssueRepo.repo_full_name}
+                repoFullName={selectedIssueRepo.fullName}
                 issue={selectedIssue}
                 githubToken={githubToken}
-                localPath={selectedIssueRepo.local_path}
+                localPath={selectedIssueRepo.localPath}
                 onOpenRepoTerminal={onOpenRepoTerminal}
                 onBack={() => { setSelectedIssue(null); setIssuesView('list') }}
               />
@@ -645,7 +669,7 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
             {githubToken && section === 'standup' && (
               <div className="team-tab-pane">
                 <DailyStandup
-                  repos={repos}
+                  repos={legacyRepos}
                   githubToken={githubToken}
                   teamMembers={githubLogin ? [{ email: githubLogin, user_id: githubLogin }] : []}
                 />
@@ -710,7 +734,7 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
         <div className="confirm-overlay" onMouseDown={e => { if (e.target === e.currentTarget && !openTargetCloning) { setOpenTarget(null); setOpenTargetReason(null); setOpenTargetError(null) } }}>
           <div className="confirm-dialog" style={{ width: 420, padding: 18 }}>
             <div className="confirm-title" style={{ marginBottom: 4, fontSize: 14 }}>
-              {openTarget.repo_full_name}
+              {openTarget.fullName}
             </div>
             <div className="confirm-message" style={{ marginBottom: 14, color: 'var(--text-muted)', fontSize: 12, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
               {openTargetReason ?? 'No local folder for this repo on this machine.'}
@@ -765,17 +789,17 @@ export default function MyReposPanel({ onClose, githubToken, githubLogin, onConn
 
       {showRepoSettings && selectedRepo && githubToken && (
         <RepoSettingsPanel
-          repoFullName={selectedRepo.repo_full_name}
+          repoFullName={selectedRepo.fullName}
           githubToken={githubToken}
           onClose={() => setShowRepoSettings(false)}
         />
       )}
 
-      {statusRepo && statusRepo.local_path && (
+      {statusRepo && statusRepo.localPath && (
         <div className="confirm-overlay" onMouseDown={e => { if (e.target === e.currentTarget) setStatusRepo(null) }}>
           <RepoStatusPanel
-            localPath={statusRepo.local_path}
-            repoFullName={statusRepo.repo_full_name}
+            localPath={statusRepo.localPath}
+            repoFullName={statusRepo.fullName}
             onClose={() => setStatusRepo(null)}
           />
         </div>

@@ -50,7 +50,7 @@ import { pruneHubPanes } from './lib/hub-panes'
 import { dropTabBuffer } from './lib/editor-buffer-handoff'
 import UpgradeModal from './components/UpgradeModal'
 import TeamsWorkspace from './components/TeamsWorkspace'
-import MyReposPanel from './components/MyReposPanel'
+import PersonalWorkspace from './components/PersonalWorkspace'
 import { useGitHub } from './hooks/useGitHub'
 import { usePendingInvitesCount } from './hooks/usePendingInvitesCount'
 import { useSpeechRecognition } from './hooks/useSpeechRecognition'
@@ -1970,12 +1970,14 @@ export default function App() {
       )}
 
       {myReposOpen && (
-        <MyReposPanel
+        <PersonalWorkspace
           onClose={() => setMyReposOpen(false)}
           githubToken={githubToken}
           githubLogin={githubLogin}
           onConnectGitHub={connectGitHub}
           onOpenRepoTerminal={openRepoInNewTab}
+          onOpenTeamWorkspace={() => setTeamsOpen(true)}
+          allowTeam={planLimits.allowTeam}
           onStartTutorial={() => setTutorialTour('my-repos')}
         />
       )}
