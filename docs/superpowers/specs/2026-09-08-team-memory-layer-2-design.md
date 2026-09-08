@@ -159,7 +159,7 @@ nest_scope: team
 nest_project: raven-nest
 nest_rama: feat/sidebar-tabs
 nest_estado: activa            # activa | sin-worktree | cerrada
-nest_ultima_sync: 2026-09-08T14:22:03Z
+nest_ultima_entrada: 2026-09-07T14:20:00Z
 nest_version: 1
 ---
 # feat/sidebar-tabs
@@ -178,8 +178,18 @@ Autor y fecha por entrada salen de `authorDisplay` y `createdAt`, que `MemoryRec
 tiene. No hace falta ninguna tabla de "dueño de la rama": el índice deriva eso de quién
 escribió la última entrada.
 
-`nest_ultima_sync` no es decorativo: es lo que evita que alguien lea contexto viejo
-creyendo que es actual (§8.2).
+La frescura no va en la nota de rama, y esto es una decisión de mecanismo, no de gusto:
+**una marca de sync en cada nota se actualizaría en cada pasada y anularía el
+hash-compare**, reescribiendo todas las notas de los 8 worktrees cada pocos segundos por un
+campo que nadie mira. Entonces:
+
+- **La nota de rama lleva `nest_ultima_entrada`**: la fecha de su última entrada. Es
+  **dato**, derivado de las filas, y sólo cambia cuando cambia el contenido.
+- **`_index.md` lleva `nest_ultima_sync`**, redondeado al minuto. Es un solo archivo, y es
+  el que se abre para preguntar "¿esto está al día?".
+
+Con eso se cumple §8.2 —que nadie lea contexto viejo creyéndolo actual— sin pagar
+reescrituras.
 
 ### 4.3 El índice tiene presupuesto
 
@@ -367,7 +377,7 @@ El techo de cadencia no lo pone el costo sino el servidor: hay rate limit por de
 | Falla | Qué pasa |
 |---|---|
 | Falla la escritura en disco | Warn y seguir, precedente de `handoff.ts`. Nunca tira hacia el IPC |
-| Sin internet | Se captura local y se pushea después. **La nota lleva `nest_ultima_sync`**, para que nadie lea contexto viejo creyéndolo actual |
+| Sin internet | Se captura local y se pushea después. **`_index.md` lleva `nest_ultima_sync`** (§4.2), para que nadie lea contexto viejo creyéndolo actual |
 | El usuario editó el archivo a mano | Sus bytes se preservan en `_conflicts/` y el espejo se reescribe al lado (precedente del vault). El `README.md` lo avisa de entrada |
 | Dos personas, misma rama, a la vez | La nota se compone por append; el LWW de Layer 1 decide a nivel de fila. Ninguna entrada se pierde |
 | Fila con warning de secreto | No se promueve sola; espera confirmación (§6.3) |
