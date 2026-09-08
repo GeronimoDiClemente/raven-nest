@@ -1704,6 +1704,11 @@ export default function App() {
         onUpgrade={() => setShowUpgrade(true)}
         onPersonalOpen={() => {
           if (!planLimits.allowMyRepos) { setShowUpgrade(true); return }
+          // Reset to 'repos': personalSection can be left on 'pendings' by
+          // the invites redirect (onOpenPersonalInvites below). Without this,
+          // the next normal open of Personal would show the stale invites
+          // list instead of repos, for the rest of the session.
+          setPersonalSection('repos')
           setPersonalOpen(true)
         }}
         pendingInvitesCount={pendingInvitesCount}
