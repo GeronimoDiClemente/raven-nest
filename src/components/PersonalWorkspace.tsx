@@ -156,7 +156,7 @@ export default function PersonalWorkspace({ onClose, githubToken, githubLogin, o
     try {
       const exists = await window.pathUtils.exists(repo.localPath)
       if (!exists) {
-        setOpenTargetReason(`La carpeta \`${repo.localPath}\` ya no existe. ¿Querés re-linkear o clonar de nuevo?`)
+        setOpenTargetReason(`The folder \`${repo.localPath}\` no longer exists. Clone it again or link another folder?`)
         setOpenTarget(repo)
         return
       }
@@ -176,13 +176,24 @@ export default function PersonalWorkspace({ onClose, githubToken, githubLogin, o
           if (r.ok && r.url) remoteUrl = r.url
         }
         if (remoteUrl && normalizeRemote(remoteUrl) !== normalizeRemote(repo.url)) {
-          setOpenTargetReason(`La carpeta \`${repo.localPath}\` apunta a otro repo (${remoteUrl}). ¿Querés re-linkear o clonar de nuevo?`)
+          setOpenTargetReason(`The folder \`${repo.localPath}\` points at a different repo (${remoteUrl}). Clone it again or link another folder?`)
           setOpenTarget(repo)
           return
         }
       } catch {
-        // getRemoteUrl failures (git missing, IPC throw) are non-fatal — fall
-        // through and open the terminal. The user can manually re-link later.
+        // A throw here (git missing, the folder isn't a repo, permissions)
+        // means the check above never got to run — and that check is what
+        // catches a stale localPath pointing at a DIFFERENT repo. In team
+        // scope, where paths are per-device and repos arrive from other
+        // people, the old surface asked instead of guessing: opening the
+        // wrong repo's folder is precisely the failure it exists to prevent.
+        // Personal scope keeps the long-standing permissive fall-through —
+        // it's your own path, and re-linking is one menu away.
+        if (scope.kind === 'team') {
+          setOpenTargetReason(`Could not verify that \`${repo.localPath}\` still points at ${repo.fullName}. Clone it again or link another folder?`)
+          setOpenTarget(repo)
+          return
+        }
       }
       onOpenRepoTerminal(repo.fullName, repo.localPath)
     } finally {

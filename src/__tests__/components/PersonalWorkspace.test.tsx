@@ -196,13 +196,10 @@ describe('PersonalWorkspace', () => {
   // Regression coverage for the getRemoteUrl guard in handleOpenTerminal
   // (this logic moved here from TeamsWorkspace along with the Repos section;
   // its own regression test did not move with it — see task-6-report.md).
-  // Unlike the old TeamsWorkspace version, PersonalWorkspace treats a
-  // getRemoteUrl failure as non-fatal (comment at PersonalWorkspace.tsx:183-186):
-  // it falls through and opens the terminal anyway rather than surfacing the
-  // Clone/Link dialog. The guarantee this test protects is "does not crash and
-  // does not silently swallow the open" — not the (different) TeamsWorkspace
-  // dialog behavior.
-  it('opens the terminal even when getRemoteUrl throws, instead of crashing or blocking', async () => {
+  // In PERSONAL scope a getRemoteUrl failure stays non-fatal: it's your own
+  // path, so the terminal opens anyway rather than nagging. This is
+  // long-standing behaviour, unrelated to the team-scope rule below.
+  it('opens the terminal even when getRemoteUrl throws in personal scope', async () => {
     scopedState.repos = [{ ...repo('org/repo'), localPath: 'C:/dev/repo' }]
     ;(globalThis as unknown as { window: Window }).window.pathUtils = {
       exists: vi.fn().mockResolvedValue(true),
@@ -249,5 +246,44 @@ describe('PersonalWorkspace', () => {
     fireEvent.click(screen.getByRole('button', { name: /more actions/i }))
     fireEvent.click(screen.getByRole('menuitem', { name: 'Remove from list' }))
     expect(screen.getByText(/from your list/i)).toBeInTheDocument()
+  })
+
+  // Team scope is the opposite: the remote check is what catches a stale local
+  // path pointing at a DIFFERENT repo, and team paths are per-device for repos
+  // other people added. Silently opening the wrong repo's folder is exactly the
+  // failure the check exists to prevent, so a throw has to surface Clone/Link
+  // (as the team surface this replaced did).
+  it('asks instead of guessing when getRemoteUrl throws in team scope', async () => {
+    teamState.teams = [team('t1', 'Nest')]
+    teamState.members = [leaderMember()]
+    scopedState.repos = [{ ...repo('org/repo'), localPath: 'C:/dev/repo' }]
+    ;(globalThis as unknown as { window: Window }).window.pathUtils = {
+      exists: vi.fn().mockResolvedValue(true),
+    } as never
+    ;(globalThis as unknown as { window: Window }).window.git = {
+      getRemoteUrl: vi.fn().mockRejectedValue(new Error('git missing')),
+    } as never
+    const onOpenRepoTerminal = vi.fn()
+    render(<PersonalWorkspace {...props} onOpenRepoTerminal={onOpenRepoTerminal} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Nest' }))
+    fireEvent.click(screen.getByRole('button', { name: /terminal/i }))
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /link existing folder/i })).toBeInTheDocument()
+    })
+    expect(onOpenRepoTerminal).not.toHaveBeenCalled()
+  })
+
+  // English-only UI: these two reasons were the last Spanish strings here.
+  it('writes the stale-folder reasons in English', async () => {
+    scopedState.repos = [{ ...repo('org/repo'), localPath: 'C:/dev/repo' }]
+    ;(globalThis as unknown as { window: Window }).window.pathUtils = {
+      exists: vi.fn().mockResolvedValue(false),
+    } as never
+    render(<PersonalWorkspace {...props} />)
+    fireEvent.click(screen.getByRole('button', { name: /terminal/i }))
+    await waitFor(() => {
+      expect(screen.getByText(/no longer exists/i)).toBeInTheDocument()
+    })
+    expect(screen.queryByText(/Querés|carpeta/i)).not.toBeInTheDocument()
   })
 })
