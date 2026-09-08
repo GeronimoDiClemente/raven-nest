@@ -63,3 +63,25 @@ describe('buildThreadGraph', () => {
     expect(g.nodes.some((n) => n.id === `r${GRAPH_NODE_CAP + 39}`)).toBe(true) // el mas reciente sobrevive
   })
 })
+
+// Minor de Task 9 promovido a pre-merge por la review final: `id` es el slug y el
+// componente resuelve las aristas por id. El camino de escritura ya desempata la colision
+// de slugs; el de lectura no tenia guarda.
+describe('dedupe por slug', () => {
+  it('dos ramas que slugean igual producen UN solo nodo, y sobrevive la mas reciente', () => {
+    const graph = buildThreadGraph({
+      branches: [
+        { slug: 'feat-x', branch: 'feat/x', estado: 'activa', ultimoAutor: 'Gero', ultimaEntrada: 1000, entradas: 1 },
+        { slug: 'feat-x', branch: 'feat_x', estado: 'cerrada', ultimoAutor: 'Bauti', ultimaEntrada: 5000, entradas: 3 },
+      ],
+      focus: null,
+      ahora: 5000,
+      global: true,
+    })
+
+    const ramas = graph.nodes.filter((n) => n.id !== '_index')
+    expect(ramas).toHaveLength(1)
+    expect(ramas[0].label).toBe('feat_x')
+    expect(graph.edges).toHaveLength(1)
+  })
+})

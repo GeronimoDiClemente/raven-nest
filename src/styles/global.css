@@ -7108,6 +7108,158 @@ button.ci-badge:hover {
   box-shadow: 0 0 0 2px #ef444440;
 }
 
+/* ── Team Memory Layer 2 — el hilo del equipo ───────────────────────────────
+   Vive al lado de MemoryVaultCard en SettingsPanel, asi que toma prestado su
+   lenguaje: la misma superficie que .sp-card, los mismos tokens de color y las
+   mismas densidades (11-13px, radios de 6/8px, gaps de 6/8px). No inventa una
+   estetica propia.
+
+   El grafo NO usa var(--accent)/var(--muted) para la frescura: en este tema esos
+   dos tokens son #111111 (shadcn los usa como SUPERFICIE, no como matiz), asi
+   que los puntos salian negro sobre negro y el fallback del `var(x, y)` nunca
+   entraba porque el token existe. Por eso la escala de frescura tiene tokens
+   propios. */
+
+.team-thread-panel {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-bottom: 8px;
+}
+
+.team-thread-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+.team-thread-empty p {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  margin: 0;
+}
+.team-thread-empty button {
+  padding: 5px 12px;
+  background: transparent;
+  color: #a78bfa;
+  border: 1px solid #7c3aed55;
+  border-radius: 6px;
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.team-thread-empty button:hover { background: #7c3aed15; }
+.team-thread-empty button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px #7c3aed55;
+}
+
+.team-thread-graph {
+  /* Escala de frescura. El verde es el mismo de los estados "vivos" del resto de
+     la app; el gris apagado sale de --text-muted para que lo viejo se lea viejo
+     sin desaparecer contra el fondo. */
+  --tt-fresh-hoy: #22c55e;
+  --tt-fresh-semana: #15803d;
+  --tt-fresh-mes: #6b7280;
+  --tt-fresh-viejo: #40474f;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.team-thread-graph-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.team-thread-graph-header button {
+  padding: 4px 10px;
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.team-thread-graph-header button:hover {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+}
+.team-thread-graph-header button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--ring);
+}
+/* "Turn off" es la accion destructiva de este panel (borra la carpeta local y saca
+   el puntero de AGENTS.md), asi que va en la paleta de .sp-btn-danger. */
+.team-thread-graph-header button:last-of-type {
+  color: var(--destructive);
+  border-color: #ef444455;
+}
+.team-thread-graph-header button:last-of-type:hover {
+  background: #ef444415;
+  border-color: #ef4444aa;
+  color: var(--destructive);
+}
+.team-thread-graph-header span {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-left: auto;
+}
+
+/* El SVG venia sin width/height, solo con viewBox: tomaba el ancho del contenedor y
+   una altura arbitraria. Alto fijo + preserveAspectRatio (el default) = el grafo se
+   escala centrado sin deformarse. */
+.team-thread-graph svg {
+  display: block;
+  width: 100%;
+  height: 260px;
+  background: var(--bg-app);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.team-thread-graph circle[role='button'] {
+  cursor: pointer;
+  transition: stroke 0.12s ease, stroke-width 0.12s ease;
+}
+/* Foco de teclado. Los atributos de presentacion del JSX (stroke/stroke-dasharray,
+   que codifican el ESTADO de la rama) pierden contra cualquier regla CSS, asi que
+   esta gana sin tener que tocar el markup. El outline default del navegador sobre
+   un <circle> es inconsistente entre motores y de bajo contraste justo contra los
+   colores de frescura, que es lo que este panel viene a mostrar. */
+.team-thread-graph circle[role='button']:focus-visible {
+  outline: none;
+  stroke: var(--ring);
+  stroke-width: 3;
+  stroke-dasharray: none;
+}
+.team-thread-graph circle[role='button']:hover {
+  stroke: var(--text-primary);
+  stroke-width: 2;
+}
+
+/* Mismo tono ambar/rojo que el resto de los avisos de la app: el error del panel no
+   puede parecer parte del grafo. */
+.team-thread-error {
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  background: #ef444415;
+  border: 1px solid #ef444455;
+  border-radius: 6px;
+}
+.team-thread-error p {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--destructive);
+}
+
 /* ── Terminal Share Panel ────────────────────────────────── */
 
 .ts-panel {

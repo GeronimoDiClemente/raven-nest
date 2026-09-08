@@ -922,7 +922,9 @@ declare global {
         projectKey: string,
         worktreePath: string,
         patch: Partial<TeamThreadSettings>,
-      ) => Promise<{ ok: boolean; error?: string; warnings?: unknown[]; settings?: TeamThreadSettings }>
+        /** `message` es texto para el usuario (hoy: el plan no admite compartir, I1);
+         *  `error` sigue siendo el codigo. El panel muestra `message` si viene. */
+      ) => Promise<{ ok: boolean; error?: string; message?: string; warnings?: unknown[]; settings?: TeamThreadSettings }>
       teamThreadRegenerate?: (worktreePath: string, projectKey: string) => Promise<{ ok: boolean; error?: string; warnings?: unknown[] }>
       /**
        * Task 10 (el panel) — projectKey se resuelve del lado main (mismo camino que

@@ -40,14 +40,14 @@ describe('TeamThreadPanel', () => {
     expect(container.firstChild).toBeNull()
   })
 
-  it('loads settings + branches for the worktree and shows the graph enabled, focused on the current branch (local by default)', async () => {
+  it('loads settings + branches for the worktree and shows the graph enabled, focused on the current branch (global by default, I5)', async () => {
     mockApi()
     render(<TeamThreadPanel activeRepoPath="C:/repo/worktree" onOpenFile={vi.fn()} />)
-    await waitFor(() => expect(screen.getAllByRole('button', { name: /open note/i })).toHaveLength(1))
+    await waitFor(() => expect(screen.getAllByRole('button', { name: /open note/i })).toHaveLength(2))
     expect(screen.getByRole('button', { name: /open note for feat\/sidebar-tabs/i })).toBeInTheDocument()
 
-    fireEvent.click(screen.getByText('Show all branches'))
-    expect(screen.getAllByRole('button', { name: /open note/i })).toHaveLength(2)
+    fireEvent.click(screen.getByText('Show current branch'))
+    expect(screen.getAllByRole('button', { name: /open note/i })).toHaveLength(1)
   })
 
   it('clicking a node opens the note through onOpenFile with the right relative path', async () => {
@@ -57,6 +57,32 @@ describe('TeamThreadPanel', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: /open note for feat\/sidebar-tabs/i })).toBeInTheDocument())
     fireEvent.click(screen.getByRole('button', { name: /open note for feat\/sidebar-tabs/i }))
     expect(onOpenFile).toHaveBeenCalledWith('.nest/team/ramas/sidebar.md')
+  })
+
+  it('I2: the general node opens general.md at the thread root, not ramas/general.md', async () => {
+    const onOpenFile = vi.fn()
+    mockApi({
+      branches: [{ slug: 'general', branch: 'general', estado: 'sin-worktree', ultimoAutor: 'Gero', ultimaEntrada: Date.now(), entradas: 1 }],
+      gitBranch: null,
+    })
+    render(<TeamThreadPanel activeRepoPath="C:/repo/worktree" onOpenFile={onOpenFile} />)
+    await waitFor(() => expect(screen.getByRole('button', { name: /open note for general/i })).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: /open note for general/i }))
+    expect(onOpenFile).toHaveBeenCalledWith('.nest/team/general.md')
+  })
+
+  it('I1: a plan that cannot share shows the actionable message, not the generic one', async () => {
+    const setSettings = vi.fn().mockResolvedValue({
+      ok: false,
+      error: 'team_plan_required',
+      message: 'Sharing this thread needs a Team plan. Upgrade the account, then turn it on again.',
+    })
+    mockApi({ settings: { enabled: false, includedTypes: ['handoff', 'decision'], writeAgentsPointer: true }, setSettings })
+    render(<TeamThreadPanel activeRepoPath="C:/repo/worktree" onOpenFile={vi.fn()} />)
+    await waitFor(() => expect(screen.getByText(/share this project's thread/i)).toBeInTheDocument())
+
+    fireEvent.click(screen.getByText('Turn on'))
+    await waitFor(() => expect(screen.getByText(/needs a team plan/i)).toBeInTheDocument())
   })
 
   it('shows the off state when disabled and turning it on calls teamThreadSetSettings', async () => {

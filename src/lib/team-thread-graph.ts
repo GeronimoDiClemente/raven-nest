@@ -63,8 +63,17 @@ export function buildThreadGraph(input: BuildGraphInput): ThreadGraph {
   // Recorte por recencia: sobrevive lo mas nuevo, que es lo que alguien necesita para
   // ponerse al dia.
   const ordenadas = [...visibles].sort((a, b) => b.ultimaEntrada - a.ultimaEntrada)
-  const dentro = ordenadas.slice(0, GRAPH_NODE_CAP)
-  const recortados = ordenadas.length - dentro.length
+
+  // Dedupe por slug: `id` es el slug, y dos ramas que slugean igual (`feat/x` y `feat_x`,
+  // ver vaultSlug) produzcan dos nodos con el mismo id romperia el lookup por id que hace
+  // el componente para dibujar las aristas. El camino de ESCRITURA ya toma en serio esta
+  // colision (ramaCanonica desempata por orden lexicografico, con test); dejar el de
+  // LECTURA sin guarda es proteger un solo lado de la misma puerta. Gana la primera, que
+  // por el sort de arriba es la mas reciente.
+  const vistos = new Set<string>()
+  const unicas = ordenadas.filter((b) => (vistos.has(b.slug) ? false : (vistos.add(b.slug), true)))
+  const dentro = unicas.slice(0, GRAPH_NODE_CAP)
+  const recortados = unicas.length - dentro.length
 
   const nodes: GraphNode[] = [
     { id: '_index', label: 'índice', estado: 'activa', frescura: 'hoy', autor: '', x: 0, y: 0, foco: false },

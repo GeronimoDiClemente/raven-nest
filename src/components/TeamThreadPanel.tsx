@@ -87,7 +87,10 @@ export default function TeamThreadPanel({ activeRepoPath, onOpenFile }: Props) {
     if (!activeRepoPath || !projectKey) return
     try {
       const res = await window.memory?.teamThreadSetSettings?.(projectKey, activeRepoPath, { enabled: next })
-      if (!res?.ok) { setToggleError(TOGGLE_ERROR); return }
+      // `message` viene cuando main tiene algo accionable que decir — hoy, que el plan de
+      // la cuenta no admite compartir con el equipo (I1). Un codigo de error crudo no se
+      // muestra nunca: para eso esta el texto generico.
+      if (!res?.ok) { setToggleError(res?.message ?? TOGGLE_ERROR); return }
       setToggleError(null)
       setEnabled(next)
       if (next) void load(activeRepoPath)
@@ -98,7 +101,10 @@ export default function TeamThreadPanel({ activeRepoPath, onOpenFile }: Props) {
   }, [activeRepoPath, projectKey, load])
 
   const handleOpenNote = useCallback((slug: string) => {
-    onOpenFile(`.nest/team/ramas/${slug}.md`)
+    // I2: `general` (las filas sin rama) NO vive en `ramas/`, sino en la raiz del hilo —
+    // ver filePathFor() en electron/integrations/team-thread-plan.ts. Armar siempre
+    // `ramas/<slug>.md` abria un path que no existe.
+    onOpenFile(slug === 'general' ? '.nest/team/general.md' : `.nest/team/ramas/${slug}.md`)
   }, [onOpenFile])
 
   if (!activeRepoPath || !ready) return null

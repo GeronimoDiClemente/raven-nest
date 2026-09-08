@@ -11,13 +11,22 @@ const BRANCHES: TeamThreadBranch[] = [
 ]
 
 describe('TeamThreadGraph', () => {
-  it('local por default: con foco, solo se ve la rama en foco (mas el indice)', () => {
+  // I5: el default es GLOBAL. El grafo sintetiza una estrella `_index -> rama` y no lee los
+  // wikilinks de las notas, con lo cual el modo local colapsa a "el foco solo" — un nodo.
+  it('global por default: dibuja un nodo por rama', () => {
     render(<TeamThreadGraph branches={BRANCHES} focus="sidebar" ahora={AHORA} enabled onToggle={vi.fn()} onOpenNote={vi.fn()} />)
+    expect(screen.getAllByRole('button', { name: /open note/i })).toHaveLength(2)
+  })
+
+  it('"Show current branch" pasa a local: queda solo la rama en foco', () => {
+    render(<TeamThreadGraph branches={BRANCHES} focus="sidebar" ahora={AHORA} enabled onToggle={vi.fn()} onOpenNote={vi.fn()} />)
+    fireEvent.click(screen.getByText('Show current branch'))
     expect(screen.getAllByRole('button', { name: /open note/i })).toHaveLength(1)
   })
 
-  it('"Show all branches" pasa a global: dibuja un nodo por rama mas el indice', () => {
+  it('y se puede volver a global', () => {
     render(<TeamThreadGraph branches={BRANCHES} focus="sidebar" ahora={AHORA} enabled onToggle={vi.fn()} onOpenNote={vi.fn()} />)
+    fireEvent.click(screen.getByText('Show current branch'))
     fireEvent.click(screen.getByText('Show all branches'))
     expect(screen.getAllByRole('button', { name: /open note/i })).toHaveLength(2)
   })
@@ -31,7 +40,6 @@ describe('TeamThreadGraph', () => {
 
   it('distingue visualmente lo cerrado y lo viejo', () => {
     render(<TeamThreadGraph branches={BRANCHES} focus="sidebar" ahora={AHORA} enabled onToggle={vi.fn()} onOpenNote={vi.fn()} />)
-    fireEvent.click(screen.getByText('Show all branches'))
     const cerrada = screen.getByRole('button', { name: /open note for smoke\/memory-bridge/i })
     expect(cerrada).toHaveAttribute('data-estado', 'cerrada')
     expect(cerrada).toHaveAttribute('data-frescura', 'viejo')
@@ -39,7 +47,6 @@ describe('TeamThreadGraph', () => {
 
   it('el estado y la frescura tambien viajan en el aria-label, no solo en color/borde', () => {
     render(<TeamThreadGraph branches={BRANCHES} focus="sidebar" ahora={AHORA} enabled onToggle={vi.fn()} onOpenNote={vi.fn()} />)
-    fireEvent.click(screen.getByText('Show all branches'))
     expect(screen.getByRole('button', { name: /open note for feat\/sidebar-tabs — active, updated today/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /open note for smoke\/memory-bridge — closed, stale/i })).toBeInTheDocument()
   })
