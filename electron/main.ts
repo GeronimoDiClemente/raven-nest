@@ -161,6 +161,7 @@ import type { EstadoRama } from './integrations/team-thread-note'
 import { loadTeamThreadSettings, saveTeamThreadSettings, teamThreadSettingsPath, type TeamThreadSettings } from './integrations/team-thread-config'
 import { ensureAgentsPointer, removeAgentsPointer } from './integrations/agents-md-pointer'
 import { TEAM_THREAD_PATHS, teamThreadRootDir } from './integrations/team-thread-paths'
+import { parseBranchStates } from './integrations/team-thread-git'
 import { MetricsCollector, PaneInput } from './metrics-collector'
 import { transcribeAudio, checkWhisperAvailable, initWhisper, shutdownWhisper, setWhisperStatusCallback } from './whisper'
 import { getWindowOptions, getIconsDir, ICON_FILENAME, isMac, isWin } from './platform'
@@ -3248,37 +3249,34 @@ ipcMain.handle('memory:vault:reveal', async () => {
 // dentro de `.nest/team/` de CADA worktree (a diferencia del vault personal, que tiene un
 // solo root por cuenta). Ver docs/superpowers/sdd/2026-09-08-team-memory-layer-2.
 
-/** `activa` si hay un worktree abierto en esa rama, `sin-worktree` si la rama existe pero
- *  nadie la tiene abierta, `cerrada` si ya no existe. Es lo UNICO de este flujo que
- *  consulta git — el planner (`planTeamThread`) es puro a proposito. */
+/** Wrapper que consulta git — es lo UNICO de este flujo que lo hace, el planner
+ *  (`planTeamThread`) es puro a proposito. El parseo en si (y el caso "git fallo") vive en
+ *  `parseBranchStates`, puro y testeado aparte en team-thread-git.test.ts. */
 function collectBranchStates(worktreePath: string, branches: string[]): Record<string, EstadoRama> {
-  const out: Record<string, EstadoRama> = {}
-  let existentes = new Set<string>()
-  let conWorktree = new Set<string>()
+  let branchOutput = ''
+  let worktreeOutput = ''
+  let gitDisponible = false
   try {
-    existentes = new Set(
-      execFileSync('git', ['branch', '--format=%(refname:short)'], { cwd: worktreePath, encoding: 'utf8' })
-        .split('\n').map((l) => l.trim()).filter(Boolean),
-    )
-    conWorktree = new Set(
-      execFileSync('git', ['worktree', 'list', '--porcelain'], { cwd: worktreePath, encoding: 'utf8' })
-        .split('\n').filter((l) => l.startsWith('branch '))
-        .map((l) => l.slice('branch refs/heads/'.length).trim()).filter(Boolean),
-    )
+    branchOutput = execFileSync('git', ['branch', '--format=%(refname:short)'], { cwd: worktreePath, encoding: 'utf8' })
+    worktreeOutput = execFileSync('git', ['worktree', 'list', '--porcelain'], { cwd: worktreePath, encoding: 'utf8' })
+    gitDisponible = true
   } catch {
-    // Sin git no hay estado que informar: todo queda `sin-worktree`, que es el default
-    // menos afirmativo. No es motivo para no escribir el hilo.
+    // Sin git no hay estado que informar: parseBranchStates devuelve `sin-worktree` para
+    // todas las ramas. No es motivo para no escribir el hilo.
   }
-  for (const b of branches) {
-    out[b] = conWorktree.has(b) ? 'activa' : existentes.has(b) ? 'sin-worktree' : 'cerrada'
-  }
-  return out
+  return parseBranchStates(branchOutput, worktreeOutput, branches, gitDisponible)
 }
 
 async function runTeamThreadRegeneration(
   worktreePath: string,
   projectKey: string,
 ): Promise<{ ok: boolean; error?: string; warnings?: unknown[] }> {
+  // `worktreePath` llega sin validar desde el limite IPC. Sin esto, un path vacio,
+  // relativo o mal formado resuelve `rootDir` contra el cwd del proceso main, y el
+  // `rmSync` recursivo del camino de apagado (abajo) borraria ahi en silencio. Vale para
+  // los dos caminos (apagado y escritura), por eso va antes que todo lo demas.
+  if (!worktreePath || !isAbsolute(worktreePath)) return { ok: false, error: 'invalid_worktree_path' }
+
   if (!memory) return { ok: false, error: 'memory_unavailable' }
   const userId = memory.store.getOwnerUserId()
   const settings = loadTeamThreadSettings(teamThreadSettingsPath(ravenHome(), userId), projectKey)
