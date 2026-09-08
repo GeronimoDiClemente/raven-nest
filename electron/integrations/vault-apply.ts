@@ -1,9 +1,12 @@
 // Applies a VaultPlan to disk — the only vault module that touches `fs`, together with
 // vault-config.ts and memory-readonly-reader.ts. See vault spec §7 (batching), §10 (edit
 // detection needs live on-disk hashes) and §12.
-import { createHash, randomBytes } from 'crypto'
+import { randomBytes } from 'crypto'
 import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, appendFileSync, writeFileSync } from 'fs'
 import { dirname, join } from 'path'
+// La extraccion del Ruling 7 (vault-hash.ts) habia quedado a mitad de camino: este modulo
+// seguia con su propia copia identica de sha256.
+import { sha256 } from './vault-hash'
 import type { VaultManifest, VaultManifestEntry, VaultPlan, VaultWarning } from './vault-plan'
 
 const BATCH_SIZE = 200
@@ -19,10 +22,6 @@ export const DEFAULT_APPLY_PATHS: VaultApplyPaths = {
   manifest: '.nest-vault/manifest.json',
   tombstones: '.nest-vault/tombstones.jsonl',
   readme: 'README.md',
-}
-
-function sha256(text: string): string {
-  return createHash('sha256').update(text).digest('hex')
 }
 
 function abs(rootDir: string, relPath: string): string {

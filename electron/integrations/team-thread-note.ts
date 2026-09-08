@@ -92,7 +92,11 @@ export function renderBranchNote(input: BranchNoteInput): string {
     if (e.content) lines.push(e.content.trim(), '')
   }
 
-  return lines.join('\n')
+  // Newline final, igual que `renderThreadIndex`. Cuesta un caracter y evita un efecto
+  // real: la accion principal del panel es abrir la nota en el editor, y cualquier editor
+  // que agregue el newline final al guardar dispararia un `_conflicts/` espurio en la
+  // pasada siguiente.
+  return lines.join('\n') + '\n'
 }
 
 export function renderThreadIndex(input: ThreadIndexInput): string {
