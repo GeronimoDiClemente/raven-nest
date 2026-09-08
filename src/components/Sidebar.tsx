@@ -661,33 +661,6 @@ export default function Sidebar({
         </span>
         <span className="sidebar-label">Orchestration</span>
       </div>
-      {/* ── 4. MORE TOOLS (desplegable) ─────────────────── */}
-      <div className={`sidebar-more${moreOpen ? ' open' : ''}`}>
-        <button
-          className="sidebar-item sidebar-more-toggle"
-          onClick={() => setMoreOpen(v => !v)}
-          title={moreOpen ? 'Hide more tools' : 'Show more tools'}
-        >
-          <span className="sidebar-icon">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style={{ transform: moreOpen ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 150ms ease' }}>
-              <path d="M6 4l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-          </span>
-          <span className="sidebar-label">More tools</span>
-        </button>
-        {moreOpen && (
-          <div className="sidebar-more-list">
-            {LayoutItem}
-            {/* Filtro de panes — junto al layout selector: ambos son
-                controles de vista del workspace (pedido de Bautista). */}
-            {onPaneFilterChange && (
-              <PaneFilterControl
-                panes={paneFilterPanes ?? []}
-                filter={paneFilter ?? 'all'}
-                onChange={onPaneFilterChange}
-                expanded={expanded}
-              />
-
       {ConversationHistoryItem}
       {CommandHistoryItem}
     </>

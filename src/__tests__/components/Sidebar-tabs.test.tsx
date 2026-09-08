@@ -40,6 +40,7 @@ function renderSidebar(extra: Partial<ComponentProps<typeof Sidebar>> = {}) {
       onToggle={() => {}}
       broadcastMode={false}
       onBroadcastToggle={() => {}}
+      onFixCi={() => {}}
       isListening={false}
       isTranscribing={false}
       isModelLoading={false}

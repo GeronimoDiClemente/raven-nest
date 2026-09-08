@@ -1823,7 +1823,7 @@ export default function App() {
         profileLoading={profileLoading}
         onUpgrade={() => setShowUpgrade(true)}
         onPersonalOpen={() => {
-          if (!planLimits.allowMyRepos) { setShowUpgrade(true); return }
+          if (!planLimits.memoryCloud) { setShowUpgrade(true); return }
           // Reset to 'repos': personalSection can be left on 'pendings' by
           // the invites redirect (onOpenPersonalInvites below). Without this,
           // the next normal open of Personal would show the stale invites
@@ -2112,7 +2112,7 @@ export default function App() {
           onConnectGitHub={connectGitHub}
           onOpenRepoTerminal={openRepoInNewTab}
           onOpenTeamWorkspace={() => setTeamsOpen(true)}
-          allowTeam={planLimits.allowTeam}
+          allowTeam={planLimits.memoryTeamShare}
           onStartTutorial={() => setTutorialTour('my-repos')}
           activeRepoPath={activeCellRepoPath ?? null}
           focusedPaneId={focusedPaneId}

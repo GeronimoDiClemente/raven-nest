@@ -111,9 +111,17 @@ const baseProps = {
 }
 
 describe('Sidebar — entry point global de Integraciones', () => {
+  // Abrir el flyout monta SnippetPanel, que lee window.snippets al montarse.
+  beforeEach(() => {
+    window.snippets = { list: vi.fn().mockResolvedValue([]) } as never
+  })
+
   it('renderiza un ítem "Integrations" que llama a onIntegrationsOpen', () => {
     const onIntegrationsOpen = vi.fn()
     render(<Sidebar {...baseProps} onIntegrationsOpen={onIntegrationsOpen} />)
+    // Con las pestanas, Integrations dejo de ser una fila fija y vive en Tools:
+    // la lista que comparten la pestana y, en modo colapsado como aca, el flyout.
+    fireEvent.click(screen.getByTitle('Show more tools'))
     fireEvent.click(screen.getByText('Integrations'))
     expect(onIntegrationsOpen).toHaveBeenCalledTimes(1)
   })

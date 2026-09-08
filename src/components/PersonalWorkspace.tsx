@@ -32,9 +32,9 @@ interface PersonalWorkspaceProps {
   /** When provided, the header shows a "?" button that launches the My Repos tutorial. */
   onStartTutorial?: () => void
   /** Repo path of the currently active tab — feeds the worktreeContext of an embedded integration panel. */
-  activeRepoPath: string | null
+  activeRepoPath?: string | null
   /** Pane currently focused in the terminal grid — feeds the "attach terminal output" action of an embedded integration panel. */
-  focusedPaneId: string | null
+  focusedPaneId?: string | null
   /** Opens the add-pane flow on a freshly created worktree (App.tsx setAddingPane).
    *  El 2º arg (H5) viaja como initialInput del pane: el prompt inicial del agente.
    *  El 3º arg (worker) viaja cuando el usuario elige "Run with worker": el spec
@@ -51,7 +51,7 @@ export type Section = 'activity' | 'repos' | 'issues' | 'standup' | 'pendings'
 type ReposView = 'list' | 'prs' | 'pr-detail'
 type IssuesView = 'repo-select' | 'list' | 'detail'
 
-export default function PersonalWorkspace({ onClose, githubToken, githubLogin, onConnectGitHub, onOpenRepoTerminal, onOpenTeamWorkspace, allowTeam, onStartTutorial, initialSection, onPendingInvitesChange, activeRepoPath, focusedPaneId, onOpenWorktree }: PersonalWorkspaceProps) {
+export default function PersonalWorkspace({ onClose, githubToken, githubLogin, onConnectGitHub, onOpenRepoTerminal, onOpenTeamWorkspace, allowTeam, onStartTutorial, initialSection, onPendingInvitesChange, activeRepoPath = null, focusedPaneId = null, onOpenWorktree }: PersonalWorkspaceProps) {
   const [scope, setScope] = useState<RepoScope>({ kind: 'personal' })
   const { teams, members, userId, switchTeam, pendingInvites, acceptInvite, rejectInvite } = useTeam()
   const isTeamLeader = scope.kind === 'team' && members.some(
@@ -939,7 +939,7 @@ export default function PersonalWorkspace({ onClose, githubToken, githubLogin, o
           <div className="confirm-dialog" style={{ width: 380 }}>
             <div className="confirm-title" style={{ marginBottom: 4, fontSize: 14 }}>Run with worker</div>
             <div className="confirm-message" style={{ marginBottom: 12, color: 'var(--text-muted)', fontSize: 12 }}>
-              {workerPickerRepo.repo_full_name}
+              {workerPickerRepo.fullName}
             </div>
             {workers.length === 0 ? (
               <p className="snippet-empty">No workers yet — create one in Integrations → Automations.</p>
@@ -951,7 +951,7 @@ export default function PersonalWorkspace({ onClose, githubToken, githubLogin, o
                     className="snippet-item"
                     style={{ cursor: 'pointer' }}
                     onClick={() => {
-                      const localPath = workerPickerRepo.local_path
+                      const localPath = workerPickerRepo.localPath
                       if (!localPath) return
                       onOpenWorktree?.(localPath, w.steps[0]?.instructions, w)
                       setWorkerPickerRepo(null)

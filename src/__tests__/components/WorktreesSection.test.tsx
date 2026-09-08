@@ -28,7 +28,7 @@ beforeEach(() => {
 describe('WorktreesSection — no collapse toggle', () => {
   it('keeps the worktree list visible after clicking the header', async () => {
     render(
-      <WorktreesSection repoPath={ROOT} activeRepoPath={ROOT} onSelect={() => {}} onNewClick={() => {}} />,
+      <WorktreesSection repoPath={ROOT} activeRepoPath={ROOT} onSelect={() => {}} onNewClick={() => {}} onFixCi={() => {}} />,
     )
     await waitFor(() => expect(screen.getByText('main')).toBeInTheDocument())
     fireEvent.click(screen.getByText(/Worktrees/))

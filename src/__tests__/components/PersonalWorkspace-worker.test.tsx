@@ -6,23 +6,23 @@
 // (pattern from WorktreePicker.test.tsx / TeamsWorkspace-open-terminal.test.tsx).
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
-import MyReposPanel from '../../components/MyReposPanel'
-import type { UserRepo } from '../../hooks/useUserRepos'
+import PersonalWorkspace from '../../components/PersonalWorkspace'
+import type { Repo } from '../../hooks/useScopedRepos'
 import type { WorkerSpec } from '../../types'
 
-const repo: UserRepo = {
+const repo: Repo = {
   id: 'r1',
-  user_id: 'u1',
-  repo_full_name: 'gero/repo1',
-  repo_url: 'https://gitlab.com/gero/repo1',
-  added_at: '2026-01-01T00:00:00Z',
-  local_path: '/Users/gero/dev/repo1',
+  fullName: 'gero/repo1',
+  url: 'https://gitlab.com/gero/repo1',
   provider: 'gitlab',
+  addedAt: '2026-01-01T00:00:00Z',
+  localPath: '/Users/gero/dev/repo1',
 }
 
-vi.mock('../../hooks/useUserRepos', () => ({
-  useUserRepos: () => ({
+vi.mock('../../hooks/useScopedRepos', () => ({
+  useScopedRepos: () => ({
     repos: [repo],
+    canManage: true,
     loading: false,
     refresh: vi.fn(),
     addRepo: vi.fn(),
@@ -53,12 +53,14 @@ function makeWorker(over: Partial<WorkerSpec> = {}): WorkerSpec {
 
 function renderPanel(onOpenWorktree = vi.fn()) {
   return render(
-    <MyReposPanel
+    <PersonalWorkspace
       onClose={vi.fn()}
       githubToken={null}
       githubLogin={null}
       onConnectGitHub={vi.fn()}
       onOpenRepoTerminal={vi.fn()}
+      onOpenTeamWorkspace={vi.fn()}
+      allowTeam={false}
       activeRepoPath={null}
       focusedPaneId={null}
       onOpenWorktree={onOpenWorktree}
@@ -71,7 +73,7 @@ async function openWorkerPicker() {
   fireEvent.click(await screen.findByRole('menuitem', { name: 'Run with worker' }))
 }
 
-describe('MyReposPanel — Run with worker', () => {
+describe('PersonalWorkspace — Run with worker', () => {
   beforeEach(() => {
     window.workerSpecs = {
       list: vi.fn().mockResolvedValue([makeWorker()]),

@@ -124,6 +124,8 @@ describe('App — Personal section reset', () => {
       session: { load: vi.fn(async () => null), save: vi.fn() },
       port: { byPane: vi.fn(async () => ({})) },
       platform: { isWin: false },
+      // App monta MemoryHub, que pide hubStats al montarse (Team Memory).
+      memory: { hubStats: vi.fn(async () => ({ itemCount: 0, projectCount: 0 })) },
     })
   })
 
