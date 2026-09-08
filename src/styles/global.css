@@ -11257,3 +11257,39 @@ body.platform-mac .tabbar { padding-right: 116px; }
 /* Borde entre editores: sin esto el texto clipeado toca al pane vecino y se
    lee como superposición aunque el layout sea correcto. */
 .editor-pane{border-left:1px solid #262626;border-right:1px solid #262626}
+
+/* Scope selector — Personal vs each team, at the top of the Personal nav. */
+.scope-selector {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 8px;
+  border-bottom: 1px solid var(--border);
+}
+.scope-chip {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-family: var(--font-ui);
+  font-size: var(--ui-font-size);
+  padding: 3px 8px;
+}
+.scope-chip:hover { color: var(--text-primary); }
+.scope-chip.active {
+  background: var(--bg-surface);
+  border-color: var(--raven-blue);
+  color: var(--text-primary);
+}
+.scope-open-team {
+  background: transparent;
+  border: none;
+  color: var(--raven-blue);
+  cursor: pointer;
+  font-family: var(--font-ui);
+  font-size: 11px;
+  padding: 3px 4px;
+  text-align: left;
+  width: 100%;
+}
