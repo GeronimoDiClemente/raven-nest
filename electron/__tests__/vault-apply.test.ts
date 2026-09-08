@@ -1,8 +1,9 @@
 import { describe, it, expect, afterEach } from 'vitest'
-import { existsSync, readFileSync, writeFileSync, readdirSync } from 'fs'
+import { existsSync, readFileSync, writeFileSync, readdirSync, mkdtempSync } from 'fs'
 import { join } from 'path'
+import { tmpdir } from 'os'
 import { makeTmpDir, cleanupTmp } from './setup'
-import { applyVaultPlan, computeOnDiskHashes, readManifest } from '../integrations/vault-apply'
+import { applyVaultPlan, computeOnDiskHashes, readManifest, DEFAULT_APPLY_PATHS } from '../integrations/vault-apply'
 import { planVault, emptyManifest, type VaultManifest } from '../integrations/vault-plan'
 import { parseNote } from '../integrations/vault-note'
 import type { MemoryProject, MemoryRecord } from '../integrations/memory-port'
@@ -138,5 +139,32 @@ describe('applyVaultPlan — end to end', () => {
     const freshPath = m2.entries[r.syncId].filePath
     const fresh = readFileSync(join(root, ...freshPath.split('/')), 'utf8')
     expect(fresh).toContain('Some body from the store, unrelated to the hand-edit')
+  })
+})
+
+describe('rutas de contabilidad parametrizables', () => {
+  it('por default deja el manifest donde siempre', () => {
+    expect(DEFAULT_APPLY_PATHS.manifest).toBe('.nest-vault/manifest.json')
+  })
+
+  it('respeta rutas propias y no pisa las del vault', async () => {
+    const rootDir = mkdtempSync(join(tmpdir(), 'team-thread-'))
+    const paths = { manifest: '.manifest.json', tombstones: '.tombstones.jsonl', readme: 'README.md' }
+
+    const plan = {
+      writes: [{ syncId: 'rama:main', filePath: 'ramas/main.md', content: '# main\n', fileHash: 'fh', sourceHash: 'sh' }],
+      moves: [],
+      deletes: [],
+      conflicts: [],
+      warnings: [],
+      indexWrites: [],
+      readme: '# hilo\n',
+    }
+
+    await applyVaultPlan(rootDir, plan, paths)
+
+    expect(existsSync(join(rootDir, '.manifest.json'))).toBe(true)
+    expect(existsSync(join(rootDir, '.nest-vault', 'manifest.json'))).toBe(false)
+    expect(readManifest(rootDir, paths).entries['rama:main'].filePath).toBe('ramas/main.md')
   })
 })

@@ -7,8 +7,19 @@ import { dirname, join } from 'path'
 import type { VaultManifest, VaultManifestEntry, VaultPlan, VaultWarning } from './vault-plan'
 
 const BATCH_SIZE = 200
-const MANIFEST_REL_PATH = '.nest-vault/manifest.json'
-const TOMBSTONES_REL_PATH = '.nest-vault/tombstones.jsonl'
+
+export interface VaultApplyPaths {
+  manifest: string
+  tombstones: string
+  readme: string
+}
+
+/** Lo que usaba el vault antes de que esto fuera parametrizable. No cambiar. */
+export const DEFAULT_APPLY_PATHS: VaultApplyPaths = {
+  manifest: '.nest-vault/manifest.json',
+  tombstones: '.nest-vault/tombstones.jsonl',
+  readme: 'README.md',
+}
 
 function sha256(text: string): string {
   return createHash('sha256').update(text).digest('hex')
@@ -26,9 +37,9 @@ function writeFileAtomic(path: string, content: string): void {
   renameSync(tmp, path)
 }
 
-export function readManifest(rootDir: string): VaultManifest {
+export function readManifest(rootDir: string, paths: VaultApplyPaths = DEFAULT_APPLY_PATHS): VaultManifest {
   try {
-    const raw = readFileSync(abs(rootDir, MANIFEST_REL_PATH), 'utf8')
+    const raw = readFileSync(abs(rootDir, paths.manifest), 'utf8')
     const data = JSON.parse(raw) as { entries?: Record<string, VaultManifestEntry> }
     return { entries: data.entries && typeof data.entries === 'object' ? data.entries : {} }
   } catch {
@@ -36,13 +47,13 @@ export function readManifest(rootDir: string): VaultManifest {
   }
 }
 
-function writeManifest(rootDir: string, manifest: VaultManifest): void {
-  writeFileAtomic(abs(rootDir, MANIFEST_REL_PATH), JSON.stringify(manifest, null, 2))
+function writeManifest(rootDir: string, manifest: VaultManifest, paths: VaultApplyPaths): void {
+  writeFileAtomic(abs(rootDir, paths.manifest), JSON.stringify(manifest, null, 2))
 }
 
-function appendTombstones(rootDir: string, entries: Array<{ syncId: string; deletedAt: number; file: string }>): void {
+function appendTombstones(rootDir: string, entries: Array<{ syncId: string; deletedAt: number; file: string }>, paths: VaultApplyPaths): void {
   if (entries.length === 0) return
-  const path = abs(rootDir, TOMBSTONES_REL_PATH)
+  const path = abs(rootDir, paths.tombstones)
   mkdirSync(dirname(path), { recursive: true })
   const lines = entries.map((e) => JSON.stringify(e)).join('\n') + '\n'
   appendFileSync(path, lines, 'utf8')
@@ -83,8 +94,8 @@ export interface VaultApplyResult {
  * NEXT pass. Batches every fs-touching step by `BATCH_SIZE` with a `setImmediate` yield
  * between batches (§7) so a 10k-row full pass never blocks Electron main's event loop.
  */
-export async function applyVaultPlan(rootDir: string, plan: VaultPlan): Promise<{ manifest: VaultManifest; result: VaultApplyResult }> {
-  const manifest = readManifest(rootDir)
+export async function applyVaultPlan(rootDir: string, plan: VaultPlan, paths: VaultApplyPaths = DEFAULT_APPLY_PATHS): Promise<{ manifest: VaultManifest; result: VaultApplyResult }> {
+  const manifest = readManifest(rootDir, paths)
   const tombstoneEntries: Array<{ syncId: string; deletedAt: number; file: string }> = []
   let batchCount = 0
   const maybeYield = async (): Promise<void> => {
@@ -139,9 +150,9 @@ export async function applyVaultPlan(rootDir: string, plan: VaultPlan): Promise<
     await maybeYield()
   }
 
-  writeFileAtomic(abs(rootDir, 'README.md'), plan.readme)
-  appendTombstones(rootDir, tombstoneEntries)
-  writeManifest(rootDir, manifest)
+  writeFileAtomic(abs(rootDir, paths.readme), plan.readme)
+  appendTombstones(rootDir, tombstoneEntries, paths)
+  writeManifest(rootDir, manifest, paths)
 
   return {
     manifest,
