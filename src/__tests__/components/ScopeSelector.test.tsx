@@ -15,9 +15,32 @@ describe('ScopeSelector', () => {
     expect(container).toBeEmptyDOMElement()
   })
 
-  it('renders nothing when the user belongs to no team', () => {
-    const { container } = render(
+  it('renders no scope chips when the user belongs to no team', () => {
+    render(
       <ScopeSelector scope={{ kind: 'personal' }} teams={[]} allowTeam
+        onScopeChange={noop} onOpenTeamWorkspace={noop} />,
+    )
+    expect(screen.queryByRole('button', { name: 'Personal' })).not.toBeInTheDocument()
+  })
+
+  // Creating or joining a first team only exists inside the team workspace's
+  // "Welcome to Teams" empty state, and Personal is now the only door to it.
+  // Without this, a Team/Enterprise user with zero teams and no invitation can
+  // never get a first team at all.
+  it('offers a way into the team workspace to a user with zero teams', () => {
+    const onOpenTeamWorkspace = vi.fn()
+    render(
+      <ScopeSelector scope={{ kind: 'personal' }} teams={[]} allowTeam
+        onScopeChange={noop} onOpenTeamWorkspace={onOpenTeamWorkspace} />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /create or join a team/i }))
+    expect(onOpenTeamWorkspace).toHaveBeenCalled()
+  })
+
+  // The gate stays honest: a plan without teams must not be shown the door.
+  it('hides that door on a plan without teams', () => {
+    const { container } = render(
+      <ScopeSelector scope={{ kind: 'personal' }} teams={[]} allowTeam={false}
         onScopeChange={noop} onOpenTeamWorkspace={noop} />,
     )
     expect(container).toBeEmptyDOMElement()

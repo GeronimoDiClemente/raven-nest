@@ -78,9 +78,28 @@ describe('PersonalWorkspace', () => {
     expect(screen.queryByText('My Repos')).not.toBeInTheDocument()
   })
 
-  it('hides the scope selector for a user with no teams', () => {
+  it('hides the scope chips for a user with no teams', () => {
     render(<PersonalWorkspace {...props} />)
     expect(screen.queryByRole('button', { name: 'Nest' })).not.toBeInTheDocument()
+  })
+
+  // The team workspace's "Welcome to Teams" empty state (create a team, join by
+  // code) used to be reachable through the sidebar's Team door, which this
+  // branch deleted. Personal is the only remaining way in, so a user with zero
+  // teams and no pending invitation needs one here or they can never get a
+  // first team.
+  it('lets a user with zero teams reach the create/join team surface', () => {
+    teamState.teams = []
+    const onOpenTeamWorkspace = vi.fn()
+    render(<PersonalWorkspace {...props} onOpenTeamWorkspace={onOpenTeamWorkspace} />)
+    fireEvent.click(screen.getByRole('button', { name: /create or join a team/i }))
+    expect(onOpenTeamWorkspace).toHaveBeenCalled()
+  })
+
+  it('does not offer create/join on a plan without teams', () => {
+    teamState.teams = []
+    render(<PersonalWorkspace {...props} allowTeam={false} />)
+    expect(screen.queryByRole('button', { name: /create or join a team/i })).not.toBeInTheDocument()
   })
 
   it('shows the scope selector once the user belongs to a team', () => {
