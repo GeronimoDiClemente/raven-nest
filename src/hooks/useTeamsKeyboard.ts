@@ -1,16 +1,17 @@
 import { useEffect, useRef } from 'react'
+import type { WorkspaceSection } from '../components/TeamsWorkspace'
 
 interface TeamsKeyboardOptions {
   onClose: () => void
-  onSectionChange: (section: string) => void
-  currentSection: string
+  onSectionChange: (section: WorkspaceSection) => void
+  currentSection: WorkspaceSection
 }
 
-const G_CHORD_MAP: Record<string, string> = {
-  r: 'repos',
-  i: 'issues',
+// Repos/Issues/Activity moved to Personal and have no equivalent inside
+// TeamsWorkspace anymore — their chords are dropped rather than repointed
+// (there's no section here that "is" repos/issues/activity by another name).
+const G_CHORD_MAP: Partial<Record<string, WorkspaceSection>> = {
   m: 'members',
-  a: 'activity',
   s: 'snippets',
 }
 

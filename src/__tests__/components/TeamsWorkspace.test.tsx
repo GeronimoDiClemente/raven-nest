@@ -78,4 +78,10 @@ describe('TeamsWorkspace nav', () => {
       expect(screen.getByRole('button', { name: label })).toBeInTheDocument()
     }
   })
+
+  it('defaults to the Chat section on mount', () => {
+    renderWorkspace()
+    expect(screen.getByRole('button', { name: 'Chat' })).toHaveClass('active')
+    expect(screen.getByRole('button', { name: 'Members' })).not.toHaveClass('active')
+  })
 })

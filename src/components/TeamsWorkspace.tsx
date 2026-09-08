@@ -33,7 +33,7 @@ interface TeamsWorkspaceProps {
   onOpenPersonalInvites?: () => void
 }
 
-type WorkspaceSection = 'chat' | 'members' | 'stats' | 'snippets' | 'workspaces' | 'mcp'
+export type WorkspaceSection = 'chat' | 'members' | 'stats' | 'snippets' | 'workspaces' | 'mcp'
 
 const PRESENCE_COLORS = [
   '#0066FF', '#00CC44', '#CC44FF', '#FFB800', '#FF6600',
@@ -126,7 +126,7 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal, on
 
   useTeamsKeyboard({
     onClose,
-    onSectionChange: (s) => setSection(s as WorkspaceSection),
+    onSectionChange: setSection,
     currentSection: section,
   })
 

@@ -166,4 +166,29 @@ describe('PersonalWorkspace', () => {
     fireEvent.click(screen.getByRole('button', { name: /decline/i }))
     await waitFor(() => expect(onPendingInvitesChange).toHaveBeenCalled())
   })
+
+  // Regression coverage for the getRemoteUrl guard in handleOpenTerminal
+  // (this logic moved here from TeamsWorkspace along with the Repos section;
+  // its own regression test did not move with it — see task-6-report.md).
+  // Unlike the old TeamsWorkspace version, PersonalWorkspace treats a
+  // getRemoteUrl failure as non-fatal (comment at PersonalWorkspace.tsx:183-186):
+  // it falls through and opens the terminal anyway rather than surfacing the
+  // Clone/Link dialog. The guarantee this test protects is "does not crash and
+  // does not silently swallow the open" — not the (different) TeamsWorkspace
+  // dialog behavior.
+  it('opens the terminal even when getRemoteUrl throws, instead of crashing or blocking', async () => {
+    scopedState.repos = [{ ...repo('org/repo'), localPath: 'C:/dev/repo' }]
+    ;(globalThis as unknown as { window: Window }).window.pathUtils = {
+      exists: vi.fn().mockResolvedValue(true),
+    } as never
+    ;(globalThis as unknown as { window: Window }).window.git = {
+      getRemoteUrl: vi.fn().mockRejectedValue(new Error('git missing')),
+    } as never
+    const onOpenRepoTerminal = vi.fn()
+    render(<PersonalWorkspace {...props} onOpenRepoTerminal={onOpenRepoTerminal} />)
+    fireEvent.click(screen.getByRole('button', { name: /terminal/i }))
+    await waitFor(() => {
+      expect(onOpenRepoTerminal).toHaveBeenCalledWith('org/repo', 'C:/dev/repo')
+    })
+  })
 })
