@@ -253,6 +253,8 @@ export default function App() {
   const [teamsOpen, setTeamsOpen] = useState(false)
   const { count: pendingInvitesCount, refresh: refreshPendingInvitesCount } = usePendingInvitesCount()
   const [personalOpen, setPersonalOpen] = useState(false)
+  // Spec 2026-09-09 §4.1: Memories es hermana de Personal, con su propio overlay.
+  const [memoriesOpen, setMemoriesOpen] = useState(false)
   const [personalSection, setPersonalSection] = useState<PersonalWorkspaceSection>('repos')
   const [integrationsHubOpen, setIntegrationsHubOpen] = useState(false)
   const [graphBoardOpen, setGraphBoardOpen] = useState(false)
@@ -1831,6 +1833,9 @@ export default function App() {
           setPersonalSection('repos')
           setPersonalOpen(true)
         }}
+        // La memoria local es de todos los planes (§8.1), asi que esta fila NO pasa por el
+        // gate de plan que si tiene Personal.
+        onMemoriesOpen={() => setMemoriesOpen(true)}
         pendingInvitesCount={pendingInvitesCount}
         // TODO: gate behind plan tier if needed
         onIntegrationsOpen={() => setIntegrationsHubOpen(true)}

@@ -12028,3 +12028,33 @@ body.platform-mac .tabbar { padding-right: 116px; }
   text-align: left;
   width: 100%;
 }
+
+/* ══════════════════════════════════════
+   MEMORIES (spec 2026-09-09)
+══════════════════════════════════════ */
+
+/* §5.1 — el punto de estado de la fila. Vive sobre el icono para que la sidebar
+   colapsada siga diciendo el estado sin una sola palabra. */
+.memories-dot {
+  position: absolute;
+  bottom: -1px;
+  right: -3px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1.5px var(--bg-primary, #0a0a0a);
+}
+.memories-dot[data-dot='green'] { background: #22C55E; }
+.memories-dot[data-dot='amber'] { background: #F59E0B; }
+.memories-dot[data-dot='red']   { background: #EF4444; }
+.memories-dot[data-dot='grey']  { background: #6B7280; }
+
+.memories-status-text {
+  margin-left: auto;
+  font-size: 10px;
+  opacity: .6;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 96px;
+}

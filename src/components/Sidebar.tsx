@@ -22,6 +22,7 @@ import { useFixedPopover } from '../hooks/useFixedPopover'
 import { ExplorerPanel } from './ExplorerPanel'
 import HubExplorerPanel, { type ExplorerRoot } from './HubExplorerPanel'
 import SidebarTabBar, { type SidebarTabId, REPO_TABS, HUB_TABS } from './SidebarTabBar'
+import MemoriesItem from './MemoriesItem'
 import PaneFilterControl from './PaneFilterControl'
 import type { PaneFilter } from '../lib/pane-filter'
 import type { PaneNode } from '../types'
@@ -49,6 +50,8 @@ interface Props {
   profileLoading?: boolean
   onUpgrade?: () => void
   onPersonalOpen?: () => void
+  /** Spec 2026-09-09 §4.1: Memories es hermana de Personal, no una seccion adentro ni una 4a pestana. */
+  onMemoriesOpen?: () => void
   pendingInvitesCount?: number
   onIntegrationsOpen?: () => void
   onGraphBoardOpen?: () => void
@@ -95,7 +98,7 @@ export default function Sidebar({
   isListening, isTranscribing, isModelLoading, onMicToggle,
   onNewPane, onHistoryOpen,
   onSnippetSend, onSnippetBroadcast, onCommandRun, onWorkspaceSave, onWorkspaceLoad, isWin,
-  isTrialActive, trialDaysLeft, profileLoading, onUpgrade, onPersonalOpen, onIntegrationsOpen, onGraphBoardOpen, pendingInvitesCount = 0, plan, repoPath, onRepoLink, onRepoUnlink, onJoinTerminal,
+  isTrialActive, trialDaysLeft, profileLoading, onUpgrade, onPersonalOpen, onMemoriesOpen, onIntegrationsOpen, onGraphBoardOpen, pendingInvitesCount = 0, plan, repoPath, onRepoLink, onRepoUnlink, onJoinTerminal,
   activeCellRepoPath, onWorktreeSelect, onNewWorktree, onFixCi, worktreeRefreshKey,
   layoutId, paneCount, onLayoutChange, onOpenTutorial, onFileOpen, userPrefs,
   paneFilterPanes, paneFilter, onPaneFilterChange,
@@ -847,6 +850,11 @@ export default function Sidebar({
           every mode (expanded/collapsed, repo/Hub sidebar) directly above
           the user row. */}
       {PersonalItem}
+
+      {/* Memories — hermana de Personal (spec §4.1). Fuera del scroll y de las pestanas por
+          la misma razon que Personal: las 3 pestanas son del repo abierto, y esto es de la
+          cuenta. */}
+      {onMemoriesOpen && <MemoriesItem expanded={expanded} onOpen={onMemoriesOpen} />}
 
       {/* User menu — hidden while loading to avoid flash */}
       {!profileLoading && (
