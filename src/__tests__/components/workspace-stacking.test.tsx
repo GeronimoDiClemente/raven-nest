@@ -71,12 +71,34 @@ vi.mock('../../lib/supabase', () => ({
   },
 }))
 
-/** Every rule in global.css whose selector mentions the workspace shell. */
+/**
+ * Every rule in global.css whose selector mentions the workspace shell, PLUS the `:root`
+ * block that declares the overlay z-index scale.
+ *
+ * That second part is not optional: since the 2026-09-09 spec §5.4 the shells no longer
+ * carry literal z-indexes, they read `var(--z-overlay-base)` / `var(--z-overlay-front)`.
+ * Injecting the shell rules alone leaves both variables undefined in jsdom, both computed
+ * z-indexes resolve to 0, and the tie-break below silently hands the contest to whichever
+ * sibling comes last — a green-looking test that stopped checking anything, or (as here)
+ * a red one that reports a regression that does not exist in the real app.
+ */
 function workspaceShellCss(): string {
   const css = readFileSync(resolve(process.cwd(), 'src/styles/global.css'), 'utf8')
     // Comments name selectors too; strip them before matching rules.
     .replace(/\/\*[\s\S]*?\*\//g, '')
-  return (css.match(/(?:^|\n)\s*\.teams-workspace[^{}]*\{[^{}]*\}/g) ?? []).join('\n')
+  const shellRules = (css.match(/(?:^|\n)\s*\.teams-workspace[^{}]*\{[^{}]*\}/g) ?? []).join('\n')
+
+  // jsdom does not resolve `var()` in getComputedStyle — it reports the literal
+  // `var(--z-overlay-front)` string, which `Number(...)` turns into NaN and the comparison
+  // below quietly degrades to the document-order tie-break. This test already models the
+  // cascade by hand (that is the whole shape of it), so it substitutes the variables the
+  // same way a browser would, reading their real values out of the `:root` block instead
+  // of hardcoding numbers that could drift from the stylesheet.
+  const vars = new Map<string, string>()
+  for (const [, name, value] of css.matchAll(/(--z-overlay-[a-z]+)\s*:\s*([^;]+);/g)) {
+    vars.set(name, value.trim())
+  }
+  return shellRules.replace(/var\((--z-overlay-[a-z]+)\)/g, (whole, name: string) => vars.get(name) ?? whole)
 }
 
 beforeAll(() => {

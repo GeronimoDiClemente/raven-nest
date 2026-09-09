@@ -1,3 +1,13 @@
+:root {
+  /* Escala de overlays a pantalla completa (spec 2026-09-09 §5.4). Explicita porque son
+     tres y ya no alcanza con el orden de render: Personal queda montado debajo del team
+     workspace (cerrar Teams tiene que devolverte a Personal), y Memories se abre encima de
+     los dos. Cualquier overlay nuevo elige uno de estos tres, nunca un numero suelto. */
+  --z-overlay-base: 1000;
+  --z-overlay-front: 1100;
+  --z-overlay-top: 1200;
+}
+
 /* RAVEN Nest — Global Styles */
 
 @keyframes spin {
@@ -5309,7 +5319,7 @@ kbd {
 .teams-workspace {
   position: fixed;
   inset: 0;
-  z-index: 1000;
+  z-index: var(--z-overlay-base);
   background: var(--bg-app);
   display: flex;
   flex-direction: column;
@@ -5322,7 +5332,7 @@ kbd {
    would paint over Teams, hiding it completely. The team surface gets its own
    layer instead of relying on render order. */
 .teams-workspace.teams-workspace--front {
-  z-index: 1100;
+  z-index: var(--z-overlay-front);
 }
 
 .teams-workspace-header {
