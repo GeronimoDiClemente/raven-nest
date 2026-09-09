@@ -9,6 +9,7 @@
 import { useMemories } from '../hooks/useMemories'
 import MemoriesStatusRow from './MemoriesStatusRow'
 import MemoryVaultCard from './MemoryVaultCard'
+import ShareProjectCard from './ShareProjectCard'
 import TeamThreadPanel from './TeamThreadPanel'
 
 interface Props {
@@ -53,6 +54,8 @@ export default function MemoriesWorkspace({ onClose, activeRepoPath, onOpenFile 
             Open a repo to see its memory graph. Memories are captured per project.
           </p>
         )}
+
+        <ShareProjectCard activeRepoPath={activeRepoPath} />
 
         <MemoryVaultCard />
       </div>

@@ -12077,3 +12077,9 @@ body.platform-mac .tabbar { padding-right: 116px; }
 .memories-danger { color: #EF4444; }
 .memories-body { flex-direction: column; gap: 16px; padding: 16px; overflow-y: auto; }
 .memories-empty { opacity: .6; font-size: 13px; }
+
+/* D6 — compartir un proyecto con el equipo, dentro del overlay de Memories. */
+.memories-share { border: 1px solid var(--border); border-radius: 3px; padding: 14px 16px; }
+.memories-share h4 { margin: 0 0 10px; font-size: 14px; }
+.memories-share-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.memories-ok { color: #22C55E; font-size: 13px; margin: 10px 0 0; }
