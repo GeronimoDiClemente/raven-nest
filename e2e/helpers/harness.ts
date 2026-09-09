@@ -38,6 +38,11 @@ export async function launchHarness(opts?: { withRepo?: boolean; keepRealHome?: 
   const env = { ...process.env }
   delete env.ELECTRON_RUN_AS_NODE
   env.RAVEN_E2E = '1'
+  // Headless por default: sin esto cada launch abre una ventana que roba el foco, y una
+  // corrida entera deja a quien esta usando la maquina sin poder trabajar. `main.ts` lo lee
+  // para crear la ventana oculta y sin icono de dock; las capturas siguen andando.
+  // `RAVEN_E2E_SHOW=1` lo apaga, para cuando hace falta MIRAR la app corriendo.
+  if (process.env.RAVEN_E2E_SHOW !== '1') env.RAVEN_E2E_HEADLESS = '1'
   // RAVEN_HOME is what the main process consults for persistent storage paths.
   // HOME / USERPROFILE alone are not sufficient on Windows, where os.homedir()
   // can read the user token rather than env vars.

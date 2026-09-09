@@ -245,6 +245,12 @@ function getMemorySyncBaseUrl(): string | null {
   )
 }
 
+/**
+ * Modo headless para los e2e: la ventana se crea oculta y sin icono en el dock. Solo lo
+ * prende el harness de tests (`e2e/helpers/harness.ts`); en una app real nunca esta seteado.
+ */
+const E2E_HEADLESS = process.env.RAVEN_E2E_HEADLESS === '1'
+
 let memoryToken: string | null = null
 function loadMemoryToken(): string | null {
   if (memoryToken) return memoryToken
@@ -625,6 +631,17 @@ function createWindow(): void {
     minHeight: 600,
     backgroundColor: '#0d0d0d',
     ...getWindowOptions(),
+    // Headless para los e2e. macOS no tiene Xvfb y Electron no tiene un `--headless` de
+    // verdad, asi que "headless" aca es la ventana que nunca se muestra: sin `show: false`
+    // cada test le roba el foco a quien este usando la maquina, y una corrida de seis tests
+    // es media docena de ventanas apareciendo encima de lo que el usuario esta haciendo.
+    //
+    // Las capturas siguen funcionando: `paintWhenInitiallyHidden` viene en true, asi que el
+    // renderer pinta igual y el `Page.captureScreenshot` de CDP que usa Playwright tiene
+    // algo que capturar.
+    //
+    // Va DESPUES del spread de getWindowOptions() a proposito, para que no se lo pise.
+    show: !E2E_HEADLESS,
     title: 'NestMux',
     icon: icon.isEmpty() ? undefined : icon,
     webPreferences: {
@@ -4652,8 +4669,13 @@ app.whenReady().then(async () => {
   })
 
   if (isMac) {
-    const dockIcon = nativeImage.createFromPath(pathJoin(getIconsDir(), 'icon.icns'))
-    if (!dockIcon.isEmpty()) app.dock.setIcon(dockIcon)
+    // Headless: sin icono de dock. Poner el icono lo hace aparecer y activa la app, que es
+    // la otra mitad del robo de foco — ocultar la ventana sola no alcanza.
+    if (E2E_HEADLESS) app.dock.hide()
+    else {
+      const dockIcon = nativeImage.createFromPath(pathJoin(getIconsDir(), 'icon.icns'))
+      if (!dockIcon.isEmpty()) app.dock.setIcon(dockIcon)
+    }
   }
   createWindow()
   setupAutoUpdater()

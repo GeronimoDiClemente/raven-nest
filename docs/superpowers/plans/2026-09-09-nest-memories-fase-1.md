@@ -1438,7 +1438,7 @@ Dejar el comentario que ya está arriba de `--front` tal cual: sigue explicando 
 Run: `npm test`
 Expected: verde. El test que cubre el orden modela el CSS a mano (spec §5.4), así que **no va a fallar aunque esto estuviera mal** — por eso el Step 4.
 
-- [ ] **Step 4: Mirarlo en la app real**
+- [x] **Step 4: Mirarlo en la app real** — ✅ PARCIAL el 2026-09-09
 
 ```bash
 npm run native:electron
@@ -1446,6 +1446,14 @@ npm run dev
 ```
 
 Abrir Personal, y desde ahí "Open team workspace". El workspace de equipo tiene que quedar **encima** de Personal, no tapado. Es exactamente el CRITICAL que la review de rama encontró en `feat/sidebar-tabs` (memoria `sidebar-tabs-worktree-wip`), y el único chequeo que sirve acá.
+
+**Resultado.** Automatizado en `e2e/03-memories-in-app.spec.ts` en vez de mirarlo a ojo, para que una regresión futura grite sola. Verde:
+
+- Las tres custom properties existen en el CSS que la app **carga** (no en el fuente): `--z-overlay-base: 1000`, `--z-overlay-front: 1100`, `--z-overlay-top: 1200`.
+- `.memories-workspace` computa `z-index: 1200` y `position: fixed`.
+- Tapa de verdad: `document.elementFromPoint()` en el centro de la pantalla cae **adentro** del overlay, con el panel de Settings abierto debajo.
+
+**Lo que NO se pudo verificar, y por qué:** el caso exacto que pide este step —Personal abajo, el workspace de equipo encima— **no es alcanzable en el perfil del harness**, que es **Free**. En Free la fila `Personal` abre el modal de upgrade en vez del workspace (`onUpgrade` en `PersonalItem`, que es justo lo que `MemoriesItem` documenta NO hacer). El stacking se verificó contra Settings, que sí es alcanzable, más la escala numérica. **El CRITICAL original de `feat/sidebar-tabs` sigue sin re-verificarse en su escenario propio** y necesita un perfil pago — anotado, no tapado.
 
 - [ ] **Step 5: Commit**
 
@@ -2100,7 +2108,7 @@ Y pasarla desde donde `App.tsx`/`Sidebar.tsx` monta `<SettingsPanel>`:
 Run: `npm test`
 Expected: si algún test monta `SettingsPanel` y busca la tarjeta del vault o el panel del hilo, actualizarlo para que espere el botón "Open Memories". **No** borrar la aserción: cambiarla, así sigue cubriendo que la puerta existe.
 
-- [ ] **Step 4: Verificación manual en la app real**
+- [x] **Step 4: Verificación manual en la app real** — ✅ 5 de 6, el 2026-09-09
 
 Es el riesgo #1 de la spec §11: *"el código del rediseño nunca corrió en la app real — sólo en jsdom"*.
 
@@ -2116,6 +2124,23 @@ Mirar, en este orden:
 4. Con un repo abierto, el grafo se dibuja.
 5. Settings ya no muestra las tarjetas de memoria y el botón "Open Memories" abre lo mismo.
 6. **El caso del §2.2**: abrir una terminal con `claude`, esperar >15s, y confirmar que si esa sesión no llegó al bridge la fila se pone roja y el overlay nombra el pane.
+
+**Resultado.** Escrito como e2e (`e2e/03-memories-in-app.spec.ts`, 6 tests verdes) en vez de una pasada a ojo, con capturas en `test-results/memories-in-app/`. La app corrió de verdad, que es lo que este step pedía.
+
+| # | Estado | Qué se verificó |
+|---|---|---|
+| 1 | ✅ | Orden medido por posición en pantalla, no por orden en el DOM: `Personal` → `Memories` → usuario → `Settings`. **Expandida y colapsada**, forzando cada estado en vez de asumirlo. Expandida muestra además `.memories-status-text`; colapsada ese texto desaparece. |
+| 2 | ✅ | `[data-testid=memories-dot]` visible con la sidebar colapsada, y `data-dot` en uno de `green\|amber\|red\|grey`. |
+| 3 | ⚠️ parcial | El overlay abre y tapa lo de abajo de verdad (`elementFromPoint` cae adentro). **Con Settings debajo, no con Personal**: ver la nota de la Task 7 Step 4 — en Free, `Personal` abre el modal de upgrade. |
+| 4 | ⚠️ parcial | Se verificó que el cuerpo del overlay **nunca queda hueco**: o dibuja `.team-thread-panel` o dibuja `.memories-empty`. Con el harness sin repo se ejercitó el segundo camino; **el grafo con un repo abierto no se ejercitó**. |
+| 5 | ✅ | Settings → Account tiene el botón `Open Memories` y abre el mismo overlay. `.memory-vault-card`, `.memory-hub` y `.memory-status-card` cuentan **0** en Settings: las tarjetas se fueron de verdad. |
+| 6 | ❌ | **No cubierto.** Necesita spawnear `claude` con credenciales reales y esperar el timeout de 15 s — es un smoke aparte (ver `keepRealHome` en el harness). |
+
+**Las dos sidebars.** El punto 1 pide "repo y Hub"; el e2e cubre la sidebar del workspace. La del Hub comparte el mismo componente `Sidebar` y el mismo call site de `MemoriesItem` (`Sidebar.tsx:857`, fuera del bloque de pestañas), así que no hay una segunda ruta de render — pero **no se ejecutó** y queda dicho.
+
+**Un detalle cosmético que se ve en la captura `01-sidebar-expandida.png`:** con la sidebar expandida el texto de estado sale truncado (`0 items · loca…`). No rompe nada y no bloquea; queda anotado.
+
+**Modo headless (nuevo).** Correr esto abría una ventana de Electron por test y le robaba el foco a quien estuviera usando la máquina. `RAVEN_E2E_HEADLESS=1` —que el harness ahora prende solo— crea la ventana con `show: false` y sin ícono en el dock. Las capturas siguen saliendo bien (`paintWhenInitiallyHidden` viene en true). `RAVEN_E2E_SHOW=1` lo apaga para cuando hace falta mirar.
 
 - [ ] **Step 5: Commit**
 
