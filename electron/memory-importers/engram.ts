@@ -67,6 +67,36 @@ export interface EngramImportResult {
 }
 
 /**
+ * Las columnas que este adapter LEE. No es el esquema entero de engram: una base con columnas
+ * de mas importa igual (ese es justo el punto de §5.2 "Schema drift"), una con menos no.
+ */
+const REQUIRED_COLUMNS = [
+  'sync_id', 'type', 'title', 'content', 'project', 'topic_key',
+  'revision_count', 'duplicate_count', 'last_seen_at', 'created_at', 'updated_at', 'deleted_at',
+] as const
+
+/**
+ * Codigo estable, no un mensaje: engram v2 sale la semana del 2026-09-08 y puede renombrar la
+ * tabla o dropear columnas. Sin esto el import devuelve `{imported: 0}` con un mensaje crudo
+ * de SQLite y el usuario ve cero importadas sin saber por que — el mismo fallo mudo del §2.2,
+ * y justo en la puerta de entrada de los usuarios que vienen de engram.
+ */
+export const ENGRAM_SCHEMA_UNKNOWN = 'engram_schema_unknown'
+
+function hasReadableSchema(db: Database.Database): boolean {
+  const table = db
+    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'observations'")
+    .get()
+  if (!table) return false
+
+  const columns = new Set(
+    (db.prepare('PRAGMA table_info(observations)').all() as Array<{ name: string }>)
+      .map((c) => c.name)
+  )
+  return REQUIRED_COLUMNS.every((c) => columns.has(c))
+}
+
+/**
  * Resolves an engram `project` value (a lowercased basename) to a Nest project_key by
  * matching against the caller-supplied map of known repos; unmatched -> __global__, per
  * §5.2.A.
@@ -115,6 +145,14 @@ export function importEngramDatabase(
   let skipped = 0
   try {
     copy = openReadOnlyCopy(engramDbPath)
+
+    // D4 (2026-09-09): antes del SELECT, chequear que el esquema sea uno que sabemos leer.
+    // Sin esto el SELECT tira un error crudo de SQLite que el catch de abajo convierte en
+    // "importe 0" sin razon utilizable.
+    if (!hasReadableSchema(copy.db)) {
+      store.updateImportRun(runId, { imported: 0, skipped: 0, state: 'failed', error: ENGRAM_SCHEMA_UNKNOWN })
+      return { imported: 0, skipped: 0, error: ENGRAM_SCHEMA_UNKNOWN }
+    }
 
     // Only select columns this adapter recognizes — a newer engram schema with extra
     // columns still imports cleanly; a schema missing a column we expect throws, caught

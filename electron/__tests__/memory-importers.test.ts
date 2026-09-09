@@ -472,3 +472,71 @@ describe('engram importer — cross-device content-derived identity (field failu
     }
   })
 })
+
+// D4 de las respuestas de Bauti (2026-09-09). engram v2 sale la semana del 08-09; si renombra
+// la tabla o dropea una columna que leemos, hoy el import devuelve `{imported: 0}` con un
+// mensaje crudo de SQLite y el usuario ve cero importadas sin saber por que — el mismo fallo
+// mudo del §2.2, y justo en la puerta de entrada de los usuarios que vienen de engram, que es
+// el activo comercial del §8.
+describe('importer de engram — esquema desconocido (v2)', () => {
+  let dir: string
+  let store: MemoryStore
+
+  beforeEach(() => {
+    dir = makeTmpDir('raven-engram-v2-')
+    store = new MemoryStore(join(dir, 'memory.db'))
+  })
+
+  afterEach(() => {
+    store.close()
+    cleanupTmp(dir)
+  })
+
+  it('una base sin la tabla observations reporta engram_schema_unknown, no un error crudo', () => {
+    const path = join(dir, 'engram.db')
+    const db = new Database(path)
+    db.exec('CREATE TABLE memories (id TEXT PRIMARY KEY, body TEXT);')
+    db.close()
+
+    const result = importEngramDatabase(store, path)
+
+    expect(result.imported).toBe(0)
+    expect(result.error).toBe('engram_schema_unknown')
+  })
+
+  it('una tabla observations sin las columnas que leemos tambien reporta el codigo', () => {
+    const path = join(dir, 'engram.db')
+    const db = new Database(path)
+    db.exec('CREATE TABLE observations (id TEXT PRIMARY KEY, body TEXT);')
+    db.close()
+
+    const result = importEngramDatabase(store, path)
+
+    expect(result.error).toBe('engram_schema_unknown')
+  })
+
+  it('columnas NUEVAS que no conocemos no son un problema: se ignoran y el import sigue', () => {
+    const path = join(dir, 'engram.db')
+    const db = new Database(path)
+    db.exec(`
+      CREATE TABLE observations (
+        sync_id TEXT PRIMARY KEY, type TEXT, title TEXT, content TEXT,
+        project TEXT, topic_key TEXT, revision_count INTEGER, duplicate_count INTEGER,
+        last_seen_at TEXT, created_at TEXT, updated_at TEXT, deleted_at TEXT,
+        embedding BLOB, v2_confidence REAL
+      );
+    `)
+    db.prepare(
+      `INSERT INTO observations (sync_id, type, title, content, project, topic_key,
+         revision_count, duplicate_count, last_seen_at, created_at, updated_at, deleted_at,
+         embedding, v2_confidence)
+       VALUES ('e1','decision','T','C','p',NULL,1,0,'2026-09-01 10:00:00','2026-09-01 10:00:00','2026-09-01 10:00:00',NULL,NULL,0.9)`
+    ).run()
+    db.close()
+
+    const result = importEngramDatabase(store, path)
+
+    expect(result.error).toBeUndefined()
+    expect(result.imported).toBe(1)
+  })
+})
