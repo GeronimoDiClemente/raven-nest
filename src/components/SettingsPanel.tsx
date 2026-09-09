@@ -19,8 +19,6 @@ import { BenchmarkDashboard } from './BenchmarkDashboard'
 import UpgradeModal from './UpgradeModal'
 import MemoryHub from './MemoryHub'
 import MemoryAdoptionDialog from './MemoryAdoptionDialog'
-import MemoryVaultCard from './MemoryVaultCard'
-import TeamThreadPanel from './TeamThreadPanel'
 import logoUrl from '../assets/logo.png'
 
 type Tab = 'keybinds' | 'presets' | 'benchmarks' | 'updates' | 'account' | 'tutorial' | 'editor'
@@ -101,9 +99,11 @@ interface Props {
   // Optional so existing callers/tests that don't care about the team thread panel keep
   // compiling unchanged.
   onFileOpen?: (relPath: string) => void
+  /** Spec 2026-09-09 §4: la memoria dejo de vivir en Settings. Queda la puerta. */
+  onOpenMemories?: () => void
 }
 
-export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, activeRepoPath, onOpenTutorial, userPrefs, onFileOpen }: Props) {
+export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, activeRepoPath, onOpenTutorial, userPrefs, onFileOpen, onOpenMemories }: Props) {
   const [open, setOpen] = useState(false)
   const [tab, setTab] = useState<Tab>('keybinds')
   const { settings, updateKeybinding, updateVoiceLanguage } = useSettings()
@@ -577,10 +577,13 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                     )}
                   </div>
 
-                  <MemoryVaultCard />
-
-                  {onFileOpen && (
-                    <TeamThreadPanel activeRepoPath={activeRepoPath ?? null} onOpenFile={onFileOpen} />
+                  {/* Spec 2026-09-09 §4: la memoria dejo de vivir en Settings (arranco de
+                      "siento que queda feo asi"). Queda la puerta para que quien la busque
+                      aca la encuentre. */}
+                  {onOpenMemories && (
+                    <button className="sp-action-btn" onClick={onOpenMemories}>
+                      Open Memories
+                    </button>
                   )}
 
                   <button className="sp-action-btn" onClick={() => supabase.auth.signOut()}>

@@ -883,6 +883,7 @@ export default function Sidebar({
           onOpenTutorial={onOpenTutorial}
           userPrefs={userPrefs}
           onFileOpen={onFileOpen}
+          onOpenMemories={onMemoriesOpen}
         />
       </div>
 
