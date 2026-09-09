@@ -59,7 +59,7 @@ export type DaemonStatus = 'idle' | 'syncing' | 'paused' | 'error' | 'plan_requi
 // el handoff que el usuario creyo compartir se descartara para siempre, incluso despues de
 // compartir el proyecto. `team_scope_not_allowed` SI se queda terminal: ahi el plan de la
 // cuenta no admite `scope: 'team'`, y la fila ya se guardo local como corresponde.
-const REVERSIBLE_REJECTIONS = new Set(['project_limit_reached', 'quota_exceeded', 'project_not_shared_with_team'])
+export const REVERSIBLE_REJECTIONS = new Set(['project_limit_reached', 'quota_exceeded', 'project_not_shared_with_team'])
 
 export interface PushResultItem {
   sync_id: string
