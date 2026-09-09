@@ -2526,6 +2526,97 @@ Claude-Session: https://claude.ai/code/session_01FJpV3ahxg1zn55JS9sxByP"
 
 ---
 
+### Task 13: El re-import no debe re-loguear mutaciones (ENCONTRADO por la Task 1, SIN APLICAR)
+
+⛔ **Esta tarea NO se ejecuto. Necesita el OK de Gero antes de tocarse**, porque cambia un
+camino central de `save()` y obliga a modificar un test existente. El hallazgo esta
+registrado como `it.fails` en `electron/__tests__/memory-import-volume.test.ts`.
+
+**El bug.** `MemoryStore.save()` agrega una mutacion `upsert` en un re-import aunque no haya
+cambiado nada. Step 0 (`memory-store.ts:673`, match por `source_ref`) y Step 0.5 (`:722`,
+match por syncId deterministico) reescriben la fila y llaman a `appendMutation` sin comparar
+antes el `content_hash` con el que ya esta guardado. Medido con 900 filas: la segunda pasada
+deja 1800 mutaciones pendientes en vez de 900. Las FILAS no se duplican (eso funciona).
+
+**Por que importa mas de lo que parece.** `runLocalMemoryImport` corre en **cada arranque de
+la app** (`main.ts:4639`) y el importer de markdown tambien manda `sourceRef`
+(`memory-importers/markdown.ts:57`). Cada vez que se abre Nest se re-loguea una mutacion por
+cada memoria importada que no cambio, y se pushean todas de nuevo. Ademas sube
+`revision_count` (que pasa a mentir), `updated_at` y `lamport` — con lo que la copia local
+gana LWW contra una copia de nube identica y la frescura deja de significar algo.
+
+**Files:**
+- Modify: `electron/memory-store.ts` (Step 0 en :673 y Step 0.5 en :722)
+- Modify: `electron/__tests__/memory-store.test.ts:594` (ver Step 3)
+- Modify: `electron/__tests__/memory-import-volume.test.ts` (sacar el `it.fails`)
+
+**Interfaces:**
+- Consumes: nada nuevo.
+- Produces: sin cambios de firma. Cambia el COMPORTAMIENTO de `save()` en re-imports sin cambios.
+
+- [ ] **Step 1: Poner el `it.fails` en rojo**
+
+Sacar `.fails` de `electron/__tests__/memory-import-volume.test.ts`.
+
+Run: `npx vitest run electron/__tests__/memory-import-volume.test.ts`
+Expected: FAIL con `expected 1800 to be 900`. Ese es el bug, sin disfraz.
+
+- [ ] **Step 2: La regla**
+
+Agregar mutacion **solo cuando cambia algo que REPLICA**: `title`, `content` o `tags`.
+`source_ref` es local — el servidor no tiene esa columna, lo dice el comentario del Step 0.5 —
+asi que un cambio SOLO de `source_ref` se aplica local y **sin** mutacion. `revision_count`,
+`duplicate_count` y `last_seen_at` ya estan documentados como senales locales de ranking que
+no replican (ver el comentario de M23 en el Step 2 de `save()`), asi que no bumpearlos cuando
+nada cambio es coherente con lo que el archivo ya decidio.
+
+En Step 0 y Step 0.5, antes de construir `updated`:
+
+```ts
+      const tagsIncoming = input.tags ? JSON.stringify(input.tags) : existing.tags
+      const replicatedChanged = hash !== existing.content_hash || tagsIncoming !== existing.tags
+```
+
+Si `replicatedChanged` es false: actualizar SOLO `source_ref` si difiere (con un UPDATE
+directo, sin `applyRowUpdate` y sin `appendMutation`), y devolver el mismo `outcome` de hoy
+para no romper a los llamadores.
+
+- [ ] **Step 3: El test existente que hay que tocar**
+
+`electron/__tests__/memory-store.test.ts:594` afirma `revision_count === 1` despues de
+re-guardar contenido IDENTICO con otro `source_ref`. Su comentario dice que usa ese numero
+como proxy de "paso por el update path". Con el arreglo el update sigue pasando (cambia
+`source_ref`) pero `revision_count` ya no sube.
+
+**Cambiar la asercion, no borrarla**: lo que ese test protege de verdad es que no haya fila
+duplicada, que no explote el UNIQUE de `idx_obs_source_ref`, y que el `source_ref` del ultimo
+escritor gane. Las tres siguen valiendo. Reemplazar el `revision_count` por una asercion
+directa de que no se agrego una mutacion nueva.
+
+- [ ] **Step 4: Verificar**
+
+```bash
+npx vitest run electron/__tests__/memory-store.test.ts electron/__tests__/memory-importers.test.ts electron/__tests__/memory-import-volume.test.ts
+npm test
+```
+Expected: todo verde y **cero `expected fail`** — ese contador volviendo a 0 es la senal de que
+el bug se cerro.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add electron/memory-store.ts electron/__tests__/memory-store.test.ts electron/__tests__/memory-import-volume.test.ts
+git commit -m "fix(memories): no re-loguear mutaciones en un re-import sin cambios
+
+El re-import de 900 filas dejaba 1800 mutaciones pendientes, y
+runLocalMemoryImport corre en cada arranque de la app.
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FJpV3ahxg1zn55JS9sxByP"
+```
+
+---
+
 ## Cobertura de la spec
 
 | Requisito (§) | Tarea |
