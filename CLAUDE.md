@@ -98,3 +98,4 @@ La columna `github_token` de la tabla `profiles` en Supabase guarda el OAuth tok
 - Verificar en el dashboard de Supabase que la política RLS de `profiles` restrinja `SELECT` de `github_token` solo al propio usuario: `auth.uid() = id`.
 - Confirmar que ningún rol de servicio (service_role) exponga la columna a otros usuarios.
 - A largo plazo: migrar a tokens efímeros o encriptación a nivel de aplicación.
+<!-- nest:team-thread --> El contexto vivo del equipo para este repo esta en `.nest/team/_index.md` — leelo antes de empezar.
