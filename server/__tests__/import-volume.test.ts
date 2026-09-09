@@ -2,9 +2,9 @@
 // los lotes de 200 que memory-daemon.ts usa de verdad (pendingMutations(limit = 200)) y
 // verifica que llegan todas y que el upsert por sync_id no duplica.
 //
-// ⚠️ ESCRITO EL 2026-09-09 Y TODAVIA NO EJECUTADO: el Postgres local (Docker) no estaba
-// levantado en la maquina donde se escribio. El primero que lo corra con Docker arriba, que
-// lo mire de verdad antes de darlo por bueno.
+// EJECUTADO el 2026-09-09 contra el Postgres local (postgres:16-alpine en :55432). El
+// smoke de volumen paso a la primera; el segundo test estaba roto por consultar
+// `observations.project_key`, una columna que no existe — ver el comentario del query.
 import { describe, it, expect, beforeAll } from 'vitest'
 import { randomUUID } from 'node:crypto'
 import { getPool, migrate } from '../src/db'
@@ -73,9 +73,14 @@ describe('import de volumen contra el servidor (spec §8.2.3)', () => {
     await handlePush(pool, auth, { mutations })
     await handlePush(pool, auth, { mutations })
 
+    // `observations` NO tiene project_key: la columna vive en `projects` (001_init.sql) y
+    // la observacion la referencia por `project_id`. La version sin join de este query es
+    // lo que este archivo dejo escrito sin ejecutar, y lo primero que rompio al correrlo.
     const { rows } = await pool.query(
-      'select count(*)::int as c from observations where project_key = $1',
-      [project]
+      `select count(*)::int as c
+         from observations o join projects p on p.id = o.project_id
+        where p.project_key = $1 and p.user_id = $2`,
+      [project, auth.userId]
     )
     expect(rows[0].c).toBe(50)
   })

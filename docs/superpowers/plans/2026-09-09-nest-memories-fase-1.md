@@ -256,7 +256,7 @@ describe('import de volumen contra el servidor (spec §8.2.3)', () => {
 })
 ```
 
-- [ ] **Step 4: Correr el smoke del servidor**
+- [x] **Step 4: Correr el smoke del servidor** — ✅ CORRIDO el 2026-09-09
 
 Levantar el Postgres local (el mismo que ya usan los tests de `server/`, vía `getPool()`/`migrate()`) y correr:
 
@@ -264,6 +264,12 @@ Run: `cd server && npx vitest run __tests__/import-volume.test.ts`
 Expected: PASS los dos.
 
 Si el push de 200 mutaciones rebota por tamaño de request, ese es el hallazgo de §7.3 (chunks con tope de bytes): anotarlo y reportarlo, **no** implementar el chunking acá — sería su propia tarea.
+
+**Resultado.** Corrido contra `postgres:16-alpine` en `:55432` (Docker vía colima). Los dos tests pasan; la suite entera del servidor también (38 archivos, 216 tests).
+
+- **El push de 900 en lotes de 200 pasó a la primera.** No rebotó por tamaño de request, así que **§7.3 no se levanta como hallazgo** y queda fuera de alcance tal como el plan lo dejó condicionado.
+- **El segundo test estaba roto y nunca se había notado**, que es exactamente para lo que servía correrlo: consultaba `select ... from observations where project_key = $1`, y `observations` no tiene esa columna — `project_key` vive en `projects`, y la observación la referencia por `project_id` (`001_init.sql`). Fallaba con `column "project_key" does not exist`. Arreglado con el join, y filtrando además por `p.user_id` para que el conteo no pueda cruzarse con otra cuenta.
+- **Nota de entorno (Mac):** `colima start` a secas falla acá con `instance name "colima" too long ... must be less than UNIX_PATH_MAX=104`, porque `$HOME` apunta al directorio de cuenta de Nest y el path del socket queda en 119 caracteres. Arranca con `COLIMA_HOME=/Users/geronimodiclemente/.colima colima start`.
 
 - [ ] **Step 5: Commit**
 
