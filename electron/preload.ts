@@ -108,6 +108,11 @@ contextBridge.exposeInMainWorld('memory', {
   teamThreadProjectKeyForWorktree: (worktreePath: string) =>
     ipcRenderer.invoke('memory:teamThread:projectKeyForWorktree', worktreePath),
   teamThreadRead: (worktreePath: string) => ipcRenderer.invoke('memory:teamThread:read', worktreePath),
+  // Spec §5.3 — los tres datos que la pantalla Memories necesita y no existian:
+  // el estado de sesion (§2.2), lo bloqueado con su razon (§7.1) y el desfasaje del vault.
+  sessions: () => ipcRenderer.invoke('memory:sessions'),
+  doctor: () => ipcRenderer.invoke('memory:doctor'),
+  vaultHealth: () => ipcRenderer.invoke('memory:vault:health'),
   onStatus: (cb: (status: 'idle' | 'syncing' | 'paused' | 'error' | 'plan_required') => void) => {
     ipcRenderer.removeAllListeners('memory:status')
     ipcRenderer.on('memory:status', (_event, status) => cb(status))

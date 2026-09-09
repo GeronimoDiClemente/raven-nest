@@ -914,6 +914,38 @@ declare global {
       }>
       vaultReveal?: () => Promise<{ ok: boolean; error?: string }>
       /**
+       * Spec 2026-09-09 §2.2 — el fallo mudo. Una sesion con `health: 'silent'` es una
+       * terminal que Nest lanzo con memoria y que nunca llego al bridge: esta corriendo sin
+       * memoria y hoy el usuario no tiene forma de enterarse.
+       */
+      sessions?: () => Promise<{
+        ok: boolean
+        sessions: Array<{
+          paneId: string
+          aiType: string
+          account: string
+          health: 'writing' | 'silent' | 'disabled'
+          sessionId: string | null
+          startedAt: number
+        }>
+        silentCount: number
+      }>
+      /** Spec §7.1 — lo que esta bloqueado y por que, agrupado por razon. */
+      doctor?: () => Promise<{
+        ok: boolean
+        blockedTotal: number
+        groups: Array<{ reason: string; count: number; oldestAt: number; reversible: boolean }>
+      }>
+      /** Spec §11 riesgo 2 — cuan atrasado esta el vault respecto de la base. */
+      vaultHealth?: () => Promise<{
+        ok: boolean
+        enabled: boolean
+        rootDir: string
+        noteCount: number
+        conflictCount: number
+        lastGeneratedAt: number | null
+      }>
+      /**
        * Team Memory Layer 2 (Task 7/10) — el hilo de equipo, por worktree. Optional: un
        * preload viejo no los expone, mismo motivo que el vault arriba.
        */

@@ -137,6 +137,9 @@ import { SettingsStore } from './settings-store'
 import { MemoryStore, resolveStorePath, migrateLegacyStorePath } from './memory-store'
 import { MemoryIpcServer } from './memory-ipc-server'
 import { MemoryDaemon } from './memory-daemon'
+import { reconcileSessions } from './memory-sessions'
+import { buildDoctorReport } from './memory-doctor'
+import { readVaultHealth } from './memory-vault-health'
 import { daemonSocketPath } from './memory-protocol'
 import { swapMemoryStore, type SwapContext } from './memory-account-switch'
 import type { ProvisionerPaths } from './memory-provisioner'
@@ -3049,6 +3052,25 @@ ipcMain.handle('memory:hub-stats', () => {
   }
 })
 
+// Spec §2.2: el fallo mudo. Cruza los panes a los que pty-manager les inyecto el bridge
+// contra las sesiones que el bridge vio de verdad. `silentCount > 0` es lo que pinta de rojo
+// la fila de Memories: una terminal corriendo sin memoria sin que el usuario se entere.
+ipcMain.handle('memory:sessions', () => {
+  if (!memory) return { ok: false, sessions: [], silentCount: 0 }
+  const sessions = reconcileSessions(
+    ptyManager.panesWithMemory(),
+    memory.store.listOpenSessions(),
+    Date.now()
+  )
+  return { ok: true, sessions, silentCount: sessions.filter((s) => s.health === 'silent').length }
+})
+
+// Spec §7.1: "if sync is blocked, fail loudly and visibly."
+ipcMain.handle('memory:doctor', () => {
+  if (!memory) return { ok: false, blockedTotal: 0, groups: [] }
+  return { ok: true, ...buildDoctorReport(memory.store.blockedMutations()) }
+})
+
 ipcMain.handle('memory:ensureDeviceId', () => {
   const deviceId = ensureDeviceId(ravenHome())
   memoryConnectionState = { ...memoryConnectionState, deviceId }
@@ -3255,6 +3277,19 @@ ipcMain.handle('memory:vault:setSettings', async (_event, patch: Partial<VaultSe
 })
 
 ipcMain.handle('memory:vault:regenerate', async () => runVaultRegeneration())
+
+// Spec §11 riesgo 2: cuantas notas hay, cuantos conflictos, y cuando se regenero por ultima
+// vez. Sin esto la pantalla puede mostrar el vault de hace una hora y media sin avisar — que
+// es exactamente lo que se midio el 2026-09-09.
+ipcMain.handle('memory:vault:health', () => {
+  if (!memory) {
+    return { ok: false, enabled: false, rootDir: '', noteCount: 0, conflictCount: 0, lastGeneratedAt: null }
+  }
+  const userId = memory.store.getOwnerUserId()
+  const settings = loadVaultSettings(vaultSettingsPath(ravenHome(), userId))
+  const rootDir = resolveVaultRootDir(ravenHome(), userId, settings)
+  return { ok: true, enabled: settings.enabled, rootDir, ...readVaultHealth(rootDir) }
+})
 
 ipcMain.handle('memory:vault:reveal', async () => {
   if (!memory) return { ok: false, error: 'memory_unavailable' }
