@@ -2126,6 +2126,406 @@ Claude-Session: https://claude.ai/code/session_01FJpV3ahxg1zn55JS9sxByP"
 
 ---
 
+### Task 11: La pantalla de compartir un proyecto con el equipo
+
+Agregada el 2026-09-09 por la respuesta de Bauti a D6: *"entra en la fase 1, con lo demás"*. El endpoint (`POST /v1/projects/share`) y el IPC (`memory:shareProjectWithTeam`, `main.ts:3070`) existen y andan desde Layer 1; **nadie los llama desde la UI**. Sin esta pantalla, el caso "plan Teams, proyecto sin compartir" retiene memorias en silencio, que es el mismo pecado del §2.2.
+
+**Files:**
+- Create: `src/components/ShareProjectCard.tsx`
+- Create: `src/__tests__/components/ShareProjectCard.test.tsx`
+- Modify: `src/components/MemoriesWorkspace.tsx` (montar la tarjeta debajo del grafo)
+
+**Interfaces:**
+- Consumes: `useTeam()` de `src/hooks/useTeam.ts` (**sólo el campo `teams: Team[]`**) · `window.memory.shareProjectWithTeam?(projectKey, teamId)` · `window.memory.teamThreadProjectKeyForWorktree?(worktreePath)`.
+- Produces: `export default function ShareProjectCard({ activeRepoPath }: { activeRepoPath: string | null }): JSX.Element | null`
+
+⚠️ **Regla de esta tarea**: se lee `teams` de `useTeam()` y **NUNCA** se llama a `switchTeam`. Elegir un equipo acá es elegir un destino para compartir, no cambiar el equipo activo de la app. Es la decisión 3 de la spec, y el acoplamiento que se evita está en `PersonalWorkspace.tsx:306`.
+
+- [ ] **Step 1: Escribir el test que falla**
+
+Crear `src/__tests__/components/ShareProjectCard.test.tsx`:
+
+```tsx
+// Spec §4 (D6 de las respuestas de Bauti). El endpoint existe desde Layer 1 y nunca tuvo UI:
+// sin esto, un equipo que paga por memoria compartida no comparte nada y no puede notarlo.
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import ShareProjectCard from '../../components/ShareProjectCard'
+
+// El mock lee una variable mutable para poder probar tambien el caso "sin equipos":
+// vi.mock se hoistea, asi que la lista no puede ser un valor fijo por test.
+const state = { teams: [{ id: 't1', name: 'Nest' }, { id: 't2', name: 'STI-PROJECTS' }] }
+
+vi.mock('../../hooks/useTeam', () => ({
+  useTeam: () => ({ teams: state.teams }),
+}))
+
+beforeEach(() => {
+  state.teams = [{ id: 't1', name: 'Nest' }, { id: 't2', name: 'STI-PROJECTS' }]
+})
+
+const setMemoryApi = (api: unknown): void => {
+  ;(window as unknown as { memory?: unknown }).memory = api
+}
+
+const api = (over: Record<string, unknown> = {}) => ({
+  teamThreadProjectKeyForWorktree: vi.fn().mockResolvedValue({ ok: true, projectKey: 'abc123' }),
+  shareProjectWithTeam: vi.fn().mockResolvedValue({ ok: true }),
+  ...over,
+})
+
+afterEach(() => { setMemoryApi(undefined) })
+
+describe('ShareProjectCard', () => {
+  it('sin repo abierto no se muestra: no hay proyecto que compartir', () => {
+    setMemoryApi(api())
+    const { container } = render(<ShareProjectCard activeRepoPath={null} />)
+    expect(container).toBeEmptyDOMElement()
+  })
+
+  it('lista los equipos del usuario como destino', async () => {
+    setMemoryApi(api())
+    render(<ShareProjectCard activeRepoPath="/repo" />)
+
+    await waitFor(() => expect(screen.getByRole('combobox')).toBeInTheDocument())
+    expect(screen.getByRole('option', { name: 'Nest' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'STI-PROJECTS' })).toBeInTheDocument()
+  })
+
+  it('comparte con el equipo elegido, no con el primero de la lista', async () => {
+    const memoryApi = api()
+    setMemoryApi(memoryApi)
+    render(<ShareProjectCard activeRepoPath="/repo" />)
+
+    await waitFor(() => expect(screen.getByRole('combobox')).toBeInTheDocument())
+    await userEvent.selectOptions(screen.getByRole('combobox'), 't2')
+    await userEvent.click(screen.getByRole('button', { name: /share/i }))
+
+    await waitFor(() => {
+      expect(memoryApi.shareProjectWithTeam).toHaveBeenCalledWith('abc123', 't2')
+    })
+    expect(await screen.findByText(/shared with STI-PROJECTS/i)).toBeInTheDocument()
+  })
+
+  it('un fallo del servidor se muestra, no se traga', async () => {
+    setMemoryApi(api({
+      shareProjectWithTeam: vi.fn().mockResolvedValue({ ok: false, error: 'plan_required' }),
+    }))
+    render(<ShareProjectCard activeRepoPath="/repo" />)
+
+    await waitFor(() => expect(screen.getByRole('combobox')).toBeInTheDocument())
+    await userEvent.click(screen.getByRole('button', { name: /share/i }))
+
+    expect(await screen.findByText(/plan_required/)).toBeInTheDocument()
+  })
+
+  it('sin equipos explica por que, en vez de dejar un selector vacio', async () => {
+    state.teams = []
+    setMemoryApi(api())
+    render(<ShareProjectCard activeRepoPath="/repo" />)
+
+    expect(await screen.findByText(/not in a team yet/i)).toBeInTheDocument()
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
+  })
+})
+```
+
+- [ ] **Step 2: Correr el test para verificar que falla**
+
+Run: `npx vitest run src/__tests__/components/ShareProjectCard.test.tsx`
+Expected: FAIL con `Failed to resolve import "../../components/ShareProjectCard"`.
+
+- [ ] **Step 3: Escribir el componente**
+
+Crear `src/components/ShareProjectCard.tsx`:
+
+```tsx
+// D6 de las respuestas de Bauti (2026-09-09): el endpoint POST /v1/projects/share existe desde
+// Layer 1 y nunca tuvo UI. Sin ella, `scope: 'team'` se retiene en silencio del lado del servidor
+// con `project_not_shared_with_team`, que es reversible: se destraba compartiendo el proyecto.
+//
+// ⚠️ Lee `teams` de useTeam() y NUNCA llama a switchTeam. Elegir un equipo aca es elegir un
+// destino, no cambiar el equipo activo de la app (decision 3 de la spec).
+import { useEffect, useState } from 'react'
+import { useTeam } from '../hooks/useTeam'
+
+interface Props {
+  activeRepoPath: string | null
+}
+
+export default function ShareProjectCard({ activeRepoPath }: Props) {
+  const { teams } = useTeam()
+  const [projectKey, setProjectKey] = useState<string | null>(null)
+  const [teamId, setTeamId] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null)
+
+  useEffect(() => {
+    if (!activeRepoPath) { setProjectKey(null); return }
+    let alive = true
+    window.memory?.teamThreadProjectKeyForWorktree?.(activeRepoPath)
+      .then((res) => { if (alive) setProjectKey(res?.ok ? res.projectKey ?? null : null) })
+      .catch(() => { if (alive) setProjectKey(null) })
+    return () => { alive = false }
+  }, [activeRepoPath])
+
+  useEffect(() => {
+    if (!teamId && teams.length > 0) setTeamId(teams[0].id)
+  }, [teams, teamId])
+
+  // Sin repo abierto no hay proyecto que compartir. Self-contained como MemoryVaultCard:
+  // no se inventa un estado vacio.
+  if (!activeRepoPath) return null
+
+  const share = async (): Promise<void> => {
+    if (!projectKey || !teamId) return
+    setBusy(true)
+    setResult(null)
+    try {
+      const res = await window.memory?.shareProjectWithTeam?.(projectKey, teamId)
+      const team = teams.find((t) => t.id === teamId)
+      if (res?.ok) {
+        setResult({ ok: true, text: `Shared with ${team?.name ?? 'the team'}. Team memories will sync from now on.` })
+      } else {
+        setResult({ ok: false, text: `Couldn't share this project: ${res?.error ?? 'unknown error'}` })
+      }
+    } catch (err) {
+      setResult({ ok: false, text: `Couldn't share this project: ${err instanceof Error ? err.message : String(err)}` })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="memories-share">
+      <h4>Share this project with a team</h4>
+      {teams.length === 0 ? (
+        <p className="memories-muted">
+          You are not in a team yet. Team memories need one.
+        </p>
+      ) : (
+        <>
+          <div className="memories-share-row">
+            <select
+              aria-label="Team"
+              value={teamId}
+              onChange={(e) => setTeamId(e.target.value)}
+              disabled={busy}
+            >
+              {teams.map((t) => (
+                <option key={t.id} value={t.id}>{t.name}</option>
+              ))}
+            </select>
+            <button onClick={share} disabled={busy || !projectKey}>
+              {busy ? 'Sharing...' : 'Share'}
+            </button>
+          </div>
+          {result && (
+            <p className={result.ok ? 'memories-ok' : 'memories-warn'}>{result.text}</p>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+```
+
+- [ ] **Step 4: Correr el test para verificar que pasa**
+
+Run: `npx vitest run src/__tests__/components/ShareProjectCard.test.tsx`
+Expected: PASS.
+
+- [ ] **Step 5: Montarla en el overlay**
+
+En `src/components/MemoriesWorkspace.tsx`, importar y montar debajo del grafo, antes de `<MemoryVaultCard />`:
+
+```tsx
+import ShareProjectCard from './ShareProjectCard'
+```
+
+```tsx
+        <ShareProjectCard activeRepoPath={activeRepoPath} />
+```
+
+Y los estilos en `src/styles/global.css`:
+
+```css
+.memories-share { border: 1px solid var(--line); border-radius: 3px; padding: 14px 16px; }
+.memories-share h4 { margin: 0 0 10px; font-size: 14px; }
+.memories-share-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.memories-ok { color: #22C55E; font-size: 13px; margin: 10px 0 0; }
+```
+
+- [ ] **Step 6: Suite completa y commit**
+
+```bash
+npm test
+git add src/components/ShareProjectCard.tsx src/__tests__/components/ShareProjectCard.test.tsx
+git add src/components/MemoriesWorkspace.tsx src/styles/global.css
+git commit -m "feat(memories): pantalla para compartir un proyecto con el equipo
+
+D6 de las respuestas de Bauti. El endpoint existe desde Layer 1 y nunca tuvo UI:
+sin esto, scope team se retiene en silencio con project_not_shared_with_team.
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FJpV3ahxg1zn55JS9sxByP"
+```
+
+---
+
+### Task 12: Blindar el importer contra engram v2
+
+Agregada el 2026-09-09. Bauti se comprometió a mirar el esquema de v2 cuando salga (D4), pero eso no cubre el caso en que salga y él no lo vea a tiempo. Hoy, si v2 renombra la tabla `observations` o dropea una columna, `importEngramDatabase` devuelve `{ imported: 0, error: <mensaje de SQLite> }` y el usuario ve **cero importadas sin saber por qué**. Es el mismo fallo mudo del §2.2 en otra parte del sistema, y del lado del activo comercial de §8 ("traete tu engram").
+
+**Files:**
+- Modify: `electron/memory-importers/engram.ts`
+- Modify: `electron/__tests__/memory-importers.test.ts`
+
+**Interfaces:**
+- Consumes: nada nuevo.
+- Produces: `EngramImportResult.error` pasa a poder valer el código estable `'engram_schema_unknown'`, distinguible de un fallo de IO o de un mensaje crudo de SQLite.
+
+- [ ] **Step 1: Escribir el test que falla**
+
+Agregar a `electron/__tests__/memory-importers.test.ts`:
+
+```ts
+describe('importer de engram — esquema desconocido (v2)', () => {
+  let dir: string
+  let store: MemoryStore
+
+  beforeEach(() => {
+    dir = makeTmpDir('raven-engram-v2-')
+    store = new MemoryStore(join(dir, 'memory.db'))
+  })
+
+  afterEach(() => {
+    store.close()
+    cleanupTmp(dir)
+  })
+
+  it('una base sin la tabla observations reporta engram_schema_unknown, no un error crudo', () => {
+    const path = join(dir, 'engram.db')
+    const db = new Database(path)
+    db.exec('CREATE TABLE memories (id TEXT PRIMARY KEY, body TEXT);')
+    db.close()
+
+    const result = importEngramDatabase(store, path)
+
+    expect(result.imported).toBe(0)
+    expect(result.error).toBe('engram_schema_unknown')
+  })
+
+  it('una tabla observations sin las columnas que leemos tambien reporta el codigo', () => {
+    const path = join(dir, 'engram.db')
+    const db = new Database(path)
+    db.exec('CREATE TABLE observations (id TEXT PRIMARY KEY, body TEXT);')
+    db.close()
+
+    const result = importEngramDatabase(store, path)
+
+    expect(result.error).toBe('engram_schema_unknown')
+  })
+
+  it('columnas NUEVAS que no conocemos no son un problema: se ignoran y el import sigue', () => {
+    const path = join(dir, 'engram.db')
+    const db = new Database(path)
+    db.exec(`
+      CREATE TABLE observations (
+        sync_id TEXT PRIMARY KEY, type TEXT, title TEXT, content TEXT,
+        project TEXT, topic_key TEXT, revision_count INTEGER, duplicate_count INTEGER,
+        last_seen_at TEXT, created_at TEXT, updated_at TEXT, deleted_at TEXT,
+        embedding BLOB, v2_confidence REAL
+      );
+    `)
+    db.prepare(
+      `INSERT INTO observations (sync_id, type, title, content, project, topic_key,
+         revision_count, duplicate_count, last_seen_at, created_at, updated_at, deleted_at,
+         embedding, v2_confidence)
+       VALUES ('e1','decision','T','C','p',NULL,1,0,'2026-09-01 10:00:00','2026-09-01 10:00:00','2026-09-01 10:00:00',NULL,NULL,0.9)`
+    ).run()
+    db.close()
+
+    const result = importEngramDatabase(store, path)
+
+    expect(result.error).toBeUndefined()
+    expect(result.imported).toBe(1)
+  })
+})
+```
+
+- [ ] **Step 2: Correr el test para verificar que falla**
+
+Run: `npx vitest run electron/__tests__/memory-importers.test.ts`
+Expected: FAIL en los dos primeros: hoy `result.error` trae el mensaje de SQLite (`no such table: observations` / `no such column: ...`), no el código.
+
+- [ ] **Step 3: Agregar el chequeo de esquema**
+
+En `electron/memory-importers/engram.ts`, agregar la constante y la función arriba de `importEngramDatabase`:
+
+```ts
+/**
+ * Las columnas que este adapter LEE. No es el esquema entero de engram: una base con columnas
+ * de mas importa igual (ese es el punto de §5.2 "Schema drift"), una con menos no.
+ */
+const REQUIRED_COLUMNS = [
+  'sync_id', 'type', 'title', 'content', 'project', 'topic_key',
+  'revision_count', 'duplicate_count', 'last_seen_at', 'created_at', 'updated_at', 'deleted_at',
+] as const
+
+/**
+ * Codigo estable, no un mensaje: engram v2 sale la semana del 2026-09-08 y puede renombrar la
+ * tabla o dropear columnas. Sin esto el import devuelve `{imported: 0}` con un mensaje crudo de
+ * SQLite y el usuario ve cero importadas sin saber por que — el mismo fallo mudo del §2.2, y
+ * justo en la puerta de entrada de los usuarios que vienen de engram.
+ */
+export const ENGRAM_SCHEMA_UNKNOWN = 'engram_schema_unknown'
+
+function hasReadableSchema(db: Database.Database): boolean {
+  const table = db
+    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'observations'")
+    .get()
+  if (!table) return false
+
+  const columns = new Set(
+    (db.prepare('PRAGMA table_info(observations)').all() as Array<{ name: string }>)
+      .map((c) => c.name)
+  )
+  return REQUIRED_COLUMNS.every((c) => columns.has(c))
+}
+```
+
+Y dentro de `importEngramDatabase`, inmediatamente después de `copy = openReadOnlyCopy(engramDbPath)` y antes del `SELECT`:
+
+```ts
+    if (!hasReadableSchema(copy.db)) {
+      store.updateImportRun(runId, { imported: 0, skipped: 0, state: 'failed', error: ENGRAM_SCHEMA_UNKNOWN })
+      return { imported: 0, skipped: 0, error: ENGRAM_SCHEMA_UNKNOWN }
+    }
+```
+
+- [ ] **Step 4: Correr el test para verificar que pasa**
+
+Run: `npx vitest run electron/__tests__/memory-importers.test.ts electron/__tests__/memory-local-import.test.ts`
+Expected: PASS todo, incluidos los tests viejos del importer.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add electron/memory-importers/engram.ts electron/__tests__/memory-importers.test.ts
+git commit -m "fix(memories): el import de engram deja de fallar mudo con un esquema desconocido
+
+engram v2 sale esta semana. Si renombra observations o dropea una columna, hoy
+el usuario ve cero importadas sin razon, justo en la puerta de entrada de los
+que vienen de engram.
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FJpV3ahxg1zn55JS9sxByP"
+```
+
+---
+
 ## Cobertura de la spec
 
 | Requisito (§) | Tarea |
@@ -2147,6 +2547,8 @@ Claude-Session: https://claude.ai/code/session_01FJpV3ahxg1zn55JS9sxByP"
 | §11 riesgo 2 (desfasaje del vault) | 4, 9 (se muestra el "vault Xh ago") |
 | §11 riesgo 5 (choque de nombre) | Global Constraints: la superficie se llama **Memories** |
 | §12.1 el nombre | cerrado: **Memories** |
+| D6 de Bauti (compartir proyecto) | 11 |
+| D4 de Bauti (engram v2) | 12 |
 
 **Fuera de alcance a propósito** (§10 "No entra"): el daemon headless y el plugin suelto (§6), el pricing del plugin (§6.3), el anexo de compatibilidad (§9), embeddings o re-ranking. §7.2 (el lease en SQLite) es de la fase 2 aunque §7 lo liste en la 1 — ver la nota de discrepancias abajo. §7.3 (chunks con tope de bytes) sólo entra si la Task 1 Step 4 lo levanta como hallazgo real.
 

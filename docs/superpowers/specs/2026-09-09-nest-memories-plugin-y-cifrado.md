@@ -303,12 +303,20 @@ Es importante y no es el orden en que se escribió esto.
 4. **La clave por equipo del §5.4 es la pieza menos diseñada** de este documento. Si se complica,
    una v1 defendible es cifrar sólo lo personal y dejar el scope `team` en claro, **diciéndolo**.
 
-## 9. Lo que queda abierto
+## 9. Decisiones cerradas el 2026-09-09 (después de escribir el borrador)
 
-1. **El scope `team` en la v1**: cifrado desde el día uno, o en claro y anunciado (§8.4). Es la
-   única pregunta que cambia el tamaño del trabajo de manera grande.
-2. **El plugin local, ¿gratis o parte del tier de 10?** (§4.4). Bauti y Gero lo dijeron distinto.
-3. **Qué muestra hoy el back-office** que vaya a quedar cifrado (§5.5.1).
+1. **El scope `team` NO se cifra en la v1.** Se cifra lo personal, que es el 100% de lo que hay
+   hoy, y el scope de equipo queda en claro **anunciado como tal**. Razón: la clave por equipo
+   (§5.4) necesita un par de claves por usuario que no existe, y es la pieza más grande del
+   documento. Dato que lo respalda: los tres equipos de prueba siguen en **0 miembros**, así que
+   hoy no hay memoria de equipo real que proteger. La §5.4 pasa a ser la v2 del cifrado.
+2. **El plugin local es gratis; la nube se paga.** Cierra la discrepancia del §4.4 a favor de lo
+   que dijo Bauti. No hay gate nuevo que escribir: el que existe (sin device token no hay push ni
+   pull) es exactamente este.
+
+## 9.1 Lo que sigue abierto
+
+1. **Qué muestra hoy el back-office** que vaya a quedar cifrado (§5.5.1).
 4. D8 de las respuestas de Bauti sigue sin cerrar: dijo que el backup lo tiene el usuario en su
    PC, y eso no cubre al usuario que entra desde una máquina nueva ni la memoria de equipo escrita
    por otros.
