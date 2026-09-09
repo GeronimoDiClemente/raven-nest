@@ -591,8 +591,15 @@ describe('MemoryStore — content-derived import identity (cross-device dedupe f
     expect(store.count()).toBe(1) // one observation, not two
 
     const row = store.get(derivedSyncId)
-    expect(row?.revision_count).toBe(1) // in-place update, not a fresh insert
     expect(row?.source_ref).toBe('engram:device-b-id') // last writer's source_ref wins, no leftover row holds the old one
+
+    // Task 13 (2026-09-09): this used to assert `revision_count === 1`, using that counter as
+    // a proxy for "went through the update path". The content is byte-identical between the
+    // two saves, so the update path now applies ONLY the local source_ref and skips the
+    // rewrite — no revision, no new lamport, no mutation. The proxy is replaced by the thing
+    // it stood for, which is also the thing that actually matters: one row, one push.
+    expect(row?.revision_count).toBe(0)
+    expect(store.pendingMutations().filter((m) => m.sync_id === derivedSyncId)).toHaveLength(1)
   })
 })
 

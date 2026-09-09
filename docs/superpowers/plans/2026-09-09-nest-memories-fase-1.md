@@ -2526,11 +2526,10 @@ Claude-Session: https://claude.ai/code/session_01FJpV3ahxg1zn55JS9sxByP"
 
 ---
 
-### Task 13: El re-import no debe re-loguear mutaciones (ENCONTRADO por la Task 1, SIN APLICAR)
+### Task 13: El re-import no debe re-loguear mutaciones — ✅ APLICADA el 2026-09-09
 
-⛔ **Esta tarea NO se ejecuto. Necesita el OK de Gero antes de tocarse**, porque cambia un
-camino central de `save()` y obliga a modificar un test existente. El hallazgo esta
-registrado como `it.fails` en `electron/__tests__/memory-import-volume.test.ts`.
+✅ **Aplicada.** La suite quedo en **2388 verdes y CERO `expected fail`**, que era la senal
+acordada de que el bug se cerro.
 
 **El bug.** `MemoryStore.save()` agrega una mutacion `upsert` en un re-import aunque no haya
 cambiado nada. Step 0 (`memory-store.ts:673`, match por `source_ref`) y Step 0.5 (`:722`,
@@ -2554,14 +2553,14 @@ gana LWW contra una copia de nube identica y la frescura deja de significar algo
 - Consumes: nada nuevo.
 - Produces: sin cambios de firma. Cambia el COMPORTAMIENTO de `save()` en re-imports sin cambios.
 
-- [ ] **Step 1: Poner el `it.fails` en rojo**
+- [x] **Step 1: Poner el `it.fails` en rojo**
 
 Sacar `.fails` de `electron/__tests__/memory-import-volume.test.ts`.
 
 Run: `npx vitest run electron/__tests__/memory-import-volume.test.ts`
 Expected: FAIL con `expected 1800 to be 900`. Ese es el bug, sin disfraz.
 
-- [ ] **Step 2: La regla**
+- [x] **Step 2: La regla**
 
 Agregar mutacion **solo cuando cambia algo que REPLICA**: `title`, `content` o `tags`.
 `source_ref` es local — el servidor no tiene esa columna, lo dice el comentario del Step 0.5 —
@@ -2581,7 +2580,7 @@ Si `replicatedChanged` es false: actualizar SOLO `source_ref` si difiere (con un
 directo, sin `applyRowUpdate` y sin `appendMutation`), y devolver el mismo `outcome` de hoy
 para no romper a los llamadores.
 
-- [ ] **Step 3: El test existente que hay que tocar**
+- [x] **Step 3: Los tests existentes que hubo que tocar (fueron TRES, no uno)**
 
 `electron/__tests__/memory-store.test.ts:594` afirma `revision_count === 1` despues de
 re-guardar contenido IDENTICO con otro `source_ref`. Su comentario dice que usa ese numero
@@ -2593,7 +2592,7 @@ duplicada, que no explote el UNIQUE de `idx_obs_source_ref`, y que el `source_re
 escritor gane. Las tres siguen valiendo. Reemplazar el `revision_count` por una asercion
 directa de que no se agrego una mutacion nueva.
 
-- [ ] **Step 4: Verificar**
+- [x] **Step 4: Verificar**
 
 ```bash
 npx vitest run electron/__tests__/memory-store.test.ts electron/__tests__/memory-importers.test.ts electron/__tests__/memory-import-volume.test.ts
@@ -2602,7 +2601,7 @@ npm test
 Expected: todo verde y **cero `expected fail`** — ese contador volviendo a 0 es la senal de que
 el bug se cerro.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add electron/memory-store.ts electron/__tests__/memory-store.test.ts electron/__tests__/memory-import-volume.test.ts
@@ -2616,6 +2615,18 @@ Claude-Session: https://claude.ai/code/session_01FJpV3ahxg1zn55JS9sxByP"
 ```
 
 ---
+
+
+> **Lo que salio distinto del plan.** Eran **tres** los tests que usaban `revision_count`
+> como proxy de "paso por el update path", no uno: `memory-store.test.ts:594` mas dos en
+> `memory-importers.test.ts` (la fila bajada del server que se re-importa, y las dos filas de
+> engram con contenido identico en la misma corrida). Los tres se cambiaron por la asercion
+> que de verdad importa: **una fila, un push**.
+>
+> **Y una decision que el plan no traia**: el camino sin cambios tampoco bumpea `last_seen_at`
+> ni `duplicate_count`, aunque el Step 2 (dedupe por contenido) si lo hace. Es a proposito: ahi
+> el repetido es una persona escribiendo lo mismo otra vez, y aca es el mismo archivo que se
+> vuelve a leer en cada arranque. Bumpear la frescura por eso dejaria TODO "recien visto".
 
 ## Cobertura de la spec
 

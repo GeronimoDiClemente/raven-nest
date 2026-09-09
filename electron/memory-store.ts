@@ -225,6 +225,27 @@ export function contentHash(title: string, content: string | null): string {
  * derive a syncId to pass INTO save() — and therefore can never drift from the hash
  * save() independently arrives at for the same raw title/content.
  */
+/**
+ * Task 13 (2026-09-09): ¿cambió algo que REPLICA a la nube?
+ *
+ * `content_hash` cubre título y contenido a la vez (lo calcula computeContentIdentity abajo
+ * sobre los dos), así que alcanza con eso más los tags. Todo lo demás que save() tocaba en un
+ * re-import es local y no viaja: `source_ref` no existe como columna del lado del servidor, y
+ * `revision_count` / `duplicate_count` / `last_seen_at` ya estaban documentados como señales
+ * de ranking que no se replican (ver el comentario de M23 en el Step 2 de save()).
+ *
+ * Sin este chequeo, un re-import de material idéntico generaba una mutación por fila. Y como
+ * runLocalMemoryImport corre en cada arranque de la app, eso pasaba cada vez que se abría
+ * Nest, por cada memoria importada.
+ */
+function hasReplicatedChange(
+  existing: { content_hash: string; tags: string | null },
+  incomingHash: string,
+  incomingTags: string | null
+): boolean {
+  return existing.content_hash !== incomingHash || existing.tags !== incomingTags
+}
+
 export function computeContentIdentity(
   title: string,
   content: string
@@ -674,11 +695,21 @@ export class MemoryStore {
           .prepare('SELECT * FROM observations WHERE source = ? AND source_ref = ? AND deleted = 0 AND superseded_by IS NULL')
           .get(input.source, input.sourceRef) as ObservationRow | undefined
         if (bySourceRef) {
+          const tagsIncoming = input.tags ? JSON.stringify(input.tags) : bySourceRef.tags
+          // Task 13: un re-import de material que NO cambió no es una escritura. Antes esto
+          // reescribía la fila y agregaba una mutación igual, y como runLocalMemoryImport
+          // corre en CADA arranque de la app (main.ts) y el importer de markdown también
+          // manda source_ref, cada apertura de Nest re-logueaba y re-pusheaba todo lo
+          // importado. De paso subía revision_count (que pasaba a mentir) y updated_at y
+          // lamport, con lo que la copia local ganaba LWW contra una copia de nube idéntica.
+          if (!hasReplicatedChange(bySourceRef, hash, tagsIncoming)) {
+            return { syncId: bySourceRef.sync_id, outcome: 'source_ref_updated', redacted }
+          }
           const updated: ObservationRow = {
             ...bySourceRef,
             title,
             content,
-            tags: input.tags ? JSON.stringify(input.tags) : bySourceRef.tags,
+            tags: tagsIncoming,
             content_hash: hash,
             revision_count: bySourceRef.revision_count + 1,
             updated_at: now,
@@ -720,16 +751,33 @@ export class MemoryStore {
       if (input.syncId) {
         const bySyncId = this.get(input.syncId)
         if (bySyncId && bySyncId.deleted === 0 && bySyncId.superseded_by === null) {
+          const tagsIncoming = input.tags ? JSON.stringify(input.tags) : bySyncId.tags
+          const nextSourceRef = input.sourceRef ?? bySyncId.source_ref
+          // Task 13, misma regla que el Step 0. La diferencia acá es que este camino SÍ puede
+          // traer un source_ref distinto (dos máquinas importando la misma fila de engram
+          // desde sus propias bases). Ese campo es LOCAL — el servidor no tiene esa columna,
+          // ver el párrafo de arriba — así que un cambio de source_ref solo se aplica a disco
+          // y NO genera una mutación: no hay nada que replicar. Lo que se sigue sosteniendo es
+          // que el source_ref del último escritor gana, para que ninguna fila muerta quede
+          // ocupando el UNIQUE de idx_obs_source_ref.
+          if (!hasReplicatedChange(bySyncId, hash, tagsIncoming)) {
+            if (nextSourceRef !== bySyncId.source_ref) {
+              this.db
+                .prepare('UPDATE observations SET source_ref = ? WHERE sync_id = ?')
+                .run(nextSourceRef, bySyncId.sync_id)
+            }
+            return { syncId: bySyncId.sync_id, outcome: 'source_ref_updated', redacted }
+          }
           const updated: ObservationRow = {
             ...bySyncId,
             title,
             content,
-            tags: input.tags ? JSON.stringify(input.tags) : bySyncId.tags,
+            tags: tagsIncoming,
             content_hash: hash,
             revision_count: bySyncId.revision_count + 1,
             updated_at: now,
             lamport: this.nextLamport(),
-            source_ref: input.sourceRef ?? bySyncId.source_ref,
+            source_ref: nextSourceRef,
           }
           this.applyRowUpdate(updated)
           this.appendMutation('upsert', updated)

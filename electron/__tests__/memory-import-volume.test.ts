@@ -74,31 +74,18 @@ describe('import de engram con volumen real (spec §8.2.3)', () => {
     expect(store.count()).toBe(ROW_COUNT)
   })
 
-  // ⚠️ FALLA A PROPOSITO — bug encontrado por este smoke el 2026-09-09, sin arreglar todavia.
+  // Este test nacio en rojo el 2026-09-09: encontro que `MemoryStore.save()` agregaba una
+  // mutacion `upsert` en un re-import aunque no hubiera cambiado NADA (900 filas re-importadas
+  // dejaban 1800 mutaciones). Importaba mas de lo que parecia porque `runLocalMemoryImport`
+  // corre en CADA ARRANQUE de la app (`main.ts`) y el importer de markdown tambien manda
+  // `sourceRef`: cada vez que se abria Nest se re-logueaba y re-pusheaba todo lo importado que
+  // no habia cambiado.
   //
-  // `it.fails` pasa mientras el bug exista y se pone en rojo el dia que alguien lo arregle,
-  // que es justo lo que queremos: registrar el hallazgo sin romper la suite ni fingir que el
-  // comportamiento de hoy es el correcto.
-  //
-  // EL BUG: `MemoryStore.save()` agrega una mutacion `upsert` en un re-import aunque no haya
-  // cambiado NADA. Step 0 (`memory-store.ts:673`, match por source_ref) y Step 0.5 (`:722`,
-  // match por syncId deterministico) reescriben la fila y llaman a `appendMutation` sin
-  // comparar antes el `content_hash` con el que ya esta guardado.
-  //
-  // POR QUE IMPORTA MAS DE LO QUE PARECE: `runLocalMemoryImport` corre en CADA ARRANQUE de la
-  // app (`main.ts:4639`), y el importer de markdown tambien manda `sourceRef`
-  // (`memory-importers/markdown.ts:57`). O sea que no es un caso raro de re-import: cada vez
-  // que se abre Nest se re-loguea una mutacion por cada memoria importada que no cambio, y
-  // todas se pushean de nuevo. Ademas sube `revision_count` (que pasa a mentir) y `updated_at`
-  // y `lamport` (con lo que la copia local gana LWW contra una copia de nube identica, y la
-  // frescura deja de significar algo).
-  //
-  // EL ARREGLO, escrito como Task 13 del plan: agregar mutacion solo cuando cambia algo que
-  // REPLICA (title, content, tags). `source_ref` es local — el servidor no tiene esa columna
-  // (ver el comentario del Step 0.5) — asi que un cambio solo de source_ref se aplica local
-  // sin mutacion. Ojo que eso obliga a tocar `memory-store.test.ts:594`, que usa
-  // `revision_count === 1` como proxy de "paso por el update path".
-  it.fails('importar dos veces no deberia generar una segunda tanda de mutaciones', () => {
+  // Arreglado por la Task 13 del plan: ahora Step 0 y Step 0.5 de `save()` comparan el
+  // `content_hash` y los tags antes de reescribir, y solo agregan mutacion si cambio algo que
+  // REPLICA. Un cambio unicamente de `source_ref` se aplica local y sin mutacion, porque el
+  // servidor no tiene esa columna.
+  it('importar dos veces no genera una segunda tanda de mutaciones', () => {
     importEngramDatabase(store, engramPath)
     const afterFirst = store.pendingMutationCount()
 

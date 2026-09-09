@@ -391,11 +391,15 @@ describe('engram importer — idempotency and scope handling (§5.2.A, §5.3)', 
     expect(result.imported).toBe(2) // fixture-1 (matched by sync_id) + fixture-2 (genuinely new)
     expect(store.count()).toBe(2) // NOT 3 — fixture-1 updated the pulled row in place
     const row = store.get(expectedSyncId)
-    expect(row?.revision_count).toBe(1) // went through the sync_id-match UPDATE path, not a fresh insert
-    // Exactly one mutation for the pulled row's sync_id — the legitimate update. No
-    // second ('insert') mutation was appended for it.
+    // Task 13 (2026-09-09): el contenido de engram es identico al que ya se habia bajado del
+    // server, asi que el camino de Step 0.5 aplica SOLO el source_ref local y no reescribe
+    // nada. Antes esto subia revision_count y agregaba una mutacion que le mandaba al server
+    // el mismo contenido que el server ya tenia.
+    expect(row?.revision_count).toBe(0)
+    expect(row?.source_ref).toBe('engram:obs-fixture-1') // el source_ref local SI se aplica
+    // CERO mutaciones para esa fila: no hay nada que replicar.
     const pendingForPulledRow = store.pendingMutations().filter((m) => m.sync_id === expectedSyncId)
-    expect(pendingForPulledRow).toHaveLength(1)
+    expect(pendingForPulledRow).toHaveLength(0)
   })
 })
 
@@ -461,7 +465,11 @@ describe('engram importer — cross-device content-derived identity (field failu
 
       const summary = storeDup.context(GLOBAL_PROJECT_KEY, 10)[0]
       const row = storeDup.get(summary.syncId)
-      expect(row?.revision_count).toBe(1) // second row updated the first in place
+      // Task 13: la segunda fila tiene contenido identico a la primera, asi que converge sin
+      // reescribir. Lo que importa (y lo que este test protege) es que dos filas de origen no
+      // produzcan dos pushes: una sola mutacion, la del insert.
+      expect(row?.revision_count).toBe(0)
+      expect(storeDup.pendingMutations().filter((m) => m.sync_id === summary.syncId)).toHaveLength(1)
       // The row's source_ref now reflects whichever engram id was processed last — not
       // both at once, which is exactly why idx_obs_source_ref (UNIQUE(source, source_ref))
       // is never violated: only one row ever holds a given source_ref at a time.
