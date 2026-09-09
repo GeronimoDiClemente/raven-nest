@@ -1,13 +1,3 @@
-:root {
-  /* Escala de overlays a pantalla completa (spec 2026-09-09 §5.4). Explicita porque son
-     tres y ya no alcanza con el orden de render: Personal queda montado debajo del team
-     workspace (cerrar Teams tiene que devolverte a Personal), y Memories se abre encima de
-     los dos. Cualquier overlay nuevo elige uno de estos tres, nunca un numero suelto. */
-  --z-overlay-base: 1000;
-  --z-overlay-front: 1100;
-  --z-overlay-top: 1200;
-}
-
 /* RAVEN Nest — Global Styles */
 
 @keyframes spin {
@@ -69,6 +59,14 @@
   /* Layout (no son color — se quedan como están) */
   --titlebar-height: 44px;
   --header-height: 32px;
+
+  /* Escala de overlays a pantalla completa (spec 2026-09-09 §5.4). Explicita porque son
+     tres y ya no alcanza con el orden de render: Personal queda montado debajo del team
+     workspace (cerrar Teams tiene que devolverte a Personal), y Memories se abre encima de
+     los dos. Cualquier overlay nuevo elige uno de estos tres, nunca un numero suelto. */
+  --z-overlay-base: 1000;
+  --z-overlay-front: 1100;
+  --z-overlay-top: 1200;
 }
 
 * {
@@ -12058,3 +12056,24 @@ body.platform-mac .tabbar { padding-right: 116px; }
   text-overflow: ellipsis;
   max-width: 96px;
 }
+
+/* §5.4 — Memories es el tercer overlay y se abre encima de Personal y de Teams. */
+.memories-workspace { z-index: var(--z-overlay-top); }
+
+.memories-status-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  align-items: center;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+.memories-status-cell { display: flex; align-items: center; gap: 8px; }
+/* En la fila de estado el punto va en linea, no pegado a un icono como en la sidebar. */
+.memories-status-cell .memories-dot { position: static; box-shadow: none; }
+.memories-muted { opacity: .6; }
+.memories-warn { color: #F59E0B; }
+.memories-danger { color: #EF4444; }
+.memories-body { flex-direction: column; gap: 16px; padding: 16px; overflow-y: auto; }
+.memories-empty { opacity: .6; font-size: 13px; }

@@ -52,6 +52,7 @@ import UpgradeModal from './components/UpgradeModal'
 import MemoryHub from './components/MemoryHub'
 import TeamsWorkspace from './components/TeamsWorkspace'
 import PersonalWorkspace, { type Section as PersonalWorkspaceSection } from './components/PersonalWorkspace'
+import MemoriesWorkspace from './components/MemoriesWorkspace'
 import { IntegrationsHub } from './components/IntegrationsHub'
 import { GraphBoard } from './components/GraphBoard'
 import { useGitHub } from './hooks/useGitHub'
@@ -2124,6 +2125,15 @@ export default function App() {
           onOpenWorktree={(path, initialInput, worker) => { setPersonalOpen(false); openWorktreeWithWorker(path, initialInput, worker) }}
           initialSection={personalSection}
           onPendingInvitesChange={refreshPendingInvitesCount}
+        />
+      )}
+
+      {/* Memories — el tercer overlay (spec §5.4), encima de Personal y del team workspace. */}
+      {memoriesOpen && (
+        <MemoriesWorkspace
+          onClose={() => setMemoriesOpen(false)}
+          activeRepoPath={activeCellRepoPath ?? null}
+          onOpenFile={openFileInEditor}
         />
       )}
 
