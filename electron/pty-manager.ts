@@ -5,6 +5,7 @@ import * as fs from 'fs'
 import * as pty from 'node-pty'
 import { SHELL, SHELL_ARGS, isWin, isMac } from './platform'
 import { ravenHome, userHome } from './raven-home'
+import type { PaneWithMemory } from './memory-sessions'
 
 async function cwdReachable(p: string): Promise<boolean> {
   try {
@@ -126,10 +127,19 @@ export class PtyManager extends EventEmitter {
   // fire a write into a dead (or recreated) PTY.
   private startupTimers = new Map<string, NodeJS.Timeout>()
   private memory?: PtyMemoryIntegration
+  // Spec §2.2: lo que Nest CREE que tiene memoria. memory-sessions.ts cruza esto contra lo
+  // que el bridge vio de verdad (MemoryStore.listOpenSessions()); la diferencia entre los
+  // dos conjuntos es el fallo mudo. Se limpia igual que `ptys`: en kill() y en onExit.
+  private memoryPanes = new Map<string, PaneWithMemory>()
 
   constructor(memory?: PtyMemoryIntegration) {
     super()
     this.memory = memory
+  }
+
+  /** Spec §2.2: los panes vivos a los que se les inyecto el bridge de memoria. */
+  panesWithMemory(): PaneWithMemory[] {
+    return [...this.memoryPanes.values()]
   }
 
   /** Late-binds the memory integration when it can't be ready at PtyManager construction
@@ -235,6 +245,17 @@ export class PtyManager extends EventEmitter {
         env.NEST_MEMORY_PANE = paneId
         env.NEST_MEMORY_ENABLED = this.memory.isEnabled() ? '1' : '0'
 
+        // Spec §2.2: se registra ACA, en el mismo lugar donde se inyecta el socket, para que
+        // los dos no puedan divergir. Si un dia se agrega otro camino que inyecte el bridge,
+        // el registro tiene que venir con el.
+        this.memoryPanes.set(paneId, {
+          paneId,
+          aiType: parsed.aiType,
+          account: `${parsed.aiType}:${parsed.accountName}`,
+          enabled: this.memory.isEnabled(),
+          startedAt: Date.now(),
+        })
+
         // §2.5 "the shared-config hazard": hooks load ONLY via the isolated
         // --settings file, never by writing accountDir/.claude/settings.json.
         // M11: ensureProvisioned (RE-)PROVISIONS the account, not just checks it.
@@ -337,6 +358,7 @@ export class PtyManager extends EventEmitter {
         this.ptys.delete(paneId)
         this.buffers.delete(paneId)
         this.lastSize.delete(paneId)
+        this.memoryPanes.delete(paneId)
         this.clearPendingResize(paneId)
         // exitCode: forwarded so callers (graph orchestration) can distinguish
         // a clean exit from a crash without polling — see main.ts's paneExitCode.
@@ -456,6 +478,7 @@ export class PtyManager extends EventEmitter {
     }
     this.buffers.delete(paneId)
     this.lastSize.delete(paneId)
+    this.memoryPanes.delete(paneId)
     this.clearPendingResize(paneId)
     this.cwdByPaneId.delete(paneId)
   }

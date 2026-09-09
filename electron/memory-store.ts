@@ -1343,6 +1343,23 @@ export class MemoryStore {
     this.db.prepare('UPDATE sessions SET ended_at = ? WHERE id = ? AND ended_at IS NULL').run(Date.now(), id)
   }
 
+  /**
+   * Spec §2.2: las sesiones que el bridge vio abrirse y todavia no cerro. Es la mitad
+   * "lo que paso de verdad" del cruce de memory-sessions.ts — la otra mitad es
+   * PtyManager.panesWithMemory(), o sea lo que Nest CREE que tiene memoria.
+   */
+  listOpenSessions(): Array<{
+    id: string; pane_id: string | null; project_key: string
+    ai_type: string | null; account: string | null; started_at: number
+  }> {
+    return this.db
+      .prepare(
+        'SELECT id, pane_id, project_key, ai_type, account, started_at ' +
+          'FROM sessions WHERE ended_at IS NULL ORDER BY started_at DESC'
+      )
+      .all() as never
+  }
+
   getSession(id: string): { id: string; project_key: string; started_at: number; ended_at: number | null } | null {
     return (this.db.prepare('SELECT * FROM sessions WHERE id = ?').get(id) as never) ?? null
   }

@@ -119,6 +119,42 @@ describe('PtyManager — Nest Memory integration point (M11)', () => {
     expect(spawnEnv.NEST_MEMORY_ENABLED).toBe('1')
   })
 
+  // Spec §2.2: el registro tiene que quedar pegado a la inyeccion del socket, porque
+  // memory-sessions.ts cruza justamente "a quien le inyectamos el bridge" contra "quien
+  // llego al bridge". Si esto se desincroniza, el indicador de sesion muda miente.
+  it('registers the pane in panesWithMemory when it injects the bridge', async () => {
+    const fake = fakePty()
+    spawnMock.mockReturnValue(fake)
+    const integration = memoryIntegration()
+    manager = new PtyManager(integration)
+
+    const accountDir = join(dir, 'accounts', 'claude', 'Bautista')
+    await manager.create('pane-1', 'claude', accountDir, dir)
+
+    const panes = manager.panesWithMemory()
+    expect(panes).toHaveLength(1)
+    expect(panes[0].paneId).toBe('pane-1')
+    expect(panes[0].aiType).toBe('claude')
+    expect(panes[0].account).toBe('claude:Bautista')
+    expect(panes[0].enabled).toBe(true)
+  })
+
+  it('drops the pane from panesWithMemory when it is killed', async () => {
+    const fake = fakePty()
+    spawnMock.mockReturnValue(fake)
+    const integration = memoryIntegration()
+    manager = new PtyManager(integration)
+
+    const accountDir = join(dir, 'accounts', 'claude', 'Bautista')
+    await manager.create('pane-1', 'claude', accountDir, dir)
+    expect(manager.panesWithMemory()).toHaveLength(1)
+
+    manager.kill('pane-1')
+
+    // Sin esto, un pane muerto seguiria reportandose como "mudo" para siempre.
+    expect(manager.panesWithMemory()).toHaveLength(0)
+  })
+
   it('appends a properly quoted --settings flag to the launched claude command', async () => {
     const fake = fakePty()
     spawnMock.mockReturnValue(fake)
