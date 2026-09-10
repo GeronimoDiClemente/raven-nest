@@ -12,7 +12,15 @@ dist-electron/
 
 # Personal scratchpads and internal notes — kept locally, not published
 SESSION.md
-docs/superpowers/
+# El scratch de superpowers no se versiona, PERO specs y plans si: son
+# deliverables que el equipo lee. 29 specs y 43 plans ya estaban trackeados a
+# la fuerza con `git add -f` porque la regla decia `docs/superpowers/` entero.
+# Va sobre el CONTENIDO (`/*`), no sobre el directorio: git no aplica una
+# negacion a algo que esta adentro de un directorio excluido, asi que con
+# `docs/superpowers/` los `!` de abajo no tendrian ningun efecto.
+docs/superpowers/*
+!docs/superpowers/specs/
+!docs/superpowers/plans/
 
 # macOS noise
 .DS_Store
