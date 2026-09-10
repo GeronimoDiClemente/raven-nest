@@ -12081,8 +12081,13 @@ body.platform-mac .tabbar { padding-right: 116px; }
   padding: 8px 16px;
 }
 .memories-status-cell { display: flex; align-items: center; gap: 8px; }
-/* En la fila de estado el punto va en linea, no pegado a un icono como en la sidebar. */
-.memories-status-cell .memories-dot { position: static; box-shadow: none; }
+/* En la fila de estado el punto va en linea, no pegado a un icono como en la sidebar.
+   Review C1: el punto de status vive dentro de un <Badge> (Task 8), que no es
+   .memories-status-cell, asi que el selector tiene que cubrir los dos contenedores o
+   el punto vuelve a su posicion absoluta de la sidebar y se dibuja en la esquina de la
+   pantalla. [data-slot="badge"] es el atributo que pone el Badge del CLI de shadcn. */
+.memories-status-cell .memories-dot,
+[data-slot="badge"] .memories-dot { position: static; box-shadow: none; }
 /* .memories-warn y .memories-muted siguen en uso en ShareProjectCard.tsx — no se borran. */
 .memories-muted { opacity: .6; }
 .memories-warn { color: #F59E0B; }
