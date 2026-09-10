@@ -41,8 +41,10 @@ export default function MemoriesWorkspace({ onClose, activeRepoPath, onOpenFile,
   // (MemoriesState no trae ningun campo de scope, y window.memory no expone una lectura de
   // memorias por proyecto — construirla es feature nueva, fuera de alcance de esta
   // migracion de UI). En su lugar se muestra lo que SI existe sin repo: los totales de la
-  // cuenta via hubStats(). Mismo contrato defensivo que useMemories: el metodo es opcional
-  // en window.memory, se chequea antes de invocar, y su propio catch evita que un fallo
+  // cuenta via hubStats(). Review M1: `hubStats` es REQUERIDO en window.memory
+  // (src/types.ts) — no opcional como decia este comentario antes; el `?.` de abajo es
+  // encadenado igual (cortocircuita entero si faltara, sin `.then` de `undefined`) para
+  // sobrevivir a un preload viejo en dev/tests, y el catch evita que un fallo de IPC
   // rompa la card — se muestra sin los numeros en vez de reventar el arbol.
   const [hub, setHub] = useState<HubStats | null>(null)
   useEffect(() => {
@@ -86,21 +88,33 @@ export default function MemoriesWorkspace({ onClose, activeRepoPath, onOpenFile,
           // El estado vacio de esta pantalla (2026-09-09: "se ve vacía" — header, una tira
           // de estado, una frase suelta y 80% de negro). La card da una SALIDA en vez de
           // solo explicar, y muestra lo que si existe sin repo: los totales de la cuenta.
-          <Card className="mx-auto my-auto w-full max-w-md text-center">
-            <CardHeader>
-              <CardTitle>Link a repo to see its memory graph</CardTitle>
-              <CardDescription>
-                {hub
-                  ? `Memories are captured per project — you already have ${hub.itemCount} ${hub.itemCount === 1 ? 'memory' : 'memories'} across ${hub.projectCount} ${hub.projectCount === 1 ? 'project' : 'projects'}.`
-                  : 'Memories are captured per project.'}
-              </CardDescription>
-            </CardHeader>
-            {onLinkRepo && (
-              <CardContent>
-                <Button onClick={onLinkRepo}>Link a repo</Button>
-              </CardContent>
-            )}
-          </Card>
+          //
+          // Review I5: `my-auto` solo centraba en el harness de test, donde ShareProjectCard
+          // y MemoryVaultCard devuelven null (sin repo / memoria no inicializada). Con
+          // MemoryVaultCard renderizando de verdad (cualquier usuario con memoria activa —
+          // justamente a quien la card le muestra numeros reales), el auto-margin colapsaba
+          // contra el alto del hermano de abajo y la card volvia a quedar pegada arriba. El
+          // wrapper de aca abajo es flex-1 DENTRO de .memories-body (column) — crece para
+          // llenar el espacio que sobra en su propia caja, sin importar cuanto midan
+          // ShareProjectCard/MemoryVaultCard como hermanos — y centra la Card adentro suyo
+          // en las dos direcciones.
+          <div className="flex flex-1 items-center justify-center">
+            <Card className="w-full max-w-md text-center">
+              <CardHeader>
+                <CardTitle>Link a repo to see its memory graph</CardTitle>
+                <CardDescription>
+                  {hub
+                    ? `Memories are captured per project — you already have ${hub.itemCount} ${hub.itemCount === 1 ? 'memory' : 'memories'} across ${hub.projectCount} ${hub.projectCount === 1 ? 'project' : 'projects'}.`
+                    : 'Memories are captured per project.'}
+                </CardDescription>
+              </CardHeader>
+              {onLinkRepo && (
+                <CardContent>
+                  <Button onClick={onLinkRepo}>Link a repo</Button>
+                </CardContent>
+              )}
+            </Card>
+          </div>
         )}
 
         <ShareProjectCard activeRepoPath={activeRepoPath} />
