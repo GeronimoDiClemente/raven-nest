@@ -4,6 +4,8 @@ import { basename } from '../lib/path'
 import { DndContext, DragEndEvent, PointerSensor, useSensor, useSensors, closestCenter } from '@dnd-kit/core'
 import { SortableContext, horizontalListSortingStrategy, useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
+import { cn } from '@/lib/utils'
+import { Button } from '@/components/ui/button'
 
 interface Props {
   tabs: WorkspaceTab[]
@@ -61,6 +63,7 @@ const SortableTab = memo(function SortableTab({
   }
 
   const tabAccent = tab.accentColor ?? 'var(--primary)'
+  const isActive = tab.id === activeTabId
 
   // Only apply transition while actively dragging — otherwise React re-renders
   // (from upstream metrics polling) re-attach the style and trigger CSS
@@ -76,14 +79,21 @@ const SortableTab = memo(function SortableTab({
     <div
       ref={setNodeRef}
       style={style}
-      className={`tab${tab.id === activeTabId ? ' active' : ''}`}
+      className={cn(
+        // `tab` y `active` quedan: además de layout propio (global.css), el
+        // scrollIntoView de TabBar los busca por selector literal (`.tab.active`).
+        'tab group border-t border-x rounded-t-md text-fs-sm text-muted-foreground',
+        isActive
+          ? 'active bg-background border-border text-foreground'
+          : 'border-transparent hover:bg-muted hover:text-foreground',
+      )}
       onClick={() => onTabSelect(tab.id)}
     >
       {hasActivity && <span className="tab-activity-dot" />}
       {renamingId === tab.id ? (
         <input
           ref={renameInputRef}
-          className="tab-rename-input"
+          className="tab-rename-input bg-transparent text-foreground text-fs-sm"
           value={renameValue}
           onChange={(e) => setRenameValue(e.target.value)}
           onBlur={commitRename}
@@ -125,13 +135,26 @@ const SortableTab = memo(function SortableTab({
           onTabColorChange?.(tab.id, e.target.value)
         }}
       />
-      <button
-        className="tab-close"
+      <Button
+        variant="ghost"
+        size="sm"
+        className={cn(
+          // bg-transparent explícito: el proyecto no tiene preflight, así que
+          // el <button> nativo no tiene el reset `background-color:
+          // transparent` que shadcn asume para variant="ghost" (que sólo
+          // define background en :hover) — sin esto se ve el gris de UA del
+          // navegador (lo destapó e2e/04-contraste.spec.ts).
+          'bg-transparent text-muted-foreground hover:text-destructive transition-opacity shrink-0',
+          // Antes .tab-close vivía en opacity:0 y sólo aparecía en :hover/.active
+          // (global.css) — el group-hover reproduce lo mismo sin la clase vieja.
+          isActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
+        )}
         onClick={(e) => { e.stopPropagation(); onTabClose(tab.id) }}
         title="Close workspace"
+        aria-label="Close workspace"
       >
         ✕
-      </button>
+      </Button>
     </div>
   )
 })
@@ -171,7 +194,7 @@ export default function TabBar({
   }
 
   return (
-    <div className={`tabbar${isWin ? ' tabbar-win' : ''}`}>
+    <div className={cn('tabbar bg-card border-b border-border', isWin && 'tabbar-win')}>
       {!isWin && <div className="tabbar-traffic-lights" />}
 
       <DndContext
@@ -205,9 +228,17 @@ export default function TabBar({
         </SortableContext>
       </DndContext>
 
-      <button className="tab-new" onClick={onTabNew} title="New workspace">
+      <Button
+        variant="ghost"
+        size="sm"
+        className="bg-transparent text-muted-foreground"
+        onClick={onTabNew}
+        title="New workspace"
+        aria-label="New workspace"
+        style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+      >
         +
-      </button>
+      </Button>
 
       <div className="tabbar-drag" />
       {rightSlot}

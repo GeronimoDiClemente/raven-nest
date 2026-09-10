@@ -191,8 +191,6 @@ body {
 
 .tabbar {
   height: var(--titlebar-height);
-  background: var(--bg-surface);
-  border-bottom: 1px solid var(--border);
   display: flex;
   align-items: flex-end;
   padding: 0 4px;
@@ -235,8 +233,6 @@ body {
   justify-content: space-between;
   gap: 8px;
   padding: 7px 12px;
-  border-radius: 6px 6px 0 0;
-  font-size: 12px;
   cursor: pointer;
   flex-shrink: 1;
   flex-basis: 180px;
@@ -244,9 +240,6 @@ body {
      (they shrink to a clickable chip) instead of overflowing out of reach. */
   min-width: 44px;
   max-width: 200px;
-  color: var(--text-secondary);
-  border: 1px solid transparent;
-  border-bottom: none;
   user-select: none;
   position: relative;
   overflow: hidden;
@@ -255,13 +248,6 @@ body {
 /* Active tab keeps a touch more breathing room when crowded */
 .tab.active {
   min-width: 56px;
-}
-
-/* When a tab shrinks below readable width, hide the close button so the
-   label has room. Hover still reveals it via the existing .tab:hover rule
-   on tabs that have enough space. */
-.tab .tab-close {
-  flex-shrink: 0;
 }
 
 .tab::before {
@@ -281,17 +267,6 @@ body {
   opacity: 1;
 }
 
-.tab.active {
-  background: var(--bg-app);
-  border-color: var(--border);
-  color: var(--text-primary);
-}
-
-.tab:not(.active):hover {
-  color: var(--text-primary);
-  background: rgba(255,255,255,0.04);
-}
-
 .tab-name {
   flex: 1;
   overflow: hidden;
@@ -300,37 +275,18 @@ body {
 }
 
 .tab-rename-input {
-  background: transparent;
   border: none;
   border-bottom: 1px solid var(--tab-accent, var(--raven-blue));
-  color: var(--text-primary);
-  font-size: 12px;
   outline: none;
   width: 80px;
   padding: 0;
 }
 
-.tab-close {
-  font-size: 9px;
-  color: var(--text-secondary);
-  background: none;
-  border: none;
-  cursor: pointer;
-  padding: 0;
-  line-height: 1;
-  opacity: 0;
-  transition: opacity 100ms;
-}
-
-.tab:hover .tab-close,
-.tab.active .tab-close {
-  opacity: 1;
-}
-
-.tab-close:hover {
-  color: #FF4444;
-}
-
+/* NO migrado (Task 5): ni el 9px ni --text-muted tienen equivalencia en la
+   tabla de la Task 5 — 9px no está en la escala (--fs-2xs es 10px), y
+   --text-muted todavía es "Pendiente de bridge" según su propio comentario
+   más arriba en este archivo. Inventar cualquiera de las dos violaría la
+   regla de "son las del tema, no inventadas". */
 .tab-repo-badge {
   display: inline-block;
   margin-left: 5px;
@@ -371,26 +327,16 @@ body {
   display: none;
 }
 
-.tab-new {
-  padding: 4px 10px 8px;
-  font-size: 18px;
-  color: var(--text-secondary);
-  cursor: pointer;
-  background: none;
-  border: none;
-  -webkit-app-region: no-drag;
-  line-height: 1;
-}
-
-.tab-new:hover {
-  color: var(--text-primary);
-}
-
 /* Tab activity indicator */
 .tab {
   position: relative;
 }
 
+/* NO migrado (Task 5): #22C55E es un literal de estado (hay actividad en la
+   terminal), pero el tema no define ningún token semántico "success"/verde
+   (:root sólo tiene destructive como color de estado) — no hay a qué
+   equivalencia mapearlo sin inventar un token nuevo, fuera del alcance de
+   esta task. */
 .tab-activity-dot {
   width: 6px;
   height: 6px;
