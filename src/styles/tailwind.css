@@ -71,14 +71,19 @@
   --text-fs-2xl: var(--fs-2xl);
 }
 
-/* El único pedazo de preflight que shadcn da por hecho.
-   `variant="ghost"` y `variant="link"` no declaran ningún `bg-*` base, así que
-   sin esto muestran el gris nativo del navegador. preflight entero rompería las
-   12k líneas de `global.css` (por eso no se importa); esta regla sola no rompe
-   nada, porque todo botón estilado del proyecto declara su propio background y
-   el CSS sin capa de `global.css` le gana igual a cualquier `@layer`. */
+/* Los dos pedazos de preflight que shadcn da por hecho: `background-color:
+   transparent` y `color: inherit` en `button`. Preflight normalmente los
+   pone a los dos; `variant="ghost"` y `variant="link"` no declaran ninguno
+   propio, así que sin esto un botón cae al fondo gris nativo del navegador
+   Y al texto negro de `buttontext` (los form controls no heredan color por
+   default). preflight entero rompería las 12k líneas de `global.css` (por
+   eso no se importa); estas dos reglas solas no rompen nada, porque todo
+   botón estilado del proyecto declara su propio background y su propio
+   color, y el CSS sin capa de `global.css` le gana igual a cualquier
+   `@layer`. */
 @layer base {
   button {
     background-color: transparent;
+    color: inherit;
   }
 }
