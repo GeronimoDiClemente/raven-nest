@@ -290,7 +290,15 @@ export default function Sidebar({
     <Button
       variant={broadcastMode ? 'secondary' : 'ghost'}
       size="sm"
-      className="h-8 w-full justify-start gap-2.5 px-2.5 font-normal"
+      className={cn(
+        'h-8 w-full justify-start gap-2.5 px-2.5 font-normal',
+        // Button ghost no declara color de reposo (solo hover) — este proyecto
+        // no tiene el preflight que shadcn da por hecho (button {color:inherit}),
+        // asi que sin esto el boton mostraba el negro nativo del navegador
+        // (Task 7, mismo patron que el bg-transparent de la Task 5b, pero de
+        // texto). secondary ya trae su propio text-secondary-foreground.
+        !broadcastMode && 'text-muted-foreground hover:text-foreground',
+      )}
       onClick={onBroadcastToggle}
       title={broadcastMode ? 'Broadcast ON — click to turn off' : 'Broadcast OFF — click to turn on'}
     >
@@ -310,7 +318,10 @@ export default function Sidebar({
       <Button
         variant={joinConnected ? 'secondary' : 'ghost'}
         size="sm"
-        className="h-8 w-full justify-start gap-2.5 px-2.5 font-normal"
+        className={cn(
+          'h-8 w-full justify-start gap-2.5 px-2.5 font-normal',
+          !joinConnected && 'text-muted-foreground hover:text-foreground',
+        )}
         onClick={() => {
           if (joinConnected) { onJoinTerminal() }
           else { setJoinOpen(v => !v); setTimeout(() => joinInputRef.current?.focus(), 50) }
@@ -383,6 +394,7 @@ export default function Sidebar({
       size="sm"
       className={cn(
         'h-8 w-full justify-start gap-2.5 px-2.5 font-normal',
+        !isListening && 'text-muted-foreground hover:text-foreground',
         (isTranscribing || isModelLoading) && 'cursor-default opacity-70',
       )}
       onClick={(isTranscribing || isModelLoading) ? undefined : onMicToggle}
@@ -411,7 +423,7 @@ export default function Sidebar({
     <Button
       variant="ghost"
       size="sm"
-      className="h-8 w-full justify-start gap-2.5 px-2.5 font-normal"
+      className="h-8 w-full justify-start gap-2.5 px-2.5 font-normal text-muted-foreground hover:text-foreground"
       onClick={onHistoryOpen}
       title="Conversation history"
     >
@@ -575,9 +587,10 @@ export default function Sidebar({
   // One door for everything that is yours: your repos, each team's repos, and
   // your pending invites. Free plans hit the upgrade modal, as My Repos did.
   const PersonalItem = (
-    <div
-      className="sidebar-item sidebar-item-panel sidebar-item-team"
-      style={{ cursor: 'pointer', position: 'relative' }}
+    <Button
+      variant="ghost"
+      size="sm"
+      className="h-8 w-full justify-start gap-2.5 px-2.5 font-normal text-muted-foreground hover:text-foreground"
       onClick={plan === 'free' ? onUpgrade : onPersonalOpen}
       title={pendingInvitesCount > 0
         ? `Personal — ${pendingInvitesCount} pending invite${pendingInvitesCount === 1 ? '' : 's'}`
@@ -589,14 +602,20 @@ export default function Sidebar({
           <path d="M3 13.5c0-2.5 2.24-4.5 5-4.5s5 2 5 4.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
         </svg>
         {pendingInvitesCount > 0 && (
+          // background/color -> bg-destructive/text-destructive-foreground (blanco puro,
+          // match exacto); el radio (7 sobre una caja de 14px) -> rounded-full (mismo
+          // resultado visual, mas robusto); el tamano de fuente (9px) -> text-fs-2xs
+          // (10px, el escalon mas chico definido — 1px de diferencia, no hay uno exacto).
+          // El boxShadow usaba una var inexistente (bg-primary, que no esta definida en
+          // ningun lado) con un fallback que coincidia con --background; se corrige a la
+          // referencia real.
           <span
             aria-label={`${pendingInvitesCount} pending invites`}
+            className="absolute flex items-center justify-center bg-destructive text-destructive-foreground rounded-full text-fs-2xs font-bold"
             style={{
-              position: 'absolute', top: -4, right: -6, minWidth: 14, height: 14,
-              padding: '0 3px', borderRadius: 7, background: '#EF4444', color: '#fff',
-              fontSize: 9, fontWeight: 700, display: 'flex', alignItems: 'center',
-              justifyContent: 'center', lineHeight: 1,
-              boxShadow: '0 0 0 1.5px var(--bg-primary, #0a0a0a)',
+              top: -4, right: -6, minWidth: 14, height: 14,
+              padding: '0 3px', lineHeight: 1,
+              boxShadow: '0 0 0 1.5px var(--background)',
             }}
           >
             {pendingInvitesCount > 9 ? '9+' : pendingInvitesCount}
@@ -605,7 +624,7 @@ export default function Sidebar({
       </span>
       <span className="sidebar-label">Personal</span>
       {expanded && plan === 'free' && <span className="sidebar-plan-badge">Pro</span>}
-    </div>
+    </Button>
   )
 
   // Shared between the collapsed "More tools" flyout and the expanded
@@ -635,7 +654,7 @@ export default function Sidebar({
       <Button
         variant="ghost"
         size="sm"
-        className="h-8 w-full justify-start gap-2.5 px-2.5 font-normal"
+        className="h-8 w-full justify-start gap-2.5 px-2.5 font-normal text-muted-foreground hover:text-foreground"
         onClick={onIntegrationsOpen}
         title="Integrations"
       >
@@ -650,7 +669,7 @@ export default function Sidebar({
       <Button
         variant="ghost"
         size="sm"
-        className="h-8 w-full justify-start gap-2.5 px-2.5 font-normal"
+        className="h-8 w-full justify-start gap-2.5 px-2.5 font-normal text-muted-foreground hover:text-foreground"
         onClick={onGraphBoardOpen}
         title="Orchestration"
       >
@@ -676,7 +695,7 @@ export default function Sidebar({
       <Button
         variant="ghost"
         size="sm"
-        className="h-8 w-full justify-start gap-2.5 px-2.5 font-normal mb-1"
+        className="h-8 w-full justify-start gap-2.5 px-2.5 font-normal mb-1 text-muted-foreground hover:text-foreground"
         onClick={onToggle}
         title={expanded ? 'Collapse sidebar' : 'Expand sidebar'}
         aria-expanded={expanded}
@@ -781,7 +800,10 @@ export default function Sidebar({
               <Button
                 variant={moreOpen ? 'secondary' : 'ghost'}
                 size="sm"
-                className="h-8 w-full justify-start gap-2.5 px-2.5 font-normal"
+                className={cn(
+                  'h-8 w-full justify-start gap-2.5 px-2.5 font-normal',
+                  !moreOpen && 'text-muted-foreground hover:text-foreground',
+                )}
                 onClick={() => setMoreOpen(v => !v)}
                 title={moreOpen ? 'Hide more tools' : 'Show more tools'}
               >
@@ -839,8 +861,10 @@ export default function Sidebar({
 
         {/* ── 5. NEW TERMINAL (acción primaria; oculto al tope) ── */}
         {!isHub && paneCount < MAX_PANES && (
-          <button
-            className="sidebar-item sidebar-new-terminal"
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8 w-full justify-start gap-2.5 px-2.5 font-normal text-foreground hover:text-primary"
             onClick={onNewPane}
             title={`New terminal (${isWin ? 'Ctrl+T' : '⌘T'})`}
           >
@@ -850,7 +874,7 @@ export default function Sidebar({
               </svg>
             </span>
             <span className="sidebar-label">New Terminal</span>
-          </button>
+          </Button>
         )}
       </div>{/* /.sidebar-scroll */}
 

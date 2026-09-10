@@ -741,16 +741,11 @@ body {
   background: rgba(0,0,0,0.15);
 }
 
-/* New Terminal — acción primaria al fondo del scroll. Tipografía ligeramente
-   más destacada para que se lea como CTA. */
-.sidebar-new-terminal {
-  flex-shrink: 0;
-  color: var(--text-primary);
-}
-
-.sidebar-new-terminal:hover {
-  color: var(--primary);
-}
+/* .sidebar-new-terminal(:hover) borrada (Task 7): paso a <Button
+   variant="ghost" className="... text-foreground hover:text-primary">
+   (--text-primary -> text-foreground, --primary -> hover:text-primary,
+   match exacto de la tabla de tokens). 0 referencias en src/ despues del
+   cambio. */
 
 /* En modo colapsado (sin .expanded) la sidebar es de 44px y los labels van
    ocultos: aseguramos que las secciones nuevas también escondan borders

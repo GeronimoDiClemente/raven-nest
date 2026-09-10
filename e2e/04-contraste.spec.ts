@@ -132,6 +132,14 @@ test('ningún texto de la app queda por debajo de 3:1 de contraste', async () =>
 
     const pantallas: Array<[string, () => Promise<void>]> = [
       ['workspace', async () => {}],
+      ['tools', async () => {
+        // La lista de Tools (Task 7): las filas ghost sin variant activa no
+        // declaran color de reposo — es la superficie donde el bug de este
+        // archivo (texto negro nativo del navegador, sin preflight) se
+        // manifestaria si a alguna le faltara la clase de color explicita.
+        await page.getByRole('tab', { name: 'Tools' }).click()
+        await page.waitForTimeout(500)
+      }],
       ['memories', async () => {
         await page.getByTitle(/^Memories/).first().click()
         await page.waitForTimeout(800)
