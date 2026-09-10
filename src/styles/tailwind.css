@@ -2,7 +2,7 @@
    que se queda, y global.css es lo que se va a ir borrando componente por
    componente (spec §4.2).
 
-   SIN PREFLIGHT, y no es una preferencia: Preflight normaliza márgenes,
+   SIN preflight, y no es una preferencia: preflight normaliza márgenes,
    bordes y tipografía de todos los elementos, y las 12.104 líneas de
    global.css están escritas contra el default del navegador. Importarlo
    rompe la app entera de una. Por eso se importan a mano sólo las dos capas
@@ -71,9 +71,9 @@
   --text-fs-2xl: var(--fs-2xl);
 }
 
-/* El único pedazo de Preflight que shadcn da por hecho.
+/* El único pedazo de preflight que shadcn da por hecho.
    `variant="ghost"` y `variant="link"` no declaran ningún `bg-*` base, así que
-   sin esto muestran el gris nativo del navegador. Preflight entero rompería las
+   sin esto muestran el gris nativo del navegador. preflight entero rompería las
    12k líneas de `global.css` (por eso no se importa); esta regla sola no rompe
    nada, porque todo botón estilado del proyecto declara su propio background y
    el CSS sin capa de `global.css` le gana igual a cualquier `@layer`. */

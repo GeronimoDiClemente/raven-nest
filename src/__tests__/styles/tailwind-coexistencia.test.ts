@@ -14,7 +14,10 @@ describe('Tailwind convive con global.css', () => {
   // global.css están escritas contra el default del navegador. Importarlo
   // rompe la app.
   it('NO importa preflight', () => {
-    expect(tw).not.toMatch(/preflight/)
+    // Se verifica el MECANISMO, no la palabra: el archivo EXPLICA en sus
+    // comentarios por que preflight queda afuera, asi que prohibir el termino
+    // hacia fallar al test con la prosa que lo justifica.
+    expect(tw).not.toMatch(/@import\s+["'][^"']*preflight[^"']*["']/i)
     expect(tw).not.toMatch(/@import\s+["']tailwindcss["']\s*;/)
   })
 
