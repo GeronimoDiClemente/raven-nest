@@ -1,5 +1,13 @@
 /* RAVEN Nest — Global Styles */
 
+/* La capa de Tailwind. Va PRIMERO para que las utilidades queden en su propia
+   @layer: todo lo que está escrito abajo en este archivo es CSS sin capa, y el
+   CSS sin capa le gana a cualquier @layer. O sea: mientras un componente siga
+   usando sus clases viejas, esas clases mandan; en cuanto se le sacan, las
+   utilidades de Tailwind toman el control. Es exactamente la convivencia que
+   pide la spec §4.2, y sale del orden de capas, no de la especificidad. */
+@import './tailwind.css';
+
 @keyframes spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }

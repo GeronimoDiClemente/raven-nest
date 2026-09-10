@@ -1,0 +1,63 @@
+/* La capa nueva del rediseño. Separada de global.css a propósito: esto es lo
+   que se queda, y global.css es lo que se va a ir borrando componente por
+   componente (spec §4.2).
+
+   SIN PREFLIGHT, y no es una preferencia: Preflight normaliza márgenes,
+   bordes y tipografía de todos los elementos, y las 12.104 líneas de
+   global.css están escritas contra el default del navegador. Importarlo
+   rompe la app entera de una. Por eso se importan a mano sólo las dos capas
+   que SUMAN — el tema y las utilidades — en vez del `@import "tailwindcss"`
+   que las trae todas. */
+@layer theme, base, components, utilities;
+
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+@import "tw-animate-css";
+
+/* `dark:` de shadcn. Nest no tiene tema claro: los tokens viven directo en
+   `:root`. Pero los componentes que escupe el CLI usan `dark:` en algunos
+   lugares, así que la variante tiene que existir y resolver — el shell lleva
+   `class="dark"` (Task 4). */
+@custom-variant dark (&:is(.dark *));
+
+/* Los tokens de Nest, expuestos al motor de Tailwind.
+   `inline` importa: hace que `--color-card` RESUELVA `var(--card)` en vez de
+   copiar su valor. Así `bg-card` y el `background: var(--bg-surface)` del CSS
+   viejo pintan literalmente el mismo color, y el día que se toque el token
+   se mueven los dos. Sin `inline` habría dos fuentes de verdad. */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --radius-sm: calc(var(--radius) - 2px);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) + 2px);
+
+  --font-sans: var(--font-ui);
+  --font-mono: var(--font-mono);
+
+  /* La escala tipográfica del rediseño, disponible como `text-fs-sm` etc. */
+  --text-fs-2xs: var(--fs-2xs);
+  --text-fs-xs: var(--fs-xs);
+  --text-fs-sm: var(--fs-sm);
+  --text-fs: var(--fs);
+  --text-fs-lg: var(--fs-lg);
+  --text-fs-xl: var(--fs-xl);
+  --text-fs-2xl: var(--fs-2xl);
+}

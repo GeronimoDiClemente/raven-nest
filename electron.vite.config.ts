@@ -1,6 +1,7 @@
 import { resolve } from 'path'
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
 import react from '@vitejs/plugin-react'
+import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig({
   main: {
@@ -33,6 +34,10 @@ export default defineConfig({
   },
   renderer: {
     root: 'src',
+    resolve: {
+      // shadcn genera imports con `@/`. Sin este alias, nada de components/ui resuelve.
+      alias: { '@': resolve(__dirname, 'src') }
+    },
     build: {
       outDir: 'dist',
       rollupOptions: {
@@ -41,7 +46,7 @@ export default defineConfig({
         }
       }
     },
-    plugins: [react()],
+    plugins: [react(), tailwindcss()],
     optimizeDeps: {
       include: ['monaco-editor'],
     }
