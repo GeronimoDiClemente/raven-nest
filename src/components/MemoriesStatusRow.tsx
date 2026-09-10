@@ -66,15 +66,23 @@ export default function MemoriesStatusRow({ state }: Props) {
       )}
 
       {/* Spec §2.2 — el unico fallo hoy invisible. Se nombra el pane y la CLI: un contador
-          suelto no le dice al usuario cual de sus terminales cerrar y volver a abrir. */}
+          suelto no le dice al usuario cual de sus terminales cerrar y volver a abrir.
+          Review C1/I3: la lista de panes NO va adentro del Badge — el Badge stock es
+          `h-5 overflow-hidden`, asi que un `flex-wrap` ahi adentro recorta en vez de
+          envolver (medido: 12 sesiones mudas perdian pane-10..12 sin ningun aviso, el
+          fallo exacto que este bloque existe para evitar). El Badge queda para el
+          resumen (una linea, nunca envuelve); los pane-ids van en un contenedor
+          hermano sin alto fijo, como en el div.memories-status-cell original. */}
       {silentSessions.length > 0 && (
-        <Badge variant="outline" className="flex-wrap gap-1.5 text-destructive">
-          <span className="font-mono tabular-nums">{silentSessions.length}</span>
-          terminal{silentSessions.length === 1 ? '' : 's'} not writing to memory
+        <div className="memories-status-cell flex-wrap">
+          <Badge variant="outline" className="gap-1.5 text-destructive">
+            <span className="font-mono tabular-nums">{silentSessions.length}</span>
+            terminal{silentSessions.length === 1 ? '' : 's'} not writing to memory
+          </Badge>
           {silentSessions.map((s) => (
-            <span key={s.paneId} className="microlabel opacity-70">{s.aiType} · {s.paneId}</span>
+            <span key={s.paneId} className="microlabel text-destructive opacity-70">{s.aiType} · {s.paneId}</span>
           ))}
-        </Badge>
+        </div>
       )}
     </div>
   )
