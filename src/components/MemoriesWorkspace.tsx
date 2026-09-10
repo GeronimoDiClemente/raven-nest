@@ -101,8 +101,16 @@ export default function MemoriesWorkspace({ onClose, activeRepoPath, onOpenFile,
           <div className="flex flex-1 items-center justify-center">
             <Card className="w-full max-w-md text-center">
               <CardHeader>
-                <CardTitle>Link a repo to see its memory graph</CardTitle>
-                <CardDescription>
+                {/* CardTitle/CardDescription stock traen 16px/14px (text-base/text-sm),
+                    fuera de la escala --fs-*. Antes de Task 8b pisarlos desde acá no
+                    servía: cn() clasificaba text-fs-* como color, así que colisionaba
+                    con el text-muted-foreground de CardDescription en vez de con su
+                    tamaño — perdía el pisado en silencio. Con cn() arreglado (misma
+                    escala, mismo grupo que text-base/text-sm), el último className gana
+                    de verdad. Se redondea al escalón más cercano: 16->text-fs-lg (15,
+                    -1), 14->text-fs (13, -1) — mismo criterio que Sidebar.tsx:366. */}
+                <CardTitle className="text-fs-lg">Link a repo to see its memory graph</CardTitle>
+                <CardDescription className="text-fs">
                   {hub
                     ? `Memories are captured per project — you already have ${hub.itemCount} ${hub.itemCount === 1 ? 'memory' : 'memories'} across ${hub.projectCount} ${hub.projectCount === 1 ? 'project' : 'projects'}.`
                     : 'Memories are captured per project.'}

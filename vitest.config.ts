@@ -7,7 +7,11 @@ export default defineConfig({
     projects: [
       {
         resolve: {
-          alias: { '@': resolve(__dirname, 'src') },
+          // `cn` -> @/lib/utils: los componentes stock de shadcn (src/components/ui/)
+          // importan el paquete "cn", no @/lib/utils. Sin este alias los tests medirían
+          // una implementación de merge distinta de la que corre en la app real (ver
+          // src/lib/utils.ts y src/__tests__/lib/cn-escala.test.ts).
+          alias: { '@': resolve(__dirname, 'src'), cn: resolve(__dirname, 'src/lib/utils.ts') },
         },
         test: {
           name: 'node',
@@ -23,7 +27,7 @@ export default defineConfig({
       },
       {
         resolve: {
-          alias: { '@': resolve(__dirname, 'src') },
+          alias: { '@': resolve(__dirname, 'src'), cn: resolve(__dirname, 'src/lib/utils.ts') },
         },
         test: {
           name: 'jsdom',

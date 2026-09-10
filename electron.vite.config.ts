@@ -36,7 +36,11 @@ export default defineConfig({
     root: 'src',
     resolve: {
       // shadcn genera imports con `@/`. Sin este alias, nada de components/ui resuelve.
-      alias: { '@': resolve(__dirname, 'src') }
+      // `cn` -> @/lib/utils: los componentes stock (src/components/ui/) importan el
+      // paquete "cn" en vez del alias @/lib/utils, y ese paquete no conoce nuestra
+      // escala tipográfica (--fs-*) — ver src/lib/utils.ts. Este alias hace que toda la
+      // app use una sola implementación de merge, la que sí la conoce.
+      alias: { '@': resolve(__dirname, 'src'), cn: resolve(__dirname, 'src/lib/utils.ts') }
     },
     build: {
       outDir: 'dist',
