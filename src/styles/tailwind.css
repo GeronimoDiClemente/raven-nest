@@ -73,6 +73,40 @@
   --font-sans: var(--font-ui);
   --font-mono: var(--font-mono);
 
+  /* La escala nativa de Tailwind (`text-sm`, `text-xs`, ...) que los
+     primitivos stock siguen usando por default cuando nadie les pisa la
+     clase — `buttonVariants` (ui/button.tsx) es el caso medido: su base usa
+     `text-sm` y su tamaño `xs` usa `text-xs`. Sin este puente, esos dos
+     resuelven al rem fijo de Tailwind (14px y 12px respectivamente) en vez
+     de a la escala de Nest, y 14px no existe en ninguno de los 7 escalones
+     (I2 de la review final).
+
+     `--text-sm: var(--fs)` da 13px, no 12: 13px es el tamaño de
+     `.sidebar-label`, el texto que vive justo al lado de estos botones
+     (ej. "Personal"/"Settings" en el Sidebar, "Link a repo" en la Card de
+     Memories) — 12 los dejaría más chicos que su vecino inmediato. El
+     nombre queda raro (`text-sm` valiendo 13px) pero es el nombre de
+     Tailwind, no el nuestro.
+
+     `--text-xs: var(--fs-sm)` da 12px, que es exactamente lo que Tailwind
+     ya le daba (0.75rem == 12px == --fs-sm): no cambia nada visualmente,
+     sólo saca ese escalón de la mano de Tailwind y lo ancla en el nuestro,
+     para que el día que --fs-sm se retoque, Badge/Tooltip/Button(xs) — los
+     tres primitivos que lo usan hoy — se muevan con el resto de la app en
+     vez de quedarse en un rem que nadie controla.
+
+     `--text-base: var(--fs-lg)` (15px) cierra el mismo hueco en `CardTitle`
+     (ui/card.tsx): su variante default es `text-base` (16px de Tailwind,
+     tampoco existe en la escala) para cuando nadie pisa la clase. El único
+     lugar que hoy monta un `<CardTitle>` SÍ la pisa, a mano, con
+     `text-fs-lg` (`MemoriesWorkspace.tsx:117`) — 15px, "títulos de sección"
+     en la escala (ver el comentario de `--fs-lg` más abajo), que es
+     exactamente el rol de un CardTitle. Puentear el default al mismo valor
+     que ese único caso ya eligió a mano, en vez de inventar uno nuevo. */
+  --text-sm: var(--fs);
+  --text-xs: var(--fs-sm);
+  --text-base: var(--fs-lg);
+
   /* La escala tipográfica del rediseño, disponible como `text-fs-sm` etc. */
   --text-fs-2xs: var(--fs-2xs);
   --text-fs-xs: var(--fs-xs);
