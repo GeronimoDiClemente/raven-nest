@@ -7,17 +7,43 @@ const here = dirname(fileURLToPath(import.meta.url))
 const css = readFileSync(resolve(here, '../../styles/global.css'), 'utf8')
   .replace(/\/\*[\s\S]*?\*\//g, '')
 
-/** Profundidad de anidamiento en la que arranca cada selector de nivel superior. */
+/**
+ * Profundidad de anidamiento en la que arranca cada selector de nivel superior.
+ *
+ * Ojo: este archivo esta migrando a Tailwind v4, que soporta CSS nesting de
+ * verdad (@media, @supports, @container, @keyframes con selectores adentro).
+ * Un selector de clase anidado DENTRO DE UNO DE ESOS at-rules es legitimo y
+ * no hay que reportarlo. El bug real (`.rb-bullet-logo { .empty-state-wrap {
+ * ... } }`) es un selector de clase anidado dentro de OTRA REGLA PLANA — eso
+ * es lo unico que se reporta.
+ *
+ * Para eso llevamos una pila con el tipo de cada bloque abierto (`atrule` vs
+ * `rule`) y solo miramos el tipo del bloque inmediato que lo contiene. Las
+ * llaves de cada linea se procesan caracter a caracter y en orden real (no
+ * por conteo), asi una linea con cierre-y-apertura tipo `} .foo {` o un
+ * one-liner `.x { color: red; }` actualizan la pila bien sin arrastrar
+ * drift al resto del archivo.
+ */
 function selectoresAnidados(source: string): string[] {
   const malos: string[] = []
-  let depth = 0
+  const pila: Array<'atrule' | 'rule'> = []
+  let cabecera = ''
   for (const linea of source.split('\n')) {
-    const abre = (linea.match(/\{/g) ?? []).length
-    const cierra = (linea.match(/\}/g) ?? []).length
-    // Un selector de clase que arranca en columna 0 no puede estar anidado: en este
-    // archivo no se usa CSS nesting a proposito en ningun lado.
-    if (depth > 0 && /^\.[a-zA-Z][\w-]*/.test(linea)) malos.push(linea.trim().slice(0, 60))
-    depth += abre - cierra
+    const padreEsReglaPlana = pila.length > 0 && pila[pila.length - 1] === 'rule'
+    if (padreEsReglaPlana && /^\.[a-zA-Z][\w-]*/.test(linea)) malos.push(linea.trim().slice(0, 60))
+    for (const ch of linea) {
+      if (ch === '{') {
+        const esAtRule = /^@(media|supports|container|keyframes)\b/.test(cabecera.trim())
+        pila.push(esAtRule ? 'atrule' : 'rule')
+        cabecera = ''
+      } else if (ch === '}') {
+        pila.pop()
+        cabecera = ''
+      } else {
+        cabecera += ch
+      }
+    }
+    cabecera += '\n'
   }
   return malos
 }
@@ -55,5 +81,29 @@ describe('global.css — estructura', () => {
 
   it('no hay bloques de declaraciones sin selector', () => {
     expect(declaracionesHuerfanas(css)).toEqual([])
+  })
+
+  // Fix round 1 (revision): sin este par de casos, el chequeo de arriba le
+  // pega falso positivo al dia que alguien escriba nesting legitimo en un
+  // @media/@supports/@container/@keyframes — y un guard que grita con algo
+  // correcto es un guard que terminan borrando.
+  describe('selectoresAnidados — distingue nesting legitimo del bug real', () => {
+    it('un selector de clase dentro de un @media es legitimo — no se reporta', () => {
+      const fixture = [
+        '@media (max-width: 600px) {',
+        '  .foo {',
+        '    color: red;',
+        '  }',
+        '}',
+      ].join('\n')
+      expect(selectoresAnidados(fixture)).toEqual([])
+    })
+
+    it('un selector de clase dentro de una regla plana sin cerrar SI es el bug — se reporta', () => {
+      // Misma forma que `.rb-bullet-logo { ... .empty-state-wrap { ... } }`:
+      // `.a` abre y nunca cierra antes de que aparezca `.b`.
+      const fixture = ['.a {', '  color: red;', '.b {', '  color: blue;', '}', '}'].join('\n')
+      expect(selectoresAnidados(fixture)).toEqual(['.b {'])
+    })
   })
 })

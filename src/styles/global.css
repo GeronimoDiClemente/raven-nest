@@ -9297,6 +9297,14 @@ body.platform-mac .tabbar { padding-right: 116px; }
   font-variant-numeric: tabular-nums;
 }
 
+/* Duplicado intencional de `.team-switcher-item-icon` (ver la otra definicion
+   arriba, cerca de `.rb-bullet-logo > svg`) — NO fusionar. `a762f1c` reescribio
+   la cabecera de esta regla con otro cuerpo (display/height/margin-right/
+   vertical-align) y dejo huerfana la cola original de `c6497dd`
+   (flex-shrink/color) sin selector. Task 2b (2026-09-09) restituyo ambas tal
+   cual estaban en el historial porque las propiedades no se solapan y las dos
+   aplican sin conflicto de cascada. Si "limpiás" este duplicado sin revisar
+   el historial, se pierden flex-shrink y color en silencio. */
 .team-switcher-item-icon {
   flex-shrink: 0;
   color: var(--text-muted);
