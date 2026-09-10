@@ -709,27 +709,15 @@ body {
   padding-top: 4px;
 }
 
-/* Separador sutil entre la sección de worktrees y Teams/MyRepos. */
-.sidebar-section-divider {
-  height: 1px;
-  background: var(--border);
-  margin: 6px 12px;
-  flex-shrink: 0;
-}
+/* .sidebar-section-divider borrada (Task 7): el separador paso a <Separator>
+   de shadcn (my-1.5 mx-2 == el margin:6px 8px que de verdad se veia — este
+   elemento solo rendereaba colapsado, asi que el override de mas abajo
+   siempre le ganaba a este margin:6px 12px de la base). 0 referencias en
+   src/ despues del cambio. */
 
-.sidebar-more-toggle {
-  color: var(--text-muted);
-  font-size: 12px;
-  height: 36px;
-}
-
-.sidebar-more-toggle:hover {
-  color: var(--text-primary);
-}
-
-.sidebar-more.open .sidebar-more-toggle {
-  color: var(--text-primary);
-}
+/* .sidebar-more-toggle borrada (Task 7): paso a <Button variant="ghost"|
+   "secondary">, que ya trae su propio color de hover/estado activo.
+   0 referencias en src/ despues del cambio. */
 
 /* More tools se dimensiona por CONTENIDO y deja que scrollee el sidebar
    entero (un solo scrollbar, el de .sidebar-scroll). El scroll propio +
@@ -743,7 +731,6 @@ body {
   flex: 0 0 auto;
   min-height: 0;
 }
-.sidebar-more-toggle { flex: 0 0 auto; }
 .sidebar-more-list {
   display: flex;
   flex-direction: column;
@@ -766,12 +753,8 @@ body {
 }
 
 /* En modo colapsado (sin .expanded) la sidebar es de 44px y los labels van
-   ocultos: aseguramos que las secciones nuevas también escondan separador
-   y borders sobrantes para no romper el look minimal. */
-.sidebar:not(.expanded) .sidebar-section-divider {
-  margin: 6px 8px;
-}
-
+   ocultos: aseguramos que las secciones nuevas también escondan borders
+   sobrantes para no romper el look minimal. */
 .sidebar:not(.expanded) .sidebar-more-list {
   border: none;
   background: transparent;

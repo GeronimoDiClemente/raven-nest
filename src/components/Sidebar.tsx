@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
+import { Separator } from '@/components/ui/separator'
 import SnippetPanel from './SnippetPanel'
 import CommandHistoryPanel from './CommandHistoryPanel'
 import WorkspacePanel from './WorkspacePanel'
@@ -286,8 +287,10 @@ export default function Sidebar({
 
   // ─── Reusable inline pieces ──────────────────────────────────────────────
   const BroadcastItem = (
-    <button
-      className={`sidebar-item${broadcastMode ? ' active' : ''}`}
+    <Button
+      variant={broadcastMode ? 'secondary' : 'ghost'}
+      size="sm"
+      className="h-8 w-full justify-start gap-2.5 px-2.5 font-normal"
       onClick={onBroadcastToggle}
       title={broadcastMode ? 'Broadcast ON — click to turn off' : 'Broadcast OFF — click to turn on'}
     >
@@ -299,14 +302,15 @@ export default function Sidebar({
         </svg>
       </span>
       <span className="sidebar-label">{broadcastMode ? 'Broadcasting' : 'Broadcast'}</span>
-    </button>
+    </Button>
   )
 
   const JoinTerminalItem = (
     <div className="sidebar-item-panel" style={{ position: 'relative' }} ref={joinAnchorRef}>
-      <button
-        className={`sidebar-item${joinConnected ? ' active' : ''}`}
-        style={{ color: joinConnected ? '#22c55e' : undefined }}
+      <Button
+        variant={joinConnected ? 'secondary' : 'ghost'}
+        size="sm"
+        className="h-8 w-full justify-start gap-2.5 px-2.5 font-normal"
         onClick={() => {
           if (joinConnected) { onJoinTerminal() }
           else { setJoinOpen(v => !v); setTimeout(() => joinInputRef.current?.focus(), 50) }
@@ -322,12 +326,12 @@ export default function Sidebar({
           </svg>
         </span>
         <span className="sidebar-label">{joinConnected ? `● ${terminalJoinService.code}` : 'Join Terminal'}</span>
-      </button>
+      </Button>
 
       {joinOpen && !joinConnected && joinPopPos && (
         <div ref={joinPopoverRef} className="ts-panel" style={{ position: 'fixed', top: joinPopPos.top, left: joinPopPos.left, right: 'auto', zIndex: 200, width: 260 }}>
           <div className="ts-panel-header">
-            <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>Join Terminal</span>
+            <span className="text-fs font-semibold text-foreground">Join Terminal</span>
             <button className="ts-close" onClick={() => { setJoinOpen(false); setJoinInput('') }}>×</button>
           </div>
           <div className="ts-body">
@@ -345,43 +349,25 @@ export default function Sidebar({
               maxLength={8}
               placeholder="Enter code…"
               autoFocus
-              style={{
-                display: 'block',
-                width: '100%',
-                boxSizing: 'border-box',
-                background: 'var(--bg-elevated)',
-                border: '1px solid var(--border)',
-                borderRadius: 6,
-                color: 'var(--text-primary)',
-                fontSize: 20,
-                fontWeight: 700,
-                padding: '8px 12px',
-                letterSpacing: 4,
-                textAlign: 'center',
-                textTransform: 'uppercase',
-                marginBottom: 10,
-                outline: 'none',
-              }}
+              // fontSize: la escala no tiene un escalon en 20px — --fs-xl es 17,
+              // --fs-2xl es 21. Se redondea al mas cercano (21, 1px de diferencia)
+              // en vez de dejar un literal fuera de escala (Task 7).
+              className="block w-full box-border bg-popover border border-border rounded-md text-foreground text-fs-2xl font-bold px-3 py-2 tracking-[4px] text-center uppercase mb-2.5 outline-none"
             />
             {terminalJoinService.error && (
-              <p style={{ color: '#EF4444', fontSize: 11, marginBottom: 8, margin: '0 0 8px' }}>{terminalJoinService.error}</p>
+              <p className="text-destructive text-fs-xs mb-2">{terminalJoinService.error}</p>
             )}
             <button
               disabled={joinInput.length < 8 || terminalJoinService.isConnecting}
               onClick={() => {
                 startJoinAttempt(joinInput.trim())
               }}
-              style={{
-                width: '100%',
-                background: joinInput.length >= 8 ? 'var(--primary)' : 'var(--bg-elevated)',
-                color: joinInput.length >= 8 ? '#fff' : 'var(--text-muted)',
-                border: 'none',
-                borderRadius: 6,
-                padding: '8px 0',
-                fontSize: 13,
-                fontWeight: 600,
-                cursor: joinInput.length >= 8 ? 'pointer' : 'default',
-              }}
+              className={cn(
+                'w-full border-none rounded-md py-2 text-fs font-semibold',
+                joinInput.length >= 8
+                  ? 'bg-primary text-primary-foreground cursor-pointer'
+                  : 'bg-popover text-muted-foreground cursor-default',
+              )}
             >
               {terminalJoinService.isConnecting ? 'Connecting…' : 'Connect'}
             </button>
@@ -392,10 +378,14 @@ export default function Sidebar({
   )
 
   const VoiceItem = (
-    <button
-      className={`sidebar-item${isListening ? ' active' : (isTranscribing || isModelLoading) ? ' sidebar-transcribing' : ''}`}
+    <Button
+      variant={isListening ? 'secondary' : 'ghost'}
+      size="sm"
+      className={cn(
+        'h-8 w-full justify-start gap-2.5 px-2.5 font-normal',
+        (isTranscribing || isModelLoading) && 'cursor-default opacity-70',
+      )}
       onClick={(isTranscribing || isModelLoading) ? undefined : onMicToggle}
-      style={(isTranscribing || isModelLoading) ? { cursor: 'default', opacity: 0.7 } : undefined}
       title={isListening ? 'Click or press F5 to stop' : isTranscribing ? 'Processing…' : isModelLoading ? 'Loading voice model…' : 'Click or press F5 to speak'}
     >
       <span className="sidebar-icon">
@@ -414,11 +404,17 @@ export default function Sidebar({
       <span className="sidebar-label">
         {isListening ? 'Listening…' : isTranscribing ? 'Processing…' : isModelLoading ? 'Loading…' : 'Voice'}
       </span>
-    </button>
+    </Button>
   )
 
   const ConversationHistoryItem = (
-    <button className="sidebar-item" onClick={onHistoryOpen} title="Conversation history">
+    <Button
+      variant="ghost"
+      size="sm"
+      className="h-8 w-full justify-start gap-2.5 px-2.5 font-normal"
+      onClick={onHistoryOpen}
+      title="Conversation history"
+    >
       <span className="sidebar-icon">
         <svg width="16" height="16" viewBox="0 0 14 14" fill="none">
           <circle cx="7" cy="7" r="5.5" stroke="currentColor" strokeWidth="1.3"/>
@@ -426,7 +422,7 @@ export default function Sidebar({
         </svg>
       </span>
       <span className="sidebar-label">History</span>
-    </button>
+    </Button>
   )
 
   const WorkspacesItem = (
@@ -636,9 +632,10 @@ export default function Sidebar({
       {/* Integrations y Orchestration eran filas fijas de la sidebar vieja. Con las
           pestanas viven en Tools, que es la lista que comparten el flyout colapsado y
           la pestana: asi siguen alcanzables en los dos modos. */}
-      <div
-        className="sidebar-item sidebar-item-panel sidebar-item-team"
-        style={{ cursor: 'pointer' }}
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-8 w-full justify-start gap-2.5 px-2.5 font-normal"
         onClick={onIntegrationsOpen}
         title="Integrations"
       >
@@ -649,10 +646,11 @@ export default function Sidebar({
           </svg>
         </span>
         <span className="sidebar-label">Integrations</span>
-      </div>
-      <div
-        className="sidebar-item sidebar-item-panel sidebar-item-team"
-        style={{ cursor: 'pointer' }}
+      </Button>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-8 w-full justify-start gap-2.5 px-2.5 font-normal"
         onClick={onGraphBoardOpen}
         title="Orchestration"
       >
@@ -665,7 +663,7 @@ export default function Sidebar({
           </svg>
         </span>
         <span className="sidebar-label">Orchestration</span>
-      </div>
+      </Button>
       {ConversationHistoryItem}
       {CommandHistoryItem}
     </>
@@ -777,11 +775,13 @@ export default function Sidebar({
              row, not a tab. ── */}
         {!expanded && (
           <>
-            <div className="sidebar-section-divider" />
+            <Separator className="my-1.5 mx-2" />
 
             <div className={`sidebar-more${moreOpen ? ' open' : ''}`}>
-              <button
-                className="sidebar-item sidebar-more-toggle"
+              <Button
+                variant={moreOpen ? 'secondary' : 'ghost'}
+                size="sm"
+                className="h-8 w-full justify-start gap-2.5 px-2.5 font-normal"
                 onClick={() => setMoreOpen(v => !v)}
                 title={moreOpen ? 'Hide more tools' : 'Show more tools'}
               >
@@ -791,7 +791,7 @@ export default function Sidebar({
                   </svg>
                 </span>
                 <span className="sidebar-label">More tools</span>
-              </button>
+              </Button>
 
               {moreOpen && (
                 <div className="sidebar-more-list">
