@@ -2134,6 +2134,10 @@ export default function App() {
           onClose={() => setMemoriesOpen(false)}
           activeRepoPath={activeCellRepoPath ?? null}
           onOpenFile={openFileInEditor}
+          // Task 8: el estado vacio (sin repo) linkea desde el dialogo NATIVO de carpeta —
+          // sin conflicto de z-index con el overlay — y setea repoPath en la pestaña activa,
+          // que es de donde sale activeCellRepoPath. El grafo aparece sin salir de la pantalla.
+          onLinkRepo={handleRepoLink}
         />
       )}
 

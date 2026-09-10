@@ -163,10 +163,12 @@ test('el overlay se dibuja: fila de estado arriba y un cuerpo, nunca un hueco', 
     await page.getByTitle(/^Memories/).first().click()
     await expect(page.locator('.memories-workspace .memories-status-row')).toBeVisible({ timeout: 10_000 })
 
-    // Sin repo abierto el overlay explica por que no hay grafo; con repo dibuja el panel del
-    // hilo. Los dos son estados validos — lo que NO puede pasar es que no haya ninguno.
+    // Sin repo abierto el overlay ofrece vincular uno (Task 8: la card del estado vacio,
+    // por rol y nombre accesible — la clase vieja `.memories-empty` desaparecio con la
+    // migracion); con repo dibuja el panel del hilo. Los dos son estados validos — lo que
+    // NO puede pasar es que no haya ninguno.
     const conGrafo = await page.locator('.memories-workspace .team-thread-panel').count()
-    const sinRepo = await page.locator('.memories-workspace .memories-empty').count()
+    const sinRepo = await page.getByRole('button', { name: /link a repo/i }).count()
     expect(conGrafo + sinRepo).toBeGreaterThan(0)
 
     await page.screenshot({ path: join(SHOTS, '05-overlay-cuerpo.png') })

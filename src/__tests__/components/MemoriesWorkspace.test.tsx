@@ -19,17 +19,26 @@ const api = (over: Record<string, unknown> = {}) => ({
   }),
   vaultGetSettings: vi.fn().mockResolvedValue({ ok: false, error: 'memory_unavailable' }),
   teamThreadProjectKeyForWorktree: vi.fn().mockResolvedValue({ ok: false }),
+  // Task 8: hubStats es lo que la card del estado vacio muestra sin repo abierto. Default
+  // en 0/0 para que los tests que no la ejercitan (todos menos el del estado vacio) no
+  // tengan que preocuparse por ella.
+  hubStats: vi.fn().mockResolvedValue({ itemCount: 0, projectCount: 0 }),
   ...over,
 })
 
 afterEach(() => { setMemoryApi(undefined) })
 
-const renderWorkspace = (props: { onClose?: () => void; activeRepoPath?: string | null } = {}) =>
+const renderWorkspace = (props: {
+  onClose?: () => void
+  activeRepoPath?: string | null
+  onLinkRepo?: () => void
+} = {}) =>
   render(
     <MemoriesWorkspace
       onClose={props.onClose ?? (() => {})}
       activeRepoPath={props.activeRepoPath ?? null}
       onOpenFile={() => {}}
+      onLinkRepo={props.onLinkRepo}
     />
   )
 
@@ -39,7 +48,10 @@ describe('MemoriesWorkspace', () => {
     renderWorkspace()
 
     await waitFor(() => expect(screen.getByText('142 items · synced')).toBeInTheDocument())
-    expect(screen.getByText('866 notes')).toBeInTheDocument()
+    // El numero y la etiqueta son dos nodos separados (Task 8: el numero en
+    // font-mono tabular-nums, la etiqueta en .microlabel), no un solo string.
+    expect(screen.getByText('866')).toBeInTheDocument()
+    expect(screen.getByText('notes')).toBeInTheDocument()
   })
 
   it('NO renderiza chips de scope — decision 3 de la spec', async () => {
@@ -61,8 +73,11 @@ describe('MemoriesWorkspace', () => {
     renderWorkspace()
 
     // El semaforo da el titular y la celda de al lado el desglose con el codigo de razon.
+    // El numero del desglose vive en su propio span (font-mono tabular-nums), separado
+    // del texto del motivo — por eso se verifican por separado.
     await waitFor(() => expect(screen.getByText('816 blocked')).toBeInTheDocument())
-    expect(screen.getByText(/816 · quota_exceeded · waiting, will retry/)).toBeInTheDocument()
+    expect(screen.getByText('816', { selector: '.font-mono' })).toBeInTheDocument()
+    expect(screen.getByText(/quota_exceeded · waiting, will retry/)).toBeInTheDocument()
   })
 
   it('nombra la sesion muda: pane y CLI, no un numero suelto', async () => {
@@ -82,11 +97,44 @@ describe('MemoriesWorkspace', () => {
     expect(screen.getByText(/pane-7/)).toBeInTheDocument()
   })
 
-  it('sin repo abierto explica por que no hay grafo, en vez de quedar en blanco', async () => {
+  it('sin repo abierto, la pantalla ofrece algo en vez de una frase suelta', async () => {
+    // El problema real medido en la captura del 2026-09-09: header, una tira de
+    // estado, una frase y 80% de negro. El estado vacio tiene que dar una SALIDA
+    // (un boton que vincula un repo) y mostrar lo que si existe sin uno: los
+    // totales de la cuenta via hubStats() (no hay dato de la memoria __global__
+    // en el renderer — ver la nota en MemoriesWorkspace.tsx).
+    setMemoryApi(api({
+      // Numeros distintos del noteCount del vault (866) del mock por defecto — asi el
+      // assert de abajo no puede confundir un numero con el otro.
+      hubStats: vi.fn().mockResolvedValue({ itemCount: 214, projectCount: 5 }),
+    }))
+    const onLinkRepo = vi.fn()
+    renderWorkspace({ activeRepoPath: null, onLinkRepo })
+
+    expect(screen.getByRole('button', { name: /link a repo/i })).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByText(/214 memories across 5 projects/)).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: /link a repo/i }))
+    expect(onLinkRepo).toHaveBeenCalledTimes(1)
+  })
+
+  it('sin onLinkRepo, no renderiza el boton pero el arbol sigue montando', async () => {
+    // Contrato defensivo (Task 8, resolucion 2): la prop es opcional para que un
+    // caller viejo (o un test viejo) que no la pasa no vea reventar el componente.
     setMemoryApi(api())
     renderWorkspace({ activeRepoPath: null })
 
-    await waitFor(() => expect(screen.getByText(/open a repo/i)).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('142 items · synced')).toBeInTheDocument())
+    expect(screen.queryByRole('button', { name: /link a repo/i })).not.toBeInTheDocument()
+  })
+
+  it('hubStats opcional o que falla no revienta la card', async () => {
+    // Mismo contrato defensivo que useMemories: window.memory.hubStats es opcional
+    // en el tipo, y si la llamada falla la card se muestra sin los numeros.
+    setMemoryApi(api({ hubStats: vi.fn().mockRejectedValue(new Error('nope')) }))
+    renderWorkspace({ activeRepoPath: null, onLinkRepo: () => {} })
+
+    await waitFor(() => expect(screen.getByRole('button', { name: /link a repo/i })).toBeInTheDocument())
   })
 
   it('el boton de volver cierra', async () => {

@@ -149,6 +149,24 @@
 
 * {
   box-sizing: border-box;
+}
+
+/* Task 8 (migracion Tailwind/shadcn) — `:not([data-slot])`: sin preflight, este reset de
+   margin/padding es CSS sin capa, y le gana a CUALQUIER utilidad de Tailwind con la misma
+   propiedad sin importar especificidad (la regla de cascade layers que ya explica el
+   comentario de tailwind.css sobre `button { background-color; color }`). Eso significa
+   que TODO padding/margin de Tailwind (px-2.5, gap-1.5 vía padding, mx-auto, etc.) quedaba
+   en 0 en cualquier componente migrado — confirmado en <Button>/<Badge> de verdad
+   (computed padding: 0px pese a `px-2.5`). Nadie lo habia notado porque los usos previos
+   de <Button> son de icono fijo (`size-*`, no depende de padding) o de ancho completo
+   dentro de una fila con su propio padding viejo — recien la card del estado vacio de
+   Memories, con un boton de texto intrinsecamente angosto, lo expuso.
+   `[data-slot]` es exclusivo de los componentes que escupe el CLI de shadcn (ningun CSS
+   viejo lo usa — grep confirma cero usos fuera de src/components/ui/), asi que excluirlos
+   SOLO del margin/padding (box-sizing sigue universal arriba) es la misma idea que el
+   parche de preflight de tailwind.css: le devuelve a shadcn el pedacito que preflight le
+   da por sentado, sin tocar layout legacy. */
+*:not([data-slot]) {
   margin: 0;
   padding: 0;
 }
@@ -12054,22 +12072,21 @@ body.platform-mac .tabbar { padding-right: 116px; }
 .memories-workspace { z-index: var(--z-overlay-top); }
 
 .memories-status-row {
+  /* Border-bottom y font-size migraron a Tailwind (border-b border-border text-fs-sm) en
+     MemoriesStatusRow.tsx — Task 8. Layout puro sin equivalencia en la tabla se queda aca. */
   display: flex;
   flex-wrap: wrap;
   gap: 8px 20px;
   align-items: center;
   padding: 8px 16px;
-  border-bottom: 1px solid var(--border);
-  font-size: 12px;
 }
 .memories-status-cell { display: flex; align-items: center; gap: 8px; }
 /* En la fila de estado el punto va en linea, no pegado a un icono como en la sidebar. */
 .memories-status-cell .memories-dot { position: static; box-shadow: none; }
+/* .memories-warn y .memories-muted siguen en uso en ShareProjectCard.tsx — no se borran. */
 .memories-muted { opacity: .6; }
 .memories-warn { color: #F59E0B; }
-.memories-danger { color: #EF4444; }
 .memories-body { flex-direction: column; gap: 16px; padding: 16px; overflow-y: auto; }
-.memories-empty { opacity: .6; font-size: 13px; }
 
 /* D6 — compartir un proyecto con el equipo, dentro del overlay de Memories. */
 .memories-share { border: 1px solid var(--border); border-radius: 3px; padding: 14px 16px; }
