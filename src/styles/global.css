@@ -7440,7 +7440,7 @@ button.ci-badge:hover {
 .user-menu-dot--cloud      { background: var(--raven-blue); }
 .user-menu-dot--pro        { background: var(--raven-blue); }
 .user-menu-dot--team       { background: #FFB800; }
-.user-menu-dot--enterprise { background: var(--raven-blue); }
+.user-menu-dot--enterprise { background: #7C5CFC; }
 .user-menu-dot--trial {
   background: #FFB800;
   animation: user-menu-trial-pulse 1.6s ease-in-out infinite;
@@ -7551,7 +7551,7 @@ button.ci-badge:hover {
 .user-menu-popover-badge.user-menu-dot--cloud      { background: color-mix(in srgb, var(--primary) 20%, transparent); color: var(--raven-blue); }
 .user-menu-popover-badge.user-menu-dot--pro        { background: color-mix(in srgb, var(--primary) 20%, transparent); color: var(--raven-blue); }
 .user-menu-popover-badge.user-menu-dot--team       { background: rgba(255,184,0,0.18); color: #FFB800; }
-.user-menu-popover-badge.user-menu-dot--enterprise { background: color-mix(in srgb, var(--primary) 20%, transparent); color: var(--raven-blue); }
+.user-menu-popover-badge.user-menu-dot--enterprise { background: rgba(124,92,252,0.2); color: #b8a3ff; }
 .user-menu-popover-badge.user-menu-dot--trial      { background: rgba(255,184,0,0.18); color: #FFB800; }
 
 .user-menu-trial-bar {
