@@ -70,6 +70,14 @@
   --ring: #6e6e6e;
   --radius: 0.375rem;
 
+  /* ── Botones — tratamiento B (Task 14) ───────────────────────────────
+     Los tres roles (primario/secundario/fantasma) usan `--input` para el
+     borde del secundario en reposo (ya existía, "borde de un control").
+     Faltaban estos dos para el hover de secundario y fantasma: relleno
+     tenue compartido por los dos, y el borde que sube sólo en secundario. */
+  --btn-hover-fill: rgb(255 255 255 / 0.06);
+  --btn-border-hover: rgb(255 255 255 / 0.30);
+
   /* ── Puente hacia los tokens propios de Nest ─────────────────────────
      Los nombres que Nest ya usa en las 11k líneas de CSS ahora SIGUEN a
      los tokens de arriba. Así tweakcn controla la UI sin tocar todo el CSS. */
@@ -1286,28 +1294,34 @@ body {
   justify-content: flex-end;
 }
 
+/* Altura (ampliacion de alcance, Task 14): medida en 30px (padding 6px +
+   Geist 12px), equidistante entre `sm`/h-7 (28) y `default`/h-8 (32) —
+   mapeada a 32 (la regla que se dio para el otro caso empatado, 28/30→32). */
 .snippet-save-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 5px;
   background: var(--raven-blue);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid transparent;
   color: var(--primary-foreground);
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.1px;
-  padding: 6px 14px;
+  height: 32px;
+  padding: 0 14px;
   border-radius: 5px;
   cursor: pointer;
   font-family: inherit;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 1px 2px rgba(0, 0, 0, 0.4);
-  transition: background 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
+  transition: background 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease, filter 0.12s ease;
 }
 
+/* Tratamiento B (Task 14): primario brilla en hover, no se apaga — antes esto
+   ponia background: var(--primary), que es un no-op (--raven-blue ya ES
+   var(--primary), bridge de la linea 76): el hover no cambiaba nada visible. */
 .snippet-save-btn:hover:not(:disabled) {
-  background: var(--primary);
-  border-color: rgba(255, 255, 255, 0.14);
+  filter: brightness(1.12);
 }
 .snippet-save-btn:active:not(:disabled) {
   background: color-mix(in srgb, var(--primary) 86%, #000);
@@ -1323,28 +1337,31 @@ body {
   box-shadow: none;
 }
 
+/* Altura (ampliacion de alcance, Task 14): misma medicion que
+   .snippet-save-btn (30px, comparten padding-y/font-size) → 32. */
 .snippet-cancel-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 5px;
   background: transparent;
-  border: 1px solid #1f1f1f;
-  color: var(--text-secondary);
+  border: 1px solid var(--input);
+  color: var(--text-primary);
   font-size: 12px;
   font-weight: 500;
   letter-spacing: 0.1px;
-  padding: 6px 12px;
+  height: 32px;
+  padding: 0 12px;
   border-radius: 5px;
   cursor: pointer;
   font-family: inherit;
   transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
 }
 
+/* Tratamiento B (Task 14): secundario — relleno tenue + el borde sube. */
 .snippet-cancel-btn:hover {
-  background: #161616;
-  color: var(--text-primary);
-  border-color: #2c2c2c;
+  background: var(--btn-hover-fill);
+  border-color: var(--btn-border-hover);
 }
 .snippet-cancel-btn:active { background: #0e0e0e; }
 .snippet-cancel-btn:focus-visible {
@@ -4328,20 +4345,29 @@ kbd {
 
 /* ── Buttons ─────────────────────────────────────────────── */
 
+/* Altura (ampliacion de alcance, Task 14): medida en 38px (padding 10px +
+   Geist 14px) — mas cerca del escalon `lg`/h-9 (36px) de ui/button.tsx que de
+   `default`/h-8 (32px). Se agrega flex+height explicita para fijarla al
+   escalon sin tocar el padding horizontal (24px, intacto). */
 .btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   background: var(--raven-blue);
   color: var(--primary-foreground);
   border: none;
   border-radius: 8px;
-  padding: 10px 24px;
+  height: 36px;
+  padding: 0 24px;
   font-size: 14px;
-  font-weight: 500;
+  font-weight: 600;
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background 0.15s, filter 0.15s;
 }
 
+/* Tratamiento B (Task 14): primario brilla en hover, no se apaga. */
 .btn-primary:hover {
-  background: color-mix(in srgb, var(--primary) 86%, #000);
+  filter: brightness(1.12);
 }
 
 .btn-primary:disabled {
@@ -5208,13 +5234,17 @@ kbd {
   padding: 0 150px 0 16px;
 }
 
+/* Altura (ampliacion de alcance, Task 14): medida en 27px → el escalon mas
+   cercano es 28 (sm/h-7). */
 .tw-back-btn {
   background: none;
   border: none;
   color: var(--text-secondary);
   font-size: 13px;
+  font-weight: 500;
   cursor: pointer;
-  padding: 5px 10px;
+  height: 28px;
+  padding: 0 10px;
   border-radius: 5px;
   display: flex;
   align-items: center;
@@ -5224,9 +5254,10 @@ kbd {
   flex-shrink: 0;
 }
 
+/* Tratamiento B (Task 14): fantasma — relleno tenue + el texto sube. */
 .tw-back-btn:hover {
   color: var(--text-primary);
-  background: var(--bg-elevated);
+  background: var(--btn-hover-fill);
 }
 
 .tw-header-center {
@@ -6088,6 +6119,14 @@ button.ci-badge:hover {
 .repo-list-scroll::-webkit-scrollbar-thumb:hover { background: rgba(128,128,128,0.5); }
 
 /* ── Repo action buttons — unified system ────────────────── */
+/* Altura (ampliacion de alcance, Task 14): medida en 26px, escalon mas cercano
+   28 (sm/h-7) — pero el brief original nombra esta clase puntualmente como el
+   ejemplo de riesgo ("un .repo-action-btn mide 26px de alto porque entra en
+   una fila de 26px") y My Repos requiere una cuenta GitHub conectada de
+   verdad para ver la fila con contenido: no se pudo ver una captura de esa
+   fila en este pase (Personal con RAVEN_E2E_PLAN=pro llega hasta "Connect
+   GitHub", no mas alla). Excepcion documentada en vez de arriesgar el layout:
+   se deja en 26px. */
 .repo-action-btn {
   display: inline-flex;
   align-items: center;
@@ -6095,8 +6134,8 @@ button.ci-badge:hover {
   gap: 5px;
   height: 26px;
   background: transparent;
-  border: 1px solid #1f1f1f;
-  color: var(--text-secondary);
+  border: 1px solid var(--input);
+  color: var(--text-primary);
   font-size: 11.5px;
   font-weight: 500;
   letter-spacing: 0.1px;
@@ -6104,13 +6143,13 @@ button.ci-badge:hover {
   border-radius: 5px;
   cursor: pointer;
   font-family: inherit;
-  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease, filter 0.12s ease;
   white-space: nowrap;
 }
+/* Tratamiento B (Task 14): secundario — relleno tenue + el borde sube. */
 .repo-action-btn:hover {
-  background: #161616;
-  color: var(--text-primary);
-  border-color: #2c2c2c;
+  background: var(--btn-hover-fill);
+  border-color: var(--btn-border-hover);
 }
 .repo-action-btn:active { background: #0e0e0e; }
 .repo-action-btn:focus-visible {
@@ -6122,15 +6161,16 @@ button.ci-badge:hover {
 
 .repo-action-btn.primary {
   background: var(--raven-blue);
-  border-color: rgba(255, 255, 255, 0.08);
+  border-color: transparent;
   color: var(--primary-foreground);
   font-weight: 600;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 1px 2px rgba(0, 0, 0, 0.4);
 }
+/* Tratamiento B (Task 14): primario brilla en hover — antes ponia background:
+   var(--primary), que es un no-op (--raven-blue ya ES var(--primary)), y el
+   texto pasaba a #fff a mano en vez de quedarse en --primary-foreground. */
 .repo-action-btn.primary:hover {
-  background: var(--primary);
-  border-color: rgba(255, 255, 255, 0.14);
-  color: #fff;
+  filter: brightness(1.12);
 }
 .repo-action-btn.primary:active {
   background: color-mix(in srgb, var(--primary) 86%, #000);
@@ -6864,46 +6904,75 @@ button.ci-badge:hover {
   color: var(--text-muted);
 }
 
+/* Tratamiento B (Task 14): destructivo — la FORMA del secundario (borde,
+   relleno de hover que sube), pero el color se queda en --destructive: es
+   estado, no tratamiento, y la constraint del rediseño es que el color nunca
+   es marca. Los literales #ef4444xx que tenia (un rojo DISTINTO del
+   --destructive: #ff6568 del token) quedan reemplazados por el token real.
+   Altura (ampliacion de alcance, Task 14): medida en 28px — ya cae exacto en
+   el escalon sm/h-7, no hizo falta tocarla. */
 .sp-btn-danger {
   padding: 5px 12px;
   background: transparent;
   color: var(--destructive);
-  border: 1px solid #ef444455;
+  border: 1px solid color-mix(in srgb, var(--destructive) 33%, transparent);
   border-radius: 6px;
   font-size: 12px;
+  font-weight: 500;
   font-family: inherit;
   cursor: pointer;
   transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
 }
-.sp-btn-danger:hover { background: #ef444415; border-color: #ef4444aa; }
+.sp-btn-danger:hover {
+  background: color-mix(in srgb, var(--destructive) 8%, transparent);
+  border-color: color-mix(in srgb, var(--destructive) 60%, transparent);
+}
 
+/* El nombre quedo obsoleto: --primary ya no es violeta (ver el comentario de
+   la regla 2 en :root, arriba) — es acromatico igual que el resto de B.
+   Renombrar la clase esta fuera de alcance de esta task (Task 14).
+   Altura (ampliacion de alcance, Task 14): medida en 28px — ya cae exacto en
+   el escalon sm/h-7, no hizo falta tocarla. */
 .sp-btn-purple {
   padding: 5px 12px;
   background: transparent;
-  color: var(--primary);
-  border: 1px solid color-mix(in srgb, var(--primary) 33%, transparent);
+  color: var(--text-primary);
+  border: 1px solid var(--input);
   border-radius: 6px;
   font-size: 12px;
+  font-weight: 500;
   font-family: inherit;
   cursor: pointer;
   transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
 }
-.sp-btn-purple:hover { background: color-mix(in srgb, var(--primary) 8%, transparent); }
+/* Tratamiento B (Task 14): secundario — relleno tenue + el borde sube. */
+.sp-btn-purple:hover { background: var(--btn-hover-fill); border-color: var(--btn-border-hover); }
 
+/* Altura (ampliacion de alcance, Task 14): medida en 39px (padding 10px +
+   Geist 13px) — el escalon mas cercano es 36 (lg/h-9), no 32. display:flex es
+   nuevo aca (antes centraba solo con text-align, sin altura fija) — hace
+   falta para fijar `height` sin desalinear el texto. Padding horizontal
+   (10px) intacto. */
 .sp-action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: 100%;
-  padding: 10px;
-  background: var(--bg-surface);
-  color: var(--text-secondary);
-  border: 1px solid var(--border);
+  height: 36px;
+  padding: 0 10px;
+  background: transparent;
+  color: var(--text-primary);
+  border: 1px solid var(--input);
   border-radius: 8px;
   font-size: 13px;
+  font-weight: 500;
   font-family: inherit;
   cursor: pointer;
-  transition: background 0.15s, color 0.15s;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
   text-align: center;
 }
-.sp-action-btn:hover:not(:disabled) { background: var(--bg-elevated); color: var(--text-primary); }
+/* Tratamiento B (Task 14): secundario — relleno tenue + el borde sube. */
+.sp-action-btn:hover:not(:disabled) { background: var(--btn-hover-fill); border-color: var(--btn-border-hover); }
 .sp-action-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* "Link repos first" notice — Nest Memory card, shown while disconnected with zero
@@ -9777,15 +9846,23 @@ body.platform-mac .tabbar { padding-right: 116px; }
 .integration-meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
 .integration-name { font-size: 13px; font-weight: 600; color: var(--text-primary); }
 .integration-desc { font-size: 12px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Altura (ampliacion de alcance, Task 14): medida en 30px (padding 6px + Geist
+   12px), equidistante entre 28 y 32 → 32 (regla del empate, igual que
+   .snippet-save-btn). display:inline-flex es nuevo aca — hace falta para que
+   `height` fije el alto sin desalinear el texto verticalmente. */
 .integration-btn {
+  display: inline-flex; align-items: center; justify-content: center;
   flex-shrink: 0; font: inherit; font-size: 12px; font-weight: 600;
-  padding: 6px 14px; border-radius: 7px; cursor: pointer; border: 1px solid transparent;
+  height: 32px; padding: 0 14px; border-radius: 7px; cursor: pointer; border: 1px solid transparent;
   transition: filter 0.15s, background 0.15s, border-color 0.15s, color 0.15s;
 }
 .integration-btn.primary { background: var(--raven-blue); color: var(--primary-foreground); }
 .integration-btn.primary:hover { filter: brightness(1.12); }
-.integration-btn.ghost { background: transparent; border-color: var(--border); color: var(--text-secondary); }
-.integration-btn.ghost:hover { color: var(--text-primary); border-color: #444; }
+/* Tratamiento B (Task 14): secundario — borde --input (no --border, mas debil),
+   texto foreground, peso 500 (la base .integration-btn de arriba pone 600 para
+   el primario). Hover: relleno tenue + borde sube. */
+.integration-btn.ghost { background: transparent; border-color: var(--input); color: var(--text-primary); font-weight: 500; }
+.integration-btn.ghost:hover { background: var(--btn-hover-fill); border-color: var(--btn-border-hover); }
 .integration-card-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; flex-shrink: 0; }
 .integration-connect-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
 .integration-connected { font-size: 12px; font-weight: 600; color: var(--raven-green, #2ecc71); white-space: nowrap; }

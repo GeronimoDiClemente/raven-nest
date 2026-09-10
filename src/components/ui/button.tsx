@@ -8,13 +8,21 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        default: "bg-primary text-primary-foreground hover:bg-primary/80",
+        // Tratamiento B (Task 14): tres FORMAS, no tres grises. `default` es el
+        // sólido primario — antes aclaraba con hover:bg-primary/80, que sobre
+        // fondo oscuro APAGA el botón; B pide que brille, de ahí brightness en
+        // vez de bajar opacidad. `outline`/`ghost` quedan con fondo transparente
+        // en reposo (antes `outline` traía un tinte de --input ya en reposo vía
+        // el dark: que sí aplica siempre acá — Nest no tiene tema claro) y
+        // comparten el relleno tenue + borde/texto que suben en hover
+        // (--btn-hover-fill / --btn-border-hover, global.css).
+        default: "bg-primary text-primary-foreground font-semibold hover:brightness-110",
         outline:
-          "border-border bg-background hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:border-input dark:bg-input/30 dark:hover:bg-input/50",
+          "border-input text-foreground hover:bg-[var(--btn-hover-fill)] hover:border-[var(--btn-border-hover)] aria-expanded:bg-[var(--btn-hover-fill)] aria-expanded:border-[var(--btn-border-hover)]",
         secondary:
           "bg-secondary text-secondary-foreground hover:bg-[color-mix(in_oklch,var(--secondary),var(--foreground)_5%)] aria-expanded:bg-secondary aria-expanded:text-secondary-foreground",
         ghost:
-          "hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-muted/50",
+          "text-muted-foreground hover:bg-[var(--btn-hover-fill)] hover:text-foreground aria-expanded:bg-[var(--btn-hover-fill)] aria-expanded:text-foreground",
         destructive:
           "bg-destructive/10 text-destructive hover:bg-destructive/20 focus-visible:border-destructive/40 focus-visible:ring-destructive/20 dark:bg-destructive/20 dark:hover:bg-destructive/30 dark:focus-visible:ring-destructive/40",
         link: "text-primary underline-offset-4 hover:underline",

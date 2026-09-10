@@ -223,16 +223,25 @@ export default function TabBar({
         </SortableContext>
       </DndContext>
 
+      {/* size="icon-lg" (36px, ampliacion de alcance de Task 14): .tab mide ~35px
+          (padding 7px + el texto de .tab-name), el `sm` de antes (28px) quedaba
+          chico y desalineado al lado de la pestaña — icon-lg es el escalon del
+          primitivo mas cercano a esa altura real. El glifo tambien era un "+" de
+          texto plano a 12px (perdido dentro de la caja mas grande): se cambia por
+          el mismo SVG de "+" que ya usa el "New Terminal" del sidebar
+          (Sidebar.tsx), para que la familia de iconos sea consistente. */}
       <Button
         variant="ghost"
-        size="sm"
+        size="icon-lg"
         className="text-muted-foreground"
         onClick={onTabNew}
         title="New workspace"
         aria-label="New workspace"
         style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
       >
-        +
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
+        </svg>
       </Button>
 
       <div className="tabbar-drag" />
