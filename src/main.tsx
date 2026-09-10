@@ -3,6 +3,10 @@ import ReactDOM from 'react-dom/client'
 import App from './App'
 import AuthScreen from './components/AuthScreen'
 import { supabase } from './lib/supabase'
+// Geist empaquetada (spec §3.3): la app se ve igual en Mac, Windows y Linux.
+// Van ANTES de global.css para que la @font-face exista cuando el CSS la nombra.
+import '@fontsource-variable/geist'
+import '@fontsource-variable/geist-mono'
 import './styles/global.css'
 import '@xterm/xterm/css/xterm.css'
 

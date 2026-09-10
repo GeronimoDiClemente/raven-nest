@@ -446,7 +446,9 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                         <span className="sp-card-label">Nest Memory</span>
                         <button
                           onClick={() => setMemoryHubOpen(true)}
-                          style={{ fontSize: 11, opacity: 0.65, marginLeft: 6, background: 'transparent', border: 'none', textDecoration: 'underline', cursor: 'pointer', padding: 0 }}
+                          // `color: inherit` no es cosmetico: sin el, un <button> hereda `buttontext`
+                          // del navegador (negro) y este link quedaba negro sobre #141414.
+                          style={{ fontSize: 11, opacity: 0.65, marginLeft: 6, background: 'transparent', border: 'none', color: 'inherit', textDecoration: 'underline', cursor: 'pointer', padding: 0 }}
                         >
                           Learn more
                         </button>

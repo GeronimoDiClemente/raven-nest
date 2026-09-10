@@ -65,15 +65,40 @@
   --text-muted: #6e6e6e;
 
   /* ── Tipografía ──────────────────────────────────────────────────────
-     Igual que VS Code: la UI usa la fuente del sistema (Segoe UI en Windows,
-     San Francisco en Mac, la que haya en Linux) en vez de una web font. Antes
-     acá decía 'Inter', que el repo nunca empaquetó — o sea que caía en el
-     sans-serif genérico del navegador sin que nadie lo eligiera. */
-  --font-ui: 'Segoe WPC', 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, 'Ubuntu', 'Droid Sans', sans-serif;
-  --font-mono: 'Cascadia Mono', 'Cascadia Code', Consolas, 'SF Mono', 'Droid Sans Mono', monospace;
-  /* Tamaño de texto de la UI (el de VS Code). El alto de las filas NO se
-     comprime: probado a 22px como VS Code y quedaba todo pegado. */
-  --ui-font-size: 13px;
+     Geist EMPAQUETADA, no la del sistema. Antes acá decía que la UI usaba la
+     fuente del sistema "igual que VS Code"; el problema de esa decisión es que
+     Nest se ve distinto en cada plataforma, y una app de escritorio que se
+     vende por su prolijidad no se puede permitir eso. Orca empaqueta esta misma
+     fuente por el mismo motivo. El costo son ~90 KB de subsets latinos.
+
+     Se importan en `src/main.tsx` (@fontsource-variable/geist y geist-mono).
+     Los fallbacks siguen siendo los de sistema: si el woff2 no cargara, la app
+     se degrada a lo que había antes en vez de caer al serif del navegador. */
+  --font-ui: 'Geist Variable', 'Segoe WPC', 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: 'Geist Mono Variable', 'Cascadia Mono', Consolas, 'SF Mono', ui-monospace, monospace;
+
+  /* ── Escala tipográfica ──────────────────────────────────────────────
+     ANTES no había escala: 627 declaraciones de font-size repartidas en más de
+     doce tamaños distintos, incluyendo medios píxeles (11.5, 12.5, 10.5, 9.5).
+     Doce tamaños es lo mismo que ninguno — nada se lee como más importante que
+     otra cosa, y esa es la mitad de por qué la app se veía plana.
+
+     Siete pasos y ninguno más. Todo font-size nuevo sale de acá. */
+  --fs-2xs: 10px;   /* contadores, chips */
+  --fs-xs:  11px;   /* micro-labels, metadata */
+  --fs-sm:  12px;   /* secundario */
+  --fs:     13px;   /* cuerpo — el tamaño base de la UI */
+  --fs-lg:  15px;   /* títulos de sección */
+  --fs-xl:  17px;   /* títulos de pantalla */
+  --fs-2xl: 21px;   /* el título de un overlay */
+
+  /* Pesos: tres, no siete. */
+  --fw-normal: 400;
+  --fw-medium: 500;
+  --fw-strong: 600;
+
+  /* Compatibilidad: el nombre viejo sigue existiendo y ahora sale de la escala. */
+  --ui-font-size: var(--fs);
 
   /* Layout (no son color — se quedan como están) */
   --titlebar-height: 44px;
@@ -87,6 +112,20 @@
   --z-overlay-front: 1100;
   --z-overlay-top: 1200;
 }
+
+/* El micro-label en versalitas: es de donde sale el carácter de terminal sin
+   pasar toda la app a monoespaciada. Se usa en headers de pane, filas de estado
+   y encabezados de columna. */
+.microlabel {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-weight: var(--fw-medium);
+}
+
+/* Los datos —timestamps, rutas, ramas, contadores, hashes— van en mono. */
+.data { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 
 * {
   box-sizing: border-box;
@@ -1305,7 +1344,7 @@ body {
   gap: 5px;
   background: var(--raven-blue);
   border: 1px solid rgba(255, 255, 255, 0.08);
-  color: #fff;
+  color: var(--primary-foreground);
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.1px;
@@ -2540,7 +2579,7 @@ body {
   background: var(--primary);
   border: none;
   border-radius: 4px;
-  color: #fff;
+  color: var(--primary-foreground);
   cursor: pointer;
   font-size: 12px;
   padding: 5px 10px;
@@ -2863,7 +2902,7 @@ body {
 
 .pr-update-branch-btn:hover {
   background: var(--raven-blue);
-  color: white;
+  color: var(--primary-foreground);
 }
 
 .pr-update-branch-btn:disabled {
@@ -3762,7 +3801,7 @@ body {
   left: 50%;
   transform: translateX(-50%);
   background: var(--raven-blue);
-  color: #fff;
+  color: var(--primary-foreground);
   font-size: 9.5px;
   font-weight: 700;
   letter-spacing: 0.6px;
@@ -3919,7 +3958,7 @@ body {
 .upgrade-plan-btn.primary {
   background: var(--raven-blue);
   border-color: rgba(255, 255, 255, 0.15);
-  color: #fff;
+  color: var(--primary-foreground);
 }
 .upgrade-plan-btn.primary:hover:not(:disabled) {
   background: #1a78ff;
@@ -4247,7 +4286,7 @@ body {
   background: var(--raven-blue);
   border: none;
   border-radius: 8px;
-  color: #fff;
+  color: var(--primary-foreground);
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
@@ -4339,7 +4378,7 @@ kbd {
 
 .btn-primary {
   background: var(--raven-blue);
-  color: #fff;
+  color: var(--primary-foreground);
   border: none;
   border-radius: 8px;
   padding: 10px 24px;
@@ -5884,7 +5923,7 @@ button.ci-badge:hover {
   top: -2px;
   right: -2px;
   background: var(--raven-blue);
-  color: #fff;
+  color: var(--primary-foreground);
   font-size: 9px;
   font-weight: 700;
   min-width: 14px;
@@ -6164,7 +6203,7 @@ button.ci-badge:hover {
 .repo-picker-action-btn.primary {
   background: var(--raven-blue);
   border-color: var(--raven-blue);
-  color: #fff;
+  color: var(--primary-foreground);
 }
 .repo-picker-action-btn.primary:hover:not(:disabled) {
   background: color-mix(in srgb, var(--primary) 86%, #000);
@@ -6289,7 +6328,7 @@ button.ci-badge:hover {
 .repo-action-btn.primary {
   background: var(--raven-blue);
   border-color: rgba(255, 255, 255, 0.08);
-  color: #fff;
+  color: var(--primary-foreground);
   font-weight: 600;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 1px 2px rgba(0, 0, 0, 0.4);
 }
@@ -6659,7 +6698,7 @@ button.ci-badge:hover {
 .chat-composer-send {
   background: var(--raven-blue);
   border: none;
-  color: #fff;
+  color: var(--primary-foreground);
   padding: 8px 14px;
   border-radius: 6px;
   font-size: 12px;
@@ -7415,8 +7454,12 @@ button.ci-badge:hover {
   align-items: center;
   justify-content: center;
   border-radius: 50%;
-  background: linear-gradient(135deg, var(--raven-blue) 0%, #4a3aff 100%);
-  color: #fff;
+  /* Antes era un degradado del acento a un violeta #4a3aff escrito a mano. Con
+     el primary acromatico ese degradado dejo de tener sentido (iba de casi
+     blanco a violeta) y el texto encima quedaba ilegible — lo cazo el guard de
+     contraste de e2e/04-contraste.spec.ts. El avatar es una superficie mas. */
+  background: var(--accent);
+  color: var(--foreground);
   font-size: 13px;
   font-weight: 600;
   text-transform: uppercase;
@@ -7571,7 +7614,7 @@ button.ci-badge:hover {
 
 .user-menu-upgrade-btn {
   background: var(--raven-blue);
-  color: #fff;
+  color: var(--primary-foreground);
   border: none;
   border-radius: 6px;
   padding: 8px 12px;
@@ -9400,7 +9443,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
   font-family: var(--font-ui);
   font-size: 12px;
   font-weight: 600;
-  color: #fff;
+  color: var(--primary-foreground);
   background: var(--raven-blue);
   border: 1px solid var(--raven-blue);
   border-radius: 6px;
@@ -9499,7 +9542,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
   background: var(--raven-blue, var(--primary));
   border: 1px solid var(--raven-blue, var(--primary));
   border-radius: 9px;
-  color: #fff;
+  color: var(--primary-foreground);
   font-family: inherit;
   font-size: 13px;
   font-weight: 600;
@@ -9932,7 +9975,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
   padding: 6px 14px; border-radius: 7px; cursor: pointer; border: 1px solid transparent;
   transition: filter 0.15s, background 0.15s, border-color 0.15s, color 0.15s;
 }
-.integration-btn.primary { background: var(--raven-blue); color: #fff; }
+.integration-btn.primary { background: var(--raven-blue); color: var(--primary-foreground); }
 .integration-btn.primary:hover { filter: brightness(1.12); }
 .integration-btn.ghost { background: transparent; border-color: var(--border); color: var(--text-secondary); }
 .integration-btn.ghost:hover { color: var(--text-primary); border-color: #444; }
@@ -10019,7 +10062,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
 .ip-action { font-size: 11.5px; border-radius: 7px; padding: 4px 11px; cursor: pointer; }
 .ip-action-secondary { color: #8a8a92; border: 1px solid #1e1e24; background: none; }
 .ip-action-secondary:hover { color: #b8b8c0; border-color: #2a2a32; }
-.ip-action-primary { color: #fff; border: 1px solid transparent; background: var(--primary); font-weight: 600; }
+.ip-action-primary { color: var(--primary-foreground); border: 1px solid transparent; background: var(--primary); font-weight: 600; }
 .ip-action-primary:hover { background: #1975ff; }
 .ip-detail-meta { display: flex; gap: 18px; margin-top: 14px; font-size: 11.5px; color: #6a6a72; }
 .ip-detail-meta b { color: #a9a9b1; font-weight: 500; }
@@ -10036,7 +10079,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
 .ip-compose-actions { display: flex; align-items: center; gap: 10px; margin-top: 9px; }
 .ip-attach { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: #9aa6d6; background: #0c1018; border: 1px solid #16233b; border-radius: 7px; padding: 5px 11px; cursor: pointer; }
 .ip-attach:hover { background: #101828; }
-.ip-send { margin-left: auto; font-size: 12px; font-weight: 600; color: #fff; background: var(--primary); border: none; border-radius: 7px; padding: 6px 16px; cursor: pointer; }
+.ip-send { margin-left: auto; font-size: 12px; font-weight: 600; color: var(--primary-foreground); background: var(--primary); border: none; border-radius: 7px; padding: 6px 16px; cursor: pointer; }
 .ip-send:hover:not(:disabled) { background: #1975ff; }
 .ip-send:disabled { opacity: .4; cursor: default; }
 .ip-empty { flex: 1; display: flex; align-items: center; justify-content: center; color: #55555b; font-size: 13px; }
@@ -10085,7 +10128,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
 .ob-empty { padding: 44px 28px; text-align: center; color: var(--text-muted); display: flex; flex-direction: column; align-items: center; }
 .ob-empty-title { color: var(--text-secondary); font-size: 14px; font-weight: 600; margin: 0 0 4px; }
 .ob-empty-sub { color: var(--text-muted); font-size: 12.5px; margin: 0; }
-.ob-connect-btn { margin-top: 14px; padding: 7px 16px; border-radius: 999px; background: var(--raven-blue); color: #fff; border: none; cursor: pointer; font-weight: 600; font-size: 12.5px; }
+.ob-connect-btn { margin-top: 14px; padding: 7px 16px; border-radius: 999px; background: var(--raven-blue); color: var(--primary-foreground); border: none; cursor: pointer; font-weight: 600; font-size: 12.5px; }
 .ob-connect-btn:hover { filter: brightness(1.1); }
 
 /* === Integrations hub layout / rail === */
