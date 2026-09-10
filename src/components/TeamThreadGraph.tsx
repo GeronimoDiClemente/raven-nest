@@ -4,8 +4,15 @@
 // quien y que tan fresca. Lo que NO es: la via de ponerse al dia — para eso esta la nota,
 // que se abre al hacer click (spec §7.6). El color por estado y frescura es el punto
 // entero de este componente, no la topologia.
-import { useMemo, useState } from 'react'
+//
+// La posicion de cada nodo viene de una simulacion de fisica (force-layout.ts, spec
+// §5.1: repulsion + resortes, como Obsidian), NO de las coordenadas precalculadas de
+// buildThreadGraph — esas solo sirven de semilla determinística para el primer frame.
+// graph.nodes sigue siendo la fuente de la metadata (label, estado, frescura, autor,
+// foco): la topologia de force-layout no sabe nada de eso, ForceNode es solo {id,x,y,vx,vy}.
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { buildThreadGraph } from '../lib/team-thread-graph'
+import { stepForceLayout, energiaTotal, type ForceNode, type ForceEdge } from '../lib/force-layout'
 import type { TeamThreadBranch } from '../types'
 
 interface Props {
@@ -44,6 +51,15 @@ const FRESCURA_LABEL: Record<string, string> = {
   viejo: 'stale',
 }
 
+/** Umbral de energía cinética media bajo el cual se considera que el layout se
+ *  asentó y se corta el rAF — un loop que corre para siempre mantiene la GPU
+ *  despierta y le come batería a una app que la gente deja abierta todo el día. */
+const ENERGIA_REPOSO = 0.05
+
+/** Ticks que se corren de una (sin rAF) cuando prefers-reduced-motion está activo,
+ *  para llegar a un layout asentado sin animar nada. */
+const TICKS_SIN_ANIMAR = 300
+
 export function TeamThreadGraph({ branches, focus, ahora, enabled, onToggle, onOpenNote }: Props) {
   // GLOBAL por default, a contramano de la spec §7.3 ("grafo local por default") y a
   // sabiendas. Motivo (I5 de la review final de rama): el grafo NO lee las notas — sintetiza
@@ -60,6 +76,71 @@ export function TeamThreadGraph({ branches, focus, ahora, enabled, onToggle, onO
     [branches, focus, ahora, showGlobal],
   )
 
+  // Estado de la simulación: id -> posición/velocidad. Vive en un ref (no en React
+  // state) porque un tick de física corre hasta 60 veces por segundo y no queremos
+  // pasar por el reconciler en cada uno; `tick` de abajo es lo que dispara el re-render
+  // que efectivamente pinta el frame nuevo.
+  const simRef = useRef(new Map<string, ForceNode>())
+  const [, setTick] = useState(0)
+
+  // Firma estable del set de nodos/aristas actual. El componente tiene un toggle
+  // ("Show all branches" / "Show current branch") que cambia qué ramas entran al
+  // grafo — el set de nodos NO es fijo — así que hay que resembrar cuando aparecen
+  // nodos nuevos y no romper nada cuando desaparecen.
+  const nodeIdsKey = graph.nodes.map((n) => n.id).join('|')
+  const edgeKey = graph.edges.map((e) => `${e.from}>${e.to}`).join('|')
+
+  // Resiembra la simulación cuando cambia el set de nodos: los que ya estaban
+  // conservan su posición/velocidad (para que la animación no salte), los nuevos
+  // arrancan del layout precalculado de buildThreadGraph (determinístico, así el
+  // primer frame ya se ve razonable en vez de un desparramo aleatorio), y los que
+  // desaparecieron simplemente se sueltan.
+  useEffect(() => {
+    const sim = simRef.current
+    const vivos = new Set(graph.nodes.map((n) => n.id))
+    for (const id of sim.keys()) {
+      if (!vivos.has(id)) sim.delete(id)
+    }
+    for (const n of graph.nodes) {
+      if (!sim.has(n.id)) {
+        sim.set(n.id, { id: n.id, x: n.x, y: n.y, vx: 0, vy: 0 })
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nodeIdsKey])
+
+  // El loop de física en sí. Se frena solo (criterio de energía) y se cancela al
+  // desmontar — el overlay de Memories se cierra y se vuelve a abrir, y un rAF
+  // huérfano quedaría corriendo de fondo.
+  useEffect(() => {
+    const edges: ForceEdge[] = graph.edges
+
+    // matchMedia no existe en jsdom (los 7 tests estructurales de este componente
+    // corren sin polyfill), y en Electron siempre está presente — por eso el guard
+    // en vez del `window.matchMedia(...)` a secas del brief. Fallback: animar.
+    const quieto = typeof window.matchMedia === 'function'
+      && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+
+    if (quieto) {
+      // Sin animar: se corren los ticks de una y se pinta el resultado ya asentado.
+      const nodes = Array.from(simRef.current.values())
+      for (let i = 0; i < TICKS_SIN_ANIMAR; i++) stepForceLayout(nodes, edges)
+      setTick((t) => t + 1)
+      return
+    }
+
+    let raf = 0
+    const loop = () => {
+      const nodes = Array.from(simRef.current.values())
+      stepForceLayout(nodes, edges)
+      setTick((t) => t + 1)
+      if (energiaTotal(nodes) < ENERGIA_REPOSO) return
+      raf = requestAnimationFrame(loop)
+    }
+    raf = requestAnimationFrame(loop)
+    return () => cancelAnimationFrame(raf)
+  }, [nodeIdsKey, edgeKey, graph.edges])
+
   if (!enabled) {
     return (
       <div className="team-thread-empty">
@@ -70,6 +151,11 @@ export function TeamThreadGraph({ branches, focus, ahora, enabled, onToggle, onO
   }
 
   const openNote = (slug: string) => onOpenNote(slug)
+
+  const posDe = (id: string, fallbackX: number, fallbackY: number) => {
+    const p = simRef.current.get(id)
+    return p ? { x: p.x, y: p.y } : { x: fallbackX, y: fallbackY }
+  }
 
   return (
     <div className="team-thread-graph">
@@ -86,17 +172,20 @@ export function TeamThreadGraph({ branches, focus, ahora, enabled, onToggle, onO
           const from = graph.nodes.find((n) => n.id === e.from)
           const to = graph.nodes.find((n) => n.id === e.to)
           if (!from || !to) return null
-          return <line key={`${e.from}-${e.to}`} x1={from.x} y1={from.y} x2={to.x} y2={to.y} stroke="var(--border)" />
+          const pf = posDe(from.id, from.x, from.y)
+          const pt = posDe(to.id, to.x, to.y)
+          return <line key={`${e.from}-${e.to}`} x1={pf.x} y1={pf.y} x2={pt.x} y2={pt.y} stroke="var(--border)" />
         })}
 
-        {graph.nodes.map((n) =>
-          n.id === '_index' ? (
-            <circle key={n.id} cx={n.x} cy={n.y} r={14} fill="var(--text-primary)" />
+        {graph.nodes.map((n) => {
+          const p = posDe(n.id, n.x, n.y)
+          return n.id === '_index' ? (
+            <circle key={n.id} cx={p.x} cy={p.y} r={14} fill="var(--text-primary)" />
           ) : (
             <g key={n.id}>
               <circle
-                cx={n.x}
-                cy={n.y}
+                cx={p.x}
+                cy={p.y}
                 r={n.foco ? 16 : 10}
                 fill={COLOR_FRESCURA[n.frescura]}
                 stroke={n.estado === 'cerrada' ? 'var(--text-muted)' : 'none'}
@@ -114,15 +203,15 @@ export function TeamThreadGraph({ branches, focus, ahora, enabled, onToggle, onO
                   }
                 }}
               />
-              <text x={n.x} y={n.y + 26} textAnchor="middle" fontSize={11} fill="var(--text-primary)">
+              <text x={p.x} y={p.y + 26} textAnchor="middle" fontSize={11} fill="var(--text-primary)">
                 {n.label}
               </text>
-              <text x={n.x} y={n.y + 39} textAnchor="middle" fontSize={9} fill="var(--text-secondary)">
+              <text x={p.x} y={p.y + 39} textAnchor="middle" fontSize={9} fill="var(--text-secondary)">
                 {n.autor}
               </text>
             </g>
-          ),
-        )}
+          )
+        })}
       </svg>
     </div>
   )
