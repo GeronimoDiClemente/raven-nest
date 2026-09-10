@@ -71,6 +71,7 @@ export default function ShareProjectCard({ activeRepoPath }: Props) {
         <>
           <div className="memories-share-row">
             <select
+              className="memories-team-select"
               aria-label="Team"
               value={teamId}
               onChange={(e) => setTeamId(e.target.value)}

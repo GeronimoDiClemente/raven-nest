@@ -11875,4 +11875,26 @@ body.platform-mac .tabbar { padding-right: 116px; }
 .memories-share { border: 1px solid var(--border); border-radius: 3px; padding: 14px 16px; }
 .memories-share h4 { margin: 0 0 10px; font-size: 14px; }
 .memories-share-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+/* El <select> de equipo (ShareProjectCard.tsx) era el único del repo sin
+   background/color propios. Con el preflight de tailwind.css (que sí lo
+   alcanza: cubre `select`) quedaba `background-color: transparent` +
+   `color: inherit` — el control cerrado mejora sobre la card oscura, pero el
+   popup nativo de opciones en Chromium toma el color del propio `<select>`,
+   y transparente ahí terminaba mostrando texto claro sobre el blanco por
+   default del navegador. Mismo patrón que `.sp-select` (SettingsPanel),
+   sólo que con --bg-elevated en vez de --bg-surface porque este control es
+   un desprendimiento tipo popover sobre la card de compartir, no una fila
+   más de la card. */
+.memories-team-select {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 10px;
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  outline: none;
+}
+.memories-team-select:focus { border-color: color-mix(in srgb, var(--primary) 40%, transparent); }
 .memories-ok { color: #22C55E; font-size: 13px; margin: 10px 0 0; }
