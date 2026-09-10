@@ -53,21 +53,30 @@ describe('un solo acento, y es acromático', () => {
   //     leyenda categórica de planes (free/cloud/pro/team/enterprise), no el
   //     acento; convertirlo lo volvía indistinguible de cloud/pro mientras
   //     team (ámbar) al lado seguía teniendo su propio color.
-  //   - 5a7bb5 / 9db8e8 / 7da6ff: sub-tema propio del Integration Panel
-  //     (.ip-*), con su propia paleta slate/navy separada del resto de la app.
   //   - 8fa3ff / b6c2ff: .wt-pr-chip, comentado a mano en el CSS como
   //     "indigo sutil" elegido para no competir con el status dot.
   //   - aecaff / 3d79ff / 2f6dff: acento del tour/coachmark, deliberadamente
   //     azul para resaltar contra el fondo atenuado durante el onboarding.
   //   - 56b6c2: color de ícono de archivo .css en la paleta de íconos por
-  //     lenguaje (cada extensión tiene su propio matiz; este es el suyo).
+  //     lenguaje (cada extensión tiene su propio matiz; este es el suyo). No
+  //     lo agarra el clasificador de abajo (su tono es 187°, fuera del rango
+  //     195°-300° de azul/violeta) — queda documentado igual por si algún
+  //     día el rango se ajusta.
+  //
+  // La familia navy/slate (5a7bb5/9db8e8/7da6ff y sus vecinos del extinto
+  // Integration Panel) NO está acá: era CSS de componentes huérfanos
+  // (IntegrationPanelShell, ContextColumn, WorktreeContextCard, ComposeBar —
+  // ninguno tiene importadores fuera de src/components/IntegrationPanel/ ni
+  // de sus propios tests) y la resolución para código huérfano es borrarlo,
+  // no decidirlo. Ver .superpowers/sdd/2026-09-09-migracion-tailwind-shadcn/
+  // review-final.md, Minor 2.
+  //
   // Cualquier hex azul/violeta que NO esté en esta lista hace fallar el
   // test — esa es la variante nueva que hay que revisar, no permitir.
   it('no aparecen hex azules/violetas cromáticas fuera de las excepciones ya revisadas', () => {
     const allowedExceptions = new Set([
       'a855f7', '3b82f6',
       '7c5cfc', 'b8a3ff',
-      '5a7bb5', '9db8e8', '7da6ff',
       '8fa3ff', 'b6c2ff',
       'aecaff', '3d79ff', '2f6dff',
       '56b6c2',
@@ -79,12 +88,32 @@ describe('un solo acento, y es acromático', () => {
     const chromaticBlueViolet = hexes
       .map((hex) => hex.slice(1, 7).toLowerCase())
       .filter((hex) => {
-        const r = parseInt(hex.slice(0, 2), 16)
-        const g = parseInt(hex.slice(2, 4), 16)
-        const b = parseInt(hex.slice(4, 6), 16)
+        // Clasificador de la receta: tono (HSL) entre 195° y 300° — azul a
+        // violeta — con saturación >= 30%. Reemplaza al clasificador viejo
+        // (`b > r && b >= g && max-min > 70`), que sólo agarraba azules muy
+        // saturados y dejaba pasar toda la familia navy/slate oscura y poco
+        // saturada (ver review-final.md, Important 3): esa familia tiene el
+        // mismo tono, sólo que con menos saturación, y el guard tiene que
+        // verla igual.
+        const r = parseInt(hex.slice(0, 2), 16) / 255
+        const g = parseInt(hex.slice(2, 4), 16) / 255
+        const b = parseInt(hex.slice(4, 6), 16) / 255
         const max = Math.max(r, g, b)
         const min = Math.min(r, g, b)
-        return b > r && b >= g && max - min > 70
+        const delta = max - min
+        if (delta === 0) return false // gris puro: sin matiz que clasificar
+
+        let hue
+        if (max === r) hue = ((g - b) / delta) % 6
+        else if (max === g) hue = (b - r) / delta + 2
+        else hue = (r - g) / delta + 4
+        hue *= 60
+        if (hue < 0) hue += 360
+
+        const lightness = (max + min) / 2
+        const saturation = delta / (1 - Math.abs(2 * lightness - 1))
+
+        return hue >= 195 && hue <= 300 && saturation >= 0.3
       })
 
     const unexpected = chromaticBlueViolet.filter((hex) => !allowedExceptions.has(hex))
