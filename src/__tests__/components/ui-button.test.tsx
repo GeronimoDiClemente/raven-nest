@@ -3,6 +3,7 @@ import { render, screen } from '@testing-library/react'
 import { Button } from '@/components/ui/button'
 import { cn as cnLocal } from '@/lib/utils'
 import { cn as cnPkg } from 'cn'
+import type { ClassValue } from 'clsx'
 
 // Los componentes stock de shadcn importan el paquete `cn` (su style radix-nova lo
 // hardcodea, ignorando el alias de components.json), y los componentes NUESTROS
@@ -16,7 +17,7 @@ describe('cn — el paquete "cn" y @/lib/utils son la misma implementación (ali
     expect(cnPkg).toBe(cnLocal)
   })
 
-  const casos: Array<[unknown[], string]> = [
+  const casos: Array<[ClassValue[], string]> = [
     [['p-2', 'p-4'], 'p-4'],
     [['text-fs-sm', 'font-medium'], 'text-fs-sm font-medium'],
     [['bg-card', 'bg-popover'], 'bg-popover'],
