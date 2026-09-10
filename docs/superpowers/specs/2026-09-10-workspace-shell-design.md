@@ -145,7 +145,10 @@ Nada de esto introduce una fuente de datos nueva.
 ## Manejo de errores
 
 - Un contador que no se puede calcular **no se pinta** (no se pinta cero ni un guión).
-- Un `aiType` sin logo conocido cae al `AILogo` genérico, que ya existe.
+- Un `aiType` sin logo conocido **no renderiza nada**: `AILogo`
+  (`AILogos.tsx:218`) hace `return Logo ? <Logo .../> : null` — no hay ícono genérico de
+  respaldo. Una fila con un agente desconocido simplemente no muestra logo, que es
+  preferible a inventar un placeholder gris.
 - Si `prefers-reduced-motion` está activo, se toma el camino corto de fade. Nunca se
   bloquea la apertura esperando una animación.
 
