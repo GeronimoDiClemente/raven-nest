@@ -1756,7 +1756,7 @@ export default function App() {
     )
 
   return (
-    <div className="app bg-background text-foreground" style={{ '--tab-accent': activeTab.accentColor ?? 'var(--raven-blue)' } as React.CSSProperties}>
+    <div className="app bg-background text-foreground rounded-md" style={{ '--tab-accent': activeTab.accentColor ?? 'var(--raven-blue)' } as React.CSSProperties}>
       <TabBar
         tabs={tabs}
         activeTabId={activeTabId}
