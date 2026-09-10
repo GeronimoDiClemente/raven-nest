@@ -8413,42 +8413,33 @@ body.platform-mac .resource-bar-wrap {
 body.platform-win .tabbar { padding-right: 256px; }
 body.platform-mac .tabbar { padding-right: 116px; }
 
+/* Color, borde, radio, tamaño y tipografía de dato migraron a Tailwind en
+   ResourceBar.tsx (`border rounded-md text-fs-sm font-mono tabular-nums
+   text-muted-foreground hover:text-foreground`). Lo que queda acá es lo sin
+   equivalencia en la tabla: el fondo blanco translúcido al 3% (no es
+   --bg-surface ni --bg-elevated), padding, cursor y las transiciones. */
 .resource-bar-pill {
   background: rgba(255, 255, 255, 0.03);
-  border: 1px solid var(--border);
-  color: var(--text-secondary);
-  font-size: 12px;
-  font-family: var(--font-ui);
-  font-variant-numeric: tabular-nums;
-  border-radius: 6px;
   padding: 4px 12px;
   cursor: pointer;
   white-space: nowrap;
   transition: color 0.15s, border-color 0.15s, background 0.15s;
 }
 
+/* Antes esto pintaba rgba(0, 102, 255, *) a mano — el azul #0066FF de antes
+   del rediseño, antes de que --raven-blue pasara a ser acromático. Quedó
+   duplicado (dos reglas para el mismo selector, dos opacidades distintas) y
+   sin actualizar cuando el token cambió. Se limpia el duplicado y se
+   reemplaza el literal por el mismo patrón `color-mix(... var(--primary) ...)`
+   que ya usa el resto de global.css para tintes interactivos. */
 .resource-bar-pill:hover {
-  color: var(--text-primary);
-  border-color: rgba(0, 102, 255, 0.4);
-  background: rgba(0, 102, 255, 0.06);
+  border-color: color-mix(in srgb, var(--primary) 40%, transparent);
+  background: color-mix(in srgb, var(--primary) 8%, transparent);
 }
 
 .resource-bar-pill--open {
-  color: var(--text-primary);
   border-color: var(--raven-blue);
-  background: rgba(0, 102, 255, 0.1);
-}
-
-.resource-bar-pill:hover {
-  color: var(--text-primary);
-  border-color: rgba(0, 102, 255, 0.4);
-  background: rgba(0, 102, 255, 0.08);
-}
-
-.resource-bar-pill--open {
-  color: var(--text-primary);
-  border-color: var(--raven-blue);
-  background: rgba(0, 102, 255, 0.12);
+  background: color-mix(in srgb, var(--primary) 12%, transparent);
 }
 
 .rb-overlay {
