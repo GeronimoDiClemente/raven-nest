@@ -117,26 +117,47 @@
   --text-fs-2xl: var(--fs-2xl);
 }
 
-/* Los tres pedazos de preflight que shadcn da por hecho, de la regla real
-   (`button, input, optgroup, select, textarea { font: inherit; color:
-   inherit; background-color: transparent; }`): `font: inherit`,
-   `color: inherit` y `background-color: transparent` en `button`. Preflight
-   normalmente los pone los tres; `variant="ghost"` y `variant="link"` no
-   declaran ninguno propio, así que sin esto un botón cae al fondo gris
-   nativo del navegador, al texto negro de `buttontext` (los form controls no
-   heredan color por default) Y a la tipografía por default del user-agent
-   (Arial en macOS) en vez de heredar Geist — este último se nos escapó una
-   vez (ver git blame) por copiar dos de las tres declaraciones en vez de
-   leer la regla completa. preflight entero rompería las 12k líneas de
-   `global.css` (por eso no se importa); estas tres reglas solas no rompen
-   nada, porque todo botón estilado del proyecto declara su propio
-   background y su propio color, y el CSS sin capa de `global.css` le gana
-   igual a cualquier `@layer`. `font` es shorthand: también resetea
+/* Los tres pedazos de preflight que shadcn da por hecho, de la regla real:
+
+     button, input, optgroup, select, textarea {
+       font: inherit; color: inherit; background-color: transparent;
+     }
+
+   `font: inherit`, `color: inherit` y `background-color: transparent`.
+   Preflight normalmente los pone los tres, en los cinco tipos de elemento;
+   `variant="ghost"` y `variant="link"` de shadcn no declaran ninguno
+   propio, así que sin esto un botón cae al fondo gris nativo del
+   navegador, al texto negro de `buttontext` (los form controls no heredan
+   color por default) Y a la tipografía por default del user-agent (Arial
+   en macOS) en vez de heredar Geist.
+
+   Task 13 (item 1): el selector estuvo angosto a `button` solo desde que
+   esto se escribió, dos veces (5b/7b y otra vez al cerrar C1) — las dos por
+   armar el conjunto persiguiendo bugs observados en vez de copiar la regla
+   completa. Con el selector angosto, los 91 `<input>`/`<select>`/
+   `<textarea>` del renderer (57+20+14) seguían cayendo a la fuente del
+   sistema — Arial en macOS, otra en Windows — porque ninguna regla global
+   les fija `font-family` (la única en las 12k líneas de `global.css` es
+   `.auto-textarea { font-family: inherit }`, una sola de 91). NO angostar
+   este selector otra vez: si algún control queda mal por heredar
+   `background-color: transparent`/`color: inherit` sin tener regla propia
+   en `global.css`, la salida es declararle su propio `background`/`color`
+   ahí — no reducir el conjunto de acá.
+
+   preflight entero rompería las 12k líneas de `global.css` (por eso no se
+   importa); estas tres reglas solas no rompen nada relevante, porque todo
+   control estilado del proyecto declara su propio background y su propio
+   color, y el CSS sin capa de `global.css` le gana igual a cualquier
+   `@layer`. `font` es shorthand: también resetea
    font-size/weight/style/line-height a lo heredado del body — medido
    deliberadamente antes de este cambio, ver
    `.superpowers/sdd/2026-09-09-migracion-tailwind-shadcn/task-final-fix-report.md`. */
 @layer base {
-  button {
+  button,
+  input,
+  optgroup,
+  select,
+  textarea {
     font: inherit;
     background-color: transparent;
     color: inherit;

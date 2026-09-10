@@ -5,8 +5,11 @@ import AuthScreen from './components/AuthScreen'
 import { supabase } from './lib/supabase'
 // Geist empaquetada (spec §3.3): la app se ve igual en Mac, Windows y Linux.
 // Van ANTES de global.css para que la @font-face exista cuando el CSS la nombra.
-import '@fontsource-variable/geist'
-import '@fontsource-variable/geist-mono'
+// Sólo el subset latin (normal + italic; Task 13 item 2) — la app es en
+// inglés, no hace falta cyrillic/cyrillic-ext/vietnamese/latin-ext. Ver
+// styles/geist-latin.css y styles/geist-mono-latin.css.
+import './styles/geist-latin.css'
+import './styles/geist-mono-latin.css'
 import './styles/global.css'
 import '@xterm/xterm/css/xterm.css'
 

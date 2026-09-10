@@ -1,0 +1,37 @@
+/* Geist (UI), subset latin únicamente — normal e italic.
+   Task 13 (item 2) del plan de migración a Tailwind v4 + shadcn.
+
+   `@fontsource-variable/geist` sin sufijo importa `index.css`, que trae los 5
+   subsets del paquete (cyrillic, cyrillic-ext, vietnamese, latin-ext, latin)
+   en un solo archivo — pensado para sitios multi-idioma. Nest es en inglés:
+   no hace falta nada más que latin. El paquete NO expone un `latin.css`
+   propio (a diferencia de las fuentes estáticas de Fontsource, las
+   variables sólo separan por eje `wght`/`wght-italic`, no por subset) —
+   así que este archivo copia literal los dos @font-face de latin de
+   `node_modules/@fontsource-variable/geist/wght.css` y `wght-italic.css`,
+   apuntando a los mismos .woff2 que el paquete ya trae.
+
+   Si se hace `npm update` de este paquete y cambia el nombre de archivo o
+   el unicode-range de latin, este archivo queda desactualizado en silencio
+   — comparar contra `node_modules/@fontsource-variable/geist/wght*.css` si
+   algo se ve mal después de actualizar la dependencia. */
+
+/* geist-latin-wght-normal */
+@font-face {
+  font-family: 'Geist Variable';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url(../../node_modules/@fontsource-variable/geist/files/geist-latin-wght-normal.woff2) format('woff2-variations');
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+
+/* geist-latin-wght-italic */
+@font-face {
+  font-family: 'Geist Variable';
+  font-style: italic;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url(../../node_modules/@fontsource-variable/geist/files/geist-latin-wght-italic.woff2) format('woff2-variations');
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
