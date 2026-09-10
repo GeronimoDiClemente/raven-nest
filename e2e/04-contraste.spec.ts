@@ -169,3 +169,28 @@ test('ningún texto de la app queda por debajo de 3:1 de contraste', async () =>
     await teardown(h)
   }
 })
+
+// Review I4: el test de arriba corre con `withRepo: true`, asi que la pantalla
+// `memories` siempre dibuja TeamThreadPanel — la Card/CardTitle/CardDescription/Button
+// del estado vacio (Task 8) nunca se renderizaban durante el gate. La constraint del
+// plan ("todo componente migrado pasa el guard de contraste") no se cumplia como GUARD
+// aunque los valores dieran bien medidos a mano; esto la cierra.
+test('el estado vacio de Memories (sin repo) tambien pasa el guard de 3:1', async () => {
+  const h = await launchHarness({ withRepo: false })
+  const { page } = h
+  try {
+    await page.getByTitle(/^Memories/).first().click()
+    await page.getByRole('button', { name: /link a repo/i }).waitFor({ timeout: 10_000 })
+
+    const malos = await medirContraste(page)
+    if (malos.length) {
+      console.log('\nTEXTO ILEGIBLE (estado vacio de Memories):')
+      for (const o of malos) {
+        console.log(`  ${o.ratio}:1  ${o.selector}  "${o.texto}"  ${o.color} sobre ${o.fondo}`)
+      }
+    }
+    expect(malos, `${malos.length} elementos por debajo de ${UMBRAL}:1`).toEqual([])
+  } finally {
+    await teardown(h)
+  }
+})
