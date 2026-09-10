@@ -89,7 +89,14 @@ contextBridge.exposeInMainWorld('memory', {
   // UI todavía; el objeto es parcial porque `MemoryGraphQuery` no tiene campos opcionales
   // y los defaults se resuelven del lado de main.ts.
   graph: (
-    query?: Partial<{ projectKey: string | null; includeSuperseded: boolean; limit: number }>
+    query?: Partial<{
+      projectKey: string | null
+      includeSuperseded: boolean
+      limit: number
+      includeSimilar: boolean
+      similarMaxPerNode: number
+      similarMinScore: number
+    }>
   ) => ipcRenderer.invoke('memory:graph', query),
   // Team Memory Layer 1, Parte 8 — comparte un proyecto LOCAL con un equipo, vía
   // POST /v1/projects/share (server/src/share.ts). Sin UI todavía; se prueba desde devtools

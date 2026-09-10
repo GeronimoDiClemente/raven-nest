@@ -307,7 +307,7 @@ export interface TeamThreadSettings {
 /** Espejo de los tipos de electron/memory-graph.ts (src/ nunca importa de electron/). El
  *  puente de datos del grafo navegable de memorias — ver ese archivo para el detalle de
  *  cómo se computan revision/topic/branch. */
-export type MemoryEdgeKind = 'revision' | 'topic' | 'branch'
+export type MemoryEdgeKind = 'revision' | 'topic' | 'branch' | 'similar'
 
 export interface MemoryGraphNode {
   syncId: string
@@ -342,6 +342,14 @@ export interface MemoryGraphQuery {
   projectKey: string | null // null = todos los proyectos
   includeSuperseded: boolean // default false
   limit: number // default 300
+  /** Arista `similar` (tags compartidos): inferencia sobre contenido, no un hecho declarado
+   *  como las otras tres. Opt-in, default false. Ver electron/memory-graph.ts. */
+  includeSimilar?: boolean
+  /** Tope de aristas `similar` por nodo. Default 5 (ver DEFAULT_SIMILAR_MAX_PER_NODE). */
+  similarMaxPerNode?: number
+  /** Umbral minimo de score (0..1) para emitir una arista `similar`. Default 0.3 (ver
+   *  DEFAULT_SIMILAR_MIN_SCORE). */
+  similarMinScore?: number
 }
 
 // === @Nest desde Slack (H7 Motor 5) — espejo de SlackMention/SlackAction de

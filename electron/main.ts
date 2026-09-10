@@ -3082,6 +3082,9 @@ ipcMain.handle('memory:graph', (_event, query?: Partial<MemoryGraphQuery>): Memo
     projectKey: query?.projectKey ?? null,
     includeSuperseded: query?.includeSuperseded ?? false,
     limit: query?.limit ?? 300,
+    includeSimilar: query?.includeSimilar ?? false,
+    similarMaxPerNode: query?.similarMaxPerNode,
+    similarMinScore: query?.similarMinScore,
   }
   return memory.store.memoryGraph(resolved)
 })
