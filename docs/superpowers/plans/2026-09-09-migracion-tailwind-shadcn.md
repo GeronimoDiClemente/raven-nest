@@ -28,6 +28,7 @@ Los componentes restantes se migran aplicando la receta de la Task 10, en lotes,
 - **Los tokens no se redefinen.** `@theme inline` los *lee* de `:root`; la fuente de verdad sigue siendo el bloque de tokens de `global.css`.
 - **El shell declara `bg-background text-foreground`** (spec §2.4). Sin eso, todo componente shadcn que no fija color propio queda ilegible — pasó en el spike.
 - **Todo componente migrado pasa el guard de contraste** `e2e/04-contraste.spec.ts` (≥ 3:1) antes de commitear.
+- **Si una migración cambia una clase que un e2e assertea, ese e2e se actualiza en la misma tarea**, moviendo el selector hacia rol y nombre accesible — nunca hacia la clase nueva. `e2e/03-memories-in-app.spec.ts` depende hoy de `.memories-workspace`, `.memories-status-row`, `.memories-status-text`, `.memories-empty`, `.memory-vault-card`, `.sidebar-item`, `.sidebar-toggle`, `.sidebar.expanded` y `.tw-back-btn`; las Tasks 7 y 8 tocan justamente esos. Un gate que se rompe por diseño deja de ser un gate.
 - **Escala tipográfica**: `--fs-2xs: 10px`, `--fs-xs: 11px`, `--fs-sm: 12px`, `--fs: 13px`, `--fs-lg: 15px`, `--fs-xl: 17px`, `--fs-2xl: 21px`. Pesos: `400 / 500 / 600`. Todo `font-size` nuevo sale de ahí.
 - **El color es estado, nunca marca.** `--primary` es acromático (`#e8e8e8`). Verde/ámbar/rojo sólo para estado.
 - **No se migran** (spec §4.4): xterm, Monaco, el grafo de nodos del board, y los colores de marca de terceros (`builtinCatalog.ts` tiene el azul de Atlassian).
@@ -371,7 +372,13 @@ test('una utilidad de Tailwind resuelve al mismo color que el token', async () =
   try {
     const medido = await page.evaluate(() => {
       const el = document.createElement('div')
-      el.className = 'bg-card text-muted-foreground rounded-md'
+      // `bg-background` y `text-foreground` a proposito, no `bg-card`: esas dos
+      // ya estan en src/App.tsx desde la Task 1, asi que Tailwind las genera
+      // seguro. Una clase que solo existiera en este .spec.ts podria no
+      // generarse — el motor emite utilidades escaneando el fuente — y el test
+      // fallaria por como Tailwind descubre archivos, no por lo que quiere
+      // probar, que es que la utilidad resuelva al MISMO color que el token.
+      el.className = 'bg-background text-foreground rounded-md'
       document.body.appendChild(el)
       const s = getComputedStyle(el)
       const raiz = getComputedStyle(document.documentElement)
@@ -387,8 +394,8 @@ test('una utilidad de Tailwind resuelve al mismo color que el token', async () =
         bg: s.backgroundColor,
         fg: s.color,
         radio: s.borderRadius,
-        tokenBg: resolver(raiz.getPropertyValue('--card').trim()),
-        tokenFg: resolver(raiz.getPropertyValue('--muted-foreground').trim()),
+        tokenBg: resolver(raiz.getPropertyValue('--background').trim()),
+        tokenFg: resolver(raiz.getPropertyValue('--foreground').trim()),
       }
       el.remove()
       return out
