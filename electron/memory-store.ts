@@ -13,6 +13,7 @@ import { dirname, join } from 'path'
 import { randomBytes, createHash } from 'crypto'
 import { redact } from './memory-redaction'
 import { GLOBAL_PROJECT_KEY } from './memory-project-key'
+import { buildMemoryGraph, type MemoryGraph, type MemoryGraphQuery } from './memory-graph'
 import type {
   ObservationSource,
   ObservationSummary,
@@ -1206,6 +1207,15 @@ export class MemoryStore {
     // overstates it.
     const row = this.db.prepare('SELECT COUNT(*) as c FROM observations WHERE deleted = 0 AND superseded_by IS NULL').get() as { c: number }
     return row.c
+  }
+
+  /**
+   * Puente de datos del grafo navegable de memorias (ver electron/memory-graph.ts para la
+   * consulta y las decisiones de diseño). Delegación fina: `buildMemoryGraph` es pura sobre
+   * `Database.Database` justamente para poder testearla sin este wrapper de por medio.
+   */
+  memoryGraph(query: MemoryGraphQuery): MemoryGraph {
+    return buildMemoryGraph(this.db, query)
   }
 
   /**

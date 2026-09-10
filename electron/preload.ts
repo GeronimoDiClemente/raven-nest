@@ -85,6 +85,12 @@ contextBridge.exposeInMainWorld('memory', {
   disconnect: (opts?: { deleteCloud?: boolean }) => ipcRenderer.invoke('memory:disconnect', opts),
   status: () => ipcRenderer.invoke('memory:status'),
   hubStats: () => ipcRenderer.invoke('memory:hub-stats'),
+  // Puente de datos del grafo navegable de memorias — ver electron/memory-graph.ts. Sin
+  // UI todavía; el objeto es parcial porque `MemoryGraphQuery` no tiene campos opcionales
+  // y los defaults se resuelven del lado de main.ts.
+  graph: (
+    query?: Partial<{ projectKey: string | null; includeSuperseded: boolean; limit: number }>
+  ) => ipcRenderer.invoke('memory:graph', query),
   // Team Memory Layer 1, Parte 8 — comparte un proyecto LOCAL con un equipo, vía
   // POST /v1/projects/share (server/src/share.ts). Sin UI todavía; se prueba desde devtools
   // o un test.

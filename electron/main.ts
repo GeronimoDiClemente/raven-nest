@@ -140,6 +140,7 @@ import { MemoryDaemon } from './memory-daemon'
 import { reconcileSessions } from './memory-sessions'
 import { buildDoctorReport } from './memory-doctor'
 import { readVaultHealth } from './memory-vault-health'
+import type { MemoryGraph, MemoryGraphQuery } from './memory-graph'
 import { daemonSocketPath } from './memory-protocol'
 import { swapMemoryStore, type SwapContext } from './memory-account-switch'
 import type { ProvisionerPaths } from './memory-provisioner'
@@ -3067,6 +3068,22 @@ ipcMain.handle('memory:hub-stats', () => {
     itemCount: memory.store.count(),
     projectCount: memory.store.listProjects().filter((p) => p.projectKey !== GLOBAL_PROJECT_KEY).length,
   }
+})
+
+// Puente de datos del grafo navegable de memorias (estilo Obsidian) — ver
+// electron/memory-graph.ts para la consulta y .superpowers/sdd/2026-09-09-migracion-
+// tailwind-shadcn/grafo-datos-brief.md para el contrato. Sin UI todavía: este handler es
+// el puente puro, consumido por un trabajo posterior. Defaults acá (no en la función pura)
+// porque `MemoryGraphQuery` no tiene campos opcionales — el llamador del renderer puede
+// pasar un objeto parcial o nada.
+ipcMain.handle('memory:graph', (_event, query?: Partial<MemoryGraphQuery>): MemoryGraph => {
+  if (!memory) return { nodes: [], edges: [], truncated: 0 }
+  const resolved: MemoryGraphQuery = {
+    projectKey: query?.projectKey ?? null,
+    includeSuperseded: query?.includeSuperseded ?? false,
+    limit: query?.limit ?? 300,
+  }
+  return memory.store.memoryGraph(resolved)
 })
 
 // Spec §2.2: el fallo mudo. Cruza los panes a los que pty-manager les inyecto el bridge

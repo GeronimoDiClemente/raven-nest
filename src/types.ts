@@ -304,6 +304,46 @@ export interface TeamThreadSettings {
   writeAgentsPointer: boolean
 }
 
+/** Espejo de los tipos de electron/memory-graph.ts (src/ nunca importa de electron/). El
+ *  puente de datos del grafo navegable de memorias — ver ese archivo para el detalle de
+ *  cómo se computan revision/topic/branch. */
+export type MemoryEdgeKind = 'revision' | 'topic' | 'branch'
+
+export interface MemoryGraphNode {
+  syncId: string
+  title: string
+  type: string
+  scope: 'personal' | 'project' | 'team'
+  topicKey: string | null
+  gitBranch: string | null
+  originAi: string | null
+  authorDisplay: string | null
+  updatedAt: number
+  /** true si esta observacion fue reemplazada por otra (superseded_by != null). */
+  superseded: boolean
+}
+
+export interface MemoryGraphEdge {
+  from: string
+  to: string
+  kind: MemoryEdgeKind
+  /** true solo para 'revision'. Las otras dos son simetricas. */
+  directed: boolean
+}
+
+export interface MemoryGraph {
+  nodes: MemoryGraphNode[]
+  edges: MemoryGraphEdge[]
+  /** cuantos nodos se dejaron afuera por el limite. */
+  truncated: number
+}
+
+export interface MemoryGraphQuery {
+  projectKey: string | null // null = todos los proyectos
+  includeSuperseded: boolean // default false
+  limit: number // default 300
+}
+
 // === @Nest desde Slack (H7 Motor 5) — espejo de SlackMention/SlackAction de
 // electron/integrations/slack-envelopes.ts (src/ nunca importa de electron/) ===
 export interface SlackMentionDTO {
@@ -887,6 +927,12 @@ declare global {
        * login. `projectCount` excluye `__global__` (no es un proyecto reconocible).
        */
       hubStats: () => Promise<{ itemCount: number; projectCount: number }>
+      /**
+       * Puente de datos del grafo navegable de memorias (estilo Obsidian) — ver
+       * electron/memory-graph.ts. Optional: un preload viejo no lo expone, y todavía no
+       * hay UI que lo consuma (ese es un trabajo posterior; este método es el contrato).
+       */
+      graph?: (query?: Partial<MemoryGraphQuery>) => Promise<MemoryGraph>
       /**
        * Team Memory Layer 1, Parte 8: comparte un proyecto LOCAL con un equipo — pega
        * contra POST /v1/projects/share (server/src/share.ts), la única forma de que
