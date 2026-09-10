@@ -90,6 +90,29 @@ Studio; si te pasa, la salida es usar un Node cuyo ABI tenga prebuild.
 - `src/` — renderer (React)
 - `.github/workflows/build-windows.yml` — CI para Windows, Mac y Linux
 
+## UI — Tailwind y shadcn conviven con global.css
+
+La app está migrando a Tailwind v4 + shadcn/ui. Reglas que muerden:
+
+- **Tailwind está SIN preflight** (`src/styles/tailwind.css`). No importes
+  `"tailwindcss"` entero: trae el reset y rompe las 12k líneas de `global.css`.
+- **Los tokens viven en `global.css`**, y `@theme inline` los expone al motor.
+  No los redefinas en `tailwind.css`: habría dos fuentes de verdad.
+- **Un componente nuevo se escribe con shadcn + utilidades**, nunca con clases
+  nuevas en `global.css`.
+- **Un literal de color cromático no se prohíbe siempre, se decide.** El
+  acento es acromático (el color es estado: `--ok`/`--warn`/`--destructive`),
+  pero hay una allow-list justificada: leyenda categórica de un estado no
+  binario (`.pr-badge.closed`/`.feed-type-badge.pr` en `global.css` usan
+  violeta/azul para distinguir *tipo* de evento, no severidad), paleta de
+  íconos por extensión, o marca de un tercero (el `#0052CC` de Atlassian en
+  `builtinCatalog.ts`, el botón de GitHub en `global.css`). Un barrido
+  automático por regex ya se llevó puesto ese azul de Atlassian una vez y
+  hubo que revertirlo — cada literal se mira antes de tocarlo.
+- **Todo cambio de UI pasa `e2e/04-contraste.spec.ts`** antes de commitear.
+- La receta para migrar un componente (con las trampas que ya mordieron):
+  `docs/RECETA-MIGRACION-UI.md`.
+
 ## Seguridad — pendiente crítico
 
 ### GitHub token en Supabase (PENDIENTE)
