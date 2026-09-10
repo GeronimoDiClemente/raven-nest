@@ -569,11 +569,9 @@ body {
 
 .sidebar-repo-unlink:hover { color: var(--destructive); }
 
-.sidebar-logout:hover {
-  opacity: 1;
-  color: #FF4444 !important;
-  background: #FF444410 !important;
-}
+/* .sidebar-logout:hover borrada (Task 7, cleanup): se me habia escapado en el
+   primer barrido de .sidebar-logout — mismo caso, 0 referencias en toda
+   src/. */
 
 .sidebar-item.active:hover {
   color: #FFB800;
