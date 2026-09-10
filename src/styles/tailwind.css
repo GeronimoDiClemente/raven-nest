@@ -136,18 +136,29 @@
    armar el conjunto persiguiendo bugs observados en vez de copiar la regla
    completa. Con el selector angosto, los form controls del renderer caían a
    la fuente del sistema — Arial en macOS, otra en Windows. Los números,
-   medidos: 87 controles fuera de los tests (56 `<input>` + 20 `<select>` +
-   11 `<textarea>`; con los tests son 91). `global.css` tiene 36 reglas con
-   `font-family: inherit`, pero sólo 10 nombran un form control
-   (`.search-input`, `.cmd-input`, `.chat-composer-input`, `.sp-select`,
-   `.auto-textarea`, `.snippet-input`/`.snippet-textarea`,
-   `.pane-note-input`, `.conv-item-rename-input`, `.global-search-input`) —
-   las otras 26 son botones, que ya heredaban por el selector viejo. O sea
-   que la mayoría de los controles estaba desnuda. NO angostar
-   este selector otra vez: si algún control queda mal por heredar
-   `background-color: transparent`/`color: inherit` sin tener regla propia
-   en `global.css`, la salida es declararle su propio `background`/`color`
-   ahí — no reducir el conjunto de acá.
+   medidos (recontados en el fix de Task 13 que corrige este mismo párrafo,
+   porque la primera versión sólo grepeaba `font-family: inherit` y se
+   saltaba el shorthand): 87 controles fuera de los tests (56 `<input>` + 20
+   `<select>` + 11 `<textarea>`). `global.css` tiene 47 reglas que heredan la
+   fuente (36 con `font-family: inherit` + 11 con el shorthand `font:
+   inherit`). De esas 47, 14 nombran al menos un form control: `.search-input`,
+   `.cmd-input`, `.chat-composer-input`, `.sp-select`,
+   `.snippet-input`/`.snippet-textarea`, `.pane-note-input`,
+   `.conv-item-rename-input`, `.global-search-input`, `.integrations-search`,
+   `.integration-apikey-input`, `.auto-input`/`.auto-select`/`.auto-textarea`
+   (dos reglas) y `.rb-toggle` — que pese al nombre es un `<select>`
+   (`ResourceBarPopover.tsx:114`), no uno de los botones. Las últimas cuatro
+   (`.integrations-search`, `.integration-apikey-input`, el bloque
+   `.auto-*` y `.rb-toggle`) son justamente las que el grep angosto se
+   saltaba. Cruzando cada regla contra los 87 controles reales: 65 ya tenían
+   su propio `font`/`font-family` declarado — `inherit` o un valor explícito,
+   por ejemplo `.field-input`/`.qw-input`/`.mcp-textarea` usan
+   `var(--font-mono)` — antes de este cambio, y 22 estaban desnudos: la
+   minoría, no la mayoría (la primera versión de este comentario decía lo
+   contrario). NO angostar este selector otra vez: si algún control queda mal
+   por heredar `background-color: transparent`/`color: inherit` sin tener
+   regla propia en `global.css`, la salida es declararle su propio
+   `background`/`color` ahí — no reducir el conjunto de acá.
 
    preflight entero rompería las 12k líneas de `global.css` (por eso no se
    importa); estas tres reglas solas no rompen nada relevante, porque todo
