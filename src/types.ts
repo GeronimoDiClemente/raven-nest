@@ -659,8 +659,14 @@ export const AI_CONFIG: Record<AIType, {
   // ORDEN = como se ven en el picker (4 columnas, 3 filas + Add CLI). Puesto
   // para que no queden dos tiles de la misma familia de color pegados, ni al
   // lado ni arriba/abajo: hay cinco acromaticos (codex, opencode, cursor,
-  // grok, terminal), tres azules (gemini, deepseek, browser) y dos violetas
-  // (copilot, qwen). Los mas usados quedan en la primera fila.
+  // grok, terminal), dos azules (gemini, deepseek) y dos violetas (copilot,
+  // qwen). Los mas usados quedan en la primera fila.
+  //
+  // browser y terminal (mas abajo) tambien son acromaticos, pero eso paso
+  // DESPUES de que este orden se fijo (Task 12) — no los cuento en el
+  // parrafo de arriba porque tocar el orden para acomodarlos es una
+  // discusion aparte (ver task-12-brief.md), no algo que se resuelva solo
+  // por cambiarles el color.
   claude:   { label: 'Claude',   color: '#E07B54', bg: '#2a1a14', cmd: 'claude',     modelFlag: '--model', models: ['opus', 'sonnet', 'haiku'], effortFlag: '--effort' },
   gemini:   { label: 'Gemini',   color: '#4F9EFF', bg: '#0d1f35', cmd: 'gemini',     modelFlag: '--model', models: ['gemini-2.5-pro', 'gemini-2.5-flash'] },
   codex:    { label: 'Codex',    color: '#aaaaaa', bg: '#1c1c1c', cmd: 'codex',      modelFlag: '--model' },
@@ -670,8 +676,14 @@ export const AI_CONFIG: Record<AIType, {
   qwen:     { label: 'Qwen',     color: '#6950EF', bg: '#14103a', cmd: 'qwen',         noAccount: true },
   cursor:   { label: 'Cursor',   color: '#D4D4D4', bg: '#181818', cmd: 'cursor-agent', noAccount: true },
   grok:     { label: 'Grok',     color: '#E8E8E8', bg: '#141414', cmd: 'grok',         noAccount: true },
-  browser:  { label: 'Browser',  color: '#0066FF', bg: '#0a1428', cmd: '',           noAccount: true },
-  terminal: { label: 'Terminal', color: '#888888', bg: '#1a1a1a', cmd: '',           noAccount: true },
+  // browser y terminal NO son marca de nadie: el azul de browser era el
+  // acento viejo de Nest (#0066FF, el mismo que se saco de otros 68 lugares
+  // en esta migracion), y terminal ya vivia en gris de hecho sin que nadie
+  // lo hubiera decidido. La excepcion que protege el color de Claude/Gemini/etc.
+  // (marca de tercero) no cubre a ninguno de los dos, asi que van acromaticos
+  // como cualquier otro estado de la app — ver task-12-brief.md.
+  browser:  { label: 'Browser',  color: 'var(--muted-foreground)', bg: '#0a1428', cmd: '',           noAccount: true },
+  terminal: { label: 'Terminal', color: 'var(--muted-foreground)', bg: '#1a1a1a', cmd: '',           noAccount: true },
   custom:   { label: 'Custom',   color: '#888888', bg: '#1a1a1a', cmd: '',           noAccount: true },
   editor:   { label: 'Editor',   color: '#4EC9B0', bg: '#0d1f1c', cmd: '',           noAccount: true },
 }

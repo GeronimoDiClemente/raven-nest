@@ -4421,26 +4421,6 @@ kbd {
 }
 
 /* ── Preset worker auto-launch: brief "Opening…" placeholder ─ */
-.npd-resolving {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  padding: 40px 0;
-  color: var(--text-secondary);
-  font-size: 13px;
-}
-
-.npd-resolving-spinner {
-  width: 14px;
-  height: 14px;
-  border: 2px solid var(--border);
-  border-top-color: var(--raven-blue);
-  border-radius: 50%;
-  flex-shrink: 0;
-  animation: cli-spin 0.8s linear infinite;
-}
-
 /* ── CLI-not-found banner: "Docs ↗" link button ───────────── */
 .cli-banner-link {
   background: transparent;
@@ -4464,41 +4444,11 @@ kbd {
   color: #fff;
 }
 
-.cli-banner-install {
-  background: #f59e0b;
-  color: #1a1200;
-  border: none;
-  border-radius: 4px;
-  padding: 5px 12px;
-  font-size: 11px;
-  font-weight: 600;
-  cursor: pointer;
-  flex-shrink: 0;
-  transition: filter 0.15s;
-}
-
-.cli-banner-install:hover {
-  filter: brightness(1.08);
-}
-
-.cli-banner-spinner {
-  width: 12px;
-  height: 12px;
-  border: 2px solid #f59e0b;
-  border-top-color: transparent;
-  border-radius: 50%;
-  display: inline-block;
-  flex-shrink: 0;
-  animation: cli-spin 0.8s linear infinite;
-}
-
-@keyframes cli-spin {
-  to { transform: rotate(360deg); }
-}
-
 .cli-banner-log {
   background: var(--popover);
-  border: 1px solid #333;
+  /* Era #333: un gris neutro sin ninguna intencion de marca — el mismo rol
+     que --border ya cumple en el resto de la app. */
+  border: 1px solid var(--border);
   border-radius: 4px;
   padding: 6px 8px;
   margin-top: 8px;
@@ -4514,20 +4464,27 @@ kbd {
 }
 
 /* ── AI Grid ─────────────────────────────────────────────── */
+/* `.ai-grid`, `.ai-card-label`, `.custom-cli-delete`, `.npd-*` y
+   `.account-*` se fueron de aca (Task 12, migracion Tailwind/shadcn):
+   grilla, label y borrado se resuelven con utilidades + `group`/
+   `group-hover:` directo en NewPaneDialog.tsx, sin clase propia. Lo que
+   queda es lo que de verdad necesita CSS: `.ai-card` (color-mix contra
+   `--ai-color`, pseudo-elemento, hover con transform+shadow — todo
+   dependiente de una custom property por-tile que Tailwind no puede
+   expresar sin arbitrarios en cascada) y `.ai-card-add`/`.ai-card-logo`,
+   que YA estaban libres de literales.
 
-.ai-grid {
-  display: grid;
-  /* 4 columnas: con 13 agentes en la lista, a 3 el dialogo se estiraba a 5
-     filas. A 4 entra en 4 filas y se lee de un vistazo. */
-  grid-template-columns: repeat(4, 1fr);
-  gap: 8px;
-  margin-bottom: 16px;
-}
+   Ojo con `.ai-card-add`: sigue siendo CSS (no utilidades) a proposito —
+   pisa el `:hover` de `.ai-card` de arriba, y las dos reglas son CSS SIN
+   CAPA (Trampa 1 de docs/RECETA-MIGRACION-UI.md): una utilidad Tailwind
+   `hover:` vive en `@layer utilities` y pierde SIEMPRE contra una regla sin
+   capa, sin importar la especificidad. Solo otra regla sin capa puede
+   ganarle a `.ai-card:hover` en el mismo hover. */
 
 .ai-card {
-  background: var(--ai-bg, var(--bg-elevated));
-  border: 1px solid color-mix(in srgb, var(--ai-color, var(--border)) 30%, transparent);
-  border-radius: 12px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
   padding: 20px 12px 14px;
   cursor: pointer;
   display: flex;
@@ -4548,9 +4505,14 @@ kbd {
   transition: opacity 0.18s;
 }
 
+/* Tratamiento B (task-12-brief.md): el chrome del tile (fondo/borde) pasa a
+   las superficies del tema; el color de marca vuelve recien al hover. Sin
+   esto, `.ai-card` ya gastaba el color de marca EN REPOSO (30% de mezcla en
+   el borde) y al hover no le quedaba margen para decir nada. */
 .ai-card:hover {
+  background: var(--popover);
   transform: translateY(-3px);
-  border-color: color-mix(in srgb, var(--ai-color, var(--border)) 70%, transparent);
+  border-color: color-mix(in srgb, var(--ai-color, var(--border)) 45%, transparent);
   box-shadow: 0 8px 28px color-mix(in srgb, var(--ai-color, transparent) 25%, transparent),
               0 2px 8px rgba(0,0,0,0.4);
 }
@@ -4571,15 +4533,6 @@ kbd {
   background: color-mix(in srgb, var(--ai-color, var(--border)) 12%, transparent);
 }
 
-.ai-card-label {
-  position: relative;
-  z-index: 1;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-primary);
-  letter-spacing: 0.2px;
-}
-
 .ai-card-add {
   border-style: dashed;
   opacity: 0.6;
@@ -4589,122 +4542,6 @@ kbd {
   opacity: 1;
   border-color: var(--text-muted);
   box-shadow: none;
-}
-
-.custom-cli-delete {
-  position: absolute;
-  top: -6px;
-  right: -6px;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: #333;
-  border: none;
-  color: var(--text-secondary);
-  font-size: 12px;
-  line-height: 1;
-  cursor: pointer;
-  display: none;
-  align-items: center;
-  justify-content: center;
-  z-index: 10;
-}
-
-.ai-card:hover .custom-cli-delete,
-.account-item:hover .custom-cli-delete {
-  display: flex;
-}
-
-.custom-cli-delete:hover {
-  background: #ff5f57;
-  color: #fff;
-}
-
-/* ── Model Picker ─────────────────────────────────────────── */
-
-.npd-model-row {
-  margin-bottom: 16px;
-}
-
-.npd-model-select {
-  width: 100%;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 8px 12px;
-  color: var(--text-primary);
-  font-size: 13px;
-  outline: none;
-  cursor: pointer;
-  transition: border-color 0.15s;
-}
-
-.npd-model-select:focus {
-  border-color: var(--raven-blue);
-}
-
-/* ── Account List ────────────────────────────────────────── */
-
-.account-list {
-  margin-bottom: 20px;
-}
-
-.account-list-label {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.8px;
-  color: var(--text-muted);
-  margin-bottom: 8px;
-}
-
-.account-item {
-  width: 100%;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 10px 14px;
-  color: var(--text-primary);
-  font-size: 13px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 6px;
-  position: relative;
-  text-align: left;
-  transition: border-color 0.15s, background 0.15s;
-}
-
-.account-item:hover {
-  background: var(--border);
-  border-color: var(--raven-blue);
-}
-
-.account-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-
-.account-delete-btn {
-  flex-shrink: 0;
-  width: 20px;
-  height: 20px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 4px;
-  font-size: 14px;
-  color: var(--text-muted);
-  opacity: 0;
-  transition: opacity 0.15s, color 0.15s, background 0.15s;
-  cursor: pointer;
-}
-.account-item:hover .account-delete-btn { opacity: 1; }
-.account-delete-btn:hover {
-  color: var(--destructive);
-  background: rgba(239, 68, 68, 0.1);
 }
 
 /* ── New Account Form ────────────────────────────────────── */
