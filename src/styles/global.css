@@ -8911,46 +8911,6 @@ body.platform-mac .tabbar { padding-right: 116px; }
   letter-spacing: 0.01em;
 }
 
-.browser-port-item {
-  display: flex;
-  align-items: baseline;
-  justify-content: flex-start;
-  gap: 8px;
-  width: 100%;
-  background: transparent;
-  border: 0;
-  outline: 0;
-  color: var(--text-primary);
-  padding: 8px 12px;
-  border-radius: 7px;
-  cursor: pointer;
-  text-align: left;
-  font: inherit;
-  font-size: 13px;
-  -webkit-appearance: none;
-  appearance: none;
-  transition: background 120ms ease, transform 100ms ease;
-}
-
-.browser-port-item + .browser-port-item {
-  margin-top: 1px;
-}
-
-.browser-port-item:hover {
-  background: rgba(255, 255, 255, 0.06);
-}
-
-.browser-port-item:focus-visible {
-  background: color-mix(in srgb, var(--primary) 14%, transparent);
-  outline: 1px solid color-mix(in srgb, var(--primary) 50%, transparent);
-  outline-offset: -1px;
-}
-
-.browser-port-item:active {
-  background: color-mix(in srgb, var(--primary) 20%, transparent);
-  transform: scale(0.99);
-}
-
 .browser-port-host {
   color: var(--text-secondary);
   font-size: 13px;
@@ -9032,62 +8992,6 @@ body.platform-mac .tabbar { padding-right: 116px; }
 .rb-row--has-kill {
   position: relative;
   padding-right: 22px;
-}
-
-.rb-kill-btn {
-  position: absolute;
-  right: 2px;
-  top: 50%;
-  transform: translateY(-50%);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 18px;
-  height: 18px;
-  padding: 0;
-  margin: 0;
-  border: 0;
-  outline: 0;
-  box-shadow: none;
-  background: transparent;
-  color: rgba(255, 255, 255, 0.55);
-  border-radius: 5px;
-  cursor: pointer;
-  opacity: 0;
-  font: inherit;
-  -webkit-appearance: none;
-  appearance: none;
-  transition: opacity 0.12s ease, color 0.12s ease, background-color 0.12s ease, transform 0.1s ease;
-}
-
-.rb-row--has-kill:hover .rb-kill-btn,
-.rb-kill-btn:focus-visible {
-  opacity: 1;
-}
-
-.rb-kill-btn:focus-visible {
-  outline: 1px solid rgba(255, 77, 77, 0.55);
-  outline-offset: 1px;
-}
-
-.rb-kill-btn:hover:not(:disabled) {
-  color: #ff5f5f;
-  background: rgba(255, 77, 77, 0.14);
-}
-
-.rb-kill-btn:active:not(:disabled) {
-  transform: translateY(-50%) scale(0.92);
-  background: rgba(255, 77, 77, 0.22);
-}
-
-.rb-kill-btn:disabled {
-  cursor: default;
-  opacity: 0.4;
-}
-
-.rb-kill-btn svg {
-  display: block;
-  pointer-events: none;
 }
 
 /* Disk bucket rows shown under an expanded worktree — same grandchild indent
@@ -11498,21 +11402,6 @@ body.platform-mac .tabbar { padding-right: 116px; }
 .ts-spark { display: block; }
 
 /* ── Team Stats — sortable column headers ───────────── */
-
-.ts-th-btn {
-  background: none;
-  border: none;
-  cursor: pointer;
-  color: inherit;
-  font: inherit;
-  padding: 0;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  white-space: nowrap;
-}
-
-.ts-th-btn:hover { color: var(--text-secondary); }
 
 .ts-sort-icon {
   font-size: 9px;
