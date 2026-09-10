@@ -1,15 +1,30 @@
 import { describe, it, expect } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { Button } from '@/components/ui/button'
-import { cn } from '@/lib/utils'
+import { cn as cnLocal } from '@/lib/utils'
+import { cn as cnPkg } from 'cn'
+
+// Conviven DOS implementaciones de cn, y es a proposito: los componentes stock de
+// shadcn importan el paquete `cn` (su style radix-nova lo hardcodea, ignorando el
+// alias de components.json), y los componentes NUESTROS importan @/lib/utils.
+// Este test existe para que esa duplicacion no se vuelva una divergencia: el dia
+// que las dos dejen de coincidir, se entera acá y no en la UI.
+describe('cn — las dos implementaciones coinciden', () => {
+  const casos: Array<[unknown[], string]> = [
+    [['p-2', 'p-4'], 'p-4'],
+    [['text-fs-sm', 'font-medium'], 'text-fs-sm font-medium'],
+    [['bg-card', 'bg-popover'], 'bg-popover'],
+    [['rounded-md', 'rounded-lg'], 'rounded-lg'],
+    // El filtrado de falsy al estilo clsx también tiene que coincidir.
+    [['text-fs-sm', false && 'hidden', 'font-medium'], 'text-fs-sm font-medium'],
+  ]
+  it.each(casos)('resuelve %j igual en las dos', (entrada, esperado) => {
+    expect(cnLocal(...entrada)).toBe(esperado)
+    expect(cnPkg(...entrada)).toBe(esperado)
+  })
+})
 
 describe('shadcn en Nest', () => {
-  it('cn() resuelve conflictos de Tailwind, no sólo concatena', () => {
-    // Es la razón de existir de tailwind-merge: la última gana.
-    expect(cn('p-2', 'p-4')).toBe('p-4')
-    expect(cn('text-fs-sm', false && 'hidden', 'font-medium')).toBe('text-fs-sm font-medium')
-  })
-
   it('el Button monta y respeta la variante', () => {
     render(<Button variant="secondary" size="sm">Guardar</Button>)
     const b = screen.getByRole('button', { name: 'Guardar' })
