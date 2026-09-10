@@ -8,11 +8,12 @@
 //
 // DOS COSAS QUE ESTE ARCHIVO **NO** CUBRE, y conviene saberlo antes de creerle:
 //
-// 1. El perfil que levanta el harness es **Free**, y en Free la fila `Personal` abre el
-//    modal de upgrade, no el workspace (`onUpgrade` en PersonalItem — que es justo lo que
-//    MemoriesItem documenta NO hacer). Asi que "el overlay queda encima de Personal" no se
-//    puede ejercitar aca: se verifica contra el panel de Settings, que si es alcanzable en
-//    Free, mas la escala numerica del §5.4 leida del CSS real.
+// 1. El perfil que levanta el harness es **Free**. Hasta el 2026-09-10, en Free la fila
+//    `Personal` abria el modal de upgrade en vez del workspace — ya no: el corte comercial
+//    saco ese gate (lo local es gratis en todo plan) y Personal abre igual que en cualquier
+//    otro plan. Este archivo sigue verificando "el overlay queda encima" contra el panel de
+//    Settings en vez de Personal (mas la escala numerica del §5.4 leida del CSS real) porque
+//    ya estaba escrito asi, no porque Personal siga inalcanzable en Free.
 // 2. El punto 6 de la lista del plan (§2.2: abrir `claude` de verdad, esperar >15s y ver la
 //    fila en rojo) necesita spawnear un agente con credenciales y esperar el timeout. Es un
 //    smoke aparte — ver `keepRealHome` en el harness.
@@ -132,8 +133,9 @@ test('el overlay tapa de verdad lo que hay debajo, no solo por numero', async ()
   const h = await launchHarness({ withRepo: false })
   const { page } = h
   try {
-    // Settings como capa de abajo: en Free es el unico overlay alcanzable (Personal manda
-    // al modal de upgrade). Su puerta a Memories es ademas lo que la Task 10 dejo.
+    // Settings como capa de abajo — ver la nota de arriba del archivo: ya no es el unico
+    // overlay alcanzable en Free (Personal tambien lo es desde el 2026-09-10), se usa
+    // porque su puerta a Memories es lo que la Task 10 dejo.
     await page.locator('.sidebar-item-settings').first().click()
     await page.getByRole('button', { name: 'Account', exact: true }).first().click()
 

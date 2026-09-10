@@ -1,16 +1,15 @@
-// src/__tests__/components/Sidebar-integrations.test.tsx
+// src/__tests__/components/Sidebar-integrations-flag.test.tsx
 //
-// The global "Integrations" entry point (button + installed items) used to
-// live only inside My Repos (see
-// docs/design/integrations/2026-07-05-plan-migracion-my-repos.md, Task C).
-// Plan 2 / Task 4 re-introduces it as a top-level rail item that opens the
-// IntegrationsHub orchestration board overlay (mirrors My Repos/Teams).
-// Sidebar has many heavy deps (supabase, git hooks, window.* IPC). We mock
-// the problematic ones so the component renders without crashing.
+// Companion to Sidebar-integrations.test.tsx, que mockea
+// ENABLE_INTEGRATIONS_ORCHESTRATION a `true` para probar el wiring del punto de
+// entrada. Este archivo NO mockea src/lib/releaseFlags — usa el valor real, que
+// hoy es `false` (Integrations/Orchestration no salen en esta release, decision
+// del usuario 2026-09-10). Sin este test, nada impide que la constante vuelva a
+// `true` sin querer y las dos filas reaparezcan antes de tiempo.
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 
-// ── Mock heavy transitive deps ────────────────────────────────────────────
+// ── Mock heavy transitive deps (mismo set que Sidebar-integrations.test.tsx) ──
 vi.mock('../../lib/supabase', () => ({
   supabase: {
     auth: {
@@ -21,10 +20,6 @@ vi.mock('../../lib/supabase', () => ({
       select: vi.fn().mockReturnThis(),
       eq: vi.fn().mockReturnThis(),
       maybeSingle: vi.fn().mockResolvedValue({ data: null }),
-      // useUserRepos (rendered via Sidebar → SettingsPanel) chains
-      // .select(...).order(...); this must resolve like a real supabase-js
-      // query result or it escapes as an unhandled rejection from the
-      // hook's passive-effect refresh().
       order: vi.fn().mockResolvedValue({ data: [], error: null }),
     })),
     channel: vi.fn(() => ({ on: vi.fn().mockReturnThis(), subscribe: vi.fn() })),
@@ -44,8 +39,6 @@ vi.mock('../../hooks/useGitInfo', () => ({
   useGitInfo: () => ({ branch: null, githubUrl: null, isDirty: false, refresh: vi.fn() }),
 }))
 
-// terminalJoinService calls createClient at module-load time with VITE env vars
-// that don't exist in test env → mock the whole module
 vi.mock('../../lib/terminalJoinService', () => ({
   terminalJoinService: {
     isConnected: false,
@@ -58,28 +51,18 @@ vi.mock('../../lib/terminalJoinService', () => ({
   },
 }))
 
-// Integrations y Orchestration no salen en esta release (src/lib/releaseFlags.ts,
-// decision del usuario 2026-09-10): la constante real esta en `false`. Este archivo
-// verifica que el wiring del punto de entrada siga funcionando cuando se prende, asi
-// que fuerza el flag a `true` en vez de asumir que la fila se ve por default.
-vi.mock('../../lib/releaseFlags', () => ({ ENABLE_INTEGRATIONS_ORCHESTRATION: true }))
-
 // ── Import component after mocks ──────────────────────────────────────────
 import Sidebar from '../../components/Sidebar'
 
-// Minimal window globals that Sidebar (or its sub-hooks) access synchronously.
-// Note: no window.plugins mock — Sidebar no longer uses useInstalledPlugins
-// (that lived in the now-deleted SidebarIntegrationItems).
 beforeEach(() => {
   Object.assign(window as unknown as Record<string, unknown>, {
     updater: { checkForUpdates: vi.fn(), onStatus: vi.fn() },
     platform: { isWin: false },
     electronShell: { openExternal: vi.fn() },
   })
+  window.snippets = { list: vi.fn().mockResolvedValue([]) } as never
 })
 
-// Minimal props that satisfy all required fields of SidebarProps.
-// expanded: false avoids rendering WorktreesSection (which needs more window globals).
 const baseProps = {
   expanded: false,
   onToggle: vi.fn(),
@@ -116,23 +99,11 @@ const baseProps = {
   },
 }
 
-describe('Sidebar — entry point global de Integraciones', () => {
-  // Abrir el flyout monta SnippetPanel, que lee window.snippets al montarse.
-  beforeEach(() => {
-    window.snippets = { list: vi.fn().mockResolvedValue([]) } as never
-  })
-
-  it('renderiza un ítem "Integrations" que llama a onIntegrationsOpen', () => {
-    const onIntegrationsOpen = vi.fn()
-    render(<Sidebar {...baseProps} onIntegrationsOpen={onIntegrationsOpen} />)
-    // Con las pestanas, Integrations dejo de ser una fila fija y vive en Tools:
-    // la lista que comparten la pestana y, en modo colapsado como aca, el flyout.
+describe('Sidebar — Integrations/Orchestration detras del flag de release', () => {
+  it('no renderiza Integrations ni Orchestration mientras el flag esta apagado', () => {
+    render(<Sidebar {...baseProps} onIntegrationsOpen={vi.fn()} onGraphBoardOpen={vi.fn()} />)
     fireEvent.click(screen.getByTitle('Show more tools'))
-    fireEvent.click(screen.getByText('Integrations'))
-    expect(onIntegrationsOpen).toHaveBeenCalledTimes(1)
-  })
-
-  it('renderiza sin explotar (smoke test)', () => {
-    expect(() => render(<Sidebar {...baseProps} />)).not.toThrow()
+    expect(screen.queryByText('Integrations')).not.toBeInTheDocument()
+    expect(screen.queryByText('Orchestration')).not.toBeInTheDocument()
   })
 })

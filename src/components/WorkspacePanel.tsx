@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Workspace, SessionPane, AI_CONFIG, equalSizes } from '../types'
 import { useSharedWorkspaces } from '../hooks/useSharedWorkspaces'
 import { useProfile } from '../hooks/useProfile'
+import { PLAN_LIMITS } from '../lib/stripe'
 import { useTeam } from '../hooks/useTeam'
 import { useFixedPopover } from '../hooks/useFixedPopover'
 import ConfirmDialog from './ConfirmDialog'
@@ -162,7 +163,16 @@ export default function WorkspacePanel({ onSave, onLoad, onRequireUpgrade }: Pro
   }
 
   const handleShare = async (ws: Workspace) => {
-    if (plan === 'free') { onRequireUpgrade?.(); return }
+    // El gate es `memoryTeamShare`, NO `plan === 'free'`. Dos motivos:
+    //
+    // 1. Con `plan === 'free'`, un usuario **Cloud** podia compartir al equipo — y
+    //    PLAN_LIMITS.cloud tiene `memoryTeamShare: false`. El gate viejo miraba el
+    //    nombre del plan en vez de la capacidad, asi que dejaba pasar a todo el que no
+    //    fuera free. Compartir al equipo es Teams/Enterprise.
+    // 2. Solo aplica cuando HAY equipo: sin `team`, esto comparte a Community, que no es
+    //    la feature paga. El modelo nuevo (2026-09-10) es que todo lo local es gratis y
+    //    lo que se paga es la memoria en la nube y Teams.
+    if (team && !PLAN_LIMITS[plan].memoryTeamShare) { onRequireUpgrade?.(); return }
     await share(ws, team?.id)
   }
 

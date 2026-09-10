@@ -13,6 +13,12 @@
 // Gateado con GRAPH_APP_SMOKE=1: corre agentes `claude` de verdad (gasta tokens,
 // tarda minutos y necesita la CLI autenticada). Correr:
 //   npm run pre-e2e && GRAPH_APP_SMOKE=1 npx playwright test e2e/02-graph-in-app.spec.ts
+//
+// Orchestration no sale en esta release (decision del usuario, 2026-09-10): la fila
+// de la sidebar esta detras de ENABLE_INTEGRATIONS_ORCHESTRATION
+// (src/lib/releaseFlags.ts), apagada por default. Para correr este smoke hace falta
+// ademas poner esa constante en `true` a mano y rebuildear — si no, el click de
+// abajo a `.sidebar-item[title="Orchestration"]` no encuentra nada.
 import { test } from '@playwright/test'
 import { launchHarness, teardown, expect } from './helpers/harness'
 

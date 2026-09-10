@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import logoUrl from '../assets/logo.svg'
 import {
   STRIPE_PRICES,
   CLOUD_MONTHLY_PRICE,
@@ -110,10 +111,7 @@ export default function UpgradeModal({ currentPlan, onClose }: Props) {
 
         <div className="upgrade-hero">
           <div className="upgrade-hero-icon">
-            <svg width="22" height="22" viewBox="0 0 16 16" fill="none">
-              <path d="M2 11.5L4 5l2.5 4L8 4l1.5 5L12 5l2 6.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-              <path d="M2.5 13.5h11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-            </svg>
+            <img src={logoUrl} alt="Nest" width={22} height={22} />
           </div>
           <h2 className="upgrade-hero-title">Choose your plan</h2>
           <p className="upgrade-hero-subtitle">

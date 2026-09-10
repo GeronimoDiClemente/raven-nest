@@ -30,6 +30,7 @@ import PaneFilterControl from './PaneFilterControl'
 import type { PaneFilter } from '../lib/pane-filter'
 import type { PaneNode } from '../types'
 import type { UserPreferencesApi } from '../hooks/useUserPreferences'
+import { ENABLE_INTEGRATIONS_ORCHESTRATION } from '../lib/releaseFlags'
 
 interface Props {
   expanded: boolean
@@ -461,7 +462,7 @@ export default function Sidebar({
         </svg>
       </span>
       <span className="sidebar-label">MCP</span>
-      <MCPPanel repoPath={repoPath} onRequireUpgrade={onUpgrade} />
+      <MCPPanel repoPath={repoPath} />
     </div>
   )
 
@@ -585,13 +586,14 @@ export default function Sidebar({
   )
 
   // One door for everything that is yours: your repos, each team's repos, and
-  // your pending invites. Free plans hit the upgrade modal, as My Repos did.
+  // your pending invites. Local features are free on every plan (corte comercial
+  // 2026-09-02) so this opens the same way regardless of plan.
   const PersonalItem = (
     <Button
       variant="ghost"
       size="sm"
       className="h-8 w-full justify-start gap-2.5 px-2.5 font-normal text-muted-foreground hover:text-foreground"
-      onClick={plan === 'free' ? onUpgrade : onPersonalOpen}
+      onClick={onPersonalOpen}
       title={pendingInvitesCount > 0
         ? `Personal — ${pendingInvitesCount} pending invite${pendingInvitesCount === 1 ? '' : 's'}`
         : 'Personal'}
@@ -623,7 +625,6 @@ export default function Sidebar({
         )}
       </span>
       <span className="sidebar-label">Personal</span>
-      {expanded && plan === 'free' && <span className="sidebar-plan-badge">Pro</span>}
     </Button>
   )
 
@@ -650,39 +651,48 @@ export default function Sidebar({
       {JoinTerminalItem}
       {/* Integrations y Orchestration eran filas fijas de la sidebar vieja. Con las
           pestanas viven en Tools, que es la lista que comparten el flyout colapsado y
-          la pestana: asi siguen alcanzables en los dos modos. */}
-      <Button
-        variant="ghost"
-        size="sm"
-        className="h-8 w-full justify-start gap-2.5 px-2.5 font-normal text-muted-foreground hover:text-foreground"
-        onClick={onIntegrationsOpen}
-        title="Integrations"
-      >
-        <span className="sidebar-icon">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-            <rect x="2" y="2" width="12" height="12" rx="3.5" stroke="currentColor" strokeWidth="1.4" />
-            <path d="M5.5 8h5M8 5.5v5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-          </svg>
-        </span>
-        <span className="sidebar-label">Integrations</span>
-      </Button>
-      <Button
-        variant="ghost"
-        size="sm"
-        className="h-8 w-full justify-start gap-2.5 px-2.5 font-normal text-muted-foreground hover:text-foreground"
-        onClick={onGraphBoardOpen}
-        title="Orchestration"
-      >
-        <span className="sidebar-icon">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-            <circle cx="3.5" cy="8" r="1.6" stroke="currentColor" strokeWidth="1.3" />
-            <circle cx="12.5" cy="4" r="1.6" stroke="currentColor" strokeWidth="1.3" />
-            <circle cx="12.5" cy="12" r="1.6" stroke="currentColor" strokeWidth="1.3" />
-            <path d="M5 7l6-2.3M5 9l6 2.3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-          </svg>
-        </span>
-        <span className="sidebar-label">Orchestration</span>
-      </Button>
+          la pestana: asi siguen alcanzables en los dos modos.
+          No salen en esta release (decision del usuario, 2026-09-10): el hito 1 de
+          integrations esta terminado y commiteado pero el resto del backlog
+          (docs/INTEGRATIONS_ORCA_BACKLOG.md) no. ENABLE_INTEGRATIONS_ORCHESTRATION
+          (src/lib/releaseFlags.ts) solo apaga el punto de entrada — nada de esto se
+          borro. Para mostrarlas de nuevo, poner esa constante en `true`. */}
+      {ENABLE_INTEGRATIONS_ORCHESTRATION && (
+        <>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8 w-full justify-start gap-2.5 px-2.5 font-normal text-muted-foreground hover:text-foreground"
+            onClick={onIntegrationsOpen}
+            title="Integrations"
+          >
+            <span className="sidebar-icon">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <rect x="2" y="2" width="12" height="12" rx="3.5" stroke="currentColor" strokeWidth="1.4" />
+                <path d="M5.5 8h5M8 5.5v5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+              </svg>
+            </span>
+            <span className="sidebar-label">Integrations</span>
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8 w-full justify-start gap-2.5 px-2.5 font-normal text-muted-foreground hover:text-foreground"
+            onClick={onGraphBoardOpen}
+            title="Orchestration"
+          >
+            <span className="sidebar-icon">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <circle cx="3.5" cy="8" r="1.6" stroke="currentColor" strokeWidth="1.3" />
+                <circle cx="12.5" cy="4" r="1.6" stroke="currentColor" strokeWidth="1.3" />
+                <circle cx="12.5" cy="12" r="1.6" stroke="currentColor" strokeWidth="1.3" />
+                <path d="M5 7l6-2.3M5 9l6 2.3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+              </svg>
+            </span>
+            <span className="sidebar-label">Orchestration</span>
+          </Button>
+        </>
+      )}
       {ConversationHistoryItem}
       {CommandHistoryItem}
     </>

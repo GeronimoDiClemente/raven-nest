@@ -174,12 +174,15 @@ describe('Sidebar tabs', () => {
     expect(screen.getByLabelText('3 pending invites')).toBeInTheDocument()
   })
 
-  it('sends Free users to the upgrade modal instead of Personal', () => {
+  // Corte comercial 2026-09-02: lo local es gratis en todos los planes, asi que
+  // Free abre Personal como cualquier otro plan — ya no hay upgrade modal en el
+  // camino. (Antes: 'sends Free users to the upgrade modal instead of Personal'.)
+  it('opens Personal for Free users too, without going through the upgrade modal', () => {
     const onUpgrade = vi.fn()
     const onPersonalOpen = vi.fn()
     renderSidebar({ plan: 'free', onUpgrade, onPersonalOpen })
     fireEvent.click(screen.getByTitle(/^Personal/))
-    expect(onUpgrade).toHaveBeenCalled()
-    expect(onPersonalOpen).not.toHaveBeenCalled()
+    expect(onPersonalOpen).toHaveBeenCalled()
+    expect(onUpgrade).not.toHaveBeenCalled()
   })
 })
