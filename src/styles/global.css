@@ -8700,6 +8700,15 @@ body.platform-mac .tabbar { padding-right: 116px; }
 }
 
 .rb-bullet-logo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  margin-right: 4px;
+  vertical-align: middle;
+}
+
 /* ── Empty state: Join / Create tabs ─────────────────────────────── */
 
 .empty-state-wrap {
@@ -9288,6 +9297,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
   font-variant-numeric: tabular-nums;
 }
 
+.team-switcher-item-icon {
   flex-shrink: 0;
   color: var(--text-muted);
 }
