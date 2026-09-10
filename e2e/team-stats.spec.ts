@@ -4,14 +4,16 @@ import { launchHarness, teardown, expect } from './helpers/harness'
 test('TeamsWorkspace opens without crash after Stats tab integration', async () => {
   const h = await launchHarness({ withRepo: false })
   try {
-    // Click the Teams button in the sidebar. "My Repos" shares the
-    // .sidebar-item-team class, so target the panel by its title.
-    await h.page.locator('.sidebar-item-team[title="Team"]').click()
+    // Team y My Repos se fusionaron en una sola fila Personal (commit
+    // 136ed8e, 2026-09-08, preexistente a esta rama) — ya no hay un item de
+    // sidebar separado con title="Team". Personal es hoy la unica puerta.
+    await h.page.getByRole('button', { name: 'Personal' }).click()
 
-    // The Teams click is plan-gated (planLimits.memoryTeamShare): with a team/trial
-    // plan the TeamsWorkspace mounts; on a clean local Supabase the bypass
-    // user has no profile (plan 'free') and the UpgradeModal opens instead.
-    // Either way the point of this spec holds: the click must not crash.
+    // El click esta gateado por plan (plan === 'free' -> upgrade modal en vez
+    // de abrir Personal/Teams): con un plan team/trial monta la workspace; en
+    // un Supabase local limpio el usuario del bypass no tiene perfil (plan
+    // 'free') y se abre el UpgradeModal. Cualquiera de los dos casos sostiene
+    // el punto del spec: el click no tiene que crashear.
     await expect(
       h.page.locator('.teams-workspace, .upgrade-modal').first(),
     ).toBeVisible({ timeout: 10_000 })

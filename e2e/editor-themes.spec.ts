@@ -9,7 +9,12 @@ async function openReadmeInEditor(h: Awaited<ReturnType<typeof launchHarness>>) 
   await h.page.evaluate((repoDir) => {
     ;(window as unknown as { __e2e_linkRepo?: (p: string) => void }).__e2e_linkRepo?.(repoDir)
   }, h.repoDir)
-  await h.page.locator('.sidebar-toggle').click()
+  // El boton de toggle paso a <Button> sin clase propia (Task 7); el nombre
+  // accesible sale del title, que alterna segun el estado.
+  await h.page.getByRole('button', { name: /Collapse sidebar|Expand sidebar/ }).click()
+  // Expandir deja Worktrees activa por default (desde SidebarTabBar,
+  // 2026-09-07) — pasar a Explorer a mano, igual que en editor.spec.ts.
+  await h.page.getByRole('tab', { name: 'Explorer' }).click()
   await expect(h.page.locator('.explorer-panel')).toBeVisible({ timeout: 10_000 })
   await h.page.locator('.explorer-entry-name', { hasText: 'README.md' }).click()
   await expect(h.page.locator('.monaco-editor .view-lines')).toBeVisible({ timeout: 10_000 })
