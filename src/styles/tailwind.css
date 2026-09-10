@@ -54,9 +54,21 @@
   --color-input: var(--input);
   --color-ring: var(--ring);
 
+  --radius-xs: calc(var(--radius) - 3px);
   --radius-sm: calc(var(--radius) - 2px);
   --radius-md: var(--radius);
   --radius-lg: calc(var(--radius) + 2px);
+  /* xl en adelante NO siguen creciendo. Tailwind por default los escala
+     hasta 2rem (`4xl`), y ESO es como Badge terminó pintando una píldora
+     de 32px con `rounded-4xl` mientras el resto de la app vive entre 4px y
+     8px (I1 de la review final): un primitivo stock elige un nombre de
+     escalón más grande y se escapa del token en silencio. Puentear los
+     cuatro al mismo valor que `--radius-lg` cierra ese agujero para
+     siempre — ya no hay un escalón sin puentear al que algo pueda caer. */
+  --radius-xl: calc(var(--radius) + 2px);
+  --radius-2xl: calc(var(--radius) + 2px);
+  --radius-3xl: calc(var(--radius) + 2px);
+  --radius-4xl: calc(var(--radius) + 2px);
 
   --font-sans: var(--font-ui);
   --font-mono: var(--font-mono);
