@@ -11,10 +11,22 @@
    `node_modules/@fontsource-variable/geist/wght.css` y `wght-italic.css`,
    apuntando a los mismos .woff2 que el paquete ya trae.
 
+   La `url()` usa el specifier bare del paquete (`@fontsource-variable/geist/
+   files/...woff2`), no una ruta relativa a `node_modules`: el paquete lo
+   publica como subpath export (`"./files/*.woff2"` en su `exports`) y Vite
+   6.4.1 resuelve specifiers bare dentro de `url()` de CSS a través del mapa
+   `exports`, embebiendo el archivo real en el build (verificado con
+   `npm run build`). Es mejor que la ruta relativa: no depende de dónde cae
+   físicamente `node_modules` (hoisting, pnpm) ni de la profundidad de este
+   archivo dentro de `src/`.
+
    Si se hace `npm update` de este paquete y cambia el nombre de archivo o
    el unicode-range de latin, este archivo queda desactualizado en silencio
    — comparar contra `node_modules/@fontsource-variable/geist/wght*.css` si
-   algo se ve mal después de actualizar la dependencia. */
+   algo se ve mal después de actualizar la dependencia. El guard
+   `src/__tests__/styles/geist-latin-fonts.test.ts` cachea ese silencio: lee
+   los `url()` de este archivo y del hermano `-mono-latin.css` y falla si el
+   `.woff2` referenciado no existe en `node_modules/`. */
 
 /* geist-latin-wght-normal */
 @font-face {
@@ -22,7 +34,7 @@
   font-style: normal;
   font-display: swap;
   font-weight: 100 900;
-  src: url(../../node_modules/@fontsource-variable/geist/files/geist-latin-wght-normal.woff2) format('woff2-variations');
+  src: url('@fontsource-variable/geist/files/geist-latin-wght-normal.woff2') format('woff2-variations');
   unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
 }
 
@@ -32,6 +44,6 @@
   font-style: italic;
   font-display: swap;
   font-weight: 100 900;
-  src: url(../../node_modules/@fontsource-variable/geist/files/geist-latin-wght-italic.woff2) format('woff2-variations');
+  src: url('@fontsource-variable/geist/files/geist-latin-wght-italic.woff2') format('woff2-variations');
   unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
 }
