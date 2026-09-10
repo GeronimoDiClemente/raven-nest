@@ -3,13 +3,37 @@
 ## Typecheck — OJO
 
 `npx tsc --noEmit` en la raíz NO CHEQUEA NADA (tsconfig solution-style con
-`files: []`). El chequeo real es `npx tsc -b` — que además emite .js/.d.ts
-junto a los sources (composite): limpiar con `git clean -fd` después.
-**OJO: `git add` los archivos fuente NUEVOS ANTES del `git clean`** — clean
-borra todo lo untracked y no distingue un .tsx recién creado de un .js
-emitido (pasó el 2026-08-18: se llevó un componente nuevo y su test). Hay
-~15 errores de tipo preexistentes bajo `tsc -b` en código de main
-(pidusage, metrics-collector, etc.) anteriores al branch del editor.
+`files: []`).
+
+**El chequeo real son los DOS comandos que corre CI** (`.github/workflows/ci.yml:25-26`):
+
+```bash
+npx tsc -p tsconfig.node.json --noEmit --composite false
+npx tsc -p tsconfig.web.json --noEmit --composite false
+```
+
+Medido en un worktree limpio de `feat/nest-terminal-ui` el 2026-09-10: los dos
+dan **exit 0 y cero errores**. Ese es el baseline — **no hay errores
+preexistentes**. Si ves uno, lo agregaste vos.
+
+**`npx tsc -b` NO sirve como chequeo hoy: falla con exit 1** por tres errores
+`TS6307` de configuración de project references — `graph-template.ts`,
+`worker-spec-store.ts` y `raven-home.ts` no están listados en
+`tsconfig.web.json`. Son de configuración, no de tipos, y **abortan el build
+antes de chequear el código**, así que `tsc -b` en verde no prueba nada y en
+rojo no dice nada sobre tu cambio.
+
+> Esta sección decía antes que el chequeo real era `tsc -b` y que había "~15
+> errores preexistentes (pidusage, metrics-collector)". Las dos cosas eran
+> falsas al 2026-09-10 y el combo es peligroso: hacía que alguien corriera
+> `tsc -b`, viera los 3 TS6307, los diera por preexistentes y siguiera —
+> cuando el chequeo que importa estaba limpio y ese comando estaba roto.
+
+Si aun así corrés `tsc -b`, ojo: emite .js/.d.ts junto a los sources
+(composite) y hay que limpiar con `git clean -fd` después. **`git add` los
+archivos fuente NUEVOS ANTES del `git clean`** — clean borra todo lo untracked
+y no distingue un .tsx recién creado de un .js emitido (pasó el 2026-08-18: se
+llevó un componente nuevo y su test).
 
 ## v1.2 — per-device local paths
 
