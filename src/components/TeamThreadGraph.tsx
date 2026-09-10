@@ -60,6 +60,26 @@ const ENERGIA_REPOSO = 0.05
  *  para llegar a un layout asentado sin animar nada. */
 const TICKS_SIN_ANIMAR = 300
 
+// Los defaults de force-layout.ts (largo=90, repulsion=3000) dejan el equilibrio
+// demasiado apretado para este grafo en particular: medido, dos ramas activas
+// conectadas solo al índice (nunca entre sí) convergen con apenas ~100-102 unidades
+// de separación — del mismo orden que el ancho de dos etiquetas de rama largas a
+// font-size 11 (~72-122 unidades cada una, medido con getBBox sobre nombres reales
+// como "smoke/memory-bridge" o "feat/graph-orchestration"), así que las etiquetas
+// llegan a tocarse. Con largo=260/repulsion=12000 el peor caso medido (un anillo
+// lleno de 12 ramas, el máximo por anillo de buildThreadGraph) da ~147 unidades de
+// separación mínima y un radio máximo de ~284 — separa las etiquetas largas con
+// margen y sigue entrando en el viewBox de 800×800 (-400..400) sumando el overhang
+// de una etiqueta (~60u). Con menos ramas el margen es mayor (p.ej. 7 ramas: ~220u).
+//
+// Grafos con más de un anillo (>12 ramas visibles) no se cubrieron en esta medición:
+// buildThreadGraph ya multiplica el radio de semilla por anillo (RADIO_ANILLO * n),
+// así que un grafo de varios anillos puede salirse del viewBox incluso con el layout
+// ESTÁTICO original, antes de esta tarea — no es una regresión de la física, pero
+// si el spec-cap de ~200 nodos se ejercita de verdad conviene revisar viewBox/fuerza
+// al origen en esa instancia, no asumir que estos valores siguen alcanzando.
+const GRAPH_FORCE_OPTS = { largo: 260, repulsion: 12000 }
+
 export function TeamThreadGraph({ branches, focus, ahora, enabled, onToggle, onOpenNote }: Props) {
   // GLOBAL por default, a contramano de la spec §7.3 ("grafo local por default") y a
   // sabiendas. Motivo (I5 de la review final de rama): el grafo NO lee las notas — sintetiza
@@ -80,7 +100,14 @@ export function TeamThreadGraph({ branches, focus, ahora, enabled, onToggle, onO
   // state) porque un tick de física corre hasta 60 veces por segundo y no queremos
   // pasar por el reconciler en cada uno; `tick` de abajo es lo que dispara el re-render
   // que efectivamente pinta el frame nuevo.
-  const simRef = useRef(new Map<string, ForceNode>())
+  const simRef = useRef<Map<string, ForceNode> | null>(null)
+  // Init perezosa: `useRef(new Map())` crea y tira un Map en cada render (siempre se
+  // descarta salvo el primero). `getSim()` centraliza el chequeo-y-asigna y le devuelve
+  // a cada lector un tipo no-nulleable, sin repetir el `!` en cada acceso.
+  const getSim = () => {
+    if (simRef.current === null) simRef.current = new Map()
+    return simRef.current
+  }
   const [, setTick] = useState(0)
 
   // Firma estable del set de nodos/aristas actual. El componente tiene un toggle
@@ -96,7 +123,7 @@ export function TeamThreadGraph({ branches, focus, ahora, enabled, onToggle, onO
   // primer frame ya se ve razonable en vez de un desparramo aleatorio), y los que
   // desaparecieron simplemente se sueltan.
   useEffect(() => {
-    const sim = simRef.current
+    const sim = getSim()
     const vivos = new Set(graph.nodes.map((n) => n.id))
     for (const id of sim.keys()) {
       if (!vivos.has(id)) sim.delete(id)
@@ -123,23 +150,28 @@ export function TeamThreadGraph({ branches, focus, ahora, enabled, onToggle, onO
 
     if (quieto) {
       // Sin animar: se corren los ticks de una y se pinta el resultado ya asentado.
-      const nodes = Array.from(simRef.current.values())
-      for (let i = 0; i < TICKS_SIN_ANIMAR; i++) stepForceLayout(nodes, edges)
+      const nodes = Array.from(getSim().values())
+      for (let i = 0; i < TICKS_SIN_ANIMAR; i++) stepForceLayout(nodes, edges, GRAPH_FORCE_OPTS)
       setTick((t) => t + 1)
       return
     }
 
     let raf = 0
     const loop = () => {
-      const nodes = Array.from(simRef.current.values())
-      stepForceLayout(nodes, edges)
+      const nodes = Array.from(getSim().values())
+      stepForceLayout(nodes, edges, GRAPH_FORCE_OPTS)
       setTick((t) => t + 1)
       if (energiaTotal(nodes) < ENERGIA_REPOSO) return
       raf = requestAnimationFrame(loop)
     }
     raf = requestAnimationFrame(loop)
     return () => cancelAnimationFrame(raf)
-  }, [nodeIdsKey, edgeKey, graph.edges])
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- nodeIdsKey/edgeKey ya
+    // describen la topología completa (ids + aristas). `graph` cambia de referencia en
+    // cada render de TeamThreadPanel (pasa `ahora={Date.now()}` inline), así que declarar
+    // `graph.edges` acá reactivaba el loop en cualquier re-render ajeno a la topología —
+    // justo lo que el corte por energía existía para evitar (review de Task 9, Important 1).
+  }, [nodeIdsKey, edgeKey])
 
   if (!enabled) {
     return (
@@ -153,7 +185,7 @@ export function TeamThreadGraph({ branches, focus, ahora, enabled, onToggle, onO
   const openNote = (slug: string) => onOpenNote(slug)
 
   const posDe = (id: string, fallbackX: number, fallbackY: number) => {
-    const p = simRef.current.get(id)
+    const p = getSim().get(id)
     return p ? { x: p.x, y: p.y } : { x: fallbackX, y: fallbackY }
   }
 
