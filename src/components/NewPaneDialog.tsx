@@ -478,7 +478,14 @@ export default function NewPaneDialog({ onConfirm, onCancel, presetAgent, preset
                 <div className="ai-card-logo">
                   <span className="text-fs-2xl" style={{ color: 'var(--text-muted)' }}>+</span>
                 </div>
-                <span className={AI_CARD_LABEL_CLASS} style={{ color: 'var(--text-muted)' }}>Add CLI</span>
+                {/* Sin AI_CARD_LABEL_CLASS a proposito: esa clase trae su propio
+                    color (`text-muted-foreground` + `group-hover:text-foreground`),
+                    y el tile "Add CLI" quiere el gris MAS apagado de `--text-muted`
+                    todo el tiempo (asi era en el original: `.ai-card-add:hover` nunca
+                    tocaba el color del label, solo opacity/borde). Mezclar las dos
+                    clases de color hubiera dejado `text-muted-foreground` muerta
+                    debajo del `style` — exactamente la trampa de este dialogo. */}
+                <span className="relative z-10 text-fs-sm font-semibold tracking-[0.2px]" style={{ color: 'var(--text-muted)' }}>Add CLI</span>
               </button>
             </div>
             <button className="dialog-cancel" onClick={onCancel}>Cancel</button>
