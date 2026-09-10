@@ -28,7 +28,7 @@ export default function VoiceOrb({ isListening, interimTranscript, onClick }: Vo
           width: size,
           height: size,
           borderRadius: '50%',
-          background: 'radial-gradient(circle at 35% 35%, #a78bfa, #7c3aed)',
+          background: 'radial-gradient(circle at 35% 35%, var(--primary), var(--primary))',
           opacity: isListening ? 1 : 0.4,
           animation: isListening ? 'voice-orb-pulse 1.4s ease-in-out infinite' : 'none',
           display: 'flex',

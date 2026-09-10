@@ -36,7 +36,7 @@ interface TeamsWorkspaceProps {
 export { WORKSPACE_SECTIONS, type WorkspaceSection } from './teamSections'
 
 const PRESENCE_COLORS = [
-  '#0066FF', '#00CC44', '#CC44FF', '#FFB800', '#FF6600',
+  'var(--primary)', '#00CC44', '#CC44FF', '#FFB800', '#FF6600',
   '#00CCCC', '#FF2D78', '#4455FF', '#88FF00',
 ]
 

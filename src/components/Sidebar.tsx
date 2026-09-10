@@ -371,7 +371,7 @@ export default function Sidebar({
               }}
               style={{
                 width: '100%',
-                background: joinInput.length >= 8 ? '#0066FF' : 'var(--bg-elevated)',
+                background: joinInput.length >= 8 ? 'var(--primary)' : 'var(--bg-elevated)',
                 color: joinInput.length >= 8 ? '#fff' : 'var(--text-muted)',
                 border: 'none',
                 borderRadius: 6,

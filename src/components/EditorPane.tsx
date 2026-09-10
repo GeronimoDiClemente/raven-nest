@@ -157,7 +157,7 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
     // se escala/ennegrece. Resaltamos el pane objetivo mientras se arrastra otro,
     // para ver con cuál se va a intercambiar.
     opacity: isDragging ? 0.3 : 1,
-    outline: isOver && !isDragging ? '2px solid #0066FF66' : undefined,
+    outline: isOver && !isDragging ? '2px solid color-mix(in srgb, var(--primary) 40%, transparent)' : undefined,
     outlineOffset: isOver && !isDragging ? '-2px' : undefined,
   }
 

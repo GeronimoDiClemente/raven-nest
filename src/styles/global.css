@@ -6,30 +6,49 @@
 }
 
 :root {
-  /* ── Contrato de tokens shadcn / tweakcn ─────────────────────────────
-     Estos son los tokens que exporta tweakcn.com. Editá acá (o pegá un
-     export de tweakcn con el botón "{} Code") para re-skinear TODA la app.
-     Los valores de arranque son los actuales de Nest → cero cambio visual. */
-  --background: #000000;
-  --foreground: #e8e8e8;
-  --card: #0a0a0a;
-  --card-foreground: #e8e8e8;
-  --popover: #111111;
-  --popover-foreground: #e8e8e8;
-  --primary: #0066FF;
-  --primary-foreground: #ffffff;
-  --secondary: #0a0a0a;
-  --secondary-foreground: #e8e8e8;
-  --muted: #111111;
-  --muted-foreground: #888;
-  --accent: #111111;
-  --accent-foreground: #e8e8e8;
-  --destructive: #ef4444;
+  /* ── Contrato de tokens shadcn ───────────────────────────────────────
+     Direccion "Nest Terminal" (design lab del 2026-09-09). Es el MISMO
+     contrato de nombres que usan Orca y Superset, asi que el dia que se
+     migre a shadcn/Tailwind estos valores viajan tal cual.
+
+     Tres reglas que explican los numeros de abajo, y sin las cuales
+     alguien va a "arreglar" esto de vuelta hacia lo de antes:
+
+     1. LA ESCALA TIENE PASOS SEPARADOS. Antes era #000 -> #0a0a0a ->
+        #111111: tres tonos a menos de 30 puntos de luminancia, o sea que
+        una tarjeta no se distinguia del fondo y nada agrupaba nada. Ahora
+        #0a0a0a -> #141414 -> #1f1f1f -> #262626, cuatro pasos que se ven.
+        Es la escala `neutral` de Tailwind, la misma que usa Orca.
+
+     2. EL PRIMARY NO ES UN COLOR. Es #e8e8e8, casi blanco — igual que
+        Orca (`--primary: #e5e5e5`). Antes habia DOS acentos cromaticos
+        peleando, el azul #0066FF de los tokens y un violeta #7c3aed
+        escrito a mano en el CSS. El color queda reservado para ESTADO
+        (destructive, y los verdes/ambar semanticos), nunca para marca.
+
+     3. EL BORDE ES BLANCO TRANSLUCIDO, no un gris fijo. Un gris solo se
+        ve bien sobre UN nivel de superficie; el translucido funciona
+        sobre el fondo, sobre una tarjeta y sobre un modal por igual. */
+  --background: #0a0a0a;
+  --foreground: #f2f2f2;
+  --card: #141414;
+  --card-foreground: #f2f2f2;
+  --popover: #1f1f1f;
+  --popover-foreground: #f2f2f2;
+  --primary: #e8e8e8;
+  --primary-foreground: #141414;
+  --secondary: #1f1f1f;
+  --secondary-foreground: #f2f2f2;
+  --muted: #1f1f1f;
+  --muted-foreground: #9b9b9b;
+  --accent: #262626;
+  --accent-foreground: #f2f2f2;
+  --destructive: #ff6568;
   --destructive-foreground: #ffffff;
-  --border: #1e1e1e;
-  --input: #1e1e1e;
-  --ring: #0066FF;
-  --radius: 0.5rem;
+  --border: rgb(255 255 255 / 0.08);
+  --input: rgb(255 255 255 / 0.15);
+  --ring: #6e6e6e;
+  --radius: 0.375rem;
 
   /* ── Puente hacia los tokens propios de Nest ─────────────────────────
      Los nombres que Nest ya usa en las 11k líneas de CSS ahora SIGUEN a
@@ -42,8 +61,8 @@
   --text-secondary: var(--muted-foreground);
 
   /* Pendiente de bridge (Paso 3 — todavía sin fuente shadcn exacta) */
-  --raven-blue-dim: #0066FF44;
-  --text-muted: #555;
+  --raven-blue-dim: rgb(255 255 255 / 0.14);
+  --text-muted: #6e6e6e;
 
   /* ── Tipografía ──────────────────────────────────────────────────────
      Igual que VS Code: la UI usa la fuente del sistema (Segoe UI en Windows,
@@ -824,7 +843,7 @@ body {
 
 .empty-cell:hover {
   border-color: var(--raven-blue);
-  background: #0066FF08;
+  background: color-mix(in srgb, var(--primary) 3%, transparent);
   color: var(--raven-blue);
 }
 
@@ -1008,7 +1027,7 @@ body {
   transition: background 0.1s;
 }
 .team-switcher-new:hover {
-  background: #0066FF15;
+  background: color-mix(in srgb, var(--primary) 8%, transparent);
 }
 
 /* Pending invite banner (inside team, for second invite) */
@@ -1094,7 +1113,7 @@ body {
   color: var(--text-primary);
 }
 .team-nav-btn.active {
-  background: #0066FF1a;
+  background: color-mix(in srgb, var(--primary) 10%, transparent);
   color: var(--raven-blue);
 }
 
@@ -1162,7 +1181,7 @@ body {
   width: 30px;
   height: 30px;
   border-radius: 50%;
-  background: #0066FF22;
+  background: color-mix(in srgb, var(--primary) 13%, transparent);
   color: var(--raven-blue);
   font-size: 12px;
   font-weight: 600;
@@ -1243,7 +1262,7 @@ body {
 }
 
 .snippet-add-btn:hover {
-  background: #0066FF22;
+  background: color-mix(in srgb, var(--primary) 13%, transparent);
   color: var(--raven-blue);
   border-color: var(--raven-blue-dim);
 }
@@ -1270,7 +1289,7 @@ body {
 }
 
 .snippet-input:focus, .snippet-textarea:focus {
-  border-color: #0066FF66;
+  border-color: color-mix(in srgb, var(--primary) 40%, transparent);
 }
 
 .snippet-form-actions {
@@ -1303,7 +1322,7 @@ body {
   border-color: rgba(255, 255, 255, 0.14);
 }
 .snippet-save-btn:active:not(:disabled) {
-  background: #0052cc;
+  background: color-mix(in srgb, var(--primary) 86%, #000);
   box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.4);
 }
 .snippet-save-btn:focus-visible {
@@ -1407,7 +1426,7 @@ body {
 }
 
 .snippet-send-btn:hover {
-  background: #0066FF22;
+  background: color-mix(in srgb, var(--primary) 13%, transparent);
   color: var(--raven-blue);
   border-color: var(--raven-blue-dim);
 }
@@ -1752,8 +1771,8 @@ body {
 }
 
 .pane-copy-btn:hover {
-  background: #A78BFA22;
-  color: #A78BFA;
+  background: color-mix(in srgb, var(--primary) 13%, transparent);
+  color: var(--primary);
 }
 
 /* Pane save button */
@@ -1824,7 +1843,7 @@ body {
 
 .layout-cell.active {
   border-color: var(--raven-blue);
-  background: #0066FF22;
+  background: color-mix(in srgb, var(--primary) 13%, transparent);
 }
 
 .layout-cell:hover {
@@ -1984,8 +2003,8 @@ body {
   font-family: 'SF Mono', 'Menlo', monospace;
   letter-spacing: 0.4px;
   color: var(--raven-blue);
-  background: #0066FF15;
-  border: 1px solid #0066FF30;
+  background: color-mix(in srgb, var(--primary) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--primary) 19%, transparent);
   border-radius: 3px;
   padding: 1px 5px;
   flex-shrink: 0;
@@ -2010,8 +2029,8 @@ body {
 }
 
 .pane-restart-btn:hover {
-  background: #0066FF22;
-  border-color: #0066FF88;
+  background: color-mix(in srgb, var(--primary) 13%, transparent);
+  border-color: color-mix(in srgb, var(--primary) 53%, transparent);
 }
 
 /* Hand off → : advance a worker pipeline to its next agent/step. Mirrors the
@@ -2034,8 +2053,8 @@ body {
 }
 
 .pane-handoff-btn:hover {
-  background: #0066FF22;
-  border-color: #0066FF88;
+  background: color-mix(in srgb, var(--primary) 13%, transparent);
+  border-color: color-mix(in srgb, var(--primary) 53%, transparent);
 }
 
 /* Sync cwd button — live pane cwd diverges from active repo */
@@ -2079,7 +2098,7 @@ body {
 }
 
 .pane-zoom-btn:hover {
-  background: #0066FF22;
+  background: color-mix(in srgb, var(--primary) 13%, transparent);
   color: var(--raven-blue);
 }
 
@@ -2735,7 +2754,7 @@ body {
 .pr-filter-btn.active {
   background: var(--raven-blue-dim);
   color: var(--raven-blue);
-  border-color: #0066FF55;
+  border-color: color-mix(in srgb, var(--primary) 33%, transparent);
 }
 
 .pr-filter-btn:not(.active):hover {
@@ -3120,7 +3139,7 @@ body {
 .issue-filter-btn.active {
   background: var(--raven-blue-dim);
   color: var(--raven-blue);
-  border-color: #0066FF55;
+  border-color: color-mix(in srgb, var(--primary) 33%, transparent);
 }
 
 .issue-filter-btn:not(.active):hover {
@@ -3520,9 +3539,9 @@ body {
 }
 
 .block-copy-btn:hover {
-  background: #A78BFA22;
-  color: #A78BFA;
-  border-color: #A78BFA44;
+  background: color-mix(in srgb, var(--primary) 13%, transparent);
+  color: var(--primary);
+  border-color: color-mix(in srgb, var(--primary) 27%, transparent);
 }
 
 .block-copy-btn.copied {
@@ -3557,7 +3576,7 @@ body {
 }
 
 .block-expand-btn:hover {
-  background: #0066FF0a;
+  background: color-mix(in srgb, var(--primary) 4%, transparent);
 }
 
 .pane-blocks-btn {
@@ -3577,13 +3596,13 @@ body {
 }
 
 .pane-blocks-btn:hover {
-  background: #A78BFA22;
-  color: #A78BFA;
+  background: color-mix(in srgb, var(--primary) 13%, transparent);
+  color: var(--primary);
 }
 
 .pane-blocks-btn.active {
-  color: #A78BFA;
-  background: #A78BFA18;
+  color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 9%, transparent);
 }
 
 .pane-blocks-count {
@@ -3602,7 +3621,7 @@ body {
 
 .ai-card.locked:hover {
   opacity: 0.7;
-  border-color: #A78BFA44;
+  border-color: color-mix(in srgb, var(--primary) 27%, transparent);
 }
 
 .ai-card-lock {
@@ -3611,9 +3630,9 @@ body {
   right: 4px;
   font-size: 8px;
   font-weight: 700;
-  background: #A78BFA33;
-  color: #A78BFA;
-  border: 1px solid #A78BFA55;
+  background: color-mix(in srgb, var(--primary) 20%, transparent);
+  color: var(--primary);
+  border: 1px solid color-mix(in srgb, var(--primary) 33%, transparent);
   border-radius: 3px;
   padding: 1px 4px;
   letter-spacing: 0.5px;
@@ -4331,7 +4350,7 @@ kbd {
 }
 
 .btn-primary:hover {
-  background: #0052cc;
+  background: color-mix(in srgb, var(--primary) 86%, #000);
 }
 
 .btn-primary:disabled {
@@ -4890,7 +4909,7 @@ kbd {
 
 .global-search-result-item:hover,
 .global-search-result-item.selected {
-  background: #0066FF18;
+  background: color-mix(in srgb, var(--primary) 9%, transparent);
 }
 
 .global-search-result-label {
@@ -5437,7 +5456,7 @@ kbd {
 }
 
 .tw-nav-btn.active {
-  background: #0066FF1a;
+  background: color-mix(in srgb, var(--primary) 10%, transparent);
   color: var(--raven-blue);
 }
 
@@ -5676,10 +5695,10 @@ kbd {
   background: var(--bg-surface);
 }
 .notification-item--unread {
-  background: #0066FF08;
+  background: color-mix(in srgb, var(--primary) 3%, transparent);
 }
 .notification-item--unread:hover {
-  background: #0066FF14;
+  background: color-mix(in srgb, var(--primary) 8%, transparent);
 }
 
 .notification-type-icon {
@@ -6148,8 +6167,8 @@ button.ci-badge:hover {
   color: #fff;
 }
 .repo-picker-action-btn.primary:hover:not(:disabled) {
-  background: #0052cc;
-  border-color: #0052cc;
+  background: color-mix(in srgb, var(--primary) 86%, #000);
+  border-color: color-mix(in srgb, var(--primary) 86%, #000);
 }
 
 /* ── Repo actions overflow menu (⋯) ──────────────────────── */
@@ -6280,7 +6299,7 @@ button.ci-badge:hover {
   color: #fff;
 }
 .repo-action-btn.primary:active {
-  background: #0052cc;
+  background: color-mix(in srgb, var(--primary) 86%, #000);
   box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.4);
 }
 .repo-action-btn.primary .ra-icon { opacity: 1; }
@@ -6648,7 +6667,7 @@ button.ci-badge:hover {
   cursor: pointer;
   transition: background 0.15s;
 }
-.chat-composer-send:hover:not(:disabled) { background: #0052cc; }
+.chat-composer-send:hover:not(:disabled) { background: color-mix(in srgb, var(--primary) 86%, #000); }
 .chat-composer-send:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .chat-composer-error {
@@ -6890,7 +6909,7 @@ button.ci-badge:hover {
   transition: background 0.12s, color 0.12s;
 }
 .sp-tab:hover { background: var(--bg-surface); color: var(--text-primary); }
-.sp-tab.active { background: #7c3aed22; color: #a78bfa; }
+.sp-tab.active { background: color-mix(in srgb, var(--primary) 13%, transparent); color: var(--primary); }
 
 .sp-body {
   flex: 1;
@@ -6930,7 +6949,7 @@ button.ci-badge:hover {
   cursor: pointer;
   outline: none;
 }
-.sp-select:focus { border-color: #0066FF66; }
+.sp-select:focus { border-color: color-mix(in srgb, var(--primary) 40%, transparent); }
 
 .sp-divider {
   height: 1px;
@@ -6955,7 +6974,7 @@ button.ci-badge:hover {
   font-size: 13px;
   color: var(--text-secondary);
 }
-.sp-keybind-row.recording .sp-keybind-label { color: #a78bfa; }
+.sp-keybind-row.recording .sp-keybind-label { color: var(--primary); }
 
 .sp-kbd {
   background: var(--bg-surface);
@@ -6970,8 +6989,8 @@ button.ci-badge:hover {
 }
 .sp-kbd.recording {
   background: rgba(124,58,237,0.2);
-  color: #a78bfa;
-  border-color: #7c3aed;
+  color: var(--primary);
+  border-color: var(--primary);
 }
 
 .sp-email {
@@ -7027,15 +7046,15 @@ button.ci-badge:hover {
 .sp-btn-purple {
   padding: 5px 12px;
   background: transparent;
-  color: #a78bfa;
-  border: 1px solid #7c3aed55;
+  color: var(--primary);
+  border: 1px solid color-mix(in srgb, var(--primary) 33%, transparent);
   border-radius: 6px;
   font-size: 12px;
   font-family: inherit;
   cursor: pointer;
   transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
 }
-.sp-btn-purple:hover { background: #7c3aed15; }
+.sp-btn-purple:hover { background: color-mix(in srgb, var(--primary) 8%, transparent); }
 
 .sp-action-btn {
   width: 100%;
@@ -7083,7 +7102,7 @@ button.ci-badge:hover {
 }
 .sp-mem-progress-fill {
   height: 100%;
-  background: #a78bfa;
+  background: var(--primary);
   border-radius: 2px;
   transition: width 0.4s ease;
 }
@@ -7171,18 +7190,18 @@ button.ci-badge:hover {
 .team-thread-empty button {
   padding: 5px 12px;
   background: transparent;
-  color: #a78bfa;
-  border: 1px solid #7c3aed55;
+  color: var(--primary);
+  border: 1px solid color-mix(in srgb, var(--primary) 33%, transparent);
   border-radius: 6px;
   font-size: 12px;
   font-family: inherit;
   cursor: pointer;
   transition: background 0.15s ease, border-color 0.15s ease;
 }
-.team-thread-empty button:hover { background: #7c3aed15; }
+.team-thread-empty button:hover { background: color-mix(in srgb, var(--primary) 8%, transparent); }
 .team-thread-empty button:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 2px #7c3aed55;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 33%, transparent);
 }
 
 .team-thread-graph {
@@ -9749,7 +9768,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
 .layout-selector-option.active {
   color: var(--raven-blue);
   border-color: var(--raven-blue);
-  background: #0066FF15;
+  background: color-mix(in srgb, var(--primary) 8%, transparent);
 }
 
 /* ── Drop Indicator ───────────────────────────────────────── */
@@ -9757,7 +9776,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
 .workspace.grid-workspace--drop-target {
   outline: 2px dashed var(--raven-blue);
   outline-offset: -6px;
-  background: #0066FF08;
+  background: color-mix(in srgb, var(--primary) 3%, transparent);
 }
 
 /* ── Browser Drag Handle ───────────────────────────────────── */
@@ -9986,7 +10005,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
 .ip-section-label { font-size: 10.5px; font-weight: 600; letter-spacing: .09em; text-transform: uppercase; color: #45454b; padding: 12px 16px 6px; margin: 0; }
 .ip-item { display: flex; gap: 9px; padding: 9px 16px; width: 100%; text-align: left; background: none; border: none; border-left: 2px solid transparent; cursor: pointer; }
 .ip-item:hover { background: #0c0d11; }
-.ip-item.active { background: #0e0f14; border-left-color: #0066FF; }
+.ip-item.active { background: #0e0f14; border-left-color: var(--primary); }
 .ip-item-accent { font-size: 11px; color: #5a7bb5; font-weight: 600; flex-shrink: 0; margin-top: 1px; }
 .ip-item-body { display: flex; flex-direction: column; }
 .ip-item-title { font-size: 12.5px; color: #c4c4ca; line-height: 1.35; }
@@ -10000,7 +10019,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
 .ip-action { font-size: 11.5px; border-radius: 7px; padding: 4px 11px; cursor: pointer; }
 .ip-action-secondary { color: #8a8a92; border: 1px solid #1e1e24; background: none; }
 .ip-action-secondary:hover { color: #b8b8c0; border-color: #2a2a32; }
-.ip-action-primary { color: #fff; border: 1px solid transparent; background: #0066FF; font-weight: 600; }
+.ip-action-primary { color: #fff; border: 1px solid transparent; background: var(--primary); font-weight: 600; }
 .ip-action-primary:hover { background: #1975ff; }
 .ip-detail-meta { display: flex; gap: 18px; margin-top: 14px; font-size: 11.5px; color: #6a6a72; }
 .ip-detail-meta b { color: #a9a9b1; font-weight: 500; }
@@ -10017,7 +10036,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
 .ip-compose-actions { display: flex; align-items: center; gap: 10px; margin-top: 9px; }
 .ip-attach { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: #9aa6d6; background: #0c1018; border: 1px solid #16233b; border-radius: 7px; padding: 5px 11px; cursor: pointer; }
 .ip-attach:hover { background: #101828; }
-.ip-send { margin-left: auto; font-size: 12px; font-weight: 600; color: #fff; background: #0066FF; border: none; border-radius: 7px; padding: 6px 16px; cursor: pointer; }
+.ip-send { margin-left: auto; font-size: 12px; font-weight: 600; color: #fff; background: var(--primary); border: none; border-radius: 7px; padding: 6px 16px; cursor: pointer; }
 .ip-send:hover:not(:disabled) { background: #1975ff; }
 .ip-send:disabled { opacity: .4; cursor: default; }
 .ip-empty { flex: 1; display: flex; align-items: center; justify-content: center; color: #55555b; font-size: 13px; }
@@ -10238,7 +10257,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
 .gb-mn small { font-weight: 400; color: var(--text-muted); font-size: 9px; }
 .gb-dot { width: 6px; height: 6px; border-radius: 50%; flex: 0 0 6px; background: var(--text-muted); }
 .gb-mn.done .gb-dot { background: #22C55E; }
-.gb-mn.working { border-color: #0066FF55; }
+.gb-mn.working { border-color: color-mix(in srgb, var(--primary) 33%, transparent); }
 .gb-mn.working .gb-dot { background: var(--raven-blue); animation: gb-pulse 1.7s ease-in-out infinite; }
 .gb-mn.needs { border-color: #F59E0B44; }
 .gb-mn.needs .gb-dot { background: #F59E0B; animation: gb-pulse 1.7s ease-in-out infinite; }
@@ -10270,7 +10289,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
 .gb-node.done { border-color: #22C55E33; }
 .gb-node.done .gb-st { color: #22C55E; }
 .gb-node.done .gb-s { background: #22C55E; }
-.gb-node.working { border-color: #0066FF55; }
+.gb-node.working { border-color: color-mix(in srgb, var(--primary) 33%, transparent); }
 .gb-node.working .gb-st { color: var(--raven-blue); }
 .gb-node.working .gb-s { background: var(--raven-blue); animation: gb-pulse 1.7s infinite; }
 .gb-node.needs { border-color: #F59E0B55; }
@@ -10422,8 +10441,8 @@ body.platform-mac .tabbar { padding-right: 116px; }
   transition: background 0.1s, color 0.1s;
 }
 .explorer-entry:hover { background: rgba(255, 255, 255, 0.05); color: var(--text-primary); }
-.explorer-entry.selected { background: #7c3aed22; color: #a78bfa; }
-.explorer-entry.selected .explorer-type-icon { color: #a78bfa; }
+.explorer-entry.selected { background: color-mix(in srgb, var(--primary) 13%, transparent); color: var(--primary); }
+.explorer-entry.selected .explorer-type-icon { color: var(--primary); }
 
 .explorer-entry-icon {
   display: flex;
@@ -10441,7 +10460,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
 .ic-ts   { color: #4d94ff; }  /* raven blue family */
 .ic-js   { color: #e8c545; }
 .ic-json { color: #d19a66; }
-.ic-md   { color: #a78bfa; }  /* platform violet */
+.ic-md   { color: var(--primary); }  /* platform violet */
 .ic-css  { color: #56b6c2; }
 .ic-html { color: #e0876c; }
 .ic-img  { color: #6cc27e; }
@@ -10505,12 +10524,12 @@ body.platform-mac .tabbar { padding-right: 116px; }
 .editor-tab.active {
   background: var(--bg-elevated);
   color: var(--text-primary);
-  border-top-color: #7c3aed;
+  border-top-color: var(--primary);
 }
 .editor-tab .explorer-type-icon { flex-shrink: 0; }
 .editor-tab-name { overflow: hidden; text-overflow: ellipsis; }
 
-.editor-tab-dirty { color: #a78bfa; font-size: 10px; line-height: 1; }
+.editor-tab-dirty { color: var(--primary); font-size: 10px; line-height: 1; }
 /* Los botones flotan sobre el final de la tab. Con min-width 38px y overflow
    hidden quedaban clipeados fuera del box: el x y el "abrir en otro pane" eran
    inalcanzables y no se podia cerrar un archivo sin cerrar otros antes.
@@ -10575,8 +10594,8 @@ body.platform-mac .tabbar { padding-right: 116px; }
   transition: background 0.12s, color 0.12s, border-color 0.12s;
 }
 .editor-banner-btn:hover { background: var(--bg-surface); color: var(--text-primary); }
-.editor-banner-btn.primary { border-color: #7c3aed55; color: #a78bfa; }
-.editor-banner-btn.primary:hover { background: #7c3aed22; }
+.editor-banner-btn.primary { border-color: color-mix(in srgb, var(--primary) 33%, transparent); color: var(--primary); }
+.editor-banner-btn.primary:hover { background: color-mix(in srgb, var(--primary) 13%, transparent); }
 
 /* Archivo no cargable (binario / oversized): empty state centrado. */
 .editor-file-unavailable {
@@ -10596,7 +10615,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
 .pane-crashed-actions { display: flex; gap: 8px; }
 
 /* Drop target de drag & drop (tab de otro pane o archivo del Explorer). */
-.editor-pane.drop-target { outline: 2px dashed #7c3aed88; outline-offset: -2px; }
+.editor-pane.drop-target { outline: 2px dashed color-mix(in srgb, var(--primary) 53%, transparent); outline-offset: -2px; }
 
 /* Badges de diff vs HEAD en el Explorer (+N verde / −M rojo / U untracked). */
 .explorer-diff { margin-left: auto; display: flex; gap: 5px; font-size: 10px; font-variant-numeric: tabular-nums; padding-right: 6px; flex-shrink: 0; }

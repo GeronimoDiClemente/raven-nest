@@ -88,7 +88,7 @@ export default function BrowserCell({ pane, onClose, onNavigate, borderColor, si
     // origen se atenúa (el WebContentsView ya se colapsa aparte). Resaltamos el
     // pane objetivo para ver con cuál se intercambia.
     opacity: isDragging ? 0.3 : 1,
-    outline: isOver && !isDragging ? '2px solid #0066FF66' : undefined,
+    outline: isOver && !isDragging ? '2px solid color-mix(in srgb, var(--primary) 40%, transparent)' : undefined,
     outlineOffset: isOver && !isDragging ? '-2px' : undefined,
   }
   const setNodeRef = (el: HTMLDivElement | null) => {
@@ -364,7 +364,7 @@ export default function BrowserCell({ pane, onClose, onNavigate, borderColor, si
     return () => document.removeEventListener('mousedown', onClick)
   }, [portsOpen])
 
-  const accent = borderColor ?? '#0066FF'
+  const accent = borderColor ?? 'var(--primary)'
 
   return (
     <div
@@ -449,7 +449,7 @@ export default function BrowserCell({ pane, onClose, onNavigate, borderColor, si
                   onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
                 >
                   <span style={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: 13, fontWeight: 400 }}>localhost</span>
-                  <span style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace", color: '#0066FF', fontWeight: 600, fontSize: 13, letterSpacing: '0.02em' }}>:{port}</span>
+                  <span style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace", color: 'var(--primary)', fontWeight: 600, fontSize: 13, letterSpacing: '0.02em' }}>:{port}</span>
                 </button>
               ))
             )}
@@ -486,7 +486,7 @@ export default function BrowserCell({ pane, onClose, onNavigate, borderColor, si
                     onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
                   >
                     <span style={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: 13, fontWeight: 400 }}>localhost</span>
-                    <span style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace", color: '#0066FF', fontWeight: 600, fontSize: 13, letterSpacing: '0.02em' }}>:{port}</span>
+                    <span style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace", color: 'var(--primary)', fontWeight: 600, fontSize: 13, letterSpacing: '0.02em' }}>:{port}</span>
                   </button>
                 ))}
               </>

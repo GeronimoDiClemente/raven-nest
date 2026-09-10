@@ -84,7 +84,7 @@ const SHELL_COLORS: Record<string, string> = {
   wsl:        '#FFCC00',  // Tux/Linux yellow
 }
 
-const CUSTOM_COLORS = ['#E07B54', '#4F9EFF', '#22C55E', '#A78BFA', '#F59E0B', '#EC4899', '#14B8A6', '#60A5FA', '#888888']
+const CUSTOM_COLORS = ['#E07B54', '#4F9EFF', '#22C55E', 'var(--primary)', '#F59E0B', '#EC4899', '#14B8A6', '#60A5FA', '#888888']
 
 export default function NewPaneDialog({ onConfirm, onCancel, presetAgent, presetModel, presetAccount }: Props) {
   const presetCfg = presetAgent ? AI_CONFIG[presetAgent] : null

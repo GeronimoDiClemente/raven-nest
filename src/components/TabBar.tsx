@@ -60,7 +60,7 @@ const SortableTab = memo(function SortableTab({
     setRenamingId(null)
   }
 
-  const tabAccent = tab.accentColor ?? '#0066FF'
+  const tabAccent = tab.accentColor ?? 'var(--primary)'
 
   // Only apply transition while actively dragging — otherwise React re-renders
   // (from upstream metrics polling) re-attach the style and trigger CSS
@@ -119,7 +119,7 @@ const SortableTab = memo(function SortableTab({
         ref={colorInputRef}
         type="color"
         className="tab-color-picker-hidden"
-        value={tab.accentColor ?? '#0066FF'}
+        value={tab.accentColor ?? 'var(--primary)'}
         onChange={(e) => {
           e.stopPropagation()
           onTabColorChange?.(tab.id, e.target.value)

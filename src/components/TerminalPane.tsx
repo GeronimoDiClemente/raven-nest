@@ -390,7 +390,7 @@ export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZ
     ...style,
     // Sin transform de dnd-kit: el reorder en vivo (onDragOver) mueve los panes.
     opacity: isDragging ? 0.3 : 1,
-    outline: isOver && !isDragging ? '2px solid #0066FF66' : undefined,
+    outline: isOver && !isDragging ? '2px solid color-mix(in srgb, var(--primary) 40%, transparent)' : undefined,
     outlineOffset: isOver && !isDragging ? '-2px' : undefined,
     '--pane-color': pane.borderColor,
   } as React.CSSProperties

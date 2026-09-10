@@ -1157,7 +1157,7 @@ export default function App() {
       const newTabId = generateTabId()
       const pane: PaneNode = {
         id: generateId(), aiType: 'browser', accountName: 'browser', accountDir: '',
-        borderColor: '#0066FF', cmd: '', url,
+        borderColor: 'var(--primary)', cmd: '', url,
         sessionPartition: `persist:browser-${newTabId}`,
       }
       setTabs(prev => prev
@@ -1170,7 +1170,7 @@ export default function App() {
       aiType: 'browser',
       accountName: 'browser',
       accountDir: '',
-      borderColor: '#0066FF',
+      borderColor: 'var(--primary)',
       cmd: '',
       url,
       sessionPartition: `persist:browser-${activeTabId}`,
@@ -1232,7 +1232,7 @@ export default function App() {
 
       const COLOR_MIGRATION: Record<string, string> = {
         '#3B82F6': '#0055FF', '#EF4444': '#FF1A1A', '#10B981': '#00CC44',
-        '#F59E0B': '#FFB800', '#8B5CF6': '#CC44FF', '#EC4899': '#FF2D78',
+        '#F59E0B': '#FFB800', 'var(--primary)': '#CC44FF', '#EC4899': '#FF2D78',
         '#06B6D4': '#00CCCC', '#F97316': '#FF6600', '#6366F1': '#4455FF',
         '#84CC16': '#88FF00', '#6B7280': '#666666',
       }
@@ -2166,7 +2166,7 @@ export default function App() {
           <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Someone is requesting interactive access to your terminal.</div>
           <div style={{ display: 'flex', gap: 8 }}>
             <button onClick={() => { terminalShareService.approveGuest(joinRequest.paneId); setJoinRequest(null) }}
-              style={{ flex: 1, background: '#0066FF', color: '#fff', border: 'none', borderRadius: 6, padding: '7px 0', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+              style={{ flex: 1, background: 'var(--primary)', color: '#fff', border: 'none', borderRadius: 6, padding: '7px 0', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
               Allow
             </button>
             <button onClick={() => { terminalShareService.rejectGuest(joinRequest.paneId); setJoinRequest(null) }}
