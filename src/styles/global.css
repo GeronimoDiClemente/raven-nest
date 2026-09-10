@@ -151,24 +151,37 @@
   box-sizing: border-box;
 }
 
-/* Task 8 (migracion Tailwind/shadcn) — `:not([data-slot])`: sin preflight, este reset de
-   margin/padding es CSS sin capa, y le gana a CUALQUIER utilidad de Tailwind con la misma
+/* Task 8 (migracion Tailwind/shadcn), revisado tras review: este reset de margin/padding
+   es CSS sin capa, y sin capa le gana a CUALQUIER utilidad de Tailwind con la misma
    propiedad sin importar especificidad (la regla de cascade layers que ya explica el
    comentario de tailwind.css sobre `button { background-color; color }`). Eso significa
-   que TODO padding/margin de Tailwind (px-2.5, gap-1.5 vía padding, mx-auto, etc.) quedaba
-   en 0 en cualquier componente migrado — confirmado en <Button>/<Badge> de verdad
-   (computed padding: 0px pese a `px-2.5`). Nadie lo habia notado porque los usos previos
-   de <Button> son de icono fijo (`size-*`, no depende de padding) o de ancho completo
-   dentro de una fila con su propio padding viejo — recien la card del estado vacio de
-   Memories, con un boton de texto intrinsecamente angosto, lo expuso.
-   `[data-slot]` es exclusivo de los componentes que escupe el CLI de shadcn (ningun CSS
-   viejo lo usa — grep confirma cero usos fuera de src/components/ui/), asi que excluirlos
-   SOLO del margin/padding (box-sizing sigue universal arriba) es la misma idea que el
-   parche de preflight de tailwind.css: le devuelve a shadcn el pedacito que preflight le
-   da por sentado, sin tocar layout legacy. */
-*:not([data-slot]) {
-  margin: 0;
-  padding: 0;
+   que TODO padding/margin de Tailwind (px-2.5, gap-1.5 via padding, mx-auto, m*-*, etc.)
+   estuvo muerto en TODA la app desde que se instalo shadcn — no solo en los componentes
+   del CLI. Confirmado vivo en <Button>/<Badge> (computed padding 0px pese a `px-2.5`) Y
+   en markup plano sin ninguna relacion con shadcn (el input/boton de "Join Terminal" en
+   Sidebar.tsx:366-377, que la Task 7 paso de estilos inline — que ganan siempre — a
+   utilidades Tailwind — que perdian siempre contra este reset: 42px/32px de alto pasaron
+   a 26px/16px sin que ningun test lo viera, porque ningun gate mide spacing computado).
+   Un primer intento excluyo `*:not([data-slot])` (solo los componentes del CLI), pero eso
+   cambia la especificidad de `*` — de (0,0,0) a (0,1,0) — y empieza a ganarle a CUALQUIER
+   selector de solo-elemento, rompiendo `kbd` (global.css linea ~4300) en toda la app. La
+   solucion real es mover el reset ADENTRO de la capa `base` (ya declarada en
+   tailwind.css: `@layer theme, base, components, utilities`), para que deje de competir
+   con las utilidades en vez de intentar competir mejor: `utilities` > `base`, asi que
+   CUALQUIER utilidad de spacing gana ahora, tenga o no `data-slot`. Y el CSS sin capa de
+   este mismo archivo le sigue ganando a `base` sin cambios — la convivencia con las
+   clases viejas (`.memories-body`, `.teams-workspace-body`, etc.) sigue intacta. Medido
+   con un dump de margin/padding/caja de 4 pantallas completas comparando este build
+   contra el anterior: unicos elementos afectados fuera de shadcn son `kbd` (recupera su
+   padding, correcto) y el 1px vertical del UA stylesheet en <Button> (que preflight
+   pondria en 0 de todos modos — hoy inocuo porque los botones son `h-*` + `items-center`,
+   caja identica). Box-sizing se queda universal y sin capa (arriba) porque no compite con
+   ninguna utilidad de Tailwind. */
+@layer base {
+  *, ::before, ::after {
+    margin: 0;
+    padding: 0;
+  }
 }
 
 html, body, #root {
