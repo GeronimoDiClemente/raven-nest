@@ -137,6 +137,28 @@ describe('MemoriesWorkspace', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: /link a repo/i })).toBeInTheDocument())
   })
 
+  it('el estado vacio mantiene la escala tipografica en titulo y descripcion (Task 8b review I4 / Task 8c parte 3)', async () => {
+    // El guard de contraste (e2e/04-contraste.spec.ts:178) mide COLOR, y
+    // MemoriesWorkspace-tokens.test.tsx solo regexea el source sin montar el
+    // arbol — ninguno de los dos hubiera agarrado que alguien borre el
+    // className="text-fs-lg" de CardTitle. Este SI renderiza el estado vacio
+    // de verdad y lee la className del nodo real, no del texto fuente.
+    setMemoryApi(api({
+      hubStats: vi.fn().mockResolvedValue({ itemCount: 214, projectCount: 5 }),
+    }))
+    renderWorkspace({ activeRepoPath: null, onLinkRepo: () => {} })
+
+    const title = await screen.findByText('Link a repo to see its memory graph')
+    expect(title.className.split(/\s+/)).toContain('text-fs-lg')
+
+    const description = await screen.findByText(/214 memories across 5 projects/)
+    // 'text-fs' a secas, no 'text-fs-lg': son escalones distintos de la
+    // escala (CardDescription vs CardTitle) — toContain con split evita que
+    // un match de substring confunda uno con el otro.
+    expect(description.className.split(/\s+/)).toContain('text-fs')
+    expect(description.className.split(/\s+/)).not.toContain('text-fs-lg')
+  })
+
   it('el boton de volver cierra', async () => {
     setMemoryApi(api())
     const onClose = vi.fn()
