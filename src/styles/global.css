@@ -323,6 +323,15 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  /* Medido en la app real (harness e2e, getComputedStyle): ya pintaba 12px,
+     NO ~16px — hereda de `.tab` (TabBar.tsx), que trae `text-fs-sm` en su
+     className. No es preflight: esa capa sólo toca
+     button/input/optgroup/select/textarea (tailwind.css), y `.tab-name` es
+     un span. Se declara acá explícito para no depender de que el padre siga
+     llevando esa utilidad — mismo escalón que ya usan los vecinos directos
+     de esta fila: `.tab` (text-fs-sm) y `.tab-rename-input`
+     (TabBar.tsx:96, también text-fs-sm). */
+  font-size: var(--fs-sm);
 }
 
 .tab-rename-input {
