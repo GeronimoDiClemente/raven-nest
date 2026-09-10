@@ -1,4 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
+import { cn } from '@/lib/utils'
+import { Button } from '@/components/ui/button'
 import SnippetPanel from './SnippetPanel'
 import CommandHistoryPanel from './CommandHistoryPanel'
 import WorkspacePanel from './WorkspacePanel'
@@ -523,7 +525,7 @@ export default function Sidebar({
       {repoPath ? (
         <div className="sidebar-repo-info">
           <div className="sidebar-repo-row">
-            <span className="sidebar-label sidebar-repo-name">{basename(repoPath)}</span>
+            <span className="sidebar-label sidebar-repo-name text-ok">{basename(repoPath)}</span>
             {expanded && <span className="sidebar-repo-chevron" aria-hidden="true">▾</span>}
             {expanded && githubUrl && (
               <button
@@ -541,7 +543,7 @@ export default function Sidebar({
             )}
           </div>
           {showBranch && branch && (
-            <span className={`sidebar-branch-badge${isDirty ? ' dirty' : ''}`}>
+            <span className={cn('sidebar-branch-badge font-mono text-fs-xs', isDirty && 'dirty')}>
               {branch}{isDirty ? ' ●' : ''}
             </span>
           )}
@@ -557,7 +559,7 @@ export default function Sidebar({
   const WorktreesHeader = (
     <>
       {branch && (
-        <div className={`sidebar-tab-branch${isDirty ? ' dirty' : ''}`} title={branch}>
+        <div className={cn('sidebar-tab-branch font-mono text-fs-xs', isDirty && 'dirty')} title={branch}>
           {branch}{isDirty ? ' ●' : ''}
         </div>
       )}
@@ -670,10 +672,17 @@ export default function Sidebar({
   )
 
   return (
-    <div className={`sidebar${expanded ? ' expanded' : ''}`}>
+    <div className={cn(`sidebar${expanded ? ' expanded' : ''}`, 'bg-card border-r border-border')}>
 
       {/* Toggle */}
-      <button className="sidebar-item sidebar-toggle" onClick={onToggle} title={expanded ? 'Collapse sidebar' : 'Expand sidebar'}>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-8 w-full justify-start gap-2.5 px-2.5 font-normal mb-1"
+        onClick={onToggle}
+        title={expanded ? 'Collapse sidebar' : 'Expand sidebar'}
+        aria-expanded={expanded}
+      >
         <span className="sidebar-icon">
           {expanded ? (
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
@@ -687,7 +696,7 @@ export default function Sidebar({
             </svg>
           )}
         </span>
-      </button>
+      </Button>
 
       <div className="sidebar-scroll">
         {/* ── 1. COLLAPSED RAIL: repo (normal) or workspaces (Hub), same as

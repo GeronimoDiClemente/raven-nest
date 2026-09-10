@@ -34,21 +34,28 @@ test('la fila Memories esta debajo de Personal y encima del usuario, con su punt
   try {
     // La app arranca con la sidebar COLAPSADA. Sin esto, este test y el de abajo probaban
     // los dos el mismo estado y la captura "expandida" mostraba la colapsada.
-    const toggle = page.locator('.sidebar-toggle')
+    // Locator por rol + nombre accesible (el title, unico nombre disponible: el
+    // boton no tiene texto visible, solo el icono) en vez de la clase — sobrevive a
+    // la proxima migracion de markup. El estado expandido/colapsado se lee de
+    // aria-expanded, no de una clase en el contenedor.
+    const toggle = page.getByRole('button', { name: /Collapse sidebar|Expand sidebar/ })
     await expect(toggle).toBeVisible({ timeout: 15_000 })
-    if ((await page.locator('.sidebar.expanded').count()) === 0) {
+    if ((await toggle.getAttribute('aria-expanded')) !== 'true') {
       await toggle.click()
-      await expect(page.locator('.sidebar.expanded')).toHaveCount(1)
+      await expect(toggle).toHaveAttribute('aria-expanded', 'true')
     }
 
-    const memories = page.locator('.sidebar-item', { hasText: 'Memories' }).first()
+    const memories = page.getByTitle(/^Memories/).first()
     await expect(memories).toBeVisible({ timeout: 15_000 })
     // Expandida la fila muestra ademas el texto de estado al lado del nombre (§4.2).
     await expect(page.locator('.memories-status-text')).toBeVisible()
 
     // El orden es la mitad del pedido del §4.1 ("hermana de Personal"), asi que se mide por
     // posicion real en pantalla y no por orden en el DOM.
-    const personal = page.locator('.sidebar-item', { hasText: 'Personal' }).first()
+    // getByTitle, no getByRole: Personal es un <div> hoy (Task 7 todavia no llego al
+    // pie de la sidebar) y el title es su unico nombre estable — sigue siendo valido
+    // aunque la fila pase a <button> mas adelante, porque el atributo no se saca.
+    const personal = page.getByTitle(/^Personal/).first()
     const settings = page.locator('.sidebar-item-settings').first()
     const yDe = async (loc: ReturnType<typeof page.locator>) => (await loc.boundingBox())!.y
 
@@ -69,16 +76,17 @@ test('colapsada, el punto se sigue viendo — es la unica señal de estado que q
   const h = await launchHarness({ withRepo: false })
   const { page } = h
   try {
-    // `title`, no `aria-label`: el boton es `.sidebar-toggle` con title Collapse/Expand
-    // (Sidebar.tsx:676). Anclarlo a la clase Y al title deja el test roto a proposito si
-    // alguien le saca la etiqueta accesible en vez de pasar en falso.
-    const toggle = page.locator('.sidebar-toggle')
+    // `title`, no `aria-label`: el boton no tiene texto visible (solo el icono), asi
+    // que el title ES el nombre accesible. Anclarlo al rol+nombre Y al title deja el
+    // test roto a proposito si alguien le saca la etiqueta accesible en vez de pasar
+    // en falso.
+    const toggle = page.getByRole('button', { name: /Collapse sidebar|Expand sidebar/ })
     await expect(toggle).toBeVisible({ timeout: 15_000 })
     await expect(toggle).toHaveAttribute('title', /Collapse sidebar|Expand sidebar/)
 
     // Arranca colapsada, pero no se asume: se fuerza el estado que este test quiere probar.
-    if ((await page.locator('.sidebar.expanded').count()) > 0) await toggle.click()
-    await expect(page.locator('.sidebar.expanded')).toHaveCount(0)
+    if ((await toggle.getAttribute('aria-expanded')) === 'true') await toggle.click()
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false')
     // Colapsada, el nombre y el texto de estado desaparecen — el punto es lo unico que queda.
     await expect(page.locator('.memories-status-text')).toHaveCount(0)
 
@@ -105,7 +113,7 @@ test('la escala de z-index del §5.4 es la que dice el plan, y Memories esta en 
     })
     expect(vars).toEqual({ base: '1000', front: '1100', top: '1200' })
 
-    await page.locator('.sidebar-item', { hasText: 'Memories' }).first().click()
+    await page.getByTitle(/^Memories/).first().click()
     const overlay = page.locator('.memories-workspace')
     await expect(overlay).toBeVisible({ timeout: 10_000 })
 
@@ -152,7 +160,7 @@ test('el overlay se dibuja: fila de estado arriba y un cuerpo, nunca un hueco', 
   const h = await launchHarness({ withRepo: false })
   const { page } = h
   try {
-    await page.locator('.sidebar-item', { hasText: 'Memories' }).first().click()
+    await page.getByTitle(/^Memories/).first().click()
     await expect(page.locator('.memories-workspace .memories-status-row')).toBeVisible({ timeout: 10_000 })
 
     // Sin repo abierto el overlay explica por que no hay grafo; con repo dibuja el panel del

@@ -124,14 +124,16 @@ test('ningún texto de la app queda por debajo de 3:1 de contraste', async () =>
   const h = await launchHarness({ withRepo: true })
   const { page } = h
   try {
-    const toggle = page.locator('.sidebar-toggle')
-    if ((await page.locator('.sidebar.expanded').count()) === 0) await toggle.click()
+    // Locator por rol + nombre accesible (title, unico nombre disponible) en vez de
+    // la clase — ver la misma nota en 03-memories-in-app.spec.ts.
+    const toggle = page.getByRole('button', { name: /Collapse sidebar|Expand sidebar/ })
+    if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click()
     await page.waitForTimeout(1200)
 
     const pantallas: Array<[string, () => Promise<void>]> = [
       ['workspace', async () => {}],
       ['memories', async () => {
-        await page.locator('.sidebar-item', { hasText: 'Memories' }).first().click()
+        await page.getByTitle(/^Memories/).first().click()
         await page.waitForTimeout(800)
       }],
       ['settings', async () => {

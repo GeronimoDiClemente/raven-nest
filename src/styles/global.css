@@ -370,8 +370,7 @@ body {
   width: 44px;
   transition: width 200ms ease;
   overflow: visible;
-  background: var(--bg-surface);
-  border-right: 1px solid var(--border);
+  /* background / border-right migrados a bg-card border-r border-border (Task 7) */
   display: flex;
   flex-direction: column;
   -webkit-app-region: no-drag;
@@ -479,31 +478,9 @@ body {
   flex-shrink: 0;
 }
 
-/* Plan indicator at bottom */
-.sidebar-plan-indicator {
-  margin: 0 4px;
-  border-radius: 6px;
-  border: 1px solid var(--border);
-  overflow: hidden;
-  max-width: calc(100% - 8px);
-}
-.sidebar-plan-indicator.free {
-  color: var(--raven-blue) !important;
-  background: color-mix(in srgb, var(--primary) 8%, transparent) !important;
-  border-color: color-mix(in srgb, var(--primary) 25%, transparent);
-}
-.sidebar-plan-indicator.free:hover {
-  background: color-mix(in srgb, var(--primary) 15%, transparent) !important;
-}
-
-.sidebar-updates {
-  margin-top: auto;
-  opacity: 0.5;
-}
-
-.sidebar-logout {
-  opacity: 0.5;
-}
+/* .sidebar-plan-indicator(.free)/.sidebar-updates/.sidebar-logout(:hover) borrados
+   (Task 7): 0 referencias en toda src/ — ni Sidebar.tsx los usa ni ningun otro
+   componente. Verificado con grep antes de borrar. */
 
 .sidebar-repo { gap: 4px; align-items: center; }
 
@@ -521,21 +498,25 @@ body {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: var(--ui-font-size);
-  color: #00CC44;
+  /* color migrado a text-ok (Task 7) — era #00CC44, un verde de estado ("repo
+     enlazado"), no de marca. font-size queda: --ui-font-size es la preferencia
+     de tamaño de fuente del usuario, no un literal. */
   font-weight: 500;
   min-width: 0;
 }
 
 .sidebar-branch-badge {
-  font-size: 11px;
+  /* font-size/font-family migrados a text-fs-xs font-mono (Task 7, exacto:
+     11px == --fs-xs, var(--font-mono) == la utilidad font-mono). color queda:
+     var(--text-muted) no tiene equivalente Tailwind (no es --muted-foreground,
+     es un token propio sin bridge — ver nota de Task 5 sobre .tab-repo-badge). */
   color: var(--text-muted);
-  font-family: var(--font-mono);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .sidebar-branch-badge.dirty {
-  color: #F59E0B;
+  color: var(--warn);
 }
 
 .sidebar-repo-row {
@@ -586,7 +567,7 @@ body {
   flex-shrink: 0;
 }
 
-.sidebar-repo-unlink:hover { color: #FF4444; }
+.sidebar-repo-unlink:hover { color: var(--destructive); }
 
 .sidebar-logout:hover {
   opacity: 1;
@@ -623,9 +604,9 @@ body {
   position: relative;
 }
 
-.sidebar-toggle {
-  margin-bottom: 4px;
-}
+/* .sidebar-toggle borrada (Task 7): el boton de toggle paso a <Button>, que
+   trae su propio mb-1 (== 4px) por className. grep confirma 0 usos del
+   nombre de clase en toda src/ (el unico consumidor era este mismo boton). */
 
 /* ── Sidebar popover overrides ───────────────────────────────
    SnippetPanel and LayoutPicker were designed for the Titlebar
@@ -11980,19 +11961,23 @@ body.platform-mac .tabbar { padding-right: 116px; }
 /* Chevron hugs the repo name; margin-right:auto pushes the GitHub and unlink
    buttons to the far edge whether or not the GitHub one is there. */
 .sidebar-menu-box .sidebar-repo-name{flex:0 1 auto}
+/* font-size:9px queda sin migrar (Task 7): esta por debajo de la escala —
+   --fs-2xs (10px) es el escalon mas chico definido. Mismo caso que
+   .tab-repo-badge en TabBar (Task 5). color: var(--text-muted) tampoco tiene
+   utilidad Tailwind (ver nota de .sidebar-branch-badge). */
 .sidebar-repo-chevron{color:var(--text-muted);font-size:9px;line-height:1;flex-shrink:0;margin-right:auto}
 
 /* Branch line at the head of the Worktrees tab (it left the repo row along
    with the CI bar — both only mean something next to the worktrees). */
 .sidebar-tab-branch{
+  /* font-size/font-family migrados a text-fs-xs font-mono en el JSX (Task 7,
+     mismo caso que .sidebar-branch-badge de arriba). */
   padding:8px 12px 4px;
-  font-size:11px;
   color:var(--text-muted);
-  font-family:var(--font-mono);
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
   flex-shrink:0;
 }
-.sidebar-tab-branch.dirty{color:#F59E0B}
+.sidebar-tab-branch.dirty{color:var(--warn)}
 
 .sidebar-hub-wrap{display:flex;flex-direction:column;min-height:0;overflow-y:auto}
 
