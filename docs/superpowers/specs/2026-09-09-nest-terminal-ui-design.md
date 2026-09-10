@@ -124,13 +124,42 @@ Tailwind convive con las 12.104 líneas de `global.css`. Un componente migrado d
 
 **63 tests de jsdom** consultan clases y estructura del DOM. Migrar un componente a shadcn le cambia el markup, así que **cada componente migrado arrastra sus tests**. Ese es el costo real de B, y es el que hace que no tenga fecha: no son 107 componentes, son 107 componentes más sus tests.
 
-## 5. Alcance
+## 5. Alcance — actualizado el 2026-09-09 después de decidir
 
-**Entra:** A1 (hecho), A2, A3. Y de B: el shell del §4.3.1 y el chrome del §4.3.2, que es donde B y A se tocan.
+El §1 recomendaba hacer A y dejar B para después. **Gero eligió lo contrario, con el
+argumento correcto**: «si es una cuestión de ingeniería y apuntamos a romperla, no tengo
+apuro, total es laburo local, lo de que sea completo». B **entra entero**.
 
-**No entra:** migrar los 107 componentes. Los overlays y el resto quedan como trabajo posterior, cada uno con su propio incremento, cuando A esté terminado y se pueda juzgar el resultado.
+Eso cambia una cosa concreta y ya se aplicó: **no se reescriben las 627 declaraciones de
+`font-size` de `global.css`**. Reescribir a mano un archivo que vamos a borrar es trabajo
+tirado; la escala vive como tokens (que viajan al tema de Tailwind) y cada componente la
+adopta al migrarse. Lo mismo vale para las 54 ocurrencias de azul del §7.4: se limpian al
+migrar el componente que las usa, no antes.
 
-**Fuera a propósito:** xterm, Monaco, el grafo y los colores de marca (§4.4).
+**Entra:** A1 (hecho), A2 (hecho), A3, y B completo — los 107 componentes, en el orden
+del §4.3 y bajo la regla de convivencia del §4.2.
+
+**Fuera a propósito:** xterm, Monaco, el grafo del hilo y los colores de marca (§4.4).
+
+## 5.1 Las dos decisiones visuales que se tomaron encima
+
+**Memories con onda Obsidian.** El grafo de hoy (`TeamThreadGraph.tsx`, 129 líneas) es SVG
+estático con posiciones precalculadas: no tiene física ni animación, y por eso no se siente
+como el de Obsidian. Obsidian usa un layout **force-directed**: atracción tipo resorte
+(Hooke) en las aristas y repulsión tipo Coulomb entre nodos, recalculado en vivo, con lo
+denso agrupándose al centro y lo aislado derivando al borde. Entra en A3.
+
+**El plugin externo con onda engram.** `Gentleman-Programming/engram` es un binario Go con
+SQLite+FTS5, MCP y una TUI de cuatro pantallas (dashboard, recientes, detalle, búsqueda).
+
+> ⚠️ **Tensión que hay que resolver antes de escribir la TUI, no después:** la TUI de engram
+> usa **Catppuccin Mocha**, una paleta pastel *colorida*. La dirección de Nest es
+> deliberadamente **acromática** — el color reservado para estado, nunca para marca (§2.2).
+> «Que se vea onda engram» y «que se vea como Nest» son, hoy, dos identidades distintas.
+> Hay que elegir: o la TUI hereda los tokens de Nest y sólo copia la *estructura* de engram
+> (cuatro pantallas, navegación `j`/`k`/`/`/`Esc`), o se acepta que el plugin tenga su propia
+> cara. La recomendación es la primera: la estructura de engram es lo bueno; su paleta es de
+> ellos. Esto pertenece al plan del plugin (fase 2), no a este.
 
 ## 6. Riesgos
 
@@ -139,8 +168,25 @@ Tailwind convive con las 12.104 líneas de `global.css`. Un componente migrado d
 3. **B se puede empezar y no terminar.** Una app mitad shadcn y mitad CSS a mano es peor que cualquiera de las dos puras. Mitigación: la regla del §4.2 y no empezar B hasta que A esté cerrado.
 4. **La fuente empaquetada suma ~90 KB** y hay que decidirlo explícitamente (§3.3).
 
-## 7. Lo que sigue abierto
+## 7. Estado de lo que estaba abierto
 
-1. **¿Se empaqueta Geist o se queda la del sistema?** (§3.3). Recomendación: empaquetarla.
-2. **¿Se hace B más allá del chrome?** La recomendación es decidirlo *después* de A, con el resultado a la vista.
-3. **El layout de Memories.** La pantalla se ve vacía y eso es estructura, no tokens: entra en A3, pero necesita decidir qué muestra cuando no hay repo abierto.
+1. ~~¿Se empaqueta Geist?~~ **Sí, decidido y hecho.** Carga verificada en la app real.
+2. ~~¿Se hace B más allá del chrome?~~ **Sí, completo** (§5).
+3. **El layout de Memories** — sigue abierto en un punto: qué muestra la pantalla cuando no
+   hay repo abierto. El resto se resuelve con el grafo animado del §5.1.
+4. **54 ocurrencias de azul/violeta que quedaron.** 27 variantes cromáticas
+   (`#a855f7`, `#3b82f6`, `#1a75ff`, `#4f9eff`…) que son casi-duplicados del acento y que
+   la conversión por match exacto no cazó. **No se convierten en bloque**: la primera pasada
+   automática se llevó puesto el azul de marca de Atlassian en `builtinCatalog.ts`, así que
+   cada una se decide al migrar su componente.
+5. **La paleta de la TUI del plugin** (§5.1), para la fase 2.
+
+## 8. Lo que ya está construido y el plan puede dar por hecho
+
+- **El contrato del shell.** shadcn asume `bg-background text-foreground` en la raíz. Es la
+  precondición del §2.4 y lo primero de la migración.
+- **El guard de contraste** (`e2e/04-contraste.spec.ts`). Mide lo que el navegador pinta
+  sobre la app real y falla por debajo de 3:1. Es la red de seguridad de toda la migración:
+  cazó tres bugs el día que se escribió, uno de ellos previo al rediseño.
+- **Los e2e con captura** (`e2e/03-memories-in-app.spec.ts`), headless por default.
+- **El spike** en el scratchpad: prueba viva de que el look sale con componentes de fábrica.
