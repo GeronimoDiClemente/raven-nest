@@ -138,8 +138,13 @@ import { dirname, resolve } from 'node:path'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const raiz = resolve(here, '../../..')
-const tw = readFileSync(resolve(raiz, 'src/styles/tailwind.css'), 'utf8')
+const twRaw = readFileSync(resolve(raiz, 'src/styles/tailwind.css'), 'utf8')
 const global = readFileSync(resolve(raiz, 'src/styles/global.css'), 'utf8')
+
+// Sin comentarios. El archivo EXPLICA por que no se importa preflight, asi que
+// la palabra aparece en la prosa; chequear sobre el texto crudo hacia que el
+// test se fallara a si mismo y obligaba a escribir el comentario en clave.
+const tw = twRaw.replace(/\/\*[\s\S]*?\*\//g, '')
 
 describe('Tailwind convive con global.css', () => {
   // El chequeo central de toda la migración: preflight normaliza márgenes,
