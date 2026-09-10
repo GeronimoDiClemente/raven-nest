@@ -120,6 +120,17 @@ trampas** — es casi seguro que ya pasó antes.
 | un botón con estilos propios | `<Button variant="ghost" size="sm">` (u otra variante shadcn) |
 | un literal de color cromático | **decidir** — ver la nota abajo, no convertir automático |
 
+**Sobre el radio: hay un solo escalón.** `--radius-xs/sm/md/lg/xl/2xl/3xl/4xl` están
+todos puenteados a `--radius` en `src/styles/tailwind.css`, y de `lg` en adelante
+resuelven **al mismo valor** (8px). Eso es deliberado: Nest es una app compacta y tener
+un solo lenguaje de radio es lo que hace que tocar `--radius` re-skinee todo. La
+consecuencia es que **hoy no hay ningún escalón de Tailwind al que agarrarse para un
+radio grande de verdad** (un modal, un hero). Si alguna vez hace falta uno, **no lo
+resuelvas con un arbitrario `rounded-[16px]`** —eso es exactamente el agujero que la
+Trampa 2 describe para los tamaños, en otra propiedad—: agregá el escalón al puente,
+con su token, y decidí ahí qué significa.
+
+
 ## Las tres trampas
 
 Las tres tienen la misma forma: no rompen el build, no rompen `npm test`
