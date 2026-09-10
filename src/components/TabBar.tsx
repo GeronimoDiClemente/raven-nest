@@ -139,12 +139,7 @@ const SortableTab = memo(function SortableTab({
         variant="ghost"
         size="sm"
         className={cn(
-          // bg-transparent explícito: el proyecto no tiene preflight, así que
-          // el <button> nativo no tiene el reset `background-color:
-          // transparent` que shadcn asume para variant="ghost" (que sólo
-          // define background en :hover) — sin esto se ve el gris de UA del
-          // navegador (lo destapó e2e/04-contraste.spec.ts).
-          'bg-transparent text-muted-foreground hover:text-destructive transition-opacity shrink-0',
+          'text-muted-foreground hover:text-destructive transition-opacity shrink-0',
           // Antes .tab-close vivía en opacity:0 y sólo aparecía en :hover/.active
           // (global.css) — el group-hover reproduce lo mismo sin la clase vieja.
           isActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
@@ -231,7 +226,7 @@ export default function TabBar({
       <Button
         variant="ghost"
         size="sm"
-        className="bg-transparent text-muted-foreground"
+        className="text-muted-foreground"
         onClick={onTabNew}
         title="New workspace"
         aria-label="New workspace"

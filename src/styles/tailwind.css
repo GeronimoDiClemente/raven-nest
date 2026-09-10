@@ -48,6 +48,8 @@
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
+  --color-ok: var(--ok);
+  --color-warn: var(--warn);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
@@ -67,4 +69,16 @@
   --text-fs-lg: var(--fs-lg);
   --text-fs-xl: var(--fs-xl);
   --text-fs-2xl: var(--fs-2xl);
+}
+
+/* El único pedazo de Preflight que shadcn da por hecho.
+   `variant="ghost"` y `variant="link"` no declaran ningún `bg-*` base, así que
+   sin esto muestran el gris nativo del navegador. Preflight entero rompería las
+   12k líneas de `global.css` (por eso no se importa); esta regla sola no rompe
+   nada, porque todo botón estilado del proyecto declara su propio background y
+   el CSS sin capa de `global.css` le gana igual a cualquier `@layer`. */
+@layer base {
+  button {
+    background-color: transparent;
+  }
 }

@@ -53,6 +53,18 @@
   --accent-foreground: #f2f2f2;
   --destructive: #ff6568;
   --destructive-foreground: #ffffff;
+
+  /* ── Estado ──────────────────────────────────────────────────────────
+     La constraint del rediseño es «el color es estado, nunca marca»: el
+     acento (`--primary`) es acromático, y el color queda reservado para
+     decir qué está pasando. Estos son los únicos tres que existen.
+
+     Antes de esto había CUATRO verdes (#22c55e, #3fb950, #2ecc71, #4ade80),
+     CUATRO ámbares y TRES rojos escritos a mano en 164 lugares — no porque
+     alguien eligiera cuatro verdes, sino porque no había dónde ponerlo.
+     `--destructive` ya existía en el contrato shadcn y hace de rojo. */
+  --ok: #4ade80;
+  --warn: #e3b341;
   --border: rgb(255 255 255 / 0.08);
   --input: rgb(255 255 255 / 0.15);
   --ring: #6e6e6e;
@@ -332,16 +344,11 @@ body {
   position: relative;
 }
 
-/* NO migrado (Task 5): #22C55E es un literal de estado (hay actividad en la
-   terminal), pero el tema no define ningún token semántico "success"/verde
-   (:root sólo tiene destructive como color de estado) — no hay a qué
-   equivalencia mapearlo sin inventar un token nuevo, fuera del alcance de
-   esta task. */
 .tab-activity-dot {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #22C55E;
+  background: var(--ok);
   flex-shrink: 0;
   animation: activityPulse 1.5s ease-in-out infinite;
   margin-right: 2px;
