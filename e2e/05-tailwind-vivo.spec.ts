@@ -32,12 +32,21 @@ test('una utilidad de Tailwind resuelve al mismo color que el token', async () =
         probe.remove()
         return out
       }
+      const radiusResolver = (v: string) => {
+        const probe = document.createElement('div')
+        probe.style.borderRadius = v
+        document.body.appendChild(probe)
+        const out = getComputedStyle(probe).borderRadius
+        probe.remove()
+        return out
+      }
       const out = {
         bg: s.backgroundColor,
         fg: s.color,
         radio: s.borderRadius,
         tokenBg: resolver(raiz.getPropertyValue('--background').trim()),
         tokenFg: resolver(raiz.getPropertyValue('--foreground').trim()),
+        tokenRadius: radiusResolver(raiz.getPropertyValue('--radius').trim()),
       }
       el.remove()
       return out
@@ -45,7 +54,7 @@ test('una utilidad de Tailwind resuelve al mismo color que el token', async () =
 
     expect(medido.bg).toBe(medido.tokenBg)
     expect(medido.fg).toBe(medido.tokenFg)
-    expect(medido.radio).not.toBe('0px')
+    expect(medido.radio).toBe(medido.tokenRadius)
   } finally {
     await teardown(h)
   }

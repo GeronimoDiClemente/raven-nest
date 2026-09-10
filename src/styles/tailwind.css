@@ -14,6 +14,13 @@
 @import "tailwindcss/utilities.css" layer(utilities);
 @import "tw-animate-css";
 
+/* `rounded-md` no la usa ningun componente todavia, pero el gate de
+   e2e/05-tailwind-vivo.spec.ts la necesita para verificar que --radius
+   llega hasta lo pintado. Se fuerza su generacion desde aca en vez de
+   ensuciar el markup de la app: un test no cambia el producto para poder
+   observarse. */
+@source inline("rounded-md");
+
 /* `dark:` de shadcn. Nest no tiene tema claro: los tokens viven directo en
    `:root`. Pero los componentes que escupe el CLI usan `dark:` en algunos
    lugares, así que la variante tiene que existir y resolver — el shell lleva
