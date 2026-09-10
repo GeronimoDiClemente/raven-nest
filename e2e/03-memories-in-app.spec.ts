@@ -167,8 +167,12 @@ test('el overlay se dibuja: fila de estado arriba y un cuerpo, nunca un hueco', 
     // por rol y nombre accesible — la clase vieja `.memories-empty` desaparecio con la
     // migracion); con repo dibuja el panel del hilo. Los dos son estados validos — lo que
     // NO puede pasar es que no haya ninguno.
-    const conGrafo = await page.locator('.memories-workspace .team-thread-panel').count()
-    const sinRepo = await page.getByRole('button', { name: /link a repo/i }).count()
+    // Review M3: el locator por rol queda ANCLADO al overlay (no a `page` entero) — sin
+    // esto el assert no prueba que el boton esta ADENTRO de `.memories-workspace`, solo
+    // que existe en algun lado de la pagina.
+    const overlay = page.locator('.memories-workspace')
+    const conGrafo = await overlay.locator('.team-thread-panel').count()
+    const sinRepo = await overlay.getByRole('button', { name: /link a repo/i }).count()
     expect(conGrafo + sinRepo).toBeGreaterThan(0)
 
     await page.screenshot({ path: join(SHOTS, '05-overlay-cuerpo.png') })
