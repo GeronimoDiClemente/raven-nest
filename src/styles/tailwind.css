@@ -134,11 +134,16 @@
    Task 13 (item 1): el selector estuvo angosto a `button` solo desde que
    esto se escribió, dos veces (5b/7b y otra vez al cerrar C1) — las dos por
    armar el conjunto persiguiendo bugs observados en vez de copiar la regla
-   completa. Con el selector angosto, los 91 `<input>`/`<select>`/
-   `<textarea>` del renderer (57+20+14) seguían cayendo a la fuente del
-   sistema — Arial en macOS, otra en Windows — porque ninguna regla global
-   les fija `font-family` (la única en las 12k líneas de `global.css` es
-   `.auto-textarea { font-family: inherit }`, una sola de 91). NO angostar
+   completa. Con el selector angosto, los form controls del renderer caían a
+   la fuente del sistema — Arial en macOS, otra en Windows. Los números,
+   medidos: 87 controles fuera de los tests (56 `<input>` + 20 `<select>` +
+   11 `<textarea>`; con los tests son 91). `global.css` tiene 36 reglas con
+   `font-family: inherit`, pero sólo 10 nombran un form control
+   (`.search-input`, `.cmd-input`, `.chat-composer-input`, `.sp-select`,
+   `.auto-textarea`, `.snippet-input`/`.snippet-textarea`,
+   `.pane-note-input`, `.conv-item-rename-input`, `.global-search-input`) —
+   las otras 26 son botones, que ya heredaban por el selector viejo. O sea
+   que la mayoría de los controles estaba desnuda. NO angostar
    este selector otra vez: si algún control queda mal por heredar
    `background-color: transparent`/`color: inherit` sin tener regla propia
    en `global.css`, la salida es declararle su propio `background`/`color`
