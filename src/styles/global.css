@@ -1318,7 +1318,7 @@ body {
 }
 
 .snippet-save-btn:hover:not(:disabled) {
-  background: #1a78ff;
+  background: var(--primary);
   border-color: rgba(255, 255, 255, 0.14);
 }
 .snippet-save-btn:active:not(:disabled) {
@@ -2548,7 +2548,7 @@ body {
 }
 
 .file-staging-send:hover {
-  background: #0055dd;
+  background: var(--primary);
 }
 
 /* ── ConfirmDialog ───────────────────────────────────────── */
@@ -2610,10 +2610,10 @@ body {
 .confirm-btn-ok {
   padding: 5px 14px;
   background: #1e2a3a;
-  border: 1px solid #0055FF44;
+  border: 1px solid color-mix(in srgb, var(--primary) 27%, transparent);
   border-radius: 4px;
   font-size: 12px;
-  color: #4488FF;
+  color: var(--primary);
   cursor: pointer;
 }
 
@@ -2840,8 +2840,8 @@ body {
   align-items: center;
   gap: 8px;
   padding: 6px 14px;
-  background: rgba(99, 102, 241, 0.08);
-  border-bottom: 1px solid rgba(99, 102, 241, 0.2);
+  background: color-mix(in srgb, var(--primary) 8%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--primary) 20%, transparent);
   font-size: 11px;
   color: var(--text-muted);
 }
@@ -2854,8 +2854,8 @@ body {
   font-size: 11px;
   padding: 3px 10px;
   border-radius: 5px;
-  background: rgba(99, 102, 241, 0.15);
-  border: 1px solid rgba(99, 102, 241, 0.3);
+  background: color-mix(in srgb, var(--primary) 15%, transparent);
+  border: 1px solid color-mix(in srgb, var(--primary) 30%, transparent);
   color: var(--raven-blue);
   cursor: pointer;
   transition: all 0.15s;
@@ -3922,7 +3922,7 @@ body {
   color: var(--primary-foreground);
 }
 .upgrade-plan-btn.primary:hover:not(:disabled) {
-  background: #1a78ff;
+  background: var(--primary);
   border-color: rgba(255, 255, 255, 0.25);
 }
 .upgrade-plan-btn.ghost {
@@ -4036,8 +4036,8 @@ body {
 
 .update-banner--downloading {
   background: #1a1a2e;
-  color: #4F9EFF;
-  border-bottom: 1px solid #4F9EFF33;
+  color: var(--primary);
+  border-bottom: 1px solid color-mix(in srgb, var(--primary) 20%, transparent);
 }
 
 .update-banner--ready {
@@ -4089,7 +4089,7 @@ body {
   width: 100%;
   height: 100%;
   background: var(--bg-app);
-  background-image: radial-gradient(ellipse at 50% 0%, #0055FF08 0%, transparent 60%);
+  background-image: radial-gradient(ellipse at 50% 0%, color-mix(in srgb, var(--primary) 3%, transparent) 0%, transparent 60%);
 }
 
 .auth-card {
@@ -5316,15 +5316,15 @@ kbd {
 
 @keyframes voice-orb-pulse {
   0% {
-    box-shadow: 0 0 0 0 rgba(139, 92, 246, 0.6);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--primary) 60%, transparent);
     transform: scale(1);
   }
   50% {
-    box-shadow: 0 0 0 16px rgba(139, 92, 246, 0);
+    box-shadow: 0 0 0 16px color-mix(in srgb, var(--primary) 0%, transparent);
     transform: scale(1.08);
   }
   100% {
-    box-shadow: 0 0 0 0 rgba(139, 92, 246, 0);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--primary) 0%, transparent);
     transform: scale(1);
   }
 }
@@ -6294,7 +6294,7 @@ button.ci-badge:hover {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 1px 2px rgba(0, 0, 0, 0.4);
 }
 .repo-action-btn.primary:hover {
-  background: #1a78ff;
+  background: var(--primary);
   border-color: rgba(255, 255, 255, 0.14);
   color: #fff;
 }
@@ -6306,12 +6306,12 @@ button.ci-badge:hover {
 
 .repo-action-btn.subtle-accent {
   border-color: color-mix(in srgb, var(--primary) 28%, transparent);
-  color: #6ea6ff;
+  color: var(--primary);
 }
 .repo-action-btn.subtle-accent:hover {
   background: color-mix(in srgb, var(--primary) 8%, transparent);
   border-color: color-mix(in srgb, var(--primary) 50%, transparent);
-  color: #8fbcff;
+  color: var(--primary);
 }
 
 .repo-action-btn .ra-icon {
@@ -7358,8 +7358,8 @@ button.ci-badge:hover {
   letter-spacing: 6px;
   text-align: center;
   color: var(--raven-blue);
-  background: rgba(99,102,241,0.08);
-  border: 1px solid rgba(99,102,241,0.2);
+  background: color-mix(in srgb, var(--primary) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--primary) 20%, transparent);
   border-radius: 8px;
   padding: 12px;
   font-family: 'Cascadia Mono', 'Consolas', monospace;
@@ -7440,7 +7440,7 @@ button.ci-badge:hover {
 .user-menu-dot--cloud      { background: var(--raven-blue); }
 .user-menu-dot--pro        { background: var(--raven-blue); }
 .user-menu-dot--team       { background: #FFB800; }
-.user-menu-dot--enterprise { background: #7C5CFC; }
+.user-menu-dot--enterprise { background: var(--raven-blue); }
 .user-menu-dot--trial {
   background: #FFB800;
   animation: user-menu-trial-pulse 1.6s ease-in-out infinite;
@@ -7551,7 +7551,7 @@ button.ci-badge:hover {
 .user-menu-popover-badge.user-menu-dot--cloud      { background: color-mix(in srgb, var(--primary) 20%, transparent); color: var(--raven-blue); }
 .user-menu-popover-badge.user-menu-dot--pro        { background: color-mix(in srgb, var(--primary) 20%, transparent); color: var(--raven-blue); }
 .user-menu-popover-badge.user-menu-dot--team       { background: rgba(255,184,0,0.18); color: #FFB800; }
-.user-menu-popover-badge.user-menu-dot--enterprise { background: rgba(124,92,252,0.2); color: #b8a3ff; }
+.user-menu-popover-badge.user-menu-dot--enterprise { background: color-mix(in srgb, var(--primary) 20%, transparent); color: var(--raven-blue); }
 .user-menu-popover-badge.user-menu-dot--trial      { background: rgba(255,184,0,0.18); color: #FFB800; }
 
 .user-menu-trial-bar {
@@ -7585,7 +7585,7 @@ button.ci-badge:hover {
   transition: background 120ms ease;
 }
 .user-menu-upgrade-btn:hover {
-  background: #0055d6;
+  background: var(--primary);
 }
 
 .user-menu-popover-divider {
@@ -8270,10 +8270,10 @@ button.ci-badge:hover {
 }
 .browser-self-origin-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
 .browser-self-origin-btn--primary {
-  background: #1e2a3a; border-color: #0055FF44; color: #4488FF;
+  background: #1e2a3a; border-color: color-mix(in srgb, var(--primary) 27%, transparent); color: var(--primary);
 }
 .browser-self-origin-btn--primary:hover {
-  background: #243246; color: #6699FF;
+  background: #243246; color: var(--primary);
 }
 
 /* === Spotlight indicator (Plan 5) === */
@@ -9425,8 +9425,8 @@ body.platform-mac .tabbar { padding-right: 116px; }
     opacity 150ms ease;
 }
 .tjcp-primary-btn:hover:not(:disabled) {
-  background: #1a75ff;
-  border-color: #1a75ff;
+  background: var(--primary);
+  border-color: var(--primary);
 }
 .tjcp-primary-btn:active:not(:disabled) {
   transform: scale(0.98);
@@ -9522,8 +9522,8 @@ body.platform-mac .tabbar { padding-right: 116px; }
 }
 
 .jcf-submit-btn:hover:not(:disabled) {
-  background: #1a75ff;
-  border-color: #1a75ff;
+  background: var(--primary);
+  border-color: var(--primary);
 }
 
 .jcf-submit-btn:active:not(:disabled) {
@@ -10033,7 +10033,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
 .ip-action-secondary { color: #8a8a92; border: 1px solid #1e1e24; background: none; }
 .ip-action-secondary:hover { color: #b8b8c0; border-color: #2a2a32; }
 .ip-action-primary { color: var(--primary-foreground); border: 1px solid transparent; background: var(--primary); font-weight: 600; }
-.ip-action-primary:hover { background: #1975ff; }
+.ip-action-primary:hover { background: var(--primary); }
 .ip-detail-meta { display: flex; gap: 18px; margin-top: 14px; font-size: 11.5px; color: #6a6a72; }
 .ip-detail-meta b { color: #a9a9b1; font-weight: 500; }
 .ip-detail-blocks { padding: 14px 22px; flex: 1; }
@@ -10050,7 +10050,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
 .ip-attach { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: #9aa6d6; background: #0c1018; border: 1px solid #16233b; border-radius: 7px; padding: 5px 11px; cursor: pointer; }
 .ip-attach:hover { background: #101828; }
 .ip-send { margin-left: auto; font-size: 12px; font-weight: 600; color: var(--primary-foreground); background: var(--primary); border: none; border-radius: 7px; padding: 6px 16px; cursor: pointer; }
-.ip-send:hover:not(:disabled) { background: #1975ff; }
+.ip-send:hover:not(:disabled) { background: var(--primary); }
 .ip-send:disabled { opacity: .4; cursor: default; }
 .ip-empty { flex: 1; display: flex; align-items: center; justify-content: center; color: #55555b; font-size: 13px; }
 .ip-loading { flex: 1; display: flex; align-items: center; justify-content: center; color: #55555b; font-size: 13px; }
@@ -10470,7 +10470,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
 
 .explorer-type-icon { flex-shrink: 0; }
 .ic-folder { color: #8f9aa8; }
-.ic-ts   { color: #4d94ff; }  /* raven blue family */
+.ic-ts   { color: var(--primary); }  /* raven blue family */
 .ic-js   { color: #e8c545; }
 .ic-json { color: #d19a66; }
 .ic-md   { color: var(--primary); }  /* platform violet */
@@ -11893,7 +11893,7 @@ body.platform-mac .tabbar { padding-right: 116px; }
 .tm-chip-cell{text-align:right}
 .tm-chip{font-size:11px;padding:3px 8px;border-radius:20px;white-space:nowrap}
 .tm-chip.warn{background:rgba(255,184,0,.12);color:#FFB800;border:1px solid rgba(255,184,0,.25)}
-.tm-chip.review{background:color-mix(in srgb, var(--primary) 10%, transparent);color:#4d94ff;border:1px solid color-mix(in srgb, var(--primary) 22%, transparent)}
+.tm-chip.review{background:color-mix(in srgb, var(--primary) 10%, transparent);color:var(--primary);border:1px solid color-mix(in srgb, var(--primary) 22%, transparent)}
 
 /* Employee drill-down drawer (mirrors .confirm-overlay behavior) */
 .ed-scrim{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:60}
@@ -11923,10 +11923,10 @@ body.platform-mac .tabbar { padding-right: 116px; }
 .ed-pr-m{font-size:11px;color:var(--text-muted);margin-top:3px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .ed-flag{font-size:11px;padding:1px 7px;border-radius:20px}
 .ed-flag.warn{background:rgba(255,184,0,.12);color:#FFB800}
-.ed-flag.review{background:color-mix(in srgb, var(--primary) 10%, transparent);color:#4d94ff}
+.ed-flag.review{background:color-mix(in srgb, var(--primary) 10%, transparent);color:var(--primary)}
 .ed-size{font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px}
 .ed-size.s-S{background:rgba(34,197,94,.15);color:#22C55E}
-.ed-size.s-M{background:color-mix(in srgb, var(--primary) 15%, transparent);color:#4d94ff}
+.ed-size.s-M{background:color-mix(in srgb, var(--primary) 15%, transparent);color:var(--primary)}
 .ed-size.s-L{background:rgba(255,184,0,.15);color:#FFB800}
 .ed-size.s-XL{background:rgba(255,69,0,.15);color:#FF4500}
 .ed-area{display:grid;grid-template-columns:120px 1fr 48px;align-items:center;gap:10px;margin-bottom:8px}
@@ -11997,8 +11997,8 @@ body.platform-mac .tabbar { padding-right: 116px; }
 .sidebar-hub-wrap{display:flex;flex-direction:column;min-height:0;overflow-y:auto}
 
 /* ── Pane filter trigger (embudo del sidebar) + popover ── */
-.pane-filter-trigger.active{color:var(--raven-blue,#4f9eff)}
-.pane-filter-badge{margin-left:auto;font-size:10px;padding:1px 6px;border-radius:8px;background:rgba(79,158,255,.18);color:var(--raven-blue,#4f9eff)}
+.pane-filter-trigger.active{color:var(--raven-blue, var(--primary))}
+.pane-filter-badge{margin-left:auto;font-size:10px;padding:1px 6px;border-radius:8px;background:color-mix(in srgb, var(--primary) 18%, transparent);color:var(--raven-blue, var(--primary))}
 .pane-filter-popover{background:#161616;border:1px solid #2a2a2a;border-radius:8px;padding:8px;box-shadow:0 8px 24px rgba(0,0,0,.5)}
 .pane-filter-popover .pane-filter-chips{margin-right:0;display:flex;flex-direction:column;align-items:stretch;gap:4px}
 .pane-filter-popover .hub-chip{justify-content:space-between;display:flex}
