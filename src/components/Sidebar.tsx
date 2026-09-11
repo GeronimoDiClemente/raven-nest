@@ -24,7 +24,7 @@ import { useGitInfo } from '../hooks/useGitInfo'
 import { useFixedPopover } from '../hooks/useFixedPopover'
 import { ExplorerPanel } from './ExplorerPanel'
 import HubExplorerPanel, { type ExplorerRoot } from './HubExplorerPanel'
-import SidebarTabBar, { type SidebarTabId, REPO_TABS, HUB_TABS } from './SidebarTabBar'
+import SidebarTabBar, { type SidebarTabId, REPO_TABS, HUB_TABS, TAB_ICONS, TAB_LABELS } from './SidebarTabBar'
 import MemoriesItem from './MemoriesItem'
 import PaneFilterControl from './PaneFilterControl'
 import type { PaneFilter } from '../lib/pane-filter'
@@ -690,6 +690,27 @@ export default function Sidebar({
       <div className="sidebar-scroll">
         {/* ── 1. COLLAPSED RAIL: repo (normal) or workspaces (Hub), same as
              before — the rail has no room for tabs. ── */}
+        {/* Donde estas, cuando la barra esta colapsada.
+            La barra colapsada no mostraba NINGUNA pestaña: el unico icono era el del repo,
+            y desde que ese glifo es el mismo que el de Worktrees (a proposito: un worktree
+            ES una rama) se leia como si Worktrees estuviera activa aunque estuvieras en
+            Explorer. Esta fila dice cual esta activa de verdad, y al tocarla abre la barra
+            en esa pestaña. */}
+        {!expanded && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8 w-full justify-start gap-2.5 px-2.5 font-normal text-foreground"
+            onClick={onToggle}
+            title={`${TAB_LABELS[currentTab]} — open the sidebar`}
+          >
+            <span className="sidebar-icon">
+              {(() => { const Icono = TAB_ICONS[currentTab]; return <Icono size={ICON_SIZE.lg} aria-hidden /> })()}
+            </span>
+            <span className="sidebar-label">{TAB_LABELS[currentTab]}</span>
+          </Button>
+        )}
+
         {!expanded && !isHub && repoRow(true)}
 
         {!expanded && isHub && onSelectWorkspace && onJumpToPane && onToggleTerminal && onToggleWorkspace && onNewWorkspace && onAddTerminalToWorkspace && (

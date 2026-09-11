@@ -109,6 +109,16 @@ test('con memorias: el cuadro es acotado, y la seleccion es una sola entre lista
     await expect(page.getByText('Same branch', { exact: true })).toBeVisible()
     await expect(page.getByRole('button', { name: /^raven-nest/ })).toBeVisible()
 
+    // El color lo elige el usuario, como los Groups de Obsidian (que son color por
+    // consulta). Arranca en Type, que es lo que siempre da lectura: con pocos proyectos,
+    // colorear por proyecto deja el grafo casi monocromo.
+    const porTipo = page.getByRole('button', { name: 'Type', exact: true })
+    await expect(porTipo).toHaveAttribute('aria-pressed', 'true')
+    await page.getByRole('button', { name: 'Project', exact: true }).click()
+    await expect(porTipo).toHaveAttribute('aria-pressed', 'false')
+    await porTipo.click()
+    await expect(porTipo).toHaveAttribute('aria-pressed', 'true')
+
     // 2b. El filtro de huerfanas (el "Orphans" de Obsidian) arranca PRENDIDO y dice cuantas
     //     esconde. Con las memorias sembradas todas tienen alguna relacion, asi que esconde
     //     cero — pero el boton igual esta y lo dice.
@@ -152,6 +162,11 @@ test('con memorias: el cuadro es acotado, y la seleccion es una sola entre lista
     await page.screenshot({ path: join(SHOTS, '05-dentro-de-un-proyecto.png') })
     await volver.click()
     await expect(page.getByRole('button', { name: /^raven-nest/ })).toBeVisible()
+
+    // Y el control del color vuelve a estar: adentro de UN proyecto no se ofrece, porque
+    // colorear por proyecto cuando son todos el mismo no distingue nada.
+    await expect(porTipo).toBeVisible()
+    await expect(porTipo).toHaveAttribute('aria-pressed', 'true')
   } finally {
     await teardown(h)
   }

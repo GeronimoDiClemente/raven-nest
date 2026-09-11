@@ -37,6 +37,11 @@ const MEMORY_TYPE_SWATCHES: Record<KnownMemoryType, MemoryTypeSwatch> = {
   preference: { label: 'Preference', color: '#9085e9' },
 }
 
+/** El orden fijo de la leyenda — el mismo en el que están declarados los swatches, que es
+ *  el orden del tema categórico validado. Nunca se ordena por otra cosa: el orden ES el
+ *  mecanismo de seguridad CVD (ver el comentario de arriba). */
+export const MEMORY_TYPES_IN_LEGEND_ORDER = Object.keys(MEMORY_TYPE_SWATCHES) as KnownMemoryType[]
+
 /**
  * `null` para un tipo que no está en la leyenda fija (`session`/`handoff`, o uno
  * futuro que el store todavía no documenta) — el caller cae a un badge neutro con el

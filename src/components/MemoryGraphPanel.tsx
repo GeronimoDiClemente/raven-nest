@@ -22,8 +22,9 @@ import { useMemoryDetail } from '../hooks/useMemoryDetail'
 import {
   countEdgeKinds, projectGroups, toGraphData,
   EDGE_KINDS_IN_LEGEND_ORDER, EDGE_STYLES,
-  type ProjectGroup,
+  type ColorBy, type ProjectGroup,
 } from '../lib/memory-graph-visuals'
+import { MEMORY_TYPES_IN_LEGEND_ORDER, memoryTypeSwatch as swatchDe } from '../lib/memory-type-legend'
 import { memoryTypeSwatch } from '../lib/memory-type-legend'
 import { relativeTime } from '../lib/memories-status'
 import { AILogo } from './AILogos'
@@ -65,23 +66,39 @@ export default function MemoryGraphPanel({ selectedId, onSelect }: Props) {
   const [includeSimilar, setIncludeSimilar] = useState(false)
   const [hideOrphans, setHideOrphans] = useState(true)
   const [focusProject, setFocusProject] = useState<string | null>(null)
+  /**
+   * Qué significa el color de un nodo. Lo elige el usuario, no nosotros.
+   *
+   * En Obsidian los grupos del grafo son **color por consulta de búsqueda** (`path:` para
+   * una carpeta, `tag:` para una etiqueta): el color no está atado a ninguna dimensión
+   * fija, lo define quien mira. Acá las dos dimensiones que tenemos son el TIPO de memoria
+   * (la propiedad: decision, bugfix, architecture…) y el PROYECTO (la carpeta, que en
+   * Obsidian es el lugar exclusivo de una nota).
+   *
+   * Default en `type`: con pocos proyectos, colorear por proyecto deja el grafo casi
+   * monocromo, mientras que los siete tipos siempre dan una lectura.
+   */
+  const [colorBy, setColorBy] = useState<ColorBy>('type')
   const { graph, truncated, loading, error } = useMemoryGraph(includeSimilar)
   const { detail, loading: cargandoDetalle, missing } = useMemoryDetail(selectedId)
 
   useEffect(() => { prefetchMemoryGraph3D() }, [])
 
-  // Adentro de un proyecto el color pasa a ser el TIPO: ya no hay varios proyectos que
-  // distinguir, y el tipo es la única categoría que queda con información.
+  // Adentro de UN proyecto, colorear por proyecto no dice nada: son todos el mismo. Ahí el
+  // color pasa a ser el tipo aunque el control diga otra cosa.
+  const colorEfectivo: ColorBy = focusProject ? 'type' : colorBy
   const data = useMemo(
-    () => (graph ? toGraphData(graph, {
-      colorBy: focusProject ? 'type' : 'project',
-      hideOrphans,
-      focusProject,
-    }) : null),
-    [graph, hideOrphans, focusProject],
+    () => (graph ? toGraphData(graph, { colorBy: colorEfectivo, hideOrphans, focusProject }) : null),
+    [graph, hideOrphans, focusProject, colorEfectivo],
   )
 
   const grupos = useMemo(() => (graph ? projectGroups(graph) : []), [graph])
+  // Los tipos que de verdad aparecen en lo que se esta dibujando. La leyenda no nombra un
+  // color que no esta en pantalla — eso enseña mal.
+  const tiposPresentes = useMemo(
+    () => (data ? [...new Set(data.nodes.map((n) => n.type))] : []),
+    [data],
+  )
   const conteos = useMemo(() => (data ? countEdgeKinds(data) : null), [data])
 
   if (error) {
@@ -118,6 +135,30 @@ export default function MemoryGraphPanel({ selectedId, onSelect }: Props) {
         )}
 
         <div className="ml-auto flex items-center gap-2">
+          {/* Qué significa el color. Es el equivalente de los Groups de Obsidian, que son
+              color por consulta: ahí el usuario decide qué agrupa el color, y acá también.
+              Adentro de un proyecto no se ofrece: seria elegir entre un color y el mismo. */}
+          {!focusProject && (
+            <div className="flex items-center gap-1 text-fs-sm text-muted-foreground">
+              <span>Color by</span>
+              <Button
+                variant={colorBy === 'type' ? 'secondary' : 'outline'}
+                size="sm"
+                aria-pressed={colorBy === 'type'}
+                onClick={() => setColorBy('type')}
+              >
+                Type
+              </Button>
+              <Button
+                variant={colorBy === 'project' ? 'secondary' : 'outline'}
+                size="sm"
+                aria-pressed={colorBy === 'project'}
+                onClick={() => setColorBy('project')}
+              >
+                Project
+              </Button>
+            </div>
+          )}
           {/* El filtro de Obsidian, con el nombre dicho en cristiano. Dice CUÁNTAS esconde:
               un grafo que oculta la mitad de las memorias sin avisar miente sobre lo que hay. */}
           <Button
@@ -176,6 +217,8 @@ export default function MemoryGraphPanel({ selectedId, onSelect }: Props) {
               focusProject={focusProject}
               onFocus={(k) => { setFocusProject(k); onSelect(null) }}
               conteos={conteos}
+              colorBy={colorEfectivo}
+              tiposPresentes={tiposPresentes}
             />
           )}
         </div>
@@ -185,12 +228,14 @@ export default function MemoryGraphPanel({ selectedId, onSelect }: Props) {
 }
 
 function SinSeleccion({
-  grupos, focusProject, onFocus, conteos,
+  grupos, focusProject, onFocus, conteos, colorBy, tiposPresentes,
 }: {
   grupos: ProjectGroup[]
   focusProject: string | null
   onFocus: (projectKey: string) => void
   conteos: Record<MemoryEdgeKind, number> | null
+  colorBy: ColorBy
+  tiposPresentes: string[]
 }) {
   return (
     <div className="flex min-h-0 flex-col gap-3 overflow-y-auto">
@@ -198,6 +243,20 @@ function SinSeleccion({
         <p className="text-fs font-medium text-foreground">How these memories connect</p>
         <p className="text-fs-sm text-muted-foreground">Click one to read it.</p>
       </div>
+
+      {colorBy === 'type' && tiposPresentes.length > 0 && (
+        <div>
+          <p className="mb-1.5 text-fs-xs uppercase tracking-wide text-muted-foreground">Types</p>
+          <ul className="flex flex-wrap gap-x-3 gap-y-1">
+            {MEMORY_TYPES_IN_LEGEND_ORDER.filter((t) => tiposPresentes.includes(t)).map((t) => (
+              <li key={t} className="flex items-center gap-1.5 text-fs-sm">
+                <span aria-hidden className="size-2 shrink-0 rounded-full" style={{ background: swatchDe(t)!.color }} />
+                <span className="text-foreground">{swatchDe(t)!.label}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {!focusProject && grupos.length > 0 && (
         <div>
@@ -213,7 +272,14 @@ function SinSeleccion({
                   className="flex w-full items-center gap-2 rounded-sm px-1 py-0.5 text-left hover:bg-accent"
                   title={`Show only ${g.projectKey}`}
                 >
-                  <span aria-hidden className="size-2 shrink-0 rounded-full" style={{ background: g.color }} />
+                  {/* El punto solo pinta si el color del grafo ES por proyecto. Con el
+                      color por tipo, un punto de proyecto no corresponde a nada de lo que
+                      se ve en el grafo — seria una leyenda que miente. */}
+                  <span
+                    aria-hidden
+                    className="size-2 shrink-0 rounded-full"
+                    style={{ background: colorBy === 'project' ? g.color : 'var(--muted-foreground)' }}
+                  />
                   <span className="min-w-0 flex-1 truncate text-fs-sm text-foreground">{g.projectKey}</span>
                   <span className="shrink-0 font-mono text-fs-xs tabular-nums text-muted-foreground">{g.count}</span>
                 </button>

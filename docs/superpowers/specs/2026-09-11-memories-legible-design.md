@@ -214,3 +214,43 @@ Requisitos de esa consulta:
   existiendo.
 - Sync a la nube, cifrado y todo lo que cobra el plan Cloud.
 - Eliminar los overlays (anotado en la spec de la cáscara; es reestructurar la app).
+
+
+---
+
+## Apéndice: cómo cataloga Obsidian, y qué es cada cosa acá (2026-09-11)
+
+La idea de fondo que el usuario puso en palabras: **Memories es tu propio Obsidian**, y la
+memoria que vive en la nube va ahí a buscar cómo seguir. Si eso es lo que es, conviene que
+los primitivos de organización se correspondan. Verificado contra la documentación y el
+foro de Obsidian, no supuesto:
+
+| Obsidian | Acá | Naturaleza |
+|---|---|---|
+| **Carpeta** — una nota está en exactamente una | `project_key` | lugar exclusivo |
+| **Tags** — muchas por nota, planas | `tags` | atributos, muchos por nota |
+| **Propiedades / frontmatter** — metadatos tipados | `type`, `git_branch`, `origin_ai`, `scope` | metadatos estructurados |
+| **Links `[[…]]`** — lo que dibuja el grafo | las aristas (`revision`, `topic`, `branch`, `similar`) | relaciones |
+| **Groups del grafo** — color por consulta | el control "Color by" | una VISTA sobre lo de arriba |
+
+Tres cosas que salen de ahí y que cambiaron el diseño:
+
+1. **El color no pertenece a ninguna dimensión.** En Obsidian un grupo es una consulta
+   (`path:Proyectos/`, `tag:#idea`) a la que le asignás un color: quien mira decide qué
+   agrupa. Por eso acá el color es un control (`Type` / `Project`) en vez de una decisión
+   nuestra. Default en `type`: con pocos proyectos, colorear por proyecto deja el grafo
+   casi monocromo, mientras que los siete tipos siempre dan lectura.
+2. **El filtro de huérfanas existe porque los grafos reales lo necesitan.** Obsidian lo
+   llama "Orphans — toggles whether to show notes without any links". Acá va apagado por
+   default, al revés que allá, porque en Obsidian los enlaces se hacen a mano y acá se
+   infieren: lo normal es tener muchas memorias sueltas.
+3. **La discusión carpetas-vs-tags del foro de Obsidian se resuelve sola acá**: el proyecto
+   *es* la carpeta (una memoria pertenece a uno solo) y los tags ya son tags. No hay que
+   elegir.
+
+Lo que todavía NO tenemos de ese modelo, anotado para cuando haga falta:
+
+- **Agrupar por tag.** Es la tercera dimensión natural del control de color, y la que más
+  se parece a un Group de Obsidian de verdad (una consulta, no un campo).
+- **Consultas guardadas.** Obsidian deja definir varios grupos a la vez con sus colores.
+- **Alias y backlinks.** El store no tiene el concepto.

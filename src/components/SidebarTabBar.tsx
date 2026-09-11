@@ -24,7 +24,7 @@ interface Props {
 // `Waypoints` en vez de `GitBranch` para Worktrees: el dibujo original eran tres nodos
 // unidos, y era a proposito — un worktree ES una rama, y el mismo grafo aparece en el
 // header del repo. Waypoints conserva esa forma; GitBranch es otra silueta.
-const TAB_ICONS: Record<SidebarTabId, LucideIcon> = {
+export const TAB_ICONS: Record<SidebarTabId, LucideIcon> = {
   worktrees: Waypoints,
   explorer: Folder,
   tools: Wrench,
@@ -32,7 +32,7 @@ const TAB_ICONS: Record<SidebarTabId, LucideIcon> = {
   hub: LayoutGrid,
 }
 
-const TAB_LABELS: Record<SidebarTabId, string> = {
+export const TAB_LABELS: Record<SidebarTabId, string> = {
   worktrees: 'Worktrees',
   explorer: 'Explorer',
   tools: 'Tools',
