@@ -48,8 +48,10 @@ describe('ShareProjectCard', () => {
     setMemoryApi(api())
     render(<ShareProjectCard activeRepoPath="/repo" />)
 
+    // El Select de Radix porta las opciones al DOM recien al abrirse.
     await waitFor(() => expect(screen.getByRole('combobox')).toBeInTheDocument())
-    expect(screen.getByRole('option', { name: 'Nest' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('combobox'))
+    expect(await screen.findByRole('option', { name: 'Nest' })).toBeInTheDocument()
     expect(screen.getByRole('option', { name: 'STI-PROJECTS' })).toBeInTheDocument()
   })
 
@@ -58,8 +60,13 @@ describe('ShareProjectCard', () => {
     setMemoryApi(memoryApi)
     render(<ShareProjectCard activeRepoPath="/repo" />)
 
+    // El Select de Radix no es un <select> nativo: no hay `target.value` que asignar.
+    // Se abre el popup clickeando el trigger (role="combobox") y se elige clickeando
+    // el option — ver el polyfill de scrollIntoView/pointerCapture en setup-dom.ts,
+    // sin el cual esto revienta en jsdom.
     await waitFor(() => expect(screen.getByRole('combobox')).toBeInTheDocument())
-    fireEvent.change(screen.getByRole('combobox'), { target: { value: 't2' } })
+    fireEvent.click(screen.getByRole('combobox'))
+    fireEvent.click(await screen.findByRole('option', { name: 'STI-PROJECTS' }))
     fireEvent.click(screen.getByRole('button', { name: /share/i }))
 
     await waitFor(() => {

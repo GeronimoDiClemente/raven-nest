@@ -8,6 +8,7 @@
 // acoplamiento que se evita esta en PersonalWorkspace.tsx:306).
 import { useEffect, useState } from 'react'
 import { useTeam } from '../hooks/useTeam'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 
 interface Props {
   activeRepoPath: string | null
@@ -70,17 +71,16 @@ export default function ShareProjectCard({ activeRepoPath }: Props) {
       ) : (
         <>
           <div className="memories-share-row">
-            <select
-              className="memories-team-select"
-              aria-label="Team"
-              value={teamId}
-              onChange={(e) => setTeamId(e.target.value)}
-              disabled={busy}
-            >
-              {teams.map((t) => (
-                <option key={t.id} value={t.id}>{t.name}</option>
-              ))}
-            </select>
+            <Select value={teamId} onValueChange={setTeamId} disabled={busy}>
+              <SelectTrigger aria-label="Team">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {teams.map((t) => (
+                  <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <button onClick={share} disabled={busy || !projectKey}>
               {busy ? 'Sharing...' : 'Share'}
             </button>
