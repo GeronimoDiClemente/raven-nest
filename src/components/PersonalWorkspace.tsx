@@ -23,6 +23,11 @@ import { Button } from '@/components/ui/button'
 import { useGitlab } from '../hooks/useGitlab'
 import { ProviderAvatarPill, providerAvatar } from './ProviderAvatar'
 import type { AIType, WorkerSpec } from '../types'
+import {
+  Activity, Waypoints, CircleAlert, NotepadText, Mail, ChevronLeft, Bell, Plus, Clock,
+  Link, Play, X, Terminal, Download, GitPullRequest, ChevronRight, Folder,
+} from 'lucide-react'
+import { ICON_SIZE } from '../lib/icons'
 
 interface PersonalWorkspaceProps {
   onClose: () => void
@@ -334,29 +339,29 @@ export default function PersonalWorkspace({ onClose, githubToken, githubLogin, o
     {
       id: 'activity',
       label: 'Activity',
-      icon: <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M2 8h3l2-5 3 10 2-5h2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/></svg>,
+      icon: <Activity size={ICON_SIZE.lg} aria-hidden />,
       count: unreadCount > 0 ? unreadCount : undefined,
     },
     {
       id: 'repos',
       label: 'Repos',
-      icon: <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><circle cx="4" cy="4" r="1.5" stroke="currentColor" strokeWidth="1.3"/><circle cx="12" cy="4" r="1.5" stroke="currentColor" strokeWidth="1.3"/><circle cx="4" cy="12" r="1.5" stroke="currentColor" strokeWidth="1.3"/><path d="M4 5.5v5M5.5 4h5M4 5.5c2 0 4 1 4 3.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>,
+      icon: <Waypoints size={ICON_SIZE.md} aria-hidden />,
       count: repos.length > 0 ? repos.length : undefined,
     },
     {
       id: 'issues',
       label: 'Issues',
-      icon: <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.3"/><path d="M8 5v4M8 11v.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/></svg>,
+      icon: <CircleAlert size={ICON_SIZE.lg} aria-hidden />,
     },
     {
       id: 'standup',
       label: 'Standup',
-      icon: <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="2" y="3" width="12" height="11" rx="1.5" stroke="currentColor" strokeWidth="1.3"/><path d="M5 6h6M5 9h4M5 12h3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>,
+      icon: <NotepadText size={ICON_SIZE.lg} aria-hidden />,
     },
     {
       id: 'pendings',
       label: 'Invites',
-      icon: <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M2 4.5h12v7a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1v-7z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/><path d="M2 5l6 4 6-4" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/></svg>,
+      icon: <Mail size={ICON_SIZE.lg} aria-hidden />,
       count: pendingInvites.length > 0 ? pendingInvites.length : undefined,
     },
   ]
@@ -371,19 +376,15 @@ export default function PersonalWorkspace({ onClose, githubToken, githubLogin, o
       {/* Header */}
       <div className="teams-workspace-header">
         <button className="tw-back-btn" onClick={onClose}>
-          <svg width="13" height="13" viewBox="0 0 13 13" fill="none" style={{ display: 'inline-block', verticalAlign: 'middle', marginRight: 5 }}>
-            <path d="M8 2L4 6.5L8 11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
+          <ChevronLeft size={ICON_SIZE.lg} aria-hidden />
           Back
         </button>
 
         <div className="tw-header-center">
-          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" style={{ color: 'var(--raven-blue)', flexShrink: 0 }}>
-            <circle cx="4" cy="4" r="1.5" stroke="currentColor" strokeWidth="1.3"/>
-            <circle cx="12" cy="4" r="1.5" stroke="currentColor" strokeWidth="1.3"/>
-            <circle cx="4" cy="12" r="1.5" stroke="currentColor" strokeWidth="1.3"/>
-            <path d="M4 5.5v5M5.5 4h5M4 5.5c2 0 4 1 4 3.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-          </svg>
+          {/* El color y el flex-shrink venian del <svg> a mano que habia aca; se conservan
+              tal cual al migrar el icono. --raven-blue es un alias de --primary (#e8e8e8),
+              no un azul, pese al nombre. */}
+          <Waypoints size={ICON_SIZE.lg} style={{ color: 'var(--raven-blue)', flexShrink: 0 }} aria-hidden />
           <span className="tw-header-title" data-tour-id="myrepos-header">Personal</span>
         </div>
 
@@ -411,9 +412,7 @@ export default function PersonalWorkspace({ onClose, githubToken, githubLogin, o
               onClick={() => setShowNotifications(v => !v)}
               title="Notifications"
             >
-              <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                <path d="M8 2a5 5 0 00-5 5v3l-1 1h12l-1-1V7a5 5 0 00-5-5zM8 14a2 2 0 002-2H6a2 2 0 002 2z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/>
-              </svg>
+              <Bell size={ICON_SIZE.lg} aria-hidden />
               {unreadCount > 0 && (
                 <span className="tw-notif-badge">{unreadCount > 9 ? '9+' : unreadCount}</span>
               )}
@@ -488,9 +487,7 @@ export default function PersonalWorkspace({ onClose, githubToken, githubLogin, o
                   </span>
                   {canManage && (
                     <button className="repo-action-btn primary" data-tour-id="myrepos-add" onClick={() => setShowPicker(true)}>
-                      <svg className="ra-icon" width="11" height="11" viewBox="0 0 16 16" fill="none">
-                        <path d="M8 3.5v9M3.5 8h9" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/>
-                      </svg>
+                      <Plus size={ICON_SIZE.lg} aria-hidden />
                       Add repo
                     </button>
                   )}
@@ -530,28 +527,21 @@ export default function PersonalWorkspace({ onClose, githubToken, githubLogin, o
                                 label: 'Git status',
                                 onClick: () => setStatusRepo(repo),
                                 icon: (
-                                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
-                                    <circle cx="8" cy="8" r="5.5" stroke="currentColor" strokeWidth="1.4"/>
-                                    <path d="M8 5.5v3l2 1.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-                                  </svg>
+                                  <Clock size={ICON_SIZE.lg} aria-hidden />
                                 ),
                               })
                               overflow.push({
                                 label: 'Re-link folder',
                                 onClick: () => handleLinkExisting(repo),
                                 icon: (
-                                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
-                                    <path d="M6.5 9.5l3-3M6 5.5h-1a2.5 2.5 0 000 5h1M10 10.5h1a2.5 2.5 0 000-5h-1" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-                                  </svg>
+                                  <Link size={ICON_SIZE.sm} aria-hidden />
                                 ),
                               })
                               overflow.push({
                                 label: 'Run with worker',
                                 onClick: () => setWorkerPickerRepo(repo),
                                 icon: (
-                                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
-                                    <path d="M5.5 3.5v9l7-4.5-7-4.5z" fill="currentColor"/>
-                                  </svg>
+                                  <Play size={ICON_SIZE.lg} aria-hidden />
                                 ),
                               })
                             } else {
@@ -559,9 +549,7 @@ export default function PersonalWorkspace({ onClose, githubToken, githubLogin, o
                                 label: 'Link existing folder',
                                 onClick: () => handleLinkExisting(repo),
                                 icon: (
-                                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
-                                    <path d="M6.5 9.5l3-3M6 5.5h-1a2.5 2.5 0 000 5h1M10 10.5h1a2.5 2.5 0 000-5h-1" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-                                  </svg>
+                                  <Link size={ICON_SIZE.sm} aria-hidden />
                                 ),
                               })
                             }
@@ -582,9 +570,7 @@ export default function PersonalWorkspace({ onClose, githubToken, githubLogin, o
                                   onConfirm: () => removeRepo(repo.id),
                                 }),
                                 icon: (
-                                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
-                                    <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-                                  </svg>
+                                  <X size={ICON_SIZE.lg} aria-hidden />
                                 ),
                               })
                             }
@@ -617,9 +603,7 @@ export default function PersonalWorkspace({ onClose, githubToken, githubLogin, o
                                         disabled={terminalOpening === repo.id}
                                         title="Open terminal in this repo"
                                       >
-                                        <svg className="ra-icon" width="11" height="11" viewBox="0 0 16 16" fill="none">
-                                          <path d="M3 4l3 3-3 3M7.5 10.5h5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
-                                        </svg>
+                                        <Terminal size={ICON_SIZE.lg} aria-hidden />
                                         Terminal
                                       </button>
                                     ) : (
@@ -629,9 +613,7 @@ export default function PersonalWorkspace({ onClose, githubToken, githubLogin, o
                                         title="Clone repository"
                                         disabled={cloningRepoId === repo.id}
                                       >
-                                        <svg className="ra-icon" width="11" height="11" viewBox="0 0 16 16" fill="none">
-                                          <path d="M8 2v8M5 7l3 3 3-3M3 13h10" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
-                                        </svg>
+                                        <Download size={ICON_SIZE.lg} aria-hidden />
                                         {cloningRepoId === repo.id ? 'Cloning…' : 'Clone'}
                                       </button>
                                     )}
@@ -657,13 +639,7 @@ export default function PersonalWorkspace({ onClose, githubToken, githubLogin, o
                                           }
                                         }}
                                       >
-                                        <svg className="ra-icon" width="11" height="11" viewBox="0 0 16 16" fill="none">
-                                          <circle cx="4" cy="3.5" r="1.4" stroke="currentColor" strokeWidth="1.3"/>
-                                          <circle cx="4" cy="12.5" r="1.4" stroke="currentColor" strokeWidth="1.3"/>
-                                          <circle cx="12" cy="12.5" r="1.4" stroke="currentColor" strokeWidth="1.3"/>
-                                          <path d="M4 4.9v6.2M9 5.5l3 3v3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-                                          <path d="M9 5.5h2.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-                                        </svg>
+                                        <GitPullRequest size={ICON_SIZE.lg} aria-hidden />
                                         PRs
                                       </button>
                                     )}
@@ -757,9 +733,7 @@ export default function PersonalWorkspace({ onClose, githubToken, githubLogin, o
                           onClick={() => { setSelectedIssueRepo(repo); setIssuesView('list') }}
                         >
                           <span className="snippet-name">{repo.fullName}</span>
-                          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style={{ color: 'var(--text-muted)', flexShrink: 0 }}>
-                            <path d="M4 2l4 4-4 4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
-                          </svg>
+                          <ChevronRight size={ICON_SIZE.lg} aria-hidden />
                         </div>
                       ))}
                     </div>
@@ -924,9 +898,7 @@ export default function PersonalWorkspace({ onClose, githubToken, githubLogin, o
                 disabled={openTargetCloning}
               >
                 <span className="clone-action-icon">
-                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                    <path d="M8 2v8M4.5 6.5L8 10l3.5-3.5M3 13h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                  </svg>
+                  <Download size={ICON_SIZE.lg} aria-hidden />
                 </span>
                 <span className="clone-action-body">
                   <span className="clone-action-label">{openTargetCloning ? 'Cloning…' : 'Clone repo'}</span>
@@ -939,9 +911,7 @@ export default function PersonalWorkspace({ onClose, githubToken, githubLogin, o
                 disabled={openTargetCloning}
               >
                 <span className="clone-action-icon">
-                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                    <path d="M2 5.5A1.5 1.5 0 013.5 4h2.382a1.5 1.5 0 011.06.44l.618.618a1.5 1.5 0 001.061.44H12.5A1.5 1.5 0 0114 7v4.5A1.5 1.5 0 0112.5 13h-9A1.5 1.5 0 012 11.5v-6z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/>
-                  </svg>
+                  <Folder size={ICON_SIZE.lg} aria-hidden />
                 </span>
                 <span className="clone-action-body">
                   <span className="clone-action-label">Link existing folder</span>

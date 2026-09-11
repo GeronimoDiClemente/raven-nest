@@ -32,6 +32,12 @@ import type { AIType, PaneNode } from '../types'
 import { AILogoStack } from './AILogoStack'
 import type { UserPreferencesApi } from '../hooks/useUserPreferences'
 import { ENABLE_INTEGRATIONS_ORCHESTRATION } from '../lib/releaseFlags'
+import {
+  Radio, Share2, LoaderCircle, Mic, MessageSquare, Monitor, Cable, TextAlignStart,
+  RotateCcwClock, Waypoints, User, SquarePlus, Workflow, ChevronLeft, Menu, ChevronRight,
+  Plus, Settings,
+} from 'lucide-react'
+import { ICON_SIZE } from '../lib/icons'
 
 interface Props {
   expanded: boolean
@@ -310,11 +316,7 @@ export default function Sidebar({
       title={broadcastMode ? 'Broadcast ON — click to turn off' : 'Broadcast OFF — click to turn on'}
     >
       <span className="sidebar-icon">
-        <svg width="16" height="16" viewBox="0 0 14 14" fill="none">
-          <circle cx="7" cy="7" r="2" fill="currentColor"/>
-          <path d="M4 4a4.24 4.24 0 0 0 0 6M10 4a4.24 4.24 0 0 1 0 6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-          <path d="M2 2a7.07 7.07 0 0 0 0 10M12 2a7.07 7.07 0 0 1 0 10" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" opacity="0.5"/>
-        </svg>
+        <Radio size={ICON_SIZE.lg} aria-hidden />
       </span>
       <span className="sidebar-label">{broadcastMode ? 'Broadcasting' : 'Broadcast'}</span>
     </Button>
@@ -336,12 +338,7 @@ export default function Sidebar({
         title={joinConnected ? 'View shared terminal' : 'Join remote terminal'}
       >
         <span className="sidebar-icon">
-          <svg width="16" height="16" viewBox="0 0 12 12" fill="none">
-            <circle cx="10" cy="2" r="1.5" stroke="currentColor" strokeWidth="1.3"/>
-            <circle cx="2" cy="6" r="1.5" stroke="currentColor" strokeWidth="1.3"/>
-            <circle cx="10" cy="10" r="1.5" stroke="currentColor" strokeWidth="1.3"/>
-            <path d="M3.5 5.2L8.5 2.8M3.5 6.8L8.5 9.2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
-          </svg>
+          <Share2 size={ICON_SIZE.lg} aria-hidden />
         </span>
         <span className="sidebar-label">{joinConnected ? `● ${terminalJoinService.code}` : 'Join Terminal'}</span>
       </Button>
@@ -409,15 +406,9 @@ export default function Sidebar({
     >
       <span className="sidebar-icon">
         {(isTranscribing || isModelLoading) ? (
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style={{ animation: 'spin 1s linear infinite' }}>
-            <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.5" strokeDasharray="20 10" strokeLinecap="round"/>
-          </svg>
+          <LoaderCircle size={ICON_SIZE.lg} style={{ animation: 'spin 1s linear infinite' }} aria-hidden />
         ) : (
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-            <rect x="5.5" y="1" width="5" height="8" rx="2.5" stroke="currentColor" strokeWidth="1.3"/>
-            <path d="M3 7v1a5 5 0 0 0 10 0V7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-            <path d="M8 13v2" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-          </svg>
+          <Mic size={ICON_SIZE.lg} aria-hidden />
         )}
       </span>
       <span className="sidebar-label">
@@ -435,10 +426,7 @@ export default function Sidebar({
       title="Conversation history"
     >
       <span className="sidebar-icon">
-        <svg width="16" height="16" viewBox="0 0 14 14" fill="none">
-          <circle cx="7" cy="7" r="5.5" stroke="currentColor" strokeWidth="1.3"/>
-          <path d="M7 4v3.5l2 1.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-        </svg>
+        <MessageSquare size={ICON_SIZE.lg} aria-hidden />
       </span>
       <span className="sidebar-label">History</span>
     </Button>
@@ -447,10 +435,7 @@ export default function Sidebar({
   const WorkspacesItem = (
     <div className="sidebar-item sidebar-item-panel">
       <span className="sidebar-icon">
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-          <rect x="1" y="2" width="14" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.3"/>
-          <path d="M5 12v2M11 12v2M3 14h10" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-        </svg>
+        <Monitor size={ICON_SIZE.lg} aria-hidden />
       </span>
       <span className="sidebar-label">Saved layouts</span>
       <WorkspacePanel onSave={onWorkspaceSave} onLoad={onWorkspaceLoad} onRequireUpgrade={onUpgrade} />
@@ -460,12 +445,7 @@ export default function Sidebar({
   const MCPItem = (
     <div className="sidebar-item sidebar-item-panel">
       <span className="sidebar-icon">
-        <svg width="16" height="16" viewBox="0 0 14 14" fill="none">
-          <rect x="1" y="2" width="8" height="10" rx="1.2" stroke="currentColor" strokeWidth="1.3"/>
-          <path d="M4 5h2M4 7.5h3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
-          <circle cx="11" cy="5" r="2" stroke="currentColor" strokeWidth="1.3"/>
-          <path d="M11 7v4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-        </svg>
+        <Cable size={ICON_SIZE.lg} aria-hidden />
       </span>
       <span className="sidebar-label">MCP</span>
       <MCPPanel repoPath={repoPath} />
@@ -475,9 +455,7 @@ export default function Sidebar({
   const SnippetsItem = (
     <div className="sidebar-item sidebar-item-panel">
       <span className="sidebar-icon">
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-          <path d="M3 4h10M3 8h7M3 12h5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-        </svg>
+        <TextAlignStart size={ICON_SIZE.lg} aria-hidden />
       </span>
       <span className="sidebar-label">Snippets</span>
       <SnippetPanel onSend={onSnippetSend} onBroadcast={onSnippetBroadcast} onRequireUpgrade={onUpgrade} />
@@ -487,10 +465,7 @@ export default function Sidebar({
   const CommandHistoryItem = (
     <div className="sidebar-item sidebar-item-panel">
       <span className="sidebar-icon">
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-          <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.4"/>
-          <polyline points="8,5 8,8 10,10" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-        </svg>
+        <RotateCcwClock size={ICON_SIZE.lg} aria-hidden />
       </span>
       <span className="sidebar-label">Cmd Hist.</span>
       <CommandHistoryPanel onRun={onCommandRun} />
@@ -530,12 +505,7 @@ export default function Sidebar({
       style={{ cursor: 'pointer' }}
     >
       <span className="sidebar-icon">
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-          <circle cx="4" cy="4" r="1.5" stroke="currentColor" strokeWidth="1.3"/>
-          <circle cx="12" cy="4" r="1.5" stroke="currentColor" strokeWidth="1.3"/>
-          <circle cx="4" cy="12" r="1.5" stroke="currentColor" strokeWidth="1.3"/>
-          <path d="M4 5.5v5M4 5.5C4 7 5 8 8 8s4 1 4 2.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-        </svg>
+        <Waypoints size={ICON_SIZE.lg} aria-hidden />
       </span>
       {repoPath ? (
         <div className="sidebar-repo-info">
@@ -608,10 +578,7 @@ export default function Sidebar({
         : 'Personal'}
     >
       <span className="sidebar-icon" style={{ position: 'relative' }}>
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-          <circle cx="8" cy="5" r="2.5" stroke="currentColor" strokeWidth="1.3"/>
-          <path d="M3 13.5c0-2.5 2.24-4.5 5-4.5s5 2 5 4.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-        </svg>
+        <User size={ICON_SIZE.lg} aria-hidden />
         {pendingInvitesCount > 0 && (
           // background/color -> bg-destructive/text-destructive-foreground (blanco puro,
           // match exacto); el radio (7 sobre una caja de 14px) -> rounded-full (mismo
@@ -676,10 +643,7 @@ export default function Sidebar({
             title="Integrations"
           >
             <span className="sidebar-icon">
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                <rect x="2" y="2" width="12" height="12" rx="3.5" stroke="currentColor" strokeWidth="1.4" />
-                <path d="M5.5 8h5M8 5.5v5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-              </svg>
+              <SquarePlus size={ICON_SIZE.lg} aria-hidden />
             </span>
             <span className="sidebar-label">Integrations</span>
           </Button>
@@ -691,12 +655,7 @@ export default function Sidebar({
             title="Orchestration"
           >
             <span className="sidebar-icon">
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                <circle cx="3.5" cy="8" r="1.6" stroke="currentColor" strokeWidth="1.3" />
-                <circle cx="12.5" cy="4" r="1.6" stroke="currentColor" strokeWidth="1.3" />
-                <circle cx="12.5" cy="12" r="1.6" stroke="currentColor" strokeWidth="1.3" />
-                <path d="M5 7l6-2.3M5 9l6 2.3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-              </svg>
+              <Workflow size={ICON_SIZE.lg} aria-hidden />
             </span>
             <span className="sidebar-label">Orchestration</span>
           </Button>
@@ -721,15 +680,9 @@ export default function Sidebar({
       >
         <span className="sidebar-icon">
           {expanded ? (
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <path d="M10 3L5 8l5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
+            <ChevronLeft size={ICON_SIZE.lg} aria-hidden />
           ) : (
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <rect x="2" y="4" width="12" height="1.5" rx="0.75" fill="currentColor"/>
-              <rect x="2" y="7.25" width="12" height="1.5" rx="0.75" fill="currentColor"/>
-              <rect x="2" y="10.5" width="12" height="1.5" rx="0.75" fill="currentColor"/>
-            </svg>
+            <Menu size={ICON_SIZE.lg} aria-hidden />
           )}
         </span>
       </Button>
@@ -828,9 +781,7 @@ export default function Sidebar({
                 title={moreOpen ? 'Hide more tools' : 'Show more tools'}
               >
                 <span className="sidebar-icon">
-                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style={{ transform: moreOpen ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 150ms ease' }}>
-                    <path d="M6 4l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                  </svg>
+                  <ChevronRight size={ICON_SIZE.lg} style={{ transform: moreOpen ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 150ms ease' }} aria-hidden />
                 </span>
                 <span className="sidebar-label">More tools</span>
               </Button>
@@ -889,9 +840,7 @@ export default function Sidebar({
             title={`New terminal (${isWin ? 'Ctrl+T' : '⌘T'})`}
           >
             <span className="sidebar-icon">
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
-              </svg>
+              <Plus size={ICON_SIZE.lg} aria-hidden />
             </span>
             <span className="sidebar-label">New Terminal</span>
           </Button>
@@ -923,9 +872,7 @@ export default function Sidebar({
       {/* Settings — always at the bottom */}
       <div className="sidebar-item sidebar-item-settings">
         <span className="sidebar-icon">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-            <path d="M19.43 12.98c.04-.32.07-.64.07-.98s-.03-.66-.07-.98l2.11-1.65a.5.5 0 0 0 .12-.64l-2-3.46a.5.5 0 0 0-.61-.22l-2.49 1a7.3 7.3 0 0 0-1.69-.98l-.38-2.65A.5.5 0 0 0 14 2h-4a.5.5 0 0 0-.49.42l-.38 2.65c-.61.25-1.17.58-1.69.98l-2.49-1a.5.5 0 0 0-.61.22l-2 3.46a.5.5 0 0 0 .12.64L4.57 11c-.04.32-.07.65-.07.99s.03.66.07.98l-2.11 1.65a.5.5 0 0 0-.12.64l2 3.46a.5.5 0 0 0 .61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65a.5.5 0 0 0 .49.43h4a.5.5 0 0 0 .49-.42l.38-2.65c.61-.25 1.17-.58 1.69-.98l2.49 1a.5.5 0 0 0 .61-.22l2-3.46a.5.5 0 0 0-.12-.64l-2.11-1.65zM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7z" fill="currentColor"/>
-          </svg>
+          <Settings size={ICON_SIZE.lg} aria-hidden />
         </span>
         <span className="sidebar-label">Settings</span>
         <SettingsPanel

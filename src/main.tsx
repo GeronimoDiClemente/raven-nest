@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
 import ReactDOM from 'react-dom/client'
+import { LucideProvider } from 'lucide-react'
 import App from './App'
 import AuthScreen from './components/AuthScreen'
 import { supabase } from './lib/supabase'
@@ -12,6 +13,7 @@ import './styles/geist-latin.css'
 import './styles/geist-mono-latin.css'
 import './styles/global.css'
 import '@xterm/xterm/css/xterm.css'
+import { ICON_SIZE, ICON_STROKE } from './lib/icons'
 
 // Apply platform class once so CSS can adapt layout (traffic lights vs Win controls)
 const platform = (window as unknown as { platform?: { isWin?: boolean; isMac?: boolean } }).platform
@@ -165,6 +167,12 @@ function Root() {
   )
 }
 
+// El contrato de los iconos se declara UNA vez, aca, y lo hereda todo el arbol — ver
+// src/lib/icons.ts para por que (28 grosores efectivos distintos antes de esto). Ponerlo en
+// el provider y no en cada call site es lo que hace que un icono agregado manana sin leer
+// nada salga con el peso correcto igual.
 ReactDOM.createRoot(document.getElementById('root')!).render(
-  <Root />
+  <LucideProvider size={ICON_SIZE.md} strokeWidth={ICON_STROKE} nonScalingStroke>
+    <Root />
+  </LucideProvider>
 )
