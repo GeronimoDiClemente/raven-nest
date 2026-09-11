@@ -75,10 +75,12 @@ export default function MemoryGraphPanel({ selectedId, onSelect }: Props) {
    * (la propiedad: decision, bugfix, architecture…) y el PROYECTO (la carpeta, que en
    * Obsidian es el lugar exclusivo de una nota).
    *
-   * Default en `type`: con pocos proyectos, colorear por proyecto deja el grafo casi
-   * monocromo, mientras que los siete tipos siempre dan una lectura.
+   * Default en `project`, y esto salió de mirar datos reales: de las 120 memorias del
+   * usuario, **todas** eran de tipo `pattern`, así que colorear por tipo pintaba 120 nodos
+   * del mismo rosa. Los agentes guardan casi siempre con el mismo tipo; los proyectos, en
+   * cambio, son varios de entrada. La dimensión que distingue es el proyecto.
    */
-  const [colorBy, setColorBy] = useState<ColorBy>('type')
+  const [colorBy, setColorBy] = useState<ColorBy>('project')
   const { graph, truncated, loading, error } = useMemoryGraph(includeSimilar)
   const { detail, loading: cargandoDetalle, missing } = useMemoryDetail(selectedId)
 
@@ -93,6 +95,9 @@ export default function MemoryGraphPanel({ selectedId, onSelect }: Props) {
   )
 
   const grupos = useMemo(() => (graph ? projectGroups(graph) : []), [graph])
+  const etiquetaDelFoco = focusProject
+    ? (grupos.find((g) => g.projectKey === focusProject)?.label ?? focusProject)
+    : null
   // Los tipos que de verdad aparecen en lo que se esta dibujando. La leyenda no nombra un
   // color que no esta en pantalla — eso enseña mal.
   const tiposPresentes = useMemo(
@@ -131,7 +136,7 @@ export default function MemoryGraphPanel({ selectedId, onSelect }: Props) {
         )}
 
         {focusProject && (
-          <span className="min-w-0 truncate font-mono text-fs-sm text-foreground">{focusProject}</span>
+          <span className="min-w-0 truncate font-mono text-fs-sm text-foreground">{etiquetaDelFoco}</span>
         )}
 
         <div className="ml-auto flex items-center gap-2">
@@ -270,7 +275,7 @@ function SinSeleccion({
                   type="button"
                   onClick={() => onFocus(g.projectKey)}
                   className="flex w-full items-center gap-2 rounded-sm px-1 py-0.5 text-left hover:bg-accent"
-                  title={`Show only ${g.projectKey}`}
+                  title={`Show only ${g.label}`}
                 >
                   {/* El punto solo pinta si el color del grafo ES por proyecto. Con el
                       color por tipo, un punto de proyecto no corresponde a nada de lo que
@@ -280,7 +285,7 @@ function SinSeleccion({
                     className="size-2 shrink-0 rounded-full"
                     style={{ background: colorBy === 'project' ? g.color : 'var(--muted-foreground)' }}
                   />
-                  <span className="min-w-0 flex-1 truncate text-fs-sm text-foreground">{g.projectKey}</span>
+                  <span className="min-w-0 flex-1 truncate text-fs-sm text-foreground">{g.label}</span>
                   <span className="shrink-0 font-mono text-fs-xs tabular-nums text-muted-foreground">{g.count}</span>
                 </button>
               </li>

@@ -30,6 +30,16 @@ beforeEach(() => {
       deleted        INTEGER NOT NULL DEFAULT 0,
       superseded_by  TEXT
     );
+
+    -- buildMemoryGraph hace LEFT JOIN con \`projects\` para traer el nombre legible: el
+    -- \`project_key\` es un hash, y sin esto la UI muestra "78b30bb38a968148" en vez del
+    -- nombre del repo. El fixture tiene que tener la tabla aunque la mayoria de los casos
+    -- no la use — el LEFT es lo que hace que una memoria de un proyecto no registrado siga
+    -- apareciendo.
+    CREATE TABLE projects (
+      project_key  TEXT PRIMARY KEY,
+      display_name TEXT NOT NULL
+    );
   `)
 })
 
@@ -194,5 +204,28 @@ describe('buildMemoryGraph', () => {
   it('sin filas, devuelve un grafo vacio con truncated 0', () => {
     const graph = buildMemoryGraph(db, Q())
     expect(graph).toEqual({ nodes: [], edges: [], truncated: 0 })
+  })
+})
+
+describe('el nombre legible del proyecto', () => {
+  // El bug que aparecio con datos reales: la UI agrupaba por proyecto y mostraba el
+  // `project_key`, que es un hash (resolveProjectKey). El usuario veia
+  // "78b30bb38a968148" donde esperaba el nombre de su repo.
+  it('viene del join con projects', () => {
+    db.prepare("INSERT INTO projects (project_key, display_name) VALUES ('78b30bb', 'raven-nest')").run()
+    insert({ syncId: 'a', projectKey: '78b30bb' })
+
+    const g = buildMemoryGraph(db, Q())
+    expect(g.nodes[0].projectDisplayName).toBe('raven-nest')
+  })
+
+  // El LEFT del JOIN importa: una memoria puede referirse a un proyecto que nunca paso por
+  // ensureProject(). Con un INNER JOIN esa memoria DESAPARECERIA del grafo en silencio.
+  it('un proyecto no registrado deja el nombre en null pero la memoria sigue en el grafo', () => {
+    insert({ syncId: 'a', projectKey: 'nunca-registrado' })
+
+    const g = buildMemoryGraph(db, Q())
+    expect(g.nodes).toHaveLength(1)
+    expect(g.nodes[0].projectDisplayName).toBeNull()
   })
 })

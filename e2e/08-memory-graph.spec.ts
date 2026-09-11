@@ -110,14 +110,16 @@ test('con memorias: el cuadro es acotado, y la seleccion es una sola entre lista
     await expect(page.getByRole('button', { name: /^raven-nest/ })).toBeVisible()
 
     // El color lo elige el usuario, como los Groups de Obsidian (que son color por
-    // consulta). Arranca en Type, que es lo que siempre da lectura: con pocos proyectos,
-    // colorear por proyecto deja el grafo casi monocromo.
+    // consulta). Arranca en Project: medido con datos reales, las memorias de una cuenta
+    // son casi todas del MISMO tipo (120 de 120 eran `pattern`), asi que colorear por tipo
+    // pinta todo del mismo color. Los proyectos, en cambio, son varios de entrada.
+    const porProyecto = page.getByRole('button', { name: 'Project', exact: true })
     const porTipo = page.getByRole('button', { name: 'Type', exact: true })
-    await expect(porTipo).toHaveAttribute('aria-pressed', 'true')
-    await page.getByRole('button', { name: 'Project', exact: true }).click()
-    await expect(porTipo).toHaveAttribute('aria-pressed', 'false')
+    await expect(porProyecto).toHaveAttribute('aria-pressed', 'true')
     await porTipo.click()
-    await expect(porTipo).toHaveAttribute('aria-pressed', 'true')
+    await expect(porProyecto).toHaveAttribute('aria-pressed', 'false')
+    await porProyecto.click()
+    await expect(porProyecto).toHaveAttribute('aria-pressed', 'true')
 
     // 2b. El filtro de huerfanas (el "Orphans" de Obsidian) arranca PRENDIDO y dice cuantas
     //     esconde. Con las memorias sembradas todas tienen alguna relacion, asi que esconde
@@ -165,8 +167,8 @@ test('con memorias: el cuadro es acotado, y la seleccion es una sola entre lista
 
     // Y el control del color vuelve a estar: adentro de UN proyecto no se ofrece, porque
     // colorear por proyecto cuando son todos el mismo no distingue nada.
-    await expect(porTipo).toBeVisible()
-    await expect(porTipo).toHaveAttribute('aria-pressed', 'true')
+    await expect(porProyecto).toBeVisible()
+    await expect(porProyecto).toHaveAttribute('aria-pressed', 'true')
   } finally {
     await teardown(h)
   }

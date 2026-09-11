@@ -39,6 +39,8 @@ export interface GraphNodeDatum {
   superseded: boolean
   type: string
   projectKey: string
+  /** Nombre legible; cae al `projectKey` (un hash) sólo si el proyecto nunca se registró. */
+  projectLabel: string
   gitBranch: string | null
 }
 
@@ -198,6 +200,7 @@ export function toGraphData(graph: MemoryGraph, opts: ToGraphDataOptions): Graph
       superseded: n.superseded,
       type: n.type,
       projectKey: n.projectKey,
+      projectLabel: n.projectDisplayName ?? n.projectKey,
       gitBranch: n.gitBranch,
     }
   })
@@ -216,6 +219,9 @@ export function toGraphData(graph: MemoryGraph, opts: ToGraphDataOptions): Graph
 
 export interface ProjectGroup {
   projectKey: string
+  /** Lo que se muestra. `projectKey` es un hash: una lista de proyectos que muestre la
+   *  clave cruda le pone al usuario "78b30bb38a968148" donde esperaba el nombre del repo. */
+  label: string
   color: string
   count: number
 }
@@ -225,10 +231,19 @@ export interface ProjectGroup {
 export function projectGroups(graph: MemoryGraph): ProjectGroup[] {
   const colores = projectColors(graph.nodes.map((n) => n.projectKey))
   const cuenta = new Map<string, number>()
-  for (const n of graph.nodes) cuenta.set(n.projectKey, (cuenta.get(n.projectKey) ?? 0) + 1)
+  const etiquetas = new Map<string, string>()
+  for (const n of graph.nodes) {
+    cuenta.set(n.projectKey, (cuenta.get(n.projectKey) ?? 0) + 1)
+    if (n.projectDisplayName) etiquetas.set(n.projectKey, n.projectDisplayName)
+  }
   return [...cuenta.entries()]
-    .map(([projectKey, count]) => ({ projectKey, color: colores.get(projectKey) ?? NEUTRAL_NODE, count }))
-    .sort((a, b) => b.count - a.count || a.projectKey.localeCompare(b.projectKey))
+    .map(([projectKey, count]) => ({
+      projectKey,
+      label: etiquetas.get(projectKey) ?? projectKey,
+      color: colores.get(projectKey) ?? NEUTRAL_NODE,
+      count,
+    }))
+    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label))
 }
 
 /** Cuántas aristas de cada tipo hay. La leyenda no lista un tipo que no está en pantalla. */

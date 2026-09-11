@@ -37,6 +37,9 @@ export interface MemoryGraphNode {
    *  `topic` y `branch`), pero no salia del modulo — y sin el, la UI no puede agrupar por
    *  proyecto, que es como Obsidian hace legible un grafo grande. */
   projectKey: string
+  /** El nombre legible del proyecto, o `null` si nunca pasó por `ensureProject()`. La UI
+   *  cae a `projectKey` — que es un hash — sólo cuando esto falta. */
+  projectDisplayName: string | null
   title: string
   type: string
   scope: 'personal' | 'project' | 'team'
@@ -118,6 +121,7 @@ interface GraphRow {
   topic_key: string | null
   type: string
   title: string
+  project_display_name: string | null
   git_branch: string | null
   origin_ai: string | null
   author_display: string | null
@@ -287,25 +291,34 @@ function computeSimilarEdges(
 }
 
 export function buildMemoryGraph(db: Database.Database, query: MemoryGraphQuery): MemoryGraph {
-  const conditions = ['deleted = 0']
+  // Calificadas con `o.`: desde que la consulta hace JOIN con `projects`, una condicion sin
+  // prefijo sobre una columna que existe en las DOS tablas seria ambigua para SQLite.
+  const conditions = ['o.deleted = 0']
   const params: unknown[] = []
   if (query.projectKey !== null) {
-    conditions.push('project_key = ?')
+    conditions.push('o.project_key = ?')
     params.push(query.projectKey)
   }
   if (!query.includeSuperseded) {
-    conditions.push('superseded_by IS NULL')
+    conditions.push('o.superseded_by IS NULL')
   }
 
   // updated_at DESC con sync_id como desempate: el corte por `limit` (abajo) tiene que ser
   // determinístico para que "los nodos que quedan son los más recientes" sea verificable.
   const rows = db
     .prepare(
-      `SELECT sync_id, project_key, scope, topic_key, type, title, git_branch, origin_ai,
-              author_display, updated_at, superseded_by
-       FROM observations
+      // LEFT JOIN a `projects` por el nombre legible. El `project_key` es un hash
+      // (resolveProjectKey), asi que una UI que agrupe por proyecto y muestre la clave
+      // cruda le pone al usuario "78b30bb38a968148" en vez del nombre del repo. El LEFT es
+      // a proposito: una fila puede referirse a un proyecto que nunca paso por
+      // ensureProject(), y esa memoria tiene que seguir apareciendo en el grafo.
+      `SELECT o.sync_id, o.project_key, p.display_name AS project_display_name, o.scope,
+              o.topic_key, o.type, o.title, o.git_branch, o.origin_ai,
+              o.author_display, o.updated_at, o.superseded_by
+       FROM observations o
+       LEFT JOIN projects p ON p.project_key = o.project_key
        WHERE ${conditions.join(' AND ')}
-       ORDER BY updated_at DESC, sync_id ASC`
+       ORDER BY o.updated_at DESC, o.sync_id ASC`
     )
     .all(...params) as GraphRow[]
 
@@ -315,6 +328,7 @@ export function buildMemoryGraph(db: Database.Database, query: MemoryGraphQuery)
   const nodes: MemoryGraphNode[] = selected.map((r) => ({
     syncId: r.sync_id,
     projectKey: r.project_key,
+    projectDisplayName: r.project_display_name,
     title: r.title,
     type: r.type,
     scope: r.scope as 'personal' | 'project' | 'team',

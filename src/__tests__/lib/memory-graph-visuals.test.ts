@@ -21,6 +21,7 @@ function nodo(syncId: string, extra: Partial<MemoryGraphNode> = {}): MemoryGraph
   return {
     syncId,
     projectKey: 'proyecto-a',
+    projectDisplayName: null,
     title: `titulo de ${syncId}`,
     type: 'decision',
     scope: 'project',
@@ -245,5 +246,32 @@ describe('los grupos por proyecto', () => {
       nodo('d', { projectKey: 'grande' }),
     ]))
     expect(grupos.map((g) => [g.projectKey, g.count])).toEqual([['grande', 3], ['chico', 1]])
+  })
+})
+
+describe('el nombre del proyecto', () => {
+  // El `project_key` es un hash (resolveProjectKey). Con datos reales la lista de proyectos
+  // mostraba "78b30bb38a968148" en vez del nombre del repo, porque el grafo nunca buscaba
+  // el display_name.
+  it('usa el nombre legible cuando existe', () => {
+    const grupos = projectGroups(grafo([
+      nodo('a', { projectKey: '78b30bb38a968148', projectDisplayName: 'raven-nest' }),
+    ]))
+    expect(grupos[0].label).toBe('raven-nest')
+  })
+
+  it('cae a la clave solo si el proyecto nunca se registro', () => {
+    const grupos = projectGroups(grafo([
+      nodo('a', { projectKey: '78b30bb38a968148', projectDisplayName: null }),
+    ]))
+    expect(grupos[0].label).toBe('78b30bb38a968148')
+  })
+
+  it('ordena por cantidad y desempata por NOMBRE, no por el hash', () => {
+    const grupos = projectGroups(grafo([
+      nodo('a', { projectKey: 'zzz', projectDisplayName: 'alfa' }),
+      nodo('b', { projectKey: 'aaa', projectDisplayName: 'beta' }),
+    ]))
+    expect(grupos.map((g) => g.label)).toEqual(['alfa', 'beta'])
   })
 })

@@ -29,6 +29,14 @@ beforeEach(() => {
       deleted        INTEGER NOT NULL DEFAULT 0,
       superseded_by  TEXT
     );
+
+    -- buildMemoryGraph hace LEFT JOIN con \`projects\` por el nombre legible del proyecto
+    -- (el \`project_key\` es un hash). El fixture necesita la tabla aunque estos casos no
+    -- la usen.
+    CREATE TABLE projects (
+      project_key  TEXT PRIMARY KEY,
+      display_name TEXT NOT NULL
+    );
   `)
 })
 

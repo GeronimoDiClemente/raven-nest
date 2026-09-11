@@ -313,6 +313,9 @@ export interface MemoryGraphNode {
   syncId: string
   /** De qué proyecto viene. Es lo que permite agrupar el grafo por proyecto. */
   projectKey: string
+  /** El nombre legible del proyecto, o `null`. `projectKey` es un hash, así que la UI
+   *  muestra esto y cae a la clave sólo si falta. */
+  projectDisplayName: string | null
   title: string
   type: string
   scope: 'personal' | 'project' | 'team'
