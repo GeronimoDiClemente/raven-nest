@@ -44,6 +44,20 @@ export default defineConfig({
     },
     build: {
       outDir: 'dist',
+      // El renderer se estaba shippeando SIN minificar: 80.637 lineas en el chunk
+      // principal de una release. electron-vite 3.1.0 no lo prende solo para el renderer
+      // y el config nunca lo dijo, asi que nadie lo noto.
+      //
+      // Medido el 2026-09-11 en este arbol: los assets del renderer pasan de 35.1 MB a
+      // 19.8 MB (-44%), y el chunk que la app carga al ARRANCAR de 3519.1 a 1798.0 KB
+      // crudos (-49%), 690.0 -> 483.3 KB gzip. Es la mitad del tiempo de parseo en el
+      // arranque, en una app que ademas corre terminales.
+      //
+      // Verificado: las 17 e2e pasan contra el build minificado. El riesgo tipico de
+      // minificar --codigo que depende de Function.name o constructor.name-- no aplica
+      // aca: los `.name` del repo son todos propiedades de datos (nombres de tema, de
+      // opcion de config, de columna SQLite), que el minificador no toca.
+      minify: 'esbuild',
       rollupOptions: {
         input: {
           index: resolve(__dirname, 'src/index.html')
