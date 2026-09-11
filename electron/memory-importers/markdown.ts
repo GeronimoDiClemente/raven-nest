@@ -56,7 +56,8 @@ export function importMarkdownFile(
     // todos los chunks, y el resultado medido en una cuenta real fue 120 de 120 memorias
     // con el mismo tipo: agrupar el grafo por tipo pintaba todo de un color, porque el
     // tipo habia dejado de significar algo.
-    const type = tipoValido(chunk.declaredType) ?? 'pattern'
+    const declarado = tipoValido(chunk.declaredType)
+    const type = declarado ?? 'pattern'
     // Content-derived identity (see deriveImportSyncId in memory-store.ts): the same
     // convention text imported from two machines under different absolute paths (or via
     // a different importer entirely) converges on one row instead of two, the same
@@ -73,6 +74,10 @@ export function importMarkdownFile(
       content: chunk.content,
       source: 'import',
       sourceRef: `${sourceLabel}:${filePath}#${chunk.topicKey}`,
+      // Sólo si la nota lo DECLARA. Sin declaración el tipo de arriba es `pattern`, que es
+      // un default nuestro: pisarlo sobre una fila existente borraría una clasificación
+      // puesta a propósito por otra vía.
+      applyType: declarado !== null,
       syncId: deriveImportSyncId(projectKey, scope, type, hash, chunk.topicKey),
     })
   }

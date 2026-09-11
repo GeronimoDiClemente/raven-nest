@@ -1589,3 +1589,79 @@ describe('MemoryStore — update (MCP memory_update)', () => {
     expect(store.get(saved.syncId)?.content).not.toContain('AKIAABCDEFGHIJKLMNOP')
   })
 })
+
+// El tipo declarado tiene que llegar a las filas que YA existen.
+//
+// El re-import identifica la fila por (source, source_ref) y actualiza titulo, contenido,
+// tags y hash — pero nunca tocaba el tipo. Con el importador estampando un tipo fijo eso
+// estaba bien; desde que lee el que la nota declara, una nota que declaraba `decision` se
+// quedaba con el `pattern` de la primera importacion PARA SIEMPRE. Y como el re-import corre
+// en cada arranque de la app, "reimportar" no lo arreglaba: no habia nada que correr a mano,
+// simplemente no se aplicaba.
+describe('re-import: el tipo declarado', () => {
+  const REF = 'claude-memory:/repo/memory/auth.md#auth'
+  let dir: string
+  let store: MemoryStore
+
+  beforeEach(() => {
+    dir = makeTmpDir('raven-memory-tipo-')
+    store = new MemoryStore(join(dir, 'memory.db'))
+  })
+
+  afterEach(() => {
+    store.close()
+    cleanupTmp(dir)
+  })
+
+  function importar(type: string, applyType: boolean) {
+    return store.save({
+      projectKey: 'proj-a',
+      type: type as never,
+      title: 'Auth',
+      content: 'El auth pasa a cookies de sesion, no tokens en localStorage.',
+      source: 'import',
+      sourceRef: REF,
+      applyType,
+    })
+  }
+
+  it('corrige el tipo de una fila ya importada', () => {
+    const primera = importar('pattern', false)
+    expect(store.get(primera.syncId)?.type).toBe('pattern')
+
+    importar('decision', true)
+
+    // La MISMA fila, con el tipo corregido — no una fila nueva.
+    expect(store.get(primera.syncId)?.type).toBe('decision')
+    store.close()
+  })
+
+  it('no crea una fila nueva: la identidad es el source_ref, no el tipo', () => {
+    const primera = importar('pattern', false)
+    const segunda = importar('decision', true)
+
+    expect(segunda.syncId).toBe(primera.syncId)
+    store.close()
+  })
+
+  // Sin declaracion el importador cae a `pattern`, que es un default NUESTRO. Escribirlo
+  // pisaria una clasificacion puesta a proposito por otra via.
+  it('sin applyType no pisa el tipo que ya tiene la fila', () => {
+    const primera = importar('decision', true)
+    importar('pattern', false)
+
+    expect(store.get(primera.syncId)?.type).toBe('decision')
+    store.close()
+  })
+
+  // El re-import corre en CADA arranque: un cambio de tipo tiene que contar como cambio, o
+  // se descarta en silencio; y un re-import sin cambios no puede escribir nada, o cada
+  // apertura de la app re-loguea y re-pushea todo lo importado.
+  it('un re-import identico sigue sin escribir', () => {
+    const primera = importar('decision', true)
+    const antes = store.get(primera.syncId)!.revision_count
+    importar('decision', true)
+
+    expect(store.get(primera.syncId)!.revision_count).toBe(antes)
+  })
+})

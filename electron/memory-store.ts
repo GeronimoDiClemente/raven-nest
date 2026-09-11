@@ -240,11 +240,18 @@ export function contentHash(title: string, content: string | null): string {
  * Nest, por cada memoria importada.
  */
 function hasReplicatedChange(
-  existing: { content_hash: string; tags: string | null },
+  existing: { content_hash: string; tags: string | null; type: string },
   incomingHash: string,
-  incomingTags: string | null
+  incomingTags: string | null,
+  incomingType: string
 ): boolean {
-  return existing.content_hash !== incomingHash || existing.tags !== incomingTags
+  // El tipo entra en la comparación desde el 2026-09-11. Sin él, un re-import que sólo
+  // corrige la clasificación (la nota declaraba `decision` y la fila quedó en `pattern`) no
+  // contaba como cambio y se descartaba en silencio — y como el re-import corre en cada
+  // arranque, la fila se quedaba mal para siempre.
+  return existing.content_hash !== incomingHash
+    || existing.tags !== incomingTags
+    || existing.type !== incomingType
 }
 
 export function computeContentIdentity(
@@ -271,6 +278,20 @@ export interface SaveInput {
   authorUserId?: string | null
   authorDisplay?: string | null
   sourceRef?: string | null // import identity — see §5.3 idempotency guard 1
+  /**
+   * Importadores: aplicar el `type` a una fila que YA existe, no sólo a una nueva.
+   *
+   * El camino de re-import identifica la fila por `(source, source_ref)` y actualiza
+   * título, contenido, tags y hash — pero NUNCA el tipo. Eso estaba bien mientras el
+   * importador estampaba un tipo fijo; desde que lee el que la nota declara, una nota que
+   * declaraba `decision` se quedaba con el `pattern` que se le puso la primera vez, para
+   * siempre. Y el re-import corre en CADA arranque (main.ts), así que "reimportar" no lo
+   * arreglaba: no hay nada que correr a mano, simplemente no se aplicaba.
+   *
+   * Va sólo cuando la nota DECLARA un tipo. Sin declaración el importador cae a `pattern`,
+   * y escribir ese default pisaría un tipo puesto a propósito por otra vía.
+   */
+  applyType?: boolean
   // Importers only, below. Both default to save()'s own generation/stamping behavior
   // when absent, so every non-import caller (MCP, hooks, pty, ui) is unaffected.
   syncId?: string | null // deterministic identity (see deriveImportSyncId) — see save()'s sync_id-match step
@@ -811,13 +832,15 @@ export class MemoryStore {
           .get(input.source, input.sourceRef) as ObservationRow | undefined
         if (bySourceRef) {
           const tagsIncoming = input.tags ? JSON.stringify(input.tags) : bySourceRef.tags
+          // El tipo sólo se pisa si el que importa lo declara (ver `applyType`).
+          const typeIncoming = input.applyType ? input.type : bySourceRef.type
           // Task 13: un re-import de material que NO cambió no es una escritura. Antes esto
           // reescribía la fila y agregaba una mutación igual, y como runLocalMemoryImport
           // corre en CADA arranque de la app (main.ts) y el importer de markdown también
           // manda source_ref, cada apertura de Nest re-logueaba y re-pusheaba todo lo
           // importado. De paso subía revision_count (que pasaba a mentir) y updated_at y
           // lamport, con lo que la copia local ganaba LWW contra una copia de nube idéntica.
-          if (!hasReplicatedChange(bySourceRef, hash, tagsIncoming)) {
+          if (!hasReplicatedChange(bySourceRef, hash, tagsIncoming, typeIncoming)) {
             return { syncId: bySourceRef.sync_id, outcome: 'source_ref_updated', redacted }
           }
           const updated: ObservationRow = {
@@ -825,6 +848,7 @@ export class MemoryStore {
             title,
             content,
             tags: tagsIncoming,
+            type: typeIncoming,
             content_hash: hash,
             revision_count: bySourceRef.revision_count + 1,
             updated_at: now,
@@ -875,7 +899,11 @@ export class MemoryStore {
           // y NO genera una mutación: no hay nada que replicar. Lo que se sigue sosteniendo es
           // que el source_ref del último escritor gana, para que ninguna fila muerta quede
           // ocupando el UNIQUE de idx_obs_source_ref.
-          if (!hasReplicatedChange(bySyncId, hash, tagsIncoming)) {
+          // `bySyncId.type` contra si mismo: este camino identifica por sync_id, y el tipo
+          // es parte de la semilla con la que ese id se deriva (deriveImportSyncId), asi que
+          // una fila encontrada aca ya tiene el tipo correcto por definicion. Pasarlo explicito
+          // deja el contrato de hasReplicatedChange en un solo lugar en vez de dos firmas.
+          if (!hasReplicatedChange(bySyncId, hash, tagsIncoming, bySyncId.type)) {
             if (nextSourceRef !== bySyncId.source_ref) {
               this.db
                 .prepare('UPDATE observations SET source_ref = ? WHERE sync_id = ?')
@@ -1038,8 +1066,13 @@ export class MemoryStore {
   private applyRowUpdate(row: ObservationRow): void {
     this.db
       .prepare(
+        // `type` entra en el SET desde el 2026-09-11. No estaba, asi que un camino que
+        // construia la fila actualizada con un tipo distinto --el re-import que corrige la
+        // clasificacion que la nota declara-- armaba bien el objeto y despues el SQL lo
+        // descartaba en silencio. Los demas llamadores parten de la fila existente y no
+        // tocan el tipo, asi que para ellos esto escribe el mismo valor que ya tenian.
         `UPDATE observations SET
-           title = @title, content = @content, tags = @tags, content_hash = @content_hash,
+           title = @title, content = @content, tags = @tags, type = @type, content_hash = @content_hash,
            revision_count = @revision_count, updated_at = @updated_at, lamport = @lamport,
            deleted = @deleted, superseded_by = @superseded_by, source_ref = @source_ref,
            duplicate_count = @duplicate_count, last_seen_at = @last_seen_at, server_seq = @server_seq
