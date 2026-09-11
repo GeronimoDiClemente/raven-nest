@@ -40,6 +40,16 @@ export interface MemoryGraphNode {
   /** El nombre legible del proyecto, o `null` si nunca pasó por `ensureProject()`. La UI
    *  cae a `projectKey` — que es un hash — sólo cuando esto falta. */
   projectDisplayName: string | null
+  /**
+   * Las etiquetas de la memoria.
+   *
+   * Viajaban sólo en la consulta aparte de `computeSimilarEdges`, para que un fixture con
+   * una tabla `observations` mínima no se rompiera mientras no pidiera aristas `similar`.
+   * Ahora suben a la consulta principal porque la UI agrupa por tag —el equivalente más
+   * fiel de un Group de Obsidian, que es una CONSULTA y no un campo— y para eso necesita
+   * saber qué tags hay sin pedir nada más.
+   */
+  tags: string[]
   title: string
   type: string
   scope: 'personal' | 'project' | 'team'
@@ -124,6 +134,7 @@ interface GraphRow {
   project_display_name: string | null
   git_branch: string | null
   source_ref: string | null
+  tags: string | null
   origin_ai: string | null
   author_display: string | null
   updated_at: number
@@ -368,7 +379,7 @@ export function buildMemoryGraph(db: Database.Database, query: MemoryGraphQuery)
       // ensureProject(), y esa memoria tiene que seguir apareciendo en el grafo.
       `SELECT o.sync_id, o.project_key, p.display_name AS project_display_name, o.scope,
               o.topic_key, o.type, o.title, o.git_branch, o.origin_ai,
-              o.author_display, o.updated_at, o.superseded_by, o.source_ref
+              o.author_display, o.updated_at, o.superseded_by, o.source_ref, o.tags
        FROM observations o
        LEFT JOIN projects p ON p.project_key = o.project_key
        WHERE ${conditions.join(' AND ')}
@@ -383,6 +394,7 @@ export function buildMemoryGraph(db: Database.Database, query: MemoryGraphQuery)
     syncId: r.sync_id,
     projectKey: r.project_key,
     projectDisplayName: r.project_display_name,
+    tags: parseTags(r.tags),
     title: r.title,
     type: r.type,
     scope: r.scope as 'personal' | 'project' | 'team',

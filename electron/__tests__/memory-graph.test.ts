@@ -29,7 +29,8 @@ beforeEach(() => {
       updated_at     INTEGER NOT NULL,
       deleted        INTEGER NOT NULL DEFAULT 0,
       superseded_by  TEXT,
-      source_ref     TEXT
+      source_ref     TEXT,
+      tags           TEXT
     );
 
     -- buildMemoryGraph hace LEFT JOIN con \`projects\` para traer el nombre legible: el
@@ -57,6 +58,7 @@ interface Row {
   title?: string
   gitBranch?: string | null
   sourceRef?: string | null
+  tags?: string[] | null
   originAi?: string | null
   authorDisplay?: string | null
   updatedAt?: number
@@ -68,9 +70,9 @@ function insert(r: Row): void {
   db.prepare(
     `INSERT INTO observations
       (sync_id, project_key, scope, topic_key, type, title, git_branch, origin_ai,
-       author_display, updated_at, deleted, superseded_by, source_ref)
+       author_display, updated_at, deleted, superseded_by, source_ref, tags)
      VALUES (@sync_id, @project_key, @scope, @topic_key, @type, @title, @git_branch,
-       @origin_ai, @author_display, @updated_at, @deleted, @superseded_by, @source_ref)`
+       @origin_ai, @author_display, @updated_at, @deleted, @superseded_by, @source_ref, @tags)`
   ).run({
     sync_id: r.syncId,
     project_key: r.projectKey ?? 'proj-a',
@@ -85,6 +87,7 @@ function insert(r: Row): void {
     deleted: r.deleted ?? 0,
     superseded_by: r.supersededBy ?? null,
     source_ref: r.sourceRef ?? null,
+    tags: r.tags ? JSON.stringify(r.tags) : null,
   })
 }
 

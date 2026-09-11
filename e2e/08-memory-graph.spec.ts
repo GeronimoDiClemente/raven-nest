@@ -159,13 +159,26 @@ test('con memorias: el cuadro es acotado, y la seleccion es una sola entre lista
     await expect(page.getByRole('button', { name: 'Hide guessed links' })).toHaveAttribute('aria-pressed', 'true')
     await page.screenshot({ path: join(SHOTS, '04-con-aristas-inferidas.png') })
 
-    // 5. Entrar a UN proyecto deja solo sus memorias, y se puede volver. Es el "y despues
+    // 5. Los tags son la tercera dimension, y la mas fiel al Group de Obsidian: alla un
+    //    grupo es una consulta, no un campo.
+    await expect(page.getByRole('button', { name: 'Tag', exact: true })).toBeEnabled()
+    await expect(page.getByRole('button', { name: /^#auth/ })).toBeVisible()
+
+    // 6. Entrar a UN proyecto deja solo sus memorias, y se puede volver. Es el "y despues
     //    si abro UN proyecto tengo todas las de dentro" del pedido.
     await page.getByRole('button', { name: /^otro-proyecto/ }).click()
-    const volver = page.getByRole('button', { name: 'All projects' })
+    const volver = page.getByRole('button', { name: 'Everything' })
     await expect(volver).toBeVisible()
     await page.screenshot({ path: join(SHOTS, '05-dentro-de-un-proyecto.png') })
     await volver.click()
+
+    // 7. Y entrar a un TAG cruza proyectos, al reves que entrar a un proyecto — que es
+    //    justamente para lo que sirve tenerlo como agrupador aparte.
+    await page.getByRole('button', { name: /^#auth/ }).click()
+    await expect(page.getByRole('button', { name: 'Everything' })).toBeVisible()
+    await expect(page.getByText('#auth', { exact: true })).toBeVisible()
+    await page.screenshot({ path: join(SHOTS, '06-dentro-de-un-tag.png') })
+    await page.getByRole('button', { name: 'Everything' }).click()
     await expect(page.getByRole('button', { name: /^raven-nest/ })).toBeVisible()
 
     // Y el control del color vuelve a estar: adentro de UN proyecto no se ofrece, porque

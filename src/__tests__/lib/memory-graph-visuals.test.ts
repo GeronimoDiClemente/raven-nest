@@ -5,6 +5,9 @@ import {
   countEdgeKinds,
   projectColors,
   projectGroups,
+  tagGroups,
+  tagRanking,
+  tagDominante,
   EDGE_STYLES,
   EDGE_KINDS_IN_LEGEND_ORDER,
   type ToGraphDataOptions,
@@ -15,13 +18,14 @@ import type { MemoryGraph, MemoryGraphNode, MemoryEdgeKind } from '../../types'
 
 /** Lo que miraban los tests originales: todo visible, sin enfocar, color por tipo. El
  *  filtro de huerfanas y el enfoque por proyecto tienen sus propios casos mas abajo. */
-const TODO: ToGraphDataOptions = { colorBy: 'type', hideOrphans: false, focusProject: null }
+const TODO: ToGraphDataOptions = { colorBy: 'type', hideOrphans: false, foco: null }
 
 function nodo(syncId: string, extra: Partial<MemoryGraphNode> = {}): MemoryGraphNode {
   return {
     syncId,
     projectKey: 'proyecto-a',
     projectDisplayName: null,
+    tags: [],
     title: `titulo de ${syncId}`,
     type: 'decision',
     scope: 'project',
@@ -172,12 +176,12 @@ describe('enfocar un proyecto', () => {
   )
 
   it('deja solo las memorias de ese proyecto', () => {
-    const data = toGraphData(dosProyectos, { ...TODO, focusProject: 'uno' })
+    const data = toGraphData(dosProyectos, { ...TODO, foco: { tipo: 'project', valor: 'uno' } })
     expect(data.nodes.map((n) => n.id).sort()).toEqual(['a1', 'a2'])
   })
 
   it('descarta las aristas que salen del proyecto enfocado', () => {
-    const data = toGraphData(dosProyectos, { ...TODO, focusProject: 'uno' })
+    const data = toGraphData(dosProyectos, { ...TODO, foco: { tipo: 'project', valor: 'uno' } })
     expect(data.links).toHaveLength(1)
     expect(data.links[0].kind).toBe('topic')
   })
@@ -189,7 +193,7 @@ describe('enfocar un proyecto', () => {
       [nodo('a', { projectKey: 'uno' }), nodo('b', { projectKey: 'dos' })],
       [{ from: 'a', to: 'b', kind: 'branch', directed: false }],
     )
-    const data = toGraphData(soloCruzada, { ...TODO, focusProject: 'uno', hideOrphans: true })
+    const data = toGraphData(soloCruzada, { ...TODO, foco: { tipo: 'project', valor: 'uno' }, hideOrphans: true })
     expect(data.nodes).toHaveLength(0)
     expect(data.orphansHidden).toBe(1)
   })
@@ -273,5 +277,79 @@ describe('el nombre del proyecto', () => {
       nodo('b', { projectKey: 'aaa', projectDisplayName: 'beta' }),
     ]))
     expect(grupos.map((g) => g.label)).toEqual(['alfa', 'beta'])
+  })
+})
+
+// Agrupar por TAG — el Group mas fiel de Obsidian de los tres, porque alla un grupo es una
+// consulta y no un campo. El problema propio de los tags es que una memoria puede tener
+// VARIOS, asi que hay que decidir cual le da el color.
+describe('agrupar por tag', () => {
+  it('rankea los tags por cantidad, de mayor a menor', () => {
+    const ranking = tagRanking([
+      { tags: ['auth', 'api'] },
+      { tags: ['auth'] },
+      { tags: ['api'] },
+      { tags: ['auth'] },
+    ])
+    expect(ranking).toEqual(['auth', 'api'])
+  })
+
+  it('desempata alfabeticamente, para que el color no dependa del orden de las filas', () => {
+    expect(tagRanking([{ tags: ['zeta'] }, { tags: ['alfa'] }])).toEqual(['alfa', 'zeta'])
+  })
+
+  // Obsidian resuelve la pertenencia multiple por ORDEN: gana el primer grupo que matchea.
+  // Aca el orden es la frecuencia, que es lo que hace que el color separe lo mas posible.
+  it('una memoria con varios tags toma el color del mas usado del corpus', () => {
+    const ranking = ['auth', 'api']
+    expect(tagDominante(['api', 'auth'], ranking)).toBe('auth')
+    expect(tagDominante(['api'], ranking)).toBe('api')
+  })
+
+  it('una memoria sin tags no toma ningun color de tag', () => {
+    expect(tagDominante([], ['auth'])).toBeNull()
+  })
+
+  it('los grupos traen tag, color y cuenta, ordenados por cantidad', () => {
+    const grupos = tagGroups(grafo([
+      nodo('a', { tags: ['auth', 'api'] }),
+      nodo('b', { tags: ['auth'] }),
+      nodo('c', { tags: ['api'] }),
+      nodo('d', { tags: ['auth'] }),
+    ]))
+    expect(grupos.map((g) => [g.tag, g.count])).toEqual([['auth', 3], ['api', 2]])
+    expect(new Set(grupos.map((g) => g.color)).size).toBe(2)
+  })
+
+  it('colorear por tag le da colores distintos a tags distintos', () => {
+    const data = toGraphData(grafo([
+      nodo('a', { tags: ['auth'] }),
+      nodo('b', { tags: ['api'] }),
+    ]), { ...TODO, colorBy: 'tag' })
+    expect(new Set(data.nodes.map((n) => n.color)).size).toBe(2)
+  })
+})
+
+describe('enfocar un tag', () => {
+  const conTags = grafo([
+    nodo('a', { tags: ['auth'] }),
+    nodo('b', { tags: ['auth', 'api'] }),
+    nodo('c', { tags: ['otro'] }),
+  ])
+
+  it('deja solo las memorias que lo llevan', () => {
+    const data = toGraphData(conTags, { ...TODO, foco: { tipo: 'tag', valor: 'auth' } })
+    expect(data.nodes.map((n) => n.id).sort()).toEqual(['a', 'b'])
+  })
+
+  // Un tag CRUZA proyectos por naturaleza, al reves que una carpeta: esa es justamente la
+  // gracia de tenerlo como agrupador aparte del proyecto.
+  it('cruza proyectos, al reves que enfocar un proyecto', () => {
+    const data = toGraphData(grafo([
+      nodo('a', { projectKey: 'uno', tags: ['auth'] }),
+      nodo('b', { projectKey: 'dos', tags: ['auth'] }),
+    ]), { ...TODO, foco: { tipo: 'tag', valor: 'auth' } })
+    expect(data.nodes).toHaveLength(2)
+    expect(new Set(data.nodes.map((n) => n.projectKey)).size).toBe(2)
   })
 })

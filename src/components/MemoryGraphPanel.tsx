@@ -20,9 +20,9 @@ import { ChevronLeft, Eye, EyeOff } from 'lucide-react'
 import { useMemoryGraph } from '../hooks/useMemoryGraph'
 import { useMemoryDetail } from '../hooks/useMemoryDetail'
 import {
-  countEdgeKinds, projectGroups, toGraphData,
+  countEdgeKinds, projectGroups, tagGroups, toGraphData,
   EDGE_KINDS_IN_LEGEND_ORDER, EDGE_STYLES,
-  type ColorBy, type ProjectGroup,
+  type ColorBy, type Foco, type ProjectGroup, type TagGroup,
 } from '../lib/memory-graph-visuals'
 import { MEMORY_TYPES_IN_LEGEND_ORDER, memoryTypeSwatch as swatchDe } from '../lib/memory-type-legend'
 import { memoryTypeSwatch } from '../lib/memory-type-legend'
@@ -65,7 +65,10 @@ interface Props {
 export default function MemoryGraphPanel({ selectedId, onSelect }: Props) {
   const [includeSimilar, setIncludeSimilar] = useState(false)
   const [hideOrphans, setHideOrphans] = useState(true)
-  const [focusProject, setFocusProject] = useState<string | null>(null)
+  // En qué está enfocado el grafo: un proyecto, un tag, o nada. Es el "abrir uno" de
+  // Obsidian generalizado — un tag agrupa igual de bien que una carpeta, y de hecho es el
+  // Group más fiel de los dos: allá un grupo es una CONSULTA, no un campo.
+  const [foco, setFoco] = useState<Foco>(null)
   /**
    * Qué significa el color de un nodo. Lo elige el usuario, no nosotros.
    *
@@ -79,6 +82,11 @@ export default function MemoryGraphPanel({ selectedId, onSelect }: Props) {
    * usuario, **todas** eran de tipo `pattern`, así que colorear por tipo pintaba 120 nodos
    * del mismo rosa. Los agentes guardan casi siempre con el mismo tipo; los proyectos, en
    * cambio, son varios de entrada. La dimensión que distingue es el proyecto.
+   *
+   * `tag` es la tercera, y la más parecida a un Group de Obsidian de verdad: una memoria
+   * puede tener VARIOS, así que el color lo decide el más usado del corpus (ver
+   * `tagDominante`) — el mismo criterio de "gana el primer grupo que matchea", con el orden
+   * puesto por frecuencia.
    */
   const [colorBy, setColorBy] = useState<ColorBy>('project')
   const { graph, truncated, loading, error } = useMemoryGraph(includeSimilar)
@@ -93,25 +101,32 @@ export default function MemoryGraphPanel({ selectedId, onSelect }: Props) {
   // tiposPresentes -> data). La leyenda tampoco nombra un color que no está en pantalla.
   const tiposPresentes = useMemo(() => {
     if (!graph) return []
-    const enFoco = focusProject ? graph.nodes.filter((n) => n.projectKey === focusProject) : graph.nodes
+    const enFoco = !foco
+      ? graph.nodes
+      : foco.tipo === 'project'
+        ? graph.nodes.filter((n) => n.projectKey === foco.valor)
+        : graph.nodes.filter((n) => n.tags.includes(foco.valor))
     return [...new Set(enFoco.map((n) => n.type))]
-  }, [graph, focusProject])
+  }, [graph, foco])
 
   // Si el conjunto que se está mirando tiene un solo tipo, colorear por tipo no distingue
   // nada: se cae a proyecto aunque el control diga otra cosa. Adentro de UN proyecto pasa
   // lo inverso — todos comparten proyecto, así que ahí manda el tipo.
-  const colorEfectivo: ColorBy = focusProject
+  const colorEfectivo: ColorBy = foco?.tipo === 'project'
     ? 'type'
     : (colorBy === 'type' && tiposPresentes.length <= 1 ? 'project' : colorBy)
   const data = useMemo(
-    () => (graph ? toGraphData(graph, { colorBy: colorEfectivo, hideOrphans, focusProject }) : null),
-    [graph, hideOrphans, focusProject, colorEfectivo],
+    () => (graph ? toGraphData(graph, { colorBy: colorEfectivo, hideOrphans, foco }) : null),
+    [graph, hideOrphans, foco, colorEfectivo],
   )
 
   const grupos = useMemo(() => (graph ? projectGroups(graph) : []), [graph])
-  const etiquetaDelFoco = focusProject
-    ? (grupos.find((g) => g.projectKey === focusProject)?.label ?? focusProject)
-    : null
+  const tags = useMemo(() => (graph ? tagGroups(graph) : []), [graph])
+  const etiquetaDelFoco = !foco
+    ? null
+    : foco.tipo === 'project'
+      ? (grupos.find((g) => g.projectKey === foco.valor)?.label ?? foco.valor)
+      : `#${foco.valor}`
   const conteos = useMemo(() => (data ? countEdgeKinds(data) : null), [data])
 
   if (error) {
@@ -131,10 +146,10 @@ export default function MemoryGraphPanel({ selectedId, onSelect }: Props) {
       {/* La barra de filtros, en una sola línea. Es lo que Obsidian mete en un panel
           lateral; acá vive a la vista porque son tres, no veinte. */}
       <div className="flex flex-wrap items-center gap-2">
-        {focusProject ? (
-          <Button variant="outline" size="sm" onClick={() => { setFocusProject(null); onSelect(null) }}>
+        {foco ? (
+          <Button variant="outline" size="sm" onClick={() => { setFoco(null); onSelect(null) }}>
             <ChevronLeft size={ICON_SIZE.sm} aria-hidden />
-            All projects
+            Everything
           </Button>
         ) : (
           <span className="text-fs-sm text-muted-foreground">
@@ -143,7 +158,7 @@ export default function MemoryGraphPanel({ selectedId, onSelect }: Props) {
           </span>
         )}
 
-        {focusProject && (
+        {foco && (
           <span className="min-w-0 truncate font-mono text-fs-sm text-foreground">{etiquetaDelFoco}</span>
         )}
 
@@ -151,7 +166,7 @@ export default function MemoryGraphPanel({ selectedId, onSelect }: Props) {
           {/* Qué significa el color. Es el equivalente de los Groups de Obsidian, que son
               color por consulta: ahí el usuario decide qué agrupa el color, y acá también.
               Adentro de un proyecto no se ofrece: seria elegir entre un color y el mismo. */}
-          {!focusProject && (
+          {foco?.tipo !== 'project' && (
             <div className="flex items-center gap-1 text-fs-sm text-muted-foreground">
               <span>Color by</span>
               {/* Deshabilitado cuando hay un solo tipo: ofrecer colorear por una dimensión
@@ -180,6 +195,18 @@ export default function MemoryGraphPanel({ selectedId, onSelect }: Props) {
                 onClick={() => setColorBy('project')}
               >
                 Project
+              </Button>
+              {/* La tercera dimension. Deshabilitada si no hay tags: seria colorear por una
+                  categoria que ninguna memoria tiene. */}
+              <Button
+                variant={colorBy === 'tag' ? 'secondary' : 'outline'}
+                size="sm"
+                aria-pressed={colorBy === 'tag'}
+                disabled={tags.length === 0}
+                onClick={() => setColorBy('tag')}
+                title={tags.length === 0 ? 'None of these memories have tags' : 'Colour each memory by its tag'}
+              >
+                Tag
               </Button>
             </div>
           )}
@@ -238,8 +265,9 @@ export default function MemoryGraphPanel({ selectedId, onSelect }: Props) {
           ) : (
             <SinSeleccion
               grupos={grupos}
-              focusProject={focusProject}
-              onFocus={(k) => { setFocusProject(k); onSelect(null) }}
+              tags={tags}
+              foco={foco}
+              onFocus={(f) => { setFoco(f); onSelect(null) }}
               conteos={conteos}
               colorBy={colorEfectivo}
               tiposPresentes={tiposPresentes}
@@ -252,11 +280,12 @@ export default function MemoryGraphPanel({ selectedId, onSelect }: Props) {
 }
 
 function SinSeleccion({
-  grupos, focusProject, onFocus, conteos, colorBy, tiposPresentes,
+  grupos, tags, foco, onFocus, conteos, colorBy, tiposPresentes,
 }: {
   grupos: ProjectGroup[]
-  focusProject: string | null
-  onFocus: (projectKey: string) => void
+  tags: TagGroup[]
+  foco: Foco
+  onFocus: (f: Foco) => void
   conteos: Record<MemoryEdgeKind, number> | null
   colorBy: ColorBy
   tiposPresentes: string[]
@@ -282,7 +311,7 @@ function SinSeleccion({
         </div>
       )}
 
-      {!focusProject && grupos.length > 0 && (
+      {!foco && grupos.length > 0 && (
         <div>
           <p className="mb-1.5 text-fs-xs uppercase tracking-wide text-muted-foreground">Projects</p>
           <ul className="flex flex-col gap-0.5">
@@ -292,7 +321,7 @@ function SinSeleccion({
                     columna cuando no hay nada seleccionado. */}
                 <button
                   type="button"
-                  onClick={() => onFocus(g.projectKey)}
+                  onClick={() => onFocus({ tipo: 'project', valor: g.projectKey })}
                   className="flex w-full items-center gap-2 rounded-sm px-1 py-0.5 text-left hover:bg-accent"
                   title={`Show only ${g.label}`}
                 >
@@ -310,6 +339,42 @@ function SinSeleccion({
               </li>
             ))}
           </ul>
+        </div>
+      )}
+
+      {/* Los tags, con el mismo tratamiento que los proyectos: se listan, dicen cuantas
+          memorias tienen, y tocar uno entra. Es el Group de Obsidian mas fiel de los tres —
+          alla un grupo es una CONSULTA, no un campo, y un tag es lo mas cerca que estamos.
+          Ordenados por cantidad, que es el mismo orden que decide el color de una memoria
+          que tiene varios. */}
+      {!foco && tags.length > 0 && (
+        <div>
+          <p className="mb-1.5 text-fs-xs uppercase tracking-wide text-muted-foreground">Tags</p>
+          <ul className="flex flex-col gap-0.5">
+            {tags.slice(0, 12).map((t) => (
+              <li key={t.tag}>
+                <button
+                  type="button"
+                  onClick={() => onFocus({ tipo: 'tag', valor: t.tag })}
+                  className="flex w-full items-center gap-2 rounded-sm px-1 py-0.5 text-left hover:bg-accent"
+                  title={`Show only #${t.tag}`}
+                >
+                  <span
+                    aria-hidden
+                    className="size-2 shrink-0 rounded-full"
+                    style={{ background: colorBy === 'tag' ? t.color : 'var(--muted-foreground)' }}
+                  />
+                  <span className="min-w-0 flex-1 truncate font-mono text-fs-sm text-foreground">#{t.tag}</span>
+                  <span className="shrink-0 font-mono text-fs-xs tabular-nums text-muted-foreground">{t.count}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+          {tags.length > 12 && (
+            <p className="mt-1 px-1 text-fs-xs text-muted-foreground">
+              {tags.length - 12} more tags
+            </p>
+          )}
         </div>
       )}
 

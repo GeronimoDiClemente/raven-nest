@@ -25,7 +25,7 @@
 import type { MemoryEdgeKind, MemoryGraph, MemoryGraphNode } from '../types'
 import { memoryTypeSwatch } from './memory-type-legend'
 
-export type ColorBy = 'project' | 'type'
+export type ColorBy = 'project' | 'type' | 'tag'
 
 /** Nodo tal como lo consume react-force-graph-3d. `id` es el `syncId`. */
 export interface GraphNodeDatum {
@@ -41,6 +41,7 @@ export interface GraphNodeDatum {
   projectKey: string
   /** Nombre legible; cae al `projectKey` (un hash) sólo si el proyecto nunca se registró. */
   projectLabel: string
+  tags: string[]
   gitBranch: string | null
 }
 
@@ -83,6 +84,37 @@ export function projectColors(projectKeys: string[]): Map<string, string> {
   const out = new Map<string, string>()
   ordenados.forEach((k, i) => out.set(k, PROJECT_PALETTE[i % PROJECT_PALETTE.length]))
   return out
+}
+
+/**
+ * Cuántas memorias tiene cada tag, de mayor a menor. El orden importa y no es cosmético:
+ * es lo que resuelve que una memoria pueda tener VARIOS tags.
+ *
+ * Obsidian tiene el mismo problema —una nota puede caer en varios grupos— y lo resuelve por
+ * ORDEN: gana el primer grupo que matchea. Acá el orden es la frecuencia, que es el criterio
+ * que hace que el color diga lo máximo posible: el tag más usado es el que más separa el
+ * corpus en dos.
+ */
+export function tagRanking(nodes: Array<{ tags: string[] }>): string[] {
+  const cuenta = new Map<string, number>()
+  for (const n of nodes) for (const t of n.tags) cuenta.set(t, (cuenta.get(t) ?? 0) + 1)
+  return [...cuenta.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .map(([t]) => t)
+}
+
+/** Tag -> color, por posición en el ranking. Estable mientras el ranking no cambie. */
+export function tagColors(ranking: string[]): Map<string, string> {
+  const out = new Map<string, string>()
+  ranking.forEach((t, i) => out.set(t, PROJECT_PALETTE[i % PROJECT_PALETTE.length]))
+  return out
+}
+
+/** El tag que le da el color a una memoria: el más arriba del ranking que tenga. `null` si
+ *  no tiene ninguno — ahí va gris, no un color inventado. */
+export function tagDominante(tags: string[], ranking: string[]): string | null {
+  for (const t of ranking) if (tags.includes(t)) return t
+  return null
 }
 
 export interface EdgeStyle {
@@ -175,14 +207,16 @@ function valorPorGrado(degree: number, superseded: boolean): number {
   return superseded ? base * 0.55 : base
 }
 
+/** En qué está enfocado el grafo: un proyecto, un tag, o nada. Es el "abrir uno" de
+ *  Obsidian, generalizado — un tag agrupa igual de bien que una carpeta. */
+export type Foco = { tipo: 'project'; valor: string } | { tipo: 'tag'; valor: string } | null
+
 export interface ToGraphDataOptions {
-  /** Qué significa el color de un nodo. `project` es el default del grafo completo;
-   *  `type` es lo que tiene sentido cuando ya estás adentro de UN proyecto. */
+  /** Qué significa el color de un nodo. */
   colorBy: ColorBy
   /** Esconder las memorias sin ninguna conexión (el filtro "Orphans" de Obsidian). */
   hideOrphans: boolean
-  /** Si viene, sólo entran las memorias de ese proyecto. Es el "abrir un proyecto". */
-  focusProject: string | null
+  foco: Foco
 }
 
 /**
@@ -194,9 +228,11 @@ export interface ToGraphDataOptions {
  * título, sin color y sin tipo, que no corresponde a ninguna memoria.
  */
 export function toGraphData(graph: MemoryGraph, opts: ToGraphDataOptions): GraphData {
-  const enFoco = opts.focusProject
-    ? graph.nodes.filter((n) => n.projectKey === opts.focusProject)
-    : graph.nodes
+  const enFoco = !opts.foco
+    ? graph.nodes
+    : opts.foco.tipo === 'project'
+      ? graph.nodes.filter((n) => n.projectKey === opts.foco!.valor)
+      : graph.nodes.filter((n) => n.tags.includes(opts.foco!.valor))
 
   const idsEnFoco = new Set(enFoco.map((n) => n.syncId))
   const aristas = graph.edges.filter((e) => idsEnFoco.has(e.from) && idsEnFoco.has(e.to))
@@ -211,21 +247,30 @@ export function toGraphData(graph: MemoryGraph, opts: ToGraphDataOptions): Graph
   }
 
   const colores = projectColors(enFoco.map((n) => n.projectKey))
+  const ranking = opts.colorBy === 'tag' ? tagRanking(enFoco) : []
+  const coloresDeTag = tagColors(ranking)
 
   const todos: GraphNodeDatum[] = enFoco.map((n) => {
     const degree = grado.get(n.syncId) ?? 0
+    const colorPorTag = () => {
+      const dom = tagDominante(n.tags, ranking)
+      return dom ? (coloresDeTag.get(dom) ?? NEUTRAL_NODE) : NEUTRAL_NODE
+    }
     return {
       id: n.syncId,
       label: nodeLabel(n),
       color: opts.colorBy === 'project'
         ? (colores.get(n.projectKey) ?? NEUTRAL_NODE)
-        : (memoryTypeSwatch(n.type)?.color ?? NEUTRAL_NODE),
+        : opts.colorBy === 'tag'
+          ? colorPorTag()
+          : (memoryTypeSwatch(n.type)?.color ?? NEUTRAL_NODE),
       val: valorPorGrado(degree, n.superseded),
       degree,
       superseded: n.superseded,
       type: n.type,
       projectKey: n.projectKey,
       projectLabel: n.projectDisplayName ?? n.projectKey,
+      tags: n.tags,
       gitBranch: n.gitBranch,
     }
   })
@@ -269,6 +314,22 @@ export function projectGroups(graph: MemoryGraph): ProjectGroup[] {
       count,
     }))
     .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label))
+}
+
+export interface TagGroup {
+  tag: string
+  color: string
+  count: number
+}
+
+/** Los tags para la leyenda: cuál es, su color y cuántas memorias lo llevan. El orden es el
+ *  del ranking, o sea por cantidad — el mismo que decide el color de una memoria con varios. */
+export function tagGroups(graph: MemoryGraph): TagGroup[] {
+  const ranking = tagRanking(graph.nodes)
+  const colores = tagColors(ranking)
+  const cuenta = new Map<string, number>()
+  for (const n of graph.nodes) for (const t of n.tags) cuenta.set(t, (cuenta.get(t) ?? 0) + 1)
+  return ranking.map((tag) => ({ tag, color: colores.get(tag) ?? NEUTRAL_NODE, count: cuenta.get(tag) ?? 0 }))
 }
 
 /** Cuántas aristas de cada tipo hay. La leyenda no lista un tipo que no está en pantalla. */
