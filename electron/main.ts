@@ -141,7 +141,7 @@ import { reconcileSessions } from './memory-sessions'
 import { buildDoctorReport } from './memory-doctor'
 import { readVaultHealth } from './memory-vault-health'
 import type { MemoryGraph, MemoryGraphQuery } from './memory-graph'
-import type { CrossProjectMemoryPage, CrossProjectMemoryQuery } from './memory-store'
+import type { CrossProjectMemoryPage, CrossProjectMemoryQuery, MemoryObservationDetail } from './memory-store'
 import { daemonSocketPath } from './memory-protocol'
 import { swapMemoryStore, type SwapContext } from './memory-account-switch'
 import type { ProvisionerPaths } from './memory-provisioner'
@@ -3088,6 +3088,48 @@ ipcMain.handle('memory:graph', (_event, query?: Partial<MemoryGraphQuery>): Memo
     similarMinScore: query?.similarMinScore,
   }
   return memory.store.memoryGraph(resolved)
+})
+
+/**
+ * Una memoria entera, por id — lo que el grafo muestra al costado cuando tocás un nodo.
+ *
+ * El grafo y el listado devuelven solo metadatos (titulo, tipo, proyecto, cuando): el
+ * `content` no viaja ahi a proposito, porque serian cientos de documentos completos por
+ * consulta. Esto es la lectura puntual del que estas mirando.
+ *
+ * Sale de SQLite, no del vault Markdown: el vault es OPCIONAL (se puede tener apagado) y
+ * es una PROYECCION de esta base, no la fuente. Mostrar la memoria tiene que funcionar con
+ * el vault apagado.
+ *
+ * Devuelve null si no existe, si esta borrada (un tombstone tiene `content` en null por
+ * definicion — ver §3.1 del protocolo) o si la memoria esta deshabilitada.
+ */
+ipcMain.handle('memory:observation', (_event, syncId: string): MemoryObservationDetail | null => {
+  if (!memory || typeof syncId !== 'string' || !syncId) return null
+  const row = memory.store.get(syncId)
+  if (!row || row.deleted === 1) return null
+  let tags: string[] = []
+  try {
+    const parsed = row.tags ? JSON.parse(row.tags) : []
+    if (Array.isArray(parsed)) tags = parsed.filter((t): t is string => typeof t === 'string')
+  } catch { /* tags invalidos = sin tags, mismo criterio que toDoc() en el store */ }
+  return {
+    syncId: row.sync_id,
+    projectKey: row.project_key,
+    scope: row.scope as 'personal' | 'project' | 'team',
+    type: row.type,
+    title: row.title,
+    content: row.content,
+    tags,
+    topicKey: row.topic_key,
+    gitBranch: row.git_branch,
+    originAi: row.origin_ai,
+    authorDisplay: row.author_display,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    supersededBy: row.superseded_by,
+    revisionCount: row.revision_count,
+  }
 })
 
 // Puente de datos del listado cross-project de memorias (spec 2026-09-11, pantalla de

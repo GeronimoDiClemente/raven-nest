@@ -34,7 +34,10 @@ export default function MemoriesList({ selectedId = null, onSelect }: Props = {}
     useCrossProjectMemories()
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-2">
+    // `min-h-[200px]`: la lista es LO PRINCIPAL de esta pantalla (spec §1). Sin un piso, el
+    // grafo (380px) y la card de abajo la aplastaban a dos filas y media — la pantalla
+    // pasaba a ser el grafo con un resto arriba, que es al reves de lo que tiene que ser.
+    <div className="flex min-h-[200px] flex-1 flex-col gap-2">
       <div className="flex items-center gap-2">
         <Input
           type="search"
@@ -71,6 +74,7 @@ export default function MemoriesList({ selectedId = null, onSelect }: Props = {}
 
       {status === 'ready' && items.length === 0 && (
         <MemoriesNotice
+          compact={Boolean(query)}
           title={query ? 'No memories match that search' : 'No memories yet'}
           detail={
             query
@@ -95,10 +99,16 @@ export default function MemoriesList({ selectedId = null, onSelect }: Props = {}
 }
 
 function MemoriesNotice({
-  title, detail, destructive = false,
-}: { title: string; detail: string; destructive?: boolean }) {
+  title, detail, destructive = false, compact = false,
+}: { title: string; detail: string; destructive?: boolean; compact?: boolean }) {
   return (
-    <div className="flex flex-1 flex-col items-center justify-center gap-1 py-10 text-center">
+    // `compact` es para cuando el vacio es TEMPORAL — una busqueda que no encontro nada.
+    // Sin eso el aviso se estira a toda la altura disponible y empuja lo que viene abajo
+    // (el grafo) fuera de la vista, con la pantalla mayormente en negro: parece rota.
+    // El vacio de verdad (no hay ni una memoria) si merece la pantalla entera.
+    <div className={`flex flex-col items-center justify-center gap-1 text-center ${
+      compact ? 'py-6' : 'flex-1 py-10'
+    }`}>
       <p className={`text-fs-lg font-medium ${destructive ? 'text-destructive' : 'text-foreground'}`}>{title}</p>
       <p className="max-w-sm text-fs text-muted-foreground">{detail}</p>
     </div>

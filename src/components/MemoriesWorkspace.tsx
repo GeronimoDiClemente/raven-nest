@@ -108,40 +108,16 @@ export default function MemoriesWorkspace({ onClose, activeRepoPath, onOpenFile,
             <TeamThreadPanel activeRepoPath={activeRepoPath} onOpenFile={onOpenFile} />
           </div>
         ) : (
-          // Igual que el grafo de ramas de arriba: este card es sobre ESE grafo (no
-          // sobre las memorias, que ya tienen su propio estado vacio en MemoriesList),
-          // asi que pasa a secundario y compacto en vez de hero centrado.
-          <div className="flex shrink-0 items-center justify-center py-2">
-            <Card className="w-full max-w-md text-center">
-              <CardHeader>
-                {/* CardTitle/CardDescription stock traen 16px/14px (text-base/text-sm),
-                    fuera de la escala --fs-*. Antes de Task 8b pisarlos desde acá no
-                    servía: cn() clasificaba text-fs-* como color, así que colisionaba
-                    con el text-muted-foreground de CardDescription en vez de con su
-                    tamaño — perdía el pisado en silencio. Con cn() arreglado (misma
-                    escala, mismo grupo que text-base/text-sm), el último className gana
-                    de verdad. Se redondea al escalón más cercano: 16->text-fs-lg (15,
-                    -1), 14->text-fs (13, -1) — mismo criterio que Sidebar.tsx:366. */}
-                {/* 2026-09-11: decía "Link a repo to see its memory graph". Desde que
-                    MemoryGraphPanel existe, el grafo DE MEMORIAS ya está en pantalla arriba
-                    de esta card, así que ese texto se contradecía con lo que el usuario
-                    estaba viendo. Lo que falta sin repo es el otro grafo, el de RAMAS. */}
-                <CardTitle className="text-fs-lg">Link a repo to see its branches</CardTitle>
-                <CardDescription className="text-fs">
-                  {/* El contador sólo si el dato está Y tiene sentido: con memorias pero
-                      projectCount en 0 la frase decía "6 memories across 0 projects", que
-                      es la clase de número que hace desconfiar de toda la pantalla. */}
-                  {hub && hub.projectCount > 0
-                    ? `With a repo linked you also see who changed what, and when — you have ${hub.itemCount} ${hub.itemCount === 1 ? 'memory' : 'memories'} across ${hub.projectCount} ${hub.projectCount === 1 ? 'project' : 'projects'}.`
-                    : 'With a repo linked you also see who changed what, and when.'}
-                </CardDescription>
-              </CardHeader>
-              {onLinkRepo && (
-                <CardContent>
-                  <Button onClick={onLinkRepo}>Link a repo</Button>
-                </CardContent>
-              )}
-            </Card>
+          // Una linea, no una card de 250px. Esto es sobre el grafo de RAMAS (el otro
+          // grafo), que sin repo vinculado no se puede dibujar — es una nota al pie, y
+          // como card hero se llevaba el alto que necesita la lista de memorias.
+          <div className="flex shrink-0 flex-wrap items-center gap-2 rounded-md border border-border px-3 py-2">
+            <span className="min-w-0 flex-1 text-fs-sm text-muted-foreground">
+              Link a repo to also see its branches — who changed what, and when.
+            </span>
+            {onLinkRepo && (
+              <Button variant="outline" size="sm" onClick={onLinkRepo}>Link a repo</Button>
+            )}
           </div>
         )}
 

@@ -311,6 +311,8 @@ export type MemoryEdgeKind = 'revision' | 'topic' | 'branch' | 'similar'
 
 export interface MemoryGraphNode {
   syncId: string
+  /** De qué proyecto viene. Es lo que permite agrupar el grafo por proyecto. */
+  projectKey: string
   title: string
   type: string
   scope: 'personal' | 'project' | 'team'
@@ -350,6 +352,27 @@ export interface MemoryGraphQuery {
   /** Umbral minimo de score (0..1) para emitir una arista `similar`. Default 0.3 (ver
    *  DEFAULT_SIMILAR_MIN_SCORE). */
   similarMinScore?: number
+}
+
+/** Espejo de `MemoryObservationDetail` en electron/memory-store.ts — una memoria ENTERA,
+ *  con su `content`. Es lo que el panel del grafo muestra al tocar un nodo. */
+export interface MemoryObservationDetail {
+  syncId: string
+  projectKey: string
+  scope: 'personal' | 'project' | 'team'
+  type: string
+  title: string
+  /** `null` en un tombstone: borrar nulea el contenido. */
+  content: string | null
+  tags: string[]
+  topicKey: string | null
+  gitBranch: string | null
+  originAi: string | null
+  authorDisplay: string | null
+  createdAt: number
+  updatedAt: number
+  supersededBy: string | null
+  revisionCount: number
 }
 
 /** Espejo de los tipos de `crossProjectMemories()` en electron/memory-store.ts (src/ nunca
@@ -981,6 +1004,8 @@ declare global {
        * UI que lo consuma (ese es un trabajo posterior; este método es el contrato).
        */
       crossProject?: (query?: Partial<CrossProjectMemoryQuery>) => Promise<CrossProjectMemoryPage>
+      /** Una memoria entera por id, con su `content`. `null` si no existe o esta borrada. */
+      observation?: (syncId: string) => Promise<MemoryObservationDetail | null>
       /**
        * Team Memory Layer 1, Parte 8: comparte un proyecto LOCAL con un equipo — pega
        * contra POST /v1/projects/share (server/src/share.ts), la única forma de que

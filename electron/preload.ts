@@ -110,6 +110,11 @@ contextBridge.exposeInMainWorld('memory', {
       includeSuperseded: boolean
     }>
   ) => ipcRenderer.invoke('memory:crossProject', query),
+  // Una memoria entera, con su `content` — lo que el grafo muestra al costado. Ni `graph`
+  // ni `crossProject` traen contenido a proposito (serian cientos de documentos por
+  // consulta); esta es la lectura puntual del nodo que estas mirando. Sale de SQLite, no
+  // del vault: el vault es opcional y es una proyeccion, no la fuente.
+  observation: (syncId: string) => ipcRenderer.invoke('memory:observation', syncId),
   // Team Memory Layer 1, Parte 8 — comparte un proyecto LOCAL con un equipo, vía
   // POST /v1/projects/share (server/src/share.ts). Sin UI todavía; se prueba desde devtools
   // o un test.

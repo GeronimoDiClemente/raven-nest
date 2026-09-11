@@ -1,31 +1,45 @@
-// Spec 2026-09-11 §3: los cuatro tipos de arista se distinguen visualmente, y eso NO es
-// decoración. `revision` es dirigida (el linaje de una idea), `topic` y `branch` son
-// agrupamientos, y `similar` es inferencia, no un hecho afirmado. Mezclar las cuatro en la
-// misma línea gris es lo que hace que un grafo se vea rico y no signifique nada.
+// Cómo se ve el grafo de memorias, y por qué.
 //
-// Se distinguen por FORMA, no por color: ancho, curvatura y flecha, sobre una rampa de
-// grises. Es la misma decisión que el tratamiento B de botones (jerarquía por forma) y la
-// que deja intacta la regla de que el color es estado. Los nodos SÍ llevan color, porque
-// ahí el color significa el tipo de memoria — la leyenda categórica que ya existe y que ya
-// tiene su contraste verificado (memory-type-legend.ts).
+// El modelo está copiado de Obsidian a propósito, después de verificar qué hace de verdad
+// (obsidian.md/help/plugins/graph, 2026-09-11). Las cuatro cosas que le tomamos prestadas,
+// cada una resolviendo un problema concreto que este grafo tenía con datos reales:
 //
-// Todo acá es una función pura sobre datos: el render vive en MemoryGraph3D.tsx, que es el
-// chunk pesado y diferido. Así la lógica que decide qué significa cada cosa se puede testear
-// sin montar WebGL.
+// 1. **El filtro de huérfanas** (Obsidian: "Orphans — toggles whether to show notes without
+//    any links"). Medido con la base real del usuario: de ~200 memorias, casi ninguna tiene
+//    `topic_key` ni rama compartida, así que el grafo era una nube de puntos sin una sola
+//    línea. Acá va **apagado por default**, al revés que Obsidian, porque en Obsidian las
+//    notas se enlazan a mano y acá las relaciones se infieren: lo normal es tener muchas
+//    sueltas.
+// 2. **Los grupos son color** (Obsidian: un grupo por consulta de búsqueda). Nuestro
+//    equivalente natural es un grupo por PROYECTO, armado solo.
+// 3. **El tamaño del nodo escala con las conexiones** ("the more nodes that reference a
+//    given node, the bigger it gets"). Antes el tamaño sólo decía si estaba reemplazada,
+//    que es casi nada.
+// 4. **Las aristas se distinguen por forma**, no por color — eso no es de Obsidian, es
+//    nuestro: `revision` es dirigida (el linaje de una idea), `topic` y `branch` son
+//    agrupamientos, y `similar` es inferencia, no un hecho afirmado. Mezclar las cuatro en
+//    la misma línea gris es lo que hace que un grafo se vea rico y no signifique nada.
+//
+// El color de los NODOS sí es categórico (proyecto o tipo): es la excepción justificada a
+// la regla de que el color es estado, la misma que ya usa `memory-type-legend.ts`.
 import type { MemoryEdgeKind, MemoryGraph, MemoryGraphNode } from '../types'
 import { memoryTypeSwatch } from './memory-type-legend'
+
+export type ColorBy = 'project' | 'type'
 
 /** Nodo tal como lo consume react-force-graph-3d. `id` es el `syncId`. */
 export interface GraphNodeDatum {
   id: string
   label: string
   color: string
-  /** Área relativa del nodo. Una memoria reemplazada se dibuja más chica: sigue en el
-   *  linaje pero ya no es la versión vigente. */
+  /** Área relativa del nodo: crece con la cantidad de conexiones, como en Obsidian. */
   val: number
+  /** Cuántas aristas tocan este nodo. 0 = huérfana. */
+  degree: number
   superseded: boolean
   type: string
-  projectLabel: string | null
+  projectKey: string
+  gitBranch: string | null
 }
 
 export interface GraphLinkDatum {
@@ -37,33 +51,51 @@ export interface GraphLinkDatum {
 export interface GraphData {
   nodes: GraphNodeDatum[]
   links: GraphLinkDatum[]
+  /** Cuántas quedaron afuera por el filtro de huérfanas. Se muestra: esconder la mitad de
+   *  las memorias sin decirlo es mentir sobre lo que hay. */
+  orphansHidden: number
 }
 
-/** Gris neutro para un tipo que no está en la leyenda fija — nunca un color inventado
- *  (mismo criterio que `memoryTypeSwatch`, que devuelve null). */
+/** Gris neutro para un tipo fuera de la leyenda fija — nunca un color inventado. */
 const NEUTRAL_NODE = '#8a8a8a'
 
+/**
+ * Paleta categórica para los proyectos. Los primeros siete son los mismos de
+ * `memory-type-legend.ts` (tema validado por contraste >=3:1 contra `--card`, y ordenado
+ * para seguridad CVD); los cinco extra siguen el mismo criterio y extienden la rueda.
+ *
+ * Se asigna por POSICIÓN en la lista ordenada de proyectos, no por hash: un hash da colores
+ * estables pero puede repetir dos veces el mismo entre proyectos vecinos, que es justo lo
+ * que un grupo de color no puede hacer. Con la lista ordenada alfabéticamente, el color de
+ * un proyecto sólo cambia si aparece o desaparece otro — y sigue siendo estable entre
+ * sesiones.
+ */
+const PROJECT_PALETTE = [
+  '#3987e5', '#d95926', '#199e70', '#c98500', '#d55181', '#008300',
+  '#9085e9', '#0e8f8f', '#b4553d', '#6f8f1e', '#c2408a', '#4a76d4',
+]
+
+/** Proyecto -> color, estable para un mismo conjunto de proyectos. */
+export function projectColors(projectKeys: string[]): Map<string, string> {
+  const ordenados = [...new Set(projectKeys)].sort()
+  const out = new Map<string, string>()
+  ordenados.forEach((k, i) => out.set(k, PROJECT_PALETTE[i % PROJECT_PALETTE.length]))
+  return out
+}
+
 export interface EdgeStyle {
-  /** Grosor de la línea. */
   width: number
-  /** Gris con alfa. La rampa va de lo afirmado (claro, opaco) a lo inferido (tenue). */
   color: string
-  /** 0 = recta. Las agrupaciones se curvan para leerse como "estos van juntos" en vez de
-   *  "esto llevó a esto". */
   curvature: number
-  /** Largo de la punta de flecha; 0 = sin flecha. Solo `revision` la tiene, porque es la
-   *  única dirigida. */
+  /** Largo de la punta de flecha; 0 = sin flecha. Sólo `revision` la tiene. */
   arrowLength: number
-  /** Para la leyenda de la UI. */
   label: string
-  /** Qué afirma esta arista. Lo lee el tooltip de la leyenda: la diferencia entre un hecho
-   *  y una inferencia tiene que estar escrita, no solo dibujada. */
+  /** Qué afirma esta arista. La diferencia entre un hecho y una inferencia tiene que estar
+   *  escrita, no sólo dibujada. */
   meaning: string
 }
 
 export const EDGE_STYLES: Record<MemoryEdgeKind, EdgeStyle> = {
-  // El linaje: esta memoria reemplazó a aquella. Es la única con dirección, y la más
-  // marcada — es la relación que cuenta una historia.
   revision: {
     width: 2,
     color: 'rgba(232, 232, 232, 0.85)',
@@ -72,7 +104,6 @@ export const EDGE_STYLES: Record<MemoryEdgeKind, EdgeStyle> = {
     label: 'Revision',
     meaning: 'This memory replaced that one',
   },
-  // Mismo topic_key: alguien las agrupó bajo el mismo tema.
   topic: {
     width: 1.2,
     color: 'rgba(180, 180, 180, 0.5)',
@@ -81,7 +112,6 @@ export const EDGE_STYLES: Record<MemoryEdgeKind, EdgeStyle> = {
     label: 'Same topic',
     meaning: 'Saved under the same topic',
   },
-  // Misma rama de git: se escribieron trabajando en lo mismo.
   branch: {
     width: 1.2,
     color: 'rgba(140, 140, 140, 0.38)',
@@ -90,8 +120,6 @@ export const EDGE_STYLES: Record<MemoryEdgeKind, EdgeStyle> = {
     label: 'Same branch',
     meaning: 'Written while working on the same branch',
   },
-  // La única que nadie afirmó: la calculamos nosotros por tags compartidos. Va apagada por
-  // default y se dibuja como lo que es — la más tenue y la más fina.
   similar: {
     width: 0.6,
     color: 'rgba(120, 120, 120, 0.22)',
@@ -102,7 +130,6 @@ export const EDGE_STYLES: Record<MemoryEdgeKind, EdgeStyle> = {
   },
 }
 
-/** El orden en que la leyenda los lista: de lo afirmado a lo inferido. */
 export const EDGE_KINDS_IN_LEGEND_ORDER: MemoryEdgeKind[] = ['revision', 'topic', 'branch', 'similar']
 
 function nodeLabel(node: MemoryGraphNode): string {
@@ -110,37 +137,101 @@ function nodeLabel(node: MemoryGraphNode): string {
 }
 
 /**
- * Traduce el grafo del store al formato del render.
- *
- * Dos cosas que NO hace a propósito:
- * - No filtra `similar`: eso lo decide la capa de datos vía `includeSimilar` en la query,
- *   que es donde ya vive la decisión (no se piden y después se tiran).
- * - No descarta aristas con puntas faltantes en silencio. Si el store devolviera una arista
- *   hacia un nodo que no vino (por el `limit`), react-force-graph la trataría como un nodo
- *   nuevo sin datos y aparecería un punto fantasma sin título ni color. Se filtran acá, que
- *   es el único lugar donde se sabe qué nodos llegaron.
+ * Tamaño del nodo a partir de su grado. Raíz cuadrada, no lineal: con el área proporcional
+ * al grado, un nodo con 20 conexiones se comería la pantalla. Es el mismo criterio que usa
+ * cualquier scatter honesto — el AREA representa la magnitud, no el radio.
  */
-export function toGraphData(graph: MemoryGraph): GraphData {
-  const nodes: GraphNodeDatum[] = graph.nodes.map((n) => ({
-    id: n.syncId,
-    label: nodeLabel(n),
-    color: memoryTypeSwatch(n.type)?.color ?? NEUTRAL_NODE,
-    val: n.superseded ? 1 : 2.5,
-    superseded: n.superseded,
-    type: n.type,
-    projectLabel: n.gitBranch,
-  }))
-
-  const presentes = new Set(nodes.map((n) => n.id))
-  const links: GraphLinkDatum[] = graph.edges
-    .filter((e) => presentes.has(e.from) && presentes.has(e.to))
-    .map((e) => ({ source: e.from, target: e.to, kind: e.kind }))
-
-  return { nodes, links }
+function valorPorGrado(degree: number, superseded: boolean): number {
+  const base = 1.5 + Math.sqrt(degree) * 1.6
+  // Una memoria reemplazada sigue en el linaje pero ya no es la vigente: se dibuja mas
+  // chica para que la version viva sea la que se lee primero.
+  return superseded ? base * 0.55 : base
 }
 
-/** Cuántas aristas de cada tipo hay. Lo usa la leyenda para no ofrecer un tipo que no
- *  aparece en el grafo que se está mirando. */
+export interface ToGraphDataOptions {
+  /** Qué significa el color de un nodo. `project` es el default del grafo completo;
+   *  `type` es lo que tiene sentido cuando ya estás adentro de UN proyecto. */
+  colorBy: ColorBy
+  /** Esconder las memorias sin ninguna conexión (el filtro "Orphans" de Obsidian). */
+  hideOrphans: boolean
+  /** Si viene, sólo entran las memorias de ese proyecto. Es el "abrir un proyecto". */
+  focusProject: string | null
+}
+
+/**
+ * Traduce el grafo del store al formato del render.
+ *
+ * Una cosa que hace y es fácil de perder: **descarta las aristas con una punta que no vino
+ * en el grafo**. El store trunca por `limit`, así que puede devolver una arista hacia un
+ * nodo ausente — y react-force-graph, si la recibe, INVENTA ese nodo: aparece un punto sin
+ * título, sin color y sin tipo, que no corresponde a ninguna memoria.
+ */
+export function toGraphData(graph: MemoryGraph, opts: ToGraphDataOptions): GraphData {
+  const enFoco = opts.focusProject
+    ? graph.nodes.filter((n) => n.projectKey === opts.focusProject)
+    : graph.nodes
+
+  const idsEnFoco = new Set(enFoco.map((n) => n.syncId))
+  const aristas = graph.edges.filter((e) => idsEnFoco.has(e.from) && idsEnFoco.has(e.to))
+
+  // El grado se cuenta sobre las aristas que de verdad se van a dibujar, no sobre las que
+  // el store devolvio: si filtramos por proyecto, una memoria puede quedar huerfana ACA
+  // aunque tenga vecinos en otro proyecto.
+  const grado = new Map<string, number>()
+  for (const e of aristas) {
+    grado.set(e.from, (grado.get(e.from) ?? 0) + 1)
+    grado.set(e.to, (grado.get(e.to) ?? 0) + 1)
+  }
+
+  const colores = projectColors(enFoco.map((n) => n.projectKey))
+
+  const todos: GraphNodeDatum[] = enFoco.map((n) => {
+    const degree = grado.get(n.syncId) ?? 0
+    return {
+      id: n.syncId,
+      label: nodeLabel(n),
+      color: opts.colorBy === 'project'
+        ? (colores.get(n.projectKey) ?? NEUTRAL_NODE)
+        : (memoryTypeSwatch(n.type)?.color ?? NEUTRAL_NODE),
+      val: valorPorGrado(degree, n.superseded),
+      degree,
+      superseded: n.superseded,
+      type: n.type,
+      projectKey: n.projectKey,
+      gitBranch: n.gitBranch,
+    }
+  })
+
+  const nodes = opts.hideOrphans ? todos.filter((n) => n.degree > 0) : todos
+  const visibles = new Set(nodes.map((n) => n.id))
+
+  return {
+    nodes,
+    links: aristas
+      .filter((e) => visibles.has(e.from) && visibles.has(e.to))
+      .map((e) => ({ source: e.from, target: e.to, kind: e.kind })),
+    orphansHidden: todos.length - nodes.length,
+  }
+}
+
+export interface ProjectGroup {
+  projectKey: string
+  color: string
+  count: number
+}
+
+/** Los grupos para la leyenda: un proyecto, su color y cuántas memorias tiene. Ordenados
+ *  por cantidad, que es el orden en que a alguien le importan. */
+export function projectGroups(graph: MemoryGraph): ProjectGroup[] {
+  const colores = projectColors(graph.nodes.map((n) => n.projectKey))
+  const cuenta = new Map<string, number>()
+  for (const n of graph.nodes) cuenta.set(n.projectKey, (cuenta.get(n.projectKey) ?? 0) + 1)
+  return [...cuenta.entries()]
+    .map(([projectKey, count]) => ({ projectKey, color: colores.get(projectKey) ?? NEUTRAL_NODE, count }))
+    .sort((a, b) => b.count - a.count || a.projectKey.localeCompare(b.projectKey))
+}
+
+/** Cuántas aristas de cada tipo hay. La leyenda no lista un tipo que no está en pantalla. */
 export function countEdgeKinds(data: GraphData): Record<MemoryEdgeKind, number> {
   const out: Record<MemoryEdgeKind, number> = { revision: 0, topic: 0, branch: 0, similar: 0 }
   for (const l of data.links) out[l.kind] += 1

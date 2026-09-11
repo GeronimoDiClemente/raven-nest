@@ -1,20 +1,35 @@
-// El cuadro del grafo de memorias: acotado, 3D, y una VISTA de la lista — no su reemplazo.
+// El grafo de memorias: acotado en alto, ancho de verdad, y con el documento al costado.
 //
-// Spec 2026-09-11 §3. Tres cosas que este archivo defiende y que son fáciles de romper sin
-// darse cuenta:
+// El modelo está tomado de Obsidian después de verificar qué hace (ver el comentario de
+// `memory-graph-visuals.ts`, que tiene el detalle y la fuente). Lo que resuelve cada pieza,
+// con datos reales:
 //
-// 1. **El cuadro no crece.** Es un cuadrado de lado fijo. El grafo que había antes ocupaba
-//    toda la pantalla y el usuario lo describió como "0 intuitiva". La referencia es el
-//    panel local de Obsidian: chico, al costado, mirable de reojo.
-// 2. **Con cero nodos no se monta nada.** Un cuadro vacío con un borde es peor que no tener
-//    cuadro: ocupa lugar y no dice nada.
-// 3. **El render pesado entra por `import()` diferido.** `MemoryGraph3D` es el único archivo
-//    que importa react-force-graph-3d; acá se carga tarde y una sola vez. Convertir este
-//    import en estático devuelve 1.37 MB al arranque sin que nadie lo note.
+// - **El filtro de huérfanas** es lo que hace la diferencia entre un grafo y una nube de
+//   polvo. Con ~200 memorias y casi ninguna relación declarada, mostrarlas todas no dibuja
+//   una sola línea. Va apagado por default y dice cuántas está escondiendo.
+// - **Los grupos son proyectos**, con su color. Tocar uno entra en ese proyecto; adentro el
+//   color pasa a ser el TIPO de memoria, que es la distinción que importa una vez que el
+//   proyecto ya es uno solo.
+// - **El documento al costado.** Tocar un nodo no abre otra pantalla: trae la memoria
+//   entera —contenido incluido— al panel de la derecha.
+//
+// Lo pesado (`MemoryGraph3D`) entra por `import()` diferido: medido el 2026-09-11,
+// importarlo arriba suma 1379.8 KB crudos al arranque; detrás del import() suma 1.4 KB.
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
+import { ChevronLeft, Eye, EyeOff } from 'lucide-react'
 import { useMemoryGraph } from '../hooks/useMemoryGraph'
-import { countEdgeKinds, EDGE_KINDS_IN_LEGEND_ORDER, EDGE_STYLES } from '../lib/memory-graph-visuals'
+import { useMemoryDetail } from '../hooks/useMemoryDetail'
+import {
+  countEdgeKinds, projectGroups, toGraphData,
+  EDGE_KINDS_IN_LEGEND_ORDER, EDGE_STYLES,
+  type ProjectGroup,
+} from '../lib/memory-graph-visuals'
+import { memoryTypeSwatch } from '../lib/memory-type-legend'
+import { relativeTime } from '../lib/memories-status'
+import { AILogo } from './AILogos'
+import type { AIType, MemoryEdgeKind, MemoryObservationDetail } from '../types'
 import { Button } from '@/components/ui/button'
+import { ICON_SIZE } from '../lib/icons'
 
 /** Una sola promesa para toda la app: el prefetch y el `lazy` comparten el módulo, así que
  *  precargar de verdad evita la espera en vez de duplicar la descarga. Mismo patrón que
@@ -25,50 +40,50 @@ function cargarGraph3D() {
   return graph3dPromise
 }
 
-/**
- * Dispara la descarga del chunk del grafo sin montarlo. Se llama al ABRIR Memories, no al
- * montar el grafo: así el 1.37 MB viaja mientras el usuario mira la lista, que es lo primero
- * que ve, y el cuadro aparece ya cargado.
- */
+/** Dispara la descarga del chunk sin montarlo, al ABRIR Memories — así el 1.37 MB viaja
+ *  mientras el usuario mira la lista y el cuadro aparece ya cargado. */
 export function prefetchMemoryGraph3D(): void {
   void cargarGraph3D()
 }
 
 const MemoryGraph3D = lazy(cargarGraph3D)
 
-/** Lado del cuadro, en px. Fijo a propósito — ver el punto 1 del comentario de arriba. */
-const LADO = 320
+/** Alto del cuadro. El ANCHO ya no es fijo: el grafo toma el ancho disponible. Acotar el
+ *  alto alcanza — es lo que impide que se coma la pantalla, que era el pedido. */
+const ALTO = 380
+
+/** Arriba de esto las etiquetas de los nodos son ruido y no información. Es el equivalente
+ *  del `text fade threshold` de Obsidian, resuelto por cantidad en vez de por zoom. */
+const MAX_NODOS_CON_ETIQUETA = 60
 
 interface Props {
-  /** syncId seleccionado en la lista, o null. */
   selectedId: string | null
   onSelect: (syncId: string | null) => void
 }
 
 export default function MemoryGraphPanel({ selectedId, onSelect }: Props) {
   const [includeSimilar, setIncludeSimilar] = useState(false)
-  const { data, truncated, loading, error } = useMemoryGraph(includeSimilar)
+  const [hideOrphans, setHideOrphans] = useState(true)
+  const [focusProject, setFocusProject] = useState<string | null>(null)
+  const { graph, truncated, loading, error } = useMemoryGraph(includeSimilar)
+  const { detail, loading: cargandoDetalle, missing } = useMemoryDetail(selectedId)
 
   useEffect(() => { prefetchMemoryGraph3D() }, [])
 
+  // Adentro de un proyecto el color pasa a ser el TIPO: ya no hay varios proyectos que
+  // distinguir, y el tipo es la única categoría que queda con información.
+  const data = useMemo(
+    () => (graph ? toGraphData(graph, {
+      colorBy: focusProject ? 'type' : 'project',
+      hideOrphans,
+      focusProject,
+    }) : null),
+    [graph, hideOrphans, focusProject],
+  )
+
+  const grupos = useMemo(() => (graph ? projectGroups(graph) : []), [graph])
   const conteos = useMemo(() => (data ? countEdgeKinds(data) : null), [data])
 
-  // Qué mostrar del nodo elegido. Es lo que llena la columna de la derecha: sin esto,
-  // seleccionar algo en la lista resaltaba el grafo y dejaba media pantalla vacía al lado.
-  const seleccionado = useMemo(() => {
-    if (!data || !selectedId) return null
-    const nodo = data.nodes.find((n) => n.id === selectedId)
-    if (!nodo) return null
-    const conectadas = data.links.filter((l) => {
-      const a = typeof l.source === 'string' ? l.source : (l.source as { id?: string })?.id
-      const b = typeof l.target === 'string' ? l.target : (l.target as { id?: string })?.id
-      return a === selectedId || b === selectedId
-    })
-    return { nodo, conectadas }
-  }, [data, selectedId])
-
-  // Punto 2: sin nodos no hay cuadro. Tampoco mientras carga la primera vez — un esqueleto
-  // de 320px que aparece y desaparece es peor que nada.
   if (error) {
     return (
       <div className="shrink-0 rounded-md border border-border px-3 py-2 text-fs-sm text-muted-foreground">
@@ -76,81 +91,47 @@ export default function MemoryGraphPanel({ selectedId, onSelect }: Props) {
       </div>
     )
   }
-  if (loading && !data) return null
-  if (!data || data.nodes.length === 0) return null
+  // Sin nodos no hay cuadro. Tampoco mientras carga la primera vez: un esqueleto de 380px
+  // que aparece y desaparece es peor que nada.
+  if (loading && !graph) return null
+  if (!graph || graph.nodes.length === 0 || !data) return null
 
   return (
-    <div className="flex shrink-0 gap-4 rounded-md border border-border p-3">
-      {/* El cuadrado. `shrink-0` es lo que impide que el flex lo achique cuando la columna
-          de al lado crece — sin eso deja de ser cuadrado y vuelve a depender del contenido. */}
-      <div
-        className="shrink-0 overflow-hidden rounded-md bg-card"
-        style={{ width: LADO, height: LADO }}
-      >
-        <Suspense fallback={<div className="h-full w-full" />}>
-          <MemoryGraph3D data={data} selectedId={selectedId} onSelect={onSelect} />
-        </Suspense>
-      </div>
-
-      {/* `justify-center`: la columna tiene 3 o 4 lineas contra un cuadro de 320px, asi que
-          alineada arriba dejaba un vacio grande abajo que hacia ver el panel a medio hacer.
-          Centrada, el bloque se lee como una pareja del cuadro. */}
-      <div className="flex min-w-0 flex-1 flex-col justify-center gap-3">
-        {seleccionado ? (
-          <div className="min-w-0">
-            <div className="flex items-baseline gap-2">
-              <span
-                aria-hidden
-                className="size-2 shrink-0 self-center rounded-full"
-                style={{ background: seleccionado.nodo.color }}
-              />
-              <p className="min-w-0 flex-1 truncate text-fs font-medium text-foreground">
-                {seleccionado.nodo.label}
-              </p>
-            </div>
-            <p className="text-fs-sm text-muted-foreground">
-              {seleccionado.nodo.type}
-              {seleccionado.nodo.superseded && ' · replaced by a newer version'}
-              {' · '}
-              {seleccionado.conectadas.length === 0
-                ? 'not connected to anything else'
-                : `${seleccionado.conectadas.length} ${seleccionado.conectadas.length === 1 ? 'connection' : 'connections'}`}
-            </p>
-          </div>
+    <div className="flex shrink-0 flex-col gap-2 rounded-md border border-border p-3">
+      {/* La barra de filtros, en una sola línea. Es lo que Obsidian mete en un panel
+          lateral; acá vive a la vista porque son tres, no veinte. */}
+      <div className="flex flex-wrap items-center gap-2">
+        {focusProject ? (
+          <Button variant="outline" size="sm" onClick={() => { setFocusProject(null); onSelect(null) }}>
+            <ChevronLeft size={ICON_SIZE.sm} aria-hidden />
+            All projects
+          </Button>
         ) : (
-          <div>
-            <p className="text-fs font-medium text-foreground">How these memories connect</p>
-            <p className="text-fs-sm text-muted-foreground">
-              {data.nodes.length} {data.nodes.length === 1 ? 'memory' : 'memories'}
-              {truncated > 0 && ` · ${truncated} more not shown`}
-              {' · click one to follow its thread'}
-            </p>
-          </div>
+          <span className="text-fs-sm text-muted-foreground">
+            {data.nodes.length} shown
+            {truncated > 0 && ` · ${truncated} beyond the limit`}
+          </span>
         )}
 
-        {/* La leyenda no es decorativa: es lo que hace que las cuatro relaciones signifiquen
-            algo distinto. Un tipo de arista que no aparece en ESTE grafo no se lista — una
-            leyenda que nombra cosas que no están en pantalla enseña mal. */}
-        <ul className="flex flex-col gap-1.5">
-          {EDGE_KINDS_IN_LEGEND_ORDER.map((kind) => {
-            const style = EDGE_STYLES[kind]
-            const n = conteos?.[kind] ?? 0
-            if (n === 0 && kind !== 'similar') return null
-            return (
-              <li key={kind} className="flex items-baseline gap-2 text-fs-sm">
-                <span
-                  aria-hidden
-                  className="inline-block shrink-0 self-center rounded-full"
-                  style={{ width: 18, height: Math.max(style.width, 1), background: style.color }}
-                />
-                <span className="text-foreground">{style.label}</span>
-                <span className="min-w-0 truncate text-muted-foreground">{style.meaning}</span>
-              </li>
-            )
-          })}
-        </ul>
+        {focusProject && (
+          <span className="min-w-0 truncate font-mono text-fs-sm text-foreground">{focusProject}</span>
+        )}
 
-        <div className="mt-1">
+        <div className="ml-auto flex items-center gap-2">
+          {/* El filtro de Obsidian, con el nombre dicho en cristiano. Dice CUÁNTAS esconde:
+              un grafo que oculta la mitad de las memorias sin avisar miente sobre lo que hay. */}
+          <Button
+            variant={hideOrphans ? 'secondary' : 'outline'}
+            size="sm"
+            aria-pressed={hideOrphans}
+            onClick={() => setHideOrphans((v) => !v)}
+            title="A memory with no relationship to any other — most memories start this way"
+          >
+            {hideOrphans
+              ? <EyeOff size={ICON_SIZE.sm} aria-hidden />
+              : <Eye size={ICON_SIZE.sm} aria-hidden />}
+            {hideOrphans ? `${data.orphansHidden} unconnected hidden` : 'Showing unconnected'}
+          </Button>
           <Button
             variant={includeSimilar ? 'secondary' : 'outline'}
             size="sm"
@@ -161,6 +142,185 @@ export default function MemoryGraphPanel({ selectedId, onSelect }: Props) {
           </Button>
         </div>
       </div>
+
+      <div className="flex min-h-0 gap-3" style={{ height: ALTO }}>
+        {/* El grafo toma el ancho que sobra. `min-w-0` es lo que le permite encogerse en vez
+            de empujar al panel de la derecha fuera de la caja. */}
+        <div className="min-w-0 flex-1 overflow-hidden rounded-md bg-card">
+          {data.nodes.length === 0 ? (
+            <div className="flex h-full items-center justify-center px-6 text-center text-fs-sm text-muted-foreground">
+              {hideOrphans
+                ? 'None of these memories are connected to each other yet. Turn the filter off to see them all.'
+                : 'Nothing to draw here.'}
+            </div>
+          ) : (
+            <Suspense fallback={<div className="h-full w-full" />}>
+              <MemoryGraph3D
+                data={data}
+                selectedId={selectedId}
+                onSelect={onSelect}
+                showLabels={data.nodes.length <= MAX_NODOS_CON_ETIQUETA}
+              />
+            </Suspense>
+          )}
+        </div>
+
+        {/* El documento. Ancho fijo para que el grafo se quede con el resto y para que el
+            texto no cambie de medida cada vez que se mueve la ventana. */}
+        <div className="flex w-[340px] shrink-0 flex-col overflow-hidden rounded-md border border-border bg-card p-3">
+          {selectedId ? (
+            <DocumentoDeMemoria detail={detail} loading={cargandoDetalle} missing={missing} />
+          ) : (
+            <SinSeleccion
+              grupos={grupos}
+              focusProject={focusProject}
+              onFocus={(k) => { setFocusProject(k); onSelect(null) }}
+              conteos={conteos}
+            />
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function SinSeleccion({
+  grupos, focusProject, onFocus, conteos,
+}: {
+  grupos: ProjectGroup[]
+  focusProject: string | null
+  onFocus: (projectKey: string) => void
+  conteos: Record<MemoryEdgeKind, number> | null
+}) {
+  return (
+    <div className="flex min-h-0 flex-col gap-3 overflow-y-auto">
+      <div>
+        <p className="text-fs font-medium text-foreground">How these memories connect</p>
+        <p className="text-fs-sm text-muted-foreground">Click one to read it.</p>
+      </div>
+
+      {!focusProject && grupos.length > 0 && (
+        <div>
+          <p className="mb-1.5 text-fs-xs uppercase tracking-wide text-muted-foreground">Projects</p>
+          <ul className="flex flex-col gap-0.5">
+            {grupos.map((g) => (
+              <li key={g.projectKey}>
+                {/* Botón, no fila decorativa: entrar a un proyecto es LA acción de esta
+                    columna cuando no hay nada seleccionado. */}
+                <button
+                  type="button"
+                  onClick={() => onFocus(g.projectKey)}
+                  className="flex w-full items-center gap-2 rounded-sm px-1 py-0.5 text-left hover:bg-accent"
+                  title={`Show only ${g.projectKey}`}
+                >
+                  <span aria-hidden className="size-2 shrink-0 rounded-full" style={{ background: g.color }} />
+                  <span className="min-w-0 flex-1 truncate text-fs-sm text-foreground">{g.projectKey}</span>
+                  <span className="shrink-0 font-mono text-fs-xs tabular-nums text-muted-foreground">{g.count}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {conteos && (
+        <div>
+          <p className="mb-1.5 text-fs-xs uppercase tracking-wide text-muted-foreground">Relationships</p>
+          <ul className="flex flex-col gap-1.5">
+            {EDGE_KINDS_IN_LEGEND_ORDER.map((kind) => {
+              const style = EDGE_STYLES[kind]
+              const n = conteos[kind] ?? 0
+              if (n === 0) return null
+              return (
+                <li key={kind} className="flex items-baseline gap-2 text-fs-sm">
+                  <span
+                    aria-hidden
+                    className="inline-block shrink-0 self-center rounded-full"
+                    style={{ width: 16, height: Math.max(style.width, 1), background: style.color }}
+                  />
+                  <span className="shrink-0 text-foreground">{style.label}</span>
+                  <span className="shrink-0 font-mono text-fs-xs tabular-nums text-muted-foreground">{n}</span>
+                </li>
+              )
+            })}
+          </ul>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function DocumentoDeMemoria({
+  detail, loading, missing,
+}: {
+  detail: MemoryObservationDetail | null
+  loading: boolean
+  missing: boolean
+}) {
+  if (loading) return <p className="text-fs-sm text-muted-foreground">Loading…</p>
+  if (missing || !detail) {
+    return (
+      <p className="text-fs-sm text-muted-foreground">
+        This memory is no longer there — it was deleted after the graph was drawn.
+      </p>
+    )
+  }
+
+  const swatch = memoryTypeSwatch(detail.type)
+
+  return (
+    <div className="flex min-h-0 flex-col gap-2 overflow-y-auto">
+      <div className="flex items-start gap-2">
+        <span
+          aria-hidden
+          className="mt-1.5 size-2 shrink-0 rounded-full"
+          style={{ background: swatch ? swatch.color : 'var(--muted-foreground)' }}
+        />
+        {/* `break-words`, no `truncate`: el título de una memoria es una frase entera, y
+            cortarla al primer renglón es perder justo lo que viniste a leer. */}
+        <p className="min-w-0 flex-1 break-words text-fs font-medium text-foreground">{detail.title}</p>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-fs-xs text-muted-foreground">
+        <span>{swatch ? swatch.label : detail.type}</span>
+        <span aria-hidden>·</span>
+        <span className="font-mono">{detail.projectKey}</span>
+        {detail.gitBranch && (
+          <>
+            <span aria-hidden>·</span>
+            <span className="font-mono">{detail.gitBranch}</span>
+          </>
+        )}
+        <span aria-hidden>·</span>
+        <span>{relativeTime(detail.updatedAt)}</span>
+        {detail.originAi && <AILogo aiType={detail.originAi as AIType} size={12} />}
+      </div>
+
+      {detail.supersededBy && (
+        <p className="rounded-sm bg-muted px-2 py-1 text-fs-xs text-muted-foreground">
+          A newer version of this memory replaced it.
+        </p>
+      )}
+
+      {/* El documento. Monoespaciado y respetando los saltos de línea: lo que guardan los
+          agentes es Markdown, y aplastarlo a un párrafo lo vuelve ilegible. */}
+      {detail.content ? (
+        <pre className="whitespace-pre-wrap break-words font-mono text-fs-xs leading-relaxed text-foreground">
+          {detail.content}
+        </pre>
+      ) : (
+        <p className="text-fs-sm text-muted-foreground">This memory has no body — only its title.</p>
+      )}
+
+      {detail.tags.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {detail.tags.map((t) => (
+            <span key={t} className="rounded-sm bg-muted px-1.5 py-0.5 font-mono text-fs-xs text-muted-foreground">
+              {t}
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

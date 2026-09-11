@@ -3,15 +3,24 @@ import { describe, it, expect } from 'vitest'
 import {
   toGraphData,
   countEdgeKinds,
+  projectColors,
+  projectGroups,
   EDGE_STYLES,
   EDGE_KINDS_IN_LEGEND_ORDER,
+  type ToGraphDataOptions,
 } from '../../lib/memory-graph-visuals'
+
 import { memoryTypeSwatch } from '../../lib/memory-type-legend'
 import type { MemoryGraph, MemoryGraphNode, MemoryEdgeKind } from '../../types'
+
+/** Lo que miraban los tests originales: todo visible, sin enfocar, color por tipo. El
+ *  filtro de huerfanas y el enfoque por proyecto tienen sus propios casos mas abajo. */
+const TODO: ToGraphDataOptions = { colorBy: 'type', hideOrphans: false, focusProject: null }
 
 function nodo(syncId: string, extra: Partial<MemoryGraphNode> = {}): MemoryGraphNode {
   return {
     syncId,
+    projectKey: 'proyecto-a',
     title: `titulo de ${syncId}`,
     type: 'decision',
     scope: 'project',
@@ -31,26 +40,26 @@ function grafo(nodes: MemoryGraphNode[], edges: MemoryGraph['edges'] = []): Memo
 
 describe('toGraphData', () => {
   it('le da a cada nodo el color de su tipo, el mismo que el punto de la lista', () => {
-    const data = toGraphData(grafo([nodo('a', { type: 'bugfix' })]))
+    const data = toGraphData(grafo([nodo('a', { type: 'bugfix' })]), TODO)
     expect(data.nodes[0].color).toBe(memoryTypeSwatch('bugfix')!.color)
   })
 
   it('un tipo fuera de la leyenda cae a un gris neutro, no a un color inventado', () => {
-    const data = toGraphData(grafo([nodo('a', { type: 'handoff' })]))
+    const data = toGraphData(grafo([nodo('a', { type: 'handoff' })]), TODO)
     // El mismo criterio que memoryTypeSwatch, que devuelve null para estos.
     expect(memoryTypeSwatch('handoff')).toBeNull()
     expect(data.nodes[0].color).toBe('#8a8a8a')
   })
 
   it('dibuja mas chica una memoria reemplazada: sigue en el linaje pero no es la vigente', () => {
-    const data = toGraphData(grafo([nodo('viva'), nodo('vieja', { superseded: true })]))
+    const data = toGraphData(grafo([nodo('viva'), nodo('vieja', { superseded: true })]), TODO)
     const viva = data.nodes.find((n) => n.id === 'viva')!
     const vieja = data.nodes.find((n) => n.id === 'vieja')!
     expect(vieja.val).toBeLessThan(viva.val)
   })
 
   it('un titulo vacio no deja el nodo sin etiqueta', () => {
-    const data = toGraphData(grafo([nodo('a', { title: '   ' })]))
+    const data = toGraphData(grafo([nodo('a', { title: '   ' })]), TODO)
     expect(data.nodes[0].label).toBe('(untitled)')
   })
 
@@ -65,7 +74,7 @@ describe('toGraphData', () => {
         { from: 'a', to: 'fantasma', kind: 'topic', directed: false },
         { from: 'fantasma', to: 'b', kind: 'revision', directed: true },
       ],
-    ))
+    ), TODO)
     expect(data.links).toHaveLength(1)
     expect(data.links[0]).toEqual({ source: 'a', target: 'b', kind: 'topic' })
     // Y sobre todo: no se colo ningun nodo que el store no haya devuelto.
@@ -76,7 +85,7 @@ describe('toGraphData', () => {
     const data = toGraphData(grafo(
       [nodo('a'), nodo('b')],
       [{ from: 'a', to: 'b', kind: 'similar', directed: false }],
-    ))
+    ), TODO)
     expect(data.links).toHaveLength(1)
   })
 })
@@ -118,7 +127,123 @@ describe('countEdgeKinds', () => {
         { from: 'b', to: 'c', kind: 'topic', directed: false },
         { from: 'a', to: 'c', kind: 'revision', directed: true },
       ],
-    ))
+    ), TODO)
     expect(countEdgeKinds(data)).toEqual({ revision: 1, topic: 2, branch: 0, similar: 0 })
+  })
+})
+
+// Lo que hace legible un grafo grande, copiado de Obsidian despues de verificar que hace
+// (obsidian.md/help/plugins/graph): esconder las huerfanas, agrupar por color, y que el
+// tamano del nodo diga cuantas conexiones tiene.
+describe('el filtro de huerfanas — el "Orphans" de Obsidian', () => {
+  const conUnaSuelta = grafo(
+    [nodo('a'), nodo('b'), nodo('suelta')],
+    [{ from: 'a', to: 'b', kind: 'topic', directed: false }],
+  )
+
+  it('esconde las memorias sin ninguna conexion y dice cuantas escondio', () => {
+    const data = toGraphData(conUnaSuelta, { ...TODO, hideOrphans: true })
+    expect(data.nodes.map((n) => n.id).sort()).toEqual(['a', 'b'])
+    // Decir cuantas esconde no es un detalle: un grafo que oculta la mitad de las memorias
+    // sin avisar miente sobre lo que hay.
+    expect(data.orphansHidden).toBe(1)
+  })
+
+  it('apagado, no esconde nada y el contador queda en cero', () => {
+    const data = toGraphData(conUnaSuelta, { ...TODO, hideOrphans: false })
+    expect(data.nodes).toHaveLength(3)
+    expect(data.orphansHidden).toBe(0)
+  })
+})
+
+describe('enfocar un proyecto', () => {
+  const dosProyectos = grafo(
+    [
+      nodo('a1', { projectKey: 'uno' }),
+      nodo('a2', { projectKey: 'uno' }),
+      nodo('b1', { projectKey: 'dos' }),
+    ],
+    [
+      { from: 'a1', to: 'a2', kind: 'topic', directed: false },
+      // Una arista que CRUZA proyectos: al enfocar uno, tiene que desaparecer.
+      { from: 'a2', to: 'b1', kind: 'branch', directed: false },
+    ],
+  )
+
+  it('deja solo las memorias de ese proyecto', () => {
+    const data = toGraphData(dosProyectos, { ...TODO, focusProject: 'uno' })
+    expect(data.nodes.map((n) => n.id).sort()).toEqual(['a1', 'a2'])
+  })
+
+  it('descarta las aristas que salen del proyecto enfocado', () => {
+    const data = toGraphData(dosProyectos, { ...TODO, focusProject: 'uno' })
+    expect(data.links).toHaveLength(1)
+    expect(data.links[0].kind).toBe('topic')
+  })
+
+  // El caso sutil: el grado se cuenta sobre lo que se VA A DIBUJAR. Si no, una memoria cuyo
+  // unico vecino esta en otro proyecto se veria conectada estando sola.
+  it('una memoria cuyo unico vecino quedo afuera cuenta como huerfana', () => {
+    const soloCruzada = grafo(
+      [nodo('a', { projectKey: 'uno' }), nodo('b', { projectKey: 'dos' })],
+      [{ from: 'a', to: 'b', kind: 'branch', directed: false }],
+    )
+    const data = toGraphData(soloCruzada, { ...TODO, focusProject: 'uno', hideOrphans: true })
+    expect(data.nodes).toHaveLength(0)
+    expect(data.orphansHidden).toBe(1)
+  })
+})
+
+describe('el tamano del nodo', () => {
+  it('crece con la cantidad de conexiones, como en Obsidian', () => {
+    const data = toGraphData(grafo(
+      [nodo('centro'), nodo('a'), nodo('b'), nodo('c')],
+      [
+        { from: 'centro', to: 'a', kind: 'topic', directed: false },
+        { from: 'centro', to: 'b', kind: 'topic', directed: false },
+        { from: 'centro', to: 'c', kind: 'topic', directed: false },
+      ],
+    ), TODO)
+    const centro = data.nodes.find((n) => n.id === 'centro')!
+    const hoja = data.nodes.find((n) => n.id === 'a')!
+    expect(centro.degree).toBe(3)
+    expect(hoja.degree).toBe(1)
+    expect(centro.val).toBeGreaterThan(hoja.val)
+  })
+
+  // Raiz cuadrada, no lineal: con el area proporcional al grado, un nodo con 20 conexiones
+  // se comeria la pantalla.
+  it('crece sublinealmente: 9 conexiones no es 9 veces 1 conexion', () => {
+    const conGrado = (n: number) => {
+      const vecinos = Array.from({ length: n }, (_, i) => nodo(`v${i}`))
+      const aristas = vecinos.map((v) => ({ from: 'centro', to: v.syncId, kind: 'topic' as const, directed: false }))
+      const data = toGraphData(grafo([nodo('centro'), ...vecinos], aristas), TODO)
+      return data.nodes.find((x) => x.id === 'centro')!.val
+    }
+    expect(conGrado(9) / conGrado(1)).toBeLessThan(3)
+  })
+})
+
+describe('los grupos por proyecto', () => {
+  it('le da a cada proyecto un color distinto', () => {
+    const colores = projectColors(['alfa', 'beta', 'gamma'])
+    expect(new Set(colores.values()).size).toBe(3)
+  })
+
+  // Estable, no aleatorio: el color de un proyecto no puede cambiar entre sesiones.
+  it('el mismo conjunto de proyectos da siempre los mismos colores, sin importar el orden', () => {
+    const a = projectColors(['gamma', 'alfa', 'beta'])
+    const b = projectColors(['alfa', 'beta', 'gamma'])
+    expect([...a.entries()].sort()).toEqual([...b.entries()].sort())
+  })
+
+  it('lista los proyectos con su cuenta, del que mas memorias tiene al que menos', () => {
+    const grupos = projectGroups(grafo([
+      nodo('a', { projectKey: 'chico' }),
+      nodo('b', { projectKey: 'grande' }),
+      nodo('c', { projectKey: 'grande' }),
+      nodo('d', { projectKey: 'grande' }),
+    ]))
+    expect(grupos.map((g) => [g.projectKey, g.count])).toEqual([['grande', 3], ['chico', 1]])
   })
 })

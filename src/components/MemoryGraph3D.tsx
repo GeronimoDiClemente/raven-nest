@@ -11,6 +11,7 @@
 // pantalla venía a resolver.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ForceGraph3D, { type ForceGraphMethods } from 'react-force-graph-3d'
+import { CanvasTexture, Sprite, SpriteMaterial } from 'three'
 import { EDGE_STYLES, type GraphData, type GraphLinkDatum, type GraphNodeDatum } from '../lib/memory-graph-visuals'
 
 interface Props {
@@ -18,6 +19,42 @@ interface Props {
   /** syncId de la memoria seleccionada en la lista, o null. */
   selectedId: string | null
   onSelect: (syncId: string | null) => void
+  /**
+   * Dibujar el título al lado de cada nodo. Lo decide el panel por CANTIDAD: con muchos
+   * nodos las etiquetas se pisan entre sí y dejan de ser información. Es el equivalente del
+   * `text fade threshold` de Obsidian, que hace lo mismo pero por distancia de cámara.
+   */
+  showLabels: boolean
+}
+
+/**
+ * La etiqueta de un nodo, como sprite de canvas.
+ *
+ * Se dibuja a 2x y se escala a la mitad para que no se vea pixelada en pantallas retina, y
+ * el texto se recorta a 28 caracteres: un título de memoria es una frase entera y pintarla
+ * completa al lado de cada punto tapa el grafo. El título completo sigue estando en el
+ * tooltip y en el panel de la derecha.
+ */
+function spriteDeEtiqueta(texto: string, color: string): Sprite {
+  const recortado = texto.length > 28 ? `${texto.slice(0, 27)}…` : texto
+  const escala = 2
+  const fuente = 12 * escala
+  const canvas = document.createElement('canvas')
+  const ctx = canvas.getContext('2d')!
+  ctx.font = `${fuente}px sans-serif`
+  const ancho = ctx.measureText(recortado).width
+  canvas.width = Math.ceil(ancho) + 8
+  canvas.height = fuente + 8
+  // Medir cambia el tamaño del canvas, y eso RESETEA el contexto — la fuente hay que
+  // volver a ponerla o el texto sale con el default de 10px serif.
+  ctx.font = `${fuente}px sans-serif`
+  ctx.fillStyle = color
+  ctx.textBaseline = 'middle'
+  ctx.fillText(recortado, 4, canvas.height / 2)
+
+  const sprite = new Sprite(new SpriteMaterial({ map: new CanvasTexture(canvas), depthWrite: false }))
+  sprite.scale.set(canvas.width / escala / 2.2, canvas.height / escala / 2.2, 1)
+  return sprite
 }
 
 /** react-force-graph muta los links: después del primer tick, `source`/`target` dejan de ser
@@ -27,7 +64,7 @@ function endId(end: string | { id?: string } | undefined): string | undefined {
   return typeof end === 'string' ? end : end?.id
 }
 
-export default function MemoryGraph3D({ data, selectedId, onSelect }: Props) {
+export default function MemoryGraph3D({ data, selectedId, onSelect, showLabels }: Props) {
   const boxRef = useRef<HTMLDivElement | null>(null)
   const fgRef = useRef<ForceGraphMethods<GraphNodeDatum, GraphLinkDatum> | undefined>(undefined)
   const [size, setSize] = useState<{ w: number; h: number } | null>(null)
@@ -113,7 +150,7 @@ export default function MemoryGraph3D({ data, selectedId, onSelect }: Props) {
     // fov 60° => la mitad del alto visible a distancia d es d * tan(30°). Se pide que el
     // radio entre con un margen, y se pone un piso para que un grafo de dos nodos no
     // termine con la camara adentro de una esfera.
-    const MARGEN = 1.45
+    const MARGEN = 1.2
     const distancia = Math.max((radio * MARGEN) / Math.tan((30 * Math.PI) / 180), 60)
 
     fg.cameraPosition({ x: cx, y: cy, z: cz + distancia }, { x: cx, y: cy, z: cz }, 400)
@@ -152,6 +189,15 @@ export default function MemoryGraph3D({ data, selectedId, onSelect }: Props) {
           nodeColor={nodeColor}
           nodeLabel={(n) => n.label}
           nodeOpacity={0.95}
+          {...(showLabels
+            ? {
+                // `nodeThreeObjectExtend` deja el punto Y le suma la etiqueta; sin eso el
+                // sprite REEMPLAZA al nodo y el grafo queda hecho de texto flotando.
+                nodeThreeObjectExtend: true,
+                nodeThreeObject: (n: GraphNodeDatum) =>
+                  spriteDeEtiqueta(n.label, vecinos && !vecinos.has(n.id) ? 'rgba(155,155,155,0.25)' : '#cfcfcf'),
+              }
+            : {})}
           linkColor={linkColor}
           linkWidth={(l) => EDGE_STYLES[l.kind].width}
           linkCurvature={(l) => EDGE_STYLES[l.kind].curvature}

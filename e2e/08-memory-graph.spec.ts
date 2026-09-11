@@ -17,9 +17,10 @@ import { join } from 'path'
 const SHOTS = join(__dirname, '..', '.superpowers', 'sdd', 'shots', 'memory-graph')
 mkdirSync(SHOTS, { recursive: true })
 
-/** Lado del cuadro declarado en MemoryGraphPanel.tsx. Si alguien lo cambia, este test se lo
- *  hace notar — el punto de la spec es que sea FIJO, no que valga 320. */
-const LADO = 320
+/** Alto del cuadro declarado en MemoryGraphPanel.tsx. Lo que la spec pide es que NO se coma
+ *  la pantalla; acotar el alto alcanza, y el ancho se lo lleva el grafo (pedido del usuario
+ *  el 2026-09-11: "que ocupe un poco mas de espacio horizontal"). */
+const ALTO = 380
 
 async function abrirMemories(page: import('@playwright/test').Page) {
   const toggle = page.getByRole('button', { name: /Collapse sidebar|Expand sidebar/ })
@@ -92,31 +93,42 @@ test('con memorias: el cuadro es acotado, y la seleccion es una sola entre lista
     await page.waitForTimeout(5000)
 
     const caja = await cajaEstable(canvas)
-    expect(Math.round(caja.width)).toBe(LADO)
-    expect(Math.round(caja.height)).toBe(LADO)
-    // Y sobre todo: no se comió la pantalla. Esto es lo que el usuario pidió — "un cuadrado
-    // tamaño normal que no expanda todo" — y es la afirmación que de verdad importa acá.
+    // El ALTO es lo acotado: es lo que impide que el grafo se coma la pantalla.
+    expect(Math.round(caja.height)).toBe(ALTO)
     const viewport = page.viewportSize() ?? { width: 1280, height: 800 }
-    expect(caja.width).toBeLessThan(viewport.width / 2)
     expect(caja.height).toBeLessThan(viewport.height / 2)
+    // Y el ancho es de verdad ancho: el grafo se lleva lo que sobra despues del panel del
+    // documento, no un cuadradito.
+    expect(caja.width).toBeGreaterThan(ALTO)
 
     await page.screenshot({ path: join(SHOTS, '02-grafo-con-memorias.png') })
 
-    // 2. La leyenda nombra las relaciones que ESTE grafo tiene. Las memorias sembradas
-    //    ejercitan revision (una reemplaza a otra), topic y branch.
-    // `exact` porque la leyenda repite la palabra en la explicación de al lado ("Written
-    // while working on the same branch") y sin esto el locator resuelve a dos elementos.
+    // 2. La leyenda nombra las relaciones que ESTE grafo tiene, y los proyectos son grupos
+    //    con su color (el modelo de Obsidian).
     await expect(page.getByText('Revision', { exact: true })).toBeVisible()
     await expect(page.getByText('Same branch', { exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: /^raven-nest/ })).toBeVisible()
 
-    // 3. Seleccionar en la lista resalta en el grafo: es la MISMA selección. Se verifica
-    //    por el estado accesible de la fila, que es lo que el grafo también lee.
+    // 2b. El filtro de huerfanas (el "Orphans" de Obsidian) arranca PRENDIDO y dice cuantas
+    //     esconde. Con las memorias sembradas todas tienen alguna relacion, asi que esconde
+    //     cero — pero el boton igual esta y lo dice.
+    const filtroHuerfanas = page.getByRole('button', { name: /unconnected/ })
+    await expect(filtroHuerfanas).toBeVisible()
+    await expect(filtroHuerfanas).toHaveAttribute('aria-pressed', 'true')
+
+    // 3. Seleccionar en la lista resalta en el grafo Y trae el documento al panel: es la
+    //    MISMA seleccion. Se verifica por el estado accesible de la fila, que es lo que el
+    //    grafo tambien lee.
     const filaSeleccionable = page.getByRole('button', {
       name: /Auth pasa a cookies de sesión/,
     }).first()
     await expect(filaSeleccionable).toHaveAttribute('aria-pressed', 'false')
     await filaSeleccionable.click()
     await expect(filaSeleccionable).toHaveAttribute('aria-pressed', 'true')
+
+    // Y el documento aparece al costado: el contenido entero, no solo el titulo. Es lo que
+    // convierte al grafo en algo que se usa en vez de mirarse.
+    await expect(page.getByText(/Contenido de Auth pasa a cookies/)).toBeVisible({ timeout: 10_000 })
     await page.screenshot({ path: join(SHOTS, '03-seleccion-desde-la-lista.png') })
 
     // Volver a hacer click deselecciona — si no, no hay forma de ver el grafo entero otra vez.
@@ -131,6 +143,15 @@ test('con memorias: el cuadro es acotado, y la seleccion es una sola entre lista
     await toggleSimilar.click()
     await expect(page.getByRole('button', { name: 'Hide guessed links' })).toHaveAttribute('aria-pressed', 'true')
     await page.screenshot({ path: join(SHOTS, '04-con-aristas-inferidas.png') })
+
+    // 5. Entrar a UN proyecto deja solo sus memorias, y se puede volver. Es el "y despues
+    //    si abro UN proyecto tengo todas las de dentro" del pedido.
+    await page.getByRole('button', { name: /^otro-proyecto/ }).click()
+    const volver = page.getByRole('button', { name: 'All projects' })
+    await expect(volver).toBeVisible()
+    await page.screenshot({ path: join(SHOTS, '05-dentro-de-un-proyecto.png') })
+    await volver.click()
+    await expect(page.getByRole('button', { name: /^raven-nest/ })).toBeVisible()
   } finally {
     await teardown(h)
   }

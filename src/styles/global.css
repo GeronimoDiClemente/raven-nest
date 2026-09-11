@@ -265,6 +265,12 @@ body {
   scrollbar-width: none;
   min-width: 0;
   flex-shrink: 1;
+  /* Las pestañas se quedan con el espacio libre ANTES que el area de arrastre.
+     Medido el 2026-09-11 en una ventana de 1920 con 8 pestañas: `.tabbar-drag`
+     (flex: 1) se llevaba 644px --un tercio de la ventana-- mientras cada pestaña
+     se encogia de 180 a 129 y truncaba su nombre. El hueco de la derecha no era
+     espacio sobrante: era el handle de arrastre ganandole a las pestañas. */
+  flex-grow: 1;
 }
 
 .tabbar-tabs::-webkit-scrollbar {
@@ -272,10 +278,16 @@ body {
 }
 
 .tabbar-drag {
-  flex: 1;
+  /* `flex: 1` (grow 1) hacia que esta franja creciera sin limite a costa de las
+     pestañas. Ahora NO crece: toma lo que sobra y nada mas. El min-width es lo que
+     garantiza que siempre quede una franja agarrable para mover la ventana, que es
+     su unica razon de existir. */
+  flex-grow: 0;
+  flex-shrink: 1;
+  flex-basis: auto;
   height: 100%;
   -webkit-app-region: drag;
-  min-width: 20px;
+  min-width: 80px;
 }
 
 .tab {
@@ -289,11 +301,18 @@ body {
   padding: 7px 12px;
   cursor: pointer;
   flex-shrink: 1;
+  /* `flex-grow: 1` es lo que hace que las pestañas se REPARTAN el ancho libre en vez de
+     quedarse en su base y dejar un hueco. Sin esto el `max-width` de abajo era letra
+     muerta: una pestaña nunca crecia, asi que el tope no limitaba nada. */
+  flex-grow: 1;
   flex-basis: 180px;
   /* Compress to keep every workspace tab visible when the window is narrow
      (they shrink to a clickable chip) instead of overflowing out of reach. */
   min-width: 44px;
-  max-width: 200px;
+  /* 260, no 200: con la ventana ancha sobraba lugar y una pestaña igual truncaba su
+     nombre, porque el tope la frenaba antes. Sigue encogiendo cuando hay muchas
+     (flex-shrink: 1 arriba); el tope solo limita cuanto puede CRECER. */
+  max-width: 260px;
   user-select: none;
   position: relative;
   overflow: hidden;

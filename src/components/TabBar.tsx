@@ -232,30 +232,36 @@ export default function TabBar({
                 />
               )
             })}
+            {/* El "+" vive ADENTRO de .tabbar-tabs, no al lado.
+                Desde que la tira de pestañas se queda con el espacio libre (ver
+                .tabbar-tabs en global.css), un hermano de afuera quedaba empujado
+                al extremo derecho de la ventana cuando habia una sola pestaña —
+                lejisimos de la pestaña a la que pertenece. Adentro sigue siempre
+                pegado a la ultima, que es donde lo espera cualquiera que venga de
+                un navegador o de VS Code. */}
+            {/* size="icon-lg" (36px, ampliacion de alcance de Task 14): .tab mide ~35px
+                (padding 7px + el texto de .tab-name), el `sm` de antes (28px) quedaba
+                chico y desalineado al lado de la pestaña — icon-lg es el escalon del
+                primitivo mas cercano a esa altura real. El glifo tambien era un "+" de
+                texto plano a 12px (perdido dentro de la caja mas grande): se cambia por
+                el mismo SVG de "+" que ya usa el "New Terminal" del sidebar
+                (Sidebar.tsx), para que la familia de iconos sea consistente. */}
+            <Button
+              variant="ghost"
+              size="icon-lg"
+              className="text-muted-foreground"
+              onClick={onTabNew}
+              title="New workspace"
+              aria-label="New workspace"
+              style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
+              </svg>
+            </Button>
           </div>
         </SortableContext>
       </DndContext>
-
-      {/* size="icon-lg" (36px, ampliacion de alcance de Task 14): .tab mide ~35px
-          (padding 7px + el texto de .tab-name), el `sm` de antes (28px) quedaba
-          chico y desalineado al lado de la pestaña — icon-lg es el escalon del
-          primitivo mas cercano a esa altura real. El glifo tambien era un "+" de
-          texto plano a 12px (perdido dentro de la caja mas grande): se cambia por
-          el mismo SVG de "+" que ya usa el "New Terminal" del sidebar
-          (Sidebar.tsx), para que la familia de iconos sea consistente. */}
-      <Button
-        variant="ghost"
-        size="icon-lg"
-        className="text-muted-foreground"
-        onClick={onTabNew}
-        title="New workspace"
-        aria-label="New workspace"
-        style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-      >
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-          <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
-        </svg>
-      </Button>
 
       <div className="tabbar-drag" />
       {rightSlot}

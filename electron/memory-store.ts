@@ -297,6 +297,33 @@ export interface CrossProjectMemoryQuery {
 }
 
 /** Una fila de `crossProjectMemories()` — lo que la fila de la lista necesita mostrar. */
+/**
+ * Una memoria ENTERA, con su `content`. Es lo que el grafo muestra al costado cuando tocás
+ * un nodo; ni el grafo ni el listado traen el contenido (serían cientos de documentos por
+ * consulta), asi que esta es la lectura puntual.
+ *
+ * Espejada a mano en `src/types.ts` — `src/` nunca importa de `electron/`.
+ */
+export interface MemoryObservationDetail {
+  syncId: string
+  projectKey: string
+  scope: 'personal' | 'project' | 'team'
+  type: string
+  title: string
+  /** `null` en un tombstone: borrar nulea el contenido (§3.1 del protocolo). */
+  content: string | null
+  tags: string[]
+  topicKey: string | null
+  gitBranch: string | null
+  originAi: string | null
+  authorDisplay: string | null
+  createdAt: number
+  updatedAt: number
+  /** syncId de la memoria que reemplazó a esta, o null si es la vigente. */
+  supersededBy: string | null
+  revisionCount: number
+}
+
 export interface CrossProjectObservation {
   syncId: string
   projectKey: string

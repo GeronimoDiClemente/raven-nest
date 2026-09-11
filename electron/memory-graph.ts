@@ -33,6 +33,10 @@ export type MemoryEdgeKind = 'revision' | 'topic' | 'branch' | 'similar'
 
 export interface MemoryGraphNode {
   syncId: string
+  /** De que proyecto viene. La consulta ya lo traia (se usa para escopear las aristas
+   *  `topic` y `branch`), pero no salia del modulo — y sin el, la UI no puede agrupar por
+   *  proyecto, que es como Obsidian hace legible un grafo grande. */
+  projectKey: string
   title: string
   type: string
   scope: 'personal' | 'project' | 'team'
@@ -310,6 +314,7 @@ export function buildMemoryGraph(db: Database.Database, query: MemoryGraphQuery)
 
   const nodes: MemoryGraphNode[] = selected.map((r) => ({
     syncId: r.sync_id,
+    projectKey: r.project_key,
     title: r.title,
     type: r.type,
     scope: r.scope as 'personal' | 'project' | 'team',
