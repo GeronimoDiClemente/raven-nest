@@ -40,6 +40,7 @@ import { generateSyncId } from './memory-store'
 // about. `Pick<...>` (not the whole class) is what MemoryIpcServerDeps.daemon actually
 // needs, and it's what memory-ipc-server.test.ts's fakes implement.
 import type { MemoryDaemon } from './memory-daemon'
+import { renderMemoryGraphText } from './memory-graph-text'
 
 export interface GitInfoResolver {
   (cwd: string): { remoteUrl?: string | null; branch?: string | null } | null
@@ -429,6 +430,48 @@ export class MemoryIpcServer {
           })
           if (result.updated) this.deps.onMutation?.()
           return result
+        }
+
+        // MCP `memory_graph` — la estructura, dibujada para una terminal.
+        //
+        // Devuelve TEXTO ya renderizado, no el grafo crudo. Un agente que recibe nodos y
+        // aristas tiene que inventar como dibujarlos, y cada uno lo haria distinto; lo que
+        // hace que esto sirva es que el dibujo signifique lo MISMO en los dos lados — el
+        // trazo doble es la arista que cruza repos tanto en 3D como en ASCII.
+        case 'memory.graph': {
+          const params = (request.params ?? {}) as {
+            projectKey?: string | null
+            tag?: string | null
+            includeSimilar?: boolean
+            limit?: number
+          }
+          const graph = store.memoryGraph({
+            projectKey: params.projectKey ?? null,
+            // Las reemplazadas entran: la arista `revision` es el linaje de una idea, y sin
+            // ellas no hay linaje que mostrar. Se dibujan con el circulo hueco.
+            includeSuperseded: true,
+            includeSimilar: params.includeSimilar ?? false,
+            limit: params.limit ?? 200,
+          })
+          // El filtro por tag se aplica aca y no en la consulta: `tag` no es una columna,
+          // vive adentro del JSON de `tags`, y filtrar en SQL sobre eso seria un LIKE.
+          const filtrado = params.tag
+            ? {
+                ...graph,
+                nodes: graph.nodes.filter((n) => n.tags.includes(params.tag!)),
+              }
+            : graph
+          const ids = new Set(filtrado.nodes.map((n) => n.syncId))
+          const conAristas = {
+            ...filtrado,
+            edges: filtrado.edges.filter((e) => ids.has(e.from) && ids.has(e.to)),
+          }
+          const encabezado = params.tag
+            ? `#${params.tag}`
+            : params.projectKey
+              ? params.projectKey
+              : 'Todas las memorias'
+          return { text: renderMemoryGraphText(conAristas, { encabezado }) }
         }
 
         case 'hook.sessionStart': {

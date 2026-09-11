@@ -183,6 +183,10 @@ export type MemoryMethod =
   | 'memory.promote'
   | 'memory.get'
   | 'memory.update'
+  // El grafo, para que un agente pueda VER la estructura desde su terminal. Si el grafo solo
+  // existe en la ventana de Nest, entonces es una funcion de la app y no de la memoria — y
+  // quien se lleva el plugin a otro editor se queda sin ella.
+  | 'memory.graph'
   | 'hook.sessionStart'
   | 'hook.stop'
   | 'hook.preCompact'

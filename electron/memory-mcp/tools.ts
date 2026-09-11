@@ -111,6 +111,32 @@ export const TOOL_MANIFEST = [
     },
   },
   {
+    name: 'memory_graph',
+    description:
+      'Draw the shape of what is remembered — which memories exist and how they relate — as a text ' +
+      'diagram you can print straight into the conversation. CALL THIS when the user asks what you know ' +
+      "about an area ('what do we know about auth?', 'show me the memory graph', 'how does this connect'), " +
+      'when you are picking up unfamiliar work and want the lay of the land before searching, or when a ' +
+      'decision looks like it might already have been made somewhere else. It answers a different question ' +
+      'than memory_search: search finds the memories that match words, this shows how the memories relate ' +
+      'to each other — including the relationships that cross projects, which is the one thing a ' +
+      'single-repo view can never show you. Returns a ready-to-print diagram, not raw data: print it as-is ' +
+      'inside a code block. Filter by tag or project when the user named one; leave both empty for ' +
+      'everything.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        tag: { type: 'string', description: 'Only memories carrying this tag. A tag crosses projects — use it when the user asks about a theme rather than a repo.' },
+        project_key: { type: 'string', description: 'Only memories from this project. Use the key exactly as a prior memory_search/memory_context returned it.' },
+        include_similar: {
+          type: 'boolean',
+          description: 'Include guessed relationships (shared tags). Off by default because they are inferred, not stated by anyone — turn on only when the stated ones are too sparse to be useful.',
+        },
+      },
+      required: [],
+    },
+  },
+  {
     name: 'memory_get',
     description:
       'Fetch one specific saved memory by its sync_id. Use this when you already have a syncId from a ' +

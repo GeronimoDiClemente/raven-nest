@@ -177,6 +177,18 @@ async function callTool(client: MemoryDaemonClient, cwd: string, name: string, a
       })
       return JSON.stringify(result)
     }
+    case 'memory_graph': {
+      const result = await client.call<{ text: string }>('memory.graph', {
+        cwd,
+        tag: (args.tag as string | undefined) ?? null,
+        projectKey: (args.project_key as string | undefined) ?? null,
+        includeSimilar: Boolean(args.include_similar),
+      })
+      // Texto plano, no JSON: lo que devuelve ya ES el dibujo. Envolverlo en JSON obligaria
+      // al agente a desescaparlo antes de imprimirlo, y ahi es donde se rompen los saltos de
+      // linea que hacen al arbol.
+      return result.text
+    }
     default:
       throw new Error(`Unknown tool: ${name}`)
   }
