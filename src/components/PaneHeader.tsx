@@ -3,6 +3,10 @@ import { PaneNode, AI_CONFIG, COLOR_PALETTE, AIType } from '../types'
 import { AILogo } from './AILogos'
 import ConfirmDialog from './ConfirmDialog'
 import { PortChipsGroup } from './PortChipsGroup'
+import {
+  ArrowRight, Rows3, Copy, Download, Share2, Minimize2, Maximize2, Check, RotateCw,
+} from 'lucide-react'
+import { ICON_SIZE } from '../lib/icons'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type DragHandleProps = Record<string, any>
@@ -189,10 +193,7 @@ export default function PaneHeader({ pane, zoomed, onZoom, onClose, onColorChang
             onClick={onSyncCwd}
             title={`Live cwd is ${pane.runningRepoPath ?? 'unset'} but the active repo is ${pane.repoPath ?? 'unset'}. Restart the pane to apply.`}
           >
-            <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
-              <path d="M10 6A4 4 0 1 1 6 2a4 4 0 0 1 2.83 1.17L10 4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-              <path d="M10 1v3H7" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
+            <RotateCw size={ICON_SIZE.sm} aria-hidden />
             Sync cwd
           </button>
         )}
@@ -205,9 +206,7 @@ export default function PaneHeader({ pane, zoomed, onZoom, onClose, onColorChang
           title="Hand off to the next step in this worker pipeline"
         >
           Hand off
-          <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
-            <path d="M2 6h6.5M6 3l3 3-3 3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
+          <ArrowRight size={ICON_SIZE.sm} aria-hidden />
         </button>
       )}
 
@@ -217,11 +216,7 @@ export default function PaneHeader({ pane, zoomed, onZoom, onClose, onColorChang
           onClick={onToggleBlocks}
           title={showBlocks ? 'Show terminal' : 'Show response blocks'}
         >
-          <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
-            <rect x="1" y="1" width="10" height="3" rx="1" stroke="currentColor" strokeWidth="1.3"/>
-            <rect x="1" y="5" width="10" height="3" rx="1" stroke="currentColor" strokeWidth="1.3"/>
-            <rect x="1" y="9" width="10" height="2" rx="1" stroke="currentColor" strokeWidth="1.3"/>
-          </svg>
+          <Rows3 size={ICON_SIZE.sm} aria-hidden />
           {blockCount !== undefined && blockCount > 0 && (
             <span className="pane-blocks-count">{blockCount}</span>
           )}
@@ -231,14 +226,9 @@ export default function PaneHeader({ pane, zoomed, onZoom, onClose, onColorChang
       {onCopyLastResponse && (
         <button className="pane-copy-btn" onClick={handleCopy} title="Copy last response">
           {copied ? (
-            <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
-              <path d="M2 6l3 3 5-5" stroke="#22C55E" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
+            <Check size={ICON_SIZE.sm} className="text-ok" aria-hidden />
           ) : (
-            <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
-              <rect x="4" y="1" width="7" height="8" rx="1" stroke="currentColor" strokeWidth="1.3"/>
-              <path d="M1 4v7h7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
+            <Copy size={ICON_SIZE.sm} aria-hidden />
           )}
         </button>
       )}
@@ -246,24 +236,16 @@ export default function PaneHeader({ pane, zoomed, onZoom, onClose, onColorChang
       {onSaveConversation && (
         <button className="pane-save-btn" onClick={handleSave} title="Save conversation to history">
           {saved ? (
-            <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
-              <path d="M2 6l3 3 5-5" stroke="#22C55E" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
+            <Check size={ICON_SIZE.sm} className="text-ok" aria-hidden />
           ) : (
-            <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
-              <path d="M6 1v7M3 5l3 3 3-3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
-              <path d="M1 10h10" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-            </svg>
+            <Download size={ICON_SIZE.sm} aria-hidden />
           )}
         </button>
       )}
 
       {processEnded && onRestart && (
         <button className="pane-restart-btn" onClick={onRestart} title="Restart process">
-          <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
-            <path d="M10 6A4 4 0 1 1 6 2a4 4 0 0 1 2.83 1.17L10 4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-            <path d="M10 1v3H7" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
+          <RotateCw size={ICON_SIZE.sm} aria-hidden />
           Restart
         </button>
       )}
@@ -274,24 +256,15 @@ export default function PaneHeader({ pane, zoomed, onZoom, onClose, onColorChang
           onClick={onShare}
           title={isSharing ? 'Sharing — click to manage' : 'Share terminal'}
         >
-          <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
-            <circle cx="10" cy="2" r="1.5" stroke="currentColor" strokeWidth="1.3"/>
-            <circle cx="2" cy="6" r="1.5" stroke="currentColor" strokeWidth="1.3"/>
-            <circle cx="10" cy="10" r="1.5" stroke="currentColor" strokeWidth="1.3"/>
-            <path d="M3.5 5.2L8.5 2.8M3.5 6.8L8.5 9.2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
-          </svg>
+          <Share2 size={ICON_SIZE.sm} aria-hidden />
         </button>
       )}
 
       <button className="pane-zoom-btn" onClick={onZoom} title={zoomed ? 'Restore (Esc)' : 'Zoom'}>
         {zoomed ? (
-          <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
-            <path d="M2 5h3V2M10 7H7v3M7 2v3h3M2 7h3v3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
+          <Minimize2 size={ICON_SIZE.sm} aria-hidden />
         ) : (
-          <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
-            <path d="M1 4V1h3M8 1h3v3M11 8v3H8M4 11H1V8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
+          <Maximize2 size={ICON_SIZE.sm} aria-hidden />
         )}
       </button>
       <button className="pane-close-btn" onClick={() => setConfirmingClose(true)} title="Close pane">

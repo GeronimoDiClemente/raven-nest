@@ -18,9 +18,17 @@ import { join, resolve } from 'path'
 
 const SRC = resolve(__dirname, '..', '..')
 
-/** Marcas de terceros: conservan su forma y su color a propósito (es la excepción explícita
- *  de la regla acromática), así que no se migran y no cuentan. */
-const EXENTOS = /AILogos|IntegrationLogos|__tests__/
+/**
+ * Lo que NO se migra a lucide, a propósito:
+ *
+ * - `AILogos` / `IntegrationLogos`: marcas de terceros. Conservan forma y color — es la
+ *   excepción explícita de la regla acromática.
+ * - `ResourceBarPopover`: la paleta de íconos por extensión de archivo (el hexágono de Go,
+ *   el cilindro de una base, la gota de Sass). Son marcas de lenguaje: pasarlas por un set
+ *   genérico las volvería todas iguales, que es lo contrario de para qué existen. Sí
+ *   comparten el grosor con el resto (usan `ICON_STROKE`).
+ */
+const EXENTOS = /AILogos|IntegrationLogos|ResourceBarPopover|__tests__/
 
 function tsxFiles(dir: string, out: string[] = []): string[] {
   for (const name of readdirSync(dir)) {
@@ -67,9 +75,9 @@ function auditar(): Auditoria {
 // Topes vigentes. BAJAN cuando migrás un archivo; nunca suben.
 // Punto de partida medido el 2026-09-11, antes de tocar nada: 148 SVG, 28 grosores
 // efectivos, 13 archivos mezclando adentro.
-const TOPE_SVGS = 106
-const TOPE_GROSORES = 24
-const TOPE_MEZCLAN = 10
+const TOPE_SVGS = 64
+const TOPE_GROSORES = 17
+const TOPE_MEZCLAN = 8
 
 describe('trinquete de la migracion de iconos', () => {
   const a = auditar()

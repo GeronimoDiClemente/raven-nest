@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FC, type ReactN
 import type { MetricsSnapshot, RepoMetric, WorktreeMetricInfo, PaneMetric, DiskBucket, AIType } from '../types'
 import { AILogo, AI_LOGOS } from './AILogos'
 import { formatBytes, formatPct, diskLabel } from '../lib/formatMetrics'
+import { TriangleAlert, X } from 'lucide-react'
+import { ICON_SIZE, ICON_STROKE } from '../lib/icons'
 
 type PrimaryMetric = 'memory' | 'cpu'
 
@@ -135,10 +137,7 @@ export default function ResourceBarPopover({
             {heaviestCallout && (
               <div className="rb-heavy-banner" role="status">
                 <span className="rb-heavy-icon" aria-hidden="true">
-                  <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-                    <path d="M8 1.7 15 14.3H1L8 1.7Z" strokeLinejoin="round" />
-                    <path d="M8 6.4v3.4M8 11.8v.5" strokeLinecap="round" />
-                  </svg>
+                  <TriangleAlert size={ICON_SIZE.sm} aria-hidden />
                 </span>
                 <span className="rb-heavy-text">
                   Heaviest pane: <strong>{heaviestCallout.pane.label}</strong> using {formatBytes(heaviestCallout.pane.memBytes)}
@@ -417,12 +416,22 @@ function PaneAILogo({ aiType, color, size }: { aiType: string | undefined; color
 
 // ── External kind logos ────────────────────────────────────────────────────
 // All sized to a 12×12 viewBox so they sit on the same baseline as AILogos.
+//
+// Estos NO se migran a lucide: son marcas de lenguaje y de tipo de archivo (el hexágono de
+// Go, el cilindro de una base, la gota de Sass), la misma excepción que los logos de IA.
+// Pasarlos por un set genérico los volvería todos iguales, que es justo lo contrario de
+// para qué existen.
+//
+// Lo que sí comparten con el resto de la app es el GROSOR. Tenían cuatro distintos (0.9, 1,
+// 1.1 y 1.2) para una familia que tiene que leerse como una sola — y como el viewBox es 12
+// y el width también, la escala es 1 y el strokeWidth declarado ES el grosor en pantalla.
+// Ahora todos toman ICON_STROKE, el mismo que el LucideProvider le da a todo lo demás.
 
 function NodeLogo({ size, color }: { size: number; color: string }) {
   // Hexagon — Node.js' signature shape.
   return (
     <svg width={size} height={size} viewBox="0 0 12 12" aria-hidden="true">
-      <path d="M6 0.6 L11 3.3 L11 8.7 L6 11.4 L1 8.7 L1 3.3 Z" fill="none" stroke={color} strokeWidth="1.2" strokeLinejoin="round" />
+      <path d="M6 0.6 L11 3.3 L11 8.7 L6 11.4 L1 8.7 L1 3.3 Z" fill="none" stroke={color} strokeWidth={ICON_STROKE} strokeLinejoin="round" />
     </svg>
   )
 }
@@ -431,9 +440,9 @@ function ElectronLogo({ size, color }: { size: number; color: string }) {
   // Two crossed orbits + nucleus — Electron's atom mark.
   return (
     <svg width={size} height={size} viewBox="0 0 12 12" aria-hidden="true">
-      <ellipse cx="6" cy="6" rx="5" ry="2" fill="none" stroke={color} strokeWidth="1" />
-      <ellipse cx="6" cy="6" rx="5" ry="2" fill="none" stroke={color} strokeWidth="1" transform="rotate(60 6 6)" />
-      <ellipse cx="6" cy="6" rx="5" ry="2" fill="none" stroke={color} strokeWidth="1" transform="rotate(-60 6 6)" />
+      <ellipse cx="6" cy="6" rx="5" ry="2" fill="none" stroke={color} strokeWidth={ICON_STROKE} />
+      <ellipse cx="6" cy="6" rx="5" ry="2" fill="none" stroke={color} strokeWidth={ICON_STROKE} transform="rotate(60 6 6)" />
+      <ellipse cx="6" cy="6" rx="5" ry="2" fill="none" stroke={color} strokeWidth={ICON_STROKE} transform="rotate(-60 6 6)" />
       <circle cx="6" cy="6" r="1" fill={color} />
     </svg>
   )
@@ -443,8 +452,8 @@ function PythonLogo({ size, color }: { size: number; color: string }) {
   // Two interlocked rounded rectangles — Python's snake-pair shape, simplified.
   return (
     <svg width={size} height={size} viewBox="0 0 12 12" aria-hidden="true">
-      <rect x="2" y="1" width="6" height="6" rx="2" fill="none" stroke={color} strokeWidth="1.2" />
-      <rect x="4" y="5" width="6" height="6" rx="2" fill="none" stroke={color} strokeWidth="1.2" />
+      <rect x="2" y="1" width="6" height="6" rx="2" fill="none" stroke={color} strokeWidth={ICON_STROKE} />
+      <rect x="4" y="5" width="6" height="6" rx="2" fill="none" stroke={color} strokeWidth={ICON_STROKE} />
       <circle cx="3.5" cy="2.6" r="0.5" fill={color} />
       <circle cx="8.5" cy="9.4" r="0.5" fill={color} />
     </svg>
@@ -461,7 +470,7 @@ function DockerLogo({ size, color }: { size: number; color: string }) {
       <rect x="4"   y="4" width="1.6" height="1.6" fill={color} />
       <rect x="6"   y="4" width="1.6" height="1.6" fill={color} />
       <rect x="6"   y="2" width="1.6" height="1.6" fill={color} />
-      <path d="M1 8 Q3 10 6 10 Q9 10 10.5 8" fill="none" stroke={color} strokeWidth="1.2" strokeLinecap="round" />
+      <path d="M1 8 Q3 10 6 10 Q9 10 10.5 8" fill="none" stroke={color} strokeWidth={ICON_STROKE} strokeLinecap="round" />
     </svg>
   )
 }
@@ -470,9 +479,9 @@ function PostgresLogo({ size, color }: { size: number; color: string }) {
   // Database cylinder — recognisable for any RDBMS, used here for Postgres.
   return (
     <svg width={size} height={size} viewBox="0 0 12 12" aria-hidden="true">
-      <ellipse cx="6" cy="2.5" rx="4" ry="1.3" fill="none" stroke={color} strokeWidth="1.2" />
-      <path d="M2 2.5 L2 9.5 Q2 10.8 6 10.8 Q10 10.8 10 9.5 L10 2.5" fill="none" stroke={color} strokeWidth="1.2" />
-      <path d="M2 5.5 Q2 6.8 6 6.8 Q10 6.8 10 5.5" fill="none" stroke={color} strokeWidth="1" />
+      <ellipse cx="6" cy="2.5" rx="4" ry="1.3" fill="none" stroke={color} strokeWidth={ICON_STROKE} />
+      <path d="M2 2.5 L2 9.5 Q2 10.8 6 10.8 Q10 10.8 10 9.5 L10 2.5" fill="none" stroke={color} strokeWidth={ICON_STROKE} />
+      <path d="M2 5.5 Q2 6.8 6 6.8 Q10 6.8 10 5.5" fill="none" stroke={color} strokeWidth={ICON_STROKE} />
     </svg>
   )
 }
@@ -481,9 +490,9 @@ function RedisLogo({ size, color }: { size: number; color: string }) {
   // Three stacked discs — Redis' tower mark, simplified.
   return (
     <svg width={size} height={size} viewBox="0 0 12 12" aria-hidden="true">
-      <ellipse cx="6" cy="3"   rx="4.5" ry="1.4" fill="none" stroke={color} strokeWidth="1.1" />
-      <ellipse cx="6" cy="6"   rx="4.5" ry="1.4" fill="none" stroke={color} strokeWidth="1.1" />
-      <ellipse cx="6" cy="9"   rx="4.5" ry="1.4" fill="none" stroke={color} strokeWidth="1.1" />
+      <ellipse cx="6" cy="3"   rx="4.5" ry="1.4" fill="none" stroke={color} strokeWidth={ICON_STROKE} />
+      <ellipse cx="6" cy="6"   rx="4.5" ry="1.4" fill="none" stroke={color} strokeWidth={ICON_STROKE} />
+      <ellipse cx="6" cy="9"   rx="4.5" ry="1.4" fill="none" stroke={color} strokeWidth={ICON_STROKE} />
     </svg>
   )
 }
@@ -492,8 +501,8 @@ function MongoLogo({ size, color }: { size: number; color: string }) {
   // Leaf shape — Mongo's signature.
   return (
     <svg width={size} height={size} viewBox="0 0 12 12" aria-hidden="true">
-      <path d="M6 1 Q3 4 3 7 Q3 9.5 6 11 Q9 9.5 9 7 Q9 4 6 1 Z" fill="none" stroke={color} strokeWidth="1.2" strokeLinejoin="round" />
-      <path d="M6 2.5 L6 10.5" stroke={color} strokeWidth="1" />
+      <path d="M6 1 Q3 4 3 7 Q3 9.5 6 11 Q9 9.5 9 7 Q9 4 6 1 Z" fill="none" stroke={color} strokeWidth={ICON_STROKE} strokeLinejoin="round" />
+      <path d="M6 2.5 L6 10.5" stroke={color} strokeWidth={ICON_STROKE} />
     </svg>
   )
 }
@@ -502,7 +511,7 @@ function MysqlLogo({ size, color }: { size: number; color: string }) {
   // Dolphin-curve fin — MySQL's mark, very minimal.
   return (
     <svg width={size} height={size} viewBox="0 0 12 12" aria-hidden="true">
-      <path d="M1 9 Q4 2 11 3 Q6 4 4 10 Z" fill="none" stroke={color} strokeWidth="1.2" strokeLinejoin="round" />
+      <path d="M1 9 Q4 2 11 3 Q6 4 4 10 Z" fill="none" stroke={color} strokeWidth={ICON_STROKE} strokeLinejoin="round" />
       <circle cx="8.5" cy="3.5" r="0.5" fill={color} />
     </svg>
   )
@@ -512,9 +521,9 @@ function JavaLogo({ size, color }: { size: number; color: string }) {
   // Coffee cup with steam.
   return (
     <svg width={size} height={size} viewBox="0 0 12 12" aria-hidden="true">
-      <path d="M3 5 L9 5 L8.5 10 Q8.3 11 7 11 L5 11 Q3.7 11 3.5 10 Z" fill="none" stroke={color} strokeWidth="1.2" strokeLinejoin="round" />
-      <path d="M9 6 Q10.5 6 10.5 7.5 Q10.5 9 9 9" fill="none" stroke={color} strokeWidth="1.1" />
-      <path d="M5 3 Q5 1.5 6 1.5 M7 3 Q7 1.5 8 1.5" fill="none" stroke={color} strokeWidth="1" strokeLinecap="round" />
+      <path d="M3 5 L9 5 L8.5 10 Q8.3 11 7 11 L5 11 Q3.7 11 3.5 10 Z" fill="none" stroke={color} strokeWidth={ICON_STROKE} strokeLinejoin="round" />
+      <path d="M9 6 Q10.5 6 10.5 7.5 Q10.5 9 9 9" fill="none" stroke={color} strokeWidth={ICON_STROKE} />
+      <path d="M5 3 Q5 1.5 6 1.5 M7 3 Q7 1.5 8 1.5" fill="none" stroke={color} strokeWidth={ICON_STROKE} strokeLinecap="round" />
     </svg>
   )
 }
@@ -523,8 +532,8 @@ function RubyLogo({ size, color }: { size: number; color: string }) {
   // Diamond/gem facets.
   return (
     <svg width={size} height={size} viewBox="0 0 12 12" aria-hidden="true">
-      <path d="M2 4 L6 1 L10 4 L6 11 Z" fill="none" stroke={color} strokeWidth="1.2" strokeLinejoin="round" />
-      <path d="M2 4 L10 4 M6 1 L6 11 M2 4 L6 4 M10 4 L6 4" stroke={color} strokeWidth="0.9" />
+      <path d="M2 4 L6 1 L10 4 L6 11 Z" fill="none" stroke={color} strokeWidth={ICON_STROKE} strokeLinejoin="round" />
+      <path d="M2 4 L10 4 M6 1 L6 11 M2 4 L6 4 M10 4 L6 4" stroke={color} strokeWidth={ICON_STROKE} />
     </svg>
   )
 }
@@ -534,7 +543,7 @@ function PhpLogo({ size, color }: { size: number; color: string }) {
   // elongated oval is its other recognisable trait.
   return (
     <svg width={size} height={size} viewBox="0 0 12 12" aria-hidden="true">
-      <ellipse cx="6" cy="6" rx="5.3" ry="3.3" fill="none" stroke={color} strokeWidth="1.2" />
+      <ellipse cx="6" cy="6" rx="5.3" ry="3.3" fill="none" stroke={color} strokeWidth={ICON_STROKE} />
       <text x="6" y="8.2" textAnchor="middle" fontFamily="sans-serif" fontSize="4.5" fontWeight="700" fill={color}>php</text>
     </svg>
   )
@@ -545,8 +554,8 @@ function GoLogo({ size, color }: { size: number; color: string }) {
   // signature blue (caller-color) tone.
   return (
     <svg width={size} height={size} viewBox="0 0 12 12" aria-hidden="true">
-      <circle cx="4" cy="6" r="1.4" fill="none" stroke={color} strokeWidth="1.1" />
-      <path d="M5.5 6 L8.5 6 M7 6 L7 8 L9.5 8 L9.5 5 L7 5" fill="none" stroke={color} strokeWidth="1.1" strokeLinejoin="round" />
+      <circle cx="4" cy="6" r="1.4" fill="none" stroke={color} strokeWidth={ICON_STROKE} />
+      <path d="M5.5 6 L8.5 6 M7 6 L7 8 L9.5 8 L9.5 5 L7 5" fill="none" stroke={color} strokeWidth={ICON_STROKE} strokeLinejoin="round" />
     </svg>
   )
 }
@@ -559,13 +568,13 @@ function RustLogo({ size, color }: { size: number; color: string }) {
     const y1 = 6 + Math.sin(a) * 4.6
     const x2 = 6 + Math.cos(a) * 5.6
     const y2 = 6 + Math.sin(a) * 5.6
-    return <line key={i} x1={x1} y1={y1} x2={x2} y2={y2} stroke={color} strokeWidth="1.1" strokeLinecap="round" />
+    return <line key={i} x1={x1} y1={y1} x2={x2} y2={y2} stroke={color} strokeWidth={ICON_STROKE} strokeLinecap="round" />
   })
   return (
     <svg width={size} height={size} viewBox="0 0 12 12" aria-hidden="true">
       {teeth}
-      <circle cx="6" cy="6" r="3.6" fill="none" stroke={color} strokeWidth="1.2" />
-      <path d="M4.5 4 L4.5 8 M4.5 4 L6.5 4 Q7.5 4 7.5 5 Q7.5 6 6.5 6 L4.5 6 M6 6 L7.6 8" fill="none" stroke={color} strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx="6" cy="6" r="3.6" fill="none" stroke={color} strokeWidth={ICON_STROKE} />
+      <path d="M4.5 4 L4.5 8 M4.5 4 L6.5 4 Q7.5 4 7.5 5 Q7.5 6 6.5 6 L4.5 6 M6 6 L7.6 8" fill="none" stroke={color} strokeWidth={ICON_STROKE} strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   )
 }
@@ -574,8 +583,8 @@ function ShellLogo({ size, color }: { size: number; color: string }) {
   // Mini terminal box — generic "uncategorised process" mark.
   return (
     <svg width={size} height={size} viewBox="0 0 12 12" aria-hidden="true">
-      <rect x="0.75" y="2" width="10.5" height="8" rx="1.5" fill="none" stroke={color} strokeWidth="1.2" />
-      <path d="M3 5.2 L5 6.5 L3 7.8 M6 8 L8.5 8" stroke={color} strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+      <rect x="0.75" y="2" width="10.5" height="8" rx="1.5" fill="none" stroke={color} strokeWidth={ICON_STROKE} />
+      <path d="M3 5.2 L5 6.5 L3 7.8 M6 8 L8.5 8" stroke={color} strokeWidth={ICON_STROKE} strokeLinecap="round" strokeLinejoin="round" fill="none" />
     </svg>
   )
 }
@@ -641,10 +650,7 @@ function PaneRow({
             transition: 'background 120ms ease, color 120ms ease',
           }}
         >
-          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true" style={{ display: 'block', pointerEvents: 'none' }}>
-            <path d="M2 2L8 8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-            <path d="M8 2L2 8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-          </svg>
+          <X size={ICON_SIZE.sm} aria-hidden />
         </button>
       )}
     </div>

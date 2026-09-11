@@ -22,6 +22,11 @@ import TeamJoinCodePanel from './TeamJoinCodePanel'
 import TeamStats from './TeamStats'
 import WorkspaceNavButton from './WorkspaceNavButton'
 import type { WorkspaceSection } from './teamSections'
+import {
+  MessageSquare, Users, ChartColumn, TextAlignStart, Monitor, Cable, ChevronLeft,
+  ChevronDown, Inbox, KeyRound, Bell,
+} from 'lucide-react'
+import { ICON_SIZE } from '../lib/icons'
 
 interface TeamsWorkspaceProps {
   onClose: () => void
@@ -227,12 +232,12 @@ export default function TeamsWorkspace({ onClose, onLoad, onPendingInvitesChange
     {
       id: 'chat',
       label: 'Chat',
-      icon: <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M2 4a1.5 1.5 0 011.5-1.5h9A1.5 1.5 0 0114 4v6a1.5 1.5 0 01-1.5 1.5H6L3 14v-2.5A1.5 1.5 0 012 10V4z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/></svg>,
+      icon: <MessageSquare size={ICON_SIZE.lg} aria-hidden />,
     },
     {
       id: 'members',
       label: 'Members',
-      icon: <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><circle cx="6" cy="5" r="2" stroke="currentColor" strokeWidth="1.3"/><path d="M2 13c0-2.21 1.79-4 4-4s4 1.79 4 4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/><circle cx="11.5" cy="5.5" r="1.5" stroke="currentColor" strokeWidth="1.2" opacity="0.7"/><path d="M13.5 12.5c0-1.38-.9-2.55-2.14-2.87" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" opacity="0.7"/></svg>,
+      icon: <Users size={ICON_SIZE.md} aria-hidden />,
       count: members.length,
       dotStatus: hasJoinRequest ? 'warn' : undefined,
     },
@@ -241,27 +246,23 @@ export default function TeamsWorkspace({ onClose, onLoad, onPendingInvitesChange
       id: 'stats' as WorkspaceSection,
       label: 'Stats',
       icon: (
-        <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-          <rect x="1" y="9" width="3" height="5" rx="0.5" stroke="currentColor" strokeWidth="1.3"/>
-          <rect x="6" y="5" width="3" height="9" rx="0.5" stroke="currentColor" strokeWidth="1.3"/>
-          <rect x="11" y="2" width="3" height="12" rx="0.5" stroke="currentColor" strokeWidth="1.3"/>
-        </svg>
+        <ChartColumn size={ICON_SIZE.lg} aria-hidden />
       ),
     }] : []),
     {
       id: 'snippets',
       label: 'Snippets',
-      icon: <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 4h10M3 8h7M3 12h5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/></svg>,
+      icon: <TextAlignStart size={ICON_SIZE.lg} aria-hidden />,
     },
     {
       id: 'workspaces',
       label: 'Workspaces',
-      icon: <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="1" y="2" width="14" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.3"/><path d="M5 12v2M11 12v2M3 14h10" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>,
+      icon: <Monitor size={ICON_SIZE.lg} aria-hidden />,
     },
     {
       id: 'mcp',
       label: 'MCP Servers',
-      icon: <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><rect x="1" y="2" width="8" height="10" rx="1.2" stroke="currentColor" strokeWidth="1.3"/><path d="M4 5h2M4 7.5h3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/><circle cx="11" cy="5" r="2" stroke="currentColor" strokeWidth="1.3"/><path d="M11 7v4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>,
+      icon: <Cable size={ICON_SIZE.lg} aria-hidden />,
     },
   ]
 
@@ -274,28 +275,19 @@ export default function TeamsWorkspace({ onClose, onLoad, onPendingInvitesChange
       {/* Header */}
       <div className="teams-workspace-header">
         <button className="tw-back-btn" onClick={onClose}>
-          <svg width="13" height="13" viewBox="0 0 13 13" fill="none" style={{ display: 'inline-block', verticalAlign: 'middle', marginRight: 5 }}>
-            <path d="M8 2L4 6.5L8 11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
+          <ChevronLeft size={ICON_SIZE.lg} aria-hidden />
           Back
         </button>
 
         <div className="tw-header-center">
-          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" style={{ color: 'var(--raven-blue)', flexShrink: 0 }}>
-            <circle cx="6" cy="5" r="2" stroke="currentColor" strokeWidth="1.3"/>
-            <path d="M2 13c0-2.21 1.79-4 4-4s4 1.79 4 4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-            <circle cx="11.5" cy="5.5" r="1.5" stroke="currentColor" strokeWidth="1.2" opacity="0.7"/>
-            <path d="M13.5 12.5c0-1.38-.9-2.55-2.14-2.87" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" opacity="0.7"/>
-          </svg>
+          <Users size={ICON_SIZE.md} aria-hidden />
           <span className="tw-header-title" data-tour-id="teams-header">Teams</span>
 
           {activeTeam && (
             <div className="team-switcher" ref={switcherRef}>
               <button className="team-switcher-btn" data-tour-id="team-switcher" onClick={() => setShowSwitcher(v => !v)}>
                 <span className="team-switcher-name">{activeTeam.name}</span>
-                <svg width="10" height="10" viewBox="0 0 10 10" fill="none" style={{ flexShrink: 0 }}>
-                  <path d="M2 3.5L5 6.5L8 3.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
+                <ChevronDown size={ICON_SIZE.lg} aria-hidden />
               </button>
               {showSwitcher && (
                 <div className="team-switcher-dropdown">
@@ -323,10 +315,7 @@ export default function TeamsWorkspace({ onClose, onLoad, onPendingInvitesChange
                         title="Review teams that invited you"
                       >
                         <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" style={{ flexShrink: 0 }}>
-                            <path d="M3 4h10v8a1 1 0 01-1 1H4a1 1 0 01-1-1V4z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/>
-                            <path d="M3 4l5 4 5-4" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/>
-                          </svg>
+                          <Inbox size={ICON_SIZE.lg} aria-hidden />
                           Pending invites
                         </span>
                         <span
@@ -349,10 +338,7 @@ export default function TeamsWorkspace({ onClose, onLoad, onPendingInvitesChange
                     onClick={() => { setShowSwitcher(false); setShowJoinCodeModal(true) }}
                     title="Join an existing team using a code"
                   >
-                    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" style={{ flexShrink: 0 }}>
-                      <circle cx="6" cy="10" r="3" stroke="currentColor" strokeWidth="1.3"/>
-                      <path d="M8.5 8L13 3.5M11 5.5L13 7.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-                    </svg>
+                    <KeyRound size={ICON_SIZE.lg} aria-hidden />
                     Join with code
                   </button>
                   <button className="team-switcher-new" onClick={() => { setShowSwitcher(false); setCreatingTeam(true); setSection('members') }}>
@@ -395,9 +381,7 @@ export default function TeamsWorkspace({ onClose, onLoad, onPendingInvitesChange
               onClick={() => setShowNotifications(v => !v)}
               title="Notifications"
             >
-              <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                <path d="M8 2a5 5 0 00-5 5v3l-1 1h12l-1-1V7a5 5 0 00-5-5zM8 14a2 2 0 002-2H6a2 2 0 002 2z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/>
-              </svg>
+              <Bell size={ICON_SIZE.lg} aria-hidden />
               {unreadCount > 0 && (
                 <span className="tw-notif-badge">{unreadCount > 9 ? '9+' : unreadCount}</span>
               )}
@@ -427,12 +411,7 @@ export default function TeamsWorkspace({ onClose, onLoad, onPendingInvitesChange
             <div className="empty-state-shell">
               <div className="empty-state-hero">
                 <div className="empty-state-hero-icon">
-                  <svg width="22" height="22" viewBox="0 0 16 16" fill="none">
-                    <circle cx="6" cy="5" r="2" stroke="currentColor" strokeWidth="1.4"/>
-                    <path d="M2 13c0-2.21 1.79-4 4-4s4 1.79 4 4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-                    <circle cx="11.5" cy="5.5" r="1.5" stroke="currentColor" strokeWidth="1.3" opacity="0.7"/>
-                    <path d="M13.5 12.5c0-1.38-.9-2.55-2.14-2.87" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" opacity="0.7"/>
-                  </svg>
+                  <Users size={ICON_SIZE.md} aria-hidden />
                 </div>
                 <div className="empty-state-hero-title">Welcome to Teams</div>
                 <div className="empty-state-hero-subtitle">
@@ -894,10 +873,7 @@ export default function TeamsWorkspace({ onClose, onLoad, onPendingInvitesChange
       {/* Terminal panel */}
       <div className={`teams-workspace-terminal${terminalExpanded ? ' expanded' : ''}`}>
         <button className="tw-terminal-toggle" onClick={() => setTerminalExpanded(v => !v)}>
-          <svg width="11" height="11" viewBox="0 0 11 11" fill="none"
-            style={{ transition: 'transform 0.2s', transform: terminalExpanded ? 'rotate(180deg)' : 'rotate(0deg)', flexShrink: 0 }}>
-            <path d="M1.5 3.5L5.5 7.5L9.5 3.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
+          <ChevronDown size={ICON_SIZE.lg} aria-hidden />
           Terminal
         </button>
         {terminalExpanded && (
@@ -912,10 +888,7 @@ export default function TeamsWorkspace({ onClose, onLoad, onPendingInvitesChange
           <div className="team-modal join-code-modal">
             <div className="team-modal-header">
               <div className="team-modal-header-left">
-                <svg className="jcf-title-icon" width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                  <circle cx="6" cy="10" r="3" stroke="currentColor" strokeWidth="1.4"/>
-                  <path d="M8.1 8.1L14 2.2M11.5 4.8l1.7 1.7M13 3.3l1.5 1.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
+                <KeyRound size={ICON_SIZE.lg} aria-hidden />
                 <span className="team-modal-title">Join a team with code</span>
               </div>
               <button className="team-modal-close" onClick={() => setShowJoinCodeModal(false)}>×</button>
