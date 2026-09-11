@@ -281,3 +281,65 @@ describe('arista source — mismo documento de origen', () => {
     expect(buildMemoryGraph(db, Q()).edges.filter((e) => e.kind === 'source')).toHaveLength(2)
   })
 })
+
+// La unica arista de HECHO que cruza proyectos. Las otras tres estan escopeadas por
+// proyecto con razon (dos repos con una rama `main` no comparten nada, un CLAUDE.md en cada
+// uno no es el mismo documento), pero un topic_key SI es una decision deliberada: si "auth"
+// aparece en dos repos, hay trabajo sobre el mismo tema en los dos lados.
+describe('arista cross-topic — el mismo tema en otro repo', () => {
+  it('une dos proyectos que comparten topic_key', () => {
+    insert({ syncId: 'a', projectKey: 'uno', topicKey: 'auth', updatedAt: 1 })
+    insert({ syncId: 'b', projectKey: 'dos', topicKey: 'auth', updatedAt: 2 })
+
+    const cross = buildMemoryGraph(db, Q()).edges.filter((e) => e.kind === 'cross-topic')
+    expect(cross).toHaveLength(1)
+    expect(cross[0].directed).toBe(false)
+  })
+
+  it('dentro del MISMO proyecto no emite cross-topic: para eso esta `topic`', () => {
+    insert({ syncId: 'a', projectKey: 'uno', topicKey: 'auth', updatedAt: 1 })
+    insert({ syncId: 'b', projectKey: 'uno', topicKey: 'auth', updatedAt: 2 })
+
+    const g = buildMemoryGraph(db, Q())
+    expect(g.edges.filter((e) => e.kind === 'cross-topic')).toHaveLength(0)
+    expect(g.edges.filter((e) => e.kind === 'topic')).toHaveLength(1)
+  })
+
+  it('topics distintos no se unen aunque sean de proyectos distintos', () => {
+    insert({ syncId: 'a', projectKey: 'uno', topicKey: 'auth', updatedAt: 1 })
+    insert({ syncId: 'b', projectKey: 'dos', topicKey: 'pagos', updatedAt: 2 })
+
+    expect(buildMemoryGraph(db, Q()).edges.filter((e) => e.kind === 'cross-topic')).toHaveLength(0)
+  })
+
+  // UN representante por proyecto, y despues cadena. Todos contra todos taparia el grafo:
+  // un topic compartido por 4 repos con 10 memorias cada uno daria 600 aristas.
+  it('con varias memorias por proyecto, une representantes: 3 repos dan 2 aristas', () => {
+    for (const [p, n] of [['uno', 3], ['dos', 3], ['tres', 3]] as const) {
+      for (let i = 0; i < n; i++) {
+        insert({ syncId: `${p}-${i}`, projectKey: p, topicKey: 'auth', updatedAt: i + 1 })
+      }
+    }
+
+    expect(buildMemoryGraph(db, Q()).edges.filter((e) => e.kind === 'cross-topic')).toHaveLength(2)
+  })
+
+  it('el representante de cada proyecto es el mas reciente', () => {
+    insert({ syncId: 'viejo', projectKey: 'uno', topicKey: 'auth', updatedAt: 1 })
+    insert({ syncId: 'nuevo', projectKey: 'uno', topicKey: 'auth', updatedAt: 9 })
+    insert({ syncId: 'otro', projectKey: 'dos', topicKey: 'auth', updatedAt: 5 })
+
+    const cross = buildMemoryGraph(db, Q()).edges.filter((e) => e.kind === 'cross-topic')
+    expect(cross).toHaveLength(1)
+    expect([cross[0].from, cross[0].to].sort()).toEqual(['nuevo', 'otro'])
+  })
+
+  // Un scope distinto no es el mismo tema: `personal` y `team` se llevan aparte en toda la
+  // capa de datos, y mezclarlos aca filtraria memorias personales a un hilo de equipo.
+  it('el mismo topic en scopes distintos no cruza', () => {
+    insert({ syncId: 'a', projectKey: 'uno', scope: 'personal', topicKey: 'auth', updatedAt: 1 })
+    insert({ syncId: 'b', projectKey: 'dos', scope: 'team', topicKey: 'auth', updatedAt: 2 })
+
+    expect(buildMemoryGraph(db, Q()).edges.filter((e) => e.kind === 'cross-topic')).toHaveLength(0)
+  })
+})

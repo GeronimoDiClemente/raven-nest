@@ -134,6 +134,19 @@ export const EDGE_STYLES: Record<MemoryEdgeKind, EdgeStyle> = {
     label: 'Same document',
     meaning: 'Imported from the same file',
   },
+  // La unica arista de hecho que CRUZA proyectos: el mismo topic en dos repos. Va marcada
+  // --la mas ancha despues de `revision`, y curvada al reves que las demas-- porque es la
+  // que cuenta algo que ninguna vista de un solo proyecto puede mostrar: que hay trabajo
+  // sobre el mismo tema en los dos lados. Ademas se reconoce sola, porque es la unica que
+  // une dos nodos de COLOR distinto cuando el grafo se colorea por proyecto.
+  'cross-topic': {
+    width: 1.6,
+    color: 'rgba(210, 210, 210, 0.6)',
+    curvature: -0.4,
+    arrowLength: 0,
+    label: 'Same topic, other repo',
+    meaning: 'The same topic worked on in more than one project',
+  },
   similar: {
     width: 0.6,
     color: 'rgba(120, 120, 120, 0.22)',
@@ -144,7 +157,7 @@ export const EDGE_STYLES: Record<MemoryEdgeKind, EdgeStyle> = {
   },
 }
 
-export const EDGE_KINDS_IN_LEGEND_ORDER: MemoryEdgeKind[] = ['revision', 'topic', 'branch', 'source', 'similar']
+export const EDGE_KINDS_IN_LEGEND_ORDER: MemoryEdgeKind[] = ['revision', 'topic', 'cross-topic', 'branch', 'source', 'similar']
 
 function nodeLabel(node: MemoryGraphNode): string {
   return node.title.trim() || '(untitled)'
@@ -260,7 +273,9 @@ export function projectGroups(graph: MemoryGraph): ProjectGroup[] {
 
 /** Cuántas aristas de cada tipo hay. La leyenda no lista un tipo que no está en pantalla. */
 export function countEdgeKinds(data: GraphData): Record<MemoryEdgeKind, number> {
-  const out: Record<MemoryEdgeKind, number> = { revision: 0, topic: 0, branch: 0, source: 0, similar: 0 }
+  const out: Record<MemoryEdgeKind, number> = {
+    revision: 0, topic: 0, 'cross-topic': 0, branch: 0, source: 0, similar: 0,
+  }
   for (const l of data.links) out[l.kind] += 1
   return out
 }

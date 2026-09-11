@@ -176,6 +176,19 @@ export const MEMORIAS_DE_MUESTRA: SeedMemory[] = [
     tags: ['sqlite', 'datos'],
   },
   {
+    // Comparte `topic_key` con la memoria de auth de raven-nest, PERO vive en otro
+    // proyecto: es lo que ejercita la arista `cross-topic`, la unica de hecho que cruza
+    // repos. Sin un caso asi, ese camino no se toca nunca en pantalla.
+    syncId: 'm-auth-otro-repo',
+    projectKey: 'otro-proyecto',
+    title: 'Acá el auth también pasó a cookies de sesión',
+    type: 'decision',
+    topicKey: 'auth',
+    gitBranch: 'main',
+    originAi: 'codex',
+    tags: ['auth'],
+  },
+  {
     syncId: 'm-prefs-tabs',
     projectKey: 'otro-proyecto',
     title: 'Preferir tabs sobre ventanas para los worktrees',

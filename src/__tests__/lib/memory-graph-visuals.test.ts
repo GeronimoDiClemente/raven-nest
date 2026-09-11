@@ -98,7 +98,7 @@ describe('EDGE_STYLES', () => {
   })
 
   it('similar es la mas tenue y la mas fina: es inferencia, no un hecho afirmado', () => {
-    const otras: MemoryEdgeKind[] = ['revision', 'topic', 'branch']
+    const otras: MemoryEdgeKind[] = ['revision', 'topic', 'branch', 'source', 'cross-topic']
     for (const k of otras) {
       expect(EDGE_STYLES.similar.width).toBeLessThan(EDGE_STYLES[k].width)
     }
@@ -129,7 +129,7 @@ describe('countEdgeKinds', () => {
         { from: 'a', to: 'c', kind: 'revision', directed: true },
       ],
     ), TODO)
-    expect(countEdgeKinds(data)).toEqual({ revision: 1, topic: 2, branch: 0, source: 0, similar: 0 })
+    expect(countEdgeKinds(data)).toEqual({ revision: 1, topic: 2, 'cross-topic': 0, branch: 0, source: 0, similar: 0 })
   })
 })
 

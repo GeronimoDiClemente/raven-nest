@@ -107,6 +107,9 @@ test('con memorias: el cuadro es acotado, y la seleccion es una sola entre lista
     //    con su color (el modelo de Obsidian).
     await expect(page.getByText('Revision', { exact: true })).toBeVisible()
     await expect(page.getByText('Same branch', { exact: true })).toBeVisible()
+    // La arista que cruza repos: el mismo topic en dos proyectos. Es lo unico que un grafo
+    // de varios proyectos puede mostrar y uno de un solo proyecto no.
+    await expect(page.getByText('Same topic, other repo', { exact: true })).toBeVisible()
     await expect(page.getByRole('button', { name: /^raven-nest/ })).toBeVisible()
 
     // El color lo elige el usuario, como los Groups de Obsidian (que son color por

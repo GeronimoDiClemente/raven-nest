@@ -29,7 +29,7 @@
 // vive detrás de `query.includeSimilar`, apagado por default.
 import type Database from 'better-sqlite3'
 
-export type MemoryEdgeKind = 'revision' | 'topic' | 'branch' | 'source' | 'similar'
+export type MemoryEdgeKind = 'revision' | 'topic' | 'branch' | 'source' | 'cross-topic' | 'similar'
 
 export interface MemoryGraphNode {
   syncId: string
@@ -150,6 +150,59 @@ function chainEdges(rows: GraphRow[], kind: MemoryEdgeKind, keyFn: (r: GraphRow)
     )
     for (let i = 0; i < ordered.length - 1; i++) {
       edges.push({ from: ordered[i].sync_id, to: ordered[i + 1].sync_id, kind, directed: false })
+    }
+  }
+  return edges
+}
+
+/**
+ * Aristas que CRUZAN proyectos: el mismo `topic_key` en dos repos distintos.
+ *
+ * Las otras tres aristas de hecho estan escopeadas por proyecto, y con razon: dos repos con
+ * una rama `main` no comparten nada, y un `CLAUDE.md` en cada uno no es el mismo documento.
+ * Pero un topic_key SI es una decision deliberada de quien lo puso — si "auth" aparece en
+ * dos repos, eso es trabajo sobre el mismo tema en los dos lados, que es justo lo que un
+ * grafo de varios proyectos tiene para aportar y hoy no aportaba.
+ *
+ * Un REPRESENTANTE por proyecto (el mas reciente), y despues cadena entre representantes.
+ * No todos contra todos: un topic compartido por 4 repos con 10 memorias cada uno daria
+ * 600 aristas en clique y taparia el grafo entero. Asi da 3.
+ */
+function crossProjectTopicEdges(rows: GraphRow[]): MemoryGraphEdge[] {
+  const porTopic = new Map<string, GraphRow[]>()
+  for (const r of rows) {
+    if (!r.topic_key) continue
+    const key = `${r.scope}\u0000${r.topic_key}`
+    const lista = porTopic.get(key)
+    if (lista) lista.push(r)
+    else porTopic.set(key, [r])
+  }
+
+  const edges: MemoryGraphEdge[] = []
+  for (const grupo of porTopic.values()) {
+    // Un representante por proyecto: el mas reciente, con sync_id de desempate para que el
+    // resultado no dependa del orden en que vinieron las filas.
+    const representantes = new Map<string, GraphRow>()
+    for (const r of grupo) {
+      const actual = representantes.get(r.project_key)
+      if (!actual
+        || r.updated_at > actual.updated_at
+        || (r.updated_at === actual.updated_at && r.sync_id < actual.sync_id)) {
+        representantes.set(r.project_key, r)
+      }
+    }
+    if (representantes.size < 2) continue
+
+    const ordenados = [...representantes.values()].sort(
+      (a, b) => a.project_key.localeCompare(b.project_key)
+    )
+    for (let i = 0; i < ordenados.length - 1; i++) {
+      edges.push({
+        from: ordenados[i].sync_id,
+        to: ordenados[i + 1].sync_id,
+        kind: 'cross-topic',
+        directed: false,
+      })
     }
   }
   return edges
@@ -393,7 +446,11 @@ export function buildMemoryGraph(db: Database.Database, query: MemoryGraphQuery)
     })
   )
 
-  // 5. similar — opt-in (query.includeSimilar), apagada por default. Es inferencia sobre
+  // 5. cross-topic — el mismo topic en OTRO repo. La unica arista de hecho que cruza
+  // proyectos; ver crossProjectTopicEdges para por que las otras no lo hacen.
+  edges.push(...crossProjectTopicEdges(selected))
+
+  // 6. similar — opt-in (query.includeSimilar), apagada por default. Es inferencia sobre
   // contenido, no un hecho declarado como las tres de arriba (ver MemoryGraphQuery). Si ya
   // hay una arista entre A y B por revision/topic/branch, esa gana y no se duplica.
   if (query.includeSimilar) {
