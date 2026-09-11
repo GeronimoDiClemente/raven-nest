@@ -8,6 +8,7 @@ import { handleDeleteData } from './delete-data'
 import { createRateLimiter } from './rate-limit'
 import { registerDevice, revokeDevices, verifySupabaseJwt } from './devices'
 import { handleShareProject } from './share'
+import { enrollDeviceKey, getKeyState, publishWraps } from './keys'
 
 const MAX_BATCH = 500
 const MAX_BODY_BYTES = 20 * 1024 * 1024
@@ -141,8 +142,14 @@ async function handleRequest(pool: Pool, req: IncomingMessage, res: ServerRespon
     path === '/v1/sync/delete-data' || path === '/functions/v1/memory-sync/delete-cloud-data'
   // Team Memory Layer 1, Parte 3: la única vía por la que `projects.team_id` se escribe.
   const isShare = path === '/v1/projects/share'
+  // Cifrado (spec 2026-09-09 §5.3, camino B): el servicio guarda claves públicas y blobs
+  // sellados. No aprende nada que pueda abrir.
+  const isKeysEnroll = path === '/v1/keys/enroll'
+  const isKeysGet = path === '/v1/keys'
+  const isKeysPublish = path === '/v1/keys/publish'
 
-  if (!isPush && !isPull && !isStatus && !isDelete && !isShare) {
+  if (!isPush && !isPull && !isStatus && !isDelete && !isShare
+      && !isKeysEnroll && !isKeysGet && !isKeysPublish) {
     return send(res, 404, { error: 'not_found' })
   }
 
@@ -170,6 +177,27 @@ async function handleRequest(pool: Pool, req: IncomingMessage, res: ServerRespon
       const result = await handleShareProject(pool, auth, body as never)
       if (!result.ok) return send(res, result.status, { error: result.error })
       return send(res, 200, { ok: true })
+    }
+
+    // Pasan por `authenticate` como push y pull: la credencial es el device token, y los
+    // gates de allowlist y plan aplican igual — sin nube no hay nada que cifrar.
+    if (isKeysGet) {
+      if (req.method !== 'GET') return send(res, 405, { error: 'method_not_allowed' })
+      return send(res, 200, await getKeyState(pool, auth))
+    }
+    if (isKeysEnroll) {
+      if (req.method !== 'POST') return send(res, 405, { error: 'method_not_allowed' })
+      const body = (await readBody(req)) as Record<string, unknown>
+      const result = await enrollDeviceKey(pool, auth, body)
+      if (!result.ok) return send(res, result.status, { error: result.error })
+      return send(res, 200, { ok: true })
+    }
+    if (isKeysPublish) {
+      if (req.method !== 'POST') return send(res, 405, { error: 'method_not_allowed' })
+      const body = (await readBody(req)) as Record<string, unknown>
+      const result = await publishWraps(pool, auth, body)
+      if (!result.ok) return send(res, result.status, { error: result.error })
+      return send(res, 200, { ok: true, key_epoch: result.keyEpoch })
     }
 
     const body = (await readBody(req)) as Record<string, unknown>
