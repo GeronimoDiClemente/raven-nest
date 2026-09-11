@@ -41,6 +41,9 @@ esto— pero como sesión de verificación, no de continuación.
 | `.tab-name`, `<select>` de Team, 3 clases CSS muertas | `7fb45cf`, `1074362`, `5e283e0` |
 | Las capturas de evidencia dejan de perderse | `6d487d6` |
 | `CLAUDE.md`: el baseline de typecheck que documentaba era falso | `3fca393` |
+| La decisión del 3D, medida | `498566a` |
+| Free podía ver sus repos y aceptar invitaciones otra vez | `4849f49` |
+| `.repo-action-btn` entra en la escala | `8214315` |
 
 ### Specs escritas
 
@@ -72,12 +75,19 @@ hasta el commit `3fca393` y **dos agentes cayeron ahí**.
 test verde no probaba nada: el más engañoso mockeaba `team: null`, así que nunca llegaba
 al gate que decía estar probando. Rompé lo que el test afirma, confirmá el rojo, restaurá.
 
-**4. Verificá todo número antes de construir encima.** Pasó cuatro veces que un reporte
+**4. Verificá todo número antes de construir encima.** Pasó **cinco** veces que un reporte
 afirmó algo que el repo desmentía — incluida una en la que el propio controlador escribió
 un número falso en un comentario del código. Los casos: los scrollbars "sin estilar" (ya
 había una regla universal), `.tab-name` "en 16px" (eran 12), "~15 errores de tipo
-preexistentes" (eran cero), y "la mayoría de los form controls estaba desnuda" (65 de 87
-ya estaban cubiertos).
+preexistentes" (eran cero), "la mayoría de los form controls estaba desnuda" (65 de 87
+ya estaban cubiertos), y `.repo-action-btn` "entra en una fila de 26px" (esa fila no
+existe — la fila no tiene `height` y la mandan dos líneas de texto).
+
+**5. Lo que se ve en una captura no se ve leyendo el código.** Tres hallazgos de esta
+rama salieron de mirar una imagen, no de un test: el popover que montaba fuera de
+pantalla con `toBeVisible()` en verde, el gate de plan que dejaba a un usuario Free sin
+poder aceptar una invitación, y que medir layout durante el `zoomIn` de la cáscara
+devuelve números escalados (un botón de 26px daba 25).
 
 ---
 
@@ -126,8 +136,10 @@ ya estaban cubiertos).
    movimiento y nav con estado → logos de IA por fila → estados vacíos.
 3. **Memories**: la lista, el grafo 3D acotado, las dos tools MCP.
    Brief de la parte de datos en `.superpowers/sdd/.../memories-datos-brief.md`.
-4. **`.repo-action-btn`**: quedó en 26px, fuera de la escala, porque My Repos exige GitHub
-   conectado de verdad. La salida es inyectar repos falsos en el harness.
+4. ~~**`.repo-action-btn`**~~ — **cerrado el 2026-09-11** (`8214315`). La excepción era
+   falsa: no existe ninguna fila de 26px. Está en 28 y medido en la app real con
+   `RAVEN_E2E_REPOS`, el flag nuevo que siembra repos falsos y desbloquea de paso
+   cualquier otra verificación de My Repos.
 5. **Migración de íconos a `lucide-react`.** Hay **171 `<svg>` escritos a mano en 41
    archivos**, con **9 tamaños** (10, 11, 12, 13, 14, 15, 16, 22, 28 px) y **8 grosores de
    trazo** (1.1 a 2 — con 105 en 1.3, 45 en 1.4 y 31 en 1.2, que a ojo son el mismo y no lo
