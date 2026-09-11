@@ -6239,16 +6239,22 @@ button.ci-badge:hover {
    28 (sm/h-7) — pero el brief original nombra esta clase puntualmente como el
    ejemplo de riesgo ("un .repo-action-btn mide 26px de alto porque entra en
    una fila de 26px") y My Repos requiere una cuenta GitHub conectada de
-   verdad para ver la fila con contenido: no se pudo ver una captura de esa
-   fila en este pase (Personal con RAVEN_E2E_PLAN=pro llega hasta "Connect
-   GitHub", no mas alla). Excepcion documentada en vez de arriesgar el layout:
-   se deja en 26px. */
+   verdad para ver la fila con contenido, asi que se dejo en 26px como
+   excepcion documentada.
+
+   2026-09-11: la premisa era falsa y ahora esta medida. No hay ninguna fila
+   de 26px: la fila es `.snippet-item` con `flexDirection: column` inline y
+   SIN height, y su alto lo manda el bloque de DOS lineas de la izquierda
+   (nombre a 13px + path a 10px), no el boton. Subirlo a 28 no mueve la fila
+   ni un pixel. Verificado renderizado en `e2e/07-repo-row-escala.spec.ts`,
+   que siembra repos falsos via RAVEN_E2E_REPOS — el flag existe justamente
+   porque esta ceguera produjo la excepcion. Entra en la escala: 28px. */
 .repo-action-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 5px;
-  height: 26px;
+  height: 28px;
   background: transparent;
   border: 1px solid var(--input);
   color: var(--text-primary);
