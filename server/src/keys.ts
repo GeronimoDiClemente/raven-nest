@@ -54,7 +54,16 @@ export async function enrollDeviceKey(
   return { ok: true }
 }
 
-export async function getKeyState(pool: Pool, auth: KeysAuth): Promise<KeyState> {
+/**
+ * `slot` explicito para el camino de recuperacion (§5.3 camino B, D8): una maquina que
+ * arranca sin ninguna otra viva no puede pedir "mi envoltura" —todavia no tiene ninguna—
+ * sino la de recuperacion, que es la unica que su codigo puede abrir. Sin este parametro
+ * `recoverWithCode` recibe siempre `wrap: null` y la recuperacion no existe en la practica.
+ *
+ * No amplia lo que el llamador puede ver: sigue acotado a SU `user_id`, y lo que devuelve
+ * es un blob que el servidor no puede abrir en ninguno de los dos casos.
+ */
+export async function getKeyState(pool: Pool, auth: KeysAuth, slot?: string): Promise<KeyState> {
   const { rows: epochRows } = await pool.query(
     'select key_epoch from users where id = $1',
     [auth.userId]
@@ -78,7 +87,7 @@ export async function getKeyState(pool: Pool, auth: KeysAuth): Promise<KeyState>
   const { rows: wrapRows } = await pool.query(
     `select wrapped, wrap_meta from key_wraps
       where user_id = $1 and slot = $2 and key_epoch = $3`,
-    [auth.userId, auth.deviceId, keyEpoch]
+    [auth.userId, slot && slot.trim() !== '' ? slot : auth.deviceId, keyEpoch]
   )
 
   return {

@@ -183,7 +183,9 @@ async function handleRequest(pool: Pool, req: IncomingMessage, res: ServerRespon
     // gates de allowlist y plan aplican igual — sin nube no hay nada que cifrar.
     if (isKeysGet) {
       if (req.method !== 'GET') return send(res, 405, { error: 'method_not_allowed' })
-      return send(res, 200, await getKeyState(pool, auth))
+      // `?slot=recovery` es el unico valor que el cliente usa hoy; cualquier otro cae al
+      // comportamiento de siempre (la envoltura del device que llama).
+      return send(res, 200, await getKeyState(pool, auth, url.searchParams.get('slot') ?? undefined))
     }
     if (isKeysEnroll) {
       if (req.method !== 'POST') return send(res, 405, { error: 'method_not_allowed' })
