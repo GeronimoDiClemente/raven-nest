@@ -14,6 +14,7 @@ import NewMemoryForm from './NewMemoryForm'
 import { Plus } from 'lucide-react'
 import { ICON_SIZE } from '../lib/icons'
 import MemoriesStatusRow from './MemoriesStatusRow'
+import MemoryEncryptionCard from './MemoryEncryptionCard'
 import ShareProjectCard from './ShareProjectCard'
 import TeamThreadPanel from './TeamThreadPanel'
 import { Button } from '@/components/ui/button'
@@ -156,6 +157,8 @@ export default function MemoriesWorkspace({ onClose, activeRepoPath, onOpenFile,
           </div>
         )}
         {avisoDeEnlace && <p className="shrink-0 text-fs-sm text-muted-foreground">{avisoDeEnlace}</p>}
+
+        <MemoryEncryptionCard />
 
         <MemoriesList key={`lista-${version}`} selectedId={selectedId} onSelect={(id) => void alElegir(id)} />
 
