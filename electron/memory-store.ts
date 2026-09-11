@@ -900,6 +900,41 @@ export class MemoryStore {
     return row?.value ?? null
   }
 
+  private metaSet(key: string, value: string): void {
+    this.db
+      .prepare('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
+      .run(key, value)
+  }
+
+  /**
+   * Cuenta filas que llegaron cifradas y esta maquina no pudo abrir (spec §5.5.4). Vive en
+   * `meta` y no en `mutation_log` porque NO es una mutacion nuestra: es algo que la nube
+   * tiene y nosotros no podemos leer. El doctor las junta igual, que es lo que el usuario
+   * necesita ver.
+   */
+  bumpUndecryptable(n: number): void {
+    if (n <= 0) return
+    this.metaSet('undecryptable_rows', String(this.undecryptableCount() + n))
+  }
+
+  undecryptableCount(): number {
+    return Number(this.metaGet('undecryptable_rows') ?? 0)
+  }
+
+  clearUndecryptable(): void {
+    this.metaSet('undecryptable_rows', '0')
+  }
+
+  /**
+   * Vuelve todos los cursores de pull a 0. Se usa despues de que esta maquina consigue la
+   * clave: las filas que se saltearon por ilegibles ya quedaron atras del cursor y sin esto
+   * no volverian nunca. El pull es idempotente (upsert por sync_id), asi que re-bajar todo
+   * es seguro; el costo es una pasada de red, no datos duplicados.
+   */
+  resetPullCursors(): void {
+    this.db.prepare('UPDATE sync_state SET pull_cursor = 0').run()
+  }
+
   /** La cuenta de Nest dueña de este store, o null si todavía no entró ninguna. */
   getOwnerUserId(): string | null {
     return this.metaGet('owner_user_id')

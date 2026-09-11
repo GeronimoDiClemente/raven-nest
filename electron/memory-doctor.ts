@@ -23,7 +23,17 @@ export interface DoctorReport {
   groups: BlockedGroup[]
 }
 
-export function buildDoctorReport(rows: MutationLogRow[]): DoctorReport {
+/**
+ * Spec §5.5.4. No sale de `mutation_log` como las demas: es memoria que la nube tiene
+ * cifrada y esta maquina no puede abrir. Reversible por definicion — se destraba sola en
+ * cuanto otra maquina autoriza a esta.
+ */
+export const UNDECRYPTABLE_REASON = 'undecryptable'
+
+export function buildDoctorReport(
+  rows: MutationLogRow[],
+  extra?: { undecryptable?: number }
+): DoctorReport {
   const byReason = new Map<string, BlockedGroup>()
 
   for (const r of rows) {
@@ -41,6 +51,15 @@ export function buildDoctorReport(rows: MutationLogRow[]): DoctorReport {
         reversible: REVERSIBLE_REJECTIONS.has(reason),
       })
     }
+  }
+
+  const ilegibles = extra?.undecryptable ?? 0
+  if (ilegibles > 0) {
+    // `oldestAt: 0` a proposito: no sabemos desde cuando estan — solo cuantas. Poner
+    // `Date.now()` seria inventar un dato ("recien pasó") que la UI mostraria como cierto.
+    byReason.set(UNDECRYPTABLE_REASON, {
+      reason: UNDECRYPTABLE_REASON, count: ilegibles, oldestAt: 0, reversible: true,
+    })
   }
 
   const groups = [...byReason.values()].sort(

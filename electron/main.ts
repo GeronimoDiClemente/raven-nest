@@ -3241,7 +3241,12 @@ ipcMain.handle('memory:sessions', () => {
 // Spec §7.1: "if sync is blocked, fail loudly and visibly."
 ipcMain.handle('memory:doctor', () => {
   if (!memory) return { ok: false, blockedTotal: 0, groups: [] }
-  return { ok: true, ...buildDoctorReport(memory.store.blockedMutations()) }
+  return {
+    ok: true,
+    ...buildDoctorReport(memory.store.blockedMutations(), {
+      undecryptable: memory.store.undecryptableCount(),
+    }),
+  }
 })
 
 ipcMain.handle('memory:ensureDeviceId', () => {

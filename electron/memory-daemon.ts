@@ -11,6 +11,7 @@
 import { MemoryStore, type MutationLogRow } from './memory-store'
 import { resolveLWW, resolveTopicCollision, type LWWRow } from './memory-merge'
 import { GLOBAL_PROJECT_KEY } from './memory-project-key'
+import { sealMutationPayload, openPulledRow, type EnvelopeContext } from './memory-envelope'
 
 const DEBOUNCE_MS = 3_000
 const MAX_WAIT_MS = 30_000
@@ -124,6 +125,16 @@ export interface MemoryDaemonDeps {
   getDeviceId: () => string | null
   isOnline: () => boolean
   fetchImpl?: typeof fetch
+  /**
+   * Las claves de cifrado de la cuenta, o `null` si el cifrado no esta activado en esta
+   * maquina. Opcional para que todo call site y todo test que existia antes del cifrado
+   * siga andando sin tocarse: sin esta dep, el daemon empuja y baja en claro, exactamente
+   * como hasta hoy.
+   *
+   * Es una FUNCION y no un valor: el usuario puede activar el cifrado con la app abierta y
+   * el daemon tiene que ver la clave nueva sin que nadie lo reinicie.
+   */
+  getEnvelopeContext?: () => EnvelopeContext | null
   onStatusChange?: (status: DaemonStatus, detail?: string) => void
 }
 
@@ -621,22 +632,30 @@ export class MemoryDaemon {
             // it only rode along to end up in the logs of whatever proxy sits in
             // between. Pruned here, the end that controls the wire.
             const { source_ref: _dropped, ...rest } = payload
+            // El cifrado va ULTIMO en la cadena, despues de la redaccion de secretos (que
+            // corre en `save()`, del lado local) y despues del join del display name: si
+            // fuera antes, cifrariamos un texto que la redaccion todavia no limpio, o
+            // pisariamos con un nombre en claro un campo ya sellado.
+            const enClaro = {
+              ...rest,
+              // `?? []`, not `?? null`: the push RPC does `tags = COALESCE(v_payload->'tags',
+              // '[]'::jsonb)` (supabase/migrations/20260730000000_nest_memory.sql) using `->`,
+              // which yields jsonb, not text. A present key holding JSON `null` is a jsonb null
+              // *scalar*, not SQL NULL, so COALESCE never fires and the column would silently
+              // store `null` instead of `[]` — contradicting its own `NOT NULL DEFAULT '[]'`.
+              // Sending `[]` here matches what COALESCE would have produced without depending
+              // on it firing, and keeps the key always present with the shape the wire expects.
+              tags: normalizeTags(payload.tags) ?? [],
+              project_display_name: displayNameByProjectKey.get(projectKey) ?? projectKey,
+            }
+            // `m.sync_id` y `payload.sync_id` NO se tocan: el ack del servidor se resuelve
+            // por `sync_id` (`resultBySyncId`, mas abajo), asi que cifrarlo dejaria toda
+            // mutacion sin acuse y la cola creceria para siempre.
             return {
               seq: m.seq,
               sync_id: m.sync_id,
               op: m.op,
-              payload: {
-                ...rest,
-                // `?? []`, not `?? null`: the push RPC does `tags = COALESCE(v_payload->'tags',
-                // '[]'::jsonb)` (supabase/migrations/20260730000000_nest_memory.sql) using `->`,
-                // which yields jsonb, not text. A present key holding JSON `null` is a jsonb null
-                // *scalar*, not SQL NULL, so COALESCE never fires and the column would silently
-                // store `null` instead of `[]` — contradicting its own `NOT NULL DEFAULT '[]'`.
-                // Sending `[]` here matches what COALESCE would have produced without depending
-                // on it firing, and keeps the key always present with the shape the wire expects.
-                tags: normalizeTags(payload.tags) ?? [],
-                project_display_name: displayNameByProjectKey.get(projectKey) ?? projectKey,
-              },
+              payload: sealMutationPayload(this.deps.getEnvelopeContext?.() ?? null, enClaro),
             }
           }),
         }),
@@ -1105,6 +1124,21 @@ export class MemoryDaemon {
    * synthetic rows instead of a live server.
    */
   applyPulledRow(incoming: PulledRow): void {
+    const { row: abierta, undecryptable } = openPulledRow(
+      this.deps.getEnvelopeContext?.() ?? null,
+      incoming
+    )
+    if (undecryptable) {
+      // NO se aplica: guardar ciphertext en la base local llenaria la busqueda FTS5 y el
+      // grafo de basura ilegible. Se cuenta y se sigue — el cursor tiene que avanzar
+      // igual, porque frenarlo dejaria a este device sin sincronizar NADA, ni siquiera lo
+      // que si puede leer. Cuando la maquina se autorice, `resetPullCursors()` las
+      // vuelve a traer.
+      this.deps.store.bumpUndecryptable(1)
+      return
+    }
+    incoming = abierta
+
     const local = this.deps.store.get(incoming.syncId)
     if (local) {
       // Same sync_id on both sides, so comparing `.syncId` can never tell winner from
@@ -1128,13 +1162,21 @@ export class MemoryDaemon {
     // The slot goes empty and the local memory disappears from search(), context() and
     // count(), all of which filter superseded_by IS NULL. A tombstone deletes its own
     // sync_id and nothing else.
-    if (incoming.topicKey && !incoming.deleted) {
-      const existingTopicOwner = this.deps.store.findActiveTopicOwner(
-        incoming.projectKey || GLOBAL_PROJECT_KEY,
-        incoming.scope,
-        incoming.topicKey,
-        incoming.syncId
-      )
+    if ((incoming.topicKeyHmac || incoming.topicKey) && !incoming.deleted) {
+      const existingTopicOwner = incoming.topicKeyHmac
+        ? this.deps.store.findActiveTopicOwnerByHmac(
+            incoming.projectKey || GLOBAL_PROJECT_KEY,
+            incoming.scope,
+            incoming.topicKeyHmac,
+            incoming.syncId
+          )
+        : this.deps.store.findActiveTopicOwner(
+            incoming.projectKey || GLOBAL_PROJECT_KEY,
+            incoming.scope,
+            // El `if` de arriba ya garantiza que si no hay HMAC hay tema en claro.
+            incoming.topicKey!,
+            incoming.syncId
+          )
       if (existingTopicOwner) {
         const { winner, loser } = resolveTopicCollision(
           { syncId: existingTopicOwner.sync_id, updatedAt: existingTopicOwner.updated_at, lamport: existingTopicOwner.lamport },
@@ -1150,6 +1192,7 @@ export class MemoryDaemon {
       projectKey: incoming.projectKey || '__global__',
       scope: incoming.scope,
       topicKey: incoming.topicKey,
+      topicKeyHmac: incoming.topicKeyHmac ?? null,
       type: incoming.type ?? 'discovery',
       title: incoming.title ?? '',
       content: incoming.content ?? null,

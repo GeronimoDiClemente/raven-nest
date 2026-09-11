@@ -50,3 +50,30 @@ describe('buildDoctorReport', () => {
     expect(buildDoctorReport([row(1, null, 100)]).blockedTotal).toBe(0)
   })
 })
+
+import { UNDECRYPTABLE_REASON } from '../memory-doctor'
+
+describe('buildDoctorReport — memoria ilegible', () => {
+  it('sin filas ilegibles el reporte no cambia', () => {
+    expect(buildDoctorReport([], { undecryptable: 0 }).groups).toEqual([])
+  })
+
+  it('las filas ilegibles entran como un grupo reversible propio', () => {
+    const r = buildDoctorReport([], { undecryptable: 4 })
+    expect(r.blockedTotal).toBe(4)
+    expect(r.groups).toEqual([
+      { reason: UNDECRYPTABLE_REASON, count: 4, oldestAt: 0, reversible: true },
+    ])
+  })
+
+  it('se ordena junto a los demás por tamaño', () => {
+    const rows = [
+      { seq: 1, sync_id: 'a', op: 'upsert', payload: '{}', created_at: 10, pushed_at: null, last_error: null, blocked_reason: 'quota_exceeded' },
+      { seq: 2, sync_id: 'b', op: 'upsert', payload: '{}', created_at: 20, pushed_at: null, last_error: null, blocked_reason: 'quota_exceeded' },
+    ] as never
+    const r = buildDoctorReport(rows, { undecryptable: 5 })
+    expect(r.groups[0].reason).toBe(UNDECRYPTABLE_REASON)
+    expect(r.groups[1].reason).toBe('quota_exceeded')
+    expect(r.blockedTotal).toBe(7)
+  })
+})
