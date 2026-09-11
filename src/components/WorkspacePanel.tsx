@@ -257,7 +257,7 @@ export default function WorkspacePanel({ onSave, onLoad, onRequireUpgrade }: Pro
               )}
               <div className="snippet-list">
                 {workspaces.map((ws) => (
-                  <div key={ws.id} className="snippet-item">
+                  <div key={ws.id} className="snippet-item snippet-item--compact">
                     <span className="snippet-name" title={`${ws.layout.rows}×${ws.layout.cols}`}>{ws.name}</span>
                     <div className="snippet-item-actions">
                       <button className="snippet-send-btn" onClick={() => handleLoad(ws)} title="Load">Load</button>
@@ -279,7 +279,7 @@ export default function WorkspacePanel({ onSave, onLoad, onRequireUpgrade }: Pro
               )}
               <div className="snippet-list">
                 {shared.map((item) => (
-                  <div key={item.id} className="snippet-item">
+                  <div key={item.id} className="snippet-item snippet-item--compact">
                     <span className="snippet-name" title={`${item.data.layout?.rows}×${item.data.layout?.cols}`}>{item.name}</span>
                     <div className="snippet-item-actions">
                       <button className="snippet-send-btn" onClick={() => handleClone(item.data)} title="Clone to Mine">Clone</button>

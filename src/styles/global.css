@@ -487,11 +487,15 @@ body {
 }
 
 .sidebar-item {
-  height: 44px;
+  /* Escala de filas (2026-09-10): fila primaria, 44px -> 32px. Alinea esta
+     fila con las de la MISMA lista de Tools que ya eran h-8 (32px) via
+     <Button size="sm"> desde la Task 14 (Broadcast, Join Terminal, Voice,
+     History) — antes convivian 44 y 32 en un mismo listado. */
+  height: 32px;
   flex-shrink: 0;
   display: flex;
   align-items: center;
-  padding: 0 14px;
+  padding: 0 12px;
   gap: 10px;
   cursor: pointer;
   background: transparent;
@@ -1399,6 +1403,20 @@ body {
   gap: 8px;
   padding: 10px 16px;
   transition: background 0.1s;
+}
+
+/* Escala de filas (2026-09-10): fila de lista, 28px. NO se aplica a la
+   clase base .snippet-item porque esa clase la reusan tambien filas de DOS
+   lineas que no entran en 32/28/24 (Risk #4 del brief): "My Repos" en
+   PersonalWorkspace.tsx (nombre + path local, con
+   style={{flexDirection:'column'}} inline que ya gana la cascada) y la
+   pestana Templates de WorkspacePanel.tsx (nombre + descripcion). Fijarle
+   height a .snippet-item les rompia esas dos vistas. Este modifier solo se
+   agrega en los 4 usos de una sola linea: Snippets (Mine/Team) y Saved
+   layouts (Mine/Team). */
+.snippet-item--compact {
+  height: 28px;
+  padding: 0 12px;
 }
 
 .snippet-item:hover {
@@ -5308,10 +5326,13 @@ kbd {
 }
 
 .tw-nav-btn {
+  /* Escala de filas (2026-09-10): fila primaria, 32px fijo (antes sin
+     height, ~35.6px efectivos con este padding+font-size). */
+  height: 32px;
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 12px;
+  padding: 0 12px;
   border: none;
   border-radius: 7px;
   background: none;
@@ -6809,10 +6830,12 @@ button.ci-badge:hover {
 }
 
 .sp-row {
+  /* Escala de filas (2026-09-10): fila de lista, 28px. */
+  height: 28px;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 10px 12px;
+  padding: 0 12px;
   border-radius: 6px;
 }
 
@@ -6841,10 +6864,12 @@ button.ci-badge:hover {
 }
 
 .sp-keybind-row {
+  /* Escala de filas (2026-09-10): fila de lista, 28px. */
+  height: 28px;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 10px 12px;
+  padding: 0 12px;
   border-radius: 6px;
   cursor: pointer;
   transition: background 0.1s;

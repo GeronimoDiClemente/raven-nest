@@ -168,7 +168,7 @@ export default function SnippetPanel({ onSend, onBroadcast, onRequireUpgrade }: 
               )}
               <div className="snippet-list">
                 {snippets.map((s) => (
-                  <div key={s.id} className="snippet-item">
+                  <div key={s.id} className="snippet-item snippet-item--compact">
                     <span className="snippet-name" title={s.content}>{s.name}</span>
                     <div className="snippet-item-actions">
                       <button className="snippet-send-btn" onClick={() => handleSend(s.content, 'send')} title="Send to active terminal">Send</button>
@@ -188,7 +188,7 @@ export default function SnippetPanel({ onSend, onBroadcast, onRequireUpgrade }: 
               {!sharedLoading && shared.length === 0 && <p className="snippet-empty">No team snippets yet.</p>}
               <div className="snippet-list">
                 {shared.map((s) => (
-                  <div key={s.id} className="snippet-item">
+                  <div key={s.id} className="snippet-item snippet-item--compact">
                     <span className="snippet-name" title={s.content}>{s.name}</span>
                     <div className="snippet-item-actions">
                       <button className="snippet-send-btn" onClick={() => handleSend(s.content, 'send')} title="Send">Send</button>
