@@ -10,6 +10,7 @@ import { join } from 'path'
 import { MemoryStore } from '../memory-store'
 import { MemoryReadonlyClient, SIN_APP, esMetodoDeLectura } from '../memory-mcp/readonly'
 import { writeActivePointer, readActivePointer, activePointerPath } from '../memory-active-store'
+import type { ObservationSummary } from '../memory-protocol'
 
 let home: string
 
@@ -34,6 +35,13 @@ function sembrar(userId: string | null = null): string {
     projectKey: 'raven-nest', type: 'architecture', source: 'mcp', gitBranch: 'feat/auth',
     title: 'El refresh token se rota', content: 'Cada uso rota el refresh token.',
     topicKey: 'auth-refresh', tags: ['auth'],
+  })
+  // Un segundo proyecto: sin él no se puede distinguir "filtró por este repo" de "trajo
+  // todo", que es justo la diferencia que varios tests de acá abajo miden.
+  store.save({
+    projectKey: 'otro-repo', type: 'bugfix', source: 'mcp', gitBranch: 'main',
+    title: 'El mismo bug de auth acá', content: 'La cookie iba sin SameSite.',
+    topicKey: 'auth-samesite', tags: ['auth'],
   })
   store.close()
   writeActivePointer(home, userId, path)
@@ -69,8 +77,14 @@ describe('el puntero de cuenta activa', () => {
 })
 
 describe('qué sabe responder sin la app', () => {
-  it('el grafo sí', () => {
-    expect(esMetodoDeLectura('memory.graph')).toBe(true)
+  // Leer es TODO lo que el modo sin daemon tiene que saber hacer. Antes sólo estaba el
+  // grafo —no por diseño, sino porque era la única lectura que ya vivía como función sobre
+  // `db`— y el resultado era que con el plugin en otro editor veías el dibujo de tus
+  // memorias pero no podías abrir ninguna.
+  it('las cuatro lecturas sí', () => {
+    for (const m of ['memory.graph', 'memory.search', 'memory.context', 'memory.get'] as const) {
+      expect(esMetodoDeLectura(m)).toBe(true)
+    }
   })
 
   // Escribir sin el daemon es lo único que este diseño no permite: es quien sincroniza,
@@ -125,6 +139,26 @@ describe('MemoryReadonlyClient', () => {
     c.close()
   })
 
+  // Dos fallas distintas necesitan dos mensajes distintos. Antes las dos colapsaban en "no
+  // encontré la base, abrí Nest una vez", que cuando el archivo SÍ está es mentira y manda a
+  // hacer algo que no arregla nada. Pasó de verdad: con el binding nativo de better-sqlite3
+  // compilado para otro ABI, el agente veía "no memory database was found" y el error real
+  // quedaba sólo en stderr.
+  it('una base que está pero no abre dice ESO, no "no la encontré"', async () => {
+    const dir = join(home, '.raven-nest', 'memory', '_local')
+    mkdirSync(dir, { recursive: true })
+    const path = join(dir, 'memory.db')
+    writeFileSync(path, 'esto no es una base de datos', 'utf8')
+    writeActivePointer(home, null, path)
+
+    const c = new MemoryReadonlyClient(home)
+    await expect(c.call('memory.graph', {})).rejects.toThrow(/could not be opened/i)
+    await expect(c.call('memory.graph', {})).rejects.toThrow(path)
+    // Y explícitamente NO el consejo que no sirve para este caso.
+    await expect(c.call('memory.graph', {})).rejects.not.toThrow(/no memory database was found/i)
+    c.close()
+  })
+
   it('sin puntero, lo dice en vez de inventar una base vacía', async () => {
     const c = new MemoryReadonlyClient(home)
     await expect(c.call('memory.graph', {})).rejects.toThrow(/no memory database was found/i)
@@ -133,6 +167,133 @@ describe('MemoryReadonlyClient', () => {
 
   // `ping` es lo que un caller usa para saber si hay alguien del otro lado. Tiene que
   // contestar igual sin daemon, o el caller concluye que no hay memoria en absoluto.
+  it('busca por texto, con Nest cerrado', async () => {
+    sembrar()
+    const c = new MemoryReadonlyClient(home)
+    const { items } = await c.call<{ items: ObservationSummary[] }>('memory.search', {
+      query: 'refresh', projectKey: 'raven-nest',
+    })
+    expect(items.map((i) => i.title)).toEqual(['El refresh token se rota'])
+    c.close()
+  })
+
+  it('trae el contexto del proyecto, con Nest cerrado', async () => {
+    sembrar()
+    const c = new MemoryReadonlyClient(home)
+    const { items } = await c.call<{ items: ObservationSummary[] }>('memory.context', {
+      projectKey: 'raven-nest',
+    })
+    expect(items).toHaveLength(2)
+    // Lo más reciente primero — el mismo orden que devuelve el daemon.
+    expect(items[0].updatedAt).toBeGreaterThanOrEqual(items[1].updatedAt)
+    c.close()
+  })
+
+  it('abre una memoria por su id, con Nest cerrado', async () => {
+    sembrar()
+    const c = new MemoryReadonlyClient(home)
+    const { items } = await c.call<{ items: ObservationSummary[] }>('memory.context', {
+      projectKey: 'raven-nest',
+    })
+    const { item } = await c.call<{ item: ObservationSummary | null }>('memory.get', {
+      syncId: items[0].syncId,
+    })
+    expect(item?.title).toBe(items[0].title)
+    expect(item?.content).toBeTruthy()
+    c.close()
+  })
+
+  it('un id que no existe devuelve null, no revienta', async () => {
+    sembrar()
+    const c = new MemoryReadonlyClient(home)
+    const { item } = await c.call<{ item: ObservationSummary | null }>('memory.get', { syncId: 'no-existe' })
+    expect(item).toBeNull()
+    c.close()
+  })
+
+  // El agente manda su `cwd`, no una clave de proyecto: la clave la deriva el daemon, y con
+  // la app abierta sale del REMOTE de git. Derivarla del path a secas daría otra clave y la
+  // respuesta sería "no hay nada guardado de este repo" siendo mentira — el peor resultado
+  // posible, porque parece un dato y es un bug.
+  it('resuelve la clave del proyecto por el cwd, incluso si se enroló por su remote', async () => {
+    const dir = join(home, '.raven-nest', 'memory', '_local')
+    mkdirSync(dir, { recursive: true })
+    const path = join(dir, 'memory.db')
+    const store = new MemoryStore(path)
+    // Así lo enrola la app: clave derivada del remote, root_path del disco.
+    store.ensureProject({
+      projectKey: 'github.com/acme/api', displayName: 'api',
+      rootPath: '/Users/alguien/code/api', remoteUrl: 'git@github.com:acme/api.git',
+    })
+    store.save({
+      projectKey: 'github.com/acme/api', type: 'decision', source: 'mcp',
+      title: 'El rate limit va en el gateway', content: 'Y no en cada handler.',
+      topicKey: 'rate-limit',
+    })
+    store.close()
+    writeActivePointer(home, null, path)
+
+    const c = new MemoryReadonlyClient(home)
+    const { items } = await c.call<{ items: ObservationSummary[] }>('memory.context', {
+      cwd: '/Users/alguien/code/api',
+    })
+    expect(items.map((i) => i.title)).toEqual(['El rate limit va en el gateway'])
+    c.close()
+  })
+
+  // Un repo que nunca se abrió en Nest es lo NORMAL para quien se llevó el plugin a otro
+  // editor, no la excepción. Filtrar por una clave que la base no conoce devolvería vacío, y
+  // ese vacío es indistinguible de "no tenés nada guardado".
+  it('desde un repo que Nest no conoce devuelve lo que hay, no vacío', async () => {
+    sembrar()
+    const c = new MemoryReadonlyClient(home)
+    const { items } = await c.call<{ items: ObservationSummary[] }>('memory.context', {
+      cwd: '/un/repo/que/nest/nunca/vio',
+    })
+    expect(items).toHaveLength(3)
+    // Y de los dos proyectos, no de uno solo.
+    const { items: buscadas } = await c.call<{ items: ObservationSummary[] }>('memory.search', {
+      cwd: '/un/repo/que/nest/nunca/vio', query: 'auth',
+    })
+    expect(buscadas.length).toBeGreaterThan(0)
+    c.close()
+  })
+
+  // Pero cuando SÍ sabe de qué repo le hablan, filtra: si no, el contexto de un repo vendría
+  // contaminado con el de todos los otros y dejaría de servir para lo que existe.
+  it('desde un repo enrolado filtra por ese repo', async () => {
+    sembrar()
+    const dir = join(home, '.raven-nest', 'memory', '_local')
+    const store = new MemoryStore(join(dir, 'memory.db'))
+    store.ensureProject({
+      projectKey: 'otro-repo', displayName: 'otro', rootPath: '/code/otro', remoteUrl: null,
+    })
+    store.close()
+
+    const c = new MemoryReadonlyClient(home)
+    const { items } = await c.call<{ items: ObservationSummary[] }>('memory.context', {
+      cwd: '/code/otro',
+    })
+    expect(items.map((i) => i.title)).toEqual(['El mismo bug de auth acá'])
+    c.close()
+  })
+
+  // El grafo avisa en su propio texto; las otras tres devuelven JSON y sin esta marca el
+  // agente no tiene cómo saber que está leyendo una foto del disco.
+  it('las respuestas JSON dicen que vienen de una lectura sin sincronizar', async () => {
+    sembrar()
+    const c = new MemoryReadonlyClient(home)
+    for (const [m, params] of [
+      ['memory.search', { query: 'auth' }],
+      ['memory.context', {}],
+      ['memory.get', { syncId: 'lo-que-sea' }],
+    ] as const) {
+      const r = await c.call<{ offline?: boolean }>(m, params)
+      expect(r.offline).toBe(true)
+    }
+    c.close()
+  })
+
   it('ping contesta aunque no haya base', async () => {
     const c = new MemoryReadonlyClient(home)
     await expect(c.call('ping', {})).resolves.toEqual({ ok: true })

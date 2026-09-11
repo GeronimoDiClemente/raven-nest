@@ -13,6 +13,13 @@ import { dirname, join } from 'path'
 import { randomBytes, createHash } from 'crypto'
 import { redact } from './memory-redaction'
 import { GLOBAL_PROJECT_KEY } from './memory-project-key'
+// Las lecturas viven en `memory-reads.ts` como funciones sobre `db`, no como métodos acá:
+// el modo sin daemon abre la base en sólo lectura y no puede instanciar este store (el
+// constructor migra y prende WAL, o sea escribe). Los métodos de abajo las envuelven para
+// que haya UNA redacción de cada consulta.
+import {
+  contextObservations, getObservation, getObservationSummary, searchObservations, toSummary,
+} from './memory-reads'
 import { buildMemoryGraph, type MemoryGraph, type MemoryGraphQuery } from './memory-graph'
 import type {
   ObservationSource,
@@ -849,20 +856,9 @@ export class MemoryStore {
   }
 
   private toSummary(row: ObservationRow): ObservationSummary {
-    return {
-      syncId: row.sync_id,
-      title: row.title,
-      // search()/context() already filter deleted=0, so a tombstoned (null-content) row
-      // never reaches here in practice — the fallback is defensive, not load-bearing.
-      content: row.content ?? '',
-      type: row.type as ObservationType,
-      topicKey: row.topic_key,
-      tags: row.tags ? (JSON.parse(row.tags) as string[]) : [],
-      updatedAt: row.updated_at,
-      originAi: row.origin_ai,
-      gitBranch: row.git_branch,
-    }
+    return toSummary(row)
   }
+
 
   /**
    * The write-path resolution from §3.1, extended for import identity: source_ref identity
@@ -1140,18 +1136,7 @@ export class MemoryStore {
   }
 
   search(projectKey: string, query: string, limit = 10): ObservationSummary[] {
-    const safe = query.replace(/["]/g, '')
-    if (!safe.trim()) return []
-    const rows = this.db
-      .prepare(
-        `SELECT o.* FROM observations o
-         JOIN observations_fts f ON f.rowid = o.rowid
-         WHERE observations_fts MATCH ? AND o.deleted = 0 AND o.superseded_by IS NULL
-           AND (o.project_key = ? OR o.project_key = ?)
-         ORDER BY o.updated_at DESC, o.lamport DESC LIMIT ?`
-      )
-      .all(`"${safe}"`, projectKey, GLOBAL_PROJECT_KEY, limit) as ObservationRow[]
-    return rows.map((r) => this.toSummary(r))
+    return searchObservations(this.db, projectKey, GLOBAL_PROJECT_KEY, query, limit)
   }
 
   // `updated_at` is a JS `Date.now()` ms-epoch value — two writes in the same
@@ -1161,15 +1146,9 @@ export class MemoryStore {
   // total order beyond wall-clock resolution (it's a strictly-increasing counter,
   // §4.3), so it's the correct secondary sort key wherever recency ordering matters.
   context(projectKey: string, limit = 10): ObservationSummary[] {
-    const rows = this.db
-      .prepare(
-        `SELECT * FROM observations
-         WHERE (project_key = ? OR project_key = ?) AND deleted = 0 AND superseded_by IS NULL
-         ORDER BY updated_at DESC, lamport DESC LIMIT ?`
-      )
-      .all(projectKey, GLOBAL_PROJECT_KEY, limit) as ObservationRow[]
-    return rows.map((r) => this.toSummary(r))
+    return contextObservations(this.db, projectKey, GLOBAL_PROJECT_KEY, limit)
   }
+
 
   /**
    * Task 4: la observacion mas reciente de un tipo dado para un proyecto — usado para
@@ -1188,7 +1167,7 @@ export class MemoryStore {
   }
 
   get(syncId: string): ObservationRow | null {
-    return (this.db.prepare('SELECT * FROM observations WHERE sync_id = ?').get(syncId) as ObservationRow) ?? null
+    return getObservation(this.db, syncId)
   }
 
   /** Read-only lookup used by the daemon's pull-apply path (§4.3) to detect topic collisions. */
@@ -1533,9 +1512,7 @@ export class MemoryStore {
    * reemplazó sería sorprendente para un caller que llega con el id en la mano.
    */
   getSummary(syncId: string): ObservationSummary | null {
-    const row = this.get(syncId)
-    if (!row || row.deleted !== 0) return null
-    return this.toSummary(row)
+    return getObservationSummary(this.db, syncId)
   }
 
   /**

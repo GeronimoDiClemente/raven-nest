@@ -18,10 +18,22 @@ import Database from 'better-sqlite3'
 import { buildMemoryGraph, type MemoryGraph } from '../memory-graph'
 import { renderMemoryGraphText } from '../memory-graph-text'
 import { readActivePointer } from '../memory-active-store'
-import type { MemoryMethod } from '../memory-protocol'
+import { contextObservations, getObservationSummary, projectKeyForRootPath, searchObservations } from '../memory-reads'
+import { GLOBAL_PROJECT_KEY, resolveProjectKey } from '../memory-project-key'
+import type { MemoryMethod, ObservationSummary } from '../memory-protocol'
 
-/** Lo que el modo sin daemon sabe responder. El resto necesita la app. */
-const LEGIBLES: ReadonlySet<MemoryMethod> = new Set<MemoryMethod>(['memory.graph', 'ping'])
+/**
+ * Lo que el modo sin daemon sabe responder: **todo lo que es leer**.
+ *
+ * Antes acá estaba sólo `memory.graph`, y no por diseño sino porque `buildMemoryGraph` era
+ * la única lectura que ya existía como función sobre `db`. El resultado era que quien se
+ * llevaba el plugin a otro editor veía el DIBUJO de sus memorias pero no podía buscar
+ * ninguna ni abrir una — o sea, tenía el mapa y no el contenido. `memory-reads.ts` sacó las
+ * otras tres del store, así que ahora entran.
+ */
+const LEGIBLES: ReadonlySet<MemoryMethod> = new Set<MemoryMethod>([
+  'memory.graph', 'memory.search', 'memory.context', 'memory.get', 'ping',
+])
 
 export function esMetodoDeLectura(method: MemoryMethod): boolean {
   return LEGIBLES.has(method)
@@ -32,9 +44,10 @@ export function esMetodoDeLectura(method: MemoryMethod): boolean {
  * error de transporte — quien lo lee es un agente que tiene que decidir si reintentar.
  */
 export const SIN_APP =
-  'Nest is not running, so memory is read-only right now. Reading (memory_graph) works; ' +
-  'saving, updating and promoting need the Nest app open — it is what keeps the replicas in ' +
-  'sync. Open Nest and try again, or tell the user what you would have saved so it is not lost.'
+  'Nest is not running, so memory is read-only right now. Reading works — memory_search, ' +
+  'memory_context, memory_get and memory_graph all answer from disk. Saving, updating and ' +
+  'promoting need the Nest app open: it is what keeps the replicas in sync. Open Nest and try ' +
+  'again, or tell the user what you would have saved so it is not lost.'
 
 export class MemoryReadonlyClient {
   private db: Database.Database | null = null
@@ -45,19 +58,36 @@ export class MemoryReadonlyClient {
    * `null` cuando no hay nada que abrir: sin puntero de cuenta activa, o con un puntero que
    * apunta a un archivo que ya no está. Los dos casos son lo mismo para quien llama.
    */
-  private abrir(): Database.Database | null {
+  private abrir(): Database.Database {
     if (this.db) return this.db
     const pointer = readActivePointer(this.ravenHomeDir)
-    if (!pointer) return null
+    if (!pointer) {
+      throw new Error(
+        'Nest is not running and no memory database was found for this machine. ' +
+        'Open Nest once so it can record which account is active.'
+      )
+    }
     try {
       // `fileMustExist` además de `readonly`: sin él, better-sqlite3 CREA un archivo vacío si
       // el path no existe, y el modo sin daemon terminaría inventando una base en blanco y
       // reportando "no hay memorias" en vez de "no encontré la base".
-      this.db = new Database(pointer.storePath, { readonly: true, fileMustExist: true })
-      return this.db
+      const db = new Database(pointer.storePath, { readonly: true, fileMustExist: true })
+      // `new Database` no toca el archivo: better-sqlite3 abre en diferido, así que un
+      // archivo que no es una base —o un binding nativo incompatible— recién explota en la
+      // primera consulta, lejos de acá y con el catch de abajo ya fuera de alcance. Este
+      // pragma es la consulta que fuerza el fallo mientras todavía se puede explicar.
+      db.pragma('user_version')
+      this.db = db
+      return db
     } catch (err) {
-      console.error('[nest-memory] no se pudo abrir la base en sólo lectura:', (err as Error).message)
-      return null
+      // Dos fallas distintas necesitan dos mensajes distintos. Antes las dos colapsaban en
+      // "no encontré la base, abrí Nest una vez", que para un binding nativo incompatible
+      // es MENTIRA —el archivo está, el puntero está— y manda a hacer algo que no arregla
+      // nada. Quien lee esto es un agente que tiene que decidir si reintentar o avisar.
+      const detalle = err instanceof Error ? err.message : String(err)
+      throw new Error(
+        `The memory database exists at ${pointer.storePath} but could not be opened: ${detalle}`
+      )
     }
   }
 
@@ -66,18 +96,62 @@ export class MemoryReadonlyClient {
     if (!esMetodoDeLectura(method)) throw new Error(SIN_APP)
 
     const db = this.abrir()
-    if (!db) {
-      throw new Error(
-        'Nest is not running and no memory database was found for this machine. ' +
-        'Open Nest once so it can record which account is active.'
-      )
-    }
 
     const p = (params ?? {}) as {
       projectKey?: string | null
       tag?: string | null
       includeSimilar?: boolean
       limit?: number
+      query?: string
+      syncId?: string
+      cwd?: string
+    }
+
+    // `memory_search` y `memory_context` llegan con el `cwd` del agente, no con una clave de
+    // proyecto: la clave la deriva el daemon. Sin daemon se pregunta a la tabla `projects`,
+    // que guarda el `root_path` con el que el repo se enroló — derivarla del path a secas
+    // daría otra clave cuando el repo tiene remote, y la respuesta sería un "no hay nada de
+    // este repo" falso.
+    // `null` = todos los proyectos. Es el caso de un repo que nunca se abrió en Nest, que
+    // para quien se llevó el plugin a otro editor es lo NORMAL, no la excepción: filtrar por
+    // una clave que la base no conoce devolvería vacío, y un vacío que en realidad significa
+    // "no supe de qué repo me hablás" es indistinguible de "no tenés nada guardado".
+    const claveDeProyecto = (): string | null => {
+      if (p.projectKey) return p.projectKey
+      if (!p.cwd) return null
+      const enrolado = projectKeyForRootPath(db, p.cwd)
+      if (enrolado) return enrolado
+      const derivada = resolveProjectKey({ rootPath: p.cwd })
+      // Derivarla del path sólo sirve si la base la conoce: con remote de git la clave sale
+      // del remote, así que la del path sería otra y no matchearía nada.
+      const conocida = db
+        .prepare('SELECT 1 FROM observations WHERE project_key = ? LIMIT 1')
+        .get(derivada)
+      return conocida ? derivada : null
+    }
+
+    // Las tres lecturas que no son el grafo. Devuelven la MISMA forma que devuelve el daemon
+    // (`memory-ipc-server.ts`), porque del otro lado hay un agente que no sabe —ni tiene por
+    // qué saber— si Nest estaba abierto cuando preguntó.
+    // `offline: true` en las tres. El grafo lo dice en su propio texto; éstas devuelven JSON
+    // y sin la marca el agente no tiene forma de saber que está mirando una foto del disco,
+    // que puede estar atrás de lo que la nube ya tiene. Campo agregado, no cambiado: la forma
+    // que ya devolvía el daemon sigue igual.
+    if (method === 'memory.search') {
+      const items = searchObservations(
+        db, claveDeProyecto(), GLOBAL_PROJECT_KEY, p.query ?? '', p.limit ?? 10
+      )
+      return { items, offline: true } as T
+    }
+    if (method === 'memory.context') {
+      const items = contextObservations(
+        db, claveDeProyecto(), GLOBAL_PROJECT_KEY, p.limit ?? 10
+      )
+      return { items, offline: true } as T
+    }
+    if (method === 'memory.get') {
+      const item: ObservationSummary | null = p.syncId ? getObservationSummary(db, p.syncId) : null
+      return { item, offline: true } as T
     }
 
     const graph: MemoryGraph = buildMemoryGraph(db, {
