@@ -280,3 +280,37 @@ y dejara 11 a propósito. La concentración más grande hoy es el bloque
 `.ip-*` del panel de Integrations (`global.css:9991-10048`, 18
 ocurrencias de 11 variantes) — un mini-tema azulado que no pasó por
 ninguna task de esta migración todavía.
+
+## La trampa del `asChild` — React 18 contra primitivos escritos para React 19
+
+**El proyecto usa React 18.3.1, y los primitivos que escupe el CLI de shadcn hoy están
+escritos para React 19: ninguno de los 8 de `src/components/ui/` usa `forwardRef`.**
+
+En React 19 `ref` es una prop normal y no hace falta. En React 18 no: `asChild` de Radix
+clona su hijo y le pasa un `ref`, y si el hijo no lo reenvía, **Radix nunca obtiene el nodo
+que necesita para posicionar**.
+
+Cómo se manifiesta, que es lo peor del asunto:
+
+```tsx
+<PopoverTrigger asChild>
+  <Button>…</Button>       {/* Button no hace forwardRef */}
+</PopoverTrigger>
+```
+
+El popover **monta**, el contenido **existe en el DOM**, y `expect(...).toBeVisible()` da
+**verde** — pero se pinta con `position: static` **fuera de la pantalla**. Un test no lo
+caza. Se descubrió mirando una captura.
+
+**Qué hacer cuando combines `asChild` con un primitivo propio:**
+
+1. La salida barata es no usar `asChild`: aplicar `buttonVariants()` directamente sobre el
+   trigger de Radix, que sí reenvía su ref. Es lo que se hizo en
+   `MemoriesStatusRow.tsx`.
+2. La salida de fondo es agregarle `forwardRef` al primitivo — **pero entonces hay que
+   hacerlo en los 8**, o el próximo que lo combine vuelve a caer.
+
+Y la regla general que deja este caso: **si un elemento monta pero no se ve, mirá dónde
+quedó posicionado antes de pelear con el color o la especificidad.** Las dos veces que pasó
+en esta rama fue eso — una por `z-index` contra la escala de overlays, otra por un `ref`
+perdido.
