@@ -44,6 +44,8 @@ esto— pero como sesión de verificación, no de continuación.
 | La decisión del 3D, medida | `498566a` |
 | Free podía ver sus repos y aceptar invitaciones otra vez | `4849f49` |
 | `.repo-action-btn` entra en la escala | `8214315` |
+| El grafo 3D de memorias, acotado | `5bf5949` |
+| El renderer se shippeaba sin minificar | `2f77553` |
 
 ### Specs escritas
 
@@ -134,8 +136,9 @@ devuelve números escalados (un botón de 26px daba 25).
 2. **Cáscara de los workspaces**, en tres tandas — brief de la primera en
    `.superpowers/sdd/.../cascara-1-brief.md`:
    movimiento y nav con estado → logos de IA por fila → estados vacíos.
-3. **Memories**: la lista, el grafo 3D acotado, las dos tools MCP.
-   Brief de la parte de datos en `.superpowers/sdd/.../memories-datos-brief.md`.
+3. ~~**Memories**~~ — **cerrado el 2026-09-11**. La lista (`4f55e29`), las dos tools MCP
+   (`4fadd02`) y el grafo 3D acotado (`5bf5949`). Se puede VER con contenido real:
+   `e2e/helpers/seed-memories.ts` siembra memorias por el CLI de `sqlite3`.
 4. ~~**`.repo-action-btn`**~~ — **cerrado el 2026-09-11** (`8214315`). La excepción era
    falsa: no existe ninguna fila de 26px. Está en 28 y medido en la app real con
    `RAVEN_E2E_REPOS`, el flag nuevo que siembra repos falsos y desbloquea de paso
@@ -168,6 +171,21 @@ mal usado**.
   **Toasts tampoco faltan**: hay `NotificationPanel.tsx` propio.
 - **No justifica dependencia:** gráficos (`TeamStats` dibuja ocho elementos SVG) ni fechas
   (11 lugares con formateo a mano → un helper compartido de diez líneas).
+
+### Lo que apareció mirando capturas (2026-09-11)
+
+Tres cosas que ningún test podía haber agarrado, y que valen como método:
+
+- **En Free, Personal abría el paywall.** Un usuario Free no podía ver sus repos ni
+  **aceptar una invitación a un equipo** (las invitaciones viven adentro de Personal).
+  Salió porque el harness abrió Personal para otra verificación y apareció "Choose your
+  plan". Arreglado en `4849f49`, con un test que recorre los cinco planes.
+- **El renderer se shippeaba sin minificar.** 80.637 líneas en el chunk principal de una
+  release. Apareció midiendo otra cosa. −44% de assets, −49% del arranque (`2f77553`).
+  **Cambia cómo se buildean las releases** — está aparte por eso.
+- **Medir layout durante el `zoomIn` de la cáscara da números escalados.** Un botón de
+  26px daba 25; el canvas de 320 daba 319. Vale para las tres pantallas grandes: hay que
+  esperar a que el transform asiente antes de medir.
 
 ### Abierto, sin decidir
 
