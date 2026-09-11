@@ -124,3 +124,31 @@ Testing del form de asignaciones especiales en el sandbox. Pausado, retomar el l
     expect(chunkMemoryNote('---\nname: n\n---\n\ncorto\n', 'claude-memory', 'x.md')).toEqual([])
   })
 })
+
+// El tipo declarado en el frontmatter. Hasta el 2026-09-11 el importador estampaba
+// `pattern` a TODO, y en una cuenta real eso dio 120 de 120 memorias con el mismo tipo:
+// agrupar el grafo por tipo pintaba todo de un color porque el tipo habia dejado de
+// significar algo.
+describe('chunkMemoryNote — el tipo declarado', () => {
+  it('lo lee de la raiz del frontmatter', () => {
+    const raw = ['---', 'name: auth', 'description: Como va el auth', 'type: decision', '---', '', 'Cuerpo de la nota, largo suficiente para pasar el minimo de longitud del chunker.'].join('\n')
+    expect(chunkMemoryNote(raw, 'claude-memory', 'auth.md')[0].declaredType).toBe('decision')
+  })
+
+  // El formato de memorias de Claude Code lo pone anidado bajo `metadata:`.
+  it('lo lee anidado bajo metadata:', () => {
+    const raw = ['---', 'name: auth', 'description: Como va el auth', 'metadata:', '  type: preference', '---', '', 'Cuerpo de la nota, largo suficiente para pasar el minimo de longitud del chunker.'].join('\n')
+    expect(chunkMemoryNote(raw, 'claude-memory', 'auth.md')[0].declaredType).toBe('preference')
+  })
+
+  it('sin tipo declarado devuelve null, no un default inventado', () => {
+    const raw = ['---', 'name: auth', 'description: Como va el auth', '---', '', 'Cuerpo de la nota, largo suficiente para pasar el minimo de longitud del chunker.'].join('\n')
+    expect(chunkMemoryNote(raw, 'claude-memory', 'auth.md')[0].declaredType).toBeNull()
+  })
+
+  // El de la raiz gana: es mas explicito que el anidado.
+  it('la raiz le gana a metadata', () => {
+    const raw = ['---', 'name: auth', 'type: bugfix', 'metadata:', '  type: preference', '---', '', 'Cuerpo de la nota, largo suficiente para pasar el minimo de longitud del chunker.'].join('\n')
+    expect(chunkMemoryNote(raw, 'claude-memory', 'auth.md')[0].declaredType).toBe('bugfix')
+  })
+})

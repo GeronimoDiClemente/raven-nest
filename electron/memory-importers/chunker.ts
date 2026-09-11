@@ -14,6 +14,10 @@ export interface MarkdownChunk {
   title: string // the heading text itself
   content: string
   topicKey: string
+  /** El tipo que la nota declara en su frontmatter, crudo y sin validar. `null` cuando no
+   *  declara ninguno — que es el caso de un CLAUDE.md cortado en secciones, donde no hay
+   *  frontmatter por sección. El importador decide si es uno de los válidos. */
+  declaredType?: string | null
 }
 
 export function slugify(input: string): string {
@@ -94,6 +98,16 @@ export function chunkMarkdown(markdown: string, sourceLabel: string): MarkdownCh
  * que está en ese formato), `name` el topic key — estable aunque se renombre el archivo — y
  * el frontmatter no viaja en el contenido, que es metadata y no memoria.
  */
+/** Lee `clave:` adentro de un bloque `padre:` indentado. Mismo criterio que `leer`: no es
+ *  un parser de YAML, sólo alcanza para un valor de una línea, que es lo único que
+ *  necesitamos. */
+function leerAnidado(frontmatter: string, padre: string, clave: string): string | null {
+  const bloque = new RegExp(`^${padre}:[ \\t]*\\r?\\n((?:[ \\t]+.*\\r?\\n?)*)`, 'm').exec(frontmatter)
+  if (!bloque) return null
+  const m = new RegExp(`^[ \\t]+${clave}:[ \\t]*(.+)$`, 'm').exec(bloque[1])
+  return m ? m[1].trim().replace(/^["']|["']$/g, '') : null
+}
+
 export function chunkMemoryNote(raw: string, sourceLabel: string, fileName: string): MarkdownChunk[] {
   const frontmatter = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(raw)
   const cuerpo = (frontmatter ? raw.slice(frontmatter[0].length) : raw).trim()
@@ -110,6 +124,12 @@ export function chunkMemoryNote(raw: string, sourceLabel: string, fileName: stri
 
   const name = leer('name')
   const description = leer('description')
+  // El tipo declarado por la nota, si lo trae. Se lee tanto en la raíz (`type: decision`)
+  // como anidado bajo `metadata:`, que es donde lo pone el formato de memorias de Claude
+  // Code. Sin esto el importador estampaba `pattern` a TODO, y el tipo dejaba de
+  // distinguir: medido en una cuenta real, 120 de 120 memorias eran `pattern`, así que
+  // agrupar el grafo por tipo pintaba todo de un color.
+  const declaredType = leer('type') ?? leerAnidado(frontmatter?.[1] ?? '', 'metadata', 'type')
   // Sin frontmatter, el nombre del archivo es lo único que describe la nota — mejor eso que
   // tirar el contenido.
   const base = fileName.replace(/\.md$/i, '')
@@ -121,5 +141,6 @@ export function chunkMemoryNote(raw: string, sourceLabel: string, fileName: stri
     title,
     content: cuerpo,
     topicKey: `${sourceLabel}/${slugify(topicSeed)}`,
+    declaredType,
   }]
 }

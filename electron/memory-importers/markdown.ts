@@ -8,6 +8,19 @@ import { createHash } from 'crypto'
 import { MemoryStore, deriveImportSyncId, computeContentIdentity } from '../memory-store'
 import { isDeniedImportPath } from '../memory-redaction'
 import { chunkMarkdown, chunkMemoryNote } from './chunker'
+import type { ObservationType } from '../memory-protocol'
+
+/** Los siete tipos que la UI sabe distinguir (`memory-type-legend.ts`). Un valor fuera de
+ *  esta lista se ignora: mejor `pattern` que un tipo que ninguna leyenda conoce. */
+const TIPOS_VALIDOS = new Set<ObservationType>([
+  'decision', 'bugfix', 'architecture', 'discovery', 'pattern', 'config', 'preference',
+])
+
+function tipoValido(raw: string | null | undefined): ObservationType | null {
+  if (!raw) return null
+  const t = raw.trim().toLowerCase() as ObservationType
+  return TIPOS_VALIDOS.has(t) ? t : null
+}
 
 export interface MarkdownImportResult {
   filesScanned: number
@@ -37,8 +50,13 @@ export function importMarkdownFile(
     ? chunkMemoryNote(raw, sourceLabel, basename(filePath))
     : chunkMarkdown(raw, sourceLabel)
   const scope = 'personal' as const
-  const type = 'pattern' as const
   for (const chunk of chunks) {
+    // El tipo sale de la nota si lo declara; `pattern` es el ULTIMO recurso, no el default
+    // de todo. Hasta el 2026-09-11 esta linea era `const type = 'pattern' as const` para
+    // todos los chunks, y el resultado medido en una cuenta real fue 120 de 120 memorias
+    // con el mismo tipo: agrupar el grafo por tipo pintaba todo de un color, porque el
+    // tipo habia dejado de significar algo.
+    const type = tipoValido(chunk.declaredType) ?? 'pattern'
     // Content-derived identity (see deriveImportSyncId in memory-store.ts): the same
     // convention text imported from two machines under different absolute paths (or via
     // a different importer entirely) converges on one row instead of two, the same

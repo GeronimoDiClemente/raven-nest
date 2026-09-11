@@ -88,7 +88,21 @@ export default function MemoryGraphPanel({ selectedId, onSelect }: Props) {
 
   // Adentro de UN proyecto, colorear por proyecto no dice nada: son todos el mismo. Ahí el
   // color pasa a ser el tipo aunque el control diga otra cosa.
-  const colorEfectivo: ColorBy = focusProject ? 'type' : colorBy
+  // Los tipos presentes salen del grafo CRUDO, no de `data`: qué tipos hay no depende de
+  // cómo se está coloreando, y hacerlo depender creaba un ciclo (data -> colorEfectivo ->
+  // tiposPresentes -> data). La leyenda tampoco nombra un color que no está en pantalla.
+  const tiposPresentes = useMemo(() => {
+    if (!graph) return []
+    const enFoco = focusProject ? graph.nodes.filter((n) => n.projectKey === focusProject) : graph.nodes
+    return [...new Set(enFoco.map((n) => n.type))]
+  }, [graph, focusProject])
+
+  // Si el conjunto que se está mirando tiene un solo tipo, colorear por tipo no distingue
+  // nada: se cae a proyecto aunque el control diga otra cosa. Adentro de UN proyecto pasa
+  // lo inverso — todos comparten proyecto, así que ahí manda el tipo.
+  const colorEfectivo: ColorBy = focusProject
+    ? 'type'
+    : (colorBy === 'type' && tiposPresentes.length <= 1 ? 'project' : colorBy)
   const data = useMemo(
     () => (graph ? toGraphData(graph, { colorBy: colorEfectivo, hideOrphans, focusProject }) : null),
     [graph, hideOrphans, focusProject, colorEfectivo],
@@ -98,12 +112,6 @@ export default function MemoryGraphPanel({ selectedId, onSelect }: Props) {
   const etiquetaDelFoco = focusProject
     ? (grupos.find((g) => g.projectKey === focusProject)?.label ?? focusProject)
     : null
-  // Los tipos que de verdad aparecen en lo que se esta dibujando. La leyenda no nombra un
-  // color que no esta en pantalla — eso enseña mal.
-  const tiposPresentes = useMemo(
-    () => (data ? [...new Set(data.nodes.map((n) => n.type))] : []),
-    [data],
-  )
   const conteos = useMemo(() => (data ? countEdgeKinds(data) : null), [data])
 
   if (error) {
@@ -146,11 +154,22 @@ export default function MemoryGraphPanel({ selectedId, onSelect }: Props) {
           {!focusProject && (
             <div className="flex items-center gap-1 text-fs-sm text-muted-foreground">
               <span>Color by</span>
+              {/* Deshabilitado cuando hay un solo tipo: ofrecer colorear por una dimensión
+                  que no distingue nada es ofrecer pintar todo del mismo color, y deja al
+                  usuario creyendo que se rompió algo. Pasa de verdad — los agentes guardan
+                  casi siempre con el mismo tipo, y el importador de Markdown estampaba
+                  `pattern` a todo hasta el 2026-09-11. */}
               <Button
                 variant={colorBy === 'type' ? 'secondary' : 'outline'}
                 size="sm"
                 aria-pressed={colorBy === 'type'}
+                disabled={tiposPresentes.length <= 1}
                 onClick={() => setColorBy('type')}
+                title={
+                  tiposPresentes.length <= 1
+                    ? 'Every memory here has the same type, so colouring by it would paint them all alike'
+                    : 'Colour each memory by its type'
+                }
               >
                 Type
               </Button>
