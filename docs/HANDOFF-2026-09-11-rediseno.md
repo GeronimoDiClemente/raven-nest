@@ -146,7 +146,10 @@ mal usado**.
 
 - **Falta de verdad:** virtualización de listas (`@tanstack/react-virtual`). No hay ninguna,
   y la lista de memorias de todos los proyectos se traba sin ella. Entra con Memories.
-- **A medir:** el render 3D (ver arriba).
+- **Medido y decidido (2026-09-11):** el render 3D es `react-force-graph-3d` detrás de un
+  `import()` diferido. Cuesta **+1.4 KB crudos en el arranque** (0.04%) contra los 1379.8 KB
+  que costaría importándolo arriba; el 1.37 MB se carga de disco al abrir el grafo. La tabla
+  de las cuatro mediciones está en la spec de Memories.
 - **Deuda:** los 171 íconos a mano contra una librería instalada y sin usar.
 - **Ya está, no traer nada:** Radix completo, `react-resizable-panels`, `@dnd-kit`, el stack
   shadcn entero (`cva`, `clsx`, `tailwind-merge`, `tw-animate-css`), `shiki` + Monaco.
@@ -156,8 +159,6 @@ mal usado**.
 
 ### Abierto, sin decidir
 
-- **La dependencia de render 3D.** El proyecto no tiene ninguna hoy. Se decide **midiendo
-  cuánto suma al bundle tree-shakeado**, no por el tamaño del paquete publicado.
 - **El popup del `<select>`** nunca se vio de verdad (limitación de permisos de captura de
   pantalla en el entorno).
 - **El área de click del sidebar colapsado**: bajó de 43×44 a 43×32, −27%. Medido, no

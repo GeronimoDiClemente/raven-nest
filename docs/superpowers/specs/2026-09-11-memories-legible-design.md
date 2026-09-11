@@ -107,11 +107,43 @@ Los cuatro tipos de arista **se distinguen visualmente**, y esto no es decoraci�
 gris es lo que hace que un grafo se vea rico y no signifique nada. `similar` además va
 detrás de un toggle, apagada por default, como ya está en la capa de datos.
 
-**Sobre la dependencia de render 3D:** el proyecto hoy no tiene ninguna (ni three.js ni
-d3), el grafo actual usa una simulación propia en SVG. La decisión entre traer una
-librería de grafo 3D o extender la simulación existente **se toma midiendo cuánto suma al
-bundle tree-shakeado**, no por el tamaño del paquete publicado. La medición es parte de la
-primera tarea del plan, y su resultado se registra antes de escribir el render.
+**La dependencia de render 3D: medida y decidida (2026-09-11).**
+
+El proyecto no tenía ninguna (ni three.js ni d3); el grafo actual usa una simulación propia
+en SVG. La decisión se tomó **midiendo**, con cuatro builds de Vite aislados sobre una misma
+base de React 18.3.1, midiendo el costo *marginal* sobre esa base:
+
+| Opción | En el arranque | Diferido al abrir el grafo |
+|---|---|---|
+| `react-force-graph-3d` importado arriba | +1379.8 KB crudos / +368.3 gzip | — |
+| `3d-force-graph` (vanilla, sin wrapper) | +1371.9 KB crudos / +366.0 gzip | — |
+| `three` a mano + `d3-force-3d` | +534.6 KB crudos / +134.6 gzip | — |
+| **`react-force-graph-3d` con `import()` diferido** | **+1.4 KB crudos / +0.7 gzip** | 1376.6 KB crudos / 367.3 gzip |
+
+El chunk que la app carga hoy al arrancar es de **3190.3 KB crudos / 642.3 KB gzip** de JS
+(más 319.9 / 45.2 de CSS). O sea que la última fila cuesta **0.04% del arranque**.
+
+**Decisión: `react-force-graph-3d`, detrás de un `import()` diferido y memoizado**, con el
+mismo patrón que ya usa Monaco en `EditorPane.tsx:35` (`monacoSetupPromise ??= import(…)`).
+
+Tres cosas que el número de gzip esconde y que pesan más que él:
+
+1. **Esto es Electron, cargando de disco local.** El gzip —el número que todo el mundo
+   cita— es el menos relevante de los tres: no hay red. Lo que se paga es parsear y evaluar,
+   y el `import()` lo saca del arranque por completo. Es exactamente lo que la app ya hace
+   con Monaco, cuyo chunk de 7.3 MB no está en `index.html`.
+2. **Entre las dos opciones diferidas, la diferencia son 842 KB que se pagan una vez**, de
+   disco, la primera vez que alguien abre el grafo. Lo que compran esos 842 KB es no
+   escribir a mano los controles de cámara, el *picking* por raycast (que es lo que hace
+   funcionar "seleccionar una memoria la resalta en el grafo"), las etiquetas y el estilo
+   por tipo de arista. El ahorro en KB se paga en código propio que hay que mantener.
+3. **Su peer de React es `*`** — no cae en la trampa de los primitivos de React 19 que ya
+   nos mordió (ver `docs/RECETA-MIGRACION-UI.md`). Y `width`/`height` son props explícitas,
+   que es literalmente el requisito del cuadro acotado.
+
+**El riesgo a cubrir:** 1.37 MB de parseo la primera vez que se monta el grafo se sienten.
+La mitigación es disparar el `import()` **al abrir Memories**, no al montar el grafo, para
+que la descarga ocurra mientras el usuario mira la lista.
 
 ### 4. Completar el contrato MCP
 
