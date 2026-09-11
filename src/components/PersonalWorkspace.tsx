@@ -18,9 +18,10 @@ import RepoSettingsPanel from './RepoSettingsPanel'
 import RepoActionsAccordion from './RepoActionsAccordion'
 import RepoActionsMenu, { type RepoAction } from './RepoActionsMenu'
 import WorkspaceNavButton from './WorkspaceNavButton'
+import { AILogoStack } from './AILogoStack'
 import { useGitlab } from '../hooks/useGitlab'
 import { ProviderAvatarPill, providerAvatar } from './ProviderAvatar'
-import type { WorkerSpec } from '../types'
+import type { AIType, WorkerSpec } from '../types'
 
 interface PersonalWorkspaceProps {
   onClose: () => void
@@ -48,13 +49,17 @@ interface PersonalWorkspaceProps {
   onPendingInvitesChange?: () => void
   /** workspace-shell-design §1: true while App.tsx holds this mounted after onClose so the zoomOut exit animation can play. See TeamsWorkspaceProps.closing for the full rationale — same mechanism, shared shell. */
   closing?: boolean
+  /** workspace-shell-design §3: aiType de todos los panes abiertos (todos los
+   *  tabs), agrupados por repoPath — App.tsx lo calcula una sola vez con
+   *  groupAITypesByRepoPath y lo pasa hacia cada fila de repo. */
+  paneAITypesByPath?: Map<string, AIType[]>
 }
 
 export type Section = 'activity' | 'repos' | 'issues' | 'standup' | 'pendings'
 type ReposView = 'list' | 'prs' | 'pr-detail'
 type IssuesView = 'repo-select' | 'list' | 'detail'
 
-export default function PersonalWorkspace({ onClose, githubToken, githubLogin, onConnectGitHub, onOpenRepoTerminal, onOpenTeamWorkspace, allowTeam, onStartTutorial, initialSection, onPendingInvitesChange, activeRepoPath = null, focusedPaneId = null, onOpenWorktree, closing = false }: PersonalWorkspaceProps) {
+export default function PersonalWorkspace({ onClose, githubToken, githubLogin, onConnectGitHub, onOpenRepoTerminal, onOpenTeamWorkspace, allowTeam, onStartTutorial, initialSection, onPendingInvitesChange, activeRepoPath = null, focusedPaneId = null, onOpenWorktree, closing = false, paneAITypesByPath }: PersonalWorkspaceProps) {
   const [scope, setScope] = useState<RepoScope>({ kind: 'personal' })
   const { teams, members, userId, switchTeam, pendingInvites, acceptInvite, rejectInvite } = useTeam()
   const isTeamLeader = scope.kind === 'team' && members.some(
@@ -596,6 +601,9 @@ export default function PersonalWorkspace({ onClose, githubToken, githubLogin, o
                                       </div>
                                     )}
                                   </div>
+                                  {repo.localPath && (
+                                    <AILogoStack aiTypes={paneAITypesByPath?.get(repo.localPath) ?? []} size={13} />
+                                  )}
                                   <div className="snippet-item-actions" data-tour-id="myrepos-actions">
                                     {repoProvider === 'github' && (
                                       <RepoCIBadge repoFullName={repo.fullName} githubToken={githubToken} />

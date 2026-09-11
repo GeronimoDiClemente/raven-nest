@@ -17,6 +17,7 @@ import { beginResizeSuppression, endResizeSuppression } from './lib/pane-resize-
 import { nextFontSize, FONT_SIZE_DEFAULT } from './lib/pane-font-size'
 import { isInsideCodeEditor } from './lib/editor-owns-shortcut'
 import { basename } from './lib/path'
+import { groupAITypesByRepoPath } from './lib/repo-ai-logos'
 import { collectDragCaptures } from './layout/dragCaptures'
 import { getPreset } from './layout/presets'
 import TerminalPane from './components/TerminalPane'
@@ -1605,6 +1606,26 @@ export default function App() {
   const filteredView = useMemo(() => applyPaneFilter(filterablePanes, paneFilter), [filterablePanes, paneFilter])
   const paneFilterActive = filteredView.active
 
+  // workspace-shell-design §3: aiType de los panes abiertos AHORA, agrupados
+  // por repoPath — sobre TODOS los tabs, no solo el activo, porque un repo o
+  // worktree puede tener un pane corriendo en un tab que hoy no tiene el
+  // foco. Sin fetch nuevo: son los mismos panes que ya viven en memoria.
+  //
+  // e2eFakePaneAITypes: override solo-test para verificar visualmente la fila
+  // con logos sin tener que spawnear un PTY real por cada AI type — el
+  // harness de Playwright arranca con un HOME vacio, sin panes abiertos.
+  // Mismo gate que __e2e_linkRepo.
+  const [e2eFakePaneAITypes, setE2eFakePaneAITypes] = useState<Map<string, AIType[]> | null>(null)
+  useEffect(() => {
+    if (!window.appFlags?.e2eBypass) return
+    window.__e2e_setFakePaneAITypes = (byPath) => setE2eFakePaneAITypes(new Map(Object.entries(byPath)))
+    return () => { delete window.__e2e_setFakePaneAITypes }
+  }, [])
+  const paneAITypesByPath = useMemo(
+    () => e2eFakePaneAITypes ?? groupAITypesByRepoPath(tabs.flatMap(t => t.panes)),
+    [tabs, e2eFakePaneAITypes],
+  )
+
   const handlePaneFilterChange = useCallback((next: PaneFilter) => {
     setPaneFilters(f => ({ ...f, [activeTab.id]: next }))
     if (next === 'all') return
@@ -1888,6 +1909,7 @@ export default function App() {
         paneFilterPanes={filterablePanes}
         paneFilter={paneFilter}
         onPaneFilterChange={handlePaneFilterChange}
+        paneAITypesByPath={paneAITypesByPath}
       />
       <div
         ref={workspaceRef}
@@ -2135,6 +2157,7 @@ export default function App() {
           onOpenWorktree={(path, initialInput, worker) => { setPersonalOpen(false); openWorktreeWithWorker(path, initialInput, worker) }}
           initialSection={personalSection}
           onPendingInvitesChange={refreshPendingInvitesCount}
+          paneAITypesByPath={paneAITypesByPath}
         />
       )}
 

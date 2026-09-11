@@ -1099,6 +1099,10 @@ declare global {
     // the native OS folder-picker dialog (window.dialog.openFolder), which
     // is not automatable.
     __e2e_linkRepo?: (path: string) => void
+    // Test-only hook (workspace-shell-design §3), same gate as __e2e_linkRepo:
+    // overrides the derived paneAITypesByPath map so Playwright can see the
+    // repo/worktree row logos without spawning real PTYs for every AI type.
+    __e2e_setFakePaneAITypes?: (byPath: Record<string, AIType[]>) => void
     windowControls: {
       send: (action: 'minimize' | 'maximize' | 'close') => void
       onShown: (callback: () => void) => void

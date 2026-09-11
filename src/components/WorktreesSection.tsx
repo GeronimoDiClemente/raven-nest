@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
-import type { WorktreeMeta } from '../types'
+import type { AIType, WorktreeMeta } from '../types'
 import { useBridge } from '../lib/bridge'
 import { WORKTREE_DRAG_MIME } from '../lib/dragTypes'
 import { IDEPickerMenu } from './IDEPickerMenu'
 import CIStatusBadge from './CIStatusBadge'
+import { AILogoStack } from './AILogoStack'
 import { useGitHub } from '../hooks/useGitHub'
 import { useGitlab } from '../hooks/useGitlab'
 import { useWorktreeSignals } from '../hooks/useWorktreeSignals'
@@ -18,6 +19,10 @@ interface Props {
   onStartTutorial?: () => void
   /** "Arreglá el rojo": baja el log del run fallido y lo inyecta al pane del worktree. */
   onFixCi: (repoPath: string) => void
+  /** workspace-shell-design §3: aiType de los panes abiertos, agrupados por repoPath
+   *  (groupAITypesByRepoPath en App.tsx, sobre TODOS los tabs — no solo el activo,
+   *  porque un worktree puede tener panes abiertos en un tab que hoy no es el foco). */
+  paneAITypesByPath?: Map<string, AIType[]>
 }
 
 interface DiffStat { additions: number; deletions: number }
@@ -46,7 +51,7 @@ interface ContextMenuState {
   isRoot: boolean
 }
 
-export function WorktreesSection({ repoPath, activeRepoPath, onSelect, onNewClick, refreshKey, onStartTutorial, onFixCi }: Props) {
+export function WorktreesSection({ repoPath, activeRepoPath, onSelect, onNewClick, refreshKey, onStartTutorial, onFixCi, paneAITypesByPath }: Props) {
   const bridge = useBridge()
   const signals = useWorktreeSignals()
   const [worktrees, setWorktrees] = useState<WorktreeMeta[]>([])
@@ -267,6 +272,10 @@ export function WorktreesSection({ repoPath, activeRepoPath, onSelect, onNewClic
                 <div className="wt-item-main">
                   <span className={`wt-dot ${STATUS_DOT_CLASS[wt.setupState]}`} />
                   <span className="wt-branch">{wt.branch}</span>
+                  {(() => {
+                    const aiTypes = paneAITypesByPath?.get(wt.repoPath)
+                    return aiTypes ? <AILogoStack aiTypes={aiTypes} size={12} /> : null
+                  })()}
                   {!isRoot && stat && (stat.additions > 0 || stat.deletions > 0) && (
                     <span className="wt-diff-chip" {...(index === firstDiffChipIdx ? { 'data-tour-id': 'wt-diff-chip' } : {})} title="Lines changed vs base">
                       {stat.additions > 0 && (

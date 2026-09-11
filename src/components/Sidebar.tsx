@@ -28,7 +28,8 @@ import SidebarTabBar, { type SidebarTabId, REPO_TABS, HUB_TABS } from './Sidebar
 import MemoriesItem from './MemoriesItem'
 import PaneFilterControl from './PaneFilterControl'
 import type { PaneFilter } from '../lib/pane-filter'
-import type { PaneNode } from '../types'
+import type { AIType, PaneNode } from '../types'
+import { AILogoStack } from './AILogoStack'
 import type { UserPreferencesApi } from '../hooks/useUserPreferences'
 import { ENABLE_INTEGRATIONS_ORCHESTRATION } from '../lib/releaseFlags'
 
@@ -80,6 +81,11 @@ interface Props {
   paneFilterPanes?: readonly PaneNode[]
   paneFilter?: PaneFilter
   onPaneFilterChange?: (f: PaneFilter) => void
+  /** workspace-shell-design §3: aiType de TODOS los panes abiertos (todos los
+   *  tabs, no solo el activo), agrupados por repoPath — App.tsx lo calcula una
+   *  sola vez con groupAITypesByRepoPath y lo pasa hacia el repo row y las
+   *  filas de WorktreesSection. */
+  paneAITypesByPath?: Map<string, AIType[]>
   // Lifted to App.tsx (the single shared instance) — threaded through to
   // SettingsPanel. See UserPreferencesApi's doc comment for why.
   userPrefs: UserPreferencesApi
@@ -105,7 +111,7 @@ export default function Sidebar({
   isTrialActive, trialDaysLeft, profileLoading, onUpgrade, onPersonalOpen, onMemoriesOpen, onIntegrationsOpen, onGraphBoardOpen, pendingInvitesCount = 0, plan, repoPath, onRepoLink, onRepoUnlink, onJoinTerminal,
   activeCellRepoPath, onWorktreeSelect, onNewWorktree, onFixCi, worktreeRefreshKey,
   layoutId, paneCount, onLayoutChange, onOpenTutorial, onFileOpen, userPrefs,
-  paneFilterPanes, paneFilter, onPaneFilterChange,
+  paneFilterPanes, paneFilter, onPaneFilterChange, paneAITypesByPath,
   isHub = false, hubWorkspaces, onSelectWorkspace, onJumpToPane, onToggleTerminal, onToggleWorkspace, onNewWorkspace, onAddTerminalToWorkspace,
   hubExplorerRoots, onOpenFileFromHub,
 }: Props) {
@@ -535,6 +541,9 @@ export default function Sidebar({
         <div className="sidebar-repo-info">
           <div className="sidebar-repo-row">
             <span className="sidebar-label sidebar-repo-name text-ok">{basename(repoPath)}</span>
+            {expanded && (
+              <AILogoStack aiTypes={paneAITypesByPath?.get(repoPath) ?? []} size={12} />
+            )}
             {expanded && <span className="sidebar-repo-chevron" aria-hidden="true">▾</span>}
             {expanded && githubUrl && (
               <button
@@ -765,6 +774,7 @@ export default function Sidebar({
                     onFixCi={onFixCi}
                     refreshKey={worktreeRefreshKey}
                     onStartTutorial={onOpenTutorial ? () => onOpenTutorial('worktrees') : undefined}
+                    paneAITypesByPath={paneAITypesByPath}
                   />
                 </div>
               )}
