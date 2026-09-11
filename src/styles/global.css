@@ -11754,7 +11754,12 @@ body.platform-mac .tabbar { padding-right: 116px; }
    owns the bottom border and the tab bar drops its own. */
 .sidebar-menu-box{border-bottom:1px solid var(--border);flex-shrink:0}
 .sidebar-menu-box .sidebar-tabbar{border-bottom:none}
-.sidebar-menu-box .sidebar-repo{padding-top:7px;padding-bottom:6px}
+/* El aire que pidio el usuario entre las tabs y la fila de "Link repo": el
+   footer de SidebarTabBar vivia pegado a las tabs. "Apenitas mas, no mucho" —
+   7px -> 12px arriba, y el de abajo se queda. Medido DESPUES de que la escala
+   de filas bajara .sidebar-item de 44 a 32, no antes: calibrarlo contra el alto
+   viejo habria dado otro numero. */
+.sidebar-menu-box .sidebar-repo{padding-top:12px;padding-bottom:6px}
 /* Chevron hugs the repo name; margin-right:auto pushes the GitHub and unlink
    buttons to the far edge whether or not the GitHub one is there. */
 .sidebar-menu-box .sidebar-repo-name{flex:0 1 auto}
