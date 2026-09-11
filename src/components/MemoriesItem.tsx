@@ -6,6 +6,7 @@
 // justo para que un usuario Free tambien importe), y esconderla detras del paywall
 // contradice el local-first que es la mitad de por que esto le gana a lo hosteado.
 import { useMemories } from '../hooks/useMemories'
+import { ICON_SIZE, ICON_STROKE } from '../lib/icons'
 
 interface Props {
   expanded: boolean
@@ -23,12 +24,25 @@ export default function MemoriesItem({ expanded, onOpen }: Props) {
       title={`Memories · ${status.text}`}
     >
       <span className="sidebar-icon" style={{ position: 'relative' }}>
-        {/* Un nodo con dos aristas: el grafo, que es lo que hay del otro lado. */}
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-          <circle cx="8" cy="4" r="2" stroke="currentColor" strokeWidth="1.3" />
-          <circle cx="3.5" cy="12" r="2" stroke="currentColor" strokeWidth="1.3" />
-          <circle cx="12.5" cy="12" r="2" stroke="currentColor" strokeWidth="1.3" />
-          <path d="M6.7 5.7 4.8 10.2M9.3 5.7l1.9 4.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+        {/* Un nodo con dos aristas: el grafo, que es lo que hay del otro lado. Es la única
+            marca dibujada a mano que queda en la sidebar, y se queda porque el grafo ES el
+            producto — pero toma el tamaño y el trazo de `icons.ts`, que es de donde los saca
+            el resto de la fila. Medido en la app: las 9 filas de la sidebar dan 16×16 con
+            trazo 1.25 y `non-scaling-stroke`; ésta era la única con 1.3 y sin el efecto, que
+            es lo que mantiene el trazo parejo cuando la cáscara se escala. */}
+        <svg
+          width={ICON_SIZE.lg}
+          height={ICON_SIZE.lg}
+          viewBox="0 0 16 16"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={ICON_STROKE}
+          strokeLinecap="round"
+        >
+          <circle cx="8" cy="4" r="2" vectorEffect="non-scaling-stroke" />
+          <circle cx="3.5" cy="12" r="2" vectorEffect="non-scaling-stroke" />
+          <circle cx="12.5" cy="12" r="2" vectorEffect="non-scaling-stroke" />
+          <path d="M6.7 5.7 4.8 10.2M9.3 5.7l1.9 4.5" vectorEffect="non-scaling-stroke" />
         </svg>
         <span
           data-testid="memories-dot"

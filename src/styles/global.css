@@ -6903,6 +6903,10 @@ button.ci-badge:hover {
 
 .settings-content > * {
   max-width: 720px;
+  /* Centrada, no pegada al rail. Con el ancho suelto a la izquierda la pantalla quedaba
+     partida en tres —rail, columna, medio panel vacío— y no se parecía a Personal, que
+     centra su contenido en el espacio que le queda. */
+  margin-inline: auto;
 }
 
 .sp-search-row {
