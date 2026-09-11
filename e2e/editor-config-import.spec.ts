@@ -23,7 +23,10 @@ test('importa fontSize/tabSize desde un settings.json fake de VS Code', async ()
     // superpuesto (inset:0) sobre toda la fila .sidebar-item-settings (global.css:594-598),
     // así que clickear el contenedor de la fila alcanza sin necesitar expandir el sidebar.
     await h.page.locator('.sidebar-item-settings').click()
-    await h.page.locator('.sp-tab', { hasText: 'Editor' }).click()
+    // Ya no hay pestañas: Settings es una sola pagina con secciones y un buscador (modelo
+    // de Orca). La seccion Editor esta montada desde que se abre el panel, asi que no hay
+    // nada que clickear para llegar — se busca, que es como se llega ahora.
+    await h.page.getByPlaceholder('Search settings…').fill('Editor')
     await h.page.getByRole('button', { name: 'Import from VS Code' }).click()
 
     const preview = h.page.locator('[data-testid="ide-config-preview"]')

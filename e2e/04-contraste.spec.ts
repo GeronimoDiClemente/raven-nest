@@ -147,7 +147,9 @@ test('ningún texto de la app queda por debajo de 3:1 de contraste', async () =>
       ['settings', async () => {
         await page.locator('.memories-workspace .tw-back-btn').click()
         await page.locator('.sidebar-item-settings').first().click()
-        await page.getByRole('button', { name: 'Account', exact: true }).first().click()
+        // Ya no hay pestaña "Account": Settings es una sola pagina con secciones (modelo de
+    // Orca). La seccion esta montada desde que se abre el panel, asi que no hay nada que
+    // clickear para llegar.
         await page.waitForTimeout(700)
       }],
     ]

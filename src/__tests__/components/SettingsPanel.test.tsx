@@ -557,7 +557,11 @@ describe('SettingsPanel — la cuota de memoria sale del servidor', () => {
     fireEvent.click(screen.getByText('Account'))
 
     await waitFor(() => expect(screen.getByText(/12 items/)).toBeInTheDocument())
-    expect(screen.queryByText(/ of /)).toBeNull()
+    // El formato de la cuota es "<usado> of <tope>" con unidades. El regex era ` of ` a
+    // secas, que matcheaba cualquier prosa de la pantalla — desde que las secciones tienen
+    // una descripcion debajo del titulo, "Theme and behaviour of the built-in editor" lo
+    // hacia fallar. El assert que importa es que no aparezca una CUOTA, no la preposicion.
+    expect(screen.queryByText(/\d+(\.\d+)?\s*(B|KB|MB|GB)\s+of\s/i)).toBeNull()
   })
 })
 

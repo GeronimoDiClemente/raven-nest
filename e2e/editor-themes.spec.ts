@@ -29,7 +29,10 @@ test('seleccionar un tema bundled pinta el editor con los colores del tema', asy
     // className="titlebar-btn"> superpuesto sobre toda la fila
     // .sidebar-item-settings (ver e2e/editor-config-import.spec.ts).
     await h.page.locator('.sidebar-item-settings').click()
-    await h.page.locator('.sp-tab', { hasText: 'Editor' }).click()
+    // Ya no hay pestañas: Settings es una sola pagina con secciones y un buscador (modelo
+    // de Orca). La seccion Editor esta montada desde que se abre el panel, asi que no hay
+    // nada que clickear para llegar — se busca, que es como se llega ahora.
+    await h.page.getByPlaceholder('Search settings…').fill('Editor')
 
     const select = h.page.locator('[data-testid="theme-select"]')
     await expect(select).toBeVisible({ timeout: 10_000 })
@@ -83,7 +86,10 @@ test('importa un tema desde una instalación fake de VS Code y lo lista como Ins
     }))
 
     await h.page.locator('.sidebar-item-settings').click()
-    await h.page.locator('.sp-tab', { hasText: 'Editor' }).click()
+    // Ya no hay pestañas: Settings es una sola pagina con secciones y un buscador (modelo
+    // de Orca). La seccion Editor esta montada desde que se abre el panel, asi que no hay
+    // nada que clickear para llegar — se busca, que es como se llega ahora.
+    await h.page.getByPlaceholder('Search settings…').fill('Editor')
 
     await h.page.getByRole('button', { name: 'Import themes from VS Code' }).click()
     const scanned = h.page.locator('[data-testid="scanned-themes"]')

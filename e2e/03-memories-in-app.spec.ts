@@ -137,7 +137,9 @@ test('el overlay tapa de verdad lo que hay debajo, no solo por numero', async ()
     // overlay alcanzable en Free (Personal tambien lo es desde el 2026-09-10), se usa
     // porque su puerta a Memories es lo que la Task 10 dejo.
     await page.locator('.sidebar-item-settings').first().click()
-    await page.getByRole('button', { name: 'Account', exact: true }).first().click()
+    // Ya no hay pestaña "Account": Settings es una sola pagina con secciones (modelo de
+    // Orca). La seccion esta montada desde que se abre el panel, asi que no hay nada que
+    // clickear para llegar.
 
     const puerta = page.getByRole('button', { name: 'Open Memories' })
     await expect(puerta).toBeVisible({ timeout: 10_000 })
@@ -192,7 +194,9 @@ test('Settings ya no tiene las tarjetas de memoria — solo la puerta', async ()
   const { page } = h
   try {
     await page.locator('.sidebar-item-settings').first().click()
-    await page.getByRole('button', { name: 'Account', exact: true }).first().click()
+    // Ya no hay pestaña "Account": Settings es una sola pagina con secciones (modelo de
+    // Orca). La seccion esta montada desde que se abre el panel, asi que no hay nada que
+    // clickear para llegar.
     await expect(page.getByRole('button', { name: 'Open Memories' })).toBeVisible({ timeout: 10_000 })
 
     // Lo que la Task 10 SACO de Settings. Si alguna vuelve, es una regresion.

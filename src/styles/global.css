@@ -525,7 +525,14 @@ body {
   flex-shrink: 0;
   display: flex;
   align-items: center;
-  padding: 0 12px;
+  /* 10px y radio, no 12px y esquina viva: en la MISMA lista conviven filas que son
+     `.sidebar-item` (un <div>) y filas que son <Button size="sm"> del sistema. Medido el
+     2026-09-11 en la barra colapsada: las dos median 32x43, pero el Button tenia
+     `border-radius: 6px` y `padding: 10px` y esta 0 y 12 — asi que el resaltado de una
+     salia redondeado y el de la otra cuadrado, una arriba de la otra. Misma altura no
+     alcanza: la FORMA tambien tiene que ser la misma. */
+  padding: 0 10px;
+  border-radius: min(var(--radius-md), 12px);
   gap: 10px;
   cursor: pointer;
   background: transparent;
@@ -6913,35 +6920,37 @@ button.ci-badge:hover {
 }
 .sp-close:hover { color: var(--text-primary); background: var(--bg-surface); }
 
-.sp-tabs {
-  display: flex;
-  flex-wrap: wrap; /* never clip tabs against the modal edge */
-  gap: 2px;
-  padding: 10px 16px;
-  border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
+
+
+/* El buscador, arriba de todo. Es la afordancia central del panel desde que dejo de tener
+   pestañas: en Orca "everything here is searchable" y se llega con Cmd-, + escribir. */
+.sp-search-row {
+  padding: 12px 16px 4px;
 }
 
-.sp-tab {
-  padding: 6px 12px;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--text-secondary);
-  border: none;
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: 500;
-  font-family: inherit;
-  transition: background 0.12s, color 0.12s;
+/* Una seccion: titulo, una linea que dice para que sirve, y el contenido.
+   La descripcion NO es decoracion — es lo que evita que un control quede solo con su
+   etiqueta, que es como estaba antes y por lo que habia un `<select>` de idioma de voz
+   flotando bajo el titulo "Keybinds". */
+.sp-seccion + .sp-seccion {
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
+  padding-top: 12px;
 }
-.sp-tab:hover { background: var(--bg-surface); color: var(--text-primary); }
-.sp-tab.active { background: color-mix(in srgb, var(--primary) 13%, transparent); color: var(--primary); }
 
-.sp-body {
-  flex: 1;
-  overflow-y: auto;
-  padding: 8px 0;
-  scrollbar-width: thin;
+.sp-seccion-titulo {
+  margin: 0;
+  padding: 0 16px;
+  font-size: var(--fs);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.sp-seccion-desc {
+  margin: 2px 0 8px;
+  padding: 0 16px;
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
 }
 
 .sp-section {

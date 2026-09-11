@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { supabase } from '../lib/supabase'
 import { useSettings } from '../hooks/useSettings'
@@ -21,10 +21,10 @@ import MemoryHub from './MemoryHub'
 import MemoryAdoptionDialog from './MemoryAdoptionDialog'
 import logoUrl from '../assets/logo.png'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { X } from 'lucide-react'
 import { ICON_SIZE } from '../lib/icons'
 
-type Tab = 'keybinds' | 'presets' | 'benchmarks' | 'updates' | 'account' | 'tutorial' | 'editor'
 
 interface KeybindRowProps {
   label: string
@@ -106,9 +106,50 @@ interface Props {
   onOpenMemories?: () => void
 }
 
+/**
+ * Una sección del panel: título, una línea que dice para qué sirve, y el contenido.
+ *
+ * El filtro del buscador vive acá y es deliberadamente GRUESO — matchea contra el título, la
+ * descripción y el texto que la sección renderiza. Filtrar fila por fila daría un resultado
+ * más fino pero dejaría controles sueltos sin su contexto, que es justo lo que este panel
+ * tenía de más: un `<select>` de idioma flotando bajo el título "Keybinds".
+ */
+function Seccion({
+  id, titulo, descripcion, busqueda, children,
+}: {
+  id: string
+  titulo: string
+  descripcion: string
+  busqueda: string
+  children: React.ReactNode
+}) {
+  const ref = useRef<HTMLElement | null>(null)
+  const q = busqueda.trim().toLowerCase()
+  // El texto propio de la sección alcanza para el título y la descripción; para el contenido
+  // se lee del DOM ya renderizado, que es la única forma de buscar adentro de subcomponentes
+  // (PresetEditor, BenchmarkDashboard) sin obligarlos a declarar sus propias palabras clave.
+  const propio = `${titulo} ${descripcion}`.toLowerCase()
+  const contenido = ref.current?.textContent?.toLowerCase() ?? ''
+  const matchea = !q || propio.includes(q) || contenido.includes(q)
+
+  return (
+    <section
+      ref={ref}
+      id={`settings-${id}`}
+      className="sp-seccion"
+      hidden={!matchea}
+      aria-hidden={!matchea}
+    >
+      <h3 className="sp-seccion-titulo">{titulo}</h3>
+      <p className="sp-seccion-desc">{descripcion}</p>
+      {children}
+    </section>
+  )
+}
+
 export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, activeRepoPath, onOpenTutorial, userPrefs, onFileOpen, onOpenMemories }: Props) {
   const [open, setOpen] = useState(false)
-  const [tab, setTab] = useState<Tab>('keybinds')
+  const [busqueda, setBusqueda] = useState('')
   const { settings, updateKeybinding, updateVoiceLanguage } = useSettings()
   const { isConnected: githubConnected, githubLogin, connectGitHub, disconnectGitHub } = useGitHub()
   const { isConnected: gitlabConnected, gitlabLogin, connectGitlab, disconnectGitlab } = useGitlab()
@@ -181,8 +222,10 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
   }, [])
 
   useEffect(() => {
-    if (open && tab === 'editor') void refreshInstalledThemes()
-  }, [open, tab, refreshInstalledThemes])
+    // Antes esto esperaba a que entraras a la pestaña Editor. Con una sola pagina esa
+    // pestaña no existe: se carga al abrir el panel.
+    if (open) void refreshInstalledThemes()
+  }, [open, refreshInstalledThemes])
 
   const handleScanVSCodeThemes = useCallback(async () => {
     setThemeError(null)
@@ -329,23 +372,33 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
               </Button>
             </div>
 
-            {/* Tabs */}
-            <div className="sp-tabs">
-              {(['keybinds', 'presets', 'benchmarks', 'updates', 'account', 'tutorial', 'editor'] as Tab[]).map(t => (
-                <button
-                  key={t}
-                  className={`sp-tab${tab === t ? ' active' : ''}`}
-                  onClick={() => setTab(t)}
-                >
-                  {t.charAt(0).toUpperCase() + t.slice(1)}
-                </button>
-              ))}
+            {/* Una sola pagina con secciones y un buscador, no siete pestañas.
+                Es el modelo de Orca (onorca.dev/docs/settings, verificado): "Settings are
+                grouped into panes. Everything here is searchable". Las pestañas obligaban a
+                saber de antemano en cual esta cada cosa — y en este panel eso fallaba en su
+                propio ejemplo: "Voice language" vivia adentro de "Keybinds", que no es un
+                keybind. Ahora son secciones propias, cada una con lo que hace escrito
+                abajo del titulo. */}
+            <div className="sp-search-row">
+              <Input
+                type="search"
+                value={busqueda}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setBusqueda(e.target.value)}
+                placeholder="Search settings…"
+                aria-label="Search settings"
+                autoFocus
+              />
             </div>
 
             {/* Body */}
             <div className="sp-body">
 
-              {tab === 'keybinds' && (
+              <Seccion
+                id="voice"
+                titulo="Voice"
+                descripcion="Dictation into the prompt. Needs openai-whisper installed; without it the mic button simply doesn't transcribe."
+                busqueda={busqueda}
+              >
                 <div className="sp-section">
                   <div className="sp-row">
                     <span className="sp-row-label">Voice language</span>
@@ -364,7 +417,16 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                       <option value="ja">日本語</option>
                     </select>
                   </div>
-                  <div className="sp-divider" />
+                </div>
+              </Seccion>
+
+              <Seccion
+                id="keybinds"
+                titulo="Keyboard shortcuts"
+                descripcion="Click a shortcut to record a new one."
+                busqueda={busqueda}
+              >
+                <div className="sp-section">
                   {keybindRows.map(row => (
                     <KeybindRow
                       key={row.action}
@@ -375,21 +437,36 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                     />
                   ))}
                 </div>
-              )}
+              </Seccion>
 
-              {tab === 'presets' && (
+              <Seccion
+                id="presets"
+                titulo="Command presets"
+                descripcion="Commands you can fire at a pane without retyping them."
+                busqueda={busqueda}
+              >
                 <div className="sp-section">
                   <PresetEditor repoPath={activeRepoPath ?? null} />
                 </div>
-              )}
+              </Seccion>
 
-              {tab === 'benchmarks' && (
+              <Seccion
+                id="benchmarks"
+                titulo="Benchmarks"
+                descripcion="How long your agents take, measured across runs."
+                busqueda={busqueda}
+              >
                 <div className="sp-section">
                   <BenchmarkDashboard />
                 </div>
-              )}
+              </Seccion>
 
-              {tab === 'updates' && (
+              <Seccion
+                id="updates"
+                titulo="Updates"
+                descripcion="Which version you are on, and whether there is a newer one."
+                busqueda={busqueda}
+              >
                 <div className="sp-section">
                   <Button
                     variant="outline" size="sm"
@@ -399,9 +476,14 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                     {updateLabel}
                   </Button>
                 </div>
-              )}
+              </Seccion>
 
-              {tab === 'account' && (
+              <Seccion
+                id="account"
+                titulo="Account"
+                descripcion="Who you're signed in as, and the services connected to it."
+                busqueda={busqueda}
+              >
                 <div className="sp-section">
                   <p className="sp-email">{userEmail || '—'}</p>
 
@@ -609,9 +691,14 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                     Sign out
                   </Button>
                 </div>
-              )}
+              </Seccion>
 
-              {tab === 'tutorial' && (
+              <Seccion
+                id="tutorial"
+                titulo="Tutorial"
+                descripcion="Walk through Nest with demo data, without touching your repos."
+                busqueda={busqueda}
+              >
                 <div className="sp-section">
                   <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '0 0 12px' }}>
                     Recorré las secciones de Nest con datos de demostración, sin tocar tus repos.
@@ -620,7 +707,7 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                     Tutorial: Worktrees
                   </Button>
                 </div>
-              )}
+              </Seccion>
 
               {memoryUpgradeOpen && (
                 <UpgradeModal currentPlan={plan} onClose={() => setMemoryUpgradeOpen(false)} />
@@ -632,7 +719,12 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                   onUpgrade={() => { setMemoryHubOpen(false); setMemoryUpgradeOpen(true) }}
                 />
               )}
-              {tab === 'editor' && (
+              <Seccion
+                id="editor"
+                titulo="Editor"
+                descripcion="Theme and behaviour of the built-in editor."
+                busqueda={busqueda}
+              >
                 <div className="sp-section">
                   <div className="sp-row">
                     <span className="sp-row-label">Theme</span>
@@ -727,7 +819,7 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                     </div>
                   )}
                 </div>
-              )}
+              </Seccion>
 
             </div>
           </div>
