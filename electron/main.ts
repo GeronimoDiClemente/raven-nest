@@ -255,6 +255,36 @@ function getMemorySyncBaseUrl(): string | null {
  */
 const E2E_HEADLESS = process.env.RAVEN_E2E_HEADLESS === '1'
 
+import { ensureKeyMaterial, saveKeyMaterial, type KeyMaterial } from './memory-key-store'
+import { deriveKeys, hmacTopicKey } from './memory-crypto'
+import type { EnvelopeContext } from './memory-envelope'
+import {
+  fetchKeyState, activateEncryption, adoptExistingKey, authorizeDevice, recoverWithCode,
+  type RemoteKeyState,
+} from './memory-keys-client'
+import { buildEncryptionStatus } from './memory-encryption-status'
+import { runReencrypt } from './memory-reencrypt'
+
+let memoryKeys: KeyMaterial | null = null
+
+/**
+ * El contexto que el daemon pide en CADA push y en CADA pull. Se recalcula por llamada a
+ * proposito: el usuario puede activar el cifrado con la app abierta, y una constante
+ * capturada al arranque lo dejaria empujando en claro hasta el proximo reinicio.
+ */
+function currentEnvelopeContext(): EnvelopeContext | null {
+  if (!memoryKeys?.master) return null
+  return { keys: deriveKeys(Buffer.from(memoryKeys.master, 'base64')), keyEpoch: memoryKeys.keyEpoch }
+}
+
+/** Deja el store escribiendo `topic_key_hmac` con la clave vigente (Task 5). */
+function applyTopicHasher(): void {
+  const ctx = currentEnvelopeContext()
+  memory?.store.setTopicHasher(
+    ctx ? (p, s, t) => hmacTopicKey(ctx.keys, p, s, t) : null
+  )
+}
+
 let memoryToken: string | null = null
 function loadMemoryToken(): string | null {
   if (memoryToken) return memoryToken
@@ -336,12 +366,27 @@ try {
   // El puntero que le permite al shim del MCP encontrar la base con Nest CERRADO — ver
   // memory-active-store.ts. Se escribe acá y en cada swap de cuenta.
   writeActivePointer(ravenHome(), null, initialStorePath)
+  // El par de esta maquina se genera al primer arranque y no rota. La maestra puede no
+  // estar todavia (cifrado no activado, o esta maquina sin autorizar): eso es normal.
+  try {
+    // `store`, no `memory.store`: acá `memory` todavía se está construyendo — se asigna
+    // recién al final de este bloque.
+    memoryKeys = ensureKeyMaterial(ravenHome(), store.getOwnerUserId(), safeStorage)
+    const ctxInicial = currentEnvelopeContext()
+    store.setTopicHasher(ctxInicial ? (p, sc, t) => hmacTopicKey(ctxInicial.keys, p, sc, t) : null)
+  } catch {
+    // Sin safeStorage no hay claves y el cifrado no se puede activar — pero la memoria
+    // local y el sync en claro tienen que seguir funcionando igual.
+    memoryKeys = null
+  }
+
   const authMaterial = ensureLocalAuthMaterial(ravenHome())
   const memorySocketPath = daemonSocketPath(ravenHome(), process.platform === 'win32', authMaterial.pipeId)
 
   const daemon = new MemoryDaemon({
     store,
     getSyncBaseUrl: getMemorySyncBaseUrl,
+    getEnvelopeContext: currentEnvelopeContext,
     getToken: loadMemoryToken,
     getDeviceId: () => memoryConnectionState.deviceId,
     isOnline: () => memoryOnline,
@@ -3049,6 +3094,101 @@ ipcMain.handle('memory:disconnect', async (_event, opts?: { deleteCloud?: boolea
     ...(cloudDeleteFailed ? { cloudDeleteFailed } : {}),
     ...(tokenRevokeFailed ? { tokenRevokeFailed } : {}),
   }
+})
+
+function keysDeps() {
+  const url = getMemorySyncBaseUrl()
+  const token = loadMemoryToken()
+  const deviceId = memoryConnectionState.deviceId
+  if (!url || !token || !deviceId) return null
+  return { baseUrl: url, token, deviceId }
+}
+
+ipcMain.handle('memory:encryption:status', async () => {
+  const deps = keysDeps()
+  let keyEpoch = 0
+  let devices: RemoteKeyState['devices'] = []
+  if (deps) {
+    // Best-effort: sin red, la tarjeta muestra lo que sabe local en vez de un error.
+    try {
+      const estado = await fetchKeyState(deps)
+      keyEpoch = estado.keyEpoch
+      devices = estado.devices
+    } catch { /* offline */ }
+  }
+  return buildEncryptionStatus({
+    safeStorageAvailable: safeStorage.isEncryptionAvailable(),
+    connected: Boolean(deps),
+    keyEpoch: keyEpoch || (memoryKeys?.keyEpoch ?? 0),
+    hasMaster: Boolean(memoryKeys?.master),
+    devices,
+    undecryptable: memory?.store.undecryptableCount() ?? 0,
+  })
+})
+
+ipcMain.handle('memory:encryption:activate', async () => {
+  const deps = keysDeps()
+  if (!deps || !memory) return { ok: false, error: 'La memoria en la nube no está conectada.' }
+  if (!memoryKeys) return { ok: false, error: 'Este sistema no permite guardar claves de forma segura.' }
+  try {
+    // Si otra maquina ya activo, esto NO es una activacion: es adoptar la clave que existe.
+    // Activar de nuevo rotaria la epoca y dejaria ilegible todo lo que ya subio la otra.
+    const yaExiste = await adoptExistingKey(deps, memoryKeys.device)
+    if (yaExiste) {
+      memoryKeys = { ...memoryKeys, ...yaExiste }
+      saveKeyMaterial(ravenHome(), memory.store.getOwnerUserId(), safeStorage, memoryKeys)
+      applyTopicHasher()
+      memory.store.backfillTopicHmacs()
+      memory.store.resetPullCursors()
+      memory.store.clearUndecryptable()
+      return { ok: false, error: 'Esta cuenta ya tiene el cifrado activado — esta máquina quedó autorizada.' }
+    }
+    const res = await activateEncryption(deps, memoryKeys.device)
+    memoryKeys = { ...memoryKeys, master: res.master, keyEpoch: res.keyEpoch }
+    saveKeyMaterial(ravenHome(), memory.store.getOwnerUserId(), safeStorage, memoryKeys)
+    applyTopicHasher()
+    memory.store.backfillTopicHmacs()
+    return { ok: true, recoveryCode: res.recoveryCode }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  }
+})
+
+ipcMain.handle('memory:encryption:authorize', async (_e, deviceId: string) => {
+  const deps = keysDeps()
+  if (!deps || !memoryKeys?.master) return { ok: false, error: 'Esta máquina no tiene la clave.' }
+  try {
+    const estado = await fetchKeyState(deps)
+    const target = estado.devices.find((d) => d.deviceId === deviceId)
+    if (!target) return { ok: false, error: 'Esa máquina no publicó su clave todavía.' }
+    await authorizeDevice(deps, memoryKeys.master, memoryKeys.keyEpoch, target)
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  }
+})
+
+ipcMain.handle('memory:encryption:recover', async (_e, code: string) => {
+  const deps = keysDeps()
+  if (!deps || !memory || !memoryKeys) return { ok: false, error: 'La memoria en la nube no está conectada.' }
+  try {
+    const res = await recoverWithCode(deps, memoryKeys.device, code)
+    memoryKeys = { ...memoryKeys, ...res }
+    saveKeyMaterial(ravenHome(), memory.store.getOwnerUserId(), safeStorage, memoryKeys)
+    applyTopicHasher()
+    memory.store.backfillTopicHmacs()
+    // Lo que se salteo por ilegible quedo atras del cursor: hay que volver a traerlo.
+    memory.store.resetPullCursors()
+    memory.store.clearUndecryptable()
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  }
+})
+
+ipcMain.handle('memory:encryption:reencrypt', async () => {
+  if (!memory) return { total: 0, queued: 0 }
+  return runReencrypt(memory.store, memory.daemon)
 })
 
 ipcMain.handle('memory:status', () => {

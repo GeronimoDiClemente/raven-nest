@@ -998,6 +998,17 @@ declare global {
        * login. `projectCount` excluye `__global__` (no es un proyecto reconocible).
        */
       hubStats: () => Promise<{ itemCount: number; projectCount: number }>
+      encryptionStatus?: () => Promise<{
+        available: boolean
+        active: boolean
+        keyEpoch: number
+        pendingDevices: Array<{ deviceId: string; name: string }>
+        undecryptable: number
+      }>
+      encryptionActivate?: () => Promise<{ ok: true; recoveryCode: string } | { ok: false; error: string }>
+      encryptionAuthorize?: (deviceId: string) => Promise<{ ok: boolean; error?: string }>
+      encryptionRecover?: (code: string) => Promise<{ ok: boolean; error?: string }>
+      encryptionReencrypt?: () => Promise<{ total: number; queued: number }>
       /**
        * Puente de datos del grafo navegable de memorias (estilo Obsidian) — ver
        * electron/memory-graph.ts. Optional: un preload viejo no lo expone, y todavía no

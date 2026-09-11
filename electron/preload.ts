@@ -84,6 +84,13 @@ contextBridge.exposeInMainWorld('memory', {
   checkPendingAdoption: (userId: string | null) => ipcRenderer.invoke('memory:checkPendingAdoption', userId),
   disconnect: (opts?: { deleteCloud?: boolean }) => ipcRenderer.invoke('memory:disconnect', opts),
   status: () => ipcRenderer.invoke('memory:status'),
+  // Cifrado del lado del cliente (spec §5.3). Opcionales en `window.memory` como todo lo
+  // que sumo la fase 1: un preload viejo no los expone y la UI tiene que montar igual.
+  encryptionStatus: () => ipcRenderer.invoke('memory:encryption:status'),
+  encryptionActivate: () => ipcRenderer.invoke('memory:encryption:activate'),
+  encryptionAuthorize: (deviceId: string) => ipcRenderer.invoke('memory:encryption:authorize', deviceId),
+  encryptionRecover: (code: string) => ipcRenderer.invoke('memory:encryption:recover', code),
+  encryptionReencrypt: () => ipcRenderer.invoke('memory:encryption:reencrypt'),
   hubStats: () => ipcRenderer.invoke('memory:hub-stats'),
   // Puente de datos del grafo navegable de memorias — ver electron/memory-graph.ts. Sin
   // UI todavía; el objeto es parcial porque `MemoryGraphQuery` no tiene campos opcionales
