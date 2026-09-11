@@ -307,7 +307,8 @@ export interface TeamThreadSettings {
 /** Espejo de los tipos de electron/memory-graph.ts (src/ nunca importa de electron/). El
  *  puente de datos del grafo navegable de memorias — ver ese archivo para el detalle de
  *  cómo se computan revision/topic/branch. */
-export type MemoryEdgeKind = 'revision' | 'topic' | 'branch' | 'source' | 'cross-topic' | 'similar'
+export type MemoryEdgeKind =
+  | 'manual' | 'revision' | 'topic' | 'branch' | 'source' | 'cross-topic' | 'similar'
 
 export interface MemoryGraphNode {
   syncId: string
@@ -1012,6 +1013,9 @@ declare global {
       crossProject?: (query?: Partial<CrossProjectMemoryQuery>) => Promise<CrossProjectMemoryPage>
       /** Una memoria entera por id, con su `content`. `null` si no existe o esta borrada. */
       observation?: (syncId: string) => Promise<MemoryObservationDetail | null>
+      /** Conectar dos memorias a mano. Sin dirección: "esta va con esta". */
+      link?: (a: string, b: string, note?: string | null) => Promise<{ ok: boolean; error?: string }>
+      unlink?: (a: string, b: string) => Promise<{ ok: boolean }>
       /**
        * Escribir una memoria desde la UI. Sin repo vinculado va al proyecto global, que es
        * lo que significa: algo que vale más allá de un repo.

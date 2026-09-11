@@ -130,6 +130,18 @@ export interface EdgeStyle {
 }
 
 export const EDGE_STYLES: Record<MemoryEdgeKind, EdgeStyle> = {
+  // La más marcada de todas, y a propósito: las otras seis las infiere el sistema de algún
+  // campo compartido; ésta es la única que una persona afirmó. Si se dibujara como las demás,
+  // lo único que alguien se tomó el trabajo de decir quedaría indistinguible de lo que dedujo
+  // una consulta SQL.
+  manual: {
+    width: 2.4,
+    color: 'rgba(255, 255, 255, 0.95)',
+    curvature: 0,
+    arrowLength: 0,
+    label: 'Connected by hand',
+    meaning: 'Someone said these two go together',
+  },
   revision: {
     width: 2,
     color: 'rgba(232, 232, 232, 0.85)',
@@ -189,7 +201,7 @@ export const EDGE_STYLES: Record<MemoryEdgeKind, EdgeStyle> = {
   },
 }
 
-export const EDGE_KINDS_IN_LEGEND_ORDER: MemoryEdgeKind[] = ['revision', 'topic', 'cross-topic', 'branch', 'source', 'similar']
+export const EDGE_KINDS_IN_LEGEND_ORDER: MemoryEdgeKind[] = ['manual', 'revision', 'topic', 'cross-topic', 'branch', 'source', 'similar']
 
 function nodeLabel(node: MemoryGraphNode): string {
   return node.title.trim() || '(untitled)'
@@ -335,7 +347,7 @@ export function tagGroups(graph: MemoryGraph): TagGroup[] {
 /** Cuántas aristas de cada tipo hay. La leyenda no lista un tipo que no está en pantalla. */
 export function countEdgeKinds(data: GraphData): Record<MemoryEdgeKind, number> {
   const out: Record<MemoryEdgeKind, number> = {
-    revision: 0, topic: 0, 'cross-topic': 0, branch: 0, source: 0, similar: 0,
+    manual: 0, revision: 0, topic: 0, 'cross-topic': 0, branch: 0, source: 0, similar: 0,
   }
   for (const l of data.links) out[l.kind] += 1
   return out

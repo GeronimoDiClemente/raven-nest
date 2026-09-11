@@ -241,3 +241,36 @@ test('sin titulo no se puede guardar: una memoria sin titulo no se encuentra des
     await teardown(h)
   }
 })
+
+// Conectar dos memorias a mano. Es la unica relacion que una PERSONA afirma — las otras seis
+// las infiere el sistema de algun campo compartido. Se prueba de punta a punta porque el
+// valor esta en que la linea APAREZCA, no en que el boton se dibuje.
+test('se pueden conectar dos memorias a mano', async () => {
+  const h = await launchHarness({ withRepo: false })
+  const { page } = h
+  try {
+    await abrirMemories(page)
+    await expect(page.getByText('No memories yet')).toBeVisible({ timeout: 15_000 })
+    seedMemories(h.homeDir, MEMORIAS_DE_MUESTRA)
+    await page.reload()
+    await expect(page.locator('.app')).toBeVisible({ timeout: 15_000 })
+    await abrirMemories(page)
+
+    // Dos que NO comparten nada: distinto proyecto, distinto tema, distinta rama.
+    const una = page.getByRole('button', { name: /SQLite en WAL/ }).first()
+    await expect(una).toBeVisible({ timeout: 15_000 })
+    await una.click()
+
+    await page.getByRole('button', { name: 'Connect to another memory' }).click()
+    await expect(page.getByText(/Pick the memory this one goes with/)).toBeVisible()
+
+    await page.getByRole('button', { name: /Un 429 devuelve Retry-After/ }).first().click()
+
+    // La relacion aparece en la leyenda, y con su propio nombre: no se confunde con las
+    // que el sistema infiere.
+    await expect(page.getByText('Connected by hand', { exact: true })).toBeVisible({ timeout: 10_000 })
+    await page.screenshot({ path: join(SHOTS, '08-conectadas-a-mano.png') })
+  } finally {
+    await teardown(h)
+  }
+})

@@ -789,8 +789,11 @@ describe('MemoryStore — schema versioning (C3)', () => {
   beforeEach(() => { dir = makeTmpDir('raven-memory-c3-') })
   afterEach(() => { cleanupTmp(dir) })
 
+  // El pin sube A MANO con cada migracion, y es a proposito: es lo que obliga a que alguien
+  // mire la migracion nueva antes de que salga. v5 agrega `memory_links` — las relaciones
+  // puestas a mano entre dos memorias.
   it('SCHEMA_VERSION is pinned to the published value', () => {
-    expect(SCHEMA_VERSION).toBe(4)
+    expect(SCHEMA_VERSION).toBe(5)
   })
 
   // Task 8 (smoke/memory-bridge): the memory dir syncs across two machines, so a v1
@@ -1663,5 +1666,68 @@ describe('re-import: el tipo declarado', () => {
     importar('decision', true)
 
     expect(store.get(primera.syncId)!.revision_count).toBe(antes)
+  })
+})
+
+// Conectar dos memorias a mano. Hace falta una tabla propia porque `topic_key` NO sirve: su
+// indice es UNICO por (project_key, scope, topic_key) entre las filas vivas, asi que guardar
+// una segunda memoria con el mismo tema no crea una fila, REEMPLAZA a la primera (outcome
+// `topic_updated`). Conectar dos via topic borraria una de las dos.
+describe('MemoryStore — relaciones puestas a mano', () => {
+  let dir: string
+  let store: MemoryStore
+
+  beforeEach(() => {
+    dir = makeTmpDir('raven-links-')
+    store = new MemoryStore(join(dir, 'memory.db'))
+  })
+  afterEach(() => { store.close(); cleanupTmp(dir) })
+
+  const guardar = (title: string) => store.save({
+    projectKey: 'p', type: 'decision', source: 'ui', title, content: `contenido de ${title}`,
+  }).syncId
+
+  it('conecta dos memorias', () => {
+    const a = guardar('una'); const b = guardar('otra')
+    expect(store.linkMemories(a, b)).toEqual({ ok: true })
+  })
+
+  it('una memoria no se conecta consigo misma', () => {
+    const a = guardar('una')
+    expect(store.linkMemories(a, a)).toEqual({ ok: false, error: 'same_memory' })
+  })
+
+  // Una relacion hacia algo que no existe dibujaria un nodo fantasma del otro lado.
+  it('rechaza conectar con una memoria que no existe', () => {
+    const a = guardar('una')
+    expect(store.linkMemories(a, 'no-existe')).toEqual({ ok: false, error: 'memory_not_found' })
+  })
+
+  it('desconectar deshace la relacion', () => {
+    const a = guardar('una'); const b = guardar('otra')
+    store.linkMemories(a, b)
+    expect(store.unlinkMemories(a, b)).toEqual({ ok: true })
+  })
+
+  // Borrar algo que no esta es el resultado que el llamador queria.
+  it('desconectar algo que no estaba conectado no es un error', () => {
+    const a = guardar('una'); const b = guardar('otra')
+    expect(store.unlinkMemories(a, b)).toEqual({ ok: true })
+  })
+})
+
+// El hallazgo que obligo a la tabla propia, escrito como test para que no se pierda.
+describe('MemoryStore — dos memorias NO pueden compartir topic_key', () => {
+  it('la segunda reemplaza a la primera en vez de crear una fila', () => {
+    const dir = makeTmpDir('raven-topic-')
+    const store = new MemoryStore(join(dir, 'memory.db'))
+    const a = store.save({ projectKey: 'p', type: 'decision', source: 'ui', title: 'A', content: 'contenido a', topicKey: 'auth' })
+    const b = store.save({ projectKey: 'p', type: 'decision', source: 'ui', title: 'B', content: 'contenido b', topicKey: 'auth' })
+
+    expect(b.syncId).toBe(a.syncId)
+    expect(b.outcome).toBe('topic_updated')
+    expect(store.get(a.syncId)?.title).toBe('B')
+    store.close()
+    cleanupTmp(dir)
   })
 })

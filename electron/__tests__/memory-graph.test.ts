@@ -33,6 +33,17 @@ beforeEach(() => {
       tags           TEXT
     );
 
+    -- buildMemoryGraph lee las relaciones puestas a mano de su propia tabla: topic_key no
+    -- sirve para eso porque es UNICO por (project, scope, topic) entre las filas vivas, asi
+    -- que dos memorias del mismo proyecto no pueden compartir tema.
+    CREATE TABLE memory_links (
+      a          TEXT NOT NULL,
+      b          TEXT NOT NULL,
+      note       TEXT,
+      created_at INTEGER NOT NULL,
+      PRIMARY KEY (a, b)
+    );
+
     -- buildMemoryGraph hace LEFT JOIN con \`projects\` para traer el nombre legible: el
     -- \`project_key\` es un hash, y sin esto la UI muestra "78b30bb38a968148" en vez del
     -- nombre del repo. El fixture tiene que tener la tabla aunque la mayoria de los casos
@@ -344,5 +355,55 @@ describe('arista cross-topic — el mismo tema en otro repo', () => {
     insert({ syncId: 'b', projectKey: 'dos', scope: 'team', topicKey: 'auth', updatedAt: 2 })
 
     expect(buildMemoryGraph(db, Q()).edges.filter((e) => e.kind === 'cross-topic')).toHaveLength(0)
+  })
+})
+
+// La unica relacion que una PERSONA afirma. Las otras seis las infiere el sistema de algun
+// campo compartido, y por eso esta se guarda aparte y se dibuja mas marcada.
+describe('arista manual — conectada a mano', () => {
+  function conectar(a: string, b: string) {
+    const [x, y] = a < b ? [a, b] : [b, a]
+    db.prepare('INSERT OR REPLACE INTO memory_links (a, b, note, created_at) VALUES (?,?,?,?)')
+      .run(x, y, null, 1)
+  }
+
+  it('une dos memorias que no comparten nada mas', () => {
+    insert({ syncId: 'a', projectKey: 'uno', updatedAt: 1 })
+    insert({ syncId: 'b', projectKey: 'dos', updatedAt: 2 })
+    conectar('a', 'b')
+
+    const manual = buildMemoryGraph(db, Q()).edges.filter((e) => e.kind === 'manual')
+    expect(manual).toHaveLength(1)
+    expect(manual[0].directed).toBe(false)
+  })
+
+  // Conectar A con B y despues B con A es la MISMA relacion. Sin ordenar los ids al
+  // insertar, el grafo dibujaria dos lineas donde hay una.
+  it('conectar en los dos sentidos da UNA sola arista', () => {
+    insert({ syncId: 'a', updatedAt: 1 })
+    insert({ syncId: 'b', updatedAt: 2 })
+    conectar('a', 'b')
+    conectar('b', 'a')
+
+    expect(buildMemoryGraph(db, Q()).edges.filter((e) => e.kind === 'manual')).toHaveLength(1)
+  })
+
+  // Una arista hacia un nodo que no vino haria aparecer un punto fantasma sin titulo ni
+  // color — lo mismo que toGraphData filtra del lado del render.
+  it('no emite la arista si una punta no esta en el grafo', () => {
+    insert({ syncId: 'a', updatedAt: 1 })
+    conectar('a', 'fantasma')
+
+    expect(buildMemoryGraph(db, Q()).edges.filter((e) => e.kind === 'manual')).toHaveLength(0)
+  })
+
+  // Cruza proyectos sin pedir permiso: si alguien dice que estas dos van juntas, van juntas,
+  // vengan de donde vengan. Es la diferencia entre afirmar e inferir.
+  it('cruza proyectos', () => {
+    insert({ syncId: 'a', projectKey: 'uno', updatedAt: 1 })
+    insert({ syncId: 'b', projectKey: 'dos', updatedAt: 2 })
+    conectar('a', 'b')
+
+    expect(buildMemoryGraph(db, Q()).edges.filter((e) => e.kind === 'manual')).toHaveLength(1)
   })
 })

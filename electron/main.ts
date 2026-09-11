@@ -3162,6 +3162,23 @@ ipcMain.handle('memory:save', (_event, input: {
   }
 })
 
+/**
+ * Conectar dos memorias a mano. Es la unica relacion que una PERSONA afirma — las otras seis
+ * las infiere el sistema de algun campo compartido.
+ *
+ * No pasa por el store de observaciones ni por el daemon: una relacion no es una observacion,
+ * no tiene contenido que replicar ni lamport que resolver. Vive en su propia tabla.
+ */
+ipcMain.handle('memory:link', (_event, a: string, b: string, note?: string | null) => {
+  if (!memory) return { ok: false, error: 'memory_unavailable' }
+  return memory.store.linkMemories(a, b, note ?? null)
+})
+
+ipcMain.handle('memory:unlink', (_event, a: string, b: string) => {
+  if (!memory) return { ok: false, error: 'memory_unavailable' }
+  return memory.store.unlinkMemories(a, b)
+})
+
 ipcMain.handle('memory:observation', (_event, syncId: string): MemoryObservationDetail | null => {
   if (!memory || typeof syncId !== 'string' || !syncId) return null
   const row = memory.store.get(syncId)

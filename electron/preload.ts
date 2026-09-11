@@ -115,6 +115,9 @@ contextBridge.exposeInMainWorld('memory', {
   // consulta); esta es la lectura puntual del nodo que estas mirando. Sale de SQLite, no
   // del vault: el vault es opcional y es una proyeccion, no la fuente.
   observation: (syncId: string) => ipcRenderer.invoke('memory:observation', syncId),
+  // Conectar dos memorias a mano — la unica relacion que una persona afirma.
+  link: (a: string, b: string, note?: string | null) => ipcRenderer.invoke('memory:link', a, b, note),
+  unlink: (a: string, b: string) => ipcRenderer.invoke('memory:unlink', a, b),
   // Escribir una memoria desde la UI. `source` NO viaja: lo fija main.ts en 'ui', porque un
   // renderer que pudiera declararse 'hook' o 'mcp' ensuciaria la unica señal que dice de
   // donde salio cada memoria.

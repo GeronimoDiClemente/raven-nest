@@ -19,6 +19,10 @@ import type { MemoryEdgeKind, MemoryGraph, MemoryGraphEdge, MemoryGraphNode } fr
  * grafo de varios repos tiene para decir y uno de un solo repo no.
  */
 const TRAZO: Record<MemoryEdgeKind, { rama: string; vertical: string; que: string }> = {
+  // La mas marcada, y primera. Las otras seis las inferimos de un campo compartido; esta es
+  // la unica que una persona AFIRMO. Mezclarlas dejaria lo unico que alguien se tomo el
+  // trabajo de decir indistinguible de lo que dedujo una consulta.
+  manual: { rama: '━━━', vertical: '┃', que: 'conectadas a mano' },
   // `revision` es la única dirigida, así que su texto depende de para qué lado se la esté
   // leyendo — ver `queDice`. Esto es el caso genérico, el que usa la leyenda del pie.
   revision: { rama: '──▶', vertical: '│', que: 'una reemplazó a la otra' },

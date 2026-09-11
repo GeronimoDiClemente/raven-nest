@@ -534,6 +534,16 @@ const BASE_SCHEMA = `
         failure_count    INTEGER NOT NULL DEFAULT 0
       );
 
+      -- Relaciones puestas A MANO entre dos memorias. Ver la migracion 5 para por que no
+      -- alcanza con reusar topic_key.
+      CREATE TABLE IF NOT EXISTS memory_links (
+        a          TEXT NOT NULL,
+        b          TEXT NOT NULL,
+        note       TEXT,
+        created_at INTEGER NOT NULL,
+        PRIMARY KEY (a, b)
+      );
+
       CREATE TABLE IF NOT EXISTS projects (
         project_key  TEXT PRIMARY KEY,
         display_name TEXT NOT NULL,
@@ -598,7 +608,7 @@ const BASE_SCHEMA = `
  * correct precisely because all of step 1 is CREATE ... IF NOT EXISTS: running it over an
  * already-populated database writes nothing and does not touch a single row.
  */
-export const SCHEMA_VERSION = 4
+export const SCHEMA_VERSION = 5
 
 // Task 8 (smoke/memory-bridge): the memory dir syncs across two machines (C3's whole
 // reason for existing), so a v1 database opened by a build that knows v2 is the routine
@@ -645,6 +655,24 @@ const MIGRATIONS: Record<number, string | ((db: Database.Database) => void)> = {
   // propósito: es un filtro residual barato aplicado fila por fila mientras se recorre en
   // orden ya indexado, no una condición de igualdad que valga la pena indexar aparte.
   4: 'CREATE INDEX IF NOT EXISTS idx_obs_deleted_updated ON observations(deleted, updated_at DESC, lamport DESC);',
+  // Relaciones puestas A MANO entre dos memorias.
+  //
+  // Hace falta una tabla propia y no alcanza con reusar `topic_key`: el indice
+  // `idx_obs_topic` es UNICO por (project_key, scope, topic_key) entre las filas vivas, asi
+  // que dos memorias del mismo proyecto NO PUEDEN compartir tema — guardar la segunda con el
+  // mismo topic no crea una fila, REEMPLAZA a la primera por merge (outcome `topic_updated`,
+  // verificado). O sea que "conectar dos" via topic borraria una de las dos.
+  //
+  // `a`/`b` ordenados al insertar (a < b) mas el UNIQUE: una relacion a mano no tiene
+  // direccion --"esta va con esta"-- y sin el orden la misma relacion entraria dos veces.
+  5: `CREATE TABLE IF NOT EXISTS memory_links (
+        a          TEXT NOT NULL,
+        b          TEXT NOT NULL,
+        note       TEXT,
+        created_at INTEGER NOT NULL,
+        PRIMARY KEY (a, b)
+      );
+      CREATE INDEX IF NOT EXISTS idx_links_b ON memory_links(b);`,
 }
 
 export class MemoryStore {
@@ -731,6 +759,36 @@ export class MemoryStore {
   }
 
   /** M17: enumerates known local projects so the daemon can pull with a per-project cursor for each. */
+  /**
+   * Conecta dos memorias a mano. Sin dirección: "esta va con esta".
+   *
+   * Los ids se ordenan antes de insertar, y el PRIMARY KEY (a, b) hace el resto: conectar
+   * A con B y después B con A es la MISMA relación, y sin el orden entraría dos veces y el
+   * grafo dibujaría dos líneas donde hay una.
+   */
+  linkMemories(unId: string, otroId: string, note?: string | null): { ok: boolean; error?: string } {
+    if (unId === otroId) return { ok: false, error: 'same_memory' }
+    const [a, b] = unId < otroId ? [unId, otroId] : [otroId, unId]
+    // Las dos tienen que existir: una relación hacia una memoria que no está dibujaría un
+    // nodo fantasma, que es justo lo que toGraphData filtra del otro lado.
+    const cuantas = this.db
+      .prepare('SELECT COUNT(*) AS n FROM observations WHERE sync_id IN (?, ?) AND deleted = 0')
+      .get(a, b) as { n: number }
+    if (cuantas.n !== 2) return { ok: false, error: 'memory_not_found' }
+    this.db
+      .prepare('INSERT OR REPLACE INTO memory_links (a, b, note, created_at) VALUES (?, ?, ?, ?)')
+      .run(a, b, note ?? null, Date.now())
+    return { ok: true }
+  }
+
+  /** Deshace una relación puesta a mano. Silencioso si no existía: borrar algo que no está
+   *  es el resultado que el llamador queria. */
+  unlinkMemories(unId: string, otroId: string): { ok: boolean } {
+    const [a, b] = unId < otroId ? [unId, otroId] : [otroId, unId]
+    this.db.prepare('DELETE FROM memory_links WHERE a = ? AND b = ?').run(a, b)
+    return { ok: true }
+  }
+
   listProjects(): Array<{ projectKey: string; displayName: string; enrolled: boolean }> {
     const rows = this.db.prepare('SELECT project_key, display_name, enrolled FROM projects').all() as Array<{
       project_key: string

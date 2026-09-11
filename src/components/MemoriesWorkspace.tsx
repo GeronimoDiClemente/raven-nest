@@ -43,6 +43,16 @@ export default function MemoriesWorkspace({ onClose, activeRepoPath, onOpenFile,
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [escribiendo, setEscribiendo] = useState(false)
   /**
+   * Cuando estás conectando dos memorias, guarda la PRIMERA.
+   *
+   * Vive acá y no en el panel del grafo porque la segunda se puede elegir en el grafo O en
+   * la LISTA, y el panel no ve la lista. Dos clicks y no un formulario: conectar es decir
+   * "esta va con esta", y lo natural es señalar las dos — un diálogo con dos selectores te
+   * obligaría a buscar por título lo que ya estás viendo en pantalla.
+   */
+  const [conectandoDesde, setConectandoDesde] = useState<string | null>(null)
+  const [avisoDeEnlace, setAvisoDeEnlace] = useState<string | null>(null)
+  /**
    * Cambia cuando se guarda algo nuevo. La lista y el grafo leen al montarse, así que
    * remontarlos con una key distinta es lo que hace que lo recién escrito aparezca — más
    * simple y más difícil de romper que enhebrar un refresh por tres componentes.
@@ -53,6 +63,34 @@ export default function MemoriesWorkspace({ onClose, activeRepoPath, onOpenFile,
   // "tenes N memorias en M proyectos". Esa card ya no existe: desde que la LISTA muestra
   // las memorias de verdad, el contador era una version peor de lo que el usuario tiene
   // arriba. Y la consulta se fue con ella, en vez de quedar colgada alimentando nada.
+
+  /** Un click normal selecciona. Si estás conectando, el segundo click CIERRA la relación. */
+  async function alElegir(id: string | null) {
+    if (!conectandoDesde || !id || id === conectandoDesde) {
+      if (!conectandoDesde) setSelectedId(id)
+      return
+    }
+    const api = window.memory?.link
+    if (!api) {
+      setAvisoDeEnlace('This build cannot connect memories yet.')
+      setConectandoDesde(null)
+      return
+    }
+    const res = await api(conectandoDesde, id)
+    setConectandoDesde(null)
+    if (!res.ok) {
+      setAvisoDeEnlace(res.error === 'memory_not_found'
+        ? 'One of those memories is no longer there.'
+        : 'Could not connect them.')
+      return
+    }
+    setAvisoDeEnlace(null)
+    // Deseleccionar a propósito: acabás de crear una relación y lo que querés es VERLA. Con
+    // la primera todavía seleccionada, el panel sigue mostrando su documento y la línea nueva
+    // queda atrás del texto que ya estabas leyendo.
+    setSelectedId(null)
+    setVersion((v) => v + 1)
+  }
 
   return (
     <div className={`teams-workspace memories-workspace${closing ? ' closing' : ''}`}>
@@ -107,11 +145,28 @@ export default function MemoriesWorkspace({ onClose, activeRepoPath, onOpenFile,
           </div>
         )}
 
-        <MemoriesList key={`lista-${version}`} selectedId={selectedId} onSelect={setSelectedId} />
+        {conectandoDesde && (
+          <div className="flex shrink-0 items-center gap-2 rounded-md border border-border bg-accent px-3 py-2">
+            <span className="min-w-0 flex-1 text-fs-sm text-foreground">
+              Pick the memory this one goes with — in the list or in the graph.
+            </span>
+            <Button variant="ghost" size="sm" onClick={() => { setConectandoDesde(null); setAvisoDeEnlace(null) }}>
+              Cancel
+            </Button>
+          </div>
+        )}
+        {avisoDeEnlace && <p className="shrink-0 text-fs-sm text-muted-foreground">{avisoDeEnlace}</p>}
+
+        <MemoriesList key={`lista-${version}`} selectedId={selectedId} onSelect={(id) => void alElegir(id)} />
 
         {/* El grafo de MEMORIAS (spec §3): cuadrado acotado, 3D, debajo de la lista. No se
             monta con cero nodos, asi que en una cuenta vacia esta linea no ocupa nada. */}
-        <MemoryGraphPanel key={`grafo-${version}`} selectedId={selectedId} onSelect={setSelectedId} />
+        <MemoryGraphPanel
+          key={`grafo-${version}`}
+          selectedId={selectedId}
+          onSelect={(id) => void alElegir(id)}
+          onEmpezarAConectar={(id) => { setConectandoDesde(id); setAvisoDeEnlace(null) }}
+        />
 
         {activeRepoPath ? (
           // El grafo de ramas (TeamThreadGraph) es otro grafo, fuera de alcance de esta

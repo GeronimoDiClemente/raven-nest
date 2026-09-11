@@ -29,7 +29,8 @@
 // vive detrás de `query.includeSimilar`, apagado por default.
 import type Database from 'better-sqlite3'
 
-export type MemoryEdgeKind = 'revision' | 'topic' | 'branch' | 'source' | 'cross-topic' | 'similar'
+export type MemoryEdgeKind =
+  | 'manual' | 'revision' | 'topic' | 'branch' | 'source' | 'cross-topic' | 'similar'
 
 export interface MemoryGraphNode {
   syncId: string
@@ -457,6 +458,31 @@ export function buildMemoryGraph(db: Database.Database, query: MemoryGraphQuery)
       return `${r.project_key}\u0000${doc}`
     })
   )
+
+  // 0. manual — "esta va con esta", puesto a mano por una persona.
+  //
+  // Va PRIMERA en la lista y se dibuja como la mas marcada de todas, y no es capricho: las
+  // otras seis las inferimos nosotros de algun campo compartido. Esta es la unica que
+  // alguien AFIRMO. Si el grafo las mezclara, lo unico que un humano se tomo el trabajo de
+  // decir quedaria indistinguible de lo que dedujo una consulta SQL.
+  //
+  // Se lee de su propia tabla porque `topic_key` no sirve para esto: `idx_obs_topic` es
+  // UNICO por (project_key, scope, topic_key) entre las filas vivas, asi que dos memorias
+  // del mismo proyecto no pueden compartir tema — guardar la segunda con el mismo topic
+  // REEMPLAZA a la primera. Conectar dos via topic borraria una de las dos.
+  {
+    const idsSeleccionados = new Set(selected.map((r) => r.sync_id))
+    const enlaces = db
+      .prepare('SELECT a, b FROM memory_links')
+      .all() as Array<{ a: string; b: string }>
+    for (const l of enlaces) {
+      // Las dos puntas tienen que estar en el grafo que se esta armando: una arista hacia un
+      // nodo que no vino haria aparecer un punto fantasma sin titulo ni color.
+      if (idsSeleccionados.has(l.a) && idsSeleccionados.has(l.b)) {
+        edges.push({ from: l.a, to: l.b, kind: 'manual', directed: false })
+      }
+    }
+  }
 
   // 5. cross-topic — el mismo topic en OTRO repo. La unica arista de hecho que cruza
   // proyectos; ver crossProjectTopicEdges para por que las otras no lo hacen.

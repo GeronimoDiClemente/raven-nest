@@ -60,9 +60,13 @@ const MAX_NODOS_CON_ETIQUETA = 60
 interface Props {
   selectedId: string | null
   onSelect: (syncId: string | null) => void
+  /** Empieza el modo "conectar": el workspace toma el control porque la segunda memoria
+   *  puede elegirse tanto en el grafo como en la LISTA, y la lista no la ve este panel. */
+  onEmpezarAConectar?: (syncId: string) => void
 }
 
-export default function MemoryGraphPanel({ selectedId, onSelect }: Props) {
+export default function MemoryGraphPanel({ selectedId, onSelect, onEmpezarAConectar }: Props) {
+
   const [includeSimilar, setIncludeSimilar] = useState(false)
   const [hideOrphans, setHideOrphans] = useState(true)
   // En qué está enfocado el grafo: un proyecto, un tag, o nada. Es el "abrir uno" de
@@ -261,7 +265,12 @@ export default function MemoryGraphPanel({ selectedId, onSelect }: Props) {
             texto no cambie de medida cada vez que se mueve la ventana. */}
         <div className="flex w-[340px] shrink-0 flex-col overflow-hidden rounded-md border border-border bg-card p-3">
           {selectedId ? (
-            <DocumentoDeMemoria detail={detail} loading={cargandoDetalle} missing={missing} />
+            <DocumentoDeMemoria
+              detail={detail}
+              loading={cargandoDetalle}
+              missing={missing}
+              onConectar={() => onEmpezarAConectar?.(selectedId)}
+            />
           ) : (
             <SinSeleccion
               grupos={grupos}
@@ -296,6 +305,33 @@ function SinSeleccion({
         <p className="text-fs font-medium text-foreground">How these memories connect</p>
         <p className="text-fs-sm text-muted-foreground">Click one to read it.</p>
       </div>
+
+      {/* Las RELACIONES van primero, antes de los grupos. Explican lo que estás mirando; los
+          grupos son filtros. Estaban al final y la lista de tags las empujaba abajo del
+          borde: el grafo dibujaba sus líneas y el panel no decía qué significaba ninguna. */}
+      {conteos && (
+        <div>
+          <p className="mb-1.5 text-fs-xs uppercase tracking-wide text-muted-foreground">Relationships</p>
+          <ul className="flex flex-col gap-1.5">
+            {EDGE_KINDS_IN_LEGEND_ORDER.map((kind) => {
+              const style = EDGE_STYLES[kind]
+              const n = conteos[kind] ?? 0
+              if (n === 0) return null
+              return (
+                <li key={kind} className="flex items-baseline gap-2 text-fs-sm">
+                  <span
+                    aria-hidden
+                    className="inline-block shrink-0 self-center rounded-full"
+                    style={{ width: 16, height: Math.max(style.width, 1), background: style.color }}
+                  />
+                  <span className="shrink-0 text-foreground">{style.label}</span>
+                  <span className="shrink-0 font-mono text-fs-xs tabular-nums text-muted-foreground">{n}</span>
+                </li>
+              )
+            })}
+          </ul>
+        </div>
+      )}
 
       {colorBy === 'type' && tiposPresentes.length > 0 && (
         <div>
@@ -351,7 +387,7 @@ function SinSeleccion({
         <div>
           <p className="mb-1.5 text-fs-xs uppercase tracking-wide text-muted-foreground">Tags</p>
           <ul className="flex flex-col gap-0.5">
-            {tags.slice(0, 12).map((t) => (
+            {tags.slice(0, 6).map((t) => (
               <li key={t.tag}>
                 <button
                   type="button"
@@ -370,47 +406,25 @@ function SinSeleccion({
               </li>
             ))}
           </ul>
-          {tags.length > 12 && (
+          {tags.length > 6 && (
             <p className="mt-1 px-1 text-fs-xs text-muted-foreground">
-              {tags.length - 12} more tags
+              {tags.length - 6} more tags
             </p>
           )}
         </div>
       )}
 
-      {conteos && (
-        <div>
-          <p className="mb-1.5 text-fs-xs uppercase tracking-wide text-muted-foreground">Relationships</p>
-          <ul className="flex flex-col gap-1.5">
-            {EDGE_KINDS_IN_LEGEND_ORDER.map((kind) => {
-              const style = EDGE_STYLES[kind]
-              const n = conteos[kind] ?? 0
-              if (n === 0) return null
-              return (
-                <li key={kind} className="flex items-baseline gap-2 text-fs-sm">
-                  <span
-                    aria-hidden
-                    className="inline-block shrink-0 self-center rounded-full"
-                    style={{ width: 16, height: Math.max(style.width, 1), background: style.color }}
-                  />
-                  <span className="shrink-0 text-foreground">{style.label}</span>
-                  <span className="shrink-0 font-mono text-fs-xs tabular-nums text-muted-foreground">{n}</span>
-                </li>
-              )
-            })}
-          </ul>
-        </div>
-      )}
     </div>
   )
 }
 
 function DocumentoDeMemoria({
-  detail, loading, missing,
+  detail, loading, missing, onConectar,
 }: {
   detail: MemoryObservationDetail | null
   loading: boolean
   missing: boolean
+  onConectar: () => void
 }) {
   if (loading) return <p className="text-fs-sm text-muted-foreground">Loading…</p>
   if (missing || !detail) {
@@ -466,6 +480,14 @@ function DocumentoDeMemoria({
       ) : (
         <p className="text-fs-sm text-muted-foreground">This memory has no body — only its title.</p>
       )}
+
+      {/* Conectar a mano. Es la unica relacion que una PERSONA afirma — las otras seis las
+          infiere el sistema de un campo compartido, y por eso esta se dibuja mas marcada. */}
+      <div className="mt-1">
+        <Button variant="outline" size="sm" onClick={onConectar}>
+          Connect to another memory
+        </Button>
+      </div>
 
       {detail.tags.length > 0 && (
         <div className="flex flex-wrap gap-1">

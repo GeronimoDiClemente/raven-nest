@@ -31,6 +31,14 @@ beforeEach(() => {
       source_ref     TEXT
     );
 
+    CREATE TABLE memory_links (
+      a          TEXT NOT NULL,
+      b          TEXT NOT NULL,
+      note       TEXT,
+      created_at INTEGER NOT NULL,
+      PRIMARY KEY (a, b)
+    );
+
     -- buildMemoryGraph hace LEFT JOIN con \`projects\` por el nombre legible del proyecto
     -- (el \`project_key\` es un hash). El fixture necesita la tabla aunque estos casos no
     -- la usen.
