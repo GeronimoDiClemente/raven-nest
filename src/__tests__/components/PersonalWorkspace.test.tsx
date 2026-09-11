@@ -297,4 +297,23 @@ describe('PersonalWorkspace', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Standup' }))
     expect(screen.getByText('Add repos to see the standup')).toBeInTheDocument()
   })
+
+  // workspace-shell-design §5: Issues with zero repos linked used to be a dead
+  // end ("First add a repo in the Repos section") — now it offers the way there.
+  it('Issues with no repos linked offers a real way back to Repos', () => {
+    scopedState.repos = []
+    render(<PersonalWorkspace {...props} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Issues' }))
+    expect(screen.getByText('No repos to triage issues for')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Go to Repos' }))
+    expect(screen.getByRole('button', { name: 'Repos' })).toHaveClass('active')
+  })
+
+  it('Issues with only GitLab repos linked says so and offers the way back to Repos', () => {
+    scopedState.repos = [{ ...repo('org/repo'), provider: 'gitlab' }]
+    render(<PersonalWorkspace {...props} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Issues' }))
+    expect(screen.getByText('No GitHub repos linked')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Go to Repos' })).toBeInTheDocument()
+  })
 })

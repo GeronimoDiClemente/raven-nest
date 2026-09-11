@@ -19,6 +19,7 @@ import RepoActionsAccordion from './RepoActionsAccordion'
 import RepoActionsMenu, { type RepoAction } from './RepoActionsMenu'
 import WorkspaceNavButton from './WorkspaceNavButton'
 import { AILogoStack } from './AILogoStack'
+import { Button } from '@/components/ui/button'
 import { useGitlab } from '../hooks/useGitlab'
 import { ProviderAvatarPill, providerAvatar } from './ProviderAvatar'
 import type { AIType, WorkerSpec } from '../types'
@@ -499,8 +500,9 @@ export default function PersonalWorkspace({ onClose, githubToken, githubLogin, o
 
                 {!loading && repos.length === 0 && (
                   <div className="tw-placeholder">
-                    <p className="tw-placeholder-title">No repos</p>
-                    <p style={{ fontSize: 12 }}>Click <strong>＋ Add repo</strong> to pick one from your connected accounts</p>
+                    <p className="tw-placeholder-title">No repos linked yet</p>
+                    <p className="tw-placeholder-text">Link a repo to open a terminal in it, track its PRs and issues, and hand it to an AI agent.</p>
+                    {canManage && <Button onClick={() => setShowPicker(true)}>Add a repo</Button>}
                   </div>
                 )}
 
@@ -733,13 +735,15 @@ export default function PersonalWorkspace({ onClose, githubToken, githubLogin, o
               <div className="team-tab-pane">
                 {repos.length === 0 ? (
                   <div className="tw-placeholder">
-                    <p style={{ fontSize: 13, fontWeight: 500, marginBottom: 6 }}>No repos linked</p>
-                    <p style={{ fontSize: 12 }}>First add a repo in the Repos section</p>
+                    <p className="tw-placeholder-title">No repos to triage issues for</p>
+                    <p className="tw-placeholder-text">Link a repo first, then come back here to work through its issues without leaving Nest.</p>
+                    <Button onClick={() => switchSection('repos')}>Go to Repos</Button>
                   </div>
                 ) : githubRepos.length === 0 ? (
                   <div className="tw-placeholder">
-                    <p style={{ fontSize: 13, fontWeight: 500, marginBottom: 6 }}>No GitHub repos</p>
-                    <p style={{ fontSize: 12 }}>Issues only available for GitHub repos — connect your GitHub account or add a GitHub repo above.</p>
+                    <p className="tw-placeholder-title">No GitHub repos linked</p>
+                    <p className="tw-placeholder-text">Issues only works with GitHub repos — link one to see and triage its issues here.</p>
+                    <Button onClick={() => switchSection('repos')}>Go to Repos</Button>
                   </div>
                 ) : (
                   <>
@@ -808,7 +812,10 @@ export default function PersonalWorkspace({ onClose, githubToken, githubLogin, o
             {section === 'pendings' && (
               <div className="team-tab-pane">
                 {pendingInvites.length === 0 ? (
-                  <p className="snippet-empty">No pending invites.</p>
+                  <div className="tw-placeholder">
+                    <p className="tw-placeholder-title">No pending invites</p>
+                    <p className="tw-placeholder-text">Invitations from other teams will show up here so you can accept or decline them.</p>
+                  </div>
                 ) : (
                   <>
                     <p style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 12 }}>

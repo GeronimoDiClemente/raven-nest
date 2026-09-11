@@ -163,16 +163,16 @@ describe('App — Personal section reset', () => {
     fireEvent.click(screen.getByTestId('open-invites'))
     expect(screen.queryByTestId('teams-workspace')).not.toBeInTheDocument()
     expect(activeNavLabel()).toBe('Invites')
-    expect(screen.getByText('No pending invites.')).toBeInTheDocument()
+    expect(screen.getByText('No pending invites')).toBeInTheDocument()
 
     // Close Personal (still parked on 'pendings' — nothing resets it here).
     fireEvent.click(screen.getByText('Back'))
-    expect(screen.queryByText('No pending invites.')).not.toBeInTheDocument()
+    expect(screen.queryByText('No pending invites')).not.toBeInTheDocument()
 
     // Reopen Personal normally, from the sidebar door — not via the invites
     // redirect. It must show repos, not the stale invites section.
     fireEvent.click(screen.getByTestId('open-personal'))
     expect(activeNavLabel()).toBe('Repos')
-    expect(screen.queryByText('No pending invites.')).not.toBeInTheDocument()
+    expect(screen.queryByText('No pending invites')).not.toBeInTheDocument()
   })
 })

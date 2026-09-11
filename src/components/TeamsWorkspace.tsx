@@ -660,7 +660,10 @@ export default function TeamsWorkspace({ onClose, onLoad, onPendingInvitesChange
                   {memberActionError && <p style={{ color: '#EF4444', fontSize: 11, marginBottom: 8 }}>{memberActionError}</p>}
                   {joinRequestError && <p style={{ color: '#EF4444', fontSize: 11, marginBottom: 8 }}>{joinRequestError}</p>}
                   {members.length === 0 ? (
-                    <p className="snippet-empty">No members yet.</p>
+                    <div className="tw-placeholder">
+                      <p className="tw-placeholder-title">No members yet</p>
+                      <p className="tw-placeholder-text">Teammates you invite will show up here, ready to share snippets, workspaces and MCP configs.</p>
+                    </div>
                   ) : (
                     <div className="team-member-list">
                       {members.map(m => (
@@ -737,7 +740,10 @@ export default function TeamsWorkspace({ onClose, onLoad, onPendingInvitesChange
                 <div className="team-tab-pane">
                   {snippetsLoading && <p className="snippet-empty">Loading…</p>}
                   {!snippetsLoading && teamSnippets.length === 0 && (
-                    <p className="snippet-empty">No snippets. Share from the Snippets panel using ↗.</p>
+                    <div className="tw-placeholder">
+                      <p className="tw-placeholder-title">No snippets shared yet</p>
+                      <p className="tw-placeholder-text">Share one from the Snippets panel (↗) to make it available to the whole team.</p>
+                    </div>
                   )}
                   <div className="snippet-list" style={{ maxHeight: 'none' }}>
                     {teamSnippets.map(s => (
@@ -767,7 +773,10 @@ export default function TeamsWorkspace({ onClose, onLoad, onPendingInvitesChange
                 <div className="team-tab-pane">
                   {wsLoading && <p className="snippet-empty">Loading…</p>}
                   {!wsLoading && teamWorkspaces.length === 0 && (
-                    <p className="snippet-empty">No workspaces. Share from the Workspaces panel using ↗.</p>
+                    <div className="tw-placeholder">
+                      <p className="tw-placeholder-title">No workspaces shared yet</p>
+                      <p className="tw-placeholder-text">Share one from the Workspaces panel (↗) to make it available to the whole team.</p>
+                    </div>
                   )}
                   <div className="snippet-list" style={{ maxHeight: 'none' }}>
                     {teamWorkspaces.map(ws => (
@@ -798,7 +807,10 @@ export default function TeamsWorkspace({ onClose, onLoad, onPendingInvitesChange
                 <div className="team-tab-pane">
                   {mcpLoading && <p className="snippet-empty">Loading…</p>}
                   {!mcpLoading && teamMcpConfigs.length === 0 && (
-                    <p className="snippet-empty">No MCP configs. Share from the MCP panel using ↗.</p>
+                    <div className="tw-placeholder">
+                      <p className="tw-placeholder-title">No MCP configs shared yet</p>
+                      <p className="tw-placeholder-text">Share one from the MCP panel (↗) to make it available to the whole team.</p>
+                    </div>
                   )}
                   <div className="snippet-list" style={{ maxHeight: 'none' }}>
                     {teamMcpConfigs.map(mc => (

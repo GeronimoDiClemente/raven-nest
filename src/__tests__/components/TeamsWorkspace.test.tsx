@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent } from '@testing-library/react'
 import TeamsWorkspace from '../../components/TeamsWorkspace'
 
 vi.mock('../../hooks/useTeam', () => ({
@@ -80,5 +80,30 @@ describe('TeamsWorkspace nav', () => {
     renderWorkspace()
     expect(screen.getByRole('button', { name: 'Chat' })).toHaveClass('active')
     expect(screen.getByRole('button', { name: 'Members' })).not.toHaveClass('active')
+  })
+})
+
+// workspace-shell-design §5: these three used to be a single flat sentence
+// ("No snippets. Share from the Snippets panel using ↗."). No button here —
+// the honest action (sharing) lives in a different panel this component has
+// no handle to open — but the copy now splits into a title and a line, same
+// shape as the rest of the empty states this task touched.
+describe('TeamsWorkspace — empty collaboration sections', () => {
+  it('Snippets with nothing shared explains where sharing happens', () => {
+    renderWorkspace()
+    fireEvent.click(screen.getByRole('button', { name: 'Snippets' }))
+    expect(screen.getByText('No snippets shared yet')).toBeInTheDocument()
+  })
+
+  it('Workspaces with nothing shared explains where sharing happens', () => {
+    renderWorkspace()
+    fireEvent.click(screen.getByRole('button', { name: 'Workspaces' }))
+    expect(screen.getByText('No workspaces shared yet')).toBeInTheDocument()
+  })
+
+  it('MCP Servers with nothing shared explains where sharing happens', () => {
+    renderWorkspace()
+    fireEvent.click(screen.getByRole('button', { name: 'MCP Servers' }))
+    expect(screen.getByText('No MCP configs shared yet')).toBeInTheDocument()
   })
 })
