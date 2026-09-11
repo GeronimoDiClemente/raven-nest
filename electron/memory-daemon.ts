@@ -92,6 +92,13 @@ export interface StatusResponseBody {
 export interface PulledRow extends LWWRow {
   deleted: boolean
   topicKey: string | null
+  /**
+   * El HMAC del tema, que es lo unico que el servidor ve de el (spec §5.2). Lo completa
+   * `openPulledRow` (memory-envelope.ts): `null` cuando no hay claves, el valor que vino
+   * cuando la fila llega cifrada, y el recalculado cuando la fila es anterior a la
+   * migracion y todavia trae el tema en claro.
+   */
+  topicKeyHmac?: string | null
   scope: string
   /** Local project_key (client-derived hash) — see mapRawPulledRow / C1. */
   projectKey: string
