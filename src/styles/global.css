@@ -14,6 +14,14 @@
 }
 
 :root {
+  /* Escala de frescura del grafo de ramas. El verde es el mismo de los estados "vivos"
+     del resto de la app; el gris apagado deja que lo viejo se lea viejo sin desaparecer
+     contra el fondo. Viven aca, y no en .team-thread-graph, porque el render WebGL los
+     lee de documentElement — ver la nota en esa clase. */
+  --tt-fresh-hoy: #22c55e;
+  --tt-fresh-semana: #15803d;
+  --tt-fresh-mes: #6b7280;
+  --tt-fresh-viejo: #40474f;
   /* ── Contrato de tokens shadcn ───────────────────────────────────────
      Direccion "Nest Terminal" (design lab del 2026-09-09). Es el MISMO
      contrato de nombres que usan Orca y Superset, asi que el dia que se
@@ -7256,13 +7264,11 @@ button.ci-badge:hover {
 }
 
 .team-thread-graph {
-  /* Escala de frescura. El verde es el mismo de los estados "vivos" del resto de
-     la app; el gris apagado sale de --text-muted para que lo viejo se lea viejo
-     sin desaparecer contra el fondo. */
-  --tt-fresh-hoy: #22c55e;
-  --tt-fresh-semana: #15803d;
-  --tt-fresh-mes: #6b7280;
-  --tt-fresh-viejo: #40474f;
+  /* Los tokens --tt-fresh-* se movieron a :root el 2026-09-11. Desde que el grafo se
+     dibuja en WebGL (Graph3D), el color hay que resolverlo a un valor REAL antes de
+     pintar — three no sabe nada de variables CSS, y un `var(...)` le llega como color
+     invalido y pinta negro. Leerlos con getComputedStyle sobre documentElement es lo
+     unico estable; declarados aca no existian ahi. */
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -7310,37 +7316,27 @@ button.ci-badge:hover {
   margin-left: auto;
 }
 
-/* El SVG venia sin width/height, solo con viewBox: tomaba el ancho del contenedor y
-   una altura arbitraria. Alto fijo + preserveAspectRatio (el default) = el grafo se
-   escala centrado sin deformarse. */
-.team-thread-graph svg {
-  display: block;
-  width: 100%;
-  height: auto;
-  aspect-ratio: 1 / 1;
+/* La caja del grafo 3D. Alto FIJO, no `aspect-ratio`: Graph3D mide su contenedor con un
+   ResizeObserver y le pasa el tamaño al renderer, asi que un contenedor de alto automatico
+   le da cero y no dibuja nada. 280 es mas bajo que el grafo de memorias (380) a proposito:
+   este panel es secundario, vive debajo. */
+.team-thread-graph-canvas {
+  height: 280px;
   background: var(--bg-app);
   border: 1px solid var(--border);
   border-radius: 6px;
+  overflow: hidden;
 }
 
-.team-thread-graph circle[role='button'] {
-  cursor: pointer;
-  transition: stroke 0.12s ease, stroke-width 0.12s ease;
-}
-/* Foco de teclado. Los atributos de presentacion del JSX (stroke/stroke-dasharray,
-   que codifican el ESTADO de la rama) pierden contra cualquier regla CSS, asi que
-   esta gana sin tener que tocar el markup. El outline default del navegador sobre
-   un <circle> es inconsistente entre motores y de bajo contraste justo contra los
-   colores de frescura, que es lo que este panel viene a mostrar. */
-.team-thread-graph circle[role='button']:focus-visible {
-  outline: none;
-  stroke: var(--ring);
-  stroke-width: 3;
-  stroke-dasharray: none;
-}
-.team-thread-graph circle[role='button']:hover {
-  stroke: var(--text-primary);
-  stroke-width: 2;
+/* Sin notas todavia no se dibuja un cuadro: se dice. Hasta el 2026-09-11 el grafo pintaba
+   un viewBox de 800x800 con UN punto blanco en el medio (el nodo `_index`), que es lo peor
+   de los dos mundos — ocupa muchisimo y no dice nada. */
+.team-thread-graph-vacio {
+  padding: 14px 12px;
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 6px;
 }
 
 /* Mismo tono ambar/rojo que el resto de los avisos de la app: el error del panel no

@@ -3,6 +3,24 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import TeamThreadPanel from '../../components/TeamThreadPanel'
 import type { TeamThreadBranch, TeamThreadSettings } from '../../types'
 
+// El grafo pasa a dibujarse en WebGL (Graph3D), que jsdom no ejecuta y que no deja nodos en
+// el DOM. Este doble pinta un boton por nodo con su etiqueta — lo minimo para que los
+// contratos de ESTE archivo (que el panel carga las ramas, que un click abre la nota
+// correcta) se sigan pudiendo verificar. Reemplaza al canvas, no a la logica bajo prueba.
+vi.mock('../../components/Graph3DLazy', () => ({
+  prefetchGraph3D: vi.fn(),
+  LazyGraph3D: ({ nodes, onSelect }: {
+    nodes: Array<{ id: string; label: string }>
+    onSelect: (id: string | null) => void
+  }) => (
+    <div data-testid="grafo-3d">
+      {nodes.map((n) => (
+        <button key={n.id} type="button" onClick={() => onSelect(n.id)}>{`open note for ${n.label}`}</button>
+      ))}
+    </div>
+  ),
+}))
+
 const BRANCHES: TeamThreadBranch[] = [
   { slug: 'sidebar', branch: 'feat/sidebar-tabs', estado: 'activa', ultimoAutor: 'Bauti', ultimaEntrada: Date.now() - 3600_000, entradas: 2 },
   { slug: 'bridge', branch: 'smoke/memory-bridge', estado: 'cerrada', ultimoAutor: 'Gero', ultimaEntrada: Date.now() - 40 * 86400_000, entradas: 5 },
@@ -43,11 +61,11 @@ describe('TeamThreadPanel', () => {
   it('loads settings + branches for the worktree and shows the graph enabled, focused on the current branch (global by default, I5)', async () => {
     mockApi()
     render(<TeamThreadPanel activeRepoPath="C:/repo/worktree" onOpenFile={vi.fn()} />)
-    await waitFor(() => expect(screen.getAllByRole('button', { name: /open note/i })).toHaveLength(2))
+    await waitFor(() => expect(screen.getAllByRole('button', { name: /open note for .+ — / })).toHaveLength(2))
     expect(screen.getByRole('button', { name: /open note for feat\/sidebar-tabs/i })).toBeInTheDocument()
 
     fireEvent.click(screen.getByText('Show current branch'))
-    expect(screen.getAllByRole('button', { name: /open note/i })).toHaveLength(1)
+    expect(screen.getAllByRole('button', { name: /open note for .+ — / })).toHaveLength(1)
   })
 
   it('clicking a node opens the note through onOpenFile with the right relative path', async () => {
@@ -103,7 +121,7 @@ describe('TeamThreadPanel', () => {
     memoryApi.teamThreadGetSettings.mockResolvedValue({ ok: false, error: 'memory_unavailable' })
     render(<TeamThreadPanel activeRepoPath="C:/repo/worktree" onOpenFile={vi.fn()} />)
     await waitFor(() => expect(screen.getByText(/couldn't load the team thread/i)).toBeInTheDocument())
-    expect(screen.queryAllByRole('button', { name: /open note/i })).toHaveLength(0)
+    expect(screen.queryAllByRole('button', { name: /open note for .+ — / })).toHaveLength(0)
   })
 
   it('shows a visible error (not a silent blank panel) when the IPC call rejects outright', async () => {
