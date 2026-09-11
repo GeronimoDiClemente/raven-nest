@@ -7377,11 +7377,17 @@ button.ci-badge:hover {
   align-items: center;
   justify-content: center;
   gap: 10px;
-  padding: 6px 0;
-  margin: 4px 6px;
+  /* Medido en la barra colapsada el 2026-09-11: esta fila daba 40px de alto y las otras
+     ocho 32, y encima era la unica con margen VERTICAL (4px arriba y abajo). Resultado:
+     el resaltado de esta fila era mas alto que el de sus vecinas y el espacio de arriba y
+     de abajo no coincidia con el de ninguna otra. La altura y la forma de la fila las fija
+     la escala (32px, radio 10) — no las decide cada fila por su cuenta. */
+  height: 32px;
+  padding: 0;
+  margin: 0 6px;
   background: transparent;
   border: none;
-  border-radius: 8px;
+  border-radius: 10px;
   cursor: pointer;
   color: var(--text-secondary);
   width: calc(100% - 12px);
@@ -7391,7 +7397,7 @@ button.ci-badge:hover {
 }
 .user-menu-trigger.expanded {
   justify-content: flex-start;
-  padding: 6px 8px;
+  padding: 0 8px;
 }
 .user-menu-trigger:hover {
   background: var(--bg-app, #050505);

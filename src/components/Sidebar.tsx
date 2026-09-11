@@ -500,7 +500,9 @@ export default function Sidebar({
   const repoRow = (showBranch: boolean) => (
     <div
       className="sidebar-item sidebar-repo"
-      title={repoPath ?? 'Link repo to this tab'}
+      // En colapsado el `title` es lo unico que dice de que repo y de que rama se trata:
+      // ni el nombre ni el branch entran en 48px.
+      title={repoPath ? `${repoPath}${branch ? ` · ${branch}` : ''}` : 'Link repo to this tab'}
       onClick={onRepoLink}
       style={{ cursor: 'pointer' }}
     >
@@ -723,7 +725,11 @@ export default function Sidebar({
           </Button>
         )}
 
-        {!expanded && !isHub && repoRow(true)}
+        {/* Sin el branch: en 48px de ancho no entra, y lo que se veia era UNA letra suelta
+            al lado del icono — el principio del nombre de la rama desbordando. Un texto que
+            no entra no informa, ensucia. El nombre del repo y la rama siguen en el `title`
+            de la fila, que es como se leen en modo colapsado. */}
+        {!expanded && !isHub && repoRow(false)}
 
         {!expanded && isHub && onSelectWorkspace && onJumpToPane && onToggleTerminal && onToggleWorkspace && onNewWorkspace && onAddTerminalToWorkspace && (
           <HubSidebarPanel
