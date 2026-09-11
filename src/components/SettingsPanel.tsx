@@ -22,8 +22,12 @@ import MemoryAdoptionDialog from './MemoryAdoptionDialog'
 import logoUrl from '../assets/logo.png'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { X } from 'lucide-react'
+import {
+  X, User, Keyboard, Mic, FileCode, Terminal as TerminalIcon, RefreshCw, GraduationCap,
+  ChartColumn, ChevronLeft, type LucideIcon,
+} from 'lucide-react'
 import { ICON_SIZE } from '../lib/icons'
+import WorkspaceNavButton from './WorkspaceNavButton'
 
 
 interface KeybindRowProps {
@@ -107,6 +111,25 @@ interface Props {
 }
 
 /**
+ * Las secciones, en orden. De acá sale el rail de la izquierda, y el contenido de abajo está
+ * apilado en ESTE mismo orden — si no coincidieran, el índice mentiría sobre lo que vas a
+ * encontrar al bajar.
+ *
+ * El orden es por uso, no alfabético ni histórico: Account y los atajos son lo que la gente
+ * viene a tocar; Benchmarks y Tutorial se visitan una vez.
+ */
+const SECCIONES: Array<{ id: string; titulo: string; icono: LucideIcon }> = [
+  { id: 'account', titulo: 'Account', icono: User },
+  { id: 'keybinds', titulo: 'Keyboard shortcuts', icono: Keyboard },
+  { id: 'voice', titulo: 'Voice', icono: Mic },
+  { id: 'editor', titulo: 'Editor', icono: FileCode },
+  { id: 'presets', titulo: 'Command presets', icono: TerminalIcon },
+  { id: 'updates', titulo: 'Updates', icono: RefreshCw },
+  { id: 'tutorial', titulo: 'Tutorial', icono: GraduationCap },
+  { id: 'benchmarks', titulo: 'Benchmarks', icono: ChartColumn },
+]
+
+/**
  * Una sección del panel: título, una línea que dice para qué sirve, y el contenido.
  *
  * El filtro del buscador vive acá y es deliberadamente GRUESO — matchea contra el título, la
@@ -124,6 +147,29 @@ function Seccion({
   children: React.ReactNode
 }) {
   const ref = useRef<HTMLElement | null>(null)
+  /**
+   * El contenido se monta cuando la sección ENTRA en pantalla, no al abrir el panel.
+   *
+   * Con una sola página, todas las secciones montan a la vez — y algunas no son inertes:
+   * `BenchmarkDashboard` arranca un `setInterval` de 2s contra el proceso principal. Sin
+   * esto, abrir Settings para cambiar un atajo dejaba corriendo un polling que nadie estaba
+   * mirando. El encabezado y la descripción SÍ se dibujan siempre, que es lo que hace que
+   * saltar desde el rail y buscar por título sigan funcionando.
+   */
+  // Arranca en `true` donde no hay IntersectionObserver (jsdom, y cualquier entorno que no
+  // lo traiga): sin el observador no hay forma de saber cuándo entra en pantalla, y ante la
+  // duda es mejor montar todo que no montar nada.
+  const [vista, setVista] = useState(() => typeof IntersectionObserver === 'undefined')
+  useEffect(() => {
+    const el = ref.current
+    if (!el || vista || typeof IntersectionObserver === 'undefined') return
+    const io = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting) setVista(true)
+    }, { rootMargin: '200px' })
+    io.observe(el)
+    return () => io.disconnect()
+  }, [vista])
+
   const q = busqueda.trim().toLowerCase()
   // El texto propio de la sección alcanza para el título y la descripción; para el contenido
   // se lee del DOM ya renderizado, que es la única forma de buscar adentro de subcomponentes
@@ -142,7 +188,7 @@ function Seccion({
     >
       <h3 className="sp-seccion-titulo">{titulo}</h3>
       <p className="sp-seccion-desc">{descripcion}</p>
-      {children}
+      {vista && children}
     </section>
   )
 }
@@ -348,37 +394,44 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
 
       {open && createPortal(
         <>
-          <div className="team-modal-overlay" onClick={() => setOpen(false)} />
-
-          <div className="sp-modal">
-            {/* Header */}
-            <div className="sp-header">
-              <div className="sp-header-left">
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" style={{ opacity: 0.7 }}>
-                  <path d="M19.43 12.98c.04-.32.07-.64.07-.98s-.03-.66-.07-.98l2.11-1.65a.5.5 0 0 0 .12-.64l-2-3.46a.5.5 0 0 0-.61-.22l-2.49 1a7.3 7.3 0 0 0-1.69-.98l-.38-2.65A.5.5 0 0 0 14 2h-4a.5.5 0 0 0-.49.42l-.38 2.65c-.61.25-1.17.58-1.69.98l-2.49-1a.5.5 0 0 0-.61.22l-2 3.46a.5.5 0 0 0 .12.64L4.57 11c-.04.32-.07.65-.07.99s.03.66.07.98l-2.11 1.65a.5.5 0 0 0-.12.64l2 3.46a.5.5 0 0 0 .61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65a.5.5 0 0 0 .49.43h4a.5.5 0 0 0 .49-.42l.38-2.65c.61-.25 1.17-.58 1.69-.98l2.49 1a.5.5 0 0 0 .61-.22l2-3.46a.5.5 0 0 0-.12-.64l-2.11-1.65zM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7z" fill="currentColor"/>
-                </svg>
-                <span className="sp-title">Settings</span>
+          {/* La MISMA cáscara que Personal, Teams y Memories, no un modal aparte.
+              Settings era lo único que se abría como un flotante sobre la app mientras las
+              otras tres pantallas grandes eran overlays a pantalla completa con su nav a la
+              izquierda — tres cosas que hacen lo mismo, presentadas de tres formas. Con
+              `.teams-workspace` se lleva gratis la animación de entrada y el z-index que las
+              otras ya tenían. */}
+          <div className="teams-workspace settings-workspace">
+            <div className="teams-workspace-header">
+              <button className="tw-back-btn" onClick={() => setOpen(false)}>
+                <ChevronLeft size={ICON_SIZE.lg} aria-hidden />
+                Back
+              </button>
+              <div className="tw-header-center">
+                <span>Settings</span>
               </div>
-              {/* Era el caracter "×" en un <button> con reglas propias. Ahora es el icono
-                  del sistema, con el mismo grosor que el resto (src/lib/icons.ts). */}
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                onClick={() => setOpen(false)}
-                title="Close settings"
-                aria-label="Close settings"
-              >
-                <X size={ICON_SIZE.md} aria-hidden />
-              </Button>
             </div>
 
-            {/* Una sola pagina con secciones y un buscador, no siete pestañas.
-                Es el modelo de Orca (onorca.dev/docs/settings, verificado): "Settings are
-                grouped into panes. Everything here is searchable". Las pestañas obligaban a
-                saber de antemano en cual esta cada cosa — y en este panel eso fallaba en su
-                propio ejemplo: "Voice language" vivia adentro de "Keybinds", que no es un
-                keybind. Ahora son secciones propias, cada una con lo que hace escrito
-                abajo del titulo. */}
+            <div className="teams-workspace-body">
+              {/* El rail. Es el mismo componente de fila que usa Personal, no una lista
+                  propia: era justamente lo que hacía que estas pantallas se vieran de
+                  stacks distintos. Tocar una sección la trae a la vista en vez de
+                  esconder las demás — con el buscador ya hay una forma de filtrar. */}
+              <nav className="teams-workspace-nav">
+                {SECCIONES.map((sec) => (
+                  <WorkspaceNavButton
+                    key={sec.id}
+                    icon={<sec.icono size={ICON_SIZE.lg} aria-hidden />}
+                    label={sec.titulo}
+                    active={false}
+                    onClick={() => {
+                      document.getElementById(`settings-${sec.id}`)
+                        ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                    }}
+                  />
+                ))}
+              </nav>
+
+              <div className="teams-workspace-content settings-content">
             <div className="sp-search-row">
               <Input
                 type="search"
@@ -391,92 +444,6 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
             </div>
 
             {/* Body */}
-            <div className="sp-body">
-
-              <Seccion
-                id="voice"
-                titulo="Voice"
-                descripcion="Dictation into the prompt. Needs openai-whisper installed; without it the mic button simply doesn't transcribe."
-                busqueda={busqueda}
-              >
-                <div className="sp-section">
-                  <div className="sp-row">
-                    <span className="sp-row-label">Voice language</span>
-                    <select
-                      className="sp-select"
-                      value={settings.voiceLanguage ?? 'es'}
-                      onChange={e => updateVoiceLanguage(e.target.value)}
-                    >
-                      <option value="es">Español</option>
-                      <option value="en">English</option>
-                      <option value="pt">Português</option>
-                      <option value="fr">Français</option>
-                      <option value="de">Deutsch</option>
-                      <option value="it">Italiano</option>
-                      <option value="zh">中文</option>
-                      <option value="ja">日本語</option>
-                    </select>
-                  </div>
-                </div>
-              </Seccion>
-
-              <Seccion
-                id="keybinds"
-                titulo="Keyboard shortcuts"
-                descripcion="Click a shortcut to record a new one."
-                busqueda={busqueda}
-              >
-                <div className="sp-section">
-                  {keybindRows.map(row => (
-                    <KeybindRow
-                      key={row.action}
-                      label={row.label}
-                      action={row.action}
-                      binding={kb[row.action]}
-                      onUpdate={updateKeybinding}
-                    />
-                  ))}
-                </div>
-              </Seccion>
-
-              <Seccion
-                id="presets"
-                titulo="Command presets"
-                descripcion="Commands you can fire at a pane without retyping them."
-                busqueda={busqueda}
-              >
-                <div className="sp-section">
-                  <PresetEditor repoPath={activeRepoPath ?? null} />
-                </div>
-              </Seccion>
-
-              <Seccion
-                id="benchmarks"
-                titulo="Benchmarks"
-                descripcion="How long your agents take, measured across runs."
-                busqueda={busqueda}
-              >
-                <div className="sp-section">
-                  <BenchmarkDashboard />
-                </div>
-              </Seccion>
-
-              <Seccion
-                id="updates"
-                titulo="Updates"
-                descripcion="Which version you are on, and whether there is a newer one."
-                busqueda={busqueda}
-              >
-                <div className="sp-section">
-                  <Button
-                    variant="outline" size="sm"
-                    onClick={onCheckUpdates}
-                    disabled={updateState === 'checking' || updateState === 'update-found'}
-                  >
-                    {updateLabel}
-                  </Button>
-                </div>
-              </Seccion>
 
               <Seccion
                 id="account"
@@ -694,31 +661,51 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
               </Seccion>
 
               <Seccion
-                id="tutorial"
-                titulo="Tutorial"
-                descripcion="Walk through Nest with demo data, without touching your repos."
+                id="keybinds"
+                titulo="Keyboard shortcuts"
+                descripcion="Click a shortcut to record a new one."
                 busqueda={busqueda}
               >
                 <div className="sp-section">
-                  <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '0 0 12px' }}>
-                    Recorré las secciones de Nest con datos de demostración, sin tocar tus repos.
-                  </p>
-                  <Button variant="outline" size="sm" onClick={() => onOpenTutorial?.('worktrees')}>
-                    Tutorial: Worktrees
-                  </Button>
+                  {keybindRows.map(row => (
+                    <KeybindRow
+                      key={row.action}
+                      label={row.label}
+                      action={row.action}
+                      binding={kb[row.action]}
+                      onUpdate={updateKeybinding}
+                    />
+                  ))}
                 </div>
               </Seccion>
 
-              {memoryUpgradeOpen && (
-                <UpgradeModal currentPlan={plan} onClose={() => setMemoryUpgradeOpen(false)} />
-              )}
+              <Seccion
+                id="voice"
+                titulo="Voice"
+                descripcion="Dictation into the prompt. Needs openai-whisper installed; without it the mic button simply doesn't transcribe."
+                busqueda={busqueda}
+              >
+                <div className="sp-section">
+                  <div className="sp-row">
+                    <span className="sp-row-label">Voice language</span>
+                    <select
+                      className="sp-select"
+                      value={settings.voiceLanguage ?? 'es'}
+                      onChange={e => updateVoiceLanguage(e.target.value)}
+                    >
+                      <option value="es">Español</option>
+                      <option value="en">English</option>
+                      <option value="pt">Português</option>
+                      <option value="fr">Français</option>
+                      <option value="de">Deutsch</option>
+                      <option value="it">Italiano</option>
+                      <option value="zh">中文</option>
+                      <option value="ja">日本語</option>
+                    </select>
+                  </div>
+                </div>
+              </Seccion>
 
-              {memoryHubOpen && (
-                <MemoryHub
-                  onClose={() => setMemoryHubOpen(false)}
-                  onUpgrade={() => { setMemoryHubOpen(false); setMemoryUpgradeOpen(true) }}
-                />
-              )}
               <Seccion
                 id="editor"
                 titulo="Editor"
@@ -821,8 +808,80 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                 </div>
               </Seccion>
 
+              <Seccion
+                id="presets"
+                titulo="Command presets"
+                descripcion="Commands you can fire at a pane without retyping them."
+                busqueda={busqueda}
+              >
+                <div className="sp-section">
+                  <PresetEditor repoPath={activeRepoPath ?? null} />
+                </div>
+              </Seccion>
+
+              <Seccion
+                id="updates"
+                titulo="Updates"
+                descripcion="Which version you are on, and whether there is a newer one."
+                busqueda={busqueda}
+              >
+                <div className="sp-section">
+                  <Button
+                    variant="outline" size="sm"
+                    onClick={onCheckUpdates}
+                    disabled={updateState === 'checking' || updateState === 'update-found'}
+                  >
+                    {updateLabel}
+                  </Button>
+                </div>
+              </Seccion>
+
+              <Seccion
+                id="tutorial"
+                titulo="Tutorial"
+                descripcion="Walk through Nest with demo data, without touching your repos."
+                busqueda={busqueda}
+              >
+                <div className="sp-section">
+                  <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '0 0 12px' }}>
+                    Recorré las secciones de Nest con datos de demostración, sin tocar tus repos.
+                  </p>
+                  <Button variant="outline" size="sm" onClick={() => onOpenTutorial?.('worktrees')}>
+                    Tutorial: Worktrees
+                  </Button>
+                </div>
+              </Seccion>
+
+              <Seccion
+                id="benchmarks"
+                titulo="Benchmarks"
+                descripcion="How long your agents take, measured across runs."
+                busqueda={busqueda}
+              >
+                <div className="sp-section">
+                  <BenchmarkDashboard />
+                </div>
+              </Seccion>
+              </div>
             </div>
           </div>
+
+          {/* Los dos overlays que se abren DESDE Settings van acá, hermanos de la cáscara y
+              no adentro del scroll: si viven dentro de `.teams-workspace-content` heredan su
+              scroll y su stacking context, y un modal que scrollea con lo que hay atrás deja
+              de ser un modal. Al mover Settings a la cáscara compartida se habían perdido —
+              el estado seguía existiendo, así que Upgrade y "Learn more" cambiaban un
+              booleano y no mostraban nada. */}
+          {memoryUpgradeOpen && (
+            <UpgradeModal currentPlan={plan} onClose={() => setMemoryUpgradeOpen(false)} />
+          )}
+
+          {memoryHubOpen && (
+            <MemoryHub
+              onClose={() => setMemoryHubOpen(false)}
+              onUpgrade={() => { setMemoryHubOpen(false); setMemoryUpgradeOpen(true) }}
+            />
+          )}
         </>,
         document.body
       )}

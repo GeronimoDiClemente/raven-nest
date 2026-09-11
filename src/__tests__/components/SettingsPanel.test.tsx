@@ -66,7 +66,7 @@ function makeUserPrefs(setEditorOptionsMock: SetEditorOptionsMock) {
 function openEditorTab(setEditorOptionsMock: SetEditorOptionsMock = vi.fn()) {
   render(<SettingsPanel updateState="idle" onCheckUpdates={vi.fn()} userEmail="test@example.com" userPrefs={makeUserPrefs(setEditorOptionsMock)} />)
   fireEvent.click(screen.getByTitle('Settings'))
-  fireEvent.click(screen.getByText('Editor'))
+  fireEvent.click(screen.getByRole('button', { name: 'Editor' }))
 }
 
 describe('SettingsPanel — editor config import', () => {
@@ -168,7 +168,7 @@ describe('SettingsPanel — editor themes', () => {
     }
     render(<SettingsPanel updateState="idle" onCheckUpdates={vi.fn()} userEmail="t@e.com" userPrefs={userPrefs} />)
     fireEvent.click(screen.getByTitle('Settings'))
-    fireEvent.click(screen.getByText('Editor'))
+    fireEvent.click(screen.getByRole('button', { name: 'Editor' }))
     return { setEditorTheme }
   }
 
@@ -351,7 +351,7 @@ describe('SettingsPanel — memory token input stays reachable in the error stat
     mockMemoryBridge({ connected: true, deviceId: 'dev-1', itemCount: 0, pendingCount: 0, daemonStatus: 'error' })
     render(<SettingsPanel updateState="idle" onCheckUpdates={vi.fn()} userEmail="test@example.com" userPrefs={makeUserPrefs(vi.fn())} />)
     fireEvent.click(screen.getByTitle('Settings'))
-    fireEvent.click(screen.getByText('Account'))
+    fireEvent.click(screen.getByRole('button', { name: 'Account' }))
 
     await waitFor(() => expect(screen.getByText(/Couldn't sync/)).toBeInTheDocument())
     expect(screen.getByPlaceholderText('Paste a sync token (optional)')).toBeInTheDocument()
@@ -379,7 +379,7 @@ describe('SettingsPanel — plan_required reuses the existing Upgrade affordance
     mockMemoryBridge({ connected: true, deviceId: 'dev-1', itemCount: 5, pendingCount: 2, daemonStatus: 'plan_required' })
     render(<SettingsPanel updateState="idle" onCheckUpdates={vi.fn()} userEmail="test@example.com" userPrefs={makeUserPrefs(vi.fn())} />)
     fireEvent.click(screen.getByTitle('Settings'))
-    fireEvent.click(screen.getByText('Account'))
+    fireEvent.click(screen.getByRole('button', { name: 'Account' }))
 
     await waitFor(() => expect(screen.getByText(/doesn't include cloud sync/)).toBeInTheDocument())
     expect(screen.queryByPlaceholderText('Paste your sync token')).not.toBeInTheDocument()
@@ -415,7 +415,7 @@ describe('SettingsPanel — Disconnect is reachable from plan_required and error
     const memory = mockMemoryBridge({ connected: true, deviceId: 'dev-1', itemCount: 5, pendingCount: 2, daemonStatus: 'plan_required' })
     render(<SettingsPanel updateState="idle" onCheckUpdates={vi.fn()} userEmail="test@example.com" userPrefs={makeUserPrefs(vi.fn())} />)
     fireEvent.click(screen.getByTitle('Settings'))
-    fireEvent.click(screen.getByText('Account'))
+    fireEvent.click(screen.getByRole('button', { name: 'Account' }))
 
     await waitFor(() => expect(screen.getByText(/doesn't include cloud sync/)).toBeInTheDocument())
     expect(screen.getByText('Upgrade')).toBeInTheDocument()
@@ -428,7 +428,7 @@ describe('SettingsPanel — Disconnect is reachable from plan_required and error
     const memory = mockMemoryBridge({ connected: true, deviceId: 'dev-1', itemCount: 5, pendingCount: 2, daemonStatus: 'plan_required' })
     render(<SettingsPanel updateState="idle" onCheckUpdates={vi.fn()} userEmail="test@example.com" userPrefs={makeUserPrefs(vi.fn())} />)
     fireEvent.click(screen.getByTitle('Settings'))
-    fireEvent.click(screen.getByText('Account'))
+    fireEvent.click(screen.getByRole('button', { name: 'Account' }))
     await waitFor(() => expect(screen.getByText(/doesn't include cloud sync/)).toBeInTheDocument())
 
     fireEvent.click(screen.getByLabelText(/Also delete my cloud memory/))
@@ -440,7 +440,7 @@ describe('SettingsPanel — Disconnect is reachable from plan_required and error
     const memory = mockMemoryBridge({ connected: true, deviceId: 'dev-1', itemCount: 0, pendingCount: 0, daemonStatus: 'error' })
     render(<SettingsPanel updateState="idle" onCheckUpdates={vi.fn()} userEmail="test@example.com" userPrefs={makeUserPrefs(vi.fn())} />)
     fireEvent.click(screen.getByTitle('Settings'))
-    fireEvent.click(screen.getByText('Account'))
+    fireEvent.click(screen.getByRole('button', { name: 'Account' }))
 
     await waitFor(() => expect(screen.getByText(/Couldn't sync/)).toBeInTheDocument())
     expect(screen.getByText('Retry')).toBeInTheDocument()
@@ -470,7 +470,7 @@ describe('SettingsPanel — neighbouring memory-card states are unaffected by th
     mockMemoryBridge({ connected: true, deviceId: 'dev-1', itemCount: 3, pendingCount: 0, daemonStatus: 'idle' })
     render(<SettingsPanel updateState="idle" onCheckUpdates={vi.fn()} userEmail="test@example.com" userPrefs={makeUserPrefs(vi.fn())} />)
     fireEvent.click(screen.getByTitle('Settings'))
-    fireEvent.click(screen.getByText('Account'))
+    fireEvent.click(screen.getByRole('button', { name: 'Account' }))
 
     // getByText itself throws on more than one match — this proves there's exactly
     // one Disconnect control, not a stray second one from the plan_required/error fix.
@@ -483,7 +483,7 @@ describe('SettingsPanel — neighbouring memory-card states are unaffected by th
     mockMemoryBridge({ connected: true, deviceId: 'dev-1', itemCount: 3, pendingCount: 1, daemonStatus: 'paused' })
     render(<SettingsPanel updateState="idle" onCheckUpdates={vi.fn()} userEmail="test@example.com" userPrefs={makeUserPrefs(vi.fn())} />)
     fireEvent.click(screen.getByTitle('Settings'))
-    fireEvent.click(screen.getByText('Account'))
+    fireEvent.click(screen.getByRole('button', { name: 'Account' }))
 
     await waitFor(() => expect(screen.getByText('Disconnect')).toBeInTheDocument())
     expect(screen.queryByText('Upgrade')).not.toBeInTheDocument()
@@ -494,7 +494,7 @@ describe('SettingsPanel — neighbouring memory-card states are unaffected by th
     mockMemoryBridge({ connected: false, deviceId: null, itemCount: 0, pendingCount: 0, daemonStatus: 'idle' })
     render(<SettingsPanel updateState="idle" onCheckUpdates={vi.fn()} userEmail="test@example.com" userPrefs={makeUserPrefs(vi.fn())} />)
     fireEvent.click(screen.getByTitle('Settings'))
-    fireEvent.click(screen.getByText('Account'))
+    fireEvent.click(screen.getByRole('button', { name: 'Account' }))
 
     await waitFor(() => expect(screen.getByText('Upgrade')).toBeInTheDocument())
     expect(screen.queryByText('Disconnect')).not.toBeInTheDocument()
@@ -506,7 +506,7 @@ describe('SettingsPanel — neighbouring memory-card states are unaffected by th
     // what drives useMemory() to the 'unavailable' state (see its effect's `!api` guard).
     render(<SettingsPanel updateState="idle" onCheckUpdates={vi.fn()} userEmail="test@example.com" userPrefs={makeUserPrefs(vi.fn())} />)
     fireEvent.click(screen.getByTitle('Settings'))
-    fireEvent.click(screen.getByText('Account'))
+    fireEvent.click(screen.getByRole('button', { name: 'Account' }))
 
     await waitFor(() => expect(screen.getByText('Unavailable')).toBeInTheDocument())
     expect(screen.getByText('Unavailable')).toBeDisabled()
@@ -542,7 +542,7 @@ describe('SettingsPanel — la cuota de memoria sale del servidor', () => {
     })
     render(<SettingsPanel updateState="idle" onCheckUpdates={vi.fn()} userEmail="test@example.com" userPrefs={makeUserPrefs(vi.fn())} />)
     fireEvent.click(screen.getByTitle('Settings'))
-    fireEvent.click(screen.getByText('Account'))
+    fireEvent.click(screen.getByRole('button', { name: 'Account' }))
 
     // 3,18 MB de 1 GiB. El texto exacto lo define la implementacion; lo que este test fija
     // es que los dos numeros salen del servidor y llegan a la pantalla.
@@ -554,7 +554,7 @@ describe('SettingsPanel — la cuota de memoria sale del servidor', () => {
     mockMemoryBridge({ connected: true, deviceId: 'dev-1', itemCount: 12, pendingCount: 0, daemonStatus: 'idle' })
     render(<SettingsPanel updateState="idle" onCheckUpdates={vi.fn()} userEmail="test@example.com" userPrefs={makeUserPrefs(vi.fn())} />)
     fireEvent.click(screen.getByTitle('Settings'))
-    fireEvent.click(screen.getByText('Account'))
+    fireEvent.click(screen.getByRole('button', { name: 'Account' }))
 
     await waitFor(() => expect(screen.getByText(/12 items/)).toBeInTheDocument())
     // El formato de la cuota es "<usado> of <tope>" con unidades. El regex era ` of ` a
@@ -584,7 +584,7 @@ describe('SettingsPanel — Connect pide el token al servicio (§9.2)', () => {
     const memoria = mockMemoryBridge({ connected: true, deviceId: 'dev-1', itemCount: 0, pendingCount: 0, daemonStatus: 'error' })
     render(<SettingsPanel updateState="idle" onCheckUpdates={vi.fn()} userEmail="test@example.com" userPrefs={makeUserPrefs(vi.fn())} />)
     fireEvent.click(screen.getByTitle('Settings'))
-    fireEvent.click(screen.getByText('Account'))
+    fireEvent.click(screen.getByRole('button', { name: 'Account' }))
 
     await waitFor(() => expect(screen.getByText(/Couldn't sync/)).toBeInTheDocument())
     const retry = screen.getByText('Retry')
@@ -599,7 +599,7 @@ describe('SettingsPanel — Connect pide el token al servicio (§9.2)', () => {
     const memoria = mockMemoryBridge({ connected: true, deviceId: 'dev-1', itemCount: 0, pendingCount: 0, daemonStatus: 'error' })
     render(<SettingsPanel updateState="idle" onCheckUpdates={vi.fn()} userEmail="test@example.com" userPrefs={makeUserPrefs(vi.fn())} />)
     fireEvent.click(screen.getByTitle('Settings'))
-    fireEvent.click(screen.getByText('Account'))
+    fireEvent.click(screen.getByRole('button', { name: 'Account' }))
 
     await waitFor(() => expect(screen.getByPlaceholderText(/Paste a sync token/i)).toBeInTheDocument())
     fireEvent.change(screen.getByPlaceholderText(/Paste a sync token/i), { target: { value: 'nmk_a_mano' } })
@@ -627,7 +627,7 @@ describe('SettingsPanel — el plan pago se llama Cloud, no Pro', () => {
     mockMemoryBridge({ connected: false, deviceId: null, itemCount: 0, pendingCount: 0, daemonStatus: 'idle' })
     render(<SettingsPanel updateState="idle" onCheckUpdates={vi.fn()} userEmail="test@example.com" userPrefs={makeUserPrefs(vi.fn())} />)
     fireEvent.click(screen.getByTitle('Settings'))
-    fireEvent.click(screen.getByText('Account'))
+    fireEvent.click(screen.getByRole('button', { name: 'Account' }))
 
     await waitFor(() => expect(screen.getByText(/cloud sync is a/)).toBeInTheDocument())
     expect(screen.getByText(/cloud sync is a Cloud feature/)).toBeInTheDocument()
@@ -650,7 +650,7 @@ describe('SettingsPanel — reabrir el hub de memoria', () => {
     mockMemoryBridge({ connected: false, deviceId: null, itemCount: 0, pendingCount: 0, daemonStatus: 'idle' })
     render(<SettingsPanel updateState="idle" onCheckUpdates={vi.fn()} userEmail="test@example.com" userPrefs={makeUserPrefs(vi.fn())} />)
     fireEvent.click(screen.getByTitle('Settings'))
-    fireEvent.click(screen.getByText('Account'))
+    fireEvent.click(screen.getByRole('button', { name: 'Account' }))
 
     await waitFor(() => expect(screen.getByText('Learn more')).toBeInTheDocument())
     fireEvent.click(screen.getByText('Learn more'))

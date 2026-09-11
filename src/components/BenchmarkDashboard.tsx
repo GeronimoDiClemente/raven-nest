@@ -42,7 +42,12 @@ export function BenchmarkDashboard() {
     let cancelled = false
     const tick = async () => {
       try {
-        const list = (await window.benchmark.list()) as Session[]
+        // Opcional a proposito: un preload viejo (o un test que no lo mockea) no puede
+        // tumbar la pantalla entera de Settings, que es lo que pasaba desde que esta
+        // seccion monta junto con las demas en vez de solo al abrir su pestaña.
+        const api = window.benchmark?.list
+        if (!api) return
+        const list = (await api()) as Session[]
         if (!cancelled) setSessions(list)
       } catch (e) { console.error(e) }
     }
