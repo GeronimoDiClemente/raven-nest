@@ -6,6 +6,8 @@ import { SortableContext, horizontalListSortingStrategy, useSortable } from '@dn
 import { CSS } from '@dnd-kit/utilities'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
+import { X } from 'lucide-react'
+import { ICON_SIZE } from '../lib/icons'
 
 interface Props {
   tabs: WorkspaceTab[]
@@ -135,11 +137,22 @@ const SortableTab = memo(function SortableTab({
           onTabColorChange?.(tab.id, e.target.value)
         }}
       />
+      {/* El boton de cerrar es un ICONO, no un boton con texto. Con size="sm" media 31px
+          --medido en la app, la mitad de lo que medía el nombre de la pestaña (61px)-- y
+          en las pestañas inactivas es invisible pero igual reserva su caja. Entre el punto
+          de color, este boton y los dos gaps se iban 59px de una pestaña de 146: tanto
+          como el nombre entero.
+
+          Se deja del tamaño del glifo y sin padding. El area de click sigue siendo comoda
+          porque toda la pestaña es clickeable y esto esta en su borde.
+
+          La cruz era el caracter "✕", no un icono: ahora es lucide, con el mismo grosor
+          que el resto de la app (src/lib/icons.ts). */}
       <Button
         variant="ghost"
         size="sm"
         className={cn(
-          'text-muted-foreground hover:text-destructive transition-opacity shrink-0',
+          'size-[18px] shrink-0 rounded-sm p-0 text-muted-foreground transition-opacity hover:text-destructive',
           // Antes .tab-close vivía en opacity:0 y sólo aparecía en :hover/.active
           // (global.css) — el group-hover reproduce lo mismo sin la clase vieja.
           isActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
@@ -148,7 +161,7 @@ const SortableTab = memo(function SortableTab({
         title="Close workspace"
         aria-label="Close workspace"
       >
-        ✕
+        <X size={ICON_SIZE.sm} aria-hidden />
       </Button>
     </div>
   )

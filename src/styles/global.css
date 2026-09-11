@@ -282,7 +282,10 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  /* 6, no 8: con tres hijos son DOS gaps, y medido en la app el nombre se quedaba con
+     61px de 146 (42%) mientras los controles de la derecha + sus gaps se llevaban 59.
+     Cada pixel de gap cuesta el doble acá. */
+  gap: 6px;
   padding: 7px 12px;
   cursor: pointer;
   flex-shrink: 1;
