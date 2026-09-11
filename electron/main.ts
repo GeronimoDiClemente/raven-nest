@@ -228,6 +228,7 @@ const accountStore = new AccountStore()
 // connected re-provisions every account on startup, same as the existing
 // setupClaudeConfig() link-repair pass it runs alongside.
 import { credentialPath, deleteCredential, ensureDeviceId, getMemoryConnectionState, setMemoryConnectionState } from './memory-connection-state'
+import { writeActivePointer } from './memory-active-store'
 
 let memoryConnectionState = getMemoryConnectionState(ravenHome())
 
@@ -331,6 +332,9 @@ try {
   // `_local` anónima, exactamente el nuevo home de lo que antes vivía en el path plano.
   const initialStorePath = resolveStorePath(ravenHome(), null)
   const store = new MemoryStore(initialStorePath)
+  // El puntero que le permite al shim del MCP encontrar la base con Nest CERRADO — ver
+  // memory-active-store.ts. Se escribe acá y en cada swap de cuenta.
+  writeActivePointer(ravenHome(), null, initialStorePath)
   const authMaterial = ensureLocalAuthMaterial(ravenHome())
   const memorySocketPath = daemonSocketPath(ravenHome(), process.platform === 'win32', authMaterial.pipeId)
 

@@ -22,6 +22,7 @@ import { MemoryStore, resolveStorePath } from './memory-store'
 // memory-ipc-server.ts already documents on its own `import type { MemoryDaemon }` line.
 import type { MemoryDaemon } from './memory-daemon'
 import type { MemoryIpcServer } from './memory-ipc-server'
+import { writeActivePointer } from './memory-active-store'
 
 // Correction #3 (adversarial review, ALTO): a directory rename on Windows can hit a
 // transient EBUSY/EPERM from an antivirus or OneDrive indexing the folder mid-move — not a
@@ -268,6 +269,11 @@ export async function swapMemoryStore(
     ctx.daemon.resume()
     ctx.ipcServer.resume()
   }
+
+  // El puntero que le permite al shim del MCP encontrar la base con Nest cerrado. Se escribe
+  // DESPUES del swap y con el path que de verdad quedo abierto (`finalPath`), no con el que
+  // se pidio: si el swap fallo y se quedo en el anterior, el puntero tiene que decir eso.
+  writeActivePointer(ravenHomeDir, userId, finalPath)
 
   return { store: finalStore, currentStorePath: finalPath, error }
 }

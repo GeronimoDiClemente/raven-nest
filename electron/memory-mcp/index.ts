@@ -12,6 +12,9 @@
 // Electron main over the local IPC channel (see client.ts, memory-ipc-server.ts).
 import { createInterface } from 'readline'
 import { MemoryDaemonClient } from './client'
+import { MemoryReadonlyClient } from './readonly'
+import { ravenHome } from '../raven-home'
+import type { MemoryMethod } from '../memory-protocol'
 import { MCP_INSTRUCTIONS, TOOL_MANIFEST } from './tools'
 import type { ObservationType } from '../memory-protocol'
 
@@ -19,22 +22,29 @@ function env(name: string): string | undefined {
   return process.env[name]
 }
 
-function requireSocketPath(): string {
-  const socket = env('NEST_MEMORY_SOCKET')
-  if (!socket) {
-    console.error('[nest-memory] NEST_MEMORY_SOCKET not set — memory is disabled for this session')
-    process.exit(1)
-  }
-  return socket
+/**
+ * Lo mínimo que el shim necesita para responder: el daemon si está, y si no, lectura directa
+ * del disco.
+ *
+ * Antes esto era `process.exit(1)` cuando faltaba el socket, y esa línea era la que hacía que
+ * la memoria fuera una función de la APP y no de la memoria: quien se llevaba el plugin a
+ * otro editor sin Nest abierto se quedaba sin nada. Ahora degrada a sólo lectura y lo dice.
+ */
+interface ClienteDeMemoria {
+  call<T = unknown>(method: MemoryMethod, params: unknown): Promise<T>
 }
 
-function requireAuthToken(): string {
+function resolverCliente(): { cliente: ClienteDeMemoria; conDaemon: boolean } {
+  const socket = env('NEST_MEMORY_SOCKET')
   const token = env('NEST_MEMORY_TOKEN')
-  if (!token) {
-    console.error('[nest-memory] NEST_MEMORY_TOKEN not set — memory is disabled for this session')
-    process.exit(1)
+  if (socket && token) {
+    return { cliente: new MemoryDaemonClient(socket, token), conDaemon: true }
   }
-  return token
+  console.error(
+    '[nest-memory] sin daemon (Nest no está abierto) — modo sólo lectura: ' +
+    'memory_graph funciona, guardar necesita la app'
+  )
+  return { cliente: new MemoryReadonlyClient(ravenHome()), conDaemon: false }
 }
 
 // ── MCP stdio server mode ────────────────────────────────────────────────────
@@ -51,10 +61,9 @@ function writeMessage(msg: unknown): void {
 }
 
 async function runMcpServer(): Promise<void> {
-  const socketPath = requireSocketPath()
-  const authToken = requireAuthToken()
-  const client = new MemoryDaemonClient(socketPath, authToken)
+  const { cliente: client, conDaemon } = resolverCliente()
   const cwd = process.cwd()
+  void conDaemon
 
   const rl = createInterface({ input: process.stdin, terminal: false })
   rl.on('line', (line) => {
@@ -121,7 +130,7 @@ async function runMcpServer(): Promise<void> {
   }
 }
 
-async function callTool(client: MemoryDaemonClient, cwd: string, name: string, args: Record<string, unknown>): Promise<string> {
+async function callTool(client: ClienteDeMemoria, cwd: string, name: string, args: Record<string, unknown>): Promise<string> {
   switch (name) {
     case 'memory_save': {
       const result = await client.call('memory.save', {
@@ -200,6 +209,30 @@ async function readStdin(): Promise<string> {
   const chunks: Buffer[] = []
   for await (const chunk of process.stdin) chunks.push(Buffer.from(chunk))
   return Buffer.concat(chunks).toString('utf8')
+}
+
+/**
+ * El modo hook NO degrada a sólo lectura, y es a propósito: un hook existe para ESCRIBIR
+ * (guarda lo que pasó en la sesión), y escribir sin el daemon es lo único que este diseño no
+ * permite — es quien sincroniza, resuelve conflictos y lleva el lamport. Sin app, el hook no
+ * tiene nada que hacer más que salir en silencio.
+ */
+function requireSocketPath(): string {
+  const socket = env('NEST_MEMORY_SOCKET')
+  if (!socket) {
+    console.error('[nest-memory] NEST_MEMORY_SOCKET not set — memory is disabled for this session')
+    process.exit(1)
+  }
+  return socket
+}
+
+function requireAuthToken(): string {
+  const token = env('NEST_MEMORY_TOKEN')
+  if (!token) {
+    console.error('[nest-memory] NEST_MEMORY_TOKEN not set — memory is disabled for this session')
+    process.exit(1)
+  }
+  return token
 }
 
 async function runHook(event: string): Promise<void> {
