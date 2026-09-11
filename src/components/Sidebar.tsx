@@ -33,8 +33,8 @@ import { AILogoStack } from './AILogoStack'
 import type { UserPreferencesApi } from '../hooks/useUserPreferences'
 import { ENABLE_INTEGRATIONS_ORCHESTRATION } from '../lib/releaseFlags'
 import {
-  Radio, Share2, LoaderCircle, Mic, MessageSquare, Monitor, Cable, TextAlignStart,
-  RotateCcwClock, Waypoints, User, SquarePlus, Workflow, ChevronLeft, Menu, ChevronRight,
+  Radio, Share2, LoaderCircle, Mic, MessageSquare, Monitor, Cable, TextAlignStart, FolderGit2,
+  RotateCcwClock, User, SquarePlus, Workflow, ChevronLeft, Menu, ChevronRight,
   Plus, Settings,
 } from 'lucide-react'
 import { ICON_SIZE } from '../lib/icons'
@@ -505,7 +505,13 @@ export default function Sidebar({
       style={{ cursor: 'pointer' }}
     >
       <span className="sidebar-icon">
-        <Waypoints size={ICON_SIZE.lg} aria-hidden />
+        {/* `FolderGit2`, no `Waypoints`.
+            Esta fila es el REPO vinculado a la pestaña; la de arriba es la pestaña activa.
+            Con el mismo glifo en las dos quedaban DOS iconos identicos, uno pegado al otro,
+            en la barra colapsada — y cuando la pestaña activa era Worktrees no habia forma
+            de saber cual era cual. Worktrees comparte glifo con el grafo de ramas del header
+            a proposito (un worktree ES una rama); el repo es la carpeta, que es otra cosa. */}
+        <FolderGit2 size={ICON_SIZE.lg} aria-hidden />
       </span>
       {repoPath ? (
         <div className="sidebar-repo-info">
