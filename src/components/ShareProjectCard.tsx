@@ -9,6 +9,7 @@
 import { useEffect, useState } from 'react'
 import { useTeam } from '../hooks/useTeam'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Button } from '@/components/ui/button'
 
 interface Props {
   activeRepoPath: string | null
@@ -81,9 +82,12 @@ export default function ShareProjectCard({ activeRepoPath }: Props) {
                 ))}
               </SelectContent>
             </Select>
-            <button onClick={share} disabled={busy || !projectKey}>
-              {busy ? 'Sharing...' : 'Share'}
-            </button>
+            {/* Era un <button> pelado al lado de un <Select> de shadcn: el select tenia la
+                altura y el radio del sistema y el boton los del navegador, uno junto al
+                otro en la misma fila. */}
+            <Button size="sm" onClick={share} disabled={busy || !projectKey}>
+              {busy ? 'Sharing…' : 'Share'}
+            </Button>
           </div>
           {result && (
             <p className={result.ok ? 'memories-ok' : 'memories-warn'}>{result.text}</p>

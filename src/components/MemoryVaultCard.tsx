@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
+import { Button } from '@/components/ui/button'
 
 type VaultSettings = { version: number; enabled: boolean; root: string | null; includeSuperseded: boolean; includeTeamScope: boolean }
 type VaultResult = { written: number; moved: number; deleted: number; conflicts: number; warnings: unknown[] }
@@ -91,9 +92,18 @@ export default function MemoryVaultCard() {
               : 'Mirror your memory to a folder of Markdown files, one per observation'}
           </span>
         </div>
-        <button className={settings.enabled ? 'sp-btn-danger' : 'sp-btn-purple'} onClick={() => void toggle()} disabled={busy}>
+        {/* Era un <button> con `.sp-btn-danger` / `.sp-btn-purple`, dos clases hechas a
+            mano para esta card. El morado ademas es un literal cromatico fuera de la
+            allow-list, en una pantalla donde el acento es acromatico y el color es ESTADO.
+            Prender el vault no es una accion destructiva ni de marca: es la primaria. */}
+        <Button
+          variant={settings.enabled ? 'outline' : 'default'}
+          size="sm"
+          onClick={() => void toggle()}
+          disabled={busy}
+        >
           {busy ? '…' : settings.enabled ? 'Disable' : 'Enable'}
-        </button>
+        </Button>
       </div>
 
       {settings.enabled && (
@@ -101,13 +111,13 @@ export default function MemoryVaultCard() {
           {rootDir && (
             <div style={{ fontSize: 11, opacity: 0.65, marginTop: 8, wordBreak: 'break-all' }}>{rootDir}</div>
           )}
-          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-            <button className="sp-action-btn" onClick={() => void regenerate()} disabled={busy}>
+          <div className="mt-2 flex gap-2">
+            <Button variant="outline" size="sm" onClick={() => void regenerate()} disabled={busy}>
               {busy ? 'Working…' : 'Regenerate now'}
-            </button>
-            <button className="sp-action-btn" onClick={() => void reveal()} disabled={busy}>
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => void reveal()} disabled={busy}>
               Open folder
-            </button>
+            </Button>
           </div>
           {lastResult && (
             <div style={{ fontSize: 11, opacity: 0.65, marginTop: 6 }}>

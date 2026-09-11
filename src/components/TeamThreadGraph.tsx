@@ -29,6 +29,7 @@ import { LazyGraph3D } from './Graph3DLazy'
 // así que lo verificable es esto, que además es donde están las decisiones.
 import { ID_INDICE, nodosDelHilo, aristasDelHilo } from '../lib/thread-graph-3d'
 import type { TeamThreadBranch } from '../types'
+import { Button } from '@/components/ui/button'
 
 interface Props {
   branches: TeamThreadBranch[]
@@ -66,7 +67,7 @@ export function TeamThreadGraph({ branches, focus, ahora, enabled, onToggle, onO
     return (
       <div className="team-thread-empty">
         <p>Share this project&apos;s thread with your team so everyone&apos;s context arrives on its own.</p>
-        <button type="button" onClick={() => onToggle(true)}>Turn on</button>
+        <Button size="sm" onClick={() => onToggle(true)}>Turn on</Button>
       </div>
     )
   }
@@ -78,11 +79,14 @@ export function TeamThreadGraph({ branches, focus, ahora, enabled, onToggle, onO
 
   return (
     <div className="team-thread-graph">
+      {/* Botones del sistema, no <button> con reglas propias en global.css. Convivian con
+          los <Button> de shadcn del grafo de memorias en la MISMA pantalla, cada juego con
+          su altura, su radio y su padding — dos sistemas a diez centimetros uno del otro. */}
       <header className="team-thread-graph-header">
-        <button type="button" onClick={() => setShowGlobal((v) => !v)}>
+        <Button variant="outline" size="sm" onClick={() => setShowGlobal((v) => !v)}>
           {showGlobal ? 'Show current branch' : 'Show all branches'}
-        </button>
-        <button type="button" onClick={() => onToggle(false)}>Turn off</button>
+        </Button>
+        <Button variant="ghost" size="sm" onClick={() => onToggle(false)}>Turn off</Button>
         {graph.recortados > 0 && <span>{graph.recortados} older branches hidden</span>}
       </header>
 

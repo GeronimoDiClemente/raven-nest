@@ -7234,6 +7234,14 @@ button.ci-badge:hover {
   margin-bottom: 8px;
 }
 
+/* Las reglas `.team-thread-empty button` y `.team-thread-graph-header button` se borraron
+   el 2026-09-11, cuando esos botones pasaron a ser el <Button> de shadcn.
+   NO alcanzaba con dejar de usar las clases: eran selectores de DESCENDIENTE, asi que le
+   pegaban a cualquier <button> adentro del contenedor --incluido el que shadcn renderiza--
+   y, al vivir fuera de toda @layer, le ganaban a las utilidades de Tailwind. Un boton
+   migrado habria seguido con el alto, el radio y el padding viejos, sin que nadie lo note.
+   Es la trampa que RECETA-MIGRACION-UI.md documenta como la mas cara de esta migracion. */
+
 .team-thread-empty {
   display: flex;
   flex-direction: column;
@@ -7245,22 +7253,6 @@ button.ci-badge:hover {
   line-height: 1.5;
   color: var(--text-secondary);
   margin: 0;
-}
-.team-thread-empty button {
-  padding: 5px 12px;
-  background: transparent;
-  color: var(--primary);
-  border: 1px solid color-mix(in srgb, var(--primary) 33%, transparent);
-  border-radius: 6px;
-  font-size: 12px;
-  font-family: inherit;
-  cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease;
-}
-.team-thread-empty button:hover { background: color-mix(in srgb, var(--primary) 8%, transparent); }
-.team-thread-empty button:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 33%, transparent);
 }
 
 .team-thread-graph {
@@ -7280,36 +7272,8 @@ button.ci-badge:hover {
   gap: 6px;
   flex-wrap: wrap;
 }
-.team-thread-graph-header button {
-  padding: 4px 10px;
-  background: var(--bg-surface);
-  color: var(--text-secondary);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  font-size: 11px;
-  font-family: inherit;
-  cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease;
-}
-.team-thread-graph-header button:hover {
-  background: var(--bg-elevated);
-  color: var(--text-primary);
-}
-.team-thread-graph-header button:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 2px var(--ring);
-}
 /* "Turn off" es la accion destructiva de este panel (borra la carpeta local y saca
    el puntero de AGENTS.md), asi que va en la paleta de .sp-btn-danger. */
-.team-thread-graph-header button:last-of-type {
-  color: var(--destructive);
-  border-color: #ef444455;
-}
-.team-thread-graph-header button:last-of-type:hover {
-  background: #ef444415;
-  border-color: #ef4444aa;
-  color: var(--destructive);
-}
 .team-thread-graph-header span {
   font-size: 11px;
   color: var(--text-muted);
