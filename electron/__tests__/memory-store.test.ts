@@ -793,7 +793,10 @@ describe('MemoryStore — schema versioning (C3)', () => {
   // mire la migracion nueva antes de que salga. v5 agrega `memory_links` — las relaciones
   // puestas a mano entre dos memorias.
   it('SCHEMA_VERSION is pinned to the published value', () => {
-    expect(SCHEMA_VERSION).toBe(5)
+    // 6 desde el 2026-09-11: la migracion del cifrado suma `topic_key_hmac`. Este test
+    // existe para que subir el esquema sea una decision y no un descuido — si lo estas
+    // cambiando, la migracion correspondiente tiene que estar escrita y testeada.
+    expect(SCHEMA_VERSION).toBe(6)
   })
 
   // Task 8 (smoke/memory-bridge): the memory dir syncs across two machines, so a v1

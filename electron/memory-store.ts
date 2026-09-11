@@ -409,6 +409,13 @@ export interface ObservationRow {
   project_key: string
   scope: string
   topic_key: string | null
+  /**
+   * El `topic_key` pasado por HMAC con la clave de la cuenta (memory-crypto.ts). Es lo
+   * unico que el servidor ve del tema, y por lo tanto lo unico que trae una fila del pull:
+   * una fila remota tiene `topic_key = null` y ESTE campo lleno. Una fila local tiene los
+   * dos, o solo el claro si el cifrado no esta activado.
+   */
+  topic_key_hmac: string | null
   type: string
   title: string
   // M12: nullable so a tombstone can actually null the content, per §3.1 "A delete sets
@@ -468,6 +475,7 @@ const BASE_SCHEMA = `
         project_key    TEXT NOT NULL,
         scope          TEXT NOT NULL CHECK (scope IN ('personal','project','team')),
         topic_key      TEXT,
+        topic_key_hmac TEXT,
         type           TEXT NOT NULL,
         title          TEXT NOT NULL,
         content        TEXT,
@@ -615,7 +623,14 @@ const BASE_SCHEMA = `
  * correct precisely because all of step 1 is CREATE ... IF NOT EXISTS: running it over an
  * already-populated database writes nothing and does not touch a single row.
  */
-export const SCHEMA_VERSION = 5
+/**
+ * Convierte (proyecto, scope, tema) en el valor estable que viaja al servidor. Se INYECTA
+ * — el store no importa memory-crypto.ts — para que siga sin saber nada de claves y para
+ * que un test pueda usar una funcion legible en vez de un HMAC real.
+ */
+export type TopicHasher = (projectKey: string, scope: string, topicKey: string) => string
+
+export const SCHEMA_VERSION = 6
 
 // Task 8 (smoke/memory-bridge): the memory dir syncs across two machines (C3's whole
 // reason for existing), so a v1 database opened by a build that knows v2 is the routine
@@ -680,12 +695,81 @@ const MIGRATIONS: Record<number, string | ((db: Database.Database) => void)> = {
         PRIMARY KEY (a, b)
       );
       CREATE INDEX IF NOT EXISTS idx_links_b ON memory_links(b);`,
+
+  // El cifrado manda `topic_key` por HMAC (spec §5.2), asi que la fila que vuelve del pull
+  // no trae el tema sino su hash. `findActiveTopicOwnerByHmac` lo busca contra ESTA
+  // columna; sin ella el supersede por topico no encuentra nunca al dueño local, quedan
+  // dos filas activas sobre el mismo slot y `idx_obs_topic` tumba el pull entero.
+  //
+  // El plan la numeraba 4; va 6 porque `memory_links` ya se llevo la 5.
+  6: (db) => {
+    const columns = db.prepare('PRAGMA table_info(observations)').all() as Array<{ name: string }>
+    if (!columns.some((c) => c.name === 'topic_key_hmac')) {
+      db.exec('ALTER TABLE observations ADD COLUMN topic_key_hmac TEXT;')
+    }
+    db.exec(
+      `CREATE INDEX IF NOT EXISTS idx_obs_topic_hmac
+         ON observations(project_key, scope, topic_key_hmac)
+       WHERE topic_key_hmac IS NOT NULL;`
+    )
+  }
 }
 
 export class MemoryStore {
   private db: Database.Database
   private lamportCounter = 0
   private currentUserId: string | null = null
+
+  private topicHasher: TopicHasher | null = null
+
+  /** `null` desactiva: sin cifrado activado, `topic_key_hmac` se queda en NULL. */
+  setTopicHasher(hasher: TopicHasher | null): void {
+    this.topicHasher = hasher
+  }
+
+  /**
+   * El gemelo de `findActiveTopicOwner` para el camino cifrado. Existen los dos porque
+   * conviven: `save()` local resuelve el topico por el tema en claro, y el pull lo resuelve
+   * por el HMAC, que es lo unico que el servidor le manda.
+   */
+  findActiveTopicOwnerByHmac(
+    projectKey: string,
+    scope: string,
+    topicKeyHmac: string,
+    excludeSyncId: string
+  ): ObservationRow | null {
+    return (
+      (this.db
+        .prepare(
+          `SELECT * FROM observations WHERE project_key = ? AND scope = ? AND topic_key_hmac = ?
+           AND sync_id != ? AND deleted = 0 AND superseded_by IS NULL`
+        )
+        .get(projectKey, scope, topicKeyHmac, excludeSyncId) as ObservationRow) ?? null
+    )
+  }
+
+  /**
+   * Completa el HMAC de las filas que se guardaron ANTES de que existiera una clave — o
+   * sea, todas, el dia de la activacion. Sin esto, el primer pull despues de activar no
+   * encuentra a ningun dueño local y duplica todos los topicos.
+   *
+   * Idempotente: solo toca filas con tema en claro y sin HMAC.
+   */
+  backfillTopicHmacs(): number {
+    const hasher = this.topicHasher
+    if (!hasher) return 0
+    const rows = this.db
+      .prepare(
+        `SELECT sync_id, project_key, scope, topic_key FROM observations
+          WHERE topic_key IS NOT NULL AND topic_key_hmac IS NULL`
+      )
+      .all() as Array<{ sync_id: string; project_key: string; scope: string; topic_key: string }>
+    const update = this.db.prepare('UPDATE observations SET topic_key_hmac = ? WHERE sync_id = ?')
+    this.db.transaction(() => {
+      for (const r of rows) update.run(hasher(r.project_key, r.scope, r.topic_key), r.sync_id)
+    })()
+    return rows.length
+  }
   readonly schemaVersion: number = 0
 
   constructor(dbPath: string) {
@@ -1066,6 +1150,11 @@ export class MemoryStore {
         project_key: input.projectKey,
         scope,
         topic_key: input.topicKey ?? null,
+        // El HMAC se calcula al escribir, no al pushear: `save()` es el unico lugar que ve
+        // el tema en claro, y una vez guardada la fila el push solo tiene la columna.
+        topic_key_hmac: input.topicKey && this.topicHasher
+          ? this.topicHasher(input.projectKey, scope, input.topicKey)
+          : null,
         type: input.type,
         title,
         content,
@@ -1105,14 +1194,14 @@ export class MemoryStore {
     this.db
       .prepare(
         `INSERT INTO observations
-         (sync_id, project_key, scope, topic_key, type, title, content, tags, source, origin_ai,
-          origin_account, git_branch, author_user_id, author_display, content_hash, revision_count,
-          duplicate_count, last_seen_at, created_at, updated_at, lamport, deleted, superseded_by,
-          source_ref, server_seq)
-         VALUES (@sync_id, @project_key, @scope, @topic_key, @type, @title, @content, @tags, @source,
-          @origin_ai, @origin_account, @git_branch, @author_user_id, @author_display, @content_hash,
-          @revision_count, @duplicate_count, @last_seen_at, @created_at, @updated_at, @lamport,
-          @deleted, @superseded_by, @source_ref, @server_seq)`
+         (sync_id, project_key, scope, topic_key, topic_key_hmac, type, title, content, tags, source,
+          origin_ai, origin_account, git_branch, author_user_id, author_display, content_hash,
+          revision_count, duplicate_count, last_seen_at, created_at, updated_at, lamport, deleted,
+          superseded_by, source_ref, server_seq)
+         VALUES (@sync_id, @project_key, @scope, @topic_key, @topic_key_hmac, @type, @title, @content,
+          @tags, @source, @origin_ai, @origin_account, @git_branch, @author_user_id, @author_display,
+          @content_hash, @revision_count, @duplicate_count, @last_seen_at, @created_at, @updated_at,
+          @lamport, @deleted, @superseded_by, @source_ref, @server_seq)`
       )
       .run(row)
   }
@@ -1127,6 +1216,7 @@ export class MemoryStore {
         // tocan el tipo, asi que para ellos esto escribe el mismo valor que ya tenian.
         `UPDATE observations SET
            title = @title, content = @content, tags = @tags, type = @type, content_hash = @content_hash,
+           topic_key_hmac = @topic_key_hmac,
            revision_count = @revision_count, updated_at = @updated_at, lamport = @lamport,
            deleted = @deleted, superseded_by = @superseded_by, source_ref = @source_ref,
            duplicate_count = @duplicate_count, last_seen_at = @last_seen_at, server_seq = @server_seq
@@ -1193,6 +1283,13 @@ export class MemoryStore {
     projectKey: string
     scope: string
     topicKey: string | null
+    /**
+     * El HMAC que mando el servidor. Va tal cual: de un HMAC no se puede volver al tema,
+     * asi que una fila remota se queda con `topic_key = null` y este campo lleno. La UI que
+     * hoy muestra el tema en claro solo lo tiene para las filas escritas en esta maquina —
+     * limitacion conocida y aceptada del camino B.
+     */
+    topicKeyHmac?: string | null
     type: string
     title: string
     content: string | null
@@ -1275,6 +1372,13 @@ export class MemoryStore {
           project_key: row.projectKey,
           scope: row.scope,
           topic_key: row.topicKey,
+          /**
+           * El HMAC que mando el servidor. Va tal cual: de un HMAC no se puede volver al
+           * tema, asi que una fila remota se queda con `topic_key = null` y este campo
+           * lleno. La UI que hoy muestra el tema en claro solo lo tiene para las filas
+           * escritas en esta maquina — limitacion conocida y aceptada del camino B.
+           */
+          topic_key_hmac: row.topicKeyHmac ?? null,
           type: row.type,
           title: safeTitle,
           content: safeContent,
