@@ -30,7 +30,7 @@
 import type Database from 'better-sqlite3'
 
 export type MemoryEdgeKind =
-  | 'manual' | 'revision' | 'topic' | 'branch' | 'source' | 'cross-topic' | 'similar'
+  | 'manual' | 'revision' | 'topic' | 'branch' | 'source' | 'cross-topic' | 'cross-tag' | 'similar'
 
 export interface MemoryGraphNode {
   syncId: string
@@ -181,19 +181,56 @@ function chainEdges(rows: GraphRow[], kind: MemoryEdgeKind, keyFn: (r: GraphRow)
  * 600 aristas en clique y taparia el grafo entero. Asi da 3.
  */
 function crossProjectTopicEdges(rows: GraphRow[]): MemoryGraphEdge[] {
-  const porTopic = new Map<string, GraphRow[]>()
+  return crossProjectEdges(rows, 'cross-topic', (r) =>
+    r.topic_key ? [`${r.scope}\u0000${r.topic_key}`] : []
+  )
+}
+
+/**
+ * La misma idea, por TAG.
+ *
+ * Existe porque la de topic no alcanzaba con datos reales. El `topic_key` lo elige el agente
+ * al guardar y casi nunca coincide entre dos repos: en la prueba del shim, tres memorias con
+ * el tag `auth` en dos proyectos dieron topics distintos (`auth-cookies`, `auth-refresh`,
+ * `auth-samesite`) y la del segundo repo quedó "sin conectar con ninguna otra" — o sea que
+ * "trabajo en conjunto entre repos" era cierto en el código y falso en la pantalla.
+ *
+ * El tag sí coincide, porque es la etiqueta de a qué es el trabajo y no de qué memoria
+ * puntual es. Es la arista que hace real la promesa.
+ *
+ * Una memoria con varios tags entra en varios grupos; el dedup contra las aristas que ya
+ * existen (en buildMemoryGraph) evita que se dibujen dos veces entre el mismo par.
+ */
+function crossProjectTagEdges(rows: GraphRow[]): MemoryGraphEdge[] {
+  return crossProjectEdges(rows, 'cross-tag', (r) =>
+    parseTags(r.tags).map((t) => `${r.scope}\u0000${t}`)
+  )
+}
+
+/**
+ * El motor de las dos de arriba: agrupa por la clave que le den, se queda con UN
+ * representante por proyecto (el más reciente, `sync_id` de desempate para que no dependa
+ * del orden en que vinieron las filas) y encadena.
+ *
+ * Cadena y no todos-contra-todos: una clave compartida por 4 repos con 10 memorias cada uno
+ * daría 600 aristas en clique y taparía el grafo entero. Así da 3.
+ */
+function crossProjectEdges(
+  rows: GraphRow[],
+  kind: MemoryEdgeKind,
+  clavesDe: (r: GraphRow) => string[]
+): MemoryGraphEdge[] {
+  const porClave = new Map<string, GraphRow[]>()
   for (const r of rows) {
-    if (!r.topic_key) continue
-    const key = `${r.scope}\u0000${r.topic_key}`
-    const lista = porTopic.get(key)
-    if (lista) lista.push(r)
-    else porTopic.set(key, [r])
+    for (const key of clavesDe(r)) {
+      const lista = porClave.get(key)
+      if (lista) lista.push(r)
+      else porClave.set(key, [r])
+    }
   }
 
   const edges: MemoryGraphEdge[] = []
-  for (const grupo of porTopic.values()) {
-    // Un representante por proyecto: el mas reciente, con sync_id de desempate para que el
-    // resultado no dependa del orden en que vinieron las filas.
+  for (const grupo of porClave.values()) {
     const representantes = new Map<string, GraphRow>()
     for (const r of grupo) {
       const actual = representantes.get(r.project_key)
@@ -212,7 +249,7 @@ function crossProjectTopicEdges(rows: GraphRow[]): MemoryGraphEdge[] {
       edges.push({
         from: ordenados[i].sync_id,
         to: ordenados[i + 1].sync_id,
-        kind: 'cross-topic',
+        kind,
         directed: false,
       })
     }
@@ -487,6 +524,19 @@ export function buildMemoryGraph(db: Database.Database, query: MemoryGraphQuery)
   // 5. cross-topic — el mismo topic en OTRO repo. La unica arista de hecho que cruza
   // proyectos; ver crossProjectTopicEdges para por que las otras no lo hacen.
   edges.push(...crossProjectTopicEdges(selected))
+
+  // 5b. cross-tag — el mismo tag en repos distintos. Va DESPUES de cross-topic y dedupeada
+  // contra lo que ya hay: cuando dos memorias comparten topic Y tag, la de topic es la mas
+  // especifica y es la que se dibuja.
+  {
+    const yaHay = new Set(edges.map((e) => pairKey(e.from, e.to)))
+    for (const e of crossProjectTagEdges(selected)) {
+      const k = pairKey(e.from, e.to)
+      if (yaHay.has(k)) continue
+      yaHay.add(k)
+      edges.push(e)
+    }
+  }
 
   // 6. similar — opt-in (query.includeSimilar), apagada por default. Es inferencia sobre
   // contenido, no un hecho declarado como las tres de arriba (ver MemoryGraphQuery). Si ya

@@ -28,6 +28,10 @@ const TRAZO: Record<MemoryEdgeKind, { rama: string; vertical: string; que: strin
   revision: { rama: '──▶', vertical: '│', que: 'una reemplazó a la otra' },
   topic: { rama: '───', vertical: '│', que: 'mismo tema' },
   'cross-topic': { rama: '═══', vertical: '║', que: 'mismo tema, OTRO repo' },
+  // Doble como cross-topic —las dos cruzan repos, que es lo que importa distinguir— pero con
+  // el trazo fino: el tag dice que el trabajo es sobre lo mismo, el topic dice que la memoria
+  // es sobre lo mismo. La segunda es una afirmación más fuerte.
+  'cross-tag': { rama: '╌═╌', vertical: '╫', que: 'mismo tag, OTRO repo' },
   branch: { rama: '───', vertical: '│', que: 'misma rama' },
   source: { rama: '───', vertical: '│', que: 'mismo documento' },
   similar: { rama: '╌╌╌', vertical: '╎', que: 'parecidas (inferido)' },

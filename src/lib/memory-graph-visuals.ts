@@ -191,6 +191,20 @@ export const EDGE_STYLES: Record<MemoryEdgeKind, EdgeStyle> = {
     label: 'Same topic, other repo',
     meaning: 'The same topic worked on in more than one project',
   },
+  // La hermana de `cross-topic`: tambien cruza repos, pero por TAG. Existe porque el topic
+  // lo elige el agente al guardar y casi nunca coincide entre dos repos, asi que sin esta la
+  // promesa de "trabajo en conjunto entre repos" era cierta en el codigo y falsa en la
+  // pantalla. Mismo sentido de curva que cross-topic --las dos son "otro repo"-- y mas fina:
+  // el tag dice que el trabajo es sobre lo mismo, el topic dice que la memoria es sobre lo
+  // mismo, y la segunda es una afirmacion mas fuerte.
+  'cross-tag': {
+    width: 1.1,
+    color: 'rgba(190, 190, 190, 0.45)',
+    curvature: -0.28,
+    arrowLength: 0,
+    label: 'Same tag, other repo',
+    meaning: 'The same tag used in more than one project',
+  },
   similar: {
     width: 0.6,
     color: 'rgba(120, 120, 120, 0.22)',
@@ -201,7 +215,7 @@ export const EDGE_STYLES: Record<MemoryEdgeKind, EdgeStyle> = {
   },
 }
 
-export const EDGE_KINDS_IN_LEGEND_ORDER: MemoryEdgeKind[] = ['manual', 'revision', 'topic', 'cross-topic', 'branch', 'source', 'similar']
+export const EDGE_KINDS_IN_LEGEND_ORDER: MemoryEdgeKind[] = ['manual', 'revision', 'topic', 'cross-topic', 'cross-tag', 'branch', 'source', 'similar']
 
 function nodeLabel(node: MemoryGraphNode): string {
   return node.title.trim() || '(untitled)'
@@ -347,7 +361,7 @@ export function tagGroups(graph: MemoryGraph): TagGroup[] {
 /** Cuántas aristas de cada tipo hay. La leyenda no lista un tipo que no está en pantalla. */
 export function countEdgeKinds(data: GraphData): Record<MemoryEdgeKind, number> {
   const out: Record<MemoryEdgeKind, number> = {
-    manual: 0, revision: 0, topic: 0, 'cross-topic': 0, branch: 0, source: 0, similar: 0,
+    manual: 0, revision: 0, topic: 0, 'cross-topic': 0, 'cross-tag': 0, branch: 0, source: 0, similar: 0,
   }
   for (const l of data.links) out[l.kind] += 1
   return out

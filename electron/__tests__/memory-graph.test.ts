@@ -300,6 +300,68 @@ describe('arista source — mismo documento de origen', () => {
 // proyecto con razon (dos repos con una rama `main` no comparten nada, un CLAUDE.md en cada
 // uno no es el mismo documento), pero un topic_key SI es una decision deliberada: si "auth"
 // aparece en dos repos, hay trabajo sobre el mismo tema en los dos lados.
+// La hermana de cross-topic, y la que de verdad hace real "trabajo en conjunto entre
+// repos". El `topic_key` lo elige el agente al guardar y casi nunca coincide entre dos
+// repos: en la prueba del shim, tres memorias con el tag `auth` en dos proyectos dieron
+// topics distintos y la del segundo repo quedo "sin conectar con ninguna otra". El tag si
+// coincide, porque etiqueta a QUE es el trabajo y no que memoria puntual es.
+describe('arista cross-tag — el mismo tag en otro repo', () => {
+  it('une dos proyectos que comparten tag aunque los topics sean distintos', () => {
+    insert({ syncId: 'a', projectKey: 'uno', topicKey: 'auth-cookies', tags: ['auth'], updatedAt: 1 })
+    insert({ syncId: 'b', projectKey: 'dos', topicKey: 'auth-samesite', tags: ['auth'], updatedAt: 2 })
+
+    const cross = buildMemoryGraph(db, Q()).edges.filter((e) => e.kind === 'cross-tag')
+    expect(cross).toHaveLength(1)
+    expect(cross[0].directed).toBe(false)
+  })
+
+  it('dentro del mismo proyecto no emite nada: eso ya lo dice `topic` o `similar`', () => {
+    insert({ syncId: 'a', projectKey: 'uno', tags: ['auth'], updatedAt: 1 })
+    insert({ syncId: 'b', projectKey: 'uno', tags: ['auth'], updatedAt: 2 })
+
+    expect(buildMemoryGraph(db, Q()).edges.filter((e) => e.kind === 'cross-tag')).toHaveLength(0)
+  })
+
+  it('tags distintos no se unen', () => {
+    insert({ syncId: 'a', projectKey: 'uno', tags: ['auth'], updatedAt: 1 })
+    insert({ syncId: 'b', projectKey: 'dos', tags: ['pagos'], updatedAt: 2 })
+
+    expect(buildMemoryGraph(db, Q()).edges.filter((e) => e.kind === 'cross-tag')).toHaveLength(0)
+  })
+
+  // Mismo criterio que cross-topic: un representante por proyecto y cadena, o un tag popular
+  // en 4 repos taparia el grafo entero.
+  it('con varias memorias por proyecto, une representantes: 3 repos dan 2 aristas', () => {
+    for (const p of ['uno', 'dos', 'tres']) {
+      for (let i = 0; i < 3; i++) {
+        insert({ syncId: `${p}-${i}`, projectKey: p, tags: ['auth'], updatedAt: i + 1 })
+      }
+    }
+
+    expect(buildMemoryGraph(db, Q()).edges.filter((e) => e.kind === 'cross-tag')).toHaveLength(2)
+  })
+
+  // Cuando dos memorias comparten topic Y tag, la de topic es la afirmacion mas fuerte y es
+  // la que se dibuja. Sin este dedup se dibujarian dos lineas entre el mismo par de nodos.
+  it('no duplica cuando ya hay una cross-topic entre el mismo par', () => {
+    insert({ syncId: 'a', projectKey: 'uno', topicKey: 'auth', tags: ['auth'], updatedAt: 1 })
+    insert({ syncId: 'b', projectKey: 'dos', topicKey: 'auth', tags: ['auth'], updatedAt: 2 })
+
+    const g = buildMemoryGraph(db, Q())
+    expect(g.edges.filter((e) => e.kind === 'cross-topic')).toHaveLength(1)
+    expect(g.edges.filter((e) => e.kind === 'cross-tag')).toHaveLength(0)
+  })
+
+  // Una memoria con varios tags entra en varios grupos. Entre el MISMO par de repos eso da
+  // una sola arista, no una por tag compartido.
+  it('dos tags compartidos entre los mismos dos repos dan una arista, no dos', () => {
+    insert({ syncId: 'a', projectKey: 'uno', tags: ['auth', 'api'], updatedAt: 1 })
+    insert({ syncId: 'b', projectKey: 'dos', tags: ['auth', 'api'], updatedAt: 2 })
+
+    expect(buildMemoryGraph(db, Q()).edges.filter((e) => e.kind === 'cross-tag')).toHaveLength(1)
+  })
+})
+
 describe('arista cross-topic — el mismo tema en otro repo', () => {
   it('une dos proyectos que comparten topic_key', () => {
     insert({ syncId: 'a', projectKey: 'uno', topicKey: 'auth', updatedAt: 1 })

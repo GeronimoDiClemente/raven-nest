@@ -133,7 +133,7 @@ describe('countEdgeKinds', () => {
         { from: 'a', to: 'c', kind: 'revision', directed: true },
       ],
     ), TODO)
-    expect(countEdgeKinds(data)).toEqual({ manual: 0, revision: 1, topic: 2, 'cross-topic': 0, branch: 0, source: 0, similar: 0 })
+    expect(countEdgeKinds(data)).toEqual({ manual: 0, revision: 1, topic: 2, 'cross-topic': 0, 'cross-tag': 0, branch: 0, source: 0, similar: 0 })
   })
 })
 
