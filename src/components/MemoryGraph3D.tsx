@@ -68,6 +68,14 @@ export default function MemoryGraph3D({ data, selectedId, onSelect, showLabels }
   const boxRef = useRef<HTMLDivElement | null>(null)
   const fgRef = useRef<ForceGraphMethods<GraphNodeDatum, GraphLinkDatum> | undefined>(undefined)
   const [size, setSize] = useState<{ w: number; h: number } | null>(null)
+  /**
+   * Si el usuario ya movió la cámara, el encuadre automático NO vuelve a tocarla.
+   *
+   * Sin esto el grafo se sentía roto: la simulación se aquieta a los 4s (`cooldownTime`) y
+   * ahí dispara `onEngineStop`, que reencuadraba con una animación de 400ms. Si en ese
+   * momento estabas arrastrando o haciendo zoom, la cámara te la sacaba de las manos.
+   */
+  const usuarioMovioLaCamara = useRef(false)
 
   useEffect(() => {
     const el = boxRef.current
@@ -115,6 +123,7 @@ export default function MemoryGraph3D({ data, selectedId, onSelect, showLabels }
   // resto vacío — que es exactamente la sensación de "no se entiende nada" que esta
   // pantalla venía a arreglar. El padding deja aire para que ningún nodo toque el borde.
   const encuadrar = useCallback(() => {
+    if (usuarioMovioLaCamara.current) return
     const fg = fgRef.current
     if (!fg) {
       // Si esto se ve, el ref no llegó — el mismo sintoma de la trampa de React 18 contra
@@ -160,6 +169,10 @@ export default function MemoryGraph3D({ data, selectedId, onSelect, showLabels }
   // grafo): si sólo se encuadrara al frenar el motor, el grafo nuevo quedaría con el
   // encuadre del viejo.
   useEffect(() => {
+    // Un conjunto de datos nuevo (entrar a un proyecto, prender las aristas inferidas) sí
+    // merece reencuadre: es otro grafo, y dejarlo con la cámara del anterior lo deja fuera
+    // de cuadro. Lo que no se pisa es un encuadre que el usuario hizo sobre ESTE grafo.
+    usuarioMovioLaCamara.current = false
     const t = setTimeout(encuadrar, 900)
     return () => clearTimeout(t)
   }, [data, encuadrar])
@@ -170,8 +183,18 @@ export default function MemoryGraph3D({ data, selectedId, onSelect, showLabels }
     onSelect(node.id === selectedId ? null : node.id)
   }, [onSelect, selectedId])
 
+  // Cualquiera de estos gestos es "me estoy moviendo yo": desde ahí el encuadre automático
+  // se calla. Van en el contenedor y en fase de captura para que valgan aunque el canvas de
+  // three se quede con el evento.
+  const marcarInteraccion = useCallback(() => { usuarioMovioLaCamara.current = true }, [])
+
   return (
-    <div ref={boxRef} className="h-full w-full">
+    <div
+      ref={boxRef}
+      className="h-full w-full"
+      onPointerDownCapture={marcarInteraccion}
+      onWheelCapture={marcarInteraccion}
+    >
       {size && size.w > 0 && size.h > 0 && (
         <ForceGraph3D<GraphNodeDatum, GraphLinkDatum>
           ref={fgRef}
@@ -181,6 +204,17 @@ export default function MemoryGraph3D({ data, selectedId, onSelect, showLabels }
           // Transparente: el fondo lo pone la card, así el cuadro pertenece a la pantalla en
           // vez de ser un recuadro negro pegado encima.
           backgroundColor="rgba(0,0,0,0)"
+          // `orbit`, no el `trackball` que viene por default.
+          //
+          // TrackballControls es el que hace que el grafo se sienta roto con un trackpad:
+          // no tiene arriba ni abajo (rota sin límite y te deja el grafo de costado), no
+          // amortigua, y el scroll de dos dedos le llega como un zoom a saltos. Orbit es el
+          // esquema que espera cualquiera: arrastrar rota manteniendo el horizonte, dos
+          // dedos hacen zoom continuo, y el paneo no pierde el centro.
+          //
+          // Es una prop de INICIALIZACIÓN (react-kapsule's `initPropNames`): se lee una vez
+          // al construir el grafo, así que cambiarla en caliente no haría nada.
+          controlType="orbit"
           showNavInfo={false}
           // 6, no el 4 por defecto: con pocos nodos un grafo de puntos chiquitos en una
           // caja de 320px se lee como ruido en vez de como una estructura.
@@ -215,7 +249,11 @@ export default function MemoryGraph3D({ data, selectedId, onSelect, showLabels }
           d3VelocityDecay={0.35}
           cooldownTime={4000}
           onEngineStop={encuadrar}
-          enableNodeDrag={false}
+          // Arrastrar un nodo lo mueve; arrastrar el fondo rota la cámara. Es exactamente
+          // el reparto de Obsidian, y es lo que hace que el grafo se sienta vivo en vez de
+          // una foto. Estaba apagado por precaución y lo que lograba era que todo gesto
+          // sobre un nodo no hiciera nada.
+          enableNodeDrag
         />
       )}
     </div>
