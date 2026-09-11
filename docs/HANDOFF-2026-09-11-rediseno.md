@@ -128,7 +128,31 @@ ya estaban cubiertos).
    Brief de la parte de datos en `.superpowers/sdd/.../memories-datos-brief.md`.
 4. **`.repo-action-btn`**: quedó en 26px, fuera de la escala, porque My Repos exige GitHub
    conectado de verdad. La salida es inyectar repos falsos en el harness.
-5. **Catálogo de agentes** y **barra de cuotas** (A1–A5 de `INTEGRATIONS_ORCA_BACKLOG.md`).
+5. **Migración de íconos a `lucide-react`.** Hay **171 `<svg>` escritos a mano en 41
+   archivos**, con **9 tamaños** (10, 11, 12, 13, 14, 15, 16, 22, 28 px) y **8 grosores de
+   trazo** (1.1 a 2 — con 105 en 1.3, 45 en 1.4 y 31 en 1.2, que a ojo son el mismo y no lo
+   son). `lucide-react@^1.43.0` está instalado **desde antes y su único uso apareció el
+   2026-09-11**, en `src/components/ui/select.tsx`, el primitivo que se migró ese día.
+   Es tedioso pero mecánico, y conviene de **una sola pasada con verificación visual** — no
+   de a poco, porque el valor está en que queden todos iguales. Es de lo que más rinde
+   contra "parece improvisado": parte de por qué Orca se ve coherente es que sus íconos
+   salen todos del mismo set.
+6. **Catálogo de agentes** y **barra de cuotas** (A1–A5 de `INTEGRATIONS_ORCA_BACKLOG.md`).
+
+### Librerías — auditoría del 2026-09-11
+
+Hecha con evidencia, no con una lista genérica. El resultado: **falta menos de lo que sobra
+mal usado**.
+
+- **Falta de verdad:** virtualización de listas (`@tanstack/react-virtual`). No hay ninguna,
+  y la lista de memorias de todos los proyectos se traba sin ella. Entra con Memories.
+- **A medir:** el render 3D (ver arriba).
+- **Deuda:** los 171 íconos a mano contra una librería instalada y sin usar.
+- **Ya está, no traer nada:** Radix completo, `react-resizable-panels`, `@dnd-kit`, el stack
+  shadcn entero (`cva`, `clsx`, `tailwind-merge`, `tw-animate-css`), `shiki` + Monaco.
+  **Toasts tampoco faltan**: hay `NotificationPanel.tsx` propio.
+- **No justifica dependencia:** gráficos (`TeamStats` dibuja ocho elementos SVG) ni fechas
+  (11 lugares con formateo a mano → un helper compartido de diez líneas).
 
 ### Abierto, sin decidir
 
