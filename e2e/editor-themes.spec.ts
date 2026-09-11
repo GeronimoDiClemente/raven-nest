@@ -85,12 +85,12 @@ test('importa un tema desde una instalación fake de VS Code y lo lista como Ins
     await h.page.locator('.sidebar-item-settings').click()
     await h.page.locator('.sp-tab', { hasText: 'Editor' }).click()
 
-    await h.page.locator('.sp-action-btn', { hasText: 'Import themes from VS Code' }).click()
+    await h.page.getByRole('button', { name: 'Import themes from VS Code' }).click()
     const scanned = h.page.locator('[data-testid="scanned-themes"]')
     await expect(scanned).toBeVisible({ timeout: 10_000 })
     await expect(scanned).toContainText('Acme E2E Dark')
 
-    await scanned.locator('.sp-action-btn', { hasText: 'Install' }).click()
+    await scanned.getByRole('button', { name: 'Install' }).click()
 
     // El tema instalado aparece en el selector (grupo Installed) — las
     // <option> no son "visibles" para Playwright, se asserta por count.

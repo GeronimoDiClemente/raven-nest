@@ -29,7 +29,7 @@
 // vive detrás de `query.includeSimilar`, apagado por default.
 import type Database from 'better-sqlite3'
 
-export type MemoryEdgeKind = 'revision' | 'topic' | 'branch' | 'similar'
+export type MemoryEdgeKind = 'revision' | 'topic' | 'branch' | 'source' | 'similar'
 
 export interface MemoryGraphNode {
   syncId: string
@@ -123,6 +123,7 @@ interface GraphRow {
   title: string
   project_display_name: string | null
   git_branch: string | null
+  source_ref: string | null
   origin_ai: string | null
   author_display: string | null
   updated_at: number
@@ -314,7 +315,7 @@ export function buildMemoryGraph(db: Database.Database, query: MemoryGraphQuery)
       // ensureProject(), y esa memoria tiene que seguir apareciendo en el grafo.
       `SELECT o.sync_id, o.project_key, p.display_name AS project_display_name, o.scope,
               o.topic_key, o.type, o.title, o.git_branch, o.origin_ai,
-              o.author_display, o.updated_at, o.superseded_by
+              o.author_display, o.updated_at, o.superseded_by, o.source_ref
        FROM observations o
        LEFT JOIN projects p ON p.project_key = o.project_key
        WHERE ${conditions.join(' AND ')}
@@ -368,7 +369,31 @@ export function buildMemoryGraph(db: Database.Database, query: MemoryGraphQuery)
     ...chainEdges(selected, 'branch', (r) => (r.git_branch ? `${r.project_key}\u0000${r.git_branch}` : null))
   )
 
-  // 4. similar — opt-in (query.includeSimilar), apagada por default. Es inferencia sobre
+  // 4. source — cadena por DOCUMENTO de origen.
+  //
+  // Es la arista que hacía falta y que no existía. Una memoria IMPORTADA no podía
+  // conectarse con NINGUNA otra, por construcción: el importador de Markdown le da a cada
+  // chunk su propio `topic_key` (derivado de su heading, así que nunca se repite), y no le
+  // pone `git_branch`, ni tags, ni `superseded_by`. O sea que revision, topic, branch y
+  // similar eran las cuatro imposibles a la vez. Medido en una cuenta real: ~200 memorias,
+  // CERO aristas.
+  //
+  // Lo que sí existe es de dónde salieron. `source_ref` es `<label>:<path>#<topicKey>`, así
+  // que el prefijo hasta el último `#` identifica el documento. Dos secciones del mismo
+  // CLAUDE.md comparten origen, y eso es un HECHO declarado, no una inferencia — pertenece
+  // al grupo de revision/topic/branch, no al de `similar`.
+  edges.push(
+    ...chainEdges(selected, 'source', (r) => {
+      if (!r.source_ref) return null
+      const corte = r.source_ref.lastIndexOf('#')
+      const doc = corte > 0 ? r.source_ref.slice(0, corte) : r.source_ref
+      // Escopeado por proyecto, igual que branch: dos repos con un CLAUDE.md cada uno no
+      // son el mismo documento.
+      return `${r.project_key}\u0000${doc}`
+    })
+  )
+
+  // 5. similar — opt-in (query.includeSimilar), apagada por default. Es inferencia sobre
   // contenido, no un hecho declarado como las tres de arriba (ver MemoryGraphQuery). Si ya
   // hay una arista entre A y B por revision/topic/branch, esa gana y no se duplica.
   if (query.includeSimilar) {

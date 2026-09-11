@@ -307,7 +307,7 @@ export interface TeamThreadSettings {
 /** Espejo de los tipos de electron/memory-graph.ts (src/ nunca importa de electron/). El
  *  puente de datos del grafo navegable de memorias — ver ese archivo para el detalle de
  *  cómo se computan revision/topic/branch. */
-export type MemoryEdgeKind = 'revision' | 'topic' | 'branch' | 'similar'
+export type MemoryEdgeKind = 'revision' | 'topic' | 'branch' | 'source' | 'similar'
 
 export interface MemoryGraphNode {
   syncId: string

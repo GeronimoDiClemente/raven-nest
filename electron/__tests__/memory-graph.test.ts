@@ -28,7 +28,8 @@ beforeEach(() => {
       author_display TEXT,
       updated_at     INTEGER NOT NULL,
       deleted        INTEGER NOT NULL DEFAULT 0,
-      superseded_by  TEXT
+      superseded_by  TEXT,
+      source_ref     TEXT
     );
 
     -- buildMemoryGraph hace LEFT JOIN con \`projects\` para traer el nombre legible: el
@@ -55,6 +56,7 @@ interface Row {
   type?: string
   title?: string
   gitBranch?: string | null
+  sourceRef?: string | null
   originAi?: string | null
   authorDisplay?: string | null
   updatedAt?: number
@@ -66,9 +68,9 @@ function insert(r: Row): void {
   db.prepare(
     `INSERT INTO observations
       (sync_id, project_key, scope, topic_key, type, title, git_branch, origin_ai,
-       author_display, updated_at, deleted, superseded_by)
+       author_display, updated_at, deleted, superseded_by, source_ref)
      VALUES (@sync_id, @project_key, @scope, @topic_key, @type, @title, @git_branch,
-       @origin_ai, @author_display, @updated_at, @deleted, @superseded_by)`
+       @origin_ai, @author_display, @updated_at, @deleted, @superseded_by, @source_ref)`
   ).run({
     sync_id: r.syncId,
     project_key: r.projectKey ?? 'proj-a',
@@ -82,6 +84,7 @@ function insert(r: Row): void {
     updated_at: r.updatedAt ?? 1000,
     deleted: r.deleted ?? 0,
     superseded_by: r.supersededBy ?? null,
+    source_ref: r.sourceRef ?? null,
   })
 }
 
@@ -227,5 +230,54 @@ describe('el nombre legible del proyecto', () => {
     const g = buildMemoryGraph(db, Q())
     expect(g.nodes).toHaveLength(1)
     expect(g.nodes[0].projectDisplayName).toBeNull()
+  })
+})
+
+// La arista que faltaba. Una memoria IMPORTADA no podia conectarse con ninguna otra por
+// construccion: el importador de Markdown le da a cada chunk su propio topic_key (derivado
+// de su heading, asi que nunca se repite) y no le pone git_branch, ni tags, ni
+// superseded_by. Medido en una cuenta real: ~200 memorias, CERO aristas.
+describe('arista source — mismo documento de origen', () => {
+  it('dos secciones del mismo archivo quedan conectadas', () => {
+    insert({ syncId: 'a', sourceRef: 'claude-md:/repo/CLAUDE.md#uno', updatedAt: 1 })
+    insert({ syncId: 'b', sourceRef: 'claude-md:/repo/CLAUDE.md#dos', updatedAt: 2 })
+
+    const g = buildMemoryGraph(db, Q())
+    const source = g.edges.filter((e) => e.kind === 'source')
+    expect(source).toHaveLength(1)
+    expect(source[0].directed).toBe(false)
+  })
+
+  it('archivos distintos no se conectan', () => {
+    insert({ syncId: 'a', sourceRef: 'claude-md:/repo/CLAUDE.md#uno', updatedAt: 1 })
+    insert({ syncId: 'b', sourceRef: 'claude-md:/repo/OTRO.md#uno', updatedAt: 2 })
+
+    expect(buildMemoryGraph(db, Q()).edges.filter((e) => e.kind === 'source')).toHaveLength(0)
+  })
+
+  // Escopeada por proyecto, igual que branch: dos repos con un CLAUDE.md cada uno no son el
+  // mismo documento aunque el path relativo coincida.
+  it('el mismo path en dos proyectos distintos no conecta', () => {
+    insert({ syncId: 'a', projectKey: 'uno', sourceRef: 'claude-md:/CLAUDE.md#x', updatedAt: 1 })
+    insert({ syncId: 'b', projectKey: 'dos', sourceRef: 'claude-md:/CLAUDE.md#y', updatedAt: 2 })
+
+    expect(buildMemoryGraph(db, Q()).edges.filter((e) => e.kind === 'source')).toHaveLength(0)
+  })
+
+  it('sin source_ref no genera aristas', () => {
+    insert({ syncId: 'a', updatedAt: 1 })
+    insert({ syncId: 'b', updatedAt: 2 })
+
+    expect(buildMemoryGraph(db, Q()).edges.filter((e) => e.kind === 'source')).toHaveLength(0)
+  })
+
+  // Cadena, no clique: un CLAUDE.md de 60 secciones daria 1770 aristas en clique y el grafo
+  // se volveria una bola negra.
+  it('tres secciones del mismo archivo dan DOS aristas, no tres', () => {
+    insert({ syncId: 'a', sourceRef: 'md:/f.md#1', updatedAt: 1 })
+    insert({ syncId: 'b', sourceRef: 'md:/f.md#2', updatedAt: 2 })
+    insert({ syncId: 'c', sourceRef: 'md:/f.md#3', updatedAt: 3 })
+
+    expect(buildMemoryGraph(db, Q()).edges.filter((e) => e.kind === 'source')).toHaveLength(2)
   })
 })

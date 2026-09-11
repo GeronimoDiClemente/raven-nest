@@ -27,7 +27,8 @@ beforeEach(() => {
       author_display TEXT,
       updated_at     INTEGER NOT NULL,
       deleted        INTEGER NOT NULL DEFAULT 0,
-      superseded_by  TEXT
+      superseded_by  TEXT,
+      source_ref     TEXT
     );
 
     -- buildMemoryGraph hace LEFT JOIN con \`projects\` por el nombre legible del proyecto

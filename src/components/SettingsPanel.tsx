@@ -20,6 +20,9 @@ import UpgradeModal from './UpgradeModal'
 import MemoryHub from './MemoryHub'
 import MemoryAdoptionDialog from './MemoryAdoptionDialog'
 import logoUrl from '../assets/logo.png'
+import { Button } from '@/components/ui/button'
+import { X } from 'lucide-react'
+import { ICON_SIZE } from '../lib/icons'
 
 type Tab = 'keybinds' | 'presets' | 'benchmarks' | 'updates' | 'account' | 'tutorial' | 'editor'
 
@@ -313,7 +316,17 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                 </svg>
                 <span className="sp-title">Settings</span>
               </div>
-              <button className="sp-close" onClick={() => setOpen(false)}>×</button>
+              {/* Era el caracter "×" en un <button> con reglas propias. Ahora es el icono
+                  del sistema, con el mismo grosor que el resto (src/lib/icons.ts). */}
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                onClick={() => setOpen(false)}
+                title="Close settings"
+                aria-label="Close settings"
+              >
+                <X size={ICON_SIZE.md} aria-hidden />
+              </Button>
             </div>
 
             {/* Tabs */}
@@ -378,13 +391,13 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
 
               {tab === 'updates' && (
                 <div className="sp-section">
-                  <button
-                    className="sp-action-btn"
+                  <Button
+                    variant="outline" size="sm"
                     onClick={onCheckUpdates}
                     disabled={updateState === 'checking' || updateState === 'update-found'}
                   >
                     {updateLabel}
-                  </button>
+                  </Button>
                 </div>
               )}
 
@@ -406,9 +419,9 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                         )}
                       </div>
                       {githubConnected ? (
-                        <button className="sp-btn-danger" onClick={disconnectGitHub}>Disconnect</button>
+                        <Button variant="destructive" size="sm" onClick={disconnectGitHub}>Disconnect</Button>
                       ) : (
-                        <button className="sp-btn-purple" onClick={connectGitHub}>Connect</button>
+                        <Button size="sm" onClick={connectGitHub}>Connect</Button>
                       )}
                     </div>
                   </div>
@@ -432,9 +445,9 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                         )}
                       </div>
                       {gitlabConnected ? (
-                        <button className="sp-btn-danger" onClick={disconnectGitlab}>Disconnect</button>
+                        <Button variant="destructive" size="sm" onClick={disconnectGitlab}>Disconnect</Button>
                       ) : (
-                        <button className="sp-btn-purple" onClick={connectGitlab}>Connect</button>
+                        <Button size="sm" onClick={connectGitlab}>Connect</Button>
                       )}
                     </div>
                   </div>
@@ -444,14 +457,18 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                       <div className="sp-card-left">
                         <img src={logoUrl} alt="" aria-hidden="true" width={15} height={15} style={{ display: 'block' }} />
                         <span className="sp-card-label">Nest Memory</span>
-                        <button
+                        {/* Era un <button> con OCHO declaraciones inline para parecer un
+                            link — incluido un `color: inherit` que estaba ahi porque sin el
+                            heredaba `buttontext` del navegador (negro sobre #141414). El
+                            primitivo tiene una variante `link` que hace exactamente esto. */}
+                        <Button
+                          variant="link"
+                          size="xs"
+                          className="ml-1.5 h-auto p-0 text-fs-xs text-muted-foreground"
                           onClick={() => setMemoryHubOpen(true)}
-                          // `color: inherit` no es cosmetico: sin el, un <button> hereda `buttontext`
-                          // del navegador (negro) y este link quedaba negro sobre #141414.
-                          style={{ fontSize: 11, opacity: 0.65, marginLeft: 6, background: 'transparent', border: 'none', color: 'inherit', textDecoration: 'underline', cursor: 'pointer', padding: 0 }}
                         >
                           Learn more
-                        </button>
+                        </Button>
                         {memory.state === 'connected' && (
                           <span style={{ fontSize: 11, opacity: 0.65, marginLeft: 6 }}>
                             {memory.itemCount} items{memory.pendingCount > 0 ? ` · ${memory.pendingCount} pending` : ' · synced'}
@@ -489,9 +506,9 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                         )}
                       </div>
                       {memory.state === 'unavailable' ? (
-                        <button className="sp-btn-purple" disabled>Unavailable</button>
+                        <Button size="sm" disabled>Unavailable</Button>
                       ) : memory.state === 'connected' || memory.state === 'paused' ? (
-                        <button className="sp-btn-danger" onClick={() => memory.disconnect(deleteCloudOnDisconnect)}>Disconnect</button>
+                        <Button variant="destructive" size="sm" onClick={() => memory.disconnect(deleteCloudOnDisconnect)}>Disconnect</Button>
                       ) : memory.state === 'error' ? (
                         // §6.6/§7.5 "right to delete": `error` here means a connection that
                         // WAS established (refresh() only reaches it when status.connected is
@@ -501,8 +518,8 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                         // state had no way to get their cloud copy deleted except fixing the
                         // underlying failure first.
                         <div style={{ display: 'flex', gap: 8 }}>
-                          <button className="sp-btn-purple" onClick={() => void conectarMemoria()}>Retry</button>
-                          <button className="sp-btn-danger" onClick={() => memory.disconnect(deleteCloudOnDisconnect)}>Disconnect</button>
+                          <Button size="sm" onClick={() => void conectarMemoria()}>Retry</Button>
+                          <Button variant="destructive" size="sm" onClick={() => memory.disconnect(deleteCloudOnDisconnect)}>Disconnect</Button>
                         </div>
                       ) : memory.state === 'plan_required' ? (
                         // Same right-to-delete gap as `error`: the connection still exists —
@@ -514,15 +531,15 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                         <div style={{ display: 'flex', gap: 8 }}>
                           {/* Reuses the same Upgrade affordance the free-plan disconnected
                               branch below already has — no second upgrade path invented. */}
-                          <button className="sp-btn-purple" onClick={() => setMemoryUpgradeOpen(true)}>Upgrade</button>
-                          <button className="sp-btn-danger" onClick={() => memory.disconnect(deleteCloudOnDisconnect)}>Disconnect</button>
+                          <Button size="sm" onClick={() => setMemoryUpgradeOpen(true)}>Upgrade</Button>
+                          <Button variant="destructive" size="sm" onClick={() => memory.disconnect(deleteCloudOnDisconnect)}>Disconnect</Button>
                         </div>
                       ) : memory.state === 'connecting' || memory.state === 'migrating' ? (
-                        <button className="sp-btn-purple" disabled>…</button>
+                        <Button size="sm" disabled>…</Button>
                       ) : PLAN_LIMITS[plan].memoryCloud ? (
-                        <button className="sp-btn-purple" onClick={() => void conectarMemoria()}>Connect</button>
+                        <Button size="sm" onClick={() => void conectarMemoria()}>Connect</Button>
                       ) : (
-                        <button className="sp-btn-purple" onClick={() => setMemoryUpgradeOpen(true)}>Upgrade</button>
+                        <Button size="sm" onClick={() => setMemoryUpgradeOpen(true)}>Upgrade</Button>
                       )}
                     </div>
                     {((memory.state === 'disconnected' && PLAN_LIMITS[plan].memoryCloud) || memory.state === 'error') && (
@@ -583,14 +600,14 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                       "siento que queda feo asi"). Queda la puerta para que quien la busque
                       aca la encuentre. */}
                   {onOpenMemories && (
-                    <button className="sp-action-btn" onClick={onOpenMemories}>
+                    <Button variant="outline" size="sm" onClick={onOpenMemories}>
                       Open Memories
-                    </button>
+                    </Button>
                   )}
 
-                  <button className="sp-action-btn" onClick={() => supabase.auth.signOut()}>
+                  <Button variant="outline" size="sm" onClick={() => supabase.auth.signOut()}>
                     Sign out
-                  </button>
+                  </Button>
                 </div>
               )}
 
@@ -599,9 +616,9 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                   <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '0 0 12px' }}>
                     Recorré las secciones de Nest con datos de demostración, sin tocar tus repos.
                   </p>
-                  <button className="sp-action-btn" onClick={() => onOpenTutorial?.('worktrees')}>
+                  <Button variant="outline" size="sm" onClick={() => onOpenTutorial?.('worktrees')}>
                     Tutorial: Worktrees
-                  </button>
+                  </Button>
                 </div>
               )}
 
@@ -642,9 +659,9 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                     </select>
                   </div>
                   <div style={{ display: 'flex', gap: 8, margin: '10px 0' }}>
-                    <button className="sp-action-btn" onClick={handleScanVSCodeThemes}>Import themes from VS Code</button>
-                    <button className="sp-action-btn" onClick={handleLoadThemeFile}>Load theme file…</button>
-                    <button className="sp-action-btn" onClick={() => setVsxOpen(v => !v)}>Browse Open VSX…</button>
+                    <Button variant="outline" size="sm" onClick={handleScanVSCodeThemes}>Import themes from VS Code</Button>
+                    <Button variant="outline" size="sm" onClick={handleLoadThemeFile}>Load theme file…</Button>
+                    <Button variant="outline" size="sm" onClick={() => setVsxOpen(v => !v)}>Browse Open VSX…</Button>
                   </div>
                   {themeError && <p style={{ color: '#ef4444', fontSize: 12 }}>{themeError}</p>}
                   {scannedThemes && (
@@ -655,7 +672,7 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                       {scannedThemes.map(t => (
                         <div key={t.path} className="sp-row">
                           <span className="sp-row-label">{t.label}</span>
-                          <button className="sp-action-btn" onClick={() => handleInstallScanned(t.path)}>Install</button>
+                          <Button variant="outline" size="sm" onClick={() => handleInstallScanned(t.path)}>Install</Button>
                         </div>
                       ))}
                     </div>
@@ -671,7 +688,7 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                           onChange={e => setVsxQuery(e.target.value)}
                           onKeyDown={e => { if (e.key === 'Enter') void handleVsxSearch() }}
                         />
-                        <button className="sp-action-btn" onClick={handleVsxSearch} disabled={vsxBusy}>Search</button>
+                        <Button variant="outline" size="sm" onClick={handleVsxSearch} disabled={vsxBusy}>Search</Button>
                       </div>
                       {vsxError && <p style={{ color: '#ef4444', fontSize: 12 }}>{vsxError}</p>}
                       {vsxResults && vsxResults.length === 0 && (
@@ -680,11 +697,11 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                       {vsxResults?.map(r => (
                         <div key={`${r.namespace}.${r.name}`} className="sp-row">
                           <span className="sp-row-label" title={r.description}>{r.displayName}</span>
-                          <button
-                            className="sp-action-btn"
+                          <Button
+                            variant="outline" size="sm"
                             disabled={vsxBusy}
                             onClick={() => handleVsxInstall(r.namespace, r.name)}
-                          >Install</button>
+                          >Install</Button>
                         </div>
                       ))}
                     </div>
@@ -694,8 +711,8 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                     Import your editor preferences from VS Code or IntelliJ.
                   </p>
                   <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-                    <button className="sp-action-btn" onClick={() => handleImportEditorConfig('vscode')}>Import from VS Code</button>
-                    <button className="sp-action-btn" onClick={() => handleImportEditorConfig('intellij')}>Import from IntelliJ</button>
+                    <Button variant="outline" size="sm" onClick={() => handleImportEditorConfig('vscode')}>Import from VS Code</Button>
+                    <Button variant="outline" size="sm" onClick={() => handleImportEditorConfig('intellij')}>Import from IntelliJ</Button>
                   </div>
                   {importError && <p style={{ color: '#ef4444', fontSize: 12 }}>{importError}</p>}
                   {importPreview && (
@@ -705,8 +722,8 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                           <li key={key}>{key}: {JSON.stringify(value)}</li>
                         ))}
                       </ul>
-                      <button className="sp-action-btn" onClick={confirmImportEditorConfig}>Apply</button>
-                      <button className="sp-btn-danger" onClick={() => setImportPreview(null)}>Cancel</button>
+                      <Button variant="outline" size="sm" onClick={confirmImportEditorConfig}>Apply</Button>
+                      <Button variant="destructive" size="sm" onClick={() => setImportPreview(null)}>Cancel</Button>
                     </div>
                   )}
                 </div>

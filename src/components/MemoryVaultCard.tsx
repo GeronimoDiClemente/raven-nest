@@ -92,10 +92,16 @@ export default function MemoryVaultCard() {
               : 'Mirror your memory to a folder of Markdown files, one per observation'}
           </span>
         </div>
-        {/* Era un <button> con `.sp-btn-danger` / `.sp-btn-purple`, dos clases hechas a
-            mano para esta card. El morado ademas es un literal cromatico fuera de la
-            allow-list, en una pantalla donde el acento es acromatico y el color es ESTADO.
-            Prender el vault no es una accion destructiva ni de marca: es la primaria. */}
+        {/* Era un <button> con `.sp-btn-danger` / `.sp-btn-purple`, dos clases hechas a mano
+            que viven en global.css para el panel de Settings.
+
+            `sp-btn-purple` NO es morado, pese al nombre: una pasada anterior ya lo dejo
+            acromatico (`background: transparent; color: var(--text-primary)`) y solo quedo
+            el nombre viejo. El problema no era el color sino tener DOS sistemas de botones
+            en la misma pantalla, cada uno con su altura, su radio y su padding.
+
+            Y apagar el vault no es destructivo: se puede volver a prender y las notas
+            siguen ahi. `outline` dice "accion secundaria", que es lo que es. */}
         <Button
           variant={settings.enabled ? 'outline' : 'default'}
           size="sm"
