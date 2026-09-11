@@ -148,7 +148,11 @@ describe('MemoriesWorkspace', () => {
     }))
     renderWorkspace({ activeRepoPath: null, onLinkRepo: () => {} })
 
-    const title = await screen.findByText('Link a repo to see its memory graph')
+    // El texto cambio el 2026-09-11: desde que MemoryGraphPanel muestra el grafo de
+    // MEMORIAS arriba de esta card, decir "to see its memory graph" contradecia lo que el
+    // usuario tenia en pantalla. Lo que falta sin repo es el grafo de RAMAS. El contrato
+    // que este test protege es la escala tipografica, no la copy.
+    const title = await screen.findByText('Link a repo to see its branches')
     expect(title.className.split(/\s+/)).toContain('text-fs-lg')
 
     const description = await screen.findByText(/214 memories across 5 projects/)

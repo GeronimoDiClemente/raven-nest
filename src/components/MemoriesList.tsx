@@ -6,6 +6,7 @@
 // Virtualizado con @tanstack/react-virtual (unica dependencia nueva autorizada para
 // esta tarea): la lista es cross-project y puede tener miles de filas — sin virtualizar
 // la pantalla se traba al abrirse.
+import type React from 'react'
 import { useEffect, useRef } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { AILogo } from './AILogos'
@@ -20,7 +21,15 @@ import type { CrossProjectObservation } from '../types'
  *  es una sola linea (titulo + metadatos), asi que no hace falta medicion dinamica. */
 const ROW_HEIGHT = 32
 
-export default function MemoriesList() {
+interface Props {
+  /** syncId seleccionado, compartido con el grafo. Spec §3: seleccionar una memoria en la
+   *  lista la resalta en el grafo y viceversa. Opcional para que los callers y tests que
+   *  montan la lista sola sigan andando. */
+  selectedId?: string | null
+  onSelect?: (syncId: string | null) => void
+}
+
+export default function MemoriesList({ selectedId = null, onSelect }: Props = {}) {
   const { status, items, error, hasMore, loadingMore, loadMore, query, setQuery } =
     useCrossProjectMemories()
 
@@ -72,7 +81,14 @@ export default function MemoriesList() {
       )}
 
       {items.length > 0 && (
-        <MemoriesRows items={items} hasMore={hasMore} loadingMore={loadingMore} onLoadMore={loadMore} />
+        <MemoriesRows
+          items={items}
+          hasMore={hasMore}
+          loadingMore={loadingMore}
+          onLoadMore={loadMore}
+          selectedId={selectedId}
+          onSelect={onSelect}
+        />
       )}
     </div>
   )
@@ -94,9 +110,11 @@ interface RowsProps {
   hasMore: boolean
   loadingMore: boolean
   onLoadMore: () => void
+  selectedId: string | null
+  onSelect?: (syncId: string | null) => void
 }
 
-function MemoriesRows({ items, hasMore, loadingMore, onLoadMore }: RowsProps) {
+function MemoriesRows({ items, hasMore, loadingMore, onLoadMore, selectedId, onSelect }: RowsProps) {
   const parentRef = useRef<HTMLDivElement>(null)
   const rowVirtualizer = useVirtualizer({
     count: items.length,
@@ -139,7 +157,11 @@ function MemoriesRows({ items, hasMore, loadingMore, onLoadMore }: RowsProps) {
                 transform: `translateY(${virtualRow.start}px)`,
               }}
             >
-              <MemoryRow item={item} />
+              <MemoryRow
+                item={item}
+                selected={item.syncId === selectedId}
+                onSelect={onSelect}
+              />
             </div>
           )
         })}
@@ -151,12 +173,35 @@ function MemoriesRows({ items, hasMore, loadingMore, onLoadMore }: RowsProps) {
   )
 }
 
-function MemoryRow({ item }: { item: CrossProjectObservation }) {
+function MemoryRow({
+  item, selected, onSelect,
+}: { item: CrossProjectObservation; selected: boolean; onSelect?: (syncId: string | null) => void }) {
   const swatch = memoryTypeSwatch(item.type)
+  // Sin `onSelect` la fila NO es un boton: un role interactivo en algo que no hace nada es
+  // peor que texto plano para quien navega por teclado o con lector de pantalla.
+  const interactiva = Boolean(onSelect)
   return (
     <div
-      className="flex h-8 items-center gap-2 border-b border-border px-2 text-fs-sm"
+      className={`flex h-8 w-full items-center gap-2 border-b border-border px-2 text-left text-fs-sm${
+        interactiva ? ' cursor-pointer hover:bg-accent' : ''
+      }${selected ? ' bg-accent' : ''}`}
       title={item.title}
+      {...(interactiva
+        ? {
+            role: 'button' as const,
+            tabIndex: 0,
+            'aria-pressed': selected,
+            // Click en la fila ya seleccionada deselecciona — es la unica forma de volver
+            // a ver el grafo entero sin ir a buscar el fondo del canvas.
+            onClick: () => onSelect?.(selected ? null : item.syncId),
+            onKeyDown: (e: React.KeyboardEvent) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault()
+                onSelect?.(selected ? null : item.syncId)
+              }
+            },
+          }
+        : {})}
     >
       {/* El tipo se distingue sin leer (spec §1) — leyenda categorica de 7 valores
           fijos, ver src/lib/memory-type-legend.ts. */}

@@ -9,6 +9,7 @@
 import { useEffect, useState } from 'react'
 import { useMemories } from '../hooks/useMemories'
 import MemoriesList from './MemoriesList'
+import MemoryGraphPanel from './MemoryGraphPanel'
 import MemoriesStatusRow from './MemoriesStatusRow'
 import ShareProjectCard from './ShareProjectCard'
 import TeamThreadPanel from './TeamThreadPanel'
@@ -38,6 +39,11 @@ interface Props {
 
 export default function MemoriesWorkspace({ onClose, activeRepoPath, onOpenFile, onLinkRepo, closing = false }: Props) {
   const state = useMemories()
+
+  // Spec §3: el grafo es una VISTA de la lista, no su reemplazo — seleccionar una memoria
+  // en la lista la resalta en el grafo y viceversa. La seleccion vive aca, que es el unico
+  // lugar que ve a los dos.
+  const [selectedId, setSelectedId] = useState<string | null>(null)
 
   // El estado vacio (sin repo) no tiene la memoria __global__ disponible en el renderer
   // (MemoriesState no trae ningun campo de scope, y window.memory no expone una lectura de
@@ -88,7 +94,11 @@ export default function MemoriesWorkspace({ onClose, activeRepoPath, onOpenFile,
             da a la fila virtualizada una altura acotada real dentro de esta caja de
             altura ya acotada (.teams-workspace-body's flex:1 + overflow:hidden), en
             vez de crecer con el contenido y forzar el scroll de la pagina entera. */}
-        <MemoriesList />
+        <MemoriesList selectedId={selectedId} onSelect={setSelectedId} />
+
+        {/* El grafo de MEMORIAS (spec §3): cuadrado acotado, 3D, debajo de la lista. No se
+            monta con cero nodos, asi que en una cuenta vacia esta linea no ocupa nada. */}
+        <MemoryGraphPanel selectedId={selectedId} onSelect={setSelectedId} />
 
         {activeRepoPath ? (
           // El grafo de ramas (TeamThreadGraph) es otro grafo, fuera de alcance de esta
@@ -112,11 +122,18 @@ export default function MemoriesWorkspace({ onClose, activeRepoPath, onOpenFile,
                     escala, mismo grupo que text-base/text-sm), el último className gana
                     de verdad. Se redondea al escalón más cercano: 16->text-fs-lg (15,
                     -1), 14->text-fs (13, -1) — mismo criterio que Sidebar.tsx:366. */}
-                <CardTitle className="text-fs-lg">Link a repo to see its memory graph</CardTitle>
+                {/* 2026-09-11: decía "Link a repo to see its memory graph". Desde que
+                    MemoryGraphPanel existe, el grafo DE MEMORIAS ya está en pantalla arriba
+                    de esta card, así que ese texto se contradecía con lo que el usuario
+                    estaba viendo. Lo que falta sin repo es el otro grafo, el de RAMAS. */}
+                <CardTitle className="text-fs-lg">Link a repo to see its branches</CardTitle>
                 <CardDescription className="text-fs">
-                  {hub
-                    ? `Memories are captured per project — you already have ${hub.itemCount} ${hub.itemCount === 1 ? 'memory' : 'memories'} across ${hub.projectCount} ${hub.projectCount === 1 ? 'project' : 'projects'}.`
-                    : 'Memories are captured per project.'}
+                  {/* El contador sólo si el dato está Y tiene sentido: con memorias pero
+                      projectCount en 0 la frase decía "6 memories across 0 projects", que
+                      es la clase de número que hace desconfiar de toda la pantalla. */}
+                  {hub && hub.projectCount > 0
+                    ? `With a repo linked you also see who changed what, and when — you have ${hub.itemCount} ${hub.itemCount === 1 ? 'memory' : 'memories'} across ${hub.projectCount} ${hub.projectCount === 1 ? 'project' : 'projects'}.`
+                    : 'With a repo linked you also see who changed what, and when.'}
                 </CardDescription>
               </CardHeader>
               {onLinkRepo && (
