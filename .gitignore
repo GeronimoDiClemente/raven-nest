@@ -5,7 +5,10 @@ dist-electron/
 .env
 .env.*
 !.env.example
-.superpowers/
+# El scratch de superpowers no se versiona. La excepcion de las capturas vive
+# en `.superpowers/sdd/.gitignore`, al lado de lo que regula.
+.superpowers/*
+!.superpowers/sdd/
 .worktrees/
 *.tsbuildinfo
 *.log
