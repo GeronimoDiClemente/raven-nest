@@ -516,6 +516,26 @@ body {
   width: 200px;
 }
 
+/* ─── La forma de una fila de la barra, definida UNA vez ───────────────────────
+   Medido el 2026-09-11 en la app: convivían TRES radios en la misma columna —
+   6px en `.sidebar-item` y en los <Button size="sm">, 8px en los <Button
+   size="default"> (`rounded-lg`), y 10px en el menú de usuario. Como el
+   resaltado del hover dibuja ese radio, la misma lista mostraba esquinas
+   distintas de una fila a la siguiente. Misma altura no alcanza: la FORMA
+   también tiene que ser la misma, y no puede decidirla cada fila.
+
+   El valor es el de `rounded-lg`, que es el que ya tenían las filas primarias
+   (New Terminal, Personal), así que unificar no cambia la fila que manda. */
+:root { --radio-fila-sidebar: calc(var(--radius) + 2px); }
+
+.sidebar .sidebar-item,
+.sidebar > button,
+.sidebar-scroll > button,
+.sidebar-menu-box > button,
+.user-menu-trigger {
+  border-radius: var(--radio-fila-sidebar);
+}
+
 .sidebar-item {
   /* Escala de filas (2026-09-10): fila primaria, 44px -> 32px. Alinea esta
      fila con las de la MISMA lista de Tools que ya eran h-8 (32px) via
@@ -572,6 +592,14 @@ body {
    componente. Verificado con grep antes de borrar. */
 
 .sidebar-repo { gap: 4px; align-items: center; }
+
+/* En colapsado el bloque del repo se saca del flujo. `.sidebar-label` se oculta con
+   `opacity: 0`, que NO quita el espacio — y como `.sidebar-repo-info` es una columna, ese
+   texto invisible sumaba 17px de alto y metía un hueco de ~19.5px entre la fila del repo y
+   la siguiente. Medido: era el único salto del ritmo en la barra angosta. */
+.sidebar:not(.expanded) .sidebar-repo-info {
+  display: none;
+}
 
 .sidebar-repo-info {
   flex: 1;
@@ -7387,7 +7415,6 @@ button.ci-badge:hover {
   margin: 0 6px;
   background: transparent;
   border: none;
-  border-radius: 10px;
   cursor: pointer;
   color: var(--text-secondary);
   width: calc(100% - 12px);

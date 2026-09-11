@@ -681,7 +681,9 @@ export default function Sidebar({
       <Button
         variant="ghost"
         size="default"
-        className="h-8 w-full justify-start gap-2.5 px-2.5 font-normal mb-1 text-muted-foreground hover:text-foreground"
+        // Sin `mb-1`: era el único margen vertical de toda la columna, así que el espacio
+        // entre esta fila y la siguiente era el único distinto de la barra.
+        className="h-8 w-full justify-start gap-2.5 px-2.5 font-normal text-muted-foreground hover:text-foreground"
         onClick={onToggle}
         title={expanded ? 'Collapse sidebar' : 'Expand sidebar'}
         aria-expanded={expanded}
