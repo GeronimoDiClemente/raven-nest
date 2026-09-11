@@ -32,14 +32,18 @@ export default function MemoriesStatusRow({ state }: Props) {
         {status.text}
       </Badge>
 
-      <div className="memories-status-cell">
-        <span className="font-mono tabular-nums">{vault.noteCount}</span>
-        <span className="microlabel text-muted-foreground">notes</span>
-        {/* Riesgo #2 de §11: el vault puede estar horas atras de la base y hoy nadie lo dice. */}
-        {vault.enabled && (
+      {/* El contador es de los .md que genera el VAULT, no de memorias — y sólo se muestra
+          cuando el vault está prendido. Con el vault apagado siempre decía "0 notes", que
+          justo al lado de una lista con ocho memorias se lee como "no tenés nada guardado":
+          un número correcto que afirma lo contrario de lo que la pantalla muestra debajo. */}
+      {vault.enabled && (
+        <div className="memories-status-cell">
+          <span className="font-mono tabular-nums">{vault.noteCount}</span>
+          <span className="microlabel text-muted-foreground">notes</span>
+          {/* Riesgo #2 de §11: el vault puede estar horas atras de la base y hoy nadie lo dice. */}
           <span className="microlabel text-muted-foreground">vault {relativeTime(vault.lastGeneratedAt)}</span>
-        )}
-      </div>
+        </div>
+      )}
 
       {vault.conflictCount > 0 && (
         <Badge variant="outline" className="gap-1.5 text-warn">

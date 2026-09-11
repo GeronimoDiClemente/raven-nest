@@ -56,8 +56,10 @@ interface Props {
  * el texto se recorta: una etiqueta larga al lado de cada punto tapa el grafo. El texto
  * completo sigue estando en el tooltip.
  */
-function spriteDeEtiqueta(texto: string, color: string): Sprite {
-  const recortado = texto.length > 28 ? `${texto.slice(0, 27)}…` : texto
+function spriteDeEtiqueta(texto: string, color: string, radioDelNodo: number): Sprite {
+  const recortado = texto.length > 24 ? `${texto.slice(0, 23)}…` : texto
+  // `escala` es sólo resolución de la textura: se dibuja al doble y después se achica, para
+  // que el texto no salga pixelado cuando la cámara se acerca.
   const escala = 2
   const fuente = 12 * escala
   const canvas = document.createElement('canvas')
@@ -74,7 +76,20 @@ function spriteDeEtiqueta(texto: string, color: string): Sprite {
   ctx.fillText(recortado, 4, canvas.height / 2)
 
   const sprite = new Sprite(new SpriteMaterial({ map: new CanvasTexture(canvas), depthWrite: false }))
-  sprite.scale.set(canvas.width / escala / 2.2, canvas.height / escala / 2.2, 1)
+  // El sprite vive en unidades de MUNDO, así que su tamaño se mide contra el grafo y no
+  // contra la pantalla. Con el divisor anterior (2.2) un título de 24 caracteres medía ~75
+  // unidades de ancho sobre un grafo que se extiende ~92: cada etiqueta era casi tan ancha
+  // como el grafo entero. No se notaba mientras la cámara quedaba lejos —todo se veía chico
+  // por igual— y saltó a la vista apenas el encuadre empezó a funcionar.
+  const REDUCCION = 4.2
+  const anchoMundo = canvas.width / escala / REDUCCION
+  const altoMundo = canvas.height / escala / REDUCCION
+  sprite.scale.set(anchoMundo, altoMundo, 1)
+  // Arriba del nodo, no encima. `nodeThreeObjectExtend` deja el sprite centrado en el mismo
+  // punto que la esfera, así que el texto se dibujaba ATRAVESANDO el nodo. El desplazamiento
+  // sale del RADIO del nodo, que cambia con su grado: uno fijo alcanzaba para los nodos
+  // chicos y dejaba el título adentro de los grandes, que son justamente los importantes.
+  sprite.position.set(0, radioDelNodo + altoMundo, 0)
   return sprite
 }
 
@@ -87,6 +102,12 @@ function endId(end: string | { id?: string } | undefined): string | undefined {
 
 const ATENUADO_NODO = 'rgba(120, 120, 120, 0.15)'
 const ATENUADO_ARISTA = 'rgba(120, 120, 120, 0.06)'
+/** El radio de un nodo es `cbrt(val) * NODE_REL_SIZE`; la etiqueta lo necesita para saber
+ *  cuánto correrse hacia arriba, así que vive acá y no inline. Era 6, que dejaba el diámetro
+ *  en ~20% del ancho del grafo: con ocho memorias se veían ocho pelotas y el título no
+ *  entraba en ningún lado. */
+const NODE_REL_SIZE = 4.5
+
 const ETIQUETA = '#cfcfcf'
 const ETIQUETA_ATENUADA = 'rgba(155,155,155,0.25)'
 
@@ -161,9 +182,7 @@ export default function Graph3D({ nodes, links, selectedId, onSelect, showLabels
     // Encuadre calculado a mano en vez de `zoomToFit()`.
     //
     // zoomToFit existe y el ref llega, pero con estos grafos deja la cámara demasiado lejos:
-    // los nodos terminan ocupando como un cuarto de la caja y el resto es vacío. Calcular la
-    // esfera que contiene a los nodos y ubicar la cámara a la distancia que la hace entrar
-    // da un resultado predecible y ajustable.
+    // los nodos terminan ocupando como un cuarto de la caja y el resto es vacío.
     //
     // Las posiciones salen de los nodos porque la simulación los muta EN EL LUGAR: los
     // objetos que le pasamos son los mismos que recibe el motor.
@@ -171,19 +190,48 @@ export default function Graph3D({ nodes, links, selectedId, onSelect, showLabels
       .filter((n) => typeof n.x === 'number')
     if (conPos.length === 0) return
 
-    const cx = conPos.reduce((a, n) => a + (n.x ?? 0), 0) / conPos.length
-    const cy = conPos.reduce((a, n) => a + (n.y ?? 0), 0) / conPos.length
-    const cz = conPos.reduce((a, n) => a + (n.z ?? 0), 0) / conPos.length
-    const radio = Math.max(
-      ...conPos.map((n) => Math.hypot((n.x ?? 0) - cx, (n.y ?? 0) - cy, (n.z ?? 0) - cz)),
-      1,
-    )
+    const ejes = (k: 'x' | 'y' | 'z') => {
+      const v = conPos.map((n) => n[k] ?? 0)
+      return { min: Math.min(...v), max: Math.max(...v) }
+    }
+    const ex = ejes('x'), ey = ejes('y'), ez = ejes('z')
+    const cx = (ex.min + ex.max) / 2
+    const cy = (ey.min + ey.max) / 2
+    const cz = (ez.min + ez.max) / 2
 
-    // fov 60° => la mitad del alto visible a distancia d es d * tan(30°). Se pide que el
-    // radio entre con un margen, y se pone un piso para que un grafo de dos nodos no termine
-    // con la cámara adentro de una esfera.
-    const MARGEN = 1.2
-    const distancia = Math.max((radio * MARGEN) / Math.tan((30 * Math.PI) / 180), 60)
+    // El encuadre se calcula sobre la caja PROYECTADA, no sobre el radio de la esfera que
+    // contiene a los nodos.
+    //
+    // Con la esfera, medido en la app: la simulación dispersa mucho más en profundidad que a
+    // lo ancho —x=92, y=85, z=231 con ocho memorias— o sea que el grafo es una aguja apuntando
+    // a la cámara. El radio quedaba dominado por la Z, que no se ve, y la cámara se alejaba
+    // para encuadrar una esfera cuya sombra en pantalla medía 128×95 px dentro de una caja de
+    // 1400×520. Se veía un puñado de puntos en el medio de un rectángulo vacío.
+    //
+    // El eje de la cámara es +Z (mira desde `cz + distancia` hacia `cz`), así que los ejes
+    // del mundo y los de la cámara coinciden: el alto en pantalla lo da Y, el ancho X, y Z es
+    // profundidad — que no se encuadra, se suma a la distancia para no meter la cámara adentro
+    // del grafo.
+    const semiAlto = Math.max((ey.max - ey.min) / 2, 1)
+    const semiAncho = Math.max((ex.max - ex.min) / 2, 1)
+
+    // El fov se lee de la cámara en vez de asumirse. Estaba escrito 60° y el real es 50°:
+    // un encuadre calculado sobre un fov que no es el de la cámara está mal por un factor
+    // fijo, y encima en silencio.
+    const cam = (fg as unknown as { camera?: () => { fov?: number; aspect?: number } }).camera?.()
+    const fov = cam?.fov ?? 50
+    const aspect = cam?.aspect && cam.aspect > 0 ? cam.aspect : 1
+    const tanMitad = Math.tan((fov * Math.PI) / 360)
+
+    // El margen tiene que dar lugar al nodo Y a su etiqueta, que sobresalen de la caja que se
+    // mide entre centros.
+    const MARGEN = 1.35
+    const porAlto = (semiAlto * MARGEN) / tanMitad
+    const porAncho = (semiAncho * MARGEN) / (tanMitad * aspect)
+    // El mayor de los dos: es el que hace entrar la caja entera. En un cuadro ancho manda el
+    // alto, que es justo el caso de este panel.
+    const profundidadFrontal = ez.max - cz
+    const distancia = Math.max(porAlto, porAncho) + profundidadFrontal
 
     fg.cameraPosition({ x: cx, y: cy, z: cz + distancia }, { x: cx, y: cy, z: cz }, 400)
   }, [nodes, nombre])
@@ -238,7 +286,7 @@ export default function Graph3D({ nodes, links, selectedId, onSelect, showLabels
           showNavInfo={false}
           // 6, no el 4 por defecto: con pocos nodos un grafo de puntos chiquitos en una caja
           // acotada se lee como ruido en vez de como una estructura.
-          nodeRelSize={6}
+          nodeRelSize={NODE_REL_SIZE}
           nodeVal={(n) => n.val}
           nodeColor={nodeColor}
           nodeLabel={(n) => n.label}
@@ -249,7 +297,13 @@ export default function Graph3D({ nodes, links, selectedId, onSelect, showLabels
                 // sprite REEMPLAZA al nodo y el grafo queda hecho de texto flotando.
                 nodeThreeObjectExtend: true,
                 nodeThreeObject: (n: Node3D) =>
-                  spriteDeEtiqueta(n.label, vecinos && !vecinos.has(n.id) ? ETIQUETA_ATENUADA : ETIQUETA),
+                  spriteDeEtiqueta(
+                    n.label,
+                    vecinos && !vecinos.has(n.id) ? ETIQUETA_ATENUADA : ETIQUETA,
+                    // Cómo three calcula el radio de la esfera de un nodo: la raíz cúbica del
+                    // `val` por `nodeRelSize` (el área/volumen representa la magnitud).
+                    Math.cbrt(n.val) * NODE_REL_SIZE,
+                  ),
               }
             : {})}
           linkColor={linkColor}
