@@ -15,6 +15,27 @@ estado propio — todo vive en Postgres — que habla el contrato de wire §5: `
 | `POST /v1/sync/delete-data` | `/functions/v1/memory-sync/delete-cloud-data` | §5.5 — el derecho al borrado (§6.6/§7.5 del doc de arquitectura). Borra las observaciones, los proyectos y los push receipts del usuario autenticado en **una** transacción y devuelve los conteos. **No** borra el usuario ni sus devices: es "borrá mi copia de nube", no "borrá mi cuenta", así que el token con el que llamó sigue sirviendo. El alias existe porque `electron/main.ts` todavía postea a la ruta vieja y sólo mira `res.ok` — un 404 ahí rompe el borrado **en silencio**. |
 | `GET /health` | — | Sin token. |
 
+## Cifrado del lado del cliente — qué deja de ser legible
+
+Desde el 2026-09-11 el cliente cifra antes de subir (spec
+`2026-09-09-nest-memories-plugin-y-cifrado.md` §5.2). **El servicio no cambia de comportamiento
+y no necesita la clave**: ya sólo medía `octet_length(content)` para la cuota y nunca miró
+adentro de `content` ni de `title`.
+
+Lo que cualquier consumidor de esta base tiene que saber antes de romperse solo — en
+particular el back-office, que vive en otro repo (`RavenProjects/aira-admin`):
+
+| Columna de `observations` | Después del cifrado |
+|---|---|
+| `title`, `content` | Texto cifrado con prefijo `nmc1:`. **No legible, no buscable.** |
+| `tags` | Blob cifrado, no un array consultable. |
+| `topic_key` | HMAC hex de 32 caracteres. Sirve para igualdad; no se puede volver al tema. |
+| `projects.display_name` | Cifrado. Cerraba una fuga: `memory-project-key.ts` dice "Cloud never learns the repo name" y el display name viajaba en claro al lado. |
+| `type`, `scope`, `git_branch`, `lamport`, timestamps, `sync_id`, `project_key` | **Sin cambios, en claro.** `scope` decide autorización del lado del servidor y cifrarlo rompería el modelo de permisos. |
+
+Durante la migración conviven filas cifradas y en claro: `nmc1:` es lo único que las separa.
+Una observación con `scope = 'team'` **no** se cifra en esta versión (decisión §9.1 de la spec).
+
 ## Límites por plan
 
 La única fuente de verdad es `src/limits.ts` (`limitsFor(plan)`), verificado en producción

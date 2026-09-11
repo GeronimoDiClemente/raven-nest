@@ -137,6 +137,24 @@ La app está migrando a Tailwind v4 + shadcn/ui. Reglas que muerden:
 - La receta para migrar un componente (con las trampas que ya mordieron):
   `docs/RECETA-MIGRACION-UI.md`.
 
+## Memoria cifrada — nota operativa
+
+Desde el 2026-09-11 la memoria que va a la nube se cifra **en el cliente** (spec
+`docs/superpowers/specs/2026-09-09-nest-memories-plugin-y-cifrado.md`). Lo que hay que tener
+presente al trabajar acá:
+
+- **La clave nunca sale del cliente.** El servidor guarda envolturas que no puede abrir. Si
+  el usuario pierde todas sus máquinas y el código de recuperación, la memoria de la nube es
+  irrecuperable — es la consecuencia inevitable del diseño, no un defecto.
+- **La base local sigue en claro y tiene que seguirlo**: la búsqueda es FTS5 local y el
+  agente necesita el texto. La máquina del usuario está fuera del modelo de amenaza.
+- **`SCHEMA_VERSION` 6** suma `topic_key_hmac`. Una fila que vino del pull tiene el HMAC y
+  `topic_key = null`; una local tiene el tema en claro y, si hay clave, también el HMAC.
+- **El scope `team` NO se cifra** en esta versión, y está anunciado como tal.
+- Para probarlo hace falta el servicio arriba: ver `server/README.md` y
+  `scripts/smoke-cifrado-e2e.mjs` (que hoy está en rojo por temporización — leer su
+  encabezado antes de creerle a la salida).
+
 ## Seguridad — pendiente crítico
 
 ### GitHub token en Supabase (PENDIENTE)
