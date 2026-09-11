@@ -5228,6 +5228,38 @@ kbd {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  /* workspace-shell-design §1: entry reuses the same zoomIn + curve the
+     dialogs already use (global.css ~2317), so the three biggest screens in
+     the app stop feeling like a hard cut and start feeling like the rest of
+     it. */
+  animation: zoomIn 0.3s cubic-bezier(0.32, 0.72, 0, 1) forwards;
+}
+
+/* Exit — the inverse, and deliberately faster (0.2s vs 0.3s in): leaving
+   should never feel like it makes you wait. App.tsx keeps the component
+   mounted for this long via useDelayedUnmount before it actually unmounts,
+   which is what makes this animation visible at all — a plain conditional
+   `{open && <X/>}` unmounts in the same tick `open` goes false and a `.closing`
+   class would never get a frame to render.
+   `pointer-events: none` is the safety net for that delay: if the unmount
+   timer ever failed to fire for any reason, a fading-out full-screen overlay
+   would otherwise keep intercepting every click to whatever is behind it —
+   this makes that failure mode merely a lingering (invisible-ish) node, not a
+   trapped screen. */
+.teams-workspace.closing {
+  animation: zoomOut 0.2s cubic-bezier(0.32, 0.72, 0, 1) forwards;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Reduced motion doesn't mean NO transition — a hard cut to/from a
+     full-screen surface is more disorienting than a short fade, not less. */
+  .teams-workspace {
+    animation: backdropIn 0.1s ease forwards;
+  }
+  .teams-workspace.closing {
+    animation: backdropOut 0.1s ease forwards;
+  }
 }
 
 /* Personal stays mounted underneath the team workspace — closing Teams has to
@@ -5333,7 +5365,11 @@ kbd {
   align-items: center;
   gap: 10px;
   padding: 0 12px;
-  border: none;
+  /* Transparent border reserved up front (not just on .active) so the card
+     treatment below doesn't shift row width/height on selection — `* {
+     box-sizing: border-box }` (global.css:158) means the border eats into
+     padding, not the box. */
+  border: 1px solid transparent;
   border-radius: 7px;
   background: none;
   color: var(--text-secondary);
@@ -5342,7 +5378,7 @@ kbd {
   cursor: pointer;
   text-align: left;
   width: 100%;
-  transition: background 0.12s, color 0.12s;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
 }
 
 .tw-nav-btn:hover {
@@ -5350,8 +5386,12 @@ kbd {
   color: var(--text-primary);
 }
 
+/* Tratamiento B (misma jerarquia por forma que la migracion de botones):
+   la fila activa se despega como card en vez de un tinte apenas distinto
+   del fondo — workspace-shell-design §2. */
 .tw-nav-btn.active {
-  background: color-mix(in srgb, var(--primary) 10%, transparent);
+  background: var(--accent);
+  border-color: var(--input);
   color: var(--raven-blue);
 }
 
@@ -5361,6 +5401,52 @@ kbd {
   flex-shrink: 0;
   opacity: 0.8;
 }
+
+/* El label crece para empujar el contador/dot al borde derecho de la fila —
+   sin esto, el trailing content queda pegado contra el texto en vez de
+   alineado a la derecha. */
+.tw-nav-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* aria-hidden: es un refuerzo visual del estado de la fila, no informacion
+   que cambie que hace el boton — el nombre accesible sigue siendo el label
+   solo, asi que agregar o quitar un contador no le mueve el piso a un
+   lector de pantalla ni a un test que busca el boton por su nombre. */
+.tw-nav-trailing {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+/* Contador: mono + tabular-nums (mismo tratamiento que `.data`,
+   global.css:156) en --muted-foreground — nunca en el color de la fila
+   activa, es metadata, no el foco. */
+.tw-nav-count {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--muted-foreground);
+}
+
+/* Dot de estado: sin dot = nada que mirar. Los tres tokens que ya existen,
+   nunca un color de marca. */
+.tw-nav-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.tw-nav-dot--ok { background: var(--ok); }
+.tw-nav-dot--warn { background: var(--warn); }
+.tw-nav-dot--destructive { background: var(--destructive); }
 
 .tw-nav-spacer {
   flex: 1;

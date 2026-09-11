@@ -32,9 +32,11 @@ interface Props {
    * y tests viejos que no la pasan.
    */
   onLinkRepo?: () => void
+  /** workspace-shell-design §1: true while App.tsx holds this mounted after onClose so the zoomOut exit animation can play. See TeamsWorkspaceProps.closing (same shared shell, same mechanism). */
+  closing?: boolean
 }
 
-export default function MemoriesWorkspace({ onClose, activeRepoPath, onOpenFile, onLinkRepo }: Props) {
+export default function MemoriesWorkspace({ onClose, activeRepoPath, onOpenFile, onLinkRepo, closing = false }: Props) {
   const state = useMemories()
 
   // El estado vacio (sin repo) no tiene la memoria __global__ disponible en el renderer
@@ -57,7 +59,7 @@ export default function MemoriesWorkspace({ onClose, activeRepoPath, onOpenFile,
   }, [activeRepoPath])
 
   return (
-    <div className="teams-workspace memories-workspace">
+    <div className={`teams-workspace memories-workspace${closing ? ' closing' : ''}`}>
       <div className="teams-workspace-header">
         <button className="tw-back-btn" onClick={onClose}>
           <svg width="13" height="13" viewBox="0 0 13 13" fill="none" style={{ display: 'inline-block', verticalAlign: 'middle', marginRight: 5 }}>

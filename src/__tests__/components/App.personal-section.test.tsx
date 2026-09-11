@@ -40,6 +40,16 @@ vi.mock('../../hooks/useUserPreferences', () => ({
   }),
 }))
 vi.mock('../../hooks/useLocalPathsMigration', () => ({ useLocalPathsMigration: () => {} }))
+// workspace-shell-design §1: App.tsx now keeps each overlay mounted for 200ms
+// after close so its zoomOut exit animation can play (useDelayedUnmount).
+// This test's contract is about which SECTION Personal shows across an
+// open/close/reopen cycle, not about the exit animation, and it asserts
+// synchronously right after each click — so the animation grace period here
+// would just be timing noise. Bypassing it keeps `visible` in lockstep with
+// `open`, exactly like before this task.
+vi.mock('../../hooks/useDelayedUnmount', () => ({
+  useDelayedUnmount: (open: boolean) => ({ visible: open, closing: false }),
+}))
 vi.mock('../../hooks/useSettings', () => ({
   useSettings: () => ({ settings: { voiceLanguage: 'en', keybindings: {} }, updateKeybinding: vi.fn(), updateVoiceLanguage: vi.fn() }),
 }))

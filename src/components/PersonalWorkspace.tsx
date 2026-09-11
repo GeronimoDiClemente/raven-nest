@@ -17,6 +17,7 @@ import RepoStatusPanel from './RepoStatusPanel'
 import RepoSettingsPanel from './RepoSettingsPanel'
 import RepoActionsAccordion from './RepoActionsAccordion'
 import RepoActionsMenu, { type RepoAction } from './RepoActionsMenu'
+import WorkspaceNavButton from './WorkspaceNavButton'
 import { useGitlab } from '../hooks/useGitlab'
 import { ProviderAvatarPill, providerAvatar } from './ProviderAvatar'
 import type { WorkerSpec } from '../types'
@@ -45,13 +46,15 @@ interface PersonalWorkspaceProps {
   initialSection?: Section
   /** Called after a pending invite is successfully accepted or rejected, so callers can refresh their own invite-count state (e.g. a sidebar badge). */
   onPendingInvitesChange?: () => void
+  /** workspace-shell-design §1: true while App.tsx holds this mounted after onClose so the zoomOut exit animation can play. See TeamsWorkspaceProps.closing for the full rationale — same mechanism, shared shell. */
+  closing?: boolean
 }
 
 export type Section = 'activity' | 'repos' | 'issues' | 'standup' | 'pendings'
 type ReposView = 'list' | 'prs' | 'pr-detail'
 type IssuesView = 'repo-select' | 'list' | 'detail'
 
-export default function PersonalWorkspace({ onClose, githubToken, githubLogin, onConnectGitHub, onOpenRepoTerminal, onOpenTeamWorkspace, allowTeam, onStartTutorial, initialSection, onPendingInvitesChange, activeRepoPath = null, focusedPaneId = null, onOpenWorktree }: PersonalWorkspaceProps) {
+export default function PersonalWorkspace({ onClose, githubToken, githubLogin, onConnectGitHub, onOpenRepoTerminal, onOpenTeamWorkspace, allowTeam, onStartTutorial, initialSection, onPendingInvitesChange, activeRepoPath = null, focusedPaneId = null, onOpenWorktree, closing = false }: PersonalWorkspaceProps) {
   const [scope, setScope] = useState<RepoScope>({ kind: 'personal' })
   const { teams, members, userId, switchTeam, pendingInvites, acceptInvite, rejectInvite } = useTeam()
   const isTeamLeader = scope.kind === 'team' && members.some(
@@ -311,16 +314,28 @@ export default function PersonalWorkspace({ onClose, githubToken, githubLogin, o
     setStatusRepo(null)
   }
 
-  const NAV_ITEMS: { id: Section; label: string; icon: React.ReactNode }[] = [
+  // workspace-shell-design §2: only wire a counter where the number is
+  // already sitting in memory before the nav ever renders — no fetch of its
+  // own. `unreadCount` (GitHub notifications) and `repos` both load eagerly,
+  // independent of `section`; `pendingInvites` is the case the spec names as
+  // already qualifying (`onPendingInvitesChange`), now moved out of the label
+  // text and into the shared trailing badge. `issues` and `standup` do NOT
+  // qualify: neither has a cross-repo aggregate available without picking a
+  // repo (issues) or opening the section (standup fetches its own commits on
+  // mount). All counts hide at 0 rather than show a bare zero — same
+  // convention `pendingInvites` already used before this task.
+  const NAV_ITEMS: { id: Section; label: string; icon: React.ReactNode; count?: number }[] = [
     {
       id: 'activity',
       label: 'Activity',
       icon: <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M2 8h3l2-5 3 10 2-5h2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/></svg>,
+      count: unreadCount > 0 ? unreadCount : undefined,
     },
     {
       id: 'repos',
       label: 'Repos',
       icon: <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><circle cx="4" cy="4" r="1.5" stroke="currentColor" strokeWidth="1.3"/><circle cx="12" cy="4" r="1.5" stroke="currentColor" strokeWidth="1.3"/><circle cx="4" cy="12" r="1.5" stroke="currentColor" strokeWidth="1.3"/><path d="M4 5.5v5M5.5 4h5M4 5.5c2 0 4 1 4 3.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>,
+      count: repos.length > 0 ? repos.length : undefined,
     },
     {
       id: 'issues',
@@ -334,8 +349,9 @@ export default function PersonalWorkspace({ onClose, githubToken, githubLogin, o
     },
     {
       id: 'pendings',
-      label: pendingInvites.length > 0 ? `Invites (${pendingInvites.length})` : 'Invites',
+      label: 'Invites',
       icon: <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M2 4.5h12v7a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1v-7z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/><path d="M2 5l6 4 6-4" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/></svg>,
+      count: pendingInvites.length > 0 ? pendingInvites.length : undefined,
     },
   ]
 
@@ -344,7 +360,7 @@ export default function PersonalWorkspace({ onClose, githubToken, githubLogin, o
     : (gitlabLogin ? providerAvatar('gitlab', gitlabLogin) : null)
 
   return (
-    <div className="teams-workspace">
+    <div className={`teams-workspace${closing ? ' closing' : ''}`}>
 
       {/* Header */}
       <div className="teams-workspace-header">
@@ -418,14 +434,14 @@ export default function PersonalWorkspace({ onClose, githubToken, githubLogin, o
             onOpenTeamWorkspace={onOpenTeamWorkspace}
           />
           {NAV_ITEMS.map(item => (
-            <button
+            <WorkspaceNavButton
               key={item.id}
-              className={`tw-nav-btn${section === item.id ? ' active' : ''}`}
+              icon={item.icon}
+              label={item.label}
+              active={section === item.id}
               onClick={() => switchSection(item.id)}
-            >
-              {item.icon}
-              {item.label}
-            </button>
+              count={item.count}
+            />
           ))}
         </nav>
 

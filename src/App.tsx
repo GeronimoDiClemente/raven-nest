@@ -57,6 +57,7 @@ import { IntegrationsHub } from './components/IntegrationsHub'
 import { GraphBoard } from './components/GraphBoard'
 import { useGitHub } from './hooks/useGitHub'
 import { usePendingInvitesCount } from './hooks/usePendingInvitesCount'
+import { useDelayedUnmount } from './hooks/useDelayedUnmount'
 import { useSpeechRecognition } from './hooks/useSpeechRecognition'
 import { useSettings } from './hooks/useSettings'
 import { matchesBinding, formatBinding } from './lib/keybindings'
@@ -256,6 +257,13 @@ export default function App() {
   const [personalOpen, setPersonalOpen] = useState(false)
   // Spec 2026-09-09 §4.1: Memories es hermana de Personal, con su propio overlay.
   const [memoriesOpen, setMemoriesOpen] = useState(false)
+  // workspace-shell-design §1: la salida (zoomOut, 0.2s) necesita que el overlay
+  // siga montado mientras anima — si no, se desmonta en el mismo tick que
+  // `xOpen` pasa a false y la animacion de salida nunca llega a pintar un frame.
+  // `useDelayedUnmount` retrasa el desmontaje real exactamente ese tiempo.
+  const teamsExit = useDelayedUnmount(teamsOpen, 200)
+  const personalExit = useDelayedUnmount(personalOpen, 200)
+  const memoriesExit = useDelayedUnmount(memoriesOpen, 200)
   const [personalSection, setPersonalSection] = useState<PersonalWorkspaceSection>('repos')
   const [integrationsHubOpen, setIntegrationsHubOpen] = useState(false)
   const [graphBoardOpen, setGraphBoardOpen] = useState(false)
@@ -2099,8 +2107,9 @@ export default function App() {
         />
       )}
 
-      {teamsOpen && (
+      {teamsExit.visible && (
         <TeamsWorkspace
+          closing={teamsExit.closing}
           onClose={() => { setTeamsOpen(false); refreshPendingInvitesCount() }}
           onLoad={loadWorkspace}
           onRequireUpgrade={() => setShowUpgrade(true)}
@@ -2110,8 +2119,9 @@ export default function App() {
         />
       )}
 
-      {personalOpen && (
+      {personalExit.visible && (
         <PersonalWorkspace
+          closing={personalExit.closing}
           onClose={() => setPersonalOpen(false)}
           githubToken={githubToken}
           githubLogin={githubLogin}
@@ -2129,8 +2139,9 @@ export default function App() {
       )}
 
       {/* Memories — el tercer overlay (spec §5.4), encima de Personal y del team workspace. */}
-      {memoriesOpen && (
+      {memoriesExit.visible && (
         <MemoriesWorkspace
+          closing={memoriesExit.closing}
           onClose={() => setMemoriesOpen(false)}
           activeRepoPath={activeCellRepoPath ?? null}
           onOpenFile={openFileInEditor}

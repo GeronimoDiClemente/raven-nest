@@ -20,6 +20,7 @@ import ErrorBoundary from './ErrorBoundary'
 import JoinByCodeForm from './JoinByCodeForm'
 import TeamJoinCodePanel from './TeamJoinCodePanel'
 import TeamStats from './TeamStats'
+import WorkspaceNavButton from './WorkspaceNavButton'
 import type { WorkspaceSection } from './teamSections'
 
 interface TeamsWorkspaceProps {
@@ -31,6 +32,15 @@ interface TeamsWorkspaceProps {
   onStartTutorial?: () => void
   /** Pending invites now live in Personal. When provided, call sites that used to jump to the local 'pendings' section call this instead. */
   onOpenPersonalInvites?: () => void
+  /**
+   * workspace-shell-design §1: the caller (App.tsx) delays actually unmounting
+   * this component after `onClose` so the zoomOut exit animation has time to
+   * play. While that grace period runs, `closing` is true — it drives the
+   * `.closing` CSS class, which both plays the exit keyframes and sets
+   * `pointer-events: none` so a still-fading overlay never blocks clicks to
+   * whatever is behind it.
+   */
+  closing?: boolean
 }
 
 export { WORKSPACE_SECTIONS, type WorkspaceSection } from './teamSections'
@@ -40,7 +50,7 @@ const PRESENCE_COLORS = [
   '#00CCCC', '#FF2D78', '#4455FF', '#88FF00',
 ]
 
-export default function TeamsWorkspace({ onClose, onLoad, onPendingInvitesChange, onStartTutorial, onOpenPersonalInvites }: TeamsWorkspaceProps) {
+export default function TeamsWorkspace({ onClose, onLoad, onPendingInvitesChange, onStartTutorial, onOpenPersonalInvites, closing = false }: TeamsWorkspaceProps) {
   const [section, setSection] = useState<WorkspaceSection>('chat')
   const [acceptError, setAcceptError] = useState<string | null>(null)
   const [acceptingId, setAcceptingId] = useState<string | null>(null)
@@ -202,7 +212,18 @@ export default function TeamsWorkspace({ onClose, onLoad, onPendingInvitesChange
     if (!r.ok) setMemberActionError(r.error ?? 'Error')
   }
 
-  const NAV_ITEMS: { id: WorkspaceSection; label: string; icon: React.ReactNode }[] = [
+  // workspace-shell-design §2: a counter is only wired up when its data is
+  // already sitting in memory — no fetch triggered by rendering the nav.
+  // `members` (and whether any of them is a pending join request) come from
+  // useTeam(), which loads eagerly on `activeTeam` regardless of which
+  // section is selected — so `members` qualifies for both a count and a
+  // warn dot. `chat`/`stats`/`snippets`/`workspaces`/`mcp` do NOT: chat has
+  // no unread-message tracking, stats has no pre-loaded number, and
+  // snippets/workspaces/mcp only fetch once `switchSection` visits them (see
+  // below) — showing a count before that first visit would be a lying zero.
+  const hasJoinRequest = members.some(m => m.status === 'requested')
+
+  const NAV_ITEMS: { id: WorkspaceSection; label: string; icon: React.ReactNode; count?: number; dotStatus?: 'ok' | 'warn' | 'destructive' }[] = [
     {
       id: 'chat',
       label: 'Chat',
@@ -212,6 +233,8 @@ export default function TeamsWorkspace({ onClose, onLoad, onPendingInvitesChange
       id: 'members',
       label: 'Members',
       icon: <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><circle cx="6" cy="5" r="2" stroke="currentColor" strokeWidth="1.3"/><path d="M2 13c0-2.21 1.79-4 4-4s4 1.79 4 4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/><circle cx="11.5" cy="5.5" r="1.5" stroke="currentColor" strokeWidth="1.2" opacity="0.7"/><path d="M13.5 12.5c0-1.38-.9-2.55-2.14-2.87" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" opacity="0.7"/></svg>,
+      count: members.length,
+      dotStatus: hasJoinRequest ? 'warn' : undefined,
     },
     // Stats is only for team leaders/managers — members don't see it.
     ...(isTeamLeader ? [{
@@ -246,7 +269,7 @@ export default function TeamsWorkspace({ onClose, onLoad, onPendingInvitesChange
   const onlineUserIds = new Set(Object.keys(presence))
 
   return (
-    <div className="teams-workspace teams-workspace--front">
+    <div className={`teams-workspace teams-workspace--front${closing ? ' closing' : ''}`}>
 
       {/* Header */}
       <div className="teams-workspace-header">
@@ -517,15 +540,16 @@ export default function TeamsWorkspace({ onClose, onLoad, onPendingInvitesChange
             {/* Left nav */}
             <nav className="teams-workspace-nav">
               {NAV_ITEMS.map(item => (
-                <button
+                <WorkspaceNavButton
                   key={item.id}
-                  data-tour-id={`teams-nav-${item.id}`}
-                  className={`tw-nav-btn${!creatingTeam && section === item.id ? ' active' : ''}`}
+                  dataTourId={`teams-nav-${item.id}`}
+                  icon={item.icon}
+                  label={item.label}
+                  active={!creatingTeam && section === item.id}
                   onClick={() => switchSection(item.id)}
-                >
-                  <span className="tw-nav-icon">{item.icon}</span>
-                  {item.label}
-                </button>
+                  count={item.count}
+                  dotStatus={item.dotStatus}
+                />
               ))}
               <div className="tw-nav-spacer" />
               {isTeamOwner ? (
