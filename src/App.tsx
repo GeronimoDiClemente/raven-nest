@@ -1855,7 +1855,15 @@ export default function App() {
         profileLoading={profileLoading}
         onUpgrade={() => setShowUpgrade(true)}
         onPersonalOpen={() => {
-          if (!planLimits.memoryCloud) { setShowUpgrade(true); return }
+          // SIN gate de plan. Personal es la puerta a los repos locales, los issues,
+          // el standup y las invitaciones pendientes: todo local o de GitHub, nada que
+          // toque los servidores de memoria. Hasta el 2026-09-11 esta linea decia
+          // `if (!planLimits.memoryCloud) { setShowUpgrade(true); return }`, o sea que
+          // un usuario Free no podia ni ver sus repos ni ACEPTAR UNA INVITACION A UN
+          // EQUIPO, porque las invitaciones viven adentro de Personal. Sobrevivio a la
+          // correccion de precios de c48ea5a/3e14094, que arreglo SnippetPanel y
+          // WorkspacePanel y no miro esta puerta. Lo que si se cobra —compartir al
+          // equipo— sigue gateado adentro, por capacidad, via `allowTeam`.
           // Reset to 'repos': personalSection can be left on 'pendings' by
           // the invites redirect (onOpenPersonalInvites below). Without this,
           // the next normal open of Personal would show the stale invites

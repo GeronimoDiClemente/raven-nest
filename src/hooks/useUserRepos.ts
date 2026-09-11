@@ -25,6 +25,21 @@ export function useUserRepos() {
   const [loading, setLoading] = useState(false)
 
   const refresh = useCallback(async () => {
+    // Override E2E (RAVEN_E2E_REPOS): gateado DOBLE al bypass, igual que
+    // e2ePlan en useProfile — en una sesion real e2eBypass es false y esto
+    // nunca corre. Existe porque My Repos no se puede ver renderizado sin una
+    // cuenta GitHub conectada, y esa ceguera ya produjo una "excepcion" de
+    // escala documentada en global.css que era falsa.
+    const seed = window.appFlags?.e2eBypass ? window.appFlags.e2eRepos : null
+    if (seed) {
+      try {
+        setRepos(JSON.parse(seed) as UserRepo[])
+      } catch (err) {
+        console.warn('[useUserRepos.refresh] RAVEN_E2E_REPOS no es JSON valido', err)
+      }
+      setLoading(false)
+      return
+    }
     setLoading(true)
     // This runs unawaited from a passive effect (see below), so any rejection
     // here — a network failure, a dropped IPC call to window.localPaths — must

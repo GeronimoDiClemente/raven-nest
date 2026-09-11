@@ -22,7 +22,7 @@ function uniqueTmp(prefix: string): string {
   return mkdtempSync(join(tmpdir(), prefix))
 }
 
-export async function launchHarness(opts?: { withRepo?: boolean; keepRealHome?: boolean }): Promise<Harness> {
+export async function launchHarness(opts?: { withRepo?: boolean; keepRealHome?: boolean; env?: Record<string, string> }): Promise<Harness> {
   const homeDir = uniqueTmp('raven-e2e-home-')
   let repoDir = ''
   if (opts?.withRepo !== false) {
@@ -60,6 +60,10 @@ export async function launchHarness(opts?: { withRepo?: boolean; keepRealHome?: 
   // settings.json, IntelliJ XML) from here instead of the real developer
   // machine's actual editor config — same isolation as RAVEN_HOME.
   env.RAVEN_IDE_CONFIG_HOME = homeDir
+  // Extras del test (p.ej. RAVEN_E2E_REPOS). Va ultimo a proposito: un test que
+  // necesite pisar una de las de arriba puede, y el aislamiento de HOME /
+  // RAVEN_HOME ya quedo aplicado antes.
+  Object.assign(env, opts?.env ?? {})
 
   const app = await electron.launch({
     args: [MAIN_JS, `--user-data-dir=${userDataDir}`],
