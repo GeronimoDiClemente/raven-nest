@@ -28,6 +28,29 @@ Todo estado nuevo que introduzcamos **emite un `DomainEvent` al `EventBus`** (`e
 
 Replica la barra inferior de la captura (`98% left 2h6m`, `20% left 3d 2h`, `0% left Fable`). **No existe nada hoy** (`metrics-collector.ts` mide CPU/RAM, no tokens/cuota). Orca lo hace leyendo state files locales sin API. Quick win sticky y muy visible.
 
+> **✅ DESBLOQUEADO (2026-09-11).** La opción 3 de abajo —"esperar a que los CLIs
+> persistan cuota en disco"— **se cumplió**. Claude Code 2.1.236 persiste
+> `cachedUsageUtilization.utilization.{five_hour, seven_day}` con `utilization`,
+> `resets_at`, `used_dollars` y `limit_dollars`. **No está en `~/.claude/` sino en
+> `~/.claude.json`** — el archivo, no el directorio: por eso el research de abajo, que
+> miró el directorio, no lo encontró.
+>
+> Implementado en `electron/integrations/model-usage.ts` (A1+A2, commit `c0a2b8c`).
+>
+> **Dos límites reales, verificados:**
+> 1. **La estructura existe pero arranca vacía.** `utilization` y `resets_at` son `null`
+>    hasta que la CLI corre `/usage`, pega un límite, o renderiza un statusline con
+>    `rate_limits`. La barra va a estar vacía hasta que eso pase — el reader trata ese caso
+>    como normal, no como error.
+> 2. **Solo Claude.** Codex confirmado negativo otra vez; los otros 7 proveedores no tienen
+>    CLI instalada en la máquina donde se verificó, así que quedan en `null` con un punto de
+>    extensión documentado. Nada adivinado.
+>
+> Y una corrección al alcance original: para Claude **no existe ventana "daily"**. Las
+> reales son de 5 horas y 7 días.
+>
+> <details><summary>El research original que quedó desactualizado (2026-08-15, Windows)</summary>
+>
 > **⛔ BLOCKED (2026-08-15, run autónomo) — falta la fuente de datos.** Research en disco (Windows, PC de Gero): **ningún CLI persiste localmente una ventana de cuota/rate-limit con reset**.
 > - **Claude:** `.credentials.json` trae `rateLimitTier`/`subscriptionType` (etiquetas estáticas, no cuota); `stats-cache.json` trae actividad diaria histórica; los transcripts `projects/**/*.jsonl` traen `usage.*_tokens` por mensaje (agregables) **pero sin límite ni `resetAt`**.
 > - **Codex/Gemini/Copilot/OpenCode:** nada de uso/cuota en disco (Codex ni siquiera tiene `sessions/`/`auth.json` acá).
@@ -38,6 +61,8 @@ Replica la barra inferior de la captura (`98% left 2h6m`, `20% left 3d 2h`, `0% 
 > 3. **Esperar** a que los CLIs persistan cuota en disco (no depende de nosotros).
 >
 > No se implementa en el run autónomo: cambia el alcance de la feature y es llamada de Gero. Retomar cuando elija approach.
+>
+> </details>
 
 - [ ] **A1 — Reader de state files de CLIs.** Nuevo `electron/integrations/model-usage.ts`: lee y parsea el uso/rate-limit que cada CLI persiste en disco (`~/.claude`, `~/.codex`, y los demás soportados en `PaneAILogo`: gemini/copilot/opencode). Sin API calls, sin auth extra (igual que Orca). Salida: `{ provider, account, windows: { fiveHour, daily, weekly, fable? }, resetAt, pct }`. Robustez: archivo ausente/ilegible → `null` silencioso, nunca crashea.
 - [ ] **A2 — Ventanas + warning 80%.** Derivar time-to-reset por ventana (5h/día/semana + Fable) y un flag `warning` al cruzar 80% de un límite. Refrescar cuando el agente escribe el file (watch/poll suave), no en tiempo real.
