@@ -189,3 +189,55 @@ test('con memorias: el cuadro es acotado, y la seleccion es una sola entre lista
     await teardown(h)
   }
 })
+
+// Escribir una memoria a mano. Hasta el 2026-09-11 esta pantalla era de SOLO LECTURA:
+// unicamente los agentes escribian, y algo que el usuario queria dejar asentado no tenia
+// puerta. Se verifica de punta a punta --formulario, IPC, store-- porque el valor esta en que
+// lo escrito APAREZCA, no en que el formulario se dibuje.
+test('se puede escribir una memoria y aparece en la lista', async () => {
+  const h = await launchHarness({ withRepo: false })
+  const { page } = h
+  try {
+    await abrirMemories(page)
+    await expect(page.getByText('No memories yet')).toBeVisible({ timeout: 15_000 })
+
+    await page.getByRole('button', { name: 'New memory' }).click()
+
+    const titulo = page.getByLabel('Memory title')
+    await expect(titulo).toBeVisible()
+    await titulo.fill('El deploy de los viernes se hace a la mañana')
+    await page.getByLabel('Memory content').fill('Un rollback a las 19h no lo mira nadie.')
+    await page.getByLabel('Memory tags').fill('deploy, proceso')
+
+    // El tipo se elige con su color, el mismo punto que despues se ve en la lista.
+    await page.getByRole('button', { name: /^Preference/ }).click()
+    await page.getByRole('button', { name: 'Save memory' }).click()
+
+    // Lo que importa: aparece en la lista, sin recargar nada.
+    await expect(page.getByText('El deploy de los viernes se hace a la mañana')).toBeVisible({ timeout: 10_000 })
+    // Y el formulario se cierra solo — dejarlo abierto invita a guardar lo mismo dos veces.
+    await expect(page.getByLabel('Memory title')).toHaveCount(0)
+
+    // El contador de arriba tiene su propio ciclo de lectura: sin refrescarlo decia
+    // "0 items" al lado de la memoria recien escrita, que es el tipo de numero que hace
+    // desconfiar de toda la pantalla.
+    await expect(page.getByText(/^0 items/)).toHaveCount(0)
+    await page.screenshot({ path: join(SHOTS, '07-escrita-a-mano.png') })
+  } finally {
+    await teardown(h)
+  }
+})
+
+test('sin titulo no se puede guardar: una memoria sin titulo no se encuentra despues', async () => {
+  const h = await launchHarness({ withRepo: false })
+  const { page } = h
+  try {
+    await abrirMemories(page)
+    await page.getByRole('button', { name: 'New memory' }).click()
+    await expect(page.getByRole('button', { name: 'Save memory' })).toBeDisabled()
+    await page.getByLabel('Memory title').fill('ya tiene titulo')
+    await expect(page.getByRole('button', { name: 'Save memory' })).toBeEnabled()
+  } finally {
+    await teardown(h)
+  }
+})

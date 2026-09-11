@@ -149,6 +149,7 @@ import { adapterForBin } from './memory-cli-adapters'
 import { ensureLocalAuthMaterial } from './memory-local-auth'
 import { runLocalMemoryImport } from './memory-local-import'
 import { resolveProjectKey, GLOBAL_PROJECT_KEY } from './memory-project-key'
+import type { ObservationType } from './memory-protocol'
 import { openReadonlyReader } from './integrations/memory-readonly-reader'
 import { planVault } from './integrations/vault-plan'
 import { applyVaultPlan, computeOnDiskHashes, readManifest } from './integrations/vault-apply'
@@ -3108,6 +3109,59 @@ ipcMain.handle('memory:graph', (_event, query?: Partial<MemoryGraphQuery>): Memo
  * Devuelve null si no existe, si esta borrada (un tombstone tiene `content` en null por
  * definicion — ver §3.1 del protocolo) o si la memoria esta deshabilitada.
  */
+/**
+ * Escribir una memoria desde la UI de Nest.
+ *
+ * Hasta ahora la pantalla de Memories era de SOLO LECTURA: unicamente los agentes escribian,
+ * y una cosa que vos querias dejar asentada no tenia puerta. `'ui'` ya era una fuente valida
+ * del protocolo (ObservationSource), asi que el modelo lo preveia — faltaba el puente.
+ *
+ * El `source` se fuerza aca y NO se toma del renderer. Un renderer comprometido podria
+ * declararse 'hook' o 'mcp' y ensuciar la unica señal que dice de donde salio cada memoria;
+ * el costo de fijarlo es cero y el de no hacerlo es no poder confiar en esa columna nunca mas.
+ *
+ * Sin repo vinculado la memoria va al proyecto GLOBAL, que es exactamente lo que significa:
+ * algo que vale mas alla de un repo. No se inventa un proyecto ni se rechaza la escritura.
+ */
+ipcMain.handle('memory:save', (_event, input: {
+  title?: string
+  content?: string
+  type?: string
+  tags?: string[]
+  topicKey?: string | null
+  worktreePath?: string | null
+}): { ok: boolean; syncId?: string; error?: string } => {
+  if (!memory) return { ok: false, error: 'memory_unavailable' }
+  const title = (input?.title ?? '').trim()
+  if (!title) return { ok: false, error: 'title_required' }
+
+  const tipo = (input?.type ?? 'decision') as ObservationType
+  const projectKey = input?.worktreePath
+    ? projectKeyForWorktree(input.worktreePath)
+    : GLOBAL_PROJECT_KEY
+  const gitInfo = input?.worktreePath ? resolveGitInfoForCwd(input.worktreePath) : null
+
+  try {
+    const result = memory.store.save({
+      projectKey,
+      scope: 'personal',
+      type: tipo,
+      title,
+      content: (input?.content ?? '').trim(),
+      tags: input?.tags,
+      topicKey: input?.topicKey ?? null,
+      source: 'ui',
+      gitBranch: gitInfo?.branch ?? null,
+    })
+    // Mismo disparador que usa el camino de memory.save del IPC server: una escritura tiene
+    // que empujar al sync, o la memoria queda solo en este disco hasta el proximo ciclo.
+    memory.daemon.scheduleMutationPush()
+    return { ok: true, syncId: result.syncId }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : 'save_failed' }
+  }
+})
+
 ipcMain.handle('memory:observation', (_event, syncId: string): MemoryObservationDetail | null => {
   if (!memory || typeof syncId !== 'string' || !syncId) return null
   const row = memory.store.get(syncId)

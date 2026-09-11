@@ -115,6 +115,17 @@ contextBridge.exposeInMainWorld('memory', {
   // consulta); esta es la lectura puntual del nodo que estas mirando. Sale de SQLite, no
   // del vault: el vault es opcional y es una proyeccion, no la fuente.
   observation: (syncId: string) => ipcRenderer.invoke('memory:observation', syncId),
+  // Escribir una memoria desde la UI. `source` NO viaja: lo fija main.ts en 'ui', porque un
+  // renderer que pudiera declararse 'hook' o 'mcp' ensuciaria la unica señal que dice de
+  // donde salio cada memoria.
+  saveFromUi: (input: {
+    title: string
+    content?: string
+    type?: string
+    tags?: string[]
+    topicKey?: string | null
+    worktreePath?: string | null
+  }) => ipcRenderer.invoke('memory:save', input),
   // Team Memory Layer 1, Parte 8 — comparte un proyecto LOCAL con un equipo, vía
   // POST /v1/projects/share (server/src/share.ts). Sin UI todavía; se prueba desde devtools
   // o un test.

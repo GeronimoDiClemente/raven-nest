@@ -10,6 +10,9 @@ import { useEffect, useState } from 'react'
 import { useMemories } from '../hooks/useMemories'
 import MemoriesList from './MemoriesList'
 import MemoryGraphPanel from './MemoryGraphPanel'
+import NewMemoryForm from './NewMemoryForm'
+import { Plus } from 'lucide-react'
+import { ICON_SIZE } from '../lib/icons'
 import MemoriesStatusRow from './MemoriesStatusRow'
 import ShareProjectCard from './ShareProjectCard'
 import TeamThreadPanel from './TeamThreadPanel'
@@ -38,6 +41,13 @@ export default function MemoriesWorkspace({ onClose, activeRepoPath, onOpenFile,
   // en la lista la resalta en el grafo y viceversa. La seleccion vive aca, que es el unico
   // lugar que ve a los dos.
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [escribiendo, setEscribiendo] = useState(false)
+  /**
+   * Cambia cuando se guarda algo nuevo. La lista y el grafo leen al montarse, así que
+   * remontarlos con una key distinta es lo que hace que lo recién escrito aparezca — más
+   * simple y más difícil de romper que enhebrar un refresh por tres componentes.
+   */
+  const [version, setVersion] = useState(0)
 
   // Antes aca se leian los totales de la cuenta (hubStats) para llenar una card de
   // "tenes N memorias en M proyectos". Esa card ya no existe: desde que la LISTA muestra
@@ -74,11 +84,34 @@ export default function MemoriesWorkspace({ onClose, activeRepoPath, onOpenFile,
             da a la fila virtualizada una altura acotada real dentro de esta caja de
             altura ya acotada (.teams-workspace-body's flex:1 + overflow:hidden), en
             vez de crecer con el contenido y forzar el scroll de la pagina entera. */}
-        <MemoriesList selectedId={selectedId} onSelect={setSelectedId} />
+        {/* Escribir a mano. Hasta ahora esta pantalla era de solo lectura: unicamente los
+            agentes escribian, y algo que vos querias dejar asentado no tenia puerta. */}
+        {escribiendo ? (
+          <NewMemoryForm
+            activeRepoPath={activeRepoPath}
+            onClose={() => setEscribiendo(false)}
+            onSaved={() => {
+              setVersion((v) => v + 1)
+              // La fila de estado tiene su propio ciclo de lectura: sin esto decia
+              // "0 items" al lado de la memoria recien escrita, que es el tipo de numero
+              // que hace desconfiar de toda la pantalla.
+              void state.refresh()
+            }}
+          />
+        ) : (
+          <div className="flex shrink-0 items-center">
+            <Button variant="outline" size="sm" onClick={() => setEscribiendo(true)}>
+              <Plus size={ICON_SIZE.sm} aria-hidden />
+              New memory
+            </Button>
+          </div>
+        )}
+
+        <MemoriesList key={`lista-${version}`} selectedId={selectedId} onSelect={setSelectedId} />
 
         {/* El grafo de MEMORIAS (spec §3): cuadrado acotado, 3D, debajo de la lista. No se
             monta con cero nodos, asi que en una cuenta vacia esta linea no ocupa nada. */}
-        <MemoryGraphPanel selectedId={selectedId} onSelect={setSelectedId} />
+        <MemoryGraphPanel key={`grafo-${version}`} selectedId={selectedId} onSelect={setSelectedId} />
 
         {activeRepoPath ? (
           // El grafo de ramas (TeamThreadGraph) es otro grafo, fuera de alcance de esta

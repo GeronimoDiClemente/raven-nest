@@ -302,7 +302,7 @@ export default function Sidebar({
   const BroadcastItem = (
     <Button
       variant={broadcastMode ? 'secondary' : 'ghost'}
-      size="sm"
+      size="default"
       className={cn(
         'h-8 w-full justify-start gap-2.5 px-2.5 font-normal',
         // Button ghost no declara color de reposo (solo hover) — este proyecto
@@ -326,7 +326,7 @@ export default function Sidebar({
     <div className="sidebar-item-panel" style={{ position: 'relative' }} ref={joinAnchorRef}>
       <Button
         variant={joinConnected ? 'secondary' : 'ghost'}
-        size="sm"
+        size="default"
         className={cn(
           'h-8 w-full justify-start gap-2.5 px-2.5 font-normal',
           !joinConnected && 'text-muted-foreground hover:text-foreground',
@@ -395,7 +395,7 @@ export default function Sidebar({
   const VoiceItem = (
     <Button
       variant={isListening ? 'secondary' : 'ghost'}
-      size="sm"
+      size="default"
       className={cn(
         'h-8 w-full justify-start gap-2.5 px-2.5 font-normal',
         !isListening && 'text-muted-foreground hover:text-foreground',
@@ -420,7 +420,7 @@ export default function Sidebar({
   const ConversationHistoryItem = (
     <Button
       variant="ghost"
-      size="sm"
+      size="default"
       className="h-8 w-full justify-start gap-2.5 px-2.5 font-normal text-muted-foreground hover:text-foreground"
       onClick={onHistoryOpen}
       title="Conversation history"
@@ -576,7 +576,7 @@ export default function Sidebar({
   const PersonalItem = (
     <Button
       variant="ghost"
-      size="sm"
+      size="default"
       className="h-8 w-full justify-start gap-2.5 px-2.5 font-normal text-muted-foreground hover:text-foreground"
       onClick={onPersonalOpen}
       title={pendingInvitesCount > 0
@@ -643,7 +643,7 @@ export default function Sidebar({
         <>
           <Button
             variant="ghost"
-            size="sm"
+            size="default"
             className="h-8 w-full justify-start gap-2.5 px-2.5 font-normal text-muted-foreground hover:text-foreground"
             onClick={onIntegrationsOpen}
             title="Integrations"
@@ -655,7 +655,7 @@ export default function Sidebar({
           </Button>
           <Button
             variant="ghost"
-            size="sm"
+            size="default"
             className="h-8 w-full justify-start gap-2.5 px-2.5 font-normal text-muted-foreground hover:text-foreground"
             onClick={onGraphBoardOpen}
             title="Orchestration"
@@ -678,12 +678,18 @@ export default function Sidebar({
       {/* Toggle */}
       <Button
         variant="ghost"
-        size="sm"
+        size="default"
         className="h-8 w-full justify-start gap-2.5 px-2.5 font-normal mb-1 text-muted-foreground hover:text-foreground"
         onClick={onToggle}
         title={expanded ? 'Collapse sidebar' : 'Expand sidebar'}
         aria-expanded={expanded}
       >
+        {/* size="default", no "sm", en TODAS las filas de esta barra.
+            El primitivo trae `[&_svg:not([class*='size-'])]:size-3.5` en el tamaño `sm`, o
+            sea que fuerza a 14px cualquier SVG adentro del botón y PISA el `size` que uno le
+            pasa al ícono. Como las filas que no son <Button> (`.sidebar-item`) no pasan por
+            esa regla y quedaban en 16, la misma columna mostraba iconos de 14 y de 16.
+            `default` es h-8 + size-4 (16), que es exactamente lo que estas filas son. */}
         <span className="sidebar-icon">
           {expanded ? (
             <ChevronLeft size={ICON_SIZE.lg} aria-hidden />
@@ -705,7 +711,7 @@ export default function Sidebar({
         {!expanded && (
           <Button
             variant="ghost"
-            size="sm"
+            size="default"
             className="h-8 w-full justify-start gap-2.5 px-2.5 font-normal text-foreground"
             onClick={onToggle}
             title={`${TAB_LABELS[currentTab]} — open the sidebar`}
@@ -799,7 +805,7 @@ export default function Sidebar({
             <div className={`sidebar-more${moreOpen ? ' open' : ''}`}>
               <Button
                 variant={moreOpen ? 'secondary' : 'ghost'}
-                size="sm"
+                size="default"
                 className={cn(
                   'h-8 w-full justify-start gap-2.5 px-2.5 font-normal',
                   !moreOpen && 'text-muted-foreground hover:text-foreground',
@@ -861,7 +867,7 @@ export default function Sidebar({
         {!isHub && paneCount < MAX_PANES && (
           <Button
             variant="ghost"
-            size="sm"
+            size="default"
             className="h-8 w-full justify-start gap-2.5 px-2.5 font-normal text-foreground hover:text-primary"
             onClick={onNewPane}
             title={`New terminal (${isWin ? 'Ctrl+T' : '⌘T'})`}

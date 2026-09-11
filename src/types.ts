@@ -1013,6 +1013,20 @@ declare global {
       /** Una memoria entera por id, con su `content`. `null` si no existe o esta borrada. */
       observation?: (syncId: string) => Promise<MemoryObservationDetail | null>
       /**
+       * Escribir una memoria desde la UI. Sin repo vinculado va al proyecto global, que es
+       * lo que significa: algo que vale más allá de un repo.
+       *
+       * `source` no se manda — lo fija el main en `'ui'`.
+       */
+      saveFromUi?: (input: {
+        title: string
+        content?: string
+        type?: string
+        tags?: string[]
+        topicKey?: string | null
+        worktreePath?: string | null
+      }) => Promise<{ ok: boolean; syncId?: string; error?: string }>
+      /**
        * Team Memory Layer 1, Parte 8: comparte un proyecto LOCAL con un equipo — pega
        * contra POST /v1/projects/share (server/src/share.ts), la única forma de que
        * `projects.team_id` quede seteado. Opcional: un preload viejo no lo expone. Sin UI
