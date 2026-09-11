@@ -97,24 +97,24 @@ describe('MemoriesWorkspace', () => {
     expect(screen.getByText(/pane-7/)).toBeInTheDocument()
   })
 
-  it('sin repo abierto, la pantalla ofrece algo en vez de una frase suelta', async () => {
-    // El problema real medido en la captura del 2026-09-09: header, una tira de
-    // estado, una frase y 80% de negro. El estado vacio tiene que dar una SALIDA
-    // (un boton que vincula un repo) y mostrar lo que si existe sin uno: los
-    // totales de la cuenta via hubStats() (no hay dato de la memoria __global__
-    // en el renderer — ver la nota en MemoriesWorkspace.tsx).
-    setMemoryApi(api({
-      // Numeros distintos del noteCount del vault (866) del mock por defecto — asi el
-      // assert de abajo no puede confundir un numero con el otro.
-      hubStats: vi.fn().mockResolvedValue({ itemCount: 214, projectCount: 5 }),
-    }))
+  it('sin repo abierto, la pantalla ofrece una salida y dice para que sirve', async () => {
+    // El problema medido en la captura del 2026-09-09: header, una tira de estado, una
+    // frase y 80% de negro. El estado vacio tiene que dar una SALIDA (un boton que
+    // vincula un repo) y decir que se gana vinculandolo.
+    //
+    // 2026-09-11: ya no muestra "tenes N memorias en M proyectos". Desde que la LISTA
+    // muestra las memorias de verdad, ese contador era una version peor de lo que el
+    // usuario ya tiene arriba — y era una card de 250px que le robaba el alto a la lista.
+    // Ahora es una linea. El contrato que sobrevive es el que importa: hay una salida, y
+    // esta dicho de que se trata.
+    setMemoryApi(api())
     const onLinkRepo = vi.fn()
     renderWorkspace({ activeRepoPath: null, onLinkRepo })
 
-    expect(screen.getByRole('button', { name: /link a repo/i })).toBeInTheDocument()
-    await waitFor(() => expect(screen.getByText(/214 memories across 5 projects/)).toBeInTheDocument())
+    expect(screen.getByText(/Link a repo to also see its branches/)).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: /link a repo/i }))
+    const boton = screen.getByRole('button', { name: /link a repo/i })
+    fireEvent.click(boton)
     expect(onLinkRepo).toHaveBeenCalledTimes(1)
   })
 
@@ -137,30 +137,20 @@ describe('MemoriesWorkspace', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: /link a repo/i })).toBeInTheDocument())
   })
 
-  it('el estado vacio mantiene la escala tipografica en titulo y descripcion (Task 8b review I4 / Task 8c parte 3)', async () => {
+  it('la linea del estado vacio se mantiene en la escala tipografica', async () => {
     // El guard de contraste (e2e/04-contraste.spec.ts:178) mide COLOR, y
-    // MemoriesWorkspace-tokens.test.tsx solo regexea el source sin montar el
-    // arbol — ninguno de los dos hubiera agarrado que alguien borre el
-    // className="text-fs-lg" de CardTitle. Este SI renderiza el estado vacio
-    // de verdad y lee la className del nodo real, no del texto fuente.
-    setMemoryApi(api({
-      hubStats: vi.fn().mockResolvedValue({ itemCount: 214, projectCount: 5 }),
-    }))
+    // MemoriesWorkspace-tokens.test.tsx solo regexea el source sin montar el arbol —
+    // ninguno de los dos agarraria que alguien le ponga un text-sm de Tailwind en vez de
+    // la escala propia (--fs-*). Este SI renderiza y lee la className del nodo real.
+    //
+    // Antes esto miraba el CardTitle/CardDescription de una card que ya no existe (ver el
+    // test de arriba). El contrato es el mismo: el texto de esta pantalla no inventa
+    // tamaños fuera de la escala.
+    setMemoryApi(api())
     renderWorkspace({ activeRepoPath: null, onLinkRepo: () => {} })
 
-    // El texto cambio el 2026-09-11: desde que MemoryGraphPanel muestra el grafo de
-    // MEMORIAS arriba de esta card, decir "to see its memory graph" contradecia lo que el
-    // usuario tenia en pantalla. Lo que falta sin repo es el grafo de RAMAS. El contrato
-    // que este test protege es la escala tipografica, no la copy.
-    const title = await screen.findByText('Link a repo to see its branches')
-    expect(title.className.split(/\s+/)).toContain('text-fs-lg')
-
-    const description = await screen.findByText(/214 memories across 5 projects/)
-    // 'text-fs' a secas, no 'text-fs-lg': son escalones distintos de la
-    // escala (CardDescription vs CardTitle) — toContain con split evita que
-    // un match de substring confunda uno con el otro.
-    expect(description.className.split(/\s+/)).toContain('text-fs')
-    expect(description.className.split(/\s+/)).not.toContain('text-fs-lg')
+    const linea = await screen.findByText(/Link a repo to also see its branches/)
+    expect(linea.className.split(/\s+/)).toContain('text-fs-sm')
   })
 
   it('el boton de volver cierra', async () => {

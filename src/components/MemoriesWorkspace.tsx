@@ -14,12 +14,6 @@ import MemoriesStatusRow from './MemoriesStatusRow'
 import ShareProjectCard from './ShareProjectCard'
 import TeamThreadPanel from './TeamThreadPanel'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-
-interface HubStats {
-  itemCount: number
-  projectCount: number
-}
 
 interface Props {
   onClose: () => void
@@ -45,24 +39,10 @@ export default function MemoriesWorkspace({ onClose, activeRepoPath, onOpenFile,
   // lugar que ve a los dos.
   const [selectedId, setSelectedId] = useState<string | null>(null)
 
-  // El estado vacio (sin repo) no tiene la memoria __global__ disponible en el renderer
-  // (MemoriesState no trae ningun campo de scope, y window.memory no expone una lectura de
-  // memorias por proyecto — construirla es feature nueva, fuera de alcance de esta
-  // migracion de UI). En su lugar se muestra lo que SI existe sin repo: los totales de la
-  // cuenta via hubStats(). Review M1: `hubStats` es REQUERIDO en window.memory
-  // (src/types.ts) — no opcional como decia este comentario antes; el `?.` de abajo es
-  // encadenado igual (cortocircuita entero si faltara, sin `.then` de `undefined`) para
-  // sobrevivir a un preload viejo en dev/tests, y el catch evita que un fallo de IPC
-  // rompa la card — se muestra sin los numeros en vez de reventar el arbol.
-  const [hub, setHub] = useState<HubStats | null>(null)
-  useEffect(() => {
-    if (activeRepoPath) return
-    let alive = true
-    window.memory?.hubStats?.()
-      .then((stats) => { if (alive) setHub(stats) })
-      .catch(() => { /* la card se muestra sin los numeros, no revienta el arbol */ })
-    return () => { alive = false }
-  }, [activeRepoPath])
+  // Antes aca se leian los totales de la cuenta (hubStats) para llenar una card de
+  // "tenes N memorias en M proyectos". Esa card ya no existe: desde que la LISTA muestra
+  // las memorias de verdad, el contador era una version peor de lo que el usuario tiene
+  // arriba. Y la consulta se fue con ella, en vez de quedar colgada alimentando nada.
 
   return (
     <div className={`teams-workspace memories-workspace${closing ? ' closing' : ''}`}>
