@@ -931,6 +931,34 @@ export class MemoryStore {
    * no volverian nunca. El pull es idempotente (upsert por sync_id), asi que re-bajar todo
    * es seguro; el costo es una pasada de red, no datos duplicados.
    */
+  /**
+   * Vuelve a encolar TODA observacion viva como un upsert, para que el push la re-suba.
+   * Es el mecanismo de la migracion del §5.5.3: lo que ya esta en la nube en claro se
+   * pisa, por `sync_id`, con la version cifrada.
+   *
+   * Excepcion consciente a la regla de la Task 13 del plan de la fase 1 ("un re-import sin
+   * cambios no re-loguea mutaciones"): aca el contenido no cambió, cambió el FORMATO en que
+   * viaja, y esa es justamente la razon para re-loguear. Se llama una vez, a mano, desde la
+   * activacion — nunca en un bucle automatico.
+   *
+   * Sin tombstones ni superseded: una fila borrada ya no tiene contenido que proteger, y
+   * una superseded no la devuelve ninguna lectura.
+   */
+  requeueAllForPush(): number {
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM observations
+          WHERE deleted = 0 AND superseded_by IS NULL
+            AND (author_user_id IS NULL OR author_user_id = ?)
+          ORDER BY updated_at`
+      )
+      .all(this.currentUserId ?? null) as ObservationRow[]
+    this.db.transaction(() => {
+      for (const row of rows) this.appendMutation('upsert', row)
+    })()
+    return rows.length
+  }
+
   resetPullCursors(): void {
     this.db.prepare('UPDATE sync_state SET pull_cursor = 0').run()
   }
