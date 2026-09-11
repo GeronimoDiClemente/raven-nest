@@ -790,7 +790,7 @@ describe('MemoryStore — schema versioning (C3)', () => {
   afterEach(() => { cleanupTmp(dir) })
 
   it('SCHEMA_VERSION is pinned to the published value', () => {
-    expect(SCHEMA_VERSION).toBe(3)
+    expect(SCHEMA_VERSION).toBe(4)
   })
 
   // Task 8 (smoke/memory-bridge): the memory dir syncs across two machines, so a v1
@@ -1303,5 +1303,289 @@ describe('MemoryStore — promoteToTeam (Team Memory Layer 1, Parte 6)', () => {
     expect(result.promoted).toBe(true)
     expect(store.get(saved.syncId)?.scope).toBe('team')
     expect(promotionQueueRow(saved.syncId)?.reason).toBe('motivo actualizado')
+  })
+})
+
+describe('MemoryStore — crossProjectMemories (spec 2026-09-11, pantalla de Memories legible)', () => {
+  let dir: string
+  let store: MemoryStore
+
+  beforeEach(() => {
+    dir = makeTmpDir('raven-memory-crossproject-')
+    store = new MemoryStore(join(dir, 'memory.db'))
+    store.ensureProject({ projectKey: 'proj-a', displayName: 'Proyecto A' })
+    store.ensureProject({ projectKey: 'proj-b', displayName: 'Proyecto B' })
+  })
+
+  afterEach(() => {
+    store.close()
+    cleanupTmp(dir)
+  })
+
+  it('devuelve filas de varios proyectos en un solo resultado, con el project_key y su display_name', () => {
+    store.save({ projectKey: 'proj-a', type: 'decision', title: 'De A', content: 'contenido de proyecto A', source: 'mcp' })
+    store.save({ projectKey: 'proj-b', type: 'bugfix', title: 'De B', content: 'contenido de proyecto B', source: 'mcp' })
+
+    const page = store.crossProjectMemories({ limit: 10 })
+
+    expect(page.items).toHaveLength(2)
+    const byTitle = Object.fromEntries(page.items.map((i) => [i.title, i]))
+    expect(byTitle['De A']).toMatchObject({ projectKey: 'proj-a', projectDisplayName: 'Proyecto A' })
+    expect(byTitle['De B']).toMatchObject({ projectKey: 'proj-b', projectDisplayName: 'Proyecto B' })
+  })
+
+  it('ordena por updated_at DESC', () => {
+    store.save({ projectKey: 'proj-a', type: 'decision', title: 'Primera', content: 'contenido uno', source: 'mcp', createdAt: 1000, updatedAt: 1000 })
+    store.save({ projectKey: 'proj-b', type: 'decision', title: 'Segunda', content: 'contenido dos', source: 'mcp', createdAt: 2000, updatedAt: 2000 })
+    store.save({ projectKey: 'proj-a', type: 'decision', title: 'Tercera', content: 'contenido tres', source: 'mcp', createdAt: 3000, updatedAt: 3000 })
+
+    const page = store.crossProjectMemories({ limit: 10 })
+
+    expect(page.items.map((i) => i.title)).toEqual(['Tercera', 'Segunda', 'Primera'])
+  })
+
+  it('el paginado no repite ni saltea filas entre paginas consecutivas', () => {
+    for (let i = 0; i < 5; i++) {
+      store.save({
+        projectKey: i % 2 === 0 ? 'proj-a' : 'proj-b',
+        type: 'decision',
+        title: `Memoria ${i}`,
+        content: `contenido numero ${i}`,
+        source: 'mcp',
+        createdAt: 1000 + i,
+        updatedAt: 1000 + i,
+      })
+    }
+
+    const page1 = store.crossProjectMemories({ limit: 2 })
+    expect(page1.items.map((i) => i.title)).toEqual(['Memoria 4', 'Memoria 3'])
+    expect(page1.nextCursor).not.toBeNull()
+
+    const page2 = store.crossProjectMemories({ limit: 2, cursor: page1.nextCursor })
+    expect(page2.items.map((i) => i.title)).toEqual(['Memoria 2', 'Memoria 1'])
+    expect(page2.nextCursor).not.toBeNull()
+
+    const page3 = store.crossProjectMemories({ limit: 2, cursor: page2.nextCursor })
+    expect(page3.items.map((i) => i.title)).toEqual(['Memoria 0'])
+    expect(page3.nextCursor).toBeNull()
+  })
+
+  it('deleted = 1 no aparece nunca', () => {
+    const a = store.save({ projectKey: 'proj-a', type: 'decision', title: 'Viva', content: 'sigue viva', source: 'mcp' })
+    const b = store.save({ projectKey: 'proj-a', type: 'decision', title: 'Borrada', content: 'esta se borra', source: 'mcp' })
+    store.deleteObservation(b.syncId)
+
+    const page = store.crossProjectMemories({ limit: 10 })
+
+    expect(page.items.map((i) => i.syncId)).toEqual([a.syncId])
+  })
+
+  it('las reemplazadas no aparecen por default y si cuando se piden explicitamente', () => {
+    store.save({ projectKey: 'proj-a', scope: 'personal', type: 'decision', topicKey: 'x', title: 'v1', content: 'version 1', source: 'mcp' })
+    const local = store.context('proj-a', 10)[0]
+    store.applyIncomingObservation({
+      syncId: 'obs_remota_x',
+      projectKey: 'proj-a',
+      scope: 'personal',
+      topicKey: 'x',
+      type: 'decision',
+      title: 'v2 remota',
+      content: 'version 2',
+      updatedAt: Date.now() + 60_000,
+      lamport: 999,
+      deleted: false,
+      supersedeLocal: local.syncId,
+    })
+
+    const withoutSuperseded = store.crossProjectMemories({ limit: 10 })
+    expect(withoutSuperseded.items.map((i) => i.syncId)).toEqual(['obs_remota_x'])
+
+    const withSuperseded = store.crossProjectMemories({ limit: 10, includeSuperseded: true })
+    expect(withSuperseded.items.map((i) => i.syncId).sort()).toEqual([local.syncId, 'obs_remota_x'].sort())
+  })
+
+  it('la busqueda encuentra por contenido via FTS (no solo por titulo)', () => {
+    store.save({ projectKey: 'proj-a', type: 'discovery', title: 'Bug raro', content: 'El reconnect de websocket era el culpable.', source: 'mcp' })
+    store.save({ projectKey: 'proj-b', type: 'decision', title: 'Otra cosa', content: 'nada que ver con esto', source: 'mcp' })
+
+    const page = store.crossProjectMemories({ limit: 10, query: 'websocket' })
+
+    expect(page.items.map((i) => i.title)).toEqual(['Bug raro'])
+  })
+
+  it('cuando hay mas filas que el limite, nextCursor lo reporta — nunca corta en silencio', () => {
+    store.save({ projectKey: 'proj-a', type: 'decision', title: 'Uno', content: 'contenido uno', source: 'mcp', createdAt: 1000, updatedAt: 1000 })
+    store.save({ projectKey: 'proj-a', type: 'decision', title: 'Dos', content: 'contenido dos', source: 'mcp', createdAt: 2000, updatedAt: 2000 })
+
+    const full = store.crossProjectMemories({ limit: 10 })
+    expect(full.nextCursor).toBeNull()
+
+    const short = store.crossProjectMemories({ limit: 1 })
+    expect(short.items).toHaveLength(1)
+    expect(short.nextCursor).not.toBeNull()
+  })
+
+  it('usa el indice global (deleted, updated_at, lamport) para el listado plano, no un sort completo', () => {
+    const db = (store as unknown as { db: { prepare(sql: string): { all(...args: unknown[]): unknown[] } } }).db
+    const plan = db
+      .prepare(
+        `EXPLAIN QUERY PLAN
+         SELECT o.sync_id FROM observations o LEFT JOIN projects p ON p.project_key = o.project_key
+         WHERE o.deleted = 0 AND o.superseded_by IS NULL
+         ORDER BY o.updated_at DESC, o.lamport DESC LIMIT 10`
+      )
+      .all() as Array<{ detail: string }>
+    const detail = plan.map((r) => r.detail).join(' | ')
+    expect(detail).toContain('idx_obs_deleted_updated')
+    expect(detail).not.toMatch(/USE TEMP B-TREE FOR ORDER BY/i)
+  })
+})
+
+describe('MemoryStore — getSummary (MCP memory_get)', () => {
+  let dir: string
+  let store: MemoryStore
+
+  beforeEach(() => {
+    dir = makeTmpDir('raven-memory-getsummary-')
+    store = new MemoryStore(join(dir, 'memory.db'))
+  })
+
+  afterEach(() => {
+    store.close()
+    cleanupTmp(dir)
+  })
+
+  it('devuelve la memoria pedida', () => {
+    const saved = store.save({ projectKey: 'proj-a', type: 'decision', title: 'Una decision', content: 'contenido de la decision', source: 'mcp' })
+    const result = store.getSummary(saved.syncId)
+    expect(result?.title).toBe('Una decision')
+  })
+
+  it('devuelve null (no tira) cuando el id no existe', () => {
+    expect(store.getSummary('obs-no-existe')).toBeNull()
+  })
+
+  it('devuelve null para una memoria borrada', () => {
+    const saved = store.save({ projectKey: 'proj-a', type: 'decision', title: 'A borrar', content: 'contenido a borrar', source: 'mcp' })
+    store.deleteObservation(saved.syncId)
+    expect(store.getSummary(saved.syncId)).toBeNull()
+  })
+
+  it('SI devuelve una memoria superseded — el llamador pidio ESTE id puntual', () => {
+    store.save({ projectKey: 'proj-a', scope: 'personal', type: 'decision', topicKey: 'x', title: 'local', content: 'contenido local', source: 'mcp' })
+    const local = store.context('proj-a', 10)[0]
+    store.applyIncomingObservation({
+      syncId: 'obs_remota_get',
+      projectKey: 'proj-a',
+      scope: 'personal',
+      topicKey: 'x',
+      type: 'decision',
+      title: 'remota',
+      content: 'contenido remoto',
+      updatedAt: Date.now() + 60_000,
+      lamport: 500,
+      deleted: false,
+      supersedeLocal: local.syncId,
+    })
+
+    expect(store.getSummary(local.syncId)?.title).toBe('local')
+  })
+})
+
+describe('MemoryStore — update (MCP memory_update)', () => {
+  let dir: string
+  let store: MemoryStore
+
+  beforeEach(() => {
+    dir = makeTmpDir('raven-memory-update-')
+    store = new MemoryStore(join(dir, 'memory.db'))
+  })
+
+  afterEach(() => {
+    store.close()
+    cleanupTmp(dir)
+  })
+
+  it('modifica la memoria y deja el rastro de replicacion correcto (content_hash, revision_count, lamport, mutation_log)', () => {
+    const saved = store.save({ projectKey: 'proj-a', type: 'decision', title: 'Titulo original', content: 'contenido original', source: 'mcp' })
+    const before = store.get(saved.syncId)!
+
+    const result = store.update({ syncId: saved.syncId, title: 'Titulo corregido', content: 'contenido corregido' })
+
+    expect(result.updated).toBe(true)
+    const after = store.get(saved.syncId)!
+    expect(after.sync_id).toBe(before.sync_id) // misma identidad, no una fila nueva
+    expect(after.title).toBe('Titulo corregido')
+    expect(after.content).toBe('contenido corregido')
+    expect(after.content_hash).not.toBe(before.content_hash)
+    expect(after.revision_count).toBe(before.revision_count + 1)
+    expect(after.lamport).toBeGreaterThan(before.lamport)
+
+    const mutations = store.pendingMutations().filter((m) => m.sync_id === saved.syncId && m.op === 'upsert')
+    expect(mutations).toHaveLength(2) // insert original + este update
+    const lastPayload = JSON.parse(mutations[mutations.length - 1].payload)
+    expect(lastPayload.title).toBe('Titulo corregido')
+    expect(lastPayload.revision_count).toBe(before.revision_count + 1)
+  })
+
+  it('es un patch: solo cambia los campos pedidos, el resto queda intacto', () => {
+    const saved = store.save({ projectKey: 'proj-a', type: 'decision', title: 'Titulo', content: 'contenido', tags: ['a', 'b'], source: 'mcp' })
+
+    store.update({ syncId: saved.syncId, content: 'contenido nuevo' })
+
+    const after = store.get(saved.syncId)!
+    expect(after.title).toBe('Titulo')
+    expect(JSON.parse(after.tags!)).toEqual(['a', 'b'])
+    expect(after.content).toBe('contenido nuevo')
+  })
+
+  it('no-op sobre un syncId inexistente, sin tirar', () => {
+    expect(store.update({ syncId: 'obs-no-existe', title: 'x' })).toEqual({ updated: false, reason: 'not_found' })
+  })
+
+  it('no-op sobre una observacion borrada', () => {
+    const saved = store.save({ projectKey: 'proj-a', type: 'decision', title: 'A borrar', content: 'contenido', source: 'mcp' })
+    store.deleteObservation(saved.syncId)
+
+    expect(store.update({ syncId: saved.syncId, title: 'nuevo titulo' })).toEqual({ updated: false, reason: 'deleted' })
+  })
+
+  it('no-op sobre una observacion superseded (perdio una colision de topic)', () => {
+    store.save({ projectKey: 'proj-a', scope: 'personal', type: 'decision', topicKey: 'x', title: 'local', content: 'contenido local', source: 'mcp' })
+    const local = store.context('proj-a', 10)[0]
+    store.applyIncomingObservation({
+      syncId: 'obs_remota_upd',
+      projectKey: 'proj-a',
+      scope: 'personal',
+      topicKey: 'x',
+      type: 'decision',
+      title: 'remota',
+      content: 'contenido remoto',
+      updatedAt: Date.now() + 60_000,
+      lamport: 500,
+      deleted: false,
+      supersedeLocal: local.syncId,
+    })
+
+    expect(store.update({ syncId: local.syncId, title: 'intento de update' })).toEqual({ updated: false, reason: 'superseded' })
+  })
+
+  it('no-op sin generar mutacion nueva cuando el contenido pedido es igual al actual', () => {
+    const saved = store.save({ projectKey: 'proj-a', type: 'decision', title: 'Igual', content: 'contenido igual', source: 'mcp' })
+    const before = store.pendingMutations().length
+
+    const result = store.update({ syncId: saved.syncId, title: 'Igual', content: 'contenido igual' })
+
+    expect(result).toEqual({ updated: false, reason: 'unchanged', syncId: saved.syncId })
+    expect(store.pendingMutations()).toHaveLength(before)
+  })
+
+  it('redacta secretos en el contenido actualizado (M13 aplica igual que en cualquier otra escritura)', () => {
+    const saved = store.save({ projectKey: 'proj-a', type: 'decision', title: 'Titulo', content: 'contenido inicial', source: 'mcp' })
+
+    const result = store.update({ syncId: saved.syncId, content: 'la clave es AKIAABCDEFGHIJKLMNOP, no la compartas' })
+
+    expect(result.redacted).toBe(true)
+    expect(store.get(saved.syncId)?.content).not.toContain('AKIAABCDEFGHIJKLMNOP')
   })
 })

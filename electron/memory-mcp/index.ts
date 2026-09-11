@@ -160,6 +160,23 @@ async function callTool(client: MemoryDaemonClient, cwd: string, name: string, a
       })
       return JSON.stringify(result)
     }
+    case 'memory_get': {
+      const result = await client.call('memory.get', {
+        cwd,
+        syncId: String(args.sync_id ?? ''),
+      })
+      return JSON.stringify(result)
+    }
+    case 'memory_update': {
+      const result = await client.call('memory.update', {
+        cwd,
+        syncId: String(args.sync_id ?? ''),
+        title: args.title as string | undefined,
+        content: args.content as string | undefined,
+        tags: args.tags as string[] | undefined,
+      })
+      return JSON.stringify(result)
+    }
     default:
       throw new Error(`Unknown tool: ${name}`)
   }

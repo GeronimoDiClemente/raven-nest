@@ -279,6 +279,76 @@ export interface SaveInput {
   lastSeenAt?: number | null
 }
 
+/**
+ * Spec 2026-09-11 — input de `crossProjectMemories()`. A diferencia de `SaveInput`/
+ * `MemoryGraphQuery`, `limit` es obligatorio (no hay default razonable: la pantalla que
+ * pide "todos los proyectos" sobre una tabla de miles de filas SIEMPRE tiene que decidir
+ * un tamaño de página).
+ */
+export interface CrossProjectMemoryQuery {
+  /** FTS5 (mismo saneo que search()). Vacío/ausente = listado plano por fecha. */
+  query?: string
+  /** Tamaño de página. Sin default: quien pagina siempre lo decide explícito. */
+  limit: number
+  /** Cursor devuelto como `nextCursor` por la página anterior. Ausente = primera página. */
+  cursor?: string | null
+  /** Igual semántica que `MemoryGraphQuery.includeSuperseded`. Default false. */
+  includeSuperseded?: boolean
+}
+
+/** Una fila de `crossProjectMemories()` — lo que la fila de la lista necesita mostrar. */
+export interface CrossProjectObservation {
+  syncId: string
+  projectKey: string
+  /** `null` si el proyecto nunca se registró vía `ensureProject()` (fila huérfana). */
+  projectDisplayName: string | null
+  title: string
+  type: ObservationType
+  scope: 'personal' | 'project' | 'team'
+  originAi: string | null
+  authorDisplay: string | null
+  updatedAt: number
+  tags: string[]
+}
+
+export interface CrossProjectMemoryPage {
+  items: CrossProjectObservation[]
+  /** Cursor para pedir la página siguiente, o `null` si esta fue la última. Nunca se corta
+   *  en silencio: `nextCursor !== null` es la única señal de "hay más" y siempre está. */
+  nextCursor: string | null
+}
+
+interface CrossProjectRow {
+  sync_id: string
+  project_key: string
+  project_display_name: string | null
+  title: string
+  type: string
+  scope: string
+  origin_ai: string | null
+  author_display: string | null
+  updated_at: number
+  lamport: number
+  tags: string | null
+}
+
+/** Input de `update()` (MCP `memory_update`). Todo excepto `syncId` es opcional: cada campo
+ *  ausente conserva su valor actual — es un PATCH, no un reemplazo total. */
+export interface UpdateMemoryInput {
+  syncId: string
+  title?: string
+  content?: string
+  /** `null` explícito borra los tags; `undefined` (ausente) los deja como están. */
+  tags?: string[] | null
+}
+
+export interface UpdateMemoryResult {
+  updated: boolean
+  syncId?: string
+  redacted?: boolean
+  reason?: 'not_found' | 'deleted' | 'superseded' | 'unchanged'
+}
+
 export interface ObservationRow {
   sync_id: string
   project_key: string
@@ -480,7 +550,7 @@ const BASE_SCHEMA = `
  * correct precisely because all of step 1 is CREATE ... IF NOT EXISTS: running it over an
  * already-populated database writes nothing and does not touch a single row.
  */
-export const SCHEMA_VERSION = 3
+export const SCHEMA_VERSION = 4
 
 // Task 8 (smoke/memory-bridge): the memory dir syncs across two machines (C3's whole
 // reason for existing), so a v1 database opened by a build that knows v2 is the routine
@@ -510,6 +580,23 @@ const MIGRATIONS: Record<number, string | ((db: Database.Database) => void)> = {
       db.exec('ALTER TABLE mutation_log ADD COLUMN author_user_id TEXT;')
     }
   },
+  // Spec 2026-09-11 (pantalla de Memories legible): la lista cross-project
+  // (`crossProjectMemories()` abajo) ordena por `updated_at DESC` a través de TODOS los
+  // project_key a la vez — algo que `idx_obs_project_updated` no ayuda a resolver, porque
+  // su columna líder es `project_key` (sirve para "las más recientes DE este proyecto", no
+  // para "las más recientes de cualquiera"). Sin este índice, la variante sin término de
+  // búsqueda (la que carga la pantalla al abrir, sin FTS que angoste el candidate set antes
+  // de ordenar) fuerza a SQLite a un scan completo de `observations` + sort en un B-tree
+  // temporal — se degrada linealmente (peor, con el sort) con el total de filas, no con el
+  // tamaño de la página pedida. `deleted` como columna líder (selectividad basica: la
+  // inmensa mayoría de las filas vivas están activas) + `updated_at DESC, lamport DESC` en
+  // el mismo orden que el ORDER BY de la consulta le alcanza al planner para resolver
+  // filtro+orden+LIMIT sin sort adicional (confirmado con EXPLAIN QUERY PLAN, ver el test
+  // "usa el índice global, no un sort completo" en memory-store.test.ts). `superseded_by
+  // IS NULL` (el filtro por default, ver buildMemoryGraph) queda afuera del índice a
+  // propósito: es un filtro residual barato aplicado fila por fila mientras se recorre en
+  // orden ya indexado, no una condición de igualdad que valga la pena indexar aparte.
+  4: 'CREATE INDEX IF NOT EXISTS idx_obs_deleted_updated ON observations(deleted, updated_at DESC, lamport DESC);',
 }
 
 export class MemoryStore {
@@ -1216,6 +1303,175 @@ export class MemoryStore {
    */
   memoryGraph(query: MemoryGraphQuery): MemoryGraph {
     return buildMemoryGraph(this.db, query)
+  }
+
+  /**
+   * Spec 2026-09-11 (pantalla de Memories legible), sección "Datos que hay que construir":
+   * la única consulta de lectura que faltaba. `search()`/`context()`/`latestByType()` toman
+   * `projectKey` porque asumen un repo abierto; esta es la contraparte para "mostrame las
+   * memorias de TODOS los proyectos juntas" que la pantalla necesita.
+   *
+   * - Ordena por `updated_at DESC, lamport DESC` — mismo criterio de desempate que
+   *   search()/context() (ver su comentario más arriba: dos escrituras en el mismo
+   *   milisegundo empatan bajo un ORDER BY updated_at puro).
+   * - Pagina por cursor (keyset), no por offset. Justificación en el reporte de esta tarea:
+   *   en resumen, esta tabla recibe escrituras continuas de agentes en background mientras
+   *   el usuario navega la lista — un OFFSET numérico se corre (salta o repite filas) cada
+   *   vez que algo nuevo se inserta por encima de la página que se está pidiendo; un cursor
+   *   basado en la clave de orden (updated_at, lamport) de la última fila vista no.
+   * - Excluye `deleted = 1` siempre, y `superseded_by` no nulo salvo `includeSuperseded` —
+   *   idéntico criterio a `buildMemoryGraph` (memory-graph.ts), no uno paralelo.
+   * - Devuelve `nextCursor: null` cuando esta fue la última página — el llamador nunca tiene
+   *   que adivinar "¿esto es todo o hay más?" (igual espíritu que `MemoryGraph.truncated`:
+   *   nunca cortar en silencio sin que el resultado lo diga).
+   * - `query` es opcional: vacío o ausente es el listado plano (la pantalla al abrir, antes
+   *   de escribir nada); si viene, reusa la tabla FTS5 `observations_fts` con el mismo
+   *   patrón de saneo/frase exacta que `search()` — no un `LIKE`.
+   */
+  crossProjectMemories(input: CrossProjectMemoryQuery): CrossProjectMemoryPage {
+    const limit = Math.max(1, Math.floor(input.limit))
+    const includeSuperseded = input.includeSuperseded ?? false
+    const rawQuery = input.query?.trim() ?? ''
+
+    // Mismo saneo que search(): FTS5 no permite comillas dobles sueltas en una MATCH
+    // expression sin romper su sintaxis de query; envolver en comillas fuerza frase exacta
+    // en vez de dejar que los tokens se interpreten como operadores FTS5.
+    const safeQuery = rawQuery ? rawQuery.replace(/["]/g, '') : ''
+    // Un query no vacío que sanea a vacío (sólo comillas) es una búsqueda real que no puede
+    // resolverse — devolver [] explícito, igual que search(), en vez de caer silenciosamente
+    // al listado plano (eso mentiría: el usuario pidió buscar algo puntual).
+    if (rawQuery && !safeQuery.trim()) {
+      return { items: [], nextCursor: null }
+    }
+
+    const conditions: string[] = ['o.deleted = 0']
+    const params: unknown[] = []
+    if (!includeSuperseded) conditions.push('o.superseded_by IS NULL')
+
+    if (input.cursor) {
+      const [cursorUpdatedAtRaw, cursorLamportRaw] = input.cursor.split(':')
+      const cursorUpdatedAt = Number(cursorUpdatedAtRaw)
+      const cursorLamport = Number(cursorLamportRaw)
+      // Un cursor corrupto/ajeno no debe tirar ni devolver la lista entera de nuevo — se
+      // ignora y se sirve como si fuera la primera página, la falla más segura posible acá.
+      if (Number.isFinite(cursorUpdatedAt) && Number.isFinite(cursorLamport)) {
+        conditions.push('(o.updated_at < ? OR (o.updated_at = ? AND o.lamport < ?))')
+        params.push(cursorUpdatedAt, cursorUpdatedAt, cursorLamport)
+      }
+    }
+
+    const useFts = safeQuery.trim().length > 0
+    const fromClause = useFts
+      ? 'FROM observations o JOIN observations_fts f ON f.rowid = o.rowid LEFT JOIN projects p ON p.project_key = o.project_key'
+      : 'FROM observations o LEFT JOIN projects p ON p.project_key = o.project_key'
+    const matchCondition = useFts ? ['observations_fts MATCH ?'] : []
+    const whereSql = [...matchCondition, ...conditions].join(' AND ')
+    const allParams = useFts ? [`"${safeQuery}"`, ...params, limit + 1] : [...params, limit + 1]
+
+    const rows = this.db
+      .prepare(
+        `SELECT o.sync_id, o.project_key, p.display_name AS project_display_name, o.title,
+                o.type, o.scope, o.origin_ai, o.author_display, o.updated_at, o.lamport, o.tags
+         ${fromClause}
+         WHERE ${whereSql}
+         ORDER BY o.updated_at DESC, o.lamport DESC
+         LIMIT ?`
+      )
+      .all(...allParams) as CrossProjectRow[]
+
+    // Se pide limit+1 a propósito: la fila de más (si existe) nunca se muestra, sólo prueba
+    // que hay más allá de esta página — así el cursor se computa sobre la ÚLTIMA fila
+    // REALMENTE devuelta, no sobre una que el llamador nunca vio.
+    const page = rows.slice(0, limit)
+    const hasMore = rows.length > limit
+    const last = page[page.length - 1]
+    const nextCursor = hasMore && last ? `${last.updated_at}:${last.lamport}` : null
+
+    return {
+      items: page.map((r) => ({
+        syncId: r.sync_id,
+        projectKey: r.project_key,
+        projectDisplayName: r.project_display_name,
+        title: r.title,
+        type: r.type as ObservationType,
+        scope: r.scope as 'personal' | 'project' | 'team',
+        originAi: r.origin_ai,
+        authorDisplay: r.author_display,
+        updatedAt: r.updated_at,
+        tags: r.tags ? (JSON.parse(r.tags) as string[]) : [],
+      })),
+      nextCursor,
+    }
+  }
+
+  /**
+   * MCP `memory_get` (docs/nest-memory-architecture.md §1.1): traer una memoria puntual por
+   * su `sync_id`, para cuando un agente ya tiene el id (de un save/search previo) y quiere
+   * su contenido completo. Envuelve `get()` con el mismo filtro `deleted = 0` que todo otro
+   * método de lectura — una fila borrada está tombstoneada (`content` nulled, ver M12), así
+   * que "no existe" es la respuesta correcta, no un objeto con contenido vacío. Una fila
+   * SUPERSEDED sí se devuelve (a diferencia de search()/context()): acá el llamador pidió
+   * ESTE id puntual, no "la versión vigente de este tema" — negárselo porque otra fila lo
+   * reemplazó sería sorprendente para un caller que llega con el id en la mano.
+   */
+  getSummary(syncId: string): ObservationSummary | null {
+    const row = this.get(syncId)
+    if (!row || row.deleted !== 0) return null
+    return this.toSummary(row)
+  }
+
+  /**
+   * MCP `memory_update` (docs/nest-memory-architecture.md §1.1): corrige una memoria
+   * puntual ya guardada (título/contenido/tags) sin pasar por el merge-por-topic_key de
+   * save() — ese mecanismo exige que las dos escrituras compartan `topic_key`, y esta tool
+   * existe justo para la memoria que no tiene uno.
+   *
+   * Reusa el MISMO mecanismo de replicación que el Step 1 (topic upsert) de save():
+   * `applyRowUpdate()` para el UPDATE en sitio, `content_hash` recalculado vía
+   * `computeContentIdentity()` (con su redacción — M13 aplica igual acá que en cualquier
+   * otra escritura), `revision_count` incrementado, `lamport` avanzado por `nextLamport()`,
+   * y `appendMutation('upsert', updated)` para que el cambio entre al `mutation_log` y
+   * replique como cualquier otra escritura. No es un mecanismo nuevo: es el mismo camino,
+   * con una identidad de entrada distinta (syncId explícito en vez de topic_key).
+   *
+   * No-op (`updated: false`) — nunca tira — cuando: el syncId no existe, la fila está
+   * borrada, o la fila está superseded (alguien más ya la reemplazó: escribir encima de la
+   * perdedora de una colisión de topic sería un cambio que nadie vuelve a ver, igual
+   * criterio que promoteToTeam()). También no-op cuando ningún campo pedido cambia el
+   * contenido real (mismo content_hash y mismos tags) — evita un mutation_log row y un
+   * push por una "corrección" que no corrige nada.
+   */
+  update(input: UpdateMemoryInput): UpdateMemoryResult {
+    const existing = this.get(input.syncId)
+    if (!existing) return { updated: false, reason: 'not_found' }
+    if (existing.deleted !== 0) return { updated: false, reason: 'deleted' }
+    if (existing.superseded_by !== null) return { updated: false, reason: 'superseded' }
+
+    const nextTitleRaw = input.title ?? existing.title
+    const nextContentRaw = input.content ?? (existing.content ?? '')
+    const { title, content, redacted, hash } = computeContentIdentity(nextTitleRaw, nextContentRaw)
+    const nextTags = input.tags !== undefined ? (input.tags ? JSON.stringify(input.tags) : null) : existing.tags
+
+    if (hash === existing.content_hash && nextTags === existing.tags) {
+      return { updated: false, reason: 'unchanged', syncId: existing.sync_id }
+    }
+
+    const updated: ObservationRow = {
+      ...existing,
+      title,
+      content,
+      tags: nextTags,
+      content_hash: hash,
+      revision_count: existing.revision_count + 1,
+      updated_at: Date.now(),
+      lamport: this.nextLamport(),
+    }
+    const txn = this.db.transaction(() => {
+      this.applyRowUpdate(updated)
+      this.appendMutation('upsert', updated)
+    })
+    txn()
+    return { updated: true, syncId: updated.sync_id, redacted }
   }
 
   /**

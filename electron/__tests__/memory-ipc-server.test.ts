@@ -638,3 +638,112 @@ describe('MemoryIpcServer — memory.promote (Team Memory Layer 1, Parte 6/7)', 
     expect(onMutation).not.toHaveBeenCalled()
   })
 })
+
+// Spec 2026-09-11 (pantalla de Memories legible): los casos 'memory.get'/'memory.update' de
+// dispatch(), que envuelven MemoryStore.getSummary()/update() (ver su doc comment).
+describe('MemoryIpcServer — memory.get / memory.update (spec 2026-09-11)', () => {
+  let dir: string
+  let server: MemoryIpcServer
+  let socketPath: string
+
+  beforeEach(() => {
+    dir = makeTmpDir('raven-ipc-get-update-')
+    socketPath = uniqueSocketPath(dir)
+  })
+
+  afterEach(async () => {
+    server?.stop()
+    await new Promise((r) => setTimeout(r, 20))
+    cleanupTmp(dir)
+  })
+
+  it('memory.get forwards syncId to store.getSummary and returns its result under `item`', async () => {
+    const getSummary = vi.fn(() => fakeObservation({ title: 'la memoria pedida' }))
+    const store = fakeStore({ getSummary })
+    server = new MemoryIpcServer({ store, socketPath, authToken: TOKEN })
+    server.start()
+    await sleep(20)
+
+    const request: MemoryRequest = {
+      id: '1',
+      method: 'memory.get',
+      params: { cwd: '/tmp', syncId: 'obs-1' },
+      token: TOKEN,
+    }
+    const raw = await sendRaw(socketPath, `${JSON.stringify(request)}\n`)
+    const response = JSON.parse(raw.trim()) as MemoryResponse
+
+    expect(response.ok).toBe(true)
+    if (!response.ok) throw new Error('unreachable')
+    expect(response.result).toEqual({ item: fakeObservation({ title: 'la memoria pedida' }) })
+    expect(getSummary).toHaveBeenCalledWith('obs-1')
+  })
+
+  it('memory.get devuelve `{ item: null }` (no un error) cuando el id no existe', async () => {
+    const getSummary = vi.fn(() => null)
+    const store = fakeStore({ getSummary })
+    server = new MemoryIpcServer({ store, socketPath, authToken: TOKEN })
+    server.start()
+    await sleep(20)
+
+    const request: MemoryRequest = {
+      id: '1',
+      method: 'memory.get',
+      params: { cwd: '/tmp', syncId: 'obs-no-existe' },
+      token: TOKEN,
+    }
+    const raw = await sendRaw(socketPath, `${JSON.stringify(request)}\n`)
+    const response = JSON.parse(raw.trim()) as MemoryResponse
+
+    expect(response.ok).toBe(true)
+    if (!response.ok) throw new Error('unreachable')
+    expect(response.result).toEqual({ item: null })
+  })
+
+  it('memory.update forwards syncId/title/content/tags to store.update and calls onMutation on success', async () => {
+    const update = vi.fn(() => ({ updated: true, syncId: 'obs-1', redacted: false }))
+    const store = fakeStore({ update })
+    const onMutation = vi.fn()
+    server = new MemoryIpcServer({ store, socketPath, authToken: TOKEN, onMutation })
+    server.start()
+    await sleep(20)
+
+    const request: MemoryRequest = {
+      id: '1',
+      method: 'memory.update',
+      params: { cwd: '/tmp', syncId: 'obs-1', title: 'titulo nuevo', content: 'contenido nuevo', tags: ['x'] },
+      token: TOKEN,
+    }
+    const raw = await sendRaw(socketPath, `${JSON.stringify(request)}\n`)
+    const response = JSON.parse(raw.trim()) as MemoryResponse
+
+    expect(response.ok).toBe(true)
+    if (!response.ok) throw new Error('unreachable')
+    expect(response.result).toEqual({ updated: true, syncId: 'obs-1', redacted: false })
+    expect(update).toHaveBeenCalledWith({ syncId: 'obs-1', title: 'titulo nuevo', content: 'contenido nuevo', tags: ['x'] })
+    expect(onMutation).toHaveBeenCalledTimes(1)
+  })
+
+  it('memory.update no llama a onMutation cuando el store reporta updated: false', async () => {
+    const update = vi.fn(() => ({ updated: false, reason: 'not_found' as const }))
+    const store = fakeStore({ update })
+    const onMutation = vi.fn()
+    server = new MemoryIpcServer({ store, socketPath, authToken: TOKEN, onMutation })
+    server.start()
+    await sleep(20)
+
+    const request: MemoryRequest = {
+      id: '1',
+      method: 'memory.update',
+      params: { cwd: '/tmp', syncId: 'obs-no-existe', title: 'x' },
+      token: TOKEN,
+    }
+    const raw = await sendRaw(socketPath, `${JSON.stringify(request)}\n`)
+    const response = JSON.parse(raw.trim()) as MemoryResponse
+
+    expect(response.ok).toBe(true)
+    if (!response.ok) throw new Error('unreachable')
+    expect(response.result).toEqual({ updated: false, reason: 'not_found' })
+    expect(onMutation).not.toHaveBeenCalled()
+  })
+})

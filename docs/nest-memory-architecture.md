@@ -99,7 +99,7 @@ keeping the daemon protocol language-neutral (newline-delimited JSON) preserves 
 option. Engram chose Go because it *is* the standalone binary; ours is not.
 
 MCP tool surface (details in §2.1): `memory_search`, `memory_context`, `memory_save`,
-`memory_update`, `memory_get`, `memory_suggest_promotion`.
+`memory_update`, `memory_get`, `memory_promote`.
 
 ### 1.2 Local SQLite store (`memory-store.ts`)
 
@@ -216,7 +216,7 @@ re-deriving context the user already paid for."
 
 ```jsonc
 {
-  "name": "memory_suggest_promotion",
+  "name": "memory_promote",
   "description":
     "Flag a memory you just saved as worth sharing with the user's project or team. This \
 does NOT share anything — it adds the item to a review queue the user approves manually in \
@@ -229,7 +229,7 @@ Rules baked into the shim, not left to the model:
 
 - `memory_save` **always writes `scope='personal'`**. There is no scope parameter. A model
   cannot make something team-visible, ever.
-- `memory_suggest_promotion` only enqueues into `promotion_queue`. Sharing requires a human
+- `memory_promote` only enqueues into `promotion_queue`. Sharing requires a human
   click in the Nest UI (§7.3).
 - Every write passes the redaction filter (§6.6) before it touches disk.
 
@@ -255,7 +255,7 @@ single highest-leverage trick available, because it converts "hope the model com
 "remind the model exactly when it hasn't".
 
 **Tool-loading discipline.** Only six tools load eagerly: `memory_context`, `memory_search`,
-`memory_save`, `memory_update`, `memory_get`, `memory_suggest_promotion`. Anything
+`memory_save`, `memory_update`, `memory_get`, `memory_promote`. Anything
 administrative (stats, timeline, merge, doctor) is deferred behind tool search. A large tool
 manifest dilutes attention and makes the model *less* likely to call the two that matter.
 

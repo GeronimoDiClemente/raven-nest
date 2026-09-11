@@ -1,9 +1,16 @@
-// Phase 1 MCP tool manifest — memory_save / memory_search / memory_context, per
-// docs/nest-memory-architecture.md §9 Phase 1 scope. memory_update and memory_get are
-// designed in §2.1 but land in a later phase. memory_promote is Team Memory Layer 1
-// (Parte 7 del plan, lado cliente): promueve una memoria ya guardada a scope 'team' — sin
-// cola de aprobacion (decision ya tomada), pero SOLO a pedido explicito del usuario, nunca
-// por iniciativa propia del modelo (ver su description abajo).
+// MCP tool manifest — memory_save / memory_search / memory_context / memory_promote /
+// memory_get / memory_update, per docs/nest-memory-architecture.md §9. memory_promote is
+// Team Memory Layer 1 (Parte 7 del plan, lado cliente): promueve una memoria ya guardada a
+// scope 'team' — sin cola de aprobacion (decision ya tomada), pero SOLO a pedido explicito
+// del usuario, nunca por iniciativa propia del modelo (ver su description abajo).
+//
+// memory_get y memory_update (spec 2026-09-11, pantalla de Memories legible) completan las
+// seis tools que §1.1 especifica — memory_get envuelve MemoryStore.getSummary(),
+// memory_update envuelve MemoryStore.update() (mismo mecanismo de replicación que save(),
+// ver su doc comment en memory-store.ts). A diferencia de memory_save, no son "llamar sin
+// que te pidan": son lookups/correcciones puntuales sobre una memoria que el modelo ya
+// identificó por su sync_id, así que sus descriptions dicen CUÁNDO usarlas en vez de
+// empujar a un uso proactivo que no aplica acá.
 //
 // Tool descriptions are the prompt — see §2.1. They are copied close to verbatim from
 // the design doc; do not "clean them up" without re-reading why they're phrased this way.
@@ -99,6 +106,46 @@ export const TOOL_MANIFEST = [
       properties: {
         sync_id: { type: 'string', description: 'The syncId returned by memory_save for the memory to promote.' },
         reason: { type: 'string', description: 'Optional short note on why this is being shared with the team.' },
+      },
+      required: ['sync_id'],
+    },
+  },
+  {
+    name: 'memory_get',
+    description:
+      'Fetch one specific saved memory by its sync_id. Use this when you already have a syncId from a ' +
+      "prior memory_save, memory_search, or memory_context call and need that memory's exact, current " +
+      "content — before calling memory_promote or memory_update, when the user references 'that memory' " +
+      "or pastes an id, or to confirm a save actually took what you think it took. Do not use this to " +
+      'browse or discover memories — that is what memory_search and memory_context are for. Returns null ' +
+      'if the id does not exist or was deleted; never guess or fabricate a memory to fill the gap.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        sync_id: { type: 'string', description: 'The syncId returned by a prior memory_save, memory_search, or memory_context call.' },
+      },
+      required: ['sync_id'],
+    },
+  },
+  {
+    name: 'memory_update',
+    description:
+      'Correct a memory you already saved — a wrong detail, a typo, an outdated fact — in place, without ' +
+      'creating a duplicate. CALL THIS instead of memory_save when the user says something you recorded ' +
+      "was wrong or has changed ('actually it was X, not Y', 'that's outdated now') and gives you (or a " +
+      'prior turn already gave you) the syncId. Only include the fields that changed — title, content, ' +
+      'and/or tags are all optional and anything omitted is left exactly as it was. Requires the sync_id ' +
+      "from a prior memory_save/memory_search/memory_context/memory_get call; if you don't have one, use " +
+      "memory_search to find it first. For a topic that naturally evolves over time, prefer memory_save " +
+      "with the same topic_key instead — memory_update is for fixing a specific fact, not for logging a " +
+      "new revision.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        sync_id: { type: 'string', description: 'The syncId of the memory to correct (from memory_save/memory_search/memory_context/memory_get).' },
+        title: { type: 'string', description: 'New title. Omit to leave the current title unchanged.' },
+        content: { type: 'string', description: 'New content. Omit to leave the current content unchanged.' },
+        tags: { type: 'array', items: { type: 'string' }, description: 'Replacement tag list. Omit to leave the current tags unchanged.' },
       },
       required: ['sync_id'],
     },

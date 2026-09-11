@@ -140,6 +140,39 @@ export interface PromoteMemoryResult {
   promoted: boolean
 }
 
+// MCP `memory_get` (docs/nest-memory-architecture.md §1.1) — traer una memoria puntual por
+// su sync_id. Envuelve MemoryStore.getSummary(); ver su doc comment en memory-store.ts para
+// el porqué de filtrar sólo `deleted`, no `superseded_by`, acá.
+export interface GetMemoryParams {
+  cwd: string
+  syncId: string
+}
+
+export interface GetMemoryResult {
+  /** `null` — nunca una excepción — cuando el syncId no existe o está borrado. */
+  item: ObservationSummary | null
+}
+
+// MCP `memory_update` (docs/nest-memory-architecture.md §1.1) — corrige título/contenido/
+// tags de una memoria puntual ya guardada, sin pasar por el merge-por-topic_key de
+// memory_save. Envuelve MemoryStore.update(); ver su doc comment para el mecanismo de
+// replicación (mismo camino que save(), no uno nuevo).
+export interface UpdateMemoryParams {
+  cwd: string
+  syncId: string
+  title?: string
+  content?: string
+  /** `null` explícito borra los tags; ausente los deja como están. */
+  tags?: string[] | null
+}
+
+export interface UpdateMemoryResult {
+  updated: boolean
+  syncId?: string
+  redacted?: boolean
+  reason?: 'not_found' | 'deleted' | 'superseded' | 'unchanged'
+}
+
 // ── Request/response envelope ────────────────────────────────────────────────
 
 export type MemoryMethod =
@@ -148,6 +181,8 @@ export type MemoryMethod =
   | 'memory.context'
   | 'memory.delete'
   | 'memory.promote'
+  | 'memory.get'
+  | 'memory.update'
   | 'hook.sessionStart'
   | 'hook.stop'
   | 'hook.preCompact'

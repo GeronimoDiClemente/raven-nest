@@ -141,6 +141,7 @@ import { reconcileSessions } from './memory-sessions'
 import { buildDoctorReport } from './memory-doctor'
 import { readVaultHealth } from './memory-vault-health'
 import type { MemoryGraph, MemoryGraphQuery } from './memory-graph'
+import type { CrossProjectMemoryPage, CrossProjectMemoryQuery } from './memory-store'
 import { daemonSocketPath } from './memory-protocol'
 import { swapMemoryStore, type SwapContext } from './memory-account-switch'
 import type { ProvisionerPaths } from './memory-provisioner'
@@ -3087,6 +3088,24 @@ ipcMain.handle('memory:graph', (_event, query?: Partial<MemoryGraphQuery>): Memo
     similarMinScore: query?.similarMinScore,
   }
   return memory.store.memoryGraph(resolved)
+})
+
+// Puente de datos del listado cross-project de memorias (spec 2026-09-11, pantalla de
+// Memories legible) — ver `crossProjectMemories()` en memory-store.ts para la consulta
+// (orden, paginado por cursor, exclusión de borradas/reemplazadas, FTS5) y el reporte de
+// esa tarea para la justificación del mecanismo de paginado. Sin UI todavía: mismo patrón
+// que `memory:graph` arriba — este handler es el puente puro, consumido por un trabajo
+// posterior. Defaults acá (no en el método del store) porque `CrossProjectMemoryQuery`
+// exige `limit` — el llamador del renderer puede pasar un objeto parcial o nada.
+ipcMain.handle('memory:crossProject', (_event, query?: Partial<CrossProjectMemoryQuery>): CrossProjectMemoryPage => {
+  if (!memory) return { items: [], nextCursor: null }
+  const resolved: CrossProjectMemoryQuery = {
+    query: query?.query,
+    limit: query?.limit ?? 50,
+    cursor: query?.cursor ?? null,
+    includeSuperseded: query?.includeSuperseded ?? false,
+  }
+  return memory.store.crossProjectMemories(resolved)
 })
 
 // Spec §2.2: el fallo mudo. Cruza los panes a los que pty-manager les inyecto el bridge

@@ -19,6 +19,8 @@ import { buildSessionRollup } from './memory-rollup'
 import type {
   ContextMemoryParams,
   DeleteMemoryParams,
+  GetMemoryParams,
+  GetMemoryResult,
   HookPreCompactParams,
   HookSessionStartParams,
   HookSessionStartResult,
@@ -29,6 +31,7 @@ import type {
   SaveMemoryParams,
   SearchMemoryParams,
   SearchMemoryResult,
+  UpdateMemoryParams,
 } from './memory-protocol'
 import { generateSyncId } from './memory-store'
 // M26: type-only import — memory-daemon.ts has no `electron` import in its own chain
@@ -401,6 +404,30 @@ export class MemoryIpcServer {
           const params = request.params as PromoteMemoryParams
           const result = store.promoteToTeam(params.syncId, params.reason ?? null)
           if (result.promoted) this.deps.onMutation?.()
+          return result
+        }
+
+        // MCP `memory_get` — traer una memoria puntual por su sync_id (ver el doc comment
+        // de getSummary() en memory-store.ts). Lectura pura: sin onMutation.
+        case 'memory.get': {
+          const params = request.params as GetMemoryParams
+          const item = store.getSummary(params.syncId)
+          return { item } as GetMemoryResult
+        }
+
+        // MCP `memory_update` — corrige título/contenido/tags de una memoria puntual ya
+        // guardada (ver el doc comment de update() en memory-store.ts para el mecanismo de
+        // replicación). onMutation sólo cuando algo realmente cambió, igual criterio que
+        // memory.delete/memory.promote arriba.
+        case 'memory.update': {
+          const params = request.params as UpdateMemoryParams
+          const result = store.update({
+            syncId: params.syncId,
+            title: params.title,
+            content: params.content,
+            tags: params.tags,
+          })
+          if (result.updated) this.deps.onMutation?.()
           return result
         }
 

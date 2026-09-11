@@ -352,6 +352,39 @@ export interface MemoryGraphQuery {
   similarMinScore?: number
 }
 
+/** Espejo de los tipos de `crossProjectMemories()` en electron/memory-store.ts (src/ nunca
+ *  importa de electron/) — spec 2026-09-11, pantalla de Memories legible: el listado de
+ *  memorias de TODOS los proyectos juntas, más reciente primero. */
+export interface CrossProjectMemoryQuery {
+  /** FTS5. Vacío/ausente = listado plano por fecha. */
+  query?: string
+  limit: number
+  /** Cursor devuelto como `nextCursor` por la página anterior. Ausente = primera página. */
+  cursor?: string | null
+  /** Igual semántica que `MemoryGraphQuery.includeSuperseded`. Default false. */
+  includeSuperseded?: boolean
+}
+
+export interface CrossProjectObservation {
+  syncId: string
+  projectKey: string
+  /** `null` si el proyecto nunca se registró vía `ensureProject()` (fila huérfana). */
+  projectDisplayName: string | null
+  title: string
+  type: string
+  scope: 'personal' | 'project' | 'team'
+  originAi: string | null
+  authorDisplay: string | null
+  updatedAt: number
+  tags: string[]
+}
+
+export interface CrossProjectMemoryPage {
+  items: CrossProjectObservation[]
+  /** Cursor para pedir la página siguiente, o `null` si esta fue la última. */
+  nextCursor: string | null
+}
+
 // === @Nest desde Slack (H7 Motor 5) — espejo de SlackMention/SlackAction de
 // electron/integrations/slack-envelopes.ts (src/ nunca importa de electron/) ===
 export interface SlackMentionDTO {
@@ -941,6 +974,13 @@ declare global {
        * hay UI que lo consuma (ese es un trabajo posterior; este método es el contrato).
        */
       graph?: (query?: Partial<MemoryGraphQuery>) => Promise<MemoryGraph>
+      /**
+       * Spec 2026-09-11 (pantalla de Memories legible) — el listado de memorias de TODOS
+       * los proyectos juntas, paginado por cursor. Ver electron/memory-store.ts's
+       * crossProjectMemories(). Optional: un preload viejo no lo expone, y todavía no hay
+       * UI que lo consuma (ese es un trabajo posterior; este método es el contrato).
+       */
+      crossProject?: (query?: Partial<CrossProjectMemoryQuery>) => Promise<CrossProjectMemoryPage>
       /**
        * Team Memory Layer 1, Parte 8: comparte un proyecto LOCAL con un equipo — pega
        * contra POST /v1/projects/share (server/src/share.ts), la única forma de que

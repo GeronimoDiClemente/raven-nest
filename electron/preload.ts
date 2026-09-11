@@ -98,6 +98,18 @@ contextBridge.exposeInMainWorld('memory', {
       similarMinScore: number
     }>
   ) => ipcRenderer.invoke('memory:graph', query),
+  // Puente de datos del listado cross-project de memorias (spec 2026-09-11, pantalla de
+  // Memories legible) — ver electron/memory-store.ts's crossProjectMemories(). Sin UI
+  // todavía; el objeto es parcial porque `CrossProjectMemoryQuery` exige `limit` y el
+  // default se resuelve del lado de main.ts, igual que `graph` arriba.
+  crossProject: (
+    query?: Partial<{
+      query: string
+      limit: number
+      cursor: string | null
+      includeSuperseded: boolean
+    }>
+  ) => ipcRenderer.invoke('memory:crossProject', query),
   // Team Memory Layer 1, Parte 8 — comparte un proyecto LOCAL con un equipo, vía
   // POST /v1/projects/share (server/src/share.ts). Sin UI todavía; se prueba desde devtools
   // o un test.
