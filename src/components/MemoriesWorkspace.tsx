@@ -8,8 +8,8 @@
 // presencia y stats de TODA la app.
 import { useEffect, useState } from 'react'
 import { useMemories } from '../hooks/useMemories'
+import MemoriesList from './MemoriesList'
 import MemoriesStatusRow from './MemoriesStatusRow'
-import MemoryVaultCard from './MemoryVaultCard'
 import ShareProjectCard from './ShareProjectCard'
 import TeamThreadPanel from './TeamThreadPanel'
 import { Button } from '@/components/ui/button'
@@ -82,25 +82,26 @@ export default function MemoriesWorkspace({ onClose, activeRepoPath, onOpenFile,
       <MemoriesStatusRow state={state} />
 
       <div className="teams-workspace-body memories-body">
+        {/* Spec 2026-09-11 §1: la lista es lo primero y lo que ocupa el espacio
+            principal — cross-project (decision 1 de la spec), no depende de
+            activeRepoPath. `flex-1 min-h-0` (adentro de MemoriesList) es lo que le
+            da a la fila virtualizada una altura acotada real dentro de esta caja de
+            altura ya acotada (.teams-workspace-body's flex:1 + overflow:hidden), en
+            vez de crecer con el contenido y forzar el scroll de la pagina entera. */}
+        <MemoriesList />
+
         {activeRepoPath ? (
-          // El grafo es SIEMPRE por proyecto, nunca global: con 866 notas en 9 proyectos un
-          // grafo global se degrada mucho antes de los 200 nodos que aguanta (§5.2).
-          <TeamThreadPanel activeRepoPath={activeRepoPath} onOpenFile={onOpenFile} />
+          // El grafo de ramas (TeamThreadGraph) es otro grafo, fuera de alcance de esta
+          // pasada — sigue existiendo, pero ya no es lo primero que se ve: pasa a un
+          // cuadro acotado y secundario, debajo de la lista de memorias real.
+          <div className="max-h-64 shrink-0 overflow-y-auto rounded-md border border-border p-3">
+            <TeamThreadPanel activeRepoPath={activeRepoPath} onOpenFile={onOpenFile} />
+          </div>
         ) : (
-          // El estado vacio de esta pantalla (2026-09-09: "se ve vacía" — header, una tira
-          // de estado, una frase suelta y 80% de negro). La card da una SALIDA en vez de
-          // solo explicar, y muestra lo que si existe sin repo: los totales de la cuenta.
-          //
-          // Review I5: `my-auto` solo centraba en el harness de test, donde ShareProjectCard
-          // y MemoryVaultCard devuelven null (sin repo / memoria no inicializada). Con
-          // MemoryVaultCard renderizando de verdad (cualquier usuario con memoria activa —
-          // justamente a quien la card le muestra numeros reales), el auto-margin colapsaba
-          // contra el alto del hermano de abajo y la card volvia a quedar pegada arriba. El
-          // wrapper de aca abajo es flex-1 DENTRO de .memories-body (column) — crece para
-          // llenar el espacio que sobra en su propia caja, sin importar cuanto midan
-          // ShareProjectCard/MemoryVaultCard como hermanos — y centra la Card adentro suyo
-          // en las dos direcciones.
-          <div className="flex flex-1 items-center justify-center">
+          // Igual que el grafo de ramas de arriba: este card es sobre ESE grafo (no
+          // sobre las memorias, que ya tienen su propio estado vacio en MemoriesList),
+          // asi que pasa a secundario y compacto en vez de hero centrado.
+          <div className="flex shrink-0 items-center justify-center py-2">
             <Card className="w-full max-w-md text-center">
               <CardHeader>
                 {/* CardTitle/CardDescription stock traen 16px/14px (text-base/text-sm),
@@ -128,8 +129,6 @@ export default function MemoriesWorkspace({ onClose, activeRepoPath, onOpenFile,
         )}
 
         <ShareProjectCard activeRepoPath={activeRepoPath} />
-
-        <MemoryVaultCard />
       </div>
     </div>
   )

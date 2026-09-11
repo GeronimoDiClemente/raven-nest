@@ -136,6 +136,7 @@
     "@shikijs/monaco": "^4.4.3",
     "@supabase/supabase-js": "^2.101.1",
     "@tailwindcss/vite": "^4.3.3",
+    "@tanstack/react-virtual": "^3.14.11",
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/addon-search": "^0.16.0",
     "@xterm/addon-web-links": "^0.11.0",

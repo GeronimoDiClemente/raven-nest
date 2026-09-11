@@ -41,3 +41,30 @@ export function summarizeMemories(input: MemoriesStatusInput): MemoriesStatus {
 
   return { dot: 'green', text: `${input.itemCount} items · synced` }
 }
+
+/** Compartido por MemoriesStatusRow (vault "ago") y MemoriesList (fecha de cada fila) —
+ *  una sola forma de decir "hace cuanto" en toda la pantalla. */
+export function relativeTime(at: number | null): string {
+  if (!at) return 'never'
+  const mins = Math.round((Date.now() - at) / 60_000)
+  if (mins < 1) return 'just now'
+  if (mins < 60) return `${mins}m ago`
+  if (mins < 60 * 24) return `${Math.round(mins / 60)}h ago`
+  return `${Math.round(mins / (60 * 24))}d ago`
+}
+
+/**
+ * Spec 2026-09-11 §2 — "los pane-ids se van". `App.tsx`'s `generateId()` produce
+ * `pane-<n>-<timestamp-en-ms>` (p.ej. `pane-3-1789095333962`); el timestamp no le dice
+ * a nadie cuál terminal cerrar, que es justo lo que el comentario original de
+ * MemoriesStatusRow decía que quería lograr. Se muestra solo el número de pane — la
+ * CLI que corre adentro (aiType) la agrega el caller al lado.
+ *
+ * Un paneId que no matchea el formato esperado (origen viejo, otro subsistema, o un
+ * mock de test) se muestra tal cual: mejor un id crudo y reconocible que inventar un
+ * número o mostrar `undefined`.
+ */
+export function paneDisplayLabel(paneId: string): string {
+  const m = /^pane-(\d+)-\d+$/.exec(paneId)
+  return m ? `pane ${m[1]}` : paneId
+}

@@ -2,7 +2,7 @@
 // el fallo mudo (§2.2) gana sobre TODO lo demas, porque es el unico estado donde el usuario
 // esta perdiendo trabajo sin saberlo.
 import { describe, it, expect } from 'vitest'
-import { summarizeMemories, type MemoriesStatusInput } from '../lib/memories-status'
+import { paneDisplayLabel, summarizeMemories, type MemoriesStatusInput } from '../lib/memories-status'
 
 const base: MemoriesStatusInput = {
   available: true, connected: true, itemCount: 142,
@@ -55,5 +55,22 @@ describe('summarizeMemories', () => {
 
   it('un conflicto en singular no dice "conflicts"', () => {
     expect(summarizeMemories({ ...base, vaultConflicts: 1 }).text).toBe('1 conflict')
+  })
+})
+
+// Spec 2026-09-11 §2: "los pane-ids se van" — App.tsx's generateId() produce
+// `pane-<n>-<timestamp-ms>`; el timestamp no dice cual terminal cerrar.
+describe('paneDisplayLabel', () => {
+  it('un paneId real (pane-<n>-<timestamp>) muestra solo el numero de pane', () => {
+    expect(paneDisplayLabel('pane-3-1789095333962')).toBe('pane 3')
+  })
+
+  it('un paneId de un solo digito tambien funciona', () => {
+    expect(paneDisplayLabel('pane-1-1700000000000')).toBe('pane 1')
+  })
+
+  it('un paneId que no matchea el formato se muestra tal cual (mejor un id crudo que undefined)', () => {
+    expect(paneDisplayLabel('pane-7')).toBe('pane-7')
+    expect(paneDisplayLabel('some-other-id')).toBe('some-other-id')
   })
 })
