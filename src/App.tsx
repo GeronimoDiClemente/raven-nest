@@ -2109,6 +2109,10 @@ export default function App() {
           onNewPane={addNextPane}
           onBroadcastToggle={() => setBroadcastMode(v => !v)}
           onHubOpen={openHub}
+          onPersonalOpen={() => setPersonalOpen(true)}
+          onMemoriesOpen={() => setMemoriesOpen(true)}
+          onIntegrationsOpen={() => setIntegrationsHubOpen(true)}
+          onGraphBoardOpen={() => setGraphBoardOpen(true)}
         />
       )}
 

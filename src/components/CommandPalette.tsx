@@ -3,7 +3,7 @@ import { WorkspaceTab, Workspace, Snippet, ConversationMeta, AI_CONFIG } from '.
 
 interface PaletteItem {
   id: string
-  section: 'actions' | 'tabs' | 'workspaces' | 'snippets' | 'history'
+  section: 'screens' | 'actions' | 'tabs' | 'workspaces' | 'snippets' | 'history'
   label: string
   sublabel?: string
   keywords?: string
@@ -25,6 +25,12 @@ interface Props {
   onNewPane: () => void
   onBroadcastToggle: () => void
   onHubOpen: () => void
+  /** Las pantallas grandes. Opcionales: el palette no inventa una puerta que el host no
+   *  sepa abrir — una fila que no lleva a ningún lado es peor que no tener la fila. */
+  onPersonalOpen?: () => void
+  onMemoriesOpen?: () => void
+  onIntegrationsOpen?: () => void
+  onGraphBoardOpen?: () => void
 }
 
 function score(item: PaletteItem, query: string): number {
@@ -48,6 +54,7 @@ function score(item: PaletteItem, query: string): number {
 }
 
 const SECTION_LABELS: Record<PaletteItem['section'], string> = {
+  screens: 'Screens',
   actions: 'Actions',
   tabs: 'Tabs',
   workspaces: 'Workspaces',
@@ -59,6 +66,7 @@ export default function CommandPalette({
   onClose, tabs, activeTabId, focusedPaneId, broadcastMode,
   onTabSelect, onWorkspaceLoad, onSnippetSend, onSnippetBroadcast,
   onHistoryOpen, onNewTab, onNewPane, onBroadcastToggle, onHubOpen,
+  onPersonalOpen, onMemoriesOpen, onIntegrationsOpen, onGraphBoardOpen,
 }: Props) {
   const [query, setQuery] = useState('')
   const [selectedIdx, setSelectedIdx] = useState(0)
@@ -83,6 +91,24 @@ export default function CommandPalette({
 
   const buildItems = useCallback((): PaletteItem[] => {
     const items: PaletteItem[] = []
+
+    // Las pantallas grandes, primero. Hasta ahora la única forma de llegar a Personal,
+    // Memories o Integrations era encontrar su fila en la sidebar — que además está
+    // colapsada la mitad del tiempo. Van arriba porque son destinos, no acciones: te
+    // llevan a otro lado en vez de hacer algo acá.
+    const pantallas: Array<[string, string, string, string, (() => void) | undefined]> = [
+      ['personal', 'Personal', 'Your repos, issues, standup and invites', 'personal repos issues standup invites', onPersonalOpen],
+      ['memories', 'Memories', 'What your agents remember, and the graph that connects it', 'memories memory graph notes', onMemoriesOpen],
+      ['integrations', 'Integrations', 'The services Nest is connected to', 'integrations connect services', onIntegrationsOpen],
+      ['graph-board', 'Graph board', 'Runs of the orchestrator and their decisions', 'graph board orchestrator runs', onGraphBoardOpen],
+    ]
+    pantallas.forEach(([id, label, sublabel, keywords, abrir]) => {
+      if (!abrir) return
+      items.push({
+        id: `screen-${id}`, section: 'screens', label, sublabel, keywords,
+        action: () => { abrir(); onClose() },
+      })
+    })
 
     // Static actions
     items.push({
@@ -172,7 +198,8 @@ export default function CommandPalette({
     return items
   }, [tabs, activeTabId, workspaces, snippets, conversations, broadcastMode,
       onNewTab, onNewPane, onBroadcastToggle, onHubOpen, onHistoryOpen,
-      onTabSelect, onWorkspaceLoad, onSnippetSend, onSnippetBroadcast, onClose])
+      onTabSelect, onWorkspaceLoad, onSnippetSend, onSnippetBroadcast, onClose,
+      onPersonalOpen, onMemoriesOpen, onIntegrationsOpen, onGraphBoardOpen])
 
   const filtered = buildItems()
     .map(item => ({ item, s: score(item, query) }))
