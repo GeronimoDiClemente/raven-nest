@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { randomBytes } from 'crypto'
 import {
   generateDeviceKeyPair, wrapForDevice, unwrapWithDevice,
-  generateRecoveryCode, normalizeRecoveryCode, wrapForRecovery, unwrapWithRecovery,
+  generateRecoveryCode, normalizeRecoveryCode, wrapForRecovery, unwrapWithRecovery, huellaDeClave,
   MemoryUnwrapError,
 } from '../memory-key-wrap'
 
@@ -145,5 +145,23 @@ describe('memory-key-wrap — código de recuperación', () => {
     const code = generateRecoveryCode()
     const confundido = code.replace(/0/g, 'O').replace(/1/g, 'L')
     expect(normalizeRecoveryCode(confundido).replace(/-/g, '')).toHaveLength(24)
+  })
+
+  // Contra el adversario que la spec §5.1 nombra: alguien con acceso a la base del servicio
+  // hace `update device_keys set public_key = <la suya>` sobre la máquina pendiente, la
+  // máquina que autoriza envuelve la maestra para esa clave, y el atacante lee todo.
+  // Criptográficamente no se puede distinguir —el servidor es quien dice de quién es cada
+  // clave— así que la salida es que una PERSONA compare la misma huella en las dos pantallas.
+  it('la huella es estable para la misma clave y distinta para otra', () => {
+    const a = generateDeviceKeyPair()
+    const b = generateDeviceKeyPair()
+    expect(huellaDeClave(a.publicKey)).toBe(huellaDeClave(a.publicKey))
+    expect(huellaDeClave(a.publicKey)).not.toBe(huellaDeClave(b.publicKey))
+  })
+
+  it('y se puede leer en voz alta: grupos del alfabeto sin letras confundibles', () => {
+    const h = huellaDeClave(generateDeviceKeyPair().publicKey)
+    expect(h).toMatch(/^[0-9A-Z]{4}-[0-9A-Z]{4}-[0-9A-Z]{4}$/)
+    expect(h).not.toMatch(/[ILOU]/)
   })
 })

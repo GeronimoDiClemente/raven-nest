@@ -12,7 +12,7 @@
 // Puro y sin dependencias, mismo motivo que memory-crypto.ts.
 import {
   randomBytes, randomInt, hkdfSync, createCipheriv, createDecipheriv,
-  generateKeyPairSync, createPublicKey, createPrivateKey, diffieHellman, scryptSync,
+  generateKeyPairSync, createPublicKey, createPrivateKey, diffieHellman, scryptSync, createHash,
 } from 'crypto'
 
 /** Un X25519 exportado como SPKI DER mide siempre 44 bytes: 12 de cabecera + 32 de clave. */
@@ -117,6 +117,31 @@ export function unwrapWithDevice(privateKey: string, wrapped: string): Buffer {
  * aunque acá 256 es multiplo de 32 y no habria sesgo, escribirlo con randomInt saca el
  * "esto anda de casualidad porque el alfabeto mide una potencia de dos".
  */
+/**
+ * Una huella corta y legible de una clave publica, para comparar A OJO entre dos maquinas.
+ *
+ * Existe por el adversario que la spec §5.1 nombra explicitamente: alguien con acceso a la
+ * base del servicio. Ese mismo hace `update device_keys set public_key = <la suya>` sobre la
+ * maquina pendiente; la maquina que autoriza toma esa publica tal cual, envuelve la maestra
+ * para ella, y el atacante desenvuelve y lee TODO — pasado y futuro. Criptograficamente no
+ * hay forma de distinguirlo: el servidor es quien dice de quien es cada clave.
+ *
+ * La salida es la de siempre para este problema (los "safety numbers" de Signal, el
+ * fingerprint de SSH): que las dos maquinas muestren la misma huella y que una PERSONA las
+ * compare. No lo vuelve imposible, lo vuelve visible.
+ *
+ * Mismo alfabeto que el codigo de recuperacion, y por el mismo motivo: se lee en voz alta o
+ * se copia mirando una pantalla y la otra.
+ */
+export function huellaDeClave(publicKey: string): string {
+  const digest = createHash('sha256').update(publicKey).digest()
+  let huella = ''
+  for (let i = 0; i < 12; i++) {
+    huella += RECOVERY_ALPHABET[digest[i] % RECOVERY_ALPHABET.length]
+  }
+  return huella.replace(/(.{4})/g, '$1-').replace(/-$/, '')
+}
+
 export function generateRecoveryCode(): string {
   const grupos: string[] = []
   for (let g = 0; g < RECOVERY_GROUPS; g++) {

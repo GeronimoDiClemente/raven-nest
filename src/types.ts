@@ -1008,6 +1008,10 @@ declare global {
          *  no ofrece activar: un corte de red deja `keyEpoch` en 0, que es indistinguible
          *  de "sin cifrado", y activar sin clave borra las envolturas de las otras. */
         estadoRemotoLeido?: boolean
+        /** Huella de la clave de esta máquina, y la de cada una que espera autorización.
+         *  Comparar a ojo es lo único que detecta que el servidor sustituyó una clave. */
+        huellaPropia?: string | null
+        huellasPorDevice?: Record<string, string>
       }>
       encryptionActivate?: () => Promise<
         // `aviso` va con el código, no en lugar de él: si la clave no se pudo guardar en esta

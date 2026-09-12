@@ -10,6 +10,8 @@ export interface EncryptionStatusInput {
   undecryptable: number
   /** Si `fetchKeyState` respondió. Ver `estadoRemotoLeido` en el objeto de salida. */
   estadoRemotoLeido?: boolean
+  huellaPropia?: string | null
+  huellasPorDevice?: Record<string, string>
 }
 
 export interface EncryptionStatus {
@@ -23,6 +25,10 @@ export interface EncryptionStatus {
   undecryptable: number
   /** Si el estado del servidor se pudo leer en esta consulta. */
   estadoRemotoLeido: boolean
+  /** Huella de la clave pública de ESTA máquina, para que la otra la compare. */
+  huellaPropia: string | null
+  /** Huella de cada máquina que espera autorización, por `deviceId`. */
+  huellasPorDevice: Record<string, string>
 }
 
 export function buildEncryptionStatus(input: EncryptionStatusInput): EncryptionStatus {
@@ -45,5 +51,7 @@ export function buildEncryptionStatus(input: EncryptionStatusInput): EncryptionS
      * `?? true` para no romper a quien ya construía este objeto sin el campo.
      */
     estadoRemotoLeido: input.estadoRemotoLeido ?? true,
+    huellaPropia: input.huellaPropia ?? null,
+    huellasPorDevice: input.huellasPorDevice ?? {},
   }
 }

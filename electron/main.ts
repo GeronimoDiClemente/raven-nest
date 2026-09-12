@@ -262,6 +262,7 @@ import {
   fetchKeyState, activateEncryption, adoptExistingKey, authorizeDevice, recoverWithCode,
   type RemoteKeyState,
 } from './memory-keys-client'
+import { huellaDeClave } from './memory-key-wrap'
 import { buildEncryptionStatus } from './memory-encryption-status'
 import { runReencrypt } from './memory-reencrypt'
 
@@ -3168,6 +3169,11 @@ ipcMain.handle('memory:encryption:status', async () => {
     devices,
     undecryptable: memory?.store.undecryptableCount() ?? 0,
     estadoRemotoLeido,
+    // La huella de ESTA máquina y la de cada una que espera autorización. Es lo único que le
+    // permite a una persona detectar que el servidor sustituyó una clave pública: sin
+    // comparar, autorizar es confiar en que quien dice de quién es cada clave no miente.
+    huellaPropia: memoryKeys ? huellaDeClave(memoryKeys.device.publicKey) : null,
+    huellasPorDevice: Object.fromEntries(devices.map((d) => [d.deviceId, huellaDeClave(d.publicKey)])),
   })
 })
 

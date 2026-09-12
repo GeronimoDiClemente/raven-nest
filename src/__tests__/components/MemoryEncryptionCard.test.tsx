@@ -11,6 +11,8 @@ interface EstadoCifrado {
   pendingDevices: Array<{ deviceId: string; name: string }>
   undecryptable: number
   estadoRemotoLeido?: boolean
+  huellaPropia?: string | null
+  huellasPorDevice?: Record<string, string>
 }
 
 const estadoBase: EstadoCifrado = {
@@ -78,11 +80,33 @@ describe('MemoryEncryptionCard', () => {
     expect(await screen.findByText(/866/)).toBeInTheDocument()
   })
 
-  it('con máquinas esperando, ofrece autorizarlas por nombre', async () => {
+  it('con máquinas esperando, las lista por nombre y ofrece autorizarlas', async () => {
     const api = montarCon({ active: true, keyEpoch: 1, pendingDevices: [{ deviceId: 'pc', name: 'la PC' }] })
     render(<MemoryEncryptionCard />)
-    fireEvent.click(await screen.findByRole('button', { name: /autorizar la PC/i }))
+    expect(await screen.findByText('la PC')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /coincide — autorizar/i }))
     await waitFor(() => expect(api.encryptionAuthorize).toHaveBeenCalledWith('pc'))
+  })
+
+  // El adversario que la spec §5.1 nombra —alguien con acceso a la base— sustituye la clave
+  // pública de la máquina pendiente por la suya. La que autoriza envuelve la maestra para esa
+  // clave y el atacante lee todo. Criptográficamente no se puede distinguir: el servidor es
+  // quien dice de quién es cada clave. Que una PERSONA compare la huella es la única defensa.
+  it('antes de autorizar muestra la huella de esa máquina, para comparar', async () => {
+    montarCon({
+      active: true, keyEpoch: 1,
+      pendingDevices: [{ deviceId: 'pc', name: 'la PC' }],
+      huellasPorDevice: { pc: 'A1B2-C3D4-E5F6' },
+    })
+    render(<MemoryEncryptionCard />)
+    expect(await screen.findByText('A1B2-C3D4-E5F6')).toBeInTheDocument()
+    expect(screen.getByText(/sólo si esa máquina muestra exactamente este código/i)).toBeInTheDocument()
+  })
+
+  it('y la máquina que espera muestra la suya, para que la otra la compare', async () => {
+    montarCon({ active: false, keyEpoch: 1, huellaPropia: 'Z9Y8-X7W6-V5T4' })
+    render(<MemoryEncryptionCard />)
+    expect(await screen.findByText('Z9Y8-X7W6-V5T4')).toBeInTheDocument()
   })
 
   // Esta maquina no puede leer: es el estado que la spec §5.5.4 obliga a mostrar fuerte.

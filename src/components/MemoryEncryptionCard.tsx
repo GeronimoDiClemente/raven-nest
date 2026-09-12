@@ -21,6 +21,8 @@ interface EstadoCifrado {
   pendingDevices: Array<{ deviceId: string; name: string }>
   undecryptable: number
   estadoRemotoLeido?: boolean
+  huellaPropia?: string | null
+  huellasPorDevice?: Record<string, string>
 }
 
 /** Lo que el §5.2 deja en claro a propósito. Va en la tarjeta y no sólo en la landing: es
@@ -180,6 +182,17 @@ export default function MemoryEncryptionCard() {
             <> Hay <span className="font-mono tabular-nums text-foreground">{estado.undecryptable}</span> memorias que no se pueden leer desde acá.</>
           )}
         </p>
+        {estado.huellaPropia && (
+          <div className="rounded-md border border-border bg-muted/30 px-2 py-1.5">
+            <p className="text-fs-xs text-muted-foreground">
+              Antes de autorizar desde la otra máquina, comprobá que muestre este mismo código:
+            </p>
+            <p className="select-all text-center font-mono text-fs tracking-[0.08em] text-foreground">
+              {estado.huellaPropia}
+            </p>
+          </div>
+        )}
+
         {error && <p className="text-fs-sm text-destructive">{error}</p>}
         {/* Reintentar a mano. El intento automático corre al abrir la tarjeta, pero si el
             usuario está mirando ESTA pantalla mientras autoriza en la otra, necesita una
@@ -246,10 +259,26 @@ export default function MemoryEncryptionCard() {
           <div className="flex flex-col gap-1">
             <p className="text-fs-sm text-foreground">Máquinas esperando autorización:</p>
             {estado.pendingDevices.map((d) => (
-              <div key={d.deviceId}>
-                <Button size="sm" variant="outline" disabled={ocupado} onClick={() => void autorizar(d.deviceId)}>
-                  Autorizar {d.name}
-                </Button>
+              <div key={d.deviceId} className="flex flex-col gap-1 rounded-md border border-border p-2">
+                <p className="text-fs-sm text-foreground">{d.name}</p>
+                {/* La huella de la clave que el SERVIDOR dice que es de esa máquina. Que el
+                    usuario la compare es lo único que detecta una sustitución: sin esto,
+                    autorizar es confiar en que quien dice de quién es cada clave no miente. */}
+                {estado.huellasPorDevice?.[d.deviceId] && (
+                  <>
+                    <p className="text-fs-xs text-muted-foreground">
+                      Autorizala sólo si esa máquina muestra exactamente este código:
+                    </p>
+                    <p className="select-all text-center font-mono text-fs tracking-[0.08em] text-foreground">
+                      {estado.huellasPorDevice[d.deviceId]}
+                    </p>
+                  </>
+                )}
+                <div>
+                  <Button size="sm" variant="outline" disabled={ocupado} onClick={() => void autorizar(d.deviceId)}>
+                    Coincide — autorizar
+                  </Button>
+                </div>
               </div>
             ))}
           </div>
