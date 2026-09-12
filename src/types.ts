@@ -1041,6 +1041,16 @@ declare global {
         topicKey?: string | null
         worktreePath?: string | null
       }) => Promise<{ ok: boolean; syncId?: string; error?: string }>
+      /** Corregir una memoria ya guardada. Mismo mecanismo que `memory_update` del MCP. */
+      updateFromUi?: (input: {
+        syncId: string
+        title?: string
+        content?: string
+        tags?: string[]
+      }) => Promise<{ ok: boolean; reason?: string | null; error?: string }>
+      /** Borrar una memoria. Escribe una tombstone: el borrado tiene que cruzar a las
+       *  otras máquinas, y una fila que simplemente desaparece vuelve a bajar en el pull. */
+      deleteFromUi?: (syncId: string) => Promise<{ ok: boolean; error?: string }>
       /**
        * Team Memory Layer 1, Parte 8: comparte un proyecto LOCAL con un equipo — pega
        * contra POST /v1/projects/share (server/src/share.ts), la única forma de que

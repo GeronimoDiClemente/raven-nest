@@ -136,6 +136,9 @@ contextBridge.exposeInMainWorld('memory', {
     topicKey?: string | null
     worktreePath?: string | null
   }) => ipcRenderer.invoke('memory:save', input),
+  updateFromUi: (input: { syncId: string; title?: string; content?: string; tags?: string[] }) =>
+    ipcRenderer.invoke('memory:updateFromUi', input),
+  deleteFromUi: (syncId: string) => ipcRenderer.invoke('memory:deleteFromUi', syncId),
   // Team Memory Layer 1, Parte 8 — comparte un proyecto LOCAL con un equipo, vía
   // POST /v1/projects/share (server/src/share.ts). Sin UI todavía; se prueba desde devtools
   // o un test.

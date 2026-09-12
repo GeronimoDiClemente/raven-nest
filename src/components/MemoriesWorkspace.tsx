@@ -169,6 +169,7 @@ export default function MemoriesWorkspace({ onClose, activeRepoPath, onOpenFile,
           selectedId={selectedId}
           onSelect={(id) => void alElegir(id)}
           onEmpezarAConectar={(id) => { setConectandoDesde(id); setAvisoDeEnlace(null) }}
+          onCambiada={() => setVersion((v) => v + 1)}
         />
 
         {activeRepoPath ? (

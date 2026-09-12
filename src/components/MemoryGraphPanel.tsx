@@ -30,6 +30,7 @@ import { relativeTime } from '../lib/memories-status'
 import { AILogo } from './AILogos'
 import type { AIType, MemoryEdgeKind, MemoryObservationDetail } from '../types'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { ICON_SIZE } from '../lib/icons'
 
 /** Una sola promesa para toda la app: el prefetch y el `lazy` comparten el módulo, así que
@@ -63,9 +64,11 @@ interface Props {
   /** Empieza el modo "conectar": el workspace toma el control porque la segunda memoria
    *  puede elegirse tanto en el grafo como en la LISTA, y la lista no la ve este panel. */
   onEmpezarAConectar?: (syncId: string) => void
+  /** Una memoria se editó o se borró: la lista y el grafo tienen que volver a pedirse. */
+  onCambiada?: () => void
 }
 
-export default function MemoryGraphPanel({ selectedId, onSelect, onEmpezarAConectar }: Props) {
+export default function MemoryGraphPanel({ selectedId, onSelect, onEmpezarAConectar, onCambiada }: Props) {
 
   const [includeSimilar, setIncludeSimilar] = useState(false)
   const [hideOrphans, setHideOrphans] = useState(true)
@@ -270,6 +273,12 @@ export default function MemoryGraphPanel({ selectedId, onSelect, onEmpezarAConec
               loading={cargandoDetalle}
               missing={missing}
               onConectar={() => onEmpezarAConectar?.(selectedId)}
+              onCambio={(borrada) => {
+                // Borrada: no queda nada que mostrar, así que se deselecciona. Editada: se
+                // queda seleccionada y el panel se recarga con el texto nuevo.
+                if (borrada) onSelect(null)
+                onCambiada?.()
+              }}
             />
           ) : (
             <SinSeleccion
@@ -419,13 +428,61 @@ function SinSeleccion({
 }
 
 function DocumentoDeMemoria({
-  detail, loading, missing, onConectar,
+  detail, loading, missing, onConectar, onCambio,
 }: {
   detail: MemoryObservationDetail | null
   loading: boolean
   missing: boolean
   onConectar: () => void
+  /** La lista y el grafo se redibujan cuando esta memoria cambió o dejó de existir. */
+  onCambio: (borrada: boolean) => void
 }) {
+  const [editando, setEditando] = useState(false)
+  const [titulo, setTitulo] = useState('')
+  const [cuerpo, setCuerpo] = useState('')
+  const [confirmandoBorrado, setConfirmandoBorrado] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [ocupado, setOcupado] = useState(false)
+
+  // Al cambiar de memoria se sale de cualquier modo abierto: dejar el formulario de otra
+  // fila cargado con el texto de la anterior es como poco confuso y como mucho destructivo.
+  useEffect(() => {
+    setEditando(false)
+    setConfirmandoBorrado(false)
+    setError(null)
+  }, [detail?.syncId])
+
+  async function guardar() {
+    if (!detail) return
+    const api = window.memory?.updateFromUi
+    if (!api) { setError('This build cannot edit memories yet.'); return }
+    setOcupado(true)
+    try {
+      const res = await api({ syncId: detail.syncId, title: titulo.trim(), content: cuerpo.trim() })
+      if (!res.ok) {
+        // `reason` viene del store: not_found / deleted / superseded / unchanged. Decir cuál
+        // es importa: "superseded" no es un error del usuario, es que otra máquina ganó.
+        setError(res.reason === 'superseded'
+          ? 'Another version of this memory replaced it, so it can no longer be edited.'
+          : res.reason === 'unchanged' ? null : (res.error ?? res.reason ?? 'Could not save'))
+        if (res.reason !== 'unchanged') return
+      }
+      setEditando(false)
+      onCambio(false)
+    } finally { setOcupado(false) }
+  }
+
+  async function borrar() {
+    if (!detail) return
+    const api = window.memory?.deleteFromUi
+    if (!api) { setError('This build cannot delete memories yet.'); return }
+    setOcupado(true)
+    try {
+      const res = await api(detail.syncId)
+      if (!res.ok) { setError(res.error ?? 'Could not delete'); return }
+      onCambio(true)
+    } finally { setOcupado(false) }
+  }
   if (loading) return <p className="text-fs-sm text-muted-foreground">Loading…</p>
   if (missing || !detail) {
     return (
@@ -436,6 +493,34 @@ function DocumentoDeMemoria({
   }
 
   const swatch = memoryTypeSwatch(detail.type)
+
+  if (editando) {
+    return (
+      <div className="flex min-h-0 flex-col gap-2 overflow-y-auto">
+        <p className="text-fs font-medium text-foreground">Edit memory</p>
+        <Input
+          value={titulo}
+          onChange={(e) => setTitulo(e.target.value)}
+          aria-label="Memory title"
+          autoFocus
+        />
+        <textarea
+          value={cuerpo}
+          onChange={(e) => setCuerpo(e.target.value)}
+          aria-label="Memory content"
+          rows={12}
+          className="w-full flex-1 resize-y rounded-md border border-input bg-transparent px-2.5 py-2 font-mono text-fs-xs leading-relaxed text-foreground focus-visible:border-ring focus-visible:outline-none"
+        />
+        {error && <p className="text-fs-sm text-destructive">{error}</p>}
+        <div className="flex gap-2">
+          <Button size="sm" disabled={ocupado || titulo.trim() === ''} onClick={() => void guardar()}>
+            Save
+          </Button>
+          <Button variant="ghost" size="sm" onClick={() => setEditando(false)}>Cancel</Button>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="flex min-h-0 flex-col gap-2 overflow-y-auto">
@@ -481,13 +566,41 @@ function DocumentoDeMemoria({
         <p className="text-fs-sm text-muted-foreground">This memory has no body — only its title.</p>
       )}
 
-      {/* Conectar a mano. Es la unica relacion que una PERSONA afirma — las otras seis las
-          infiere el sistema de un campo compartido, y por eso esta se dibuja mas marcada. */}
-      <div className="mt-1">
+      {error && <p className="text-fs-sm text-destructive">{error}</p>}
+
+      {/* Corregir y borrar. Hasta ahora esta pantalla sólo sabía GUARDAR: una memoria mal
+          escrita se quedaba mal para siempre, aunque un agente sí pudiera corregirla por
+          `memory_update`. Y no poder borrar lo que escribiste en tu propia memoria no es una
+          falta de comodidad, es un problema. */}
+      <div className="mt-1 flex flex-wrap gap-2">
         <Button variant="outline" size="sm" onClick={onConectar}>
           Connect to another memory
         </Button>
+        {!detail.supersededBy && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => { setTitulo(detail.title); setCuerpo(detail.content ?? ''); setEditando(true) }}
+          >
+            Edit
+          </Button>
+        )}
+        <Button variant="ghost" size="sm" onClick={() => setConfirmandoBorrado(true)}>Delete</Button>
       </div>
+
+      {confirmandoBorrado && (
+        <div className="flex flex-col gap-2 rounded-md border border-destructive/40 p-2">
+          <p className="text-fs-sm text-foreground">
+            Delete this memory? It also disappears from your other machines.
+          </p>
+          <div className="flex gap-2">
+            <Button variant="destructive" size="sm" disabled={ocupado} onClick={() => void borrar()}>
+              Delete
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => setConfirmandoBorrado(false)}>Cancel</Button>
+          </div>
+        </div>
+      )}
 
       {detail.tags.length > 0 && (
         <div className="flex flex-wrap gap-1">

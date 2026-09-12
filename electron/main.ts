@@ -3303,6 +3303,61 @@ ipcMain.handle('memory:save', (_event, input: {
 })
 
 /**
+ * Corregir una memoria escrita a mano.
+ *
+ * Hasta ahora la app sólo sabía GUARDAR: una memoria mal escrita se quedaba mal para
+ * siempre, aunque un agente sí pudiera corregirla por `memory_update` del MCP. Es el mismo
+ * `store.update()` que usa esa tool — el mecanismo de replicación es idéntico (lamport
+ * nuevo, `content_hash` recalculado con su redacción, mutación al log), sólo cambia quién
+ * lo dispara.
+ */
+ipcMain.handle('memory:updateFromUi', (_event, input: {
+  syncId?: string
+  title?: string
+  content?: string
+  tags?: string[]
+}) => {
+  if (!memory) return { ok: false, error: 'memory_unavailable' }
+  const syncId = (input?.syncId ?? '').trim()
+  if (!syncId) return { ok: false, error: 'missing_sync_id' }
+  try {
+    const res = memory.store.update({
+      syncId,
+      title: input?.title?.trim(),
+      content: input?.content?.trim(),
+      tags: input?.tags,
+    })
+    // Sólo si algo cambió de verdad: `update()` es no-op cuando el contenido es el mismo, y
+    // empujar por una corrección que no corrige nada gastaría un ciclo de sync por nada.
+    if (res.updated) memory.daemon.scheduleMutationPush()
+    return { ok: res.updated, reason: res.reason ?? null }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : 'update_failed' }
+  }
+})
+
+/**
+ * Borrar una memoria desde la app.
+ *
+ * No se puede no tener esto: es memoria personal, y una persona que escribió algo que no
+ * quiere que exista tiene que poder sacarlo sin abrir una terminal. `deleteObservation()`
+ * escribe una tombstone —no borra la fila— porque el borrado tiene que CRUZAR a las otras
+ * máquinas, y una fila que simplemente desaparece vuelve a bajar en el próximo pull.
+ */
+ipcMain.handle('memory:deleteFromUi', (_event, syncId: string) => {
+  if (!memory) return { ok: false, error: 'memory_unavailable' }
+  const id = (syncId ?? '').trim()
+  if (!id) return { ok: false, error: 'missing_sync_id' }
+  try {
+    const borrada = memory.store.deleteObservation(id)
+    if (borrada) memory.daemon.scheduleMutationPush()
+    return { ok: borrada }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : 'delete_failed' }
+  }
+})
+
+/**
  * Conectar dos memorias a mano. Es la unica relacion que una PERSONA afirma — las otras seis
  * las infiere el sistema de algun campo compartido.
  *
