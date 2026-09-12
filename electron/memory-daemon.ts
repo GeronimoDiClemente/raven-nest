@@ -12,6 +12,7 @@ import { MemoryStore, type MutationLogRow } from './memory-store'
 import { resolveLWW, resolveTopicCollision, type LWWRow } from './memory-merge'
 import { GLOBAL_PROJECT_KEY } from './memory-project-key'
 import { sealMutationPayload, openPulledRow, type EnvelopeContext } from './memory-envelope'
+import { isCiphertext } from './memory-crypto'
 
 const DEBOUNCE_MS = 3_000
 const MAX_WAIT_MS = 30_000
@@ -404,8 +405,17 @@ export class MemoryDaemon {
    * `deps.store` out from under it — the orchestrator's ordering (pause -> close old ->
    * rename/reopen -> setStore -> resume) is what guarantees that, not this method itself.
    */
+  /**
+   * Cada swap de cuenta avanza la generación. Es lo que permite descartar la respuesta de un
+   * pull que salió con la cuenta ANTERIOR: `pause()` espera el drain sólo 5s y el timeout del
+   * fetch es 30s, así que con una red lenta el swap ocurre con un pull en vuelo, y sus filas
+   * —con el `author_user_id` de la cuenta vieja— terminaban escritas en la base de la nueva.
+   */
+  private generacionDeStore = 0
+
   setStore(store: MemoryStore): void {
     this.deps.store = store
+    this.generacionDeStore += 1
   }
 
   private setStatus(status: DaemonStatus, detail?: string): void {
@@ -928,11 +938,21 @@ export class MemoryDaemon {
           // unchanging roster does ZERO writes per tick after the first, not just zero
           // EFFECTIVE ones — so a roster that never changes can't turn this into a
           // repeated-write (or repeated-pull) loop of its own.
-          store.ensureProject({
-            projectKey,
-            displayName:
-              typeof project.display_name === 'string' && project.display_name ? project.display_name : projectKey,
-          })
+          /**
+           * El nombre que devuelve el servidor viene CIFRADO desde que
+           * `project_display_name` entró en `SEALED_FIELDS`, y desde acá NO se puede abrir:
+           * el AAD ata cada ciphertext a SU observación (`fieldAad(syncId, field)`) y el
+           * roster no trae ningún `sync_id`. Así que cuando viene cifrado se usa la
+           * `project_key`, que es un hash pero es verdad.
+           *
+           * Sin esto, una máquina que todavía no conocía ese proyecto —una segunda PC, o la
+           * misma después de un wipe— creaba el proyecto local llamado `nmc1:pQx8…`: el
+           * usuario veía eso en la UI en lugar del nombre de su repo, y en el push siguiente
+           * ese string se volvía a cifrar sobre sí mismo. Cada ciclo agregaba una capa.
+           */
+          const nombreRemoto = typeof project.display_name === 'string' ? project.display_name : ''
+          const displayName = nombreRemoto && !isCiphertext(nombreRemoto) ? nombreRemoto : projectKey
+          store.ensureProject({ projectKey, displayName })
           known.add(projectKey)
         }
       }
@@ -972,6 +992,9 @@ export class MemoryDaemon {
 
   private async doPull(): Promise<void> {
     const { store, getSyncBaseUrl, getToken, isOnline } = this.deps
+    // La cuenta con la que ESTE pull sale. Si cambia antes de que vuelva la respuesta, las
+    // filas que traiga son de otra cuenta y no se escriben.
+    const generacionAlSalir = this.generacionDeStore
     if (this.authBlocked) return // M18
     if (!isOnline()) {
       this.setStatus('paused', 'offline')
@@ -1055,6 +1078,13 @@ export class MemoryDaemon {
       }
       if (!response.ok) throw new Error(`pull failed: ${response.status}`)
       const body = (await response.json()) as { rows: Array<Record<string, unknown>>; cursors: Record<string, number> }
+      // Si la cuenta cambió mientras esta respuesta viajaba, estas filas son de OTRA cuenta:
+      // se descartan enteras. El cursor tampoco se guarda — lo que no se aplicó tiene que
+      // volver a pedirse, y lo va a pedir la cuenta a la que le corresponde.
+      if (generacionAlSalir !== this.generacionDeStore) {
+        this.setStatus('idle')
+        return
+      }
       for (const raw of body.rows) this.applyPulledRow(mapRawPulledRow(raw))
 
       const now = Date.now()

@@ -107,3 +107,81 @@ describe('applyPulledRow con cifrado', () => {
     expect(store.undecryptableCount()).toBe(0)
   })
 })
+
+// `pause()` espera el drain 5s y el timeout del fetch es 30s: con una red lenta el usuario
+// cambia de cuenta con un pull en vuelo. `doPull` capturaba el store al entrar pero
+// `applyPulledRow` leía `this.deps.store` EN VIVO, así que las filas de la cuenta A —con su
+// `author_user_id`— terminaban escritas en la base de la cuenta B.
+describe('un pull en vuelo durante un cambio de cuenta', () => {
+  it('descarta las filas en vez de escribirlas en la base de la otra cuenta', async () => {
+    const dirB = mkdtempSync(join(tmpdir(), 'nest-cuenta-b-'))
+    const storeB = new MemoryStore(join(dirB, 'memory.db'))
+
+    let soltarRespuesta: () => void = () => {}
+    const fetchImpl = (async () => {
+      await new Promise<void>((r) => { soltarRespuesta = r })
+      return {
+        ok: true, status: 200,
+        json: async () => ({
+          rows: [{
+            sync_id: 'obs-de-A', project_key: 'proj1', scope: 'personal', type: 'decision',
+            title: 'memoria de la cuenta A', content: 'no puede terminar en B',
+            tags: [], lamport: 1, updated_at: Date.now(), created_at: Date.now(),
+          }],
+          cursors: {},
+        }),
+      } as unknown as Response
+    }) as unknown as typeof fetch
+
+    const daemon = new MemoryDaemon({
+      store,
+      getSyncBaseUrl: () => 'http://sync.test',
+      getToken: () => 'tok',
+      getDeviceId: () => 'dev',
+      isOnline: () => true,
+      fetchImpl,
+    })
+
+    const enVuelo = daemon.pull()
+    // El swap ocurre con el pull todavía esperando respuesta.
+    daemon.setStore(storeB)
+    soltarRespuesta()
+    await enVuelo
+
+    expect(storeB.count(), 'la base de B no recibió nada de A').toBe(0)
+    storeB.close()
+    rmSync(dirB, { recursive: true, force: true })
+  })
+})
+
+// `project_display_name` viaja cifrado, y el roster que devuelve `/v1/status` lo trae tal
+// cual. Una máquina que todavía no conocía ese proyecto creaba el proyecto local llamado
+// `nmc1:pQx8…` —el usuario veía eso en lugar del nombre de su repo— y en el push siguiente
+// ese string se volvía a cifrar sobre sí mismo: cada ciclo agregaba una capa.
+describe('el nombre de proyecto que vuelve del roster', () => {
+  it('un nombre cifrado no se escribe como nombre local: cae a la clave del proyecto', async () => {
+    const fetchImpl = (async (url: string) => ({
+      ok: true, status: 200,
+      json: async () => (String(url).includes('/status')
+        ? { projects: [{ project_key: 'proj-remoto', display_name: 'nmc1:cualquierCosaBase64==' }] }
+        : { rows: [], cursors: {} }),
+    } as unknown as Response)) as unknown as typeof fetch
+
+    const daemon = new MemoryDaemon({
+      store,
+      getSyncBaseUrl: () => 'http://sync.test',
+      getToken: () => 'tok',
+      getDeviceId: () => 'dev',
+      isOnline: () => true,
+      fetchImpl,
+    })
+    daemon.onNetworkRegain()
+    await new Promise((r) => setTimeout(r, 600))
+
+    const proyecto = store.listProjects().find((p) => p.projectKey === 'proj-remoto')
+    if (proyecto) {
+      expect(proyecto.displayName).toBe('proj-remoto')
+      expect(proyecto.displayName).not.toMatch(/^nmc1:/)
+    }
+  })
+})
