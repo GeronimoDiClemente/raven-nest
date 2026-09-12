@@ -100,6 +100,11 @@ export async function activateEncryption(
     method: 'POST',
     body: {
       key_epoch: keyEpoch,
+      // La intencion, explicita. Sin esto el servidor la inferia comparando epocas, y dos
+      // maquinas activando a la vez terminaban con maestras DISTINTAS en la misma epoca: la
+      // segunda no rotaba (no era `>`) ni era rechazada (no era `<`), asi que pisaba el slot
+      // de recuperacion con el suyo.
+      mode: 'activate',
       wraps: [
         { slot: deps.deviceId, kind: 'device', wrapped: wrapForDevice(device.publicKey, master) },
         { slot: 'recovery', kind: 'recovery', wrapped: recovery.wrapped, wrap_meta: { salt: recovery.salt } },
@@ -144,6 +149,10 @@ export async function authorizeDevice(
     method: 'POST',
     body: {
       key_epoch: keyEpoch,
+      // Autorizar NO rota: suma una envoltura a la maestra que ya existe. Sin declararlo, el
+      // servidor lo infería de la época y una autorización con una época adelantada habría
+      // borrado TODAS las envolturas de la cuenta, incluida la de recuperación.
+      mode: 'authorize',
       wraps: [{
         slot: target.deviceId, kind: 'device',
         wrapped: wrapForDevice(target.publicKey, Buffer.from(master, 'base64')),

@@ -277,6 +277,31 @@ function currentEnvelopeContext(): EnvelopeContext | null {
   return { keys: deriveKeys(Buffer.from(memoryKeys.master, 'base64')), keyEpoch: memoryKeys.keyEpoch }
 }
 
+/**
+ * (Re)carga el material de claves de la cuenta que está montada AHORA y deja el store
+ * escribiendo `topic_key_hmac` con esa clave.
+ *
+ * Existe porque tenerlo en un solo lugar del arranque era un agujero crítico: el subsistema
+ * arranca contra la partición `_local` —todavía no hay cuenta— así que leía
+ * `_local/keys.bin`, y cuando llegaba `memory:setUser(uid)` el store pasaba a `<uid>` sin que
+ * NADIE volviera a cargar las claves. La maestra se guarda bajo `<uid>/keys.bin`, o sea que
+ * desde el segundo arranque `memoryKeys.master` quedaba `null` para siempre y el daemon
+ * subía título, contenido y tags EN CLARO a una cuenta con el cifrado activo. Peor: el swap
+ * renombra el directorio `_local` entero a `<uid>`, llevándose `keys.bin`, así que el
+ * arranque siguiente generaba un par de dispositivo NUEVO que ya no correspondía a la
+ * envoltura publicada — la máquina no podía ni desenvolver su propia copia.
+ */
+function recargarClavesDeMemoria(userId: string | null): void {
+  try {
+    memoryKeys = ensureKeyMaterial(ravenHome(), userId, safeStorage)
+  } catch {
+    // Sin safeStorage no hay claves y el cifrado no se puede activar — pero la memoria local
+    // y el sync en claro tienen que seguir funcionando igual.
+    memoryKeys = null
+  }
+  applyTopicHasher()
+}
+
 /** Deja el store escribiendo `topic_key_hmac` con la clave vigente (Task 5). */
 function applyTopicHasher(): void {
   const ctx = currentEnvelopeContext()
@@ -370,13 +395,12 @@ try {
   // estar todavia (cifrado no activado, o esta maquina sin autorizar): eso es normal.
   try {
     // `store`, no `memory.store`: acá `memory` todavía se está construyendo — se asigna
-    // recién al final de este bloque.
+    // recién al final de este bloque. La cuenta real llega después, por `memory:setUser`, y
+    // ahí `recargarClavesDeMemoria` vuelve a leer las claves de ESA partición.
     memoryKeys = ensureKeyMaterial(ravenHome(), store.getOwnerUserId(), safeStorage)
     const ctxInicial = currentEnvelopeContext()
     store.setTopicHasher(ctxInicial ? (p, sc, t) => hmacTopicKey(ctxInicial.keys, p, sc, t) : null)
   } catch {
-    // Sin safeStorage no hay claves y el cifrado no se puede activar — pero la memoria
-    // local y el sync en claro tienen que seguir funcionando igual.
     memoryKeys = null
   }
 
@@ -387,6 +411,13 @@ try {
     store,
     getSyncBaseUrl: getMemorySyncBaseUrl,
     getEnvelopeContext: currentEnvelopeContext,
+    /**
+     * La cuenta tiene cifrado activo si alguna vez vimos una época > 0. Se lee de `meta` del
+     * store —persistida en cada `status`— y no de la red: el gate tiene que funcionar en el
+     * arranque, antes del primer `fetchKeyState`, que es justo cuando el bug original subía
+     * todo en claro.
+     */
+    isEncryptionExpected: () => (memory ? memory.store.knownKeyEpoch() > 0 : false),
     getToken: loadMemoryToken,
     getDeviceId: () => memoryConnectionState.deviceId,
     isOnline: () => memoryOnline,
@@ -470,6 +501,10 @@ async function performUserSwap(userId: string | null, adopt = true): Promise<{ o
     // daemon/ipc wired to a closed store.
     const result = await swapMemoryStore(ctx, ravenHome(), userId, adopt)
     memory = { store: result.store, daemon: memory.daemon, ipcServer: memory.ipcServer, currentStorePath: result.currentStorePath }
+    // La cuenta cambió, así que las claves también: viven particionadas por cuenta, igual
+    // que el store. Sin esto la sesión seguía con las claves de la partición anterior (o sin
+    // ninguna), y el daemon empujaba en claro a una cuenta con el cifrado activo.
+    recargarClavesDeMemoria(result.store.getOwnerUserId() ?? userId)
     // A watermark cached from the PREVIOUS account's store must never suppress a legitimate
     // vault regen for the account that just became active (project keys can collide across
     // accounts on the same machine — same repos, same derived keys).
@@ -3114,12 +3149,15 @@ ipcMain.handle('memory:encryption:status', async () => {
       const estado = await fetchKeyState(deps)
       keyEpoch = estado.keyEpoch
       devices = estado.devices
+      // Se recuerda para que el gate de fallar-cerrado del push funcione sin red y desde el
+      // arranque siguiente, antes de que nadie pregunte nada.
+      memory?.store.rememberKeyEpoch(estado.keyEpoch)
     } catch { /* offline */ }
   }
   return buildEncryptionStatus({
     safeStorageAvailable: safeStorage.isEncryptionAvailable(),
     connected: Boolean(deps),
-    keyEpoch: keyEpoch || (memoryKeys?.keyEpoch ?? 0),
+    keyEpoch: keyEpoch || (memoryKeys?.keyEpoch ?? 0) || (memory?.store.knownKeyEpoch() ?? 0),
     hasMaster: Boolean(memoryKeys?.master),
     devices,
     undecryptable: memory?.store.undecryptableCount() ?? 0,

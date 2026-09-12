@@ -107,7 +107,7 @@ export async function getKeyState(pool: Pool, auth: KeysAuth, slot?: string): Pr
 export async function publishWraps(
   pool: Pool,
   auth: KeysAuth,
-  body: { key_epoch?: unknown; wraps?: unknown }
+  body: { key_epoch?: unknown; wraps?: unknown; mode?: unknown }
 ): Promise<{ ok: true; keyEpoch: number } | Fail<400> | Fail<409>> {
   const keyEpoch = Number(body?.key_epoch)
   if (!Number.isInteger(keyEpoch) || keyEpoch < 1) {
@@ -142,7 +142,45 @@ export async function publishWraps(
       [auth.userId]
     )
     const actual = Number(rows[0]?.key_epoch ?? 0)
-    if (keyEpoch < actual) {
+
+    /**
+     * ACTIVAR y AUTORIZAR son dos operaciones distintas y hasta el 2026-09-12 entraban por
+     * el mismo camino, distinguidas sólo por comparar épocas. El empate las confundía:
+     *
+     * Dos máquinas activan casi a la vez. Las dos leen `key_epoch = 0`, las dos generan su
+     * PROPIA maestra y publican época 1. El advisory lock las serializa pero no decide nada:
+     * la primera rota a 1 y escribe sus envolturas; la segunda entra con `actual = 1` y
+     * `keyEpoch = 1`, no es `<` (no hay 409) ni es `>` (no rota), así que cae al upsert —
+     * suma su slot con SU maestra y **pisa el slot `recovery`** con el suyo. Quedan dos
+     * maestras vivas en la misma época: cada máquina cuenta como ilegible lo que subió la
+     * otra, el código de recuperación que se le mostró a la primera ya no abre nada, y si
+     * esa máquina muere lo que subió es irrecuperable.
+     *
+     * Con la intención explícita, la segunda activación pide época 1 cuando ya hay 1 y se
+     * lleva un 409 — que es lo que el cliente necesita para adoptar la que existe en vez de
+     * crear otra.
+     *
+     * `mode` es opcional para no romper un cliente viejo: sin él se infiere de la época
+     * actual, que es exactamente lo que el cliente viejo asumía.
+     */
+    const modo = body?.mode === 'activate' || body?.mode === 'authorize' ? body.mode : null
+
+    if (modo === 'activate' && keyEpoch !== actual + 1) {
+      // Activar es SIEMPRE pasar de `actual` a `actual + 1`. Si otra maquina ya activo, esta
+      // se entera aca y el cliente adopta la que existe en vez de crear una segunda.
+      await client.query('rollback')
+      return { ok: false, status: 409, error: 'stale_key_epoch' }
+    }
+    if (modo === 'authorize' && (keyEpoch !== actual || actual === 0)) {
+      // Autorizar no rota: suma una envoltura a la maestra vigente. Con epoca 0 no hay
+      // ninguna, y escribir envolturas huerfanas que nadie puede usar es peor que negarse.
+      await client.query('rollback')
+      return { ok: false, status: 409, error: actual === 0 ? 'not_activated' : 'stale_key_epoch' }
+    }
+    // Sin `mode` se conserva la semantica EXACTA de antes (un cliente viejo sigue andando):
+    // retroceder es 409, avanzar rota, empatar hace upsert. El empate es justamente el
+    // agujero que `mode` cierra, y por eso el cliente de esta version siempre lo manda.
+    if (modo === null && keyEpoch < actual) {
       await client.query('rollback')
       return { ok: false, status: 409, error: 'stale_key_epoch' }
     }

@@ -145,3 +145,66 @@ describe('/v1/keys', () => {
     expect(estado).toEqual({ keyEpoch: 0, wrap: null, devices: [] })
   })
 })
+
+// Lo que la revisión adversarial del 2026-09-12 marcó como crítico: dos máquinas activando
+// el cifrado casi a la vez leían las dos `key_epoch = 0`, generaban cada una su PROPIA
+// maestra y publicaban época 1. El lock las serializaba pero no decidía: la segunda no era
+// `<` (sin 409) ni `>` (sin rotar), así que pisaba el slot de recuperación con el suyo y
+// quedaban dos maestras vivas en la misma época.
+describe('activar contra autorizar — el empate de época', () => {
+  it('una segunda activación con la misma época se rechaza en vez de pisar', async () => {
+    const deviceId = deviceA
+    const primera = await publishWraps(pool, authFor(deviceId), {
+      key_epoch: 1, mode: 'activate',
+      wraps: [
+        { slot: deviceId, kind: 'device', wrapped: 'w-A' },
+        { slot: 'recovery', kind: 'recovery', wrapped: 'r-A', wrap_meta: { salt: 's' } },
+      ],
+    })
+    expect(primera.ok).toBe(true)
+
+    const segunda = await publishWraps(pool, authFor(deviceId), {
+      key_epoch: 1, mode: 'activate',
+      wraps: [
+        { slot: deviceId, kind: 'device', wrapped: 'w-B' },
+        { slot: 'recovery', kind: 'recovery', wrapped: 'r-B', wrap_meta: { salt: 's' } },
+      ],
+    })
+    expect(segunda.ok).toBe(false)
+    if (!segunda.ok) expect(segunda.error).toBe('stale_key_epoch')
+
+    // Y lo decisivo: la envoltura de recuperación sigue siendo la de la PRIMERA. Si se
+    // hubiera pisado, el código que se le mostró a esa máquina ya no abriría nada.
+    const { rows } = await pool.query(
+      "select wrapped from key_wraps where user_id = $1 and slot = 'recovery'", [userId]
+    )
+    expect(rows[0]?.wrapped).toBe('r-A')
+  })
+
+  it('autorizar con la época vigente sí suma una envoltura, sin rotar', async () => {
+    const deviceId = deviceA
+    await publishWraps(pool, authFor(deviceId), {
+      key_epoch: 1, mode: 'activate',
+      wraps: [{ slot: deviceId, kind: 'device', wrapped: 'w-A' }],
+    })
+    const otra = await publishWraps(pool, authFor(deviceId), {
+      key_epoch: 1, mode: 'authorize',
+      wraps: [{ slot: deviceB, kind: 'device', wrapped: 'w-2' }],
+    })
+    expect(otra.ok).toBe(true)
+    const { rows } = await pool.query(
+      'select count(*)::int as n from key_wraps where user_id = $1', [userId]
+    )
+    expect(rows[0].n).toBe(2)
+  })
+
+  // Autorizar sobre una cuenta que nunca activó escribía envolturas huérfanas que después
+  // nadie podía usar.
+  it('autorizar sobre una cuenta sin activar se rechaza', async () => {
+    const res = await publishWraps(pool, authFor(deviceA), {
+      key_epoch: 0, mode: 'authorize',
+      wraps: [{ slot: deviceA, kind: 'device', wrapped: 'w' }],
+    })
+    expect(res.ok).toBe(false)
+  })
+})

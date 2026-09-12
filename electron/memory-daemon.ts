@@ -135,6 +135,17 @@ export interface MemoryDaemonDeps {
    * el daemon tiene que ver la clave nueva sin que nadie lo reinicie.
    */
   getEnvelopeContext?: () => EnvelopeContext | null
+  /**
+   * Si la CUENTA tiene el cifrado activo, independientemente de si ESTA máquina tiene la
+   * clave. Es lo que permite fallar cerrado.
+   *
+   * Sin esto, cualquier camino que deje `getEnvelopeContext()` en `null` —una máquina sin
+   * autorizar, un `safeStorage` que no abrió, un swap de cuenta que no recargó las claves—
+   * hace que `sealMutationPayload` devuelva el payload TAL CUAL y el daemon suba título,
+   * contenido y tags en texto plano a una nube que el usuario cree cifrada. Ni el cliente ni
+   * el servidor miraban `key_epoch` al pushear: nadie lo frenaba.
+   */
+  isEncryptionExpected?: () => boolean
   onStatusChange?: (status: DaemonStatus, detail?: string) => void
 }
 
@@ -597,6 +608,16 @@ export class MemoryDaemon {
     const pending = store.pendingMutations(PUSH_BATCH_SIZE)
     if (pending.length === 0) {
       this.setStatus('idle')
+      return
+    }
+
+    // Fallar CERRADO. Si la cuenta tiene el cifrado activo y esta máquina no tiene la clave,
+    // no se sube nada: subir en claro a una nube que el usuario cree cifrada es peor que no
+    // sincronizar. La cola espera — nada se pierde — y el estado lo dice para que la UI pueda
+    // ofrecer autorizar la máquina o usar el código de recuperación.
+    const seEsperaCifrado = this.deps.isEncryptionExpected?.() ?? false
+    if (seEsperaCifrado && !this.deps.getEnvelopeContext?.()) {
+      this.setStatus('error', 'needs_key')
       return
     }
 

@@ -912,6 +912,24 @@ export class MemoryStore {
    * tiene y nosotros no podemos leer. El doctor las junta igual, que es lo que el usuario
    * necesita ver.
    */
+  /**
+   * La ultima `key_epoch` que esta maquina supo de la cuenta. Vive en `meta` y no en la red
+   * porque quien la consulta es el gate de fallar-cerrado del push, que corre en el arranque
+   * —antes del primer `fetchKeyState`— que es exactamente cuando el agujero original subia
+   * todo en claro.
+   *
+   * Nunca BAJA: una epoca conocida que se olvida volveria a habilitar el push en claro, que
+   * es lo que este valor existe para impedir.
+   */
+  rememberKeyEpoch(epoch: number): void {
+    if (!Number.isFinite(epoch) || epoch <= this.knownKeyEpoch()) return
+    this.metaSet('known_key_epoch', String(Math.floor(epoch)))
+  }
+
+  knownKeyEpoch(): number {
+    return Number(this.metaGet('known_key_epoch') ?? 0)
+  }
+
   bumpUndecryptable(n: number): void {
     if (n <= 0) return
     this.metaSet('undecryptable_rows', String(this.undecryptableCount() + n))
