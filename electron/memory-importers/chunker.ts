@@ -130,10 +130,22 @@ export function chunkMemoryNote(raw: string, sourceLabel: string, fileName: stri
   // distinguir: medido en una cuenta real, 120 de 120 memorias eran `pattern`, así que
   // agrupar el grafo por tipo pintaba todo de un color.
   const declaredType = leer('type') ?? leerAnidado(frontmatter?.[1] ?? '', 'metadata', 'type')
-  // Sin frontmatter, el nombre del archivo es lo único que describe la nota — mejor eso que
-  // tirar el contenido.
   const base = fileName.replace(/\.md$/i, '')
-  const title = description || name || base
+
+  // El primer encabezado del cuerpo, si lo hay. Va DESPUÉS de `description` y `name` —que la
+  // nota escribió sobre sí misma— pero ANTES del nombre del archivo, que muchas veces no
+  // dice nada: medido en una cuenta real, diez memorias tituladas "MEMORY", una por
+  // proyecto, todas de un `MEMORY.md` sin frontmatter. Diez nodos con la misma etiqueta en
+  // el grafo y diez filas indistinguibles en la lista.
+  const encabezado = /^#{1,6}[ \t]+(.+?)[ \t]*$/m.exec(cuerpo)?.[1]?.trim() || null
+
+  // Sin nada de eso, el nombre del archivo — mejor eso que tirar el contenido.
+  const title = description || name || encabezado || base
+  // El `topicSeed` NO mira el encabezado a propósito: es lo que hace que un re-import caiga
+  // sobre el MISMO slot de tópico y reemplace la fila anterior en vez de dejar dos. El
+  // título entra en el `content_hash` y por lo tanto en el `sync_id` derivado, así que
+  // cambiarlo sí produce una fila nueva — y es el tópico compartido lo que la convierte en
+  // un reemplazo y no en un duplicado.
   const topicSeed = name || base
 
   return [{

@@ -152,3 +152,38 @@ describe('chunkMemoryNote — el tipo declarado', () => {
     expect(chunkMemoryNote(raw, 'claude-memory', 'auth.md')[0].declaredType).toBe('bugfix')
   })
 })
+
+// Medido en una cuenta real el 2026-09-12: DIEZ memorias tituladas "MEMORY", una por
+// proyecto. Salen de un `MEMORY.md` sin `description` ni `name` en el frontmatter, donde el
+// titulo cae al nombre del archivo — y el nombre del archivo es el mismo en los diez.
+// Indistinguibles en la lista, y en el grafo diez nodos con la misma etiqueta.
+describe('chunkMemoryNote — el titulo cuando el nombre del archivo no dice nada', () => {
+  it('usa el primer encabezado del cuerpo en vez del nombre del archivo', () => {
+    const raw = '# Indice de memorias del proyecto Voxia\n\n' + 'contenido suficiente. '.repeat(12)
+    const [chunk] = chunkMemoryNote(raw, 'claude-memory', 'MEMORY.md')
+    expect(chunk.title).toBe('Indice de memorias del proyecto Voxia')
+  })
+
+  it('pero `description` del frontmatter le gana al encabezado', () => {
+    const raw = '---\ndescription: lo que la nota dice de si misma\n---\n# Otro titulo\n\n'
+      + 'contenido suficiente. '.repeat(12)
+    const [chunk] = chunkMemoryNote(raw, 'claude-memory', 'MEMORY.md')
+    expect(chunk.title).toBe('lo que la nota dice de si misma')
+  })
+
+  it('sin encabezado ni frontmatter, sigue cayendo al nombre del archivo', () => {
+    const raw = 'texto pelado sin ningun encabezado. '.repeat(12)
+    const [chunk] = chunkMemoryNote(raw, 'claude-memory', 'notas-sueltas.md')
+    expect(chunk.title).toBe('notas-sueltas')
+  })
+
+  // El `topic_key` NO puede cambiar con esto: es lo que hace que un re-import REEMPLACE la
+  // fila anterior en vez de dejar dos. Sale de `name || nombre de archivo`, nunca del
+  // encabezado.
+  it('el topicKey no depende del encabezado, para que el re-import no duplique', () => {
+    const cuerpo = 'contenido suficiente. '.repeat(12)
+    const sinH = chunkMemoryNote('texto\n' + cuerpo, 'claude-memory', 'MEMORY.md')[0]
+    const conH = chunkMemoryNote('# Un titulo cualquiera\n\n' + cuerpo, 'claude-memory', 'MEMORY.md')[0]
+    expect(conH.topicKey).toBe(sinH.topicKey)
+  })
+})
