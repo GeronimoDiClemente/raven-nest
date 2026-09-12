@@ -1004,8 +1004,15 @@ declare global {
         keyEpoch: number
         pendingDevices: Array<{ deviceId: string; name: string }>
         undecryptable: number
+        /** `false` = no se pudo leer el estado del servidor. Con esto en falso la tarjeta
+         *  no ofrece activar: un corte de red deja `keyEpoch` en 0, que es indistinguible
+         *  de "sin cifrado", y activar sin clave borra las envolturas de las otras. */
+        estadoRemotoLeido?: boolean
       }>
       encryptionActivate?: () => Promise<{ ok: true; recoveryCode: string } | { ok: false; error: string }>
+      /** Toma la envoltura que otra máquina ya publicó para ésta. `adoptada: false` cuando
+       *  todavía no hay ninguna — el caso normal hasta que el usuario autorice desde la otra. */
+      encryptionAdopt?: () => Promise<{ ok: boolean; adoptada?: boolean; error?: string }>
       encryptionAuthorize?: (deviceId: string) => Promise<{ ok: boolean; error?: string }>
       encryptionRecover?: (code: string) => Promise<{ ok: boolean; error?: string }>
       encryptionReencrypt?: () => Promise<{ total: number; queued: number }>

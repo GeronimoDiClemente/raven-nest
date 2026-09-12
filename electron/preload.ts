@@ -88,6 +88,7 @@ contextBridge.exposeInMainWorld('memory', {
   // que sumo la fase 1: un preload viejo no los expone y la UI tiene que montar igual.
   encryptionStatus: () => ipcRenderer.invoke('memory:encryption:status'),
   encryptionActivate: () => ipcRenderer.invoke('memory:encryption:activate'),
+  encryptionAdopt: () => ipcRenderer.invoke('memory:encryption:adopt'),
   encryptionAuthorize: (deviceId: string) => ipcRenderer.invoke('memory:encryption:authorize', deviceId),
   encryptionRecover: (code: string) => ipcRenderer.invoke('memory:encryption:recover', code),
   encryptionReencrypt: () => ipcRenderer.invoke('memory:encryption:reencrypt'),

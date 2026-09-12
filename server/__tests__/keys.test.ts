@@ -207,4 +207,42 @@ describe('activar contra autorizar — el empate de época', () => {
     })
     expect(res.ok).toBe(false)
   })
+
+  // Rotar DESTRUYE: borra todas las envolturas, incluida la de recuperación. Hasta el
+  // 2026-09-12 alcanzaba con un token válido de la cuenta — ni tener la maestra, ni haber
+  // sido autorizado nunca.
+  it('un device sin envoltura vigente NO puede rotar la época', async () => {
+    await publishWraps(pool, authFor(deviceA), {
+      key_epoch: 1, mode: 'activate',
+      wraps: [
+        { slot: deviceA, kind: 'device', wrapped: 'w-A' },
+        { slot: 'recovery', kind: 'recovery', wrapped: 'r-A', wrap_meta: { salt: 's' } },
+      ],
+    })
+    // B nunca fue autorizado: no tiene envoltura.
+    const res = await publishWraps(pool, authFor(deviceB), {
+      key_epoch: 2, mode: 'activate',
+      wraps: [{ slot: deviceB, kind: 'device', wrapped: 'w-B' }],
+    })
+    expect(res.ok).toBe(false)
+    if (!res.ok) expect(res.error).toBe('not_authorized_to_rotate')
+
+    // Y lo que importa: la envoltura de recuperación sigue ahí.
+    const { rows } = await pool.query(
+      "select wrapped from key_wraps where user_id = $1 and slot = 'recovery'", [userId]
+    )
+    expect(rows[0]?.wrapped).toBe('r-A')
+  })
+
+  it('un device que SÍ tiene la clave puede rotar', async () => {
+    await publishWraps(pool, authFor(deviceA), {
+      key_epoch: 1, mode: 'activate',
+      wraps: [{ slot: deviceA, kind: 'device', wrapped: 'w-A' }],
+    })
+    const res = await publishWraps(pool, authFor(deviceA), {
+      key_epoch: 2, mode: 'activate',
+      wraps: [{ slot: deviceA, kind: 'device', wrapped: 'w-A2' }],
+    })
+    expect(res.ok).toBe(true)
+  })
 })

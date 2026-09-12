@@ -20,6 +20,7 @@ interface EstadoCifrado {
   keyEpoch: number
   pendingDevices: Array<{ deviceId: string; name: string }>
   undecryptable: number
+  estadoRemotoLeido?: boolean
 }
 
 /** Lo que el §5.2 deja en claro a propósito. Va en la tarjeta y no sólo en la landing: es
@@ -36,6 +37,7 @@ export default function MemoryEncryptionCard() {
   const [error, setError] = useState<string | null>(null)
   const [reencriptadas, setReencriptadas] = useState<number | null>(null)
   const [ocupado, setOcupado] = useState(false)
+  const [buscandoAutorizacion, setBuscandoAutorizacion] = useState(false)
 
   const api = window.memory
   const leerEstado = api?.encryptionStatus
@@ -50,6 +52,29 @@ export default function MemoryEncryptionCard() {
   }, [leerEstado])
 
   useEffect(() => { void refrescar() }, [refrescar])
+
+  /**
+   * Si la cuenta ya tiene clave y esta máquina no, se intenta tomar la envoltura que la otra
+   * pueda haber dejado publicada. Automático a propósito: después de que alguien toca
+   * "Autorizar esta máquina" en la otra, acá no tendría que hacer falta hacer nada.
+   *
+   * Hasta el 2026-09-12 este camino no existía en la UI —el único llamador de la adopción era
+   * el botón de activar, que en este estado no se muestra— así que una máquina autorizada
+   * nunca tomaba su clave y la única salida era quemar el código de recuperación.
+   */
+  const adoptar = api?.encryptionAdopt
+  const necesitaClave = Boolean(estado && !estado.active && estado.keyEpoch > 0)
+  useEffect(() => {
+    if (!necesitaClave || !adoptar) return
+    let vivo = true
+    void (async () => {
+      try {
+        const res = await adoptar()
+        if (vivo && res.ok && res.adoptada) await refrescar()
+      } catch { /* sin red: se reintenta al volver a abrir, o con el botón */ }
+    })()
+    return () => { vivo = false }
+  }, [necesitaClave, adoptar, refrescar])
 
   // Un preload viejo no tiene estos handlers. No se muestra nada: una tarjeta que no puede
   // hacer nada es peor que ninguna.
@@ -152,6 +177,30 @@ export default function MemoryEncryptionCard() {
           )}
         </p>
         {error && <p className="text-fs-sm text-destructive">{error}</p>}
+        {/* Reintentar a mano. El intento automático corre al abrir la tarjeta, pero si el
+            usuario está mirando ESTA pantalla mientras autoriza en la otra, necesita una
+            forma de decir "ya está" sin cerrar y volver a abrir. */}
+        {!recuperando && adoptar && (
+          <div>
+            <Button
+              size="sm"
+              disabled={buscandoAutorizacion}
+              onClick={() => void (async () => {
+                setBuscandoAutorizacion(true)
+                setError(null)
+                try {
+                  const res = await adoptar()
+                  if (res.ok && res.adoptada) await refrescar()
+                  else if (res.ok) setError('Todavía no hay una autorización para esta máquina.')
+                  else setError(res.error ?? 'No se pudo consultar.')
+                } finally { setBuscandoAutorizacion(false) }
+              })()}
+            >
+              {buscandoAutorizacion ? 'Buscando…' : 'Ya me autorizaron'}
+            </Button>
+          </div>
+        )}
+
         {recuperando ? (
           <div className="flex flex-col gap-2">
             <Input
@@ -212,6 +261,24 @@ export default function MemoryEncryptionCard() {
             </span>
           )}
         </div>
+      </div>
+    )
+  }
+
+  // ── No sabemos en qué estado está la cuenta ───────────────────────────────
+  // No se ofrece activar a ciegas: si el estado no se pudo leer, `keyEpoch` vale 0 y eso es
+  // indistinguible de "esta cuenta no tiene cifrado". Activar desde una máquina sin clave
+  // rota la época y borra las envolturas de todas las demás, incluida la de recuperación.
+  if (estado.estadoRemotoLeido === false) {
+    return (
+      <div className={marco}>
+        <div className="flex items-center gap-2">
+          <ShieldQuestion size={ICON_SIZE.md} className="text-muted-foreground" aria-hidden />
+          <p className="text-fs font-medium text-foreground">Cifrado</p>
+        </div>
+        <p className="text-fs-sm text-muted-foreground">
+          No se pudo consultar el estado del cifrado de esta cuenta. Volvé a entrar cuando haya conexión.
+        </p>
       </div>
     )
   }

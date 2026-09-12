@@ -108,7 +108,7 @@ export async function publishWraps(
   pool: Pool,
   auth: KeysAuth,
   body: { key_epoch?: unknown; wraps?: unknown; mode?: unknown }
-): Promise<{ ok: true; keyEpoch: number } | Fail<400> | Fail<409>> {
+): Promise<{ ok: true; keyEpoch: number } | Fail<400> | Fail<403> | Fail<409>> {
   const keyEpoch = Number(body?.key_epoch)
   if (!Number.isInteger(keyEpoch) || keyEpoch < 1) {
     return { ok: false, status: 400, error: 'invalid_key_epoch' }
@@ -164,6 +164,29 @@ export async function publishWraps(
      * actual, que es exactamente lo que el cliente viejo asumía.
      */
     const modo = body?.mode === 'activate' || body?.mode === 'authorize' ? body.mode : null
+
+    /**
+     * Rotar DESTRUYE: borra todas las envolturas de la cuenta, incluida la de recuperación.
+     * Hasta el 2026-09-12 lo único que hacía falta para eso era un token válido de la cuenta
+     * — ni tener la maestra, ni haber sido autorizado nunca. Y era alcanzable SIN atacante:
+     * un corte de red dejaba el estado en época 0, la tarjeta ofrecía "Activar" en una
+     * máquina sin clave, y el clic borraba la clave de todas las demás.
+     *
+     * La primera activación (época 0) no tiene de dónde probar posesión y queda libre. De
+     * ahí en adelante, rotar exige tener una envoltura vigente: o sea, ser una máquina que
+     * YA puede leer. Recuperar con el código no pasa por acá — publica con `authorize` sobre
+     * la época vigente — así que el camino de "perdí todas mis máquinas" sigue abierto.
+     */
+    if (modo === 'activate' && actual > 0) {
+      const { rows: mias } = await client.query(
+        'select 1 from key_wraps where user_id = $1 and slot = $2 and key_epoch = $3',
+        [auth.userId, auth.deviceId, actual]
+      )
+      if (mias.length === 0) {
+        await client.query('rollback')
+        return { ok: false, status: 403, error: 'not_authorized_to_rotate' }
+      }
+    }
 
     if (modo === 'activate' && keyEpoch !== actual + 1) {
       // Activar es SIEMPRE pasar de `actual` a `actual + 1`. Si otra maquina ya activo, esta

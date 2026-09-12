@@ -3143,8 +3143,13 @@ ipcMain.handle('memory:encryption:status', async () => {
   const deps = keysDeps()
   let keyEpoch = 0
   let devices: RemoteKeyState['devices'] = []
+  // Si la consulta al servidor falló, la tarjeta NO puede ofrecer "Activar": un corte de red
+  // dejaba `keyEpoch = 0` —indistinguible de "esta cuenta no tiene cifrado"— y activar desde
+  // una máquina sin clave ROTA la época y borra las envolturas de todas las demás, incluida
+  // la de recuperación. El servidor ahora también lo rechaza, pero la UI no tiene por qué
+  // ofrecer un botón cuyo único final posible es un error.
+  let estadoRemotoLeido = !deps
   if (deps) {
-    // Best-effort: sin red, la tarjeta muestra lo que sabe local en vez de un error.
     try {
       const estado = await fetchKeyState(deps)
       keyEpoch = estado.keyEpoch
@@ -3152,7 +3157,8 @@ ipcMain.handle('memory:encryption:status', async () => {
       // Se recuerda para que el gate de fallar-cerrado del push funcione sin red y desde el
       // arranque siguiente, antes de que nadie pregunte nada.
       memory?.store.rememberKeyEpoch(estado.keyEpoch)
-    } catch { /* offline */ }
+      estadoRemotoLeido = true
+    } catch { /* offline: `estadoRemotoLeido` queda en false */ }
   }
   return buildEncryptionStatus({
     safeStorageAvailable: safeStorage.isEncryptionAvailable(),
@@ -3161,7 +3167,44 @@ ipcMain.handle('memory:encryption:status', async () => {
     hasMaster: Boolean(memoryKeys?.master),
     devices,
     undecryptable: memory?.store.undecryptableCount() ?? 0,
+    estadoRemotoLeido,
   })
+})
+
+/**
+ * Tomar la clave que OTRA máquina ya dejó publicada para ésta.
+ *
+ * Es el cierre del flujo de autorización, y hasta el 2026-09-12 no existía: `adoptExistingKey`
+ * tenía un único llamador —el handler de activar— y la tarjeta, en el estado "esta máquina no
+ * está autorizada", no muestra el botón de activar. O sea que después de que A autorizaba a B,
+ * B no tenía ninguna forma de tomar esa envoltura: seguía descartando toda fila cifrada como
+ * ilegible, para siempre, y la única salida era quemar el código de recuperación — que es
+ * exactamente lo que el flujo de autorización existe para no tener que hacer.
+ *
+ * Devuelve `{ adoptada: false }` cuando todavía no hay ninguna envoltura para esta máquina.
+ * No es un error: es el caso normal mientras el usuario no haya autorizado desde la otra.
+ */
+ipcMain.handle('memory:encryption:adopt', async () => {
+  const deps = keysDeps()
+  if (!deps || !memory) return { ok: false, error: 'La memoria en la nube no está conectada.' }
+  if (!memoryKeys) return { ok: false, error: 'Este sistema no permite guardar claves de forma segura.' }
+  try {
+    const yaExiste = await adoptExistingKey(deps, memoryKeys.device)
+    if (!yaExiste) return { ok: true, adoptada: false }
+    memoryKeys = { ...memoryKeys, ...yaExiste }
+    saveKeyMaterial(ravenHome(), memory.store.getOwnerUserId(), safeStorage, memoryKeys)
+    applyTopicHasher()
+    memory.store.backfillTopicHmacs()
+    // Las filas que esta máquina se salteó por ilegibles quedaron ATRÁS del cursor: sin
+    // resetearlo no vuelven nunca.
+    memory.store.resetPullCursors()
+    memory.store.clearUndecryptable()
+    memory.store.rememberKeyEpoch(yaExiste.keyEpoch)
+    memory.daemon.onNetworkRegain()
+    return { ok: true, adoptada: true }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  }
 })
 
 ipcMain.handle('memory:encryption:activate', async () => {
@@ -3179,6 +3222,7 @@ ipcMain.handle('memory:encryption:activate', async () => {
       memory.store.backfillTopicHmacs()
       memory.store.resetPullCursors()
       memory.store.clearUndecryptable()
+      memory.store.rememberKeyEpoch(yaExiste.keyEpoch)
       return { ok: false, error: 'Esta cuenta ya tiene el cifrado activado — esta máquina quedó autorizada.' }
     }
     const res = await activateEncryption(deps, memoryKeys.device)
@@ -3186,6 +3230,7 @@ ipcMain.handle('memory:encryption:activate', async () => {
     saveKeyMaterial(ravenHome(), memory.store.getOwnerUserId(), safeStorage, memoryKeys)
     applyTopicHasher()
     memory.store.backfillTopicHmacs()
+    memory.store.rememberKeyEpoch(res.keyEpoch)
     return { ok: true, recoveryCode: res.recoveryCode }
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) }

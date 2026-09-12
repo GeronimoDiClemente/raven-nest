@@ -10,6 +10,7 @@ interface EstadoCifrado {
   keyEpoch: number
   pendingDevices: Array<{ deviceId: string; name: string }>
   undecryptable: number
+  estadoRemotoLeido?: boolean
 }
 
 const estadoBase: EstadoCifrado = {
@@ -23,6 +24,7 @@ function montarCon(estado: Partial<EstadoCifrado>, extra: Record<string, unknown
     encryptionAuthorize: vi.fn(async () => ({ ok: true })),
     encryptionRecover: vi.fn(async () => ({ ok: true })),
     encryptionReencrypt: vi.fn(async () => ({ total: 866, queued: 0 })),
+    encryptionAdopt: vi.fn(async () => ({ ok: true, adoptada: false })),
     ...extra,
   }
   ;(window as unknown as { memory: unknown }).memory = api
@@ -102,5 +104,44 @@ describe('MemoryEncryptionCard', () => {
     fireEvent.click(screen.getByRole('button', { name: /recuperar/i }))
     expect(await screen.findByText(/incorrecto/i)).toBeInTheDocument()
     expect(screen.getByRole('textbox')).toBeInTheDocument()
+  })
+
+  // El crítico que la revisión adversarial del 2026-09-12 destapó: `adoptExistingKey` tenía
+  // un único llamador —el botón de activar— y ese botón NO se muestra en este estado. O sea
+  // que después de que la otra máquina autorizaba a ésta, ésta no tenía forma de tomar la
+  // envoltura: seguía descartando todo como ilegible, para siempre, y la única salida era
+  // quemar el código de recuperación — justo lo que autorizar existe para evitar.
+  it('sin clave local intenta tomar sola la envoltura que la otra máquina dejó', async () => {
+    const api = montarCon({ active: false, keyEpoch: 1, undecryptable: 12 })
+    render(<MemoryEncryptionCard />)
+    await waitFor(() => expect(api.encryptionAdopt).toHaveBeenCalled())
+  })
+
+  it('si la adopción funciona, vuelve a leer el estado en vez de quedarse en "no autorizada"', async () => {
+    const api = montarCon({ active: false, keyEpoch: 1 }, {
+      encryptionAdopt: vi.fn(async () => ({ ok: true, adoptada: true })),
+    })
+    render(<MemoryEncryptionCard />)
+    await waitFor(() => expect(api.encryptionStatus).toHaveBeenCalledTimes(2))
+  })
+
+  // El intento automático corre al abrir la tarjeta. Si el usuario está mirando ESTA pantalla
+  // mientras autoriza en la otra, necesita poder decir "ya está" sin cerrar y volver a abrir.
+  it('ofrece reintentar a mano, y dice cuando todavía no hay autorización', async () => {
+    montarCon({ active: false, keyEpoch: 1 })
+    render(<MemoryEncryptionCard />)
+    fireEvent.click(await screen.findByRole('button', { name: /ya me autorizaron/i }))
+    expect(await screen.findByText(/todavía no hay una autorización/i)).toBeInTheDocument()
+  })
+
+  // Alcanzable sin atacante: un corte de red dejaba `keyEpoch = 0` —indistinguible de "esta
+  // cuenta no tiene cifrado"— y la tarjeta ofrecía "Activar" en una máquina sin clave. El
+  // clic rotaba la época y BORRABA las envolturas de todas las demás, incluida la de
+  // recuperación.
+  it('si no se pudo leer el estado del servidor, no ofrece activar', async () => {
+    montarCon({ estadoRemotoLeido: false })
+    render(<MemoryEncryptionCard />)
+    expect(await screen.findByText(/no se pudo consultar el estado/i)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /activar el cifrado/i })).toBeNull()
   })
 })

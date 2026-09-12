@@ -8,6 +8,8 @@ export interface EncryptionStatusInput {
   hasMaster: boolean
   devices: Array<{ deviceId: string; name: string; publicKey: string; hasWrap: boolean }>
   undecryptable: number
+  /** Si `fetchKeyState` respondió. Ver `estadoRemotoLeido` en el objeto de salida. */
+  estadoRemotoLeido?: boolean
 }
 
 export interface EncryptionStatus {
@@ -19,6 +21,8 @@ export interface EncryptionStatus {
   /** Maquinas de la cuenta que publicaron su clave publica y esperan una envoltura. */
   pendingDevices: Array<{ deviceId: string; name: string }>
   undecryptable: number
+  /** Si el estado del servidor se pudo leer en esta consulta. */
+  estadoRemotoLeido: boolean
 }
 
 export function buildEncryptionStatus(input: EncryptionStatusInput): EncryptionStatus {
@@ -32,5 +36,14 @@ export function buildEncryptionStatus(input: EncryptionStatusInput): EncryptionS
     keyEpoch: input.keyEpoch,
     pendingDevices: input.devices.filter((d) => !d.hasWrap).map((d) => ({ deviceId: d.deviceId, name: d.name })),
     undecryptable: input.undecryptable,
+    /**
+     * Si el estado del servidor se pudo leer. `false` = no sabemos si la cuenta tiene clave,
+     * y ahí la tarjeta NO puede ofrecer "Activar": un corte de red deja `keyEpoch = 0`, que
+     * es indistinguible de "esta cuenta no tiene cifrado", y activar desde una máquina sin
+     * clave rota la época y borra las envolturas de todas las demás.
+     *
+     * `?? true` para no romper a quien ya construía este objeto sin el campo.
+     */
+    estadoRemotoLeido: input.estadoRemotoLeido ?? true,
   }
 }
