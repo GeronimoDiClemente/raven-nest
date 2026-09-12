@@ -14,14 +14,16 @@
 //
 // No toca la memoria de nadie: crea su propio store en un tmpdir y lo borra al terminar.
 //
-// ESTADO AL 2026-09-11: los pasos 1 y 2 pasan (una máquina sube, otra baja, con título y
-// contenido intactos). El paso 3 —la vuelta— FALLA, y el fallo es real, no del script:
-// después de que B sube su memoria y el servidor contesta `applied`, la cola de B sigue
-// con una mutación pendiente que el push nunca incluye, y el push siguiente de A reenvía
-// `sync_id` que A no escribió sino que bajó de B. O sea que aplicar una fila que vino del
-// servidor encola trabajo local que rebota. Convergir converge (el push es idempotente por
-// (device_id, seq) y el merge es LWW), pero la cola no se drena nunca mientras haya dos
-// máquinas activas. La causa exacta en el código está sin identificar.
+// ESTADO AL 2026-09-12: los tres pasos pasan. La ida, la vuelta y la cola drenando.
+//
+// El 2026-09-11 este script reportó un bug que NO existía: "la cola de B no se vacía nunca".
+// La causa era que corría las dos máquinas con el MISMO token. La identidad de device sale
+// del token y no del `device_id` del body —decisión de seguridad deliberada: un device no
+// puede hacerse pasar por otro cambiando un campo— así que para el servidor A y B eran el
+// mismo device, el seq 1 de B chocaba con el seq 1 de A por la idempotencia
+// `(device_id, seq)`, y el receipt que volvía traía el `sync_id` de la mutación de A.
+// `resultBySyncId` no encontraba la de B y no la marcaba. El servicio estaba haciendo
+// exactamente lo que promete.
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -35,8 +37,15 @@ function arg(nombre, porDefecto) {
 
 const BASE = arg('base', 'http://127.0.0.1:8099')
 const TOKEN = arg('token')
+// Un token POR MAQUINA. Con uno solo, el servidor ve un unico device —la identidad sale del
+// token, no del `device_id` del body, y es una decision de seguridad deliberada— asi que la
+// idempotencia por `(device_id, seq)` hace que el seq 1 de B choque con el seq 1 de A: el
+// receipt que vuelve es el de la mutacion de A, `resultBySyncId` no encuentra la de B, y la
+// cola de B no se vacia nunca. Eso fue lo que esta herramienta reporto como bug del producto
+// el 2026-09-11; era la herramienta.
+const TOKEN_B = arg('token-b', TOKEN)
 if (!TOKEN) {
-  console.error('falta --token')
+  console.error('falta --token (y --token-b para que A y B sean dos devices de verdad)')
   process.exit(2)
 }
 
@@ -47,9 +56,25 @@ function ok(cond, texto, detalle = '') {
 }
 
 const home = mkdtempSync(join(tmpdir(), 'nest-sync-smoke-'))
+
+/**
+ * Los device id VAN por parametro y tienen que ser unicos por corrida.
+ *
+ * El servidor es idempotente por `(device_id, seq)`, y el `seq` sale del `mutation_log`
+ * local, que arranca en 1 con cada store nuevo. Reusar el mismo device id entre corridas
+ * hace que el seq 1 de hoy reciba el receipt del seq 1 de ayer — con el `sync_id` de OTRA
+ * mutacion— y la cola no se marque nunca. Es la misma trampa que `prueba-de-carga.mjs`
+ * documenta, y la que hizo que este script reportara un bug del producto que no existia.
+ */
+const DEV_A = arg('device-a')
+const DEV_B = arg('device-b')
+if (!DEV_A || !DEV_B) {
+  console.error('faltan --device-a y --device-b (unicos por corrida)')
+  process.exit(2)
+}
 const espera = (ms) => new Promise((r) => setTimeout(r, ms))
 
-function hacerDaemon(store, deviceId, nombre) {
+function hacerDaemon(store, deviceId, nombre, token = TOKEN) {
   // Envuelve `fetch` para poder mirar lo que el servicio contesta: un push cuyo batch
   // vuelve con `outcome: rejected` termina en `idle` sin error visible, así que desde
   // afuera un rechazo y un éxito se ven igual.
@@ -66,7 +91,7 @@ function hacerDaemon(store, deviceId, nombre) {
     store,
     fetchImpl: espiar,
     getSyncBaseUrl: () => BASE,
-    getToken: () => TOKEN,
+    getToken: () => token,
     getDeviceId: () => deviceId,
     isOnline: () => true,
     onStatusChange: (estado, detalle) => {
@@ -107,7 +132,7 @@ try {
   const pendientesAntes = storeA.pendingMutationCount()
   ok(pendientesAntes >= 2, 'arranca con mutaciones pendientes', `${pendientesAntes}`)
 
-  const daemonA = hacerDaemon(storeA, '22222222-2222-2222-2222-222222222222', 'A')
+  const daemonA = hacerDaemon(storeA, DEV_A, 'A')
   daemonA.onNetworkRegain()
   await hasta(() => daemonA.isOnline() && daemonA.getPlan() !== undefined)
   ok(daemonA.isOnline(), 'el daemon se reporta online contra el servicio')
@@ -117,6 +142,10 @@ try {
   const vacio = await hasta(() => storeA.pendingMutationCount() === 0, 25_000)
   ok(vacio, 'la cola de pendientes queda en cero', `${storeA.pendingMutationCount()} sin subir`)
 
+  // La cuota se lee del ultimo `status()`, que corrio ANTES del push: hay que volver a
+  // pedirla o se mide el estado de hace un rato y da 0.
+  daemonA.onNetworkRegain()
+  await espera(2_000)
   const cuota = daemonA.getQuota()
   ok(cuota != null && cuota.used_bytes > 0, 'el servicio contabiliza los bytes subidos',
     cuota ? `${cuota.used_bytes} de ${cuota.max_bytes}` : 'sin cuota')
@@ -126,7 +155,7 @@ try {
   const storeB = new MemoryStore(join(home, 'b.db'))
   ok(storeB.count() === 0, 'B arranca sin ninguna memoria', `${storeB.count()}`)
 
-  const daemonB = hacerDaemon(storeB, '33333333-3333-3333-3333-333333333333', 'B')
+  const daemonB = hacerDaemon(storeB, DEV_B, 'B', TOKEN_B)
   daemonB.onNetworkRegain()
   const bajaron = await hasta(() => storeB.count() >= 2, 25_000)
   ok(bajaron, 'las memorias de A aparecen en B', `${storeB.count()} bajadas`)
