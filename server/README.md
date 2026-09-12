@@ -29,6 +29,7 @@ particular el back-office, que vive en otro repo (`RavenProjects/aira-admin`):
 |---|---|
 | `title`, `content` | Texto cifrado con prefijo `nmc1:`. **No legible, no buscable.** |
 | `tags` | Blob cifrado, no un array consultable. |
+| `origin_account` | Cifrado desde el 2026-09-12. Cerraba una fuga que nadie había decidido: sale de `NEST_MEMORY_ACCOUNT`, que se arma con el nombre del directorio de cuenta, y en una máquina real **ese nombre es el email del usuario**. Subía en claro en cada observación guardada por un agente. El servicio sólo lo almacena y lo devuelve — no lo consulta ni filtra por él. |
 | `topic_key` | HMAC hex de 32 caracteres. Sirve para igualdad; no se puede volver al tema. |
 | `projects.display_name` | Cifrado. Cerraba una fuga: `memory-project-key.ts` dice "Cloud never learns the repo name" y el display name viajaba en claro al lado. |
 | `type`, `scope`, `git_branch`, `lamport`, timestamps, `sync_id`, `project_key` | **Sin cambios, en claro.** `scope` decide autorización del lado del servidor y cifrarlo rompería el modelo de permisos. |

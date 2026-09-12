@@ -15,8 +15,18 @@ export interface EnvelopeContext {
   keyEpoch: number
 }
 
-/** Los campos de texto que se cifran, en el orden de la tabla del §5.2. */
-const SEALED_FIELDS = ['title', 'content', 'project_display_name', 'content_hash'] as const
+/**
+ * Los campos de texto que se cifran, en el orden de la tabla del §5.2.
+ *
+ * `origin_account` se sumó el 2026-09-12 y NO estaba en esa tabla — ni como cifrado ni como
+ * "en claro a propósito". Era una fuga que nadie decidió: `pty-manager.ts` inyecta
+ * `NEST_MEMORY_ACCOUNT = "<ai>:<accountName>"`, y `accountName` sale del directorio
+ * `accounts/<ai>/<cuenta>` — que en una máquina real ES el email del usuario, con el punto
+ * cambiado por coma. O sea que cada observación guardada por un agente subía el mail en
+ * claro. El servidor sólo lo almacena y lo devuelve: no lo consulta ni filtra por él, así
+ * que cifrarlo no rompe nada del lado del servicio.
+ */
+const SEALED_FIELDS = ['title', 'content', 'project_display_name', 'content_hash', 'origin_account'] as const
 
 /**
  * Decision 1 del §9: en la v1 el scope `team` NO se cifra. La clave por equipo del §5.4

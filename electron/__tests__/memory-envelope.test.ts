@@ -162,4 +162,21 @@ describe('openPulledRow', () => {
     expect(looksLikeTopicHmac('release-2026-09')).toBe(false)
     expect(looksLikeTopicHmac('ABCDEF0123456789ABCDEF0123456789')).toBe(false) // mayusculas: no es nuestro formato
   })
+
+  // La fuga que nadie decidió: `NEST_MEMORY_ACCOUNT` sale del directorio
+  // `accounts/<ai>/<cuenta>`, y en una máquina real esa `<cuenta>` ES el email del usuario
+  // con el punto cambiado por coma. Subía en claro en cada observación que guardaba un
+  // agente, y no figuraba en la tabla del §5.2 ni entre los cifrados ni entre los que van en
+  // claro a propósito.
+  it('el email de la cuenta no sale en claro', () => {
+    const sellado = sealMutationPayload(ctx, {
+      sync_id: 'obs-1', scope: 'personal', type: 'decision',
+      title: 't', content: 'c', tags: [],
+      origin_account: 'claude:gerodc06@gmail,com',
+    })
+    expect(String(sellado.origin_account)).toMatch(/^nmc1:/)
+    expect(String(sellado.origin_account)).not.toContain('gmail')
+    expect(String(sellado.origin_account)).not.toContain('gerodc06')
+  })
+
 })
