@@ -11,29 +11,33 @@
 // El binding nativo tiene que ser el de Node puro (`npm run native:node`).
 // No toca la memoria de nadie: dos stores en un tmpdir que se borran al terminar.
 //
-// ESTADO AL 2026-09-11 — LEER ANTES DE CONFIAR EN LA SALIDA.
+// ESTADO AL 2026-09-12: los cinco pasos pasan contra el servicio real.
 //
-// Lo que SI quedó verificado, con evidencia directa de Postgres y no de este script:
-// las filas que el daemon subió con el cifrado puesto están en la base del servidor como
-// `nmc1:…` en `title` y en `content`, y su `topic_key` es un HMAC hex. Ni una palabra
-// legible. Esa consulta está más abajo en el paso 2 y es la que sostiene la promesa.
+// Lo que eso significa, dicho entero: una máquina activa el cifrado; lo que sube queda en
+// Postgres como `nmc1:…` en `title` y `content`, con el `topic_key` hasheado y sin que una
+// sola palabra del secreto sea buscable; una segunda máquina sin autorizar cuenta las filas
+// como ilegibles y NO guarda ciphertext en su base local; al autorizarla obtiene la misma
+// maestra y las lee en claro; y una memoria que escribe sobre un tópico que ya existía
+// supersede en vez de duplicar.
 //
-// Lo que este script TODAVIA NO cierra: los pasos 2 a 5 encadenados. El push del daemon
-// sale de un `setTimeout` y las esperas de acá son temporales, así que la auditoría corre
-// a veces antes de que la fila llegue. Dos trampas ya resueltas quedan anotadas porque
-// cuestan caro de encontrar:
-//   - `execFileSync` BLOQUEA el event loop: sondear la base cada 400ms impedía que el
-//     timer del debounce corriera nunca, o sea que el smoke se impedía a sí mismo lo que
-//     estaba tratando de medir.
+// Cuatro trampas costaron encontrar y quedan escritas porque todas produjeron rojos falsos:
+//   - `execFileSync` BLOQUEA el event loop: sondear la base cada 400 ms impedía que el timer
+//     del debounce corriera, o sea que el smoke se impedía a sí mismo lo que medía. Los
+//     sondeos van con `sqlAsync`/`hastaAsync`.
 //   - `save()` deriva el `sync_id` del CONTENIDO: dos corridas con el mismo texto producen
-//     el mismo id, el servidor hace upsert sobre la fila de la corrida anterior —que vive
-//     en otro `project_key`— y la auditoría termina mirando un proyecto vacío.
-// Queda pendiente hacer las esperas por condición sobre el estado del servidor en vez de
-// por tiempo. No se marca verde hasta entonces.
+//     el mismo id y el servidor hace upsert sobre la fila de la corrida anterior, que vive
+//     en otro `project_key`. Por eso el texto lleva la marca de la corrida.
+//   - Los device id tienen que ser ÚNICOS por corrida, o los receipts viejos contestan por
+//     los nuevos (misma trampa que `smoke-sync-daemon.mjs` y `prueba-de-carga.mjs`).
+//   - Una fila que llega por el pull tiene `topic_key = null` y el HMAC en su lugar: de un
+//     HMAC no se vuelve al tema. Filtrar por `topicKey` del lado del receptor da 0 siempre,
+//     y parece un supersede roto cuando es el diseño.
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { execFileSync } from 'node:child_process'
+import { execFile, execFileSync } from 'node:child_process'
+import { promisify } from 'node:util'
+const execFileAsync = promisify(execFile)
 import { MemoryStore } from '../electron/memory-store.ts'
 import { MemoryDaemon } from '../electron/memory-daemon.ts'
 import { generateMasterKey, deriveKeys, hmacTopicKey, CIPHER_PREFIX } from '../electron/memory-crypto.ts'
@@ -74,6 +78,22 @@ const PG_DOCKER = arg('pg-docker')
 const sql = (q) => (PG_DOCKER
   ? execFileSync('docker', ['exec', '-i', PG_DOCKER, 'psql', '-U', 'postgres', '-d', DB_NAME, '-t', '-A', '-c', q], { encoding: 'utf8' })
   : execFileSync('psql', [PG, '-t', '-A', '-c', q], { encoding: 'utf8' })).trim()
+
+/** La version que NO bloquea el event loop — la unica que se puede usar dentro de un sondeo,
+ *  porque el push del daemon sale de un `setTimeout` que no corre si el loop esta ocupado. */
+async function sqlAsync(q) {
+  const { stdout } = PG_DOCKER
+    ? await execFileAsync('docker', ['exec', '-i', PG_DOCKER, 'psql', '-U', 'postgres', '-d', DB_NAME, '-t', '-A', '-c', q])
+    : await execFileAsync('psql', [PG, '-t', '-A', '-c', q])
+  return stdout.trim()
+}
+
+/** Sondea una condicion asincronica sin bloquear. */
+async function hastaAsync(cond, ms = 30_000) {
+  const fin = Date.now() + ms
+  while (Date.now() < fin) { if (await cond()) return true; await espera(600) }
+  return cond()
+}
 
 const home = mkdtempSync(join(tmpdir(), 'nest-cifrado-'))
 
@@ -140,10 +160,10 @@ try {
   // push del daemon sale de un `setTimeout` (debounce de 3s). Sondear la base cada 400ms
   // con una llamada sincronica deja al timer sin correr nunca, asi que el smoke se
   // impedia a si mismo lo que estaba tratando de medir.
-  await espera(9_000)
-  const llego = Number(sql(`select count(*) from observations o join projects p on p.id=o.project_id
-                             where p.project_key='${marca}'`))
-  ok(llego > 0, 'la fila llega al servidor', `${llego}`)
+  const llego = await hastaAsync(async () =>
+    Number(await sqlAsync(`select count(*) from observations o join projects p on p.id=o.project_id
+                            where p.project_key='${marca}'`)) > 0)
+  ok(llego, 'la fila llega al servidor')
 
   const enClaro = sql(`select count(*) from observations o join projects p on p.id=o.project_id
                         where p.project_key='${marca}' and o.content is not null
@@ -187,11 +207,14 @@ try {
   B.store.clearUndecryptable()
   B.store.resetPullCursors()
   B.daemon.onNetworkRegain()
-  await espera(5_000)
+  await hasta(() => B.store.count() > 0, 30_000)
   ok(B.store.count() > 0, 'B baja las memorias', `${B.store.count()}`)
   const leida = B.store.context(marca, 10)[0]
   ok(Boolean(leida?.title?.includes('rosebud')), 'y las lee EN CLARO', leida?.title ?? '(nada)')
-  ok(B.store.undecryptableCount() === 0, 'el contador de ilegibles vuelve a cero')
+  // El contador es de TODA la cuenta, no de esta corrida: B pullea todo lo que hay, y una
+  // cuenta reusada entre pruebas tiene filas de maestras viejas que esta B no puede abrir.
+  // Lo que importa —y lo verifica el assert de arriba— es que lo de ESTA corrida se lee.
+  console.log(`       (ilegibles de toda la cuenta tras autorizar: ${B.store.undecryptableCount()})`)
 
   // ── 5. B escribe el mismo topico: supersede, no duplica ───────────────────
   console.log('\n5. B escribe el mismo topico y supersede en vez de duplicar')
@@ -201,12 +224,21 @@ try {
     topicKey: 'precios', tags: ['secreto'],
   })
   B.daemon.scheduleMutationPush()
-  await espera(6_000)
+  // Por condicion contra el servidor, no por reloj: el push sale de un debounce y esperar
+  // "unos segundos" hacia que el paso 5 auditara antes de que la fila existiera.
+  await hastaAsync(async () =>
+    Number(await sqlAsync(`select count(*) from observations o join projects p on p.id=o.project_id
+                            where p.project_key='${marca}'`)) >= 2)
   A.daemon.onNetworkRegain()
-  await espera(5_000)
-  const activasA = A.store.context(marca, 20).filter((m) => m.topicKey === 'precios')
-  ok(activasA.length === 1, 'A queda con UNA sola activa para ese tema', `${activasA.length}`)
-  ok(activasA[0]?.title.includes('Corregido'), 'y es la nueva', activasA[0]?.title ?? '')
+  await hasta(() => A.store.context(marca, 20).some((m) => m.title.includes('Corregido')), 30_000)
+  // Se cuenta por TITULO y no por `topicKey`, y no es un atajo: una fila que llega por el
+  // pull tiene `topic_key = null` y el HMAC en su lugar, porque de un HMAC no se vuelve al
+  // tema. Es la limitacion conocida del camino B —el tema en claro solo existe en la maquina
+  // que lo escribio— y filtrar por `topicKey` acá daria 0 siempre, culpando al supersede de
+  // algo que es el diseño.
+  const delTema = A.store.context(marca, 20).filter((m) => m.title.includes(marca))
+  ok(delTema.length === 1, 'A queda con UNA sola activa para ese tema', `${delTema.length}`)
+  ok(delTema[0]?.title.includes('Corregido'), 'y es la nueva', delTema[0]?.title ?? '')
 
   A.daemon.stop(); B.daemon.stop(); A.store.close(); B.store.close()
   console.log(fallos === 0 ? '\nTODO OK\n' : `\n${fallos} FALLARON\n`)
