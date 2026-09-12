@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, existsSync, statSync, readFileSync, writeFileSync, mkdirSync } from 'fs'
+import { mkdtempSync, rmSync, existsSync, statSync, readFileSync, writeFileSync, mkdirSync, readdirSync } from 'fs'
 import { tmpdir } from 'os'
 import { join, dirname } from 'path'
 import {
@@ -86,5 +86,32 @@ describe('memory-key-store', () => {
     clearKeyMaterial(home, 'u1')
     expect(existsSync(keyFilePath(home, 'u1'))).toBe(false)
     expect(() => clearKeyMaterial(home, 'u1')).not.toThrow()
+  })
+
+  // El caso que destruia la maestra en silencio: `loadKeyMaterial` devuelve null ante
+  // CUALQUIER problema —JSON roto, archivo truncado por un corte de luz, safeStorage que
+  // dejo de abrir tras restaurar el llavero— y `ensureKeyMaterial` lo leia como "primer
+  // arranque", generaba un par nuevo y lo pisaba. La privada que era lo unico capaz de abrir
+  // la envoltura publicada en el servidor desaparecia para siempre.
+  it('un keys.bin ilegible NO se pisa: se aparta y queda recuperable', () => {
+    const ruta = keyFilePath(home, null)
+    mkdirSync(dirname(ruta), { recursive: true })
+    writeFileSync(ruta, Buffer.from('esto no es lo que safeStorage escribio'))
+
+    const material = ensureKeyMaterial(home, null, safe)
+    expect(material.device.publicKey).toBeTruthy()
+
+    // El original sigue en disco, con otro nombre: un respaldo del llavero puede volver a
+    // abrirlo. Un archivo pisado no vuelve nunca.
+    const apartados = readdirSync(dirname(ruta)).filter((f) => f.includes('.roto-'))
+    expect(apartados).toHaveLength(1)
+  })
+
+  // Sin tmp+rename, un crash a mitad de escritura dejaba el archivo truncado — que es
+  // exactamente la entrada del caso de arriba.
+  it('guardar no deja un temporal tirado', () => {
+    ensureKeyMaterial(home, null, safe)
+    const sueltos = readdirSync(dirname(keyFilePath(home, null))).filter((f) => f.endsWith('.tmp'))
+    expect(sueltos).toEqual([])
   })
 })

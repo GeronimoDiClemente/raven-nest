@@ -120,4 +120,30 @@ describe('memory-key-wrap — código de recuperación', () => {
     // Sin I, L, O ni U: son las que se confunden al leer un codigo escrito a mano.
     expect(utiles).not.toMatch(/[ILOU]/)
   })
+
+  // El alfabeto excluye I, L, O y U porque se confunden al leer un código escrito a mano.
+  // Excluirlas evita GENERARLAS, pero no sirve de nada si al leerlas del papel se descartan:
+  // el string queda corrido un lugar, scrypt deriva otra clave, y la app le dice "código
+  // incorrecto" a alguien que tipeó exactamente lo que tenía anotado — sobre el único camino
+  // que queda entre él y una pérdida irreversible.
+  it('mapea las letras confundibles en vez de tirarlas', () => {
+    const master = randomBytes(32)
+    const code = generateRecoveryCode()
+    const wrap = wrapForRecovery(code, master)
+
+    // Lo que pasa al transcribir a mano: 0→O, 1→I o L, V→U.
+    const comoLoLeyo = code
+      .replace(/0/g, 'O')
+      .replace(/1/g, 'I')
+      .replace(/V/g, 'U')
+      .toLowerCase()
+      .replace(/-/g, ' ')
+    expect(unwrapWithRecovery(comoLoLeyo, wrap).equals(master)).toBe(true)
+  })
+
+  it('y la normalización deja siempre los 24 caracteres', () => {
+    const code = generateRecoveryCode()
+    const confundido = code.replace(/0/g, 'O').replace(/1/g, 'L')
+    expect(normalizeRecoveryCode(confundido).replace(/-/g, '')).toHaveLength(24)
+  })
 })

@@ -3226,12 +3226,29 @@ ipcMain.handle('memory:encryption:activate', async () => {
       return { ok: false, error: 'Esta cuenta ya tiene el cifrado activado — esta máquina quedó autorizada.' }
     }
     const res = await activateEncryption(deps, memoryKeys.device)
+    // Para cuando esto vuelve, el servidor YA tiene la época 1 y las dos envolturas: la
+    // cuenta está activada, pase lo que pase de acá en adelante. Si `saveKeyMaterial` lanza
+    // (disco lleno, safeStorage que dejó de estar entre el arranque y el clic) y el error se
+    // propaga, el `recoveryCode` se pierde con el stack y nunca llega a mostrarse — y no hay
+    // forma de regenerarlo: `wrapForRecovery` sólo corre acá, y volver a activar exige rotar,
+    // que destruye lo que ya subió la otra máquina. El usuario quedaría con una cuenta
+    // cifrada, un mensaje que dice que falló, y sin ninguna copia de su maestra.
+    //
+    // Por eso el código se devuelve IGUAL, con el problema de persistencia al lado.
     memoryKeys = { ...memoryKeys, master: res.master, keyEpoch: res.keyEpoch }
-    saveKeyMaterial(ravenHome(), memory.store.getOwnerUserId(), safeStorage, memoryKeys)
+    let avisoDePersistencia: string | null = null
+    try {
+      saveKeyMaterial(ravenHome(), memory.store.getOwnerUserId(), safeStorage, memoryKeys)
+    } catch (err) {
+      avisoDePersistencia =
+        'El cifrado quedó activado, pero la clave no se pudo guardar en esta máquina: ' +
+        `${err instanceof Error ? err.message : String(err)}. Guardá el código de recuperación ` +
+        'ahora — es lo único que va a poder recuperar tus memorias.'
+    }
     applyTopicHasher()
     memory.store.backfillTopicHmacs()
     memory.store.rememberKeyEpoch(res.keyEpoch)
-    return { ok: true, recoveryCode: res.recoveryCode }
+    return { ok: true, recoveryCode: res.recoveryCode, aviso: avisoDePersistencia }
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) }
   }

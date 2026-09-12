@@ -5,7 +5,7 @@
 // memory-store.ts: dos cuentas en la misma maquina tienen bases distintas, asi que tienen
 // maestras distintas. Sin cuenta logueada, `_local`.
 import { join, dirname } from 'path'
-import { readFileSync, writeFileSync, existsSync, mkdirSync, unlinkSync, chmodSync } from 'fs'
+import { readFileSync, writeFileSync, existsSync, mkdirSync, unlinkSync, chmodSync, renameSync } from 'fs'
 import { generateDeviceKeyPair, type DeviceKeyPair } from './memory-key-wrap'
 
 /** Lo que este modulo necesita de `electron.safeStorage`, para poder testearlo sin Electron. */
@@ -71,13 +71,29 @@ export function saveKeyMaterial(
   }
   const path = keyFilePath(ravenHomeDir, userId)
   mkdirSync(dirname(path), { recursive: true })
-  writeFileSync(path, safe.encryptString(JSON.stringify(material)), { mode: 0o600 })
+  // Atomico: escribir a un temporal y renombrar. Directo sobre el archivo final, un corte de
+  // luz o un crash a mitad de escritura dejaba un `keys.bin` TRUNCADO — y un archivo
+  // truncado no se distingue de "todavia no hay claves", asi que el arranque siguiente
+  // generaba un par nuevo y lo pisaba, destruyendo para siempre la unica privada capaz de
+  // abrir la envoltura publicada en el servidor.
+  const tmp = `${path}.tmp`
+  writeFileSync(tmp, safe.encryptString(JSON.stringify(material)), { mode: 0o600 })
   // `mode` de writeFileSync queda sujeto a la umask; el chmod explicito es el que manda.
   // No-op en Windows (ACLs, no bits POSIX), donde DPAPI es la proteccion real.
-  try { chmodSync(path, 0o600) } catch { /* best effort */ }
+  try { chmodSync(tmp, 0o600) } catch { /* best effort */ }
+  renameSync(tmp, path)
 }
 
-/** Lee lo que haya; si no hay par de dispositivo todavia, lo genera y lo persiste. */
+/**
+ * Lee lo que haya; si no hay par de dispositivo todavia, lo genera y lo persiste.
+ *
+ * **Nunca pisa un archivo que existe pero no se pudo leer.** `loadKeyMaterial` devuelve
+ * `null` ante cualquier problema —JSON roto, safeStorage que dejo de abrir tras restaurar el
+ * llavero, archivo truncado— y confundir eso con "primer arranque" destruia la maestra: se
+ * generaba un par nuevo encima y la privada que era lo unico capaz de abrir la envoltura
+ * publicada en el servidor desaparecia. El archivo se renombra a `.roto` y se deja: un
+ * respaldo del llavero puede volver a abrirlo, un archivo pisado no vuelve nunca.
+ */
 export function ensureKeyMaterial(
   ravenHomeDir: string,
   userId: string | null,
@@ -85,6 +101,25 @@ export function ensureKeyMaterial(
 ): KeyMaterial {
   const existente = loadKeyMaterial(ravenHomeDir, userId, safe)
   if (existente) return existente
+
+  const path = keyFilePath(ravenHomeDir, userId)
+  if (existsSync(path)) {
+    const roto = `${path}.roto-${Date.now()}`
+    try {
+      renameSync(path, roto)
+      console.error(
+        `[memory-key-store] ${path} existe y no se pudo leer. Se movio a ${roto} y se genera ` +
+        'un par nuevo: esta maquina va a necesitar autorizacion. El archivo viejo NO se borro.'
+      )
+    } catch {
+      // Si ni siquiera se puede mover, no se pisa: mejor fallar que destruir la clave.
+      throw new Error(
+        `${path} no se pudo leer ni mover. No se genera un par nuevo encima para no destruir ` +
+        'la clave: revisá los permisos del archivo.'
+      )
+    }
+  }
+
   const nuevo: KeyMaterial = { device: generateDeviceKeyPair(), master: null, keyEpoch: 0 }
   saveKeyMaterial(ravenHomeDir, userId, safe, nuevo)
   return nuevo

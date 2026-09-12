@@ -31,6 +31,7 @@ const LO_QUE_QUEDA_EN_CLARO =
 export default function MemoryEncryptionCard() {
   const [estado, setEstado] = useState<EstadoCifrado | null>(null)
   const [codigo, setCodigo] = useState<string | null>(null)
+  const [avisoDeCodigo, setAvisoDeCodigo] = useState<string | null>(null)
   const [confirmado, setConfirmado] = useState(false)
   const [recuperando, setRecuperando] = useState(false)
   const [codigoTipeado, setCodigoTipeado] = useState('')
@@ -90,7 +91,7 @@ export default function MemoryEncryptionCard() {
   const activar = () => conBloqueo(async () => {
     const res = await api?.encryptionActivate?.()
     if (!res) return
-    if (res.ok) { setCodigo(res.recoveryCode); setConfirmado(false) }
+    if (res.ok) { setCodigo(res.recoveryCode); setAvisoDeCodigo(res.aviso ?? null); setConfirmado(false) }
     else setError(res.error)
     await refrescar()
   })
@@ -131,6 +132,9 @@ export default function MemoryEncryptionCard() {
         <p className="text-fs-sm text-muted-foreground">
           Es lo único que recupera tus memorias si perdés todas tus máquinas. No lo vas a volver a ver.
         </p>
+        {avisoDeCodigo && (
+          <p className="rounded-md border border-warn/40 px-2 py-1 text-fs-sm text-warn">{avisoDeCodigo}</p>
+        )}
         <p className="select-all rounded-md border border-border bg-muted/30 px-3 py-2 text-center font-mono text-fs tracking-[0.08em] text-foreground">
           {codigo}
         </p>

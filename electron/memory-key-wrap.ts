@@ -135,8 +135,27 @@ export function generateRecoveryCode(): string {
  * bien tipeado con formato distinto TIENE que abrir: lo contrario es culpar al usuario de
  * un problema nuestro.
  */
+/**
+ * Las letras que el alfabeto EXCLUYE por confundibles, mapeadas a lo que el usuario quiso
+ * escribir. Crockford base32 las define así y es la mitad que faltaba: excluirlas del
+ * alfabeto evita generarlas, pero no sirve de nada si al leerlas del papel se descartan.
+ *
+ * El caso concreto: el código se muestra UNA vez, el usuario lo anota a mano, meses después
+ * pierde todas sus máquinas y transcribe `7K0V…` como `7KOV…`. Sin este mapa, la `O` se
+ * DESCARTA por no estar en el alfabeto, el string queda con 23 caracteres corridos un lugar,
+ * scrypt deriva otra clave y la app contesta "código incorrecto" a alguien que tipeó
+ * exactamente lo que tenía escrito — sobre el único camino que queda entre él y una pérdida
+ * irreversible.
+ */
+const CONFUNDIBLES: Record<string, string> = { O: '0', I: '1', L: '1', U: 'V' }
+
 export function normalizeRecoveryCode(input: string): string {
-  const limpio = input.toUpperCase().split('').filter((c) => RECOVERY_ALPHABET.includes(c)).join('')
+  const limpio = input
+    .toUpperCase()
+    .split('')
+    .map((c) => CONFUNDIBLES[c] ?? c)
+    .filter((c) => RECOVERY_ALPHABET.includes(c))
+    .join('')
   const grupos: string[] = []
   for (let i = 0; i < limpio.length; i += RECOVERY_GROUP_LEN) {
     grupos.push(limpio.slice(i, i + RECOVERY_GROUP_LEN))

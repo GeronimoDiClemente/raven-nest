@@ -1009,7 +1009,13 @@ declare global {
          *  de "sin cifrado", y activar sin clave borra las envolturas de las otras. */
         estadoRemotoLeido?: boolean
       }>
-      encryptionActivate?: () => Promise<{ ok: true; recoveryCode: string } | { ok: false; error: string }>
+      encryptionActivate?: () => Promise<
+        // `aviso` va con el código, no en lugar de él: si la clave no se pudo guardar en esta
+        // máquina el código es lo ÚNICO que queda, así que perderlo por reportar el problema
+        // sería el peor resultado posible.
+        | { ok: true; recoveryCode: string; aviso?: string | null }
+        | { ok: false; error: string }
+      >
       /** Toma la envoltura que otra máquina ya publicó para ésta. `adoptada: false` cuando
        *  todavía no hay ninguna — el caso normal hasta que el usuario autorice desde la otra. */
       encryptionAdopt?: () => Promise<{ ok: boolean; adoptada?: boolean; error?: string }>

@@ -144,4 +144,22 @@ describe('MemoryEncryptionCard', () => {
     expect(await screen.findByText(/no se pudo consultar el estado/i)).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /activar el cifrado/i })).toBeNull()
   })
+
+  // Para cuando `activateEncryption` vuelve, el servidor YA tiene la época y las envolturas:
+  // la cuenta está cifrada pase lo que pase. Si persistir la clave falla y el error se
+  // propaga, el código se pierde con el stack y NO hay forma de regenerarlo — quedaría una
+  // cuenta cifrada, un mensaje de error, y ninguna copia de la maestra.
+  it('si la clave no se pudo guardar, el código se muestra IGUAL, con el aviso al lado', async () => {
+    montarCon({}, {
+      encryptionActivate: vi.fn(async () => ({
+        ok: true as const,
+        recoveryCode: 'AAAA-BBBB-CCCC-DDDD-EEEE-FFFF',
+        aviso: 'El cifrado quedó activado, pero la clave no se pudo guardar en esta máquina: disco lleno.',
+      })),
+    })
+    render(<MemoryEncryptionCard />)
+    fireEvent.click(await screen.findByRole('button', { name: /activar el cifrado/i }))
+    expect(await screen.findByText('AAAA-BBBB-CCCC-DDDD-EEEE-FFFF')).toBeInTheDocument()
+    expect(screen.getByText(/no se pudo guardar en esta máquina/i)).toBeInTheDocument()
+  })
 })
