@@ -636,3 +636,98 @@ describe('la comparación de la prueba mide bytes, no caracteres', () => {
     }
   })
 })
+
+/**
+ * El tope y la validación de slot, de la tercera revisión.
+ *
+ * `publishWraps` es la operación más cara del servicio: inserta uno por uno DENTRO de la
+ * transacción, con el advisory lock de la cuenta y el `for update` sobre `users` tomados. La
+ * única validación de tamaño era `length === 0`. Medido contra Postgres: un request con
+ * 20.000 wraps tardó 10 segundos y persistió 20.001 filas, reteniendo la conexión y el lock
+ * todo ese tiempo. Y `key_wraps` no cuenta contra la cuota de plan, así que era escritura de
+ * almacenamiento que evadía el límite.
+ */
+describe('el tamaño del request de envolturas', () => {
+  const wrapsDe = (n: number) =>
+    Array.from({ length: n }, (_, i) => ({ slot: `s-${i}`, kind: 'device' as const, wrapped: 'w' }))
+
+  it('un request con miles de envolturas se rechaza sin escribir nada', async () => {
+    const res = await publishWraps(pool, authFor(deviceA), {
+      key_epoch: 1, mode: 'activate', rotate_verifier: verificador('m', 1),
+      wraps: wrapsDe(5_000),
+    })
+    expect(res.ok).toBe(false)
+    if (!res.ok) {
+      expect(res.status).toBe(400)
+      expect(res.error).toBe('too_many_wraps')
+    }
+    const { rows } = await pool.query('select count(*)::int as n from key_wraps where user_id = $1', [userId])
+    expect(rows[0].n, 'ni una fila').toBe(0)
+  })
+
+  // El caso legítimo más grande que existe: un slot por máquina más el de recuperación.
+  it('una cuenta con varias máquinas entra holgada', async () => {
+    const ids: string[] = []
+    for (let i = 0; i < 8; i++) {
+      const id = randomUUID()
+      await pool.query(
+        "insert into devices (id, user_id, name, token_hash) values ($1, $2, $3, $4)",
+        [id, userId, `maq-${i}`, 'hash-' + id]
+      )
+      ids.push(id)
+    }
+    const res = await publishWraps(pool, authFor(deviceA), {
+      key_epoch: 1, mode: 'activate', rotate_verifier: verificador('m', 1),
+      wraps: [
+        ...ids.map((id) => ({ slot: id, kind: 'device' as const, wrapped: 'w' })),
+        { slot: 'recovery', kind: 'recovery' as const, wrapped: 'r' },
+      ],
+    })
+    expect(res.ok).toBe(true)
+  })
+
+  /**
+   * Un `slot` que no es `'recovery'` ni un device de esta cuenta creaba filas que ningún
+   * cliente va a leer nunca, ocupando espacio que no cuenta contra la cuota y ensuciando la
+   * tabla que `getKeyState` recorre.
+   */
+  it('un slot inventado se rechaza', async () => {
+    const res = await publishWraps(pool, authFor(deviceA), {
+      key_epoch: 1, mode: 'activate', rotate_verifier: verificador('m', 1),
+      wraps: [{ slot: 'no-soy-un-device', kind: 'device', wrapped: 'w' }],
+    })
+    expect(res.ok).toBe(false)
+    if (!res.ok) expect(res.error).toBe('unknown_slot')
+  })
+
+  it('el device de OTRA cuenta tampoco es un slot válido', async () => {
+    const otroUser = randomUUID()
+    const otroDevice = randomUUID()
+    await pool.query("insert into users (id, plan) values ($1, 'pro')", [otroUser])
+    await pool.query(
+      "insert into devices (id, user_id, name, token_hash) values ($1, $2, 'ajeno', $3)",
+      [otroDevice, otroUser, 'hash-' + otroDevice]
+    )
+    const res = await publishWraps(pool, authFor(deviceA), {
+      key_epoch: 1, mode: 'activate', rotate_verifier: verificador('m', 1),
+      wraps: [{ slot: otroDevice, kind: 'device', wrapped: 'w' }],
+    })
+    expect(res.ok).toBe(false)
+    if (!res.ok) expect(res.error).toBe('unknown_slot')
+  })
+
+  // `slot` es texto y `devices.id` es uuid: sin castear los dos lados, un slot que no es un
+  // uuid válido hace lanzar a Postgres en vez de no matchear — un 500 donde va un 400.
+  it('un slot que no es un uuid da 400, no una excepción', async () => {
+    let salida: unknown
+    try {
+      salida = await publishWraps(pool, authFor(deviceA), {
+        key_epoch: 1, mode: 'activate', rotate_verifier: verificador('m', 1),
+        wraps: [{ slot: 'esto-no-es-un-uuid-ni-de-casualidad', kind: 'device', wrapped: 'w' }],
+      })
+    } catch (err) {
+      salida = `LANZÓ: ${err instanceof Error ? err.message : String(err)}`
+    }
+    expect(salida).toEqual({ ok: false, status: 400, error: 'unknown_slot' })
+  })
+})

@@ -77,3 +77,46 @@ describe('createRateLimiter', () => {
     expect(rl.check('device-a').ok).toBe(false) // cuenta 4 de 3 -> bloqueado
   })
 })
+
+/**
+ * Las rutas de claves no tenían limitador, y `publishWraps` es la operación más cara del
+ * servicio: toma el advisory lock de la cuenta y el `for update` sobre `users` mientras
+ * inserta. Medido en la tercera revisión: diez publishes concurrentes de una cuenta llevaron
+ * un `POST /v1/sync/push` vacío de OTRA cuenta de 97ms a 2.640ms.
+ *
+ * Acá se prueba la política, no el cableado: que 12 por minuto por device es lo que aplica y
+ * que el 13º recibe un `Retry-After` usable. El cableado en `http.ts` comparte exactamente el
+ * mismo bloque que push y pull.
+ */
+describe('el limitador de las rutas de claves', () => {
+  it('deja pasar 12 por minuto y corta el 13º con un Retry-After', () => {
+    let ahora = 1_000_000
+    const limiter = createRateLimiter({ limit: 12, windowMs: 60_000, now: () => ahora })
+
+    for (let i = 1; i <= 12; i++) {
+      expect(limiter.check('dev-1').ok, `la llamada ${i} tiene que pasar`).toBe(true)
+    }
+    const cortado = limiter.check('dev-1')
+    expect(cortado.ok).toBe(false)
+    if (!cortado.ok) {
+      expect(cortado.retryAfterSeconds).toBeGreaterThan(0)
+      expect(cortado.retryAfterSeconds).toBeLessThanOrEqual(60)
+    }
+
+    // Otro device no paga la cuota del primero: la clave es el device, no la cuenta ni la IP.
+    expect(limiter.check('dev-2').ok).toBe(true)
+
+    // Pasada la ventana, vuelve a abrir.
+    ahora += 60_001
+    expect(limiter.check('dev-1').ok).toBe(true)
+  })
+
+  // Los flujos reales: activar es una vez en la vida, autorizar es de a una máquina, y la
+  // tarjeta lee el estado al abrir el overlay. Ninguno se acerca al límite.
+  it('el flujo de activar y autorizar entra holgado', () => {
+    let ahora = 2_000_000
+    const limiter = createRateLimiter({ limit: 12, windowMs: 60_000, now: () => ahora })
+    // enroll + GET estado + publish (activar) + GET estado + publish (autorizar) + GET
+    for (let i = 0; i < 6; i++) expect(limiter.check('mac').ok).toBe(true)
+  })
+})

@@ -37,6 +37,9 @@ export interface WrapInput {
 
 type Fail<S extends number> = { ok: false; status: S; error: string }
 
+/** Un slot por device mas el de recuperacion. Ver el comentario en `publishWraps`. */
+const MAX_WRAPS_POR_REQUEST = 64
+
 export async function enrollDeviceKey(
   pool: Pool,
   auth: KeysAuth,
@@ -153,6 +156,30 @@ export async function publishWraps(
   }
   const wraps = Array.isArray(body?.wraps) ? (body.wraps as WrapInput[]) : []
   if (wraps.length === 0) return { ok: false, status: 400, error: 'no_wraps' }
+  /**
+   * El techo duro, decidido ANTES de pedir una conexion del pool.
+   *
+   * La unica validacion de tamano era `length === 0`, y el loop de insercion corre uno por
+   * uno DENTRO de la transaccion, con el advisory lock de la cuenta y el `for update` sobre
+   * `users` tomados. Medido contra Postgres el 2026-09-13: un solo request con 20.000 wraps
+   * tardo 10 segundos y persistio 20.001 filas, con la conexion y el lock retenidos todo ese
+   * tiempo — o sea que bloquea cualquier otra operacion de claves de esa cuenta. Y con
+   * `PG_POOL_MAX` en su default de 10, diez requests asi dejan sin conexiones al resto del
+   * servicio: un `push` vacio de OTRA cuenta paso de 97ms a 2.640ms.
+   *
+   * Peor: `key_wraps` no cuenta contra la cuota de plan que `push` si aplica, asi que era
+   * escritura de almacenamiento que evadia el limite.
+   *
+   * El numero sale del uso real: un slot por device mas el de recuperacion. `MAX_DEVICES`
+   * del plan mas alto es un orden de magnitud menor que esto, asi que 64 deja aire de sobra
+   * para cualquier cuenta legitima y corta el abuso por tres ordenes de magnitud.
+   *
+   * Va antes de `pool.connect()` a proposito: rechazar despues de tomar la conexion todavia
+   * le regala al atacante el recurso escaso.
+   */
+  if (wraps.length > MAX_WRAPS_POR_REQUEST) {
+    return { ok: false, status: 400, error: 'too_many_wraps' }
+  }
   for (const w of wraps) {
     if (typeof w?.slot !== 'string' || w.slot.trim() === '') {
       return { ok: false, status: 400, error: 'invalid_slot' }
@@ -239,6 +266,28 @@ export async function publishWraps(
      *
      * No hay filtración en el cambio: la época ya se lee con un `GET /v1/keys`.
      */
+    /**
+     * Un `slot` tiene que ser `'recovery'` o el id de un device de ESTA cuenta. No se
+     * validaba contra nada, asi que cualquier string entraba: filas que ningun cliente va a
+     * leer nunca, ocupando espacio que no cuenta contra la cuota, y ensuciando la tabla que
+     * `getKeyState` recorre para armar la lista de maquinas.
+     *
+     * Una sola consulta para todos los slots: el tope de 64 de arriba la acota.
+     */
+    const slotsDeDevice = [...new Set(wraps.map((w) => w.slot).filter((x) => x !== 'recovery'))]
+    if (slotsDeDevice.length > 0) {
+      // `::text` en los dos lados: `slot` es texto y `devices.id` es uuid, y comparar sin
+      // castear hace que un slot que no es un uuid valido lance en vez de no matchear.
+      const { rows: existentes } = await client.query(
+        'select id::text as id from devices where user_id = $1 and id::text = any($2::text[])',
+        [auth.userId, slotsDeDevice]
+      )
+      if (existentes.length !== slotsDeDevice.length) {
+        await client.query('rollback')
+        return { ok: false, status: 400, error: 'unknown_slot' }
+      }
+    }
+
     if (modo === 'activate' && keyEpoch !== actual + 1) {
       // Activar es SIEMPRE pasar de `actual` a `actual + 1`. Si otra maquina ya activo, esta
       // se entera aca y el cliente adopta la que existe en vez de crear una segunda.

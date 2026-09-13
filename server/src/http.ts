@@ -22,6 +22,18 @@ const pullLimiter = createRateLimiter({ limit: 60, windowMs: 60_000 })
 // límite no puede ser el device: es la IP. Mucho más bajo que el de push/pull porque un
 // registro por máquina y por vida es lo normal — diez por hora ya es un bug o un abuso.
 const registerLimiter = createRateLimiter({ limit: 10, windowMs: 60 * 60_000 })
+/**
+ * Las rutas de claves no tenian limitador y `publishWraps` es la operacion mas cara del
+ * servicio: toma el advisory lock de la cuenta y el `for update` sobre `users` mientras
+ * inserta. Sin limite, un device con token valido podia encadenarlos y dejar sin conexiones
+ * al resto (medido: un `push` vacio de otra cuenta paso de 97ms a 2.640ms con diez publishes
+ * concurrentes y `PG_POOL_MAX` en 10).
+ *
+ * El limite es bajo a proposito y no molesta al uso real: un usuario activa el cifrado una
+ * vez, autoriza una maquina cada tanto, y la tarjeta lee el estado al abrir el overlay. Doce
+ * por minuto es mas de lo que cualquiera de esos flujos necesita.
+ */
+const keysLimiter = createRateLimiter({ limit: 12, windowMs: 60_000 })
 
 function send(
   res: ServerResponse,
@@ -159,8 +171,9 @@ async function handleRequest(pool: Pool, req: IncomingMessage, res: ServerRespon
 
     // Después de autenticar, no antes: la clave es el device, y el device sale del token.
     // Limitar por IP dejaría a una oficina entera detrás de un NAT compartiendo cuota.
-    if (isPush || isPull) {
-      const verdict = (isPush ? pushLimiter : pullLimiter).check(auth.deviceId)
+    if (isPush || isPull || isKeysEnroll || isKeysGet || isKeysPublish) {
+      const limiter = isPush ? pushLimiter : isPull ? pullLimiter : keysLimiter
+      const verdict = limiter.check(auth.deviceId)
       if (!verdict.ok) {
         return send(res, 429, { error: 'rate_limited' }, {
           'Retry-After': String(verdict.retryAfterSeconds),
