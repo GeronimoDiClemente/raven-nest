@@ -105,9 +105,19 @@ export async function activateEncryption(
       // segunda no rotaba (no era `>`) ni era rechazada (no era `<`), asi que pisaba el slot
       // de recuperacion con el suyo.
       mode: 'activate',
-      // El verificador de la epoca NUEVA: es lo que la proxima rotacion va a tener que
-      // probar que conoce. Derivado de la maestra, asi que solo lo puede calcular quien la
-      // tiene — y al servidor no le sirve para abrir nada.
+      /**
+       * El verificador de la epoca NUEVA: lo que la proxima rotacion va a tener que probar
+       * que conoce. Derivado de la maestra, asi que solo lo puede calcular quien la tiene — y
+       * al servidor no le sirve para abrir nada.
+       *
+       * No va `rotate_proof`: esta funcion solo corre cuando la cuenta esta en epoca 0 (el
+       * handler de activar hace `adoptExistingKey` primero y solo llega aca si devolvio
+       * null), y la primera activacion no tiene maestra anterior de la cual derivar una
+       * prueba. Rotar una cuenta YA cifrada exige mandar las dos cosas: la prueba de la
+       * maestra vigente y el verificador de la nueva. Hoy no hay ningun camino en la app que
+       * haga eso, y es a proposito — rotar borra la copia de recuperacion de todas las demas
+       * maquinas.
+       */
       rotate_verifier: rotateVerifier(master, keyEpoch),
       wraps: [
         { slot: deps.deviceId, kind: 'device', wrapped: wrapForDevice(device.publicKey, master) },
@@ -157,6 +167,16 @@ export async function authorizeDevice(
       // servidor lo infería de la época y una autorización con una época adelantada habría
       // borrado TODAS las envolturas de la cuenta, incluida la de recuperación.
       mode: 'authorize',
+      /**
+       * El servidor rechaza que una máquina se escriba su PROPIA envoltura, porque una que
+       * no tiene la maestra se la fabricaría sola. La excepción es el camino de recuperación
+       * (D8), que es exactamente eso: la máquina acaba de abrir la copia con el código y se
+       * auto-autoriza para no volver a pedirlo. Manda la prueba de que la tiene.
+       *
+       * En el caso normal —autorizar a OTRA máquina— el servidor no la mira, pero mandarla
+       * no cuesta nada y evita tener dos caminos distintos acá.
+       */
+      rotate_proof: rotateVerifier(Buffer.from(master, 'base64'), keyEpoch),
       wraps: [{
         slot: target.deviceId, kind: 'device',
         wrapped: wrapForDevice(target.publicKey, Buffer.from(master, 'base64')),

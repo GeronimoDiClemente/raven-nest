@@ -139,7 +139,13 @@ export async function getKeyState(pool: Pool, auth: KeysAuth, slot?: string): Pr
 export async function publishWraps(
   pool: Pool,
   auth: KeysAuth,
-  body: { key_epoch?: unknown; wraps?: unknown; mode?: unknown; rotate_verifier?: unknown }
+  body: {
+    key_epoch?: unknown; wraps?: unknown; mode?: unknown
+    /** El verificador de la epoca NUEVA: lo que se guarda para la proxima rotacion. */
+    rotate_verifier?: unknown
+    /** La prueba de tener la maestra VIGENTE: lo que se compara contra lo guardado. */
+    rotate_proof?: unknown
+  }
 ): Promise<{ ok: true; keyEpoch: number } | Fail<400> | Fail<403> | Fail<409>> {
   const keyEpoch = Number(body?.key_epoch)
   if (!Number.isInteger(keyEpoch) || keyEpoch < 1) {
@@ -192,11 +198,7 @@ export async function publishWraps(
      * lleva un 409 — que es lo que el cliente necesita para adoptar la que existe en vez de
      * crear otra.
      *
-     * `mode` es opcional para no romper un cliente viejo: sin él se infiere de la época
-     * actual, que es exactamente lo que el cliente viejo asumía.
-     */
-    /**
-     * `mode` es OBLIGATORIO. Dejarlo opcional "por compatibilidad" hacia que las reglas
+     * `mode` es OBLIGATORIO. Dejarlo opcional "por compatibilidad" hacía que las reglas
      * estrictas —la prueba de posesion incluida— sólo corrieran cuando el llamador las
      * pedia: una defensa que el atacante activa o no a gusto. Verificado contra Postgres: el
      * mismo request que el test rechaza, sin el campo `mode`, rotaba la epoca y borraba TODAS
@@ -211,56 +213,18 @@ export async function publishWraps(
     const modo = body.mode
 
     /**
-     * Rotar DESTRUYE: borra todas las envolturas de la cuenta, incluida la de recuperación.
-     * Hasta el 2026-09-12 lo único que hacía falta para eso era un token válido de la cuenta
-     * — ni tener la maestra, ni haber sido autorizado nunca. Y era alcanzable SIN atacante:
-     * un corte de red dejaba el estado en época 0, la tarjeta ofrecía "Activar" en una
-     * máquina sin clave, y el clic borraba la clave de todas las demás.
+     * La coherencia de época se decide ANTES que la posesión, y el orden es parte del
+     * contrato, no un detalle.
      *
-     * La primera activación (época 0) no tiene de dónde probar posesión y queda libre. De
-     * ahí en adelante, rotar exige tener una envoltura vigente: o sea, ser una máquina que
-     * YA puede leer. Recuperar con el código no pasa por acá — publica con `authorize` sobre
-     * la época vigente — así que el camino de "perdí todas mis máquinas" sigue abierto.
+     * Con el orden invertido, dos máquinas activando a la vez terminaban así: la segunda
+     * pide época 1 cuando ya hay 1, la prueba de posesión mira su verificador (derivado de
+     * SU maestra, que no es la que quedó) y contesta `403 not_authorized_to_rotate`. Pero
+     * esa máquina no está intentando rotar nada: está perdiendo una carrera, y lo que el
+     * cliente necesita oír es `409 stale_key_epoch`, que es su señal para ADOPTAR la maestra
+     * que ya existe. Con el 403 se quedaba sin clave y sin camino de vuelta.
+     *
+     * No hay filtración en el cambio: la época ya se lee con un `GET /v1/keys`.
      */
-    if (modo === 'activate' && actual > 0) {
-      /**
-       * La prueba no puede ser "existe una fila para mi slot": el propio sujeto de la prueba
-       * puede escribirla. Verificado contra Postgres: un device sin la maestra hacia
-       * `authorize` sobre su propio slot con un blob cualquiera y despues `activate`, y la
-       * fila que el mismo acababa de escribir le servia de prueba. Rotaba igual.
-       *
-       * La prueba real es conocer la MAESTRA: un verificador derivado de ella para la epoca
-       * vigente, que solo puede calcular quien la tiene. El servidor lo guarda y lo compara;
-       * no le sirve para abrir nada.
-       */
-      const verificador = typeof body?.rotate_verifier === 'string' ? body.rotate_verifier : ''
-      const { rows: esperado } = await client.query(
-        'select rotate_verifier from users where id = $1',
-        [auth.userId]
-      )
-      const guardado = (esperado[0]?.rotate_verifier as string | null) ?? null
-      const ok = Boolean(guardado) && verificador.length === guardado!.length &&
-        timingSafeEqual(Buffer.from(verificador), Buffer.from(guardado!))
-      if (!ok) {
-        await client.query('rollback')
-        return { ok: false, status: 403, error: 'not_authorized_to_rotate' }
-      }
-    }
-
-    /**
-     * `authorize` sólo puede escribir el slot de OTRO device, nunca el propio ni `recovery`.
-     * Sin esto, un device sin la maestra se fabricaba su propia envoltura (y de paso podia
-     * pisar la de recuperacion con un blob que no abre nada).
-     */
-    if (modo === 'authorize') {
-      for (const w of wraps) {
-        if (w.slot === auth.deviceId || w.kind === 'recovery') {
-          await client.query('rollback')
-          return { ok: false, status: 403, error: 'cannot_authorize_self' }
-        }
-      }
-    }
-
     if (modo === 'activate' && keyEpoch !== actual + 1) {
       // Activar es SIEMPRE pasar de `actual` a `actual + 1`. Si otra maquina ya activo, esta
       // se entera aca y el cliente adopta la que existe en vez de crear una segunda.
@@ -272,6 +236,78 @@ export async function publishWraps(
       // ninguna, y escribir envolturas huerfanas que nadie puede usar es peor que negarse.
       await client.query('rollback')
       return { ok: false, status: 409, error: actual === 0 ? 'not_activated' : 'stale_key_epoch' }
+    }
+
+    /**
+     * La prueba de posesión, y por qué son DOS campos y no uno.
+     *
+     * `rotate_proof` prueba que el llamador tiene la maestra que está en vigor AHORA:
+     * derivado de esa maestra y de la época actual. `rotate_verifier` es el valor que se
+     * guarda para la próxima vez, derivado de la maestra NUEVA y de la época nueva.
+     *
+     * La primera versión usaba un solo campo para las dos cosas, y así rotar era imposible
+     * para todo el mundo, incluido el dueño: el cliente manda el verificador de su maestra
+     * nueva, el servidor lo compara contra el de la vieja, y no coinciden nunca — no pueden,
+     * son de maestras distintas. Verificado contra Postgres el 2026-09-13: una cuenta
+     * activada quedaba sin ninguna rotación posible.
+     */
+    const pruebaDePosesion = async (): Promise<boolean> => {
+      const prueba = typeof body?.rotate_proof === 'string' ? body.rotate_proof : ''
+      const { rows: esperado } = await client.query(
+        'select rotate_verifier from users where id = $1',
+        [auth.userId]
+      )
+      const guardado = (esperado[0]?.rotate_verifier as string | null) ?? null
+      return Boolean(guardado) && prueba.length === guardado!.length &&
+        timingSafeEqual(Buffer.from(prueba), Buffer.from(guardado!))
+    }
+
+    /**
+     * Rotar DESTRUYE: borra todas las envolturas de la cuenta, incluida la de recuperación.
+     * Hasta el 2026-09-12 lo único que hacía falta para eso era un token válido de la cuenta
+     * — ni tener la maestra, ni haber sido autorizado nunca. Y era alcanzable SIN atacante:
+     * un corte de red dejaba el estado en época 0, la tarjeta ofrecía "Activar" en una
+     * máquina sin clave, y el clic borraba la clave de todas las demás.
+     *
+     * La primera activación (época 0) no tiene de dónde probar posesión y queda libre. De
+     * ahí en adelante, rotar exige conocer la maestra vigente.
+     *
+     * La prueba no puede ser "existe una fila en `key_wraps` para mi slot": el propio sujeto
+     * de la prueba puede escribirla. Verificado contra Postgres: un device sin la maestra
+     * hacía `authorize` sobre su propio slot con un blob cualquiera y después `activate`, y
+     * la fila que él mismo acababa de escribir le servía de prueba.
+     */
+    if (modo === 'activate' && actual > 0 && !(await pruebaDePosesion())) {
+      await client.query('rollback')
+      return { ok: false, status: 403, error: 'not_authorized_to_rotate' }
+    }
+
+    /**
+     * `authorize` normalmente escribe el slot de OTRO device: sin esta regla, una máquina sin
+     * la maestra se fabricaba su propia envoltura.
+     *
+     * La excepción es el camino D8 —"perdí todas mis máquinas"—: `recoverWithCode` abre la
+     * copia de recuperación con el código y después se auto-autoriza, para que el próximo
+     * arranque no vuelva a pedirlo. Esa máquina SÍ tiene la maestra en ese momento y lo puede
+     * probar. Sin la excepción, la regla mataba el único camino de recuperación que hay —
+     * verificado contra Postgres: `403 cannot_authorize_self`— justo el que el comentario de
+     * arriba afirmaba dejar abierto.
+     *
+     * El slot `recovery` no se toca nunca por acá: pisarlo con un blob que no abre nada
+     * invalida el código que el usuario tiene anotado. Rotar es el único camino, y rotar
+     * publica una copia de recuperación nueva.
+     */
+    if (modo === 'authorize') {
+      const tocaRecovery = wraps.some((w) => w.slot === 'recovery' || w.kind === 'recovery')
+      if (tocaRecovery) {
+        await client.query('rollback')
+        return { ok: false, status: 403, error: 'cannot_overwrite_recovery' }
+      }
+      const tocaPropio = wraps.some((w) => w.slot === auth.deviceId)
+      if (tocaPropio && !(await pruebaDePosesion())) {
+        await client.query('rollback')
+        return { ok: false, status: 403, error: 'cannot_authorize_self' }
+      }
     }
     // Rotar es empezar de cero: las envolturas de la epoca vieja no sirven para la maestra
     // nueva y dejarlas seria ofrecerle al cliente una llave que no abre.

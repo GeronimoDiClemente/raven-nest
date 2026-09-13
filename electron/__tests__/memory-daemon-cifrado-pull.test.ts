@@ -212,3 +212,98 @@ describe('el conteo de memorias ilegibles', () => {
     expect(store.undecryptableCount()).toBe(0)
   })
 })
+
+/**
+ * El fail-closed del push, armado por el propio pull.
+ *
+ * La época conocida sólo se escribía desde el handler de estado de la tarjeta de cifrado —o
+ * sea que el gate sólo se armaba si el usuario ABRÍA el overlay Memories. Una máquina nueva
+ * que conecta la nube corre import + drain y empujaba TODO en claro a una cuenta cifrada:
+ * el agujero que el gate existe para tapar, abierto justo en la máquina que importa, la que
+ * no tiene la clave.
+ *
+ * El caso exacto: store nuevo con `knownKeyEpoch() === 0`, un pull que trae una fila
+ * cifrada, y el push siguiente en `error/needs_key` en vez de subir en claro.
+ */
+describe('el gate del push se arma solo al ver una fila cifrada', () => {
+  it('un store nuevo que pullea cifrado deja de pushear en claro', async () => {
+    expect(store.knownKeyEpoch(), 'arranca sin saber nada del cifrado').toBe(0)
+
+    // Hay algo local esperando subir, guardado antes de enterarse de nada.
+    store.save({
+      projectKey: 'proj1', scope: 'personal', type: 'decision',
+      title: 'esto no puede subir en claro', content: 'secreto', source: 'mcp',
+    })
+    expect(store.pendingMutations(10).length).toBeGreaterThan(0)
+
+    const subidas: unknown[] = []
+    const fetchImpl = (async (url: string, init?: RequestInit) => {
+      if (String(url).includes('/push')) {
+        subidas.push(JSON.parse(String(init?.body ?? '{}')))
+        return { ok: true, status: 200, json: async () => ({ receipts: [] }) } as unknown as Response
+      }
+      return { ok: true, status: 200, json: async () => ({ rows: [], cursors: {} }) } as unknown as Response
+    }) as unknown as typeof fetch
+
+    // El detalle del estado no se puede leer de `getStatus()` —devuelve sólo el estado— y es
+    // el que la UI usa para ofrecer autorizar la máquina. Se captura por el callback.
+    const avisos: Array<[string, string | undefined]> = []
+
+    // Esta máquina NO tiene la clave: `getEnvelopeContext` devuelve null.
+    const daemon = new MemoryDaemon({
+      store,
+      getSyncBaseUrl: () => 'http://sync.test',
+      getToken: () => 'tok',
+      getDeviceId: () => 'dev',
+      isOnline: () => true,
+      fetchImpl,
+      getEnvelopeContext: () => null,
+      isEncryptionExpected: () => store.knownKeyEpoch() > 0,
+      onStatusChange: (estado, detalle) => { avisos.push([estado, detalle]) },
+    })
+
+    // Baja una fila que no puede abrir. Eso —y sólo eso— es la prueba de que la cuenta cifra.
+    daemon.applyPulledRow(mapRawPulledRow(filaCruda(sellar())))
+    expect(store.knownKeyEpoch(), 'ver ciphertext arma el gate').toBeGreaterThan(0)
+
+    await daemon.push()
+
+    expect(subidas, 'no subió nada').toEqual([])
+    expect(daemon.getStatus()).toBe('error')
+    expect(avisos.at(-1)).toEqual(['error', 'needs_key'])
+    // Y lo que importa para el usuario: la cola NO se perdió, espera.
+    expect(store.pendingMutations(10).length).toBeGreaterThan(0)
+  })
+
+  // El control: sin haber visto nunca una fila cifrada, el push normal sigue funcionando.
+  // Sin este caso, un gate trabado en "siempre cerrado" pasaría el test de arriba.
+  it('sin señales de cifrado el push sigue subiendo normal', async () => {
+    store.save({
+      projectKey: 'proj1', scope: 'personal', type: 'decision',
+      title: 'una cuenta sin cifrado', content: 'x', source: 'mcp',
+    })
+    const subidas: unknown[] = []
+    const fetchImpl = (async (url: string, init?: RequestInit) => {
+      if (String(url).includes('/push')) {
+        subidas.push(JSON.parse(String(init?.body ?? '{}')))
+        return { ok: true, status: 200, json: async () => ({ receipts: [] }) } as unknown as Response
+      }
+      return { ok: true, status: 200, json: async () => ({ rows: [], cursors: {} }) } as unknown as Response
+    }) as unknown as typeof fetch
+
+    const daemon = new MemoryDaemon({
+      store,
+      getSyncBaseUrl: () => 'http://sync.test',
+      getToken: () => 'tok',
+      getDeviceId: () => 'dev',
+      isOnline: () => true,
+      fetchImpl,
+      getEnvelopeContext: () => null,
+      isEncryptionExpected: () => store.knownKeyEpoch() > 0,
+    })
+
+    await daemon.push()
+    expect(subidas).toHaveLength(1)
+    expect(daemon.getStatus()).not.toBe('error')
+  })
+})

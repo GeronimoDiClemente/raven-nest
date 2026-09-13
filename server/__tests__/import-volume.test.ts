@@ -39,8 +39,11 @@ const mut = (seq: number, syncId: string, p: string) => ({
   },
 })
 
+// 900 filas contra un Postgres real, con los otros 38 archivos del suite pegándole a la vez.
+// Sola tarda ~3s; el default de 5s de vitest la deja en rojo por contención y no por el
+// código. El timeout va explícito para que un rojo acá signifique algo.
 describe('import de volumen contra el servidor (spec §8.2.3)', () => {
-  it('sube 900 observaciones en lotes de 200 y las devuelve todas por pull', async () => {
+  it('sube 900 observaciones en lotes de 200 y las devuelve todas por pull', { timeout: 60_000 }, async () => {
     const project = 'import-vol-' + RUN
 
     for (let offset = 0; offset < TOTAL; offset += BATCH) {

@@ -11,6 +11,9 @@ function servidorFalso() {
   const wraps = new Map<string, { wrapped: string; wrapMeta: Record<string, unknown> | null }>()
   const publicas = new Map<string, string>()
   let keyEpoch = 0
+  // Lo que el servidor real guarda en `users.rotate_verifier`: el verificador de la maestra
+  // vigente. Es contra esto que se compara la prueba de posesion.
+  let verificador: string | null = null
   const llamadas: string[] = []
 
   const fetchImpl = (async (url: string, init?: RequestInit) => {
@@ -39,15 +42,47 @@ function servidorFalso() {
       })
     }
     if (path === '/v1/keys/publish') {
-      if (body.key_epoch < keyEpoch) return { ok: false, status: 409, json: async () => ({ error: 'stale_key_epoch' }) } as unknown as Response
-      if (body.key_epoch > keyEpoch) { wraps.clear(); keyEpoch = body.key_epoch }
+      /**
+       * Las MISMAS reglas que `server/src/keys.ts`, y no una version relajada.
+       *
+       * Este doble aceptaba cualquier publish: sin `mode`, sin prueba de posesion, y dejando
+       * que una maquina se escribiera su propio slot. Asi, los tests del cliente quedaron en
+       * verde mientras el servidor real rechazaba el camino de recuperacion con un 403 —
+       * el unico camino que queda cuando no hay ninguna maquina viva. Un doble que perdona
+       * mas que el original no prueba el contrato: prueba el doble.
+       */
+      const fallo = (status: number, error: string) =>
+        ({ ok: false, status, json: async () => ({ error }) } as unknown as Response)
+      if (body.mode !== 'activate' && body.mode !== 'authorize') return fallo(400, 'invalid_mode')
+      if (body.mode === 'activate' && body.key_epoch !== keyEpoch + 1) return fallo(409, 'stale_key_epoch')
+      if (body.mode === 'authorize' && (body.key_epoch !== keyEpoch || keyEpoch === 0)) {
+        return fallo(409, keyEpoch === 0 ? 'not_activated' : 'stale_key_epoch')
+      }
+      const pruebaOk = Boolean(verificador) && body.rotate_proof === verificador
+      if (body.mode === 'activate' && keyEpoch > 0 && !pruebaOk) return fallo(403, 'not_authorized_to_rotate')
+      if (body.mode === 'authorize') {
+        const yo = (init as { headers?: Record<string, string> })?.headers?.['X-Device-Test'] ?? ''
+        for (const w of body.wraps) {
+          if (w.slot === 'recovery' || w.kind === 'recovery') return fallo(403, 'cannot_overwrite_recovery')
+          if (w.slot === yo && !pruebaOk) return fallo(403, 'cannot_authorize_self')
+        }
+      }
+      if (body.key_epoch > keyEpoch) {
+        wraps.clear()
+        keyEpoch = body.key_epoch
+        verificador = typeof body.rotate_verifier === 'string' ? body.rotate_verifier : null
+      }
       for (const w of body.wraps) wraps.set(w.slot, { wrapped: w.wrapped, wrapMeta: w.wrap_meta ?? null })
       return ok({ ok: true, key_epoch: keyEpoch })
     }
     return { ok: false, status: 404, json: async () => ({ error: 'not_found' }) } as unknown as Response
   }) as unknown as typeof fetch
 
-  return { fetchImpl, wraps, publicas, llamadas, get epoch() { return keyEpoch } }
+  return {
+    fetchImpl, wraps, publicas, llamadas,
+    get epoch() { return keyEpoch },
+    get verificador() { return verificador },
+  }
 }
 
 let srv: ReturnType<typeof servidorFalso>
