@@ -792,11 +792,57 @@ describe('MemoryStore — schema versioning (C3)', () => {
   // El pin sube A MANO con cada migracion, y es a proposito: es lo que obliga a que alguien
   // mire la migracion nueva antes de que salga. v5 agrega `memory_links` — las relaciones
   // puestas a mano entre dos memorias.
+  // `meta` no tiene setter publico: el estado del que parte la migracion se escribe crudo.
+  const metaCrudo = (store: MemoryStore, key: string, value: string) => {
+    ;(store as unknown as { db: { prepare(s: string): { run(...a: unknown[]): unknown } } }).db
+      .prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)')
+      .run(key, value)
+  }
+
   it('SCHEMA_VERSION is pinned to the published value', () => {
-    // 6 desde el 2026-09-11: la migracion del cifrado suma `topic_key_hmac`. Este test
-    // existe para que subir el esquema sea una decision y no un descuido — si lo estas
-    // cambiando, la migracion correspondiente tiene que estar escrita y testeada.
-    expect(SCHEMA_VERSION).toBe(6)
+    // 7 desde el 2026-09-13: el conjunto de memorias ilegibles pasa de un JSON en `meta` a
+    // una tabla. Este test existe para que subir el esquema sea una decision y no un
+    // descuido — si lo estas cambiando, la migracion correspondiente tiene que estar
+    // escrita y testeada.
+    expect(SCHEMA_VERSION).toBe(7)
+  })
+
+  /**
+   * La migracion 7 no puede empezar de cero: una maquina que todavia no consiguio la clave
+   * tiene memorias anotadas como ilegibles, y si la actualizacion las perdiera la tarjeta
+   * mostraria 0 — que se lee como "ya esta resuelto" cuando no se resolvio nada.
+   */
+  it('la v7 se queda con los ilegibles que el JSON de meta ya tenia', () => {
+    const ruta = join(dir, 'migrar-7.db')
+    const v6 = new MemoryStore(ruta)
+    ;(v6 as unknown as { db: { pragma(s: string): unknown; exec(s: string): unknown } }).db
+      .exec('DROP TABLE IF EXISTS undecryptable')
+    ;(v6 as unknown as { db: { pragma(s: string): unknown } }).db.pragma('user_version = 6')
+    metaCrudo(v6, 'undecryptable_ids', JSON.stringify(['obs_a', 'obs_b', 'obs_c']))
+    v6.close()
+
+    const v7 = new MemoryStore(ruta)
+    expect(v7.schemaVersion).toBe(SCHEMA_VERSION)
+    expect(v7.undecryptableCount()).toBe(3)
+    // Y la clave vieja de `meta` no queda dando vueltas como segunda fuente de verdad.
+    v7.clearUndecryptableFor('obs_a')
+    expect(v7.undecryptableCount()).toBe(2)
+    v7.close()
+  })
+
+  it('un JSON roto en meta no frena la migracion', () => {
+    const ruta = join(dir, 'migrar-7-roto.db')
+    const v6 = new MemoryStore(ruta)
+    ;(v6 as unknown as { db: { pragma(s: string): unknown; exec(s: string): unknown } }).db
+      .exec('DROP TABLE IF EXISTS undecryptable')
+    ;(v6 as unknown as { db: { pragma(s: string): unknown } }).db.pragma('user_version = 6')
+    metaCrudo(v6, 'undecryptable_ids', 'esto no es JSON')
+    v6.close()
+
+    const v7 = new MemoryStore(ruta)
+    expect(v7.schemaVersion).toBe(SCHEMA_VERSION)
+    expect(v7.undecryptableCount()).toBe(0)
+    v7.close()
   })
 
   // Task 8 (smoke/memory-bridge): the memory dir syncs across two machines, so a v1

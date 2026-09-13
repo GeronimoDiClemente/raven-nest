@@ -630,7 +630,7 @@ const BASE_SCHEMA = `
  */
 export type TopicHasher = (projectKey: string, scope: string, topicKey: string) => string
 
-export const SCHEMA_VERSION = 6
+export const SCHEMA_VERSION = 7
 
 // Task 8 (smoke/memory-bridge): the memory dir syncs across two machines (C3's whole
 // reason for existing), so a v1 database opened by a build that knows v2 is the routine
@@ -712,6 +712,37 @@ const MIGRATIONS: Record<number, string | ((db: Database.Database) => void)> = {
          ON observations(project_key, scope, topic_key_hmac)
        WHERE topic_key_hmac IS NOT NULL;`
     )
+  },
+
+  /**
+   * El conjunto de memorias ilegibles pasa de un JSON en `meta` a una tabla.
+   *
+   * El JSON costaba un `JSON.parse` de hasta 5000 ids, un `includes` lineal y un
+   * `JSON.stringify` completo POR FILA — y no sólo en las ilegibles: `clearUndecryptableFor`
+   * corre en cada fila que SÍ abre, y parsea la lista entera para decidir que no hay nada que
+   * hacer. Medido en esta máquina: 1872ms para marcar 5000, y 0,68ms por fila sana con la
+   * lista llena. Un pull grande en una máquina sin la clave bloquea el proceso durante
+   * segundos, y el tope de 5000 hacía que además el número que ve el usuario mintiera para
+   * abajo en una cuenta más grande que eso.
+   *
+   * Con la tabla son un INSERT OR IGNORE y un DELETE por PK, y el conteo es un `count(*)`
+   * sin tope.
+   */
+  7: (db) => {
+    db.exec('CREATE TABLE IF NOT EXISTS undecryptable (sync_id TEXT PRIMARY KEY);')
+    // Lo que ya estaba anotado en el JSON se conserva: si no, una máquina que todavía no
+    // consiguió la clave abriría la tarjeta mostrando 0 memorias ilegibles justo después de
+    // actualizar, y eso se lee como "ya está resuelto".
+    const fila = db.prepare("SELECT value FROM meta WHERE key = 'undecryptable_ids'").get() as
+      | { value?: string } | undefined
+    let previos: string[] = []
+    try {
+      const parsed: unknown = JSON.parse(fila?.value ?? '[]')
+      if (Array.isArray(parsed)) previos = parsed.filter((x): x is string => typeof x === 'string')
+    } catch { /* un JSON roto no puede frenar la migración: se pierde el conteo, no datos */ }
+    const insert = db.prepare('INSERT OR IGNORE INTO undecryptable (sync_id) VALUES (?)')
+    for (const id of previos) insert.run(id)
+    db.prepare("DELETE FROM meta WHERE key IN ('undecryptable_ids', 'undecryptable_rows')").run()
   }
 }
 
@@ -941,44 +972,23 @@ export class MemoryStore {
    */
   markUndecryptable(syncId: string): void {
     if (!syncId) return
-    const actuales = this.undecryptableIds()
-    if (actuales.includes(syncId)) return
-    actuales.push(syncId)
-    // Un tope defensivo: el valor vive en una fila de `meta` y una cuenta entera ilegible no
-    // puede convertirse en un JSON de megabytes. Pasado el tope, el numero es "muchas".
-    this.metaSet('undecryptable_ids', JSON.stringify(actuales.slice(-5000)))
-  }
-
-  private undecryptableIds(): string[] {
-    try {
-      const parsed: unknown = JSON.parse(this.metaGet('undecryptable_ids') ?? '[]')
-      return Array.isArray(parsed) ? (parsed as string[]) : []
-    } catch {
-      return []
-    }
+    this.db.prepare('INSERT OR IGNORE INTO undecryptable (sync_id) VALUES (?)').run(syncId)
   }
 
   /** Se llama cuando una fila que estaba ilegible SI se pudo abrir. */
   clearUndecryptableFor(syncId: string): void {
-    const actuales = this.undecryptableIds()
-    if (!actuales.includes(syncId)) return
-    this.metaSet('undecryptable_ids', JSON.stringify(actuales.filter((id) => id !== syncId)))
-  }
-
-  /** Compatibilidad: el contador viejo seguia sumando desde el daemon. */
-  bumpUndecryptable(n: number): void {
-    if (n <= 0) return
-    this.metaSet('undecryptable_rows', String(Number(this.metaGet('undecryptable_rows') ?? 0) + n))
+    if (!syncId) return
+    this.db.prepare('DELETE FROM undecryptable WHERE sync_id = ?').run(syncId)
   }
 
   /** Cuantas memorias distintas no se pueden leer en esta maquina. */
   undecryptableCount(): number {
-    return this.undecryptableIds().length
+    const fila = this.db.prepare('SELECT count(*) AS n FROM undecryptable').get() as { n: number }
+    return Number(fila.n)
   }
 
   clearUndecryptable(): void {
-    this.metaSet('undecryptable_ids', '[]')
-    this.metaSet('undecryptable_rows', '0')
+    this.db.prepare('DELETE FROM undecryptable').run()
   }
 
   /**

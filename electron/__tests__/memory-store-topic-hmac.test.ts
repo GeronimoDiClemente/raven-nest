@@ -24,9 +24,14 @@ const guardar = (topicKey: string | null, title = 't') => store.save({
 describe('memory-store — topic_key_hmac', () => {
   // El plan numeraba esta migracion como la 4; va en la 6 porque `memory_links` ya se
   // llevo la 5 en esta rama.
-  it('la base llega a la v6', () => {
-    expect(SCHEMA_VERSION).toBe(6)
-    expect(store.schemaVersion).toBe(6)
+  //
+  // El pin exacto de `SCHEMA_VERSION` vive en UN solo lugar (`memory-store.test.ts`): tenerlo
+  // dos veces no agrega cobertura y hace que cada migracion nueva rompa un test que no tiene
+  // nada que ver con ella. Lo que a este archivo le importa es que la migracion del HMAC ya
+  // corrio, no cual es el numero de hoy.
+  it('la base pasó por la migración del HMAC', () => {
+    expect(store.schemaVersion).toBe(SCHEMA_VERSION)
+    expect(store.schemaVersion).toBeGreaterThanOrEqual(6)
   })
 
   it('sin hasher el HMAC queda null y nada cambia', () => {

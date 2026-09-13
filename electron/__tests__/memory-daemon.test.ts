@@ -32,7 +32,6 @@ function fakeStore(overrides: Partial<MemoryStore> = {}): MemoryStore {
     clearUndecryptableFor: vi.fn(),
     undecryptableCount: vi.fn(() => 0),
     clearUndecryptable: vi.fn(),
-    bumpUndecryptable: vi.fn(),
     findActiveTopicOwnerByHmac: vi.fn(() => null),
     knownKeyEpoch: vi.fn(() => 0),
     rememberKeyEpoch: vi.fn(),

@@ -606,6 +606,14 @@ export class MemoryDaemon {
 
   private async doPush(): Promise<void> {
     const { store, getSyncBaseUrl, getToken, isOnline } = this.deps
+    // La cuenta con la que ESTE push sale. `doPull` ya descartaba su respuesta si cambiaba;
+    // acá faltaba, y el modo de falla es distinto y peor: el orquestador CIERRA el store
+    // viejo antes de poner el nuevo, así que `markPushed` sobre él tira "The database
+    // connection is not open" — y como el `catch` también escribe en ese store, la excepción
+    // se escapa de `doPush`. Verificado: `push()` rechaza y el estado queda en `syncing`
+    // para siempre; en producción el llamador es `void this.push()`, o sea una unhandled
+    // rejection y una UI que dice "sincronizando" hasta que se reinicie la app.
+    const generacionAlSalir = this.generacionDeStore
     if (this.authBlocked) return // M18: gate every entry point, not just the backoff chain
     if (!isOnline()) {
       this.setStatus('paused', 'offline')
@@ -742,6 +750,14 @@ export class MemoryDaemon {
       this.consecutiveAuthFailures = 0
       this.backoff.reset()
       const body = (await response.json()) as { results?: PushResultItem[] }
+      // Si la cuenta cambió mientras esta respuesta viajaba, los recibos son de la cola de la
+      // cuenta ANTERIOR y su store ya no está abierto. Se descartan: las mutaciones quedan
+      // pendientes ahí, y el push es idempotente por `(device_id, seq)` del lado del
+      // servicio, así que reintentarlas cuando se vuelva a esa cuenta no duplica nada.
+      if (generacionAlSalir !== this.generacionDeStore) {
+        this.setStatus('idle')
+        return
+      }
       const results = body.results ?? []
 
       // M21 fix: this used to unconditionally `store.markPushed(pending.map(seq))` and
@@ -809,7 +825,12 @@ export class MemoryDaemon {
         })
       }
     } catch (err) {
-      store.setSyncState('__account__', { lastError: err instanceof Error ? err.message : String(err) })
+      // Anotar el error NO puede ser lo que tumbe el push: si el store se cerró en el medio
+      // (swap de cuenta), este `setSyncState` lanza y la excepción original se pierde
+      // reemplazada por una de SQLite, escapándose del catch que existía para contenerla.
+      try {
+        store.setSyncState('__account__', { lastError: err instanceof Error ? err.message : String(err) })
+      } catch { /* el store de la cuenta anterior ya no está: el error igual se reporta abajo */ }
       this.setStatus('error', err instanceof Error ? err.message : String(err))
       this.scheduleBackoffRetry(() => void this.push())
     } finally {
@@ -845,6 +866,9 @@ export class MemoryDaemon {
 
   private async doStatus(): Promise<StatusResponseBody | null> {
     const { store, getSyncBaseUrl, getToken, isOnline } = this.deps
+    // Misma razón que en doPush: `unblockMutations` y `ensureProject` escriben, y el store
+    // de la cuenta anterior está cerrado para cuando vuelve esta respuesta.
+    const generacionAlSalir = this.generacionDeStore
     if (this.authBlocked) return null // M18: gate every entry point, not just push/pull
     if (!isOnline()) return null
     const url = getSyncBaseUrl()
@@ -891,6 +915,10 @@ export class MemoryDaemon {
 
       const body = (await response.json()) as StatusResponseBody
       this.consecutiveAuthFailures = 0
+      // El roster y los desbloqueos son de la cuenta que hizo el pedido. Se devuelve el body
+      // —el llamador puede querer el plan o la cuota— pero no se escribe nada en un store
+      // que ya no es el de esta cuenta.
+      if (generacionAlSalir !== this.generacionDeStore) return body
 
       this.applyPollInterval(body.next_poll_ms)
 

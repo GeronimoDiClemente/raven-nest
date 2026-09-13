@@ -100,7 +100,7 @@ describe('applyPulledRow con cifrado', () => {
 
   it('resetPullCursors vuelve a traer lo que quedó afuera', () => {
     store.setSyncState('proj1', { pullCursor: 99 })
-    store.bumpUndecryptable(3)
+    store.markUndecryptable("obs-ilegible")
     store.resetPullCursors()
     store.clearUndecryptable()
     expect(store.getSyncState('proj1').pullCursor).toBe(0)
@@ -305,5 +305,92 @@ describe('el gate del push se arma solo al ver una fila cifrada', () => {
     await daemon.push()
     expect(subidas).toHaveLength(1)
     expect(daemon.getStatus()).not.toBe('error')
+  })
+})
+
+/**
+ * El swap de cuenta con un push o un status en vuelo.
+ *
+ * `doPull` ya descartaba su respuesta cuando la generación cambiaba; `doPush` y `doStatus`
+ * no. El modo de falla es peor que escribir en la base equivocada: el orquestador CIERRA el
+ * store viejo antes de poner el nuevo (pause → close → rename/reopen → setStore), así que
+ * `markPushed` sobre él tira "The database connection is not open" — y como el `catch`
+ * también escribía en ese store, la excepción de SQLite se escapaba de `doPush`.
+ *
+ * Verificado antes del arreglo: `push()` rechazaba y el estado quedaba en `syncing` para
+ * siempre. En producción el llamador es `void this.push()`: una unhandled rejection, y una
+ * UI que dice "sincronizando" hasta reiniciar la app.
+ */
+describe('un swap de cuenta con un push en vuelo', () => {
+  const daemonConFetchLento = (storeInicial: MemoryStore, ruta: string) => {
+    let soltar: () => void = () => {}
+    const fetchImpl = (async (url: string) => {
+      if (String(url).includes(ruta)) {
+        await new Promise<void>((r) => { soltar = r })
+        return {
+          ok: true, status: 200,
+          json: async () => ({ results: [], plan: 'pro', projects: [{ project_key: 'de-la-otra-cuenta', display_name: 'x' }] }),
+        } as unknown as Response
+      }
+      return { ok: true, status: 200, json: async () => ({ rows: [], cursors: {} }) } as unknown as Response
+    }) as unknown as typeof fetch
+
+    const daemon = new MemoryDaemon({
+      store: storeInicial,
+      getSyncBaseUrl: () => 'http://sync.test',
+      getToken: () => 'tok',
+      getDeviceId: () => 'dev',
+      isOnline: () => true,
+      fetchImpl,
+    })
+    return { daemon, soltar: () => soltar() }
+  }
+
+  it('el push no explota contra el store cerrado de la cuenta anterior', async () => {
+    const dirB = mkdtempSync(join(tmpdir(), 'nest-swap-b-'))
+    const storeB = new MemoryStore(join(dirB, 'memory.db'))
+    store.save({
+      projectKey: 'proj1', scope: 'personal', type: 'decision',
+      title: 'de la cuenta A', content: 'x', source: 'mcp',
+    })
+
+    const { daemon, soltar } = daemonConFetchLento(store, '/push')
+    const enVuelo = daemon.push()
+    // Exactamente lo que hace el orquestador, en ese orden.
+    store.close()
+    daemon.setStore(storeB)
+    soltar()
+
+    await expect(enVuelo, 'no lanza').resolves.toBeUndefined()
+    // `idle` y no `error`: el swap es un descarte limpio, no una excepción de SQLite
+    // atajada. Con sólo endurecer el `catch` —y sin el guard de generación— esto daría
+    // `error`, que es lo que la UI le muestra al usuario como "algo falló".
+    expect(daemon.getStatus()).toBe('idle')
+
+    storeB.close()
+    rmSync(dirB, { recursive: true, force: true })
+    // `afterEach` cierra `store`; cerrarlo dos veces no rompe, pero la base ya no existe.
+    store = new MemoryStore(join(dir, 'memory.db'))
+  })
+
+  it('el status no registra el roster de la cuenta anterior ni explota', async () => {
+    const dirB = mkdtempSync(join(tmpdir(), 'nest-swap-status-b-'))
+    const storeB = new MemoryStore(join(dirB, 'memory.db'))
+
+    const { daemon, soltar } = daemonConFetchLento(store, '/status')
+    const enVuelo = daemon.status()
+    store.close()
+    daemon.setStore(storeB)
+    soltar()
+
+    await expect(enVuelo).resolves.toBeTruthy()
+    expect(
+      storeB.listProjects().map((p) => p.projectKey),
+      'el roster de A no se escribe en la base de B'
+    ).not.toContain('de-la-otra-cuenta')
+
+    storeB.close()
+    rmSync(dirB, { recursive: true, force: true })
+    store = new MemoryStore(join(dir, 'memory.db'))
   })
 })
