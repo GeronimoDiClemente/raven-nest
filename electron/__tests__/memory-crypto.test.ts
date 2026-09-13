@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   CIPHER_PREFIX, generateMasterKey, deriveKeys, isCiphertext, fieldAad,
-  encryptField, decryptField, hmacTopicKey, MemoryDecryptError,
+  encryptField, decryptField, hmacTopicKey, huellaDeMaestra, MemoryDecryptError,
 } from '../memory-crypto'
 
 const keys = deriveKeys(generateMasterKey())
@@ -123,5 +123,20 @@ describe('memory-crypto', () => {
     const otras = deriveKeys(generateMasterKey())
     expect(hmacTopicKey(otras, 'proj1', 'personal', 'deploy'))
       .not.toBe(hmacTopicKey(keys, 'proj1', 'personal', 'deploy'))
+  })
+
+  // Envolver no requiere ningún secreto: quien tenga escritura sobre la base del servicio
+  // puede sellar SU maestra para la pública de la víctima y pisar la envoltura. La máquina
+  // desenvuelve 32 bytes válidos, sin ningún error, y a partir de ahí cifra para el atacante.
+  // El sealed box no lo detecta —no autentica al remitente— así que hace falta poder comparar
+  // si dos máquinas tienen la MISMA maestra.
+  it('la huella de la maestra distingue una clave de otra sin revelarla', () => {
+    const a = generateMasterKey()
+    const b = generateMasterKey()
+    expect(huellaDeMaestra(a)).toBe(huellaDeMaestra(a))
+    expect(huellaDeMaestra(a)).not.toBe(huellaDeMaestra(b))
+    expect(huellaDeMaestra(a)).toMatch(/^[0-9a-f]{16}$/)
+    // Y no filtra la maestra: la huella es un HMAC truncado, no un prefijo.
+    expect(a.toString('hex')).not.toContain(huellaDeMaestra(a))
   })
 })

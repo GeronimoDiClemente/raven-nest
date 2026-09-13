@@ -45,12 +45,43 @@ export async function enrollDeviceKey(
   if (typeof publicKey !== 'string' || publicKey.trim() === '') {
     return { ok: false, status: 400, error: 'invalid_public_key' }
   }
-  await pool.query(
-    `insert into device_keys (device_id, user_id, public_key)
-     values ($1, $2, $3)
-     on conflict (device_id) do update set public_key = excluded.public_key, updated_at = now()`,
-    [auth.deviceId, auth.userId, publicKey]
-  )
+  /**
+   * Si el device cambia su clave publica, la envoltura que tenia deja de servir: fue sellada
+   * para la clave vieja y su privada ya no existe. Se borra en la misma transaccion.
+   *
+   * Sin esto, `has_wrap` seguia dando `true` —mira si existe una fila, no si corresponde a
+   * la publica actual— asi que la maquina NO aparecia en `pendingDevices` y la otra nunca
+   * ofrecia autorizarla. La maquina quedaba afuera de forma permanente y en silencio,
+   * justo despues de un evento que ya es feo de por si: un `keys.bin` corrupto, un llavero
+   * restaurado, un par regenerado.
+   */
+  const client = await pool.connect()
+  try {
+    await client.query('begin')
+    const { rows } = await client.query(
+      'select public_key from device_keys where device_id = $1',
+      [auth.deviceId]
+    )
+    const anterior = rows[0]?.public_key as string | undefined
+    await client.query(
+      `insert into device_keys (device_id, user_id, public_key)
+       values ($1, $2, $3)
+       on conflict (device_id) do update set public_key = excluded.public_key, updated_at = now()`,
+      [auth.deviceId, auth.userId, publicKey]
+    )
+    if (anterior && anterior !== publicKey) {
+      await client.query(
+        'delete from key_wraps where user_id = $1 and slot = $2',
+        [auth.userId, auth.deviceId]
+      )
+    }
+    await client.query('commit')
+  } catch (err) {
+    await client.query('rollback').catch(() => { /* la conexion ya esta rota */ })
+    throw err
+  } finally {
+    client.release()
+  }
   return { ok: true }
 }
 

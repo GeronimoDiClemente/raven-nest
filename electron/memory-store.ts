@@ -930,16 +930,54 @@ export class MemoryStore {
     return Number(this.metaGet('known_key_epoch') ?? 0)
   }
 
-  bumpUndecryptable(n: number): void {
-    if (n <= 0) return
-    this.metaSet('undecryptable_rows', String(this.undecryptableCount() + n))
+  /**
+   * Registra que una fila llego cifrada y esta maquina no pudo abrirla (spec §5.5.4).
+   *
+   * Se guarda el CONJUNTO de `sync_id`, no un contador. Un contador monotono mentia de dos
+   * formas a la vez: sumaba de nuevo las mismas filas en cada re-pull (y `resetPullCursors`
+   * hace exactamente eso, a proposito), y nunca bajaba aunque la otra maquina borrara esas
+   * memorias. El numero que la tarjeta le muestra al usuario tiene que ser cuantas memorias
+   * no puede leer, no cuantas veces intento.
+   */
+  markUndecryptable(syncId: string): void {
+    if (!syncId) return
+    const actuales = this.undecryptableIds()
+    if (actuales.includes(syncId)) return
+    actuales.push(syncId)
+    // Un tope defensivo: el valor vive en una fila de `meta` y una cuenta entera ilegible no
+    // puede convertirse en un JSON de megabytes. Pasado el tope, el numero es "muchas".
+    this.metaSet('undecryptable_ids', JSON.stringify(actuales.slice(-5000)))
   }
 
+  private undecryptableIds(): string[] {
+    try {
+      const parsed: unknown = JSON.parse(this.metaGet('undecryptable_ids') ?? '[]')
+      return Array.isArray(parsed) ? (parsed as string[]) : []
+    } catch {
+      return []
+    }
+  }
+
+  /** Se llama cuando una fila que estaba ilegible SI se pudo abrir. */
+  clearUndecryptableFor(syncId: string): void {
+    const actuales = this.undecryptableIds()
+    if (!actuales.includes(syncId)) return
+    this.metaSet('undecryptable_ids', JSON.stringify(actuales.filter((id) => id !== syncId)))
+  }
+
+  /** Compatibilidad: el contador viejo seguia sumando desde el daemon. */
+  bumpUndecryptable(n: number): void {
+    if (n <= 0) return
+    this.metaSet('undecryptable_rows', String(Number(this.metaGet('undecryptable_rows') ?? 0) + n))
+  }
+
+  /** Cuantas memorias distintas no se pueden leer en esta maquina. */
   undecryptableCount(): number {
-    return Number(this.metaGet('undecryptable_rows') ?? 0)
+    return this.undecryptableIds().length
   }
 
   clearUndecryptable(): void {
+    this.metaSet('undecryptable_ids', '[]')
     this.metaSet('undecryptable_rows', '0')
   }
 

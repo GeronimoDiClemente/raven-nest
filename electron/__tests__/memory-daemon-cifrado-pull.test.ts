@@ -185,3 +185,30 @@ describe('el nombre de proyecto que vuelve del roster', () => {
     }
   })
 })
+
+// El contador que la tarjeta le muestra al usuario decía cuántas VECES intentó, no cuántas
+// memorias no puede leer: sumaba de nuevo las mismas filas en cada re-pull —y
+// `resetPullCursors` vuelve a traer todo a propósito— y nunca bajaba.
+describe('el conteo de memorias ilegibles', () => {
+  it('la misma fila re-pulleada no se cuenta dos veces', () => {
+    const sellado = sellar({ sync_id: 'obs-repetida' })
+    const daemon = daemonCon(() => null) // sin clave: no la puede abrir
+    const fila = mapRawPulledRow(sellado as Record<string, unknown>)
+    daemon.applyPulledRow(fila)
+    daemon.applyPulledRow(fila)
+    daemon.applyPulledRow(fila)
+    expect(store.undecryptableCount()).toBe(1)
+  })
+
+  it('cuando la fila SÍ se puede abrir, deja de contarse', () => {
+    const sellado = sellar({ sync_id: 'obs-recuperable' })
+    const sinClave = daemonCon(() => null)
+    sinClave.applyPulledRow(mapRawPulledRow(sellado as Record<string, unknown>))
+    expect(store.undecryptableCount()).toBe(1)
+
+    // La máquina consigue la clave y vuelve a bajar la misma fila.
+    const conClave = daemonCon(() => ctx)
+    conClave.applyPulledRow(mapRawPulledRow(sellado as Record<string, unknown>))
+    expect(store.undecryptableCount()).toBe(0)
+  })
+})

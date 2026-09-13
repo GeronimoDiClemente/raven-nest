@@ -1012,6 +1012,7 @@ declare global {
          *  Comparar a ojo es lo único que detecta que el servidor sustituyó una clave. */
         huellaPropia?: string | null
         huellasPorDevice?: Record<string, string>
+        huellaDeLaClave?: string | null
       }>
       encryptionActivate?: () => Promise<
         // `aviso` va con el código, no en lugar de él: si la clave no se pudo guardar en esta

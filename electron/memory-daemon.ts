@@ -1185,9 +1185,15 @@ export class MemoryDaemon {
       // igual, porque frenarlo dejaria a este device sin sincronizar NADA, ni siquiera lo
       // que si puede leer. Cuando la maquina se autorice, `resetPullCursors()` las
       // vuelve a traer.
-      this.deps.store.bumpUndecryptable(1)
+      // Por `sync_id`: la misma fila re-pulleada no se cuenta de nuevo. `resetPullCursors`
+      // vuelve a traer todo a proposito, asi que contar aplicaciones hacia que el numero
+      // creciera sin que hubiera una sola memoria ilegible mas.
+      this.deps.store.markUndecryptable(incoming.syncId)
       return
     }
+    // Si esta fila estaba marcada como ilegible y ahora abrio, sale de la lista: es como el
+    // contador baja cuando la maquina consigue la clave.
+    this.deps.store.clearUndecryptableFor(incoming.syncId)
     incoming = abierta
 
     const local = this.deps.store.get(incoming.syncId)

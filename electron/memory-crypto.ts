@@ -111,6 +111,28 @@ export function decryptField(keys: MemoryKeys, envelope: string, aad: string): s
  * 32 hex = 128 bits: sobra para que no colisionen dos temas y entra comodo en la columna
  * `text` que el servidor ya tiene.
  */
+/**
+ * Una marca corta y publica de una clave maestra, para detectar que te dieron OTRA.
+ *
+ * El adversario que la spec §5.1 nombra tiene ESCRITURA sobre la base del servicio. Envolver
+ * no requiere ningun secreto: cualquiera puede calcular `wrapForDevice(pkVictima, suMaestra)`
+ * y pisar `key_wraps.wrapped`. La maquina desenvuelve 32 bytes validos, sin ningun error, los
+ * guarda como maestra, y a partir de ahi cifra para el atacante — que puede leer todo lo que
+ * esa maquina suba.
+ *
+ * El sealed box no lo puede evitar: no autentica al remitente, y ponerle firma exigiria que
+ * el remitente tuviera una identidad verificable, que es justo lo que el servidor podria
+ * falsificar. Lo que SI se puede hacer es publicar una marca derivada de la maestra —que no
+ * la revela: es un HMAC truncado con una etiqueta de dominio— para que dos maquinas
+ * comparen si tienen la MISMA. Si no coinciden, alguien puso una clave que no es la tuya.
+ */
+export function huellaDeMaestra(master: Buffer): string {
+  return createHmac('sha256', master)
+    .update('nest-memory/master-fingerprint-v1')
+    .digest('hex')
+    .slice(0, 16)
+}
+
 export function hmacTopicKey(keys: MemoryKeys, projectKey: string, scope: string, topicKey: string): string {
   return createHmac('sha256', keys.topic)
     .update(`${projectKey}|${scope}|${topicKey}`)

@@ -23,6 +23,7 @@ interface EstadoCifrado {
   estadoRemotoLeido?: boolean
   huellaPropia?: string | null
   huellasPorDevice?: Record<string, string>
+  huellaDeLaClave?: string | null
 }
 
 /** Lo que el §5.2 deja en claro a propósito. Va en la tarjeta y no sólo en la landing: es
@@ -253,6 +254,19 @@ export default function MemoryEncryptionCard() {
           <span className="font-mono text-fs-xs tabular-nums text-muted-foreground">clave #{estado.keyEpoch}</span>
         </div>
         <p className="text-fs-sm text-muted-foreground">{LO_QUE_QUEDA_EN_CLARO}</p>
+
+        {/* La marca de la clave que esta máquina tiene. Dos máquinas de la misma cuenta
+            muestran la misma; si no coinciden, alguien puso una clave que no es la tuya.
+            Envolver no requiere ningún secreto, así que quien pueda escribir en la base del
+            servicio puede sellar la SUYA para tu clave pública — y el sobre no lo detecta. */}
+        {estado.huellaDeLaClave && (
+          <p className="text-fs-xs text-muted-foreground">
+            Clave de esta cuenta:{' '}
+            <span className="select-all font-mono text-foreground">{estado.huellaDeLaClave}</span>
+            {' '}— tiene que ser la misma en todas tus máquinas.
+          </p>
+        )}
+
         {error && <p className="text-fs-sm text-destructive">{error}</p>}
 
         {estado.pendingDevices.length > 0 && (

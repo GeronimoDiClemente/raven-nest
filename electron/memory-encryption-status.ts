@@ -12,6 +12,7 @@ export interface EncryptionStatusInput {
   estadoRemotoLeido?: boolean
   huellaPropia?: string | null
   huellasPorDevice?: Record<string, string>
+  huellaDeLaClave?: string | null
 }
 
 export interface EncryptionStatus {
@@ -29,6 +30,8 @@ export interface EncryptionStatus {
   huellaPropia: string | null
   /** Huella de cada máquina que espera autorización, por `deviceId`. */
   huellasPorDevice: Record<string, string>
+  /** Marca de la maestra de esta máquina. Dos máquinas de la misma cuenta la comparten. */
+  huellaDeLaClave: string | null
 }
 
 export function buildEncryptionStatus(input: EncryptionStatusInput): EncryptionStatus {
@@ -53,5 +56,6 @@ export function buildEncryptionStatus(input: EncryptionStatusInput): EncryptionS
     estadoRemotoLeido: input.estadoRemotoLeido ?? true,
     huellaPropia: input.huellaPropia ?? null,
     huellasPorDevice: input.huellasPorDevice ?? {},
+    huellaDeLaClave: input.huellaDeLaClave ?? null,
   }
 }

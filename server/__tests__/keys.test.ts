@@ -245,4 +245,36 @@ describe('activar contra autorizar — el empate de época', () => {
     })
     expect(res.ok).toBe(true)
   })
+
+  // `has_wrap` mira si EXISTE una fila, no si corresponde a la pública actual. Cualquier
+  // regeneración del par local —un keys.bin corrupto, un llavero restaurado— dejaba una
+  // envoltura sellada para una clave que ya no existe: la máquina no podía abrirla, pero
+  // tampoco aparecía como pendiente, así que la otra nunca ofrecía autorizarla. Afuera de
+  // forma permanente y en silencio.
+  it('si un device cambia su clave pública, su envoltura vieja se borra', async () => {
+    await enrollDeviceKey(pool, authFor(deviceA), { public_key: 'pub-vieja' })
+    await publishWraps(pool, authFor(deviceA), {
+      key_epoch: 1, mode: 'activate',
+      wraps: [{ slot: deviceA, kind: 'device', wrapped: 'sellada-para-la-vieja' }],
+    })
+    expect((await getKeyState(pool, authFor(deviceA))).devices.find((d) => d.deviceId === deviceA)?.hasWrap).toBe(true)
+
+    // La máquina regenera su par y vuelve a inscribirse.
+    await enrollDeviceKey(pool, authFor(deviceA), { public_key: 'pub-nueva' })
+
+    const estado = await getKeyState(pool, authFor(deviceA))
+    const yo = estado.devices.find((d) => d.deviceId === deviceA)
+    expect(yo?.publicKey).toBe('pub-nueva')
+    expect(yo?.hasWrap, 'vuelve a figurar como pendiente de autorización').toBe(false)
+  })
+
+  it('re-inscribir la MISMA clave no borra nada', async () => {
+    await enrollDeviceKey(pool, authFor(deviceA), { public_key: 'pub-1' })
+    await publishWraps(pool, authFor(deviceA), {
+      key_epoch: 1, mode: 'activate',
+      wraps: [{ slot: deviceA, kind: 'device', wrapped: 'w' }],
+    })
+    await enrollDeviceKey(pool, authFor(deviceA), { public_key: 'pub-1' })
+    expect((await getKeyState(pool, authFor(deviceA))).devices.find((d) => d.deviceId === deviceA)?.hasWrap).toBe(true)
+  })
 })

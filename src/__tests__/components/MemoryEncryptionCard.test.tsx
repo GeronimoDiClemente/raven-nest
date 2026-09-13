@@ -13,6 +13,7 @@ interface EstadoCifrado {
   estadoRemotoLeido?: boolean
   huellaPropia?: string | null
   huellasPorDevice?: Record<string, string>
+  huellaDeLaClave?: string | null
 }
 
 const estadoBase: EstadoCifrado = {
@@ -185,5 +186,16 @@ describe('MemoryEncryptionCard', () => {
     fireEvent.click(await screen.findByRole('button', { name: /activar el cifrado/i }))
     expect(await screen.findByText('AAAA-BBBB-CCCC-DDDD-EEEE-FFFF')).toBeInTheDocument()
     expect(screen.getByText(/no se pudo guardar en esta máquina/i)).toBeInTheDocument()
+  })
+
+  // Envolver no requiere ningún secreto: quien escriba en la base del servicio puede sellar
+  // SU maestra para la pública de la víctima y pisar la envoltura. La máquina desenvuelve 32
+  // bytes válidos, sin error, y cifra para el atacante. El sealed box no lo detecta, así que
+  // lo único que queda es poder comparar si dos máquinas tienen la MISMA clave.
+  it('activo, muestra la marca de la clave para comparar entre máquinas', async () => {
+    montarCon({ active: true, keyEpoch: 1, huellaDeLaClave: 'a1b2c3d4e5f60789' })
+    render(<MemoryEncryptionCard />)
+    expect(await screen.findByText('a1b2c3d4e5f60789')).toBeInTheDocument()
+    expect(screen.getByText(/misma en todas tus máquinas/i)).toBeInTheDocument()
   })
 })

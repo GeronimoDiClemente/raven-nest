@@ -26,6 +26,16 @@ function fakeStore(overrides: Partial<MemoryStore> = {}): MemoryStore {
     findActiveTopicOwner: vi.fn(() => null),
     applyIncomingObservation: vi.fn(),
     ensureProject: vi.fn(),
+    // Los del cifrado. Sin ellos `applyPulledRow` lanza y el pull encadenado se corta — un
+    // doble que no tiene los métodos del real no está probando el real.
+    markUndecryptable: vi.fn(),
+    clearUndecryptableFor: vi.fn(),
+    undecryptableCount: vi.fn(() => 0),
+    clearUndecryptable: vi.fn(),
+    bumpUndecryptable: vi.fn(),
+    findActiveTopicOwnerByHmac: vi.fn(() => null),
+    knownKeyEpoch: vi.fn(() => 0),
+    rememberKeyEpoch: vi.fn(),
     ...overrides,
   } as unknown as MemoryStore
 }

@@ -263,6 +263,7 @@ import {
   type RemoteKeyState,
 } from './memory-keys-client'
 import { huellaDeClave } from './memory-key-wrap'
+import { huellaDeMaestra } from './memory-crypto'
 import { buildEncryptionStatus } from './memory-encryption-status'
 import { runReencrypt } from './memory-reencrypt'
 
@@ -3173,6 +3174,13 @@ ipcMain.handle('memory:encryption:status', async () => {
     // permite a una persona detectar que el servidor sustituyó una clave pública: sin
     // comparar, autorizar es confiar en que quien dice de quién es cada clave no miente.
     huellaPropia: memoryKeys ? huellaDeClave(memoryKeys.device.publicKey) : null,
+    /**
+     * Marca de la maestra que ESTA máquina tiene. Dos máquinas de la misma cuenta deberían
+     * mostrar la misma; si no coinciden, alguien puso una clave que no es la del usuario —
+     * envolver no requiere ningún secreto, así que quien escriba en la base del servicio
+     * puede sellar la SUYA para la pública de la víctima y el sealed box no lo detecta.
+     */
+    huellaDeLaClave: memoryKeys?.master ? huellaDeMaestra(Buffer.from(memoryKeys.master, 'base64')) : null,
     huellasPorDevice: Object.fromEntries(devices.map((d) => [d.deviceId, huellaDeClave(d.publicKey)])),
   })
 })
