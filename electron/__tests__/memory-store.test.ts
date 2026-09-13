@@ -1780,3 +1780,68 @@ describe('MemoryStore — dos memorias NO pueden compartir topic_key', () => {
     cleanupTmp(dir)
   })
 })
+
+/**
+ * `ensureProject` era insert-only, y eso congelaba un nombre de marcador para siempre.
+ *
+ * Una segunda máquina se entera de un proyecto por el roster de `/v1/status` o por el cursor
+ * de un pull, y en los dos casos el único nombre que tiene para ponerle es la `project_key`
+ * —un hash— porque el `display_name` del roster viaja cifrado y desde ahí no se puede abrir.
+ * Después el usuario clona el repo, Nest resuelve la MISMA `project_key` y llama con el
+ * nombre real de la carpeta: el insert-only lo tiraba y el usuario seguía viendo el hash.
+ */
+describe('ensureProject mejora lo que ya está', () => {
+  let dir: string
+  let store: MemoryStore
+  beforeEach(() => { dir = makeTmpDir(); store = new MemoryStore(join(dir, 'm.db')) })
+  afterEach(() => { store.close(); cleanupTmp(dir) })
+
+  const nombreDe = (clave: string) =>
+    store.listProjects().find((p) => p.projectKey === clave)?.displayName
+
+  // `listProjects()` sólo devuelve clave, nombre y enrolled: los paths se leen de la tabla.
+  const filaDe = (clave: string) =>
+    (store as unknown as { db: { prepare(s: string): { get(v: string): unknown } } }).db
+      .prepare('SELECT display_name, root_path, remote_url FROM projects WHERE project_key = ?')
+      .get(clave) as { display_name: string; root_path: string | null; remote_url: string | null }
+
+  it('un nombre real reemplaza al marcador que dejó el roster', () => {
+    store.ensureProject({ projectKey: 'hash-abc', displayName: 'hash-abc' })
+    expect(nombreDe('hash-abc')).toBe('hash-abc')
+
+    store.ensureProject({ projectKey: 'hash-abc', displayName: 'raven-nest', rootPath: '/repos/raven-nest' })
+    expect(nombreDe('hash-abc')).toBe('raven-nest')
+  })
+
+  it('un marcador NO degrada un nombre real que esta máquina ya sabe', () => {
+    store.ensureProject({ projectKey: 'hash-abc', displayName: 'raven-nest' })
+    // El roster vuelve con el nombre cifrado, así que el daemon cae a la project_key.
+    store.ensureProject({ projectKey: 'hash-abc', displayName: 'hash-abc' })
+    expect(nombreDe('hash-abc')).toBe('raven-nest')
+  })
+
+  it('un nombre real tampoco pisa a OTRO nombre real', () => {
+    store.ensureProject({ projectKey: 'hash-abc', displayName: 'como-lo-llamó-el-usuario' })
+    store.ensureProject({ projectKey: 'hash-abc', displayName: 'otro-nombre' })
+    expect(nombreDe('hash-abc')).toBe('como-lo-llamó-el-usuario')
+  })
+
+  it('el path local se completa cuando faltaba, y no se pisa cuando ya está', () => {
+    store.ensureProject({ projectKey: 'hash-abc', displayName: 'hash-abc' })
+    store.ensureProject({ projectKey: 'hash-abc', displayName: 'raven-nest', rootPath: '/repos/nest', remoteUrl: 'git@x:y.git' })
+    expect(filaDe('hash-abc').root_path).toBe('/repos/nest')
+    expect(filaDe('hash-abc').remote_url).toBe('git@x:y.git')
+
+    // Desde v1.2 el path local es por máquina y lo elige el usuario: una respuesta de red no
+    // lo puede cambiar.
+    store.ensureProject({ projectKey: 'hash-abc', displayName: 'raven-nest', rootPath: '/otro/lado' })
+    expect(filaDe('hash-abc').root_path).toBe('/repos/nest')
+  })
+
+  it('sin nada que mejorar no escribe', () => {
+    store.ensureProject({ projectKey: 'hash-abc', displayName: 'raven-nest', rootPath: '/repos/nest' })
+    const antes = filaDe('hash-abc')
+    store.ensureProject({ projectKey: 'hash-abc', displayName: 'raven-nest', rootPath: '/repos/nest' })
+    expect(filaDe('hash-abc')).toEqual(antes)
+  })
+})

@@ -869,15 +869,62 @@ export class MemoryStore {
     return current
   }
 
+  /**
+   * Registra un proyecto, y MEJORA el que ya está si lo que llega es mejor que lo guardado.
+   *
+   * Era insert-only, y eso dejaba un nombre de marcador de posición congelado para siempre.
+   * El camino: una segunda máquina se entera de un proyecto por el roster de `/v1/status` o
+   * por el cursor de un pull, y en los dos casos el nombre que tiene para ponerle es la
+   * `project_key` — un hash— porque el `display_name` del roster viaja cifrado y desde ahí no
+   * se puede abrir (el AAD ata cada ciphertext a SU observación, y el roster no trae
+   * `sync_id`). Después el usuario clona el repo en esa máquina, Nest resuelve la MISMA
+   * `project_key` y llama con el nombre de la carpeta — y el insert-only lo tiraba. El
+   * usuario veía `a3f9c2e8…` en la UI para siempre, con el repo abierto al lado.
+   *
+   * Lo mismo con `root_path` y `remote_url`: se perdían enteros, así que un proyecto que
+   * nació del roster nunca aprendía dónde está en el disco.
+   *
+   * Las reglas son asimétricas a propósito, porque la información no es simétrica:
+   *
+   * - `display_name` se pisa SÓLO si lo guardado es el marcador (igual a la `project_key`) y
+   *   lo que llega no lo es. Nunca al revés: un roster que vuelve cifrado no puede degradar
+   *   un nombre real que esta máquina ya sabe.
+   * - `root_path` y `remote_url` se COMPLETAN cuando lo guardado es null. No se pisan: desde
+   *   v1.2 el path local es por máquina y elegirlo es del usuario, no de una respuesta de red.
+   */
   ensureProject(input: { projectKey: string; displayName: string; rootPath?: string | null; remoteUrl?: string | null }): void {
-    const existing = this.db.prepare('SELECT project_key FROM projects WHERE project_key = ?').get(input.projectKey)
-    if (existing) return
-    this.db
-      .prepare(
-        `INSERT INTO projects (project_key, display_name, root_path, remote_url, enrolled, created_at)
-         VALUES (?, ?, ?, ?, 1, ?)`
-      )
-      .run(input.projectKey, input.displayName, input.rootPath ?? null, input.remoteUrl ?? null, Date.now())
+    const existing = this.db
+      .prepare('SELECT display_name, root_path, remote_url FROM projects WHERE project_key = ?')
+      .get(input.projectKey) as
+        | { display_name: string | null; root_path: string | null; remote_url: string | null }
+        | undefined
+
+    if (!existing) {
+      this.db
+        .prepare(
+          `INSERT INTO projects (project_key, display_name, root_path, remote_url, enrolled, created_at)
+           VALUES (?, ?, ?, ?, 1, ?)`
+        )
+        .run(input.projectKey, input.displayName, input.rootPath ?? null, input.remoteUrl ?? null, Date.now())
+      return
+    }
+
+    const esMarcador = (nombre: string | null) => !nombre || nombre === input.projectKey
+    const nombreMejor = esMarcador(existing.display_name) && !esMarcador(input.displayName)
+
+    const parches: string[] = []
+    const valores: unknown[] = []
+    if (nombreMejor) { parches.push('display_name = ?'); valores.push(input.displayName) }
+    if (existing.root_path == null && input.rootPath != null) {
+      parches.push('root_path = ?'); valores.push(input.rootPath)
+    }
+    if (existing.remote_url == null && input.remoteUrl != null) {
+      parches.push('remote_url = ?'); valores.push(input.remoteUrl)
+    }
+    if (parches.length === 0) return
+
+    valores.push(input.projectKey)
+    this.db.prepare(`UPDATE projects SET ${parches.join(', ')} WHERE project_key = ?`).run(...valores)
   }
 
   /** M17: enumerates known local projects so the daemon can pull with a per-project cursor for each. */
