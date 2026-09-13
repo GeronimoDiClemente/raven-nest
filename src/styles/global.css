@@ -12034,19 +12034,18 @@ body.platform-mac .tabbar { padding-right: 116px; }
    pantalla. [data-slot="badge"] es el atributo que pone el Badge del CLI de shadcn. */
 .memories-status-cell .memories-dot,
 [data-slot="badge"] .memories-dot { position: static; box-shadow: none; }
-/* .memories-warn y .memories-muted siguen en uso en ShareProjectCard.tsx — no se borran. */
-.memories-muted { opacity: .6; }
-.memories-warn { color: #F59E0B; }
+/* `.memories-muted`, `.memories-warn`, `.memories-ok`, `.memories-share` y
+   `.memories-share-row` se borraron el 2026-09-13: ShareProjectCard paso a las utilidades y
+   al mismo marco que MemoryEncryptionCard. Eran la razon de que esa card tuviera su propia
+   escala —titulo de 14px en negrita de navegador contra 13px/500 de sus vecinas, radio de
+   3px, padding 14/16— y de que el `#F59E0B` de aviso conviviera con el token `--warn` que el
+   resto de la pantalla ya usaba. */
 .memories-body { flex-direction: column; gap: 16px; padding: 16px; overflow-y: auto; }
 
 /* D6 — compartir un proyecto con el equipo, dentro del overlay de Memories. */
-.memories-share { border: 1px solid var(--border); border-radius: 3px; padding: 14px 16px; }
-.memories-share h4 { margin: 0 0 10px; font-size: 14px; }
-.memories-share-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 /* El <select> nativo de equipo (`.memories-team-select`) se reemplazo por el
    Select de shadcn/Radix (src/components/ui/select.tsx): el popup nativo era
    un overlay del sistema operativo, imposible de capturar y de estilar con
    los tokens del proyecto, y se veia distinto en cada SO. El Select de Radix
    dibuja el popup en el DOM, con lo cual toma bg-popover/text-popover-foreground
    como cualquier otro componente shadcn. */
-.memories-ok { color: #22C55E; font-size: 13px; margin: 10px 0 0; }

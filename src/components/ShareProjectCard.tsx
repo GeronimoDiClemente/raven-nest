@@ -64,16 +64,31 @@ export default function ShareProjectCard({ activeRepoPath }: Props) {
     }
   }
 
+  /**
+   * El mismo marco que `MemoryEncryptionCard`, literal.
+   *
+   * Esta card se escribio con clases propias en `global.css` y quedo con su propia escala:
+   * el titulo en 14px y en negrita de navegador (700) contra los 13px/500 de sus vecinas, el
+   * borde en 3px de radio donde el resto usa el token, y el padding en 14/16 contra 12. En
+   * una columna donde todo lo demas comparte medidas, la unica distinta se lee como de otra
+   * pantalla — que es exactamente lo que se veia al pie de Memories.
+   */
+  const marco = 'flex shrink-0 flex-col gap-2 rounded-md border border-border p-3'
+
   return (
-    <div className="memories-share">
-      <h4>Share this project with a team</h4>
+    <div className={marco}>
+      <h4 className="m-0 text-fs font-medium text-foreground">Share this project with a team</h4>
       {teams.length === 0 ? (
-        <p className="memories-muted">You are not in a team yet. Team memories need one.</p>
+        <p className="text-fs-sm text-muted-foreground">You are not in a team yet. Team memories need one.</p>
       ) : (
         <>
-          <div className="memories-share-row">
+          <div className="flex flex-wrap items-center gap-2">
             <Select value={teamId} onValueChange={setTeamId} disabled={busy}>
-              <SelectTrigger aria-label="Team">
+              {/* `size="sm"` para que empareje con el <Button size="sm"> de al lado: el
+                  trigger por default es `h-8` con texto de 14px y el boton es `h-7` con 12px,
+                  asi que uno al lado del otro el select quedaba 4px mas alto y con la letra
+                  mas grande. */}
+              <SelectTrigger size="sm" aria-label="Team">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -90,7 +105,7 @@ export default function ShareProjectCard({ activeRepoPath }: Props) {
             </Button>
           </div>
           {result && (
-            <p className={result.ok ? 'memories-ok' : 'memories-warn'}>{result.text}</p>
+            <p className={`text-fs-sm ${result.ok ? 'text-ok' : 'text-warn'}`}>{result.text}</p>
           )}
         </>
       )}
