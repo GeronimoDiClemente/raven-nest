@@ -148,12 +148,24 @@ presente al trabajar acá:
   irrecuperable — es la consecuencia inevitable del diseño, no un defecto.
 - **La base local sigue en claro y tiene que seguirlo**: la búsqueda es FTS5 local y el
   agente necesita el texto. La máquina del usuario está fuera del modelo de amenaza.
-- **`SCHEMA_VERSION` 6** suma `topic_key_hmac`. Una fila que vino del pull tiene el HMAC y
-  `topic_key = null`; una local tiene el tema en claro y, si hay clave, también el HMAC.
+- **`SCHEMA_VERSION` 7**. La 6 sumó `topic_key_hmac`: una fila que vino del pull tiene el HMAC
+  y `topic_key = null`; una local tiene el tema en claro y, si hay clave, también el HMAC. La 7
+  movió el conjunto de memorias ilegibles de un JSON en `meta` a la tabla `undecryptable`.
 - **El scope `team` NO se cifra** en esta versión, y está anunciado como tal.
+- **El daemon se entera de que la cuenta cifra por `key_epoch` de `/v1/sync/status`**, y es
+  lo que arma el gate fail-closed del push. No alcanza con que lo sepa la tarjeta de cifrado:
+  esa sólo corre si el usuario abre el overlay Memories, y hasta el 2026-09-13 el gate no se
+  armaba nunca en la máquina que importa —la que no tiene la clave— así que subía título y
+  contenido en claro a una cuenta cifrada. Si tocás ese camino, el test que lo cubre es
+  `el gate se arma por el status, sin depender de ver ciphertext`.
+- **Publicar una envoltura para otra máquina exige probar que tenés la maestra**
+  (`rotate_proof` contra `users.rotate_verifier`). Sin eso, cualquier device de la cuenta
+  sella SU maestra para la pública de la víctima y la víctima la adopta sin aviso.
 - Para probarlo hace falta el servicio arriba: ver `server/README.md` y
   `scripts/smoke-cifrado-e2e.mjs` (que hoy está en rojo por temporización — leer su
-  encabezado antes de creerle a la salida).
+  encabezado antes de creerle a la salida). El Postgres de desarrollo se levanta con el
+  `docker run` del README; si el suite del servidor empieza a dar timeouts raros, mirá cuánto
+  creció la base — las sondas de las revisiones dejaron 160k filas y todo se vuelve lento.
 
 ## Seguridad — pendiente crítico
 

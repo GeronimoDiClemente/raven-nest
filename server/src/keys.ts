@@ -213,6 +213,20 @@ export async function publishWraps(
     const modo = body.mode
 
     /**
+     * Activar SIN `rotate_verifier` dejaba la columna en null, y una cuenta con el verificador
+     * en null no puede volver a hacer NADA que requiera probar posesion: ni rotar ni —desde
+     * que la prueba cubre todo `authorize`— autorizar otra maquina ni recuperar con el codigo.
+     * Verificado contra Postgres: los dos caminos devuelven 403 para siempre. Es una cuenta
+     * cifrada sin salida, creada por omitir un campo.
+     *
+     * Se exige al activar, que es el unico momento en que se puede derivar de la maestra nueva.
+     */
+    if (modo === 'activate' && (typeof body?.rotate_verifier !== 'string' || body.rotate_verifier.trim() === '')) {
+      await client.query('rollback')
+      return { ok: false, status: 400, error: 'missing_rotate_verifier' }
+    }
+
+    /**
      * La coherencia de época se decide ANTES que la posesión, y el orden es parte del
      * contrato, no un detalle.
      *
@@ -258,8 +272,20 @@ export async function publishWraps(
         [auth.userId]
       )
       const guardado = (esperado[0]?.rotate_verifier as string | null) ?? null
-      return Boolean(guardado) && prueba.length === guardado!.length &&
-        timingSafeEqual(Buffer.from(prueba), Buffer.from(guardado!))
+      if (!guardado) return false
+      /**
+       * Se comparan BUFFERS, y la longitud se mide en bytes.
+       *
+       * La primera version comparaba `prueba.length === guardado.length` —que en JS cuenta
+       * unidades UTF-16, no bytes— y recien despues convertia a Buffer. Un `rotate_proof` con
+       * un caracter multibyte de la misma longitud en caracteres pasaba el chequeo y hacia
+       * lanzar a `timingSafeEqual`: verificado contra Postgres, 'abcn~' contra 'abcd' tira
+       * "Input buffers must have the same byte length", que sale del handler como un 500 en
+       * vez del 403 que corresponde.
+       */
+      const a = Buffer.from(prueba, 'utf8')
+      const b = Buffer.from(guardado, 'utf8')
+      return a.length === b.length && timingSafeEqual(a, b)
     }
 
     /**
@@ -303,10 +329,32 @@ export async function publishWraps(
         await client.query('rollback')
         return { ok: false, status: 403, error: 'cannot_overwrite_recovery' }
       }
-      const tocaPropio = wraps.some((w) => w.slot === auth.deviceId)
-      if (tocaPropio && !(await pruebaDePosesion())) {
+      /**
+       * La prueba se exige para TODO `authorize`, no solo cuando el request toca el slot
+       * propio. La version anterior tapaba exactamente el caso que NO sirve para atacar y
+       * dejaba pasar el que si.
+       *
+       * Verificado contra Postgres el 2026-09-13: un device de la cuenta que nunca fue
+       * autorizado —y que por diseno no puede leer nada— publicaba sobre el slot de OTRA
+       * maquina y el servidor contestaba `{ok:true}`. Sellar no requiere ningun secreto (el
+       * sealed box X25519 tiene emisor anonimo) y la publica de la victima la reparte
+       * `GET /v1/keys` a todos los devices de la cuenta, asi que el atacante envolvia SU
+       * maestra para la victima. `adoptExistingKey` la abre sin error ni aviso: desde ahi, la
+       * victima cifra y sube con una maestra que el atacante conoce.
+       *
+       * La variante contra una maquina PENDIENTE es la mas silenciosa: plantarle la envoltura
+       * pone `has_wrap = true`, o sea que sale de `pendingDevices` y el dueno nunca ve que
+       * habia que autorizarla.
+       *
+       * Autorizar a otra maquina significa, por definicion, tener la maestra para envolversela.
+       * Exigir la prueba no le saca nada al camino legitimo: el cliente ya la manda siempre
+       * (`memory-keys-client.ts#authorizeDevice`), y el camino de recuperacion D8 pasa por esa
+       * misma funcion.
+       */
+      if (!(await pruebaDePosesion())) {
         await client.query('rollback')
-        return { ok: false, status: 403, error: 'cannot_authorize_self' }
+        const propio = wraps.some((w) => w.slot === auth.deviceId)
+        return { ok: false, status: 403, error: propio ? 'cannot_authorize_self' : 'must_hold_master' }
       }
     }
     // Rotar es empezar de cero: las envolturas de la epoca vieja no sirven para la maestra

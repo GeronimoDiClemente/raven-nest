@@ -88,7 +88,7 @@ describe('/v1/keys', () => {
       wraps: [{ slot: deviceA, kind: 'device', wrapped: 'W-A' }],
     })
     await publishWraps(pool, authFor(deviceA), {
-      key_epoch: 1, mode: 'authorize',
+      key_epoch: 1, mode: 'authorize', rotate_proof: verificador('maestra', 1),
       wraps: [{ slot: deviceB, kind: 'device', wrapped: 'W-B' }],
     })
     expect((await getKeyState(pool, authFor(deviceB))).wrap).toEqual({ wrapped: 'W-B', wrapMeta: null })
@@ -168,7 +168,7 @@ describe('activar contra autorizar — el empate de época', () => {
   it('una segunda activación con la misma época se rechaza en vez de pisar', async () => {
     const deviceId = deviceA
     const primera = await publishWraps(pool, authFor(deviceId), {
-      key_epoch: 1, mode: 'activate',
+      key_epoch: 1, mode: 'activate', rotate_verifier: verificador('la-primera', 1),
       wraps: [
         { slot: deviceId, kind: 'device', wrapped: 'w-A' },
         { slot: 'recovery', kind: 'recovery', wrapped: 'r-A', wrap_meta: { salt: 's' } },
@@ -177,7 +177,7 @@ describe('activar contra autorizar — el empate de época', () => {
     expect(primera.ok).toBe(true)
 
     const segunda = await publishWraps(pool, authFor(deviceId), {
-      key_epoch: 1, mode: 'activate',
+      key_epoch: 1, mode: 'activate', rotate_verifier: verificador('la-segunda', 1),
       wraps: [
         { slot: deviceId, kind: 'device', wrapped: 'w-B' },
         { slot: 'recovery', kind: 'recovery', wrapped: 'r-B', wrap_meta: { salt: 's' } },
@@ -197,11 +197,11 @@ describe('activar contra autorizar — el empate de época', () => {
   it('autorizar con la época vigente sí suma una envoltura, sin rotar', async () => {
     const deviceId = deviceA
     await publishWraps(pool, authFor(deviceId), {
-      key_epoch: 1, mode: 'activate',
+      key_epoch: 1, mode: 'activate', rotate_verifier: verificador('maestra', 1),
       wraps: [{ slot: deviceId, kind: 'device', wrapped: 'w-A' }],
     })
     const otra = await publishWraps(pool, authFor(deviceId), {
-      key_epoch: 1, mode: 'authorize',
+      key_epoch: 1, mode: 'authorize', rotate_proof: verificador('maestra', 1),
       wraps: [{ slot: deviceB, kind: 'device', wrapped: 'w-2' }],
     })
     expect(otra.ok).toBe(true)
@@ -226,15 +226,18 @@ describe('activar contra autorizar — el empate de época', () => {
   // sido autorizado nunca.
   it('un device sin envoltura vigente NO puede rotar la época', async () => {
     await publishWraps(pool, authFor(deviceA), {
-      key_epoch: 1, mode: 'activate',
+      key_epoch: 1, mode: 'activate', rotate_verifier: verificador('maestra', 1),
       wraps: [
         { slot: deviceA, kind: 'device', wrapped: 'w-A' },
         { slot: 'recovery', kind: 'recovery', wrapped: 'r-A', wrap_meta: { salt: 's' } },
       ],
     })
-    // B nunca fue autorizado: no tiene envoltura.
+    // B nunca fue autorizado: no tiene la maestra. El request va BIEN FORMADO —con su
+    // verificador y todo— para que lo único que lo rechace sea la prueba de posesión y no
+    // una validación de forma.
     const res = await publishWraps(pool, authFor(deviceB), {
       key_epoch: 2, mode: 'activate',
+      rotate_verifier: verificador('la-de-B', 2), rotate_proof: verificador('adivinada', 1),
       wraps: [{ slot: deviceB, kind: 'device', wrapped: 'w-B' }],
     })
     expect(res.ok).toBe(false)
@@ -380,7 +383,7 @@ describe('activar contra autorizar — el empate de época', () => {
   it('si un device cambia su clave pública, su envoltura vieja se borra', async () => {
     await enrollDeviceKey(pool, authFor(deviceA), { public_key: 'pub-vieja' })
     await publishWraps(pool, authFor(deviceA), {
-      key_epoch: 1, mode: 'activate',
+      key_epoch: 1, mode: 'activate', rotate_verifier: verificador('maestra', 1),
       wraps: [{ slot: deviceA, kind: 'device', wrapped: 'sellada-para-la-vieja' }],
     })
     expect((await getKeyState(pool, authFor(deviceA))).devices.find((d) => d.deviceId === deviceA)?.hasWrap).toBe(true)
@@ -397,7 +400,7 @@ describe('activar contra autorizar — el empate de época', () => {
   it('re-inscribir la MISMA clave no borra nada', async () => {
     await enrollDeviceKey(pool, authFor(deviceA), { public_key: 'pub-1' })
     await publishWraps(pool, authFor(deviceA), {
-      key_epoch: 1, mode: 'activate',
+      key_epoch: 1, mode: 'activate', rotate_verifier: verificador('maestra', 1),
       wraps: [{ slot: deviceA, kind: 'device', wrapped: 'w' }],
     })
     await enrollDeviceKey(pool, authFor(deviceA), { public_key: 'pub-1' })
@@ -506,5 +509,130 @@ describe('el orden entre la época y la posesión', () => {
       "select wrapped from key_wraps where user_id = $1 and slot = 'recovery'", [userId]
     )
     expect(rows[0]?.wrapped).toBe('r-A')
+  })
+})
+
+/**
+ * La sustitución de clave que la TERCERA revisión encontró, verificada contra Postgres.
+ *
+ * La prueba de posesión se exigía sólo cuando el request tocaba el slot PROPIO. Escribir el
+ * slot de otra máquina no pedía nada — y ése es justamente el que sirve para atacar: sellar
+ * no requiere ningún secreto (el sealed box X25519 tiene emisor anónimo) y la pública de la
+ * víctima la reparte `GET /v1/keys` a todos los devices de la cuenta. Un device que nunca fue
+ * autorizado envolvía SU maestra para la víctima, que la adoptaba sin error ni aviso.
+ */
+describe('autorizar exige tener la maestra, siempre', () => {
+  const activarConA = () => publishWraps(pool, authFor(deviceA), {
+    key_epoch: 1, mode: 'activate', rotate_verifier: verificador('la-legitima', 1),
+    wraps: [
+      { slot: deviceA, kind: 'device', wrapped: 'ENVOLTURA-LEGITIMA' },
+      { slot: 'recovery', kind: 'recovery', wrapped: 'R-OK', wrap_meta: { salt: 's' } },
+    ],
+  })
+
+  it('un device sin la maestra NO puede pisar la envoltura de otro', async () => {
+    await activarConA()
+    const res = await publishWraps(pool, authFor(deviceB), {
+      key_epoch: 1, mode: 'authorize',
+      wraps: [{ slot: deviceA, kind: 'device', wrapped: 'ENVOLTURA-DEL-ATACANTE' }],
+    })
+    expect(res.ok).toBe(false)
+    if (!res.ok) {
+      expect(res.status).toBe(403)
+      expect(res.error).toBe('must_hold_master')
+    }
+    // Lo decisivo: A sigue abriendo con la suya.
+    expect((await getKeyState(pool, authFor(deviceA))).wrap).toEqual({
+      wrapped: 'ENVOLTURA-LEGITIMA', wrapMeta: null,
+    })
+  })
+
+  // La variante más silenciosa: plantarle la envoltura a una máquina PENDIENTE la saca de la
+  // lista de pendientes (`has_wrap` pasa a true), así que el dueño nunca ve que había que
+  // autorizarla y esa máquina adopta la maestra del atacante en su primer arranque.
+  it('tampoco puede plantarle una envoltura a una máquina pendiente', async () => {
+    await activarConA()
+    const laptopNueva = randomUUID()
+    await pool.query(
+      "insert into devices (id, user_id, name, token_hash) values ($1, $2, 'laptop', $3)",
+      [laptopNueva, userId, 'hash-' + laptopNueva]
+    )
+    await enrollDeviceKey(pool, { deviceId: laptopNueva, userId }, { public_key: 'PUB-LAPTOP' })
+
+    const res = await publishWraps(pool, authFor(deviceB), {
+      key_epoch: 1, mode: 'authorize',
+      wraps: [{ slot: laptopNueva, kind: 'device', wrapped: 'PLANTADA' }],
+    })
+    expect(res.ok).toBe(false)
+
+    const laLaptop = (await getKeyState(pool, authFor(deviceA))).devices
+      .find((d) => d.deviceId === laptopNueva)
+    expect(laLaptop?.hasWrap, 'sigue figurando como pendiente de autorizar').toBe(false)
+  })
+
+  it('con la prueba en la mano, autorizar sigue funcionando', async () => {
+    await activarConA()
+    const res = await publishWraps(pool, authFor(deviceA), {
+      key_epoch: 1, mode: 'authorize', rotate_proof: verificador('la-legitima', 1),
+      wraps: [{ slot: deviceB, kind: 'device', wrapped: 'W-B' }],
+    })
+    expect(res.ok).toBe(true)
+    expect((await getKeyState(pool, authFor(deviceB))).wrap).toEqual({ wrapped: 'W-B', wrapMeta: null })
+  })
+})
+
+/**
+ * Activar sin `rotate_verifier` dejaba la columna en null, y con la prueba cubriendo todo
+ * `authorize` eso es una cuenta cifrada SIN SALIDA: ni rotar, ni autorizar otra máquina, ni
+ * recuperar con el código. Verificado contra Postgres antes del arreglo: los dos caminos
+ * devolvían 403 para siempre.
+ */
+describe('el verificador es obligatorio al activar', () => {
+  it('activar sin verificador se rechaza y no deja la cuenta a medio cifrar', async () => {
+    const res = await publishWraps(pool, authFor(deviceA), {
+      key_epoch: 1, mode: 'activate',
+      wraps: [{ slot: deviceA, kind: 'device', wrapped: 'W-A' }],
+    })
+    expect(res.ok).toBe(false)
+    if (!res.ok) {
+      expect(res.status).toBe(400)
+      expect(res.error).toBe('missing_rotate_verifier')
+    }
+    const { rows } = await pool.query('select key_epoch from users where id = $1', [userId])
+    expect(Number(rows[0].key_epoch), 'la cuenta sigue sin cifrado').toBe(0)
+    expect((await getKeyState(pool, authFor(deviceA))).wrap).toBeNull()
+  })
+
+  it('un verificador en blanco tampoco cuenta', async () => {
+    const res = await publishWraps(pool, authFor(deviceA), {
+      key_epoch: 1, mode: 'activate', rotate_verifier: '   ',
+      wraps: [{ slot: deviceA, kind: 'device', wrapped: 'W-A' }],
+    })
+    expect(res.ok).toBe(false)
+    if (!res.ok) expect(res.error).toBe('missing_rotate_verifier')
+  })
+})
+
+/**
+ * `timingSafeEqual` lanza si los buffers difieren en bytes. La comparación de longitud previa
+ * usaba `.length` de string —unidades UTF-16— así que una prueba con un carácter multibyte de
+ * la misma longitud en caracteres pasaba el chequeo y hacía lanzar: el handler devolvía 500
+ * en vez del 403 que corresponde.
+ */
+describe('la comparación de la prueba mide bytes, no caracteres', () => {
+  it('una prueba multibyte de igual largo en caracteres da 403, no una excepción', async () => {
+    await publishWraps(pool, authFor(deviceA), {
+      key_epoch: 1, mode: 'activate', rotate_verifier: 'abcd',
+      wraps: [{ slot: deviceA, kind: 'device', wrapped: 'W' }],
+    })
+    const res = await publishWraps(pool, authFor(deviceA), {
+      key_epoch: 2, mode: 'activate', rotate_proof: 'abcñ', rotate_verifier: 'x',
+      wraps: [{ slot: deviceA, kind: 'device', wrapped: 'W2' }],
+    })
+    expect(res.ok).toBe(false)
+    if (!res.ok) {
+      expect(res.status).toBe(403)
+      expect(res.error).toBe('not_authorized_to_rotate')
+    }
   })
 })

@@ -89,6 +89,11 @@ export interface StatusResponseBody {
    * than a failure.
    */
   projects?: StatusRosterProject[]
+  /**
+   * La época de claves de la cuenta: 0 = no tiene el cifrado activo. Ausente en un servicio
+   * viejo, que es un caso distinto de `0` y se trata distinto — ver `doStatus`.
+   */
+  key_epoch?: number
 }
 
 export interface PulledRow extends LWWRow {
@@ -320,6 +325,14 @@ export class MemoryDaemon {
   // in-flight list and return immediately, and the swap would close/rename the store while
   // status()'s eventual `this.deps.store`-reading continuation was still pending against it.
   // Same set/clear-in-finally shape as pushInFlight/pullInFlight (M19), just for status().
+  /**
+   * Si ya hubo un `status` exitoso en esta sesión. `scheduleMutationPush()` (debounce de 3s
+   * sobre CADA escritura del MCP) y `onQuit()` llaman `push()` directo, sin pasar por el
+   * drain, así que sin esto el primer push de un arranque puede salir antes de que el daemon
+   * sepa si la cuenta cifra.
+   */
+  private primerStatusOk = false
+
   private statusInFlight: Promise<StatusResponseBody | null> | null = null
   // §11.4 / spec §5.3.1: the server's call, not a client constant. `status()` reads
   // `next_poll_ms` off every response and, when it names a different number, reschedules
@@ -416,6 +429,9 @@ export class MemoryDaemon {
   setStore(store: MemoryStore): void {
     this.deps.store = store
     this.generacionDeStore += 1
+    // La cuenta nueva tiene su propia época, y todavía no la preguntamos. Dejarlo en true
+    // haría que el primer push de la cuenta nueva salga sin saber si cifra.
+    this.primerStatusOk = false
   }
 
   private setStatus(status: DaemonStatus, detail?: string): void {
@@ -633,6 +649,23 @@ export class MemoryDaemon {
     // no se sube nada: subir en claro a una nube que el usuario cree cifrada es peor que no
     // sincronizar. La cola espera — nada se pierde — y el estado lo dice para que la UI pueda
     // ofrecer autorizar la máquina o usar el código de recuperación.
+    /**
+     * Antes de decidir si hay que cifrar, hay que SABER si la cuenta cifra. `push()` tiene
+     * llamadores que no pasan por el drain —`scheduleMutationPush()` en cada escritura del
+     * MCP, y `onQuit()`— así que el primer push de la sesión puede llegar acá antes del primer
+     * `status`. `status()` dedupea por `statusInFlight`, así que si el drain ya lo disparó
+     * esto se cuelga del mismo request en vez de hacer uno nuevo.
+     *
+     * Si el status falla, `primerStatusOk` queda en false y el push sigue igual: bloquearlo
+     * dejaría a un usuario sin sincronizar nada por un servicio caído, y lo que ese usuario
+     * tiene enfrente es el mismo riesgo que había antes de este arreglo, no uno nuevo.
+     *
+     * Sólo cuando hay gate que armar. Sin `isEncryptionExpected` cableado no hay nada que
+     * saber —`seEsperaCifrado` sería false igual, dos líneas más abajo— así que pedir un
+     * status sería una request por nada. En la app real `main.ts` siempre lo pasa.
+     */
+    if (!this.primerStatusOk && this.deps.isEncryptionExpected) await this.status()
+
     const seEsperaCifrado = this.deps.isEncryptionExpected?.() ?? false
     if (seEsperaCifrado && !this.deps.getEnvelopeContext?.()) {
       this.setStatus('error', 'needs_key')
@@ -919,6 +952,30 @@ export class MemoryDaemon {
       // —el llamador puede querer el plan o la cuota— pero no se escribe nada en un store
       // que ya no es el de esta cuenta.
       if (generacionAlSalir !== this.generacionDeStore) return body
+
+      /**
+       * ACÁ se arma el gate fail-closed del push, y tiene que ser acá.
+       *
+       * Antes la época conocida sólo se escribía desde los handlers de la tarjeta de cifrado
+       * —o sea, sólo si el usuario ABRÍA el overlay Memories— y desde `applyPulledRow` al ver
+       * una fila que no se puede abrir. Ninguno de los dos corre en el camino normal de una
+       * máquina que todavía no tiene la clave, así que el gate no llegaba a armarse y el push
+       * subía título y contenido EN CLARO a una cuenta cifrada, con estado `idle`.
+       *
+       * Y no era una carrera: activar el cifrado no re-cifra lo ya subido, así que una cuenta
+       * que venía sincronizando en claro deja al servidor lleno de filas legibles — la segunda
+       * máquina nunca baja algo que no pueda abrir y la época se queda en 0 para siempre.
+       *
+       * `status` es el único camino que corre en TODO drain, antes del pull y del push.
+       *
+       * Un campo AUSENTE es un servicio viejo y significa "no sé", que no es lo mismo que
+       * "0 = no cifra": se deja el valor que hubiera, para no desarmar un gate que otra señal
+       * ya armó.
+       */
+      if (typeof body.key_epoch === 'number' && body.key_epoch > 0) {
+        this.deps.store.rememberKeyEpoch(body.key_epoch)
+      }
+      this.primerStatusOk = true
 
       this.applyPollInterval(body.next_poll_ms)
 

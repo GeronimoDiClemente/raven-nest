@@ -394,3 +394,118 @@ describe('un swap de cuenta con un push en vuelo', () => {
     store = new MemoryStore(join(dir, 'memory.db'))
   })
 })
+
+/**
+ * El crítico de la TERCERA revisión: el gate fail-closed no llegaba a armarse.
+ *
+ * `isEncryptionExpected()` es `store.knownKeyEpoch() > 0` (main.ts), y esa época tenía dos
+ * escritores: los handlers de la tarjeta de cifrado —que sólo corren si el usuario ABRE el
+ * overlay Memories— y `applyPulledRow` al bajar una fila que no puede abrir. Ninguno corre en
+ * el camino normal de una máquina que todavía no tiene la clave.
+ *
+ * Y no es una carrera, es el estado por defecto: activar el cifrado NO re-cifra lo ya subido,
+ * así que una cuenta que venía sincronizando en claro deja al servidor lleno de filas
+ * legibles. La segunda máquina nunca baja algo que no pueda abrir, la época se queda en 0
+ * para siempre, y sigue subiendo título y contenido EN CLARO con estado `idle`, mientras la
+ * tarjeta le dice al usuario que la cuenta está cifrada.
+ *
+ * El arreglo: `/v1/sync/status` devuelve `key_epoch` y `doStatus` lo persiste antes del pull
+ * y del push. Es el único camino que corre en todo drain.
+ */
+describe('el gate se arma por el status, sin depender de ver ciphertext', () => {
+  const servidor = (opciones: { keyEpoch?: number; filas?: unknown[] }) => {
+    const subidas: Array<Record<string, unknown>> = []
+    const urls: string[] = []
+    const fetchImpl = (async (url: string, init?: RequestInit) => {
+      urls.push(String(url))
+      const ok = (j: unknown) => ({ ok: true, status: 200, json: async () => j } as unknown as Response)
+      if (String(url).includes('/status')) {
+        return ok({
+          device_id: 'dev', user_id: 'u', plan: 'pro', next_poll_ms: 300_000,
+          quota: { used_bytes: 0, max_bytes: 1_000_000 }, projects: [],
+          // Ausente a propósito cuando no se pide: es el servicio viejo.
+          ...(opciones.keyEpoch === undefined ? {} : { key_epoch: opciones.keyEpoch }),
+        })
+      }
+      if (String(url).includes('/pull')) return ok({ rows: opciones.filas ?? [], cursors: {} })
+      // `payload` viaja como OBJETO, no como string: el daemon lo arma y `JSON.stringify` del
+      // cuerpo entero lo serializa una sola vez.
+      const body = JSON.parse(String(init?.body ?? '{}')) as { mutations?: Array<{ payload?: Record<string, unknown> }> }
+      for (const m of body.mutations ?? []) subidas.push(m.payload ?? {})
+      return ok({ results: [] })
+    }) as unknown as typeof fetch
+    return { fetchImpl, subidas, urls }
+  }
+
+  // El cableado EXACTO de main.ts:422, para que el test no pruebe una versión más amable.
+  const daemonReal = (fetchImpl: typeof fetch) => new MemoryDaemon({
+    store,
+    getSyncBaseUrl: () => 'http://sync.test',
+    getToken: () => 'tok',
+    getDeviceId: () => 'dev',
+    isOnline: () => true,
+    fetchImpl,
+    getEnvelopeContext: () => null,                       // esta máquina NO tiene la clave
+    isEncryptionExpected: () => store.knownKeyEpoch() > 0,
+  })
+
+  const guardarAlgoPrivado = () => store.save({
+    projectKey: 'proj1', scope: 'personal', type: 'decision',
+    title: 'mi decisión privada', content: 'el cuerpo privado', source: 'mcp',
+  })
+
+  it('un drain sin una sola fila cifrada YA deja el push cerrado', async () => {
+    guardarAlgoPrivado()
+    // La cuenta cifra (época 1) pero todo lo que hay en la nube es anterior y está en claro:
+    // el pull vuelve vacío, así que no hay ciphertext que ver en ningún momento.
+    const srv = servidor({ keyEpoch: 1, filas: [] })
+    const daemon = daemonReal(srv.fetchImpl)
+
+    daemon.onNetworkRegain()
+    await new Promise((r) => setTimeout(r, 700))
+
+    expect(store.knownKeyEpoch(), 'el status la trajo').toBe(1)
+    expect(srv.subidas, 'no subió una sola memoria').toEqual([])
+    expect(daemon.getStatus()).toBe('error')
+  })
+
+  // El camino que ni siquiera pasa por el drain: el MCP escribe y `scheduleMutationPush()`
+  // dispara `push()` directo, sin status ni pull de por medio.
+  it('un push directo, sin drain, tampoco sale en claro', async () => {
+    guardarAlgoPrivado()
+    const srv = servidor({ keyEpoch: 1 })
+    const daemon = daemonReal(srv.fetchImpl)
+
+    await daemon.push()
+
+    expect(srv.urls.some((u) => u.includes('/status')), 'pidió el status antes de pushear').toBe(true)
+    expect(srv.subidas).toEqual([])
+    expect(daemon.getStatus()).toBe('error')
+  })
+
+  it('con la cuenta SIN cifrado, el push sigue subiendo normal', async () => {
+    guardarAlgoPrivado()
+    const srv = servidor({ keyEpoch: 0 })
+    const daemon = daemonReal(srv.fetchImpl)
+
+    await daemon.push()
+
+    expect(store.knownKeyEpoch()).toBe(0)
+    expect(srv.subidas).toHaveLength(1)
+    expect(srv.subidas[0].title).toBe('mi decisión privada')
+  })
+
+  // Un servicio viejo no manda el campo. "No sé" no es lo mismo que "0 = no cifra": no puede
+  // DESARMAR un gate que otra señal ya armó.
+  it('un servicio viejo sin el campo no desarma el gate que el pull armó', async () => {
+    store.rememberKeyEpoch(1)          // ya vimos ciphertext alguna vez
+    guardarAlgoPrivado()
+    const srv = servidor({})           // sin key_epoch en la respuesta
+    const daemon = daemonReal(srv.fetchImpl)
+
+    await daemon.push()
+
+    expect(store.knownKeyEpoch(), 'sigue armado').toBe(1)
+    expect(srv.subidas).toEqual([])
+  })
+})

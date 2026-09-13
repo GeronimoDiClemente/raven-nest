@@ -21,6 +21,20 @@ export interface StatusResponse {
   // project's cursor (starting at 0) then travels in the NEXT pull's `cursors` naturally —
   // no row is ever handed back for a cursor the device didn't ask for.
   projects: StatusRosterProject[]
+  /**
+   * La época de claves de la cuenta: 0 = esta cuenta NO tiene el cifrado activo.
+   *
+   * Está acá y no sólo en `GET /v1/keys` porque el cliente lo necesita en el camino que SÍ
+   * recorre siempre. El daemon nunca llama `/v1/keys` —eso lo hace la tarjeta de cifrado, o
+   * sea sólo si el usuario abre el overlay Memories— así que hasta el 2026-09-13 una máquina
+   * que no tenía la clave no tenía forma de enterarse de que la cuenta cifraba, y el gate
+   * fail-closed del push no llegaba a armarse: subía título y contenido EN CLARO a una cuenta
+   * cifrada, con estado `idle` y sin un solo mensaje.
+   *
+   * No filtra nada: es un entero que dice si hay cifrado y cuántas veces se rotó, y ya viaja
+   * en `GET /v1/keys` para el mismo usuario autenticado.
+   */
+  key_epoch: number
 }
 
 // §5.3: this is the device's health check — today the client has no way to tell a dead
@@ -48,6 +62,14 @@ export async function handleStatus(
     [auth.userId]
   )
 
+  // La época va en la MISMA respuesta y no en una request aparte: el punto es que el cliente
+  // se entere en el primer `status` de cualquier arranque, sin pagar un round-trip extra ni
+  // depender de haber bajado una fila que no puede abrir.
+  const { rows: epochRows } = await pool.query(
+    'select key_epoch from users where id = $1',
+    [auth.userId]
+  )
+
   const limits = limitsFor(auth.plan)
 
   return {
@@ -61,5 +83,6 @@ export async function handleStatus(
     // que se le va a aplicar — override de instancia dedicada incluido.
     quota: { used_bytes: Number(rows[0].used), max_bytes: maxBytesFor(auth.plan) },
     projects: projectRows.map((r) => ({ project_key: r.project_key, display_name: r.display_name })),
+    key_epoch: Number(epochRows[0]?.key_epoch ?? 0),
   }
 }

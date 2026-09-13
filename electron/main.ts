@@ -415,9 +415,20 @@ try {
     getEnvelopeContext: currentEnvelopeContext,
     /**
      * La cuenta tiene cifrado activo si alguna vez vimos una época > 0. Se lee de `meta` del
-     * store —persistida en cada `status`— y no de la red: el gate tiene que funcionar en el
-     * arranque, antes del primer `fetchKeyState`, que es justo cuando el bug original subía
-     * todo en claro.
+     * store y no de la red: el gate tiene que funcionar en el arranque, antes del primer
+     * `fetchKeyState`, que es justo cuando el bug original subía todo en claro.
+     *
+     * Quién escribe esa época, que es lo que decide si el gate sirve:
+     *   1. `doStatus` con el `key_epoch` que devuelve `/v1/sync/status` — el camino que corre
+     *      en TODO drain, y el único que no depende de nada que el usuario haga.
+     *   2. `applyPulledRow` al bajar una fila que no puede abrir.
+     *   3. Los handlers de la tarjeta de cifrado, que sólo corren si se abre el overlay.
+     *
+     * Este comentario decía antes que la época "se persiste en cada `status`" cuando ese
+     * escritor NO EXISTÍA: sólo estaban el 2 y el 3, y ninguno corre en una máquina que no
+     * tiene la clave y todavía no bajó ciphertext. El gate no se armaba y el push subía en
+     * claro a una cuenta cifrada. Un comentario que afirma una garantía que el código no da es
+     * peor que no tenerlo: la revisión siguiente lo lee y da el caso por cubierto.
      */
     isEncryptionExpected: () => (memory ? memory.store.knownKeyEpoch() > 0 : false),
     getToken: loadMemoryToken,
