@@ -175,6 +175,20 @@ contextBridge.exposeInMainWorld('memory', {
   removeStatusListener: () => {
     ipcRenderer.removeAllListeners('memory:status')
   },
+  /**
+   * "Un agente escribió una memoria". Sin payload: el renderer vuelve a pedir lo que
+   * muestra.
+   *
+   * A diferencia de `onStatus`, NO hace `removeAllListeners` primero: la pantalla de
+   * Memories y la fila de estado de la barra se suscriben las dos, y limpiar todo al
+   * suscribirse haría que la última en montar apague a la anterior. Devuelve su propia
+   * baja.
+   */
+  onChanged: (cb: () => void) => {
+    const handler = () => cb()
+    ipcRenderer.on('memory:changed', handler)
+    return () => { ipcRenderer.removeListener('memory:changed', handler) }
+  },
 })
 
 contextBridge.exposeInMainWorld('pty', {

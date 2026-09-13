@@ -159,7 +159,7 @@ describe('rutas de contabilidad parametrizables', () => {
       deletes: [{ syncId: 'old-entry', filePath: 'old.md', reason: 'tombstone' as const }],
       conflicts: [],
       warnings: [],
-      indexWrites: [],
+      indexWrites: [], indexDeletes: [],
       readme: '# hilo\n',
     }
 

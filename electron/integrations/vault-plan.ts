@@ -67,6 +67,25 @@ export interface VaultWarning {
   message: string
 }
 
+/**
+ * El `_index.md` de una carpeta que ya no corresponde a ningun proyecto.
+ *
+ * Pasa cuando un proyecto cambia de nombre: la carpeta sale de
+ * `remoteSlug || displayName || projectKey`, asi que el nombre nuevo es otra carpeta, las
+ * notas se mudan (`stale-path` + write) y la vieja queda con un indice que lista archivos que
+ * ya no estan.
+ *
+ * Antes no pasaba nunca porque `ensureProject()` era insert-only y un nombre congelado en el
+ * hash se quedaba congelado para siempre. Al arreglar eso (2026-09-13) el renombre se volvio
+ * posible, y con el la carpeta fantasma — en la carpeta que el usuario abre con Obsidian, que
+ * es justo donde la basura se ve.
+ */
+export interface VaultIndexDelete {
+  filePath: string
+  /** La carpeta, para intentar borrarla si quedo vacia. */
+  folder: string
+}
+
 export interface VaultIndexWrite {
   /** Relative path, e.g. "raven-nest--3f9a12c7/_index.md". */
   filePath: string
@@ -80,23 +99,40 @@ export interface VaultPlan {
   conflicts: VaultConflict[]
   warnings: VaultWarning[]
   indexWrites: VaultIndexWrite[]
+  /** Indices de carpetas que ya no existen — ver VaultIndexDelete. */
+  indexDeletes: VaultIndexDelete[]
   readme: string
 }
 
 interface Disposition {
   excluded: boolean
   reason?: 'excluded-superseded' | 'excluded-team'
-  subfolder: '' | '_superseded/'
+  subfolder: '' | '_superseded/' | '_team/'
 }
 
+/**
+ * Las de equipo van a `_team/` y no mezcladas con las tuyas (decision V-1 de la spec).
+ *
+ * Espejarlas es lo correcto —si no, el vault deja de ser "toda mi memoria" justo para el tier
+ * que paga— pero mezclarlas seria peor que no espejarlas: el zip de "mi memoria" pasaria a
+ * tener texto escrito por tus companeros, con su nombre adentro, sin que se note al mirar la
+ * carpeta. En `_team/` se ve de donde viene cada cosa con abrir el explorador, y el README lo
+ * dice con todas las letras.
+ *
+ * `_superseded/` gana sobre `_team/`: una memoria reemplazada es historia, y la historia del
+ * equipo tambien es historia. Que una fila viva en dos carpetas segun dos ejes distintos
+ * obligaria a inventar `_team/_superseded/`, que nadie va a mirar.
+ */
 function classify(record: MemoryRecord, config: VaultConfig): Disposition {
   if (record.supersededBy !== null) {
     return config.includeSuperseded
       ? { excluded: false, subfolder: '_superseded/' }
       : { excluded: true, reason: 'excluded-superseded', subfolder: '' }
   }
-  if (record.scope === 'team' && !config.includeTeamScope) {
-    return { excluded: true, reason: 'excluded-team', subfolder: '' }
+  if (record.scope === 'team') {
+    return config.includeTeamScope
+      ? { excluded: false, subfolder: '_team/' }
+      : { excluded: true, reason: 'excluded-team', subfolder: '' }
   }
   return { excluded: false, subfolder: '' }
 }
@@ -154,6 +190,17 @@ export function planVault(input: PlanVaultInput): VaultPlan {
   const conflicts: VaultConflict[] = []
   const warnings: VaultWarning[] = []
   const indexWrites: VaultIndexWrite[] = []
+  /**
+   * Las carpetas que el manifiesto dice que escribimos la vez pasada. Se derivan de los paths
+   * que ya tiene —el primer segmento de cada uno— en vez de guardarse aparte: un segundo
+   * registro de la misma verdad es un segundo lugar del que se puede desincronizar.
+   */
+  const carpetasPrevias = new Set<string>()
+  for (const entry of Object.values(manifest.entries)) {
+    const i = entry.filePath.indexOf('/')
+    if (i > 0) carpetasPrevias.add(entry.filePath.slice(0, i))
+  }
+  const carpetasActuales = new Set<string>()
 
   // Group by project so file-name collisions are resolved within each project's folder,
   // not globally (two different projects can legitimately reuse the same title+suffix).
@@ -167,6 +214,7 @@ export function planVault(input: PlanVaultInput): VaultPlan {
   for (const [projectKey, projectRecords] of byProject) {
     const project = projectByKey.get(projectKey) ?? null
     const folder = projectFolderName(projectKey, project)
+    carpetasActuales.add(folder)
     const displayName = project?.displayName ?? projectKey
     const disabled = project !== null && !project.enrolled
 
@@ -290,5 +338,11 @@ export function planVault(input: PlanVaultInput): VaultPlan {
     }
   }
 
-  return { writes, moves, deletes, conflicts, warnings, indexWrites, readme: README_CONTENT }
+  const indexDeletes: VaultIndexDelete[] = []
+  for (const previa of carpetasPrevias) {
+    if (carpetasActuales.has(previa)) continue
+    indexDeletes.push({ filePath: `${previa}/_index.md`, folder: previa })
+  }
+
+  return { writes, moves, deletes, conflicts, warnings, indexWrites, indexDeletes, readme: README_CONTENT }
 }

@@ -157,7 +157,9 @@ export function planTeamThread(input: PlanTeamThreadInput): VaultPlan {
     })
   }
 
-  return { writes, moves: [], deletes, conflicts, warnings, indexWrites, readme: README_HILO }
+  // El hilo de equipo escribe en su propia carpeta fija (`.nest/team/`), no en una que
+  // dependa del nombre de un proyecto, asi que no hay carpeta que pueda quedar huerfana.
+  return { writes, moves: [], deletes, conflicts, warnings, indexWrites, indexDeletes: [], readme: README_HILO }
 }
 
 const README_HILO = `# Hilo del equipo — Nest

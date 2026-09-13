@@ -185,3 +185,114 @@ describe('planVault', () => {
     expect(p.writes[0].filePath.startsWith('_global/')).toBe(true)
   })
 })
+
+/**
+ * La carpeta que queda cuando un proyecto cambia de nombre.
+ *
+ * La carpeta sale de `remoteSlug || displayName || projectKey`, así que renombrar el proyecto
+ * es renombrar la carpeta: las notas se mudan y la vieja queda con un `_index.md` que lista
+ * archivos que ya no están.
+ *
+ * Antes esto no pasaba nunca porque `ensureProject()` era insert-only y un nombre congelado
+ * en el hash se quedaba congelado. Al arreglar eso (2026-09-13) el renombre se volvió posible
+ * y con él la carpeta fantasma — en la carpeta que el usuario abre con Obsidian, que es
+ * justo donde la basura se ve.
+ */
+describe('carpetas que quedan de un nombre anterior', () => {
+  const memoria = (syncId: string, projectKey: string) => ({
+    syncId, projectKey, title: 'Una decisión', content: 'cuerpo', type: 'decision' as const,
+    scope: 'personal' as const, tags: [], topicKey: null, supersededBy: null, deleted: false,
+    contentHash: 'h-' + syncId, createdAt: 1, updatedAt: 1, revisionCount: 1, duplicateCount: 0,
+    source: 'mcp' as const, sourceRef: null, originAi: null, originAccount: null, gitBranch: null,
+    authorDisplay: null,
+  })
+
+  it('el índice de la carpeta vieja se marca para borrar', () => {
+    const plan = planVault({
+      records: [memoria('obs-1', 'proj1')],
+      projects: [{ projectKey: 'proj1', displayName: 'raven-nest', enrolled: true, remoteSlug: null }],
+      // El manifiesto dice que la vez pasada esto vivía en la carpeta del hash.
+      manifest: { entries: { 'obs-1': { filePath: 'proj1--proj1/una-decision--obs-1.md', sourceHash: 'viejo', fileHash: 'x' } } },
+      config: { includeSuperseded: true, includeTeamScope: true },
+      onDiskHashes: {},
+    })
+
+    const carpetaNueva = plan.indexWrites[0].filePath.split('/')[0]
+    expect(carpetaNueva).toContain('raven-nest')
+    expect(plan.indexDeletes).toHaveLength(1)
+    expect(plan.indexDeletes[0].filePath).toBe('proj1--proj1/_index.md')
+    expect(plan.indexDeletes[0].folder).toBe('proj1--proj1')
+  })
+
+  it('sin renombre no borra nada', () => {
+    const plan = planVault({
+      records: [memoria('obs-1', 'proj1')],
+      projects: [{ projectKey: 'proj1', displayName: 'raven-nest', enrolled: true, remoteSlug: null }],
+      manifest: { entries: { 'obs-1': { filePath: 'raven-nest--proj1/una-decision--obs-1.md', sourceHash: 'h-obs-1', fileHash: 'x' } } },
+      config: { includeSuperseded: true, includeTeamScope: true },
+      onDiskHashes: {},
+    })
+    expect(plan.indexDeletes).toEqual([])
+  })
+
+  it('un manifiesto vacío no inventa borrados', () => {
+    const plan = planVault({
+      records: [memoria('obs-1', 'proj1')],
+      projects: [{ projectKey: 'proj1', displayName: 'raven-nest', enrolled: true, remoteSlug: null }],
+      manifest: { entries: {} },
+      config: { includeSuperseded: true, includeTeamScope: true },
+      onDiskHashes: {},
+    })
+    expect(plan.indexDeletes).toEqual([])
+  })
+})
+
+/**
+ * Las memorias de equipo van a `_team/` (decisión V-1 de la spec).
+ *
+ * Espejarlas es lo correcto —si no, el vault deja de ser "toda mi memoria" justo para el tier
+ * que paga— pero mezclarlas con las tuyas sería peor que no espejarlas: el zip de "mi
+ * memoria" pasaría a tener texto de tus compañeros, con su nombre adentro, sin que se note al
+ * mirar la carpeta.
+ */
+describe('las memorias de equipo viven aparte', () => {
+  const deEquipo = {
+    syncId: 'obs-team', projectKey: 'proj1', title: 'Lo que decidió el equipo',
+    content: 'cuerpo', type: 'decision' as const, scope: 'team' as const, tags: [],
+    topicKey: null, supersededBy: null, deleted: false, contentHash: 'h', createdAt: 1,
+    updatedAt: 1, revisionCount: 1, duplicateCount: 0, source: 'mcp' as const, sourceRef: null,
+    originAi: null, originAccount: null, gitBranch: null, authorDisplay: 'Bauti',
+  }
+  const base = {
+    projects: [{ projectKey: 'proj1', displayName: 'nest', enrolled: true, remoteSlug: null }],
+    manifest: { entries: {} },
+    onDiskHashes: {},
+  }
+
+  it('van a _team/, no mezcladas con las tuyas', () => {
+    const plan = planVault({
+      ...base, records: [deEquipo],
+      config: { includeSuperseded: true, includeTeamScope: true },
+    })
+    expect(plan.writes).toHaveLength(1)
+    expect(plan.writes[0].filePath).toContain('/_team/')
+  })
+
+  it('con el espejo de equipo apagado, no se escriben', () => {
+    const plan = planVault({
+      ...base, records: [deEquipo],
+      config: { includeSuperseded: true, includeTeamScope: false },
+    })
+    expect(plan.writes).toEqual([])
+  })
+
+  // `_superseded/` gana: una memoria reemplazada es historia, y la del equipo también.
+  it('una de equipo ya reemplazada va a _superseded/, no a _team/', () => {
+    const plan = planVault({
+      ...base, records: [{ ...deEquipo, supersededBy: 'obs-nueva' }],
+      config: { includeSuperseded: true, includeTeamScope: true },
+    })
+    expect(plan.writes[0].filePath).toContain('/_superseded/')
+    expect(plan.writes[0].filePath).not.toContain('/_team/')
+  })
+})

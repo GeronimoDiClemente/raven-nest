@@ -993,6 +993,8 @@ declare global {
       }>
       onStatus: (cb: (status: 'idle' | 'syncing' | 'paused' | 'error' | 'plan_required') => void) => void
       removeStatusListener: () => void
+      /** Un agente escribió una memoria. Devuelve la baja de la suscripción. */
+      onChanged?: (cb: () => void) => () => void
       /**
        * Para la pantalla de reconocimiento del hub (Task 7): local-first, funciona sin
        * login. `projectCount` excluye `__global__` (no es un proyecto reconocible).

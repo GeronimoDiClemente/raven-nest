@@ -6,7 +6,7 @@
 // "tuyo vs del equipo" se ve por color. Ademas evita heredar el acoplamiento de
 // PersonalWorkspace.tsx:306, donde elegir un equipo llama a switchTeam y cambia chat,
 // presencia y stats de TODA la app.
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMemories } from '../hooks/useMemories'
 import { useCrossProjectMemories } from '../hooks/useCrossProjectMemories'
 import MemoriesList from './MemoriesList'
@@ -59,6 +59,32 @@ export default function MemoriesWorkspace({ onClose, activeRepoPath, onOpenFile,
    * resaltar en el mapa algo que la lista todavía no trajo sería señalar hacia una fila que
    * no existe en pantalla.
    */
+  /**
+   * Un agente escribió una memoria desde la terminal: el grafo y la lista se vuelven a pedir
+   * solos.
+   *
+   * Es la mitad interesante del producto —que lo escriban ellos mientras trabajás— y hasta
+   * ahora la pantalla no se enteraba: sólo se refrescaba por acciones tuyas, así que una
+   * memoria nueva no aparecía hasta cerrar y reabrir el overlay.
+   *
+   * `version` es la misma llave que ya remonta los dos, y `busqueda.refresh` recarga la
+   * página actual sin perder lo que estabas tipeando.
+   */
+  // `state` es un objeto nuevo en cada render, así que un efecto que dependa de él se
+  // re-suscribe y se da de baja en cada uno. La suscripción se hace UNA vez, al montar, y el
+  // callback lee el `refresh` vigente desde un ref.
+  const refrescarLista = useRef(state.refresh)
+  refrescarLista.current = state.refresh
+
+  useEffect(() => {
+    const suscribir = window.memory?.onChanged
+    if (!suscribir) return
+    return suscribir(() => {
+      setVersion((v) => v + 1)
+      void refrescarLista.current()
+    })
+  }, [])
+
   const resaltados = useMemo(
     () => (busqueda.query.trim() ? new Set(busqueda.items.map((i) => i.syncId)) : null),
     [busqueda.query, busqueda.items],

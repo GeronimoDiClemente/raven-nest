@@ -445,7 +445,24 @@ try {
     socketPath: memorySocketPath,
     authToken: authMaterial.token,
     resolveGitInfo: resolveGitInfoForCwd,
-    onMutation: () => daemon.scheduleMutationPush(),
+    onMutation: () => {
+      daemon.scheduleMutationPush()
+      /**
+       * El aviso al renderer: un AGENTE acaba de escribir una memoria desde la terminal.
+       *
+       * Hasta acá la pantalla de Memories sólo se refrescaba por acciones tuyas —guardar a
+       * mano, borrar, conectar dos— así que una memoria escrita por un agente no aparecía
+       * hasta que cerrabas y volvías a abrir el overlay. Justo la mitad interesante: el
+       * producto es que lo escriban ellos mientras trabajás, y la pantalla no se enteraba.
+       *
+       * Va sin payload a propósito. Lo que el renderer necesita es "algo cambió, volvé a
+       * pedir", y mandar la fila obligaría a decidir acá qué proyección quiere cada vista
+       * (la lista pagina, el grafo arma aristas) y a cifrarla dos veces.
+       */
+      for (const win of BrowserWindow.getAllWindows()) {
+        if (!win.isDestroyed()) win.webContents.send('memory:changed')
+      }
+    },
     // M26: lets memory.search's pull-through fallback trigger/await this same daemon's
     // pull() on a local zero-result miss instead of waiting up to its ~5-minute interval
     // — see memory-ipc-server.ts's memory.search case for the full rationale.

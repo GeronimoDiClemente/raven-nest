@@ -2,7 +2,7 @@
 // vault-config.ts and memory-readonly-reader.ts. See vault spec §7 (batching), §10 (edit
 // detection needs live on-disk hashes) and §12.
 import { randomBytes } from 'crypto'
-import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, appendFileSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, readFileSync, renameSync, rmdirSync, unlinkSync, appendFileSync, writeFileSync } from 'fs'
 import { dirname, join } from 'path'
 // La extraccion del Ruling 7 (vault-hash.ts) habia quedado a mitad de camino: este modulo
 // seguia con su propia copia identica de sha256.
@@ -146,6 +146,22 @@ export async function applyVaultPlan(rootDir: string, plan: VaultPlan, paths: Va
 
   for (const idx of plan.indexWrites) {
     writeFileAtomic(abs(rootDir, idx.filePath), idx.content)
+    await maybeYield()
+  }
+
+  /**
+   * Las carpetas que quedaron de un nombre de proyecto anterior: se borra su `_index.md` y se
+   * intenta sacar la carpeta.
+   *
+   * `rmdirSync` sin `recursive` es la parte importante: falla si adentro quedo algo y no lo
+   * pisa. Si el usuario dejo una nota suya ahi, o si un `_conflicts/` guardo algo que edito,
+   * la carpeta se queda — es exactamente la misma promesa que el resto del vault (nunca se
+   * borra trabajo del usuario por sorpresa), aplicada al unico caso donde borramos un
+   * directorio entero.
+   */
+  for (const idx of plan.indexDeletes) {
+    try { unlinkSync(abs(rootDir, idx.filePath)) } catch { /* ya no estaba */ }
+    try { rmdirSync(abs(rootDir, idx.folder)) } catch { /* quedo algo adentro: se deja */ }
     await maybeYield()
   }
 
