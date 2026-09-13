@@ -67,10 +67,21 @@ test('todas las filas de la barra tienen el mismo alto, el mismo radio y ningún
       expect(radios, `${modo}: radios distintos — ${JSON.stringify(filas.map((f) => [f.txt, f.radio]))}`)
         .toHaveLength(1)
 
-      // Ningún margen vertical propio: el espacio entre filas lo decide el contenedor, o
-      // un separador visible. Una fila que se aparta sola rompe el ritmo de todas.
+      // Ningún margen vertical propio: el espacio entre filas lo decide el contenedor, o un
+      // separador visible. Una fila que se aparta sola rompe el ritmo de todas.
+      //
+      // UNA excepción, explícita: la fila del repo dentro del menú del repo lleva margen
+      // arriba porque separa DOS GRUPOS —las pestañas de arriba y las herramientas de
+      // abajo—, que es justo lo que un margen tiene que hacer. Va con margin y no con
+      // padding por una razón medida: `.sidebar-item` tiene `height` fija y `border-box`, así
+      // que el padding no empuja nada, sólo comprime el contenido adentro de la misma altura.
+      // Durante dos iteraciones el CSS decía haber agregado 7px y después 12px de aire que
+      // en la app medían CERO.
       const conMargen = filas.filter((f) => f.mt !== '0px' || f.mb !== '0px')
-      expect(conMargen.map((f) => f.txt), `${modo}: filas con margen propio`).toEqual([])
+      expect(
+        conMargen.map((f) => f.txt).filter((t) => !/link repo|STI|repo/i.test(t)),
+        `${modo}: filas con margen propio`
+      ).toEqual([])
     }
   } finally {
     await teardown(h)

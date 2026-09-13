@@ -518,7 +518,12 @@ export default function Sidebar({
       {repoPath ? (
         <div className="sidebar-repo-info">
           <div className="sidebar-repo-row">
-            <span className="sidebar-label sidebar-repo-name text-ok">{basename(repoPath)}</span>
+            {/* Sin `text-ok`. El verde de estado estaba usado como color PERMANENTE del
+                nombre del repo, y un color que siempre está no dice nada: la regla del
+                proyecto es que el color ES estado (--ok / --warn / --destructive), nunca
+                decoración. Que el repo esté enlazado ya lo comunica el hecho de que su
+                nombre se muestre. */}
+            <span className="sidebar-label sidebar-repo-name text-foreground">{basename(repoPath)}</span>
             {expanded && (
               <AILogoStack aiTypes={paneAITypesByPath?.get(repoPath) ?? []} size={12} />
             )}

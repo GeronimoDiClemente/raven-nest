@@ -46,27 +46,27 @@ describe('MemoryEncryptionCard', () => {
   it('sin disponibilidad muestra el motivo y no ofrece activar', async () => {
     montarCon({ available: false })
     render(<MemoryEncryptionCard />)
-    expect(await screen.findByText(/conectá la memoria en la nube/i)).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /activar/i })).toBeNull()
+    expect(await screen.findByText(/connect cloud memory/i)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /turn on/i })).toBeNull()
   })
 
   it('sin activar ofrece activarlo y dice qué queda en claro', async () => {
     montarCon({})
     render(<MemoryEncryptionCard />)
-    expect(await screen.findByRole('button', { name: /activar el cifrado/i })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: /turn on encryption/i })).toBeInTheDocument()
     // La promesa honesta del §5.2, en la tarjeta y no solo en la landing.
-    expect(screen.getByText(/tipo, el scope y la rama/i)).toBeInTheDocument()
+    expect(screen.getByText(/type, scope and branch/i)).toBeInTheDocument()
   })
 
   // El momento de la verdad: el codigo se muestra UNA vez y hay que obligar a copiarlo.
   it('al activar muestra el código de recuperación y no deja seguir sin confirmar', async () => {
     const api = montarCon({})
     render(<MemoryEncryptionCard />)
-    fireEvent.click(await screen.findByRole('button', { name: /activar el cifrado/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /turn on encryption/i }))
     await waitFor(() => expect(api.encryptionActivate).toHaveBeenCalled())
     expect(await screen.findByText('AAAA-BBBB-CCCC-DDDD-EEEE-FFFF')).toBeInTheDocument()
-    expect(screen.getByText(/no lo vas a volver a ver/i)).toBeInTheDocument()
-    const seguir = screen.getByRole('button', { name: /ya lo guardé/i })
+    expect(screen.getByText(/will not see it again/i)).toBeInTheDocument()
+    const seguir = screen.getByRole('button', { name: /done/i })
     expect(seguir).toBeDisabled()
     fireEvent.click(screen.getByRole('checkbox'))
     expect(seguir).toBeEnabled()
@@ -75,8 +75,8 @@ describe('MemoryEncryptionCard', () => {
   it('activo muestra la época y ofrece re-subir lo viejo', async () => {
     const api = montarCon({ active: true, keyEpoch: 1 })
     render(<MemoryEncryptionCard />)
-    expect(await screen.findByText(/cifrado activo/i)).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: /re-subir/i }))
+    expect(await screen.findByText(/encryption on/i)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /re-upload/i }))
     await waitFor(() => expect(api.encryptionReencrypt).toHaveBeenCalled())
     expect(await screen.findByText(/866/)).toBeInTheDocument()
   })
@@ -85,7 +85,7 @@ describe('MemoryEncryptionCard', () => {
     const api = montarCon({ active: true, keyEpoch: 1, pendingDevices: [{ deviceId: 'pc', name: 'la PC' }] })
     render(<MemoryEncryptionCard />)
     expect(await screen.findByText('la PC')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: /coincide — autorizar/i }))
+    fireEvent.click(screen.getByRole('button', { name: /they match/i }))
     await waitFor(() => expect(api.encryptionAuthorize).toHaveBeenCalledWith('pc'))
   })
 
@@ -101,7 +101,7 @@ describe('MemoryEncryptionCard', () => {
     })
     render(<MemoryEncryptionCard />)
     expect(await screen.findByText('A1B2-C3D4-E5F6')).toBeInTheDocument()
-    expect(screen.getByText(/sólo si esa máquina muestra exactamente este código/i)).toBeInTheDocument()
+    expect(screen.getByText(/only if that machine shows exactly this code/i)).toBeInTheDocument()
   })
 
   it('y la máquina que espera muestra la suya, para que la otra la compare', async () => {
@@ -114,20 +114,20 @@ describe('MemoryEncryptionCard', () => {
   it('con época pero sin clave local, pide autorización o el código', async () => {
     montarCon({ active: false, keyEpoch: 1, undecryptable: 12 })
     render(<MemoryEncryptionCard />)
-    expect(await screen.findByText(/esta máquina todavía no está autorizada/i)).toBeInTheDocument()
+    expect(await screen.findByText(/not authorised yet/i)).toBeInTheDocument()
     expect(screen.getByText(/12/)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /usar el código de recuperación/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /use the recovery code/i })).toBeInTheDocument()
   })
 
   it('recuperar con un código equivocado muestra el error y no cierra el formulario', async () => {
     montarCon({ active: false, keyEpoch: 1 }, {
-      encryptionRecover: vi.fn(async () => ({ ok: false, error: 'código de recuperación incorrecto' })),
+      encryptionRecover: vi.fn(async () => ({ ok: false, error: 'recovery code is not correct' })),
     })
     render(<MemoryEncryptionCard />)
-    fireEvent.click(await screen.findByRole('button', { name: /usar el código de recuperación/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /use the recovery code/i }))
     fireEvent.change(screen.getByRole('textbox'), { target: { value: 'XXXX' } })
-    fireEvent.click(screen.getByRole('button', { name: /recuperar/i }))
-    expect(await screen.findByText(/incorrecto/i)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /recover/i }))
+    expect(await screen.findByText(/not correct/i)).toBeInTheDocument()
     expect(screen.getByRole('textbox')).toBeInTheDocument()
   })
 
@@ -155,8 +155,8 @@ describe('MemoryEncryptionCard', () => {
   it('ofrece reintentar a mano, y dice cuando todavía no hay autorización', async () => {
     montarCon({ active: false, keyEpoch: 1 })
     render(<MemoryEncryptionCard />)
-    fireEvent.click(await screen.findByRole('button', { name: /ya me autorizaron/i }))
-    expect(await screen.findByText(/todavía no hay una autorización/i)).toBeInTheDocument()
+    fireEvent.click(await screen.findByRole('button', { name: /authorised/i }))
+    expect(await screen.findByText(/no authorisation for this machine yet/i)).toBeInTheDocument()
   })
 
   // Alcanzable sin atacante: un corte de red dejaba `keyEpoch = 0` —indistinguible de "esta
@@ -166,8 +166,8 @@ describe('MemoryEncryptionCard', () => {
   it('si no se pudo leer el estado del servidor, no ofrece activar', async () => {
     montarCon({ estadoRemotoLeido: false })
     render(<MemoryEncryptionCard />)
-    expect(await screen.findByText(/no se pudo consultar el estado/i)).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /activar el cifrado/i })).toBeNull()
+    expect(await screen.findByText(/could not read this account/i)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /turn on encryption/i })).toBeNull()
   })
 
   // Para cuando `activateEncryption` vuelve, el servidor YA tiene la época y las envolturas:
@@ -179,13 +179,13 @@ describe('MemoryEncryptionCard', () => {
       encryptionActivate: vi.fn(async () => ({
         ok: true as const,
         recoveryCode: 'AAAA-BBBB-CCCC-DDDD-EEEE-FFFF',
-        aviso: 'El cifrado quedó activado, pero la clave no se pudo guardar en esta máquina: disco lleno.',
+        aviso: 'Encryption is on, but the key could not be saved on this machine: disk full.',
       })),
     })
     render(<MemoryEncryptionCard />)
-    fireEvent.click(await screen.findByRole('button', { name: /activar el cifrado/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /turn on encryption/i }))
     expect(await screen.findByText('AAAA-BBBB-CCCC-DDDD-EEEE-FFFF')).toBeInTheDocument()
-    expect(screen.getByText(/no se pudo guardar en esta máquina/i)).toBeInTheDocument()
+    expect(screen.getByText(/could not be saved on this machine/i)).toBeInTheDocument()
   })
 
   // Envolver no requiere ningún secreto: quien escriba en la base del servicio puede sellar
@@ -196,6 +196,6 @@ describe('MemoryEncryptionCard', () => {
     montarCon({ active: true, keyEpoch: 1, huellaDeLaClave: 'a1b2c3d4e5f60789' })
     render(<MemoryEncryptionCard />)
     expect(await screen.findByText('a1b2c3d4e5f60789')).toBeInTheDocument()
-    expect(screen.getByText(/misma en todas tus máquinas/i)).toBeInTheDocument()
+    expect(screen.getByText(/same on all your machines/i)).toBeInTheDocument()
   })
 })

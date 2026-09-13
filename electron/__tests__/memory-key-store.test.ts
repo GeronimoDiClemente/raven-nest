@@ -114,4 +114,22 @@ describe('memory-key-store', () => {
     const sueltos = readdirSync(dirname(keyFilePath(home, null))).filter((f) => f.endsWith('.tmp'))
     expect(sueltos).toEqual([])
   })
+
+  // La regresión que la segunda revisión encontró: `loadKeyMaterial` devuelve null tanto por
+  // un archivo ilegible como porque el llavero del sistema no abrió EN ESE MOMENTO, y la
+  // primera versión de este arreglo apartaba el archivo en los dos casos. Un llavero caído un
+  // instante —la sesión todavía sin desbloquear, DPAPI que tarda— apartaba un keys.bin SANO
+  // y generaba un par nuevo: la misma destrucción que el arreglo existía para impedir, con un
+  // disparador más fácil que el original.
+  it('con safeStorage caído no toca el archivo: lanza en vez de apartarlo', () => {
+    ensureKeyMaterial(home, null, safe)          // archivo bueno, escrito con el llavero sano
+    const antes = readFileSync(keyFilePath(home, null))
+
+    const caido = { ...safe, isEncryptionAvailable: () => false }
+    expect(() => ensureKeyMaterial(home, null, caido)).toThrow(/safeStorage/i)
+
+    // Intacto, y sin ningún `.roto-` al lado.
+    expect(readFileSync(keyFilePath(home, null)).equals(antes)).toBe(true)
+    expect(readdirSync(dirname(keyFilePath(home, null))).filter((f) => f.includes('.roto-'))).toEqual([])
+  })
 })

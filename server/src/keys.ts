@@ -6,6 +6,7 @@
 // maestra correcta — ese es justamente el punto — pero si puede impedir que un cliente
 // confundido pise las envolturas de la maestra vigente con las de otra, que dejaria la
 // memoria de la nube ilegible para siempre. De ahi el 409.
+import { timingSafeEqual } from 'node:crypto'
 import type { Pool } from 'pg'
 
 export interface KeysAuth {
@@ -138,7 +139,7 @@ export async function getKeyState(pool: Pool, auth: KeysAuth, slot?: string): Pr
 export async function publishWraps(
   pool: Pool,
   auth: KeysAuth,
-  body: { key_epoch?: unknown; wraps?: unknown; mode?: unknown }
+  body: { key_epoch?: unknown; wraps?: unknown; mode?: unknown; rotate_verifier?: unknown }
 ): Promise<{ ok: true; keyEpoch: number } | Fail<400> | Fail<403> | Fail<409>> {
   const keyEpoch = Number(body?.key_epoch)
   if (!Number.isInteger(keyEpoch) || keyEpoch < 1) {
@@ -194,7 +195,20 @@ export async function publishWraps(
      * `mode` es opcional para no romper un cliente viejo: sin él se infiere de la época
      * actual, que es exactamente lo que el cliente viejo asumía.
      */
-    const modo = body?.mode === 'activate' || body?.mode === 'authorize' ? body.mode : null
+    /**
+     * `mode` es OBLIGATORIO. Dejarlo opcional "por compatibilidad" hacia que las reglas
+     * estrictas —la prueba de posesion incluida— sólo corrieran cuando el llamador las
+     * pedia: una defensa que el atacante activa o no a gusto. Verificado contra Postgres: el
+     * mismo request que el test rechaza, sin el campo `mode`, rotaba la epoca y borraba TODAS
+     * las envolturas incluida la de recuperacion.
+     *
+     * No hay compatibilidad que romper: estas rutas nunca llegaron a produccion.
+     */
+    if (body?.mode !== 'activate' && body?.mode !== 'authorize') {
+      await client.query('rollback')
+      return { ok: false, status: 400, error: 'invalid_mode' }
+    }
+    const modo = body.mode
 
     /**
      * Rotar DESTRUYE: borra todas las envolturas de la cuenta, incluida la de recuperación.
@@ -209,13 +223,41 @@ export async function publishWraps(
      * la época vigente — así que el camino de "perdí todas mis máquinas" sigue abierto.
      */
     if (modo === 'activate' && actual > 0) {
-      const { rows: mias } = await client.query(
-        'select 1 from key_wraps where user_id = $1 and slot = $2 and key_epoch = $3',
-        [auth.userId, auth.deviceId, actual]
+      /**
+       * La prueba no puede ser "existe una fila para mi slot": el propio sujeto de la prueba
+       * puede escribirla. Verificado contra Postgres: un device sin la maestra hacia
+       * `authorize` sobre su propio slot con un blob cualquiera y despues `activate`, y la
+       * fila que el mismo acababa de escribir le servia de prueba. Rotaba igual.
+       *
+       * La prueba real es conocer la MAESTRA: un verificador derivado de ella para la epoca
+       * vigente, que solo puede calcular quien la tiene. El servidor lo guarda y lo compara;
+       * no le sirve para abrir nada.
+       */
+      const verificador = typeof body?.rotate_verifier === 'string' ? body.rotate_verifier : ''
+      const { rows: esperado } = await client.query(
+        'select rotate_verifier from users where id = $1',
+        [auth.userId]
       )
-      if (mias.length === 0) {
+      const guardado = (esperado[0]?.rotate_verifier as string | null) ?? null
+      const ok = Boolean(guardado) && verificador.length === guardado!.length &&
+        timingSafeEqual(Buffer.from(verificador), Buffer.from(guardado!))
+      if (!ok) {
         await client.query('rollback')
         return { ok: false, status: 403, error: 'not_authorized_to_rotate' }
+      }
+    }
+
+    /**
+     * `authorize` sólo puede escribir el slot de OTRO device, nunca el propio ni `recovery`.
+     * Sin esto, un device sin la maestra se fabricaba su propia envoltura (y de paso podia
+     * pisar la de recuperacion con un blob que no abre nada).
+     */
+    if (modo === 'authorize') {
+      for (const w of wraps) {
+        if (w.slot === auth.deviceId || w.kind === 'recovery') {
+          await client.query('rollback')
+          return { ok: false, status: 403, error: 'cannot_authorize_self' }
+        }
       }
     }
 
@@ -231,19 +273,16 @@ export async function publishWraps(
       await client.query('rollback')
       return { ok: false, status: 409, error: actual === 0 ? 'not_activated' : 'stale_key_epoch' }
     }
-    // Sin `mode` se conserva la semantica EXACTA de antes (un cliente viejo sigue andando):
-    // retroceder es 409, avanzar rota, empatar hace upsert. El empate es justamente el
-    // agujero que `mode` cierra, y por eso el cliente de esta version siempre lo manda.
-    if (modo === null && keyEpoch < actual) {
-      await client.query('rollback')
-      return { ok: false, status: 409, error: 'stale_key_epoch' }
-    }
-
     // Rotar es empezar de cero: las envolturas de la epoca vieja no sirven para la maestra
     // nueva y dejarlas seria ofrecerle al cliente una llave que no abre.
     if (keyEpoch > actual) {
       await client.query('delete from key_wraps where user_id = $1', [auth.userId])
-      await client.query('update users set key_epoch = $2 where id = $1', [auth.userId, keyEpoch])
+      // El verificador de la epoca NUEVA viaja con la activacion: es lo que la proxima
+      // rotacion va a tener que probar que conoce.
+      await client.query(
+        'update users set key_epoch = $2, rotate_verifier = $3 where id = $1',
+        [auth.userId, keyEpoch, typeof body?.rotate_verifier === 'string' ? body.rotate_verifier : null]
+      )
     }
 
     for (const w of wraps) {

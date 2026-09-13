@@ -1189,6 +1189,18 @@ export class MemoryDaemon {
       // vuelve a traer todo a proposito, asi que contar aplicaciones hacia que el numero
       // creciera sin que hubiera una sola memoria ilegible mas.
       this.deps.store.markUndecryptable(incoming.syncId)
+      /**
+       * VER una fila cifrada es la prueba de que la cuenta tiene el cifrado activo, y arma el
+       * fail-closed del push sin depender de nadie.
+       *
+       * Sin esto, la epoca conocida solo se escribia desde el handler de estado de la tarjeta
+       * — o sea que solo se armaba si el usuario ABRIA el overlay Memories. Una maquina nueva
+       * que conecta la nube corre import + drain y empuja TODO en claro a una cuenta cifrada,
+       * que es exactamente el agujero que el gate existe para tapar, abierto justo en la
+       * maquina que importa: la que no tiene la clave. Y esta linea corre en el mismo drain,
+       * antes del push.
+       */
+      this.deps.store.rememberKeyEpoch(Math.max(1, this.deps.getEnvelopeContext?.()?.keyEpoch ?? 0))
       return
     }
     // Si esta fila estaba marcada como ilegible y ahora abrio, sale de la lista: es como el

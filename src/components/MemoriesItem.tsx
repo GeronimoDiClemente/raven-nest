@@ -5,8 +5,17 @@
 // local es de todos los planes (§8.1: runLocalMemoryImport se saco del handler de connect
 // justo para que un usuario Free tambien importe), y esconderla detras del paywall
 // contradice el local-first que es la mitad de por que esto le gana a lo hosteado.
+//
+// Se escribe con el MISMO <Button ghost> que PersonalItem, y no con un `<div class="sidebar-item">`.
+// Medido el 2026-09-13: era la unica fila de la barra con un glifo dibujado a mano (viewBox
+// 16 contra el 24 de los ocho Lucide) y con el color base de `.sidebar-item`
+// (`--text-secondary`) en vez del `text-muted-foreground` de sus vecinas — o sea, dos
+// sistemas de front conviviendo en la misma columna. Se notaba: el icono se veia mas pesado
+// y la fila mas apagada que Personal y Settings, que estan pegadas.
+import { Button } from '@/components/ui/button'
+import { Waypoints } from 'lucide-react'
 import { useMemories } from '../hooks/useMemories'
-import { ICON_SIZE, ICON_STROKE } from '../lib/icons'
+import { ICON_SIZE } from '../lib/icons'
 
 interface Props {
   expanded: boolean
@@ -17,33 +26,19 @@ export default function MemoriesItem({ expanded, onOpen }: Props) {
   const { status } = useMemories()
 
   return (
-    <div
-      className="sidebar-item sidebar-item-panel sidebar-item-team"
-      style={{ cursor: 'pointer', position: 'relative' }}
+    <Button
+      variant="ghost"
+      size="default"
+      className="h-8 w-full justify-start gap-2.5 px-2.5 font-normal text-muted-foreground hover:text-foreground"
       onClick={onOpen}
       title={`Memories · ${status.text}`}
     >
       <span className="sidebar-icon" style={{ position: 'relative' }}>
-        {/* Un nodo con dos aristas: el grafo, que es lo que hay del otro lado. Es la única
-            marca dibujada a mano que queda en la sidebar, y se queda porque el grafo ES el
-            producto — pero toma el tamaño y el trazo de `icons.ts`, que es de donde los saca
-            el resto de la fila. Medido en la app: las 9 filas de la sidebar dan 16×16 con
-            trazo 1.25 y `non-scaling-stroke`; ésta era la única con 1.3 y sin el efecto, que
-            es lo que mantiene el trazo parejo cuando la cáscara se escala. */}
-        <svg
-          width={ICON_SIZE.lg}
-          height={ICON_SIZE.lg}
-          viewBox="0 0 16 16"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth={ICON_STROKE}
-          strokeLinecap="round"
-        >
-          <circle cx="8" cy="4" r="2" vectorEffect="non-scaling-stroke" />
-          <circle cx="3.5" cy="12" r="2" vectorEffect="non-scaling-stroke" />
-          <circle cx="12.5" cy="12" r="2" vectorEffect="non-scaling-stroke" />
-          <path d="M6.7 5.7 4.8 10.2M9.3 5.7l1.9 4.5" vectorEffect="non-scaling-stroke" />
-        </svg>
+        {/* `Waypoints`: nodos unidos por aristas, que es exactamente lo que hay del otro lado.
+            Antes era un glifo propio con la misma idea pero dibujado a mano y con otra
+            geometria, y en una columna de ocho Lucide el unico distinto se lee como de otra
+            app. La marca no valia romper la linea. */}
+        <Waypoints size={ICON_SIZE.lg} aria-hidden />
         <span
           data-testid="memories-dot"
           data-dot={status.dot}
@@ -53,6 +48,6 @@ export default function MemoriesItem({ expanded, onOpen }: Props) {
       </span>
       <span className="sidebar-label">Memories</span>
       {expanded && <span className="memories-status-text">{status.text}</span>}
-    </div>
+    </Button>
   )
 }

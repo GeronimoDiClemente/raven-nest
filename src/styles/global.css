@@ -564,9 +564,13 @@ body {
   -webkit-app-region: no-drag;
 }
 
+/* El MISMO resaltado que un <Button variant="ghost">, que es lo que son las otras filas de
+   la barra. Antes usaba `--bg-app` —el fondo de la app, o sea el negro más oscuro— así que
+   al pasar el mouse una fila se oscurecía mientras su vecina se aclaraba. Con dos sistemas
+   de hover en la misma columna, el que no coincide se lee como de otra app. */
 .sidebar-item:hover {
-  background: var(--bg-app);
-  color: var(--text-primary);
+  background: var(--btn-hover-fill);
+  color: var(--foreground);
 }
 
 .sidebar-item.active {
@@ -615,9 +619,11 @@ body {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: var(--ui-font-size);
-  /* color migrado a text-ok (Task 7) — era #00CC44, un verde de estado ("repo
-     enlazado"), no de marca. font-size queda: --ui-font-size es la preferencia
-     de tamaño de fuente del usuario, no un literal. */
+  /* Sin color propio desde el 2026-09-13: la fila usa `text-foreground` como cualquier
+     otro título. Pasó por #00CC44 y después por `text-ok`, y las dos veces era un verde de
+     ESTADO puesto de forma permanente — un color que siempre está no comunica nada, y gasta
+     el único verde que la app tiene para decir "algo anda bien". font-size queda:
+     --ui-font-size es la preferencia de tamaño del usuario, no un literal. */
   font-weight: 500;
   min-width: 0;
 }
@@ -5388,9 +5394,18 @@ kbd {
   display: flex;
   align-items: center;
   gap: 10px;
-  flex: 1;
   justify-content: center;
   -webkit-app-region: drag;
+  /* Centrado respecto del HEADER, no del espacio que sobra.
+     Con `flex: 1` entre el botón Back (a la izquierda) y las acciones (a la derecha), el
+     título se centraba en el hueco entre los dos — y como Back mide ~60px y la derecha
+     muchas veces está vacía, el resultado quedaba corrido. Medido a ojo en Memories el
+     2026-09-13: visiblemente a la izquierda del centro de la ventana.
+     Absoluto y con `translateX(-50%)` queda en el centro real pase lo que pase a los lados. */
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: 60%;
 }
 
 /* Elements inside the drag area that need to be clickable */
@@ -7411,30 +7426,36 @@ button.ci-badge:hover {
      de abajo no coincidia con el de ninguna otra. La altura y la forma de la fila las fija
      la escala (32px, radio 10) — no las decide cada fila por su cuenta. */
   height: 32px;
-  padding: 0;
-  margin: 0 6px;
+  /* El MISMO padding que `<Button size="default">` (px-2.5) y sin margen lateral. Medido el
+     2026-09-13: esta fila arrancaba en x=6 por su margen propio y las otras siete en x=0, así
+     que su ícono caía en 14 contra 10-11 y su texto en 40 contra 36. Tres o cuatro píxeles,
+     pero suficientes para que la columna se lea desalineada. */
+  padding: 0 10px;
+  margin: 0;
+  width: 100%;
   background: transparent;
   border: none;
   cursor: pointer;
   color: var(--text-secondary);
-  width: calc(100% - 12px);
   text-align: left;
   -webkit-app-region: no-drag;
   transition: background 120ms ease;
 }
 .user-menu-trigger.expanded {
   justify-content: flex-start;
-  padding: 0 8px;
 }
 .user-menu-trigger:hover {
   background: var(--bg-app, #050505);
   color: var(--text-primary, #eee);
 }
 
+/* 16px, como cualquier otro ícono de la barra. A 28 era el doble que sus vecinos y, junto
+   con la segunda línea del plan, hacía que esta fila fuera la única visiblemente más alta
+   de toda la columna. */
 .user-menu-avatar {
   position: relative;
-  width: 28px;
-  height: 28px;
+  width: 16px;
+  height: 16px;
   flex-shrink: 0;
   border-radius: 50%;
   overflow: visible;
@@ -7488,9 +7509,11 @@ button.ci-badge:hover {
   50%      { box-shadow: 0 0 0 4px rgba(255,184,0,0); }
 }
 
+/* Una sola línea. El plan vivía en un segundo renglón y era lo que empujaba la altura de la
+   fila; ahora va en el `title`, que es donde ya estaba el mail. */
 .user-menu-meta {
   display: flex;
-  flex-direction: column;
+  align-items: center;
   min-width: 0;
   flex: 1;
   line-height: 1.2;
@@ -11855,12 +11878,14 @@ body.platform-mac .tabbar { padding-right: 116px; }
    owns the bottom border and the tab bar drops its own. */
 .sidebar-menu-box{border-bottom:1px solid var(--border);flex-shrink:0}
 .sidebar-menu-box .sidebar-tabbar{border-bottom:none}
-/* El aire que pidio el usuario entre las tabs y la fila de "Link repo": el
-   footer de SidebarTabBar vivia pegado a las tabs. "Apenitas mas, no mucho" —
-   7px -> 12px arriba, y el de abajo se queda. Medido DESPUES de que la escala
-   de filas bajara .sidebar-item de 44 a 32, no antes: calibrarlo contra el alto
-   viejo habria dado otro numero. */
-.sidebar-menu-box .sidebar-repo{padding-top:12px;padding-bottom:6px}
+/* El aire entre las tabs y la fila del repo, con MARGIN y no con padding.
+   Pasó por 7px y después por 12 de `padding-top`, y medido el 2026-09-13 el espacio real
+   entre el borde de la barra de pestañas y la fila era de CERO: `.sidebar-item` tiene
+   `height: 32px` fija y `box-sizing: border-box`, así que el padding no empuja nada — sólo
+   comprime el contenido adentro de la misma altura. El aire que el comentario anterior decía
+   haber agregado dos veces no existió nunca.
+   `margin-top` sí separa los dos elementos, y la fila conserva sus 32px. */
+.sidebar-menu-box .sidebar-repo{margin-top:10px;margin-bottom:2px}
 /* Chevron hugs the repo name; margin-right:auto pushes the GitHub and unlink
    buttons to the far edge whether or not the GitHub one is there. */
 .sidebar-menu-box .sidebar-repo-name{flex:0 1 auto}

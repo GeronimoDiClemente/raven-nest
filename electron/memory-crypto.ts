@@ -133,6 +133,22 @@ export function huellaDeMaestra(master: Buffer): string {
     .slice(0, 16)
 }
 
+/**
+ * La prueba de que esta maquina TIENE la maestra, para poder rotar la epoca.
+ *
+ * Rotar borra todas las envolturas de la cuenta, incluida la de recuperacion. El servidor no
+ * puede verificarlo mirando sus propias tablas —lo que ahi hay lo puede escribir el que
+ * pide rotar— asi que la unica prueba real es conocer la maestra. Va atado a la EPOCA para
+ * que el verificador de una epoca vieja no sirva en la nueva.
+ *
+ * El servidor lo guarda y lo compara. No puede derivarlo, y no le sirve para abrir nada.
+ */
+export function rotateVerifier(master: Buffer, keyEpoch: number): string {
+  return createHmac('sha256', master)
+    .update(`nest-memory/rotate-v1/${keyEpoch}`)
+    .digest('hex')
+}
+
 export function hmacTopicKey(keys: MemoryKeys, projectKey: string, scope: string, topicKey: string): string {
   return createHmac('sha256', keys.topic)
     .update(`${projectKey}|${scope}|${topicKey}`)

@@ -87,10 +87,12 @@ export default function UserMenu({ plan, isTrialActive, trialDaysLeft, onUpgrade
           )}
           <span className={`user-menu-dot ${planDotClass(plan, isTrialActive)}`} />
         </span>
+        {/* Sólo el nombre. El plan estaba en un segundo renglón y era lo que hacía de ésta la
+            única fila de dos líneas de la barra — el resto son todas de una. Sigue estando en
+            el `title`, junto al mail, y en el popover que se abre al tocarla. */}
         {expanded && (
           <span className="user-menu-meta">
             <span className="user-menu-name">{displayName || email || 'Signed in'}</span>
-            <span className="user-menu-plan">{planLabel(plan, isTrialActive, trialDaysLeft)}</span>
           </span>
         )}
       </button>

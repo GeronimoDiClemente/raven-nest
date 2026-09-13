@@ -36,6 +36,7 @@ const filaDe = (payload: Record<string, unknown>): PulledRow => ({
   tags: payload.tags as string[],
   gitBranch: payload.git_branch as string,
   contentHash: payload.content_hash as string,
+  originAccount: payload.origin_account as string | undefined,
 })
 
 describe('sealMutationPayload', () => {
@@ -179,4 +180,22 @@ describe('openPulledRow', () => {
     expect(String(sellado.origin_account)).not.toContain('gerodc06')
   })
 
+  // La regresión: `origin_account` se sumó a los campos sellados y este lado no se actualizó,
+  // así que la fila subía cifrada y bajaba sin abrirse — el `nmc1:…` terminaba escrito en la
+  // base LOCAL como si fuera el nombre de la cuenta. Todo lo que se sella tiene que abrirse.
+  it('todo lo que se sella se vuelve a abrir — incluido origin_account', () => {
+    const p = { ...payloadBase(), origin_account: 'claude:gerodc06@gmail,com' }
+    const sellado = sealMutationPayload(ctx, p)
+    expect(String(sellado.origin_account)).toMatch(/^nmc1:/)
+
+    const { row, undecryptable } = openPulledRow(ctx, filaDe(sellado))
+    expect(undecryptable).toBe(false)
+    expect(row.originAccount).toBe('claude:gerodc06@gmail,com')
+  })
+
+  it('una fila vieja con origin_account en claro pasa tal cual', () => {
+    const p = { ...payloadBase(), origin_account: 'claude:alguien' }
+    const { row } = openPulledRow(ctx, filaDe(p))
+    expect(row.originAccount).toBe('claude:alguien')
+  })
 })

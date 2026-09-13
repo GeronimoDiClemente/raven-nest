@@ -29,7 +29,7 @@ interface EstadoCifrado {
 /** Lo que el §5.2 deja en claro a propósito. Va en la tarjeta y no sólo en la landing: es
  *  la mitad honesta de la promesa, y el usuario la tiene que leer donde activa. */
 const LO_QUE_QUEDA_EN_CLARO =
-  'Se cifran el título, el contenido, los tags y el nombre del proyecto. El tipo, el scope y la rama viajan en claro: el servidor los necesita para ordenar y para decidir permisos.'
+  'Your titles, content, tags and project names are encrypted. Type, scope and branch travel in the clear: the server needs them to order and to decide permissions.'
 
 export default function MemoryEncryptionCard() {
   const [estado, setEstado] = useState<EstadoCifrado | null>(null)
@@ -101,14 +101,14 @@ export default function MemoryEncryptionCard() {
 
   const autorizar = (deviceId: string) => conBloqueo(async () => {
     const res = await api?.encryptionAuthorize?.(deviceId)
-    if (res && !res.ok) setError(res.error ?? 'No se pudo autorizar.')
+    if (res && !res.ok) setError(res.error ?? 'Could not authorise.')
     await refrescar()
   })
 
   const recuperar = () => conBloqueo(async () => {
     const res = await api?.encryptionRecover?.(codigoTipeado)
     if (res && !res.ok) {
-      setError(res.error ?? 'No se pudo recuperar.')
+      setError(res.error ?? 'Could not recover.')
       return // El formulario queda abierto: el usuario tiene que poder corregir el código.
     }
     setRecuperando(false)
@@ -130,10 +130,10 @@ export default function MemoryEncryptionCard() {
       <div className={marco}>
         <div className="flex items-center gap-2">
           <ShieldCheck size={ICON_SIZE.md} className="text-ok" aria-hidden />
-          <p className="text-fs font-medium text-foreground">Guardá este código</p>
+          <p className="text-fs font-medium text-foreground">Save this code</p>
         </div>
         <p className="text-fs-sm text-muted-foreground">
-          Es lo único que recupera tus memorias si perdés todas tus máquinas. No lo vas a volver a ver.
+          It is the only thing that recovers your memories if you lose every machine. You will not see it again.
         </p>
         {avisoDeCodigo && (
           <p className="rounded-md border border-warn/40 px-2 py-1 text-fs-sm text-warn">{avisoDeCodigo}</p>
@@ -143,11 +143,11 @@ export default function MemoryEncryptionCard() {
         </p>
         <label className="flex items-center gap-2 text-fs-sm text-foreground">
           <input type="checkbox" checked={confirmado} onChange={(e) => setConfirmado(e.target.checked)} />
-          Lo guardé en un lugar seguro
+          I have saved it somewhere safe
         </label>
         <div>
           <Button size="sm" disabled={!confirmado} onClick={() => setCodigo(null)}>
-            Ya lo guardé
+            Done
           </Button>
         </div>
       </div>
@@ -160,10 +160,10 @@ export default function MemoryEncryptionCard() {
       <div className={marco}>
         <div className="flex items-center gap-2">
           <ShieldQuestion size={ICON_SIZE.md} className="text-muted-foreground" aria-hidden />
-          <p className="text-fs font-medium text-foreground">Cifrado</p>
+          <p className="text-fs font-medium text-foreground">Encryption</p>
         </div>
         <p className="text-fs-sm text-muted-foreground">
-          Conectá la memoria en la nube para poder cifrarla. Lo que está guardado sólo en esta máquina no viaja a ningún lado.
+          Connect cloud memory to encrypt it. What lives only on this machine never travels anywhere.
         </p>
       </div>
     )
@@ -175,18 +175,18 @@ export default function MemoryEncryptionCard() {
       <div className={marco}>
         <div className="flex items-center gap-2">
           <ShieldAlert size={ICON_SIZE.md} className="text-warn" aria-hidden />
-          <p className="text-fs font-medium text-foreground">Esta máquina todavía no está autorizada</p>
+          <p className="text-fs font-medium text-foreground">This machine is not authorised yet</p>
         </div>
         <p className="text-fs-sm text-muted-foreground">
-          Autorizala desde otra máquina que ya tenga la clave, o usá el código de recuperación.
+          Authorise it from another machine that already has the key, or use your recovery code.
           {estado.undecryptable > 0 && (
-            <> Hay <span className="font-mono tabular-nums text-foreground">{estado.undecryptable}</span> memorias que no se pueden leer desde acá.</>
+            <> <span className="font-mono tabular-nums text-foreground">{estado.undecryptable}</span> memories cannot be read from here.</>
           )}
         </p>
         {estado.huellaPropia && (
           <div className="rounded-md border border-border bg-muted/30 px-2 py-1.5">
             <p className="text-fs-xs text-muted-foreground">
-              Antes de autorizar desde la otra máquina, comprobá que muestre este mismo código:
+              Before authorising from the other machine, check that it shows this same code:
             </p>
             <p className="select-all text-center font-mono text-fs tracking-[0.08em] text-foreground">
               {estado.huellaPropia}
@@ -209,12 +209,12 @@ export default function MemoryEncryptionCard() {
                 try {
                   const res = await adoptar()
                   if (res.ok && res.adoptada) await refrescar()
-                  else if (res.ok) setError('Todavía no hay una autorización para esta máquina.')
-                  else setError(res.error ?? 'No se pudo consultar.')
+                  else if (res.ok) setError('No authorisation for this machine yet.')
+                  else setError(res.error ?? 'Could not check.')
                 } finally { setBuscandoAutorizacion(false) }
               })()}
             >
-              {buscandoAutorizacion ? 'Buscando…' : 'Ya me autorizaron'}
+              {buscandoAutorizacion ? 'Checking…' : "I've been authorised"}
             </Button>
           </div>
         )}
@@ -225,18 +225,18 @@ export default function MemoryEncryptionCard() {
               value={codigoTipeado}
               onChange={(e) => setCodigoTipeado(e.target.value)}
               placeholder="XXXX-XXXX-XXXX-XXXX-XXXX-XXXX"
-              aria-label="Código de recuperación"
+              aria-label="Recovery code"
               className="font-mono"
             />
             <div className="flex gap-2">
-              <Button size="sm" disabled={ocupado} onClick={() => void recuperar()}>Recuperar</Button>
-              <Button size="sm" variant="ghost" onClick={() => setRecuperando(false)}>Cancelar</Button>
+              <Button size="sm" disabled={ocupado} onClick={() => void recuperar()}>Recover</Button>
+              <Button size="sm" variant="ghost" onClick={() => setRecuperando(false)}>Cancel</Button>
             </div>
           </div>
         ) : (
           <div>
             <Button size="sm" variant="outline" onClick={() => setRecuperando(true)}>
-              Usar el código de recuperación
+              Use the recovery code
             </Button>
           </div>
         )}
@@ -250,8 +250,8 @@ export default function MemoryEncryptionCard() {
       <div className={marco}>
         <div className="flex items-center gap-2">
           <ShieldCheck size={ICON_SIZE.md} className="text-ok" aria-hidden />
-          <p className="text-fs font-medium text-foreground">Cifrado activo</p>
-          <span className="font-mono text-fs-xs tabular-nums text-muted-foreground">clave #{estado.keyEpoch}</span>
+          <p className="text-fs font-medium text-foreground">Encryption on</p>
+          <span className="font-mono text-fs-xs tabular-nums text-muted-foreground">key #{estado.keyEpoch}</span>
         </div>
         <p className="text-fs-sm text-muted-foreground">{LO_QUE_QUEDA_EN_CLARO}</p>
 
@@ -261,9 +261,9 @@ export default function MemoryEncryptionCard() {
             servicio puede sellar la SUYA para tu clave pública — y el sobre no lo detecta. */}
         {estado.huellaDeLaClave && (
           <p className="text-fs-xs text-muted-foreground">
-            Clave de esta cuenta:{' '}
+            This account key:{' '}
             <span className="select-all font-mono text-foreground">{estado.huellaDeLaClave}</span>
-            {' '}— tiene que ser la misma en todas tus máquinas.
+            {' '}— must be the same on all your machines.
           </p>
         )}
 
@@ -271,7 +271,7 @@ export default function MemoryEncryptionCard() {
 
         {estado.pendingDevices.length > 0 && (
           <div className="flex flex-col gap-1">
-            <p className="text-fs-sm text-foreground">Máquinas esperando autorización:</p>
+            <p className="text-fs-sm text-foreground">Machines waiting for authorisation:</p>
             {estado.pendingDevices.map((d) => (
               <div key={d.deviceId} className="flex flex-col gap-1 rounded-md border border-border p-2">
                 <p className="text-fs-sm text-foreground">{d.name}</p>
@@ -281,7 +281,7 @@ export default function MemoryEncryptionCard() {
                 {estado.huellasPorDevice?.[d.deviceId] && (
                   <>
                     <p className="text-fs-xs text-muted-foreground">
-                      Autorizala sólo si esa máquina muestra exactamente este código:
+                      Authorise it only if that machine shows exactly this code:
                     </p>
                     <p className="select-all text-center font-mono text-fs tracking-[0.08em] text-foreground">
                       {estado.huellasPorDevice[d.deviceId]}
@@ -290,7 +290,7 @@ export default function MemoryEncryptionCard() {
                 )}
                 <div>
                   <Button size="sm" variant="outline" disabled={ocupado} onClick={() => void autorizar(d.deviceId)}>
-                    Coincide — autorizar
+                    They match — authorise
                   </Button>
                 </div>
               </div>
@@ -300,11 +300,11 @@ export default function MemoryEncryptionCard() {
 
         <div className="flex items-center gap-2">
           <Button size="sm" variant="outline" disabled={ocupado} onClick={() => void reencriptar()}>
-            Re-subir lo que ya estaba
+            Re-upload what was already there
           </Button>
           {reencriptadas !== null && (
             <span className="text-fs-sm text-muted-foreground">
-              <span className="font-mono tabular-nums text-foreground">{reencriptadas}</span> memorias en cola
+              <span className="font-mono tabular-nums text-foreground">{reencriptadas}</span> memories queued
             </span>
           )}
         </div>
@@ -321,10 +321,10 @@ export default function MemoryEncryptionCard() {
       <div className={marco}>
         <div className="flex items-center gap-2">
           <ShieldQuestion size={ICON_SIZE.md} className="text-muted-foreground" aria-hidden />
-          <p className="text-fs font-medium text-foreground">Cifrado</p>
+          <p className="text-fs font-medium text-foreground">Encryption</p>
         </div>
         <p className="text-fs-sm text-muted-foreground">
-          No se pudo consultar el estado del cifrado de esta cuenta. Volvé a entrar cuando haya conexión.
+          Could not read this account&rsquo;s encryption state. Come back when you are online.
         </p>
       </div>
     )
@@ -335,15 +335,15 @@ export default function MemoryEncryptionCard() {
     <div className={marco}>
       <div className="flex items-center gap-2">
         <ShieldQuestion size={ICON_SIZE.md} className="text-muted-foreground" aria-hidden />
-        <p className="text-fs font-medium text-foreground">Cifrado</p>
+        <p className="text-fs font-medium text-foreground">Encryption</p>
       </div>
       <p className="text-fs-sm text-muted-foreground">{LO_QUE_QUEDA_EN_CLARO}</p>
       <p className="text-fs-sm text-muted-foreground">
-        Una vez activado, nadie que administre el servidor puede leer lo que escribiste — tampoco nosotros.
+        Once it\u2019s on, nobody who runs the server can read what you wrote \u2014 us included.
       </p>
       {error && <p className="text-fs-sm text-destructive">{error}</p>}
       <div>
-        <Button size="sm" disabled={ocupado} onClick={() => void activar()}>Activar el cifrado</Button>
+        <Button size="sm" disabled={ocupado} onClick={() => void activar()}>Turn on encryption</Button>
       </div>
     </div>
   )

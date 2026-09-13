@@ -177,4 +177,30 @@ describe('fallar cerrado — nunca subir en claro a una cuenta cifrada', () => {
     expect(enviado).not.toBeNull()
     expect(String(enviado.mutations[0].payload.title)).toMatch(/^nmc1:/)
   })
+
+  // El agujero que la segunda revisión encontró en el arreglo anterior: la época conocida
+  // sólo se escribía desde el handler de estado de la tarjeta, o sea que el gate únicamente se
+  // armaba si el usuario ABRÍA el overlay Memories. Una máquina nueva que conecta la nube
+  // corre import + drain y empujaba todo en claro a una cuenta cifrada.
+  it('ver UNA fila cifrada arma el gate, sin que nadie abra ninguna pantalla', async () => {
+    const daemon = daemonConGate(() => null, () => store.knownKeyEpoch() > 0)
+    expect(store.knownKeyEpoch()).toBe(0)
+
+    // Llega una fila cifrada del pull y esta máquina no la puede abrir.
+    daemon.applyPulledRow({
+      syncId: 'obs-remota', projectKey: 'proj1', scope: 'personal', topicKey: null,
+      type: 'decision', title: 'nmc1:loQueSea', content: 'nmc1:loQueSea',
+      tags: [], lamport: 1, updatedAt: Date.now(), deleted: false, supersededBy: null,
+    } as never)
+
+    expect(store.knownKeyEpoch()).toBeGreaterThan(0)
+
+    // Y desde ahí el push no sube en claro.
+    store.save({
+      projectKey: 'proj1', scope: 'personal', type: 'decision', source: 'mcp',
+      title: 'secreto', content: 'no sale',
+    })
+    await daemon.push()
+    expect(enviado, 'no salió ningún push en claro').toBeNull()
+  })
 })

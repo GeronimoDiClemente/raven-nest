@@ -102,6 +102,23 @@ export function ensureKeyMaterial(
   const existente = loadKeyMaterial(ravenHomeDir, userId, safe)
   if (existente) return existente
 
+  /**
+   * Si `safeStorage` no esta disponible AHORA, no se toca nada.
+   *
+   * `loadKeyMaterial` devuelve `null` tanto por un archivo ilegible como porque el llavero
+   * del sistema no abrio en este momento — y esos dos casos necesitan lo contrario. La
+   * version anterior de esta funcion apartaba el archivo en los dos, asi que un llavero
+   * caido un instante (la sesion todavia no desbloqueada, DPAPI que tarda) apartaba un
+   * `keys.bin` SANO y generaba un par nuevo: exactamente la destruccion que este arreglo
+   * existia para impedir, con un disparador mas facil que el original.
+   */
+  if (!safe.isEncryptionAvailable()) {
+    throw new Error(
+      'safeStorage no está disponible en este sistema — no se leen ni se escriben claves. ' +
+      'La memoria local sigue andando; el cifrado de nube queda deshabilitado en esta sesión.'
+    )
+  }
+
   const path = keyFilePath(ravenHomeDir, userId)
   if (existsSync(path)) {
     const roto = `${path}.roto-${Date.now()}`

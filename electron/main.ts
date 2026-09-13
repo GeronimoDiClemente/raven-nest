@@ -3200,8 +3200,8 @@ ipcMain.handle('memory:encryption:status', async () => {
  */
 ipcMain.handle('memory:encryption:adopt', async () => {
   const deps = keysDeps()
-  if (!deps || !memory) return { ok: false, error: 'La memoria en la nube no está conectada.' }
-  if (!memoryKeys) return { ok: false, error: 'Este sistema no permite guardar claves de forma segura.' }
+  if (!deps || !memory) return { ok: false, error: 'Cloud memory is not connected.' }
+  if (!memoryKeys) return { ok: false, error: 'This system cannot store keys securely.' }
   try {
     const yaExiste = await adoptExistingKey(deps, memoryKeys.device)
     if (!yaExiste) return { ok: true, adoptada: false }
@@ -3223,8 +3223,8 @@ ipcMain.handle('memory:encryption:adopt', async () => {
 
 ipcMain.handle('memory:encryption:activate', async () => {
   const deps = keysDeps()
-  if (!deps || !memory) return { ok: false, error: 'La memoria en la nube no está conectada.' }
-  if (!memoryKeys) return { ok: false, error: 'Este sistema no permite guardar claves de forma segura.' }
+  if (!deps || !memory) return { ok: false, error: 'Cloud memory is not connected.' }
+  if (!memoryKeys) return { ok: false, error: 'This system cannot store keys securely.' }
   try {
     // Si otra maquina ya activo, esto NO es una activacion: es adoptar la clave que existe.
     // Activar de nuevo rotaria la epoca y dejaria ilegible todo lo que ya subio la otra.
@@ -3237,7 +3237,7 @@ ipcMain.handle('memory:encryption:activate', async () => {
       memory.store.resetPullCursors()
       memory.store.clearUndecryptable()
       memory.store.rememberKeyEpoch(yaExiste.keyEpoch)
-      return { ok: false, error: 'Esta cuenta ya tiene el cifrado activado — esta máquina quedó autorizada.' }
+      return { ok: false, error: 'This account already has encryption on — this machine is now authorised.' }
     }
     const res = await activateEncryption(deps, memoryKeys.device)
     // Para cuando esto vuelve, el servidor YA tiene la época 1 y las dos envolturas: la
@@ -3255,9 +3255,9 @@ ipcMain.handle('memory:encryption:activate', async () => {
       saveKeyMaterial(ravenHome(), memory.store.getOwnerUserId(), safeStorage, memoryKeys)
     } catch (err) {
       avisoDePersistencia =
-        'El cifrado quedó activado, pero la clave no se pudo guardar en esta máquina: ' +
-        `${err instanceof Error ? err.message : String(err)}. Guardá el código de recuperación ` +
-        'ahora — es lo único que va a poder recuperar tus memorias.'
+        'Encryption is on, but the key could not be saved on this machine: ' +
+        `${err instanceof Error ? err.message : String(err)}. Save the recovery code now — ` +
+        'it is the only thing that will be able to recover your memories.'
     }
     applyTopicHasher()
     memory.store.backfillTopicHmacs()
@@ -3270,7 +3270,7 @@ ipcMain.handle('memory:encryption:activate', async () => {
 
 ipcMain.handle('memory:encryption:authorize', async (_e, deviceId: string) => {
   const deps = keysDeps()
-  if (!deps || !memoryKeys?.master) return { ok: false, error: 'Esta máquina no tiene la clave.' }
+  if (!deps || !memoryKeys?.master) return { ok: false, error: 'This machine does not have the key.' }
   try {
     const estado = await fetchKeyState(deps)
     const target = estado.devices.find((d) => d.deviceId === deviceId)
@@ -3284,7 +3284,7 @@ ipcMain.handle('memory:encryption:authorize', async (_e, deviceId: string) => {
 
 ipcMain.handle('memory:encryption:recover', async (_e, code: string) => {
   const deps = keysDeps()
-  if (!deps || !memory || !memoryKeys) return { ok: false, error: 'La memoria en la nube no está conectada.' }
+  if (!deps || !memory || !memoryKeys) return { ok: false, error: 'Cloud memory is not connected.' }
   try {
     const res = await recoverWithCode(deps, memoryKeys.device, code)
     memoryKeys = { ...memoryKeys, ...res }

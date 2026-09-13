@@ -104,13 +104,10 @@ export default function MemoriesWorkspace({ onClose, activeRepoPath, onOpenFile,
         </button>
 
         <div className="tw-header-center">
-          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" style={{ color: 'var(--raven-blue)', flexShrink: 0 }}>
-            <circle cx="8" cy="4" r="2" stroke="currentColor" strokeWidth="1.3" />
-            <circle cx="3.5" cy="12" r="2" stroke="currentColor" strokeWidth="1.3" />
-            <circle cx="12.5" cy="12" r="2" stroke="currentColor" strokeWidth="1.3" />
-            <path d="M6.7 5.7 4.8 10.2M9.3 5.7l1.9 4.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-          </svg>
-          <span>Memories</span>
+          {/* Sólo el título, como Teams y Personal. El glifo del grafo que había acá era el
+              único ícono en el header de una pantalla grande, dibujado a mano y pintado con
+              `--raven-blue`: un color de marca donde el resto de la app usa texto. */}
+          <span className="tw-header-title">Memories</span>
         </div>
       </div>
 

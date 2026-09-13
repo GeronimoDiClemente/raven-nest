@@ -5,7 +5,7 @@
 //
 // `fetch` entra inyectado: todo el flujo se prueba de punta a punta contra un servidor de
 // mentira, sin red, sin Postgres y sin Electron.
-import { generateMasterKey } from './memory-crypto'
+import { generateMasterKey, rotateVerifier } from './memory-crypto'
 import {
   wrapForDevice, unwrapWithDevice, wrapForRecovery, unwrapWithRecovery,
   generateRecoveryCode, MemoryUnwrapError, type DeviceKeyPair,
@@ -105,6 +105,10 @@ export async function activateEncryption(
       // segunda no rotaba (no era `>`) ni era rechazada (no era `<`), asi que pisaba el slot
       // de recuperacion con el suyo.
       mode: 'activate',
+      // El verificador de la epoca NUEVA: es lo que la proxima rotacion va a tener que
+      // probar que conoce. Derivado de la maestra, asi que solo lo puede calcular quien la
+      // tiene — y al servidor no le sirve para abrir nada.
+      rotate_verifier: rotateVerifier(master, keyEpoch),
       wraps: [
         { slot: deps.deviceId, kind: 'device', wrapped: wrapForDevice(device.publicKey, master) },
         { slot: 'recovery', kind: 'recovery', wrapped: recovery.wrapped, wrap_meta: { salt: recovery.salt } },

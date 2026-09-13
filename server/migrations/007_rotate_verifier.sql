@@ -1,0 +1,11 @@
+-- La prueba de posesión para rotar la época (revisión adversarial, 2026-09-13).
+--
+-- Rotar borra TODAS las envolturas de la cuenta, incluida la de recuperación, así que sólo
+-- puede hacerlo quien tiene la clave maestra. Mirar si existe una fila en `key_wraps` para el
+-- slot del llamador NO alcanza: el propio llamador puede escribirla con un `authorize` sobre
+-- su slot, y quedaba probando su propia afirmación.
+--
+-- `rotate_verifier` es un valor derivado de la maestra por el CLIENTE (HMAC con etiqueta de
+-- dominio y la época). El servidor lo guarda y lo compara; no puede derivarlo ni le sirve
+-- para abrir una sola memoria.
+alter table users add column if not exists rotate_verifier text;

@@ -114,6 +114,13 @@ export function openPulledRow(ctx: EnvelopeContext | null, row: PulledRow): Open
   abierto.title = abrir(row.title, 'title') ?? undefined
   abierto.content = abrir(row.content, 'content') ?? null
   abierto.contentHash = abrir(row.contentHash, 'content_hash') ?? undefined
+  // `origin_account` entro a SEALED_FIELDS el 2026-09-12 y este lado se olvido: la fila
+  // subia cifrada y bajaba sin abrirse, asi que el `nmc1:…` se escribia en la base LOCAL
+  // como si fuera el nombre de la cuenta. Un campo que se sella tiene que abrirse acá; los
+  // dos lados salen de la misma lista y hay un test que lo fija.
+  if (row.originAccount !== undefined) {
+    abierto.originAccount = abrir(row.originAccount, 'origin_account') ?? undefined
+  }
 
   if (Array.isArray(row.tags) && row.tags.length === 1 && isCiphertext(row.tags[0])) {
     const claro = abrir(row.tags[0], 'tags')
