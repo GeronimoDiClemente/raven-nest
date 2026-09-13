@@ -210,38 +210,12 @@ export default function PaneHeader({ pane, zoomed, onZoom, onClose, onColorChang
         </button>
       )}
 
-      {onToggleBlocks && (
-        <button
-          className={`pane-blocks-btn${showBlocks ? ' active' : ''}`}
-          onClick={onToggleBlocks}
-          title={showBlocks ? 'Show terminal' : 'Show response blocks'}
-        >
-          <Rows3 size={ICON_SIZE.sm} aria-hidden />
-          {blockCount !== undefined && blockCount > 0 && (
-            <span className="pane-blocks-count">{blockCount}</span>
-          )}
-        </button>
-      )}
-
-      {onCopyLastResponse && (
-        <button className="pane-copy-btn" onClick={handleCopy} title="Copy last response">
-          {copied ? (
-            <Check size={ICON_SIZE.sm} className="text-ok" aria-hidden />
-          ) : (
-            <Copy size={ICON_SIZE.sm} aria-hidden />
-          )}
-        </button>
-      )}
-
-      {onSaveConversation && (
-        <button className="pane-save-btn" onClick={handleSave} title="Save conversation to history">
-          {saved ? (
-            <Check size={ICON_SIZE.sm} className="text-ok" aria-hidden />
-          ) : (
-            <Download size={ICON_SIZE.sm} aria-hidden />
-          )}
-        </button>
-      )}
+      {/* Los tres botones que estaban acá —bloques de respuesta, copiar la última respuesta
+          y guardar la conversación— salieron de la barra el 2026-09-13. Eran tres iconos
+          permanentes en el encabezado de CADA pane para acciones que casi nadie usa, y lo
+          que dejan es lugar para las tres que sí: compartir, agrandar y cerrar.
+          Los handlers siguen llegando por props y las features no se borraron: lo que se
+          quita es su lugar fijo en una barra que se repite en cada terminal abierta. */}
 
       {processEnded && onRestart && (
         <button className="pane-restart-btn" onClick={onRestart} title="Restart process">

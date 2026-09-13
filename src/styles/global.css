@@ -443,9 +443,15 @@ body {
 
 /* ── Sidebar ─────────────────────────────────────────────── */
 
+/* El ancho de la barra, publicado como variable para que otra cosa pueda contarlo.
+   Lo usa el pane zoomeado: sin esto arrancaba en `left: 0`, o sea DEBAJO de la barra, y la
+   terminal quedaba tapada de 44 a 200px según estuviera colapsada o abierta. */
+:root { --sidebar-width: 44px; }
+.app:has(.sidebar.expanded) { --sidebar-width: 200px; }
+
 .sidebar {
   flex-shrink: 0;
-  width: 44px;
+  width: var(--sidebar-width);
   transition: width 200ms ease;
   overflow: visible;
   /* background / border-right migrados a bg-card border-r border-border (Task 7) */
@@ -2313,10 +2319,15 @@ body {
   animation: backdropOut 0.3s cubic-bezier(0.32, 0.72, 0, 1) forwards;
 }
 
+/* Zoom: ocupa el espacio de TRABAJO, no la ventana entera.
+   Con `left: 0` el pane arrancaba debajo de la barra lateral —44px colapsada, 200 abierta—
+   así que la terminal quedaba parcialmente tapada y xterm dimensionaba sobre un ancho que no
+   era el visible. Atado a `--sidebar-width`, se acomoda solo cuando la barra se abre o se
+   cierra, y cuando cambia el tamaño de la ventana. */
 .terminal-pane.zoomed {
   position: fixed;
   top: var(--titlebar-height);
-  left: 0;
+  left: var(--sidebar-width, 0px);
   right: 0;
   bottom: 0;
   z-index: 50;
@@ -2328,11 +2339,12 @@ body {
   animation: zoomIn 0.3s cubic-bezier(0.32, 0.72, 0, 1) forwards;
 }
 
-/* El editor zoomeado ocupa todo el workspace igual que la terminal. */
+/* El editor zoomeado ocupa todo el workspace igual que la terminal — barra lateral incluida
+   en la cuenta, por el mismo motivo. */
 .editor-pane.zoomed {
   position: fixed;
   top: var(--titlebar-height);
-  left: 0;
+  left: var(--sidebar-width, 0px);
   right: 0;
   bottom: 0;
   z-index: 50;
