@@ -45,6 +45,18 @@ interface Props {
    * distancia de cámara.
    */
   showLabels: boolean
+  /**
+   * Conjunto de ids a RESALTAR, o null para no resaltar nada.
+   *
+   * Es el mismo atenuado que ya hacía la selección, generalizado: lo que está adentro del
+   * conjunto se ve, todo lo demás baja a 15% de opacidad y el grafo NO cambia de forma. Ésa
+   * es la diferencia con filtrar — el mapa entero sigue de referencia mientras buscás, que es
+   * como se comporta el grafo de Obsidian.
+   *
+   * Convive con `selectedId`: si hay algo seleccionado, manda la selección (mirar UNA memoria
+   * y sus visibles es más específico que mirar los resultados de una búsqueda).
+   */
+  resaltados?: ReadonlySet<string> | null
   /** Para el aviso de consola cuando el ref no llega — así dice cuál de los dos grafos es. */
   nombre: string
 }
@@ -111,7 +123,7 @@ const NODE_REL_SIZE = 4.5
 const ETIQUETA = '#cfcfcf'
 const ETIQUETA_ATENUADA = 'rgba(155,155,155,0.25)'
 
-export default function Graph3D({ nodes, links, selectedId, onSelect, showLabels, nombre }: Props) {
+export default function Graph3D({ nodes, links, selectedId, onSelect, showLabels, resaltados = null, nombre }: Props) {
   const boxRef = useRef<HTMLDivElement | null>(null)
   const fgRef = useRef<ForceGraphMethods<Node3D, Link3D> | undefined>(undefined)
   const [size, setSize] = useState<{ w: number; h: number } | null>(null)
@@ -141,31 +153,46 @@ export default function Graph3D({ nodes, links, selectedId, onSelect, showLabels
     return () => ro.disconnect()
   }, [])
 
-  // Vecinos directos del seleccionado. Con algo seleccionado, todo lo demás se atenúa: es lo
-  // que convierte al grafo en una vista de otra cosa en vez de un adorno.
-  const vecinos = useMemo(() => {
-    if (!selectedId) return null
-    const s = new Set<string>([selectedId])
-    for (const l of links) {
-      const a = endId(l.source as never)
-      const b = endId(l.target as never)
-      if (a === selectedId && b) s.add(b)
-      if (b === selectedId && a) s.add(a)
+  /**
+   * Qué se ve y qué se atenúa. Dos fuentes, con prioridad:
+   *
+   *  1. Hay algo SELECCIONADO → se ve esa memoria y sus visibles directos. Es lo que convierte
+   *     al grafo en una vista de otra cosa en vez de un adorno.
+   *  2. Hay una BÚSQUEDA → se ven los que coinciden. Sin visibles: el punto de buscar es ver
+   *     dónde caen las coincidencias, y arrastrar a los visibles vuelve a encender media
+   *     pantalla.
+   *
+   * `null` en los dos casos = nada atenuado, todo a color pleno.
+   */
+  const visibles = useMemo(() => {
+    if (selectedId) {
+      const s = new Set<string>([selectedId])
+      for (const l of links) {
+        const a = endId(l.source as never)
+        const b = endId(l.target as never)
+        if (a === selectedId && b) s.add(b)
+        if (b === selectedId && a) s.add(a)
+      }
+      return s
     }
-    return s
-  }, [selectedId, links])
+    return resaltados && resaltados.size > 0 ? resaltados : null
+  }, [selectedId, links, resaltados])
 
   const nodeColor = useCallback((node: Node3D) => {
-    if (!vecinos) return node.color
-    return vecinos.has(node.id) ? node.color : ATENUADO_NODO
-  }, [vecinos])
+    if (!visibles) return node.color
+    return visibles.has(node.id) ? node.color : ATENUADO_NODO
+  }, [visibles])
 
   const linkColor = useCallback((link: Link3D) => {
-    if (!vecinos) return link.color
+    if (!visibles) return link.color
     const a = endId(link.source as never)
     const b = endId(link.target as never)
-    return a === selectedId || b === selectedId ? link.color : ATENUADO_ARISTA
-  }, [vecinos, selectedId])
+    // Con una selección, la arista se ve si TOCA al seleccionado. Con una búsqueda, se ve si
+    // une dos coincidencias — una arista de un resaltado a un atenuado sería una línea que
+    // sale hacia la nada.
+    if (selectedId) return a === selectedId || b === selectedId ? link.color : ATENUADO_ARISTA
+    return a && b && visibles.has(a) && visibles.has(b) ? link.color : ATENUADO_ARISTA
+  }, [visibles, selectedId])
 
   const encuadrar = useCallback(() => {
     if (usuarioMovioLaCamara.current) return
@@ -299,7 +326,7 @@ export default function Graph3D({ nodes, links, selectedId, onSelect, showLabels
                 nodeThreeObject: (n: Node3D) =>
                   spriteDeEtiqueta(
                     n.label,
-                    vecinos && !vecinos.has(n.id) ? ETIQUETA_ATENUADA : ETIQUETA,
+                    visibles && !visibles.has(n.id) ? ETIQUETA_ATENUADA : ETIQUETA,
                     // Cómo three calcula el radio de la esfera de un nodo: la raíz cúbica del
                     // `val` por `nodeRelSize` (el área/volumen representa la magnitud).
                     Math.cbrt(n.val) * NODE_REL_SIZE,

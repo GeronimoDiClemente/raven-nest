@@ -14,9 +14,11 @@ interface Props {
   selectedId: string | null
   onSelect: (syncId: string | null) => void
   showLabels: boolean
+  /** Los que coinciden con la búsqueda. Pasa tal cual a Graph3D, que ya sabe atenuar. */
+  resaltados?: ReadonlySet<string> | null
 }
 
-export default function MemoryGraph3D({ data, selectedId, onSelect, showLabels }: Props) {
+export default function MemoryGraph3D({ data, selectedId, onSelect, showLabels, resaltados = null }: Props) {
   // Los nodos se pasan TAL CUAL (`data.nodes` ya tiene id/label/color/val) y no como copias:
   // la simulación muta las posiciones en el lugar, y el encuadre de Graph3D las lee de estos
   // mismos objetos. Copiarlos dejaría el encuadre mirando nodos sin posición.
@@ -45,6 +47,7 @@ export default function MemoryGraph3D({ data, selectedId, onSelect, showLabels }
       nodes={nodes}
       links={links}
       selectedId={selectedId}
+      resaltados={resaltados}
       onSelect={onSelect}
       showLabels={showLabels}
     />

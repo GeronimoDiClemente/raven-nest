@@ -84,6 +84,13 @@ export interface ObservationSummary {
   updatedAt: number
   originAi: string | null
   gitBranch: string | null
+  /**
+   * `true` cuando `content` es el principio y no el texto entero: el llamador pidió un
+   * presupuesto de caracteres. Quien lo reciba tiene que saber que hay más y dónde pedirlo
+   * (`memory_get` con el `syncId`), porque lo peor que puede hacer un agente con un texto
+   * cortado es tratarlo como completo y sacar conclusiones de lo que no leyó.
+   */
+  contentTruncated?: boolean
 }
 
 export interface HookSessionStartParams {

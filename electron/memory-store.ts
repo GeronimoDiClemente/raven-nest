@@ -18,7 +18,7 @@ import { GLOBAL_PROJECT_KEY } from './memory-project-key'
 // constructor migra y prende WAL, o sea escribe). Los métodos de abajo las envuelven para
 // que haya UNA redacción de cada consulta.
 import {
-  contextObservations, getObservation, getObservationSummary, searchObservations, toSummary,
+  contextObservations, CONTEXT_MAX_CHARS, getObservation, getObservationSummary, searchObservations, toSummary,
 } from './memory-reads'
 import { buildMemoryGraph, type MemoryGraph, type MemoryGraphQuery } from './memory-graph'
 import type {
@@ -1411,8 +1411,16 @@ export class MemoryStore {
   // guarantee ties resolve in write order. `lamport` exists precisely to give a
   // total order beyond wall-clock resolution (it's a strictly-increasing counter,
   // §4.3), so it's the correct secondary sort key wherever recency ordering matters.
-  context(projectKey: string, limit = 10): ObservationSummary[] {
-    return contextObservations(this.db, projectKey, GLOBAL_PROJECT_KEY, limit)
+  /**
+   * `maxContentChars` por default: este es el escalon del INDICE, no el del texto entero.
+   * Quien quiera el cuerpo completo de una memoria tiene `getSummary(syncId)`. Ver el
+   * comentario de `contextObservations` para los tres escalones y por que importan.
+   */
+  context(projectKey: string, limit = 10, maxContentChars: number | null = CONTEXT_MAX_CHARS): ObservationSummary[] {
+    return contextObservations(
+      this.db, projectKey, GLOBAL_PROJECT_KEY, limit,
+      maxContentChars ?? undefined,
+    )
   }
 
 

@@ -6,8 +6,9 @@
 // "tuyo vs del equipo" se ve por color. Ademas evita heredar el acoplamiento de
 // PersonalWorkspace.tsx:306, donde elegir un equipo llama a switchTeam y cambia chat,
 // presencia y stats de TODA la app.
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useMemories } from '../hooks/useMemories'
+import { useCrossProjectMemories } from '../hooks/useCrossProjectMemories'
 import MemoriesList from './MemoriesList'
 import MemoryGraphPanel from './MemoryGraphPanel'
 import NewMemoryForm from './NewMemoryForm'
@@ -43,6 +44,25 @@ export default function MemoriesWorkspace({ onClose, activeRepoPath, onOpenFile,
   // lugar que ve a los dos.
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [escribiendo, setEscribiendo] = useState(false)
+
+  /**
+   * La búsqueda vive acá y no adentro de la lista, porque dejó de ser sólo de la lista: el
+   * grafo resalta lo que coincide. Un solo estado, una sola consulta.
+   */
+  const busqueda = useCrossProjectMemories()
+
+  /**
+   * Los ids a resaltar. `null` sin búsqueda = grafo a color pleno.
+   *
+   * Son los que la lista tiene cargados, que es una página de 100. Con más coincidencias que
+   * eso, el grafo resalta las mismas que la lista está mostrando — que es lo coherente:
+   * resaltar en el mapa algo que la lista todavía no trajo sería señalar hacia una fila que
+   * no existe en pantalla.
+   */
+  const resaltados = useMemo(
+    () => (busqueda.query.trim() ? new Set(busqueda.items.map((i) => i.syncId)) : null),
+    [busqueda.query, busqueda.items],
+  )
   /**
    * Cuando estás conectando dos memorias, guarda la PRIMERA.
    *
@@ -157,16 +177,29 @@ export default function MemoriesWorkspace({ onClose, activeRepoPath, onOpenFile,
 
         <MemoryEncryptionCard />
 
-        <MemoriesList key={`lista-${version}`} selectedId={selectedId} onSelect={(id) => void alElegir(id)} />
-
-        {/* El grafo de MEMORIAS (spec §3): cuadrado acotado, 3D, debajo de la lista. No se
-            monta con cero nodos, asi que en una cuenta vacia esta linea no ocupa nada. */}
+        {/* El grafo primero y el buscador debajo, como Obsidian.
+            
+            Antes la lista era lo de arriba y el grafo un cuadro secundario al pie. El orden
+            importa porque cambia qué es la pantalla: con el grafo arriba, buscar es navegar
+            un mapa; con la lista arriba, el grafo es un adorno que mirás al final.
+            
+            Los dos comparten `busqueda`: lo que coincide se resalta en el grafo y el resto se
+            atenúa, sin que el grafo cambie de forma. Es el mismo atenuado que ya hacía la
+            selección de un nodo, generalizado. */}
         <MemoryGraphPanel
           key={`grafo-${version}`}
           selectedId={selectedId}
           onSelect={(id) => void alElegir(id)}
           onEmpezarAConectar={(id) => { setConectandoDesde(id); setAvisoDeEnlace(null) }}
           onCambiada={() => setVersion((v) => v + 1)}
+          resaltados={resaltados}
+        />
+
+        <MemoriesList
+          key={`lista-${version}`}
+          selectedId={selectedId}
+          onSelect={(id) => void alElegir(id)}
+          estadoDeBusqueda={busqueda}
         />
 
         {activeRepoPath ? (

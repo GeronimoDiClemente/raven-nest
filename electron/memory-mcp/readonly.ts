@@ -18,7 +18,7 @@ import Database from 'better-sqlite3'
 import { buildMemoryGraph, type MemoryGraph } from '../memory-graph'
 import { renderMemoryGraphText } from '../memory-graph-text'
 import { readActivePointer } from '../memory-active-store'
-import { contextObservations, getObservationSummary, projectKeyForRootPath, searchObservations } from '../memory-reads'
+import { contextObservations, CONTEXT_MAX_CHARS, getObservationSummary, projectKeyForRootPath, searchObservations } from '../memory-reads'
 import { GLOBAL_PROJECT_KEY, resolveProjectKey } from '../memory-project-key'
 import type { MemoryMethod, ObservationSummary } from '../memory-protocol'
 
@@ -144,8 +144,10 @@ export class MemoryReadonlyClient {
       return { items, offline: true } as T
     }
     if (method === 'memory.context') {
+      // El MISMO presupuesto que con la app abierta: el modo sin daemon no puede ser el
+      // camino barato de conseguir el volcado entero.
       const items = contextObservations(
-        db, claveDeProyecto(), GLOBAL_PROJECT_KEY, p.limit ?? 10
+        db, claveDeProyecto(), GLOBAL_PROJECT_KEY, p.limit ?? 10, CONTEXT_MAX_CHARS
       )
       return { items, offline: true } as T
     }

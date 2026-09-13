@@ -60,6 +60,11 @@ const MAX_NODOS_CON_ETIQUETA = 60
 
 interface Props {
   selectedId: string | null
+  /**
+   * Los ids que coinciden con la búsqueda, o null si no hay búsqueda. Se resaltan y todo lo
+   * demás se atenúa, sin que el grafo cambie de forma.
+   */
+  resaltados?: ReadonlySet<string> | null
   onSelect: (syncId: string | null) => void
   /** Empieza el modo "conectar": el workspace toma el control porque la segunda memoria
    *  puede elegirse tanto en el grafo como en la LISTA, y la lista no la ve este panel. */
@@ -68,9 +73,21 @@ interface Props {
   onCambiada?: () => void
 }
 
-export default function MemoryGraphPanel({ selectedId, onSelect, onEmpezarAConectar, onCambiada }: Props) {
+export default function MemoryGraphPanel({ selectedId, onSelect, onEmpezarAConectar, onCambiada, resaltados = null }: Props) {
 
-  const [includeSimilar, setIncludeSimilar] = useState(false)
+  /**
+   * Encendido por default desde el 2026-09-13.
+   *
+   * Estaba apagado porque una arista por similitud es INFERENCIA (tags compartidos) y no un
+   * hecho declarado como las otras tres. El razonamiento era bueno y el resultado era malo:
+   * sin ellas el grafo son cadenas de revisión colgando de racimos por rama, sin un solo
+   * cúmulo temático — o sea, un dibujo del linaje y no un mapa por el que se pueda navegar.
+   * Y estando detrás de un botón, casi nadie las veía nunca.
+   *
+   * Está acotado: los 3 vecinos más parecidos por nodo, con un piso de score. No es un clique
+   * —200 memorias del mismo tag darían 600 aristas y taparían todo— y se puede apagar.
+   */
+  const [includeSimilar, setIncludeSimilar] = useState(true)
   const [hideOrphans, setHideOrphans] = useState(true)
   // En qué está enfocado el grafo: un proyecto, un tag, o nada. Es el "abrir uno" de
   // Obsidian generalizado — un tag agrupa igual de bien que una carpeta, y de hecho es el
@@ -257,6 +274,7 @@ export default function MemoryGraphPanel({ selectedId, onSelect, onEmpezarAConec
               <MemoryGraph3D
                 data={data}
                 selectedId={selectedId}
+                resaltados={resaltados}
                 onSelect={onSelect}
                 showLabels={data.nodes.length <= MAX_NODOS_CON_ETIQUETA}
               />

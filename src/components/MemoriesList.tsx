@@ -13,7 +13,7 @@ import { AILogo } from './AILogos'
 import { Input } from '@/components/ui/input'
 import { memoryTypeSwatch } from '../lib/memory-type-legend'
 import { relativeTime } from '../lib/memories-status'
-import { useCrossProjectMemories } from '../hooks/useCrossProjectMemories'
+import { useCrossProjectMemories, type CrossProjectMemoriesState } from '../hooks/useCrossProjectMemories'
 import type { AIType } from '../types'
 import type { CrossProjectObservation } from '../types'
 
@@ -27,11 +27,24 @@ interface Props {
    *  montan la lista sola sigan andando. */
   selectedId?: string | null
   onSelect?: (syncId: string | null) => void
+  /**
+   * El estado de búsqueda, cuando lo maneja el workspace.
+   *
+   * Se levantó de acá porque el buscador dejó de ser sólo de la lista: lo que coincide se
+   * resalta TAMBIÉN en el grafo, y para eso los dos tienen que mirar la misma consulta y el
+   * mismo resultado. Sigue siendo opcional para que la lista se pueda montar sola —los tests
+   * lo hacen— en cuyo caso usa su propio estado, como antes.
+   */
+  estadoDeBusqueda?: CrossProjectMemoriesState
 }
 
-export default function MemoriesList({ selectedId = null, onSelect }: Props = {}) {
+export default function MemoriesList({ selectedId = null, onSelect, estadoDeBusqueda }: Props = {}) {
+  // El hook corre igual cuando el workspace ya trae el estado —los hooks no se pueden llamar
+  // condicionalmente— pero su resultado se descarta. Es una consulta de más en el caso
+  // montado-solo-en-tests, no en la app.
+  const propio = useCrossProjectMemories()
   const { status, items, error, hasMore, loadingMore, loadMore, query, setQuery } =
-    useCrossProjectMemories()
+    estadoDeBusqueda ?? propio
 
   return (
     // `min-h-[200px]`: la lista es LO PRINCIPAL de esta pantalla (spec §1). Sin un piso, el

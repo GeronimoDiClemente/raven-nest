@@ -27,7 +27,9 @@ export const MCP_INSTRUCTIONS =
   'Nest Memory protocol — mandatory, not optional:\n' +
   '1. Session start, or whenever the user references past work (any language: ' +
   '"remember", "what did we do", "cómo resolvimos", "like last time"): call ' +
-  'memory_context, then memory_search with their keywords, BEFORE answering.\n' +
+  'memory_context, then memory_search with their keywords, BEFORE answering. ' +
+  'memory_context returns an INDEX with truncated bodies — call memory_get only for the ' +
+  'few that matter, never for all of them.\n' +
   '2. Immediately after any decision, bug fix, convention, or non-obvious discovery: ' +
   'call memory_save without being asked. Include what, why, and where (files).\n' +
   '3. If memory_context/memory_search return nothing for something the user insists ' +
@@ -80,11 +82,14 @@ export const TOOL_MANIFEST = [
   {
     name: 'memory_context',
     description:
-      'Load what you already know about this project. CALL THIS FIRST, before answering the ' +
-      "user's first message in a session, and again whenever the user references past work " +
-      "('remember', 'we decided', 'like last time', 'how did we solve'). Returns recent decisions, " +
-      'conventions and open threads for the current working directory. Cheap. Not calling it means ' +
-      're-deriving context the user already paid for.',
+      'Load the INDEX of what you already know about this project. CALL THIS FIRST, before ' +
+      "answering the user's first message in a session, and again whenever the user references " +
+      "past work ('remember', 'we decided', 'like last time', 'how did we solve'). Returns recent " +
+      'decisions, conventions and open threads for the current working directory — title, type, ' +
+      'tags and the OPENING of each one, not the full text. Items marked `contentTruncated: true` ' +
+      'have more: call memory_get with the syncId for the ones that actually matter, and only ' +
+      'those. Do not answer from a truncated body as if it were complete. Not calling this at all ' +
+      'means re-deriving context the user already paid for.',
     inputSchema: {
       type: 'object',
       properties: {
