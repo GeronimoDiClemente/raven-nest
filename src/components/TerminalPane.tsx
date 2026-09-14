@@ -8,6 +8,7 @@ import FileStagingBar, { StagedFile } from './FileStagingBar'
 import TerminalSharePanel from './TerminalSharePanel'
 import { useTerminalShare } from '../hooks/useTerminalShare'
 import { resolverColorDePane } from '../lib/terminal-themes'
+import { estadoDePane } from '../lib/pane-state'
 import { terminalShareService } from '../lib/terminalShareService'
 import { registerPane, unregisterPane } from '../pty-events'
 import { registerTerminalFocus, unregisterTerminalFocus } from '../terminal-registry'
@@ -39,6 +40,8 @@ interface Props {
   onInput: (data: string) => void
   onBusyChange: (paneId: string, busy: boolean) => void
   onFocus: () => void
+  /** Si este pane es el que tiene el foco. Decide si algo cuenta como "sin leer". */
+  enfocado?: boolean
   onActivity?: (paneId: string, active: boolean) => void
   onJoinRequest?: (paneId: string) => void
   onPtyStarted?: (paneId: string, runningRepoPath: string | undefined) => void
@@ -56,7 +59,7 @@ interface Props {
   onRename?: (label: string) => void  // rename the pane (sets customLabel)
 }
 
-export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZoom, onClose, onColorChange, onNoteChange, onInput, onBusyChange, onFocus, onActivity, onJoinRequest, onPtyStarted, ports = [], fontSize, temaDeTerminal, ajustarContrasteDelTema, style, hasNextStep, onHandoff, onRename }: Props) {
+export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZoom, onClose, onColorChange, onNoteChange, onInput, onBusyChange, onFocus, enfocado = false, onActivity, onJoinRequest, onPtyStarted, ports = [], fontSize, temaDeTerminal, ajustarContrasteDelTema, style, hasNextStep, onHandoff, onRename }: Props) {
   const cmdBufferRef = useRef('')
   const wrappedOnInput = useCallback((data: string) => {
     for (const ch of data) {
@@ -88,6 +91,9 @@ export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZ
   const responseAccumRef = useRef('')
   const onFocusRef = useRef(onFocus)
   onFocusRef.current = onFocus
+  // El `enfocado` vigente, para leerlo desde el callback del PTY sin re-suscribirse.
+  const enfocadoRef = useRef(enfocado)
+  enfocadoRef.current = enfocado
   const onBusyChangeRef = useRef(onBusyChange)
   onBusyChangeRef.current = onBusyChange
   const onActivityRef = useRef(onActivity)
@@ -102,6 +108,15 @@ export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZ
   const [blocks, setBlocks] = useState<ResponseBlock[]>([])
   const [showBlocks, setShowBlocks] = useState(false)
   const [isBusy, setIsBusy] = useState(false)
+  /**
+   * Hubo salida que todavia no miraste.
+   *
+   * Se prende cuando termina una tanda de salida con el pane SIN foco, y se apaga apenas lo
+   * enfocas. Es el estado que Orca llama "completed-but-unread" y el unico de los cuatro que
+   * sabe algo sobre el usuario y no sobre el proceso.
+   */
+  const [sinLeer, setSinLeer] = useState(false)
+  useEffect(() => { if (enfocado) setSinLeer(false) }, [enfocado])
   const isBusyRef = useRef(false)
   // One-shot: inyecta pane.initialInput al PTY la primera vez que produce output
   // (señal de que el REPL del agente arrancó). Ver "arreglá el rojo" (H4).
@@ -194,6 +209,8 @@ export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZ
         isBusyRef.current = false
         setIsBusy(false)
         onBusyChangeRef.current(pane.id, false)
+        // Si no lo estabas mirando cuando termino, queda algo para leer.
+        if (!enfocadoRef.current) setSinLeer(true)
         if (stripped.length > 0) {
           const block: ResponseBlock = {
             id: crypto.randomUUID(),
@@ -403,6 +420,18 @@ export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZ
     '--pane-color': resolverColorDePane(pane.borderColor, temaActivo),
   } as React.CSSProperties
 
+  /**
+   * El estado que ve el usuario. `outputBuf` guarda los ultimos 2000 caracteres crudos: se
+   * limpian de ANSI antes de mirarlos, porque un `[?25h` pegado al final haria que ningun
+   * patron anclado en el fin de linea matchee.
+   */
+  const estado = estadoDePane({
+    ocupado: isBusy,
+    colaDeSalida: stripAnsi(outputBuf.current),
+    enfocado,
+    sinLeer,
+  })
+
   const combinedRef = useCallback((el: HTMLDivElement | null) => {
     setNodeRef(el)
     paneRef.current = el
@@ -418,6 +447,7 @@ export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZ
     >
       <PaneHeader
         temaDeTerminal={temaActivo}
+        estado={estado}
         pane={pane}
         ports={ports}
         zoomed={zoomed}

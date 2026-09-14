@@ -1768,6 +1768,7 @@ export default function App() {
       onColorChange={(c) => updatePaneAnywhere(pane.id, p => ({ ...p, borderColor: c }))}
       onNoteChange={(note) => updatePaneAnywhere(pane.id, p => ({ ...p, note }))}
       fontSize={pane.fontSize ?? fontSize}
+                          enfocado={focusedPaneId === pane.id}
                           temaDeTerminal={userPrefs.prefs.ui_settings.terminalTheme}
                           ajustarContrasteDelTema={userPrefs.prefs.ui_settings.terminalThemeAutoContrast}
       onInput={(data) => {
@@ -2037,6 +2038,7 @@ export default function App() {
                         onColorChange={(c) => updatePaneColor(pane.id, c)}
                         onNoteChange={(note) => updatePaneNote(pane.id, note)}
                         fontSize={pane.fontSize ?? fontSize}
+                          enfocado={focusedPaneId === pane.id}
                           temaDeTerminal={userPrefs.prefs.ui_settings.terminalTheme}
                           ajustarContrasteDelTema={userPrefs.prefs.ui_settings.terminalThemeAutoContrast}
                         onInput={(data) => {

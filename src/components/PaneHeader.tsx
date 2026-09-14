@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { PaneNode, AI_CONFIG, COLOR_PALETTE, AIType } from '../types'
 import { INDICES_DE_IDENTIDAD, colorDeTema, type TemaDeTerminal } from '../lib/terminal-themes'
+import { ETIQUETA_DE_ESTADO, DETALLE_DE_ESTADO, type EstadoDePane } from '../lib/pane-state'
 import { AILogo } from './AILogos'
 import ConfirmDialog from './ConfirmDialog'
 import { PortChipsGroup } from './PortChipsGroup'
@@ -19,6 +20,8 @@ interface Props {
    * Opcional para los callers y tests que montan el header solo.
    */
   temaDeTerminal?: TemaDeTerminal
+  /** En qué estado está el pane. Ver `lib/pane-state.ts`. */
+  estado?: EstadoDePane
   zoomed: boolean
   onZoom: () => void
   onClose: () => void
@@ -45,7 +48,7 @@ interface Props {
   onRename?: (label: string) => void  // rename the pane (sets customLabel; '' clears it back to the default)
 }
 
-export default function PaneHeader({ pane, temaDeTerminal, zoomed, onZoom, onClose, onColorChange, onNoteChange, dragHandleProps, processEnded, isBusy, onRestart, onSaveConversation, onCopyLastResponse, showBlocks, blockCount, onToggleBlocks, onShare, isSharing, repoPathDiverged, onSyncCwd, hasNextStep, onHandoff, ports = [], onRename }: Props) {
+export default function PaneHeader({ pane, temaDeTerminal, estado = 'idle', zoomed, onZoom, onClose, onColorChange, onNoteChange, dragHandleProps, processEnded, isBusy, onRestart, onSaveConversation, onCopyLastResponse, showBlocks, blockCount, onToggleBlocks, onShare, isSharing, repoPathDiverged, onSyncCwd, hasNextStep, onHandoff, ports = [], onRename }: Props) {
   const config = AI_CONFIG[pane.aiType]
   const displayLabel = pane.customLabel ?? config.label
   const displayColor = pane.customColor ?? config.color
@@ -207,6 +210,23 @@ export default function PaneHeader({ pane, temaDeTerminal, zoomed, onZoom, onClo
             title="Click to edit note"
           >
             {noteValue || '+ note'}
+          </span>
+        )}
+
+        {/* El estado del agente: el dato que faltaba.
+            
+            El header sabía que hubo salida (un punto que parpadea) y que el proceso murió
+            ("ended"). Con ocho panes abiertos eso no contesta la pregunta que importa —cuál
+            me necesita— y las tres situaciones se veían iguales.
+            
+            `ended` gana: un proceso muerto no está trabajando ni esperando nada. */}
+        {!editingNote && !processEnded && estado !== 'idle' && (
+          <span
+            className={`pane-estado pane-estado--${estado}`}
+            title={DETALLE_DE_ESTADO[estado]}
+            data-testid="pane-estado"
+          >
+            {ETIQUETA_DE_ESTADO[estado]}
           </span>
         )}
 

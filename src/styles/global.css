@@ -2109,6 +2109,42 @@ body {
 }
 
 /* Process ended badge */
+/**
+ * El estado del agente en la cabecera del pane.
+ *
+ * Tres estados y tres pesos visuales distintos a proposito, porque no piden lo mismo:
+ *   · `needs you` se ve  — es el unico que te pide una accion.
+ *   · `unread`    susurra — hay algo para leer, no urge.
+ *   · `working`   casi no esta — es el estado normal y no tiene que competir con el texto.
+ *
+ * Los colores son de ESTADO (`--warn`, `--ok`, texto secundario), nunca el color del pane:
+ * el color del pane es identidad y esto es informacion, y mezclarlos haria que un pane
+ * amarillo pareciera estar pidiendo algo siempre.
+ */
+.pane-estado {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 3px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.pane-estado--waiting {
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 14%, transparent);
+}
+.pane-estado--unread {
+  color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 12%, transparent);
+}
+.pane-estado--working {
+  color: var(--text-secondary);
+  background: transparent;
+  font-weight: 500;
+}
+
 .pane-ended-badge {
   font-size: 10px;
   font-weight: 600;
