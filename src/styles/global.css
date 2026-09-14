@@ -2131,6 +2131,46 @@ body {
   gap: 6px;
 }
 
+/**
+ * El color libre, debajo de la paleta del tema.
+ *
+ * La grilla de arriba es el atajo —colores que ya armonizan con lo que estás leyendo— pero
+ * acotar la elección a esa paleta era una decisión nuestra sobre algo que es del usuario: el
+ * borde de un pane es una etiqueta que pone él, no una parte del tema.
+ */
+.pane-color-libre-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 6px;
+  transition: background 0.12s, color 0.12s;
+}
+.pane-color-libre-label:hover {
+  background: var(--btn-hover-fill);
+  color: var(--foreground);
+}
+/* El input nativo trae un marco y un padding propios que no se parecen a nada de la app.
+   Se lo deja como un círculo del tamaño de las muestras de arriba. */
+.pane-color-libre-label input[type="color"] {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: none;
+  cursor: pointer;
+  overflow: hidden;
+}
+.pane-color-libre-label input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
+.pane-color-libre-label input[type="color"]::-webkit-color-swatch {
+  border: 1px solid var(--border);
+  border-radius: 50%;
+}
+
 /* Apagar el borde es una ACCIÓN con nombre, no un color más. Como ✕ redonda entre círculos
    de color se leía como un color que no cargó. */
 .pane-color-off {

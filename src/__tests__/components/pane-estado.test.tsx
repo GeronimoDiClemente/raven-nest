@@ -113,3 +113,49 @@ describe('el selector de color', () => {
     expect(onColorChange).toHaveBeenCalledWith('ansi:10')
   })
 })
+
+/**
+ * Color libre, ademas de los del tema.
+ *
+ * La grilla del tema es el atajo: colores que ya armonizan y que siguen al tema si lo
+ * cambias. Pero acotar la eleccion a esa paleta era una decision nuestra sobre algo que es
+ * del usuario — el borde de un pane es una etiqueta que pone el, no una parte del tema.
+ */
+describe('el color libre', () => {
+  const tema = {
+    id: 't', nombre: 'T', background: '#000', foreground: '#fff', cursor: '#fff', selection: '#333',
+    ansi: ['#000000','#aa0000','#00aa00','#aaaa00','#0000aa','#aa00aa','#00aaaa','#cccccc',
+           '#555555','#ff0000','#00ff00','#ffff00','#0000ff','#ff00ff','#00ffff','#ffffff'],
+  }
+  const abrir = (extra = {}) => {
+    render(<PaneHeader {...base} temaDeTerminal={tema} {...extra} />)
+    fireEvent.click(screen.getByTitle(/Change border color|Border off/))
+  }
+
+  it('hay un selector libre además de la paleta', () => {
+    abrir()
+    expect(screen.getByLabelText('Custom colour')).toBeInTheDocument()
+    expect(document.querySelectorAll('.pane-color-grid button')).toHaveLength(12)
+  })
+
+  // Un color propio se guarda como HEX y no como índice: los del tema se guardan por índice
+  // justamente para poder seguirlo, y un color tuyo no tiene a qué seguir.
+  it('un color propio se guarda como hex', () => {
+    const onColorChange = vi.fn()
+    abrir({ onColorChange })
+    fireEvent.change(screen.getByLabelText('Custom colour'), { target: { value: '#ff8800' } })
+    expect(onColorChange).toHaveBeenCalledWith('#ff8800')
+  })
+
+  it('el selector libre arranca mostrando el color actual del pane', () => {
+    abrir({ pane: { ...pane, borderColor: '#123456' } })
+    expect((screen.getByLabelText('Custom colour') as HTMLInputElement).value).toBe('#123456')
+  })
+
+  // Sin color, el input tiene que mostrar ALGO: `transparent` no es un valor válido para
+  // `type="color"` y el navegador cae a negro sin avisar.
+  it('sin color elegido no le pasa un valor inválido al input', () => {
+    abrir({ pane: { ...pane, borderColor: 'transparent' } })
+    expect((screen.getByLabelText('Custom colour') as HTMLInputElement).value).toMatch(/^#[0-9a-f]{6}$/)
+  })
+})

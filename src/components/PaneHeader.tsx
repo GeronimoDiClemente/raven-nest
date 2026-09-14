@@ -163,6 +163,29 @@ export default function PaneHeader({ pane, temaDeTerminal, estado = 'idle', zoom
                     />
                   ))}
               </div>
+              {/* Color libre, además de los del tema.
+                  
+                  La grilla de arriba es el atajo: colores que ya armonizan con lo que estás
+                  leyendo y que siguen al tema si lo cambiás. Pero acotar la elección a esa
+                  paleta era una decisión nuestra sobre algo que es tuyo — el borde de un pane
+                  es una etiqueta que le ponés vos, no una parte del tema.
+                  
+                  `type="color"` abre el selector del sistema, que en macOS trae cuentagotas y
+                  la paleta que ya usás. Lo guardado es un hex, que es lo que `borderColor`
+                  siempre supo manejar: los del tema se guardan como índice justamente para
+                  poder seguirlo, y un color tuyo no tiene a qué seguir. */}
+              <div className="pane-color-libre">
+                <label className="pane-color-libre-label">
+                  <input
+                    type="color"
+                    value={sinColor ? '#888888' : colorDelPane}
+                    onChange={(e) => onColorChange(e.target.value)}
+                    aria-label="Custom colour"
+                  />
+                  <span>Custom…</span>
+                </label>
+              </div>
+
               {/* Apagar el borde sale de la grilla y pasa a ser una acción con nombre.
                   
                   Era una ✕ redonda ocupando el primer casillero, lo que dejaba 13 elementos
