@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { overlaySelectorFor } from '../lib/browser-overlay-selectors'
+import { startRepositionScheduler, type RepositionScheduler } from '../lib/reposition-scheduler'
 import type { PaneNode } from '../types'
 import { useSortable } from '@dnd-kit/sortable'
 
@@ -100,6 +101,7 @@ export default function BrowserCell({ pane, onClose, onNavigate, borderColor, si
   // cuando ESTE browser es el que está zoomeado — hay que agrandarlo.
   const zoomedRef = useRef(zoomed)
   zoomedRef.current = zoomed
+  const schedRef = useRef<RepositionScheduler | null>(null)
   // Mientras se arrastra ESTE browser, el pane real queda quieto (dnd-kit lo
   // "levanta" a un overlay). Colapsamos el WebContentsView para que no quede
   // el contenido nativo clavado atrás; la foto del contenido la muestra el
@@ -243,42 +245,47 @@ export default function BrowserCell({ pane, onClose, onNavigate, borderColor, si
       return { x: r.left, y: r.top, width: r.width, height: r.height }
     }
 
-    // Reposición en TIEMPO REAL: un loop de requestAnimationFrame recalcula el
-    // rect cada frame y sólo emite IPC cuando cambió (dedupe por string). Un
-    // ResizeObserver no alcanza: no detecta cambios de POSICIÓN — reordenar
-    // panes, abrir un pane hermano o la animación de zoom mueven el browser sin
-    // redimensionarlo, y el WebContentsView (capa nativa) quedaba clavado en la
-    // posición vieja hasta el siguiente tick. getBoundingClientRect por frame es
-    // barato y el IPC sólo sale en cambios, así que en reposo no hay tráfico.
-    let raf = 0
-    let last = ''
-    let lastCheck = 0
-    // El trabajo del tick no es gratis: getBoundingClientRect fuerza layout
-    // sincrono y computeBounds ademas matchea una lista de ~30 selectores
-    // contra el documento, por browser abierto. A 60 fps constantes eso es CPU
-    // quemada de fondo con la app quieta (y con 4 browsers, x4).
+    // Reposición: se mide el rect y sólo se emite IPC cuando cambió (dedupe por
+    // string). Un ResizeObserver no alcanza: no detecta cambios de POSICIÓN —
+    // reordenar panes, abrir un pane hermano o la animación de zoom mueven el
+    // browser sin redimensionarlo, y el WebContentsView (capa nativa) quedaba
+    // clavado en la posición vieja hasta el siguiente tick.
     //
-    // Full rate solo mientras algo esta MOVIENDO el pane sin redimensionarlo
-    // (drag en curso, zoom): ahi el view nativo tiene que seguir al DOM frame a
-    // frame o se ve corrido. En reposo alcanza con ~10 Hz para levantar los
-    // casos que el ResizeObserver no ve (abrir un pane hermano, mover un split).
-    const CHECK_MS_IDLE = 100
-    const tick = (now: number) => {
-      const moving = hiddenForDragRef.current || zoomedRef.current
-      if (moving || now - lastCheck >= CHECK_MS_IDLE) {
-        lastCheck = now
+    // CUÁNDO medir vive en reposition-scheduler.ts, que tiene tests: en reposo
+    // agenda un timer a ~10 Hz y NO pide ni un frame. Acá antes se re-armaba un
+    // requestAnimationFrame en CADA frame; el trabajo estaba throttleado a 10 Hz,
+    // pero el callback de frame seguía vivo, y un rAF vivo obliga al compositor de
+    // Chromium a producir frames para siempre — que es lo que despierta a la GPU y
+    // al WindowServer con la app quieta. Eran 63 frames por segundo al vacío.
+    let last = ''
+    const sched = startRepositionScheduler({
+      check: () => {
         const b = computeBounds()
         const key = `${Math.round(b.x)},${Math.round(b.y)},${Math.round(b.width)},${Math.round(b.height)}`
         if (key !== last) {
           last = key
           void window.browser.reposition(pane.id, b)
         }
-      }
-      raf = requestAnimationFrame(tick)
+      },
+      raf: (cb) => requestAnimationFrame(cb),
+      cancelRaf: (id) => cancelAnimationFrame(id),
+      setTimer: (cb, ms) => window.setTimeout(cb, ms),
+      clearTimer: (id) => window.clearTimeout(id),
+    })
+    sched.setMoving(hiddenForDragRef.current || !!zoomedRef.current)
+    schedRef.current = sched
+    return () => {
+      sched.stop()
+      if (schedRef.current === sched) schedRef.current = null
     }
-    raf = requestAnimationFrame(tick)
-    return () => cancelAnimationFrame(raf)
   }, [pane.id])
+
+  // El scheduler no POLLEA `moving`: leerlo de un ref en cada tick lo obligaría a
+  // seguir despertándose, que es justo lo que se quiere evitar. React ya sabe cuándo
+  // cambia, así que se lo avisa.
+  useEffect(() => {
+    schedRef.current?.setMoving(isDragging || !!dragging || !!zoomed)
+  }, [isDragging, dragging, zoomed])
 
   const submitUrl = () => {
     const next = draftUrl.trim()
