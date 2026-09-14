@@ -162,8 +162,16 @@ export default function MemoryEncryptionCard() {
           <ShieldQuestion size={ICON_SIZE.md} className="text-muted-foreground" aria-hidden />
           <p className="text-fs font-medium text-foreground">Encryption</p>
         </div>
+        {/* Esta frase decía: "Connect cloud memory to encrypt it. What lives only on this
+            machine never travels anywhere." Es verdad y es confusa: en el momento exacto en
+            que le pedimos al usuario que conecte la nube —o sea, que las cosas EMPIECEN a
+            viajar— la frase subraya que no viajan. Un lector real leyó esto y preguntó si las
+            memorias viajan entre máquinas cuando pagás. La respuesta a esa pregunta es lo que
+            la card tiene que decir acá, no la propiedad de privacidad del estado actual. */}
         <p className="text-fs-sm text-muted-foreground">
-          Connect cloud memory to encrypt it. What lives only on this machine never travels anywhere.
+          Right now your memories live only on this machine. Connect cloud memory and they
+          travel to your other machines — encrypted here first, so the server stores something
+          it cannot read.
         </p>
       </div>
     )
