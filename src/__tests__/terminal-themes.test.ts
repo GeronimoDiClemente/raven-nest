@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   TEMAS, TEMA_NEST, temaPorId, contraste, peorContraste, ajustarContraste, aXterm,
-  CONTRASTE_MINIMO,
+  CONTRASTE_MINIMO, INDICES_DE_IDENTIDAD, colorDeTema, resolverColorDePane, esColorDeTema,
 } from '../lib/terminal-themes'
 
 describe('el catálogo', () => {
@@ -131,5 +131,58 @@ describe('aXterm', () => {
     expect(x.brightWhite).toBe(TEMA_NEST.ansi[15])
     expect(x.blue).toBe(TEMA_NEST.ansi[4])
     expect(x.brightBlack).toBe(TEMA_NEST.ansi[8])
+  })
+})
+
+/**
+ * El color de identidad de un pane, atado al tema.
+ *
+ * Guardar un hex suelto ataba el color al momento en que se eligió: alguien elegía un azul
+ * eléctrico, después importaba Gruvbox —una paleta tierra— y ese azul quedaba encima
+ * desentonando, porque no pertenecía a ninguna parte.
+ */
+describe('el color del pane sigue al tema', () => {
+  it('un índice guardado resuelve al color de ESE tema', () => {
+    const rojoNest = resolverColorDePane(colorDeTema(1), temaPorId('nest'))
+    const rojoDracula = resolverColorDePane(colorDeTema(1), temaPorId('dracula'))
+    expect(rojoNest).toBe(temaPorId('nest').ansi[1])
+    expect(rojoDracula).toBe(temaPorId('dracula').ansi[1])
+    // Lo decisivo: el MISMO valor guardado da colores distintos según el tema.
+    expect(rojoNest).not.toBe(rojoDracula)
+  })
+
+  // Los panes que ya existen tienen un hex guardado, y un color elegido a mano es una
+  // decisión del usuario que no nos toca revertir.
+  it('un hex literal se respeta tal cual', () => {
+    expect(resolverColorDePane('#FF4500', temaPorId('dracula'))).toBe('#FF4500')
+    expect(resolverColorDePane('transparent', temaPorId('nest'))).toBe('transparent')
+  })
+
+  it('sin valor, el borde queda apagado', () => {
+    expect(resolverColorDePane(undefined, TEMA_NEST)).toBe('transparent')
+    expect(resolverColorDePane(null, TEMA_NEST)).toBe('transparent')
+  })
+
+  // Un índice fuera de rango —un tema con menos colores, un valor corrupto— no puede pintar
+  // el borde de `undefined` ni tirar: apaga.
+  it('un índice inválido apaga en vez de romper', () => {
+    expect(resolverColorDePane('ansi:99', TEMA_NEST)).toBe('transparent')
+    expect(resolverColorDePane('ansi:', TEMA_NEST)).toBe('transparent')
+    expect(resolverColorDePane('ansi:abc', TEMA_NEST)).toBe('transparent')
+  })
+
+  it('los doce índices de identidad son cromáticos, no grises', () => {
+    expect(INDICES_DE_IDENTIDAD).toHaveLength(12)
+    // 0/7/8/15 son negro, blanco y sus brillantes: un gris no identifica nada de un vistazo.
+    for (const gris of [0, 7, 8, 15]) {
+      expect(INDICES_DE_IDENTIDAD).not.toContain(gris)
+    }
+  })
+
+  it('esColorDeTema separa un índice de un hex', () => {
+    expect(esColorDeTema(colorDeTema(3))).toBe(true)
+    expect(esColorDeTema('#FF4500')).toBe(false)
+    expect(esColorDeTema('transparent')).toBe(false)
+    expect(esColorDeTema(undefined)).toBe(false)
   })
 })

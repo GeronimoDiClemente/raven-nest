@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { PaneNode, AI_CONFIG, COLOR_PALETTE, AIType } from '../types'
+import { INDICES_DE_IDENTIDAD, colorDeTema, type TemaDeTerminal } from '../lib/terminal-themes'
 import { AILogo } from './AILogos'
 import ConfirmDialog from './ConfirmDialog'
 import { PortChipsGroup } from './PortChipsGroup'
@@ -13,6 +14,11 @@ type DragHandleProps = Record<string, any>
 
 interface Props {
   pane: PaneNode
+  /**
+   * El tema de terminal activo. El selector de color ofrece SU paleta, no una rueda fija.
+   * Opcional para los callers y tests que montan el header solo.
+   */
+  temaDeTerminal?: TemaDeTerminal
   zoomed: boolean
   onZoom: () => void
   onClose: () => void
@@ -39,7 +45,7 @@ interface Props {
   onRename?: (label: string) => void  // rename the pane (sets customLabel; '' clears it back to the default)
 }
 
-export default function PaneHeader({ pane, zoomed, onZoom, onClose, onColorChange, onNoteChange, dragHandleProps, processEnded, isBusy, onRestart, onSaveConversation, onCopyLastResponse, showBlocks, blockCount, onToggleBlocks, onShare, isSharing, repoPathDiverged, onSyncCwd, hasNextStep, onHandoff, ports = [], onRename }: Props) {
+export default function PaneHeader({ pane, temaDeTerminal, zoomed, onZoom, onClose, onColorChange, onNoteChange, dragHandleProps, processEnded, isBusy, onRestart, onSaveConversation, onCopyLastResponse, showBlocks, blockCount, onToggleBlocks, onShare, isSharing, repoPathDiverged, onSyncCwd, hasNextStep, onHandoff, ports = [], onRename }: Props) {
   const config = AI_CONFIG[pane.aiType]
   const displayLabel = pane.customLabel ?? config.label
   const displayColor = pane.customColor ?? config.color
@@ -118,14 +124,35 @@ export default function PaneHeader({ pane, zoomed, onZoom, onClose, onColorChang
                 onClick={() => { onColorChange('transparent'); setShowPicker(false) }}
                 title="No border"
               >✕</button>
-              {COLOR_PALETTE.map((c) => (
-                <button
-                  key={c}
-                  className={`color-swatch${pane.borderColor === c ? ' selected' : ''}`}
-                  style={{ background: c }}
-                  onClick={() => { onColorChange(c); setShowPicker(false) }}
-                />
-              ))}
+              {/* Los colores salen de la PALETA DEL TEMA, no de una rueda fija.
+                  
+                  Un hex suelto ata el color al momento en que se eligió: alguien elige un
+                  azul eléctrico, después importa Gruvbox —una paleta tierra— y ese azul
+                  queda encima desentonando, porque no pertenece a ninguna parte. Guardando
+                  el índice, el pane sigue siendo "el rojo" pero es el rojo DE TU TEMA, y al
+                  cambiar de tema se reasigna solo y sigue armonizando.
+                  
+                  Sin tema (tests, callers viejos) cae a la paleta fija de siempre. */}
+              {temaDeTerminal
+                ? INDICES_DE_IDENTIDAD.map((i) => {
+                    const valor = colorDeTema(i)
+                    return (
+                      <button
+                        key={valor}
+                        className={`color-swatch${pane.borderColor === valor ? ' selected' : ''}`}
+                        style={{ background: temaDeTerminal.ansi[i] }}
+                        onClick={() => { onColorChange(valor); setShowPicker(false) }}
+                      />
+                    )
+                  })
+                : COLOR_PALETTE.map((c) => (
+                    <button
+                      key={c}
+                      className={`color-swatch${pane.borderColor === c ? ' selected' : ''}`}
+                      style={{ background: c }}
+                      onClick={() => { onColorChange(c); setShowPicker(false) }}
+                    />
+                  ))}
             </div>
           )}
         </div>

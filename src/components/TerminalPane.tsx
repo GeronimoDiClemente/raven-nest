@@ -7,6 +7,7 @@ import BlocksView from './BlocksView'
 import FileStagingBar, { StagedFile } from './FileStagingBar'
 import TerminalSharePanel from './TerminalSharePanel'
 import { useTerminalShare } from '../hooks/useTerminalShare'
+import { resolverColorDePane } from '../lib/terminal-themes'
 import { terminalShareService } from '../lib/terminalShareService'
 import { registerPane, unregisterPane } from '../pty-events'
 import { registerTerminalFocus, unregisterTerminalFocus } from '../terminal-registry'
@@ -397,7 +398,9 @@ export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZ
     opacity: isDragging ? 0.3 : 1,
     outline: isOver && !isDragging ? '2px solid color-mix(in srgb, var(--primary) 40%, transparent)' : undefined,
     outlineOffset: isOver && !isDragging ? '-2px' : undefined,
-    '--pane-color': pane.borderColor,
+    // Resuelto contra el tema activo: un `ansi:N` guardado sigue al tema, un hex se respeta
+    // tal cual. Ver `resolverColorDePane`.
+    '--pane-color': resolverColorDePane(pane.borderColor, temaActivo),
   } as React.CSSProperties
 
   const combinedRef = useCallback((el: HTMLDivElement | null) => {
@@ -414,6 +417,7 @@ export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZ
       onDrop={handleDrop}
     >
       <PaneHeader
+        temaDeTerminal={temaActivo}
         pane={pane}
         ports={ports}
         zoomed={zoomed}

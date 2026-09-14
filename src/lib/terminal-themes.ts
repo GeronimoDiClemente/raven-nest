@@ -294,3 +294,53 @@ export function aXterm(tema: TemaDeTerminal): Record<string, string> {
     brightBlue, brightMagenta, brightCyan, brightWhite,
   }
 }
+
+// ── El color de identidad de un pane ───────────────────────────────────────────
+
+/**
+ * Los indices ANSI que sirven como identificador de un pane.
+ *
+ * Los seis cromaticos y sus brillantes: rojo, verde, amarillo, azul, magenta y cyan. Quedan
+ * afuera el negro, el blanco y sus brillantes (0, 7, 8, 15) — son grises, y un gris no
+ * identifica nada de un vistazo, que es lo unico que este color tiene que hacer.
+ *
+ * Son doce, igual que la paleta fija que habia antes: el usuario no pierde opciones.
+ */
+export const INDICES_DE_IDENTIDAD = [1, 2, 3, 4, 5, 6, 9, 10, 11, 12, 13, 14]
+
+/** El prefijo que marca "este color sale del tema", frente a un hex literal. */
+const PREFIJO_ANSI = 'ansi:'
+
+/** El valor a guardar para el color `n` de la paleta del tema activo. */
+export function colorDeTema(indiceAnsi: number): string {
+  return `${PREFIJO_ANSI}${indiceAnsi}`
+}
+
+/**
+ * El color real con el que pintar el borde de un pane.
+ *
+ * Guardar un hex suelto ataba el color al momento en que se eligio: alguien elegia un azul
+ * electrico, despues importaba Gruvbox —una paleta tierra— y ese azul quedaba encima
+ * desentonando, porque no pertenecia a ninguna parte. Guardar el INDICE hace que el color
+ * siga al tema: sigue siendo "el rojo" de ese pane, pero es el rojo DE TU TEMA, y cuando
+ * cambias de tema se reasigna solo y sigue armonizando.
+ *
+ * Los hex literales se siguen respetando: los panes que ya existen los tienen guardados, y un
+ * color elegido a mano es una decision del usuario que no nos toca revertir.
+ */
+export function resolverColorDePane(valor: string | undefined | null, tema: TemaDeTerminal): string {
+  if (!valor) return 'transparent'
+  if (!valor.startsWith(PREFIJO_ANSI)) return valor
+  const crudo = valor.slice(PREFIJO_ANSI.length)
+  // `/^\d+$/` y no `Number()`: `Number('')` da 0, asi que un `ansi:` sin indice resolvia al
+  // negro ANSI — un borde casi invisible sobre un fondo oscuro, que se lee como "se rompio el
+  // color" y no como "no hay color". Apagar es honesto; pintar negro es un bug silencioso.
+  if (!/^\d+$/.test(crudo)) return 'transparent'
+  const i = Number(crudo)
+  return i < tema.ansi.length ? tema.ansi[i] : 'transparent'
+}
+
+/** Si un valor guardado es un indice del tema (y no un hex ni `transparent`). */
+export function esColorDeTema(valor: string | undefined | null): boolean {
+  return typeof valor === 'string' && valor.startsWith(PREFIJO_ANSI)
+}
