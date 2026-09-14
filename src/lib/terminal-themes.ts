@@ -320,7 +320,84 @@ export function aXterm(tema: TemaDeTerminal): Record<string, string> {
  *
  * Son doce, igual que la paleta fija que habia antes: el usuario no pierde opciones.
  */
-export const INDICES_DE_IDENTIDAD = [1, 2, 3, 4, 5, 6, 9, 10, 11, 12, 13, 14]
+const CANDIDATOS_DE_IDENTIDAD = [1, 2, 3, 4, 5, 6, 9, 10, 11, 12, 13, 14]
+
+/**
+ * Cuanta diferencia de color hace falta para que dos muestras sean DOS opciones.
+ *
+ * 10 en distancia CIE76: por debajo de eso, dos circulitos de 22px uno al lado del otro se
+ * leen como el mismo color, y elegir entre ellos es una decision que el usuario no puede
+ * tomar mirando.
+ */
+const DISTANCIA_MINIMA = 10
+
+/** Lab de CIE, para medir diferencia de color como la ve un ojo y no como la ve el RGB. */
+function aLab(hex: string): [number, number, number] {
+  const h = hex.replace('#', '')
+  const lineal = (i: number): number => {
+    const c = parseInt(h.slice(i, i + 2), 16) / 255
+    return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4)
+  }
+  const r = lineal(0); const g = lineal(2); const b = lineal(4)
+  const x = (r * 0.4124 + g * 0.3576 + b * 0.1805) / 0.95047
+  const y = r * 0.2126 + g * 0.7152 + b * 0.0722
+  const z = (r * 0.0193 + g * 0.1192 + b * 0.9505) / 1.08883
+  const f = (t: number): number => (t > 0.008856 ? Math.cbrt(t) : 7.787 * t + 16 / 116)
+  const fx = f(x); const fy = f(y); const fz = f(z)
+  return [116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz)]
+}
+
+/** Distancia CIE76 entre dos colores. */
+export function distanciaDeColor(a: string, b: string): number {
+  const [l1, a1, b1] = aLab(a)
+  const [l2, a2, b2] = aLab(b)
+  return Math.sqrt((l1 - l2) ** 2 + (a1 - a2) ** 2 + (b1 - b2) ** 2)
+}
+
+/**
+ * Los indices que sirven como identificador de un pane EN ESTE TEMA.
+ *
+ * No son doce fijos. Los candidatos son los seis cromaticos y sus brillantes —quedan afuera
+ * negro, blanco y sus brillantes, que son grises y no identifican nada de un vistazo— pero se
+ * descarta todo el que se parezca demasiado a uno ya elegido.
+ *
+ * **Por que no son doce siempre.** Medido sobre los trece temas del catalogo el 2026-09-13:
+ * SIETE definen los brillantes identicos a los normales (distancia 0 — TokyoNight, One Half
+ * Dark, Rose Pine, GitHub Dark y Monokai entre ellos), y 43 de los 78 pares estan por debajo
+ * de 10. O sea que un selector de doce muestras le mostraba al usuario el MISMO color dos
+ * veces en la mayoria de los temas, y elegir entre dos circulitos iguales no es elegir.
+ *
+ * Everforest da doce porque de verdad tiene doce colores distintos; TokyoNight da seis porque
+ * de verdad tiene seis. El selector muestra lo que el tema tiene.
+ *
+ * Los normales van primero: son los colores "de verdad" del tema, y si hay que descartar uno
+ * del par, el que sobra es el brillante.
+ */
+export function indicesDeIdentidad(tema: TemaDeTerminal): number[] {
+  const elegidos: number[] = []
+  for (const i of CANDIDATOS_DE_IDENTIDAD) {
+    const color = tema.ansi[i]
+    if (!color) continue
+    const parecidoAUnoYaElegido = elegidos.some(
+      (j) => distanciaDeColor(color, tema.ansi[j]) < DISTANCIA_MINIMA,
+    )
+    if (!parecidoAUnoYaElegido) elegidos.push(i)
+  }
+  return elegidos
+}
+
+/**
+ * Como se llama cada color de la paleta, para el `title` de cada muestra.
+ *
+ * Con los doce del tema son seis tonos y sus brillantes, y en muchas paletas el par se parece
+ * bastante. Poder pasar el mouse y leer "bright red" en vez de adivinar es la diferencia
+ * entre doce opciones y seis que parecen repetidas.
+ */
+export const NOMBRE_ANSI: Record<number, string> = {
+  0: 'black', 1: 'red', 2: 'green', 3: 'yellow', 4: 'blue', 5: 'magenta', 6: 'cyan', 7: 'white',
+  8: 'bright black', 9: 'bright red', 10: 'bright green', 11: 'bright yellow',
+  12: 'bright blue', 13: 'bright magenta', 14: 'bright cyan', 15: 'bright white',
+}
 
 /** El prefijo que marca "este color sale del tema", frente a un hex literal. */
 const PREFIJO_ANSI = 'ansi:'

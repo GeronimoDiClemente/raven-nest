@@ -107,6 +107,24 @@ export const ETIQUETA_DE_ESTADO: Record<EstadoDePane, string> = {
 }
 
 /**
+ * Cuáles de los cuatro estados se DIBUJAN en la cabecera.
+ *
+ * Sólo `waiting`. Los otros tres se siguen calculando —el estado es uno solo y partirlo en
+ * "el que se ve" y "el que no" daría dos verdades— pero no se muestran:
+ *
+ * · `working` aparecería en toda terminal activa todo el tiempo. Un indicador que está
+ *   siempre prendido no informa: es ruido con forma de dato, y encima compite con el texto
+ *   que sí importa, que es la salida.
+ * · `unread` etiqueta algo que ya se nota — el pane está quieto y no lo miraste — y le pone
+ *   un color a cada pane del que te alejaste.
+ * · `waiting` es el único que te PIDE algo, y es el que hace que con ocho paneles abiertos
+ *   sepas cuál atender. Ése se queda.
+ *
+ * Si mañana hace falta mostrar más, se agregan acá y no hay que tocar la detección.
+ */
+export const ESTADOS_VISIBLES: ReadonlySet<EstadoDePane> = new Set<EstadoDePane>(['waiting'])
+
+/**
  * El título largo, para el `title` del chip.
  *
  * `waiting` dice que es una lectura de la salida y no un hecho del sistema: si el usuario ve

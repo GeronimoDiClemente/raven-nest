@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { PaneNode, AI_CONFIG, COLOR_PALETTE, AIType } from '../types'
-import { INDICES_DE_IDENTIDAD, colorDeTema, type TemaDeTerminal } from '../lib/terminal-themes'
-import { ETIQUETA_DE_ESTADO, DETALLE_DE_ESTADO, type EstadoDePane } from '../lib/pane-state'
+import { indicesDeIdentidad, NOMBRE_ANSI, colorDeTema, type TemaDeTerminal } from '../lib/terminal-themes'
+import { ETIQUETA_DE_ESTADO, DETALLE_DE_ESTADO, ESTADOS_VISIBLES, type EstadoDePane } from '../lib/pane-state'
 import { AILogo } from './AILogos'
 import ConfirmDialog from './ConfirmDialog'
 import { PortChipsGroup } from './PortChipsGroup'
@@ -120,13 +120,7 @@ export default function PaneHeader({ pane, temaDeTerminal, estado = 'idle', zoom
           />
           {showPicker && (
             <div className="pane-color-popover">
-              {/* Cruz = apagar el borde del pane (marco transparente). El acento
-                  del header/label no depende de borderColor, así que sigue visible. */}
-              <button
-                className={`color-swatch color-swatch-off${pane.borderColor === 'transparent' ? ' selected' : ''}`}
-                onClick={() => { onColorChange('transparent'); setShowPicker(false) }}
-                title="No border"
-              >✕</button>
+              <div className="pane-color-grid">
               {/* Los colores salen de la PALETA DEL TEMA, no de una rueda fija.
                   
                   Un hex suelto ata el color al momento en que se eligió: alguien elige un
@@ -137,13 +131,14 @@ export default function PaneHeader({ pane, temaDeTerminal, estado = 'idle', zoom
                   
                   Sin tema (tests, callers viejos) cae a la paleta fija de siempre. */}
               {temaDeTerminal
-                ? INDICES_DE_IDENTIDAD.map((i) => {
+                ? indicesDeIdentidad(temaDeTerminal).map((i) => {
                     const valor = colorDeTema(i)
                     return (
                       <button
                         key={valor}
                         className={`color-swatch${pane.borderColor === valor ? ' selected' : ''}`}
                         style={{ background: temaDeTerminal.ansi[i] }}
+                        title={NOMBRE_ANSI[i]}
                         onClick={() => { onColorChange(valor); setShowPicker(false) }}
                       />
                     )
@@ -156,6 +151,20 @@ export default function PaneHeader({ pane, temaDeTerminal, estado = 'idle', zoom
                       onClick={() => { onColorChange(c); setShowPicker(false) }}
                     />
                   ))}
+              </div>
+              {/* Apagar el borde sale de la grilla y pasa a ser una acción con nombre.
+                  
+                  Era una ✕ redonda ocupando el primer casillero, lo que dejaba 13 elementos
+                  en una grilla de 6 columnas: 6, 6 y uno solo colgando abajo. Y con los doce
+                  colores del tema —seis tonos y sus brillantes— ese corte partía los pares al
+                  medio, así que lo que se leía era una lista desordenada con colores
+                  repetidos en vez de dos filas de seis. */}
+              <button
+                className={`pane-color-off${pane.borderColor === 'transparent' ? ' selected' : ''}`}
+                onClick={() => { onColorChange('transparent'); setShowPicker(false) }}
+              >
+                No border
+              </button>
             </div>
           )}
         </div>
@@ -220,7 +229,7 @@ export default function PaneHeader({ pane, temaDeTerminal, estado = 'idle', zoom
             me necesita— y las tres situaciones se veían iguales.
             
             `ended` gana: un proceso muerto no está trabajando ni esperando nada. */}
-        {!editingNote && !processEnded && estado !== 'idle' && (
+        {!editingNote && !processEnded && ESTADOS_VISIBLES.has(estado) && (
           <span
             className={`pane-estado pane-estado--${estado}`}
             title={DETALLE_DE_ESTADO[estado]}

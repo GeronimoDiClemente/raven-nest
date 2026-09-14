@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   TEMAS, TEMA_NEST, temaPorId, contraste, peorContraste, ajustarContraste, aXterm,
-  CONTRASTE_MINIMO, INDICES_DE_IDENTIDAD, colorDeTema, resolverColorDePane, esColorDeTema,
+  CONTRASTE_MINIMO, indicesDeIdentidad, distanciaDeColor, colorDeTema, resolverColorDePane, esColorDeTema,
 } from '../lib/terminal-themes'
 
 describe('el catálogo', () => {
@@ -171,11 +171,44 @@ describe('el color del pane sigue al tema', () => {
     expect(resolverColorDePane('ansi:abc', TEMA_NEST)).toBe('transparent')
   })
 
-  it('los doce índices de identidad son cromáticos, no grises', () => {
-    expect(INDICES_DE_IDENTIDAD).toHaveLength(12)
-    // 0/7/8/15 son negro, blanco y sus brillantes: un gris no identifica nada de un vistazo.
-    for (const gris of [0, 7, 8, 15]) {
-      expect(INDICES_DE_IDENTIDAD).not.toContain(gris)
+  /**
+   * Los indices de identidad NO son doce fijos: se descarta el que se parezca a uno ya
+   * elegido. Medido sobre los trece temas: SIETE definen los brillantes identicos a los
+   * normales (distancia 0), asi que un selector de doce le mostraba al usuario el mismo color
+   * dos veces — y elegir entre dos circulitos iguales no es elegir.
+   */
+  it('no ofrece dos colores que se vean iguales', () => {
+    for (const t of TEMAS) {
+      const indices = indicesDeIdentidad(t)
+      for (let a = 0; a < indices.length; a++) {
+        for (let b = a + 1; b < indices.length; b++) {
+          const d = distanciaDeColor(t.ansi[indices[a]], t.ansi[indices[b]])
+          expect(d, `${t.nombre}: ${t.ansi[indices[a]]} vs ${t.ansi[indices[b]]}`).toBeGreaterThanOrEqual(10)
+        }
+      }
+    }
+  })
+
+  it('nunca ofrece un gris: no identifican nada de un vistazo', () => {
+    for (const t of TEMAS) {
+      for (const gris of [0, 7, 8, 15]) {
+        expect(indicesDeIdentidad(t), t.nombre).not.toContain(gris)
+      }
+    }
+  })
+
+  // Un tema con colores de verdad distintos da mas opciones que uno que repite. El selector
+  // muestra lo que el tema TIENE, no un numero fijo.
+  it('un tema con brillantes propios da mas opciones que uno que los repite', () => {
+    const everforest = TEMAS.find((t) => t.id === 'everforest-dark-hard')!
+    const tokyo = TEMAS.find((t) => t.id === 'tokyonight')!
+    expect(indicesDeIdentidad(everforest).length).toBe(12)
+    expect(indicesDeIdentidad(tokyo).length).toBe(6)
+  })
+
+  it('siempre quedan al menos los seis cromáticos', () => {
+    for (const t of TEMAS) {
+      expect(indicesDeIdentidad(t).length, t.nombre).toBeGreaterThanOrEqual(6)
     }
   })
 

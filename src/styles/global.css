@@ -2063,6 +2063,15 @@ body {
 }
 
 /* Color picker popover */
+/**
+ * El selector de color del pane.
+ *
+ * La grilla vive en un hijo y no acá: los doce colores del tema son SEIS TONOS Y SUS
+ * BRILLANTES, así que tienen que caer en dos filas de seis para que el par se lea como
+ * "el mismo tono, dos intensidades". Cuando la ✕ de apagar ocupaba el primer casillero
+ * quedaban trece elementos en seis columnas —6, 6 y uno colgando— y ese corte partía los
+ * pares al medio: lo que se veía era una lista desordenada con colores repetidos.
+ */
 .pane-color-popover {
   position: absolute;
   top: calc(100% + 6px);
@@ -2071,11 +2080,38 @@ body {
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 50;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+}
+
+.pane-color-grid {
   display: grid;
   grid-template-columns: repeat(6, 1fr);
   gap: 6px;
-  z-index: 50;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+}
+
+/* Apagar el borde es una ACCIÓN con nombre, no un color más. Como ✕ redonda entre círculos
+   de color se leía como un color que no cargó. */
+.pane-color-off {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  padding: 4px 8px;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+.pane-color-off:hover {
+  background: var(--btn-hover-fill);
+  color: var(--foreground);
+}
+.pane-color-off.selected {
+  border-color: var(--foreground);
+  color: var(--foreground);
 }
 
 .pane-ai-label {

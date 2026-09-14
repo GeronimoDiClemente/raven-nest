@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { Waypoints, Folder, Wrench, LayoutGrid, type LucideIcon } from 'lucide-react'
+import { Waypoints, Folder, Wrench, LayoutDashboard, type LucideIcon } from 'lucide-react'
 import { ICON_SIZE } from '../lib/icons'
 
 export type SidebarTabId = 'worktrees' | 'explorer' | 'tools' | 'hub'
@@ -28,8 +28,16 @@ export const TAB_ICONS: Record<SidebarTabId, LucideIcon> = {
   worktrees: Waypoints,
   explorer: Folder,
   tools: Wrench,
-  // Un mosaico por workspace abierto — la forma propia del Hub, no la de un repo.
-  hub: LayoutGrid,
+  /**
+   * `LayoutDashboard` y no `LayoutGrid`.
+   *
+   * El grid de cuatro cuadraditos iguales es la forma universal de "launcher de apps": la
+   * usan iOS, Android y el menú de Google, y arrastra ese significado sin pedir permiso. El
+   * Hub no es un cajón de aplicaciones — es un tablero con los workspaces que tenés abiertos,
+   * de tamaños distintos. Los mosaicos asimétricos dicen "tablero"; los cuatro cuadrados
+   * iguales dicen "elegí una app".
+   */
+  hub: LayoutDashboard,
 }
 
 export const TAB_LABELS: Record<SidebarTabId, string> = {
