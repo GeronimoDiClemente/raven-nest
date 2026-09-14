@@ -12,6 +12,14 @@ const PROJECT = (label: string) => `share-${RUN}-${label}`
 
 let userId: string
 
+/**
+ * Compartir un proyecto exige un plan con `teamScope`, y ninguno de autoservicio lo tiene
+ * (decisión 2026-09-13: lo compartido no se cifra, así que compartir es un despliegue propio
+ * y no un botón). Estos tests prueban la MECÁNICA de compartir, así que usan un plan que
+ * puede; el gate tiene sus propios tests abajo.
+ */
+const conPlanDeEquipo = (): { userId: string; plan: string } => ({ userId, plan: 'team' })
+
 beforeAll(async () => {
   await migrate(pool)
   userId = randomUUID()
@@ -53,7 +61,7 @@ describe('handleShareProject — POST /v1/projects/share', () => {
     await seedProject(project, userId)
     await seedMembership(userId, teamId)
 
-    const res = await handleShareProject(pool, { userId }, { project_key: project, team_id: teamId })
+    const res = await handleShareProject(pool, conPlanDeEquipo(), { project_key: project, team_id: teamId })
 
     expect(res).toEqual({ ok: true })
     expect(await teamIdOf(project, userId)).toBe(teamId)
@@ -64,7 +72,7 @@ describe('handleShareProject — POST /v1/projects/share', () => {
     const teamId = randomUUID()
     await seedProject(project, userId)
 
-    const res = await handleShareProject(pool, { userId }, { project_key: project, team_id: teamId })
+    const res = await handleShareProject(pool, conPlanDeEquipo(), { project_key: project, team_id: teamId })
 
     expect(res).toEqual({ ok: false, status: 403, error: 'not_team_member' })
     expect(await teamIdOf(project, userId)).toBeNull()
@@ -77,7 +85,7 @@ describe('handleShareProject — POST /v1/projects/share', () => {
     await seedProject(project, userId)
     await seedMembership(userId, myTeam)
 
-    const res = await handleShareProject(pool, { userId }, { project_key: project, team_id: otherTeam })
+    const res = await handleShareProject(pool, conPlanDeEquipo(), { project_key: project, team_id: otherTeam })
 
     expect(res).toEqual({ ok: false, status: 403, error: 'not_team_member' })
     expect(await teamIdOf(project, userId)).toBeNull()
@@ -89,7 +97,7 @@ describe('handleShareProject — POST /v1/projects/share', () => {
     await seedProject(project, userId)
     await seedMembership(userId, teamId, 'removed')
 
-    const res = await handleShareProject(pool, { userId }, { project_key: project, team_id: teamId })
+    const res = await handleShareProject(pool, conPlanDeEquipo(), { project_key: project, team_id: teamId })
 
     expect(res).toEqual({ ok: false, status: 403, error: 'not_team_member' })
     expect(await teamIdOf(project, userId)).toBeNull()
@@ -104,7 +112,7 @@ describe('handleShareProject — POST /v1/projects/share', () => {
     // El LLAMANTE sí es miembro activo del team — lo único que falta es la ownership.
     await seedMembership(userId, teamId)
 
-    const res = await handleShareProject(pool, { userId }, { project_key: project, team_id: teamId })
+    const res = await handleShareProject(pool, conPlanDeEquipo(), { project_key: project, team_id: teamId })
 
     expect(res).toEqual({ ok: false, status: 404, error: 'project_not_found' })
     expect(await teamIdOf(project, otroUserId)).toBeNull()
@@ -114,7 +122,7 @@ describe('handleShareProject — POST /v1/projects/share', () => {
     const teamId = randomUUID()
     await seedMembership(userId, teamId)
 
-    const res = await handleShareProject(pool, { userId }, {
+    const res = await handleShareProject(pool, conPlanDeEquipo(), {
       project_key: PROJECT('never-existed'),
       team_id: teamId,
     })
@@ -127,7 +135,7 @@ describe('handleShareProject — POST /v1/projects/share', () => {
     await seedMembership(userId, teamId)
 
     for (const bad of [undefined, '', '   ']) {
-      const res = await handleShareProject(pool, { userId }, { project_key: bad, team_id: teamId })
+      const res = await handleShareProject(pool, conPlanDeEquipo(), { project_key: bad, team_id: teamId })
       expect(res).toEqual({ ok: false, status: 400, error: 'missing_project_key' })
     }
   })
@@ -137,10 +145,60 @@ describe('handleShareProject — POST /v1/projects/share', () => {
     await seedProject(project, userId)
 
     for (const bad of [undefined, '', 'not-a-uuid', '12345', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa']) {
-      const res = await handleShareProject(pool, { userId }, { project_key: project, team_id: bad })
+      const res = await handleShareProject(pool, conPlanDeEquipo(), { project_key: project, team_id: bad })
       expect(res).toEqual({ ok: false, status: 400, error: 'invalid_team_id' })
     }
     // Y el proyecto no quedó tocado por ninguno de esos intentos.
+    expect(await teamIdOf(project, userId)).toBeNull()
+  })
+})
+
+/**
+ * El gate que faltaba: compartir un proyecto es la acción que hace que la memoria pueda
+ * salir del autor, y no chequeaba el plan.
+ *
+ * `push.ts` sí rechaza un `scope: 'team'` de un plan que no lo tiene, así que el usuario
+ * podía compartir CON ÉXITO —la acción devolvía ok y `projects.team_id` quedaba escrito— y
+ * recién después descubrir que ninguna memoria llegaba a nadie. Se gateaba la segunda puerta
+ * con la primera abierta.
+ */
+describe('compartir exige un plan que pueda', () => {
+  const planes: Array<[string, boolean]> = [
+    ['free', false],
+    ['cloud', false],
+    ['pro', false],
+    ['team', true],
+    ['enterprise', true],
+    ['un-plan-que-no-existe', false],
+  ]
+
+  for (const [plan, puede] of planes) {
+    it(`${plan} ${puede ? 'puede' : 'NO puede'} compartir`, async () => {
+      const project = PROJECT(`gate-${plan}`)
+      const teamId = randomUUID()
+      await seedProject(project, userId)
+      await seedMembership(userId, teamId)
+
+      const res = await handleShareProject(pool, { userId, plan }, {
+        project_key: project, team_id: teamId,
+      })
+      expect(res.ok, `plan ${plan}`).toBe(puede)
+      if (!res.ok && !puede) {
+        expect(res.status).toBe(403)
+        expect(res.error).toBe('sharing_needs_a_team_deployment')
+      }
+    })
+  }
+
+  // Lo decisivo: rechazado significa que NO quedo escrito. Un 403 que igual comparte seria
+  // peor que no tener gate, porque el usuario cree que no compartio.
+  it('un plan sin permiso no deja el proyecto compartido', async () => {
+    const project = PROJECT('gate-sin-escribir')
+    const teamId = randomUUID()
+    await seedProject(project, userId)
+    await seedMembership(userId, teamId)
+
+    await handleShareProject(pool, { userId, plan: 'cloud' }, { project_key: project, team_id: teamId })
     expect(await teamIdOf(project, userId)).toBeNull()
   })
 })

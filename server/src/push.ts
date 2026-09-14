@@ -120,12 +120,15 @@ async function ensureProject(
   return Number(rows[0].id)
 }
 
-// Plans whose memory can be shared with other people. `scope: 'team'` is the field that
-// makes an observation visible beyond its author, so this is an authorization boundary, not
-// a pricing detail: it decides who can read a memory, and it is enforced server-side for the
-// same reason as the cloud gate itself (§9.3 — what is checked only in the renderer is not
-// checked at all).
-const TEAM_SCOPE_PLANS = new Set(['team', 'enterprise'])
+// `scope: 'team'` is the field that makes an observation visible beyond its author, so this
+// is an authorization boundary, not a pricing detail: it decides who can read a memory, and
+// it is enforced server-side for the same reason as the cloud gate itself (§9.3 — what is
+// checked only in the renderer is not checked at all).
+//
+// Sale de `limitsFor()` y no de un Set propio acá. Eran DOS fuentes de verdad para el mismo
+// límite —un `Set(['team','enterprise'])` en este archivo y un `teamScope` en `limits.ts`
+// que no leía nadie— y la segunda estaba muerta. Dos declaraciones de una regla de
+// autorización, una de ellas sin efecto, es como se termina cambiando la que no corre.
 
 // §11.6. Igual para todos los planes: existe contra abuso, no como palanca de precio. Son
 // 17 veces la memoria más grande del corpus real medido (59,4 KB), o sea que ningún uso
@@ -256,7 +259,7 @@ export async function handlePush(
       // Terminal on purpose: the same payload on the same plan can never succeed, and
       // omitting it instead would make the device retry a write it is not allowed to make,
       // forever.
-      if (scope === 'team' && !TEAM_SCOPE_PLANS.has(auth.plan)) {
+      if (scope === 'team' && !limitsFor(auth.plan).teamScope) {
         prepared.push({
           kind: 'rejected',
           result: {

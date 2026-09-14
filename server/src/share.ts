@@ -1,4 +1,5 @@
 import type { Pool } from 'pg'
+import { limitsFor } from './limits'
 
 export interface ShareProjectBody {
   project_key?: unknown
@@ -28,9 +29,24 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
  */
 export async function handleShareProject(
   pool: Pool,
-  auth: { userId: string },
+  auth: { userId: string; plan: string },
   body: ShareProjectBody
 ): Promise<ShareProjectResult> {
+  /**
+   * El plan, ANTES que nada.
+   *
+   * Faltaba, y el agujero era este: compartir un proyecto es la accion que hace que la
+   * memoria pueda salir del autor, y no se chequeaba. `push.ts` si rechaza un
+   * `scope: 'team'` de un plan que no lo tiene, asi que el usuario podia compartir con exito
+   * —la accion devolvia ok, `projects.team_id` quedaba escrito— y recien despues descubrir
+   * que ninguna memoria llegaba. Se gateaba la segunda puerta con la primera abierta.
+   *
+   * El mismo `teamScope` que usa el push: una sola fuente de verdad para el limite.
+   */
+  if (!limitsFor(auth.plan).teamScope) {
+    return { ok: false, status: 403, error: 'sharing_needs_a_team_deployment' }
+  }
+
   const projectKey = typeof body.project_key === 'string' ? body.project_key.trim() : ''
   if (!projectKey) return { ok: false, status: 400, error: 'missing_project_key' }
 

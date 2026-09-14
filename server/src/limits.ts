@@ -13,7 +13,19 @@ export interface PlanLimits {
   maxDevices: number
   /** §11.4: el ritmo de polleo lo manda el servidor. Es la única palanca de costo real. */
   nextPollMs: number
-  /** Si puede escribir observaciones con `scope: 'team'`, visibles para otras personas. */
+  /**
+   * Si la memoria de esta cuenta puede volverse visible para OTRA PERSONA: compartir un
+   * proyecto con un equipo y escribir observaciones con `scope: 'team'`.
+   *
+   * **Ningún plan de autoservicio lo tiene, y es una decisión de producto** (2026-09-13): lo
+   * compartido NO se cifra de punta a punta —cada usuario tiene su propia maestra y no hay
+   * una clave que dos personas compartan— así que ofrecerlo en el plan cuyo argumento de
+   * venta es el cifrado sería venderlo con un asterisco. El plan pago sincroniza TUS
+   * máquinas; compartir con alguien más es una conversación y un despliegue propio, donde el
+   * dueño del servidor es el usuario.
+   *
+   * Los planes `team`/`enterprise` siguen existiendo para esos despliegues. No se compran.
+   */
   teamScope: boolean
 }
 
