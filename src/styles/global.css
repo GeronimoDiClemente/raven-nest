@@ -2072,6 +2072,50 @@ body {
  * quedaban trece elementos en seis columnas —6, 6 y uno colgando— y ese corte partía los
  * pares al medio: lo que se veía era una lista desordenada con colores repetidos.
  */
+/**
+ * La identidad del pane: el logo del agente, con el color del pane como anillo.
+ *
+ * Reemplaza al par `.pane-color-btn` + logo suelto. El color esta PEGADO a lo que identifica
+ * en vez de ser un circulo aparte compitiendo por el primer lugar, y sin color no queda un
+ * circulo vacio —que se lee como algo que no cargo— sino simplemente el logo.
+ */
+.pane-identidad {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.pane-identidad-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: 50%;
+  background: none;
+  cursor: pointer;
+  /* El anillo ES el color del pane. 2px para que se lea a 22px sin comerse el logo. */
+  border: 2px solid var(--anillo, transparent);
+  transition: border-color 0.12s, background 0.12s;
+}
+
+.pane-identidad-btn:hover {
+  background: var(--btn-hover-fill);
+}
+
+/* Sin color elegido: un aro apenas visible que dice "se puede tocar", sin fingir un color. */
+.pane-identidad-btn.sin-color {
+  border-color: color-mix(in srgb, var(--border) 70%, transparent);
+}
+
+/* Una terminal pelada no tiene logo: va su inicial. */
+.pane-identidad-inicial {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  line-height: 1;
+}
+
 .pane-color-popover {
   position: absolute;
   top: calc(100% + 6px);

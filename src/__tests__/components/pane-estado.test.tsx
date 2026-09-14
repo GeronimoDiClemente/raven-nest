@@ -79,7 +79,7 @@ describe('el selector de color', () => {
 
   const abrirSelector = (extra = {}) => {
     render(<PaneHeader {...base} temaDeTerminal={tema} {...extra} />)
-    fireEvent.click(screen.getByTitle(/Change border color|Border off/))
+    fireEvent.click(screen.getByTitle(/Change border colour|No border colour/))
   }
 
   it('los doce del tema caen en la grilla, y apagar queda afuera', () => {
