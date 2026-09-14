@@ -24,7 +24,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
   X, User, Keyboard, Mic, FileCode, Terminal as TerminalIcon, RefreshCw, GraduationCap,
-  ChartColumn, ChevronLeft, Plug, Cloud, type LucideIcon,
+  ChartColumn, ChevronLeft, Plug, Cloud, Zap, type LucideIcon,
 } from 'lucide-react'
 import { ICON_SIZE } from '../lib/icons'
 import WorkspaceNavButton from './WorkspaceNavButton'
@@ -128,7 +128,15 @@ const SECCIONES: Array<{ id: string; titulo: string; icono: LucideIcon }> = [
   { id: 'voice', titulo: 'Voice', icono: Mic },
   { id: 'editor', titulo: 'Editor', icono: FileCode },
   { id: 'terminal', titulo: 'Terminal', icono: TerminalIcon },
-  { id: 'presets', titulo: 'Command presets', icono: TerminalIcon },
+  /**
+   * `Zap` y no `TerminalIcon`: el `>_` lo usa la sección Terminal, y dos filas con el mismo
+   * ícono en la misma lista son dos filas que hay que LEER para distinguir — que es
+   * exactamente lo que un ícono existe para evitar.
+   *
+   * Y es más preciso: un preset no es una terminal, es un comando que disparás sin volver a
+   * tipearlo.
+   */
+  { id: 'presets', titulo: 'Command presets', icono: Zap },
   { id: 'updates', titulo: 'Updates', icono: RefreshCw },
   { id: 'tutorial', titulo: 'Tutorial', icono: GraduationCap },
   { id: 'benchmarks', titulo: 'Benchmarks', icono: ChartColumn },
