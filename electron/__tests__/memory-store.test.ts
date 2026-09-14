@@ -800,11 +800,13 @@ describe('MemoryStore — schema versioning (C3)', () => {
   }
 
   it('SCHEMA_VERSION is pinned to the published value', () => {
-    // 7 desde el 2026-09-13: el conjunto de memorias ilegibles pasa de un JSON en `meta` a
-    // una tabla. Este test existe para que subir el esquema sea una decision y no un
-    // descuido — si lo estas cambiando, la migracion correspondiente tiene que estar
-    // escrita y testeada.
-    expect(SCHEMA_VERSION).toBe(7)
+    // 8 desde el 2026-09-13: el índice sobre `lamport`, que vuelve barato leer el reloj de
+    // Lamport desde la base en vez de un contador en memoria (medido: 278µs sin índice contra
+    // 1µs con él). La 7 movió el conjunto de memorias ilegibles a su propia tabla.
+    //
+    // Este test existe para que subir el esquema sea una decisión y no un descuido — si lo
+    // estás cambiando, la migración correspondiente tiene que estar escrita y testeada.
+    expect(SCHEMA_VERSION).toBe(8)
   })
 
   /**

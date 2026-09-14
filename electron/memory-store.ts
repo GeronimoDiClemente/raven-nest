@@ -630,7 +630,7 @@ const BASE_SCHEMA = `
  */
 export type TopicHasher = (projectKey: string, scope: string, topicKey: string) => string
 
-export const SCHEMA_VERSION = 7
+export const SCHEMA_VERSION = 8
 
 // Task 8 (smoke/memory-bridge): the memory dir syncs across two machines (C3's whole
 // reason for existing), so a v1 database opened by a build that knows v2 is the routine
@@ -743,12 +743,24 @@ const MIGRATIONS: Record<number, string | ((db: Database.Database) => void)> = {
     const insert = db.prepare('INSERT OR IGNORE INTO undecryptable (sync_id) VALUES (?)')
     for (const id of previos) insert.run(id)
     db.prepare("DELETE FROM meta WHERE key IN ('undecryptable_ids', 'undecryptable_rows')").run()
-  }
+  },
+
+  /**
+   * El indice que vuelve barato leer el reloj de Lamport desde la base.
+   *
+   * `nextLamport()` dejo de ser un contador en memoria (ver su comentario). Sin un indice
+   * sobre `lamport` a secas, `SELECT MAX(lamport)` es un scan completo: medido en 278 us con
+   * 20.000 filas, y creciendo con el total. Con el indice, SQLite lo resuelve como
+   * `SEARCH observations USING COVERING INDEX` y baja a 1 us.
+   *
+   * `idx_obs_deleted_updated` no sirve para esto: su columna lider es `deleted`, asi que el
+   * maximo global de `lamport` no se puede sacar de ahi.
+   */
+  8: 'CREATE INDEX IF NOT EXISTS idx_obs_lamport ON observations(lamport DESC);'
 }
 
 export class MemoryStore {
   private db: Database.Database
-  private lamportCounter = 0
   private currentUserId: string | null = null
 
   private topicHasher: TopicHasher | null = null
@@ -798,7 +810,7 @@ export class MemoryStore {
     const update = this.db.prepare('UPDATE observations SET topic_key_hmac = ? WHERE sync_id = ?')
     this.db.transaction(() => {
       for (const r of rows) update.run(hasher(r.project_key, r.scope, r.topic_key), r.sync_id)
-    })()
+    }).immediate()
     return rows.length
   }
   readonly schemaVersion: number = 0
@@ -812,9 +824,36 @@ export class MemoryStore {
     // un companero nunca va a recibir. La base escribe poco y chico, y con WAL el costo de
     // FULL es muy inferior al de rollback-journal. Spec Layer 2 §8.3.
     this.db.pragma('synchronous = FULL')
+    /**
+     * Esperar al otro escritor en vez de fallar al instante.
+     *
+     * Sin esto, dos procesos sobre la misma base —Nest y el paquete portátil, o dos Nest,
+     * que ya pasa hoy con la app instalada y un build de desarrollo abiertos a la vez— hacen
+     * que el segundo reciba `SQLITE_BUSY` inmediatamente y la escritura se pierda como un
+     * error. Con el timeout, SQLite reintenta solo hasta que el primero suelta el lock.
+     *
+     * 5 segundos es holgado para una transaccion de este store (la mas larga es un batch de
+     * import, y va en una sola transaccion corta) y sigue siendo un techo, no una espera
+     * indefinida: si algo quedo trabado de verdad, falla y se ve.
+     */
+    this.db.pragma('busy_timeout = 5000')
+    /**
+     * Todas las transacciones de escritura de este store corren como `IMMEDIATE`
+     * (`.immediate()` en cada invocacion), no como el `BEGIN` diferido que es el default de
+     * better-sqlite3.
+     *
+     * Con `BEGIN` diferido, una transaccion toma un lock COMPARTIDO en su primera lectura y
+     * recien intenta subir a exclusivo en la primera escritura. Dos procesos pueden leer a la
+     * vez y despues los dos querer subir: uno gana y el otro recibe `SQLITE_BUSY` que el
+     * `busy_timeout` NO puede reintentar —no se puede esperar a que el otro suelte algo que
+     * uno mismo tiene tomado— y la transaccion entera falla. Es la trampa clasica de WAL con
+     * varios escritores.
+     *
+     * `IMMEDIATE` pide el lock de escritura al empezar: el segundo proceso ESPERA (ahi si
+     * sirve el `busy_timeout`) en vez de trabajar para nada y fallar al final. Y es lo que
+     * hace que `nextLamport()` lea un maximo que ya incluye lo que escribio el primero.
+     */
     this.migrate()
-    const row = this.db.prepare('SELECT MAX(lamport) as m FROM observations').get() as { m: number | null }
-    this.lamportCounter = row?.m ?? 0
   }
 
   close(): void {
@@ -840,15 +879,46 @@ export class MemoryStore {
         if (typeof step === 'string') this.db.exec(step)
         else step(this.db)
         this.db.pragma(`user_version = ${next}`)
-      })()
+      }).immediate()
       current = next
     }
     ;(this as { schemaVersion: number }).schemaVersion = current
   }
 
+  /**
+   * El reloj de Lamport, leido de la BASE y no de un contador en memoria.
+   *
+   * Era `this.lamportCounter += 1`, cargado una sola vez al abrir con un `SELECT MAX`. Con un
+   * unico escritor eso es correcto y gratis. Con dos —Nest y el paquete portatil, o la app
+   * instalada y un build de desarrollo abiertos a la vez, que es algo que ya pasa— los dos
+   * arrancan del mismo numero y emiten lamports DUPLICADOS. Y el lamport es lo que desempata
+   * un conflicto cuando dos escrituras comparten `updated_at`: duplicarlo no rompe nada
+   * visible, hace que el desempate sea arbitrario y que las dos maquinas puedan elegir
+   * ganadores distintos.
+   *
+   * Se lee adentro de la transaccion de escritura (todas son `IMMEDIATE`, ver `escribir()`),
+   * asi que el segundo proceso lee el maximo que dejo el primero.
+   *
+   * **El costo esta medido** (2026-09-13, 20.000 filas): 278 us sin indice —un scan completo,
+   * que es el riesgo P-R1 de la spec confirmado— y **1 us con el indice** de la migracion 8,
+   * que lo vuelve un COVERING INDEX SEARCH. La alternativa de una fila contador en `meta`
+   * daba 8 us y ademas seria una segunda fuente de verdad que se puede desincronizar de las
+   * filas reales.
+   */
   private nextLamport(): number {
-    this.lamportCounter += 1
-    return this.lamportCounter
+    const fila = this.db
+      .prepare('SELECT COALESCE(MAX(lamport), 0) AS m FROM observations')
+      .get() as { m: number }
+    /**
+     * El maximo de lo GUARDADO no alcanza por si solo: una fila que llego por pull y se
+     * descarto (perdio el LWW) no queda en `observations`, pero la vimos. La disciplina de
+     * Lamport dice que el reloj local pasa a ser al menos ese valor — si no, una escritura
+     * local posterior podria recibir un lamport MENOR que uno que ya circulo, y un empate de
+     * `updated_at` entre las dos elegiria al equivocado. Eso es lo que el arreglo C4 cerro
+     * en su momento con el contador en memoria; aca vive en `meta`, que sobrevive al proceso.
+     */
+    const visto = Number(this.metaGet('lamport_high_water') ?? 0)
+    return Math.max(fila.m, visto) + 1
   }
 
   /**
@@ -1068,7 +1138,7 @@ export class MemoryStore {
       .all(this.currentUserId ?? null) as ObservationRow[]
     this.db.transaction(() => {
       for (const row of rows) this.appendMutation('upsert', row)
-    })()
+    }).immediate()
     return rows.length
   }
 
@@ -1112,7 +1182,7 @@ export class MemoryStore {
         .run(userId)
       return (obs.changes ?? 0) + (log.changes ?? 0)
     })
-    return { claimed: true, adopted: claim() }
+    return { claimed: true, adopted: claim.immediate() }
   }
 
   private toSummary(row: ObservationRow): ObservationSummary {
@@ -1363,7 +1433,7 @@ export class MemoryStore {
       return { syncId: row.sync_id, outcome: 'inserted', redacted }
     })
 
-    return txn()
+    return txn.immediate()
   }
 
   private insertRow(row: ObservationRow): void {
@@ -1510,7 +1580,12 @@ export class MemoryStore {
     // edit. Standard Lamport clock discipline: on receiving a stamped value, the local
     // clock becomes at least that value, so every subsequent local write is guaranteed
     // to be ordered after everything this device has ever seen.
-    this.lamportCounter = Math.max(this.lamportCounter, row.lamport)
+    // Ver `nextLamport()`: la marca de agua cubre el caso de una fila que vimos y
+    // descartamos. Vive en `meta` y no en memoria porque con dos procesos el contador de uno
+    // no es el del otro, y porque tiene que sobrevivir al cierre de la app.
+    if (row.lamport > Number(this.metaGet('lamport_high_water') ?? 0)) {
+      this.metaSet('lamport_high_water', String(row.lamport))
+    }
 
     // M13 fix: pulled content previously went straight to disk unredacted. A secret an
     // agent saved on another device (before that device's own redaction ran — or from a
@@ -1587,7 +1662,7 @@ export class MemoryStore {
         })
       }
     })
-    applyAll()
+    applyAll.immediate()
   }
 
   /**
@@ -1659,7 +1734,7 @@ export class MemoryStore {
         )
         .run(syncId, reason ?? null, now)
     })
-    promote()
+    promote.immediate()
     return { promoted: true }
   }
 
@@ -1853,7 +1928,7 @@ export class MemoryStore {
       this.applyRowUpdate(updated)
       this.appendMutation('upsert', updated)
     })
-    txn()
+    txn.immediate()
     return { updated: true, syncId: updated.sync_id, redacted }
   }
 
@@ -1911,7 +1986,7 @@ export class MemoryStore {
     const txn = this.db.transaction((rows: Array<{ seq: number; reason: string }>) => {
       for (const e of rows) stmt.run(e.reason, e.reason, e.seq)
     })
-    txn(entries)
+    txn.immediate(entries)
   }
 
   blockedMutations(): MutationLogRow[] {
@@ -1953,7 +2028,7 @@ export class MemoryStore {
         else stmt.run(now, e.error ?? null, e.seq)
       }
     })
-    txn(entries)
+    txn.immediate(entries)
   }
 
   pruneAckedMutations(olderThanMs = 7 * 24 * 60 * 60 * 1000): number {

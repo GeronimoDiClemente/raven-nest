@@ -148,7 +148,13 @@ presente al trabajar acá:
   irrecuperable — es la consecuencia inevitable del diseño, no un defecto.
 - **La base local sigue en claro y tiene que seguirlo**: la búsqueda es FTS5 local y el
   agente necesita el texto. La máquina del usuario está fuera del modelo de amenaza.
-- **`SCHEMA_VERSION` 7**. La 6 sumó `topic_key_hmac`: una fila que vino del pull tiene el HMAC
+- **`SCHEMA_VERSION` 8**. La 8 suma el índice sobre `lamport`: el reloj de Lamport se lee de
+  la BASE y no de un contador en memoria, porque con dos procesos sobre la misma base (la app
+  instalada y un build de desarrollo, o el paquete portable del spec
+  `2026-09-13-nest-memory-portable-design.md`) el contador en memoria emite lamports
+  duplicados. Todas las transacciones de escritura son `IMMEDIATE` y hay `busy_timeout`: con
+  `BEGIN` diferido dos procesos se pisan al subir de lock y el segundo falla sin poder
+  reintentar. La 6 sumó `topic_key_hmac`: una fila que vino del pull tiene el HMAC
   y `topic_key = null`; una local tiene el tema en claro y, si hay clave, también el HMAC. La 7
   movió el conjunto de memorias ilegibles de un JSON en `meta` a la tabla `undecryptable`.
 - **El scope `team` NO se cifra** en esta versión, y está anunciado como tal.
