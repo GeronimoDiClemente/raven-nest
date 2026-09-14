@@ -86,7 +86,7 @@ export class EventBus {
       try {
         commands.push(...recipe.then(ev))
       } catch (err) {
-        console.warn('[event-bus] recipe.then falló', recipe.id, ev.type, err)
+        console.warn('[event-bus] recipe.then failed', recipe.id, ev.type, err)
       }
     }
     const failed: Command[] = []
@@ -99,7 +99,7 @@ export class EventBus {
       try {
         await handler(cmd, ev, deps)
       } catch (err) {
-        console.warn('[event-bus] handler falló', cmd.cmd, ev.type, err)
+        console.warn('[event-bus] handler failed', cmd.cmd, ev.type, err)
         failed.push(cmd)
       }
     }

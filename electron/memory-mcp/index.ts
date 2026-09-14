@@ -41,8 +41,8 @@ function resolverCliente(): { cliente: ClienteDeMemoria; conDaemon: boolean } {
     return { cliente: new MemoryDaemonClient(socket, token), conDaemon: true }
   }
   console.error(
-    '[nest-memory] sin daemon (Nest no está abierto) — modo sólo lectura: ' +
-    'buscar, leer y el grafo funcionan; guardar necesita la app'
+    '[nest-memory] no daemon (Nest is not open) — read-only mode: ' +
+    'search, read and the graph work; saving needs the app'
   )
   return { cliente: new MemoryReadonlyClient(ravenHome()), conDaemon: false }
 }

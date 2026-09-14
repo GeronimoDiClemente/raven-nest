@@ -47,7 +47,7 @@ const TRAZO: Record<MemoryEdgeKind, { rama: string; vertical: string; que: strin
  */
 function queDice(kind: MemoryEdgeKind, hijoEsElFrom: boolean): string {
   if (kind !== 'revision') return TRAZO[kind].que
-  return hijoEsElFrom ? 'a esta la reemplazó la de arriba' : 'esta reemplazó a la de arriba'
+  return hijoEsElFrom ? 'replaced by the one above' : 'replaces the one above'
 }
 
 /** Vigente o reemplazada. Un círculo hueco se lee como "esto ya no vale" sin leyenda. */
@@ -121,7 +121,7 @@ export function renderMemoryGraphText(
   if (graph.nodes.length === 0) {
     return opts.encabezado
       ? `${opts.encabezado}\n\nNo hay memorias que coincidan.`
-      : 'No hay memorias todavía.'
+      : 'No memories yet.'
   }
 
   const porId = new Map<string, MemoryGraphNode>(graph.nodes.map((n) => [n.syncId, n]))
@@ -188,10 +188,10 @@ export function renderMemoryGraphText(
     pie.push(`${sueltas} sin conectar con ninguna otra`)
   }
   if (restantes > 0) {
-    pie.push(`${restantes} más sin mostrar`)
+    pie.push(`${restantes} more not shown`)
   }
   if (graph.truncated > 0) {
-    pie.push(`${graph.truncated} fuera del límite de la consulta`)
+    pie.push(`${graph.truncated} beyond the query limit`)
   }
   if (pie.length > 0) {
     lineas.push('')

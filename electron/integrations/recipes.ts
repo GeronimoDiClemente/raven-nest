@@ -249,7 +249,7 @@ export function loadRecipes(filePath: string, lookup: TrackedLookup): Recipe[] {
       if (rec) out.push(rec)
       else dropped++
     }
-    if (dropped > 0) console.warn('[recipes] descartadas', dropped, 'recetas inválidas de', filePath)
+    if (dropped > 0) console.warn('[recipes] descartadas', dropped, 'invalid recipes from', filePath)
     return out
   } catch (err) {
     console.warn('[recipes] recipes.json ilegible, usando defaults', err)

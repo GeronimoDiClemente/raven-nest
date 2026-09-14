@@ -282,7 +282,7 @@ describe('bridgeEvent · cierre de run', () => {
     })
     expect(out).toHaveLength(1)
     expect(out[0].sourceRef).toBe('graph:r1:run')
-    expect(out[0].content).toContain('Mergeado')
+    expect(out[0].content).toContain('Merged into')
   })
 
   it('pr.merged sin run asociado no produce nada', () => {

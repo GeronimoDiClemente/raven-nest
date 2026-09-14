@@ -209,7 +209,7 @@ export class WorktreeSignals {
       if (res.ok) log = truncateTail(await res.text(), 200)
     }
     return [
-      `El CI de este branch (${sig.runUrl ?? 'run'}) está en rojo. Arreglá lo que rompió.`,
+      `This branch's CI (${sig.runUrl ?? 'run'}) is red. Fix what broke.`,
       log ? `\nÚltimas líneas del log del job fallido:\n\`\`\`\n${log}\n\`\`\`` : '',
     ].join('\n')
   }

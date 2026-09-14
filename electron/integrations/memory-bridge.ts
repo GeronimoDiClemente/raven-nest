@@ -45,7 +45,7 @@ function runSummary(run: GraphRun, merged: boolean): string {
     `Ticket ${run.ticketId} · template ${run.templateId} · ${run.round + 1} ronda(s).`,
     `Nodos completados: ${done.join(', ') || 'ninguno'}.`,
     concerns.length ? `Concerns bloqueantes durante el run:\n${concerns.join('\n')}` : 'Sin concerns bloqueantes.',
-    merged ? `Mergeado a ${run.branch}: el cambio sobrevivió.` : '',
+    merged ? `Merged into ${run.branch}: the change survived.` : '',
     provenanceBlock(run, {}),
   ].filter(Boolean).join('\n\n')
 }
@@ -129,9 +129,9 @@ export function bridgeEvent(ev: DomainEvent, ctx: BridgeContext): MemorySaveInpu
         cwd: cwdOf(run),
         // ev.round is 0-indexed like run.round; +1 for the human count (see
         // memory-provenance.ts).
-        title: `Auto-repair no convergió después de ${ev.round + 1} rondas`,
+        title: `Auto-repair did not converge after ${ev.round + 1} rounds`,
         content:
-          `El ciclo de review y re-run llegó al tope de rondas sin resolver los concerns. ` +
+          `The review and re-run loop hit the round cap without resolving the concerns. ` +
           `Requiere decisión humana.\n\n` +
           (notes ? `Revisiones pedidas:\n${notes}\n\n` : '') +
           provenanceBlock(run, { verdict: 'blocking' }),
@@ -215,7 +215,7 @@ export function bridgeDecision(
       cwd: cwdOf(run),
       title: `Aprobado a pesar de ${overridden.length} concern(s) bloqueante(s)`,
       content:
-        `Un humano aprobó el gate ${decision.gateId} sabiendo que estos concerns estaban ` +
+        `A human approved gate ${decision.gateId} knowing these concerns were ` +
         `marcados como bloqueantes. En este contexto no lo eran:\n${overridden.join('\n')}\n\n` +
         provenanceBlock(run, { nodeId: decision.gateId, role: gate?.role, verdict: 'human-approved' }),
       type: 'decision',

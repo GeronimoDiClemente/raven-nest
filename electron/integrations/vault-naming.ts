@@ -157,19 +157,19 @@ export function isForbiddenVaultRoot(
 
   for (const repoRoot of ctx.enrolledRepoRoots) {
     if (isSameOrWithin(root, repoRoot)) {
-      return { forbidden: true, reason: 'Es la raíz de un repo enrolado — el importer busca CLAUDE.md/AGENTS.md ahí.' }
+      return { forbidden: true, reason: 'This is the root of an enrolled repo — the importer looks for CLAUDE.md/AGENTS.md there.' }
     }
   }
 
   const hasGitDir = ctx.hasGitDir ?? (() => false)
   for (const ancestor of ancestorsInclusive(root)) {
     if (hasGitDir(ancestor)) {
-      return { forbidden: true, reason: 'El vault no es código y no se versiona por accidente (hay un .git en el path).' }
+      return { forbidden: true, reason: 'The vault is not code and must not be versioned by accident (there is a .git in this path).' }
     }
   }
 
   if (ctx.platform === 'win32' && root.length > WINDOWS_CUSTOM_ROOT_MAX_LENGTH) {
-    return { forbidden: true, reason: `Path de más de ${WINDOWS_CUSTOM_ROOT_MAX_LENGTH} chars en Windows — riesgo de superar el límite de 260 al escribir notas.` }
+    return { forbidden: true, reason: `Path longer than ${WINDOWS_CUSTOM_ROOT_MAX_LENGTH} chars on Windows — risk of crossing the 260 limit when escribir notas.` }
   }
 
   return { forbidden: false }

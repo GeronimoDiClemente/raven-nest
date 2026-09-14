@@ -46,7 +46,7 @@ export interface PaneNode {
   url?: string          // browser only: initial url
   sessionPartition?: string  // browser only: persist:browser-<workspaceId>
   shellId?: string      // terminal panes only: which shell to spawn (Windows shell picker)
-  initialInput?: string // one-shot: input written to the PTY once when it first produces output (e.g. "arreglá el rojo")
+  initialInput?: string // one-shot: input written to the PTY once when it first produces output (e.g. "fix the red")
   editorTabs?: EditorTab[]        // editor panes only: open files
   activeEditorTabPath?: string    // editor panes only: which tab is focused
   pinned?: boolean      // Hub: user-pinned pane, shows under the "Pinned" filter

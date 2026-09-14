@@ -76,7 +76,7 @@ export function buildThreadGraph(input: BuildGraphInput): ThreadGraph {
   const recortados = unicas.length - dentro.length
 
   const nodes: GraphNode[] = [
-    { id: '_index', label: 'índice', estado: 'activa', frescura: 'hoy', autor: '', x: 0, y: 0, foco: false },
+    { id: '_index', label: 'index', estado: 'activa', frescura: 'hoy', autor: '', x: 0, y: 0, foco: false },
   ]
   const edges: GraphEdge[] = []
 

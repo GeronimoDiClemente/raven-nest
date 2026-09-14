@@ -109,9 +109,9 @@ export default function PRList({ repoFullName, githubToken, onSelectPR }: PRList
         let msg = errBody.message || `GitHub /branches returned ${branchRes.status}`
         if (branchRes.status === 403 && /oauth app/i.test(errBody.message ?? '')) {
           const org = repoFullName.split('/')[0]
-          msg = `${msg} — autorizá la OAuth App en github.com/organizations/${org}/settings/oauth_application_policy`
+          msg = `${msg} — authorise the OAuth App at github.com/organizations/${org}/settings/oauth_application_policy`
         } else if (branchRes.status === 404) {
-          msg = `${msg} — repo no visible con este token (privado y sin acceso, o nombre incorrecto)`
+          msg = `${msg} — repo not visible with this token (private and no access, or wrong name)`
         }
         setCreateError(msg)
         const repoData = repoRes.ok ? await repoRes.json() : {}

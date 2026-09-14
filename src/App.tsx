@@ -463,16 +463,16 @@ export default function App() {
         const branch = await window.tickets.branchName(githubLoginRef.current ?? '', 'slack', m.text.slice(0, 24))
         const res = await window.worktree.create({ repoPath, branch }) as unknown as
           ({ ok: true; meta: WorktreeMeta } | { ok: false; error: string })
-        if (!res.ok) { console.warn('[slack] worktree.create falló', res.error); return }
+        if (!res.ok) { console.warn('[slack] worktree.create failed', res.error); return }
         const worktreePath = res.meta.repoPath
         paneThreadRef.current[worktreePath] = { channel: m.channel, threadTs: m.threadTs }
         setAddingPane({ worktreePath, initialInput: m.text })
         void window.slackMentions.postThread({
           channel: m.channel, threadTs: m.threadTs,
-          text: '🪺 Trabajando en esto — abrí Nest para ver el terminal.',
+          text: '🪺 Working on this — open Nest to watch the terminal.',
         })
       } catch (err) {
-        console.warn('[slack] onMention falló', err)
+        console.warn('[slack] onMention failed', err)
       }
     })
     // Click de botón Block Kit → acción sobre el pane del worktree (a.value = worktreePath).
@@ -975,7 +975,7 @@ export default function App() {
         // because there's no global toast service in the app; both callers
         // (MyReposPanel/TeamsWorkspace) already validate themselves so this
         // is a defense-in-depth fallback rather than the primary UX.
-        window.alert(`La carpeta "${localPath}" ya no existe. Re-linkeala o cloná de nuevo desde My Repos.`)
+        window.alert(`The folder "${localPath}" no longer exists. Link it again or clone it from My Repos.`)
         return
       }
     }

@@ -217,6 +217,6 @@ export function unwrapWithRecovery(code: string, wrap: RecoveryWrap): Buffer {
     decipher.setAuthTag(raw.subarray(IV_BYTES, IV_BYTES + TAG_BYTES))
     return Buffer.concat([decipher.update(raw.subarray(IV_BYTES + TAG_BYTES)), decipher.final()])
   } catch (err) {
-    throw new MemoryUnwrapError(`código de recuperación incorrecto: ${(err as Error).message}`)
+    throw new MemoryUnwrapError(`wrong recovery code: ${(err as Error).message}`)
   }
 }

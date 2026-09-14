@@ -198,7 +198,7 @@ export async function recoverWithCode(
   const estado = await fetchKeyState(deps)
   const wrap = estado.keyEpoch > 0 ? await copiaDeRecuperacion(deps) : null
   if (!wrap) {
-    throw new Error('No hay una copia de recuperación para esta cuenta.')
+    throw new Error('There is no recovery copy for this account.')
   }
   // Lanza MemoryUnwrapError con el codigo equivocado, ANTES de publicar nada.
   const master = unwrapWithRecovery(code, wrap)

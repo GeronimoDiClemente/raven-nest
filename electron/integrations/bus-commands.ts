@@ -123,10 +123,10 @@ async function handleNotify(cmd: NotifyCommand, deps: PanelAdapterDeps): Promise
       body: JSON.stringify({ channel, text: cmd.message }),
     })
     const json = (await res.json()) as { ok?: boolean; error?: string }
-    if (!json.ok) console.warn('[bus-commands] notify: Slack respondió no-ok', json.error ?? 'unknown', channel)
+    if (!json.ok) console.warn('[bus-commands] notify: Slack replied not-ok', json.error ?? 'unknown', channel)
   } catch (err) {
     // best-effort: un fallo de red no debe romper la secuencia de comandos.
-    console.warn('[bus-commands] notify falló', channel, err)
+    console.warn('[bus-commands] notify failed', channel, err)
   }
 }
 
@@ -146,7 +146,7 @@ async function handleSetPresence(cmd: SetPresenceCommand, deps: PanelAdapterDeps
     // Sin el scope users.profile:write, Slack devuelve no-ok: degrada a no-op con warn.
     if (!json.ok) console.warn('[bus-commands] setPresence no-ok', json.error ?? 'unknown')
   } catch (err) {
-    console.warn('[bus-commands] setPresence falló', err)
+    console.warn('[bus-commands] setPresence failed', err)
   }
 }
 
@@ -185,7 +185,7 @@ async function handleLogOutcome(cmd: LogOutcomeCommand, deps: PanelAdapterDeps, 
     // matchee este evento (idempotencia) y apendee en vez de duplicar.
     else await gcal.createOutcomeEvent(cmd.summary, new Date().toISOString(), cmd.ref)
   } catch (err) {
-    console.warn('[bus-commands] logOutcome falló', cmd.ref, err)
+    console.warn('[bus-commands] logOutcome failed', cmd.ref, err)
   }
 }
 

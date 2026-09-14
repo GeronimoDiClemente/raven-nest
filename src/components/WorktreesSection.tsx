@@ -17,7 +17,7 @@ interface Props {
   refreshKey?: number
   /** When provided, the header shows a "?" button that launches the worktrees tutorial. */
   onStartTutorial?: () => void
-  /** "Arreglá el rojo": baja el log del run fallido y lo inyecta al pane del worktree. */
+  /** "Fix the red": baja el log del run fallido y lo inyecta al pane del worktree. */
   onFixCi: (repoPath: string) => void
   /** workspace-shell-design §3: aiType de los panes abiertos, agrupados por repoPath
    *  (groupAITypesByRepoPath en App.tsx, sobre TODOS los tabs — no solo el activo,

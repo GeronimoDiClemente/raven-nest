@@ -67,7 +67,7 @@ export function saveKeyMaterial(
   material: KeyMaterial
 ): void {
   if (!safe.isEncryptionAvailable()) {
-    throw new Error('safeStorage no está disponible en este sistema — no se guardan claves en claro (§6.2)')
+    throw new Error('safeStorage is not available on this system — keys are never written in the clear (§6.2)')
   }
   const path = keyFilePath(ravenHomeDir, userId)
   mkdirSync(dirname(path), { recursive: true })
@@ -114,8 +114,8 @@ export function ensureKeyMaterial(
    */
   if (!safe.isEncryptionAvailable()) {
     throw new Error(
-      'safeStorage no está disponible en este sistema — no se leen ni se escriben claves. ' +
-      'La memoria local sigue andando; el cifrado de nube queda deshabilitado en esta sesión.'
+      'safeStorage is not available on this system — keys are neither read nor written. ' +
+      'Local memory keeps working; cloud encryption stays disabled for this session.'
     )
   }
 
@@ -132,7 +132,7 @@ export function ensureKeyMaterial(
       // Si ni siquiera se puede mover, no se pisa: mejor fallar que destruir la clave.
       throw new Error(
         `${path} no se pudo leer ni mover. No se genera un par nuevo encima para no destruir ` +
-        'la clave: revisá los permisos del archivo.'
+        'the key: check the file permissions.'
       )
     }
   }

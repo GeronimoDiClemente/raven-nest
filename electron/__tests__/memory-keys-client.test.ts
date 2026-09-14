@@ -203,7 +203,7 @@ describe('recuperar con el código', () => {
   it('sin envoltura de recuperación en el servidor, lanza con un mensaje propio', async () => {
     const pc = generateDeviceKeyPair()
     await expect(recoverWithCode(depsDe('pc'), pc, 'AAAA-BBBB-CCCC-DDDD-EEEE-FFFF'))
-      .rejects.toThrow(/no hay una copia de recuperación/i)
+      .rejects.toThrow(/there is no recovery copy/i)
   })
 })
 

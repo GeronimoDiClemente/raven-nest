@@ -202,7 +202,7 @@ export default function Graph3D({ nodes, links, selectedId, onSelect, showLabels
       // los primitivos de React 19 que ya mordió en esta rama (ver RECETA-MIGRACION-UI.md).
       // react-kapsule, que es lo que envuelve a ForceGraph3D, SÍ usa forwardRef, así que
       // debería llegar; el aviso está para que un cambio de versión no lo rompa en silencio.
-      console.warn(`[Graph3D:${nombre}] sin ref: el grafo no se va a encuadrar solo`)
+      console.warn(`[Graph3D:${nombre}] no ref: the graph will not frame itself`)
       return
     }
 

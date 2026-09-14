@@ -272,7 +272,7 @@ export function planVault(input: PlanVaultInput): VaultPlan {
         warnings.push({
           syncId: record.syncId,
           kind: 'null-content-active-row',
-          message: 'Fila activa con content null — no debería pasar (sólo un tombstone nulea content); se mirrorea con cuerpo vacío.',
+          message: 'Active row with null content — should not happen (only a tombstone nulls content); mirrored with an empty body.',
         })
       }
       const { redacted } = redact(`${record.title}\n${record.content ?? ''}`)
@@ -280,7 +280,7 @@ export function planVault(input: PlanVaultInput): VaultPlan {
         warnings.push({
           syncId: record.syncId,
           kind: 'possible-secret',
-          message: `"${record.title}" todavía matchea un patrón de secreto conocido — revisala antes de compartir este vault.`,
+          message: `"${record.title}" still matches a known secret pattern — review it before sharing this vault.`,
         })
       }
 

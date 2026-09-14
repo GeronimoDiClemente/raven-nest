@@ -3302,7 +3302,7 @@ ipcMain.handle('memory:encryption:authorize', async (_e, deviceId: string) => {
   try {
     const estado = await fetchKeyState(deps)
     const target = estado.devices.find((d) => d.deviceId === deviceId)
-    if (!target) return { ok: false, error: 'Esa máquina no publicó su clave todavía.' }
+    if (!target) return { ok: false, error: 'That machine has not published its key yet.' }
     await authorizeDevice(deps, memoryKeys.master, memoryKeys.keyEpoch, target)
     return { ok: true }
   } catch (err) {
@@ -4618,7 +4618,7 @@ async function refreshGcalIfNeeded(): Promise<void> {
       console.warn('[gcal] refresh token revocado/expirado — limpiando creds', err)
       pluginCreds.delete('gcal')
     } else {
-      console.warn('[gcal] refresh falló (transitorio, conservo creds)', err)
+      console.warn('[gcal] refresh failed (transient, keeping creds)', err)
     }
   }
 }

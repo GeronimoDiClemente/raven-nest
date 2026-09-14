@@ -35,7 +35,7 @@ function grafo(nodes: MemoryGraphNode[], edges: MemoryGraph['edges'] = []): Memo
 
 describe('renderMemoryGraphText', () => {
   it('sin memorias lo dice, no devuelve un dibujo vacio', () => {
-    expect(renderMemoryGraphText(grafo([]), {}, AHORA)).toMatch(/No hay memorias/)
+    expect(renderMemoryGraphText(grafo([]), {}, AHORA)).toMatch(/No memories yet/)
   })
 
   it('con un filtro que no matchea, lo dice con el filtro puesto', () => {
@@ -107,7 +107,7 @@ describe('renderMemoryGraphText', () => {
   it('avisa cuando la consulta dejo cosas afuera', () => {
     const g = grafo([nodo('a'), nodo('b')], [{ from: 'a', to: 'b', kind: 'topic', directed: false }])
     const out = renderMemoryGraphText({ ...g, truncated: 40 }, {}, AHORA)
-    expect(out).toContain('40 fuera del límite')
+    expect(out).toContain('40 beyond the query limit')
   })
 
   // Una leyenda que nombra trazos que no estan en pantalla enseña mal.
@@ -126,7 +126,7 @@ describe('renderMemoryGraphText', () => {
     const out = renderMemoryGraphText(grafo(nodos, aristas), { limite: 5 }, AHORA)
     const dibujadas = out.split('\n').filter((l) => /memoria \d/.test(l)).length
     expect(dibujadas).toBeLessThanOrEqual(5)
-    expect(out).toContain('más sin mostrar')
+    expect(out).toContain('more not shown')
   })
 })
 
@@ -149,12 +149,12 @@ describe('la direccion de una revision', () => {
   it('leida desde la nueva, dice que la de arriba reemplazo a la de abajo', () => {
     const out = renderMemoryGraphText(g(true), {}, AHORA)
     const i = out.split('\n').findIndex((l) => l.includes('la vieja'))
-    expect(out.split('\n')[i + 1]).toContain('a esta la reemplazó la de arriba')
+    expect(out.split('\n')[i + 1]).toContain('replaced by the one above')
   })
 
   it('leida desde la vieja, dice lo contrario', () => {
     const out = renderMemoryGraphText(g(false), {}, AHORA)
     const i = out.split('\n').findIndex((l) => l.includes('la nueva'))
-    expect(out.split('\n')[i + 1]).toContain('esta reemplazó a la de arriba')
+    expect(out.split('\n')[i + 1]).toContain('replaces the one above')
   })
 })
