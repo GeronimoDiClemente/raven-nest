@@ -17,29 +17,44 @@ import { join } from 'path'
  */
 const css = readFileSync(join(process.cwd(), 'src/styles/global.css'), 'utf8')
 
-/** El bloque de una regla, por su selector exacto. */
+/**
+ * Las DECLARACIONES de una regla, sin sus comentarios.
+ *
+ * Sin sacar los comentarios, el propio texto que explica por qué el `inset` no está hacía
+ * fallar al test que verifica que el `inset` no está. Un guard que se dispara con su propia
+ * documentación es un guard que alguien termina borrando.
+ */
 function bloque(selector: string): string {
   const i = css.indexOf(`\n${selector} {`)
   if (i < 0) throw new Error(`no existe la regla ${selector}`)
   const fin = css.indexOf('\n}', i)
-  return css.slice(i, fin)
+  return css.slice(i, fin).replace(/\/\*[\s\S]*?\*\//g, '')
 }
 
 describe('la regla del borde', () => {
-  it('el pane no tiene resplandor ni borde interno teñidos', () => {
+  /**
+   * Lo que la regla prohíbe es el `inset`: pintaba el color del pane ADENTRO del área donde
+   * se lee código, compitiendo con el fondo del tema. El resplandor exterior no — está por
+   * fuera del pane y no pisa una sola línea de texto — y es lo que hace que con ocho paneles
+   * el color se lea de lejos en vez de ser una línea de 1.5px que hay que buscar.
+   */
+  it('el pane no tiene sombra INTERNA teñida', () => {
     const b = bloque('.terminal-pane')
-    // `box-shadow` era `inset 0 0 0 1px <color>` + un glow: dos de los cuatro lugares.
-    expect(b, 'el box-shadow teñido volvió').not.toMatch(/box-shadow/)
+    expect(b, 'volvió el inset, que pinta adentro del área de terminal').not.toMatch(/inset/)
+  })
+
+  it('el resplandor exterior sí está: es lo que hace visible el color', () => {
+    expect(bloque('.terminal-pane')).toMatch(/box-shadow:[^;]*--pane-color/)
   })
 
   it('el color sigue en el borde: no se perdió el identificador', () => {
     expect(bloque('.terminal-pane')).toMatch(/border:.*--pane-color/)
   })
 
-  it('la cabecera no se rellena con el color del pane', () => {
-    const b = bloque('.pane-header')
-    const fondo = b.split('\n').find((l) => /^\s*background:/.test(l)) ?? ''
-    expect(fondo, 'el fondo de la cabecera volvió a teñirse').not.toMatch(/--pane-color/)
+  // La cabecera es cromo y está por FUERA del área donde se lee código: teñirla no compite
+  // con un tema importado. Lo que no puede pasar es que el color entre al área de terminal.
+  it('la cabecera se tiñe apenas, con el color del pane', () => {
+    expect(bloque('.pane-header')).toMatch(/background:.*--pane-color/)
   })
 
   it('la línea de abajo de la cabecera SÍ conserva el color: es la continuación del borde', () => {

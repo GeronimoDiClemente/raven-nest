@@ -111,3 +111,42 @@ describe('PaneHeader — rename', () => {
     expect(screen.queryByTitle(/rename/i)).toBeNull()
   })
 })
+
+/**
+ * `pane.borderColor` dejo de ser siempre un hex: desde que el selector guarda el indice del
+ * tema (`ansi:5`), usarlo crudo como valor CSS no pinta NADA — el navegador descarta la
+ * declaracion invalida en silencio. El disco quedaba invisible y el borde sin color.
+ */
+describe('PaneHeader — el color guardado como índice del tema', () => {
+  const tema = {
+    id: 't', nombre: 'T', background: '#000', foreground: '#fff', cursor: '#fff', selection: '#333',
+    ansi: ['#000000','#aa0000','#00aa00','#aaaa00','#0000aa','#aa00aa','#00aaaa','#cccccc',
+           '#555555','#ff0000','#00ff00','#ffff00','#0000ff','#ff00ff','#00ffff','#ffffff'],
+  }
+
+  it('un `ansi:N` se resuelve al color del tema, no se usa crudo', () => {
+    const { container } = render(
+      <PaneHeader pane={makePane({ borderColor: 'ansi:5' })} temaDeTerminal={tema} {...baseProps} />,
+    )
+    const btn = container.querySelector('.pane-color-btn') as HTMLElement | null
+    expect(btn?.style.background, 'el disco quedó invisible: se usó el valor crudo').toBe('rgb(170, 0, 170)')
+    expect(btn?.className).not.toContain('off')
+  })
+
+  it('un hex de siempre sigue andando', () => {
+    const { container } = render(
+      <PaneHeader pane={makePane({ borderColor: '#0055FF' })} temaDeTerminal={tema} {...baseProps} />,
+    )
+    expect((container.querySelector('.pane-color-btn') as HTMLElement).style.background).toBe('rgb(0, 85, 255)')
+  })
+
+  // Sin tema (callers y tests viejos) cae al propio, no a un borde sin pintar.
+  it('sin tema, un índice igual resuelve contra el tema propio', () => {
+    const { container } = render(
+      <PaneHeader pane={makePane({ borderColor: 'ansi:1' })} {...baseProps} />,
+    )
+    const btn = container.querySelector('.pane-color-btn') as HTMLElement | null
+    expect(btn?.className).not.toContain('off')
+    expect(btn?.style.background).not.toBe('')
+  })
+})

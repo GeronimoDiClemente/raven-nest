@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { PaneNode, AI_CONFIG, COLOR_PALETTE, AIType } from '../types'
-import { indicesDeIdentidad, NOMBRE_ANSI, colorDeTema, type TemaDeTerminal } from '../lib/terminal-themes'
+import { indicesDeIdentidad, NOMBRE_ANSI, colorDeTema, resolverColorDePane, TEMA_NEST, type TemaDeTerminal } from '../lib/terminal-themes'
 import { ETIQUETA_DE_ESTADO, DETALLE_DE_ESTADO, ESTADOS_VISIBLES, type EstadoDePane } from '../lib/pane-state'
 import { AILogo } from './AILogos'
 import ConfirmDialog from './ConfirmDialog'
@@ -49,6 +49,17 @@ interface Props {
 }
 
 export default function PaneHeader({ pane, temaDeTerminal, estado = 'idle', zoomed, onZoom, onClose, onColorChange, onNoteChange, dragHandleProps, processEnded, isBusy, onRestart, onSaveConversation, onCopyLastResponse, showBlocks, blockCount, onToggleBlocks, onShare, isSharing, repoPathDiverged, onSyncCwd, hasNextStep, onHandoff, ports = [], onRename }: Props) {
+  /**
+   * El color REAL del pane, resuelto contra el tema.
+   *
+   * `pane.borderColor` dejó de ser siempre un hex: desde que el selector guarda el índice del
+   * tema (`ansi:5`), usarlo crudo como valor CSS no pinta nada — el navegador descarta la
+   * declaración inválida en silencio. El disco quedaba invisible y el borde sin color, que es
+   * exactamente lo que se veía.
+   */
+  const colorDelPane = resolverColorDePane(pane.borderColor, temaDeTerminal ?? TEMA_NEST)
+  const sinColor = colorDelPane === 'transparent'
+
   const config = AI_CONFIG[pane.aiType]
   const displayLabel = pane.customLabel ?? config.label
   const displayColor = pane.customColor ?? config.color
@@ -113,10 +124,10 @@ export default function PaneHeader({ pane, temaDeTerminal, estado = 'idle', zoom
       <div className="pane-header-left">
         <div className="pane-color-btn-wrap" ref={pickerRef}>
           <button
-            className={`pane-color-btn${pane.borderColor === 'transparent' ? ' off' : ''}`}
-            style={pane.borderColor === 'transparent' ? undefined : { background: pane.borderColor }}
+            className={`pane-color-btn${sinColor ? ' off' : ''}`}
+            style={sinColor ? undefined : { background: colorDelPane }}
             onClick={() => setShowPicker((v) => !v)}
-            title={pane.borderColor === 'transparent' ? 'Border off' : 'Change border color'}
+            title={sinColor ? 'Border off' : 'Change border color'}
           />
           {showPicker && (
             <div className="pane-color-popover">

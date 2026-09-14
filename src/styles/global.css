@@ -2027,14 +2027,30 @@ body {
    */
   border: 1.5px solid color-mix(in srgb, var(--pane-color, var(--border)) 55%, transparent);
   border-radius: 4px;
+  /**
+   * El resplandor vuelve. Lo saqué con la regla del borde y era de más: la regla dice que de
+   * la línea para ADENTRO manda el tema, y un resplandor está por fuera del pane — no pisa
+   * una sola línea de código. Lo que sí quedó afuera para siempre es el `inset`, que pintaba
+   * color adentro del área de terminal.
+   *
+   * Es lo que hace que con ocho paneles el color se lea de lejos en vez de ser una línea de
+   * 1.5px que hay que buscar.
+   */
+  box-shadow: 0 0 14px -4px color-mix(in srgb, var(--pane-color, transparent) 38%, transparent);
 }
 
 .pane-header {
   height: var(--header-height);
-  /* El fondo de la cabecera deja de teñirse: era el cuarto lugar donde se pintaba el mismo
-     color, y con un tema importado debajo competía con él. La cabecera es cromo, no
-     contenido, así que usa el color de superficie de la app y punto. */
-  background: var(--bg-surface);
+  /**
+   * La cabecera SÍ se tiñe. Se lo saqué con la regla del borde y me pasé de largo: la
+   * cabecera es cromo, está por FUERA del área donde se lee código, y teñirla no compite con
+   * ningún tema importado — el tema manda de la línea para adentro, y esto es la línea para
+   * afuera.
+   *
+   * 10% es apenas: alcanza para que el pane entero se lea del color que elegiste sin que la
+   * cabecera se vuelva una barra de color.
+   */
+  background: color-mix(in srgb, var(--pane-color, var(--bg-surface)) 10%, var(--bg-surface));
   /* 27% ~ el 0x44 que antes se concatenaba al color en el estilo inline. Con
      --pane-color: transparent el color-mix da transparente y la linea
      desaparece, en vez de quedar pegado el color anterior.
