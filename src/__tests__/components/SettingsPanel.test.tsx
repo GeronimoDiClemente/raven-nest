@@ -324,6 +324,9 @@ function mockMemoryBridge(status: {
   itemCount: number
   pendingCount: number
   daemonStatus: 'idle' | 'syncing' | 'paused' | 'error' | 'plan_required'
+  // El código del último cambio de estado del daemon ('offline', 'lock_held', ...). Es lo
+  // que deja distinguir DOS motivos distintos para el mismo 'paused'.
+  daemonStatusDetail?: string
   quota?: { used_bytes: number; max_bytes: number }
 }) {
   const memory = {
@@ -496,6 +499,33 @@ describe('SettingsPanel — neighbouring memory-card states are unaffected by th
     await waitFor(() => expect(screen.getByText('Disconnect')).toBeInTheDocument())
     expect(screen.queryByText('Upgrade')).not.toBeInTheDocument()
     expect(screen.queryByText('Retry')).not.toBeInTheDocument()
+  })
+
+  // `paused` dejó de tener un solo significado cuando entró el candado de sincronización
+  // (§6.3): ahora es "sin red" O "otra instancia tiene el candado". El texto estaba
+  // hardcodeado en "Offline", así que el segundo caso le mentía al usuario — le decía que
+  // no tiene internet cuando lo que pasa es que hay otro Nest abierto.
+  it('paused por el candado dice que otra instancia sincroniza, no que estás offline', async () => {
+    mockMemoryBridge({
+      connected: true, deviceId: 'dev-1', itemCount: 3, pendingCount: 2,
+      daemonStatus: 'paused', daemonStatusDetail: 'lock_held',
+    })
+    render(<SettingsPanel updateState="idle" onCheckUpdates={vi.fn()} userEmail="test@example.com" userPrefs={makeUserPrefs(vi.fn())} />)
+    fireEvent.click(screen.getByTitle('Settings'))
+    fireEvent.click(screen.getByRole('button', { name: 'Account' }))
+
+    await waitFor(() => expect(screen.getByText(/another instance/i)).toBeInTheDocument())
+    expect(screen.queryByText(/offline/i)).not.toBeInTheDocument()
+  })
+
+  it('paused sin motivo sigue diciendo offline, que es el caso de siempre', async () => {
+    mockMemoryBridge({ connected: true, deviceId: 'dev-1', itemCount: 3, pendingCount: 1, daemonStatus: 'paused' })
+    render(<SettingsPanel updateState="idle" onCheckUpdates={vi.fn()} userEmail="test@example.com" userPrefs={makeUserPrefs(vi.fn())} />)
+    fireEvent.click(screen.getByTitle('Settings'))
+    fireEvent.click(screen.getByRole('button', { name: 'Account' }))
+
+    await waitFor(() => expect(screen.getByText(/offline/i)).toBeInTheDocument())
+    expect(screen.queryByText(/another instance/i)).not.toBeInTheDocument()
   })
 
   it('disconnected on a free plan still shows only Upgrade, no Disconnect', async () => {

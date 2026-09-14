@@ -978,6 +978,16 @@ declare global {
         itemCount: number
         pendingCount: number
         daemonStatus: 'idle' | 'syncing' | 'paused' | 'error' | 'plan_required'
+        /**
+         * El CÓDIGO del último cambio de estado del daemon: 'offline', 'needs_key',
+         * 'not_in_beta', 'device_limit', 'auth', 'lock_held'. No es texto para mostrar —
+         * la copia la decide el renderer.
+         *
+         * Existe porque un mismo `daemonStatus` puede tener motivos distintos que la UI
+         * tiene que distinguir: `paused` es "sin red" O "otra instancia tiene el candado
+         * de sincronización" (§6.3), y decirle "estás offline" al segundo caso es mentirle.
+         */
+        daemonStatusDetail?: string
         /** Pista de UI: si esta cuenta puede compartir memoria con otras personas. El que
          *  autoriza de verdad es el servidor. `undefined` = todavía no se sabe. */
         puedeCompartirMemoria?: boolean

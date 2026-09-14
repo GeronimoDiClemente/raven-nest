@@ -26,6 +26,11 @@ interface MemoryHookState {
   pendingCount: number
   deviceId: string | null
   error: string | null
+  /**
+   * El código del motivo del estado actual del daemon ('offline', 'lock_held', ...), o
+   * `null`. Un mismo estado puede tener motivos distintos y la copia cambia con el motivo.
+   */
+  statusDetail: string | null
   /** Lo que reporto el servidor. `null` mientras no reporto nada. */
   quota: { used_bytes: number; max_bytes: number } | null
 }
@@ -58,6 +63,7 @@ export function useMemory() {
     pendingCount: 0,
     deviceId: null,
     error: null,
+    statusDetail: null,
     quota: null,
   })
   // Guards refresh() from clobbering an in-flight connect()'s 'migrating' state with a
@@ -94,6 +100,10 @@ export function useMemory() {
       itemCount: status.itemCount,
       pendingCount: status.pendingCount,
       deviceId: status.deviceId,
+      // El motivo del estado. A diferencia de `quota`, acá NO se conserva el anterior: un
+      // status sin detalle significa "este estado no tiene motivo", y arrastrar el viejo
+      // dejaria a la UI explicando una pausa que ya se resolvio.
+      statusDetail: status.daemonStatusDetail ?? null,
       // Se conserva la ultima conocida si esta respuesta no la trae: un status sin
       // cuota significa "no vino", no "el usuario se quedo sin nube".
       quota: status.quota ?? s.quota,

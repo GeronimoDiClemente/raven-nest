@@ -677,9 +677,24 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                             {memory.itemCount} items{memory.pendingCount > 0 ? ` · ${memory.pendingCount} pending` : ' · synced'}
                           </span>
                         )}
+                        {/*
+                          `paused` tiene DOS motivos desde que existe el candado de
+                          sincronización (§6.3): sin red, u otra instancia de Nest lo tiene
+                          tomado. El texto estaba hardcodeado en "Offline", que para el
+                          segundo caso es falso — manda al usuario a revisar su internet
+                          cuando lo que pasa es que hay otra ventana abierta.
+                        */}
                         {memory.state === 'paused' && (
                           <span style={{ fontSize: 11, color: '#f59e0b', marginLeft: 6 }}>
-                            Offline — {memory.pendingCount} change{memory.pendingCount === 1 ? '' : 's'} will sync when you're back
+                            {memory.statusDetail === 'lock_held' ? (
+                              <>
+                                Another instance of Nest is syncing this memory — {memory.pendingCount} change{memory.pendingCount === 1 ? '' : 's'} queued
+                              </>
+                            ) : (
+                              <>
+                                Offline — {memory.pendingCount} change{memory.pendingCount === 1 ? '' : 's'} will sync when you're back
+                              </>
+                            )}
                           </span>
                         )}
                         {memory.state === 'error' && (

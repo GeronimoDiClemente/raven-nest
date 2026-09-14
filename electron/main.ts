@@ -3405,6 +3405,16 @@ ipcMain.handle('memory:status', () => {
     itemCount: memory.store.count(),
     pendingCount: memory.store.pendingMutationCount(),
     daemonStatus: memory.daemon.getStatus(),
+    /**
+     * El CÓDIGO del motivo, no texto para mostrar. Va por acá y no por el evento
+     * `memory:status` porque el listener del renderer ignora el payload del evento y
+     * responde con un `refresh()`, que vuelve por este mismo handler — o sea que éste es
+     * el único camino que ven Settings y la pantalla Memories.
+     *
+     * Lo necesita porque un mismo estado puede tener motivos distintos: `paused` es "sin
+     * red" o "otra instancia tiene el candado" (§6.3), y la copia cambia con el motivo.
+     */
+    daemonStatusDetail: memory.daemon.getStatusDetail(),
     quota: memory.daemon.getQuota() ?? undefined,
     /**
      * Si esta cuenta puede compartir memoria con otras personas.

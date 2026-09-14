@@ -112,7 +112,10 @@ describe('el daemon y el candado de sincronización', () => {
     expect(red.pulleo()).toBe(false)
   })
 
-  it('si otra instancia tiene el candado, lo dice en vez de fallar en silencio', async () => {
+  // El detalle es un CÓDIGO, como los que ya emite el daemon ('offline', 'needs_key',
+  // 'not_in_beta', 'auth'). El texto que ve el usuario lo decide el renderer: acá es main,
+  // y un literal en inglés metido en el daemon además se saltea el i18n del repo.
+  it('si otra instancia tiene el candado, lo dice con el código lock_held', async () => {
     const estados: Array<[DaemonStatus, string | undefined]> = []
     const c = candadoDoble(false)
     const daemon = new MemoryDaemon(deps(fakeStore(), {
@@ -123,8 +126,20 @@ describe('el daemon y el candado de sincronización', () => {
 
     await daemon.push()
 
-    expect(estados.some(([s]) => s === 'paused')).toBe(true)
-    expect(estados.some(([, d]) => !!d && /otra-instancia|999/.test(d))).toBe(true)
+    expect(estados).toContainEqual(['paused', 'lock_held'])
+  })
+
+  // El evento push llega una sola vez; la pantalla Memories y Settings piden el estado con
+  // `memory:status` cuando montan, que es un camino distinto. Sin esto, quien entra a
+  // Settings DESPUÉS de que el daemon se pausó ve 'paused' sin ningún motivo.
+  it('el detalle queda disponible para quien pregunte el estado después', async () => {
+    const c = candadoDoble(false)
+    const daemon = new MemoryDaemon(deps(fakeStore(), { fetchImpl: fetchEspia().fn, adquirirCandado: c.adquirir }))
+
+    await daemon.push()
+
+    expect(daemon.getStatus()).toBe('paused')
+    expect(daemon.getStatusDetail()).toBe('lock_held')
   })
 
   it('con el candado propio empuja normal', async () => {

@@ -298,6 +298,7 @@ export class MemoryDaemon {
   // unrelated: this one is the daemon's idle/syncing/paused/error indicator surfaced via
   // getStatus()/onStatusChange, not the sync service's health-check response.
   private currentStatus: DaemonStatus = 'idle'
+  private currentDetail: string | undefined
   private running = false
   // Task 1, Step 3a: set for the duration of a hot-swap (pause() -> ... -> resume()).
   // Every trigger entry point that can schedule a NEW push/pull (as opposed to one
@@ -460,11 +461,23 @@ export class MemoryDaemon {
 
   private setStatus(status: DaemonStatus, detail?: string): void {
     this.currentStatus = status
+    this.currentDetail = detail
     this.deps.onStatusChange?.(status, detail)
   }
 
   getStatus(): DaemonStatus {
     return this.currentStatus
+  }
+
+  /**
+   * El código del último cambio de estado ('offline', 'needs_key', 'lock_held', ...).
+   *
+   * Se retiene porque el evento `onStatusChange` pasa UNA vez: quien abre Settings o la
+   * pantalla Memories después pregunta por `memory:status`, que es un camino distinto, y
+   * sin esto vería un estado sin motivo.
+   */
+  getStatusDetail(): string | undefined {
+    return this.currentDetail
   }
 
   /**
@@ -492,13 +505,11 @@ export class MemoryDaemon {
       return true
     }
 
-    // El detalle va a la UI, así que en inglés (ver src/__tests__/la-app-es-en-ingles.test.ts,
-    // que falla si un literal visible trae acentos o eñe).
-    this.setStatus(
-      'paused',
-      `Another instance is syncing this memory (pid ${r.holder.pid} on ${r.holder.host}). ` +
-      'New memories stay in the local queue and upload once it releases.',
-    )
+    // Un CÓDIGO, igual que 'offline' / 'needs_key' / 'not_in_beta' / 'auth'. El texto que
+    // lee el usuario lo arma el renderer: acá adentro un literal de UI se saltearía el
+    // i18n del repo, y además el daemon no tiene por qué saber cómo se dice esto.
+    console.info('[memory-daemon] candado tomado por pid %d en %s — no sincronizo', r.holder.pid, r.holder.host)
+    this.setStatus('paused', 'lock_held')
     return false
   }
 
