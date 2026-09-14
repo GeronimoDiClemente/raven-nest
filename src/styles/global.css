@@ -2192,7 +2192,21 @@ body {
   color: var(--foreground);
 }
 
+/**
+ * El logo del agente vive adentro de esta etiqueta, y por eso hace falta el flex.
+ *
+ * Un `<svg>` adentro de un span de texto se apoya en la LÍNEA BASE, no en el centro de la
+ * caja. El header centra a sus hijos, así que la caja de la etiqueta quedaba centrada pero el
+ * logo de adentro se apoyaba más arriba — y al lado del círculo de color, que sí se centra,
+ * la diferencia se veía: el asterisco arriba, el círculo abajo.
+ *
+ * `inline-flex` + `align-items: center` centra el contenido dentro de la etiqueta, así que el
+ * logo y el círculo comparten eje.
+ */
 .pane-ai-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;

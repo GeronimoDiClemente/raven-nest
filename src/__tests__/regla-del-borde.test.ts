@@ -71,3 +71,23 @@ describe('la regla del borde', () => {
     expect(b).not.toMatch(/^\s*background:/m)
   })
 })
+
+/**
+ * El logo del agente y el circulo de color, en el mismo eje.
+ *
+ * El logo vive adentro del span de la etiqueta, y un `<svg>` adentro de un span de texto se
+ * apoya en la LINEA BASE y no en el centro de la caja. El header centra a sus hijos, asi que
+ * la caja de la etiqueta quedaba centrada pero el logo de adentro se apoyaba mas arriba: al
+ * lado del circulo de color —que si se centra— el desfasaje se veia.
+ */
+describe('la cabecera del pane alinea el logo con el círculo', () => {
+  it('la etiqueta centra su contenido en vez de apoyarlo en la línea base', () => {
+    const b = bloque('.pane-ai-label')
+    expect(b, 'sin display flex el svg vuelve a la línea base').toMatch(/display:\s*inline-flex/)
+    expect(b).toMatch(/align-items:\s*center/)
+  })
+
+  it('el header centra a sus hijos', () => {
+    expect(bloque('.pane-header-left')).toMatch(/align-items:\s*center/)
+  })
+})

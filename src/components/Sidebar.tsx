@@ -813,7 +813,13 @@ export default function Sidebar({
              row, not a tab. ── */}
         {!expanded && (
           <>
-            <Separator className="my-1.5 mx-2" />
+            {/* Sin `mx-2`.
+                
+                Con 8px de margen a cada lado adentro de un riel de 44px, la línea medía 28px
+                y quedaba flotando en el medio de la columna: se lee como un fragmento de
+                algo, no como una división. Un riel angosto pide una línea de borde a borde —
+                es lo que hace que parezca puesta a propósito. */}
+            <Separator className="my-1.5" />
 
             <div className={`sidebar-more${moreOpen ? ' open' : ''}`}>
               <Button
