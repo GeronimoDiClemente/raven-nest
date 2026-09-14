@@ -191,12 +191,19 @@ function VistaPreviaDelTema({ temaId, ajustar }: { temaId: string; ajustar: bool
  * tenía de más: un `<select>` de idioma flotando bajo el título "Keybinds".
  */
 function Seccion({
-  id, titulo, descripcion, busqueda, children,
+  id, titulo, descripcion, busqueda, activa, children,
 }: {
   id: string
   titulo: string
   descripcion: string
   busqueda: string
+  /**
+   * Si es la seccion elegida en el rail. Sin busqueda, es la UNICA que se dibuja.
+   *
+   * Con busqueda se ignora: ahi mandan las coincidencias, cruzando el limite de la seccion
+   * activa. Si no, buscar "theme" estando en Account no encontraria nada.
+   */
+  activa: boolean
   children: React.ReactNode
 }) {
   const ref = useRef<HTMLElement | null>(null)
@@ -229,7 +236,9 @@ function Seccion({
   // (PresetEditor, BenchmarkDashboard) sin obligarlos a declarar sus propias palabras clave.
   const propio = `${titulo} ${descripcion}`.toLowerCase()
   const contenido = ref.current?.textContent?.toLowerCase() ?? ''
-  const matchea = !q || propio.includes(q) || contenido.includes(q)
+  const coincide = !q || propio.includes(q) || contenido.includes(q)
+  // Sin busqueda manda el rail; con busqueda mandan las coincidencias.
+  const matchea = q ? coincide : activa
 
   return (
     <section
@@ -249,6 +258,21 @@ function Seccion({
 export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, activeRepoPath, onOpenTutorial, userPrefs, onFileOpen, onOpenMemories }: Props) {
   const [open, setOpen] = useState(false)
   const [busqueda, setBusqueda] = useState('')
+  /**
+   * Una seccion por vez, en vez de las nueve en un scroll.
+   *
+   * Eran nueve apiladas y `Account` sola mide 215 lineas — las ultimas cinco juntas suman
+   * menos que ella, asi que para llegar a `Terminal` habia que pasar por todo eso. El rail ya
+   * existia pero sólo hacía `scrollIntoView`: un indice de un documento largo, no una
+   * navegacion.
+   *
+   * **El buscador es la excepcion, y es la razon por la que esto no pierde nada.** Mientras
+   * hay algo escrito se muestran TODAS las secciones que matchean, cruzando el limite de la
+   * seccion activa: si no, buscar "theme" estando en Account no encontraria nada y el
+   * buscador pasaria a servir sólo adentro de lo que ya estas mirando, que es justo cuando no
+   * lo necesitas.
+   */
+  const [seccionActiva, setSeccionActiva] = useState<string>(SECCIONES[0].id)
   const { settings, updateKeybinding, updateVoiceLanguage } = useSettings()
   const { isConnected: githubConnected, githubLogin, connectGitHub, disconnectGitHub } = useGitHub()
   const { isConnected: gitlabConnected, gitlabLogin, connectGitlab, disconnectGitlab } = useGitlab()
@@ -469,16 +493,20 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                   propia: era justamente lo que hacía que estas pantallas se vieran de
                   stacks distintos. Tocar una sección la trae a la vista en vez de
                   esconder las demás — con el buscador ya hay una forma de filtrar. */}
+              {/* El rail es NAVEGACION, no un indice: cada seccion es su propia pantalla. */}
               <nav className="teams-workspace-nav">
                 {SECCIONES.map((sec) => (
                   <WorkspaceNavButton
                     key={sec.id}
                     icon={<sec.icono size={ICON_SIZE.lg} aria-hidden />}
                     label={sec.titulo}
-                    active={false}
+                    active={!busqueda && seccionActiva === sec.id}
                     onClick={() => {
-                      document.getElementById(`settings-${sec.id}`)
-                        ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                      setSeccionActiva(sec.id)
+                      // Al cambiar de seccion, el buscador deja de aplicar: lo que tenias
+                      // escrito filtraba OTRA cosa, y dejarlo puesto mostraria la seccion nueva
+                      // vacia sin decir por que.
+                      setBusqueda('')
                     }}
                   />
                 ))}
@@ -503,6 +531,7 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                 titulo="Account"
                 descripcion="Who you're signed in as, and the services connected to it."
                 busqueda={busqueda}
+                activa={seccionActiva === 'account'}
               >
                 <div className="sp-section">
                   <p className="sp-email">{userEmail || '—'}</p>
@@ -718,6 +747,7 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                 titulo="Keyboard shortcuts"
                 descripcion="Click a shortcut to record a new one."
                 busqueda={busqueda}
+                activa={seccionActiva === 'keybinds'}
               >
                 <div className="sp-section">
                   {keybindRows.map(row => (
@@ -737,6 +767,7 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                 titulo="Voice"
                 descripcion="Dictation into the prompt. Needs openai-whisper installed; without it the mic button simply doesn't transcribe."
                 busqueda={busqueda}
+                activa={seccionActiva === 'voice'}
               >
                 <div className="sp-section">
                   <div className="sp-row">
@@ -764,6 +795,7 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                 titulo="Editor"
                 descripcion="Theme and behaviour of the built-in editor."
                 busqueda={busqueda}
+                activa={seccionActiva === 'editor'}
               >
                 <div className="sp-section">
                   <div className="sp-row">
@@ -866,6 +898,7 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                 titulo="Terminal"
                 descripcion="Colours of the terminal itself — the sixteen your shell and your agents paint with."
                 busqueda={busqueda}
+                activa={seccionActiva === 'terminal'}
               >
                 <div className="sp-section">
                   <div className="sp-row">
@@ -912,6 +945,7 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                 titulo="Command presets"
                 descripcion="Commands you can fire at a pane without retyping them."
                 busqueda={busqueda}
+                activa={seccionActiva === 'presets'}
               >
                 <div className="sp-section">
                   <PresetEditor repoPath={activeRepoPath ?? null} />
@@ -923,6 +957,7 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                 titulo="Updates"
                 descripcion="Which version you are on, and whether there is a newer one."
                 busqueda={busqueda}
+                activa={seccionActiva === 'updates'}
               >
                 <div className="sp-section">
                   <Button
@@ -940,6 +975,7 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                 titulo="Tutorial"
                 descripcion="Walk through Nest with demo data, without touching your repos."
                 busqueda={busqueda}
+                activa={seccionActiva === 'tutorial'}
               >
                 <div className="sp-section">
                   <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '0 0 12px' }}>
@@ -956,6 +992,7 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                 titulo="Benchmarks"
                 descripcion="How long your agents take, measured across runs."
                 busqueda={busqueda}
+                activa={seccionActiva === 'benchmarks'}
               >
                 <div className="sp-section">
                   <BenchmarkDashboard />
