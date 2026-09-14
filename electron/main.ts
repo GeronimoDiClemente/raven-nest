@@ -3342,6 +3342,17 @@ ipcMain.handle('memory:status', () => {
     pendingCount: memory.store.pendingMutationCount(),
     daemonStatus: memory.daemon.getStatus(),
     quota: memory.daemon.getQuota() ?? undefined,
+    /**
+     * Si esta cuenta puede compartir memoria con otras personas.
+     *
+     * Va acá para que la UI no ofrezca una acción que el servidor va a rechazar. Es una
+     * PISTA de interfaz, no la autorización: el que decide es `handleShareProject` del lado
+     * del servicio, y lo sigue haciendo aunque esto mienta.
+     *
+     * Desde el 2026-09-13 ningún plan de autoservicio lo tiene: lo compartido no se cifra de
+     * punta a punta, así que compartir es un despliegue propio y no un botón.
+     */
+    puedeCompartirMemoria: planAllowsTeamSharing(memory.daemon.getPlan()),
   }
 })
 

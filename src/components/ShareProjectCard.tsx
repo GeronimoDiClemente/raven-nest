@@ -1,11 +1,19 @@
-// D6 de las respuestas de Bauti (2026-09-09): el endpoint POST /v1/projects/share existe
-// desde Layer 1 y nunca tuvo UI. Sin ella, `scope: 'team'` se retiene en silencio del lado
-// del servidor con `project_not_shared_with_team`, que es reversible: se destraba
-// compartiendo el proyecto, y hasta entonces el equipo cree que comparte y no comparte.
+// Compartir la memoria de un proyecto con otras personas.
 //
-// ⚠️ Lee `teams` de useTeam() y NUNCA llama a switchTeam. Elegir un equipo aca es elegir un
-// destino para compartir, no cambiar el equipo activo de la app (decision 3 de la spec; el
-// acoplamiento que se evita esta en PersonalWorkspace.tsx:306).
+// **Desde el 2026-09-13 esto NO es una acción de autoservicio**, y el motivo no es de
+// precios: lo compartido no se cifra de punta a punta. Cada usuario tiene su propia clave
+// maestra y no existe una que dos personas compartan, así que ofrecer "conectá tu memoria con
+// tu equipo" adentro del plan cuyo argumento de venta es el cifrado sería venderlo con un
+// asterisco. Compartir necesita su propio despliegue, donde el dueño del servidor es el
+// equipo. El día que haya cifrado de a pares, esto se reabre.
+//
+// La card tiene dos caras y el servidor decide cuál:
+//   · sin permiso  -> explica por qué y ofrece hablar. Sin select ni botón que den 403.
+//   · con permiso  -> el control real (despliegues propios, plan `team`/`enterprise`).
+//
+// ⚠️ Lee `teams` de useTeam() y NUNCA llama a switchTeam. Elegir un equipo acá es elegir un
+// destino para compartir, no cambiar el equipo activo de la app (decisión 3 de la spec; el
+// acoplamiento que se evita está en PersonalWorkspace.tsx:306).
 import { useEffect, useState } from 'react'
 import { useTeam } from '../hooks/useTeam'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -15,12 +23,24 @@ interface Props {
   activeRepoPath: string | null
 }
 
+/**
+ * A dónde escribe el que quiere compartir con su equipo.
+ *
+ * Vacío a propósito: todavía no hay un canal decidido, y poner una dirección inventada sería
+ * peor que no poner ninguna — el usuario escribe a un buzón que no existe y cree que nos
+ * avisó. Mientras esté vacío la card explica sin dibujar un botón muerto. Llenar esto es una
+ * línea.
+ */
+const CONTACTO = ''
+
 export default function ShareProjectCard({ activeRepoPath }: Props) {
   const { teams } = useTeam()
   const [projectKey, setProjectKey] = useState<string | null>(null)
   const [teamId, setTeamId] = useState('')
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null)
+  /** `undefined` mientras no se sabe: no saber no es lo mismo que saber que no. */
+  const [puedeCompartir, setPuedeCompartir] = useState<boolean | undefined>(undefined)
 
   useEffect(() => {
     if (!activeRepoPath) { setProjectKey(null); return }
@@ -30,6 +50,14 @@ export default function ShareProjectCard({ activeRepoPath }: Props) {
       .catch(() => { if (alive) setProjectKey(null) })
     return () => { alive = false }
   }, [activeRepoPath])
+
+  useEffect(() => {
+    let alive = true
+    window.memory?.status?.()
+      .then((s) => { if (alive) setPuedeCompartir(s?.puedeCompartirMemoria) })
+      .catch(() => { /* sin status no se sabe, y eso lo dice `undefined` */ })
+    return () => { alive = false }
+  }, [])
 
   useEffect(() => {
     if (!teamId && teams.length > 0) setTeamId(teams[0].id)
@@ -64,16 +92,38 @@ export default function ShareProjectCard({ activeRepoPath }: Props) {
     }
   }
 
-  /**
-   * El mismo marco que `MemoryEncryptionCard`, literal.
-   *
-   * Esta card se escribio con clases propias en `global.css` y quedo con su propia escala:
-   * el titulo en 14px y en negrita de navegador (700) contra los 13px/500 de sus vecinas, el
-   * borde en 3px de radio donde el resto usa el token, y el padding en 14/16 contra 12. En
-   * una columna donde todo lo demas comparte medidas, la unica distinta se lee como de otra
-   * pantalla — que es exactamente lo que se veia al pie de Memories.
-   */
+  // El mismo marco que MemoryEncryptionCard, para que el pie de Memories comparta la escala
+  // del resto de la pantalla.
   const marco = 'flex shrink-0 flex-col gap-2 rounded-md border border-border p-3'
+
+  /**
+   * La cara que ve casi todo el mundo. Dice POR QUÉ no está, no sólo que no está: "necesitás
+   * otro plan" invita a buscar el botón de pagar; la razón real es que todavía no lo podemos
+   * cifrar, y eso es lo que hace que la respuesta tenga sentido.
+   */
+  if (puedeCompartir === false) {
+    return (
+      <div className={marco}>
+        <h4 className="m-0 text-fs font-medium text-foreground">Share memory with your team</h4>
+        <p className="text-fs-sm text-muted-foreground">
+          Memory shared between people is not end-to-end encrypted yet — your key is yours
+          alone, and there is no key two people share. So sharing runs on its own deployment,
+          where the server belongs to your team, instead of on ours.
+        </p>
+        {CONTACTO ? (
+          <div className="flex">
+            <Button variant="outline" size="sm" asChild>
+              <a href={`mailto:${CONTACTO}?subject=Nest Memory for a team`}>Talk to us</a>
+            </Button>
+          </div>
+        ) : (
+          <p className="text-fs-sm text-muted-foreground">
+            Get in touch and we will set it up with you.
+          </p>
+        )}
+      </div>
+    )
+  }
 
   return (
     <div className={marco}>

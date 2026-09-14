@@ -978,6 +978,9 @@ declare global {
         itemCount: number
         pendingCount: number
         daemonStatus: 'idle' | 'syncing' | 'paused' | 'error' | 'plan_required'
+        /** Pista de UI: si esta cuenta puede compartir memoria con otras personas. El que
+         *  autoriza de verdad es el servidor. `undefined` = todavía no se sabe. */
+        puedeCompartirMemoria?: boolean
         /**
          * Lo que el servidor reporta en `GET /v1/sync/status`. Ausente hasta que el
          * daemon recibe su primera respuesta. El cliente NO calcula estos numeros: los
