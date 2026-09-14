@@ -1995,18 +1995,35 @@ body {
   overflow: hidden;
   position: relative;
   background: var(--bg-app);
-  border: 1.5px solid color-mix(in srgb, var(--pane-color, var(--border)) 40%, transparent);
+  /**
+   * LA REGLA DEL BORDE: de la línea para adentro manda el TEMA, de la línea para afuera
+   * mandás vos.
+   *
+   * El color del pane se pintaba en cuatro lugares —este borde, un resplandor, un borde
+   * interno de 1px y el fondo de la cabecera— y dos de ellos caían DENTRO del área donde se
+   * lee código. Con un único tema hardcodeado eso pasaba desapercibido; con temas importados
+   * es el problema entero: alguien trae su Gruvbox y le queda teñido de azul por un color
+   * que eligió para otra cosa. El tema importado tiene que verse como se ve en Ghostty, que
+   * es exactamente por lo que lo importó.
+   *
+   * Queda UN lugar: el borde. Sigue siendo tu identificador —seguís reconociendo "el rojo"
+   * de un vistazo— pero no entra al contenido. El fondo del área de terminal lo pone el
+   * tema (ver `TerminalPane.tsx`, que lo escribe inline).
+   */
+  border: 1.5px solid color-mix(in srgb, var(--pane-color, var(--border)) 55%, transparent);
   border-radius: 4px;
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--pane-color, transparent) 12%, transparent),
-              0 0 12px -4px color-mix(in srgb, var(--pane-color, transparent) 30%, transparent);
 }
 
 .pane-header {
   height: var(--header-height);
-  background: color-mix(in srgb, var(--pane-color, var(--bg-surface)) 8%, var(--bg-surface));
+  /* El fondo de la cabecera deja de teñirse: era el cuarto lugar donde se pintaba el mismo
+     color, y con un tema importado debajo competía con él. La cabecera es cromo, no
+     contenido, así que usa el color de superficie de la app y punto. */
+  background: var(--bg-surface);
   /* 27% ~ el 0x44 que antes se concatenaba al color en el estilo inline. Con
      --pane-color: transparent el color-mix da transparente y la linea
-     desaparece, en vez de quedar pegado el color anterior. */
+     desaparece, en vez de quedar pegado el color anterior.
+     Esta línea SÍ conserva el color: es la continuación del borde, no un relleno. */
   border-bottom: 1px solid color-mix(in srgb, var(--pane-color, var(--border)) 27%, transparent);
   display: flex;
   align-items: center;

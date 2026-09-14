@@ -71,7 +71,7 @@ export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZ
     }
     onInput(data)
   }, [onInput])
-  const { containerRef, write, focus, resize, findNext, findPrev, clearSearch } = useXterm(
+  const { containerRef, write, focus, resize, findNext, findPrev, clearSearch, temaActivo } = useXterm(
     pane.id, wrappedOnInput, fontSize,
     useCallback((cols: number, rows: number) => {
       terminalShareService.broadcastSize(pane.id, cols, rows)
@@ -467,7 +467,18 @@ export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZ
       <div
         ref={containerRef}
         className="terminal-container"
-        style={{ display: showBlocks ? 'none' : undefined }}
+        /**
+         * El fondo del TEMA, acá.
+         *
+         * `.xterm-viewport` está forzado a `transparent !important` (para poder esconder su
+         * scrollbar) y `.terminal-pane` pinta `--bg-app`, así que hasta hoy el fondo que
+         * declaraba un tema no se veía NUNCA: todo se dibujaba sobre el fondo de la app.
+         * Con un solo tema hardcodeado en negro no se notaba; con el catálogo, Dracula se
+         * habría renderizado sobre el fondo de Nest y no sobre el suyo — o sea, ningún tema
+         * se vería como el usuario lo conoce, que es lo único que se le pide a un tema
+         * importado.
+         */
+        style={{ display: showBlocks ? 'none' : undefined, background: temaActivo.background }}
         onMouseDown={() => onFocusRef.current()}
       />
       {showBlocks && <BlocksView blocks={blocks} pane={pane} />}

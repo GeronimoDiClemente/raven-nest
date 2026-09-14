@@ -298,5 +298,5 @@ export function useXterm(
   const clearSearch = () =>
     searchAddonRef.current?.findNext('', {})
 
-  return { containerRef, write, focus, resize, findNext, findPrev, clearSearch }
+  return { containerRef, write, focus, resize, findNext, findPrev, clearSearch, temaActivo }
 }
