@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from 'react'
+import { useEffect, useRef, useCallback, useMemo } from 'react'
 import { isResizeSuppressed, onResizeSettled } from '../lib/pane-resize-gate'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
@@ -7,8 +7,28 @@ import { SearchAddon } from '@xterm/addon-search'
 import { registerTerminal, unregisterTerminal } from '../terminal-instances'
 import { safeWriteText, safeReadText } from '../lib/clipboard'
 import { isLocalUrl } from '../lib/is-local-url'
+import { aXterm, ajustarContraste, temaPorId } from '../lib/terminal-themes'
 
-export function useXterm(paneId: string, onInput?: (data: string) => void, fontSize = 13, onResize?: (cols: number, rows: number) => void) {
+export function useXterm(
+  paneId: string,
+  onInput?: (data: string) => void,
+  fontSize = 13,
+  onResize?: (cols: number, rows: number) => void,
+  /**
+   * El tema, por id del catalogo. `undefined` cae al propio.
+   *
+   * Estaba hardcodeado aca adentro: dieciseis colores que eligio alguien una vez, sin forma
+   * de cambiarlos. Ver `src/lib/terminal-themes.ts`.
+   */
+  temaId?: string | null,
+  /** Subir al piso de 3:1 lo que no lo alcance. Opcional: el gris de un comentario esta
+   *  atenuado a proposito, y un tema importado tiene que seguir pareciendose al original. */
+  ajustarContrasteDelTema = false,
+) {
+  const temaActivo = useMemo(() => {
+    const base = temaPorId(temaId)
+    return ajustarContrasteDelTema ? ajustarContraste(base) : base
+  }, [temaId, ajustarContrasteDelTema])
   const containerRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
@@ -31,29 +51,8 @@ export function useXterm(paneId: string, onInput?: (data: string) => void, fontS
       lineHeight: 1.4,
       cursorBlink: true,
       cursorStyle: 'bar',
-      theme: {
-        background: '#000000',
-        foreground: '#e8e8e8',
-        cursor: '#0066FF',
-        cursorAccent: '#0d0d0d',
-        selectionBackground: '#0066FF33',
-        black: '#1a1a1a',
-        red: '#ff5f57',
-        green: '#28cd41',
-        yellow: '#ffbd2e',
-        blue: '#0066FF',
-        magenta: '#b48ead',
-        cyan: '#88c0d0',
-        white: '#e8e8e8',
-        brightBlack: '#4c4c4c',
-        brightRed: '#ff6e67',
-        brightGreen: '#5af78e',
-        brightYellow: '#f4f99d',
-        brightBlue: '#4d9eff',
-        brightMagenta: '#caa9fa',
-        brightCyan: '#9aedfe',
-        brightWhite: '#ffffff'
-      },
+      theme: aXterm(temaActivo),
+
       scrollback: 5000,
       allowProposedApi: true
     })
@@ -268,6 +267,17 @@ export function useXterm(paneId: string, onInput?: (data: string) => void, fontS
       if (!isResizeSuppressed()) window.pty.resize(paneId, termRef.current.cols, termRef.current.rows, 'pane-fontsize')
     } catch { /* ignore */ }
   }, [fontSize, paneId])
+
+  /**
+   * Cambiar de tema se aplica EN VIVO, sin recrear la terminal.
+   *
+   * Recrearla perderia el scrollback y mataria el proceso adjunto — cambiar un color no
+   * puede costar la sesion. `options.theme` es la via que xterm.js expone justo para esto.
+   */
+  useEffect(() => {
+    if (!termRef.current) return
+    termRef.current.options.theme = aXterm(temaActivo)
+  }, [temaActivo])
 
   const write = useCallback((data: string) => termRef.current?.write(data), [])
   const focus = useCallback(() => termRef.current?.focus(), [])
