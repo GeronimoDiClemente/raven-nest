@@ -30,6 +30,8 @@ function userPrefs(): UserPreferencesApi {
     setFontSize: vi.fn(),
     setEditorOptions: vi.fn(),
     setEditorTheme: vi.fn(),
+  setTerminalTheme: vi.fn(),
+  setTerminalThemeAutoContrast: vi.fn(),
   }
 }
 

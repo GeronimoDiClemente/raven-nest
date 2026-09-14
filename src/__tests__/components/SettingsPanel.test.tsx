@@ -60,6 +60,8 @@ function makeUserPrefs(setEditorOptionsMock: SetEditorOptionsMock) {
     setFontSize: vi.fn(),
     setEditorOptions: setEditorOptionsMock,
     setEditorTheme: vi.fn(),
+  setTerminalTheme: vi.fn(),
+  setTerminalThemeAutoContrast: vi.fn(),
   }
 }
 
@@ -165,6 +167,8 @@ describe('SettingsPanel — editor themes', () => {
       setFontSize: vi.fn(),
       setEditorOptions: vi.fn(),
       setEditorTheme,
+      setTerminalTheme: vi.fn(),
+      setTerminalThemeAutoContrast: vi.fn(),
     }
     render(<SettingsPanel updateState="idle" onCheckUpdates={vi.fn()} userEmail="t@e.com" userPrefs={userPrefs} />)
     fireEvent.click(screen.getByTitle('Settings'))

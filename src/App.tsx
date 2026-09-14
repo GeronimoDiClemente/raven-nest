@@ -1768,6 +1768,8 @@ export default function App() {
       onColorChange={(c) => updatePaneAnywhere(pane.id, p => ({ ...p, borderColor: c }))}
       onNoteChange={(note) => updatePaneAnywhere(pane.id, p => ({ ...p, note }))}
       fontSize={pane.fontSize ?? fontSize}
+                          temaDeTerminal={userPrefs.prefs.ui_settings.terminalTheme}
+                          ajustarContrasteDelTema={userPrefs.prefs.ui_settings.terminalThemeAutoContrast}
       onInput={(data) => {
         // El broadcast también aplica DESDE el Hub: los targets son los panes
         // agentes visibles en el Hub (el onInput del workspace no corre acá —
@@ -2035,6 +2037,8 @@ export default function App() {
                         onColorChange={(c) => updatePaneColor(pane.id, c)}
                         onNoteChange={(note) => updatePaneNote(pane.id, note)}
                         fontSize={pane.fontSize ?? fontSize}
+                          temaDeTerminal={userPrefs.prefs.ui_settings.terminalTheme}
+                          ajustarContrasteDelTema={userPrefs.prefs.ui_settings.terminalThemeAutoContrast}
                         onInput={(data) => {
                           // Broadcast solo a panes de AGENTE (más la propia):
                           // editor/browser no tienen PTY y una shell plana

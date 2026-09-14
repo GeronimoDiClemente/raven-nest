@@ -9,6 +9,10 @@ interface UserPreferences {
     fontSize?: number
     editorOptions?: EditorPreferences
     editorTheme?: EditorTheme
+    /** Id del tema de terminal, del catálogo de `lib/terminal-themes.ts`. */
+    terminalTheme?: string
+    /** Subir al piso de 3:1 los colores del tema que no lo alcancen. */
+    terminalThemeAutoContrast?: boolean
     // extensible
   }
 }
@@ -85,7 +89,18 @@ export function useUserPreferences() {
     updatePrefs({ ui_settings: { ...prefs.ui_settings, editorTheme: theme } })
   }, [updatePrefs, prefs.ui_settings])
 
-  return { prefs, loaded, setActiveTeam, setFontSize, setEditorOptions, setEditorTheme }
+  const setTerminalTheme = useCallback((id: string) => {
+    updatePrefs({ ui_settings: { ...prefs.ui_settings, terminalTheme: id } })
+  }, [updatePrefs, prefs.ui_settings])
+
+  const setTerminalThemeAutoContrast = useCallback((on: boolean) => {
+    updatePrefs({ ui_settings: { ...prefs.ui_settings, terminalThemeAutoContrast: on } })
+  }, [updatePrefs, prefs.ui_settings])
+
+  return {
+    prefs, loaded, setActiveTeam, setFontSize, setEditorOptions, setEditorTheme,
+    setTerminalTheme, setTerminalThemeAutoContrast,
+  }
 }
 
 // A single shared instance of this hook must live in App.tsx and be passed

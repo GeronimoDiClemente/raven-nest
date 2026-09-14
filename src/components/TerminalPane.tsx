@@ -43,6 +43,10 @@ interface Props {
   onPtyStarted?: (paneId: string, runningRepoPath: string | undefined) => void
   ports?: number[]
   fontSize: number
+  /** Id del tema de terminal (catálogo en `lib/terminal-themes.ts`). Global, no por pane. */
+  temaDeTerminal?: string | null
+  /** Subir al piso de 3:1 los colores del tema que no lo alcancen. */
+  ajustarContrasteDelTema?: boolean
   style?: React.CSSProperties
   /** True when this pane's worktree is running a multi-step worker and a next
    *  step exists — arms the "Hand off →" action in the header. */
@@ -51,7 +55,7 @@ interface Props {
   onRename?: (label: string) => void  // rename the pane (sets customLabel)
 }
 
-export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZoom, onClose, onColorChange, onNoteChange, onInput, onBusyChange, onFocus, onActivity, onJoinRequest, onPtyStarted, ports = [], fontSize, style, hasNextStep, onHandoff, onRename }: Props) {
+export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZoom, onClose, onColorChange, onNoteChange, onInput, onBusyChange, onFocus, onActivity, onJoinRequest, onPtyStarted, ports = [], fontSize, temaDeTerminal, ajustarContrasteDelTema, style, hasNextStep, onHandoff, onRename }: Props) {
   const cmdBufferRef = useRef('')
   const wrappedOnInput = useCallback((data: string) => {
     for (const ch of data) {
@@ -71,7 +75,8 @@ export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZ
     pane.id, wrappedOnInput, fontSize,
     useCallback((cols: number, rows: number) => {
       terminalShareService.broadcastSize(pane.id, cols, rows)
-    }, [pane.id])
+    }, [pane.id]),
+    temaDeTerminal, ajustarContrasteDelTema,
   )
   const { setNodeRef, attributes, listeners, isOver } = useSortable({ id: pane.id })
   const outputBuf = useRef('')       // notification buffer (last 2000 chars)

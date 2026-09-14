@@ -28,6 +28,7 @@ import {
 } from 'lucide-react'
 import { ICON_SIZE } from '../lib/icons'
 import WorkspaceNavButton from './WorkspaceNavButton'
+import { TEMAS, TEMA_NEST, temaPorId, ajustarContraste, peorContraste, CONTRASTE_MINIMO } from '../lib/terminal-themes'
 
 
 interface KeybindRowProps {
@@ -123,11 +124,63 @@ const SECCIONES: Array<{ id: string; titulo: string; icono: LucideIcon }> = [
   { id: 'keybinds', titulo: 'Keyboard shortcuts', icono: Keyboard },
   { id: 'voice', titulo: 'Voice', icono: Mic },
   { id: 'editor', titulo: 'Editor', icono: FileCode },
+  { id: 'terminal', titulo: 'Terminal', icono: TerminalIcon },
   { id: 'presets', titulo: 'Command presets', icono: TerminalIcon },
   { id: 'updates', titulo: 'Updates', icono: RefreshCw },
   { id: 'tutorial', titulo: 'Tutorial', icono: GraduationCap },
   { id: 'benchmarks', titulo: 'Benchmarks', icono: ChartColumn },
 ]
+
+/**
+ * La vista previa del tema: los dieciseis colores sobre su propio fondo.
+ *
+ * Existe porque un NOMBRE no dice nada. "Everforest Dark Hard" no se parece a nada hasta que
+ * lo ves, y elegir a ciegas entre trece nombres es peor que no poder elegir.
+ *
+ * Muestra el peor contraste de la paleta al lado, que es el numero que decide si un tema es
+ * legible de verdad o solo bonito en una captura — y que cambia en vivo al prender el ajuste,
+ * para que se vea QUE hace en vez de tener que creerle a la etiqueta.
+ */
+function VistaPreviaDelTema({ temaId, ajustar }: { temaId: string; ajustar: boolean }) {
+  const tema = ajustar ? ajustarContraste(temaPorId(temaId)) : temaPorId(temaId)
+  const peor = peorContraste(tema)
+  const [, red, green, yellow, blue, magenta, cyan] = tema.ansi
+  const gris = tema.ansi[8]
+
+  return (
+    <div className="my-2 overflow-hidden rounded-md border border-border">
+      <div
+        className="p-3 font-mono text-fs-sm leading-relaxed"
+        style={{ background: tema.background, color: tema.foreground }}
+      >
+        <div><span style={{ color: gris }}>$</span> git status</div>
+        <div style={{ color: green }}>  modified:  src/auth/session.ts</div>
+        <div style={{ color: red }}>  deleted:   src/auth/legacy.ts</div>
+        <div style={{ color: gris }}>// the refresh token rotated too early</div>
+        <div style={{ color: yellow }}>⚠ 1 MCP server needs authentication</div>
+        <div>
+          <span style={{ color: blue }}>→</span>{' '}
+          <span style={{ color: cyan }}>memory_search</span>
+          (<span style={{ color: magenta }}>&quot;auth&quot;</span>)
+        </div>
+      </div>
+      <div className="flex items-center gap-2 border-t border-border px-3 py-2">
+        <div className="flex flex-1 gap-0.5">
+          {tema.ansi.map((c, i) => (
+            <span key={i} className="h-2 flex-1 rounded-[1px]" style={{ background: c }} />
+          ))}
+        </div>
+        <span
+          className="font-mono text-fs-xs"
+          style={{ color: peor >= CONTRASTE_MINIMO ? 'var(--ok)' : 'var(--warn)' }}
+          title="Worst contrast in this palette against its own background"
+        >
+          {peor.toFixed(2)}:1
+        </span>
+      </div>
+    </div>
+  )
+}
 
 /**
  * Una sección del panel: título, una línea que dice para qué sirve, y el contenido.
@@ -805,6 +858,52 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                       <Button variant="destructive" size="sm" onClick={() => setImportPreview(null)}>Cancel</Button>
                     </div>
                   )}
+                </div>
+              </Seccion>
+
+              <Seccion
+                id="terminal"
+                titulo="Terminal"
+                descripcion="Colours of the terminal itself — the sixteen your shell and your agents paint with."
+                busqueda={busqueda}
+              >
+                <div className="sp-section">
+                  <div className="sp-row">
+                    <span className="sp-row-label">Theme</span>
+                    <select
+                      className="sp-select"
+                      data-testid="terminal-theme-select"
+                      value={userPrefs.prefs.ui_settings.terminalTheme ?? TEMA_NEST.id}
+                      onChange={(e) => userPrefs.setTerminalTheme(e.target.value)}
+                    >
+                      {TEMAS.map((t) => (
+                        <option key={t.id} value={t.id}>{t.nombre}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* La vista previa muestra los dieciseis colores del tema elegido sobre su
+                      propio fondo. Un nombre de tema no dice nada: "Everforest Dark Hard" no
+                      se parece a nada hasta que lo ves. */}
+                  <VistaPreviaDelTema
+                    temaId={userPrefs.prefs.ui_settings.terminalTheme ?? TEMA_NEST.id}
+                    ajustar={userPrefs.prefs.ui_settings.terminalThemeAutoContrast ?? false}
+                  />
+
+                  <div className="sp-row">
+                    <span className="sp-row-label">Lift low-contrast colours</span>
+                    <input
+                      type="checkbox"
+                      data-testid="terminal-theme-contrast"
+                      checked={userPrefs.prefs.ui_settings.terminalThemeAutoContrast ?? false}
+                      onChange={(e) => userPrefs.setTerminalThemeAutoContrast(e.target.checked)}
+                    />
+                  </div>
+                  <p className="text-fs-sm text-muted-foreground">
+                    Some themes dim comments so far they stop being readable — eight of these
+                    thirteen have a colour below 3:1 against their own background. This lifts
+                    only those, and only to the floor, keeping each colour&apos;s hue.
+                  </p>
                 </div>
               </Seccion>
 
