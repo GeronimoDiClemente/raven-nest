@@ -31,31 +31,29 @@ const baseProps = {
  * circulo quedaba vacio — que se lee como algo que no cargo, no como "sin color".
  */
 describe('PaneHeader — identidad y color', () => {
-  it('el color del pane es el anillo del boton de identidad', () => {
+  // El circulo de color se ve ENTERO, no como un aro fino. Una version intermedia lo
+  // convirtio en el borde de 2px del logo: quedaba ordenado y perdia justo lo que sirve, que
+  // es ver el color de lejos con ocho paneles abiertos.
+  it('el color se ve lleno, no como un aro', () => {
     const { container } = render(<PaneHeader pane={makePane({ borderColor: '#0055FF' })} {...baseProps} />)
-    const btn = container.querySelector('.pane-identidad-btn') as HTMLElement | null
+    const btn = container.querySelector('.pane-color-btn') as HTMLElement | null
     expect(btn).toBeInTheDocument()
-    expect(btn?.style.getPropertyValue('--anillo')).toBe('#0055FF')
-    expect(btn?.className).not.toContain('sin-color')
+    expect(btn?.style.background).toBe('rgb(0, 85, 255)')
   })
 
-  it('sin color no finge uno: queda el aro tenue y ningun texto', () => {
+  it('sin color el boton no finge uno', () => {
     const { container } = render(<PaneHeader pane={makePane({ borderColor: 'transparent' })} {...baseProps} />)
-    const btn = container.querySelector('.pane-identidad-btn') as HTMLElement | null
-    expect(btn?.className).toContain('sin-color')
-    expect(btn?.style.getPropertyValue('--anillo')).toBe('')
+    const btn = container.querySelector('.pane-color-btn') as HTMLElement | null
+    expect(btn?.className).toContain('off')
+    expect(btn?.style.background).toBe('')
   })
 
-  // Lo que el usuario pidio: el agente primero, no el color.
-  it('el logo del agente es lo primero del header', () => {
+  // El orden es el de siempre: el circulo de color primero y el logo adentro de la etiqueta.
+  // Se probo moverlo y no mejoraba nada — lo que se perdia era ver el color de un vistazo.
+  it('el circulo de color abre el header', () => {
     const { container } = render(<PaneHeader pane={makePane({ borderColor: '#0055FF' })} {...baseProps} />)
-    const primero = container.querySelector('.pane-header-left')?.firstElementChild
-    expect(primero?.className).toContain('pane-identidad')
-  })
-
-  it('el circulo de color suelto ya no existe', () => {
-    const { container } = render(<PaneHeader pane={makePane({ borderColor: '#0055FF' })} {...baseProps} />)
-    expect(container.querySelector('.pane-color-btn')).toBeNull()
+    const hijos = Array.from(container.querySelector('.pane-header-left')?.children ?? [])
+    expect(hijos[0]?.className).toContain('pane-color-btn-wrap')
   })
 })
 

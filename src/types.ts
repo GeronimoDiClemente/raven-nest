@@ -1202,6 +1202,8 @@ declare global {
     windowControls: {
       send: (action: 'minimize' | 'maximize' | 'close') => void
       onShown: (callback: () => void) => void
+      /** La ventana pasó a pantalla completa (o volvió). En macOS ahí se esconden los semáforos. */
+      onFullScreen?: (cb: (full: boolean) => void) => void
     }
     updater: {
       onStatus: (cb: (status: 'downloading' | 'ready' | 'error', msg?: string) => void) => void

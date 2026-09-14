@@ -1221,6 +1221,16 @@ export default function App() {
     })
   }, [])
 
+  /**
+   * En pantalla completa macOS esconde los semáforos, y la barra de pestañas les reserva
+   * 72px que quedan vacíos. No se puede detectar desde el renderer —no hay media query para
+   * esto— así que lo avisa el proceso principal.
+   */
+  const [pantallaCompleta, setPantallaCompleta] = useState(false)
+  useEffect(() => {
+    window.windowControls?.onFullScreen?.((full) => setPantallaCompleta(full))
+  }, [])
+
   // Open the new-pane dialog (engine handles slot placement)
   const addNextPane = useCallback(() => {
     setAddingPane({})
@@ -1789,7 +1799,7 @@ export default function App() {
     )
 
   return (
-    <div className="app dark bg-background text-foreground" style={{ '--tab-accent': activeTab.accentColor ?? 'var(--raven-blue)' } as React.CSSProperties}>
+    <div className={`app dark bg-background text-foreground${pantallaCompleta ? ' pantalla-completa' : ''}`} style={{ '--tab-accent': activeTab.accentColor ?? 'var(--raven-blue)' } as React.CSSProperties}>
       <TabBar
         tabs={tabs}
         activeTabId={activeTabId}

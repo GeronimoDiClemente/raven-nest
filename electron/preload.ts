@@ -272,6 +272,14 @@ contextBridge.exposeInMainWorld('windowControls', {
     ipcRenderer.removeAllListeners('window:shown')
     ipcRenderer.on('window:shown', () => callback())
   },
+  /**
+   * Si la ventana está en pantalla completa. En macOS los semáforos se esconden ahí, y la
+   * barra de pestañas les reserva 72px que quedarían vacíos.
+   */
+  onFullScreen: (callback: (full: boolean) => void) => {
+    ipcRenderer.removeAllListeners('window:fullscreen')
+    ipcRenderer.on('window:fullscreen', (_event, full: boolean) => callback(full))
+  },
 })
 
 contextBridge.exposeInMainWorld('updater', {

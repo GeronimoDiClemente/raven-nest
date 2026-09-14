@@ -111,27 +111,13 @@ export default function PaneHeader({ pane, temaDeTerminal, estado = 'idle', zoom
         <div className="pane-drag-handle" {...dragHandleProps} />
       )}
       <div className="pane-header-left">
-        {/* El color y la identidad del agente, en UN solo elemento.
-            
-            Eran dos: un círculo de color y, al lado, el logo. Dos problemas juntos. El
-            círculo quedaba primero, así que lo primero que veías de un pane no era QUÉ
-            agente es sino de qué color lo pintaste — y con el borde apagado era un círculo
-            vacío, que se lee como algo que no cargó y no como "sin color".
-            
-            Ahora el color es el ANILLO del logo: el agente queda a la izquierda del todo,
-            el color está pegado a la cosa que identifica, y sin color simplemente no hay
-            anillo. Clickear el logo abre el selector, que es donde uno lo busca. */}
-        <div className="pane-identidad" ref={pickerRef}>
+        <div className="pane-color-btn-wrap" ref={pickerRef}>
           <button
-            className={`pane-identidad-btn${pane.borderColor === 'transparent' ? ' sin-color' : ''}`}
-            style={pane.borderColor === 'transparent' ? undefined : { ['--anillo' as string]: pane.borderColor }}
+            className={`pane-color-btn${pane.borderColor === 'transparent' ? ' off' : ''}`}
+            style={pane.borderColor === 'transparent' ? undefined : { background: pane.borderColor }}
             onClick={() => setShowPicker((v) => !v)}
-            title={pane.borderColor === 'transparent' ? 'No border colour — click to pick one' : 'Change border colour'}
-          >
-            {(pane.aiType === 'terminal' || pane.aiType === 'custom')
-              ? <span className="pane-identidad-inicial">{displayLabel.slice(0, 1).toUpperCase()}</span>
-              : <AILogo aiType={pane.aiType} color={displayColor} size={14} />}
-          </button>
+            title={pane.borderColor === 'transparent' ? 'Border off' : 'Change border color'}
+          />
           {showPicker && (
             <div className="pane-color-popover">
               <div className="pane-color-grid">
@@ -204,11 +190,9 @@ export default function PaneHeader({ pane, temaDeTerminal, estado = 'idle', zoom
             title={onRename ? 'Double-click to rename' : (pane.accountName ? `${displayLabel} · ${pane.accountName}` : displayLabel)}
             onDoubleClick={onRename ? () => { setLabelValue(pane.customLabel ?? ''); setEditingLabel(true) } : undefined}
           >
-            {/* El logo se mudó al botón de identidad, a la izquierda. Acá queda sólo el
-                nombre, que es lo que se edita con doble click. */}
             {(pane.aiType === 'terminal' || pane.aiType === 'custom')
               ? displayLabel
-              : (pane.customLabel ?? displayLabel)}
+              : <><AILogo aiType={pane.aiType} color={displayColor} size={14} />{pane.customLabel && <span className="pane-custom-label">{pane.customLabel}</span>}</>}
           </span>
         )}
 

@@ -826,6 +826,24 @@ function createWindow(): void {
   win.on('show', () => {
     win.webContents.send('window:shown')
   })
+
+  /**
+   * En pantalla completa, macOS ESCONDE los semáforos.
+   *
+   * La barra de pestañas les reserva 72px fijos (`.tabbar-traffic-lights`), que es correcto
+   * mientras están: los botones no se mueven nunca, que es media la gracia. Pero en pantalla
+   * completa ese hueco queda vacío y las pestañas arrancan a 72px del borde por nada.
+   *
+   * El renderer no puede detectarlo solo —no hay media query de "pantalla completa de
+   * macOS"— así que se avisa desde acá. Se manda también el estado inicial: la ventana puede
+   * abrirse ya en pantalla completa y ahí no llega ningún evento.
+   */
+  const avisarPantallaCompleta = (): void => {
+    if (!win.isDestroyed()) win.webContents.send('window:fullscreen', win.isFullScreen())
+  }
+  win.on('enter-full-screen', avisarPantallaCompleta)
+  win.on('leave-full-screen', avisarPantallaCompleta)
+  win.webContents.on('did-finish-load', avisarPantallaCompleta)
 }
 
 // Window control handlers (used by custom titlebar on Windows)
