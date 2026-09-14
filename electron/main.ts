@@ -2516,6 +2516,37 @@ ipcMain.handle('themes:loadFromFile', async () => {
   return importVSCodeTheme(themesDir(), filePaths[0])
 })
 
+/**
+ * Abre un tema de terminal y devuelve su TEXTO CRUDO. No lo parsea.
+ *
+ * El parseo vive en el renderer (`lib/terminal-theme-import.ts`), donde ya esta probado
+ * contra archivos reales de Ghostty y de Warp. Partirlo en dos —parsear aca y validar alla—
+ * daria dos lugares que tienen que estar de acuerdo sobre que es un tema valido, que es
+ * exactamente como se llega a que uno acepte lo que el otro rechaza.
+ *
+ * Sin filtro de extension a proposito: un tema de Ghostty NO tiene extension
+ * (`~/.config/ghostty/themes/Dracula`) y un filtro lo esconderia del selector de archivos.
+ */
+ipcMain.handle('terminalThemes:readFile', async () => {
+  const win = BrowserWindow.getFocusedWindow()
+  const opts: Electron.OpenDialogOptions = {
+    properties: ['openFile'],
+    title: 'Import a Ghostty or Warp theme',
+  }
+  const { filePaths, canceled } = win
+    ? await dialog.showOpenDialog(win, opts)
+    : await dialog.showOpenDialog(opts)
+  if (canceled || filePaths.length === 0) return null
+  try {
+    const texto = readFileSync(filePaths[0], 'utf8')
+    // El nombre del archivo es el nombre del tema: es como los llaman Ghostty y Warp.
+    const nombre = basename(filePaths[0]).replace(/\.(ya?ml|conf|toml|txt)$/i, '')
+    return { ok: true as const, texto, nombre }
+  } catch (err) {
+    return { ok: false as const, error: err instanceof Error ? err.message : String(err) }
+  }
+})
+
 // Lightweight shortstat for the worktree sidebar chip. `git diff --shortstat`
 // returns one line — we parse it into totals. Defensive everywhere: any failure
 // returns zeros so the chip simply doesn't render (silent failure preferred).

@@ -1375,6 +1375,10 @@ declare global {
       importVSCode: (themePath: string) => Promise<ThemeOpResult>
       searchOpenVSX: (query: string) => Promise<{ ok: true; results: OpenVSXThemeResult[] } | { ok: false; error: string }>
       installOpenVSX: (namespace: string, name: string) => Promise<{ ok: true; installed: string[] } | { ok: false; error: string }>
+      /** Abre un tema de terminal y devuelve su texto crudo, o null si se canceló. */
+      readTerminalThemeFile: () => Promise<
+        { ok: true; texto: string; nombre: string } | { ok: false; error: string } | null
+      >
       loadFromFile: () => Promise<ThemeOpResult | null>
     }
     ide: {

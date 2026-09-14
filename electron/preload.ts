@@ -565,6 +565,11 @@ contextBridge.exposeInMainWorld('themes', {
   searchOpenVSX: (query: string) => ipcRenderer.invoke('themes:searchOpenVSX', query),
   installOpenVSX: (namespace: string, name: string) => ipcRenderer.invoke('themes:installOpenVSX', namespace, name),
   loadFromFile: () => ipcRenderer.invoke('themes:loadFromFile'),
+  /**
+   * Abre un tema de terminal y devuelve su texto crudo. El parseo lo hace el renderer, que es
+   * donde vive probado contra archivos reales de Ghostty y de Warp.
+   */
+  readTerminalThemeFile: () => ipcRenderer.invoke('terminalThemes:readFile'),
 })
 
 contextBridge.exposeInMainWorld('ide', {

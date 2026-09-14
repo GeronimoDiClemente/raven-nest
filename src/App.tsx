@@ -1771,6 +1771,7 @@ export default function App() {
                           enfocado={focusedPaneId === pane.id}
                           temaDeTerminal={userPrefs.prefs.ui_settings.terminalTheme}
                           ajustarContrasteDelTema={userPrefs.prefs.ui_settings.terminalThemeAutoContrast}
+                          temasImportados={userPrefs.prefs.ui_settings.terminalThemesImportados}
       onInput={(data) => {
         // El broadcast también aplica DESDE el Hub: los targets son los panes
         // agentes visibles en el Hub (el onInput del workspace no corre acá —
@@ -2041,6 +2042,7 @@ export default function App() {
                           enfocado={focusedPaneId === pane.id}
                           temaDeTerminal={userPrefs.prefs.ui_settings.terminalTheme}
                           ajustarContrasteDelTema={userPrefs.prefs.ui_settings.terminalThemeAutoContrast}
+                          temasImportados={userPrefs.prefs.ui_settings.terminalThemesImportados}
                         onInput={(data) => {
                           // Broadcast solo a panes de AGENTE (más la propia):
                           // editor/browser no tienen PTY y una shell plana

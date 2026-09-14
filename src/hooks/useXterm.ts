@@ -7,7 +7,7 @@ import { SearchAddon } from '@xterm/addon-search'
 import { registerTerminal, unregisterTerminal } from '../terminal-instances'
 import { safeWriteText, safeReadText } from '../lib/clipboard'
 import { isLocalUrl } from '../lib/is-local-url'
-import { aXterm, ajustarContraste, temaPorId } from '../lib/terminal-themes'
+import { aXterm, ajustarContraste, temaPorId, type TemaDeTerminal } from '../lib/terminal-themes'
 
 export function useXterm(
   paneId: string,
@@ -21,14 +21,16 @@ export function useXterm(
    * de cambiarlos. Ver `src/lib/terminal-themes.ts`.
    */
   temaId?: string | null,
+  /** Los temas que el usuario importó. Se buscan antes que el catálogo. */
+  temasImportados?: TemaDeTerminal[],
   /** Subir al piso de 3:1 lo que no lo alcance. Opcional: el gris de un comentario esta
    *  atenuado a proposito, y un tema importado tiene que seguir pareciendose al original. */
   ajustarContrasteDelTema = false,
 ) {
   const temaActivo = useMemo(() => {
-    const base = temaPorId(temaId)
+    const base = temaPorId(temaId, temasImportados)
     return ajustarContrasteDelTema ? ajustarContraste(base) : base
-  }, [temaId, ajustarContrasteDelTema])
+  }, [temaId, temasImportados, ajustarContrasteDelTema])
   const containerRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)

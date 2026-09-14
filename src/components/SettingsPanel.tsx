@@ -24,11 +24,12 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
   X, User, Keyboard, Mic, FileCode, Terminal as TerminalIcon, RefreshCw, GraduationCap,
-  ChartColumn, ChevronLeft, type LucideIcon,
+  ChartColumn, ChevronLeft, Plug, Cloud, type LucideIcon,
 } from 'lucide-react'
 import { ICON_SIZE } from '../lib/icons'
 import WorkspaceNavButton from './WorkspaceNavButton'
-import { TEMAS, TEMA_NEST, temaPorId, ajustarContraste, peorContraste, CONTRASTE_MINIMO } from '../lib/terminal-themes'
+import { TEMAS, TEMA_NEST, temaPorId, ajustarContraste, peorContraste, CONTRASTE_MINIMO, type TemaDeTerminal } from '../lib/terminal-themes'
+import { importarTema } from '../lib/terminal-theme-import'
 
 
 interface KeybindRowProps {
@@ -121,6 +122,8 @@ interface Props {
  */
 const SECCIONES: Array<{ id: string; titulo: string; icono: LucideIcon }> = [
   { id: 'account', titulo: 'Account', icono: User },
+  { id: 'connections', titulo: 'Connections', icono: Plug },
+  { id: 'cloud', titulo: 'Cloud memory', icono: Cloud },
   { id: 'keybinds', titulo: 'Keyboard shortcuts', icono: Keyboard },
   { id: 'voice', titulo: 'Voice', icono: Mic },
   { id: 'editor', titulo: 'Editor', icono: FileCode },
@@ -141,8 +144,12 @@ const SECCIONES: Array<{ id: string; titulo: string; icono: LucideIcon }> = [
  * legible de verdad o solo bonito en una captura — y que cambia en vivo al prender el ajuste,
  * para que se vea QUE hace en vez de tener que creerle a la etiqueta.
  */
-function VistaPreviaDelTema({ temaId, ajustar }: { temaId: string; ajustar: boolean }) {
-  const tema = ajustar ? ajustarContraste(temaPorId(temaId)) : temaPorId(temaId)
+function VistaPreviaDelTema(
+  { temaId, importados, ajustar }:
+  { temaId: string; importados: TemaDeTerminal[]; ajustar: boolean },
+) {
+  const base = temaPorId(temaId, importados)
+  const tema = ajustar ? ajustarContraste(base) : base
   const peor = peorContraste(tema)
   const [, red, green, yellow, blue, magenta, cyan] = tema.ansi
   const gris = tema.ansi[8]
@@ -273,6 +280,28 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
    * lo necesitas.
    */
   const [seccionActiva, setSeccionActiva] = useState<string>(SECCIONES[0].id)
+  const [errorDeTema, setErrorDeTema] = useState<string | null>(null)
+
+  const importados = userPrefs.prefs.ui_settings.terminalThemesImportados ?? []
+  const temaElegido = userPrefs.prefs.ui_settings.terminalTheme ?? TEMA_NEST.id
+  const esImportado = importados.some((t) => t.id === temaElegido)
+
+  /**
+   * Traer un tema de Ghostty o de Warp.
+   *
+   * El main devuelve el TEXTO crudo y el parseo pasa aca, que es donde vive probado contra
+   * archivos reales de los dos formatos. Un error se muestra tal cual lo escribio el parser:
+   * dice que le falta al archivo, no "no se pudo importar".
+   */
+  const importarTemaDeArchivo = useCallback(async () => {
+    setErrorDeTema(null)
+    const res = await window.themes?.readTerminalThemeFile?.()
+    if (res === null || res === undefined) return   // cancelado
+    if (!res.ok) { setErrorDeTema(res.error); return }
+    const parseado = importarTema(res.texto, res.nombre)
+    if (!parseado.ok) { setErrorDeTema(parseado.error); return }
+    userPrefs.addTerminalTheme(parseado.tema)
+  }, [userPrefs])
   const { settings, updateKeybinding, updateVoiceLanguage } = useSettings()
   const { isConnected: githubConnected, githubLogin, connectGitHub, disconnectGitHub } = useGitHub()
   const { isConnected: gitlabConnected, gitlabLogin, connectGitlab, disconnectGitlab } = useGitlab()
@@ -529,13 +558,37 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
               <Seccion
                 id="account"
                 titulo="Account"
-                descripcion="Who you're signed in as, and the services connected to it."
+                descripcion="Who you&apos;re signed in as."
                 busqueda={busqueda}
                 activa={seccionActiva === 'account'}
               >
                 <div className="sp-section">
                   <p className="sp-email">{userEmail || '—'}</p>
 
+
+                  {/* Spec 2026-09-09 §4: la memoria dejo de vivir en Settings (arranco de
+                      "siento que queda feo asi"). Queda la puerta para que quien la busque
+                      aca la encuentre. */}
+                  {onOpenMemories && (
+                    <Button variant="outline" size="sm" onClick={onOpenMemories}>
+                      Open Memories
+                    </Button>
+                  )}
+
+                  <Button variant="outline" size="sm" onClick={() => supabase.auth.signOut()}>
+                    Sign out
+                  </Button>
+                </div>
+              </Seccion>
+
+              <Seccion
+                id="connections"
+                titulo="Connections"
+                descripcion="The services signed in alongside your account."
+                busqueda={busqueda}
+                activa={seccionActiva === 'connections'}
+              >
+                <div className="sp-section">
                   <div className="sp-card">
                     <div className="sp-card-row">
                       <div className="sp-card-left">
@@ -582,6 +635,17 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                       )}
                     </div>
                   </div>
+                </div>
+              </Seccion>
+
+              <Seccion
+                id="cloud"
+                titulo="Cloud memory"
+                descripcion="Sync your memory between your machines, encrypted before it leaves."
+                busqueda={busqueda}
+                activa={seccionActiva === 'cloud'}
+              >
+                <div className="sp-section">
 
                   <div className="sp-card">
                     <div className="sp-card-row">
@@ -726,21 +790,9 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                       </label>
                     )}
                   </div>
-
-                  {/* Spec 2026-09-09 §4: la memoria dejo de vivir en Settings (arranco de
-                      "siento que queda feo asi"). Queda la puerta para que quien la busque
-                      aca la encuentre. */}
-                  {onOpenMemories && (
-                    <Button variant="outline" size="sm" onClick={onOpenMemories}>
-                      Open Memories
-                    </Button>
-                  )}
-
-                  <Button variant="outline" size="sm" onClick={() => supabase.auth.signOut()}>
-                    Sign out
-                  </Button>
                 </div>
               </Seccion>
+
 
               <Seccion
                 id="keybinds"
@@ -909,9 +961,21 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                       value={userPrefs.prefs.ui_settings.terminalTheme ?? TEMA_NEST.id}
                       onChange={(e) => userPrefs.setTerminalTheme(e.target.value)}
                     >
-                      {TEMAS.map((t) => (
-                        <option key={t.id} value={t.id}>{t.nombre}</option>
-                      ))}
+                      {/* Los del catalogo y los tuyos, separados. Un tema importado no es una
+                          version peor de uno nuestro: es EL que ya tenias configurado, y
+                          mezclarlos en una lista plana lo esconde entre trece nombres. */}
+                      <optgroup label="Built in">
+                        {TEMAS.map((t) => (
+                          <option key={t.id} value={t.id}>{t.nombre}</option>
+                        ))}
+                      </optgroup>
+                      {importados.length > 0 && (
+                        <optgroup label="Imported">
+                          {importados.map((t) => (
+                            <option key={t.id} value={t.id}>{t.nombre}</option>
+                          ))}
+                        </optgroup>
+                      )}
                     </select>
                   </div>
 
@@ -919,7 +983,8 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                       propio fondo. Un nombre de tema no dice nada: "Everforest Dark Hard" no
                       se parece a nada hasta que lo ves. */}
                   <VistaPreviaDelTema
-                    temaId={userPrefs.prefs.ui_settings.terminalTheme ?? TEMA_NEST.id}
+                    temaId={temaElegido}
+                    importados={importados}
                     ajustar={userPrefs.prefs.ui_settings.terminalThemeAutoContrast ?? false}
                   />
 
@@ -936,6 +1001,27 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                     Some themes dim comments so far they stop being readable — eight of these
                     thirteen have a colour below 3:1 against their own background. This lifts
                     only those, and only to the floor, keeping each colour&apos;s hue.
+                  </p>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button variant="outline" size="sm" onClick={importarTemaDeArchivo}>
+                      Import a Ghostty or Warp theme…
+                    </Button>
+                    {esImportado && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => userPrefs.removeTerminalTheme(temaElegido)}
+                      >
+                        Remove this theme
+                      </Button>
+                    )}
+                  </div>
+                  {errorDeTema && <p className="text-fs-sm text-warn">{errorDeTema}</p>}
+                  <p className="text-fs-sm text-muted-foreground">
+                    Already have a theme set up? Bring the file you use in Ghostty or Warp —
+                    Nest reads both, and keeps a copy so it works even if you move or uninstall
+                    them.
                   </p>
                 </div>
               </Seccion>

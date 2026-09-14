@@ -15,7 +15,7 @@ describe('Settings muestra una seccion por vez', () => {
       prefs: { active_team_id: null, ui_settings: {} },
       loaded: true,
       setActiveTeam: vi.fn(), setFontSize: vi.fn(), setEditorOptions: vi.fn(),
-      setEditorTheme: vi.fn(), setTerminalTheme: vi.fn(), setTerminalThemeAutoContrast: vi.fn(),
+      setEditorTheme: vi.fn(), setTerminalTheme: vi.fn(), setTerminalThemeAutoContrast: vi.fn(), addTerminalTheme: vi.fn(), removeTerminalTheme: vi.fn(),
     }
     render(<SettingsPanel updateState="idle" onCheckUpdates={vi.fn()} userEmail="t@e.com" userPrefs={userPrefs as never} />)
     fireEvent.click(screen.getByTitle('Settings'))
@@ -62,5 +62,56 @@ describe('Settings muestra una seccion por vez', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Voice' }))
     expect(buscador.value).toBe('')
     expect(visible('Voice')).toBe(true)
+  })
+})
+
+/**
+ * `Account` eran tres cosas distintas en 216 líneas: tu identidad, los servicios conectados,
+ * y la memoria de nube. Una sección que hace tres cosas es una sección que no se puede
+ * nombrar, y el rail no servía para llegar a ninguna de las tres.
+ */
+describe('Account se partió en tres', () => {
+  const abrir = () => {
+    const userPrefs = {
+      prefs: { active_team_id: null, ui_settings: {} },
+      loaded: true,
+      setActiveTeam: vi.fn(), setFontSize: vi.fn(), setEditorOptions: vi.fn(),
+      setEditorTheme: vi.fn(), setTerminalTheme: vi.fn(), setTerminalThemeAutoContrast: vi.fn(),
+      addTerminalTheme: vi.fn(), removeTerminalTheme: vi.fn(),
+    }
+    render(<SettingsPanel updateState="idle" onCheckUpdates={vi.fn()} userEmail="t@e.com" userPrefs={userPrefs as never} />)
+    fireEvent.click(screen.getByTitle('Settings'))
+  }
+  const visible = (titulo: string): boolean => {
+    const h = screen.getAllByRole('heading', { name: titulo, hidden: true })[0]
+    return h.closest('section')?.hasAttribute('hidden') === false
+  }
+
+  it('las tres están en el rail', () => {
+    abrir()
+    for (const t of ['Account', 'Connections', 'Cloud memory']) {
+      expect(screen.getByRole('button', { name: t }), t).toBeInTheDocument()
+    }
+  })
+
+  it('cada una muestra lo suyo y no lo de las otras', () => {
+    abrir()
+    expect(visible('Account')).toBe(true)
+    expect(screen.getByText('t@e.com')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Connections' }))
+    expect(visible('Connections')).toBe(true)
+    expect(visible('Account')).toBe(false)
+    expect(screen.getByText('GitHub')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cloud memory' }))
+    expect(visible('Cloud memory')).toBe(true)
+    expect(visible('Connections')).toBe(false)
+  })
+
+  // Sign out sigue con tu identidad, no perdido entre los servicios.
+  it('Sign out vive con la cuenta', () => {
+    abrir()
+    expect(screen.getByRole('button', { name: 'Sign out' })).toBeInTheDocument()
   })
 })

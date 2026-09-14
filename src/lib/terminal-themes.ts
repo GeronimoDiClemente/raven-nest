@@ -169,9 +169,23 @@ export const TEMAS: TemaDeTerminal[] = [
   },
 ]
 
-export function temaPorId(id: string | null | undefined): TemaDeTerminal {
+/**
+ * El tema con ese id, buscando primero en los IMPORTADOS.
+ *
+ * Los del usuario ganan sobre los nuestros a proposito: si alguien importa su propio
+ * "Dracula" —retocado a su gusto— y le queda el mismo id que el del catalogo, el que quiere
+ * ver es el suyo. Es el unico caso donde los dos pueden chocar, y la respuesta obvia es que
+ * mande el que el usuario trajo.
+ *
+ * Un id que no existe cae al tema propio en vez de devolver undefined: un tema borrado no
+ * puede dejar la terminal sin colores.
+ */
+export function temaPorId(
+  id: string | null | undefined,
+  importados: TemaDeTerminal[] = [],
+): TemaDeTerminal {
   if (!id) return TEMA_NEST
-  return TEMAS.find((t) => t.id === id) ?? TEMA_NEST
+  return importados.find((t) => t.id === id) ?? TEMAS.find((t) => t.id === id) ?? TEMA_NEST
 }
 
 // ── Contraste ──────────────────────────────────────────────────────────────────

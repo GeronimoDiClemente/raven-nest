@@ -32,6 +32,8 @@ function userPrefs(): UserPreferencesApi {
     setEditorTheme: vi.fn(),
   setTerminalTheme: vi.fn(),
   setTerminalThemeAutoContrast: vi.fn(),
+  addTerminalTheme: vi.fn(),
+  removeTerminalTheme: vi.fn(),
   }
 }
 

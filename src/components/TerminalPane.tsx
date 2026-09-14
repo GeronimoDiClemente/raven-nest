@@ -7,7 +7,7 @@ import BlocksView from './BlocksView'
 import FileStagingBar, { StagedFile } from './FileStagingBar'
 import TerminalSharePanel from './TerminalSharePanel'
 import { useTerminalShare } from '../hooks/useTerminalShare'
-import { resolverColorDePane } from '../lib/terminal-themes'
+import { resolverColorDePane, type TemaDeTerminal } from '../lib/terminal-themes'
 import { estadoDePane } from '../lib/pane-state'
 import { terminalShareService } from '../lib/terminalShareService'
 import { registerPane, unregisterPane } from '../pty-events'
@@ -51,6 +51,8 @@ interface Props {
   temaDeTerminal?: string | null
   /** Subir al piso de 3:1 los colores del tema que no lo alcancen. */
   ajustarContrasteDelTema?: boolean
+  /** Los temas que el usuario importó de Ghostty o Warp. */
+  temasImportados?: TemaDeTerminal[]
   style?: React.CSSProperties
   /** True when this pane's worktree is running a multi-step worker and a next
    *  step exists — arms the "Hand off →" action in the header. */
@@ -59,7 +61,7 @@ interface Props {
   onRename?: (label: string) => void  // rename the pane (sets customLabel)
 }
 
-export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZoom, onClose, onColorChange, onNoteChange, onInput, onBusyChange, onFocus, enfocado = false, onActivity, onJoinRequest, onPtyStarted, ports = [], fontSize, temaDeTerminal, ajustarContrasteDelTema, style, hasNextStep, onHandoff, onRename }: Props) {
+export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZoom, onClose, onColorChange, onNoteChange, onInput, onBusyChange, onFocus, enfocado = false, onActivity, onJoinRequest, onPtyStarted, ports = [], fontSize, temaDeTerminal, ajustarContrasteDelTema, temasImportados, style, hasNextStep, onHandoff, onRename }: Props) {
   const cmdBufferRef = useRef('')
   const wrappedOnInput = useCallback((data: string) => {
     for (const ch of data) {
@@ -80,7 +82,7 @@ export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZ
     useCallback((cols: number, rows: number) => {
       terminalShareService.broadcastSize(pane.id, cols, rows)
     }, [pane.id]),
-    temaDeTerminal, ajustarContrasteDelTema,
+    temaDeTerminal, temasImportados, ajustarContrasteDelTema,
   )
   const { setNodeRef, attributes, listeners, isOver } = useSortable({ id: pane.id })
   const outputBuf = useRef('')       // notification buffer (last 2000 chars)
