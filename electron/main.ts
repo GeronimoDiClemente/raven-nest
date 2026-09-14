@@ -256,6 +256,7 @@ function getMemorySyncBaseUrl(): string | null {
 const E2E_HEADLESS = process.env.RAVEN_E2E_HEADLESS === '1'
 
 import { ensureKeyMaterial, saveKeyMaterial, type KeyMaterial } from './memory-key-store'
+import { tomarCandadoDeSync, lockPathParaBase, candadoDepsDelProceso } from './memory-sync-lock'
 import { deriveKeys, hmacTopicKey } from './memory-crypto'
 import type { EnvelopeContext } from './memory-envelope'
 import {
@@ -434,6 +435,20 @@ try {
     getToken: loadMemoryToken,
     getDeviceId: () => memoryConnectionState.deviceId,
     isOnline: () => memoryOnline,
+    /**
+     * §6.3 del spec del paquete portable: sólo sincroniza quien tiene el candado de esta
+     * base. Cierra el caso que YA existe hoy — la app instalada y un build de desarrollo
+     * comparten `~/.raven-nest`, o sea dos daemons sobre la misma cuenta, con dos copias
+     * del token y dos pushers compitiendo.
+     *
+     * El path se resuelve EN CADA PEDIDO y no se captura una vez: un swap de cuenta cambia
+     * la base, y el candado es por base. `pause()` suelta el viejo (vía `stop()`) y el
+     * ciclo siguiente pide el de la base nueva.
+     */
+    adquirirCandado: () => tomarCandadoDeSync(
+      lockPathParaBase(memory?.currentStorePath ?? initialStorePath),
+      candadoDepsDelProceso(),
+    ),
     onStatusChange: (status) => {
       const win = BrowserWindow.getAllWindows()[0]
       if (win) win.webContents.send('memory:status', status)

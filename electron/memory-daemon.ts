@@ -9,6 +9,7 @@
 // vitest fake timers, without spinning up a BrowserWindow or a real network call.
 
 import { MemoryStore, type MutationLogRow } from './memory-store'
+import type { Candado, ResultadoCandado } from './memory-sync-lock'
 import { resolveLWW, resolveTopicCollision, type LWWRow } from './memory-merge'
 import { GLOBAL_PROJECT_KEY } from './memory-project-key'
 import { sealMutationPayload, openPulledRow, type EnvelopeContext } from './memory-envelope'
@@ -152,6 +153,19 @@ export interface MemoryDaemonDeps {
    * el servidor miraban `key_epoch` al pushear: nadie lo frenaba.
    */
   isEncryptionExpected?: () => boolean
+  /**
+   * §6.3 del spec `2026-09-13-nest-memory-portable-design.md`: toma el candado de
+   * sincronización de esta base. Si otro lo tiene, este daemon NO sincroniza — las
+   * escrituras locales siguen encolándose en el `mutation_log` y no se pierde nada.
+   *
+   * Cierra el caso de dos daemons sobre la misma cuenta, que ya existe hoy: la app
+   * instalada y un build de desarrollo comparten `~/.raven-nest`, o sea dos copias del
+   * token y dos pushers compitiendo (contra la decisión 2 de la arquitectura).
+   *
+   * Opcional a propósito: sin esta dep el daemon sincroniza exactamente como antes, así
+   * que ningún call site ni test anterior al candado cambia.
+   */
+  adquirirCandado?: () => ResultadoCandado
   onStatusChange?: (status: DaemonStatus, detail?: string) => void
 }
 
@@ -333,6 +347,13 @@ export class MemoryDaemon {
    */
   private primerStatusOk = false
 
+  /**
+   * El candado de §6.3 mientras lo tengamos. Se pide una sola vez y después se refresca:
+   * pedirlo en cada push obligaría a leer y escribir el archivo por operación, y el que lo
+   * tiene no necesita volver a preguntar.
+   */
+  private candado: Candado | null = null
+
   private statusInFlight: Promise<StatusResponseBody | null> | null = null
   // §11.4 / spec §5.3.1: the server's call, not a client constant. `status()` reads
   // `next_poll_ms` off every response and, when it names a different number, reschedules
@@ -365,6 +386,9 @@ export class MemoryDaemon {
     if (this.intervalTimer) clearInterval(this.intervalTimer)
     if (this.backoffTimer) clearTimeout(this.backoffTimer)
     this.debounceTimer = this.maxWaitTimer = this.intervalTimer = this.backoffTimer = null
+    // §6.3: soltarlo acá y no dejarlo vencer por ttl. Si no, la otra instancia (o el
+    // paquete portátil) espera hasta un minuto para empezar a sincronizar por nada.
+    this.soltarCandado()
   }
 
   /**
@@ -441,6 +465,46 @@ export class MemoryDaemon {
 
   getStatus(): DaemonStatus {
     return this.currentStatus
+  }
+
+  /**
+   * §6.3: ¿le toca sincronizar a ESTE proceso? Sin la dep del candado, siempre sí — el
+   * comportamiento de antes. Con la dep, lo pide una vez y después lo refresca.
+   *
+   * Cuando otro lo tiene, el estado queda en `paused` con quién lo tiene adentro del
+   * detalle. No es `error`: no hay nada roto ni nada que reintentar más rápido, y las
+   * escrituras locales siguen encolándose. Es la diferencia entre "no puedo" y "no me
+   * toca", y mostrarlo como error mandaría al usuario a buscar un problema que no existe.
+   */
+  private meTocaSincronizar(): boolean {
+    const { adquirirCandado } = this.deps
+    if (!adquirirCandado) return true
+
+    if (this.candado) {
+      // Un drain largo no se lo tiene que dejar robar por antigüedad desde otra máquina.
+      this.candado.heartbeat()
+      return true
+    }
+
+    const r = adquirirCandado()
+    if (r.ok) {
+      this.candado = r.lock
+      return true
+    }
+
+    // El detalle va a la UI, así que en inglés (ver src/__tests__/la-app-es-en-ingles.test.ts,
+    // que falla si un literal visible trae acentos o eñe).
+    this.setStatus(
+      'paused',
+      `Another instance is syncing this memory (pid ${r.holder.pid} on ${r.holder.host}). ` +
+      'New memories stay in the local queue and upload once it releases.',
+    )
+    return false
+  }
+
+  private soltarCandado(): void {
+    this.candado?.release()
+    this.candado = null
   }
 
   /** La ultima cuota reportada por el servidor, o null si todavia no reporto ninguna. */
@@ -621,6 +685,9 @@ export class MemoryDaemon {
   }
 
   private async doPush(): Promise<void> {
+    // §6.3, antes de cualquier red: si otro tiene el candado, no sale nada. Las
+    // mutaciones quedan en el `mutation_log` y las empuja quien lo tenga.
+    if (!this.meTocaSincronizar()) return
     const { store, getSyncBaseUrl, getToken, isOnline } = this.deps
     // La cuenta con la que ESTE push sale. `doPull` ya descartaba su respuesta si cambiaba;
     // acá faltaba, y el modo de falla es distinto y peor: el orquestador CIERRA el store
@@ -1076,6 +1143,9 @@ export class MemoryDaemon {
   }
 
   private async doPull(): Promise<void> {
+    // §6.3: el pull también, y no sólo por cortesía — avanza los cursores de proyecto en
+    // la base. Dos procesos bajando a la vez se pisan el cursor y uno se saltea filas.
+    if (!this.meTocaSincronizar()) return
     const { store, getSyncBaseUrl, getToken, isOnline } = this.deps
     // La cuenta con la que ESTE pull sale. Si cambia antes de que vuelva la respuesta, las
     // filas que traiga son de otra cuenta y no se escriben.
