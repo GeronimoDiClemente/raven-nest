@@ -99,7 +99,60 @@ keeping the daemon protocol language-neutral (newline-delimited JSON) preserves 
 option. Engram chose Go because it *is* the standalone binary; ours is not.
 
 MCP tool surface (details in §2.1): `memory_search`, `memory_context`, `memory_save`,
-`memory_update`, `memory_get`, `memory_promote`.
+`memory_update`, `memory_get`, `memory_promote`. Los links escritos en el texto y lo que
+`memory_get` devuelve con ellos están en §1.1b.
+
+### 1.1b Links escritos en el texto (`[[otra memoria]]`)
+
+Añadido el 2026-09-17. Copia el modelo de Obsidian: **el link se escribe dentro del
+contenido de la memoria y el índice se deriva**.
+
+El grafo dibuja ocho clases de arista y **seis se infieren** de un campo compartido (mismo
+topic, mismo tag, misma rama, misma sesión, cross-topic, cross-tag). Sólo dos son
+*afirmadas* — alguien las dijo: `manual` (tabla `memory_links`, que sólo se alcanza por IPC
+desde la UI) y `wikilink`. Antes de esto, el agente —que escribe prácticamente todas las
+memorias— **no tenía forma de afirmar una relación**: ninguna de las siete herramientas MCP
+podía crear un link.
+
+**No hay API nueva.** El agente escribe `[[título]]` o `[[topic_key]]` en el contenido; lo
+que cambió es que la descripción de `memory_save` se lo pide.
+
+Decisiones que importan:
+
+- **Se resuelve por NOMBRE en cada lectura y no se guarda ningún id.** Por eso un link
+  escrito hacia una memoria que todavía no existe empieza a andar solo el día que esa
+  memoria se escribe, sin migración ni paso de promoción. Es lo que hace barato linkear de
+  más, que es de donde sale todo el valor del modelo.
+- **`topic_key` gana sobre el título** al resolver: es el identificador estable (el análogo
+  del nombre de archivo en un vault), el título cambia cuando alguien reescribe la memoria.
+  Con varios empatados se elige el `sync_id` menor — si el desempate dependiera del orden de
+  la consulta, el grafo cambiaría de forma entre dos lecturas idénticas.
+- **Se descarta el código antes de parsear.** Las memorias guardan bash a mano llena y
+  `[[ -n "$x" ]]` es sintaxis del shell: sin esto, cada memoria con un `if` se inventaría un
+  link llamado `-n "$x"`.
+- **No cruza proyectos**: el vault de una memoria es su repo.
+
+`memory_get` devuelve, junto con la memoria:
+
+- `neighbors` — a quién apunta (`outgoing`), quién le apunta (`incoming`, el backlink) y las
+  conectadas a mano (`both`). Viaja CON la memoria y no en una tool aparte a propósito: si
+  averiguarlo costara otra llamada, volver a buscar seguiría siendo lo más barato y nadie
+  caminaría el grafo.
+- `pendingLinks` — los `[[...]]` que todavía no apuntan a nada. Es el `unresolvedLinks` de
+  Obsidian: no es un error, es una memoria que alguien ya decidió que hacía falta.
+
+El backlink se resuelve angostando con FTS5 (título y topic como frase exacta) y confirmando
+con el parser sobre esos candidatos: que el título aparezca en un texto no lo hace un link.
+Es la distinción de Obsidian entre *linked* y *unlinked mentions*, y sólo devolvemos las
+primeras.
+
+Archivos: `electron/wikilinks.ts` (parser y resolvedor, puros), `electron/memory-vecinos.ts`
+(vecinos y pendientes), `electron/memory-graph.ts` (arista `wikilink`).
+
+**Pendiente**: los links sin resolver no se dibujan como nodos huecos en el grafo — ver el
+hueco es media gracia del modelo. Requiere marcar el nodo como pendiente y que los
+consumidores de la UI dejen de asumir que todo `syncId` es una memoria real (el click abre
+la memoria). Tampoco hay alias (el `aliases:` del frontmatter de Obsidian).
 
 ### 1.2 Local SQLite store (`memory-store.ts`)
 
