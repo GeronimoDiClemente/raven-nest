@@ -23,6 +23,9 @@ const TRAZO: Record<MemoryEdgeKind, { rama: string; vertical: string; que: strin
   // la unica que una persona AFIRMO. Mezclarlas dejaria lo unico que alguien se tomo el
   // trabajo de decir indistinguible de lo que dedujo una consulta.
   manual: { rama: '━━━', vertical: '┃', que: 'conectadas a mano' },
+  // Afirmada como la manual —trazo grueso— pero dirigida: la escribió quien redactó la
+  // memoria, apuntando a otra. Como `revision`, su texto depende del sentido (ver `queDice`).
+  wikilink: { rama: '━━▶', vertical: '┃', que: 'linkeada en el texto' },
   // `revision` es la única dirigida, así que su texto depende de para qué lado se la esté
   // leyendo — ver `queDice`. Esto es el caso genérico, el que usa la leyenda del pie.
   revision: { rama: '──▶', vertical: '│', que: 'una reemplazó a la otra' },
@@ -40,14 +43,18 @@ const TRAZO: Record<MemoryEdgeKind, { rama: string; vertical: string; que: strin
 /**
  * Qué dice la relación, leída DESDE el nodo padre HACIA el hijo.
  *
- * Sólo `revision` necesita esto: es la única dirigida, y una etiqueta fija dice lo contrario
- * de lo que pasa en la mitad de los casos. En el grafo, `from` es la memoria reemplazada y
- * `to` la que la reemplazó (ver buildMemoryGraph), así que si el hijo es el `from`, el padre
- * es el que la reemplazó — y al revés.
+ * Lo necesitan las dirigidas —`revision` y `wikilink`—, porque una etiqueta fija dice lo
+ * contrario de lo que pasa en la mitad de los casos.
+ *
+ * En `revision`, `from` es la memoria reemplazada y `to` la que la reemplazó (ver
+ * buildMemoryGraph), así que si el hijo es el `from`, el padre es el que la reemplazó — y al
+ * revés. En `wikilink`, `from` es la que MENCIONA y `to` la mencionada: leer la arista al
+ * revés es justamente el backlink.
  */
 function queDice(kind: MemoryEdgeKind, hijoEsElFrom: boolean): string {
-  if (kind !== 'revision') return TRAZO[kind].que
-  return hijoEsElFrom ? 'replaced by the one above' : 'replaces the one above'
+  if (kind === 'revision') return hijoEsElFrom ? 'replaced by the one above' : 'replaces the one above'
+  if (kind === 'wikilink') return hijoEsElFrom ? 'points at the one above' : 'is pointed at by the one above'
+  return TRAZO[kind].que
 }
 
 /** Vigente o reemplazada. Un círculo hueco se lee como "esto ya no vale" sin leyenda. */

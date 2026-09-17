@@ -28,9 +28,10 @@
 // abajo) es INFERENCIA sobre contenido, no un hecho declarado como las otras tres — por eso
 // vive detrás de `query.includeSimilar`, apagado por default.
 import type Database from 'better-sqlite3'
+import { parsearWikilinks, resolverWikilink, type CandidatoMemoria } from './wikilinks'
 
 export type MemoryEdgeKind =
-  | 'manual' | 'revision' | 'topic' | 'branch' | 'source' | 'cross-topic' | 'cross-tag' | 'similar'
+  | 'manual' | 'wikilink' | 'revision' | 'topic' | 'branch' | 'source' | 'cross-topic' | 'cross-tag' | 'similar'
 
 export interface MemoryGraphNode {
   syncId: string
@@ -517,6 +518,38 @@ export function buildMemoryGraph(db: Database.Database, query: MemoryGraphQuery)
       // nodo que no vino haria aparecer un punto fantasma sin titulo ni color.
       if (idsSeleccionados.has(l.a) && idsSeleccionados.has(l.b)) {
         edges.push({ from: l.a, to: l.b, kind: 'manual', directed: false })
+      }
+    }
+  }
+
+  // 4b. wikilink — `[[otra memoria]]` escrito DENTRO del texto. Como la manual, es una
+  // arista que alguien AFIRMO; las otras se infieren de campos compartidos.
+  //
+  // Se resuelve por NOMBRE en cada lectura y no se guarda ningun id: asi un link escrito
+  // antes de que la memoria destino existiera empieza a funcionar solo el dia que existe,
+  // sin paso de migracion. Es el modelo de Obsidian — el texto manda y el indice se deriva.
+  //
+  // El contenido se lee en una consulta APARTE, como ya se hace con `tags`: el SELECT
+  // principal trae todas las filas vivas y recien despues se corta por `limit`, asi que
+  // pedirle el texto completo seria traer el cuerpo de memorias que ni se van a dibujar.
+  if (selected.length > 0) {
+    const candidatos: CandidatoMemoria[] = selected.map((r) => ({
+      syncId: r.sync_id,
+      title: r.title,
+      topicKey: r.topic_key,
+    }))
+    const ph = selected.map(() => '?').join(',')
+    const cuerpos = db
+      .prepare(`SELECT sync_id, content FROM observations WHERE sync_id IN (${ph})`)
+      .all(...selected.map((r) => r.sync_id)) as Array<{ sync_id: string; content: string | null }>
+
+    for (const fila of cuerpos) {
+      for (const nombre of parsearWikilinks(fila.content ?? '')) {
+        const destino = resolverWikilink(nombre, candidatos)
+        // Sin destino el link queda pendiente y no se dibuja: una arista hacia un nodo que
+        // no vino haria aparecer un punto fantasma sin titulo ni color.
+        if (!destino || destino === fila.sync_id) continue
+        edges.push({ from: fila.sync_id, to: destino, kind: 'wikilink', directed: true })
       }
     }
   }

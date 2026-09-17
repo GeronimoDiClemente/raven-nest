@@ -21,6 +21,7 @@ beforeEach(() => {
       topic_key      TEXT,
       type           TEXT NOT NULL,
       title          TEXT NOT NULL,
+      content        TEXT NOT NULL DEFAULT '',
       tags           TEXT,
       git_branch     TEXT,
       origin_ai      TEXT,

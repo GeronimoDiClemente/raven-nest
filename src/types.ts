@@ -308,7 +308,7 @@ export interface TeamThreadSettings {
  *  puente de datos del grafo navegable de memorias — ver ese archivo para el detalle de
  *  cómo se computan revision/topic/branch. */
 export type MemoryEdgeKind =
-  | 'manual' | 'revision' | 'topic' | 'branch' | 'source' | 'cross-topic' | 'cross-tag' | 'similar'
+  | 'manual' | 'wikilink' | 'revision' | 'topic' | 'branch' | 'source' | 'cross-topic' | 'cross-tag' | 'similar'
 
 export interface MemoryGraphNode {
   syncId: string

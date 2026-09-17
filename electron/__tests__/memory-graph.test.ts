@@ -23,6 +23,7 @@ beforeEach(() => {
       topic_key      TEXT,
       type           TEXT NOT NULL,
       title          TEXT NOT NULL,
+      content        TEXT NOT NULL DEFAULT '',
       git_branch     TEXT,
       origin_ai      TEXT,
       author_display TEXT,
@@ -67,6 +68,7 @@ interface Row {
   topicKey?: string | null
   type?: string
   title?: string
+  content?: string
   gitBranch?: string | null
   sourceRef?: string | null
   tags?: string[] | null
@@ -80,9 +82,9 @@ interface Row {
 function insert(r: Row): void {
   db.prepare(
     `INSERT INTO observations
-      (sync_id, project_key, scope, topic_key, type, title, git_branch, origin_ai,
+      (sync_id, project_key, scope, topic_key, type, title, content, git_branch, origin_ai,
        author_display, updated_at, deleted, superseded_by, source_ref, tags)
-     VALUES (@sync_id, @project_key, @scope, @topic_key, @type, @title, @git_branch,
+     VALUES (@sync_id, @project_key, @scope, @topic_key, @type, @title, @content, @git_branch,
        @origin_ai, @author_display, @updated_at, @deleted, @superseded_by, @source_ref, @tags)`
   ).run({
     sync_id: r.syncId,
@@ -91,6 +93,7 @@ function insert(r: Row): void {
     topic_key: r.topicKey ?? null,
     type: r.type ?? 'decision',
     title: r.title ?? r.syncId,
+    content: r.content ?? '',
     git_branch: r.gitBranch ?? null,
     origin_ai: r.originAi ?? null,
     author_display: r.authorDisplay ?? null,
@@ -467,5 +470,62 @@ describe('arista manual — conectada a mano', () => {
     conectar('a', 'b')
 
     expect(buildMemoryGraph(db, Q()).edges.filter((e) => e.kind === 'manual')).toHaveLength(1)
+  })
+})
+
+// Links estilo Obsidian escritos DENTRO del texto de la memoria: `[[otra memoria]]`.
+// Como la manual, es una arista AFIRMADA — alguien la escribió — a diferencia de las que
+// el sistema infiere de campos compartidos. Ver electron/wikilinks.ts.
+describe('arista wikilink — linkeada en el texto', () => {
+  const wikis = () => buildMemoryGraph(db, Q()).edges.filter((e) => e.kind === 'wikilink')
+
+  it('une la memoria que menciona con la mencionada, por título', () => {
+    insert({ syncId: 'a', title: 'El candado de sync', updatedAt: 1 })
+    insert({ syncId: 'b', title: 'Otra cosa', content: 'esto sale de [[El candado de sync]]', updatedAt: 2 })
+
+    expect(wikis()).toHaveLength(1)
+    expect(wikis()[0]).toMatchObject({ from: 'b', to: 'a', directed: true })
+  })
+
+  it('resuelve por topic_key', () => {
+    insert({ syncId: 'a', topicKey: 'arquitectura/candado', title: 'cualquiera', updatedAt: 1 })
+    insert({ syncId: 'b', content: 'ver [[arquitectura/candado]]', updatedAt: 2 })
+
+    expect(wikis()).toHaveLength(1)
+    expect(wikis()[0].to).toBe('a')
+  })
+
+  it('un link a algo que todavía no existe no emite arista, y no rompe', () => {
+    // El link sin resolver es deliberado: apuntar a una memoria no escrita es lo que hace
+    // barato linkear de más. Acá no hay arista porque no hay a dónde ir — el día que esa
+    // memoria exista aparece sola, porque se resuelve por NOMBRE en cada lectura.
+    insert({ syncId: 'b', content: 'esto viene de [[algo que no escribí]]', updatedAt: 2 })
+    expect(wikis()).toEqual([])
+  })
+
+  it('no emite arista hacia una memoria que quedó fuera del limit', () => {
+    insert({ syncId: 'a', title: 'vieja', updatedAt: 1 })
+    insert({ syncId: 'b', content: 'mira [[vieja]]', updatedAt: 2 })
+
+    const graph = buildMemoryGraph(db, { ...Q(), limit: 1 })
+    expect(graph.edges.filter((e) => e.kind === 'wikilink')).toEqual([])
+  })
+
+  it('la sintaxis de bash en un bloque de código NO inventa aristas', () => {
+    insert({ syncId: 'a', title: '-n "$x"', updatedAt: 1 })
+    insert({ syncId: 'b', content: '```bash\nif [[ -n "$x" ]]; then :; fi\n```', updatedAt: 2 })
+    expect(wikis()).toEqual([])
+  })
+
+  it('una memoria que se menciona a sí misma no se conecta consigo misma', () => {
+    insert({ syncId: 'a', title: 'yo mismo', content: 'soy [[yo mismo]]', updatedAt: 1 })
+    expect(wikis()).toEqual([])
+  })
+
+  it('varios links en un texto dan varias aristas', () => {
+    insert({ syncId: 'a', title: 'uno', updatedAt: 1 })
+    insert({ syncId: 'b', title: 'dos', updatedAt: 2 })
+    insert({ syncId: 'c', content: 'viene de [[uno]] y pasa por [[dos]]', updatedAt: 3 })
+    expect(wikis().map((e) => e.to).sort()).toEqual(['a', 'b'])
   })
 })

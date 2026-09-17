@@ -96,9 +96,13 @@ describe('toGraphData', () => {
 })
 
 describe('EDGE_STYLES', () => {
-  it('solo revision es dirigida — es la unica que cuenta una historia', () => {
+  // Antes esta prueba decia que `revision` era la UNICA dirigida. Dejo de serlo el dia que
+  // entro `wikilink`: un link escrito en el texto apunta de la memoria que menciona a la
+  // mencionada, y leerlo al reves es el backlink. Las dos cuentan una historia con sentido;
+  // las inferidas (mismo tema, mismo tag) no, porque no hay un lado que preceda al otro.
+  it('las dirigidas son exactamente las que cuentan una historia con sentido', () => {
     const conFlecha = EDGE_KINDS_IN_LEGEND_ORDER.filter((k) => EDGE_STYLES[k].arrowLength > 0)
-    expect(conFlecha).toEqual(['revision'])
+    expect(conFlecha.sort()).toEqual(['revision', 'wikilink'])
   })
 
   it('similar es la mas tenue y la mas fina: es inferencia, no un hecho afirmado', () => {
@@ -133,7 +137,7 @@ describe('countEdgeKinds', () => {
         { from: 'a', to: 'c', kind: 'revision', directed: true },
       ],
     ), TODO)
-    expect(countEdgeKinds(data)).toEqual({ manual: 0, revision: 1, topic: 2, 'cross-topic': 0, 'cross-tag': 0, branch: 0, source: 0, similar: 0 })
+    expect(countEdgeKinds(data)).toEqual({ manual: 0, wikilink: 0, revision: 1, topic: 2, 'cross-topic': 0, 'cross-tag': 0, branch: 0, source: 0, similar: 0 })
   })
 })
 

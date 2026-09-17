@@ -142,6 +142,17 @@ export const EDGE_STYLES: Record<MemoryEdgeKind, EdgeStyle> = {
     label: 'Connected by hand',
     meaning: 'Someone said these two go together',
   },
+  // La otra AFIRMADA: la escribió quien redactó la memoria, con `[[...]]` en el texto.
+  // Va dirigida —del que menciona al mencionado— porque el link tiene un sentido, y el
+  // sentido inverso es el backlink.
+  wikilink: {
+    width: 2.2,
+    color: 'rgba(255, 255, 255, 0.8)',
+    curvature: 0.1,
+    arrowLength: 3.5,
+    label: 'Linked in the text',
+    meaning: 'This memory points at that one',
+  },
   revision: {
     width: 2,
     color: 'rgba(232, 232, 232, 0.85)',
@@ -215,7 +226,7 @@ export const EDGE_STYLES: Record<MemoryEdgeKind, EdgeStyle> = {
   },
 }
 
-export const EDGE_KINDS_IN_LEGEND_ORDER: MemoryEdgeKind[] = ['manual', 'revision', 'topic', 'cross-topic', 'cross-tag', 'branch', 'source', 'similar']
+export const EDGE_KINDS_IN_LEGEND_ORDER: MemoryEdgeKind[] = ['manual', 'wikilink', 'revision', 'topic', 'cross-topic', 'cross-tag', 'branch', 'source', 'similar']
 
 function nodeLabel(node: MemoryGraphNode): string {
   return node.title.trim() || '(untitled)'
@@ -361,7 +372,7 @@ export function tagGroups(graph: MemoryGraph): TagGroup[] {
 /** Cuántas aristas de cada tipo hay. La leyenda no lista un tipo que no está en pantalla. */
 export function countEdgeKinds(data: GraphData): Record<MemoryEdgeKind, number> {
   const out: Record<MemoryEdgeKind, number> = {
-    manual: 0, revision: 0, topic: 0, 'cross-topic': 0, 'cross-tag': 0, branch: 0, source: 0, similar: 0,
+    manual: 0, wikilink: 0, revision: 0, topic: 0, 'cross-topic': 0, 'cross-tag': 0, branch: 0, source: 0, similar: 0,
   }
   for (const l of data.links) out[l.kind] += 1
   return out

@@ -46,12 +46,16 @@ export const TOOL_MANIFEST = [
       "Do not wait for the user to say 'remember this' — they will not. Self-check before every " +
       "reply: did I decide something, fix something, or learn something non-obvious? If yes, call " +
       "memory_save NOW. Saving is cheap; forgetting is not. Use topic_key for evolving topics so " +
-      "updates replace the old version instead of piling up.",
+      "updates replace the old version instead of piling up. " +
+      "LINK AS YOU WRITE: mention a related memory inline as [[its title]] or [[its topic_key]]. " +
+      "Links are cheap and they are what lets a later search walk straight to the related memory " +
+      "instead of hunting for it. Linking to a memory that does not exist yet is fine — it starts " +
+      "working by itself the day you write it.",
     inputSchema: {
       type: 'object',
       properties: {
         title: { type: 'string', description: "Verb + object, short and searchable. 'Fixed N+1 query in UserList'" },
-        content: { type: 'string', description: 'What / Why / Where (files) / Learned (gotchas). 4 short paragraphs max.' },
+        content: { type: 'string', description: 'What / Why / Where (files) / Learned (gotchas). 4 short paragraphs max. Link related memories inline as [[title or topic_key]].' },
         type: {
           type: 'string',
           enum: ['decision', 'bugfix', 'architecture', 'discovery', 'pattern', 'config', 'preference'],
