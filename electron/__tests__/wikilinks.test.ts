@@ -96,6 +96,27 @@ describe('resolverWikilink', () => {
     expect(resolverWikilink('candado', cands)).toBe('s2')
   })
 
+  it('resuelve por el ÚLTIMO tramo del topic_key, como el nombre de archivo en un vault', () => {
+    // Medido contra el corpus real el 2026-09-17: las 120 memorias tienen topic_key con
+    // prefijo de namespace del importador (`claude-memory/...`), y los 116 links ya
+    // escritos dicen el slug pelado. Sin esta regla no resolvía NINGUNO.
+    // Es la resolución de Obsidian: `[[nota]]` encuentra `carpeta/nota.md`.
+    const cands = [c('s1', 'Lista de espera terminada', 'claude-memory/lista-espera-estado')]
+    expect(resolverWikilink('lista-espera-estado', cands)).toBe('s1')
+  })
+
+  it('el tramo del topic gana sobre un título que coincida', () => {
+    // El topic es el identificador estable; el título es prosa y cambia.
+    const cands = [c('s1', 'candado'), c('s2', 'otra cosa', 'claude-memory/candado')]
+    expect(resolverWikilink('candado', cands)).toBe('s2')
+  })
+
+  it('con dos topics que terminan igual elige siempre el mismo', () => {
+    const cands = [c('s9', 'a', 'uno/repe'), c('s2', 'b', 'otro/repe')]
+    expect(resolverWikilink('repe', cands)).toBe('s2')
+    expect(resolverWikilink('repe', [...cands].reverse())).toBe('s2')
+  })
+
   it('devuelve null si no existe — el link queda pendiente, no es un error', () => {
     // Es la pieza que hace barato linkear de más: podés apuntar a una memoria que todavía
     // no escribiste, y cuando exista el link se resuelve solo.
