@@ -130,7 +130,9 @@ export default function MemoryGraphPanel({ selectedId, onSelect, onEmpezarAConec
       : foco.tipo === 'project'
         ? graph.nodes.filter((n) => n.projectKey === foco.valor)
         : graph.nodes.filter((n) => n.tags.includes(foco.valor))
-    return [...new Set(enFoco.map((n) => n.type))]
+    // Los huecos quedan afuera: `pending` no es un tipo de memoria, y listarlo en la
+    // leyenda de tipos le pondría un nombre de categoría a algo que no está escrito.
+    return [...new Set(enFoco.filter((n) => !n.pending).map((n) => n.type))]
   }, [graph, foco])
 
   // Si el conjunto que se está mirando tiene un solo tipo, colorear por tipo no distingue
@@ -307,6 +309,7 @@ export default function MemoryGraphPanel({ selectedId, onSelect, onEmpezarAConec
               conteos={conteos}
               colorBy={colorEfectivo}
               tiposPresentes={tiposPresentes}
+              pendientes={data.nodes.filter((n) => n.pending).length}
             />
           )}
         </div>
@@ -316,13 +319,15 @@ export default function MemoryGraphPanel({ selectedId, onSelect, onEmpezarAConec
 }
 
 function SinSeleccion({
-  grupos, tags, foco, onFocus, conteos, colorBy, tiposPresentes,
+  grupos, tags, foco, onFocus, conteos, colorBy, tiposPresentes, pendientes,
 }: {
   grupos: ProjectGroup[]
   tags: TagGroup[]
   foco: Foco
   onFocus: (f: Foco) => void
   conteos: Record<MemoryEdgeKind, number> | null
+  /** Cuántos huecos hay en pantalla: `[[...]]` que todavía no apuntan a nada. */
+  pendientes: number
   colorBy: ColorBy
   tiposPresentes: string[]
 }) {
@@ -357,6 +362,25 @@ function SinSeleccion({
               )
             })}
           </ul>
+        </div>
+      )}
+
+      {pendientes > 0 && (
+        <div>
+          <p className="mb-1.5 text-fs-xs uppercase tracking-wide text-muted-foreground">Gaps</p>
+          <ul className="flex flex-col gap-1.5">
+            <li className="flex items-baseline gap-2 text-fs-sm">
+              <span
+                aria-hidden
+                className="inline-block size-2 shrink-0 self-center rounded-full border border-muted-foreground"
+              />
+              <span className="shrink-0 text-foreground">Not written yet</span>
+              <span className="shrink-0 font-mono text-fs-xs tabular-nums text-muted-foreground">{pendientes}</span>
+            </li>
+          </ul>
+          <p className="mt-1 text-fs-xs text-muted-foreground">
+            A memory links to it, but nobody wrote it yet. Nothing to open.
+          </p>
         </div>
       )}
 

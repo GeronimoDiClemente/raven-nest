@@ -4,7 +4,7 @@
 // nodos y líneas genéricas que `Graph3D` sabe dibujar. El render —medir la caja, encuadrar,
 // los controles, el atenuado del vecindario, las etiquetas— es compartido con el grafo de
 // ramas, y `Graph3D` es el único que importa react-force-graph-3d.
-import { useMemo } from 'react'
+import { useCallback, useMemo } from 'react'
 import Graph3D, { type Link3D, type Node3D } from './Graph3D'
 import { EDGE_STYLES, type GraphData } from '../lib/memory-graph-visuals'
 
@@ -26,6 +26,18 @@ export default function MemoryGraph3D({ data, selectedId, onSelect, showLabels, 
 
   // Las aristas SÍ se traducen: `kind` es nuestro, y el estilo —ancho, curvatura, flecha—
   // es lo que hace que las cuatro relaciones se distingan por forma y no por color.
+  // Un hueco no se puede abrir: no hay memoria detrás. Sin esto, el panel pediría un syncId
+  // que no existe y mostraría el documento como "missing" — o sea, como una memoria borrada,
+  // que es justo lo contrario de lo que un pendiente significa (todavía no escrita).
+  const huecos = useMemo(
+    () => new Set(data.nodes.filter((n) => n.pending).map((n) => n.id)),
+    [data.nodes],
+  )
+  const alSeleccionar = useCallback(
+    (id: string | null) => { if (id && huecos.has(id)) return; onSelect(id) },
+    [huecos, onSelect],
+  )
+
   const links = useMemo<Link3D[]>(
     () => data.links.map((l) => {
       const s = EDGE_STYLES[l.kind]
@@ -48,7 +60,7 @@ export default function MemoryGraph3D({ data, selectedId, onSelect, showLabels, 
       links={links}
       selectedId={selectedId}
       resaltados={resaltados}
-      onSelect={onSelect}
+      onSelect={alSeleccionar}
       showLabels={showLabels}
     />
   )

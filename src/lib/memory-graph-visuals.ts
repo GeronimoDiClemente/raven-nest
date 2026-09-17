@@ -43,6 +43,8 @@ export interface GraphNodeDatum {
   projectLabel: string
   tags: string[]
   gitBranch: string | null
+  /** Un hueco, no una memoria: el nodo no se puede abrir. Ver `PENDIENTE_NODE`. */
+  pending: boolean
 }
 
 export interface GraphLinkDatum {
@@ -61,6 +63,14 @@ export interface GraphData {
 
 /** Gris neutro para un tipo fuera de la leyenda fija — nunca un color inventado. */
 const NEUTRAL_NODE = '#8a8a8a'
+/**
+ * El hueco: un `[[...]]` que todavía no apunta a nada.
+ *
+ * Mucho más apagado que cualquier memoria y siempre del mismo color, sin importar si el
+ * grafo colorea por proyecto, tag o tipo: un hueco no PERTENECE a ninguna de esas cosas —
+ * no tiene tags, ni tipo, ni autor. Pintarlo como si los tuviera sería inventar.
+ */
+const PENDIENTE_NODE = '#4a4a4a'
 
 /**
  * Paleta categórica para los proyectos. Los primeros siete son los mismos de
@@ -293,6 +303,24 @@ export function toGraphData(graph: MemoryGraph, opts: ToGraphDataOptions): Graph
       const dom = tagDominante(n.tags, ranking)
       return dom ? (coloresDeTag.get(dom) ?? NEUTRAL_NODE) : NEUTRAL_NODE
     }
+    if (n.pending) {
+      return {
+        id: n.syncId,
+        label: n.title,
+        color: PENDIENTE_NODE,
+        // Chico y fijo: el tamaño de una memoria dice cuántas conexiones tiene; el de un
+        // hueco no dice nada, porque el hueco no es el tema — es lo que falta escribir.
+        val: 1.2,
+        degree,
+        superseded: false,
+        type: n.type,
+        projectKey: n.projectKey,
+        projectLabel: n.projectDisplayName ?? n.projectKey,
+        tags: [],
+        gitBranch: null,
+        pending: true,
+      }
+    }
     return {
       id: n.syncId,
       label: nodeLabel(n),
@@ -309,6 +337,7 @@ export function toGraphData(graph: MemoryGraph, opts: ToGraphDataOptions): Graph
       projectLabel: n.projectDisplayName ?? n.projectKey,
       tags: n.tags,
       gitBranch: n.gitBranch,
+      pending: false,
     }
   })
 

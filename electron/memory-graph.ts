@@ -62,13 +62,32 @@ export interface MemoryGraphNode {
   updatedAt: number
   /** true si esta observacion fue reemplazada por otra (superseded_by != null). */
   superseded: boolean
+  /**
+   * Este nodo NO es una memoria: es un `[[...]]` que todavía no apunta a nada.
+   *
+   * Se dibuja hueco y no se puede abrir — no hay nada que abrir. Existe porque ver el hueco
+   * es media gracia del modelo: un link pendiente es una memoria que alguien ya decidió que
+   * hacía falta y todavía no escribió. Es el `unresolvedLinks` de Obsidian.
+   */
+  pending?: boolean
+}
+
+/**
+ * El id de un nodo pendiente.
+ *
+ * El prefijo no es cosmético: garantiza que nunca colisione con un `sync_id` real, que es lo
+ * que evita que la UI intente abrir una memoria que no existe. Todo consumidor que reciba un
+ * id de nodo tiene que poder distinguir los dos casos, y esto es lo que se lo permite.
+ */
+export function idDeLinkPendiente(nombre: string): string {
+  return `pendiente:${nombre.trim().toLowerCase()}`
 }
 
 export interface MemoryGraphEdge {
   from: string
   to: string
   kind: MemoryEdgeKind
-  /** true solo para 'revision'. Las otras dos son simetricas. */
+  /** Dirigidas: 'revision' y 'wikilink'. Las demas son simetricas. */
   directed: boolean
 }
 
@@ -447,6 +466,10 @@ export function buildMemoryGraph(db: Database.Database, query: MemoryGraphQuery)
 
   const nodeIds = new Set(nodes.map((n) => n.syncId))
   const edges: MemoryGraphEdge[] = []
+  // Los huecos van aparte y se suman al final: `limit` acota cuantas MEMORIAS se traen, y un
+  // hueco no es una memoria. Dejarlo competir por el cupo esconderia una memoria real para
+  // mostrar algo que no existe.
+  const pendientes = new Map<string, MemoryGraphNode>()
 
   // 1. revision — dirigida, del viejo (superseded_by seteado) al nuevo. Sin aristas
   // colgantes: si el sucesor quedó afuera por `limit`, no se emite.
@@ -533,7 +556,10 @@ export function buildMemoryGraph(db: Database.Database, query: MemoryGraphQuery)
   // principal trae todas las filas vivas y recien despues se corta por `limit`, asi que
   // pedirle el texto completo seria traer el cuerpo de memorias que ni se van a dibujar.
   if (selected.length > 0) {
-    const candidatos: CandidatoMemoria[] = selected.map((r) => ({
+    // Se resuelve contra TODAS las filas vivas, no contra las que entraron en el corte por
+    // `limit`. Si no, una memoria que existe pero quedo afuera de la vista se veria como un
+    // hueco — y eso es mentira: el hueco es que NO ESTA ESCRITA, no que no entro en pantalla.
+    const candidatos: CandidatoMemoria[] = rows.map((r) => ({
       syncId: r.sync_id,
       title: r.title,
       topicKey: r.topic_key,
@@ -543,13 +569,44 @@ export function buildMemoryGraph(db: Database.Database, query: MemoryGraphQuery)
       .prepare(`SELECT sync_id, content FROM observations WHERE sync_id IN (${ph})`)
       .all(...selected.map((r) => r.sync_id)) as Array<{ sync_id: string; content: string | null }>
 
+    const porSyncId = new Map(selected.map((r) => [r.sync_id, r]))
     for (const fila of cuerpos) {
       for (const nombre of parsearWikilinks(fila.content ?? '')) {
         const destino = resolverWikilink(nombre, candidatos)
-        // Sin destino el link queda pendiente y no se dibuja: una arista hacia un nodo que
-        // no vino haria aparecer un punto fantasma sin titulo ni color.
-        if (!destino || destino === fila.sync_id) continue
-        edges.push({ from: fila.sync_id, to: destino, kind: 'wikilink', directed: true })
+        if (destino) {
+          // Resuelve, pero puede apuntar a una memoria que quedo fuera del corte: ahi no hay
+          // arista (seria colgante) y TAMPOCO hueco, porque la memoria existe.
+          if (destino === fila.sync_id || !nodeIds.has(destino)) continue
+          edges.push({ from: fila.sync_id, to: destino, kind: 'wikilink', directed: true })
+          continue
+        }
+        // Sin destino: el hueco se dibuja igual, como nodo pendiente. Varios que mencionen
+        // el mismo nombre comparten UN solo nodo — es un hueco, no uno por cada quien lo
+        // nombro.
+        const id = idDeLinkPendiente(nombre)
+        if (!pendientes.has(id)) {
+          const quienMenciona = porSyncId.get(fila.sync_id)
+          pendientes.set(id, {
+            syncId: id,
+            // Hereda el proyecto del que lo menciona: si no, el foco por proyecto lo dejaria
+            // afuera y el hueco desapareceria justo cuando alguien mira de cerca el repo
+            // donde falta.
+            projectKey: quienMenciona?.project_key ?? '',
+            projectDisplayName: quienMenciona?.project_display_name ?? null,
+            tags: [],
+            title: nombre,
+            type: 'pending',
+            scope: (quienMenciona?.scope as 'personal' | 'project' | 'team') ?? 'personal',
+            topicKey: null,
+            gitBranch: null,
+            originAi: null,
+            authorDisplay: null,
+            updatedAt: quienMenciona?.updated_at ?? 0,
+            superseded: false,
+            pending: true,
+          })
+        }
+        edges.push({ from: fila.sync_id, to: id, kind: 'wikilink', directed: true })
       }
     }
   }
@@ -587,5 +644,5 @@ export function buildMemoryGraph(db: Database.Database, query: MemoryGraphQuery)
     )
   }
 
-  return { nodes, edges, truncated }
+  return { nodes: [...nodes, ...pendientes.values()], edges, truncated }
 }

@@ -60,6 +60,8 @@ function queDice(kind: MemoryEdgeKind, hijoEsElFrom: boolean): string {
 /** Vigente o reemplazada. Un círculo hueco se lee como "esto ya no vale" sin leyenda. */
 const VIGENTE = '●'
 const REEMPLAZADA = '○'
+/** Un `[[...]]` que todavía no apunta a nada. No es una memoria: es el hueco que dejó. */
+const PENDIENTE = '◌'
 
 export interface RenderOptions {
   /** Ancho total disponible. Los títulos se recortan para que una fila nunca envuelva: una
@@ -210,9 +212,13 @@ export function renderMemoryGraphText(
   const usados = new Set(graph.edges.map((e) => e.kind))
   if (usados.size > 0) {
     lineas.push('')
+    // La marca del hueco sólo se explica si hay alguno: una leyenda que nombra cosas que no
+    // están en pantalla enseña mal, igual criterio que con los trazos.
+    const hayPendientes = graph.nodes.some((n) => n.pending)
     lineas.push(
       [...usados].map((k) => `${TRAZO[k].rama} ${TRAZO[k].que}`).join('   ') +
-      `   ${REEMPLAZADA} ya no vigente`
+      `   ${REEMPLAZADA} ya no vigente` +
+      (hayPendientes ? `   ${PENDIENTE} sin escribir` : '')
     )
   }
 
@@ -220,8 +226,12 @@ export function renderMemoryGraphText(
 }
 
 function filaDeNodo(n: MemoryGraphNode, sangria: string, ancho: number, ahora: number): string {
-  const marca = n.superseded ? REEMPLAZADA : VIGENTE
-  const cola = `${n.projectDisplayName ?? n.projectKey} · ${edad(n.updatedAt, ahora)}`
+  const marca = n.pending ? PENDIENTE : n.superseded ? REEMPLAZADA : VIGENTE
+  // Un hueco no tiene edad: nunca se actualizó porque nunca se escribió. Poner la del que lo
+  // menciona diría una fecha que no es de nadie.
+  const cola = n.pending
+    ? `${n.projectDisplayName ?? n.projectKey} · sin escribir`
+    : `${n.projectDisplayName ?? n.projectKey} · ${edad(n.updatedAt, ahora)}`
   // El título se lleva lo que sobra después de la marca, la sangría y la cola.
   const espacioTitulo = Math.max(12, ancho - sangria.length - cola.length - 5)
   const titulo = recortar(n.title, espacioTitulo)

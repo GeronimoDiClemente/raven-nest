@@ -357,3 +357,38 @@ describe('enfocar un tag', () => {
     expect(new Set(data.nodes.map((n) => n.projectKey)).size).toBe(2)
   })
 })
+
+// Los huecos: un `[[...]]` que todavía no apunta a nada. Ver electron/memory-graph.ts.
+describe('nodos pendientes', () => {
+  const pendiente = (nombre: string) =>
+    nodo(`pendiente:${nombre}`, { title: nombre, type: 'pending', pending: true, tags: [] })
+
+  it('se dibuja mucho más apagado y más chico que una memoria', () => {
+    const data = toGraphData(grafo([nodo('a'), pendiente('falta')], []), TODO)
+    const hueco = data.nodes.find((n) => n.pending)!
+    const real = data.nodes.find((n) => !n.pending)!
+    expect(hueco.val).toBeLessThan(real.val)
+    expect(hueco.color).not.toBe(real.color)
+  })
+
+  it('no cambia de color aunque el grafo coloree por proyecto o por tag', () => {
+    // Un hueco no PERTENECE a un proyecto ni a un tag: no tiene ninguno de los dos.
+    // Pintarlo como si los tuviera sería inventar.
+    const nodos = [nodo('a', { tags: ['x'] }), pendiente('falta')]
+    const porProyecto = toGraphData(grafo(nodos, []), { ...TODO, colorBy: 'project' })
+    const porTag = toGraphData(grafo(nodos, []), { ...TODO, colorBy: 'tag' })
+    const c1 = porProyecto.nodes.find((n) => n.pending)!.color
+    const c2 = porTag.nodes.find((n) => n.pending)!.color
+    expect(c1).toBe(c2)
+  })
+
+  it('lo que muestra es el nombre que alguien escribió entre corchetes', () => {
+    const data = toGraphData(grafo([pendiente('la que falta escribir')], []), TODO)
+    expect(data.nodes[0].label).toBe('la que falta escribir')
+  })
+
+  it('una memoria de verdad no queda marcada como hueco', () => {
+    const data = toGraphData(grafo([nodo('a')], []), TODO)
+    expect(data.nodes[0].pending).toBe(false)
+  })
+})

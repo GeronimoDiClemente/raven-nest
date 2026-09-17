@@ -158,3 +158,30 @@ describe('la direccion de una revision', () => {
     expect(out.split('\n')[i + 1]).toContain('replaces the one above')
   })
 })
+
+describe('nodos pendientes en texto', () => {
+  const hueco = nodo('pendiente:falta', { title: 'falta escribir esto', type: 'pending', pending: true })
+  // Un hueco nunca existe solo: lo crea alguien que lo menciona. Sin la arista quedaría
+  // huérfano, y los huérfanos no se dibujan — sólo se cuentan.
+  const apunta = { from: 'a', to: 'pendiente:falta', kind: 'wikilink' as const, directed: true }
+
+  it('lleva una marca propia: ni vigente ni reemplazada', () => {
+    const out = renderMemoryGraphText(grafo([nodo('a'), hueco], [apunta]), {}, AHORA)
+    const linea = out.split('\n').find((l) => l.includes('falta escribir esto'))!
+    expect(linea).toContain('◌')
+    expect(linea).not.toContain('●')
+  })
+
+  it('no le pone edad: un hueco no se actualizó nunca, no existe', () => {
+    const out = renderMemoryGraphText(grafo([nodo('a'), hueco], [apunta]), {}, AHORA)
+    const linea = out.split('\n').find((l) => l.includes('falta escribir esto'))!
+    expect(linea).toMatch(/sin escribir/)
+  })
+
+  it('la leyenda explica la marca sólo cuando hay alguno', () => {
+    const con = renderMemoryGraphText(grafo([nodo('a'), hueco], [apunta]), {}, AHORA)
+    expect(con).toMatch(/◌ sin escribir/)
+    const sin = renderMemoryGraphText(grafo([nodo('a')], [{ from: 'a', to: 'b', kind: 'topic', directed: false }]), {}, AHORA)
+    expect(sin).not.toMatch(/◌ sin escribir/)
+  })
+})

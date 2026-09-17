@@ -495,20 +495,23 @@ describe('arista wikilink — linkeada en el texto', () => {
     expect(wikis()[0].to).toBe('a')
   })
 
-  it('un link a algo que todavía no existe no emite arista, y no rompe', () => {
-    // El link sin resolver es deliberado: apuntar a una memoria no escrita es lo que hace
-    // barato linkear de más. Acá no hay arista porque no hay a dónde ir — el día que esa
-    // memoria exista aparece sola, porque se resuelve por NOMBRE en cada lectura.
+  it('un link a algo que todavía no existe apunta a un nodo pendiente', () => {
+    // Antes esto no emitia nada. Ahora el hueco se dibuja: ver lo que falta es media gracia
+    // del modelo. El detalle de los nodos pendientes esta en su propio describe, mas abajo.
     insert({ syncId: 'b', content: 'esto viene de [[algo que no escribí]]', updatedAt: 2 })
-    expect(wikis()).toEqual([])
+    expect(wikis()).toHaveLength(1)
+    expect(wikis()[0].to.startsWith('pendiente:')).toBe(true)
   })
 
-  it('no emite arista hacia una memoria que quedó fuera del limit', () => {
+  it('una memoria que quedó fuera del limit no da arista NI hueco', () => {
+    // La arista seria colgante, y marcarla como pendiente seria mentir: la memoria existe,
+    // sólo no entró en la vista. El hueco significa "no está escrita", no "no está en pantalla".
     insert({ syncId: 'a', title: 'vieja', updatedAt: 1 })
     insert({ syncId: 'b', content: 'mira [[vieja]]', updatedAt: 2 })
 
     const graph = buildMemoryGraph(db, { ...Q(), limit: 1 })
     expect(graph.edges.filter((e) => e.kind === 'wikilink')).toEqual([])
+    expect(graph.nodes.filter((n) => n.pending)).toEqual([])
   })
 
   it('la sintaxis de bash en un bloque de código NO inventa aristas', () => {
@@ -527,5 +530,67 @@ describe('arista wikilink — linkeada en el texto', () => {
     insert({ syncId: 'b', title: 'dos', updatedAt: 2 })
     insert({ syncId: 'c', content: 'viene de [[uno]] y pasa por [[dos]]', updatedAt: 3 })
     expect(wikis().map((e) => e.to).sort()).toEqual(['a', 'b'])
+  })
+})
+
+// Un `[[...]]` que todavía no apunta a nada igual es un nodo: el hueco se ve.
+// Es el `unresolvedLinks` de Obsidian — un link pendiente es una memoria que alguien ya
+// decidió que hacía falta y no escribió.
+describe('nodos pendientes — el link que todavía no existe', () => {
+  const pendientes = () => buildMemoryGraph(db, Q()).nodes.filter((n) => n.pending)
+
+  it('emite un nodo para el nombre que no resuelve, y la arista hacia él', () => {
+    insert({ syncId: 'a', content: 'esto viene de [[algo sin escribir]]', updatedAt: 1 })
+
+    const g = buildMemoryGraph(db, Q())
+    const p = g.nodes.filter((n) => n.pending)
+    expect(p).toHaveLength(1)
+    expect(p[0].title).toBe('algo sin escribir')
+    expect(g.edges.filter((e) => e.kind === 'wikilink')).toEqual([
+      { from: 'a', to: p[0].syncId, kind: 'wikilink', directed: true },
+    ])
+  })
+
+  it('dos memorias que mencionan el mismo hueco comparten UN nodo', () => {
+    insert({ syncId: 'a', content: 'ver [[el mismo hueco]]', updatedAt: 1 })
+    insert({ syncId: 'b', content: 'también [[El Mismo Hueco]]', updatedAt: 2 })
+
+    const g = buildMemoryGraph(db, Q())
+    expect(g.nodes.filter((n) => n.pending)).toHaveLength(1)
+    expect(g.edges.filter((e) => e.kind === 'wikilink')).toHaveLength(2)
+  })
+
+  it('no emite nodo pendiente para un link que SÍ resuelve', () => {
+    insert({ syncId: 'a', title: 'existe', updatedAt: 1 })
+    insert({ syncId: 'b', content: 'ver [[existe]]', updatedAt: 2 })
+    expect(pendientes()).toEqual([])
+  })
+
+  it('el id de un pendiente no puede confundirse con un sync_id', () => {
+    insert({ syncId: 'a', content: 'ver [[falta]]', updatedAt: 1 })
+    expect(pendientes()[0].syncId.startsWith('pendiente:')).toBe(true)
+  })
+
+  it('un nodo pendiente hereda el proyecto de quien lo menciona', () => {
+    // Si no, el foco por proyecto lo dejaría afuera y el hueco desaparecería justo cuando
+    // el usuario está mirando de cerca el repo donde falta.
+    insert({ syncId: 'a', projectKey: 'uno', content: 'ver [[falta]]', updatedAt: 1 })
+    expect(pendientes()[0].projectKey).toBe('uno')
+  })
+
+  it('los nodos reales NO quedan marcados como pendientes', () => {
+    insert({ syncId: 'a', updatedAt: 1 })
+    const g = buildMemoryGraph(db, Q())
+    expect(g.nodes.find((n) => n.syncId === 'a')!.pending).toBeFalsy()
+  })
+
+  it('los pendientes no cuentan para el corte por limit', () => {
+    // `limit` acota cuántas MEMORIAS se traen. Un hueco no es una memoria: dejarlo competir
+    // por el cupo escondería una memoria real para mostrar algo que no existe.
+    insert({ syncId: 'a', content: 'ver [[falta]]', updatedAt: 2 })
+    insert({ syncId: 'b', updatedAt: 1 })
+    const g = buildMemoryGraph(db, { ...Q(), limit: 2 })
+    expect(g.nodes.filter((n) => !n.pending)).toHaveLength(2)
+    expect(g.nodes.filter((n) => n.pending)).toHaveLength(1)
   })
 })

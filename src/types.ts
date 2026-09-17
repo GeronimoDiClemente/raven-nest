@@ -330,6 +330,9 @@ export interface MemoryGraphNode {
   updatedAt: number
   /** true si esta observacion fue reemplazada por otra (superseded_by != null). */
   superseded: boolean
+  /** Este nodo NO es una memoria: es un `[[...]]` que todavía no apunta a nada. Se dibuja
+   *  hueco y no se puede abrir — no hay nada que abrir. Ver `idDeLinkPendiente`. */
+  pending?: boolean
 }
 
 export interface MemoryGraphEdge {
