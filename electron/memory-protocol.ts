@@ -155,9 +155,37 @@ export interface GetMemoryParams {
   syncId: string
 }
 
+/**
+ * Un vecino de una memoria en el grafo: con quién está conectada y para qué lado.
+ *
+ * Vive acá y no en `memory-vecinos.ts` porque es un tipo de la LÍNEA: viaja del daemon al
+ * shim, y este archivo es el único que el shim puede importar sin arrastrar bindings
+ * nativos. `memory-vecinos.ts` lo toma de acá, no al revés.
+ */
+export interface VecinoDeMemoria {
+  syncId: string
+  title: string
+  topicKey: string | null
+  /**
+   * `outgoing`: esta memoria menciona a la vecina. `incoming`: la vecina menciona a ésta
+   * — el backlink. `both`: conectadas a mano, que es una relación sin sentido propio.
+   */
+  direction: 'outgoing' | 'incoming' | 'both'
+  via: 'wikilink' | 'manual'
+}
+
 export interface GetMemoryResult {
   /** `null` — nunca una excepción — cuando el syncId no existe o está borrado. */
   item: ObservationSummary | null
+  /**
+   * Con qué otras memorias está conectada. Vacío si no hay ninguna, o si el id no existe.
+   *
+   * Viaja CON la memoria y no en una tool aparte, a propósito: el agente que ya la tiene en
+   * la mano tiene que poder seguir el grafo sin pagar otra vuelta. Si averiguar los vecinos
+   * costara una segunda llamada, recuperar por búsqueda seguiría siendo lo más barato y
+   * nadie caminaría nada — que es justo lo que este trabajo vino a cambiar.
+   */
+  neighbors: VecinoDeMemoria[]
 }
 
 // MCP `memory_update` (docs/nest-memory-architecture.md §1.1) — corrige título/contenido/

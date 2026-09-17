@@ -153,7 +153,11 @@ export const TOOL_MANIFEST = [
       "content — before calling memory_promote or memory_update, when the user references 'that memory' " +
       "or pastes an id, or to confirm a save actually took what you think it took. Do not use this to " +
       'browse or discover memories — that is what memory_search and memory_context are for. Returns null ' +
-      'if the id does not exist or was deleted; never guess or fabricate a memory to fill the gap.',
+      'if the id does not exist or was deleted; never guess or fabricate a memory to fill the gap. ' +
+      'Also returns `neighbors`: the memories this one links to ([[...]] written in its text), the ones ' +
+      'that link back to it, and any connected by hand. FOLLOW THEM — fetching a neighbor by its syncId ' +
+      'is cheaper and more precise than searching again, and the link is there because someone decided ' +
+      'these two belong together.',
     inputSchema: {
       type: 'object',
       properties: {

@@ -413,7 +413,9 @@ export class MemoryIpcServer {
         case 'memory.get': {
           const params = request.params as GetMemoryParams
           const item = store.getSummary(params.syncId)
-          return { item } as GetMemoryResult
+          // Los vecinos viajan CON la memoria, no en una llamada aparte — ver el doc
+          // comment de GetMemoryResult.neighbors en memory-protocol.ts.
+          return { item, neighbors: item ? store.vecinos(params.syncId) : [] } as GetMemoryResult
         }
 
         // MCP `memory_update` — corrige título/contenido/tags de una memoria puntual ya

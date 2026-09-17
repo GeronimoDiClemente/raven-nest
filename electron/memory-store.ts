@@ -21,11 +21,13 @@ import {
   contextObservations, CONTEXT_MAX_CHARS, getObservation, getObservationSummary, searchObservations, toSummary,
 } from './memory-reads'
 import { buildMemoryGraph, type MemoryGraph, type MemoryGraphQuery } from './memory-graph'
+import { vecinosDeMemoria } from './memory-vecinos'
 import type {
   ObservationSource,
   ObservationSummary,
   ObservationType,
   SaveMemoryResult,
+  VecinoDeMemoria,
 } from './memory-protocol'
 
 const DEDUPE_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
@@ -1876,6 +1878,17 @@ export class MemoryStore {
    */
   getSummary(syncId: string): ObservationSummary | null {
     return getObservationSummary(this.db, syncId)
+  }
+
+  /**
+   * Con qué otras memorias está conectada ésta — ver `memory-vecinos.ts`.
+   *
+   * Es lo que hace que recuperar sea caminar el grafo en vez de volver a buscar: el agente
+   * que ya tiene una memoria en la mano sigue las aristas que alguien AFIRMÓ, en vez de
+   * tirar otra búsqueda de texto y volver a adivinar qué se relaciona con qué.
+   */
+  vecinos(syncId: string): VecinoDeMemoria[] {
+    return vecinosDeMemoria(this.db, syncId)
   }
 
   /**
