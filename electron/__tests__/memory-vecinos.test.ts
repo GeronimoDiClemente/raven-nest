@@ -148,3 +148,40 @@ describe('vecinosDeMemoria', () => {
     expect(vecinosDeMemoria(db, 'b').map(v => v.syncId)).toEqual(['m', 'z'])
   })
 })
+
+import { linksPendientesDe } from '../memory-vecinos'
+
+describe('linksPendientesDe', () => {
+  it('devuelve el nombre de lo que esta memoria menciona y todavía no existe', () => {
+    insert({ syncId: 'b', content: 'esto viene de [[algo que no escribí]]' })
+    expect(linksPendientesDe(db, 'b')).toEqual(['algo que no escribí'])
+  })
+
+  it('no devuelve los que sí resuelven', () => {
+    insert({ syncId: 'a', title: 'existe' })
+    insert({ syncId: 'b', content: '[[existe]] y [[no existe]]' })
+    expect(linksPendientesDe(db, 'b')).toEqual(['no existe'])
+  })
+
+  it('un link a una memoria borrada queda pendiente', () => {
+    // Para resolver, una memoria borrada no existe. El link vuelve a ser un hueco — que es
+    // exactamente lo que pasó: lo que apuntaba ya no está.
+    insert({ syncId: 'a', title: 'se fue', deleted: 1 })
+    insert({ syncId: 'b', content: 'ver [[se fue]]' })
+    expect(linksPendientesDe(db, 'b')).toEqual(['se fue'])
+  })
+
+  it('no repite el mismo nombre', () => {
+    insert({ syncId: 'b', content: '[[falta]] y otra vez [[falta]]' })
+    expect(linksPendientesDe(db, 'b')).toEqual(['falta'])
+  })
+
+  it('la sintaxis de bash no cuenta como pendiente', () => {
+    insert({ syncId: 'b', content: '```bash\nif [[ -n "$x" ]]; then :; fi\n```' })
+    expect(linksPendientesDe(db, 'b')).toEqual([])
+  })
+
+  it('un id que no existe devuelve vacío', () => {
+    expect(linksPendientesDe(db, 'no-existe')).toEqual([])
+  })
+})

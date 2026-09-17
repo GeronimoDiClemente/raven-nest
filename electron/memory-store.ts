@@ -21,7 +21,7 @@ import {
   contextObservations, CONTEXT_MAX_CHARS, getObservation, getObservationSummary, searchObservations, toSummary,
 } from './memory-reads'
 import { buildMemoryGraph, type MemoryGraph, type MemoryGraphQuery } from './memory-graph'
-import { vecinosDeMemoria } from './memory-vecinos'
+import { vecinosDeMemoria, linksPendientesDe } from './memory-vecinos'
 import type {
   ObservationSource,
   ObservationSummary,
@@ -1889,6 +1889,11 @@ export class MemoryStore {
    */
   vecinos(syncId: string): VecinoDeMemoria[] {
     return vecinosDeMemoria(this.db, syncId)
+  }
+
+  /** Los `[[...]]` de esta memoria que todavía no apuntan a nada — ver `memory-vecinos.ts`. */
+  linksPendientes(syncId: string): string[] {
+    return linksPendientesDe(this.db, syncId)
   }
 
   /**

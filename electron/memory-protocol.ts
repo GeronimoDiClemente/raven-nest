@@ -186,6 +186,14 @@ export interface GetMemoryResult {
    * nadie caminaría nada — que es justo lo que este trabajo vino a cambiar.
    */
   neighbors: VecinoDeMemoria[]
+  /**
+   * Los nombres que esta memoria menciona con `[[...]]` y que todavía no existen.
+   *
+   * No es un error: apuntar a algo no escrito es lo que hace barato linkear de más, y el
+   * link empieza a andar solo el día que esa memoria se escribe. Se devuelve para poder VER
+   * el hueco — un link pendiente es una memoria que alguien ya decidió que hacía falta.
+   */
+  pendingLinks: string[]
 }
 
 // MCP `memory_update` (docs/nest-memory-architecture.md §1.1) — corrige título/contenido/

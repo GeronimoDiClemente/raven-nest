@@ -31,20 +31,53 @@ interface FilaBase {
  *
  * No cruza proyectos: el vault de una memoria es su repo.
  */
-export function vecinosDeMemoria(db: Database, syncId: string): VecinoDeMemoria[] {
+interface Contexto {
+  fila: FilaBase
+  comoCandidato: CandidatoMemoria[]
+  porId: Map<string, { sync_id: string; title: string; topic_key: string | null }>
+}
+
+/**
+ * La fila pedida y contra qué se resuelven los nombres: las memorias VIVAS de su proyecto.
+ *
+ * Una memoria borrada no es candidata a propósito — un link que apuntaba a algo que ya no
+ * está vuelve a ser un hueco, que es exactamente lo que pasó.
+ */
+function contextoDe(db: Database, syncId: string): Contexto | null {
   const fila = db
     .prepare('SELECT sync_id, project_key, title, topic_key, content FROM observations WHERE sync_id = ? AND deleted = 0')
     .get(syncId) as FilaBase | undefined
-  if (!fila) return []
+  if (!fila) return null
 
   const candidatos = db
     .prepare('SELECT sync_id, title, topic_key FROM observations WHERE project_key = ? AND deleted = 0')
     .all(fila.project_key) as Array<{ sync_id: string; title: string; topic_key: string | null }>
 
-  const comoCandidato: CandidatoMemoria[] = candidatos.map((c) => ({
-    syncId: c.sync_id, title: c.title, topicKey: c.topic_key,
-  }))
-  const porId = new Map(candidatos.map((c) => [c.sync_id, c]))
+  return {
+    fila,
+    comoCandidato: candidatos.map((c) => ({ syncId: c.sync_id, title: c.title, topicKey: c.topic_key })),
+    porId: new Map(candidatos.map((c) => [c.sync_id, c])),
+  }
+}
+
+/**
+ * Los nombres que esta memoria menciona y que todavía no existen.
+ *
+ * Es el `unresolvedLinks` de Obsidian, y no es un error: apuntar a algo no escrito es lo que
+ * hace barato linkear de más. Devolverlo sirve para VER el hueco — un link pendiente es una
+ * memoria que alguien ya decidió que hacía falta y todavía no escribió.
+ */
+export function linksPendientesDe(db: Database, syncId: string): string[] {
+  const ctx = contextoDe(db, syncId)
+  if (!ctx) return []
+  return parsearWikilinks(ctx.fila.content ?? '')
+    .filter((nombre) => resolverWikilink(nombre, ctx.comoCandidato) === null)
+}
+
+export function vecinosDeMemoria(db: Database, syncId: string): VecinoDeMemoria[] {
+  const ctx = contextoDe(db, syncId)
+  if (!ctx) return []
+  const { fila, comoCandidato, porId } = ctx
 
   // Clave por vecino: un mismo par no se lista dos veces. Gana el wikilink sobre el manual
   // porque dice ADEMAS para que lado va, que es informacion que el manual no tiene.

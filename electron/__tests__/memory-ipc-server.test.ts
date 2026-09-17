@@ -27,6 +27,7 @@ function fakeStore(overrides: Partial<MemoryStore> = {}): MemoryStore {
     // memory.get pide además los vecinos de la memoria (ver GetMemoryResult.neighbors):
     // sin esto en el doble, el handler se cae al llamar un método que no existe.
     vecinos: vi.fn(() => []),
+    linksPendientes: vi.fn(() => []),
     ...overrides,
   } as unknown as MemoryStore
 }
@@ -681,6 +682,7 @@ describe('MemoryIpcServer — memory.get / memory.update (spec 2026-09-11)', () 
     expect(response.result).toEqual({
       item: fakeObservation({ title: 'la memoria pedida' }),
       neighbors: [],
+      pendingLinks: [],
     })
     expect(getSummary).toHaveBeenCalledWith('obs-1')
   })
@@ -704,7 +706,7 @@ describe('MemoryIpcServer — memory.get / memory.update (spec 2026-09-11)', () 
     expect(response.ok).toBe(true)
     if (!response.ok) throw new Error('unreachable')
     // Sin memoria no hay vecinos que traer, y ni siquiera se le pregunta al store.
-    expect(response.result).toEqual({ item: null, neighbors: [] })
+    expect(response.result).toEqual({ item: null, neighbors: [], pendingLinks: [] })
   })
 
   it('memory.update forwards syncId/title/content/tags to store.update and calls onMutation on success', async () => {

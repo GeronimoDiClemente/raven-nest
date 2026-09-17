@@ -157,7 +157,8 @@ export const TOOL_MANIFEST = [
       'Also returns `neighbors`: the memories this one links to ([[...]] written in its text), the ones ' +
       'that link back to it, and any connected by hand. FOLLOW THEM — fetching a neighbor by its syncId ' +
       'is cheaper and more precise than searching again, and the link is there because someone decided ' +
-      'these two belong together.',
+      'these two belong together. `pendingLinks` are names this memory points at that do not exist ' +
+      'yet — each one is a memory someone already decided was worth writing.',
     inputSchema: {
       type: 'object',
       properties: {
