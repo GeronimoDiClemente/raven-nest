@@ -8,13 +8,7 @@ import { listenPortsForPids } from './port-monitor'
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore
 import pidusage from 'pidusage'
-// pidtree works on macOS/Linux but uses `wmic` on Windows, which Microsoft
-// removed in Win11 22H2 (every call returns ENOENT). On Windows we fall back
-// to a single `Get-CimInstance Win32_Process` call and build the tree
-// ourselves — see resolveTreesViaWindowsCim() below.
-// eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-ignore
-import pidtree from 'pidtree'
+import { crearSnapshotDeProcesos } from './ps-snapshot'
 
 const IS_WIN = osPlatform() === 'win32'
 
@@ -390,6 +384,24 @@ export class MetricsCollector {
   // render names AND attribute "external" processes (a dev server started
   // outside Nest with cwd inside a worktree) to their worktree.
   private winProcSnapshot: WinSnap | null = null
+
+  /**
+   * La tabla de procesos de macOS/Linux, leída UNA vez por ciclo.
+   *
+   * Antes cada árbol pedido spawneaba su propio `ps -A` via pidtree: con 12 panes, doce
+   * `ps` cada 5 s del poll de puertos más doce cada 10 s del de métricas. Ver
+   * `ps-snapshot.ts`. El TTL es el mismo 1.5 s que ya usaba Windows.
+   */
+  private posixSnapshot = crearSnapshotDeProcesos({
+    correrPs: () => new Promise<string>((res, rej) => {
+      execFile('ps', ['-A', '-o', 'ppid,pid'], { timeout: 5000, maxBuffer: 8 * 1024 * 1024 }, (err, stdout) => {
+        if (err) rej(err)
+        else res(stdout)
+      })
+    }),
+    now: () => Date.now(),
+    ttlMs: 1500,
+  })
   // De-dupe concurrent CIM calls. Without this, two callers that both miss
   // the 1.5 s cache spawn two PowerShell processes back-to-back (~500 ms each).
   // Holding the promise here lets every concurrent caller share one in-flight
@@ -440,11 +452,11 @@ export class MetricsCollector {
   /**
    * For each pane PID, resolve the process tree (root + descendants).
    *
-   * On macOS/Linux pidtree works directly. On Windows pidtree shells out to
-   * `wmic`, which Microsoft removed in Windows 11 22H2 — every call returns
-   * ENOENT and we end up only measuring the PowerShell host (~77 MB), not
-   * the AI agent it spawned. We use `Get-CimInstance Win32_Process` once per
-   * cycle to build a parent→children map and walk it.
+   * Las dos plataformas leen la tabla de procesos UNA vez por ciclo y caminan el mapa
+   * padre→hijos: `Get-CimInstance Win32_Process` en Windows, `ps -A -o ppid,pid` en el
+   * resto. Antes acá se usaba `pidtree`, que spawnea un `ps` por pid en macOS/Linux y en
+   * Windows shellea a `wmic` —que Microsoft sacó en Win11 22H2, así que cada llamada daba
+   * ENOENT y terminábamos midiendo sólo el host de PowerShell (~77 MB) y no el agente.
    */
   private async collectPaneTrees(panes: PaneInput[]): Promise<Map<number, number[]>> {
     const out = new Map<number, number[]>()
@@ -459,16 +471,11 @@ export class MetricsCollector {
       return out
     }
 
-    const results = await Promise.allSettled(
-      validPanes.map((p) => pidtree(p.pid, { root: true }) as Promise<number[]>),
-    )
-    results.forEach((res, idx) => {
+    // Todos contra la MISMA foto: las llamadas del mismo tick comparten un solo `ps`.
+    const results = await Promise.all(validPanes.map((p) => this.posixSnapshot.arbolDe(p.pid)))
+    results.forEach((tree, idx) => {
       const pid = validPanes[idx]!.pid
-      if (res.status === 'fulfilled' && Array.isArray(res.value) && res.value.length > 0) {
-        out.set(pid, res.value)
-      } else {
-        out.set(pid, [pid])
-      }
+      out.set(pid, tree.length > 0 ? tree : [pid])
     })
     return out
   }
@@ -484,13 +491,8 @@ export class MetricsCollector {
       const snap = await this.getWindowsSnapshot()
       return this.walkTree(pid, snap.childrenByParent)
     }
-    try {
-      const tree = await (pidtree(pid, { root: true }) as Promise<number[]>)
-      return Array.isArray(tree) && tree.length > 0 ? tree : [pid]
-    } catch (err) {
-      console.warn('[metrics] pidtree failed for pid', pid, err instanceof Error ? err.message : err)
-      return [pid]
-    }
+    const tree = await this.posixSnapshot.arbolDe(pid)
+    return tree.length > 0 ? tree : [pid]
   }
 
   private walkTree(root: number, childrenByParent: Map<number, number[]>): number[] {
