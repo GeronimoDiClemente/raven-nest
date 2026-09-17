@@ -4,6 +4,8 @@ import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { SearchAddon } from '@xterm/addon-search'
+import { WebglAddon } from '@xterm/addon-webgl'
+import { activarWebgl, type RendererAcelerado } from '../lib/xterm-webgl'
 import { registerTerminal, unregisterTerminal } from '../terminal-instances'
 import { safeWriteText, safeReadText } from '../lib/clipboard'
 import { isLocalUrl } from '../lib/is-local-url'
@@ -35,6 +37,7 @@ export function useXterm(
   const termRef = useRef<Terminal | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
   const searchAddonRef = useRef<SearchAddon | null>(null)
+  const webglRef = useRef<RendererAcelerado | null>(null)
   const onInputRef = useRef(onInput)
   onInputRef.current = onInput
   const onResizeRef = useRef(onResize)
@@ -74,6 +77,12 @@ export function useXterm(
       }
     }))
     term.open(containerRef.current)
+
+    // Despues de open(): el addon necesita el canvas ya montado para crear el contexto.
+    // Si no hay WebGL2 —o Chromium no da mas contextos— esto no hace nada y el pane se
+    // queda con el renderer DOM, que es lo que habia hasta ahora. Ver `lib/xterm-webgl.ts`.
+    const webgl = activarWebgl(term, { crearAddon: () => new WebglAddon() })
+    webglRef.current = webgl
 
     termRef.current = term
     fitAddonRef.current = fitAddon
@@ -255,6 +264,9 @@ export function useXterm(
       if (settleTimer) clearTimeout(settleTimer)
       document.removeEventListener('visibilitychange', onVisibilityChange)
       unregisterTerminal(paneId)
+      // Antes que term.dispose(): el addon se apoya en el renderer del terminal.
+      webgl.dispose()
+      if (webglRef.current === webgl) webglRef.current = null
       term.dispose()
     }
 
