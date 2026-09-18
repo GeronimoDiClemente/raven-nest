@@ -7,8 +7,9 @@
 // pathological query; in practice every query here is a single indexed lookup or a small
 // FTS5 MATCH, sub-millisecond on the data volumes this product targets (§10 R-6).
 
-import Database from 'better-sqlite3'
 import { mkdirSync, existsSync, renameSync } from 'fs'
+import type { BaseSqlite, AbridorDeBase } from './sqlite-forma'
+import { abrirConBetterSqlite3 } from './sqlite-better'
 import { dirname, join } from 'path'
 import { randomBytes, createHash } from 'crypto'
 import { redact } from './memory-redaction'
@@ -644,7 +645,7 @@ export const SCHEMA_VERSION = 8
 // assumed. C3's docstring above requires every step to survive a re-run (SQLite does not
 // roll back an ALTER on a mid-transaction crash), so idempotency has to be done by hand:
 // check `pragma table_info` first, and only ALTER if the column is actually missing.
-const MIGRATIONS: Record<number, string | ((db: Database.Database) => void)> = {
+const MIGRATIONS: Record<number, string | ((db: BaseSqlite) => void)> = {
   1: BASE_SCHEMA,
   2: (db) => {
     const columns = db.prepare('PRAGMA table_info(mutation_log)').all() as Array<{ name: string }>
@@ -762,7 +763,7 @@ const MIGRATIONS: Record<number, string | ((db: Database.Database) => void)> = {
 }
 
 export class MemoryStore {
-  private db: Database.Database
+  private db: BaseSqlite
   private currentUserId: string | null = null
 
   private topicHasher: TopicHasher | null = null
@@ -817,9 +818,16 @@ export class MemoryStore {
   }
   readonly schemaVersion: number = 0
 
-  constructor(dbPath: string) {
+  /**
+   * `abrir` es el punto de inyección del motor. Por defecto es `better-sqlite3`, que es lo
+   * que corre adentro de Electron y está probado; el paquete portátil le pasa el abridor de
+   * `node:sqlite`, que no compila nada (spec `2026-09-13-nest-memory-portable-design.md` §4).
+   * Todo lo de abajo —los PRAGMA, la migración, las transacciones— es el mismo código en los
+   * dos casos, que es el punto: el paquete no reimplementa la redacción ni el FTS.
+   */
+  constructor(dbPath: string, abrir: AbridorDeBase = abrirConBetterSqlite3) {
     mkdirSync(dirname(dbPath), { recursive: true })
-    this.db = new Database(dbPath)
+    this.db = abrir(dbPath)
     this.db.pragma('journal_mode = WAL')
     // FULL y no NORMAL: NORMAL aguanta que se caiga la app o el SO, pero un corte de luz
     // puede perder las ultimas transacciones — y con memoria de equipo eso es contexto que

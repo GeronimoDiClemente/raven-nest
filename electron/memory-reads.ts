@@ -14,7 +14,7 @@
 // `MemoryStore` las llama a éstas, así que hay una sola redacción de cada consulta. Si mañana
 // `search` cambia de criterio, cambia para los dos caminos a la vez — que es justo lo que no
 // pasaría con una copia.
-import type { Database } from 'better-sqlite3'
+import type { BaseSqlite } from './sqlite-forma'
 import type { ObservationSummary, ObservationType } from './memory-protocol'
 // `import type` a propósito: se borra al compilar, así que esto NO crea un ciclo en runtime
 // con `memory-store.ts` —que importa las funciones de acá— aunque el tipo viva allá.
@@ -91,7 +91,7 @@ export function toSummary(row: ObservationRow, maxContentChars?: number): Observ
  * indistinguible de "no hay nada guardado", y esa confusión es peor que devolver de más.
  */
 export function searchObservations(
-  db: Database,
+  db: BaseSqlite,
   projectKey: string | null,
   globalProjectKey: string,
   query: string,
@@ -145,7 +145,7 @@ export function searchObservations(
  * desperdicio de contexto que la feature existe para resolver.
  */
 export function contextObservations(
-  db: Database,
+  db: BaseSqlite,
   projectKey: string | null,
   globalProjectKey: string,
   limit = 10,
@@ -175,7 +175,7 @@ export function contextObservations(
  *
  * `null` cuando ese directorio no está enrolado; quien llama decide el fallback.
  */
-export function projectKeyForRootPath(db: Database, rootPath: string): string | null {
+export function projectKeyForRootPath(db: BaseSqlite, rootPath: string): string | null {
   const row = db
     .prepare('SELECT project_key FROM projects WHERE root_path = ? LIMIT 1')
     .get(rootPath) as { project_key: string } | undefined
@@ -183,12 +183,12 @@ export function projectKeyForRootPath(db: Database, rootPath: string): string | 
 }
 
 /** La fila cruda por su id, borrada o no — quien llama decide qué hacer con una tombstone. */
-export function getObservation(db: Database, syncId: string): ObservationRow | null {
+export function getObservation(db: BaseSqlite, syncId: string): ObservationRow | null {
   return (db.prepare('SELECT * FROM observations WHERE sync_id = ?').get(syncId) as ObservationRow) ?? null
 }
 
 /** La fila por id, ya lista para consumir. `null` también cuando está borrada. */
-export function getObservationSummary(db: Database, syncId: string): ObservationSummary | null {
+export function getObservationSummary(db: BaseSqlite, syncId: string): ObservationSummary | null {
   const row = getObservation(db, syncId)
   if (!row || row.deleted !== 0) return null
   return toSummary(row)

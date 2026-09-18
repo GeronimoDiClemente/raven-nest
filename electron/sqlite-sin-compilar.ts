@@ -21,39 +21,16 @@
 // alcanzan el typecheck y los tests de CI, igual que `memory-protocol.ts` y `memory-merge.ts`,
 // que también son núcleo compartido sin dependencias.
 import { DatabaseSync } from 'node:sqlite'
+import { mkdirSync } from 'fs'
+import { dirname } from 'path'
+import type { BaseSqlite, SentenciaSqlite, TransaccionSqlite } from './sqlite-forma'
 
-export interface SentenciaSinCompilar {
-  all(...params: unknown[]): unknown[]
-  get(...params: unknown[]): unknown
-  run(...params: unknown[]): { changes: number | bigint; lastInsertRowid: number | bigint }
-}
-
-/**
- * Lo que devuelve `transaction()`: la función envuelta, más los tres modos de `BEGIN`.
- *
- * Es la forma de better-sqlite3 y se replica tal cual para que el store no cambie ni una
- * línea. `immediate` es el único que se usa de verdad en este repo, y no por gusto: con
- * `BEGIN` diferido dos procesos sobre la misma base se pisan al subir de lock y el segundo
- * falla sin poder reintentar.
- */
-export interface TransaccionSinCompilar<A extends unknown[], R> {
-  (...args: A): R
-  default(...args: A): R
-  deferred(...args: A): R
-  immediate(...args: A): R
-  exclusive(...args: A): R
-}
-
-export interface BaseSinCompilar {
-  prepare(sql: string): SentenciaSinCompilar
-  exec(sql: string): void
-  pragma(source: string, opts?: { simple?: boolean }): unknown
-  transaction<A extends unknown[], R>(fn: (...args: A) => R): TransaccionSinCompilar<A, R>
-  close(): void
-  /** Si hay una transacción abierta ahora. Lo usa la reentrancia; se expone porque probar
-   *  que NO quedó ninguna abierta es la mitad del valor de este módulo. */
-  readonly enTransaccion: boolean
-}
+// La forma vive en `sqlite-forma.ts`, que no importa nada, para que `memory-store.ts` pueda
+// tiparse contra ella sin arrastrar `node:sqlite` adentro de Electron. Estos alias quedan por
+// compatibilidad con quien ya los importaba de acá.
+export type SentenciaSinCompilar = SentenciaSqlite
+export type TransaccionSinCompilar<A extends unknown[], R> = TransaccionSqlite<A, R>
+export type BaseSinCompilar = BaseSqlite & { readonly enTransaccion: boolean }
 
 export function adaptarBase(db: DatabaseSync): BaseSinCompilar {
   // Los savepoints se numeran, igual que en better-sqlite3. **No es necesario para que
@@ -68,7 +45,10 @@ export function adaptarBase(db: DatabaseSync): BaseSinCompilar {
       return {
         all: (...p) => st.all(...(p as never[])) as unknown[],
         get: (...p) => st.get(...(p as never[])) as unknown,
-        run: (...p) => st.run(...(p as never[])),
+        run: (...p) => {
+          const r = st.run(...(p as never[]))
+          return { changes: Number(r.changes), lastInsertRowid: r.lastInsertRowid }
+        },
       }
     },
 
@@ -137,6 +117,7 @@ export function adaptarBase(db: DatabaseSync): BaseSinCompilar {
 
 /** Abre una base en disco con los mismos PRAGMA que usa la app. */
 export function abrirBase(path: string): BaseSinCompilar {
+  mkdirSync(dirname(path), { recursive: true })
   const db = adaptarBase(new DatabaseSync(path))
   db.exec('PRAGMA journal_mode = WAL')
   db.exec('PRAGMA synchronous = FULL')

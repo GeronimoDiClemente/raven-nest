@@ -1,4 +1,4 @@
-import type { Database } from 'better-sqlite3'
+import type { BaseSqlite } from './sqlite-forma'
 import { parsearWikilinks, parsearAlias, resolverWikilink, CHARS_DE_FRONTMATTER, type CandidatoMemoria } from './wikilinks'
 import type { VecinoDeMemoria } from './memory-protocol'
 
@@ -43,7 +43,7 @@ interface Contexto {
  * Una memoria borrada no es candidata a propósito — un link que apuntaba a algo que ya no
  * está vuelve a ser un hueco, que es exactamente lo que pasó.
  */
-function contextoDe(db: Database, syncId: string): Contexto | null {
+function contextoDe(db: BaseSqlite, syncId: string): Contexto | null {
   const fila = db
     .prepare('SELECT sync_id, project_key, title, topic_key, content FROM observations WHERE sync_id = ? AND deleted = 0')
     .get(syncId) as FilaBase | undefined
@@ -77,14 +77,14 @@ function contextoDe(db: Database, syncId: string): Contexto | null {
  * hace barato linkear de más. Devolverlo sirve para VER el hueco — un link pendiente es una
  * memoria que alguien ya decidió que hacía falta y todavía no escribió.
  */
-export function linksPendientesDe(db: Database, syncId: string): string[] {
+export function linksPendientesDe(db: BaseSqlite, syncId: string): string[] {
   const ctx = contextoDe(db, syncId)
   if (!ctx) return []
   return parsearWikilinks(ctx.fila.content ?? '')
     .filter((nombre) => resolverWikilink(nombre, ctx.comoCandidato) === null)
 }
 
-export function vecinosDeMemoria(db: Database, syncId: string): VecinoDeMemoria[] {
+export function vecinosDeMemoria(db: BaseSqlite, syncId: string): VecinoDeMemoria[] {
   const ctx = contextoDe(db, syncId)
   if (!ctx) return []
   const { fila, comoCandidato, porId } = ctx

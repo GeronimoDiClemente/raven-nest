@@ -27,7 +27,7 @@
 // que lo haría útil para navegar. `similar` (tags compartidos, ver computeSimilarEdges más
 // abajo) es INFERENCIA sobre contenido, no un hecho declarado como las otras tres — por eso
 // vive detrás de `query.includeSimilar`, apagado por default.
-import type Database from 'better-sqlite3'
+import type { BaseSqlite } from './sqlite-forma'
 import { parsearWikilinks, parsearAlias, resolverWikilink, CHARS_DE_FRONTMATTER, type CandidatoMemoria } from './wikilinks'
 
 export type MemoryEdgeKind =
@@ -323,7 +323,7 @@ function parseTags(raw: string | null): string[] {
  * intersección es un subconjunto de la unión y los pesos son no-negativos.
  */
 function computeSimilarEdges(
-  db: Database.Database,
+  db: BaseSqlite,
   selected: GraphRow[],
   existingPairs: Set<string>,
   maxPerNode: number,
@@ -415,7 +415,7 @@ function computeSimilarEdges(
   return edges
 }
 
-export function buildMemoryGraph(db: Database.Database, query: MemoryGraphQuery): MemoryGraph {
+export function buildMemoryGraph(db: BaseSqlite, query: MemoryGraphQuery): MemoryGraph {
   // Calificadas con `o.`: desde que la consulta hace JOIN con `projects`, una condicion sin
   // prefijo sobre una columna que existe en las DOS tablas seria ambigua para SQLite.
   const conditions = ['o.deleted = 0']
