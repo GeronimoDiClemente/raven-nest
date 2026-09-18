@@ -52,3 +52,27 @@ export function conActividadDePane(
   next.set(tabId, enLaPestaña)
   return next
 }
+
+/**
+ * Si dos lecturas de puertos por pane dicen lo mismo.
+ *
+ * El poll trae un objeto nuevo del proceso principal en cada vuelta, y los puertos no
+ * cambian casi nunca: sin comparar, `App` se re-renderiza cada 5 segundos para pintar
+ * exactamente los mismos chips. Es el mismo problema que `conPaneOcupado`, en otro lugar.
+ *
+ * Los arreglos vienen ordenados del main (`result[id].sort()`), así que alcanza con
+ * compararlos posición a posición.
+ */
+export function mismosPuertos(
+  a: Readonly<Record<string, number[]>>,
+  b: Readonly<Record<string, number[]>>,
+): boolean {
+  const clavesA = Object.keys(a)
+  if (clavesA.length !== Object.keys(b).length) return false
+  for (const k of clavesA) {
+    const pa = a[k]!, pb = b[k]
+    if (!pb || pa.length !== pb.length) return false
+    for (let i = 0; i < pa.length; i++) if (pa[i] !== pb[i]) return false
+  }
+  return true
+}

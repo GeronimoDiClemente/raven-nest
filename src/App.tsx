@@ -15,7 +15,8 @@ import { reorderById } from './layout/reorder'
 import { paneAccentColor } from './lib/pane-accent-color'
 import { beginResizeSuppression, endResizeSuppression } from './lib/pane-resize-gate'
 import { nextFontSize, FONT_SIZE_DEFAULT } from './lib/pane-font-size'
-import { conPaneOcupado, conActividadDePane } from './lib/pane-activity-state'
+import { conPaneOcupado, conActividadDePane, mismosPuertos } from './lib/pane-activity-state'
+import { useIntervaloVisible } from './hooks/useIntervaloVisible'
 import { isInsideCodeEditor } from './lib/editor-owns-shortcut'
 import { basename } from './lib/path'
 import { groupAITypesByRepoPath } from './lib/repo-ai-logos'
@@ -186,58 +187,54 @@ export default function App() {
   // least one tab had non-empty activity that got cleared — otherwise every
   // consumer of `tabActivity` re-renders every 3s for nothing (TabBar, etc.)
   // when all tabs are already idle.
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setTabActivity(prev => {
-        let changed = false
-        const next = new Map(prev)
-        for (const [tabId, panes] of next) {
-          if (panes.size > 0) {
-            next.set(tabId, new Set())
-            changed = true
-          }
+  useIntervaloVisible(() => {
+    setTabActivity(prev => {
+      let changed = false
+      const next = new Map(prev)
+      for (const [tabId, panes] of next) {
+        if (panes.size > 0) {
+          next.set(tabId, new Set())
+          changed = true
         }
-        return changed ? next : prev
-      })
-    }, 3000)
-    return () => clearInterval(interval)
-  }, [])
+      }
+      return changed ? next : prev
+    })
+  }, 3000)
 
   // Per-pane port poll. ports:byPane attributes each listening process to
   // the pane that owns it via PID tree → PPID → cwd (3 fallbacks), so a
   // dev server launched detached by Claude/OpenCode still maps to one
   // specific pane instead of broadcasting to every pane in the workspace.
-  useEffect(() => {
-    let cancelled = false
-    const tick = async () => {
-      try {
-        // Editor tampoco: no tiene PTY, y con repoPath poblado el fallback
-        // por cwd del main podía atribuirle el puerto de un dev server — el
-        // chip desaparecía (el editor no renderiza chips de puertos).
-        const livePanes = panesRef.current.filter(p => p.aiType !== 'browser' && p.aiType !== 'editor')
-        if (livePanes.length === 0) {
-          if (!cancelled) setPanePorts({})
-          return
-        }
-        const result = await window.port.byPane({
-          panes: livePanes.map(p => ({ paneId: p.id, repoPath: p.repoPath ?? null })),
-        })
-        if (cancelled) return
-        setPanePorts(result)
-      } catch (err) {
-        // IPC failures (handler throws, koffi crash, netstat timeout) bubble
-        // up here. Without this catch the rejection becomes an unhandled
-        // promise — the setInterval keeps firing but chips silently freeze
-        // on the last successful tick. Clear the state so the user can tell
-        // attribution is currently broken instead of seeing stale data.
-        console.warn('[App] port poll failed', err instanceof Error ? err.message : err)
-        if (!cancelled) setPanePorts({})
+  const pollDePuertos = useCallback(async () => {
+    try {
+      // Editor tampoco: no tiene PTY, y con repoPath poblado el fallback
+      // por cwd del main podía atribuirle el puerto de un dev server — el
+      // chip desaparecía (el editor no renderiza chips de puertos).
+      const livePanes = panesRef.current.filter(p => p.aiType !== 'browser' && p.aiType !== 'editor')
+      if (livePanes.length === 0) {
+        setPanePorts(prev => (mismosPuertos(prev, {}) ? prev : {}))
+        return
       }
+      const result = await window.port.byPane({
+        panes: livePanes.map(p => ({ paneId: p.id, repoPath: p.repoPath ?? null })),
+      })
+      // El main manda un objeto nuevo siempre, y los puertos no cambian casi nunca: sin
+      // esta comparación `App` entera se re-renderiza cada 5s para pintar los mismos chips.
+      setPanePorts(prev => (mismosPuertos(prev, result) ? prev : result))
+    } catch (err) {
+      // IPC failures (handler throws, koffi crash, netstat timeout) bubble
+      // up here. Without this catch the rejection becomes an unhandled
+      // promise — the poll keeps firing but chips silently freeze
+      // on the last successful tick. Clear the state so the user can tell
+      // attribution is currently broken instead of seeing stale data.
+      console.warn('[App] port poll failed', err instanceof Error ? err.message : err)
+      setPanePorts(prev => (mismosPuertos(prev, {}) ? prev : {}))
     }
-    tick()
-    const handle = setInterval(tick, 5000)
-    return () => { cancelled = true; clearInterval(handle) }
   }, [])
+  // Sólo mientras la ventana se vea: los chips de puertos son cosméticos, y despertar al
+  // procesador cada 5s para refrescar algo que nadie está mirando es lo que pesa en la
+  // pestaña Energía de macOS. Al volver a verse se refresca en el acto.
+  useIntervaloVisible(() => { void pollDePuertos() }, 5000)
 
   const { plan, isTrialActive, trialDaysLeft, loading: profileLoading } = useProfile()
   const planLimits = PLAN_LIMITS[plan]

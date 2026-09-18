@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { MetricsPaneInput, MetricsSnapshot } from '../types'
+import { useIntervaloVisible } from './useIntervaloVisible'
 
 const FAST_INTERVAL_MS = 2000
 const SLOW_INTERVAL_MS = 10_000
@@ -95,12 +96,11 @@ export function useMetrics(panes: MetricsPaneInput[], fast: boolean): UseMetrics
     // Reset tick counter when cadence flips so opening the popover doesn't
     // immediately fire a ports scan piggy-backing on the previous count.
     tickCountRef.current = 0
-    // Fire one immediately so the pill never shows stale data right after the
-    // user opens the popover (which switches us to fast cadence).
-    void tick()
-    const interval = setInterval(() => { void tick() }, fast ? FAST_INTERVAL_MS : SLOW_INTERVAL_MS)
-    return () => clearInterval(interval)
-  }, [fast, tick])
+  }, [fast])
+  // Sólo mientras la ventana se vea. El hook dispara uno en el acto al arrancar y al
+  // cambiar la cadencia, así que la píldora no muestra datos viejos cuando el usuario
+  // abre el popover (que es lo que pasa a cadencia rápida) ni cuando vuelve a la ventana.
+  useIntervaloVisible(() => { void tick() }, fast ? FAST_INTERVAL_MS : SLOW_INTERVAL_MS)
 
   const refresh = useCallback(async () => {
     // Manual refresh after a kill — force a fresh snapshot AND a fresh ports

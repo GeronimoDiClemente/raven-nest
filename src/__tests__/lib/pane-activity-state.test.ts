@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { conPaneOcupado, conActividadDePane } from '../../lib/pane-activity-state'
+import { conPaneOcupado, conActividadDePane, mismosPuertos } from '../../lib/pane-activity-state'
 
 describe('conPaneOcupado', () => {
   it('agrega el pane que se puso a trabajar', () => {
@@ -64,5 +64,35 @@ describe('conActividadDePane', () => {
     const next = conActividadDePane(prev, 'tab1', 'p1', false)
     expect([...(next.get('tab1') ?? [])]).toEqual(['p2'])
     expect([...(prev.get('tab1') ?? [])]).toEqual(['p1', 'p2'])
+  })
+})
+
+describe('mismosPuertos', () => {
+  it('dos lecturas idénticas son iguales aunque sean objetos distintos', () => {
+    expect(mismosPuertos({ p1: [3000, 5173] }, { p1: [3000, 5173] })).toBe(true)
+  })
+
+  it('dos vacías son iguales', () => {
+    expect(mismosPuertos({}, {})).toBe(true)
+  })
+
+  it('un puerto que aparece cambia', () => {
+    expect(mismosPuertos({ p1: [3000] }, { p1: [3000, 5173] })).toBe(false)
+  })
+
+  it('un puerto distinto en la misma posición cambia', () => {
+    expect(mismosPuertos({ p1: [3000] }, { p1: [3001] })).toBe(false)
+  })
+
+  it('un pane nuevo cambia', () => {
+    expect(mismosPuertos({ p1: [3000] }, { p1: [3000], p2: [8080] })).toBe(false)
+  })
+
+  it('un pane que desaparece cambia', () => {
+    expect(mismosPuertos({ p1: [3000], p2: [8080] }, { p1: [3000] })).toBe(false)
+  })
+
+  it('el mismo puerto en OTRO pane cambia', () => {
+    expect(mismosPuertos({ p1: [3000] }, { p2: [3000] })).toBe(false)
   })
 })
