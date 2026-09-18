@@ -7,6 +7,7 @@ import { handleStatus } from './status'
 import { handleDeleteData } from './delete-data'
 import { createRateLimiter } from './rate-limit'
 import { registerDevice, revokeDevices, verifySupabaseJwt } from './devices'
+import { iniciarVinculacion, aprobarVinculacion, reclamarVinculacion } from './link'
 import { handleShareProject } from './share'
 import { enrollDeviceKey, getKeyState, publishWraps } from './keys'
 
@@ -22,6 +23,11 @@ const pullLimiter = createRateLimiter({ limit: 60, windowMs: 60_000 })
 // límite no puede ser el device: es la IP. Mucho más bajo que el de push/pull porque un
 // registro por máquina y por vida es lo normal — diez por hora ya es un bug o un abuso.
 const registerLimiter = createRateLimiter({ limit: 10, windowMs: 60 * 60_000 })
+// Arrancar una vinculación no pide credenciales —es el punto: la máquina que la pide todavía
+// no tiene ninguna— así que el único freno acá es este. El del poll es distinto y vive en la
+// fila: `last_polled_at`, para que un cliente con un bucle apretado no queme una conexión de
+// base por vuelta.
+const linkLimiter = createRateLimiter({ limit: 20, windowMs: 60 * 60_000 })
 /**
  * Las rutas de claves no tenian limitador y `publishWraps` es la operacion mas cara del
  * servicio: toma el advisory lock de la cuenta y el `for update` sobre `users` mientras
@@ -130,6 +136,22 @@ async function handleRequest(pool: Pool, req: IncomingMessage, res: ServerRespon
   if (path === '/v1/devices') {
     if (req.method !== 'POST') return send(res, 405, { error: 'method_not_allowed' })
     return handleRegisterDevice(pool, req, res)
+  }
+
+  // Vincular una máquina sin navegador (spec del portátil §7). Tres puertas: la que pide el
+  // código, la que el usuario aprueba con su sesión, y la que espera el token. Ninguna de las
+  // tres emite credenciales por su cuenta: eso sigue siendo de `registerDevice`.
+  if (path === '/v1/link/start') {
+    if (req.method !== 'POST') return send(res, 405, { error: 'method_not_allowed' })
+    return handleLinkStart(pool, req, res)
+  }
+  if (path === '/v1/link/approve') {
+    if (req.method !== 'POST') return send(res, 405, { error: 'method_not_allowed' })
+    return handleLinkApprove(pool, req, res)
+  }
+  if (path === '/v1/link/poll') {
+    if (req.method !== 'POST') return send(res, 405, { error: 'method_not_allowed' })
+    return handleLinkPoll(pool, req, res)
   }
 
   // El gemelo del registro. Tampoco pasa por `authenticate`: autentica con el token `nmk_`
@@ -278,6 +300,80 @@ async function handleRegisterDevice(pool: Pool, req: IncomingMessage, res: Serve
   } catch (err) {
     const status = (err as { status?: number }).status ?? 500
     if (status === 500) console.error('[http] /v1/devices', err)
+    return send(res, status, { error: status === 500 ? 'internal_error' : (err as Error).message })
+  }
+}
+
+/** `POST /v1/link/start` — sin credenciales, porque quien llama todavía no tiene ninguna. */
+async function handleLinkStart(pool: Pool, req: IncomingMessage, res: ServerResponse): Promise<void> {
+  try {
+    const verdict = linkLimiter.check(req.socket.remoteAddress ?? 'sin-ip')
+    if (!verdict.ok) {
+      return send(res, 429, { error: 'rate_limited' }, { 'Retry-After': String(verdict.retryAfterSeconds) })
+    }
+    const r = await iniciarVinculacion(pool, Date.now())
+    return send(res, 201, {
+      user_code: r.codigoDeUsuario,
+      device_code: r.codigoDeDispositivo,
+      expires_in: Math.floor(r.venceEn / 1000),
+      interval: Math.ceil(r.intervalo / 1000),
+    })
+  } catch (err) {
+    console.error('[http] /v1/link/start', err)
+    return send(res, 500, { error: 'internal_error' })
+  }
+}
+
+/** `POST /v1/link/approve` — con el JWT de Supabase, desde la máquina que SÍ tiene sesión. */
+async function handleLinkApprove(pool: Pool, req: IncomingMessage, res: ServerResponse): Promise<void> {
+  try {
+    const secret = process.env.SUPABASE_JWT_SECRET ?? ''
+    if (!secret) {
+      console.error('[http] /v1/link/approve sin SUPABASE_JWT_SECRET')
+      return send(res, 503, { error: 'issuer_unavailable' })
+    }
+    const jwt = (req.headers.authorization ?? '').replace(/^Bearer\s+/i, '').trim()
+    const identity = verifySupabaseJwt(jwt, secret, Date.now())
+    if (!identity) return send(res, 401, { error: 'unauthorized' })
+
+    const body = (await readBody(req)) as Record<string, unknown>
+    const codigo = typeof body.user_code === 'string' ? body.user_code : ''
+    if (!codigo) return send(res, 400, { error: 'missing_user_code' })
+
+    const r = await aprobarVinculacion(pool, identity, codigo, Date.now())
+    if (!r.ok) return send(res, r.status, { error: r.error })
+    return send(res, 200, { ok: true })
+  } catch (err) {
+    const status = (err as { status?: number }).status ?? 500
+    if (status === 500) console.error('[http] /v1/link/approve', err)
+    return send(res, status, { error: status === 500 ? 'internal_error' : (err as Error).message })
+  }
+}
+
+/** `POST /v1/link/poll` — el secreto del body ES la credencial; por eso no hay header. */
+async function handleLinkPoll(pool: Pool, req: IncomingMessage, res: ServerResponse): Promise<void> {
+  try {
+    const body = (await readBody(req)) as Record<string, unknown>
+    const codigo = typeof body.device_code === 'string' ? body.device_code : ''
+    if (!codigo) return send(res, 400, { error: 'missing_device_code' })
+    const nombre = typeof body.name === 'string' && body.name.trim() !== ''
+      ? body.name.trim().slice(0, 120)
+      : undefined
+
+    const r = await reclamarVinculacion(pool, codigo, Date.now(), nombre)
+    // **`res.ok` significa exactamente una cosa: tenés el token.** Por eso "todavía no" va con
+    // 400 y no con 202, que es lo que pedía el cuerpo pero que `fetch` considera `ok` — un
+    // cliente que mire sólo eso leería la espera como éxito y guardaría un token vacío. Es la
+    // misma clase de falla silenciosa que el comentario de `/functions/v1/...` documenta más
+    // arriba. Además es la forma del RFC 8628, que es de donde sale este flujo.
+    if (r.estado === 'pendiente') return send(res, 400, { status: 'authorization_pending' })
+    if (r.estado === 'muy-seguido') return send(res, 429, { status: 'slow_down' })
+    if (r.estado === 'vencido') return send(res, 410, { status: 'expired' })
+    if (r.estado === 'rechazado') return send(res, 403, { status: 'denied', error: r.error })
+    return send(res, 200, { status: 'linked', token: r.token, device_id: r.deviceId })
+  } catch (err) {
+    const status = (err as { status?: number }).status ?? 500
+    if (status === 500) console.error('[http] /v1/link/poll', err)
     return send(res, status, { error: status === 500 ? 'internal_error' : (err as Error).message })
   }
 }

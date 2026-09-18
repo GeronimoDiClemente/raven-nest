@@ -375,6 +375,18 @@ Cada paso deja algo que funciona y se puede probar solo.
      guardó ningún ajuste, así que se vería ausente justo cuando `setup` más sirve. La
      detección mira el archivo O su directorio.
 6. **La nube** (§7): login, enrolamiento, autorización, pull con descifrado, push.
+   **El `login` tenía un agujero de diseño**: el §7 lo dibuja del lado del cliente, pero el
+   servicio no tenía nada que lo sostuviera. `/v1/devices` exige un JWT de Supabase —o sea
+   una sesión de navegador— y un `npx` en una terminal remota no tiene dónde abrirlo. No
+   existía ningún endpoint de vinculación por código.
+
+   **Hecho** (2026-09-18): las dos mitades del login.
+   - Servidor: `server/migrations/008_link_requests.sql` y `server/src/link.ts`, con
+     `/v1/link/start`, `/v1/link/approve` y `/v1/link/poll`. 25 tests contra Postgres real.
+   - Cliente: `electron/login-del-paquete.ts`, el bucle de espera, puro. 12 tests.
+
+   **Falta**: la cara que llama a `approve` (una página web o una pantalla de Nest), y el
+   resto del §6 — enrolamiento de la clave, autorización, pull con descifrado y push.
 7. **La extensión** (§3.3), que a esta altura es una cara sobre lo anterior.
 
 ---
