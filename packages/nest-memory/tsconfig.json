@@ -1,0 +1,16 @@
+{
+  "//": "Build del paquete portátil. CommonJS a propósito: Node resuelve los imports relativos sin extensión, así que no hace falta bundler ni tocar los archivos compartidos. `files` nombra sólo la entrada — tsc arrastra el grafo solo, y así el paquete compila EXACTAMENTE lo que usa. El typecheck de CI cubre estos archivos por `electron/**` en tsconfig.node.json.",
+  "compilerOptions": {
+    "module": "CommonJS",
+    "moduleResolution": "node",
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "strict": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "rootDir": "../../electron",
+    "outDir": "dist",
+    "types": ["node"]
+  },
+  "files": ["../../electron/cli-del-paquete.ts"]
+}

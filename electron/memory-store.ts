@@ -9,7 +9,7 @@
 
 import { mkdirSync, existsSync, renameSync } from 'fs'
 import type { BaseSqlite, AbridorDeBase } from './sqlite-forma'
-import { abrirConBetterSqlite3 } from './sqlite-better'
+import { abridorPorDefecto } from './sqlite-motor'
 import { dirname, join } from 'path'
 import { randomBytes, createHash } from 'crypto'
 import { redact } from './memory-redaction'
@@ -819,15 +819,26 @@ export class MemoryStore {
   readonly schemaVersion: number = 0
 
   /**
-   * `abrir` es el punto de inyección del motor. Por defecto es `better-sqlite3`, que es lo
-   * que corre adentro de Electron y está probado; el paquete portátil le pasa el abridor de
-   * `node:sqlite`, que no compila nada (spec `2026-09-13-nest-memory-portable-design.md` §4).
-   * Todo lo de abajo —los PRAGMA, la migración, las transacciones— es el mismo código en los
-   * dos casos, que es el punto: el paquete no reimplementa la redacción ni el FTS.
+   * `abrir` es el punto de inyección del motor: `better-sqlite3` adentro de Electron,
+   * `node:sqlite` en el paquete portátil. Todo lo de abajo —los PRAGMA, la migración, las
+   * transacciones— es el mismo código en los dos casos, que es el punto: el paquete no
+   * reimplementa la redacción ni el FTS.
+   *
+   * Si no se pasa, se usa el que haya registrado `usarAbridorPorDefecto`. **Este archivo NO
+   * importa ningún motor**, y no es un detalle de estilo: un import estático a
+   * `better-sqlite3` acá haría que el paquete publicado arrastre la dependencia nativa que
+   * todo el diseño portátil existe para evitar, tres niveles más abajo y sin que nadie se
+   * entere. Hay un test que camina el grafo de imports y lo fija.
    */
-  constructor(dbPath: string, abrir: AbridorDeBase = abrirConBetterSqlite3) {
+  constructor(dbPath: string, abrir?: AbridorDeBase) {
+    const abrirDeVerdad = abrir ?? abridorPorDefecto()
+    if (!abrirDeVerdad) {
+      throw new Error(
+        'MemoryStore needs a database opener: pass one, or call usarAbridorPorDefecto() at startup'
+      )
+    }
     mkdirSync(dirname(dbPath), { recursive: true })
-    this.db = abrir(dbPath)
+    this.db = abrirDeVerdad(dbPath)
     this.db.pragma('journal_mode = WAL')
     // FULL y no NORMAL: NORMAL aguanta que se caiga la app o el SO, pero un corte de luz
     // puede perder las ultimas transacciones — y con memoria de equipo eso es contexto que

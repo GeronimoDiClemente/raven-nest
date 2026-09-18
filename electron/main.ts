@@ -135,6 +135,8 @@ import { detectIDEs, openInIDE, clearCache as clearIDECache } from './ide-launch
 import { MCPStore } from './mcp-store'
 import { SettingsStore } from './settings-store'
 import { MemoryStore, resolveStorePath, migrateLegacyStorePath } from './memory-store'
+import { usarAbridorPorDefecto } from './sqlite-motor'
+import { abrirConBetterSqlite3 } from './sqlite-better'
 import { MemoryIpcServer } from './memory-ipc-server'
 import { MemoryDaemon } from './memory-daemon'
 import { reconcileSessions } from './memory-sessions'
@@ -340,6 +342,11 @@ interface MemorySubsystem {
   // archivo ya abierto) y, si no lo es, desde qué directorio renombrar.
   currentStorePath: string
 }
+
+// Adentro de Electron el motor es `better-sqlite3`, y se declara ACÁ y no adentro de
+// `memory-store.ts`: ese archivo es núcleo compartido con el paquete portátil, que corre bajo
+// Node pelado y no puede arrastrar un binding nativo. Ver `paquete-sin-nativas.test.ts`.
+usarAbridorPorDefecto(abrirConBetterSqlite3)
 
 // C7 fix: `new MemoryStore(...)` (better-sqlite3) used to run unguarded at module scope.
 // A native-module load failure (verified live in this repo's own dev sandbox: no

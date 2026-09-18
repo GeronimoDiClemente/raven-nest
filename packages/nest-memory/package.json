@@ -1,0 +1,20 @@
+{
+  "name": "nest-memory",
+  "version": "0.1.0",
+  "description": "Your memory, on any machine. The portable half of Nest Memory.",
+  "license": "UNLICENSED",
+  "private": true,
+  "bin": {
+    "nest-memory": "./dist/cli-del-paquete.js"
+  },
+  "files": ["dist"],
+  "engines": {
+    "node": ">=22.5"
+  },
+  "dependencies": {
+    "jsonc-parser": "^3.3.1"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  }
+}

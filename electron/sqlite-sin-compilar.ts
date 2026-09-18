@@ -115,6 +115,20 @@ export function adaptarBase(db: DatabaseSync): BaseSinCompilar {
   return adaptada
 }
 
+/**
+ * Abre una base para LEER y nada más.
+ *
+ * Es el modo que corresponde cuando no somos el escritor: `memory-store.ts` avisa en su
+ * encabezado que el modo sin daemon no puede instanciar el store, porque su constructor migra
+ * y prende WAL — o sea escribe— sobre una base que puede tener otro proceso abierta. El mismo
+ * criterio que `memory-mcp/readonly.ts` ya aplica del lado de Electron.
+ *
+ * Sin PRAGMA de escritura por el mismo motivo: `journal_mode = WAL` es una escritura.
+ */
+export function abrirBaseSoloLectura(path: string): BaseSinCompilar {
+  return adaptarBase(new DatabaseSync(path, { readOnly: true }))
+}
+
 /** Abre una base en disco con los mismos PRAGMA que usa la app. */
 export function abrirBase(path: string): BaseSinCompilar {
   mkdirSync(dirname(path), { recursive: true })
