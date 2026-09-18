@@ -12,7 +12,12 @@ const PATTERNS: RegExp[] = [
   // JWT shape: header.payload.signature, base64url segments
   /\bey[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/g,
   // Provider-specific token prefixes
-  /\bsk-[A-Za-z0-9]{10,}\b/g,
+  // Los guiones y guiones bajos van ADENTRO de la clase a propósito. Sin ellos el patrón
+  // cortaba en el primer guión, así que `sk-ant-api03-…` daba sólo "ant" —tres caracteres—
+  // y no llegaba al mínimo de 10: la clave entera pasaba en claro. Encontrado el 2026-09-18,
+  // y es la que más probablemente aparezca en las memorias de este producto, porque los
+  // agentes que las escriben corren con una.
+  /\bsk-[A-Za-z0-9_-]{10,}\b/g,
   /\bgh[poasu]_[A-Za-z0-9]{20,}\b/g,
   /\bxox[baprs]-[A-Za-z0-9-]{10,}\b/g,
   /\bAKIA[0-9A-Z]{12,}\b/g,
@@ -24,6 +29,12 @@ const PATTERNS: RegExp[] = [
   // fully exposed right after it. `bearer <anything>` is redacted as one unit, BEFORE
   // the generic pattern runs, for the same reason PEM/JWT/prefixes run first above.
   /\bbearer\s+\S+/gi,
+  // Variables de entorno con forma de secreto: `ANTHROPIC_API_KEY=…`, `GITHUB_TOKEN=…`.
+  // El patrón genérico de abajo NO las cubre: exige que la palabra clave empiece al
+  // principio o después de un espacio, `=` o `:`, y en `ANTHROPIC_API_KEY` viene pegada a un
+  // guión bajo. Pedir MAYÚSCULAS es lo que lo hace seguro — "hay que rotar la API key" no
+  // matchea, y esa frase en una memoria es mucho más común que la clave misma.
+  /\b[A-Z][A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|CREDENTIALS)\s*[=:]\s*\S+/g,
   // key=value / key: value style secrets
   /(?:^|[\s=:])(?:token|key|password|secret|api[_-]?key|bearer|authorization)\s*[=:]\s*\S+/gi,
 ]

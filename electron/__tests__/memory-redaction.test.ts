@@ -68,3 +68,34 @@ describe('isDeniedImportPath', () => {
     expect(isDeniedImportPath('/repo/src/index.ts')).toBe(false)
   })
 })
+
+describe('claves que el patrón original dejaba pasar', () => {
+  // Encontrado el 2026-09-18 escribiendo otro test: `/\bsk-[A-Za-z0-9]{10,}\b/` corta en el
+  // primer guión, así que `sk-ant-api03-…` daba sólo "ant" (3 caracteres) y no llegaba al
+  // mínimo. Es la clave que más probablemente aparezca en las memorias de ESTE producto:
+  // los agentes que las escriben corren con una.
+  const ANTHROPIC = `sk-ant-api03-${'A'.repeat(90)}`
+
+  it('redacta una clave de Anthropic suelta', () => {
+    expect(redact(`la clave es ${ANTHROPIC}`).text).not.toContain(ANTHROPIC)
+  })
+
+  it('redacta una clave de Anthropic como variable de entorno', () => {
+    expect(redact(`ANTHROPIC_API_KEY=${ANTHROPIC}`).text).not.toContain(ANTHROPIC)
+  })
+
+  it('redacta otras variables de entorno con forma de secreto', () => {
+    expect(redact('GITHUB_TOKEN=abcdef123456').text).not.toContain('abcdef123456')
+    expect(redact('DB_PASSWORD: hunter2hunter2').text).not.toContain('hunter2hunter2')
+    expect(redact('STRIPE_SECRET_KEY = sk_live_zzzz').text).not.toContain('sk_live_zzzz')
+  })
+
+  it('marca que hubo redacción', () => {
+    expect(redact(`x ${ANTHROPIC}`).redacted).toBe(true)
+  })
+
+  it('no toca prosa que apenas menciona una clave sin darla', () => {
+    const texto = 'hay que rotar la API key del proyecto'
+    expect(redact(texto).text).toBe(texto)
+  })
+})
