@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { siguientePaso, INCREMENTO_POR_LENTO, type RespuestaDePoll } from '../login-del-paquete'
+import { siguientePaso, interpretarRespuestaDePoll, INCREMENTO_POR_LENTO, type RespuestaDePoll } from '../login-del-paquete'
 
 const base = { intervaloMs: 2000, esperaAcumuladaMs: 0, venceEnMs: 600_000 }
 
@@ -80,5 +80,53 @@ describe('el orden entre "ya venció" y "ya está"', () => {
       { intervaloMs: 2000, esperaAcumuladaMs: 999_999, venceEnMs: 600_000 },
     )
     expect(r).toMatchObject({ motivo: 'rechazado', detalle: 'device_limit' })
+  })
+})
+
+describe('interpretarRespuestaDePoll', () => {
+  const i = (status: number, body: unknown) => interpretarRespuestaDePoll(status, body)
+
+  it('200 con token es lo ÚNICO que cuenta como conectado', () => {
+    expect(i(200, { status: 'linked', token: 'nmk_x', device_id: 'd1' }))
+      .toEqual({ status: 'linked', token: 'nmk_x', deviceId: 'd1' })
+  })
+
+  it('200 SIN token no es conectado', () => {
+    // Un proxy o un servidor raro puede devolver 200 con cualquier cosa. Tomarlo como éxito
+    // guardaría una credencial vacía y el usuario creería que quedó conectado.
+    expect(i(200, { status: 'linked' }).status).toBe('sin-respuesta')
+    expect(i(200, { ok: true }).status).toBe('sin-respuesta')
+    expect(i(200, null).status).toBe('sin-respuesta')
+  })
+
+  it('400 con authorization_pending es esperar', () => {
+    expect(i(400, { status: 'authorization_pending' })).toEqual({ status: 'authorization_pending' })
+  })
+
+  it('429 es ir más despacio', () => {
+    expect(i(429, { status: 'slow_down' })).toEqual({ status: 'slow_down' })
+  })
+
+  it('410 es vencido', () => {
+    expect(i(410, { status: 'expired' })).toEqual({ status: 'expired' })
+  })
+
+  it('403 es rechazado, y conserva el motivo', () => {
+    expect(i(403, { status: 'denied', error: 'not_in_beta' }))
+      .toEqual({ status: 'denied', error: 'not_in_beta' })
+  })
+
+  it('un 500 no es ninguna de las anteriores: se reintenta', () => {
+    expect(i(500, { error: 'internal_error' }).status).toBe('sin-respuesta')
+  })
+
+  it('un 400 que NO es authorization_pending no se confunde con esperar', () => {
+    // `missing_device_code` es un error del cliente, no una espera: reintentar para siempre
+    // dejaría al usuario mirando la terminal sin que nada pueda cambiar.
+    expect(i(400, { error: 'missing_device_code' }).status).toBe('sin-respuesta')
+  })
+
+  it('HTML en vez de JSON se trata como sin respuesta', () => {
+    expect(i(200, '<html>').status).toBe('sin-respuesta')
   })
 })

@@ -3,8 +3,8 @@
 // in every test worker; tests still need to `import { makeTmpDir } from './setup'`
 // to use the helpers (these are exports, not globals).
 import { mkdtempSync, rmSync, realpathSync } from 'fs'
-import { usarAbridorPorDefecto } from '../sqlite-motor'
-import { abrirConBetterSqlite3 } from '../sqlite-better'
+import { usarAbridorPorDefecto, usarAbridorDeLecturaPorDefecto } from '../sqlite-motor'
+import { abrirConBetterSqlite3, abrirSoloLecturaConBetterSqlite3 } from '../sqlite-better'
 
 // Los tests construyen `new MemoryStore(path)` sin pasar abridor —88 lugares— y esperan el
 // motor nativo, que es el que corre en la app.
@@ -13,6 +13,7 @@ import { abrirConBetterSqlite3 } from '../sqlite-better'
 // un test pueda instalar su `vi.mock('fs')`, y el módulo se queda con el `fs` real. Eso rompió
 // tres tests de migración que simulan fallos de `rename` — pasaban a no ver nunca el fallo.
 usarAbridorPorDefecto(abrirConBetterSqlite3)
+usarAbridorDeLecturaPorDefecto(abrirSoloLecturaConBetterSqlite3)
 import { tmpdir } from 'os'
 import { join } from 'path'
 

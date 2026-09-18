@@ -14,7 +14,8 @@
 //
 // Dos lectores concurrentes sobre el mismo archivo son seguros: el store abre en WAL, que
 // admite lectores mientras alguien escribe.
-import Database from 'better-sqlite3'
+import type { BaseSqlite } from '../sqlite-forma'
+import { abridorDeLecturaPorDefecto } from '../sqlite-motor'
 import { buildMemoryGraph, type MemoryGraph } from '../memory-graph'
 import { renderMemoryGraphText } from '../memory-graph-text'
 import { readActivePointer } from '../memory-active-store'
@@ -50,32 +51,39 @@ export const SIN_APP =
   'again, or tell the user what you would have saved so it is not lost.'
 
 export class MemoryReadonlyClient {
-  private db: Database.Database | null = null
+  private db: BaseSqlite | null = null
 
-  constructor(private readonly ravenHomeDir: string) {}
+  /**
+   * `pathExplicito` lo usa el paquete portátil: él ya decidió cuál base abrir (§5.2 del spec,
+   * `base-para-el-paquete.ts`) y esa decisión contempla un caso que el puntero no — una
+   * máquina que nunca tuvo Nest y abre su propia base.
+   */
+  constructor(private readonly ravenHomeDir: string, private readonly pathExplicito?: string) {}
 
   /**
    * `null` cuando no hay nada que abrir: sin puntero de cuenta activa, o con un puntero que
    * apunta a un archivo que ya no está. Los dos casos son lo mismo para quien llama.
    */
-  private abrir(): Database.Database {
+  private abrir(): BaseSqlite {
     if (this.db) return this.db
-    const pointer = readActivePointer(this.ravenHomeDir)
-    if (!pointer) {
+    const path = this.pathExplicito ?? readActivePointer(this.ravenHomeDir)?.storePath ?? null
+    if (!path) {
       throw new Error(
         'Nest is not running and no memory database was found for this machine. ' +
         'Open Nest once so it can record which account is active.'
       )
     }
     try {
-      // `fileMustExist` además de `readonly`: sin él, better-sqlite3 CREA un archivo vacío si
-      // el path no existe, y el modo sin daemon terminaría inventando una base en blanco y
-      // reportando "no hay memorias" en vez de "no encontré la base".
-      const db = new Database(pointer.storePath, { readonly: true, fileMustExist: true })
-      // `new Database` no toca el archivo: better-sqlite3 abre en diferido, así que un
-      // archivo que no es una base —o un binding nativo incompatible— recién explota en la
-      // primera consulta, lejos de acá y con el catch de abajo ya fuera de alcance. Este
-      // pragma es la consulta que fuerza el fallo mientras todavía se puede explicar.
+      // El motor lo pone el arranque: `better-sqlite3` adentro de Electron, `node:sqlite` en
+      // el paquete portátil. Este archivo no nombra a ninguno — es el mismo motivo por el que
+      // `memory-store.ts` tampoco, y lo fija `paquete-sin-nativas.test.ts`.
+      const abrir = abridorDeLecturaPorDefecto()
+      if (!abrir) throw new Error('No read-only database opener was registered at startup')
+      const db = abrir(path)
+      // Abrir es diferido: un archivo que no es una base —o un binding nativo incompatible—
+      // recién explota en la primera consulta, lejos de acá y con el catch de abajo ya fuera
+      // de alcance. Este pragma es la consulta que fuerza el fallo mientras todavía se puede
+      // explicar.
       db.pragma('user_version')
       this.db = db
       return db
@@ -86,7 +94,7 @@ export class MemoryReadonlyClient {
       // nada. Quien lee esto es un agente que tiene que decidir si reintentar o avisar.
       const detalle = err instanceof Error ? err.message : String(err)
       throw new Error(
-        `The memory database exists at ${pointer.storePath} but could not be opened: ${detalle}`
+        `The memory database exists at ${path} but could not be opened: ${detalle}`
       )
     }
   }

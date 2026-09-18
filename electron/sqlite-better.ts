@@ -29,6 +29,15 @@ export function adaptarBetterSqlite3(db: Database.Database): BaseSqlite {
   }
 }
 
+/**
+ * Sólo lectura. `fileMustExist` además de `readonly`: sin él, better-sqlite3 CREA un archivo
+ * vacío si el path no existe, y el modo sin daemon terminaría inventando una base en blanco y
+ * reportando «no hay memorias» en vez de «no encontré la base».
+ */
+export function abrirSoloLecturaConBetterSqlite3(path: string): BaseSqlite {
+  return adaptarBetterSqlite3(new Database(path, { readonly: true, fileMustExist: true }))
+}
+
 /** El abridor por defecto: el que usa la app dentro de Electron. */
 export function abrirConBetterSqlite3(path: string): BaseSqlite {
   mkdirSync(dirname(path), { recursive: true })

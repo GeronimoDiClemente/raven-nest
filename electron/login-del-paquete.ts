@@ -62,3 +62,35 @@ export function siguientePaso(respuesta: RespuestaDePoll, estado: EstadoDeLogin)
     : estado.intervaloMs
   return { accion: 'reintentar', esperarMs: intervaloMs, intervaloMs }
 }
+
+/**
+ * Traduce lo que contestó `/v1/link/poll` al estado que entiende `siguientePaso`.
+ *
+ * Está separado del `fetch` porque es el punto donde una lectura equivocada del código HTTP
+ * se convierte en una credencial vacía guardada como si fuera buena. **Lo único que cuenta
+ * como conectado es un 200 CON token**: todo lo demás que no se reconozca es `sin-respuesta`,
+ * o sea reintentar, que es el default seguro — el código sigue vivo del otro lado.
+ */
+export function interpretarRespuestaDePoll(status: number, cuerpo: unknown): RespuestaDePoll {
+  const b = (cuerpo && typeof cuerpo === 'object' ? cuerpo : {}) as Record<string, unknown>
+
+  if (status === 200) {
+    const token = b.token
+    const deviceId = b.device_id
+    if (typeof token === 'string' && token !== '' && typeof deviceId === 'string' && deviceId !== '') {
+      return { status: 'linked', token, deviceId }
+    }
+    // Un 200 sin token no es un éxito a medias: es algo que no entendemos.
+    return { status: 'sin-respuesta' }
+  }
+
+  // El 400 sirve para dos cosas distintas —la espera del RFC 8628 y los errores de pedido—
+  // así que no alcanza con el código: hay que mirar qué dijo.
+  if (status === 400 && b.status === 'authorization_pending') return { status: 'authorization_pending' }
+  if (status === 429) return { status: 'slow_down' }
+  if (status === 410) return { status: 'expired' }
+  if (status === 403) {
+    return { status: 'denied', error: typeof b.error === 'string' ? b.error : undefined }
+  }
+  return { status: 'sin-respuesta' }
+}

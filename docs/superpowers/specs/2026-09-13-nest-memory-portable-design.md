@@ -418,11 +418,18 @@ Cada paso deja algo que funciona y se puede probar solo.
      plan a disco, atómico, y un destino que falla no aborta a los demás.
    - `electron/argumentos-del-paquete.ts` (14 tests): el parseo de `argv`.
 
-   **Falta**: el empaquetado en sí — `package.json` con su `bin`, el `.vsix`, y el arranque
-   que une el parseo con las acciones. Y lo que la P-3 de este documento ya recomendaba:
-   **no publicar la extensión hasta que la CLI esté en uso**, porque una cara sobre algo que
-   nunca se corrió de punta a punta no valida nada. Hoy el camino completo sigue sin
-   probarse contra un servicio desplegado.
+   **El paquete existe y corre** (`packages/nest-memory`): los siete comandos están
+   cableados. `setup`, `status`, `search`, `doctor` y `mcp` andan sin cuenta ni red; `login`
+   y `recover` hablan con el servicio que diga `NEST_MEMORY_SYNC_URL`.
+
+   **El `login` se probó de punta a punta el 2026-09-18** contra el servicio corriendo en
+   local con Postgres real: la CLI mostró el código, la aprobación con un JWT lo ató, la CLI
+   levantó el token y lo guardó cifrado con 0600, y quedó la fila en `devices`. Es la primera
+   vez que ese camino se recorre entero.
+
+   **Falta**: el `.vsix` de la extensión, y probar contra el servicio DESPLEGADO (que corre
+   versión vieja y sin `SUPABASE_JWT_SECRET`). Y lo que la P-3 ya recomendaba: no publicar la
+   extensión hasta que la CLI esté en uso.
 
 ---
 

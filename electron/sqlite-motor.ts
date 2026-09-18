@@ -14,6 +14,7 @@
 import type { AbridorDeBase } from './sqlite-forma'
 
 let abridorRegistrado: AbridorDeBase | null = null
+let abridorDeLecturaRegistrado: AbridorDeBase | null = null
 
 /** Lo llama el arranque de cada entorno, una vez, con el motor que corresponda ahí. */
 export function usarAbridorPorDefecto(abrir: AbridorDeBase): void {
@@ -22,4 +23,17 @@ export function usarAbridorPorDefecto(abrir: AbridorDeBase): void {
 
 export function abridorPorDefecto(): AbridorDeBase | null {
   return abridorRegistrado
+}
+
+/**
+ * El de SÓLO LECTURA, que es otro: el modo sin daemon no puede migrar ni prender WAL sobre
+ * una base que puede tener otro proceso abierta. Se registra aparte y no se deriva del de
+ * arriba porque las opciones de apertura son distintas, no un detalle.
+ */
+export function usarAbridorDeLecturaPorDefecto(abrir: AbridorDeBase): void {
+  abridorDeLecturaRegistrado = abrir
+}
+
+export function abridorDeLecturaPorDefecto(): AbridorDeBase | null {
+  return abridorDeLecturaRegistrado
 }

@@ -7,11 +7,14 @@
 // probada. Lo único propio de este archivo es imprimir, y por eso es lo único que no tiene
 // tests unitarios — lo que se puede romper acá se ve corriéndolo.
 //
-// **Qué anda hoy sin nube**: `setup`, `status`, `search` y la ayuda. Son los que el §5.2
-// promete para una máquina sola, y los que hacen al paquete útil sin cuenta.
-// **Qué no está cableado todavía**: `login`, `recover` y `mcp`. Cada uno lo DICE en vez de
-// fallar raro o de fingir: un comando que no hace nada y no avisa es peor que uno que no está.
-import { homedir } from 'os'
+// **Sin cuenta ni red**: `setup`, `status`, `search`, `doctor` y `mcp`. Son los que el §5.2
+// promete para una máquina sola, y `mcp` es el que hace que el `setup` signifique algo — es
+// lo que los editores lanzan.
+// **Con cuenta**: `login` y `recover`, contra el servicio que diga `NEST_MEMORY_SYNC_URL`.
+//
+// El servidor MCP corre el MISMO bucle que adentro de Nest (`memory-mcp/servidor.ts`), con
+// otro cliente atrás: lectura directa del disco en vez del daemon por socket.
+import { homedir, hostname } from 'os'
 import { existsSync } from 'fs'
 import { parsearArgumentos, AYUDA } from './argumentos-del-paquete'
 import { destinosDeSetup, planDeSetup, planDeDeshacer } from './setup-del-paquete'
@@ -23,6 +26,15 @@ import { searchObservations, contextObservations } from './memory-reads'
 import { GLOBAL_PROJECT_KEY } from './memory-project-key'
 import { readActivePointer } from './memory-active-store'
 import { llaveroPorPlataforma, correrComando } from './llavero-del-sistema'
+import { usarAbridorDeLecturaPorDefecto } from './sqlite-motor'
+import { MemoryReadonlyClient } from './memory-mcp/readonly'
+import { runMcpServer } from './memory-mcp/servidor'
+import { cifradoDeLlavero } from './llavero-del-sistema'
+import { guardarCredencial, leerCredencial } from './credencial-del-paquete'
+import { siguientePaso, interpretarRespuestaDePoll, type EstadoDeLogin } from './login-del-paquete'
+import { ensureKeyMaterial, saveKeyMaterial } from './memory-key-store'
+import { recoverWithCode } from './memory-keys-client'
+import { normalizeRecoveryCode } from './memory-key-wrap'
 
 /**
  * El motor: `node:sqlite`, que viene adentro de Node y no compila nada.
@@ -35,6 +47,7 @@ import { llaveroPorPlataforma, correrComando } from './llavero-del-sistema'
  * el store tiene que encontrar su motor sin que nadie se acuerde de esto.
  */
 usarAbridorPorDefecto(abrirBase)
+usarAbridorDeLecturaPorDefecto(abrirBaseSoloLectura)
 
 /**
  * Lo que se escribe en la configuración de los editores.
@@ -184,11 +197,197 @@ const NODE_MINIMO_OK = (() => {
   return (may ?? 0) > 22 || ((may ?? 0) === 22 && (men ?? 0) >= 5)
 })()
 
-function noCableado(comando: string, falta: string): never {
-  // Decirlo con precisión y salir distinto de 0. Un comando que imprime algo lindo y no hace
-  // nada es la peor de las tres opciones.
-  console.error(`\`${comando}\` is not wired up yet: ${falta}`)
-  salir(2)
+/**
+ * `mcp`: el servidor que lanzan los editores, no una persona.
+ *
+ * Es el MISMO bucle que corre adentro de Nest —`memory-mcp/servidor.ts`— con otro cliente
+ * atrás: en vez del daemon por socket, lectura directa del disco. Eso hace que un agente en
+ * una máquina sin Nest tenga exactamente las mismas herramientas, y que lo que NO puede
+ * hacer (escribir) lo diga con las mismas palabras.
+ *
+ * **Nada se imprime por stdout acá**: ese canal es el protocolo. Un `console.log` suelto
+ * rompe la sesión del editor con un error de parseo que no dice nada.
+ */
+async function comandoMcp(): Promise<void> {
+  const base = dondeEstaLaBase()
+  if (base.modo === 'daemon') {
+    // Con Nest vivo el shim de Electron es el que corresponde: él escribe, éste no.
+    console.error('Nest is running here — its own memory server is the one to use.')
+    salir(2)
+  }
+  const path = base.modo === 'nest' ? base.path : base.path
+  await runMcpServer(new MemoryReadonlyClient(homedir(), path), process.cwd())
+}
+
+/**
+ * A qué servicio hablarle. Sale del entorno y NO está clavado en el binario: un `npx` se
+ * publica una vez y el servicio puede mudarse, y además hace falta poder apuntarlo a uno de
+ * desarrollo sin republicar nada.
+ */
+function urlDelServicio(): string | null {
+  const u = process.env.NEST_MEMORY_SYNC_URL?.trim()
+  return u ? u.replace(/\/+$/, '') : null
+}
+
+/** El cifrado en reposo de esta máquina: el llavero del sistema. */
+function cifradoDelSistema() {
+  return cifradoDeLlavero(llaveroPorPlataforma(process.platform, correrComando))
+}
+
+const dormir = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+function exigirServicio(): string {
+  const base = urlDelServicio()
+  if (!base) {
+    console.error('No sync service configured. Set NEST_MEMORY_SYNC_URL to your service URL.')
+    salir(2)
+  }
+  return base
+}
+
+function exigirLlavero(): ReturnType<typeof cifradoDelSistema> {
+  const safe = cifradoDelSistema()
+  if (!safe.isEncryptionAvailable()) {
+    console.error('No system keyring available, so there is nowhere safe to keep the token.')
+    console.error('Local memory keeps working — this only affects the cloud.')
+    salir(2)
+  }
+  return safe
+}
+
+/** `login`: conectar esta máquina a tu cuenta, sin abrir un navegador acá. */
+async function comandoLogin(): Promise<void> {
+  const base = exigirServicio()
+  const safe = exigirLlavero()
+
+  const inicio = await fetch(`${base}/v1/link/start`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: '{}',
+  })
+  if (!inicio.ok) {
+    console.error(`The sync service refused to start a link: HTTP ${inicio.status}`)
+    salir(1)
+  }
+  const arranque = (await inicio.json()) as {
+    user_code?: string; device_code?: string; expires_in?: number; interval?: number
+  }
+  if (!arranque.user_code || !arranque.device_code) {
+    console.error('The sync service answered something this version does not understand.')
+    salir(1)
+  }
+
+  console.log('')
+  console.log(`  Your code:  ${arranque.user_code}`)
+  console.log('')
+  console.log('  Open Nest on a machine where you are signed in, go to Memories, and type it')
+  console.log('  into "Connect a machine without a browser".')
+  console.log('')
+  process.stdout.write('  Waiting…')
+
+  let estado: EstadoDeLogin = {
+    intervaloMs: Math.max(1000, (arranque.interval ?? 2) * 1000),
+    esperaAcumuladaMs: 0,
+    venceEnMs: (arranque.expires_in ?? 600) * 1000,
+  }
+
+  for (;;) {
+    // Una caída de red NO corta: el código sigue vivo del otro lado, y `siguientePaso` ya
+    // sabe que eso se reintenta. Por eso el catch devuelve `sin-respuesta` en vez de tirar.
+    const respuesta = await fetch(`${base}/v1/link/poll`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ device_code: arranque.device_code, name: hostname() }),
+    })
+      .then(async (r) => interpretarRespuestaDePoll(r.status, await r.json().catch(() => null)))
+      .catch(() => ({ status: 'sin-respuesta' as const }))
+
+    const paso = siguientePaso(respuesta, estado)
+
+    if (paso.accion === 'listo') {
+      guardarCredencial(homedir(), safe, { token: paso.token, deviceId: paso.deviceId })
+      console.log('\n\n  Connected. This machine can sync now.')
+      return
+    }
+    if (paso.accion === 'cortar') {
+      const porque = paso.motivo === 'vencido'
+        ? 'the code expired — run login again to get a new one'
+        : `the service refused this machine: ${paso.detalle ?? 'no reason given'}`
+      console.error(`\n\n  Could not connect: ${porque}`)
+      salir(1)
+    }
+    process.stdout.write('.')
+    await dormir(paso.esperarMs)
+    estado = {
+      ...estado,
+      intervaloMs: paso.intervaloMs,
+      esperaAcumuladaMs: estado.esperaAcumuladaMs + paso.esperarMs,
+    }
+  }
+}
+
+/** `recover`: abrir la memoria cifrada con el código de recuperación. */
+async function comandoRecover(): Promise<void> {
+  const base = exigirServicio()
+  const safe = exigirLlavero()
+  const credencial = leerCredencial(homedir(), safe)
+  if (!credencial) {
+    console.error('This machine is not connected to an account. Run `nest-memory login` first.')
+    salir(2)
+  }
+
+  console.log('Paste your recovery code and press enter.')
+  console.log('Using it spends your one emergency copy — if another machine is available,')
+  console.log('authorizing from there is the better path.')
+  const tipeado = (await leerUnaLinea()).trim()
+  if (!tipeado) {
+    console.error('No code given.')
+    salir(1)
+  }
+
+  const material = ensureKeyMaterial(homedir(), null, safe)
+  try {
+    const r = await recoverWithCode(
+      { baseUrl: base, token: credencial.token, deviceId: credencial.deviceId },
+      material.device,
+      normalizeRecoveryCode(tipeado),
+    )
+    saveKeyMaterial(homedir(), null, safe, { ...material, master: r.master, keyEpoch: r.keyEpoch })
+    console.log('Recovered. This machine can read your encrypted memory now.')
+  } catch (err) {
+    // El motivo va tal cual: «código equivocado» y «no hay copia de recuperación en esta
+    // cuenta» piden cosas distintas, y colapsarlos en "no se pudo" deja al usuario probando
+    // el mismo código otra vez.
+    console.error(`Could not recover: ${err instanceof Error ? err.message : String(err)}`)
+    salir(1)
+  }
+}
+
+function leerUnaLinea(): Promise<string> {
+  return new Promise((resolve) => {
+    let datos = ''
+    process.stdin.setEncoding('utf8')
+    process.stdin.on('data', (chunk) => {
+      datos += chunk
+      const corte = datos.indexOf('\n')
+      if (corte !== -1) { process.stdin.pause(); resolve(datos.slice(0, corte)) }
+    })
+    process.stdin.on('end', () => resolve(datos))
+  })
+}
+
+/**
+ * Un comando asincrónico que falla tiene que DECIRLO, no volcar un stack de Node.
+ *
+ * Sin esto, `void comandoLogin()` descarta la promesa: un servicio inalcanzable terminaba en
+ * un rechazo sin atrapar, con el stack impreso y —lo peor— saliendo con código 0, o sea
+ * anunciando éxito. Lo encontré corriéndolo contra un puerto cerrado.
+ */
+function correrAsync(p: Promise<void>): void {
+  p.catch((err) => {
+    console.error(err instanceof Error ? err.message : String(err))
+    salir(1)
+  })
 }
 
 export function correr(argv: string[]): void {
@@ -199,9 +398,9 @@ export function correr(argv: string[]): void {
     case 'status': comandoStatus(); return
     case 'search': comandoSearch(cmd.consulta); return
     case 'doctor': comandoDoctor(); return
-    case 'login': noCableado('login', 'it needs the sync service URL and the polling loop hooked to it')
-    case 'recover': noCableado('recover', 'it needs the recovery-code path hooked to the key store')
-    case 'mcp': noCableado('mcp', 'the MCP server still runs inside Nest')
+    case 'login': correrAsync(comandoLogin()); return
+    case 'recover': correrAsync(comandoRecover()); return
+    case 'mcp': correrAsync(comandoMcp()); return
     case 'error':
       console.error(cmd.detalle)
       salir(1)

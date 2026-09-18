@@ -17,6 +17,8 @@ const RAIZ = resolve(__dirname, '..')
 
 /** Lo que el paquete portátil arranca. Todo lo que cuelgue de acá tiene que ser puro Node. */
 const ENTRADAS = [
+  // La entrada de verdad va primera: si algo se cuela, se cuela por acá.
+  'cli-del-paquete.ts',
   'argumentos-del-paquete.ts',
   'base-para-el-paquete.ts',
   'setup-del-paquete.ts',
