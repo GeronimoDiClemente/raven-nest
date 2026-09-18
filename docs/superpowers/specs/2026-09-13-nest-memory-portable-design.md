@@ -385,8 +385,16 @@ Cada paso deja algo que funciona y se puede probar solo.
      `/v1/link/start`, `/v1/link/approve` y `/v1/link/poll`. 25 tests contra Postgres real.
    - Cliente: `electron/login-del-paquete.ts`, el bucle de espera, puro. 12 tests.
 
-   **Falta**: la cara que llama a `approve` (una página web o una pantalla de Nest), y el
-   resto del §6 — enrolamiento de la clave, autorización, pull con descifrado y push.
+   - La cara que aprueba: `src/components/LinkDeviceCard.tsx`, en el overlay Memories al
+     lado de la tarjeta de cifrado, más `memory:linkApprove` en main. 19 tests.
+   - El sync de una sola pasada: `electron/sync-del-paquete.ts`, 8 tests. **No reimplementa
+     nada** — `MemoryDaemon.pull()` y `.push()` ya eran públicos, así que el paquete arma el
+     daemon con las mismas dependencias y no llama a `start()`. Un test de tipos fija que el
+     daemon real cumple la interfaz, para que la premisa no se rompa en silencio.
+
+   **Falta**: el enrolamiento de la clave y la autorización entre máquinas (§7, la huella),
+   y probar el camino completo contra un servicio desplegado — hoy bloqueado por
+   infraestructura, no por código.
 7. **La extensión** (§3.3), que a esta altura es una cara sobre lo anterior.
 
 ---
