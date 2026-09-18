@@ -392,8 +392,20 @@ Cada paso deja algo que funciona y se puede probar solo.
      daemon con las mismas dependencias y no llama a `start()`. Un test de tipos fija que el
      daemon real cumple la interfaz, para que la premisa no se rompa en silencio.
 
-   **Falta**: el enrolamiento de la clave y la autorización entre máquinas (§7, la huella),
-   y probar el camino completo contra un servicio desplegado — hoy bloqueado por
+   - El enrolamiento: `electron/llavero-del-sistema.ts` (23 tests, 5 contra el llavero REAL
+     de macOS) y `electron/enrolamiento-del-paquete.ts` (8 tests).
+
+   **El hueco que nadie había mirado**: el paquete corre bajo Node pelado y no tiene
+   `electron.safeStorage`, y `memory-key-store.ts` **lanza** si no hay cifrado del sistema
+   —«guardar una maestra en texto plano sería peor que no cifrar nada»—. O sea que sin
+   resolver eso, el paquete no podía guardar ninguna clave. La salida es la misma que usa
+   Electron por debajo, pero por línea de comandos: el llavero del SO guarda una clave al
+   azar y con ella se cifra `keys.bin` con AES-256-GCM. Verificado contra el `security` real
+   de macOS; Windows (DPAPI) y Linux (`secret-tool`) están escritos y no ejecutados, y si
+   alguno está mal `disponible()` da `false` y el paquete queda en modo local, que es la
+   falla segura.
+
+   **Falta**: probar el camino completo contra un servicio desplegado — bloqueado por
    infraestructura, no por código.
 7. **La extensión** (§3.3), que a esta altura es una cara sobre lo anterior.
 
