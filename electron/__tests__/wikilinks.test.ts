@@ -72,8 +72,8 @@ describe('parsearWikilinks', () => {
 
 import { resolverWikilink, type CandidatoMemoria } from '../wikilinks'
 
-const c = (syncId: string, title: string, topicKey: string | null = null): CandidatoMemoria =>
-  ({ syncId, title, topicKey })
+const c = (syncId: string, title: string, topicKey: string | null = null, aliases: string[] = []): CandidatoMemoria =>
+  ({ syncId, title, topicKey, aliases })
 
 describe('resolverWikilink', () => {
   it('resuelve por topic_key exacto', () => {
@@ -117,6 +117,31 @@ describe('resolverWikilink', () => {
     expect(resolverWikilink('repe', [...cands].reverse())).toBe('s2')
   })
 
+  it('resuelve por un alias que la memoria declaró', () => {
+    expect(resolverWikilink('candado', [c('s1', 'Otro título', 'x/otro', ['candado', 'lock'])])).toBe('s1')
+  })
+
+  it('el alias no distingue mayúsculas', () => {
+    expect(resolverWikilink('CANDADO', [c('s1', 't', null, ['candado'])])).toBe('s1')
+  })
+
+  it('el alias gana sobre un título que coincida', () => {
+    // El alias es una declaración explícita del autor; el título es prosa y cambia.
+    const cands = [c('s1', 'candado'), c('s2', 'otra cosa', null, ['candado'])]
+    expect(resolverWikilink('candado', cands)).toBe('s2')
+  })
+
+  it('el topic exacto gana sobre un alias', () => {
+    const cands = [c('s1', 't', null, ['candado']), c('s2', 't', 'candado')]
+    expect(resolverWikilink('candado', cands)).toBe('s2')
+  })
+
+  it('con dos memorias que declaran el mismo alias elige siempre la misma', () => {
+    const cands = [c('s9', 'a', null, ['repe']), c('s2', 'b', null, ['repe'])]
+    expect(resolverWikilink('repe', cands)).toBe('s2')
+    expect(resolverWikilink('repe', [...cands].reverse())).toBe('s2')
+  })
+
   it('devuelve null si no existe — el link queda pendiente, no es un error', () => {
     // Es la pieza que hace barato linkear de más: podés apuntar a una memoria que todavía
     // no escribiste, y cuando exista el link se resuelve solo.
@@ -132,5 +157,58 @@ describe('resolverWikilink', () => {
   it('no explota con lista vacía ni con nombre vacío', () => {
     expect(resolverWikilink('lo que sea', [])).toBeNull()
     expect(resolverWikilink('', [c('s1', '')])).toBeNull()
+  })
+})
+
+import { parsearAlias } from '../wikilinks'
+
+describe('parsearAlias', () => {
+  it('lee la forma de coma', () => {
+    expect(parsearAlias('---\naliases: candado, sync-lock\n---\n\nEl cuerpo.'))
+      .toEqual(['candado', 'sync-lock'])
+  })
+
+  it('acepta el singular', () => {
+    expect(parsearAlias('---\nalias: candado\n---\ncuerpo')).toEqual(['candado'])
+  })
+
+  it('lee la forma de corchetes', () => {
+    expect(parsearAlias('---\naliases: [uno, dos]\n---\n')).toEqual(['uno', 'dos'])
+  })
+
+  it('lee la forma de lista con guiones', () => {
+    expect(parsearAlias('---\naliases:\n  - uno\n  - dos\n---\ncuerpo')).toEqual(['uno', 'dos'])
+  })
+
+  it('convive con otras claves del frontmatter', () => {
+    expect(parsearAlias('---\ntitle: algo\naliases: x, y\ntags: [a]\n---\n')).toEqual(['x', 'y'])
+  })
+
+  it('SÓLO mira el frontmatter: una memoria que HABLA de alias no declara ninguno', () => {
+    // Es el falso positivo que importa. Sin el bloque delimitado, cualquier memoria que
+    // explique "aliases: lo que sea" se autodeclararía un alias.
+    expect(parsearAlias('El frontmatter de Obsidian usa\naliases: nombre alternativo\npara esto.'))
+      .toEqual([])
+  })
+
+  it('un frontmatter que no arranca en la primera línea no cuenta', () => {
+    expect(parsearAlias('texto antes\n---\naliases: x\n---\n')).toEqual([])
+  })
+
+  it('un frontmatter sin cerrar no cuenta', () => {
+    expect(parsearAlias('---\naliases: x\n\ny sigue el cuerpo sin cerrar')).toEqual([])
+  })
+
+  it('ignora vacíos y recorta espacios y comillas', () => {
+    expect(parsearAlias('---\naliases: "uno" ,  , \'dos\'  \n---\n')).toEqual(['uno', 'dos'])
+  })
+
+  it('no repite', () => {
+    expect(parsearAlias('---\naliases: uno, Uno, uno\n---\n')).toEqual(['uno'])
+  })
+
+  it('sin frontmatter devuelve vacío', () => {
+    expect(parsearAlias('')).toEqual([])
+    expect(parsearAlias('---\ntitle: solo esto\n---\ncuerpo')).toEqual([])
   })
 })

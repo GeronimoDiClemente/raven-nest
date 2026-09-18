@@ -1,5 +1,5 @@
 import type { Database } from 'better-sqlite3'
-import { parsearWikilinks, resolverWikilink, type CandidatoMemoria } from './wikilinks'
+import { parsearWikilinks, parsearAlias, resolverWikilink, CHARS_DE_FRONTMATTER, type CandidatoMemoria } from './wikilinks'
 import type { VecinoDeMemoria } from './memory-protocol'
 
 export type { VecinoDeMemoria }
@@ -49,13 +49,23 @@ function contextoDe(db: Database, syncId: string): Contexto | null {
     .get(syncId) as FilaBase | undefined
   if (!fila) return null
 
+  // El ARRANQUE del contenido, no el texto entero: es donde va el frontmatter con los alias,
+  // y hace falta de todas las candidatas — traerles el cuerpo completo sería absurdo.
   const candidatos = db
-    .prepare('SELECT sync_id, title, topic_key FROM observations WHERE project_key = ? AND deleted = 0')
-    .all(fila.project_key) as Array<{ sync_id: string; title: string; topic_key: string | null }>
+    .prepare(
+      `SELECT sync_id, title, topic_key, substr(content, 1, ${CHARS_DE_FRONTMATTER}) AS content_head
+         FROM observations WHERE project_key = ? AND deleted = 0`,
+    )
+    .all(fila.project_key) as Array<{ sync_id: string; title: string; topic_key: string | null; content_head: string | null }>
 
   return {
     fila,
-    comoCandidato: candidatos.map((c) => ({ syncId: c.sync_id, title: c.title, topicKey: c.topic_key })),
+    comoCandidato: candidatos.map((c) => ({
+      syncId: c.sync_id,
+      title: c.title,
+      topicKey: c.topic_key,
+      aliases: parsearAlias(c.content_head ?? ''),
+    })),
     porId: new Map(candidatos.map((c) => [c.sync_id, c])),
   }
 }
@@ -98,7 +108,11 @@ export function vecinosDeMemoria(db: Database, syncId: string): VecinoDeMemoria[
   }
 
   // --- entrantes: quien menciona a ESTA
-  for (const frase of [fila.title, fila.topic_key]) {
+  // También por cada alias: si alguien la linkeó por un nombre alternativo, buscar sólo el
+  // título y el topic no lo encontraría, y el backlink se perdería justo en el caso para el
+  // que existen los alias.
+  const misAlias = parsearAlias(fila.content ?? '')
+  for (const frase of [fila.title, fila.topic_key, ...misAlias]) {
     if (!frase || !frase.trim()) continue
     // Mismo saneo que search(): FTS5 no permite comillas dobles sueltas en una MATCH
     // expression, y envolver en comillas fuerza frase exacta en vez de dejar que los

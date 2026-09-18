@@ -64,6 +64,8 @@ export interface CandidatoMemoria {
   syncId: string
   title: string
   topicKey: string | null
+  /** Los otros nombres que la memoria declaró para sí misma. Ver `parsearAlias`. */
+  aliases?: string[]
 }
 
 /**
@@ -94,6 +96,11 @@ export function resolverWikilink(nombre: string, candidatos: CandidatoMemoria[])
   const porTramo = candidatos.filter((x) => ultimoTramo(x.topicKey) === buscado)
   if (porTramo.length > 0) return masEstable(porTramo)
 
+  // El alias va antes que el título porque es una DECLARACIÓN explícita del autor —"a esto
+  // también llamale así"— mientras que el título es prosa y cambia cuando alguien reescribe.
+  const porAlias = candidatos.filter((x) => (x.aliases ?? []).some((a) => a.trim().toLowerCase() === buscado))
+  if (porAlias.length > 0) return masEstable(porAlias)
+
   const porTitulo = candidatos.filter((x) => x.title.trim().toLowerCase() === buscado)
   if (porTitulo.length > 0) return masEstable(porTitulo)
 
@@ -111,4 +118,72 @@ function ultimoTramo(topicKey: string | null): string {
  */
 function masEstable(filas: CandidatoMemoria[]): string {
   return filas.map((x) => x.syncId).sort()[0]!
+}
+
+/**
+ * Los alias que una memoria declara para sí misma, en un frontmatter al principio del texto.
+ *
+ * Es el `aliases:` de Obsidian, y va en el CONTENIDO por la misma razón que los links: el
+ * texto es la fuente de verdad y el índice se deriva. Meter una columna nueva habría obligado
+ * a una migración de esquema que arrastra el mutation_log, el protocolo de sync y el camino
+ * de cifrado — mucho costo para lo que es, en el fondo, otro nombre.
+ *
+ * Formas aceptadas, que son las que alguien escribe de verdad:
+ *
+ *     ---                    ---                    ---
+ *     aliases: uno, dos      aliases: [uno, dos]    aliases:
+ *     ---                    ---                      - uno
+ *                                                     - dos
+ *                                                   ---
+ *
+ * El bloque tiene que abrir en la PRIMERA línea y cerrar: sin eso, cualquier memoria que
+ * explique qué es un alias —y hay varias en este repo— se autodeclararía uno.
+ */
+/**
+ * Cuántos caracteres del principio del contenido alcanzan para encontrar el frontmatter.
+ *
+ * Quien resuelve nombres necesita los alias de TODAS las candidatas, y traer el texto entero
+ * de cada una para eso sería absurdo. El frontmatter va al principio por definición, así que
+ * un prefijo acotado alcanza — y deja el costo fijo por fila en vez de proporcional al largo.
+ */
+export const CHARS_DE_FRONTMATTER = 512
+
+export function parsearAlias(contenido: string): string[] {
+  if (!contenido) return []
+  const lineas = contenido.split('\n')
+  if (lineas[0]?.trim() !== '---') return []
+  const cierre = lineas.findIndex((l, i) => i > 0 && l.trim() === '---')
+  if (cierre === -1) return []
+
+  const nombres: string[] = []
+  for (let i = 1; i < cierre; i++) {
+    // `alias(?:es)?` y no `aliases?`: el `?` se aplica a la letra anterior, así que
+    // `aliases?` es "aliase" con la "s" opcional — nunca matchea "alias".
+    const m = /^\s*alias(?:es)?\s*:\s*(.*)$/i.exec(lineas[i]!)
+    if (!m) continue
+    const resto = m[1]!.trim()
+    if (resto) {
+      // `uno, dos` o `[uno, dos]` — los corchetes de YAML son decoración acá.
+      nombres.push(...resto.replace(/^\[|\]$/g, '').split(','))
+    } else {
+      // Clave sola: los valores vienen abajo como lista de guiones, hasta la próxima clave.
+      for (let j = i + 1; j < cierre; j++) {
+        const item = /^\s*-\s+(.*)$/.exec(lineas[j]!)
+        if (!item) break
+        nombres.push(item[1]!)
+      }
+    }
+  }
+
+  const limpios: string[] = []
+  const vistos = new Set<string>()
+  for (const crudo of nombres) {
+    const n = crudo.trim().replace(/^["']|["']$/g, '').trim()
+    if (!n) continue
+    const clave = n.toLowerCase()
+    if (vistos.has(clave)) continue
+    vistos.add(clave)
+    limpios.push(n)
+  }
+  return limpios
 }

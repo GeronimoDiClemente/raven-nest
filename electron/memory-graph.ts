@@ -28,7 +28,7 @@
 // abajo) es INFERENCIA sobre contenido, no un hecho declarado como las otras tres — por eso
 // vive detrás de `query.includeSimilar`, apagado por default.
 import type Database from 'better-sqlite3'
-import { parsearWikilinks, resolverWikilink, type CandidatoMemoria } from './wikilinks'
+import { parsearWikilinks, parsearAlias, resolverWikilink, CHARS_DE_FRONTMATTER, type CandidatoMemoria } from './wikilinks'
 
 export type MemoryEdgeKind =
   | 'manual' | 'wikilink' | 'revision' | 'topic' | 'branch' | 'source' | 'cross-topic' | 'cross-tag' | 'similar'
@@ -160,6 +160,8 @@ interface GraphRow {
   author_display: string | null
   updated_at: number
   superseded_by: string | null
+  /** Los primeros `CHARS_DE_FRONTMATTER` del contenido: alcanza para leer los alias. */
+  content_head: string | null
 }
 
 /** Agrupa filas por `keyFn` y arma una cadena (n-1 aristas) ordenada por updated_at
@@ -437,7 +439,11 @@ export function buildMemoryGraph(db: Database.Database, query: MemoryGraphQuery)
       // ensureProject(), y esa memoria tiene que seguir apareciendo en el grafo.
       `SELECT o.sync_id, o.project_key, p.display_name AS project_display_name, o.scope,
               o.topic_key, o.type, o.title, o.git_branch, o.origin_ai,
-              o.author_display, o.updated_at, o.superseded_by, o.source_ref, o.tags
+              o.author_display, o.updated_at, o.superseded_by, o.source_ref, o.tags,
+              -- Sólo el ARRANQUE del contenido: es donde va el frontmatter, y es lo único
+              -- que hace falta de todas las filas para resolver alias. El texto entero se
+              -- trae aparte y sólo de las seleccionadas (ver el bloque de wikilinks).
+              substr(o.content, 1, ${CHARS_DE_FRONTMATTER}) AS content_head
        FROM observations o
        LEFT JOIN projects p ON p.project_key = o.project_key
        WHERE ${conditions.join(' AND ')}
@@ -563,6 +569,7 @@ export function buildMemoryGraph(db: Database.Database, query: MemoryGraphQuery)
       syncId: r.sync_id,
       title: r.title,
       topicKey: r.topic_key,
+      aliases: parsearAlias(r.content_head ?? ''),
     }))
     const ph = selected.map(() => '?').join(',')
     const cuerpos = db

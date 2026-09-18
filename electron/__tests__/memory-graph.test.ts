@@ -594,3 +594,22 @@ describe('nodos pendientes — el link que todavía no existe', () => {
     expect(g.nodes.filter((n) => n.pending)).toHaveLength(1)
   })
 })
+
+describe('alias — el otro nombre de una memoria', () => {
+  it('un link por alias une, y no deja hueco', () => {
+    insert({ syncId: 'a', title: 'Título largo y poco memorable', content: '---\naliases: candado, lock\n---\nel cuerpo', updatedAt: 1 })
+    insert({ syncId: 'b', content: 'esto sale de [[candado]]', updatedAt: 2 })
+
+    const g = buildMemoryGraph(db, Q())
+    expect(g.edges.filter((e) => e.kind === 'wikilink')).toEqual([
+      { from: 'b', to: 'a', kind: 'wikilink', directed: true },
+    ])
+    expect(g.nodes.filter((n) => n.pending)).toEqual([])
+  })
+
+  it('una memoria que sólo HABLA de alias no se declara ninguno', () => {
+    insert({ syncId: 'a', title: 'la mencionada', updatedAt: 1 })
+    insert({ syncId: 'b', content: 'El frontmatter usa\naliases: la mencionada\npara esto.', updatedAt: 2 })
+    expect(buildMemoryGraph(db, Q()).edges.filter((e) => e.kind === 'wikilink')).toEqual([])
+  })
+})

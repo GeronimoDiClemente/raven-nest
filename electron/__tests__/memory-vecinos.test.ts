@@ -185,3 +185,28 @@ describe('linksPendientesDe', () => {
     expect(linksPendientesDe(db, 'no-existe')).toEqual([])
   })
 })
+
+describe('vecinos por alias', () => {
+  const conAlias = (alias: string, resto = 'cuerpo') => `---\naliases: ${alias}\n---\n${resto}`
+
+  it('un link por alias cuenta como vecino saliente', () => {
+    insert({ syncId: 'a', title: 'Título largo y poco memorable', content: conAlias('candado') })
+    insert({ syncId: 'b', content: 'ver [[candado]]' })
+    expect(vecinosDeMemoria(db, 'b')[0]).toMatchObject({ syncId: 'a', direction: 'outgoing' })
+  })
+
+  it('y el backlink también lo encuentra', () => {
+    // Sin buscar por alias en el FTS, éste se perdía justo en el caso para el que existen.
+    insert({ syncId: 'a', title: 'Título largo y poco memorable', content: conAlias('candado') })
+    insert({ syncId: 'b', title: 'quien menciona', content: 'ver [[candado]]' })
+    expect(vecinosDeMemoria(db, 'a')).toEqual([
+      { syncId: 'b', title: 'quien menciona', topicKey: null, direction: 'incoming', via: 'wikilink' },
+    ])
+  })
+
+  it('un link por alias no queda como pendiente', () => {
+    insert({ syncId: 'a', title: 'otra cosa', content: conAlias('candado') })
+    insert({ syncId: 'b', content: 'ver [[candado]]' })
+    expect(linksPendientesDe(db, 'b')).toEqual([])
+  })
+})

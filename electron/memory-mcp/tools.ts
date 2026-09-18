@@ -50,7 +50,9 @@ export const TOOL_MANIFEST = [
       "LINK AS YOU WRITE: mention a related memory inline as [[its title]] or [[its topic_key]]. " +
       "Links are cheap and they are what lets a later search walk straight to the related memory " +
       "instead of hunting for it. Linking to a memory that does not exist yet is fine — it starts " +
-      "working by itself the day you write it.",
+      "working by itself the day you write it. If this memory's title is long or awkward to link " +
+      "to, give it short names by starting the content with a frontmatter block: a line `---`, then " +
+      "`aliases: short-name, another`, then `---`. Anyone can then link it as [[short-name]].",
     inputSchema: {
       type: 'object',
       properties: {
