@@ -1,0 +1,16 @@
+{
+  "//": "Compila el grafo de la extensión al mismo `dist` donde vive el `extension.js` que importa `vscode`. CommonJS porque es lo que VS Code carga.",
+  "compilerOptions": {
+    "module": "CommonJS",
+    "moduleResolution": "node",
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "strict": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "rootDir": "../../electron",
+    "outDir": "dist",
+    "types": ["node"]
+  },
+  "files": ["../../electron/extension-arranque.ts"]
+}

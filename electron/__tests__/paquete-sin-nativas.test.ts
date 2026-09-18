@@ -28,6 +28,10 @@ const ENTRADAS = [
   'enrolamiento-del-paquete.ts',
   'llavero-del-sistema.ts',
   'panel-de-la-extension.ts',
+  // La extensión se empaqueta en un `.vsix` que no instala nada: si algo nativo se cuela
+  // ahí adentro, el editor no tiene con qué compilarlo.
+  'extension-arranque.ts',
+  'extension-vscode.ts',
   'sqlite-sin-compilar.ts',
   'memory-store.ts',
   'memory-daemon.ts',

@@ -1,0 +1,22 @@
+{
+  "name": "nest-memory",
+  "displayName": "Nest Memory",
+  "description": "Your memory, in any editor. Sets up the Nest Memory MCP server and shows what it can see.",
+  "version": "0.1.0",
+  "publisher": "nest",
+  "private": true,
+  "license": "UNLICENSED",
+  "engines": { "vscode": "^1.90.0" },
+  "categories": ["Other"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      { "command": "nest-memory.status", "title": "Nest Memory: Show status" },
+      { "command": "nest-memory.setup", "title": "Nest Memory: Set up this editor" }
+    ]
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json && node scripts/empaquetar.mjs"
+  }
+}

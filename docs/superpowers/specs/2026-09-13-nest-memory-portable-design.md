@@ -427,9 +427,16 @@ Cada paso deja algo que funciona y se puede probar solo.
    levantó el token y lo guardó cifrado con 0600, y quedó la fila en `devices`. Es la primera
    vez que ese camino se recorre entero.
 
-   **Falta**: el `.vsix` de la extensión, y probar contra el servicio DESPLEGADO (que corre
-   versión vieja y sin `SUPABASE_JWT_SECRET`). Y lo que la P-3 ya recomendaba: no publicar la
-   extensión hasta que la CLI esté en uso.
+   **La extensión existe** (`packages/nest-memory-vscode`): se arma el `.vsix` sin `vsce`
+   —con `adm-zip`, que ya era dependencia— y **VS Code lo instala**, verificado con su propio
+   CLI (`code --install-extension` → aparece como `nest.nest-memory`, con el `main` apuntando
+   a un archivo que existe). Lo único que no se puede probar desde acá es que la ventana se
+   dibuje: por eso el único archivo que importa `vscode` tiene cinco líneas y todo lo que
+   decide algo vive en `extension-vscode.ts` (12 tests) y `panel-de-la-extension.ts` (13).
+
+   **Falta**: probar contra el servicio DESPLEGADO (corre versión vieja y sin
+   `SUPABASE_JWT_SECRET`), y abrir la extensión en un editor de verdad. Y lo que la P-3 ya
+   recomendaba: no publicar hasta que la CLI esté en uso.
 
 ---
 

@@ -61,3 +61,5 @@ capture/stats-rec/
 
 # El build del paquete portátil (se genera con `npm run build` adentro de packages/nest-memory)
 packages/nest-memory/dist/
+packages/nest-memory-vscode/dist/
+packages/nest-memory-vscode/*.vsix
