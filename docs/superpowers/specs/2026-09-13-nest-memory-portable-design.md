@@ -114,9 +114,18 @@ cualquiera es exactamente el escenario donde eso explota (ver la sección de `be
 en `CLAUDE.md`, que documenta que los prebuilds cubren las ABI 127/137/141/147 y **no** la
 115 de Node 20).
 
-**`node:sqlite` lo resuelve**: viene con Node, no compila nada, y está disponible desde la
-20.19 que el repo ya exige (`engines.node`). Verificado en la máquina de desarrollo el
-2026-09-13: `DatabaseSync`, `StatementSync`, `Session`, `backup`.
+**`node:sqlite` lo resuelve**: viene con Node y no compila nada. Verificado en la máquina de
+desarrollo el 2026-09-13: `DatabaseSync`, `StatementSync`, `Session`, `backup`.
+
+> **Corrección (2026-09-18).** Este párrafo decía que estaba disponible "desde la 20.19 que el
+> repo ya exige". **Es falso**: `node:sqlite` se agregó en **v22.5.0** y no hubo backport a la
+> 20.x, que además ya está fuera de soporte. Confirmado contra la documentación de Node. O sea
+> que el paquete portátil **no hereda el `engines.node` del repo**: tiene que pedir `>=22.5` y
+> fallar con un mensaje que lo explique, no con un `MODULE_NOT_FOUND` sobre `node:sqlite`.
+> Esto no cambia la decisión —sigue siendo cero dependencias nativas— sólo el piso, y el piso
+> hay que decirlo en el `package.json` y en el error. Dentro de este repo el punto es inocuo:
+> el typecheck de CI corre en Node 20 pero sólo necesita los tipos (`@types/node` los trae), y
+> el job de tests corre en Node 22, donde el módulo existe.
 
 La superficie a adaptar es chica y está medida. En `memory-store.ts`:
 
@@ -345,6 +354,10 @@ Cada paso deja algo que funciona y se puede probar solo.
    sin esto, dos escritores dan un orden de conflictos incorrecto. Con su medición al lado.
 2. **El candado de sincronización** (§6.3). Cierra el caso que ya existe hoy con dos Nest.
 3. **El adaptador de `node:sqlite`** (§4), con el test de la transacción abortada.
+   **Hecho** (2026-09-18): `electron/sqlite-sin-compilar.ts`, 22 tests. Vive en `electron/`
+   —y no en un directorio nuevo— porque ahí lo alcanzan el typecheck y los tests de CI,
+   igual que `memory-protocol.ts` y `memory-merge.ts`, que también son núcleo compartido sin
+   dependencias. El paso 4 lo mueve o lo importa desde el paquete.
 4. **El paquete, en modo local** (§5.2): leer y escribir la base de esta máquina, sin nube.
    Ya es útil y ya es demostrable.
 5. **`setup`** (§3.1): la detección y escritura de configs. Es lo que lo vuelve instalable.
