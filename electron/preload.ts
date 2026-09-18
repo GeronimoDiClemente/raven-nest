@@ -78,6 +78,9 @@ contextBridge.exposeInMainWorld('memory', {
   // (es donde vive la sesión de Supabase) y la request la hace main, que es quien conoce la
   // URL del servicio.
   registerDevice: (jwt: string) => ipcRenderer.invoke('memory:registerDevice', jwt),
+  // Aprobar la vinculación de OTRA máquina (la que no tiene navegador). El JWT sale de acá
+  // por lo mismo que arriba; el código corto lo tipea el usuario.
+  linkApprove: (jwt: string, userCode: string) => ipcRenderer.invoke('memory:linkApprove', jwt, userCode),
   setUser: (userId: string | null, opts?: { adopt?: boolean }) => ipcRenderer.invoke('memory:setUser', userId, opts),
   // Task 2 (adopcion con aviso) — puramente informativo, se llama ANTES de setUser para
   // saber si hay que preguntar "son tuyas?" en vez de adoptar en silencio.

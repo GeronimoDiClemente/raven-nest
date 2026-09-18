@@ -16,6 +16,7 @@ import { Plus } from 'lucide-react'
 import { ICON_SIZE } from '../lib/icons'
 import MemoriesStatusRow from './MemoriesStatusRow'
 import MemoryEncryptionCard from './MemoryEncryptionCard'
+import LinkDeviceCard from './LinkDeviceCard'
 import ShareProjectCard from './ShareProjectCard'
 import TeamThreadPanel from './TeamThreadPanel'
 import { Button } from '@/components/ui/button'
@@ -202,6 +203,7 @@ export default function MemoriesWorkspace({ onClose, activeRepoPath, onOpenFile,
         {avisoDeEnlace && <p className="shrink-0 text-fs-sm text-muted-foreground">{avisoDeEnlace}</p>}
 
         <MemoryEncryptionCard />
+        <LinkDeviceCard />
 
         {/* El grafo primero y el buscador debajo, como Obsidian.
             

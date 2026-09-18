@@ -3088,6 +3088,47 @@ ipcMain.handle('memory:registerDevice', async (_event, jwt: string) => {
   }
 })
 
+/**
+ * Aprobar la vinculación de OTRA máquina, la que no tiene navegador (spec del paquete
+ * portátil §7, `/v1/link/approve`).
+ *
+ * El JWT viaja desde el renderer igual que en `memory:registerDevice`: la sesión de Supabase
+ * vive allá, y el proceso principal es el único que puede hablarle al servicio.
+ *
+ * **Esto no emite ninguna credencial ni la ve**: sólo dice "ese código es mío". El token lo
+ * recibe la otra máquina cuando lo reclama. Que nunca pase por acá es lo que hace que
+ * aprobar desde esta pantalla no sea una forma de conseguir un token para esta máquina.
+ */
+ipcMain.handle('memory:linkApprove', async (_event, jwt: string, userCode: string) => {
+  const base = getMemorySyncBaseUrl()
+  if (!base) return { ok: false, error: 'No sync service configured for this build' }
+  if (typeof jwt !== 'string' || jwt.trim() === '') return { ok: false, error: 'Missing login token' }
+  if (typeof userCode !== 'string' || userCode.trim() === '') return { ok: false, error: 'Missing code' }
+
+  const abort = new AbortController()
+  const timer = setTimeout(() => abort.abort(), 15_000)
+  try {
+    const res = await fetch(`${base.replace(/\/+$/, '')}/v1/link/approve`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt.trim()}` },
+      body: JSON.stringify({ user_code: userCode.trim() }),
+      signal: abort.signal,
+    })
+    const body = await res.json().catch(() => null) as { error?: string } | null
+    // El código del servicio se pasa tal cual, como en `memory:registerDevice`: el renderer
+    // sabe traducirlo, y convertirlo acá en una oración lo vuelve imposible de distinguir.
+    if (!res.ok) return { ok: false, error: body?.error ?? `HTTP ${res.status}` }
+    return { ok: true }
+  } catch (err) {
+    const message = (err as Error)?.name === 'AbortError'
+      ? 'The sync service did not answer in time'
+      : (err instanceof Error ? err.message : String(err))
+    return { ok: false, error: message }
+  } finally {
+    clearTimeout(timer)
+  }
+})
+
 ipcMain.handle('memory:connect', async (_event, token: string, deviceId: string) => {
   if (!memory) return MEMORY_UNAVAILABLE
   if (!safeStorage.isEncryptionAvailable()) {

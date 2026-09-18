@@ -969,6 +969,14 @@ declare global {
       registerDevice?: (jwt: string) => Promise<
         { ok: true; deviceId: string; token: string } | { ok: false; error: string }
       >
+      /**
+       * Aprueba la vinculación de otra máquina — la que corre el paquete portátil y no puede
+       * abrir un navegador. Opcional por lo mismo que `registerDevice`: un preload viejo no
+       * lo expone, y la tarjeta se esconde en vez de romperse.
+       */
+      linkApprove?: (jwt: string, userCode: string) => Promise<
+        { ok: true } | { ok: false; error: string }
+      >
       disconnect: (opts?: { deleteCloud?: boolean }) => Promise<{
         ok: boolean
         cloudDeleteFailed?: string
