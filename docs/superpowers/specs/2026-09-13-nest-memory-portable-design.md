@@ -408,6 +408,21 @@ Cada paso deja algo que funciona y se puede probar solo.
    **Falta**: probar el camino completo contra un servicio desplegado — bloqueado por
    infraestructura, no por código.
 7. **La extensión** (§3.3), que a esta altura es una cara sobre lo anterior.
+   **Núcleo hecho** (2026-09-18): `electron/panel-de-la-extension.ts`, 13 tests — qué
+   titular, qué detalle y qué acción ofrece el panel dado el estado del mundo. Es lo único
+   propio que tiene la extensión, y se prueba sin levantar un editor.
+
+   De paso se cerró lo que los pasos 4 y 5 habían dejado colgando, que es de lo que la
+   extensión depende para existir:
+   - `electron/aplicar-setup.ts` (10 tests contra un directorio temporal real): escribe el
+     plan a disco, atómico, y un destino que falla no aborta a los demás.
+   - `electron/argumentos-del-paquete.ts` (14 tests): el parseo de `argv`.
+
+   **Falta**: el empaquetado en sí — `package.json` con su `bin`, el `.vsix`, y el arranque
+   que une el parseo con las acciones. Y lo que la P-3 de este documento ya recomendaba:
+   **no publicar la extensión hasta que la CLI esté en uso**, porque una cara sobre algo que
+   nunca se corrió de punta a punta no valida nada. Hoy el camino completo sigue sin
+   probarse contra un servicio desplegado.
 
 ---
 
