@@ -361,6 +361,19 @@ Cada paso deja algo que funciona y se puede probar solo.
 4. **El paquete, en modo local** (§5.2): leer y escribir la base de esta máquina, sin nube.
    Ya es útil y ya es demostrable.
 5. **`setup`** (§3.1): la detección y escritura de configs. Es lo que lo vuelve instalable.
+   **Núcleo hecho** (2026-09-18): `electron/setup-del-paquete.ts`, 38 tests — el catálogo de
+   los 7 destinos, el plan de `setup` y el de `--undo`, y las transformaciones de JSON, JSONC
+   y TOML, todo puro. **Falta** la capa que escribe a disco y el parseo de argumentos, que
+   dependen de que exista el paquete (paso 4).
+
+   Dos cosas que este paso descubrió y que el spec no decía:
+   - **VS Code anida bajo `servers`, no bajo `mcpServers`** como los otros seis. Verificado
+     contra su documentación. Una entrada con la clave equivocada no da error: el editor la
+     ignora y el usuario espera una memoria que nunca llega. Cursor sí usa `mcpServers`, en
+     `~/.cursor/mcp.json`.
+   - **Detectar por archivo de config no alcanza.** Un editor recién instalado todavía no
+     guardó ningún ajuste, así que se vería ausente justo cuando `setup` más sirve. La
+     detección mira el archivo O su directorio.
 6. **La nube** (§7): login, enrolamiento, autorización, pull con descifrado, push.
 7. **La extensión** (§3.3), que a esta altura es una cara sobre lo anterior.
 
