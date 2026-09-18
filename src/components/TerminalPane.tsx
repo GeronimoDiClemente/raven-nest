@@ -199,9 +199,14 @@ export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZ
         responseAccumRef.current = ''
       }
       responseAccumRef.current += data
-      isBusyRef.current = true
-      setIsBusy(true)
-      onBusyChangeRef.current(pane.id, true)
+      // Sólo en el FLANCO: pasar de quieto a ocupado. Avisarlo en cada chunk —~20 veces por
+      // segundo con un agente escribiendo— re-renderizaba `App` entera por nada. Ver
+      // `lib/pane-activity-state.ts`, que ademas lo frena del otro lado.
+      if (!isBusyRef.current) {
+        isBusyRef.current = true
+        setIsBusy(true)
+        onBusyChangeRef.current(pane.id, true)
+      }
       if (busyTimer.current) clearTimeout(busyTimer.current)
       busyTimer.current = setTimeout(() => {
         busyStartRef.current = null
@@ -231,6 +236,9 @@ export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZ
     }, () => {
       if (!alive) return
       setProcessEnded(true)
+      // El ref tambien, no solo el estado: si queda en `true` y el pane vuelve a hablar, el
+      // flanco de arriba no dispara nunca y el pane se queda ocupado para siempre.
+      isBusyRef.current = false
       setIsBusy(false)
       write('\r\n\x1b[2m── process ended ──\x1b[0m\r\n')
       onBusyChangeRef.current(pane.id, false)

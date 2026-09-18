@@ -15,6 +15,7 @@ import { reorderById } from './layout/reorder'
 import { paneAccentColor } from './lib/pane-accent-color'
 import { beginResizeSuppression, endResizeSuppression } from './lib/pane-resize-gate'
 import { nextFontSize, FONT_SIZE_DEFAULT } from './lib/pane-font-size'
+import { conPaneOcupado, conActividadDePane } from './lib/pane-activity-state'
 import { isInsideCodeEditor } from './lib/editor-owns-shortcut'
 import { basename } from './lib/path'
 import { groupAITypesByRepoPath } from './lib/repo-ai-logos'
@@ -174,23 +175,11 @@ export default function App() {
   const activePanes = useHubActivity()
 
   const handleBusyChange = useCallback((paneId: string, busy: boolean) => {
-    setBusyPanes(prev => {
-      const next = new Set(prev)
-      if (busy) next.add(paneId)
-      else next.delete(paneId)
-      return next
-    })
+    setBusyPanes(prev => conPaneOcupado(prev, paneId, busy))
   }, [])
 
   const handlePaneActivity = useCallback((paneId: string, active: boolean) => {
-    setTabActivity(prev => {
-      const next = new Map(prev)
-      const tabSet = new Set(next.get(activeTabId) ?? new Set<string>())
-      if (active) tabSet.add(paneId)
-      else tabSet.delete(paneId)
-      next.set(activeTabId, tabSet)
-      return next
-    })
+    setTabActivity(prev => conActividadDePane(prev, activeTabId, paneId, active))
   }, [activeTabId])
 
   // Auto-clear activity indicators after 3s. Only return a new Map when at
