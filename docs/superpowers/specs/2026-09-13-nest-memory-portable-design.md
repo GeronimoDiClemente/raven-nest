@@ -405,8 +405,18 @@ Cada paso deja algo que funciona y se puede probar solo.
    alguno está mal `disponible()` da `false` y el paquete queda en modo local, que es la
    falla segura.
 
-   **Falta**: probar el camino completo contra un servicio desplegado — bloqueado por
-   infraestructura, no por código.
+   **Lo que se creía infraestructura era código** (2026-09-21). El pendiente decía «falta
+   `SUPABASE_JWT_SECRET`» y era falso: Supabase movió la firma de los tokens de sesión de un
+   secreto simétrico compartido a una clave por proyecto, así que los que emite el proyecto
+   de Nest vienen con `alg: ES256` y un `kid` que resuelve contra
+   `/auth/v1/.well-known/jwks.json`. `verifySupabaseJwt` sólo aceptaba HS256 → `/v1/devices` y
+   `/v1/link/approve` rechazaban **todo** login legítimo, y ningún valor de ese secreto lo
+   arreglaba porque ese secreto ya no firma nada.
+
+   Resuelto en `server/src/jwks.ts` (las claves públicas, cacheadas) y
+   `verificarJwtDeSupabase` en `devices.ts` (los dos algoritmos, eligiendo por lo que el
+   servicio TIENE y no por lo que el token dice). 26 tests. `SUPABASE_URL` ya estaba seteada
+   en Railway, así que no hizo falta ningún secreto nuevo.
 7. **La extensión** (§3.3), que a esta altura es una cara sobre lo anterior.
    **Núcleo hecho** (2026-09-18): `electron/panel-de-la-extension.ts`, 13 tests — qué
    titular, qué detalle y qué acción ofrece el panel dado el estado del mundo. Es lo único
@@ -434,9 +444,12 @@ Cada paso deja algo que funciona y se puede probar solo.
    dibuje: por eso el único archivo que importa `vscode` tiene cinco líneas y todo lo que
    decide algo vive en `extension-vscode.ts` (12 tests) y `panel-de-la-extension.ts` (13).
 
-   **Falta**: probar contra el servicio DESPLEGADO (corre versión vieja y sin
-   `SUPABASE_JWT_SECRET`), y abrir la extensión en un editor de verdad. Y lo que la P-3 ya
-   recomendaba: no publicar hasta que la CLI esté en uso.
+   **El servicio desplegado ya corre esta versión** (2026-09-21): `/v1/link/start` emite
+   códigos contra el Postgres de Railway (migración 008 aplicada al arrancar) y el login se
+   verifica por JWKS. **Falta** recorrer el `login` entero contra ese servicio —o sea, correr
+   `npx nest-memory login` y aprobar desde Nest, que es la parte que necesita una sesión de
+   usuario de verdad— y abrir la extensión en un editor. Y lo que la P-3 ya recomendaba: no
+   publicar hasta que la CLI esté en uso.
 
 ---
 
