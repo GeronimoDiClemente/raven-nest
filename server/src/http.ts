@@ -6,10 +6,38 @@ import { handlePull } from './pull'
 import { handleStatus } from './status'
 import { handleDeleteData } from './delete-data'
 import { createRateLimiter } from './rate-limit'
-import { registerDevice, revokeDevices, verifySupabaseJwt } from './devices'
+import { registerDevice, revokeDevices, verificarJwtDeSupabase, type ClavesDeFirma, type EmisorDeLogin } from './devices'
+import { clavesDeSupabase } from './jwks'
 import { iniciarVinculacion, aprobarVinculacion, reclamarVinculacion } from './link'
 import { handleShareProject } from './share'
 import { enrollDeviceKey, getKeyState, publishWraps } from './keys'
+
+// El emisor del JWKS se arma UNA vez por URL y se guarda: cada instancia tiene su propio
+// caché, así que una por request no cachearía nada y saldría a Supabase en cada login.
+let jwksCacheado: { url: string; claves: ClavesDeFirma } | null = null
+
+/**
+ * Con qué puede este servicio verificar un login, según lo que haya en el entorno. `null`
+ * significa que no hay NINGUNA forma — ahí va el 503, que es configuración faltante y no una
+ * credencial mala.
+ *
+ * Se lee el entorno en cada request (y no una vez al cargar el módulo) por lo mismo que ya
+ * hacía el secreto: permite arrancar el proceso sin las variables y setearlas después.
+ *
+ * Las dos vías conviven porque Supabase movió la firma de un secreto simétrico compartido a
+ * una clave por proyecto: un proyecto migrado (como el de Nest) sólo se verifica por JWKS, y
+ * uno que no migró, sólo por secreto.
+ */
+function emisorDelEntorno(): EmisorDeLogin | null {
+  const secreto = process.env.SUPABASE_JWT_SECRET ?? ''
+  const url = process.env.SUPABASE_URL ?? ''
+  if (!secreto && !url) return null
+  if (url && jwksCacheado?.url !== url) jwksCacheado = { url, claves: clavesDeSupabase(url) }
+  return {
+    secretoHs256: secreto || undefined,
+    claves: url ? jwksCacheado?.claves : undefined,
+  }
+}
 
 const MAX_BATCH = 500
 const MAX_BODY_BYTES = 20 * 1024 * 1024
@@ -266,16 +294,16 @@ async function handleRequest(pool: Pool, req: IncomingMessage, res: ServerRespon
  */
 async function handleRegisterDevice(pool: Pool, req: IncomingMessage, res: ServerResponse): Promise<void> {
   try {
-    const secret = process.env.SUPABASE_JWT_SECRET ?? ''
-    if (!secret) {
+    const emisor = emisorDelEntorno()
+    if (!emisor) {
       // Configuración faltante, no culpa del cliente. Con un 401 acá el usuario vería
       // "tus credenciales no sirven" cuando lo que falta es una variable del servicio.
-      console.error('[http] /v1/devices sin SUPABASE_JWT_SECRET: no se puede emitir ningún token')
+      console.error('[http] /v1/devices sin SUPABASE_URL ni SUPABASE_JWT_SECRET: no se puede emitir ningún token')
       return send(res, 503, { error: 'issuer_unavailable' })
     }
 
     const jwt = (req.headers.authorization ?? '').replace(/^Bearer\s+/i, '').trim()
-    const identity = verifySupabaseJwt(jwt, secret, Date.now())
+    const identity = await verificarJwtDeSupabase(jwt, Date.now(), emisor)
     if (!identity) return send(res, 401, { error: 'unauthorized' })
 
     const verdict = registerLimiter.check(req.socket.remoteAddress ?? 'sin-ip')
@@ -327,13 +355,13 @@ async function handleLinkStart(pool: Pool, req: IncomingMessage, res: ServerResp
 /** `POST /v1/link/approve` — con el JWT de Supabase, desde la máquina que SÍ tiene sesión. */
 async function handleLinkApprove(pool: Pool, req: IncomingMessage, res: ServerResponse): Promise<void> {
   try {
-    const secret = process.env.SUPABASE_JWT_SECRET ?? ''
-    if (!secret) {
-      console.error('[http] /v1/link/approve sin SUPABASE_JWT_SECRET')
+    const emisor = emisorDelEntorno()
+    if (!emisor) {
+      console.error('[http] /v1/link/approve sin SUPABASE_URL ni SUPABASE_JWT_SECRET')
       return send(res, 503, { error: 'issuer_unavailable' })
     }
     const jwt = (req.headers.authorization ?? '').replace(/^Bearer\s+/i, '').trim()
-    const identity = verifySupabaseJwt(jwt, secret, Date.now())
+    const identity = await verificarJwtDeSupabase(jwt, Date.now(), emisor)
     if (!identity) return send(res, 401, { error: 'unauthorized' })
 
     const body = (await readBody(req)) as Record<string, unknown>

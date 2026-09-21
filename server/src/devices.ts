@@ -1,4 +1,4 @@
-import { createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto'
+import { createHmac, createPublicKey, randomBytes, randomUUID, timingSafeEqual, verify, type JsonWebKey } from 'node:crypto'
 import type { Pool } from 'pg'
 import { hashToken } from './auth'
 
@@ -61,7 +61,14 @@ export function verifySupabaseJwt(token: string, secret: string, now: number): J
   if (recibida.length !== esperada.length) return null
   if (!timingSafeEqual(recibida, esperada)) return null
 
-  const payload = decodeSegment(payloadB64)
+  return identidadDelPayload(decodeSegment(payloadB64), now)
+}
+
+/**
+ * Lo que se le exige al payload una vez que la FIRMA ya cerró. Es común a los dos algoritmos:
+ * cambiar cómo se verifica la firma no puede aflojar qué tokens valen.
+ */
+function identidadDelPayload(payload: Record<string, unknown> | null, now: number): JwtIdentity | null {
   if (!payload) return null
 
   // El rol es el chequeo que más importa acá: la ANON KEY de Supabase es un JWT firmado con
@@ -78,6 +85,100 @@ export function verifySupabaseJwt(token: string, secret: string, now: number): J
   if (typeof sub !== 'string' || sub === '') return null
 
   return { userId: sub, email: typeof payload.email === 'string' ? payload.email : null }
+}
+
+/** De dónde salen las claves públicas del proyecto. La implementa `jwks.ts`. */
+export interface ClavesDeFirma {
+  /** La clave pública que el emisor publica para ese `kid`, o `null` si no la conoce. */
+  paraKid(kid: string): Promise<JsonWebKey | null>
+}
+
+/** Con qué puede verificar este servicio un login. Los dos campos son opcionales a propósito. */
+export interface EmisorDeLogin {
+  /** El secreto simétrico legacy del proyecto (`SUPABASE_JWT_SECRET`). */
+  secretoHs256?: string
+  /** El JWKS del proyecto, para los que firman con claves asimétricas. */
+  claves?: ClavesDeFirma
+}
+
+/**
+ * Verifica un JWT de login de Supabase **sin importar cómo firme el proyecto**.
+ *
+ * Supabase movió la firma de un secreto simétrico compartido (HS256) a claves asimétricas
+ * por proyecto (ES256 + un `kid` que resuelve contra `/auth/v1/.well-known/jwks.json`). El
+ * proyecto de Nest ya está del lado nuevo —verificado el 2026-09-21 contra un token real de
+ * la app y contra el JWKS publicado—, así que el camino HS256 solo rechazaba **todo** login
+ * legítimo, y ningún valor de `SUPABASE_JWT_SECRET` lo arreglaba: ese secreto ya no firma.
+ *
+ * Los dos caminos conviven porque el secreto legacy sigue siendo válido en proyectos que no
+ * migraron, y porque durante una rotación hay un rato con las dos cosas vivas.
+ *
+ * **El algoritmo lo decide lo que este servicio TIENE, no lo que el token dice.** Un token
+ * ES256 no se mira si no hay JWKS configurado, y uno HS256 no se mira si no hay secreto. Esa
+ * es la defensa contra la confusión de algoritmo: el JWKS es público, así que un atacante
+ * conoce la clave pública y podría firmar un HS256 usándola de secreto.
+ */
+export async function verificarJwtDeSupabase(
+  token: string,
+  now: number,
+  emisor: EmisorDeLogin
+): Promise<JwtIdentity | null> {
+  const partes = token.split('.')
+  if (partes.length !== 3) return null
+  const [headerB64, payloadB64, firmaB64] = partes
+
+  const header = decodeSegment(headerB64)
+  if (!header) return null
+
+  if (header.alg === 'HS256') {
+    return emisor.secretoHs256 ? verifySupabaseJwt(token, emisor.secretoHs256, now) : null
+  }
+  // Cualquier otro alg —`none`, `RS256`, lo que sea— cae acá y se rechaza: sólo se soportan
+  // los dos que Supabase emite.
+  if (header.alg !== 'ES256' || !emisor.claves) return null
+
+  // Sin `kid` no se prueba con todas las claves: elegir clave a fuerza bruta convierte una
+  // rotación a medio hacer en una ventana donde una clave retirada sigue sirviendo.
+  const kid = header.kid
+  if (typeof kid !== 'string' || kid === '') return null
+
+  let jwk: JsonWebKey | null
+  try {
+    jwk = await emisor.claves.paraKid(kid)
+  } catch {
+    // Un JWKS que no contesta es un problema de red, y desde acá se ve igual que una
+    // credencial inválida. Lo distingue el llamador, que sabe si hay emisor configurado.
+    return null
+  }
+  if (!jwk) return null
+
+  // La clave tiene que ser la que ESE alg necesita. Un JWKS que devolviera una RSA no
+  // habilita un token que dice ES256: ahí la confusión la pondría el emisor, no el atacante.
+  //
+  // Honestidad sobre lo que prueban los tests: sacando este chequeo, el del `alg` de arriba y
+  // el del largo de la firma —los tres a la vez— la suite sigue verde (medido el 2026-09-21).
+  // O sea que quien rechaza el token de contrabando es la verificación ECDSA misma, y estas
+  // tres líneas son defensa en profundidad, no la defensa. Se quedan porque el día que este
+  // verificador acepte un segundo algoritmo pasan a ser lo único que separa a uno del otro.
+  const forma = jwk as { kty?: string; crv?: string; alg?: string }
+  if (forma.kty !== 'EC' || forma.crv !== 'P-256') return null
+  if (forma.alg !== undefined && forma.alg !== 'ES256') return null
+
+  const firma = Buffer.from(firmaB64, 'base64url')
+  // JWS lleva la firma cruda R||S, 64 bytes para P-256. Node por defecto espera DER, de ahí
+  // el `dsaEncoding`; el largo se chequea antes porque `verify` con basura tira.
+  if (firma.length !== 64) return null
+
+  let ok = false
+  try {
+    const clave = createPublicKey({ key: jwk, format: 'jwk' })
+    ok = verify('sha256', Buffer.from(`${headerB64}.${payloadB64}`), { key: clave, dsaEncoding: 'ieee-p1363' }, firma)
+  } catch {
+    return null
+  }
+  if (!ok) return null
+
+  return identidadDelPayload(decodeSegment(payloadB64), now)
 }
 
 /** Mismo formato que emitía la edge function `memory-token`: `nmk_` + 32 bytes al azar. */
