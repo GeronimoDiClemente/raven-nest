@@ -231,6 +231,7 @@ const accountStore = new AccountStore()
 // connected re-provisions every account on startup, same as the existing
 // setupClaudeConfig() link-repair pass it runs alongside.
 import { credentialPath, deleteCredential, ensureDeviceId, getMemoryConnectionState, setMemoryConnectionState } from './memory-connection-state'
+import { resolverBaseDeSync, normalizarBaseDeSync, decidirCambioDeBase, BASE_DE_SYNC_POR_DEFECTO } from './base-de-sync'
 import { writeActivePointer } from './memory-active-store'
 
 let memoryConnectionState = getMemoryConnectionState(ravenHome())
@@ -240,15 +241,16 @@ function memoryProvisionerPaths(): ProvisionerPaths {
   return { execPath: process.execPath, shimPath: pathJoin(__dirname, 'memory-mcp.js') }
 }
 
-function getMemorySyncBaseUrl(): string | null {
-  // `|| undefined` (not `??`) so an empty string in the stored state does not count
-  // as "set" — falling through to the build-time env instead of producing requests
-  // to a path with no host (e.g. `/v1/sync/push`).
-  return (
-    (memoryConnectionState.syncBaseUrl || undefined) ??
-    (import.meta.env.MAIN_VITE_SUPABASE_URL as string | undefined) ??
-    null
-  )
+/**
+ * La base del servicio de sync. **Nunca es `null`**: la decisión y el porqué del default
+ * están en `base-de-sync.ts`. Antes devolvía `null` cuando faltaba la variable de build, que
+ * es exactamente lo que le pasa a toda instalación armada por CI — los workflows no la pasan.
+ */
+function getMemorySyncBaseUrl(): string {
+  return resolverBaseDeSync({
+    guardada: memoryConnectionState.syncBaseUrl,
+    delBuild: (import.meta.env.MAIN_VITE_SUPABASE_URL as string | undefined) ?? null,
+  })
 }
 
 /**
@@ -3064,7 +3066,6 @@ ipcMain.handle('memory:checkPendingAdoption', (_event, userId: string | null) =>
 
 ipcMain.handle('memory:registerDevice', async (_event, jwt: string) => {
   const base = getMemorySyncBaseUrl()
-  if (!base) return { ok: false, error: 'No sync service configured for this build' }
   if (typeof jwt !== 'string' || jwt.trim() === '') return { ok: false, error: 'Missing login token' }
 
   // Timeout explícito: sin esto un servicio colgado deja el botón Connect girando hasta que
@@ -3109,7 +3110,6 @@ ipcMain.handle('memory:registerDevice', async (_event, jwt: string) => {
  */
 ipcMain.handle('memory:linkApprove', async (_event, jwt: string, userCode: string) => {
   const base = getMemorySyncBaseUrl()
-  if (!base) return { ok: false, error: 'No sync service configured for this build' }
   if (typeof jwt !== 'string' || jwt.trim() === '') return { ok: false, error: 'Missing login token' }
   if (typeof userCode !== 'string' || userCode.trim() === '') return { ok: false, error: 'Missing code' }
 
@@ -3135,6 +3135,35 @@ ipcMain.handle('memory:linkApprove', async (_event, jwt: string, userCode: strin
   } finally {
     clearTimeout(timer)
   }
+})
+
+/**
+ * C4, siete meses después: la URL del servicio se puede cambiar sin recompilar.
+ *
+ * El campo `syncBaseUrl` existía en `connection.json` desde el principio y no lo escribía
+ * nadie, así que la única fuente real era una variable de build que los workflows de release
+ * no pasan. Esto es el escritor que faltaba, y lo que convierte al default de
+ * `base-de-sync.ts` en algo reversible desde la app.
+ */
+ipcMain.handle('memory:syncService:get', async () => ({
+  url: getMemorySyncBaseUrl(),
+  elegida: normalizarBaseDeSync(memoryConnectionState.syncBaseUrl),
+  porDefecto: BASE_DE_SYNC_POR_DEFECTO,
+}))
+
+ipcMain.handle('memory:syncService:set', async (_event, url: string | null) => {
+  const decision = decidirCambioDeBase(typeof url === 'string' || url === null ? url : null)
+  if (!decision.ok) return { ok: false, error: decision.error }
+
+  memoryConnectionState = { ...memoryConnectionState, syncBaseUrl: decision.guardar }
+  setMemoryConnectionState(ravenHome(), memoryConnectionState)
+
+  // El token de device lo emitió el servicio VIEJO, así que sigue siendo válido sólo si el
+  // nuevo es el mismo backend con otra dirección. No se borra —eso apagaría la nube de una
+  // máquina que capaz sólo se mudó de dominio— pero se avisa, porque el síntoma de que no
+  // sirva es un 401 del daemon y ahí ya no se ve de dónde vino.
+  const hayQueReconectar = memoryConnectionState.connected
+  return { ok: true, url: getMemorySyncBaseUrl(), hayQueReconectar }
 })
 
 ipcMain.handle('memory:connect', async (_event, token: string, deviceId: string) => {
@@ -3201,7 +3230,7 @@ ipcMain.handle('memory:disconnect', async (_event, opts?: { deleteCloud?: boolea
   if (opts?.deleteCloud) {
     const url = getMemorySyncBaseUrl()
     const token = loadMemoryToken()
-    if (url && token) {
+    if (token) {
       try {
         const res = await fetch(`${url}/functions/v1/memory-sync/delete-cloud-data`, {
           method: 'POST',
@@ -3231,7 +3260,7 @@ ipcMain.handle('memory:disconnect', async (_event, opts?: { deleteCloud?: boolea
   {
     const url = getMemorySyncBaseUrl()
     const token = loadMemoryToken()
-    if (url && token) {
+    if (token) {
       try {
         const res = await fetch(`${url.replace(/\/+$/, '')}/v1/devices/revoke`, {
           method: 'POST',
@@ -3278,7 +3307,7 @@ function keysDeps() {
   const url = getMemorySyncBaseUrl()
   const token = loadMemoryToken()
   const deviceId = memoryConnectionState.deviceId
-  if (!url || !token || !deviceId) return null
+  if (!token || !deviceId) return null
   return { baseUrl: url, token, deviceId }
 }
 
@@ -3741,7 +3770,7 @@ ipcMain.handle('memory:ensureDeviceId', () => {
 ipcMain.handle('memory:shareProjectWithTeam', async (_event, projectKey: string, teamId: string) => {
   const url = getMemorySyncBaseUrl()
   const token = loadMemoryToken()
-  if (!url || !token) return { ok: false, error: 'Not connected to Nest Memory' }
+  if (!token) return { ok: false, error: 'Not connected to Nest Memory' }
   if (typeof projectKey !== 'string' || !projectKey.trim()) return { ok: false, error: 'Missing project_key' }
   if (typeof teamId !== 'string' || !teamId.trim()) return { ok: false, error: 'Missing team_id' }
 
@@ -5337,7 +5366,6 @@ app.whenReady().then(async () => {
     // from the renderer just to learn online/offline (§4.1 "Network regain").
     setInterval(() => {
       const url = getMemorySyncBaseUrl()
-      if (!url) return
       try {
         const host = new URL(url).hostname
         void lookup(host).then(

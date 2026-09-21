@@ -17,6 +17,7 @@ import { ICON_SIZE } from '../lib/icons'
 import MemoriesStatusRow from './MemoriesStatusRow'
 import MemoryEncryptionCard from './MemoryEncryptionCard'
 import LinkDeviceCard from './LinkDeviceCard'
+import SyncServiceCard from './SyncServiceCard'
 import ShareProjectCard from './ShareProjectCard'
 import TeamThreadPanel from './TeamThreadPanel'
 import { Button } from '@/components/ui/button'
@@ -204,6 +205,7 @@ export default function MemoriesWorkspace({ onClose, activeRepoPath, onOpenFile,
 
         <MemoryEncryptionCard />
         <LinkDeviceCard />
+        <SyncServiceCard />
 
         {/* El grafo primero y el buscador debajo, como Obsidian.
             

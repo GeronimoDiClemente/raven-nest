@@ -81,6 +81,9 @@ contextBridge.exposeInMainWorld('memory', {
   // Aprobar la vinculación de OTRA máquina (la que no tiene navegador). El JWT sale de acá
   // por lo mismo que arriba; el código corto lo tipea el usuario.
   linkApprove: (jwt: string, userCode: string) => ipcRenderer.invoke('memory:linkApprove', jwt, userCode),
+  // A qué servicio de sync le habla esta instalación, y cambiarlo sin recompilar (C4).
+  syncService: () => ipcRenderer.invoke('memory:syncService:get'),
+  setSyncService: (url: string | null) => ipcRenderer.invoke('memory:syncService:set', url),
   setUser: (userId: string | null, opts?: { adopt?: boolean }) => ipcRenderer.invoke('memory:setUser', userId, opts),
   // Task 2 (adopcion con aviso) — puramente informativo, se llama ANTES de setUser para
   // saber si hay que preguntar "son tuyas?" en vez de adoptar en silencio.

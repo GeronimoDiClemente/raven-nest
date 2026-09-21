@@ -977,6 +977,15 @@ declare global {
       linkApprove?: (jwt: string, userCode: string) => Promise<
         { ok: true } | { ok: false; error: string }
       >
+      /**
+       * A qué servicio de sync le habla esta instalación. `elegida` es `null` cuando nadie
+       * la cambió — o sea que sale del build o del default. Opcionales por lo mismo que las
+       * de arriba: un preload viejo no las expone y la UI se esconde en vez de romperse.
+       */
+      syncService?: () => Promise<{ url: string; elegida: string | null; porDefecto: string }>
+      setSyncService?: (url: string | null) => Promise<
+        { ok: true; url: string; hayQueReconectar: boolean } | { ok: false; error: string }
+      >
       disconnect: (opts?: { deleteCloud?: boolean }) => Promise<{
         ok: boolean
         cloudDeleteFailed?: string
