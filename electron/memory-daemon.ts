@@ -744,6 +744,22 @@ export class MemoryDaemon {
      */
     if (!this.primerStatusOk && this.deps.isEncryptionExpected) await this.status()
 
+    /**
+     * **Esto pregunta "¿tengo UNA maestra?", no "¿tengo la VIGENTE?"** — y hoy alcanza porque
+     * ningún camino de la app rota (`memory-keys-client.ts#activateEncryption` sólo corre en
+     * época 0, a propósito). El día que exista rotación deja de alcanzar: una máquina que se
+     * quedó con la maestra de la época anterior pasaría este gate y subiría filas que NINGUNA
+     * otra máquina puede abrir, con estado `idle` y sin un solo aviso. Su envoltura además ya
+     * fue borrada por la rotación (`delete from key_wraps` en el servidor), así que tampoco
+     * se entera por ahí.
+     *
+     * Lo correcto entonces es comparar `getEnvelopeContext()?.keyEpoch` contra
+     * `knownKeyEpoch()` — que es lo que YA hace `enrolamiento-del-paquete.ts` para el paquete
+     * portátil. **No se hace todavía a propósito**: un `keys.bin` escrito antes de que el
+     * campo existiera trae `keyEpoch: 0`, así que el chequeo estricto bloquearía hoy a
+     * máquinas legítimas para evitar un caso que no se puede alcanzar. Encontrado por la
+     * cuarta revisión adversarial (2026-09-21).
+     */
     const seEsperaCifrado = this.deps.isEncryptionExpected?.() ?? false
     if (seEsperaCifrado && !this.deps.getEnvelopeContext?.()) {
       this.setStatus('error', 'needs_key')

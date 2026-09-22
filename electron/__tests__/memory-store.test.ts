@@ -1847,3 +1847,57 @@ describe('ensureProject mejora lo que ya está', () => {
     expect(filaDe('hash-abc')).toEqual(antes)
   })
 })
+
+/**
+ * La época conocida sostiene el gate fail-closed del push: `isEncryptionExpected()` es
+ * `store.knownKeyEpoch() > 0` (main.ts), y con el gate desarmado una máquina sin la clave
+ * sube título y contenido EN CLARO a una cuenta cifrada.
+ *
+ * Por eso sólo puede subir. La cuarta revisión adversarial (2026-09-21) encontró que esa
+ * regla no la probaba NADA: sacando la comparación de `rememberKeyEpoch`, los 1905 tests de
+ * `electron/` seguían en verde.
+ *
+ * Y el llamador que puede pasar un 0 existe y es normal: `main.ts` hace
+ * `rememberKeyEpoch(estado.keyEpoch)` con lo que devuelve `fetchKeyState`, y un servicio que
+ * no conoce a esta cuenta contesta 0 — el caso se volvió alcanzable el mismo día, cuando la
+ * URL del servicio de sync pasó a poderse cambiar desde la UI.
+ */
+describe('la época conocida del cifrado sólo sube', () => {
+  let dirEpoca: string
+  let s: MemoryStore
+
+  beforeEach(() => {
+    dirEpoca = makeTmpDir('nest-epoca-')
+    s = new MemoryStore(join(dirEpoca, 'memory.db'))
+  })
+
+  afterEach(() => {
+    s.close()
+    cleanupTmp(dirEpoca)
+  })
+
+  it('un 0 no desarma un gate ya armado', () => {
+    s.rememberKeyEpoch(2)
+    s.rememberKeyEpoch(0)
+    expect(s.knownKeyEpoch()).toBe(2)
+  })
+
+  it('una época vieja tampoco lo baja', () => {
+    s.rememberKeyEpoch(2)
+    s.rememberKeyEpoch(1)
+    expect(s.knownKeyEpoch()).toBe(2)
+  })
+
+  it('pero una nueva sí sube: rotar tiene que poder avanzarla', () => {
+    s.rememberKeyEpoch(1)
+    s.rememberKeyEpoch(2)
+    expect(s.knownKeyEpoch()).toBe(2)
+  })
+
+  it('un valor que no es un número no toca nada', () => {
+    s.rememberKeyEpoch(1)
+    s.rememberKeyEpoch(Number.NaN)
+    s.rememberKeyEpoch(Infinity)
+    expect(s.knownKeyEpoch()).toBe(1)
+  })
+})
