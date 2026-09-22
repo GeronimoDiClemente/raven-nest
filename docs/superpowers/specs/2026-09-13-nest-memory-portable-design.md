@@ -446,10 +446,19 @@ Cada paso deja algo que funciona y se puede probar solo.
 
    **El servicio desplegado ya corre esta versión** (2026-09-21): `/v1/link/start` emite
    códigos contra el Postgres de Railway (migración 008 aplicada al arrancar) y el login se
-   verifica por JWKS. **Falta** recorrer el `login` entero contra ese servicio —o sea, correr
+   verifica por JWKS.
+
+   **La extensión ya se prueba en un editor de verdad** (2026-09-21): `npm run test:vscode`
+   levanta el VS Code instalado con `--extensionDevelopmentPath` y `--extensionTestsPath` —sin
+   `@vscode/test-electron` y sin descargar nada— y comprueba que active, que registre los dos
+   comandos, que escriba el `mcp.json` bajo `servers` y que `status` deje un webview abierto.
+   Dos trampas que sólo aparecieron corriéndolo: el `code` del PATH vuelve con 0 sin haber
+   corrido nada, y redirigir `HOME` para aislar la prueba abre un modal del llavero de macOS
+   que espera un clic.
+
+   **Falta** recorrer el `login` entero contra el servicio desplegado —o sea, correr
    `npx nest-memory login` y aprobar desde Nest, que es la parte que necesita una sesión de
-   usuario de verdad— y abrir la extensión en un editor. Y lo que la P-3 ya recomendaba: no
-   publicar hasta que la CLI esté en uso.
+   usuario de verdad. Y lo que la P-3 ya recomendaba: no publicar hasta que la CLI esté en uso.
 
 ---
 
