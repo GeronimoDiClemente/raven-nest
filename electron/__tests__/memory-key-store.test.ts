@@ -121,6 +121,28 @@ describe('memory-key-store', () => {
   // instante —la sesión todavía sin desbloquear, DPAPI que tarda— apartaba un keys.bin SANO
   // y generaba un par nuevo: la misma destrucción que el arreglo existía para impedir, con un
   // disparador más fácil que el original.
+  /**
+   * `saveKeyMaterial` es el que persiste la MAESTRA, y su guarda no la probaba nada: los dos
+   * tests de arriba pasan por `ensureKeyMaterial`, que tiene un chequeo PROPIO, así que
+   * desactivar el de `saveKeyMaterial` dejaba los 1911 tests de `electron/` en verde
+   * (cuarta revisión adversarial, 2026-09-21).
+   *
+   * Y no es un camino de laboratorio: los cinco llamadores directos son los que guardan la
+   * maestra de verdad —activar, adoptar, autorizar y recuperar en `main.ts`, más el `recover`
+   * del paquete portátil—, ninguno pasa por `ensureKeyMaterial`.
+   *
+   * Que además NO escriba es la mitad que importa: lanzar después de haber escrito dejaría la
+   * maestra en claro en el disco y encima con cara de haber fallado.
+   */
+  it('guardar la maestra sin cifrado del sistema lanza, y no deja el archivo', () => {
+    const material = ensureKeyMaterial(home, 'u1', safe)
+    const conMaestra = { ...material, master: Buffer.alloc(32, 7).toString('base64'), keyEpoch: 1 }
+
+    // Sobre una cuenta que todavía no tiene archivo, para poder ver que no lo crea.
+    expect(() => saveKeyMaterial(home, 'u2', safeSinCifrado, conMaestra)).toThrow(/safeStorage/i)
+    expect(existsSync(keyFilePath(home, 'u2'))).toBe(false)
+  })
+
   it('con safeStorage caído no toca el archivo: lanza en vez de apartarlo', () => {
     ensureKeyMaterial(home, null, safe)          // archivo bueno, escrito con el llavero sano
     const antes = readFileSync(keyFilePath(home, null))
