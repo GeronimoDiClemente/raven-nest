@@ -9,10 +9,19 @@ describe('memory-merge — resolveLWW (§4.3 rule a)', () => {
     expect(resolveLWW(b, a)).toBe(b)
   })
 
+  // OJO con los valores: el syncId mayor tiene que ser el del lamport MENOR. Con `obs-a`/5
+  // contra `obs-b`/9 —como estaba— los dos escalones apuntan al mismo lado, así que el test
+  // pasaba igual sin el escalón del lamport: sacarlo dejaba los 1912 tests en verde (cuarta
+  // revisión adversarial, 2026-09-23). Y no es un escalón decorativo: el servidor tiene su
+  // propia copia de esta regla, y si las dos dejan de coincidir dos máquinas convergen a
+  // ganadores distintos para el mismo tema.
   it('breaks an updatedAt tie with the higher lamport', () => {
-    const a = { syncId: 'obs-a', updatedAt: 100, lamport: 5 }
-    const b = { syncId: 'obs-b', updatedAt: 100, lamport: 9 }
-    expect(resolveLWW(a, b)).toBe(b)
+    // El lamport mayor es el del syncId MENOR: así los dos escalones apuntan a lados
+    // distintos y el test sólo pasa si gana el que manda, que es el lamport.
+    const a = { syncId: 'obs-a', updatedAt: 100, lamport: 9 }
+    const b = { syncId: 'obs-z', updatedAt: 100, lamport: 5 }
+    expect(resolveLWW(a, b)).toBe(a)
+    expect(resolveLWW(b, a)).toBe(a)
   })
 
   it('breaks an updatedAt+lamport tie with the greater syncId lexicographically', () => {

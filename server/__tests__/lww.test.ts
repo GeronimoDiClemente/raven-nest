@@ -8,8 +8,13 @@ describe('resolveTopicCollision', () => {
     expect(resolveTopicCollision(c('a', 1, 9), c('b', 2, 1)).winner.syncId).toBe('b')
   })
 
+  // OJO con los valores: el lamport mayor tiene que ser el del syncId MENOR. Con ('a',5,1)
+  // contra ('b',5,2) —como estaba— los dos escalones apuntan al mismo lado, así que el test
+  // pasaba igual sin el escalón del lamport: sacarlo dejaba los 315 tests en verde (cuarta
+  // revisión adversarial, 2026-09-23). El cliente tenía exactamente la misma debilidad.
   it('breaks an updatedAt tie with the greater lamport', () => {
-    expect(resolveTopicCollision(c('a', 5, 1), c('b', 5, 2)).winner.syncId).toBe('b')
+    expect(resolveTopicCollision(c('a', 5, 2), c('z', 5, 1)).winner.syncId).toBe('a')
+    expect(resolveTopicCollision(c('z', 5, 1), c('a', 5, 2)).winner.syncId).toBe('a')
   })
 
   it('breaks a full tie with the greater syncId, lexicographically', () => {
