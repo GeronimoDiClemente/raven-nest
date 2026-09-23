@@ -362,6 +362,45 @@ describe('MemoryDaemon — offline / online transitions (§4.1)', () => {
     daemon.stop()
   })
 
+  /**
+   * El contador es de fallas CONSECUTIVAS, y el reset no lo probaba nada: sacándolo, los
+   * 1914 tests de `electron/` seguían en verde (cuarta revisión adversarial, 2026-09-23).
+   * Los tests de arriba sólo ejercitan tres 401 seguidos, que bloquean con o sin reset.
+   *
+   * Sin el reset, "consecutivas" pasa a ser "en toda la vida del proceso": tres 401
+   * transitorios repartidos a lo largo de un día —un refresh de token, una caída del
+   * servicio— dejan el daemon en `auth` y la sincronización muerta hasta que el usuario
+   * reinicie o toque algo que llame a `onNetworkRegain`. Y lo que ve dice que sus
+   * credenciales no sirven, que es mentira.
+   *
+   * **Sin flushear timers a propósito.** Con `runOnlyPendingTimersAsync` en el medio, la
+   * cadena de backoff dispara pushes extra que consumen respuestas del mock y la secuencia
+   * deja de ser la que el test dice que es — la primera versión de este test pasaba con y
+   * sin el reset justo por eso. Acá cada llamada a `fetch` corresponde a una línea.
+   */
+  it('una respuesta buena en el medio resetea el contador: las fallas son CONSECUTIVAS', async () => {
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce({ ok: false, status: 401, json: async () => ({}) }) // push 1
+      .mockResolvedValueOnce({ ok: false, status: 401, json: async () => ({}) }) // push 2
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ plan: 'pro' }) }) // status OK
+      .mockResolvedValueOnce({ ok: false, status: 401, json: async () => ({}) }) // push 3
+      .mockResolvedValue({ ok: true, status: 200, json: async () => ({ results: [] }) })
+    const store = fakeStore({ pendingMutations: vi.fn(() => PENDING_MUTATION_A) })
+    const daemon = new MemoryDaemon(baseDaemonDeps(store, { fetchImpl }))
+
+    vi.useFakeTimers()
+    await daemon.push()   // 401 — consecutivas: 1
+    await daemon.push()   // 401 — consecutivas: 2
+    await daemon.status() // 200 — vuelve a 0
+    await daemon.push()   // 401 — consecutivas: 1 otra vez, NO 3
+    const antes = fetchImpl.mock.calls.length
+    await daemon.push()   // si el contador no se hubiera reseteado, acá ya estaría bloqueado
+    vi.useRealTimers()
+
+    expect(fetchImpl.mock.calls.length).toBeGreaterThan(antes)
+    daemon.stop()
+  })
+
   it('M18: once auth-blocked, OTHER trigger paths (not just the backoff chain) stop calling fetch', async () => {
     const fetchImpl = vi.fn().mockResolvedValue({ ok: false, status: 401, json: async () => ({}) })
     const store = fakeStore({ pendingMutations: vi.fn(() => PENDING_MUTATION_A) })
@@ -914,6 +953,56 @@ describe('MemoryDaemon — chained batch drain (M22, PUSH_BATCH_SIZE=200)', () =
     daemon.stop()
   })
 
+  /**
+   * El re-chequeo de `swapping` ADENTRO del setImmediate, que no lo probaba nada: sacándolo,
+   * los 1912 tests de `electron/` seguían en verde (cuarta revisión adversarial, 2026-09-23).
+   *
+   * Y es load-bearing, no decorativo: `push()` y `pull()` NO chequean `swapping` — sólo lo
+   * hacen los disparadores (`scheduleMutationPush`, `onWindowFocus`, `onNetworkRegain`,
+   * `onPaneExit`). Así que en el hueco entre que `pause()` ve el push en vuelo ya asentado y
+   * que el swap cierra y renombra el archivo, ese re-chequeo es lo único que impide que el
+   * batch encadenado corra contra un store a medio swap.
+   *
+   * La carrera se reproduce sin timing: el encadenado es un macrotask, así que alcanza con
+   * marcar el swap ANTES de dejar correr la cola de macrotasks.
+   */
+  it('el batch encadenado no corre si el swap empezó mientras esperaba su turno', async () => {
+    const TOTAL = 250 // > PUSH_BATCH_SIZE: el primer push deja 50 en la cola y encadena
+    let queue: MutationLogRow[] = Array.from({ length: TOTAL }, (_, i) => makeMutation(i + 1))
+    const pendingMutations = vi.fn((limit = 200) => queue.slice(0, limit))
+    const markPushed = vi.fn((entries: Array<number | { seq: number; error?: string | null }>) => {
+      const seqs = new Set(entries.map((e) => (typeof e === 'number' ? e : e.seq)))
+      queue = queue.filter((m) => !seqs.has(m.seq))
+    })
+    const pendingMutationCount = vi.fn(() => queue.length)
+
+    const fetchImpl = vi.fn(async (_url: string, init: RequestInit) => {
+      const body = JSON.parse(init.body as string) as { mutations: Array<{ sync_id: string }> }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          results: body.mutations.map((m) => ({ sync_id: m.sync_id, outcome: 'applied' as const, project_seq: 1 })),
+        }),
+      }
+    }) as unknown as typeof fetch
+
+    const store = fakeStore({ pendingMutations, markPushed, pendingMutationCount })
+    const daemon = new MemoryDaemon(baseDaemonDeps(store, { fetchImpl }))
+
+    await daemon.push()
+    // El swap arranca ACÁ: `pause()` pone `swapping` de forma síncrona, antes de que el
+    // macrotask encadenado llegue a correr. No se espera a propósito — lo que importa es la
+    // marca, no el drenaje.
+    void daemon.pause()
+    await vi.runOnlyPendingTimersAsync()
+    await vi.runOnlyPendingTimersAsync()
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+    expect(queue.length).toBe(50) // los 50 que quedaron siguen en la cola, sin perderse
+    daemon.stop()
+  })
+
   it('does not chain an immediate re-push when the batch made no progress (server acknowledged nothing)', async () => {
     const store = fakeStore({
       pendingMutations: vi.fn(() => PENDING_MUTATION_A),
@@ -965,6 +1054,27 @@ describe('MemoryDaemon — chained pull pages (M25, PULL_PAGE_SIZE=500)', () => 
     expect(fetchImpl).toHaveBeenCalledTimes(2)
     // First chained request re-reads the cursor via getSyncState — not a hardcoded 500 —
     // proving the second page is a real continuation and not a duplicate of the first.
+    daemon.stop()
+  })
+
+  // La misma carrera del lado del pull, y por el mismo motivo: `pull()` tampoco chequea
+  // `swapping`. Ver el test hermano en el bloque del push encadenado.
+  it('la página encadenada no corre si el swap empezó mientras esperaba su turno', async () => {
+    const store = fakeStore({
+      listProjects: vi.fn(() => [{ projectKey: 'proj-1', displayName: 'proj-1', enrolled: true }]),
+      getSyncState: vi.fn(() => ({ pullCursor: 0, lastPushSeq: 0 })),
+    })
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ rows: makeRows(500), cursors: { 'proj-1': 500 } }) })
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ rows: makeRows(120), cursors: { 'proj-1': 620 } }) })
+    const daemon = new MemoryDaemon(baseDaemonDeps(store, { fetchImpl }))
+
+    await daemon.pull()
+    void daemon.pause()
+    await vi.runOnlyPendingTimersAsync()
+    await vi.runOnlyPendingTimersAsync()
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
     daemon.stop()
   })
 
