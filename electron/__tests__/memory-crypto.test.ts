@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   CIPHER_PREFIX, generateMasterKey, deriveKeys, isCiphertext, fieldAad,
-  encryptField, decryptField, hmacTopicKey, huellaDeMaestra, MemoryDecryptError,
+  encryptField, decryptField, hmacTopicKey, huellaDeMaestra, rotateVerifier, MemoryDecryptError,
 } from '../memory-crypto'
 
 const keys = deriveKeys(generateMasterKey())
@@ -117,6 +117,45 @@ describe('memory-crypto', () => {
       const esperado = 5 + Math.ceil((28 + n) / 3) * 4
       expect(encryptField(keys, texto, fieldAad('o', 'content')).length).toBe(esperado)
     }
+  })
+
+  /**
+   * El separador, que hasta acá era sólo un comentario.
+   *
+   * Sin el `|`, el par (`proj`, `1personal`) y (`proj1`, `personal`) dan el MISMO HMAC, y dos
+   * temas distintos colapsan en uno: el servidor supersede por igualdad de este valor, así
+   * que una colisión no es un detalle teórico — una memoria pisa a la otra.
+   *
+   * **Lo que el separador NO hace**, y que el comentario del código afirmaba de más: cerrar la
+   * ambigüedad en general. `('proj','personal','a|b')` y `('proj','personal|a','b')` dan el
+   * mismo string — probado al escribir este test. Lo que la cierra de verdad es que sólo el
+   * ÚLTIMO componente es texto libre: el project_key es hex y el scope un enum, así que no hay
+   * dónde mover el corte. El día que un componente del medio deje de estar restringido, el
+   * separador no alcanza.
+   *
+   * Sacando el separador, los 1909 tests de `electron/` y los 315 del servidor seguían en
+   * verde (cuarta revisión adversarial, 2026-09-21).
+   */
+  it('hmacTopicKey no colapsa dos temas cuando el corte cae en otro lado', () => {
+    expect(hmacTopicKey(keys, 'proj', '1personal', 'deploy'))
+      .not.toBe(hmacTopicKey(keys, 'proj1', 'personal', 'deploy'))
+    expect(hmacTopicKey(keys, 'proj1', 'personal', 'deploy'))
+      .not.toBe(hmacTopicKey(keys, 'proj1person', 'al', 'deploy'))
+  })
+
+  /**
+   * `rotateVerifier` va atado a la ÉPOCA, y eso tampoco lo fijaba nada — ni acá ni en el
+   * servidor, porque el cliente todavía no tiene ningún camino que rote y
+   * `keys-cliente-real.test.ts` no puede ejercitar una rotación.
+   *
+   * Sin la época, el verificador de una época vieja sirve en la nueva: es la diferencia
+   * entre una prueba de posesión que caduca y una que no.
+   */
+  it('rotateVerifier cambia con la época y con la maestra', () => {
+    const master = generateMasterKey()
+    expect(rotateVerifier(master, 1)).not.toBe(rotateVerifier(master, 2))
+    expect(rotateVerifier(master, 1)).toBe(rotateVerifier(master, 1))
+    expect(rotateVerifier(master, 1)).not.toBe(rotateVerifier(generateMasterKey(), 1))
   })
 
   it('hmacTopicKey cambia con la maestra', () => {

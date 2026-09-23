@@ -104,9 +104,17 @@ export function decryptField(keys: MemoryKeys, envelope: string, aad: string): s
  * sin poder leer el tema — que es todo lo que necesita.
  *
  * Los tres componentes van con separador y no concatenados a secas: sin el `|`, el par
- * (`proj`, `1personal`) y (`proj1`, `personal`) darian el mismo HMAC. Ningun componente
- * puede contener `|` en la practica (project_key es hex, scope es un enum), pero la
- * ambiguedad se cierra por construccion y no por suerte.
+ * (`proj`, `1personal`) y (`proj1`, `personal`) darian el mismo HMAC, y dos temas distintos
+ * colapsarian en uno — el servidor supersede por igualdad de este valor, asi que colisionar
+ * es que una memoria pise a la otra.
+ *
+ * **El separador solo no cierra la ambiguedad**, y este comentario decia que si. `topic_key`
+ * es texto libre del usuario y puede contener `|`: ('proj','personal','a|b') y
+ * ('proj','personal|a','b') producen el MISMO string. Lo que la cierra es que el unico
+ * componente libre es el ULTIMO — el project_key es hex y el scope un enum, asi que no hay
+ * donde mover el corte. Si algun dia un componente del medio deja de estar restringido, o se
+ * suma un cuarto, hace falta escapar o usar longitudes, no basta con el `|`.
+ * Encontrado por la cuarta revision adversarial (2026-09-21) al escribir el test.
  *
  * 32 hex = 128 bits: sobra para que no colisionen dos temas y entra comodo en la columna
  * `text` que el servidor ya tiene.
