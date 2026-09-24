@@ -1438,7 +1438,7 @@ Dejar el comentario que ya está arriba de `--front` tal cual: sigue explicando 
 Run: `npm test`
 Expected: verde. El test que cubre el orden modela el CSS a mano (spec §5.4), así que **no va a fallar aunque esto estuviera mal** — por eso el Step 4.
 
-- [x] **Step 4: Mirarlo en la app real** — ✅ PARCIAL el 2026-09-09
+- [x] **Step 4: Mirarlo en la app real** — ✅ PARCIAL el 2026-09-09, **completado el 2026-09-24**
 
 ```bash
 npm run native:electron
@@ -1453,7 +1453,15 @@ Abrir Personal, y desde ahí "Open team workspace". El workspace de equipo tiene
 - `.memories-workspace` computa `z-index: 1200` y `position: fixed`.
 - Tapa de verdad: `document.elementFromPoint()` en el centro de la pantalla cae **adentro** del overlay, con el panel de Settings abierto debajo.
 
-**Lo que NO se pudo verificar, y por qué:** el caso exacto que pide este step —Personal abajo, el workspace de equipo encima— **no es alcanzable en el perfil del harness**, que es **Free**. En Free la fila `Personal` abre el modal de upgrade en vez del workspace (`onUpgrade` en `PersonalItem`, que es justo lo que `MemoriesItem` documenta NO hacer). El stacking se verificó contra Settings, que sí es alcanzable, más la escala numérica. **El CRITICAL original de `feat/sidebar-tabs` sigue sin re-verificarse en su escenario propio** y necesita un perfil pago — anotado, no tapado.
+**Lo que NO se pudo verificar el 2026-09-09, y por qué:** el caso exacto que pide este step —Personal abajo, el workspace de equipo encima— **no era alcanzable en el perfil del harness**, que es **Free**. En Free la fila `Personal` abría el modal de upgrade en vez del workspace (`onUpgrade` en `PersonalItem`, que es justo lo que `MemoriesItem` documenta NO hacer). El stacking se verificó contra Settings, que sí es alcanzable, más la escala numérica.
+
+**Cerrado el 2026-09-24** (`e2e/03-memories-in-app.spec.ts`, último test). Las dos mitades de la premisa de arriba se habían caído sin que nadie volviera:
+
+- El 2026-09-11 `onPersonalOpen` **perdió su gate de plan** (`App.tsx`: Personal es local — repos, issues, invitaciones; lo que se cobra está gateado adentro por capacidad). Personal abre en Free.
+- Lo único que sigue dependiendo del plan es la **puerta** al equipo (`allowTeam = planLimits.memoryTeamShare`, sólo `team`/`enterprise`), y `RAVEN_E2E_PLAN` ya sabía simular el plan desde antes del step. **No hace falta un perfil pago de verdad.**
+- Tampoco hace falta un equipo: con cero equipos `ScopeSelector` muestra "Create or join a team", que abre el mismo workspace.
+
+Lo que el test mide es lo que el bug era: las dos superficies son `.teams-workspace` y Personal se renderiza **después** en el DOM, así que con el mismo z-index tapaba al de equipo. Bajando `--front` a la capa base caen dos asserts por separado: el número (1100 vs 1000) y el `elementFromPoint()` del centro de la pantalla, que es el síntoma que se veía.
 
 - [ ] **Step 5: Commit**
 
@@ -2125,16 +2133,22 @@ Mirar, en este orden:
 5. Settings ya no muestra las tarjetas de memoria y el botón "Open Memories" abre lo mismo.
 6. **El caso del §2.2**: abrir una terminal con `claude`, esperar >15s, y confirmar que si esa sesión no llegó al bridge la fila se pone roja y el overlay nombra el pane.
 
-**Resultado.** Escrito como e2e (`e2e/03-memories-in-app.spec.ts`, 6 tests verdes) en vez de una pasada a ojo, con capturas en `test-results/memories-in-app/`. La app corrió de verdad, que es lo que este step pedía.
+**Resultado.** Escrito como e2e (`e2e/03-memories-in-app.spec.ts`) en vez de una pasada a ojo, con capturas en `test-results/memories-in-app/`. La app corrió de verdad, que es lo que este step pedía. Eran 6 tests verdes el 2026-09-09 con tres filas en amarillo o rojo; **son 9 el 2026-09-24 y no queda ninguna** — ver las notas al pie de la tabla.
 
 | # | Estado | Qué se verificó |
 |---|---|---|
 | 1 | ✅ | Orden medido por posición en pantalla, no por orden en el DOM: `Personal` → `Memories` → usuario → `Settings`. **Expandida y colapsada**, forzando cada estado en vez de asumirlo. Expandida muestra además `.memories-status-text`; colapsada ese texto desaparece. |
 | 2 | ✅ | `[data-testid=memories-dot]` visible con la sidebar colapsada, y `data-dot` en uno de `green\|amber\|red\|grey`. |
-| 3 | ⚠️ parcial | El overlay abre y tapa lo de abajo de verdad (`elementFromPoint` cae adentro). **Con Settings debajo, no con Personal**: ver la nota de la Task 7 Step 4 — en Free, `Personal` abre el modal de upgrade. |
-| 4 | ⚠️ parcial | Se verificó que el cuerpo del overlay **nunca queda hueco**: o dibuja `.team-thread-panel` o dibuja `.memories-empty`. Con el harness sin repo se ejercitó el segundo camino; **el grafo con un repo abierto no se ejercitó**. |
+| 3 | ✅ *(⚠️ hasta el 2026-09-24)* | El overlay abre y tapa lo de abajo de verdad (`elementFromPoint` cae adentro), con Settings debajo. El escenario propio del CRITICAL —el workspace de equipo encima de Personal— quedó cubierto el 2026-09-24: ver la nota (a). |
+| 4 | ✅ *(⚠️ hasta el 2026-09-24)* | El cuerpo del overlay **nunca queda hueco**: o dibuja `.team-thread-panel` o la nota al pie de "sin repo". Ese assert es un OR y con el harness sin repo salía siempre el mismo lado; el del repo se cubrió el 2026-09-24: ver la nota (b). |
 | 5 | ✅ | Settings → Account tiene el botón `Open Memories` y abre el mismo overlay. `.memory-vault-card`, `.memory-hub` y `.memory-status-card` cuentan **0** en Settings: las tarjetas se fueron de verdad. |
-| 6 | ❌ | **No cubierto.** Necesita spawnear `claude` con credenciales reales y esperar el timeout de 15 s — es un smoke aparte (ver `keepRealHome` en el harness). |
+| 6 | ✅ *(❌ hasta el 2026-09-24)* | Cubierto sin `claude` ni credenciales: ver la nota (c). |
+
+**(a) El CRITICAL, 2026-09-24.** La premisa que lo bloqueaba ("hace falta un perfil pago") se había caído en dos pasos sin que nadie volviera — el detalle está en la Task 7 Step 4. Resumen: `onPersonalOpen` perdió su gate de plan el 2026-09-11, y lo único que todavía depende del plan es la puerta al equipo, que `RAVEN_E2E_PLAN` simula.
+
+**(b) El repo abierto, 2026-09-24.** El test linkea un repo con `__e2e_linkRepo`, exige el panel de ramas (y que no aparezca `.team-thread-error`) y prende el hilo, lo que corre `runTeamThreadForRepo` de verdad — verificado **en el disco**, no en el botón. Ese lado son tres IPC encadenados contra el main real; en jsdom son mocks que devuelven lo que el test quiera.
+
+**(c) El §2.2, 2026-09-24.** No hacía falta `claude`: lo que produce el estado no es qué CLI corre, sino que `pty-manager` haya registrado el pane en `memoryPanes` y que la tabla `sessions` no tenga su fila. Un `cat` sobre una pty —nombre de binario simple, se queda vivo, no habla el protocolo— es exactamente ese síntoma, y entra por el camino del §3.2 (`accountDir` vacío). El assert de "antes de la gracia no es rojo" **se sostiene nueve segundos** en vez de mirarse una vez: escrito de la forma obvia pasaba aunque la gracia no existiera, porque el poll de `useMemories` tarda hasta 5 s en ver el pane nuevo y la única mirada caía siempre antes.
 
 **Las dos sidebars.** El punto 1 pide "repo y Hub"; el e2e cubre la sidebar del workspace. La del Hub comparte el mismo componente `Sidebar` y el mismo call site de `MemoriesItem` (`Sidebar.tsx:857`, fuera del bloque de pestañas), así que no hay una segunda ruta de render — pero **no se ejecutó** y queda dicho.
 
