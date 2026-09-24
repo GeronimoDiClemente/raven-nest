@@ -13,76 +13,81 @@ GENTE = {
  "geronimo": {"nombre":"Gerónimo Di Clemente", "rol":"CEO", "slides":"01, 02, 03, 10, 11",
   "bloques":[
    {"s":"01 · Portada","seg":15,
-    "texto":"Buenas. Somos Nest. Hoy los equipos de desarrollo trabajan todo el día con asistentes "
-            "de inteligencia artificial. Nosotros somos el lugar donde ese equipo los usa. Y por eso "
-            "somos el lugar donde su memoria puede quedarse.",
-    "nota":"Arrancá parado y mirando al jurado, no a la pantalla. Estos quince segundos deciden si "
-           "te escuchan el resto."},
+    "texto":"Seis de cada diez programadores pierden más de media hora por día buscando algo que "
+            "alguien de su equipo ya sabía. Y no es desorden: es que todo lo que aprenden sus "
+            "asistentes de inteligencia artificial no queda en ningún lado. Somos Nest, y ahí es "
+            "donde entramos.",
+    "nota":"Arrancá con el dato, sin presentarte. Parado, mirando al jurado, no a la pantalla. "
+           "El nombre va al final: primero que entiendan el problema."},
    {"s":"02 · El problema","seg":35,
-    "texto":"Te lo cuento con lo que nos pasa a nosotros. Somos cinco, y cada uno trabaja con cuatro "
-            "asistentes. Todas las mañanas, cada uno le vuelve a explicar el mismo proyecto de cero. "
-            "Mirá el dibujo: son veinte memorias separadas, y ninguna se habla con las otras. "
-            "Compartimos el proyecto, pero no compartimos nada de lo que esos asistentes ya "
-            "aprendieron. Y no nos pasa sólo a nosotros: seis de cada diez programadores pierden "
-            "más de media hora por día buscando algo que alguien del equipo ya había resuelto.",
-    "nota":"Señalá el dibujo cuando digas «veinte memorias». El dato es de Stack Overflow sobre "
-           "65.000 respuestas; está en el slide, decilo sólo si querés apoyarlo."},
+    "texto":"Te lo muestro con un caso concreto. Un equipo de cinco personas, cada una trabajando "
+            "con cuatro asistentes. Mirá el dibujo: son veinte memorias separadas, y ninguna se "
+            "habla con las otras. El equipo comparte el código y comparte las reuniones. Lo único "
+            "que no comparte es lo que esos asistentes aprenden todos los días. Y eso, hoy, "
+            "se evapora.",
+    "nota":"Señalá el dibujo en «veinte memorias». El dato del 61 % ya lo dijiste en la portada: "
+           "está escrito abajo con la fuente, pero NO lo releas. Frená en «se evapora»."},
    {"s":"03 · La solución","seg":30,
-    "texto":"Y acá está la diferencia. No es que nosotros guardamos memoria y los demás no. Es "
-            "<b>dónde estamos parados</b>. Como Nest está abajo de todo el trabajo, ve lo que pasa "
-            "mientras pasa, y lo guarda solo. Los demás dependen de que alguien se acuerde de "
-            "anotarlo. Es la diferencia entre un diario que hay que sentarse a escribir y una cámara "
-            "que ya está prendida. Y además: la ve todo el equipo, y ni nosotros podemos leerla.",
-    "nota":"Bajá el ritmo en «dónde estamos parados». Es la idea que tienen que llevarse a la casa.",
+    "texto":"Y acá está la diferencia. Nosotros no inventamos guardar memoria: eso lo hace medio "
+            "mundo. La diferencia es <b>dónde estamos parados</b>. Nest es el lugar donde tu equipo "
+            "ya trabaja, así que estamos abajo de todo, viendo lo que pasa mientras pasa. Los demás "
+            "te piden que te acuerdes de anotar. Es la diferencia entre un diario, que hay que "
+            "sentarse a escribir, y una cámara que ya está prendida. Nosotros no le preguntamos a "
+            "nadie: <b>se escribe sola</b>.",
+    "nota":"Bajá el ritmo en «dónde estamos parados» y en «se escribe sola». Son las dos frases "
+           "que tienen que quedar. «Se escribe sola» vuelve en el slide 04 y en el cierre.",
     "pase":"Te paso con Bauti, que te muestra cómo se llena."},
    {"s":"10 · Plan · 12 meses","seg":20,
-    "texto":"Los próximos doce meses son todos de Memories. Primero, que funcione con cualquier "
-            "asistente, aunque no tengan Nest abierto. Después, la llave del equipo: que se guarde "
-            "cerrada, para destrabar a los que hoy no subirían nada. Y de ahí en adelante, crecer "
-            "por equipos y no de a una persona.",
+    "texto":"Los próximos doce meses son todos de esto. Primero, que la memoria funcione con "
+            "cualquier asistente, aunque no tengan Nest abierto. Después, la llave: que quede "
+            "cerrada y que la llave sea del equipo, porque eso destraba a las empresas que hoy no "
+            "subirían nada. Y después, crecer por equipos enteros y no de a uno.",
     "nota":"Retomás vos después de Mati. Enganchá sin presentarte de nuevo."},
    {"s":"11 · El pedido","seg":20,
-    "texto":"Lo que necesitamos son contactos: diez equipos de cinco programadores, noventa días, "
-            "para probar Memories. Lo que vamos a medir es cuántos siguen pagando el día noventa y "
-            "uno. Nest está en <b>nestmux.com</b> y se puede bajar hoy, gratis. Nest corre los "
-            "asistentes de tu equipo: por eso es donde puede vivir su memoria. Gracias.",
-    "nota":"⚠️ Ya no se cierra con «y pasar a la final»: estamos EN la final. Frená antes de la "
-           "última frase: es el remate y necesita el silencio de antes."},
+    "texto":"Lo que venimos a pedir son contactos: diez equipos de cinco programadores, noventa "
+            "días. No les pedimos plata, les pedimos que lo usen. Lo que vamos a medir es cuántos "
+            "siguen pagando el día noventa y uno. Nest se baja hoy, gratis, en <b>nestmux.com</b>. "
+            "Y la idea es una sola: <b>Nest corre los asistentes de tu equipo, y por eso es el "
+            "único lugar donde su memoria puede quedarse</b>. Gracias.",
+    "nota":"⚠️ Ya no se cierra con «y pasar a la final»: estamos EN la final. Frená un segundo "
+           "antes de la última frase: es el remate y necesita el silencio de antes."},
   ],
   "piloto":["Un equipo de <b>5 programadores o más</b> que usa Nest <b>90 días</b>.",
             "Arranca gratis. A los 30 días activan la memoria de equipo, sin cargo durante el piloto.",
             "<b>Día 91 deciden si pagan</b> — eso es exactamente lo que medimos.",
-            "No buscamos los US$ 500 al mes: buscamos <b>cuántos pasan de gratis a pago</b>.",
             "Si quieren el detalle fino, lo tiene Bauti."]},
 
  "bautista": {"nombre":"Bautista Martínez Vuoto", "rol":"CMO", "slides":"04, 05, 06",
   "bloques":[
    {"s":"04 · Cómo se llena","seg":35,
-    "texto":"Mirá el dibujo: son las mismas cinco personas que te mostró Gero recién, pero ahora "
-            "todo baja a un mismo lugar. Funciona así: entra el trabajo, trabajan los asistentes, y "
-            "queda lo que aprendieron. Te leo una de verdad: «el cobro va por Stripe, no por "
-            "MercadoPago». Esa memoria <b>no la escribió nadie</b>. Se escribió sola mientras el "
-            "equipo trabajaba, y quedó guardada sabiendo de qué tarea salió, quién estaba y cuándo "
-            "fue. Esto no es una maqueta: ya está funcionando.",
-    "nota":"Señalá el dibujo en «las mismas cinco personas». Ese reconocimiento es el momento más "
-           "fuerte del pitch: dejá un segundo de silencio ahí.",
+    "texto":"Mirá el dibujo: son las mismas cinco personas que te mostró Gero recién. Ahora todo "
+            "baja a un mismo lugar. Funciona así: entra el trabajo, "
+            "trabajan los asistentes, y queda lo que aprendieron. Te leo una de verdad, tal como "
+            "quedó guardada: «el cobro va por Stripe, no por MercadoPago». Esa frase <b>no la "
+            "escribió nadie</b>. Nadie abrió un documento, nadie anotó nada. Se escribió sola "
+            "mientras el equipo trabajaba, y sabe de qué tarea salió y quién estaba. Y mañana, "
+            "cuando otro del equipo toque esa parte, <b>su asistente ya lo "
+            "sabe</b>.",
+    "nota":"Señalá el dibujo en «las mismas cinco personas»: ese reconocimiento es el momento más "
+           "fuerte del pitch, dejá un segundo de silencio ahí. La última frase es el beneficio "
+           "entero: decila despacio.",
     "pase":"Arrancás vos, después de Gero. Enganchá directo, sin presentarte."},
    {"s":"05 · Mercado","seg":25,
     "texto":"El mercado lo calculamos de abajo hacia arriba. Hay dieciocho millones de programadores "
-            "que ya trabajan con asistentes. Nosotros vamos primero a Latinoamérica y España, "
-            "nuestro idioma y nuestro horario. Y lo que decimos que vamos a ganar en tres años son "
-            "<b>ciento noventa y dos mil dólares</b>: cuatrocientos equipos de cinco personas. "
-            "Todo calculado sobre nuestro precio más bajo, así que el peor caso ya está adentro "
-            "del número.",
-    "nota":"No leas las tres cajas, ya están en pantalla. Decí sólo el último número y por qué "
-           "se defiende."},
+            "que ya trabajan con asistentes. Nosotros arrancamos por Latinoamérica y España: "
+            "nuestro idioma y nuestro horario. Y lo que podemos ganar en "
+            "tres años son <b>ciento noventa y dos mil dólares</b>: cuatrocientos equipos. Está "
+            "calculado sobre nuestro precio más barato, así que el peor caso ya está adentro del "
+            "número.",
+    "nota":"No leas las tres cajas, ya están en pantalla: decí sólo el último número y por qué se "
+           "defiende. Si te preguntan de dónde sale el 18 millones: 30 millones de programadores "
+           "profesionales, 60 % ya usa asistentes."},
    {"s":"06 · Modelo","seg":25,
-    "texto":"El modelo es una suscripción por persona: diez dólares al mes, ocho si pagan el año "
-            "entero. Un equipo de cinco entra por cuarenta dólares al mes. Una persona sola lo usa "
-            "<b>gratis y para siempre</b>: por eso entran. Y se paga recién cuando quieren que el "
-            "equipo entero vea esa memoria. O sea, entrar es gratis, y lo que se cobra es que el "
-            "equipo la comparta.",
-    "nota":"Es la frase que más repetimos: entrar es gratis, se paga la memoria compartida.",
+    "texto":"El modelo es simple: diez dólares por persona al mes. Un equipo de cinco entra por "
+            "cuarenta dólares al mes. Y una persona sola lo usa <b>gratis, para siempre</b>: por eso "
+            "entran. Se paga recién cuando quieren que el equipo entero vea esa memoria. O sea: "
+            "<b>entrar no cuesta nada; lo que se cobra es que el equipo la comparta</b>.",
+    "nota":"Es la frase que más repetimos en todo el pitch. Que quede clarita.",
     "pase":"Te paso con Mati, que te cuenta qué hay construido."},
   ],
   "piloto":["Un equipo de <b>5 programadores o más</b> sobre un proyecto compartido, <b>90 días</b>.",
@@ -97,28 +102,29 @@ GENTE = {
  "matias": {"nombre":"Matías Labari", "rol":"CTO", "slides":"07, 08, 09",
   "bloques":[
    {"s":"07 · Tracción","seg":25,
-    "texto":"Esto no es un plan: está corriendo. Alrededor de cien personas usan Nest todos los "
+    "texto":"Esto no es una idea: está funcionando. Alrededor de cien personas usan Nest todos los "
             "días. Dos equipos lo usan para trabajo de clientes reales, no sólo para lo nuestro. "
-            "Funciona en Windows, Mac y Linux, con siete asistentes distintos adentro. Y todavía "
-            "<b>no cobramos</b>: está gratis durante el lanzamiento. Lo que tenemos es uso.",
+            "Funciona en Windows, en Mac y en Linux. Y todavía <b>no cobramos</b>: está gratis "
+            "durante el lanzamiento. Así que lo que tenemos no es facturación — es gente usándolo.",
     "nota":"Decir que todavía no cobramos suma, no resta: es más creíble que inventar facturación.",
     "pase":"Venís de Bauti. Rápido y seco, sin adornos."},
    {"s":"08 · Competencia","seg":30,
-    "texto":"Acá todos resuelven más o menos lo mismo: guardar la memoria. Lo que ninguno resuelve "
-            "es <b>quién se ocupa de mantenerla</b>. Las notas a mano las escribís vos, proyecto por "
-            "proyecto. La de Microsoft se llena sola, pero es personal y se olvida al mes. El "
-            "competidor más parecido es gratis y abierto, pero para que el equipo la comparta "
-            "alguien del equipo se tiene que volver administrador de servidores. Con nosotros, vos "
-            "no ves un servidor. Ésa es la venta.",
-    "nota":"No leas la tabla entera: señalá la última columna y explicá esa. Si te tiran que el "
-           "competidor tiene 6.450 estrellas, la respuesta es que las estrellas no operan el "
-           "servidor de nadie."},
+    "texto":"Acá todos resuelven lo mismo: guardar la memoria. Lo que ninguno "
+            "resuelve es <b>quién se ocupa de mantenerla</b>. Las notas a mano las escribís vos, "
+            "proyecto por proyecto. La de Microsoft se llena sola, pero es de cada persona y se "
+            "olvida al mes. Y el competidor más parecido es gratis y abierto, "
+            "pero para que el equipo la comparta alguien del equipo se tiene que volver "
+            "administrador de servidores. Con nosotros no ves un servidor. Nunca. <b>Ésa es la "
+            "venta.</b>",
+    "nota":"No leas la tabla: señalá la última columna y explicá esa. Si te tiran que el competidor "
+           "tiene 6.450 estrellas, la respuesta es que las estrellas no le operan el servidor a "
+           "nadie."},
    {"s":"09 · Equipo","seg":25,
     "texto":"Lo construimos porque lo necesitábamos nosotros. Gerónimo es el CEO, yo soy el CTO y "
-            "Bautista es el CMO. Somos los usuarios: trabajamos con cuatro asistentes en paralelo "
-            "todos los días. Y no lo probamos sólo con nuestro producto, hacemos software para "
-            "clientes arriba de Nest. Lo difícil ya lo venimos operando hace meses, funcionando en "
-            "las máquinas de otra gente.",
+            "Bautista es el CMO. Somos los primeros usuarios: cuatro asistentes en paralelo, todos "
+            "los días. Y no lo probamos sólo con nuestro producto: hacemos software "
+            "para clientes arriba de Nest. Hace meses que esto viene funcionando <b>en las máquinas "
+            "de otra gente</b>, no en la nuestra.",
     "nota":"Nombrá a los tres sin apurarte: es la parte que el jurado marcó como floja la vez pasada.",
     "pase":"Te devuelvo con Gero, que cierra con el plan y el pedido."},
   ]},
