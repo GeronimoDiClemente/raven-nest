@@ -16,10 +16,13 @@
 //   ya estaba escrito asi, no porque Personal siga inalcanzable en Free.
 // · El lado VERDE del §2.2: una CLI que SI llega al bridge y deja su fila en `sessions`.
 //   Eso si necesita un agente con credenciales. El lado rojo —el que importa, porque es el
-//   unico donde el usuario pierde trabajo sin enterarse— ya no: ver el ultimo test.
+//   unico donde el usuario pierde trabajo sin enterarse— ya no: ver mas abajo.
+// · Un equipo de VERDAD. El ultimo test abre el workspace de equipo con cero equipos, que
+//   es su estado vacio; lo que hay adentro con equipos joineados sigue sin mirarse.
 //
-// (Hasta el 2026-09-24 la lista decia ademas que el §2.2 entero y el overlay con un repo
-// vinculado quedaban afuera. Los dos ultimos tests del archivo los cubren.)
+// (Hasta el 2026-09-24 esta lista decia ademas que el §2.2 entero, el overlay con un repo
+// vinculado y el CRITICAL de `feat/sidebar-tabs` quedaban afuera. Los tres ultimos tests
+// del archivo los cubren.)
 import { test, expect } from '@playwright/test'
 import { launchHarness, teardown } from './helpers/harness'
 import { existsSync, mkdirSync } from 'fs'
@@ -349,6 +352,57 @@ test('una terminal con el bridge inyectado que nunca escribe pinta la fila de ro
     await expect(overlay.getByText(/terminal not writing to memory/)).toBeVisible()
     await expect(overlay.getByText(/pane 9/)).toBeVisible()
     await page.screenshot({ path: join(SHOTS, '10-overlay-fila-roja.png') })
+  } finally {
+    await teardown(h)
+  }
+})
+
+// El CRITICAL que la review de `feat/sidebar-tabs` encontro y que la fase 1 dejo anotado
+// como "no verificable": Personal abajo, el workspace de equipo ENCIMA. La razon por la que
+// no se verifico —"el harness corre en Free y en Free la fila Personal abre el modal de
+// upgrade"— dejo de ser cierta en dos pasos: el 2026-09-11 `onPersonalOpen` perdio su gate
+// de plan (Personal es local, se cobra lo de adentro), y lo unico que todavia depende del
+// plan es la PUERTA al equipo (`allowTeam = planLimits.memoryTeamShare`), que `RAVEN_E2E_PLAN`
+// ya sabia simular desde antes. No hace falta un perfil pago de verdad, ni un equipo: con
+// cero equipos la puerta dice "Create or join a team" y abre el mismo workspace.
+//
+// Lo que se mide es lo que el bug era: las DOS superficies son `.teams-workspace` y Personal
+// se renderiza DESPUES en el DOM, asi que con el mismo z-index Personal pintaba encima y el
+// workspace de equipo quedaba invisible. La clase `--front` es el arreglo.
+test('el workspace de equipo queda encima de Personal, que sigue montado debajo', async () => {
+  const h = await launchHarness({ withRepo: false, env: { RAVEN_E2E_PLAN: 'team' } })
+  const { page } = h
+  try {
+    await page.getByTitle(/^Personal/).first().click()
+
+    // Que abra el workspace y no el UpgradeModal ya es parte del assert: si el seed del
+    // plan no llegara, esto seria `.upgrade-modal` y el resto del test no tendria sentido.
+    const superficies = page.locator('.teams-workspace')
+    await expect(superficies).toHaveCount(1, { timeout: 10_000 })
+    await expect(page.locator('.upgrade-modal')).toHaveCount(0)
+
+    // Con cero equipos la puerta es esta. Existe SOLO con un plan que admita equipos
+    // (`allowTeam`), y es la unica entrada desde que la sidebar perdio su fila Team.
+    await page.getByRole('button', { name: 'Create or join a team' }).click()
+
+    // Personal NO se desmonta: cerrar Teams tiene que devolverte a Personal.
+    await expect(superficies).toHaveCount(2, { timeout: 10_000 })
+    const frente = page.locator('.teams-workspace--front')
+    await expect(frente).toHaveCount(1)
+
+    // La escala, leida del CSS que la app CARGO.
+    expect(await frente.evaluate((el) => Number(getComputedStyle(el).zIndex))).toBe(1100)
+    const fondo = page.locator('.teams-workspace:not(.teams-workspace--front)')
+    expect(await fondo.evaluate((el) => Number(getComputedStyle(el).zIndex))).toBe(1000)
+
+    // Y el chequeo que un z-index mas alto no garantiza, que es el que el bug original
+    // hubiera fallado: lo que el navegador entrega en el centro de la pantalla esta
+    // ADENTRO del workspace de equipo, no del de Personal que se dibuja despues.
+    const arriba = await page.evaluate(() =>
+      Boolean(document.elementFromPoint(window.innerWidth / 2, window.innerHeight / 2)?.closest('.teams-workspace--front')))
+    expect(arriba).toBe(true)
+
+    await page.screenshot({ path: join(SHOTS, '11-equipo-sobre-personal.png') })
   } finally {
     await teardown(h)
   }
