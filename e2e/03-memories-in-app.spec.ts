@@ -6,17 +6,20 @@
 // Escrito como e2e y no como una pasada a ojo para que el dia que alguien mueva un z-index
 // o saque la fila de la sidebar, esto grite en vez de descubrirse en produccion.
 //
-// DOS COSAS QUE ESTE ARCHIVO **NO** CUBRE, y conviene saberlo antes de creerle:
+// LO QUE ESTE ARCHIVO **NO** CUBRE, y conviene saberlo antes de creerle:
 //
-// 1. El perfil que levanta el harness es **Free**. Hasta el 2026-09-10, en Free la fila
-//    `Personal` abria el modal de upgrade en vez del workspace — ya no: el corte comercial
-//    saco ese gate (lo local es gratis en todo plan) y Personal abre igual que en cualquier
-//    otro plan. Este archivo sigue verificando "el overlay queda encima" contra el panel de
-//    Settings en vez de Personal (mas la escala numerica del §5.4 leida del CSS real) porque
-//    ya estaba escrito asi, no porque Personal siga inalcanzable en Free.
-// 2. El punto 6 de la lista del plan (§2.2: abrir `claude` de verdad, esperar >15s y ver la
-//    fila en rojo) necesita spawnear un agente con credenciales y esperar el timeout. Es un
-//    smoke aparte — ver `keepRealHome` en el harness.
+// · El perfil que levanta el harness es **Free**. Hasta el 2026-09-10, en Free la fila
+//   `Personal` abria el modal de upgrade en vez del workspace — ya no: el corte comercial
+//   saco ese gate (lo local es gratis en todo plan) y Personal abre igual que en cualquier
+//   otro plan. Este archivo sigue verificando "el overlay queda encima" contra el panel de
+//   Settings en vez de Personal (mas la escala numerica del §5.4 leida del CSS real) porque
+//   ya estaba escrito asi, no porque Personal siga inalcanzable en Free.
+// · El lado VERDE del §2.2: una CLI que SI llega al bridge y deja su fila en `sessions`.
+//   Eso si necesita un agente con credenciales. El lado rojo —el que importa, porque es el
+//   unico donde el usuario pierde trabajo sin enterarse— ya no: ver el ultimo test.
+//
+// (Hasta el 2026-09-24 la lista decia ademas que el §2.2 entero y el overlay con un repo
+// vinculado quedaban afuera. Los dos ultimos tests del archivo los cubren.)
 import { test, expect } from '@playwright/test'
 import { launchHarness, teardown } from './helpers/harness'
 import { existsSync, mkdirSync } from 'fs'
@@ -276,6 +279,76 @@ test('con un repo vinculado se dibuja el panel de ramas, y prenderlo escribe el 
     // se ve en el disco y en ningún otro lado.
     expect(existsSync(join(h.repoDir, '.nest', 'team', '_index.md'))).toBe(true)
     await page.screenshot({ path: join(SHOTS, '08-hilo-prendido.png') })
+  } finally {
+    await teardown(h)
+  }
+})
+
+// §2.2, el fallo mudo: una terminal que Nest cree que tiene memoria y que nunca llego al
+// bridge. Es el unico estado donde el usuario esta perdiendo trabajo sin enterarse, y por
+// eso es el que tapa a todos los demas en `summarizeMemories`.
+//
+// El plan lo dejo pendiente como "hay que abrir `claude` de verdad, con credenciales, y
+// esperar 15s". No hace falta: lo que produce el estado NO es que la CLI sea claude, es que
+// `pty-manager` haya registrado el pane en `memoryPanes` (lo hace en el mismo lugar donde
+// inyecta el socket) y que la tabla `sessions` no tenga su fila. Cualquier binario de nombre
+// simple que se quede vivo lo consigue — `cat` sobre una pty espera stdin para siempre y no
+// habla el protocolo del bridge, que es exactamente el sintoma.
+//
+// Lo que esto ejercita y ningun unit puede: que el registro del pane, el cruce del handler
+// `memory:sessions` y el poll del hook terminen pintando el punto. `reconcileSessions` sola
+// ya esta cubierta aparte, y es pura.
+test('una terminal con el bridge inyectado que nunca escribe pinta la fila de rojo', async () => {
+  const h = await launchHarness({ withRepo: false })
+  const { page } = h
+  try {
+    const toggle = page.getByRole('button', { name: /Collapse sidebar|Expand sidebar/ })
+    await expect(toggle).toBeVisible({ timeout: 15_000 })
+    if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click()
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true')
+
+    const dot = page.getByTestId('memories-dot').first()
+    await expect(dot).toBeVisible({ timeout: 15_000 })
+    await expect(dot).not.toHaveAttribute('data-dot', 'red')
+
+    // `accountDir` vacio a proposito: es el camino del §3.2 (un nodo headless corre con el
+    // HOME real y accountDir vacio, y antes se saltaba en silencio). El bridge se inyecta
+    // igual, derivando la cuenta del nombre del binario.
+    const creado = await page.evaluate(() =>
+      (window as unknown as { pty: { create(id: string, cmd: string, dir: string): Promise<{ ok: boolean }> } })
+        .pty.create('pane-9-1700000000000', 'cat', ''))
+    expect(creado.ok).toBe(true)
+
+    // Antes de la gracia NO es rojo: un falso "mudo" en cada terminal que se abre entrenaria
+    // al usuario a ignorar el indicador. Esta mitad es la que se rompe si alguien saca el
+    // `now - startedAt < graceMs`.
+    //
+    // Se SOSTIENE en el tiempo en vez de mirarse una vez. El poll de `useMemories` tarda
+    // hasta 5s en ver el pane recien creado, asi que un assert instantaneo pasa igual
+    // aunque la gracia no exista — probado: con `health = 'silent'` desde el arranque, la
+    // version de una sola mirada seguia en verde. 9s cae despues del poll y antes de los
+    // 15s de la gracia.
+    const hasta = Date.now() + 9_000
+    while (Date.now() < hasta) {
+      expect(await dot.getAttribute('data-dot')).not.toBe('red')
+      await page.waitForTimeout(500)
+    }
+
+    // Y pasada la gracia (SESSION_GRACE_MS = 15s) si, sin que nadie refresque nada: lo
+    // levanta el poll de `useMemories`.
+    await expect(dot).toHaveAttribute('data-dot', 'red', { timeout: 40_000 })
+    await expect(page.locator('.memories-status-text')).toHaveText('1 session not writing')
+
+    await page.screenshot({ path: join(SHOTS, '09-fila-roja.png') })
+
+    // Y el overlay lo explica en vez de dejar el punto rojo sin motivo: la fila de estado
+    // lista la terminal por su nombre.
+    await page.getByTitle(/^Memories/).first().click()
+    const overlay = page.locator('.memories-workspace')
+    await expect(overlay).toBeVisible({ timeout: 10_000 })
+    await expect(overlay.getByText(/terminal not writing to memory/)).toBeVisible()
+    await expect(overlay.getByText(/pane 9/)).toBeVisible()
+    await page.screenshot({ path: join(SHOTS, '10-overlay-fila-roja.png') })
   } finally {
     await teardown(h)
   }
