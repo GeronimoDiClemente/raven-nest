@@ -1,97 +1,126 @@
 # -*- coding: utf-8 -*-
+# Guiones con el TEXTO COMPLETO (una carilla A4 por persona, para memorizarlo).
+# En el escenario se usa el de puntos; este es para aprenderselo.
+# Reparto de la FINAL: 300 s. Textos reescritos para un jurado NO tecnico:
+# nada de runtime, pane, diff, worktree, cifrado del lado del cliente ni nombres
+# de archivo. Eso vive en "Si preguntan", en el guion de puntos.
+
 import io, html
+
+TOTAL = 300
 
 GENTE = {
  "geronimo": {"nombre":"Gerónimo Di Clemente", "rol":"CEO", "slides":"01, 02, 03, 10, 11",
   "bloques":[
-   {"s":"01 · Portada","seg":10,
-    "texto":"Buenas. Somos Nest. Tu equipo ya corre agentes de IA todos los días: nosotros somos "
-            "la terminal donde los corre. Y por eso, donde su memoria puede quedarse.",
-    "nota":"Arrancá parado y mirando al jurado. Estos diez segundos deciden si te escuchan el resto."},
-   {"s":"02 · El problema","seg":20,
-    "texto":"Te lo cuento con lo que nos pasa. Somos cinco, y cada uno labura con cuatro agentes: "
-            "veinte memorias separadas que no se hablan. Compartimos el repositorio, pero nada de "
-            "lo que esos agentes aprendieron. Y no es sólo nuestro: seis de cada diez devs pierden "
-            "media hora por día buscando algo que el equipo ya resolvió.",
-    "nota":"El dato es de Stack Overflow, 65.000 devs — está en el slide, no hace falta que lo "
-           "digas salvo que quieras apoyarlo."},
-   {"s":"03 · La solución","seg":20,
-    "texto":"Y acá está la diferencia. No es que nosotros guardamos memoria y los demás no: es "
-            "<b>dónde estamos parados</b>. Nest corre los agentes, así que ve la rama, el diff, qué "
-            "tests pasaron y quién estaba. El resto depende de que el agente se acuerde de guardar. "
-            "Nosotros no le preguntamos a nadie.",
-    "nota":"Bajá el ritmo en «dónde estamos parados». Es la idea que tienen que llevarse.",
-    "pase":"Te paso con Bauti, que te muestra el loop andando."},
-   {"s":"10 · Plan · 12 meses","seg":12,
-    "texto":"Doce meses, todos de Memories. Primero soltamos el plugin, para que la memoria funcione "
-            "con Claude Code, Codex o Gemini aunque no uses Nest. Y después, la llave de cifrado del "
-            "equipo.",
+   {"s":"01 · Portada","seg":15,
+    "texto":"Buenas. Somos Nest. Hoy los equipos de desarrollo trabajan todo el día con asistentes "
+            "de inteligencia artificial. Nosotros somos el lugar donde ese equipo los usa. Y por eso "
+            "somos el lugar donde su memoria puede quedarse.",
+    "nota":"Arrancá parado y mirando al jurado, no a la pantalla. Estos quince segundos deciden si "
+           "te escuchan el resto."},
+   {"s":"02 · El problema","seg":35,
+    "texto":"Te lo cuento con lo que nos pasa a nosotros. Somos cinco, y cada uno trabaja con cuatro "
+            "asistentes. Todas las mañanas, cada uno le vuelve a explicar el mismo proyecto de cero. "
+            "Mirá el dibujo: son veinte memorias separadas, y ninguna se habla con las otras. "
+            "Compartimos el proyecto, pero no compartimos nada de lo que esos asistentes ya "
+            "aprendieron. Y no nos pasa sólo a nosotros: seis de cada diez programadores pierden "
+            "más de media hora por día buscando algo que alguien del equipo ya había resuelto.",
+    "nota":"Señalá el dibujo cuando digas «veinte memorias». El dato es de Stack Overflow sobre "
+           "65.000 respuestas; está en el slide, decilo sólo si querés apoyarlo."},
+   {"s":"03 · La solución","seg":30,
+    "texto":"Y acá está la diferencia. No es que nosotros guardamos memoria y los demás no. Es "
+            "<b>dónde estamos parados</b>. Como Nest está abajo de todo el trabajo, ve lo que pasa "
+            "mientras pasa, y lo guarda solo. Los demás dependen de que alguien se acuerde de "
+            "anotarlo. Es la diferencia entre un diario que hay que sentarse a escribir y una cámara "
+            "que ya está prendida. Y además: la ve todo el equipo, y ni nosotros podemos leerla.",
+    "nota":"Bajá el ritmo en «dónde estamos parados». Es la idea que tienen que llevarse a la casa.",
+    "pase":"Te paso con Bauti, que te muestra cómo se llena."},
+   {"s":"10 · Plan · 12 meses","seg":20,
+    "texto":"Los próximos doce meses son todos de Memories. Primero, que funcione con cualquier "
+            "asistente, aunque no tengan Nest abierto. Después, la llave del equipo: que se guarde "
+            "cerrada, para destrabar a los que hoy no subirían nada. Y de ahí en adelante, crecer "
+            "por equipos y no de a una persona.",
     "nota":"Retomás vos después de Mati. Enganchá sin presentarte de nuevo."},
-   {"s":"11 · El pedido","seg":13,
-    "texto":"Lo que necesitamos son contactos. Diez equipos de cinco devs o más, noventa días, para "
-            "medir cuántos pasan de local gratis a nube paga. Nest está en <b>nestmux.com</b>, lo "
-            "pueden bajar hoy. Y pasar a la final. Gracias.",
-    "nota":"Frená antes de «y pasar a la final». Es el remate y necesita el silencio de antes."},
+   {"s":"11 · El pedido","seg":20,
+    "texto":"Lo que necesitamos son contactos: diez equipos de cinco programadores, noventa días, "
+            "para probar Memories. Lo que vamos a medir es cuántos siguen pagando el día noventa y "
+            "uno. Nest está en <b>nestmux.com</b> y se puede bajar hoy, gratis. Nest corre los "
+            "asistentes de tu equipo: por eso es donde puede vivir su memoria. Gracias.",
+    "nota":"⚠️ Ya no se cierra con «y pasar a la final»: estamos EN la final. Frená antes de la "
+           "última frase: es el remate y necesita el silencio de antes."},
   ],
-  "piloto":["Un equipo de <b>5+ devs</b> que usa Nest como su terminal <b>90 días</b>.",
-            "Arranca local y gratis. A los 30 días activan Memories de equipo, plan Cloud sin cargo.",
+  "piloto":["Un equipo de <b>5 programadores o más</b> que usa Nest <b>90 días</b>.",
+            "Arranca gratis. A los 30 días activan la memoria de equipo, sin cargo durante el piloto.",
             "<b>Día 91 deciden si pagan</b> — eso es exactamente lo que medimos.",
-            "No buscamos los US$ 500 al mes: buscamos la <b>tasa de conversión</b> de gratis a pago.",
+            "No buscamos los US$ 500 al mes: buscamos <b>cuántos pasan de gratis a pago</b>.",
             "Si quieren el detalle fino, lo tiene Bauti."]},
 
  "bautista": {"nombre":"Bautista Martínez Vuoto", "rol":"CMO", "slides":"04, 05, 06",
   "bloques":[
-   {"s":"04 · El loop","seg":20,
-    "texto":"Esto no es un mockup, ya está andando. Entra un ticket de GitHub o un mensaje en "
-            "Slack, y eso solo abre la rama y levanta al agente. Los agentes trabajan, cada uno en "
-            "lo suyo. Y cuando un reviewer marca un problema, la memoria <b>se escribe sola</b>: "
-            "con el ticket, el rol, la ronda y quién fue.",
-    "nota":"Arrancás vos después de Gero. Enganchá directo, no te presentes de nuevo. "
-           "Si te preguntan dónde está eso, el archivo es memory-bridge.ts."},
-   {"s":"05 · Mercado","seg":18,
-    "texto":"El mercado lo calculamos de abajo hacia arriba, y sobre nuestro precio más bajo: "
-            "noventa y seis dólares por asiento al año. El total da mil setecientos veintiocho "
-            "millones. Pero el número que defendemos es el de abajo: <b>ciento noventa y dos mil</b>, "
-            "que son cuatrocientos equipos de cinco asientos.",
-    "nota":"No leas las tres cajas: están en pantalla. Decí el chico y por qué se sostiene — "
-           "que sea el conservador juega a favor."},
-   {"s":"06 · Modelo","seg":17,
-    "texto":"Diez dólares por asiento al mes, ocho si pagan el año. Un dev solo lo usa gratis, sin "
-            "límite: esa es la puerta de entrada. Se paga recién cuando quiere que el equipo vea su "
-            "memoria. <b>El volumen nos trae la gente; la memoria compartida es lo que cobramos.</b>",
-    "nota":"La última frase es tu remate. Decila más lento que el resto.",
+   {"s":"04 · Cómo se llena","seg":35,
+    "texto":"Mirá el dibujo: son las mismas cinco personas que te mostró Gero recién, pero ahora "
+            "todo baja a un mismo lugar. Funciona así: entra el trabajo, trabajan los asistentes, y "
+            "queda lo que aprendieron. Te leo una de verdad: «el cobro va por Stripe, no por "
+            "MercadoPago». Esa memoria <b>no la escribió nadie</b>. Se escribió sola mientras el "
+            "equipo trabajaba, y quedó guardada sabiendo de qué tarea salió, quién estaba y cuándo "
+            "fue. Esto no es una maqueta: ya está funcionando.",
+    "nota":"Señalá el dibujo en «las mismas cinco personas». Ese reconocimiento es el momento más "
+           "fuerte del pitch: dejá un segundo de silencio ahí.",
+    "pase":"Arrancás vos, después de Gero. Enganchá directo, sin presentarte."},
+   {"s":"05 · Mercado","seg":25,
+    "texto":"El mercado lo calculamos de abajo hacia arriba. Hay dieciocho millones de programadores "
+            "que ya trabajan con asistentes. Nosotros vamos primero a Latinoamérica y España, "
+            "nuestro idioma y nuestro horario. Y lo que decimos que vamos a ganar en tres años son "
+            "<b>ciento noventa y dos mil dólares</b>: cuatrocientos equipos de cinco personas. "
+            "Todo calculado sobre nuestro precio más bajo, así que el peor caso ya está adentro "
+            "del número.",
+    "nota":"No leas las tres cajas, ya están en pantalla. Decí sólo el último número y por qué "
+           "se defiende."},
+   {"s":"06 · Modelo","seg":25,
+    "texto":"El modelo es una suscripción por persona: diez dólares al mes, ocho si pagan el año "
+            "entero. Un equipo de cinco entra por cuarenta dólares al mes. Una persona sola lo usa "
+            "<b>gratis y para siempre</b>: por eso entran. Y se paga recién cuando quieren que el "
+            "equipo entero vea esa memoria. O sea, entrar es gratis, y lo que se cobra es que el "
+            "equipo la comparta.",
+    "nota":"Es la frase que más repetimos: entrar es gratis, se paga la memoria compartida.",
     "pase":"Te paso con Mati, que te cuenta qué hay construido."},
   ],
-  "piloto":["Un equipo de <b>5+ devs</b> sobre un repo compartido, que usa Nest como su terminal <b>90 días</b>.",
-            "<b>Días 1-30, local:</b> instalan gratis y trabajan. La memoria se llena sola, pero es de cada uno.",
-            "<b>Días 31-90, equipo:</b> activan Memories en la nube, plan Cloud sin cargo durante el piloto.",
-            "<b>Día 91:</b> deciden si pagan los US$ 10 por asiento.",
-            "Nosotros ponemos el Cloud y el onboarding; ellos, uso real y una call de 30 min al cierre.",
-            "<b>Medimos:</b> cuántos activan la memoria de equipo · cuánto se escribió solo vs a mano · <b>cuántos siguen pagando el día 91</b>.",
-            "<b>Por qué 10 y 90 días:</b> 50 asientos son US$ 500/mes — no es la plata, es la tasa de conversión. En 2 semanas no hay memoria acumulada que pruebe nada."]},
+  "piloto":["Un equipo de <b>5 programadores o más</b> sobre un proyecto compartido, <b>90 días</b>.",
+            "<b>Días 1-30:</b> instalan gratis. La memoria se llena sola, pero es de cada uno.",
+            "<b>Días 31-90:</b> activan la memoria de equipo, sin cargo durante el piloto.",
+            "<b>Día 91:</b> deciden si pagan los US$ 10 por persona.",
+            "<b>Medimos:</b> cuántos activan la memoria de equipo, cuánto se escribió solo y "
+            "<b>cuántos siguen pagando el día 91</b>.",
+            "<b>Por qué 10 equipos y 90 días:</b> no es por la plata, es por la tasa de conversión. "
+            "En dos semanas no hay memoria acumulada que pruebe nada."]},
 
  "matias": {"nombre":"Matías Labari", "rol":"CTO", "slides":"07, 08, 09",
   "bloques":[
-   {"s":"07 · Tracción","seg":16,
-    "texto":"Esto no es un plan, está corriendo hoy. Cien usuarios activos. Dos equipos que "
-            "desarrollan producto de clientes arriba de Nest. La versión uno cinco, firmada en Mac, "
-            "Windows y Linux. Y el servicio de sincronización ya está en producción, con backups.",
-    "nota":"Venís de Bauti. Este bloque es tu credibilidad: decilo seco, sin adornar. "
-           "Si preguntan por los tests, son 2.388."},
-   {"s":"08 · Competencia","seg":20,
-    "texto":"Todos resuelven el motor de memoria. <b>Ninguno resuelve la operación.</b> Un CLAUDE.md "
-            "lo mantenés vos, a mano. Copilot Memory se llena sola, pero es personal y olvida a los "
-            "veintiocho días. Engram es el más parecido a nosotros, pero no tiene hosting: para "
-            "tener memoria de equipo, alguien del equipo se vuelve sysadmin. Con nosotros no ves "
-            "un servidor.",
-    "nota":"Si te van a repreguntar algo, es acá. La columna que ganás es «¿quién la administra?». "
-           "Engram tiene 6.450 estrellas, por si te tiran el número."},
-   {"s":"09 · Equipo","seg":14,
+   {"s":"07 · Tracción","seg":25,
+    "texto":"Esto no es un plan: está corriendo. Alrededor de cien personas usan Nest todos los "
+            "días. Dos equipos lo usan para trabajo de clientes reales, no sólo para lo nuestro. "
+            "Funciona en Windows, Mac y Linux, con siete asistentes distintos adentro. Y todavía "
+            "<b>no cobramos</b>: está gratis durante el lanzamiento. Lo que tenemos es uso.",
+    "nota":"Decir que todavía no cobramos suma, no resta: es más creíble que inventar facturación.",
+    "pase":"Venís de Bauti. Rápido y seco, sin adornos."},
+   {"s":"08 · Competencia","seg":30,
+    "texto":"Acá todos resuelven más o menos lo mismo: guardar la memoria. Lo que ninguno resuelve "
+            "es <b>quién se ocupa de mantenerla</b>. Las notas a mano las escribís vos, proyecto por "
+            "proyecto. La de Microsoft se llena sola, pero es personal y se olvida al mes. El "
+            "competidor más parecido es gratis y abierto, pero para que el equipo la comparta "
+            "alguien del equipo se tiene que volver administrador de servidores. Con nosotros, vos "
+            "no ves un servidor. Ésa es la venta.",
+    "nota":"No leas la tabla entera: señalá la última columna y explicá esa. Si te tiran que el "
+           "competidor tiene 6.450 estrellas, la respuesta es que las estrellas no operan el "
+           "servidor de nadie."},
+   {"s":"09 · Equipo","seg":25,
     "texto":"Lo construimos porque lo necesitábamos nosotros. Gerónimo es el CEO, yo soy el CTO y "
-            "Bautista es el CMO. Trabajamos con cuatro agentes todos los días y hacemos software "
-            "para clientes arriba de Nest. Lo difícil ya lo venimos operando hace meses.",
-    "nota":"Nombrá a los tres sin apurarte: es la parte que el jurado marcó como floja.",
-    "pase":"Te devuelvo con Gero, que cierra con el plan."},
+            "Bautista es el CMO. Somos los usuarios: trabajamos con cuatro asistentes en paralelo "
+            "todos los días. Y no lo probamos sólo con nuestro producto, hacemos software para "
+            "clientes arriba de Nest. Lo difícil ya lo venimos operando hace meses, funcionando en "
+            "las máquinas de otra gente.",
+    "nota":"Nombrá a los tres sin apurarte: es la parte que el jurado marcó como floja la vez pasada.",
+    "pase":"Te devuelvo con Gero, que cierra con el plan y el pedido."},
   ]},
 }
 
@@ -112,7 +141,7 @@ body{font-family:"Segoe UI",system-ui,sans-serif;color:#15201c;background:#fff;}
 .meta .s{font-size:8.5pt;font-weight:700;color:#0F5E42;letter-spacing:.07em;text-transform:uppercase;}
 .meta .seg{font-size:8.5pt;color:#fff;background:#0F5E42;padding:1px 8px;border-radius:9px;
            font-variant-numeric:tabular-nums;font-weight:600;}
-.txt{font-family:Georgia,"Times New Roman",serif;font-size:13pt;line-height:1.55;}
+.txt{font-family:Georgia,"Times New Roman",serif;font-size:12.5pt;line-height:1.5;}
 .txt b{color:#0a4a34;}
 .nota{margin-top:6px;font-size:8.5pt;color:#6b7a73;border-left:2px solid #c9d5d0;padding-left:9px;line-height:1.4;}
 .pase{margin-top:5px;font-family:Georgia,serif;font-size:10.5pt;color:#0F5E42;font-style:italic;}
@@ -120,19 +149,30 @@ body{font-family:"Segoe UI",system-ui,sans-serif;color:#15201c;background:#fff;}
 .def h2{font-size:8.5pt;margin:0 0 6px;color:#0F5E42;letter-spacing:.14em;text-transform:uppercase;}
 ul{margin:0;padding-left:16px;}
 .def li{font-size:9pt;line-height:1.38;margin-bottom:2px;}
+/* misma razon que en el guion de puntos: una carilla, no dos */
+body.denso .head{padding-bottom:6px;margin-bottom:11px;}
+body.denso .head .q{font-size:18pt;}
+body.denso .blq{padding-top:7px;margin-bottom:9px;}
+body.denso .txt{font-size:11.4pt;line-height:1.42;}
+body.denso .nota{margin-top:4px;font-size:8pt;line-height:1.32;}
+body.denso .pase{font-size:9.5pt;margin-top:4px;}
+body.denso .def{margin-top:7px;padding:8px 10px;}
+body.denso .def li{font-size:8.4pt;line-height:1.3;}
 """
 
 for key, g in GENTE.items():
     seg = sum(b["seg"] for b in g["bloques"])
     pal = sum(len(b["texto"].replace("<b>", "").replace("</b>", "").split()) for b in g["bloques"])
+    denso = len(g["bloques"]) >= 5
     out = ['<meta charset="utf-8">',
            "<title>%s · para aprender</title>" % html.escape(g["nombre"]),
            "<style>%s</style>" % CSS,
+           '<body class="denso">' if denso else '',
            '<div class="head"><div><div class="q">%s</div>'
-           '<div class="r">%s · pitch semifinal UCAECE</div></div>'
-           '<div class="t">Slides %s<br><b>%s s</b> de 180 s<br>%s palabras · ~%.1f por segundo'
+           '<div class="r">%s · pitch final UCAECE</div></div>'
+           '<div class="t">Slides %s<br><b>%s s</b> de %s s<br>%s palabras · ~%.1f por segundo'
            '<div class="nota">Para aprendértelo.<br>En el escenario usá el de puntos.</div>'
-           '</div></div>' % (html.escape(g["nombre"]), g["rol"], g["slides"], seg, pal, pal / seg)]
+           '</div></div>' % (html.escape(g["nombre"]), g["rol"], g["slides"], seg, TOTAL, pal, pal / seg)]
     for i, b in enumerate(g["bloques"]):
         pase = '<div class="pase">%s</div>' % b["pase"] if b.get("pase") else ""
         out.append('<div class="blq%s"><div class="meta"><span class="s">%s</span>'

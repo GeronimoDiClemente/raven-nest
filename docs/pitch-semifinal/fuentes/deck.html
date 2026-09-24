@@ -1,5 +1,5 @@
 <meta charset="utf-8">
-<title>Nest · Pitch Semifinal</title>
+<title>Nest · Pitch Final</title>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
 <style>
@@ -17,6 +17,18 @@
     --accent-deep:#0F5E42;
     --amber:#E8B04B;
     --violet:#7E8FF5;
+
+    /* Nodos del diagrama (slides 02 y 04). Pasos validados contra la superficie
+       oscura con scripts/validate_palette.js del skill dataviz:
+       peor par daltonismo DeltaE 10.5, vision normal 18.8, contraste >=3:1.
+       NO reemplazar por los tonos de marca de arriba: quedan fuera de la banda
+       de luminosidad para fondo oscuro y el par ambar<->verde cae a DeltaE 7.2.
+       El verde de marca queda reservado para el nodo de memoria, que ademas se
+       distingue por tamano, halo y etiqueta: nunca por color solo. */
+    --n1:#6C79E0;
+    --n2:#B58429;
+    --n3:#D55181;
+    --n-mute:#55655E;
     --font-display:"Outfit","Segoe UI",system-ui,sans-serif;
     --font-body:"Inter","Segoe UI",system-ui,sans-serif;
     --font-mono:"JetBrains Mono",ui-monospace,"Cascadia Mono",Consolas,monospace;
@@ -264,6 +276,23 @@
 
   .markbox{width:9.4cqw;height:9.4cqw;}
 
+  /* ---------- diagrama de nodos (02 sueltos · 04 unidos) ----------
+     Mismo dibujo en los dos slides, misma posicion de los clusters: en el 02
+     no hay una sola linea entre ellos, en el 04 todas bajan al mismo punto.
+     La comparacion entre slides es el argumento, asi que las coordenadas de
+     los clusters NO se tocan sin tocar las del otro. */
+  .nodes{width:100%;height:auto;display:block;overflow:visible;}
+  .nodes .person{stroke-width:2;fill:var(--surface-3);}
+  .nodes .sat{stroke-width:1.5;}
+  .nodes .spoke{stroke-width:1.5;opacity:.5;}
+  .nodes .name{font-family:var(--font-body);font-size:13px;font-weight:500;fill:var(--text-2);text-anchor:middle;}
+  .nodes .note{font-family:var(--font-mono);font-size:11.5px;fill:var(--muted);text-anchor:middle;}
+  /* el hilo al centro: punteado y creciente, para que se lea como flujo */
+  .nodes .link{stroke:var(--accent);stroke-width:1.6;opacity:.55;fill:none;stroke-dasharray:4 4;}
+  .nodes .hub{fill:var(--accent);}
+  .nodes .hub-ring{fill:none;stroke:var(--accent);stroke-width:1.5;opacity:.3;}
+  .nodes .hub-label{font-family:var(--font-body);font-size:14px;font-weight:600;fill:var(--text);text-anchor:middle;}
+
   /* ---------- phone: drop the 16:9 frame, read it as cards ---------- */
   @media screen and (max-width:760px){
     .deck{gap:16px;padding-block:20px 40px;}
@@ -336,7 +365,7 @@
 <div class="deck">
 
   <div class="deck-head">
-    <span>Nest · Pitch semifinal · <strong>11 slides</strong></span>
+    <span>Nest · Pitch final · <strong>11 slides</strong></span>
     <span>Imprimir → PDF apaisado 1280×720</span>
   </div>
 
@@ -351,23 +380,22 @@
 
       <div style="margin-top:auto;display:grid;grid-template-columns:1.25fr 1fr;gap:4cqw;align-items:end;">
         <div>
-          <p style="font-family:var(--font-mono);font-size:var(--small);color:var(--accent);margin-bottom:1.4cqw;">nestmux.com</p>
-          <h1>Donde vive la memoria<br>de los agentes<br><em>de tu equipo.</em></h1>
-          <p class="lede" style="margin-top:2.2cqw;max-width:40ch;">Nest es el terminal donde tu equipo ya corre sus agentes. Por eso puede recordar lo que aprenden — sin que nadie lo escriba.</p>
+          <h1>Donde vive la memoria<br>de los asistentes<br><em>de tu equipo.</em></h1>
+          <p class="lede" style="margin-top:2.2cqw;max-width:40ch;">Donde tu equipo ya trabaja con sus asistentes de IA. Por eso puede recordar lo que aprenden.</p>
         </div>
         <div class="panel accent" style="align-self:end;">
-          <div><span class="on">●</span> <span class="ttl">memoria del equipo</span>&nbsp;&nbsp;<span class="dim">sincronizada</span></div>
+          <div><span class="on">●</span> <span class="ttl">memoria del equipo</span>&nbsp;&nbsp;<span class="dim">al día</span></div>
           <div class="dim">──────────────────────────</div>
           <div><span class="dim">›</span> el cobro va por Stripe, no MercadoPago</div>
-          <div><span class="dim">›</span> los tests corren con vitest run src</div>
-          <div><span class="dim">›</span> /orders devuelve 202, no 200</div>
+          <div><span class="dim">›</span> este cliente aprueba los martes</div>
+          <div><span class="dim">›</span> la clave de prueba vence cada 30 días</div>
           <div class="dim">──────────────────────────</div>
-          <div class="dim">escritas por nadie · leídas por todos</div>
+          <div class="dim">no las escribió nadie · las leen todos</div>
         </div>
       </div>
 
       <div class="foot" style="margin-top:3.4cqw;">
-        <span>UCAECE StartLab · Semifinal 2026 <b class="habla">· Gerónimo</b></span>
+        <span>UCAECE StartLab · Final 2026 <b class="habla">· Gerónimo</b></span>
         <span>v1.5 · macOS · Windows · Linux</span>
       </div>
     </div>
@@ -377,51 +405,75 @@
   <section class="slide">
     <div class="slide-body">
       <p class="eyebrow">El problema</p>
-      <div class="split">
-        <div>
-          <h1 style="--h1:3.5cqw;">El contexto de un agente muere <em>donde se generó.</em></h1>
-          <p class="lede" style="margin-top:2cqw;">Cada sesión arranca de cero: le explicás el mismo proyecto todos los días. Y lo que resolvió el agente de tu compañero, el tuyo no lo sabe hasta que aparece el commit.</p>
+      <h1 style="--h1:3.3cqw;max-width:26ch;">Todo lo que tu equipo le enseña a sus asistentes <em>se pierde el mismo día.</em></h1>
 
-          <div style="display:flex;align-items:center;gap:2.4cqw;margin-top:3.4cqw;">
-            <span class="bignum">20</span>
-            <div>
-              <p style="font-size:var(--body);line-height:1.35;">memorias separadas en un<br>equipo de cinco personas</p>
-              <p style="font-family:var(--font-mono);font-size:.92cqw;color:var(--muted);margin-top:.7cqw;">5 devs × 4 agentes · ninguna compartida</p>
-            </div>
-          </div>
+      <div style="margin-top:2.4cqw;">
+        <div style="width:55%;margin:0 auto;">
+            <svg class="nodes" viewBox="0 0 680 170" role="img" aria-label="Cinco personas, cada una con cuatro asistentes y su propia memoria aislada: veinte memorias sin ninguna conexion entre si.">
+            <circle cx="68" cy="104" r="54" fill="none" stroke="var(--line)" stroke-width="1" stroke-dasharray="3 5" opacity=".75"/>
+            <line class="spoke" x1="68" y1="104" x2="96.3" y2="132.3" stroke="var(--n1)"/>
+            <circle class="sat" cx="96.3" cy="132.3" r="7" fill="var(--n1)" stroke="var(--n1)"/>
+            <line class="spoke" x1="68" y1="104" x2="39.7" y2="132.3" stroke="var(--n1)"/>
+            <circle class="sat" cx="39.7" cy="132.3" r="7" fill="var(--n1)" stroke="var(--n1)"/>
+            <line class="spoke" x1="68" y1="104" x2="39.7" y2="75.7" stroke="var(--n1)"/>
+            <circle class="sat" cx="39.7" cy="75.7" r="7" fill="var(--n1)" stroke="var(--n1)"/>
+            <line class="spoke" x1="68" y1="104" x2="96.3" y2="75.7" stroke="var(--n1)"/>
+            <circle class="sat" cx="96.3" cy="75.7" r="7" fill="var(--n1)" stroke="var(--n1)"/>
+            <circle class="person" cx="68" cy="104" r="13" stroke="var(--n1)"/>
+            <text class="name" x="68" y="46">Gero</text>
+            <circle cx="204" cy="104" r="54" fill="none" stroke="var(--line)" stroke-width="1" stroke-dasharray="3 5" opacity=".75"/>
+            <line class="spoke" x1="204" y1="104" x2="232.3" y2="132.3" stroke="var(--n2)"/>
+            <circle class="sat" cx="232.3" cy="132.3" r="7" fill="var(--n2)" stroke="var(--n2)"/>
+            <line class="spoke" x1="204" y1="104" x2="175.7" y2="132.3" stroke="var(--n2)"/>
+            <circle class="sat" cx="175.7" cy="132.3" r="7" fill="var(--n2)" stroke="var(--n2)"/>
+            <line class="spoke" x1="204" y1="104" x2="175.7" y2="75.7" stroke="var(--n2)"/>
+            <circle class="sat" cx="175.7" cy="75.7" r="7" fill="var(--n2)" stroke="var(--n2)"/>
+            <line class="spoke" x1="204" y1="104" x2="232.3" y2="75.7" stroke="var(--n2)"/>
+            <circle class="sat" cx="232.3" cy="75.7" r="7" fill="var(--n2)" stroke="var(--n2)"/>
+            <circle class="person" cx="204" cy="104" r="13" stroke="var(--n2)"/>
+            <text class="name" x="204" y="46">Bauti</text>
+            <circle cx="340" cy="104" r="54" fill="none" stroke="var(--line)" stroke-width="1" stroke-dasharray="3 5" opacity=".75"/>
+            <line class="spoke" x1="340" y1="104" x2="368.3" y2="132.3" stroke="var(--n3)"/>
+            <circle class="sat" cx="368.3" cy="132.3" r="7" fill="var(--n3)" stroke="var(--n3)"/>
+            <line class="spoke" x1="340" y1="104" x2="311.7" y2="132.3" stroke="var(--n3)"/>
+            <circle class="sat" cx="311.7" cy="132.3" r="7" fill="var(--n3)" stroke="var(--n3)"/>
+            <line class="spoke" x1="340" y1="104" x2="311.7" y2="75.7" stroke="var(--n3)"/>
+            <circle class="sat" cx="311.7" cy="75.7" r="7" fill="var(--n3)" stroke="var(--n3)"/>
+            <line class="spoke" x1="340" y1="104" x2="368.3" y2="75.7" stroke="var(--n3)"/>
+            <circle class="sat" cx="368.3" cy="75.7" r="7" fill="var(--n3)" stroke="var(--n3)"/>
+            <circle class="person" cx="340" cy="104" r="13" stroke="var(--n3)"/>
+            <text class="name" x="340" y="46">Mati</text>
+            <circle cx="476" cy="104" r="54" fill="none" stroke="var(--line)" stroke-width="1" stroke-dasharray="3 5" opacity=".75"/>
+            <line class="spoke" x1="476" y1="104" x2="504.3" y2="132.3" stroke="var(--n-mute)"/>
+            <circle class="sat" cx="504.3" cy="132.3" r="7" fill="var(--n-mute)" stroke="var(--n-mute)"/>
+            <line class="spoke" x1="476" y1="104" x2="447.7" y2="132.3" stroke="var(--n-mute)"/>
+            <circle class="sat" cx="447.7" cy="132.3" r="7" fill="var(--n-mute)" stroke="var(--n-mute)"/>
+            <line class="spoke" x1="476" y1="104" x2="447.7" y2="75.7" stroke="var(--n-mute)"/>
+            <circle class="sat" cx="447.7" cy="75.7" r="7" fill="var(--n-mute)" stroke="var(--n-mute)"/>
+            <line class="spoke" x1="476" y1="104" x2="504.3" y2="75.7" stroke="var(--n-mute)"/>
+            <circle class="sat" cx="504.3" cy="75.7" r="7" fill="var(--n-mute)" stroke="var(--n-mute)"/>
+            <circle class="person" cx="476" cy="104" r="13" stroke="var(--n-mute)"/>
+            <circle cx="612" cy="104" r="54" fill="none" stroke="var(--line)" stroke-width="1" stroke-dasharray="3 5" opacity=".75"/>
+            <line class="spoke" x1="612" y1="104" x2="640.3" y2="132.3" stroke="var(--n-mute)"/>
+            <circle class="sat" cx="640.3" cy="132.3" r="7" fill="var(--n-mute)" stroke="var(--n-mute)"/>
+            <line class="spoke" x1="612" y1="104" x2="583.7" y2="132.3" stroke="var(--n-mute)"/>
+            <circle class="sat" cx="583.7" cy="132.3" r="7" fill="var(--n-mute)" stroke="var(--n-mute)"/>
+            <line class="spoke" x1="612" y1="104" x2="583.7" y2="75.7" stroke="var(--n-mute)"/>
+            <circle class="sat" cx="583.7" cy="75.7" r="7" fill="var(--n-mute)" stroke="var(--n-mute)"/>
+            <line class="spoke" x1="612" y1="104" x2="640.3" y2="75.7" stroke="var(--n-mute)"/>
+            <circle class="sat" cx="640.3" cy="75.7" r="7" fill="var(--n-mute)" stroke="var(--n-mute)"/>
+            <circle class="person" cx="612" cy="104" r="13" stroke="var(--n-mute)"/>
+            <text class="note" x="544.0" y="46">+2 del equipo</text>
+            </svg>
         </div>
-
-        <div style="display:flex;flex-direction:column;gap:2cqw;">
-          <div class="cols c3" style="--gap:1cqw;">
-            <div class="panel" style="padding:1.1cqw;">
-              <div><span class="on">●</span> Gero</div>
-              <div class="on" style="margin-top:.5cqw;">claude</div>
-              <div class="dim">contexto del repo<br>decisiones del día<br>lo que ya probó</div>
-              <div class="dim" style="border-top:1px solid var(--line);margin-top:.7cqw;padding-top:.5cqw;">memoria local</div>
-            </div>
-            <div class="panel" style="padding:1.1cqw;">
-              <div><span class="vio">●</span> Bauti</div>
-              <div class="vio" style="margin-top:.5cqw;">codex</div>
-              <div class="dim">contexto del repo<br>decisiones del día<br>lo que ya probó</div>
-              <div class="dim" style="border-top:1px solid var(--line);margin-top:.7cqw;padding-top:.5cqw;">memoria local</div>
-            </div>
-            <div class="panel" style="padding:1.1cqw;">
-              <div><span class="amb">●</span> Lucas</div>
-              <div class="amb" style="margin-top:.5cqw;">gemini</div>
-              <div class="dim">contexto del repo<br>decisiones del día<br>lo que ya probó</div>
-              <div class="dim" style="border-top:1px solid var(--line);margin-top:.7cqw;padding-top:.5cqw;">memoria local</div>
-            </div>
-          </div>
-          <p style="font-family:var(--font-mono);font-size:.92cqw;color:var(--muted);">Tres máquinas, tres memorias, cero conexión entre ellas.</p>
-
-          <hr class="rule">
-          <p style="font-size:var(--body);line-height:1.5;color:var(--text-2);">El equipo comparte el repositorio.<br><b style="color:var(--text);font-weight:600;">No comparte nada de lo que sus agentes ya aprendieron.</b></p>
-        </div>
+        <p style="text-align:center;font-size:var(--body);line-height:1.5;color:var(--text-2);margin-top:1.6cqw;">
+          <b style="color:var(--text);font-weight:600;">20 memorias en un equipo de cinco.</b> Ninguna se habla con las otras.
+        </p>
       </div>
 
       <div class="kicker">
-        <b>Y no es solo nuestro problema:</b> el 61 % de los devs pierde más de 30 minutos por día buscando respuestas, y 3 de cada 4 responden preguntas que ya habían respondido.
-        <span style="font-family:var(--font-mono);font-size:.9em;color:var(--muted);">— Stack Overflow Developer Survey 2024, n ≈ 65.000</span>
+        No es sólo nuestro problema: <b>el 61 % de los programadores pierde más de media hora por día buscando algo que alguien del equipo ya sabía.</b>
+        <span style="font-family:var(--font-mono);font-size:.9em;color:var(--muted);">— Stack Overflow 2024, 65.000 respuestas</span>
       </div>
 
       <div class="foot"><span>02 · Problema <b class="habla">· Gerónimo</b></span><span>Nest</span></div>
@@ -432,33 +484,28 @@
   <section class="slide">
     <div class="slide-body">
       <p class="eyebrow">La solución · Nest Memories</p>
-      <h1 style="--h1:3.5cqw;">La memoria se llena sola <em>porque Nest está abajo del agente.</em></h1>
+      <h1 style="--h1:3.3cqw;max-width:30ch;">Nest ya está abajo del trabajo de tu equipo. <em>Por eso la memoria se llena sola.</em></h1>
 
-      <div class="cols c4" style="margin-top:3.6cqw;">
+      <div class="cols c3" style="margin-top:4.4cqw;">
         <div class="mech lead">
-          <span class="tag">Captura</span>
-          <h3>Somos el runtime, no un plugin ciego</h3>
-          <p>Nest ve el pane, la rama, el diff, qué tests pasaron y quién estaba. Los demás dependen de que el agente se acuerde de guardar.</p>
+          <span class="tag">Se llena sola</span>
+          <h3>Nadie tiene que anotar nada</h3>
+          <p>Vemos el trabajo mientras pasa. Los demás dependen de que alguien se acuerde de anotar.</p>
         </div>
         <div class="mech">
-          <span class="tag">Síntesis</span>
-          <h3>No hay pipeline de resumen</h3>
-          <p>Markdown determinista y búsqueda local. Los que resumen con un LLM pagan tokens por mensaje: una auditoría midió 97,8 % de basura sobre 10.134 entradas.</p>
+          <span class="tag">La ve el equipo</span>
+          <h3>Al día, en la máquina de cada uno</h3>
+          <p>Lo que aprendió el asistente de uno, lo saben los del resto.</p>
         </div>
         <div class="mech">
-          <span class="tag">Alcance</span>
-          <h3>Por equipo y por rama, con autor y fecha</h3>
-          <p>De las cinco memorias que ya existen en el mercado, ninguna tiene esas cuatro propiedades juntas.</p>
-        </div>
-        <div class="mech">
-          <span class="tag">Llave</span>
-          <h3>El servidor guarda lo que no puede leer</h3>
-          <p>Cifrado del lado del cliente. La llave es del equipo: ni un admin nuestro con acceso a la infra ve una memoria.</p>
+          <span class="tag">Es privada</span>
+          <h3>Ni nosotros podemos leerla</h3>
+          <p>Se guarda cerrada con llave, y la llave es del equipo.</p>
         </div>
       </div>
 
       <div class="kicker">
-        Lo estamos construyendo sobre la base que ya usan ~100 personas todos los días. <b>Nadie más está parado donde el contexto se genera.</b>
+        <b>Nadie más está parado donde el trabajo pasa.</b>
       </div>
 
       <div class="foot"><span>03 · Solución <b class="habla">· Gerónimo</b></span><span>Nest</span></div>
@@ -469,41 +516,85 @@
   <section class="slide">
     <div class="slide-body">
       <p class="eyebrow">Cómo se llena</p>
-      <h1 style="--h1:3.5cqw;">El loop ya está cerrado <em>en el código, no en el slide.</em></h1>
+      <h1 style="--h1:3.1cqw;">Nadie la escribe. <em>Se escribe sola.</em></h1>
 
-      <div class="cols c3" style="margin-top:3.2cqw;">
-        <div class="step">
-          <div class="hd"><span class="nm">1 · Entra el trabajo</span><span class="chip wip">en rama</span></div>
-          <h3>Integrations</h3>
-          <p>Un ticket de GitHub, Jira o Linear —o un <span style="font-family:var(--font-mono);color:var(--text);">@Nest agarrá el 412</span> en Slack— abre el worktree y levanta el agente.</p>
-        </div>
-        <div class="step">
-          <div class="hd"><span class="nm">2 · Trabajan los agentes</span><span class="chip live">en producción</span></div>
-          <h3>El terminal</h3>
-          <p>Cada uno en su pane, su rama y su rol: architect → coder → reviewers → gate → tester. Es lo que ~100 personas ya usan hoy.</p>
-        </div>
-        <div class="step lead">
-          <div class="hd"><span class="nm">3 · Queda lo aprendido</span><span class="chip live">fase 1 lista</span></div>
-          <h3>Memories</h3>
-          <p>Cuando un reviewer marca un problema, la memoria se escribe con su procedencia: ticket, rol, ronda y autor. Nadie la escribió.</p>
-        </div>
+      <p style="font-family:var(--font-mono);font-size:var(--small);color:var(--text-2);margin-top:1.4cqw;letter-spacing:.02em;">
+        Entra el trabajo <span style="color:var(--accent);">→</span> trabajan los asistentes <span style="color:var(--accent);">→</span> queda lo que aprendieron
+      </p>
+
+      <div style="width:55%;margin:1.2cqw auto 1.4cqw;">
+        <svg class="nodes" viewBox="0 0 680 320" role="img" aria-label="Las mismas cinco personas, ahora con todas sus memorias conectadas a un unico lugar comun: la memoria del equipo.">
+            <path class="link" d="M 68 117 C 68 181.0, 340 181.0, 340 236"/>
+            <path class="link" d="M 204 117 C 204 181.0, 340 181.0, 340 236"/>
+            <path class="link" d="M 340 117 C 340 181.0, 340 181.0, 340 236"/>
+            <path class="link" d="M 476 117 C 476 181.0, 340 181.0, 340 236"/>
+            <path class="link" d="M 612 117 C 612 181.0, 340 181.0, 340 236"/>
+            <line class="spoke" x1="68" y1="104" x2="96.3" y2="132.3" stroke="var(--n1)"/>
+            <circle class="sat" cx="96.3" cy="132.3" r="7" fill="var(--n1)" stroke="var(--n1)"/>
+            <line class="spoke" x1="68" y1="104" x2="39.7" y2="132.3" stroke="var(--n1)"/>
+            <circle class="sat" cx="39.7" cy="132.3" r="7" fill="var(--n1)" stroke="var(--n1)"/>
+            <line class="spoke" x1="68" y1="104" x2="39.7" y2="75.7" stroke="var(--n1)"/>
+            <circle class="sat" cx="39.7" cy="75.7" r="7" fill="var(--n1)" stroke="var(--n1)"/>
+            <line class="spoke" x1="68" y1="104" x2="96.3" y2="75.7" stroke="var(--n1)"/>
+            <circle class="sat" cx="96.3" cy="75.7" r="7" fill="var(--n1)" stroke="var(--n1)"/>
+            <circle class="person" cx="68" cy="104" r="13" stroke="var(--n1)"/>
+            <text class="name" x="68" y="46">Gero</text>
+            <line class="spoke" x1="204" y1="104" x2="232.3" y2="132.3" stroke="var(--n2)"/>
+            <circle class="sat" cx="232.3" cy="132.3" r="7" fill="var(--n2)" stroke="var(--n2)"/>
+            <line class="spoke" x1="204" y1="104" x2="175.7" y2="132.3" stroke="var(--n2)"/>
+            <circle class="sat" cx="175.7" cy="132.3" r="7" fill="var(--n2)" stroke="var(--n2)"/>
+            <line class="spoke" x1="204" y1="104" x2="175.7" y2="75.7" stroke="var(--n2)"/>
+            <circle class="sat" cx="175.7" cy="75.7" r="7" fill="var(--n2)" stroke="var(--n2)"/>
+            <line class="spoke" x1="204" y1="104" x2="232.3" y2="75.7" stroke="var(--n2)"/>
+            <circle class="sat" cx="232.3" cy="75.7" r="7" fill="var(--n2)" stroke="var(--n2)"/>
+            <circle class="person" cx="204" cy="104" r="13" stroke="var(--n2)"/>
+            <text class="name" x="204" y="46">Bauti</text>
+            <line class="spoke" x1="340" y1="104" x2="368.3" y2="132.3" stroke="var(--n3)"/>
+            <circle class="sat" cx="368.3" cy="132.3" r="7" fill="var(--n3)" stroke="var(--n3)"/>
+            <line class="spoke" x1="340" y1="104" x2="311.7" y2="132.3" stroke="var(--n3)"/>
+            <circle class="sat" cx="311.7" cy="132.3" r="7" fill="var(--n3)" stroke="var(--n3)"/>
+            <line class="spoke" x1="340" y1="104" x2="311.7" y2="75.7" stroke="var(--n3)"/>
+            <circle class="sat" cx="311.7" cy="75.7" r="7" fill="var(--n3)" stroke="var(--n3)"/>
+            <line class="spoke" x1="340" y1="104" x2="368.3" y2="75.7" stroke="var(--n3)"/>
+            <circle class="sat" cx="368.3" cy="75.7" r="7" fill="var(--n3)" stroke="var(--n3)"/>
+            <circle class="person" cx="340" cy="104" r="13" stroke="var(--n3)"/>
+            <text class="name" x="340" y="46">Mati</text>
+            <line class="spoke" x1="476" y1="104" x2="504.3" y2="132.3" stroke="var(--n-mute)"/>
+            <circle class="sat" cx="504.3" cy="132.3" r="7" fill="var(--n-mute)" stroke="var(--n-mute)"/>
+            <line class="spoke" x1="476" y1="104" x2="447.7" y2="132.3" stroke="var(--n-mute)"/>
+            <circle class="sat" cx="447.7" cy="132.3" r="7" fill="var(--n-mute)" stroke="var(--n-mute)"/>
+            <line class="spoke" x1="476" y1="104" x2="447.7" y2="75.7" stroke="var(--n-mute)"/>
+            <circle class="sat" cx="447.7" cy="75.7" r="7" fill="var(--n-mute)" stroke="var(--n-mute)"/>
+            <line class="spoke" x1="476" y1="104" x2="504.3" y2="75.7" stroke="var(--n-mute)"/>
+            <circle class="sat" cx="504.3" cy="75.7" r="7" fill="var(--n-mute)" stroke="var(--n-mute)"/>
+            <circle class="person" cx="476" cy="104" r="13" stroke="var(--n-mute)"/>
+            <line class="spoke" x1="612" y1="104" x2="640.3" y2="132.3" stroke="var(--n-mute)"/>
+            <circle class="sat" cx="640.3" cy="132.3" r="7" fill="var(--n-mute)" stroke="var(--n-mute)"/>
+            <line class="spoke" x1="612" y1="104" x2="583.7" y2="132.3" stroke="var(--n-mute)"/>
+            <circle class="sat" cx="583.7" cy="132.3" r="7" fill="var(--n-mute)" stroke="var(--n-mute)"/>
+            <line class="spoke" x1="612" y1="104" x2="583.7" y2="75.7" stroke="var(--n-mute)"/>
+            <circle class="sat" cx="583.7" cy="75.7" r="7" fill="var(--n-mute)" stroke="var(--n-mute)"/>
+            <line class="spoke" x1="612" y1="104" x2="640.3" y2="75.7" stroke="var(--n-mute)"/>
+            <circle class="sat" cx="640.3" cy="75.7" r="7" fill="var(--n-mute)" stroke="var(--n-mute)"/>
+            <circle class="person" cx="612" cy="104" r="13" stroke="var(--n-mute)"/>
+            <circle class="hub-ring" cx="340" cy="258" r="33"/>
+            <circle class="hub-ring" cx="340" cy="258" r="43" opacity=".14"/>
+            <circle class="hub" cx="340" cy="258" r="22"/>
+            <text class="hub-label" x="340" y="308">La memoria del equipo</text>
+            </svg>
       </div>
 
-      <div class="split" style="margin-top:3cqw;--gap:3cqw;grid-template-columns:1fr 1.15fr;align-items:center;">
-        <div class="panel accent">
-          <div><span class="on">●</span> <span class="ttl">bugfix · automática</span>&nbsp;&nbsp;<span class="dim">feat/checkout</span></div>
-          <div class="ttl" style="margin-top:.4cqw;">El cobro va por Stripe, no por MercadoPago</div>
-          <div class="dim">────────────────────────────────</div>
-          <div class="dim">ticket #412 · reviewer:correctness · ronda 2</div>
-          <div class="dim">Gero · claude · hace 3 min</div>
-        </div>
-        <p style="font-size:var(--small);line-height:1.6;color:var(--text-2);">
-          <b style="color:var(--text);font-weight:600;">Esto no es un mockup.</b> El bus de eventos de Integrations traduce lo que pasó en el grafo de agentes a escrituras de memoria, con su procedencia: <span style="font-family:var(--font-mono);color:var(--accent);">electron/integrations/memory-bridge.ts</span>.
-          Es la pieza que ningún competidor puede escribir, porque ninguno corre los agentes.
-        </p>
+      <div style="margin-top:auto;display:flex;align-items:center;gap:1.6cqw;background:var(--surface-2);border:1px solid var(--accent-deep);border-radius:4px;padding:1.1cqw 1.4cqw;">
+        <span style="color:var(--accent);font-size:1.4cqw;line-height:1;">●</span>
+        <span style="font-size:var(--body);color:var(--text);">El cobro va por Stripe, no por MercadoPago</span>
+        <span style="margin-left:auto;font-family:var(--font-mono);font-size:.92cqw;color:var(--muted);white-space:nowrap;">se escribió sola · tarea #412 · hace 3 min</span>
       </div>
 
-      <div class="foot"><span>04 · El loop <b class="habla">· Bautista</b></span><span>Nest</span></div>
+      <div class="kicker">
+        <b>Esto ya funciona, no es una maqueta.</b> Nest ve el trabajo mientras pasa y guarda quién, cuándo y en qué tarea.
+      </div>
+
+      <div class="foot"><span>04 · Cómo se llena <b class="habla">· Bautista</b></span><span>Nest</span></div>
     </div>
   </section>
 
@@ -511,35 +602,29 @@
   <section class="slide">
     <div class="slide-body">
       <p class="eyebrow">Mercado</p>
-      <h1 style="--h1:3.5cqw;">Calculado de abajo hacia arriba,<br>sobre <em>nuestro precio más bajo.</em></h1>
-      <p style="font-family:var(--font-mono);font-size:var(--small);color:var(--text-2);margin-top:1.6cqw;">US$ 96 por asiento al año — el plan anual, no el de lista.</p>
+      <h1 style="--h1:3.3cqw;">Calculado sobre <em>nuestro precio más bajo.</em></h1>
+      <p style="font-family:var(--font-mono);font-size:var(--small);color:var(--text-2);margin-top:1.4cqw;">US$ 96 por persona al año — el plan anual, no el de lista.</p>
 
-      <div class="cols c3" style="margin-top:2.8cqw;">
-        <div style="background:var(--surface-2);border:1px solid var(--line-soft);border-radius:4px;padding:2cqw 2.2cqw;display:flex;flex-direction:column;gap:1.2cqw;">
-          <span style="font-family:var(--font-mono);font-size:var(--eyebrow);letter-spacing:.15em;color:var(--muted);">TAM</span>
-          <span style="font-family:var(--font-display);font-size:3cqw;font-weight:400;letter-spacing:-.02em;">US$ 1.728 M</span>
-          <span style="font-size:var(--small);color:var(--text-2);">Mercado total</span>
-          <hr class="rule">
-          <p style="font-size:var(--small);line-height:1.5;color:var(--muted);">30 M de devs profesionales × 60 % que ya trabaja con agentes = 18 M de asientos.</p>
+      <div class="cols c3" style="margin-top:3.4cqw;">
+        <div style="background:var(--surface-2);border:1px solid var(--line-soft);border-radius:4px;padding:2.4cqw 2.2cqw;display:flex;flex-direction:column;gap:1.2cqw;">
+          <span style="font-family:var(--font-mono);font-size:var(--eyebrow);letter-spacing:.15em;color:var(--muted);">TODO EL MERCADO</span>
+          <span style="font-family:var(--font-display);font-size:3.2cqw;font-weight:400;letter-spacing:-.02em;">US$ 1.728 M</span>
+          <span style="font-size:var(--small);color:var(--text-2);line-height:1.45;">18 millones de programadores que ya trabajan con asistentes</span>
         </div>
-        <div style="background:var(--surface-2);border:1px solid var(--line-soft);border-radius:4px;padding:2cqw 2.2cqw;display:flex;flex-direction:column;gap:1.2cqw;">
-          <span style="font-family:var(--font-mono);font-size:var(--eyebrow);letter-spacing:.15em;color:var(--muted);">SAM</span>
-          <span style="font-family:var(--font-display);font-size:3cqw;font-weight:400;letter-spacing:-.02em;">US$ 74,9 M</span>
-          <span style="font-size:var(--small);color:var(--text-2);">Mercado alcanzable</span>
-          <hr class="rule">
-          <p style="font-size:var(--small);line-height:1.5;color:var(--muted);">Latinoamérica y España: ~780.000 devs con agentes, en nuestro idioma y huso horario.</p>
+        <div style="background:var(--surface-2);border:1px solid var(--line-soft);border-radius:4px;padding:2.4cqw 2.2cqw;display:flex;flex-direction:column;gap:1.2cqw;">
+          <span style="font-family:var(--font-mono);font-size:var(--eyebrow);letter-spacing:.15em;color:var(--muted);">AL QUE LLEGAMOS</span>
+          <span style="font-family:var(--font-display);font-size:3.2cqw;font-weight:400;letter-spacing:-.02em;">US$ 74,9 M</span>
+          <span style="font-size:var(--small);color:var(--text-2);line-height:1.45;">Latinoamérica y España: nuestro idioma y nuestro horario</span>
         </div>
-        <div style="background:rgba(45,208,138,.07);border:1px solid var(--accent-deep);border-radius:4px;padding:2cqw 2.2cqw;display:flex;flex-direction:column;gap:1.2cqw;">
-          <span style="font-family:var(--font-mono);font-size:var(--eyebrow);letter-spacing:.15em;color:var(--accent);">SOM</span>
-          <span style="font-family:var(--font-display);font-size:3cqw;font-weight:400;letter-spacing:-.02em;color:var(--accent);">US$ 192.000</span>
-          <span style="font-size:var(--small);color:var(--text-2);">Mercado ganable · 3 años</span>
-          <hr class="rule" style="border-top-color:var(--accent-deep);">
-          <p style="font-size:var(--small);line-height:1.5;color:var(--text-2);">400 equipos × 5 asientos pagos = 2.000 asientos. Es el número que defendemos.</p>
+        <div style="background:rgba(45,208,138,.07);border:1px solid var(--accent-deep);border-radius:4px;padding:2.4cqw 2.2cqw;display:flex;flex-direction:column;gap:1.2cqw;">
+          <span style="font-family:var(--font-mono);font-size:var(--eyebrow);letter-spacing:.15em;color:var(--accent);">EL QUE VAMOS A GANAR</span>
+          <span style="font-family:var(--font-display);font-size:3.2cqw;font-weight:400;letter-spacing:-.02em;color:var(--accent);">US$ 192.000</span>
+          <span style="font-size:var(--small);color:var(--text-2);line-height:1.45;">400 equipos en tres años. Es el número que defendemos</span>
         </div>
       </div>
 
       <div class="kicker">
-        El dev entra solo y gratis, y se queda porque la memoria local ya le sirve. Se paga recién cuando quiere que el equipo la vea: <b>el volumen es la puerta, la memoria compartida es el cobro.</b>
+        <b>Entrar es gratis. Se paga cuando el equipo quiere ver la memoria de todos.</b>
       </div>
 
       <div class="foot"><span>05 · Mercado <b class="habla">· Bautista</b></span><span>Nest</span></div>
@@ -550,33 +635,22 @@
   <section class="slide">
     <div class="slide-body">
       <p class="eyebrow">Modelo</p>
-      <h1 style="--h1:3.5cqw;">Suscripción por asiento.<br><em>La memoria compartida se paga por equipo.</em></h1>
+      <h1 style="--h1:3.3cqw;">Una suscripción por persona. <em>La paga el equipo, no el que prueba.</em></h1>
 
-      <div class="cols c3" style="margin-top:4cqw;">
-        <div class="mech">
-          <span class="tag">Quién paga</span>
-          <h3 style="--h2:1.9cqw;">El equipo,<br>no la persona suelta</h3>
-          <p>Un dev solo puede usar Nest gratis. La memoria compartida se paga.</p>
+      <div style="margin-top:4.2cqw;display:flex;flex-direction:column;gap:2.4cqw;">
+        <div style="display:flex;align-items:baseline;gap:1.2cqw;">
+          <span style="font-family:var(--font-display);font-size:5.4cqw;font-weight:300;color:var(--accent);letter-spacing:-.03em;line-height:1;">US$ 10</span>
+          <span style="font-size:var(--body);color:var(--text-2);">por persona al mes · <b style="color:var(--text);font-weight:600;">US$ 8</b> si pagan el año entero</span>
         </div>
-        <div class="mech lead">
-          <span class="tag">Cuánto</span>
-          <h3 style="--h2:1.9cqw;">US$ 10 por asiento<br>al mes</h3>
-          <p>US$ 8 si el equipo paga el año por adelantado. Un equipo de cinco entra por US$ 40 al mes.</p>
-        </div>
-        <div class="mech">
-          <span class="tag">Cada cuánto</span>
-          <h3 style="--h2:1.9cqw;">Mensual,<br>o 20 % menos anual</h3>
-          <p>Ingreso recurrente desde el primer equipo que paga, y el anual nos adelanta el año de caja.</p>
-        </div>
+        <p style="font-size:var(--body);color:var(--text-2);line-height:1.5;max-width:52ch;">Un equipo de cinco entra por US$ 40 al mes. Ingreso recurrente desde el primer equipo que paga.</p>
       </div>
 
-      <div style="margin-top:auto;background:var(--surface-2);border:1px solid var(--line-soft);border-radius:4px;padding:1.8cqw 2cqw;display:flex;flex-direction:column;gap:1.2cqw;">
+      <div style="margin-top:auto;background:var(--surface-2);border:1px solid var(--line-soft);border-radius:4px;padding:1.8cqw 2cqw;">
         <div class="pill-row">
-          <span><span class="nm">Free</span><span class="px">para uno, sin límite de tiempo</span></span>
-          <span><span class="nm on">Cloud</span><span class="px">US$ 10 · asiento/mes — acá vive Memories</span></span>
+          <span><span class="nm">Free</span><span class="px">para uno solo, sin vencimiento</span></span>
+          <span><span class="nm on">Cloud</span><span class="px">acá vive la memoria del equipo</span></span>
           <span><span class="nm">Teams</span><span class="px">a medida</span></span>
         </div>
-        <p style="font-size:var(--small);color:var(--text-2);">Son los precios de hoy: <b style="color:var(--text);font-weight:600;">validar cuánto vale la memoria compartida es para lo que pedimos los 10 pilotos.</b></p>
       </div>
 
       <div class="foot"><span>06 · Modelo <b class="habla">· Bautista</b></span><span>Nest</span></div>
@@ -589,22 +663,21 @@
       <p class="eyebrow">Tracción</p>
       <div class="split">
         <div>
-          <h1 style="--h1:3.5cqw;">Ya estamos donde <em>el contexto se genera.</em></h1>
-          <p class="lede" style="margin-top:2cqw;">Nest está en producción y se usa todos los días. Cada sesión de agente que hoy corre adentro es contexto que hoy se pierde: esa es la materia prima de Memories.</p>
-          <p class="lede" style="margin-top:2.4cqw;">Todavía no cobramos: está gratis durante el lanzamiento. <b style="color:var(--text);font-weight:600;">Lo que tenemos es uso, no facturación.</b></p>
+          <h1 style="--h1:3.3cqw;">Ya estamos adentro <em>del día de trabajo.</em></h1>
+          <p class="lede" style="margin-top:2.4cqw;">Todo lo que esos asistentes aprenden hoy se pierde: <b style="color:var(--text);font-weight:600;">eso es lo que Memories guarda.</b></p>
+          <p class="lede" style="margin-top:2cqw;">Todavía no cobramos. Lo que tenemos es uso.</p>
         </div>
 
-        <div>
-          <div class="metric"><span class="v">~100</span><span class="l">usuarios activos con actualización automática</span></div>
-          <div class="metric"><span class="v">2</span><span class="l">equipos desarrollando producto de clientes sobre Nest</span></div>
-          <div class="metric"><span class="v">v1.5</span><span class="l">publicada y firmada en macOS, Windows y Linux</span></div>
-          <div class="metric"><span class="v">7</span><span class="l">agentes soportados: Claude, Gemini, Codex, Copilot y más</span></div>
-          <div class="metric"><span class="v">2.388</span><span class="l">tests en verde sobre el motor de memoria y orquestación</span></div>
+        <div style="align-self:center;">
+          <div class="metric"><span class="v">~100</span><span class="l">personas lo usan todos los días</span></div>
+          <div class="metric"><span class="v">2</span><span class="l">equipos lo usan para trabajo de clientes reales</span></div>
+          <div class="metric"><span class="v">7</span><span class="l">asistentes distintos funcionan adentro</span></div>
+          <div class="metric"><span class="v">v1.5</span><span class="l">publicada en Windows, Mac y Linux</span></div>
         </div>
       </div>
 
       <div class="kicker">
-        <b>Y lo difícil ya lo operamos:</b> el servicio de sincronización corre en producción con backups, cuotas por equipo y borrado de datos. Es exactamente lo que le pedimos al cliente que no tenga que hacer.
+        <b>Y lo difícil ya lo operamos:</b> el servicio corre en producción, con copias de seguridad. Es justo lo que el cliente no tiene que hacer.
       </div>
 
       <div class="foot"><span>07 · Tracción <b class="habla">· Matías</b></span><span>Nest</span></div>
@@ -615,55 +688,49 @@
   <section class="slide">
     <div class="slide-body">
       <p class="eyebrow">Competencia</p>
-      <h1 style="--h1:3.5cqw;">Todos resuelven el motor. <em>Ninguno resuelve la operación.</em></h1>
+      <h1 style="--h1:3.3cqw;">Todos resuelven la memoria. <em>Ninguno se ocupa de mantenerla.</em></h1>
 
-      <div class="tablewrap" style="margin-top:2.1cqw;">
+      <div class="tablewrap" style="margin-top:3cqw;">
         <table>
           <thead>
             <tr>
-              <th style="width:27%;"></th>
-              <th style="width:20%;">¿Se llena<br>sola?</th>
+              <th style="width:30%;"></th>
+              <th style="width:22%;">¿Se llena<br>sola?</th>
               <th style="width:24%;">¿La ve<br>el equipo?</th>
-              <th>¿Quién la<br>administra?</th>
+              <th>¿Quién se<br>ocupa?</th>
             </tr>
           </thead>
           <tbody>
             <tr>
-              <td>CLAUDE.md, AGENTS.md</td>
-              <td>No, a mano</td>
-              <td>Si hacés commit</td>
-              <td>Vos, en cada repo</td>
+              <td>Notas escritas a mano</td>
+              <td>No</td>
+              <td>Si te acordás</td>
+              <td>Vos, en cada proyecto</td>
             </tr>
             <tr>
               <td>Copilot Memory<span class="sub">Microsoft</span></td>
               <td>Sí</td>
               <td>No, es personal</td>
-              <td>Ellos — pero olvida a los 28 días</td>
+              <td>Ellos, pero olvida al mes</td>
             </tr>
             <tr>
-              <td>Engram<span class="sub">6.450 ★ · open source</span></td>
+              <td>Engram<span class="sub">el más parecido · código abierto</span></td>
               <td>Sí</td>
-              <td>Solo si lo hospedás</td>
-              <td>Vos: VPS, TLS, Postgres, backups</td>
-            </tr>
-            <tr>
-              <td>Basic Memory Teams<span class="sub">US$ 15 por asiento</span></td>
-              <td>No, a mano</td>
-              <td>Sí</td>
-              <td>Ellos</td>
+              <td>Sólo con tu servidor</td>
+              <td>Alguien se vuelve administrador</td>
             </tr>
             <tr class="us">
               <td>Nest Memories</td>
               <td>Sí, mientras trabajás</td>
-              <td>En vivo, por rama</td>
-              <td>Nosotros. Vos no ves un servidor</td>
+              <td>Sí, al día</td>
+              <td>Nosotros. No ves un servidor</td>
             </tr>
           </tbody>
         </table>
       </div>
 
       <div class="kicker">
-        El más cercano tiene 6.450 estrellas y cero hosting: para tener memoria de equipo con él, alguien del equipo se vuelve sysadmin. <b>El producto no es el motor de memoria — es la operación.</b>
+        <b>El producto no es guardar la memoria: es que nadie tenga que ocuparse de ella.</b>
       </div>
 
       <div class="foot"><span>08 · Competencia <b class="habla">· Matías</b></span><span>Nest</span></div>
@@ -676,20 +743,20 @@
       <p class="eyebrow">Equipo</p>
       <div class="split" style="--gap:4cqw;">
         <div>
-          <h1 style="--h1:3.5cqw;">Lo construimos porque <em>lo necesitábamos nosotros.</em></h1>
+          <h1 style="--h1:3.3cqw;">Lo construimos porque <em>lo necesitábamos nosotros.</em></h1>
 
-          <div style="display:flex;flex-direction:column;gap:2.2cqw;margin-top:3.2cqw;">
+          <div style="display:flex;flex-direction:column;gap:2.4cqw;margin-top:3.6cqw;">
             <div style="border-left:2px solid var(--accent);padding-left:1.6cqw;">
               <h3 style="font-size:var(--h2);">Somos los usuarios</h3>
-              <p style="font-size:var(--small);line-height:1.5;color:var(--text-2);margin-top:.6cqw;">Trabajamos con cuatro agentes en paralelo todos los días, y le explicamos el mismo proyecto todas las mañanas.</p>
+              <p style="font-size:var(--small);line-height:1.5;color:var(--text-2);margin-top:.6cqw;">Le explicamos el mismo proyecto a los mismos asistentes todas las mañanas.</p>
             </div>
             <div style="border-left:2px solid var(--line);padding-left:1.6cqw;">
-              <h3 style="font-size:var(--h2);">Lo usamos en clientes reales</h3>
-              <p style="font-size:var(--small);line-height:1.5;color:var(--text-2);margin-top:.6cqw;">No lo probamos solo con nuestro producto: desarrollamos software de terceros sobre Nest.</p>
+              <h3 style="font-size:var(--h2);">Lo usamos con clientes reales</h3>
+              <p style="font-size:var(--small);line-height:1.5;color:var(--text-2);margin-top:.6cqw;">Hacemos software de terceros arriba de Nest.</p>
             </div>
             <div style="border-left:2px solid var(--line);padding-left:1.6cqw;">
               <h3 style="font-size:var(--h2);">Ya operamos lo difícil</h3>
-              <p style="font-size:var(--small);line-height:1.5;color:var(--text-2);margin-top:.6cqw;">Tres sistemas operativos firmados, un servicio en producción y una suite de 2.388 tests. La operación es el producto, y hace meses que la sostenemos.</p>
+              <p style="font-size:var(--small);line-height:1.5;color:var(--text-2);margin-top:.6cqw;">Hace meses que funciona en las máquinas de otra gente.</p>
             </div>
           </div>
         </div>
@@ -705,7 +772,7 @@
               <div><span class="who">Matías Labari</span><span class="rol">CTO</span></div>
             </div>
             <div class="member">
-              <img src="data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAQDAwQDAwQEBAQFBQQFBwsHBwYGBw4KCggLEA4RERAOEA8SFBoWEhMYEw8QFh8XGBsbHR0dERYgIh8cIhocHRz/2wBDAQUFBQcGBw0HBw0cEhASHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBz/wAARCAFAAUADASIAAhEBAxEB/8QAHQAAAAcBAQEAAAAAAAAAAAAAAAECAwQFBgcICf/EAEQQAAEDAwIEAwYEBAMGBQUAAAEAAgMEBRESIQYxQVETImEHFDJxgZEII0KhFVKxwSQzYkNyktHh8BYXgqLxJTVEc4P/xAAaAQEAAwEBAQAAAAAAAAAAAAAAAQIEAwUG/8QAJxEAAgIBBAICAgMBAQAAAAAAAAECEQMEEiExIkETUQUUIzKBYbH/2gAMAwEAAhEDEQA/APEucoA4Sc4R5VQKHNGkZylZQBoIsoZQBoBAHKCAUgiz6IA5QChyRhECjQCkfqiAxhH1QACNBBADOEYOUSCAXlDkkIA4QDgKGoZCbJQDkA4Xbo8prKPUgF5yjzsm8oyUApDkkgoHdAEXBEXdkDzKQSpAHHKSUCESmgDGEEEOqAB2Sd+6MjCJKAEEEpADG+UMZQRgYQEZKCTlDKqBWUAghnfCAVlBJQQCwcIZSQUaAPKNEAjUgU0pXMJtGAoA40oykBHlALBwhlJCPmgFJJSklABDKIlJ1IBWdkSLKHNAH1SgUlBAGDlKzj1SQhlALBRk5TeUWrZALPJIRFyGVIDPJJR57olIEoI8IYQBIJWEEAWEYCLKGUArCPCSHZR5QEUFGkN5JQKigKyhsUSHJAKQQByizuiAoYQCJBSBSUkZQBwooC0eUjVlDKUBxGCmw5KDkoCxjqljcpsFLxgKAGD0QwSdghGwveAPsn4nMjkxgudy25BLA7T20yYdK7QCNgBkp51BCzygPcc8yVJjd4bAdtXQnumZZZTHJI/WWt2yBtuuLmXUSPJanEZY7l+k7FQnM0OLTzCfg95mecNdhozgAgJ+VjgwyyNGknBydx64RZV7DgytyhlWstindT+8QFkkWMktPL6Kqex8btLwQQusZRl0Vaa7BkIkQOUauQBAlBBADKHMosI1AAgggpAECgggEk4R5yEC1FpcgDGEaLB7JQagCwhjKVhHhAQM4SklKQBgo0QRpQDA29UMZ5oBGgAggggAggggADhKzkIsZwgQgBnbZHnAQGyXFGZDyUADc7dlIaPKc9E1UTtpSGhgc8dDyU+korrV0cksVO1kAGS9ztIx33XOUkiyjZXud4cbnA+bkEzC+aYjw2PAHUA7KUH0tMC+ZzqyQcoI9mg9yUQuNyuLmwRwZGciKGLBB7ErnbZfaW9PXUtuiYKt4kAznMfib/0Rv4poqj8trZ5DnDTs3T22VLPFPAwCaAZJI1PB3+W6bMDREPEiDXuI0hh8y57Yvsum0bq3Mp7gGhxlGpvMPbuo94tmiOTTh2QCN99lS0s01oqG+JD4jM/5byWP/wCIKxbW1b5jMGOfTvzvgEtXFqjquSDbuJH0j3wSRFnl0hx3bj/vqpM0sE0pilbFJI4amEHctVjNb6S50+qrjawHZlTAeXzCztZbHWmriZM5k9JKcMmYMg/8iFdNeiri/Y3JQFxJizg9HcwVEfC+M6XAtPqFqaaQ2iX3eUtdTuGW6hkAnqD6qbXW6nrWhroywn4Xs6H5dV1hnrs5vD7Rh+iCnXO0z2uVokALHjLXBQVpTUuUcGq4YEEEFYB5RA45IIwD2QBIA9kelGGoAgjRkIYQA2Q+QR4RgIBOe6NKDQeaVgBAVqAOEeMo0AWEeMoYylIABDGUYCNAJAyjwjQAygABhBHpQI2QBY3R4QARoBTGh7wMb+g5q0jpxRweJJ/mSbNbjcDqUVlja2XxngYGwPYq5sYZdbhI95wyBpIOM4x1/dZ802ujpjhfYzbbQ2R8VVUwl8I8zwRscdCmLzc33ib3WihknhYcvDThg+eFrKpsAoYjV1Rp6VsepzR8b2/6R67b/wB1lauskr4309vYKSiPlbEBpLh6nmSssJXyzU40qRX1FM+KVpbEZmjm2NzQG+iuLbX1MAe2kpWiWQhviPdq07dgkU9hqoGub4cQYcEgTb4+StqekpbdAfI7xdWoanDTn5KJTIjF2FU0L3QCSqMk1U7k1oDWNHXJOSPoq2KBsjs07o9TRhxaevz6qe6Ke4sDveYqeBxy5zv1+mAozJ7PSF8ctRDFLnGqHIDvoFVW1wS0hy3cPNqSXPdIH4JwCNj9diralp4qLMFZDFHI4YY+Q6Wn6jdv9FmK664Z4UMkhjP62ybYymXz1ckMYZV50gAebLXeh7Iot9i0ujRU9xdSTzxyQslact8N2CMdwQo8zKdrDqP5J2fG4cgeRB7hV8FFX1rvEe+Bkcf6sbA9sBWYip2UbfEaM/C/Licg9vRSyw9fqVzqanMDWOmijGpvNsrCOYWeju7qVzWSAy04aNYPNm+zh6j91qJ6XxbK3wsufTN2Lebx1H2VE+gbWW580LRvE8DPM9R9iMfVI/RVkie4Ud0pn073asfDnnjocrIyxGOVzDuQcZ7opPFopYdWWtJH0GEiORz6p8ZycnLSe614fEzZXYrCVhOOaWkgjcJAWk4gDR2QSkEJEYKMDZKIRhuEAnSUYS8I8IBvfKPBSwEYbhAN4R6UvTlGBugKofVKAQAwj5BRYBhGAjA2Rgd0ASPCPG2UMJYCwjCPCPGFIE4wlacpQajwEAjGyUxmpwB5JWnZKbsc9AFVvgCon1M8ojp2amt3AwNx3PorSx14txuTtnO0tY0A5zknI/ZUtFdvAiELGN8SR2nJ5Y7n/kpsUjacStJxPK3VqaMZzs3HbqsuS/ZqxqlZYtkqKhglky6omcHapOTR+kAdAMZVnFQSVU7fELnSloAwMZU3gq1uvFaJpmObEzQ3B5YA3OVs6q10vjmSLLI8E4B9dljnJJ0bIYnLkxj7K+T8wPeyRvUjJ+qeNtZT0hlncTpOzQMlxWqHDz6pkZi1eKC5znntthRKjhy4TNLS54dk41dVTcdJYJL0YmVj5nCMaI2HlG4nJHqVBnoImyYaGxkfqI/utVPZBRyujMbxMOrjnJVdVtY/U2Qkb4a9nRdFL6M7i12Uk1qe2Nw8emLXNz5ZN/sodNA+J7T4Uknm/TvlaKGmhpXmRsrHOxkFzRgfPuFOFNojbM6Rsbzg+Ruk/b1VtxXZfJDg94eAIWSO0jdjcbg827pE5mqGvjdFpBJ8o6bIqyWSV5LJpA47k5PdQvDqRr8CYGRvTVupXIfBaOr6mltsOnIkhLY8EY1DfH1xsq2xXKFtUYXvwyZz9nchkf8ANMGunnhEU7Swt55OUzFRRSVDJHDH6i4bfUKyiV3Giu1kju1kluNM1p8Pbw2jOktAyqCK16qqJukDxGh4d64yFbWq4z2KKSm1F0bnh7XE7OafiB9UzcqttNVxFgEkIwAORLex+n9ETa4I2pldeaRsT4pWNwJG7+juoVSQtPWzQ1dPpbgD+U/pKzpj3K2YZWuTLkjUhkDCMJ0Rd0fhLsUGgMpSc8PHRKEWUA3p3Q0p4MQ0BLA2OXJGBlObI9lAG9KGhKIwUFIKgJWESUFUBgIYRtSgMoBIGyPTulAeiUAgEtGyVjKP6JQHogCDduSPSlhvojDcoBsNz0SKp3hU0rvTH3UgNUa4U5qKWRrQS7mEYIdtjgh1TzZd4eNvqtBZKM3iubI9mZXu1Ob0A6fYLMUMJmkAdkNcc/Zdi9mtnjfdYowNbdPjPPTlsFjzy2o26aG+SR0q0cPsoKGFlOwFukEkcvVVF8tklHl8QJZncAcvULotLD5Q07NHRPvssdXnDdjzBC8ne7s+mjp0opI5xa+JKOCCNs2WPjGk5GxH/wAKbT8TWq6+NA6o0PZ/lzFvx59Oe3dbE+zqzVL/ABKmkkkJ6eIQD9ArKk9n/D8ODHaGNwMh2STn7qHKyVgkcj4g4bu9UB4TGPe0ZD2jJ0/QrnFwp5KZ74nkmVg83Tf6r1Y7hCkaAGPqo2g50tkyMqouns5t1ax7m04D3/EDuCrwy1wzNm0G7lHleGWSaXw2EOIODk7fL5q+jtz20xnlDWl2zdXP6eq6VcPY9IKgvh8rsbA7/ZFB7N6iFuiaMvaBjft6Lv8AImY1o8ifKOVyRsii3Lzj4nch9Fk7vSS1UzKillLZTHrIzgg5xgLtvEPs+uU9G6KjpyWt5DuPmuR1NLLba73epY6NzCW6XDH0XXHk5tGbPglDsztNPXN1OqBI8OGnLuf3Wit07JqZ0b36ZRsHHYPHcevopD/DwPCAD+RB5JqopzpyWHPQg/0PRdnPcZVHaFNIYg6J8b3tz25bc0y17Jnxt3DWjAzzUeaulpWsDXFw5DXuq+orZJHlzgCRvhowpSsOaRahxbVNbjOCWk5Qc3c+vZRLbIamSSUtxp6Z5FTyFoxKkZ8jtjOnGyMMASsoErqcwi3CMkYCS5xwkZKlAWXYSS7mkHUUR14UkWKGErKbw/1Swx3VRQsM7o2sPZG1p7KbDCHMBwlEmYCUEgFKQDgdslA5wmxyS2nGFAHAUoBIHdLCANLCSE4EAYGOSPTlGClhAIDcIwN05jdDCAbhgbHURStYMtfvkcwdiupeyVhdU3Kpb8EJbGO+TnZc1jOktI6HK6p7N6ab+G6WOdG+qrZHPeDjyta3G6w6xVGz0fxz/kSO20cGGN8Qhrjvhx3V7R+7sYD48RHVwcMLHOtE09KA2uwHbuBOrf5Hp91nK7he6RNdprKVwdvh2f6Y/ovKSs+heoa9Ha4ZqMMGJI3kDk12U8yeGRwAOx55GCuAUFJebNPG6O4teARlh2yui2S8zTPd440vznAOyNUWhqL7N+8U7eW31ykflbDAAKpo6tzwMDyhVd5uU8cX5Tg1w2BxlVTs6yyUrNRP4DxpBHzyq2pkpYWnW9vzG647e28R3efAqhFGCcAZG30TFFwZcnuDqm6DIPxAEkfLK6JcGd6h3wjqNXU0r9/EDR8+awfGPBln4lZ4szWMqm4DaiLY/IjqFb0VnhhjEYr3y4G+oAHP9lOnoKcwEYO3XGS5TG0ys2pqmjilf7MqyHLqWaGoHQ50n7LBXCjqqavNDVvdBKN9LhnPbHovQTNVNUyNbkNzyzlYL2nWkOFLc4mt1g+G/wBAeq0wm/Z5eowKK3ROOSB7HSRSxglpOSDtkdlGfTaJDh2zow4dcFX8tufIxziQW6sj17qvjo5TWBkbXSPcMBjBk4WuMkea48iqKBtPA0g/GMlPkj1S2Us0bGslidG9o3Y4bhGyB2o5GQtceuDO+yO52+wSdRPZWkdAHgEtTkVqEshGNlJBUNa5x5FB7NI9VohaS1uGgfPCJtn1fGAVIMz5uica0nmtG6xsO/L5Jt1pLHANG3qEsiilDMDkl4yrd1qceiZdQujyCEBAEeVOhaQ1G2lcNwCpkFO5+GhhJUkGACWBlJASwFHBYUErCSAU61jj0QBBLG6cZTvcdgfsnhQynGygDDSnWglSmUBxuN/kpMVARzagK9rcBLAyrI0OnbCUyh/0E/RAVwYSNkvQcK5bbTp2ajZbHPOCMBAUoYeePVd14LpDFTvAjMYjmMgb2D2NcP6rmMVqDGnbou6cHxxgzEaXRvZCQef+xYD+6w66VRR6X4yO7Iw6munYNLIy8noNkuOotduhD73eWRnSXGnhePy2+pALjjuMLRVVopayJzX625HNh0lU1LwtbYLVc7dJG6NldEY3zRN8wJ5OzzPTmvMg0+z2silFcFdV8T8FyubFTXCohle1rmGVso1hwOk+ZuMOwcd8HCuLMyQObKCyameQ0SsOzXdj2WI4Z9lNVbr7/Eqy4GaDWwlple/ZhyA1rhhvbcnAJA5rob6eCkqq6siLWVFa4F8TNmZzkHHLPqr5lBf0Zy07yTfmqNfSPpnQFj2+ccwqC7mKKKeokA8OEfCOpTEDpXQuGdMmCfiwmIarxJXU8oDi1wcGncOA6LPE35I+JBZDUeJC6vlFN4vmjp4m65njoAMH+irLv7R7FaXSwzUd6L46g0ZeImgeMGklgyeeAemNu611rZBbrtLdoXOlqpzlxlGS3s0HoB2WI4y9ltu4k4gjvdM6OOR0hlcyRpcY3E5OnfBGd8HkVpxON+RhzLIl/GgS8SW6fwnUd4mp5n7eBXU+MkEgjO2+QR1VpTVlVI0Bwa4jb8vdpUyHhK1wW6moAwPig5ZOpzznJJ7b5V9TUUVLEGNiAAGAFSUkui+OM2rkZastrmMEoYRq55WR4voxVWnS4DAkaSun3QB0QHfAWLvNOKinqIP52HB7K2OdlM0PFo5Rw1w2/iCpnjBDaWL/ADHHueQ+eF0O2cJ2+xRTyxUbH1BGA542JxtlQ+BYDS26rL8N/wAVI5zjt5QOv2K11rqIr/an11NUiWkc3xGeXGMf9F1nJlNNhilbXJx/iqJ1WaC4viYx9RG9j9AwC5jsKljp2gbNGV0DjmmiZS2GlhGT4ElQ7H+t5x/RZeOhPbC9HTtvGjxdbFRzySKxsGdiMBPRwY5BWrbf3CeZQYPJaDIVjIHHonhSk42VrHRnbyqQ2jyeSAp20ewGnKV7hn9Kvo6IbeVSm0IIxpQGa9xw34QmJLU2Q/Cti22jbIwlGjjjO6lFTMUtiiI8w2KmMtEFO7Ib91diBrckDClPpYaq3vka7E8R8zT1b3VkhZ5pgoHyM1YITzbe4dCVpIaMBoAGAFKZRMxyGVz3F6MzFanOx0VnT2wMAyPrjZXbKdjBlwGyakrYIjzafQFNwoiMt+CcNTgt7s4ASheoBsANu5TjbwwgkADsoc0KYuG2Y3eVJFJE0c1DNy1bucPRE2tD/wBWVTeKLFkEbgMjPZPCniYdyM9lW++4wEmSv0bg81DmTRbeTPlAQ1tbkbZVD/EnHr+6dbWgNBLsn5omxRcmQABdM9mtQJqSVpJIjeW8/RcdFVr5Hb5rpHskqi6ruFOSMFrZAPuCsuqXgzd+OltzxX2daE5YdsfVOx1LTJzLe+k4UUMPPCcigLju0ZPVeQuD65wTRImljczJc5x9XEqmqnl8owdLWjJ25lW0lK94a1rvNnoqh4M9SY4268OA+YCm7ObgkS2MLYS5uckb56Ktna9sjH5wc8x2V7U2+rjiD308jQ8YblpGVn673imI1RuLw7kiQn0X9MWyRNdzJHmHdPxtgJ04Ax0JUeySQ11JriJEjNnMzyUt0B6gbo3RMYJodMkTG6I24x1RazjJI+qSyn0EEEhLmb5FCZLglyQK9+ph9Nlkax2JDv5h0Wlr5CIXkHCyEri97jncnZaMSMGZqxNJbI5LPVxF2hs5e09PiTPsxjdbqy42SVwdTwghuOWCCFY1dvq62kpaakkiY9smqUvG4Hp6pTIqPhxtwlpR+bp0yVLju9xHILo7lwUxtY/J9GNvOKi4Y5sp42wMx/K0Y/5qGIhyCcmmyS5xGTzTUczXOAB6r28eLbFI+VzZt+SUvskth25J1kHokCV3IJxs+kgFX2nPcPxxDkn2whpCYbICM53TrZXEbBRtY3D50MGSmZLiyLkCUh73OBBCZ8HUdwrKBDkOOuTnDOE6yfxWDKrZ26HhoBwlQve3OAcK+yym4VX3H3WMkkBvqVhbnxpUsfIyFxaDtkdlr6+l98jcx5GCFgLva46aRzEcaRMXyRW1gYMJqS8+F0yVVOleRsSozgSTlYlbNTJs14mnJJ2yoXilxyTkpIYklpHzVqIHBIQcp3xnHqVHHRLCUCZHMRjO6dFVg7DdQmJabUCUalzsEnkg6Vzu+EwAQnA07ZU7UBTXE7dE8MhIYzIUljMqaAuHI7roXsqndFxOMnyugcCO42WCY3AGynUdTLRzx1FPI6OaI6mvacEFcc0N8WkdcGT48in9HqZjQ5qcY7BwNyqHhm8svlppaxhAMzcuGeTuRH3V9A0eIGnJJ+y8GS2umfZY8qnFNEsyZgdjAcWnBWSoa6uiu7oaalaI4WecukAdnPQEb91qqrDWtDevRRJadkml+B4jereahFn5dECt4vdUNkikllErBgsecFv0WRbdeIn3NzvcKGWzN38czuEuD3B2z6LoUtrparwn1VNDNLjAe9oJH1QltjHSsHgMEbBluBgA/JdIzoo4SfbM/wAOumku7p6eCSKjLCCXt06z0wFsJo/JqCYyIiBnmpDHiWPT17Lm+WXXCIwyOqD92Oyg/wAkjgkSbsO+ESIlMzl7nMYMY5Eb+qz2RFl7tgwFx+QVtc3+NOe3RVckYlfJGfhcNJ+RWuCpHm5HcrJlol9/jZURvaRIMnJwB8+yyPGF1E9xMFM9rqeIZcWfCX9cLmt5uk9t9qVyo4NRgkbG0xBxA/y274WolGQQOy9PTaZKSm2eNrta5J4kqFRSh+zuRT7TDG4YIyVVYfrxuApEVMX83HdepR5BKmrGMONWfkmorhGZACXJ+OgjDckHJ6lIZbmF2T0VXQJIn1EAFXtu91lgDXVHhTjc6x5T8inuEOFqa+XPRXGWKkcyRkcjNgZtOWNLug6lLtHC9yiuNWIhDI6id5opD/m43IH05qpKTIdZDNT1AiMZJc4BmB8eeWFZ2OyVd0uXuIi8NzGl8skg8sLR1dj1IHzIWjtIt9dcqe9y3WipHwMbKxkzRK1zmEO04PqACO2Qri0cSOutdHSClt1SblcHOfcIssdA54IA0dAdPU9E5uiUrOay26SebSxjnPLyxoa3Oo+ndU0zpYZpISC1zTgjGCF290lG+4spK+70sZpG6KZ1DEAach2dTj0JOefdck9oFHRU12xabka10uXTSEfqJ5BdFxwVaMnWXE00gAdl3VUFz/xkpeOq0dBwTxDeaOuuNFbJ5qGiOJ6nZrGnngEkajjoM4VMKV242JBxtuucm/ZZRrkzX8OcDyTUttI5L0ZL7DOIG2KO8vtM8dte3UJ3twMHkcc8FMWf8P8AxPxHVspqC2lz5ITOxznta0sBIySTtuMLyfkaN21Pk86OoSNiP2TTqQgcl3W5+xHiCgnkp6mi0Txuc0s1tOS04ON98KLfvYRxXw7arfc7ha2w0Vxx4DvGY5xyMjLQcjbdFqES8TOHupiCMBAU5yu08M+wfinjCrkprZRMc+OMyudNK2JjWju53r0/+VWzeyO/U2kSUEokc4sbHoOokemOXqrx1MLqyvxM5Y2md2ShAeq7pffw78WcOyUUNVT0tRNVRtkAo5vF8PP6XHAwf2U+h/DHxbcbLcbj4dJSuosAUtQ4iaoJ6MABH1J3Oyv+zj27r4KbHdHn8QnqnGwldqsf4deML3daehNB/D45HYkqqxpEcLe5xufkFAuHsK4st9xqaOO3PqxDI5gngjcGSAHGoZ3wfVV/bx7tt8lniklZylsbgeWyfa3GNl1e6ewPi+1U9ukFukqX1sPjOjgjdmA5wGOJ2JI32VnD+HLjE8MVV5koXxTQzNYKF8ZEj4yN5M5wADtjmVP7ONq0x8M1wzjrY84TgYQu02D8N3GN3pnVM1J7pTuhfJGX4e57hyaWg5aCepT/AAt+G/ie+3eGnrPBt9CHB09S6RrnMZnfS3Pmd2CieeKuwsUnyZ72UXXwzVWx5IwfGh/o4f0P3XX6V2ZARsOqxs/sXufDfFpZb6yJ9LDM4Qz1T2xPewfzNzsStNa6xr3YLdJ5EHoeRHzC8vU1J74+z3fx82sex+hVdcaWCo8OapjjJOzXuAUWbiW2U2WvqWuf/Kw/3yratoaSo/Kkpo5Y5GOLnPAOOw3WAquCqT3rSaSHw3HckcxlZ4U+Gevi5dGyZxbbXtBe5zCzlkZBUOp4/tMT8vqI2NHMPkAKpHez21uDtVI97c+WNhBYPrlSafgW00kuttHTYGzWiMOI+ZK67I9mp46V2W0HFlmrGao66IZ3w5wH7qwtN1oLhM+OmrYZnt5tjeCR9lRQcHW98jjLBG4E/CGjC0lDaLfQMaKejgiI6xsDT9wqS2roxzfPBIqwA/PdQqiXSzZS6uRukHPL1VTUPLmnCQVnDJPgppmAvJKrQ06i7qSreWPYhQJIsDHZakZeznNXYoo+JrnX6GOqatzcOPNrQ0DA+yvrbw/G6WOSqcJGEbwwuw87d8EAAkZytMzj222Cy3Sx1FLbDJcJI3y1UkQfUsa3k1h6Db6ZPdar2d+2DgXhi3XW31BqnRXXyVb2RNMnh6SNDHE7A537c+a2Rz5VDxieFmhH5HZzE8Jvie58zSI2YGMZyTuBn1HdWk3BM88kb442wROwM4OAeu66xBx/wNxdSUXC1lvDuH6SSs97mZc54vdmBg+LWfM9xOMNJAz8kmycRx8YcZ0/CtuusV8EExioX07RGwRs3L/RoAJzv6cwtOOeVq2Z3HHdGT4b9lsN8gqaEQ3AXeOQBjmgacY5aMZPzUiT2TtgvlPbaOSrrqgtzLGaYtcx/VuOy6TU+1yh9l/H12t93rWG6tOmqnLfFYcty3do2PLI555qktf4hbJT3592iqYvfqiXEk0rXDLOoIxy/wC+iu5z7ZDUfQ3WezausTg+hp6tjqaL/FRuGWaiMO5cuwVW2inskFHeaajqnPkcGOM0YNPIAcmNwHxg4GQujcV/ie4PrKV9NHAZQ9w1ua/mMb9Pp8lzO8e3jhipEFPQUVXBSRNx4Uk/iNB/UQOQJXHFlm2+CXFUTOJ7XU3cfx6uoRQS3T8uN1LTBkA0n4Wt5k7DdHwT7Gq6enZd56+a3ukfrgcxg84bkB+/rnCy8ntksLqaCKeKtkZTh3hgzFwYSdyB0Wl4b/EfwrarbBSPsVxnq43OzPLUeQg8sN6Y7fVdJ/LJVHgtjeKLTnybOL8Oj5nmWnlnnjfH4kniFrNe+cbd0zbvw+09VVCj92a0vbrJwA4NPc9MKda/xJ8PVVBcPD96t4jibphOp5lOcHB5Duq+x/iLsUNXGyKkkp3OPnqMueeXUBdIqW3yfJynOO50iyqPZfJQ2qg4ZfpdHS1r5HUrXHE7XODg045g9VeXL2evoH3KsuNBRUbqqIspqeip4y0Z/Tn9ONuQWKrPxK2U1ettnL3tcdMpcdQ++6iXb8SFBV1XiSW1lRgeXxnE6R2UKMq7E8kb6OcyfjXa7hiO1QcLF07QWOM9ZrgazGwazTzHrnHRU3Dn4ypLDVB7uEaOeMRujw2qfG/f/UBy9F5I952IBO6T42eaq8UW7ZaEnDhHqmo/GnxK2ST3Ww2KAOGkZgLyG9skqDxF+MXiW82u30rbDY6ZlPkF0cbnF5+Tjho9AvMJkGd0PEBVfgh9E75fZ6Tsv4weNLTrlZQ2SVgaWiOelJG/XYjklXb8aPHl1obXB4NshqqIu11cdOC+cnkSDs3A2wNl5pD+n7I9XorLDCPSIbb9noSv/F17Q7lNBJLWUQbFpJjjpWsa/HcDffkd+q0vF343OMrxG6GxW60WGndA2J4hiMshcObmvd8I7DGcdV5W1o9R7KyxxSpIi2d8sP4mfa7LdoDabnVV1TFl/u8VH44cAN9TANxjv2T19/GD7RLnExtFWUttlmDDVSQQBxqHB2SSXfAD/K37ri9l40v/AA3T1MNnu1Zb46oYm90k8N0gGRjUNxzPIqiGyiOOMXuSKTgpuMn2jqV19vfHl0jijdxNchTQM0U8BqCWwAnJPIZJPU/Lkkf+fHtCfan2x3FVxNFK8SPj8X4nDkc8/pnC5kD6o8k7LRnyvNLdJL/FX/haKpUdisH4lPaPw3ZLpaKDiKSOmuW0skkTXzNGMeSQ7sONv6YO6xTeP74ydswuNRraQ4O8V2cj1yspqKAd3XFxT7Jto1E/Gd2rJJ6ioulQ6d51Eve5znknffK7F7IOO5OIKaa3V0xdc6U+Ix7jvLHtv8wefzC87KfZrzV8P3OmuVE7FTTuyOzh1afQjZcM+CM4UaNPneKal6PcccniNbunn0bZ24/URzystwvxLS8R2mkudG8mGcAvYTvG7q0+oK1lM7UdjsvAnFwdM+nxZFJWiC+xVRI0TPDegDgpEFnfDgP1u9HSZVqHhu4KPXk9yq7maf8ARltO2NuwwU1I/S3AG6cllwT0+aizS77DfClKzjklRHndrdhRJhgqTyy4ndQJ5QcnPLou0UZpOxhzc59Uy6mdNkhvl7qRAPeZNLN98FW8lOIoTn79Art0TCDZxLiHgit4rq+J6m1szcLKyB7Yx/8AkMcwuc30cBuO/wBVx1tzOkjUcDmORXv7gzhSGz2aSoqIgyvvcgqX5GCIw0NjGe+kav8A1LyX+IX2cu4L4rN2pYQ213dxcS0eWKfm4egd8Q+q9fBLxSPn9XH+RtHNRcGv2O47EK74c4wuXCl6pbxaK2ajuFKSY5YnFpAOxB7ggkELHg7hPNcCtBlNXV8UVVwq56qomL5p3mR7upcTkpll5fnOQcd1nfFA2RslGcZQGkdeHHmcIC5kn4uazhk3G6dbL3OUBoDcM7h24Tsd0LTklZoz6TsMhOCr0jPX5qQa6C+uja5rS4BwwcFFFfHRP1AnPJZaG56A8ZO46JcdwLhqxjdLIo0kl9cXnH90T+IHkg78uqz8tYA8OPPuEiSuY7GMpZFGL1Iw4c8pjWcIgSoLD+oIah2TOT2QBKAe1Ia030QQDmsoaz3ymxnqUfIIBYd35pXTOU2NghuBugHM4GUYdtz3SOiLIQDrXjulaky0D0RgdygHC455oxIO4Te3RDCA7L7BbzIy53O1GX8uaITxsPLUCAcfQj7L0DS3I00him8pG4yvIXs+u7rHxjZqonEfjCJ/+6/yn+q9eljauECRoJxg5Xk6zH539nt/j5t46XouG3GKRuQ4bjv0Re/MaAdfXGNSxldw3XkOltlSP/1SdPkVRyUfENO4eLSkgH4tTt/osfxI2PNL6OlOuUOrcj75TMlwhjaXPlb33WFpv4iMeKCw+jd1LiiOdT9Rd67qyx0N7Ze1F31l3hjy9Cq73t0sgjYCXHbCaFLPO4CNh3+y0li4e93xNNguIznsrNqJ0hBzZNtFvNNC17ubt1rOE+G//E10LJmk22lIfUu6H+WMHu7r2Ge6g0Fuqr1XxW23sDp5Ny4/DEwc3O9B++wXaLTYaXh21w0FI12GZc+R3xSvPxOd6k/YYHRRji5u2Tqsqww2rtlbeqXxmuGAcbtA6fJcw9onBUHHfDVxsFVhslSzXTTOH+XM3drh9dj9V16oYX56rO3Ki1A+Xr9vUL0YOjwJq7Pl3cKSss1wq7dXxOhrKSV0M0Tv0ubsf+ateD6SzXa9x01/vhstrMcj31baZ051NblrA0dXHbJ2H2Xs/wBo/sS4W43bU3e7U89NcWeDFLX0ZxIGOBDXuadn4IGc9Oq8t+032G8Uey2Z09RG25WJ5/KulG0ujI6B7ebD89vVatykqujLtcXdHP8AxWhzwzL2ajpcRjI6HHRDV5gQ0KOJM8jkd0rW0E7EldF0UJIqMDdmD80Rn1Y2P0SGzs0EAHPrhIB3zkfdAPiU4xv8igZMjkm9bM7lK1x9XYHdAKBGOW5TjHEZAGQEke6kYM78+jeaU40zc6JpN+WWoBT3veMaAMJs6kppjkP+cdXqEuWlljwNsncAcygMrmMb+Ynsg3DuWUwCAjz2QDvIlDX6JsfNHj1QC9aMPGE36IAFAL8T0RiRv8pSNKMtHRALMwzsEXik9EQBHQJWkhADUcDZFq3zjdLDEMAc0AQKVlFgBGCAgFZR7jl/RX/CnBXEHG1YKXh+1VNfKHYe6NmI4vV8h8rB8yvTHAf4SLeaaKp4uuVZWVrzn+HWhzWxgdnSkZPqQAFWU4x7LRg5dHAPZBYhxP7UeDbXKzXDUXOB0rcZ/La4Pdt2w0/desZGe63m50bfhjqXhg7NJyB9AQF1bgvgPh3gCaht1htFFRT1UgbI+MB0hYBydIdySfVcaqp3we0fim2zEiVk5qowerHEtd9nN/cLztTk+Sq9Hr/j4uDafsvqQlrsHqraGZh8srQ5qqQMaTjdTofMAsLZ6iRL91ppSToH2SRa6bJxG0fROQR6Ruc/RSAMb5VWy6SI/uUUW+kD5BOQxVFbPFR0cJmqZjpZGNs+p7AcyUuOGetqYqOlidNUynDGN6/8vmuwcIcIw8MUxfIWzXOcfnTDk0fyN9B+6tCDmy2bPHTx/wCjnC3C0fC9tdGwiatnw6onx8TugHZo6D6q6MhfGA7mE/q39FGlGDt1W2MVFUjwpzc5OUiukZh7uxUN9OZzpwScqyfgnHU8lVXuaWioHNiI95qiIIT2c7bV9Bk/RXTo5EentsN2td1kID4Kp3htLSN2M8ufvlU1FbRLTTW6rk1sa0tLC3LXt6Ef3CvaOAW+COKnBa1jdLTnkAMBOxRNn8CoAa9+7JGciHZ5j0KrvYcTzN7R/wAPPD98mkfSRttNe/eOrpowIpD2kj5Z9RheYON/ZdxRwDPJ/FLe59ED5a6mBfCR6nm36r6X3Sztd4sUoBa4ZLTyPoCsTcLaaOB0VTCai3Py3LhkxZ5gjqPmtGPN6M88P0fNMeIQD+k8sDmnGxudndetuPfw32PiCOav4feLbVu8/wCRvC4/6o+n/pXmTivgfiHguo8K60b2xZwypi80L/8A1dD6HC0xkmcHFopvDDRu5J8oPPKaGtpGSQexTgBIG3NWIFtDCMkHPoleLG1hAadWeZTbderGlvyUh8bXMaWxyDO3m7oBLKoR7tHm6ckiSvldKHnVkcsFEIHAny/skOZg4ICAo8IIIIAAZR756IZKMeqAMI9WAiyMc0WQgFB2cJWnsU2DjolavQoBWcDbKPUT0KLHbKMO0oAwCAhukeIM9VacPWK48VXuhs1ppjUXCskEcUY5Z6k9mgZJPQBAR7fQVl2rYaKgpZqusndpjhhYXPeewAXozgL8L4IiruMql+Rh38Mo3cvSSX+zfuuz+zL2QWj2b20NpmtqrtIwNqrg4eaQ9Ws/lZnoNz1XTKanaQ2NrQWfq2WXJqPUTRjw3yzP2u0R2ayspLfTxUNshGIaSmZojHdxA5n1OSVfW59W+hY2GoLGD42t2J+ykVjQ9xZjy4wB6KBTUpil2dhiybm+zUo10W1oDo+IaGUjysfpA5k7EkrnP4hLDHw/dbVx1SREspKg01e5jdpKWXHnBHPS7B+62d7hL7HUlmclxBwd9JBBSLTB/wCIfZPYLbdHmSgkZ7nPr3AAe+L6eXH2UHXFLbKzBxBszGlu7SAQR1HRSYBpO/QrIcAyVNBTVnDtxLv4hY530bi/m+Npwx31bhbJ+BjHNY5KmeuuVZMEjQ3KT4r53MhiY98sjg1jWjJcTyACYidJM9kUTXPkeQ1rGjJcT0A7rqHBljpeHXQ1lzbrr6nyQuYdYjzzDQOu27vpy3Mxi5OiuTMsatlzwZwizhykM9RpfdKhv5rxuI2/yN/uepWpOw9UhkjJAHMc1zeWWlGXb7LZGKjweRkyPJLdILUmpe6cRPAxzVihAcBIHjGw6gKgqSa+5yYOY6MmFhHV/wCs/QYb91Z3WvNlttZcc7wtwxn87zs0fchV1DTfw+jiheczNaPEJ5l53cfqSVDCRMAzy2Cj0hGuaF2CM5CfhOWEqNLG6KbxGjYncKh09Et8zoQ0vAk0HLQ5MSxNqtQYGGKQeZr9tP06pMr3SNJA39VWyyTySEOGkN3BB5KyZRoo7lw9NbpZJqMkxDd0Z5hUFxstv4ipJYqiCJ+sYc17QQ4dnDqunyVEUzRJMPznNxnJwT6rPXWytDveGujhlPINGziusZnGUTyF7Qvw7wCSWq4dcKScZJo5XEwyf7rjuw+nJcEuNmr7XcJLfXU76Ssi2Mc/l+oPUeoX0braSGrYWSu8OZu3mGWlc0479n9tv9MaS8UbXw/7KoA80J7tfzAWqGT0ZpQro8WGjmpvO7wcN6iUHdS4K/3SDV5i5x8oDgcfRbbiz2IXaxVEktLKysoW75cMSNb3IGc/MLEt4fmbE/yRP7PEgwuy5OY3cLzHLAwe8SPmf8f5YGn5FVPjskcN5CT1IU6ppHUpHiQMazGxDgcpJqYWQscKGGTf4y44/ZAZsFHlJ1emEaAU1HpOeSRqLURlf3QC8eiUDgJrU88yjD3fRAOavmlazjYZPqm9RKMyHkCgFFxPohlI1OPUoIBWoZ6L2t+FX2VtsVgl4uuEY/il2py6ma4bwU2dj85CM/7oHdeNLPa5r3dqC207XGeuqI6dgaOZe4NH9V9VrTb4LfRz01OwMpaSJlJCANhHGwNb+wC4aie2NfZ1wxuVkERBsTCMEkaipEMQYcAHHVx/sk7C1ux8Z5nspWgv8PSNtIK8+zcQ6oYmHqEwxn5n/RSa5p8WNo5k6U29kkZeNtEbi123I4UoEimET4mRyt1McDkd8qzpbdTOslXbKaJrImOdKyPOdyck/c5VayJwERA5AKZS1D4J45I3NDtRZ5txu3kVFlk6OGe0Wlfw7xzar3hwp7xEYpT3ezbf1x/RXDniRgkbu0gEHut/7TuArbeOCanxnPnudFDLW0dVG7AjmDQdOOoIZpx6rlPBVwPENtojTxky1OBHGOeo7Y+6z5FTPV0s98eTp/s0twNRVXExeNPGRT08f+tzSXHf0wPkSt7DTRU7hPVh89U5oZEGZAx1OeuT225Doq3hvh24cN0j6B4EtbVP1CRgOiIEAEZ+Q3K1kHgWqERQESSgYfM7mfl2Hou+NVE87UT3ZHTKt0NbSgStb7vDpwDpA+7Sjp+JKXx/d6hzWy8tUYLm59eyr7lXzXKpMEDiXfqfnOgKZb7VBQx4YMSHm7qps57S7ZI2Roexwcw9QU4G6iB3VA6J9K50jJi1xOT/ANR1T9PfZGDD4I3yEEBzSQPqFbcVoouKpDX3uioY96a3kVM/Z0pH5bPoPMfmFKYSIvM7U951OJ7o2Qtb4jneeSV5kkeebnHmT/30CTJ8YaouyUSYDiPCXI0acuIA9Uw0lrNjgqNM3IJc7OAeZVS1jj52hp0ndRviyXczzTerZJDidXyVkVFyTvDMM+QJSI3SQ6mEh7DzY7cH/qjHLKGf1Fp0jqrIgRNSsuEIMcYbI39BGM+oKoqikfT6opow6E84zuR69j8la1NY2F2lmp8suwbjP7JENTNTuEdQ8SxjYNAy4E9j3+aunRSUUzB3bhcOj10w8WBxJaIzgsPUDO7T6HYrkHF3sptNzqBWCOOGqOcSxN0xyns9vR32XpmWytuLy+hqHS1B3LHDD/t1WauNhqC+TxqR2HHd2nSHd+fVdo5GjNKHJ4i4stdTwrVPN24Ujip2nSKmEaonDpuOXyOFQV1zslzpWMbHT0cvUGMgfPIXte5cLw1lLLA4081LK3Q+KQ6mPaeh7LzJ7Q/YnfuH6uWS2xGqs0h1thwDLG3sHfqHYhaI5L7OUotHAuaGAUQ2Rq5UMbIYScFGMoBWk4Q0lFkhGCSgBpPdGUWSEeQeiAPKCLIStQ6IDsX4YuGzxB7XLVI9uYLXG+udnlqaNLP/AHvb9l9EoI2sppGtBAL38/svG/4MrW0zcUXd7d2PpqRh7Z1vP9AvYkMn+ABHN5I/dYNTK50bMC8bKePehqR2eW/up9HIHNibz07fsq6m8/jx9DPhP25+qUDqZCVno7jtXFm40ze78qLWy6K6aJxIbM4Seh2wVY1P/wB3h9BlRLpA2oc5v6mk4RAsqbw5qZsg3yDhRA3FLO/9Ubw8fQqNZakhs0DiC9rtQHz/APhWUEYLJo3frz+6MlE2ankqIauCN2pr4i8NO+Vx32QcPutPtQuVnLAYLbruVNnkYpBhv/C9xH0XZrXUGN0EgO7Wkc+ybobRSWviO7XZzGte+mZTxOzg+GXF5b/xKtWztjzOCkvs0U89QGu1EBg5gclnbhcZJntpKUaqiQ426DqfkEdTXVN1nZS0zTvyGdsdz2CdjpoqAFkbtcrv8yX+b0HYK7OCHKGlioYQxhDn83PI+Ip99SGN23KhOqSMgJsyE81UvYuWR0h8x2SGEA4RF6bMgCEMd8QufgFDnISeibhGxcOuyWfKMqwFyPDQT2VfLOXKQ92QVGazMmegQgU1mGFxHNJi2ynXv2GeRTUez3fNSgOaRnzHYc/VRK6oZCGuZkuPJuU7PM1jc5G/RQ6eJ9S41Egy0Hyj+6kCIo3QtM78Gok2APT0UyCnZHgSZMh6OALHZU+gpdbjVSD4RiMf1cpb2Mp6eWpqGAxEfL5fdSVZR3AMpW+MXHxCcAAnJP8AYKhrJnVY8adz/EBDS8EksI5H5diOXJXEjnVlUZHNIGNOkcmjsoxowC/IJONirJlaKCbVJqIwyrbu4NHkmH8w7HuEdJccQPi93ZUxAEvo5WgnHV0Z7/6VMqKLDRjbHI+qq6mmIPiMJbIDkEbbromUcT5kZ9EeUnKNbjEGShuESGVAD3zlDUe6H1RYx0QB6z3KGs5QG6PCAJp7pXNAhAAoD2X+DRgdwZxPk4IutOc/KMr0/Ryf4POdmEt3+S8yfg7pnw8C3+Vw2q7j5P8A+cQB/dwXo6gnE1PK3GB4rifTdefnXmzdh/qhuhdioqw4YEb3O+uNku0H/FM9S7+yYgfpnuZP87f6JNFIYqqAg4y139VxOhcyO/8AqjnnPkZsmosyOe875yd0mpJBLgTlwxlORgRxtHolklS7/C18EmMNc7QfqtAX5aHE+bY/NVNwgMlM8tGHDzA+oUiCb3imik7tBUMkubaY2vkMrgyFrXOy7mMhNYqb1UBsMRd8+QHcnoE5QUbKuNjfDM000gjijJIaT3PotDTEUtPLTxwvjY1vmfjGXf8AfRRuogg+HFaaV0UR1SvH5sp5u9B2Hoq5zy7fqna2fLRhxyee6hNfvzS7JQ5nfdEXY6ptz8FILt0JFl/qkE+qTqQzuN1IJjNogEl58uErYNGExM9SBD3dAji2adt8pgu6KRH0QBTYDG7dUkMw4k8kdTs3A7JM8gEZAG5SyCHpNdUaMYjHM9SFaxweJJHBGMA/sExSRaWZxu5W1tiw6WZ3TyD+6sQPvgY6RscTSA0YPyVVe6jxqqGjYcsjGpw6Z6fZXTXtgp56tx8rQTjvhY5z3ujqqt27sYz6k7qEETqZuJ9A6My768k1I3Tq22z1U2GLwoXH9UjsuKj1IGA0dVNk1wVs8XlyRsq6qpw5pOFeVLB4QVdjUcFXTKtHyhKJAoL0zzQx3RogeiNABGESAKAPKGr0RI1FAH1Qz2QLcowzAJB3AygPen4arY62+ySwT4IkqZKmrIx8QMmn+jF162uEUlYwHYTEj5Hf+6yfs1t/8F9n3BtJgAw26APHq9mo/u5aGjkMV0roiMDyvHyLV5uR3Js3w4iiZAQ+quMffSR/wppjtL6d3Q53+qZgmLLhUv6bf0Uh7RopgOkYd9ySqUWLN35pYOndPA5UeldqjBynWO2aOpVGXQp41Nc08iCFAtL8QeGc+QkfLCsXgDfoqqjJiuEkefJI7OPUqUQzeWSj1t1uBAazS13UE7khWxdHBI9mrOSH6ANLAcYzjPNR4JXMDY2M0tb2CiXKbwKtr/0uGFVxKlXewxk2Y9s7nCqGzFrsq0nImfITvk5VdPTloJbv6KS6FiYOHNIMmFEDyw4KXqyEoEkPzlK1YaogcQU6ZMhv9kRJZZ8o+SjSu3x0So5dUe3MJt26kBRt1yE9AE9Fu/B6FHE0Njz1KRGcOz3QC6lpIAHYpljTLoPQhSJfNG045lN0R/LwRu1xH7oB5g0gkD4dvqrlkRhpo48bkeb1JVZRR+NJE0jZzi53y5q3kcRNgbnGylFWVd8efdoKNn+0dk47Dqqi5NbBa9DRgPnib93gKwrXeJcJHHlGPDaflz/dQ7q0vpaVmM+JWQD/AN+f7ISkWEpwSBsAVAedco7BTKlwGo9cqHG3fOeZUFxcwGjGMqmYdc8jQMYV2/cfRU1G3XLUuPQ6VZMpI//Z" alt="Bautista">
+              <img src="data:image/jpeg;base64,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" alt="Bautista Martínez Vuoto">
               <div><span class="who">Bautista Martínez Vuoto</span><span class="rol">CMO</span></div>
             </div>
           </div>
@@ -720,39 +787,39 @@
   <section class="slide">
     <div class="slide-body">
       <p class="eyebrow">Plan · 12 meses</p>
-      <h1 style="--h1:3.5cqw;">Primero soltamos la memoria de la app. <em>Después le damos la llave al equipo.</em></h1>
+      <h1 style="--h1:3.3cqw;">Primero que funcione en todos lados. <em>Después, la llave para el equipo.</em></h1>
 
-      <div class="timeline" style="margin-top:3.4cqw;">
+      <div class="timeline" style="margin-top:4cqw;">
         <span class="dot on" style="left:0;"></span>
         <span class="dot" style="left:25.5%;"></span>
         <span class="dot" style="left:51%;"></span>
         <span class="dot" style="left:76.5%;"></span>
         <div class="cols c4" style="--gap:2.2cqw;">
-          <div class="step lead" style="background:rgba(45,208,138,.06);border:1px solid var(--accent-deep);border-radius:4px;padding:1.4cqw 1.5cqw;">
+          <div class="step lead" style="background:rgba(45,208,138,.06);border:1px solid var(--accent-deep);border-radius:4px;padding:1.6cqw 1.5cqw;">
             <span class="nm" style="font-family:var(--font-mono);font-size:var(--eyebrow);letter-spacing:.14em;color:var(--accent);">Mes 1–3</span>
-            <h3>El plugin suelto</h3>
-            <p>La memoria deja de necesitar Nest abierto: corre en Claude Code, Codex y Gemini CLI. Es lo que nos empata con el que ya tiene distribución.</p>
+            <h3>Sin depender de Nest</h3>
+            <p>Funciona con cualquier asistente, sin Nest abierto.</p>
           </div>
-          <div class="step" style="padding:1.4cqw 0 0;">
+          <div class="step" style="padding:1.6cqw 0 0;">
             <span class="nm" style="font-family:var(--font-mono);font-size:var(--eyebrow);letter-spacing:.14em;color:var(--muted);">Mes 4–6</span>
             <h3>La llave del equipo</h3>
-            <p>Cifrado del lado del cliente. El servidor guarda lo que no puede leer — y eso destraba a los equipos que hoy no subirían nada.</p>
+            <p>Destraba a los equipos que hoy no subirían nada.</p>
           </div>
-          <div class="step" style="padding:1.4cqw 0 0;">
+          <div class="step" style="padding:1.6cqw 0 0;">
             <span class="nm" style="font-family:var(--font-mono);font-size:var(--eyebrow);letter-spacing:.14em;color:var(--muted);">Mes 7–9</span>
-            <h3>El loop entero</h3>
-            <p>El grafo de agentes escribe memoria solo, con procedencia. Diez pilotos pagos acompañados de cerca.</p>
+            <h3>10 equipos probándolo</h3>
+            <p>Se escribe sola de punta a punta, con diez equipos pagos.</p>
           </div>
-          <div class="step" style="padding:1.4cqw 0 0;">
+          <div class="step" style="padding:1.6cqw 0 0;">
             <span class="nm" style="font-family:var(--font-mono);font-size:var(--eyebrow);letter-spacing:.14em;color:var(--muted);">Mes 10–12</span>
-            <h3>De 100 usuarios a 500 asientos</h3>
-            <p>Crecimiento por equipos, no por usuarios sueltos.</p>
+            <h3>De 100 personas a 500</h3>
+            <p>Crecemos por equipos, no de a uno.</p>
           </div>
         </div>
       </div>
 
       <div class="kicker">
-        El terminal ya está hecho y es la puerta de entrada. <b>Los doce meses son todos de Memories.</b>
+        <b>Los doce meses son todos de Memories.</b>
       </div>
 
       <div class="foot"><span>10 · Plan <b class="habla">· Gerónimo</b></span><span>Nest</span></div>
@@ -763,33 +830,29 @@
   <section class="slide">
     <div class="slide-body">
       <p class="eyebrow">Lo que necesitamos</p>
-      <h1>Buscamos contactos con equipos<br>de desarrollo de 5+ devs para probar<br><em>Memories en 10 pilotos.</em></h1>
+      <h1 style="max-width:24ch;">Diez equipos de cinco programadores <em>para probar Memories.</em></h1>
 
-      <div class="cols c4" style="margin-top:4.6cqw;">
+      <div class="cols c3" style="margin-top:5cqw;">
         <div class="mech lead">
-          <span class="tag">Cuánto</span>
-          <h3 style="--h2:1.8cqw;">10 equipos</h3>
+          <span class="tag">Cuántos</span>
+          <h3 style="--h2:2cqw;">10 equipos</h3>
         </div>
         <div class="mech lead">
-          <span class="tag">Para cuándo</span>
-          <h3 style="--h2:1.8cqw;">90 días</h3>
+          <span class="tag">Cuánto dura</span>
+          <h3 style="--h2:2cqw;">90 días</h3>
         </div>
         <div class="mech lead">
-          <span class="tag">Para qué</span>
-          <h3 style="--h2:1.8cqw;">Medir cuántos pasan de local gratis a nube paga</h3>
-        </div>
-        <div class="mech lead">
-          <span class="tag">Qué logra</span>
-          <h3 style="--h2:1.8cqw;">Los primeros ingresos recurrentes</h3>
+          <span class="tag">Qué medimos</span>
+          <h3 style="--h2:2cqw;">Cuántos siguen pagando el día 91</h3>
         </div>
       </div>
 
-      <div style="margin-top:auto;border-top:1px solid var(--line-soft);padding-top:2.2cqw;display:flex;justify-content:space-between;align-items:baseline;gap:2cqw;">
-        <h2 style="font-size:2.4cqw;font-weight:500;">Y pasar a la final.</h2>
-        <p style="font-size:var(--small);color:var(--text-2);text-align:right;line-height:1.5;">Nest corre los agentes de tu equipo.<br>Por eso es donde puede vivir su memoria.</p>
+      <div style="margin-top:auto;border-top:1px solid var(--line-soft);padding-top:2.4cqw;display:flex;justify-content:space-between;align-items:baseline;gap:2cqw;">
+        <h2 style="font-size:2.6cqw;font-weight:500;">Nest corre los asistentes de tu equipo.<br><span style="color:var(--accent);">Por eso es donde puede vivir su memoria.</span></h2>
+        <p style="font-family:var(--font-mono);font-size:var(--body);color:var(--accent);text-align:right;">nestmux.com</p>
       </div>
 
-      <div class="foot"><span>11 · El pedido <b class="habla">· Gerónimo</b></span><span>nestmux.com</span></div>
+      <div class="foot"><span>11 · El pedido <b class="habla">· Gerónimo</b></span><span>Nest</span></div>
     </div>
   </section>
 
