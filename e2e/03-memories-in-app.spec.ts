@@ -19,7 +19,7 @@
 //    smoke aparte — ver `keepRealHome` en el harness.
 import { test, expect } from '@playwright/test'
 import { launchHarness, teardown } from './helpers/harness'
-import { mkdirSync } from 'fs'
+import { existsSync, mkdirSync } from 'fs'
 import { join } from 'path'
 
 const SHOTS = join(__dirname, '..', 'test-results', 'memories-in-app')
@@ -171,6 +171,9 @@ test('el overlay se dibuja: fila de estado arriba y un cuerpo, nunca un hueco', 
     // por rol y nombre accesible — la clase vieja `.memories-empty` desaparecio con la
     // migracion); con repo dibuja el panel del hilo. Los dos son estados validos — lo que
     // NO puede pasar es que no haya ninguno.
+    // El OR de abajo no distingue cual de los dos salio, y con `withRepo: false` siempre
+    // sale el mismo: el otro lado lo cubre el ultimo test del archivo, que linkea un repo
+    // y exige el panel.
     // Review M3: el locator por rol queda ANCLADO al overlay (no a `page` entero) — sin
     // esto el assert no prueba que el boton esta ADENTRO de `.memories-workspace`, solo
     // que existe en algun lado de la pagina.
@@ -205,6 +208,74 @@ test('Settings ya no tiene las tarjetas de memoria — solo la puerta', async ()
     await expect(page.locator('.memory-status-card')).toHaveCount(0)
 
     await page.screenshot({ path: join(SHOTS, '06-settings-solo-la-puerta.png') })
+  } finally {
+    await teardown(h)
+  }
+})
+
+// El hueco que el test de arriba dejaba abierto por diseño: su assert es un OR
+// (`conGrafo + sinRepo > 0`), y como TODOS los tests de este archivo arrancan con
+// `withRepo: false`, la rama que se ejercitaba era siempre la misma — la nota al pie.
+// El lado del repo vinculado —el panel de ramas y la tarjeta de compartir, que juntos son
+// tres IPC encadenados contra el main real— no lo corrió nunca nadie fuera de jsdom, donde
+// esos tres IPC son mocks que devuelven lo que el test quiera.
+test('con un repo vinculado se dibuja el panel de ramas, y prenderlo escribe el hilo', async () => {
+  const h = await launchHarness()
+  const { page } = h
+  try {
+    // El picker de carpeta es un diálogo nativo. `__e2e_linkRepo` es el atajo que App.tsx
+    // expone bajo el mismo gate que el bypass de auth (RAVEN_E2E=1).
+    await page.evaluate((dir) => {
+      ;(window as unknown as { __e2e_linkRepo?: (p: string) => void }).__e2e_linkRepo?.(dir)
+    }, h.repoDir)
+    await expect(page.locator('.sidebar-repo-name')).toHaveText(h.repoDir.split('/').pop()!, { timeout: 10_000 })
+
+    await page.getByTitle(/^Memories/).first().click()
+    const overlay = page.locator('.memories-workspace')
+    await expect(overlay).toBeVisible({ timeout: 10_000 })
+
+    // 1. Estamos del otro lado del ternario: la nota al pie de "sin repo" no está.
+    await expect(overlay.getByRole('button', { name: /link a repo/i })).toHaveCount(0)
+
+    // 2. Y el panel de ramas sí. Que se vea ya prueba que los tres IPC encadenados de
+    //    TeamThreadPanel contestaron ok contra el main de verdad
+    //    (projectKeyForWorktree → getSettings → read): un fallo en cualquiera de ellos
+    //    reemplaza el panel ENTERO por `.team-thread-error`. El assert del error igual se
+    //    escribe, porque "no aparece el panel" y "aparece el error" son dos rojos
+    //    distintos y conviene que el test diga cuál de los dos pasó.
+    await expect(overlay.locator('.team-thread-panel')).toBeVisible({ timeout: 15_000 })
+    await expect(overlay.locator('.team-thread-error')).toHaveCount(0)
+
+    // El repo de e2e no tiene remote, así que el projectKey sale del PATH
+    // (resolveProjectKey: remote → path → global). Es el camino que una carpeta local
+    // recién abierta recorre de verdad, y el que un repo con remote nunca ejercita.
+
+    // 3. La tarjeta de compartir tampoco se había dibujado jamás en la app: sin repo
+    //    devuelve null y sale del árbol.
+    await expect(overlay.getByText(/Share (this project with a team|memory with your team)/)).toBeVisible()
+
+    await page.screenshot({ path: join(SHOTS, '07-overlay-con-repo.png') })
+
+    // 4. El hilo arranca APAGADO, que es el default de `loadTeamThreadSettings`.
+    const prender = overlay.getByRole('button', { name: 'Turn on' })
+    await expect(prender).toBeVisible()
+
+    // 5. Prenderlo no es un toggle de UI: corre `runTeamThreadForRepo` en main, que
+    //    escribe `.nest/team/` en el repo. Sin plan conocido no se bloquea
+    //    (`planAllowsTeamSharing(undefined) === true`), que es el caso de una máquina sin
+    //    conectar — o sea, el de este harness.
+    await prender.click()
+    await expect(overlay.getByRole('button', { name: 'Turn off' })).toBeVisible({ timeout: 30_000 })
+    // Un repo recién creado no tiene memorias, así que el grafo tiene sólo el índice y el
+    // panel lo dice en vez de dibujar un punto solo en el medio.
+    await expect(overlay.getByText(/No branch notes yet/)).toBeVisible()
+
+    // Y el hilo quedó ESCRITO, que es lo que el botón promete. Sin esto el test se
+    // conformaría con que el botón cambie de nombre: `setSettings` guarda el ajuste y
+    // recién después corre `runTeamThreadForRepo`, así que un fallo del pase de escritura
+    // se ve en el disco y en ningún otro lado.
+    expect(existsSync(join(h.repoDir, '.nest', 'team', '_index.md'))).toBe(true)
+    await page.screenshot({ path: join(SHOTS, '08-hilo-prendido.png') })
   } finally {
     await teardown(h)
   }
