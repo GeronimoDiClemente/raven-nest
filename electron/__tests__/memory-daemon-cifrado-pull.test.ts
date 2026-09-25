@@ -508,4 +508,43 @@ describe('el gate se arma por el status, sin depender de ver ciphertext', () => 
     expect(store.knownKeyEpoch(), 'sigue armado').toBe(1)
     expect(srv.subidas).toEqual([])
   })
+
+  /**
+   * La pregunta es "¿tengo la maestra VIGENTE?", no "¿tengo UNA?". Rotar sube la época y
+   * borra las envolturas: una máquina que se quedó con la maestra anterior subiría filas que
+   * ninguna otra puede abrir, con estado `idle` y sin un solo aviso.
+   */
+  const daemonConMaestra = (fetchImpl: typeof fetch, keyEpoch: number) => new MemoryDaemon({
+    store,
+    getSyncBaseUrl: () => 'http://sync.test',
+    getToken: () => 'tok',
+    getDeviceId: () => 'dev',
+    isOnline: () => true,
+    fetchImpl,
+    getEnvelopeContext: () => ({ keys: ctx.keys, keyEpoch }),
+    isEncryptionExpected: () => store.knownKeyEpoch() > 0,
+  })
+
+  it('con la maestra de una época anterior no sube nada', async () => {
+    guardarAlgoPrivado()
+    const srv = servidor({ keyEpoch: 2 })
+    const daemon = daemonConMaestra(srv.fetchImpl, 1)
+
+    await daemon.push()
+
+    expect(store.knownKeyEpoch()).toBe(2)
+    expect(srv.subidas, 'no subió filas que nadie puede abrir').toEqual([])
+    expect([daemon.getStatus(), daemon.getStatusDetail()]).toEqual(['error', 'needs_key'])
+  })
+
+  it('con la maestra vigente sube, y sube cifrado', async () => {
+    guardarAlgoPrivado()
+    const srv = servidor({ keyEpoch: 2 })
+    const daemon = daemonConMaestra(srv.fetchImpl, 2)
+
+    await daemon.push()
+
+    expect(srv.subidas).toHaveLength(1)
+    expect(srv.subidas[0].title).not.toBe('mi decisión privada')
+  })
 })

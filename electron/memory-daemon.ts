@@ -745,23 +745,23 @@ export class MemoryDaemon {
     if (!this.primerStatusOk && this.deps.isEncryptionExpected) await this.status()
 
     /**
-     * **Esto pregunta "¿tengo UNA maestra?", no "¿tengo la VIGENTE?"** — y hoy alcanza porque
-     * ningún camino de la app rota (`memory-keys-client.ts#activateEncryption` sólo corre en
-     * época 0, a propósito). El día que exista rotación deja de alcanzar: una máquina que se
-     * quedó con la maestra de la época anterior pasaría este gate y subiría filas que NINGUNA
-     * otra máquina puede abrir, con estado `idle` y sin un solo aviso. Su envoltura además ya
-     * fue borrada por la rotación (`delete from key_wraps` en el servidor), así que tampoco
-     * se entera por ahí.
+     * La pregunta es "¿tengo la maestra VIGENTE?", no "¿tengo UNA?". Rotar sube la época y
+     * borra las envolturas (`delete from key_wraps` en el servidor), así que una máquina que
+     * se quedó con la maestra anterior pasaría un gate que sólo mirara si hay maestra: subiría
+     * filas que NINGUNA otra máquina puede abrir, con estado `idle` y sin un solo aviso. El
+     * servidor no lo frena —no mira la época de los sobres—, así que es acá o en ningún lado.
      *
-     * Lo correcto entonces es comparar `getEnvelopeContext()?.keyEpoch` contra
-     * `knownKeyEpoch()` — que es lo que YA hace `enrolamiento-del-paquete.ts` para el paquete
-     * portátil. **No se hace todavía a propósito**: un `keys.bin` escrito antes de que el
-     * campo existiera trae `keyEpoch: 0`, así que el chequeo estricto bloquearía hoy a
-     * máquinas legítimas para evitar un caso que no se puede alcanzar. Encontrado por la
-     * cuarta revisión adversarial (2026-09-21).
+     * Es `<` y no `!==`: una maestra MÁS nueva que la época recordada no es un peligro, es un
+     * store que todavía no se enteró (la época recordada sólo sube, ver `rememberKeyEpoch`).
+     *
+     * Hasta el 2026-09-24 esto no se hacía porque "un `keys.bin` viejo trae `keyEpoch: 0`".
+     * No existe tal archivo: el campo está desde el primer commit de `memory-key-store.ts`, y
+     * los tres caminos que guardan una maestra (activar, adoptar, recuperar) guardan su época
+     * al lado. Encontrado por la cuarta revisión adversarial (2026-09-21).
      */
     const seEsperaCifrado = this.deps.isEncryptionExpected?.() ?? false
-    if (seEsperaCifrado && !this.deps.getEnvelopeContext?.()) {
+    const contexto = this.deps.getEnvelopeContext?.() ?? null
+    if (seEsperaCifrado && (!contexto || contexto.keyEpoch < store.knownKeyEpoch())) {
       this.setStatus('error', 'needs_key')
       return
     }

@@ -3335,8 +3335,11 @@ ipcMain.handle('memory:encryption:status', async () => {
   return buildEncryptionStatus({
     safeStorageAvailable: safeStorage.isEncryptionAvailable(),
     connected: Boolean(deps),
-    keyEpoch: keyEpoch || (memoryKeys?.keyEpoch ?? 0) || (memory?.store.knownKeyEpoch() ?? 0),
+    // Sin red, la época recordada y no la de la maestra: la recordada sólo sube, así que si la
+    // maestra quedó atrás la tarjeta lo muestra igual estando offline.
+    keyEpoch: keyEpoch || Math.max(memory?.store.knownKeyEpoch() ?? 0, memoryKeys?.keyEpoch ?? 0),
     hasMaster: Boolean(memoryKeys?.master),
+    masterEpoch: memoryKeys?.master ? memoryKeys.keyEpoch : 0,
     devices,
     undecryptable: memory?.store.undecryptableCount() ?? 0,
     estadoRemotoLeido,

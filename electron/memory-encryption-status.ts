@@ -6,6 +6,8 @@ export interface EncryptionStatusInput {
   connected: boolean
   keyEpoch: number
   hasMaster: boolean
+  /** La época de la maestra que tiene ESTA máquina (`keys.bin`). `0` = ninguna. */
+  masterEpoch: number
   devices: Array<{ deviceId: string; name: string; publicKey: string; hasWrap: boolean }>
   undecryptable: number
   /** Si `fetchKeyState` respondió. Ver `estadoRemotoLeido` en el objeto de salida. */
@@ -41,7 +43,10 @@ export function buildEncryptionStatus(input: EncryptionStatusInput): EncryptionS
   const available = input.safeStorageAvailable && input.connected
   return {
     available,
-    active: available && input.keyEpoch > 0 && input.hasMaster,
+    // Una maestra de una época anterior no abre lo que se sube después de rotar, y el push de
+    // esa máquina está cerrado con `needs_key`: la tarjeta tiene que ofrecer conseguir la
+    // clave, no decir que el cifrado está activo.
+    active: available && input.keyEpoch > 0 && input.hasMaster && input.masterEpoch >= input.keyEpoch,
     keyEpoch: input.keyEpoch,
     pendingDevices: input.devices.filter((d) => !d.hasWrap).map((d) => ({ deviceId: d.deviceId, name: d.name })),
     undecryptable: input.undecryptable,

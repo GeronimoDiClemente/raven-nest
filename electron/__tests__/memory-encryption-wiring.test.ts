@@ -6,6 +6,7 @@ const base = {
   connected: true,
   keyEpoch: 1,
   hasMaster: true,
+  masterEpoch: 1,
   devices: [
     { deviceId: 'mac', name: 'mac', publicKey: 'P1', hasWrap: true },
     { deviceId: 'pc', name: 'pc', publicKey: 'P2', hasWrap: false },
@@ -36,6 +37,15 @@ describe('buildEncryptionStatus', () => {
     const s = buildEncryptionStatus({ ...base, hasMaster: false })
     expect(s.available).toBe(true)
     expect(s.active).toBe(false)
+  })
+
+  // Rotar sube la época: la maestra que quedó en esta máquina ya no abre lo nuevo. La tarjeta
+  // tiene que caer en "esta máquina necesita la clave", no decir que el cifrado está activo
+  // mientras el push está cerrado con `needs_key`.
+  it('con la maestra de una época anterior, activo es false', () => {
+    const s = buildEncryptionStatus({ ...base, keyEpoch: 2, masterEpoch: 1 })
+    expect(s.active).toBe(false)
+    expect(s.keyEpoch).toBe(2)
   })
 
   it('lista solo las máquinas que esperan autorización', () => {
