@@ -175,7 +175,8 @@ describe('formatTimeToReset', () => {
 
 describe('claudeUsageFilePath', () => {
   it('points at <home>/.claude.json, not the .claude/ directory', () => {
-    expect(claudeUsageFilePath('/home/gero')).toBe('/home/gero/.claude.json')
+    // `path.join` usa el separador de la máquina que corre el test.
+    expect(claudeUsageFilePath('/home/gero').replace(/\\/g, '/')).toBe('/home/gero/.claude.json')
   })
 })
 

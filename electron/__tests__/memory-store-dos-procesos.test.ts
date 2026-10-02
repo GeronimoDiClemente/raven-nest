@@ -3,6 +3,7 @@ import { execFileSync } from 'child_process'
 import { mkdtempSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
+import { buildSync } from 'esbuild'
 import { MemoryStore, SCHEMA_VERSION } from '../memory-store'
 
 /**
@@ -38,12 +39,21 @@ describe('dos procesos sobre la misma base', () => {
    * proceso: dos instancias acá comparten el mismo `better-sqlite3` y el mismo heap, así que
    * no reproducirían nada. El bug vive entre procesos.
    *
-   * `tsx` resuelve el TypeScript directo y ya es dependencia del repo.
+   * El script se compila con esbuild —que siempre está, viene con vite— y corre con el MISMO
+   * node que los tests. Antes era `npx tsx`, que no es dependencia del repo (en una máquina
+   * con red `npx` lo bajaba al vuelo) y que en Windows ni arrancaba: `npx` es `npx.cmd` y
+   * `execFileSync` da ENOENT.
    */
   const escribirEnOtroProceso = (etiqueta: string, cuantas: number): void => {
     const script = join(dir, `w-${etiqueta}.ts`)
+    const modulo = (nombre: string) => JSON.stringify(join(process.cwd(), 'electron', nombre).replace(/\\/g, '/'))
+    // El hijo registra el motor nativo igual que `setup.ts` en los workers de vitest: el store
+    // no elige motor solo (ver `usarAbridorPorDefecto`) y sin esto lanza al construirse.
     writeFileSync(script, `
-      import { MemoryStore } from ${JSON.stringify(join(process.cwd(), 'electron/memory-store.ts'))}
+      import { MemoryStore } from ${modulo('memory-store.ts')}
+      import { usarAbridorPorDefecto } from ${modulo('sqlite-motor.ts')}
+      import { abrirConBetterSqlite3 } from ${modulo('sqlite-better.ts')}
+      usarAbridorPorDefecto(abrirConBetterSqlite3)
       const store = new MemoryStore(${JSON.stringify(dbPath)})
       for (let i = 0; i < ${cuantas}; i++) {
         store.save({ projectKey: 'p', scope: 'personal', type: 'decision',
@@ -51,7 +61,14 @@ describe('dos procesos sobre la misma base', () => {
       }
       store.close()
     `)
-    execFileSync('npx', ['tsx', script], { cwd: process.cwd(), stdio: 'pipe' })
+    const salida = join(dir, `w-${etiqueta}.cjs`)
+    // Las dependencias quedan afuera del bundle (el binding nativo no se puede empaquetar) y
+    // se resuelven contra el node_modules del repo por NODE_PATH.
+    buildSync({ entryPoints: [script], bundle: true, platform: 'node', format: 'cjs', packages: 'external', outfile: salida, logLevel: 'silent' })
+    execFileSync(process.execPath, [salida], {
+      cwd: process.cwd(), stdio: 'pipe',
+      env: { ...process.env, NODE_PATH: join(process.cwd(), 'node_modules') },
+    })
   }
 
   it('no emiten lamports duplicados', () => {

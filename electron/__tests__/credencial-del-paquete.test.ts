@@ -44,7 +44,9 @@ describe('guardar y leer', () => {
     expect(crudo.startsWith('##')).toBe(true)
   })
 
-  it('el archivo no queda legible por todo el mundo', () => {
+  // Windows no tiene bits de modo (ver el mismo test en aplicar-setup.test.ts): ahí aísla
+  // la ACL del perfil. Y el contenido igual va cifrado, que es la protección que importa.
+  it.skipIf(process.platform === 'win32')('el archivo no queda legible por todo el mundo', () => {
     guardarCredencial(home, safeFalso(), { token: 'nmk_abc', deviceId: 'd-1' })
     expect(statSync(pathDeCredencial(home)).mode & 0o077).toBe(0)
   })

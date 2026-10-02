@@ -58,7 +58,8 @@ describe('decidirBase', () => {
   })
 
   it('la base propia cuelga del home que le pasan', () => {
-    expect(pathDeBasePropia('/otro/home')).toContain('/otro/home')
+    // Normalizado: en Windows `path.join` devuelve `\otro\home\...`.
+    expect(pathDeBasePropia('/otro/home').replace(/\\/g, '/')).toContain('/otro/home')
     expect(pathDeBasePropia('/otro/home')).toContain('.nest-memory')
   })
 })

@@ -41,7 +41,11 @@ function archivosDeFuente(): string[] {
   const raiz = process.cwd()
   const patrones = ['src/**/*.ts', 'src/**/*.tsx', 'electron/**/*.ts']
   const todos = patrones.flatMap((p) => globSync(p, { cwd: raiz }))
-  return todos.filter((f) => !f.includes('__tests__') && !EXCEPCIONES.some((e) => f.includes(e)))
+  // Las excepciones se escriben con `/`; en Windows el listado viene con `\`.
+  return todos.filter((f) => {
+    const posix = f.replace(/\\/g, '/')
+    return !posix.includes('__tests__') && !EXCEPCIONES.some((e) => posix.includes(e))
+  })
 }
 
 /** Saca comentarios de bloque, de linea y de JSX, para mirar solo los literales. */

@@ -37,13 +37,19 @@ describe('el catálogo de destinos', () => {
     expect(destino('claude').formato).toBe('json')
   })
 
+  // Los paths se arman con `path.join`, que usa el separador de la máquina que CORRE el
+  // test: en Windows salen con `\` aunque la plataforma pedida sea darwin. Se comparan
+  // normalizados — lo que importa es la forma, no el separador.
+  const posix = (p: string) => p.replace(/\\/g, '/')
+
   it('el config de VS Code cambia de lugar según la plataforma', () => {
-    expect(destino('vscode', HOME, 'darwin').path).toContain('Application Support/Code/User')
-    expect(destino('vscode', HOME, 'linux').path).toContain('.config/Code/User')
+    expect(posix(destino('vscode', HOME, 'darwin').path)).toContain('Application Support/Code/User')
+    expect(posix(destino('vscode', HOME, 'linux').path)).toContain('.config/Code/User')
+    expect(posix(destino('vscode', HOME, 'win32').path)).toContain('AppData/Roaming/Code/User')
   })
 
   it('todos los paths cuelgan del home que le pasan', () => {
-    for (const d of destinosDeSetup('/otro/home', 'darwin')) expect(d.path.startsWith('/otro/home')).toBe(true)
+    for (const d of destinosDeSetup('/otro/home', 'darwin')) expect(posix(d.path).startsWith('/otro/home')).toBe(true)
   })
 })
 

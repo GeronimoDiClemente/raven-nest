@@ -73,7 +73,10 @@ describe('aplicarPlan', () => {
     expect(existsSync(d.path)).toBe(true)
   })
 
-  it('el archivo nuevo no queda legible por todo el mundo', () => {
+  // Windows no tiene bits de modo: `chmod` sólo toca el de sólo lectura y `stat` devuelve
+  // siempre 0o666. Ahí lo que aísla el archivo es la ACL del perfil del usuario, que el
+  // directorio home ya hereda.
+  it.skipIf(process.platform === 'win32')('el archivo nuevo no queda legible por todo el mundo', () => {
     // Un config MCP dice qué corre y con qué argumentos. En una máquina compartida, que
     // cualquiera pueda leerlo no hace falta.
     const d = destino('gemini')
