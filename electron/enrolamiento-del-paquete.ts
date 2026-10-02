@@ -43,6 +43,42 @@ export interface DepsDeEnrolamiento {
   huella: (publicKey: string) => string
 }
 
+export function mensajeDeEnrolamiento(resultado: ResultadoDeEnrolamiento): string[] {
+  switch (resultado.estado) {
+    case 'lista':
+      return ['This machine can read your encrypted memory now.']
+    case 'cuenta-sin-cifrado':
+      return ['Connected. This account does not use encryption. Nothing else to do.']
+    case 'esperando-autorizacion':
+      return [
+        'This machine cannot read your encrypted memory yet.',
+        `Its fingerprint is: ${resultado.huella}`,
+        'Authorize it from Nest on another machine (Memories → Encryption → Authorize),',
+        'comparing this fingerprint before authorizing.',
+        'Then run `npx nest-memory login` again to check access.',
+        'Or use your recovery code: `npx nest-memory recover`.',
+        'Recovery spends your one emergency copy; authorizing from another machine is preferred.',
+        'Local memory keeps working while you wait.',
+      ]
+    case 'sin-llavero':
+      return [
+        'Your credential is saved, but no system keyring is available to store encryption keys safely.',
+        'This machine cannot read encrypted cloud memory. Local memory keeps working.',
+        'Restore access to your system keyring and run `npx nest-memory login` again.',
+      ]
+    case 'error':
+      return [
+        `Your credential is saved, but encryption enrollment failed: ${resultado.detalle}`,
+        'Encrypted memory access could not be confirmed. Local memory keeps working.',
+        'Run `npx nest-memory login` again to retry.',
+      ]
+    default: {
+      const nuncaLlega: never = resultado
+      throw new Error(`Unhandled enrollment result: ${JSON.stringify(nuncaLlega)}`)
+    }
+  }
+}
+
 export async function enrolarEstaMaquina(d: DepsDeEnrolamiento): Promise<ResultadoDeEnrolamiento> {
   // Sin llavero no se publica nada. La privada tampoco se puede persistir, así que una
   // envoltura que llegara después no se podría abrir nunca: enrolar dejaría una clave pública
