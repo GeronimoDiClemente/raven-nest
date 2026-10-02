@@ -17,10 +17,11 @@ import { join } from 'path'
 const SHOTS = join(__dirname, '..', '.superpowers', 'sdd', 'shots', 'memory-graph')
 mkdirSync(SHOTS, { recursive: true })
 
-/** Alto del cuadro declarado en MemoryGraphPanel.tsx. Lo que la spec pide es que NO se coma
- *  la pantalla; acotar el alto alcanza, y el ancho se lo lleva el grafo (pedido del usuario
- *  el 2026-09-11: "que ocupe un poco mas de espacio horizontal"). */
-const ALTO = 380
+/** El alto del cuadro declarado en MemoryGraphPanel.tsx: `clamp(420px, 55vh, 720px)`. Lo
+ *  que la spec pide es que NO se coma la pantalla; acotar el alto alcanza, y el ancho se lo
+ *  lleva el grafo (pedido del usuario el 2026-09-11: "que ocupe un poco mas de espacio
+ *  horizontal"; y el 2026-10-01: "que ocupe mas espacio del panel"). */
+const altoEsperado = (altoDeVentana: number) => Math.min(720, Math.max(420, altoDeVentana * 0.55))
 
 async function abrirMemories(page: import('@playwright/test').Page) {
   const toggle = page.getByRole('button', { name: /Collapse sidebar|Expand sidebar/ })
@@ -93,13 +94,14 @@ test('con memorias: el cuadro es acotado, y la seleccion es una sola entre lista
     await page.waitForTimeout(5000)
 
     const caja = await cajaEstable(canvas)
-    // El ALTO es lo acotado: es lo que impide que el grafo se coma la pantalla.
-    expect(Math.round(caja.height)).toBe(ALTO)
-    const viewport = page.viewportSize() ?? { width: 1280, height: 800 }
-    expect(caja.height).toBeLessThan(viewport.height / 2)
+    // El ALTO es lo acotado: es lo que impide que el grafo se coma la pantalla. Crece con la
+    // ventana, pero entre un piso y un techo.
+    const altoDeVentana = await page.evaluate(() => window.innerHeight)
+    expect(Math.abs(caja.height - altoEsperado(altoDeVentana))).toBeLessThanOrEqual(1)
+    expect(caja.height).toBeLessThanOrEqual(720)
     // Y el ancho es de verdad ancho: el grafo se lleva lo que sobra despues del panel del
     // documento, no un cuadradito.
-    expect(caja.width).toBeGreaterThan(ALTO)
+    expect(caja.width).toBeGreaterThan(caja.height)
 
     await page.screenshot({ path: join(SHOTS, '02-grafo-con-memorias.png') })
 

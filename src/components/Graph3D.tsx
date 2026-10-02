@@ -13,6 +13,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ForceGraph3D, { type ForceGraphMethods } from 'react-force-graph-3d'
 import { CanvasTexture, Sprite, SpriteMaterial } from 'three'
+import { cajaSinExtremos, fuerzaHaciaElCentro } from '../lib/encuadre-3d'
 
 export interface Node3D {
   id: string
@@ -120,6 +121,26 @@ const ATENUADO_ARISTA = 'rgba(120, 120, 120, 0.06)'
  *  entraba en ningún lado. */
 const NODE_REL_SIZE = 4.5
 
+/** Cuánto tira la gravedad hacia el centro. Lo justo para traer a los grupos sueltos sin
+ *  aplastar el cúmulo principal: con 0.1 todo colapsaba en una bola y las aristas no se leían. */
+const GRAVEDAD = 0.04
+
+/** Vuelta entera en ~2 minutos (OrbitControls: 2.0 = 30s). Más rápido marea; más lento no se
+ *  nota que se mueve, que es el punto. */
+const VELOCIDAD_DE_GIRO = 0.5
+
+/** Cuánto espera el giro solo antes de volver después de que el usuario soltó el grafo. */
+const ESPERA_PARA_VOLVER_A_GIRAR_MS = 8000
+
+interface ControlesDeOrbita {
+  enableDamping: boolean
+  dampingFactor: number
+  rotateSpeed: number
+  zoomSpeed: number
+  autoRotate: boolean
+  autoRotateSpeed: number
+}
+
 const ETIQUETA = '#cfcfcf'
 const ETIQUETA_ATENUADA = 'rgba(155,155,155,0.25)'
 
@@ -213,15 +234,12 @@ export default function Graph3D({ nodes, links, selectedId, onSelect, showLabels
     //
     // Las posiciones salen de los nodos porque la simulación los muta EN EL LUGAR: los
     // objetos que le pasamos son los mismos que recibe el motor.
-    const conPos = (nodes as Array<Node3D & { x?: number; y?: number; z?: number }>)
-      .filter((n) => typeof n.x === 'number')
-    if (conPos.length === 0) return
-
-    const ejes = (k: 'x' | 'y' | 'z') => {
-      const v = conPos.map((n) => n[k] ?? 0)
-      return { min: Math.min(...v), max: Math.max(...v) }
-    }
-    const ex = ejes('x'), ey = ejes('y'), ez = ejes('z')
+    //
+    // Y sin los extremos: un grupo suelto lejos del resto alejaba la cámara para meterlo en
+    // cuadro, y el grafo entero quedaba en un puñito en el medio. Ver `cajaSinExtremos`.
+    const caja = cajaSinExtremos(nodes as Array<Node3D & { x?: number; y?: number; z?: number }>)
+    if (!caja) return
+    const { x: ex, y: ey, z: ez } = caja
     const cx = (ex.min + ex.max) / 2
     const cy = (ey.min + ey.max) / 2
     const cz = (ez.min + ez.max) / 2
@@ -252,7 +270,9 @@ export default function Graph3D({ nodes, links, selectedId, onSelect, showLabels
 
     // El margen tiene que dar lugar al nodo Y a su etiqueta, que sobresalen de la caja que se
     // mide entre centros.
-    const MARGEN = 1.35
+    // Era 1.35, cuando la caja incluía los extremos: ahora los nodos de los bordes ya quedan
+    // adentro del recorte, y el margen grande volvía a dejar un marco vacío.
+    const MARGEN = 1.15
     const porAlto = (semiAlto * MARGEN) / tanMitad
     const porAncho = (semiAncho * MARGEN) / (tanMitad * aspect)
     // El mayor de los dos: es el que hace entrar la caja entera. En un cuadro ancho manda el
@@ -272,6 +292,36 @@ export default function Graph3D({ nodes, links, selectedId, onSelect, showLabels
     return () => clearTimeout(t)
   }, [graphData, encuadrar])
 
+  /**
+   * Los controles y la gravedad se configuran UNA vez, cuando el grafo existe.
+   *
+   * - Inercia (`enableDamping`): sin ella la cámara frena en seco al soltar, y rotar se siente
+   *   como arrastrar algo pesado. Con ella sigue un poco y se detiene sola. El ciclo de dibujo
+   *   de 3d-force-graph ya llama a `controls.update()` en cada cuadro, que es lo que exige.
+   * - Giro solo, lento: un grafo quieto se lee como una foto. No cuesta nada extra: la
+   *   librería ya dibuja un cuadro por frame mientras el grafo está montado (medido: 60 fps
+   *   quieto y rotando). Respeta «reducir movimiento» del sistema.
+   */
+  const montado = size !== null && size.w > 0 && size.h > 0
+  const reanudarGiro = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => {
+    if (!montado) return
+    const fg = fgRef.current
+    if (!fg) return
+    const controles = fg.controls() as unknown as ControlesDeOrbita
+    controles.enableDamping = true
+    controles.dampingFactor = 0.12
+    controles.rotateSpeed = 1.3
+    controles.zoomSpeed = 1.6
+    const sinMovimiento = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
+    controles.autoRotate = !sinMovimiento
+    controles.autoRotateSpeed = VELOCIDAD_DE_GIRO
+    fg.d3Force('centro', fuerzaHaciaElCentro(GRAVEDAD) as never)
+    return () => {
+      if (reanudarGiro.current) clearTimeout(reanudarGiro.current)
+    }
+  }, [montado])
+
   const handleNodeClick = useCallback((node: Node3D) => {
     // Click en el nodo ya seleccionado = deseleccionar. Sin esto no hay forma de volver a ver
     // el grafo entero sin ir a buscar el fondo del canvas.
@@ -281,7 +331,35 @@ export default function Graph3D({ nodes, links, selectedId, onSelect, showLabels
   // Cualquiera de estos gestos es "me estoy moviendo yo": desde ahí el encuadre automático se
   // calla. Van en el contenedor y en fase de captura para que valgan aunque el canvas de
   // three se quede con el evento.
-  const marcarInteraccion = useCallback(() => { usuarioMovioLaCamara.current = true }, [])
+  //
+  // También frena el giro solo: girar mientras alguien intenta mirar algo es pelearle la
+  // cámara. Vuelve después de un rato sin tocarlo.
+  const marcarInteraccion = useCallback(() => {
+    usuarioMovioLaCamara.current = true
+    const fg = fgRef.current
+    if (!fg) return
+    const controles = fg.controls() as unknown as ControlesDeOrbita
+    const giraba = controles.autoRotate || reanudarGiro.current !== null
+    controles.autoRotate = false
+    if (reanudarGiro.current) clearTimeout(reanudarGiro.current)
+    reanudarGiro.current = null
+    if (!giraba) return
+    reanudarGiro.current = setTimeout(() => {
+      reanudarGiro.current = null
+      const c = fgRef.current?.controls() as unknown as ControlesDeOrbita | undefined
+      if (c) c.autoRotate = true
+    }, ESPERA_PARA_VOLVER_A_GIRAR_MS)
+  }, [])
+
+  // Estable entre renders: como prop inline, react-force-graph veía una función nueva en cada
+  // render y volvía a generar TODAS las etiquetas (un canvas y una textura por nodo).
+  const etiquetaDelNodo = useCallback((n: Node3D) => spriteDeEtiqueta(
+    n.label,
+    visibles && !visibles.has(n.id) ? ETIQUETA_ATENUADA : ETIQUETA,
+    // Cómo three calcula el radio de la esfera de un nodo: la raíz cúbica del
+    // `val` por `nodeRelSize` (el área/volumen representa la magnitud).
+    Math.cbrt(n.val) * NODE_REL_SIZE,
+  ), [visibles])
 
   return (
     <div
@@ -290,7 +368,7 @@ export default function Graph3D({ nodes, links, selectedId, onSelect, showLabels
       onPointerDownCapture={marcarInteraccion}
       onWheelCapture={marcarInteraccion}
     >
-      {size && size.w > 0 && size.h > 0 && (
+      {size && montado && (
         <ForceGraph3D<Node3D, Link3D>
           ref={fgRef}
           width={size.w}
@@ -323,14 +401,7 @@ export default function Graph3D({ nodes, links, selectedId, onSelect, showLabels
                 // `nodeThreeObjectExtend` deja el punto Y le suma la etiqueta; sin eso el
                 // sprite REEMPLAZA al nodo y el grafo queda hecho de texto flotando.
                 nodeThreeObjectExtend: true,
-                nodeThreeObject: (n: Node3D) =>
-                  spriteDeEtiqueta(
-                    n.label,
-                    visibles && !visibles.has(n.id) ? ETIQUETA_ATENUADA : ETIQUETA,
-                    // Cómo three calcula el radio de la esfera de un nodo: la raíz cúbica del
-                    // `val` por `nodeRelSize` (el área/volumen representa la magnitud).
-                    Math.cbrt(n.val) * NODE_REL_SIZE,
-                  ),
+                nodeThreeObject: etiquetaDelNodo,
               }
             : {})}
           linkColor={linkColor}

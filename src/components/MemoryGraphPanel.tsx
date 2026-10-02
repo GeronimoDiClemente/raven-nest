@@ -51,8 +51,12 @@ export function prefetchMemoryGraph3D(): void {
 const MemoryGraph3D = lazy(cargarGraph3D)
 
 /** Alto del cuadro. El ANCHO ya no es fijo: el grafo toma el ancho disponible. Acotar el
- *  alto alcanza — es lo que impide que se coma la pantalla, que era el pedido. */
-const ALTO = 380
+ *  alto alcanza — es lo que impide que se coma la pantalla, que era el pedido.
+ *
+ *  Crece con la ventana desde el 2026-10-01 (pedido: «que ocupe más espacio del panel»).
+ *  Eran 380px fijos, que en una pantalla grande dejaban el grafo como una franja. El techo
+ *  sigue: arriba de 720px la lista de abajo queda fuera de la primera vista. */
+const ALTO = 'clamp(420px, 55vh, 720px)'
 
 /** Arriba de esto las etiquetas de los nodos son ruido y no información. Es el equivalente
  *  del `text fade threshold` de Obsidian, resuelto por cantidad en vez de por zoom. */

@@ -214,10 +214,6 @@ export default function MemoriesWorkspace({ onClose, activeRepoPath, onOpenFile,
         )}
         {avisoDeEnlace && <p className="shrink-0 text-fs-sm text-muted-foreground">{avisoDeEnlace}</p>}
 
-        <MemoryEncryptionCard />
-        <LinkDeviceCard />
-        <SyncServiceCard />
-
         {/* El grafo primero y el buscador debajo, como Obsidian.
             
             Antes la lista era lo de arriba y el grafo un cuadro secundario al pie. El orden
@@ -265,6 +261,14 @@ export default function MemoriesWorkspace({ onClose, activeRepoPath, onOpenFile,
         )}
 
         <ShareProjectCard activeRepoPath={activeRepoPath} />
+
+        {/* La configuración va al FONDO, después de todo lo que se mira. Arriba del grafo se
+            llevaba la primera pantalla entera con tres tarjetas que se tocan una vez —
+            cifrado, vincular una máquina, la dirección del servicio— y empujaba lo principal
+            (el grafo y la lista) abajo del pliegue. */}
+        <MemoryEncryptionCard />
+        <LinkDeviceCard />
+        <SyncServiceCard />
       </div>
     </div>
   )
