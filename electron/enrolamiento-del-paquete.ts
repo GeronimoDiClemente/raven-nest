@@ -48,7 +48,7 @@ export function mensajeDeEnrolamiento(resultado: ResultadoDeEnrolamiento): strin
     case 'lista':
       return ['This machine can read your encrypted memory now.']
     case 'cuenta-sin-cifrado':
-      return ['Connected. This account does not use encryption. Nothing else to do.']
+      return ['This account does not use encryption. Nothing else to do.']
     case 'esperando-autorizacion':
       return [
         'This machine cannot read your encrypted memory yet.',

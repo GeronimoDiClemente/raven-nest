@@ -105,7 +105,7 @@ describe('mensajes de enrolamiento', () => {
 
   it('si la cuenta no cifra, no manda a autorizar nada', () => {
     expect(mensajeDeEnrolamiento({ estado: 'cuenta-sin-cifrado' }))
-      .toEqual(['Connected. This account does not use encryption. Nothing else to do.'])
+      .toEqual(['This account does not use encryption. Nothing else to do.'])
   })
 
   it('muestra siempre la huella pendiente y ofrece autorizar antes que recuperar', () => {

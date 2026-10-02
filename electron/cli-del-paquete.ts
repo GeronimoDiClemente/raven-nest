@@ -42,7 +42,7 @@ import { runMcpServer } from './memory-mcp/servidor'
 import { cifradoDeLlavero } from './llavero-del-sistema'
 import { guardarCredencial, leerCredencial } from './credencial-del-paquete'
 import { siguientePaso, interpretarRespuestaDePoll, type EstadoDeLogin } from './login-del-paquete'
-import { ensureKeyMaterial, saveKeyMaterial } from './memory-key-store'
+import { ensureKeyMaterial, saveKeyMaterial, loadKeyMaterial } from './memory-key-store'
 import { recoverWithCode } from './memory-keys-client'
 import { normalizeRecoveryCode } from './memory-key-wrap'
 import { enrolarDesdeLogin } from './enrolamiento-desde-login'
@@ -146,9 +146,18 @@ async function comandoStatus(): Promise<void> {
     const enCola = (db.prepare(
       'SELECT COUNT(*) AS c FROM mutation_log WHERE pushed_at IS NULL AND blocked_reason IS NULL'
     ).get() as { c: number }).c
-    const hayCredencial = base.modo === 'propia' && cifradoDelSistema().isEncryptionAvailable()
-      && leerCredencial(homedir(), cifradoDelSistema()) !== null
-    console.log(lineaDeSync({ modo: base.modo, enCola, hayCredencial, hayServicio: urlDelServicio() !== null }))
+    const safe = cifradoDelSistema()
+    const hayCredencial = base.modo === 'propia' && safe.isEncryptionAvailable()
+      && leerCredencial(homedir(), safe) !== null
+    // La época que el daemon vio en el último status. Se lee de `meta` y no de la red: es el
+    // mismo dato que arma el gate fail-closed, así que lo que dice esta línea es lo que el
+    // push va a hacer de verdad.
+    let epocaConocida = 0
+    try {
+      epocaConocida = Number((db.prepare("SELECT value FROM meta WHERE key = 'known_key_epoch'").get() as { value?: string } | undefined)?.value ?? 0)
+    } catch { /* una base sin `meta` todavía no vio ningún status */ }
+    const esperandoAutorizacion = hayCredencial && epocaConocida > 0 && !loadKeyMaterial(homedir(), null, safe)?.master
+    console.log(lineaDeSync({ modo: base.modo, enCola, hayCredencial, hayServicio: urlDelServicio() !== null, esperandoAutorizacion }))
   } finally {
     db.close()
   }
