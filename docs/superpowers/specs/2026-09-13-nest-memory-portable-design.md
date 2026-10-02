@@ -401,9 +401,9 @@ Cada paso deja algo que funciona y se puede probar solo.
    resolver eso, el paquete no podía guardar ninguna clave. La salida es la misma que usa
    Electron por debajo, pero por línea de comandos: el llavero del SO guarda una clave al
    azar y con ella se cifra `keys.bin` con AES-256-GCM. Verificado contra el `security` real
-   de macOS; Windows (DPAPI) y Linux (`secret-tool`) están escritos y no ejecutados, y si
-   alguno está mal `disponible()` da `false` y el paquete queda en modo local, que es la
-   falla segura.
+   de macOS y, desde el 2026-10-02, contra DPAPI real en Windows 11 (`llavero-real.test.ts`
+   corre en las dos). Linux (`secret-tool`) sigue escrito y no ejecutado, y si está mal
+   `disponible()` da `false` y el paquete queda en modo local, que es la falla segura.
 
    **Lo que se creía infraestructura era código** (2026-09-21). El pendiente decía «falta
    `SUPABASE_JWT_SECRET`» y era falso: Supabase movió la firma de los tokens de sesión de un

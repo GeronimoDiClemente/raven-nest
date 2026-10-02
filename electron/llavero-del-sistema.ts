@@ -21,10 +21,12 @@
 // esta máquina puede guardar y buscar lo local pero no puede abrir lo cifrado de la nube, que
 // es un estado que el §7 del spec ya describe como legítimo. Falla cerrado por diseño.
 //
-// > **Verificado de verdad sólo en macOS** (2026-09-18, contra el `security` real de la
-// > máquina donde se escribió). Las recetas de Windows y Linux están escritas contra su
-// > documentación pero no ejecutadas; si alguna está mal, `disponible()` da `false` y el
-// > paquete queda en modo local, que es la falla segura y no una corrupción.
+// > **Verificado de verdad en macOS** (2026-09-18, contra el `security` real) **y en
+// > Windows** (2026-10-02, Windows 11: lo guardado en el registro es un blob de DPAPI —
+// > empieza con `01000000d08c9ddf…`— y no contiene el texto). Ver `llavero-real.test.ts`.
+// > La receta de Linux sigue escrita contra la documentación de `secret-tool` y sin
+// > ejecutar; si está mal, `disponible()` da `false` y el paquete queda en modo local, que
+// > es la falla segura y no una corrupción.
 import { createCipheriv, createDecipheriv, randomBytes } from 'crypto'
 import { execFileSync } from 'child_process'
 import type { SafeStorageLike } from './memory-key-store'
