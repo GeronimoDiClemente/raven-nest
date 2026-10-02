@@ -387,8 +387,11 @@ async function handleLinkPoll(pool: Pool, req: IncomingMessage, res: ServerRespo
     const nombre = typeof body.name === 'string' && body.name.trim() !== ''
       ? body.name.trim().slice(0, 120)
       : undefined
+    // Igual que en `/v1/devices`: texto acotado, o nada. Hasta el 2026-10-02 se leía el nombre
+    // y se tiraba la plataforma, así que las máquinas vinculadas por código quedaban sin ella.
+    const plataforma = typeof body.platform === 'string' ? body.platform.slice(0, 120) : null
 
-    const r = await reclamarVinculacion(pool, codigo, Date.now(), nombre)
+    const r = await reclamarVinculacion(pool, codigo, Date.now(), nombre, plataforma)
     // **`res.ok` significa exactamente una cosa: tenés el token.** Por eso "todavía no" va con
     // 400 y no con 202, que es lo que pedía el cuerpo pero que `fetch` considera `ok` — un
     // cliente que mire sólo eso leería la espera como éxito y guardaría un token vacío. Es la

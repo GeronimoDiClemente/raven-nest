@@ -123,7 +123,9 @@ export async function reclamarVinculacion(
   pool: Pool,
   codigoDeDispositivo: string,
   ahora: number,
-  nombreDelDispositivo = 'nest-memory (CLI)'
+  nombreDelDispositivo = 'nest-memory (CLI)',
+  /** La misma columna que llena `/v1/devices`. Opcional: un cliente viejo no la manda. */
+  plataforma: string | null = null
 ): Promise<ResultadoDeReclamar> {
   const { rows } = await pool.query(
     `select id, user_id, email, consumed_at, last_polled_at, expires_at
@@ -147,7 +149,7 @@ export async function reclamarVinculacion(
   const alta = await registerDevice(
     pool,
     { userId: fila.user_id, email: fila.email ?? null },
-    { name: nombreDelDispositivo }
+    { name: nombreDelDispositivo, platform: plataforma }
   )
   if (!alta.ok) return { estado: 'rechazado', error: alta.error }
 

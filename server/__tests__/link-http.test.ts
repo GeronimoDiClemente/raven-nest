@@ -118,6 +118,30 @@ describe('POST /v1/link/poll', () => {
     expect(typeof j.device_id).toBe('string')
   })
 
+  it('el dispositivo queda con el nombre Y la plataforma que manda el cliente', async () => {
+    // Hasta el 2026-10-02 el poll leía `name` y tiraba `platform`: las máquinas que entraban
+    // por código quedaban con la plataforma vacía, a diferencia de las que entran por
+    // `/v1/devices`. Se vio en la prueba de punta a punta del paquete portátil.
+    const { user_code, device_code } = await (await post('/v1/link/start', {})).json()
+    await post('/v1/link/approve', { user_code }, jwtDe(userId, 'gero@nestmux.com'))
+    await esperarIntervalo()
+    const listo = await post('/v1/link/poll', { device_code, name: 'la-laptop', platform: 'win32' })
+    const { device_id } = await listo.json()
+    const { rows } = await pool.query('select name, platform from devices where id = $1', [device_id])
+    expect(rows[0]).toEqual({ name: 'la-laptop', platform: 'win32' })
+  })
+
+  it('una plataforma que no es texto no se guarda, y no rompe el alta', async () => {
+    const { user_code, device_code } = await (await post('/v1/link/start', {})).json()
+    await post('/v1/link/approve', { user_code }, jwtDe(userId, 'gero@nestmux.com'))
+    await esperarIntervalo()
+    const listo = await post('/v1/link/poll', { device_code, platform: { malo: true } })
+    expect(listo.ok).toBe(true)
+    const { device_id } = await listo.json()
+    const { rows } = await pool.query('select platform from devices where id = $1', [device_id])
+    expect(rows[0].platform).toBeNull()
+  })
+
   it('preguntar dos veces seguidas da 429 y no el token', async () => {
     const { device_code } = await (await post('/v1/link/start', {})).json()
     await post('/v1/link/poll', { device_code })

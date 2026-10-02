@@ -358,7 +358,7 @@ async function comandoLogin(): Promise<void> {
     const respuesta = await fetch(`${base}/v1/link/poll`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ device_code: arranque.device_code, name: hostname() }),
+      body: JSON.stringify({ device_code: arranque.device_code, name: hostname(), platform: process.platform }),
     })
       .then(async (r) => interpretarRespuestaDePoll(r.status, await r.json().catch(() => null)))
       .catch(() => ({ status: 'sin-respuesta' as const }))
