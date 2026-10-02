@@ -15,6 +15,13 @@ import { MemoryReadonlyClient } from './readonly'
 import { ravenHome } from '../raven-home'
 import type { MemoryMethod } from '../memory-protocol'
 import { runMcpServer, writeMessage, type ClienteDeMemoria } from './servidor'
+import { usarAbridorDeLecturaPorDefecto } from '../sqlite-motor'
+import { abrirSoloLecturaConBetterSqlite3 } from '../sqlite-better'
+
+// Este shim es OTRO proceso: lo que registra `main.ts` no llega acá. Sin esto el modo sólo
+// lectura falla en cada llamada. Corre con el binario de Electron (ELECTRON_RUN_AS_NODE), así
+// que el motor es el mismo `better-sqlite3` de la app — `node:sqlite` no existe en su Node 20.
+usarAbridorDeLecturaPorDefecto(abrirSoloLecturaConBetterSqlite3)
 
 function env(name: string): string | undefined {
   return process.env[name]
