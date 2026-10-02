@@ -7619,6 +7619,10 @@ button.ci-badge:hover {
      de abajo no coincidia con el de ninguna otra. La altura y la forma de la fila las fija
      la escala (32px, radio 10) — no las decide cada fila por su cuenta. */
   height: 32px;
+  /* Como `.sidebar-item` y los <Button> de la columna. Sin esto era la ÚNICA fila que el
+     navegador podía achicar: con la ventana baja quedaba en 22px, pegada a Memories y a
+     Settings. Lo fija `e2e/10-ritmo-sidebar.spec.ts` («con la ventana baja…»). */
+  flex-shrink: 0;
   /* El MISMO padding que `<Button size="default">` (px-2.5) y sin margen lateral. Medido el
      2026-09-13: esta fila arrancaba en x=6 por su margen propio y las otras siete en x=0, así
      que su ícono caía en 14 contra 10-11 y su texto en 40 contra 36. Tres o cuatro píxeles,

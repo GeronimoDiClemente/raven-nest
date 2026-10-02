@@ -117,3 +117,28 @@ test('un separador de la barra dibuja su línea, no sólo su margen', async () =
     await teardown(h)
   }
 })
+
+// Con la ventana baja, a la columna le falta alto y el navegador achica lo que PUEDE
+// achicarse. Todas las filas tenían `flex-shrink: 0` menos la del usuario, así que era la
+// única que se aplastaba: medido en la app el 2026-10-01, quedaba en ~16px entre Memories
+// y Settings de 32, pegada a las dos. Con la ventana alta este archivo no lo veía.
+test('con la ventana baja, la fila del usuario no se aplasta', async () => {
+  const h = await launchHarness({ withRepo: true })
+  const { app, page } = h
+  try {
+    const toggle = page.getByRole('button', { name: /Collapse sidebar|Expand sidebar/ })
+    await expect(toggle).toBeVisible({ timeout: 15_000 })
+    if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click()
+    await app.evaluate(({ BrowserWindow }) => {
+      const w = BrowserWindow.getAllWindows()[0]
+      w.setMinimumSize(400, 300)
+      w.setSize(1100, 420)
+    })
+    await page.waitForTimeout(2500)
+
+    const alto = await page.locator('.user-menu-trigger').evaluate((el) => el.getBoundingClientRect().height)
+    expect(alto).toBe(32)
+  } finally {
+    await teardown(h)
+  }
+})
