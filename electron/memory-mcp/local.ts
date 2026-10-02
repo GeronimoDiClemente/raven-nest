@@ -12,8 +12,9 @@
 //   secretos, y cada escritura entra al `mutation_log`. Nada reimplementado.
 // - **Dos escritores sobre la misma base no la rompen**: WAL serializa, el `seq` del log lo
 //   asigna la base, y el lamport se lee de la base adentro de la transacción (§6.1).
-// - **Sincronizar es otra cosa** (§6.2): acá no se sube nada. Lo escrito queda en la cola
-//   hasta que aparezca un daemon —Nest, o el paquete con cuenta— que la drene.
+// - **Sincronizar es otra cosa** (§6.2) y no vive acá: quien arma este cliente puede pasar
+//   `alAbrir`, que recibe el store y devuelve qué hacer después de cada escritura. Sin eso,
+//   lo escrito queda en la cola hasta que aparezca un daemon que la drene.
 //
 // Si Nest SÍ está corriendo, este cliente no se usa: el paquete delega en el servidor de la
 // app (`comandoMcp` en cli-del-paquete.ts), que es el único que sincroniza en vivo.
@@ -25,7 +26,12 @@ export class MemoryLocalClient {
   private store: MemoryStore | null = null
   private server: MemoryIpcServer | null = null
 
-  constructor(private readonly dbPath: string, private readonly resolveGitInfo: GitInfoResolver) {}
+  constructor(
+    private readonly dbPath: string,
+    private readonly resolveGitInfo: GitInfoResolver,
+    /** Se llama una vez, al abrir la base. Lo que devuelve corre después de cada escritura. */
+    private readonly alAbrir?: (store: MemoryStore) => (() => void) | void,
+  ) {}
 
   /**
    * La base se abre —y se crea, si es una máquina nueva— en la primera llamada y no al
@@ -35,12 +41,14 @@ export class MemoryLocalClient {
   private servidor(): MemoryIpcServer {
     if (this.server) return this.server
     this.store = new MemoryStore(this.dbPath)
+    const trasEscribir = this.alAbrir?.(this.store) ?? undefined
     // Nunca se llama a `start()`: no hay socket. El servidor se usa sólo por su despacho.
     this.server = new MemoryIpcServer({
       store: this.store,
       socketPath: '',
       authToken: '',
       resolveGitInfo: this.resolveGitInfo,
+      ...(trasEscribir ? { onMutation: trasEscribir } : {}),
     })
     return this.server
   }

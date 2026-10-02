@@ -31,6 +31,9 @@ import { readActivePointer } from './memory-active-store'
 import { llaveroPorPlataforma, correrComando } from './llavero-del-sistema'
 import { usarAbridorDeLecturaPorDefecto } from './sqlite-motor'
 import { MemoryLocalClient } from './memory-mcp/local'
+import { lineaDeSync } from './estado-de-sync-del-paquete'
+import { armarDaemonDelPaquete } from './daemon-del-paquete'
+import { SyncDelMcp } from './sync-del-mcp'
 import { resolveGitInfoForCwd } from './git-info'
 import { runMcpServer } from './memory-mcp/servidor'
 import { cifradoDeLlavero } from './llavero-del-sistema'
@@ -129,7 +132,14 @@ function comandoStatus(): void {
     const total = contextObservations(db, null, GLOBAL_PROJECT_KEY, 1000).length
     console.log(`${total} ${total === 1 ? 'memory' : 'memories'}`)
     console.log(`from ${base.path}${base.modo === 'nest' ? " (this machine's Nest)" : ''}`)
-    console.log('Cloud sync is not connected from this command yet — run it inside Nest.')
+    // La cola, con número y no con un ícono (P-R5 del spec): lo que el usuario necesita saber
+    // es si lo que escribió en esta máquina ya está en la nube o todavía no.
+    const enCola = (db.prepare(
+      'SELECT COUNT(*) AS c FROM mutation_log WHERE pushed_at IS NULL AND blocked_reason IS NULL'
+    ).get() as { c: number }).c
+    const hayCredencial = base.modo === 'propia' && cifradoDelSistema().isEncryptionAvailable()
+      && leerCredencial(homedir(), cifradoDelSistema()) !== null
+    console.log(lineaDeSync({ modo: base.modo, enCola, hayCredencial, hayServicio: urlDelServicio() !== null }))
   } finally {
     db.close()
   }
@@ -203,7 +213,13 @@ const NODE_MINIMO_OK = (() => {
  * en una máquina sin Nest tiene las mismas herramientas Y puede escribir: hasta el
  * 2026-10-02 esto era de sólo lectura, y en una máquina nueva no servía para nada.
  *
- * Lo escrito queda en el `mutation_log` hasta que alguien sincronice (§6.2 del spec).
+ * Con cuenta (§6.2 del spec) baja al abrir la base y sube después de cada escritura, sin
+ * daemon de fondo y soltando el candado entre operaciones (`sync-del-mcp.ts`).
+ *
+ * **Sólo sobre la base PROPIA del paquete.** Con la base de Nest (Nest instalado y cerrado)
+ * no se sincroniza: esa base es de la cuenta de Nest, que puede no ser la del `login` del
+ * paquete, y subirla con esta credencial mezclaría las memorias de dos cuentas. Ahí lo
+ * escrito queda en la cola y lo sube Nest cuando se abre.
  *
  * **Nada se imprime por stdout acá**: ese canal es el protocolo. Un `console.log` suelto
  * rompe la sesión del editor con un error de parseo que no dice nada.
@@ -215,7 +231,17 @@ async function comandoMcp(): Promise<void> {
     console.error('Nest is running here — its own memory server is the one to use.')
     salir(2)
   }
-  await runMcpServer(new MemoryLocalClient(base.path, resolveGitInfoForCwd), process.cwd())
+  const sincronizar = base.modo === 'propia'
+  const cliente = new MemoryLocalClient(base.path, resolveGitInfoForCwd, (store) => {
+    if (!sincronizar) return
+    const { daemon, hayCuenta } = armarDaemonDelPaquete({
+      store, dbPath: base.path, home: homedir(), baseUrl: urlDelServicio(), safe: cifradoDelSistema(),
+    })
+    const sync = new SyncDelMcp(daemon, hayCuenta)
+    sync.alArrancar()
+    return () => sync.trasEscribir()
+  })
+  await runMcpServer(cliente, process.cwd())
 }
 
 /**

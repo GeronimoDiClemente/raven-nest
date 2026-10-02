@@ -7,13 +7,17 @@
 // `mutation_log` para cuando haya quien sincronice.
 //
 // Se prueba por `callTool`, que es exactamente el camino de un agente.
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { existsSync, mkdirSync } from 'fs'
 import { join } from 'path'
 import { makeTmpDir, cleanupTmp } from './setup'
 import { MemoryLocalClient } from '../memory-mcp/local'
 import { callTool } from '../memory-mcp/servidor'
 import { MemoryStore } from '../memory-store'
+import { armarDaemonDelPaquete } from '../daemon-del-paquete'
+import { SyncDelMcp } from '../sync-del-mcp'
+import { guardarCredencial } from '../credencial-del-paquete'
+import { lockPathParaBase } from '../memory-sync-lock'
 
 let dir: string
 let dbPath: string
@@ -79,5 +83,86 @@ describe('MemoryLocalClient — el MCP sin Nest', () => {
     await callTool(client, cwd, 'memory_update', { sync_id: syncId, title: 'nuevo' })
     const r = JSON.parse(await callTool(client, cwd, 'memory_get', { sync_id: syncId }))
     expect(r.item.title).toBe('nuevo')
+  })
+})
+
+describe('MemoryLocalClient — con sync (§6.2)', () => {
+  it('después de escribir llama al gancho; leer no', async () => {
+    const trasEscribir = vi.fn()
+    const conGancho = new MemoryLocalClient(join(dir, 'g', 'memory.db'), () => null, () => trasEscribir)
+    try {
+      await callTool(conGancho, cwd, 'memory_search', { query: 'x' })
+      expect(trasEscribir).not.toHaveBeenCalled()
+      await callTool(conGancho, cwd, 'memory_save', { title: 't', content: 'c', type: 'discovery' })
+      expect(trasEscribir).toHaveBeenCalledTimes(1)
+    } finally { conGancho.close() }
+  })
+
+  it('de punta a punta: memory_save termina en un push al servicio, y suelta el candado', async () => {
+    // Todo real —store, daemon, candado, coordinador— menos la red.
+    const pedidos: Array<{ url: string; body: string }> = []
+    const fetchImpl = vi.fn(async (url: string, init?: { body?: string }) => {
+      pedidos.push({ url: String(url), body: String(init?.body ?? '') })
+      return { ok: true, status: 200, json: async () => ({ results: [], rows: [], key_epoch: 0 }) }
+    }) as unknown as typeof fetch
+    const home = join(dir, 'home')
+    const base = join(home, '.nest-memory', 'memory.db')
+    const safe = {
+      isEncryptionAvailable: () => true,
+      encryptString: (t: string) => Buffer.from(`##${t}##`),
+      decryptString: (b: Buffer) => b.toString().slice(2, -2),
+    }
+    guardarCredencial(home, safe, { token: 'nmk_x', deviceId: 'd-1' })
+    let sync!: SyncDelMcp
+    const conSync = new MemoryLocalClient(base, () => null, (store) => {
+      const { daemon, hayCuenta } = armarDaemonDelPaquete({ store, dbPath: base, home, baseUrl: 'https://sync.example', safe, fetchImpl })
+      sync = new SyncDelMcp(daemon, hayCuenta)
+      sync.alArrancar()
+      return () => sync.trasEscribir()
+    })
+    try {
+      await callTool(conSync, cwd, 'memory_save', { title: 'sube a la nube', content: 'c', type: 'decision' })
+      await sync.enCurso()
+      const push = pedidos.find((p) => /push/.test(p.url))
+      expect(push, `pedidos: ${pedidos.map((p) => p.url).join(', ')}`).toBeDefined()
+      expect(push!.body).toContain('sube a la nube')
+      expect(existsSync(lockPathParaBase(base))).toBe(false)
+    } finally { conSync.close() }
+  })
+
+  it('una cuenta que cifra, sin la maestra en esta máquina: NO sube nada en claro', async () => {
+    // El estado exacto de un paquete recién logueado y sin autorizar. El gate fail-closed del
+    // daemon (`isEncryptionExpected`) es lo único entre esto y subir título y contenido
+    // legibles a una cuenta que el usuario cree cifrada.
+    const pedidos: string[] = []
+    const fetchImpl = vi.fn(async (_url: string, init?: { body?: string }) => {
+      pedidos.push(String(init?.body ?? ''))
+      return { ok: true, status: 200, json: async () => ({ results: [], rows: [], key_epoch: 1 }) }
+    }) as unknown as typeof fetch
+    const home = join(dir, 'home-cifrada')
+    const base = join(home, '.nest-memory', 'memory.db')
+    const safe = {
+      isEncryptionAvailable: () => true,
+      encryptString: (t: string) => Buffer.from(`##${t}##`),
+      decryptString: (b: Buffer) => b.toString().slice(2, -2),
+    }
+    guardarCredencial(home, safe, { token: 'nmk_x', deviceId: 'd-1' })
+    let sync!: SyncDelMcp
+    const cliente = new MemoryLocalClient(base, () => null, (store) => {
+      store.rememberKeyEpoch(1)
+      const { daemon, hayCuenta } = armarDaemonDelPaquete({ store, dbPath: base, home, baseUrl: 'https://sync.example', safe, fetchImpl })
+      sync = new SyncDelMcp(daemon, hayCuenta)
+      return () => sync.trasEscribir()
+    })
+    try {
+      await callTool(cliente, cwd, 'memory_save', { title: 'secreto de la empresa', content: 'contenido sensible', type: 'decision' })
+      await sync.enCurso()
+      // Que haya hablado con el servicio: si no, el test pasaría por no hacer nada.
+      expect(pedidos.length).toBeGreaterThan(0)
+      for (const body of pedidos) {
+        expect(body).not.toContain('secreto de la empresa')
+        expect(body).not.toContain('contenido sensible')
+      }
+    } finally { cliente.close() }
   })
 })
