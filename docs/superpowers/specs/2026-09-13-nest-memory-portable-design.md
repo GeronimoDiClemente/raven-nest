@@ -468,6 +468,14 @@ Cada paso deja algo que funciona y se puede probar solo.
      exige `cmd /c` y Codex daba «program not found». En Windows ahora se escribe
      `cmd /c npx …` (`comoLanzarElServidor`); correr `setup` de nuevo migra las entradas viejas.
    - El llavero de Windows (DPAPI) corrió contra el sistema real y anda (`llavero-real.test.ts`).
+   - **Con Nest abierto el paquete no delegaba** (§5.1): la sonda era `() => false` y sólo se
+     miraban `NEST_MEMORY_SOCKET`/`NEST_MEMORY_TOKEN`, que Nest pone en SUS terminales y nada
+     más — un editor lanzado por su cuenta nunca las tiene. Ahora `nest-vivo-del-paquete.ts`
+     lee también el `pipe-auth.json` de Nest (sin crearlo) y confirma con un `ping` real;
+     con Nest vivo, el MCP le pasa todo al daemon. Y lo de Nest se busca bajo `ravenHome()`,
+     no `homedir()`, que adentro de una terminal de Nest apunta a la carpeta de la cuenta.
+     Lo fija `e2e/11-paquete-con-nest-abierto.spec.ts` (con contraprueba: apagando la sonda,
+     falla).
 
    **Ojo antes de que alguien corra `setup` fuera de esta máquina**: la config ejecuta
    `npx -y nest-memory`, y al 2026-10-02 ese nombre **no está registrado en npm**. Si lo

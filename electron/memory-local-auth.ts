@@ -37,17 +37,30 @@ function isValidMaterial(value: unknown): value is LocalAuthMaterial {
   )
 }
 
+/**
+ * Lo que dejó Nest, sin crear nada: `null` si no hay archivo o está roto.
+ *
+ * Lo usa el paquete portátil para encontrar a Nest abierto desde un editor que no heredó las
+ * variables de su terminal. `ensureLocalAuthMaterial` no sirve ahí: en una máquina sin Nest
+ * dejaría un `pipe-auth.json` en la carpeta de una app que nunca se instaló.
+ */
+export function leerLocalAuthMaterial(ravenHomeDir: string): LocalAuthMaterial | null {
+  const path = materialPath(ravenHomeDir)
+  if (!existsSync(path)) return null
+  try {
+    const parsed = JSON.parse(readFileSync(path, 'utf8'))
+    return isValidMaterial(parsed) ? parsed : null
+  } catch {
+    return null
+  }
+}
+
 /** Generated once per install, persisted, reused across restarts. */
 export function ensureLocalAuthMaterial(ravenHomeDir: string): LocalAuthMaterial {
   const path = materialPath(ravenHomeDir)
-  if (existsSync(path)) {
-    try {
-      const parsed = JSON.parse(readFileSync(path, 'utf8'))
-      if (isValidMaterial(parsed)) return parsed
-    } catch {
-      // Corrupt file — fall through and regenerate.
-    }
-  }
+  // Corrupt or missing — fall through and regenerate.
+  const existente = leerLocalAuthMaterial(ravenHomeDir)
+  if (existente) return existente
   const material: LocalAuthMaterial = {
     pipeId: randomBytes(16).toString('hex'),
     token: randomBytes(32).toString('hex'),

@@ -5,33 +5,27 @@ const HOME = '/home/geronimo'
 
 function entorno(over: Partial<EntornoDeBase> = {}): EntornoDeBase {
   return {
-    env: {},
     home: HOME,
     existe: () => false,
-    socketVivo: () => true,
+    nestVivo: null,
     punteroDeNest: () => null,
     ...over,
   }
 }
 
 describe('decidirBase', () => {
-  it('con el socket y el token de Nest en el entorno, delega en el daemon', () => {
-    const d = decidirBase(entorno({ env: { NEST_MEMORY_SOCKET: '/tmp/s', NEST_MEMORY_TOKEN: 't' } }))
+  // Encontrar a Nest —variables, disco, ping— lo prueba nest-vivo-del-paquete.test.ts.
+  it('con Nest vivo, delega en el daemon aunque haya base propia', () => {
+    const d = decidirBase(entorno({ nestVivo: { socket: '/tmp/s', token: 't' }, existe: () => true }))
     expect(d).toEqual({ modo: 'daemon', socket: '/tmp/s', token: 't' })
   })
 
-  it('con socket pero SIN token no delega: no podría hablarle', () => {
-    const d = decidirBase(entorno({ env: { NEST_MEMORY_SOCKET: '/tmp/s' } }))
-    expect(d.modo).not.toBe('daemon')
-  })
-
-  it('un socket MUERTO no cuenta — Nest cerrado deja la variable puesta en su terminal', () => {
+  it('con Nest vivo, delega aunque también esté su base: el daemon es el escritor único', () => {
     const d = decidirBase(entorno({
-      env: { NEST_MEMORY_SOCKET: '/tmp/s', NEST_MEMORY_TOKEN: 't' },
-      socketVivo: () => false,
+      nestVivo: { socket: '/tmp/s', token: 't' },
       punteroDeNest: () => '/home/geronimo/.raven-nest/memory/abc/memory.db',
     }))
-    expect(d).toEqual({ modo: 'nest', path: '/home/geronimo/.raven-nest/memory/abc/memory.db' })
+    expect(d.modo).toBe('daemon')
   })
 
   it('sin Nest corriendo, usa la base de Nest de esta máquina', () => {

@@ -19,18 +19,18 @@ export type DecisionDeBase =
   | { modo: 'propia'; path: string; nueva: boolean }
 
 export interface EntornoDeBase {
-  env: Record<string, string | undefined>
   home: string
   existe: (path: string) => boolean
   /**
-   * Si el socket que dice el entorno responde.
+   * El Nest que contestó un `ping`, o `null`. Lo averigua `buscarNestVivo` antes de decidir,
+   * porque es la única pregunta asincrónica: hay que hablarle de verdad.
    *
-   * No alcanza con que la variable esté: Nest se la inyecta a las terminales que abre, y si
-   * el usuario **cierra Nest** la variable sigue puesta en esa terminal para siempre. Es el
-   * caso más común, no un borde: sin esta sonda el paquete le hablaría a un socket muerto y
-   * fallaría justo cuando el modo local es lo que corresponde.
+   * No alcanza con que haya dónde buscarlo: Nest inyecta las variables en sus terminales y
+   * deja el `pipe-auth.json` en disco, y las dos cosas SIGUEN AHÍ cuando el usuario cierra
+   * Nest. Sin la sonda, el paquete le hablaría a un socket muerto justo cuando el modo local
+   * es lo que corresponde.
    */
-  socketVivo: (socket: string) => boolean
+  nestVivo: { socket: string; token: string } | null
   /** El `.db` que Nest declara activo, o `null`. Ver `memory-active-store.ts`. */
   punteroDeNest: () => string | null
 }
@@ -41,11 +41,7 @@ export function pathDeBasePropia(home: string): string {
 }
 
 export function decidirBase(e: EntornoDeBase): DecisionDeBase {
-  const socket = e.env.NEST_MEMORY_SOCKET
-  const token = e.env.NEST_MEMORY_TOKEN
-  // Los dos o ninguno: con el socket pero sin el token no hay forma de autenticarse, y
-  // delegar en algo a lo que no se le puede hablar es peor que no delegar.
-  if (socket && token && e.socketVivo(socket)) return { modo: 'daemon', socket, token }
+  if (e.nestVivo) return { modo: 'daemon', ...e.nestVivo }
 
   const deNest = e.punteroDeNest()
   if (deNest) return { modo: 'nest', path: deNest }

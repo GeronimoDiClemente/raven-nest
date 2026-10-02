@@ -8,6 +8,7 @@
 // **Nada de esto toca la red.** La extensión corre en cada arranque del editor, y bloquear
 // ese arranque contra un servicio que puede no contestar es peor que mostrar menos.
 import { homedir } from 'os'
+import { ravenHome } from './raven-home'
 import { existsSync } from 'fs'
 import { destinosDeSetup, planDeSetup, comoLanzarElServidor } from './setup-del-paquete'
 import { aplicarPlan, sondasDeDisco } from './aplicar-setup'
@@ -44,13 +45,12 @@ function contarMemorias(path: string): number {
 
 function leerEstado(): EntradaDelPanel {
   const base = decidirBase({
-    env: process.env,
     home: homedir(),
     existe: (p) => existsSync(p),
-    // Sin el cliente del daemon cableado, decir que el socket está vivo prometería un camino
-    // que esta extensión no puede tomar.
-    socketVivo: () => false,
-    punteroDeNest: () => readActivePointer(homedir())?.storePath ?? null,
+    // El panel se pinta sincrónico y no espera un `ping`: acá Nest abierto se ve como su
+    // base, que para CONTAR memorias da lo mismo. Quien escribe —el MCP— sí sondea.
+    nestVivo: null,
+    punteroDeNest: () => readActivePointer(ravenHome())?.storePath ?? null,
   })
 
   // El `&&` de arriba ya estrecha `base` a no-daemon, así que acá `base.path` existe. Una

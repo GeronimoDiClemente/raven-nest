@@ -31,6 +31,9 @@ import { readActivePointer } from './memory-active-store'
 import { llaveroPorPlataforma, correrComando } from './llavero-del-sistema'
 import { usarAbridorDeLecturaPorDefecto } from './sqlite-motor'
 import { MemoryLocalClient } from './memory-mcp/local'
+import { MemoryDaemonClient } from './memory-mcp/client'
+import { buscarNestVivo } from './nest-vivo-del-paquete'
+import { ravenHome } from './raven-home'
 import { lineaDeSync } from './estado-de-sync-del-paquete'
 import { armarDaemonDelPaquete } from './daemon-del-paquete'
 import { SyncDelMcp } from './sync-del-mcp'
@@ -102,27 +105,31 @@ function comandoSetup(opts: { soloEditores: string[] | null; deshacer: boolean; 
   if (r.fallados.length > 0) salir(1)
 }
 
-/** Dónde está la base y qué se puede hacer con ella, sin tocar la red. */
-function dondeEstaLaBase() {
+/**
+ * Dónde está la base y qué se puede hacer con ella, sin tocar la red.
+ *
+ * Lo de Nest se busca bajo `ravenHome()` y no bajo `homedir()`: adentro de una terminal de
+ * Nest el HOME está redirigido a la carpeta de la cuenta (`~/.raven-nest/accounts/...`), y
+ * con `homedir()` el paquete no encontraba ni el puntero ni el pipe — parecía no haber Nest
+ * justo en la máquina donde estaba abierto.
+ */
+async function dondeEstaLaBase() {
+  const raven = ravenHome()
   return decidirBase({
-    env: process.env,
     home: homedir(),
     existe: (p) => existsSync(p),
-    // Todavía no se sondea el socket de Nest: sin el cliente del daemon cableado, decir que
-    // está vivo prometería un camino que este binario no puede tomar. Se lo trata como
-    // ausente, que es la respuesta conservadora — se abre la base directo, para leer.
-    socketVivo: () => false,
+    nestVivo: await buscarNestVivo(process.env, raven, process.platform === 'win32'),
     // El mismo puntero que Nest escribe, y no una heurística nuestra: adivinar cuál base es
     // la buena cuando hay varias cuentas es exactamente la clase de cosa que un día devuelve
     // las memorias de otra persona.
-    punteroDeNest: () => readActivePointer(homedir())?.storePath ?? null,
+    punteroDeNest: () => readActivePointer(raven)?.storePath ?? null,
   })
 }
 
-function comandoStatus(): void {
-  const base = dondeEstaLaBase()
+async function comandoStatus(): Promise<void> {
+  const base = await dondeEstaLaBase()
   if (base.modo === 'daemon') {
-    console.log('Nest is running here and owns the memory.')
+    console.log('Nest is open here: it owns this memory and syncs it live.')
     return
   }
   if (base.modo === 'propia' && base.nueva) {
@@ -147,10 +154,14 @@ function comandoStatus(): void {
   }
 }
 
-function comandoSearch(consulta: string): void {
-  const base = dondeEstaLaBase()
+async function comandoSearch(consulta: string): Promise<void> {
+  const base = await dondeEstaLaBase()
   if (base.modo === 'daemon') {
-    console.log('Nest is running here — search from Nest, it owns the memory.')
+    // Con Nest abierto se le pregunta a él: es quien tiene la versión al día, recién bajada.
+    const { items } = await new MemoryDaemonClient(base.socket, base.token)
+      .call<{ items: Array<{ title: string }> }>('memory.search', { cwd: process.cwd(), query: consulta, limit: 20 })
+    if (items.length === 0) console.log(`Nothing for "${consulta}".`)
+    for (const h of items) console.log(`  ${h.title}`)
     return
   }
   if (base.modo === 'propia' && base.nueva) {
@@ -174,13 +185,13 @@ function comandoSearch(consulta: string): void {
  * `doctor`: por qué no anda. Mira lo mismo que miran los demás comandos y lo dice en voz
  * alta — dónde buscó la base, si el Node alcanza, y si hay dónde guardar claves.
  */
-function comandoDoctor(): void {
-  const base = dondeEstaLaBase()
+async function comandoDoctor(): Promise<void> {
+  const base = await dondeEstaLaBase()
   console.log(`node        ${process.version}${NODE_MINIMO_OK ? '' : `  (needs >= ${NODE_MINIMO}, node:sqlite is not in older ones)`}`)
   console.log(`home        ${homedir()}`)
 
-  const puntero = readActivePointer(homedir())
-  console.log(`nest        ${puntero ? puntero.storePath : 'no active-store pointer under this home'}`)
+  const puntero = readActivePointer(ravenHome())
+  console.log(`nest        ${base.modo === 'daemon' ? 'open — memory goes through it' : puntero ? `closed — ${puntero.storePath}` : 'not installed for this user'}`)
 
   const dondeMira =
     base.modo === 'daemon' ? 'talking to Nest over its socket'
@@ -227,11 +238,14 @@ const NODE_MINIMO_OK = (() => {
  * rompe la sesión del editor con un error de parseo que no dice nada.
  */
 async function comandoMcp(): Promise<void> {
-  const base = dondeEstaLaBase()
+  const base = await dondeEstaLaBase()
   if (base.modo === 'daemon') {
-    // Con Nest vivo el shim de Electron es el que corresponde: él escribe, éste no.
-    console.error('Nest is running here — its own memory server is the one to use.')
-    salir(2)
+    // Con Nest abierto se le delega TODO: es el escritor único y el que sincroniza en vivo,
+    // y sus escrituras aparecen al instante en la pantalla de Memories. Antes acá se salía
+    // con «use Nest's own server», que para un editor lanzado por su cuenta —Cursor, VS
+    // Code— era quedarse sin memoria justo con Nest abierto.
+    await runMcpServer(new MemoryDaemonClient(base.socket, base.token), process.cwd())
+    return
   }
   const sincronizar = base.modo === 'propia'
   const cliente = new MemoryLocalClient(base.path, resolveGitInfoForCwd, (store) => {
@@ -436,9 +450,9 @@ export function correr(argv: string[]): void {
   switch (cmd.comando) {
     case 'ayuda': console.log(AYUDA); return
     case 'setup': comandoSetup(cmd); return
-    case 'status': comandoStatus(); return
-    case 'search': comandoSearch(cmd.consulta); return
-    case 'doctor': comandoDoctor(); return
+    case 'status': correrAsync(comandoStatus()); return
+    case 'search': correrAsync(comandoSearch(cmd.consulta)); return
+    case 'doctor': correrAsync(comandoDoctor()); return
     case 'login': correrAsync(comandoLogin()); return
     case 'recover': correrAsync(comandoRecover()); return
     case 'mcp': correrAsync(comandoMcp()); return
