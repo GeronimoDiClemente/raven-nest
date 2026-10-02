@@ -39,6 +39,8 @@ import { siguientePaso, interpretarRespuestaDePoll, type EstadoDeLogin } from '.
 import { ensureKeyMaterial, saveKeyMaterial } from './memory-key-store'
 import { recoverWithCode } from './memory-keys-client'
 import { normalizeRecoveryCode } from './memory-key-wrap'
+import { enrolarDesdeLogin } from './enrolamiento-desde-login'
+import { mensajeDeEnrolamiento } from './enrolamiento-del-paquete'
 
 /**
  * El motor: `node:sqlite`, que viene adentro de Node y no compila nada.
@@ -259,6 +261,17 @@ async function comandoLogin(): Promise<void> {
   const base = exigirServicio()
   const safe = exigirLlavero()
 
+  // Reusar la credencial conserva el deviceId que otra máquina está autorizando: pedir
+  // otro código crearía otro dispositivo y dejaría la autorización anterior sin destinatario.
+  const existente = leerCredencial(homedir(), safe)
+  if (existente) {
+    console.log('Already connected. Checking encryption access.')
+    for (const linea of mensajeDeEnrolamiento(await enrolarDesdeLogin(homedir(), safe, {
+      baseUrl: base, ...existente,
+    }))) console.log(linea)
+    return
+  }
+
   const inicio = await fetch(`${base}/v1/link/start`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -305,7 +318,10 @@ async function comandoLogin(): Promise<void> {
 
     if (paso.accion === 'listo') {
       guardarCredencial(homedir(), safe, { token: paso.token, deviceId: paso.deviceId })
-      console.log('\n\n  Connected. This machine can sync now.')
+      console.log('\n\n  Connected. Your credential is saved.')
+      for (const linea of mensajeDeEnrolamiento(await enrolarDesdeLogin(homedir(), safe, {
+        baseUrl: base, token: paso.token, deviceId: paso.deviceId,
+      }))) console.log(linea)
       return
     }
     if (paso.accion === 'cortar') {
