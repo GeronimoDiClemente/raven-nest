@@ -69,8 +69,8 @@ export default function MemoriesWorkspace({ onClose, activeRepoPath, onOpenFile,
    * ahora la pantalla no se enteraba: sólo se refrescaba por acciones tuyas, así que una
    * memoria nueva no aparecía hasta cerrar y reabrir el overlay.
    *
-   * `version` es la misma llave que ya remonta los dos, y `busqueda.refresh` recarga la
-   * página actual sin perder lo que estabas tipeando.
+   * `version` es la misma llave que ya remonta los dos; la lista además se recarga por el
+   * efecto de `version` de más abajo.
    */
   // `state` es un objeto nuevo en cada render, así que un efecto que dependa de él se
   // re-suscribe y se da de baja en cada uno. La suscripción se hace UNA vez, al montar, y el
@@ -107,6 +107,17 @@ export default function MemoriesWorkspace({ onClose, activeRepoPath, onOpenFile,
    * simple y más difícil de romper que enhebrar un refresh por tres componentes.
    */
   const [version, setVersion] = useState(0)
+
+  /**
+   * Remontar la lista con la key ya no la recarga: lo que dibuja es `busqueda`, que vive acá
+   * y sobrevive al remontaje. Sin esto, desde que la búsqueda subió al workspace, nada de lo
+   * que bumpea `version` —guardar, conectar, editar, un agente— llegaba a la lista.
+   */
+  const refrescarBusqueda = useRef(busqueda.refresh)
+  refrescarBusqueda.current = busqueda.refresh
+  useEffect(() => {
+    if (version > 0) refrescarBusqueda.current()
+  }, [version])
 
   // Antes aca se leian los totales de la cuenta (hubStats) para llenar una card de
   // "tenes N memorias en M proyectos". Esa card ya no existe: desde que la LISTA muestra

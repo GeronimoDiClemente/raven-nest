@@ -14,11 +14,13 @@ describe('la pantalla se entera de lo que escriben los agentes', () => {
   let avisar: (() => void) | null = null
   let bajas = 0
   let vecesQuePidioLaLista = 0
+  let enLaBase: Array<Record<string, unknown>> = []
 
   beforeEach(() => {
     avisar = null
     bajas = 0
     vecesQuePidioLaLista = 0
+    enLaBase = []
     ;(window as unknown as { memory: unknown }).memory = {
       onChanged: (cb: () => void) => {
         avisar = cb
@@ -30,7 +32,7 @@ describe('la pantalla se entera de lo que escriben los agentes', () => {
       }),
       crossProject: async () => {
         vecesQuePidioLaLista += 1
-        return { items: [], nextCursor: null }
+        return { items: [...enLaBase], nextCursor: null }
       },
       graph: async () => ({ nodes: [], edges: [], truncated: false }),
       encryptionStatus: async () => ({ ok: false, error: 'sin nube' }),
@@ -49,6 +51,26 @@ describe('la pantalla se entera de lo que escriben los agentes', () => {
     avisar!()
 
     await waitFor(() => expect(vecesQuePidioLaLista).toBeGreaterThan(antes))
+  })
+
+  // Contar pedidos no alcanza: la lista remontada pide con su PROPIO hook y descarta el
+  // resultado, porque lo que dibuja es la búsqueda del workspace. Así este archivo pasaba
+  // mientras la memoria nueva no aparecía nunca. Lo que importa es que se VEA.
+  it('la memoria que llega con el aviso aparece en la lista', async () => {
+    // La lista está virtualizada y jsdom mide todo en 0: sin alto, no monta ninguna fila.
+    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(600)
+    vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(600)
+    render(<MemoriesWorkspace onClose={() => {}} activeRepoPath={null} onOpenFile={() => {}} />)
+    await waitFor(() => expect(screen.getByText('No memories yet')).toBeInTheDocument())
+
+    enLaBase = [{
+      syncId: 'nueva', projectKey: 'p1', projectDisplayName: 'raven-nest',
+      title: 'La escribió un agente', type: 'decision', scope: 'project',
+      originAi: 'claude', authorDisplay: null, updatedAt: Date.now(), tags: [],
+    }]
+    avisar!()
+
+    await waitFor(() => expect(screen.getByText('La escribió un agente')).toBeInTheDocument())
   })
 
   it('da de baja la suscripción al desmontar', async () => {

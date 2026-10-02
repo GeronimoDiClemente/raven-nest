@@ -17,6 +17,10 @@ export interface CrossProjectMemoriesState {
   loadMore: () => void
   query: string
   setQuery: (query: string) => void
+  /** Vuelve a pedir la primera página con la búsqueda vigente. Lo llama quien sabe que la
+   *  base cambió —guardar, conectar, borrar, un agente escribiendo—, porque remontar la
+   *  lista ya no alcanza: el estado vive en el workspace, no en ella. */
+  refresh: () => void
 }
 
 /** Tamaño de página. La lista puede tener miles de filas (spec: "no se traen todas") —
@@ -95,10 +99,18 @@ export function useCrossProjectMemories(debounceMs = DEBOUNCE_MS): CrossProjectM
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query, debounceMs])
 
+  // `refresh` se llama desde suscripciones que se arman una sola vez; leer la query de un
+  // ref evita que recarguen con la que había al montar.
+  const queryActual = useRef(query)
+  queryActual.current = query
+  const refresh = useCallback(() => {
+    void fetchPage(queryActual.current, null, false)
+  }, [fetchPage])
+
   const loadMore = useCallback(() => {
     if (!hasMore || loadingMore || status !== 'ready') return
     void fetchPage(query, cursor, true)
   }, [hasMore, loadingMore, status, query, cursor, fetchPage])
 
-  return { status, items, error, hasMore, loadingMore, loadMore, query, setQuery }
+  return { status, items, error, hasMore, loadingMore, loadMore, query, setQuery, refresh }
 }

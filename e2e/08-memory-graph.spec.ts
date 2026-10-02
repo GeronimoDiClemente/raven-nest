@@ -150,12 +150,16 @@ test('con memorias: el cuadro es acotado, y la seleccion es una sola entre lista
     await filaSeleccionable.click()
     await expect(filaSeleccionable).toHaveAttribute('aria-pressed', 'false')
 
-    // 4. Las aristas por similitud son inferencia, así que arrancan APAGADAS y se prenden
-    //    a pedido (spec §3 y capa de datos).
-    const toggleSimilar = page.getByRole('button', { name: 'Show guessed links' })
-    await expect(toggleSimilar).toBeVisible()
-    await expect(toggleSimilar).toHaveAttribute('aria-pressed', 'false')
-    await toggleSimilar.click()
+    // 4. Las aristas por similitud son inferencia. Arrancan PRENDIDAS desde 089d2bf: con
+    //    sólo las relaciones explícitas el grafo era un dibujo del linaje y no un mapa, y
+    //    detrás de un botón casi nadie las veía. Se pueden apagar y volver a prender.
+    const ocultarSimilares = page.getByRole('button', { name: 'Hide guessed links' })
+    await expect(ocultarSimilares).toBeVisible()
+    await expect(ocultarSimilares).toHaveAttribute('aria-pressed', 'true')
+    await ocultarSimilares.click()
+    const mostrarSimilares = page.getByRole('button', { name: 'Show guessed links' })
+    await expect(mostrarSimilares).toHaveAttribute('aria-pressed', 'false')
+    await mostrarSimilares.click()
     await expect(page.getByRole('button', { name: 'Hide guessed links' })).toHaveAttribute('aria-pressed', 'true')
     await page.screenshot({ path: join(SHOTS, '04-con-aristas-inferidas.png') })
 

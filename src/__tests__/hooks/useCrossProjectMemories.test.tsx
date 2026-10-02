@@ -89,4 +89,22 @@ describe('useCrossProjectMemories', () => {
     expect(crossProject).toHaveBeenLastCalledWith(expect.objectContaining({ query: 'fts5', cursor: null }))
     await waitFor(() => expect(result.current.items).toEqual([expect.objectContaining({ syncId: 'z' })]))
   })
+
+  it('refresh vuelve a pedir la primera página con la búsqueda vigente', async () => {
+    const crossProject = vi.fn()
+      .mockResolvedValueOnce({ items: [], nextCursor: null })
+      .mockResolvedValueOnce({ items: [item({ syncId: 'a' })], nextCursor: null })
+      .mockResolvedValueOnce({ items: [item({ syncId: 'nueva' })], nextCursor: null })
+    setMemoryApi({ crossProject })
+
+    const { result } = renderHook(() => useCrossProjectMemories(0))
+    await waitFor(() => expect(result.current.status).toBe('ready'))
+    act(() => { result.current.setQuery('fts5') })
+    await waitFor(() => expect(crossProject).toHaveBeenCalledTimes(2))
+
+    act(() => { result.current.refresh() })
+
+    await waitFor(() => expect(result.current.items).toEqual([expect.objectContaining({ syncId: 'nueva' })]))
+    expect(crossProject).toHaveBeenLastCalledWith(expect.objectContaining({ query: 'fts5', cursor: null }))
+  })
 })
