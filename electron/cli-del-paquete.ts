@@ -13,11 +13,14 @@
 // **Con cuenta**: `login` y `recover`, contra el servicio que diga `NEST_MEMORY_SYNC_URL`.
 //
 // El servidor MCP corre el MISMO bucle que adentro de Nest (`memory-mcp/servidor.ts`), con
-// otro cliente atrás: lectura directa del disco en vez del daemon por socket.
+// otro cliente atrás: el despacho del daemon en proceso, sobre la base de esta máquina, en
+// vez del daemon por socket.
+// Primero que todo: el aviso de `node:sqlite` se emite al cargarlo — ver el archivo.
+import './silenciar-aviso-sqlite'
 import { homedir, hostname } from 'os'
 import { existsSync } from 'fs'
 import { parsearArgumentos, AYUDA } from './argumentos-del-paquete'
-import { destinosDeSetup, planDeSetup, planDeDeshacer } from './setup-del-paquete'
+import { destinosDeSetup, planDeSetup, planDeDeshacer, comoLanzarElServidor } from './setup-del-paquete'
 import { aplicarPlan, sondasDeDisco } from './aplicar-setup'
 import { decidirBase, pathDeBasePropia } from './base-para-el-paquete'
 import { usarAbridorPorDefecto } from './sqlite-motor'
@@ -27,7 +30,8 @@ import { GLOBAL_PROJECT_KEY } from './memory-project-key'
 import { readActivePointer } from './memory-active-store'
 import { llaveroPorPlataforma, correrComando } from './llavero-del-sistema'
 import { usarAbridorDeLecturaPorDefecto } from './sqlite-motor'
-import { MemoryReadonlyClient } from './memory-mcp/readonly'
+import { MemoryLocalClient } from './memory-mcp/local'
+import { resolveGitInfoForCwd } from './git-info'
 import { runMcpServer } from './memory-mcp/servidor'
 import { cifradoDeLlavero } from './llavero-del-sistema'
 import { guardarCredencial, leerCredencial } from './credencial-del-paquete'
@@ -49,14 +53,8 @@ import { normalizeRecoveryCode } from './memory-key-wrap'
 usarAbridorPorDefecto(abrirBase)
 usarAbridorDeLecturaPorDefecto(abrirBaseSoloLectura)
 
-/**
- * Lo que se escribe en la configuración de los editores.
- *
- * Una invocación estable y NO la ruta resuelta de este proceso: si `setup` corrió por `npx`
- * sin instalar nada, el binario vive en una caché temporal que npm puede limpiar, y esa ruta
- * dejaría configuraciones que se pudren solas.
- */
-const COMO_LANZARME = { command: 'npx', args: ['-y', 'nest-memory', 'mcp'] }
+/** Lo que se escribe en la configuración de los editores — ver `comoLanzarElServidor`. */
+const COMO_LANZARME = comoLanzarElServidor(process.platform)
 
 function salir(codigo: number): never {
   process.exit(codigo)
@@ -201,9 +199,11 @@ const NODE_MINIMO_OK = (() => {
  * `mcp`: el servidor que lanzan los editores, no una persona.
  *
  * Es el MISMO bucle que corre adentro de Nest —`memory-mcp/servidor.ts`— con otro cliente
- * atrás: en vez del daemon por socket, lectura directa del disco. Eso hace que un agente en
- * una máquina sin Nest tenga exactamente las mismas herramientas, y que lo que NO puede
- * hacer (escribir) lo diga con las mismas palabras.
+ * atrás: el despacho del daemon corriendo en este proceso (`memory-mcp/local.ts`). Un agente
+ * en una máquina sin Nest tiene las mismas herramientas Y puede escribir: hasta el
+ * 2026-10-02 esto era de sólo lectura, y en una máquina nueva no servía para nada.
+ *
+ * Lo escrito queda en el `mutation_log` hasta que alguien sincronice (§6.2 del spec).
  *
  * **Nada se imprime por stdout acá**: ese canal es el protocolo. Un `console.log` suelto
  * rompe la sesión del editor con un error de parseo que no dice nada.
@@ -215,8 +215,7 @@ async function comandoMcp(): Promise<void> {
     console.error('Nest is running here — its own memory server is the one to use.')
     salir(2)
   }
-  const path = base.modo === 'nest' ? base.path : base.path
-  await runMcpServer(new MemoryReadonlyClient(homedir(), path), process.cwd())
+  await runMcpServer(new MemoryLocalClient(base.path, resolveGitInfoForCwd), process.cwd())
 }
 
 /**

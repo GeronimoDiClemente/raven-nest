@@ -315,6 +315,18 @@ export class MemoryIpcServer {
     }
   }
 
+  /**
+   * El mismo despacho, en proceso y sin socket: lo usa el MCP del paquete portátil
+   * (`memory-mcp/local.ts`), que no tiene a quién conectarse porque no hay Nest corriendo.
+   *
+   * No pasa por el token porque no hay transporte que proteger: quien llama ya está adentro
+   * del proceso que abrió la base. Todo lo demás —la clave de proyecto, la redacción, el
+   * `mutation_log`— es exactamente lo que hace el daemon, que es el punto.
+   */
+  responder(method: MemoryRequest['method'], params: unknown): Promise<unknown> {
+    return this.dispatch({ id: 'en-proceso', method, params } as MemoryRequest)
+  }
+
   private async dispatch(request: MemoryRequest): Promise<unknown> {
     // Task 1 Step 3b: reject before touching the store at all — a hot-swap in progress
     // (see suspend() below) must never let a new request read/write a store that's about

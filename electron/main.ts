@@ -136,6 +136,7 @@ import { MCPStore } from './mcp-store'
 import { SettingsStore } from './settings-store'
 import { MemoryStore, resolveStorePath, migrateLegacyStorePath } from './memory-store'
 import { usarAbridorPorDefecto, usarAbridorDeLecturaPorDefecto } from './sqlite-motor'
+import { resolveGitInfoForCwd } from './git-info'
 import { abrirConBetterSqlite3, abrirSoloLecturaConBetterSqlite3 } from './sqlite-better'
 import { MemoryIpcServer } from './memory-ipc-server'
 import { MemoryDaemon } from './memory-daemon'
@@ -361,23 +362,7 @@ usarAbridorDeLecturaPorDefecto(abrirSoloLecturaConBetterSqlite3)
 // `safeStorage.isEncryptionAvailable()` already does for connect. Every consumer below
 // checks `memory` for null; account provisioning and pty env injection are simply never
 // configured when it's null (both already no-op safely without a configured integration).
-/**
- * Branch + remote origin for a cwd, best-effort (null on any failure — not a git repo, no
- * remote, git missing). Shared by MemoryIpcServer's `memory.save`/`memory.search` project-key
- * resolution AND (Task 4) the handoff:read/write handlers below, which used to each carry
- * their own copy of this exact git plumbing.
- */
-function resolveGitInfoForCwd(cwd: string): { branch: string; remoteUrl: string | null } | null {
-  try {
-    if (!existsSync(cwd)) return null
-    const branch = execSync('git rev-parse --abbrev-ref HEAD', { cwd, encoding: 'utf8', timeout: 3000 }).trim()
-    let remoteUrl: string | null = null
-    try { remoteUrl = execSync('git remote get-url origin', { cwd, encoding: 'utf8', timeout: 3000 }).trim() } catch { /* no remote */ }
-    return { branch, remoteUrl }
-  } catch {
-    return null
-  }
-}
+// `resolveGitInfoForCwd` vive en git-info.ts: el paquete portátil lo comparte.
 
 /** Task 4: same project-key resolution memory-ipc-server.ts's `projectKeyForCwd` uses for
  *  every other write path, so a handoff observation lands under the exact project a

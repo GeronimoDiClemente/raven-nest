@@ -456,6 +456,24 @@ Cada paso deja algo que funciona y se puede probar solo.
    corrido nada, y redirigir `HOME` para aislar la prueba abre un modal del llavero de macOS
    que espera un clic.
 
+   **Recorrido en Windows 11** (2026-10-02). Tres cosas que sólo aparecieron corriéndolo ahí:
+   - **El MCP del paquete era de sólo lectura**: usaba el cliente del modo «Nest cerrado»,
+     que manda a abrir la app para escribir. En una máquina sin Nest el paquete no servía —
+     no había base, porque nadie la creaba, y `memory_save` se rechazaba—. Ahora
+     `memory-mcp/local.ts` corre el despacho del daemon en proceso
+     (`MemoryIpcServer.responder`) sobre la base de §5.2: crea la base en la primera llamada,
+     escribe con el mismo `save()` (redacción incluida) y encola en el `mutation_log` (§6.2).
+     Con Nest corriendo sigue delegando en la app.
+   - **`setup` escribía `"command": "npx"`**, y en Windows `npx` es `npx.cmd`: Claude Code
+     exige `cmd /c` y Codex daba «program not found». En Windows ahora se escribe
+     `cmd /c npx …` (`comoLanzarElServidor`); correr `setup` de nuevo migra las entradas viejas.
+   - El llavero de Windows (DPAPI) corrió contra el sistema real y anda (`llavero-real.test.ts`).
+
+   **Ojo antes de que alguien corra `setup` fuera de esta máquina**: la config ejecuta
+   `npx -y nest-memory`, y al 2026-10-02 ese nombre **no está registrado en npm**. Si lo
+   registra otra persona, `npx -y` bajaría y ejecutaría su código. Reservarlo es decisión de
+   Gero (es publicar).
+
    **Falta** recorrer el `login` entero contra el servicio desplegado —o sea, correr
    `npx nest-memory login` y aprobar desde Nest, que es la parte que necesita una sesión de
    usuario de verdad. Y lo que la P-3 ya recomendaba: no publicar hasta que la CLI esté en uso.
