@@ -9,7 +9,7 @@
 // ese arranque contra un servicio que puede no contestar es peor que mostrar menos.
 import { homedir } from 'os'
 import { existsSync } from 'fs'
-import { destinosDeSetup, planDeSetup } from './setup-del-paquete'
+import { destinosDeSetup, planDeSetup, comoLanzarElServidor } from './setup-del-paquete'
 import { aplicarPlan, sondasDeDisco } from './aplicar-setup'
 import { decidirBase } from './base-para-el-paquete'
 import { readActivePointer } from './memory-active-store'
@@ -25,7 +25,7 @@ import type { DepsDeExtension } from './extension-vscode'
 import type { ResultadoDeAplicar } from './aplicar-setup'
 
 /** Cómo se lanza el servidor MCP desde la configuración que escribimos. */
-const COMO_LANZARME = { command: 'npx', args: ['-y', 'nest-memory', 'mcp'] }
+const COMO_LANZARME = comoLanzarElServidor(process.platform)
 
 /** Configura SÓLO el editor que hospeda la extensión, no los siete. */
 function configurarEsteEditor(editorId: string): ResultadoDeAplicar {

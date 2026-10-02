@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
+  comoLanzarElServidor,
   destinosDeSetup, planDeSetup, conEntrada, sinEntrada, NOMBRE_DEL_SERVIDOR,
   planDeDeshacer,
   type EntradaDelServidor,
@@ -274,5 +275,21 @@ describe('deshacer no deja residuo, pero tampoco se lleva lo ajeno', () => {
   it('también en opencode, que anida bajo `mcp`', () => {
     const d = destino('opencode')
     expect(JSON.parse(sinEntrada(conEntrada('{"theme": "dark"}', d, ENTRADA), d))).toEqual({ theme: 'dark' })
+  })
+})
+
+// En Windows `npx` es `npx.cmd`, un script y no un ejecutable. Claude Code pide el `cmd /c`
+// explícito (avisa «Windows requires 'cmd /c' wrapper to execute npx» y el servidor no
+// arranca) y Codex daba «program not found» hasta que lo arregló. Con `cmd /c` anda en todos.
+// Verificado el 2026-10-02 corriendo `setup` en Windows 11.
+describe('cómo se lanza el servidor', () => {
+  it('en macOS y Linux, npx directo', () => {
+    for (const p of ['darwin', 'linux'] as const) {
+      expect(comoLanzarElServidor(p)).toEqual({ command: 'npx', args: ['-y', 'nest-memory', 'mcp'] })
+    }
+  })
+
+  it('en Windows, a través de cmd /c', () => {
+    expect(comoLanzarElServidor('win32')).toEqual({ command: 'cmd', args: ['/c', 'npx', '-y', 'nest-memory', 'mcp'] })
   })
 })

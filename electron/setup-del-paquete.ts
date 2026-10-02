@@ -41,6 +41,24 @@ export interface EntradaDelServidor {
   env?: Record<string, string>
 }
 
+/**
+ * Cómo se lanza el servidor MCP desde la configuración que escribe `setup`.
+ *
+ * Una invocación estable y NO la ruta resuelta de este proceso: si `setup` corrió por `npx`
+ * sin instalar nada, el binario vive en una caché temporal que npm puede limpiar, y esa ruta
+ * dejaría configuraciones que se pudren solas.
+ *
+ * En Windows va por `cmd /c`: `npx` ahí es `npx.cmd`, un script, y los editores que lanzan
+ * el proceso sin shell no lo encuentran. Claude Code lo exige explícitamente y Codex daba
+ * «program not found». `cmd /c npx` anda en todos, incluidos VS Code y Cursor.
+ */
+export function comoLanzarElServidor(plataforma: NodeJS.Platform): EntradaDelServidor {
+  const npx = ['npx', '-y', 'nest-memory', 'mcp']
+  return plataforma === 'win32'
+    ? { command: 'cmd', args: ['/c', ...npx] }
+    : { command: npx[0]!, args: npx.slice(1) }
+}
+
 export interface DestinoDeSetup {
   id: string
   /** Como se le dice al usuario. */
