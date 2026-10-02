@@ -383,6 +383,10 @@ export interface MemoryObservationDetail {
   updatedAt: number
   supersededBy: string | null
   revisionCount: number
+  /** Cada `[[...]]` del contenido con la memoria a la que apunta, o null si es un hueco. */
+  links?: Array<{ name: string; syncId: string | null }>
+  /** Las memorias que linkean a ésta con `[[...]]`: el «Mentioned in» de Obsidian. */
+  mentionedIn?: Array<{ syncId: string; title: string }>
 }
 
 /** Espejo de los tipos de `crossProjectMemories()` en electron/memory-store.ts (src/ nunca

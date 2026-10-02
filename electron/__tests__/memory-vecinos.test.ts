@@ -6,7 +6,7 @@
 // parser. Sin la tabla virtual el test no probaría el camino real.
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import Database from 'better-sqlite3'
-import { vecinosDeMemoria } from '../memory-vecinos'
+import { vecinosDeMemoria, linksResueltosDe } from '../memory-vecinos'
 
 let db: Database.Database
 
@@ -208,5 +208,52 @@ describe('vecinos por alias', () => {
     insert({ syncId: 'a', title: 'otra cosa', content: conAlias('candado') })
     insert({ syncId: 'b', content: 'ver [[candado]]' })
     expect(linksPendientesDe(db, 'b')).toEqual([])
+  })
+})
+
+// Lo que el panel de la app necesita para que un `[[...]]` del texto se pueda tocar: cada
+// nombre mencionado, con la memoria a la que apunta o null si es un hueco.
+describe('linksResueltosDe', () => {
+  it('devuelve cada nombre con su destino, en orden de aparición', () => {
+    insert({ syncId: 'a', title: 'El candado de sync' })
+    insert({ syncId: 'b', content: 'ver [[El candado de sync]] y [[algo que no existe]]' })
+    expect(linksResueltosDe(db, 'b')).toEqual([
+      { name: 'El candado de sync', syncId: 'a' },
+      { name: 'algo que no existe', syncId: null },
+    ])
+  })
+
+  it('resuelve por alias y por el último tramo del topic, igual que el grafo', () => {
+    insert({ syncId: 'a', title: 'x', topicKey: 'claude-memory/candado-sync' })
+    insert({ syncId: 'c', title: 'y', content: '---\naliases: deploy\n---\ncuerpo' })
+    insert({ syncId: 'b', content: '[[candado-sync]] [[deploy]]' })
+    expect(linksResueltosDe(db, 'b')).toEqual([
+      { name: 'candado-sync', syncId: 'a' },
+      { name: 'deploy', syncId: 'c' },
+    ])
+  })
+
+  it('un link a una memoria borrada es un hueco', () => {
+    insert({ syncId: 'a', title: 'vieja', deleted: 1 })
+    insert({ syncId: 'b', content: '[[vieja]]' })
+    expect(linksResueltosDe(db, 'b')).toEqual([{ name: 'vieja', syncId: null }])
+  })
+
+  it('un id que no existe devuelve vacío', () => {
+    expect(linksResueltosDe(db, 'no-existe')).toEqual([])
+  })
+})
+
+describe('backlinks por el último tramo del topic', () => {
+  // El caso del corpus real: los topics llevan prefijo de namespace del importador
+  // (`claude-memory/...`) y los links dicen el slug pelado. Resolvía para adelante pero el
+  // backlink se perdía, porque el FTS buscaba el topic ENTERO y ese texto no está en quien
+  // linkea.
+  it('quien linkea con el slug pelado aparece como backlink', () => {
+    insert({ syncId: 'a', title: 'release.yml hace todo solo', topicKey: 'claude-memory/release-yml' })
+    insert({ syncId: 'b', title: 'Cómo se hace una release', content: 'lo dispara [[release-yml]]' })
+    expect(vecinosDeMemoria(db, 'a')).toEqual([
+      { syncId: 'b', title: 'Cómo se hace una release', topicKey: null, direction: 'incoming', via: 'wikilink' },
+    ])
   })
 })

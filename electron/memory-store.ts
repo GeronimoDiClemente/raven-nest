@@ -22,7 +22,7 @@ import {
   contextObservations, CONTEXT_MAX_CHARS, getObservation, getObservationSummary, searchObservations, toSummary,
 } from './memory-reads'
 import { buildMemoryGraph, type MemoryGraph, type MemoryGraphQuery } from './memory-graph'
-import { vecinosDeMemoria, linksPendientesDe } from './memory-vecinos'
+import { vecinosDeMemoria, linksPendientesDe, linksResueltosDe, type WikilinkResuelto } from './memory-vecinos'
 import type {
   ObservationSource,
   ObservationSummary,
@@ -353,6 +353,11 @@ export interface MemoryObservationDetail {
   /** syncId de la memoria que reemplazó a esta, o null si es la vigente. */
   supersededBy: string | null
   revisionCount: number
+  /** Cada `[[...]]` del contenido con la memoria a la que apunta, o null si es un hueco.
+   *  Viaja resuelto porque el renderer no tiene contra qué resolver un nombre. */
+  links?: WikilinkResuelto[]
+  /** Las memorias que linkean a ésta con `[[...]]`: el «Mentioned in» de Obsidian. */
+  mentionedIn?: Array<{ syncId: string; title: string }>
 }
 
 export interface CrossProjectObservation {
@@ -1913,6 +1918,11 @@ export class MemoryStore {
   /** Los `[[...]]` de esta memoria que todavía no apuntan a nada — ver `memory-vecinos.ts`. */
   linksPendientes(syncId: string): string[] {
     return linksPendientesDe(this.db, syncId)
+  }
+
+  /** Cada `[[...]]` de esta memoria con su destino, o null si es un hueco — ver `memory-vecinos.ts`. */
+  linksResueltos(syncId: string): WikilinkResuelto[] {
+    return linksResueltosDe(this.db, syncId)
   }
 
   /**

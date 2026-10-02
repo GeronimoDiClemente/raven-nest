@@ -280,3 +280,53 @@ test('se pueden conectar dos memorias a mano', async () => {
     await teardown(h)
   }
 })
+
+test('un [[link]] del documento lleva a la otra memoria, y ésa dice quién la menciona', async () => {
+  const h = await launchHarness({ withRepo: false })
+  const { page } = h
+  try {
+    await abrirMemories(page)
+    await expect(page.getByText('No memories yet')).toBeVisible({ timeout: 15_000 })
+    seedMemories(h.homeDir, [
+      {
+        syncId: 'm-release',
+        projectKey: 'raven-nest',
+        title: 'Cómo se hace una release',
+        type: 'pattern',
+        content: '## Pasos\n- Subir la versión en `package.json`\n- Pushear a main: lo dispara **[[release-yml]]**\n\nFalta escribir [[el checklist de QA]].',
+      },
+      {
+        syncId: 'm-release-yml',
+        projectKey: 'raven-nest',
+        title: 'release.yml hace todo solo',
+        type: 'decision',
+        topicKey: 'claude-memory/release-yml',
+      },
+    ])
+    await page.reload()
+    await expect(page.locator('.app')).toBeVisible({ timeout: 15_000 })
+    await abrirMemories(page)
+
+    await page.getByRole('button', { name: /Cómo se hace una release/ }).first().click()
+
+    // El Markdown se lee como Markdown: el encabezado sin `##`, el código como código.
+    await expect(page.getByRole('heading', { name: 'Pasos' })).toBeVisible({ timeout: 10_000 })
+    // El hueco se ve, pero no es un botón.
+    await expect(page.getByText('el checklist de QA', { exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'el checklist de QA' })).toHaveCount(0)
+    await page.screenshot({ path: join(SHOTS, '09-documento-con-links.png') })
+
+    // Tocar el link abre la otra memoria — resuelta por el último tramo del topic.
+    await page.getByRole('button', { name: 'release-yml', exact: true }).click()
+    const destino = page.getByRole('button', { name: /release\.yml hace todo solo/ }).first()
+    await expect(destino).toHaveAttribute('aria-pressed', 'true', { timeout: 10_000 })
+
+    // Y ésa sabe quién la menciona.
+    await expect(page.getByText('Mentioned in', { exact: true })).toBeVisible()
+    await page.screenshot({ path: join(SHOTS, '10-mentioned-in.png') })
+    await page.getByRole('button', { name: 'Cómo se hace una release', exact: true }).click()
+    await expect(page.getByRole('heading', { name: 'Pasos' })).toBeVisible({ timeout: 10_000 })
+  } finally {
+    await teardown(h)
+  }
+})

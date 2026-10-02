@@ -3707,6 +3707,12 @@ ipcMain.handle('memory:observation', (_event, syncId: string): MemoryObservation
     updatedAt: row.updated_at,
     supersededBy: row.superseded_by,
     revisionCount: row.revision_count,
+    links: memory.store.linksResueltos(syncId),
+    // Sólo los backlinks por `[[...]]`: una conexión manual no tiene lado, y el panel ya
+    // tiene su propio camino para ésas ("Connect to another memory").
+    mentionedIn: memory.store.vecinos(syncId)
+      .filter((v) => v.direction === 'incoming' && v.via === 'wikilink')
+      .map((v) => ({ syncId: v.syncId, title: v.title })),
   }
 })
 

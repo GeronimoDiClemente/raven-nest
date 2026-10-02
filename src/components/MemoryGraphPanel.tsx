@@ -28,6 +28,7 @@ import { MEMORY_TYPES_IN_LEGEND_ORDER, memoryTypeSwatch as swatchDe } from '../l
 import { memoryTypeSwatch } from '../lib/memory-type-legend'
 import { relativeTime } from '../lib/memories-status'
 import { AILogo } from './AILogos'
+import MemoryMarkdown from './MemoryMarkdown'
 import type { AIType, MemoryEdgeKind, MemoryObservationDetail } from '../types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -296,6 +297,7 @@ export default function MemoryGraphPanel({ selectedId, onSelect, onEmpezarAConec
               detail={detail}
               loading={cargandoDetalle}
               missing={missing}
+              onAbrir={onSelect}
               onConectar={() => onEmpezarAConectar?.(selectedId)}
               onCambio={(borrada) => {
                 // Borrada: no queda nada que mostrar, así que se deselecciona. Editada: se
@@ -474,11 +476,14 @@ function SinSeleccion({
 }
 
 function DocumentoDeMemoria({
-  detail, loading, missing, onConectar, onCambio,
+  detail, loading, missing, onAbrir, onConectar, onCambio,
 }: {
   detail: MemoryObservationDetail | null
   loading: boolean
   missing: boolean
+  /** Ir a otra memoria desde un `[[link]]` o desde «Mentioned in». Es la MISMA selección
+   *  que la lista y el grafo, así que los tres se mueven juntos. */
+  onAbrir: (syncId: string) => void
   onConectar: () => void
   /** La lista y el grafo se redibujan cuando esta memoria cambió o dejó de existir. */
   onCambio: (borrada: boolean) => void
@@ -602,12 +607,11 @@ function DocumentoDeMemoria({
         </p>
       )}
 
-      {/* El documento. Monoespaciado y respetando los saltos de línea: lo que guardan los
-          agentes es Markdown, y aplastarlo a un párrafo lo vuelve ilegible. */}
+      {/* El documento, leído como Markdown y con los `[[links]]` navegables. Hasta el
+          2026-10-02 era un <pre> crudo: el grafo ya sabía adónde apuntaba cada link, y acá
+          era texto muerto. */}
       {detail.content ? (
-        <pre className="whitespace-pre-wrap break-words font-mono text-fs-xs leading-relaxed text-foreground">
-          {detail.content}
-        </pre>
+        <MemoryMarkdown text={detail.content} links={detail.links} onOpen={onAbrir} />
       ) : (
         <p className="text-fs-sm text-muted-foreground">This memory has no body — only its title.</p>
       )}
@@ -655,6 +659,27 @@ function DocumentoDeMemoria({
               {t}
             </span>
           ))}
+        </div>
+      )}
+
+      {/* Los backlinks: quién linkea a ésta con `[[...]]`. Es la mitad que más sirve —«¿qué
+          escribí que dependa de esto?»— y la que el texto solo no puede mostrar. */}
+      {detail.mentionedIn && detail.mentionedIn.length > 0 && (
+        <div className="mt-1 border-t border-border pt-2">
+          <p className="mb-1.5 text-fs-xs uppercase tracking-wide text-muted-foreground">Mentioned in</p>
+          <ul className="flex flex-col gap-0.5">
+            {detail.mentionedIn.map((m) => (
+              <li key={m.syncId}>
+                <button
+                  type="button"
+                  onClick={() => onAbrir(m.syncId)}
+                  className="w-full rounded-sm border-0 bg-transparent px-1 py-0.5 text-left [font-family:inherit] text-fs-sm text-foreground hover:bg-accent"
+                >
+                  {m.title}
+                </button>
+              </li>
+            ))}
+          </ul>
         </div>
       )}
     </div>

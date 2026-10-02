@@ -78,10 +78,27 @@ function contextoDe(db: BaseSqlite, syncId: string): Contexto | null {
  * memoria que alguien ya decidió que hacía falta y todavía no escribió.
  */
 export function linksPendientesDe(db: BaseSqlite, syncId: string): string[] {
+  return linksResueltosDe(db, syncId).filter((l) => l.syncId === null).map((l) => l.name)
+}
+
+/**
+ * Cada `[[...]]` de esta memoria con la memoria a la que apunta, o `null` si es un hueco.
+ *
+ * Es lo que necesita el panel de la app para que un link del texto se pueda TOCAR: el
+ * renderer no puede resolver nombres (no tiene las candidatas ni puede importar de acá), así
+ * que la resolución viaja hecha, con el mismo criterio que usan el grafo y `memory_get`.
+ */
+export function linksResueltosDe(db: BaseSqlite, syncId: string): WikilinkResuelto[] {
   const ctx = contextoDe(db, syncId)
   if (!ctx) return []
   return parsearWikilinks(ctx.fila.content ?? '')
-    .filter((nombre) => resolverWikilink(nombre, ctx.comoCandidato) === null)
+    .map((name) => ({ name, syncId: resolverWikilink(name, ctx.comoCandidato) }))
+}
+
+export interface WikilinkResuelto {
+  /** El destino tal como se escribió, sin alias ni sección: `[[a|b]]` → `a`. */
+  name: string
+  syncId: string | null
 }
 
 export function vecinosDeMemoria(db: BaseSqlite, syncId: string): VecinoDeMemoria[] {
@@ -112,7 +129,12 @@ export function vecinosDeMemoria(db: BaseSqlite, syncId: string): VecinoDeMemori
   // título y el topic no lo encontraría, y el backlink se perdería justo en el caso para el
   // que existen los alias.
   const misAlias = parsearAlias(fila.content ?? '')
-  for (const frase of [fila.title, fila.topic_key, ...misAlias]) {
+  // Y por el ÚLTIMO tramo del topic, que es por donde resuelve `resolverWikilink` cuando el
+  // topic trae prefijo (`claude-memory/release-yml` ← `[[release-yml]]`): el topic entero
+  // no aparece en el texto de quien linkea, y sin esto el backlink se perdía en el caso más
+  // común del corpus real.
+  const tramo = fila.topic_key?.includes('/') ? fila.topic_key.slice(fila.topic_key.lastIndexOf('/') + 1) : null
+  for (const frase of [fila.title, fila.topic_key, tramo, ...misAlias]) {
     if (!frase || !frase.trim()) continue
     // Mismo saneo que search(): FTS5 no permite comillas dobles sueltas en una MATCH
     // expression, y envolver en comillas fuerza frase exacta en vez de dejar que los

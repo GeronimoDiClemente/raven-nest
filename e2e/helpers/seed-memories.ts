@@ -32,6 +32,8 @@ export interface SeedMemory {
   tags?: string[]
   /** Milisegundos. Default: escalonado por el orden en el array. */
   updatedAt?: number
+  /** El cuerpo. Default: `Contenido de <title>`. Hace falta para sembrar `[[links]]`. */
+  content?: string
 }
 
 /** `userId` null => cuenta local, que es con la que arranca el harness. Espeja
@@ -75,7 +77,7 @@ export function seedMemories(homeDir: string, memories: SeedMemory[]): string {
       quote(m.topicKey ?? null),
       quote(m.type),
       quote(m.title),
-      quote(`Contenido de ${m.title}`),
+      quote(m.content ?? `Contenido de ${m.title}`),
       quote(JSON.stringify(m.tags ?? [])),
       quote('e2e'),
       quote(m.originAi ?? null),
