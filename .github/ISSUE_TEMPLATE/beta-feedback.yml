@@ -1,0 +1,26 @@
+name: Beta feedback
+description: An idea, something confusing, or something you liked in the Nest beta.
+title: "[beta] "
+labels: ["beta", "feedback"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Issues are public**: do not paste memory contents or anything private.
+  - type: textarea
+    id: feedback
+    attributes:
+      label: What would you like to tell us?
+      description: What you were trying to do, what got in the way or what you would change.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Memories (saving, search, graph)
+        - Cloud sync
+        - Encryption / second machine / recovery code
+        - Install or update
+        - Something else in Nest

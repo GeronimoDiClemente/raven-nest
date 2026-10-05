@@ -1,0 +1,60 @@
+name: Beta bug
+description: Something broke or behaved unexpectedly in the Nest beta.
+title: "[beta] "
+labels: ["beta", "bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for testing the beta. **Issues are public**: do not paste memory contents, tokens, passwords, your recovery code or private code. If you need to share something private, message Gero directly.
+  - type: textarea
+    id: steps
+    attributes:
+      label: What did you do?
+      description: Step by step, so we can reproduce it.
+      placeholder: |
+        1. Opened Memories
+        2. Clicked ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Memories (saving, search, graph)
+        - Cloud sync
+        - Encryption / second machine / recovery code
+        - Install or update
+        - Something else in Nest
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Windows
+        - macOS
+        - Linux
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Nest version
+      description: Settings → Updates
+      placeholder: 1.6.0-beta.1
+    validations:
+      required: true
+  - type: textarea
+    id: extra
+    attributes:
+      label: Screenshots or anything else
+      description: Drag images here. Check they show nothing private.
