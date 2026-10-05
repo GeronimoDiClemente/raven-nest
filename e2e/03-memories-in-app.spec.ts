@@ -26,7 +26,7 @@
 import { test, expect } from '@playwright/test'
 import { launchHarness, teardown } from './helpers/harness'
 import { existsSync, mkdirSync } from 'fs'
-import { join } from 'path'
+import { basename, join } from 'path'
 
 const SHOTS = join(__dirname, '..', 'test-results', 'memories-in-app')
 mkdirSync(SHOTS, { recursive: true })
@@ -234,7 +234,7 @@ test('con un repo vinculado se dibuja el panel de ramas, y prenderlo escribe el 
     await page.evaluate((dir) => {
       ;(window as unknown as { __e2e_linkRepo?: (p: string) => void }).__e2e_linkRepo?.(dir)
     }, h.repoDir)
-    await expect(page.locator('.sidebar-repo-name')).toHaveText(h.repoDir.split('/').pop()!, { timeout: 10_000 })
+    await expect(page.locator('.sidebar-repo-name')).toHaveText(basename(h.repoDir), { timeout: 10_000 })
 
     await page.getByTitle(/^Memories/).first().click()
     const overlay = page.locator('.memories-workspace')

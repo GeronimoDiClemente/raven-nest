@@ -775,7 +775,12 @@ function createWindow(): void {
       preload: join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: true
+      sandbox: true,
+      // Con la ventana oculta Chromium la trata como de fondo y congela animaciones y
+      // `requestAnimationFrame`: el overlay de Personal quedaba en el primer cuadro de su
+      // `zoomIn` (escala 0.93, así que un botón de 28px se medía 26) y el grafo de memorias
+      // no avanzaba. Sólo en los e2e; la app real sigue ahorrando batería en segundo plano.
+      backgroundThrottling: !E2E_HEADLESS
     }
   })
 

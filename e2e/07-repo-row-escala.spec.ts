@@ -84,6 +84,11 @@ test('el .repo-action-btn no esta atado al alto de su fila: la excepcion de 26px
       }
       return previo
     }
+    // En los e2e headless la ventana nunca se muestra y Chromium no produce cuadros: el
+    // reloj de las animaciones CSS se queda en 0 y el `zoomIn` no termina nunca (medido: un
+    // boton de 28px daba 26, la escala 0.93 del primer cuadro). Esperar no alcanza; hay que
+    // terminarlas a mano. Con la ventana visible esto no cambia nada.
+    await page.evaluate(() => document.getAnimations().forEach(a => a.finish()))
     const altoBoton = await altoEstable()
     const altoFilaAntes = (await fila.boundingBox())!.height
     await page.screenshot({ path: join(SHOTS, '01-en-escala-28px.png') })
