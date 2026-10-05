@@ -1,7 +1,14 @@
 import { resolve } from 'path'
+import { readFileSync } from 'fs'
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
+
+// La versión del package.json, horneada en el renderer. La usa `src/lib/beta-de-memoria.ts`
+// para saber si este build es una beta (`1.6.0-beta.N`), que es el único lugar del renderer
+// que necesita saberlo. Se lee del package.json y no de `app.getVersion()` porque el gate se
+// decide al pintar, sin esperar un IPC.
+const VERSION = JSON.parse(readFileSync(resolve(__dirname, 'package.json'), 'utf8')).version as string
 
 export default defineConfig({
   main: {
@@ -34,6 +41,9 @@ export default defineConfig({
   },
   renderer: {
     root: 'src',
+    define: {
+      'import.meta.env.VITE_NEST_VERSION': JSON.stringify(VERSION),
+    },
     resolve: {
       // shadcn genera imports con `@/`. Sin este alias, nada de components/ui resuelve.
       // `cn` -> @/lib/utils: los componentes stock (src/components/ui/) importan el

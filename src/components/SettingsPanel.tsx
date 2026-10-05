@@ -8,6 +8,7 @@ import { useMemory } from '../hooks/useMemory'
 import { useProfile } from '../hooks/useProfile'
 import { useUserRepos } from '../hooks/useUserRepos'
 import { PLAN_LIMITS } from '../lib/stripe'
+import { nubeDeMemoriaDisponible, textoDeErrorDeMemoria } from '../lib/beta-de-memoria'
 import type { UserPreferencesApi } from '../hooks/useUserPreferences'
 import { formatBinding, eventToBinding, Keybindings } from '../lib/keybindings'
 import type { EditorPreferences, EditorTheme } from '../lib/ide-config-mappings'
@@ -316,6 +317,8 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
   const memory = useMemory()
   const { repos: userRepos } = useUserRepos()
   const { plan } = useProfile()
+  // En un build beta la nube no depende del plan: la habilita el allowlist del servicio.
+  const nubeDisponible = nubeDeMemoriaDisponible(PLAN_LIMITS[plan].memoryCloud)
   const [memoryUpgradeOpen, setMemoryUpgradeOpen] = useState(false)
   // Reopen from Settings (Task 7 Step 3): local UI state only — never touches the
   // persisted `hasSeenMemoryHub` flag, so reopening here doesn't affect whether the
@@ -699,7 +702,7 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                         )}
                         {memory.state === 'error' && (
                           <span style={{ fontSize: 11, color: '#ef4444', marginLeft: 6 }}>
-                            Couldn't sync{memory.error ? ` — ${memory.error}` : ''}
+                            Couldn't sync{memory.error ? ` — ${textoDeErrorDeMemoria(memory.error)}` : ''}
                           </span>
                         )}
                         {memory.state === 'plan_required' && (
@@ -712,7 +715,7 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                             Memory didn't start on this machine — restart Nest
                           </span>
                         )}
-                        {memory.state === 'disconnected' && !PLAN_LIMITS[plan].memoryCloud && (
+                        {memory.state === 'disconnected' && !nubeDisponible && (
                           <span style={{ fontSize: 11, opacity: 0.65, marginLeft: 6 }}>
                             Local memory active — cloud sync is a Cloud feature
                           </span>
@@ -754,13 +757,13 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                         </div>
                       ) : memory.state === 'connecting' || memory.state === 'migrating' ? (
                         <Button size="sm" disabled>…</Button>
-                      ) : PLAN_LIMITS[plan].memoryCloud ? (
+                      ) : nubeDisponible ? (
                         <Button size="sm" onClick={() => void conectarMemoria()}>Connect</Button>
                       ) : (
                         <Button size="sm" onClick={() => setMemoryUpgradeOpen(true)}>Upgrade</Button>
                       )}
                     </div>
-                    {((memory.state === 'disconnected' && PLAN_LIMITS[plan].memoryCloud) || memory.state === 'error') && (
+                    {((memory.state === 'disconnected' && nubeDisponible) || memory.state === 'error') && (
                       <input
                         type="password"
                         className="sp-select"
