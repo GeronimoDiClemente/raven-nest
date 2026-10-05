@@ -1,10 +1,12 @@
 FROM node:22-alpine
 
-# `postgresql16-client` trae pg_dump y pg_restore, que el backup diario corre como proceso
-# hijo. Pinneado a 16 porque un pg_dump MÁS VIEJO que el servidor se niega a correr, y la base
-# de producción es Postgres 16: sin el número, un rebuild futuro podría traer un cliente 15 y
-# el backup dejaría de existir en silencio.
-RUN apk add --no-cache postgresql16-client
+# `postgresql18-client` trae pg_dump y pg_restore, que el backup diario corre como proceso
+# hijo. Pinneado porque un pg_dump MÁS VIEJO que el servidor se niega a correr: la base de
+# producción (`nest-memory-sync`) es Postgres **18**. Hasta el 2026-10-05 esto decía 16 —
+# era cierto para el proyecto viejo— y el backup habría fallado en cuanto se cargara R2. Un
+# pg_dump 18 sí dumpea servidores más viejos, así que subir el número es lo seguro. Si la
+# base pasa a 19, este número sube con ella.
+RUN apk add --no-cache postgresql18-client
 
 WORKDIR /app
 COPY package.json package-lock.json* ./
