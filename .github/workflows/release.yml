@@ -2,6 +2,18 @@ name: Release
 
 on:
   workflow_dispatch:
+    inputs:
+      canal:
+        # `beta` publica una PRERELEASE: no es la "latest" de GitHub, así que ni el sitio
+        # (que lee /releases/latest) ni el auto-updater de una versión estable la ven. Sólo
+        # la recibe quien ya tiene instalada una beta: electron-updater activa
+        # `allowPrerelease` solo cuando la versión instalada trae sufijo (`1.6.0-beta.1`).
+        # Se dispara desde la rama que se quiera probar:
+        #   gh workflow run release.yml --ref <rama> -f canal=beta
+        description: 'estable = release pública (latest) · beta = prerelease para el equipo y los testers'
+        type: choice
+        options: [estable, beta]
+        default: estable
   push:
     branches:
       - main
@@ -20,6 +32,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
+      beta: ${{ steps.version.outputs.beta }}
     steps:
       - uses: actions/checkout@v5
 
@@ -36,7 +49,31 @@ jobs:
 
       - name: Get version
         id: version
-        run: echo "version=$(node -p 'require("./package.json").version')" >> $GITHUB_OUTPUT
+        # El canal y la versión tienen que coincidir, y si no, se corta acá, antes de buildear:
+        # - una beta sin sufijo (`1.6.0`) se instalaría como estable y sus testers dejarían de
+        #   recibir las betas siguientes;
+        # - una estable con sufijo (`1.6.0-beta.3`) saldría como "latest" y le llegaría a todo
+        #   el mundo. Es lo que pasaría si se mergea la rama a main sin sacarle el sufijo.
+        # En un push a main `inputs.canal` viene vacío: es estable.
+        env:
+          CANAL: ${{ inputs.canal || 'estable' }}
+        run: |
+          VERSION=$(node -p 'require("./package.json").version')
+          case "$VERSION" in
+            *-beta.*) ES_BETA=true ;;
+            *-*) echo "::error::La versión $VERSION tiene un sufijo que no es -beta.N" ; exit 1 ;;
+            *) ES_BETA=false ;;
+          esac
+          if [ "$CANAL" = "beta" ] && [ "$ES_BETA" != "true" ]; then
+            echo "::error::canal=beta pero la versión $VERSION no termina en -beta.N (ej. 1.6.0-beta.1)"
+            exit 1
+          fi
+          if [ "$CANAL" = "estable" ] && [ "$ES_BETA" = "true" ]; then
+            echo "::error::La versión $VERSION es una beta: no puede salir como release estable. Sacale el sufijo, o dispará con canal=beta."
+            exit 1
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "beta=$ES_BETA" >> $GITHUB_OUTPUT
 
       - name: Upload decrypted source
         uses: actions/upload-artifact@v6
@@ -340,6 +377,10 @@ jobs:
 
   deploy-functions:
     needs: decrypt
+    # Una beta NO toca Supabase de producción: las functions que deploya son las de la rama,
+    # y las usan todos los usuarios, no sólo los testers. La app de la beta no las necesita
+    # (la memoria habla con el servicio de sync, no con functions).
+    if: needs.decrypt.outputs.beta != 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Download decrypted source
@@ -425,6 +466,9 @@ jobs:
             artifacts/linux/*.AppImage
             artifacts/linux/*.deb
             artifacts/linux/latest*.yml
-          make_latest: true
+          # Una beta es prerelease y NUNCA latest: es lo que la deja fuera del sitio y del
+          # updater de las instalaciones estables.
+          prerelease: ${{ needs.decrypt.outputs.beta == 'true' }}
+          make_latest: ${{ needs.decrypt.outputs.beta == 'true' && 'false' || 'true' }}
           token: ${{ secrets.GITHUB_TOKEN }}
 
