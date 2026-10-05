@@ -11,6 +11,7 @@ import { clavesDeSupabase } from './jwks'
 import { iniciarVinculacion, aprobarVinculacion, reclamarVinculacion } from './link'
 import { handleShareProject } from './share'
 import { enrollDeviceKey, getKeyState, publishWraps } from './keys'
+import { handleBeta } from './betas'
 
 // El emisor del JWKS se arma UNA vez por URL y se guarda: cada instancia tiene su propio
 // caché, así que una por request no cachearía nada y saldría a Supabase en cada login.
@@ -157,6 +158,17 @@ async function handleRequest(pool: Pool, req: IncomingMessage, res: ServerRespon
   const path = url.pathname
 
   if (path === '/health') return send(res, 200, { ok: true })
+
+  // La beta cerrada se reparte desde acá (ver `betas.ts`). Con su propio try/catch por lo
+  // mismo que el resto: una falla de R2 o de la base no puede tumbar el proceso.
+  if (path.startsWith('/beta/') || path.startsWith('/v1/beta/')) {
+    try {
+      if (await handleBeta(pool, req, res, path)) return
+    } catch (err) {
+      console.error('[http] beta', err)
+      return send(res, 500, { error: 'internal' })
+    }
+  }
 
   // §9.2 — la emisión del token. Va ANTES de `authenticate` y fuera de su try/catch porque
   // es el único camino que NO lleva un token `nmk_`: la credencial es el JWT del login que

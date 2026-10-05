@@ -4,10 +4,10 @@ on:
   workflow_dispatch:
     inputs:
       canal:
-        # `beta` publica una PRERELEASE: no es la "latest" de GitHub, así que ni el sitio
-        # (que lee /releases/latest) ni el auto-updater de una versión estable la ven. Sólo
-        # la recibe quien ya tiene instalada una beta: electron-updater activa
-        # `allowPrerelease` solo cuando la versión instalada trae sufijo (`1.6.0-beta.1`).
+        # `beta` NO publica nada en GitHub: el repo es público y una prerelease la ve
+        # cualquiera. Sube los instaladores al bucket PRIVADO de R2 de las betas, y el
+        # servicio de sync los entrega sólo a cuentas del allowlist (server/src/betas.ts):
+        # la primera vez por un link personal, después por el auto-updater de la app.
         # Se dispara desde la rama que se quiera probar:
         #   gh workflow run release.yml --ref <rama> -f canal=beta
         description: 'estable = release pública (latest) · beta = prerelease para el equipo y los testers'
@@ -444,11 +444,13 @@ jobs:
           path: artifacts/linux
 
       - name: Delete existing release and tag
+        if: needs.decrypt.outputs.beta != 'true'
         run: gh release delete v${{ needs.decrypt.outputs.version }} --yes --cleanup-tag --repo GeronimoDiClemente/raven-nest || true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create GitHub Release
+        if: needs.decrypt.outputs.beta != 'true'
         # Glob is `latest*.yml`, not `*.yml`. electron-builder emits a
         # `builder-debug.yml` on every platform; uploading three assets with
         # the same name races and the loser hits a 404 from GitHub's asset
@@ -466,9 +468,48 @@ jobs:
             artifacts/linux/*.AppImage
             artifacts/linux/*.deb
             artifacts/linux/latest*.yml
-          # Una beta es prerelease y NUNCA latest: es lo que la deja fuera del sitio y del
-          # updater de las instalaciones estables.
-          prerelease: ${{ needs.decrypt.outputs.beta == 'true' }}
-          make_latest: ${{ needs.decrypt.outputs.beta == 'true' && 'false' || 'true' }}
+          make_latest: true
           token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Publish beta to the private R2 bucket
+        if: needs.decrypt.outputs.beta == 'true'
+        # El orden importa: primero los instaladores, después el manifiesto de la página de
+        # descarga y AL FINAL los `latest*.yml`. Un updater que lea el feed nuevo tiene que
+        # encontrar el archivo al que apunta; al revés, durante la subida le prometería uno
+        # que todavía no está.
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_BETAS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_BETAS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          BUCKET: ${{ secrets.R2_BETAS_BUCKET }}
+          VERSION: ${{ needs.decrypt.outputs.version }}
+        run: |
+          set -euo pipefail
+          for v in AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY R2_ACCOUNT_ID BUCKET; do
+            if [ -z "${!v}" ]; then echo "::error::Falta el secreto de la beta: $v"; exit 1; fi
+          done
+          EP="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+          subir() { aws s3 cp "$1" "s3://${BUCKET}/$(basename "$1")" --endpoint-url "$EP" --no-progress; }
+
+          shopt -s nullglob
+          for f in artifacts/win/*.exe artifacts/mac/*.dmg artifacts/mac/*.zip artifacts/linux/*.AppImage artifacts/linux/*.deb; do
+            subir "$f"
+          done
+
+          node -e '
+            const fs = require("fs"), path = require("path");
+            const files = [];
+            const add = (dir, re, os, label) => { for (const n of fs.existsSync(dir) ? fs.readdirSync(dir) : []) if (re.test(n)) files.push({ name: n, os, label: label(n) }); };
+            add("artifacts/win", /\.exe$/, "windows", () => "Installer (.exe)");
+            add("artifacts/mac", /\.dmg$/, "mac", n => /arm64/.test(n) ? "Apple Silicon (.dmg)" : "Intel (.dmg)");
+            add("artifacts/linux", /\.AppImage$/, "linux", () => "AppImage");
+            add("artifacts/linux", /\.deb$/, "linux", () => "Debian / Ubuntu (.deb)");
+            fs.writeFileSync("manifest.json", JSON.stringify({ version: process.env.VERSION, files }, null, 2));
+            console.log(fs.readFileSync("manifest.json", "utf8"));
+          '
+          subir manifest.json
+
+          for f in artifacts/win/latest*.yml artifacts/mac/latest*.yml artifacts/linux/latest*.yml; do
+            subir "$f"
+          done

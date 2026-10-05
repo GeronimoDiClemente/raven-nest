@@ -139,6 +139,8 @@ en producción hay que fijar al menos `DATABASE_URL`.
 | `R2_ACCESS_KEY_ID` | ninguno | Access key del API token de R2, **acotado al bucket de backups**. |
 | `R2_SECRET_ACCESS_KEY` | ninguno | Secret del mismo token. |
 | `R2_BUCKET` | ninguno | Nombre del bucket, por ejemplo `nest-memory-backups`. **La retención de 30 días es una regla de ciclo de vida del bucket, no del código.** |
+| `R2_BETAS_BUCKET` | ninguno | Bucket **privado** con los instaladores de la beta cerrada (ver `src/betas.ts`). Separado del de backups, cuya regla de ciclo de vida los borraría. El token `R2_*` tiene que poder LEER este bucket. Sin esto (o sin `BETA_LINK_SECRET`) las rutas `/beta/*` y `/v1/beta/*` contestan 503 y el resto anda igual. |
+| `BETA_LINK_SECRET` | ninguno | Firma los links personales de descarga (`scripts/beta-link.mjs`). Al menos 32 caracteres. Rotarlo corta todos los links de una vez. |
 | `PG_DUMP_CMD` | `pg_dump` | Con qué correr `pg_dump`, como lista de palabras. Existe para desarrollo en máquinas sin cliente de Postgres instalado: `docker exec -i nest-memory-pg pg_dump`. En el contenedor del servicio no se setea. |
 | `PG_RESTORE_CMD` | `pg_restore` | Lo mismo para `pg_restore`, que usa el script de restauración. |
 | `PG_BIN_DATABASE_URL` | el valor de `DATABASE_URL` | La URL que ven los **binarios** de Postgres, que no siempre es la que ve el driver `pg`. En producción son la misma y esto no hace falta. En desarrollo sí: el driver corre en Windows y llega por `127.0.0.1:55432`, mientras que `pg_dump` corre adentro del contenedor por `docker exec` y desde ahí la base es `127.0.0.1:5432`. |

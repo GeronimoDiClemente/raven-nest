@@ -1,5 +1,6 @@
 import { app, BrowserWindow, ipcMain, shell, nativeImage, dialog, session, safeStorage, clipboard, net, screen } from 'electron'
 import { autoUpdater } from 'electron-updater'
+import { esVersionBeta, feedDeBeta, headersDeBeta } from './updater-de-beta'
 import { resolve as pathResolve } from 'path'
 
 const MIN_VERSION_URL = 'https://raw.githubusercontent.com/GeronimoDiClemente/raven-nest/main/min-version.json'
@@ -2864,8 +2865,25 @@ type UpdaterState = 'idle' | 'downloading' | 'ready'
 let updaterState: UpdaterState = 'idle'
 let updaterInterval: NodeJS.Timeout | null = null
 
+/**
+ * Una beta se actualiza desde el servicio de sync y no desde GitHub (`updater-de-beta.ts`).
+ * Los headers se arman en CADA chequeo y no una vez: el token aparece recién cuando el
+ * usuario conecta la nube, que puede ser después de arrancar.
+ *
+ * `false` = no hay con qué pedir y el chequeo se saltea.
+ */
+function prepararChequeoDeBeta(): boolean {
+  if (!esVersionBeta(app.getVersion())) return true
+  const headers = headersDeBeta(loadMemoryToken())
+  if (!headers) return false
+  autoUpdater.setFeedURL({ provider: 'generic', url: feedDeBeta(getMemorySyncBaseUrl()) })
+  autoUpdater.requestHeaders = headers
+  return true
+}
+
 function safeCheckForUpdates(): void {
   if (updaterState !== 'idle') return
+  if (!prepararChequeoDeBeta()) return
   autoUpdater.checkForUpdates().catch(() => {})
 }
 
@@ -2945,6 +2963,9 @@ ipcMain.handle('updater:checkForUpdates', async () => {
   // If already downloading or downloaded, don't call checkForUpdates() again
   // (electron-updater throws if called while a download is in progress)
   if (updaterState === 'downloading' || updaterState === 'ready') return 'update-found'
+  // Una beta sin la nube conectada no tiene credencial para pedir: es un error que el panel
+  // de Updates puede mostrar, no un "estás al día" que mentiría.
+  if (!prepararChequeoDeBeta()) return 'error'
   const result = await autoUpdater.checkForUpdates().catch(() => null)
   if (!result) return 'error'
   const current = app.getVersion()
