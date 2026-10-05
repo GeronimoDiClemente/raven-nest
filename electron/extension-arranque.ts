@@ -6,13 +6,15 @@
 // levantar un editor.
 //
 // **Nada de esto toca la red.** La extensión corre en cada arranque del editor, y bloquear
-// ese arranque contra un servicio que puede no contestar es peor que mostrar menos.
+// ese arranque contra un servicio que puede no contestar es peor que mostrar menos. Lo único
+// que sale del proceso es el `ping` a un Nest local, y sólo cuando se abre el panel.
 import { homedir } from 'os'
 import { ravenHome } from './raven-home'
 import { existsSync } from 'fs'
 import { destinosDeSetup, planDeSetup, comoLanzarElServidor } from './setup-del-paquete'
 import { aplicarPlan, sondasDeDisco } from './aplicar-setup'
 import { decidirBase } from './base-para-el-paquete'
+import { buscarNestVivo } from './nest-vivo-del-paquete'
 import { readActivePointer } from './memory-active-store'
 import { abrirBaseSoloLectura } from './sqlite-sin-compilar'
 import { contextObservations } from './memory-reads'
@@ -43,20 +45,25 @@ function contarMemorias(path: string): number {
   }
 }
 
-function leerEstado(): EntradaDelPanel {
+async function leerEstado(): Promise<EntradaDelPanel> {
+  const raven = ravenHome()
+  const punteroDeNest = () => readActivePointer(raven)?.storePath ?? null
   const base = decidirBase({
     home: homedir(),
     existe: (p) => existsSync(p),
-    // El panel se pinta sincrónico y no espera un `ping`: acá Nest abierto se ve como su
-    // base, que para CONTAR memorias da lo mismo. Quien escribe —el MCP— sí sondea.
-    nestVivo: null,
-    punteroDeNest: () => readActivePointer(ravenHome())?.storePath ?? null,
+    // Hace falta el `ping` y no alcanza con el puntero: con Nest abierto el panel no puede
+    // ofrecer «conectar», porque eso arma un segundo daemon sobre la misma cuenta. Corre al
+    // abrir el panel, no al arrancar el editor, y tiene tope corto.
+    nestVivo: await buscarNestVivo(process.env, raven, process.platform === 'win32'),
+    punteroDeNest,
   })
 
-  // El `&&` de arriba ya estrecha `base` a no-daemon, así que acá `base.path` existe. Una
-  // segunda comparación contra 'daemon' sería código muerto — lo dijo el compilador.
-  const hayBase = base.modo !== 'daemon' && !(base.modo === 'propia' && base.nueva)
-  const memorias = hayBase ? contarMemorias(base.path) : 0
+  // Con Nest vivo se cuenta sobre su base, en sólo lectura: es la misma memoria que él sirve,
+  // y preguntársela por el socket sería sumar un formato de respuesta sólo para un número.
+  const pathAContar = base.modo === 'daemon'
+    ? punteroDeNest()
+    : base.modo === 'propia' && base.nueva ? null : base.path
+  const memorias = pathAContar && existsSync(pathAContar) ? contarMemorias(pathAContar) : 0
 
   const llavero = llaveroPorPlataforma(process.platform, correrComando)
   const safe = cifradoDeLlavero(llavero)

@@ -47,7 +47,7 @@ claro.** La receta para repetirla está en la memoria `nest-memory-sync-service`
   `setup` ejecutan `npx -y nest-memory` y hoy el nombre está libre: si lo registra otro, se
   ejecuta su código.
 - **El login contra Railway de verdad**, con Gero aprobando desde un Nest que tenga la tarjeta.
-- Menor: la extensión de VS Code pinta su panel con `nestVivo: null` (para contar memorias da igual).
+- ~~Menor: la extensión de VS Code pinta su panel con `nestVivo: null`~~ — arreglado el 5-oct: ofrecía «conectar» con Nest abierto.
 
 ---
 

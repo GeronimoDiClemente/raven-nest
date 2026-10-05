@@ -23,8 +23,11 @@ export interface ApiDeVSCode {
 export interface DepsDeExtension {
   /** Escribe la configuración MCP del editor que la hospeda. */
   configurar(): ResultadoDeAplicar
-  /** De dónde sale la memoria y qué se puede hacer con ella. */
-  leerEstado(): EntradaDelPanel
+  /**
+   * De dónde sale la memoria y qué se puede hacer con ella. Asincrónico porque saber si Nest
+   * está abierto exige un `ping` real: el archivo que lo delata queda en disco con Nest cerrado.
+   */
+  leerEstado(): Promise<EntradaDelPanel>
 }
 
 function escapar(texto: string): string {
@@ -95,9 +98,18 @@ function contar(r: ResultadoDeAplicar): string | null {
 }
 
 export function activar(api: ApiDeVSCode, deps: DepsDeExtension): { dispose(): void }[] {
-  const abrirPanel = () => {
-    const panel = api.mostrarPanel('Nest Memory')
-    panel.html = htmlDelPanel(estadoDelPanel(deps.leerEstado()))
+  // El estado se lee ANTES de abrir el panel: abrirlo vacío y llenarlo después deja un tab en
+  // blanco si la lectura falla. Y la falla se cuenta, igual que en `activate`: un comando que
+  // rechaza muestra un error sin contexto.
+  const abrirPanel = async () => {
+    let html: string
+    try {
+      html = htmlDelPanel(estadoDelPanel(await deps.leerEstado()))
+    } catch (err) {
+      api.mostrarMensaje(`Nest Memory could not read its state: ${err instanceof Error ? err.message : String(err)}`)
+      return
+    }
+    api.mostrarPanel('Nest Memory').html = html
   }
 
   const registros = [

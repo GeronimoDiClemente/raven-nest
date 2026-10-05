@@ -30,7 +30,7 @@ const entradaBase = {
 describe('activar', () => {
   it('registra los comandos que la extensión declara', () => {
     const { api, comandos } = apiFalsa()
-    activar(api, { configurar: () => ({ escritos: [], yaEstaban: ['/x'], saltados: [], fallados: [] }), leerEstado: () => entradaBase })
+    activar(api, { configurar: () => ({ escritos: [], yaEstaban: ['/x'], saltados: [], fallados: [] }), leerEstado: async () => entradaBase })
     expect([...comandos.keys()].sort()).toEqual(['nest-memory.setup', 'nest-memory.status'])
   })
 
@@ -38,20 +38,20 @@ describe('activar', () => {
     // Es el punto de la extensión: hacer sola lo que hoy el usuario hace a mano.
     const { api } = apiFalsa()
     const configurar = vi.fn(() => ({ escritos: ['/x/mcp.json'], yaEstaban: [], saltados: [], fallados: [] }))
-    activar(api, { configurar, leerEstado: () => entradaBase })
+    activar(api, { configurar, leerEstado: async () => entradaBase })
     expect(configurar).toHaveBeenCalledTimes(1)
   })
 
   it('si ya estaba configurado NO molesta con un mensaje', () => {
     // Un aviso en cada arranque de VS Code es ruido: la extensión corre siempre.
     const { api, mensajes } = apiFalsa()
-    activar(api, { configurar: () => ({ escritos: [], yaEstaban: ['/x'], saltados: [], fallados: [] }), leerEstado: () => entradaBase })
+    activar(api, { configurar: () => ({ escritos: [], yaEstaban: ['/x'], saltados: [], fallados: [] }), leerEstado: async () => entradaBase })
     expect(mensajes).toEqual([])
   })
 
   it('la primera vez sí avisa que quedó configurado', () => {
     const { api, mensajes } = apiFalsa()
-    activar(api, { configurar: () => ({ escritos: ['/x/mcp.json'], yaEstaban: [], saltados: [], fallados: [] }), leerEstado: () => entradaBase })
+    activar(api, { configurar: () => ({ escritos: ['/x/mcp.json'], yaEstaban: [], saltados: [], fallados: [] }), leerEstado: async () => entradaBase })
     expect(mensajes.join(' ')).toMatch(/nest memory/i)
   })
 
@@ -59,7 +59,7 @@ describe('activar', () => {
     const { api, mensajes } = apiFalsa()
     activar(api, {
       configurar: () => ({ escritos: [], yaEstaban: [], saltados: [], fallados: [{ path: '/x', error: 'EACCES' }] }),
-      leerEstado: () => entradaBase,
+      leerEstado: async () => entradaBase,
     })
     expect(mensajes.join(' ')).toContain('EACCES')
   })
@@ -70,17 +70,41 @@ describe('activar', () => {
     const { api, mensajes } = apiFalsa()
     expect(() => activar(api, {
       configurar: () => { throw new Error('disco lleno') },
-      leerEstado: () => entradaBase,
+      leerEstado: async () => entradaBase,
     })).not.toThrow()
     expect(mensajes.join(' ')).toContain('disco lleno')
   })
 
-  it('el comando de status abre el panel con lo que se ve', () => {
+  it('el comando de status abre el panel con lo que se ve', async () => {
     const { api, comandos, paneles } = apiFalsa()
-    activar(api, { configurar: () => ({ escritos: [], yaEstaban: [], saltados: [], fallados: [] }), leerEstado: () => entradaBase })
-    comandos.get('nest-memory.status')!()
+    activar(api, { configurar: () => ({ escritos: [], yaEstaban: [], saltados: [], fallados: [] }), leerEstado: async () => entradaBase })
+    await comandos.get('nest-memory.status')!()
     expect(paneles).toHaveLength(1)
     expect(paneles[0]!.html).toContain('120')
+  })
+
+  it('con Nest abierto el panel no ofrece conectar la cuenta', async () => {
+    // Era el bug: la extensión no sondeaba a Nest, lo veía como «su base» y ofrecía conectar
+    // —que arma un segundo daemon sobre la misma cuenta.
+    const { api, comandos, paneles } = apiFalsa()
+    activar(api, {
+      configurar: () => ({ escritos: [], yaEstaban: [], saltados: [], fallados: [] }),
+      leerEstado: async () => ({ ...entradaBase, base: { modo: 'daemon' as const, socket: '/s', token: 't' } }),
+    })
+    await comandos.get('nest-memory.status')!()
+    expect(paneles[0]!.html).toContain('Nest is running here')
+    expect(paneles[0]!.html).not.toMatch(/connect your account/i)
+  })
+
+  it('si leer el estado falla, se avisa y no queda un panel en blanco', async () => {
+    const { api, comandos, mensajes, paneles } = apiFalsa()
+    activar(api, {
+      configurar: () => ({ escritos: [], yaEstaban: [], saltados: [], fallados: [] }),
+      leerEstado: async () => { throw new Error('base bloqueada') },
+    })
+    await expect(comandos.get('nest-memory.status')!()).resolves.toBeUndefined()
+    expect(paneles).toHaveLength(0)
+    expect(mensajes.join(' ')).toContain('base bloqueada')
   })
 })
 
