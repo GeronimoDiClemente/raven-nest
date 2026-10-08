@@ -922,8 +922,9 @@ export class MemoryStore {
    * visible, hace que el desempate sea arbitrario y que las dos maquinas puedan elegir
    * ganadores distintos.
    *
-   * Se lee adentro de la transaccion de escritura (todas son `IMMEDIATE`, ver `escribir()`),
-   * asi que el segundo proceso lee el maximo que dejo el primero.
+   * Se lee adentro de la transaccion de escritura (todas son `.immediate()`: save, update,
+   * deleteObservation, promoteToTeam), asi que el segundo proceso lee el maximo que dejo el
+   * primero.
    *
    * **El costo esta medido** (2026-09-13, 20.000 filas): 278 us sin indice —un scan completo,
    * que es el riesgo P-R1 de la spec confirmado— y **1 us con el indice** de la migracion 8,
@@ -1735,15 +1736,21 @@ export class MemoryStore {
   deleteObservation(syncId: string): boolean {
     const existing = this.get(syncId)
     if (!existing || existing.deleted) return false
-    const updated: ObservationRow = {
-      ...existing,
-      content: null,
-      updated_at: Date.now(),
-      lamport: this.nextLamport(),
-      deleted: 1,
-    }
-    this.applyRowUpdate(updated)
-    this.appendMutation('delete', updated)
+    // Una transacción IMMEDIATE, como `save()`: el lamport se lee adentro (otro proceso no
+    // puede escribir entre la lectura del máximo y la fila), y la fila y su mutación van
+    // juntas — sin eso, un fallo entre las dos dejaba la fila borrada en local y el borrado
+    // sin replicar nunca. (Cuarta revisión, 2026-10-08.)
+    this.db.transaction(() => {
+      const updated: ObservationRow = {
+        ...existing,
+        content: null,
+        updated_at: Date.now(),
+        lamport: this.nextLamport(),
+        deleted: 1,
+      }
+      this.applyRowUpdate(updated)
+      this.appendMutation('delete', updated)
+    }).immediate()
     return true
   }
 
@@ -1993,21 +2000,23 @@ export class MemoryStore {
       return { updated: false, reason: 'unchanged', syncId: existing.sync_id }
     }
 
-    const updated: ObservationRow = {
-      ...existing,
-      title,
-      content,
-      tags: nextTags,
-      content_hash: hash,
-      revision_count: existing.revision_count + 1,
-      updated_at: Date.now(),
-      lamport: this.nextLamport(),
-    }
-    const txn = this.db.transaction(() => {
-      this.applyRowUpdate(updated)
-      this.appendMutation('upsert', updated)
-    })
-    txn.immediate()
+    // El lamport se lee ADENTRO de la transacción, como en `save()`: afuera, otro proceso
+    // podía escribir entre la lectura del máximo y esta fila y salir con el mismo número.
+    const updated = this.db.transaction(() => {
+      const fila: ObservationRow = {
+        ...existing,
+        title,
+        content,
+        tags: nextTags,
+        content_hash: hash,
+        revision_count: existing.revision_count + 1,
+        updated_at: Date.now(),
+        lamport: this.nextLamport(),
+      }
+      this.applyRowUpdate(fila)
+      this.appendMutation('upsert', fila)
+      return fila
+    }).immediate()
     return { updated: true, syncId: updated.sync_id, redacted }
   }
 

@@ -121,6 +121,53 @@ describe('MemoryStore — write path resolution (§3.1)', () => {
     expect(store.pendingMutations()).toHaveLength(pendientes + 1)
   })
 
+  /**
+   * Cuarta revisión (2026-10-08): el arreglo del reloj de Lamport (leerlo de la BASE, adentro
+   * de la transacción IMMEDIATE) cubría `save()` y no `update()` ni `deleteObservation()`.
+   * Fuera de la transacción, otro proceso puede escribir entre la lectura del máximo y la
+   * escritura, y los dos salen con el mismo lamport.
+   */
+  describe('el lamport se lee adentro de la transacción', () => {
+    /** SQLite rechaza un BEGIN adentro de una transacción abierta: así se sabe si hay una. */
+    const espiarLamport = () => {
+      const db = (store as unknown as { db: { exec(s: string): void } }).db
+      const enTransaccion: boolean[] = []
+      const original = (store as unknown as { nextLamport: () => number }).nextLamport.bind(store)
+      vi.spyOn(store as unknown as { nextLamport: () => number }, 'nextLamport').mockImplementation(() => {
+        try { db.exec('BEGIN'); db.exec('ROLLBACK'); enTransaccion.push(false) } catch { enTransaccion.push(true) }
+        return original()
+      })
+      return enTransaccion
+    }
+    const guardar = () => store.save({ projectKey: 'p', type: 'decision', source: 'mcp', title: 'T', content: 'C' }).syncId
+
+    it('en update()', () => {
+      const id = guardar()
+      const enTransaccion = espiarLamport()
+      store.update({ syncId: id, content: 'otro contenido' })
+      expect(enTransaccion).toEqual([true])
+    })
+
+    it('en deleteObservation()', () => {
+      const id = guardar()
+      const enTransaccion = espiarLamport()
+      store.deleteObservation(id)
+      expect(enTransaccion).toEqual([true])
+    })
+  })
+
+  // Sin transacción, un fallo entre la fila y la mutación dejaba la fila borrada en local y
+  // el borrado sin replicar nunca: las otras máquinas la seguían viendo para siempre.
+  it('deleteObservation es atómico: si no se puede loguear la mutación, la fila no se borra', () => {
+    const id = store.save({ projectKey: 'p', type: 'decision', source: 'mcp', title: 'T', content: 'C' }).syncId
+    vi.spyOn(store as unknown as { appendMutation: () => void }, 'appendMutation').mockImplementation(() => {
+      throw new Error('disco lleno')
+    })
+    expect(() => store.deleteObservation(id)).toThrow('disco lleno')
+    vi.restoreAllMocks()
+    expect(store.get(id)?.deleted).toBe(0)
+  })
+
   it('content dedupe window absorbs an identical save instead of inserting a duplicate', () => {
     const first = store.save({
       projectKey: 'proj-a',
