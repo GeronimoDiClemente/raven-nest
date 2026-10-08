@@ -79,6 +79,61 @@ describe('las recetas por plataforma', () => {
   })
 })
 
+/**
+ * Un `secret-tool` de mentira que se porta como el real, medido el 2026-10-08 en Ubuntu 26.04
+ * (WSL) contra libsecret-tools y gnome-keyring: `--version` NO existe (sale 2 con el uso),
+ * `search` sale 0 haya o no servicio de secretos, y sólo `store` + `lookup` dicen la verdad.
+ */
+function secretToolReal(conServicio: boolean) {
+  const datos = new Map<string, string>()
+  const correr = vi.fn<CorrerComando>((cmd, args, entrada) => {
+    if (cmd !== 'secret-tool') return { ok: false, salida: 'command not found' }
+    const cuenta = args[args.indexOf('account') + 1]!
+    switch (args[0]) {
+      case 'store':
+        if (!conServicio) return { ok: false, salida: '' }
+        datos.set(cuenta, entrada ?? ''); return { ok: true, salida: '' }
+      case 'lookup':
+        return datos.has(cuenta) ? { ok: true, salida: datos.get(cuenta)! } : { ok: false, salida: '' }
+      case 'clear':
+        datos.delete(cuenta); return { ok: conServicio, salida: '' }
+      case 'search':
+        return { ok: true, salida: '' }
+      default:
+        return { ok: false, salida: 'usage: secret-tool store ...' }
+    }
+  })
+  return { correr, datos }
+}
+
+describe('Linux: el llavero contra el secret-tool real', () => {
+  it('con servicio de secretos está disponible', () => {
+    const { correr } = secretToolReal(true)
+    expect(llaveroPorPlataforma('linux', correr).disponible()).toBe(true)
+  })
+
+  it('sin servicio de secretos no está disponible', () => {
+    const { correr } = secretToolReal(false)
+    expect(llaveroPorPlataforma('linux', correr).disponible()).toBe(false)
+  })
+
+  it('la sonda no deja nada escrito en el llavero', () => {
+    const { correr, datos } = secretToolReal(true)
+    llaveroPorPlataforma('linux', correr).disponible()
+    expect(datos.size).toBe(0)
+  })
+
+  // La sonda son tres procesos y un servicio colgado tarda el timeout entero: se paga una vez.
+  it('la sonda corre una sola vez por proceso', () => {
+    const { correr } = secretToolReal(true)
+    const llavero = llaveroPorPlataforma('linux', correr)
+    llavero.disponible()
+    const llamadas = correr.mock.calls.length
+    llavero.disponible()
+    expect(correr.mock.calls.length).toBe(llamadas)
+  })
+})
+
 describe('el cifrado apoyado en el llavero', () => {
   it('ida y vuelta', () => {
     const { llavero } = llaveroFalso()
@@ -138,6 +193,19 @@ describe('el cifrado apoyado en el llavero', () => {
     // una maestra en claro sería peor que no cifrar nada.
     const { llavero } = llaveroFalso(false)
     expect(cifradoDeLlavero(llavero).isEncryptionAvailable()).toBe(false)
+  })
+
+  // Un llavero que dice estar disponible pero no guarda (bloqueado, un diálogo que nadie
+  // contesta y vence el timeout): cifrar con una clave que no quedó en ningún lado deja la
+  // maestra ilegible para siempre en el próximo arranque. Tiene que lanzar.
+  it('si la clave nueva no quedó guardada, cifrar lanza', () => {
+    const llavero = {
+      disponible: () => true,
+      leer: () => null,
+      guardar: () => { /* falla en silencio */ },
+      borrar: () => {},
+    }
+    expect(() => cifradoDeLlavero(llavero).encryptString('maestra')).toThrow()
   })
 
   it('sin llavero, cifrar lanza en vez de devolver el texto', () => {

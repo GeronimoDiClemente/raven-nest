@@ -24,9 +24,9 @@
 // > **Verificado de verdad en macOS** (2026-09-18, contra el `security` real) **y en
 // > Windows** (2026-10-02, Windows 11: lo guardado en el registro es un blob de DPAPI —
 // > empieza con `01000000d08c9ddf…`— y no contiene el texto). Ver `llavero-real.test.ts`.
-// > La receta de Linux sigue escrita contra la documentación de `secret-tool` y sin
-// > ejecutar; si está mal, `disponible()` da `false` y el paquete queda en modo local, que
-// > es la falla segura y no una corrupción.
+// > **Y en Linux** (2026-10-08, Ubuntu 26.04 en WSL con gnome-keyring: store, lookup,
+// > actualizar y clear contra el binario real). Si no hay servicio de secretos, `disponible()`
+// > da `false` y el paquete queda en modo local, que es la falla segura.
 import { createCipheriv, createDecipheriv, randomBytes } from 'crypto'
 import { execFileSync } from 'child_process'
 import type { SafeStorageLike } from './memory-key-store'
@@ -111,9 +111,27 @@ function llaveroDeMac(correr: CorrerComando): LlaveroDelSistema {
   }
 }
 
+/** La entrada que usa la sonda de Linux. Se borra apenas se lee. */
+const CUENTA_DE_LA_SONDA = '__sonda__'
+
 function llaveroDeLinux(correr: CorrerComando): LlaveroDelSistema {
+  let hayLlavero: boolean | null = null
   return {
-    disponible: () => correr('secret-tool', ['--version']).ok,
+    // Hasta el 2026-10-08 esto era `secret-tool --version`, que NO existe: sale 2 con el
+    // texto de uso, así que el cifrado no se activaba nunca en Linux. Tampoco sirve un
+    // comando de sólo lectura: `search` sale 0 haya o no servicio de secretos (medido en
+    // Ubuntu 26.04 con gnome-keyring). Lo único que lo prueba es guardar, leer y borrar.
+    // Son tres procesos, y sin servicio `store` puede colgarse hasta el timeout: se mide una
+    // vez por proceso. Si el llavero aparece después, lo ve el próximo arranque.
+    disponible() {
+      if (hayLlavero !== null) return hayLlavero
+      const centinela = randomBytes(8).toString('hex')
+      correr('secret-tool', ['store', '--label', SERVICIO, 'service', SERVICIO, 'account', CUENTA_DE_LA_SONDA], centinela)
+      const r = correr('secret-tool', ['lookup', 'service', SERVICIO, 'account', CUENTA_DE_LA_SONDA])
+      correr('secret-tool', ['clear', 'service', SERVICIO, 'account', CUENTA_DE_LA_SONDA])
+      hayLlavero = r.ok && r.salida.trim() === centinela
+      return hayLlavero
+    },
     leer(cuenta) {
       const r = correr('secret-tool', ['lookup', 'service', SERVICIO, 'account', cuenta])
       return r.ok && r.salida !== '' ? r.salida.trim() : null
@@ -204,6 +222,13 @@ export function cifradoDeLlavero(llavero: LlaveroDelSistema): SafeStorageLike {
     }
     const nueva = randomBytes(LARGO_DE_CLAVE)
     llavero.guardar(CUENTA_DE_LA_CLAVE, nueva.toString('base64'))
+    // `guardar` no informa si falló (un llavero bloqueado, un diálogo que vence). Cifrar con
+    // una clave que no quedó en ningún lado deja `keys.bin` ilegible en el próximo arranque,
+    // o sea la maestra perdida. Se relee y, si no está, se lanza: quien llama ya trata el
+    // lanzamiento como «no hay dónde guardar».
+    if (llavero.leer(CUENTA_DE_LA_CLAVE) !== nueva.toString('base64')) {
+      throw new Error('The system keyring did not keep the local encryption key')
+    }
     return nueva
   }
 
