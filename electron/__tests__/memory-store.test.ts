@@ -79,6 +79,48 @@ describe('MemoryStore — write path resolution (§3.1)', () => {
     expect(row?.revision_count).toBe(1)
   })
 
+  // Misma regla que el Task 13 para los caminos del import: re-guardar un tema con el mismo
+  // titulo, contenido y tags no es una escritura. Antes subia revision_count, updated_at y
+  // lamport, y logueaba una mutacion que re-pusheaba la fila a la nube sin que nada cambiara.
+  it('re-guardar un tema identico no escribe ni loguea una mutacion', () => {
+    const input = {
+      projectKey: 'proj-a',
+      topicKey: 'architecture/auth-model',
+      type: 'architecture' as const,
+      title: 'Auth model v1',
+      content: 'JWT-based auth with refresh tokens.',
+      tags: ['auth'],
+      source: 'mcp' as const,
+    }
+    const first = store.save(input)
+    const antes = store.get(first.syncId)!
+    const pendientes = store.pendingMutations().length
+
+    const second = store.save(input)
+
+    expect(second.syncId).toBe(first.syncId)
+    expect(second.outcome).toBe('topic_updated')
+    const despues = store.get(first.syncId)!
+    expect(despues.revision_count).toBe(antes.revision_count)
+    expect(despues.updated_at).toBe(antes.updated_at)
+    expect(despues.lamport).toBe(antes.lamport)
+    expect(store.pendingMutations()).toHaveLength(pendientes)
+  })
+
+  it('re-guardar un tema con tags distintos si cuenta como cambio', () => {
+    const base = {
+      projectKey: 'proj-a', topicKey: 't', type: 'pattern' as const,
+      title: 'T', content: 'Mismo contenido.', source: 'mcp' as const,
+    }
+    const first = store.save({ ...base, tags: ['a'] })
+    const pendientes = store.pendingMutations().length
+
+    store.save({ ...base, tags: ['b'] })
+
+    expect(store.get(first.syncId)!.revision_count).toBe(1)
+    expect(store.pendingMutations()).toHaveLength(pendientes + 1)
+  })
+
   it('content dedupe window absorbs an identical save instead of inserting a duplicate', () => {
     const first = store.save({
       projectKey: 'proj-a',

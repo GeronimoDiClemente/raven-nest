@@ -1355,16 +1355,29 @@ export class MemoryStore {
           )
           .get(input.projectKey, scope, input.topicKey) as ObservationRow | undefined
         if (existing) {
+          const tagsIncoming = input.tags ? JSON.stringify(input.tags) : existing.tags
+          const nextSourceRef = input.sourceRef ?? existing.source_ref
+          // Misma regla que el Task 13 en los Steps 0 y 0.5: re-guardar un tema identico no es
+          // una escritura. Este camino no pisa el tipo, por eso se compara contra el propio. Un
+          // source_ref nuevo es LOCAL (el servidor no tiene esa columna): va a disco sin mutacion.
+          if (!hasReplicatedChange(existing, hash, tagsIncoming, existing.type)) {
+            if (nextSourceRef !== existing.source_ref) {
+              this.db
+                .prepare('UPDATE observations SET source_ref = ? WHERE sync_id = ?')
+                .run(nextSourceRef, existing.sync_id)
+            }
+            return { syncId: existing.sync_id, outcome: 'topic_updated', redacted }
+          }
           const updated: ObservationRow = {
             ...existing,
             title,
             content,
-            tags: input.tags ? JSON.stringify(input.tags) : existing.tags,
+            tags: tagsIncoming,
             content_hash: hash,
             revision_count: existing.revision_count + 1,
             updated_at: now,
             lamport: this.nextLamport(),
-            source_ref: input.sourceRef ?? existing.source_ref,
+            source_ref: nextSourceRef,
           }
           this.applyRowUpdate(updated)
           this.appendMutation('upsert', updated)
