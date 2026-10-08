@@ -1172,6 +1172,25 @@ export class MemoryStore {
     this.db.prepare('UPDATE sync_state SET pull_cursor = 0').run()
   }
 
+  /**
+   * Lo que la app hace al recibir una maestra (adoptar o recuperar, ver main.ts), para quien
+   * no tiene un momento de "la recibí": el paquete portátil, cuyo `login`/`recover` sólo
+   * guardan `keys.bin` mientras otro proceso —el MCP del editor— puede tener la base abierta.
+   * Se llama al arrancar con la maestra en mano y corre UNA vez por época: re-bajar todo en
+   * cada arranque sería una pasada de red entera por nada.
+   *
+   * El hasher de temas tiene que estar puesto antes, o el backfill no tiene con qué.
+   */
+  ponerseAlDiaConLaClave(keyEpoch: number): boolean {
+    if (this.metaGet('al_dia_con_la_epoca') === String(keyEpoch)) return false
+    this.backfillTopicHmacs()
+    this.resetPullCursors()
+    this.clearUndecryptable()
+    this.rememberKeyEpoch(keyEpoch)
+    this.metaSet('al_dia_con_la_epoca', String(keyEpoch))
+    return true
+  }
+
   /** La cuenta de Nest dueña de este store, o null si todavía no entró ninguna. */
   getOwnerUserId(): string | null {
     return this.metaGet('owner_user_id')

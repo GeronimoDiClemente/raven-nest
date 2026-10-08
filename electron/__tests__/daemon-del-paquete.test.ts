@@ -82,6 +82,50 @@ describe('depsDelDaemonDelPaquete', () => {
     expect(ctx?.keyEpoch).toBe(2)
   })
 
+  /**
+   * Cuarta revisión (2026-10-08). `login` y `recover` del paquete guardan la maestra y nada
+   * más; la app, al recibirla, re-baja lo salteado. Sin eso, lo que el MCP pulleó mientras la
+   * máquina esperaba la autorización quedó marcado como ilegible y ATRÁS del cursor: no
+   * vuelve nunca, y el contador de ilegibles queda congelado.
+   */
+  describe('al arrancar con una maestra nueva, se pone al día', () => {
+    const conMaestra = (keyEpoch: number) => saveKeyMaterial(home, null, safeFalso(), {
+      device: generateDeviceKeyPair(), master: randomBytes(32).toString('base64'), keyEpoch,
+    })
+    const estadoSalteado = () => {
+      store.save({ projectKey: 'p', type: 'decision', source: 'mcp', title: 't', content: 'c', topicKey: 'tema' })
+      store.markUndecryptable('fila-cifrada')
+      store.setSyncState('p', { pullCursor: 42 })
+    }
+
+    it('re-baja lo que se salteó y completa los HMAC de tema', () => {
+      estadoSalteado()
+      conMaestra(2)
+      armar()
+
+      expect(store.getSyncState('p').pullCursor, 'el cursor vuelve a 0').toBe(0)
+      expect(store.undecryptableCount()).toBe(0)
+      expect(store.knownKeyEpoch()).toBe(2)
+      expect(store.backfillTopicHmacs(), 'ya no quedan temas sin HMAC').toBe(0)
+    })
+
+    it('una sola vez por época: el segundo arranque no vuelve a re-bajar todo', () => {
+      conMaestra(2)
+      armar()
+      store.setSyncState('p', { pullCursor: 42 })
+      armar()
+      expect(store.getSyncState('p').pullCursor).toBe(42)
+    })
+
+    it('sin maestra no toca nada', () => {
+      estadoSalteado()
+      saveKeyMaterial(home, null, safeFalso(), { device: generateDeviceKeyPair(), master: null, keyEpoch: 0 })
+      armar()
+      expect(store.getSyncState('p').pullCursor).toBe(42)
+      expect(store.undecryptableCount()).toBe(1)
+    })
+  })
+
   it('el candado va al lado de la base', () => {
     const r = armar().deps.adquirirCandado!()
     expect(r.ok).toBe(true)

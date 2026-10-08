@@ -53,6 +53,9 @@ export function depsDelDaemonDelPaquete(e: EntradaDelDaemonDelPaquete): DaemonDe
   // Lo mismo que hace `recargarClavesDeMemoria` en main.ts: con la maestra, el store escribe
   // `topic_key_hmac` y las filas que suben no llevan el tema en claro.
   e.store.setTopicHasher(envelope ? (p, sc, t) => hmacTopicKey(envelope.keys, p, sc, t) : null)
+  // Y lo que main.ts hace al adoptar o recuperar: lo que se pulleó mientras esta máquina
+  // esperaba la autorización quedó ilegible y atrás del cursor. Sin esto no vuelve nunca.
+  if (envelope) e.store.ponerseAlDiaConLaClave(envelope.keyEpoch)
 
   const deps: MemoryDaemonDeps = {
     store: e.store,
