@@ -734,15 +734,24 @@ export class MemoryDaemon {
      * `status`. `status()` dedupea por `statusInFlight`, así que si el drain ya lo disparó
      * esto se cuelga del mismo request en vez de hacer uno nuevo.
      *
-     * Si el status falla, `primerStatusOk` queda en false y el push sigue igual: bloquearlo
-     * dejaría a un usuario sin sincronizar nada por un servicio caído, y lo que ese usuario
-     * tiene enfrente es el mismo riesgo que había antes de este arreglo, no uno nuevo.
+     * Si el status falla, el push ESPERA. Hasta el 2026-10-08 seguía igual, con el argumento
+     * de que bloquearlo dejaba al usuario sin sincronizar por un servicio caído; pero si el
+     * servicio está caído el push falla igual. El caso que importa es el otro: un 502 en el
+     * status (un redeploy) y un push que sí entra, en una máquina que todavía no aprendió la
+     * época — subía título y contenido en claro a una cuenta cifrada. Esperar no pierde nada:
+     * la cola es durable y el próximo drain vuelve a pedir el status. (Cuarta revisión.)
      *
      * Sólo cuando hay gate que armar. Sin `isEncryptionExpected` cableado no hay nada que
-     * saber —`seEsperaCifrado` sería false igual, dos líneas más abajo— así que pedir un
-     * status sería una request por nada. En la app real `main.ts` siempre lo pasa.
+     * saber —`seEsperaCifrado` sería false igual, más abajo— así que pedir un status sería
+     * una request por nada. En la app real `main.ts` siempre lo pasa.
      */
-    if (!this.primerStatusOk && this.deps.isEncryptionExpected) await this.status()
+    if (!this.primerStatusOk && this.deps.isEncryptionExpected) {
+      await this.status()
+      // Cubre también el swap de cuenta durante la espera: `setStore` lo vuelve a false y un
+      // status que vuelve con otra generación no lo levanta. Sin esto el gate leía
+      // `knownKeyEpoch()` del store ya cerrado, fuera del `try`, y `push()` rechazaba.
+      if (!this.primerStatusOk) return
+    }
 
     /**
      * La pregunta es "¿tengo la maestra VIGENTE?", no "¿tengo UNA?". Rotar sube la época y

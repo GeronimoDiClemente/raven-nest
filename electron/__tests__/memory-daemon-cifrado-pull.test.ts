@@ -322,7 +322,7 @@ describe('el gate del push se arma solo al ver una fila cifrada', () => {
  * UI que dice "sincronizando" hasta reiniciar la app.
  */
 describe('un swap de cuenta con un push en vuelo', () => {
-  const daemonConFetchLento = (storeInicial: MemoryStore, ruta: string) => {
+  const daemonConFetchLento = (storeInicial: MemoryStore, ruta: string, conGate = false) => {
     let soltar: () => void = () => {}
     const fetchImpl = (async (url: string) => {
       if (String(url).includes(ruta)) {
@@ -342,9 +342,36 @@ describe('un swap de cuenta con un push en vuelo', () => {
       getDeviceId: () => 'dev',
       isOnline: () => true,
       fetchImpl,
+      // Cuenta cifrada y máquina con la maestra: el gate llega a leer `knownKeyEpoch()`.
+      ...(conGate ? { isEncryptionExpected: () => true, getEnvelopeContext: () => ctx } : {}),
     })
     return { daemon, soltar: () => soltar() }
   }
+
+  // Cuarta revisión (2026-10-08): con el gate cableado, el primer push espera un status. Si el
+  // swap cierra el store en ese hueco, el gate leía `knownKeyEpoch()` del store cerrado fuera
+  // del `try`, y `push()` rechazaba.
+  it('el push no explota si el swap pasa mientras espera el status del gate', async () => {
+    const dirB = mkdtempSync(join(tmpdir(), 'nest-swap-gate-b-'))
+    const storeB = new MemoryStore(join(dirB, 'memory.db'))
+    store.save({
+      projectKey: 'proj1', scope: 'personal', type: 'decision',
+      title: 'de la cuenta A', content: 'x', source: 'mcp',
+    })
+
+    const { daemon, soltar } = daemonConFetchLento(store, '/status', true)
+    const enVuelo = daemon.push()
+    await new Promise((r) => setTimeout(r, 10))
+    store.close()
+    daemon.setStore(storeB)
+    soltar()
+
+    await expect(enVuelo, 'no lanza').resolves.toBeUndefined()
+
+    storeB.close()
+    rmSync(dirB, { recursive: true, force: true })
+    store = new MemoryStore(join(dir, 'memory.db'))
+  })
 
   it('el push no explota contra el store cerrado de la cuenta anterior', async () => {
     const dirB = mkdtempSync(join(tmpdir(), 'nest-swap-b-'))
@@ -413,12 +440,15 @@ describe('un swap de cuenta con un push en vuelo', () => {
  * y del push. Es el único camino que corre en todo drain.
  */
 describe('el gate se arma por el status, sin depender de ver ciphertext', () => {
-  const servidor = (opciones: { keyEpoch?: number; filas?: unknown[] }) => {
+  const servidor = (opciones: { keyEpoch?: number; filas?: unknown[]; statusCaido?: boolean }) => {
     const subidas: Array<Record<string, unknown>> = []
     const urls: string[] = []
     const fetchImpl = (async (url: string, init?: RequestInit) => {
       urls.push(String(url))
       const ok = (j: unknown) => ({ ok: true, status: 200, json: async () => j } as unknown as Response)
+      if (String(url).includes('/status') && opciones.statusCaido) {
+        return { ok: false, status: 502, json: async () => ({ error: 'bad_gateway' }) } as unknown as Response
+      }
       if (String(url).includes('/status')) {
         return ok({
           device_id: 'dev', user_id: 'u', plan: 'pro', next_poll_ms: 300_000,
@@ -481,6 +511,38 @@ describe('el gate se arma por el status, sin depender de ver ciphertext', () => 
     expect(srv.urls.some((u) => u.includes('/status')), 'pidió el status antes de pushear').toBe(true)
     expect(srv.subidas).toEqual([])
     expect(daemon.getStatus()).toBe('error')
+  })
+
+  // Un 502 en el status (un redeploy de Railway) y un push que sí entra: sin saber si la
+  // cuenta cifra, subir en claro es apostar. Esperar no pierde nada, la cola es durable.
+  it('si el status falla, el push espera en vez de subir sin saber si la cuenta cifra', async () => {
+    guardarAlgoPrivado()
+    const opciones = { keyEpoch: 1, statusCaido: true }
+    const srv = servidor(opciones)
+    const daemon = daemonReal(srv.fetchImpl)
+
+    await daemon.push()
+    expect(srv.subidas, 'nada salió con el status caído').toEqual([])
+
+    // Cuando el status vuelve, el gate se arma con lo que dice y sigue sin subir en claro.
+    opciones.statusCaido = false
+    await daemon.push()
+    expect(store.knownKeyEpoch()).toBe(1)
+    expect(srv.subidas).toEqual([])
+  })
+
+  it('si el status falla en una cuenta sin cifrado, sube cuando el status vuelve', async () => {
+    guardarAlgoPrivado()
+    const opciones = { keyEpoch: 0, statusCaido: true }
+    const srv = servidor(opciones)
+    const daemon = daemonReal(srv.fetchImpl)
+
+    await daemon.push()
+    expect(srv.subidas).toEqual([])
+
+    opciones.statusCaido = false
+    await daemon.push()
+    expect(srv.subidas).toHaveLength(1)
   })
 
   it('con la cuenta SIN cifrado, el push sigue subiendo normal', async () => {

@@ -120,7 +120,16 @@ describe('fallar cerrado — nunca subir en claro a una cuenta cifrada', () => {
     isEncryptionExpected: () => boolean
   ) {
     enviado = null
-    const fetchImpl = (async (_url: string, init: RequestInit) => {
+    const fetchImpl = (async (url: string, init: RequestInit) => {
+      // Con el gate cableado, el primer push pide el status, y desde el 2026-10-08 un status
+      // que falla frena el push. Un servicio viejo, sin `key_epoch`: el gate lo decide
+      // `isEncryptionExpected` de cada test.
+      if (String(url).includes('/status')) {
+        return {
+          ok: true, status: 200,
+          json: async () => ({ device_id: 'device-1', user_id: 'u', plan: 'pro', next_poll_ms: 300_000, projects: [] }),
+        } as unknown as Response
+      }
       enviado = JSON.parse(String(init.body))
       return {
         ok: true, status: 200,
