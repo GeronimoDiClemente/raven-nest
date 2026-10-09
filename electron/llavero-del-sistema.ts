@@ -26,9 +26,14 @@
 // > empieza con `01000000d08c9ddf…`— y no contiene el texto). Ver `llavero-real.test.ts`.
 // > **Y en Linux** (2026-10-08, Ubuntu 26.04 en WSL con gnome-keyring: store, lookup,
 // > actualizar y clear contra el binario real). Si no hay servicio de secretos, `disponible()`
-// > da `false` y el paquete queda en modo local, que es la falla segura.
+// > da `false` y el paquete queda en modo local, que es la falla segura. Desde el
+// > 2026-10-09 eso se decide antes de sondear (sin bus, o el bus dice que no hay servicio o
+// > no hay colección por defecto): pasó de 10–30 s a 0–60 ms, o 2 s si el servicio se cuelga
+// > al activarse. Y en un escritorio sin colección por defecto ya no se corre `store`, que le
+// > abría al usuario el diálogo de gnome-keyring «Choose password for new keyring».
 import { createCipheriv, createDecipheriv, randomBytes } from 'crypto'
 import { execFileSync } from 'child_process'
+import { existsSync } from 'fs'
 import type { SafeStorageLike } from './memory-key-store'
 
 /** Bajo qué nombre se guarda en el llavero del sistema. */
@@ -74,8 +79,13 @@ export const correrComando: CorrerComando = (comando, args, entrada) => {
     // `security find-generic-password` sale con 44 cuando el ítem no está, y eso no es un
     // fallo: es la respuesta. Por eso el mensaje se devuelve igual, para que quien llama
     // pueda distinguir si le interesa.
+    //
+    // `||` y no `??`: cuando el comando corre y falla, `stdout` es '' (no undefined), y con
+    // `??` el stderr se perdía siempre. `dbus-send` escribe el error del bus SÓLO en stderr, y
+    // la sonda de Linux necesita leerlo para distinguir «el bus dijo que no» de «no está
+    // dbus-send».
     const e = err as { stdout?: string; stderr?: string; message?: string }
-    return { ok: false, salida: (e.stdout ?? e.stderr ?? e.message ?? '').toString() }
+    return { ok: false, salida: (e.stdout || e.stderr || e.message || '').toString() }
   }
 }
 
@@ -114,17 +124,86 @@ function llaveroDeMac(correr: CorrerComando): LlaveroDelSistema {
 /** La entrada que usa la sonda de Linux. Se borra apenas se lee. */
 const CUENTA_DE_LA_SONDA = '__sonda__'
 
-function llaveroDeLinux(correr: CorrerComando): LlaveroDelSistema {
+/**
+ * Lo que la sonda de Linux mira del entorno antes de correr nada. Inyectado por lo mismo que
+ * `CorrerComando`: para probar el «no hay bus» sin depender de la máquina que corre el test.
+ */
+export interface EntornoDelLlavero {
+  env: NodeJS.ProcessEnv
+  existe: (ruta: string) => boolean
+}
+
+const ENTORNO_REAL: EntornoDelLlavero = { env: process.env, existe: existsSync }
+
+/**
+ * Cuánto se le espera al servicio de secretos en la pregunta previa. Contra un gnome-keyring
+ * que ya corre contesta en ~5 ms; lo que puede tardar es la ACTIVACIÓN por D-Bus (KDE levanta
+ * su servicio recién cuando alguien lo pide), y 2 s le sobra. Un keyring que se cuelga al
+ * activarse —medido en WSL con `dbus-run-session`— cuesta esto y no 30 s.
+ */
+const ESPERA_DEL_BUS_MS = 2000
+
+/**
+ * Errores con los que el bus dice, sin ambigüedad, que ahí no hay un servicio de secretos que
+ * vaya a contestar: nadie lo provee, no se pudo activar, no contestó a tiempo, o ni siquiera
+ * hay bus. Cualquier OTRO fallo de `dbus-send` (que no esté instalado, un error que no
+ * conocemos) no prueba nada, y entonces se cae a la sonda de siempre.
+ */
+const EL_BUS_DIJO_QUE_NO =
+  /org\.freedesktop\.DBus\.Error\.(ServiceUnknown|NameHasNoOwner|NoReply|Spawn\.\w+)|Failed to open connection to "session" message bus/
+
+/** Si hay un bus de sesión al que `secret-tool` se pueda conectar. */
+function hayBusDeSesion({ env, existe }: EntornoDelLlavero): boolean {
+  if (env.DBUS_SESSION_BUS_ADDRESS) return true
+  // Sin la variable, GDBus (lo que usa libsecret) prueba `$XDG_RUNTIME_DIR/bus`, que es donde
+  // systemd deja el bus de usuario. El autolaunch por X11 que queda después levantaría un bus
+  // privado y vacío, sin ningún llavero desbloqueado: para esto es lo mismo que no tener bus.
+  const runtime = env.XDG_RUNTIME_DIR
+  return !!runtime && existe(`${runtime}/bus`)
+}
+
+/**
+ * Preguntarle al servicio de secretos cuál es su colección por defecto, que es donde
+ * `secret-tool store` escribe. `true`/`false` cuando la respuesta alcanza para decidir, `null`
+ * cuando no prueba nada y hay que hacer la sonda completa.
+ */
+function preguntarAlBus(correr: CorrerComando): boolean | null {
+  const r = correr('dbus-send', [
+    '--session', '--print-reply', `--reply-timeout=${ESPERA_DEL_BUS_MS}`,
+    '--dest=org.freedesktop.secrets', '/org/freedesktop/secrets',
+    'org.freedesktop.Secret.Service.ReadAlias', 'string:default',
+  ])
+  if (!r.ok) return EL_BUS_DIJO_QUE_NO.test(r.salida) ? false : null
+  const ruta = /object path "([^"]*)"/.exec(r.salida)?.[1]
+  // «/» es la ruta nula de D-Bus: el servicio corre pero no tiene colección por defecto. Es
+  // lo que da el gnome-keyring que systemd activa en un WSL o un servidor pelado, y ahí
+  // `store` falla igual después de 3,5–7,6 s («Object does not exist at path …/login»).
+  if (ruta === '/') return false
+  // Hay colección (desbloqueada o no) o una respuesta que no entendemos: lo dice la sonda.
+  return null
+}
+
+function llaveroDeLinux(correr: CorrerComando, entorno: EntornoDelLlavero): LlaveroDelSistema {
   let hayLlavero: boolean | null = null
   return {
     // Hasta el 2026-10-08 esto era `secret-tool --version`, que NO existe: sale 2 con el
     // texto de uso, así que el cifrado no se activaba nunca en Linux. Tampoco sirve un
     // comando de sólo lectura: `search` sale 0 haya o no servicio de secretos (medido en
     // Ubuntu 26.04 con gnome-keyring). Lo único que lo prueba es guardar, leer y borrar.
-    // Son tres procesos, y sin servicio `store` puede colgarse hasta el timeout: se mide una
+    // Son tres procesos, y sin servicio cada uno puede colgarse hasta el timeout: se mide una
     // vez por proceso. Si el llavero aparece después, lo ve el próximo arranque.
+    //
+    // Antes de la sonda se descarta lo que se puede descartar barato, porque un Linux sin
+    // llavero (un servidor, un WSL pelado) pagaba hasta 30 s en CADA arranque del paquete:
+    // sin bus de sesión no hay nada que sondear, y si el bus dice que el servicio no existe,
+    // no se activa o no tiene colección, tampoco. Todo lo que no es un «no» claro —incluido
+    // que falte `dbus-send`— sigue yendo a la sonda, así que esto no puede inventar un «sí».
     disponible() {
       if (hayLlavero !== null) return hayLlavero
+      if (!hayBusDeSesion(entorno) || preguntarAlBus(correr) === false) {
+        hayLlavero = false
+        return hayLlavero
+      }
       const centinela = randomBytes(8).toString('hex')
       correr('secret-tool', ['store', '--label', SERVICIO, 'service', SERVICIO, 'account', CUENTA_DE_LA_SONDA], centinela)
       const r = correr('secret-tool', ['lookup', 'service', SERVICIO, 'account', CUENTA_DE_LA_SONDA])
@@ -191,9 +270,13 @@ const SIN_LLAVERO: LlaveroDelSistema = {
   borrar: () => { /* no hay qué */ },
 }
 
-export function llaveroPorPlataforma(plataforma: NodeJS.Platform, correr: CorrerComando): LlaveroDelSistema {
+export function llaveroPorPlataforma(
+  plataforma: NodeJS.Platform,
+  correr: CorrerComando,
+  entorno: EntornoDelLlavero = ENTORNO_REAL,
+): LlaveroDelSistema {
   if (plataforma === 'darwin') return llaveroDeMac(correr)
-  if (plataforma === 'linux') return llaveroDeLinux(correr)
+  if (plataforma === 'linux') return llaveroDeLinux(correr, entorno)
   if (plataforma === 'win32') return llaveroDeWindows(correr)
   // Inventar un comando para una plataforma que no conocemos terminaría en un `disponible()`
   // que da true y un `leer()` que devuelve basura. Mejor decir que no hay.

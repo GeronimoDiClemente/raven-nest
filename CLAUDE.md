@@ -168,8 +168,9 @@ presente al trabajar acá:
   (`rotate_proof` contra `users.rotate_verifier`). Sin eso, cualquier device de la cuenta
   sella SU maestra para la pública de la víctima y la víctima la adopta sin aviso.
 - Para probarlo hace falta el servicio arriba: ver `server/README.md` y
-  `scripts/smoke-cifrado-e2e.mjs` (que hoy está en rojo por temporización — leer su
-  encabezado antes de creerle a la salida). El Postgres de desarrollo se levanta con el
+  `scripts/smoke-cifrado-e2e.mjs` (verde de punta a punta el 2026-10-09; tokens con
+  `server/scripts/mint-device-token.mjs`, dos devices de la misma cuenta, y
+  `--pg-docker nest-memory-pg`). El Postgres de desarrollo se levanta con el
   `docker run` del README; si el suite del servidor empieza a dar timeouts raros, mirá cuánto
   creció la base — las sondas de las revisiones dejaron 160k filas y todo se vuelve lento.
 

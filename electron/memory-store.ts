@@ -990,20 +990,26 @@ export class MemoryStore {
    *   v1.2 el path local es por máquina y elegirlo es del usuario, no de una respuesta de red.
    */
   ensureProject(input: { projectKey: string; displayName: string; rootPath?: string | null; remoteUrl?: string | null }): void {
-    const existing = this.db
+    type Guardado = { display_name: string | null; root_path: string | null; remote_url: string | null }
+    const leer = (): Guardado | undefined => this.db
       .prepare('SELECT display_name, root_path, remote_url FROM projects WHERE project_key = ?')
-      .get(input.projectKey) as
-        | { display_name: string | null; root_path: string | null; remote_url: string | null }
-        | undefined
+      .get(input.projectKey) as Guardado | undefined
 
+    let existing = leer()
     if (!existing) {
-      this.db
+      // `OR IGNORE`: otro proceso (Nest y el paquete corren `status` los dos) puede insertar
+      // el mismo proyecto entre el SELECT y esto. Un INSERT a secas explotaba con UNIQUE y
+      // `doStatus` perdía el resto del roster. Si perdimos la carrera, se sigue como si el
+      // proyecto ya estuviera: lo que traemos de mejor se completa abajo.
+      const puesto = this.db
         .prepare(
-          `INSERT INTO projects (project_key, display_name, root_path, remote_url, enrolled, created_at)
+          `INSERT OR IGNORE INTO projects (project_key, display_name, root_path, remote_url, enrolled, created_at)
            VALUES (?, ?, ?, ?, 1, ?)`
         )
         .run(input.projectKey, input.displayName, input.rootPath ?? null, input.remoteUrl ?? null, Date.now())
-      return
+      if ((puesto.changes ?? 0) > 0) return
+      existing = leer()
+      if (!existing) return
     }
 
     const esMarcador = (nombre: string | null) => !nombre || nombre === input.projectKey
@@ -1082,6 +1088,23 @@ export class MemoryStore {
   }
 
   /**
+   * Sube un contador de `meta` SÓLO si lo nuevo es mayor, en una sola sentencia.
+   *
+   * Leer con `metaGet`, comparar en JS y después `metaSet` es un leer-y-escribir que otro
+   * proceso puede cortar al medio: los dos leen 0, uno escribe 10, el otro escribe 8 y la
+   * marca BAJA. Con la condición adentro del UPSERT, SQLite compara contra lo que hay en la
+   * base en el momento de escribir, y eso no lo intercala nadie.
+   */
+  private metaSubirSiEsMayor(key: string, value: number): void {
+    this.db
+      .prepare(
+        `INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value
+          WHERE CAST(excluded.value AS INTEGER) > CAST(meta.value AS INTEGER)`
+      )
+      .run(key, String(value))
+  }
+
+  /**
    * Cuenta filas que llegaron cifradas y esta maquina no pudo abrir (spec §5.5.4). Vive en
    * `meta` y no en `mutation_log` porque NO es una mutacion nuestra: es algo que la nube
    * tiene y nosotros no podemos leer. El doctor las junta igual, que es lo que el usuario
@@ -1097,8 +1120,10 @@ export class MemoryStore {
    * es lo que este valor existe para impedir.
    */
   rememberKeyEpoch(epoch: number): void {
-    if (!Number.isFinite(epoch) || epoch <= this.knownKeyEpoch()) return
-    this.metaSet('known_key_epoch', String(Math.floor(epoch)))
+    // El "nunca baja" lo decide la base, no un `knownKeyEpoch()` leído antes: con dos
+    // procesos, el que leyó la época vieja la pisaba con la suya, más chica.
+    if (!Number.isFinite(epoch) || Math.floor(epoch) <= 0) return
+    this.metaSubirSiEsMayor('known_key_epoch', Math.floor(epoch))
   }
 
   knownKeyEpoch(): number {
@@ -1183,13 +1208,19 @@ export class MemoryStore {
    * El hasher de temas tiene que estar puesto antes, o el backfill no tiene con qué.
    */
   ponerseAlDiaConLaClave(keyEpoch: number): boolean {
-    if (this.metaGet('al_dia_con_la_epoca') === String(keyEpoch)) return false
-    this.backfillTopicHmacs()
-    this.resetPullCursors()
-    this.clearUndecryptable()
-    this.rememberKeyEpoch(keyEpoch)
-    this.metaSet('al_dia_con_la_epoca', String(keyEpoch))
-    return true
+    // El chequeo y la marca van en la MISMA transacción IMMEDIATE. Afuera, dos procesos que
+    // arrancan a la vez con la maestra pasaban los dos el chequeo y re-bajaban todo dos
+    // veces; y si el proceso moría a mitad, quedaba el cursor en 0 sin la marca, o al revés.
+    // Las transacciones de adentro (el backfill) pasan a ser savepoints.
+    return this.db.transaction((): boolean => {
+      if (this.metaGet('al_dia_con_la_epoca') === String(keyEpoch)) return false
+      this.backfillTopicHmacs()
+      this.resetPullCursors()
+      this.clearUndecryptable()
+      this.rememberKeyEpoch(keyEpoch)
+      this.metaSet('al_dia_con_la_epoca', String(keyEpoch))
+      return true
+    }).immediate()
   }
 
   /** La cuenta de Nest dueña de este store, o null si todavía no entró ninguna. */
@@ -1218,8 +1249,15 @@ export class MemoryStore {
     const owner = this.getOwnerUserId()
     if (owner !== null) return { claimed: false, adopted: 0 }
 
-    const claim = this.db.transaction(() => {
-      this.db.prepare('INSERT INTO meta (key, value) VALUES (?, ?)').run('owner_user_id', userId)
+    // El chequeo de arriba es el camino rápido, no la garantía: otro proceso puede reclamar
+    // el store entre ese `getOwnerUserId` y esta transacción, y el INSERT a secas explotaba
+    // con UNIQUE. El `OR IGNORE` adentro del lock es el chequeo de verdad: si no insertó,
+    // ya había dueño y no se adopta nada.
+    const claim = this.db.transaction((): number | null => {
+      const puesto = this.db
+        .prepare('INSERT OR IGNORE INTO meta (key, value) VALUES (?, ?)')
+        .run('owner_user_id', userId)
+      if ((puesto.changes ?? 0) === 0) return null
       const obs = this.db
         .prepare('UPDATE observations SET author_user_id = ? WHERE author_user_id IS NULL')
         .run(userId)
@@ -1228,7 +1266,9 @@ export class MemoryStore {
         .run(userId)
       return (obs.changes ?? 0) + (log.changes ?? 0)
     })
-    return { claimed: true, adopted: claim.immediate() }
+    const adopted = claim.immediate()
+    if (adopted === null) return { claimed: false, adopted: 0 }
+    return { claimed: true, adopted }
   }
 
   private toSummary(row: ObservationRow): ObservationSummary {
@@ -1641,10 +1681,9 @@ export class MemoryStore {
     // to be ordered after everything this device has ever seen.
     // Ver `nextLamport()`: la marca de agua cubre el caso de una fila que vimos y
     // descartamos. Vive en `meta` y no en memoria porque con dos procesos el contador de uno
-    // no es el del otro, y porque tiene que sobrevivir al cierre de la app.
-    if (row.lamport > Number(this.metaGet('lamport_high_water') ?? 0)) {
-      this.metaSet('lamport_high_water', String(row.lamport))
-    }
+    // no es el del otro, y porque tiene que sobrevivir al cierre de la app. Se sube adentro
+    // de `applyAll` y con la comparación en el SQL: afuera, dos procesos que leían la misma
+    // marca vieja podían bajarla (uno escribía 10, el otro 8 encima).
 
     // M13 fix: pulled content previously went straight to disk unredacted. A secret an
     // agent saved on another device (before that device's own redaction ran — or from a
@@ -1656,6 +1695,8 @@ export class MemoryStore {
     const safeContent = row.content !== null ? redact(row.content).text : null
 
     const applyAll = this.db.transaction(() => {
+      if (Number.isFinite(row.lamport)) this.metaSubirSiEsMayor('lamport_high_water', row.lamport)
+
       // C2: supersede the losing local row BEFORE writing the incoming one, in the same
       // transaction — see the doc comment on `supersedeLocal` above for why this order
       // is not optional.

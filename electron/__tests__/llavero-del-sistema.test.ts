@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import {
-  llaveroPorPlataforma, cifradoDeLlavero, SERVICIO, CUENTA_DE_LA_CLAVE,
-  type CorrerComando,
+  llaveroPorPlataforma, cifradoDeLlavero, correrComando, SERVICIO, CUENTA_DE_LA_CLAVE,
+  type CorrerComando, type EntornoDelLlavero,
 } from '../llavero-del-sistema'
 
 /** Un llavero de mentira que vive en un Map, para probar el cifrado sin tocar el del SO. */
@@ -106,31 +106,172 @@ function secretToolReal(conServicio: boolean) {
   return { correr, datos }
 }
 
+/** Un Linux con bus de sesión, como un escritorio o un WSL con systemd. */
+const CON_BUS: EntornoDelLlavero = {
+  env: { DBUS_SESSION_BUS_ADDRESS: 'unix:path=/run/user/1000/bus' },
+  existe: () => false,
+}
+
 describe('Linux: el llavero contra el secret-tool real', () => {
   it('con servicio de secretos está disponible', () => {
     const { correr } = secretToolReal(true)
-    expect(llaveroPorPlataforma('linux', correr).disponible()).toBe(true)
+    expect(llaveroPorPlataforma('linux', correr, CON_BUS).disponible()).toBe(true)
   })
 
   it('sin servicio de secretos no está disponible', () => {
     const { correr } = secretToolReal(false)
-    expect(llaveroPorPlataforma('linux', correr).disponible()).toBe(false)
+    expect(llaveroPorPlataforma('linux', correr, CON_BUS).disponible()).toBe(false)
   })
 
   it('la sonda no deja nada escrito en el llavero', () => {
     const { correr, datos } = secretToolReal(true)
-    llaveroPorPlataforma('linux', correr).disponible()
+    llaveroPorPlataforma('linux', correr, CON_BUS).disponible()
     expect(datos.size).toBe(0)
   })
 
   // La sonda son tres procesos y un servicio colgado tarda el timeout entero: se paga una vez.
   it('la sonda corre una sola vez por proceso', () => {
     const { correr } = secretToolReal(true)
-    const llavero = llaveroPorPlataforma('linux', correr)
+    const llavero = llaveroPorPlataforma('linux', correr, CON_BUS)
     llavero.disponible()
     const llamadas = correr.mock.calls.length
     llavero.disponible()
     expect(correr.mock.calls.length).toBe(llamadas)
+  })
+})
+
+/**
+ * El `dbus-send` real, medido el 2026-10-09 en Ubuntu 26.04 (WSL): el error del bus sale por
+ * stderr con la forma `Error org.freedesktop.DBus.Error.<Nombre>: …`, y la respuesta de
+ * `ReadAlias` es `object path "<ruta>"`. Lo que no es `dbus-send` lo atiende el secret-tool
+ * de mentira de arriba.
+ */
+function conBus(dbus: { ok: boolean; salida: string }, conServicio = true) {
+  const st = secretToolReal(conServicio)
+  const correr = vi.fn<CorrerComando>((cmd, args, entrada) =>
+    cmd === 'dbus-send' ? dbus : st.correr(cmd, args, entrada))
+  const secretTool = () => correr.mock.calls.filter(([c]) => c === 'secret-tool').length
+  return { correr, secretTool }
+}
+
+const RESPUESTA_CON_COLECCION = {
+  ok: true,
+  salida: 'method return time=1 sender=:1.0 -> destination=:1.2 serial=5 reply_serial=2\n' +
+    '   object path "/org/freedesktop/secrets/collection/login"\n',
+}
+
+describe('Linux sin servicio de secretos: responder rápido, sin colgarse en la sonda', () => {
+  // Sin servicio, `secret-tool` se cuelga hasta el timeout de 10 s en cada uno de sus tres
+  // procesos, y eso se pagaba en CADA arranque del paquete en un servidor o un WSL pelado.
+
+  it('sin bus de sesión no está disponible, y no corre ningún comando', () => {
+    const { correr } = conBus(RESPUESTA_CON_COLECCION)
+    const sinBus: EntornoDelLlavero = { env: {}, existe: () => true }
+    expect(llaveroPorPlataforma('linux', correr, sinBus).disponible()).toBe(false)
+    expect(correr).not.toHaveBeenCalled()
+  })
+
+  it('con XDG_RUNTIME_DIR pero sin el socket del bus, tampoco', () => {
+    const { correr } = conBus(RESPUESTA_CON_COLECCION)
+    const existe = vi.fn(() => false)
+    const entorno: EntornoDelLlavero = { env: { XDG_RUNTIME_DIR: '/run/user/1000' }, existe }
+    expect(llaveroPorPlataforma('linux', correr, entorno).disponible()).toBe(false)
+    expect(existe).toHaveBeenCalledWith('/run/user/1000/bus')
+    expect(correr).not.toHaveBeenCalled()
+  })
+
+  it('el bus de systemd en $XDG_RUNTIME_DIR/bus cuenta como bus aunque falte la variable', () => {
+    const { correr } = conBus(RESPUESTA_CON_COLECCION)
+    const entorno: EntornoDelLlavero = {
+      env: { XDG_RUNTIME_DIR: '/run/user/1000' },
+      existe: (r) => r === '/run/user/1000/bus',
+    }
+    expect(llaveroPorPlataforma('linux', correr, entorno).disponible()).toBe(true)
+  })
+
+  it('si nadie provee org.freedesktop.secrets, no sondea', () => {
+    const { correr, secretTool } = conBus({
+      ok: false,
+      salida: 'Error org.freedesktop.DBus.Error.ServiceUnknown: The name org.freedesktop.secrets was not provided by any .service files\n',
+    })
+    expect(llaveroPorPlataforma('linux', correr, CON_BUS).disponible()).toBe(false)
+    expect(secretTool()).toBe(0)
+  })
+
+  it('si el servicio se cuelga al activarse, no sondea', () => {
+    // Medido en WSL con `dbus-run-session`: gnome-keyring activado por D-Bus no contesta
+    // nunca, y store/lookup/clear tardaban 25 s cada uno (10 s con nuestro timeout).
+    const { correr, secretTool } = conBus({
+      ok: false,
+      salida: 'Error org.freedesktop.DBus.Error.NoReply: Did not receive a reply.\n',
+    })
+    expect(llaveroPorPlataforma('linux', correr, CON_BUS).disponible()).toBe(false)
+    expect(secretTool()).toBe(0)
+  })
+
+  it('si el servicio corre pero no tiene colección por defecto, no sondea', () => {
+    // El gnome-keyring que systemd activa en un WSL pelado: ReadAlias da la ruta nula, y
+    // `store` falla igual después de varios segundos.
+    const { correr, secretTool } = conBus({
+      ok: true,
+      salida: 'method return time=1 sender=:1.3 -> destination=:1.2 serial=6 reply_serial=2\n   object path "/"\n',
+    })
+    expect(llaveroPorPlataforma('linux', correr, CON_BUS).disponible()).toBe(false)
+    expect(secretTool()).toBe(0)
+  })
+
+  it('si el bus no se puede abrir, no sondea', () => {
+    const { correr, secretTool } = conBus({
+      ok: false,
+      salida: 'Failed to open connection to "session" message bus: Failed to connect to socket /nope: No such file or directory\n',
+    })
+    expect(llaveroPorPlataforma('linux', correr, CON_BUS).disponible()).toBe(false)
+    expect(secretTool()).toBe(0)
+  })
+
+  it('la pregunta al bus tiene un techo corto, no el de 10 s', () => {
+    const { correr } = conBus(RESPUESTA_CON_COLECCION)
+    llaveroPorPlataforma('linux', correr, CON_BUS).disponible()
+    const [, args] = correr.mock.calls.find(([c]) => c === 'dbus-send')!
+    const techo = Number(args.find((a) => a.startsWith('--reply-timeout='))?.split('=')[1])
+    expect(techo).toBeGreaterThan(0)
+    expect(techo).toBeLessThanOrEqual(2000)
+  })
+})
+
+describe('Linux con servicio de secretos: la pregunta al bus no inventa un sí ni un no', () => {
+  it('con colección por defecto, igual decide la sonda: si guarda, está disponible', () => {
+    const { correr, secretTool } = conBus(RESPUESTA_CON_COLECCION, true)
+    expect(llaveroPorPlataforma('linux', correr, CON_BUS).disponible()).toBe(true)
+    expect(secretTool()).toBe(3)
+  })
+
+  it('con colección por defecto pero un store que falla, no está disponible', () => {
+    const { correr } = conBus(RESPUESTA_CON_COLECCION, false)
+    expect(llaveroPorPlataforma('linux', correr, CON_BUS).disponible()).toBe(false)
+  })
+
+  it('sin dbus-send instalado se cae a la sonda de siempre', () => {
+    const { correr } = conBus({ ok: false, salida: 'spawnSync dbus-send ENOENT' }, true)
+    expect(llaveroPorPlataforma('linux', correr, CON_BUS).disponible()).toBe(true)
+  })
+
+  it('un error del bus que no conocemos no es un no: decide la sonda', () => {
+    const { correr } = conBus({
+      ok: false,
+      salida: 'Error org.freedesktop.DBus.Error.AccessDenied: Rejected send message\n',
+    }, true)
+    expect(llaveroPorPlataforma('linux', correr, CON_BUS).disponible()).toBe(true)
+  })
+})
+
+describe('correrComando de verdad', () => {
+  it('cuando el comando falla devuelve su stderr, no un string vacío', () => {
+    // Con `stdout ?? stderr`, el '' de stdout tapaba siempre el stderr, que es donde
+    // `dbus-send` escribe el error del bus.
+    const r = correrComando(process.execPath, ['-e', 'process.stderr.write("boom"); process.exit(1)'])
+    expect(r.ok).toBe(false)
+    expect(r.salida).toContain('boom')
   })
 })
 

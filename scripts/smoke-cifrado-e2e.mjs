@@ -11,7 +11,8 @@
 // El binding nativo tiene que ser el de Node puro (`npm run native:node`).
 // No toca la memoria de nadie: dos stores en un tmpdir que se borran al terminar.
 //
-// ESTADO AL 2026-09-12: los cinco pasos pasan contra el servicio real.
+// ESTADO AL 2026-10-09: los cinco pasos pasan contra el servicio real (re-verificado; se le
+// sumó el registro del motor de SQLite, que el núcleo compartido con el paquete ya no elige solo).
 //
 // Lo que eso significa, dicho entero: una máquina activa el cifrado; lo que sube queda en
 // Postgres como `nmc1:…` en `title` y `content`, con el `topic_key` hasheado y sin que una
@@ -39,6 +40,8 @@ import { execFile, execFileSync } from 'node:child_process'
 import { promisify } from 'node:util'
 const execFileAsync = promisify(execFile)
 import { MemoryStore } from '../electron/memory-store.ts'
+import { usarAbridorPorDefecto } from '../electron/sqlite-motor.ts'
+import { abrirConBetterSqlite3 } from '../electron/sqlite-better.ts'
 import { MemoryDaemon } from '../electron/memory-daemon.ts'
 import { generateMasterKey, deriveKeys, hmacTopicKey, CIPHER_PREFIX } from '../electron/memory-crypto.ts'
 import { generateDeviceKeyPair } from '../electron/memory-key-wrap.ts'
@@ -94,6 +97,11 @@ async function hastaAsync(cond, ms = 30_000) {
   while (Date.now() < fin) { if (await cond()) return true; await espera(600) }
   return cond()
 }
+
+// Desde que `memory-store.ts` es núcleo compartido con el paquete portátil, no elige motor de
+// SQLite solo: lo registra el arranque de cada entorno (ver `sqlite-motor.ts`). Este smoke es
+// un arranque más, y sin esto el primer `new MemoryStore` revienta.
+usarAbridorPorDefecto(abrirConBetterSqlite3)
 
 const home = mkdtempSync(join(tmpdir(), 'nest-cifrado-'))
 

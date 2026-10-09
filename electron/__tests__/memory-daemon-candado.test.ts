@@ -272,3 +272,102 @@ describe('el daemon y el candado de sincronización', () => {
     expect(c.lock.release).toHaveBeenCalled()
   })
 })
+
+/**
+ * REGRESIÓN, no un test que manejó un cambio. Una revisión marcó "`doStatus` escribe sin el
+ * candado" como plausible, y se descartó: `status` NO sincroniza, y lo que escribe es seguro
+ * desde cualquier proceso que comparta la base.
+ *
+ * - `rememberKeyEpoch` sólo SUBE (el store ignora una época menor o igual). Es lo que arma el
+ *   gate fail-closed del push, y tiene que armarse aunque a este proceso no le toque: si el
+ *   que tiene el candado muere, éste lo toma y empuja en el mismo ciclo.
+ * - `ensureProject` es idempotente y sólo agrega: un proyecto nuevo con cursor 0 que el
+ *   dueño del candado iba a registrar igual en su propio status. No toca cursores ajenos.
+ * - `unblockMutations` devuelve a la cola algo que ya no está bloqueado por la misma cuenta y
+ *   la misma respuesta del servidor que vería el dueño. Lo peor es un push rechazado de nuevo
+ *   que lo re-bloquea — el mismo costo que ya se acepta dentro de UN proceso, donde un push
+ *   de `scheduleMutationPush` corre en paralelo con el status del drain.
+ *
+ * Y gatearlo con el candado sería PEOR: `status` pasaría a tomarlo, y un daemon sin `start()`
+ * (el paquete) tendría un tercer camino que suelta —o no— el candado al quedar ocioso.
+ */
+describe('status() y el candado', () => {
+  const STATUS_BODY = {
+    key_epoch: 3,
+    plan: 'cloud',
+    quota: { used_bytes: 10, max_bytes: 100 },
+    projects: [{ project_key: 'proj-nuevo', display_name: 'Repo nuevo' }],
+  }
+
+  function fetchConStatus() {
+    const urls: string[] = []
+    const fn = vi.fn(async (url: unknown) => {
+      urls.push(String(url))
+      const body = String(url).includes('/v1/sync/status') ? STATUS_BODY : {}
+      return { ok: true, status: 200, json: async () => body }
+    })
+    return {
+      fn: fn as unknown as typeof fetch,
+      urls,
+      pusheo: () => urls.some((u) => u.includes('/v1/sync/push')),
+      pulleo: () => urls.some((u) => u.includes('/v1/sync/pull')),
+    }
+  }
+
+  it('sin el candado, recuerda la época igual: el gate del push queda armado', async () => {
+    const store = fakeStore()
+    const c = candadoDoble(false)
+    const daemon = new MemoryDaemon(deps(store, { fetchImpl: fetchConStatus().fn, adquirirCandado: c.adquirir }))
+
+    const body = await daemon.status()
+
+    expect(body).toEqual(STATUS_BODY)
+    expect(store.rememberKeyEpoch).toHaveBeenCalledWith(3)
+    // Lo que sólo informa a la UI también llega, aunque no le toque sincronizar.
+    expect(daemon.getQuota()).toEqual(STATUS_BODY.quota)
+    expect(daemon.getPlan()).toBe('cloud')
+  })
+
+  it('status nunca toma el candado, así que no puede dejarlo tomado', async () => {
+    const c = candadoDoble(true)
+    const daemon = new MemoryDaemon(deps(fakeStore(), { fetchImpl: fetchConStatus().fn, adquirirCandado: c.adquirir }))
+
+    await daemon.status()
+
+    expect(c.adquirir).not.toHaveBeenCalled()
+    expect(c.lock.release).not.toHaveBeenCalled()
+  })
+
+  it('sin el candado, sus escrituras son las idempotentes de siempre y no sale nada más', async () => {
+    const store = fakeStore()
+    const red = fetchConStatus()
+    const c = candadoDoble(false)
+    const daemon = new MemoryDaemon(deps(store, { fetchImpl: red.fn, adquirirCandado: c.adquirir }))
+
+    await daemon.status()
+
+    expect(store.unblockMutations).toHaveBeenCalledWith(['quota_exceeded'])
+    expect(store.ensureProject).toHaveBeenCalledWith({ projectKey: 'proj-nuevo', displayName: 'Repo nuevo' })
+    expect(red.pusheo()).toBe(false)
+    expect(red.pulleo()).toBe(false)
+  })
+
+  // El orden que importa en la práctica: un push que tiene que esperar al primer status
+  // (`isEncryptionExpected`) en un proceso que NO tiene el candado no sale, y el status que
+  // corrió para el gate no le dejó el candado tomado a nadie.
+  it('un push sin candado que espera el primer status no empuja ni toma el candado', async () => {
+    const red = fetchConStatus()
+    const c = candadoDoble(false)
+    const daemon = new MemoryDaemon(deps(fakeStore(), {
+      fetchImpl: red.fn,
+      adquirirCandado: c.adquirir,
+      isEncryptionExpected: () => true,
+    }))
+
+    await daemon.push()
+
+    expect(red.pusheo()).toBe(false)
+    expect(c.lock.release).not.toHaveBeenCalled()
+    expect(daemon.getStatusDetail()).toBe('lock_held')
+  })
+})
