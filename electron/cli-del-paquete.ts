@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 // El punto de entrada de `npx nest-memory`.
 //
 // Hasta acá todo el paquete portátil eran librerías sin puerta: el parser sabía qué se pidió,
