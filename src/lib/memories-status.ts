@@ -37,9 +37,9 @@ export function summarizeMemories(input: MemoriesStatusInput): MemoriesStatus {
     return { dot: 'amber', text: plural(input.vaultConflicts, 'conflict', 'conflicts') }
   }
   if (input.pendingCount > 0) return { dot: 'amber', text: `${input.pendingCount} pending` }
-  if (!input.connected) return { dot: 'grey', text: `${input.itemCount} items · local only` }
+  if (!input.connected) return { dot: 'grey', text: `${plural(input.itemCount, 'item', 'items')} · local only` }
 
-  return { dot: 'green', text: `${input.itemCount} items · synced` }
+  return { dot: 'green', text: `${plural(input.itemCount, 'item', 'items')} · synced` }
 }
 
 /** Compartido por MemoriesStatusRow (vault "ago") y MemoriesList (fecha de cada fila) —

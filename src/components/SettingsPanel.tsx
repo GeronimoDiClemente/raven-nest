@@ -677,7 +677,7 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                         </Button>
                         {memory.state === 'connected' && (
                           <span style={{ fontSize: 11, opacity: 0.65, marginLeft: 6 }}>
-                            {memory.itemCount} items{memory.pendingCount > 0 ? ` · ${memory.pendingCount} pending` : ' · synced'}
+                            {memory.itemCount} {memory.itemCount === 1 ? 'item' : 'items'}{memory.pendingCount > 0 ? ` · ${memory.pendingCount} pending` : ' · synced'}
                           </span>
                         )}
                         {/*

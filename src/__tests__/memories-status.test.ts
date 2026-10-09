@@ -45,6 +45,12 @@ describe('summarizeMemories', () => {
     expect(summarizeMemories({ ...base, connected: false })).toEqual({ dot: 'grey', text: '142 items · local only' })
   })
 
+  // Visto en la app real (e2e de dos máquinas): con una memoria decía «1 items · synced».
+  it('con una sola memoria habla en singular', () => {
+    expect(summarizeMemories({ ...base, itemCount: 1 }).text).toBe('1 item · synced')
+    expect(summarizeMemories({ ...base, itemCount: 1, connected: false }).text).toBe('1 item · local only')
+  })
+
   it('sin subsistema de memoria: gris y lo dice', () => {
     expect(summarizeMemories({ ...base, available: false })).toEqual({ dot: 'grey', text: 'unavailable' })
   })

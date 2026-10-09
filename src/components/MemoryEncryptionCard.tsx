@@ -188,7 +188,7 @@ export default function MemoryEncryptionCard() {
         <p className="text-fs-sm text-muted-foreground">
           Authorise it from another machine that already has the key, or use your recovery code.
           {estado.undecryptable > 0 && (
-            <> <span className="font-mono tabular-nums text-foreground">{estado.undecryptable}</span> memories cannot be read from here.</>
+            <> <span className="font-mono tabular-nums text-foreground">{estado.undecryptable}</span> {estado.undecryptable === 1 ? 'memory' : 'memories'} cannot be read from here.</>
           )}
         </p>
         {estado.huellaPropia && (
@@ -347,7 +347,7 @@ export default function MemoryEncryptionCard() {
       </div>
       <p className="text-fs-sm text-muted-foreground">{LO_QUE_QUEDA_EN_CLARO}</p>
       <p className="text-fs-sm text-muted-foreground">
-        Once it\u2019s on, nobody who runs the server can read what you wrote \u2014 us included.
+        Once it’s on, nobody who runs the server can read what you wrote — us included.
       </p>
       {error && <p className="text-fs-sm text-destructive">{error}</p>}
       <div>

@@ -58,6 +58,15 @@ describe('MemoryEncryptionCard', () => {
     expect(screen.getByText(/type, scope and branch/i)).toBeInTheDocument()
   })
 
+  // En texto JSX un `’` no es un escape: se renderiza tal cual, y la app real mostraba
+  // «Once it’s on … — us included.» (visto en la captura del e2e de dos máquinas).
+  it('la promesa se lee con su apóstrofo y su raya, no con escapes', async () => {
+    montarCon({})
+    render(<MemoryEncryptionCard />)
+    expect(await screen.findByText('Once it’s on, nobody who runs the server can read what you wrote — us included.'))
+      .toBeInTheDocument()
+  })
+
   // El momento de la verdad: el codigo se muestra UNA vez y hay que obligar a copiarlo.
   it('al activar muestra el código de recuperación y no deja seguir sin confirmar', async () => {
     const api = montarCon({})
@@ -102,6 +111,13 @@ describe('MemoryEncryptionCard', () => {
     render(<MemoryEncryptionCard />)
     expect(await screen.findByText('A1B2-C3D4-E5F6')).toBeInTheDocument()
     expect(screen.getByText(/only if that machine shows exactly this code/i)).toBeInTheDocument()
+  })
+
+  // Visto en la app real: con una sola ilegible decía «1 memories cannot be read».
+  it('con una sola memoria ilegible habla en singular', async () => {
+    montarCon({ active: false, keyEpoch: 1, undecryptable: 1 })
+    render(<MemoryEncryptionCard />)
+    expect(await screen.findByText(/memory cannot be read from here/)).toBeInTheDocument()
   })
 
   it('y la máquina que espera muestra la suya, para que la otra la compare', async () => {
