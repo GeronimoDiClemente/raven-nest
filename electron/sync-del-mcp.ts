@@ -6,10 +6,11 @@
 // El MCP es distinto: vive lo que dura la sesión del editor —horas— y escribe muchas veces.
 // Eso trae dos problemas que este archivo resuelve, y nada más:
 //
-// - **El candado.** `MemoryDaemon` lo toma en el primer sync y lo suelta recién en `stop()`.
-//   Un MCP que lo tomara y lo guardara dejaría a Nest, abierto en esta misma máquina, sin
-//   poder sincronizar mientras el editor siga abierto. Acá se suelta después de CADA
-//   operación: el candado protege una operación, no una sesión.
+// - **El candado.** Un `MemoryDaemon` arrancado lo toma en el primer sync y lo suelta recién
+//   en `stop()`. Un MCP que lo tomara y lo guardara dejaría a Nest, abierto en esta misma
+//   máquina, sin poder sincronizar mientras el editor siga abierto. Este daemon nunca se
+//   arranca, así que lo suelta él solo al terminar cada operación —también las que encadena
+//   después de este `stop()`—, y el `stop()` de acá limpia el backoff que haya quedado.
 // - **La fila.** Un agente puede guardar cinco memorias seguidas. Cinco pushes en paralelo
 //   se pisarían; cinco en fila serían cinco viajes para lo que un solo push ya levanta,
 //   porque `push()` drena el `mutation_log` entero. Así que van en fila, y las escrituras

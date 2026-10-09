@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { join } from 'path'
-import { writeFileSync, existsSync, readFileSync } from 'fs'
+import { writeFileSync, existsSync, readFileSync, readdirSync } from 'fs'
 import { makeTmpDir, cleanupTmp } from './setup'
 import {
   tomarCandadoDeSync, leerCandado, candadoDepsDelProceso, lockPathParaBase,
@@ -127,9 +127,27 @@ describe('candado de sincronización', () => {
     // Otro proceso nos vio muertos y lo tomó.
     writeFileSync(lockPath, JSON.stringify({ pid: 2000, host: 'maquina-b', at: 20_000 }))
 
-    r.lock.heartbeat()
+    expect(r.lock.heartbeat()).toBe(false)
 
     expect(leerCandado(lockPath)).toEqual({ pid: 2000, host: 'maquina-b', at: 20_000 })
+  })
+
+  it('heartbeat de un candado propio dice que sigue siendo nuestro', () => {
+    const r = tomarCandadoDeSync(lockPath, deps())
+    if (!r.ok) throw new Error('debería haberlo tomado')
+
+    expect(r.lock.heartbeat()).toBe(true)
+  })
+
+  // Se escribe a un temporal y se renombra encima: con `writeFileSync` directo el archivo
+  // queda vacío un instante, y otro proceso que lo lee justo ahí lo ve ilegible —o sea
+  // muerto— y lo roba. Pasaba también en cada heartbeat, con el holder vivo.
+  it('tomarlo y refrescarlo no dejan temporales al lado de la base', () => {
+    const r = tomarCandadoDeSync(lockPath, deps())
+    if (!r.ok) throw new Error('debería haberlo tomado')
+    r.lock.heartbeat()
+
+    expect(readdirSync(dir)).toEqual(['sync.lock'])
   })
 
   it('release de un candado que otro ya robó no borra el del otro', () => {

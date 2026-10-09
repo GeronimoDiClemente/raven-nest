@@ -495,8 +495,11 @@ export class MemoryDaemon {
 
     if (this.candado) {
       // Un drain largo no se lo tiene que dejar robar por antigüedad desde otra máquina.
-      this.candado.heartbeat()
-      return true
+      if (this.candado.heartbeat()) return true
+      // Ya se lo robaron: entre dos intervalos pasan más de 60 s sin heartbeat, y otra
+      // máquina lo ve vencido. Seguir empujando sería sincronizar dos a la vez. Se vuelve
+      // a pedir, que casi siempre termina en `lock_held` hasta que el otro lo suelte.
+      this.candado = null
     }
 
     const r = adquirirCandado()
@@ -516,6 +519,18 @@ export class MemoryDaemon {
   private soltarCandado(): void {
     this.candado?.release()
     this.candado = null
+  }
+
+  /**
+   * Un daemon sin `start()` —el del paquete portátil— tiene operaciones sueltas, y el
+   * candado protege una operación, no una sesión. Lo suelta al terminar la última que
+   * esté en vuelo, incluidas las que encadena solo (`setImmediate` en push y pull):
+   * esas corren DESPUÉS del `stop()` de quien las disparó, y antes se quedaban con el
+   * candado hasta que el proceso muriera — horas, con un MCP abierto en el editor.
+   */
+  private soltarCandadoSiQuedoOcioso(): void {
+    if (this.running || this.pushInFlight || this.pullInFlight) return
+    this.soltarCandado()
   }
 
   /** La ultima cuota reportada por el servidor, o null si todavia no reporto ninguna. */
@@ -690,7 +705,10 @@ export class MemoryDaemon {
   push(): Promise<void> {
     // M19: dedupe concurrent callers onto the same in-flight request.
     if (this.pushInFlight) return this.pushInFlight
-    const run = this.doPush().finally(() => { this.pushInFlight = null })
+    const run = this.doPush().finally(() => {
+      this.pushInFlight = null
+      this.soltarCandadoSiQuedoOcioso()
+    })
     this.pushInFlight = run
     return run
   }
@@ -1173,7 +1191,10 @@ export class MemoryDaemon {
   pull(): Promise<void> {
     // M19: dedupe concurrent callers onto the same in-flight request.
     if (this.pullInFlight) return this.pullInFlight
-    const run = this.doPull().finally(() => { this.pullInFlight = null })
+    const run = this.doPull().finally(() => {
+      this.pullInFlight = null
+      this.soltarCandadoSiQuedoOcioso()
+    })
     this.pullInFlight = run
     return run
   }

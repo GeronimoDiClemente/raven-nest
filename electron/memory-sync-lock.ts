@@ -15,7 +15,7 @@
 //
 // Quien no consigue el candado NO sincroniza: escribe local, encola en el
 // `mutation_log` y lo dice. No se pierde nada.
-import { readFileSync, writeFileSync, unlinkSync } from 'fs'
+import { readFileSync, writeFileSync, renameSync, unlinkSync } from 'fs'
 import { dirname, join } from 'path'
 import { hostname } from 'os'
 
@@ -39,8 +39,12 @@ export interface CandadoDeps {
 }
 
 export interface Candado {
-  /** Refresca el momento. El holder lo llama durante un sync largo. */
-  heartbeat(): void
+  /**
+   * Refresca el momento. El holder lo llama durante un sync largo. `false` si el candado
+   * ya no es nuestro (otro nos vio muertos y lo tomó): quien llama tiene que dejar de
+   * sincronizar, no seguir como si nada.
+   */
+  heartbeat(): boolean
   release(): void
 }
 
@@ -73,7 +77,15 @@ export function tomarCandadoDeSync(path: string, deps: CandadoDeps): ResultadoCa
   }
 
   const mio: CandadoInfo = { pid: deps.pid, host: deps.host, at: deps.now() }
-  writeFileSync(path, JSON.stringify(mio))
+  escribirEntero(path, mio)
+
+  // Dos procesos que vieron el candado muerto a la vez escriben los dos, y gana el último
+  // rename. Releer achica esa ventana a casi nada: el que perdió se entera acá y no
+  // sincroniza. No es un candado perfecto entre máquinas, y no lo pretende.
+  const despues = leerCandado(path)
+  if (despues && (despues.pid !== mio.pid || despues.host !== mio.host)) {
+    return { ok: false, holder: despues }
+  }
 
   // Las dos operaciones del holder comprueban lo mismo antes de tocar el archivo: que
   // el candado siga siendo NUESTRO. Si otro lo robó porque nos vio muertos, ni
@@ -88,14 +100,32 @@ export function tomarCandadoDeSync(path: string, deps: CandadoDeps): ResultadoCa
     ok: true,
     lock: {
       heartbeat() {
-        if (!sigueSiendoMio()) return
-        writeFileSync(path, JSON.stringify({ ...mio, at: deps.now() }))
+        if (!sigueSiendoMio()) return false
+        escribirEntero(path, { ...mio, at: deps.now() })
+        return true
       },
       release() {
         if (!sigueSiendoMio()) return
         try { unlinkSync(path) } catch { /* ya no está, es el resultado buscado */ }
       },
     },
+  }
+}
+
+/**
+ * Escribe a un temporal y lo renombra encima. `writeFileSync` directo trunca primero: en
+ * ese instante el archivo está vacío, y otro proceso que lo lee justo ahí lo ve ilegible
+ * —o sea muerto, ver `leerCandado`— y lo roba. Pasaba en cada heartbeat, con el holder
+ * vivo. El rename reemplaza de una: quien lee ve el contenido viejo o el nuevo, nunca nada.
+ */
+function escribirEntero(path: string, info: CandadoInfo): void {
+  const tmp = `${path}.${info.pid}.${Math.random().toString(36).slice(2)}.tmp`
+  writeFileSync(tmp, JSON.stringify(info))
+  try {
+    renameSync(tmp, path)
+  } catch (err) {
+    try { unlinkSync(tmp) } catch { /* no quedó, mejor */ }
+    throw err
   }
 }
 

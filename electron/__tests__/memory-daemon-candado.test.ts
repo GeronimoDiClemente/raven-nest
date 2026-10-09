@@ -62,7 +62,7 @@ function fetchEspia() {
 }
 
 function candadoDoble(conseguido: boolean) {
-  const lock = { heartbeat: vi.fn(), release: vi.fn() }
+  const lock = { heartbeat: vi.fn(() => true), release: vi.fn() }
   const adquirir = vi.fn(() => conseguido
     ? { ok: true as const, lock }
     : { ok: false as const, holder: { pid: 999, host: 'otra-instancia', at: 1 } })
@@ -157,6 +157,8 @@ describe('el daemon y el candado de sincronización', () => {
     const red = fetchEspia()
     const c = candadoDoble(true)
     const daemon = new MemoryDaemon(deps(fakeStore(), { fetchImpl: red.fn, adquirirCandado: c.adquirir }))
+    // Arrancado, como en Nest: sin start() lo suelta después de cada operación (ver abajo).
+    daemon.start()
 
     await daemon.push()
     await asentar()
@@ -164,6 +166,7 @@ describe('el daemon y el candado de sincronización', () => {
 
     expect(c.adquirir).toHaveBeenCalledTimes(1)
     expect(c.lock.heartbeat).toHaveBeenCalled()
+    daemon.stop()
   })
 
   // REGRESIÓN, no un test que manejó un cambio: pause() ya suelta el candado porque llama
@@ -183,6 +186,80 @@ describe('el daemon y el candado de sincronización', () => {
     daemon.resume()
     await daemon.push()
     expect(c.adquirir).toHaveBeenCalledTimes(2)
+  })
+
+  // Si otro nos lo robó (desde otra máquina, por antigüedad: el daemon de Nest sólo lo
+  // refresca cuando sincroniza, y entre dos intervalos pasan más de 60 s), seguir
+  // empujando sería sincronizar DOS a la vez — lo que el candado existe para evitar.
+  it('si heartbeat dice que se lo robaron, lo vuelve a pedir y no empuja si el otro lo tiene', async () => {
+    const red = fetchEspia()
+    const lock = { heartbeat: vi.fn(() => false), release: vi.fn() }
+    let llamadas = 0
+    const adquirir = vi.fn(() => (llamadas++ === 0
+      ? { ok: true as const, lock }
+      : { ok: false as const, holder: { pid: 2000, host: 'maquina-b', at: 1 } }))
+    const daemon = new MemoryDaemon(deps(fakeStore(), { fetchImpl: red.fn, adquirirCandado: adquirir }))
+    daemon.start()
+    await daemon.push()
+    red.urls.length = 0
+
+    await asentar()
+    await daemon.push()
+
+    expect(adquirir).toHaveBeenCalledTimes(2)
+    expect(red.pusheo()).toBe(false)
+    expect(daemon.getStatusDetail()).toBe('lock_held')
+    daemon.stop()
+  })
+
+  // El paquete portátil nunca llama a start(): sus operaciones son sueltas, y el candado
+  // protege una operación, no una sesión que dura lo que el editor siga abierto.
+  it('sin start(), suelta el candado al terminar la operación aunque nadie llame a stop()', async () => {
+    const c = candadoDoble(true)
+    const daemon = new MemoryDaemon(deps(fakeStore(), { fetchImpl: fetchEspia().fn, adquirirCandado: c.adquirir }))
+
+    await daemon.push()
+
+    expect(c.lock.release).toHaveBeenCalledTimes(1)
+  })
+
+  it('arrancado, lo conserva entre operaciones: lo suelta stop()', async () => {
+    const c = candadoDoble(true)
+    const daemon = new MemoryDaemon(deps(fakeStore(), { fetchImpl: fetchEspia().fn, adquirirCandado: c.adquirir }))
+    daemon.start()
+
+    await daemon.push()
+
+    expect(c.lock.release).not.toHaveBeenCalled()
+    daemon.stop()
+    expect(c.lock.release).toHaveBeenCalledTimes(1)
+  })
+
+  // El caso del MCP del paquete: `SyncDelMcp` llama a stop() apenas resuelve el push, pero
+  // un push que avanzó y dejó cola encadena el siguiente con setImmediate, DESPUÉS de ese
+  // stop(). Ese push encadenado volvía a tomar el candado y nadie lo soltaba: Nest, abierto
+  // en la misma máquina, veía el PID vivo y no sincronizaba mientras el editor siguiera
+  // abierto.
+  it('un push encadenado después del stop() no deja el candado tomado', async () => {
+    let pendientes = 1
+    const store = fakeStore({
+      pendingMutations: vi.fn(() => (pendientes > 0 ? UNA_MUTACION : [])),
+      markPushed: vi.fn(() => { pendientes = 0 }),
+      // Miente una vez a propósito: así el push encadena otro, que es el camino a cubrir.
+      pendingMutationCount: vi.fn(() => 1),
+    } as Partial<MemoryStore>)
+    const fetchImpl = vi.fn(async () => ({
+      ok: true, status: 200, json: async () => ({ results: [{ sync_id: 'a', outcome: 'applied' }] }),
+    })) as unknown as typeof fetch
+    const c = candadoDoble(true)
+    const daemon = new MemoryDaemon(deps(store, { fetchImpl, adquirirCandado: c.adquirir }))
+
+    await daemon.push()
+    daemon.stop()
+    await asentar()
+
+    expect(c.adquirir.mock.calls.length).toBeGreaterThan(1)
+    expect(c.lock.release).toHaveBeenCalledTimes(c.adquirir.mock.calls.length)
   })
 
   it('stop() suelta el candado, así la otra instancia no espera el ttl', async () => {
