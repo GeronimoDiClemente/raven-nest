@@ -27,6 +27,7 @@ import {
 import { MEMORY_TYPES_IN_LEGEND_ORDER, memoryTypeSwatch as swatchDe } from '../lib/memory-type-legend'
 import { memoryTypeSwatch } from '../lib/memory-type-legend'
 import { relativeTime } from '../lib/memories-status'
+import { nombreDeProyecto } from '../lib/nombre-de-proyecto'
 import { AILogo } from './AILogos'
 import MemoryMarkdown from './MemoryMarkdown'
 import type { AIType, MemoryEdgeKind, MemoryObservationDetail } from '../types'
@@ -171,6 +172,32 @@ export default function MemoryGraphPanel({ selectedId, onSelect, onEmpezarAConec
   // que aparece y desaparece es peor que nada.
   if (loading && !graph) return null
   if (!graph || graph.nodes.length === 0 || !data) return null
+
+  // Sin un solo vínculo no hay grafo (decisión de Gero, 2026-10-09). Con memorias sueltas el
+  // cuadro era «0 shown · N unconnected hidden» a 420px de alto, y la lista —lo único con
+  // contenido— quedaba abajo del pliegue: es lo primero que ve quien recién empieza. Cuenta
+  // cualquier arista, también las adivinadas. Con las adivinadas apagadas a mano no se
+  // esconde: se llevaría puesto el botón que las vuelve a prender.
+  if (includeSimilar && graph.edges.length === 0) {
+    if (!selectedId) return null
+    // El documento de la memoria elegida vive en este panel: sin él, tocar una fila de la
+    // lista no mostraría nada.
+    return (
+      <div className="flex max-h-[min(60vh,560px)] shrink-0 flex-col overflow-hidden rounded-md border border-border bg-card p-3">
+        <DocumentoDeMemoria
+          detail={detail}
+          loading={cargandoDetalle}
+          missing={missing}
+          onAbrir={onSelect}
+          onConectar={() => onEmpezarAConectar?.(selectedId)}
+          onCambio={(borrada) => {
+            if (borrada) onSelect(null)
+            onCambiada?.()
+          }}
+        />
+      </div>
+    )
+  }
 
   return (
     <div className="flex shrink-0 flex-col gap-2 rounded-md border border-border p-3">
@@ -589,7 +616,7 @@ function DocumentoDeMemoria({
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-fs-xs text-muted-foreground">
         <span>{swatch ? swatch.label : detail.type}</span>
         <span aria-hidden>·</span>
-        <span className="font-mono">{detail.projectKey}</span>
+        <span className="font-mono">{nombreDeProyecto(detail.projectKey, null)}</span>
         {detail.gitBranch && (
           <>
             <span aria-hidden>·</span>

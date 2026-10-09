@@ -22,6 +22,7 @@
 //
 // El color de los NODOS sí es categórico (proyecto o tipo): es la excepción justificada a
 // la regla de que el color es estado, la misma que ya usa `memory-type-legend.ts`.
+import { nombreDeProyecto } from './nombre-de-proyecto'
 import type { MemoryEdgeKind, MemoryGraph, MemoryGraphNode } from '../types'
 import { memoryTypeSwatch } from './memory-type-legend'
 
@@ -315,7 +316,7 @@ export function toGraphData(graph: MemoryGraph, opts: ToGraphDataOptions): Graph
         superseded: false,
         type: n.type,
         projectKey: n.projectKey,
-        projectLabel: n.projectDisplayName ?? n.projectKey,
+        projectLabel: nombreDeProyecto(n.projectKey, n.projectDisplayName),
         tags: [],
         gitBranch: null,
         pending: true,
@@ -334,7 +335,7 @@ export function toGraphData(graph: MemoryGraph, opts: ToGraphDataOptions): Graph
       superseded: n.superseded,
       type: n.type,
       projectKey: n.projectKey,
-      projectLabel: n.projectDisplayName ?? n.projectKey,
+      projectLabel: nombreDeProyecto(n.projectKey, n.projectDisplayName),
       tags: n.tags,
       gitBranch: n.gitBranch,
       pending: false,
@@ -375,7 +376,7 @@ export function projectGroups(graph: MemoryGraph): ProjectGroup[] {
   return [...cuenta.entries()]
     .map(([projectKey, count]) => ({
       projectKey,
-      label: etiquetas.get(projectKey) ?? projectKey,
+      label: nombreDeProyecto(projectKey, etiquetas.get(projectKey)),
       color: colores.get(projectKey) ?? NEUTRAL_NODE,
       count,
     }))

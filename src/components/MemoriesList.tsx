@@ -12,6 +12,7 @@ import { useVirtualizer } from '@tanstack/react-virtual'
 import { AILogo } from './AILogos'
 import { Input } from '@/components/ui/input'
 import { memoryTypeSwatch } from '../lib/memory-type-legend'
+import { nombreDeProyecto } from '../lib/nombre-de-proyecto'
 import { relativeTime } from '../lib/memories-status'
 import { useCrossProjectMemories, type CrossProjectMemoriesState } from '../hooks/useCrossProjectMemories'
 import type { AIType } from '../types'
@@ -241,7 +242,7 @@ function MemoryRow({
           renderiza nada, no un icono gris. */}
       {item.originAi && <AILogo aiType={item.originAi as AIType} size={14} />}
       <span className="max-w-32 shrink-0 truncate text-fs-xs text-muted-foreground">
-        {item.projectDisplayName ?? item.projectKey}
+        {nombreDeProyecto(item.projectKey, item.projectDisplayName)}
       </span>
       <span className="shrink-0 font-mono text-fs-xs tabular-nums text-muted-foreground">
         {relativeTime(item.updatedAt)}

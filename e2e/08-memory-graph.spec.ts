@@ -48,6 +48,11 @@ test('sin memorias no se monta ningun cuadro de grafo vacio', async () => {
 })
 
 test('con memorias: el cuadro es acotado, y la seleccion es una sola entre lista y grafo', async () => {
+  // Recorre siete pasos con una espera fija de 5 s para que la simulación se aquiete, y
+  // medido el 2026-10-09 tarda 1,0 min con o sin los cambios de ese día: justo el límite de
+  // 60 s por defecto. Con la máquina cargada lo cruzaba y fallaba por tiempo, no por nada
+  // que viera. El margen es para eso; si algún día tarda el doble, algo se trabó.
+  test.setTimeout(120_000)
   const h = await launchHarness({ withRepo: false })
   const { page } = h
   try {
