@@ -189,3 +189,79 @@ describe('handlePull — Team Memory Layer 1, Parte 5 (pull team-scoped)', () =>
     expect(res.rows).toEqual([])
   })
 })
+
+// Lo que los cuatro tests de arriba no pueden ver, porque todos piden con el cursor en 0 y
+// en ninguno B tiene un proyecto propio con la misma `project_key`. En uso real B SÍ lo tiene
+// (es el mismo repo clonado) y su cursor ya avanzó con sus propias memorias — y `project_seq`
+// se cuenta por proyecto, así que el 3 de la fila de A y el 3 de B no son el mismo 3.
+describe('handlePull — cursores de equipo separados de los propios', () => {
+  const comoB = () => ({ deviceId: userB.deviceId, userId: userB.userId, plan: userB.plan })
+  let sourceA: string
+
+  beforeAll(async () => {
+    // B clona el mismo repo: misma project_key, proyecto distinto, y 5 memorias propias.
+    await handlePush(pool, userB, {
+      mutations: [1, 2, 3, 4, 5].map((n) => mutation(100 + n, SYNC(`b-propia-${n}`), projectA, 'personal')),
+    })
+    const { rows } = await pool.query('select id from projects where user_id = $1 and project_key = $2', [
+      userA.userId, projectA,
+    ])
+    sourceA = String(rows[0].id)
+  })
+
+  it('el cliente viejo (sin team_cursors) con el cursor en 5 NO recibe la fila de equipo — el defecto, fijado', async () => {
+    const res = await handlePull(pool, comoB(), { cursors: { [projectA]: 5 }, limit: 500 })
+    expect(res.rows).toEqual([])
+    expect(res.team_cursors).toBeUndefined()
+  })
+
+  it('con team_cursors vacío y el cursor propio en 5, la fila de equipo de A llega igual', async () => {
+    const res = await handlePull(pool, comoB(), { cursors: { [projectA]: 5 }, team_cursors: {}, limit: 500 })
+
+    expect(res.rows.map((r) => r.sync_id)).toEqual([SYNC('a-team')])
+    // El cursor propio no se mueve por una fila ajena…
+    expect(res.cursors).toEqual({ [projectA]: 5 })
+    // …y el de equipo queda en el project_seq de esa fila, contado en el proyecto de A.
+    expect(res.team_cursors).toEqual({ [projectA]: { [sourceA]: 3 } })
+  })
+
+  it('devolviendo ese cursor de equipo, la misma fila no vuelve', async () => {
+    const res = await handlePull(pool, comoB(), {
+      cursors: { [projectA]: 5 }, team_cursors: { [projectA]: { [sourceA]: 3 } }, limit: 500,
+    })
+    expect(res.rows).toEqual([])
+    expect(res.team_cursors).toEqual({ [projectA]: { [sourceA]: 3 } })
+  })
+
+  it('lo propio y lo ajeno vuelven juntos, cada uno contra su cursor', async () => {
+    const res = await handlePull(pool, comoB(), { cursors: { [projectA]: 3 }, team_cursors: {}, limit: 500 })
+    expect(res.rows.map((r) => r.sync_id).sort()).toEqual(
+      [SYNC('b-propia-4'), SYNC('b-propia-5'), SYNC('a-team')].sort()
+    )
+    expect(res.cursors).toEqual({ [projectA]: 5 })
+  })
+
+  it('C, que no es miembro, tampoco ve nada por este camino — ni inventando el source', async () => {
+    const res = await handlePull(pool, { deviceId: userC.deviceId, userId: userC.userId, plan: userC.plan }, {
+      cursors: { [projectA]: 0 }, team_cursors: { [projectA]: { [sourceA]: 0 } }, limit: 500,
+    })
+    expect(res.rows).toEqual([])
+  })
+
+  it('las personales de A siguen sin viajar aunque el cursor de equipo esté en 0', async () => {
+    const res = await handlePull(pool, comoB(), {
+      cursors: { [projectA]: 99 }, team_cursors: { [projectA]: { [sourceA]: 0 } }, limit: 500,
+    })
+    expect(res.rows.map((r) => r.sync_id)).toEqual([SYNC('a-team')])
+  })
+
+  it('un team_cursors mal formado no rompe ni abre nada: se ignora y arranca de 0', async () => {
+    const res = await handlePull(pool, comoB(), {
+      cursors: { [projectA]: 99 },
+      team_cursors: { [projectA]: { 'no-es-un-id': 7, [sourceA]: 'x' as unknown as number }, 'otra-key': { '1': 0 } },
+      limit: 500,
+    })
+    expect(res.rows.map((r) => r.sync_id)).toEqual([SYNC('a-team')])
+    expect(Object.keys(res.team_cursors ?? {})).toEqual([projectA])
+  })
+})

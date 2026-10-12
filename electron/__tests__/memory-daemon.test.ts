@@ -18,6 +18,8 @@ function fakeStore(overrides: Partial<MemoryStore> = {}): MemoryStore {
     unblockMutations: vi.fn(),
     setSyncState: vi.fn(),
     getSyncState: vi.fn(() => ({ pullCursor: 0, lastPushSeq: 0 })),
+    getTeamCursors: vi.fn(() => ({})),
+    setTeamCursor: vi.fn(),
     listProjects: vi.fn(() => [{ projectKey: 'proj-1', displayName: 'proj-1', enrolled: true }]),
     pruneAckedMutations: vi.fn(() => 0),
     pendingMutationCount: vi.fn(() => 0),
@@ -856,6 +858,77 @@ describe('MemoryDaemon — pull (§4.4, M17 per-project cursors)', () => {
 
     await daemon.pull()
     expect(fetchImpl).not.toHaveBeenCalled()
+  })
+})
+
+// Lo de equipo viene de proyectos de OTRA persona, y cada uno cuenta su propio project_seq.
+// Con el cursor del proyecto solo, a un compañero con más memorias propias que el autor la
+// memoria de equipo no le llegaba nunca (e2e/13-equipo-dos-cuentas.spec.ts).
+describe('MemoryDaemon — pull, cursores de equipo', () => {
+  it('manda team_cursors aunque esté vacío: es lo que le dice al servicio que los lleva', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ rows: [], cursors: {} }) })
+    const daemon = new MemoryDaemon(baseDaemonDeps(fakeStore(), { fetchImpl }))
+
+    await daemon.pull()
+
+    expect(JSON.parse(fetchImpl.mock.calls[0][1].body).team_cursors).toEqual({})
+  })
+
+  it('manda los que tiene guardados y guarda los que vuelven, sin tocar el cursor propio', async () => {
+    const setSyncState = vi.fn()
+    const setTeamCursor = vi.fn()
+    const store = fakeStore({
+      getSyncState: vi.fn(() => ({ pullCursor: 6, lastPushSeq: 0 })),
+      getTeamCursors: vi.fn(() => ({ 'proj-1': { '41': 2 } })),
+      setTeamCursor,
+      setSyncState,
+    })
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ rows: [], cursors: { 'proj-1': 6 }, team_cursors: { 'proj-1': { '41': 3, '57': 9 } } }),
+    })
+    const daemon = new MemoryDaemon(baseDaemonDeps(store, { fetchImpl }))
+
+    await daemon.pull()
+
+    const sent = JSON.parse(fetchImpl.mock.calls[0][1].body)
+    expect(sent.cursors).toEqual({ 'proj-1': 6 })
+    expect(sent.team_cursors).toEqual({ 'proj-1': { '41': 2 } })
+    expect(setTeamCursor).toHaveBeenCalledWith('proj-1', '41', 3)
+    expect(setTeamCursor).toHaveBeenCalledWith('proj-1', '57', 9)
+    expect(setSyncState).toHaveBeenCalledWith('proj-1', expect.objectContaining({ pullCursor: 6 }))
+  })
+
+  it('un servicio viejo no devuelve team_cursors, y entonces no se guarda ninguno', async () => {
+    const setTeamCursor = vi.fn()
+    const fetchImpl = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ rows: [], cursors: { 'proj-1': 4 } }) })
+    const daemon = new MemoryDaemon(baseDaemonDeps(fakeStore({ setTeamCursor }), { fetchImpl }))
+
+    await daemon.pull()
+
+    expect(setTeamCursor).not.toHaveBeenCalled()
+  })
+
+  it('una página llena SÓLO de filas de equipo encadena el pull siguiente', async () => {
+    const fila = (i: number) => ({
+      sync_id: `eq-${i}`, project_key: 'proj-1', project_seq: i, scope: 'team', type: 'decision',
+      title: `t${i}`, content: 'c', tags: [], lamport: i, client_updated_at: new Date().toISOString(), deleted: false,
+    })
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true, status: 200,
+        json: async () => ({ rows: Array.from({ length: 500 }, (_, i) => fila(i + 1)), cursors: { 'proj-1': 0 }, team_cursors: { 'proj-1': { '41': 500 } } }),
+      })
+      .mockResolvedValue({ ok: true, status: 200, json: async () => ({ rows: [], cursors: { 'proj-1': 0 }, team_cursors: { 'proj-1': { '41': 500 } } }) })
+    const daemon = new MemoryDaemon(baseDaemonDeps(fakeStore(), { fetchImpl }))
+
+    await daemon.pull()
+    await new Promise((r) => setImmediate(r))
+    await new Promise((r) => setImmediate(r))
+
+    // El cursor propio no se movió (0 → 0): sin contar el de equipo, esto no encadenaba.
+    expect(fetchImpl.mock.calls.length).toBeGreaterThanOrEqual(2)
   })
 })
 

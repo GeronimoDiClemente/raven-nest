@@ -1,8 +1,19 @@
 import type { Pool } from 'pg'
 import { limitsFor } from './limits'
 
+/**
+ * `project_key` → `source` → cursor. `source` es el id del proyecto DE OTRA PERSONA del que
+ * salen las filas de equipo: opaco para el cliente, que sólo lo guarda y lo devuelve.
+ */
+export type TeamCursors = Record<string, Record<string, number>>
+
 export interface PullBody {
   cursors?: Record<string, number>
+  /**
+   * Los cursores de lo que viene de proyectos AJENOS compartidos con un equipo. Que el campo
+   * venga —aunque sea `{}`— es lo que dice que el cliente sabe llevarlos; ver `handlePull`.
+   */
+  team_cursors?: TeamCursors
   limit?: number
 }
 
@@ -31,10 +42,45 @@ export interface PulledRow {
 export interface PullResponse {
   rows: PulledRow[]
   cursors: Record<string, number>
+  /** Sólo cuando el pedido trajo `team_cursors`. */
+  team_cursors?: TeamCursors
   next_poll_ms: number
 }
 
 const MAX_LIMIT = 500
+
+const cursorSano = (v: unknown): number => {
+  const n = Number(v)
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0
+}
+
+const COLUMNAS = `o.sync_id, p.project_key, o.project_seq, o.client_updated_at, o.lamport, o.scope,
+            o.type, o.topic_key, o.title, o.content, o.tags, o.deleted, o.superseded_by,
+            o.origin_ai, o.origin_account, o.git_branch, o.author_id, o.author_display, o.content_hash`
+
+function aFila(r: Record<string, unknown>): PulledRow {
+  return {
+    sync_id: r.sync_id as string,
+    project_key: r.project_key as string,
+    project_seq: Number(r.project_seq),
+    client_updated_at: new Date(r.client_updated_at as string).toISOString(),
+    lamport: Number(r.lamport),
+    scope: r.scope as string,
+    type: r.type as string,
+    topic_key: r.topic_key as string | null,
+    title: r.title as string,
+    content: r.content as string | null,
+    tags: Array.isArray(r.tags) ? (r.tags as string[]) : [],
+    deleted: r.deleted as boolean,
+    superseded_by: r.superseded_by as string | null,
+    origin_ai: r.origin_ai as string | null,
+    origin_account: r.origin_account as string | null,
+    git_branch: r.git_branch as string | null,
+    author_id: r.author_id as string | null,
+    author_display: r.author_display as string | null,
+    content_hash: r.content_hash as string | null,
+  }
+}
 
 export async function handlePull(
   pool: Pool,
@@ -84,10 +130,22 @@ export async function handlePull(
   // back to 0, which means "send me everything for this project" — the same starting
   // point as a device that has never synced it. That is always safe: it can only cause
   // rows already seen to be re-sent, never a row to be skipped.
-  const cursorValues = keys.map((k) => {
-    const n = Number(cursors[k])
-    return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0
-  })
+  const cursorValues = keys.map((k) => cursorSano(cursors[k]))
+
+  // Seed `next` from the clamped values, not the raw `cursors` input — otherwise a
+  // malformed cursor (e.g. a non-numeric string) would round-trip back to the client
+  // unchanged: `seq > "not-a-number"` coerces to `seq > NaN`, which is always false, so
+  // the bad value would never get overwritten by a real project_seq.
+  const next: Record<string, number> = {}
+  keys.forEach((k, i) => { next[k] = cursorValues[i] })
+
+  if (body.team_cursors !== undefined) {
+    return pullConCursoresDeEquipo(pool, auth, body.team_cursors, keys, cursorValues, next, limit, nextPollMs)
+  }
+
+  // ── Cliente que todavía no manda `team_cursors` ────────────────────────────────────────
+  // Lo de abajo queda como estaba, a propósito: es el comportamiento que esos clientes ya
+  // conocen. Tiene el defecto que `pullConCursoresDeEquipo` existe para arreglar.
 
   // Team Memory Layer 1, Parte 5. Dos caminos por los que una fila puede volver, y sólo
   // dos: la propia (`p.user_id = $1`, sin cambios) o una ajena que además cumple LAS DOS
@@ -100,9 +158,7 @@ export async function handlePull(
   // cualquier fila del proyecto — exactamente la fuga que el test dedicado
   // (`pull-team-scope.test.ts`) existe para cerrar.
   const { rows } = await pool.query(
-    `select o.sync_id, p.project_key, o.project_seq, o.client_updated_at, o.lamport, o.scope,
-            o.type, o.topic_key, o.title, o.content, o.tags, o.deleted, o.superseded_by,
-            o.origin_ai, o.origin_account, o.git_branch, o.author_id, o.author_display, o.content_hash
+    `select ${COLUMNAS}
        from observations o
        join projects p on p.id = o.project_id
        join unnest($2::text[], $3::bigint[]) as c(project_key, cursor) on c.project_key = p.project_key
@@ -117,37 +173,112 @@ export async function handlePull(
     [auth.userId, keys, cursorValues, limit]
   )
 
-  // Seed `next` from the clamped values, not the raw `cursors` input — otherwise a
-  // malformed cursor (e.g. a non-numeric string) would round-trip back to the client
-  // unchanged: `seq > "not-a-number"` coerces to `seq > NaN`, which is always false, so
-  // the bad value would never get overwritten by a real project_seq.
-  const next: Record<string, number> = {}
-  keys.forEach((k, i) => { next[k] = cursorValues[i] })
   const mapped: PulledRow[] = rows.map((r) => {
-    const seq = Number(r.project_seq)
-    if (seq > (next[r.project_key] ?? 0)) next[r.project_key] = seq
-    return {
-      sync_id: r.sync_id,
-      project_key: r.project_key,
-      project_seq: seq,
-      client_updated_at: new Date(r.client_updated_at).toISOString(),
-      lamport: Number(r.lamport),
-      scope: r.scope,
-      type: r.type,
-      topic_key: r.topic_key,
-      title: r.title,
-      content: r.content,
-      tags: Array.isArray(r.tags) ? r.tags : [],
-      deleted: r.deleted,
-      superseded_by: r.superseded_by,
-      origin_ai: r.origin_ai,
-      origin_account: r.origin_account,
-      git_branch: r.git_branch,
-      author_id: r.author_id,
-      author_display: r.author_display,
-      content_hash: r.content_hash,
-    }
+    const fila = aFila(r)
+    if (fila.project_seq > (next[fila.project_key] ?? 0)) next[fila.project_key] = fila.project_seq
+    return fila
   })
 
   return { rows: mapped, cursors: next, next_poll_ms: nextPollMs }
+}
+
+/**
+ * El pull para un cliente que lleva los cursores de equipo aparte.
+ *
+ * El defecto que arregla: `project_seq` se cuenta POR PROYECTO, y el proyecto del autor y el
+ * del compañero son dos proyectos distintos que comparten `project_key` (los dos clonaron el
+ * mismo repo). Con un solo cursor por `project_key`, el del compañero avanza con sus propias
+ * memorias, y una fila de equipo cuyo `project_seq` —contado en el proyecto del AUTOR— queda
+ * por debajo no vuelve nunca, sin error. No era un caso raro: cualquiera que haya trabajado
+ * en el repo ya tiene memorias propias ahí. Lo encontró `e2e/13-equipo-dos-cuentas.spec.ts`.
+ *
+ * Así que son dos consultas con dos juegos de cursores:
+ *   · lo propio, contra `cursors[project_key]`, que ahora sólo avanza con filas propias;
+ *   · lo ajeno de equipo, contra `team_cursors[project_key][source]`, un cursor por cada
+ *     proyecto de origen — con dos compañeros compartiendo el mismo repo, un cursor único
+ *     para "lo de equipo" tendría el mismo defecto entre ellos dos.
+ *
+ * Un `source` que el cliente no mandó arranca en 0: es como se entera de un proyecto recién
+ * compartido, o de una membresía nueva. La autorización es la misma de siempre y se evalúa
+ * por FILA (ver el comentario del camino viejo, arriba): los cursores sólo dicen desde dónde.
+ */
+async function pullConCursoresDeEquipo(
+  pool: Pool,
+  auth: { userId: string },
+  teamCursorsIn: TeamCursors,
+  keys: string[],
+  cursorValues: number[],
+  next: Record<string, number>,
+  limit: number,
+  nextPollMs: number
+): Promise<PullResponse> {
+  const { rows: propias } = await pool.query(
+    `select ${COLUMNAS}
+       from observations o
+       join projects p on p.id = o.project_id
+       join unnest($2::text[], $3::bigint[]) as c(project_key, cursor) on c.project_key = p.project_key
+      where p.user_id = $1
+        and o.project_seq > c.cursor
+      order by o.project_seq asc
+      limit $4`,
+    [auth.userId, keys, cursorValues, limit]
+  )
+
+  // Sólo de los proyectos que el device nombró en `cursors`, igual que lo propio: un
+  // `team_cursors` con una `project_key` que no está ahí no abre nada.
+  const tk: string[] = []
+  const ts: string[] = []
+  const tc: number[] = []
+  const nextTeam: TeamCursors = {}
+  const entrada = teamCursorsIn && typeof teamCursorsIn === 'object' ? teamCursorsIn : {}
+  for (const key of keys) {
+    const porOrigen = entrada[key]
+    if (!porOrigen || typeof porOrigen !== 'object') continue
+    for (const [source, cursor] of Object.entries(porOrigen)) {
+      // `source` cae en una comparación contra `projects.id` (bigint): uno mal formado
+      // sería un 22P02 de Postgres, o sea un 500 nuestro por un dato del cliente.
+      if (!/^\d{1,18}$/.test(source)) continue
+      const sano = cursorSano(cursor)
+      tk.push(key); ts.push(source); tc.push(sano)
+      ;(nextTeam[key] ??= {})[source] = sano
+    }
+  }
+
+  // Ordenado por origen y después por secuencia: si el `limit` corta, lo que queda afuera es
+  // siempre la COLA de un origen (o un origen entero), nunca un hueco en el medio, así que
+  // "el mayor `project_seq` devuelto de ese origen" es un cursor que no saltea nada.
+  const { rows: ajenas } = await pool.query(
+    `select ${COLUMNAS}, p.id as source_id
+       from observations o
+       join projects p on p.id = o.project_id
+       left join unnest($3::text[], $4::bigint[], $5::bigint[]) as t(project_key, source_id, cursor)
+              on t.project_key = p.project_key and t.source_id = p.id
+      where p.project_key = any($2::text[])
+        and p.user_id <> $1
+        and o.scope = 'team'
+        and p.team_id in (
+              select team_id from team_memberships
+               where user_id = $1 and status = 'active'
+            )
+        and o.project_seq > coalesce(t.cursor, 0)
+      order by p.id asc, o.project_seq asc
+      limit $6`,
+    [auth.userId, keys, tk, ts, tc, limit]
+  )
+
+  const rows: PulledRow[] = []
+  for (const r of propias) {
+    const fila = aFila(r)
+    if (fila.project_seq > (next[fila.project_key] ?? 0)) next[fila.project_key] = fila.project_seq
+    rows.push(fila)
+  }
+  for (const r of ajenas) {
+    const fila = aFila(r)
+    const porOrigen = (nextTeam[fila.project_key] ??= {})
+    const source = String(r.source_id)
+    if (fila.project_seq > (porOrigen[source] ?? 0)) porOrigen[source] = fila.project_seq
+    rows.push(fila)
+  }
+
+  return { rows, cursors: next, team_cursors: nextTeam, next_poll_ms: nextPollMs }
 }

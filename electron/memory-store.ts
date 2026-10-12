@@ -2229,6 +2229,35 @@ export class MemoryStore {
     this.db.prepare(`UPDATE sync_state SET ${fields.join(', ')} WHERE partition_key = ?`).run(...values)
   }
 
+  /**
+   * Los cursores de lo que viene de proyectos AJENOS compartidos con un equipo:
+   * `project_key` → `source` → cursor. `source` es opaco, lo pone el servicio (ver
+   * `pullConCursoresDeEquipo` en server/src/pull.ts, que explica por qué no alcanza con el
+   * cursor del proyecto).
+   *
+   * Viven en `sync_state` con la partición `team:<source>:<project_key>` y no en una tabla
+   * nueva: es la misma clase de dato que `pull_cursor`, y así `resetPullCursors()` los vuelve
+   * a 0 junto con los demás sin tener que acordarse de ellos. `source` va primero porque es
+   * siempre numérico; una `project_key` puede traer cualquier cosa.
+   */
+  getTeamCursors(): Record<string, Record<string, number>> {
+    const rows = this.db
+      .prepare("SELECT partition_key, pull_cursor FROM sync_state WHERE partition_key LIKE 'team:%'")
+      .all() as Array<{ partition_key: string; pull_cursor: number }>
+    const out: Record<string, Record<string, number>> = {}
+    for (const row of rows) {
+      const m = /^team:(\d+):(.+)$/s.exec(row.partition_key)
+      if (!m) continue
+      ;(out[m[2]] ??= {})[m[1]] = row.pull_cursor
+    }
+    return out
+  }
+
+  setTeamCursor(projectKey: string, source: string, cursor: number): void {
+    if (!/^\d+$/.test(source)) return
+    this.setSyncState(`team:${source}:${projectKey}`, { pullCursor: cursor })
+  }
+
   // ── Sessions (§2.2, §2.4) ─────────────────────────────────────────────────
 
   openSession(input: { id: string; paneId?: string; projectKey: string; aiType?: string; account?: string; gitBranch?: string }): void {

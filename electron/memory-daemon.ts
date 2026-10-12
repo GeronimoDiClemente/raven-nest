@@ -1245,6 +1245,12 @@ export class MemoryDaemon {
     for (const project of projects) {
       cursors[project.projectKey] = store.getSyncState(project.projectKey).pullCursor
     }
+    // Lo que viene de proyectos de OTRA persona compartidos con un equipo lleva sus propios
+    // cursores, uno por proyecto de origen. Con el cursor del proyecto solo, una memoria de
+    // equipo no llegaba nunca a quien ya tuviera más memorias propias en ese repo que el
+    // autor (ver `pullConCursoresDeEquipo` en server/src/pull.ts). Se manda siempre, aunque
+    // esté vacío: que el campo exista es lo que le dice al servicio que este cliente los lleva.
+    const teamCursors = store.getTeamCursors()
 
     // C6 part 2: disarmed in this try's `finally`, i.e. only AFTER `response.json()` has
     // consumed the body — see fetchWithTimeout().
@@ -1253,7 +1259,7 @@ export class MemoryDaemon {
       const { response, release: releaseTimer } = await this.fetchWithTimeout(`${url}/v1/sync/pull`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cursors, limit: PULL_PAGE_SIZE }),
+        body: JSON.stringify({ cursors, team_cursors: teamCursors, limit: PULL_PAGE_SIZE }),
       })
       release = releaseTimer
 
@@ -1289,7 +1295,11 @@ export class MemoryDaemon {
         return
       }
       if (!response.ok) throw new Error(`pull failed: ${response.status}`)
-      const body = (await response.json()) as { rows: Array<Record<string, unknown>>; cursors: Record<string, number> }
+      const body = (await response.json()) as {
+        rows: Array<Record<string, unknown>>
+        cursors: Record<string, number>
+        team_cursors?: Record<string, Record<string, number>>
+      }
       // Si la cuenta cambió mientras esta respuesta viajaba, estas filas son de OTRA cuenta:
       // se descartan enteras. El cursor tampoco se guarda — lo que no se aplicó tiene que
       // volver a pedirse, y lo va a pedir la cuenta a la que le corresponde.
@@ -1334,6 +1344,15 @@ export class MemoryDaemon {
           store.setSyncState(projectKey, { pullCursor: cursor, lastSuccessAt: now, lastError: null })
         }
       }
+      // Un servicio que todavía no los conoce no devuelve el campo, y entonces no hay nada
+      // que guardar: sigue mandando lo de equipo mezclado en `cursors`, como antes.
+      for (const [projectKey, porOrigen] of Object.entries(body.team_cursors ?? {})) {
+        for (const [source, cursor] of Object.entries(porOrigen ?? {})) {
+          if (typeof cursor !== 'number') continue
+          if (cursor > (teamCursors[projectKey]?.[source] ?? 0)) cursorAdvanced = true
+          store.setTeamCursor(projectKey, source, cursor)
+        }
+      }
       store.setSyncState('__account__', { lastSuccessAt: now, lastError: null })
       this.consecutiveAuthFailures = 0
       this.backoff.reset()
@@ -1365,7 +1384,10 @@ export class MemoryDaemon {
       // `pullInFlight` (M19) yet — a microtask-scheduled call would run before that
       // `.finally` and see `pullInFlight` still set, silently deduping into a no-op. A
       // macrotask fires only after the microtask queue (including that `.finally`) drains.
-      if (body.rows.length === PULL_PAGE_SIZE && cursorAdvanced) {
+      // `>=` y no `===`: con cursores de equipo la respuesta son dos páginas juntas (lo
+      // propio y lo ajeno, cada una con su `limit`), así que una página llena de cualquiera
+      // de las dos deja el total en PULL_PAGE_SIZE o más.
+      if (body.rows.length >= PULL_PAGE_SIZE && cursorAdvanced) {
         // Task 1 Step 3a: same race as M22's chained push above — re-check swapping at the
         // moment this macrotask actually runs, not just at schedule time.
         setImmediate(() => {

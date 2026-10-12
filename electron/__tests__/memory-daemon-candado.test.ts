@@ -27,6 +27,8 @@ function fakeStore(overrides: Partial<MemoryStore> = {}): MemoryStore {
     unblockMutations: vi.fn(),
     setSyncState: vi.fn(),
     getSyncState: vi.fn(() => ({ pullCursor: 0, lastPushSeq: 0 })),
+    getTeamCursors: vi.fn(() => ({})),
+    setTeamCursor: vi.fn(),
     listProjects: vi.fn(() => [{ projectKey: 'proj-1', displayName: 'proj-1', enrolled: true }]),
     pruneAckedMutations: vi.fn(() => 0),
     pendingMutationCount: vi.fn(() => 1),

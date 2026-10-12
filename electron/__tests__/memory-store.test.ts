@@ -1312,6 +1312,50 @@ describe('MemoryStore — latestByType (Task 4, reconstruir el handoff en otra m
   })
 })
 
+describe('MemoryStore — cursores de equipo', () => {
+  let dir: string
+  let store: MemoryStore
+
+  beforeEach(() => {
+    dir = makeTmpDir('raven-memory-team-cursors-')
+    store = new MemoryStore(join(dir, 'memory.db'))
+  })
+
+  afterEach(() => {
+    store.close()
+    cleanupTmp(dir)
+  })
+
+  it('sin ninguno guardado devuelve vacío', () => {
+    expect(store.getTeamCursors()).toEqual({})
+  })
+
+  it('guarda uno por proyecto de origen, sin tocar el cursor propio del proyecto', () => {
+    store.setSyncState('proj-a', { pullCursor: 6 })
+    store.setTeamCursor('proj-a', '41', 3)
+    store.setTeamCursor('proj-a', '57', 9)
+    store.setTeamCursor('proj:con:dos:puntos', '41', 1)
+    store.setTeamCursor('proj-a', '41', 4)
+
+    expect(store.getTeamCursors()).toEqual({
+      'proj-a': { '41': 4, '57': 9 },
+      'proj:con:dos:puntos': { '41': 1 },
+    })
+    expect(store.getSyncState('proj-a').pullCursor).toBe(6)
+  })
+
+  it('un source que no es numérico no se guarda', () => {
+    store.setTeamCursor('proj-a', 'x:y', 3)
+    expect(store.getTeamCursors()).toEqual({})
+  })
+
+  it('resetPullCursors también los vuelve a 0', () => {
+    store.setTeamCursor('proj-a', '41', 3)
+    store.resetPullCursors()
+    expect(store.getTeamCursors()).toEqual({ 'proj-a': { '41': 0 } })
+  })
+})
+
 // Team Memory Layer 1, Parte 6 (lado cliente): promoteToTeam() es la unica forma de que una
 // fila salga de scope 'personal'/'project'. Sin cola de aprobacion (decision ya tomada), pero
 // deja registro en promotion_queue con status 'approved'.
