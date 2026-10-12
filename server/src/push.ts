@@ -427,9 +427,28 @@ export async function handlePush(
     //
     // Se recorre `prepared`, NO `mutations`: así los rechazos de la pasada 1 vuelven a
     // `results` en la posición exacta que tenía su mutación en la entrada.
+    //
+    // Los seis rechazos tempranos —los cinco de la pasada 1 y `project_limit_reached`— dejan
+    // su fila en `rejected_pushes` igual que los terminales de más abajo. No la dejaban, y
+    // eran justo los que más importa ver: son los de plan y de permisos (cuota llena, tope
+    // de proyectos, equipo sin compartir), o sea los que explican por qué a alguien "no le
+    // sincroniza". `devices-with-rejections.mjs` no los mostraba nunca. Acá no hay ninguna
+    // transacción abierta, así que el insert commitea solo; y si falla no se lleva puesto el
+    // push: es un registro, no parte del resultado.
+    const anotarRechazo = async (syncId: string, error: string): Promise<void> => {
+      try {
+        await client.query(
+          `insert into rejected_pushes (device_id, sync_id, error) values ($1, $2, $3)`,
+          [auth.deviceId, syncId, error]
+        )
+      } catch (err) {
+        console.error('[push] no se pudo anotar el rechazo', error, err)
+      }
+    }
     for (const entry of prepared) {
       if (entry.kind === 'rejected') {
         results.push(entry.result)
+        await anotarRechazo(entry.result.sync_id, entry.result.error ?? 'rejected')
         continue
       }
       const { m, syncId, projectKey } = entry
@@ -446,6 +465,7 @@ export async function handlePush(
           project_seq: 0,
           error: 'project_limit_reached',
         })
+        await anotarRechazo(syncId, 'project_limit_reached')
         continue
       }
 

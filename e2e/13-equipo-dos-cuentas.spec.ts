@@ -329,6 +329,58 @@ test('un compañero que ya tiene MÁS memorias propias en ese repo también reci
   }
 })
 
+// El orden al revés, que es el que sale solo: el agente promueve una memoria y recién después
+// alguien se acuerda de compartir el proyecto. El servicio rechaza ese push con
+// `project_not_shared_with_team`, que el daemon trata como REVERSIBLE: la mutación queda
+// retenida, no descartada, y `memory:shareProjectWithTeam` la suelta apenas el share vuelve ok.
+test('promover ANTES de compartir no pierde la memoria: sube cuando el proyecto se comparte', async () => {
+  const marca = `pr${Date.now()}`
+  const teamId = randomUUID()
+  const cA = cuentaNueva(marca, 'autor')
+  const cB = cuentaNueva(marca, 'companero')
+  hacerMiembro(cA, teamId)
+  hacerMiembro(cB, teamId)
+
+  let h: Harness | null = null
+  try {
+    h = await launchHarness()
+    apuntarAlRemoto(h.repoDir, marca)
+    await conectar(h.page, cA)
+    const deEquipo = `Decision de equipo ${marca}`
+    const syncId = await guardar(h.page, h.repoDir, deEquipo)
+    await todoSubido(h.page)
+    expect(filaEnElServicio(syncId)?.scope).toBe('personal')
+
+    // Promueve con el proyecto SIN compartir.
+    const pushesAntes = Number(sql(`select push_count from devices where id = '${cA.deviceId}'`))
+    expect(await promoverPorMcp(h, syncId)).toContain('true')
+    expect((await loQueTiene(h.page, marca)).find((m) => m.title === deEquipo)?.scope).toBe('team')
+    // El push sale a los 3 s (debounce) y rebota: en el servicio tiene que seguir personal.
+    await h.page.waitForTimeout(10_000)
+    expect(filaEnElServicio(syncId)?.scope, 'el servicio aceptó scope team en un proyecto sin compartir').toBe('personal')
+    // Y lo intentó de verdad: sin un push de por medio, "sigue personal" sería cierto por no
+    // haber subido nada. El rechazo queda anotado con su motivo.
+    expect(Number(sql(`select push_count from devices where id = '${cA.deviceId}'`))).toBeGreaterThan(pushesAntes)
+    expect(sql(`select count(*) from rejected_pushes where sync_id = '${syncId}' and error = 'project_not_shared_with_team'`)).not.toBe('0')
+
+    // Comparte: la retenida tiene que subir sola, sin volver a promover.
+    const share = await compartir(h.page, await projectKeyDe(h.page, h.repoDir), teamId)
+    expect(share.ok, `shareProjectWithTeam: ${share.error}`).toBe(true)
+    await expect.poll(() => filaEnElServicio(syncId)?.scope, { timeout: 60_000 }).toBe('team')
+    await teardown(h); h = null
+
+    h = await launchHarness()
+    apuntarAlRemoto(h.repoDir, marca)
+    await conectar(h.page, cB)
+    await guardar(h.page, h.repoDir, `Nota propia del companero ${marca}`)
+    await todoSubido(h.page)
+    expect(await hastaQueTenga(h.page, cB, marca, deEquipo), 'la memoria de equipo nunca llegó al compañero').toBe(true)
+  } finally {
+    if (h) await h.page.screenshot({ path: join(SHOTS, 'zz-4-final.png') }).catch(() => {})
+    if (h) await teardown(h)
+  }
+})
+
 // Decisión §9.1 de la spec de cifrado: el scope `team` NO se cifra. Si la promoción subiera
 // la fila con la clave del autor, el compañero —otra cuenta, otra clave— bajaría algo que no
 // puede abrir. Y al revés: la personal del autor tiene que seguir viajando cifrada.

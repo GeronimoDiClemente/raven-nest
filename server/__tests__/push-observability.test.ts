@@ -217,4 +217,69 @@ describe('push observability (005_observability.sql)', () => {
     )
     expect(rejected.rows[0].n).toBe(0)
   })
+
+  // Los rechazos tempranos son los de plan y de permisos: los que explican por qué a alguien
+  // "no le sincroniza". No dejaban fila, así que `devices-with-rejections.mjs` no los veía.
+  const errores = async (deviceId: string): Promise<string[]> => {
+    const { rows } = await pool.query('select error from rejected_pushes where device_id = $1 order by id', [deviceId])
+    return rows.map((r) => r.error as string)
+  }
+
+  it('f) un scope team en un plan sin equipo deja su fila', async () => {
+    const dev = await seedAccount('early-plan', 'pro')
+    const res = await handlePush(pool, dev, {
+      mutations: [mutation(1, SYNC('early-plan'), PROJECT('early-plan'), { scope: 'team' })],
+    })
+    expect(res.results[0].error).toBe('team_scope_not_allowed')
+    expect(await errores(dev.deviceId)).toEqual(['team_scope_not_allowed'])
+  })
+
+  it('g) un scope team en un proyecto sin compartir deja su fila', async () => {
+    const dev = await seedAccount('early-unshared', 'team')
+    const res = await handlePush(pool, dev, {
+      mutations: [mutation(1, SYNC('early-unshared'), PROJECT('early-unshared'), { scope: 'team' })],
+    })
+    expect(res.results[0].error).toBe('project_not_shared_with_team')
+    expect(await errores(dev.deviceId)).toEqual(['project_not_shared_with_team'])
+  })
+
+  it('h) el tope de proyectos deja su fila, y la mutación que sí entró no deja ninguna', async () => {
+    const dev = await seedAccount('early-limit', 'free') // Free: 1 proyecto en la nube
+    const res = await handlePush(pool, dev, {
+      mutations: [
+        mutation(1, SYNC('limit-entra'), PROJECT('limit-a')),
+        mutation(2, SYNC('limit-rebota'), PROJECT('limit-b')),
+      ],
+    })
+    expect(res.results.map((r) => r.outcome)).toEqual(['applied', 'rejected'])
+    expect(res.results[1].error).toBe('project_limit_reached')
+    expect(await errores(dev.deviceId)).toEqual(['project_limit_reached'])
+  })
+
+  it('i) si anotar el rechazo falla, el push responde igual', async () => {
+    const dev = await seedAccount('early-log-fails', 'pro')
+    const syncId = SYNC('early-log-fails')
+    const roto: Pool = {
+      connect: async () => {
+        const client: PoolClient = await pool.connect()
+        return new Proxy(client, {
+          get(target, prop, receiver) {
+            if (prop === 'query') {
+              return (text: unknown, params?: unknown[]) =>
+                typeof text === 'string' && text.includes('insert into rejected_pushes')
+                  ? Promise.reject(new Error('disco lleno'))
+                  : (target.query as (t: unknown, p?: unknown[]) => Promise<unknown>)(text, params)
+            }
+            const value = Reflect.get(target, prop, receiver)
+            return typeof value === 'function' ? value.bind(target) : value
+          },
+        })
+      },
+    } as unknown as Pool
+
+    const res = await handlePush(roto, dev, {
+      mutations: [mutation(1, syncId, PROJECT('early-log-fails'), { scope: 'team' })],
+    })
+    expect(res.results[0]).toMatchObject({ sync_id: syncId, outcome: 'rejected', error: 'team_scope_not_allowed' })
+  })
 })
