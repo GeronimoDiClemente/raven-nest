@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest'
 import { randomUUID } from 'node:crypto'
 import { getPool, migrate } from '../src/db'
-import { isTeamLeader, getTeamKeyState, activateTeamKey } from '../src/team-keys'
+import { isTeamLeader, getTeamKeyState, activateTeamKey, authorizeTeamDevice } from '../src/team-keys'
 
 const pool = getPool()
 let teamId: string, leaderId: string, memberId: string, outsiderId: string
@@ -148,5 +148,53 @@ describe('activateTeamKey', () => {
       'select wrapped from team_key_wraps where team_id = $1 and slot = $2', [teamId, leaderDevice]
     )
     expect(rows[0].wrapped).toBe('W-1')
+  })
+})
+
+describe('authorizeTeamDevice', () => {
+  beforeEach(async () => {
+    await pool.query('insert into team_keys (team_id, activated_by) values ($1, $2)', [teamId, leaderId])
+    await pool.query(
+      `insert into team_key_wraps (team_id, slot, kind, wrapped) values ($1, $2, 'device', 'W-LEADER')`,
+      [teamId, leaderDevice]
+    )
+  })
+
+  it('rechaza con 403 a quien no es leader', async () => {
+    const res = await authorizeTeamDevice(pool, { deviceId: memberDevice, userId: memberId }, teamId, {
+      wraps: [{ slot: memberDevice, kind: 'device', wrapped: 'W-MEMBER' }],
+    })
+    expect(res).toEqual({ ok: false, status: 403, error: 'leader_required' })
+  })
+
+  it('rechaza con 404 si el equipo no tiene clave activada', async () => {
+    const otroTeam = randomUUID()
+    await pool.query(
+      `insert into team_memberships (user_id, team_id, team_name, role, status)
+       values ($1, $2, 'Otro', 'leader', 'active')`,
+      [leaderId, otroTeam]
+    )
+    const res = await authorizeTeamDevice(pool, { deviceId: leaderDevice, userId: leaderId }, otroTeam, {
+      wraps: [{ slot: memberDevice, kind: 'device', wrapped: 'W' }],
+    })
+    expect(res).toEqual({ ok: false, status: 404, error: 'not_activated' })
+  })
+
+  it('el leader autoriza al member: la wrap queda publicada', async () => {
+    const res = await authorizeTeamDevice(pool, { deviceId: leaderDevice, userId: leaderId }, teamId, {
+      wraps: [{ slot: memberDevice, kind: 'device', wrapped: 'W-MEMBER' }],
+    })
+    expect(res).toEqual({ ok: true })
+    const { rows } = await pool.query(
+      'select wrapped from team_key_wraps where team_id = $1 and slot = $2', [teamId, memberDevice]
+    )
+    expect(rows[0].wrapped).toBe('W-MEMBER')
+  })
+
+  it('nunca permite tocar el slot recovery desde authorize', async () => {
+    const res = await authorizeTeamDevice(pool, { deviceId: leaderDevice, userId: leaderId }, teamId, {
+      wraps: [{ slot: 'recovery', kind: 'recovery', wrapped: 'W-NUEVO' }],
+    })
+    expect(res).toEqual({ ok: false, status: 400, error: 'cannot_overwrite_recovery' })
   })
 })

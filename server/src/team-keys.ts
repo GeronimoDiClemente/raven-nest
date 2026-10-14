@@ -139,3 +139,49 @@ export async function activateTeamKey(
     client.release()
   }
 }
+
+export async function authorizeTeamDevice(
+  pool: Pool,
+  auth: TeamKeysAuth,
+  teamId: string,
+  body: { wraps?: unknown }
+): Promise<{ ok: true } | Fail<400> | Fail<403> | Fail<404>> {
+  if (!(await isTeamLeader(pool, auth.userId, teamId))) {
+    return { ok: false, status: 403, error: 'leader_required' }
+  }
+  const { rows: activatedRows } = await pool.query('select 1 from team_keys where team_id = $1', [teamId])
+  if (activatedRows.length === 0) return { ok: false, status: 404, error: 'not_activated' }
+
+  const wraps = Array.isArray(body?.wraps) ? (body.wraps as TeamWrapInput[]) : []
+  if (wraps.length === 0) return { ok: false, status: 400, error: 'no_wraps' }
+  // El slot de recuperación sólo se escribe al activar: pisarlo acá invalidaría el código que
+  // el leader ya tiene anotado, sin que nadie se lo pidiera (spec §6).
+  if (wraps.some((w) => w.slot === 'recovery' || w.kind === 'recovery')) {
+    return { ok: false, status: 400, error: 'cannot_overwrite_recovery' }
+  }
+  for (const w of wraps) {
+    if (typeof w?.slot !== 'string' || w.slot.trim() === '') return { ok: false, status: 400, error: 'invalid_slot' }
+    if (w.kind !== 'device') return { ok: false, status: 400, error: 'invalid_kind' }
+    if (typeof w?.wrapped !== 'string' || w.wrapped.trim() === '') return { ok: false, status: 400, error: 'invalid_wrapped' }
+  }
+
+  const client = await pool.connect()
+  try {
+    await client.query('begin')
+    for (const w of wraps) {
+      await client.query(
+        `insert into team_key_wraps (team_id, slot, kind, wrapped, wrap_meta)
+         values ($1, $2, 'device', $3, $4)
+         on conflict (team_id, slot) do update set wrapped = excluded.wrapped, wrap_meta = excluded.wrap_meta`,
+        [teamId, w.slot, w.wrapped, w.wrap_meta ?? null]
+      )
+    }
+    await client.query('commit')
+    return { ok: true }
+  } catch (err) {
+    await client.query('rollback').catch(() => {})
+    throw err
+  } finally {
+    client.release()
+  }
+}
