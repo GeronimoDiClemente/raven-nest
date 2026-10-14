@@ -114,7 +114,7 @@ import { WorktreeStore } from './worktree-store'
 import { PresetStore } from './preset-store'
 import { SetupRunner } from './setup-runner'
 import { CliInstallRunner, installCommandFor } from './cli-install-runner'
-import { scanPid } from './port-monitor'
+import { scanPid, listeningPortsByPid, portsForPids } from './port-monitor'
 import { getCwdForPid, getProcessInfo, listListeningPidsPosix, listListeningPidsWindows } from './cwd-reader'
 // pidtree resolves a pid's full descendant tree. Used so port scans cover the
 // actual server (a child of the PowerShell shell), not just the shell itself.
@@ -307,30 +307,31 @@ ipcMain.handle('conversations:export', async (_event, id: string) => {
 })
 
 // Git IPC handlers
-ipcMain.handle('git:info', (_event, repoPath: string) => {
+// Async and shell-less on purpose: the renderer calls this on every window
+// focus, and the old three back-to-back execSync (cmd.exe + git each on
+// Windows) froze the main process — PTY output included — on every Alt-Tab.
+ipcMain.handle('git:info', async (_event, repoPath: string) => {
   const empty = { branch: null, remoteUrl: null, githubUrl: null, isDirty: false }
   if (!repoPath || typeof repoPath !== 'string' || !isAbsolute(repoPath)) return empty
   try { if (!statSync(repoPath).isDirectory()) return empty } catch { return empty }
 
   let gitMissing = false
-  const run = (cmd: string) => {
-    try {
-      return execSync(cmd, { cwd: repoPath, encoding: 'utf8', timeout: 3000 }).trim()
-    } catch (err) {
-      const e = err as NodeJS.ErrnoException
-      if (e.code === 'ENOENT') {
+  const run = (args: string[]) => new Promise<string | null>((res) => {
+    execFile('git', args, { cwd: repoPath, encoding: 'utf8', timeout: 3000, windowsHide: true }, (err, stdout) => {
+      if (!err) return res(stdout.trim())
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
         gitMissing = true
       } else {
-        console.warn('[git:info]', cmd, e.message)
+        console.warn('[git:info]', `git ${args.join(' ')}`, err.message)
       }
-      return null
-    }
-  }
-  const branch = run('git rev-parse --abbrev-ref HEAD')
-  if (gitMissing) return { error: 'git-not-found' as const }
-  const remoteUrl = run('git remote get-url origin')
-  if (gitMissing) return { error: 'git-not-found' as const }
-  const dirty = run('git status --porcelain')
+      res(null)
+    })
+  })
+  const [branch, remoteUrl, dirty] = await Promise.all([
+    run(['rev-parse', '--abbrev-ref', 'HEAD']),
+    run(['remote', 'get-url', 'origin']),
+    run(['status', '--porcelain']),
+  ])
   if (gitMissing) return { error: 'git-not-found' as const }
 
   let githubUrl: string | null = null
@@ -1428,17 +1429,16 @@ ipcMain.handle('ports:listForWorkspace', async (
 
   const merged = new Set<number>()
   const flat = new Set<number>()
+  // One system-wide socket read, shared by the tree match and (on Windows)
+  // the cwd attribution below.
+  let socketScan: Map<number, number[]> | null = null
 
   if (seedPids.size > 0) {
     const trees = await Promise.all(Array.from(seedPids).map((p) => metricsCollector.getTreeForPid(p)))
     for (const t of trees) for (const p of t) flat.add(p)
     if (flat.size > 0) {
-      const portArrays = await Promise.allSettled(Array.from(flat).map((pid) => scanPid(pid, resolvePidTree)))
-      for (const r of portArrays) {
-        if (r.status === 'fulfilled' && Array.isArray(r.value)) {
-          for (const port of r.value) merged.add(port)
-        }
-      }
+      socketScan = await listeningPortsByPid()
+      for (const port of portsForPids(socketScan, flat)) merged.add(port)
     }
   }
 
@@ -1451,7 +1451,7 @@ ipcMain.handle('ports:listForWorkspace', async (
   if (pathsToScan.size > 0) {
     try {
       const listening = process.platform === 'win32'
-        ? await listListeningPidsWindows()
+        ? socketScan ?? await listListeningPidsWindows()
         : null
       if (listening && listening.size > 0) {
         const normPaths = Array.from(pathsToScan).map((p) =>
@@ -1682,20 +1682,15 @@ ipcMain.handle('metrics:portsByPids', async (_evt, pids: number[]) => {
   //    with collect()'s own tree resolution. On Windows `pidtree` shells
   //    out to `wmic` (removed in Win11 22H2), so we never use it directly.
   const trees = await Promise.all(valid.map((p) => metricsCollector.getTreeForPid(p)))
-  // 2. For each input pid, scan every pid in its tree and union the results.
-  await Promise.all(valid.map(async (p, idx) => {
-    const tree = trees[idx]!
-    const results = await Promise.allSettled(tree.map((tp) => scanPid(tp, resolvePidTree)))
-    const merged = new Set<number>()
-    for (const r of results) {
-      if (r.status === 'fulfilled' && Array.isArray(r.value)) {
-        for (const port of r.value) merged.add(port)
-      }
-    }
-    if (merged.size > 0) {
-      out[p] = Array.from(merged).sort((a, b) => a - b)
-    }
-  }))
+  if (valid.length === 0) return out
+  // 2. ONE system-wide socket read, then match each tree against it. This used
+  //    to call scanPid for every pid of every tree, and each call spawned its
+  //    own netstat (Windows) or lsof (macOS/Linux).
+  const listening = await listeningPortsByPid()
+  valid.forEach((p, idx) => {
+    const ports = portsForPids(listening, trees[idx]!)
+    if (ports.length > 0) out[p] = ports
+  })
   return out
 })
 

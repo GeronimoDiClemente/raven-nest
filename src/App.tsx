@@ -196,6 +196,9 @@ export default function App() {
   useEffect(() => {
     let cancelled = false
     const tick = async () => {
+      // Con la ventana minimizada u oculta nadie ve los chips: no gastar un
+      // netstat/lsof cada 5 s. Al volver, el próximo tick (≤5 s) los refresca.
+      if (document.hidden) return
       try {
         // Editor tampoco: no tiene PTY, y con repoPath poblado el fallback
         // por cwd del main podía atribuirle el puerto de un dev server — el
