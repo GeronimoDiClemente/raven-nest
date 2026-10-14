@@ -21,6 +21,29 @@ export interface BenchSession {
 
 const MAX_SAMPLES = 1200  // ~10 min at 500ms
 
+/**
+ * Resolves CPU (summed across cores) and memory bytes for a pid, or null when
+ * the process has exited. Injected on Windows so benchmarks read the metrics
+ * collector's persistent process host instead of pidusage, which starts a new
+ * powershell.exe on every call there.
+ */
+export type ProcessSampler = (pid: number) => Promise<{ cpu: number; memory: number } | null>
+
+async function sampleWith(sampler: ProcessSampler, pid: number): Promise<{ cpuPct: number | null; rssMB: number | null; gone: boolean }> {
+  try {
+    const stat = await sampler(pid)
+    if (!stat) return { cpuPct: null, rssMB: null, gone: true }
+    return {
+      cpuPct: stat.cpu / CPU_COUNT,
+      rssMB: Math.round((stat.memory / 1024 / 1024) * 10) / 10,
+      gone: false,
+    }
+  } catch (err) {
+    console.warn('[benchmark] sampler failed', pid, err instanceof Error ? err.message : err)
+    return { cpuPct: null, rssMB: null, gone: false }
+  }
+}
+
 async function sampleProcess(pid: number): Promise<{ cpuPct: number | null; rssMB: number | null; gone: boolean }> {
   try {
     const stat = await pidusage(pid)
@@ -48,6 +71,8 @@ export class BenchmarkRecorder {
   private sessions = new Map<string, BenchSession>()
   private timers = new Map<string, NodeJS.Timeout>()
 
+  constructor(private readonly sampler?: ProcessSampler) {}
+
   start(cellId: string, pid: number, mode: 'setup' | 'spotlight' | 'idle'): void {
     this.stop(cellId)
     const session: BenchSession = {
@@ -61,7 +86,7 @@ export class BenchmarkRecorder {
     const tick = async () => {
       const s = this.sessions.get(cellId)
       if (!s) return
-      const sample = await sampleProcess(s.pid)
+      const sample = this.sampler ? await sampleWith(this.sampler, s.pid) : await sampleProcess(s.pid)
       const entry: BenchSample = {
         ts: Date.now(),
         cpuPct: sample.cpuPct,

@@ -4,6 +4,10 @@ import { opendirSync, statSync } from 'fs'
 import { resolve, dirname, basename, join } from 'path'
 import { totalmem, cpus, platform as osPlatform } from 'os'
 import { listenPortsForPids } from './port-monitor'
+import { WinProcessHost, cpuPercentSince, cpuTimeMs, type CpuSample, type WinProcRow } from './win-process-host'
+// pidusage is only used on macOS/Linux. On Windows every pidusage call spawned
+// `powershell -c gwmi ...`, so CPU/RAM come from the process host snapshot
+// instead (see statsFromSnapshot).
 // pidusage ships no types — declare a minimal shape locally.
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore
@@ -110,7 +114,13 @@ interface WinSnap {
   nameByPid: Map<number, string>
   pathByPid: Map<number, string>
   cmdByPid: Map<number, string>
+  // Working set bytes and CPU% (summed across cores, pidusage semantics) per
+  // pid, so Windows needs no separate pidusage round trip.
+  memByPid: Map<number, number>
+  cpuByPid: Map<number, number>
 }
+
+type PidStat = { cpu: number; memory: number }
 
 export interface DiskBreakdown {
   total: number
@@ -159,6 +169,12 @@ const DISK_CACHE_MAX = 200
 export class MetricsCollector {
   private wtCache = new Map<string, WorktreeInfo>()
   private diskCache = new Map<string, DiskBreakdown>()
+  // Windows only: one persistent PowerShell instead of one per cycle. Created
+  // lazily, and again after dispose(): before-quit can fire for a quit that
+  // ends up cancelled, and the popover must not stay at zero after that.
+  private winHost: WinProcessHost | null = null
+  // Previous CPU-time sample per pid, to turn cumulative CPU time into a rate.
+  private cpuHistory = new Map<number, CpuSample>()
 
   async collect(panes: PaneInput[]): Promise<MetricsSnapshot> {
     const totalSystemMemBytes = totalmem()
@@ -340,6 +356,9 @@ export class MetricsCollector {
     this.diskCache.clear()
     this.winProcSnapshot = null
     this.pendingSnapshot = null
+    this.cpuHistory.clear()
+    this.winHost?.dispose()
+    this.winHost = null
   }
 
   async refreshDisk(worktreePaths: string[]): Promise<Record<string, DiskBreakdown>> {
@@ -383,7 +402,7 @@ export class MetricsCollector {
     })
   }
 
-  // PowerShell process snapshot cache. The CIM call costs ~500 ms; we only
+  // Process snapshot cache. The CIM query costs a few hundred ms; we only
   // need fresh data once per polling cycle (2 s minimum). 1.5 s TTL keeps the
   // popover responsive without re-running for every collect() back-to-back.
   // Includes process name + ExecutablePath + CommandLine so we can both
@@ -391,7 +410,7 @@ export class MetricsCollector {
   // outside Nest with cwd inside a worktree) to their worktree.
   private winProcSnapshot: WinSnap | null = null
   // De-dupe concurrent CIM calls. Without this, two callers that both miss
-  // the 1.5 s cache spawn two PowerShell processes back-to-back (~500 ms each).
+  // the 1.5 s cache queue two snapshots back-to-back on the process host.
   // Holding the promise here lets every concurrent caller share one in-flight
   // request and wake up together when it resolves.
   private pendingSnapshot: Promise<WinSnap> | null = null
@@ -511,60 +530,45 @@ export class MetricsCollector {
     return tree
   }
 
-  private async getWindowsSnapshot(): Promise<WinSnap> {
+  private async getWindowsSnapshot(maxAgeMs = 1500): Promise<WinSnap> {
     const now = Date.now()
     // Return the cached snapshot object directly — callers only read specific
     // keys, the extra `ts` field is harmless. Avoids re-allocating a wrapper
     // object on every cache hit.
-    if (this.winProcSnapshot && now - this.winProcSnapshot.ts < 1500) {
+    if (this.winProcSnapshot && now - this.winProcSnapshot.ts < maxAgeMs) {
       return this.winProcSnapshot
     }
-    // Share an in-flight CIM call across concurrent misses. PowerShell costs
-    // ~500 ms; without this guard two simultaneous poll cycles would spawn
-    // two `powershell.exe` instances and stat them both.
+    // Share an in-flight CIM call across concurrent misses.
     if (this.pendingSnapshot) return this.pendingSnapshot
 
-    this.pendingSnapshot = this.refreshWindowsSnapshot(now).finally(() => {
+    this.pendingSnapshot = this.refreshWindowsSnapshot().finally(() => {
       this.pendingSnapshot = null
     })
     return this.pendingSnapshot
   }
 
-  private async refreshWindowsSnapshot(now: number): Promise<WinSnap> {
-    // ExecutablePath and CommandLine may contain commas, so we emit JSON
-    // instead of CSV — quoting is unambiguous and JSON.parse handles it.
-    // `execFile`'s callback err is an `ExecFileException` (Error + optional
-    // code/signal). We only consume code/message — pick a wider shape so this
-    // compiles without casting.
-    type CmdErr = Error & { code?: string | number }
-    const { json, error: psError } = await new Promise<{ json: string; error: CmdErr | null }>((resolveOut) => {
-      execFile(
-        'powershell.exe',
-        ['-NoProfile', '-NonInteractive', '-Command',
-          'Get-CimInstance Win32_Process | Select-Object ProcessId, ParentProcessId, Name, ExecutablePath, CommandLine | ConvertTo-Json -Compress'],
-        { windowsHide: true, timeout: 6000, maxBuffer: 16 * 1024 * 1024 },
-        (err, stdout) => resolveOut({ json: err ? '' : stdout, error: err ?? null }),
-      )
-    })
-    if (psError) {
-      // ENOENT (powershell missing), ETIMEDOUT, ERR_CHILD_PROCESS_STDIO_MAXBUFFER
-      // (>16 MB output, e.g. systems with thousands of processes) all land here.
+  private async refreshWindowsSnapshot(): Promise<WinSnap> {
+    let rows: WinProcRow[] = []
+    const startedAt = Date.now()
+    try {
+      this.winHost ??= new WinProcessHost()
+      rows = await this.winHost.query()
+    } catch (err) {
+      // Host restarting after a crash, timed out, or sent bad JSON.
       // Without this warn, the rest of the snapshot silently collapses to zero.
-      console.warn('[metrics] Get-CimInstance failed', psError.code ?? psError.message)
+      console.warn('[metrics] process snapshot failed', err instanceof Error ? err.message : err)
+      rows = []
     }
+    // CPU times are read somewhere inside the CIM query, which takes a few
+    // hundred ms; stamping the midpoint keeps that jitter out of the rate.
+    const now = Math.round((startedAt + Date.now()) / 2)
     const childrenByParent = new Map<number, number[]>()
     const nameByPid = new Map<number, string>()
     const pathByPid = new Map<number, string>()
     const cmdByPid = new Map<number, string>()
-    type Row = { ProcessId?: number; ParentProcessId?: number; Name?: string; ExecutablePath?: string | null; CommandLine?: string | null }
-    let rows: Row[] = []
-    try {
-      rows = JSON.parse(json || '[]')
-    } catch (err) {
-      console.warn('[metrics] CIM JSON parse failed (truncated?)', err instanceof Error ? err.message : err, 'len=', json.length)
-      rows = []
-    }
-    if (!Array.isArray(rows)) rows = []
+    const memByPid = new Map<number, number>()
+    const cpuByPid = new Map<number, number>()
+    const nextCpuHistory = new Map<number, CpuSample>()
     for (const r of rows) {
       const pid = typeof r.ProcessId === 'number' ? r.ProcessId : NaN
       const ppid = typeof r.ParentProcessId === 'number' ? r.ParentProcessId : NaN
@@ -575,8 +579,15 @@ export class MetricsCollector {
       if (r.Name) nameByPid.set(pid, r.Name)
       if (r.ExecutablePath) pathByPid.set(pid, r.ExecutablePath)
       if (r.CommandLine) cmdByPid.set(pid, r.CommandLine)
+      if (typeof r.WorkingSetSize === 'number') memByPid.set(pid, r.WorkingSetSize)
+      const sample: CpuSample = { ctimeMs: cpuTimeMs(r), at: now }
+      cpuByPid.set(pid, cpuPercentSince(this.cpuHistory.get(pid), sample))
+      nextCpuHistory.set(pid, sample)
     }
-    const snap: WinSnap = { ts: now, childrenByParent, nameByPid, pathByPid, cmdByPid }
+    // Replacing (not merging) the history drops pids that exited, so the map
+    // stays the size of the live process table.
+    if (rows.length > 0) this.cpuHistory = nextCpuHistory
+    const snap: WinSnap = { ts: now, childrenByParent, nameByPid, pathByPid, cmdByPid, memByPid, cpuByPid }
     // Only cache the snapshot when CIM returned something usable. A poisoned
     // cache with zero processes would hide the failure for 1.5 s and the next
     // poll would re-cache it again — making "everything at 0%" the steady
@@ -609,24 +620,7 @@ export class MetricsCollector {
     }
     if (allPids.size === 0) return aggregated
 
-    // pidusage accepts an array — ONE call beats N calls hands-down because
-    // each call spawns wmic/ps internally on platforms without native APIs.
-    // If the bulk call rejects entirely (rare), fall back to per-pid so a
-    // single bad pid doesn't blank the whole snapshot.
-    let stats: Record<number, PidUsageStat | null> = {}
-    try {
-      stats = await (pidusage(Array.from(allPids)) as Promise<Record<number, PidUsageStat | null>>)
-    } catch {
-      const pidList = Array.from(allPids)
-      const results = await Promise.allSettled(
-        pidList.map((p) => pidusage(p) as Promise<PidUsageStat>),
-      )
-      results.forEach((res, idx) => {
-        if (res.status === 'fulfilled' && res.value) {
-          stats[pidList[idx]!] = res.value
-        }
-      })
-    }
+    const stats = await this.statsForPids(Array.from(allPids), 'pane')
 
     // Aggregate per ORIGINAL pane pid (the PTY shell). The descendants'
     // numbers fold into the pane's aggregate so what the user sees is "this
@@ -648,6 +642,51 @@ export class MetricsCollector {
       if (any) aggregated.set(pane.pid, { cpu, memory })
     }
     return aggregated
+  }
+
+  /**
+   * CPU/RAM per pid. On Windows they come from the process snapshot (the same
+   * CIM query that built the trees, so no extra process is started). On
+   * macOS/Linux it is ONE bulk pidusage call; if that rejects entirely (rare)
+   * it falls back to per-pid so a single bad pid doesn't blank the snapshot.
+   * Pids with no stat (exited in between) are simply absent.
+   */
+  private async statsForPids(pids: number[], kind: 'pane' | 'external'): Promise<Record<number, PidStat>> {
+    if (IS_WIN) return statsFromSnapshot(pids, await this.getWindowsSnapshot())
+    const stats: Record<number, PidStat> = {}
+    try {
+      const bulk = await (pidusage(pids) as Promise<Record<number, PidUsageStat | null>>)
+      for (const pid of pids) {
+        const s = bulk[pid]
+        if (s) stats[pid] = { cpu: s.cpu, memory: s.memory }
+      }
+    } catch (err) {
+      // Without the per-pid fallback a single bad pid blanks every row
+      // (External rows get filtered out by the `g.memory > 0 || g.cpu > 0`
+      // check downstream), which presents as "the row disappeared".
+      if (kind === 'external') {
+        console.warn('[metrics] external pidusage bulk failed, falling back per-pid', err instanceof Error ? err.message : err)
+      }
+      const results = await Promise.allSettled(pids.map((p) => pidusage(p) as Promise<PidUsageStat>))
+      results.forEach((res, idx) => {
+        if (res.status === 'fulfilled' && res.value) {
+          stats[pids[idx]!] = { cpu: res.value.cpu, memory: res.value.memory }
+        }
+      })
+    }
+    return stats
+  }
+
+  /**
+   * Windows only: CPU (summed across cores) and working set of one pid, from
+   * a snapshot at most `maxAgeMs` old. Resolves null when the pid is not in
+   * the process table (it exited). Rejects when no snapshot could be taken at
+   * all, so a broken host is never mistaken for a dead process.
+   */
+  async getProcessStat(pid: number, maxAgeMs = 1500): Promise<PidStat | null> {
+    const snap = await this.getWindowsSnapshot(maxAgeMs)
+    if (snap.nameByPid.size === 0) throw new Error('process snapshot unavailable')
+    return statsFromSnapshot([pid], snap)[pid] ?? null
   }
 
   private getWorktreeInfo(worktreePath: string): WorktreeInfo | null {
@@ -850,25 +889,7 @@ export class MetricsCollector {
     for (const pids of pidsByWorktree.values()) for (const p of pids) allExternalPids.add(p)
     if (allExternalPids.size === 0) return
 
-    let stats: Record<number, PidUsageStat | null> = {}
-    try {
-      stats = await (pidusage(Array.from(allExternalPids)) as Promise<Record<number, PidUsageStat | null>>)
-    } catch (err) {
-      // Replicate the per-pid fallback we use for pane stats. Without it, a
-      // single bad pid blanks every External row (filtered out by the
-      // `g.memory > 0 || g.cpu > 0` check downstream), which presents to the
-      // user as "External row disappeared" with no consoles indicating why.
-      console.warn('[metrics] external pidusage bulk failed, falling back per-pid', err instanceof Error ? err.message : err)
-      const pidList = Array.from(allExternalPids)
-      const results = await Promise.allSettled(
-        pidList.map((p) => pidusage(p) as Promise<PidUsageStat>),
-      )
-      results.forEach((res, idx) => {
-        if (res.status === 'fulfilled' && res.value) {
-          stats[pidList[idx]!] = res.value
-        }
-      })
-    }
+    const stats = await this.statsForPids(Array.from(allExternalPids), 'external')
 
     // We need the process Name to classify each external pid by type.
     const snap = await this.getWindowsSnapshot()
@@ -975,6 +996,24 @@ export function assignExternalPidsToWorktrees(
     if (pids.size > 0) byWorktree.set(worktreePath, pids)
   }
   return byWorktree
+}
+
+/**
+ * CPU/RAM for `pids` out of a Windows process snapshot. A pid missing from the
+ * snapshot's working-set map exited before the query and is left out, which
+ * is how pidusage reports it too.
+ */
+export function statsFromSnapshot(
+  pids: Iterable<number>,
+  snap: { memByPid: ReadonlyMap<number, number>; cpuByPid: ReadonlyMap<number, number> },
+): Record<number, PidStat> {
+  const out: Record<number, PidStat> = {}
+  for (const pid of pids) {
+    const memory = snap.memByPid.get(pid)
+    if (memory === undefined) continue
+    out[pid] = { cpu: snap.cpuByPid.get(pid) ?? 0, memory }
+  }
+  return out
 }
 
 // Classify a Windows process Name to a UI "kind". Each kind has a logo and

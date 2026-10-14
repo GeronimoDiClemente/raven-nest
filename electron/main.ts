@@ -155,8 +155,13 @@ const setupRunner = new SetupRunner()
 const cliInstallRunner = new CliInstallRunner()
 const browserPanes = new BrowserPaneManager(() => BrowserWindow.getAllWindows()[0] ?? null)
 const spotlight = new SpotlightEngine()
-const benchmark = new BenchmarkRecorder()
 const metricsCollector = new MetricsCollector()
+// On Windows benchmarks share the collector's persistent process host
+// (pidusage would start a powershell.exe per sample). 900 ms max age keeps
+// the 1 s benchmark tick from reusing the previous snapshot.
+const benchmark = new BenchmarkRecorder(
+  process.platform === 'win32' ? (pid) => metricsCollector.getProcessStat(pid, 900) : undefined,
+)
 const fsWatchRegistry = new FsWatchRegistry()
 app.on('before-quit', () => { fsWatchRegistry.closeAll() })
 
