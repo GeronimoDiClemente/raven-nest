@@ -1,5 +1,6 @@
 import { execFile } from 'child_process'
 import { promisify } from 'util'
+import { listListeningPidsPosix, listListeningPidsWindows } from './cwd-reader'
 
 const execFileP = promisify(execFile)
 
@@ -73,7 +74,7 @@ export async function listenPortsForPids(pids: Set<number>): Promise<number[]> {
   if (pids.size === 0) return []
   if (isWindows) {
     try {
-      const { stdout } = await execFileP('netstat', ['-ano'], { timeout: 5000 })
+      const { stdout } = await execFileP('netstat', ['-ano'], { timeout: 5000, windowsHide: true })
       const ports = new Set<number>()
       for (const line of stdout.split(/\r?\n/)) {
         const m = line.match(/^\s*TCP\s+\S+:(\d+)\s+\S+\s+LISTENING\s+(\d+)/)
@@ -123,4 +124,24 @@ export async function scanPid(pid: number, treeResolver?: TreeResolver): Promise
   if (!Number.isFinite(pid) || pid <= 0) return []
   const tree = await pidTree(pid, { treeResolver })
   return listenPortsForPids(tree)
+}
+
+/**
+ * Every LISTEN socket on the machine as pid → ports, from ONE `netstat -ano`
+ * (Windows) or ONE `lsof` (macOS/Linux). Callers that need ports for many pids
+ * read this once and filter with `portsForPids`, instead of calling `scanPid`
+ * per pid — that spawned one netstat/lsof per pid in every tree, every cycle.
+ * Resolves an empty map when the scan fails.
+ */
+export function listeningPortsByPid(): Promise<Map<number, number[]>> {
+  return isWindows ? listListeningPidsWindows() : listListeningPidsPosix()
+}
+
+/** Sorted, de-duplicated ports listened on by any of `pids`. */
+export function portsForPids(listening: ReadonlyMap<number, number[]>, pids: Iterable<number>): number[] {
+  const ports = new Set<number>()
+  for (const pid of pids) {
+    for (const port of listening.get(pid) ?? []) ports.add(port)
+  }
+  return Array.from(ports).sort((a, b) => a - b)
 }

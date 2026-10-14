@@ -164,10 +164,16 @@ const SOURCE_BUCKET = 'source'
 // these Maps without limit. Both caches are easily reconstructible on demand
 // so dropping the oldest entry has no correctness implications.
 const WT_CACHE_MAX = 200
+// A folder that isn't a repo can become one (`git init`), so failures expire.
+const WT_FAILURE_TTL_MS = 60_000
 const DISK_CACHE_MAX = 200
 
 export class MetricsCollector {
   private wtCache = new Map<string, WorktreeInfo>()
+  // Paths where git failed (not a repo, git missing), with when it failed.
+  // Without this, a pane linked to a non-repo folder re-ran two blocking
+  // execSync on every collect() — every 2 s with the popover open.
+  private wtFailures = new Map<string, number>()
   private diskCache = new Map<string, DiskBreakdown>()
   // Windows only: one persistent PowerShell instead of one per cycle. Created
   // lazily, and again after dispose(): before-quit can fire for a quit that
@@ -353,6 +359,7 @@ export class MetricsCollector {
    */
   dispose(): void {
     this.wtCache.clear()
+    this.wtFailures.clear()
     this.diskCache.clear()
     this.winProcSnapshot = null
     this.pendingSnapshot = null
@@ -692,6 +699,8 @@ export class MetricsCollector {
   private getWorktreeInfo(worktreePath: string): WorktreeInfo | null {
     const cached = this.wtCache.get(worktreePath)
     if (cached) return cached
+    const failedAt = this.wtFailures.get(worktreePath)
+    if (failedAt !== undefined && Date.now() - failedAt < WT_FAILURE_TTL_MS) return null
     // Normalise path separators — on Windows, forward-slash paths from the
     // renderer (`C:/Users/.../repo`) work with most Node APIs but `execSync`
     // with `cwd` is finicky. Convert to the platform separator just for git.
@@ -725,12 +734,15 @@ export class MetricsCollector {
         if (oldest !== undefined) this.wtCache.delete(oldest)
       }
       this.wtCache.set(worktreePath, info)
+      this.wtFailures.delete(worktreePath)
       return info
     } catch (err) {
       // Without this warn, the popover silently falls back to a "(no repo)"
       // synthetic group and the user has no idea why their linked tab won't
       // group its panes under a real branch label.
       console.warn('[metrics] getWorktreeInfo failed for', worktreePath, err instanceof Error ? err.message.split('\n')[0] : err)
+      if (this.wtFailures.size >= WT_CACHE_MAX) this.wtFailures.clear()
+      this.wtFailures.set(worktreePath, Date.now())
       return null
     }
   }
