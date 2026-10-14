@@ -1593,6 +1593,25 @@ describe('scope team con teamKeys', () => {
     )
     expect(undecryptable).toBe(true)
   })
+
+  it('el HMAC de tópico de una fila team usa la clave de EQUIPO, no la personal de quien llama', () => {
+    // Dos "personas" con personales DISTINTAS pero la MISMA clave de equipo — el caso real:
+    // dos miembros de un equipo, cada uno con su propia cuenta cifrada, compartiendo un tema.
+    const keysPersonalDeOtraPersona = deriveKeys(generateMasterKey())
+    const ctxAutorA = { keys: keysPersonal, keyEpoch: 1, teamKeys: () => keysEquipo }
+    const ctxAutorB = { keys: keysPersonalDeOtraPersona, keyEpoch: 1, teamKeys: () => keysEquipo }
+
+    const selladoA = sealMutationPayload(ctxAutorA, {
+      sync_id: 'abc', scope: 'team', project_key: 'proj-x', topic_key: 'mismo-tema', title: 't', content: 'c', tags: [],
+    })
+    const selladoB = sealMutationPayload(ctxAutorB, {
+      sync_id: 'def', scope: 'team', project_key: 'proj-x', topic_key: 'mismo-tema', title: 't', content: 'c', tags: [],
+    })
+    // Si esto usara `ctx.keys` (la personal de cada uno) en vez de la clave de equipo
+    // resuelta, los dos HMAC saldrían distintos y el supersede de equipo (`push.ts:537`,
+    // que compara por igualdad) dejaría de encontrarlos como el mismo tema.
+    expect(selladoA.topic_key).toBe(selladoB.topic_key)
+  })
 })
 ```
 
@@ -1642,12 +1661,17 @@ export function sealMutationPayload(
     sealed.tags = [encryptField(keys, JSON.stringify(tags), fieldAad(syncId, 'tags'))]
   }
 
-  // El HMAC de tópico sigue derivándose de la clave PERSONAL siempre, nunca de la de equipo:
-  // es la misma razón que ya vale para scope personal — el servidor compara por igualdad y
-  // mezclar claves de derivación distintas por scope no aporta nada, sólo complica el tema.
+  // El HMAC de tópico usa la MISMA clave que acaba de cifrar los campos de esta fila (`keys`:
+  // la de equipo si es team y hay una activa, si no la personal) — NUNCA incondicionalmente
+  // la personal. El servidor supersede por igualdad de este valor (`push.ts:537`): si dos
+  // miembros de un equipo derivaran el HMAC con sus respectivas claves PERSONALES (que son
+  // distintas entre sí), el mismo tema lógico produciría dos HMACs distintos y el supersede
+  // de equipo dejaría de funcionar entre autores distintos. `keys` ya es `undefined` cuando
+  // no hay ninguna clave disponible (equipo sin activar y sin `ctx`), así que el chequeo de
+  // abajo sigue sirviendo para "no hay nada con qué derivar".
   const topicKey = payload.topic_key
-  if (ctx && typeof topicKey === 'string' && topicKey !== '') {
-    sealed.topic_key = hmacTopicKey(ctx.keys, String(payload.project_key ?? ''), String(payload.scope ?? 'personal'), topicKey)
+  if (typeof topicKey === 'string' && topicKey !== '') {
+    sealed.topic_key = hmacTopicKey(keys, String(payload.project_key ?? ''), String(payload.scope ?? 'personal'), topicKey)
   }
 
   return sealed
@@ -1702,8 +1726,11 @@ export function openPulledRow(ctx: EnvelopeContext | null, row: PulledRow): Open
     if (ctx && looksLikeTopicHmac(row.topicKey)) {
       abierto.topicKey = null
       abierto.topicKeyHmac = row.topicKey
-    } else if (ctx) {
-      abierto.topicKeyHmac = hmacTopicKey(ctx.keys, row.projectKey, row.scope, row.topicKey)
+    } else if (keys) {
+      // Misma corrección que en `sealMutationPayload`: con `keys` (la de equipo si
+      // corresponde) y no incondicionalmente `ctx.keys`, para que dos miembros de un
+      // equipo deriven el MISMO HMAC de tópico sobre la MISMA clave compartida.
+      abierto.topicKeyHmac = hmacTopicKey(keys, row.projectKey, row.scope, row.topicKey)
     }
   }
 
@@ -1731,7 +1758,7 @@ teamIdForProjectKey(projectKey: string): string | null {
 - [ ] **Step 4: Correr el test, confirmar que pasa**
 
 Run: `npx vitest run electron -t "scope team con teamKeys"`
-Expected: PASS (5 tests)
+Expected: PASS (6 tests)
 
 - [ ] **Step 5: Correr toda la suite de `electron/` antes de seguir**
 
