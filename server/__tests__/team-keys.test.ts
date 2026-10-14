@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest'
 import { randomUUID } from 'node:crypto'
 import { getPool, migrate } from '../src/db'
-import { isTeamLeader, getTeamKeyState } from '../src/team-keys'
+import { isTeamLeader, getTeamKeyState, activateTeamKey } from '../src/team-keys'
 
 const pool = getPool()
 let teamId: string, leaderId: string, memberId: string, outsiderId: string
@@ -104,5 +104,49 @@ describe('getTeamKeyState', () => {
       wrap: { wrapped: 'W-REC', wrapMeta: { salt: 'S' } },
       pendingDevices: [],
     })
+  })
+})
+
+describe('activateTeamKey', () => {
+  it('rechaza con 403 a quien no es leader', async () => {
+    const res = await activateTeamKey(pool, { deviceId: memberDevice, userId: memberId }, teamId, {
+      wraps: [{ slot: memberDevice, kind: 'device', wrapped: 'W' }],
+    })
+    expect(res).toEqual({ ok: false, status: 403, error: 'leader_required' })
+  })
+
+  it('el leader activa: crea team_keys y publica sus envolturas', async () => {
+    const res = await activateTeamKey(pool, { deviceId: leaderDevice, userId: leaderId }, teamId, {
+      wraps: [
+        { slot: leaderDevice, kind: 'device', wrapped: 'W-LEADER' },
+        { slot: 'recovery', kind: 'recovery', wrapped: 'W-REC', wrap_meta: { salt: 'S' } },
+      ],
+    })
+    expect(res).toEqual({ ok: true })
+    const { rows } = await pool.query('select activated_by from team_keys where team_id = $1', [teamId])
+    expect(rows[0].activated_by).toBe(leaderId)
+    const wraps = await pool.query(
+      'select slot, kind, wrapped from team_key_wraps where team_id = $1 order by slot', [teamId]
+    )
+    expect(wraps.rows).toHaveLength(2)
+  })
+
+  it('rechaza sin wraps', async () => {
+    const res = await activateTeamKey(pool, { deviceId: leaderDevice, userId: leaderId }, teamId, { wraps: [] })
+    expect(res).toEqual({ ok: false, status: 400, error: 'no_wraps' })
+  })
+
+  it('un segundo activate sobre un equipo ya activado devuelve 409, no pisa nada', async () => {
+    await activateTeamKey(pool, { deviceId: leaderDevice, userId: leaderId }, teamId, {
+      wraps: [{ slot: leaderDevice, kind: 'device', wrapped: 'W-1' }],
+    })
+    const segundo = await activateTeamKey(pool, { deviceId: leaderDevice, userId: leaderId }, teamId, {
+      wraps: [{ slot: leaderDevice, kind: 'device', wrapped: 'W-2' }],
+    })
+    expect(segundo).toEqual({ ok: false, status: 409, error: 'already_activated' })
+    const { rows } = await pool.query(
+      'select wrapped from team_key_wraps where team_id = $1 and slot = $2', [teamId, leaderDevice]
+    )
+    expect(rows[0].wrapped).toBe('W-1')
   })
 })

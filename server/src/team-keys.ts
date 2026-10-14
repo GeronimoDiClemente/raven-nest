@@ -5,6 +5,13 @@ export interface TeamKeysAuth {
   userId: string
 }
 
+export interface TeamWrapInput {
+  slot: string
+  kind: 'device' | 'recovery'
+  wrapped: string
+  wrap_meta?: Record<string, unknown> | null
+}
+
 /** Único chequeo de rol que usan activate/authorize/recrypt — nunca inferido del client. */
 export async function isTeamLeader(pool: Pool, userId: string, teamId: string): Promise<boolean> {
   const { rows } = await pool.query(
@@ -78,5 +85,57 @@ export async function getTeamKeyState(
       name: String(r.name),
       publicKey: String(r.public_key),
     })),
+  }
+}
+
+export async function activateTeamKey(
+  pool: Pool,
+  auth: TeamKeysAuth,
+  teamId: string,
+  body: { wraps?: unknown }
+): Promise<{ ok: true } | Fail<400> | Fail<403> | Fail<409>> {
+  if (!(await isTeamLeader(pool, auth.userId, teamId))) {
+    return { ok: false, status: 403, error: 'leader_required' }
+  }
+  const wraps = Array.isArray(body?.wraps) ? (body.wraps as TeamWrapInput[]) : []
+  if (wraps.length === 0) return { ok: false, status: 400, error: 'no_wraps' }
+  for (const w of wraps) {
+    if (typeof w?.slot !== 'string' || w.slot.trim() === '') return { ok: false, status: 400, error: 'invalid_slot' }
+    if (w.kind !== 'device' && w.kind !== 'recovery') return { ok: false, status: 400, error: 'invalid_kind' }
+    if (typeof w?.wrapped !== 'string' || w.wrapped.trim() === '') return { ok: false, status: 400, error: 'invalid_wrapped' }
+  }
+
+  const client = await pool.connect()
+  try {
+    await client.query('begin')
+    // Serializa dos devices del mismo leader activando casi a la vez (Review Focus): el
+    // segundo ve la fila ya insertada por el primero y sale con 409 ANTES de tocar wraps.
+    await client.query('select pg_advisory_xact_lock(hashtextextended($1, 0))', [`team-key:${teamId}`])
+
+    const { rows: existing } = await client.query(
+      'select 1 from team_keys where team_id = $1 for update', [teamId]
+    )
+    if (existing.length > 0) {
+      await client.query('rollback')
+      return { ok: false, status: 409, error: 'already_activated' }
+    }
+
+    await client.query(
+      'insert into team_keys (team_id, activated_by) values ($1, $2)', [teamId, auth.userId]
+    )
+    for (const w of wraps) {
+      await client.query(
+        `insert into team_key_wraps (team_id, slot, kind, wrapped, wrap_meta)
+         values ($1, $2, $3, $4, $5)`,
+        [teamId, w.slot, w.kind, w.wrapped, w.wrap_meta ?? null]
+      )
+    }
+    await client.query('commit')
+    return { ok: true }
+  } catch (err) {
+    await client.query('rollback').catch(() => {})
+    throw err
+  } finally {
+    client.release()
   }
 }
