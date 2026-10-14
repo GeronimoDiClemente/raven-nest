@@ -120,8 +120,11 @@ export async function getProcessInfo(pid: number): Promise<ProcessInfo | null> {
     } catch {
       info = null
     }
-    if (macInfoCache.size >= MAC_INFO_CACHE_MAX) macInfoCache.clear()
-    macInfoCache.set(pid, { info, at: Date.now() })
+    // A failed lookup (timeout under load) is not cached: retry next poll.
+    if (info) {
+      if (macInfoCache.size >= MAC_INFO_CACHE_MAX) macInfoCache.clear()
+      macInfoCache.set(pid, { info, at: Date.now() })
+    }
     return info
   }
   return null
@@ -133,7 +136,7 @@ export async function getProcessInfo(pid: number): Promise<ProcessInfo | null> {
 // minute. A listening server's cwd practically never changes; 30 s is plenty.
 const MAC_INFO_TTL_MS = 30_000
 const MAC_INFO_CACHE_MAX = 500
-const macInfoCache = new Map<number, { info: ProcessInfo | null; at: number }>()
+const macInfoCache = new Map<number, { info: ProcessInfo; at: number }>()
 
 // Legacy convenience wrapper — keep for any caller that only needs cwd.
 export async function getCwdForPid(pid: number): Promise<string | null> {
@@ -170,6 +173,8 @@ export async function listListeningPidsPosix(): Promise<Map<number, number[]>> {
     }
     return out
   } catch (err) {
+    // lsof exits 1 when nothing matches, i.e. no listening sockets at all.
+    if ((err as { code?: unknown } | null)?.code === 1) return new Map()
     console.warn('[cwd-reader] lsof listening scan failed', err instanceof Error ? err.message : err)
     return new Map()
   }

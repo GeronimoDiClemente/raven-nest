@@ -134,8 +134,23 @@ export async function scanPid(pid: number, treeResolver?: TreeResolver): Promise
  * Resolves an empty map when the scan fails.
  */
 export function listeningPortsByPid(): Promise<Map<number, number[]>> {
-  return isWindows ? listListeningPidsWindows() : listListeningPidsPosix()
+  // Several pollers (ports:byPane, metrics:portsByPids, the external rows of
+  // collect()) land in the same second; they share one scan.
+  if (socketScanCache && Date.now() - socketScanCache.at < SOCKET_SCAN_TTL_MS) {
+    return Promise.resolve(socketScanCache.scan)
+  }
+  socketScanInFlight ??= (isWindows ? listListeningPidsWindows() : listListeningPidsPosix())
+    .then((scan) => {
+      socketScanCache = { scan, at: Date.now() }
+      return scan
+    })
+    .finally(() => { socketScanInFlight = null })
+  return socketScanInFlight
 }
+
+const SOCKET_SCAN_TTL_MS = 1_500
+let socketScanCache: { scan: Map<number, number[]>; at: number } | null = null
+let socketScanInFlight: Promise<Map<number, number[]>> | null = null
 
 /** Sorted, de-duplicated ports listened on by any of `pids`. */
 export function portsForPids(listening: ReadonlyMap<number, number[]>, pids: Iterable<number>): number[] {
