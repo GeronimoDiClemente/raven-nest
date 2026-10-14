@@ -1784,7 +1784,18 @@ git commit -m "feat(cifrado-equipo): sealMutationPayload/openPulledRow usan la c
 
 **Interfaces:**
 - Consumes: `deriveKeys` (`./memory-crypto`), `encryptField`, `fieldAad` (`./memory-crypto`), `recryptTeamObservations`-equivalent del cliente (una función `pedir` propia o reusar `fetch` directo, ya que es un endpoint nuevo sin cliente propio todavía — crearla acá).
-- Produces: `export async function runTeamRecrypt(deps: { baseUrl: string; token: string; deviceId: string; fetchImpl?: typeof fetch }, teamId: string, master: Buffer, rows: Array<{ syncId: string; title: string; content: string | null; tags: string[] }>, onProgress?: (p: { total: number; done: number }) => void): Promise<{ total: number; applied: number; rejected: number }>`
+- Produces: `export async function runTeamRecrypt(deps: { baseUrl: string; token: string; deviceId: string; fetchImpl?: typeof fetch }, teamId: string, master: Buffer, rows: Array<{ syncId: string; title: string; content: string | null; tags: string[]; contentHash: string | null; originAccount: string | null }>, onProgress?: (p: { total: number; done: number }) => void): Promise<{ total: number; applied: number; rejected: number }>`
+
+**Ruling de la ejecución (no estaba en la primera versión de este plan)**: la review de
+Task 5 encontró que `recryptTeamObservations` dejaba `content_hash`/`origin_account` en
+claro para siempre tras la migración — `origin_account` tiene el email del usuario
+(`server/README.md`). Se amplió el contrato de Task 5 para incluir esos dos campos
+(mismo mecanismo que `title`/`content`, ver Task 5 actualizado); este task arrastra ese
+cambio: `LocalTeamRow` y el payload que arma `runTeamRecrypt` llevan `contentHash`/
+`originAccount` también. `topic_key` queda explícitamente FUERA — es un HMAC, no un
+cifrado simétrico, y re-derivarlo retroactivamente sobre filas ya existentes es un
+problema aparte (afecta el supersede por igualdad del servidor); conocido y aceptado
+como límite de v1, no se migra.
 
 A diferencia de la migración personal (`memory-reencrypt.ts`, que re-encola por el `push`
 normal porque cada quien re-sube SU PROPIA fila), acá el leader re-cifra filas de OTROS
@@ -1812,16 +1823,20 @@ describe('runTeamRecrypt', () => {
       'team-1',
       master,
       [
-        { syncId: 'a', title: 'Uno', content: 'contenido uno', tags: ['x'] },
-        { syncId: 'b', title: 'Dos', content: null, tags: [] },
+        { syncId: 'a', title: 'Uno', content: 'contenido uno', tags: ['x'], contentHash: 'hash-uno', originAccount: 'gero@example.com' },
+        { syncId: 'b', title: 'Dos', content: null, tags: [], contentHash: null, originAccount: null },
       ]
     )
     expect(res).toEqual({ total: 2, applied: 2, rejected: 0 })
-    const body = llamadas[0] as { team_id: string; items: Array<{ sync_id: string; title: string; content: string | null }> }
+    const body = llamadas[0] as { team_id: string; items: Array<{ sync_id: string; title: string; content: string | null; content_hash: string | null; origin_account: string | null }> }
     expect(body.team_id).toBe('team-1')
     expect(body.items).toHaveLength(2)
     expect(body.items[0].title).toMatch(/^nmc1:/)
+    expect(body.items[0].content_hash).toMatch(/^nmc1:/)
+    expect(body.items[0].origin_account).toMatch(/^nmc1:/) // el email no viaja en claro
     expect(body.items[1].content).toBeNull() // un content null (tombstone) no se cifra, viaja tal cual
+    expect(body.items[1].content_hash).toBeNull()
+    expect(body.items[1].origin_account).toBeNull()
   })
 
   it('reporta progreso y cuenta los rejected del servidor', async () => {
@@ -1832,7 +1847,10 @@ describe('runTeamRecrypt', () => {
     const res = await runTeamRecrypt(
       { baseUrl: 'http://x', token: 't', deviceId: 'd', fetchImpl },
       'team-1', master,
-      [{ syncId: 'a', title: 'A', content: 'x', tags: [] }, { syncId: 'b', title: 'B', content: 'y', tags: [] }],
+      [
+        { syncId: 'a', title: 'A', content: 'x', tags: [], contentHash: null, originAccount: null },
+        { syncId: 'b', title: 'B', content: 'y', tags: [], contentHash: null, originAccount: null },
+      ],
       (p) => progreso.push(p)
     )
     expect(res).toEqual({ total: 2, applied: 1, rejected: 1 })
@@ -1869,6 +1887,13 @@ export interface LocalTeamRow {
   title: string
   content: string | null
   tags: string[]
+  /** `null` si la fila nunca tuvo hash (o ya era null antes de cifrar) — mismo tratamiento
+   * que `content`: no se cifra un `null`, viaja tal cual. */
+  contentHash: string | null
+  /** El email de quien guardó la memoria, vía `NEST_MEMORY_ACCOUNT` — el mismo campo que
+   * ya se cifra en el push normal (Task 9, `SEALED_FIELDS`); si no se migra acá queda en
+   * claro para siempre en filas anteriores a la activación del cifrado de equipo. */
+  originAccount: string | null
 }
 
 const MAX_POR_LOTE = 400 // bajo el MAX_WRAPS_POR_REQUEST/MAX_BATCH de la familia de endpoints de este servicio
@@ -1892,6 +1917,8 @@ export async function runTeamRecrypt(
       title: encryptField(keys, r.title, fieldAad(r.syncId, 'title')),
       content: r.content === null ? null : encryptField(keys, r.content, fieldAad(r.syncId, 'content')),
       tags: r.tags.length > 0 ? [encryptField(keys, JSON.stringify(r.tags), fieldAad(r.syncId, 'tags'))] : [],
+      content_hash: r.contentHash === null ? null : encryptField(keys, r.contentHash, fieldAad(r.syncId, 'content_hash')),
+      origin_account: r.originAccount === null ? null : encryptField(keys, r.originAccount, fieldAad(r.syncId, 'origin_account')),
     }))
     const res = await f(`${deps.baseUrl}/v1/teams/key/recrypt`, {
       method: 'POST',
@@ -2081,14 +2108,18 @@ daemon seguiría llamando a `getEnvelopeContext()` sin el campo `teamKeys`, y to
 /** Todo lo que esta instalación tiene localmente con scope 'team' para proyectos de ESTE
  * equipo — lo que la migración retroactiva (Task 10) necesita re-cifrar. Nunca pasa por el
  * cursor de pull: es lo que YA bajó, exactamente lo que el leader vería hoy sin cifrado. */
-localTeamRowsForTeam(teamId: string): Array<{ syncId: string; title: string; content: string | null; tags: string[] }> {
+localTeamRowsForTeam(teamId: string): Array<{
+  syncId: string; title: string; content: string | null; tags: string[]
+  contentHash: string | null; originAccount: string | null
+}> {
   return this.db.prepare(`
-    SELECT o.sync_id as syncId, o.title, o.content, o.tags
+    SELECT o.sync_id as syncId, o.title, o.content, o.tags,
+           o.content_hash as contentHash, o.origin_account as originAccount
       FROM observations o
       JOIN projects p ON p.project_key = o.project_key
      WHERE p.team_id = ? AND o.scope = 'team' AND o.deleted = 0
   `).all(teamId).map((r: unknown) => {
-    const row = r as { syncId: string; title: string; content: string | null; tags: string }
+    const row = r as { syncId: string; title: string; content: string | null; tags: string; contentHash: string | null; originAccount: string | null }
     return { ...row, tags: row.tags ? JSON.parse(row.tags) : [] }
   })
 }
@@ -2096,8 +2127,12 @@ localTeamRowsForTeam(teamId: string): Array<{ syncId: string; title: string; con
 
 **Nota para quien implemente**: confirmar con `Grep "CREATE TABLE.*observations"` en
 `memory-store.ts` los nombres EXACTOS de columna (`project_key` vs `project_id`, `tags` como
-JSON vs columna separada) antes de pegar esto — el schema local no es necesariamente idéntico
-al del servidor (`server/migrations/001_init.sql`) que vimos en el diseño.
+JSON vs columna separada, y si `content_hash`/`origin_account` existen con esos nombres
+exactos o algo distinto) antes de pegar esto — el schema local no es necesariamente idéntico
+al del servidor (`server/migrations/001_init.sql`) que vimos en el diseño. Si alguno de los
+dos campos no existe en el schema local (por ejemplo, si nunca se persistió localmente),
+devolver `null` para ese campo es la salida correcta — `runTeamRecrypt` (Task 10) ya trata
+`null` como "no cifrar, viaja tal cual", mismo camino que ya usa `content`.
 
 - [ ] **Step 4: `preload.ts`**
 
