@@ -753,6 +753,12 @@ describe('recryptTeamObservations', () => {
   it('re-cifra una fila de equipo del propio proyecto del leader', async () => {
     const syncId = randomUUID()
     await obs(syncId, projectLeader, 'team', leaderId)
+    // El seq ORIGINAL, antes de recrypt — el fixture de `obs()` lo hardcodea en 1, que es
+    // ADEMÁS lo que `allocateSeqRange` devolvería para un project_id recién creado (su
+    // `seq_counter` arranca en 0 por default). Comparar contra un número fijo coincidía por
+    // casualidad; comparar contra el valor capturado ANTES es lo único que prueba el bump
+    // de verdad, sin importar de qué `seq_counter` parta el proyecto.
+    const antes = (await pool.query('select project_seq from observations where sync_id = $1', [syncId])).rows[0].project_seq
     const res = await recryptTeamObservations(pool, { deviceId: leaderDevice, userId: leaderId }, teamId, {
       items: [{ sync_id: syncId, title: 'nmc1:xxx', content: 'nmc1:yyy', tags: [] }],
     })
@@ -764,7 +770,7 @@ describe('recryptTeamObservations', () => {
     const { rows } = await pool.query('select title, content, project_seq from observations where sync_id = $1', [syncId])
     expect(rows[0].title).toBe('nmc1:xxx')
     expect(rows[0].content).toBe('nmc1:yyy')
-    expect(Number(rows[0].project_seq)).toBeGreaterThan(1) // bump: el pull lo tiene que ver de nuevo
+    expect(Number(rows[0].project_seq)).toBeGreaterThan(Number(antes)) // bump: el pull lo tiene que ver de nuevo
   })
 
   it('re-cifra una fila de equipo subida por OTRO autor (el member), es el punto central de este task', async () => {
