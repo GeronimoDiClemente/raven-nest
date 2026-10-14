@@ -76,36 +76,52 @@ describe('recryptTeamObservations', () => {
     // de verdad, sin importar de qué `seq_counter` parta el proyecto.
     const antes = (await pool.query('select project_seq from observations where sync_id = $1', [syncId])).rows[0].project_seq
     const res = await recryptTeamObservations(pool, { deviceId: leaderDevice, userId: leaderId }, teamId, {
-      items: [{ sync_id: syncId, title: 'nmc1:xxx', content: 'nmc1:yyy', tags: [] }],
+      items: [{
+        sync_id: syncId, title: 'nmc1:xxx', content: 'nmc1:yyy', tags: [],
+        content_hash: 'nmc1:hhh', origin_account: 'nmc1:aaa',
+      }],
     })
     expect(res.ok).toBe(true)
     if (res.ok) {
       expect(res.applied).toEqual([syncId])
       expect(res.rejected).toEqual([])
     }
-    const { rows } = await pool.query('select title, content, project_seq from observations where sync_id = $1', [syncId])
+    const { rows } = await pool.query(
+      'select title, content, project_seq, content_hash, origin_account from observations where sync_id = $1',
+      [syncId]
+    )
     expect(rows[0].title).toBe('nmc1:xxx')
     expect(rows[0].content).toBe('nmc1:yyy')
     expect(Number(rows[0].project_seq)).toBeGreaterThan(Number(antes)) // bump: el pull lo tiene que ver de nuevo
+    // El mismo gap que señaló el review: sin esto, content_hash y origin_account (el email de
+    // quien guardó la memoria, electron/memory-envelope.ts) quedaban en claro para siempre en
+    // las filas migradas retroactivamente, aunque title/content ya se re-cifraran.
+    expect(rows[0].content_hash).toBe('nmc1:hhh')
+    expect(rows[0].origin_account).toBe('nmc1:aaa')
   })
 
   it('re-cifra una fila de equipo subida por OTRO autor (el member), es el punto central de este task', async () => {
     const syncId = randomUUID()
     await obs(syncId, projectMember, 'team', memberId)
     const res = await recryptTeamObservations(pool, { deviceId: leaderDevice, userId: leaderId }, teamId, {
-      items: [{ sync_id: syncId, title: 'nmc1:a', content: 'nmc1:b', tags: [] }],
+      items: [{ sync_id: syncId, title: 'nmc1:a', content: 'nmc1:b', tags: [], content_hash: null, origin_account: 'nmc1:mmm' }],
     })
     expect(res.ok && res.applied).toEqual([syncId])
-    const { rows } = await pool.query('select title, author_id from observations where sync_id = $1', [syncId])
+    const { rows } = await pool.query(
+      'select title, author_id, content_hash, origin_account from observations where sync_id = $1',
+      [syncId]
+    )
     expect(rows[0].title).toBe('nmc1:a')
     expect(rows[0].author_id).toBe(memberId) // la autoría NUNCA cambia
+    expect(rows[0].content_hash).toBeNull()
+    expect(rows[0].origin_account).toBe('nmc1:mmm')
   })
 
   it('REVIEW FOCUS: rechaza un sync_id de OTRO equipo, sin tocarlo', async () => {
     const syncId = randomUUID()
     await obs(syncId, projectOtroEquipo, 'team', leaderId)
     const res = await recryptTeamObservations(pool, { deviceId: leaderDevice, userId: leaderId }, teamId, {
-      items: [{ sync_id: syncId, title: 'nmc1:HACKEADO', content: 'nmc1:x', tags: [] }],
+      items: [{ sync_id: syncId, title: 'nmc1:HACKEADO', content: 'nmc1:x', tags: [], content_hash: null, origin_account: null }],
     })
     expect(res.ok && res.rejected).toEqual([{ sync_id: syncId, error: 'not_found_in_team' }])
     const { rows } = await pool.query('select title from observations where sync_id = $1', [syncId])
@@ -116,7 +132,7 @@ describe('recryptTeamObservations', () => {
     const syncId = randomUUID()
     await obs(syncId, projectLeader, 'personal', leaderId)
     const res = await recryptTeamObservations(pool, { deviceId: leaderDevice, userId: leaderId }, teamId, {
-      items: [{ sync_id: syncId, title: 'nmc1:HACKEADO', content: 'nmc1:x', tags: [] }],
+      items: [{ sync_id: syncId, title: 'nmc1:HACKEADO', content: 'nmc1:x', tags: [], content_hash: null, origin_account: null }],
     })
     expect(res.ok && res.rejected).toEqual([{ sync_id: syncId, error: 'not_found_in_team' }])
     const { rows } = await pool.query('select title from observations where sync_id = $1', [syncId])
@@ -128,8 +144,8 @@ describe('recryptTeamObservations', () => {
     await obs(syncIdReal, projectLeader, 'team', leaderId)
     const res = await recryptTeamObservations(pool, { deviceId: leaderDevice, userId: leaderId }, teamId, {
       items: [
-        { sync_id: 'no-existe', title: 'nmc1:x', content: 'nmc1:y', tags: [] },
-        { sync_id: syncIdReal, title: 'nmc1:a', content: 'nmc1:b', tags: [] },
+        { sync_id: 'no-existe', title: 'nmc1:x', content: 'nmc1:y', tags: [], content_hash: null, origin_account: null },
+        { sync_id: syncIdReal, title: 'nmc1:a', content: 'nmc1:b', tags: [], content_hash: null, origin_account: null },
       ],
     })
     expect(res.ok && res.applied).toEqual([syncIdReal])
@@ -140,7 +156,7 @@ describe('recryptTeamObservations', () => {
     const syncId = randomUUID()
     await obs(syncId, projectLeader, 'team', leaderId)
     await recryptTeamObservations(pool, { deviceId: leaderDevice, userId: leaderId }, teamId, {
-      items: [{ sync_id: syncId, title: 'nmc1:x', content: 'nmc1:y', tags: [] }],
+      items: [{ sync_id: syncId, title: 'nmc1:x', content: 'nmc1:y', tags: [], content_hash: null, origin_account: null }],
     })
     const { rows } = await pool.query('select scope, type, author_id from observations where sync_id = $1', [syncId])
     expect(rows[0]).toEqual({ scope: 'team', type: 'decision', author_id: leaderId })

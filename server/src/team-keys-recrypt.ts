@@ -16,6 +16,14 @@ export interface RecryptItem {
   title: string
   content: string
   tags: unknown
+  // Mismos dos campos que `SEALED_FIELDS` sella además de title/content (electron/
+  // memory-envelope.ts). Sin re-cifrarlos acá, una fila migrada "retroactivamente" seguía
+  // dejando `origin_account` —el email de quien la guardó— en claro para siempre: el mismo
+  // leak que `server/README.md:32` ya documenta y arregló para personal. `null` se respeta
+  // igual que en `sealMutationPayload`: significa que el valor original era null/ausente,
+  // no "no cifrar".
+  content_hash: string | null
+  origin_account: string | null
 }
 
 export async function recryptTeamObservations(
@@ -34,6 +42,12 @@ export async function recryptTeamObservations(
       return { ok: false, status: 400, error: 'invalid_sync_id' }
     }
     if (typeof it?.title !== 'string' || typeof it?.content !== 'string') {
+      return { ok: false, status: 400, error: 'invalid_fields' }
+    }
+    if (it.content_hash !== null && typeof it.content_hash !== 'string') {
+      return { ok: false, status: 400, error: 'invalid_fields' }
+    }
+    if (it.origin_account !== null && typeof it.origin_account !== 'string') {
       return { ok: false, status: 400, error: 'invalid_fields' }
     }
   }
@@ -67,9 +81,11 @@ export async function recryptTeamObservations(
       const projectId = Number(rows[0].project_id)
       const nuevoSeq = await allocateSeqRange(client, projectId, 1)
       await client.query(
-        `update observations set title = $1, content = $2, tags = $3::jsonb, project_seq = $4
-          where sync_id = $5`,
-        [it.title, it.content, JSON.stringify(it.tags ?? []), nuevoSeq, it.sync_id]
+        `update observations
+            set title = $1, content = $2, tags = $3::jsonb, project_seq = $4,
+                content_hash = $5, origin_account = $6
+          where sync_id = $7`,
+        [it.title, it.content, JSON.stringify(it.tags ?? []), nuevoSeq, it.content_hash, it.origin_account, it.sync_id]
       )
       await client.query('commit')
       applied.push(it.sync_id)
