@@ -1,5 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
+// metrics-collector imports `electron` at module top (for app.getAppMetrics).
+vi.mock('electron', () => ({ app: { getAppMetrics: () => [] } }))
+
 const execSyncMock = vi.hoisted(() => vi.fn())
 vi.mock('child_process', async (importOriginal) => {
   const actual = await importOriginal<typeof import('child_process')>()
@@ -30,6 +33,15 @@ describe('MetricsCollector.getWorktreeInfo failure cache', () => {
 
     for (let i = 0; i < 5; i++) expect(c.getWorktreeInfo('/not/a/repo')).toBeNull()
     expect(execSyncMock.mock.calls.length).toBe(callsAfterFirst)
+  })
+
+  it('does not remember a timeout, which is transient', () => {
+    execSyncMock.mockImplementation(() => { throw Object.assign(new Error('spawnSync git ETIMEDOUT'), { code: 'ETIMEDOUT' }) })
+    const c = new MetricsCollector() as unknown as WithWorktreeInfo
+    c.getWorktreeInfo('/big/repo')
+    const callsAfterFirst = execSyncMock.mock.calls.length
+    c.getWorktreeInfo('/big/repo')
+    expect(execSyncMock.mock.calls.length).toBeGreaterThan(callsAfterFirst)
   })
 
   it('retries after the failure expires, so a later `git init` is picked up', () => {

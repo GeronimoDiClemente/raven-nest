@@ -3,7 +3,7 @@ import { execSync, execFile } from 'child_process'
 import { opendirSync, statSync } from 'fs'
 import { resolve, dirname, basename, join } from 'path'
 import { totalmem, cpus, platform as osPlatform } from 'os'
-import { listenPortsForPids } from './port-monitor'
+import { listeningPortsByPid, portsForPids } from './port-monitor'
 import { WinProcessHost, cpuPercentSince, cpuTimeMs, type CpuSample, type WinProcRow } from './win-process-host'
 // pidusage is only used on macOS/Linux. On Windows every pidusage call spawned
 // `powershell -c gwmi ...`, so CPU/RAM come from the process host snapshot
@@ -741,8 +741,13 @@ export class MetricsCollector {
       // synthetic group and the user has no idea why their linked tab won't
       // group its panes under a real branch label.
       console.warn('[metrics] getWorktreeInfo failed for', worktreePath, err instanceof Error ? err.message.split('\n')[0] : err)
-      if (this.wtFailures.size >= WT_CACHE_MAX) this.wtFailures.clear()
-      this.wtFailures.set(worktreePath, Date.now())
+      // A timeout (cold or huge repo) is transient: retry next cycle. Only a
+      // real "git said no" is remembered.
+      const timedOut = (err as NodeJS.ErrnoException | null)?.code === 'ETIMEDOUT'
+      if (!timedOut) {
+        if (this.wtFailures.size >= WT_CACHE_MAX) this.wtFailures.clear()
+        this.wtFailures.set(worktreePath, Date.now())
+      }
       return null
     }
   }
@@ -932,7 +937,7 @@ export class MetricsCollector {
       // really lives — node or electron — without splitting it per row).
       let sharedPortSuffix = ''
       try {
-        const ports = await listenPortsForPids(allPidsForWt)
+        const ports = portsForPids(await listeningPortsByPid(), allPidsForWt)
         if (ports.length > 0) {
           sharedPortSuffix = ' · ' + ports.slice(0, 3).map((p) => `:${p}`).join(' ')
         }
