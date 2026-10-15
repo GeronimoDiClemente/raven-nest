@@ -6,7 +6,7 @@
 // equipo), así que no hay `key_epoch` ni `rotate_verifier`/`rotate_proof` en ningún lado.
 import { generateMasterKey } from './memory-crypto'
 import {
-  wrapForDevice, unwrapWithDevice, wrapForRecovery, generateRecoveryCode, type DeviceKeyPair,
+  wrapForDevice, unwrapWithDevice, wrapForRecovery, generateRecoveryCode, unwrapWithRecovery, type DeviceKeyPair,
 } from './memory-key-wrap'
 
 export interface TeamKeysClientDeps {
@@ -119,4 +119,26 @@ export async function authorizeTeamDeviceFromClient(
       }],
     },
   })
+}
+
+/** Recupera la clave de equipo usando un código de recuperación. Lanza ANTES de publicar
+ * cualquier cosa si el código es incorrecto. */
+export async function recoverTeamWithCode(
+  deps: TeamKeysClientDeps,
+  teamId: string,
+  device: DeviceKeyPair,
+  code: string
+): Promise<{ master: string }> {
+  const estado = await fetchTeamKeyState(deps, teamId, 'recovery')
+  const wrap = estado.wrap
+  if (!wrap?.wrapMeta?.salt || typeof wrap.wrapMeta.salt !== 'string') {
+    throw new Error('There is no recovery copy for this team.')
+  }
+  // Lanza MemoryUnwrapError con el código equivocado, ANTES de publicar nada — mismo orden
+  // que `recoverWithCode` personal.
+  const master = unwrapWithRecovery(code, { wrapped: wrap.wrapped, salt: wrap.wrapMeta.salt })
+  await authorizeTeamDeviceFromClient(deps, teamId, master.toString('base64'), {
+    deviceId: deps.deviceId, publicKey: device.publicKey,
+  })
+  return { master: master.toString('base64') }
 }
