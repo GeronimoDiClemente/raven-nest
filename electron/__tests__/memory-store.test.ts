@@ -460,32 +460,6 @@ describe('MemoryStore — projects (ensureProject / listProjects)', () => {
     expect(store.teamIdForProjectKey('proj-b')).toBeNull()
   })
 
-  // Task 15 (C1): la migración de equipo busca por `sync_id` lo que el SERVIDOR dice que está
-  // en claro. Antes filtraba por `projects.team_id` local, que sólo existe para lo que ESTE
-  // device compartió: una fila que bajó del proyecto de un member no aparecía nunca.
-  it('localTeamRowsBySyncIds trae filas de cualquier proyecto, con su lamport, sin mirar team_id local', () => {
-    store.ensureProject({ projectKey: 'proj-del-member', displayName: 'repo-ajeno' }) // sin team_id local
-    store.applyIncomingObservation({
-      syncId: 'del-member', projectKey: 'proj-del-member', scope: 'team', topicKey: null, type: 'decision',
-      title: 'Del member', content: 'compartida desde su copia', tags: ['a'], originAccount: 'b@x.test',
-      contentHash: 'h-1', updatedAt: Date.now(), lamport: 41, deleted: false,
-    })
-    store.applyIncomingObservation({
-      syncId: 'borrada', projectKey: 'proj-del-member', scope: 'team', topicKey: null, type: 'decision',
-      title: 'Borrada', content: null, updatedAt: Date.now(), lamport: 3, deleted: true,
-    })
-    const filas = store.localTeamRowsBySyncIds(['del-member', 'borrada', 'no-existe'])
-    const porId = new Map(filas.map((f) => [f.syncId, f]))
-    expect(porId.size).toBe(2)
-    expect(porId.get('del-member')).toEqual({
-      syncId: 'del-member', title: 'Del member', content: 'compartida desde su copia', tags: ['a'],
-      contentHash: 'h-1', originAccount: 'b@x.test', lamport: 41,
-    })
-    // Un tombstone también: su título sigue en claro en el servidor hasta que se migre.
-    expect(porId.get('borrada')?.content).toBeNull()
-    expect(store.localTeamRowsBySyncIds([])).toEqual([])
-  })
-
   // Task 14: el gate fail-closed del push de equipo lee esto, no la red — tiene que funcionar
   // en el arranque y offline, igual que `knownKeyEpoch`. Nunca olvida.
   it('rememberEncryptedTeams acumula, ignora basura y nunca olvida', () => {

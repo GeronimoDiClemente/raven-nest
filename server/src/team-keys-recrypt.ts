@@ -36,8 +36,18 @@ export interface RecryptItem {
   lamport: number
 }
 
-/** Lo que `recrypt-pending` devuelve por página. Bajo el `MAX_BATCH` de push, a propósito. */
-const PENDIENTES_POR_PAGINA = 500
+/** Lo que `recrypt-pending` devuelve por página: trae el contenido, así que va chico. */
+const PENDIENTES_POR_PAGINA = 200
+
+export interface PendingRow {
+  sync_id: string
+  lamport: number
+  title: string
+  content: string | null
+  tags: unknown
+  content_hash: string | null
+  origin_account: string | null
+}
 
 /**
  * Las filas `scope: 'team'` de ESTE equipo que siguen en claro, de CUALQUIER miembro (C1 de la
@@ -49,6 +59,16 @@ const PENDIENTES_POR_PAGINA = 500
  * juntos, y una fila a medias sigue exponiendo lo que le falta. Un `content` null (tombstone)
  * no cuenta como en claro.
  *
+ * Devuelve el CONTENIDO de cada fila, no sólo el `sync_id`. La primera versión devolvía sólo
+ * ids y el cliente las buscaba en su base local, pero el pull sólo baja filas de los
+ * `project_key` que el device ya tiene: una fila de equipo de un repo que el leader no clonó
+ * no le llega nunca, así que ningún pull la arreglaba y quedaba en claro para siempre. No
+ * amplía lo que el leader puede leer: es miembro activo del equipo, y el pull ya le sirve toda
+ * fila de equipo de cualquier proyecto con ese `team_id` (`pull.ts`, `p.team_id in
+ * team_memberships`) — sólo le faltaba nombrar el `project_key`. Y lo que devuelve está en
+ * claro en el servidor de todos modos: es exactamente lo que se va a sellar. Con el `lamport`
+ * de cada fila, el recrypt rechaza (`stale`) lo que se edite entre esta lectura y el envío.
+ *
  * Paginado por `sync_id` (keyset): la lista se achica a medida que la migración avanza, así
  * que un offset saltearía filas. `total` es el conteo entero, para que la UI muestre cuánto
  * falta sin recorrer todas las páginas.
@@ -58,7 +78,7 @@ export async function listRecryptPending(
   auth: TeamKeysAuth,
   teamId: string,
   opts: { after?: string; limit?: number }
-): Promise<{ ok: true; total: number; items: Array<{ sync_id: string; lamport: number }> } | Fail<403>> {
+): Promise<{ ok: true; total: number; items: PendingRow[] } | Fail<403>> {
   if (!(await isTeamLeader(pool, auth.userId, teamId))) {
     return { ok: false, status: 403, error: 'leader_required' }
   }
@@ -70,7 +90,8 @@ export async function listRecryptPending(
     [teamId]
   )
   const { rows } = await pool.query(
-    `select o.sync_id, o.lamport from observations o join projects p on p.id = o.project_id
+    `select o.sync_id, o.lamport, o.title, o.content, o.tags, o.content_hash, o.origin_account
+       from observations o join projects p on p.id = o.project_id
       where ${enClaro} and ($2::text is null or o.sync_id > $2::text)
       order by o.sync_id
       limit $3`,
@@ -79,7 +100,15 @@ export async function listRecryptPending(
   return {
     ok: true,
     total: Number(totalRows[0]?.n ?? 0),
-    items: rows.map((r) => ({ sync_id: String(r.sync_id), lamport: Number(r.lamport) })),
+    items: rows.map((r) => ({
+      sync_id: String(r.sync_id),
+      lamport: Number(r.lamport),
+      title: String(r.title ?? ''),
+      content: (r.content as string | null) ?? null,
+      tags: r.tags ?? [],
+      content_hash: (r.content_hash as string | null) ?? null,
+      origin_account: (r.origin_account as string | null) ?? null,
+    })),
   }
 }
 

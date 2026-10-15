@@ -28,7 +28,6 @@ interface EstadoCifradoEquipo {
 interface ResultadoMigracion {
   applied: number
   remaining: number
-  missingLocally: number
   error?: string
 }
 
@@ -111,7 +110,7 @@ export default function TeamEncryptionCard() {
     try {
       setMigracion(await api.teamEncryptionRecrypt(activeTeam.id))
     } catch (err) {
-      setMigracion({ applied: 0, remaining: estado.recryptPending ?? 0, missingLocally: 0, error: err instanceof Error ? err.message : String(err) })
+      setMigracion({ applied: 0, remaining: estado.recryptPending ?? 0, error: err instanceof Error ? err.message : String(err) })
     } finally {
       setMigrando(false)
     }
@@ -337,12 +336,6 @@ export default function TeamEncryptionCard() {
             <p className="text-fs-sm text-foreground">
               <span className="font-mono tabular-nums">{pendientes}</span>{' '}
               {pendientes === 1 ? 'shared memory is' : 'shared memories are'} still unencrypted on the server.
-            </p>
-          )}
-          {migracion !== null && migracion.missingLocally > 0 && (
-            <p className="text-fs-sm text-muted-foreground">
-              <span className="font-mono tabular-nums text-foreground">{migracion.missingLocally}</span>{' '}
-              haven&rsquo;t reached this machine yet — they&rsquo;ll be encrypted on the next try.
             </p>
           )}
           {migracion?.error && <p className="text-fs-sm text-destructive">{migracion.error}</p>}

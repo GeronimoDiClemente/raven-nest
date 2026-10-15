@@ -184,7 +184,9 @@ describe('/v1/teams/key*', () => {
       headers: { Authorization: `Bearer ${leaderToken}` },
     })
     expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ total: 1, items: [{ sync_id: syncId, lamport: 1 }] })
+    expect(await res.json()).toEqual({ total: 1, items: [{
+      sync_id: syncId, lamport: 1, title: 'en claro', content: 'contenido en claro', tags: [], content_hash: null, origin_account: null,
+    }] })
 
     const delMember = await fetch(`${baseUrl}/v1/teams/key/recrypt-pending?team_id=${teamId}`, {
       headers: { Authorization: `Bearer ${memberToken}` },

@@ -299,7 +299,12 @@ describe('listRecryptPending — C1', () => {
     if (!res.ok) return
     expect(res.total).toBe(2)
     expect(res.items.map((i) => i.sync_id).sort()).toEqual([delMember, delLeader].sort())
-    expect(res.items.every((i) => i.lamport === 1)).toBe(true)
+    // Con el contenido: el leader puede no tener la fila localmente (un repo que no clonó no
+    // le llega por el pull), así que sella lo que el servidor le da, en ESA versión.
+    expect(res.items.find((i) => i.sync_id === delMember)).toEqual({
+      sync_id: delMember, lamport: 1, title: 'en claro', content: 'contenido en claro', tags: [],
+      content_hash: null, origin_account: null,
+    })
   })
 
   it('una fila con título sellado pero contenido en claro sigue pendiente', async () => {

@@ -1000,9 +1000,9 @@ declare global {
       teamEncryptionAuthorize?: (teamId: string, deviceId: string, fingerprint: string) => Promise<{ ok: boolean; error?: string }>
       teamEncryptionRecover?: (teamId: string, code: string) => Promise<{ ok: boolean; error?: string }>
       /** La migración retroactiva (Task 15): `remaining` es lo que el SERVIDOR sigue teniendo en
-       * claro al terminar; `missingLocally`, lo que esta máquina no tenía ni después de un pull. */
+       * claro al terminar (lo rechazado como `stale` vuelve en la próxima corrida). */
       teamEncryptionRecrypt?: (teamId: string) => Promise<{
-        total: number; applied: number; rejected: number; remaining: number; missingLocally: number; error?: string
+        total: number; applied: number; rejected: number; remaining: number; error?: string
       }>
       /**
        * Aprueba la vinculación de otra máquina — la que corre el paquete portátil y no puede

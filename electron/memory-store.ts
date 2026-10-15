@@ -1046,34 +1046,6 @@ export class MemoryStore {
     this.db.prepare('UPDATE projects SET team_id = ? WHERE project_key = ?').run(teamId, projectKey)
   }
 
-  /**
-   * Las filas locales con estos `sync_id`, de CUALQUIER proyecto — lo que la migración
-   * retroactiva de equipo necesita re-cifrar (Task 15, C1). La lista la da el SERVIDOR
-   * (`recrypt-pending`): antes esto filtraba por `projects.team_id` local, que sólo existe para
-   * los proyectos que ESTE device compartió, y lo que un member compartió desde su propia copia
-   * quedaba en claro para siempre. Incluye tombstones: su título sigue en claro en el servidor.
-   * El `lamport` va para que el servidor rechace una copia que no es la vigente (I1).
-   */
-  localTeamRowsBySyncIds(syncIds: string[]): Array<{
-    syncId: string; title: string; content: string | null; tags: string[]
-    contentHash: string | null; originAccount: string | null; lamport: number
-  }> {
-    type Fila = { syncId: string; title: string; content: string | null; tags: string | null; contentHash: string | null; originAccount: string | null; lamport: number }
-    const out: ReturnType<MemoryStore['localTeamRowsBySyncIds']> = []
-    // De a 500: SQLite tiene un tope de parámetros por sentencia.
-    for (let i = 0; i < syncIds.length; i += 500) {
-      const ids = syncIds.slice(i, i + 500)
-      const filas = this.db.prepare(`
-        SELECT sync_id as syncId, title, content, tags, content_hash as contentHash,
-               origin_account as originAccount, lamport
-          FROM observations
-         WHERE sync_id IN (${ids.map(() => '?').join(',')})
-      `).all(...ids) as Fila[]
-      for (const r of filas) out.push({ ...r, tags: r.tags ? JSON.parse(r.tags) : [], lamport: Number(r.lamport) })
-    }
-    return out
-  }
-
   /** M17: enumerates known local projects so the daemon can pull with a per-project cursor for each. */
   /**
    * Conecta dos memorias a mano. Sin dirección: "esta va con esta".

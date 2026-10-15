@@ -3743,15 +3743,12 @@ function migrarEquipo(teamId: string): Promise<TeamMigrationResult> {
   if (enCurso) return enCurso
   const deps = teamKeysDeps()
   const master = teamMasterKeys.get(teamId)
-  const m = memory
-  if (!deps || !master || !m) {
-    return Promise.resolve({ total: 0, applied: 0, rejected: 0, remaining: 0, missingLocally: 0, error: 'This machine does not have the team key.' })
+  if (!deps || !master) {
+    return Promise.resolve({ total: 0, applied: 0, rejected: 0, remaining: 0, error: 'This machine does not have the team key.' })
   }
-  const run = migrateTeam(deps, teamId, master, {
-    // C1: la lista sale del servidor; acá sólo se buscan por sync_id, de cualquier proyecto.
-    rowsBySyncIds: (ids) => m.store.localTeamRowsBySyncIds(ids),
-    pullNow: () => m.daemon.pull(),
-  }).finally(() => { migracionesDeEquipo.delete(teamId) })
+  // C1: qué migrar y con qué contenido lo dice el servidor (`recrypt-pending`), no la base
+  // local — ver el encabezado de memory-team-reencrypt.ts.
+  const run = migrateTeam(deps, teamId, master).finally(() => { migracionesDeEquipo.delete(teamId) })
   migracionesDeEquipo.set(teamId, run)
   return run
 }

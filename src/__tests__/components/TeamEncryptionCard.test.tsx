@@ -129,7 +129,7 @@ describe('TeamEncryptionCard — migración (Task 15)', () => {
 
   it('después de activar dispara la migración sola', async () => {
     window.memory.teamEncryptionActivate = vi.fn().mockResolvedValue({ ok: true, recoveryCode: 'ABCD-EFGH-1234-5678-9012-3456' })
-    window.memory.teamEncryptionRecrypt = vi.fn().mockResolvedValue({ total: 2, applied: 2, rejected: 0, remaining: 0, missingLocally: 0 })
+    window.memory.teamEncryptionRecrypt = vi.fn().mockResolvedValue({ total: 2, applied: 2, rejected: 0, remaining: 0 })
     render(<TeamEncryptionCard />)
     fireEvent.click(await screen.findByRole('button', { name: /turn on team encryption/i }))
     await waitFor(() => expect(window.memory.teamEncryptionRecrypt).toHaveBeenCalledWith('team-1'))
@@ -150,15 +150,16 @@ describe('TeamEncryptionCard — migración (Task 15)', () => {
     expect(await screen.findByText(/all shared memories are encrypted/i)).toBeInTheDocument()
   })
 
-  it('un error de la migración se muestra, junto con lo que no llegó a esta máquina', async () => {
+  it('un error de la migración se muestra, con lo aplicado y lo que sigue pendiente', async () => {
     window.memory.teamEncryptionStatus = vi.fn().mockResolvedValue(activo({ recryptPending: 2 }))
     window.memory.teamEncryptionRecrypt = vi.fn().mockResolvedValue({
-      total: 3, applied: 1, rejected: 0, remaining: 2, missingLocally: 1, error: 'recrypt rejected: 500 internal_error',
+      total: 3, applied: 1, rejected: 0, remaining: 2, error: 'recrypt rejected: 500 internal_error',
     })
     render(<TeamEncryptionCard />)
     fireEvent.click(await screen.findByRole('button', { name: /encrypt them now/i }))
     expect(await screen.findByText(/recrypt rejected: 500/i)).toBeInTheDocument()
-    expect(screen.getByText(/haven.t reached this machine yet/i)).toBeInTheDocument()
+    expect(screen.getByText(/re-encrypted/i)).toBeInTheDocument()
+    expect(screen.getByText(/still unencrypted on the server/i)).toBeInTheDocument()
   })
 })
 
