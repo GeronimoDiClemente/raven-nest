@@ -98,6 +98,14 @@ contextBridge.exposeInMainWorld('memory', {
   encryptionAuthorize: (deviceId: string) => ipcRenderer.invoke('memory:encryption:authorize', deviceId),
   encryptionRecover: (code: string) => ipcRenderer.invoke('memory:encryption:recover', code),
   encryptionReencrypt: () => ipcRenderer.invoke('memory:encryption:reencrypt'),
+  // Cifrado de equipo (spec 2026-10-14-cifrado-de-equipo) — mismo patrón que `encryption*`
+  // de arriba, pero por `teamId`: cada equipo tiene su propia maestra.
+  teamEncryptionStatus: (teamId: string) => ipcRenderer.invoke('memory:teamEncryption:status', teamId),
+  teamEncryptionActivate: (teamId: string) => ipcRenderer.invoke('memory:teamEncryption:activate', teamId),
+  teamEncryptionAdopt: (teamId: string) => ipcRenderer.invoke('memory:teamEncryption:adopt', teamId),
+  teamEncryptionAuthorize: (teamId: string, deviceId: string) => ipcRenderer.invoke('memory:teamEncryption:authorize', teamId, deviceId),
+  teamEncryptionRecover: (teamId: string, code: string) => ipcRenderer.invoke('memory:teamEncryption:recover', teamId, code),
+  teamEncryptionRecrypt: (teamId: string) => ipcRenderer.invoke('memory:teamEncryption:recrypt', teamId),
   hubStats: () => ipcRenderer.invoke('memory:hub-stats'),
   // Puente de datos del grafo navegable de memorias — ver electron/memory-graph.ts. Sin
   // UI todavía; el objeto es parcial porque `MemoryGraphQuery` no tiene campos opcionales

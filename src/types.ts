@@ -974,6 +974,22 @@ declare global {
         { ok: true; deviceId: string; token: string } | { ok: false; error: string }
       >
       /**
+       * Cifrado de equipo (spec 2026-10-14-cifrado-de-equipo) — mismo patrón que las de
+       * `encryption*` personal, pero por `teamId`: cada equipo tiene su propia maestra.
+       * Opcionales por lo mismo que todo lo de esta fase: un preload viejo no los expone.
+       */
+      teamEncryptionStatus?: (teamId: string) => Promise<{
+        activated: boolean
+        wrap: { wrapped: string; wrapMeta: Record<string, unknown> | null } | null
+        pendingDevices: Array<{ deviceId: string; name: string; publicKey: string }>
+        hasMaster: boolean
+      }>
+      teamEncryptionActivate?: (teamId: string) => Promise<{ ok: true; recoveryCode: string } | { ok: false; error: string }>
+      teamEncryptionAdopt?: (teamId: string) => Promise<{ ok: true; adoptada: boolean } | { ok: false; error: string }>
+      teamEncryptionAuthorize?: (teamId: string, deviceId: string) => Promise<{ ok: boolean; error?: string }>
+      teamEncryptionRecover?: (teamId: string, code: string) => Promise<{ ok: boolean; error?: string }>
+      teamEncryptionRecrypt?: (teamId: string) => Promise<{ total: number; applied: number; rejected: number }>
+      /**
        * Aprueba la vinculación de otra máquina — la que corre el paquete portátil y no puede
        * abrir un navegador. Opcional por lo mismo que `registerDevice`: un preload viejo no
        * lo expone, y la tarjeta se esconde en vez de romperse.

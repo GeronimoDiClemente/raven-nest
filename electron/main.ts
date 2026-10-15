@@ -273,8 +273,26 @@ import { huellaDeClave } from './memory-key-wrap'
 import { huellaDeMaestra } from './memory-crypto'
 import { buildEncryptionStatus } from './memory-encryption-status'
 import { runReencrypt } from './memory-reencrypt'
+import {
+  fetchTeamKeyState, activateTeamEncryption, adoptExistingTeamKey, authorizeTeamDeviceFromClient,
+  recoverTeamWithCode,
+} from './memory-team-keys-client'
+import { runTeamRecrypt } from './memory-team-reencrypt'
 
 let memoryKeys: KeyMaterial | null = null
+
+/** teamId -> maestra de ESE equipo, sólo en memoria — igual de propósito que `memoryKeys.master`
+ * pero SIN persistencia a disco en v1 (nunca se guarda en el keyring/safeStorage): se re-adopta
+ * en cada arranque llamando a `memory:teamEncryption:adopt` (ver más abajo), mismo costo que
+ * un fetch, y evita sumar un segundo formato a `saveKeyMaterial`/`memory-key-store.ts` para una
+ * clave que nunca escribe nada propio (sólo re-cifra lo que ya viaja por push/pull). Si el
+ * costo de volver a pedirla en cada arranque resulta alto en la práctica, persistirla es un
+ * cambio aislado a este Map — no toca ningún otro task. */
+const teamMasterKeys = new Map<string, Buffer>()
+
+function teamKeysDeps() {
+  return keysDeps() // ya existe más abajo: baseUrl/token/deviceId — no cambia por team
+}
 
 /**
  * El contexto que el daemon pide en CADA push y en CADA pull. Se recalcula por llamada a
@@ -283,7 +301,15 @@ let memoryKeys: KeyMaterial | null = null
  */
 function currentEnvelopeContext(): EnvelopeContext | null {
   if (!memoryKeys?.master) return null
-  return { keys: deriveKeys(Buffer.from(memoryKeys.master, 'base64')), keyEpoch: memoryKeys.keyEpoch }
+  return {
+    keys: deriveKeys(Buffer.from(memoryKeys.master, 'base64')),
+    keyEpoch: memoryKeys.keyEpoch,
+    teamKeys: (projectKey: string) => {
+      const teamId = memory?.store.teamIdForProjectKey(projectKey)
+      const master = teamId ? teamMasterKeys.get(teamId) : undefined
+      return master ? deriveKeys(master) : null
+    },
+  }
 }
 
 /**
@@ -3487,6 +3513,83 @@ ipcMain.handle('memory:encryption:recover', async (_e, code: string) => {
 ipcMain.handle('memory:encryption:reencrypt', async () => {
   if (!memory) return { total: 0, queued: 0 }
   return runReencrypt(memory.store, memory.daemon)
+})
+
+ipcMain.handle('memory:teamEncryption:status', async (_e, teamId: string) => {
+  const deps = teamKeysDeps()
+  if (!deps) return { activated: false, wrap: null, pendingDevices: [], hasMaster: false }
+  const estado = await fetchTeamKeyState(deps, teamId)
+  return { ...estado, hasMaster: teamMasterKeys.has(teamId) }
+})
+
+ipcMain.handle('memory:teamEncryption:activate', async (_e, teamId: string) => {
+  const deps = teamKeysDeps()
+  if (!deps || !memoryKeys) return { ok: false, error: 'Cloud memory is not connected.' }
+  try {
+    const { master, recoveryCode } = await activateTeamEncryption(deps, teamId, memoryKeys.device)
+    teamMasterKeys.set(teamId, Buffer.from(master, 'base64'))
+    return { ok: true, recoveryCode }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  }
+})
+
+/**
+ * El cierre del flujo de autorización — gemelo de `memory:encryption:adopt` (personal). Sin
+ * esto, después de que el leader autoriza (handler siguiente), la máquina recién autorizada
+ * no tiene NINGUNA forma de enterarse: `teamMasterKeys` nunca se repuebla sola.
+ */
+ipcMain.handle('memory:teamEncryption:adopt', async (_e, teamId: string) => {
+  const deps = teamKeysDeps()
+  if (!deps || !memoryKeys) return { ok: false, error: 'Cloud memory is not connected.' }
+  try {
+    const yaExiste = await adoptExistingTeamKey(deps, teamId, memoryKeys.device)
+    if (!yaExiste) return { ok: true, adoptada: false }
+    teamMasterKeys.set(teamId, Buffer.from(yaExiste.master, 'base64'))
+    // Las filas de equipo que esta máquina se salteó por ilegibles quedaron marcadas
+    // `undecryptable`, igual que en personal — el próximo pull normal las vuelve a abrir
+    // porque `openPulledRow` ahora encuentra la clave en `teamMasterKeys`. No hace falta
+    // resetear cursores: a diferencia de personal, el pull de equipo no se saltea filas por
+    // cursor al no poder leerlas, sólo las marca `undecryptable` (Task 9).
+    return { ok: true, adoptada: true }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  }
+})
+
+ipcMain.handle('memory:teamEncryption:authorize', async (_e, teamId: string, deviceId: string) => {
+  const deps = teamKeysDeps()
+  const master = teamMasterKeys.get(teamId)
+  if (!deps || !master) return { ok: false, error: 'This machine does not have the team key.' }
+  try {
+    const estado = await fetchTeamKeyState(deps, teamId)
+    const target = estado.pendingDevices.find((d) => d.deviceId === deviceId)
+    if (!target) return { ok: false, error: 'That machine has not published its key yet.' }
+    await authorizeTeamDeviceFromClient(deps, teamId, master.toString('base64'), target)
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  }
+})
+
+ipcMain.handle('memory:teamEncryption:recover', async (_e, teamId: string, code: string) => {
+  const deps = teamKeysDeps()
+  if (!deps || !memoryKeys) return { ok: false, error: 'Cloud memory is not connected.' }
+  try {
+    const { master } = await recoverTeamWithCode(deps, teamId, memoryKeys.device, code)
+    teamMasterKeys.set(teamId, Buffer.from(master, 'base64'))
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  }
+})
+
+ipcMain.handle('memory:teamEncryption:recrypt', async (_e, teamId: string) => {
+  const deps = teamKeysDeps()
+  const master = teamMasterKeys.get(teamId)
+  if (!deps || !master || !memory) return { total: 0, applied: 0, rejected: 0 }
+  const rows = memory.store.localTeamRowsForTeam(teamId) // método nuevo en memory-store.ts
+  return runTeamRecrypt(deps, teamId, master, rows)
 })
 
 ipcMain.handle('memory:status', () => {

@@ -1044,6 +1044,25 @@ export class MemoryStore {
     this.db.prepare('UPDATE projects SET team_id = ? WHERE project_key = ?').run(teamId, projectKey)
   }
 
+  /** Todo lo que esta instalación tiene localmente con scope 'team' para proyectos de ESTE
+   * equipo — lo que la migración retroactiva (Task 10) necesita re-cifrar. Nunca pasa por el
+   * cursor de pull: es lo que YA bajó, exactamente lo que el leader vería hoy sin cifrado. */
+  localTeamRowsForTeam(teamId: string): Array<{
+    syncId: string; title: string; content: string | null; tags: string[]
+    contentHash: string | null; originAccount: string | null
+  }> {
+    return this.db.prepare(`
+      SELECT o.sync_id as syncId, o.title, o.content, o.tags,
+             o.content_hash as contentHash, o.origin_account as originAccount
+        FROM observations o
+        JOIN projects p ON p.project_key = o.project_key
+       WHERE p.team_id = ? AND o.scope = 'team' AND o.deleted = 0
+    `).all(teamId).map((r: unknown) => {
+      const row = r as { syncId: string; title: string; content: string | null; tags: string; contentHash: string | null; originAccount: string | null }
+      return { ...row, tags: row.tags ? JSON.parse(row.tags) : [] }
+    })
+  }
+
   /** M17: enumerates known local projects so the daemon can pull with a per-project cursor for each. */
   /**
    * Conecta dos memorias a mano. Sin dirección: "esta va con esta".
