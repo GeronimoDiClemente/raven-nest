@@ -3901,3 +3901,129 @@ Expected: 0 errores, todo verde.
 git add e2e/16-cifrado-de-equipo.spec.ts docs/superpowers/specs/2026-10-14-cifrado-de-equipo-design.md CLAUDE.md
 git commit -m "test(cifrado-equipo): el compañero lee sin compartir su copia; nada sale en claro al arrancar (cierra §9.4)"
 ```
+
+---
+
+## Task 15: Arreglos de la review final
+
+La review final de la rama encontró dos Critical (C1, C2), cinco Important (I1-I5) y varios
+Minor. El cifrado de equipo nunca salió: no hay clientes viejos ni datos que preservar, así que
+los contratos de `activate`/`authorize`/`recrypt` cambian sin compatibilidad hacia atrás, y el
+servidor suma una migración (`010`). `SCHEMA_VERSION` del cliente NO sube.
+
+**Fuera de alcance (decisión pendiente, ya anotada):** re-share de un proyecto entre equipos, M3,
+M5.
+
+**Files:**
+- Create: `server/migrations/010_team_key_verifier.sql` (`team_keys.verifier text`)
+- Modify: `server/src/team-keys.ts` (verifier al activar, `proof` en `authorize`, `verifier` en el estado, slots de `activate` validados)
+- Modify: `server/src/team-keys-recrypt.ts` (`proof`, `lamport` por item, `already_sealed`/`stale`, `content: null`, `listRecryptPending`)
+- Modify: `server/src/http.ts` (`GET /v1/teams/key/recrypt-pending`, `team_id` no-uuid → 400, limiter propio de recrypt)
+- Test: `server/__tests__/team-keys.test.ts`, `server/__tests__/team-keys-recrypt.test.ts`, `server/__tests__/team-keys-http.test.ts`
+- Modify: `electron/memory-crypto.ts` (`teamKeyProof`, `teamKeyVerifier`)
+- Modify: `electron/memory-team-keys-client.ts` (verifier al activar, verificación de la maestra al adoptar/recuperar, `proof` al autorizar)
+- Modify: `electron/memory-team-reencrypt.ts` (`migrateTeam`: pendiente del servidor → filas locales por `sync_id` → lotes con tope de bytes → reintento ante 429)
+- Create: `electron/memory-authorize-target.ts` (I4: elegir el destino sólo si su huella es la mostrada)
+- Modify: `electron/memory-store.ts` (`localTeamRowsBySyncIds` reemplaza a `localTeamRowsForTeam`)
+- Modify: `electron/main.ts`, `electron/preload.ts`, `src/types.ts` (handlers `memory:teamEncryption:*` y `memory:encryption:authorize`)
+- Modify: `src/components/TeamEncryptionCard.tsx`, `src/components/MemoryEncryptionCard.tsx`
+- Test: `electron/__tests__/memory-team-keys-client.test.ts`, `electron/__tests__/memory-team-reencrypt.test.ts`, `electron/__tests__/memory-authorize-target.test.ts`, `electron/__tests__/memory-store.test.ts`, `src/__tests__/components/TeamEncryptionCard.test.tsx`, `src/__tests__/components/MemoryEncryptionCard.test.tsx`
+- Modify: `e2e/16-cifrado-de-equipo.spec.ts` (fila de equipo de B en un proyecto que A no compartió)
+- Modify: `.superpowers/sdd/.gitignore` (I5)
+- Modify: `CLAUDE.md`, `server/README.md`, `docs/superpowers/specs/2026-10-14-cifrado-de-equipo-design.md`
+
+**Interfaces:**
+- Consumes: Tasks 1-14.
+- Produces (wire, rompe contrato a propósito — nunca salió):
+  - `POST /v1/teams/key/activate`: body suma `verifier` (obligatorio); los wraps tienen que ser exactamente un slot `device` = el device que llama y un slot `recovery`.
+  - `GET /v1/teams/key`: suma `verifier: string | null`.
+  - `POST /v1/teams/key/authorize` y `POST /v1/teams/key/recrypt`: body suma `proof` (obligatorio). Sin prueba válida: `403 must_hold_team_key`.
+  - `POST /v1/teams/key/recrypt`: cada item suma `lamport` (obligatorio); `content` acepta `null`; rechazos individuales nuevos `already_sealed` y `stale`.
+  - `GET /v1/teams/key/recrypt-pending?team_id=&after=`: sólo `leader`. `{ total, items: [{ sync_id, lamport }] }` — las filas `scope: 'team'` del equipo con `title` o `content` sin `nmc1:`, por `sync_id` ascendente, de a 500.
+  - `team_id` que no es uuid en `/v1/teams/key*`: `400 invalid_team_id`.
+- Produces (cliente):
+  - `teamKeyProof(master: Buffer, teamId: string): string` — HMAC-SHA256 de la maestra con etiqueta `nest-memory/team-proof-v1/<teamId>`.
+  - `teamKeyVerifier(proof: string): string` — SHA-256 hex de la prueba.
+  - `TeamKeyMismatchError` (exportado de `memory-team-keys-client.ts`).
+  - `migrateTeam(deps, teamId, master, local: { rowsBySyncIds(ids): LocalTeamRow[]; pullNow(): Promise<void> }, opts?)` → `{ total, applied, rejected, remaining, missingLocally, error? }`.
+  - `elegirDestinoVerificado(devices, deviceId, huellaMostrada)` → `{ ok: true; target } | { ok: false; error }`.
+  - IPC: `teamEncryptionAuthorize(teamId, deviceId, fingerprint)`, `encryptionAuthorize(deviceId, fingerprint)`; `teamEncryptionStatus` suma `hasPersonalKey` y `recryptPending: number | null`; `teamEncryptionRecrypt` devuelve también `remaining` y `missingLocally`.
+
+**Decisiones de la ejecución:**
+
+*C2 — por qué la prueba no es igual al verificador.* En personal, `rotate_proof` y
+`rotate_verifier` son el MISMO valor y el servidor no lo muestra nunca. Acá el cliente tiene que
+poder verificar la maestra que adopta, así que el servidor se lo muestra a todo miembro activo.
+Si fueran iguales, un leader sin clave lo leería del `GET` y lo mandaría como prueba. Por eso el
+verificador es el SHA-256 de la prueba: se puede publicar sin regalar la prueba. La etiqueta de
+dominio incluye el `team_id`: la prueba de un equipo no sirve en otro aunque alguien reusara la
+maestra. `authorize` sigue haciendo upsert: con la prueba, quien pisa una envoltura tiene la
+maestra, y el cliente verifica igual lo que adopta (una envoltura con OTRA maestra que la del
+verificador se rechaza y se avisa, nunca se adopta). Límite que no cambia: un operador con
+escritura en la base puede reemplazar envoltura y verificador juntos; contra eso sigue estando
+la huella de la maestra y la de la clave pública, igual que en personal.
+
+*C1 — qué pasa con las filas que el leader no tiene localmente.* La lista sale del SERVIDOR
+(`recrypt-pending`), no de `projects.team_id` local. Si falta alguna fila en la base local, o la
+copia local tiene otro `lamport` que el del servidor (se editó después del último pull),
+`migrateTeam` pide UN pull (`daemon.pull()`, que ya trae lo de equipo por `team_cursors`) y
+vuelve a mirar. Lo que siga faltando se reporta en `missingLocally` y queda en `remaining`: la
+UI muestra el número y un botón para reintentar. No se fuerza un pull completo (reset de
+cursores): el pull normal ya baja toda fila de equipo nueva o editada, y lo que no llegó con un
+pull es una fila que este device no puede ver, no una que se salteó.
+
+*I3 — limiter propio.* `recrypt` y `recrypt-pending` pasan a un limiter propio (60/min por
+device): con el de claves (12/min, compartido con la readopción de cada arranque y la tarjeta)
+una migración de pocos miles de filas se quedaba sin cupo a la tercera vuelta. Igual hay
+reintento con backoff ante 429 (respeta `Retry-After`, tope de 3 reintentos por request).
+Los lotes cortan por cantidad (200) y por bytes (1 MiB, contra 20 MiB de `MAX_BODY_BYTES`).
+
+### Parte A — servidor
+
+- [ ] **Step 1: Tests que fallan** (`team-keys.test.ts`, `team-keys-recrypt.test.ts`, `team-keys-http.test.ts`):
+  - `activate` sin `verifier` → 400 `missing_verifier`; sin slot `recovery` → 400 `missing_recovery`; con un slot `device` que no es el device que llama → 400 `invalid_slot`; con todo bien guarda el verificador y el `GET` lo devuelve.
+  - Adversarial C2: un leader SIN clave (segundo leader del mismo equipo) llama `authorize` con una prueba inventada → 403 `must_hold_team_key` y la envoltura del device NO cambia; ídem `recrypt` → 403 y la fila sigue en claro; con la prueba correcta, los dos pasan.
+  - I1: una fila ya sellada → rechazo `already_sealed`; un `lamport` distinto del de la base → rechazo `stale`, la fila no cambia.
+  - I2: un item con `content: null` se aplica (no 400 al lote).
+  - C1: `listRecryptPending` devuelve las filas en claro de proyectos del equipo de CUALQUIER miembro (la del member, con el leader sin proyecto compartido), no las selladas, no las de otro equipo ni las personales; 403 para un member; pagina con `after`.
+  - HTTP: `team_id` no-uuid → 400 `invalid_team_id` en las cinco rutas; `GET /v1/teams/key/recrypt-pending` del leader → 200.
+- [ ] **Step 2: Correr y confirmar que fallan** — `cd server && npx vitest run __tests__/team-keys.test.ts __tests__/team-keys-recrypt.test.ts __tests__/team-keys-http.test.ts`
+- [ ] **Step 3: Implementar** la migración `010`, `team-keys.ts`, `team-keys-recrypt.ts`, `http.ts`.
+- [ ] **Step 4: Correr, confirmar que pasan**, y el suite entero del server.
+- [ ] **Step 5: Commit** — `fix(cifrado-equipo): el servidor exige probar la clave de equipo, lista lo pendiente de migrar y no pisa ediciones nuevas`
+
+### Parte B — cliente: cripto y cliente HTTP (C2)
+
+- [ ] **Step 6: Tests que fallan** (`memory-team-keys-client.test.ts`): el servidor falso guarda el verificador y exige la prueba; `adoptExistingTeamKey` con una envoltura de OTRA maestra lanza `TeamKeyMismatchError` (no devuelve la maestra); `recoverTeamWithCode` con un código que abre una maestra que no es la del equipo lanza ANTES de autorizar; `authorizeTeamDeviceFromClient` manda la prueba.
+- [ ] **Step 7: Implementar** `teamKeyProof`/`teamKeyVerifier` en `memory-crypto.ts` y el cliente.
+- [ ] **Step 8: Commit** — `fix(cifrado-equipo): el cliente verifica la maestra de equipo antes de adoptarla y prueba tenerla al autorizar`
+
+### Parte C — cliente: migración desde lo pendiente del servidor (C1, I1, I2, I3)
+
+- [ ] **Step 9: Tests que fallan** (`memory-team-reencrypt.test.ts`, `memory-store.test.ts`): `migrateTeam` toma la lista del servidor y busca local por `sync_id` sin mirar el proyecto; manda `lamport` y `proof`; si falta una fila local pide un pull y vuelve a mirar; reporta `missingLocally` y `remaining`; corta lotes por bytes; ante 429 espera y reintenta; si un lote falla a mitad, devuelve lo aplicado hasta ahí + `error`. `localTeamRowsBySyncIds` devuelve filas de proyectos sin `team_id` local.
+- [ ] **Step 10: Implementar** `migrateTeam` y `localTeamRowsBySyncIds`; borrar `localTeamRowsForTeam` y `runTeamRecrypt`.
+- [ ] **Step 11: Commit** — `fix(cifrado-equipo): la migración sale de lo pendiente en el servidor, no del team_id local`
+
+### Parte D — huella atada a lo que se autoriza (I4)
+
+- [ ] **Step 12: Test que falla** (`memory-authorize-target.test.ts`): sin huella → error; huella distinta de la de la pública del fetch → error; igual → target.
+- [ ] **Step 13: Implementar** `elegirDestinoVerificado` y usarlo en `memory:encryption:authorize` y `memory:teamEncryption:authorize`; las dos tarjetas mandan la huella que mostraron.
+- [ ] **Step 14: Commit** — `fix(cifrado): autorizar exige la huella que se le mostró al usuario`
+
+### Parte E — main.ts + UI (C1, I3, Minors)
+
+- [ ] **Step 15: Tests que fallan** (`TeamEncryptionCard.test.tsx`): después de activar se dispara la migración; con `recryptPending > 0` muestra el número y "Retry", sin decir que terminó; con 0 dice que todo está cifrado; un `error` del recrypt se muestra; un no-leader sin clave no ve "Use the team recovery code"; sin cifrado personal ve "Turn on memory encryption for your account first".
+- [ ] **Step 16: Implementar** handlers (`migrarEquipo` deduplicado y disparado tras `activate`, `recryptPending` y `hasPersonalKey` en el status) y la tarjeta (shadcn + utilidades, sin clases nuevas en `global.css`, copy en inglés).
+- [ ] **Step 17: Commit** — `fix(cifrado-equipo): la migración arranca sola al activar y la tarjeta muestra lo pendiente y los errores`
+
+### Parte F — e2e/16 (C1 de punta a punta)
+
+- [ ] **Step 18:** B guarda y promueve una memoria de equipo en SU proyecto (otro remoto, que A nunca tuvo ni compartió) ANTES de que A active. A activa; la migración tiene que dejar esa fila con `nmc1:` en el servicio y `recrypt-pending` en 0.
+- [ ] **Step 19: Correr** e2e/16 `--repeat-each=2`, e2e/13 y e2e/04-contraste.
+- [ ] **Step 20: Commit** — `test(cifrado-equipo): e2e/16 migra una fila de equipo de un proyecto que el leader no compartió`
+
+### Parte G — docs, I5 y verificación final
+
+- [ ] **Step 21:** restaurar `.superpowers/sdd/.gitignore` al contenido previo a `a70ba00`; CLAUDE.md (sección "Memoria cifrada"), `server/README.md` y spec (§2 schema real, §3-§5 con verifier/prueba/pendiente, §9 con C1/C2/I1-I4).
+- [ ] **Step 22:** typechecks de CI, `npm test`, `cd server && npx vitest run`.
+- [ ] **Step 23: Commit** — `docs(cifrado-equipo): spec, CLAUDE.md y README al día con Task 15`
