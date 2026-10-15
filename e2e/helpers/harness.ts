@@ -22,8 +22,23 @@ function uniqueTmp(prefix: string): string {
   return mkdtempSync(join(tmpdir(), prefix))
 }
 
-export async function launchHarness(opts?: { withRepo?: boolean; keepRealHome?: boolean; env?: Record<string, string> }): Promise<Harness> {
-  const homeDir = uniqueTmp('raven-e2e-home-')
+export async function launchHarness(opts?: {
+  withRepo?: boolean
+  keepRealHome?: boolean
+  env?: Record<string, string>
+  /**
+   * Reusa un `homeDir` ya existente (de un `launchHarness` anterior cuyo `teardown` se llamó
+   * con `{ keepHomeDir: true }`) en vez de generar uno nuevo. Hace falta para relanzar la MISMA
+   * identidad local entre dos arranques: `safeStorage` en Windows deriva su clave de cifrado de
+   * `--user-data-dir` (vía el `Local State` de Chromium, DPAPI de por medio) y no sólo de la
+   * cuenta de Windows — un `userDataDir` nuevo por launch (el default, derivado de un `homeDir`
+   * nuevo) deja indescifrable cualquier secreto que `RAVEN_HOME` guardó cifrado en el launch
+   * anterior (keys.bin de memory-key-store.ts, credential.bin), aunque el `RAVEN_HOME` en sí se
+   * reutilice. Pasar el MISMO `homeDir` reproduce también el mismo `userDataDir`.
+   */
+  homeDir?: string
+}): Promise<Harness> {
+  const homeDir = opts?.homeDir ?? uniqueTmp('raven-e2e-home-')
   let repoDir = ''
   if (opts?.withRepo !== false) {
     repoDir = uniqueTmp('raven-e2e-repo-')
@@ -88,7 +103,11 @@ export async function launchHarness(opts?: { withRepo?: boolean; keepRealHome?: 
   }
 }
 
-export async function teardown(h: Harness): Promise<void> {
+export async function teardown(h: Harness, opts?: {
+  /** No borra `h.homeDir`: para cuando un próximo `launchHarness({ homeDir: h.homeDir })` va a
+   *  reusarlo (relanzar la MISMA identidad local — ver el doc comment de `homeDir` arriba). */
+  keepHomeDir?: boolean
+}): Promise<void> {
   // app.close() hangs when background intervals (port polling, spotlight watchers)
   // keep the event loop alive. Race against a hard kill so the worker exits.
   const pid = h.app.process()?.pid
@@ -109,7 +128,7 @@ export async function teardown(h: Harness): Promise<void> {
       }
     } catch {}
   }
-  for (const d of [h.homeDir, h.repoDir]) {
+  for (const d of [opts?.keepHomeDir ? '' : h.homeDir, h.repoDir]) {
     if (!d) continue
     try { rmSync(d, { recursive: true, force: true }) } catch {}
   }

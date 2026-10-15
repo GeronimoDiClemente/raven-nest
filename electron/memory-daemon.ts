@@ -1303,6 +1303,14 @@ export class MemoryDaemon {
       // Si la cuenta cambió mientras esta respuesta viajaba, estas filas son de OTRA cuenta:
       // se descartan enteras. El cursor tampoco se guarda — lo que no se aplicó tiene que
       // volver a pedirse, y lo va a pedir la cuenta a la que le corresponde.
+      if (process.env.NEST_E2E_PULL_DEBUG) {
+        console.error('[doPull-debug]', JSON.stringify({
+          genMismatch: generacionAlSalir !== this.generacionDeStore,
+          rowCount: body.rows.length,
+          scopes: body.rows.map((r) => r.scope),
+          teamCursorsResp: body.team_cursors,
+        }))
+      }
       if (generacionAlSalir !== this.generacionDeStore) {
         this.setStatus('idle')
         return
@@ -1409,10 +1417,17 @@ export class MemoryDaemon {
    * synthetic rows instead of a live server.
    */
   applyPulledRow(incoming: PulledRow): void {
+    if (process.env.NEST_E2E_PULL_DEBUG && incoming.scope === 'team') {
+      const ctxDbg = this.deps.getEnvelopeContext?.() ?? null
+      console.error('[applyPulledRow-debug]', JSON.stringify({ syncId: incoming.syncId, projectKey: incoming.projectKey, hasCtx: !!ctxDbg, hasTeamKeysFn: !!ctxDbg?.teamKeys, teamKeysResult: ctxDbg?.teamKeys ? !!ctxDbg.teamKeys(incoming.projectKey) : null }))
+    }
     const { row: abierta, undecryptable } = openPulledRow(
       this.deps.getEnvelopeContext?.() ?? null,
       incoming
     )
+    if (process.env.NEST_E2E_PULL_DEBUG && incoming.scope === 'team') {
+      console.error('[applyPulledRow-debug] undecryptable=', undecryptable, 'syncId=', incoming.syncId)
+    }
     if (undecryptable) {
       // NO se aplica: guardar ciphertext en la base local llenaria la busqueda FTS5 y el
       // grafo de basura ilegible. Se cuenta y se sigue — el cursor tiene que avanzar

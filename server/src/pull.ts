@@ -94,6 +94,9 @@ export async function handlePull(
   // ninguna transacción abierta que pueda hacer rollback de este UPDATE: es un statement
   // suelto en autocommit, así que no hace falta el patrón de "loguear después del
   // rollback" que usa push.ts para rejected_pushes.
+  if (process.env.NEST_E2E_PULL_DEBUG) {
+    console.log('[pull-debug]', auth.userId, JSON.stringify(body))
+  }
   await pool.query(`update devices set pull_count = pull_count + 1 where id = $1`, [auth.deviceId])
 
   // §11.4: the interval is the server's call, not the client's. It is the only real cost

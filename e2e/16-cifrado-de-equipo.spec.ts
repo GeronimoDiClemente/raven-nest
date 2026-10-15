@@ -1,0 +1,439 @@
+// El cifrado de EQUIPO en la app real, de punta a punta: migración retroactiva, autorización
+// del compañero y lectura en claro — con un servicio de verdad.
+//
+// Hermano de `e2e/13-equipo-dos-cuentas.spec.ts` (de ahí vienen la mayoría de los helpers,
+// copiados tal cual porque no están exportados) y de `e2e/12-cifrado-dos-maquinas.spec.ts`
+// (de ahí el patrón de activar/autorizar/adoptar, pero acá por `teamId` y por IPC directo en
+// vez de clicks en la tarjeta — `TeamEncryptionCard` depende de `useTeam()`/Supabase, que este
+// harness no tiene).
+//
+// Todo lo que este test llama por IPC real (`window.memory.teamEncryption*`) exige cifrado
+// PERSONAL activo primero en quien llama (spec §2: ver el comentario en
+// `memory:teamEncryption:activate` de `electron/main.ts`) — por eso A y B activan el cifrado
+// personal antes de tocar nada de equipo.
+//
+// `teamMasterKeys` (electron/main.ts) es un Map EN MEMORIA, nunca persistido: cada relanzamiento
+// de la app pierde la clave de equipo y hay que recuperarla con `teamEncryptionAdopt`. El par de
+// dispositivo (`keys.bin`) sí persiste en disco bajo RAVEN_HOME — así que este test, a
+// diferencia de e2e/13, necesita conservar la identidad local de A y de B entre sus dos
+// lanzamientos cada uno: un `RAVEN_HOME` nuevo generaría un par de dispositivo nuevo, que no
+// puede abrir la envoltura que el leader selló para el par VIEJO. Y no alcanza con pasar el
+// mismo `RAVEN_HOME` por `env` a un `homeDir` efímero nuevo: `safeStorage` en Windows deriva su
+// clave de cifrado de `--user-data-dir` (Chromium guarda ahí, en `Local State`, la clave que
+// DPAPI protege) y no sólo de la cuenta de Windows, así que un `userDataDir` nuevo deja
+// indescifrable el `keys.bin` que el lanzamiento anterior escribió. `launchHarness({ homeDir })`
+// + `teardown(h, { keepHomeDir: true })` (agregado a `e2e/helpers/harness.ts` para este test)
+// reusan el mismo `homeDir` real y, con él, el mismo `userDataDir` derivado.
+//
+// Se saltea si no le pasan un servicio. Para correrlo (ver `e2e/13-equipo-dos-cuentas.spec.ts`
+// y `server/README.md`):
+//
+//   docker start nest-memory-pg
+//   (cd server && PORT=8099 npx tsx src/index.ts)
+//   npm run build
+//   NEST_E2E_SYNC_URL=http://127.0.0.1:8099 NEST_E2E_PG_DOCKER=nest-memory-pg \
+//     npx playwright test e2e/16-cifrado-de-equipo.spec.ts
+import { test, expect, type Page } from '@playwright/test'
+import { launchHarness, teardown, type Harness } from './helpers/harness'
+import { execFileSync, spawn } from 'child_process'
+import { cpSync, mkdirSync, mkdtempSync, readFileSync } from 'fs'
+import { randomUUID } from 'crypto'
+import { tmpdir } from 'os'
+import { join } from 'path'
+
+const SYNC_URL = process.env.NEST_E2E_SYNC_URL
+const PG_DOCKER = process.env.NEST_E2E_PG_DOCKER
+const DATABASE_URL = process.env.NEST_E2E_DATABASE_URL ?? 'postgres://postgres:nestmem@127.0.0.1:55432/nest_memory'
+
+const REPO = join(__dirname, '..')
+const PAQUETE = join(REPO, 'packages', 'nest-memory')
+const CLI = join(PAQUETE, 'dist', 'cli-del-paquete.js')
+const SHOTS = join(REPO, 'test-results', 'cifrado-de-equipo')
+mkdirSync(SHOTS, { recursive: true })
+
+test.skip(!SYNC_URL || !PG_DOCKER, 'necesita NEST_E2E_SYNC_URL y NEST_E2E_PG_DOCKER (ver el encabezado)')
+test.setTimeout(300_000)
+
+test.beforeAll(() => {
+  if (!SYNC_URL || !PG_DOCKER) return
+  // El MCP del paquete: es por donde un agente promueve una memoria (`memory_promote`).
+  execFileSync(process.execPath, [join(REPO, 'node_modules', 'typescript', 'bin', 'tsc'), '-p', join(PAQUETE, 'tsconfig.json')], { stdio: 'pipe' })
+})
+
+function sql(q: string): string {
+  return execFileSync('docker', ['exec', '-i', PG_DOCKER!, 'psql', '-U', 'postgres', '-d', 'nest_memory', '-t', '-A', '-c', q], {
+    encoding: 'utf8',
+  }).trim()
+}
+
+interface Cuenta { userId: string; deviceId: string; token: string }
+
+/** Una cuenta nueva con plan `team` y un device, con el mismo script que se usa en la beta.
+ *  Copiado tal cual de e2e/13 (no está exportado ahí). */
+function cuentaNueva(marca: string, quien: string): Cuenta {
+  const dir = mkdtempSync(join(tmpdir(), 'nest-e2e-equipo-'))
+  const out = join(dir, 'token.txt')
+  const salida = execFileSync(process.execPath, [
+    join(REPO, 'server', 'scripts', 'mint-device-token.mjs'),
+    '--email', `${quien}-${marca}@e2e.test`, '--device', `e2e-${quien}`, '--plan', 'team', '--out', out,
+  ], { encoding: 'utf8', env: { ...process.env, DATABASE_URL }, cwd: join(REPO, 'server') })
+  const campo = (k: string): string => salida.match(new RegExp(`^${k}=(.+)$`, 'm'))![1].trim()
+  return { userId: campo('user_id'), deviceId: campo('device_id'), token: readFileSync(out, 'utf8').trim() }
+}
+
+/** Variante de `hacerMiembro` de e2e/13 con `role` parametrizable: ese helper siempre pone
+ *  `'member'`, y este test necesita que A sea `'leader'` de verdad para que el chequeo
+ *  `isTeamLeader` del servidor (server/src/team-keys.ts) la deje activar/autorizar/re-cifrar. */
+function hacerMiembroConRol(c: Cuenta, teamId: string, role: 'leader' | 'member'): void {
+  sql(`insert into team_memberships (user_id, team_id, team_name, role, status)
+       values ('${c.userId}', '${teamId}', 'Equipo e2e cifrado', '${role}', 'active')`)
+}
+
+/** El mismo remoto en dos carpetas distintas: dos clones del mismo repo. Copiado de e2e/13. */
+function apuntarAlRemoto(repoDir: string, marca: string): void {
+  execFileSync('git', ['remote', 'add', 'origin', `https://github.com/nest-e2e/cifrado-${marca}.git`], { cwd: repoDir })
+}
+
+type Memoria = Record<string, (...a: unknown[]) => Promise<unknown>>
+const memoria = 'window.memory'
+
+async function conectar(page: Page, c: Cuenta): Promise<void> {
+  const r = await page.evaluate(async ({ url, token, deviceId }) => {
+    const m = (window as unknown as { memory: Memoria }).memory
+    const svc = await m.setSyncService(url)
+    const con = await m.connect(token, deviceId)
+    return { svc, con }
+  }, { url: SYNC_URL!, token: c.token, deviceId: c.deviceId })
+  expect((r.svc as { ok: boolean }).ok, JSON.stringify(r.svc)).toBe(true)
+  expect((r.con as { ok?: boolean }).ok ?? true, JSON.stringify(r.con)).toBe(true)
+}
+
+async function guardar(page: Page, repoDir: string, title: string): Promise<string> {
+  const r = await page.evaluate(async ({ title, worktreePath }) =>
+    (window as unknown as { memory: { saveFromUi(i: unknown): Promise<{ ok: boolean; syncId?: string; error?: string }> } })
+      .memory.saveFromUi({ title, content: `Contenido de: ${title}`, type: 'decision', worktreePath }), { title, worktreePath: repoDir })
+  expect(r.ok, `${memoria}.saveFromUi: ${r.error}`).toBe(true)
+  return r.syncId!
+}
+
+async function estado(page: Page): Promise<{ pendingCount: number; daemonStatus: string; daemonStatusDetail?: string }> {
+  return page.evaluate(() =>
+    (window as unknown as { memory: { status(): Promise<{ pendingCount: number; daemonStatus: string; daemonStatusDetail?: string }> } })
+      .memory.status())
+}
+
+async function todoSubido(page: Page): Promise<void> {
+  await expect.poll(async () => (await estado(page)).pendingCount, { timeout: 60_000 }).toBe(0)
+}
+
+async function projectKeyDe(page: Page, repoDir: string): Promise<string> {
+  const r = await page.evaluate(async (dir) =>
+    (window as unknown as { memory: { teamThreadProjectKeyForWorktree(d: string): Promise<{ ok: boolean; projectKey?: string }> } })
+      .memory.teamThreadProjectKeyForWorktree(dir), repoDir)
+  expect(r.ok).toBe(true)
+  return r.projectKey!
+}
+
+async function compartir(page: Page, projectKey: string, teamId: string): Promise<{ ok: boolean; error?: string }> {
+  return page.evaluate(async ({ projectKey, teamId }) =>
+    (window as unknown as { memory: { shareProjectWithTeam(p: string, t: string): Promise<{ ok: boolean; error?: string }> } })
+      .memory.shareProjectWithTeam(projectKey, teamId), { projectKey, teamId })
+}
+
+/** `memory_promote` como lo llama un agente: por el MCP del paquete, que le delega a Nest.
+ *  Copiado tal cual de e2e/13 (no está exportado ahí). */
+async function promoverPorMcp(h: Harness, syncId: string): Promise<string> {
+  const env: Record<string, string | undefined> = { ...process.env, RAVEN_HOME: h.homeDir, HOME: h.homeDir, USERPROFILE: h.homeDir, NODE_NO_WARNINGS: '1' }
+  delete env.NEST_MEMORY_SOCKET
+  delete env.NEST_MEMORY_TOKEN
+  const p = spawn(process.execPath, [CLI, 'mcp'], { env, cwd: h.repoDir, windowsHide: true })
+  let buf = ''
+  let stderr = ''
+  let id = 0
+  const pendientes = new Map<number, (m: { result?: unknown; error?: { message: string } }) => void>()
+  p.stdout.on('data', (d) => {
+    buf += d
+    let i: number
+    while ((i = buf.indexOf('\n')) >= 0) {
+      const linea = buf.slice(0, i).trim()
+      buf = buf.slice(i + 1)
+      if (!linea) continue
+      const m = JSON.parse(linea)
+      pendientes.get(m.id)?.(m)
+    }
+  })
+  p.stderr.on('data', (d) => { stderr += d })
+  const rpc = (method: string, params: unknown) => new Promise<{ result?: unknown; error?: { message: string } }>((resolve) => {
+    const n = ++id
+    pendientes.set(n, resolve)
+    p.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: n, method, params }) + '\n')
+  })
+  try {
+    const init = await rpc('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'e2e', version: '0' } })
+    expect(init.error, stderr).toBeUndefined()
+    const r = await rpc('tools/call', { name: 'memory_promote', arguments: { sync_id: syncId, reason: 'e2e de cifrado de equipo' } })
+    expect(r.error, stderr).toBeUndefined()
+    return JSON.stringify(r.result)
+  } finally {
+    p.stdin.end()
+  }
+}
+
+async function abrirMemories(page: Page): Promise<void> {
+  const toggle = page.getByRole('button', { name: /Collapse sidebar|Expand sidebar/ })
+  await expect(toggle).toBeVisible({ timeout: 15_000 })
+  if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click()
+  await page.getByTitle(/^Memories/).first().click()
+  await expect(page.locator('.memories-workspace')).toBeVisible({ timeout: 15_000 })
+}
+
+/** La fila en el servicio, mirada en su base. Copiado de e2e/13. */
+function filaEnElServicio(syncId: string): { scope: string; seq: number; title: string } | null {
+  const r = sql(`select scope || '|' || project_seq || '|' || title from observations where sync_id = '${syncId}'`)
+  if (!r) return null
+  const [scope, seq, ...resto] = r.split('|')
+  return { scope, seq: Number(seq), title: resto.join('|') }
+}
+
+/** Lo que la base LOCAL de esta instalación tiene con esa marca: título y scope. Copiado de e2e/13. */
+async function loQueTiene(page: Page, marca: string): Promise<Array<{ title: string; scope: string }>> {
+  return page.evaluate(async (q) => {
+    const r = await (window as unknown as { memory: { crossProject(i: unknown): Promise<{ items: Array<{ title: string; scope: string }> }> } })
+      .memory.crossProject({ query: q, limit: 50 })
+    return r.items.map((i) => ({ title: i.title, scope: i.scope }))
+  }, marca)
+}
+
+/**
+ * Reconectar es la forma de pedirle al daemon un ciclo entero AHORA (status → pull → push):
+ * `memory:connect` termina en `onNetworkRegain()`. Copiado de e2e/13.
+ */
+async function hastaQueTenga(page: Page, c: Cuenta, marca: string, title: string, timeout = 60_000): Promise<boolean> {
+  const hasta = Date.now() + timeout
+  while (Date.now() < hasta) {
+    await conectar(page, c)
+    await page.waitForTimeout(3_000)
+    if ((await loQueTiene(page, marca)).some((m) => m.title === title)) return true
+  }
+  return false
+}
+
+/** El autor: guarda una personal y una que promueve, comparte el proyecto y espera a que suba.
+ *  Copiado tal cual de e2e/13 (no está exportado ahí). */
+async function autorComparteYPromueve(a: Harness, teamId: string, marca: string): Promise<{
+  deEquipo: string; personal: string; syncIdEquipo: string; syncIdPersonal: string; projectKey: string
+}> {
+  const personal = `Nota personal del autor ${marca}`
+  const deEquipo = `Decision de equipo ${marca}`
+  const syncIdPersonal = await guardar(a.page, a.repoDir, personal)
+  const syncIdEquipo = await guardar(a.page, a.repoDir, deEquipo)
+  await todoSubido(a.page)
+
+  const projectKey = await projectKeyDe(a.page, a.repoDir)
+  const share = await compartir(a.page, projectKey, teamId)
+  expect(share.ok, `shareProjectWithTeam: ${share.error}`).toBe(true)
+
+  const promo = await promoverPorMcp(a, syncIdEquipo)
+  expect(promo, promo).toContain('true')
+  await expect.poll(() => filaEnElServicio(syncIdEquipo)?.scope, { timeout: 60_000 }).toBe('team')
+  expect(filaEnElServicio(syncIdPersonal)?.scope).toBe('personal')
+  return { deEquipo, personal, syncIdEquipo, syncIdPersonal, projectKey }
+}
+
+/** El cifrado personal es precondición de todo lo de equipo (spec §2, ver el comentario en
+ *  `memory:teamEncryption:activate` de electron/main.ts): sin maestra PERSONAL activa, el
+ *  servidor rechaza activar/adoptar/autorizar/re-cifrar de equipo. */
+async function activarCifradoPersonal(page: Page): Promise<void> {
+  const r = await page.evaluate(() =>
+    (window as unknown as { memory: { encryptionActivate(): Promise<{ ok: boolean; error?: string }> } }).memory.encryptionActivate())
+  // "ya está activado, esta máquina queda autorizada" es un resultado válido (adoptExistingKey
+  // internamente) si por algún motivo la cuenta ya tenía cifrado — no pasa en cuentas nuevas,
+  // pero no hace falta que el test lo distinga: lo único que importa es `memoryKeys.master`
+  // quedando seteado, y eso pasa en los dos casos.
+  expect(r.ok || /already has encryption on/.test(r.error ?? ''), `encryptionActivate: ${r.error}`).toBeTruthy()
+}
+
+async function teamEncryptionActivate(page: Page, teamId: string): Promise<{ ok: boolean; recoveryCode?: string; error?: string }> {
+  return page.evaluate((tid) =>
+    (window as unknown as { memory: { teamEncryptionActivate(t: string): Promise<{ ok: boolean; recoveryCode?: string; error?: string }> } })
+      .memory.teamEncryptionActivate(tid), teamId)
+}
+
+async function teamEncryptionAdopt(page: Page, teamId: string): Promise<{ ok: boolean; adoptada?: boolean; error?: string }> {
+  return page.evaluate((tid) =>
+    (window as unknown as { memory: { teamEncryptionAdopt(t: string): Promise<{ ok: boolean; adoptada?: boolean; error?: string }> } })
+      .memory.teamEncryptionAdopt(tid), teamId)
+}
+
+async function teamEncryptionStatus(page: Page, teamId: string): Promise<{
+  activated: boolean; hasMaster: boolean
+  pendingDevices: Array<{ deviceId: string; name: string; publicKey: string }>
+}> {
+  return page.evaluate((tid) =>
+    (window as unknown as { memory: {
+      teamEncryptionStatus(t: string): Promise<{
+        activated: boolean; hasMaster: boolean
+        pendingDevices: Array<{ deviceId: string; name: string; publicKey: string }>
+      }>
+    } }).memory.teamEncryptionStatus(tid), teamId)
+}
+
+async function teamEncryptionRecrypt(page: Page, teamId: string): Promise<{ total: number; applied: number; rejected: number; error?: string }> {
+  return page.evaluate((tid) =>
+    (window as unknown as { memory: { teamEncryptionRecrypt(t: string): Promise<{ total: number; applied: number; rejected: number; error?: string }> } })
+      .memory.teamEncryptionRecrypt(tid), teamId)
+}
+
+async function teamEncryptionAuthorize(page: Page, teamId: string, deviceId: string): Promise<{ ok: boolean; error?: string }> {
+  return page.evaluate(({ tid, dev }) =>
+    (window as unknown as { memory: { teamEncryptionAuthorize(t: string, d: string): Promise<{ ok: boolean; error?: string }> } })
+      .memory.teamEncryptionAuthorize(tid, dev), { tid: teamId, dev: deviceId })
+}
+
+test('cifrado de equipo: migra lo viejo, autoriza al compañero, el compañero lo lee en claro', async () => {
+  const marca = `ce${Date.now()}`
+  const teamId = randomUUID()
+  const cA = cuentaNueva(marca, 'leader')
+  const cB = cuentaNueva(marca, 'companero')
+  hacerMiembroConRol(cA, teamId, 'leader')
+  hacerMiembroConRol(cB, teamId, 'member')
+
+  let h: Harness | null = null
+  let homeDirA = ''
+  let homeDirB = ''
+  try {
+    // ── A (leader): guarda, comparte, promueve — TODO en claro, antes de activar nada ──
+    h = await launchHarness()
+    apuntarAlRemoto(h.repoDir, marca)
+    await conectar(h.page, cA)
+    await activarCifradoPersonal(h.page)
+    const a = await autorComparteYPromueve(h, teamId, marca)
+    expect(filaEnElServicio(a.syncIdEquipo)?.title).toBe(a.deEquipo) // todavía en claro
+
+    // `localTeamRowsForTeam` (lo que lee la migración retroactiva) filtra por
+    // `projects.team_id`, y esa fila local sólo existe una vez que `ensureProject()` corrió —
+    // y el ÚNICO lugar que lo hace para un proyecto nuevo es `doStatus()`, al leer el roster
+    // de la cuenta (ver el doc comment de `status()` en electron/memory-daemon.ts: "spec
+    // §5.3.1: the ONLY place a device can learn a project exists"). El primer `conectar()` de
+    // este test corrió ANTES de que este proyecto se empujara al servicio, así que todavía no
+    // podía verlo en el roster. Reconectar fuerza un ciclo status→pull→push nuevo, que ya sí
+    // lo encuentra y llama `ensureProject()` — y recién ahí repetir el share dejar grabado el
+    // `team_id` local (antes era un UPDATE sin fila que tocar).
+    await conectar(h.page, cA)
+    const share2 = await compartir(h.page, a.projectKey, teamId)
+    expect(share2.ok, `shareProjectWithTeam (2da vez, para fijar team_id local): ${share2.error}`).toBe(true)
+
+    // ── Activar el cifrado de EQUIPO (IPC real) ──────────────────────────────────
+    const act = await teamEncryptionActivate(h.page, teamId)
+    expect(act.ok, `teamEncryptionActivate: ${act.error}`).toBe(true)
+    expect(act.recoveryCode).toBeTruthy()
+
+    // ── Migrar lo que ya estaba (IPC real, sobre la ruta HTTP real) ──────────────
+    const migr = await teamEncryptionRecrypt(h.page, teamId)
+    expect(migr.error, JSON.stringify(migr)).toBeUndefined()
+    expect(migr.applied).toBeGreaterThanOrEqual(1)
+
+    // En el SERVICIO, la fila de equipo ahora tiene que estar cifrada de verdad.
+    expect(filaEnElServicio(a.syncIdEquipo)!.title).toMatch(/^nmc1:/)
+
+    await h.page.screenshot({ path: join(SHOTS, '01-leader-migro.png') })
+    homeDirA = h.homeDir
+    await teardown(h, { keepHomeDir: true }); h = null
+
+    // ── B (member) se conecta: todavía no está autorizado ────────────────────────
+    h = await launchHarness()
+    apuntarAlRemoto(h.repoDir, marca)
+    await conectar(h.page, cB)
+    // El cifrado personal de B, requisito para que B pueda ADOPTAR la clave de equipo más
+    // adelante (mismo gate que para A) — y de paso publica la clave pública de SU device,
+    // que es la precondición para que A la vea en `pendingDevices`.
+    await activarCifradoPersonal(h.page)
+    await guardar(h.page, h.repoDir, `Nota propia del companero ${marca}`)
+    await todoSubido(h.page)
+
+    // `projects.team_id` es POR USUARIO del lado del servicio (server/src/share.ts: el UPDATE
+    // filtra por `user_id = auth.userId`), y el mirror local (`teamIdForProjectKey`, lo que
+    // `openPulledRow` necesita para derivar la clave de equipo al desencriptar un pull — ver
+    // electron/memory-envelope.ts) es por-cuenta igual. Que A haya compartido este proyecto no
+    // alcanza para que B pueda abrir la fila de equipo: B tiene que marcar SU PROPIA copia del
+    // proyecto como compartida con el mismo equipo (mismo motivo que A necesitó reconectar
+    // antes de poder compartir — `ensureProject()` recién corre cuando `doStatus()` ve este
+    // project_key en el roster de LA CUENTA DE B, que recién pasa a existir server-side
+    // después de que B empujó su propia nota).
+    await conectar(h.page, cB)
+    const shareB = await compartir(h.page, await projectKeyDe(h.page, h.repoDir), teamId)
+    expect(shareB.ok, `shareProjectWithTeam (B, para que B pueda desencriptar lo de equipo): ${shareB.error}`).toBe(true)
+
+    const estadoAntes = await teamEncryptionStatus(h.page, teamId)
+    expect(estadoAntes.hasMaster).toBe(false)
+    await h.page.screenshot({ path: join(SHOTS, '02-companero-sin-autorizar.png') })
+    homeDirB = h.homeDir
+    await teardown(h, { keepHomeDir: true }); h = null
+
+    // ── A (leader) vuelve: recupera su clave de equipo y autoriza a B ────────────
+    h = await launchHarness({ homeDir: homeDirA })
+    await conectar(h.page, cA)
+    const adoptA = await teamEncryptionAdopt(h.page, teamId)
+    expect(adoptA.ok && adoptA.adoptada, `teamEncryptionAdopt (A): ${JSON.stringify(adoptA)}`).toBeTruthy()
+
+    const estadoDeB = await teamEncryptionStatus(h.page, teamId)
+    const deviceDeB = estadoDeB.pendingDevices.find((d) => d.deviceId === cB.deviceId)
+    expect(deviceDeB, `B no aparece en pendingDevices: ${JSON.stringify(estadoDeB.pendingDevices)}`).toBeTruthy()
+
+    const auth = await teamEncryptionAuthorize(h.page, teamId, deviceDeB!.deviceId)
+    expect(auth.ok, `teamEncryptionAuthorize: ${auth.error}`).toBe(true)
+    await h.page.screenshot({ path: join(SHOTS, '03-leader-autorizo.png') })
+    await teardown(h); h = null
+
+    // ── B vuelve: adopta la clave y lee la memoria de equipo EN CLARO en pantalla ─
+    h = await launchHarness({ homeDir: homeDirB, env: { NEST_E2E_PULL_DEBUG: '1' } })
+    h.app.process().stdout?.on('data', (d) => process.stdout.write(`[main-stdout] ${d}`))
+    h.app.process().stderr?.on('data', (d) => process.stdout.write(`[main-stderr] ${d}`))
+    apuntarAlRemoto(h.repoDir, marca)
+    await conectar(h.page, cB)
+    const adoptB = await teamEncryptionAdopt(h.page, teamId)
+    expect(adoptB.ok && adoptB.adoptada, `teamEncryptionAdopt (B): ${JSON.stringify(adoptB)}`).toBeTruthy()
+
+    await h.page.waitForTimeout(4_000)
+    console.log('[debug] justo despues de adopt, loQueTiene:', JSON.stringify(await loQueTiene(h.page, marca)))
+    console.log('[debug] justo despues de adopt, encryptionStatus:', JSON.stringify(await h.page.evaluate(() =>
+      (window as unknown as { memory: { encryptionStatus(): Promise<unknown> } }).memory.encryptionStatus())))
+
+    let llego = false
+    for (let i = 0; i < 10 && !llego; i++) {
+      await conectar(h.page, cB)
+      await h.page.waitForTimeout(3_000)
+      const items = await loQueTiene(h.page, marca)
+      const enc = await h.page.evaluate(() =>
+        (window as unknown as { memory: { encryptionStatus(): Promise<{ undecryptable: number }> } }).memory.encryptionStatus())
+      console.log(`[debug] iter ${i}: items=${JSON.stringify(items)} undecryptable=${enc.undecryptable}`)
+      llego = items.some((m) => m.title === a.deEquipo)
+    }
+    if (!llego) {
+      const encStatus = await h.page.evaluate(() =>
+        (window as unknown as { memory: { encryptionStatus(): Promise<{ undecryptable: number }> } }).memory.encryptionStatus())
+      const teamStatus2 = await teamEncryptionStatus(h.page, teamId)
+      console.log('[debug] encryptionStatus (B):', JSON.stringify(encStatus))
+      console.log('[debug] teamEncryptionStatus (B):', JSON.stringify(teamStatus2))
+      console.log('[debug] loQueTiene (B):', JSON.stringify(await loQueTiene(h.page, marca)))
+      console.log('[debug] pull_count (B):', sql(`select pull_count from devices where id = '${cB.deviceId}'`))
+      console.log('[debug] observation row:', sql(`select sync_id, scope, project_seq, title, author_id from observations where sync_id = '${a.syncIdEquipo}'`))
+      console.log('[debug] projects for this project_key:', sql(`select id, user_id, project_key, team_id from projects where project_key = '${a.projectKey}'`))
+      console.log('[debug] team_memberships cA:', sql(`select user_id, team_id, role, status from team_memberships where user_id = '${cA.userId}' and team_id = '${teamId}'`))
+      console.log('[debug] team_memberships cB:', sql(`select user_id, team_id, role, status from team_memberships where user_id = '${cB.userId}' and team_id = '${teamId}'`))
+      console.log('[debug] teamId:', teamId, 'projectKey:', a.projectKey, 'cA.userId:', cA.userId, 'cB.userId:', cB.userId)
+      console.log('[debug] TODOS los projects de cB:', sql(`select id, user_id, project_key, team_id from projects where user_id = '${cB.userId}'`))
+      if (process.env.NEST_E2E_DEBUG_HOME_B) cpSync(h.homeDir, process.env.NEST_E2E_DEBUG_HOME_B, { recursive: true })
+    }
+    expect(llego, 'la memoria de equipo nunca llegó al compañero').toBe(true)
+    const enB = await loQueTiene(h.page, marca)
+    expect(enB.find((m) => m.title === a.deEquipo)?.scope).toBe('team')
+
+    await abrirMemories(h.page)
+    await expect(h.page.getByText(a.deEquipo).first()).toBeVisible({ timeout: 20_000 })
+    await h.page.screenshot({ path: join(SHOTS, '04-companero-lee-en-claro.png') })
+  } finally {
+    if (h) await h.page.screenshot({ path: join(SHOTS, 'zz-final.png') }).catch(() => {})
+    if (h) await teardown(h)
+  }
+})
