@@ -9,6 +9,7 @@
 import type { Pool } from 'pg'
 import { isTeamLeader, pruebaDePosesionValida, type TeamKeysAuth } from './team-keys'
 import { allocateSeqRange } from './seq'
+import { resolveTopicCollision } from './lww'
 
 type Fail<S extends number> = { ok: false; status: S; error: string }
 
@@ -34,10 +35,56 @@ export interface RecryptItem {
    * con la copia de quien editó, así que ni siquiera converge.
    */
   lamport: number
+  /**
+   * Task 15b (I2): el HMAC del tema (`hmacTopicKey` con la clave de equipo: 32 hex), o null si
+   * la fila no tiene tema. Antes la migración no lo tocaba: el histórico quedaba con el tema en
+   * claro (se lo filtraba al operador) y una fila nueva del mismo tema —que llega con el HMAC—
+   * nunca la encontraba para el supersede. Ausente equivale a null; una fila CON tema que llega
+   * sin él se rechaza (`missing_topic_key`) y sigue pendiente, en vez de quedar "sellada" con
+   * el tema a la vista.
+   */
+  topic_key?: string | null
 }
 
 /** Lo que `recrypt-pending` devuelve por página: trae el contenido, así que va chico. */
 const PENDIENTES_POR_PAGINA = 200
+/**
+ * Minor 2 (review de Task 15): además del tope de filas, uno de bytes. 200 filas de contenido
+ * grande podían sumar cientos de MiB en una sola respuesta. Una fila que sola pasa el tope va
+ * sola: nunca se devuelve una página vacía mientras quede algo, o el cliente cortaría creyendo
+ * que terminó.
+ */
+const BYTES_POR_PAGINA = 1024 * 1024
+
+/** 32 hex en minúscula: exactamente lo que devuelve `hmacTopicKey` (electron/memory-crypto.ts). */
+const HMAC_DE_TEMA = /^[0-9a-f]{32}$/
+
+/**
+ * EL predicado de "esta fila sigue (al menos en parte) en claro". Uno solo para `recrypt-pending`
+ * y para el `already_sealed` de `recrypt` (Minor 1): antes pending miraba title O content y
+ * recrypt sólo title, así que una fila con el título sellado y el resto en claro aparecía como
+ * pendiente para siempre y recrypt la rechazaba siempre.
+ *
+ * Mira todo lo que `sealMutationPayload` sella: title, content, content_hash, origin_account y
+ * tags (que se sellan como UN sobre: `["nmc1:…"]`). Un null o un `[]` no cuenta como en claro.
+ *
+ * `topic_key` NO entra, a propósito: sellado es un HMAC de 32 hex, que no se distingue de un
+ * tema en claro que justo sea 32 hex — meterlo daría falsos "en claro" o falsos "sellado". Y no
+ * hace falta: una fila que sella `sealMutationPayload` sale con el tema ya hasheado, y una que
+ * migra este archivo cambia el tema en la MISMA escritura que el título, así que ninguna fila
+ * que este predicado da por sellada conserva el tema en claro.
+ *
+ * El `case` de los tags no es estilo: `jsonb_array_length` lanza sobre un jsonb que no es array,
+ * y en un `and` Postgres no garantiza el orden de evaluación.
+ */
+function enClaro(o: string): string {
+  const campo = (c: string) => `(${o}.${c} is not null and ${o}.${c} not like 'nmc1:%')`
+  return `(${o}.title not like 'nmc1:%'
+    or ${campo('content')} or ${campo('content_hash')} or ${campo('origin_account')}
+    or case when jsonb_typeof(${o}.tags) = 'array' and jsonb_array_length(${o}.tags) > 0
+            then not (jsonb_array_length(${o}.tags) = 1 and coalesce(${o}.tags->>0, '') like 'nmc1:%')
+            else false end)`
+}
 
 export interface PendingRow {
   sync_id: string
@@ -47,6 +94,10 @@ export interface PendingRow {
   tags: unknown
   content_hash: string | null
   origin_account: string | null
+  /** Task 15b (I2): con estos dos el cliente deriva el MISMO HMAC de tema que una fila nueva
+   * (`hmacTopicKey(claves, project_key, 'team', tema)`), sin tener el proyecto clonado. */
+  project_key: string
+  topic_key: string | null
 }
 
 /**
@@ -55,9 +106,7 @@ export interface PendingRow {
  * LOCAL, que sólo existe para los proyectos que ÉL compartió: lo que un member compartió desde
  * su propia copia quedaba en claro para siempre, mientras la tarjeta decía que se re-cifraba.
  *
- * "En claro" = `title` o `content` sin `nmc1:`. Los dos se miran porque los dos se sellan
- * juntos, y una fila a medias sigue exponiendo lo que le falta. Un `content` null (tombstone)
- * no cuenta como en claro.
+ * "En claro" = `enClaro()` de arriba. Un `content` null (tombstone) no cuenta como en claro.
  *
  * Devuelve el CONTENIDO de cada fila, no sólo el `sync_id`. La primera versión devolvía sólo
  * ids y el cliente las buscaba en su base local, pero el pull sólo baja filas de los
@@ -71,31 +120,48 @@ export interface PendingRow {
  *
  * Paginado por `sync_id` (keyset): la lista se achica a medida que la migración avanza, así
  * que un offset saltearía filas. `total` es el conteo entero, para que la UI muestre cuánto
- * falta sin recorrer todas las páginas.
+ * falta sin recorrer todas las páginas. La página corta por filas Y por bytes; como el corte es
+ * siempre un prefijo en orden de `sync_id`, el `after` = último `sync_id` devuelto sigue siendo
+ * correcto.
  */
 export async function listRecryptPending(
   pool: Pool,
   auth: TeamKeysAuth,
   teamId: string,
-  opts: { after?: string; limit?: number }
+  opts: { after?: string; limit?: number; maxBytes?: number }
 ): Promise<{ ok: true; total: number; items: PendingRow[] } | Fail<403>> {
   if (!(await isTeamLeader(pool, auth.userId, teamId))) {
     return { ok: false, status: 403, error: 'leader_required' }
   }
-  const enClaro = `o.scope = 'team' and p.team_id = $1
-     and (o.title not like 'nmc1:%' or (o.content is not null and o.content not like 'nmc1:%'))`
+  const pendiente = `o.scope = 'team' and p.team_id = $1 and ${enClaro('o')}`
   const limit = Math.max(1, Math.min(PENDIENTES_POR_PAGINA, Math.floor(opts.limit ?? PENDIENTES_POR_PAGINA)))
+  const maxBytes = Math.max(1, Math.floor(opts.maxBytes ?? BYTES_POR_PAGINA))
   const { rows: totalRows } = await pool.query(
-    `select count(*)::int as n from observations o join projects p on p.id = o.project_id where ${enClaro}`,
+    `select count(*)::int as n from observations o join projects p on p.id = o.project_id where ${pendiente}`,
     [teamId]
   )
+  // El acumulado se calcula sobre la página ya cortada por filas (a lo sumo 200), no sobre todo
+  // lo pendiente del equipo. `n = 1` es "al menos una fila", aunque sola pase el tope.
   const { rows } = await pool.query(
-    `select o.sync_id, o.lamport, o.title, o.content, o.tags, o.content_hash, o.origin_account
-       from observations o join projects p on p.id = o.project_id
-      where ${enClaro} and ($2::text is null or o.sync_id > $2::text)
-      order by o.sync_id
-      limit $3`,
-    [teamId, opts.after ?? null, limit]
+    `with pagina as (
+       select o.sync_id, o.lamport, o.title, o.content, o.tags, o.content_hash, o.origin_account,
+              o.topic_key, p.project_key,
+              octet_length(o.title) + coalesce(octet_length(o.content), 0)
+                + coalesce(octet_length(o.tags::text), 0) + coalesce(octet_length(o.content_hash), 0)
+                + coalesce(octet_length(o.origin_account), 0) + coalesce(octet_length(o.topic_key), 0)
+                + octet_length(p.project_key) as bytes
+         from observations o join projects p on p.id = o.project_id
+        where ${pendiente} and ($2::text is null or o.sync_id > $2::text)
+        order by o.sync_id
+        limit $3
+     ), acumulada as (
+       select pagina.*,
+              sum(bytes) over (order by sync_id) as hasta_aca,
+              row_number() over (order by sync_id) as n
+         from pagina
+     )
+     select * from acumulada where n = 1 or hasta_aca <= $4 order by sync_id`,
+    [teamId, opts.after ?? null, limit, maxBytes]
   )
   return {
     ok: true,
@@ -108,6 +174,8 @@ export async function listRecryptPending(
       tags: r.tags ?? [],
       content_hash: (r.content_hash as string | null) ?? null,
       origin_account: (r.origin_account as string | null) ?? null,
+      project_key: String(r.project_key),
+      topic_key: (r.topic_key as string | null) ?? null,
     })),
   }
 }
@@ -153,6 +221,11 @@ export async function recryptTeamObservations(
     if (typeof it.lamport !== 'number' || !Number.isInteger(it.lamport) || it.lamport < 0) {
       return { ok: false, status: 400, error: 'invalid_fields' }
     }
+    // Lo único que el servidor puede chequear de un HMAC es la forma. Un tema en claro en este
+    // campo sería volver a escribir el texto que se quiere sacar.
+    if (it.topic_key != null && (typeof it.topic_key !== 'string' || !HMAC_DE_TEMA.test(it.topic_key))) {
+      return { ok: false, status: 400, error: 'invalid_fields' }
+    }
   }
 
   const applied: string[] = []
@@ -169,9 +242,12 @@ export async function recryptTeamObservations(
       // sea EXACTAMENTE este equipo, y tener scope='team'. Cualquier otra cosa —otro equipo,
       // scope personal, sync_id inventado— no matchea ninguna fila y cae al rows.length === 0
       // de abajo. `for update` toma el lock de la fila antes del allocateSeqRange, así que lo
-      // que se compara abajo (título y lamport) no cambia entre el chequeo y el update.
+      // que se compara abajo (si sigue en claro, lamport, tema) no cambia entre el chequeo y el
+      // update.
       const { rows } = await client.query(
-        `select o.project_id, o.title, o.lamport from observations o
+        `select o.project_id, o.lamport, o.topic_key, o.deleted, o.superseded_by, o.client_updated_at,
+                ${enClaro('o')} as en_claro
+           from observations o
            join projects p on p.id = o.project_id
           where o.sync_id = $1 and p.team_id = $2 and o.scope = 'team'
           for update of o`,
@@ -182,29 +258,85 @@ export async function recryptTeamObservations(
         rejected.push({ sync_id: it.sync_id, error: 'not_found_in_team' })
         continue
       }
+      const actual = rows[0]
       // I1: una fila ya sellada se escribió DESPUÉS de activar (push normal, ya cifrado) o ya
-      // se migró. Pisarla con lo que el leader cifró de su copia local es volver atrás.
-      if (String(rows[0].title).startsWith('nmc1:')) {
+      // se migró. Pisarla con lo que el leader cifró de su copia local es volver atrás. Mismo
+      // predicado que `recrypt-pending` (Minor 1).
+      if (!actual.en_claro) {
         await client.query('rollback')
         rejected.push({ sync_id: it.sync_id, error: 'already_sealed' })
         continue
       }
-      if (Number(rows[0].lamport) !== it.lamport) {
+      if (Number(actual.lamport) !== it.lamport) {
         await client.query('rollback')
         rejected.push({ sync_id: it.sync_id, error: 'stale' })
         continue
       }
-      const projectId = Number(rows[0].project_id)
+      // I2: una fila SIN tema queda sin tema, mande lo que mande el cliente. Una CON tema
+      // necesita el HMAC: sellar el resto y dejar el tema en claro es justo lo que se arregla.
+      const temaNuevo: string | null = actual.topic_key == null ? null : (it.topic_key ?? null)
+      if (actual.topic_key != null && temaNuevo === null) {
+        await client.query('rollback')
+        rejected.push({ sync_id: it.sync_id, error: 'missing_topic_key' })
+        continue
+      }
+      const projectId = Number(actual.project_id)
       const nuevoSeq = await allocateSeqRange(client, projectId, 1)
+
+      // I2: con el HMAC, la fila migrada puede chocar contra una fila viva del mismo tema que se
+      // guardó DESPUÉS de activar (ya llegó con el HMAC). `obs_topic_uniq` no admite dos vivas,
+      // así que se resuelve igual que en push.ts (§8.1): mismo lock, misma regla
+      // (`resolveTopicCollision`), y el que pierde queda `superseded_by` — nunca rechazado. Una
+      // fila migrada que ya estaba superseded o borrada no compite (el índice no la mira).
+      let supersededBy: string | null = (actual.superseded_by as string | null) ?? null
+      const compite = temaNuevo !== null && !actual.deleted && supersededBy === null
+      if (compite) {
+        await client.query('select pg_advisory_xact_lock(hashtextextended($1, 0))', [
+          `${projectId}:team:${temaNuevo}`,
+        ])
+        const owner = await client.query(
+          `select sync_id, lamport, client_updated_at from observations
+            where project_id = $1 and scope = 'team' and topic_key = $2
+              and sync_id <> $3 and deleted = false and superseded_by is null
+            for update`,
+          [projectId, temaNuevo, it.sync_id]
+        )
+        if (owner.rows.length > 0) {
+          const existente = {
+            syncId: String(owner.rows[0].sync_id),
+            updatedAt: new Date(owner.rows[0].client_updated_at).getTime(),
+            lamport: Number(owner.rows[0].lamport),
+          }
+          const migrada = {
+            syncId: it.sync_id,
+            updatedAt: new Date(actual.client_updated_at).getTime(),
+            lamport: Number(actual.lamport),
+          }
+          const { winner } = resolveTopicCollision(existente, migrada)
+          if (winner.syncId === it.sync_id) {
+            // Igual que push: el perdedor se marca ANTES de escribir el tema de la ganadora
+            // (el índice no admite dos vivas ni por un instante) y recibe seq nuevo, para que
+            // los devices que ya lo tenían se enteren de que perdió.
+            await client.query(
+              `update observations set superseded_by = $1, project_seq = $2 where sync_id = $3`,
+              [it.sync_id, await allocateSeqRange(client, projectId, 1), existente.syncId]
+            )
+          } else {
+            supersededBy = existente.syncId
+          }
+        }
+      }
+
       // El lamport NO se toca: re-cifrar no es editar, y subirlo haría ganar esta versión en
       // LWW contra una edición concurrente. El bump de `project_seq` alcanza para que el resto
       // de los devices la vuelva a bajar.
       await client.query(
         `update observations
             set title = $1, content = $2, tags = $3::jsonb, project_seq = $4,
-                content_hash = $5, origin_account = $6
-          where sync_id = $7`,
-        [it.title, it.content, JSON.stringify(it.tags ?? []), nuevoSeq, it.content_hash, it.origin_account, it.sync_id]
+                content_hash = $5, origin_account = $6, topic_key = $7, superseded_by = $8
+          where sync_id = $9`,
+        [it.title, it.content, JSON.stringify(it.tags ?? []), nuevoSeq, it.content_hash, it.origin_account,
+          temaNuevo, supersededBy, it.sync_id]
       )
       await client.query('commit')
       applied.push(it.sync_id)

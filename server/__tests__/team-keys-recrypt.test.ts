@@ -304,6 +304,9 @@ describe('listRecryptPending — C1', () => {
     expect(res.items.find((i) => i.sync_id === delMember)).toEqual({
       sync_id: delMember, lamport: 1, title: 'en claro', content: 'contenido en claro', tags: [],
       content_hash: null, origin_account: null,
+      // Task 15b (I2): con el tema y el proyecto el cliente deriva el MISMO HMAC que una fila
+      // nueva (`sealMutationPayload`), sin depender de tener el proyecto clonado.
+      project_key: 'repo-x', topic_key: null,
     })
   })
 
@@ -328,5 +331,195 @@ describe('listRecryptPending — C1', () => {
   it('403 para un member', async () => {
     const res = await listRecryptPending(pool, { deviceId: memberDevice, userId: memberId }, teamId, {})
     expect(res).toEqual({ ok: false, status: 403, error: 'leader_required' })
+  })
+})
+
+// Task 15b (I2): la migración dejaba el `topic_key` en claro. Además de filtrarle el tema al
+// operador, rompía el supersede: una fila nueva del mismo tema llega con el HMAC y la vieja
+// migrada seguía con el texto, así que nunca se encontraban.
+const HMAC_A = 'a'.repeat(32)
+
+async function conTema(syncId: string, projectId: number, topic: string, extra: { lamport?: number; updatedAt?: string; title?: string } = {}) {
+  await obs(syncId, projectId, 'team', memberId)
+  await pool.query(
+    `update observations set topic_key = $2, lamport = $3, client_updated_at = $4, title = $5 where sync_id = $1`,
+    [syncId, topic, extra.lamport ?? 1, extra.updatedAt ?? '2026-10-01T00:00:00Z', extra.title ?? 'en claro']
+  )
+}
+
+async function filaTema(syncId: string) {
+  return (await pool.query(
+    'select topic_key, superseded_by, project_seq from observations where sync_id = $1', [syncId]
+  )).rows[0]
+}
+
+const leader = () => ({ deviceId: leaderDevice, userId: leaderId })
+
+describe('Task 15b — I2: el tema también se sella', () => {
+  it('recrypt-pending devuelve el tema en claro y el project_key de la fila', async () => {
+    const syncId = randomUUID()
+    await conTema(syncId, projectMember, 'deploy-target')
+    const res = await listRecryptPending(pool, leader(), teamId, {})
+    expect(res.ok && res.items.map((i) => [i.sync_id, i.project_key, i.topic_key]))
+      .toEqual([[syncId, 'repo-x', 'deploy-target']])
+  })
+
+  it('recrypt escribe el HMAC en topic_key', async () => {
+    const syncId = randomUUID()
+    await conTema(syncId, projectMember, 'deploy-target')
+    const res = await recryptTeamObservations(pool, leader(), teamId, {
+      proof: PRUEBA, items: [item(syncId, { topic_key: HMAC_A })],
+    })
+    expect(res.ok && res.applied).toEqual([syncId])
+    expect((await filaTema(syncId)).topic_key).toBe(HMAC_A)
+  })
+
+  it('un topic_key null en la base queda null, mande lo que mande el cliente', async () => {
+    const syncId = randomUUID()
+    await obs(syncId, projectMember, 'team', memberId)
+    const res = await recryptTeamObservations(pool, leader(), teamId, {
+      proof: PRUEBA, items: [item(syncId, { topic_key: HMAC_A })],
+    })
+    expect(res.ok && res.applied).toEqual([syncId])
+    expect((await filaTema(syncId)).topic_key).toBeNull()
+  })
+
+  it('una fila con tema que llega SIN topic_key se rechaza y sigue pendiente', async () => {
+    const syncId = randomUUID()
+    await conTema(syncId, projectMember, 'deploy-target')
+    const res = await recryptTeamObservations(pool, leader(), teamId, {
+      proof: PRUEBA, items: [item(syncId)],
+    })
+    expect(res.ok && res.rejected).toEqual([{ sync_id: syncId, error: 'missing_topic_key' }])
+    expect(await fila(syncId)).toMatchObject({ title: 'en claro' })
+    expect((await filaTema(syncId)).topic_key).toBe('deploy-target')
+  })
+
+  it('un topic_key que no es un HMAC (32 hex) invalida el lote', async () => {
+    const syncId = randomUUID()
+    await conTema(syncId, projectMember, 'deploy-target')
+    for (const topic_key of ['deploy-target', 'A'.repeat(32), 42]) {
+      const res = await recryptTeamObservations(pool, leader(), teamId, {
+        proof: PRUEBA, items: [item(syncId, { topic_key })],
+      })
+      expect(res).toEqual({ ok: false, status: 400, error: 'invalid_fields' })
+    }
+  })
+
+  it('colisión con una fila viva más NUEVA del mismo HMAC: la migrada queda superseded, como en push', async () => {
+    const vieja = randomUUID()
+    const nueva = randomUUID()
+    await conTema(vieja, projectMember, 'deploy-target', { lamport: 1, updatedAt: '2026-10-01T00:00:00Z' })
+    // La que se guardó DESPUÉS de activar: ya llegó sellada, con el HMAC.
+    await conTema(nueva, projectMember, HMAC_A, { lamport: 9, updatedAt: '2026-10-10T00:00:00Z', title: 'nmc1:nueva' })
+    await pool.query(`update observations set content = 'nmc1:c' where sync_id = $1`, [nueva])
+    const seqNueva = (await filaTema(nueva)).project_seq
+    const res = await recryptTeamObservations(pool, leader(), teamId, {
+      proof: PRUEBA, items: [item(vieja, { topic_key: HMAC_A })],
+    })
+    expect(res.ok && res.applied).toEqual([vieja])
+    expect(await filaTema(vieja)).toMatchObject({ topic_key: HMAC_A, superseded_by: nueva })
+    expect(await filaTema(nueva)).toMatchObject({ topic_key: HMAC_A, superseded_by: null, project_seq: seqNueva })
+  })
+
+  it('colisión donde gana la migrada: la otra queda superseded y con seq nuevo (el pull se entera)', async () => {
+    const migrada = randomUUID()
+    const otra = randomUUID()
+    await conTema(migrada, projectMember, 'deploy-target', { lamport: 5, updatedAt: '2026-10-12T00:00:00Z' })
+    await conTema(otra, projectMember, HMAC_A, { lamport: 2, updatedAt: '2026-10-02T00:00:00Z', title: 'nmc1:otra' })
+    await pool.query(`update observations set content = 'nmc1:c' where sync_id = $1`, [otra])
+    const seqOtra = Number((await filaTema(otra)).project_seq)
+    const res = await recryptTeamObservations(pool, leader(), teamId, {
+      proof: PRUEBA, items: [item(migrada, { topic_key: HMAC_A, lamport: 5 })],
+    })
+    expect(res.ok && res.applied).toEqual([migrada])
+    expect(await filaTema(migrada)).toMatchObject({ topic_key: HMAC_A, superseded_by: null })
+    const o = await filaTema(otra)
+    expect(o.superseded_by).toBe(migrada)
+    expect(Number(o.project_seq)).toBeGreaterThan(seqOtra)
+  })
+
+  it('una fila ya superseded no compite: sólo cambia su tema', async () => {
+    const viva = randomUUID()
+    const muerta = randomUUID()
+    await conTema(viva, projectMember, HMAC_A, { lamport: 1, title: 'nmc1:viva' })
+    await pool.query(`update observations set content = 'nmc1:c' where sync_id = $1`, [viva])
+    await conTema(muerta, projectMember, 'deploy-target', { lamport: 7, updatedAt: '2026-10-14T00:00:00Z' })
+    await pool.query(`update observations set superseded_by = 'alguien' where sync_id = $1`, [muerta])
+    const res = await recryptTeamObservations(pool, leader(), teamId, {
+      proof: PRUEBA, items: [item(muerta, { topic_key: HMAC_A, lamport: 7 })],
+    })
+    expect(res.ok && res.applied).toEqual([muerta])
+    expect(await filaTema(muerta)).toMatchObject({ topic_key: HMAC_A, superseded_by: 'alguien' })
+    expect((await filaTema(viva)).superseded_by).toBeNull()
+  })
+})
+
+describe('Task 15b — Minor 1: un solo predicado de "en claro"', () => {
+  it('una fila con todo sellado salvo origin_account aparece en pending Y recrypt la acepta', async () => {
+    const syncId = randomUUID()
+    await obs(syncId, projectMember, 'team', memberId)
+    await pool.query(
+      `update observations set title = 'nmc1:t', content = 'nmc1:c', origin_account = 'claude:gero@mail' where sync_id = $1`,
+      [syncId]
+    )
+    const pend = await listRecryptPending(pool, leader(), teamId, {})
+    expect(pend.ok && pend.items.map((i) => i.sync_id)).toEqual([syncId])
+    const res = await recryptTeamObservations(pool, leader(), teamId, {
+      proof: PRUEBA, items: [item(syncId, { title: 'nmc1:t', origin_account: 'nmc1:o' })],
+    })
+    expect(res.ok && res.applied).toEqual([syncId])
+  })
+
+  it.each([
+    ['content_hash', `content_hash = 'sha-en-claro'`],
+    ['tags', `tags = '["en-claro"]'::jsonb`],
+  ])('%s en claro con lo demás sellado también cuenta como pendiente', async (_campo, set) => {
+    const syncId = randomUUID()
+    await obs(syncId, projectMember, 'team', memberId)
+    await pool.query(`update observations set title = 'nmc1:t', content = 'nmc1:c', ${set} where sync_id = $1`, [syncId])
+    const pend = await listRecryptPending(pool, leader(), teamId, {})
+    expect(pend.ok && pend.items.map((i) => i.sync_id)).toEqual([syncId])
+  })
+
+  it('una fila sellada entera (tags como UN sobre) no está pendiente y recrypt dice already_sealed', async () => {
+    const syncId = randomUUID()
+    await obs(syncId, projectMember, 'team', memberId)
+    await pool.query(
+      `update observations set title = 'nmc1:t', content = 'nmc1:c', tags = '["nmc1:tags"]'::jsonb,
+              content_hash = 'nmc1:h', origin_account = 'nmc1:o' where sync_id = $1`,
+      [syncId]
+    )
+    const pend = await listRecryptPending(pool, leader(), teamId, {})
+    expect(pend.ok && pend.total).toBe(0)
+    const res = await recryptTeamObservations(pool, leader(), teamId, { proof: PRUEBA, items: [item(syncId)] })
+    expect(res.ok && res.rejected).toEqual([{ sync_id: syncId, error: 'already_sealed' }])
+  })
+})
+
+describe('Task 15b — Minor 2: la página de pendientes tiene tope de bytes', () => {
+  it('corta por bytes (~1 MiB), nunca devuelve una página vacía, y `after` sigue sin saltear', async () => {
+    const ids = [randomUUID(), randomUUID(), randomUUID()].sort()
+    for (const id of ids) {
+      await obs(id, projectMember, 'team', memberId)
+      await pool.query('update observations set content = $2 where sync_id = $1', [id, 'x'.repeat(600 * 1024)])
+    }
+    // Una fila que sola pasa el tope: tiene que salir igual, sola.
+    const gigante = 'zz-' + randomUUID() // ordena después de cualquier uuid
+    await obs(gigante, projectMember, 'team', memberId)
+    await pool.query('update observations set content = $2 where sync_id = $1', [gigante, 'y'.repeat(2 * 1024 * 1024)])
+
+    const vistos: string[] = []
+    let after: string | undefined
+    for (let vuelta = 0; vuelta < 10; vuelta++) {
+      const p = await listRecryptPending(pool, leader(), teamId, { after })
+      if (!p.ok) throw new Error('403')
+      if (p.items.length === 0) break
+      const bytes = p.items.reduce((n, i) => n + (i.content?.length ?? 0), 0)
+      expect(p.items.length === 1 || bytes <= 1024 * 1024).toBe(true)
+      vistos.push(...p.items.map((i) => i.sync_id))
+      after = p.items[p.items.length - 1].sync_id
+    }
+    expect(vistos).toEqual([...ids, gigante])
   })
 })

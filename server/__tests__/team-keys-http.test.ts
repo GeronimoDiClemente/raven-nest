@@ -79,7 +79,7 @@ describe('/v1/teams/key*', () => {
       headers: { Authorization: `Bearer ${leaderToken}` },
     })
     expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ activated: false, verifier: null, wrap: null, pendingDevices: [] })
+    expect(await res.json()).toEqual({ activated: false, verifier: null, wrap: null, pendingDevices: [], isLeader: true })
   })
 
   it('POST activate con un member da 403', async () => {
@@ -184,8 +184,10 @@ describe('/v1/teams/key*', () => {
       headers: { Authorization: `Bearer ${leaderToken}` },
     })
     expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ total: 1, items: [{
+    const json = await res.json()
+    expect(json).toEqual({ total: 1, items: [{
       sync_id: syncId, lamport: 1, title: 'en claro', content: 'contenido en claro', tags: [], content_hash: null, origin_account: null,
+      project_key: expect.any(String), topic_key: null, // Task 15b (I2)
     }] })
 
     const delMember = await fetch(`${baseUrl}/v1/teams/key/recrypt-pending?team_id=${teamId}`, {
