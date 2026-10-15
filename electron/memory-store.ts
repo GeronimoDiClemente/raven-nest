@@ -1036,6 +1036,14 @@ export class MemoryStore {
     return fila?.team_id ?? null
   }
 
+  /** Marca localmente que este project_key quedó compartido con este equipo — espejo local
+   * de lo que `POST /v1/projects/share` ya hizo en el servidor (main.ts, `memory:shareProjectWithTeam`).
+   * Sin esto, `teamIdForProjectKey` nunca encuentra nada y el cifrado de equipo nunca se activa
+   * en el push/pull real, aunque la clave de equipo ya esté activada. */
+  setLocalTeamId(projectKey: string, teamId: string): void {
+    this.db.prepare('UPDATE projects SET team_id = ? WHERE project_key = ?').run(teamId, projectKey)
+  }
+
   /** M17: enumerates known local projects so the daemon can pull with a per-project cursor for each. */
   /**
    * Conecta dos memorias a mano. Sin dirección: "esta va con esta".

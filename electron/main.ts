@@ -3810,6 +3810,7 @@ ipcMain.handle('memory:shareProjectWithTeam', async (_event, projectKey: string,
     // momento exacto en que esa razon dejo de aplicar — sin este desbloqueo, la retencion
     // esperaria hasta el proximo cambio de plan, que puede no llegar nunca.
     memory?.store.unblockMutations(['project_not_shared_with_team'])
+    memory?.store.setLocalTeamId(projectKey, teamId)
     memory?.daemon.scheduleMutationPush()
     return { ok: true }
   } catch (err) {

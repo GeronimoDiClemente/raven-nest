@@ -444,6 +444,21 @@ describe('MemoryStore — projects (ensureProject / listProjects)', () => {
   it('listProjects returns [] when no project has ever been registered (the pre-fix broken state)', () => {
     expect(store.listProjects()).toEqual([])
   })
+
+  // Cifrado de equipo (Task 9 fix round 1): `setLocalTeamId` es el único lugar que escribe
+  // `projects.team_id` localmente — espejo de lo que `memory:shareProjectWithTeam` ya hizo
+  // contra el servidor. Sin esto, `teamIdForProjectKey` nunca encuentra nada.
+  it('setLocalTeamId marca team_id para ese project_key, y teamIdForProjectKey lo lee de vuelta', () => {
+    store.ensureProject({ projectKey: 'proj-a', displayName: 'raven-nest' })
+    store.ensureProject({ projectKey: 'proj-b', displayName: 'otro-repo' })
+
+    expect(store.teamIdForProjectKey('proj-a')).toBeNull()
+
+    store.setLocalTeamId('proj-a', 'team-123')
+
+    expect(store.teamIdForProjectKey('proj-a')).toBe('team-123')
+    expect(store.teamIdForProjectKey('proj-b')).toBeNull()
+  })
 })
 
 // Bug 1 & bug 2 fixes: importers need original timestamps preserved (not stamped to
