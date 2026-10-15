@@ -2699,3 +2699,1205 @@ Expected: 0 errores, todo verde — ésta es la foto final antes de pedir review
 git add e2e/16-cifrado-de-equipo.spec.ts
 git commit -m "test(cifrado-equipo): e2e real de punta a punta — migración, autorización, lectura en claro"
 ```
+
+---
+
+## Task 14: La clave de equipo de una fila bajada la elige el servidor, y el push de equipo falla cerrado (spec §9.4)
+
+**Decisiones de Gero (2026-10-15), tomadas antes de ejecutar:**
+- **D1 — SÍ:** el servidor rechaza con `team_encryption_required` una fila de equipo en claro para un equipo con `team_keys`. La Parte C va incluida.
+- **D2:** `encrypted_teams: [{ team_id, has_wrap }]` SIN época, como propone el diseño (v1 no rota la clave de equipo). Si v2 suma `key_epoch`, entra como campo aditivo.
+- **D3:** e2e/16 queda con UN solo test, sin el workaround, como en la Parte H.
+- **D4 (riesgo abierto, sin decisión pendiente):** con un `projects.team_id` local desactualizado dentro de la ventana de un `status`, el texto en claro viaja por TLS al servidor; D1 hace que no se guarde. Queda documentado en §9.4.
+
+**Files:**
+- Modify: `server/src/pull.ts` (`team_id` en cada fila `scope: 'team'`)
+- Modify: `server/src/status.ts` (`encrypted_teams` + `team_id` en el roster)
+- Modify: `server/src/push.ts` (rechazo reversible `team_encryption_required` — ver decisión D1)
+- Test: `server/__tests__/pull-team-scope.test.ts` (describe nuevo al final)
+- Create: `server/__tests__/status-team-keys.test.ts`
+- Create: `server/__tests__/push-team-encryption.test.ts`
+- Modify: `electron/memory-envelope.ts` (`teamKeysById` en `EnvelopeContext`, `openPulledRow`)
+- Modify: `electron/memory-store.ts` (`rememberEncryptedTeams` / `encryptedTeamIds`, SIN subir `SCHEMA_VERSION`)
+- Modify: `electron/memory-daemon.ts` (`mapRawPulledRow`, `applyPulledRow`, `doStatus`, `doPush`, `onTeamKeysChanged`)
+- Modify: `electron/main.ts` (`currentEnvelopeContext`, `readoptarClavesDeEquipo`, wiring `onEncryptedTeams`, handlers `memory:teamEncryption:*`)
+- Test: `electron/__tests__/memory-envelope.test.ts`, `electron/__tests__/memory-store.test.ts`
+- Create: `electron/__tests__/memory-daemon-cifrado-equipo.test.ts`
+- Modify: `e2e/16-cifrado-de-equipo.spec.ts` (fixme → test, sin workaround, chequeo §9.4 real)
+- Modify: `docs/superpowers/specs/2026-10-14-cifrado-de-equipo-design.md` (§7 y §9.4)
+
+**Interfaces:**
+- Consumes: Tasks 1-13.
+- Produces (wire, todo ADITIVO — un cliente viejo ignora los campos nuevos):
+  - `POST /v1/sync/pull`: toda fila con `scope: 'team'` trae `team_id: string | null` (el `projects.team_id` del proyecto de ORIGEN en el servidor). Las filas `personal`/`project` NO traen el campo.
+  - `GET /v1/sync/status`: `encrypted_teams: Array<{ team_id: string; has_wrap: boolean }>` (equipos donde quien llama es miembro ACTIVO y que tienen `team_keys`; `has_wrap` = hay envoltura para ESTE device) y `projects[].team_id: string | null`.
+  - `POST /v1/sync/push`: nuevo rechazo por mutación `team_encryption_required` (reversible).
+- Produces (cliente):
+  - `EnvelopeContext.teamKeysById?: (teamId: string) => MemoryKeys | null`
+  - `PulledRow.teamId?: string`
+  - `MemoryStore.rememberEncryptedTeams(ids: string[]): void`, `encryptedTeamIds(): string[]`, `isTeamEncrypted(id: string): boolean`
+  - `MemoryDaemonDeps.onEncryptedTeams?: (teams: Array<{ teamId: string; hasWrap: boolean }>) => Promise<void> | void`
+  - `MemoryDaemon.onTeamKeysChanged(): void`
+  - `export const TEAM_KEY_HOLD_REASONS = ['team_key_missing', 'team_encryption_required'] as const`
+
+**Por qué así (decisiones de la ejecución, aprobadas por Gero el 2026-10-15 — opción (a)):**
+
+*Problema 1.* El cliente elegía la clave de equipo de una fila BAJADA por `projects.team_id` local, que sólo escribe `shareProjectWithTeam` en la máquina que comparte. El servidor, en cambio, le sirve la fila a cualquier miembro activo (`pull.ts`, `p.team_id in (team_memberships …)`). Resultado: un compañero que nunca compartió su copia ve todo como ilegible aunque tenga la maestra. Arreglo: el servidor ya sabe el equipo de cada fila y lo manda. En el pull, el `team_id` de la fila es AUTORITATIVO; sólo si falta (servicio viejo) se cae al `project_key` local. Del lado del PUSH el `team_id` local sí es la fuente correcta: quien sube una fila de equipo es quien compartió el proyecto. Pero tiene que estar al día también en la OTRA máquina de esa misma cuenta, y por eso el roster de `status` ahora trae `team_id` y `doStatus` lo copia en la base local.
+
+*Problema 2 (§9.4).* Tres capas, de afuera hacia adentro:
+1. **Saber, sin depender de la UI.** `status` dice qué equipos cifran (`encrypted_teams`) y el store lo recuerda en `meta` (nunca olvida, igual que `known_key_epoch`). Una fila de equipo ilegible en el pull también lo enseña. Va en `meta` y NO en una tabla nueva a propósito: subir `SCHEMA_VERSION` deja sin memoria a cualquier build o paquete más viejo que abra la misma base (`memory-store.ts`, `migrate()` rechaza esquemas del futuro).
+2. **Retener, no descartar.** En `doPush`, una mutación `scope: 'team'` de un equipo que cifra, sin clave de equipo en este device, se BLOQUEA con `blocked_reason = 'team_key_missing'`. Es el mismo mecanismo reversible que `project_not_shared_with_team`: no se reintenta en cada ciclo y no frena al resto del lote. Se libera con `onTeamKeysChanged()` cada vez que entra una clave de equipo a memoria.
+3. **Achicar la ventana.** `main.ts` readopta solo, en el `status` de arranque, toda clave de equipo con `has_wrap: true`. Va esperado dentro de `doStatus`, con tope de tiempo, así que pasa ANTES del pull y del push del mismo drain. Sin esto el gate dejaría retenido todo lo de equipo hasta que alguien abra la tarjeta. Con esto la ventana deja de existir en el caso normal y el gate queda para el device sin autorizar.
+4. **(D1) El servidor no guarda texto en claro** para un equipo con `team_keys`: rechaza la mutación con `team_encryption_required` (reversible). Es defensa en profundidad para todo lo que las capas 1-3 no ven, como un cliente viejo o un `team_id` local desactualizado.
+
+*Bug adyacente que este task cierra:* `applyPulledRow` armaba el gate PERSONAL (`rememberKeyEpoch`) al ver una fila de EQUIPO ilegible. En un miembro sin cifrado personal eso dejaba todo su push en `needs_key` para siempre. Las filas de equipo ahora alimentan `rememberEncryptedTeams`, no la época personal.
+
+---
+
+### Parte A — servidor: `team_id` en el pull
+
+- [ ] **Step 1: Test que falla** — agregar al FINAL de `server/__tests__/pull-team-scope.test.ts`:
+
+```ts
+// Task 14 (cifrado de equipo, Problema 1): el cliente elige la clave de equipo de una fila
+// bajada por ESTE campo, no por su `projects.team_id` local — que sólo existe en la máquina
+// que compartió. Un compañero que nunca compartió su copia lo necesita para poder descifrar.
+describe('handlePull — team_id en cada fila de scope team (Task 14)', () => {
+  const comoA = () => ({ deviceId: userA.deviceId, userId: userA.userId, plan: userA.plan })
+  const comoB = () => ({ deviceId: userB.deviceId, userId: userB.userId, plan: userB.plan })
+
+  it('la fila de equipo que baja B (con team_cursors) trae el team_id del proyecto de A', async () => {
+    const res = await handlePull(pool, comoB(), { cursors: { [projectA]: 0 }, team_cursors: {}, limit: 500 })
+    const fila = res.rows.find((r) => r.sync_id === SYNC('a-team'))
+    expect(fila?.team_id).toBe(teamId)
+  })
+
+  it('también por el camino viejo (cliente sin team_cursors)', async () => {
+    const res = await handlePull(pool, comoB(), { cursors: { [projectA]: 0 }, limit: 500 })
+    expect(res.rows.find((r) => r.sync_id === SYNC('a-team'))?.team_id).toBe(teamId)
+  })
+
+  it('en lo propio de A, sólo la fila team lleva el campo: personal/project no', async () => {
+    const res = await handlePull(pool, comoA(), { cursors: { [projectA]: 0 }, team_cursors: {}, limit: 500 })
+    const porId = new Map(res.rows.map((r) => [r.sync_id, r]))
+    expect(porId.get(SYNC('a-team'))?.team_id).toBe(teamId)
+    expect('team_id' in porId.get(SYNC('a-personal'))!).toBe(false)
+    expect('team_id' in porId.get(SYNC('a-project'))!).toBe(false)
+  })
+})
+```
+
+- [ ] **Step 2: Correr, confirmar que falla**
+
+Run (desde `server/`, con `docker start nest-memory-pg`): `npx vitest run __tests__/pull-team-scope.test.ts -t "Task 14"`
+Expected: FAIL — `team_id` es `undefined`
+
+- [ ] **Step 3: Implementar** en `server/src/pull.ts`:
+
+```ts
+export interface PulledRow {
+  // ...campos existentes sin cambios...
+  /**
+   * Task 14: sólo en filas `scope: 'team'` — el `projects.team_id` del proyecto de ORIGEN.
+   * El cliente elige con esto la clave de equipo para descifrar; su `projects.team_id` local
+   * sólo existe si ÉL compartió su copia, y un compañero no tiene por qué haberlo hecho.
+   * No filtra nada: la fila sólo viaja a miembros activos de ese equipo o a su dueño.
+   */
+  team_id?: string | null
+}
+
+const COLUMNAS = `o.sync_id, p.project_key, o.project_seq, o.client_updated_at, o.lamport, o.scope,
+            o.type, o.topic_key, o.title, o.content, o.tags, o.deleted, o.superseded_by,
+            o.origin_ai, o.origin_account, o.git_branch, o.author_id, o.author_display, o.content_hash,
+            p.team_id`
+```
+
+En `aFila`, después de `content_hash`:
+
+```ts
+    // Spread condicional y no `team_id: null` en todas: una fila personal no tiene equipo, y
+    // agregarle la clave cambiaría el shape que ya ven los tests y los clientes de hoy.
+    ...(r.scope === 'team' ? { team_id: (r.team_id as string | null) ?? null } : {}),
+```
+
+- [ ] **Step 4: Correr, confirmar que pasa**
+
+Run: `npx vitest run __tests__/pull-team-scope.test.ts __tests__/pull.test.ts`
+Expected: PASS (los 3 nuevos + los existentes sin cambios)
+
+---
+
+### Parte B — servidor: `encrypted_teams` y `team_id` en el roster de `status`
+
+- [ ] **Step 5: Test que falla** — `server/__tests__/status-team-keys.test.ts`:
+
+```ts
+// Task 14 (spec §9.4): el daemon tiene que saber qué equipos cifran SIN depender de que la UI
+// se abra — mismo motivo por el que `key_epoch` vive en `status` (ver status.ts).
+import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+import { randomUUID } from 'node:crypto'
+import { getPool, migrate } from '../src/db'
+import { handleStatus } from '../src/status'
+
+const pool = getPool()
+const RUN = randomUUID().slice(0, 8)
+let auth: { deviceId: string; userId: string; plan: string }
+let otroDeviceMio: string
+const equipoCifrado = randomUUID()
+const equipoSinCifrar = randomUUID()
+const equipoDelQueMeFui = randomUUID()
+const equipoAjeno = randomUUID()
+
+beforeAll(async () => {
+  await migrate(pool)
+  const userId = randomUUID()
+  const otroUser = randomUUID()
+  const deviceId = randomUUID()
+  otroDeviceMio = randomUUID()
+  await pool.query(`insert into users (id, plan) values ($1, 'team'), ($2, 'team')`, [userId, otroUser])
+  await pool.query(
+    `insert into devices (id, user_id, name, token_hash) values ($1, $2, 'a', $3), ($4, $2, 'b', $5)`,
+    [deviceId, userId, `hash-${deviceId}`, otroDeviceMio, `hash-${otroDeviceMio}`]
+  )
+  auth = { deviceId, userId, plan: 'team' }
+  const membresia = (u: string, t: string, status = 'active') => pool.query(
+    `insert into team_memberships (user_id, team_id, team_name, role, status) values ($1, $2, 'e', 'member', $3)`,
+    [u, t, status]
+  )
+  await membresia(userId, equipoCifrado)
+  await membresia(userId, equipoSinCifrar)
+  await membresia(userId, equipoDelQueMeFui, 'removed')
+  await membresia(otroUser, equipoAjeno)
+  for (const [t, quien] of [[equipoCifrado, userId], [equipoDelQueMeFui, userId], [equipoAjeno, otroUser]] as const) {
+    await pool.query('insert into team_keys (team_id, activated_by) values ($1, $2)', [t, quien])
+  }
+  await pool.query(
+    `insert into team_key_wraps (team_id, slot, kind, wrapped) values ($1, $2, 'device', 'W')`,
+    [equipoCifrado, deviceId]
+  )
+  await pool.query(
+    `insert into projects (user_id, project_key, display_name, team_id)
+     values ($1, $2, 'x', $3), ($1, $4, 'y', null)`,
+    [userId, `st-${RUN}-compartido`, equipoCifrado, `st-${RUN}-solo`]
+  )
+})
+
+afterAll(async () => { await pool.end() })
+
+describe('handleStatus — cifrado de equipo (Task 14)', () => {
+  it('lista SÓLO los equipos cifrados donde soy miembro activo, con has_wrap de ESTE device', async () => {
+    const res = await handleStatus(pool, auth)
+    expect(res.encrypted_teams).toEqual([{ team_id: equipoCifrado, has_wrap: true }])
+  })
+
+  it('desde otro device de la misma cuenta, sin envoltura, has_wrap es false', async () => {
+    const res = await handleStatus(pool, { ...auth, deviceId: otroDeviceMio })
+    expect(res.encrypted_teams).toEqual([{ team_id: equipoCifrado, has_wrap: false }])
+  })
+
+  it('el roster trae el team_id de cada proyecto propio (null si no está compartido)', async () => {
+    const res = await handleStatus(pool, auth)
+    const porKey = new Map(res.projects.map((p) => [p.project_key, p]))
+    expect(porKey.get(`st-${RUN}-compartido`)?.team_id).toBe(equipoCifrado)
+    expect(porKey.get(`st-${RUN}-solo`)?.team_id).toBeNull()
+  })
+})
+```
+
+- [ ] **Step 6: Correr, confirmar que falla**
+
+Run: `npx vitest run __tests__/status-team-keys.test.ts`
+Expected: FAIL — `encrypted_teams` es `undefined`, `team_id` no existe en el roster
+
+- [ ] **Step 7: Implementar** en `server/src/status.ts`:
+
+```ts
+export interface StatusRosterProject {
+  project_key: string
+  display_name: string
+  /** Task 14: con qué equipo está compartido este proyecto propio, o null. Es lo que le permite
+   * a la OTRA máquina de quien compartió saber que sus filas de equipo van a ese equipo (y
+   * con qué clave sellarlas): `projects.team_id` local sólo lo escribe la máquina que compartió. */
+  team_id: string | null
+}
+
+export interface StatusResponse {
+  // ...campos existentes...
+  /**
+   * Task 14 (spec §9.4): los equipos con cifrado activo donde quien llama es miembro ACTIVO,
+   * y si ESTE device ya tiene envoltura. Mismo motivo que `key_epoch`: el daemon tiene que
+   * saber que un equipo cifra en el primer `status` del arranque, sin depender de que el
+   * usuario abra la tarjeta — si no, sube filas de equipo EN CLARO a un equipo que cifra.
+   * Sin época: v1 no rota la clave de equipo (spec §2, §8).
+   */
+  encrypted_teams: Array<{ team_id: string; has_wrap: boolean }>
+}
+```
+
+Roster: `select project_key, display_name, team_id from projects where user_id = $1 order by project_key`, y en el map: `team_id: (r.team_id as string | null) ?? null`.
+
+Antes del `return`:
+
+```ts
+  // `tm.user_id = $1 and tm.status = 'active'` es lo que hace que esto no filtre equipos
+  // ajenos ni equipos de los que ya me fui. `has_wrap` se mira contra ESTE device (slot =
+  // device_id), no contra la cuenta: es lo que decide si esta máquina puede readoptar sola.
+  const { rows: equiposRows } = await pool.query(
+    `select tk.team_id::text as team_id,
+            exists (select 1 from team_key_wraps w
+                     where w.team_id = tk.team_id and w.slot = $2::text) as has_wrap
+       from team_keys tk
+       join team_memberships tm on tm.team_id = tk.team_id
+      where tm.user_id = $1 and tm.status = 'active'
+      order by tk.team_id`,
+    [auth.userId, auth.deviceId]
+  )
+```
+
+y en el objeto devuelto: `encrypted_teams: equiposRows.map((r) => ({ team_id: String(r.team_id), has_wrap: Boolean(r.has_wrap) })),`
+
+- [ ] **Step 8: Correr, confirmar que pasa**
+
+Run: `npx vitest run __tests__/status-team-keys.test.ts __tests__/status.test.ts __tests__/limits-status.test.ts`
+Expected: PASS. Si algún test existente hace `toEqual` sobre el roster completo, ajustarlo para que incluya `team_id: null`, y anotarlo en el reporte.
+
+Verificar además en `server/src/http.ts` que la ruta `isStatus` devuelve el objeto de `handleStatus` tal cual (sin whitelist de campos). Si filtra campos, sumar los dos nuevos ahí.
+
+---
+
+### Parte C — servidor: no guardar texto en claro para un equipo que cifra (decisión D1)
+
+- [ ] **Step 9: Test que falla** — `server/__tests__/push-team-encryption.test.ts`:
+
+```ts
+// Task 14 (spec §9.4), defensa en profundidad: aunque un cliente se equivoque (viejo, o con
+// `projects.team_id` local desactualizado), el servicio NO guarda texto en claro para un
+// equipo con `team_keys`. Reversible: el cliente la retiene hasta tener la clave.
+import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+import { randomUUID } from 'node:crypto'
+import { getPool, migrate } from '../src/db'
+import { handlePush } from '../src/push'
+
+const pool = getPool()
+const RUN = randomUUID().slice(0, 8)
+const SYNC = (id: string) => `${RUN}-${id}`
+let auth: { deviceId: string; userId: string; plan: string }
+const equipoCifrado = randomUUID()
+const equipoEnClaro = randomUUID()
+const projCifrado = `pte-${RUN}-cifrado`
+const projEnClaro = `pte-${RUN}-claro`
+
+function mutation(seq: number, syncId: string, projectKey: string, scope: string, extra: Record<string, unknown> = {}) {
+  return {
+    seq, sync_id: syncId, op: 'upsert' as const,
+    payload: {
+      sync_id: syncId, project_key: projectKey, project_display_name: projectKey, scope,
+      type: 'decision', topic_key: null, title: 'titulo en claro', content: 'cuerpo en claro',
+      tags: [], lamport: 1, updated_at: Date.now(), created_at: Date.now(), ...extra,
+    },
+  }
+}
+
+beforeAll(async () => {
+  await migrate(pool)
+  const userId = randomUUID()
+  const deviceId = randomUUID()
+  await pool.query(`insert into users (id, plan) values ($1, 'team')`, [userId])
+  await pool.query(`insert into devices (id, user_id, name, token_hash) values ($1, $2, 'd', $3)`, [deviceId, userId, `hash-${deviceId}`])
+  auth = { deviceId, userId, plan: 'team' }
+  for (const t of [equipoCifrado, equipoEnClaro]) {
+    await pool.query(
+      `insert into team_memberships (user_id, team_id, team_name, role, status) values ($1, $2, 'e', 'leader', 'active')`,
+      [userId, t]
+    )
+  }
+  await pool.query('insert into team_keys (team_id, activated_by) values ($1, $2)', [equipoCifrado, userId])
+  await pool.query(
+    `insert into projects (user_id, project_key, display_name, team_id) values ($1, $2, $2, $3), ($1, $4, $4, $5)`,
+    [userId, projCifrado, equipoCifrado, projEnClaro, equipoEnClaro]
+  )
+})
+
+afterAll(async () => { await pool.end() })
+
+describe('push — team_encryption_required (Task 14)', () => {
+  it('una fila team EN CLARO a un equipo que cifra se rechaza y no se guarda', async () => {
+    const res = await handlePush(pool, auth, { mutations: [mutation(1, SYNC('claro'), projCifrado, 'team')] })
+    expect(res.results[0]).toMatchObject({ outcome: 'rejected', error: 'team_encryption_required' })
+    const { rows } = await pool.query('select 1 from observations where sync_id = $1', [SYNC('claro')])
+    expect(rows).toHaveLength(0)
+  })
+
+  it('tags en claro también cuentan como texto en claro', async () => {
+    const res = await handlePush(pool, auth, { mutations: [mutation(2, SYNC('tags'), projCifrado, 'team', {
+      title: 'nmc1:AAAA', content: 'nmc1:BBBB', tags: ['secreto'],
+    })] })
+    expect(res.results[0]).toMatchObject({ outcome: 'rejected', error: 'team_encryption_required' })
+  })
+
+  it('la misma fila sellada (nmc1:) se aplica', async () => {
+    const res = await handlePush(pool, auth, { mutations: [mutation(3, SYNC('sellada'), projCifrado, 'team', {
+      title: 'nmc1:AAAA', content: 'nmc1:BBBB', tags: ['nmc1:CCCC'],
+    })] })
+    expect(res.results[0]).toMatchObject({ outcome: 'applied' })
+  })
+
+  it('una fila PERSONAL en el mismo proyecto no se mira (la cubre el gate personal del cliente)', async () => {
+    const res = await handlePush(pool, auth, { mutations: [mutation(4, SYNC('personal'), projCifrado, 'personal')] })
+    expect(res.results[0]).toMatchObject({ outcome: 'applied' })
+  })
+
+  it('un equipo SIN cifrado sigue aceptando team en claro, como hoy', async () => {
+    const res = await handlePush(pool, auth, { mutations: [mutation(5, SYNC('equipo-claro'), projEnClaro, 'team')] })
+    expect(res.results[0]).toMatchObject({ outcome: 'applied' })
+  })
+})
+```
+
+- [ ] **Step 10: Correr, confirmar que falla**
+
+Run: `npx vitest run __tests__/push-team-encryption.test.ts`
+Expected: FAIL — los dos primeros salen `applied`
+
+- [ ] **Step 11: Implementar** en `server/src/push.ts`. Arriba del archivo:
+
+```ts
+/** Mismo prefijo que `CIPHER_PREFIX` de electron/memory-crypto.ts — el servidor no importa
+ * código del cliente, y el prefijo es parte del wire (spec §7), no un detalle interno. */
+const PREFIJO_SOBRE = 'nmc1:'
+
+/** ¿Viaja sellado todo lo que tiene texto? `null`/'' no es texto (tombstone, título vacío). */
+function viajaSellado(p: Record<string, unknown>): boolean {
+  for (const campo of ['title', 'content'] as const) {
+    const v = p[campo]
+    if (typeof v === 'string' && v !== '' && !v.startsWith(PREFIJO_SOBRE)) return false
+  }
+  const tags = p.tags
+  if (Array.isArray(tags) && tags.length > 0) {
+    // `sealMutationPayload` manda los tags como UN sobre (memory-envelope.ts).
+    if (!(tags.length === 1 && typeof tags[0] === 'string' && tags[0].startsWith(PREFIJO_SOBRE))) return false
+  }
+  return true
+}
+```
+
+Junto a la query de `sharedRows`:
+
+```ts
+    // Task 14 (spec §9.4): los proyectos propios cuyo equipo tiene `team_keys`. Un query por
+    // batch, mismo criterio que `sharedRows`.
+    const { rows: cifradosRows } = await client.query(
+      `select p.project_key from projects p join team_keys tk on tk.team_id = p.team_id
+        where p.user_id = $1`,
+      [auth.userId]
+    )
+    const proyectosDeEquipoCifrado = new Set(cifradosRows.map((r) => r.project_key as string))
+```
+
+En la PASADA 1, inmediatamente después del bloque de `project_not_shared_with_team` (y actualizar el comentario "los cinco rechazos" a seis):
+
+```ts
+      // Task 14 (spec §9.4): un equipo con `team_keys` nunca guarda texto en claro. Reversible
+      // A PROPÓSITO (el cliente la retiene en `REVERSIBLE_REJECTIONS`): el mismo payload,
+      // sellado con la clave de equipo, aplica en cuanto ese device la adopte.
+      if (scope === 'team' && proyectosDeEquipoCifrado.has(projectKey) && !viajaSellado(p)) {
+        prepared.push({
+          kind: 'rejected',
+          result: { sync_id: syncId, outcome: 'rejected', project_seq: 0, error: 'team_encryption_required' },
+        })
+        continue
+      }
+```
+
+- [ ] **Step 12: Correr, confirmar que pasa + suite del servidor**
+
+Run: `npx vitest run` (desde `server/`)
+Expected: PASS — los 5 nuevos y ningún test existente roto (`push-scope`, `push-team-*`, `team-keys-recrypt` no usan equipos con `team_keys` + push en claro).
+
+- [ ] **Step 13: Commit (servidor)**
+
+```bash
+git add server/src/pull.ts server/src/status.ts server/src/push.ts server/__tests__/pull-team-scope.test.ts server/__tests__/status-team-keys.test.ts server/__tests__/push-team-encryption.test.ts
+git commit -m "feat(cifrado-equipo): team_id en el pull, equipos cifrados en status, push no guarda claro de equipo cifrado"
+```
+
+---
+
+### Parte D — cliente: `openPulledRow` elige la clave por `team_id`
+
+- [ ] **Step 14: Test que falla** — agregar a `electron/__tests__/memory-envelope.test.ts`:
+
+```ts
+describe('openPulledRow con team_id del servidor (Task 14)', () => {
+  const keysEquipo = deriveKeys(generateMasterKey())
+  const sellado = sealMutationPayload(
+    { keys: ctx.keys, keyEpoch: 1, teamKeys: () => keysEquipo },
+    { sync_id: 'abc', scope: 'team', project_key: 'proj-x', title: 'Decisión', content: 'texto', tags: [] }
+  )
+  const fila = (teamId?: string) => ({
+    syncId: 'abc', scope: 'team', projectKey: 'proj-x',
+    title: sellado.title as string, content: sellado.content as string, tags: [],
+    ...(teamId ? { teamId } : {}),
+  }) as never
+
+  it('con teamId usa teamKeysById, aunque el project_key local no tenga equipo', () => {
+    const c: EnvelopeContext = { ...ctx, teamKeys: () => null, teamKeysById: (t) => (t === 'T1' ? keysEquipo : null) }
+    const { row, undecryptable } = openPulledRow(c, fila('T1'))
+    expect(undecryptable).toBe(false)
+    expect(row.title).toBe('Decisión')
+  })
+
+  it('con teamId, manda el servidor: no cae a la clave del proyecto local', () => {
+    const c: EnvelopeContext = { ...ctx, teamKeys: () => keysEquipo, teamKeysById: () => null }
+    expect(openPulledRow(c, fila('T1')).undecryptable).toBe(true)
+  })
+
+  it('sin teamId (servicio viejo) sigue resolviendo por project_key', () => {
+    const c: EnvelopeContext = { ...ctx, teamKeys: (pk) => (pk === 'proj-x' ? keysEquipo : null), teamKeysById: () => null }
+    expect(openPulledRow(c, fila()).row.title).toBe('Decisión')
+  })
+})
+```
+
+- [ ] **Step 15: Correr, confirmar que falla**
+
+Run (`npm run native:node` antes): `npx vitest run electron/__tests__/memory-envelope.test.ts -t "Task 14"`
+Expected: FAIL — `teamKeysById` no existe en `EnvelopeContext` / `teamId` no existe en `PulledRow`
+
+- [ ] **Step 16: Implementar.** En `electron/memory-daemon.ts`, interfaz `PulledRow`:
+
+```ts
+  /** Task 14: el equipo de la fila según el SERVIDOR (sólo `scope: 'team'`). Ausente en un
+   * servicio viejo. `openPulledRow` lo usa para elegir la clave de equipo. */
+  teamId?: string
+```
+
+En `mapRawPulledRow`, al final del objeto:
+
+```ts
+    ...(typeof raw.team_id === 'string' && raw.team_id !== '' ? { teamId: raw.team_id } : {}),
+```
+
+En `electron/memory-envelope.ts`:
+
+```ts
+export interface EnvelopeContext {
+  keys: MemoryKeys
+  keyEpoch: number
+  /** PUSH: `project_key -> clave de equipo`, por `projects.team_id` local — correcto para
+   * quien sube, que es quien compartió el proyecto. También el fallback del pull contra un
+   * servicio viejo que no manda `team_id`. */
+  teamKeys?: (projectKey: string) => MemoryKeys | null
+  /** PULL (Task 14): `team_id -> clave de equipo`. El `team_id` lo manda el servidor en cada
+   * fila de equipo; el `projects.team_id` local NO sirve acá, porque sólo existe si ESTE
+   * device compartió su copia del proyecto, y un compañero no tiene por qué haberlo hecho. */
+  teamKeysById?: (teamId: string) => MemoryKeys | null
+}
+```
+
+En `openPulledRow`, reemplazar la línea de `keysDeTeam`:
+
+```ts
+  // Con `teamId` (servicio nuevo) manda el servidor, sin fallback: si no tengo ESA clave, la
+  // fila es ilegible, aunque el proyecto local apunte a otro equipo. Sin `teamId` (servicio
+  // viejo) queda el comportamiento anterior, por `project_key` local.
+  const keysDeTeam = !esTeam
+    ? null
+    : row.teamId
+      ? (ctx?.teamKeysById?.(row.teamId) ?? null)
+      : (ctx?.teamKeys?.(row.projectKey) ?? null)
+```
+
+(El HMAC de tópico de abajo ya usa `keys`, o sea la clave elegida acá, así que no hace falta tocar nada más.)
+
+- [ ] **Step 17: Correr, confirmar que pasa**
+
+Run: `npx vitest run electron/__tests__/memory-envelope.test.ts`
+Expected: PASS (3 nuevos + los 6 de Task 9 + los previos)
+
+---
+
+### Parte E — cliente: el store recuerda qué equipos cifran
+
+- [ ] **Step 18: Test que falla** — agregar a `electron/__tests__/memory-store.test.ts` (mismo `describe` que `setLocalTeamId`, o uno nuevo con el mismo setup):
+
+```ts
+  // Task 14: el gate fail-closed del push de equipo lee esto, no la red — tiene que funcionar
+  // en el arranque y offline, igual que `knownKeyEpoch`. Nunca olvida.
+  it('rememberEncryptedTeams acumula, ignora basura y nunca olvida', () => {
+    expect(store.isTeamEncrypted('t1')).toBe(false)
+    store.rememberEncryptedTeams(['t1'])
+    store.rememberEncryptedTeams(['t2', '', 't1'])
+    store.rememberEncryptedTeams([]) // un status sin equipos no borra nada
+    expect(store.encryptedTeamIds()).toEqual(['t1', 't2'])
+    expect(store.isTeamEncrypted('t2')).toBe(true)
+  })
+```
+
+- [ ] **Step 19: Correr, confirmar que falla**
+
+Run: `npx vitest run electron/__tests__/memory-store.test.ts -t "rememberEncryptedTeams"`
+Expected: FAIL — `rememberEncryptedTeams is not a function`
+
+- [ ] **Step 20: Implementar** en `electron/memory-store.ts`, junto a `rememberKeyEpoch`/`knownKeyEpoch`:
+
+```ts
+  /**
+   * Task 14 (spec §9.4): los equipos que el servidor dijo que cifran (`encrypted_teams` de
+   * `/v1/sync/status`) o de los que bajó una fila de equipo ilegible. Lo lee el gate del push
+   * de equipo (memory-daemon.ts). Mismo contrato que `known_key_epoch`: vive en `meta` para
+   * funcionar en el arranque y sin red, y NUNCA olvida: olvidar un equipo cifrado volvería a
+   * habilitar el push en claro. (v1 no tiene forma de desactivar el cifrado de un equipo.)
+   *
+   * En `meta` y no en una tabla nueva a propósito: una tabla exige subir `SCHEMA_VERSION`, y un
+   * build o un paquete más viejo que abra esta misma base la rechaza y se queda sin memoria
+   * (ver `migrate()`).
+   */
+  rememberEncryptedTeams(teamIds: string[]): void {
+    const nuevos = teamIds.filter((t) => typeof t === 'string' && t.trim() !== '')
+    if (nuevos.length === 0) return
+    // Leer y escribir en la MISMA transacción IMMEDIATE: con dos procesos sobre la base, uno
+    // que leyó el conjunto viejo pisaría lo que agregó el otro.
+    this.db.transaction(() => {
+      const actuales = new Set(this.encryptedTeamIds())
+      const antes = actuales.size
+      for (const t of nuevos) actuales.add(t)
+      if (actuales.size !== antes) this.metaSet('encrypted_team_ids', JSON.stringify([...actuales].sort()))
+    }).immediate()
+  }
+
+  encryptedTeamIds(): string[] {
+    try {
+      const parsed: unknown = JSON.parse(this.metaGet('encrypted_team_ids') ?? '[]')
+      return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === 'string') : []
+    } catch {
+      return [] // un JSON roto no puede tumbar el push; el próximo status lo reescribe
+    }
+  }
+
+  isTeamEncrypted(teamId: string): boolean {
+    return this.encryptedTeamIds().includes(teamId)
+  }
+```
+
+- [ ] **Step 21: Correr, confirmar que pasa**
+
+Run: `npx vitest run electron/__tests__/memory-store.test.ts`
+Expected: PASS. El pin `SCHEMA_VERSION === 8` NO cambia.
+
+---
+
+### Parte F — cliente: daemon (pull, status, push)
+
+- [ ] **Step 22: Tests que fallan** — `electron/__tests__/memory-daemon-cifrado-equipo.test.ts`:
+
+```ts
+// Task 14 — los dos problemas abiertos del cifrado de equipo, en el daemon:
+//  1. La clave de una fila de equipo BAJADA la elige el `team_id` que manda el servidor.
+//  2. El push de equipo falla cerrado (spec §9.4): una fila de un equipo que cifra no sale en
+//     claro si este device no tiene la clave; se retiene y sale cifrada cuando la consigue.
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { mkdtempSync, rmSync } from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
+import { MemoryStore } from '../memory-store'
+import { MemoryDaemon, mapRawPulledRow, REVERSIBLE_REJECTIONS, type MemoryDaemonDeps } from '../memory-daemon'
+import { deriveKeys, generateMasterKey, isCiphertext, type MemoryKeys } from '../memory-crypto'
+import { sealMutationPayload, type EnvelopeContext } from '../memory-envelope'
+
+const TEAM = '11111111-1111-4111-8111-111111111111'
+const keysPersonal = deriveKeys(generateMasterKey())
+const keysEquipo = deriveKeys(generateMasterKey())
+
+let dir: string
+let store: MemoryStore
+beforeEach(() => {
+  dir = mkdtempSync(join(tmpdir(), 'nest-cifrado-equipo-'))
+  store = new MemoryStore(join(dir, 'memory.db'))
+  store.ensureProject({ projectKey: 'proj1', displayName: 'raven-nest' })
+})
+afterEach(() => { store.close(); rmSync(dir, { recursive: true, force: true }) })
+
+/** Como lo arma main.ts: push por `projects.team_id` local, pull por el `team_id` del servidor. */
+function ctxCon(equipos: Map<string, MemoryKeys>): EnvelopeContext {
+  return {
+    keys: keysPersonal, keyEpoch: 1,
+    teamKeys: (pk) => { const t = store.teamIdForProjectKey(pk); return t ? equipos.get(t) ?? null : null },
+    teamKeysById: (t) => equipos.get(t) ?? null,
+  }
+}
+
+/** Una fila de equipo sellada por OTRO miembro, tal como la devuelve el pull. */
+function filaDeEquipoCifrada(teamId?: string) {
+  const s = sealMutationPayload({ keys: deriveKeys(generateMasterKey()), keyEpoch: 1, teamKeys: () => keysEquipo }, {
+    sync_id: 'obs-equipo', project_key: 'proj1', scope: 'team', type: 'decision',
+    title: 'decision de equipo', content: 'cuerpo de equipo', tags: ['x'], content_hash: 'h',
+  })
+  return {
+    sync_id: 'obs-equipo', project_key: 'proj1', scope: 'team', type: 'decision', topic_key: null,
+    title: s.title, content: s.content, tags: s.tags, content_hash: s.content_hash,
+    lamport: 3, client_updated_at: new Date(1_700_000_000_000).toISOString(),
+    deleted: false, superseded_by: null, project_seq: 7,
+    ...(teamId ? { team_id: teamId } : {}),
+  }
+}
+
+interface OpcionesServidor {
+  keyEpoch?: number
+  encryptedTeams?: Array<{ team_id: string; has_wrap: boolean }>
+  projects?: Array<{ project_key: string; display_name: string; team_id?: string | null }>
+  filas?: unknown[]
+  statusCaido?: boolean
+  rechazoDeEquipo?: string
+}
+
+function servidor(op: OpcionesServidor) {
+  const subidas: Array<Record<string, unknown>> = []
+  const fetchImpl = (async (url: string, init?: RequestInit) => {
+    const ok = (j: unknown) => ({ ok: true, status: 200, json: async () => j } as unknown as Response)
+    if (String(url).includes('/status')) {
+      if (op.statusCaido) return { ok: false, status: 502, json: async () => ({}) } as unknown as Response
+      return ok({
+        device_id: 'dev', user_id: 'u', plan: 'team', next_poll_ms: 300_000,
+        quota: { used_bytes: 0, max_bytes: 1_000_000 }, projects: op.projects ?? [],
+        key_epoch: op.keyEpoch ?? 1,
+        ...(op.encryptedTeams ? { encrypted_teams: op.encryptedTeams } : {}),
+      })
+    }
+    if (String(url).includes('/pull')) return ok({ rows: op.filas ?? [], cursors: {} })
+    const body = JSON.parse(String(init?.body ?? '{}')) as { mutations?: Array<{ sync_id: string; payload: Record<string, unknown> }> }
+    for (const m of body.mutations ?? []) subidas.push(m.payload)
+    return ok({
+      results: (body.mutations ?? []).map((m) => op.rechazoDeEquipo && m.payload.scope === 'team'
+        ? { sync_id: m.sync_id, outcome: 'rejected', project_seq: 0, error: op.rechazoDeEquipo }
+        : { sync_id: m.sync_id, outcome: 'applied', project_seq: 1 }),
+    })
+  }) as unknown as typeof fetch
+  return { fetchImpl, subidas }
+}
+
+function daemon(fetchImpl: typeof fetch, getCtx: () => EnvelopeContext | null, extra: Partial<MemoryDaemonDeps> = {}) {
+  return new MemoryDaemon({
+    store, getSyncBaseUrl: () => 'http://sync.test', getToken: () => 'tok', getDeviceId: () => 'dev',
+    isOnline: () => true, fetchImpl, getEnvelopeContext: getCtx,
+    isEncryptionExpected: () => store.knownKeyEpoch() > 0, // el cableado de main.ts
+    ...extra,
+  })
+}
+
+const guardar = (scope: 'team' | 'personal', title: string) =>
+  store.save({ projectKey: 'proj1', scope, type: 'decision', title, content: `cuerpo de ${title}`, source: 'mcp' })
+
+describe('Problema 1 — la clave de una fila bajada la elige el team_id del servidor', () => {
+  it('mapRawPulledRow lee team_id', () => {
+    expect(mapRawPulledRow(filaDeEquipoCifrada(TEAM)).teamId).toBe(TEAM)
+    expect(mapRawPulledRow(filaDeEquipoCifrada()).teamId).toBeUndefined()
+  })
+
+  it('un compañero que NUNCA compartió su copia (team_id local null) la descifra', () => {
+    expect(store.teamIdForProjectKey('proj1')).toBeNull()
+    daemon(servidor({}).fetchImpl, () => ctxCon(new Map([[TEAM, keysEquipo]])))
+      .applyPulledRow(mapRawPulledRow(filaDeEquipoCifrada(TEAM)))
+    expect(store.get('obs-equipo')?.title).toBe('decision de equipo')
+    expect(store.undecryptableCount()).toBe(0)
+  })
+
+  it('una fila de equipo ilegible NO arma el gate PERSONAL, y sí recuerda que ese equipo cifra', () => {
+    daemon(servidor({}).fetchImpl, () => null).applyPulledRow(mapRawPulledRow(filaDeEquipoCifrada(TEAM)))
+    expect(store.undecryptableCount()).toBe(1)
+    expect(store.knownKeyEpoch(), 'un miembro sin cifrado personal no puede quedar en needs_key').toBe(0)
+    expect(store.isTeamEncrypted(TEAM)).toBe(true)
+  })
+})
+
+describe('Problema 2 (§9.4) — el push de equipo falla cerrado', () => {
+  beforeEach(() => store.setLocalTeamId('proj1', TEAM)) // este device es quien compartió
+
+  it('equipo cifrado (lo dice el status) y sin clave: la fila de equipo NO sale, la personal sí', async () => {
+    guardar('personal', 'nota personal')
+    guardar('team', 'nota de equipo')
+    const srv = servidor({ encryptedTeams: [{ team_id: TEAM, has_wrap: false }] })
+    await daemon(srv.fetchImpl, () => ctxCon(new Map())).push()
+    expect(srv.subidas.map((p) => p.scope)).toEqual(['personal'])
+    expect(store.blockedMutations().map((m) => m.blocked_reason)).toEqual(['team_key_missing'])
+    expect(store.pendingMutationCount()).toBe(0) // retenida, no reintentada en cada ciclo
+  })
+
+  it('sin cifrado PERSONAL (ctx null) y equipo cifrado: tampoco sale en claro', async () => {
+    guardar('team', 'nota de equipo')
+    const srv = servidor({ keyEpoch: 0, encryptedTeams: [{ team_id: TEAM, has_wrap: false }] })
+    await daemon(srv.fetchImpl, () => null).push()
+    expect(srv.subidas).toEqual([])
+    expect(store.blockedMutations()).toHaveLength(1)
+  })
+
+  it('el equipo se sabe cifrado por el store aunque el status de hoy no lo diga (servicio viejo)', async () => {
+    store.rememberEncryptedTeams([TEAM])
+    guardar('team', 'nota de equipo')
+    const srv = servidor({}) // sin encrypted_teams
+    await daemon(srv.fetchImpl, () => ctxCon(new Map())).push()
+    expect(srv.subidas).toEqual([])
+  })
+
+  it('al conseguir la clave, onTeamKeysChanged la libera y sale CIFRADA', async () => {
+    guardar('team', 'nota de equipo')
+    const equipos = new Map<string, MemoryKeys>()
+    const srv = servidor({ encryptedTeams: [{ team_id: TEAM, has_wrap: true }] })
+    const d = daemon(srv.fetchImpl, () => ctxCon(equipos))
+    await d.push()
+    expect(srv.subidas).toEqual([])
+
+    equipos.set(TEAM, keysEquipo)
+    d.onTeamKeysChanged()
+    await d.push() // se cuelga del push que disparó onTeamKeysChanged (M19)
+    expect(srv.subidas).toHaveLength(1)
+    expect(isCiphertext(String(srv.subidas[0].title))).toBe(true)
+    expect(store.blockedMutations()).toEqual([])
+  })
+
+  it('un equipo que NO cifra sigue subiendo en claro, como hoy', async () => {
+    guardar('team', 'nota de equipo')
+    const srv = servidor({ encryptedTeams: [] })
+    await daemon(srv.fetchImpl, () => ctxCon(new Map())).push()
+    expect(srv.subidas[0].title).toBe('nota de equipo')
+  })
+
+  it('el rechazo team_encryption_required del servidor es reversible: se retiene, no se descarta', async () => {
+    expect(REVERSIBLE_REJECTIONS.has('team_encryption_required')).toBe(true)
+    guardar('team', 'nota de equipo')
+    const srv = servidor({ encryptedTeams: [], rechazoDeEquipo: 'team_encryption_required' })
+    await daemon(srv.fetchImpl, () => ctxCon(new Map())).push()
+    expect(store.blockedMutations().map((m) => m.blocked_reason)).toEqual(['team_encryption_required'])
+  })
+
+  it('con filas de equipo pendientes, el primer push espera al status aunque no haya gate personal cableado', async () => {
+    guardar('team', 'nota de equipo')
+    const op: OpcionesServidor = { statusCaido: true, encryptedTeams: [{ team_id: TEAM, has_wrap: false }] }
+    const srv = servidor(op)
+    const d = daemon(srv.fetchImpl, () => ctxCon(new Map()), { isEncryptionExpected: undefined })
+    await d.push()
+    expect(srv.subidas, 'sin saber si el equipo cifra, no sale nada').toEqual([])
+    op.statusCaido = false
+    await d.push()
+    expect(srv.subidas).toEqual([])
+    expect(store.isTeamEncrypted(TEAM)).toBe(true)
+  })
+})
+
+describe('status — roster y readopción (Task 14)', () => {
+  it('el roster sincroniza projects.team_id local (la OTRA máquina de quien compartió)', async () => {
+    store.ensureProject({ projectKey: 'proj2', displayName: 'otro' })
+    await daemon(servidor({ projects: [{ project_key: 'proj2', display_name: 'otro', team_id: TEAM }] }).fetchImpl, () => null).status()
+    expect(store.teamIdForProjectKey('proj2')).toBe(TEAM)
+  })
+
+  it('aprender por el roster que el proyecto está compartido libera project_not_shared_with_team', async () => {
+    store.ensureProject({ projectKey: 'proj2', displayName: 'otro' })
+    store.save({ projectKey: 'proj2', scope: 'team', type: 'decision', title: 't', content: 'c', source: 'mcp' })
+    store.blockMutations(store.pendingMutations().map((m) => ({ seq: m.seq, reason: 'project_not_shared_with_team' })))
+    await daemon(servidor({ projects: [{ project_key: 'proj2', display_name: 'otro', team_id: TEAM }] }).fetchImpl, () => null).status()
+    expect(store.blockedMutations()).toEqual([])
+  })
+
+  it('el hook de readopción corre ANTES del pull del mismo drain: la fila ya abre', async () => {
+    const equipos = new Map<string, MemoryKeys>()
+    const vistos: unknown[] = []
+    const srv = servidor({ encryptedTeams: [{ team_id: TEAM, has_wrap: true }], filas: [filaDeEquipoCifrada(TEAM)] })
+    const d = daemon(srv.fetchImpl, () => ctxCon(equipos), {
+      onEncryptedTeams: async (teams) => { vistos.push(teams); equipos.set(TEAM, keysEquipo) },
+    })
+    d.onNetworkRegain()
+    await vi.waitFor(() => expect(store.get('obs-equipo')?.title).toBe('decision de equipo'))
+    expect(vistos).toEqual([[{ teamId: TEAM, hasWrap: true }]])
+    expect(store.undecryptableCount()).toBe(0)
+  })
+
+  it('un hook que se cuelga no traba el status', async () => {
+    vi.useFakeTimers()
+    try {
+      const d = daemon(servidor({ encryptedTeams: [{ team_id: TEAM, has_wrap: true }] }).fetchImpl, () => null, {
+        onEncryptedTeams: () => new Promise<void>(() => {}),
+      })
+      const p = d.status()
+      await vi.advanceTimersByTimeAsync(10_001)
+      await expect(p).resolves.not.toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+```
+
+- [ ] **Step 23: Correr, confirmar que falla**
+
+Run: `npx vitest run electron/__tests__/memory-daemon-cifrado-equipo.test.ts`
+Expected: FAIL — `onTeamKeysChanged`/`isTeamEncrypted` no existen, la fila de equipo sale en claro, `knownKeyEpoch()` da 1, y la del compañero queda ilegible
+
+- [ ] **Step 24: Implementar** en `electron/memory-daemon.ts`.
+
+Constantes, junto a `REVERSIBLE_REJECTIONS`:
+
+```ts
+// Task 14 (spec §9.4): `team_encryption_required` lo devuelve el servidor cuando una fila de
+// equipo llega en claro a un equipo con `team_keys`. Reversible por definición: el mismo
+// payload, sellado con la clave de equipo, aplica en cuanto este device la adopte.
+export const REVERSIBLE_REJECTIONS = new Set(['project_limit_reached', 'quota_exceeded', 'project_not_shared_with_team', 'team_encryption_required'])
+
+/** Lo que libera `onTeamKeysChanged()`: la retención local (`team_key_missing`, el gate de
+ * `doPush`) y el rechazo equivalente del servidor. */
+export const TEAM_KEY_HOLD_REASONS = ['team_key_missing', 'team_encryption_required'] as const
+
+/** Tope de la readopción automática dentro de `doStatus`: un `/v1/teams/key` colgado no puede
+ * trabar el status (y con él el push, que lo espera). */
+const TEAM_READOPT_TIMEOUT_MS = 10_000
+```
+
+`StatusRosterProject` gana `team_id?: string | null`. `StatusResponseBody` gana:
+
+```ts
+  /** Task 14: equipos con cifrado activo donde soy miembro, y si ESTE device tiene envoltura.
+   * Ausente en un servicio viejo: "no sé", no "ninguno" — no borra lo que el store ya sabe. */
+  encrypted_teams?: Array<{ team_id: string; has_wrap: boolean }>
+```
+
+`MemoryDaemonDeps` gana:
+
+```ts
+  /**
+   * Task 14 (spec §9.4): `doStatus` lo llama con los equipos cifrados del status, y lo ESPERA
+   * (con tope) antes de seguir. Es donde main.ts readopta las claves de equipo que esta máquina
+   * ya tiene envueltas, ANTES del pull y del push del mismo drain. Sin esto la clave de equipo
+   * (que vive sólo en memoria) recién volvía cuando el usuario abría la tarjeta.
+   */
+  onEncryptedTeams?: (teams: Array<{ teamId: string; hasWrap: boolean }>) => Promise<void> | void
+```
+
+Método público, junto a `onNetworkRegain`:
+
+```ts
+  /** main.ts lo llama cada vez que entra una clave de equipo a memoria (activar, adoptar,
+   * recuperar, readopción de arranque): libera lo retenido y empuja ya. */
+  onTeamKeysChanged(): void {
+    if (this.swapping) return
+    this.deps.store.unblockMutations([...TEAM_KEY_HOLD_REASONS])
+    void this.push()
+  }
+```
+
+`applyPulledRow`, rama `undecryptable`: reemplazar la línea `this.deps.store.rememberKeyEpoch(...)` por:
+
+```ts
+      if (incoming.scope === 'team') {
+        // Una fila de EQUIPO ilegible dice que ESE equipo cifra, no que la CUENTA cifre: armar
+        // la época personal dejaba a un miembro sin cifrado personal con todo el push en
+        // `needs_key` para siempre (Task 14). Lo de equipo lo cubre el gate de equipo de doPush.
+        if (incoming.teamId) this.deps.store.rememberEncryptedTeams?.([incoming.teamId])
+      } else {
+        this.deps.store.rememberKeyEpoch(Math.max(1, this.deps.getEnvelopeContext?.()?.keyEpoch ?? 0))
+      }
+      return
+```
+
+`doStatus`: reemplazar el loop del roster por esta versión, que sincroniza también `team_id` (y conserva el "cero escrituras si el roster no cambia"):
+
+```ts
+      if (Array.isArray(body.projects)) {
+        const known = new Set(store.listProjects().map((p) => p.projectKey))
+        let aprendioUnShare = false
+        for (const project of body.projects) {
+          const projectKey = project?.project_key
+          if (typeof projectKey !== 'string' || projectKey === '') continue
+          if (!known.has(projectKey)) {
+            const nombreRemoto = typeof project.display_name === 'string' ? project.display_name : ''
+            const displayName = nombreRemoto && !isCiphertext(nombreRemoto) ? nombreRemoto : projectKey
+            store.ensureProject({ projectKey, displayName })
+            known.add(projectKey)
+          }
+          // Task 14: espejo de `projects.team_id` del servidor. Sin esto, la OTRA máquina de
+          // quien compartió nunca sabía a qué equipo van sus filas de equipo: las sellaba sin
+          // clave (en claro) aunque tuviera la de equipo. Sólo se escribe si cambió, y nunca se
+          // pisa con null: dejar de compartir no existe en v1, y bajar a null desarmaría el gate.
+          const teamId = typeof project.team_id === 'string' && project.team_id !== '' ? project.team_id : null
+          if (teamId && store.teamIdForProjectKey(projectKey) !== teamId) {
+            store.setLocalTeamId(projectKey, teamId)
+            aprendioUnShare = true
+          }
+        }
+        // Compartido desde otra máquina: lo retenido por `project_not_shared_with_team` ya aplica.
+        if (aprendioUnShare) store.unblockMutations(['project_not_shared_with_team'])
+      }
+
+      if (Array.isArray(body.encrypted_teams)) {
+        const equipos = body.encrypted_teams
+          .filter((t): t is { team_id: string; has_wrap: boolean } => typeof t?.team_id === 'string' && t.team_id !== '')
+          .map((t) => ({ teamId: t.team_id, hasWrap: t.has_wrap === true }))
+        store.rememberEncryptedTeams(equipos.map((e) => e.teamId))
+        if (this.deps.onEncryptedTeams && equipos.length > 0) {
+          // Esperado (para que la readopción gane al pull y al push de este drain) pero con
+          // tope, y sin dejar que un throw del hook se lleve puesto el status.
+          await withTimeout(Promise.resolve().then(() => this.deps.onEncryptedTeams!(equipos)), TEAM_READOPT_TIMEOUT_MS)
+          if (generacionAlSalir !== this.generacionDeStore) return body
+        }
+      }
+```
+
+`doPush`, tres cambios:
+
+(a) La espera del status también se arma si hay filas de equipo pendientes (el paquete portátil, o cualquier caller sin `isEncryptionExpected`, no puede decidir sobre una fila de equipo sin saber si su equipo cifra):
+
+```ts
+    const hayDeEquipo = pending.some((m) => {
+      try { return (JSON.parse(m.payload) as { scope?: unknown }).scope === 'team' } catch { return false }
+    })
+    if (!this.primerStatusOk && (this.deps.isEncryptionExpected || hayDeEquipo)) {
+      await this.status()
+      if (!this.primerStatusOk) return
+    }
+```
+
+(b) Inmediatamente después del gate personal (`if (seEsperaCifrado && …) { … needs_key … }`), el gate de equipo:
+
+```ts
+    /**
+     * Task 14 (spec §9.4) — el gate fail-closed del push de EQUIPO. Una fila `scope: 'team'`
+     * de un equipo que cifra, sin su clave en este device, NO sale: `sealMutationPayload` la
+     * devolvería tal cual (en claro), indistinguible para el servidor de un equipo que nunca
+     * cifró. Se RETIENE con `blockMutations` (mismo mecanismo reversible que
+     * `project_not_shared_with_team`): no vuelve en cada ciclo, no frena al resto del lote, y
+     * `onTeamKeysChanged()` la libera cuando la clave entra.
+     *
+     * El equipo sale de `projects.team_id` LOCAL a propósito: quien sube una fila de equipo es
+     * quien compartió el proyecto, y `doStatus` lo mantiene al día desde el roster. Sin
+     * `team_id` local, la fila sigue: o el servidor la rechaza (`project_not_shared_with_team`)
+     * o, si está compartida desde otra máquina, su propio gate (`team_encryption_required`)
+     * no la guarda.
+     */
+    const equiposCifrados = new Set(store.encryptedTeamIds?.() ?? [])
+    const retenidas: Array<{ seq: number; reason: string }> = []
+    const aSubir = equiposCifrados.size === 0 ? pending : pending.filter((m) => {
+      let p: Record<string, unknown>
+      try { p = JSON.parse(m.payload) as Record<string, unknown> } catch { return true }
+      if (p.scope !== 'team') return true
+      const projectKey = (p.project_key as string | undefined) ?? GLOBAL_PROJECT_KEY
+      const teamId = store.teamIdForProjectKey(projectKey)
+      if (!teamId || !equiposCifrados.has(teamId)) return true
+      if (contexto?.teamKeys?.(projectKey)) return true
+      retenidas.push({ seq: m.seq, reason: 'team_key_missing' })
+      return false
+    })
+    if (retenidas.length > 0) store.blockMutations(retenidas)
+    if (aSubir.length === 0) {
+      this.setStatus('idle')
+      // Lo retenido ya no vuelve en pendingMutations(): si quedaba otra cosa detrás, se sigue.
+      if (retenidas.length > 0 && store.pendingMutationCount() > 0) {
+        setImmediate(() => { if (!this.swapping) void this.push() })
+      }
+      return
+    }
+```
+
+(c) En el resto de `doPush`, usar `aSubir` en lugar de `pending`: en el `pending.map(...)` que arma `mutations` y en el `for (const m of pending)` que procesa `results`. Grep `pending\.` dentro de `doPush` para no dejar ninguno.
+
+- [ ] **Step 25: Correr, confirmar que pasa + suite de electron**
+
+Run: `npx vitest run electron/__tests__/memory-daemon-cifrado-equipo.test.ts`
+Expected: PASS (14 tests)
+
+Run: `npx vitest run electron`
+Expected: PASS — en particular `memory-daemon-cifrado-pull.test.ts` (`el gate se arma por el status…`), `memory-daemon-cifrado-push.test.ts`, `memory-daemon.test.ts` (las filas team de `applyPulledRow` sin `teamId` siguen aplicándose) y `daemon-del-paquete.test.ts`.
+
+---
+
+### Parte G — `main.ts`: contexto, readopción de arranque, handlers
+
+Wiring sin lógica nueva propia, igual que Task 11: lo cubren los tests de la Parte F, a través del hook, y el e2e de la Parte H.
+
+- [ ] **Step 26: `currentEnvelopeContext`** — sumar el resolver por id:
+
+```ts
+    teamKeysById: (teamId: string) => {
+      const master = teamMasterKeys.get(teamId)
+      return master ? deriveKeys(master) : null
+    },
+```
+
+- [ ] **Step 27: La readopción de arranque**, junto a `teamKeysDeps()`:
+
+```ts
+/**
+ * Task 14 (spec §9.4): readopta las claves de equipo que el servidor dice que ESTA máquina ya
+ * tiene envueltas (`has_wrap`). La llama el daemon desde `doStatus` (dep `onEncryptedTeams`),
+ * esperada y con tope, o sea ANTES del pull y del push del primer drain. Antes esto lo hacía
+ * sólo el efecto de montaje de `TeamEncryptionCard`, y entre el arranque y ese momento el
+ * push de equipo salía en claro (hoy lo retiene el gate de `doPush`, pero retener todo lo de
+ * equipo hasta que alguien abra la tarjeta no es un producto).
+ *
+ * Resetea cursores SÓLO si hay filas ilegibles anotadas: si la clave llega antes del primer
+ * pull (el caso normal acá), no hay nada salteado que volver a pedir, y re-bajar la cuenta
+ * entera en cada arranque era el minor que dejó la review de Task 11.
+ */
+async function readoptarClavesDeEquipo(equipos: Array<{ teamId: string; hasWrap: boolean }>): Promise<void> {
+  const deps = teamKeysDeps()
+  // Spec §2: sin cifrado personal no hay cifrado de equipo en este device.
+  if (!deps || !memory || !memoryKeys?.master) return
+  const faltan = equipos.filter((e) => e.hasWrap && !teamMasterKeys.has(e.teamId))
+  if (faltan.length === 0) return
+  const store = memory.store
+  const dueño = store.getOwnerUserId()
+  const device = memoryKeys.device
+  let adopto = false
+  for (const { teamId } of faltan) {
+    try {
+      const r = await adoptExistingTeamKey(deps, teamId, device)
+      // Un swap de cuenta durante el await: la clave es de la cuenta anterior, y
+      // `recargarClavesDeMemoria` ya vació el Map. Identidad primero: el store viejo está cerrado.
+      if (!memory || memory.store !== store || store.getOwnerUserId() !== dueño) return
+      if (r) { teamMasterKeys.set(teamId, Buffer.from(r.master, 'base64')); adopto = true }
+    } catch { /* sin red o 403: el próximo status lo reintenta */ }
+  }
+  if (!adopto) return
+  if (store.undecryptableCount() > 0) {
+    store.resetPullCursors()
+    store.clearUndecryptable()
+  }
+  memory.daemon.onTeamKeysChanged()
+}
+```
+
+Actualizar el doc comment de `teamMasterKeys`: "se re-adopta en cada arranque llamando a `memory:teamEncryption:adopt`" pasa a "se re-adopta sola en el primer `status` de cada arranque (`readoptarClavesDeEquipo`, Task 14)".
+
+- [ ] **Step 28: Cablearla al daemon** — en el `new MemoryDaemon({ … })`, junto a `isEncryptionExpected`:
+
+```ts
+    onEncryptedTeams: (teams) => readoptarClavesDeEquipo(teams),
+```
+
+- [ ] **Step 29: Handlers** — en `memory:teamEncryption:activate`, `memory:teamEncryption:adopt` (rama `adoptada: true`) y `memory:teamEncryption:recover`, inmediatamente después de cada `teamMasterKeys.set(...)`:
+
+```ts
+    memory?.daemon.onTeamKeysChanged() // libera lo retenido por `team_key_missing` (Task 14)
+```
+
+En `adopt` y `recover` va ANTES del `onNetworkRegain()` que ya está; en `activate` es el único disparo.
+
+- [ ] **Step 30: Typechecks**
+
+Run: `npx tsc -p tsconfig.node.json --noEmit --composite false && npx tsc -p tsconfig.web.json --noEmit --composite false`
+Expected: 0 errores en los dos
+
+- [ ] **Step 31: Commit (cliente)**
+
+```bash
+git add electron/memory-envelope.ts electron/memory-store.ts electron/memory-daemon.ts electron/main.ts electron/__tests__/memory-envelope.test.ts electron/__tests__/memory-store.test.ts electron/__tests__/memory-daemon-cifrado-equipo.test.ts
+git commit -m "fix(cifrado-equipo): la clave de una fila bajada sale del team_id del servidor; el push de equipo falla cerrado y readopta al arrancar"
+```
+
+---
+
+### Parte H — e2e/16: el fixme pasa a `test()`, sin workaround, con §9.4 real
+
+- [ ] **Step 32: Ajustar `e2e/16-cifrado-de-equipo.spec.ts`**
+
+1. `escenario(companeroComparteSuCopia: boolean)` pasa a `escenario()`. Borrar el bloque `if (companeroComparteSuCopia) { … WORKAROUND … }` y reescribir el doc comment: B NUNCA comparte su copia, ése es el caso normal, y lee porque el servidor manda `team_id` en cada fila de equipo (Task 14).
+2. Leader, primer lanzamiento: borrar `share2` (el roster de `status` ahora escribe `projects.team_id` local). Dejar el `await conectar(h.page, cA)` y reemplazar la llamada a la migración por un reintento, porque el drain que dispara `conectar` corre en segundo plano:
+
+```ts
+    // `projects.team_id` local llega solo: el roster de `/v1/sync/status` trae el team_id de
+    // cada proyecto propio y `doStatus` lo copia (Task 14). Antes había que repetir el share a
+    // mano. La migración lo necesita (`localTeamRowsForTeam` filtra por él) y el drain de
+    // `conectar` corre en segundo plano, así que se reintenta. Un intento con 0 filas no pega
+    // al servidor (`runTeamRecrypt` no hace request sin filas).
+    const paginaA = h.page
+    let migr: Awaited<ReturnType<typeof teamEncryptionRecrypt>> = { total: 0, applied: 0, rejected: 0 }
+    await expect.poll(async () => { migr = await teamEncryptionRecrypt(paginaA, teamId); return migr.applied }, { timeout: 30_000 })
+      .toBeGreaterThanOrEqual(1)
+    expect(migr.error, JSON.stringify(migr)).toBeUndefined()
+```
+
+(La activación, `teamEncryptionActivate`, queda ANTES de esto, igual que hoy.)
+
+3. Leader, segundo lanzamiento: reemplazar el `teamEncryptionAdopt` explícito por el chequeo de §9.4 más la readopción automática:
+
+```ts
+    h = await launchHarness({ homeDir: homeDirA })
+    apuntarAlRemoto(h.repoDir, marca) // mismo remoto → mismo project_key que antes
+    await conectar(h.page, cA)
+
+    // §9.4: una memoria de equipo escrita APENAS arranca la app, sin abrir la tarjeta ni llamar
+    // `teamEncryptionAdopt`. Antes de Task 14 subía EN CLARO (la clave de equipo vive sólo en
+    // memoria y nadie la readoptaba hasta que se montaba la tarjeta).
+    const posArranque = `Decision post-arranque ${marca}`
+    const syncIdPosArranque = await guardar(h.page, h.repoDir, posArranque)
+    const promo2 = await promoverPorMcp(h, syncIdPosArranque)
+    expect(promo2, promo2).toContain('true')
+    await expect.poll(() => filaEnElServicio(syncIdPosArranque)?.scope, { timeout: 60_000 }).toBe('team')
+    expect(filaEnElServicio(syncIdPosArranque)!.title).toMatch(/^nmc1:/)
+    expect(sql(`select count(*) from observations where title like '%${posArranque}%' or content like '%${posArranque}%'`)).toBe('0')
+
+    const paginaA2 = h.page
+    await expect.poll(async () => (await teamEncryptionStatus(paginaA2, teamId)).hasMaster, { timeout: 30_000 }).toBe(true)
+```
+
+   El resto del bloque (huella, `teamEncryptionAuthorize`) queda igual.
+4. B, último lanzamiento: reemplazar `teamEncryptionAdopt` por la readopción automática, y verificar también la memoria pos-arranque:
+
+```ts
+    const paginaB = h.page
+    // Sin `teamEncryptionAdopt`: el status de arranque dice `has_wrap: true` y main.ts la readopta.
+    await expect.poll(async () => (await teamEncryptionStatus(paginaB, teamId)).hasMaster, { timeout: 30_000 }).toBe(true)
+    expect(await hastaQueTenga(h.page, cB, marca, a.deEquipo, 30_000), 'la memoria de equipo nunca llegó en claro al compañero').toBe(true)
+    expect(await hastaQueTenga(h.page, cB, marca, posArranque, 30_000), 'la memoria pos-arranque tampoco').toBe(true)
+```
+
+   (`posArranque` se declara antes del `try` para que llegue a este bloque.)
+5. Los dos `test(...)` pasan a ser uno solo, sin `test.fixme`:
+
+```ts
+test('cifrado de equipo: migra lo viejo, el compañero lee en claro SIN compartir su copia, y nada sale en claro al arrancar', async () => {
+  await escenario()
+})
+```
+
+6. Si `teamEncryptionAdopt` (helper) queda sin uso, borrarlo. Actualizar el encabezado del archivo: `teamMasterKeys` ya no exige `teamEncryptionAdopt` en cada relanzamiento.
+
+- [ ] **Step 33: Correr el e2e**
+
+```
+docker start nest-memory-pg
+npm run native:electron
+(cd server && PORT=8099 npx tsx src/index.ts)      # REINICIARLO: tiene que correr el pull/status/push nuevos
+npm run build
+NEST_E2E_SYNC_URL=http://127.0.0.1:8099 NEST_E2E_PG_DOCKER=nest-memory-pg \
+  npx playwright test e2e/16-cifrado-de-equipo.spec.ts --repeat-each=2
+NEST_E2E_SYNC_URL=http://127.0.0.1:8099 NEST_E2E_PG_DOCKER=nest-memory-pg \
+  npx playwright test e2e/13-equipo-dos-cuentas.spec.ts
+```
+
+Expected: e2e/16 PASS 2/2 y e2e/13 PASS (sin regresión: no activa cifrado de equipo, así que ni el gate ni `team_encryption_required` lo tocan).
+
+---
+
+### Parte I — spec y verificación final
+
+- [ ] **Step 34: Actualizar el spec** (`docs/superpowers/specs/2026-10-14-cifrado-de-equipo-design.md`):
+  - §7: sumar los tres cambios de wire (aditivos): `team_id` en filas de equipo del pull, `encrypted_teams` y `projects[].team_id` en `status`, y el rechazo reversible `team_encryption_required` en push.
+  - §9.4: marcarlo como **cerrado en Task 14 (2026-10-15)**, con las capas (saber por `status`, retener en `doPush`, readoptar al arrancar, el servidor no guarda texto en claro). Dejar escrito lo que queda abierto: con un `projects.team_id` local desactualizado dentro de la ventana de un `status`, el texto en claro viaja por TLS y el servidor lo rechaza sin guardarlo. Y un cliente anterior a Task 14 que empuja a un equipo cifrado ve un rechazo terminal: esa fila no llega a la nube.
+  - CLAUDE.md, sección "Memoria cifrada": una línea apuntando al gate de equipo y a su test (`memory-daemon-cifrado-equipo.test.ts`).
+
+- [ ] **Step 35: Foto final**
+
+```
+npx tsc -p tsconfig.node.json --noEmit --composite false
+npx tsc -p tsconfig.web.json --noEmit --composite false
+npm run native:node && npm test
+(cd server && npx vitest run)
+```
+
+Expected: 0 errores, todo verde.
+
+- [ ] **Step 36: Commit (e2e + docs)**
+
+```bash
+git add e2e/16-cifrado-de-equipo.spec.ts docs/superpowers/specs/2026-10-14-cifrado-de-equipo-design.md CLAUDE.md
+git commit -m "test(cifrado-equipo): el compañero lee sin compartir su copia; nada sale en claro al arrancar (cierra §9.4)"
+```
