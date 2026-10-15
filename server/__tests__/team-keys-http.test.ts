@@ -34,6 +34,26 @@ async function registrarDevice(userId: string, plan = 'team'): Promise<{ deviceI
   return { deviceId, token }
 }
 
+// Fixture para los tests de /v1/teams/key/recrypt: un proyecto de equipo y una fila
+// scope='team' adentro, mismo estilo que server/__tests__/team-keys-recrypt.test.ts.
+async function insertarObservacionDeEquipo(userId: string, teamIdDeEquipo: string): Promise<string> {
+  const syncId = randomUUID()
+  const { rows } = await pool.query(
+    `insert into projects (user_id, project_key, display_name, team_id)
+     values ($1, $2, 'p', $3) returning id`,
+    [userId, `repo-${syncId.slice(0, 8)}`, teamIdDeEquipo]
+  )
+  const projectId = Number(rows[0].id)
+  await pool.query(
+    `insert into observations
+       (sync_id, project_id, project_seq, scope, type, title, content, author_id, lamport,
+        client_updated_at, client_created_at, deleted)
+     values ($1, $2, 1, 'team', 'decision', 'en claro', 'contenido en claro', $3, 1, now(), now(), false)`,
+    [syncId, projectId, userId]
+  )
+  return syncId
+}
+
 beforeEach(async () => {
   teamId = randomUUID(); leaderId = randomUUID(); memberId = randomUUID()
   const l = await registrarDevice(leaderId); leaderDeviceId = l.deviceId; leaderToken = l.token
@@ -94,5 +114,41 @@ describe('/v1/teams/key*', () => {
   it('GET sin team_id da 400', async () => {
     const res = await fetch(`${baseUrl}/v1/teams/key`, { headers: { Authorization: `Bearer ${leaderToken}` } })
     expect(res.status).toBe(400)
+  })
+
+  it('POST activate sin team_id da 400', async () => {
+    const res = await fetch(`${baseUrl}/v1/teams/key/activate`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${leaderToken}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ wraps: [{ slot: leaderDeviceId, kind: 'device', wrapped: 'W' }] }),
+    })
+    expect(res.status).toBe(400)
+  })
+
+  it('POST recrypt con un member da 403', async () => {
+    const res = await fetch(`${baseUrl}/v1/teams/key/recrypt`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${memberToken}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ team_id: teamId, items: [] }),
+    })
+    expect(res.status).toBe(403)
+    expect(await res.json()).toEqual({ error: 'leader_required' })
+  })
+
+  it('POST recrypt con el leader re-cifra una fila real de equipo', async () => {
+    const syncId = await insertarObservacionDeEquipo(leaderId, teamId)
+
+    const res = await fetch(`${baseUrl}/v1/teams/key/recrypt`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${leaderToken}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        team_id: teamId,
+        items: [{ sync_id: syncId, title: 'nmc1:x', content: 'nmc1:y', tags: [], content_hash: null, origin_account: null }],
+      }),
+    })
+    expect(res.status).toBe(200)
+    const json = (await res.json()) as { applied: string[]; rejected: unknown[] }
+    expect(json.applied).toEqual([syncId])
+    expect(json.rejected).toEqual([])
   })
 })
