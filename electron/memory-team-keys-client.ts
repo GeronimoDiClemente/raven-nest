@@ -25,6 +25,9 @@ export interface RemoteTeamKeyState {
   verifier: string | null
   wrap: { wrapped: string; wrapMeta: Record<string, unknown> | null } | null
   pendingDevices: Array<{ deviceId: string; name: string; publicKey: string }>
+  /** Task 15b (Minor 3): si este usuario es leader del equipo, según el servidor. Ausente
+   * (servicio anterior) es false: lo único que se pierde es el conteo de pendientes. */
+  isLeader: boolean
 }
 
 export class TeamKeysHttpError extends Error {
@@ -82,6 +85,7 @@ export async function fetchTeamKeyState(
     verifier: typeof json.verifier === 'string' && json.verifier !== '' ? json.verifier : null,
     wrap: json.wrap ?? null,
     pendingDevices: Array.isArray(json.pendingDevices) ? json.pendingDevices : [],
+    isLeader: json.isLeader === true,
   }
 }
 

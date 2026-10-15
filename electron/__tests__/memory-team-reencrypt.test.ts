@@ -1,14 +1,16 @@
 // electron/__tests__/memory-team-reencrypt.test.ts
 import { describe, it, expect, vi } from 'vitest'
 import { createHash } from 'crypto'
-import { generateMasterKey, deriveKeys, decryptField, fieldAad, teamKeyProof, teamKeyVerifier } from '../memory-crypto'
-import { migrateTeam } from '../memory-team-reencrypt'
+import { generateMasterKey, deriveKeys, decryptField, fieldAad, teamKeyProof, teamKeyVerifier, hmacTopicKey } from '../memory-crypto'
+import { sealMutationPayload, looksLikeTopicHmac } from '../memory-envelope'
+import { migrateTeam, pendientesSiEsLeader } from '../memory-team-reencrypt'
 
 const TEAM = '11111111-1111-4111-8111-111111111111'
 
 interface FilaServidor {
   lamport: number; title: string; content: string | null
   tags?: string[]; content_hash?: string | null; origin_account?: string | null
+  project_key?: string; topic_key?: string | null
 }
 
 /**
@@ -36,6 +38,7 @@ function servidorFalso(master: Buffer, filas: Record<string, FilaServidor>, opts
         .map(([sync_id, f]) => ({
           sync_id, lamport: f.lamport, title: f.title, content: f.content, tags: f.tags ?? [],
           content_hash: f.content_hash ?? null, origin_account: f.origin_account ?? null,
+          project_key: f.project_key ?? 'repo-x', topic_key: f.topic_key ?? null,
         }))
         .sort((a, b) => (a.sync_id < b.sync_id ? -1 : 1))
       const pagina = enClaro.filter((x) => !after || x.sync_id > after).slice(0, opts.porPagina ?? 200)
@@ -165,5 +168,66 @@ describe('migrateTeam', () => {
     const srv = servidorFalso(master, filas, { porPagina: 3 })
     const res = await migrateTeam(deps(srv.fetchImpl), TEAM, master, sinEspera)
     expect(res).toEqual({ total: 7, applied: 7, rejected: 0, remaining: 0 })
+  })
+})
+
+describe('Task 15b — I2: la migración sella el tema igual que una fila nueva', () => {
+  it('el topic_key que manda es EXACTAMENTE el que sealMutationPayload pone en una fila nueva del mismo tema', async () => {
+    const master = generateMasterKey()
+    const srv = servidorFalso(master, {
+      vieja: { lamport: 1, title: 'Deploy', content: 'a prod', project_key: 'github.com/acme/api', topic_key: 'deploy-target' },
+    })
+    await migrateTeam(deps(srv.fetchImpl), TEAM, master, sinEspera)
+    const enviado = srv.lotes[0].items[0].topic_key
+
+    // Una fila NUEVA del mismo tema, guardada después de activar, por cualquier miembro: la
+    // personal es otra (cada uno tiene la suya), la de equipo es la misma maestra.
+    const nueva = sealMutationPayload(
+      { keys: deriveKeys(generateMasterKey()), keyEpoch: 1, teamKeys: () => deriveKeys(master) },
+      { sync_id: 'nueva', scope: 'team', project_key: 'github.com/acme/api', topic_key: 'deploy-target', title: 'Deploy v2' }
+    )
+    expect(enviado).toBe(nueva.topic_key)
+    expect(enviado).toBe(hmacTopicKey(deriveKeys(master), 'github.com/acme/api', 'team', 'deploy-target'))
+    expect(looksLikeTopicHmac(String(enviado))).toBe(true)
+  })
+
+  it('una fila sin tema manda topic_key null', async () => {
+    const master = generateMasterKey()
+    const srv = servidorFalso(master, { a: { lamport: 1, title: 'A', content: 'x' } })
+    await migrateTeam(deps(srv.fetchImpl), TEAM, master, sinEspera)
+    expect(srv.lotes[0].items[0].topic_key).toBeNull()
+  })
+})
+
+describe('Task 15b — Minor 4: migrateTeam nunca rechaza', () => {
+  it('con una maestra inválida resuelve con `error` en vez de rechazar (era un unhandled rejection en main)', async () => {
+    const srv = servidorFalso(generateMasterKey(), { a: { lamport: 1, title: 'A', content: 'x' } })
+    const res = await migrateTeam(deps(srv.fetchImpl), TEAM, undefined as unknown as Buffer, sinEspera)
+    expect(res.error).toBeTruthy()
+    expect(res.applied).toBe(0)
+    expect(srv.lotes).toHaveLength(0)
+  })
+})
+
+describe('Task 15b — Minor 3: lo pendiente sólo se pregunta si soy leader', () => {
+  it('un member no llama a recrypt-pending (ni gasta el limiter ni se come un 403)', async () => {
+    const srv = servidorFalso(generateMasterKey(), { a: { lamport: 1, title: 'A', content: 'x' } })
+    const n = await pendientesSiEsLeader(deps(srv.fetchImpl), TEAM, { activated: true, isLeader: false }, true)
+    expect(n).toBeNull()
+    expect(srv.fetchImpl).not.toHaveBeenCalled()
+  })
+
+  it('sin la clave o sin activar tampoco', async () => {
+    const srv = servidorFalso(generateMasterKey(), { a: { lamport: 1, title: 'A', content: 'x' } })
+    expect(await pendientesSiEsLeader(deps(srv.fetchImpl), TEAM, { activated: true, isLeader: true }, false)).toBeNull()
+    expect(await pendientesSiEsLeader(deps(srv.fetchImpl), TEAM, { activated: false, isLeader: true }, true)).toBeNull()
+    expect(srv.fetchImpl).not.toHaveBeenCalled()
+  })
+
+  it('el leader con la clave ve cuánto falta; un error de red da null, no lanza', async () => {
+    const srv = servidorFalso(generateMasterKey(), { a: { lamport: 1, title: 'A', content: 'x' }, b: { lamport: 1, title: 'B', content: 'y' } })
+    expect(await pendientesSiEsLeader(deps(srv.fetchImpl), TEAM, { activated: true, isLeader: true }, true)).toBe(2)
+    const caido = (async () => { throw new Error('sin red') }) as unknown as typeof fetch
+    expect(await pendientesSiEsLeader(deps(caido), TEAM, { activated: true, isLeader: true }, true)).toBeNull()
   })
 })

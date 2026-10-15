@@ -73,7 +73,7 @@ describe('getTeamKeyState', () => {
 
   it('sin activar: activated=false, sin verificador y sin pendingDevices (nadie publicó public_key aún)', async () => {
     const res = await getTeamKeyState(pool, { deviceId: leaderDevice, userId: leaderId }, teamId)
-    expect(res).toEqual({ activated: false, verifier: null, wrap: null, pendingDevices: [] })
+    expect(res).toEqual({ activated: false, verifier: null, wrap: null, pendingDevices: [], isLeader: true })
   })
 
   it('lista como pendiente a un device de un miembro con public_key pero sin wrap', async () => {
@@ -87,6 +87,7 @@ describe('getTeamKeyState', () => {
       verifier: null,
       wrap: null,
       pendingDevices: [{ deviceId: memberDevice, name: 'member-pc', publicKey: 'PUB-MEMBER' }],
+      isLeader: true,
     })
   })
 
@@ -102,6 +103,7 @@ describe('getTeamKeyState', () => {
       verifier: VERIFICADOR,
       wrap: { wrapped: 'W-LEADER', wrapMeta: null },
       pendingDevices: [],
+      isLeader: true,
     })
   })
 
@@ -110,6 +112,8 @@ describe('getTeamKeyState', () => {
     const res = await getTeamKeyState(pool, { deviceId: memberDevice, userId: memberId }, teamId)
     expect('ok' in res).toBe(false)
     if (!('ok' in res)) expect(res.verifier).toBe(VERIFICADOR)
+    // Task 15b (Minor 3): el cliente sólo pregunta lo pendiente si es leader.
+    if (!('ok' in res)) expect(res.isLeader).toBe(false)
   })
 
   it('con ?slot=recovery devuelve la envoltura de recuperación en vez de la del device', async () => {
@@ -120,6 +124,7 @@ describe('getTeamKeyState', () => {
       verifier: VERIFICADOR,
       wrap: { wrapped: 'W-REC', wrapMeta: { salt: 'S' } },
       pendingDevices: [],
+      isLeader: true,
     })
   })
 })

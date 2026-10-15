@@ -185,3 +185,14 @@ describe('memory-team-keys-client', () => {
     expect(authorizes).toEqual([])
   })
 })
+
+describe('fetchTeamKeyState — Task 15b (Minor 3)', () => {
+  it('expone isLeader tal como lo dice el servidor; ausente es false', async () => {
+    const respuesta = (json: unknown) => (async () => new Response(JSON.stringify(json), { status: 200 })) as unknown as typeof fetch
+    const base = { activated: true, verifier: null, wrap: null, pendingDevices: [] }
+    const deps = (fetchImpl: typeof fetch) => ({ baseUrl: 'http://x', token: 't', deviceId: 'd', fetchImpl })
+    expect((await fetchTeamKeyState(deps(respuesta({ ...base, isLeader: true })), 'team-1')).isLeader).toBe(true)
+    expect((await fetchTeamKeyState(deps(respuesta({ ...base, isLeader: false })), 'team-1')).isLeader).toBe(false)
+    expect((await fetchTeamKeyState(deps(respuesta(base)), 'team-1')).isLeader).toBe(false)
+  })
+})

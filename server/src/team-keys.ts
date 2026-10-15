@@ -42,6 +42,12 @@ export interface TeamKeyState {
   verifier: string | null
   wrap: { wrapped: string; wrapMeta: Record<string, unknown> | null } | null
   pendingDevices: Array<{ deviceId: string; name: string; publicKey: string }>
+  /**
+   * Task 15b (Minor 3): si quien pregunta es el leader del equipo. Es lo que le deja al cliente
+   * NO pedir `recrypt-pending` siendo member: era un 403 seguro que además gastaba el limiter
+   * de recrypt. Sólo informa; cada ruta de leader lo vuelve a chequear con `isTeamLeader`.
+   */
+  isLeader: boolean
 }
 
 type Fail<S extends number> = { ok: false; status: S; error: string }
@@ -60,6 +66,7 @@ export async function getTeamKeyState(
   if (!(await esMiembroActivo(pool, auth.userId, teamId))) {
     return { ok: false, status: 403, error: 'not_a_team_member' }
   }
+  const isLeader = await isTeamLeader(pool, auth.userId, teamId)
 
   const { rows: activatedRows } = await pool.query(
     'select verifier from team_keys where team_id = $1', [teamId]
@@ -95,6 +102,7 @@ export async function getTeamKeyState(
       name: String(r.name),
       publicKey: String(r.public_key),
     })),
+    isLeader,
   }
 }
 

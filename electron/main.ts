@@ -278,7 +278,7 @@ import {
   fetchTeamKeyState, activateTeamEncryption, adoptExistingTeamKey, authorizeTeamDeviceFromClient,
   recoverTeamWithCode, TeamKeyMismatchError,
 } from './memory-team-keys-client'
-import { migrateTeam, countRecryptPending, type TeamMigrationResult } from './memory-team-reencrypt'
+import { migrateTeam, pendientesSiEsLeader, type TeamMigrationResult } from './memory-team-reencrypt'
 
 let memoryKeys: KeyMaterial | null = null
 
@@ -3609,13 +3609,11 @@ ipcMain.handle('memory:teamEncryption:status', async (_e, teamId: string) => {
   try {
     const estado = await fetchTeamKeyState(deps, teamId)
     estadoRemotoLeido = true
-    // C1: cuánto sigue en claro en el SERVIDOR. Sólo lo puede leer el leader (403 para el
-    // resto) y sólo tiene sentido con la clave; si falla, `null` — la tarjeta no dice
-    // "terminado" sin haberlo leído.
-    let recryptPending: number | null = null
-    if (estado.activated && hasMaster) {
-      try { recryptPending = await countRecryptPending(deps, teamId) } catch { /* no leader o sin red */ }
-    }
+    // C1: cuánto sigue en claro en el SERVIDOR. Sólo lo puede leer el leader y sólo tiene
+    // sentido con la clave; si falla, `null` — la tarjeta no dice "terminado" sin haberlo
+    // leído. Minor 3 (Task 15b): a un member ni se le pregunta (era un 403 seguro que además
+    // gastaba el limiter de recrypt).
+    const recryptPending = await pendientesSiEsLeader(deps, teamId, estado, hasMaster)
     return {
       ...estado,
       hasMaster,
