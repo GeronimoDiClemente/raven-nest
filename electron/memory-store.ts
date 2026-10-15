@@ -1167,7 +1167,8 @@ export class MemoryStore {
 
   /**
    * Task 14 (spec §9.4): los equipos que el servidor dijo que cifran (`encrypted_teams` de
-   * `/v1/sync/status`) o de los que bajó una fila de equipo ilegible. Lo lee el gate del push
+   * `/v1/sync/status`, o un rechazo `team_encryption_required` del push). Lo inferido de una
+   * fila ilegible NO va acá: ver `rememberProvisionalEncryptedTeams`. Lo lee el gate del push
    * de equipo (memory-daemon.ts). Mismo contrato que `known_key_epoch`: vive en `meta` para
    * funcionar en el arranque y sin red, y NUNCA olvida: olvidar un equipo cifrado volvería a
    * habilitar el push en claro. (v1 no tiene forma de desactivar el cifrado de un equipo.)
@@ -1189,9 +1190,64 @@ export class MemoryStore {
     }).immediate()
   }
 
+  /**
+   * I1 (review de Tasks 13–14): lo que se aprende de una fila de equipo ilegible de un servicio
+   * VIEJO (sin `team_id` en la fila ni `encrypted_teams` en el status) va acá, no al conjunto de
+   * arriba. Es una inferencia, no algo que dijo el servidor: la fila puede ser de OTRO equipo
+   * (re-share de T1, que cifra, a T2, que no: el pull sirve las filas viejas como de T2). Si
+   * fuera "para siempre", T2 quedaba con todo su push retenido sin salida.
+   *
+   * Arma el gate igual que lo confirmado (`encryptedTeamIds` devuelve la unión, también en el
+   * arranque y sin red), pero el primer status que traiga `encrypted_teams` lo reemplaza —
+   * ver `reconcileEncryptedTeamsFromStatus`.
+   */
+  rememberProvisionalEncryptedTeams(teamIds: string[]): void {
+    const nuevos = teamIds.filter((t) => typeof t === 'string' && t.trim() !== '')
+    if (nuevos.length === 0) return
+    this.db.transaction(() => {
+      const actuales = new Set(this.leerConjuntoDeMeta('encrypted_team_ids_provisional'))
+      const antes = actuales.size
+      for (const t of nuevos) actuales.add(t)
+      if (actuales.size !== antes) this.metaSet('encrypted_team_ids_provisional', JSON.stringify([...actuales].sort()))
+    }).immediate()
+  }
+
+  /**
+   * Lo que hace `doStatus` con un `encrypted_teams` presente: el servidor es la fuente de verdad.
+   * Lo que lista pasa a confirmado (y nunca se olvida, como siempre); lo provisorio se descarta
+   * entero — lo que el status lista ya quedó confirmado, y lo que no lista no cifra o no es mío.
+   * Devuelve los provisorios que se SOLTARON, para que el daemon devuelva a la cola lo que
+   * retuvo por ellos.
+   *
+   * Lo confirmado NO se toca aunque este status no lo liste: olvidarlo reabriría el push en
+   * claro (v1 no tiene forma de desactivar el cifrado de un equipo).
+   */
+  reconcileEncryptedTeamsFromStatus(teamIds: string[]): string[] {
+    const delStatus = new Set(teamIds.filter((t) => typeof t === 'string' && t.trim() !== ''))
+    return this.db.transaction((): string[] => {
+      const confirmados = new Set(this.leerConjuntoDeMeta('encrypted_team_ids'))
+      const antes = confirmados.size
+      for (const t of delStatus) confirmados.add(t)
+      if (confirmados.size !== antes) this.metaSet('encrypted_team_ids', JSON.stringify([...confirmados].sort()))
+      const provisorios = this.leerConjuntoDeMeta('encrypted_team_ids_provisional')
+      if (provisorios.length === 0) return []
+      this.metaSet('encrypted_team_ids_provisional', '[]')
+      return provisorios.filter((t) => !confirmados.has(t))
+    }).immediate()
+  }
+
+  /** Lo que lee el gate del push: lo confirmado por el servidor MÁS lo provisorio. */
   encryptedTeamIds(): string[] {
+    const union = new Set([
+      ...this.leerConjuntoDeMeta('encrypted_team_ids'),
+      ...this.leerConjuntoDeMeta('encrypted_team_ids_provisional'),
+    ])
+    return [...union].sort()
+  }
+
+  private leerConjuntoDeMeta(key: string): string[] {
     try {
-      const parsed: unknown = JSON.parse(this.metaGet('encrypted_team_ids') ?? '[]')
+      const parsed: unknown = JSON.parse(this.metaGet(key) ?? '[]')
       return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === 'string') : []
     } catch {
       return [] // un JSON roto no puede tumbar el push; el próximo status lo reescribe
@@ -1200,6 +1256,33 @@ export class MemoryStore {
 
   isTeamEncrypted(teamId: string): boolean {
     return this.encryptedTeamIds().includes(teamId)
+  }
+
+  /**
+   * M2 (review de Tasks 13–14): de qué equipos hay filas ilegibles anotadas. La tabla
+   * `undecryptable` sólo guarda el `sync_id` (una fila ilegible no se aplica, así que no hay
+   * observación local que cruzar), y sumarle una columna exige subir `SCHEMA_VERSION`. En `meta`,
+   * como el resto de lo de equipo. `'*'` = una fila de equipo de equipo desconocido (servicio
+   * viejo sin `team_id` y sin `team_id` local): cualquier clave nueva podría abrirla.
+   *
+   * Se limpia junto con `undecryptable` (`clearUndecryptable`): después de un reset de cursores
+   * el re-pull vuelve a anotar lo que siga sin abrir.
+   */
+  markUndecryptableTeam(teamId: string): void {
+    if (!teamId) return
+    this.db.transaction(() => {
+      const actuales = new Set(this.leerConjuntoDeMeta('undecryptable_team_ids'))
+      if (actuales.has(teamId)) return
+      actuales.add(teamId)
+      this.metaSet('undecryptable_team_ids', JSON.stringify([...actuales].sort()))
+    }).immediate()
+  }
+
+  /** ¿Adoptar las claves de estos equipos puede abrir algo que ya quedó atrás del cursor? */
+  hayIlegiblesDeEquipos(teamIds: string[]): boolean {
+    if (this.undecryptableCount() === 0) return false
+    const anotados = new Set(this.leerConjuntoDeMeta('undecryptable_team_ids'))
+    return anotados.has('*') || teamIds.some((t) => anotados.has(t))
   }
 
   /**
@@ -1230,6 +1313,7 @@ export class MemoryStore {
 
   clearUndecryptable(): void {
     this.db.prepare('DELETE FROM undecryptable').run()
+    this.metaSet('undecryptable_team_ids', '[]')
   }
 
   /**

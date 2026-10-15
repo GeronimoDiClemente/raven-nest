@@ -183,7 +183,8 @@ ignora los campos nuevos):
    1. *Saber, sin depender de la UI.* `status` trae `encrypted_teams` y el store lo recuerda en
       `meta` (`rememberEncryptedTeams`, nunca olvida, igual que `known_key_epoch`; en `meta` y
       no en una tabla nueva para no subir `SCHEMA_VERSION`). Una fila de equipo ilegible en el
-      pull también lo enseña — y ya NO arma la época personal, que dejaba a un miembro sin
+      pull también lo enseña, sólo como provisorio y sólo contra un servicio viejo (ver los
+      ajustes de la review, abajo) — y ya NO arma la época personal, que dejaba a un miembro sin
       cifrado personal con todo el push en `needs_key`.
    2. *Retener, no descartar.* `doPush` bloquea con `team_key_missing` toda fila `scope: 'team'`
       de un equipo que cifra si este device no tiene su clave (mismo mecanismo reversible que
@@ -198,9 +199,38 @@ ignora los campos nuevos):
    4. *El servidor no guarda texto en claro* para un equipo con `team_keys`
       (`team_encryption_required`, decisión D1 de Gero).
 
+   **Ajustes de la review de Tasks 13–14 (2026-10-15):**
+   - *La fuente de verdad es el status.* Una fila de equipo ilegible ya no marca su equipo como
+     cifrado si trae `team_id` (servicio nuevo): un proyecto re-compartido de T1 (cifra) a T2 (no
+     cifra) sirve sus filas viejas como de T2, y T2 quedaba retenido para siempre. Contra un
+     servicio viejo (sin `team_id` ni `encrypted_teams`) lo inferido entra como PROVISORIO
+     (`meta.encrypted_team_ids_provisional`): arma el gate igual, también offline y en el
+     arranque, pero el primer status con `encrypted_teams` lo reemplaza y devuelve a la cola lo
+     retenido por él. Lo que dijo el servidor (status o rechazo) sigue sin olvidarse nunca.
+   - *Un rechazo `team_encryption_required` enseña el equipo.* Con `team_id` local, el equipo
+     queda confirmado y la fila retenida como `team_key_missing`: ya no se reenvía en claro en
+     cada liberación. Sin `team_id` local queda como rechazo y el roster la devuelve al gate.
+   - *El servidor mira todos los campos sellados* (`title`, `content`, `project_display_name`,
+     `content_hash`, `origin_account` y los tags), no sólo título, contenido y tags.
+
    **Lo que queda abierto:** si el `projects.team_id` local está desactualizado dentro de la
    ventana de un `status` (se compartió desde otra máquina entre el status y el push), la fila
    viaja en claro por TLS y el servidor la rechaza SIN guardarla — el proceso del servidor la ve.
+   **Misma ventana del lado del leader:** entre que el leader ACTIVA el cifrado de un equipo y
+   el próximo `status` de cada device del equipo (hasta `next_poll_ms`: 5 min en los planes
+   pagos), un device que todavía no sabe que el equipo cifra sube sus filas de equipo en claro
+   por TLS; el servidor las rechaza sin guardarlas (`team_encryption_required`), y desde ese
+   rechazo el device ya lo sabe y las retiene. Lo expuesto es lo que viaje en ESE primer push
+   (un lote), no un goteo en cada ciclo. Cerrarla del todo exige que el servidor empuje el aviso (no hay
+   canal push hoy) o que el cliente pida status antes de cada push de equipo.
+   **Re-share entre equipos (de diseño, no arreglado):** si un proyecto compartido con T1, que
+   cifra, se re-comparte con T2 (`share.ts` hace `update set team_id` sin chequeo), las filas ya
+   selladas con la clave de T1 se sirven como de T2 y quedan ilegibles para todo miembro de T2
+   que no tenga la de T1 — y el `team_id` de la fila ya no sirve para elegir la clave. Pide una
+   decisión: prohibir el re-share de un proyecto con filas selladas, re-cifrarlas como parte del
+   re-share, o guardar el equipo sellador por fila. Además, si el `team_id` local está
+   desactualizado justo cuando llega un `team_encryption_required`, el equipo que se confirma es
+   el local (el servidor no dice cuál): un falso positivo así deja ese equipo retenido.
    Y un cliente anterior a Task 14 que empuja a un equipo cifrado no conoce el rechazo nuevo: lo
    trata como terminal y esa fila no llega a la nube (sigue local). Las mutaciones retenidas por
    `team_key_missing` no tienen contador en la UI todavía.

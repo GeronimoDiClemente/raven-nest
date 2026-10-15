@@ -462,6 +462,9 @@ export class MemoryDaemon {
   resume(): void {
     this.swapping = false
     this.start()
+    const pendiente = this.teamKeysPendientesDeGeneracion
+    this.teamKeysPendientesDeGeneracion = null
+    if (pendiente !== null && pendiente === this.generacionDeStore) this.onTeamKeysChanged()
   }
 
   /**
@@ -628,10 +631,20 @@ export class MemoryDaemon {
   /** Task 14: main.ts lo llama cada vez que entra una clave de equipo a memoria (activar,
    * adoptar, recuperar, readopción de arranque): libera lo retenido y empuja ya. */
   onTeamKeysChanged(): void {
-    if (this.swapping) return // Task 1 Step 3a: no new push while a store hot-swap is in flight
+    if (this.swapping) {
+      // M7: durante un swap no se toca el store (puede estar cerrándose), pero perder el aviso
+      // dejaba lo retenido esperando a la próxima clave. Queda anotado con la generación de
+      // store en que llegó, y `resume()` lo aplica sólo si el swap conservó ese store: si lo
+      // cambió, la clave era de la cuenta anterior (main.ts vacía `teamMasterKeys` al cambiar).
+      this.teamKeysPendientesDeGeneracion = this.generacionDeStore
+      return
+    }
     this.deps.store.unblockMutations([...TEAM_KEY_HOLD_REASONS])
     void this.push()
   }
+
+  /** M7: generación de store en que llegó un `onTeamKeysChanged()` durante un swap, o null. */
+  private teamKeysPendientesDeGeneracion: number | null = null
 
   /** §4.1 "Pane exit" trigger. */
   onPaneExit(): void {
@@ -1017,6 +1030,22 @@ export class MemoryDaemon {
           continue
         }
         const reason = result.error ?? 'rejected'
+        if (reason === 'team_encryption_required') {
+          // M1 (review de Tasks 13–14): el servidor acaba de decir que el equipo de este proyecto
+          // cifra. Se aprende como CONFIRMADO (viene del servidor, no de una inferencia) y la
+          // fila queda retenida por el gate (`team_key_missing`): si no, cada liberación
+          // (`onTeamKeysChanged`, un share aprendido) la volvía a mandar en claro por TLS para
+          // que el servidor la rechazara otra vez. Sin `team_id` local no hay equipo que anotar:
+          // queda como rechazo, y el roster del próximo status la devuelve al gate.
+          let pk = GLOBAL_PROJECT_KEY
+          try { pk = (JSON.parse(m.payload).project_key as string | undefined) ?? GLOBAL_PROJECT_KEY } catch { /* default */ }
+          const teamId = store.teamIdForProjectKey(pk)
+          if (teamId) {
+            store.rememberEncryptedTeams?.([teamId])
+            toBlock.push({ seq: m.seq, reason: 'team_key_missing' })
+            continue
+          }
+        }
         if (REVERSIBLE_REJECTIONS.has(reason)) toBlock.push({ seq: m.seq, reason })
         else toMark.push({ seq: m.seq, error: reason })
       }
@@ -1269,14 +1298,19 @@ export class MemoryDaemon {
         const equipos = body.encrypted_teams
           .filter((t): t is { team_id: string; has_wrap: boolean } => typeof t?.team_id === 'string' && t.team_id !== '')
           .map((t) => ({ teamId: t.team_id, hasWrap: t.has_wrap === true }))
-        store.rememberEncryptedTeams?.(equipos.map((e) => e.teamId))
+        // I1: el campo presente es la fuente de verdad. Lo que lista queda confirmado para
+        // siempre (como `known_key_epoch`); lo inferido de filas ilegibles (provisorio) se
+        // descarta. Si eso soltó algún equipo, lo que el gate retuvo por él vuelve a la cola: el
+        // gate de `doPush` re-evalúa y re-retiene lo que siga aplicando.
+        const soltados = store.reconcileEncryptedTeamsFromStatus?.(equipos.map((e) => e.teamId)) ?? []
+        if (soltados.length > 0) store.unblockMutations(['team_key_missing'])
         const hook = this.deps.onEncryptedTeams
         if (hook && equipos.length > 0) {
           // Esperado (para que la readopción gane al pull y al push de este drain) pero con
           // tope, y sin dejar que un throw del hook se lleve puesto el status (`withTimeout`
-          // nunca rechaza).
+          // nunca rechaza). Después no se escribe nada en el store, así que no hace falta
+          // re-chequear la generación (M6: había un `if (...) return body` seguido de `return body`).
           await withTimeout(Promise.resolve().then(() => hook(equipos)), TEAM_READOPT_TIMEOUT_MS)
-          if (generacionAlSalir !== this.generacionDeStore) return body
         }
       }
 
@@ -1570,12 +1604,21 @@ export class MemoryDaemon {
        * antes del push.
        */
       if (incoming.scope === 'team') {
-        // Task 14: una fila de EQUIPO ilegible dice que ESE equipo cifra, no que la CUENTA
-        // cifre. Armar la época personal dejaba a un miembro sin cifrado personal con todo el
-        // push en `needs_key` para siempre. Lo de equipo lo cubre el gate de equipo de doPush.
-        // Sin `teamId` (servicio viejo) se cae al `team_id` local del proyecto, si lo hay.
+        // Task 14: una fila de EQUIPO ilegible no dice que la CUENTA cifre. Armar la época
+        // personal dejaba a un miembro sin cifrado personal con todo el push en `needs_key`
+        // para siempre. Lo de equipo lo cubre el gate de equipo de doPush.
+        //
+        // I1 (review de Tasks 13–14): y tampoco PRUEBA que el equipo de la fila cifre. Si el
+        // proyecto se re-compartió de T1 (cifra) a T2 (no cifra), el pull sirve las filas
+        // viejas, selladas con T1, como de T2. Con `teamId` (servicio nuevo) el status trae
+        // `encrypted_teams` y ésa es la fuente de verdad: de acá no se aprende nada. Sin
+        // `teamId` (servicio viejo, que tampoco manda `encrypted_teams`) es la única señal que
+        // hay, y entra como PROVISORIA: arma el gate, pero el primer status que sí sepa la
+        // reemplaza.
         const teamId = incoming.teamId ?? this.deps.store.teamIdForProjectKey?.(incoming.projectKey) ?? null
-        if (teamId) this.deps.store.rememberEncryptedTeams?.([teamId])
+        if (!incoming.teamId && teamId) this.deps.store.rememberProvisionalEncryptedTeams?.([teamId])
+        // M2: de qué equipo es lo ilegible, para que adoptar la clave de OTRO no re-baje todo.
+        this.deps.store.markUndecryptableTeam?.(teamId ?? '*')
       } else {
         this.deps.store.rememberKeyEpoch(Math.max(1, this.deps.getEnvelopeContext?.()?.keyEpoch ?? 0))
       }

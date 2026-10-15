@@ -302,7 +302,7 @@ function teamKeysDeps() {
  * push de equipo salía en claro (hoy lo retiene el gate de `doPush`, pero retener todo lo de
  * equipo hasta que alguien abra la tarjeta no es un producto).
  *
- * Resetea cursores SÓLO si hay filas ilegibles anotadas: si la clave llega antes del primer
+ * Resetea cursores SÓLO si hay filas ilegibles anotadas DE LOS EQUIPOS QUE ADOPTÓ (M2): si la clave llega antes del primer
  * pull (el caso normal acá), no hay nada salteado que volver a pedir, y re-bajar la cuenta
  * entera en cada arranque era el minor que dejó la review de Task 11.
  */
@@ -315,7 +315,7 @@ async function readoptarClavesDeEquipo(equipos: Array<{ teamId: string; hasWrap:
   const store = memory.store
   const dueño = store.getOwnerUserId()
   const device = memoryKeys.device
-  let adopto = false
+  const adoptados: string[] = []
   for (const { teamId } of faltan) {
     try {
       const r = await adoptExistingTeamKey(deps, teamId, device)
@@ -324,11 +324,15 @@ async function readoptarClavesDeEquipo(equipos: Array<{ teamId: string; hasWrap:
       // con el store nuevo, así que la identidad del store lo detecta; se mira ANTES que el
       // dueño porque el store viejo ya está cerrado.
       if (!memory || memory.store !== store || store.getOwnerUserId() !== dueño) return
-      if (r) { teamMasterKeys.set(teamId, Buffer.from(r.master, 'base64')); adopto = true }
+      if (r) { teamMasterKeys.set(teamId, Buffer.from(r.master, 'base64')); adoptados.push(teamId) }
     } catch { /* sin red o 403: el próximo status lo reintenta */ }
   }
-  if (!adopto || !memory || memory.store !== store) return
-  if (store.undecryptableCount() > 0) {
+  if (adoptados.length === 0 || !memory || memory.store !== store) return
+  // M2 (review de Tasks 13–14): sólo si lo ilegible es de un equipo RECIÉN adoptado. Con
+  // `undecryptableCount() > 0` a secas, una sola fila personal (o de otro equipo sin wrap)
+  // ilegible re-bajaba la cuenta entera en CADA arranque, porque la clave de equipo vive sólo
+  // en memoria y se readopta siempre.
+  if (store.hayIlegiblesDeEquipos(adoptados)) {
     store.resetPullCursors()
     store.clearUndecryptable()
   }
