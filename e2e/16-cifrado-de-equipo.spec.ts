@@ -36,7 +36,7 @@
 import { test, expect, type Page } from '@playwright/test'
 import { launchHarness, teardown, type Harness } from './helpers/harness'
 import { execFileSync, spawn } from 'child_process'
-import { cpSync, mkdirSync, mkdtempSync, readFileSync } from 'fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'fs'
 import { randomUUID } from 'crypto'
 import { tmpdir } from 'os'
 import { join } from 'path'
@@ -265,17 +265,19 @@ async function teamEncryptionAdopt(page: Page, teamId: string): Promise<{ ok: bo
       .memory.teamEncryptionAdopt(tid), teamId)
 }
 
-async function teamEncryptionStatus(page: Page, teamId: string): Promise<{
-  activated: boolean; hasMaster: boolean
+interface EstadoDeEquipo {
+  activated: boolean; hasMaster: boolean; estadoRemotoLeido: boolean
   pendingDevices: Array<{ deviceId: string; name: string; publicKey: string }>
-}> {
+  /** La huella del par de ESTE device: lo que el compañero le dicta al leader por fuera. */
+  huellaPropia: string | null
+  /** La huella de cada device pendiente, calculada del lado del leader. */
+  huellasPorDevice: Record<string, string>
+}
+
+async function teamEncryptionStatus(page: Page, teamId: string): Promise<EstadoDeEquipo> {
   return page.evaluate((tid) =>
-    (window as unknown as { memory: {
-      teamEncryptionStatus(t: string): Promise<{
-        activated: boolean; hasMaster: boolean
-        pendingDevices: Array<{ deviceId: string; name: string; publicKey: string }>
-      }>
-    } }).memory.teamEncryptionStatus(tid), teamId)
+    (window as unknown as { memory: { teamEncryptionStatus(t: string): Promise<EstadoDeEquipo> } })
+      .memory.teamEncryptionStatus(tid), teamId)
 }
 
 async function teamEncryptionRecrypt(page: Page, teamId: string): Promise<{ total: number; applied: number; rejected: number; error?: string }> {
@@ -290,7 +292,19 @@ async function teamEncryptionAuthorize(page: Page, teamId: string, deviceId: str
       .memory.teamEncryptionAuthorize(tid, dev), { tid: teamId, dev: deviceId })
 }
 
-test('cifrado de equipo: migra lo viejo, autoriza al compañero, el compañero lo lee en claro', async () => {
+/**
+ * El escenario entero. `companeroComparteSuCopia` existe por un bug de producción todavía
+ * abierto (ver el `test.fixme` de abajo): el cliente resuelve la clave de equipo de una fila
+ * bajada SÓLO por `projects.team_id` local (`teamIdForProjectKey`, electron/main.ts →
+ * `currentEnvelopeContext().teamKeys`), y esa columna la escribe únicamente
+ * `memory:shareProjectWithTeam` en la máquina que comparte. El servicio, en cambio, le sirve
+ * la fila de equipo al compañero por ser miembro activo, sin exigirle que haya compartido su
+ * copia (server/src/pull.ts). Resultado: un compañero que nunca compartió ve la fila como
+ * `undecryptable` aunque YA tenga la maestra del equipo. Con `true`, el test hace ese share
+ * de más para poder probar el resto del camino (migración, autorización con huella, lectura
+ * en claro); con `false` reproduce el bug.
+ */
+async function escenario(companeroComparteSuCopia: boolean): Promise<void> {
   const marca = `ce${Date.now()}`
   const teamId = randomUUID()
   const cA = cuentaNueva(marca, 'leader')
@@ -317,7 +331,7 @@ test('cifrado de equipo: migra lo viejo, autoriza al compañero, el compañero l
     // §5.3.1: the ONLY place a device can learn a project exists"). El primer `conectar()` de
     // este test corrió ANTES de que este proyecto se empujara al servicio, así que todavía no
     // podía verlo en el roster. Reconectar fuerza un ciclo status→pull→push nuevo, que ya sí
-    // lo encuentra y llama `ensureProject()` — y recién ahí repetir el share dejar grabado el
+    // lo encuentra y llama `ensureProject()` — y recién ahí repetir el share deja grabado el
     // `team_id` local (antes era un UPDATE sin fila que tocar).
     await conectar(h.page, cA)
     const share2 = await compartir(h.page, a.projectKey, teamId)
@@ -333,8 +347,10 @@ test('cifrado de equipo: migra lo viejo, autoriza al compañero, el compañero l
     expect(migr.error, JSON.stringify(migr)).toBeUndefined()
     expect(migr.applied).toBeGreaterThanOrEqual(1)
 
-    // En el SERVICIO, la fila de equipo ahora tiene que estar cifrada de verdad.
+    // En el SERVICIO, la fila de equipo ahora tiene que estar cifrada de verdad, y el texto
+    // no puede quedar legible en ningún lado de la tabla.
     expect(filaEnElServicio(a.syncIdEquipo)!.title).toMatch(/^nmc1:/)
+    expect(sql(`select count(*) from observations where title like '%${a.deEquipo}%' or content like '%${a.deEquipo}%'`)).toBe('0')
 
     await h.page.screenshot({ path: join(SHOTS, '01-leader-migro.png') })
     homeDirA = h.homeDir
@@ -351,21 +367,25 @@ test('cifrado de equipo: migra lo viejo, autoriza al compañero, el compañero l
     await guardar(h.page, h.repoDir, `Nota propia del companero ${marca}`)
     await todoSubido(h.page)
 
-    // `projects.team_id` es POR USUARIO del lado del servicio (server/src/share.ts: el UPDATE
-    // filtra por `user_id = auth.userId`), y el mirror local (`teamIdForProjectKey`, lo que
-    // `openPulledRow` necesita para derivar la clave de equipo al desencriptar un pull — ver
-    // electron/memory-envelope.ts) es por-cuenta igual. Que A haya compartido este proyecto no
-    // alcanza para que B pueda abrir la fila de equipo: B tiene que marcar SU PROPIA copia del
-    // proyecto como compartida con el mismo equipo (mismo motivo que A necesitó reconectar
-    // antes de poder compartir — `ensureProject()` recién corre cuando `doStatus()` ve este
-    // project_key en el roster de LA CUENTA DE B, que recién pasa a existir server-side
-    // después de que B empujó su propia nota).
-    await conectar(h.page, cB)
-    const shareB = await compartir(h.page, await projectKeyDe(h.page, h.repoDir), teamId)
-    expect(shareB.ok, `shareProjectWithTeam (B, para que B pueda desencriptar lo de equipo): ${shareB.error}`).toBe(true)
+    if (companeroComparteSuCopia) {
+      // WORKAROUND del bug descrito arriba de `escenario()`, no parte del flujo de producto.
+      // Reconectar primero: `ensureProject()` recién corre cuando `doStatus()` ve este
+      // project_key en el roster de la cuenta de B, que existe server-side recién después
+      // de que B empujó su nota.
+      await conectar(h.page, cB)
+      const shareB = await compartir(h.page, await projectKeyDe(h.page, h.repoDir), teamId)
+      expect(shareB.ok, `shareProjectWithTeam (B): ${shareB.error}`).toBe(true)
+    }
 
     const estadoAntes = await teamEncryptionStatus(h.page, teamId)
+    expect(estadoAntes.estadoRemotoLeido).toBe(true)
+    expect(estadoAntes.activated).toBe(true)
     expect(estadoAntes.hasMaster).toBe(false)
+    // Lo que B le dictaría al leader por un canal aparte.
+    const huellaQueDictaB = estadoAntes.huellaPropia
+    expect(huellaQueDictaB).toBeTruthy()
+    // Y sin la clave, la fila de equipo no puede aparecer en claro en B.
+    expect((await loQueTiene(h.page, marca)).map((m) => m.title)).not.toContain(a.deEquipo)
     await h.page.screenshot({ path: join(SHOTS, '02-companero-sin-autorizar.png') })
     homeDirB = h.homeDir
     await teardown(h, { keepHomeDir: true }); h = null
@@ -379,6 +399,9 @@ test('cifrado de equipo: migra lo viejo, autoriza al compañero, el compañero l
     const estadoDeB = await teamEncryptionStatus(h.page, teamId)
     const deviceDeB = estadoDeB.pendingDevices.find((d) => d.deviceId === cB.deviceId)
     expect(deviceDeB, `B no aparece en pendingDevices: ${JSON.stringify(estadoDeB.pendingDevices)}`).toBeTruthy()
+    // La verificación de huella: el leader sólo autoriza si lo que ve coincide con lo que B
+    // le dictó. Es lo que impide que una clave pública inyectada se lleve la maestra.
+    expect(estadoDeB.huellasPorDevice[cB.deviceId], 'la huella que ve el leader no es la que dicta B').toBe(huellaQueDictaB)
 
     const auth = await teamEncryptionAuthorize(h.page, teamId, deviceDeB!.deviceId)
     expect(auth.ok, `teamEncryptionAuthorize: ${auth.error}`).toBe(true)
@@ -386,54 +409,42 @@ test('cifrado de equipo: migra lo viejo, autoriza al compañero, el compañero l
     await teardown(h); h = null
 
     // ── B vuelve: adopta la clave y lee la memoria de equipo EN CLARO en pantalla ─
-    h = await launchHarness({ homeDir: homeDirB, env: { NEST_E2E_PULL_DEBUG: '1' } })
-    h.app.process().stdout?.on('data', (d) => process.stdout.write(`[main-stdout] ${d}`))
-    h.app.process().stderr?.on('data', (d) => process.stdout.write(`[main-stderr] ${d}`))
+    h = await launchHarness({ homeDir: homeDirB })
     apuntarAlRemoto(h.repoDir, marca)
     await conectar(h.page, cB)
     const adoptB = await teamEncryptionAdopt(h.page, teamId)
     expect(adoptB.ok && adoptB.adoptada, `teamEncryptionAdopt (B): ${JSON.stringify(adoptB)}`).toBeTruthy()
 
-    await h.page.waitForTimeout(4_000)
-    console.log('[debug] justo despues de adopt, loQueTiene:', JSON.stringify(await loQueTiene(h.page, marca)))
-    console.log('[debug] justo despues de adopt, encryptionStatus:', JSON.stringify(await h.page.evaluate(() =>
-      (window as unknown as { memory: { encryptionStatus(): Promise<unknown> } }).memory.encryptionStatus())))
-
-    let llego = false
-    for (let i = 0; i < 10 && !llego; i++) {
-      await conectar(h.page, cB)
-      await h.page.waitForTimeout(3_000)
-      const items = await loQueTiene(h.page, marca)
-      const enc = await h.page.evaluate(() =>
-        (window as unknown as { memory: { encryptionStatus(): Promise<{ undecryptable: number }> } }).memory.encryptionStatus())
-      console.log(`[debug] iter ${i}: items=${JSON.stringify(items)} undecryptable=${enc.undecryptable}`)
-      llego = items.some((m) => m.title === a.deEquipo)
-    }
-    if (!llego) {
-      const encStatus = await h.page.evaluate(() =>
-        (window as unknown as { memory: { encryptionStatus(): Promise<{ undecryptable: number }> } }).memory.encryptionStatus())
-      const teamStatus2 = await teamEncryptionStatus(h.page, teamId)
-      console.log('[debug] encryptionStatus (B):', JSON.stringify(encStatus))
-      console.log('[debug] teamEncryptionStatus (B):', JSON.stringify(teamStatus2))
-      console.log('[debug] loQueTiene (B):', JSON.stringify(await loQueTiene(h.page, marca)))
-      console.log('[debug] pull_count (B):', sql(`select pull_count from devices where id = '${cB.deviceId}'`))
-      console.log('[debug] observation row:', sql(`select sync_id, scope, project_seq, title, author_id from observations where sync_id = '${a.syncIdEquipo}'`))
-      console.log('[debug] projects for this project_key:', sql(`select id, user_id, project_key, team_id from projects where project_key = '${a.projectKey}'`))
-      console.log('[debug] team_memberships cA:', sql(`select user_id, team_id, role, status from team_memberships where user_id = '${cA.userId}' and team_id = '${teamId}'`))
-      console.log('[debug] team_memberships cB:', sql(`select user_id, team_id, role, status from team_memberships where user_id = '${cB.userId}' and team_id = '${teamId}'`))
-      console.log('[debug] teamId:', teamId, 'projectKey:', a.projectKey, 'cA.userId:', cA.userId, 'cB.userId:', cB.userId)
-      console.log('[debug] TODOS los projects de cB:', sql(`select id, user_id, project_key, team_id from projects where user_id = '${cB.userId}'`))
-      if (process.env.NEST_E2E_DEBUG_HOME_B) cpSync(h.homeDir, process.env.NEST_E2E_DEBUG_HOME_B, { recursive: true })
-    }
-    expect(llego, 'la memoria de equipo nunca llegó al compañero').toBe(true)
+    expect(await hastaQueTenga(h.page, cB, marca, a.deEquipo, 30_000), 'la memoria de equipo nunca llegó en claro al compañero').toBe(true)
     const enB = await loQueTiene(h.page, marca)
     expect(enB.find((m) => m.title === a.deEquipo)?.scope).toBe('team')
+    expect(enB.map((m) => m.title)).not.toContain(a.personal)
 
     await abrirMemories(h.page)
     await expect(h.page.getByText(a.deEquipo).first()).toBeVisible({ timeout: 20_000 })
     await h.page.screenshot({ path: join(SHOTS, '04-companero-lee-en-claro.png') })
+
+    // Y la nube, al final de todo, sigue sin el texto legible.
+    expect(filaEnElServicio(a.syncIdEquipo)!.title).toMatch(/^nmc1:/)
+    expect(sql(`select count(*) from observations where title like '%${a.deEquipo}%' or content like '%${a.deEquipo}%'`)).toBe('0')
   } finally {
     if (h) await h.page.screenshot({ path: join(SHOTS, 'zz-final.png') }).catch(() => {})
     if (h) await teardown(h)
+    // Los homeDir que se conservaron entre lanzamientos: nadie más los va a reusar.
+    for (const d of [homeDirA, homeDirB]) {
+      if (d) try { rmSync(d, { recursive: true, force: true }) } catch {}
+    }
   }
+}
+
+test('cifrado de equipo: migra lo viejo, autoriza al compañero, el compañero lo lee en claro', async () => {
+  await escenario(true)
+})
+
+// BUG ABIERTO, pendiente de decisión de diseño (ver el doc comment de `escenario()`): un
+// compañero que NO compartió su propia copia del proyecto —el caso normal, el de e2e/13— no
+// puede leer la memoria de equipo cifrada aunque ya tenga la maestra. Pasarlo a `test()`
+// cuando esté arreglado.
+test.fixme('cifrado de equipo: el compañero lee en claro SIN haber compartido su copia del proyecto', async () => {
+  await escenario(false)
 })
