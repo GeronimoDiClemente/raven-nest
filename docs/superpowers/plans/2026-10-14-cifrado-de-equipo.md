@@ -2251,7 +2251,9 @@ quinto que el personal no tiene — "sos member, sólo el leader puede activar e
 ```tsx
 // src/__tests__/components/TeamEncryptionCard.test.tsx
 import { render, screen, waitFor } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
+import { fireEvent } from '@testing-library/react' // `@testing-library/user-event` NO es
+// dependencia de este repo (sólo @testing-library/{dom,jest-dom,react}) — `fireEvent` alcanza
+// para un click simple y ya está disponible. Encontrado en la ejecución del 2026-10-14.
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import TeamEncryptionCard from '../../components/TeamEncryptionCard'
 
@@ -2276,7 +2278,7 @@ describe('TeamEncryptionCard', () => {
   it('al activar muestra el código de recuperación una vez', async () => {
     window.memory.teamEncryptionActivate = vi.fn().mockResolvedValue({ ok: true, recoveryCode: 'ABCD-EFGH-1234-5678-9012-3456' })
     render(<TeamEncryptionCard />)
-    await userEvent.click(await screen.findByRole('button', { name: /turn on team encryption/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /turn on team encryption/i }))
     expect(await screen.findByText('ABCD-EFGH-1234-5678-9012-3456')).toBeInTheDocument()
   })
 })
