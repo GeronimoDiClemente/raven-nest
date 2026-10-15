@@ -66,6 +66,27 @@ describe('push — team_encryption_required (Task 14)', () => {
   it('la misma fila sellada (nmc1:) se aplica', async () => {
     const res = await handlePush(pool, auth, { mutations: [mutation(3, SYNC('sellada'), projCifrado, 'team', {
       title: 'nmc1:AAAA', content: 'nmc1:BBBB', tags: ['nmc1:CCCC'],
+      project_display_name: 'nmc1:DDDD', content_hash: 'nmc1:EEEE', origin_account: 'nmc1:FFFF',
+    })] })
+    expect(res.results[0]).toMatchObject({ outcome: 'applied' })
+  })
+
+  // M4 (review de Tasks 13–14): el cliente sella TODO `SEALED_FIELDS` (memory-envelope.ts), así
+  // que una fila de equipo con cualquiera de esos campos en claro es una fila en claro. El mail
+  // del usuario viaja en `origin_account` — justo el motivo por el que ese campo se sumó.
+  for (const campo of ['origin_account', 'content_hash', 'project_display_name'] as const) {
+    it(`${campo} en claro también cuenta como texto en claro`, async () => {
+      const res = await handlePush(pool, auth, { mutations: [mutation(10, SYNC(`claro-${campo}`), projCifrado, 'team', {
+        title: 'nmc1:AAAA', content: 'nmc1:BBBB', project_display_name: 'nmc1:DDDD', content_hash: 'nmc1:EEEE',
+        origin_account: 'nmc1:FFFF', [campo]: 'gero@example.com',
+      })] })
+      expect(res.results[0]).toMatchObject({ outcome: 'rejected', error: 'team_encryption_required' })
+    })
+  }
+
+  it('null/vacío/ausente en esos campos NO es texto en claro (tombstone, sin cuenta de origen)', async () => {
+    const res = await handlePush(pool, auth, { mutations: [mutation(11, SYNC('sellada-nulos'), projCifrado, 'team', {
+      title: 'nmc1:AAAA', content: null, project_display_name: 'nmc1:DDDD', content_hash: '', origin_account: null,
     })] })
     expect(res.results[0]).toMatchObject({ outcome: 'applied' })
   })

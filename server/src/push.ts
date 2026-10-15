@@ -162,11 +162,18 @@ const PREFIJO_SOBRE = 'nmc1:'
 
 /**
  * Task 14 (spec §9.4): ¿viaja sellado todo lo que tiene texto? `null`/'' no es texto
- * (tombstone, título vacío). Mira título, contenido y tags: alcanza para distinguir una fila
- * sellada de una en claro, porque `sealMutationPayload` sella los tres juntos o ninguno.
+ * (tombstone, título vacío, una fila sin cuenta de origen).
+ *
+ * Mira TODOS los campos que el cliente sella (`SEALED_FIELDS` de electron/memory-envelope.ts)
+ * más los tags. Antes miraba sólo título, contenido y tags, con el argumento de que
+ * `sealMutationPayload` sella todo junto o nada; pero el gate existe justo para el cliente
+ * que se equivoca, y uno que sellara a medias subía en claro `origin_account` — que en una
+ * máquina real es el mail del usuario — y el nombre del repo (M4, review de Tasks 13–14).
  */
+const CAMPOS_SELLADOS = ['title', 'content', 'project_display_name', 'content_hash', 'origin_account'] as const
+
 function viajaSellado(p: Record<string, unknown>): boolean {
-  for (const campo of ['title', 'content'] as const) {
+  for (const campo of CAMPOS_SELLADOS) {
     const v = p[campo]
     if (typeof v === 'string' && v !== '' && !v.startsWith(PREFIJO_SOBRE)) return false
   }
