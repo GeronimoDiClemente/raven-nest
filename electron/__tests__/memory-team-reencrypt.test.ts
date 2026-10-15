@@ -1,6 +1,6 @@
 // electron/__tests__/memory-team-reencrypt.test.ts
 import { describe, it, expect, vi } from 'vitest'
-import { generateMasterKey, deriveKeys } from '../memory-crypto'
+import { generateMasterKey, deriveKeys, decryptField, fieldAad } from '../memory-crypto'
 import { runTeamRecrypt } from '../memory-team-reencrypt'
 
 describe('runTeamRecrypt', () => {
@@ -30,6 +30,9 @@ describe('runTeamRecrypt', () => {
     expect(body.items[1].content).toBeNull() // un content null (tombstone) no se cifra, viaja tal cual
     expect(body.items[1].content_hash).toBeNull()
     expect(body.items[1].origin_account).toBeNull()
+    const keysReales = deriveKeys(master)
+    expect(decryptField(keysReales, body.items[0].title, fieldAad('a', 'title'))).toBe('Uno')
+    expect(decryptField(keysReales, body.items[0].content_hash!, fieldAad('a', 'content_hash'))).toBe('hash-uno')
   })
 
   it('reporta progreso y cuenta los rejected del servidor', async () => {
@@ -48,5 +51,18 @@ describe('runTeamRecrypt', () => {
     )
     expect(res).toEqual({ total: 2, applied: 1, rejected: 1 })
     expect(progreso.at(-1)).toEqual({ total: 2, done: 2 })
+  })
+
+  it('rechaza (lanza) si el servidor devuelve un status no-ok, sin contar el lote como aplicado', async () => {
+    const master = generateMasterKey()
+    const fetchImpl = (vi.fn(async () =>
+      new Response(JSON.stringify({ error: 'invalid_fields' }), { status: 400 }))) as unknown as typeof fetch
+    await expect(
+      runTeamRecrypt(
+        { baseUrl: 'http://x', token: 't', deviceId: 'd', fetchImpl },
+        'team-1', master,
+        [{ syncId: 'a', title: 'A', content: 'x', tags: [], contentHash: null, originAccount: null }]
+      )
+    ).rejects.toThrow(/400/)
   })
 })

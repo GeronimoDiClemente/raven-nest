@@ -3,7 +3,7 @@
 // bajo la clave de equipo recién creada. A diferencia de la migración personal
 // (memory-reencrypt.ts), esto reescribe filas de OTROS autores, así que no puede pasar por
 // el push normal (server/src/push.ts exige same-author) — llama al endpoint dedicado.
-import { encryptField, fieldAad } from './memory-crypto'
+import { deriveKeys, encryptField, fieldAad } from './memory-crypto'
 import type { MemoryKeys } from './memory-crypto'
 
 export interface TeamReencryptDeps {
@@ -36,7 +36,7 @@ export async function runTeamRecrypt(
   rows: LocalTeamRow[],
   onProgress?: (p: { total: number; done: number }) => void
 ): Promise<{ total: number; applied: number; rejected: number }> {
-  const keys: MemoryKeys = { field: master, topic: master } // sólo se usa `field` acá; `topic` no aplica a este endpoint
+  const keys: MemoryKeys = deriveKeys(master)
   let applied = 0
   let rejected = 0
   const f = deps.fetchImpl ?? fetch
@@ -56,6 +56,10 @@ export async function runTeamRecrypt(
       headers: { Authorization: `Bearer ${deps.token}`, 'Content-Type': 'application/json', 'X-Device-Test': deps.deviceId },
       body: JSON.stringify({ team_id: teamId, items }),
     })
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as { error?: string }
+      throw new Error(`recrypt rechazado: ${res.status} ${body.error ?? ''}`)
+    }
     const json = (await res.json()) as { applied?: string[]; rejected?: Array<{ sync_id: string }> }
     applied += json.applied?.length ?? 0
     rejected += json.rejected?.length ?? 0
