@@ -90,3 +90,19 @@ describe('TeamEncryptionCard — estado remoto desconocido', () => {
     expect(screen.queryByRole('button', { name: /turn on team encryption/i })).not.toBeInTheDocument()
   })
 })
+
+describe('TeamEncryptionCard — huella propia (pending device)', () => {
+  it('muestra la huella de esta máquina cuando espera ser autorizada', async () => {
+    window.memory.teamEncryptionStatus = vi.fn().mockResolvedValue({
+      activated: true,
+      wrap: null,
+      pendingDevices: [],
+      hasMaster: false,
+      estadoRemotoLeido: true,
+      huellaPropia: 'XXXX-YYYY-ZZZZ-WWWW',
+    })
+    render(<TeamEncryptionCard />)
+    expect(await screen.findByText('Before authorising from the other machine, check that it shows this same code:')).toBeInTheDocument()
+    expect(await screen.findByText('XXXX-YYYY-ZZZZ-WWWW')).toBeInTheDocument()
+  })
+})

@@ -3524,11 +3524,9 @@ ipcMain.handle('memory:teamEncryption:status', async (_e, teamId: string) => {
   const deps = teamKeysDeps()
   const hasMaster = teamMasterKeys.has(teamId)
   let estadoRemotoLeido = !deps
-  let pendingDevices: Array<{ deviceId: string; name: string; publicKey: string }> = []
   if (!deps) return { activated: false, wrap: null, pendingDevices: [], hasMaster, estadoRemotoLeido, huellaPropia: null, huellasPorDevice: {} }
   try {
     const estado = await fetchTeamKeyState(deps, teamId)
-    pendingDevices = estado.pendingDevices
     estadoRemotoLeido = true
     return {
       ...estado,

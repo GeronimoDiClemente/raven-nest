@@ -174,6 +174,16 @@ export default function TeamEncryptionCard() {
         <p className="text-fs-sm text-muted-foreground">
           Ask your team leader to authorise this machine, or use the team recovery code.
         </p>
+        {estado.huellaPropia && (
+          <div className="rounded-md border border-border bg-muted/30 px-2 py-1.5">
+            <p className="text-fs-xs text-muted-foreground">
+              Before authorising from the other machine, check that it shows this same code:
+            </p>
+            <p className="select-all text-center font-mono text-fs tracking-[0.08em] text-foreground">
+              {estado.huellaPropia}
+            </p>
+          </div>
+        )}
         {error && <p className="text-fs-sm text-destructive">{error}</p>}
         {/* Reintentar a mano, igual que MemoryEncryptionCard: el intento automático de arriba
             corre al abrir la tarjeta, pero si el leader autoriza MIENTRAS esta pantalla ya
