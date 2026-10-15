@@ -154,6 +154,50 @@ describe('un pull en vuelo durante un cambio de cuenta', () => {
   })
 })
 
+// Lo encontró e2e/16: adoptar la clave (de equipo o personal) hace `resetPullCursors()` +
+// `onNetworkRegain()`. Si en ese momento había un pull en vuelo —el del `connect`, o el del
+// intervalo— su respuesta volvía DESPUÉS del reset y reescribía los cursores viejos, y el
+// drain del adopt se acoplaba a ese mismo pull (M19). Lo que se había salteado por ilegible
+// no volvía nunca, aunque la máquina ya tuviera la clave.
+describe('un reset de cursores con un pull en vuelo', () => {
+  it('no deja que la respuesta vieja pise el reset, y vuelve a pedir desde 0', async () => {
+    store.setSyncState('proj1', { pullCursor: 7 })
+    store.setTeamCursor('proj1', '42', 4)
+
+    const enviados: Array<{ cursors: Record<string, number>; team_cursors: Record<string, Record<string, number>> }> = []
+    let soltarPrimera: () => void = () => {}
+    const fetchImpl = (async (_url: string, init: { body: string }) => {
+      enviados.push(JSON.parse(init.body))
+      if (enviados.length === 1) await new Promise<void>((r) => { soltarPrimera = r })
+      return {
+        ok: true, status: 200,
+        json: async () => ({ rows: [], cursors: { proj1: 7 }, team_cursors: { proj1: { 42: 4 } } }),
+      } as unknown as Response
+    }) as unknown as typeof fetch
+
+    const daemon = new MemoryDaemon({
+      store,
+      getSyncBaseUrl: () => 'http://sync.test',
+      getToken: () => 'tok',
+      getDeviceId: () => 'dev',
+      isOnline: () => true,
+      fetchImpl,
+    })
+
+    const enVuelo = daemon.pull()
+    await new Promise((r) => setImmediate(r))
+    // Lo que hace `memory:teamEncryption:adopt` con el pull todavía esperando respuesta.
+    store.resetPullCursors()
+    soltarPrimera()
+    await enVuelo
+
+    // Un pull nuevo, con los cursores ya en 0 — no el acoplado al que estaba en vuelo.
+    await expect.poll(() => enviados.length).toBe(2)
+    expect(enviados[1].cursors.proj1).toBe(0)
+    expect(enviados[1].team_cursors.proj1?.['42'] ?? 0).toBe(0)
+  })
+})
+
 // `project_display_name` viaja cifrado, y el roster que devuelve `/v1/status` lo trae tal
 // cual. Una máquina que todavía no conocía ese proyecto creaba el proyecto local llamado
 // `nmc1:pQx8…` —el usuario veía eso en lugar del nombre de su repo— y en el push siguiente

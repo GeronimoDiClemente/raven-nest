@@ -772,6 +772,8 @@ export class MemoryStore {
   private currentUserId: string | null = null
 
   private topicHasher: TopicHasher | null = null
+  /** Ver `pullCursorResetCount()`. */
+  private resetsDeCursores = 0
 
   /** `null` desactiva: sin cifrado activado, `topic_key_hmac` se queda en NULL. */
   setTopicHasher(hasher: TopicHasher | null): void {
@@ -1229,6 +1231,17 @@ export class MemoryStore {
 
   resetPullCursors(): void {
     this.db.prepare('UPDATE sync_state SET pull_cursor = 0').run()
+    this.resetsDeCursores += 1
+  }
+
+  /**
+   * Cuántas veces se llamó `resetPullCursors()` en esta instancia. Lo lee `doPull()` para
+   * saber si un reset pasó MIENTRAS su request estaba en vuelo: en ese caso la respuesta trae
+   * los cursores viejos, y escribirlos deshace el reset (lo encontró e2e/16: el compañero
+   * adoptaba la clave de equipo y la fila que se había salteado por ilegible no volvía nunca).
+   */
+  pullCursorResetCount(): number {
+    return this.resetsDeCursores
   }
 
   /**

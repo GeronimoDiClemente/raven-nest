@@ -1241,6 +1241,9 @@ export class MemoryDaemon {
     // don't make one on purpose when it's known in advance to be empty).
     if (projects.length === 0) return
 
+    // Capturado junto con los cursores que salen en este request: ver el chequeo al volver.
+    // `?.` porque los stores falsos de los tests unitarios no lo implementan.
+    const resetsAlSalir = store.pullCursorResetCount?.() ?? 0
     const cursors: Record<string, number> = {}
     for (const project of projects) {
       cursors[project.projectKey] = store.getSyncState(project.projectKey).pullCursor
@@ -1303,19 +1306,26 @@ export class MemoryDaemon {
       // Si la cuenta cambió mientras esta respuesta viajaba, estas filas son de OTRA cuenta:
       // se descartan enteras. El cursor tampoco se guarda — lo que no se aplicó tiene que
       // volver a pedirse, y lo va a pedir la cuenta a la que le corresponde.
-      if (process.env.NEST_E2E_PULL_DEBUG) {
-        console.error('[doPull-debug]', JSON.stringify({
-          genMismatch: generacionAlSalir !== this.generacionDeStore,
-          rowCount: body.rows.length,
-          scopes: body.rows.map((r) => r.scope),
-          teamCursorsResp: body.team_cursors,
-        }))
-      }
       if (generacionAlSalir !== this.generacionDeStore) {
         this.setStatus('idle')
         return
       }
       for (const raw of body.rows) this.applyPulledRow(mapRawPulledRow(raw))
+
+      // Alguien llamó `resetPullCursors()` con este request en vuelo (adoptar o recuperar una
+      // clave, ver main.ts). Los cursores de esta respuesta son relativos a los que salieron
+      // ANTES del reset: escribirlos lo deshace, y el drain de quien reseteó ya se acopló a
+      // este mismo pull (M19), así que nadie vuelve a pedir lo que se salteó por ilegible.
+      // Las filas sí se aplican (el upsert por sync_id es idempotente); los cursores no, y se
+      // pide un pull nuevo, que sale con los cursores en 0. `setImmediate` por lo mismo que
+      // el encadenado de abajo: `pullInFlight` recién se limpia en el `.finally` de `pull()`.
+      if ((store.pullCursorResetCount?.() ?? 0) !== resetsAlSalir) {
+        setImmediate(() => {
+          if (this.swapping) return
+          void this.pull()
+        })
+        return
+      }
 
       const now = Date.now()
       // Tracked while writing back cursors below — used by the M25 chain guard.
@@ -1417,17 +1427,10 @@ export class MemoryDaemon {
    * synthetic rows instead of a live server.
    */
   applyPulledRow(incoming: PulledRow): void {
-    if (process.env.NEST_E2E_PULL_DEBUG && incoming.scope === 'team') {
-      const ctxDbg = this.deps.getEnvelopeContext?.() ?? null
-      console.error('[applyPulledRow-debug]', JSON.stringify({ syncId: incoming.syncId, projectKey: incoming.projectKey, hasCtx: !!ctxDbg, hasTeamKeysFn: !!ctxDbg?.teamKeys, teamKeysResult: ctxDbg?.teamKeys ? !!ctxDbg.teamKeys(incoming.projectKey) : null }))
-    }
     const { row: abierta, undecryptable } = openPulledRow(
       this.deps.getEnvelopeContext?.() ?? null,
       incoming
     )
-    if (process.env.NEST_E2E_PULL_DEBUG && incoming.scope === 'team') {
-      console.error('[applyPulledRow-debug] undecryptable=', undecryptable, 'syncId=', incoming.syncId)
-    }
     if (undecryptable) {
       // NO se aplica: guardar ciphertext en la base local llenaria la busqueda FTS5 y el
       // grafo de basura ilegible. Se cuenta y se sigue — el cursor tiene que avanzar
