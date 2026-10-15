@@ -121,6 +121,23 @@ client cifra `title`/`content`/`tags` con la clave de equipo antes de subir, con
 para los dos casos, sin bifurcar el código de pull. Cuota, límites, `team_scope_not_allowed`,
 `project_not_shared_with_team`: sin cambios, ven ciphertext en vez de texto en claro.
 
+**Agregado en Task 14 (2026-10-15).** Tres cambios de wire, todos ADITIVOS (un cliente viejo
+ignora los campos nuevos):
+
+- `POST /v1/sync/pull`: toda fila `scope: 'team'` trae `team_id` (el `projects.team_id` del
+  proyecto de ORIGEN en el servidor). Las filas `personal`/`project` no traen el campo. El cliente
+  elige con esto la clave de equipo para abrir la fila (`EnvelopeContext.teamKeysById`); su
+  `projects.team_id` local sólo existe si ÉL compartió su copia, y un compañero no tiene por qué
+  haberlo hecho. Sin el campo (servicio viejo) se cae al `project_key` local, como antes.
+- `GET /v1/sync/status`: `encrypted_teams: [{ team_id, has_wrap }]` — los equipos con
+  `team_keys` donde quien llama es miembro ACTIVO, y si ESTE device tiene envoltura. Sin época
+  (§8: v1 no rota). Y cada proyecto del roster trae su `team_id` (o `null`), para que la OTRA
+  máquina de quien compartió sepa a qué equipo van sus filas de equipo.
+- `POST /v1/sync/push`: rechazo nuevo por mutación, `team_encryption_required`, REVERSIBLE:
+  una fila `scope: 'team'` cuyo título, contenido o tags no vienen con `nmc1:` para un proyecto
+  cuyo equipo tiene `team_keys`. El servidor no la guarda; el cliente la retiene hasta tener la
+  clave y la vuelve a mandar sellada.
+
 ## 8. Fuera de alcance para v1 (decisión explícita, no olvido)
 
 - **Rotación de la clave de equipo.** No hay épocas, no hay "sospecho que se filtró, regenerar".
@@ -161,6 +178,32 @@ para los dos casos, sin bifurcar el código de pull. Cuota, límites, `team_scop
    `project_not_shared_with_team`) — eso es un cambio de diseño a Task 9, no un fix de una
    línea, y excede el alcance que esta ejecución puede resolver sin una decisión de producto
    nueva.
+
+   **CERRADO en Task 14 (2026-10-15).** Cuatro capas, de afuera hacia adentro:
+   1. *Saber, sin depender de la UI.* `status` trae `encrypted_teams` y el store lo recuerda en
+      `meta` (`rememberEncryptedTeams`, nunca olvida, igual que `known_key_epoch`; en `meta` y
+      no en una tabla nueva para no subir `SCHEMA_VERSION`). Una fila de equipo ilegible en el
+      pull también lo enseña — y ya NO arma la época personal, que dejaba a un miembro sin
+      cifrado personal con todo el push en `needs_key`.
+   2. *Retener, no descartar.* `doPush` bloquea con `team_key_missing` toda fila `scope: 'team'`
+      de un equipo que cifra si este device no tiene su clave (mismo mecanismo reversible que
+      `project_not_shared_with_team`). `onTeamKeysChanged()` la libera al entrar la clave.
+      El equipo sale de `projects.team_id` local, que `doStatus` ahora mantiene al día desde el
+      roster. Con filas de equipo pendientes, el primer push espera al primer `status` aunque
+      no haya gate personal cableado (el paquete portátil).
+   3. *Achicar la ventana.* `main.ts` readopta solo, dentro del `status` de arranque
+      (`readoptarClavesDeEquipo`, esperado con tope de 10s), toda clave con `has_wrap: true`,
+      así que en el caso normal la clave está ANTES del pull y del push del primer drain. El
+      gate queda para el device sin autorizar.
+   4. *El servidor no guarda texto en claro* para un equipo con `team_keys`
+      (`team_encryption_required`, decisión D1 de Gero).
+
+   **Lo que queda abierto:** si el `projects.team_id` local está desactualizado dentro de la
+   ventana de un `status` (se compartió desde otra máquina entre el status y el push), la fila
+   viaja en claro por TLS y el servidor la rechaza SIN guardarla — el proceso del servidor la ve.
+   Y un cliente anterior a Task 14 que empuja a un equipo cifrado no conoce el rechazo nuevo: lo
+   trata como terminal y esa fila no llega a la nube (sigue local). Las mutaciones retenidas por
+   `team_key_missing` no tienen contador en la UI todavía.
 
 ## 10. Decisiones cerradas el 2026-10-14 (con Gero, antes de escribir el plan)
 

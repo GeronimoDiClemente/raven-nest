@@ -164,6 +164,12 @@ presente al trabajar acá:
   armaba nunca en la máquina que importa —la que no tiene la clave— así que subía título y
   contenido en claro a una cuenta cifrada. Si tocás ese camino, el test que lo cubre es
   `el gate se arma por el status, sin depender de ver ciphertext`.
+- **El cifrado de EQUIPO tiene su propio gate fail-closed** (Task 14, spec §9.4): `status` trae
+  `encrypted_teams`, el store lo recuerda en `meta`, y `doPush` retiene con `team_key_missing`
+  las filas de un equipo que cifra si este device no tiene su clave; el servidor además rechaza
+  claro de equipo cifrado con `team_encryption_required`. La clave de una fila BAJADA la elige el
+  `team_id` que manda el servidor, no el `projects.team_id` local. Tests:
+  `electron/__tests__/memory-daemon-cifrado-equipo.test.ts` y `e2e/16-cifrado-de-equipo.spec.ts`.
 - **Publicar una envoltura para otra máquina exige probar que tenés la maestra**
   (`rotate_proof` contra `users.rotate_verifier`). Sin eso, cualquier device de la cuenta
   sella SU maestra para la pública de la víctima y la víctima la adopta sin aviso.

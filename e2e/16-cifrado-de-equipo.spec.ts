@@ -13,7 +13,9 @@
 // personal antes de tocar nada de equipo.
 //
 // `teamMasterKeys` (electron/main.ts) es un Map EN MEMORIA, nunca persistido: cada relanzamiento
-// de la app pierde la clave de equipo y hay que recuperarla con `teamEncryptionAdopt`. El par de
+// de la app pierde la clave de equipo. Desde Task 14 NO hace falta pedirla a mano: el primer
+// `status` de cada arranque trae `encrypted_teams` con `has_wrap`, y main.ts la readopta sola
+// (`readoptarClavesDeEquipo`) antes del pull y del push de ese drain. El par de
 // dispositivo (`keys.bin`) sí persiste en disco bajo RAVEN_HOME — así que este test, a
 // diferencia de e2e/13, necesita conservar la identidad local de A y de B entre sus dos
 // lanzamientos cada uno: un `RAVEN_HOME` nuevo generaría un par de dispositivo nuevo, que no
@@ -259,12 +261,6 @@ async function teamEncryptionActivate(page: Page, teamId: string): Promise<{ ok:
       .memory.teamEncryptionActivate(tid), teamId)
 }
 
-async function teamEncryptionAdopt(page: Page, teamId: string): Promise<{ ok: boolean; adoptada?: boolean; error?: string }> {
-  return page.evaluate((tid) =>
-    (window as unknown as { memory: { teamEncryptionAdopt(t: string): Promise<{ ok: boolean; adoptada?: boolean; error?: string }> } })
-      .memory.teamEncryptionAdopt(tid), teamId)
-}
-
 interface EstadoDeEquipo {
   activated: boolean; hasMaster: boolean; estadoRemotoLeido: boolean
   pendingDevices: Array<{ deviceId: string; name: string; publicKey: string }>
@@ -293,18 +289,16 @@ async function teamEncryptionAuthorize(page: Page, teamId: string, deviceId: str
 }
 
 /**
- * El escenario entero. `companeroComparteSuCopia` existe por un bug de producción todavía
- * abierto (ver el `test.fixme` de abajo): el cliente resuelve la clave de equipo de una fila
- * bajada SÓLO por `projects.team_id` local (`teamIdForProjectKey`, electron/main.ts →
- * `currentEnvelopeContext().teamKeys`), y esa columna la escribe únicamente
- * `memory:shareProjectWithTeam` en la máquina que comparte. El servicio, en cambio, le sirve
- * la fila de equipo al compañero por ser miembro activo, sin exigirle que haya compartido su
- * copia (server/src/pull.ts). Resultado: un compañero que nunca compartió ve la fila como
- * `undecryptable` aunque YA tenga la maestra del equipo. Con `true`, el test hace ese share
- * de más para poder probar el resto del camino (migración, autorización con huella, lectura
- * en claro); con `false` reproduce el bug.
+ * El escenario entero. B NUNCA comparte su copia del proyecto: ése es el caso normal (el de
+ * e2e/13), y lee la memoria de equipo porque el servidor manda el `team_id` en cada fila de
+ * equipo del pull y el cliente elige la clave por ése (Task 14), no por su `projects.team_id`
+ * local, que sólo existe en la máquina que compartió.
+ *
+ * Y nadie llama `teamEncryptionAdopt` a mano en los relanzamientos: la readopción de arranque
+ * (Task 14) la hace sola. El chequeo de §9.4 es una memoria de equipo escrita APENAS arranca
+ * la app del leader, que tiene que llegar cifrada al servicio.
  */
-async function escenario(companeroComparteSuCopia: boolean): Promise<void> {
+async function escenario(): Promise<void> {
   const marca = `ce${Date.now()}`
   const teamId = randomUUID()
   const cA = cuentaNueva(marca, 'leader')
@@ -315,6 +309,7 @@ async function escenario(companeroComparteSuCopia: boolean): Promise<void> {
   let h: Harness | null = null
   let homeDirA = ''
   let homeDirB = ''
+  const posArranque = `Decision post-arranque ${marca}`
   try {
     // ── A (leader): guarda, comparte, promueve — TODO en claro, antes de activar nada ──
     h = await launchHarness()
@@ -324,18 +319,9 @@ async function escenario(companeroComparteSuCopia: boolean): Promise<void> {
     const a = await autorComparteYPromueve(h, teamId, marca)
     expect(filaEnElServicio(a.syncIdEquipo)?.title).toBe(a.deEquipo) // todavía en claro
 
-    // `localTeamRowsForTeam` (lo que lee la migración retroactiva) filtra por
-    // `projects.team_id`, y esa fila local sólo existe una vez que `ensureProject()` corrió —
-    // y el ÚNICO lugar que lo hace para un proyecto nuevo es `doStatus()`, al leer el roster
-    // de la cuenta (ver el doc comment de `status()` en electron/memory-daemon.ts: "spec
-    // §5.3.1: the ONLY place a device can learn a project exists"). El primer `conectar()` de
-    // este test corrió ANTES de que este proyecto se empujara al servicio, así que todavía no
-    // podía verlo en el roster. Reconectar fuerza un ciclo status→pull→push nuevo, que ya sí
-    // lo encuentra y llama `ensureProject()` — y recién ahí repetir el share deja grabado el
-    // `team_id` local (antes era un UPDATE sin fila que tocar).
+    // Reconectar fuerza un ciclo status→pull→push nuevo. El primer `conectar()` corrió ANTES
+    // de que este proyecto existiera en el servicio, así que su roster no lo traía; éste sí.
     await conectar(h.page, cA)
-    const share2 = await compartir(h.page, a.projectKey, teamId)
-    expect(share2.ok, `shareProjectWithTeam (2da vez, para fijar team_id local): ${share2.error}`).toBe(true)
 
     // ── Activar el cifrado de EQUIPO (IPC real) ──────────────────────────────────
     const act = await teamEncryptionActivate(h.page, teamId)
@@ -343,9 +329,16 @@ async function escenario(companeroComparteSuCopia: boolean): Promise<void> {
     expect(act.recoveryCode).toBeTruthy()
 
     // ── Migrar lo que ya estaba (IPC real, sobre la ruta HTTP real) ──────────────
-    const migr = await teamEncryptionRecrypt(h.page, teamId)
+    // `projects.team_id` local llega solo: el roster de `/v1/sync/status` trae el team_id de
+    // cada proyecto propio y `doStatus` lo copia (Task 14). Antes había que repetir el share a
+    // mano. La migración lo necesita (`localTeamRowsForTeam` filtra por él) y el drain de
+    // `conectar` corre en segundo plano, así que se reintenta. Un intento con 0 filas no pega
+    // al servidor (`runTeamRecrypt` no hace request sin filas).
+    const paginaA = h.page
+    let migr: Awaited<ReturnType<typeof teamEncryptionRecrypt>> = { total: 0, applied: 0, rejected: 0 }
+    await expect.poll(async () => { migr = await teamEncryptionRecrypt(paginaA, teamId); return migr.applied }, { timeout: 30_000 })
+      .toBeGreaterThanOrEqual(1)
     expect(migr.error, JSON.stringify(migr)).toBeUndefined()
-    expect(migr.applied).toBeGreaterThanOrEqual(1)
 
     // En el SERVICIO, la fila de equipo ahora tiene que estar cifrada de verdad, y el texto
     // no puede quedar legible en ningún lado de la tabla.
@@ -367,16 +360,6 @@ async function escenario(companeroComparteSuCopia: boolean): Promise<void> {
     await guardar(h.page, h.repoDir, `Nota propia del companero ${marca}`)
     await todoSubido(h.page)
 
-    if (companeroComparteSuCopia) {
-      // WORKAROUND del bug descrito arriba de `escenario()`, no parte del flujo de producto.
-      // Reconectar primero: `ensureProject()` recién corre cuando `doStatus()` ve este
-      // project_key en el roster de la cuenta de B, que existe server-side recién después
-      // de que B empujó su nota.
-      await conectar(h.page, cB)
-      const shareB = await compartir(h.page, await projectKeyDe(h.page, h.repoDir), teamId)
-      expect(shareB.ok, `shareProjectWithTeam (B): ${shareB.error}`).toBe(true)
-    }
-
     const estadoAntes = await teamEncryptionStatus(h.page, teamId)
     expect(estadoAntes.estadoRemotoLeido).toBe(true)
     expect(estadoAntes.activated).toBe(true)
@@ -392,9 +375,21 @@ async function escenario(companeroComparteSuCopia: boolean): Promise<void> {
 
     // ── A (leader) vuelve: recupera su clave de equipo y autoriza a B ────────────
     h = await launchHarness({ homeDir: homeDirA })
+    apuntarAlRemoto(h.repoDir, marca) // mismo remoto → mismo project_key que antes
     await conectar(h.page, cA)
-    const adoptA = await teamEncryptionAdopt(h.page, teamId)
-    expect(adoptA.ok && adoptA.adoptada, `teamEncryptionAdopt (A): ${JSON.stringify(adoptA)}`).toBeTruthy()
+
+    // §9.4: una memoria de equipo escrita APENAS arranca la app, sin abrir la tarjeta ni llamar
+    // `teamEncryptionAdopt`. Antes de Task 14 subía EN CLARO (la clave de equipo vive sólo en
+    // memoria y nadie la readoptaba hasta que se montaba la tarjeta).
+    const syncIdPosArranque = await guardar(h.page, h.repoDir, posArranque)
+    const promo2 = await promoverPorMcp(h, syncIdPosArranque)
+    expect(promo2, promo2).toContain('true')
+    await expect.poll(() => filaEnElServicio(syncIdPosArranque)?.scope, { timeout: 60_000 }).toBe('team')
+    expect(filaEnElServicio(syncIdPosArranque)!.title).toMatch(/^nmc1:/)
+    expect(sql(`select count(*) from observations where title like '%${posArranque}%' or content like '%${posArranque}%'`)).toBe('0')
+
+    const paginaA2 = h.page
+    await expect.poll(async () => (await teamEncryptionStatus(paginaA2, teamId)).hasMaster, { timeout: 30_000 }).toBe(true)
 
     const estadoDeB = await teamEncryptionStatus(h.page, teamId)
     const deviceDeB = estadoDeB.pendingDevices.find((d) => d.deviceId === cB.deviceId)
@@ -412,10 +407,11 @@ async function escenario(companeroComparteSuCopia: boolean): Promise<void> {
     h = await launchHarness({ homeDir: homeDirB })
     apuntarAlRemoto(h.repoDir, marca)
     await conectar(h.page, cB)
-    const adoptB = await teamEncryptionAdopt(h.page, teamId)
-    expect(adoptB.ok && adoptB.adoptada, `teamEncryptionAdopt (B): ${JSON.stringify(adoptB)}`).toBeTruthy()
-
+    const paginaB = h.page
+    // Sin `teamEncryptionAdopt`: el status de arranque dice `has_wrap: true` y main.ts la readopta.
+    await expect.poll(async () => (await teamEncryptionStatus(paginaB, teamId)).hasMaster, { timeout: 30_000 }).toBe(true)
     expect(await hastaQueTenga(h.page, cB, marca, a.deEquipo, 30_000), 'la memoria de equipo nunca llegó en claro al compañero').toBe(true)
+    expect(await hastaQueTenga(h.page, cB, marca, posArranque, 30_000), 'la memoria pos-arranque tampoco').toBe(true)
     const enB = await loQueTiene(h.page, marca)
     expect(enB.find((m) => m.title === a.deEquipo)?.scope).toBe('team')
     expect(enB.map((m) => m.title)).not.toContain(a.personal)
@@ -437,14 +433,6 @@ async function escenario(companeroComparteSuCopia: boolean): Promise<void> {
   }
 }
 
-test('cifrado de equipo: migra lo viejo, autoriza al compañero, el compañero lo lee en claro', async () => {
-  await escenario(true)
-})
-
-// BUG ABIERTO, pendiente de decisión de diseño (ver el doc comment de `escenario()`): un
-// compañero que NO compartió su propia copia del proyecto —el caso normal, el de e2e/13— no
-// puede leer la memoria de equipo cifrada aunque ya tenga la maestra. Pasarlo a `test()`
-// cuando esté arreglado.
-test.fixme('cifrado de equipo: el compañero lee en claro SIN haber compartido su copia del proyecto', async () => {
-  await escenario(false)
+test('cifrado de equipo: migra lo viejo, el compañero lee en claro SIN compartir su copia, y nada sale en claro al arrancar', async () => {
+  await escenario()
 })
