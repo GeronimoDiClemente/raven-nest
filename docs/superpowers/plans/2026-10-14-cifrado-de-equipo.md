@@ -1149,7 +1149,10 @@ confirmar que no cambiaron de nombre).
 - [ ] **Step 4: Correr el test, confirmar que pasa**
 
 Run: `npx vitest run __tests__/team-keys-http.test.ts`
-Expected: PASS (6 tests)
+Expected: PASS (5 tests — el bloque de arriba sólo escribe 5 `it(...)`, no 6;
+corregido tras la review de ejecución del 2026-10-14. La cobertura de
+`/v1/teams/key/recrypt` que falta acá se cierra en el fix round de Task 6,
+no en este borrador.)
 
 - [ ] **Step 5: Correr TODA la suite del servidor antes de seguir**
 
