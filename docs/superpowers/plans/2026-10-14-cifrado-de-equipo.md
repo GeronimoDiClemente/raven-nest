@@ -4038,3 +4038,46 @@ Los lotes cortan por cantidad (200) y por bytes (1 MiB, contra 20 MiB de `MAX_BO
 - [ ] **Step 21:** restaurar `.superpowers/sdd/.gitignore` al contenido previo a `a70ba00`; CLAUDE.md (sección "Memoria cifrada"), `server/README.md` y spec (§2 schema real, §3-§5 con verifier/prueba/pendiente, §9 con C1/C2/I1-I4).
 - [ ] **Step 22:** typechecks de CI, `npm test`, `cd server && npx vitest run`.
 - [ ] **Step 23: Commit** — `docs(cifrado-equipo): spec, CLAUDE.md y README al día con Task 15`
+
+### Task 15b — arreglos de la review de Task 15
+
+Dos Important y cinco Minor de la review de Task 15. Cada uno se verifica contra el código antes
+de tocarlo; TDD estricto (el test se ve fallar antes de implementar).
+
+- [ ] **Step 1 (I1) — test que falla** (`server/__tests__/team-keys.test.ts`): un device autorizado
+  en un equipo regenera su par (`enrollDeviceKey` con otra pública) → vuelve a `pendingDevices`
+  del leader, `GET /v1/teams/key` le da `wrap: null`, `status.encrypted_teams` dice
+  `has_wrap: false`, y la envoltura `recovery` sigue ahí. Re-publicar la MISMA pública no borra nada.
+- [ ] **Step 2 (I1) — implementar**: en `enrollDeviceKey`, dentro del mismo `if` y la misma
+  transacción que borra `key_wraps`, `delete from team_key_wraps where slot = $1` (device_id; un
+  uuid nunca es `'recovery'`). Commit `fix(cifrado-equipo): regenerar el par borra también las envolturas de equipo`.
+- [ ] **Step 3 (I2 + Minor 1) — tests que fallan** (`server/__tests__/team-keys-recrypt.test.ts`):
+  `recrypt-pending` devuelve `topic_key` y `project_key`; `recrypt` escribe el HMAC en
+  `topic_key`; un `topic_key` null queda null; una fila con tema que llega sin `topic_key` se
+  rechaza (`missing_topic_key`) y sigue pendiente; colisión con una fila viva del mismo HMAC se
+  resuelve con `resolveTopicCollision` como en `push.ts` (gana la migrada → la otra queda
+  `superseded_by` con seq nuevo; pierde → la migrada queda `superseded_by`); un mismo predicado
+  de "en claro" en pending y en recrypt (title, content, tags, content_hash, origin_account — una
+  fila con sólo `origin_account` en claro aparece en pending Y se acepta en recrypt).
+  Cliente (`electron/__tests__/memory-team-reencrypt.test.ts`): el `topic_key` que se manda es
+  idéntico al que `sealMutationPayload` pone en una fila NUEVA de equipo del mismo tema y proyecto.
+- [ ] **Step 4 (I2 + Minor 1) — implementar**: `PendingRow` suma `project_key`/`topic_key`;
+  `RecryptItem` suma `topic_key: string | null` (null o 32 hex); predicado `enClaro(o)` único;
+  advisory lock + supersede con la misma clave y semántica que `push.ts`. Cliente: `sellar()`
+  manda `hmacTopicKey(deriveKeys(maestraDeEquipo), project_key, 'team', topic)`. `topic_key` NO
+  entra al predicado: un HMAC (32 hex) no se distingue de un tema en claro que justo sea 32 hex,
+  y lo que se sella pasa SIEMPRE por recrypt junto con el título, así que ninguna fila sellada
+  por esta vía conserva el tema en claro. Commit `fix(cifrado-equipo): la migración sella también el tema y resuelve el supersede como push`.
+- [ ] **Step 5 (Minor 2)**: test con filas de ~600 KB → la página corta por bytes (~1 MiB, siempre
+  ≥1 fila) y `after` con el último `sync_id` trae la siguiente sin saltear. Implementar con un
+  acumulado (`sum(...) over (order by sync_id)`) sobre la página keyset. Commit.
+- [ ] **Step 6 (Minor 3)**: `GET /v1/teams/key` suma `isLeader` (el servidor ya mira la membresía);
+  `fetchTeamKeyState` lo expone; `memory:teamEncryption:status` sólo llama a
+  `countRecryptPending` si `isLeader` (helper `pendientesSiEsLeader`, testeado con fetch falso).
+- [ ] **Step 7 (Minor 4)**: test — `migrateTeam` con una maestra inválida resuelve con `error`, no
+  rechaza. Implementar: `deriveKeys`/`teamKeyProof` adentro del `try`. Commit (con Minor 3).
+- [ ] **Step 8 (Minor 5)**: spec — equipos activados antes de la migración 010 quedan fail-closed
+  sin verifier (aceptado: nunca salió).
+- [ ] **Step 9**: e2e/16 suma una memoria de equipo con `topic_key` antes de activar y verifica que
+  en el servicio quede como HMAC de 32 hex. Verificación: typechecks de CI, `npm test`,
+  `cd server && npx vitest run`, e2e/16 `--repeat-each=2`, e2e/13. Commit docs + ledger.

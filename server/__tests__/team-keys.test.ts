@@ -2,6 +2,8 @@ import { describe, it, expect, beforeAll, beforeEach } from 'vitest'
 import { randomUUID, createHash } from 'node:crypto'
 import { getPool, migrate } from '../src/db'
 import { isTeamLeader, getTeamKeyState, activateTeamKey, authorizeTeamDevice } from '../src/team-keys'
+import { enrollDeviceKey } from '../src/keys'
+import { handleStatus } from '../src/status'
 
 const pool = getPool()
 let teamId: string, leaderId: string, memberId: string, outsiderId: string
@@ -280,5 +282,43 @@ describe('authorizeTeamDevice', () => {
       proof: PRUEBA, wraps: [{ slot: 'recovery', kind: 'recovery', wrapped: 'W-NUEVO' }],
     })
     expect(res).toEqual({ ok: false, status: 400, error: 'cannot_overwrite_recovery' })
+  })
+})
+
+describe('Task 15b — I1: un device que regenera su par pierde también su envoltura de EQUIPO', () => {
+  it('reaparece en pendingDevices del leader y su status deja de decir has_wrap', async () => {
+    // El member ya estaba autorizado en el equipo: pública vieja + envoltura sellada para ella.
+    await enrollDeviceKey(pool, { deviceId: memberDevice, userId: memberId }, { public_key: 'PUB-VIEJA' })
+    await enrollDeviceKey(pool, { deviceId: leaderDevice, userId: leaderId }, { public_key: 'PUB-LEADER' })
+    await activateTeamKey(pool, { deviceId: leaderDevice, userId: leaderId }, teamId, activacionValida())
+    await authorizeTeamDevice(pool, { deviceId: leaderDevice, userId: leaderId }, teamId, {
+      proof: PRUEBA, wraps: [{ slot: memberDevice, kind: 'device', wrapped: 'W-PARA-PUB-VIEJA' }],
+    })
+    const antes = await getTeamKeyState(pool, { deviceId: leaderDevice, userId: leaderId }, teamId)
+    expect('ok' in antes ? null : antes.pendingDevices).toEqual([])
+
+    // keys.bin corrupto / llavero restaurado: el member publica una pública NUEVA.
+    await enrollDeviceKey(pool, { deviceId: memberDevice, userId: memberId }, { public_key: 'PUB-NUEVA' })
+
+    const despues = await getTeamKeyState(pool, { deviceId: leaderDevice, userId: leaderId }, teamId)
+    expect('ok' in despues ? null : despues.pendingDevices)
+      .toEqual([{ deviceId: memberDevice, name: 'member-pc', publicKey: 'PUB-NUEVA' }])
+    const delMember = await getTeamKeyState(pool, { deviceId: memberDevice, userId: memberId }, teamId)
+    expect('ok' in delMember ? 'error' : delMember.wrap).toBeNull()
+    const status = await handleStatus(pool, { deviceId: memberDevice, userId: memberId, plan: 'team' })
+    expect(status.encrypted_teams).toEqual([{ team_id: teamId, has_wrap: false }])
+    // La de recuperación no es de ningún device: no se toca.
+    const { rows } = await pool.query(
+      `select slot from team_key_wraps where team_id = $1 order by slot`, [teamId]
+    )
+    expect(rows.map((r) => r.slot).sort()).toEqual([leaderDevice, 'recovery'].sort())
+  })
+
+  it('re-publicar la MISMA pública no borra nada', async () => {
+    await enrollDeviceKey(pool, { deviceId: leaderDevice, userId: leaderId }, { public_key: 'PUB-LEADER' })
+    await activateTeamKey(pool, { deviceId: leaderDevice, userId: leaderId }, teamId, activacionValida())
+    await enrollDeviceKey(pool, { deviceId: leaderDevice, userId: leaderId }, { public_key: 'PUB-LEADER' })
+    const res = await getTeamKeyState(pool, { deviceId: leaderDevice, userId: leaderId }, teamId)
+    expect('ok' in res ? null : res.wrap).toEqual({ wrapped: 'W-LEADER', wrapMeta: null })
   })
 })

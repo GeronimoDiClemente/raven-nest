@@ -50,8 +50,9 @@ export async function enrollDeviceKey(
     return { ok: false, status: 400, error: 'invalid_public_key' }
   }
   /**
-   * Si el device cambia su clave publica, la envoltura que tenia deja de servir: fue sellada
-   * para la clave vieja y su privada ya no existe. Se borra en la misma transaccion.
+   * Si el device cambia su clave publica, las envolturas que tenia (la personal y las de cada
+   * equipo) dejan de servir: fueron selladas para la clave vieja y su privada ya no existe. Se
+   * borran en la misma transaccion.
    *
    * Sin esto, `has_wrap` seguia dando `true` —mira si existe una fila, no si corresponde a
    * la publica actual— asi que la maquina NO aparecia en `pendingDevices` y la otra nunca
@@ -78,6 +79,13 @@ export async function enrollDeviceKey(
         'delete from key_wraps where user_id = $1 and slot = $2',
         [auth.userId, auth.deviceId]
       )
+      // Lo mismo con las envolturas de EQUIPO (Task 15b, I1): estaban selladas para la misma
+      // pública que ya no existe. Sin borrarlas, el device no volvía a `pendingDevices` del
+      // leader (`team-keys.ts` lista sólo los que NO tienen fila), `status` seguía diciendo
+      // `has_wrap: true`, y la readopción fallaba en silencio para siempre.
+      // `slot = device_id` en todos los equipos: un device_id es un uuid, nunca el literal
+      // 'recovery', así que la envoltura de recuperación no se toca.
+      await client.query('delete from team_key_wraps where slot = $1', [auth.deviceId])
     }
     await client.query('commit')
   } catch (err) {
