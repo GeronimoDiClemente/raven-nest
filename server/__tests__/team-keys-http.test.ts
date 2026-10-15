@@ -8,6 +8,9 @@ import { getPool, migrate } from '../src/db'
 import { createApp } from '../src/http'
 
 const pool = getPool()
+// Task 15 (C2): authorize/recrypt exigen la prueba; el servidor guarda su SHA-256 al activar.
+const PRUEBA = 'prueba-derivada-de-la-maestra-de-equipo'
+const VERIFICADOR = createHash('sha256').update(PRUEBA, 'utf8').digest('hex')
 let baseUrl: string
 let server: ReturnType<typeof createApp>
 let teamId: string, leaderId: string, memberId: string
@@ -76,7 +79,7 @@ describe('/v1/teams/key*', () => {
       headers: { Authorization: `Bearer ${leaderToken}` },
     })
     expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ activated: false, wrap: null, pendingDevices: [] })
+    expect(await res.json()).toEqual({ activated: false, verifier: null, wrap: null, pendingDevices: [] })
   })
 
   it('POST activate con un member da 403', async () => {
@@ -93,14 +96,20 @@ describe('/v1/teams/key*', () => {
     const act = await fetch(`${baseUrl}/v1/teams/key/activate`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${leaderToken}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ team_id: teamId, wraps: [{ slot: leaderDeviceId, kind: 'device', wrapped: 'W-L' }] }),
+      body: JSON.stringify({
+        team_id: teamId, verifier: VERIFICADOR,
+        wraps: [
+          { slot: leaderDeviceId, kind: 'device', wrapped: 'W-L' },
+          { slot: 'recovery', kind: 'recovery', wrapped: 'W-R', wrap_meta: { salt: 'S' } },
+        ],
+      }),
     })
     expect(act.status).toBe(200)
 
     const auth = await fetch(`${baseUrl}/v1/teams/key/authorize`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${leaderToken}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ team_id: teamId, wraps: [{ slot: memberDeviceId, kind: 'device', wrapped: 'W-M' }] }),
+      body: JSON.stringify({ team_id: teamId, proof: PRUEBA, wraps: [{ slot: memberDeviceId, kind: 'device', wrapped: 'W-M' }] }),
     })
     expect(auth.status).toBe(200)
 
@@ -137,18 +146,64 @@ describe('/v1/teams/key*', () => {
 
   it('POST recrypt con el leader re-cifra una fila real de equipo', async () => {
     const syncId = await insertarObservacionDeEquipo(leaderId, teamId)
+    await pool.query('insert into team_keys (team_id, activated_by, verifier) values ($1, $2, $3)', [teamId, leaderId, VERIFICADOR])
 
     const res = await fetch(`${baseUrl}/v1/teams/key/recrypt`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${leaderToken}`, 'content-type': 'application/json' },
       body: JSON.stringify({
-        team_id: teamId,
-        items: [{ sync_id: syncId, title: 'nmc1:x', content: 'nmc1:y', tags: [], content_hash: null, origin_account: null }],
+        team_id: teamId, proof: PRUEBA,
+        items: [{ sync_id: syncId, title: 'nmc1:x', content: 'nmc1:y', tags: [], content_hash: null, origin_account: null, lamport: 1 }],
       }),
     })
     expect(res.status).toBe(200)
     const json = (await res.json()) as { applied: string[]; rejected: unknown[] }
     expect(json.applied).toEqual([syncId])
     expect(json.rejected).toEqual([])
+  })
+
+  // Minor de la review final: un team_id que no es uuid llegaba a Postgres (columna uuid) y
+  // salía como 500 `internal_error`. Es un error del cliente.
+  it('un team_id que no es uuid da 400 invalid_team_id en todas las rutas, no 500', async () => {
+    const h = { Authorization: `Bearer ${leaderToken}`, 'content-type': 'application/json' }
+    for (const ruta of ['/v1/teams/key', '/v1/teams/key/recrypt-pending']) {
+      const res = await fetch(`${baseUrl}${ruta}?team_id=no-es-un-uuid`, { headers: h })
+      expect(res.status, ruta).toBe(400)
+      expect(await res.json()).toEqual({ error: 'invalid_team_id' })
+    }
+    for (const ruta of ['/v1/teams/key/activate', '/v1/teams/key/authorize', '/v1/teams/key/recrypt']) {
+      const res = await fetch(`${baseUrl}${ruta}`, { method: 'POST', headers: h, body: JSON.stringify({ team_id: 'no-es-un-uuid' }) })
+      expect(res.status, ruta).toBe(400)
+      expect(await res.json()).toEqual({ error: 'invalid_team_id' })
+    }
+  })
+
+  it('GET recrypt-pending: el leader ve lo que sigue en claro del equipo, aunque sea del member', async () => {
+    const syncId = await insertarObservacionDeEquipo(memberId, teamId)
+    const res = await fetch(`${baseUrl}/v1/teams/key/recrypt-pending?team_id=${teamId}`, {
+      headers: { Authorization: `Bearer ${leaderToken}` },
+    })
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ total: 1, items: [{ sync_id: syncId, lamport: 1 }] })
+
+    const delMember = await fetch(`${baseUrl}/v1/teams/key/recrypt-pending?team_id=${teamId}`, {
+      headers: { Authorization: `Bearer ${memberToken}` },
+    })
+    expect(delMember.status).toBe(403)
+  })
+
+  it('POST recrypt de un leader sin la clave da 403 must_hold_team_key', async () => {
+    const syncId = await insertarObservacionDeEquipo(memberId, teamId)
+    await pool.query('insert into team_keys (team_id, activated_by, verifier) values ($1, $2, $3)', [teamId, leaderId, VERIFICADOR])
+    const res = await fetch(`${baseUrl}/v1/teams/key/recrypt`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${leaderToken}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        team_id: teamId, proof: 'inventada',
+        items: [{ sync_id: syncId, title: 'nmc1:x', content: 'nmc1:y', tags: [], content_hash: null, origin_account: null, lamport: 1 }],
+      }),
+    })
+    expect(res.status).toBe(403)
+    expect(await res.json()).toEqual({ error: 'must_hold_team_key' })
   })
 })

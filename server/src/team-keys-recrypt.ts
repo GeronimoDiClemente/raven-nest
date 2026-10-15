@@ -2,11 +2,12 @@
 // push normal es por autor (`server/src/push.ts` guarda `where observations.author_id =
 // excluded.author_id`, a propósito: evita una escritura cross-tenant). Esto existe SÓLO para
 // la migración retroactiva del leader al activar el cifrado de equipo (spec §4), y se acota
-// lo más posible: archivo propio, nunca toca `scope`/`type`/`author_id`, y cada fila se
-// valida CONTRA LA BASE (project.team_id + scope) antes de tocarla — nunca confía en lo que
-// mande el batch.
+// lo más posible: archivo propio, nunca toca `scope`/`type`/`author_id`/`lamport`, cada fila se
+// valida CONTRA LA BASE (project.team_id + scope + que siga en claro + que nadie la haya
+// editado desde que el leader la leyó) antes de tocarla — nunca confía en lo que mande el
+// batch — y quien la pide tiene que probar que tiene la maestra del equipo.
 import type { Pool } from 'pg'
-import { isTeamLeader, type TeamKeysAuth } from './team-keys'
+import { isTeamLeader, pruebaDePosesionValida, type TeamKeysAuth } from './team-keys'
 import { allocateSeqRange } from './seq'
 
 type Fail<S extends number> = { ok: false; status: S; error: string }
@@ -14,7 +15,9 @@ type Fail<S extends number> = { ok: false; status: S; error: string }
 export interface RecryptItem {
   sync_id: string
   title: string
-  content: string
+  /** `null` para un tombstone (push.ts guarda `content = null` al borrar). Antes el servidor lo
+   * rechazaba con `invalid_fields` y tiraba el LOTE entero (I2 de la review final). */
+  content: string | null
   tags: unknown
   // Mismos dos campos que `SEALED_FIELDS` sella además de title/content (electron/
   // memory-envelope.ts). Sin re-cifrarlos acá, una fila migrada "retroactivamente" seguía
@@ -24,16 +27,81 @@ export interface RecryptItem {
   // no "no cifrar".
   content_hash: string | null
   origin_account: string | null
+  /**
+   * El `lamport` de la copia que el leader cifró (I1). Si la fila de la base ya no tiene ese
+   * lamport, alguien la editó después del último pull del leader, y escribir lo que él mandó
+   * pisaría esa edición con contenido VIEJO bajo el lamport NUEVO — que además empata en LWW
+   * con la copia de quien editó, así que ni siquiera converge.
+   */
+  lamport: number
+}
+
+/** Lo que `recrypt-pending` devuelve por página. Bajo el `MAX_BATCH` de push, a propósito. */
+const PENDIENTES_POR_PAGINA = 500
+
+/**
+ * Las filas `scope: 'team'` de ESTE equipo que siguen en claro, de CUALQUIER miembro (C1 de la
+ * review final). Antes el cliente del leader armaba la migración con su `projects.team_id`
+ * LOCAL, que sólo existe para los proyectos que ÉL compartió: lo que un member compartió desde
+ * su propia copia quedaba en claro para siempre, mientras la tarjeta decía que se re-cifraba.
+ *
+ * "En claro" = `title` o `content` sin `nmc1:`. Los dos se miran porque los dos se sellan
+ * juntos, y una fila a medias sigue exponiendo lo que le falta. Un `content` null (tombstone)
+ * no cuenta como en claro.
+ *
+ * Paginado por `sync_id` (keyset): la lista se achica a medida que la migración avanza, así
+ * que un offset saltearía filas. `total` es el conteo entero, para que la UI muestre cuánto
+ * falta sin recorrer todas las páginas.
+ */
+export async function listRecryptPending(
+  pool: Pool,
+  auth: TeamKeysAuth,
+  teamId: string,
+  opts: { after?: string; limit?: number }
+): Promise<{ ok: true; total: number; items: Array<{ sync_id: string; lamport: number }> } | Fail<403>> {
+  if (!(await isTeamLeader(pool, auth.userId, teamId))) {
+    return { ok: false, status: 403, error: 'leader_required' }
+  }
+  const enClaro = `o.scope = 'team' and p.team_id = $1
+     and (o.title not like 'nmc1:%' or (o.content is not null and o.content not like 'nmc1:%'))`
+  const limit = Math.max(1, Math.min(PENDIENTES_POR_PAGINA, Math.floor(opts.limit ?? PENDIENTES_POR_PAGINA)))
+  const { rows: totalRows } = await pool.query(
+    `select count(*)::int as n from observations o join projects p on p.id = o.project_id where ${enClaro}`,
+    [teamId]
+  )
+  const { rows } = await pool.query(
+    `select o.sync_id, o.lamport from observations o join projects p on p.id = o.project_id
+      where ${enClaro} and ($2::text is null or o.sync_id > $2::text)
+      order by o.sync_id
+      limit $3`,
+    [teamId, opts.after ?? null, limit]
+  )
+  return {
+    ok: true,
+    total: Number(totalRows[0]?.n ?? 0),
+    items: rows.map((r) => ({ sync_id: String(r.sync_id), lamport: Number(r.lamport) })),
+  }
 }
 
 export async function recryptTeamObservations(
   pool: Pool,
   auth: TeamKeysAuth,
   teamId: string,
-  body: { items?: unknown }
-): Promise<{ ok: true; applied: string[]; rejected: Array<{ sync_id: string; error: string }> } | Fail<400> | Fail<403>> {
+  body: { items?: unknown; proof?: unknown }
+): Promise<{ ok: true; applied: string[]; rejected: Array<{ sync_id: string; error: string }> } | Fail<400> | Fail<403> | Fail<404>> {
   if (!(await isTeamLeader(pool, auth.userId, teamId))) {
     return { ok: false, status: 403, error: 'leader_required' }
+  }
+  const { rows: activado } = await pool.query('select 1 from team_keys where team_id = $1', [teamId])
+  if (activado.length === 0) return { ok: false, status: 404, error: 'not_activated' }
+  /**
+   * C2 (review final): un leader SIN la maestra (spec §6: el rol se transfiere, la clave no)
+   * podía mandar "ciphertext" de cualquier cosa —con el prefijo `nmc1:` alcanza para pasar
+   * todos los chequeos— y dejar el histórico del equipo ilegible para todos, para siempre: lo
+   * que hay en claro se reemplaza y no queda copia en el servidor.
+   */
+  if (!(await pruebaDePosesionValida(pool, teamId, body?.proof))) {
+    return { ok: false, status: 403, error: 'must_hold_team_key' }
   }
   const items = Array.isArray(body?.items) ? (body.items as RecryptItem[]) : []
   if (items.length === 0) return { ok: false, status: 400, error: 'no_items' }
@@ -41,13 +109,19 @@ export async function recryptTeamObservations(
     if (typeof it?.sync_id !== 'string' || it.sync_id.trim() === '') {
       return { ok: false, status: 400, error: 'invalid_sync_id' }
     }
-    if (typeof it?.title !== 'string' || typeof it?.content !== 'string') {
+    if (typeof it?.title !== 'string') {
+      return { ok: false, status: 400, error: 'invalid_fields' }
+    }
+    if (it.content !== null && typeof it.content !== 'string') {
       return { ok: false, status: 400, error: 'invalid_fields' }
     }
     if (it.content_hash !== null && typeof it.content_hash !== 'string') {
       return { ok: false, status: 400, error: 'invalid_fields' }
     }
     if (it.origin_account !== null && typeof it.origin_account !== 'string') {
+      return { ok: false, status: 400, error: 'invalid_fields' }
+    }
+    if (typeof it.lamport !== 'number' || !Number.isInteger(it.lamport) || it.lamport < 0) {
       return { ok: false, status: 400, error: 'invalid_fields' }
     }
   }
@@ -64,10 +138,11 @@ export async function recryptTeamObservations(
       await client.query('begin')
       // El chequeo central: la fila tiene que existir, pertenecer a UN proyecto cuyo team_id
       // sea EXACTAMENTE este equipo, y tener scope='team'. Cualquier otra cosa —otro equipo,
-      // scope personal, sync_id inventado— no matchea ninguna fila y cae al rowCount === 0
-      // de abajo. `for update` toma el lock de la fila antes del allocateSeqRange.
+      // scope personal, sync_id inventado— no matchea ninguna fila y cae al rows.length === 0
+      // de abajo. `for update` toma el lock de la fila antes del allocateSeqRange, así que lo
+      // que se compara abajo (título y lamport) no cambia entre el chequeo y el update.
       const { rows } = await client.query(
-        `select o.project_id from observations o
+        `select o.project_id, o.title, o.lamport from observations o
            join projects p on p.id = o.project_id
           where o.sync_id = $1 and p.team_id = $2 and o.scope = 'team'
           for update of o`,
@@ -78,8 +153,23 @@ export async function recryptTeamObservations(
         rejected.push({ sync_id: it.sync_id, error: 'not_found_in_team' })
         continue
       }
+      // I1: una fila ya sellada se escribió DESPUÉS de activar (push normal, ya cifrado) o ya
+      // se migró. Pisarla con lo que el leader cifró de su copia local es volver atrás.
+      if (String(rows[0].title).startsWith('nmc1:')) {
+        await client.query('rollback')
+        rejected.push({ sync_id: it.sync_id, error: 'already_sealed' })
+        continue
+      }
+      if (Number(rows[0].lamport) !== it.lamport) {
+        await client.query('rollback')
+        rejected.push({ sync_id: it.sync_id, error: 'stale' })
+        continue
+      }
       const projectId = Number(rows[0].project_id)
       const nuevoSeq = await allocateSeqRange(client, projectId, 1)
+      // El lamport NO se toca: re-cifrar no es editar, y subirlo haría ganar esta versión en
+      // LWW contra una edición concurrente. El bump de `project_seq` alcanza para que el resto
+      // de los devices la vuelva a bajar.
       await client.query(
         `update observations
             set title = $1, content = $2, tags = $3::jsonb, project_seq = $4,

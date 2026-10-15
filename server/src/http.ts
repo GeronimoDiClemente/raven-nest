@@ -12,7 +12,7 @@ import { iniciarVinculacion, aprobarVinculacion, reclamarVinculacion } from './l
 import { handleShareProject } from './share'
 import { enrollDeviceKey, getKeyState, publishWraps } from './keys'
 import { getTeamKeyState, activateTeamKey, authorizeTeamDevice } from './team-keys'
-import { recryptTeamObservations } from './team-keys-recrypt'
+import { recryptTeamObservations, listRecryptPending } from './team-keys-recrypt'
 import { handleBeta } from './betas'
 
 // El emisor del JWKS se arma UNA vez por URL y se guarda: cada instancia tiene su propio
@@ -71,6 +71,18 @@ const linkLimiter = createRateLimiter({ limit: 20, windowMs: 60 * 60_000 })
  * por minuto es mas de lo que cualquiera de esos flujos necesita.
  */
 const keysLimiter = createRateLimiter({ limit: 12, windowMs: 60_000 })
+/**
+ * La migración retroactiva de equipo (`recrypt` + `recrypt-pending`) va aparte del de claves.
+ * Compartiéndolo, una migración de pocos miles de filas (lotes de 200, más una consulta de lo
+ * pendiente por vuelta) se comía los 12 por minuto a la tercera vuelta — y con ellos la
+ * readopción de claves de arranque y la tarjeta de ESE device. Cada request de recrypt es
+ * caro (una transacción por fila), así que el techo sigue siendo bajo: 60 por minuto deja
+ * migrar unas 6.000 filas por minuto, y un cliente que lo toque espera el `Retry-After`.
+ */
+const teamRecryptLimiter = createRateLimiter({ limit: 60, windowMs: 60_000 })
+/** `team_memberships.team_id` y `team_keys.team_id` son uuid: algo que no lo es llegaba a
+ * Postgres como 22P02 y salía como un 500 `internal_error` (minor de la review final). */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 function send(
   res: ServerResponse,
@@ -229,10 +241,12 @@ async function handleRequest(pool: Pool, req: IncomingMessage, res: ServerRespon
   const isTeamKeyActivate = path === '/v1/teams/key/activate'
   const isTeamKeyAuthorize = path === '/v1/teams/key/authorize'
   const isTeamKeyRecrypt = path === '/v1/teams/key/recrypt'
+  const isTeamKeyRecryptPending = path === '/v1/teams/key/recrypt-pending'
 
   if (!isPush && !isPull && !isStatus && !isDelete && !isShare
       && !isKeysEnroll && !isKeysGet && !isKeysPublish
-      && !isTeamKeyGet && !isTeamKeyActivate && !isTeamKeyAuthorize && !isTeamKeyRecrypt) {
+      && !isTeamKeyGet && !isTeamKeyActivate && !isTeamKeyAuthorize && !isTeamKeyRecrypt
+      && !isTeamKeyRecryptPending) {
     return send(res, 404, { error: 'not_found' })
   }
 
@@ -243,8 +257,12 @@ async function handleRequest(pool: Pool, req: IncomingMessage, res: ServerRespon
     // Después de autenticar, no antes: la clave es el device, y el device sale del token.
     // Limitar por IP dejaría a una oficina entera detrás de un NAT compartiendo cuota.
     if (isPush || isPull || isKeysEnroll || isKeysGet || isKeysPublish
-        || isTeamKeyGet || isTeamKeyActivate || isTeamKeyAuthorize || isTeamKeyRecrypt) {
-      const limiter = isPush ? pushLimiter : isPull ? pullLimiter : keysLimiter
+        || isTeamKeyGet || isTeamKeyActivate || isTeamKeyAuthorize || isTeamKeyRecrypt
+        || isTeamKeyRecryptPending) {
+      const limiter = isPush ? pushLimiter
+        : isPull ? pullLimiter
+          : (isTeamKeyRecrypt || isTeamKeyRecryptPending) ? teamRecryptLimiter
+            : keysLimiter
       const verdict = limiter.check(auth.deviceId)
       if (!verdict.ok) {
         return send(res, 429, { error: 'rate_limited' }, {
@@ -291,6 +309,7 @@ async function handleRequest(pool: Pool, req: IncomingMessage, res: ServerRespon
       if (req.method !== 'GET') return send(res, 405, { error: 'method_not_allowed' })
       const teamId = url.searchParams.get('team_id') ?? ''
       if (!teamId) return send(res, 400, { error: 'missing_team_id' })
+      if (!UUID_RE.test(teamId)) return send(res, 400, { error: 'invalid_team_id' })
       const result = await getTeamKeyState(pool, auth, teamId, url.searchParams.get('slot') ?? undefined)
       if ('ok' in result) return send(res, result.status, { error: result.error })
       return send(res, 200, result)
@@ -300,6 +319,7 @@ async function handleRequest(pool: Pool, req: IncomingMessage, res: ServerRespon
       const body = (await readBody(req)) as Record<string, unknown>
       const teamId = typeof body.team_id === 'string' ? body.team_id : ''
       if (!teamId) return send(res, 400, { error: 'missing_team_id' })
+      if (!UUID_RE.test(teamId)) return send(res, 400, { error: 'invalid_team_id' })
       const result = await activateTeamKey(pool, auth, teamId, body)
       if (!result.ok) return send(res, result.status, { error: result.error })
       return send(res, 200, { ok: true })
@@ -309,15 +329,26 @@ async function handleRequest(pool: Pool, req: IncomingMessage, res: ServerRespon
       const body = (await readBody(req)) as Record<string, unknown>
       const teamId = typeof body.team_id === 'string' ? body.team_id : ''
       if (!teamId) return send(res, 400, { error: 'missing_team_id' })
+      if (!UUID_RE.test(teamId)) return send(res, 400, { error: 'invalid_team_id' })
       const result = await authorizeTeamDevice(pool, auth, teamId, body)
       if (!result.ok) return send(res, result.status, { error: result.error })
       return send(res, 200, { ok: true })
+    }
+    if (isTeamKeyRecryptPending) {
+      if (req.method !== 'GET') return send(res, 405, { error: 'method_not_allowed' })
+      const teamId = url.searchParams.get('team_id') ?? ''
+      if (!teamId) return send(res, 400, { error: 'missing_team_id' })
+      if (!UUID_RE.test(teamId)) return send(res, 400, { error: 'invalid_team_id' })
+      const result = await listRecryptPending(pool, auth, teamId, { after: url.searchParams.get('after') ?? undefined })
+      if (!result.ok) return send(res, result.status, { error: result.error })
+      return send(res, 200, { total: result.total, items: result.items })
     }
     if (isTeamKeyRecrypt) {
       if (req.method !== 'POST') return send(res, 405, { error: 'method_not_allowed' })
       const body = (await readBody(req)) as Record<string, unknown>
       const teamId = typeof body.team_id === 'string' ? body.team_id : ''
       if (!teamId) return send(res, 400, { error: 'missing_team_id' })
+      if (!UUID_RE.test(teamId)) return send(res, 400, { error: 'invalid_team_id' })
       const result = await recryptTeamObservations(pool, auth, teamId, body)
       if (!result.ok) return send(res, result.status, { error: result.error })
       return send(res, 200, result)
