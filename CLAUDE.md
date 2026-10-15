@@ -163,6 +163,8 @@ presente al trabajar acá:
   claro se migra al activar: la lista Y el contenido de lo pendiente salen del SERVIDOR
   (`GET /v1/teams/key/recrypt-pending`), no de la base local — el pull no le trae al leader
   filas de un repo que no clonó. La tarjeta sólo dice "todo cifrado" con lo pendiente en 0.
+  La migración sella también el tema: `topic_key` pasa al HMAC con la clave de equipo, el MISMO
+  que `sealMutationPayload` le pone a una fila nueva (si difieren, el supersede no las une).
 - **El daemon se entera de que la cuenta cifra por `key_epoch` de `/v1/sync/status`**, y es
   lo que arma el gate fail-closed del push. No alcanza con que lo sepa la tarjeta de cifrado:
   esa sólo corre si el usuario abre el overlay Memories, y hasta el 2026-09-13 el gate no se

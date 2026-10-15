@@ -110,10 +110,11 @@ async function conectar(page: Page, c: Cuenta): Promise<void> {
   expect((r.con as { ok?: boolean }).ok ?? true, JSON.stringify(r.con)).toBe(true)
 }
 
-async function guardar(page: Page, repoDir: string, title: string): Promise<string> {
-  const r = await page.evaluate(async ({ title, worktreePath }) =>
+async function guardar(page: Page, repoDir: string, title: string, topicKey?: string): Promise<string> {
+  const r = await page.evaluate(async ({ title, worktreePath, topicKey }) =>
     (window as unknown as { memory: { saveFromUi(i: unknown): Promise<{ ok: boolean; syncId?: string; error?: string }> } })
-      .memory.saveFromUi({ title, content: `Contenido de: ${title}`, type: 'decision', worktreePath }), { title, worktreePath: repoDir })
+      .memory.saveFromUi({ title, content: `Contenido de: ${title}`, type: 'decision', worktreePath, topicKey: topicKey ?? null }),
+  { title, worktreePath: repoDir, topicKey })
   expect(r.ok, `${memoria}.saveFromUi: ${r.error}`).toBe(true)
   return r.syncId!
 }
@@ -326,11 +327,18 @@ async function teamEncryptionRecrypt(page: Page, teamId: string): Promise<Result
       .memory.teamEncryptionRecrypt(tid), teamId)
 }
 
-/** Lo que el servicio sigue teniendo en claro de ese equipo: lo mismo que mira `recrypt-pending`. */
+/** Lo que el servicio sigue teniendo en claro de ese equipo: el MISMO predicado que `enClaro()` de
+ *  server/src/team-keys-recrypt.ts (Task 15b, Minor 1), salvo los tags. */
 function enClaroDelEquipo(teamId: string): number {
+  const campo = (c: string) => `(o.${c} is not null and o.${c} not like 'nmc1:%')`
   return Number(sql(`select count(*) from observations o join projects p on p.id = o.project_id
     where p.team_id = '${teamId}' and o.scope = 'team'
-      and (o.title not like 'nmc1:%' or (o.content is not null and o.content not like 'nmc1:%'))`))
+      and (o.title not like 'nmc1:%' or ${campo('content')} or ${campo('content_hash')} or ${campo('origin_account')})`))
+}
+
+/** El `topic_key` de una fila en el servicio, tal cual (Task 15b, I2). */
+function temaEnElServicio(syncId: string): string {
+  return sql(`select coalesce(topic_key, '<null>') from observations where sync_id = '${syncId}'`)
 }
 
 /** `huella`: la que el leader comparó con la que le dictó B (I4 de la review final): main.ts no
@@ -389,6 +397,15 @@ async function escenario(): Promise<void> {
     const a = await autorComparteYPromueve(h, teamId, marca)
     expect(filaEnElServicio(a.syncIdEquipo)?.title).toBe(a.deEquipo) // todavía en claro
 
+    // Task 15b (I2): una memoria de equipo CON tema, también en claro antes de activar. La
+    // migración vieja sellaba título y contenido pero dejaba el tema a la vista del operador.
+    const temaEnClaro = `deploy-target-${marca}`
+    const conTema = await guardar(h.page, h.repoDir, `Decision con tema ${marca}`, temaEnClaro)
+    await todoSubido(h.page)
+    expect(await promoverPorMcp(h, conTema)).toContain('true')
+    await expect.poll(() => filaEnElServicio(conTema)?.scope, { timeout: 60_000 }).toBe('team')
+    expect(temaEnElServicio(conTema)).toBe(temaEnClaro)
+
     // Reconectar fuerza un ciclo status→pull→push nuevo. El primer `conectar()` corrió ANTES
     // de que este proyecto existiera en el servicio, así que su roster no lo traía; éste sí.
     await conectar(h.page, cA)
@@ -414,6 +431,10 @@ async function escenario(): Promise<void> {
     // tienen que estar cifradas de verdad, y el texto no puede quedar legible en ningún lado.
     expect(filaEnElServicio(a.syncIdEquipo)!.title).toMatch(/^nmc1:/)
     expect(filaEnElServicio(b.syncIdEquipo)!.title).toMatch(/^nmc1:/)
+    expect(filaEnElServicio(conTema)!.title).toMatch(/^nmc1:/)
+    // I2: el tema quedó como HMAC (32 hex), y el texto del tema no está en ninguna fila.
+    expect(temaEnElServicio(conTema)).toMatch(/^[0-9a-f]{32}$/)
+    expect(sql(`select count(*) from observations where topic_key = '${temaEnClaro}'`)).toBe('0')
     expect(enClaroDelEquipo(teamId), 'quedaron filas de equipo en claro en el servicio').toBe(0)
     for (const texto of [a.deEquipo, b.deEquipo]) {
       expect(sql(`select count(*) from observations where title like '%${texto}%' or content like '%${texto}%'`)).toBe('0')

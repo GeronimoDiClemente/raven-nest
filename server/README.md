@@ -42,7 +42,9 @@ activó sigue subiendo en claro, y para uno que sí, el push rechaza el claro co
 `team_encryption_required`. Las rutas `/v1/teams/key*` (sólo `leader` para activar, autorizar y
 migrar) exigen además probar la maestra: `proof` contra `team_keys.verifier`. La migración del
 histórico es la única vía que reescribe filas ajenas (`team-keys-recrypt.ts`), y
-`GET /v1/teams/key/recrypt-pending` le devuelve al leader el contenido de lo que sigue en claro.
+`GET /v1/teams/key/recrypt-pending` le devuelve al leader el contenido de lo que sigue en claro
+(con el tema y el `project_key`: la migración también re-sella `topic_key` como HMAC y resuelve
+el supersede igual que `push.ts`).
 
 ## Límites por plan
 

@@ -60,6 +60,12 @@ personal, con una diferencia:
 - `verifier = SHA-256(proof)` — lo que guarda `team_keys.verifier` al activar.
 - `authorize` y `recrypt` exigen `proof` y comparan su hash contra el verificador
   (`403 must_hold_team_key`). Un equipo sin verificador falla cerrado.
+- **Equipos activados antes de la migración 010** (Task 15b, Minor 5): quedan con
+  `verifier = null` y fallan cerrado para siempre — nadie puede autorizar otra máquina, migrar
+  lo viejo ni adoptar la maestra (el cliente tampoco tiene contra qué comparar). Es aceptado y
+  no se migra: el cifrado de equipo nunca salió de desarrollo, así que esos equipos sólo existen
+  en bases de prueba. En una base así, se borra la fila de `team_keys` (cascade a
+  `team_key_wraps`) y el leader vuelve a activar.
 - El `GET /v1/teams/key` le devuelve el verificador a todo miembro activo, y el cliente
   rechaza (`TeamKeyMismatchError`) toda maestra desenvuelta cuyo verificador no coincida, antes
   de adoptarla: al adoptar, en la readopción de arranque y al recuperar con el código.
@@ -101,16 +107,31 @@ acota con un endpoint dedicado, nunca el `push` genérico:
 
 `POST /v1/teams/key/recrypt` — gateado a `leader` igual que la activación, y con `proof` (§2.1).
 Body: `{ team_id, proof, items: [{ sync_id, title, content, tags, content_hash, origin_account,
-lamport }] }` (ya cifrados por el client del leader con la clave de equipo nueva; `content` puede
+lamport, topic_key }] }` (ya cifrados por el client del leader con la clave de equipo nueva; `content` puede
 ser `null`, un tombstone). El servidor, por cada `sync_id`, en una transacción corta con la fila
 bloqueada:
 
 - Verifica que la fila exista, que su `project.team_id` sea exactamente el equipo, y que
   `scope = 'team'` — si no, `not_found_in_team`, rechazo individual (no aborta el lote).
-- Si ya está sellada (`title` con `nmc1:`): `already_sealed`. Si su `lamport` no es el que manda
-  el cliente —se editó después de que el leader la leyó—: `stale`. Las dos para no pisar una
-  edición más nueva con contenido viejo (Task 15, I1).
-- Sobreescribe únicamente `title`, `content`, `tags`, `content_hash`, `origin_account`.
+- Si ya está sellada: `already_sealed`. "Sellada" es lo contrario del MISMO predicado que usa
+  `recrypt-pending` (Task 15b, Minor 1): `title`, `content`, `content_hash`, `origin_account`
+  con `nmc1:` (o null) y `tags` vacío o un único sobre `["nmc1:…"]`. Antes pending miraba title O
+  content y recrypt sólo title: una fila a medias quedaba pendiente para siempre. `topic_key` no
+  entra: un HMAC de 32 hex no se distingue de un tema en claro que justo mida eso, y el tema se
+  sella en la misma escritura que el título, así que ninguna fila "sellada" lo conserva en claro.
+  Si su `lamport` no es el que manda el cliente —se editó después de que el leader la leyó—:
+  `stale`. Las dos para no pisar una edición más nueva con contenido viejo (Task 15, I1).
+- Sobreescribe únicamente `title`, `content`, `tags`, `content_hash`, `origin_account` y
+  `topic_key` (más `superseded_by` si hay colisión de tema, abajo).
+- **El tema** (Task 15b, I2): el cliente manda `topic_key = hmacTopicKey(clave de equipo,
+  project_key, 'team', tema)` — exactamente lo que `sealMutationPayload` le pone a una fila nueva
+  del mismo tema —, o null. Una fila sin tema queda sin tema; una con tema que llega sin HMAC se
+  rechaza (`missing_topic_key`) y sigue pendiente. Antes la migración no lo tocaba: el histórico
+  le mostraba el tema al operador y una fila nueva del mismo tema nunca lo encontraba para el
+  supersede. Con el HMAC la fila migrada puede chocar contra una viva del mismo tema guardada
+  después de activar; se resuelve como en `push.ts` (§8.1 del servicio): mismo advisory lock,
+  `resolveTopicCollision`, y el perdedor queda `superseded_by` (con `project_seq` nuevo si el
+  perdedor es la otra fila). Una fila migrada ya superseded o borrada no compite.
 - Bumpea `project_seq` para que el resto de los devices del equipo la vuelva a bajar. El
   `lamport` NO se toca: re-cifrar no es editar, y subirlo haría ganar esta versión en LWW contra
   una edición concurrente.
@@ -118,8 +139,10 @@ bloqueada:
 
 **Qué migrar lo dice el servidor** (Task 15, C1): `GET /v1/teams/key/recrypt-pending?team_id=
 &after=` (sólo leader) devuelve `{ total, items }` con las filas `scope: 'team'` de CUALQUIER
-proyecto del equipo cuyo `title` o `content` no empiece con `nmc1:`, con su contenido y su
-`lamport`, paginado por `sync_id`. La primera versión armaba el lote con la base LOCAL del leader
+proyecto del equipo que sigan en claro (el predicado de arriba), con su contenido, su `lamport`,
+su `project_key` y su tema en claro (para derivar el HMAC sin tener el repo clonado), paginado
+por `sync_id` con tope de 200 filas y ~1 MiB (Task 15b, Minor 2; siempre al menos una fila, y el
+corte es un prefijo del orden, así que `after` sigue valiendo). La primera versión armaba el lote con la base LOCAL del leader
 filtrada por su `projects.team_id` local, que sólo existe para lo que ÉL compartió: lo que un
 member compartió desde su copia quedaba en claro para siempre. Buscar local por `sync_id` tampoco
 alcanza — el pull sólo baja filas de los `project_key` que el device ya tiene, así que una fila de
@@ -148,7 +171,11 @@ decisión explícita de Gero: **sólo el leader autoriza**, nunca cualquier miem
    pública que el client vuelve a pedir para envolver no da la MISMA huella, no se envuelve nada
    (Task 15, I4 — antes se envolvía para la pública de ese segundo fetch, que el servidor podía
    cambiar después de mostrar la real). Lo mismo vale desde Task 15 para autorizar en personal.
-4. Un device sin cifrado personal no publica su clave pública, así que nunca aparece en la lista
+4. Si un device regenera su par (`keys.bin` corrupto, llavero restaurado), `enrollDeviceKey`
+   borra en la misma transacción su envoltura personal Y las de todos sus equipos (Task 15b, I1):
+   vuelve a aparecer en la lista del leader en vez de quedar con una envoltura que ya no abre.
+   `GET /v1/teams/key` además dice `isLeader`, para que un member no pida `recrypt-pending`.
+5. Un device sin cifrado personal no publica su clave pública, así que nunca aparece en la lista
    del leader: la tarjeta le pide activar el personal primero en vez de mandarlo a esperar.
    Recuperar con el código sólo lo ofrece a un leader: termina en auto-autorizarse, y eso el
    servidor sólo se lo deja a un leader.
