@@ -37,6 +37,13 @@ export interface PulledRow {
   author_id: string | null
   author_display: string | null
   content_hash: string | null
+  /**
+   * Task 14: sólo en filas `scope: 'team'` — el `projects.team_id` del proyecto de ORIGEN.
+   * El cliente elige con esto la clave de equipo para descifrar; su `projects.team_id` local
+   * sólo existe si ÉL compartió su copia, y un compañero no tiene por qué haberlo hecho.
+   * No filtra nada: la fila sólo viaja a miembros activos de ese equipo o a su dueño.
+   */
+  team_id?: string | null
 }
 
 export interface PullResponse {
@@ -56,7 +63,8 @@ const cursorSano = (v: unknown): number => {
 
 const COLUMNAS = `o.sync_id, p.project_key, o.project_seq, o.client_updated_at, o.lamport, o.scope,
             o.type, o.topic_key, o.title, o.content, o.tags, o.deleted, o.superseded_by,
-            o.origin_ai, o.origin_account, o.git_branch, o.author_id, o.author_display, o.content_hash`
+            o.origin_ai, o.origin_account, o.git_branch, o.author_id, o.author_display, o.content_hash,
+            p.team_id`
 
 function aFila(r: Record<string, unknown>): PulledRow {
   return {
@@ -79,6 +87,9 @@ function aFila(r: Record<string, unknown>): PulledRow {
     author_id: r.author_id as string | null,
     author_display: r.author_display as string | null,
     content_hash: r.content_hash as string | null,
+    // Spread condicional y no `team_id: null` en todas: una fila personal no tiene equipo, y
+    // agregarle la clave cambiaría el shape que ya ven los tests y los clientes de hoy.
+    ...(r.scope === 'team' ? { team_id: (r.team_id as string | null) ?? null } : {}),
   }
 }
 

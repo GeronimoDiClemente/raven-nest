@@ -4,6 +4,10 @@ import { limitsFor, maxBytesFor } from './limits'
 export interface StatusRosterProject {
   project_key: string
   display_name: string
+  /** Task 14: con qué equipo está compartido este proyecto propio, o null. Es lo que le permite
+   * a la OTRA máquina de quien compartió saber que sus filas de equipo van a ese equipo (y
+   * con qué clave sellarlas): `projects.team_id` local sólo lo escribe la máquina que compartió. */
+  team_id: string | null
 }
 
 export interface StatusResponse {
@@ -35,6 +39,14 @@ export interface StatusResponse {
    * en `GET /v1/keys` para el mismo usuario autenticado.
    */
   key_epoch: number
+  /**
+   * Task 14 (spec §9.4): los equipos con cifrado activo donde quien llama es miembro ACTIVO,
+   * y si ESTE device ya tiene envoltura. Mismo motivo que `key_epoch`: el daemon tiene que
+   * saber que un equipo cifra en el primer `status` del arranque, sin depender de que el
+   * usuario abra la tarjeta — si no, sube filas de equipo EN CLARO a un equipo que cifra.
+   * Sin época: v1 no rota la clave de equipo (spec §2, §8).
+   */
+  encrypted_teams: Array<{ team_id: string; has_wrap: boolean }>
 }
 
 // §5.3: this is the device's health check — today the client has no way to tell a dead
@@ -58,7 +70,7 @@ export async function handleStatus(
   // `where user_id = $1` is load-bearing here too, same as the quota query above: without
   // it every user's project roster leaks into every other user's status response.
   const { rows: projectRows } = await pool.query(
-    `select project_key, display_name from projects where user_id = $1 order by project_key`,
+    `select project_key, display_name, team_id from projects where user_id = $1 order by project_key`,
     [auth.userId]
   )
 
@@ -68,6 +80,20 @@ export async function handleStatus(
   const { rows: epochRows } = await pool.query(
     'select key_epoch from users where id = $1',
     [auth.userId]
+  )
+
+  // `tm.user_id = $1 and tm.status = 'active'` es lo que hace que esto no filtre equipos
+  // ajenos ni equipos de los que ya me fui. `has_wrap` se mira contra ESTE device (slot =
+  // device_id), no contra la cuenta: es lo que decide si esta máquina puede readoptar sola.
+  const { rows: equiposRows } = await pool.query(
+    `select tk.team_id::text as team_id,
+            exists (select 1 from team_key_wraps w
+                     where w.team_id = tk.team_id and w.slot = $2::text) as has_wrap
+       from team_keys tk
+       join team_memberships tm on tm.team_id = tk.team_id
+      where tm.user_id = $1 and tm.status = 'active'
+      order by tk.team_id`,
+    [auth.userId, auth.deviceId]
   )
 
   const limits = limitsFor(auth.plan)
@@ -82,7 +108,12 @@ export async function handleStatus(
     // `quota_exceeded`, así que lo que el cliente ve informado acá es exactamente el techo
     // que se le va a aplicar — override de instancia dedicada incluido.
     quota: { used_bytes: Number(rows[0].used), max_bytes: maxBytesFor(auth.plan) },
-    projects: projectRows.map((r) => ({ project_key: r.project_key, display_name: r.display_name })),
+    projects: projectRows.map((r) => ({
+      project_key: r.project_key,
+      display_name: r.display_name,
+      team_id: (r.team_id as string | null) ?? null,
+    })),
     key_epoch: Number(epochRows[0]?.key_epoch ?? 0),
+    encrypted_teams: equiposRows.map((r) => ({ team_id: String(r.team_id), has_wrap: Boolean(r.has_wrap) })),
   }
 }

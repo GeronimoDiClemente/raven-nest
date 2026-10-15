@@ -156,6 +156,28 @@ const MAX_OBSERVATION_BYTES = 1024 * 1024
  */
 const GLOBAL_PROJECT_KEY = '__global__'
 
+/** Mismo prefijo que `CIPHER_PREFIX` de electron/memory-crypto.ts — el servidor no importa
+ * código del cliente, y el prefijo es parte del wire (spec §7), no un detalle interno. */
+const PREFIJO_SOBRE = 'nmc1:'
+
+/**
+ * Task 14 (spec §9.4): ¿viaja sellado todo lo que tiene texto? `null`/'' no es texto
+ * (tombstone, título vacío). Mira título, contenido y tags: alcanza para distinguir una fila
+ * sellada de una en claro, porque `sealMutationPayload` sella los tres juntos o ninguno.
+ */
+function viajaSellado(p: Record<string, unknown>): boolean {
+  for (const campo of ['title', 'content'] as const) {
+    const v = p[campo]
+    if (typeof v === 'string' && v !== '' && !v.startsWith(PREFIJO_SOBRE)) return false
+  }
+  const tags = p.tags
+  if (Array.isArray(tags) && tags.length > 0) {
+    // `sealMutationPayload` manda los tags como UN sobre (memory-envelope.ts).
+    if (!(tags.length === 1 && typeof tags[0] === 'string' && tags[0].startsWith(PREFIJO_SOBRE))) return false
+  }
+  return true
+}
+
 /**
  * Una mutación después de la pasada 1 de `handlePush`: o ya quedó rechazada — y su resultado
  * sólo espera su lugar en `results` — o sobrevivió y va a intentar aplicarse en la pasada 2.
@@ -193,7 +215,7 @@ export async function handlePush(
     // que es aceptable: el techo existe contra abuso, no para cortar al byte exacto.
     //
     // Se lee acá arriba, antes de resolver ningún proyecto, porque `quota_exceeded` es uno
-    // de los cinco rechazos de la pasada 1 y esa pasada tiene que correr ANTES de que se
+    // de los seis rechazos de la pasada 1 y esa pasada tiene que correr ANTES de que se
     // pueda crear una fila en `projects`.
     const { rows: usedRows } = await client.query(
       `select coalesce(sum(octet_length(coalesce(o.content, ''))), 0)::bigint as used
@@ -216,9 +238,18 @@ export async function handlePush(
     )
     const sharedProjectKeys = new Set(sharedRows.map((r) => r.project_key as string))
 
-    // PASADA 1 — los cinco rechazos que NO dependen del id del proyecto: `missing_sync_id`,
-    // `team_scope_not_allowed`, `project_not_shared_with_team`, `observation_too_large` y
-    // `quota_exceeded`.
+    // Task 14 (spec §9.4): los proyectos propios cuyo equipo tiene `team_keys`. Un query por
+    // batch, mismo criterio que `sharedRows`.
+    const { rows: cifradosRows } = await client.query(
+      `select p.project_key from projects p join team_keys tk on tk.team_id = p.team_id
+        where p.user_id = $1`,
+      [auth.userId]
+    )
+    const proyectosDeEquipoCifrado = new Set(cifradosRows.map((r) => r.project_key as string))
+
+    // PASADA 1 — los seis rechazos que NO dependen del id del proyecto: `missing_sync_id`,
+    // `team_scope_not_allowed`, `project_not_shared_with_team`, `team_encryption_required`,
+    // `observation_too_large` y `quota_exceeded`.
     //
     // Corren antes de resolver proyectos, y ese orden no es cosmético. `ensureProject` corría
     // para toda clave nueva con lugar disponible ANTES de que se evaluara ningún rechazo, así
@@ -290,6 +321,19 @@ export async function handlePush(
             project_seq: 0,
             error: 'project_not_shared_with_team',
           },
+        })
+        continue
+      }
+
+      // Task 14 (spec §9.4): un equipo con `team_keys` nunca guarda texto en claro. Reversible
+      // A PROPÓSITO (el cliente la retiene en `REVERSIBLE_REJECTIONS`): el mismo payload,
+      // sellado con la clave de equipo, aplica en cuanto ese device la adopte. Defensa en
+      // profundidad para lo que el gate del cliente no ve: un cliente viejo, o uno con
+      // `projects.team_id` local desactualizado.
+      if (scope === 'team' && proyectosDeEquipoCifrado.has(projectKey) && !viajaSellado(p)) {
+        prepared.push({
+          kind: 'rejected',
+          result: { sync_id: syncId, outcome: 'rejected', project_seq: 0, error: 'team_encryption_required' },
         })
         continue
       }
@@ -422,13 +466,13 @@ export async function handlePush(
     }
 
     // PASADA 2 — aplicar. Acá ya sólo queda un rechazo posible, `project_limit_reached`: es
-    // el único de los seis que depende de haber resuelto los proyectos, y por eso es el
+    // el único de los siete que depende de haber resuelto los proyectos, y por eso es el
     // único que no se pudo evaluar en la pasada 1.
     //
     // Se recorre `prepared`, NO `mutations`: así los rechazos de la pasada 1 vuelven a
     // `results` en la posición exacta que tenía su mutación en la entrada.
     //
-    // Los seis rechazos tempranos —los cinco de la pasada 1 y `project_limit_reached`— dejan
+    // Los siete rechazos tempranos —los seis de la pasada 1 y `project_limit_reached`— dejan
     // su fila en `rejected_pushes` igual que los terminales de más abajo. No la dejaban, y
     // eran justo los que más importa ver: son los de plan y de permisos (cuota llena, tope
     // de proyectos, equipo sin compartir), o sea los que explican por qué a alguien "no le

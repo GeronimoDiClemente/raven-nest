@@ -265,3 +265,30 @@ describe('handlePull — cursores de equipo separados de los propios', () => {
     expect(Object.keys(res.team_cursors ?? {})).toEqual([projectA])
   })
 })
+
+// Task 14 (cifrado de equipo, Problema 1): el cliente elige la clave de equipo de una fila
+// bajada por ESTE campo, no por su `projects.team_id` local — que sólo existe en la máquina
+// que compartió. Un compañero que nunca compartió su copia lo necesita para poder descifrar.
+describe('handlePull — team_id en cada fila de scope team (Task 14)', () => {
+  const comoA = () => ({ deviceId: userA.deviceId, userId: userA.userId, plan: userA.plan })
+  const comoB = () => ({ deviceId: userB.deviceId, userId: userB.userId, plan: userB.plan })
+
+  it('la fila de equipo que baja B (con team_cursors) trae el team_id del proyecto de A', async () => {
+    const res = await handlePull(pool, comoB(), { cursors: { [projectA]: 0 }, team_cursors: {}, limit: 500 })
+    const fila = res.rows.find((r) => r.sync_id === SYNC('a-team'))
+    expect(fila?.team_id).toBe(teamId)
+  })
+
+  it('también por el camino viejo (cliente sin team_cursors)', async () => {
+    const res = await handlePull(pool, comoB(), { cursors: { [projectA]: 0 }, limit: 500 })
+    expect(res.rows.find((r) => r.sync_id === SYNC('a-team'))?.team_id).toBe(teamId)
+  })
+
+  it('en lo propio de A, sólo la fila team lleva el campo: personal/project no', async () => {
+    const res = await handlePull(pool, comoA(), { cursors: { [projectA]: 0 }, team_cursors: {}, limit: 500 })
+    const porId = new Map(res.rows.map((r) => [r.sync_id, r]))
+    expect(porId.get(SYNC('a-team'))?.team_id).toBe(teamId)
+    expect('team_id' in porId.get(SYNC('a-personal'))!).toBe(false)
+    expect('team_id' in porId.get(SYNC('a-project'))!).toBe(false)
+  })
+})
