@@ -276,7 +276,7 @@ import { runReencrypt } from './memory-reencrypt'
 import { elegirDestinoVerificado } from './memory-authorize-target'
 import {
   fetchTeamKeyState, activateTeamEncryption, adoptExistingTeamKey, authorizeTeamDeviceFromClient,
-  recoverTeamWithCode,
+  recoverTeamWithCode, TeamKeyMismatchError,
 } from './memory-team-keys-client'
 import { migrateTeam, countRecryptPending, type TeamMigrationResult } from './memory-team-reencrypt'
 
@@ -290,6 +290,14 @@ let memoryKeys: KeyMaterial | null = null
  * costo de volver a pedirla en cada arranque resulta alto en la práctica, persistirla es un
  * cambio aislado a este Map — no toca ningún otro task. */
 const teamMasterKeys = new Map<string, Buffer>()
+
+/**
+ * Equipos cuya envoltura para ESTE device abrió una maestra que no es la del equipo (C2 de la
+ * review final: no coincide con el verificador publicado al activar). No se adoptó; queda
+ * anotado para que la tarjeta lo diga en vez de quedarse esperando una autorización que ya
+ * "llegó". Se limpia cuando una adopción sale bien, y con el cambio de cuenta.
+ */
+const clavesDeEquipoRechazadas = new Set<string>()
 
 function teamKeysDeps() {
   return keysDeps() // ya existe más abajo: baseUrl/token/deviceId — no cambia por team
@@ -325,8 +333,19 @@ async function readoptarClavesDeEquipo(equipos: Array<{ teamId: string; hasWrap:
       // con el store nuevo, así que la identidad del store lo detecta; se mira ANTES que el
       // dueño porque el store viejo ya está cerrado.
       if (!memory || memory.store !== store || store.getOwnerUserId() !== dueño) return
-      if (r) { teamMasterKeys.set(teamId, Buffer.from(r.master, 'base64')); adoptados.push(teamId) }
-    } catch { /* sin red o 403: el próximo status lo reintenta */ }
+      if (r) {
+        teamMasterKeys.set(teamId, Buffer.from(r.master, 'base64'))
+        clavesDeEquipoRechazadas.delete(teamId)
+        adoptados.push(teamId)
+      }
+    } catch (err) {
+      // C2: una maestra que no es la del equipo NO se adopta, y se avisa (la tarjeta lo
+      // muestra). El resto (sin red, 403) lo reintenta el próximo status.
+      if (err instanceof TeamKeyMismatchError) {
+        clavesDeEquipoRechazadas.add(teamId)
+        console.error(`[memory] team ${teamId}: the wrapped key does not match the team's verifier — not adopted`)
+      }
+    }
   }
   if (adoptados.length === 0 || !memory || memory.store !== store) return
   // M2 (review de Tasks 13–14): sólo si lo ilegible es de un equipo RECIÉN adoptado. Con
@@ -384,6 +403,7 @@ function recargarClavesDeMemoria(userId: string | null): void {
   // `memoryKeys`. Sin esto, un `teamId` que por casualidad coincidiera entre dos cuentas en
   // la misma máquina seguiría cifrando/abriendo con la clave de equipo de la cuenta vieja.
   teamMasterKeys.clear()
+  clavesDeEquipoRechazadas.clear()
   try {
     memoryKeys = ensureKeyMaterial(ravenHome(), userId, safeStorage)
   } catch {
@@ -3581,22 +3601,36 @@ ipcMain.handle('memory:teamEncryption:status', async (_e, teamId: string) => {
   const deps = teamKeysDeps()
   const hasMaster = teamMasterKeys.has(teamId)
   let estadoRemotoLeido = !deps
-  if (!deps) return { activated: false, wrap: null, pendingDevices: [], hasMaster, estadoRemotoLeido, huellaPropia: null, huellasPorDevice: {} }
+  // Spec §2: sin maestra personal este device no publica su clave pública, así que nunca va a
+  // aparecer entre las máquinas que el leader puede autorizar. La tarjeta se lo dice.
+  const hasPersonalKey = Boolean(memoryKeys?.master)
+  const keyMismatch = clavesDeEquipoRechazadas.has(teamId)
+  if (!deps) return { activated: false, wrap: null, pendingDevices: [], hasMaster, estadoRemotoLeido, huellaPropia: null, huellasPorDevice: {}, hasPersonalKey, recryptPending: null, keyMismatch }
   try {
     const estado = await fetchTeamKeyState(deps, teamId)
     estadoRemotoLeido = true
+    // C1: cuánto sigue en claro en el SERVIDOR. Sólo lo puede leer el leader (403 para el
+    // resto) y sólo tiene sentido con la clave; si falla, `null` — la tarjeta no dice
+    // "terminado" sin haberlo leído.
+    let recryptPending: number | null = null
+    if (estado.activated && hasMaster) {
+      try { recryptPending = await countRecryptPending(deps, teamId) } catch { /* no leader o sin red */ }
+    }
     return {
       ...estado,
       hasMaster,
       estadoRemotoLeido,
       huellaPropia: memoryKeys ? huellaDeClave(memoryKeys.device.publicKey) : null,
       huellasPorDevice: Object.fromEntries(estado.pendingDevices.map((d) => [d.deviceId, huellaDeClave(d.publicKey)])),
+      hasPersonalKey,
+      recryptPending,
+      keyMismatch,
     }
   } catch {
     // Mismo tratamiento que el `memory:encryption:status` personal: un corte de red no puede
     // devolver un estado que parezca "equipo sin activar" — la UI lo leería como que puede
     // ofrecer "Activar" de nuevo.
-    return { activated: false, wrap: null, pendingDevices: [], hasMaster, estadoRemotoLeido: false, huellaPropia: null, huellasPorDevice: {} }
+    return { activated: false, wrap: null, pendingDevices: [], hasMaster, estadoRemotoLeido: false, huellaPropia: null, huellasPorDevice: {}, hasPersonalKey, recryptPending: null, keyMismatch }
   }
 })
 
@@ -3613,6 +3647,11 @@ ipcMain.handle('memory:teamEncryption:activate', async (_e, teamId: string) => {
     const { master, recoveryCode } = await activateTeamEncryption(deps, teamId, memoryKeys.device)
     teamMasterKeys.set(teamId, Buffer.from(master, 'base64'))
     memory?.daemon.onTeamKeysChanged() // libera lo retenido por `team_key_missing` (Task 14)
+    // I3 (review final): lo ya compartido en claro se migra solo, en segundo plano. Antes
+    // dependía de que el leader encontrara un botón; si no lo tocaba, quedaba en claro para
+    // siempre con la tarjeta diciendo "Team encryption on". La tarjeta se cuelga de esta misma
+    // corrida (`migrarEquipo` deduplica) para mostrar el resultado.
+    void migrarEquipo(teamId)
     return { ok: true, recoveryCode }
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) }
@@ -3629,9 +3668,17 @@ ipcMain.handle('memory:teamEncryption:adopt', async (_e, teamId: string) => {
   if (!deps || !memory) return { ok: false, error: 'Cloud memory is not connected.' }
   if (!memoryKeys?.master) return { ok: false, error: 'Turn on memory encryption for your account first.' }
   try {
-    const yaExiste = await adoptExistingTeamKey(deps, teamId, memoryKeys.device)
+    let yaExiste: { master: string } | null
+    try {
+      yaExiste = await adoptExistingTeamKey(deps, teamId, memoryKeys.device)
+    } catch (err) {
+      // C2: no es la maestra del equipo. No se adopta; la tarjeta lo muestra.
+      if (err instanceof TeamKeyMismatchError) clavesDeEquipoRechazadas.add(teamId)
+      throw err
+    }
     if (!yaExiste) return { ok: true, adoptada: false }
     teamMasterKeys.set(teamId, Buffer.from(yaExiste.master, 'base64'))
+    clavesDeEquipoRechazadas.delete(teamId)
     // Las filas de equipo que esta máquina se salteó por ilegibles quedaron marcadas
     // `undecryptable` Y el cursor de pull ya avanzó PASADO ellas (`applyPulledRow`,
     // memory-daemon.ts:1416-1438, trata team igual que personal: una fila undecryptable
@@ -3671,6 +3718,7 @@ ipcMain.handle('memory:teamEncryption:recover', async (_e, teamId: string, code:
   try {
     const { master } = await recoverTeamWithCode(deps, teamId, memoryKeys.device, code)
     teamMasterKeys.set(teamId, Buffer.from(master, 'base64'))
+    clavesDeEquipoRechazadas.delete(teamId)
     // Mismo motivo que en `adopt`: lo que esta máquina se salteó por ilegible quedó atrás
     // del cursor de pull, no sólo marcado `undecryptable` — sin esto no vuelve nunca.
     memory.store.resetPullCursors()

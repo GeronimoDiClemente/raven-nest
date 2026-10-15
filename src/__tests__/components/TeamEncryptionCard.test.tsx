@@ -118,3 +118,81 @@ describe('TeamEncryptionCard — huella propia (pending device)', () => {
     expect(await screen.findByText('XXXX-YYYY-ZZZZ-WWWW')).toBeInTheDocument()
   })
 })
+
+// Task 15 (review final): C1/I3 — la migración arranca sola al activar, y la tarjeta no dice
+// que terminó mientras el servidor tenga filas de equipo en claro.
+describe('TeamEncryptionCard — migración (Task 15)', () => {
+  const activo = (extra: Record<string, unknown> = {}) => ({
+    activated: true, wrap: null, pendingDevices: [], hasMaster: true, estadoRemotoLeido: true,
+    hasPersonalKey: true, recryptPending: 0, ...extra,
+  })
+
+  it('después de activar dispara la migración sola', async () => {
+    window.memory.teamEncryptionActivate = vi.fn().mockResolvedValue({ ok: true, recoveryCode: 'ABCD-EFGH-1234-5678-9012-3456' })
+    window.memory.teamEncryptionRecrypt = vi.fn().mockResolvedValue({ total: 2, applied: 2, rejected: 0, remaining: 0, missingLocally: 0 })
+    render(<TeamEncryptionCard />)
+    fireEvent.click(await screen.findByRole('button', { name: /turn on team encryption/i }))
+    await waitFor(() => expect(window.memory.teamEncryptionRecrypt).toHaveBeenCalledWith('team-1'))
+  })
+
+  it('con filas en claro en el servidor muestra cuántas y no dice que terminó', async () => {
+    window.memory.teamEncryptionStatus = vi.fn().mockResolvedValue(activo({ recryptPending: 3 }))
+    render(<TeamEncryptionCard />)
+    expect(await screen.findByText(/still unencrypted on the server/i)).toBeInTheDocument()
+    expect(screen.getByText('3')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /encrypt them now/i })).toBeInTheDocument()
+    expect(screen.queryByText(/all shared memories are encrypted/i)).not.toBeInTheDocument()
+  })
+
+  it('con 0 pendientes dice que todo lo compartido está cifrado', async () => {
+    window.memory.teamEncryptionStatus = vi.fn().mockResolvedValue(activo({ recryptPending: 0 }))
+    render(<TeamEncryptionCard />)
+    expect(await screen.findByText(/all shared memories are encrypted/i)).toBeInTheDocument()
+  })
+
+  it('un error de la migración se muestra, junto con lo que no llegó a esta máquina', async () => {
+    window.memory.teamEncryptionStatus = vi.fn().mockResolvedValue(activo({ recryptPending: 2 }))
+    window.memory.teamEncryptionRecrypt = vi.fn().mockResolvedValue({
+      total: 3, applied: 1, rejected: 0, remaining: 2, missingLocally: 1, error: 'recrypt rejected: 500 internal_error',
+    })
+    render(<TeamEncryptionCard />)
+    fireEvent.click(await screen.findByRole('button', { name: /encrypt them now/i }))
+    expect(await screen.findByText(/recrypt rejected: 500/i)).toBeInTheDocument()
+    expect(screen.getByText(/haven.t reached this machine yet/i)).toBeInTheDocument()
+  })
+})
+
+describe('TeamEncryptionCard — minors de la review final', () => {
+  it('sin cifrado personal, pide activarlo primero en vez de esperar al leader', async () => {
+    window.memory.teamEncryptionStatus = vi.fn().mockResolvedValue({
+      activated: true, wrap: null, pendingDevices: [], hasMaster: false, estadoRemotoLeido: true, hasPersonalKey: false,
+    })
+    render(<TeamEncryptionCard />)
+    expect(await screen.findByText(/turn on memory encryption for your account first/i)).toBeInTheDocument()
+    expect(screen.queryByText(/ask your team leader to authorise this machine/i)).not.toBeInTheDocument()
+  })
+
+  it('si la clave ofrecida no es la del equipo, lo avisa', async () => {
+    window.memory.teamEncryptionStatus = vi.fn().mockResolvedValue({
+      activated: true, wrap: null, pendingDevices: [], hasMaster: false, estadoRemotoLeido: true, hasPersonalKey: true, keyMismatch: true,
+    })
+    render(<TeamEncryptionCard />)
+    expect(await screen.findByText(/is not this team.s key/i)).toBeInTheDocument()
+  })
+
+  it('un member sin la clave no ve el código de recuperación (sólo el leader puede usarlo)', async () => {
+    vi.resetModules()
+    vi.doMock('../../hooks/useTeam', () => ({
+      useTeam: () => ({ activeTeam: { id: 'team-1', name: 'Equipo' }, userId: 'u-member', members: [
+        { user_id: 'u-leader', role: 'leader' }, { user_id: 'u-member', role: 'member' },
+      ] }),
+    }))
+    window.memory.teamEncryptionStatus = vi.fn().mockResolvedValue({
+      activated: true, wrap: null, pendingDevices: [], hasMaster: false, estadoRemotoLeido: true, hasPersonalKey: true,
+    })
+    const { default: Reimportado } = await import('../../components/TeamEncryptionCard')
+    render(<Reimportado />)
+    expect(await screen.findByText(/ask your team leader to authorise this machine/i)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /use the team recovery code/i })).not.toBeInTheDocument()
+  })
+})

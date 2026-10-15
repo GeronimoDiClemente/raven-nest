@@ -986,6 +986,12 @@ declare global {
         estadoRemotoLeido?: boolean
         huellaPropia?: string | null
         huellasPorDevice?: Record<string, string>
+        /** Spec §2: el cifrado de equipo exige el personal activo en este device. */
+        hasPersonalKey?: boolean
+        /** Filas de equipo que el servidor todavía tiene en claro (sólo leader con clave). */
+        recryptPending?: number | null
+        /** La envoltura de esta máquina abre una maestra que no es la del equipo (C2). */
+        keyMismatch?: boolean
       }>
       teamEncryptionActivate?: (teamId: string) => Promise<{ ok: true; recoveryCode: string } | { ok: false; error: string }>
       teamEncryptionAdopt?: (teamId: string) => Promise<{ ok: true; adoptada: boolean } | { ok: false; error: string }>
@@ -993,7 +999,11 @@ declare global {
        * a pedir no da esa huella, no se envuelve nada. */
       teamEncryptionAuthorize?: (teamId: string, deviceId: string, fingerprint: string) => Promise<{ ok: boolean; error?: string }>
       teamEncryptionRecover?: (teamId: string, code: string) => Promise<{ ok: boolean; error?: string }>
-      teamEncryptionRecrypt?: (teamId: string) => Promise<{ total: number; applied: number; rejected: number; error?: string }>
+      /** La migración retroactiva (Task 15): `remaining` es lo que el SERVIDOR sigue teniendo en
+       * claro al terminar; `missingLocally`, lo que esta máquina no tenía ni después de un pull. */
+      teamEncryptionRecrypt?: (teamId: string) => Promise<{
+        total: number; applied: number; rejected: number; remaining: number; missingLocally: number; error?: string
+      }>
       /**
        * Aprueba la vinculación de otra máquina — la que corre el paquete portátil y no puede
        * abrir un navegador. Opcional por lo mismo que `registerDevice`: un preload viejo no

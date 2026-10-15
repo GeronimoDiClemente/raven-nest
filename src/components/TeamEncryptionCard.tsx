@@ -15,6 +15,21 @@ interface EstadoCifradoEquipo {
   estadoRemotoLeido?: boolean
   huellaPropia?: string | null
   huellasPorDevice?: Record<string, string>
+  /** Spec §2: sin cifrado personal este device no publica su clave pública y nunca aparece
+   * entre las máquinas que el leader puede autorizar. `undefined` = preload viejo. */
+  hasPersonalKey?: boolean
+  /** Filas de equipo que el SERVIDOR todavía tiene en claro (sólo lo ve el leader con la
+   * clave; `null` = no se pudo leer). La migración no está terminada hasta que da 0. */
+  recryptPending?: number | null
+  /** La envoltura de esta máquina abre una maestra que no es la del equipo (C2). */
+  keyMismatch?: boolean
+}
+
+interface ResultadoMigracion {
+  applied: number
+  remaining: number
+  missingLocally: number
+  error?: string
 }
 
 export default function TeamEncryptionCard() {
@@ -26,7 +41,8 @@ export default function TeamEncryptionCard() {
   const [codigoTipeado, setCodigoTipeado] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [ocupado, setOcupado] = useState(false)
-  const [reencriptadas, setReencriptadas] = useState<number | null>(null)
+  const [migracion, setMigracion] = useState<ResultadoMigracion | null>(null)
+  const [migrando, setMigrando] = useState(false)
   const [buscandoAutorizacion, setBuscandoAutorizacion] = useState(false)
 
   const esLeader = members.some((m) => m.user_id === userId && m.role === 'leader')
@@ -54,6 +70,8 @@ export default function TeamEncryptionCard() {
       try {
         const res = await adoptar(activeTeam.id)
         if (vivo && res.ok && res.adoptada) await refrescar()
+        // Una clave que no es la del equipo (C2) se rechaza en main.ts; acá sólo se avisa.
+        else if (vivo && !res.ok) setError(res.error)
       } catch { /* sin red: se reintenta al reabrir, o con el botón de abajo */ }
     })()
     return () => { vivo = false }
@@ -83,11 +101,32 @@ export default function TeamEncryptionCard() {
     try { await fn() } finally { setOcupado(false) }
   }
 
+  /**
+   * La migración de lo que ya estaba en claro. main.ts la deduplica: si `activate` ya la
+   * disparó, esto se cuelga de la misma corrida y trae su resultado.
+   */
+  const migrar = async () => {
+    if (!api?.teamEncryptionRecrypt) return
+    setMigrando(true)
+    try {
+      setMigracion(await api.teamEncryptionRecrypt(activeTeam.id))
+    } catch (err) {
+      setMigracion({ applied: 0, remaining: estado.recryptPending ?? 0, missingLocally: 0, error: err instanceof Error ? err.message : String(err) })
+    } finally {
+      setMigrando(false)
+    }
+    await refrescar()
+  }
+
   const activar = () => conBloqueo(async () => {
     const res = await api?.teamEncryptionActivate?.(activeTeam.id)
     if (!res) return
-    if (res.ok) setCodigo(res.recoveryCode)
-    else setError(res.error)
+    if (res.ok) {
+      setCodigo(res.recoveryCode)
+      // I3: lo que ya estaba compartido se migra solo, sin esperar a que alguien encuentre el
+      // botón. Corre en segundo plano mientras el leader anota el código.
+      void migrar()
+    } else setError(res.error)
     await refrescar()
   })
 
@@ -105,11 +144,10 @@ export default function TeamEncryptionCard() {
     setRecuperando(false); setCodigoTipeado(''); await refrescar()
   })
 
-  const reencriptar = () => conBloqueo(async () => {
-    const res = await api?.teamEncryptionRecrypt?.(activeTeam.id)
-    if (res) setReencriptadas(res.applied)
-    await refrescar()
-  })
+  const sinCifradoPersonal = estado.hasPersonalKey === false
+  // Lo que dice el servidor manda; el resultado de la última corrida es el respaldo mientras
+  // el estado no se pudo leer.
+  const pendientes = estado.recryptPending ?? migracion?.remaining ?? null
 
   const marco = 'flex shrink-0 flex-col gap-2 rounded-md border border-border p-3'
 
@@ -160,8 +198,29 @@ export default function TeamEncryptionCard() {
           Once it&rsquo;s on, nobody who runs the server can read this team&rsquo;s shared memory — us included.
           Everything already shared gets re-encrypted too.
         </p>
+        {sinCifradoPersonal && (
+          <p className="text-fs-sm text-foreground">
+            Turn on memory encryption for your account first — team encryption uses this machine&rsquo;s key.
+          </p>
+        )}
         {error && <p className="text-fs-sm text-destructive">{error}</p>}
-        <div><Button size="sm" disabled={ocupado} onClick={() => void activar()}>Turn on team encryption</Button></div>
+        <div><Button size="sm" disabled={ocupado || sinCifradoPersonal} onClick={() => void activar()}>Turn on team encryption</Button></div>
+      </div>
+    )
+  }
+
+  if (!estado.hasMaster && sinCifradoPersonal) {
+    // Sin cifrado personal esta máquina no publica su clave pública, así que nunca aparece en
+    // la lista del leader: decirle "pedile al leader" era mandarlo a esperar algo imposible.
+    return (
+      <div className={marco}>
+        <div className="flex items-center gap-2">
+          <ShieldAlert size={ICON_SIZE.md} className="text-warn" aria-hidden />
+          <p className="text-fs font-medium text-foreground">This machine can&rsquo;t read team memory yet</p>
+        </div>
+        <p className="text-fs-sm text-muted-foreground">
+          Turn on memory encryption for your account first. After that, your team leader can authorise this machine.
+        </p>
       </div>
     )
   }
@@ -174,8 +233,15 @@ export default function TeamEncryptionCard() {
           <p className="text-fs font-medium text-foreground">This machine is not authorised yet</p>
         </div>
         <p className="text-fs-sm text-muted-foreground">
-          Ask your team leader to authorise this machine, or use the team recovery code.
+          {esLeader
+            ? 'Ask your team leader to authorise this machine, or use the team recovery code.'
+            : 'Ask your team leader to authorise this machine.'}
         </p>
+        {estado.keyMismatch && (
+          <p className="text-fs-sm text-destructive">
+            The key offered to this machine is not this team&rsquo;s key, so it was not used. Ask your team leader to authorise this machine again.
+          </p>
+        )}
         {estado.huellaPropia && (
           <div className="rounded-md border border-border bg-muted/30 px-2 py-1.5">
             <p className="text-fs-xs text-muted-foreground">
@@ -209,7 +275,9 @@ export default function TeamEncryptionCard() {
             </Button>
           </div>
         )}
-        {recuperando ? (
+        {/* Recuperar termina en autorizarse a sí misma, y eso el servidor sólo se lo deja a un
+            leader: a un member el código le abriría la clave y después fallaría. */}
+        {!esLeader ? null : recuperando ? (
           <div className="flex flex-col gap-2">
             <Input value={codigoTipeado} onChange={(e) => setCodigoTipeado(e.target.value)}
               placeholder="XXXX-XXXX-XXXX-XXXX-XXXX-XXXX" aria-label="Team recovery code" className="font-mono" />
@@ -259,14 +327,36 @@ export default function TeamEncryptionCard() {
         </div>
       )}
       {esLeader && (
-        <div className="flex items-center gap-2">
-          <Button size="sm" variant="outline" disabled={ocupado} onClick={() => void reencriptar()}>
-            Re-upload what was already there
-          </Button>
-          {reencriptadas !== null && (
-            <span className="text-fs-sm text-muted-foreground">
-              <span className="font-mono tabular-nums text-foreground">{reencriptadas}</span> re-encrypted
-            </span>
+        <div className="flex flex-col gap-1">
+          {/* "Terminado" sólo con 0 en el SERVIDOR (C1): lo que un member compartió desde su
+              copia también cuenta, y antes la tarjeta lo daba por cifrado sin mirarlo. */}
+          {pendientes === 0 && !migrando && !migracion?.error && (
+            <p className="text-fs-sm text-muted-foreground">All shared memories are encrypted on the server.</p>
+          )}
+          {pendientes !== null && pendientes > 0 && (
+            <p className="text-fs-sm text-foreground">
+              <span className="font-mono tabular-nums">{pendientes}</span>{' '}
+              {pendientes === 1 ? 'shared memory is' : 'shared memories are'} still unencrypted on the server.
+            </p>
+          )}
+          {migracion !== null && migracion.missingLocally > 0 && (
+            <p className="text-fs-sm text-muted-foreground">
+              <span className="font-mono tabular-nums text-foreground">{migracion.missingLocally}</span>{' '}
+              haven&rsquo;t reached this machine yet — they&rsquo;ll be encrypted on the next try.
+            </p>
+          )}
+          {migracion?.error && <p className="text-fs-sm text-destructive">{migracion.error}</p>}
+          {migracion !== null && migracion.applied > 0 && (
+            <p className="text-fs-sm text-muted-foreground">
+              <span className="font-mono tabular-nums text-foreground">{migracion.applied}</span> re-encrypted
+            </p>
+          )}
+          {(migrando || (pendientes !== null && pendientes > 0) || migracion?.error) && (
+            <div>
+              <Button size="sm" variant="outline" disabled={ocupado || migrando} onClick={() => void migrar()}>
+                {migrando ? 'Encrypting…' : 'Encrypt them now'}
+              </Button>
+            </div>
           )}
         </div>
       )}
