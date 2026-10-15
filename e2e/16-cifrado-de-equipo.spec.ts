@@ -322,10 +322,12 @@ async function teamEncryptionRecrypt(page: Page, teamId: string): Promise<{ tota
       .memory.teamEncryptionRecrypt(tid), teamId)
 }
 
-async function teamEncryptionAuthorize(page: Page, teamId: string, deviceId: string): Promise<{ ok: boolean; error?: string }> {
-  return page.evaluate(({ tid, dev }) =>
-    (window as unknown as { memory: { teamEncryptionAuthorize(t: string, d: string): Promise<{ ok: boolean; error?: string }> } })
-      .memory.teamEncryptionAuthorize(tid, dev), { tid: teamId, dev: deviceId })
+/** `huella`: la que el leader comparó con la que le dictó B (I4 de la review final): main.ts no
+ *  envuelve si la pública que vuelve a pedir no da esa misma huella. */
+async function teamEncryptionAuthorize(page: Page, teamId: string, deviceId: string, huella: string): Promise<{ ok: boolean; error?: string }> {
+  return page.evaluate(({ tid, dev, h }) =>
+    (window as unknown as { memory: { teamEncryptionAuthorize(t: string, d: string, f: string): Promise<{ ok: boolean; error?: string }> } })
+      .memory.teamEncryptionAuthorize(tid, dev, h), { tid: teamId, dev: deviceId, h: huella })
 }
 
 /**
@@ -446,7 +448,7 @@ async function escenario(): Promise<void> {
     // le dictó. Es lo que impide que una clave pública inyectada se lleve la maestra.
     expect(estadoDeB.huellasPorDevice[cB.deviceId], 'la huella que ve el leader no es la que dicta B').toBe(huellaQueDictaB)
 
-    const auth = await teamEncryptionAuthorize(h.page, teamId, deviceDeB!.deviceId)
+    const auth = await teamEncryptionAuthorize(h.page, teamId, deviceDeB!.deviceId, huellaQueDictaB!)
     expect(auth.ok, `teamEncryptionAuthorize: ${auth.error}`).toBe(true)
     await h.page.screenshot({ path: join(SHOTS, '03-leader-autorizo.png') })
     await teardown(h); h = null

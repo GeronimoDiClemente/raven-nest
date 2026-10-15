@@ -92,7 +92,9 @@ export default function TeamEncryptionCard() {
   })
 
   const autorizar = (deviceId: string) => conBloqueo(async () => {
-    const res = await api?.teamEncryptionAuthorize?.(activeTeam.id, deviceId)
+    // I4: la huella que el leader comparó viaja con el pedido; main.ts no envuelve si la
+    // pública que vuelve a pedir no da esta misma huella.
+    const res = await api?.teamEncryptionAuthorize?.(activeTeam.id, deviceId, estado.huellasPorDevice?.[deviceId] ?? '')
     if (res && !res.ok) setError(res.error ?? 'Could not authorise.')
     await refrescar()
   })

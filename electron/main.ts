@@ -273,6 +273,7 @@ import { huellaDeClave } from './memory-key-wrap'
 import { huellaDeMaestra } from './memory-crypto'
 import { buildEncryptionStatus } from './memory-encryption-status'
 import { runReencrypt } from './memory-reencrypt'
+import { elegirDestinoVerificado } from './memory-authorize-target'
 import {
   fetchTeamKeyState, activateTeamEncryption, adoptExistingTeamKey, authorizeTeamDeviceFromClient,
   recoverTeamWithCode,
@@ -3537,14 +3538,16 @@ ipcMain.handle('memory:encryption:activate', async () => {
   }
 })
 
-ipcMain.handle('memory:encryption:authorize', async (_e, deviceId: string) => {
+ipcMain.handle('memory:encryption:authorize', async (_e, deviceId: string, huellaMostrada: string) => {
   const deps = keysDeps()
   if (!deps || !memoryKeys?.master) return { ok: false, error: 'This machine does not have the key.' }
   try {
     const estado = await fetchKeyState(deps)
-    const target = estado.devices.find((d) => d.deviceId === deviceId)
-    if (!target) return { ok: false, error: 'That machine has not published its key yet.' }
-    await authorizeDevice(deps, memoryKeys.master, memoryKeys.keyEpoch, target)
+    // I4: se envuelve SÓLO para la pública cuya huella es la que el usuario comparó. Antes era
+    // la de este segundo fetch, que el servidor podía haber cambiado después de mostrar la real.
+    const elegido = elegirDestinoVerificado(estado.devices, deviceId, huellaMostrada)
+    if (!elegido.ok) return { ok: false, error: elegido.error }
+    await authorizeDevice(deps, memoryKeys.master, memoryKeys.keyEpoch, elegido.target)
     return { ok: true }
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) }
@@ -3645,15 +3648,16 @@ ipcMain.handle('memory:teamEncryption:adopt', async (_e, teamId: string) => {
   }
 })
 
-ipcMain.handle('memory:teamEncryption:authorize', async (_e, teamId: string, deviceId: string) => {
+ipcMain.handle('memory:teamEncryption:authorize', async (_e, teamId: string, deviceId: string, huellaMostrada: string) => {
   const deps = teamKeysDeps()
   const master = teamMasterKeys.get(teamId)
   if (!deps || !master) return { ok: false, error: 'This machine does not have the team key.' }
   try {
     const estado = await fetchTeamKeyState(deps, teamId)
-    const target = estado.pendingDevices.find((d) => d.deviceId === deviceId)
-    if (!target) return { ok: false, error: 'That machine has not published its key yet.' }
-    await authorizeTeamDeviceFromClient(deps, teamId, master.toString('base64'), target)
+    // I4: mismo motivo que en `memory:encryption:authorize`.
+    const elegido = elegirDestinoVerificado(estado.pendingDevices, deviceId, huellaMostrada)
+    if (!elegido.ok) return { ok: false, error: elegido.error }
+    await authorizeTeamDeviceFromClient(deps, teamId, master.toString('base64'), elegido.target)
     return { ok: true }
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) }

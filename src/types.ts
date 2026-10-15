@@ -989,7 +989,9 @@ declare global {
       }>
       teamEncryptionActivate?: (teamId: string) => Promise<{ ok: true; recoveryCode: string } | { ok: false; error: string }>
       teamEncryptionAdopt?: (teamId: string) => Promise<{ ok: true; adoptada: boolean } | { ok: false; error: string }>
-      teamEncryptionAuthorize?: (teamId: string, deviceId: string) => Promise<{ ok: boolean; error?: string }>
+      /** `fingerprint`: la huella que la tarjeta MOSTRÓ (I4). Si la pública que main.ts vuelve
+       * a pedir no da esa huella, no se envuelve nada. */
+      teamEncryptionAuthorize?: (teamId: string, deviceId: string, fingerprint: string) => Promise<{ ok: boolean; error?: string }>
       teamEncryptionRecover?: (teamId: string, code: string) => Promise<{ ok: boolean; error?: string }>
       teamEncryptionRecrypt?: (teamId: string) => Promise<{ total: number; applied: number; rejected: number; error?: string }>
       /**
@@ -1082,7 +1084,8 @@ declare global {
       /** Toma la envoltura que otra máquina ya publicó para ésta. `adoptada: false` cuando
        *  todavía no hay ninguna — el caso normal hasta que el usuario autorice desde la otra. */
       encryptionAdopt?: () => Promise<{ ok: boolean; adoptada?: boolean; error?: string }>
-      encryptionAuthorize?: (deviceId: string) => Promise<{ ok: boolean; error?: string }>
+      /** `fingerprint`: la huella que la tarjeta MOSTRÓ (I4). */
+      encryptionAuthorize?: (deviceId: string, fingerprint: string) => Promise<{ ok: boolean; error?: string }>
       encryptionRecover?: (code: string) => Promise<{ ok: boolean; error?: string }>
       encryptionReencrypt?: () => Promise<{ total: number; queued: number }>
       /**

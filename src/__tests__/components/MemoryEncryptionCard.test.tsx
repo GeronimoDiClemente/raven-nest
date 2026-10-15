@@ -91,11 +91,16 @@ describe('MemoryEncryptionCard', () => {
   })
 
   it('con máquinas esperando, las lista por nombre y ofrece autorizarlas', async () => {
-    const api = montarCon({ active: true, keyEpoch: 1, pendingDevices: [{ deviceId: 'pc', name: 'la PC' }] })
+    const api = montarCon({
+      active: true, keyEpoch: 1, pendingDevices: [{ deviceId: 'pc', name: 'la PC' }],
+      huellasPorDevice: { pc: 'A1B2-C3D4-E5F6' },
+    })
     render(<MemoryEncryptionCard />)
     expect(await screen.findByText('la PC')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /they match/i }))
-    await waitFor(() => expect(api.encryptionAuthorize).toHaveBeenCalledWith('pc'))
+    // I4: la huella que se MOSTRÓ viaja con el pedido; main.ts no envuelve si la pública que
+    // vuelve a pedir no da esa misma huella.
+    await waitFor(() => expect(api.encryptionAuthorize).toHaveBeenCalledWith('pc', 'A1B2-C3D4-E5F6'))
   })
 
   // El adversario que la spec §5.1 nombra —alguien con acceso a la base— sustituye la clave

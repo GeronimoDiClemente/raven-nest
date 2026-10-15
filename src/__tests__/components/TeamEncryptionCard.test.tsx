@@ -74,6 +74,18 @@ describe('TeamEncryptionCard — huellas de dispositivos pendientes', () => {
     expect(await screen.findByText('Authorise it only if that machine shows exactly this code:')).toBeInTheDocument()
     expect(await screen.findByText('AAAA-BBBB-CCCC-DDDD')).toBeInTheDocument()
   })
+
+  it('I4: al autorizar manda la huella que mostró, para que no se envuelva para otra clave', async () => {
+    window.memory.teamEncryptionStatus = vi.fn().mockResolvedValue({
+      activated: true, wrap: null, hasMaster: true, estadoRemotoLeido: true,
+      pendingDevices: [{ deviceId: 'dev-1', name: 'Mi laptop', publicKey: 'key1' }],
+      huellasPorDevice: { 'dev-1': 'AAAA-BBBB-CCCC-DDDD' },
+    })
+    window.memory.teamEncryptionAuthorize = vi.fn().mockResolvedValue({ ok: true })
+    render(<TeamEncryptionCard />)
+    fireEvent.click(await screen.findByRole('button', { name: /they match/i }))
+    await waitFor(() => expect(window.memory.teamEncryptionAuthorize).toHaveBeenCalledWith('team-1', 'dev-1', 'AAAA-BBBB-CCCC-DDDD'))
+  })
 })
 
 describe('TeamEncryptionCard — estado remoto desconocido', () => {

@@ -100,7 +100,9 @@ export default function MemoryEncryptionCard() {
   })
 
   const autorizar = (deviceId: string) => conBloqueo(async () => {
-    const res = await api?.encryptionAuthorize?.(deviceId)
+    // I4: la huella que el usuario comparó viaja con el pedido. main.ts vuelve a pedir la
+    // lista y, si la pública ya no da esta huella, no envuelve nada.
+    const res = await api?.encryptionAuthorize?.(deviceId, estado?.huellasPorDevice?.[deviceId] ?? '')
     if (res && !res.ok) setError(res.error ?? 'Could not authorise.')
     await refrescar()
   })

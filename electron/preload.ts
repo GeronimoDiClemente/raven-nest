@@ -95,7 +95,7 @@ contextBridge.exposeInMainWorld('memory', {
   encryptionStatus: () => ipcRenderer.invoke('memory:encryption:status'),
   encryptionActivate: () => ipcRenderer.invoke('memory:encryption:activate'),
   encryptionAdopt: () => ipcRenderer.invoke('memory:encryption:adopt'),
-  encryptionAuthorize: (deviceId: string) => ipcRenderer.invoke('memory:encryption:authorize', deviceId),
+  encryptionAuthorize: (deviceId: string, fingerprint: string) => ipcRenderer.invoke('memory:encryption:authorize', deviceId, fingerprint),
   encryptionRecover: (code: string) => ipcRenderer.invoke('memory:encryption:recover', code),
   encryptionReencrypt: () => ipcRenderer.invoke('memory:encryption:reencrypt'),
   // Cifrado de equipo (spec 2026-10-14-cifrado-de-equipo) — mismo patrón que `encryption*`
@@ -103,7 +103,7 @@ contextBridge.exposeInMainWorld('memory', {
   teamEncryptionStatus: (teamId: string) => ipcRenderer.invoke('memory:teamEncryption:status', teamId),
   teamEncryptionActivate: (teamId: string) => ipcRenderer.invoke('memory:teamEncryption:activate', teamId),
   teamEncryptionAdopt: (teamId: string) => ipcRenderer.invoke('memory:teamEncryption:adopt', teamId),
-  teamEncryptionAuthorize: (teamId: string, deviceId: string) => ipcRenderer.invoke('memory:teamEncryption:authorize', teamId, deviceId),
+  teamEncryptionAuthorize: (teamId: string, deviceId: string, fingerprint: string) => ipcRenderer.invoke('memory:teamEncryption:authorize', teamId, deviceId, fingerprint),
   teamEncryptionRecover: (teamId: string, code: string) => ipcRenderer.invoke('memory:teamEncryption:recover', teamId, code),
   teamEncryptionRecrypt: (teamId: string) => ipcRenderer.invoke('memory:teamEncryption:recrypt', teamId),
   hubStats: () => ipcRenderer.invoke('memory:hub-stats'),
