@@ -20,27 +20,54 @@ clave pública X25519 que cada device ya publica en `device_keys` al activar el 
 device **depende de que ese device ya tenga el cifrado personal activo** — es un prerrequisito
 explícito, no un detalle de implementación a esconder en la UI.
 
-Dos tablas nuevas, sin tocar `users`/`key_wraps`/`device_keys`:
+Dos tablas nuevas, sin tocar `users`/`key_wraps`/`device_keys` (schema real: migraciones
+`009_team_keys.sql` y `010_team_key_verifier.sql`):
 
 ```sql
 create table team_keys (
   team_id      uuid primary key,
   activated_by uuid not null references users(id),
-  activated_at timestamptz not null default now()
+  activated_at timestamptz not null default now(),
+  verifier     text            -- 010: SHA-256 de la prueba de posesión (§2.1)
 );
 
+-- Una fila por destinatario: `slot` es el device_id como texto o el literal 'recovery', mismo
+-- espacio de nombres que `key_wraps` personal.
 create table team_key_wraps (
   team_id    uuid not null references team_keys(team_id) on delete cascade,
-  device_id  uuid not null references devices(id) on delete cascade,
+  slot       text not null,
+  kind       text not null check (kind in ('device', 'recovery')),
   wrapped    text not null,
   wrap_meta  jsonb,
   created_at timestamptz not null default now(),
-  primary key (team_id, device_id)
+  primary key (team_id, slot)
 );
 ```
 
-Sin épocas ni `rotate_verifier`: v1 no soporta rotar la clave de equipo (§8). Si hiciera falta
-rotación v2, se suma una columna `key_epoch` entonces — no se paga ese costo ahora.
+Sin épocas: v1 no soporta rotar la clave de equipo (§8). Si hiciera falta rotación v2, se suma
+una columna `key_epoch` entonces — no se paga ese costo ahora.
+
+### 2.1 Prueba de posesión (Task 15, C2 de la review final)
+
+Ser `leader` no prueba tener la clave: el rol se transfiere y la clave no (§6), así que existe
+por diseño un leader sin maestra. Sin una prueba, ese leader podía pisar la envoltura de un
+device con SU maestra (sellar no requiere ningún secreto, y el device la readopta solo al
+arrancar) o re-cifrar el histórico con basura. Mismo agujero que `rotate_proof` cerró en
+personal, con una diferencia:
+
+- `proof = HMAC-SHA256(maestra, "nest-memory/team-proof-v1/<team_id>")` — sólo la calcula quien
+  tiene la maestra; el `team_id` en la etiqueta hace que no sirva para otro equipo.
+- `verifier = SHA-256(proof)` — lo que guarda `team_keys.verifier` al activar.
+- `authorize` y `recrypt` exigen `proof` y comparan su hash contra el verificador
+  (`403 must_hold_team_key`). Un equipo sin verificador falla cerrado.
+- El `GET /v1/teams/key` le devuelve el verificador a todo miembro activo, y el cliente
+  rechaza (`TeamKeyMismatchError`) toda maestra desenvuelta cuyo verificador no coincida, antes
+  de adoptarla: al adoptar, en la readopción de arranque y al recuperar con el código.
+
+Por eso prueba y verificador son DOS valores: en personal son el mismo porque el servidor no lo
+muestra nunca; acá se muestra, y si fueran iguales un leader sin clave lo leería y lo reenviaría.
+Límite que no cambia: quien tenga escritura sobre la base puede reemplazar envoltura y verificador
+juntos; contra eso están las huellas (de la maestra y de la clave pública), igual que en personal.
 
 ## 3. Activación — sólo el `leader`
 
@@ -54,9 +81,13 @@ Flujo:
 2. Envuelve esa clave con la pública de su PROPIO device (mismo mecanismo de sellado que
    `enrollDeviceKey`/`publishWraps` ya usan para personal).
 3. Genera el **código de recuperación de equipo** (§6) y se lo muestra al leader UNA vez.
-4. Llama `POST /v1/teams/:id/key/activate` con el wrap propio + la envoltura de recuperación.
-   El servidor crea la fila en `team_keys` y las dos en `team_key_wraps` (slot del device propio
-   + slot `recovery`), en una sola transacción.
+4. Llama `POST /v1/teams/key/activate` (`team_id` en el body) con el wrap propio, la envoltura
+   de recuperación y el `verifier` (§2.1). El servidor exige exactamente esas dos envolturas —un
+   slot `device` que sea el device que llama, y el `recovery`— y crea la fila en `team_keys` y
+   las dos en `team_key_wraps`, en una sola transacción.
+5. El client dispara solo la migración del §4 (Task 15, I3): antes dependía de que el leader
+   encontrara un botón, y si no lo tocaba lo viejo quedaba en claro con la tarjeta diciendo
+   "Team encryption on".
 
 ## 4. Migración retroactiva de lo ya subido en claro
 
@@ -68,21 +99,37 @@ normal es por autor, idempotente por `(device_id, seq)`. La migración necesita 
 reescriba `title`/`content`/`tags` de observaciones subidas por OTROS miembros del equipo. Se
 acota con un endpoint dedicado, nunca el `push` genérico:
 
-`POST /v1/teams/:id/key/recrypt` — gateado a `leader` igual que la activación. Body:
-`{ items: [{ sync_id, title, content, tags }] }` (ya cifrados por el client del leader con la
-clave de equipo nueva). El servidor, por cada `sync_id`:
+`POST /v1/teams/key/recrypt` — gateado a `leader` igual que la activación, y con `proof` (§2.1).
+Body: `{ team_id, proof, items: [{ sync_id, title, content, tags, content_hash, origin_account,
+lamport }] }` (ya cifrados por el client del leader con la clave de equipo nueva; `content` puede
+ser `null`, un tombstone). El servidor, por cada `sync_id`, en una transacción corta con la fila
+bloqueada:
 
-- Verifica que la fila exista, que su `project.team_id` sea exactamente `:id`, y que
-  `scope = 'team'` — si no matchea alguna, esa fila se rechaza individualmente (no aborta el lote).
-- Sobreescribe únicamente `title`, `content`, `tags`.
-- Bumpea `lamport`/`project_seq` igual que una mutación común, para que el resto de los devices
-  del equipo se enteren de que tienen que volver a bajar esa fila (ahora en ciphertext) aunque su
-  cursor ya la hubiera visto.
+- Verifica que la fila exista, que su `project.team_id` sea exactamente el equipo, y que
+  `scope = 'team'` — si no, `not_found_in_team`, rechazo individual (no aborta el lote).
+- Si ya está sellada (`title` con `nmc1:`): `already_sealed`. Si su `lamport` no es el que manda
+  el cliente —se editó después de que el leader la leyó—: `stale`. Las dos para no pisar una
+  edición más nueva con contenido viejo (Task 15, I1).
+- Sobreescribe únicamente `title`, `content`, `tags`, `content_hash`, `origin_account`.
+- Bumpea `project_seq` para que el resto de los devices del equipo la vuelva a bajar. El
+  `lamport` NO se toca: re-cifrar no es editar, y subirlo haría ganar esta versión en LWW contra
+  una edición concurrente.
 - Nunca toca `scope`, `type`, `author_id`, ni ningún otro campo de metadata/autoría.
 
-El client del leader arma el lote paginando sobre **todo** lo existente con `scope: 'team'` de ese
-equipo (no por cursor — es una migración de todo el histórico, una sola vez por equipo, el día que
-activa).
+**Qué migrar lo dice el servidor** (Task 15, C1): `GET /v1/teams/key/recrypt-pending?team_id=
+&after=` (sólo leader) devuelve `{ total, items }` con las filas `scope: 'team'` de CUALQUIER
+proyecto del equipo cuyo `title` o `content` no empiece con `nmc1:`, con su contenido y su
+`lamport`, paginado por `sync_id`. La primera versión armaba el lote con la base LOCAL del leader
+filtrada por su `projects.team_id` local, que sólo existe para lo que ÉL compartió: lo que un
+member compartió desde su copia quedaba en claro para siempre. Buscar local por `sync_id` tampoco
+alcanza — el pull sólo baja filas de los `project_key` que el device ya tiene, así que una fila de
+un repo que el leader no clonó no le llega nunca. Devolver el contenido no amplía lo que el leader
+puede leer (es miembro activo, y el pull ya le sirve cualquier fila de equipo del equipo), y en el
+servidor está en claro de todos modos: es exactamente lo que se va a sellar. El client sella esa
+versión, la manda con su `lamport` en lotes de hasta 200 filas o 1 MiB, reintenta ante 429
+(`Retry-After`; `recrypt`/`recrypt-pending` tienen su propio limiter, 60/min por device), y
+devuelve lo aplicado aunque falle a mitad. La migración está terminada cuando `total` da 0, y la
+tarjeta no dice otra cosa hasta entonces.
 
 ## 5. Un miembro nuevo se suma a un equipo ya cifrado
 
@@ -95,8 +142,16 @@ decisión explícita de Gero: **sólo el leader autoriza**, nunca cualquier miem
    `nmc1:` personal que este device no puede abrir todavía).
 2. El leader ve, la próxima vez que abre Nest, una lista de devices de su equipo sin wrap
    (`GET /v1/teams/:id/key` responde `pendingDevices`, mismo shape que `getKeyState.devices` hoy).
-3. El leader autoriza con un click por device: `POST /v1/teams/:id/key/authorize` con el wrap
-   nuevo, gateado a `leader`.
+3. El leader autoriza con un click por device: `POST /v1/teams/key/authorize` con el wrap
+   nuevo y la `proof` (§2.1), gateado a `leader`. Antes compara la huella de la clave pública del
+   device con la que el miembro le dicta por otro canal, y esa huella viaja con el pedido: si la
+   pública que el client vuelve a pedir para envolver no da la MISMA huella, no se envuelve nada
+   (Task 15, I4 — antes se envolvía para la pública de ese segundo fetch, que el servidor podía
+   cambiar después de mostrar la real). Lo mismo vale desde Task 15 para autorizar en personal.
+4. Un device sin cifrado personal no publica su clave pública, así que nunca aparece en la lista
+   del leader: la tarjeta le pide activar el personal primero en vez de mandarlo a esperar.
+   Recuperar con el código sólo lo ofrece a un leader: termina en auto-autorizarse, y eso el
+   servidor sólo se lo deja a un leader.
 
 **Consecuencia aceptada explícitamente**: si el leader no abre Nest, el miembro nuevo no ve
 memoria de equipo hasta que lo haga. No hay autorización por ningún otro miembro en v1.
@@ -157,7 +212,9 @@ ignora los campos nuevos):
 2. **El endpoint de migración (`recrypt`) es la única vía del sistema donde alguien reescribe
    contenido ajeno.** Cualquier bug en el chequeo de `project.team_id`/`scope` ahí es un vector de
    sobreescritura cruzada. Necesita tests adversariales dedicados (un `sync_id` de OTRO equipo, un
-   `sync_id` de scope personal, un `team_id` que no es el del caller) antes de mergear.
+   `sync_id` de scope personal, un `team_id` que no es el del caller) antes de mergear. Desde
+   Task 15 además exige la prueba de la maestra (un leader sin clave no puede escribir basura),
+   y rechaza lo ya sellado y lo editado después de leído (`already_sealed`, `stale`).
 3. **La migración puede ser un lote grande** (todo el histórico de un equipo activo hace rato).
    Mismo techo de tamaño de batch que ya existe en `push.ts` (`batch_too_large`, 500 mutaciones)
    aplicaría acá también — paginar desde el client si un equipo supera eso.

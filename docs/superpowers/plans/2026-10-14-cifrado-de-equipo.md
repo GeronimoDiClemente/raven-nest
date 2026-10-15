@@ -3963,7 +3963,18 @@ verificador se rechaza y se avisa, nunca se adopta). Límite que no cambia: un o
 escritura en la base puede reemplazar envoltura y verificador juntos; contra eso sigue estando
 la huella de la maestra y la de la clave pública, igual que en personal.
 
-*C1 — qué pasa con las filas que el leader no tiene localmente.* La lista sale del SERVIDOR
+*C1 — DESVÍO EN LA EJECUCIÓN (reemplaza el párrafo siguiente).* Corriendo e2e/16 apareció que
+el pull sólo baja filas de los `project_key` que el device ya tiene (`cursors` sale de
+`listProjects()`), así que una fila de equipo de un repo que el leader no clonó no le llega
+NUNCA: ningún pull la arregla y buscarla local la dejaba en claro para siempre. Se cambió a que
+`recrypt-pending` devuelva también el contenido (`title`, `content`, `tags`, `content_hash`,
+`origin_account`) de cada fila pendiente, de a 200, y `migrateTeam` sella ESA versión y la manda
+con su `lamport` — sin base local, sin pull previo y sin `missingLocally`. No amplía lo que el
+leader puede leer (miembro activo; el pull ya le sirve cualquier fila de equipo del equipo si
+nombra el `project_key`) y en el servidor está en claro de todos modos. `localTeamRowsBySyncIds`
+se agregó y se sacó en la misma ejecución (`d902be4` → `e5275d9`).
+
+*C1 — (versión original del plan, reemplazada) qué pasa con las filas que el leader no tiene localmente.* La lista sale del SERVIDOR
 (`recrypt-pending`), no de `projects.team_id` local. Si falta alguna fila en la base local, o la
 copia local tiene otro `lamport` que el del servidor (se editó después del último pull),
 `migrateTeam` pide UN pull (`daemon.pull()`, que ya trae lo de equipo por `team_cursors`) y

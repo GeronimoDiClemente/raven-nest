@@ -157,7 +157,12 @@ presente al trabajar acá:
   reintentar. La 6 sumó `topic_key_hmac`: una fila que vino del pull tiene el HMAC
   y `topic_key = null`; una local tiene el tema en claro y, si hay clave, también el HMAC. La 7
   movió el conjunto de memorias ilegibles de un JSON en `meta` a la tabla `undecryptable`.
-- **El scope `team` NO se cifra** en esta versión, y está anunciado como tal.
+- **El scope `team` SÍ se cifra desde el 2026-10-15**, con una clave por equipo que activa y
+  autoriza sólo el `leader` (spec `docs/superpowers/specs/2026-10-14-cifrado-de-equipo-design.md`).
+  Requiere el cifrado personal activo en el device (reusa su clave pública). Lo ya subido en
+  claro se migra al activar: la lista Y el contenido de lo pendiente salen del SERVIDOR
+  (`GET /v1/teams/key/recrypt-pending`), no de la base local — el pull no le trae al leader
+  filas de un repo que no clonó. La tarjeta sólo dice "todo cifrado" con lo pendiente en 0.
 - **El daemon se entera de que la cuenta cifra por `key_epoch` de `/v1/sync/status`**, y es
   lo que arma el gate fail-closed del push. No alcanza con que lo sepa la tarjeta de cifrado:
   esa sólo corre si el usuario abre el overlay Memories, y hasta el 2026-09-13 el gate no se
@@ -170,6 +175,15 @@ presente al trabajar acá:
   claro de equipo cifrado con `team_encryption_required`. La clave de una fila BAJADA la elige el
   `team_id` que manda el servidor, no el `projects.team_id` local. Tests:
   `electron/__tests__/memory-daemon-cifrado-equipo.test.ts` y `e2e/16-cifrado-de-equipo.spec.ts`.
+- **Autorizar o migrar de EQUIPO exige probar la maestra de equipo** (`proof` contra
+  `team_keys.verifier`, el SHA-256 de la prueba): ser `leader` no alcanza, porque el rol se
+  transfiere y la clave no. El verificador se le muestra a los miembros y el cliente rechaza
+  (`TeamKeyMismatchError`) toda maestra desenvuelta que no coincida — al adoptar, al readoptar
+  en el arranque y al recuperar con el código. Tests adversariales:
+  `server/__tests__/team-keys.test.ts`, `team-keys-recrypt.test.ts` y
+  `electron/__tests__/memory-team-keys-client.test.ts`.
+- **Autorizar (personal o de equipo) manda la huella que la tarjeta MOSTRÓ**, y main.ts no
+  envuelve si la pública que vuelve a pedir no da esa huella (`memory-authorize-target.ts`).
 - **Publicar una envoltura para otra máquina exige probar que tenés la maestra**
   (`rotate_proof` contra `users.rotate_verifier`). Sin eso, cualquier device de la cuenta
   sella SU maestra para la pública de la víctima y la víctima la adopta sin aviso.

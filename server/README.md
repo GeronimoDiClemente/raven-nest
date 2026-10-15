@@ -35,7 +35,14 @@ particular el back-office, que vive en otro repo (`RavenProjects/aira-admin`):
 | `type`, `scope`, `git_branch`, `lamport`, timestamps, `sync_id`, `project_key` | **Sin cambios, en claro.** `scope` decide autorización del lado del servidor y cifrarlo rompería el modelo de permisos. |
 
 Durante la migración conviven filas cifradas y en claro: `nmc1:` es lo único que las separa.
-Una observación con `scope = 'team'` **no** se cifra en esta versión (decisión §9.1 de la spec).
+Una observación con `scope = 'team'` se cifra desde el 2026-10-15 con la clave del EQUIPO, si el
+equipo la activó (`team_keys`; spec `docs/superpowers/specs/2026-10-14-cifrado-de-equipo-design.md`):
+mismas columnas cifradas y mismo prefijo `nmc1:` que la tabla de arriba. Un equipo que no la
+activó sigue subiendo en claro, y para uno que sí, el push rechaza el claro con
+`team_encryption_required`. Las rutas `/v1/teams/key*` (sólo `leader` para activar, autorizar y
+migrar) exigen además probar la maestra: `proof` contra `team_keys.verifier`. La migración del
+histórico es la única vía que reescribe filas ajenas (`team-keys-recrypt.ts`), y
+`GET /v1/teams/key/recrypt-pending` le devuelve al leader el contenido de lo que sigue en claro.
 
 ## Límites por plan
 
