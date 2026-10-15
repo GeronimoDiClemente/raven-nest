@@ -3,8 +3,11 @@
 // miembro — adoptar la envoltura que el leader ya le dejó publicada.
 //
 // Mismo patrón que memory-keys-client.ts, sin épocas (spec §2/§8: v1 no rota la clave de
-// equipo), así que no hay `key_epoch` ni `rotate_verifier`/`rotate_proof` en ningún lado.
-import { generateMasterKey } from './memory-crypto'
+// equipo). Lo que SÍ tiene desde Task 15 (C2 de la review final) es prueba de posesión: el
+// servidor guarda el verificador de la maestra al activar, exige la prueba para autorizar y
+// migrar, y el cliente compara contra el verificador toda maestra que desenvuelve antes de
+// adoptarla.
+import { generateMasterKey, teamKeyProof, teamKeyVerifier } from './memory-crypto'
 import {
   wrapForDevice, unwrapWithDevice, wrapForRecovery, generateRecoveryCode, unwrapWithRecovery, type DeviceKeyPair,
 } from './memory-key-wrap'
@@ -18,6 +21,8 @@ export interface TeamKeysClientDeps {
 
 export interface RemoteTeamKeyState {
   activated: boolean
+  /** SHA-256 de la prueba de posesión, o null si el equipo no está activado. */
+  verifier: string | null
   wrap: { wrapped: string; wrapMeta: Record<string, unknown> | null } | null
   pendingDevices: Array<{ deviceId: string; name: string; publicKey: string }>
 }
@@ -28,6 +33,18 @@ export class TeamKeysHttpError extends Error {
     super(message)
     this.name = 'TeamKeysHttpError'
     this.status = status
+  }
+}
+
+/**
+ * La maestra que se desenvolvió NO es la del equipo: no coincide con el verificador que se
+ * publicó al activar. Alguien escribió una envoltura (o una copia de recuperación) con otra
+ * maestra. No se adopta nunca: adoptarla es cifrar todo lo de equipo para quien la plantó.
+ */
+export class TeamKeyMismatchError extends Error {
+  constructor() {
+    super('The team key offered to this machine is not this team’s key, so it was not used. Ask your team leader to authorise this machine again.')
+    this.name = 'TeamKeyMismatchError'
   }
 }
 
@@ -62,8 +79,20 @@ export async function fetchTeamKeyState(
   const json = (await pedir(deps, `/v1/teams/key?team_id=${encodeURIComponent(teamId)}${qs}`, { method: 'GET' })) as Partial<RemoteTeamKeyState>
   return {
     activated: Boolean(json.activated),
+    verifier: typeof json.verifier === 'string' && json.verifier !== '' ? json.verifier : null,
     wrap: json.wrap ?? null,
     pendingDevices: Array.isArray(json.pendingDevices) ? json.pendingDevices : [],
+  }
+}
+
+/**
+ * Lanza `TeamKeyMismatchError` si `master` no es la maestra cuyo verificador publicó el
+ * servidor. Un equipo activado SIN verificador también lanza: sin nada contra qué comparar no
+ * hay forma de saber si la envoltura es legítima, y adoptar a ciegas es justo el agujero.
+ */
+function exigirMaestraDelEquipo(master: Buffer, teamId: string, verifier: string | null): void {
+  if (!verifier || teamKeyVerifier(teamKeyProof(master, teamId)) !== verifier) {
+    throw new TeamKeyMismatchError()
   }
 }
 
@@ -80,6 +109,9 @@ export async function activateTeamEncryption(
     method: 'POST',
     body: {
       team_id: teamId,
+      // Lo que `authorize`/`recrypt` van a exigir probar de acá en adelante, y lo que todo
+      // miembro compara al adoptar. Derivado de la maestra: sólo lo calcula quien la tiene.
+      verifier: teamKeyVerifier(teamKeyProof(master, teamId)),
       wraps: [
         { slot: deps.deviceId, kind: 'device', wrapped: wrapForDevice(device.publicKey, master) },
         { slot: 'recovery', kind: 'recovery', wrapped: recovery.wrapped, wrap_meta: { salt: recovery.salt } },
@@ -90,7 +122,8 @@ export async function activateTeamEncryption(
 }
 
 /** `null` es la respuesta normal mientras el equipo no tiene clave, o esta máquina espera
- * que el leader la autorice — no lanza en ninguno de los dos casos. */
+ * que el leader la autorice — no lanza en ninguno de los dos casos. Lanza
+ * `TeamKeyMismatchError` si la envoltura abre una maestra que no es la del equipo. */
 export async function adoptExistingTeamKey(
   deps: TeamKeysClientDeps,
   teamId: string,
@@ -98,31 +131,36 @@ export async function adoptExistingTeamKey(
 ): Promise<{ master: string } | null> {
   const estado = await fetchTeamKeyState(deps, teamId)
   if (!estado.activated || !estado.wrap) return null
-  return { master: unwrapWithDevice(device.privateKey, estado.wrap.wrapped).toString('base64') }
+  const master = unwrapWithDevice(device.privateKey, estado.wrap.wrapped)
+  exigirMaestraDelEquipo(master, teamId, estado.verifier)
+  return { master: master.toString('base64') }
 }
 
 /** Sólo lo llama el `leader` (gateado también server-side). Envuelve la maestra que YA tiene
- * con la pública del device objetivo. */
+ * con la pública del device objetivo, y prueba que la tiene. */
 export async function authorizeTeamDeviceFromClient(
   deps: TeamKeysClientDeps,
   teamId: string,
   master: string,
   target: { deviceId: string; publicKey: string }
 ): Promise<void> {
+  const m = Buffer.from(master, 'base64')
   await pedir(deps, '/v1/teams/key/authorize', {
     method: 'POST',
     body: {
       team_id: teamId,
+      proof: teamKeyProof(m, teamId),
       wraps: [{
         slot: target.deviceId, kind: 'device',
-        wrapped: wrapForDevice(target.publicKey, Buffer.from(master, 'base64')),
+        wrapped: wrapForDevice(target.publicKey, m),
       }],
     },
   })
 }
 
 /** Recupera la clave de equipo usando un código de recuperación. Lanza ANTES de publicar
- * cualquier cosa si el código es incorrecto. */
+ * cualquier cosa si el código es incorrecto, o si la copia de recuperación abre una maestra
+ * que no es la del equipo. */
 export async function recoverTeamWithCode(
   deps: TeamKeysClientDeps,
   teamId: string,
@@ -137,6 +175,9 @@ export async function recoverTeamWithCode(
   // Lanza MemoryUnwrapError con el código equivocado, ANTES de publicar nada — mismo orden
   // que `recoverWithCode` personal.
   const master = unwrapWithRecovery(code, { wrapped: wrap.wrapped, salt: wrap.wrapMeta.salt })
+  // Y la copia tiene que ser LA del equipo: una reemplazada por otra maestra (con un código que
+  // quien la plantó conoce) abre sin error, y autorizarse con ella sería adoptarla.
+  exigirMaestraDelEquipo(master, teamId, estado.verifier)
   await authorizeTeamDeviceFromClient(deps, teamId, master.toString('base64'), {
     deviceId: deps.deviceId, publicKey: device.publicKey,
   })

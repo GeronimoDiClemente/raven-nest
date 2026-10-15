@@ -6,7 +6,7 @@
 //
 // Solo `node:crypto`: sumar libsodium o argon2 traeria un modulo nativo, que es el riesgo
 // 8.2 de la spec (el paquete npm de la fase 2 tiene que instalar rapido).
-import { randomBytes, hkdfSync, createCipheriv, createDecipheriv, createHmac } from 'crypto'
+import { randomBytes, hkdfSync, createCipheriv, createDecipheriv, createHmac, createHash } from 'crypto'
 
 /**
  * Marca de sobre. Existe por la migracion (§5.5.3): durante la re-encriptacion la nube
@@ -155,6 +155,32 @@ export function rotateVerifier(master: Buffer, keyEpoch: number): string {
   return createHmac('sha256', master)
     .update(`nest-memory/rotate-v1/${keyEpoch}`)
     .digest('hex')
+}
+
+/**
+ * La prueba de que esta máquina TIENE la maestra de un EQUIPO (Task 15, C2 de la review final).
+ *
+ * `authorize` y `recrypt` de equipo sólo miraban el rol, y un leader sin la clave existe por
+ * diseño (spec §6: el rol se transfiere, la clave no). Con eso alcanzaba para pisar la
+ * envoltura de cualquier device del equipo con una maestra propia, o re-cifrar el histórico con
+ * basura. Mismo agujero que `rotateVerifier` cerró para la clave personal.
+ *
+ * El `teamId` va en la etiqueta: la prueba de un equipo no sirve en otro.
+ */
+export function teamKeyProof(master: Buffer, teamId: string): string {
+  return createHmac('sha256', master)
+    .update(`nest-memory/team-proof-v1/${teamId}`)
+    .digest('hex')
+}
+
+/**
+ * Lo que el servidor GUARDA de la prueba: su SHA-256. A diferencia de `rotateVerifier`, que es
+ * prueba y verificador a la vez porque el servidor no lo muestra nunca, este se le devuelve a
+ * todo miembro del equipo para que compruebe la maestra que adopta (`adoptExistingTeamKey`).
+ * Si fuera la prueba misma, un leader sin clave la leería del `GET` y la reenviaría.
+ */
+export function teamKeyVerifier(proof: string): string {
+  return createHash('sha256').update(proof, 'utf8').digest('hex')
 }
 
 export function hmacTopicKey(keys: MemoryKeys, projectKey: string, scope: string, topicKey: string): string {
