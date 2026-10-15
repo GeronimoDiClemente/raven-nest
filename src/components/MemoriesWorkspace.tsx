@@ -16,10 +16,12 @@ import { Plus } from 'lucide-react'
 import { ICON_SIZE } from '../lib/icons'
 import MemoriesStatusRow from './MemoriesStatusRow'
 import MemoryEncryptionCard from './MemoryEncryptionCard'
+import TeamEncryptionCard from './TeamEncryptionCard'
 import LinkDeviceCard from './LinkDeviceCard'
 import SyncServiceCard from './SyncServiceCard'
 import ShareProjectCard from './ShareProjectCard'
 import TeamThreadPanel from './TeamThreadPanel'
+import { useTeam } from '../hooks/useTeam'
 import { Button } from '@/components/ui/button'
 
 interface Props {
@@ -46,6 +48,8 @@ export default function MemoriesWorkspace({ onClose, activeRepoPath, onOpenFile,
   // lugar que ve a los dos.
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [escribiendo, setEscribiendo] = useState(false)
+
+  const { activeTeam } = useTeam()
 
   /**
    * La búsqueda vive acá y no adentro de la lista, porque dejó de ser sólo de la lista: el
@@ -267,6 +271,7 @@ export default function MemoriesWorkspace({ onClose, activeRepoPath, onOpenFile,
             cifrado, vincular una máquina, la dirección del servicio— y empujaba lo principal
             (el grafo y la lista) abajo del pliegue. */}
         <MemoryEncryptionCard />
+        {activeTeam && <TeamEncryptionCard />}
         <LinkDeviceCard />
         <SyncServiceCard />
       </div>
