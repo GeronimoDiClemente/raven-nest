@@ -2114,7 +2114,7 @@ ipcMain.handle('memory:teamEncryption:recrypt', async (_e, teamId: string) => {
   const deps = teamKeysDeps()
   const master = teamMasterKeys.get(teamId)
   if (!deps || !master || !memory) return { total: 0, applied: 0, rejected: 0 }
-  const rows = memory.store.localTeamRowsForTeam(teamId) // método nuevo, ver Step 3
+  const rows = memory.store.localTeamRowsForTeam(teamId) // método nuevo, ver Step 4
   return runTeamRecrypt(deps, teamId, master, rows)
 })
 ```
@@ -2130,10 +2130,17 @@ import { runTeamRecrypt } from './memory-team-reencrypt'
 import { deriveKeys } from './memory-crypto'
 ```
 
-**Paso que cierra Task 9 de verdad**: ubicar la función u objeto que hoy arma el
-`EnvelopeContext` real que el daemon consume (`Grep "getEnvelopeContext:" electron/main.ts` —
-es el mismo lugar que construye `{ keys: deriveKeys(Buffer.from(memoryKeys.master, 'base64')),
-keyEpoch: memoryKeys.keyEpoch }` o similar) y sumarle el resolver:
+- [ ] **Step 3: Conectar `teamKeys` al `EnvelopeContext` real — el paso que activa Task 9 de verdad**
+
+**No es opcional ni cosmético — sin este paso, todo lo construido en Task 9 queda probado en
+aislamiento pero NUNCA se ejecuta en la app real**: el daemon seguiría llamando a
+`getEnvelopeContext()` sin el campo `teamKeys`, y toda fila `scope: 'team'` seguiría viajando
+en claro pase lo que pase en el resto de los tasks, sin ningún error que lo avise.
+
+Ubicar la función u objeto que hoy arma el `EnvelopeContext` real que el daemon consume
+(`Grep "getEnvelopeContext:" electron/main.ts` — es el mismo lugar que construye `{ keys:
+deriveKeys(Buffer.from(memoryKeys.master, 'base64')), keyEpoch: memoryKeys.keyEpoch }` o
+similar) y sumarle el resolver:
 
 ```ts
 teamKeys: (projectKey: string) => {
@@ -2143,11 +2150,7 @@ teamKeys: (projectKey: string) => {
 },
 ```
 
-Sin este paso, Task 9 queda probado en aislamiento pero NUNCA se ejecuta en la app real: el
-daemon seguiría llamando a `getEnvelopeContext()` sin el campo `teamKeys`, y toda fila `scope:
-'team'` seguiría viajando en claro pase lo que pase en el resto de los tasks.
-
-- [ ] **Step 3: El método que falta en `memory-store.ts` — filas locales de un equipo**
+- [ ] **Step 4: El método que falta en `memory-store.ts` — filas locales de un equipo**
 
 ```ts
 /** Todo lo que esta instalación tiene localmente con scope 'team' para proyectos de ESTE
@@ -2179,7 +2182,7 @@ dos campos no existe en el schema local (por ejemplo, si nunca se persistió loc
 devolver `null` para ese campo es la salida correcta — `runTeamRecrypt` (Task 10) ya trata
 `null` como "no cifrar, viaja tal cual", mismo camino que ya usa `content`.
 
-- [ ] **Step 4: `preload.ts`**
+- [ ] **Step 5: `preload.ts`**
 
 Junto a `registerDevice: (jwt: string) => ipcRenderer.invoke('memory:registerDevice', jwt)`:
 
@@ -2192,7 +2195,7 @@ teamEncryptionRecover: (teamId: string, code: string) => ipcRenderer.invoke('mem
 teamEncryptionRecrypt: (teamId: string) => ipcRenderer.invoke('memory:teamEncryption:recrypt', teamId),
 ```
 
-- [ ] **Step 5: `src/types.ts`**
+- [ ] **Step 6: `src/types.ts`**
 
 Junto a la declaración de `registerDevice?:` (línea ~973):
 
@@ -2210,7 +2213,7 @@ teamEncryptionRecover?: (teamId: string, code: string) => Promise<{ ok: boolean;
 teamEncryptionRecrypt?: (teamId: string) => Promise<{ total: number; applied: number; rejected: number }>
 ```
 
-- [ ] **Step 6: Typecheck + suite completa — el smoke de este task**
+- [ ] **Step 7: Typecheck + suite completa — el smoke de este task**
 
 Run: `npx tsc -p tsconfig.node.json --noEmit --composite false && npx tsc -p tsconfig.web.json --noEmit --composite false`
 Expected: 0 errores en los dos (ver CLAUDE.md — `tsc -b` NO es el chequeo real de este repo)
@@ -2218,7 +2221,7 @@ Expected: 0 errores en los dos (ver CLAUDE.md — `tsc -b` NO es el chequeo real
 Run: `npm test` (o el runner que uses para `electron/` + `src/`)
 Expected: PASS, nada roto por el wiring
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
 git add electron/main.ts electron/preload.ts electron/memory-store.ts src/types.ts
