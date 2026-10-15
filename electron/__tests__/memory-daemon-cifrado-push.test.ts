@@ -15,7 +15,12 @@ let enviado: any
 
 function daemonCon(getEnvelopeContext: () => EnvelopeContext | null) {
   enviado = null
-  const fetchImpl = (async (_url: string, init: RequestInit) => {
+  const fetchImpl = (async (url: string, init: RequestInit) => {
+    // Task 14: con filas de equipo pendientes el primer push espera un `status` (para saber si
+    // el equipo cifra). Un status mínimo, sin `encrypted_teams`: "servicio que no sabe".
+    if (String(url).endsWith('/v1/sync/status')) {
+      return { ok: true, status: 200, json: async () => ({ plan: 'team' }) } as unknown as Response
+    }
     enviado = JSON.parse(String(init.body))
     return {
       ok: true, status: 200,

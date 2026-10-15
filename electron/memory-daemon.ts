@@ -62,7 +62,19 @@ export type DaemonStatus = 'idle' | 'syncing' | 'paused' | 'error' | 'plan_requi
 // el handoff que el usuario creyo compartir se descartara para siempre, incluso despues de
 // compartir el proyecto. `team_scope_not_allowed` SI se queda terminal: ahi el plan de la
 // cuenta no admite `scope: 'team'`, y la fila ya se guardo local como corresponde.
-export const REVERSIBLE_REJECTIONS = new Set(['project_limit_reached', 'quota_exceeded', 'project_not_shared_with_team'])
+//
+// Task 14 (spec §9.4): `team_encryption_required` lo devuelve el servidor cuando una fila de
+// equipo llega en claro a un equipo con `team_keys`. Reversible por definición: el mismo
+// payload, sellado con la clave de equipo, aplica en cuanto este device la adopte.
+export const REVERSIBLE_REJECTIONS = new Set(['project_limit_reached', 'quota_exceeded', 'project_not_shared_with_team', 'team_encryption_required'])
+
+/** Task 14: lo que libera `onTeamKeysChanged()`: la retención local (`team_key_missing`, el
+ * gate de `doPush`) y el rechazo equivalente del servidor. */
+export const TEAM_KEY_HOLD_REASONS = ['team_key_missing', 'team_encryption_required'] as const
+
+/** Tope de la readopción automática dentro de `doStatus`: un `/v1/teams/key` colgado no puede
+ * trabar el status (y con él el push, que lo espera). */
+const TEAM_READOPT_TIMEOUT_MS = 10_000
 
 export interface PushResultItem {
   sync_id: string
@@ -75,6 +87,9 @@ export interface PushResultItem {
 export interface StatusRosterProject {
   project_key: string
   display_name?: string
+  /** Task 14: con qué equipo está compartido este proyecto en el servidor. Ausente en un
+   * servicio viejo. */
+  team_id?: string | null
 }
 
 export interface StatusResponseBody {
@@ -95,6 +110,9 @@ export interface StatusResponseBody {
    * viejo, que es un caso distinto de `0` y se trata distinto — ver `doStatus`.
    */
   key_epoch?: number
+  /** Task 14: equipos con cifrado activo donde soy miembro, y si ESTE device tiene envoltura.
+   * Ausente en un servicio viejo: "no sé", no "ninguno" — no borra lo que el store ya sabe. */
+  encrypted_teams?: Array<{ team_id: string; has_wrap: boolean }>
 }
 
 export interface PulledRow extends LWWRow {
@@ -122,6 +140,9 @@ export interface PulledRow extends LWWRow {
   authorDisplay?: string
   contentHash?: string
   projectSeq?: number
+  /** Task 14: el equipo de la fila según el SERVIDOR (sólo `scope: 'team'`). Ausente en un
+   * servicio viejo. `openPulledRow` lo usa para elegir la clave de equipo. */
+  teamId?: string
 }
 
 export interface MemoryDaemonDeps {
@@ -166,6 +187,13 @@ export interface MemoryDaemonDeps {
    * que ningún call site ni test anterior al candado cambia.
    */
   adquirirCandado?: () => ResultadoCandado
+  /**
+   * Task 14 (spec §9.4): `doStatus` lo llama con los equipos cifrados del status, y lo ESPERA
+   * (con tope) antes de seguir. Es donde main.ts readopta las claves de equipo que esta máquina
+   * ya tiene envueltas, ANTES del pull y del push del mismo drain. Sin esto la clave de equipo
+   * (que vive sólo en memoria) recién volvía cuando el usuario abría la tarjeta.
+   */
+  onEncryptedTeams?: (teams: Array<{ teamId: string; hasWrap: boolean }>) => Promise<void> | void
   onStatusChange?: (status: DaemonStatus, detail?: string) => void
 }
 
@@ -281,6 +309,7 @@ export function mapRawPulledRow(raw: Record<string, unknown>): PulledRow {
     authorDisplay: (raw.author_display as string | undefined) ?? undefined,
     contentHash: (raw.content_hash as string | undefined) ?? undefined,
     projectSeq: raw.project_seq != null ? Number(raw.project_seq) : undefined,
+    ...(typeof raw.team_id === 'string' && raw.team_id !== '' ? { teamId: raw.team_id } : {}),
   }
 }
 
@@ -596,6 +625,14 @@ export class MemoryDaemon {
     void this.drain()
   }
 
+  /** Task 14: main.ts lo llama cada vez que entra una clave de equipo a memoria (activar,
+   * adoptar, recuperar, readopción de arranque): libera lo retenido y empuja ya. */
+  onTeamKeysChanged(): void {
+    if (this.swapping) return // Task 1 Step 3a: no new push while a store hot-swap is in flight
+    this.deps.store.unblockMutations([...TEAM_KEY_HOLD_REASONS])
+    void this.push()
+  }
+
   /** §4.1 "Pane exit" trigger. */
   onPaneExit(): void {
     if (this.swapping) return // Task 1 Step 3a: no new push while a store hot-swap is in flight
@@ -763,7 +800,13 @@ export class MemoryDaemon {
      * saber —`seEsperaCifrado` sería false igual, más abajo— así que pedir un status sería
      * una request por nada. En la app real `main.ts` siempre lo pasa.
      */
-    if (!this.primerStatusOk && this.deps.isEncryptionExpected) {
+    // Task 14: también con filas de EQUIPO pendientes, haya o no gate personal cableado (el
+    // paquete portátil no lo cablea): no se puede decidir sobre una fila de equipo sin saber
+    // si su equipo cifra, y eso lo dice el status.
+    const hayDeEquipo = pending.some((m) => {
+      try { return (JSON.parse(m.payload) as { scope?: unknown }).scope === 'team' } catch { return false }
+    })
+    if (!this.primerStatusOk && (this.deps.isEncryptionExpected || hayDeEquipo)) {
       await this.status()
       // Cubre también el swap de cuenta durante la espera: `setStore` lo vuelve a false y un
       // status que vuelve con otra generación no lo levanta. Sin esto el gate leía
@@ -793,6 +836,44 @@ export class MemoryDaemon {
       return
     }
 
+    /**
+     * Task 14 (spec §9.4) — el gate fail-closed del push de EQUIPO. Una fila `scope: 'team'`
+     * de un equipo que cifra, sin su clave en este device, NO sale: `sealMutationPayload` la
+     * devolvería tal cual (en claro), indistinguible para el servidor de un equipo que nunca
+     * cifró. Se RETIENE con `blockMutations` (mismo mecanismo reversible que
+     * `project_not_shared_with_team`): no vuelve en cada ciclo, no frena al resto del lote, y
+     * `onTeamKeysChanged()` la libera cuando la clave entra.
+     *
+     * El equipo sale de `projects.team_id` LOCAL a propósito: quien sube una fila de equipo es
+     * quien compartió el proyecto, y `doStatus` lo mantiene al día desde el roster. Sin
+     * `team_id` local, la fila sigue: o el servidor la rechaza (`project_not_shared_with_team`)
+     * o, si está compartida desde otra máquina, su propio gate (`team_encryption_required`)
+     * no la guarda.
+     */
+    const equiposCifrados = new Set(store.encryptedTeamIds?.() ?? [])
+    const retenidas: Array<{ seq: number; reason: string }> = []
+    const aSubir = equiposCifrados.size === 0 ? pending : pending.filter((m) => {
+      let p: Record<string, unknown>
+      try { p = JSON.parse(m.payload) as Record<string, unknown> } catch { return true }
+      if (p.scope !== 'team') return true
+      const projectKey = (p.project_key as string | undefined) ?? GLOBAL_PROJECT_KEY
+      const teamId = store.teamIdForProjectKey(projectKey)
+      if (!teamId || !equiposCifrados.has(teamId)) return true
+      if (contexto?.teamKeys?.(projectKey)) return true
+      retenidas.push({ seq: m.seq, reason: 'team_key_missing' })
+      return false
+    })
+    if (retenidas.length > 0) store.blockMutations(retenidas)
+    if (aSubir.length === 0) {
+      this.setStatus('idle')
+      // Lo retenido ya no vuelve en pendingMutations(): si quedaba otra cosa detrás, se sigue.
+      // `setImmediate` por lo mismo que el encadenado M22 de más abajo.
+      if (retenidas.length > 0 && store.pendingMutationCount() > 0) {
+        setImmediate(() => { if (!this.swapping) void this.push() })
+      }
+      return
+    }
+
     this.setStatus('syncing')
     // C6 part 2: disarmed in this try's `finally`, i.e. only AFTER `response.json()` has
     // consumed the body — see fetchWithTimeout().
@@ -817,7 +898,7 @@ export class MemoryDaemon {
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
           device_id: deviceId,
-          mutations: pending.map((m: MutationLogRow) => {
+          mutations: aSubir.map((m: MutationLogRow) => {
             const payload = JSON.parse(m.payload) as Record<string, unknown>
             const projectKey = (payload.project_key as string | undefined) ?? GLOBAL_PROJECT_KEY
             // C5: `source_ref` carries an absolute path with the user's real name
@@ -926,7 +1007,7 @@ export class MemoryDaemon {
       const resultBySyncId = new Map(results.map((r) => [r.sync_id, r]))
       const toMark: Array<number | { seq: number; error?: string | null }> = []
       const toBlock: Array<{ seq: number; reason: string }> = []
-      for (const m of pending) {
+      for (const m of aSubir) {
         let payloadSyncId: string | undefined
         try { payloadSyncId = JSON.parse(m.payload).sync_id } catch { /* leave undefined */ }
         const result = payloadSyncId ? resultBySyncId.get(payloadSyncId) : undefined
@@ -1137,9 +1218,24 @@ export class MemoryDaemon {
       // the pre-roster stub — not an error. Nothing to register, not a failure.
       if (Array.isArray(body.projects)) {
         const known = new Set(store.listProjects().map((p) => p.projectKey))
+        let aprendioUnShare = false
         for (const project of body.projects) {
           const projectKey = project?.project_key
-          if (typeof projectKey !== 'string' || projectKey === '' || known.has(projectKey)) continue
+          if (typeof projectKey !== 'string' || projectKey === '') continue
+          // Task 14: espejo de `projects.team_id` del servidor. Sin esto, la OTRA máquina de
+          // quien compartió nunca sabía a qué equipo van sus filas de equipo: las sellaba sin
+          // clave (en claro) aunque tuviera la de equipo. Sólo se escribe si cambió (un roster
+          // que no cambia sigue haciendo CERO escrituras por tick), y nunca se pisa con null:
+          // dejar de compartir no existe en v1, y bajar a null desarmaría el gate. Va también
+          // para los proyectos ya conocidos: el caso que importa es justo uno conocido.
+          const teamIdRemoto = typeof project.team_id === 'string' && project.team_id !== '' ? project.team_id : null
+          const aprenderShare = (): void => {
+            if (teamIdRemoto && store.teamIdForProjectKey(projectKey) !== teamIdRemoto) {
+              store.setLocalTeamId(projectKey, teamIdRemoto)
+              aprendioUnShare = true
+            }
+          }
+          if (known.has(projectKey)) { aprenderShare(); continue }
           // ensureProject() is itself idempotent, but the `known` check above means an
           // unchanging roster does ZERO writes per tick after the first, not just zero
           // EFFECTIVE ones — so a roster that never changes can't turn this into a
@@ -1160,6 +1256,27 @@ export class MemoryDaemon {
           const displayName = nombreRemoto && !isCiphertext(nombreRemoto) ? nombreRemoto : projectKey
           store.ensureProject({ projectKey, displayName })
           known.add(projectKey)
+          aprenderShare()
+        }
+        // Compartido desde otra máquina: lo retenido por `project_not_shared_with_team` ya
+        // aplica. Y `team_encryption_required` también vuelve a la cola: con el `team_id`
+        // local al día, el gate de `doPush` la sella o la retiene como `team_key_missing`.
+        if (aprendioUnShare) store.unblockMutations(['project_not_shared_with_team', 'team_encryption_required'])
+      }
+
+      // Task 14 (spec §9.4): qué equipos cifran, sin depender de que se abra la UI.
+      if (Array.isArray(body.encrypted_teams)) {
+        const equipos = body.encrypted_teams
+          .filter((t): t is { team_id: string; has_wrap: boolean } => typeof t?.team_id === 'string' && t.team_id !== '')
+          .map((t) => ({ teamId: t.team_id, hasWrap: t.has_wrap === true }))
+        store.rememberEncryptedTeams?.(equipos.map((e) => e.teamId))
+        const hook = this.deps.onEncryptedTeams
+        if (hook && equipos.length > 0) {
+          // Esperado (para que la readopción gane al pull y al push de este drain) pero con
+          // tope, y sin dejar que un throw del hook se lleve puesto el status (`withTimeout`
+          // nunca rechaza).
+          await withTimeout(Promise.resolve().then(() => hook(equipos)), TEAM_READOPT_TIMEOUT_MS)
+          if (generacionAlSalir !== this.generacionDeStore) return body
         }
       }
 
@@ -1452,7 +1569,16 @@ export class MemoryDaemon {
        * maquina que importa: la que no tiene la clave. Y esta linea corre en el mismo drain,
        * antes del push.
        */
-      this.deps.store.rememberKeyEpoch(Math.max(1, this.deps.getEnvelopeContext?.()?.keyEpoch ?? 0))
+      if (incoming.scope === 'team') {
+        // Task 14: una fila de EQUIPO ilegible dice que ESE equipo cifra, no que la CUENTA
+        // cifre. Armar la época personal dejaba a un miembro sin cifrado personal con todo el
+        // push en `needs_key` para siempre. Lo de equipo lo cubre el gate de equipo de doPush.
+        // Sin `teamId` (servicio viejo) se cae al `team_id` local del proyecto, si lo hay.
+        const teamId = incoming.teamId ?? this.deps.store.teamIdForProjectKey?.(incoming.projectKey) ?? null
+        if (teamId) this.deps.store.rememberEncryptedTeams?.([teamId])
+      } else {
+        this.deps.store.rememberKeyEpoch(Math.max(1, this.deps.getEnvelopeContext?.()?.keyEpoch ?? 0))
+      }
       return
     }
     // Si esta fila estaba marcada como ilegible y ahora abrio, sale de la lista: es como el

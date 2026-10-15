@@ -275,3 +275,34 @@ describe('scope team con teamKeys', () => {
     expect(selladoA.topic_key).toBe(selladoB.topic_key)
   })
 })
+
+// Task 14 (Problema 1): en el PULL la clave de equipo la elige el team_id que manda el servidor.
+describe('openPulledRow con team_id del servidor (Task 14)', () => {
+  const keysEquipo = deriveKeys(generateMasterKey())
+  const sellado = sealMutationPayload(
+    { keys: ctx.keys, keyEpoch: 1, teamKeys: () => keysEquipo },
+    { sync_id: 'abc', scope: 'team', project_key: 'proj-x', title: 'Decisión', content: 'texto', tags: [] }
+  )
+  const fila = (teamId?: string) => ({
+    syncId: 'abc', scope: 'team', projectKey: 'proj-x',
+    title: sellado.title as string, content: sellado.content as string, tags: [],
+    ...(teamId ? { teamId } : {}),
+  }) as never
+
+  it('con teamId usa teamKeysById, aunque el project_key local no tenga equipo', () => {
+    const c: EnvelopeContext = { ...ctx, teamKeys: () => null, teamKeysById: (t) => (t === 'T1' ? keysEquipo : null) }
+    const { row, undecryptable } = openPulledRow(c, fila('T1'))
+    expect(undecryptable).toBe(false)
+    expect(row.title).toBe('Decisión')
+  })
+
+  it('con teamId, manda el servidor: no cae a la clave del proyecto local', () => {
+    const c: EnvelopeContext = { ...ctx, teamKeys: () => keysEquipo, teamKeysById: () => null }
+    expect(openPulledRow(c, fila('T1')).undecryptable).toBe(true)
+  })
+
+  it('sin teamId (servicio viejo) sigue resolviendo por project_key', () => {
+    const c: EnvelopeContext = { ...ctx, teamKeys: (pk) => (pk === 'proj-x' ? keysEquipo : null), teamKeysById: () => null }
+    expect(openPulledRow(c, fila()).row.title).toBe('Decisión')
+  })
+})

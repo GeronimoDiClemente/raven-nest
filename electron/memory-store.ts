@@ -1166,6 +1166,43 @@ export class MemoryStore {
   }
 
   /**
+   * Task 14 (spec §9.4): los equipos que el servidor dijo que cifran (`encrypted_teams` de
+   * `/v1/sync/status`) o de los que bajó una fila de equipo ilegible. Lo lee el gate del push
+   * de equipo (memory-daemon.ts). Mismo contrato que `known_key_epoch`: vive en `meta` para
+   * funcionar en el arranque y sin red, y NUNCA olvida: olvidar un equipo cifrado volvería a
+   * habilitar el push en claro. (v1 no tiene forma de desactivar el cifrado de un equipo.)
+   *
+   * En `meta` y no en una tabla nueva a propósito: una tabla exige subir `SCHEMA_VERSION`, y un
+   * build o un paquete más viejo que abra esta misma base la rechaza y se queda sin memoria
+   * (ver `migrate()`).
+   */
+  rememberEncryptedTeams(teamIds: string[]): void {
+    const nuevos = teamIds.filter((t) => typeof t === 'string' && t.trim() !== '')
+    if (nuevos.length === 0) return
+    // Leer y escribir en la MISMA transacción IMMEDIATE: con dos procesos sobre la base, uno
+    // que leyó el conjunto viejo pisaría lo que agregó el otro.
+    this.db.transaction(() => {
+      const actuales = new Set(this.encryptedTeamIds())
+      const antes = actuales.size
+      for (const t of nuevos) actuales.add(t)
+      if (actuales.size !== antes) this.metaSet('encrypted_team_ids', JSON.stringify([...actuales].sort()))
+    }).immediate()
+  }
+
+  encryptedTeamIds(): string[] {
+    try {
+      const parsed: unknown = JSON.parse(this.metaGet('encrypted_team_ids') ?? '[]')
+      return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === 'string') : []
+    } catch {
+      return [] // un JSON roto no puede tumbar el push; el próximo status lo reescribe
+    }
+  }
+
+  isTeamEncrypted(teamId: string): boolean {
+    return this.encryptedTeamIds().includes(teamId)
+  }
+
+  /**
    * Registra que una fila llego cifrada y esta maquina no pudo abrirla (spec §5.5.4).
    *
    * Se guarda el CONJUNTO de `sync_id`, no un contador. Un contador monotono mentia de dos

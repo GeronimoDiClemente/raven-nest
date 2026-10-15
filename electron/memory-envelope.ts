@@ -15,8 +15,16 @@ export interface EnvelopeContext {
   keyEpoch: number
   /** `project_key -> claves de equipo activas para ESE proyecto`, o `null` si el proyecto no
    * tiene equipo con cifrado activo (equipo sin activar, o este device sin wrap todavía).
-   * Ausente (no sólo `null`) en builds/callers viejos que no conocen el cifrado de equipo. */
+   * Ausente (no sólo `null`) en builds/callers viejos que no conocen el cifrado de equipo.
+   *
+   * Lo usa el PUSH, por `projects.team_id` local — correcto para quien sube, que es quien
+   * compartió el proyecto. En el pull es sólo el fallback contra un servicio viejo que no
+   * manda `team_id` en la fila. */
   teamKeys?: (projectKey: string) => MemoryKeys | null
+  /** PULL (Task 14): `team_id -> clave de equipo`. El `team_id` lo manda el servidor en cada
+   * fila de equipo; el `projects.team_id` local NO sirve acá, porque sólo existe si ESTE
+   * device compartió su copia del proyecto, y un compañero no tiene por qué haberlo hecho. */
+  teamKeysById?: (teamId: string) => MemoryKeys | null
 }
 
 /**
@@ -99,7 +107,14 @@ export interface OpenedRow {
 
 export function openPulledRow(ctx: EnvelopeContext | null, row: PulledRow): OpenedRow {
   const esTeam = row.scope === 'team'
-  const keysDeTeam = esTeam ? (ctx?.teamKeys?.(row.projectKey) ?? null) : null
+  // Con `teamId` (servicio nuevo, Task 14) manda el servidor, sin fallback: si no tengo ESA
+  // clave, la fila es ilegible, aunque el proyecto local apunte a otro equipo. Sin `teamId`
+  // (servicio viejo) queda el comportamiento anterior, por `project_key` local.
+  const keysDeTeam = !esTeam
+    ? null
+    : row.teamId
+      ? (ctx?.teamKeysById?.(row.teamId) ?? null)
+      : (ctx?.teamKeys?.(row.projectKey) ?? null)
   const keys = esTeam ? keysDeTeam : ctx?.keys
   // Fila team sin clave de equipo disponible: si YA viene en claro (equipo nunca activó
   // cifrado), pasa igual que antes. Si viene cifrada (nmc1:) y no hay clave, es undecryptable

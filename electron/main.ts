@@ -283,8 +283,8 @@ let memoryKeys: KeyMaterial | null = null
 
 /** teamId -> maestra de ESE equipo, sólo en memoria — igual de propósito que `memoryKeys.master`
  * pero SIN persistencia a disco en v1 (nunca se guarda en el keyring/safeStorage): se re-adopta
- * en cada arranque llamando a `memory:teamEncryption:adopt` (ver más abajo), mismo costo que
- * un fetch, y evita sumar un segundo formato a `saveKeyMaterial`/`memory-key-store.ts` para una
+ * sola en el primer `status` de cada arranque (`readoptarClavesDeEquipo`, Task 14), mismo
+ * costo que un fetch, y evita sumar un segundo formato a `saveKeyMaterial`/`memory-key-store.ts` para una
  * clave que nunca escribe nada propio (sólo re-cifra lo que ya viaja por push/pull). Si el
  * costo de volver a pedirla en cada arranque resulta alto en la práctica, persistirla es un
  * cambio aislado a este Map — no toca ningún otro task. */
@@ -292,6 +292,47 @@ const teamMasterKeys = new Map<string, Buffer>()
 
 function teamKeysDeps() {
   return keysDeps() // ya existe más abajo: baseUrl/token/deviceId — no cambia por team
+}
+
+/**
+ * Task 14 (spec §9.4): readopta las claves de equipo que el servidor dice que ESTA máquina ya
+ * tiene envueltas (`has_wrap`). La llama el daemon desde `doStatus` (dep `onEncryptedTeams`),
+ * esperada y con tope, o sea ANTES del pull y del push del primer drain. Antes esto lo hacía
+ * sólo el efecto de montaje de `TeamEncryptionCard`, y entre el arranque y ese momento el
+ * push de equipo salía en claro (hoy lo retiene el gate de `doPush`, pero retener todo lo de
+ * equipo hasta que alguien abra la tarjeta no es un producto).
+ *
+ * Resetea cursores SÓLO si hay filas ilegibles anotadas: si la clave llega antes del primer
+ * pull (el caso normal acá), no hay nada salteado que volver a pedir, y re-bajar la cuenta
+ * entera en cada arranque era el minor que dejó la review de Task 11.
+ */
+async function readoptarClavesDeEquipo(equipos: Array<{ teamId: string; hasWrap: boolean }>): Promise<void> {
+  const deps = teamKeysDeps()
+  // Spec §2: sin cifrado personal no hay cifrado de equipo en este device.
+  if (!deps || !memory || !memoryKeys?.master) return
+  const faltan = equipos.filter((e) => e.hasWrap && !teamMasterKeys.has(e.teamId))
+  if (faltan.length === 0) return
+  const store = memory.store
+  const dueño = store.getOwnerUserId()
+  const device = memoryKeys.device
+  let adopto = false
+  for (const { teamId } of faltan) {
+    try {
+      const r = await adoptExistingTeamKey(deps, teamId, device)
+      // Un swap de cuenta durante el await: la clave es de la cuenta anterior, y
+      // `recargarClavesDeMemoria` ya vació el Map. `performUserSwap` reasigna `memory` entero
+      // con el store nuevo, así que la identidad del store lo detecta; se mira ANTES que el
+      // dueño porque el store viejo ya está cerrado.
+      if (!memory || memory.store !== store || store.getOwnerUserId() !== dueño) return
+      if (r) { teamMasterKeys.set(teamId, Buffer.from(r.master, 'base64')); adopto = true }
+    } catch { /* sin red o 403: el próximo status lo reintenta */ }
+  }
+  if (!adopto || !memory || memory.store !== store) return
+  if (store.undecryptableCount() > 0) {
+    store.resetPullCursors()
+    store.clearUndecryptable()
+  }
+  memory.daemon.onTeamKeysChanged()
 }
 
 /**
@@ -307,6 +348,12 @@ function currentEnvelopeContext(): EnvelopeContext | null {
     teamKeys: (projectKey: string) => {
       const teamId = memory?.store.teamIdForProjectKey(projectKey)
       const master = teamId ? teamMasterKeys.get(teamId) : undefined
+      return master ? deriveKeys(master) : null
+    },
+    // Task 14: en el PULL la clave la elige el `team_id` que manda el servidor en la fila —
+    // el `projects.team_id` local sólo existe si ESTE device compartió su copia.
+    teamKeysById: (teamId: string) => {
+      const master = teamMasterKeys.get(teamId)
       return master ? deriveKeys(master) : null
     },
   }
@@ -459,6 +506,9 @@ try {
      * peor que no tenerlo: la revisión siguiente lo lee y da el caso por cubierto.
      */
     isEncryptionExpected: () => (memory ? memory.store.knownKeyEpoch() > 0 : false),
+    // Task 14 (spec §9.4): readopta en el status de arranque las claves de equipo que esta
+    // máquina ya tiene envueltas, antes del pull y del push del mismo drain.
+    onEncryptedTeams: (teams) => readoptarClavesDeEquipo(teams),
     getToken: loadMemoryToken,
     getDeviceId: () => memoryConnectionState.deviceId,
     isOnline: () => memoryOnline,
@@ -3555,6 +3605,7 @@ ipcMain.handle('memory:teamEncryption:activate', async (_e, teamId: string) => {
   try {
     const { master, recoveryCode } = await activateTeamEncryption(deps, teamId, memoryKeys.device)
     teamMasterKeys.set(teamId, Buffer.from(master, 'base64'))
+    memory?.daemon.onTeamKeysChanged() // libera lo retenido por `team_key_missing` (Task 14)
     return { ok: true, recoveryCode }
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) }
@@ -3582,6 +3633,7 @@ ipcMain.handle('memory:teamEncryption:adopt', async (_e, teamId: string) => {
     // ya tenga la clave. Mismo trío que usa el adopt personal.
     memory.store.resetPullCursors()
     memory.store.clearUndecryptable()
+    memory.daemon.onTeamKeysChanged() // libera lo retenido por `team_key_missing` (Task 14)
     memory.daemon.onNetworkRegain()
     return { ok: true, adoptada: true }
   } catch (err) {
@@ -3615,6 +3667,7 @@ ipcMain.handle('memory:teamEncryption:recover', async (_e, teamId: string, code:
     // del cursor de pull, no sólo marcado `undecryptable` — sin esto no vuelve nunca.
     memory.store.resetPullCursors()
     memory.store.clearUndecryptable()
+    memory.daemon.onTeamKeysChanged() // libera lo retenido por `team_key_missing` (Task 14)
     memory.daemon.onNetworkRegain()
     return { ok: true }
   } catch (err) {

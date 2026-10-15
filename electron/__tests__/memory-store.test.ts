@@ -459,6 +459,17 @@ describe('MemoryStore — projects (ensureProject / listProjects)', () => {
     expect(store.teamIdForProjectKey('proj-a')).toBe('team-123')
     expect(store.teamIdForProjectKey('proj-b')).toBeNull()
   })
+
+  // Task 14: el gate fail-closed del push de equipo lee esto, no la red — tiene que funcionar
+  // en el arranque y offline, igual que `knownKeyEpoch`. Nunca olvida.
+  it('rememberEncryptedTeams acumula, ignora basura y nunca olvida', () => {
+    expect(store.isTeamEncrypted('t1')).toBe(false)
+    store.rememberEncryptedTeams(['t1'])
+    store.rememberEncryptedTeams(['t2', '', 't1'])
+    store.rememberEncryptedTeams([]) // un status sin equipos no borra nada
+    expect(store.encryptedTeamIds()).toEqual(['t1', 't2'])
+    expect(store.isTeamEncrypted('t2')).toBe(true)
+  })
 })
 
 // Bug 1 & bug 2 fixes: importers need original timestamps preserved (not stamped to
