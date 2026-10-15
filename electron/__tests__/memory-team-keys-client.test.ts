@@ -10,14 +10,14 @@ interface FilaDb { wrapped: string; kind: string }
 function servidorFalso() {
   const db = new Map<string, FilaDb>() // key = `${teamId}:${slot}`
   const publicKeys = new Map<string, string>() // deviceId -> publicKey
-  const fetchImpl = vi.fn(async (url: string, init: RequestInit) => {
+  const fetchImpl = (vi.fn(async (url: string, init: RequestInit) => {
     const u = new URL(url)
     const body = init.body ? JSON.parse(String(init.body)) : {}
     if (u.pathname === '/v1/teams/key' && (!init.method || init.method === 'GET')) {
       const teamId = u.searchParams.get('team_id')!
       const slot = u.searchParams.get('slot')
       const activated = [...db.keys()].some((k) => k.startsWith(`${teamId}:`))
-      const deviceId = String(init.headers?.['X-Device-Test'] ?? '')
+      const deviceId = String((init as { headers?: Record<string, string> })?.headers?.['X-Device-Test'] ?? '')
       const fila = db.get(`${teamId}:${slot ?? deviceId}`)
       return new Response(JSON.stringify({
         activated, wrap: fila ? { wrapped: fila.wrapped, wrapMeta: null } : null, pendingDevices: [],
@@ -35,7 +35,7 @@ function servidorFalso() {
       return new Response(JSON.stringify({ ok: true }), { status: 200 })
     }
     throw new Error(`ruta no mockeada: ${u.pathname}`)
-  })
+  })) as unknown as typeof fetch
   return { fetchImpl, publicKeys }
 }
 
