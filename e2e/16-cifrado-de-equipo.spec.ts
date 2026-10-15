@@ -308,6 +308,8 @@ interface EstadoDeEquipo {
   huellaPropia: string | null
   /** La huella de cada device pendiente, calculada del lado del leader. */
   huellasPorDevice: Record<string, string>
+  hasPersonalKey?: boolean
+  recryptPending?: number | null
 }
 
 async function teamEncryptionStatus(page: Page, teamId: string): Promise<EstadoDeEquipo> {
@@ -316,10 +318,19 @@ async function teamEncryptionStatus(page: Page, teamId: string): Promise<EstadoD
       .memory.teamEncryptionStatus(tid), teamId)
 }
 
-async function teamEncryptionRecrypt(page: Page, teamId: string): Promise<{ total: number; applied: number; rejected: number; error?: string }> {
+interface ResultadoMigracion { total: number; applied: number; rejected: number; remaining: number; missingLocally: number; error?: string }
+
+async function teamEncryptionRecrypt(page: Page, teamId: string): Promise<ResultadoMigracion> {
   return page.evaluate((tid) =>
-    (window as unknown as { memory: { teamEncryptionRecrypt(t: string): Promise<{ total: number; applied: number; rejected: number; error?: string }> } })
+    (window as unknown as { memory: { teamEncryptionRecrypt(t: string): Promise<ResultadoMigracion> } })
       .memory.teamEncryptionRecrypt(tid), teamId)
+}
+
+/** Lo que el servicio sigue teniendo en claro de ese equipo: lo mismo que mira `recrypt-pending`. */
+function enClaroDelEquipo(teamId: string): number {
+  return Number(sql(`select count(*) from observations o join projects p on p.id = o.project_id
+    where p.team_id = '${teamId}' and o.scope = 'team'
+      and (o.title not like 'nmc1:%' or (o.content is not null and o.content not like 'nmc1:%'))`))
 }
 
 /** `huella`: la que el leader comparó con la que le dictó B (I4 de la review final): main.ts no
@@ -331,10 +342,13 @@ async function teamEncryptionAuthorize(page: Page, teamId: string, deviceId: str
 }
 
 /**
- * El escenario entero. B NUNCA comparte su copia del proyecto: ése es el caso normal (el de
- * e2e/13), y lee la memoria de equipo porque el servidor manda el `team_id` en cada fila de
+ * El escenario entero. B NUNCA comparte su copia del proyecto de A: ése es el caso normal (el
+ * de e2e/13), y lee la memoria de equipo porque el servidor manda el `team_id` en cada fila de
  * equipo del pull y el cliente elige la clave por ése (Task 14), no por su `projects.team_id`
  * local, que sólo existe en la máquina que compartió.
+ *
+ * Al revés pasa lo mismo y es lo que prueba C1 (Task 15): B comparte un proyecto PROPIO, que A
+ * no tiene compartido, y la migración del leader igual tiene que sellar esa fila.
  *
  * Y nadie llama `teamEncryptionAdopt` a mano en los relanzamientos: la readopción de arranque
  * (Task 14) la hace sola. El chequeo de §9.4 es una memoria de equipo escrita APENAS arranca
@@ -353,6 +367,20 @@ async function escenario(): Promise<void> {
   let homeDirB = ''
   const posArranque = `Decision post-arranque ${marca}`
   try {
+    // ── B (member), ANTES de que nadie cifre: comparte SU proyecto y promueve una memoria ──
+    // C1 de la review final: un proyecto con otro remoto, que A nunca clonó ni compartió. A
+    // recibe la fila de equipo por el pull (`team_cursors`), pero su `projects.team_id` local
+    // para ese project_key no existe — y la migración vieja filtraba por eso, así que esta fila
+    // quedaba en claro en el servicio para siempre. Ahora la lista sale del servidor.
+    h = await launchHarness()
+    apuntarAlRemoto(h.repoDir, `${marca}-b`)
+    await conectar(h.page, cB)
+    await activarCifradoPersonal(h.page)
+    const b = await autorComparteYPromueve(h, teamId, `${marca}-b`)
+    expect(filaEnElServicio(b.syncIdEquipo)?.title).toBe(b.deEquipo) // en claro, todavía
+    homeDirB = h.homeDir
+    await teardown(h, { keepHomeDir: true }); h = null
+
     // ── A (leader): guarda, comparte, promueve — TODO en claro, antes de activar nada ──
     h = await launchHarness()
     apuntarAlRemoto(h.repoDir, marca)
@@ -371,28 +399,36 @@ async function escenario(): Promise<void> {
     expect(act.recoveryCode).toBeTruthy()
 
     // ── Migrar lo que ya estaba (IPC real, sobre la ruta HTTP real) ──────────────
-    // `projects.team_id` local llega solo: el roster de `/v1/sync/status` trae el team_id de
-    // cada proyecto propio y `doStatus` lo copia (Task 14). Antes había que repetir el share a
-    // mano. La migración lo necesita (`localTeamRowsForTeam` filtra por él) y el drain de
-    // `conectar` corre en segundo plano, así que se reintenta. Un intento con 0 filas no pega
-    // al servidor (`runTeamRecrypt` no hace request sin filas).
+    // `activate` ya la disparó sola (I3); esto se cuelga de esa corrida o arranca otra. La
+    // lista de lo pendiente sale del SERVIDOR (C1) y las filas se buscan local por sync_id,
+    // de cualquier proyecto: la de B incluida, aunque A no tenga su proyecto compartido. Si A
+    // todavía no bajó la fila de B, la migración pide un pull y vuelve a mirar; se reintenta
+    // porque el drain de `conectar` corre en segundo plano.
     const paginaA = h.page
-    let migr: Awaited<ReturnType<typeof teamEncryptionRecrypt>> = { total: 0, applied: 0, rejected: 0 }
-    await expect.poll(async () => { migr = await teamEncryptionRecrypt(paginaA, teamId); return migr.applied }, { timeout: 30_000 })
-      .toBeGreaterThanOrEqual(1)
+    let migr: ResultadoMigracion = { total: 0, applied: 0, rejected: 0, remaining: -1, missingLocally: 0 }
+    await expect.poll(async () => { migr = await teamEncryptionRecrypt(paginaA, teamId); return migr.remaining }, { timeout: 60_000 })
+      .toBe(0)
     expect(migr.error, JSON.stringify(migr)).toBeUndefined()
 
-    // En el SERVICIO, la fila de equipo ahora tiene que estar cifrada de verdad, y el texto
-    // no puede quedar legible en ningún lado de la tabla.
+    // En el SERVICIO, las dos filas de equipo —la de A y la que B compartió desde su copia—
+    // tienen que estar cifradas de verdad, y el texto no puede quedar legible en ningún lado.
     expect(filaEnElServicio(a.syncIdEquipo)!.title).toMatch(/^nmc1:/)
-    expect(sql(`select count(*) from observations where title like '%${a.deEquipo}%' or content like '%${a.deEquipo}%'`)).toBe('0')
+    expect(filaEnElServicio(b.syncIdEquipo)!.title).toMatch(/^nmc1:/)
+    expect(enClaroDelEquipo(teamId), 'quedaron filas de equipo en claro en el servicio').toBe(0)
+    for (const texto of [a.deEquipo, b.deEquipo]) {
+      expect(sql(`select count(*) from observations where title like '%${texto}%' or content like '%${texto}%'`)).toBe('0')
+    }
+    // Y la tarjeta lo ve igual: lo pendiente según el servidor es 0.
+    expect((await teamEncryptionStatus(paginaA, teamId)).recryptPending).toBe(0)
 
     await h.page.screenshot({ path: join(SHOTS, '01-leader-migro.png') })
     homeDirA = h.homeDir
     await teardown(h, { keepHomeDir: true }); h = null
 
-    // ── B (member) se conecta: todavía no está autorizado ────────────────────────
-    h = await launchHarness()
+    // ── B (member) vuelve: todavía no está autorizado ────────────────────────────
+    // Misma identidad local que en su primer lanzamiento (`homeDirB`): su par de device es el
+    // que publicó al activar el cifrado personal, y el que A va a autorizar.
+    h = await launchHarness({ homeDir: homeDirB })
     apuntarAlRemoto(h.repoDir, marca)
     await conectar(h.page, cB)
     // El cifrado personal de B, requisito para que B pueda ADOPTAR la clave de equipo más
@@ -409,10 +445,10 @@ async function escenario(): Promise<void> {
     // Lo que B le dictaría al leader por un canal aparte.
     const huellaQueDictaB = estadoAntes.huellaPropia
     expect(huellaQueDictaB).toBeTruthy()
+    expect(estadoAntes.hasPersonalKey).toBe(true)
     // Y sin la clave, la fila de equipo no puede aparecer en claro en B.
     expect((await loQueTiene(h.page, marca)).map((m) => m.title)).not.toContain(a.deEquipo)
     await h.page.screenshot({ path: join(SHOTS, '02-companero-sin-autorizar.png') })
-    homeDirB = h.homeDir
     await teardown(h, { keepHomeDir: true }); h = null
 
     // ── A (leader) vuelve: recupera su clave de equipo y autoriza a B ────────────
@@ -483,6 +519,6 @@ async function escenario(): Promise<void> {
   }
 }
 
-test('cifrado de equipo: migra lo viejo, el compañero lee en claro SIN compartir su copia, y nada sale en claro al arrancar', async () => {
+test('cifrado de equipo: migra lo viejo (también lo que compartió el compañero), el compañero lee en claro SIN compartir su copia, y nada sale en claro al arrancar', async () => {
   await escenario()
 })
