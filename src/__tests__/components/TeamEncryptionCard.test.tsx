@@ -59,3 +59,34 @@ describe('TeamEncryptionCard — un member (no leader)', () => {
     expect(screen.queryByRole('button', { name: /turn on team encryption/i })).not.toBeInTheDocument()
   })
 })
+
+describe('TeamEncryptionCard — huellas de dispositivos pendientes', () => {
+  it('muestra la huella de cada dispositivo pendiente con instrucción', async () => {
+    window.memory.teamEncryptionStatus = vi.fn().mockResolvedValue({
+      activated: true,
+      wrap: null,
+      pendingDevices: [{ deviceId: 'dev-1', name: 'Mi laptop', publicKey: 'key1' }],
+      hasMaster: true,
+      estadoRemotoLeido: true,
+      huellasPorDevice: { 'dev-1': 'AAAA-BBBB-CCCC-DDDD' },
+    })
+    render(<TeamEncryptionCard />)
+    expect(await screen.findByText('Authorise it only if that machine shows exactly this code:')).toBeInTheDocument()
+    expect(await screen.findByText('AAAA-BBBB-CCCC-DDDD')).toBeInTheDocument()
+  })
+})
+
+describe('TeamEncryptionCard — estado remoto desconocido', () => {
+  it('no ofrece activar cuando no se pudo leer el estado del servidor', async () => {
+    window.memory.teamEncryptionStatus = vi.fn().mockResolvedValue({
+      activated: false,
+      wrap: null,
+      pendingDevices: [],
+      hasMaster: false,
+      estadoRemotoLeido: false,
+    })
+    render(<TeamEncryptionCard />)
+    expect(await screen.findByText(/could not read this team.*s encryption state/i)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /turn on team encryption/i })).not.toBeInTheDocument()
+  })
+})

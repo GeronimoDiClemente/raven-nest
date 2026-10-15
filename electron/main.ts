@@ -3523,15 +3523,25 @@ ipcMain.handle('memory:encryption:reencrypt', async () => {
 ipcMain.handle('memory:teamEncryption:status', async (_e, teamId: string) => {
   const deps = teamKeysDeps()
   const hasMaster = teamMasterKeys.has(teamId)
-  if (!deps) return { activated: false, wrap: null, pendingDevices: [], hasMaster }
+  let estadoRemotoLeido = !deps
+  let pendingDevices: Array<{ deviceId: string; name: string; publicKey: string }> = []
+  if (!deps) return { activated: false, wrap: null, pendingDevices: [], hasMaster, estadoRemotoLeido, huellaPropia: null, huellasPorDevice: {} }
   try {
     const estado = await fetchTeamKeyState(deps, teamId)
-    return { ...estado, hasMaster }
+    pendingDevices = estado.pendingDevices
+    estadoRemotoLeido = true
+    return {
+      ...estado,
+      hasMaster,
+      estadoRemotoLeido,
+      huellaPropia: memoryKeys ? huellaDeClave(memoryKeys.device.publicKey) : null,
+      huellasPorDevice: Object.fromEntries(estado.pendingDevices.map((d) => [d.deviceId, huellaDeClave(d.publicKey)])),
+    }
   } catch {
     // Mismo tratamiento que el `memory:encryption:status` personal: un corte de red no puede
     // devolver un estado que parezca "equipo sin activar" — la UI lo leería como que puede
     // ofrecer "Activar" de nuevo.
-    return { activated: false, wrap: null, pendingDevices: [], hasMaster }
+    return { activated: false, wrap: null, pendingDevices: [], hasMaster, estadoRemotoLeido: false, huellaPropia: null, huellasPorDevice: {} }
   }
 })
 

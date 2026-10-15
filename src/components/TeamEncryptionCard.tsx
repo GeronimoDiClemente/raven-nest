@@ -12,6 +12,9 @@ interface EstadoCifradoEquipo {
   wrap: { wrapped: string; wrapMeta: Record<string, unknown> | null } | null
   pendingDevices: Array<{ deviceId: string; name: string; publicKey: string }>
   hasMaster: boolean
+  estadoRemotoLeido?: boolean
+  huellaPropia?: string | null
+  huellasPorDevice?: Record<string, string>
 }
 
 export default function TeamEncryptionCard() {
@@ -57,6 +60,23 @@ export default function TeamEncryptionCard() {
   }, [necesitaClave, adoptar, activeTeam, refrescar])
 
   if (!api?.teamEncryptionStatus || !activeTeam || !estado) return null
+
+  // No se ofrece activar a ciegas: si el estado no se pudo leer, no sabemos si el equipo
+  // ya tiene cifrado activado en otro lado. Activar sin saber es crear una época paralela
+  // y quedarse sin acceso a lo que otros subieron con la clave verdadera.
+  if (estado.estadoRemotoLeido === false) {
+    return (
+      <div className="flex shrink-0 flex-col gap-2 rounded-md border border-border p-3">
+        <div className="flex items-center gap-2">
+          <ShieldQuestion size={ICON_SIZE.md} className="text-muted-foreground" aria-hidden />
+          <p className="text-fs font-medium text-foreground">Team encryption</p>
+        </div>
+        <p className="text-fs-sm text-muted-foreground">
+          Could not read this team&rsquo;s encryption state. Come back when you are online.
+        </p>
+      </div>
+    )
+  }
 
   async function conBloqueo(fn: () => Promise<void>) {
     setOcupado(true); setError(null)
@@ -204,9 +224,24 @@ export default function TeamEncryptionCard() {
         <div className="flex flex-col gap-1">
           <p className="text-fs-sm text-foreground">Machines waiting for authorisation:</p>
           {estado.pendingDevices.map((d) => (
-            <div key={d.deviceId} className="flex items-center justify-between rounded-md border border-border p-2">
+            <div key={d.deviceId} className="flex flex-col gap-1 rounded-md border border-border p-2">
               <p className="text-fs-sm text-foreground">{d.name}</p>
-              <Button size="sm" variant="outline" disabled={ocupado} onClick={() => void autorizar(d.deviceId)}>Authorise</Button>
+              {/* La huella de la clave que el SERVIDOR dice que es de esa máquina. Que el
+                  usuario la compare es lo único que detecta una sustitución: sin esto,
+                  autorizar es confiar en que quien dice de quién es cada clave no miente. */}
+              {estado.huellasPorDevice?.[d.deviceId] && (
+                <>
+                  <p className="text-fs-xs text-muted-foreground">
+                    Authorise it only if that machine shows exactly this code:
+                  </p>
+                  <p className="select-all text-center font-mono text-fs tracking-[0.08em] text-foreground">
+                    {estado.huellasPorDevice[d.deviceId]}
+                  </p>
+                </>
+              )}
+              <div>
+                <Button size="sm" variant="outline" disabled={ocupado} onClick={() => void autorizar(d.deviceId)}>They match — authorise</Button>
+              </div>
             </div>
           ))}
         </div>

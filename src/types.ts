@@ -983,6 +983,9 @@ declare global {
         wrap: { wrapped: string; wrapMeta: Record<string, unknown> | null } | null
         pendingDevices: Array<{ deviceId: string; name: string; publicKey: string }>
         hasMaster: boolean
+        estadoRemotoLeido?: boolean
+        huellaPropia?: string | null
+        huellasPorDevice?: Record<string, string>
       }>
       teamEncryptionActivate?: (teamId: string) => Promise<{ ok: true; recoveryCode: string } | { ok: false; error: string }>
       teamEncryptionAdopt?: (teamId: string) => Promise<{ ok: true; adoptada: boolean } | { ok: false; error: string }>
