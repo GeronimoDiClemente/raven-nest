@@ -181,6 +181,46 @@ async function promoverPorMcp(h: Harness, syncId: string): Promise<string> {
   }
 }
 
+/**
+ * I2 (review de Tasks 13–14): escribe una memoria de EQUIPO en la base local de una instalación
+ * CERRADA, con el `MemoryStore` real (el del paquete compilado, sobre `node:sqlite`), para que
+ * esté en el `mutation_log` desde ANTES de que la app arranque. Así el chequeo de §9.4 no
+ * depende de cuándo cae un `guardar` respecto de la readopción: la fila ya está en la cola en
+ * el instante cero, y el primer push que pueda salir la ve.
+ *
+ * No por el MCP del paquete: con Nest cerrado escribe en la base de Nest (modo `nest`) SIN
+ * declarar la cuenta (`setCurrentUser`), y en una instalación con cuenta la fila queda con
+ * `author_user_id = null` en un store con dueño: `pendingMutations()` de la app no la ofrece (es
+ * una fila "sin reclamar", `countUnclaimedRows`). En este harness no muerde (no hay `setUser`),
+ * pero el test no tiene por qué depender de eso; acá se declara el dueño que el store ya tenga.
+ */
+function escribirDeEquipoConLaAppCerrada(homeDir: string, projectKey: string, title: string): string {
+  const dist = join(PAQUETE, 'dist').replace(/\\/g, '/')
+  const script = `
+    require('${dist}/silenciar-aviso-sqlite')
+    require('${dist}/sqlite-motor').usarAbridorPorDefecto(require('${dist}/sqlite-sin-compilar').abrirBase)
+    const ptr = require('${dist}/memory-active-store').readActivePointer(process.env.RAVEN_HOME)
+    if (!ptr) throw new Error('sin puntero a la base activa en ' + process.env.RAVEN_HOME)
+    const { MemoryStore } = require('${dist}/memory-store')
+    const store = new MemoryStore(ptr.storePath)
+    try {
+      // La cuenta que la app ya declaró sobre este store (null en el harness, que no hace
+      // \`memory:setUser\`): declarar OTRA reclamaría el store y la app dejaría de ver la cola.
+      store.setCurrentUser(store.getOwnerUserId())
+      const r = store.save({ projectKey: process.env.E2E_PK, scope: 'personal', type: 'decision',
+        title: process.env.E2E_TITLE, content: 'Contenido de: ' + process.env.E2E_TITLE, source: 'mcp' })
+      const p = store.promoteToTeam(r.syncId, 'e2e: escrita con la app cerrada')
+      if (!p.promoted) throw new Error('no se pudo promover ' + r.syncId)
+      process.stdout.write(r.syncId)
+    } finally {
+      store.close()
+    }`
+  return execFileSync(process.execPath, ['-e', script], {
+    encoding: 'utf8',
+    env: { ...process.env, RAVEN_HOME: homeDir, E2E_PK: projectKey, E2E_TITLE: title, NODE_NO_WARNINGS: '1' },
+  }).trim()
+}
+
 async function abrirMemories(page: Page): Promise<void> {
   const toggle = page.getByRole('button', { name: /Collapse sidebar|Expand sidebar/ })
   await expect(toggle).toBeVisible({ timeout: 15_000 })
@@ -374,19 +414,27 @@ async function escenario(): Promise<void> {
     await teardown(h, { keepHomeDir: true }); h = null
 
     // ── A (leader) vuelve: recupera su clave de equipo y autoriza a B ────────────
+    // §9.4: una memoria de equipo que ya está en la cola cuando la app arranca, sin abrir la
+    // tarjeta ni llamar `teamEncryptionAdopt`. Antes de Task 14 subía EN CLARO (la clave de
+    // equipo vive sólo en memoria y nadie la readoptaba hasta que se montaba la tarjeta).
+    // Se escribe con la app CERRADA (ver `escribirDeEquipoConLaAppCerrada`): cae en la ventana de
+    // arranque por construcción, no por timing.
+    const syncIdPosArranque = escribirDeEquipoConLaAppCerrada(homeDirA, a.projectKey, posArranque)
+    expect(syncIdPosArranque).toBeTruthy()
+
     h = await launchHarness({ homeDir: homeDirA })
     apuntarAlRemoto(h.repoDir, marca) // mismo remoto → mismo project_key que antes
     await conectar(h.page, cA)
 
-    // §9.4: una memoria de equipo escrita APENAS arranca la app, sin abrir la tarjeta ni llamar
-    // `teamEncryptionAdopt`. Antes de Task 14 subía EN CLARO (la clave de equipo vive sólo en
-    // memoria y nadie la readoptaba hasta que se montaba la tarjeta).
-    const syncIdPosArranque = await guardar(h.page, h.repoDir, posArranque)
-    const promo2 = await promoverPorMcp(h, syncIdPosArranque)
-    expect(promo2, promo2).toContain('true')
-    await expect.poll(() => filaEnElServicio(syncIdPosArranque)?.scope, { timeout: 60_000 }).toBe('team')
+    // Que no quedó guardada no prueba que no SALIÓ: un push en claro a un equipo que cifra el
+    // servidor lo rechaza sin guardarlo (`team_encryption_required`), y lo único que queda es el
+    // registro del rechazo. Por eso el poll también lo mira: un envío en claro se ve como
+    // 'rechazada', no como un timeout sin explicación.
+    const rechazosPosArranque = (): number => Number(sql(`select count(*) from rejected_pushes where sync_id = '${syncIdPosArranque}'`))
+    await expect.poll(() => (rechazosPosArranque() > 0 ? 'rechazada' : filaEnElServicio(syncIdPosArranque)?.scope), { timeout: 60_000 }).toBe('team')
     expect(filaEnElServicio(syncIdPosArranque)!.title).toMatch(/^nmc1:/)
     expect(sql(`select count(*) from observations where title like '%${posArranque}%' or content like '%${posArranque}%'`)).toBe('0')
+    expect(rechazosPosArranque(), 'la fila pos-arranque viajó en claro y el servidor la rechazó').toBe(0)
 
     const paginaA2 = h.page
     await expect.poll(async () => (await teamEncryptionStatus(paginaA2, teamId)).hasMaster, { timeout: 30_000 }).toBe(true)

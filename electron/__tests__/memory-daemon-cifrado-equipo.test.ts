@@ -239,6 +239,27 @@ describe('status — roster y readopción (Task 14)', () => {
     expect(store.undecryptableCount()).toBe(0)
   })
 
+  it('el primer push de la sesión espera a la readopción: una fila de equipo ya encolada al arrancar sale cifrada, nunca en claro', async () => {
+    // I2: lo que el e2e no puede forzar (allá la readopción, un round trip local, le gana igual
+    // a status→pull→push). Acá el hook tarda lo que el test quiera.
+    store.setLocalTeamId('proj1', TEAM)
+    guardar('team', 'encolada antes de arrancar')
+    const equipos = new Map<string, MemoryKeys>()
+    let soltar!: () => void
+    const readopcion = new Promise<void>((r) => { soltar = r })
+    const srv = servidor({ encryptedTeams: [{ team_id: TEAM, has_wrap: true }] })
+    const d = daemon(srv.fetchImpl, () => ctxCon(equipos), {
+      onEncryptedTeams: async () => { await readopcion; equipos.set(TEAM, keysEquipo) },
+    })
+    const push = d.push()
+    await new Promise((r) => setTimeout(r, 50))
+    expect(srv.subidas, 'nada sale mientras la readopción está en vuelo').toEqual([])
+    soltar()
+    await push
+    expect(srv.subidas).toHaveLength(1)
+    expect(isCiphertext(String(srv.subidas[0].title))).toBe(true)
+  })
+
   it('un hook que se cuelga no traba el status', async () => {
     vi.useFakeTimers()
     try {
