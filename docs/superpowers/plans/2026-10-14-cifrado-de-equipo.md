@@ -1816,7 +1816,7 @@ re-encolar mutaciones.
 ```ts
 // electron/__tests__/memory-team-reencrypt.test.ts
 import { describe, it, expect, vi } from 'vitest'
-import { generateMasterKey, deriveKeys } from '../memory-crypto'
+import { generateMasterKey, deriveKeys, decryptField, fieldAad } from '../memory-crypto'
 import { runTeamRecrypt } from '../memory-team-reencrypt'
 
 describe('runTeamRecrypt', () => {
@@ -1846,6 +1846,27 @@ describe('runTeamRecrypt', () => {
     expect(body.items[1].content).toBeNull() // un content null (tombstone) no se cifra, viaja tal cual
     expect(body.items[1].content_hash).toBeNull()
     expect(body.items[1].origin_account).toBeNull()
+
+    // El chequeo que de verdad importa: el sobre tiene que abrir con la clave DERIVADA
+    // (`deriveKeys(master)`), que es la que cualquier otro device del equipo usa para
+    // descifrar — nunca con la maestra cruda. Si `runTeamRecrypt` cifrara con la maestra
+    // directo, este `decryptField` tiraría (tag de GCM no válido) en vez de devolver el texto.
+    const keysReales = deriveKeys(master)
+    expect(decryptField(keysReales, body.items[0].title, fieldAad('a', 'title'))).toBe('Uno')
+    expect(decryptField(keysReales, body.items[0].content_hash!, fieldAad('a', 'content_hash'))).toBe('hash-uno')
+  })
+
+  it('rechaza (lanza) si el servidor devuelve un status no-ok, sin contar el lote como aplicado', async () => {
+    const master = generateMasterKey()
+    const fetchImpl = vi.fn(async () =>
+      new Response(JSON.stringify({ error: 'invalid_fields' }), { status: 400 }))
+    await expect(
+      runTeamRecrypt(
+        { baseUrl: 'http://x', token: 't', deviceId: 'd', fetchImpl },
+        'team-1', master,
+        [{ syncId: 'a', title: 'A', content: 'x', tags: [], contentHash: null, originAccount: null }]
+      )
+    ).rejects.toThrow(/400/)
   })
 
   it('reporta progreso y cuenta los rejected del servidor', async () => {
@@ -1881,7 +1902,7 @@ Expected: FAIL — `Cannot find module '../memory-team-reencrypt'`
 // bajo la clave de equipo recién creada. A diferencia de la migración personal
 // (memory-reencrypt.ts), esto reescribe filas de OTROS autores, así que no puede pasar por
 // el push normal (server/src/push.ts exige same-author) — llama al endpoint dedicado.
-import { encryptField, fieldAad } from './memory-crypto'
+import { deriveKeys, encryptField, fieldAad } from './memory-crypto'
 import type { MemoryKeys } from './memory-crypto'
 
 export interface TeamReencryptDeps {
@@ -1914,7 +1935,12 @@ export async function runTeamRecrypt(
   rows: LocalTeamRow[],
   onProgress?: (p: { total: number; done: number }) => void
 ): Promise<{ total: number; applied: number; rejected: number }> {
-  const keys: MemoryKeys = { field: master, topic: master } // sólo se usa `field` acá; `topic` no aplica a este endpoint
+  // `deriveKeys`, NUNCA la maestra directo: `memory-crypto.ts` lo documenta explícitamente
+  // ("Subclaves por proposito, no la maestra directo en los dos usos") y CADA otro call site
+  // del repo que arma un `MemoryKeys` desde un Buffer de maestra pasa por acá primero. Usar
+  // `{ field: master, topic: master }` cifra con una clave que ningún otro device deriva al
+  // descifrar — GCM rechaza el tag y la fila queda ilegible PARA SIEMPRE, sin aviso.
+  const keys: MemoryKeys = deriveKeys(master)
   let applied = 0
   let rejected = 0
   const f = deps.fetchImpl ?? fetch
@@ -1934,6 +1960,16 @@ export async function runTeamRecrypt(
       headers: { Authorization: `Bearer ${deps.token}`, 'Content-Type': 'application/json', 'X-Device-Test': deps.deviceId },
       body: JSON.stringify({ team_id: teamId, items }),
     })
+    // El servidor (`server/src/team-keys-recrypt.ts`) rechaza el LOTE ENTERO con 400 si un solo
+    // item trae `content` que no sea string — pasa con una fila con tombstone, aunque
+    // `localTeamRowsForTeam` (Task 11) ya filtra `deleted = 0` y no debería entregar ninguna.
+    // Sin este chequeo, un 400 se leía como `json.applied = undefined` → se sumaba 0 y el lote
+    // entero quedaba descartado EN SILENCIO: `onProgress` seguía reportando `done` como si
+    // hubiera terminado bien.
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as { error?: string }
+      throw new Error(`recrypt rechazado: ${res.status} ${body.error ?? ''}`)
+    }
     const json = (await res.json()) as { applied?: string[]; rejected?: Array<{ sync_id: string }> }
     applied += json.applied?.length ?? 0
     rejected += json.rejected?.length ?? 0
@@ -1947,7 +1983,7 @@ export async function runTeamRecrypt(
 - [ ] **Step 4: Correr el test, confirmar que pasa**
 
 Run: `npx vitest run electron/__tests__/memory-team-reencrypt.test.ts`
-Expected: PASS (2 tests)
+Expected: PASS (3 tests)
 
 - [ ] **Step 5: Commit**
 
