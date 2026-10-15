@@ -199,3 +199,79 @@ describe('openPulledRow', () => {
     expect(row.originAccount).toBe('claude:alguien')
   })
 })
+
+describe('scope team con teamKeys', () => {
+  const masterPersonal = generateMasterKey()
+  const keysPersonal = deriveKeys(masterPersonal)
+  const masterEquipo = generateMasterKey()
+  const keysEquipo = deriveKeys(masterEquipo)
+
+  it('sealMutationPayload cifra una fila team cuando hay clave de equipo para ESE project_key', () => {
+    const ctx = { keys: keysPersonal, keyEpoch: 1, teamKeys: (pk: string) => (pk === 'proj-x' ? keysEquipo : null) }
+    const sellado = sealMutationPayload(ctx, {
+      sync_id: 'abc', scope: 'team', project_key: 'proj-x', title: 'Decisión', content: 'texto', tags: [],
+    })
+    expect(sellado.title).toMatch(/^nmc1:/)
+    expect(sellado.content).toMatch(/^nmc1:/)
+  })
+
+  it('sealMutationPayload NO cifra team si teamKeys da null para ese proyecto (sin activar)', () => {
+    const ctx = { keys: keysPersonal, keyEpoch: 1, teamKeys: () => null }
+    const sellado = sealMutationPayload(ctx, {
+      sync_id: 'abc', scope: 'team', project_key: 'proj-x', title: 'Decisión', content: 'texto', tags: [],
+    })
+    expect(sellado.title).toBe('Decisión')
+  })
+
+  it('sealMutationPayload sigue sin tocar scope personal cuando hay teamKeys configurado', () => {
+    const ctx = { keys: keysPersonal, keyEpoch: 1, teamKeys: () => keysEquipo }
+    const sellado = sealMutationPayload(ctx, {
+      sync_id: 'abc', scope: 'personal', project_key: 'proj-x', title: 'Nota', content: 'texto', tags: [],
+    })
+    expect(sellado.title).toMatch(/^nmc1:/) // cifrada con la PERSONAL, como siempre
+  })
+
+  it('openPulledRow descifra una fila team con la clave de equipo correcta', () => {
+    const sellado = sealMutationPayload(
+      { keys: keysPersonal, keyEpoch: 1, teamKeys: () => keysEquipo },
+      { sync_id: 'abc', scope: 'team', project_key: 'proj-x', title: 'Decisión', content: 'texto', tags: [] }
+    )
+    const { row, undecryptable } = openPulledRow(
+      { keys: keysPersonal, keyEpoch: 1, teamKeys: (pk) => (pk === 'proj-x' ? keysEquipo : null) },
+      { syncId: 'abc', scope: 'team', projectKey: 'proj-x', title: sellado.title as string, content: sellado.content as string, tags: [] } as never
+    )
+    expect(row.title).toBe('Decisión')
+    expect(undecryptable).toBe(false)
+  })
+
+  it('openPulledRow marca undecryptable si la fila es team y no hay clave de equipo para ese proyecto', () => {
+    const sellado = sealMutationPayload(
+      { keys: keysPersonal, keyEpoch: 1, teamKeys: () => keysEquipo },
+      { sync_id: 'abc', scope: 'team', project_key: 'proj-x', title: 'Decisión', content: 'texto', tags: [] }
+    )
+    const { undecryptable } = openPulledRow(
+      { keys: keysPersonal, keyEpoch: 1, teamKeys: () => null },
+      { syncId: 'abc', scope: 'team', projectKey: 'proj-x', title: sellado.title as string, content: sellado.content as string, tags: [] } as never
+    )
+    expect(undecryptable).toBe(true)
+  })
+
+  it('el HMAC de tópico de una fila team usa la clave de EQUIPO, no la personal de quien llama', () => {
+    // Dos "personas" con personales DISTINTAS pero la MISMA clave de equipo — el caso real:
+    // dos miembros de un equipo, cada uno con su propia cuenta cifrada, compartiendo un tema.
+    const keysPersonalDeOtraPersona = deriveKeys(generateMasterKey())
+    const ctxAutorA = { keys: keysPersonal, keyEpoch: 1, teamKeys: () => keysEquipo }
+    const ctxAutorB = { keys: keysPersonalDeOtraPersona, keyEpoch: 1, teamKeys: () => keysEquipo }
+
+    const selladoA = sealMutationPayload(ctxAutorA, {
+      sync_id: 'abc', scope: 'team', project_key: 'proj-x', topic_key: 'mismo-tema', title: 't', content: 'c', tags: [],
+    })
+    const selladoB = sealMutationPayload(ctxAutorB, {
+      sync_id: 'def', scope: 'team', project_key: 'proj-x', topic_key: 'mismo-tema', title: 't', content: 'c', tags: [],
+    })
+    // Si esto usara `ctx.keys` (la personal de cada uno) en vez de la clave de equipo
+    // resuelta, los dos HMAC saldrían distintos y el supersede de equipo (`push.ts:537`,
+    // que compara por igualdad) dejaría de encontrarlos como el mismo tema.
+    expect(selladoA.topic_key).toBe(selladoB.topic_key)
+  })
+})

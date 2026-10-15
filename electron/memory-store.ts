@@ -1030,6 +1030,12 @@ export class MemoryStore {
     this.db.prepare(`UPDATE projects SET ${parches.join(', ')} WHERE project_key = ?`).run(...valores)
   }
 
+  /** `projects.team_id` de ESTE project_key, o null si no está compartido con ningún equipo. */
+  teamIdForProjectKey(projectKey: string): string | null {
+    const fila = this.db.prepare('SELECT team_id FROM projects WHERE project_key = ?').get(projectKey) as { team_id: string | null } | undefined
+    return fila?.team_id ?? null
+  }
+
   /** M17: enumerates known local projects so the daemon can pull with a per-project cursor for each. */
   /**
    * Conecta dos memorias a mano. Sin dirección: "esta va con esta".

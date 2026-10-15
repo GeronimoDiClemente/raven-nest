@@ -13,6 +13,10 @@ export interface EnvelopeContext {
   keys: MemoryKeys
   /** Solo informativo hoy; existe para que un futuro `nmc2:` sepa con que epoca abrir. */
   keyEpoch: number
+  /** `project_key -> claves de equipo activas para ESE proyecto`, o `null` si el proyecto no
+   * tiene equipo con cifrado activo (equipo sin activar, o este device sin wrap todavía).
+   * Ausente (no sólo `null`) en builds/callers viejos que no conocen el cifrado de equipo. */
+  teamKeys?: (projectKey: string) => MemoryKeys | null
 }
 
 /**
@@ -28,15 +32,8 @@ export interface EnvelopeContext {
  */
 const SEALED_FIELDS = ['title', 'content', 'project_display_name', 'content_hash', 'origin_account'] as const
 
-/**
- * Decision 1 del §9: en la v1 el scope `team` NO se cifra. La clave por equipo del §5.4
- * necesita un par de claves por usuario que todavia no existe, y hoy los tres equipos de
- * prueba tienen 0 miembros, asi que no hay memoria de equipo real que proteger. Va
- * anunciado en la landing, no escondido.
- */
-function esDeEquipo(scope: unknown): boolean {
-  return scope === 'team'
-}
+// El cifrado de scope `team` está implementado: ver
+// `docs/superpowers/specs/2026-10-14-cifrado-de-equipo-design.md` para la decisión vigente.
 
 /** 32 hex en minuscula es exactamente lo que devuelve `hmacTopicKey`. */
 export function looksLikeTopicHmac(value: string): boolean {
@@ -47,7 +44,11 @@ export function sealMutationPayload(
   ctx: EnvelopeContext | null,
   payload: Record<string, unknown>
 ): Record<string, unknown> {
-  if (!ctx || esDeEquipo(payload.scope)) return payload
+  const esTeam = payload.scope === 'team'
+  const keysDeTeam = esTeam ? (ctx?.teamKeys?.(String(payload.project_key ?? '')) ?? null) : null
+  if (esTeam && !keysDeTeam) return payload // equipo sin cifrado activo: en claro, como hoy
+  const keys = esTeam ? keysDeTeam! : ctx?.keys
+  if (!keys) return payload
 
   const syncId = String(payload.sync_id ?? '')
   const sealed: Record<string, unknown> = { ...payload }
@@ -58,7 +59,7 @@ export function sealMutationPayload(
     // servidor usa (`incomingDeleted` en push.ts). Cifrar un null lo convertiria en un
     // string y el tombstone dejaria de leerse como tal.
     if (typeof value !== 'string') continue
-    sealed[field] = encryptField(ctx.keys, value, fieldAad(syncId, field))
+    sealed[field] = encryptField(keys, value, fieldAad(syncId, field))
   }
 
   // Los tags van como UN sobre, no uno por tag: cifrar cada uno por separado filtraria
@@ -67,18 +68,20 @@ export function sealMutationPayload(
   // que su COALESCE espera (memory-daemon.ts documenta por que `[]` y no `null`).
   const tags = payload.tags
   if (Array.isArray(tags) && tags.length > 0) {
-    sealed.tags = [encryptField(ctx.keys, JSON.stringify(tags), fieldAad(syncId, 'tags'))]
+    sealed.tags = [encryptField(keys, JSON.stringify(tags), fieldAad(syncId, 'tags'))]
   }
 
-  // HMAC y no cifrado: el servidor supersede por igualdad (`server/src/push.ts:537`).
+  // El HMAC de tópico usa la MISMA clave que acaba de cifrar los campos de esta fila (`keys`:
+  // la de equipo si es team y hay una activa, si no la personal) — NUNCA incondicionalmente
+  // la personal. El servidor supersede por igualdad de este valor (`push.ts:537`): si dos
+  // miembros de un equipo derivaran el HMAC con sus respectivas claves PERSONALES (que son
+  // distintas entre sí), el mismo tema lógico produciría dos HMACs distintos y el supersede
+  // de equipo dejaría de funcionar entre autores distintos. `keys` ya es `undefined` cuando
+  // no hay ninguna clave disponible (equipo sin activar y sin `ctx`), así que el chequeo de
+  // abajo sigue sirviendo para "no hay nada con qué derivar".
   const topicKey = payload.topic_key
   if (typeof topicKey === 'string' && topicKey !== '') {
-    sealed.topic_key = hmacTopicKey(
-      ctx.keys,
-      String(payload.project_key ?? ''),
-      String(payload.scope ?? 'personal'),
-      topicKey
-    )
+    sealed.topic_key = hmacTopicKey(keys, String(payload.project_key ?? ''), String(payload.scope ?? 'personal'), topicKey)
   }
 
   return sealed
@@ -95,16 +98,22 @@ export interface OpenedRow {
 }
 
 export function openPulledRow(ctx: EnvelopeContext | null, row: PulledRow): OpenedRow {
-  if (esDeEquipo(row.scope)) return { row, undecryptable: false }
+  const esTeam = row.scope === 'team'
+  const keysDeTeam = esTeam ? (ctx?.teamKeys?.(row.projectKey) ?? null) : null
+  const keys = esTeam ? keysDeTeam : ctx?.keys
+  // Fila team sin clave de equipo disponible: si YA viene en claro (equipo nunca activó
+  // cifrado), pasa igual que antes. Si viene cifrada (nmc1:) y no hay clave, es undecryptable
+  // — mismo tratamiento que una personal sin autorizar. `abrir()` de abajo ya distingue los
+  // dos casos por `isCiphertext`, así que sólo hace falta pasarle `keys` (o nada).
 
   const abierto: PulledRow = { ...row }
   let undecryptable = false
 
   const abrir = (value: string | null | undefined, field: string): string | null | undefined => {
     if (value == null || !isCiphertext(value)) return value // fila en claro: pasa tal cual
-    if (!ctx) { undecryptable = true; return value }
+    if (!keys) { undecryptable = true; return value }
     try {
-      return decryptField(ctx.keys, value, fieldAad(row.syncId, field))
+      return decryptField(keys, value, fieldAad(row.syncId, field))
     } catch (err) {
       if (err instanceof MemoryDecryptError) { undecryptable = true; return value }
       throw err
@@ -147,8 +156,11 @@ export function openPulledRow(ctx: EnvelopeContext | null, row: PulledRow): Open
     if (ctx && looksLikeTopicHmac(row.topicKey)) {
       abierto.topicKey = null
       abierto.topicKeyHmac = row.topicKey
-    } else if (ctx) {
-      abierto.topicKeyHmac = hmacTopicKey(ctx.keys, row.projectKey, row.scope, row.topicKey)
+    } else if (keys) {
+      // Misma corrección que en `sealMutationPayload`: con `keys` (la de equipo si
+      // corresponde) y no incondicionalmente `ctx.keys`, para que dos miembros de un
+      // equipo deriven el MISMO HMAC de tópico sobre la MISMA clave compartida.
+      abierto.topicKeyHmac = hmacTopicKey(keys, row.projectKey, row.scope, row.topicKey)
     }
   }
 
