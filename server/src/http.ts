@@ -11,6 +11,8 @@ import { clavesDeSupabase } from './jwks'
 import { iniciarVinculacion, aprobarVinculacion, reclamarVinculacion } from './link'
 import { handleShareProject } from './share'
 import { enrollDeviceKey, getKeyState, publishWraps } from './keys'
+import { getTeamKeyState, activateTeamKey, authorizeTeamDevice } from './team-keys'
+import { recryptTeamObservations } from './team-keys-recrypt'
 import { handleBeta } from './betas'
 
 // El emisor del JWKS se arma UNA vez por URL y se guarda: cada instancia tiene su propio
@@ -221,9 +223,16 @@ async function handleRequest(pool: Pool, req: IncomingMessage, res: ServerRespon
   const isKeysEnroll = path === '/v1/keys/enroll'
   const isKeysGet = path === '/v1/keys'
   const isKeysPublish = path === '/v1/keys/publish'
+  // Cifrado de equipo (spec 2026-10-14): mismo ruteo plano que /v1/keys*, con team_id por
+  // query string en el GET y por body en los POST — nunca un segmento dinámico.
+  const isTeamKeyGet = path === '/v1/teams/key'
+  const isTeamKeyActivate = path === '/v1/teams/key/activate'
+  const isTeamKeyAuthorize = path === '/v1/teams/key/authorize'
+  const isTeamKeyRecrypt = path === '/v1/teams/key/recrypt'
 
   if (!isPush && !isPull && !isStatus && !isDelete && !isShare
-      && !isKeysEnroll && !isKeysGet && !isKeysPublish) {
+      && !isKeysEnroll && !isKeysGet && !isKeysPublish
+      && !isTeamKeyGet && !isTeamKeyActivate && !isTeamKeyAuthorize && !isTeamKeyRecrypt) {
     return send(res, 404, { error: 'not_found' })
   }
 
@@ -233,7 +242,8 @@ async function handleRequest(pool: Pool, req: IncomingMessage, res: ServerRespon
 
     // Después de autenticar, no antes: la clave es el device, y el device sale del token.
     // Limitar por IP dejaría a una oficina entera detrás de un NAT compartiendo cuota.
-    if (isPush || isPull || isKeysEnroll || isKeysGet || isKeysPublish) {
+    if (isPush || isPull || isKeysEnroll || isKeysGet || isKeysPublish
+        || isTeamKeyGet || isTeamKeyActivate || isTeamKeyAuthorize || isTeamKeyRecrypt) {
       const limiter = isPush ? pushLimiter : isPull ? pullLimiter : keysLimiter
       const verdict = limiter.check(auth.deviceId)
       if (!verdict.ok) {
@@ -275,6 +285,42 @@ async function handleRequest(pool: Pool, req: IncomingMessage, res: ServerRespon
       const result = await publishWraps(pool, auth, body)
       if (!result.ok) return send(res, result.status, { error: result.error })
       return send(res, 200, { ok: true, key_epoch: result.keyEpoch })
+    }
+
+    if (isTeamKeyGet) {
+      if (req.method !== 'GET') return send(res, 405, { error: 'method_not_allowed' })
+      const teamId = url.searchParams.get('team_id') ?? ''
+      if (!teamId) return send(res, 400, { error: 'missing_team_id' })
+      const result = await getTeamKeyState(pool, auth, teamId, url.searchParams.get('slot') ?? undefined)
+      if ('ok' in result) return send(res, result.status, { error: result.error })
+      return send(res, 200, result)
+    }
+    if (isTeamKeyActivate) {
+      if (req.method !== 'POST') return send(res, 405, { error: 'method_not_allowed' })
+      const body = (await readBody(req)) as Record<string, unknown>
+      const teamId = typeof body.team_id === 'string' ? body.team_id : ''
+      if (!teamId) return send(res, 400, { error: 'missing_team_id' })
+      const result = await activateTeamKey(pool, auth, teamId, body)
+      if (!result.ok) return send(res, result.status, { error: result.error })
+      return send(res, 200, { ok: true })
+    }
+    if (isTeamKeyAuthorize) {
+      if (req.method !== 'POST') return send(res, 405, { error: 'method_not_allowed' })
+      const body = (await readBody(req)) as Record<string, unknown>
+      const teamId = typeof body.team_id === 'string' ? body.team_id : ''
+      if (!teamId) return send(res, 400, { error: 'missing_team_id' })
+      const result = await authorizeTeamDevice(pool, auth, teamId, body)
+      if (!result.ok) return send(res, result.status, { error: result.error })
+      return send(res, 200, { ok: true })
+    }
+    if (isTeamKeyRecrypt) {
+      if (req.method !== 'POST') return send(res, 405, { error: 'method_not_allowed' })
+      const body = (await readBody(req)) as Record<string, unknown>
+      const teamId = typeof body.team_id === 'string' ? body.team_id : ''
+      if (!teamId) return send(res, 400, { error: 'missing_team_id' })
+      const result = await recryptTeamObservations(pool, auth, teamId, body)
+      if (!result.ok) return send(res, result.status, { error: result.error })
+      return send(res, 200, result)
     }
 
     const body = (await readBody(req)) as Record<string, unknown>
