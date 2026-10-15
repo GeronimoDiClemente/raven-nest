@@ -327,6 +327,11 @@ function currentEnvelopeContext(): EnvelopeContext | null {
  * envoltura publicada — la máquina no podía ni desenvolver su propia copia.
  */
 function recargarClavesDeMemoria(userId: string | null): void {
+  // La cuenta (o la ausencia de cuenta) cambió: las maestras de equipo de la cuenta ANTERIOR
+  // no tienen nada que hacer en memoria para la nueva — son de otra partición, igual que
+  // `memoryKeys`. Sin esto, un `teamId` que por casualidad coincidiera entre dos cuentas en
+  // la misma máquina seguiría cifrando/abriendo con la clave de equipo de la cuenta vieja.
+  teamMasterKeys.clear()
   try {
     memoryKeys = ensureKeyMaterial(ravenHome(), userId, safeStorage)
   } catch {
@@ -3517,14 +3522,28 @@ ipcMain.handle('memory:encryption:reencrypt', async () => {
 
 ipcMain.handle('memory:teamEncryption:status', async (_e, teamId: string) => {
   const deps = teamKeysDeps()
-  if (!deps) return { activated: false, wrap: null, pendingDevices: [], hasMaster: false }
-  const estado = await fetchTeamKeyState(deps, teamId)
-  return { ...estado, hasMaster: teamMasterKeys.has(teamId) }
+  const hasMaster = teamMasterKeys.has(teamId)
+  if (!deps) return { activated: false, wrap: null, pendingDevices: [], hasMaster }
+  try {
+    const estado = await fetchTeamKeyState(deps, teamId)
+    return { ...estado, hasMaster }
+  } catch {
+    // Mismo tratamiento que el `memory:encryption:status` personal: un corte de red no puede
+    // devolver un estado que parezca "equipo sin activar" — la UI lo leería como que puede
+    // ofrecer "Activar" de nuevo.
+    return { activated: false, wrap: null, pendingDevices: [], hasMaster }
+  }
 })
 
 ipcMain.handle('memory:teamEncryption:activate', async (_e, teamId: string) => {
   const deps = teamKeysDeps()
-  if (!deps || !memoryKeys) return { ok: false, error: 'Cloud memory is not connected.' }
+  if (!deps) return { ok: false, error: 'Cloud memory is not connected.' }
+  // Reutiliza la clave pública del device PERSONAL: sin la maestra personal activa, exigir
+  // eso primero es parte del diseño (spec §2), no un detalle del wrap — el leader con el
+  // cifrado personal apagado seguiría empujando contenido de equipo EN CLARO (`ctx` nulo,
+  // `sealMutationPayload` cae en silencio al fallback sin clave) mientras marca como
+  // ilegible todo lo que el resto del equipo ya cifró.
+  if (!memoryKeys?.master) return { ok: false, error: 'Turn on memory encryption for your account first.' }
   try {
     const { master, recoveryCode } = await activateTeamEncryption(deps, teamId, memoryKeys.device)
     teamMasterKeys.set(teamId, Buffer.from(master, 'base64'))
@@ -3541,16 +3560,21 @@ ipcMain.handle('memory:teamEncryption:activate', async (_e, teamId: string) => {
  */
 ipcMain.handle('memory:teamEncryption:adopt', async (_e, teamId: string) => {
   const deps = teamKeysDeps()
-  if (!deps || !memoryKeys) return { ok: false, error: 'Cloud memory is not connected.' }
+  if (!deps || !memory) return { ok: false, error: 'Cloud memory is not connected.' }
+  if (!memoryKeys?.master) return { ok: false, error: 'Turn on memory encryption for your account first.' }
   try {
     const yaExiste = await adoptExistingTeamKey(deps, teamId, memoryKeys.device)
     if (!yaExiste) return { ok: true, adoptada: false }
     teamMasterKeys.set(teamId, Buffer.from(yaExiste.master, 'base64'))
     // Las filas de equipo que esta máquina se salteó por ilegibles quedaron marcadas
-    // `undecryptable`, igual que en personal — el próximo pull normal las vuelve a abrir
-    // porque `openPulledRow` ahora encuentra la clave en `teamMasterKeys`. No hace falta
-    // resetear cursores: a diferencia de personal, el pull de equipo no se saltea filas por
-    // cursor al no poder leerlas, sólo las marca `undecryptable` (Task 9).
+    // `undecryptable` Y el cursor de pull ya avanzó PASADO ellas (`applyPulledRow`,
+    // memory-daemon.ts:1416-1438, trata team igual que personal: una fila undecryptable
+    // igual cuenta como "vista" para el cursor). Sin `resetPullCursors()` esta máquina
+    // jamás vuelve a pedirlas — se queda sin el historial del equipo para siempre, aunque
+    // ya tenga la clave. Mismo trío que usa el adopt personal.
+    memory.store.resetPullCursors()
+    memory.store.clearUndecryptable()
+    memory.daemon.onNetworkRegain()
     return { ok: true, adoptada: true }
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) }
@@ -3574,10 +3598,16 @@ ipcMain.handle('memory:teamEncryption:authorize', async (_e, teamId: string, dev
 
 ipcMain.handle('memory:teamEncryption:recover', async (_e, teamId: string, code: string) => {
   const deps = teamKeysDeps()
-  if (!deps || !memoryKeys) return { ok: false, error: 'Cloud memory is not connected.' }
+  if (!deps || !memory) return { ok: false, error: 'Cloud memory is not connected.' }
+  if (!memoryKeys?.master) return { ok: false, error: 'Turn on memory encryption for your account first.' }
   try {
     const { master } = await recoverTeamWithCode(deps, teamId, memoryKeys.device, code)
     teamMasterKeys.set(teamId, Buffer.from(master, 'base64'))
+    // Mismo motivo que en `adopt`: lo que esta máquina se salteó por ilegible quedó atrás
+    // del cursor de pull, no sólo marcado `undecryptable` — sin esto no vuelve nunca.
+    memory.store.resetPullCursors()
+    memory.store.clearUndecryptable()
+    memory.daemon.onNetworkRegain()
     return { ok: true }
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) }
@@ -3588,8 +3618,12 @@ ipcMain.handle('memory:teamEncryption:recrypt', async (_e, teamId: string) => {
   const deps = teamKeysDeps()
   const master = teamMasterKeys.get(teamId)
   if (!deps || !master || !memory) return { total: 0, applied: 0, rejected: 0 }
-  const rows = memory.store.localTeamRowsForTeam(teamId) // método nuevo en memory-store.ts
-  return runTeamRecrypt(deps, teamId, master, rows)
+  try {
+    const rows = memory.store.localTeamRowsForTeam(teamId) // método nuevo en memory-store.ts
+    return await runTeamRecrypt(deps, teamId, master, rows)
+  } catch (err) {
+    return { total: 0, applied: 0, rejected: 0, error: err instanceof Error ? err.message : String(err) }
+  }
 })
 
 ipcMain.handle('memory:status', () => {

@@ -988,7 +988,7 @@ declare global {
       teamEncryptionAdopt?: (teamId: string) => Promise<{ ok: true; adoptada: boolean } | { ok: false; error: string }>
       teamEncryptionAuthorize?: (teamId: string, deviceId: string) => Promise<{ ok: boolean; error?: string }>
       teamEncryptionRecover?: (teamId: string, code: string) => Promise<{ ok: boolean; error?: string }>
-      teamEncryptionRecrypt?: (teamId: string) => Promise<{ total: number; applied: number; rejected: number }>
+      teamEncryptionRecrypt?: (teamId: string) => Promise<{ total: number; applied: number; rejected: number; error?: string }>
       /**
        * Aprueba la vinculación de otra máquina — la que corre el paquete portátil y no puede
        * abrir un navegador. Opcional por lo mismo que `registerDevice`: un preload viejo no
