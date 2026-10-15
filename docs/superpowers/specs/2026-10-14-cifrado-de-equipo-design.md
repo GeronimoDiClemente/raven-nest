@@ -144,6 +144,23 @@ para los dos casos, sin bifurcar el código de pull. Cuota, límites, `team_scop
 3. **La migración puede ser un lote grande** (todo el histórico de un equipo activo hace rato).
    Mismo techo de tamaño de batch que ya existe en `push.ts` (`batch_too_large`, 500 mutaciones)
    aplicaría acá también — paginar desde el client si un equipo supera eso.
+4. **Ventana de texto en claro entre el arranque de la app y la readopción de la clave de
+   equipo (encontrado en la ejecución, 2026-10-14).** La clave de equipo vive SÓLO en memoria
+   (§2) — nada la persiste a disco — y lo único que la repuebla al abrir la app es el efecto
+   de montaje de la tarjeta de UI (`TeamEncryptionCard`, Task 12). Si una mutación de equipo
+   sale ANTES de que esa tarjeta se monte (la app arranca, un agente guarda algo de inmediato,
+   el usuario nunca abrió el overlay Memories), `sealMutationPayload` no tiene `teamKeys` todavía
+   y la sube EN CLARO — indistinguible, del lado del servidor, de un equipo que nunca activó el
+   cifrado. Es la MISMA clase de bug que CLAUDE.md documenta para el cifrado personal ("el gate
+   no se armaba nunca en la máquina que importa"), sin el gate fail-closed que el personal
+   terminó necesitando (ahí se arma por `key_epoch` de `/v1/sync/status`, no por que el usuario
+   abra el overlay). **Decisión explícita: se documenta y se difiere a v1.1, no se bloquea v1
+   por esto.** Arreglarlo bien requiere que `sealMutationPayload` pueda distinguir "el equipo
+   nunca cifró" (sube en claro, correcto) de "el equipo cifra pero ESTE device todavía no
+   adoptó" (debería retener la mutación, mismo patrón reversible que ya usa
+   `project_not_shared_with_team`) — eso es un cambio de diseño a Task 9, no un fix de una
+   línea, y excede el alcance que esta ejecución puede resolver sin una decisión de producto
+   nueva.
 
 ## 10. Decisiones cerradas el 2026-10-14 (con Gero, antes de escribir el plan)
 
