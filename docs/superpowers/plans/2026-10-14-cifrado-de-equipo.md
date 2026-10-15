@@ -1203,14 +1203,20 @@ interface FilaDb { wrapped: string; kind: string }
 function servidorFalso() {
   const db = new Map<string, FilaDb>() // key = `${teamId}:${slot}`
   const publicKeys = new Map<string, string>() // deviceId -> publicKey
-  const fetchImpl = vi.fn(async (url: string, init: RequestInit) => {
+  // El cast final (`as unknown as typeof fetch`) es el mismo patrón YA probado en
+  // `electron/__tests__/memory-keys-client.test.ts:19-79` — sin él, `tsc -p
+  // tsconfig.node.json` (el chequeo real de CI, ver CLAUDE.md) falla: el tipo real de
+  // `typeof fetch` acepta `URL | RequestInfo` en el primer parámetro, más ancho que el
+  // `string` que esta función de mentira declara, y TypeScript no permite esa asignación
+  // sin el cast. Mismo motivo para castear `init.headers` antes de indexarlo.
+  const fetchImpl = (vi.fn(async (url: string, init: RequestInit) => {
     const u = new URL(url)
     const body = init.body ? JSON.parse(String(init.body)) : {}
     if (u.pathname === '/v1/teams/key' && (!init.method || init.method === 'GET')) {
       const teamId = u.searchParams.get('team_id')!
       const slot = u.searchParams.get('slot')
       const activated = [...db.keys()].some((k) => k.startsWith(`${teamId}:`))
-      const deviceId = String(init.headers?.['X-Device-Test'] ?? '')
+      const deviceId = String((init as { headers?: Record<string, string> })?.headers?.['X-Device-Test'] ?? '')
       const fila = db.get(`${teamId}:${slot ?? deviceId}`)
       return new Response(JSON.stringify({
         activated, wrap: fila ? { wrapped: fila.wrapped, wrapMeta: null } : null, pendingDevices: [],
@@ -1228,7 +1234,7 @@ function servidorFalso() {
       return new Response(JSON.stringify({ ok: true }), { status: 200 })
     }
     throw new Error(`ruta no mockeada: ${u.pathname}`)
-  })
+  })) as unknown as typeof fetch
   return { fetchImpl, publicKeys }
 }
 
