@@ -277,7 +277,7 @@ import {
   fetchTeamKeyState, activateTeamEncryption, adoptExistingTeamKey, authorizeTeamDeviceFromClient,
   recoverTeamWithCode,
 } from './memory-team-keys-client'
-import { runTeamRecrypt } from './memory-team-reencrypt'
+import { migrateTeam, countRecryptPending, type TeamMigrationResult } from './memory-team-reencrypt'
 
 let memoryKeys: KeyMaterial | null = null
 
@@ -3679,17 +3679,32 @@ ipcMain.handle('memory:teamEncryption:recover', async (_e, teamId: string, code:
   }
 })
 
-ipcMain.handle('memory:teamEncryption:recrypt', async (_e, teamId: string) => {
+/**
+ * La migración retroactiva de un equipo, deduplicada: `activate` la dispara sola (I3 de la
+ * review final) y la tarjeta puede pedirla a la vez — el segundo pedido se cuelga del que ya
+ * corre en vez de mandar los mismos lotes dos veces.
+ */
+const migracionesDeEquipo = new Map<string, Promise<TeamMigrationResult>>()
+
+function migrarEquipo(teamId: string): Promise<TeamMigrationResult> {
+  const enCurso = migracionesDeEquipo.get(teamId)
+  if (enCurso) return enCurso
   const deps = teamKeysDeps()
   const master = teamMasterKeys.get(teamId)
-  if (!deps || !master || !memory) return { total: 0, applied: 0, rejected: 0 }
-  try {
-    const rows = memory.store.localTeamRowsForTeam(teamId) // método nuevo en memory-store.ts
-    return await runTeamRecrypt(deps, teamId, master, rows)
-  } catch (err) {
-    return { total: 0, applied: 0, rejected: 0, error: err instanceof Error ? err.message : String(err) }
+  const m = memory
+  if (!deps || !master || !m) {
+    return Promise.resolve({ total: 0, applied: 0, rejected: 0, remaining: 0, missingLocally: 0, error: 'This machine does not have the team key.' })
   }
-})
+  const run = migrateTeam(deps, teamId, master, {
+    // C1: la lista sale del servidor; acá sólo se buscan por sync_id, de cualquier proyecto.
+    rowsBySyncIds: (ids) => m.store.localTeamRowsBySyncIds(ids),
+    pullNow: () => m.daemon.pull(),
+  }).finally(() => { migracionesDeEquipo.delete(teamId) })
+  migracionesDeEquipo.set(teamId, run)
+  return run
+}
+
+ipcMain.handle('memory:teamEncryption:recrypt', async (_e, teamId: string) => migrarEquipo(teamId))
 
 ipcMain.handle('memory:status', () => {
   if (!memory) return { connected: false, deviceId: null, itemCount: 0, pendingCount: 0, daemonStatus: 'error' as const, unavailable: true }
