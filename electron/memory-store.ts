@@ -775,8 +775,6 @@ export class MemoryStore {
   private currentUserId: string | null = null
 
   private topicHasher: TopicHasher | null = null
-  /** Ver `pullCursorResetCount()`. */
-  private resetsDeCursores = 0
 
   /** `null` desactiva: sin cifrado activado, `topic_key_hmac` se queda en NULL. */
   setTopicHasher(hasher: TopicHasher | null): void {
@@ -1372,18 +1370,30 @@ export class MemoryStore {
   }
 
   resetPullCursors(): void {
-    this.db.prepare('UPDATE sync_state SET pull_cursor = 0').run()
-    this.resetsDeCursores += 1
+    this.db.transaction(() => {
+      this.db.prepare('UPDATE sync_state SET pull_cursor = 0').run()
+      this.db
+        .prepare(
+          `INSERT INTO meta (key, value) VALUES ('pull_cursor_resets', '1')
+           ON CONFLICT(key) DO UPDATE SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT)`
+        )
+        .run()
+    }).immediate()
   }
 
   /**
-   * Cuántas veces se llamó `resetPullCursors()` en esta instancia. Lo lee `doPull()` para
+   * Cuántas veces se llamó `resetPullCursors()` sobre ESTA BASE. Lo lee `doPull()` para
    * saber si un reset pasó MIENTRAS su request estaba en vuelo: en ese caso la respuesta trae
    * los cursores viejos, y escribirlos deshace el reset (lo encontró e2e/16: el compañero
    * adoptaba la clave de equipo y la fila que se había salteado por ilegible no volvía nunca).
+   *
+   * Va en `meta` y no en un campo de la instancia (M3 del handoff 2026-10-15): con dos
+   * procesos sobre la misma base —la app y el paquete portátil, que resetea al adoptar con
+   * `login`/`recover`— el contador en memoria no veía el reset del otro, y el pull en vuelo
+   * lo pisaba. Mismo motivo por el que el lamport se lee de la base (SCHEMA_VERSION 8).
    */
   pullCursorResetCount(): number {
-    return this.resetsDeCursores
+    return Number(this.metaGet('pull_cursor_resets') ?? 0)
   }
 
   /**

@@ -654,3 +654,46 @@ describe('el gate se arma por el status, sin depender de ver ciphertext', () => 
     expect(srv.subidas[0].title).not.toBe('mi decisión privada')
   })
 })
+
+// M3 (handoff 2026-10-15): el contador de resets vivía en memoria del proceso. Con dos
+// procesos sobre la misma base —la app y el paquete portátil, que adopta la clave con
+// `login`/`recover` y resetea los cursores— el reset del OTRO no se veía, y el pull en vuelo
+// de este proceso lo pisaba igual que en el caso de arriba.
+describe('un reset de cursores hecho por OTRO proceso con un pull en vuelo', () => {
+  it('tampoco deja que la respuesta vieja lo pise', async () => {
+    store.setSyncState('proj1', { pullCursor: 7 })
+
+    const enviados: Array<{ cursors: Record<string, number> }> = []
+    let soltarPrimera: () => void = () => {}
+    const fetchImpl = (async (_url: string, init: { body: string }) => {
+      enviados.push(JSON.parse(init.body))
+      if (enviados.length === 1) await new Promise<void>((r) => { soltarPrimera = r })
+      return {
+        ok: true, status: 200,
+        json: async () => ({ rows: [], cursors: { proj1: 7 } }),
+      } as unknown as Response
+    }) as unknown as typeof fetch
+
+    const daemon = new MemoryDaemon({
+      store,
+      getSyncBaseUrl: () => 'http://sync.test',
+      getToken: () => 'tok',
+      getDeviceId: () => 'dev',
+      isOnline: () => true,
+      fetchImpl,
+    })
+
+    const enVuelo = daemon.pull()
+    await new Promise((r) => setImmediate(r))
+    // El otro proceso: otra instancia del store sobre la MISMA base.
+    const otroProceso = new MemoryStore(join(dir, 'memory.db'))
+    otroProceso.resetPullCursors()
+    otroProceso.close()
+    soltarPrimera()
+    await enVuelo
+
+    expect(store.getSyncState('proj1').pullCursor, 'el reset del otro proceso sigue en pie').toBe(0)
+    await expect.poll(() => enviados.length).toBe(2)
+    expect(enviados[1].cursors.proj1).toBe(0)
+  })
+})
