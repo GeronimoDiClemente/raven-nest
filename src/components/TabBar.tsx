@@ -146,6 +146,20 @@ const SortableTab = memo(function SortableTab({
           Se deja del tamaño del glifo y sin padding. El area de click sigue siendo comoda
           porque toda la pestaña es clickeable y esto esta en su borde.
 
+          En una INACTIVA no ocupa lugar: va en `absolute` y aparece al pasar el mouse.
+          Invisible pero en el flujo, se llevaba 24px (18 de caja y 6 de gap) de cada pestaña —
+          con nueve workspaces en 1400px el nombre se quedaba con 43 y truncaban todas
+          (e2e/17-pestanas.spec.ts).
+
+          Va a la IZQUIERDA del punto de color, sobre el final del nombre y con el fondo del
+          hover para taparlo, como la cruz de una pestaña de navegador. Encima del punto no:
+          así no había forma de cambiarle el color a una inactiva. `right-[30px]` = 12 de
+          padding + 12 del botón del punto + 6 de gap.
+
+          Se centra en vertical con `inset-y-0 my-auto` y NO con `-translate-y-1/2`: el
+          `active:translate-y-px` del Button reemplaza ese translate al apretar, la cruz salta
+          9px, el mouseup cae en la pestaña y el click nunca llega — la pestaña no se cerraba.
+
           La cruz era el caracter "✕", no un icono: ahora es lucide, con el mismo grosor
           que el resto de la app (src/lib/icons.ts). */}
       <Button
@@ -155,7 +169,7 @@ const SortableTab = memo(function SortableTab({
           'size-[18px] shrink-0 rounded-sm p-0 text-muted-foreground transition-opacity hover:text-destructive',
           // Antes .tab-close vivía en opacity:0 y sólo aparecía en :hover/.active
           // (global.css) — el group-hover reproduce lo mismo sin la clase vieja.
-          isActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
+          isActive ? 'opacity-100' : 'absolute inset-y-0 right-[30px] z-10 my-auto bg-muted opacity-0 group-hover:opacity-100',
         )}
         onClick={(e) => { e.stopPropagation(); onTabClose(tab.id) }}
         title="Close workspace"

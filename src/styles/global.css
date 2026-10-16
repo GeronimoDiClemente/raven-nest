@@ -300,6 +300,12 @@ body {
   display: none;
 }
 
+/* En pantalla completa no hay ventana que arrastrar: la franja no tiene razón de existir y
+   sus 80px vuelven a las pestañas. Mismo aviso que colapsa el hueco de los semáforos. */
+.app.pantalla-completa .tabbar-drag {
+  min-width: 0;
+}
+
 .tabbar-drag {
   /* `flex: 1` (grow 1) hacia que esta franja creciera sin limite a costa de las
      pestañas. Ahora NO crece: toma lo que sobra y nada mas. El min-width es lo que
@@ -344,6 +350,10 @@ body {
 /* Active tab keeps a touch more breathing room when crowded */
 .tab.active {
   min-width: 56px;
+  /* La activa no se encoge por debajo de su base: es la única que muestra punto Y cruz, y
+     con muchas pestañas era la primera en truncar — justo la que estás usando. Las demás se
+     reparten lo que queda (siguen encogiendo hasta su min-width). */
+  flex-shrink: 0;
 }
 
 .tab::before {
