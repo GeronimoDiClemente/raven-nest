@@ -8,7 +8,7 @@ export interface ShareProjectBody {
 
 export type ShareProjectResult =
   | { ok: true }
-  | { ok: false; status: 400 | 403 | 404; error: string }
+  | { ok: false; status: 400 | 403 | 404 | 409; error: string }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -63,11 +63,36 @@ export async function handleShareProject(
   )
   if (membership.length === 0) return { ok: false, status: 403, error: 'not_team_member' }
 
+  /**
+   * Re-share entre equipos: prohibido si el equipo ACTUAL cifra (handoff 2026-10-15).
+   *
+   * Las filas de ese proyecto están selladas con la maestra del equipo actual, y el pull las
+   * manda con el `team_id` del proyecto —el cliente elige la clave por ese id—. Moverlo a otro
+   * equipo las deja ilegibles para todos: el nuevo no tiene la maestra vieja y el viejo ya no
+   * las recibe. Se eligió prohibirlo antes que re-cifrar en el re-share o guardar el equipo
+   * por fila: es lo más simple y no tiene estado intermedio que pueda quedar a medias.
+   *
+   * La condición va DENTRO del update y no en un select previo: entre leer y escribir otro
+   * request podría activar la clave del equipo actual.
+   */
   const { rowCount } = await pool.query(
-    `update projects set team_id = $1 where user_id = $2 and project_key = $3`,
+    `update projects set team_id = $1
+      where user_id = $2 and project_key = $3
+        and (team_id is null or team_id = $1
+             or not exists (select 1 from team_keys tk where tk.team_id = projects.team_id))`,
     [teamId, auth.userId, projectKey]
   )
-  if (rowCount === 0) return { ok: false, status: 404, error: 'project_not_found' }
+  if (rowCount === 0) {
+    // Cero filas es "no es tuyo / no existe" o "lo frenó el re-share". Se distingue mirando
+    // SÓLO entre los proyectos del llamante, así que un project_key ajeno sigue dando 404 y
+    // no filtra que existe bajo otra cuenta.
+    const { rows: propio } = await pool.query(
+      `select 1 from projects where user_id = $1 and project_key = $2`,
+      [auth.userId, projectKey]
+    )
+    if (propio.length === 0) return { ok: false, status: 404, error: 'project_not_found' }
+    return { ok: false, status: 409, error: 'team_encrypted_reshare_forbidden' }
+  }
 
   return { ok: true }
 }

@@ -202,3 +202,86 @@ describe('compartir exige un plan que pueda', () => {
     expect(await teamIdOf(project, userId)).toBeNull()
   })
 })
+
+/**
+ * Re-share entre equipos (handoff 2026-10-15, decisión 1: prohibirlo en el servidor).
+ *
+ * Las filas de un proyecto compartido con un equipo que cifra están selladas con la maestra
+ * de ESE equipo. Si el proyecto pasa a otro equipo, el pull se las manda al equipo nuevo con
+ * el `team_id` nuevo —el cliente elige la clave por ese `team_id`— y no las abre nadie: ni
+ * el equipo nuevo, que no tiene la maestra vieja, ni el viejo, que ya no las recibe.
+ */
+describe('re-compartir con otro equipo', () => {
+  async function seedTeamKey(teamId: string): Promise<void> {
+    await pool.query(
+      `insert into team_keys (team_id, activated_by, verifier) values ($1, $2, 'v')`,
+      [teamId, userId]
+    )
+  }
+
+  it('rechaza mover el proyecto a otro equipo si el equipo actual cifra, sin tocarlo', async () => {
+    const project = PROJECT('reshare-cifrado')
+    const equipoQueCifra = randomUUID()
+    const otroEquipo = randomUUID()
+    await seedProject(project, userId)
+    await seedMembership(userId, equipoQueCifra)
+    await seedMembership(userId, otroEquipo)
+    await seedTeamKey(equipoQueCifra)
+    expect(await handleShareProject(pool, conPlanDeEquipo(), { project_key: project, team_id: equipoQueCifra }))
+      .toEqual({ ok: true })
+
+    const res = await handleShareProject(pool, conPlanDeEquipo(), { project_key: project, team_id: otroEquipo })
+
+    expect(res).toEqual({ ok: false, status: 409, error: 'team_encrypted_reshare_forbidden' })
+    expect(await teamIdOf(project, userId)).toBe(equipoQueCifra)
+  })
+
+  it('re-compartir con el MISMO equipo que cifra sigue siendo ok (idempotente)', async () => {
+    const project = PROJECT('reshare-mismo')
+    const equipoQueCifra = randomUUID()
+    await seedProject(project, userId)
+    await seedMembership(userId, equipoQueCifra)
+    await seedTeamKey(equipoQueCifra)
+    await handleShareProject(pool, conPlanDeEquipo(), { project_key: project, team_id: equipoQueCifra })
+
+    const res = await handleShareProject(pool, conPlanDeEquipo(), { project_key: project, team_id: equipoQueCifra })
+
+    expect(res).toEqual({ ok: true })
+  })
+
+  it('mover el proyecto desde un equipo que NO cifra sigue permitido', async () => {
+    const project = PROJECT('reshare-en-claro')
+    const equipoEnClaro = randomUUID()
+    const otroEquipo = randomUUID()
+    await seedProject(project, userId)
+    await seedMembership(userId, equipoEnClaro)
+    await seedMembership(userId, otroEquipo)
+    await handleShareProject(pool, conPlanDeEquipo(), { project_key: project, team_id: equipoEnClaro })
+
+    const res = await handleShareProject(pool, conPlanDeEquipo(), { project_key: project, team_id: otroEquipo })
+
+    expect(res).toEqual({ ok: true })
+    expect(await teamIdOf(project, userId)).toBe(otroEquipo)
+  })
+
+  // El orden importa: si el chequeo fuera "¿existe el proyecto?" ANTES que el de dueño, un
+  // project_key ajeno compartido con un equipo que cifra daría 409 en vez de 404 y filtraría
+  // que existe bajo otra cuenta.
+  it('un proyecto ajeno en un equipo que cifra sigue dando 404, no 409', async () => {
+    const otroUserId = randomUUID()
+    await pool.query(`insert into users (id, plan) values ($1, 'team')`, [otroUserId])
+    const project = PROJECT('reshare-ajeno')
+    const equipoQueCifra = randomUUID()
+    const miEquipo = randomUUID()
+    await seedProject(project, otroUserId)
+    await pool.query(`update projects set team_id = $1 where user_id = $2 and project_key = $3`,
+      [equipoQueCifra, otroUserId, project])
+    await seedTeamKey(equipoQueCifra)
+    await seedMembership(userId, miEquipo)
+
+    const res = await handleShareProject(pool, conPlanDeEquipo(), { project_key: project, team_id: miEquipo })
+
+    expect(res).toEqual({ ok: false, status: 404, error: 'project_not_found' })
+    expect(await teamIdOf(project, otroUserId)).toBe(equipoQueCifra)
+  })
+})
