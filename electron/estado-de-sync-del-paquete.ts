@@ -36,3 +36,16 @@ export function lineaDeSync(e: {
     ? `Connected — ${cambios} waiting to sync. They go up the next time an agent saves a memory.`
     : 'Connected — everything is synced.'
 }
+
+/**
+ * El paquete no tiene claves de equipo: una memoria de un equipo que cifra la retiene el gate
+ * del daemon (`team_key_missing`). Con la base de Nest no importa —la sube Nest, que sí tiene
+ * la clave—, pero con la base propia no la sube nadie: ni el paquete, ni Nest si después se
+ * instala, porque `decidirBase` pasa a la base de Nest y la propia queda sin leer. Por eso la
+ * línea dice que se quedan acá y no promete que "abrir Nest" las mande.
+ */
+export function lineaDeEquipoRetenido(e: { modo: 'nest' | 'propia'; retenidas: number }): string | null {
+  if (e.modo !== 'propia' || e.retenidas <= 0) return null
+  const cuantas = e.retenidas === 1 ? '1 team memory stays' : `${e.retenidas} team memories stay`
+  return `${cuantas} on this machine only: this team encrypts, and team keys live in the Nest app, not in this package.`
+}

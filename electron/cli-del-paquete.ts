@@ -35,8 +35,9 @@ import { MemoryLocalClient } from './memory-mcp/local'
 import { MemoryDaemonClient } from './memory-mcp/client'
 import { buscarNestVivo } from './nest-vivo-del-paquete'
 import { ravenHome } from './raven-home'
-import { lineaDeSync } from './estado-de-sync-del-paquete'
+import { lineaDeSync, lineaDeEquipoRetenido } from './estado-de-sync-del-paquete'
 import { armarDaemonDelPaquete } from './daemon-del-paquete'
+import { TEAM_KEY_HOLD_REASONS } from './memory-daemon'
 import { SyncDelMcp } from './sync-del-mcp'
 import { resolveGitInfoForCwd } from './git-info'
 import { runMcpServer } from './memory-mcp/servidor'
@@ -159,6 +160,16 @@ async function comandoStatus(): Promise<void> {
     } catch { /* una base sin `meta` todavía no vio ningún status */ }
     const esperandoAutorizacion = hayCredencial && epocaConocida > 0 && !loadKeyMaterial(homedir(), null, safe)?.master
     console.log(lineaDeSync({ modo: base.modo, enCola, hayCredencial, hayServicio: urlDelServicio() !== null, esperandoAutorizacion }))
+    // Lo que el gate retuvo por falta de clave de equipo: `enCola` no lo cuenta (está
+    // bloqueado), y sin esta línea desaparecía del status.
+    const retenidas = (db.prepare(
+      `SELECT payload FROM mutation_log WHERE pushed_at IS NULL
+         AND blocked_reason IN (${TEAM_KEY_HOLD_REASONS.map(() => '?').join(',')})`
+    ).all(...TEAM_KEY_HOLD_REASONS) as Array<{ payload: string }>).filter(({ payload }) => {
+      try { return (JSON.parse(payload) as { scope?: unknown }).scope === 'team' } catch { return false }
+    }).length
+    const deEquipo = lineaDeEquipoRetenido({ modo: base.modo, retenidas })
+    if (deEquipo) console.log(deEquipo)
   } finally {
     db.close()
   }
