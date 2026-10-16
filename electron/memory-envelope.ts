@@ -48,14 +48,40 @@ export function looksLikeTopicHmac(value: string): boolean {
   return /^[0-9a-f]{32}$/.test(value)
 }
 
+/**
+ * La clave con la que se sella UNA fila: la de equipo si es `team` (o `null` si ese equipo
+ * no tiene clave en este device: va en claro), si no la personal. Una sola regla para el
+ * push y para el HMAC local, que tienen que coincidir.
+ */
+function keysParaFila(ctx: EnvelopeContext | null, projectKey: string, scope: string): MemoryKeys | null {
+  if (scope === 'team') return ctx?.teamKeys?.(projectKey) ?? null
+  return ctx?.keys ?? null
+}
+
+/**
+ * El `topic_key_hmac` que `save()` escribe en la base local. Tiene que ser el MISMO que
+ * `sealMutationPayload` sube y el pull baja: el supersede del pull busca al dueño local por
+ * ese valor (`findActiveTopicOwnerByHmac`). Antes `main.ts` usaba siempre la personal, y en
+ * filas `team` no coincidía con el HMAC de equipo — dos versiones de un tema de autores
+ * distintos quedaban vivas en la app. `null` para una fila team sin clave de equipo: sube con
+ * el tema en claro y baja sin HMAC, y `backfillTopicHmacs` la completa si después llega.
+ */
+export function localTopicHmac(
+  ctx: EnvelopeContext | null,
+  projectKey: string,
+  scope: string,
+  topicKey: string
+): string | null {
+  const keys = keysParaFila(ctx, projectKey, scope)
+  return keys ? hmacTopicKey(keys, projectKey, scope, topicKey) : null
+}
+
 export function sealMutationPayload(
   ctx: EnvelopeContext | null,
   payload: Record<string, unknown>
 ): Record<string, unknown> {
-  const esTeam = payload.scope === 'team'
-  const keysDeTeam = esTeam ? (ctx?.teamKeys?.(String(payload.project_key ?? '')) ?? null) : null
-  if (esTeam && !keysDeTeam) return payload // equipo sin cifrado activo: en claro, como hoy
-  const keys = esTeam ? keysDeTeam! : ctx?.keys
+  // Equipo sin cifrado activo (o sin contexto): en claro, como hoy.
+  const keys = keysParaFila(ctx, String(payload.project_key ?? ''), String(payload.scope ?? 'personal'))
   if (!keys) return payload
 
   const syncId = String(payload.sync_id ?? '')

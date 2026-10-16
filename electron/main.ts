@@ -263,8 +263,8 @@ const E2E_HEADLESS = process.env.RAVEN_E2E_HEADLESS === '1'
 
 import { ensureKeyMaterial, saveKeyMaterial, type KeyMaterial } from './memory-key-store'
 import { tomarCandadoDeSync, lockPathParaBase, candadoDepsDelProceso } from './memory-sync-lock'
-import { deriveKeys, hmacTopicKey } from './memory-crypto'
-import type { EnvelopeContext } from './memory-envelope'
+import { deriveKeys } from './memory-crypto'
+import { localTopicHmac, type EnvelopeContext } from './memory-envelope'
 import {
   fetchKeyState, activateEncryption, adoptExistingKey, authorizeDevice, recoverWithCode,
   type RemoteKeyState,
@@ -418,7 +418,7 @@ function recargarClavesDeMemoria(userId: string | null): void {
 function applyTopicHasher(): void {
   const ctx = currentEnvelopeContext()
   memory?.store.setTopicHasher(
-    ctx ? (p, s, t) => hmacTopicKey(ctx.keys, p, s, t) : null
+    ctx ? (p, s, t) => localTopicHmac(ctx, p, s, t) : null
   )
 }
 
@@ -501,7 +501,7 @@ try {
     // ahí `recargarClavesDeMemoria` vuelve a leer las claves de ESA partición.
     memoryKeys = ensureKeyMaterial(ravenHome(), store.getOwnerUserId(), safeStorage)
     const ctxInicial = currentEnvelopeContext()
-    store.setTopicHasher(ctxInicial ? (p, sc, t) => hmacTopicKey(ctxInicial.keys, p, sc, t) : null)
+    store.setTopicHasher(ctxInicial ? (p, sc, t) => localTopicHmac(ctxInicial, p, sc, t) : null)
   } catch {
     memoryKeys = null
   }

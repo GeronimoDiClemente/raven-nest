@@ -635,8 +635,11 @@ const BASE_SCHEMA = `
  * Convierte (proyecto, scope, tema) en el valor estable que viaja al servidor. Se INYECTA
  * — el store no importa memory-crypto.ts — para que siga sin saber nada de claves y para
  * que un test pueda usar una funcion legible en vez de un HMAC real.
+ *
+ * `null` es "esta fila no tiene con qué hashearse todavía" (una fila `team` de un equipo sin
+ * clave en este device): la columna queda NULL y `backfillTopicHmacs` la reintenta.
  */
-export type TopicHasher = (projectKey: string, scope: string, topicKey: string) => string
+export type TopicHasher = (projectKey: string, scope: string, topicKey: string) => string | null
 
 export const SCHEMA_VERSION = 8
 
@@ -818,10 +821,16 @@ export class MemoryStore {
       )
       .all() as Array<{ sync_id: string; project_key: string; scope: string; topic_key: string }>
     const update = this.db.prepare('UPDATE observations SET topic_key_hmac = ? WHERE sync_id = ?')
+    let completadas = 0
     this.db.transaction(() => {
-      for (const r of rows) update.run(hasher(r.project_key, r.scope, r.topic_key), r.sync_id)
+      for (const r of rows) {
+        const hmac = hasher(r.project_key, r.scope, r.topic_key)
+        if (hmac === null) continue
+        update.run(hmac, r.sync_id)
+        completadas++
+      }
     }).immediate()
-    return rows.length
+    return completadas
   }
   readonly schemaVersion: number = 0
 

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { deriveKeys, generateMasterKey, isCiphertext, hmacTopicKey } from '../memory-crypto'
-import { sealMutationPayload, openPulledRow, looksLikeTopicHmac, type EnvelopeContext } from '../memory-envelope'
+import { sealMutationPayload, openPulledRow, looksLikeTopicHmac, localTopicHmac, type EnvelopeContext } from '../memory-envelope'
 import type { PulledRow } from '../memory-daemon'
 
 const ctx: EnvelopeContext = { keys: deriveKeys(generateMasterKey()), keyEpoch: 1 }
@@ -304,5 +304,41 @@ describe('openPulledRow con team_id del servidor (Task 14)', () => {
   it('sin teamId (servicio viejo) sigue resolviendo por project_key', () => {
     const c: EnvelopeContext = { ...ctx, teamKeys: (pk) => (pk === 'proj-x' ? keysEquipo : null), teamKeysById: () => null }
     expect(openPulledRow(c, fila()).row.title).toBe('Decisión')
+  })
+})
+
+/**
+ * El HMAC que `save()` escribe en la base LOCAL (handoff 2026-10-15, decisión 2).
+ *
+ * `main.ts` lo calculaba siempre con la clave PERSONAL, también para filas `team`, y el pull
+ * trae el HMAC de equipo: `findActiveTopicOwnerByHmac` no encontraba al dueño local y dos
+ * versiones del mismo tema, de autores distintos, quedaban vivas en la app.
+ */
+describe('localTopicHmac', () => {
+  const keysPersonal = deriveKeys(generateMasterKey())
+  const keysEquipo = deriveKeys(generateMasterKey())
+  const ctxEquipo: EnvelopeContext = { keys: keysPersonal, keyEpoch: 1, teamKeys: (pk) => (pk === 'proj-x' ? keysEquipo : null) }
+
+  it('una fila team da el MISMO HMAC que sella el push, o sea el de la clave de equipo', () => {
+    const sellado = sealMutationPayload(ctxEquipo, {
+      sync_id: 'abc', scope: 'team', project_key: 'proj-x', topic_key: 'deploy', title: 't', content: 'c', tags: [],
+    })
+    expect(localTopicHmac(ctxEquipo, 'proj-x', 'team', 'deploy')).toBe(sellado.topic_key)
+    expect(localTopicHmac(ctxEquipo, 'proj-x', 'team', 'deploy')).not.toBe(hmacTopicKey(keysPersonal, 'proj-x', 'team', 'deploy'))
+  })
+
+  it('una fila personal sigue con la clave personal', () => {
+    expect(localTopicHmac(ctxEquipo, 'proj-x', 'personal', 'deploy')).toBe(hmacTopicKey(keysPersonal, 'proj-x', 'personal', 'deploy'))
+  })
+
+  // El push la sube con el tema en claro y el pull la baja sin HMAC: un HMAC personal acá
+  // no lo iguala nadie. `null` además deja que `backfillTopicHmacs` la complete cuando llegue
+  // la clave de equipo.
+  it('una fila team de un equipo sin clave en este device da null', () => {
+    expect(localTopicHmac(ctxEquipo, 'proj-sin-equipo', 'team', 'deploy')).toBeNull()
+  })
+
+  it('sin contexto da null', () => {
+    expect(localTopicHmac(null, 'proj-x', 'personal', 'deploy')).toBeNull()
   })
 })
