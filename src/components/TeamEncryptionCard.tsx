@@ -23,6 +23,9 @@ interface EstadoCifradoEquipo {
   recryptPending?: number | null
   /** La envoltura de esta máquina abre una maestra que no es la del equipo (C2). */
   keyMismatch?: boolean
+  /** Memorias de este equipo guardadas en ESTA máquina que esperan sin subir porque le falta
+   * la clave de equipo (`team_key_missing` / `team_encryption_required`). */
+  heldCount?: number
 }
 
 interface ResultadoMigracion {
@@ -150,6 +153,16 @@ export default function TeamEncryptionCard() {
 
   const marco = 'flex shrink-0 flex-col gap-2 rounded-md border border-border p-3'
 
+  // Lo que el gate del push retiene por falta de clave: sin decirlo, la máquina sin autorizar
+  // no sabía que tenía memorias sin subir.
+  const retenidas = estado.heldCount ?? 0
+  const avisoRetenidas = retenidas > 0 && (
+    <p className="text-fs-sm text-foreground">
+      <span className="font-mono tabular-nums">{retenidas}</span>{' '}
+      {retenidas === 1 ? 'team memory is' : 'team memories are'} waiting on this machine until it is authorised.
+    </p>
+  )
+
   if (codigo) {
     return (
       <div className={marco}>
@@ -220,6 +233,7 @@ export default function TeamEncryptionCard() {
         <p className="text-fs-sm text-muted-foreground">
           Turn on memory encryption for your account first. After that, your team leader can authorise this machine.
         </p>
+        {avisoRetenidas}
       </div>
     )
   }
@@ -236,6 +250,7 @@ export default function TeamEncryptionCard() {
             ? 'Ask your team leader to authorise this machine, or use the team recovery code.'
             : 'Ask your team leader to authorise this machine.'}
         </p>
+        {avisoRetenidas}
         {estado.keyMismatch && (
           <p className="text-fs-sm text-destructive">
             The key offered to this machine is not this team&rsquo;s key, so it was not used. Ask your team leader to authorise this machine again.

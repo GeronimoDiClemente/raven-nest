@@ -197,3 +197,30 @@ describe('TeamEncryptionCard — minors de la review final', () => {
     expect(screen.queryByRole('button', { name: /use the team recovery code/i })).not.toBeInTheDocument()
   })
 })
+
+// Follow-up del handoff 2026-10-15: lo retenido por falta de clave de equipo era invisible.
+describe('TeamEncryptionCard — memorias retenidas en esta máquina', () => {
+  const sinClave = (extra: Record<string, unknown> = {}) => ({
+    activated: true, wrap: null, pendingDevices: [], hasMaster: false, estadoRemotoLeido: true, hasPersonalKey: true, ...extra,
+  })
+
+  it('sin autorizar, dice cuántas memorias de equipo esperan para subir', async () => {
+    window.memory.teamEncryptionStatus = vi.fn().mockResolvedValue(sinClave({ heldCount: 3 }))
+    render(<TeamEncryptionCard />)
+    expect(await screen.findByText(/waiting on this machine until it is authorised/i)).toBeInTheDocument()
+    expect(screen.getByText('3')).toBeInTheDocument()
+  })
+
+  it('una sola va en singular', async () => {
+    window.memory.teamEncryptionStatus = vi.fn().mockResolvedValue(sinClave({ heldCount: 1 }))
+    render(<TeamEncryptionCard />)
+    expect(await screen.findByText(/team memory is waiting/i)).toBeInTheDocument()
+  })
+
+  it('con 0 no dice nada', async () => {
+    window.memory.teamEncryptionStatus = vi.fn().mockResolvedValue(sinClave({ heldCount: 0 }))
+    render(<TeamEncryptionCard />)
+    expect(await screen.findByText(/this machine is not authorised yet/i)).toBeInTheDocument()
+    expect(screen.queryByText(/waiting on this machine/i)).not.toBeInTheDocument()
+  })
+})

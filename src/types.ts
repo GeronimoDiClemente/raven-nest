@@ -992,6 +992,8 @@ declare global {
         recryptPending?: number | null
         /** La envoltura de esta máquina abre una maestra que no es la del equipo (C2). */
         keyMismatch?: boolean
+        /** Memorias de este equipo retenidas en esta máquina por falta de clave de equipo. */
+        heldCount?: number
         /** Task 15b (Minor 3): si este usuario es leader del equipo, según el servidor. */
         isLeader?: boolean
       }>

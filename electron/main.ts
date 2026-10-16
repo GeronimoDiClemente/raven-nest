@@ -140,7 +140,7 @@ import { usarAbridorPorDefecto, usarAbridorDeLecturaPorDefecto } from './sqlite-
 import { resolveGitInfoForCwd } from './git-info'
 import { abrirConBetterSqlite3, abrirSoloLecturaConBetterSqlite3 } from './sqlite-better'
 import { MemoryIpcServer } from './memory-ipc-server'
-import { MemoryDaemon } from './memory-daemon'
+import { MemoryDaemon, TEAM_KEY_HOLD_REASONS } from './memory-daemon'
 import { reconcileSessions } from './memory-sessions'
 import { buildDoctorReport } from './memory-doctor'
 import { readVaultHealth } from './memory-vault-health'
@@ -3609,7 +3609,9 @@ ipcMain.handle('memory:teamEncryption:status', async (_e, teamId: string) => {
   // aparecer entre las máquinas que el leader puede autorizar. La tarjeta se lo dice.
   const hasPersonalKey = Boolean(memoryKeys?.master)
   const keyMismatch = clavesDeEquipoRechazadas.has(teamId)
-  if (!deps) return { activated: false, wrap: null, pendingDevices: [], hasMaster, estadoRemotoLeido, huellaPropia: null, huellasPorDevice: {}, hasPersonalKey, recryptPending: null, keyMismatch }
+  // Local, no del servidor: va en todas las respuestas, también sin red.
+  const heldCount = memory?.store.heldTeamMutationCount(teamId, TEAM_KEY_HOLD_REASONS) ?? 0
+  if (!deps) return { activated: false, wrap: null, pendingDevices: [], hasMaster, estadoRemotoLeido, huellaPropia: null, huellasPorDevice: {}, hasPersonalKey, recryptPending: null, keyMismatch, heldCount }
   try {
     const estado = await fetchTeamKeyState(deps, teamId)
     estadoRemotoLeido = true
@@ -3627,12 +3629,13 @@ ipcMain.handle('memory:teamEncryption:status', async (_e, teamId: string) => {
       hasPersonalKey,
       recryptPending,
       keyMismatch,
+      heldCount,
     }
   } catch {
     // Mismo tratamiento que el `memory:encryption:status` personal: un corte de red no puede
     // devolver un estado que parezca "equipo sin activar" — la UI lo leería como que puede
     // ofrecer "Activar" de nuevo.
-    return { activated: false, wrap: null, pendingDevices: [], hasMaster, estadoRemotoLeido: false, huellaPropia: null, huellasPorDevice: {}, hasPersonalKey, recryptPending: null, keyMismatch }
+    return { activated: false, wrap: null, pendingDevices: [], hasMaster, estadoRemotoLeido: false, huellaPropia: null, huellasPorDevice: {}, hasPersonalKey, recryptPending: null, keyMismatch, heldCount }
   }
 })
 

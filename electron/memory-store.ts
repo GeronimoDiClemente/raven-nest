@@ -2313,6 +2313,31 @@ export class MemoryStore {
   }
 
   /**
+   * Cuántas memorias de ESTE equipo esperan sin subir porque a la máquina le falta la clave
+   * de equipo (`reasons`: `TEAM_KEY_HOLD_REASONS` del daemon, que el store no importa). Lo
+   * muestra `TeamEncryptionCard`: sin esto la retención era invisible y la máquina sin
+   * autorizar no sabía que tenía algo pendiente.
+   *
+   * El equipo sale de `projects.team_id` local, el mismo criterio que usa el gate de
+   * `doPush` para retenerlas.
+   */
+  heldTeamMutationCount(teamId: string, reasons: readonly string[]): number {
+    if (reasons.length === 0) return 0
+    const placeholders = reasons.map(() => '?').join(',')
+    const filas = this.db
+      .prepare(`SELECT payload FROM mutation_log WHERE pushed_at IS NULL AND blocked_reason IN (${placeholders})`)
+      .all(...reasons) as Array<{ payload: string }>
+    let total = 0
+    for (const { payload } of filas) {
+      let p: Record<string, unknown>
+      try { p = JSON.parse(payload) as Record<string, unknown> } catch { continue }
+      if (p.scope !== 'team') continue
+      if (this.teamIdForProjectKey((p.project_key as string | undefined) ?? '__global__') === teamId) total++
+    }
+    return total
+  }
+
+  /**
    * Re-admits blocked mutations whose reason no longer applies back into
    * pendingMutations(). Scoped by reason, not "unblock everything": a project-limit
    * block lifting says nothing about a quota block also lifting.
