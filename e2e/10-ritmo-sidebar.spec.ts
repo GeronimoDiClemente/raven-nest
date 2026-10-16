@@ -142,3 +142,52 @@ test('con la ventana baja, la fila del usuario no se aplasta', async () => {
     await teardown(h)
   }
 })
+
+// La fila del usuario es la única que no es un <Button>, y las tres cosas en que se notaba
+// (2026-10-16, captura de Gero): el avatar centrado en la barra colapsada caía en x=13,5
+// contra 11 de los íconos de arriba; su punto de plan medía 10px con borde contra los 7px
+// con anillo del punto de Memories; y su hover pintaba `--bg-app` en vez del relleno de los
+// <Button> ghost.
+test('la fila del usuario se alinea, marca y resalta como sus vecinas', async () => {
+  const h = await launchHarness({ withRepo: true })
+  const { page } = h
+  try {
+    const toggle = page.getByRole('button', { name: /Collapse sidebar|Expand sidebar/ })
+    await expect(toggle).toBeVisible({ timeout: 15_000 })
+    if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click()
+    await page.waitForTimeout(2500)
+
+    const memorias = page.getByTestId('memories-dot')
+    const fila = page.locator('.user-menu-trigger')
+    await expect(memorias).toBeVisible()
+    await expect(fila).toBeVisible()
+
+    for (const modo of ['expandida', 'colapsada'] as const) {
+      if (modo === 'colapsada') {
+        await toggle.click()
+        await page.waitForTimeout(1500)
+      }
+      const xIcono = await memorias.evaluate((el) => el.parentElement!.getBoundingClientRect().x)
+      const xAvatar = await page.locator('.user-menu-avatar').evaluate((el) => el.getBoundingClientRect().x)
+      expect(xAvatar, `${modo}: x del avatar contra x del ícono de Memories`).toBe(xIcono)
+
+      const punto = (sel: string) => page.locator(sel).evaluate((el) => {
+        const r = el.getBoundingClientRect()
+        const p = el.parentElement!.getBoundingClientRect()
+        return { w: r.width, h: r.height, dx: r.right - p.right, dy: r.bottom - p.bottom }
+      })
+      expect(await punto('.user-menu-dot'), `${modo}: punto del plan contra punto de Memories`)
+        .toEqual(await punto('[data-testid="memories-dot"]'))
+    }
+
+    const fondoEnHover = async (loc: import('@playwright/test').Locator) => {
+      await loc.hover()
+      await page.waitForTimeout(300)
+      return loc.evaluate((el) => getComputedStyle(el).backgroundColor)
+    }
+    const filaMemorias = memorias.locator('xpath=ancestor::button[1]')
+    expect(await fondoEnHover(fila)).toBe(await fondoEnHover(filaMemorias))
+  } finally {
+    await teardown(h)
+  }
+})
