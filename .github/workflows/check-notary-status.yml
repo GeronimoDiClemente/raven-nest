@@ -17,16 +17,28 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
         run: |
           set -e
           export PATH=/usr/bin:$PATH
 
+          # Auth de notarytool. Preferimos la API key de App Store Connect: no se
+          # invalida al cambiar la contraseña del Apple ID, que es lo que dejó a la
+          # v1.5.1 con un 401. Sin la key cargada cae al Apple ID + app password.
+          if [ -n "$APPLE_API_KEY" ]; then
+            NOTARY_KEY_FILE="$RUNNER_TEMP/notary-api-key.p8"
+            printf '%s\n' "$APPLE_API_KEY" > "$NOTARY_KEY_FILE"
+            NOTARY_AUTH=(--key "$NOTARY_KEY_FILE" --key-id "$APPLE_API_KEY_ID" --issuer "$APPLE_API_ISSUER")
+          else
+            NOTARY_AUTH=(--apple-id "$APPLE_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --team-id "$APPLE_TEAM_ID")
+          fi
+
           echo "==> Last 10 submissions for team $APPLE_TEAM_ID:"
           echo ""
           xcrun notarytool history \
-            --apple-id "$APPLE_ID" \
-            --password "$APPLE_APP_SPECIFIC_PASSWORD" \
-            --team-id "$APPLE_TEAM_ID" \
+            "${NOTARY_AUTH[@]}" \
             --output-format json > /tmp/history.json
 
           python3 -c "
