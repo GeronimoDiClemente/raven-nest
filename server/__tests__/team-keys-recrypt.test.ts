@@ -523,3 +523,42 @@ describe('Task 15b — Minor 2: la página de pendientes tiene tope de bytes', (
     expect(vistos).toEqual([...ids, gigante])
   })
 })
+
+/**
+ * Orden de locks (follow-up del handoff 2026-10-15). `push.ts` toma la fila del PROYECTO
+ * (`allocateSeqRange`) y después la de la observación; recrypt lo hacía al revés —`for update
+ * of o` y recién después `allocateSeqRange`—, así que un push y un recrypt cruzados sobre la
+ * misma fila se trababan y Postgres abortaba uno con deadlock (40P01).
+ */
+describe('recrypt toma los locks en el mismo orden que push', () => {
+  it('un push con el proyecto ya tomado no se traba con un recrypt de la misma fila', async () => {
+    const syncId = randomUUID()
+    await obs(syncId, projectLeader, 'team', leaderId)
+
+    // El "push": tiene el lock del proyecto, como después de su allocateSeqRange.
+    const push = await pool.connect()
+    try {
+      await push.query('begin')
+      await push.query('update projects set seq_counter = seq_counter + 1 where id = $1', [projectLeader])
+
+      const recrypt = recryptTeamObservations(pool, { deviceId: leaderDevice, userId: leaderId }, teamId, {
+        proof: PRUEBA,
+        items: [{ sync_id: syncId, title: 'nmc1:t', content: 'nmc1:c', tags: [], content_hash: null, origin_account: null, lamport: 1 }],
+      })
+      // Tiempo para que recrypt llegue hasta su primer lock.
+      await new Promise((r) => setTimeout(r, 300))
+
+      // Ahora el push quiere la fila de la observación. Con el orden viejo, recrypt la tiene y
+      // espera el proyecto: deadlock. Con el nuevo, recrypt está esperando el proyecto y no la
+      // tomó todavía.
+      await push.query('select 1 from observations where sync_id = $1 for update', [syncId])
+      await push.query('commit')
+
+      const res = await recrypt
+      expect(res.ok).toBe(true)
+      if (res.ok) expect(res.applied).toEqual([syncId])
+    } finally {
+      push.release()
+    }
+  })
+})

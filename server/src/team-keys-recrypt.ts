@@ -238,12 +238,28 @@ export async function recryptTeamObservations(
     const client = await pool.connect()
     try {
       await client.query('begin')
+      // Locks en el MISMO orden que push.ts: primero la fila del proyecto (`allocateSeqRange`
+      // hace `update projects`), después la de la observación. Al revés, un push y un recrypt
+      // cruzados sobre la misma fila se trababan y Postgres abortaba uno con deadlock. El
+      // `project_id` se lee sin lock sólo para saber qué proyecto tomar: el select de abajo
+      // vuelve a exigir el mismo equipo y scope, ya con la fila bloqueada. Si después se
+      // rechaza, el rollback devuelve el seq.
+      const { rows: donde } = await client.query(
+        `select o.project_id from observations o join projects p on p.id = o.project_id
+          where o.sync_id = $1 and p.team_id = $2 and o.scope = 'team'`,
+        [it.sync_id, teamId]
+      )
+      if (donde.length === 0) {
+        await client.query('rollback')
+        rejected.push({ sync_id: it.sync_id, error: 'not_found_in_team' })
+        continue
+      }
+      const nuevoSeq = await allocateSeqRange(client, Number(donde[0].project_id), 1)
       // El chequeo central: la fila tiene que existir, pertenecer a UN proyecto cuyo team_id
       // sea EXACTAMENTE este equipo, y tener scope='team'. Cualquier otra cosa —otro equipo,
       // scope personal, sync_id inventado— no matchea ninguna fila y cae al rows.length === 0
-      // de abajo. `for update` toma el lock de la fila antes del allocateSeqRange, así que lo
-      // que se compara abajo (si sigue en claro, lamport, tema) no cambia entre el chequeo y el
-      // update.
+      // de abajo. `for update` toma el lock de la fila, así que lo que se compara abajo (si
+      // sigue en claro, lamport, tema) no cambia entre el chequeo y el update.
       const { rows } = await client.query(
         `select o.project_id, o.lamport, o.topic_key, o.deleted, o.superseded_by, o.client_updated_at,
                 ${enClaro('o')} as en_claro
@@ -281,7 +297,6 @@ export async function recryptTeamObservations(
         continue
       }
       const projectId = Number(actual.project_id)
-      const nuevoSeq = await allocateSeqRange(client, projectId, 1)
 
       // I2: con el HMAC, la fila migrada puede chocar contra una fila viva del mismo tema que se
       // guardó DESPUÉS de activar (ya llegó con el HMAC). `obs_topic_uniq` no admite dos vivas,
