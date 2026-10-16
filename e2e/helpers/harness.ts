@@ -67,7 +67,12 @@ export async function launchHarness(opts?: {
   // spawnea en una pty heredan HOME y buscan ahí sus credenciales. Un HOME
   // descartable las deja sin login y el smoke se cuelga en una pantalla de
   // auth. Solo lo usan los smokes que corren agentes de verdad.
-  if (!opts?.keepRealHome) {
+  //
+  // `RAVEN_E2E_KEEP_REAL_HOME=1` hace lo mismo para TODA la corrida. Es para macOS: sin el HOME
+  // real el sistema no encuentra el llavero de login y cada `safeStorage` abre un modal
+  // («Llavero no encontrado») que frena la prueba y le tapa la pantalla a quien esté usando la
+  // máquina. `--password-store=basic` no lo evita, sólo vale en Linux.
+  if (!opts?.keepRealHome && process.env.RAVEN_E2E_KEEP_REAL_HOME !== '1') {
     env.HOME = homeDir
     env.USERPROFILE = homeDir
   }
