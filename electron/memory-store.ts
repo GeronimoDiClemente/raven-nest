@@ -832,6 +832,37 @@ export class MemoryStore {
     }).immediate()
     return completadas
   }
+  /**
+   * Recalcula el HMAC de las filas `team` que tienen el tema en claro, tengan o no uno ya.
+   *
+   * `backfillTopicHmacs` sólo llena NULLs, y las filas team guardadas antes de c492d21 tienen
+   * el HMAC de la clave PERSONAL: el supersede del pull, que busca por el HMAC de equipo, no
+   * las encuentra. `main.ts` llama esto cada vez que adopta una clave de equipo. Una fila que
+   * vino del pull no tiene tema en claro y su HMAC ya es el del servidor, así que no se toca.
+   *
+   * Idempotente: sólo escribe las filas cuyo valor cambia, y devuelve cuántas fueron.
+   */
+  rehashTeamTopicHmacs(): number {
+    const hasher = this.topicHasher
+    if (!hasher) return 0
+    const rows = this.db
+      .prepare(
+        `SELECT sync_id, project_key, scope, topic_key, topic_key_hmac FROM observations
+          WHERE scope = 'team' AND topic_key IS NOT NULL`
+      )
+      .all() as Array<{ sync_id: string; project_key: string; scope: string; topic_key: string; topic_key_hmac: string | null }>
+    const update = this.db.prepare('UPDATE observations SET topic_key_hmac = ? WHERE sync_id = ?')
+    let cambiadas = 0
+    this.db.transaction(() => {
+      for (const r of rows) {
+        const hmac = hasher(r.project_key, r.scope, r.topic_key)
+        if (hmac === r.topic_key_hmac) continue
+        update.run(hmac, r.sync_id)
+        cambiadas++
+      }
+    }).immediate()
+    return cambiadas
+  }
   readonly schemaVersion: number = 0
 
   /**

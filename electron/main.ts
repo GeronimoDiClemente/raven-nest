@@ -356,6 +356,10 @@ async function readoptarClavesDeEquipo(equipos: Array<{ teamId: string; hasWrap:
     store.resetPullCursors()
     store.clearUndecryptable()
   }
+  // Las filas team guardadas antes de tener esta clave tienen el HMAC del tema calculado con
+  // la personal (o NULL): sin recalcularlas, el supersede del pull —que busca por el HMAC de
+  // equipo— no las encuentra. Va en los cuatro lugares que adoptan una clave de equipo.
+  store.rehashTeamTopicHmacs()
   memory.daemon.onTeamKeysChanged()
 }
 
@@ -3644,6 +3648,7 @@ ipcMain.handle('memory:teamEncryption:activate', async (_e, teamId: string) => {
   try {
     const { master, recoveryCode } = await activateTeamEncryption(deps, teamId, memoryKeys.device)
     teamMasterKeys.set(teamId, Buffer.from(master, 'base64'))
+    memory?.store.rehashTeamTopicHmacs() // ver `readoptarClavesDeEquipo`
     memory?.daemon.onTeamKeysChanged() // libera lo retenido por `team_key_missing` (Task 14)
     // I3 (review final): lo ya compartido en claro se migra solo, en segundo plano. Antes
     // dependía de que el leader encontrara un botón; si no lo tocaba, quedaba en claro para
@@ -3685,6 +3690,7 @@ ipcMain.handle('memory:teamEncryption:adopt', async (_e, teamId: string) => {
     // ya tenga la clave. Mismo trío que usa el adopt personal.
     memory.store.resetPullCursors()
     memory.store.clearUndecryptable()
+    memory.store.rehashTeamTopicHmacs() // ver `readoptarClavesDeEquipo`
     memory.daemon.onTeamKeysChanged() // libera lo retenido por `team_key_missing` (Task 14)
     memory.daemon.onNetworkRegain()
     return { ok: true, adoptada: true }
@@ -3721,6 +3727,7 @@ ipcMain.handle('memory:teamEncryption:recover', async (_e, teamId: string, code:
     // del cursor de pull, no sólo marcado `undecryptable` — sin esto no vuelve nunca.
     memory.store.resetPullCursors()
     memory.store.clearUndecryptable()
+    memory.store.rehashTeamTopicHmacs() // ver `readoptarClavesDeEquipo`
     memory.daemon.onTeamKeysChanged() // libera lo retenido por `team_key_missing` (Task 14)
     memory.daemon.onNetworkRegain()
     return { ok: true }

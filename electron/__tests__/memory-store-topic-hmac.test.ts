@@ -112,3 +112,49 @@ describe('memory-store — topic_key_hmac', () => {
     expect(store.backfillTopicHmacs()).toBe(0)
   })
 })
+
+/**
+ * Las filas `team` que se guardaron ANTES del arreglo de `localTopicHmac` (c492d21) tienen el
+ * HMAC de la clave PERSONAL, y `backfillTopicHmacs` no las toca porque no están en NULL. Al
+ * adoptar una clave de equipo hay que recalcularlas, o el supersede del pull sigue sin
+ * encontrarlas.
+ */
+describe('memory-store — rehashTeamTopicHmacs', () => {
+  const guardarEn = (scope: 'team' | 'personal', topicKey: string) => store.save({
+    projectKey: 'proj1', scope, type: 'decision', topicKey, title: `${scope}-${topicKey}`, content: 'body', source: 'mcp',
+  })
+
+  it('recalcula las filas team con tema en claro, aunque ya tengan HMAC', () => {
+    store.setTopicHasher((p, s, t) => `PERSONAL(${p}|${s}|${t})`)
+    const team = guardarEn('team', 'deploy').syncId
+    const personal = guardarEn('personal', 'deploy').syncId
+    expect(store.get(team)!.topic_key_hmac).toBe('PERSONAL(proj1|team|deploy)')
+
+    store.setTopicHasher((p, s, t) => (s === 'team' ? `EQUIPO(${p}|${t})` : `PERSONAL(${p}|${s}|${t})`))
+    expect(store.rehashTeamTopicHmacs()).toBe(1)
+
+    expect(store.get(team)!.topic_key_hmac).toBe('EQUIPO(proj1|deploy)')
+    expect(store.get(personal)!.topic_key_hmac).toBe('PERSONAL(proj1|personal|deploy)')
+    // Idempotente: una segunda corrida no reescribe nada.
+    expect(store.rehashTeamTopicHmacs()).toBe(0)
+  })
+
+  // Una fila bajada del pull no trae el tema en claro, sólo el HMAC del servidor: no hay de
+  // dónde recalcularlo, y el que tiene ya es el correcto.
+  it('no toca una fila team que vino del pull sin tema en claro', () => {
+    store.applyIncomingObservation({
+      syncId: 'obs_remoto', projectKey: 'proj1', scope: 'team', topicKey: null,
+      topicKeyHmac: 'H-DEL-SERVIDOR', type: 'decision', title: 'x', content: 'y',
+      updatedAt: Date.now(), lamport: 5, deleted: false,
+    })
+    store.setTopicHasher((p, s, t) => `EQUIPO(${p}|${s}|${t})`)
+    expect(store.rehashTeamTopicHmacs()).toBe(0)
+    expect(store.get('obs_remoto')!.topic_key_hmac).toBe('H-DEL-SERVIDOR')
+  })
+
+  it('sin hasher es un no-op', () => {
+    guardarEn('team', 'deploy')
+    store.setTopicHasher(null)
+    expect(store.rehashTeamTopicHmacs()).toBe(0)
+  })
+})
