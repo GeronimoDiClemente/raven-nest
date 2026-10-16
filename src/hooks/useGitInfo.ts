@@ -9,6 +9,9 @@ interface GitInfo {
 export function useGitInfo(repoPath?: string) {
   const [info, setInfo] = useState<GitInfo>({ branch: null, githubUrl: null, isDirty: false })
   const aliveRef = useRef(true)
+  // git:info is async in main, so replies can arrive out of order (a slow
+  // `git status` for the previous repo landing after the current one).
+  const requestIdRef = useRef(0)
 
   useEffect(() => {
     aliveRef.current = true
@@ -16,12 +19,13 @@ export function useGitInfo(repoPath?: string) {
   }, [])
 
   const refresh = useCallback(async () => {
+    const requestId = ++requestIdRef.current
     if (!repoPath) {
       if (aliveRef.current) setInfo({ branch: null, githubUrl: null, isDirty: false })
       return
     }
     const result = await window.git.info(repoPath)
-    if (!aliveRef.current) return
+    if (!aliveRef.current || requestId !== requestIdRef.current) return
     setInfo({ branch: result.branch, githubUrl: result.githubUrl, isDirty: result.isDirty })
   }, [repoPath])
 

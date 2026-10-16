@@ -110,16 +110,33 @@ export async function getProcessInfo(pid: number): Promise<ProcessInfo | null> {
     }
   }
   if (IS_MAC) {
+    const cached = macInfoCache.get(pid)
+    if (cached && Date.now() - cached.at < MAC_INFO_TTL_MS) return cached.info
+    let info: ProcessInfo | null = null
     try {
       const { stdout } = await execFileP('lsof', ['-a', '-d', 'cwd', '-p', String(pid), '-Fn'], { timeout: 1500 })
       const line = stdout.split('\n').find((l) => l.startsWith('n'))
-      return line ? { cwd: line.slice(1), ppid: null } : null
+      info = line ? { cwd: line.slice(1), ppid: null } : null
     } catch {
-      return null
+      info = null
     }
+    // A failed lookup (timeout under load) is not cached: retry next poll.
+    if (info) {
+      if (macInfoCache.size >= MAC_INFO_CACHE_MAX) macInfoCache.clear()
+      macInfoCache.set(pid, { info, at: Date.now() })
+    }
+    return info
   }
   return null
 }
+
+// macOS has no cheap cwd API, so every lookup is an `lsof` spawn. ports:byPane
+// asks for every listening pid not owned by a pane, every 5 s — on a dev Mac
+// that is 10–30 system daemons, so without a cache it ran hundreds of lsof per
+// minute. A listening server's cwd practically never changes; 30 s is plenty.
+const MAC_INFO_TTL_MS = 30_000
+const MAC_INFO_CACHE_MAX = 500
+const macInfoCache = new Map<number, { info: ProcessInfo; at: number }>()
 
 // Legacy convenience wrapper — keep for any caller that only needs cwd.
 export async function getCwdForPid(pid: number): Promise<string | null> {
@@ -156,6 +173,8 @@ export async function listListeningPidsPosix(): Promise<Map<number, number[]>> {
     }
     return out
   } catch (err) {
+    // lsof exits 1 when nothing matches, i.e. no listening sockets at all.
+    if ((err as { code?: unknown } | null)?.code === 1) return new Map()
     console.warn('[cwd-reader] lsof listening scan failed', err instanceof Error ? err.message : err)
     return new Map()
   }
@@ -166,7 +185,7 @@ export async function listListeningPidsPosix(): Promise<Map<number, number[]>> {
 export async function listListeningPidsWindows(): Promise<Map<number, number[]>> {
   if (!IS_WIN) return new Map()
   try {
-    const { stdout } = await execFileP('netstat', ['-ano'], { timeout: 5000 })
+    const { stdout } = await execFileP('netstat', ['-ano'], { timeout: 5000, windowsHide: true })
     const out = new Map<number, number[]>()
     for (const line of stdout.split(/\r?\n/)) {
       const m = line.match(/^\s*TCP\s+\S+:(\d+)\s+\S+\s+LISTENING\s+(\d+)/)
