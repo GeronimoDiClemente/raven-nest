@@ -97,4 +97,27 @@ describe('los chips de tipo filtran el grafo y la lista a la vez', () => {
     expect(chip).toHaveAttribute('aria-pressed', 'true')
     await waitFor(() => expect(screen.getByText('Un bugfix')).toBeInTheDocument())
   })
+
+  // Review final de rama, IMPORTANT #4: los chips solo se dibujaban con `colorBy === 'type'`
+  // — apagar Bugfix y despues cambiar "Color by" a Project dejaba el tipo oculto SIN un
+  // solo control visible para volver a prenderlo. La fila seguia escondida de la lista con
+  // el chip que la escondio invisible.
+  it('con un tipo apagado, cambiar Color by a Project no hace desaparecer el chip', async () => {
+    render(<Harness />)
+
+    await waitFor(() => expect(screen.getByText('Un bugfix')).toBeInTheDocument())
+    const chip = await screen.findByRole('button', { name: /Bugfix/ })
+    fireEvent.click(chip)
+    await waitFor(() => expect(screen.queryByText('Un bugfix')).toBeNull())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Project' }))
+
+    // El chip de Bugfix sigue en pantalla, todavia apagado — es el unico control que
+    // permite volver a mostrar esa fila.
+    const chipTrasElCambio = screen.getByRole('button', { name: /Bugfix/ })
+    expect(chipTrasElCambio).toHaveAttribute('aria-pressed', 'false')
+
+    fireEvent.click(chipTrasElCambio)
+    await waitFor(() => expect(screen.getByText('Un bugfix')).toBeInTheDocument())
+  })
 })

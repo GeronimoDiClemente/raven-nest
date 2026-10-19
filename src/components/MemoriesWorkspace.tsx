@@ -51,17 +51,34 @@ interface Props {
   /** El tour de Memory settings (Task 7) — distinto del de arriba: navega el rail de
    *  secciones en vez de los nodos. */
   onMemorySettingsTour: () => void
+  /**
+   * Avisa cuando `vista` cambia — INCLUIDO el valor inicial, al montar. Review final de
+   * rama, IMPORTANT #5: `App.tsx` decidía si mostrar la bienvenida de Memories mirando
+   * `vistaInicial` (la prop, que solo se lee una vez), no la vista que esta pantalla
+   * dibuja AHORA. Repro: Account → Memory settings → Back a "Memories" (navegación
+   * INTERNA, `setVista`, que `App.tsx` nunca se entera) → "How it works" → `forced` queda
+   * en `true` pero el predicado seguía leyendo `vistaInicial === 'settings'` y no
+   * mostraba nada — así que `forced` tampoco se resetea (eso lo hace `onSkip`/`onTour` de
+   * `MemoriesWelcome`, que nunca llega a montarse) y la bienvenida se auto-abre la
+   * PRÓXIMA vez que se abre Memories, sin que nadie la haya pedido.
+   */
+  onVistaChange?: (vista: 'memorias' | 'settings') => void
 }
 
 export default function MemoriesWorkspace({
   onClose, activeRepoPath, onOpenFile, onLinkRepo, closing = false, vistaInicial, ansi,
-  onHowItWorks, onMemorySettingsTour,
+  onHowItWorks, onMemorySettingsTour, onVistaChange,
 }: Props) {
   const state = useMemories()
 
   /** Cual de las dos vistas se dibuja — spec §7. Memory settings vive DETRAS del boton
    *  "Settings" del header, no en una pantalla propia: comparten header y shell. */
   const [vista, setVista] = useState<'memorias' | 'settings'>(vistaInicial ?? 'memorias')
+
+  // Incluye el valor inicial a proposito (sin arreglo de dependencias que lo salte): el
+  // caller necesita saber la vista real desde el primer render, no solo las navegaciones
+  // que vengan despues.
+  useEffect(() => { onVistaChange?.(vista) }, [vista, onVistaChange])
 
   // Spec §3: el grafo es una VISTA de la lista, no su reemplazo — seleccionar una memoria
   // en la lista la resalta en el grafo y viceversa. La seleccion vive aca, que es el unico

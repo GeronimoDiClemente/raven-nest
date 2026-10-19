@@ -142,4 +142,37 @@ describe('MemoriesList', () => {
     await waitFor(() => expect(screen.getByText('Fila de decision')).toBeInTheDocument())
     expect(screen.queryByText('Fila de bugfix')).toBeNull()
   })
+
+  // Review final de rama, IMPORTANT #3: si los chips de tipo apagan TODOS los tipos
+  // cargados, la pantalla decia "No memories yet" — una mentira, hay memorias, solo que
+  // estan ocultas — y de paso la paginacion (antes vivia adentro de `MemoriesRows`, que
+  // dejaba de montarse) desaparecia con ella.
+  it('con todos los tipos cargados ocultos, avisa que estan ocultas y no que no hay memorias', async () => {
+    setMemoryApi({
+      crossProject: vi.fn().mockResolvedValue({
+        items: [item({ type: 'bugfix', title: 'Fila de bugfix' })],
+        nextCursor: null,
+      }),
+    })
+    render(<MemoriesList tiposOcultos={new Set(['bugfix'])} />)
+
+    await waitFor(() => expect(screen.getByText(/hidden by the type filters/)).toBeInTheDocument())
+    expect(screen.queryByText('No memories yet')).toBeNull()
+    expect(screen.queryByText('Fila de bugfix')).toBeNull()
+  })
+
+  it('con todos ocultos pero mas paginas, la paginacion sigue disponible', async () => {
+    const crossProject = vi.fn()
+      .mockResolvedValueOnce({ items: [item({ type: 'bugfix', title: 'Fila de bugfix' })], nextCursor: 'cur-2' })
+      .mockResolvedValueOnce({ items: [item({ syncId: 's2', type: 'decision', title: 'Fila de decision' })], nextCursor: null })
+    setMemoryApi({ crossProject })
+    render(<MemoriesList tiposOcultos={new Set(['bugfix'])} />)
+
+    await waitFor(() => expect(screen.getByText(/hidden by the type filters/)).toBeInTheDocument())
+    const boton = screen.getByRole('button', { name: 'Load more' })
+    fireEvent.click(boton)
+
+    await waitFor(() => expect(crossProject).toHaveBeenCalledTimes(2))
+    expect(crossProject).toHaveBeenLastCalledWith(expect.objectContaining({ cursor: 'cur-2' }))
+  })
 })

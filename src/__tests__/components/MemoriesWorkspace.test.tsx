@@ -34,6 +34,7 @@ const renderWorkspace = (props: {
   onLinkRepo?: () => void
   vistaInicial?: 'memorias' | 'settings'
   onHowItWorks?: () => void
+  onVistaChange?: (vista: 'memorias' | 'settings') => void
 } = {}) =>
   render(
     <MemoriesWorkspace
@@ -44,6 +45,7 @@ const renderWorkspace = (props: {
       vistaInicial={props.vistaInicial}
       onHowItWorks={props.onHowItWorks ?? (() => {})}
       onMemorySettingsTour={() => {}}
+      onVistaChange={props.onVistaChange}
     />
   )
 
@@ -188,6 +190,32 @@ describe('MemoriesWorkspace', () => {
     await waitFor(() => expect(screen.queryByText('Un bugfix')).toBeNull())
     // La decision sigue — sólo se apagó el tipo clickeado, en los dos paneles a la vez.
     expect(screen.getByText('Una decision')).toBeInTheDocument()
+  })
+
+  // Review final de rama, IMPORTANT #5: antes, el unico dato que `App.tsx` tenia de la
+  // vista era `vistaInicial` (leida una sola vez, al montar) — navegar el rail puertas
+  // adentro (Settings → Back) no se lo avisaba a nadie. `onVistaChange` es el cable que
+  // faltaba: tiene que avisar el valor inicial AL MONTAR (no solo los cambios de ahi en
+  // mas), y despues cada navegacion interna.
+  it('onVistaChange avisa la vista inicial al montar y cada navegacion interna', () => {
+    const onVistaChange = vi.fn()
+    renderWorkspace({ activeRepoPath: '/r', onVistaChange })
+
+    expect(onVistaChange).toHaveBeenCalledWith('memorias')
+    onVistaChange.mockClear()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Memory settings' }))
+    expect(onVistaChange).toHaveBeenCalledWith('settings')
+    onVistaChange.mockClear()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Memories' }))
+    expect(onVistaChange).toHaveBeenCalledWith('memorias')
+  })
+
+  it('onVistaChange con vistaInicial=settings avisa "settings" desde el montaje', () => {
+    const onVistaChange = vi.fn()
+    renderWorkspace({ activeRepoPath: null, vistaInicial: 'settings', onVistaChange })
+    expect(onVistaChange).toHaveBeenCalledWith('settings')
   })
 
   it('el boton de volver cierra', async () => {

@@ -24,8 +24,7 @@ import {
   EDGE_KINDS_IN_LEGEND_ORDER, EDGE_STYLES,
   type ColorBy, type Foco, type ProjectGroup, type TagGroup,
 } from '../lib/memory-graph-visuals'
-import { MEMORY_TYPES_IN_LEGEND_ORDER, memoryTypeSwatch as swatchDe } from '../lib/memory-type-legend'
-import { memoryTypeSwatch } from '../lib/memory-type-legend'
+import { MEMORY_TYPES_IN_LEGEND_ORDER, memoryTypeSwatch } from '../lib/memory-type-legend'
 import { relativeTime } from '../lib/memories-status'
 import { nombreDeProyecto } from '../lib/nombre-de-proyecto'
 import { AILogo } from './AILogos'
@@ -49,6 +48,12 @@ function cargarGraph3D() {
 export function prefetchMemoryGraph3D(): void {
   void cargarGraph3D()
 }
+
+/** Review final de rama, B: el default `tiposOcultos = new Set()` en la firma crea un Set
+ *  NUEVO en cada render de un caller que no pasa la prop — una identidad distinta cada vez,
+ *  que invalida cualquier memo/effect que dependa de ella por referencia. Un solo Set
+ *  module-level, siempre vacío y nunca mutado, alcanza para ese caso. */
+const SIN_OCULTOS: ReadonlySet<string> = new Set()
 
 const MemoryGraph3D = lazy(cargarGraph3D)
 
@@ -89,7 +94,7 @@ interface Props {
 
 export default function MemoryGraphPanel({
   selectedId, onSelect, onEmpezarAConectar, onCambiada, resaltados = null, ansi,
-  tiposOcultos = new Set(), onToggleTipo,
+  tiposOcultos = SIN_OCULTOS, onToggleTipo,
 }: Props) {
 
   /**
@@ -458,7 +463,11 @@ function SinSeleccion({
         </div>
       )}
 
-      {colorBy === 'type' && tiposPresentes.length > 0 && (
+      {/* Los chips se muestran si se esta coloreando por tipo O si hay un tipo apagado
+          (spec §2, review final de rama #4): sin el segundo caso, cambiar "Color by" a
+          Project o Tag con un tipo todavia oculto dejaba ese filtro activo — la lista
+          seguia escondiendo filas— sin un solo control visible para volver a prenderlo. */}
+      {(colorBy === 'type' || tiposOcultos.size > 0) && tiposPresentes.length > 0 && (
         <div>
           <p className="mb-1.5 text-fs-xs uppercase tracking-wide text-muted-foreground">Types</p>
           {/* Chips, no leyenda muda (spec §2): cada tipo es un botón que lo apaga del
@@ -467,7 +476,7 @@ function SinSeleccion({
               apagado": prendido (true) es el estado normal. */}
           <ul className="flex flex-wrap gap-1.5">
             {MEMORY_TYPES_IN_LEGEND_ORDER.filter((t) => tiposPresentes.includes(t)).map((t) => {
-              const swatch = swatchDe(t)!
+              const swatch = memoryTypeSwatch(t)!
               const mostrado = !tiposOcultos.has(t)
               return (
                 <li key={t}>

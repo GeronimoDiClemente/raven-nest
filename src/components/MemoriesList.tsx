@@ -98,7 +98,32 @@ export default function MemoriesList({ selectedId = null, onSelect, estadoDeBusq
         </div>
       )}
 
-      {status === 'ready' && items.length === 0 && (
+      {/* Distinto del vacio de verdad: ACA si hay memorias cargadas, solo que los chips de
+          tipo del grafo (spec §2) las tapan a todas. "No memories yet" es mentira en ese
+          caso — hay, nomas que estan ocultas— y sin un aviso propio la paginacion tambien
+          desaparecia (el "Load more" vivia adentro de `MemoriesRows`, que solo se montaba
+          con `items.length > 0`): quitar un filtro bastaba para perder la forma de seguir
+          cargando. */}
+      {status === 'ready' && items.length === 0 && itemsCrudos.length > 0 && (
+        <div className="flex flex-1 flex-col items-center justify-center gap-2 py-10 text-center">
+          <p className="text-fs-lg font-medium text-foreground">All loaded memories are hidden by the type filters.</p>
+          <p className="max-w-sm text-fs text-muted-foreground">
+            Turn one of the type chips back on in the graph panel to see them again.
+          </p>
+          {hasMore && (
+            <button
+              type="button"
+              className="mt-1 text-fs-sm text-primary underline-offset-2 hover:underline disabled:opacity-50"
+              disabled={loadingMore}
+              onClick={loadMore}
+            >
+              {loadingMore ? 'Loading more…' : 'Load more'}
+            </button>
+          )}
+        </div>
+      )}
+
+      {status === 'ready' && items.length === 0 && itemsCrudos.length === 0 && (
         <MemoriesNotice
           compact={Boolean(query)}
           title={query ? 'No memories match that search' : 'No memories yet'}

@@ -251,6 +251,11 @@ export default function App() {
   // Task 6 (2026-10-19): con que vista abre — los nodos (default) o Memory settings
   // directo, que es lo que pide el boton "Account" de SettingsPanel.
   const [memoriesVista, setMemoriesVista] = useState<'memorias' | 'settings'>('memorias')
+  // Review final de rama, IMPORTANT #5: la vista REAL que MemoriesWorkspace está
+  // dibujando ahora — `memoriesVista` es sólo la inicial (la prop `vistaInicial`, que la
+  // pantalla lee una vez al montar); navegar el rail puertas adentro no la toca. Ver el
+  // comentario de `onVistaChange` en MemoriesWorkspace.tsx.
+  const [memoriesVistaActual, setMemoriesVistaActual] = useState<'memorias' | 'settings'>('memorias')
   const abrirMemories = (vista?: 'memorias' | 'settings') => {
     // Defensa en profundidad (fix round 1, Task 6): SOLO el literal 'settings' abre en
     // settings. Un caller viejo o mal tipado que le pase el SyntheticEvent de un click (o
@@ -298,7 +303,7 @@ export default function App() {
   const [memoriesWelcome, setMemoriesWelcome] = useState(false)
   const showMemoriesWelcome = shouldShowMemoriesWelcome({
     memoriesOpen,
-    vista: memoriesVista,
+    vista: memoriesVistaActual,
     forced: memoriesWelcome,
     hasSeenMemoriesWelcome: settings.hasSeenMemoriesWelcome,
     e2eBypass: !!window.appFlags?.e2eBypass,
@@ -598,6 +603,21 @@ export default function App() {
   // section header or from Settings → Tutorial. No blind auto-launch — the tour
   // spotlights the live app, so it only makes sense once you're on that view.
   const [tutorialTour, setTutorialTour] = useState<import('./tutorial/types').TourId | null>(null)
+  // Review final de rama, MINOR: `onStepChange` del tour de Memory settings era una arrow
+  // inline — una funcion NUEVA en cada render de App, que es un render MUY frecuente (hay
+  // estado de pollings de puertos, terminales, etc. arriba). Si OnboardingTour la usa como
+  // dependencia de un efecto (o la pasa a algo que la compara por referencia), cada render
+  // de App volvia a disparar EVENTO_SECCION con el paso actual, pisando la seccion que el
+  // usuario ya habia navegado a mano durante el tour. `useCallback` + sólo dispatchear
+  // cuando el id de paso CAMBIA de verdad.
+  const ultimoPasoDelTourRef = useRef<string | null>(null)
+  useEffect(() => { ultimoPasoDelTourRef.current = null }, [tutorialTour])
+  const handleTourStepChange = useCallback((id: string) => {
+    if (tutorialTour !== 'memory-settings') return
+    if (ultimoPasoDelTourRef.current === id) return
+    ultimoPasoDelTourRef.current = id
+    window.dispatchEvent(new CustomEvent(EVENTO_SECCION, { detail: id }))
+  }, [tutorialTour])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -2228,6 +2248,7 @@ export default function App() {
           // Memory settings arranca el tour del rail en vez de la bienvenida.
           onHowItWorks={() => setMemoriesWelcome(true)}
           onMemorySettingsTour={() => setTutorialTour('memory-settings')}
+          onVistaChange={setMemoriesVistaActual}
         />
       )}
 
@@ -2334,12 +2355,9 @@ export default function App() {
             steps={tour.steps}
             onClose={() => setTutorialTour(null)}
             // El tour de Memory settings navega el rail (Task 5) disparando
-            // EVENTO_SECCION en vez de simular clicks sobre data-tour-id.
-            onStepChange={(id) => {
-              if (tutorialTour === 'memory-settings') {
-                window.dispatchEvent(new CustomEvent(EVENTO_SECCION, { detail: id }))
-              }
-            }}
+            // EVENTO_SECCION en vez de simular clicks sobre data-tour-id. Memoizada arriba
+            // (handleTourStepChange) — ver el comentario junto a su declaracion.
+            onStepChange={handleTourStepChange}
           />
         ) : null
       })()}
