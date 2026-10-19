@@ -237,6 +237,27 @@ describe('MemoryStore — search & context', () => {
     expect(results[0].title).toBe('Weird bug')
   })
 
+  // Hasta el 2026-10-19 la query entera iba entre comillas, o sea frase exacta: "Smoke paquete"
+  // no encontraba "Smoke del paquete". Un agente busca por palabras clave, no por la frase
+  // literal que usó quien la guardó.
+  it('search matches loose terms, not the exact phrase', () => {
+    store.save({ projectKey: 'proj-a', type: 'discovery', title: 'Package smoke test', content: 'The smoke run of the package passed.', source: 'mcp' })
+    expect(store.search('proj-a', 'smoke package').map((r) => r.title)).toEqual(['Package smoke test'])
+    expect(store.search('proj-a', 'package   smoke').map((r) => r.title)).toEqual(['Package smoke test'])
+  })
+
+  it('search requires every term (AND), not any of them', () => {
+    store.save({ projectKey: 'proj-a', type: 'discovery', title: 'Only smoke', content: 'Smoke without the other word.', source: 'mcp' })
+    expect(store.search('proj-a', 'smoke package')).toEqual([])
+  })
+
+  it('search treats FTS5 operators and punctuation in the query as plain text', () => {
+    store.save({ projectKey: 'proj-a', type: 'discovery', title: 'Ops', content: 'Fixed memory-reads.ts NOT broken anymore.', source: 'mcp' })
+    expect(() => store.search('proj-a', 'NOT OR AND ( ) * ^ : - "')).not.toThrow()
+    expect(store.search('proj-a', 'memory-reads.ts NOT').map((r) => r.title)).toEqual(['Ops'])
+    expect(store.search('proj-a', '- * "')).toEqual([])
+  })
+
   it('context returns recent observations ordered by updated_at desc', () => {
     store.save({ projectKey: 'proj-a', type: 'decision', title: 'First', content: 'First decision made here.', source: 'mcp' })
     store.save({ projectKey: 'proj-a', type: 'decision', title: 'Second', content: 'Second decision made here.', source: 'mcp' })

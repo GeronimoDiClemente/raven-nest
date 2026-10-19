@@ -83,6 +83,27 @@ export function toSummary(row: ObservationRow, maxContentChars?: number): Observ
 }
 
 /**
+ * La query del usuario como expresión MATCH de FTS5: cada término entre comillas, unidos por
+ * el AND implícito. `null` si no queda ningún término buscable.
+ *
+ * Hasta el 2026-10-19 la query entera iba entre comillas, o sea FRASE EXACTA: «Smoke paquete»
+ * no encontraba «Smoke del paquete». Un agente busca por palabras clave, no por la frase
+ * literal con la que alguien la guardó.
+ *
+ * Las comillas por término siguen haciendo falta: sin ellas `NOT`, `OR`, `-`, `*` o `:` son
+ * operadores de FTS5 y la query revienta o significa otra cosa. Adentro de comillas son texto,
+ * y el tokenizer parte `memory-reads.ts` en una frase de tres tokens, que es lo que se quiere.
+ * Un término sin letras ni dígitos se descarta: entre comillas sería una frase vacía.
+ */
+export function consultaFtsPorTerminos(query: string): string | null {
+  const terminos = query
+    .replace(/["]/g, ' ')
+    .split(/\s+/)
+    .filter((t) => /[\p{L}\p{N}]/u.test(t))
+  return terminos.length ? terminos.map((t) => `"${t}"`).join(' ') : null
+}
+
+/**
  * Búsqueda por texto sobre la tabla FTS5. Trae las del proyecto pedido **y** las globales:
  * una memoria global es, por definición, algo que vale más allá de un repo.
  *
@@ -97,8 +118,8 @@ export function searchObservations(
   query: string,
   limit = 10
 ): ObservationSummary[] {
-  const safe = query.replace(/["]/g, '')
-  if (!safe.trim()) return []
+  const match = consultaFtsPorTerminos(query)
+  if (!match) return []
   const filtro = projectKey === null ? '' : 'AND (o.project_key = ? OR o.project_key = ?)'
   const args: unknown[] = projectKey === null ? [] : [projectKey, globalProjectKey]
   const rows = db
@@ -109,7 +130,7 @@ export function searchObservations(
          ${filtro}
        ORDER BY o.updated_at DESC, o.lamport DESC LIMIT ?`
     )
-    .all(`"${safe}"`, ...args, limit) as ObservationRow[]
+    .all(match, ...args, limit) as ObservationRow[]
   return rows.map(toSummary)
 }
 
