@@ -2,7 +2,7 @@
 import type { Localized } from './i18n'
 
 /** All tours shipped in the app. */
-export type TourId = 'activation' | 'my-repos' | 'teams' | 'worktrees'
+export type TourId = 'activation' | 'my-repos' | 'teams' | 'worktrees' | 'memories' | 'memory-settings'
 
 /** One coachmark step: anchor + copy + how it advances. */
 export interface TourStep {

@@ -1492,6 +1492,7 @@ declare global {
       get: () => Promise<{
         voiceLanguage?: string
         hasSeenMemoryHub?: boolean
+        hasSeenMemoriesWelcome?: boolean
         keybindings: {
           voiceInput: string
           newPane: string

@@ -24,11 +24,13 @@ export interface AppSettings {
   keybindings: Keybindings
   voiceLanguage: string
   hasSeenMemoryHub: boolean
+  hasSeenMemoriesWelcome: boolean
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
   voiceLanguage: 'es',
   hasSeenMemoryHub: false,
+  hasSeenMemoriesWelcome: false,
   keybindings: {
     voiceInput: 'F5',
     newPane: 'Meta+t',
@@ -51,6 +53,7 @@ function load(): AppSettings {
     return {
       voiceLanguage: data.voiceLanguage ?? DEFAULT_SETTINGS.voiceLanguage,
       hasSeenMemoryHub: data.hasSeenMemoryHub ?? DEFAULT_SETTINGS.hasSeenMemoryHub,
+      hasSeenMemoriesWelcome: data.hasSeenMemoriesWelcome ?? DEFAULT_SETTINGS.hasSeenMemoriesWelcome,
       keybindings: { ...DEFAULT_SETTINGS.keybindings, ...(data.keybindings ?? {}) }
     }
   } catch {

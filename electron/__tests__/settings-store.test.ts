@@ -28,3 +28,31 @@ describe('SettingsStore — hasSeenMemoryHub', () => {
     expect(store.get().hasSeenMemoryHub).toBe(true)
   })
 })
+
+describe('SettingsStore — hasSeenMemoriesWelcome', () => {
+  let home: string
+  let storeModule: typeof import('../settings-store')
+
+  beforeEach(async () => {
+    home = makeTmpDir('raven-settings-')
+    process.env.RAVEN_HOME = home
+    vi.resetModules()
+    storeModule = await import('../settings-store')
+  })
+
+  afterEach(() => {
+    delete process.env.RAVEN_HOME
+    cleanupTmp(home)
+  })
+
+  it('defaults to false when no settings file exists yet', () => {
+    const store = new storeModule.SettingsStore()
+    expect(store.get().hasSeenMemoriesWelcome).toBe(false)
+  })
+
+  it('persists across a set/get round-trip', () => {
+    const store = new storeModule.SettingsStore()
+    store.set({ ...store.get(), hasSeenMemoriesWelcome: true })
+    expect(store.get().hasSeenMemoriesWelcome).toBe(true)
+  })
+})

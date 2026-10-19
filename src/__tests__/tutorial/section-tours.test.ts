@@ -4,11 +4,14 @@ import { readdirSync, readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { getTour, listTourIds } from '../../tutorial/registry'
 import { WORKSPACE_SECTIONS } from '../../components/teamSections'
+import { SECCIONES_DE_MEMORIA_IDS } from '../../components/MemorySettingsView'
 import type { TourId } from '../../tutorial/types'
 
 const SECTION_TOURS: Record<string, string[]> = {
   'my-repos': ['header', 'add', 'nav', 'list', 'actions'],
   teams: ['header', 'switcher', 'members', 'chat', 'snippets'],
+  memories: ['status', 'graph', 'list', 'new', 'settings'],
+  'memory-settings': ['sync', 'encryption', 'project', 'disk'],
 }
 
 /**
@@ -34,12 +37,13 @@ function renderableTourIds(): Set<string> {
   }
   walk(resolve(process.cwd(), 'src'))
   for (const section of WORKSPACE_SECTIONS) ids.add(`teams-nav-${section}`)
+  for (const seccion of SECCIONES_DE_MEMORIA_IDS) ids.add(`memory-settings-${seccion}`)
   return ids
 }
 
-describe('section tours (my-repos, teams)', () => {
-  it('registers both tours alongside worktrees', () => {
-    expect([...listTourIds()].sort()).toEqual(['my-repos', 'teams', 'worktrees'])
+describe('section tours (my-repos, teams, memories, memory-settings)', () => {
+  it('registers all tours alongside worktrees', () => {
+    expect([...listTourIds()].sort()).toEqual(['memories', 'memory-settings', 'my-repos', 'teams', 'worktrees'])
   })
 
   for (const [id, ids] of Object.entries(SECTION_TOURS)) {

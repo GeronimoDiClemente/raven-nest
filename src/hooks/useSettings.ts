@@ -11,6 +11,7 @@ export function useSettings() {
         setSettings({
           voiceLanguage: (s as AppSettings).voiceLanguage ?? DEFAULT_SETTINGS.voiceLanguage,
           hasSeenMemoryHub: (s as AppSettings).hasSeenMemoryHub ?? DEFAULT_SETTINGS.hasSeenMemoryHub,
+          hasSeenMemoriesWelcome: (s as AppSettings).hasSeenMemoriesWelcome ?? DEFAULT_SETTINGS.hasSeenMemoriesWelcome,
           keybindings: { ...DEFAULT_SETTINGS.keybindings, ...s.keybindings }
         })
       } catch (err) {
@@ -48,5 +49,13 @@ export function useSettings() {
     })
   }, [])
 
-  return { settings, updateKeybinding, updateVoiceLanguage, markMemoryHubSeen }
+  const markMemoriesWelcomeSeen = useCallback(() => {
+    setSettings(prev => {
+      const next: AppSettings = { ...DEFAULT_SETTINGS, ...prev, hasSeenMemoriesWelcome: true }
+      window.settings.set(next)
+      return next
+    })
+  }, [])
+
+  return { settings, updateKeybinding, updateVoiceLanguage, markMemoryHubSeen, markMemoriesWelcomeSeen }
 }

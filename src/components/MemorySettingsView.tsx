@@ -25,6 +25,15 @@ const SECCIONES: Array<{ id: SeccionDeMemoria; n: string; titulo: string; bajada
   { id: 'disk', n: '04', titulo: 'Notes on disk', bajada: 'Your memories as Markdown files you can open in any editor.' },
 ]
 
+/**
+ * Cada fila del rail lleva `data-tour-id="memory-settings-<id>"` vía la prop
+ * dinámica `dataTourId` de `WorkspaceNavButton` (no un literal en el JSX), así
+ * que el scraper por regex de `section-tours.test.ts` no la ve sola — igual
+ * que `teams-nav-${section}` en `teamSections.ts`. Exportada para que ese test
+ * la expanda en vez de confiar en un literal que no está.
+ */
+export const SECCIONES_DE_MEMORIA_IDS: SeccionDeMemoria[] = SECCIONES.map((s) => s.id)
+
 export const EVENTO_SECCION = 'nest:memory-settings-seccion'
 
 interface Props {

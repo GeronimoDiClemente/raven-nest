@@ -27,3 +27,29 @@ describe('useSettings — hasSeenMemoryHub', () => {
     expect(window.settings.set).toHaveBeenCalledWith(expect.objectContaining({ hasSeenMemoryHub: true }))
   })
 })
+
+describe('useSettings — hasSeenMemoriesWelcome', () => {
+  beforeEach(() => {
+    ;(window as unknown as { settings: unknown }).settings = {
+      get: vi.fn().mockResolvedValue({ voiceLanguage: 'en', hasSeenMemoriesWelcome: false, keybindings: {} }),
+      set: vi.fn().mockResolvedValue(undefined),
+    }
+  })
+
+  it('loads hasSeenMemoriesWelcome from window.settings.get()', async () => {
+    const { result } = renderHook(() => useSettings())
+    await waitFor(() => expect(result.current.settings.hasSeenMemoriesWelcome).toBe(false))
+  })
+
+  it('markMemoriesWelcomeSeen persists true and updates local state', async () => {
+    const { result } = renderHook(() => useSettings())
+    await waitFor(() => expect(result.current.settings.hasSeenMemoriesWelcome).toBe(false))
+
+    await act(async () => {
+      await result.current.markMemoriesWelcomeSeen()
+    })
+
+    expect(result.current.settings.hasSeenMemoriesWelcome).toBe(true)
+    expect(window.settings.set).toHaveBeenCalledWith(expect.objectContaining({ hasSeenMemoriesWelcome: true }))
+  })
+})

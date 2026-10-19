@@ -57,6 +57,9 @@ import MemoryHub from './components/MemoryHub'
 import TeamsWorkspace from './components/TeamsWorkspace'
 import PersonalWorkspace, { type Section as PersonalWorkspaceSection } from './components/PersonalWorkspace'
 import MemoriesWorkspace from './components/MemoriesWorkspace'
+import MemoriesWelcome from './components/MemoriesWelcome'
+import { EVENTO_SECCION } from './components/MemorySettingsView'
+import { shouldShowMemoriesWelcome } from './lib/memoriesWelcome'
 import { IntegrationsHub } from './components/IntegrationsHub'
 import { GraphBoard } from './components/GraphBoard'
 import { useGitHub } from './hooks/useGitHub'
@@ -284,12 +287,22 @@ export default function App() {
     }
   }, [userPrefs.loaded]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const { settings, markMemoryHubSeen } = useSettings()
+  const { settings, markMemoryHubSeen, markMemoriesWelcomeSeen } = useSettings()
   const settingsRef = useRef(settings)
   settingsRef.current = settings
   // e2eBypass runs every test against a fresh RAVEN_HOME (no settings.json yet), which
   // would otherwise pop this over every e2e spec — see the one existing check below.
   const showMemoryHub = !settings.hasSeenMemoryHub && !window.appFlags?.e2eBypass
+  // Task 7: "How Memories works" (el botón del header) fuerza la bienvenida de nuevo,
+  // incluso ya vista o bajo e2eBypass — ver shouldShowMemoriesWelcome.
+  const [memoriesWelcome, setMemoriesWelcome] = useState(false)
+  const showMemoriesWelcome = shouldShowMemoriesWelcome({
+    memoriesOpen,
+    vista: memoriesVista,
+    forced: memoriesWelcome,
+    hasSeenMemoriesWelcome: settings.hasSeenMemoriesWelcome,
+    e2eBypass: !!window.appFlags?.e2eBypass,
+  })
 
   const { isListening, isTranscribing, isModelLoading, toggle: toggleListening } = useSpeechRecognition(
     useCallback((text: string) => {
@@ -2210,10 +2223,25 @@ export default function App() {
             userPrefs.prefs.ui_settings.terminalTheme,
             userPrefs.prefs.ui_settings.terminalThemesImportados ?? [],
           ).ansi}
-          // Task 7 cablea el dialogo de bienvenida y el tour de Memory settings; hasta
-          // entonces estos dos quedan sin efecto.
-          onHowItWorks={() => {}}
-          onMemorySettingsTour={() => {}}
+          // Task 7: el botón "How it works" del header reabre la bienvenida a pedido
+          // (forced, ver shouldShowMemoriesWelcome); "How Memories works" adentro de
+          // Memory settings arranca el tour del rail en vez de la bienvenida.
+          onHowItWorks={() => setMemoriesWelcome(true)}
+          onMemorySettingsTour={() => setTutorialTour('memory-settings')}
+        />
+      )}
+
+      {showMemoriesWelcome && (
+        <MemoriesWelcome
+          onTour={() => {
+            markMemoriesWelcomeSeen()
+            setMemoriesWelcome(false)
+            setTutorialTour('memories')
+          }}
+          onSkip={() => {
+            markMemoriesWelcomeSeen()
+            setMemoriesWelcome(false)
+          }}
         />
       )}
 
@@ -2301,7 +2329,19 @@ export default function App() {
       />
       {tutorialTour && (() => {
         const tour = getTour(tutorialTour)
-        return tour ? <OnboardingTour steps={tour.steps} onClose={() => setTutorialTour(null)} /> : null
+        return tour ? (
+          <OnboardingTour
+            steps={tour.steps}
+            onClose={() => setTutorialTour(null)}
+            // El tour de Memory settings navega el rail (Task 5) disparando
+            // EVENTO_SECCION en vez de simular clicks sobre data-tour-id.
+            onStepChange={(id) => {
+              if (tutorialTour === 'memory-settings') {
+                window.dispatchEvent(new CustomEvent(EVENTO_SECCION, { detail: id }))
+              }
+            }}
+          />
+        ) : null
       })()}
     </div>
   )
