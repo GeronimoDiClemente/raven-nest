@@ -98,18 +98,25 @@ export default function ShareProjectCard({ activeRepoPath }: Props) {
   const marco = 'flex shrink-0 flex-col gap-2 rounded-md border border-border p-3'
 
   /**
-   * La cara que ve casi todo el mundo. Dice POR QUÉ no está, no sólo que no está: "necesitás
-   * otro plan" invita a buscar el botón de pagar; la razón real es que todavía no lo podemos
-   * cifrar, y eso es lo que hace que la respuesta tenga sentido.
+   * La cara que ve casi todo el mundo. Dice POR QUÉ no está, no sólo que no está.
+   *
+   * Review final de rama, IMPORTANT #7a: esto decía que compartir "no está cifrado de
+   * punta a punta todavía — no hay una clave que dos personas compartan", que dejó de ser
+   * cierto el 2026-10-15 (TeamEncryptionCard, "Encrypt what <team> shares" — una clave de
+   * equipo que el leader activa). La razón real de este gate NUNCA fue el cifrado: es
+   * `teamScope` en `server/src/limits.ts`, que ningún plan de autoservicio tiene — es una
+   * decisión de producto (compartir es una conversación y un despliegue propio, no un
+   * botón de upgrade), no una limitación técnica que ya se resolvió.
    */
   if (puedeCompartir === false) {
     return (
       <div className={marco}>
         <h4 className="m-0 text-fs font-medium text-foreground">Share this project's memory with a team</h4>
         <p className="text-fs-sm text-muted-foreground">
-          Memory shared between people is not end-to-end encrypted yet — your key is yours
-          alone, and there is no key two people share. So sharing runs on its own deployment,
-          where the server belongs to your team, instead of on ours.
+          Sharing memory with a team isn't part of a self-serve plan — it runs on its own
+          deployment, where the server belongs to your team instead of ours. Once you're set
+          up, your team can turn on encryption for what it shares (Memory settings →
+          Encryption), so not even we can read it.
         </p>
         {CONTACTO ? (
           <div className="flex">
@@ -132,11 +139,19 @@ export default function ShareProjectCard({ activeRepoPath }: Props) {
       <div className="grid grid-cols-2 gap-2 text-fs-sm">
         <div className="rounded-md border border-border p-2 text-foreground">
           <p className="font-medium">The team will see</p>
-          <p className="mt-1 text-muted-foreground">Memories saved in this project: decisions, fixes, how the code fits together, including the ones already saved.</p>
+          {/* Review final de rama, IMPORTANT #7b: esto decia "incluyendo las ya guardadas",
+              y es falso en los dos sentidos. Lo que de verdad hace este boton es setear
+              `projects.team_id` en el servidor (server/src/share.ts) — una fila solo viaja a
+              un companero si ADEMAS tiene `scope: 'team'` (server/src/pull.ts linea ~177), y
+              la UNICA forma de que una fila pase a ese scope es `promoteToTeam()`
+              (electron/memory-store.ts), que no toca nada retroactivamente ni corre sola:
+              hoy la dispara un agente con una tool MCP, memoria por memoria. Compartir el
+              proyecto no mueve ni una sola fila por si solo. */}
+          <p className="mt-1 text-muted-foreground">Only memories someone promotes to the team from here on — sharing the project doesn't move anything already saved, and a new memory stays private until it's promoted.</p>
         </div>
         <div className="rounded-md border border-border p-2 text-foreground">
           <p className="font-medium">Stays only yours</p>
-          <p className="mt-1 text-muted-foreground">Your other projects, your personal memories, your code and your terminals.</p>
+          <p className="mt-1 text-muted-foreground">Everything already saved here, anything new nobody promotes, your other projects, your personal memories, your code and your terminals.</p>
         </div>
       </div>
       {teams.length === 0 ? (

@@ -14,9 +14,11 @@ vi.mock('../../hooks/useTeam', () => ({
  * Compartir memoria dejó de ser una acción de autoservicio (2026-09-13). La card tiene que
  * DECIRLO, no ofrecer un select y un botón que el servidor va a rechazar con 403.
  *
- * El motivo importa y por eso está en la copia: "necesitás otro plan" invita a buscar dónde
- * pagar; la razón real es que lo compartido todavía no se puede cifrar, y eso hace que la
- * respuesta tenga sentido en vez de parecer un paywall.
+ * El motivo importa y por eso está en la copia — pero review final de rama, IMPORTANT #7a:
+ * "lo compartido todavía no se puede cifrar" dejó de ser cierto el 2026-10-15
+ * (TeamEncryptionCard, cifrado de equipo). El gate real SIEMPRE fue de plan (`teamScope` en
+ * server/src/limits.ts, ningún plan de autoservicio lo tiene), no de capacidad técnica — la
+ * copia ahora lo dice así.
  */
 describe('la card de compartir', () => {
   const conStatus = (puedeCompartirMemoria: boolean | undefined) => {
@@ -36,7 +38,8 @@ describe('la card de compartir', () => {
     conStatus(false)
     render(<ShareProjectCard activeRepoPath="/repos/x" />)
 
-    await waitFor(() => expect(screen.getByText(/not end-to-end encrypted yet/i)).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText(/isn't part of a self-serve plan/i)).toBeInTheDocument())
+    expect(screen.queryByText(/not end-to-end encrypted yet/i)).toBeNull()
     expect(screen.queryByRole('button', { name: /^Share$/ })).toBeNull()
     expect(screen.queryByLabelText('Team')).toBeNull()
   })
@@ -46,7 +49,7 @@ describe('la card de compartir', () => {
     render(<ShareProjectCard activeRepoPath="/repos/x" />)
 
     await waitFor(() => expect(screen.getByRole('button', { name: /^Share with/ })).toBeInTheDocument())
-    expect(screen.queryByText(/not end-to-end encrypted yet/i)).toBeNull()
+    expect(screen.queryByText(/isn't part of a self-serve plan/i)).toBeNull()
   })
 
   /**
@@ -59,7 +62,7 @@ describe('la card de compartir', () => {
     render(<ShareProjectCard activeRepoPath="/repos/x" />)
 
     await waitFor(() => expect(screen.getByRole('button', { name: /^Share with/ })).toBeInTheDocument())
-    expect(screen.queryByText(/not end-to-end encrypted yet/i)).toBeNull()
+    expect(screen.queryByText(/isn't part of a self-serve plan/i)).toBeNull()
   })
 
   it('sin repo abierto no se dibuja nada', () => {

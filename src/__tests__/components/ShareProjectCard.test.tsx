@@ -95,4 +95,33 @@ describe('ShareProjectCard', () => {
     expect(await screen.findByText(/not in a team yet/i)).toBeInTheDocument()
     expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
   })
+
+  // Review final de rama, IMPORTANT #7b: compartir el proyecto NO mueve ninguna fila por si
+  // solo — solo vuelve legal que el proyecto lleve `scope: 'team'`, y la UNICA forma de que
+  // una memoria llegue a esa escala es `promoteToTeam()` (electron/memory-store.ts), que no
+  // corre sola. El texto viejo decia "incluyendo las ya guardadas", que es justo lo que no
+  // pasa.
+  it('"The team will see" no promete memorias ya guardadas ni automaticas', async () => {
+    setMemoryApi(api())
+    render(<ShareProjectCard activeRepoPath="/repo" />)
+
+    await waitFor(() => expect(screen.getByText('The team will see')).toBeInTheDocument())
+    expect(screen.getByText(/Only memories someone promotes to the team/)).toBeInTheDocument()
+    expect(screen.queryByText(/including the ones already saved/i)).not.toBeInTheDocument()
+    expect(screen.getByText(/Everything already saved here/)).toBeInTheDocument()
+  })
+
+  // Review final de rama, IMPORTANT #7a: el plan "no se puede compartir" decia que la
+  // memoria de equipo "no esta cifrada de punta a punta todavia" — falso desde el
+  // 2026-10-15 (TeamEncryptionCard). El gate real es de plan (`teamScope` en
+  // server/src/limits.ts), no de capacidad tecnica.
+  it('sin permiso de compartir, explica el gate de plan y no habla de falta de cifrado', async () => {
+    setMemoryApi(api({ status: vi.fn().mockResolvedValue({ puedeCompartirMemoria: false }) }))
+    render(<ShareProjectCard activeRepoPath="/repo" />)
+
+    await waitFor(() => expect(screen.getByText(/isn't part of a self-serve plan/)).toBeInTheDocument())
+    expect(screen.queryByText(/not end-to-end encrypted yet/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/there is no key two people share/i)).not.toBeInTheDocument()
+    expect(screen.getByText(/Memory settings → Encryption/)).toBeInTheDocument()
+  })
 })

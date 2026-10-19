@@ -18,7 +18,7 @@ export const memoriesTour: TourDef = {
       id: 'graph',
       anchor: '[data-tour-id="memories-graph"]',
       title: en('This is everything your agents remember'),
-      body: en('Each dot is one memory, coloured by kind. Lines join memories that belong together — agents link them as they work, or you drag one onto another. Click a dot to read it.'),
+      body: en('Each dot is one memory, coloured by kind. Lines join memories that belong together — agents link them as they work, or you click "Connect to another memory" on one and then click the other. Click a dot to read it.'),
     },
     {
       id: 'list',

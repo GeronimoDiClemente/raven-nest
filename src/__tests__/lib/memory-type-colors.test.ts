@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { memoryTypeSwatch, MEMORY_TYPE_ANSI } from '../../lib/memory-type-legend'
-import { TEMA_NEST, TEMAS } from '../../lib/terminal-themes'
+import { memoryTypeSwatch, MEMORY_TYPE_ANSI, MEMORY_TYPES_IN_LEGEND_ORDER } from '../../lib/memory-type-legend'
+import { TEMA_NEST, TEMAS, contraste } from '../../lib/terminal-themes'
 
 describe('color por tipo = ANSI del tema', () => {
   it('cada tipo conocido sale de su índice ANSI', () => {
@@ -25,5 +25,23 @@ describe('color por tipo = ANSI del tema', () => {
   it('los nueve tipos tienen índice', () => {
     expect(Object.keys(MEMORY_TYPE_ANSI).sort()).toEqual(
       ['architecture', 'bugfix', 'config', 'decision', 'discovery', 'handoff', 'pattern', 'preference', 'session'])
+  })
+
+  // Review final de rama, IMPORTANT #8: el indice 8 (config/preference/session) fallaba
+  // 3:1 contra `--card` (#141414) en 4 temas bundleados — Solarized 2.79, GitHub dark
+  // 2.18, Tokyo Night 2.06, Monokai 2.83. `memoryTypeSwatch` ahora sube el color (sin
+  // cambiar su tono) hasta ese piso contra la tarjeta, no solo contra el fondo de la
+  // terminal del tema.
+  it('los nueve tipos cumplen 3:1 contra --card (#141414) en TODOS los temas bundleados', () => {
+    const CARD = '#141414'
+    for (const tema of TEMAS) {
+      for (const tipo of MEMORY_TYPES_IN_LEGEND_ORDER) {
+        const swatch = memoryTypeSwatch(tipo, tema.ansi)!
+        expect(
+          contraste(swatch.color, CARD),
+          `${tema.nombre} / ${tipo} (${swatch.color}) contra ${CARD}`,
+        ).toBeGreaterThanOrEqual(3)
+      }
+    }
   })
 })

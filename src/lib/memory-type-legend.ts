@@ -9,7 +9,12 @@
 // son los tres tipos que un agente casi nunca guarda y que no compiten entre sí por
 // atención, así que no hace falta gastar un color categórico en distinguirlos — un gris
 // apagado ya dice "metadata", no "cuál de los tres".
-import { TEMA_NEST } from './terminal-themes'
+import { TEMA_NEST, subirContraste } from './terminal-themes'
+
+/** El mismo hex que `--card` en `src/styles/global.css` — la superficie sobre la que se
+ *  dibuja el swatch (la fila de la lista, la leyenda del grafo), que NO es el `background`
+ *  de la terminal del tema. Ver el comentario de `subirContraste`. */
+const FONDO_DE_LA_TARJETA = '#141414'
 
 export type KnownMemoryType =
   | 'decision'
@@ -72,5 +77,10 @@ export function memoryTypeSwatch(type: string, ansi?: readonly string[]): Memory
   if (!Object.prototype.hasOwnProperty.call(MEMORY_TYPE_ANSI, type)) return null
   const k = type as KnownMemoryType
   const paleta = ansi && ansi.length >= 16 ? ansi : TEMA_NEST.ansi
-  return { label: LABEL[k], color: paleta[MEMORY_TYPE_ANSI[k]] }
+  const crudo = paleta[MEMORY_TYPE_ANSI[k]]
+  // Review final de rama, IMPORTANT #8: el color crudo del tema puede no alcanzar 3:1
+  // contra `--card` (el indice 8 — config/preference/session — falla en 4 temas
+  // bundleados: Solarized 2.79, GitHub dark 2.18, Tokyo Night 2.06, Monokai 2.83). Subirlo
+  // acá, en el único choke point que usan la lista Y el grafo, en vez de en cada caller.
+  return { label: LABEL[k], color: subirContraste(crudo, FONDO_DE_LA_TARJETA) }
 }

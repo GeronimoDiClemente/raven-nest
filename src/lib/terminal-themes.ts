@@ -239,25 +239,37 @@ export function peorContraste(tema: TemaDeTerminal): number {
  * Se mueve sobre la luminosidad en HSL, no sobre cada canal RGB: subir los canales por igual
  * lava el color hacia el blanco y un rojo tenue termina rosa.
  */
-export function ajustarContraste(tema: TemaDeTerminal, minimo = CONTRASTE_MINIMO): TemaDeTerminal {
-  const subir = (color: string): string => {
-    if (contraste(color, tema.background) >= minimo) return color
-    const fondoClaro = luminancia(tema.background) > 0.5
-    let mejor = color
-    // 40 pasos de 2.5% de luminosidad: suficiente para cruzar el umbral desde cualquier
-    // punto, y el bucle corta apenas lo cruza en vez de recorrerlos todos.
-    for (let paso = 1; paso <= 40; paso++) {
-      const candidato = moverLuminosidad(color, fondoClaro ? -paso * 0.025 : paso * 0.025)
-      mejor = candidato
-      if (contraste(candidato, tema.background) >= minimo) break
-    }
-    return mejor
+/**
+ * Sube UN color hasta que alcance el minimo contra UN fondo dado, conservando su tono.
+ *
+ * Extraida de `ajustarContraste` (review final de rama, IMPORTANT #8): esa funcion mide
+ * siempre contra `tema.background` — el fondo de LA TERMINAL — pero el swatch de tipo de
+ * memoria (`memory-type-legend.ts`) se dibuja sobre `--card` (#141414), que es una
+ * superficie DISTINTA y mas clara que el `background` de varios temas bundleados. Medido:
+ * el indice 8 (config/preference/session) da 2.06:1 en Tokyo Night contra `--card`, muy por
+ * debajo del piso de 3:1 — un numero que `ajustarContraste(tema)` nunca ve, porque mide
+ * contra el fondo de la terminal, no el de la tarjeta.
+ */
+export function subirContraste(color: string, fondo: string, minimo = CONTRASTE_MINIMO): string {
+  if (contraste(color, fondo) >= minimo) return color
+  const fondoClaro = luminancia(fondo) > 0.5
+  let mejor = color
+  // 40 pasos de 2.5% de luminosidad: suficiente para cruzar el umbral desde cualquier
+  // punto, y el bucle corta apenas lo cruza en vez de recorrerlos todos.
+  for (let paso = 1; paso <= 40; paso++) {
+    const candidato = moverLuminosidad(color, fondoClaro ? -paso * 0.025 : paso * 0.025)
+    mejor = candidato
+    if (contraste(candidato, fondo) >= minimo) break
   }
+  return mejor
+}
+
+export function ajustarContraste(tema: TemaDeTerminal, minimo = CONTRASTE_MINIMO): TemaDeTerminal {
   return {
     ...tema,
-    foreground: subir(tema.foreground),
+    foreground: subirContraste(tema.foreground, tema.background, minimo),
     // El indice 0 (negro ANSI) no se toca: ver `peorContraste`.
-    ansi: tema.ansi.map((c, i) => (i === 0 ? c : subir(c))),
+    ansi: tema.ansi.map((c, i) => (i === 0 ? c : subirContraste(c, tema.background, minimo))),
   }
 }
 
