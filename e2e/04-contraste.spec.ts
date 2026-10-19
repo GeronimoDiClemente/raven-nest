@@ -144,7 +144,48 @@ test('ningún texto de la app queda por debajo de 3:1 de contraste', async () =>
         await page.getByTitle(/^Memories/).first().click()
         await page.waitForTimeout(800)
       }],
+      // Fix round 1 (review de rama): el repo rule es "todo cambio de UI pasa
+      // e2e/04-contraste" y este plan sumó pantallas enteras (Memory settings, la
+      // bienvenida) que este archivo nunca medía. Memory settings se mide sección por
+      // sección (Task 5/6 de este plan): cada rail dibuja cards propias, no una sola
+      // pantalla.
+      ['memory-settings-sync', async () => {
+        // "Sync" es la sección por default (`seccionInicial = 'sync'` en
+        // MemorySettingsView): abrir Memory settings ya la deja montada, sin click extra.
+        await page.locator('.memories-workspace').getByRole('button', { name: 'Memory settings' }).click()
+        await page.waitForTimeout(600)
+      }],
+      ['memory-settings-encryption', async () => {
+        await page.locator('.memories-workspace').getByRole('button', { name: /Encryption/ }).click()
+        await page.waitForTimeout(600)
+      }],
+      ['memory-settings-project', async () => {
+        // Con repo (`withRepo: true` de este test) dibuja ShareProjectCard + el switch del
+        // hilo — tres IPC encadenados (projectKeyForWorktree → getSettings → read), de ahí
+        // el margen más largo.
+        await page.locator('.memories-workspace').getByRole('button', { name: /This project & team/ }).click()
+        await page.waitForTimeout(800)
+      }],
+      ['memory-settings-disk', async () => {
+        await page.locator('.memories-workspace').getByRole('button', { name: /Notes on disk/ }).click()
+        await page.waitForTimeout(600)
+      }],
+      ['memories-welcome', async () => {
+        // "How it works" sólo vive en la vista principal (Memory settings tiene su propio
+        // tour, distinto) — volver primero con el Back de settings, que ahí se llama
+        // "Memories", no "Back" (misma nota en 03-memories-in-app.spec.ts). Bajo
+        // `RAVEN_E2E=1` la bienvenida nunca se auto-muestra (`shouldShowMemoriesWelcome`
+        // con e2eBypass); "How it works" la fuerza igual, que es como la ve cualquiera que
+        // la pida a mano.
+        await page.locator('.memories-workspace').getByRole('button', { name: 'Memories', exact: true }).click()
+        await page.getByRole('button', { name: 'How it works' }).click()
+        await page.waitForTimeout(800)
+      }],
       ['settings', async () => {
+        // Cierra la bienvenida que dejó el paso anterior: el overlay del Dialog de Radix
+        // intercepta los clicks de abajo si no se cierra primero.
+        const skip = page.getByRole('button', { name: /Skip/ })
+        if (await skip.count()) await skip.click()
         await page.locator('.memories-workspace .tw-back-btn').click()
         await page.locator('.sidebar-item-settings').first().click()
         // Ya no hay pestaña "Account": Settings es una sola pagina con secciones (modelo de
