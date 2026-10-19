@@ -10,32 +10,54 @@
 //
 //   docker start nest-memory-pg
 //   (cd server && PORT=8099 npx tsx src/index.ts)
-//   # dos devices de la MISMA cuenta, con `server/scripts/mint-device-token.mjs`:
-//   #   --out <dir>/a.txt y --out <dir>/b.txt, y sus device_id en <dir>/a.id y <dir>/b.id
 //   npm run build
-//   NEST_E2E_SYNC_URL=http://127.0.0.1:8099 NEST_E2E_TOKENS_DIR=<dir> \
-//     NEST_E2E_PG_DOCKER=nest-memory-pg npx playwright test e2e/12-cifrado-dos-maquinas.spec.ts
+//   NEST_E2E_SYNC_URL=http://127.0.0.1:8099 NEST_E2E_PG_DOCKER=nest-memory-pg \
+//     npx playwright test e2e/12-cifrado-dos-maquinas.spec.ts
 //
-// Lo único que NO pasa por la app es emitir el token: el camino de producto lo pide con el
-// login de Supabase, y eso no existe contra un servicio local. Todo lo demás —apuntar al
-// servicio, conectar, activar, autorizar, adoptar, bajar— es la app.
+// Review final de rama, H: hasta acá ESTE archivo pedía `NEST_E2E_TOKENS_DIR` con dos
+// devices YA minteados a mano, de una cuenta fija. El cifrado que activa es un cambio DE UN
+// SOLO SENTIDO del lado del servidor (una vez `active` para esa cuenta, se queda así) — así
+// que un segundo run contra la MISMA cuenta encontraba la tarjeta ya en «Encryption on», sin
+// el botón «Turn on encryption» que el test busca primero, y se caía en rojo sin que hubiera
+// ninguna regresión real. Ahora mintea una cuenta NUEVA por corrida (igual que
+// `e2e/16-cifrado-de-equipo.spec.ts`'s `cuentaNueva`, mismo script) — dos devices (`a`, `b`)
+// del MISMO email nuevo, así que siguen siendo la MISMA cuenta vista desde dos máquinas, que
+// es lo que el test necesita, pero una cuenta que nadie usó todavía.
 import { test, expect, type Page } from '@playwright/test'
 import { launchHarness, teardown, type Harness } from './helpers/harness'
 import { execFileSync } from 'child_process'
-import { mkdirSync, readFileSync } from 'fs'
+import { mkdirSync, mkdtempSync, readFileSync } from 'fs'
+import { randomUUID } from 'crypto'
+import { tmpdir } from 'os'
 import { join } from 'path'
 
 const SYNC_URL = process.env.NEST_E2E_SYNC_URL
-const TOKENS = process.env.NEST_E2E_TOKENS_DIR
 const PG_DOCKER = process.env.NEST_E2E_PG_DOCKER
+const DATABASE_URL = process.env.NEST_E2E_DATABASE_URL ?? 'postgres://postgres:nestmem@127.0.0.1:55432/nest_memory'
 
-const SHOTS = join(__dirname, '..', 'test-results', 'cifrado-dos-maquinas')
+const REPO = join(__dirname, '..')
+const SHOTS = join(REPO, 'test-results', 'cifrado-dos-maquinas')
 mkdirSync(SHOTS, { recursive: true })
 
-test.skip(!SYNC_URL || !TOKENS, 'necesita NEST_E2E_SYNC_URL y NEST_E2E_TOKENS_DIR (ver el encabezado)')
+test.skip(!SYNC_URL, 'necesita NEST_E2E_SYNC_URL (ver el encabezado)')
 test.setTimeout(240_000)
 
-const leer = (archivo: string): string => readFileSync(join(TOKENS!, archivo), 'utf8').trim()
+interface Device { deviceId: string; token: string }
+
+/** Un device nuevo para `email` — llamado dos veces con el MISMO email (y `--device`
+ *  distinto) da dos devices de UNA cuenta, que es lo que A/B necesitan acá. Copiado del
+ *  patrón de `cuentaNueva` en e2e/16-cifrado-de-equipo.spec.ts (mismo script, mint-device-
+ *  token.mjs resuelve por email: existente → reusa el user_id, no crea una cuenta nueva). */
+function device(email: string, quien: string): Device {
+  const dir = mkdtempSync(join(tmpdir(), 'nest-e2e-cifrado-'))
+  const out = join(dir, 'token.txt')
+  const salida = execFileSync(process.execPath, [
+    join(REPO, 'server', 'scripts', 'mint-device-token.mjs'),
+    '--email', email, '--device', `e2e-${quien}`, '--plan', 'pro', '--out', out,
+  ], { encoding: 'utf8', env: { ...process.env, DATABASE_URL }, cwd: join(REPO, 'server') })
+  const campo = (k: string): string => salida.match(new RegExp(`^${k}=(.+)$`, 'm'))![1].trim()
+  return { deviceId: campo('device_id'), token: readFileSync(out, 'utf8').trim() }
+}
 
 /** Lo que ve el servicio, mirado en su base: es lo único que prueba que no viaja nada legible. */
 function sql(q: string): string {
@@ -93,14 +115,20 @@ async function estado(page: Page): Promise<{ pendingCount: number; daemonStatus:
 }
 
 test('dos máquinas: A activa el cifrado, B no lee hasta que A la autoriza, y después lee en claro', async () => {
-  const marca = `e2e-${Date.now()}`
+  // `randomUUID` además de `Date.now()`: dos runs arrancados en el mismo milisegundo (CI en
+  // paralelo) no pueden terminar compartiendo el email y, con él, una cuenta a medio activar
+  // que el otro run ya tocó.
+  const marca = `e2e-${Date.now()}-${randomUUID().slice(0, 8)}`
   const secreto = `La contraseña del bunker es rosebud (${marca})`
+  const email = `${marca}@e2e.test`
+  const deviceA = device(email, 'a')
+  const deviceB = device(email, 'b')
   let a: Harness | null = null
   let b: Harness | null = null
   try {
     // ── Máquina A ──────────────────────────────────────────────────────────────
     a = await launchHarness({ withRepo: false })
-    await conectar(a.page, leer('a.txt'), leer('a.id'))
+    await conectar(a.page, deviceA.token, deviceA.deviceId)
     await abrirEncryption(a.page)
 
     const tarjeta = a.page.getByText('Turn on encryption')
@@ -131,7 +159,7 @@ test('dos máquinas: A activa el cifrado, B no lee hasta que A la autoriza, y de
 
     // ── Máquina B, sin autorizar ───────────────────────────────────────────────
     b = await launchHarness({ withRepo: false })
-    await conectar(b.page, leer('b.txt'), leer('b.id'))
+    await conectar(b.page, deviceB.token, deviceB.deviceId)
     await abrirEncryption(b.page)
     await expect(b.page.getByText('This machine is not authorised yet')).toBeVisible({ timeout: 60_000 })
     const huellaB = (await b.page.locator('p.select-all').first().innerText()).trim()
