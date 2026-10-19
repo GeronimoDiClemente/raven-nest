@@ -50,9 +50,9 @@ describe('toGraphData', () => {
   })
 
   it('un tipo fuera de la leyenda cae a un gris neutro, no a un color inventado', () => {
-    const data = toGraphData(grafo([nodo('a', { type: 'handoff' })]), TODO)
+    const data = toGraphData(grafo([nodo('a', { type: 'something-new' })]), TODO)
     // El mismo criterio que memoryTypeSwatch, que devuelve null para estos.
-    expect(memoryTypeSwatch('handoff')).toBeNull()
+    expect(memoryTypeSwatch('something-new')).toBeNull()
     expect(data.nodes[0].color).toBe('#8a8a8a')
   })
 
@@ -390,5 +390,28 @@ describe('nodos pendientes', () => {
   it('una memoria de verdad no queda marcada como hueco', () => {
     const data = toGraphData(grafo([nodo('a')], []), TODO)
     expect(data.nodes[0].pending).toBe(false)
+  })
+})
+
+// Los chips de tipo (spec §2): apagar un tipo lo saca del grafo entero, no sólo del
+// color — y con él, las aristas que lo tocaban.
+describe('ocultar tipos por chip', () => {
+  it('los tipos ocultos no llegan al grafo', () => {
+    const graph = grafo([nodo('a', { type: 'decision' }), nodo('b', { type: 'bugfix' })])
+    const data = toGraphData(graph, { ...TODO, tiposOcultos: new Set(['bugfix']) })
+    expect(data.nodes.map((n) => n.id)).toEqual(['a'])
+  })
+
+  it('tambien se descartan las aristas que tocaban al tipo oculto', () => {
+    const data = toGraphData(grafo(
+      [nodo('a', { type: 'decision' }), nodo('b', { type: 'bugfix' })],
+      [{ from: 'a', to: 'b', kind: 'topic', directed: false }],
+    ), { ...TODO, tiposOcultos: new Set(['bugfix']) })
+    expect(data.links).toHaveLength(0)
+  })
+
+  it('un Set vacio no cambia nada', () => {
+    const data = toGraphData(grafo([nodo('a', { type: 'decision' })]), { ...TODO, tiposOcultos: new Set() })
+    expect(data.nodes).toHaveLength(1)
   })
 })

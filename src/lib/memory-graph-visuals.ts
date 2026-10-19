@@ -265,6 +265,12 @@ export interface ToGraphDataOptions {
   /** Esconder las memorias sin ninguna conexión (el filtro "Orphans" de Obsidian). */
   hideOrphans: boolean
   foco: Foco
+  /** La paleta ANSI del tema de terminal activo. Sin ella, `memoryTypeSwatch` cae al tema
+   *  Nest — ver `memory-type-legend.ts`. */
+  ansi?: readonly string[]
+  /** Los tipos que los chips de la leyenda apagaron (spec §2): sus nodos, y las aristas
+   *  que los tocan, no llegan al grafo — ni siquiera a contar para el grado de un vecino. */
+  tiposOcultos?: ReadonlySet<string>
 }
 
 /**
@@ -276,11 +282,18 @@ export interface ToGraphDataOptions {
  * título, sin color y sin tipo, que no corresponde a ninguna memoria.
  */
 export function toGraphData(graph: MemoryGraph, opts: ToGraphDataOptions): GraphData {
-  const enFoco = !opts.foco
+  const conFoco = !opts.foco
     ? graph.nodes
     : opts.foco.tipo === 'project'
       ? graph.nodes.filter((n) => n.projectKey === opts.foco!.valor)
       : graph.nodes.filter((n) => n.tags.includes(opts.foco!.valor))
+
+  // Los tipos ocultos se descartan ACA, antes de contar el grado: un nodo oculto no debe
+  // seguir "sosteniendo" la conexión de su vecino, igual que una arista hacia un nodo
+  // ausente (ver el comentario de la función).
+  const enFoco = opts.tiposOcultos && opts.tiposOcultos.size > 0
+    ? conFoco.filter((n) => !opts.tiposOcultos!.has(n.type))
+    : conFoco
 
   const idsEnFoco = new Set(enFoco.map((n) => n.syncId))
   const aristas = graph.edges.filter((e) => idsEnFoco.has(e.from) && idsEnFoco.has(e.to))
@@ -329,7 +342,7 @@ export function toGraphData(graph: MemoryGraph, opts: ToGraphDataOptions): Graph
         ? (colores.get(n.projectKey) ?? NEUTRAL_NODE)
         : opts.colorBy === 'tag'
           ? colorPorTag()
-          : (memoryTypeSwatch(n.type)?.color ?? NEUTRAL_NODE),
+          : (memoryTypeSwatch(n.type, opts.ansi)?.color ?? NEUTRAL_NODE),
       val: valorPorGrado(degree, n.superseded),
       degree,
       superseded: n.superseded,

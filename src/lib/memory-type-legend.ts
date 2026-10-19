@@ -1,18 +1,16 @@
-// Spec 2026-09-11 §1 (pantalla de Memories legible): "el tipo se distingue sin leer".
-// Son siete valores fijos (electron/memory-protocol.ts's ObservationType, menos
-// `session`/`handoff` que son internos y rara vez llegan a esta lista), así que
-// califican como leyenda categórica — la excepción justificada a la regla de que el
-// color es estado (RECETA-MIGRACION-UI.md, "un literal de color cromático no se
-// convierte automáticamente").
+// Spec 2026-10-19 (memories vista y settings) §5: el color de un tipo ya no es un hex
+// fijo — sale del tema de terminal del usuario, por ÍNDICE ANSI. Memories se ve como sus
+// terminales, en vez de traer una paleta propia que puede chocar o no combinar con la que
+// el usuario ya eligió. Sigue siendo la misma excepción justificada a "el color es estado"
+// (RECETA-MIGRACION-UI.md): es leyenda categórica de 9 valores fijos, nunca ciclada — el
+// orden en sí es el mecanismo de seguridad CVD (ver `MEMORY_TYPES_IN_LEGEND_ORDER`).
 //
-// Paleta: los primeros 7 slots del tema categórico validado de la skill dataviz
-// (blue/orange/aqua/yellow/magenta/green/violet), en su orden fijo — nunca ciclado,
-// es lo que hace que el orden en sí sea el mecanismo de seguridad CVD. Solo el valor
-// "dark": Nest no tiene tema claro (ver src/components/ui/button.tsx). Elegidos para
-// NO coincidir con --ok/--warn/--destructive (#4ade80/#e3b341/#ff6568) — misma familia
-// perceptual, tonos distintos, para que un tipo no se lea como severidad. Contraste
-// verificado >=3:1 contra --card (#141414) para los siete: 3.73–6.00 (script de la
-// skill dataviz), muy por encima del umbral 3:1 de e2e/04-contraste.spec.ts.
+// `config`/`preference`/`session` comparten el índice 8 (brightBlack / gris de comentario):
+// son los tres tipos que un agente casi nunca guarda y que no compiten entre sí por
+// atención, así que no hace falta gastar un color categórico en distinguirlos — un gris
+// apagado ya dice "metadata", no "cuál de los tres".
+import { TEMA_NEST } from './terminal-themes'
+
 export type KnownMemoryType =
   | 'decision'
   | 'bugfix'
@@ -21,34 +19,58 @@ export type KnownMemoryType =
   | 'pattern'
   | 'config'
   | 'preference'
+  | 'session'
+  | 'handoff'
 
 export interface MemoryTypeSwatch {
   label: string
   color: string
 }
 
-const MEMORY_TYPE_SWATCHES: Record<KnownMemoryType, MemoryTypeSwatch> = {
-  decision: { label: 'Decision', color: '#3987e5' },
-  bugfix: { label: 'Bugfix', color: '#d95926' },
-  architecture: { label: 'Architecture', color: '#199e70' },
-  discovery: { label: 'Discovery', color: '#c98500' },
-  pattern: { label: 'Pattern', color: '#d55181' },
-  config: { label: 'Config', color: '#008300' },
-  preference: { label: 'Preference', color: '#9085e9' },
+/** Índice ANSI por tipo. El color sale del tema de terminal del usuario: Memories se ve
+ *  como sus terminales. */
+export const MEMORY_TYPE_ANSI: Record<KnownMemoryType, number> = {
+  decision: 4,
+  bugfix: 1,
+  architecture: 5,
+  discovery: 6,
+  pattern: 2,
+  handoff: 3,
+  config: 8,
+  preference: 8,
+  session: 8,
 }
 
-/** El orden fijo de la leyenda — el mismo en el que están declarados los swatches, que es
- *  el orden del tema categórico validado. Nunca se ordena por otra cosa: el orden ES el
- *  mecanismo de seguridad CVD (ver el comentario de arriba). */
-export const MEMORY_TYPES_IN_LEGEND_ORDER = Object.keys(MEMORY_TYPE_SWATCHES) as KnownMemoryType[]
+const LABEL: Record<KnownMemoryType, string> = {
+  decision: 'Decision',
+  bugfix: 'Bugfix',
+  architecture: 'Architecture',
+  discovery: 'Discovery',
+  pattern: 'Pattern',
+  handoff: 'Handoff',
+  config: 'Config',
+  preference: 'Preference',
+  session: 'Session',
+}
+
+/** El orden fijo de la leyenda — nunca se ordena por otra cosa: el orden ES el mecanismo
+ *  de seguridad CVD (ver el comentario de arriba). */
+export const MEMORY_TYPES_IN_LEGEND_ORDER: KnownMemoryType[] = [
+  'decision', 'bugfix', 'architecture', 'discovery', 'pattern', 'handoff', 'config', 'preference', 'session',
+]
 
 /**
- * `null` para un tipo que no está en la leyenda fija (`session`/`handoff`, o uno
- * futuro que el store todavía no documenta) — el caller cae a un badge neutro con el
- * nombre crudo, nunca a un color inventado.
+ * `null` para un tipo que no está en la leyenda fija (uno futuro que el store todavía no
+ * documenta) — el caller cae a un badge neutro con el nombre crudo, nunca a un color
+ * inventado.
+ *
+ * `ansi` es la paleta de 16 colores del tema de terminal activo. Sin ella, o con una que
+ * no trae los 16 (una paleta rota, o un caller viejo que no la pasa todavía), cae al tema
+ * Nest — nunca a un hex suelto.
  */
-export function memoryTypeSwatch(type: string): MemoryTypeSwatch | null {
-  return Object.prototype.hasOwnProperty.call(MEMORY_TYPE_SWATCHES, type)
-    ? MEMORY_TYPE_SWATCHES[type as KnownMemoryType]
-    : null
+export function memoryTypeSwatch(type: string, ansi?: readonly string[]): MemoryTypeSwatch | null {
+  if (!Object.prototype.hasOwnProperty.call(MEMORY_TYPE_ANSI, type)) return null
+  const k = type as KnownMemoryType
+  const paleta = ansi && ansi.length >= 16 ? ansi : TEMA_NEST.ansi
+  return { label: LABEL[k], color: paleta[MEMORY_TYPE_ANSI[k]] }
 }

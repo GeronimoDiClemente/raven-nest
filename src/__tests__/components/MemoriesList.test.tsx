@@ -121,12 +121,25 @@ describe('MemoriesList', () => {
     expect(screen.getByText(/read and save memories here on their own/)).toBeInTheDocument()
   })
 
-  it('el tipo se distingue por color sin depender de leer texto (leyenda categorica)', async () => {
+  it('el tipo se muestra como etiqueta de texto con su color (leyenda categorica)', async () => {
     setMemoryApi({
       crossProject: vi.fn().mockResolvedValue({ items: [item({ type: 'bugfix' })], nextCursor: null }),
     })
     render(<MemoriesList />)
 
-    await waitFor(() => expect(screen.getByTitle('Bugfix')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('bugfix')).toBeInTheDocument())
+  })
+
+  it('los tipos ocultos no muestran su fila (spec §2 — los chips de tipo filtran la lista)', async () => {
+    setMemoryApi({
+      crossProject: vi.fn().mockResolvedValue({
+        items: [item({ type: 'bugfix', title: 'Fila de bugfix' }), item({ syncId: 's2', type: 'decision', title: 'Fila de decision' })],
+        nextCursor: null,
+      }),
+    })
+    render(<MemoriesList tiposOcultos={new Set(['bugfix'])} />)
+
+    await waitFor(() => expect(screen.getByText('Fila de decision')).toBeInTheDocument())
+    expect(screen.queryByText('Fila de bugfix')).toBeNull()
   })
 })

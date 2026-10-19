@@ -37,15 +37,27 @@ interface Props {
    * lo hacen— en cuyo caso usa su propio estado, como antes.
    */
   estadoDeBusqueda?: CrossProjectMemoriesState
+  /** La paleta ANSI del tema de terminal activo (spec §5) — el mismo color que ve el grafo. */
+  ansi?: readonly string[]
+  /** Los tipos apagados por los chips del grafo (spec §2): sus filas no se muestran acá.
+   *  El Set vive en MemoriesWorkspace, que es el único lugar que ve a la lista y al grafo. */
+  tiposOcultos?: ReadonlySet<string>
 }
 
-export default function MemoriesList({ selectedId = null, onSelect, estadoDeBusqueda }: Props = {}) {
+export default function MemoriesList({ selectedId = null, onSelect, estadoDeBusqueda, ansi, tiposOcultos }: Props = {}) {
   // El hook corre igual cuando el workspace ya trae el estado —los hooks no se pueden llamar
   // condicionalmente— pero su resultado se descarta. Es una consulta de más en el caso
   // montado-solo-en-tests, no en la app.
   const propio = useCrossProjectMemories()
-  const { status, items, error, hasMore, loadingMore, loadMore, query, setQuery } =
+  const { status, items: itemsCrudos, error, hasMore, loadingMore, loadMore, query, setQuery } =
     estadoDeBusqueda ?? propio
+
+  // El filtro de tipo es cosmético, no una consulta nueva: la paginación y la búsqueda
+  // siguen contando sobre TODO lo que trajo el store — ocultar bugfix no cambia qué
+  // "más" hay que pedir, sólo qué fila se dibuja.
+  const items = tiposOcultos && tiposOcultos.size > 0
+    ? itemsCrudos.filter((item) => !tiposOcultos.has(item.type))
+    : itemsCrudos
 
   return (
     // `min-h-[200px]`: la lista es LO PRINCIPAL de esta pantalla (spec §1). Sin un piso, el
@@ -106,6 +118,7 @@ export default function MemoriesList({ selectedId = null, onSelect, estadoDeBusq
           onLoadMore={loadMore}
           selectedId={selectedId}
           onSelect={onSelect}
+          ansi={ansi}
         />
       )}
     </div>
@@ -136,9 +149,10 @@ interface RowsProps {
   onLoadMore: () => void
   selectedId: string | null
   onSelect?: (syncId: string | null) => void
+  ansi?: readonly string[]
 }
 
-function MemoriesRows({ items, hasMore, loadingMore, onLoadMore, selectedId, onSelect }: RowsProps) {
+function MemoriesRows({ items, hasMore, loadingMore, onLoadMore, selectedId, onSelect, ansi }: RowsProps) {
   const parentRef = useRef<HTMLDivElement>(null)
   const rowVirtualizer = useVirtualizer({
     count: items.length,
@@ -185,6 +199,7 @@ function MemoriesRows({ items, hasMore, loadingMore, onLoadMore, selectedId, onS
                 item={item}
                 selected={item.syncId === selectedId}
                 onSelect={onSelect}
+                ansi={ansi}
               />
             </div>
           )
@@ -198,9 +213,14 @@ function MemoriesRows({ items, hasMore, loadingMore, onLoadMore, selectedId, onS
 }
 
 function MemoryRow({
-  item, selected, onSelect,
-}: { item: CrossProjectObservation; selected: boolean; onSelect?: (syncId: string | null) => void }) {
-  const swatch = memoryTypeSwatch(item.type)
+  item, selected, onSelect, ansi,
+}: {
+  item: CrossProjectObservation
+  selected: boolean
+  onSelect?: (syncId: string | null) => void
+  ansi?: readonly string[]
+}) {
+  const swatch = memoryTypeSwatch(item.type, ansi)
   // Sin `onSelect` la fila NO es un boton: un role interactivo en algo que no hace nada es
   // peor que texto plano para quien navega por teclado o con lector de pantalla.
   const interactiva = Boolean(onSelect)
@@ -227,14 +247,18 @@ function MemoryRow({
           }
         : {})}
     >
-      {/* El tipo se distingue sin leer (spec §1) — leyenda categorica de 7 valores
-          fijos, ver src/lib/memory-type-legend.ts. */}
-      <span
-        aria-hidden="true"
-        title={swatch ? swatch.label : item.type}
-        className="size-2 shrink-0 rounded-full"
-        style={{ background: swatch ? swatch.color : 'var(--muted-foreground)' }}
-      />
+      {/* El tipo, en texto — leyenda categorica de 9 valores fijos, ver
+          src/lib/memory-type-legend.ts. Antes era un punto de 2px: decía "hay un tipo"
+          sin decir CUÁL sin pasar el mouse. Un tipo fuera de la leyenda fija no renderiza
+          nada, en vez de inventar un badge neutro. */}
+      {swatch && (
+        <span
+          className="shrink-0 rounded-full px-2 text-fs-xs"
+          style={{ color: swatch.color, border: `1px solid ${swatch.color}` }}
+        >
+          {swatch.label.toLowerCase()}
+        </span>
+      )}
       <span className="min-w-0 flex-1 truncate text-foreground">{item.title}</span>
       {/* AILogo devuelve null para un aiType sin logo conocido — sin fallback
           generico, a proposito (spec: "un aiType sin logo conocido no renderiza

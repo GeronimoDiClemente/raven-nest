@@ -77,9 +77,20 @@ interface Props {
   onEmpezarAConectar?: (syncId: string) => void
   /** Una memoria se editó o se borró: la lista y el grafo tienen que volver a pedirse. */
   onCambiada?: () => void
+  /** La paleta ANSI del tema de terminal activo, para colorear por tipo (spec §5). Sin
+   *  ella, `toGraphData` cae al tema Nest. */
+  ansi?: readonly string[]
+  /** Los tipos apagados por los chips de la leyenda (spec §2) — vive en MemoriesWorkspace
+   *  porque también filtra la lista, que este panel no ve. */
+  tiposOcultos?: ReadonlySet<string>
+  /** Click en un chip de tipo: alterna ese tipo en el Set de arriba. */
+  onToggleTipo?: (type: string) => void
 }
 
-export default function MemoryGraphPanel({ selectedId, onSelect, onEmpezarAConectar, onCambiada, resaltados = null }: Props) {
+export default function MemoryGraphPanel({
+  selectedId, onSelect, onEmpezarAConectar, onCambiada, resaltados = null, ansi,
+  tiposOcultos = new Set(), onToggleTipo,
+}: Props) {
 
   /**
    * Encendido por default desde el 2026-09-13.
@@ -108,17 +119,18 @@ export default function MemoryGraphPanel({ selectedId, onSelect, onEmpezarAConec
    * (la propiedad: decision, bugfix, architecture…) y el PROYECTO (la carpeta, que en
    * Obsidian es el lugar exclusivo de una nota).
    *
-   * Default en `project`, y esto salió de mirar datos reales: de las 120 memorias del
-   * usuario, **todas** eran de tipo `pattern`, así que colorear por tipo pintaba 120 nodos
-   * del mismo rosa. Los agentes guardan casi siempre con el mismo tipo; los proyectos, en
-   * cambio, son varios de entrada. La dimensión que distingue es el proyecto.
-   *
    * `tag` es la tercera, y la más parecida a un Group de Obsidian de verdad: una memoria
    * puede tener VARIOS, así que el color lo decide el más usado del corpus (ver
    * `tagDominante`) — el mismo criterio de "gana el primer grupo que matchea", con el orden
    * puesto por frecuencia.
+   *
+   * Default en `type` desde la spec 2026-10-19 §5: el color ya no es una paleta propia
+   * sino el ANSI del tema del usuario, y los chips de tipo (abajo) son el filtro principal
+   * de esta pantalla — tienen que verse de entrada, no detrás de un click en "Color by".
+   * Si el conjunto que se está mirando tiene un solo tipo, `colorEfectivo` (más abajo) sigue
+   * cayendo a `project` igual que antes.
    */
-  const [colorBy, setColorBy] = useState<ColorBy>('project')
+  const [colorBy, setColorBy] = useState<ColorBy>('type')
   const { graph, truncated, loading, error } = useMemoryGraph(includeSimilar)
   const { detail, loading: cargandoDetalle, missing } = useMemoryDetail(selectedId)
 
@@ -141,6 +153,21 @@ export default function MemoryGraphPanel({ selectedId, onSelect, onEmpezarAConec
     return [...new Set(enFoco.filter((n) => !n.pending).map((n) => n.type))]
   }, [graph, foco])
 
+  // Cuántos nodos de cada tipo hay — el contador del chip (spec §2). Se cuenta SIN el
+  // filtro de `tiposOcultos`: un tipo apagado tiene que seguir en la leyenda, con su
+  // número, para poder volver a prenderlo.
+  const conteoPorTipo = useMemo(() => {
+    if (!graph) return new Map<string, number>()
+    const enFoco = !foco
+      ? graph.nodes
+      : foco.tipo === 'project'
+        ? graph.nodes.filter((n) => n.projectKey === foco.valor)
+        : graph.nodes.filter((n) => n.tags.includes(foco.valor))
+    const out = new Map<string, number>()
+    for (const n of enFoco) if (!n.pending) out.set(n.type, (out.get(n.type) ?? 0) + 1)
+    return out
+  }, [graph, foco])
+
   // Si el conjunto que se está mirando tiene un solo tipo, colorear por tipo no distingue
   // nada: se cae a proyecto aunque el control diga otra cosa. Adentro de UN proyecto pasa
   // lo inverso — todos comparten proyecto, así que ahí manda el tipo.
@@ -148,8 +175,8 @@ export default function MemoryGraphPanel({ selectedId, onSelect, onEmpezarAConec
     ? 'type'
     : (colorBy === 'type' && tiposPresentes.length <= 1 ? 'project' : colorBy)
   const data = useMemo(
-    () => (graph ? toGraphData(graph, { colorBy: colorEfectivo, hideOrphans, foco }) : null),
-    [graph, hideOrphans, foco, colorEfectivo],
+    () => (graph ? toGraphData(graph, { colorBy: colorEfectivo, hideOrphans, foco, ansi, tiposOcultos }) : null),
+    [graph, hideOrphans, foco, colorEfectivo, ansi, tiposOcultos],
   )
 
   const grupos = useMemo(() => (graph ? projectGroups(graph) : []), [graph])
@@ -342,6 +369,9 @@ export default function MemoryGraphPanel({ selectedId, onSelect, onEmpezarAConec
               conteos={conteos}
               colorBy={colorEfectivo}
               tiposPresentes={tiposPresentes}
+              conteoPorTipo={conteoPorTipo}
+              tiposOcultos={tiposOcultos}
+              onToggleTipo={onToggleTipo}
               pendientes={data.nodes.filter((n) => n.pending).length}
             />
           )}
@@ -352,7 +382,8 @@ export default function MemoryGraphPanel({ selectedId, onSelect, onEmpezarAConec
 }
 
 function SinSeleccion({
-  grupos, tags, foco, onFocus, conteos, colorBy, tiposPresentes, pendientes,
+  grupos, tags, foco, onFocus, conteos, colorBy, tiposPresentes, conteoPorTipo,
+  tiposOcultos, onToggleTipo, pendientes,
 }: {
   grupos: ProjectGroup[]
   tags: TagGroup[]
@@ -363,6 +394,11 @@ function SinSeleccion({
   pendientes: number
   colorBy: ColorBy
   tiposPresentes: string[]
+  /** Cuántos nodos de cada tipo hay — el contador del chip. */
+  conteoPorTipo: Map<string, number>
+  /** Los tipos apagados por los chips (spec §2). */
+  tiposOcultos: ReadonlySet<string>
+  onToggleTipo?: (type: string) => void
 }) {
   return (
     <div className="flex min-h-0 flex-col gap-3 overflow-y-auto">
@@ -420,13 +456,35 @@ function SinSeleccion({
       {colorBy === 'type' && tiposPresentes.length > 0 && (
         <div>
           <p className="mb-1.5 text-fs-xs uppercase tracking-wide text-muted-foreground">Types</p>
-          <ul className="flex flex-wrap gap-x-3 gap-y-1">
-            {MEMORY_TYPES_IN_LEGEND_ORDER.filter((t) => tiposPresentes.includes(t)).map((t) => (
-              <li key={t} className="flex items-center gap-1.5 text-fs-sm">
-                <span aria-hidden className="size-2 shrink-0 rounded-full" style={{ background: swatchDe(t)!.color }} />
-                <span className="text-foreground">{swatchDe(t)!.label}</span>
-              </li>
-            ))}
+          {/* Chips, no leyenda muda (spec §2): cada tipo es un botón que lo apaga del
+              grafo Y de la lista — el Set vive en MemoriesWorkspace, que es el único
+              lugar que ve a los dos. `aria-pressed` es "está mostrándose", no "está
+              apagado": prendido (true) es el estado normal. */}
+          <ul className="flex flex-wrap gap-1.5">
+            {MEMORY_TYPES_IN_LEGEND_ORDER.filter((t) => tiposPresentes.includes(t)).map((t) => {
+              const swatch = swatchDe(t)!
+              const mostrado = !tiposOcultos.has(t)
+              return (
+                <li key={t}>
+                  <button
+                    type="button"
+                    aria-pressed={mostrado}
+                    onClick={() => onToggleTipo?.(t)}
+                    className={`flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-fs-sm ${
+                      mostrado ? '' : 'opacity-40'
+                    }`}
+                    style={{ borderColor: swatch.color }}
+                    title={mostrado ? `Hide ${swatch.label.toLowerCase()} memories` : `Show ${swatch.label.toLowerCase()} memories again`}
+                  >
+                    <span aria-hidden className="size-2 shrink-0 rounded-full" style={{ background: swatch.color }} />
+                    <span className="text-foreground">{swatch.label}</span>
+                    <span className="font-mono text-fs-xs tabular-nums text-muted-foreground">
+                      {conteoPorTipo.get(t) ?? 0}
+                    </span>
+                  </button>
+                </li>
+              )
+            })}
           </ul>
         </div>
       )}
