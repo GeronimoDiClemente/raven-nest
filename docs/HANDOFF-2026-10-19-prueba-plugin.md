@@ -164,3 +164,16 @@ La 0.0.1 de reserva está armada en el scratchpad de la sesión; `packages/nest-
 2. Org `nestmux` + 2FA en npm → publicar la reserva.
 3. Vista de terminal del plugin estilo Engram (para quien no usa Nest) — arrancar con diseño.
 4. Deploy a prod con el release.
+
+### Cierre del 19-10 (noche) — retomar acá
+
+- Rama `feat/memories-settings` lista y revisada; **sin mergear ni pushear**. Falta que Gero elija:
+  mergear a `feat/nest-terminal-ui`, abrir PR, o dejarla.
+- Suite completa sobre el árbol final: 3818 verdes / 4 fallas por carga (pasan aisladas, dos
+  corridas). Ojo: `MemoryGraphPanel-chips-tipo` (nuevo) y `MemoryDocumentoAcciones` son sensibles
+  a la carga; conviene darles más margen o revisar sus `waitFor`.
+- Gero empezó a probar el rediseño en el Nest dev (kit en el scratchpad de la sesión, contra
+  staging). Primera cosa mañana: seguir esa prueba y anotar lo que vea.
+- Después: org `nestmux` + 2FA en npm → publicar la reserva; y la vista de terminal del plugin
+  estilo Engram (arrancar con brainstorming).
+- El binding de better-sqlite3 quedó en Electron (sha `359cbd480d7c…`).
