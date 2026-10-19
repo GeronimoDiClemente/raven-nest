@@ -324,7 +324,7 @@ En `settings-una-seccion.test.tsx` cambiar `'Cloud memory'` por `'Voice'` en `:9
 
 - [ ] **Step 1:** Actualizar primero las aserciones de texto en los tests de esas tarjetas a los textos nuevos de abajo → correrlos → FAIL.
 - [ ] **Step 2: Textos** (exactos):
-  - LinkDeviceCard: título «Add a machine that has no browser»; párrafo «For a server, a VM or an SSH box where you can't sign in with a browser. That machine shows you a code; you approve it here, from a machine that is already signed in.»; lista `<ol>` 1. «On that machine, run `npx nest-memory login`» 2. «It prints an 8-character code. Type it below within 10 minutes.»; botón «Approve machine».
+  - LinkDeviceCard: título «Add a machine that has no browser»; párrafo «For a server, a VM or an SSH box where you can't sign in with a browser. That machine shows you a code; you approve it here, from a machine that is already signed in.»; lista `<ol>` 1. «On that machine, run `npx @nestmux/memory login`» 2. «It prints an 8-character code. Type it below within 10 minutes.»; botón «Approve machine».
   - SyncServiceCard: título «Where your memory syncs to» + badge «Advanced» (`Badge variant="outline"`); párrafo «The server your memory travels through. Leave it as it is — change it only if your company runs its own Nest server.»
   - ShareProjectCard (cara con permiso): título «Share this project's memory with a team»; párrafo «What agents learn while working on this repo becomes available to everyone in the team you pick. Their agents read it before they start, so nobody re-discovers what a teammate already figured out.»; dos cajas `grid grid-cols-2 gap-2`: «The team will see — Memories saved in this project: decisions, fixes, how the code fits together, including the ones already saved.» / «Stays only yours — Your other projects, your personal memories, your code and your terminals.»; botón «Share with {team}». La cara sin permiso conserva su explicación, con título «Share this project's memory with a team».
   - MemoryEncryptionCard: título «Encrypt your memory»; descripción «Locks your memory with a key that only your own machines hold, before anything goes to the cloud. On this machine it stays readable, so search and your agents keep working as usual.»; aviso `text-warn`: «You will get a recovery code. Keep it somewhere safe: if you lose every machine and the code, the cloud copy can never be opened again.»
@@ -650,7 +650,7 @@ Registrar los dos en `registry.ts` y sumar los ids a `TourId`.
   1. Escena en monoespaciada, dos bloques tipo terminal (`rounded-md border border-border bg-background p-3 font-mono text-fs-sm`):
      `claude · monday` → `● memory_save  decision: "search matches loose terms, not the exact phrase"`
      `codex · tuesday` → `● memory_context  1 memory about search — reading it before starting`
-  2. Lista `<ul>` de 4 líneas: «**Just for you** — works the moment you open a terminal; nothing leaves this machine.» / «**On all your machines** — pick up on the laptop what you started on the desktop.» / «**With your team** — share a project and everyone's agents start with what the others decided.» / «**Outside Nest** — any editor or terminal, with `npx nest-memory`.»
+  2. Lista `<ul>` de 4 líneas: «**Just for you** — works the moment you open a terminal; nothing leaves this machine.» / «**On all your machines** — pick up on the laptop what you started on the desktop.» / «**With your team** — share a project and everyone's agents start with what the others decided.» / «**Outside Nest** — any editor or terminal, with `npx @nestmux/memory`.»
   3. Botones: `Show me around · 5 steps` (default) y `Skip — I'll look on my own` (ghost).
 - [ ] **Step 6: App** — `const { settings, markMemoryHubSeen, markMemoriesWelcomeSeen } = useSettings()`; `const [memoriesWelcome, setMemoriesWelcome] = useState(false)`; mostrar la bienvenida si `memoriesOpen && memoriesVista === 'memorias' && (memoriesWelcome || (!settings.hasSeenMemoriesWelcome && !window.appFlags?.e2eBypass))`. `onTour`: `markMemoriesWelcomeSeen(); setMemoriesWelcome(false); setTutorialTour('memories')`. `onSkip`: `markMemoriesWelcomeSeen(); setMemoriesWelcome(false)`. En el `<OnboardingTour>` de `:2276-2279` agregar `onStepChange={(id) => { if (tutorialTour === 'memory-settings') window.dispatchEvent(new CustomEvent(EVENTO_SECCION, { detail: id })) }}`. Cablear `onHowItWorks={() => setMemoriesWelcome(true)}` en el mount del Task 6.
 - [ ] **Step 7:** tests del Step 2 → PASS; typecheck de los dos `tsc` → 0.
@@ -674,3 +674,21 @@ Registrar los dos en `registry.ts` y sumar los ids a `TourId`.
   - `npm run native:electron` y verificar sha256 `359cbd480d7c…`.
   - `npx playwright test e2e/03-memories-in-app.spec.ts e2e/04-contraste.spec.ts e2e/08-memory-graph.spec.ts e2e/12-cifrado-dos-maquinas.spec.ts e2e/16-cifrado-de-equipo.spec.ts` → verde.
 - [ ] **Step 5: Commit** `test(e2e): Memories y cifrado entran por Memory settings`
+
+---
+
+### Task 9: El paquete se llama `@nestmux/memory`
+
+Decisión de Gero (2026-10-19): `nest-memory` se confunde con el ecosistema de NestJS; el paquete se publica con el scope de la marca. **No cambia** la carpeta de datos `~/.nest-memory/` ni el nombre del servidor MCP (`nest_memory`): son internos, y cambiarlos dejaría huérfanas las bases y credenciales que ya existen.
+
+**Files:**
+- Modify: `packages/nest-memory/package.json` (`"name": "@nestmux/memory"`, `"bin": { "nestmux-memory": "./dist/cli-del-paquete.js" }`, `"publishConfig": { "access": "public" }`)
+- Modify: `electron/setup-del-paquete.ts` (`comoLanzarElServidor`: `npx -y @nestmux/memory mcp`)
+- Modify: `electron/argumentos-del-paquete.ts` (`AYUDA`: `npx @nestmux/memory …`)
+- Modify: `electron/cli-del-paquete.ts`, `electron/enrolamiento-del-paquete.ts`, `electron/estado-de-sync-del-paquete.ts`, `electron/extension-vscode.ts`: sólo los textos que le dicen al usuario qué comando correr (`grep -n "npx nest-memory\|nest-memory login\|nest-memory mcp" electron/*.ts src -r`)
+- Test: los tests de esos módulos (`electron/__tests__/setup-del-paquete.test.ts`, `argumentos-del-paquete.test.ts`, `paquete-bin-ejecutable.test.ts`, los de enrolamiento y estado)
+
+- [ ] **Step 1:** Cambiar en los tests los comandos esperados a `npx -y @nestmux/memory mcp` / `npx @nestmux/memory login` → `npx vitest run` de esos archivos → FAIL.
+- [ ] **Step 2:** Cambiar el código y `package.json`. `setup --undo` tiene que seguir reconociendo y limpiando las entradas viejas que dicen `nest-memory` (agregar un test: un config con la entrada vieja se limpia).
+- [ ] **Step 3:** tests → PASS; `cd packages/nest-memory && npm run build && npm pack --dry-run` muestra `@nestmux/memory`.
+- [ ] **Step 4: Commit** `chore(paquete): se publica como @nestmux/memory`

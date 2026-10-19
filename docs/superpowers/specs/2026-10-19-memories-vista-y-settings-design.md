@@ -51,7 +51,7 @@ Cada tarjeta lleva título que dice lo que hace, una línea de *qué es* y, cuan
 *cuándo se usa*. Los textos de los mockups son la base. Puntuales:
 
 - **Add a machine that has no browser:** «For a server, a VM or an SSH box where you can't
-  sign in with a browser», y los dos pasos numerados (`npx nest-memory login` → tipeá el
+  sign in with a browser», y los dos pasos numerados (`npx @nestmux/memory login` → tipeá el
   código acá en 10 minutos).
 - **Where your memory syncs to:** «Leave it as it is — change it only if your company runs its
   own Nest server».
@@ -81,7 +81,7 @@ La primera vez que se abre (flag persistido por usuario, como `hasSeenMemoryHub`
 1. **Bienvenida que muestra, no enumera:** una escena — una terminal donde un agente guarda
    «decision: …» y, abajo, otra sesión al día siguiente que la lee sola. Debajo, los cuatro usos
    como lista de texto corta: sólo para vos · en todas tus máquinas · con tu equipo · fuera de
-   Nest (`npx nest-memory`). Botones «Show me around · 5 steps» y «Skip».
+   Nest (`npx @nestmux/memory`). Botones «Show me around · 5 steps» y «Skip».
 2. **Tour de 5 pasos sobre la pantalla real** (spotlight + tarjeta): fila de estado → grafo →
    búsqueda y lista → New memory → Settings.
 
