@@ -49,8 +49,8 @@ import { recoverWithCode } from './memory-keys-client'
 import { normalizeRecoveryCode } from './memory-key-wrap'
 import { enrolarDesdeLogin } from './enrolamiento-desde-login'
 import { mensajeDeEnrolamiento } from './enrolamiento-del-paquete'
-import { servicioDelPaquete } from './servicio-del-paquete'
-import { comando } from './nombre-del-paquete'
+import { servicioDelPaquete, avisoDeServicioDistinto } from './servicio-del-paquete'
+import { comando, NOMBRE_DEL_PAQUETE } from './nombre-del-paquete'
 
 /**
  * El motor: `node:sqlite`, que viene adentro de Node y no compila nada.
@@ -84,7 +84,7 @@ function comandoSetup(opts: { soloEditores: string[] | null; deshacer: boolean; 
     : planDeSetup(destinos, sondas, COMO_LANZARME)
 
   if (opts.simulado) {
-    console.log(opts.deshacer ? 'Would remove nest-memory from:' : 'Would configure:')
+    console.log(opts.deshacer ? `Would remove ${NOMBRE_DEL_PAQUETE} from:` : 'Would configure:')
     for (const p of pasos) {
       const que = p.accion === 'ausente' ? 'not installed'
         : p.accion === 'ya-esta' ? 'already done'
@@ -151,8 +151,15 @@ async function comandoStatus(): Promise<void> {
       'SELECT COUNT(*) AS c FROM mutation_log WHERE pushed_at IS NULL AND blocked_reason IS NULL'
     ).get() as { c: number }).c
     const safe = cifradoDelSistema()
-    const hayCredencial = base.modo === 'propia' && safe.isEncryptionAvailable()
-      && leerCredencial(homedir(), safe) !== null
+    const credencial = base.modo === 'propia' && safe.isEncryptionAvailable() ? leerCredencial(homedir(), safe) : null
+    const hayCredencial = credencial !== null
+    // Review final de rama, A: `status` no decía CON QUÉ servicio habla — sólo si estaba
+    // "conectado" o no. Sólo tiene sentido con base propia: con la base de Nest la sube
+    // Nest, con su credencial, no la de este paquete (ver el comment de `comandoMcp`).
+    if (base.modo === 'propia' && hayCredencial) {
+      console.log(`service     ${urlDelServicio(credencial)}`)
+      avisarSiElServicioNoCoincide(credencial)
+    }
     // La época que el daemon vio en el último status. Se lee de `meta` y no de la red: es el
     // mismo dato que arma el gate fail-closed, así que lo que dice esta línea es lo que el
     // push va a hacer de verdad.
@@ -161,7 +168,7 @@ async function comandoStatus(): Promise<void> {
       epocaConocida = Number((db.prepare("SELECT value FROM meta WHERE key = 'known_key_epoch'").get() as { value?: string } | undefined)?.value ?? 0)
     } catch { /* una base sin `meta` todavía no vio ningún status */ }
     const esperandoAutorizacion = hayCredencial && epocaConocida > 0 && !loadKeyMaterial(homedir(), null, safe)?.master
-    console.log(lineaDeSync({ modo: base.modo, enCola, hayCredencial, hayServicio: true, esperandoAutorizacion }))
+    console.log(lineaDeSync({ modo: base.modo, enCola, hayCredencial, esperandoAutorizacion }))
     // Lo que el gate retuvo por falta de clave de equipo: `enCola` no lo cuenta (está
     // bloqueado), y sin esta línea desaparecía del status.
     const retenidas = (db.prepare(
@@ -273,9 +280,11 @@ async function comandoMcp(): Promise<void> {
   const sincronizar = base.modo === 'propia'
   const cliente = new MemoryLocalClient(base.path, resolveGitInfoForCwd, (store) => {
     if (!sincronizar) return
+    const credencial = leerCredencial(homedir(), cifradoDelSistema())
+    avisarSiElServicioNoCoincide(credencial)
     const { daemon, hayCuenta } = armarDaemonDelPaquete({
       store, dbPath: base.path, home: homedir(),
-      baseUrl: urlDelServicio(leerCredencial(homedir(), cifradoDelSistema())), safe: cifradoDelSistema(),
+      baseUrl: urlDelServicio(credencial), safe: cifradoDelSistema(),
     })
     const sync = new SyncDelMcp(daemon, hayCuenta)
     sync.alArrancar()
@@ -290,6 +299,17 @@ async function comandoMcp(): Promise<void> {
  */
 function urlDelServicio(credencial: { baseUrl?: string } | null): string {
   return servicioDelPaquete({ env: process.env.NEST_MEMORY_SYNC_URL, guardada: credencial?.baseUrl })
+}
+
+/**
+ * Si el env difiere de contra qué se hizo `login`, lo avisa — SIEMPRE por stderr: en modo
+ * `mcp` stdout es el protocolo (ver su doc comment más abajo) y un aviso ahí rompe la sesión
+ * del editor con un error de parseo; en los demás comandos no hay razón para mezclarlo con
+ * la salida normal tampoco.
+ */
+function avisarSiElServicioNoCoincide(credencial: { baseUrl?: string } | null): void {
+  const aviso = avisoDeServicioDistinto({ env: process.env.NEST_MEMORY_SYNC_URL, guardada: credencial?.baseUrl })
+  if (aviso) console.error(`Warning: ${aviso}`)
 }
 
 /** El cifrado en reposo de esta máquina: el llavero del sistema. */
@@ -319,6 +339,13 @@ async function comandoLogin(): Promise<void> {
   const base = urlDelServicio(existente)
   if (existente) {
     console.log('Already connected. Checking encryption access.')
+    avisarSiElServicioNoCoincide(existente)
+    // Review final de rama, MINOR: una credencial sin `baseUrl` (de antes de 5dc84c5)
+    // resolvía el servicio DE NUEVO cada corrida — env actual, si no el default — sin
+    // dejar nada escrito. Si el env que la creó ya no está seteado, el próximo `login`
+    // calla y habla con un servicio distinto del que emitió el token. Se persiste ACÁ,
+    // una sola vez, el valor que se está por usar — no hace falta que el usuario lo pida.
+    if (!existente.baseUrl) guardarCredencial(homedir(), safe, { ...existente, baseUrl: base })
     for (const linea of mensajeDeEnrolamiento(await enrolarDesdeLogin(homedir(), safe, {
       ...existente, baseUrl: base,
     }))) console.log(linea)

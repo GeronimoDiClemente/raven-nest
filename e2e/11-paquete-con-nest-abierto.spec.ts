@@ -1,6 +1,6 @@
 // El paquete portátil con Nest ABIERTO: le delega todo, y lo que guarda aparece en la app.
 //
-// Es el caso de un editor que lanza `npx nest-memory mcp` por su cuenta —Cursor, VS Code,
+// Es el caso de un editor que lanza `npx @nestmux/memory mcp` por su cuenta —Cursor, VS Code,
 // Codex— en una máquina con Nest abierto. Ese proceso NO hereda `NEST_MEMORY_SOCKET` ni
 // `NEST_MEMORY_TOKEN` (Nest sólo los pone en sus terminales), así que tiene que encontrar a
 // Nest por el disco y confirmar con un `ping` que está vivo. Hasta el 2026-10-02 la sonda era

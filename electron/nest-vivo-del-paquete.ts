@@ -3,7 +3,7 @@
 // sumaría un segundo actor.
 //
 // **Dónde buscarlo.** Las variables `NEST_MEMORY_SOCKET` y `NEST_MEMORY_TOKEN` las inyecta
-// Nest en las terminales que abre él — y nada más. Un editor que lanza `npx nest-memory mcp`
+// Nest en las terminales que abre él — y nada más. Un editor que lanza `npx @nestmux/memory mcp`
 // por su cuenta (Cursor, VS Code, Codex, que es el caso para el que existe el paquete) no las
 // tiene nunca. Por eso, además, se lee del disco lo mismo que lee el shim de Nest: el
 // `pipe-auth.json` que la app deja bajo su carpeta, con el id del pipe y el token.

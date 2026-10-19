@@ -1,4 +1,4 @@
-// El bucle de espera de `nest-memory login`, sin reloj ni red adentro.
+// El bucle de espera de `npx @nestmux/memory login`, sin reloj ni red adentro.
 //
 // La otra mitad de `server/src/link.ts`: la máquina que no puede abrir un navegador muestra
 // un código, el usuario lo aprueba desde otra, y esta función decide qué hacer con cada

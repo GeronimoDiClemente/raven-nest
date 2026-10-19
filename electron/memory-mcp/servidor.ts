@@ -2,7 +2,7 @@
 // herramientas.
 //
 // Vive aparte de `index.ts` porque lo usan DOS arranques distintos: el shim que Nest lanza
-// adentro de Electron, y `npx nest-memory mcp` del paquete portátil. Lo único que cambia
+// adentro de Electron, y `npx @nestmux/memory mcp` del paquete portátil. Lo único que cambia
 // entre los dos es de dónde sale el cliente —el daemon por socket, o la lectura directa del
 // disco— y por eso `runMcpServer` lo recibe en vez de resolverlo.
 //

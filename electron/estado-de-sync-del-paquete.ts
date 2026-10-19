@@ -10,7 +10,6 @@ export function lineaDeSync(e: {
   modo: 'nest' | 'propia'
   enCola: number
   hayCredencial: boolean
-  hayServicio: boolean
   /** La cuenta cifra y esta máquina todavía no tiene la maestra: el push está frenado (el
    *  gate fail-closed del daemon) hasta que la autoricen. */
   esperandoAutorizacion?: boolean
@@ -26,7 +25,8 @@ export function lineaDeSync(e: {
       ? `Local only — ${cambios} queued. Run \`${comando('login')}\` to sync them.`
       : `Local only. Run \`${comando('login')}\` to sync across machines.`
   }
-  if (!e.hayServicio) return `Connected, but NEST_MEMORY_SYNC_URL is not set — ${cambios} queued.`
+  // `servicioDelPaquete` (desde 5dc84c5) siempre resuelve a algo — env, lo guardado, o el
+  // default de Nest — así que "sin servicio configurado" ya no es un estado alcanzable acá.
   // Va ANTES de la cola normal: con la cuenta cifrada y sin la maestra no sube nada, así que
   // prometer que sube «la próxima vez» deja al usuario esperando algo que no va a pasar.
   if (e.esperandoAutorizacion) {
