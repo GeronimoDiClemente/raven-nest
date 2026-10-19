@@ -1,4 +1,4 @@
-// `nest-memory setup`: escribir la configuración MCP en los editores que hay en la máquina.
+// `@nestmux/memory setup`: escribir la configuración MCP en los editores que hay en la máquina.
 //
 // Es el corazón del paquete portátil (spec `2026-09-13-nest-memory-portable-design.md` §3.1):
 // hace a mano lo que hoy el usuario tiene que hacer a mano. Todo lo de acá es puro — decide
@@ -22,10 +22,11 @@
 // > **Sobre el comando que se escribe.** Quien llama decide, y hay una trampa: si `setup`
 // > corre por `npx` sin instalar nada, el binario vive en una caché temporal que npm puede
 // > limpiar. Escribir ESE path dejaría configuraciones que se pudren solas, así que lo que
-// > corresponde escribir es una invocación estable (`npx -y nest-memory mcp`) y no la ruta
+// > corresponde escribir es una invocación estable (`npx -y @nestmux/memory mcp`) y no la ruta
 // > resuelta del proceso actual.
 import { modify, applyEdits, parse as parseJsonc } from 'jsonc-parser'
 import { join } from 'path'
+import { NOMBRE_DEL_PAQUETE } from './nombre-del-paquete'
 
 /** El nombre bajo el que se registra el servidor, igual que del lado de Nest. */
 export const NOMBRE_DEL_SERVIDOR = 'nest_memory'
@@ -53,7 +54,7 @@ export interface EntradaDelServidor {
  * «program not found». `cmd /c npx` anda en todos, incluidos VS Code y Cursor.
  */
 export function comoLanzarElServidor(plataforma: NodeJS.Platform): EntradaDelServidor {
-  const npx = ['npx', '-y', 'nest-memory', 'mcp']
+  const npx = ['npx', '-y', NOMBRE_DEL_PAQUETE, 'mcp']
   return plataforma === 'win32'
     ? { command: 'cmd', args: ['/c', ...npx] }
     : { command: npx[0]!, args: npx.slice(1) }

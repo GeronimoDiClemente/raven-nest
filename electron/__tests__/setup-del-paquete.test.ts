@@ -7,7 +7,7 @@ import {
 } from '../setup-del-paquete'
 
 const HOME = '/home/geronimo'
-const ENTRADA: EntradaDelServidor = { command: 'npx', args: ['-y', 'nest-memory', 'mcp'] }
+const ENTRADA: EntradaDelServidor = { command: 'npx', args: ['-y', '@nestmux/memory', 'mcp'] }
 
 function destino(id: string, home = HOME, plataforma: NodeJS.Platform = 'darwin') {
   const d = destinosDeSetup(home, plataforma).find((x) => x.id === id)
@@ -88,7 +88,7 @@ describe('el plan', () => {
     const d = destino('claude')
     const paso = planDeSetup([d], sondas({ [d.path]: '{}' }), ENTRADA)[0]!
     expect(paso.textoNuevo).toContain(NOMBRE_DEL_SERVIDOR)
-    expect(paso.textoNuevo).toContain('nest-memory')
+    expect(paso.textoNuevo).toContain('@nestmux/memory')
   })
 
   it('un paso ausente no trae texto: no hay nada que escribir', () => {
@@ -165,7 +165,7 @@ describe('TOML: codex', () => {
     const r = conEntrada('', d, ENTRADA)
     expect(r).toContain(`[mcp_servers.${NOMBRE_DEL_SERVIDOR}]`)
     expect(r).toContain('command = "npx"')
-    expect(r).toContain('args = ["-y", "nest-memory", "mcp"]')
+    expect(r).toContain('args = ["-y", "@nestmux/memory", "mcp"]')
   })
 
   it('no toca lo que el usuario ya tenía', () => {
@@ -258,6 +258,21 @@ describe('el plan de deshacer', () => {
     const paso = planDeDeshacer([d], sondas({ [d.path]: conOtro }))[0]!
     expect(JSON.parse(paso.textoNuevo!).mcpServers).toEqual({ github: { command: 'gh' } })
   })
+
+  it('limpia una entrada vieja escrita por una versión anterior (`npx -y nest-memory mcp`, antes de @nestmux/memory)', () => {
+    // La clave que identifica la entrada es NOMBRE_DEL_SERVIDOR ('nest_memory'), que no cambió
+    // con el rename del paquete — así que `--undo` la reconoce y la saca sin que importe qué
+    // comando haya guardado una instalación vieja.
+    const d = destino('claude')
+    const entradaVieja: EntradaDelServidor = { command: 'npx', args: ['-y', 'nest-memory', 'mcp'] }
+    const conVieja = conEntrada('{"otra": 1}', d, entradaVieja)
+    expect(conVieja).toContain('"nest-memory"')
+    const paso = planDeDeshacer([d], sondas({ [d.path]: conVieja }))[0]!
+    expect(paso.accion).toBe('actualizar')
+    const resultado = JSON.parse(paso.textoNuevo!)
+    expect(resultado.mcpServers).toBeUndefined()
+    expect(resultado.otra).toBe(1)
+  })
 })
 
 describe('deshacer no deja residuo, pero tampoco se lleva lo ajeno', () => {
@@ -285,11 +300,11 @@ describe('deshacer no deja residuo, pero tampoco se lleva lo ajeno', () => {
 describe('cómo se lanza el servidor', () => {
   it('en macOS y Linux, npx directo', () => {
     for (const p of ['darwin', 'linux'] as const) {
-      expect(comoLanzarElServidor(p)).toEqual({ command: 'npx', args: ['-y', 'nest-memory', 'mcp'] })
+      expect(comoLanzarElServidor(p)).toEqual({ command: 'npx', args: ['-y', '@nestmux/memory', 'mcp'] })
     }
   })
 
   it('en Windows, a través de cmd /c', () => {
-    expect(comoLanzarElServidor('win32')).toEqual({ command: 'cmd', args: ['/c', 'npx', '-y', 'nest-memory', 'mcp'] })
+    expect(comoLanzarElServidor('win32')).toEqual({ command: 'cmd', args: ['/c', 'npx', '-y', '@nestmux/memory', 'mcp'] })
   })
 })

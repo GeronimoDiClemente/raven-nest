@@ -1,4 +1,4 @@
-// La puerta de entrada de `npx nest-memory`, sin proceso ni salida por pantalla adentro.
+// La puerta de entrada de `npx @nestmux/memory`, sin proceso ni salida por pantalla adentro.
 //
 // Es un parser y nada más: recibe `argv` y devuelve qué se pidió. Lo que hace con eso —correr
 // el setup, esperar el login, imprimir— vive afuera, así que todos los bordes de esta capa se
@@ -8,6 +8,7 @@
 // obvia del archivo y la que más importa: un `setup --dry-runn` que se traga la opción
 // desconocida escribe los configs de verdad mientras el usuario cree que está simulando. Lo
 // mismo con un comando mal tipeado — «no pasó nada» es una respuesta peor que «eso no existe».
+import { NOMBRE_DEL_PAQUETE, comando } from './nombre-del-paquete'
 
 export type ComandoDelPaquete =
   | { comando: 'ayuda' }
@@ -26,19 +27,29 @@ const EDITORES = ['claude', 'codex', 'gemini', 'qwen', 'opencode', 'cursor', 'vs
 
 const SIN_ARGUMENTOS = ['login', 'status', 'doctor', 'recover', 'mcp'] as const
 
-export const AYUDA = `nest-memory — your memory, on any machine
+/** Cada línea de la ayuda: el subcomando tal como lo escribe el usuario y qué hace. */
+const LINEAS_DE_AYUDA: Array<[string, string]> = [
+  ['setup', 'Detect your editors and configure them all'],
+  ['setup --cursor', `Only one (${EDITORES.join(', ')})`],
+  ['setup --dry-run', 'Show what it would write, write nothing'],
+  ['setup --undo', 'Remove what setup added'],
+  ['login', 'Connect this machine to your account'],
+  ['status', 'What it sees, where from, and whether it can decrypt'],
+  ['search <words>', 'Read your memory without going through an agent'],
+  ['doctor', 'Why it is not working'],
+  ['recover', 'Use your recovery code to read encrypted memory'],
+  ['mcp', 'Run the MCP server (editors launch this, not you)'],
+]
+
+// El ancho de columna se calcula y no se tipea a mano: así una línea no queda desalineada el
+// día que `comando(...)` cambie de largo —como pasó al mudar de `nest-memory` a
+// `@nestmux/memory`— sin que nadie tenga que volver a contar espacios.
+const ANCHO_DE_COLUMNA = Math.max(...LINEAS_DE_AYUDA.map(([sub]) => comando(sub).length)) + 2
+
+export const AYUDA = `${NOMBRE_DEL_PAQUETE} — your memory, on any machine
 
 Usage:
-  npx nest-memory setup            Detect your editors and configure them all
-  npx nest-memory setup --cursor   Only one (${EDITORES.join(', ')})
-  npx nest-memory setup --dry-run  Show what it would write, write nothing
-  npx nest-memory setup --undo     Remove what setup added
-  npx nest-memory login            Connect this machine to your account
-  npx nest-memory status           What it sees, where from, and whether it can decrypt
-  npx nest-memory search <words>   Read your memory without going through an agent
-  npx nest-memory doctor           Why it is not working
-  npx nest-memory recover          Use your recovery code to read encrypted memory
-  npx nest-memory mcp              Run the MCP server (editors launch this, not you)
+${LINEAS_DE_AYUDA.map(([sub, descripcion]) => `  ${comando(sub).padEnd(ANCHO_DE_COLUMNA)}${descripcion}`).join('\n')}
 `
 
 function parsearSetup(resto: string[]): ComandoDelPaquete {
@@ -59,7 +70,7 @@ function parsearSetup(resto: string[]): ComandoDelPaquete {
 
 export function parsearArgumentos(argv: string[]): ComandoDelPaquete {
   const [primero, ...resto] = argv
-  // Sin argumentos no es un error: alguien que corre `npx nest-memory` a ver qué hace no se
+  // Sin argumentos no es un error: alguien que corre `npx @nestmux/memory` a ver qué hace no se
   // equivocó en nada, y contestarle con un error lo manda a buscar qué hizo mal.
   if (!primero || primero === '--help' || primero === '-h') return { comando: 'ayuda' }
 

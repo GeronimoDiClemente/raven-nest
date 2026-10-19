@@ -1,11 +1,14 @@
 {
-  "name": "nest-memory",
+  "name": "@nestmux/memory",
   "version": "0.1.0",
   "description": "Your memory, on any machine. The portable half of Nest Memory.",
   "license": "UNLICENSED",
   "private": true,
+  "publishConfig": {
+    "access": "public"
+  },
   "bin": {
-    "nest-memory": "./dist/cli-del-paquete.js"
+    "nestmux-memory": "./dist/cli-del-paquete.js"
   },
   "files": ["dist"],
   "engines": {

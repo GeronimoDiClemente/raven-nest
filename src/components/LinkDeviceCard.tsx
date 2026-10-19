@@ -1,6 +1,6 @@
 // Aprobar la máquina que no puede abrir un navegador.
 //
-// La otra punta de `nest-memory login` (spec del paquete portátil §7): esa máquina muestra un
+// La otra punta de `@nestmux/memory login` (spec del paquete portátil §7): esa máquina muestra un
 // código corto, y acá —donde sí hay una sesión iniciada— el usuario dice que es suyo. El token
 // no pasa por esta pantalla: lo recibe la otra cuando lo reclama. Que nunca lo veamos es lo
 // que hace que aprobar desde acá no sea una forma de conseguir credenciales para esta máquina.
@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { supabase } from '../lib/supabase'
 import { normalizarCodigo, copyDeErrorDeVinculacion } from '../lib/codigo-de-vinculacion'
+import { comando } from '../lib/nombre-del-paquete'
 
 type PuenteDeVinculacion = {
   linkApprove?: (jwt: string, userCode: string) => Promise<{ ok: true } | { ok: false; error: string }>
@@ -83,7 +84,7 @@ export default function LinkDeviceCard() {
         shows you a code; you approve it here, from a machine that is already signed in.
       </p>
       <ol className="flex flex-col gap-2 text-fs-sm text-muted-foreground list-decimal pl-5">
-        <li>On that machine, run <code className="font-mono">npx @nestmux/memory login</code></li>
+        <li>On that machine, run <code className="font-mono">{comando('login')}</code></li>
         <li>It prints an 8-character code. Type it below within 10 minutes.</li>
       </ol>
 

@@ -16,7 +16,7 @@ describe('el ejecutable del paquete portátil', () => {
   }
 
   it('el bin apunta a la entrada que compila el tsconfig del paquete', () => {
-    expect(pkg.bin['nest-memory']).toBe('./dist/cli-del-paquete.js')
+    expect(pkg.bin['nestmux-memory']).toBe('./dist/cli-del-paquete.js')
   })
 
   it('la entrada empieza con el shebang de node, que tsc conserva en el build', () => {

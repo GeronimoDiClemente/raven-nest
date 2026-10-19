@@ -1,5 +1,6 @@
-// La línea de `npx nest-memory status` sobre la nube. Aparte de la CLI para poder probarla:
+// La línea de `npx @nestmux/memory status` sobre la nube. Aparte de la CLI para poder probarla:
 // `cli-del-paquete.ts` corre el comando apenas se importa.
+import { comando } from './nombre-del-paquete'
 
 /**
  * Qué decir sobre la nube en `status`. Las cuatro situaciones piden cosas distintas, y por eso
@@ -22,15 +23,15 @@ export function lineaDeSync(e: {
   }
   if (!e.hayCredencial) {
     return e.enCola > 0
-      ? `Local only — ${cambios} queued. Run \`npx nest-memory login\` to sync them.`
-      : 'Local only. Run `npx nest-memory login` to sync across machines.'
+      ? `Local only — ${cambios} queued. Run \`${comando('login')}\` to sync them.`
+      : `Local only. Run \`${comando('login')}\` to sync across machines.`
   }
   if (!e.hayServicio) return `Connected, but NEST_MEMORY_SYNC_URL is not set — ${cambios} queued.`
   // Va ANTES de la cola normal: con la cuenta cifrada y sin la maestra no sube nada, así que
   // prometer que sube «la próxima vez» deja al usuario esperando algo que no va a pasar.
   if (e.esperandoAutorizacion) {
     return `Connected — ${cambios} held until this machine is authorized to encrypt. ` +
-      'Run `npx nest-memory login` to see its fingerprint.'
+      `Run \`${comando('login')}\` to see its fingerprint.`
   }
   return e.enCola > 0
     ? `Connected — ${cambios} waiting to sync. They go up the next time an agent saves a memory.`

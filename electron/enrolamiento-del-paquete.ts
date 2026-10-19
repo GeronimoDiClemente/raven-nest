@@ -19,6 +19,7 @@
 // encontró— porque el usuario compara dos strings cortos antes de autorizar.
 import type { DeviceKeyPair } from './memory-key-wrap'
 import type { RemoteKeyState } from './memory-keys-client'
+import { comando } from './nombre-del-paquete'
 
 export type ResultadoDeEnrolamiento =
   /** No hay llavero del sistema: no hay dónde guardar una maestra, así que no se pide. */
@@ -55,8 +56,8 @@ export function mensajeDeEnrolamiento(resultado: ResultadoDeEnrolamiento): strin
         `Its fingerprint is: ${resultado.huella}`,
         'Authorize it from Nest on another machine (Memories → Encryption → Authorize),',
         'comparing this fingerprint before authorizing.',
-        'Then run `npx nest-memory login` again to check access.',
-        'Or use your recovery code: `npx nest-memory recover`.',
+        `Then run \`${comando('login')}\` again to check access.`,
+        `Or use your recovery code: \`${comando('recover')}\`.`,
         'Recovery spends your one emergency copy; authorizing from another machine is preferred.',
         'Local memory keeps working while you wait.',
       ]
@@ -64,13 +65,13 @@ export function mensajeDeEnrolamiento(resultado: ResultadoDeEnrolamiento): strin
       return [
         'Your credential is saved, but no system keyring is available to store encryption keys safely.',
         'This machine cannot read encrypted cloud memory. Local memory keeps working.',
-        'Restore access to your system keyring and run `npx nest-memory login` again.',
+        `Restore access to your system keyring and run \`${comando('login')}\` again.`,
       ]
     case 'error':
       return [
         `Your credential is saved, but encryption enrollment failed: ${resultado.detalle}`,
         'Encrypted memory access could not be confirmed. Local memory keeps working.',
-        'Run `npx nest-memory login` again to retry.',
+        `Run \`${comando('login')}\` again to retry.`,
       ]
     default: {
       const nuncaLlega: never = resultado

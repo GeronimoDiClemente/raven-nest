@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// El punto de entrada de `npx nest-memory`.
+// El punto de entrada de `npx @nestmux/memory`.
 //
 // Hasta acá todo el paquete portátil eran librerías sin puerta: el parser sabía qué se pidió,
 // el plan sabía qué escribir, el store sabía abrir la base — y nadie los unía. Esto los une.
@@ -50,6 +50,7 @@ import { normalizeRecoveryCode } from './memory-key-wrap'
 import { enrolarDesdeLogin } from './enrolamiento-desde-login'
 import { mensajeDeEnrolamiento } from './enrolamiento-del-paquete'
 import { servicioDelPaquete } from './servicio-del-paquete'
+import { comando } from './nombre-del-paquete'
 
 /**
  * El motor: `node:sqlite`, que viene adentro de Node y no compila nada.
@@ -398,7 +399,7 @@ async function comandoRecover(): Promise<void> {
   const safe = exigirLlavero()
   const credencial = leerCredencial(homedir(), safe)
   if (!credencial) {
-    console.error('This machine is not connected to an account. Run `nest-memory login` first.')
+    console.error(`This machine is not connected to an account. Run \`${comando('login')}\` first.`)
     salir(2)
   }
   const base = urlDelServicio(credencial)

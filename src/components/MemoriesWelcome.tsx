@@ -10,6 +10,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
+import { NOMBRE_DEL_PAQUETE } from '@/lib/nombre-del-paquete'
 
 interface Props {
   onTour: () => void
@@ -20,7 +21,7 @@ const USOS: { titulo: string; texto: string }[] = [
   { titulo: 'Just for you', texto: 'works the moment you open a terminal; nothing leaves this machine.' },
   { titulo: 'On all your machines', texto: 'pick up on the laptop what you started on the desktop.' },
   { titulo: 'With your team', texto: "share a project and everyone's agents start with what the others decided." },
-  { titulo: 'Outside Nest', texto: 'any editor or terminal, with npx @nestmux/memory.' },
+  { titulo: 'Outside Nest', texto: `any editor or terminal, with npx ${NOMBRE_DEL_PAQUETE}.` },
 ]
 
 export default function MemoriesWelcome({ onTour, onSkip }: Props) {

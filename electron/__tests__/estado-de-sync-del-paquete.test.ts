@@ -10,8 +10,8 @@ describe('lineaDeSync', () => {
   })
 
   it('sin cuenta dice cuántos esperan y cómo conectarse', () => {
-    expect(lineaDeSync({ ...base, hayCredencial: false, enCola: 1 })).toBe('Local only — 1 change queued. Run `npx nest-memory login` to sync them.')
-    expect(lineaDeSync({ ...base, hayCredencial: false })).toMatch(/^Local only\. Run `npx nest-memory login`/)
+    expect(lineaDeSync({ ...base, hayCredencial: false, enCola: 1 })).toBe('Local only — 1 change queued. Run `npx @nestmux/memory login` to sync them.')
+    expect(lineaDeSync({ ...base, hayCredencial: false })).toMatch(/^Local only\. Run `npx @nestmux\/memory login`/)
   })
 
   it('conectado pero sin servicio configurado lo dice, en vez de prometer un sync que no va a pasar', () => {
@@ -24,7 +24,7 @@ describe('lineaDeSync', () => {
     // lo leía se quedaba esperando un sync que no iba a pasar nunca.
     const linea = lineaDeSync({ ...base, enCola: 1, esperandoAutorizacion: true })
     expect(linea).toMatch(/^Connected — 1 change held until this machine is authorized/)
-    expect(linea).toMatch(/npx nest-memory login/)
+    expect(linea).toMatch(/npx @nestmux\/memory login/)
     expect(linea).not.toMatch(/next time an agent saves/)
   })
 
