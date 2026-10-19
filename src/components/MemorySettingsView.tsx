@@ -20,7 +20,7 @@ export type SeccionDeMemoria = 'sync' | 'encryption' | 'project' | 'disk'
 
 const SECCIONES: Array<{ id: SeccionDeMemoria; n: string; titulo: string; bajada: string }> = [
   { id: 'sync', n: '01', titulo: 'Sync', bajada: 'Same memory on every machine you work on.' },
-  { id: 'encryption', n: '02', titulo: 'Encryption', bajada: "The server keeps your memory but can't read it — not even us." },
+  { id: 'encryption', n: '02', titulo: 'Encryption', bajada: "Turn it on and the server keeps your memory without being able to read it — not even us." },
   { id: 'project', n: '03', titulo: 'This project & team', bajada: 'Nothing here is shared until you turn it on.' },
   { id: 'disk', n: '04', titulo: 'Notes on disk', bajada: 'Your memories as Markdown files you can open in any editor.' },
 ]

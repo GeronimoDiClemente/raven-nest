@@ -306,6 +306,19 @@ describe('CloudMemoryCard — la cuota de memoria sale del servidor', () => {
     expect(screen.getByText(/Uploading 1 change/)).toBeInTheDocument()
   })
 
+  // Nuevo pedido G del review final: "Uploading N changes…" lleva el mismo punto ambar que
+  // la fila de estado de la sidebar — antes era sólo texto, sin la señal visual que el
+  // spec §3.2 describe.
+  it('"Uploading" lleva el punto ambar (bg-warn, redondo)', async () => {
+    mockMemoryBridge({ connected: true, deviceId: 'd', itemCount: 48, pendingCount: 1, daemonStatus: 'idle' })
+    render(<CloudMemoryCard />)
+    const texto = await screen.findByText(/Uploading 1 change/)
+    const punto = texto.parentElement!.querySelector('span[aria-hidden]')
+    expect(punto).not.toBeNull()
+    expect(punto!.className).toMatch(/bg-warn/)
+    expect(punto!.className).toMatch(/rounded-full/)
+  })
+
   it('sin pendientes no dice que sube nada', async () => {
     mockMemoryBridge({ connected: true, deviceId: 'd', itemCount: 48, pendingCount: 0, daemonStatus: 'idle' })
     render(<CloudMemoryCard />)
@@ -394,5 +407,123 @@ describe('CloudMemoryCard — reabrir el hub de memoria', () => {
     fireEvent.click(screen.getByText('Learn more'))
 
     await waitFor(() => expect(screen.getByText('Skip')).toBeInTheDocument())
+  })
+})
+
+// Review final de rama, CRITICAL #2: el cifrado es opt-in (MemoryEncryptionCard tiene un
+// boton "Enable encryption" que nadie toco todavia por default) — la bajada vieja
+// ("It is encrypted here before it leaves") le mentia a cualquiera que todavia no lo haya
+// activado. El texto nuevo describe lo que pasa por default (viaja en claro) y señala el
+// boton que lo cambia, en vez de asumir un estado que la mayoria de las cuentas no tiene.
+describe('CloudMemoryCard — la bajada de Cloud sync no promete cifrado que todavia no esta prendido', () => {
+  beforeEach(() => {
+    supabaseMock.auth.getUser.mockResolvedValue({ data: { user: null } })
+    mockLocalPaths()
+  })
+
+  afterEach(() => {
+    delete (window as unknown as { memory?: unknown }).memory
+  })
+
+  it('no dice que ya esta cifrado, y en cambio invita a prender Encryption', async () => {
+    mockMemoryBridge({ connected: false, deviceId: null, itemCount: 0, pendingCount: 0, daemonStatus: 'idle' })
+    render(<CloudMemoryCard />)
+
+    await waitFor(() => expect(screen.getByText(/Keeps a copy of your memory/)).toBeInTheDocument())
+    expect(screen.queryByText(/is encrypted here before it leaves/i)).not.toBeInTheDocument()
+    expect(screen.getByText(/Turn on Encryption so the server can't read it/)).toBeInTheDocument()
+  })
+})
+
+// Minor del review final: `max_bytes = 0` (tope todavia sin asignar del lado del servidor)
+// dividia por cero y mandaba NaN% al meter y al ancho de la barra.
+describe('CloudMemoryCard — la cuota con max_bytes en 0 no rompe en NaN', () => {
+  beforeEach(() => {
+    supabaseMock.auth.getUser.mockResolvedValue({ data: { user: null } })
+    mockLocalPaths()
+  })
+
+  afterEach(() => {
+    delete (window as unknown as { memory?: unknown }).memory
+  })
+
+  it('muestra 0%, no NaN%, cuando el servidor todavia no informo un tope', async () => {
+    mockMemoryBridge({
+      connected: true, deviceId: 'dev-1', itemCount: 1, pendingCount: 0, daemonStatus: 'idle',
+      quota: { used_bytes: 0, max_bytes: 0 },
+    })
+    render(<CloudMemoryCard />)
+
+    const barra = await screen.findByRole('meter', { name: /Cloud space/ })
+    expect(Number.isNaN(Number(barra.getAttribute('aria-valuenow')))).toBe(false)
+    expect(barra.getAttribute('aria-valuenow')).toBe('0')
+  })
+})
+
+// Minor del review final: el checkbox "Also delete my cloud memory" vive ADENTRO del
+// AlertDialog de Turn off, y antes del fix sobrevivia a un Cancel — tildarlo, cancelar, y
+// volver a abrir el dialogo lo mostraba todavia tildado, listo para borrar la nube sin que
+// el usuario lo haya pedido esta vez.
+describe('CloudMemoryCard — el checkbox de borrado se resetea cada vez que se abre Turn off', () => {
+  beforeEach(() => {
+    supabaseMock.auth.getUser.mockResolvedValue({ data: { user: null } })
+    mockLocalPaths()
+  })
+
+  afterEach(() => {
+    delete (window as unknown as { memory?: unknown }).memory
+  })
+
+  it('tildar, cancelar y reabrir deja el checkbox destildado', async () => {
+    mockMemoryBridge({ connected: true, deviceId: 'dev-1', itemCount: 3, pendingCount: 0, daemonStatus: 'idle' })
+    render(<CloudMemoryCard />)
+
+    await waitFor(() => expect(screen.getByText('Turn off')).toBeInTheDocument())
+
+    let dialog = await abrirDialogoDeTurnOff()
+    const checkbox = () => dialog.getByLabelText(/Also delete my cloud memory/) as HTMLInputElement
+    fireEvent.click(checkbox())
+    expect(checkbox().checked).toBe(true)
+
+    fireEvent.click(dialog.getByRole('button', { name: 'Cancel' }))
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument())
+
+    dialog = await abrirDialogoDeTurnOff()
+    expect(checkbox().checked).toBe(false)
+  })
+})
+
+// Review final de rama, E: el boton de confirmar era SIEMPRE rojo ("destructive"), aunque
+// un "Turn off" sin el checkbox de borrado tildado no borra nada en la nube — es el MISMO
+// peso visual que un turn-off que SI borra datos permanentemente.
+describe('CloudMemoryCard — el boton de confirmar solo es destructivo si va a borrar la nube', () => {
+  beforeEach(() => {
+    supabaseMock.auth.getUser.mockResolvedValue({ data: { user: null } })
+    mockLocalPaths()
+  })
+
+  afterEach(() => {
+    delete (window as unknown as { memory?: unknown }).memory
+  })
+
+  it('sin tildar el checkbox, el boton de confirmar NO es destructivo', async () => {
+    mockMemoryBridge({ connected: true, deviceId: 'dev-1', itemCount: 3, pendingCount: 0, daemonStatus: 'idle' })
+    render(<CloudMemoryCard />)
+    await waitFor(() => expect(screen.getByText('Turn off')).toBeInTheDocument())
+
+    const dialog = await abrirDialogoDeTurnOff()
+    const confirmar = dialog.getByRole('button', { name: 'Turn off' })
+    expect(confirmar.className).not.toMatch(/bg-destructive/)
+  })
+
+  it('con el checkbox tildado, el boton de confirmar SI es destructivo', async () => {
+    mockMemoryBridge({ connected: true, deviceId: 'dev-1', itemCount: 3, pendingCount: 0, daemonStatus: 'idle' })
+    render(<CloudMemoryCard />)
+    await waitFor(() => expect(screen.getByText('Turn off')).toBeInTheDocument())
+
+    const dialog = await abrirDialogoDeTurnOff()
+    fireEvent.click(dialog.getByLabelText(/Also delete my cloud memory/))
+    const confirmar = dialog.getByRole('button', { name: 'Turn off' })
+    expect(confirmar.className).toMatch(/bg-destructive/)
   })
 })

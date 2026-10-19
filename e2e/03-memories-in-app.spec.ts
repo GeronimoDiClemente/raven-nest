@@ -433,3 +433,42 @@ test('el workspace de equipo queda encima de Personal, que sigue montado debajo'
     await teardown(h)
   }
 })
+
+// Review final de rama, CRITICAL #1: UpgradeModal y MemoryHub portan a `document.body` con
+// `.modal-backdrop` (z-index --z-overlay-modal), pero se abren desde ADENTRO de
+// `.memories-workspace` (--z-overlay-top). Antes del fix los dos compartian el mismo numero
+// que `.memories-workspace` tenia pisado encima (1000 vs 1200): "Learn more" y "Upgrade"
+// quedaban invisibles, clickeables solo por accidente de coordenadas. jsdom no ve z-index —
+// esto solo se prueba contra el navegador real.
+test('Learn more en Memory settings › Sync abre el hub ENCIMA del overlay', async () => {
+  const h = await launchHarness({ withRepo: false })
+  const { page } = h
+  try {
+    await page.locator('.sidebar-item-settings').first().click()
+    const puerta = page.getByRole('button', { name: 'Memory settings' })
+    await expect(puerta).toBeVisible({ timeout: 10_000 })
+    await puerta.click()
+
+    const overlay = page.locator('.memories-workspace')
+    await expect(overlay).toBeVisible({ timeout: 10_000 })
+    // "Sync" es la seccion inicial del rail — sin click adicional.
+    await overlay.getByRole('button', { name: 'Learn more' }).click()
+
+    const hub = page.locator('.memory-hub')
+    await expect(hub).toBeVisible({ timeout: 10_000 })
+
+    // El chequeo que un z-index mas alto en CSS no prueba por si solo: lo que el navegador
+    // entrega en el centro de la pantalla tiene que estar ADENTRO del hub, no del overlay de
+    // Memory settings que lo abrio.
+    const arriba = await page.evaluate(() =>
+      Boolean(document.elementFromPoint(window.innerWidth / 2, window.innerHeight / 2)?.closest('.memory-hub')))
+    expect(arriba).toBe(true)
+
+    expect(await hub.evaluate((el) => Number(getComputedStyle(el.parentElement!).zIndex)))
+      .toBeGreaterThan(await overlay.evaluate((el) => Number(getComputedStyle(el).zIndex)))
+
+    await page.screenshot({ path: join(SHOTS, '12-hub-sobre-settings.png') })
+  } finally {
+    await teardown(h)
+  }
+})

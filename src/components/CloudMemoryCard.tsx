@@ -86,6 +86,14 @@ export default function CloudMemoryCard() {
     void memory.disconnect(deleteCloudOnDisconnect)
   }
 
+  // El checkbox tiene que arrancar destildado CADA VEZ que el diálogo se abre — sin esto,
+  // tildarlo una vez y cancelar dejaba la marca puesta para la próxima apertura, y un Turn
+  // off sin querer borraba la nube.
+  const abrirTurnOff = () => {
+    setDeleteCloudOnDisconnect(false)
+    setTurnOffOpen(true)
+  }
+
   return (
     <div className="sp-section">
       <div className="sp-card">
@@ -95,7 +103,8 @@ export default function CloudMemoryCard() {
         </div>
         <p className="mt-1 text-fs-sm text-muted-foreground">
           Keeps a copy of your memory in the cloud, so what an agent learns on this machine is
-          there when you open Nest on another one. It is encrypted here before it leaves.
+          there when you open Nest on another one. Turn on Encryption so the server can't read
+          it.
         </p>
 
         <div className="sp-card-row mt-2">
@@ -168,7 +177,7 @@ export default function CloudMemoryCard() {
           {memory.state === 'unavailable' ? (
             <Button size="sm" disabled>Unavailable</Button>
           ) : memory.state === 'connected' || memory.state === 'paused' ? (
-            <Button variant="destructive" size="sm" onClick={() => setTurnOffOpen(true)}>Turn off</Button>
+            <Button variant="destructive" size="sm" onClick={abrirTurnOff}>Turn off</Button>
           ) : memory.state === 'error' ? (
             // §6.6/§7.5 "right to delete": `error` here means a connection that WAS
             // established (refresh() only reaches it when status.connected is true)
@@ -179,7 +188,7 @@ export default function CloudMemoryCard() {
             // failure first.
             <div className="flex gap-2">
               <Button size="sm" onClick={() => void conectarMemoria()}>Retry</Button>
-              <Button variant="destructive" size="sm" onClick={() => setTurnOffOpen(true)}>Turn off</Button>
+              <Button variant="destructive" size="sm" onClick={abrirTurnOff}>Turn off</Button>
             </div>
           ) : memory.state === 'plan_required' ? (
             // Same right-to-delete gap as `error`: the connection still exists — the
@@ -192,7 +201,7 @@ export default function CloudMemoryCard() {
               {/* Reuses the same Upgrade affordance the free-plan disconnected branch
                   below already has — no second upgrade path invented. */}
               <Button size="sm" onClick={() => setMemoryUpgradeOpen(true)}>Upgrade</Button>
-              <Button variant="destructive" size="sm" onClick={() => setTurnOffOpen(true)}>Turn off</Button>
+              <Button variant="destructive" size="sm" onClick={abrirTurnOff}>Turn off</Button>
             </div>
           ) : memory.state === 'connecting' || memory.state === 'migrating' ? (
             <Button size="sm" disabled>…</Button>
@@ -229,7 +238,11 @@ export default function CloudMemoryCard() {
             preguntas distintas ("¿cuánto falta subir?" vs. "¿cuánto espacio me queda?")
             contestadas con un solo número. */}
         {memory.state === 'connected' && memory.pendingCount > 0 && (
-          <p className="mt-2 text-fs-sm text-warn">
+          <p className="mt-2 flex items-center gap-1.5 text-fs-sm text-warn">
+            {/* El mismo punto ambar que la fila de estado de la sidebar (`.memories-dot`,
+                `data-dot="amber"` en global.css) — acá como utilidad, porque esta tarjeta no
+                vive adentro de esa fila absoluta. */}
+            <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-warn" />
             Uploading {memory.pendingCount} change{memory.pendingCount === 1 ? '' : 's'}…
           </p>
         )}
@@ -238,7 +251,12 @@ export default function CloudMemoryCard() {
             de una constante del cliente es justo lo que el corte comercial saca del
             medio. Si el servidor reporto cuota, el usuario tiene nube. */}
         {memory.quota && (memory.state === 'connected' || memory.state === 'paused') && (() => {
-          const pct = (memory.quota.used_bytes / memory.quota.max_bytes) * 100
+          // `max_bytes = 0` es un tope todavia sin asignar del lado del servidor, no "0
+          // bytes disponibles" — dividir por el de todos modos da NaN, y NaN% rompe tanto el
+          // texto como el ancho de la barra. Sin tope conocido se muestra vacia (0%), no NaN.
+          const pct = memory.quota.max_bytes > 0
+            ? (memory.quota.used_bytes / memory.quota.max_bytes) * 100
+            : 0
           return (
             <div className="mt-2 flex flex-col gap-1">
               <p className="text-fs-sm text-muted-foreground">
@@ -280,7 +298,14 @@ export default function CloudMemoryCard() {
           </label>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={confirmarTurnOff}>Turn off</AlertDialogAction>
+            {/* Rojo SOLO si tambien va a borrar la nube — un "Turn off" liso no es mas
+                destructivo que cualquier otro boton de esta pantalla. */}
+            <AlertDialogAction
+              variant={deleteCloudOnDisconnect ? 'destructive' : 'default'}
+              onClick={confirmarTurnOff}
+            >
+              Turn off
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

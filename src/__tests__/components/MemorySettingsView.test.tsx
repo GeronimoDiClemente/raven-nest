@@ -56,4 +56,12 @@ describe('MemorySettingsView', () => {
     act(() => { window.dispatchEvent(new CustomEvent('nest:memory-settings-seccion', { detail: 'disk' })) })
     expect(screen.getByText('vault-card')).toBeInTheDocument()
   })
+  // Review final de rama, CRITICAL #2: el cifrado es opt-in — la bajada vieja afirmaba que
+  // el servidor YA no podia leer la memoria ("The server keeps your memory but can't read
+  // it"), que es falso hasta que alguien prende Encryption a mano.
+  it('la bajada de Encryption dice que hay que prenderla, no que ya esta activa', () => {
+    render(<MemorySettingsView activeRepoPath="/r" seccionInicial="encryption" onHowItWorks={() => {}} />)
+    expect(screen.getByText(/Turn it on and the server keeps your memory/)).toBeInTheDocument()
+    expect(screen.queryByText(/^The server keeps your memory but can't read it/)).not.toBeInTheDocument()
+  })
 })

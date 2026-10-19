@@ -4,6 +4,7 @@ import * as React from "react"
 import { cn } from "cn"
 import { AlertDialog as AlertDialogPrimitive } from "radix-ui"
 
+import { type VariantProps } from "class-variance-authority"
 import { buttonVariants } from "@/components/ui/button"
 
 function AlertDialog({
@@ -111,11 +112,20 @@ function AlertDialogDescription({
 
 function AlertDialogAction({
   className,
+  // Review final de rama, E: el boton de confirmar era SIEMPRE "destructive" — en
+  // CloudMemoryCard eso es correcto para "Turn off" solo, pero el mismo dialogo sirve
+  // tambien "Turn off + delete cloud data" cuando el checkbox esta tildado, y el boton
+  // de un turn-off SIN borrado no deberia gritar en rojo lo mismo que uno que SI borra
+  // datos. Default 'destructive' preserva el comportamiento de siempre caller que no lo
+  // pasa.
+  variant = "destructive",
   ...props
-}: React.ComponentProps<typeof AlertDialogPrimitive.Action>) {
+}: React.ComponentProps<typeof AlertDialogPrimitive.Action> & {
+  variant?: VariantProps<typeof buttonVariants>["variant"]
+}) {
   return (
     <AlertDialogPrimitive.Action
-      className={cn(buttonVariants({ variant: "destructive" }), className)}
+      className={cn(buttonVariants({ variant }), className)}
       {...props}
     />
   )

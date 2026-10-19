@@ -147,6 +147,11 @@
   --z-overlay-base: 1000;
   --z-overlay-front: 1100;
   --z-overlay-top: 1200;
+  /* Un modal que porta a `document.body` (UpgradeModal, MemoryHub) puede abrirse desde
+     ADENTRO de cualquiera de los tres overlays de arriba — CloudMemoryCard vive en
+     `.memories-workspace` (--z-overlay-top). Sin un escalon propio por encima de los tres,
+     el modal queda invisible detras del overlay que lo abrio. */
+  --z-overlay-modal: 1300;
 }
 
 /* El micro-label en versalitas: es de donde sale el carácter de terminal sin
@@ -3958,7 +3963,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
+  z-index: var(--z-overlay-modal);
 }
 
 .upgrade-modal {
@@ -7474,26 +7479,12 @@ button.ci-badge:hover {
   margin-bottom: 8px;
 }
 
-/* Las reglas `.team-thread-empty button` y `.team-thread-graph-header button` se borraron
-   el 2026-09-11, cuando esos botones pasaron a ser el <Button> de shadcn.
-   NO alcanzaba con dejar de usar las clases: eran selectores de DESCENDIENTE, asi que le
-   pegaban a cualquier <button> adentro del contenedor --incluido el que shadcn renderiza--
-   y, al vivir fuera de toda @layer, le ganaban a las utilidades de Tailwind. Un boton
-   migrado habria seguido con el alto, el radio y el padding viejos, sin que nadie lo note.
-   Es la trampa que RECETA-MIGRACION-UI.md documenta como la mas cara de esta migracion. */
-
-.team-thread-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 8px;
-}
-.team-thread-empty p {
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--text-secondary);
-  margin: 0;
-}
+/* Review final de rama, C: `.team-thread-empty` y `.team-thread-empty p` se borraron acá —
+   confirmado por grep que ningún componente las usa ya (el contenedor que describían migró
+   a utilidades de Tailwind). Quedaban como el único rastro, junto con el comentario que
+   hablaba de sus hijas `.team-thread-empty button`/`.team-thread-graph-header button`,
+   borradas el 2026-09-11 por la misma razón que RECETA-MIGRACION-UI.md documenta: un
+   selector de descendiente fuera de @layer le gana a las utilidades de Tailwind. */
 
 .team-thread-graph {
   /* Los tokens --tt-fresh-* se movieron a :root el 2026-09-11. Desde que el grafo se
