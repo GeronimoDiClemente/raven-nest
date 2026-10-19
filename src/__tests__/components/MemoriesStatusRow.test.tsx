@@ -1,7 +1,8 @@
-// Spec 2026-09-11 §2: "la configuracion del vault sale de la vista principal" — vive
-// atras de un icono en la fila de estado, no como card fija compitiendo con la lista.
+// Spec 2026-09-11 §2: "la configuracion del vault sale de la vista principal". Task 6
+// (2026-10-19): el icono/popover de ajustes del vault tambien se va de esta fila —
+// MemoryVaultCard ahora vive en la seccion "Notes on disk" de Memory settings.
 import { describe, it, expect, afterEach, vi } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import MemoriesStatusRow from '../../components/MemoriesStatusRow'
 import type { MemoriesState } from '../../hooks/useMemories'
 
@@ -39,7 +40,7 @@ describe('MemoriesStatusRow — configuracion del vault', () => {
     expect(screen.queryByText(/Include superseded/)).not.toBeInTheDocument()
   })
 
-  it('el icono de settings abre un popover con MemoryVaultCard', async () => {
+  it('no hay boton de ajustes del vault — MemoryVaultCard vive en Memory settings', () => {
     setMemoryApi({
       vaultGetSettings: vi.fn().mockResolvedValue({
         ok: true,
@@ -49,9 +50,6 @@ describe('MemoriesStatusRow — configuracion del vault', () => {
     })
     render(<MemoriesStatusRow state={state} />)
 
-    fireEvent.click(screen.getByRole('button', { name: /memory vault settings/i }))
-
-    await waitFor(() => expect(screen.getByText(/memory-vault\/user-1/)).toBeInTheDocument())
-    expect(screen.getByText(/Include superseded/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /memory vault settings/i })).not.toBeInTheDocument()
   })
 })

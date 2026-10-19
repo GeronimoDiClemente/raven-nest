@@ -19,6 +19,7 @@ import { conPaneOcupado, conActividadDePane, mismosPuertos } from './lib/pane-ac
 import { useIntervaloVisible } from './hooks/useIntervaloVisible'
 import { isInsideCodeEditor } from './lib/editor-owns-shortcut'
 import { basename } from './lib/path'
+import { temaPorId } from './lib/terminal-themes'
 import { groupAITypesByRepoPath } from './lib/repo-ai-logos'
 import { collectDragCaptures } from './layout/dragCaptures'
 import { getPreset } from './layout/presets'
@@ -244,6 +245,13 @@ export default function App() {
   const [personalOpen, setPersonalOpen] = useState(false)
   // Spec 2026-09-09 §4.1: Memories es hermana de Personal, con su propio overlay.
   const [memoriesOpen, setMemoriesOpen] = useState(false)
+  // Task 6 (2026-10-19): con que vista abre — los nodos (default) o Memory settings
+  // directo, que es lo que pide el boton "Account" de SettingsPanel.
+  const [memoriesVista, setMemoriesVista] = useState<'memorias' | 'settings'>('memorias')
+  const abrirMemories = (vista: 'memorias' | 'settings' = 'memorias') => {
+    setMemoriesVista(vista)
+    setMemoriesOpen(true)
+  }
   // workspace-shell-design §1: la salida (zoomOut, 0.2s) necesita que el overlay
   // siga montado mientras anima — si no, se desmonta en el mismo tick que
   // `xOpen` pasa a false y la animacion de salida nunca llega a pintar un frame.
@@ -1873,7 +1881,7 @@ export default function App() {
         }}
         // La memoria local es de todos los planes (§8.1), asi que esta fila NO pasa por el
         // gate de plan que si tiene Personal.
-        onMemoriesOpen={() => setMemoriesOpen(true)}
+        onMemoriesOpen={(vista) => abrirMemories(vista)}
         pendingInvitesCount={pendingInvitesCount}
         // TODO: gate behind plan tier if needed
         onIntegrationsOpen={() => setIntegrationsHubOpen(true)}
@@ -2114,7 +2122,7 @@ export default function App() {
           onBroadcastToggle={() => setBroadcastMode(v => !v)}
           onHubOpen={openHub}
           onPersonalOpen={() => setPersonalOpen(true)}
-          onMemoriesOpen={() => setMemoriesOpen(true)}
+          onMemoriesOpen={() => abrirMemories()}
           onIntegrationsOpen={() => setIntegrationsHubOpen(true)}
           onGraphBoardOpen={() => setGraphBoardOpen(true)}
         />
@@ -2180,6 +2188,10 @@ export default function App() {
       {/* Memories — el tercer overlay (spec §5.4), encima de Personal y del team workspace. */}
       {memoriesExit.visible && (
         <MemoriesWorkspace
+          // `key` por vista: forzar un remount cuando `memoriesVista` cambia es lo que hace
+          // que `vistaInicial` (solo se lee una vez, al montar) surta efecto cada vez que
+          // "Account" pide abrir directo en Memory settings.
+          key={memoriesVista}
           closing={memoriesExit.closing}
           onClose={() => setMemoriesOpen(false)}
           activeRepoPath={activeCellRepoPath ?? null}
@@ -2188,6 +2200,15 @@ export default function App() {
           // sin conflicto de z-index con el overlay — y setea repoPath en la pestaña activa,
           // que es de donde sale activeCellRepoPath. El grafo aparece sin salir de la pantalla.
           onLinkRepo={handleRepoLink}
+          vistaInicial={memoriesVista}
+          ansi={temaPorId(
+            userPrefs.prefs.ui_settings.terminalTheme,
+            userPrefs.prefs.ui_settings.terminalThemesImportados ?? [],
+          ).ansi}
+          // Task 7 cablea el dialogo de bienvenida y el tour de Memory settings; hasta
+          // entonces estos dos quedan sin efecto.
+          onHowItWorks={() => {}}
+          onMemorySettingsTour={() => {}}
         />
       )}
 

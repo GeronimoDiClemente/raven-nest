@@ -1,27 +1,29 @@
-// Spec §4.4 (direccion C, "el hilo es la pantalla") y §5.2. Reusa `teams-workspace` como
-// cascara visual — es la misma forma de overlay a pantalla completa que Personal y Teams —
-// y suma `.memories-workspace` para el z-index de arriba de todo (§5.4).
+// Spec §4.4 (direccion C, "el hilo es la pantalla"), §5.2 y §7 (2026-10-19). Reusa
+// `teams-workspace` como cascara visual — es la misma forma de overlay a pantalla completa
+// que Personal y Teams — y suma `.memories-workspace` para el z-index de arriba de todo
+// (§5.4).
 //
 // SIN chips de scope (decision 3): el grafo ya dibuja las ramas con autor y fecha, asi que
 // "tuyo vs del equipo" se ve por color. Ademas evita heredar el acoplamiento de
 // PersonalWorkspace.tsx:306, donde elegir un equipo llama a switchTeam y cambia chat,
 // presencia y stats de TODA la app.
+//
+// 2026-10-19: la vista principal YA NO tiene configuracion. Las tarjetas de sync, cifrado,
+// vinculo de equipo y notas en disco se mudaron a `MemorySettingsView` (§7 de la spec), que
+// esta pantalla abre como una SEGUNDA vista detras del boton "Settings" del header — no una
+// pantalla aparte, para no duplicar el shell de overlay. `vista` decide cual de las dos se
+// dibuja; las dos comparten el mismo header con Back/titulo.
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMemories } from '../hooks/useMemories'
 import { useCrossProjectMemories } from '../hooks/useCrossProjectMemories'
 import MemoriesList from './MemoriesList'
 import MemoryGraphPanel from './MemoryGraphPanel'
 import NewMemoryForm from './NewMemoryForm'
-import { Plus } from 'lucide-react'
+import { Plus, Settings } from 'lucide-react'
 import { ICON_SIZE } from '../lib/icons'
 import MemoriesStatusRow from './MemoriesStatusRow'
-import MemoryEncryptionCard from './MemoryEncryptionCard'
-import TeamEncryptionCard from './TeamEncryptionCard'
-import LinkDeviceCard from './LinkDeviceCard'
-import SyncServiceCard from './SyncServiceCard'
-import ShareProjectCard from './ShareProjectCard'
+import MemorySettingsView from './MemorySettingsView'
 import TeamThreadPanel from './TeamThreadPanel'
-import { useTeam } from '../hooks/useTeam'
 import { Button } from '@/components/ui/button'
 
 interface Props {
@@ -38,10 +40,28 @@ interface Props {
   onLinkRepo?: () => void
   /** workspace-shell-design §1: true while App.tsx holds this mounted after onClose so the zoomOut exit animation can play. See TeamsWorkspaceProps.closing (same shared shell, same mechanism). */
   closing?: boolean
+  /** Con que vista abre. `App.tsx` la pasa cuando "Account" en Settings pide ir directo a
+   *  Memory settings en vez de a los nodos (Task 3/6). */
+  vistaInicial?: 'memorias' | 'settings'
+  /** La paleta ANSI del tema de terminal activo (spec §5), para colorear el grafo y la
+   *  lista por tipo — mismo color en los dos. */
+  ansi?: readonly string[]
+  /** El tour "How it works" de la vista principal (Task 7). */
+  onHowItWorks: () => void
+  /** El tour de Memory settings (Task 7) — distinto del de arriba: navega el rail de
+   *  secciones en vez de los nodos. */
+  onMemorySettingsTour: () => void
 }
 
-export default function MemoriesWorkspace({ onClose, activeRepoPath, onOpenFile, onLinkRepo, closing = false }: Props) {
+export default function MemoriesWorkspace({
+  onClose, activeRepoPath, onOpenFile, onLinkRepo, closing = false, vistaInicial, ansi,
+  onHowItWorks, onMemorySettingsTour,
+}: Props) {
   const state = useMemories()
+
+  /** Cual de las dos vistas se dibuja — spec §7. Memory settings vive DETRAS del boton
+   *  "Settings" del header, no en una pantalla propia: comparten header y shell. */
+  const [vista, setVista] = useState<'memorias' | 'settings'>(vistaInicial ?? 'memorias')
 
   // Spec §3: el grafo es una VISTA de la lista, no su reemplazo — seleccionar una memoria
   // en la lista la resalta en el grafo y viceversa. La seleccion vive aca, que es el unico
@@ -63,8 +83,6 @@ export default function MemoriesWorkspace({ onClose, activeRepoPath, onOpenFile,
       return next
     })
   }
-
-  const { activeTeam } = useTeam()
 
   /**
    * La búsqueda vive acá y no adentro de la lista, porque dejó de ser sólo de la lista: el
@@ -138,11 +156,6 @@ export default function MemoriesWorkspace({ onClose, activeRepoPath, onOpenFile,
     if (version > 0) refrescarBusqueda.current()
   }, [version])
 
-  // Antes aca se leian los totales de la cuenta (hubStats) para llenar una card de
-  // "tenes N memorias en M proyectos". Esa card ya no existe: desde que la LISTA muestra
-  // las memorias de verdad, el contador era una version peor de lo que el usuario tiene
-  // arriba. Y la consulta se fue con ella, en vez de quedar colgada alimentando nada.
-
   /** Un click normal selecciona. Si estás conectando, el segundo click CIERRA la relación. */
   async function alElegir(id: string | null) {
     if (!conectandoDesde || !id || id === conectandoDesde) {
@@ -174,125 +187,136 @@ export default function MemoriesWorkspace({ onClose, activeRepoPath, onOpenFile,
   return (
     <div className={`teams-workspace memories-workspace${closing ? ' closing' : ''}`}>
       <div className="teams-workspace-header">
-        <button className="tw-back-btn" onClick={onClose}>
+        <button
+          className="tw-back-btn"
+          onClick={() => (vista === 'settings' ? setVista('memorias') : onClose())}
+        >
           <svg width="13" height="13" viewBox="0 0 13 13" fill="none" style={{ display: 'inline-block', verticalAlign: 'middle', marginRight: 5 }}>
             <path d="M8 2L4 6.5L8 11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>
-          Back
+          {vista === 'settings' ? 'Memories' : 'Back'}
         </button>
 
         <div className="tw-header-center">
           {/* Sólo el título, como Teams y Personal. El glifo del grafo que había acá era el
               único ícono en el header de una pantalla grande, dibujado a mano y pintado con
               `--raven-blue`: un color de marca donde el resto de la app usa texto. */}
-          <span className="tw-header-title">Memories</span>
+          <span className="tw-header-title">{vista === 'settings' ? 'Memory settings' : 'Memories'}</span>
         </div>
+
+        {vista === 'memorias' && (
+          <div className="tw-header-right">
+            <Button variant="ghost" size="sm" onClick={onHowItWorks} data-tour-id="memories-how">
+              How it works
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              aria-label="Memory settings"
+              onClick={() => setVista('settings')}
+              data-tour-id="memories-settings"
+            >
+              <Settings size={ICON_SIZE.sm} aria-hidden />
+              Settings
+            </Button>
+          </div>
+        )}
       </div>
 
-      <MemoriesStatusRow state={state} />
-
-      <div className="teams-workspace-body memories-body">
-        {/* Spec 2026-09-11 §1: la lista es lo primero y lo que ocupa el espacio
-            principal — cross-project (decision 1 de la spec), no depende de
-            activeRepoPath. `flex-1 min-h-0` (adentro de MemoriesList) es lo que le
-            da a la fila virtualizada una altura acotada real dentro de esta caja de
-            altura ya acotada (.teams-workspace-body's flex:1 + overflow:hidden), en
-            vez de crecer con el contenido y forzar el scroll de la pagina entera. */}
-        {/* Escribir a mano. Hasta ahora esta pantalla era de solo lectura: unicamente los
-            agentes escribian, y algo que vos querias dejar asentado no tenia puerta. */}
-        {escribiendo ? (
-          <NewMemoryForm
-            activeRepoPath={activeRepoPath}
-            onClose={() => setEscribiendo(false)}
-            onSaved={() => {
-              setVersion((v) => v + 1)
-              // La fila de estado tiene su propio ciclo de lectura: sin esto decia
-              // "0 items" al lado de la memoria recien escrita, que es el tipo de numero
-              // que hace desconfiar de toda la pantalla.
-              void state.refresh()
-            }}
-          />
-        ) : (
-          <div className="flex shrink-0 items-center">
-            <Button variant="outline" size="sm" onClick={() => setEscribiendo(true)}>
-              <Plus size={ICON_SIZE.sm} aria-hidden />
-              New memory
-            </Button>
-          </div>
-        )}
-
-        {conectandoDesde && (
-          <div className="flex shrink-0 items-center gap-2 rounded-md border border-border bg-accent px-3 py-2">
-            <span className="min-w-0 flex-1 text-fs-sm text-foreground">
-              Pick the memory this one goes with — in the list or in the graph.
-            </span>
-            <Button variant="ghost" size="sm" onClick={() => { setConectandoDesde(null); setAvisoDeEnlace(null) }}>
-              Cancel
-            </Button>
-          </div>
-        )}
-        {avisoDeEnlace && <p className="shrink-0 text-fs-sm text-muted-foreground">{avisoDeEnlace}</p>}
-
-        {/* El grafo primero y el buscador debajo, como Obsidian.
-            
-            Antes la lista era lo de arriba y el grafo un cuadro secundario al pie. El orden
-            importa porque cambia qué es la pantalla: con el grafo arriba, buscar es navegar
-            un mapa; con la lista arriba, el grafo es un adorno que mirás al final.
-            
-            Los dos comparten `busqueda`: lo que coincide se resalta en el grafo y el resto se
-            atenúa, sin que el grafo cambie de forma. Es el mismo atenuado que ya hacía la
-            selección de un nodo, generalizado. */}
-        <MemoryGraphPanel
-          key={`grafo-${version}`}
-          selectedId={selectedId}
-          onSelect={(id) => void alElegir(id)}
-          onEmpezarAConectar={(id) => { setConectandoDesde(id); setAvisoDeEnlace(null) }}
-          onCambiada={() => setVersion((v) => v + 1)}
-          resaltados={resaltados}
-          tiposOcultos={tiposOcultos}
-          onToggleTipo={onToggleTipo}
+      {vista === 'settings' ? (
+        <MemorySettingsView
+          activeRepoPath={activeRepoPath}
+          onLinkRepo={onLinkRepo}
+          onHowItWorks={onMemorySettingsTour}
         />
+      ) : (
+        <>
+          <MemoriesStatusRow state={state} />
 
-        <MemoriesList
-          key={`lista-${version}`}
-          selectedId={selectedId}
-          onSelect={(id) => void alElegir(id)}
-          estadoDeBusqueda={busqueda}
-          tiposOcultos={tiposOcultos}
-        />
-
-        {activeRepoPath ? (
-          // El grafo de ramas (TeamThreadGraph) es otro grafo, fuera de alcance de esta
-          // pasada — sigue existiendo, pero ya no es lo primero que se ve: pasa a un
-          // cuadro acotado y secundario, debajo de la lista de memorias real.
-          <div className="max-h-64 shrink-0 overflow-y-auto rounded-md border border-border p-3">
-            <TeamThreadPanel activeRepoPath={activeRepoPath} onOpenFile={onOpenFile} />
-          </div>
-        ) : (
-          // Una linea, no una card de 250px. Esto es sobre el grafo de RAMAS (el otro
-          // grafo), que sin repo vinculado no se puede dibujar — es una nota al pie, y
-          // como card hero se llevaba el alto que necesita la lista de memorias.
-          <div className="flex shrink-0 flex-wrap items-center gap-2 rounded-md border border-border px-3 py-2">
-            <span className="min-w-0 flex-1 text-fs-sm text-muted-foreground">
-              Link a repo to also see its branches — who changed what, and when.
-            </span>
-            {onLinkRepo && (
-              <Button variant="outline" size="sm" onClick={onLinkRepo}>Link a repo</Button>
+          <div className="teams-workspace-body memories-body">
+            {/* Spec 2026-09-11 §1: la lista es lo primero y lo que ocupa el espacio
+                principal — cross-project (decision 1 de la spec), no depende de
+                activeRepoPath. `flex-1 min-h-0` (adentro de MemoriesList) es lo que le
+                da a la fila virtualizada una altura acotada real dentro de esta caja de
+                altura ya acotada (.teams-workspace-body's flex:1 + overflow:hidden), en
+                vez de crecer con el contenido y forzar el scroll de la pagina entera. */}
+            {/* Escribir a mano. Hasta ahora esta pantalla era de solo lectura: unicamente los
+                agentes escribian, y algo que vos querias dejar asentado no tenia puerta. */}
+            {escribiendo ? (
+              <NewMemoryForm
+                activeRepoPath={activeRepoPath}
+                onClose={() => setEscribiendo(false)}
+                onSaved={() => {
+                  setVersion((v) => v + 1)
+                  // La fila de estado tiene su propio ciclo de lectura: sin esto decia
+                  // "0 items" al lado de la memoria recien escrita, que es el tipo de numero
+                  // que hace desconfiar de toda la pantalla.
+                  void state.refresh()
+                }}
+              />
+            ) : (
+              <div className="flex shrink-0 items-center">
+                <Button variant="outline" size="sm" onClick={() => setEscribiendo(true)} data-tour-id="memories-new">
+                  <Plus size={ICON_SIZE.sm} aria-hidden />
+                  New memory
+                </Button>
+              </div>
             )}
+
+            {conectandoDesde && (
+              <div className="flex shrink-0 items-center gap-2 rounded-md border border-border bg-accent px-3 py-2">
+                <span className="min-w-0 flex-1 text-fs-sm text-foreground">
+                  Pick the memory this one goes with — in the list or in the graph.
+                </span>
+                <Button variant="ghost" size="sm" onClick={() => { setConectandoDesde(null); setAvisoDeEnlace(null) }}>
+                  Cancel
+                </Button>
+              </div>
+            )}
+            {avisoDeEnlace && <p className="shrink-0 text-fs-sm text-muted-foreground">{avisoDeEnlace}</p>}
+
+            {/* El grafo primero y el buscador debajo, como Obsidian.
+
+                Antes la lista era lo de arriba y el grafo un cuadro secundario al pie. El
+                orden importa porque cambia qué es la pantalla: con el grafo arriba, buscar es
+                navegar un mapa; con la lista arriba, el grafo es un adorno que mirás al final.
+
+                Los dos comparten `busqueda`: lo que coincide se resalta en el grafo y el resto
+                se atenúa, sin que el grafo cambie de forma. Es el mismo atenuado que ya hacía
+                la selección de un nodo, generalizado. */}
+            <div className="shrink-0" data-tour-id="memories-graph">
+              <MemoryGraphPanel
+                key={`grafo-${version}`}
+                selectedId={selectedId}
+                onSelect={(id) => void alElegir(id)}
+                onEmpezarAConectar={(id) => { setConectandoDesde(id); setAvisoDeEnlace(null) }}
+                onCambiada={() => setVersion((v) => v + 1)}
+                resaltados={resaltados}
+                tiposOcultos={tiposOcultos}
+                onToggleTipo={onToggleTipo}
+                ansi={ansi}
+              />
+            </div>
+
+            <div className="flex min-h-0 flex-1 flex-col" data-tour-id="memories-list">
+              <MemoriesList
+                key={`lista-${version}`}
+                selectedId={selectedId}
+                onSelect={(id) => void alElegir(id)}
+                estadoDeBusqueda={busqueda}
+                tiposOcultos={tiposOcultos}
+                ansi={ansi}
+              />
+            </div>
+
+            {/* Sin caja propia: TeamThreadPanel devuelve null cuando el hilo esta apagado o
+                no hay repo (Task 2), y el borde/fondo viven adentro de el mismo (clase
+                `team-thread-panel`) — envolverlo aca otra vez dibujaba una caja vacia cada
+                vez que devolvia null. */}
+            {activeRepoPath && <TeamThreadPanel activeRepoPath={activeRepoPath} onOpenFile={onOpenFile} />}
           </div>
-        )}
-
-        <ShareProjectCard activeRepoPath={activeRepoPath} />
-
-        {/* La configuración va al FONDO, después de todo lo que se mira. Arriba del grafo se
-            llevaba la primera pantalla entera con tres tarjetas que se tocan una vez —
-            cifrado, vincular una máquina, la dirección del servicio— y empujaba lo principal
-            (el grafo y la lista) abajo del pliegue. */}
-        <MemoryEncryptionCard />
-        {activeTeam && <TeamEncryptionCard />}
-        <LinkDeviceCard />
-        <SyncServiceCard />
-      </div>
+        </>
+      )}
     </div>
   )
 }

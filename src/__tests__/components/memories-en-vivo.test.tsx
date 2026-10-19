@@ -43,7 +43,7 @@ describe('la pantalla se entera de lo que escriben los agentes', () => {
   afterEach(() => { vi.restoreAllMocks() })
 
   it('se suscribe al montar y pide de nuevo cuando llega el aviso', async () => {
-    render(<MemoriesWorkspace onClose={() => {}} activeRepoPath={null} onOpenFile={() => {}} />)
+    render(<MemoriesWorkspace onClose={() => {}} activeRepoPath={null} onOpenFile={() => {}} onHowItWorks={() => {}} onMemorySettingsTour={() => {}} />)
     await waitFor(() => expect(avisar).not.toBeNull())
     const antes = vecesQuePidioLaLista
 
@@ -60,7 +60,7 @@ describe('la pantalla se entera de lo que escriben los agentes', () => {
     // La lista está virtualizada y jsdom mide todo en 0: sin alto, no monta ninguna fila.
     vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(600)
     vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(600)
-    render(<MemoriesWorkspace onClose={() => {}} activeRepoPath={null} onOpenFile={() => {}} />)
+    render(<MemoriesWorkspace onClose={() => {}} activeRepoPath={null} onOpenFile={() => {}} onHowItWorks={() => {}} onMemorySettingsTour={() => {}} />)
     await waitFor(() => expect(screen.getByText('No memories yet')).toBeInTheDocument())
 
     enLaBase = [{
@@ -74,7 +74,7 @@ describe('la pantalla se entera de lo que escriben los agentes', () => {
   })
 
   it('da de baja la suscripción al desmontar', async () => {
-    const { unmount } = render(<MemoriesWorkspace onClose={() => {}} activeRepoPath={null} onOpenFile={() => {}} />)
+    const { unmount } = render(<MemoriesWorkspace onClose={() => {}} activeRepoPath={null} onOpenFile={() => {}} onHowItWorks={() => {}} onMemorySettingsTour={() => {}} />)
     await waitFor(() => expect(avisar).not.toBeNull())
     unmount()
     expect(bajas).toBe(1)
@@ -85,7 +85,7 @@ describe('la pantalla se entera de lo que escriben los agentes', () => {
   it('sin `onChanged` en el preload, la pantalla monta igual', async () => {
     const api = (window as unknown as { memory: Record<string, unknown> }).memory
     delete api.onChanged
-    expect(() => render(<MemoriesWorkspace onClose={() => {}} activeRepoPath={null} onOpenFile={() => {}} />)).not.toThrow()
+    expect(() => render(<MemoriesWorkspace onClose={() => {}} activeRepoPath={null} onOpenFile={() => {}} onHowItWorks={() => {}} onMemorySettingsTour={() => {}} />)).not.toThrow()
     await waitFor(() => expect(screen.getByText('Memories')).toBeInTheDocument())
   })
 })

@@ -61,8 +61,9 @@ interface Props {
   profileLoading?: boolean
   onUpgrade?: () => void
   onPersonalOpen?: () => void
-  /** Spec 2026-09-09 §4.1: Memories es hermana de Personal, no una seccion adentro ni una 4a pestana. */
-  onMemoriesOpen?: () => void
+  /** Spec 2026-09-09 §4.1: Memories es hermana de Personal, no una seccion adentro ni una 4a pestana.
+   *  Task 6: toma una vista opcional — SettingsPanel la usa para abrir directo en Memory settings. */
+  onMemoriesOpen?: (vista?: 'memorias' | 'settings') => void
   pendingInvitesCount?: number
   onIntegrationsOpen?: () => void
   onGraphBoardOpen?: () => void
@@ -935,7 +936,7 @@ export default function Sidebar({
           onOpenTutorial={onOpenTutorial}
           userPrefs={userPrefs}
           onFileOpen={onFileOpen}
-          onOpenMemories={onMemoriesOpen}
+          onOpenMemories={(v) => onMemoriesOpen?.(v)}
         />
       </div>
 

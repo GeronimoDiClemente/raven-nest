@@ -32,6 +32,8 @@ const renderWorkspace = (props: {
   onClose?: () => void
   activeRepoPath?: string | null
   onLinkRepo?: () => void
+  vistaInicial?: 'memorias' | 'settings'
+  onHowItWorks?: () => void
 } = {}) =>
   render(
     <MemoriesWorkspace
@@ -39,6 +41,9 @@ const renderWorkspace = (props: {
       activeRepoPath={props.activeRepoPath ?? null}
       onOpenFile={() => {}}
       onLinkRepo={props.onLinkRepo}
+      vistaInicial={props.vistaInicial}
+      onHowItWorks={props.onHowItWorks ?? (() => {})}
+      onMemorySettingsTour={() => {}}
     />
   )
 
@@ -97,60 +102,38 @@ describe('MemoriesWorkspace', () => {
     expect(screen.getByText(/pane-7/)).toBeInTheDocument()
   })
 
-  it('sin repo abierto, la pantalla ofrece una salida y dice para que sirve', async () => {
-    // El problema medido en la captura del 2026-09-09: header, una tira de estado, una
-    // frase y 80% de negro. El estado vacio tiene que dar una SALIDA (un boton que
-    // vincula un repo) y decir que se gana vinculandolo.
-    //
-    // 2026-09-11: ya no muestra "tenes N memorias en M proyectos". Desde que la LISTA
-    // muestra las memorias de verdad, ese contador era una version peor de lo que el
-    // usuario ya tiene arriba — y era una card de 250px que le robaba el alto a la lista.
-    // Ahora es una linea. El contrato que sobrevive es el que importa: hay una salida, y
-    // esta dicho de que se trata.
-    setMemoryApi(api())
-    const onLinkRepo = vi.fn()
-    renderWorkspace({ activeRepoPath: null, onLinkRepo })
+  // Task 6 (2026-10-19): la linea "Link a repo to also see its branches" vivia en el estado
+  // vacio de esta vista — se mudo entera a la seccion "This project & team" de Memory
+  // settings (Task 5), asi que las 4 pruebas que la ejercitaban aca se borraron. El
+  // contrato sigue existiendo, solo que en otro componente (MemorySettingsView.test.tsx).
 
-    expect(screen.getByText(/Link a repo to also see its branches/)).toBeInTheDocument()
-
-    const boton = screen.getByRole('button', { name: /link a repo/i })
-    fireEvent.click(boton)
-    expect(onLinkRepo).toHaveBeenCalledTimes(1)
+  it('la vista principal no tiene configuración', () => {
+    renderWorkspace({ activeRepoPath: '/r' })
+    expect(screen.queryByText(/Share this project/)).toBeNull()
+    expect(screen.queryByText(/Encrypt your memory/)).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Turn on' })).toBeNull()
   })
 
-  it('sin onLinkRepo, no renderiza el boton pero el arbol sigue montando', async () => {
-    // Contrato defensivo (Task 8, resolucion 2): la prop es opcional para que un
-    // caller viejo (o un test viejo) que no la pasa no vea reventar el componente.
-    setMemoryApi(api())
-    renderWorkspace({ activeRepoPath: null })
-
-    await waitFor(() => expect(screen.getByText('142 items · synced')).toBeInTheDocument())
-    expect(screen.queryByRole('button', { name: /link a repo/i })).not.toBeInTheDocument()
+  it('Settings abre la vista de settings y Back vuelve a los nodos', () => {
+    renderWorkspace({ activeRepoPath: '/r' })
+    fireEvent.click(screen.getByRole('button', { name: 'Memory settings' }))
+    expect(screen.getByText('Memory settings', { selector: '.tw-header-title' })).toBeInTheDocument()
+    // Nombre EXACTO, no /Memories/: esa regex tambien matchea el boton "How Memories
+    // works" del rail de Memory settings, y getByRole explota por ambiguo.
+    fireEvent.click(screen.getByRole('button', { name: 'Memories' }))
+    expect(screen.getByText('Memories', { selector: '.tw-header-title' })).toBeInTheDocument()
   })
 
-  it('hubStats opcional o que falla no revienta la card', async () => {
-    // Mismo contrato defensivo que useMemories: window.memory.hubStats es opcional
-    // en el tipo, y si la llamada falla la card se muestra sin los numeros.
-    setMemoryApi(api({ hubStats: vi.fn().mockRejectedValue(new Error('nope')) }))
-    renderWorkspace({ activeRepoPath: null, onLinkRepo: () => {} })
-
-    await waitFor(() => expect(screen.getByRole('button', { name: /link a repo/i })).toBeInTheDocument())
+  it('vistaInicial=settings abre directo en settings', () => {
+    renderWorkspace({ activeRepoPath: null, vistaInicial: 'settings' })
+    expect(screen.getByText('Memory settings', { selector: '.tw-header-title' })).toBeInTheDocument()
   })
 
-  it('la linea del estado vacio se mantiene en la escala tipografica', async () => {
-    // El guard de contraste (e2e/04-contraste.spec.ts:178) mide COLOR, y
-    // MemoriesWorkspace-tokens.test.tsx solo regexea el source sin montar el arbol —
-    // ninguno de los dos agarraria que alguien le ponga un text-sm de Tailwind en vez de
-    // la escala propia (--fs-*). Este SI renderiza y lee la className del nodo real.
-    //
-    // Antes esto miraba el CardTitle/CardDescription de una card que ya no existe (ver el
-    // test de arriba). El contrato es el mismo: el texto de esta pantalla no inventa
-    // tamaños fuera de la escala.
-    setMemoryApi(api())
-    renderWorkspace({ activeRepoPath: null, onLinkRepo: () => {} })
-
-    const linea = await screen.findByText(/Link a repo to also see its branches/)
-    expect(linea.className.split(/\s+/)).toContain('text-fs-sm')
+  it('How it works llama al callback', () => {
+    const onHowItWorks = vi.fn()
+    renderWorkspace({ activeRepoPath: null, onHowItWorks })
+    fireEvent.click(screen.getByRole('button', { name: 'How it works' }))
+    expect(onHowItWorks).toHaveBeenCalled()
   })
 
   // Fix round 1 de la tarea 1: el Set de tipos ocultos vive en MemoriesWorkspace y tiene

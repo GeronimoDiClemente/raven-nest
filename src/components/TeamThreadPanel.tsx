@@ -79,7 +79,7 @@ export default function TeamThreadPanel({ activeRepoPath, onOpenFile }: Props) {
 
   if (settingsError) {
     return (
-      <div className="team-thread-error">
+      <div className="team-thread-error shrink-0">
         <p>{settingsError}</p>
       </div>
     )
@@ -91,14 +91,19 @@ export default function TeamThreadPanel({ activeRepoPath, onOpenFile }: Props) {
 
   if (branchesError) {
     return (
-      <div className="team-thread-error">
+      <div className="team-thread-error shrink-0">
         <p>{branchesError}</p>
       </div>
     )
   }
 
   return (
-    <div className="team-thread-panel">
+    // Task 6 (vista principal sólo memoria): el borde/fondo de esta caja vivían en un `<div>`
+    // de MemoriesWorkspace que envolvía a este panel SIEMPRE que había un repo activo —
+    // incluido cuando este componente devolvía `null` (hilo apagado), lo que dibujaba una
+    // caja vacía. Ahora `.team-thread-panel` ya trae el borde (global.css) y acá sólo se
+    // agrega el tamaño/scroll que antes ponía el wrapper, para no perderlo.
+    <div className="team-thread-panel max-h-64 shrink-0 overflow-y-auto">
       <TeamThreadGraph
         branches={branches}
         focus={focus}

@@ -1,14 +1,14 @@
 // Spec §5.2 — "el sync y el vault se corren a una fila de estado chiquita arriba, porque son
 // cosas que se tocan una vez". Y §4.5: los conflictos y lo bloqueado van ACA, no escondidos
 // en una carpeta.
-import { Settings2 } from 'lucide-react'
+//
+// 2026-10-19 (Task 6): el icono de ajustes del vault y su popover se van — `MemoryVaultCard`
+// ya vive en la seccion "Notes on disk" de Memory settings (spec §7), asi que esta fila
+// queda SOLO de estado: nada que configurar, nada detras de un icono.
 import { Badge } from '@/components/ui/badge'
-import { buttonVariants } from '@/components/ui/button'
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { cn } from '@/lib/utils'
 import type { MemoriesState } from '../hooks/useMemories'
 import { paneDisplayLabel, relativeTime } from '../lib/memories-status'
-import MemoryVaultCard from './MemoryVaultCard'
 
 interface Props {
   state: MemoriesState
@@ -18,7 +18,10 @@ export default function MemoriesStatusRow({ state }: Props) {
   const { status, vault, blocked, blockedTotal, silentSessions } = state
 
   return (
-    <div className={cn('memories-status-row', 'border-b border-border text-fs-sm')}>
+    <div
+      className={cn('memories-status-row', 'border-b border-border text-fs-sm')}
+      data-tour-id="memories-status"
+    >
       <Badge
         variant="outline"
         className={cn(
@@ -89,33 +92,6 @@ export default function MemoriesStatusRow({ state }: Props) {
         </div>
       )}
 
-      {/* Spec 2026-09-11 §2 — "la configuracion del vault sale de la vista principal":
-          un path absoluto y dos checkboxes historicos son un ajuste de una sola vez,
-          no informacion diaria. Vive atras de este icono en vez de una card fija en
-          el body — sigue siendo self-contained (MemoryVaultCard ya maneja su propio
-          "sin preload viejo" -> null).
-          SIN `asChild` + `<Button>`: los primitivos de src/components/ui/ (Button,
-          Badge, etc.) son funciones sueltas sin `React.forwardRef` — bajo React 18 un
-          ref pasado a una funcion asi se pierde en silencio (sin forwardRef, `ref` no
-          es una prop comun; recien en React 19 dejo de hacer falta el wrapper). Radix
-          Popper necesita ese ref para MEDIR el trigger y posicionar el contenido: sin
-          el, `PopoverContent` renderiza con `position: static` y termina fuera de
-          pantalla (encontrado con una captura real: el popover no aparecia en ningun
-          lado aunque `toBeVisible()` daba verde). Aplicar `buttonVariants()` directo
-          sobre `PopoverTrigger` deja que Radix use su propio botón (ya envuelto en
-          forwardRef), con la MISMA pinta que `<Button variant="ghost" size="icon-sm">`. */}
-      <Popover>
-        <PopoverTrigger
-          className={cn(buttonVariants({ variant: 'ghost', size: 'icon-sm' }), 'ml-auto')}
-          aria-label="Memory vault settings"
-          title="Memory vault settings"
-        >
-          <Settings2 />
-        </PopoverTrigger>
-        <PopoverContent align="end">
-          <MemoryVaultCard />
-        </PopoverContent>
-      </Popover>
     </div>
   )
 }
