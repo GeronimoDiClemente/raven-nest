@@ -248,8 +248,13 @@ export default function App() {
   // Task 6 (2026-10-19): con que vista abre — los nodos (default) o Memory settings
   // directo, que es lo que pide el boton "Account" de SettingsPanel.
   const [memoriesVista, setMemoriesVista] = useState<'memorias' | 'settings'>('memorias')
-  const abrirMemories = (vista: 'memorias' | 'settings' = 'memorias') => {
-    setMemoriesVista(vista)
+  const abrirMemories = (vista?: 'memorias' | 'settings') => {
+    // Defensa en profundidad (fix round 1, Task 6): SOLO el literal 'settings' abre en
+    // settings. Un caller viejo o mal tipado que le pase el SyntheticEvent de un click (o
+    // cualquier otra cosa que no sea exactamente 'settings') cae a 'memorias' en vez de
+    // dejar `memoriesVista` con basura — el bug real estaba en Sidebar.tsx (MemoriesItem
+    // le pasaba el evento), pero esto evita que vuelva a pasar desde otro caller.
+    setMemoriesVista(vista === 'settings' ? 'settings' : 'memorias')
     setMemoriesOpen(true)
   }
   // workspace-shell-design §1: la salida (zoomOut, 0.2s) necesita que el overlay

@@ -909,7 +909,12 @@ export default function Sidebar({
       {/* Memories — hermana de Personal (spec §4.1). Fuera del scroll y de las pestanas por
           la misma razon que Personal: las 3 pestanas son del repo abierto, y esto es de la
           cuenta. */}
-      {onMemoriesOpen && <MemoriesItem expanded={expanded} onOpen={onMemoriesOpen} />}
+      {/* `MemoriesItem.onOpen` es `() => void` pero por dentro hace `<Button onClick={onOpen}>`
+          — pasar `onMemoriesOpen` DIRECTO le entregaria el SyntheticEvent del click como si
+          fuera `vista` (ver fix round 1, Task 6: eso dejaba `memoriesVista` en un objeto
+          Event y la vista principal nunca mostraba "How it works"/"Settings"). Envolver en
+          una arrow sin argumentos es lo que corta esa cadena. */}
+      {onMemoriesOpen && <MemoriesItem expanded={expanded} onOpen={() => onMemoriesOpen?.()} />}
 
       {/* User menu — hidden while loading to avoid flash */}
       {!profileLoading && (
