@@ -89,7 +89,7 @@ describe('Account se partió en tres', () => {
 
   it('las tres están en el rail', () => {
     abrir()
-    for (const t of ['Account', 'Connections', 'Cloud memory']) {
+    for (const t of ['Account', 'Connections', 'Voice']) {
       expect(screen.getByRole('button', { name: t }), t).toBeInTheDocument()
     }
   })
@@ -104,8 +104,8 @@ describe('Account se partió en tres', () => {
     expect(visible('Account')).toBe(false)
     expect(screen.getByText('GitHub')).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Cloud memory' }))
-    expect(visible('Cloud memory')).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: 'Voice' }))
+    expect(visible('Voice')).toBe(true)
     expect(visible('Connections')).toBe(false)
   })
 
