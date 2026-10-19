@@ -10,7 +10,19 @@
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { MEMORY_TYPES_IN_LEGEND_ORDER, memoryTypeSwatch } from '../lib/memory-type-legend'
+import { MEMORY_TYPES_IN_LEGEND_ORDER, memoryTypeSwatch, type KnownMemoryType } from '../lib/memory-type-legend'
+
+/**
+ * Sólo los 7 tipos que una persona elige a mano. `session` y `handoff` quedan afuera a
+ * propósito (ruling del controller, fix round 1 de la tarea 1): los escriben los agentes y
+ * el flujo de handoff automático, no alguien completando este formulario — ofrecerlos acá
+ * sería invitar a un tipo que no tiene sentido fuera de ese camino. Se filtra sobre
+ * `MEMORY_TYPES_IN_LEGEND_ORDER` en vez de listar los 7 de nuevo, para no tener dos listas
+ * que se puedan desincronizar del orden canónico.
+ */
+const TIPOS_A_MANO: KnownMemoryType[] = MEMORY_TYPES_IN_LEGEND_ORDER.filter(
+  (t) => t !== 'session' && t !== 'handoff',
+)
 
 interface Props {
   /** El worktree abierto, si hay. Sin él la memoria va al proyecto global — que es lo que
@@ -108,7 +120,7 @@ export default function NewMemoryForm({ activeRepoPath, onClose, onSaved }: Prop
         {/* El tipo, con su color — el mismo punto que se ve en la lista y en el grafo, así
             que elegirlo acá muestra de entrada cómo va a quedar pintado. */}
         <div className="flex flex-wrap gap-1">
-          {MEMORY_TYPES_IN_LEGEND_ORDER.map((t) => {
+          {TIPOS_A_MANO.map((t) => {
             const swatch = memoryTypeSwatch(t)!
             return (
               <Button

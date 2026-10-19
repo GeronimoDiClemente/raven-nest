@@ -49,6 +49,21 @@ export default function MemoriesWorkspace({ onClose, activeRepoPath, onOpenFile,
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [escribiendo, setEscribiendo] = useState(false)
 
+  /**
+   * Los tipos que los chips de la leyenda apagaron (spec §2). Vive ACÁ, no en el grafo ni
+   * en la lista, porque un chip tiene que filtrar a los DOS a la vez y ninguno de los dos
+   * ve al otro — el mismo motivo por el que `selectedId` y `busqueda` viven acá.
+   */
+  const [tiposOcultos, setTiposOcultos] = useState<Set<string>>(new Set())
+  const onToggleTipo = (tipo: string) => {
+    setTiposOcultos((prev) => {
+      const next = new Set(prev)
+      if (next.has(tipo)) next.delete(tipo)
+      else next.add(tipo)
+      return next
+    })
+  }
+
   const { activeTeam } = useTeam()
 
   /**
@@ -234,6 +249,8 @@ export default function MemoriesWorkspace({ onClose, activeRepoPath, onOpenFile,
           onEmpezarAConectar={(id) => { setConectandoDesde(id); setAvisoDeEnlace(null) }}
           onCambiada={() => setVersion((v) => v + 1)}
           resaltados={resaltados}
+          tiposOcultos={tiposOcultos}
+          onToggleTipo={onToggleTipo}
         />
 
         <MemoriesList
@@ -241,6 +258,7 @@ export default function MemoriesWorkspace({ onClose, activeRepoPath, onOpenFile,
           selectedId={selectedId}
           onSelect={(id) => void alElegir(id)}
           estadoDeBusqueda={busqueda}
+          tiposOcultos={tiposOcultos}
         />
 
         {activeRepoPath ? (
