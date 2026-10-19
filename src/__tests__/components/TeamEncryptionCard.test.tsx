@@ -2,14 +2,17 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import TeamEncryptionCard from '../../components/TeamEncryptionCard'
 
-vi.mock('../../hooks/useTeam', () => {
-  const mockActiveTeam = { id: 'team-1', name: 'Equipo' }
-  const mockMembers = [
+const mockTeamConfig = vi.hoisted(() => ({
+  activeTeam: { id: 'team-1', name: 'Equipo' },
+  members: [
     { user_id: 'u-leader', role: 'leader' },
     { user_id: 'u-member', role: 'member' },
-  ]
+  ],
+}))
+
+vi.mock('../../hooks/useTeam', () => {
   return {
-    useTeam: () => ({ activeTeam: mockActiveTeam, userId: 'u-leader', members: mockMembers }),
+    useTeam: () => ({ activeTeam: mockTeamConfig.activeTeam, userId: 'u-leader', members: mockTeamConfig.members }),
   }
 })
 
@@ -227,19 +230,21 @@ describe('TeamEncryptionCard — memorias retenidas en esta máquina', () => {
 
 describe('TeamEncryptionCard — truncation de nombres untrusted', () => {
   it('trunca nombres largos a 40 caracteres con ellipsis', async () => {
-    // El mock de arriba usa 'Equipo' (nombre corto), pero verificamos que el
-    // componente renderiza el nombre dentro de un <span className="font-mono">
-    // y que truncateWithEllipsis funciona correctamente.
+    const longName = 'a'.repeat(100)
+    // Cambiar el activeTeam per-test usando la config hoisted
+    mockTeamConfig.activeTeam = { id: 'team-1', name: longName }
+
     window.memory.teamEncryptionStatus = vi.fn().mockResolvedValue({ activated: false, wrap: null, pendingDevices: [], hasMaster: false })
     render(<TeamEncryptionCard />)
     const title = await screen.findByText(/Encrypt what/)
     expect(title).toBeInTheDocument()
-    // Verificar que el nombre está en un span con font-mono
+    // Verificar que el nombre se truncó a 40 chars + ellipsis
     const span = title.querySelector('span.font-mono')
     expect(span).toBeInTheDocument()
-    expect(span!.textContent).toBe('Equipo')
-    // Para nombres largos, truncateWithEllipsis añadiría el ellipsis
-    // Este test verifica la estructura; el comportamiento de truncate se
-    // prueba en src/lib/truncate.ts si es necesario.
+    expect(span!.textContent).toBe('a'.repeat(40) + '…')
+    expect(span!.textContent!.length).toBe(41)
+
+    // Restaurar para otros tests
+    mockTeamConfig.activeTeam = { id: 'team-1', name: 'Equipo' }
   })
 })

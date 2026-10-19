@@ -2,8 +2,12 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import ShareProjectCard from '../../components/ShareProjectCard'
 
+const mockTeamConfig = vi.hoisted(() => ({
+  teams: [{ id: 't1', name: 'RENEMED' }],
+}))
+
 vi.mock('../../hooks/useTeam', () => ({
-  useTeam: () => ({ teams: [{ id: 't1', name: 'RENEMED' }] }),
+  useTeam: () => ({ teams: mockTeamConfig.teams }),
 }))
 
 /**
@@ -74,8 +78,23 @@ describe('la card de compartir', () => {
     const span = button.querySelector('span.font-mono')
     expect(span).toBeInTheDocument()
     expect(span!.textContent).toBe('RENEMED')
-    // Para nombres largos, truncateWithEllipsis añadiría el ellipsis.
-    // Este test verifica la estructura; el comportamiento de truncate se
-    // prueba en src/lib/truncate.ts si es necesario.
+  })
+
+  it('trunca nombres largos de equipo a 40 caracteres con ellipsis', async () => {
+    const longName = 'a'.repeat(100)
+    mockTeamConfig.teams = [{ id: 't1', name: longName }]
+    conStatus(true)
+    render(<ShareProjectCard activeRepoPath="/repos/x" />)
+
+    await waitFor(() => expect(screen.getByRole('button', { name: /^Share with/ })).toBeInTheDocument())
+    const button = screen.getByRole('button', { name: /^Share with/ })
+    // Verificar que el nombre se truncó a 40 chars + ellipsis
+    const span = button.querySelector('span.font-mono')
+    expect(span).toBeInTheDocument()
+    expect(span!.textContent).toBe('a'.repeat(40) + '…')
+    expect(span!.textContent!.length).toBe(41)
+
+    // Restaurar para otros tests
+    mockTeamConfig.teams = [{ id: 't1', name: 'RENEMED' }]
   })
 })
