@@ -56,6 +56,8 @@ describe('MemoryEncryptionCard', () => {
     expect(await screen.findByRole('button', { name: /turn on encryption/i })).toBeInTheDocument()
     // La promesa honesta del §5.2, en la tarjeta y no solo en la landing.
     expect(screen.getByText(/locks your memory with a key/i)).toBeInTheDocument()
+    // La caveat: qué ve todavía el servidor (tipo, scope, rama).
+    expect(screen.getByText(/type, scope and branch/i)).toBeInTheDocument()
   })
 
   // En texto JSX un `’` no es un escape: se renderiza tal cual, y la app real mostraba

@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { ShieldCheck, ShieldAlert, ShieldQuestion } from 'lucide-react'
 import { ICON_SIZE } from '../lib/icons'
+import { truncateWithEllipsis } from '../lib/truncate'
 import { useTeam } from '../hooks/useTeam'
 
 interface EstadoCifradoEquipo {
@@ -89,7 +90,9 @@ export default function TeamEncryptionCard() {
       <div className="flex shrink-0 flex-col gap-2 rounded-md border border-border p-3">
         <div className="flex items-center gap-2">
           <ShieldQuestion size={ICON_SIZE.md} className="text-muted-foreground" aria-hidden />
-          <p className="text-fs font-medium text-foreground">Encrypt what {activeTeam.name} shares</p>
+          <p className="text-fs font-medium text-foreground">
+            Encrypt what <span className="font-mono">{truncateWithEllipsis(activeTeam.name)}</span> shares
+          </p>
         </div>
         <p className="text-fs-sm text-muted-foreground">
           Could not read this team&rsquo;s encryption state. Come back when you are online.
@@ -190,7 +193,9 @@ export default function TeamEncryptionCard() {
       <div className={marco}>
         <div className="flex items-center gap-2">
           <ShieldQuestion size={ICON_SIZE.md} className="text-muted-foreground" aria-hidden />
-          <p className="text-fs font-medium text-foreground">Encrypt what {activeTeam.name} shares</p>
+          <p className="text-fs font-medium text-foreground">
+            Encrypt what <span className="font-mono">{truncateWithEllipsis(activeTeam.name)}</span> shares
+          </p>
         </div>
         <p className="text-fs-sm text-muted-foreground">
           Ask your team leader to turn on encryption for this team — only they can activate it.
@@ -204,7 +209,9 @@ export default function TeamEncryptionCard() {
       <div className={marco}>
         <div className="flex items-center gap-2">
           <ShieldQuestion size={ICON_SIZE.md} className="text-muted-foreground" aria-hidden />
-          <p className="text-fs font-medium text-foreground">Encrypt what {activeTeam.name} shares</p>
+          <p className="text-fs font-medium text-foreground">
+            Encrypt what <span className="font-mono">{truncateWithEllipsis(activeTeam.name)}</span> shares
+          </p>
         </div>
         <p className="text-fs-sm text-muted-foreground">
           Once it&rsquo;s on, nobody who runs the server can read this team&rsquo;s shared memory — us included.

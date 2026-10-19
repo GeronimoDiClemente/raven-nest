@@ -63,4 +63,19 @@ describe('la card de compartir', () => {
     const { container } = render(<ShareProjectCard activeRepoPath={null} />)
     expect(container).toBeEmptyDOMElement()
   })
+
+  it('el nombre del equipo en el botón está en un span con font-mono', async () => {
+    conStatus(true)
+    render(<ShareProjectCard activeRepoPath="/repos/x" />)
+
+    await waitFor(() => expect(screen.getByRole('button', { name: /^Share with/ })).toBeInTheDocument())
+    const button = screen.getByRole('button', { name: /^Share with/ })
+    // Verificar que el nombre está en un span con font-mono
+    const span = button.querySelector('span.font-mono')
+    expect(span).toBeInTheDocument()
+    expect(span!.textContent).toBe('RENEMED')
+    // Para nombres largos, truncateWithEllipsis añadiría el ellipsis.
+    // Este test verifica la estructura; el comportamiento de truncate se
+    // prueba en src/lib/truncate.ts si es necesario.
+  })
 })

@@ -16,6 +16,7 @@
 // acoplamiento que se evita está en PersonalWorkspace.tsx:306).
 import { useEffect, useState } from 'react'
 import { useTeam } from '../hooks/useTeam'
+import { truncateWithEllipsis } from '../lib/truncate'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
 
@@ -161,7 +162,9 @@ export default function ShareProjectCard({ activeRepoPath }: Props) {
                 altura y el radio del sistema y el boton los del navegador, uno junto al
                 otro en la misma fila. */}
             <Button size="sm" onClick={share} disabled={busy || !projectKey}>
-              {busy ? 'Sharing…' : `Share with ${teams.find((t) => t.id === teamId)?.name ?? 'team'}`}
+              {busy ? 'Sharing…' : (
+                <>Share with <span className="font-mono">{truncateWithEllipsis(teams.find((t) => t.id === teamId)?.name ?? 'team')}</span></>
+              )}
             </Button>
           </div>
           {result && (

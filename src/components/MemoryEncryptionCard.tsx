@@ -351,6 +351,7 @@ export default function MemoryEncryptionCard() {
         Locks your memory with a key that only your own machines hold, before anything goes to the
         cloud. On this machine it stays readable, so search and your agents keep working as usual.
       </p>
+      <p className="text-fs-sm text-muted-foreground">{LO_QUE_QUEDA_EN_CLARO}</p>
       <p className="rounded-md border border-warn/40 px-2 py-1 text-fs-sm text-warn">
         You will get a recovery code. Keep it somewhere safe: if you lose every machine and the code, the cloud copy can never be opened again.
       </p>
