@@ -85,7 +85,7 @@ export default function MemoryVaultCard() {
     <div className="sp-card">
       <div className="sp-card-row">
         <div className="sp-card-left">
-          <span className="sp-card-label">Memory Vault</span>
+          <span className="sp-card-label">Notes on disk</span>
           <span style={{ fontSize: 11, opacity: 0.65, marginLeft: 6 }}>
             {settings.enabled
               ? 'Mirroring your memory to Markdown — open it in Obsidian for graph view, or just grep it'
