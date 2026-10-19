@@ -127,3 +127,40 @@ el `~` real.
 7. Fase 1: el lado verde del §2.2 (una CLI que sí llega al bridge) y el workspace de equipo
    con equipos joineados.
 8. El cifrado nunca se probó entre **dos máquinas físicas**. Con la otra PC se puede.
+
+---
+
+## Actualización del 19-10 (tarde, desde Windows): rama `feat/memories-settings`
+
+Sale de `feat/nest-terminal-ui` @`bb0fda7`. **Local, sin push.** 24 commits.
+
+**Qué trae**
+- **Plugin**: sin `NEST_MEMORY_SYNC_URL` usa el servicio por defecto de Nest; `login` guarda
+  contra qué servicio se conectó (el token sólo vale ahí) y avisa por stderr si el env apunta a
+  otro. Se publica como **`@nestmux/memory`** (nombre en una constante:
+  `electron/nombre-del-paquete.ts` + espejo `src/lib/nombre-del-paquete.ts`, con test que los
+  ata a `package.json`). La carpeta `~/.nest-memory/` y la clave MCP `nest_memory` NO cambian.
+- **Rediseño de Memories** (spec `docs/superpowers/specs/2026-10-19-memories-vista-y-settings-design.md`,
+  plan `docs/superpowers/plans/2026-10-19-memories-vista-y-settings.md`): la vista principal
+  sólo muestra memoria (grafo, lista, chips por tipo con color de la paleta ANSI del tema,
+  ajustado a 3:1); la configuración vive en **Memory settings** dentro del overlay (01 Sync ·
+  02 Encryption · 03 This project & team · 04 Notes on disk); «Cloud memory» salió de Settings
+  global; bienvenida de primera visita + tour de 5 pasos + «How Memories works».
+- Verificado: los dos `tsc` en 0; `npm test` 3796 verdes; e2e 03, 04 (mide también las
+  pantallas nuevas), 08, 12 (dos corridas seguidas, cuenta nueva por corrida) y 16 en verde.
+
+**Probado contra staging**: el plugin suelto en Windows (login con código → credencial en el
+llavero de Windows → `memory_save` por MCP → las memorias llegan a staging). Staging tiene el
+servidor de octubre; **prod no** (va con el release). La allowlist de staging suma
+`gerodc06@`.
+
+**Bloqueante de release**: la UI y la CLI muestran `npx @nestmux/memory`. No se publica nada
+hasta que exista la org `nestmux` en npm (Gero, con 2FA) y esté publicado `@nestmux/memory`.
+La 0.0.1 de reserva está armada en el scratchpad de la sesión; `packages/nest-memory` sigue con
+`private: true` a propósito.
+
+**Pendiente**
+1. Gero prueba el rediseño en la app (`npm run native:electron` si corriste tests, después `npm run dev`).
+2. Org `nestmux` + 2FA en npm → publicar la reserva.
+3. Vista de terminal del plugin estilo Engram (para quien no usa Nest) — arrancar con diseño.
+4. Deploy a prod con el release.
