@@ -89,31 +89,14 @@ describe('TeamThreadPanel', () => {
     expect(onOpenFile).toHaveBeenCalledWith('.nest/team/general.md')
   })
 
-  it('I1: a plan that cannot share shows the actionable message, not the generic one', async () => {
-    const setSettings = vi.fn().mockResolvedValue({
-      ok: false,
-      error: 'team_plan_required',
-      message: 'Sharing this thread needs a Team plan. Upgrade the account, then turn it on again.',
-    })
-    mockApi({ settings: { enabled: false, includedTypes: ['handoff', 'decision'], writeAgentsPointer: true }, setSettings })
-    render(<TeamThreadPanel activeRepoPath="C:/repo/worktree" onOpenFile={vi.fn()} />)
-    await waitFor(() => expect(screen.getByText(/share this project's thread/i)).toBeInTheDocument())
-
-    fireEvent.click(screen.getByText('Turn on'))
-    await waitFor(() => expect(screen.getByText(/needs a team plan/i)).toBeInTheDocument())
-  })
-
-  it('shows the off state when disabled and turning it on calls teamThreadSetSettings', async () => {
-    const setSettings = vi.fn().mockResolvedValue({
-      ok: true,
-      settings: { enabled: true, includedTypes: ['handoff', 'decision'], writeAgentsPointer: true },
-    })
-    mockApi({ settings: { enabled: false, includedTypes: ['handoff', 'decision'], writeAgentsPointer: true }, setSettings })
-    render(<TeamThreadPanel activeRepoPath="C:/repo/worktree" onOpenFile={vi.fn()} />)
-    await waitFor(() => expect(screen.getByText(/share this project's thread/i)).toBeInTheDocument())
-
-    fireEvent.click(screen.getByText('Turn on'))
-    await waitFor(() => expect(setSettings).toHaveBeenCalledWith('proj1111aaaaaaaa', 'C:/repo/worktree', { enabled: true }))
+  // Task 2 (mirar vs. configurar): prender/apagar el hilo se fue a `TeamThreadToggle` + el
+  // hook `useTeamThreadSettings` (sus propios tests cubren el mensaje de un rechazo de main,
+  // I1). El panel ya no renderiza ningun "Turn on"/"Turn off": si esta apagado, no muestra
+  // nada — no hay estado vacio que inventar aca (ver nota al tope del archivo fuente).
+  it('renders nothing when the thread is disabled for this project', async () => {
+    mockApi({ settings: { enabled: false, includedTypes: ['handoff', 'decision'], writeAgentsPointer: true } })
+    const { container } = render(<TeamThreadPanel activeRepoPath="C:/repo/worktree" onOpenFile={vi.fn()} />)
+    await waitFor(() => expect(container.firstChild).toBeNull())
   })
 
   it('shows a visible error (not a silent blank panel) when the initial load fails', async () => {
@@ -129,16 +112,5 @@ describe('TeamThreadPanel', () => {
     memoryApi.teamThreadProjectKeyForWorktree.mockRejectedValue(new Error('ipc down'))
     render(<TeamThreadPanel activeRepoPath="C:/repo/worktree" onOpenFile={vi.fn()} />)
     await waitFor(() => expect(screen.getByText(/couldn't load the team thread/i)).toBeInTheDocument())
-  })
-
-  it('a failed toggle shows an inline error but keeps the already-loaded graph visible', async () => {
-    const setSettings = vi.fn().mockResolvedValue({ ok: false, error: 'memory_unavailable' })
-    mockApi({ setSettings })
-    render(<TeamThreadPanel activeRepoPath="C:/repo/worktree" onOpenFile={vi.fn()} />)
-    await waitFor(() => expect(screen.getByRole('button', { name: /open note for feat\/sidebar-tabs/i })).toBeInTheDocument())
-
-    fireEvent.click(screen.getByText('Turn off'))
-    await waitFor(() => expect(screen.getByText(/couldn't update the team thread setting/i)).toBeInTheDocument())
-    expect(screen.getByRole('button', { name: /open note for feat\/sidebar-tabs/i })).toBeInTheDocument()
   })
 })

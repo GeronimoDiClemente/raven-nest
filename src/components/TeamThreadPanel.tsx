@@ -12,10 +12,14 @@
 // invisible — indistinguible de "no hay worktree activo"; review de Task 10, hallazgo 4):
 // - si falla la carga inicial, no hay `enabled`/`branches` de los que fiarse -> se
 //   reemplaza el panel entero por el error.
-// - si falla el toggle, el grafo ya cargado sigue siendo valido -> se muestra un error
-//   corto arriba, sin tapar el grafo.
+//
+// Task 2 (mirar vs. configurar): projectKey/enabled salen de `useTeamThreadSettings`,
+// compartido con `TeamThreadToggle`. Este panel sigue siendo el unico que necesita las
+// ramas (para el grafo) — y ahora devuelve `null` si el hilo esta apagado, en vez de
+// pasarle `enabled`/`onToggle` a TeamThreadGraph: prenderlo vive en la vista de settings.
 import { useCallback, useEffect, useState } from 'react'
 import { TeamThreadGraph } from './TeamThreadGraph'
+import { useTeamThreadSettings } from '../hooks/useTeamThreadSettings'
 import type { TeamThreadBranch } from '../types'
 
 interface Props {
@@ -26,79 +30,43 @@ interface Props {
 }
 
 const LOAD_ERROR = "Couldn't load the team thread. Try again in a moment."
-const TOGGLE_ERROR = "Couldn't update the team thread setting. Try again in a moment."
 
 export default function TeamThreadPanel({ activeRepoPath, onOpenFile }: Props) {
-  const [projectKey, setProjectKey] = useState<string | null>(null)
-  const [enabled, setEnabled] = useState(false)
+  const { ready: settingsReady, enabled, error: settingsError } = useTeamThreadSettings(activeRepoPath)
   const [branches, setBranches] = useState<TeamThreadBranch[]>([])
   const [focus, setFocus] = useState<string | null>(null)
-  const [ready, setReady] = useState(false)
-  const [loadError, setLoadError] = useState<string | null>(null)
-  const [toggleError, setToggleError] = useState<string | null>(null)
+  const [branchesReady, setBranchesReady] = useState(false)
+  const [branchesError, setBranchesError] = useState<string | null>(null)
 
-  const load = useCallback(async (worktreePath: string) => {
+  const loadBranches = useCallback(async (worktreePath: string) => {
     try {
-      const keyRes = await window.memory?.teamThreadProjectKeyForWorktree?.(worktreePath)
-      if (!keyRes?.ok || !keyRes.projectKey) { setLoadError(LOAD_ERROR); setReady(true); return }
-      const key = keyRes.projectKey
-      setProjectKey(key)
-
-      const settingsRes = await window.memory?.teamThreadGetSettings?.(key)
-      if (!settingsRes?.ok) { setLoadError(LOAD_ERROR); setReady(true); return }
-      const isEnabled = settingsRes.settings?.enabled ?? false
-      setEnabled(isEnabled)
-
-      if (!isEnabled) {
-        setBranches([])
-        setFocus(null)
-        setLoadError(null)
-        setReady(true)
-        return
-      }
-
       const [readRes, gitInfo] = await Promise.all([
         window.memory?.teamThreadRead?.(worktreePath),
         window.git?.info?.(worktreePath),
       ])
-      if (!readRes?.ok) { setLoadError(LOAD_ERROR); setReady(true); return }
+      if (!readRes?.ok) { setBranchesError(LOAD_ERROR); setBranchesReady(true); return }
       const nextBranches = readRes.branches ?? []
       setBranches(nextBranches)
       // El foco es la rama del worktree activo: se busca por nombre de rama entre las filas
       // ya traidas (no hay que reimplementar branchSlug() en el renderer para esto).
       setFocus(gitInfo?.branch ? nextBranches.find((b) => b.branch === gitInfo.branch)?.slug ?? null : null)
-      setLoadError(null)
-      setReady(true)
+      setBranchesError(null)
+      setBranchesReady(true)
     } catch {
-      setLoadError(LOAD_ERROR)
-      setReady(true)
+      setBranchesError(LOAD_ERROR)
+      setBranchesReady(true)
     }
   }, [])
 
   useEffect(() => {
-    setReady(false)
-    setLoadError(null)
-    setToggleError(null)
-    if (activeRepoPath) void load(activeRepoPath)
-    else setReady(true)
-  }, [activeRepoPath, load])
-
-  const handleToggle = useCallback(async (next: boolean) => {
-    if (!activeRepoPath || !projectKey) return
-    try {
-      const res = await window.memory?.teamThreadSetSettings?.(projectKey, activeRepoPath, { enabled: next })
-      // `message` viene cuando main tiene algo accionable que decir — hoy, que el plan de
-      // la cuenta no admite compartir con el equipo (I1). Un codigo de error crudo no se
-      // muestra nunca: para eso esta el texto generico.
-      if (!res?.ok) { setToggleError(res?.message ?? TOGGLE_ERROR); return }
-      setToggleError(null)
-      setEnabled(next)
-      if (next) void load(activeRepoPath)
-      else { setBranches([]); setFocus(null) }
-    } catch {
-      setToggleError(TOGGLE_ERROR)
+    if (!settingsReady || !activeRepoPath || !enabled) {
+      setBranchesReady(true)
+      return
     }
-  }, [activeRepoPath, projectKey, load])
+    setBranchesReady(false)
+    setBranchesError(null)
+    void loadBranches(activeRepoPath)
+  }, [activeRepoPath, enabled, settingsReady, loadBranches])
 
   const handleOpenNote = useCallback((slug: string) => {
     // I2: `general` (las filas sin rama) NO vive en `ramas/`, sino en la raiz del hilo —
@@ -107,29 +75,34 @@ export default function TeamThreadPanel({ activeRepoPath, onOpenFile }: Props) {
     onOpenFile(slug === 'general' ? '.nest/team/general.md' : `.nest/team/ramas/${slug}.md`)
   }, [onOpenFile])
 
-  if (!activeRepoPath || !ready) return null
+  if (!activeRepoPath || !settingsReady) return null
 
-  if (loadError) {
+  if (settingsError) {
     return (
       <div className="team-thread-error">
-        <p>{loadError}</p>
+        <p>{settingsError}</p>
+      </div>
+    )
+  }
+
+  if (!enabled) return null
+
+  if (!branchesReady) return null
+
+  if (branchesError) {
+    return (
+      <div className="team-thread-error">
+        <p>{branchesError}</p>
       </div>
     )
   }
 
   return (
     <div className="team-thread-panel">
-      {toggleError && (
-        <div className="team-thread-error">
-          <p>{toggleError}</p>
-        </div>
-      )}
       <TeamThreadGraph
         branches={branches}
         focus={focus}
         ahora={Date.now()}
-        enabled={enabled}
-        onToggle={handleToggle}
         onOpenNote={handleOpenNote}
       />
     </div>

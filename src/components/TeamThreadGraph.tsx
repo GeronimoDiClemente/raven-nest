@@ -35,15 +35,13 @@ interface Props {
   branches: TeamThreadBranch[]
   focus: string | null
   ahora: number
-  enabled: boolean
-  onToggle: (next: boolean) => void
   onOpenNote: (slug: string) => void
 }
 
 /** Arriba de esto las etiquetas se pisan entre sí. Mismo criterio que el grafo de memorias. */
 const MAX_NODOS_CON_ETIQUETA = 40
 
-export function TeamThreadGraph({ branches, focus, ahora, enabled, onToggle, onOpenNote }: Props) {
+export function TeamThreadGraph({ branches, focus, ahora, onOpenNote }: Props) {
   // GLOBAL por default, a contramano de la spec §7.3 ("grafo local por default") y a
   // sabiendas. Motivo: el grafo NO lee las notas — sintetiza una estrella `_index -> rama`
   // desde el store y git en vivo, y los `[[wikilinks]]` que renderBranchNote sí escribe no se
@@ -63,15 +61,6 @@ export function TeamThreadGraph({ branches, focus, ahora, enabled, onToggle, onO
   const nodes = useMemo(() => nodosDelHilo(graph), [graph])
   const links = useMemo(() => aristasDelHilo(graph), [graph])
 
-  if (!enabled) {
-    return (
-      <div className="team-thread-empty">
-        <p>Share this project&apos;s thread with your team so everyone&apos;s context arrives on its own.</p>
-        <Button size="sm" onClick={() => onToggle(true)}>Turn on</Button>
-      </div>
-    )
-  }
-
   // Con un solo nodo (el índice) no hay grafo que mostrar: dibujar un cuadro grande con un
   // punto solo en el medio es peor que decir que todavía no hay nada. Es la misma regla que
   // el grafo de memorias.
@@ -86,7 +75,6 @@ export function TeamThreadGraph({ branches, focus, ahora, enabled, onToggle, onO
         <Button variant="outline" size="sm" onClick={() => setShowGlobal((v) => !v)}>
           {showGlobal ? 'Show current branch' : 'Show all branches'}
         </Button>
-        <Button variant="ghost" size="sm" onClick={() => onToggle(false)}>Turn off</Button>
         {graph.recortados > 0 && <span>{graph.recortados} older branches hidden</span>}
       </header>
 

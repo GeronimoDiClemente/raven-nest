@@ -7,10 +7,15 @@
 // - Lo que cada nodo SIGNIFICA (color por frescura, tamaño por foco, el estado y la frescura
 //   dichos en texto y no sólo en color) es una traducción pura: `src/lib/thread-graph-3d.ts`,
 //   con sus propios tests.
-// - Lo que este archivo sigue cubriendo es lo de ACÁ: el toggle global/local, que un click en
-//   un nodo abra la nota de esa rama, y que apagado no se dibuje nada. Para eso se dobla
-//   `Graph3DLazy` por un render que pinta un botón por nodo — el doble reemplaza al canvas,
-//   no a la lógica del componente, que es la que se está probando.
+// - Lo que este archivo sigue cubriendo es lo de ACÁ: el toggle global/local y que un click en
+//   un nodo abra la nota de esa rama. Para eso se dobla `Graph3DLazy` por un render que pinta
+//   un botón por nodo — el doble reemplaza al canvas, no a la lógica del componente, que es
+//   la que se está probando.
+//
+// Task 2 (mirar vs. configurar): el toggle de prender/apagar el hilo (antes "Turn on"/"Turn
+// off" acá adentro) se fue a `TeamThreadToggle`, en la vista de settings — este componente ya
+// no recibe `enabled`/`onToggle` y asume que el hilo está prendido (lo decide TeamThreadPanel,
+// que devuelve `null` si no lo está).
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { TeamThreadGraph } from '../../components/TeamThreadGraph'
@@ -48,18 +53,18 @@ describe('TeamThreadGraph', () => {
   // El default es GLOBAL. El grafo sintetiza una estrella `_index -> rama` y no lee los
   // wikilinks de las notas, con lo cual el modo local colapsa a "el foco solo" — un nodo.
   it('global por default: hay un nodo por rama', () => {
-    render(<TeamThreadGraph branches={BRANCHES} focus="sidebar" ahora={AHORA} enabled onToggle={vi.fn()} onOpenNote={vi.fn()} />)
+    render(<TeamThreadGraph branches={BRANCHES} focus="sidebar" ahora={AHORA} onOpenNote={vi.fn()} />)
     expect(ramas()).toHaveLength(2)
   })
 
   it('"Show current branch" pasa a local: queda solo la rama en foco', () => {
-    render(<TeamThreadGraph branches={BRANCHES} focus="sidebar" ahora={AHORA} enabled onToggle={vi.fn()} onOpenNote={vi.fn()} />)
+    render(<TeamThreadGraph branches={BRANCHES} focus="sidebar" ahora={AHORA} onOpenNote={vi.fn()} />)
     fireEvent.click(screen.getByText('Show current branch'))
     expect(ramas()).toHaveLength(1)
   })
 
   it('y se puede volver a global', () => {
-    render(<TeamThreadGraph branches={BRANCHES} focus="sidebar" ahora={AHORA} enabled onToggle={vi.fn()} onOpenNote={vi.fn()} />)
+    render(<TeamThreadGraph branches={BRANCHES} focus="sidebar" ahora={AHORA} onOpenNote={vi.fn()} />)
     fireEvent.click(screen.getByText('Show current branch'))
     fireEvent.click(screen.getByText('Show all branches'))
     expect(ramas()).toHaveLength(2)
@@ -67,7 +72,7 @@ describe('TeamThreadGraph', () => {
 
   it('el click en un nodo abre la nota de esa rama', () => {
     const onOpenNote = vi.fn()
-    render(<TeamThreadGraph branches={BRANCHES} focus="sidebar" ahora={AHORA} enabled onToggle={vi.fn()} onOpenNote={onOpenNote} />)
+    render(<TeamThreadGraph branches={BRANCHES} focus="sidebar" ahora={AHORA} onOpenNote={onOpenNote} />)
     fireEvent.click(screen.getByText(/feat\/sidebar-tabs/))
     expect(onOpenNote).toHaveBeenCalledWith('sidebar')
   })
@@ -76,22 +81,16 @@ describe('TeamThreadGraph', () => {
   // vecindario; si abriera algo, abriría un archivo que no existe.
   it('el nodo central NO abre ninguna nota', () => {
     const onOpenNote = vi.fn()
-    render(<TeamThreadGraph branches={BRANCHES} focus="sidebar" ahora={AHORA} enabled onToggle={vi.fn()} onOpenNote={onOpenNote} />)
+    render(<TeamThreadGraph branches={BRANCHES} focus="sidebar" ahora={AHORA} onOpenNote={onOpenNote} />)
     fireEvent.click(screen.getByText('All branches'))
     expect(onOpenNote).not.toHaveBeenCalled()
-  })
-
-  it('apagado muestra el llamado a activarlo y ningun nodo', () => {
-    render(<TeamThreadGraph branches={[]} focus={null} ahora={AHORA} enabled={false} onToggle={vi.fn()} onOpenNote={vi.fn()} />)
-    expect(screen.getByText(/share this project's thread/i)).toBeInTheDocument()
-    expect(screen.queryByTestId('grafo-3d')).not.toBeInTheDocument()
   })
 
   // Sin notas todavía, el único nodo es el índice. Hasta el 2026-09-11 eso dibujaba un
   // viewBox de 800×800 con UN punto blanco en el medio: lo peor de los dos mundos, ocupa
   // muchísimo y no dice nada.
   it('con una sola rama sintetica no dibuja un cuadro, lo dice', () => {
-    render(<TeamThreadGraph branches={[]} focus={null} ahora={AHORA} enabled onToggle={vi.fn()} onOpenNote={vi.fn()} />)
+    render(<TeamThreadGraph branches={[]} focus={null} ahora={AHORA} onOpenNote={vi.fn()} />)
     expect(screen.getByText(/no branch notes yet/i)).toBeInTheDocument()
     expect(screen.queryByTestId('grafo-3d')).not.toBeInTheDocument()
   })
