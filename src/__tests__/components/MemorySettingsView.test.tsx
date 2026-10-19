@@ -1,4 +1,4 @@
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, act } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import MemorySettingsView from '../../components/MemorySettingsView'
 
@@ -53,7 +53,7 @@ describe('MemorySettingsView', () => {
   })
   it('el evento del tour cambia la sección', () => {
     render(<MemorySettingsView activeRepoPath="/r" onHowItWorks={() => {}} />)
-    window.dispatchEvent(new CustomEvent('nest:memory-settings-seccion', { detail: 'disk' }))
+    act(() => { window.dispatchEvent(new CustomEvent('nest:memory-settings-seccion', { detail: 'disk' })) })
     expect(screen.getByText('vault-card')).toBeInTheDocument()
   })
 })

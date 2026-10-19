@@ -2,7 +2,6 @@
 // viejo Settings disperso. Cada sección agrupa cards ya existentes (Tasks 2-4); este
 // componente sólo arma el rail, el header y decide qué mostrar.
 import { useEffect, useState } from 'react'
-import { flushSync } from 'react-dom'
 import { CircleHelp } from 'lucide-react'
 import WorkspaceNavButton from './WorkspaceNavButton'
 import CloudMemoryCard from './CloudMemoryCard'
@@ -40,13 +39,10 @@ export default function MemorySettingsView({ activeRepoPath, onLinkRepo, seccion
   const { activeTeam } = useTeam()
 
   // El tour (Task 7) navega el rail disparando este evento en vez de simular clicks.
-  // flushSync: el listener corre fuera del ciclo de eventos de React, así que sin esto
-  // el cambio de sección queda pendiente hasta el próximo tick y el tour (que consulta
-  // el DOM apenas dispara el evento) todavía vería la sección vieja.
   useEffect(() => {
     const alCambiar = (e: Event) => {
       const id = (e as CustomEvent<SeccionDeMemoria>).detail
-      if (SECCIONES.some((s) => s.id === id)) flushSync(() => setSeccion(id))
+      if (SECCIONES.some((s) => s.id === id)) setSeccion(id)
     }
     window.addEventListener(EVENTO_SECCION, alCambiar)
     return () => window.removeEventListener(EVENTO_SECCION, alCambiar)
