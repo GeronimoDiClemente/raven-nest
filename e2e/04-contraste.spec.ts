@@ -181,7 +181,11 @@ test('el estado vacio de Memories (sin repo) tambien pasa el guard de 3:1', asyn
   const h = await launchHarness({ withRepo: false })
   const { page } = h
   try {
+    // 2026-10-19: el estado vacio ("vincular un repo") se mudó de la vista principal a
+    // Memory settings → "This project & team" (Task 5).
     await page.getByTitle(/^Memories/).first().click()
+    await page.getByRole('button', { name: 'Memory settings' }).click()
+    await page.getByRole('button', { name: /This project & team/ }).click()
     await page.getByRole('button', { name: /link a repo/i }).waitFor({ timeout: 10_000 })
 
     const malos = await medirContraste(page)

@@ -259,10 +259,15 @@ export default function MemoryGraphPanel({
                   usuario creyendo que se rompió algo. Pasa de verdad — los agentes guardan
                   casi siempre con el mismo tipo, y el importador de Markdown estampaba
                   `pattern` a todo hasta el 2026-09-11. */}
+              {/* `aria-pressed`/`variant` leen `colorEfectivo`, no el `colorBy` crudo: con un
+                  solo tipo presente el control cae a 'project' por detrás (más arriba), y el
+                  botón tiene que mostrar ESO, no lo que el usuario tocó por última vez — si
+                  no, "Type" queda marcado como activo mientras el grafo en realidad colorea
+                  por proyecto. */}
               <Button
-                variant={colorBy === 'type' ? 'secondary' : 'outline'}
+                variant={colorEfectivo === 'type' ? 'secondary' : 'outline'}
                 size="sm"
-                aria-pressed={colorBy === 'type'}
+                aria-pressed={colorEfectivo === 'type'}
                 disabled={tiposPresentes.length <= 1}
                 onClick={() => setColorBy('type')}
                 title={
@@ -274,9 +279,9 @@ export default function MemoryGraphPanel({
                 Type
               </Button>
               <Button
-                variant={colorBy === 'project' ? 'secondary' : 'outline'}
+                variant={colorEfectivo === 'project' ? 'secondary' : 'outline'}
                 size="sm"
-                aria-pressed={colorBy === 'project'}
+                aria-pressed={colorEfectivo === 'project'}
                 onClick={() => setColorBy('project')}
               >
                 Project
@@ -284,9 +289,9 @@ export default function MemoryGraphPanel({
               {/* La tercera dimension. Deshabilitada si no hay tags: seria colorear por una
                   categoria que ninguna memoria tiene. */}
               <Button
-                variant={colorBy === 'tag' ? 'secondary' : 'outline'}
+                variant={colorEfectivo === 'tag' ? 'secondary' : 'outline'}
                 size="sm"
-                aria-pressed={colorBy === 'tag'}
+                aria-pressed={colorEfectivo === 'tag'}
                 disabled={tags.length === 0}
                 onClick={() => setColorBy('tag')}
                 title={tags.length === 0 ? 'None of these memories have tags' : 'Colour each memory by its tag'}

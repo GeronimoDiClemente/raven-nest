@@ -63,10 +63,27 @@ async function abrirMemories(page: Page): Promise<void> {
   await page.getByTitle(/^Memories/).first().click()
 }
 
-/** Con el Back del overlay: Escape no lo cierra (el foco puede estar en cualquier lado). */
+/** La tarjeta de cifrado ya no vive en la vista principal del overlay: se mudó a Memory
+ *  settings → Encryption (Task 5). Cada apertura nueva del overlay arranca en la vista
+ *  principal, así que hay que navegar de nuevo aunque sea la segunda vez que se abre. */
+async function abrirEncryption(page: Page): Promise<void> {
+  await abrirMemories(page)
+  await page.getByRole('button', { name: 'Memory settings' }).click()
+  await page.getByRole('button', { name: /Encryption/ }).click()
+}
+
+/** Con el Back del overlay: Escape no lo cierra (el foco puede estar en cualquier lado).
+ *  Si quedó en la vista de settings, primero hay que volver a la principal — ahí el mismo
+ *  botón se llama "Memories", no "Back". */
 async function cerrarMemories(page: Page): Promise<void> {
-  await page.getByRole('button', { name: /Back/ }).first().click()
-  await expect(page.locator('.memories-workspace')).toHaveCount(0)
+  // Anclado a `.memories-workspace`: sin esto "Memories" también matchea la fila de la
+  // sidebar (su title es "Memories · N items · ..."), que Playwright lee como nombre
+  // accesible por substring. `exact: true` además separa el Back de "How Memories works".
+  const overlay = page.locator('.memories-workspace')
+  const backDeSettings = overlay.getByRole('button', { name: 'Memories', exact: true })
+  if (await backDeSettings.count()) await backDeSettings.click()
+  await overlay.getByRole('button', { name: /Back/ }).first().click()
+  await expect(overlay).toHaveCount(0)
 }
 
 async function estado(page: Page): Promise<{ pendingCount: number; daemonStatus: string; daemonStatusDetail?: string }> {
@@ -84,7 +101,7 @@ test('dos máquinas: A activa el cifrado, B no lee hasta que A la autoriza, y de
     // ── Máquina A ──────────────────────────────────────────────────────────────
     a = await launchHarness({ withRepo: false })
     await conectar(a.page, leer('a.txt'), leer('a.id'))
-    await abrirMemories(a.page)
+    await abrirEncryption(a.page)
 
     const tarjeta = a.page.getByText('Turn on encryption')
     await expect(tarjeta).toBeVisible({ timeout: 20_000 })
@@ -115,7 +132,7 @@ test('dos máquinas: A activa el cifrado, B no lee hasta que A la autoriza, y de
     // ── Máquina B, sin autorizar ───────────────────────────────────────────────
     b = await launchHarness({ withRepo: false })
     await conectar(b.page, leer('b.txt'), leer('b.id'))
-    await abrirMemories(b.page)
+    await abrirEncryption(b.page)
     await expect(b.page.getByText('This machine is not authorised yet')).toBeVisible({ timeout: 60_000 })
     const huellaB = (await b.page.locator('p.select-all').first().innerText()).trim()
     expect(huellaB).not.toBe('')
@@ -125,7 +142,7 @@ test('dos máquinas: A activa el cifrado, B no lee hasta que A la autoriza, y de
 
     // ── A autoriza a B, comparando la huella como pide la tarjeta ─────────────
     await cerrarMemories(a.page)
-    await abrirMemories(a.page)
+    await abrirEncryption(a.page)
     await expect(a.page.getByText('Machines waiting for authorisation:')).toBeVisible({ timeout: 60_000 })
     await expect(a.page.getByText(huellaB, { exact: true })).toBeVisible()
     await a.page.screenshot({ path: join(SHOTS, '04-a-ve-a-b-esperando.png') })

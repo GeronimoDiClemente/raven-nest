@@ -147,7 +147,7 @@ test('el overlay tapa de verdad lo que hay debajo, no solo por numero', async ()
     // Orca). La seccion esta montada desde que se abre el panel, asi que no hay nada que
     // clickear para llegar.
 
-    const puerta = page.getByRole('button', { name: 'Open Memories' })
+    const puerta = page.getByRole('button', { name: 'Memory settings' })
     await expect(puerta).toBeVisible({ timeout: 10_000 })
     await puerta.click()
 
@@ -171,27 +171,34 @@ test('el overlay se dibuja: fila de estado arriba y un cuerpo, nunca un hueco', 
   const { page } = h
   try {
     await page.getByTitle(/^Memories/).first().click()
-    await expect(page.locator('.memories-workspace .memories-status-row')).toBeVisible({ timeout: 10_000 })
+    const overlay = page.locator('.memories-workspace')
+    await expect(overlay.locator('.memories-status-row')).toBeVisible({ timeout: 10_000 })
 
-    // Sin repo abierto el overlay ofrece vincular uno (Task 8: la card del estado vacio,
-    // por rol y nombre accesible — la clase vieja `.memories-empty` desaparecio con la
-    // migracion); con repo dibuja el panel del hilo. Los dos son estados validos — lo que
-    // NO puede pasar es que no haya ninguno.
+    // 2026-10-19: lo que vincula un repo (o dibuja la tarjeta de compartir, con uno ya
+    // vinculado) se mudó de la vista principal a Memory settings → "This project & team"
+    // (Task 5). Sin repo esa sección ofrece vincular uno (la card del estado vacio, por rol
+    // y nombre accesible — la clase vieja `.memories-empty` desaparecio con la migracion);
+    // con repo dibuja la tarjeta de compartir y el toggle del hilo. Los dos son estados
+    // validos — lo que NO puede pasar es que no haya ninguno.
     // El OR de abajo no distingue cual de los dos salio, y con `withRepo: false` siempre
     // sale el mismo: el otro lado lo cubre el ultimo test del archivo, que linkea un repo
     // y exige el panel.
     // Review M3: el locator por rol queda ANCLADO al overlay (no a `page` entero) — sin
     // esto el assert no prueba que el boton esta ADENTRO de `.memories-workspace`, solo
     // que existe en algun lado de la pagina.
-    const overlay = page.locator('.memories-workspace')
-    const conGrafo = await overlay.locator('.team-thread-panel').count()
+    await overlay.getByRole('button', { name: 'Memory settings' }).click()
+    await overlay.getByRole('button', { name: /This project & team/ }).click()
+    const conRepo = await overlay.getByText(/Share this project's memory with a team/).count()
     const sinRepo = await overlay.getByRole('button', { name: /link a repo/i }).count()
-    expect(conGrafo + sinRepo).toBeGreaterThan(0)
+    expect(conRepo + sinRepo).toBeGreaterThan(0)
 
     await page.screenshot({ path: join(SHOTS, '05-overlay-cuerpo.png') })
 
-    // Y cierra: un overlay que no se puede cerrar es una trampa, no una pantalla.
-    await page.locator('.memories-workspace .tw-back-btn').click()
+    // Y cierra: un overlay que no se puede cerrar es una trampa, no una pantalla. Desde
+    // settings el Back dice "Memories" primero (vuelve a la vista principal); recién desde
+    // ahí cierra el overlay entero.
+    await overlay.getByRole('button', { name: 'Memories', exact: true }).click()
+    await overlay.locator('.tw-back-btn').click()
     await expect(page.locator('.memories-workspace')).toHaveCount(0)
   } finally {
     await teardown(h)
@@ -206,12 +213,19 @@ test('Settings ya no tiene las tarjetas de memoria — solo la puerta', async ()
     // Ya no hay pestaña "Account": Settings es una sola pagina con secciones (modelo de
     // Orca). La seccion esta montada desde que se abre el panel, asi que no hay nada que
     // clickear para llegar.
-    await expect(page.getByRole('button', { name: 'Open Memories' })).toBeVisible({ timeout: 10_000 })
+    // La puerta se llama ahora "Memory settings" (era "Open Memories") y abre Memories
+    // directo en la vista de settings, no en la principal.
+    const puerta = page.getByRole('button', { name: 'Memory settings' })
+    await expect(puerta).toBeVisible({ timeout: 10_000 })
 
     // Lo que la Task 10 SACO de Settings. Si alguna vuelve, es una regresion.
     await expect(page.locator('.memory-vault-card')).toHaveCount(0)
     await expect(page.locator('.memory-hub')).toHaveCount(0)
     await expect(page.locator('.memory-status-card')).toHaveCount(0)
+
+    await puerta.click()
+    await expect(page.locator('.memories-workspace')).toBeVisible({ timeout: 10_000 })
+    await expect(page.locator('.tw-header-title')).toHaveText('Memory settings')
 
     await page.screenshot({ path: join(SHOTS, '06-settings-solo-la-puerta.png') })
   } finally {
@@ -243,44 +257,56 @@ test('con un repo vinculado se dibuja el panel de ramas, y prenderlo escribe el 
     // 1. Estamos del otro lado del ternario: la nota al pie de "sin repo" no está.
     await expect(overlay.getByRole('button', { name: /link a repo/i })).toHaveCount(0)
 
-    // 2. Y el panel de ramas sí. Que se vea ya prueba que los tres IPC encadenados de
-    //    TeamThreadPanel contestaron ok contra el main de verdad
-    //    (projectKeyForWorktree → getSettings → read): un fallo en cualquiera de ellos
-    //    reemplaza el panel ENTERO por `.team-thread-error`. El assert del error igual se
-    //    escribe, porque "no aparece el panel" y "aparece el error" son dos rojos
-    //    distintos y conviene que el test diga cuál de los dos pasó.
-    await expect(overlay.locator('.team-thread-panel')).toBeVisible({ timeout: 15_000 })
-    await expect(overlay.locator('.team-thread-error')).toHaveCount(0)
+    // 2. El panel de ramas vive en la vista PRINCIPAL, pero sólo cuando el hilo está
+    //    prendido (spec §7) — y arranca apagado (`loadTeamThreadSettings`), así que acá
+    //    todavía no se dibuja. Prenderlo se mudó a Memory settings → "This project & team".
+    await expect(overlay.locator('.team-thread-panel')).toHaveCount(0)
+
+    // 3. La puerta a settings vive en el header de la vista principal.
+    await overlay.getByRole('button', { name: 'Memory settings' }).click()
+    await expect(overlay.locator('.tw-header-title')).toHaveText('Memory settings')
+
+    await overlay.getByRole('button', { name: /This project & team/ }).click()
+
+    // 4. La tarjeta de compartir vive ahora en "This project & team" — antes nunca se
+    //    había dibujado contra la app real (sin repo devuelve null y sale del árbol). Que
+    //    se vea ya prueba que los IPC encadenados de TeamThreadPanel contestaron ok contra
+    //    el main de verdad (projectKeyForWorktree → getSettings → read).
+    await expect(overlay.getByText(/Share this project's memory with a team/)).toBeVisible()
 
     // El repo de e2e no tiene remote, así que el projectKey sale del PATH
     // (resolveProjectKey: remote → path → global). Es el camino que una carpeta local
     // recién abierta recorre de verdad, y el que un repo con remote nunca ejercita.
 
-    // 3. La tarjeta de compartir tampoco se había dibujado jamás en la app: sin repo
-    //    devuelve null y sale del árbol.
-    await expect(overlay.getByText(/Share (this project with a team|memory with your team)/)).toBeVisible()
-
     await page.screenshot({ path: join(SHOTS, '07-overlay-con-repo.png') })
 
-    // 4. El hilo arranca APAGADO, que es el default de `loadTeamThreadSettings`.
-    const prender = overlay.getByRole('button', { name: 'Turn on' })
-    await expect(prender).toBeVisible()
+    // 5. El hilo arranca APAGADO, que es el default de `loadTeamThreadSettings`. Ahora es
+    //    un switch (role="switch"), no un botón que cambia de texto.
+    const hilo = overlay.getByRole('switch', { name: /Branch notes in the repo/ })
+    await expect(hilo).toHaveAttribute('aria-checked', 'false')
 
-    // 5. Prenderlo no es un toggle de UI: corre `runTeamThreadForRepo` en main, que
+    // 6. Prenderlo no es sólo un toggle de UI: corre `runTeamThreadForRepo` en main, que
     //    escribe `.nest/team/` en el repo. Sin plan conocido no se bloquea
     //    (`planAllowsTeamSharing(undefined) === true`), que es el caso de una máquina sin
     //    conectar — o sea, el de este harness.
-    await prender.click()
-    await expect(overlay.getByRole('button', { name: 'Turn off' })).toBeVisible({ timeout: 30_000 })
-    // Un repo recién creado no tiene memorias, así que el grafo tiene sólo el índice y el
-    // panel lo dice en vez de dibujar un punto solo en el medio.
+    await hilo.click()
+    await expect(hilo).toHaveAttribute('aria-checked', 'true', { timeout: 30_000 })
+
+    // Y el hilo quedó ESCRITO, que es lo que el switch promete. Sin esto el test se
+    // conformaría con que cambie el estado visual: `setSettings` guarda el ajuste y recién
+    // después corre `runTeamThreadForRepo`, así que un fallo del pase de escritura se ve en
+    // el disco y en ningún otro lado.
+    expect(existsSync(join(h.repoDir, '.nest', 'team', '_index.md'))).toBe(true)
+
+    // 7. Volver a la vista principal con el Back de settings (ahí su nombre es
+    //    "Memories", no "Back"): con el hilo prendido el panel de ramas ahora sí se
+    //    dibuja. Un repo recién creado no tiene memorias, así que el grafo tiene sólo el
+    //    índice y el panel lo dice en vez de dibujar un punto solo en el medio.
+    await overlay.getByRole('button', { name: 'Memories', exact: true }).click()
+    await expect(overlay.locator('.team-thread-panel')).toBeVisible({ timeout: 15_000 })
+    await expect(overlay.locator('.team-thread-error')).toHaveCount(0)
     await expect(overlay.getByText(/No branch notes yet/)).toBeVisible()
 
-    // Y el hilo quedó ESCRITO, que es lo que el botón promete. Sin esto el test se
-    // conformaría con que el botón cambie de nombre: `setSettings` guarda el ajuste y
-    // recién después corre `runTeamThreadForRepo`, así que un fallo del pase de escritura
-    // se ve en el disco y en ningún otro lado.
-    expect(existsSync(join(h.repoDir, '.nest', 'team', '_index.md'))).toBe(true)
     await page.screenshot({ path: join(SHOTS, '08-hilo-prendido.png') })
   } finally {
     await teardown(h)

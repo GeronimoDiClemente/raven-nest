@@ -120,16 +120,19 @@ test('con memorias: el cuadro es acotado, y la seleccion es una sola entre lista
     await expect(page.getByRole('button', { name: /^raven-nest/ })).toBeVisible()
 
     // El color lo elige el usuario, como los Groups de Obsidian (que son color por
-    // consulta). Arranca en Project: medido con datos reales, las memorias de una cuenta
-    // son casi todas del MISMO tipo (120 de 120 eran `pattern`), asi que colorear por tipo
-    // pinta todo del mismo color. Los proyectos, en cambio, son varios de entrada.
+    // consulta). Arranca en Type (Task 1 del plan de vista/settings cambió el default a
+    // 'type' — el color sale de la paleta ANSI del tema). Sólo cae a Project cuando casi
+    // todas las memorias son del MISMO tipo (medido con datos reales: 120 de 120 eran
+    // `pattern`, así que colorear por tipo pintaba todo igual) — las memorias sembradas acá
+    // tienen 5 tipos distintos a propósito (para los chips de la leyenda, paso 7 más abajo),
+    // así que ese fallback no aplica y el default de verdad es Type.
     const porProyecto = page.getByRole('button', { name: 'Project', exact: true })
     const porTipo = page.getByRole('button', { name: 'Type', exact: true })
-    await expect(porProyecto).toHaveAttribute('aria-pressed', 'true')
-    await porTipo.click()
-    await expect(porProyecto).toHaveAttribute('aria-pressed', 'false')
+    await expect(porTipo).toHaveAttribute('aria-pressed', 'true')
     await porProyecto.click()
-    await expect(porProyecto).toHaveAttribute('aria-pressed', 'true')
+    await expect(porTipo).toHaveAttribute('aria-pressed', 'false')
+    await porTipo.click()
+    await expect(porTipo).toHaveAttribute('aria-pressed', 'true')
 
     // 2b. El filtro de huerfanas (el "Orphans" de Obsidian) arranca PRENDIDO y dice cuantas
     //     esconde. Con las memorias sembradas todas tienen alguna relacion, asi que esconde
@@ -193,9 +196,13 @@ test('con memorias: el cuadro es acotado, y la seleccion es una sola entre lista
     await expect(page.getByRole('button', { name: /^raven-nest/ })).toBeVisible()
 
     // Y el control del color vuelve a estar: adentro de UN proyecto no se ofrece, porque
-    // colorear por proyecto cuando son todos el mismo no distingue nada.
+    // ahí el color pasa a ser el tipo sin preguntar (ver `colorEfectivo` en
+    // MemoryGraphPanel). Afuera, el estado es el que dejó la secuencia de arriba — el
+    // último click fue en Type, así que eso es lo que sigue pulsado, no lo que estaba antes
+    // de entrar al proyecto.
     await expect(porProyecto).toBeVisible()
-    await expect(porProyecto).toHaveAttribute('aria-pressed', 'true')
+    await expect(porTipo).toHaveAttribute('aria-pressed', 'true')
+    await expect(porProyecto).toHaveAttribute('aria-pressed', 'false')
   } finally {
     await teardown(h)
   }

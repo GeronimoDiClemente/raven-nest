@@ -130,7 +130,9 @@ La app está migrando a Tailwind v4 + shadcn/ui. Reglas que muerden:
   binario (`.pr-badge.closed`/`.feed-type-badge.pr` en `global.css` usan
   violeta/azul para distinguir *tipo* de evento, no severidad), paleta de
   íconos por extensión, o marca de un tercero (el `#0052CC` de Atlassian en
-  `builtinCatalog.ts`, el botón de GitHub en `global.css`). Un barrido
+  `builtinCatalog.ts`, el botón de GitHub en `global.css`) — o el color por
+  tipo de memoria en Memories, que sale del índice ANSI del tema de terminal
+  del usuario (`memory-type-legend.ts`), no de un literal. Un barrido
   automático por regex ya se llevó puesto ese azul de Atlassian una vez y
   hubo que revertirlo — cada literal se mira antes de tocarlo.
 - **Todo cambio de UI pasa `e2e/04-contraste.spec.ts`** antes de commitear.
