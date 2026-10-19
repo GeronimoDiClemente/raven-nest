@@ -36,6 +36,18 @@ describe('guardar y leer', () => {
     expect(leerCredencial(home, safeFalso())).toEqual({ token: 'nmk_abc', deviceId: 'd-1' })
   })
 
+  it('recuerda contra qué servicio se conectó', () => {
+    // Un token sólo vale en el servicio que lo emitió: sin esto, una máquina conectada a
+    // staging le mandaría su token a prod apenas faltara la variable de entorno.
+    guardarCredencial(home, safeFalso(), { token: 't', deviceId: 'd', baseUrl: 'https://sync-staging.example' })
+    expect(leerCredencial(home, safeFalso())?.baseUrl).toBe('https://sync-staging.example')
+  })
+
+  it('una credencial de antes, sin servicio, se sigue leyendo', () => {
+    guardarCredencial(home, safeFalso(), { token: 't', deviceId: 'd' })
+    expect(leerCredencial(home, safeFalso())).toEqual({ token: 't', deviceId: 'd' })
+  })
+
   it('el token NO queda legible en el archivo', () => {
     guardarCredencial(home, safeFalso(), { token: 'nmk_secreto', deviceId: 'd-1' })
     // Con el cifrado de mentira sí se ve; lo que se fija es que el módulo CIFRA antes de

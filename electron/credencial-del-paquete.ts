@@ -16,6 +16,11 @@ import type { SafeStorageLike } from './memory-key-store'
 export interface CredencialDelPaquete {
   token: string
   deviceId: string
+  /**
+   * El servicio que emitió el token. Opcional porque las credenciales de antes del
+   * 2026-10-19 no lo traen: esas siguen hablándole al default, que es donde se conectaron.
+   */
+  baseUrl?: string
 }
 
 export function pathDeCredencial(home: string): string {
@@ -62,7 +67,9 @@ export function leerCredencial(home: string, safe: SafeStorageLike): CredencialD
     const parsed = JSON.parse(safe.decryptString(readFileSync(path))) as Partial<CredencialDelPaquete>
     if (typeof parsed?.token !== 'string' || !parsed.token) return null
     if (typeof parsed?.deviceId !== 'string' || !parsed.deviceId) return null
-    return { token: parsed.token, deviceId: parsed.deviceId }
+    return typeof parsed.baseUrl === 'string' && parsed.baseUrl
+      ? { token: parsed.token, deviceId: parsed.deviceId, baseUrl: parsed.baseUrl }
+      : { token: parsed.token, deviceId: parsed.deviceId }
   } catch {
     return null
   }

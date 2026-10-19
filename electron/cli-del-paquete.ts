@@ -11,7 +11,7 @@
 // **Sin cuenta ni red**: `setup`, `status`, `search`, `doctor` y `mcp`. Son los que el §5.2
 // promete para una máquina sola, y `mcp` es el que hace que el `setup` signifique algo — es
 // lo que los editores lanzan.
-// **Con cuenta**: `login` y `recover`, contra el servicio que diga `NEST_MEMORY_SYNC_URL`.
+// **Con cuenta**: `login` y `recover`, contra el servicio de `servicio-del-paquete.ts`.
 //
 // El servidor MCP corre el MISMO bucle que adentro de Nest (`memory-mcp/servidor.ts`), con
 // otro cliente atrás: el despacho del daemon en proceso, sobre la base de esta máquina, en
@@ -49,6 +49,7 @@ import { recoverWithCode } from './memory-keys-client'
 import { normalizeRecoveryCode } from './memory-key-wrap'
 import { enrolarDesdeLogin } from './enrolamiento-desde-login'
 import { mensajeDeEnrolamiento } from './enrolamiento-del-paquete'
+import { servicioDelPaquete } from './servicio-del-paquete'
 
 /**
  * El motor: `node:sqlite`, que viene adentro de Node y no compila nada.
@@ -159,7 +160,7 @@ async function comandoStatus(): Promise<void> {
       epocaConocida = Number((db.prepare("SELECT value FROM meta WHERE key = 'known_key_epoch'").get() as { value?: string } | undefined)?.value ?? 0)
     } catch { /* una base sin `meta` todavía no vio ningún status */ }
     const esperandoAutorizacion = hayCredencial && epocaConocida > 0 && !loadKeyMaterial(homedir(), null, safe)?.master
-    console.log(lineaDeSync({ modo: base.modo, enCola, hayCredencial, hayServicio: urlDelServicio() !== null, esperandoAutorizacion }))
+    console.log(lineaDeSync({ modo: base.modo, enCola, hayCredencial, hayServicio: true, esperandoAutorizacion }))
     // Lo que el gate retuvo por falta de clave de equipo: `enCola` no lo cuenta (está
     // bloqueado), y sin esta línea desaparecía del status.
     const retenidas = (db.prepare(
@@ -272,7 +273,8 @@ async function comandoMcp(): Promise<void> {
   const cliente = new MemoryLocalClient(base.path, resolveGitInfoForCwd, (store) => {
     if (!sincronizar) return
     const { daemon, hayCuenta } = armarDaemonDelPaquete({
-      store, dbPath: base.path, home: homedir(), baseUrl: urlDelServicio(), safe: cifradoDelSistema(),
+      store, dbPath: base.path, home: homedir(),
+      baseUrl: urlDelServicio(leerCredencial(homedir(), cifradoDelSistema())), safe: cifradoDelSistema(),
     })
     const sync = new SyncDelMcp(daemon, hayCuenta)
     sync.alArrancar()
@@ -282,13 +284,11 @@ async function comandoMcp(): Promise<void> {
 }
 
 /**
- * A qué servicio hablarle. Sale del entorno y NO está clavado en el binario: un `npx` se
- * publica una vez y el servicio puede mudarse, y además hace falta poder apuntarlo a uno de
- * desarrollo sin republicar nada.
+ * A qué servicio hablarle: la variable de entorno, si no el del `login`, si no el default de
+ * Nest. Ver `servicio-del-paquete.ts`.
  */
-function urlDelServicio(): string | null {
-  const u = process.env.NEST_MEMORY_SYNC_URL?.trim()
-  return u ? u.replace(/\/+$/, '') : null
+function urlDelServicio(credencial: { baseUrl?: string } | null): string {
+  return servicioDelPaquete({ env: process.env.NEST_MEMORY_SYNC_URL, guardada: credencial?.baseUrl })
 }
 
 /** El cifrado en reposo de esta máquina: el llavero del sistema. */
@@ -297,15 +297,6 @@ function cifradoDelSistema() {
 }
 
 const dormir = (ms: number) => new Promise((r) => setTimeout(r, ms))
-
-function exigirServicio(): string {
-  const base = urlDelServicio()
-  if (!base) {
-    console.error('No sync service configured. Set NEST_MEMORY_SYNC_URL to your service URL.')
-    salir(2)
-  }
-  return base
-}
 
 function exigirLlavero(): ReturnType<typeof cifradoDelSistema> {
   const safe = cifradoDelSistema()
@@ -319,16 +310,16 @@ function exigirLlavero(): ReturnType<typeof cifradoDelSistema> {
 
 /** `login`: conectar esta máquina a tu cuenta, sin abrir un navegador acá. */
 async function comandoLogin(): Promise<void> {
-  const base = exigirServicio()
   const safe = exigirLlavero()
 
   // Reusar la credencial conserva el deviceId que otra máquina está autorizando: pedir
   // otro código crearía otro dispositivo y dejaría la autorización anterior sin destinatario.
   const existente = leerCredencial(homedir(), safe)
+  const base = urlDelServicio(existente)
   if (existente) {
     console.log('Already connected. Checking encryption access.')
     for (const linea of mensajeDeEnrolamiento(await enrolarDesdeLogin(homedir(), safe, {
-      baseUrl: base, ...existente,
+      ...existente, baseUrl: base,
     }))) console.log(linea)
     return
   }
@@ -378,7 +369,7 @@ async function comandoLogin(): Promise<void> {
     const paso = siguientePaso(respuesta, estado)
 
     if (paso.accion === 'listo') {
-      guardarCredencial(homedir(), safe, { token: paso.token, deviceId: paso.deviceId })
+      guardarCredencial(homedir(), safe, { token: paso.token, deviceId: paso.deviceId, baseUrl: base })
       console.log('\n\n  Connected. Your credential is saved.')
       for (const linea of mensajeDeEnrolamiento(await enrolarDesdeLogin(homedir(), safe, {
         baseUrl: base, token: paso.token, deviceId: paso.deviceId,
@@ -404,13 +395,13 @@ async function comandoLogin(): Promise<void> {
 
 /** `recover`: abrir la memoria cifrada con el código de recuperación. */
 async function comandoRecover(): Promise<void> {
-  const base = exigirServicio()
   const safe = exigirLlavero()
   const credencial = leerCredencial(homedir(), safe)
   if (!credencial) {
     console.error('This machine is not connected to an account. Run `nest-memory login` first.')
     salir(2)
   }
+  const base = urlDelServicio(credencial)
 
   console.log('Paste your recovery code and press enter.')
   console.log('Using it spends your one emergency copy — if another machine is available,')
