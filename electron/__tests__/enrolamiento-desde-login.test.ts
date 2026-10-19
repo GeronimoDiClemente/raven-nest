@@ -112,7 +112,7 @@ describe('mensajes de enrolamiento', () => {
     const texto = mensajeDeEnrolamiento({ estado: 'esperando-autorizacion', huella: '7K4M-92QP-XR3T' }).join('\n')
     expect(texto).toContain('cannot read your encrypted memory yet')
     expect(texto).toContain('Its fingerprint is: 7K4M-92QP-XR3T')
-    expect(texto).toContain('Memories → Encryption → Authorize')
+    expect(texto).toContain('Memories → Settings → Encryption → Authorize')
     expect(texto).toContain('comparing this fingerprint before authorizing')
     expect(texto.indexOf('Authorize')).toBeLessThan(texto.indexOf('npx @nestmux/memory recover'))
     expect(texto).toContain('one emergency copy')

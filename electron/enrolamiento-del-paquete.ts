@@ -54,7 +54,7 @@ export function mensajeDeEnrolamiento(resultado: ResultadoDeEnrolamiento): strin
       return [
         'This machine cannot read your encrypted memory yet.',
         `Its fingerprint is: ${resultado.huella}`,
-        'Authorize it from Nest on another machine (Memories → Encryption → Authorize),',
+        'Authorize it from Nest on another machine (Memories → Settings → Encryption → Authorize),',
         'comparing this fingerprint before authorizing.',
         `Then run \`${comando('login')}\` again to check access.`,
         `Or use your recovery code: \`${comando('recover')}\`.`,

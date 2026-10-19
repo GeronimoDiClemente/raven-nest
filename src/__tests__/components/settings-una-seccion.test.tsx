@@ -66,9 +66,16 @@ describe('Settings muestra una seccion por vez', () => {
 })
 
 /**
- * `Account` eran tres cosas distintas en 216 líneas: tu identidad, los servicios conectados,
+ * `Account` ERA tres cosas distintas en 216 líneas: tu identidad, los servicios conectados,
  * y la memoria de nube. Una sección que hace tres cosas es una sección que no se puede
- * nombrar, y el rail no servía para llegar a ninguna de las tres.
+ * nombrar, y el rail no servía para llegar a ninguna de las tres — así que se partió en
+ * `Account` / `Connections` / `Voice`, que es lo que este describe prueba.
+ *
+ * Esa tercera cosa YA NO vive acá: Task 10 (2026-10-19, esta misma rama) sacó las tarjetas
+ * de memoria de `Account` entero — hoy sólo queda un botón "Memory settings" que abre el
+ * overlay de Memories (ver `src/__tests__/components/MemoriesWorkspace.test.tsx` y
+ * `e2e/03-memories-in-app.spec.ts` — "Settings ya no tiene las tarjetas de memoria").
+ * `Account` volvió a hacer UNA sola cosa: identidad.
  */
 describe('Account se partió en tres', () => {
   const abrir = () => {

@@ -12,7 +12,7 @@ export default function TeamThreadToggle({ activeRepoPath }: Props) {
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center gap-3">
-        <span id="branch-notes-label" className="text-fs-md font-medium">Branch notes in the repo</span>
+        <span id="branch-notes-label" className="text-fs font-medium">Branch notes in the repo</span>
         <button
           type="button" role="switch" aria-checked={t.enabled} aria-labelledby="branch-notes-label"
           disabled={!t.ready || !t.projectKey}
