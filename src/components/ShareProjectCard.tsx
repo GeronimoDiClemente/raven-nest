@@ -104,7 +104,7 @@ export default function ShareProjectCard({ activeRepoPath }: Props) {
   if (puedeCompartir === false) {
     return (
       <div className={marco}>
-        <h4 className="m-0 text-fs font-medium text-foreground">Share memory with your team</h4>
+        <h4 className="m-0 text-fs font-medium text-foreground">Share this project's memory with a team</h4>
         <p className="text-fs-sm text-muted-foreground">
           Memory shared between people is not end-to-end encrypted yet — your key is yours
           alone, and there is no key two people share. So sharing runs on its own deployment,
@@ -127,7 +127,17 @@ export default function ShareProjectCard({ activeRepoPath }: Props) {
 
   return (
     <div className={marco}>
-      <h4 className="m-0 text-fs font-medium text-foreground">Share this project with a team</h4>
+      <h4 className="m-0 text-fs font-medium text-foreground">Share this project's memory with a team</h4>
+      <div className="grid grid-cols-2 gap-2 text-fs-sm">
+        <div className="rounded-md border border-border p-2 text-foreground">
+          <p className="font-medium">The team will see</p>
+          <p className="mt-1 text-muted-foreground">Memories saved in this project: decisions, fixes, how the code fits together, including the ones already saved.</p>
+        </div>
+        <div className="rounded-md border border-border p-2 text-foreground">
+          <p className="font-medium">Stays only yours</p>
+          <p className="mt-1 text-muted-foreground">Your other projects, your personal memories, your code and your terminals.</p>
+        </div>
+      </div>
       {teams.length === 0 ? (
         <p className="text-fs-sm text-muted-foreground">You are not in a team yet. Team memories need one.</p>
       ) : (
@@ -151,7 +161,7 @@ export default function ShareProjectCard({ activeRepoPath }: Props) {
                 altura y el radio del sistema y el boton los del navegador, uno junto al
                 otro en la misma fila. */}
             <Button size="sm" onClick={share} disabled={busy || !projectKey}>
-              {busy ? 'Sharing…' : 'Share'}
+              {busy ? 'Sharing…' : `Share with ${teams.find((t) => t.id === teamId)?.name ?? 'team'}`}
             </Button>
           </div>
           {result && (

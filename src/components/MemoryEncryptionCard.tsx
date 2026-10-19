@@ -345,11 +345,14 @@ export default function MemoryEncryptionCard() {
     <div className={marco}>
       <div className="flex items-center gap-2">
         <ShieldQuestion size={ICON_SIZE.md} className="text-muted-foreground" aria-hidden />
-        <p className="text-fs font-medium text-foreground">Encryption</p>
+        <p className="text-fs font-medium text-foreground">Encrypt your memory</p>
       </div>
-      <p className="text-fs-sm text-muted-foreground">{LO_QUE_QUEDA_EN_CLARO}</p>
       <p className="text-fs-sm text-muted-foreground">
-        Once it’s on, nobody who runs the server can read what you wrote — us included.
+        Locks your memory with a key that only your own machines hold, before anything goes to the
+        cloud. On this machine it stays readable, so search and your agents keep working as usual.
+      </p>
+      <p className="rounded-md border border-warn/40 px-2 py-1 text-fs-sm text-warn">
+        You will get a recovery code. Keep it somewhere safe: if you lose every machine and the code, the cloud copy can never be opened again.
       </p>
       {error && <p className="text-fs-sm text-destructive">{error}</p>}
       <div>

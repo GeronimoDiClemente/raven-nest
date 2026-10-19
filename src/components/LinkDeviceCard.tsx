@@ -77,11 +77,15 @@ export default function LinkDeviceCard() {
 
   return (
     <div className={marco}>
-      <h4 className="m-0 text-fs font-medium text-foreground">Connect a machine without a browser</h4>
+      <h4 className="m-0 text-fs font-medium text-foreground">Add a machine that has no browser</h4>
       <p className="text-fs-sm text-muted-foreground">
-        Run <code className="font-mono">npx nest-memory login</code> there. It shows an 8-character
-        code — type it here to connect that machine to this account.
+        For a server, a VM or an SSH box where you can't sign in with a browser. That machine
+        shows you a code; you approve it here, from a machine that is already signed in.
       </p>
+      <ol className="flex flex-col gap-2 text-fs-sm text-muted-foreground list-decimal pl-5">
+        <li>On that machine, run <code className="font-mono">npx @nestmux/memory login</code></li>
+        <li>It prints an 8-character code. Type it below within 10 minutes.</li>
+      </ol>
 
       <div className="flex flex-wrap items-center gap-2">
         <label htmlFor="link-code" className="sr-only">Code</label>
@@ -96,7 +100,7 @@ export default function LinkDeviceCard() {
           disabled={ocupado}
         />
         <Button size="sm" onClick={() => void aprobar()} disabled={!normalizado.ok || ocupado}>
-          {ocupado ? 'Approving…' : 'Approve'}
+          {ocupado ? 'Approving…' : 'Approve machine'}
         </Button>
       </div>
 

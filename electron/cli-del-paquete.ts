@@ -345,7 +345,7 @@ async function comandoLogin(): Promise<void> {
   console.log(`  Your code:  ${arranque.user_code}`)
   console.log('')
   console.log('  Open Nest on a machine where you are signed in, go to Memories, and type it')
-  console.log('  into "Connect a machine without a browser".')
+  console.log('  into Memory settings → "Add a machine that has no browser".')
   console.log('')
   process.stdout.write('  Waiting…')
 

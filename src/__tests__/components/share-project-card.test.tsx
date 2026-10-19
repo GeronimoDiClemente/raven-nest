@@ -41,7 +41,7 @@ describe('la card de compartir', () => {
     conStatus(true)
     render(<ShareProjectCard activeRepoPath="/repos/x" />)
 
-    await waitFor(() => expect(screen.getByRole('button', { name: /^Share$/ })).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByRole('button', { name: /^Share with/ })).toBeInTheDocument())
     expect(screen.queryByText(/not end-to-end encrypted yet/i)).toBeNull()
   })
 
@@ -54,7 +54,7 @@ describe('la card de compartir', () => {
     conStatus(undefined)
     render(<ShareProjectCard activeRepoPath="/repos/x" />)
 
-    await waitFor(() => expect(screen.getByRole('button', { name: /^Share$/ })).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByRole('button', { name: /^Share with/ })).toBeInTheDocument())
     expect(screen.queryByText(/not end-to-end encrypted yet/i)).toBeNull()
   })
 

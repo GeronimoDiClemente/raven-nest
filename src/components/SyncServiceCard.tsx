@@ -12,6 +12,7 @@
 import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Badge } from '@/components/ui/badge'
 
 type EstadoDelServicio = { url: string; elegida: string | null; porDefecto: string }
 
@@ -73,7 +74,10 @@ export default function SyncServiceCard() {
 
   return (
     <div className={marco}>
-      <h4 className="m-0 text-fs font-medium text-foreground">Sync service</h4>
+      <div className="flex items-center gap-2">
+        <h4 className="m-0 text-fs font-medium text-foreground">Where your memory syncs to</h4>
+        <Badge variant="outline">Advanced</Badge>
+      </div>
 
       <p className="break-all font-mono text-fs-sm text-foreground">{estado.url}</p>
       {estado.elegida === null && (
@@ -95,8 +99,8 @@ export default function SyncServiceCard() {
       {abierto && (
         <>
           <p className="text-fs-sm text-muted-foreground">
-            Point this machine at a different service. Leave it empty to go back to the one that
-            comes with Nest.
+            The server your memory travels through. Leave it as it is — change it only if your
+            company runs its own Nest server.
           </p>
           <div className="flex flex-wrap items-center gap-2">
             <label htmlFor="sync-service-url" className="sr-only">Service address</label>
