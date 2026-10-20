@@ -1,5 +1,5 @@
 // Estado de los filtros del grafo de Memories y el `GraphData` que sale de aplicarlos.
-// Reemplaza la lógica que vivía dentro de `MemoryGraphPanel` (que se borra más adelante).
+// Reemplaza la lógica que vivía dentro del cuadro del grafo viejo (borrado el 20-10).
 import { useCallback, useMemo, useState } from 'react'
 import { toGraphData, type ColorBy, type Foco, type GraphData } from '../lib/memory-graph-visuals'
 import type { MemoryGraph } from '../types'

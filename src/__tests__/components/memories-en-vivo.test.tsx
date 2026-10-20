@@ -1,6 +1,17 @@
+import { forwardRef, useImperativeHandle } from 'react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react'
+
+// El canvas no corre en jsdom: un boton por nodo alcanza.
+vi.mock('react-force-graph-2d', () => ({
+  default: forwardRef(function FG({ graphData }: { graphData: { nodes: Array<{ id: string; label: string }> } }, ref) {
+    useImperativeHandle(ref, () => ({ d3Force: () => ({ distance: () => {} }), d3ReheatSimulation: () => {} }))
+    return <div>{graphData.nodes.map((n) => <button key={n.id} type="button" aria-label={`node ${n.label}`} />)}</div>
+  }),
+}))
+
 import MemoriesWorkspace from '../../components/MemoriesWorkspace'
+import { __reiniciarPestanas } from '../../hooks/useMemoryTabs'
 
 /**
  * La memoria que escribe un AGENTE tiene que aparecer sin que toques nada.
@@ -13,13 +24,16 @@ import MemoriesWorkspace from '../../components/MemoriesWorkspace'
 describe('la pantalla se entera de lo que escriben los agentes', () => {
   let avisar: (() => void) | null = null
   let bajas = 0
-  let vecesQuePidioLaLista = 0
+  let vecesQuePidioElGrafo = 0
+  let vecesQuePidioLaMemoria = 0
   let enLaBase: Array<Record<string, unknown>> = []
 
   beforeEach(() => {
+    __reiniciarPestanas()
     avisar = null
     bajas = 0
-    vecesQuePidioLaLista = 0
+    vecesQuePidioElGrafo = 0
+    vecesQuePidioLaMemoria = 0
     enLaBase = []
     ;(window as unknown as { memory: unknown }).memory = {
       onChanged: (cb: () => void) => {
@@ -30,11 +44,20 @@ describe('la pantalla se entera de lo que escriben los agentes', () => {
         connected: false, deviceId: null, itemCount: 0, pendingCount: 0,
         daemonStatus: 'idle' as const,
       }),
-      crossProject: async () => {
-        vecesQuePidioLaLista += 1
-        return { items: [...enLaBase], nextCursor: null }
+      crossProject: async () => ({ items: [], nextCursor: null }),
+      // El explorer y la pestaña Graph salen del grafo: es lo que se tiene que volver a pedir.
+      graph: async () => {
+        vecesQuePidioElGrafo += 1
+        return { nodes: [...enLaBase], edges: [], truncated: 0 }
       },
-      graph: async () => ({ nodes: [], edges: [], truncated: false }),
+      observation: async (syncId: string) => {
+        vecesQuePidioLaMemoria += 1
+        return {
+          syncId, projectKey: 'p1', scope: 'project', type: 'decision', title: 'Abierta',
+          content: '', tags: [], topicKey: null, gitBranch: null, originAi: null, authorDisplay: null,
+          createdAt: 1, updatedAt: 1, supersededBy: null, revisionCount: 1, links: [], mentionedIn: [],
+        }
+      },
       encryptionStatus: async () => ({ ok: false, error: 'sin nube' }),
       onStatus: () => {},
       removeStatusListener: () => {},
@@ -45,32 +68,47 @@ describe('la pantalla se entera de lo que escriben los agentes', () => {
   it('se suscribe al montar y pide de nuevo cuando llega el aviso', async () => {
     render(<MemoriesWorkspace onClose={() => {}} activeRepoPath={null} onOpenFile={() => {}} onHowItWorks={() => {}} onMemorySettingsTour={() => {}} />)
     await waitFor(() => expect(avisar).not.toBeNull())
-    const antes = vecesQuePidioLaLista
+    await waitFor(() => expect(vecesQuePidioElGrafo).toBeGreaterThan(0))
+    const antes = vecesQuePidioElGrafo
 
     // Un agente guarda una memoria desde la terminal.
     avisar!()
 
-    await waitFor(() => expect(vecesQuePidioLaLista).toBeGreaterThan(antes))
+    await waitFor(() => expect(vecesQuePidioElGrafo).toBeGreaterThan(antes))
   })
 
-  // Contar pedidos no alcanza: la lista remontada pide con su PROPIO hook y descarta el
-  // resultado, porque lo que dibuja es la búsqueda del workspace. Así este archivo pasaba
-  // mientras la memoria nueva no aparecía nunca. Lo que importa es que se VEA.
-  it('la memoria que llega con el aviso aparece en la lista', async () => {
-    // La lista está virtualizada y jsdom mide todo en 0: sin alto, no monta ninguna fila.
-    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(600)
-    vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(600)
+  // Contar pedidos no alcanza: lo que importa es que se VEA.
+  it('la memoria que llega con el aviso aparece en el explorer', async () => {
     render(<MemoriesWorkspace onClose={() => {}} activeRepoPath={null} onOpenFile={() => {}} onHowItWorks={() => {}} onMemorySettingsTour={() => {}} />)
-    await waitFor(() => expect(screen.getByText('No memories yet')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getAllByText('No memories yet').length).toBeGreaterThan(0))
 
     enLaBase = [{
       syncId: 'nueva', projectKey: 'p1', projectDisplayName: 'raven-nest',
-      title: 'La escribió un agente', type: 'decision', scope: 'project',
-      originAi: 'claude', authorDisplay: null, updatedAt: Date.now(), tags: [],
+      title: 'La escribió un agente', type: 'decision', scope: 'project', topicKey: null,
+      gitBranch: null, originAi: 'claude', authorDisplay: null, updatedAt: Date.now(), tags: [],
+      superseded: false,
     }]
     avisar!()
 
-    await waitFor(() => expect(screen.getByText('La escribió un agente')).toBeInTheDocument())
+    const explorer = within(document.querySelector('[data-tour-id="memories-explorer"]') as HTMLElement)
+    expect(await explorer.findByRole('button', { name: 'La escribió un agente' })).toBeInTheDocument()
+  })
+
+  it('con una memoria abierta en una pestaña, el aviso la vuelve a leer', async () => {
+    enLaBase = [{
+      syncId: 'abierta', projectKey: 'p1', projectDisplayName: 'raven-nest',
+      title: 'Abierta', type: 'decision', scope: 'project', topicKey: null,
+      gitBranch: null, originAi: null, authorDisplay: null, updatedAt: 1, tags: [],
+      superseded: false,
+    }]
+    render(<MemoriesWorkspace onClose={() => {}} activeRepoPath={null} onOpenFile={() => {}} onHowItWorks={() => {}} onMemorySettingsTour={() => {}} />)
+    const explorer = within(document.querySelector('[data-tour-id="memories-explorer"]') as HTMLElement)
+    fireEvent.click(await explorer.findByRole('button', { name: 'Abierta' }))
+    await waitFor(() => expect(vecesQuePidioLaMemoria).toBe(1))
+
+    avisar!()
+
+    await waitFor(() => expect(vecesQuePidioLaMemoria).toBe(2))
   })
 
   it('da de baja la suscripción al desmontar', async () => {

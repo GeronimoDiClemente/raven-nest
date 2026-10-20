@@ -82,7 +82,7 @@ export default function MemoryGraph2D({ data, foco = null, resaltados = null, mo
             width={tam.w}
             height={tam.h}
             graphData={data}
-            backgroundColor="rgba(0,0,0,0)"
+            backgroundColor="transparent"
             cooldownTicks={modo === 'local' ? 60 : 200}
             d3VelocityDecay={modo === 'local' ? 0.6 : 0.35}
             enableZoomInteraction={modo === 'global'}

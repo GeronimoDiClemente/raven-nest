@@ -42,7 +42,7 @@ export function summarizeMemories(input: MemoriesStatusInput): MemoriesStatus {
   return { dot: 'green', text: `${plural(input.itemCount, 'item', 'items')} · synced` }
 }
 
-/** Compartido por MemoriesStatusRow (vault "ago") y MemoriesList (fecha de cada fila) —
+/** Compartido por MemoriesStatusRow (vault "ago") y la nota abierta (metadatos y panel) —
  *  una sola forma de decir "hace cuanto" en toda la pantalla. */
 export function relativeTime(at: number | null): string {
   if (!at) return 'never'

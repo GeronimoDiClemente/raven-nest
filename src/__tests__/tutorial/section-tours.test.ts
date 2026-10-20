@@ -10,7 +10,7 @@ import type { TourId } from '../../tutorial/types'
 const SECTION_TOURS: Record<string, string[]> = {
   'my-repos': ['header', 'add', 'nav', 'list', 'actions'],
   teams: ['header', 'switcher', 'members', 'chat', 'snippets'],
-  memories: ['status', 'graph', 'list', 'new', 'settings'],
+  memories: ['status', 'explorer', 'graph', 'tabs', 'new', 'settings'],
   'memory-settings': ['sync', 'encryption', 'project', 'disk'],
 }
 

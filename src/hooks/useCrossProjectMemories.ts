@@ -2,7 +2,8 @@
 // lista cross-project. window.memory.crossProject() ya existe (electron/memory-store.ts's
 // crossProjectMemories(), commit 4fadd02): ordena por updated_at DESC, pagina por
 // cursor, excluye borradas y reemplazadas por default. Este hook es el único que sabe
-// de paginado incremental y debounce de búsqueda; MemoriesList.tsx solo renderiza.
+// de paginado incremental y debounce de búsqueda. Desde el 20-10 sólo lo usa la búsqueda
+// del explorer de Memories (MemoriesWorkspace): decide qué ids se ven y se resaltan.
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { CrossProjectObservation } from '../types'
 

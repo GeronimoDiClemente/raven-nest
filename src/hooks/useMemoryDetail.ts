@@ -4,7 +4,7 @@
 // consulta. Esto es la lectura puntual del nodo seleccionado, y sale de SQLite, no del
 // vault Markdown: el vault es opcional y es una proyección de esta base, no la fuente, así
 // que el panel tiene que funcionar con el vault apagado.
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { MemoryObservationDetail } from '../types'
 
 export interface MemoryDetailState {
@@ -16,38 +16,51 @@ export interface MemoryDetailState {
   missing: boolean
 }
 
-export function useMemoryDetail(syncId: string | null): MemoryDetailState {
+/**
+ * @param nonce Cambiarlo vuelve a leer la MISMA memoria (un agente la cambió, se guardó algo).
+ * Mientras recarga se conserva el detalle anterior con `loading: true`: la pestaña no
+ * parpadea a "Loading…" en cada aviso de `onChanged`.
+ */
+export function useMemoryDetail(syncId: string | null, nonce = 0): MemoryDetailState {
   const [state, setState] = useState<MemoryDetailState>({ detail: null, loading: false, missing: false })
+  // De qué memoria es el detalle que hay en pantalla: sólo se conserva si es la misma.
+  const idCargado = useRef<string | null>(null)
 
   useEffect(() => {
     if (!syncId) {
+      idCargado.current = null
       setState({ detail: null, loading: false, missing: false })
       return
     }
 
     const leer = window.memory?.observation
     if (!leer) {
+      idCargado.current = null
       setState({ detail: null, loading: false, missing: true })
       return
     }
 
     let alive = true
-    // `detail: null` mientras carga, no el anterior: dejar el documento viejo en pantalla
-    // mientras llega el nuevo hace que el panel diga una cosa y el grafo resalte otra.
-    setState({ detail: null, loading: true, missing: false })
+    // Otra memoria: `detail: null` mientras carga, no el anterior — dejar el documento viejo
+    // en pantalla mientras llega el nuevo hace que el panel diga una cosa y el grafo resalte
+    // otra. La MISMA memoria recargando (nonce): se queda el anterior.
+    if (idCargado.current === syncId) setState((s) => ({ ...s, loading: true }))
+    else setState({ detail: null, loading: true, missing: false })
 
     leer(syncId)
       .then((detail) => {
         if (!alive) return
+        idCargado.current = detail ? syncId : null
         setState({ detail, loading: false, missing: detail === null })
       })
       .catch(() => {
         if (!alive) return
+        idCargado.current = null
         setState({ detail: null, loading: false, missing: true })
       })
 
     return () => { alive = false }
-  }, [syncId])
+  }, [syncId, nonce])
 
   return state
 }

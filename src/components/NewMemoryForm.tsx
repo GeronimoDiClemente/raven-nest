@@ -29,12 +29,15 @@ interface Props {
    *  significa: algo que vale más allá de un repo. */
   activeRepoPath: string | null
   onClose: () => void
-  /** Se llama cuando el guardado salió bien, para que la lista y el grafo se refresquen. */
-  onSaved: () => void
+  /** Se llama cuando el guardado salió bien, con el `syncId` de la memoria nueva si main lo
+   *  devolvió: Memories cambia la pestaña «New memory» por la de esa memoria. */
+  onSaved: (syncId?: string) => void
+  /** El título con el que arranca — «Create this memory» desde un `[[hueco]]` lo trae puesto. */
+  tituloInicial?: string
 }
 
-export default function NewMemoryForm({ activeRepoPath, onClose, onSaved }: Props) {
-  const [title, setTitle] = useState('')
+export default function NewMemoryForm({ activeRepoPath, onClose, onSaved, tituloInicial = '' }: Props) {
+  const [title, setTitle] = useState(tituloInicial)
   const [content, setContent] = useState('')
   const [type, setType] = useState<string>('decision')
   const [tagsRaw, setTagsRaw] = useState('')
@@ -71,7 +74,7 @@ export default function NewMemoryForm({ activeRepoPath, onClose, onSaved }: Prop
           : res.error ?? 'Could not save')
         return
       }
-      onSaved()
+      onSaved(res.syncId)
       onClose()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save')

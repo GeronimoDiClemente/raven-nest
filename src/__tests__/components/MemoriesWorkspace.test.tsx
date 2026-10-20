@@ -1,7 +1,9 @@
-// Spec §5.2: fila de estado arriba, grafo al centro, sin chips de scope.
-import { describe, it, expect, afterEach, vi } from 'vitest'
+// Spec §5.2: fila de estado arriba, grafo al centro, sin chips de scope. Las tres columnas
+// estilo Obsidian (explorer, pestañas, panel) se prueban en MemoriesWorkspace-obsidian.test.tsx.
+import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import MemoriesWorkspace from '../../components/MemoriesWorkspace'
+import { __reiniciarPestanas } from '../../hooks/useMemoryTabs'
 
 const setMemoryApi = (api: unknown): void => {
   ;(window as unknown as { memory?: unknown }).memory = api
@@ -26,6 +28,7 @@ const api = (over: Record<string, unknown> = {}) => ({
   ...over,
 })
 
+beforeEach(() => { __reiniciarPestanas() })
 afterEach(() => { setMemoryApi(undefined); vi.restoreAllMocks() })
 
 const renderWorkspace = (props: {
@@ -138,59 +141,9 @@ describe('MemoriesWorkspace', () => {
     expect(onHowItWorks).toHaveBeenCalled()
   })
 
-  // Fix round 1 de la tarea 1: el Set de tipos ocultos vive en MemoriesWorkspace y tiene
-  // que llegar a los DOS paneles — el harness chico de
-  // MemoryGraphPanel-chips-tipo.test.tsx ya probaba el cableado en el aire; esto prueba
-  // que MemoriesWorkspace de verdad lo conecta.
-  it('un chip de tipo lo apaga en el grafo y esconde su fila en la lista (spec §2)', async () => {
-    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(600)
-    vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(600)
-
-    const nodoDelGrafo = (syncId: string, type: string, title: string) => ({
-      syncId, projectKey: 'raven-nest', projectDisplayName: 'Raven Nest',
-      tags: [], title, type,
-      scope: 'personal' as const, topicKey: null, gitBranch: 'main', originAi: null,
-      authorDisplay: null, updatedAt: Date.now(), superseded: false,
-    })
-    const itemDeLaLista = (syncId: string, type: string, title: string) => ({
-      syncId, projectKey: 'raven-nest', projectDisplayName: 'raven-nest',
-      title, type, scope: 'project' as const, originAi: null, authorDisplay: null,
-      updatedAt: Date.now(), tags: [],
-    })
-
-    setMemoryApi(api({
-      graph: vi.fn().mockResolvedValue({
-        nodes: [
-          nodoDelGrafo('d1', 'decision', 'Una decision'),
-          nodoDelGrafo('b1', 'bugfix', 'Un bugfix'),
-        ],
-        edges: [{ from: 'd1', to: 'b1', kind: 'similar', directed: false }],
-        truncated: 0,
-      }),
-      observation: vi.fn().mockResolvedValue(null),
-      crossProject: vi.fn().mockResolvedValue({
-        items: [
-          itemDeLaLista('d1', 'decision', 'Una decision'),
-          itemDeLaLista('b1', 'bugfix', 'Un bugfix'),
-        ],
-        nextCursor: null,
-      }),
-    }))
-
-    renderWorkspace()
-
-    await waitFor(() => expect(screen.getByText('Un bugfix')).toBeInTheDocument())
-
-    const chip = await screen.findByRole('button', { name: /Bugfix/ })
-    expect(chip).toHaveAttribute('aria-pressed', 'true')
-
-    fireEvent.click(chip)
-
-    expect(chip).toHaveAttribute('aria-pressed', 'false')
-    await waitFor(() => expect(screen.queryByText('Un bugfix')).toBeNull())
-    // La decision sigue — sólo se apagó el tipo clickeado, en los dos paneles a la vez.
-    expect(screen.getByText('Una decision')).toBeInTheDocument()
-  })
+  // El caso "un chip de tipo lo apaga en el grafo y esconde su fila en la lista" se fue con
+  // la lista (20-10, Memories estilo Obsidian): los filtros por tipo son del grafo y el
+  // explorer no se filtra por tipo. Lo cubre MemoriesWorkspace-obsidian.test.tsx.
 
   // Review final de rama, IMPORTANT #5: antes, el unico dato que `App.tsx` tenia de la
   // vista era `vistaInicial` (leida una sola vez, al montar) — navegar el rail puertas
