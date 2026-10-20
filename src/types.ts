@@ -324,6 +324,9 @@ export interface MemoryGraphNode {
   type: string
   scope: 'personal' | 'project' | 'team'
   topicKey: string | null
+  /** Alias del frontmatter (`aliases:`), para el autocompletado de `[[` en la app. Ausente en
+   *  los huecos y en mains viejos. */
+  aliases?: string[]
   gitBranch: string | null
   originAi: string | null
   authorDisplay: string | null

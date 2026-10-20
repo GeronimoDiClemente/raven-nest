@@ -56,6 +56,9 @@ export interface MemoryGraphNode {
   type: string
   scope: 'personal' | 'project' | 'team'
   topicKey: string | null
+  /** Alias del frontmatter (`parsearAlias`), para el autocompletado de `[[` en la app. `[]`
+   *  si no hay; los huecos no lo llevan. */
+  aliases?: string[]
   gitBranch: string | null
   originAi: string | null
   authorDisplay: string | null
@@ -463,6 +466,7 @@ export function buildMemoryGraph(db: BaseSqlite, query: MemoryGraphQuery): Memor
     type: r.type,
     scope: r.scope as 'personal' | 'project' | 'team',
     topicKey: r.topic_key,
+    aliases: parsearAlias(r.content_head ?? ''),
     gitBranch: r.git_branch,
     originAi: r.origin_ai,
     authorDisplay: r.author_display,

@@ -613,3 +613,13 @@ describe('alias — el otro nombre de una memoria', () => {
     expect(buildMemoryGraph(db, Q()).edges.filter((e) => e.kind === 'wikilink')).toEqual([])
   })
 })
+
+describe('aliases en los nodos', () => {
+  it('cada nodo trae los alias de su frontmatter, para el autocompletado de [[', () => {
+    insert({ syncId: 'a', title: 'El candado', content: '---\naliases: [candado, lock]\n---\ncuerpo', updatedAt: 1 })
+    insert({ syncId: 'b', title: 'Sin alias', content: 'nada', updatedAt: 2 })
+    const g = buildMemoryGraph(db, Q())
+    expect(g.nodes.find((n) => n.syncId === 'a')?.aliases).toEqual(['candado', 'lock'])
+    expect(g.nodes.find((n) => n.syncId === 'b')?.aliases).toEqual([])
+  })
+})
