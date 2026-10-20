@@ -15,7 +15,12 @@ interface UseTeamThreadSettings {
   setEnabled: (next: boolean) => Promise<void>
 }
 
-export function useTeamThreadSettings(activeRepoPath: string | null): UseTeamThreadSettings {
+/**
+ * @param nonce Cambiarlo vuelve a leer los settings del mismo repo: lo usa Memories al volver
+ * de Memory settings, donde el toggle tiene su PROPIA instancia de este hook y prender o
+ * apagar el hilo ahí no le llega a la vista principal.
+ */
+export function useTeamThreadSettings(activeRepoPath: string | null, nonce = 0): UseTeamThreadSettings {
   const [projectKey, setProjectKey] = useState<string | null>(null)
   const [enabled, setEnabledState] = useState(false)
   const [ready, setReady] = useState(false)
@@ -55,7 +60,7 @@ export function useTeamThreadSettings(activeRepoPath: string | null): UseTeamThr
     })()
 
     return () => { alive = false }
-  }, [activeRepoPath])
+  }, [activeRepoPath, nonce])
 
   const setEnabled = useCallback(async (next: boolean) => {
     if (!activeRepoPath || !projectKey) return

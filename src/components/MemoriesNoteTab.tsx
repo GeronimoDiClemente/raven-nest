@@ -122,6 +122,9 @@ export default function MemoriesNoteTab({
         }}
         onConnect={() => onConnect(syncId)}
         onDelete={onDelete}
+        // Ya cargada una vez y ahora la relectura no la encuentra: la borró un agente u otra
+        // máquina. Sólo lectura ya, no recién cuando un guardado vuelva con 'deleted'.
+        borrada={missing}
       />
       {panelDerecho && createPortal(
         <MemoryNoteSidePanel

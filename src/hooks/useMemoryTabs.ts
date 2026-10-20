@@ -5,10 +5,11 @@ import { ESTADO_INICIAL, tabsReducer, type MemoryTab, type TabsState } from '../
 // pestañas; reiniciar la app vuelve a sólo Graph (spec §3).
 let ultimo: TabsState = ESTADO_INICIAL
 
-export function useMemoryTabs(conHilo: boolean) {
+/** @param conHilo `null` = todavía no se sabe: no se toca la pestaña Team thread. */
+export function useMemoryTabs(conHilo: boolean | null) {
   const [state, dispatch] = useReducer(tabsReducer, ultimo)
   useEffect(() => { ultimo = state }, [state])
-  useEffect(() => { dispatch({ type: 'setThread', on: conHilo }) }, [conHilo])
+  useEffect(() => { if (conHilo !== null) dispatch({ type: 'setThread', on: conHilo }) }, [conHilo])
   return {
     ...state,
     open: useCallback((tab: MemoryTab, opts?: { background?: boolean }) => dispatch({ type: 'open', tab, background: opts?.background }), []),

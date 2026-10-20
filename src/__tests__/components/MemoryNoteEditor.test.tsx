@@ -81,6 +81,22 @@ describe('MemoryNoteEditor', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Open the newer version' }))
     expect(p.onOpenNewer).toHaveBeenCalled()
   })
+  it('borrada desde afuera: solo lectura con la banda, sin menu, y no guarda lo escrito', async () => {
+    vi.useFakeTimers()
+    try {
+      const p = props()
+      const { rerender } = render(<MemoryNoteEditor detail={det()} {...p} />)
+      fireEvent.change(screen.getByRole('textbox', { name: 'Memory title' }), { target: { value: 'A medias' } })
+      rerender(<MemoryNoteEditor detail={det()} {...p} borrada />)
+      expect(screen.getByText('This memory was deleted.')).toBeInTheDocument()
+      expect(screen.getByRole('textbox', { name: 'Memory title' })).toHaveAttribute('readonly')
+      expect(screen.queryByRole('button', { name: 'More actions' })).toBeNull()
+      await act(async () => { await vi.advanceTimersByTimeAsync(2000) })
+      expect(p.onSave).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })
 
 // Fix round 1, Important #1: main guarda con trim y `redact()`, asi que el eco de nuestro

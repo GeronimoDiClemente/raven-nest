@@ -43,6 +43,9 @@ export interface MemoryNoteEditorProps {
   onOpenNewer: () => void
   onConnect: () => void
   onDelete: () => Promise<void>
+  /** La memoria ya no está en el store (la borró un agente u otra máquina): sólo lectura con
+   *  la banda de borrada, sin esperar a que un guardado lo descubra. */
+  borrada?: boolean
 }
 
 type Valor = { title: string; content: string }
@@ -74,7 +77,7 @@ const MemoryNoteEditor = forwardRef<MemoryNoteEditorHandle, MemoryNoteEditorProp
 export default MemoryNoteEditor
 
 function EditorDeNota({
-  detail, ansi, candidatos, externo, onSave, onOpen, onCreate, onOpenNewer, onConnect, onDelete, handleRef,
+  detail, ansi, candidatos, externo, onSave, onOpen, onCreate, onOpenNewer, onConnect, onDelete, borrada = false, handleRef,
 }: MemoryNoteEditorProps & { handleRef: ForwardedRef<MemoryNoteEditorHandle> }) {
   const [titulo, setTitulo] = useState(detail.title)
   const [contenido, setContenido] = useState(detail.content ?? '')
@@ -90,7 +93,7 @@ function EditorDeNota({
 
   const fuente = externoAplicado ?? detail
   const reemplazadaDeOrigen = fuente.supersededBy !== null
-  const habilitado = !reemplazadaDeOrigen && !bandaExterna && !borrando
+  const habilitado = !reemplazadaDeOrigen && !bandaExterna && !borrando && !borrada
   // Reconocer el eco de nuestros propios guardados (Fix round 1, Important #1). Cuando el
   // store devuelve por onChanged lo que acabamos de guardar NO es un cambio de otro, aunque
   // mientras tanto se haya seguido escribiendo, y aunque no sea igual a lo que mandamos: main
@@ -258,6 +261,12 @@ function EditorDeNota({
     if (auto.estado === 'reemplazada') copiar({ title: tituloRef.current, content: contenidoRef.current }, () => setCopiado(true))
   }, [auto.estado])
 
+  // Borrada desde afuera con cambios sin guardar: ya no hay dónde guardarlos, así que van al
+  // portapapeles, igual que con una versión nueva.
+  useEffect(() => {
+    if (borrada && sucioRef.current) copiar({ title: tituloRef.current, content: contenidoRef.current }, () => setCopiado(true))
+  }, [borrada])
+
   useImperativeHandle(handleRef, () => ({
     irALinea: (n: number) => {
       const view = viewRef.current
@@ -327,8 +336,11 @@ function EditorDeNota({
             <Button size="sm" variant="outline" className="ml-auto" onClick={onOpenNewer}>Open the newer version</Button>
           </div>
         )}
-        {auto.estado === 'borrada' && (
-          <div role="status" className={`${banda} mb-3`}>This memory was deleted.</div>
+        {(auto.estado === 'borrada' || borrada) && (
+          <div role="status" className={`${banda} mb-3 flex flex-wrap items-center gap-2`}>
+            <span>This memory was deleted.</span>
+            {copiado && !mostrarReemplazada && <span className="text-muted-foreground">Your text was copied to the clipboard.</span>}
+          </div>
         )}
         {errorAlBorrar && (
           <div role="status" className={`${banda} mb-3 text-destructive`}>Could not delete this memory.</div>

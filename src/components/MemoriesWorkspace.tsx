@@ -21,7 +21,7 @@
 // `MemoriesNoteTab` siguen siendo lo unico que habla con `window.memory`: los componentes de
 // `memories/` entran por props y salen por callbacks.
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
-import { Panel, PanelGroup, PanelResizeHandle, type ImperativePanelHandle } from 'react-resizable-panels'
+import { Panel, PanelGroup, PanelResizeHandle, type ImperativePanelGroupHandle, type ImperativePanelHandle } from 'react-resizable-panels'
 import { Settings } from 'lucide-react'
 import { cn } from 'cn'
 import { useMemories } from '../hooks/useMemories'
@@ -32,7 +32,7 @@ import { useMemoryTabs } from '../hooks/useMemoryTabs'
 import { useTeamThreadEnabled } from '../hooks/useTeamThreadEnabled'
 import { armarArbol } from '../lib/memories-tree'
 import { tabId, type MemoryTab } from '../lib/memory-tabs'
-import { almacenDePaneles } from '../lib/almacen-seguro'
+import { leer, escribir } from '../lib/almacen-seguro'
 import type { CandidatoDeLink } from '../lib/cm-wikilink-autocomplete'
 import { ICON_SIZE } from '../lib/icons'
 import NewMemoryForm from './NewMemoryForm'
@@ -87,6 +87,27 @@ interface Props {
 
 /** Ventana angosta (spec §3): el panel derecho arranca colapsado. */
 const ANCHO_ANGOSTO = 1100
+
+/**
+ * El ancho de las tres columnas, en %. Se guarda a mano (con `onLayout`) y no con el
+ * `autoSaveId` de react-resizable-panels porque hay colapsos AUTOMATICOS del panel derecho
+ * (ventana angosta, pestana Team thread) que no son una eleccion de la persona y no tienen que
+ * quedar guardados: con `autoSaveId`, una ventana ancha arrancaba despues con el panel cerrado.
+ */
+const CLAVE_COLUMNAS = 'nest:memories:columnas'
+const COLUMNAS_POR_DEFECTO: [number, number, number] = [18, 60, 22]
+
+function leerColumnas(): [number, number, number] {
+  try {
+    const v: unknown = JSON.parse(leer(CLAVE_COLUMNAS) ?? 'null')
+    if (
+      Array.isArray(v) && v.length === 3
+      && v.every((n) => typeof n === 'number' && Number.isFinite(n) && n >= 0)
+      && Math.abs((v as number[]).reduce((a, b) => a + b, 0) - 100) < 1
+    ) return v as [number, number, number]
+  } catch { /* JSON roto: por defecto */ }
+  return COLUMNAS_POR_DEFECTO
+}
 
 export default function MemoriesWorkspace({
   onClose, activeRepoPath, onOpenFile, onLinkRepo, closing = false, vistaInicial, ansi,
@@ -150,7 +171,10 @@ export default function MemoriesWorkspace({
     refrescarGrafo()
   }, [version, refrescarGrafo])
 
-  const conHilo = useTeamThreadEnabled(activeRepoPath)
+  // Sube al volver de Memory settings: el toggle del hilo vive alla con su propia lectura, y
+  // sin releer aca la pestana Team thread quedaba como estaba al entrar.
+  const [releerHilo, setReleerHilo] = useState(0)
+  const conHilo = useTeamThreadEnabled(activeRepoPath, releerHilo)
   const tabs = useMemoryTabs(conHilo)
   const activa: MemoryTab = tabs.tabs.find((t) => tabId(t) === tabs.activeId) ?? tabs.tabs[0]
 
@@ -298,18 +322,68 @@ export default function MemoriesWorkspace({
     }
   }
 
+  // --- Columnas: tamanos guardados y colapsos automaticos del panel derecho ---------------
+  const [columnas] = useState(leerColumnas)
+  const grupoRef = useRef<ImperativePanelGroupHandle>(null)
   const panelDerechoRef = useRef<ImperativePanelHandle>(null)
   const [panelDerechoEl, setPanelDerechoEl] = useState<HTMLElement | null>(null)
-  useEffect(() => {
-    if (vista !== 'memorias' || window.innerWidth >= ANCHO_ANGOSTO) return
-    try {
-      panelDerechoRef.current?.collapse()
-    } catch {
-      // Sin layout calculado (el build "node" de react-resizable-panels, que es el que
-      // resuelve vitest, no corre los layout effects): el panel queda con su ancho por
-      // defecto, que es peor pero no rompe nada.
+  /** El ancho que tenia el panel derecho antes de un colapso automatico; `null` = no esta
+   *  colapsado por nosotros (abierto, o cerrado a mano por la persona). */
+  const anchoAntesDelAuto = useRef<number | null>(null)
+  /** Por que sigue colapsado solo. Se reabre cuando no queda ningun motivo. */
+  const motivosDelAuto = useRef({ angosto: false, hilo: false })
+  /** true mientras el layout lo cambia un colapso/reapertura automatico: no se guarda. */
+  const cambioAutomatico = useRef(false)
+
+  // Las llamadas imperativas necesitan el layout ya calculado. En el renderer siempre lo
+  // esta; no en el build "node" de react-resizable-panels (el que resuelve vitest por
+  // defecto), que no corre layout effects y donde `collapse()` tira "Panel size not found".
+  const hayLayout = () => (grupoRef.current?.getLayout().length ?? 0) === 3
+
+  const colapsarSolo = useCallback((motivo: 'angosto' | 'hilo') => {
+    motivosDelAuto.current[motivo] = true
+    const panel = panelDerechoRef.current
+    if (!panel || !hayLayout() || anchoAntesDelAuto.current !== null || panel.isCollapsed()) return
+    anchoAntesDelAuto.current = panel.getSize()
+    cambioAutomatico.current = true
+    try { panel.collapse() } finally { cambioAutomatico.current = false }
+  }, [])
+
+  const liberarAuto = useCallback((motivo: 'angosto' | 'hilo') => {
+    motivosDelAuto.current[motivo] = false
+    if (motivosDelAuto.current.angosto || motivosDelAuto.current.hilo) return
+    const panel = panelDerechoRef.current
+    if (!panel || !hayLayout() || anchoAntesDelAuto.current === null) return
+    anchoAntesDelAuto.current = null
+    cambioAutomatico.current = true
+    try { panel.expand() } finally { cambioAutomatico.current = false }
+  }, [])
+
+  const alCambiarColumnas = useCallback((layout: number[]) => {
+    if (cambioAutomatico.current || layout.length !== 3) return
+    // La persona lo abrio (arrastrando): el colapso automatico termino.
+    if (anchoAntesDelAuto.current !== null && layout[2] > 0.1) {
+      anchoAntesDelAuto.current = null
+      motivosDelAuto.current = { angosto: false, hilo: false }
     }
-  }, [vista])
+    // Colapsado solo: se guarda como si estuviera abierto con el ancho de antes.
+    const antes = anchoAntesDelAuto.current
+    const guardar = antes === null ? layout : [layout[0], Math.max(0, layout[1] - antes), antes]
+    escribir(CLAVE_COLUMNAS, JSON.stringify(guardar))
+  }, [])
+
+  // Ventana angosta: SOLO al montar el grupo (que vive mientras el overlay esta abierto,
+  // tambien detras de Memory settings), no en cada vuelta de settings.
+  useEffect(() => {
+    if (window.innerWidth < ANCHO_ANGOSTO) colapsarSolo('angosto')
+  }, [colapsarSolo])
+
+  // Spec §3: con Team thread activa el panel derecho se oculta; al salir vuelve como estaba.
+  const hiloActivo = activa.kind === 'thread'
+  useEffect(() => {
+    if (hiloActivo) colapsarSolo('hilo')
+    else liberarAuto('hilo')
+  }, [hiloActivo, colapsarSolo, liberarAuto])
 
   const memoriasReales = grafo.graph ? grafo.graph.nodes.filter((n) => !n.pending).length : 0
   const sinMemorias = !grafo.loading && !grafo.error && memoriasReales === 0
@@ -346,7 +420,11 @@ export default function MemoriesWorkspace({
       <div className="teams-workspace-header">
         <button
           className="tw-back-btn"
-          onClick={() => (vista === 'settings' ? setVista('memorias') : onClose())}
+          onClick={() => {
+            if (vista !== 'settings') { onClose(); return }
+            setVista('memorias')
+            setReleerHilo((n) => n + 1)
+          }}
         >
           <svg width="13" height="13" viewBox="0 0 13 13" fill="none" style={{ display: 'inline-block', verticalAlign: 'middle', marginRight: 5 }}>
             <path d="M8 2L4 6.5L8 11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
@@ -380,19 +458,26 @@ export default function MemoriesWorkspace({
         )}
       </div>
 
-      {vista === 'settings' ? (
+      {vista === 'settings' && (
         <MemorySettingsView
           activeRepoPath={activeRepoPath}
           onLinkRepo={onLinkRepo}
           onHowItWorks={onMemorySettingsTour}
         />
-      ) : (
-        <>
+      )}
+
+      {/* La vista principal queda MONTADA (oculta) mientras se ve Memory settings: las notas
+          abiertas no pierden su editor, y las columnas no se vuelven a armar (ni a colapsar
+          solas) en cada vuelta. */}
+      <div
+        hidden={vista !== 'memorias'}
+        className={cn('min-h-0 flex-1 flex-col', vista === 'memorias' ? 'flex' : 'hidden')}
+      >
           <MemoriesStatusRow state={state} />
 
           <div className="teams-workspace-body min-h-0">
-            <PanelGroup direction="horizontal" autoSaveId="nest:memories:columnas" storage={almacenDePaneles} className="min-h-0 flex-1">
-              <Panel defaultSize={18} minSize={12} collapsible id="explorer" order={1}>
+            <PanelGroup ref={grupoRef} direction="horizontal" onLayout={alCambiarColumnas} className="min-h-0 flex-1">
+              <Panel defaultSize={columnas[0]} minSize={12} collapsible id="explorer" order={1}>
                 <MemoriesExplorer
                   carpetas={carpetas}
                   query={busqueda.query}
@@ -408,7 +493,7 @@ export default function MemoriesWorkspace({
                 />
               </Panel>
               <PanelResizeHandle className="w-px bg-border" />
-              <Panel minSize={30} id="centro" order={2} className="flex min-h-0 flex-col">
+              <Panel defaultSize={columnas[1]} minSize={30} id="centro" order={2} className="flex min-h-0 flex-col">
                 <div data-tour-id="memories-tabs">
                   <MemoryTabs
                     tabs={tabs.tabs}
@@ -499,7 +584,7 @@ export default function MemoriesWorkspace({
                 </div>
               </Panel>
               <PanelResizeHandle className="w-px bg-border" />
-              <Panel ref={panelDerechoRef} defaultSize={22} minSize={15} collapsible id="derecho" order={3}>
+              <Panel ref={panelDerechoRef} defaultSize={columnas[2]} minSize={15} collapsible id="derecho" order={3}>
                 {/* Con Graph activa: filtros y leyenda. Con una nota: su panel, que la
                     pestaña dibuja por portal acá. Con Team thread o New memory: vacío. */}
                 <aside ref={setPanelDerechoEl} aria-label="Side panel" className="h-full overflow-y-auto">
@@ -516,8 +601,7 @@ export default function MemoriesWorkspace({
               </Panel>
             </PanelGroup>
           </div>
-        </>
-      )}
+      </div>
     </div>
   )
 }

@@ -408,4 +408,90 @@ describe('MemoriesWorkspace estilo Obsidian', () => {
     fireEvent.click(within(screen.getByRole('tab', { name: /Auth pasa a cookies/ })).getByRole('button', { name: 'Close tab' }))
     await waitFor(() => expect(updateFromUi).toHaveBeenCalledWith(expect.objectContaining({ syncId: 'a', title: 'Antes de cerrar' })))
   })
+
+  // Fix round 1: el hilo se prende/apaga en Memory settings (otra instancia del hook); al
+  // volver, la vista principal tiene que releerlo.
+  describe('Team thread y Memory settings', () => {
+    let prendido = false
+    const apiDelHilo = (getSettings?: () => Promise<unknown>) => api({
+      graph: vi.fn().mockResolvedValue(grafoAB()),
+      crossProject: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
+      teamThreadProjectKeyForWorktree: vi.fn().mockResolvedValue({ ok: true, projectKey: 'proj1111aaaaaaaa' }),
+      teamThreadGetSettings: vi.fn().mockImplementation(getSettings ?? (async () => ({ ok: true, settings: { enabled: prendido, includedTypes: [], writeAgentsPointer: false } }))),
+      teamThreadRead: vi.fn().mockResolvedValue({ ok: true, branches: [] }),
+      onStatus: () => {},
+      removeStatusListener: () => {},
+      encryptionStatus: vi.fn().mockResolvedValue({ available: false, active: false, keyEpoch: 0, pendingDevices: [], undecryptable: 0 }),
+    })
+    beforeEach(() => {
+      ;(window as unknown as { git: unknown }).git = { info: vi.fn().mockResolvedValue({ branch: 'main', remoteUrl: null, githubUrl: null, isDirty: false }) }
+    })
+    const irYVolverDeSettings = async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Memory settings' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Memories' }))
+    }
+
+    it('prenderlo en Settings y volver: aparece la pestana', async () => {
+      prendido = false
+      setMemoryApi(apiDelHilo())
+      render(<MemoriesWorkspace {...props({ activeRepoPath: '/r' })} />)
+      await screen.findByRole('button', { name: 'node Otra' })
+      expect(screen.queryByRole('tab', { name: /Team thread/ })).toBeNull()
+
+      prendido = true
+      await irYVolverDeSettings()
+      expect(await screen.findByRole('tab', { name: /Team thread/ })).toBeInTheDocument()
+    })
+
+    it('apagarlo en Settings con la pestana activa: desaparece y la activa vuelve a Graph', async () => {
+      prendido = true
+      setMemoryApi(apiDelHilo())
+      render(<MemoriesWorkspace {...props({ activeRepoPath: '/r' })} />)
+      fireEvent.click(await screen.findByRole('tab', { name: /Team thread/ }))
+      expect(screen.getByRole('tab', { name: /Team thread/, selected: true })).toBeInTheDocument()
+
+      prendido = false
+      await irYVolverDeSettings()
+      await waitFor(() => expect(screen.queryByRole('tab', { name: /Team thread/ })).toBeNull())
+      expect(screen.getByRole('tab', { name: /Graph/, selected: true })).toBeInTheDocument()
+    })
+
+    it('al reabrir el overlay, la pestana del hilo no se cae mientras se vuelve a leer', async () => {
+      prendido = true
+      setMemoryApi(apiDelHilo())
+      const { unmount } = render(<MemoriesWorkspace {...props({ activeRepoPath: '/r' })} />)
+      fireEvent.click(await screen.findByRole('tab', { name: /Team thread/ }))
+      unmount()
+
+      let responder: ((v: unknown) => void) | null = null
+      setMemoryApi(apiDelHilo(() => new Promise((r) => { responder = r })))
+      render(<MemoriesWorkspace {...props({ activeRepoPath: '/r' })} />)
+      await waitFor(() => expect(responder).not.toBeNull())
+      // Leyendo: la pestana de la sesion sigue, y sigue activa.
+      expect(screen.getByRole('tab', { name: /Team thread/, selected: true })).toBeInTheDocument()
+
+      responder!({ ok: true, settings: { enabled: true, includedTypes: [], writeAgentsPointer: false } })
+      await waitFor(() => expect(screen.getByRole('tab', { name: /Team thread/, selected: true })).toBeInTheDocument())
+    })
+  })
+
+  it('un agente borra la nota abierta: queda de solo lectura con la banda de borrada', async () => {
+    let avisar: (() => void) | null = null
+    let existe = true
+    setMemoryApi(api({
+      graph: vi.fn().mockResolvedValue(grafoAB()),
+      crossProject: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
+      observation: vi.fn().mockImplementation(async (id: string) => (existe ? detalle(id) : null)),
+      onChanged: (cb: () => void) => { avisar = cb; return () => {} },
+    }))
+    render(<MemoriesWorkspace {...props()} />)
+    await abrirA()
+    expect(screen.getByRole('textbox', { name: 'Memory title' })).not.toHaveAttribute('readonly')
+
+    existe = false
+    avisar!()
+
+    expect(await screen.findByText('This memory was deleted.')).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: 'Memory title' })).toHaveAttribute('readonly')
+  })
 })
