@@ -3,7 +3,7 @@
 // componente dibuja el grafo global (pestaña Graph) y el local (panel derecho).
 //
 // Presentación pura: no conoce `window.memory`.
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { GraphData, GraphLinkDatum, GraphNodeDatum } from '../../lib/memory-graph-visuals'
 import { esInferida, idDe, opacidadDeNodo, vecinos } from '../../lib/memory-graph-2d'
 
@@ -29,12 +29,21 @@ function token(nombre: string, porDefecto: string): string {
   return v || porDefecto
 }
 
+/** Radio del punto: el mismo para dibujarlo y para el área de click. */
+function radioDe(n: Nodo, escalaDeNodo: number): number {
+  return (2.5 + Math.sqrt(n.degree + 1) * 1.6) * escalaDeNodo
+}
+
+type InstanciaDelGrafo = {
+  d3Force: (n: string) => { distance?: (d: number) => void } | undefined
+  d3ReheatSimulation?: () => void
+}
+
 /** Umbral de zoom a partir del cual el grafo global muestra todas las etiquetas. */
 const ZOOM_DE_ETIQUETAS = 1.6
 
 export default function MemoryGraph2D({ data, foco = null, resaltados = null, modo, escalaDeNodo = 1, distanciaDeLinks = 50, onOpen }: MemoryGraph2DProps) {
   const caja = useRef<HTMLDivElement>(null)
-  const fg = useRef<{ d3Force: (n: string) => { distance?: (d: number) => void } | undefined } | null>(null)
   const [tam, setTam] = useState({ w: 0, h: 0 })
   const [hover, setHover] = useState<string | null>(null)
 
@@ -48,7 +57,14 @@ export default function MemoryGraph2D({ data, foco = null, resaltados = null, mo
     return () => ro.disconnect()
   }, [])
 
-  useEffect(() => { fg.current?.d3Force('link')?.distance?.(distanciaDeLinks) }, [distanciaDeLinks])
+  // Ref callback: el grafo es lazy y espera el tamaño, así que la instancia llega después del
+  // montaje. Al cambiar `distanciaDeLinks` cambia la identidad del callback y React lo vuelve a
+  // llamar con la instancia viva: se aplica la distancia (también la inicial) y se recalienta.
+  const refDelGrafo = useCallback((g: InstanciaDelGrafo | null) => {
+    if (!g) return
+    g.d3Force('link')?.distance?.(distanciaDeLinks)
+    g.d3ReheatSimulation?.()
+  }, [distanciaDeLinks])
 
   const vecinosDelHover = useMemo(() => (hover ? vecinos(data.links, hover) : new Set<string>()), [hover, data.links])
   const colores = useMemo(() => ({
@@ -58,11 +74,11 @@ export default function MemoryGraph2D({ data, foco = null, resaltados = null, mo
   }), [])
 
   return (
-    <div ref={caja} className="relative h-full w-full" aria-label={modo === 'global' ? 'Memory graph' : 'Local graph'} role="img">
+    <div ref={caja} className="relative h-full w-full" aria-label={modo === 'global' ? 'Memory graph' : 'Local graph'} role="group">
       <Suspense fallback={null}>
         {tam.w > 0 && (
           <ForceGraph2D
-            ref={fg as never}
+            ref={refDelGrafo as never}
             width={tam.w}
             height={tam.h}
             graphData={data}
@@ -71,7 +87,6 @@ export default function MemoryGraph2D({ data, foco = null, resaltados = null, mo
             d3VelocityDecay={modo === 'local' ? 0.6 : 0.35}
             enableZoomInteraction={modo === 'global'}
             enablePanInteraction={modo === 'global'}
-            nodeRelSize={4 * escalaDeNodo}
             onNodeHover={(n) => setHover(n ? (n as Nodo).id : null)}
             onNodeClick={(n, e) => {
               if ((n as Nodo).pending) return
@@ -87,7 +102,7 @@ export default function MemoryGraph2D({ data, foco = null, resaltados = null, mo
             }}
             nodeCanvasObject={(raw, ctx, escala) => {
               const n = raw as Nodo
-              const r = (2.5 + Math.sqrt(n.degree + 1) * 1.6) * escalaDeNodo
+              const r = radioDe(n, escalaDeNodo)
               ctx.globalAlpha = opacidadDeNodo(n.id, hover, vecinosDelHover, resaltados)
               ctx.beginPath()
               ctx.arc(n.x ?? 0, n.y ?? 0, r, 0, 2 * Math.PI)
@@ -111,7 +126,7 @@ export default function MemoryGraph2D({ data, foco = null, resaltados = null, mo
               const n = raw as Nodo
               ctx.fillStyle = color
               ctx.beginPath()
-              ctx.arc(n.x ?? 0, n.y ?? 0, 8 * escalaDeNodo, 0, 2 * Math.PI)
+              ctx.arc(n.x ?? 0, n.y ?? 0, Math.max(radioDe(n, escalaDeNodo), 6), 0, 2 * Math.PI)
               ctx.fill()
             }}
           />
