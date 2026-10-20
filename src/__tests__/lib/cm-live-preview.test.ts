@@ -96,3 +96,31 @@ describe('decoraciones', () => {
     expect(n).toBeGreaterThan(5)
   })
 })
+
+describe('clases de linea por bloque', () => {
+  const lineasCon = (s: EditorState, clase: string) =>
+    marcasDeLivePreview(s, resolver).filter((m) => m.clase === clase && m.from === m.to).map((m) => s.doc.lineAt(m.from).number)
+  it('un bloque de codigo de 3 lineas decora cada linea', () => {
+    const s = estado('x\n\n```\na\nb\n```', 0)
+    expect(lineasCon(s, 'cm-lp-codeblock')).toEqual([3, 4, 5, 6])
+  })
+  it('una cita de 2 lineas decora cada linea', () => {
+    const s = estado('> uno\n> dos\n\nfin', 14)
+    expect(lineasCon(s, 'cm-lp-quote')).toEqual([1, 2])
+  })
+  it('un titulo dentro de una cita se decora al inicio de la linea, una sola vez', () => {
+    const s = estado('> ## Titulo', 0)
+    expect(lineasCon(s, 'cm-lp-h2')).toEqual([1])
+    expect(marcasDeLivePreview(s, resolver).filter((m) => m.clase === 'cm-lp-h2').map((m) => m.from)).toEqual([0])
+  })
+  it('un titulo setext lleva clase en su texto', () => {
+    const s = estado('Titulo\n======\n\nfin', 17)
+    expect(lineasCon(s, 'cm-lp-h1')).toEqual([1])
+    const s2 = estado('Sub\n---\n\nfin', 11)
+    expect(lineasCon(s2, 'cm-lp-h2')).toEqual([1])
+  })
+  it('decorar no rompe con citas, codigo y titulos anidados', () => {
+    const s = estado('> ## T\n> ```\n> x\n> ```\n\nSetext\n===', 0)
+    expect(() => decorar(s, resolver)).not.toThrow()
+  })
+})
