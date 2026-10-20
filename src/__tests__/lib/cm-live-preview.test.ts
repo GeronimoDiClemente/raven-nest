@@ -26,6 +26,12 @@ describe('live preview', () => {
     expect(ocultas(s)).not.toContain('**')
     expect(ocultas(s)).toContain('## ')
   })
+  it('sin foco no hay linea activa: todo se ve renderizado, tambien la del cursor', () => {
+    const s = estado(doc, doc.indexOf('fuerte'))
+    const o = marcasDeLivePreview(s, resolver, false).filter((m) => m.ocultar).map((m) => s.sliceDoc(m.from, m.to))
+    expect(o).toEqual(expect.arrayContaining(['## ', '**', '`', '[[', ']]']))
+    expect(o.filter((x) => x === '**')).toHaveLength(2)
+  })
   it('marca los wikilinks con su estado', () => {
     const s = estado(doc, 0)
     const links = marcasDeLivePreview(s, resolver).filter((m) => m.wikilink)

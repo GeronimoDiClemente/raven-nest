@@ -32,8 +32,12 @@ export function lineasActivas(state: EditorState): Set<number> {
   return out
 }
 
-export function marcasDeLivePreview(state: EditorState, resolver: Resolver): MarcaLP[] {
-  const activas = lineasActivas(state)
+/** `enfocado: false` = el editor no tiene el foco: como en Obsidian, no hay línea "en
+ *  edición" y se ve todo renderizado, también la línea donde quedó el cursor. CM6 siempre
+ *  tiene una selección (arranca en 0), así que sin esto la primera línea de una nota recién
+ *  abierta mostraría la sintaxis cruda y sus links no se podrían clickear. */
+export function marcasDeLivePreview(state: EditorState, resolver: Resolver, enfocado = true): MarcaLP[] {
+  const activas = enfocado ? lineasActivas(state) : new Set<number>()
   const enActiva = (pos: number) => activas.has(state.doc.lineAt(pos).number)
   const marcas: MarcaLP[] = []
   const codigo: Array<[number, number]> = []
@@ -96,9 +100,9 @@ export function marcasDeLivePreview(state: EditorState, resolver: Resolver): Mar
   return marcas
 }
 
-export function decorar(state: EditorState, resolver: Resolver): DecorationSet {
+export function decorar(state: EditorState, resolver: Resolver, enfocado = true): DecorationSet {
   const decos: Array<{ from: number; to: number; deco: Decoration }> = []
-  for (const m of marcasDeLivePreview(state, resolver)) {
+  for (const m of marcasDeLivePreview(state, resolver, enfocado)) {
     if (m.ocultar) decos.push({ from: m.from, to: m.to, deco: Decoration.replace({}) })
     else if (m.from === m.to && m.clase) decos.push({ from: m.from, to: m.from, deco: Decoration.line({ class: m.clase }) })
     else if (m.clase) {
@@ -119,11 +123,11 @@ export function decorar(state: EditorState, resolver: Resolver): DecorationSet {
 export function livePreview(opts: { resolver: () => Resolver; onWikilink: (nombre: string, background: boolean) => void }): Extension {
   const plugin = ViewPlugin.fromClass(class {
     decorations: DecorationSet
-    constructor(view: EditorView) { this.decorations = decorar(view.state, opts.resolver()) }
+    constructor(view: EditorView) { this.decorations = decorar(view.state, opts.resolver(), view.hasFocus) }
     update(u: ViewUpdate) {
       const forzado = u.transactions.some((t) => t.effects.some((e) => e.is(refrescarLivePreview)))
-      if (u.docChanged || u.selectionSet || u.viewportChanged || forzado || syntaxTree(u.state) !== syntaxTree(u.startState)) {
-        this.decorations = decorar(u.state, opts.resolver())
+      if (u.docChanged || u.selectionSet || u.viewportChanged || u.focusChanged || forzado || syntaxTree(u.state) !== syntaxTree(u.startState)) {
+        this.decorations = decorar(u.state, opts.resolver(), u.view.hasFocus)
       }
     }
   }, { decorations: (v) => v.decorations })
@@ -133,7 +137,8 @@ export function livePreview(opts: { resolver: () => Resolver; onWikilink: (nombr
       const el = (e.target as HTMLElement | null)?.closest('[data-wikilink]')
       if (!el) return false
       const pos = view.posAtDOM(el)
-      if (lineasActivas(view.state).has(view.state.doc.lineAt(pos).number)) return false // se está editando
+      // Se está editando esa línea (sólo con foco: sin foco no hay línea activa).
+      if (view.hasFocus && lineasActivas(view.state).has(view.state.doc.lineAt(pos).number)) return false
       e.preventDefault()
       opts.onWikilink(el.getAttribute('data-wikilink') ?? '', e.ctrlKey || e.metaKey)
       return true

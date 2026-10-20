@@ -1,0 +1,331 @@
+// El editor de una nota de Memories, estilo Obsidian: título grande editable y el cuerpo en
+// live preview sobre CodeMirror 6 (el documento es SIEMPRE el Markdown; la vista sólo
+// decide cómo se ve). Se guarda solo (`useAutosave`, 1500 ms). Es de presentación pura: los
+// datos y las acciones llegan por props — el adaptador (MemoriesNoteTab) es el que habla
+// con `window.memory`.
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState, type ForwardedRef } from 'react'
+import { Compartment, EditorState } from '@codemirror/state'
+import { EditorView } from '@codemirror/view'
+import { markdown } from '@codemirror/lang-markdown'
+import { MoreHorizontal } from 'lucide-react'
+import type { AIType, MemoryObservationDetail } from '../../types'
+import { livePreview, refrescarLivePreview, type Resolver } from '../../lib/cm-live-preview'
+import { autocompletadoDeWikilinks, type CandidatoDeLink } from '../../lib/cm-wikilink-autocomplete'
+import { memoryTypeSwatch } from '../../lib/memory-type-legend'
+import { relativeTime } from '../../lib/memories-status'
+import { nombreDeProyecto } from '../../lib/nombre-de-proyecto'
+import { useAutosave, type ResultadoDeGuardado } from '../../hooks/useAutosave'
+import { AILogo } from '../AILogos'
+import { Button } from '../ui/button'
+import { Popover, PopoverAnchor, PopoverContent } from '../ui/popover'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '../ui/dropdown-menu'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '../ui/alert-dialog'
+
+export interface MemoryNoteEditorHandle { irALinea: (linea: number) => void }
+export interface MemoryNoteEditorProps {
+  detail: MemoryObservationDetail
+  ansi?: readonly string[]
+  candidatos: CandidatoDeLink[]
+  /** Vino un cambio de afuera (onChanged) para esta memoria: la versión nueva del store. */
+  externo: MemoryObservationDetail | null
+  onSave: (v: { title: string; content: string }) => Promise<ResultadoDeGuardado>
+  onOpen: (syncId: string, opts: { background: boolean }) => void
+  onCreate: (titulo: string) => void
+  onOpenNewer: () => void
+  onConnect: () => void
+  onDelete: () => Promise<void>
+}
+
+type Valor = { title: string; content: string }
+type Medible = { getBoundingClientRect: () => DOMRect }
+
+const igual = (a: Valor, b: Valor) => a.title === b.title && a.content === b.content
+
+/** Copiar al portapapeles sin que un fallo (permiso, jsdom, ventana sin foco) rompa nada. */
+function copiar(v: Valor, alTerminar: () => void) {
+  try {
+    const p = navigator.clipboard?.writeText(`${v.title}\n\n${v.content}`)
+    if (p) p.then(alTerminar).catch(() => {})
+  } catch {
+    // Sin portapapeles: el texto sigue en el editor.
+  }
+}
+
+/** Una memoria por instancia: cambiar de memoria es montar otra (key = syncId), así el
+ *  autoguardado y el EditorView nunca mezclan el texto de una con el id de otra. */
+const MemoryNoteEditor = forwardRef<MemoryNoteEditorHandle, MemoryNoteEditorProps>(function MemoryNoteEditor(props, ref) {
+  return <EditorDeNota key={props.detail.syncId} {...props} handleRef={ref} />
+})
+export default MemoryNoteEditor
+
+function EditorDeNota({
+  detail, ansi, candidatos, externo, onSave, onOpen, onCreate, onOpenNewer, onConnect, onDelete, handleRef,
+}: MemoryNoteEditorProps & { handleRef: ForwardedRef<MemoryNoteEditorHandle> }) {
+  const [titulo, setTitulo] = useState(detail.title)
+  const [contenido, setContenido] = useState(detail.content ?? '')
+  const [base, setBase] = useState<Valor>({ title: detail.title, content: detail.content ?? '' })
+  // La última versión del store que se aplicó desde afuera (links, supersededBy).
+  const [externoAplicado, setExternoAplicado] = useState<MemoryObservationDetail | null>(null)
+  const [bandaExterna, setBandaExterna] = useState(false)
+  const [copiado, setCopiado] = useState(false)
+  const [borrando, setBorrando] = useState(false)
+  const [confirmarBorrado, setConfirmarBorrado] = useState(false)
+  const [pendiente, setPendiente] = useState<string | null>(null)
+
+  const fuente = externoAplicado ?? detail
+  const reemplazadaDeOrigen = fuente.supersededBy !== null
+  const habilitado = !reemplazadaDeOrigen && !bandaExterna && !borrando
+  // Lo último que mandamos a guardar: cuando el store lo devuelve por onChanged es nuestro
+  // propio eco, no un cambio de otro, aunque mientras tanto se haya seguido escribiendo.
+  const enviadoRef = useRef<Valor | null>(null)
+  const guardar = (v: Valor) => { enviadoRef.current = v; return onSave(v) }
+  const auto = useAutosave({ valor: { title: titulo, content: contenido }, base, guardar, habilitado })
+  const soloLectura = !habilitado || auto.estado === 'reemplazada' || auto.estado === 'borrada'
+
+  const viewRef = useRef<EditorView | null>(null)
+  const cuerpoRef = useRef<HTMLDivElement | null>(null)
+  const anclaRef = useRef<Medible | null>(null)
+  const ultimoLinkRef = useRef<HTMLElement | null>(null)
+  const soloLecturaComp = useRef(new Compartment()).current
+  const tituloRef = useRef(titulo)
+  const contenidoRef = useRef(contenido)
+  const sucioRef = useRef(auto.sucio)
+  const soloLecturaRef = useRef(soloLectura)
+  const candidatosRef = useRef(candidatos)
+  const onOpenRef = useRef(onOpen)
+  tituloRef.current = titulo
+  contenidoRef.current = contenido
+  sucioRef.current = auto.sucio
+  soloLecturaRef.current = soloLectura
+  candidatosRef.current = candidatos
+  onOpenRef.current = onOpen
+
+  // Links por nombre (en minúsculas). La clave en texto evita refrescar la vista cuando el
+  // padre manda un array nuevo con lo mismo adentro.
+  const linksKey = JSON.stringify(fuente.links ?? [])
+  const linksPorNombre = useMemo(() => {
+    const links = JSON.parse(linksKey) as Array<{ name: string; syncId: string | null }>
+    return new Map(links.map((l) => [l.name.toLowerCase(), l.syncId]))
+  }, [linksKey])
+  const resolverRef = useRef<Resolver>(() => 'desconocido')
+  resolverRef.current = (nombre) => {
+    const l = linksPorNombre.get(nombre.toLowerCase())
+    return l === undefined ? 'desconocido' : l === null ? 'pendiente' : { syncId: l }
+  }
+
+  // Navegación segura (Review Focus 5): sólo se abre lo que el store resolvió a un syncId.
+  // Un `[[javascript:...]]` o cualquier nombre que no está en `links` no hace nada.
+  const onWikilinkRef = useRef((nombre: string, background: boolean) => {
+    const r = resolverRef.current(nombre)
+    if (r === 'desconocido') return
+    if (r === 'pendiente') {
+      const el = ultimoLinkRef.current
+      if (el) {
+        const rect = el.getBoundingClientRect()
+        anclaRef.current = { getBoundingClientRect: () => (el.isConnected ? el.getBoundingClientRect() : rect) }
+      } else {
+        anclaRef.current = null
+      }
+      setPendiente(nombre)
+      return
+    }
+    onOpenRef.current(r.syncId, { background })
+  })
+
+  // El EditorView: uno por memoria (este componente se monta por syncId).
+  useEffect(() => {
+    const parent = cuerpoRef.current
+    if (!parent) return
+    const view = new EditorView({
+      parent,
+      state: EditorState.create({
+        doc: contenidoRef.current,
+        extensions: [
+          markdown(),
+          EditorView.lineWrapping,
+          livePreview({ resolver: () => resolverRef.current, onWikilink: (n, bg) => onWikilinkRef.current(n, bg) }),
+          autocompletadoDeWikilinks(() => candidatosRef.current),
+          EditorView.updateListener.of((u) => { if (u.docChanged) setContenido(u.state.doc.toString()) }),
+          soloLecturaComp.of(EditorState.readOnly.of(soloLecturaRef.current)),
+          EditorView.contentAttributes.of({ 'aria-label': 'Memory content' }),
+        ],
+      }),
+    })
+    viewRef.current = view
+    return () => { view.destroy(); viewRef.current = null }
+  }, [soloLecturaComp])
+
+  useEffect(() => {
+    viewRef.current?.dispatch({ effects: soloLecturaComp.reconfigure(EditorState.readOnly.of(soloLectura)) })
+  }, [soloLectura, soloLecturaComp])
+
+  useEffect(() => {
+    viewRef.current?.dispatch({ effects: refrescarLivePreview.of(null) })
+  }, [linksPorNombre])
+
+  // Cambio de afuera (un agente, otra máquina). Sin cambios locales: se recarga. Con cambios
+  // locales (Review Focus 3): no se pisa lo escrito — banda, solo lectura, y el texto al
+  // portapapeles para que tampoco se pierda al cerrar.
+  useEffect(() => {
+    if (!externo || externo.syncId !== detail.syncId) return
+    const nuevo: Valor = { title: externo.title, content: externo.content ?? '' }
+    const actual: Valor = { title: tituloRef.current, content: contenidoRef.current }
+    setExternoAplicado(externo)
+    // Igual a lo que hay, o el eco de nuestro propio guardado: sólo se mueve la base.
+    if (igual(actual, nuevo) || (enviadoRef.current && igual(enviadoRef.current, nuevo))) { setBase(nuevo); return }
+    if (sucioRef.current) {
+      setBandaExterna(true)
+      copiar(actual, () => setCopiado(true))
+      return
+    }
+    setBase(nuevo)
+    setTitulo(nuevo.title)
+    const view = viewRef.current
+    if (view) view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: nuevo.content } })
+    else setContenido(nuevo.content)
+    // Se dispara por versión, no por identidad del objeto.
+  }, [externo?.updatedAt, externo?.syncId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Un guardado rechazado porque otra versión la reemplazó: el texto no se pierde.
+  useEffect(() => {
+    if (auto.estado === 'reemplazada') copiar({ title: tituloRef.current, content: contenidoRef.current }, () => setCopiado(true))
+  }, [auto.estado])
+
+  useImperativeHandle(handleRef, () => ({
+    irALinea: (n: number) => {
+      const view = viewRef.current
+      if (!view) return
+      const l = view.state.doc.line(Math.max(1, Math.min(n, view.state.doc.lines)))
+      view.dispatch({ selection: { anchor: l.from }, scrollIntoView: true })
+      view.focus()
+    },
+  }), [])
+
+  const borrar = async () => {
+    setBorrando(true) // corta el autoguardado: nada de re-guardar lo que se está borrando
+    try {
+      await onDelete()
+    } catch {
+      setBorrando(false)
+    }
+  }
+
+  const swatch = memoryTypeSwatch(fuente.type, ansi)
+  const mostrarReemplazada = reemplazadaDeOrigen || bandaExterna || auto.estado === 'reemplazada'
+  const textoDeEstado = auto.estado === 'guardando' ? 'Saving…' : auto.estado === 'guardado' ? 'Saved' : auto.estado === 'pendiente' ? 'Unsaved' : null
+  const banda = 'rounded-md border border-border bg-accent px-3 py-2 text-fs-sm'
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+      <div className="mx-auto w-full max-w-[720px] px-10 py-9">
+        <div className="mb-4 flex items-center gap-2 text-fs-xs text-muted-foreground">
+          <span aria-hidden className="size-2 shrink-0 rounded-full" style={{ background: swatch ? swatch.color : 'var(--muted-foreground)' }} />
+          <span>{swatch ? swatch.label : fuente.type}</span>
+          <span aria-hidden>·</span>
+          <span className="font-mono">{nombreDeProyecto(fuente.projectKey, null)}</span>
+          {fuente.gitBranch && (
+            <>
+              <span aria-hidden>·</span>
+              <span className="font-mono">{fuente.gitBranch}</span>
+            </>
+          )}
+          <span aria-hidden>·</span>
+          <span>{relativeTime(fuente.updatedAt)}</span>
+          {fuente.originAi && <AILogo aiType={fuente.originAi as AIType} size={12} />}
+          <span className="ml-auto" aria-live="polite">{textoDeEstado}</span>
+          {!soloLectura && (
+            <DropdownMenu modal={false}>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon-sm" aria-label="More actions">
+                  <MoreHorizontal />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onSelect={() => onConnect()}>Connect to another memory…</DropdownMenuItem>
+                <DropdownMenuItem variant="destructive" onSelect={() => setConfirmarBorrado(true)}>Delete</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+        </div>
+
+        {mostrarReemplazada && (
+          <div role="status" className={`${banda} mb-3 flex flex-wrap items-center gap-2`}>
+            <span>A newer version replaced this one.</span>
+            {copiado && <span className="text-muted-foreground">Your text was copied to the clipboard.</span>}
+            <Button size="sm" variant="outline" className="ml-auto" onClick={onOpenNewer}>Open the newer version</Button>
+          </div>
+        )}
+        {auto.estado === 'borrada' && (
+          <div role="status" className={`${banda} mb-3`}>This memory was deleted.</div>
+        )}
+        {auto.estado === 'error' && (
+          <div role="status" className={`${banda} mb-3 flex items-center gap-2 text-destructive`}>
+            <span>{auto.error ?? 'Could not save'}</span>
+            <Button size="sm" variant="outline" className="ml-auto" onClick={auto.reintentar}>Retry</Button>
+          </div>
+        )}
+
+        <input
+          aria-label="Memory title"
+          value={titulo}
+          readOnly={soloLectura}
+          placeholder="Untitled"
+          onChange={(e) => setTitulo(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') { e.preventDefault(); viewRef.current?.focus() }
+          }}
+          className="mb-4 w-full border-0 bg-transparent p-0 text-fs-2xl font-semibold text-foreground outline-none placeholder:text-muted-foreground"
+        />
+
+        {/* La captura guarda qué link se tocó, para anclar el popover: el handler de
+            CodeMirror sólo pasa el nombre. */}
+        <div
+          ref={cuerpoRef}
+          onMouseDownCapture={(e) => {
+            const t = e.target as HTMLElement | null
+            ultimoLinkRef.current = (t?.closest?.('[data-wikilink]') as HTMLElement | null) ?? null
+          }}
+        />
+
+        <Popover open={pendiente !== null} onOpenChange={(o) => { if (!o) setPendiente(null) }}>
+          <PopoverAnchor virtualRef={anclaRef} />
+          <PopoverContent align="start" className="flex w-60 flex-col gap-2">
+            <p className="text-fs-sm text-muted-foreground">Not written yet</p>
+            <Button
+              size="sm"
+              onClick={() => {
+                const n = pendiente
+                setPendiente(null)
+                if (n) onCreate(n)
+              }}
+            >
+              Create this memory
+            </Button>
+          </PopoverContent>
+        </Popover>
+      </div>
+
+      <AlertDialog open={confirmarBorrado} onOpenChange={setConfirmarBorrado}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this memory?</AlertDialogTitle>
+            <AlertDialogDescription>This cannot be undone.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => void borrar()}>Delete</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  )
+}
