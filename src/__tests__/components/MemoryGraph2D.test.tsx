@@ -1,0 +1,29 @@
+import { describe, it, expect, vi } from 'vitest'
+import { render, screen, fireEvent } from '@testing-library/react'
+
+vi.mock('react-force-graph-2d', () => ({
+  default: ({ graphData, onNodeClick }: { graphData: { nodes: Array<{ id: string; label: string }> }; onNodeClick: (n: { id: string }, e: MouseEvent) => void }) => (
+    <div data-testid="fg2d">
+      {graphData.nodes.map((n) => (
+        <button key={n.id} type="button" onClick={(e) => onNodeClick(n, e.nativeEvent)}>{n.label}</button>
+      ))}
+    </div>
+  ),
+}))
+
+import MemoryGraph2D from '../../components/memories/MemoryGraph2D'
+
+const nodo = (id: string, pending = false) => ({ id, label: id, color: '#fff', val: 1, degree: 1, superseded: false, type: 'decision', projectKey: 'p', projectLabel: 'p', tags: [], gitBranch: null, pending })
+
+describe('MemoryGraph2D', () => {
+  it('click en un nodo abre la memoria; ctrl+click en segundo plano; un hueco no abre', async () => {
+    const onOpen = vi.fn()
+    render(<MemoryGraph2D modo="global" onOpen={onOpen} data={{ nodes: [nodo('a'), nodo('hueco', true)], links: [], orphansHidden: 0 }} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'a' }))
+    expect(onOpen).toHaveBeenLastCalledWith('a', { background: false })
+    fireEvent.click(screen.getByRole('button', { name: 'a' }), { ctrlKey: true })
+    expect(onOpen).toHaveBeenLastCalledWith('a', { background: true })
+    fireEvent.click(screen.getByRole('button', { name: 'hueco' }))
+    expect(onOpen).toHaveBeenCalledTimes(2)
+  })
+})
