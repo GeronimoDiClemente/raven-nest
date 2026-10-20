@@ -1,5 +1,6 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, act } from '@testing-library/react'
+import { EditorView } from '@codemirror/view'
 import MemoryNoteEditor from '../../components/memories/MemoryNoteEditor'
 import type { MemoryObservationDetail } from '../../types'
 
@@ -79,5 +80,146 @@ describe('MemoryNoteEditor', () => {
     expect(screen.queryByRole('button', { name: 'More actions' })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Open the newer version' }))
     expect(p.onOpenNewer).toHaveBeenCalled()
+  })
+})
+
+// Fix round 1, Important #1: main guarda con trim y `redact()`, asi que el eco de nuestro
+// propio guardado NO es igual a lo que mandamos. Tomarlo por un cambio de otro bloqueaba la
+// nota y copiaba al portapapeles el texto SIN redactar.
+describe('MemoryNoteEditor: el eco de nuestro guardado', () => {
+  const titulo = () => screen.getByRole('textbox', { name: 'Memory title' })
+  const vista = () => EditorView.findFromDOM(document.querySelector('.cm-editor') as HTMLElement)!
+  const escribirCuerpo = (texto: string) => {
+    const view = vista()
+    act(() => { view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: texto } }) })
+  }
+  let writeText: ReturnType<typeof vi.fn>
+  beforeEach(() => {
+    vi.useFakeTimers()
+    writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+    Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true })
+  })
+
+  it('eco recortado y redactado mientras se sigue escribiendo: sin banda, editable, nada al portapapeles', async () => {
+    const p = props()
+    p.onSave.mockResolvedValue({ ok: true, saved: { title: 'A1', content: 'token [REDACTED]' } })
+    const { rerender } = render(<MemoryNoteEditor detail={det()} {...p} />)
+    fireEvent.change(titulo(), { target: { value: 'A1 ' } })
+    escribirCuerpo('token sk-secreto\n')
+    await act(async () => { vi.advanceTimersByTime(1500) })
+    expect(p.onSave).toHaveBeenCalledWith({ title: 'A1 ', content: 'token sk-secreto\n' })
+    fireEvent.change(titulo(), { target: { value: 'A1 sigo' } })
+    rerender(<MemoryNoteEditor detail={det()} {...p} externo={det({ title: 'A1', content: 'token [REDACTED]', updatedAt: 2 })} />)
+    expect(screen.queryByText(/A newer version replaced this one/)).toBeNull()
+    expect(titulo()).toHaveValue('A1 sigo')
+    expect(titulo()).not.toHaveAttribute('readonly')
+    expect(vista().state.doc.toString()).toBe('token sk-secreto\n')
+    expect(writeText).not.toHaveBeenCalled()
+  })
+
+  it('eco que llega ANTES de que el guardado responda: se espera la respuesta y no hay banda', async () => {
+    const p = props()
+    let responder!: (r: unknown) => void
+    p.onSave.mockImplementation(() => new Promise((r) => { responder = r }))
+    const { rerender } = render(<MemoryNoteEditor detail={det()} {...p} />)
+    fireEvent.change(titulo(), { target: { value: 'A1' } })
+    escribirCuerpo('clave sk-x')
+    await act(async () => { vi.advanceTimersByTime(1500) })
+    fireEvent.change(titulo(), { target: { value: 'A1 mas' } })
+    rerender(<MemoryNoteEditor detail={det()} {...p} externo={det({ title: 'A1', content: 'clave [REDACTED]', updatedAt: 2 })} />)
+    await act(async () => { responder({ ok: true, saved: { title: 'A1', content: 'clave [REDACTED]' } }) })
+    expect(screen.queryByText(/A newer version replaced this one/)).toBeNull()
+    expect(titulo()).not.toHaveAttribute('readonly')
+    expect(writeText).not.toHaveBeenCalled()
+  })
+
+  it('main viejo sin saved: el eco se reconoce comparando con trim', async () => {
+    const p = props()
+    const { rerender } = render(<MemoryNoteEditor detail={det()} {...p} />)
+    fireEvent.change(titulo(), { target: { value: 'A1 ' } })
+    await act(async () => { vi.advanceTimersByTime(1500) })
+    fireEvent.change(titulo(), { target: { value: 'A1 x' } })
+    rerender(<MemoryNoteEditor detail={det()} {...p} externo={det({ title: 'A1', updatedAt: 2 })} />)
+    expect(screen.queryByText(/A newer version replaced this one/)).toBeNull()
+  })
+
+  it('el eco no deja la pestana en Unsaved por el trim', async () => {
+    const p = props()
+    p.onSave.mockResolvedValue({ ok: true, saved: { title: 'A1', content: 'ver [[Otra]] y [[Falta]]' } })
+    const { rerender } = render(<MemoryNoteEditor detail={det()} {...p} />)
+    fireEvent.change(titulo(), { target: { value: 'A1 ' } })
+    await act(async () => { vi.advanceTimersByTime(1500) })
+    rerender(<MemoryNoteEditor detail={det()} {...p} externo={det({ title: 'A1', updatedAt: 2 })} />)
+    expect(screen.getByText('Saved')).toBeInTheDocument()
+    await act(async () => { vi.advanceTimersByTime(5000) })
+    expect(p.onSave).toHaveBeenCalledTimes(1)
+    expect(titulo()).toHaveValue('A1 ')
+  })
+
+  it('un cambio externo de verdad con cambios locales sigue mostrando la banda', async () => {
+    const p = props()
+    p.onSave.mockResolvedValue({ ok: true, saved: { title: 'A1', content: 'ver [[Otra]] y [[Falta]]' } })
+    const { rerender } = render(<MemoryNoteEditor detail={det()} {...p} />)
+    fireEvent.change(titulo(), { target: { value: 'A1' } })
+    await act(async () => { vi.advanceTimersByTime(1500) })
+    fireEvent.change(titulo(), { target: { value: 'A1 mio' } })
+    rerender(<MemoryNoteEditor detail={det()} {...p} externo={det({ title: 'Del agente', updatedAt: 2 })} />)
+    expect(screen.getByText(/A newer version replaced this one/)).toBeInTheDocument()
+    expect(titulo()).toHaveValue('A1 mio')
+  })
+
+  it('el eco se consume: un agente que vuelve la nota a nuestro v1 despues es un cambio externo', async () => {
+    const p = props()
+    p.onSave.mockResolvedValue({ ok: true, saved: { title: 'A1', content: 'ver [[Otra]] y [[Falta]]' } })
+    const { rerender } = render(<MemoryNoteEditor detail={det()} {...p} />)
+    fireEvent.change(titulo(), { target: { value: 'A1' } })
+    await act(async () => { vi.advanceTimersByTime(1500) })
+    rerender(<MemoryNoteEditor detail={det()} {...p} externo={det({ title: 'A1', updatedAt: 2 })} />)
+    rerender(<MemoryNoteEditor detail={det()} {...p} externo={det({ title: 'Del agente', updatedAt: 3 })} />)
+    expect(titulo()).toHaveValue('Del agente')
+    fireEvent.change(titulo(), { target: { value: 'Mio' } })
+    rerender(<MemoryNoteEditor detail={det()} {...p} externo={det({ title: 'A1', updatedAt: 4 })} />)
+    expect(screen.getByText(/A newer version replaced this one/)).toBeInTheDocument()
+    expect(titulo()).toHaveValue('Mio')
+  })
+})
+
+describe('MemoryNoteEditor: titulo vacio, borrado fallido, irALinea', () => {
+  it('un titulo vacio marca el campo y dice Title required', () => {
+    render(<MemoryNoteEditor detail={det()} {...props()} />)
+    const t = screen.getByRole('textbox', { name: 'Memory title' })
+    expect(t).toHaveAttribute('aria-invalid', 'false')
+    fireEvent.change(t, { target: { value: '   ' } })
+    expect(t).toHaveAttribute('aria-invalid', 'true')
+    expect(screen.getByText('Title required')).toBeInTheDocument()
+    expect(screen.queryByText('Unsaved')).toBeNull()
+  })
+
+  it('si borrar falla, avisa y la nota sigue', async () => {
+    const p = props()
+    p.onDelete.mockRejectedValue(new Error('disk'))
+    render(<MemoryNoteEditor detail={det()} {...p} />)
+    fireEvent.keyDown(screen.getByRole('button', { name: 'More actions' }), { key: 'Enter' })
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Delete' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete' }))
+    expect(await screen.findByText('Could not delete this memory.')).toBeInTheDocument()
+    expect(p.onDelete).toHaveBeenCalled()
+    expect(screen.getByRole('textbox', { name: 'Memory title' })).not.toHaveAttribute('readonly')
+  })
+
+  it('irALinea tolera NaN y no enteros', () => {
+    const ref = { current: null as null | { irALinea: (n: number) => void } }
+    render(<MemoryNoteEditor ref={ref} detail={det({ content: 'a\nb\nc' })} {...props()} />)
+    const view = EditorView.findFromDOM(document.querySelector('.cm-editor') as HTMLElement)!
+    act(() => { ref.current!.irALinea(Number.NaN) })
+    expect(view.state.selection.main.head).toBe(0)
+    act(() => { ref.current!.irALinea(2.7) })
+    expect(view.state.selection.main.head).toBe(2)
+    act(() => { ref.current!.irALinea(99) })
+    expect(view.state.selection.main.head).toBe(4)
   })
 })

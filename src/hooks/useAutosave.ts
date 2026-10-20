@@ -3,7 +3,13 @@
 // desmontaje guarda igual, sin esperar la respuesta.
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-export interface ResultadoDeGuardado { ok: boolean; reason?: string | null; error?: string }
+export interface ResultadoDeGuardado {
+  ok: boolean
+  reason?: string | null
+  error?: string
+  /** Lo que QUEDO guardado (main hace trim y `redact()`): no siempre es lo que se mando. */
+  saved?: { title: string; content: string }
+}
 export type EstadoDeGuardado = 'limpio' | 'pendiente' | 'guardando' | 'guardado' | 'error' | 'reemplazada' | 'borrada'
 
 type Valor = { title: string; content: string }
@@ -88,7 +94,8 @@ export function useAutosave(opts: {
     if (montadoRef.current) { setEstado(siguiente); setError(mensaje) }
     if (otraVezRef.current) {
       otraVezRef.current = false
-      if (!terminalRef.current) await flush()
+      // Desmontado: el desmontaje ya mando lo ultimo; repetir seria mandarlo dos veces.
+      if (!terminalRef.current && montadoRef.current) await flush()
     }
   }, [])
 

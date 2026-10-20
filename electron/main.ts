@@ -3923,7 +3923,15 @@ ipcMain.handle('memory:updateFromUi', (_event, input: {
     // Sólo si algo cambió de verdad: `update()` es no-op cuando el contenido es el mismo, y
     // empujar por una corrección que no corrige nada gastaría un ciclo de sync por nada.
     if (res.updated) memory.daemon.scheduleMutationPush()
-    return { ok: res.updated, reason: res.reason ?? null }
+    // Lo que QUEDÓ guardado, que no es lo que se mandó: acá se hace trim y `update()` pasa
+    // `redact()`. El editor lo usa para reconocer el eco de su propio guardado (onChanged)
+    // y no tomarlo por un cambio de otro.
+    let saved: { title: string; content: string } | undefined
+    if (res.updated || res.reason === 'unchanged') {
+      const row = memory.store.get(res.syncId ?? syncId)
+      if (row && row.deleted !== 1) saved = { title: row.title, content: row.content ?? '' }
+    }
+    return { ok: res.updated, reason: res.reason ?? null, ...(saved ? { saved } : {}) }
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : 'update_failed' }
   }

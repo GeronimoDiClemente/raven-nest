@@ -1143,7 +1143,14 @@ declare global {
         title?: string
         content?: string
         tags?: string[]
-      }) => Promise<{ ok: boolean; reason?: string | null; error?: string }>
+      }) => Promise<{
+        ok: boolean
+        reason?: string | null
+        error?: string
+        /** Lo que quedó guardado (después del trim y de `redact()`), también con 'unchanged'.
+         *  Ausente en un main viejo. */
+        saved?: { title: string; content: string }
+      }>
       /** Borrar una memoria. Escribe una tombstone: el borrado tiene que cruzar a las
        *  otras máquinas, y una fila que simplemente desaparece vuelve a bajar en el pull. */
       deleteFromUi?: (syncId: string) => Promise<{ ok: boolean; error?: string }>

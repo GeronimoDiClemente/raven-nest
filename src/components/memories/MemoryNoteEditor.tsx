@@ -49,6 +49,12 @@ type Valor = { title: string; content: string }
 type Medible = { getBoundingClientRect: () => DOMRect }
 
 const igual = (a: Valor, b: Valor) => a.title === b.title && a.content === b.content
+const igualConTrim = (a: Valor, b: Valor) => a.title.trim() === b.title.trim() && a.content.trim() === b.content.trim()
+
+/** Un guardado nuestro del que todavia puede llegar el eco por onChanged: lo que mandamos y
+ *  lo que main dice que quedo (trim + `redact()`; null si todavia no respondio, o si es un
+ *  main viejo que no lo devuelve). */
+interface MarcaDeEco { enviado: Valor; saved: Valor | null }
 
 /** Copiar al portapapeles sin que un fallo (permiso, jsdom, ventana sin foco) rompa nada. */
 function copiar(v: Valor, alTerminar: () => void) {
@@ -78,16 +84,49 @@ function EditorDeNota({
   const [bandaExterna, setBandaExterna] = useState(false)
   const [copiado, setCopiado] = useState(false)
   const [borrando, setBorrando] = useState(false)
+  const [errorAlBorrar, setErrorAlBorrar] = useState(false)
   const [confirmarBorrado, setConfirmarBorrado] = useState(false)
   const [pendiente, setPendiente] = useState<string | null>(null)
 
   const fuente = externoAplicado ?? detail
   const reemplazadaDeOrigen = fuente.supersededBy !== null
   const habilitado = !reemplazadaDeOrigen && !bandaExterna && !borrando
-  // Lo último que mandamos a guardar: cuando el store lo devuelve por onChanged es nuestro
-  // propio eco, no un cambio de otro, aunque mientras tanto se haya seguido escribiendo.
-  const enviadoRef = useRef<Valor | null>(null)
-  const guardar = (v: Valor) => { enviadoRef.current = v; return onSave(v) }
+  // Reconocer el eco de nuestros propios guardados (Fix round 1, Important #1). Cuando el
+  // store devuelve por onChanged lo que acabamos de guardar NO es un cambio de otro, aunque
+  // mientras tanto se haya seguido escribiendo, y aunque no sea igual a lo que mandamos: main
+  // hace trim y `redact()`. Tomarlo por ajeno bloqueaba la nota y copiaba al portapapeles el
+  // texto SIN redactar.
+  const marcasRef = useRef<MarcaDeEco[]>([])
+  const enVueloRef = useRef(0)
+  // Un `externo` que llego con un guardado en vuelo: se decide cuando main responda, que es
+  // cuando se sabe que quedo guardado (el evento puede llegar antes que la respuesta).
+  const diferidoRef = useRef<MemoryObservationDetail | null>(null)
+  // La version (updatedAt) del ultimo eco consumido: un segundo aviso de la misma version
+  // tambien es eco.
+  const ecoConsumidoRef = useRef<number | null>(null)
+  const procesarExternoRef = useRef<(ext: MemoryObservationDetail) => void>(() => {})
+  const guardar = async (v: Valor): Promise<ResultadoDeGuardado> => {
+    const marca: MarcaDeEco = { enviado: v, saved: null }
+    marcasRef.current = [...marcasRef.current, marca].slice(-3)
+    enVueloRef.current++
+    try {
+      const r = await onSave(v)
+      // Sin `ok` (unchanged, error, rechazo) no hay fila nueva y no va a venir eco.
+      if (r.ok) marca.saved = r.saved ?? null
+      else marcasRef.current = marcasRef.current.filter((m) => m !== marca)
+      return r
+    } catch (e) {
+      marcasRef.current = marcasRef.current.filter((m) => m !== marca)
+      throw e
+    } finally {
+      enVueloRef.current--
+      const d = diferidoRef.current
+      if (enVueloRef.current === 0 && d) {
+        diferidoRef.current = null
+        procesarExternoRef.current(d)
+      }
+    }
+  }
   const auto = useAutosave({ valor: { title: titulo, content: contenido }, base, guardar, habilitado })
   const soloLectura = !habilitado || auto.estado === 'reemplazada' || auto.estado === 'borrada'
 
@@ -175,13 +214,26 @@ function EditorDeNota({
   // Cambio de afuera (un agente, otra máquina). Sin cambios locales: se recarga. Con cambios
   // locales (Review Focus 3): no se pisa lo escrito — banda, solo lectura, y el texto al
   // portapapeles para que tampoco se pierda al cerrar.
-  useEffect(() => {
-    if (!externo || externo.syncId !== detail.syncId) return
-    const nuevo: Valor = { title: externo.title, content: externo.content ?? '' }
+  procesarExternoRef.current = (ext) => {
+    if (ext.syncId !== detail.syncId) return
+    const nuevo: Valor = { title: ext.title, content: ext.content ?? '' }
+    setExternoAplicado(ext)
+    if (ecoConsumidoRef.current !== null && ecoConsumidoRef.current === ext.updatedAt) return
+    const i = marcasRef.current.findIndex((m) => (m.saved ? igual(m.saved, nuevo) : igualConTrim(m.enviado, nuevo)))
+    if (i >= 0) {
+      // Eco: ni banda ni tocar el documento. La referencia del autoguardado pasa a lo que
+      // MANDAMOS, para que el trim/redact del store no deje la pestana en "Unsaved".
+      setBase(marcasRef.current[i].enviado)
+      marcasRef.current = marcasRef.current.slice(i + 1)
+      ecoConsumidoRef.current = ext.updatedAt
+      return
+    }
+    // Un cambio de otro: las marcas viejas ya no valen (si un agente vuelve la nota a
+    // nuestro v1, eso no es nuestro eco).
+    marcasRef.current = []
+    ecoConsumidoRef.current = null
     const actual: Valor = { title: tituloRef.current, content: contenidoRef.current }
-    setExternoAplicado(externo)
-    // Igual a lo que hay, o el eco de nuestro propio guardado: sólo se mueve la base.
-    if (igual(actual, nuevo) || (enviadoRef.current && igual(enviadoRef.current, nuevo))) { setBase(nuevo); return }
+    if (igual(actual, nuevo)) { setBase(nuevo); return }
     if (sucioRef.current) {
       setBandaExterna(true)
       copiar(actual, () => setCopiado(true))
@@ -192,6 +244,12 @@ function EditorDeNota({
     const view = viewRef.current
     if (view) view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: nuevo.content } })
     else setContenido(nuevo.content)
+  }
+
+  useEffect(() => {
+    if (!externo || externo.syncId !== detail.syncId) return
+    if (enVueloRef.current > 0) { diferidoRef.current = externo; return }
+    procesarExternoRef.current(externo)
     // Se dispara por versión, no por identidad del objeto.
   }, [externo?.updatedAt, externo?.syncId]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -204,7 +262,8 @@ function EditorDeNota({
     irALinea: (n: number) => {
       const view = viewRef.current
       if (!view) return
-      const l = view.state.doc.line(Math.max(1, Math.min(n, view.state.doc.lines)))
+      const entero = Number.isFinite(n) ? Math.trunc(n) : 1
+      const l = view.state.doc.line(Math.max(1, Math.min(entero, view.state.doc.lines)))
       view.dispatch({ selection: { anchor: l.from }, scrollIntoView: true })
       view.focus()
     },
@@ -212,16 +271,20 @@ function EditorDeNota({
 
   const borrar = async () => {
     setBorrando(true) // corta el autoguardado: nada de re-guardar lo que se está borrando
+    setErrorAlBorrar(false)
     try {
       await onDelete()
     } catch {
       setBorrando(false)
+      setErrorAlBorrar(true)
     }
   }
 
   const swatch = memoryTypeSwatch(fuente.type, ansi)
   const mostrarReemplazada = reemplazadaDeOrigen || bandaExterna || auto.estado === 'reemplazada'
-  const textoDeEstado = auto.estado === 'guardando' ? 'Saving…' : auto.estado === 'guardado' ? 'Saved' : auto.estado === 'pendiente' ? 'Unsaved' : null
+  const tituloVacio = titulo.trim() === ''
+  const avisoDeTitulo = !soloLectura && tituloVacio
+  const textoDeEstado = avisoDeTitulo ? 'Title required' : auto.estado === 'guardando' ? 'Saving…' : auto.estado === 'guardado' ? 'Saved' : auto.estado === 'pendiente' ? 'Unsaved' : null
   const banda = 'rounded-md border border-border bg-accent px-3 py-2 text-fs-sm'
 
   return (
@@ -241,7 +304,7 @@ function EditorDeNota({
           <span aria-hidden>·</span>
           <span>{relativeTime(fuente.updatedAt)}</span>
           {fuente.originAi && <AILogo aiType={fuente.originAi as AIType} size={12} />}
-          <span className="ml-auto" aria-live="polite">{textoDeEstado}</span>
+          <span className={avisoDeTitulo ? 'ml-auto text-destructive' : 'ml-auto'} aria-live="polite">{textoDeEstado}</span>
           {!soloLectura && (
             <DropdownMenu modal={false}>
               <DropdownMenuTrigger asChild>
@@ -267,6 +330,9 @@ function EditorDeNota({
         {auto.estado === 'borrada' && (
           <div role="status" className={`${banda} mb-3`}>This memory was deleted.</div>
         )}
+        {errorAlBorrar && (
+          <div role="status" className={`${banda} mb-3 text-destructive`}>Could not delete this memory.</div>
+        )}
         {auto.estado === 'error' && (
           <div role="status" className={`${banda} mb-3 flex items-center gap-2 text-destructive`}>
             <span>{auto.error ?? 'Could not save'}</span>
@@ -278,12 +344,13 @@ function EditorDeNota({
           aria-label="Memory title"
           value={titulo}
           readOnly={soloLectura}
+          aria-invalid={tituloVacio}
           placeholder="Untitled"
           onChange={(e) => setTitulo(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter') { e.preventDefault(); viewRef.current?.focus() }
           }}
-          className="mb-4 w-full border-0 bg-transparent p-0 text-fs-2xl font-semibold text-foreground outline-none placeholder:text-muted-foreground"
+          className="mb-4 w-full border-0 border-b border-solid border-transparent bg-transparent p-0 text-fs-2xl font-semibold text-foreground outline-none placeholder:text-muted-foreground aria-invalid:border-destructive aria-invalid:placeholder:text-destructive"
         />
 
         {/* La captura guarda qué link se tocó, para anclar el popover: el handler de

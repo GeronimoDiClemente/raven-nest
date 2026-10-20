@@ -75,6 +75,19 @@ describe('useAutosave', () => {
     unmount()
     expect(guardar).not.toHaveBeenCalled()
   })
+  it('despues de desmontar, el flush repetido no vuelve a mandar lo mismo', async () => {
+    let responder!: (r: { ok: boolean }) => void
+    const guardar = vi.fn().mockImplementationOnce(() => new Promise((r) => { responder = r })).mockResolvedValue({ ok: true })
+    const { rerender, result, unmount } = renderHook((p) => useAutosave(p), { initialProps: { valor: base, base, guardar, habilitado: true } })
+    rerender({ valor: { title: 'T', content: 'a' }, base, guardar, habilitado: true })
+    await act(async () => { vi.advanceTimersByTime(1500) })
+    rerender({ valor: { title: 'T', content: 'ab' }, base, guardar, habilitado: true })
+    await act(async () => { void result.current.flush() }) // en vuelo: queda para despues
+    unmount() // el desmontaje manda 'ab'
+    expect(guardar).toHaveBeenCalledTimes(2)
+    await act(async () => { responder({ ok: true }) })
+    expect(guardar).toHaveBeenCalledTimes(2)
+  })
   it('un cambio externo de la base no se toma como cambio local', async () => {
     const guardar = vi.fn().mockResolvedValue({ ok: true })
     const nueva = { title: 'T2', content: 'c2' }
