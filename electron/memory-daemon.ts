@@ -104,6 +104,10 @@ export interface StatusResponseBody {
   quota?: { used_bytes: number; max_bytes: number }
   /** Spec 2b-1 §4.2: el tope de proyectos del plan. Ausente en un servicio viejo: "no sé". */
   limits?: { max_projects?: unknown }
+  /** Spec 2b-2 §4.7: el proyecto elegido para seguir sincronizando, o null. Ausente = servicio viejo. */
+  kept_project_key?: string | null
+  /** Spec 2b-2 §4.7: la cuenta tiene más proyectos propios que el tope del plan. */
+  over_limit?: boolean
   /**
    * Absent entirely on an older service or the pre-roster stub — that means "no discovery
    * available", not an error, so `status()` must treat a missing field as a no-op rather
@@ -362,6 +366,10 @@ export class MemoryDaemon {
   // __global__). Los dos son de la cuenta del store actual: `setStore` los vacía (D10).
   private lastLimits: { max_projects: number } | null = null
   private lastCloudProjectKeys: string[] | null = null
+  // Spec 2b-2 §4.7: qué proyecto eligió seguir sincronizando quien bajó de plan, y si la cuenta
+  // está por encima del tope. De la cuenta del store actual: `setStore` los vacía.
+  private lastKeptProjectKey: string | null = null
+  private lastOverLimit = false
   // M19: concurrent triggers (e.g. a debounced push firing at the same moment as the
   // 5-minute interval's drain) used to fire independent overlapping requests — double
   // POSTs of the same batch, or a later pull's cursor write racing an earlier one's.
@@ -502,6 +510,8 @@ export class MemoryDaemon {
     // repos ajenos hasta el próximo status.
     this.lastLimits = null
     this.lastCloudProjectKeys = null
+    this.lastKeptProjectKey = null
+    this.lastOverLimit = false
     // El plan visto también es de la cuenta anterior: compararlo con el de la nueva haría
     // pasar por "cambio de plan" lo que es sólo un cambio de cuenta.
     this.lastSeenPlan = undefined
@@ -594,6 +604,16 @@ export class MemoryDaemon {
   /** Las keys del último roster de la nube, sin `__global__`; null si todavía no llegó ninguno. */
   getCloudProjectKeys(): string[] | null {
     return this.lastCloudProjectKeys
+  }
+
+  /** El proyecto elegido para seguir sincronizando (spec 2b-2), o null. */
+  getKeptProjectKey(): string | null {
+    return this.lastKeptProjectKey
+  }
+
+  /** Si la cuenta tiene más proyectos en la nube que los que su plan sincroniza (spec 2b-2). */
+  isOverLimit(): boolean {
+    return this.lastOverLimit
   }
 
   /**
@@ -1185,6 +1205,47 @@ export class MemoryDaemon {
     return run
   }
 
+  /**
+   * Spec 2b-2 §4.7/§4.8 (D14): elige qué proyecto sigue sincronizando quien quedó por encima
+   * del tope. Al volver ok, lo retenido por `project_limit_reached` vuelve a la cola —el recién
+   * elegido lo tenía retenido— y el push re-retiene lo que siga fuera; después se pide un
+   * status para que la UI vea la elección. Nunca lanza.
+   */
+  async keepProject(projectKey: string): Promise<{ ok: true } | { ok: false; error: string }> {
+    const { getSyncBaseUrl, getToken, isOnline } = this.deps
+    // P6: misma guarda que doStatus. Si la cuenta cambia mientras vuela el pedido, la
+    // respuesta es de la cuenta anterior: no se toca la cola ni se pide status del store nuevo.
+    const generacionAlSalir = this.generacionDeStore
+    const url = getSyncBaseUrl()
+    const token = getToken()
+    if (!url || !token) return { ok: false, error: 'not_connected' }
+    if (!isOnline()) return { ok: false, error: 'offline' }
+
+    let release: (() => void) | null = null
+    try {
+      const { response, release: releaseTimer } = await this.fetchWithTimeout(`${url}/v1/projects/keep`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project_key: projectKey }),
+      })
+      release = releaseTimer
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as { error?: unknown } | null
+        return { ok: false, error: typeof body?.error === 'string' ? body.error : `HTTP ${response.status}` }
+      }
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) }
+    } finally {
+      release?.()
+    }
+
+    if (generacionAlSalir !== this.generacionDeStore) return { ok: false, error: 'account_changed' }
+    this.deps.store.unblockMutations([MOTIVO_TOPE_DE_PROYECTOS])
+    await this.status()
+    this.scheduleMutationPush()
+    return { ok: true }
+  }
+
   private async doStatus(): Promise<StatusResponseBody | null> {
     const { store, getSyncBaseUrl, getToken, isOnline } = this.deps
     // Misma razón que en doPush: `unblockMutations` y `ensureProject` escriben, y el store
@@ -1304,6 +1365,11 @@ export class MemoryDaemon {
       if (typeof maxProjects === 'number' && Number.isFinite(maxProjects) && maxProjects >= 0) {
         this.lastLimits = { max_projects: maxProjects }
       }
+      // Spec 2b-2 §4.7. Un campo ausente es un servicio viejo: se conserva lo conocido.
+      if (body.kept_project_key === null || typeof body.kept_project_key === 'string') {
+        this.lastKeptProjectKey = body.kept_project_key
+      }
+      if (typeof body.over_limit === 'boolean') this.lastOverLimit = body.over_limit
 
       // A missing `projects` field means "no discovery available" — an older service, or
       // the pre-roster stub — not an error. Nothing to register, not a failure.

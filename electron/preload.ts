@@ -90,6 +90,10 @@ contextBridge.exposeInMainWorld('memory', {
   checkPendingAdoption: (userId: string | null) => ipcRenderer.invoke('memory:checkPendingAdoption', userId),
   disconnect: (opts?: { deleteCloud?: boolean }) => ipcRenderer.invoke('memory:disconnect', opts),
   status: () => ipcRenderer.invoke('memory:status'),
+  // Spec 2b-2 §4.8: elegir el proyecto que sigue sincronizando, y pedir un status nuevo cuando
+  // la app ve cambiar el plan.
+  keepProject: (projectKey: string) => ipcRenderer.invoke('memory:keepProject', projectKey),
+  refreshStatus: () => ipcRenderer.invoke('memory:refreshStatus'),
   // Cifrado del lado del cliente (spec §5.3). Opcionales en `window.memory` como todo lo
   // que sumo la fase 1: un preload viejo no los expone y la UI tiene que montar igual.
   encryptionStatus: () => ipcRenderer.invoke('memory:encryption:status'),

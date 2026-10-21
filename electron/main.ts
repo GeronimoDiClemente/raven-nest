@@ -3790,6 +3790,10 @@ ipcMain.handle('memory:status', () => {
     /** Spec 2b-1 §4.4: lo que ocupa lugar en la nube (sin __global__). Undefined hasta el
      *  primer status: "sin roster todavía", y la fila no se muestra. */
     cloudProjects: clavesEnLaNube ? memory.store.nombresDeProyectos(clavesEnLaNube) : undefined,
+    /** Spec 2b-2 §4.7: el proyecto elegido al bajar de plan, y si la cuenta está por encima
+     *  del tope (con `overLimit` la fila «Projects in the cloud» muestra `Keep syncing`). */
+    keptProjectKey: memory.daemon.getKeptProjectKey(),
+    overLimit: memory.daemon.isOverLimit(),
     /**
      * Si esta cuenta puede compartir memoria con otras personas.
      *
@@ -3802,6 +3806,25 @@ ipcMain.handle('memory:status', () => {
      */
     puedeCompartirMemoria: planAllowsTeamSharing(memory.daemon.getPlan()),
   }
+})
+
+// Spec 2b-2 §4.8: elegir qué proyecto sigue sincronizando. Lo hace el daemon (D14), que tiene
+// el token, el store y el timeout.
+ipcMain.handle('memory:keepProject', async (_e, projectKey: string) => {
+  if (!memory) return { ok: false, error: 'Memory is not available' }
+  if (typeof projectKey !== 'string' || !projectKey.trim()) return { ok: false, error: 'Missing project_key' }
+  return memory.daemon.keepProject(projectKey)
+})
+
+// Spec 2b-2 §4.8 (D9): la app vio cambiar el plan (pagó o canceló) y pide un status nuevo, para
+// que el tope suba —y lo retenido converja— sin esperar al próximo poll (15 min en Free). El
+// evento `memory:status` hace que el renderer vuelva a leer por `memory:status`.
+ipcMain.handle('memory:refreshStatus', async () => {
+  if (!memory) return { ok: false }
+  await memory.daemon.status()
+  const win = BrowserWindow.getAllWindows()[0]
+  if (win) win.webContents.send('memory:status', memory.daemon.getStatus())
+  return { ok: true }
 })
 
 // The memory hub's opening screen (Task 7): "we found N memories across M projects".

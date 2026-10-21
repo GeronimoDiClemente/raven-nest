@@ -1063,6 +1063,10 @@ declare global {
         limits?: { max_projects: number }
         /** Spec 2b-1 §4.4: los proyectos que ocupan lugar en la nube, con nombre local. */
         cloudProjects?: Array<{ projectKey: string; name: string }>
+        /** Spec 2b-2 §4.7: el proyecto elegido al bajar de plan, o null. */
+        keptProjectKey?: string | null
+        /** Spec 2b-2 §4.7: más proyectos en la nube que los que el plan sincroniza. */
+        overLimit?: boolean
         /**
          * True when main's memory subsystem never initialized. The preload exposes
          * `window.memory` unconditionally, so its mere presence proves nothing — this
@@ -1165,6 +1169,11 @@ declare global {
        * todavía (fuera de alcance de este paso) — se llama a mano desde devtools o un test.
        */
       shareProjectWithTeam?: (projectKey: string, teamId: string) => Promise<{ ok: boolean; error?: string }>
+      /** Spec 2b-2 §4.8: elegir el proyecto que sigue sincronizando (POST /v1/projects/keep).
+       *  Opcional: un preload viejo no lo expone. */
+      keepProject?: (projectKey: string) => Promise<{ ok: boolean; error?: string }>
+      /** Spec 2b-2 §4.8: pedirle al daemon un status nuevo (al cambiar el plan). */
+      refreshStatus?: () => Promise<{ ok: boolean }>
       /**
        * Task 5 (plan de memoria por cuenta multi-dispositivo) — el vault, proyección
        * Markdown de la memoria de la cuenta activa a `.raven-nest/memory-vault/<userId>/`.
