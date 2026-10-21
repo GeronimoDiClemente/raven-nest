@@ -103,7 +103,7 @@ export default function GraphFiltersPanel({ graph, ansi, filtros, includeSimilar
 
       <section>
         <Titulo>Links</Titulo>
-        <ul className="mb-2 flex flex-col gap-1.5">
+        <ul className="mt-0 mb-2 flex list-none flex-col gap-1.5 p-0">
           {EDGE_KINDS_IN_LEGEND_ORDER.filter((k) => conteos[k] > 0).map((k) => (
             <li key={k} className="flex items-center gap-2">
               <span
@@ -116,11 +116,16 @@ export default function GraphFiltersPanel({ graph, ansi, filtros, includeSimilar
           ))}
         </ul>
         <div className="flex flex-wrap gap-1.5">
+          {/* Un interruptor (final review F7): `aria-pressed` = las adivinadas SE VEN, y el
+              texto dice qué son, no la acción. Apagado saca todas las inferidas (same branch,
+              same topic y similar), que es lo que el tour llama "las punteadas". */}
           <Button
             variant={includeSimilar ? 'secondary' : 'outline'} size="sm" aria-pressed={includeSimilar}
             onClick={() => onIncludeSimilar(!includeSimilar)}
+            title="Same branch, same topic and similar: links the app guessed, drawn dotted"
           >
-            {includeSimilar ? 'Hide guessed links' : 'Show guessed links'}
+            {includeSimilar ? <Eye size={ICON_SIZE.sm} aria-hidden /> : <EyeOff size={ICON_SIZE.sm} aria-hidden />}
+            Guessed links
           </Button>
           <Button
             variant={f.hideOrphans ? 'secondary' : 'outline'} size="sm" aria-pressed={f.hideOrphans}
@@ -137,6 +142,8 @@ export default function GraphFiltersPanel({ graph, ansi, filtros, includeSimilar
         <label className="flex flex-col gap-1 text-muted-foreground">
           Node size
           <input
+            // Sin color de acento nativo (azul): el acento de la app es acromático.
+            className="accent-[var(--foreground)]"
             type="range" min={0.5} max={2} step={0.1} value={f.escalaDeNodo}
             onChange={(e) => filtros.setEscalaDeNodo(Number(e.target.value))}
           />
@@ -144,6 +151,7 @@ export default function GraphFiltersPanel({ graph, ansi, filtros, includeSimilar
         <label className="flex flex-col gap-1 text-muted-foreground">
           Link distance
           <input
+            className="accent-[var(--foreground)]"
             type="range" min={20} max={120} step={5} value={f.distanciaDeLinks}
             onChange={(e) => filtros.setDistanciaDeLinks(Number(e.target.value))}
           />
@@ -153,10 +161,11 @@ export default function GraphFiltersPanel({ graph, ansi, filtros, includeSimilar
       {(f.foco || grupos.length > 0) && (
         <section>
           <Titulo>Projects</Titulo>
-          <ul className="flex flex-col gap-0.5">
+          <ul className="m-0 flex list-none flex-col gap-0.5 p-0">
             <li>
               <Button
                 variant={f.foco ? 'ghost' : 'secondary'} size="sm" aria-pressed={!f.foco}
+                className="w-full justify-start"
                 onClick={() => filtros.setFoco(null)}
               >Everything</Button>
             </li>
@@ -179,7 +188,7 @@ export default function GraphFiltersPanel({ graph, ansi, filtros, includeSimilar
       {tags.length > 0 && (
         <section>
           <Titulo>Tags</Titulo>
-          <ul className="flex flex-col gap-0.5">
+          <ul className="m-0 flex list-none flex-col gap-0.5 p-0">
             {tags.map((t) => (
               <li key={t.tag}>
                 <Button

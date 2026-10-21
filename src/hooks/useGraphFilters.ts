@@ -2,6 +2,7 @@
 // Reemplaza la lógica que vivía dentro del cuadro del grafo viejo (borrado el 20-10).
 import { useCallback, useMemo, useState } from 'react'
 import { toGraphData, type ColorBy, type Foco, type GraphData } from '../lib/memory-graph-visuals'
+import { esInferida } from '../lib/memory-graph-2d'
 import type { MemoryGraph } from '../types'
 
 export interface GraphFilters {
@@ -15,7 +16,12 @@ export interface GraphFilters {
 
 const VACIO: GraphData = { nodes: [], links: [], orphansHidden: 0 }
 
-export function useGraphFilters(graph: MemoryGraph | null, ansi?: readonly string[]) {
+/**
+ * `conInferidas: false` (final review F7) saca TODAS las aristas inferidas —same branch, same
+ * topic y similar—, no sólo `similar`: el tour dice "las punteadas son suposiciones" y el
+ * botón las apaga a todas. `similar` además deja de pedirse a main (lo decide el workspace).
+ */
+export function useGraphFilters(graph: MemoryGraph | null, ansi?: readonly string[], conInferidas = true) {
   const [colorBy, setColorBy] = useState<ColorBy>('type')
   const [foco, setFoco] = useState<Foco>(null)
   const [hideOrphans, setHideOrphans] = useState(true)
@@ -32,8 +38,13 @@ export function useGraphFilters(graph: MemoryGraph | null, ansi?: readonly strin
     })
   }, [])
 
-  const data = useMemo<GraphData>(() => {
-    if (!graph) return VACIO
+  const visible = useMemo<MemoryGraph | null>(() => {
+    if (!graph || conInferidas) return graph
+    return { ...graph, edges: graph.edges.filter((e) => !esInferida(e.kind)) }
+  }, [graph, conInferidas])
+
+  const colorEfectivo = useMemo<ColorBy>(() => {
+    if (!graph) return colorBy
     // Los tipos presentes salen del grafo CRUDO (dentro del foco), no de `data`: así no hay
     // ciclo data -> color efectivo -> tipos presentes -> data.
     const enFoco = !foco
@@ -44,11 +55,26 @@ export function useGraphFilters(graph: MemoryGraph | null, ansi?: readonly strin
     const tiposPresentes = new Set(enFoco.filter((n) => !n.pending).map((n) => n.type))
     // Dentro de un proyecto colorear por proyecto no distingue nada: manda el tipo. Con un
     // solo tipo, colorear por tipo tampoco: cae a proyecto.
-    const colorEfectivo: ColorBy = foco?.tipo === 'project'
+    return foco?.tipo === 'project'
       ? 'type'
       : colorBy === 'type' && tiposPresentes.size <= 1 ? 'project' : colorBy
-    return toGraphData(graph, { colorBy: colorEfectivo, hideOrphans, foco, ansi, tiposOcultos })
-  }, [graph, colorBy, foco, hideOrphans, ansi, tiposOcultos])
+  }, [graph, colorBy, foco])
+
+  const data = useMemo<GraphData>(() => {
+    if (!visible) return VACIO
+    return toGraphData(visible, { colorBy: colorEfectivo, hideOrphans, foco, ansi, tiposOcultos })
+  }, [visible, colorEfectivo, hideOrphans, foco, ansi, tiposOcultos])
+
+  /**
+   * El grafo de donde sale el LOCAL de cada nota (final review F5): sin huérfanas ocultas, sin
+   * foco y sin tipos apagados — esos filtros son de la pestaña Graph. Con ellos, una memoria
+   * recién escrita (siempre suelta) o una de otro proyecto no tenía grafo local. Mismo color
+   * y mismas aristas que el global.
+   */
+  const dataCompleta = useMemo<GraphData>(() => {
+    if (!visible) return VACIO
+    return toGraphData(visible, { colorBy: colorEfectivo, hideOrphans: false, foco: null, ansi })
+  }, [visible, colorEfectivo, ansi])
 
   // Cuenta sobre el grafo completo y SIN el filtro de tipos: un tipo apagado sigue en el
   // panel, con su número, para poder prenderlo otra vez.
@@ -66,6 +92,6 @@ export function useGraphFilters(graph: MemoryGraph | null, ansi?: readonly strin
 
   return {
     filtros, setColorBy, setFoco, setHideOrphans, toggleTipo, setEscalaDeNodo, setDistanciaDeLinks,
-    data, conteoPorTipo,
+    data, dataCompleta, conteoPorTipo,
   }
 }

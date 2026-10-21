@@ -251,3 +251,53 @@ describe('MemoryNoteEditor: titulo vacio, borrado fallido, irALinea', () => {
     expect(view.state.selection.main.head).toBe(4)
   })
 })
+
+describe('MemoryNoteEditor: final review', () => {
+  it('un [[hueco]] deja de ser pendiente cuando llegan links nuevos sin cambiar la version (F1)', () => {
+    const p = props()
+    const d = det()
+    const { rerender } = render(<MemoryNoteEditor detail={d} links={d.links} {...p} />)
+    const falta = () => document.querySelector('[data-wikilink="Falta"]') as HTMLElement
+    expect(falta().className).toContain('cm-lp-wikilink-pendiente')
+    // Alguien escribio «Falta»: la nota fuente es la misma version, sus links no.
+    rerender(<MemoryNoteEditor detail={d} links={[{ name: 'Otra', syncId: 's2' }, { name: 'Falta', syncId: 's3' }]} {...p} />)
+    expect(falta().className).not.toContain('cm-lp-wikilink-pendiente')
+    fireEvent.mouseDown(falta())
+    expect(p.onOpen).toHaveBeenCalledWith('s3', { background: false })
+    expect(screen.queryByRole('button', { name: 'Create this memory' })).toBeNull()
+  })
+
+  it('Ctrl+Z deshace lo escrito en el cuerpo (F2)', () => {
+    render(<MemoryNoteEditor detail={det({ content: 'hola' })} {...props()} />)
+    const view = EditorView.findFromDOM(document.querySelector('.cm-editor') as HTMLElement)!
+    act(() => { view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: '' }, userEvent: 'delete' }) })
+    expect(view.state.doc.toString()).toBe('')
+    act(() => { fireEvent.keyDown(view.contentDOM, { key: 'z', code: 'KeyZ', keyCode: 90, ctrlKey: true }) })
+    expect(view.state.doc.toString()).toBe('hola')
+    expect(document.querySelector('.cm-content')?.textContent).toBe('hola')
+  })
+
+  it('un cambio externo diferido que vuelve despues de cerrar la pestana no copia nada (minor Task 7)', async () => {
+    const responder: Array<(v: { ok: true }) => void> = []
+    const p = { ...props(), onSave: vi.fn().mockImplementation(() => new Promise((r) => { responder.push(r) })) }
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+    vi.useFakeTimers()
+    try {
+      const { rerender, unmount } = render(<MemoryNoteEditor detail={det()} {...p} />)
+      fireEvent.change(screen.getByRole('textbox', { name: 'Memory title' }), { target: { value: 'Mio' } })
+      await act(async () => { vi.advanceTimersByTime(1500) })
+      expect(p.onSave).toHaveBeenCalled()
+      fireEvent.change(screen.getByRole('textbox', { name: 'Memory title' }), { target: { value: 'Mio 2' } })
+      // Llega un cambio de otro con el guardado en vuelo: se difiere.
+      rerender(<MemoryNoteEditor detail={det()} {...p} externo={det({ title: 'De un agente', updatedAt: 5 })} />)
+      unmount()
+      // El desmontaje guarda lo pendiente (otro guardado en vuelo): responden los dos.
+      await act(async () => { for (const r of responder) r({ ok: true }) })
+      expect(responder.length).toBeGreaterThan(0)
+      expect(writeText).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})

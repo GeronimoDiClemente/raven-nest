@@ -1,7 +1,9 @@
 // Panel derecho de una nota abierta: grafo local, quién la nombra, a quién nombra,
 // propiedades y outline. Presentación pura: no conoce `window.memory`.
 import { useMemo, useState, type ReactNode } from 'react'
-import { Button } from '../ui/button'
+import { ChevronRight } from 'lucide-react'
+import { cn } from 'cn'
+import { Button, buttonVariants } from '../ui/button'
 import MemoryGraph2D from './MemoryGraph2D'
 import { subgrafoLocal } from '../../lib/memory-graph-2d'
 import type { GraphData } from '../../lib/memory-graph-visuals'
@@ -13,7 +15,8 @@ import type { MemoryObservationDetail } from '../../types'
 
 export interface MemoryNoteSidePanelProps {
   detail: MemoryObservationDetail
-  /** El grafo global ya filtrado (de ahí sale el local). */
+  /** El grafo entero, SIN los filtros de la pestaña Graph (huérfanas, foco, tipos): de ahí
+   *  sale el local. Con esos filtros una memoria suelta no tenía grafo local (final review F5). */
   graphData: GraphData
   ansi?: readonly string[]
   titulosPorId: ReadonlyMap<string, { title: string; type: string }>
@@ -23,8 +26,10 @@ export interface MemoryNoteSidePanelProps {
 
 function Seccion({ titulo, children }: { titulo: string; children: ReactNode }) {
   return (
-    <details open className="border-b border-border px-3 py-2">
-      <summary className="cursor-pointer select-none py-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+    <details open className="group border-b border-border px-3 py-2">
+      {/* Sin el triángulo nativo: el mismo chevron que las carpetas del explorer. */}
+      <summary className="flex cursor-pointer select-none list-none items-center gap-1 py-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground [&::-webkit-details-marker]:hidden">
+        <ChevronRight className="size-3.5 shrink-0 transition-transform group-open:rotate-90" aria-hidden="true" />
         {titulo}
       </summary>
       <div className="pt-1">{children}</div>
@@ -32,7 +37,9 @@ function Seccion({ titulo, children }: { titulo: string; children: ReactNode }) 
   )
 }
 
-const FILA = 'flex w-full items-center gap-2 rounded px-1.5 py-1 text-left text-sm text-foreground hover:bg-accent'
+// Con las clases de Button (que traen `border-transparent`): Tailwind va sin preflight y un
+// `<button>` pelado se queda con el borde gris del navegador (final review V1).
+const FILA = cn(buttonVariants({ variant: 'ghost', size: 'sm' }), 'w-full justify-start gap-2 px-1.5 text-left text-foreground')
 
 export default function MemoryNoteSidePanel({ detail, graphData, ansi, titulosPorId, onOpen, onIrALinea }: MemoryNoteSidePanelProps) {
   const [saltos, setSaltos] = useState<1 | 2>(1)
@@ -72,7 +79,7 @@ export default function MemoryNoteSidePanel({ detail, graphData, ansi, titulosPo
         <div className="h-[180px] overflow-hidden rounded border border-border">
           {estaEnElGrafo
             ? <MemoryGraph2D modo="local" data={local} foco={detail.syncId} onOpen={onOpen} />
-            : <p className="p-3 text-sm text-muted-foreground">Not in the current graph filters.</p>}
+            : <p className="p-3 text-sm text-muted-foreground">Not in the loaded graph.</p>}
         </div>
       </Seccion>
 
@@ -82,7 +89,7 @@ export default function MemoryNoteSidePanel({ detail, graphData, ansi, titulosPo
           : mencionada.map((m) => (
               <button key={m.syncId} type="button" className={FILA} onClick={abrir(m.syncId)}>
                 {punto(titulosPorId.get(m.syncId)?.type)}
-                <span className="truncate">{m.title}</span>
+                <span className="min-w-0 truncate">{m.title}</span>
               </button>
             ))}
       </Seccion>
@@ -98,7 +105,7 @@ export default function MemoryNoteSidePanel({ detail, graphData, ansi, titulosPo
               return (
                 <button key={`${l.syncId}-${i}`} type="button" className={FILA} onClick={abrir(l.syncId)}>
                   {punto(t?.type)}
-                  <span className="truncate">{t?.title ?? l.name}</span>
+                  <span className="min-w-0 truncate">{t?.title ?? l.name}</span>
                 </button>
               )
             })}
@@ -121,7 +128,7 @@ export default function MemoryNoteSidePanel({ detail, graphData, ansi, titulosPo
           : outline.map((h) => (
               <button key={h.linea} type="button" className={FILA} style={{ paddingLeft: `${0.375 + (h.nivel - menorNivel) * 0.75}rem` }}
                 onClick={() => onIrALinea(h.linea)}>
-                <span className="truncate">{h.texto}</span>
+                <span className="min-w-0 truncate">{h.texto}</span>
               </button>
             ))}
       </Seccion>

@@ -16,7 +16,10 @@ export interface MemoriesNoteTabProps {
   syncId: string
   /** Sube con cada `onChanged`: vuelve a leer la memoria. */
   version: number
+  /** El grafo SIN los filtros de la pestaña Graph: de ahí sale el grafo local. */
   graphData: GraphData
+  /** Sube para darle el foco al título (la nota se abrió desde un nodo del grafo). */
+  pedirFoco?: number
   ansi?: readonly string[]
   candidatos: CandidatoDeLink[]
   titulosPorId: ReadonlyMap<string, { title: string; type: string }>
@@ -37,7 +40,7 @@ export interface MemoriesNoteTabProps {
 const versionDe = (d: MemoryObservationDetail) => `${d.updatedAt}|${d.supersededBy ?? ''}`
 
 export default function MemoriesNoteTab({
-  syncId, version, graphData, ansi, candidatos, titulosPorId, panelDerecho,
+  syncId, version, graphData, pedirFoco = 0, ansi, candidatos, titulosPorId, panelDerecho,
   onOpen, onCreate, onConnect, onDeleted, onTitulo,
 }: MemoriesNoteTabProps) {
   // `recarga` se suma a `version` para el nonce: los dos sólo suben, así que la suma cambia
@@ -107,6 +110,11 @@ export default function MemoriesNoteTab({
         key={montaje}
         ref={editorRef}
         detail={inicial}
+        // Los links de la ÚLTIMA lectura, no de la primera (final review F1): escribir la
+        // memoria de un [[hueco]] no cambia la versión de ésta, así que no llega como
+        // `externo`, pero el hueco ya no lo es.
+        links={(detail ?? inicial).links}
+        pedirFoco={pedirFoco}
         ansi={ansi}
         candidatos={candidatos}
         externo={externo}

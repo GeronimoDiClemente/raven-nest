@@ -494,4 +494,130 @@ describe('MemoriesWorkspace estilo Obsidian', () => {
     expect(await screen.findByText('This memory was deleted.')).toBeInTheDocument()
     expect(screen.getByRole('textbox', { name: 'Memory title' })).toHaveAttribute('readonly')
   })
+  describe('final review', () => {
+    const apiBasica = (over: Record<string, unknown> = {}) => api({
+      graph: vi.fn().mockResolvedValue(grafoAB()),
+      crossProject: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
+      observation: vi.fn().mockImplementation(async (id: string) => detalle(id)),
+      ...over,
+    })
+    const ctrlW = (el: Element) => {
+      const ev = new KeyboardEvent('keydown', { key: 'w', ctrlKey: true, bubbles: true, cancelable: true })
+      fireEvent(el, ev)
+      return ev
+    }
+
+    it('F4: cerrar una New memory con algo escrito pregunta; Keep editing la deja, Discard la cierra', async () => {
+      setMemoryApi(apiBasica())
+      render(<MemoriesWorkspace {...props()} />)
+      fireEvent.click(await explorer().findByRole('button', { name: 'New memory' }))
+      const pestana = () => screen.queryByRole('tab', { name: /New memory/ })
+      expect(await screen.findByRole('tab', { name: /New memory/, selected: true })).toBeInTheDocument()
+      fireEvent.change(screen.getByRole('textbox', { name: 'Memory title' }), { target: { value: 'A medio escribir' } })
+
+      // Con la x.
+      fireEvent.click(within(pestana()!).getByRole('button', { name: 'Close tab' }))
+      expect(await screen.findByRole('alertdialog', { name: 'Discard this memory?' })).toBeInTheDocument()
+      fireEvent.click(screen.getByRole('button', { name: 'Keep editing' }))
+      await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+      expect(pestana()).not.toBeNull()
+      expect(screen.getByRole('textbox', { name: 'Memory title' })).toHaveValue('A medio escribir')
+
+      // Con Ctrl+W.
+      ctrlW(screen.getByRole('textbox', { name: 'Memory title' }))
+      expect(await screen.findByRole('alertdialog', { name: 'Discard this memory?' })).toBeInTheDocument()
+      fireEvent.click(screen.getByRole('button', { name: 'Discard' }))
+      await waitFor(() => expect(pestana()).toBeNull())
+      expect(screen.getByRole('tab', { name: /Graph/, selected: true })).toBeInTheDocument()
+    })
+
+    it('F4: una New memory sin nada escrito cierra directo', async () => {
+      setMemoryApi(apiBasica())
+      render(<MemoriesWorkspace {...props()} />)
+      fireEvent.click(await explorer().findByRole('button', { name: 'New memory' }))
+      const tab = await screen.findByRole('tab', { name: /New memory/, selected: true })
+      fireEvent.click(within(tab).getByRole('button', { name: 'Close tab' }))
+      await waitFor(() => expect(screen.queryByRole('tab', { name: /New memory/ })).toBeNull())
+      expect(screen.queryByRole('alertdialog')).toBeNull()
+    })
+
+    it('F8: la raiz toma el foco al montar, y abrir desde un nodo del grafo se lo da al titulo', async () => {
+      setMemoryApi(apiBasica())
+      render(<MemoriesWorkspace {...props()} />)
+      expect(raiz()).toHaveAttribute('tabindex', '-1')
+      expect(document.activeElement).toBe(raiz())
+
+      fireEvent.click(await screen.findByRole('button', { name: 'node Otra' }))
+      expect(await screen.findByRole('tab', { name: /Otra/, selected: true })).toBeInTheDocument()
+      await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('textbox', { name: 'Memory title' })))
+      // Y el siguiente Ctrl+W, desde donde quedo el foco, cierra la pestana.
+      ctrlW(document.activeElement!)
+      await waitFor(() => expect(screen.queryByRole('tab', { name: /Otra/ })).toBeNull())
+    })
+
+    it('F8: un mousedown adentro con el foco afuera lo trae a la raiz; no se lo saca a un input', async () => {
+      setMemoryApi(apiBasica())
+      const afuera = document.createElement('input')
+      document.body.appendChild(afuera)
+      try {
+        render(<MemoriesWorkspace {...props()} />)
+        const nodoOtra = await screen.findByRole('button', { name: 'node Otra' })
+        afuera.focus()
+        expect(document.activeElement).toBe(afuera)
+        fireEvent.mouseDown(nodoOtra)
+        expect(document.activeElement).toBe(raiz())
+
+        const buscar = screen.getByRole('textbox', { name: 'Search memories' })
+        buscar.focus()
+        fireEvent.mouseDown(buscar)
+        expect(document.activeElement).toBe(buscar)
+
+        // Un portal (el menú «⋯») queda fuera del DOM de la raíz pero sus eventos suben por
+        // React: sacarle el foco lo cerraba antes del click (lo vio el e2e).
+        fireEvent.click(await explorer().findByRole('button', { name: 'Auth pasa a cookies' }))
+        await screen.findByRole('textbox', { name: 'Memory title' })
+        fireEvent.keyDown(screen.getByRole('button', { name: 'More actions' }), { key: 'Enter' })
+        const item = await screen.findByRole('menuitem', { name: 'Connect to another memory…' })
+        item.focus()
+        fireEvent.mouseDown(item)
+        expect(document.activeElement).toBe(item)
+        fireEvent.click(item)
+        expect(await screen.findByText(/Pick the memory this one goes with/)).toBeInTheDocument()
+      } finally {
+        afuera.remove()
+      }
+    })
+
+    it('F1: escribir la memoria de un [[hueco]] lo resuelve en la nota abierta sin cambiar su version', async () => {
+      let avisar: (() => void) | null = null
+      let escrita = false
+      setMemoryApi(apiBasica({
+        observation: vi.fn().mockImplementation(async (id: string) => detalle(id, {
+          content: 'ver [[Falta]]',
+          links: [{ name: 'Falta', syncId: escrita ? 'n1' : null }],
+        })),
+        onChanged: (cb: () => void) => { avisar = cb; return () => {} },
+      }))
+      render(<MemoriesWorkspace {...props()} />)
+      await abrirA()
+      const falta = () => document.querySelector('[data-wikilink="Falta"]') as HTMLElement
+      await waitFor(() => expect(falta()?.className).toContain('cm-lp-wikilink-pendiente'))
+
+      escrita = true
+      avisar!()
+      await waitFor(() => expect(falta().className).not.toContain('cm-lp-wikilink-pendiente'))
+      expect(screen.queryByText(/A newer version replaced this one/)).toBeNull()
+    })
+
+    it('F5: una memoria suelta tiene grafo local aunque la pestana Graph oculte las sueltas', async () => {
+      setMemoryApi(apiBasica({
+        graph: vi.fn().mockResolvedValue({ truncated: 0, nodes: [nodo('a', 'Auth pasa a cookies'), nodo('b', 'Otra')], edges: [] }),
+      }))
+      render(<MemoriesWorkspace {...props()} />)
+      await abrirA()
+      expect(await panelDerecho().findByTestId('fg2d')).toBeInTheDocument()
+      expect(panelDerecho().getByRole('button', { name: 'node Auth pasa a cookies' })).toBeInTheDocument()
+      expect(panelDerecho().queryByText(/Not in the/)).toBeNull()
+    })
+  })
 })

@@ -57,6 +57,22 @@ describe('useAutosave', () => {
     unmount()
     expect(guardar).toHaveBeenCalledWith({ title: 'T', content: 'ultimo' })
   })
+  it('al desmontar con el titulo vacio, guarda el cuerpo con el ultimo titulo (F3)', async () => {
+    const guardar = vi.fn().mockResolvedValue({ ok: true })
+    const { rerender, unmount } = renderHook((p) => useAutosave(p), { initialProps: { valor: base, base, guardar, habilitado: true } })
+    rerender({ valor: { title: '', content: 'lo escrito' }, base, guardar, habilitado: true })
+    await act(async () => { vi.advanceTimersByTime(5000) })
+    expect(guardar).not.toHaveBeenCalled()
+    unmount()
+    expect(guardar).toHaveBeenCalledWith({ title: 'T', content: 'lo escrito' })
+  })
+  it('al desmontar con el titulo vacio y el cuerpo sin cambios, no guarda nada', async () => {
+    const guardar = vi.fn().mockResolvedValue({ ok: true })
+    const { rerender, unmount } = renderHook((p) => useAutosave(p), { initialProps: { valor: base, base, guardar, habilitado: true } })
+    rerender({ valor: { title: ' ', content: 'c' }, base, guardar, habilitado: true })
+    unmount()
+    expect(guardar).not.toHaveBeenCalled()
+  })
   it('not_found deja la memoria como borrada y no vuelve a guardar', async () => {
     const guardar = vi.fn().mockResolvedValue({ ok: false, reason: 'not_found' })
     const { rerender, result } = renderHook((p) => useAutosave(p), { initialProps: { valor: base, base, guardar, habilitado: true } })

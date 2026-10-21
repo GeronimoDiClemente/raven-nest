@@ -45,6 +45,16 @@ import MemoryTabs from './memories/MemoryTabs'
 import MemoryGraph2D from './memories/MemoryGraph2D'
 import GraphFiltersPanel from './memories/GraphFiltersPanel'
 import { Button } from '@/components/ui/button'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from './ui/alert-dialog'
 
 interface Props {
   onClose: () => void
@@ -160,7 +170,9 @@ export default function MemoriesWorkspace({
 
   const [includeSimilar, setIncludeSimilar] = useState(true)
   const grafo = useMemoryGraph(includeSimilar)
-  const filtros = useGraphFilters(grafo.graph, ansi)
+  // El mismo interruptor decide qué se le pide a main (similar) y qué se dibuja (todas las
+  // inferidas): ver useGraphFilters.
+  const filtros = useGraphFilters(grafo.graph, ansi, includeSimilar)
 
   const refrescarBusqueda = useRef(busqueda.refresh)
   refrescarBusqueda.current = busqueda.refresh
@@ -299,6 +311,47 @@ export default function MemoriesWorkspace({
     void refrescarEstado.current()
   }, [cerrarPestana])
 
+  /**
+   * Las pestañas «New memory» con algo escrito (final review F4). Cerrarlas por cualquier
+   * camino —×, click del medio, Ctrl/Cmd+W, Cancel— pregunta antes de tirar lo escrito; sin
+   * nada escrito cierran directo. Un ref y no un estado: el form avisa en cada cambio y el
+   * cierre sólo necesita leerlo.
+   */
+  const nuevasSucias = useRef(new Set<string>())
+  const [descartar, setDescartar] = useState<string | null>(null)
+  const cerrar = useCallback((id: string) => {
+    if (nuevasSucias.current.has(id)) { setDescartar(id); return }
+    cerrarPestana(id)
+  }, [cerrarPestana])
+  const confirmarDescarte = () => {
+    const id = descartar
+    setDescartar(null)
+    if (!id) return
+    nuevasSucias.current.delete(id)
+    cerrarPestana(id)
+  }
+
+  /**
+   * Foco (final review F8): Ctrl/Cmd+W y Esc se escuchan en la raíz, así que el foco tiene que
+   * estar adentro. Un click en el canvas no lo mueve (d3-zoom cancela el mousedown) y cerrar
+   * una pestaña desmonta el elemento que lo tenía: en los dos casos el siguiente Ctrl+W iba a
+   * la ventana y escondía Nest.
+   */
+  const raizRef = useRef<HTMLDivElement>(null)
+  useEffect(() => { raizRef.current?.focus({ preventScroll: true }) }, [])
+  useEffect(() => {
+    const raiz = raizRef.current
+    const activo = document.activeElement
+    if (raiz && (!activo || activo === document.body)) raiz.focus({ preventScroll: true })
+  }, [tabs.activeId])
+  /** Abrir desde un nodo del grafo: el título de la nota recibe el foco. */
+  const [focoDeNota, setFocoDeNota] = useState<{ syncId: string; n: number }>({ syncId: '', n: 0 })
+  const alAbrirDesdeElGrafo = useCallback((syncId: string, opts: { background: boolean }) => {
+    const conectando = conectandoDesde !== null
+    alAbrir(syncId, opts)
+    if (!opts.background && !conectando) setFocoDeNota((f) => ({ syncId, n: f.n + 1 }))
+  }, [alAbrir, conectandoDesde])
+
   const alConectar = useCallback((syncId: string) => {
     setConectandoDesde(syncId)
     setAvisoDeEnlace(null)
@@ -312,7 +365,7 @@ export default function MemoriesWorkspace({
     if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'w') {
       e.preventDefault()
       e.stopPropagation()
-      cerrarPestana(tabs.activeId)
+      cerrar(tabs.activeId)
       return
     }
     if (e.key === 'Escape' && conectandoDesde) {
@@ -410,13 +463,27 @@ export default function MemoriesWorkspace({
         resaltados={resaltados}
         escalaDeNodo={filtros.filtros.escalaDeNodo}
         distanciaDeLinks={filtros.filtros.distanciaDeLinks}
-        onOpen={alAbrir}
+        onOpen={alAbrirDesdeElGrafo}
       />
     )
   }
 
   return (
-    <div className={`teams-workspace memories-workspace${closing ? ' closing' : ''}`} onKeyDown={alTeclear}>
+    <div
+      ref={raizRef}
+      tabIndex={-1}
+      className={`teams-workspace memories-workspace outline-none${closing ? ' closing' : ''}`}
+      onKeyDown={alTeclear}
+      onMouseDownCapture={(e) => {
+        // Sólo si el foco está AFUERA: un click en un input o en el editor se lo queda igual.
+        // Y sólo para clicks en el DOM de la raíz: los eventos de React también suben desde
+        // los portales (menú «⋯», popover de «Create this memory», diálogos), y sacarles el
+        // foco ahí los cerraba antes de que llegara el click.
+        const raiz = raizRef.current
+        if (!raiz || !(e.target instanceof Node) || !raiz.contains(e.target)) return
+        if (!raiz.contains(document.activeElement)) raiz.focus({ preventScroll: true })
+      }}
+    >
       <div className="teams-workspace-header">
         <button
           className="tw-back-btn"
@@ -501,7 +568,7 @@ export default function MemoriesWorkspace({
                     etiqueta={etiqueta}
                     ansi={ansi}
                     onActivate={tabs.activate}
-                    onClose={cerrarPestana}
+                    onClose={cerrar}
                   />
                 </div>
 
@@ -548,7 +615,8 @@ export default function MemoriesWorkspace({
                           <MemoriesNoteTab
                             syncId={t.syncId}
                             version={version}
-                            graphData={filtros.data}
+                            graphData={filtros.dataCompleta}
+                            pedirFoco={focoDeNota.syncId === t.syncId ? focoDeNota.n : 0}
                             ansi={ansi}
                             candidatos={candidatos}
                             titulosPorId={titulosPorId}
@@ -565,8 +633,15 @@ export default function MemoriesWorkspace({
                               <NewMemoryForm
                                 activeRepoPath={repoDeNuevas.current.has(t.key) ? repoDeNuevas.current.get(t.key) ?? null : activeRepoPath}
                                 tituloInicial={t.titulo}
-                                onClose={() => cerrarPestana(id)}
+                                onClose={() => cerrar(id)}
+                                onDirtyChange={(sucio) => {
+                                  if (sucio) nuevasSucias.current.add(id)
+                                  else nuevasSucias.current.delete(id)
+                                }}
                                 onSaved={(syncId) => {
+                                  // Ya guardada: lo escrito no se pierde, el onClose que sigue
+                                  // no pregunta.
+                                  nuevasSucias.current.delete(id)
                                   if (syncId) reemplazarPestana(id, { kind: 'note', syncId })
                                   else cerrarPestana(id)
                                   setVersion((v) => v + 1)
@@ -602,6 +677,19 @@ export default function MemoriesWorkspace({
             </PanelGroup>
           </div>
       </div>
+
+      <AlertDialog open={descartar !== null} onOpenChange={(o) => { if (!o) setDescartar(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Discard this memory?</AlertDialogTitle>
+            <AlertDialogDescription>What you wrote in this tab has not been saved.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep editing</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmarDescarte}>Discard</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

@@ -7,7 +7,7 @@
 // El formulario es corto a propósito. Lo único obligatorio es el título, porque una memoria
 // sin título no se puede encontrar después; todo lo demás son las dos cosas que de verdad la
 // conectan con las otras —el tipo y los tags— y el cuerpo.
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { MEMORY_TYPES_IN_LEGEND_ORDER, memoryTypeSwatch, type KnownMemoryType } from '../lib/memory-type-legend'
@@ -34,9 +34,12 @@ interface Props {
   onSaved: (syncId?: string) => void
   /** El título con el que arranca — «Create this memory» desde un `[[hueco]]` lo trae puesto. */
   tituloInicial?: string
+  /** Avisa si hay algo escrito (título o cuerpo), para que cerrar la pestaña pregunte antes
+   *  de tirarlo (final review F4). */
+  onDirtyChange?: (sucio: boolean) => void
 }
 
-export default function NewMemoryForm({ activeRepoPath, onClose, onSaved, tituloInicial = '' }: Props) {
+export default function NewMemoryForm({ activeRepoPath, onClose, onSaved, tituloInicial = '', onDirtyChange }: Props) {
   const [title, setTitle] = useState(tituloInicial)
   const [content, setContent] = useState('')
   const [type, setType] = useState<string>('decision')
@@ -45,6 +48,12 @@ export default function NewMemoryForm({ activeRepoPath, onClose, onSaved, titulo
   const [error, setError] = useState<string | null>(null)
 
   const puedeGuardar = title.trim().length > 0 && !guardando
+
+  const onDirtyRef = useRef(onDirtyChange)
+  onDirtyRef.current = onDirtyChange
+  // Lo que la persona ESCRIBIÓ: un título que vino puesto desde un [[hueco]] no cuenta.
+  const sucio = title.trim() !== tituloInicial.trim() || content.trim() !== '' || tagsRaw.trim() !== ''
+  useEffect(() => { onDirtyRef.current?.(sucio) }, [sucio])
 
   async function guardar() {
     if (!puedeGuardar) return

@@ -120,9 +120,15 @@ export function useAutosave(opts: {
     return () => {
       montadoRef.current = false
       limpiarTimer()
-      const v = valorRef.current
       if (!habilitadoRef.current || terminalRef.current) return
-      if (v.title.trim() === '' || igual(v, referenciaRef.current)) return
+      // Título vacío al cerrar (final review F3): mientras la pestaña vive el cuerpo se
+      // conserva en ella, pero al desmontar no queda dónde. Se guarda con el último título
+      // guardado y el cuerpo de ahora, en vez de perder lo escrito en silencio.
+      const ref = referenciaRef.current
+      const v = valorRef.current.title.trim() === ''
+        ? { title: ref.title, content: valorRef.current.content }
+        : valorRef.current
+      if (v.title.trim() === '' || igual(v, ref)) return
       if (enVueloRef.current && igual(enVueloRef.current, v)) return
       try {
         void guardarRef.current(v).catch(() => {})

@@ -143,6 +143,7 @@ import { MemoryIpcServer } from './memory-ipc-server'
 import { MemoryDaemon, TEAM_KEY_HOLD_REASONS } from './memory-daemon'
 import { reconcileSessions } from './memory-sessions'
 import { buildDoctorReport } from './memory-doctor'
+import { actualizarDesdeUi, type PedidoDeActualizacion } from './memory-update-from-ui'
 import { readVaultHealth } from './memory-vault-health'
 import type { MemoryGraph, MemoryGraphQuery } from './memory-graph'
 import type { CrossProjectMemoryPage, CrossProjectMemoryQuery, MemoryObservationDetail } from './memory-store'
@@ -3904,37 +3905,12 @@ ipcMain.handle('memory:save', (_event, input: {
  * nuevo, `content_hash` recalculado con su redacción, mutación al log), sólo cambia quién
  * lo dispara.
  */
-ipcMain.handle('memory:updateFromUi', (_event, input: {
-  syncId?: string
-  title?: string
-  content?: string
-  tags?: string[]
-}) => {
+ipcMain.handle('memory:updateFromUi', (_event, input: PedidoDeActualizacion) => {
   if (!memory) return { ok: false, error: 'memory_unavailable' }
-  const syncId = (input?.syncId ?? '').trim()
-  if (!syncId) return { ok: false, error: 'missing_sync_id' }
-  try {
-    const res = memory.store.update({
-      syncId,
-      title: input?.title?.trim(),
-      content: input?.content?.trim(),
-      tags: input?.tags,
-    })
-    // Sólo si algo cambió de verdad: `update()` es no-op cuando el contenido es el mismo, y
-    // empujar por una corrección que no corrige nada gastaría un ciclo de sync por nada.
-    if (res.updated) memory.daemon.scheduleMutationPush()
-    // Lo que QUEDÓ guardado, que no es lo que se mandó: acá se hace trim y `update()` pasa
-    // `redact()`. El editor lo usa para reconocer el eco de su propio guardado (onChanged)
-    // y no tomarlo por un cambio de otro.
-    let saved: { title: string; content: string } | undefined
-    if (res.updated || res.reason === 'unchanged') {
-      const row = memory.store.get(res.syncId ?? syncId)
-      if (row && row.deleted !== 1) saved = { title: row.title, content: row.content ?? '' }
-    }
-    return { ok: res.updated, reason: res.reason ?? null, ...(saved ? { saved } : {}) }
-  } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : 'update_failed' }
-  }
+  const m = memory
+  // Probado sin Electron en electron/__tests__/memory-update-from-ui.test.ts: el `saved` que
+  // vuelve es lo que QUEDÓ (trim + redact), con lo que el editor reconoce su propio eco.
+  return actualizarDesdeUi(m.store, input, () => m.daemon.scheduleMutationPush())
 })
 
 /**

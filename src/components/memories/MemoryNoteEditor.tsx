@@ -5,7 +5,8 @@
 // con `window.memory`.
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState, type ForwardedRef } from 'react'
 import { Compartment, EditorState } from '@codemirror/state'
-import { EditorView } from '@codemirror/view'
+import { EditorView, keymap } from '@codemirror/view'
+import { defaultKeymap, history, historyKeymap } from '@codemirror/commands'
 import { markdown } from '@codemirror/lang-markdown'
 import { MoreHorizontal } from 'lucide-react'
 import type { AIType, MemoryObservationDetail } from '../../types'
@@ -33,6 +34,13 @@ import {
 export interface MemoryNoteEditorHandle { irALinea: (linea: number) => void }
 export interface MemoryNoteEditorProps {
   detail: MemoryObservationDetail
+  /** Los `[[links]]` resueltos de la ÚLTIMA lectura (final review F1): pueden cambiar sin que
+   *  cambie la versión de la nota — escribir la memoria de un hueco no toca a ésta —, así que
+   *  no viajan con `externo`. Sin la prop, los de `detail`/`externo`. */
+  links?: MemoryObservationDetail['links']
+  /** Sube cuando hay que darle el foco al título (la nota se abrió desde el grafo, donde el
+   *  canvas no mueve el foco y Ctrl+W iría a la ventana). 0 = no. */
+  pedirFoco?: number
   ansi?: readonly string[]
   candidatos: CandidatoDeLink[]
   /** Vino un cambio de afuera (onChanged) para esta memoria: la versión nueva del store. */
@@ -77,7 +85,7 @@ const MemoryNoteEditor = forwardRef<MemoryNoteEditorHandle, MemoryNoteEditorProp
 export default MemoryNoteEditor
 
 function EditorDeNota({
-  detail, ansi, candidatos, externo, onSave, onOpen, onCreate, onOpenNewer, onConnect, onDelete, borrada = false, handleRef,
+  detail, links: linksDeProp, pedirFoco = 0, ansi, candidatos, externo, onSave, onOpen, onCreate, onOpenNewer, onConnect, onDelete, borrada = false, handleRef,
 }: MemoryNoteEditorProps & { handleRef: ForwardedRef<MemoryNoteEditorHandle> }) {
   const [titulo, setTitulo] = useState(detail.title)
   const [contenido, setContenido] = useState(detail.content ?? '')
@@ -108,6 +116,13 @@ function EditorDeNota({
   // tambien es eco.
   const ecoConsumidoRef = useRef<number | null>(null)
   const procesarExternoRef = useRef<(ext: MemoryObservationDetail) => void>(() => {})
+  // Un guardado que vuelve después de cerrar la pestaña no tiene que procesar un externo
+  // diferido: no hay banda que mostrar y escribiría al portapapeles sin que nadie lo vea.
+  const montadoRef = useRef(true)
+  useEffect(() => {
+    montadoRef.current = true
+    return () => { montadoRef.current = false }
+  }, [])
   const guardar = async (v: Valor): Promise<ResultadoDeGuardado> => {
     const marca: MarcaDeEco = { enviado: v, saved: null }
     marcasRef.current = [...marcasRef.current, marca].slice(-3)
@@ -124,7 +139,7 @@ function EditorDeNota({
     } finally {
       enVueloRef.current--
       const d = diferidoRef.current
-      if (enVueloRef.current === 0 && d) {
+      if (enVueloRef.current === 0 && d && montadoRef.current) {
         diferidoRef.current = null
         procesarExternoRef.current(d)
       }
@@ -153,7 +168,7 @@ function EditorDeNota({
 
   // Links por nombre (en minúsculas). La clave en texto evita refrescar la vista cuando el
   // padre manda un array nuevo con lo mismo adentro.
-  const linksKey = JSON.stringify(fuente.links ?? [])
+  const linksKey = JSON.stringify(linksDeProp ?? fuente.links ?? [])
   const linksPorNombre = useMemo(() => {
     const links = JSON.parse(linksKey) as Array<{ name: string; syncId: string | null }>
     return new Map(links.map((l) => [l.name.toLowerCase(), l.syncId]))
@@ -193,6 +208,10 @@ function EditorDeNota({
         doc: contenidoRef.current,
         extensions: [
           markdown(),
+          // Deshacer (final review F2): sin historial, un borrado sin querer no tenía vuelta
+          // y el autoguardado lo persistía en 1,5 s.
+          history(),
+          keymap.of([...defaultKeymap, ...historyKeymap]),
           EditorView.lineWrapping,
           livePreview({ resolver: () => resolverRef.current, onWikilink: (n, bg) => onWikilinkRef.current(n, bg) }),
           autocompletadoDeWikilinks(() => candidatosRef.current),
@@ -218,7 +237,7 @@ function EditorDeNota({
   // locales (Review Focus 3): no se pisa lo escrito — banda, solo lectura, y el texto al
   // portapapeles para que tampoco se pierda al cerrar.
   procesarExternoRef.current = (ext) => {
-    if (ext.syncId !== detail.syncId) return
+    if (!montadoRef.current || ext.syncId !== detail.syncId) return
     const nuevo: Valor = { title: ext.title, content: ext.content ?? '' }
     setExternoAplicado(ext)
     if (ecoConsumidoRef.current !== null && ecoConsumidoRef.current === ext.updatedAt) return
@@ -266,6 +285,11 @@ function EditorDeNota({
   useEffect(() => {
     if (borrada && sucioRef.current) copiar({ title: tituloRef.current, content: contenidoRef.current }, () => setCopiado(true))
   }, [borrada])
+
+  const tituloInputRef = useRef<HTMLInputElement | null>(null)
+  useEffect(() => {
+    if (pedirFoco > 0) tituloInputRef.current?.focus({ preventScroll: true })
+  }, [pedirFoco])
 
   useImperativeHandle(handleRef, () => ({
     irALinea: (n: number) => {
@@ -354,6 +378,7 @@ function EditorDeNota({
         )}
 
         <input
+          ref={tituloInputRef}
           aria-label="Memory title"
           value={titulo}
           readOnly={soloLectura}

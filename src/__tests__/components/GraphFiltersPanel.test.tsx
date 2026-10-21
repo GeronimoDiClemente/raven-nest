@@ -14,13 +14,26 @@ const g: MemoryGraph = {
   edges: [{ from: 'a', to: 'b', kind: 'wikilink', directed: true }],
 }
 
-function Harness() {
-  const filtros = useGraphFilters(g)
+function Harness({ graph = g }: { graph?: MemoryGraph }) {
   const [inc, setInc] = useState(true)
+  const filtros = useGraphFilters(graph, undefined, inc)
   return (<>
-    <GraphFiltersPanel graph={g} filtros={filtros} includeSimilar={inc} onIncludeSimilar={setInc} />
+    <GraphFiltersPanel graph={graph} filtros={filtros} includeSimilar={inc} onIncludeSimilar={setInc} />
     <output data-testid="nodos">{filtros.data.nodes.map((n) => n.id).join(',')}</output>
+    <output data-testid="aristas">{filtros.data.links.map((l) => l.kind).join(',')}</output>
+    <output data-testid="local">{filtros.dataCompleta.nodes.map((n) => n.id).join(',')}</output>
   </>)
+}
+
+const conInferidas: MemoryGraph = {
+  ...g,
+  nodes: [...g.nodes, { ...g.nodes[1], syncId: 'c', title: 'C' }, { ...g.nodes[1], syncId: 'd', title: 'D' }],
+  edges: [
+    { from: 'a', to: 'b', kind: 'wikilink', directed: true },
+    { from: 'b', to: 'c', kind: 'branch', directed: false },
+    { from: 'c', to: 'd', kind: 'topic', directed: false },
+    { from: 'a', to: 'd', kind: 'similar', directed: false },
+  ],
 }
 
 describe('GraphFiltersPanel', () => {
@@ -33,10 +46,22 @@ describe('GraphFiltersPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: /unconnected hidden/ }))
     expect(screen.getByTestId('nodos').textContent).toBe('a')
   })
-  it('el boton de links adivinados alterna includeSimilar', () => {
+  it('Guessed links es un interruptor: apagado saca TODAS las inferidas, no solo similar (F7)', () => {
+    render(<Harness graph={conInferidas} />)
+    const boton = screen.getByRole('button', { name: 'Guessed links' })
+    expect(boton).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByTestId('aristas').textContent).toBe('wikilink,branch,topic,similar')
+    fireEvent.click(boton)
+    expect(boton).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByTestId('aristas').textContent).toBe('wikilink')
+    // Sin las inferidas, c y d quedan sueltas y se van con "Hide unconnected".
+    expect(screen.getByTestId('nodos').textContent).toBe('a,b')
+  })
+  it('el grafo del local no lleva los filtros de la pestana Graph (F5)', () => {
     render(<Harness />)
-    fireEvent.click(screen.getByRole('button', { name: 'Hide guessed links' }))
-    expect(screen.getByRole('button', { name: 'Show guessed links' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /^Bugfix/ }))
+    expect(screen.getByTestId('nodos').textContent).toBe('')
+    expect(screen.getByTestId('local').textContent).toBe('a,b')
   })
   it('Color by tiene Type, Project y Tag', () => {
     render(<Harness />)
