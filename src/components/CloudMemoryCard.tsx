@@ -8,6 +8,7 @@ import { nubeDeMemoriaDisponible, textoDeErrorDeMemoria } from '../lib/beta-de-m
 import UpgradeModal from './UpgradeModal'
 import LinkDeviceCard from './LinkDeviceCard'
 import SettingRow from './memories/settings/SettingRow'
+import CloudProjectsRow from './memories/settings/CloudProjectsRow'
 import { Button } from '@/components/ui/button'
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
@@ -113,6 +114,16 @@ export default function CloudMemoryCard() {
           </p>
         )}
       </SettingRow>
+
+      {/* Spec 2b-1 §4.4: sólo conectada y con roster. Upgrade abre el mismo UpgradeModal (D9). */}
+      {conectada && memory.cloudProjects && (
+        <CloudProjectsRow
+          enLaNube={memory.cloudProjects}
+          maxProyectos={memory.limits?.max_projects ?? null}
+          fuera={memory.localOnlyProjects}
+          onUpgrade={() => setMemoryUpgradeOpen(true)}
+        />
+      )}
 
       {quota && conectada && (
         <SettingRow

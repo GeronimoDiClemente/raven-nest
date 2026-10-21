@@ -394,3 +394,38 @@ describe('useMemory — adopción con aviso (Task 2)', () => {
     await waitFor(() => expect(memoriaVieja.setUser).toHaveBeenCalledWith('user-aaaa'))
   })
 })
+
+describe('useMemory — tope de proyectos (2b-1)', () => {
+  beforeEach(() => { vi.clearAllMocks() })
+
+  it('expone el tope, el roster y los repos que quedaron afuera', async () => {
+    const doctor = vi.fn().mockResolvedValue({
+      ok: true, blockedTotal: 5, groups: [],
+      localOnlyProjects: [{ projectKey: 'k-api', name: 'api', count: 5 }],
+    })
+    ;(globalThis as unknown as { window: Window }).window.memory = { ...memoryMock, doctor } as never
+    memoryMock.status.mockResolvedValue({
+      connected: true, deviceId: 'd', itemCount: 3, pendingCount: 0, daemonStatus: 'idle',
+      limits: { max_projects: 1 }, cloudProjects: [{ projectKey: 'k-nest', name: 'raven-nest' }],
+    })
+
+    const { result } = renderHook(() => useMemory())
+
+    await waitFor(() => expect(result.current.limits).toEqual({ max_projects: 1 }))
+    expect(result.current.cloudProjects).toEqual([{ projectKey: 'k-nest', name: 'raven-nest' }])
+    expect(result.current.localOnlyProjects).toEqual([{ projectKey: 'k-api', name: 'api', count: 5 }])
+  })
+
+  it('con el doctor roto el estado sigue, sin roster ni tope inventados', async () => {
+    const doctor = vi.fn().mockRejectedValue(new Error('boom'))
+    ;(globalThis as unknown as { window: Window }).window.memory = { ...memoryMock, doctor } as never
+    memoryMock.status.mockResolvedValue({ connected: true, deviceId: 'd', itemCount: 3, pendingCount: 0, daemonStatus: 'idle' })
+
+    const { result } = renderHook(() => useMemory())
+
+    await waitFor(() => expect(result.current.state).toBe('connected'))
+    expect(result.current.localOnlyProjects).toEqual([])
+    expect(result.current.cloudProjects).toBeNull()
+    expect(result.current.limits).toBeNull()
+  })
+})

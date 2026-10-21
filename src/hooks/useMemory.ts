@@ -33,6 +33,13 @@ interface MemoryHookState {
   statusDetail: string | null
   /** Lo que reporto el servidor. `null` mientras no reporto nada. */
   quota: { used_bytes: number; max_bytes: number } | null
+  /** Spec 2b-1 §4.2: el tope de proyectos que informó el servidor. `null` mientras no informó. */
+  limits: { max_projects: number } | null
+  /** Spec 2b-1 §4.4: el roster de la nube (sin __global__), con nombres locales. `null` = el
+   *  daemon todavía no recibió un status: la fila no se muestra. */
+  cloudProjects: Array<{ projectKey: string; name: string }> | null
+  /** Spec 2b-1 §4.3: los repos que quedaron sólo en esta máquina por el tope (del doctor). */
+  localOnlyProjects: Array<{ projectKey: string; name: string; count: number }>
 }
 
 /** Task 2 (adopción con aviso): lo que MemoryAdoptionDialog necesita para preguntar. */
@@ -65,16 +72,30 @@ export function useMemory() {
     error: null,
     statusDetail: null,
     quota: null,
+    limits: null,
+    cloudProjects: null,
+    localOnlyProjects: [],
   })
   // Guards refresh() from clobbering an in-flight connect()'s 'migrating' state with a
   // stale 'disconnected' read that a background status poll could otherwise race in.
   const connectingRef = useRef(false)
+  // Sube con cada intento de connect. Un refresh que arrancó ANTES de un connect es viejo
+  // aunque termine después de que el connect falló (connectingRef ya en false): sin esto
+  // pisaba el 'error' del connect con el 'connected' que había leído antes. Con el doctor
+  // en paralelo el status tarda un tick más y la carrera dejó de ser teórica.
+  const connectGenRef = useRef(0)
 
   const refresh = useCallback(async () => {
     const api = memoryApi()
     if (!api) return
-    const status = await api.status()
-    if (connectingRef.current) return
+    const gen = connectGenRef.current
+    const [status, doc] = await Promise.all([
+      api.status(),
+      // Opcional (preload viejo) y con su propio catch: que el doctor falle no puede tapar el
+      // estado de la nube.
+      api.doctor?.().catch(() => null) ?? Promise.resolve(null),
+    ])
+    if (connectingRef.current || gen !== connectGenRef.current) return
     setState((s) => ({
       ...s,
       // `unavailable` MUST be checked first. The `!api` guard below only catches the
@@ -107,6 +128,12 @@ export function useMemory() {
       // Se conserva la ultima conocida si esta respuesta no la trae: un status sin
       // cuota significa "no vino", no "el usuario se quedo sin nube".
       quota: status.quota ?? s.quota,
+      // Como la cuota: un status sin `limits` es "no vino", no "sin tope".
+      limits: status.limits ?? s.limits,
+      // El roster NO se conserva: main lo manda siempre que el daemon lo tiene, y tras un cambio
+      // de cuenta vuelve a undefined a propósito (D10).
+      cloudProjects: status.cloudProjects ?? null,
+      localOnlyProjects: doc?.ok ? doc.localOnlyProjects ?? [] : [],
     }))
   }, [])
 
@@ -192,6 +219,7 @@ export function useMemory() {
    */
   const connectWithToken = useCallback(async (token: string) => {
     connectingRef.current = true
+    connectGenRef.current++
     setState((s) => ({ ...s, state: 'connecting', error: null }))
     try {
       const api = memoryApi()
@@ -217,6 +245,7 @@ export function useMemory() {
    */
   const connectWithLogin = useCallback(async () => {
     connectingRef.current = true
+    connectGenRef.current++
     setState((s) => ({ ...s, state: 'connecting', error: null }))
     try {
       const api = memoryApi()

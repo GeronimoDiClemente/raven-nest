@@ -38,7 +38,12 @@ function mockMemoryBridge(status: {
   // que deja distinguir DOS motivos distintos para el mismo 'paused'.
   daemonStatusDetail?: string
   quota?: { used_bytes: number; max_bytes: number }
-}) {
+  // Spec 2b-1 §4.4: el tope del plan y el roster de la nube.
+  limits?: { max_projects: number }
+  cloudProjects?: Array<{ projectKey: string; name: string }>
+},
+doctor: { ok: boolean; blockedTotal: number; groups: unknown[]; localOnlyProjects?: Array<{ projectKey: string; name: string; count: number }> } =
+  { ok: true, blockedTotal: 0, groups: [], localOnlyProjects: [] }) {
   const memory = {
     ensureDeviceId: vi.fn().mockResolvedValue('dev-1'),
     connect: vi.fn().mockResolvedValue({ ok: true }),
@@ -48,6 +53,7 @@ function mockMemoryBridge(status: {
     registerDevice: vi.fn().mockResolvedValue({ ok: true, deviceId: 'dev-1', token: 'nmk_del_servicio' }),
     onStatus: vi.fn(),
     removeStatusListener: vi.fn(),
+    doctor: vi.fn().mockResolvedValue(doctor),
   }
   ;(window as unknown as { memory: typeof memory }).memory = memory
   return memory
@@ -477,5 +483,59 @@ describe('CloudMemoryCard — el boton de confirmar solo es destructivo si va a 
     fireEvent.click(dialog.getByLabelText(/Also delete my cloud memory/))
     const confirmar = dialog.getByRole('button', { name: 'Turn off' })
     expect(confirmar.className).toMatch(/bg-destructive/)
+  })
+})
+
+describe('CloudMemoryCard — Projects in the cloud (spec 2b-1 §4.4)', () => {
+  beforeEach(() => {
+    supabaseMock.auth.getUser.mockResolvedValue({ data: { user: null } })
+    mockLocalPaths()
+  })
+  afterEach(() => { delete (window as unknown as { memory?: unknown }).memory })
+
+  const freeConectado = {
+    connected: true, deviceId: 'd', itemCount: 3, pendingCount: 0, daemonStatus: 'idle' as const,
+    limits: { max_projects: 1 }, cloudProjects: [{ projectKey: 'k-nest', name: 'raven-nest' }],
+  }
+
+  it('Free conectado: «1 of 1 · raven-nest», sin línea de afuera ni Upgrade', async () => {
+    mockMemoryBridge(freeConectado)
+    render(<CloudMemoryCard />)
+    expect(await screen.findByText('1 of 1 · raven-nest')).toBeInTheDocument()
+    expect(screen.getByText('Projects in the cloud')).toBeInTheDocument()
+    expect(screen.queryByText(/Local only/)).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Upgrade' })).toBeNull()
+  })
+
+  it('con repos afuera: la línea, y Upgrade abre el modal de planes', async () => {
+    mockMemoryBridge(freeConectado, {
+      ok: true, blockedTotal: 7, groups: [],
+      localOnlyProjects: [{ projectKey: 'k-api', name: 'api', count: 5 }, { projectKey: 'k-web', name: 'web', count: 2 }],
+    })
+    render(<CloudMemoryCard />)
+    expect(await screen.findByText('Local only: api, web — Cloud syncs all your projects.')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Upgrade' }))
+    // El UpgradeModal de siempre: lista los planes ("Free" entre ellos).
+    await waitFor(() => expect(screen.getByText('Free')).toBeInTheDocument())
+  })
+
+  it('Cloud ve «N projects»', async () => {
+    mockMemoryBridge({ ...freeConectado, limits: { max_projects: 100 }, cloudProjects: [{ projectKey: 'a', name: 'a' }, { projectKey: 'b', name: 'b' }] })
+    render(<CloudMemoryCard />)
+    expect(await screen.findByText('2 projects')).toBeInTheDocument()
+  })
+
+  it('sin conectar no hay fila', async () => {
+    mockMemoryBridge({ connected: false, deviceId: null, itemCount: 0, pendingCount: 0, daemonStatus: 'idle', limits: { max_projects: 1 }, cloudProjects: [] })
+    render(<CloudMemoryCard />)
+    await screen.findByText(/Keeps a copy in the cloud/)
+    expect(screen.queryByText('Projects in the cloud')).toBeNull()
+  })
+
+  it('sin roster todavía (status sin cargar) no hay fila', async () => {
+    mockMemoryBridge({ connected: true, deviceId: 'd', itemCount: 3, pendingCount: 0, daemonStatus: 'idle' })
+    render(<CloudMemoryCard />)
+    await screen.findByText('Up to date · 3 memories')
+    expect(screen.queryByText('Projects in the cloud')).toBeNull()
   })
 })
