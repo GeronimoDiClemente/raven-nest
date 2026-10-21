@@ -43,30 +43,32 @@ describe('MemoryEncryptionCard', () => {
     expect(container).toBeEmptyDOMElement()
   })
 
-  it('sin disponibilidad muestra el motivo y no ofrece activar', async () => {
+  it('sin nube: «Needs cloud sync» y «Set up sync» lleva a Sync', async () => {
     montarCon({ available: false })
-    render(<MemoryEncryptionCard />)
-    expect(await screen.findByText(/connect cloud memory/i)).toBeInTheDocument()
+    const onSetUpSync = vi.fn()
+    render(<MemoryEncryptionCard onSetUpSync={onSetUpSync} />)
+    expect(await screen.findByText('Needs cloud sync')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /turn on/i })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Set up sync' }))
+    expect(onSetUpSync).toHaveBeenCalled()
   })
 
-  it('sin activar ofrece activarlo y dice qué queda en claro', async () => {
+  it('sin activar ofrece «Turn on» y dice qué hace, sin repetir lo que viaja en claro', async () => {
     montarCon({})
     render(<MemoryEncryptionCard />)
-    expect(await screen.findByRole('button', { name: /turn on encryption/i })).toBeInTheDocument()
-    // La promesa honesta del §5.2, en la tarjeta y no solo en la landing.
-    expect(screen.getByText(/locks your memory with a key/i)).toBeInTheDocument()
-    // La caveat: qué ve todavía el servidor (tipo, scope, rama).
-    expect(screen.getByText(/type, scope and branch/i)).toBeInTheDocument()
+    const boton = await screen.findByRole('button', { name: 'Turn on encryption' })
+    expect(boton).toHaveTextContent('Turn on')
+    expect(screen.getByText('Only your machines hold the key. On this machine it stays readable, so search and agents work as usual.')).toBeInTheDocument()
+    expect(screen.queryByText(/type, scope and branch/i)).toBeNull()
   })
 
-  // En texto JSX un `’` no es un escape: se renderiza tal cual, y la app real mostraba
-  // la promesa honesta del cifrado sin comillas escapadas.
-  it("la promesa se lee con su apóstrofo y su raya, no con escapes", async () => {
+  it('el aviso del código de recuperación va en el paso «Save this code»', async () => {
     montarCon({})
     render(<MemoryEncryptionCard />)
-    expect(await screen.findByText(/you will get a recovery code/i))
-      .toBeInTheDocument()
+    expect(screen.queryByText(/if you lose every machine and the code/i)).toBeNull()
+    fireEvent.click(await screen.findByRole('button', { name: 'Turn on encryption' }))
+    expect(await screen.findByText('Save this code')).toBeInTheDocument()
+    expect(screen.getByText(/if you lose every machine and the code, the cloud copy can never be opened again/i)).toBeInTheDocument()
   })
 
   // El momento de la verdad: el codigo se muestra UNA vez y hay que obligar a copiarlo.
@@ -83,13 +85,25 @@ describe('MemoryEncryptionCard', () => {
     expect(seguir).toBeEnabled()
   })
 
-  it('activo muestra la época y ofrece re-subir lo viejo', async () => {
+  it('activo muestra «On · key #N», lo que viaja en claro UNA vez, y ofrece re-subir lo viejo', async () => {
     const api = montarCon({ active: true, keyEpoch: 1 })
     render(<MemoryEncryptionCard />)
-    expect(await screen.findByText(/encryption on/i)).toBeInTheDocument()
+    expect(await screen.findByText('On · key #1')).toBeInTheDocument()
+    expect(screen.getAllByText(/type, scope and branch/i)).toHaveLength(1)
     fireEvent.click(screen.getByRole('button', { name: /re-upload/i }))
     await waitFor(() => expect(api.encryptionReencrypt).toHaveBeenCalled())
     expect(await screen.findByText(/866/)).toBeInTheDocument()
+  })
+
+  it('cada máquina que espera es una fila con su huella y su botón', async () => {
+    montarCon({
+      active: true, keyEpoch: 1,
+      pendingDevices: [{ deviceId: 'pc', name: 'la PC' }, { deviceId: 'mac', name: 'la Mac' }],
+      huellasPorDevice: { pc: 'A1B2-C3D4-E5F6', mac: 'F6E5-D4C3-B2A1' },
+    })
+    render(<MemoryEncryptionCard />)
+    expect(await screen.findByText('la Mac')).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: 'They match — authorise' })).toHaveLength(2)
   })
 
   it('con máquinas esperando, las lista por nombre y ofrece autorizarlas', async () => {

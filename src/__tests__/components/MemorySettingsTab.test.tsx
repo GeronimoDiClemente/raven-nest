@@ -7,7 +7,7 @@ vi.mock('../../components/CloudMemoryCard', () => ({ default: () => <div>cloud-c
 vi.mock('../../components/LinkDeviceCard', () => ({ default: () => <div>link-card</div> }))
 vi.mock('../../components/SyncTokenRow', () => ({ default: () => <div>token-row</div> }))
 vi.mock('../../components/SyncServiceCard', () => ({ default: () => <div>service-card</div> }))
-vi.mock('../../components/MemoryEncryptionCard', () => ({ default: () => <div>enc-card</div> }))
+vi.mock('../../components/MemoryEncryptionCard', () => ({ default: (p: { onSetUpSync?: () => void }) => <button type="button" onClick={p.onSetUpSync}>enc-card</button> }))
 vi.mock('../../components/TeamEncryptionCard', () => ({ default: () => <div>team-enc-card</div> }))
 vi.mock('../../components/ShareProjectCard', () => ({ default: () => <div>share-card</div> }))
 vi.mock('../../components/TeamThreadToggle', () => ({ default: (p: { hilo: { enabled: boolean } }) => <div>thread-toggle {String(p.hilo.enabled)}</div> }))
@@ -41,6 +41,12 @@ describe('MemorySettingsTab', () => {
     expect(screen.getByText('The server stores your memory without being able to read it.')).toBeInTheDocument()
     expect(screen.getByText('enc-card')).toBeInTheDocument()
     expect(screen.queryByText('team-enc-card')).toBeNull()
+  })
+
+  it('«Set up sync» desde Encryption cambia la sección a Sync', () => {
+    const p = montar({ seccion: 'encryption' })
+    fireEvent.click(screen.getByRole('button', { name: 'enc-card' }))
+    expect(p.onSeccion).toHaveBeenCalledWith('sync')
   })
 
   it('Encryption con equipo activo muestra la de equipo', () => {

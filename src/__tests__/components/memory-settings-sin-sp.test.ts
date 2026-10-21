@@ -10,6 +10,8 @@ const PERMITIDOS: Record<string, number> = {
   'LinkDeviceCard.tsx': 0,
   'SyncServiceCard.tsx': 0,
   'SyncTokenRow.tsx': 0,
+  'MemoryEncryptionCard.tsx': 0,
+  'TeamEncryptionCard.tsx': 0,
 }
 
 describe.each(Object.entries(PERMITIDOS))('%s', (archivo, estilos) => {

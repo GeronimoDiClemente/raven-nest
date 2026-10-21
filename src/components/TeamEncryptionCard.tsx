@@ -3,8 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { ShieldCheck, ShieldAlert, ShieldQuestion } from 'lucide-react'
-import { ICON_SIZE } from '../lib/icons'
+import SettingRow from './memories/settings/SettingRow'
 import { truncateWithEllipsis } from '../lib/truncate'
 import { useTeam } from '../hooks/useTeam'
 
@@ -87,17 +86,10 @@ export default function TeamEncryptionCard() {
   // y quedarse sin acceso a lo que otros subieron con la clave verdadera.
   if (estado.estadoRemotoLeido === false) {
     return (
-      <div className="flex shrink-0 flex-col gap-2 rounded-md border border-border p-3">
-        <div className="flex items-center gap-2">
-          <ShieldQuestion size={ICON_SIZE.md} className="text-muted-foreground" aria-hidden />
-          <p className="text-fs font-medium text-foreground">
-            Encrypt what <span className="font-mono">{truncateWithEllipsis(activeTeam.name)}</span> shares
-          </p>
-        </div>
-        <p className="text-fs-sm text-muted-foreground">
-          Could not read this team&rsquo;s encryption state. Come back when you are online.
-        </p>
-      </div>
+      <SettingRow
+        nombre={<>Encrypt what <span className="font-mono">{truncateWithEllipsis(activeTeam.name)}</span> shares</>}
+        descripcion={<>Could not read this team&rsquo;s encryption state. Come back when you are online.</>}
+      />
     )
   }
 
@@ -154,13 +146,14 @@ export default function TeamEncryptionCard() {
   // el estado no se pudo leer.
   const pendientes = estado.recryptPending ?? migracion?.remaining ?? null
 
-  const marco = 'flex shrink-0 flex-col gap-2 rounded-md border border-border p-3'
+  const nombre = <>Encrypt what <span className="font-mono">{truncateWithEllipsis(activeTeam.name)}</span> shares</>
+  const soloElLeader = 'Only the team leader can turn it on.'
 
   // Lo que el gate del push retiene por falta de clave: sin decirlo, la máquina sin autorizar
   // no sabía que tenía memorias sin subir.
   const retenidas = estado.heldCount ?? 0
   const avisoRetenidas = retenidas > 0 && (
-    <p className="text-fs-sm text-foreground">
+    <p className="m-0 text-fs-sm text-foreground">
       <span className="font-mono tabular-nums">{retenidas}</span>{' '}
       {retenidas === 1 ? 'team memory is' : 'team memories are'} waiting on this machine until it is authorised.
     </p>
@@ -168,15 +161,11 @@ export default function TeamEncryptionCard() {
 
   if (codigo) {
     return (
-      <div className={marco}>
-        <div className="flex items-center gap-2">
-          <ShieldCheck size={ICON_SIZE.md} className="text-ok" aria-hidden />
-          <p className="text-fs font-medium text-foreground">Save this team code</p>
-        </div>
-        <p className="text-fs-sm text-muted-foreground">
-          It is the only thing that recovers this team&rsquo;s memories if you lose every leader machine.
-        </p>
-        <p className="select-all rounded-md border border-border bg-muted/30 px-3 py-2 text-center font-mono text-fs tracking-[0.08em] text-foreground">
+      <SettingRow
+        nombre="Save this team code"
+        descripcion={<>It is the only thing that recovers this team&rsquo;s memories if you lose every leader machine.</>}
+      >
+        <p className="m-0 select-all rounded-md border border-border bg-muted/30 px-3 py-2 text-center font-mono text-fs tracking-[0.08em] text-foreground">
           {codigo}
         </p>
         <label className="flex items-center gap-2 text-fs-sm text-foreground">
@@ -184,47 +173,38 @@ export default function TeamEncryptionCard() {
           I have saved it somewhere safe
         </label>
         <div><Button size="sm" disabled={!confirmado} onClick={() => setCodigo(null)}>Done</Button></div>
-      </div>
+      </SettingRow>
     )
   }
 
   if (!estado.activated && !esLeader) {
     return (
-      <div className={marco}>
-        <div className="flex items-center gap-2">
-          <ShieldQuestion size={ICON_SIZE.md} className="text-muted-foreground" aria-hidden />
-          <p className="text-fs font-medium text-foreground">
-            Encrypt what <span className="font-mono">{truncateWithEllipsis(activeTeam.name)}</span> shares
-          </p>
-        </div>
-        <p className="text-fs-sm text-muted-foreground">
+      <SettingRow nombre={nombre} descripcion={soloElLeader}>
+        <p className="m-0 text-fs-sm text-muted-foreground">
           Ask your team leader to turn on encryption for this team — only they can activate it.
         </p>
-      </div>
+      </SettingRow>
     )
   }
 
   if (!estado.activated && esLeader) {
     return (
-      <div className={marco}>
-        <div className="flex items-center gap-2">
-          <ShieldQuestion size={ICON_SIZE.md} className="text-muted-foreground" aria-hidden />
-          <p className="text-fs font-medium text-foreground">
-            Encrypt what <span className="font-mono">{truncateWithEllipsis(activeTeam.name)}</span> shares
-          </p>
-        </div>
-        <p className="text-fs-sm text-muted-foreground">
+      <SettingRow
+        nombre={nombre}
+        descripcion={soloElLeader}
+        control={<Button size="sm" disabled={ocupado || sinCifradoPersonal} onClick={() => void activar()}>Turn on team encryption</Button>}
+      >
+        <p className="m-0 text-fs-sm text-muted-foreground">
           Once it&rsquo;s on, nobody who runs the server can read this team&rsquo;s shared memory — us included.
           Everything already shared gets re-encrypted too.
         </p>
         {sinCifradoPersonal && (
-          <p className="text-fs-sm text-foreground">
+          <p className="m-0 text-fs-sm text-foreground">
             Turn on memory encryption for your account first — team encryption uses this machine&rsquo;s key.
           </p>
         )}
-        {error && <p className="text-fs-sm text-destructive">{error}</p>}
-        <div><Button size="sm" disabled={ocupado || sinCifradoPersonal} onClick={() => void activar()}>Turn on team encryption</Button></div>
-      </div>
+        {error && <p className="m-0 text-fs-sm text-destructive">{error}</p>}
+      </SettingRow>
     )
   }
 
@@ -232,70 +212,60 @@ export default function TeamEncryptionCard() {
     // Sin cifrado personal esta máquina no publica su clave pública, así que nunca aparece en
     // la lista del leader: decirle "pedile al leader" era mandarlo a esperar algo imposible.
     return (
-      <div className={marco}>
-        <div className="flex items-center gap-2">
-          <ShieldAlert size={ICON_SIZE.md} className="text-warn" aria-hidden />
-          <p className="text-fs font-medium text-foreground">This machine can&rsquo;t read team memory yet</p>
-        </div>
-        <p className="text-fs-sm text-muted-foreground">
-          Turn on memory encryption for your account first. After that, your team leader can authorise this machine.
-        </p>
+      <SettingRow
+        nombre={<>This machine can&rsquo;t read team memory yet</>}
+        descripcion="Turn on memory encryption for your account first. After that, your team leader can authorise this machine."
+      >
         {avisoRetenidas}
-      </div>
+      </SettingRow>
     )
   }
 
   if (!estado.hasMaster) {
     return (
-      <div className={marco}>
-        <div className="flex items-center gap-2">
-          <ShieldAlert size={ICON_SIZE.md} className="text-warn" aria-hidden />
-          <p className="text-fs font-medium text-foreground">This machine is not authorised yet</p>
-        </div>
-        <p className="text-fs-sm text-muted-foreground">
-          {esLeader
-            ? 'Ask your team leader to authorise this machine, or use the team recovery code.'
-            : 'Ask your team leader to authorise this machine.'}
-        </p>
+      <SettingRow
+        nombre="This machine is not authorised yet"
+        descripcion={esLeader
+          ? 'Ask your team leader to authorise this machine, or use the team recovery code.'
+          : 'Ask your team leader to authorise this machine.'}
+        control={!recuperando && adoptar && (
+          // Reintentar a mano, igual que MemoryEncryptionCard: el intento automático de arriba
+          // corre al abrir la tarjeta, pero si el leader autoriza MIENTRAS esta pantalla ya
+          // está abierta, hace falta una forma de decir "ya está" sin cerrar y reabrir.
+          <Button
+            size="sm"
+            disabled={buscandoAutorizacion}
+            onClick={() => void (async () => {
+              setBuscandoAutorizacion(true); setError(null)
+              try {
+                const res = await adoptar(activeTeam.id)
+                if (res.ok && res.adoptada) await refrescar()
+                else if (res.ok) setError('No authorisation for this machine yet.')
+                else setError(res.error ?? 'Could not check.')
+              } finally { setBuscandoAutorizacion(false) }
+            })()}
+          >
+            {buscandoAutorizacion ? 'Checking…' : "I've been authorised"}
+          </Button>
+        )}
+      >
         {avisoRetenidas}
         {estado.keyMismatch && (
-          <p className="text-fs-sm text-destructive">
+          <p className="m-0 text-fs-sm text-destructive">
             The key offered to this machine is not this team&rsquo;s key, so it was not used. Ask your team leader to authorise this machine again.
           </p>
         )}
         {estado.huellaPropia && (
           <div className="rounded-md border border-border bg-muted/30 px-2 py-1.5">
-            <p className="text-fs-xs text-muted-foreground">
+            <p className="m-0 text-fs-xs text-muted-foreground">
               Before authorising from the other machine, check that it shows this same code:
             </p>
-            <p className="select-all text-center font-mono text-fs tracking-[0.08em] text-foreground">
+            <p className="m-0 select-all text-center font-mono text-fs tracking-[0.08em] text-foreground">
               {estado.huellaPropia}
             </p>
           </div>
         )}
-        {error && <p className="text-fs-sm text-destructive">{error}</p>}
-        {/* Reintentar a mano, igual que MemoryEncryptionCard: el intento automático de arriba
-            corre al abrir la tarjeta, pero si el leader autoriza MIENTRAS esta pantalla ya
-            está abierta, hace falta una forma de decir "ya está" sin cerrar y reabrir. */}
-        {!recuperando && adoptar && (
-          <div>
-            <Button
-              size="sm"
-              disabled={buscandoAutorizacion}
-              onClick={() => void (async () => {
-                setBuscandoAutorizacion(true); setError(null)
-                try {
-                  const res = await adoptar(activeTeam.id)
-                  if (res.ok && res.adoptada) await refrescar()
-                  else if (res.ok) setError('No authorisation for this machine yet.')
-                  else setError(res.error ?? 'Could not check.')
-                } finally { setBuscandoAutorizacion(false) }
-              })()}
-            >
-              {buscandoAutorizacion ? 'Checking…' : "I've been authorised"}
-            </Button>
-          </div>
-        )}
+        {error && <p className="m-0 text-fs-sm text-destructive">{error}</p>}
         {/* Recuperar termina en autorizarse a sí misma, y eso el servidor sólo se lo deja a un
             leader: a un member el código le abriría la clave y después fallaría. */}
         {!esLeader ? null : recuperando ? (
@@ -310,32 +280,32 @@ export default function TeamEncryptionCard() {
         ) : (
           <div><Button size="sm" variant="outline" onClick={() => setRecuperando(true)}>Use the team recovery code</Button></div>
         )}
-      </div>
+      </SettingRow>
     )
   }
 
   return (
-    <div className={marco}>
-      <div className="flex items-center gap-2">
-        <ShieldCheck size={ICON_SIZE.md} className="text-ok" aria-hidden />
-        <p className="text-fs font-medium text-foreground">Team encryption on</p>
-      </div>
-      {error && <p className="text-fs-sm text-destructive">{error}</p>}
+    <SettingRow
+      nombre={nombre}
+      descripcion={soloElLeader}
+      control={<span className="text-fs-sm text-ok">Team encryption on</span>}
+    >
+      {error && <p className="m-0 text-fs-sm text-destructive">{error}</p>}
       {esLeader && estado.pendingDevices.length > 0 && (
         <div className="flex flex-col gap-1">
-          <p className="text-fs-sm text-foreground">Machines waiting for authorisation:</p>
+          <p className="m-0 text-fs-sm text-foreground">Machines waiting for authorisation:</p>
           {estado.pendingDevices.map((d) => (
             <div key={d.deviceId} className="flex flex-col gap-1 rounded-md border border-border p-2">
-              <p className="text-fs-sm text-foreground">{d.name}</p>
+              <p className="m-0 text-fs-sm text-foreground">{d.name}</p>
               {/* La huella de la clave que el SERVIDOR dice que es de esa máquina. Que el
                   usuario la compare es lo único que detecta una sustitución: sin esto,
                   autorizar es confiar en que quien dice de quién es cada clave no miente. */}
               {estado.huellasPorDevice?.[d.deviceId] && (
                 <>
-                  <p className="text-fs-xs text-muted-foreground">
+                  <p className="m-0 text-fs-xs text-muted-foreground">
                     Authorise it only if that machine shows exactly this code:
                   </p>
-                  <p className="select-all text-center font-mono text-fs tracking-[0.08em] text-foreground">
+                  <p className="m-0 select-all text-center font-mono text-fs tracking-[0.08em] text-foreground">
                     {estado.huellasPorDevice[d.deviceId]}
                   </p>
                 </>
@@ -352,17 +322,17 @@ export default function TeamEncryptionCard() {
           {/* "Terminado" sólo con 0 en el SERVIDOR (C1): lo que un member compartió desde su
               copia también cuenta, y antes la tarjeta lo daba por cifrado sin mirarlo. */}
           {pendientes === 0 && !migrando && !migracion?.error && (
-            <p className="text-fs-sm text-muted-foreground">All shared memories are encrypted on the server.</p>
+            <p className="m-0 text-fs-sm text-muted-foreground">All shared memories are encrypted on the server.</p>
           )}
           {pendientes !== null && pendientes > 0 && (
-            <p className="text-fs-sm text-foreground">
+            <p className="m-0 text-fs-sm text-foreground">
               <span className="font-mono tabular-nums">{pendientes}</span>{' '}
               {pendientes === 1 ? 'shared memory is' : 'shared memories are'} still unencrypted on the server.
             </p>
           )}
-          {migracion?.error && <p className="text-fs-sm text-destructive">{migracion.error}</p>}
+          {migracion?.error && <p className="m-0 text-fs-sm text-destructive">{migracion.error}</p>}
           {migracion !== null && migracion.applied > 0 && (
-            <p className="text-fs-sm text-muted-foreground">
+            <p className="m-0 text-fs-sm text-muted-foreground">
               <span className="font-mono tabular-nums text-foreground">{migracion.applied}</span> re-encrypted
             </p>
           )}
@@ -375,6 +345,6 @@ export default function TeamEncryptionCard() {
           )}
         </div>
       )}
-    </div>
+    </SettingRow>
   )
 }

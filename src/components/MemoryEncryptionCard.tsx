@@ -11,8 +11,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { ShieldCheck, ShieldAlert, ShieldQuestion } from 'lucide-react'
-import { ICON_SIZE } from '../lib/icons'
+import SettingRow from './memories/settings/SettingRow'
 
 interface EstadoCifrado {
   available: boolean
@@ -30,8 +29,10 @@ interface EstadoCifrado {
  *  la mitad honesta de la promesa, y el usuario la tiene que leer donde activa. */
 const LO_QUE_QUEDA_EN_CLARO =
   'Your titles, content, tags and project names are encrypted. Type, scope and branch travel in the clear: the server needs them to order and to decide permissions.'
+const NOMBRE = 'Encrypt your memory'
+const QUE_HACE = 'Only your machines hold the key. On this machine it stays readable, so search and agents work as usual.'
 
-export default function MemoryEncryptionCard() {
+export default function MemoryEncryptionCard({ onSetUpSync }: { onSetUpSync?: () => void } = {}) {
   const [estado, setEstado] = useState<EstadoCifrado | null>(null)
   const [codigo, setCodigo] = useState<string | null>(null)
   const [avisoDeCodigo, setAvisoDeCodigo] = useState<string | null>(null)
@@ -124,92 +125,51 @@ export default function MemoryEncryptionCard() {
     await refrescar()
   })
 
-  const marco = 'flex shrink-0 flex-col gap-2 rounded-md border border-border p-3'
+  const epoca = <span className="font-mono text-fs-sm tabular-nums text-muted-foreground">On · key #{estado.keyEpoch}</span>
+  const huellaGrande = (h: string) => (
+    <p className="m-0 select-all text-center font-mono text-fs tracking-[0.08em] text-foreground">{h}</p>
+  )
+  const fallo = error && <p className="m-0 text-fs-sm text-destructive">{error}</p>
 
   // ── El código de recuperación, una sola vez ────────────────────────────────
   if (codigo) {
     return (
-      <div className={marco}>
-        <div className="flex items-center gap-2">
-          <ShieldCheck size={ICON_SIZE.md} className="text-ok" aria-hidden />
-          <p className="text-fs font-medium text-foreground">Save this code</p>
-        </div>
-        <p className="text-fs-sm text-muted-foreground">
-          It is the only thing that recovers your memories if you lose every machine. You will not see it again.
+      <SettingRow nombre="Save this code" descripcion="It is the only thing that recovers your memories if you lose every machine. You will not see it again.">
+        {/* Spec §5: el aviso del código va en ESTE paso, no antes de activar. */}
+        <p className="m-0 rounded-md border border-warn/40 px-2 py-1 text-fs-sm text-warn">
+          Keep it somewhere safe: if you lose every machine and the code, the cloud copy can never be opened again.
         </p>
-        {avisoDeCodigo && (
-          <p className="rounded-md border border-warn/40 px-2 py-1 text-fs-sm text-warn">{avisoDeCodigo}</p>
-        )}
-        <p className="select-all rounded-md border border-border bg-muted/30 px-3 py-2 text-center font-mono text-fs tracking-[0.08em] text-foreground">
-          {codigo}
-        </p>
+        {avisoDeCodigo && <p className="m-0 rounded-md border border-warn/40 px-2 py-1 text-fs-sm text-warn">{avisoDeCodigo}</p>}
+        <p className="m-0 select-all rounded-md border border-border bg-muted/30 px-3 py-2 text-center font-mono text-fs tracking-[0.08em] text-foreground">{codigo}</p>
         <label className="flex items-center gap-2 text-fs-sm text-foreground">
           <input type="checkbox" checked={confirmado} onChange={(e) => setConfirmado(e.target.checked)} />
           I have saved it somewhere safe
         </label>
-        <div>
-          <Button size="sm" disabled={!confirmado} onClick={() => setCodigo(null)}>
-            Done
-          </Button>
-        </div>
-      </div>
+        <div><Button size="sm" disabled={!confirmado} onClick={() => setCodigo(null)}>Done</Button></div>
+      </SettingRow>
     )
   }
 
-  // ── Sin nube conectada ─────────────────────────────────────────────────────
+  // ── Sin nube conectada: no hay nada que cifrar todavía ─────────────────────
   if (!estado.available) {
     return (
-      <div className={marco}>
-        <div className="flex items-center gap-2">
-          <ShieldQuestion size={ICON_SIZE.md} className="text-muted-foreground" aria-hidden />
-          <p className="text-fs font-medium text-foreground">Encryption</p>
-        </div>
-        {/* Esta frase decía: "Connect cloud memory to encrypt it. What lives only on this
-            machine never travels anywhere." Es verdad y es confusa: en el momento exacto en
-            que le pedimos al usuario que conecte la nube —o sea, que las cosas EMPIECEN a
-            viajar— la frase subraya que no viajan. Un lector real leyó esto y preguntó si las
-            memorias viajan entre máquinas cuando pagás. La respuesta a esa pregunta es lo que
-            la card tiene que decir acá, no la propiedad de privacidad del estado actual. */}
-        <p className="text-fs-sm text-muted-foreground">
-          Right now your memories live only on this machine. Connect cloud memory and they
-          travel to your other machines — encrypted here first, so the server stores something
-          it cannot read.
-        </p>
-      </div>
+      <SettingRow
+        nombre={NOMBRE}
+        descripcion="Needs cloud sync"
+        control={onSetUpSync && <Button size="sm" variant="outline" onClick={onSetUpSync}>Set up sync</Button>}
+      />
     )
   }
 
   // ── Hay una clave en la cuenta pero esta máquina no la tiene ───────────────
   if (!estado.active && estado.keyEpoch > 0) {
     return (
-      <div className={marco}>
-        <div className="flex items-center gap-2">
-          <ShieldAlert size={ICON_SIZE.md} className="text-warn" aria-hidden />
-          <p className="text-fs font-medium text-foreground">This machine is not authorised yet</p>
-        </div>
-        <p className="text-fs-sm text-muted-foreground">
-          Authorise it from another machine that already has the key, or use your recovery code.
-          {estado.undecryptable > 0 && (
-            <> <span className="font-mono tabular-nums text-foreground">{estado.undecryptable}</span> {estado.undecryptable === 1 ? 'memory' : 'memories'} cannot be read from here.</>
-          )}
-        </p>
-        {estado.huellaPropia && (
-          <div className="rounded-md border border-border bg-muted/30 px-2 py-1.5">
-            <p className="text-fs-xs text-muted-foreground">
-              Before authorising from the other machine, check that it shows this same code:
-            </p>
-            <p className="select-all text-center font-mono text-fs tracking-[0.08em] text-foreground">
-              {estado.huellaPropia}
-            </p>
-          </div>
-        )}
-
-        {error && <p className="text-fs-sm text-destructive">{error}</p>}
-        {/* Reintentar a mano. El intento automático corre al abrir la tarjeta, pero si el
-            usuario está mirando ESTA pantalla mientras autoriza en la otra, necesita una
-            forma de decir "ya está" sin cerrar y volver a abrir. */}
-        {!recuperando && adoptar && (
-          <div>
+      <>
+        <SettingRow nombre={NOMBRE} descripcion={QUE_HACE} control={epoca} />
+        <SettingRow
+          nombre="This machine is not authorised yet"
+          descripcion="Authorise it from another machine that already has the key, or use your recovery code."
+          control={!recuperando && adoptar && (
             <Button
               size="sm"
               disabled={buscandoAutorizacion}
@@ -226,139 +186,104 @@ export default function MemoryEncryptionCard() {
             >
               {buscandoAutorizacion ? 'Checking…' : "I've been authorised"}
             </Button>
-          </div>
-        )}
-
-        {recuperando ? (
-          <div className="flex flex-col gap-2">
-            <Input
-              value={codigoTipeado}
-              onChange={(e) => setCodigoTipeado(e.target.value)}
-              placeholder="XXXX-XXXX-XXXX-XXXX-XXXX-XXXX"
-              aria-label="Recovery code"
-              className="font-mono"
-            />
-            <div className="flex gap-2">
-              <Button size="sm" disabled={ocupado} onClick={() => void recuperar()}>Recover</Button>
-              <Button size="sm" variant="ghost" onClick={() => setRecuperando(false)}>Cancel</Button>
+          )}
+        >
+          {estado.undecryptable > 0 && (
+            <p className="m-0 text-fs-sm text-muted-foreground">
+              <span className="font-mono tabular-nums text-foreground">{estado.undecryptable}</span> {estado.undecryptable === 1 ? 'memory' : 'memories'} cannot be read from here.
+            </p>
+          )}
+          {estado.huellaPropia && (
+            <div className="rounded-md border border-border bg-muted/30 px-2 py-1.5">
+              <p className="m-0 text-fs-xs text-muted-foreground">Before authorising from the other machine, check that it shows this same code:</p>
+              {huellaGrande(estado.huellaPropia)}
             </div>
-          </div>
-        ) : (
-          <div>
-            <Button size="sm" variant="outline" onClick={() => setRecuperando(true)}>
-              Use the recovery code
-            </Button>
-          </div>
-        )}
-      </div>
+          )}
+          {fallo}
+          {recuperando ? (
+            <div className="flex flex-col gap-2">
+              <Input value={codigoTipeado} onChange={(e) => setCodigoTipeado(e.target.value)} placeholder="XXXX-XXXX-XXXX-XXXX-XXXX-XXXX" aria-label="Recovery code" className="font-mono" />
+              <div className="flex gap-2">
+                <Button size="sm" disabled={ocupado} onClick={() => void recuperar()}>Recover</Button>
+                <Button size="sm" variant="ghost" onClick={() => setRecuperando(false)}>Cancel</Button>
+              </div>
+            </div>
+          ) : (
+            <div><Button size="sm" variant="outline" onClick={() => setRecuperando(true)}>Use the recovery code</Button></div>
+          )}
+        </SettingRow>
+      </>
     )
   }
 
   // ── Activo ────────────────────────────────────────────────────────────────
   if (estado.active) {
     return (
-      <div className={marco}>
-        <div className="flex items-center gap-2">
-          <ShieldCheck size={ICON_SIZE.md} className="text-ok" aria-hidden />
-          <p className="text-fs font-medium text-foreground">Encryption on</p>
-          <span className="font-mono text-fs-xs tabular-nums text-muted-foreground">key #{estado.keyEpoch}</span>
-        </div>
-        <p className="text-fs-sm text-muted-foreground">{LO_QUE_QUEDA_EN_CLARO}</p>
-
-        {/* La marca de la clave que esta máquina tiene. Dos máquinas de la misma cuenta
-            muestran la misma; si no coinciden, alguien puso una clave que no es la tuya.
-            Envolver no requiere ningún secreto, así que quien pueda escribir en la base del
-            servicio puede sellar la SUYA para tu clave pública — y el sobre no lo detecta. */}
-        {estado.huellaDeLaClave && (
-          <p className="text-fs-xs text-muted-foreground">
-            This account key:{' '}
-            <span className="select-all font-mono text-foreground">{estado.huellaDeLaClave}</span>
-            {' '}— must be the same on all your machines.
-          </p>
-        )}
-
-        {error && <p className="text-fs-sm text-destructive">{error}</p>}
-
-        {estado.pendingDevices.length > 0 && (
-          <div className="flex flex-col gap-1">
-            <p className="text-fs-sm text-foreground">Machines waiting for authorisation:</p>
-            {estado.pendingDevices.map((d) => (
-              <div key={d.deviceId} className="flex flex-col gap-1 rounded-md border border-border p-2">
-                <p className="text-fs-sm text-foreground">{d.name}</p>
-                {/* La huella de la clave que el SERVIDOR dice que es de esa máquina. Que el
-                    usuario la compare es lo único que detecta una sustitución: sin esto,
-                    autorizar es confiar en que quien dice de quién es cada clave no miente. */}
-                {estado.huellasPorDevice?.[d.deviceId] && (
-                  <>
-                    <p className="text-fs-xs text-muted-foreground">
-                      Authorise it only if that machine shows exactly this code:
-                    </p>
-                    <p className="select-all text-center font-mono text-fs tracking-[0.08em] text-foreground">
-                      {estado.huellasPorDevice[d.deviceId]}
-                    </p>
-                  </>
-                )}
-                <div>
-                  <Button size="sm" variant="outline" disabled={ocupado} onClick={() => void autorizar(d.deviceId)}>
-                    They match — authorise
-                  </Button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        <div className="flex items-center gap-2">
-          <Button size="sm" variant="outline" disabled={ocupado} onClick={() => void reencriptar()}>
-            Re-upload what was already there
-          </Button>
-          {reencriptadas !== null && (
-            <span className="text-fs-sm text-muted-foreground">
-              <span className="font-mono tabular-nums text-foreground">{reencriptadas}</span> memories queued
-            </span>
+      <>
+        <SettingRow nombre={NOMBRE} descripcion={QUE_HACE} control={epoca}>
+          {/* Lo que viaja en claro, UNA vez y donde ya está activo (spec §5). */}
+          <p className="m-0 text-fs-sm text-muted-foreground">{LO_QUE_QUEDA_EN_CLARO}</p>
+          {/* La marca de la clave: dos máquinas de la misma cuenta muestran la misma. */}
+          {estado.huellaDeLaClave && (
+            <p className="m-0 text-fs-xs text-muted-foreground">
+              This account key:{' '}
+              <span className="select-all font-mono text-foreground">{estado.huellaDeLaClave}</span>
+              {' '}— must be the same on all your machines.
+            </p>
           )}
-        </div>
-      </div>
+          {fallo}
+        </SettingRow>
+
+        {/* Una fila por máquina que espera (D9). Comparar la huella es la única defensa contra
+            una clave pública sustituida en el servidor. */}
+        {estado.pendingDevices.map((d) => (
+          <SettingRow
+            key={d.deviceId}
+            nombre={d.name}
+            descripcion="Waiting for authorisation"
+            control={<Button size="sm" variant="outline" disabled={ocupado} onClick={() => void autorizar(d.deviceId)}>They match — authorise</Button>}
+          >
+            {estado.huellasPorDevice?.[d.deviceId] && (
+              <div className="rounded-md border border-border bg-muted/30 px-2 py-1.5">
+                <p className="m-0 text-fs-xs text-muted-foreground">Authorise it only if that machine shows exactly this code:</p>
+                {huellaGrande(estado.huellasPorDevice[d.deviceId])}
+              </div>
+            )}
+          </SettingRow>
+        ))}
+
+        <SettingRow
+          nombre="Re-upload old memories"
+          descripcion="Encrypts and uploads again what reached the cloud before encryption was on."
+          control={<Button size="sm" variant="outline" disabled={ocupado} onClick={() => void reencriptar()}>Re-upload</Button>}
+        >
+          {reencriptadas !== null && (
+            <p className="m-0 text-fs-sm text-muted-foreground">
+              <span className="font-mono tabular-nums text-foreground">{reencriptadas}</span> memories queued
+            </p>
+          )}
+        </SettingRow>
+      </>
     )
   }
 
   // ── No sabemos en qué estado está la cuenta ───────────────────────────────
-  // No se ofrece activar a ciegas: si el estado no se pudo leer, `keyEpoch` vale 0 y eso es
-  // indistinguible de "esta cuenta no tiene cifrado". Activar desde una máquina sin clave
-  // rota la época y borra las envolturas de todas las demás, incluida la de recuperación.
+  // No se ofrece activar a ciegas: activar desde una máquina sin clave rota la época y borra
+  // las envolturas de todas las demás, incluida la de recuperación.
   if (estado.estadoRemotoLeido === false) {
     return (
-      <div className={marco}>
-        <div className="flex items-center gap-2">
-          <ShieldQuestion size={ICON_SIZE.md} className="text-muted-foreground" aria-hidden />
-          <p className="text-fs font-medium text-foreground">Encryption</p>
-        </div>
-        <p className="text-fs-sm text-muted-foreground">
-          Could not read this account&rsquo;s encryption state. Come back when you are online.
-        </p>
-      </div>
+      <SettingRow nombre={NOMBRE} descripcion={<>Could not read this account&rsquo;s encryption state. Come back when you are online.</>} />
     )
   }
 
   // ── Se puede activar ──────────────────────────────────────────────────────
   return (
-    <div className={marco}>
-      <div className="flex items-center gap-2">
-        <ShieldQuestion size={ICON_SIZE.md} className="text-muted-foreground" aria-hidden />
-        <p className="text-fs font-medium text-foreground">Encrypt your memory</p>
-      </div>
-      <p className="text-fs-sm text-muted-foreground">
-        Locks your memory with a key that only your own machines hold, before anything goes to the
-        cloud. On this machine it stays readable, so search and your agents keep working as usual.
-      </p>
-      <p className="text-fs-sm text-muted-foreground">{LO_QUE_QUEDA_EN_CLARO}</p>
-      <p className="rounded-md border border-warn/40 px-2 py-1 text-fs-sm text-warn">
-        You will get a recovery code. Keep it somewhere safe: if you lose every machine and the code, the cloud copy can never be opened again.
-      </p>
-      {error && <p className="text-fs-sm text-destructive">{error}</p>}
-      <div>
-        <Button size="sm" disabled={ocupado} onClick={() => void activar()}>Turn on encryption</Button>
-      </div>
-    </div>
+    <SettingRow
+      nombre={NOMBRE}
+      descripcion={QUE_HACE}
+      control={<Button size="sm" aria-label="Turn on encryption" disabled={ocupado} onClick={() => void activar()}>Turn on</Button>}
+    >
+      {fallo}
+    </SettingRow>
   )
 }

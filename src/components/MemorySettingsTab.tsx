@@ -48,7 +48,7 @@ export default function MemorySettingsTab(p: MemorySettingsTabProps) {
     case 'encryption':
       return (
         <SettingsSection titulo="Encryption" bajada="The server stores your memory without being able to read it.">
-          <MemoryEncryptionCard />
+          <MemoryEncryptionCard onSetUpSync={() => p.onSeccion('sync')} />
           {activeTeam && <TeamEncryptionCard />}
         </SettingsSection>
       )
