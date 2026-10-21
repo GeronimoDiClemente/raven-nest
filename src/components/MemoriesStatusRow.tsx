@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import type { MemoriesState } from '../hooks/useMemories'
 import { MOTIVO_TOPE_DE_PLAN, paneDisplayLabel, relativeTime, textoDeTopeDePlan } from '../lib/memories-status'
+import { tieneTope } from '../lib/proyectos-en-la-nube'
 import PlanesModal from './PlanesModal'
 
 interface Props {
@@ -70,7 +71,11 @@ export default function MemoriesStatusRow({ state }: Props) {
               <Badge variant="outline" className="gap-1.5 text-muted-foreground">
                 {textoDeTopeDePlan(g.count, maxProjects)}
               </Badge>
-              <Button size="xs" variant="outline" onClick={() => setPlanes(true)}>Upgrade</Button>
+              {/* D4: Upgrade sólo con un tope conocido y finito, como en Settings › Sync. Un
+                  Cloud con retenidas viejas ya paga; con tope desconocido no se sabe. */}
+              {tieneTope(maxProjects) && (
+                <Button size="xs" variant="outline" onClick={() => setPlanes(true)}>Upgrade</Button>
+              )}
             </span>
           ) : (
             <Badge key={g.reason} variant="outline" className="gap-1.5 text-warn">

@@ -103,4 +103,7 @@ describe('textoDeTopeDePlan (spec 2b-1 §4.7)', () => {
   it('sin tope informado (servicio viejo) no inventa cuántos (D6)', () => {
     expect(textoDeTopeDePlan(2, null)).toBe('2 memories stay on this machine')
   })
+  it('un plan sin tope (Cloud, 100) tampoco dice cuántos sincroniza (D4)', () => {
+    expect(textoDeTopeDePlan(2, 100)).toBe('2 memories stay on this machine')
+  })
 })

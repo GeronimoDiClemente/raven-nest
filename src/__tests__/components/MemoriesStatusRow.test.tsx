@@ -85,6 +85,21 @@ describe('MemoriesStatusRow — el tope del plan no es una falla (spec 2b-1 §4.
     expect(screen.getByText('upgrade-modal')).toBeInTheDocument()
   })
 
+  // Final review #2 (D4): quien ya paga (tope 100 = sin tope) o un servicio que no informa el
+  // tope no ve Upgrade ni «your plan syncs …»: sólo el prefijo.
+  it('un Cloud con retenidas viejas (max 100) no ve Upgrade ni el sufijo del plan', () => {
+    render(<MemoriesStatusRow state={conTope(4, 100)} />)
+    expect(screen.getByText('4 memories stay on this machine')).toBeInTheDocument()
+    expect(screen.queryByText(/your plan syncs/)).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Upgrade' })).toBeNull()
+  })
+
+  it('con tope desconocido, sólo el prefijo y sin Upgrade (D6)', () => {
+    render(<MemoriesStatusRow state={conTope(2, null)} />)
+    expect(screen.getByText('2 memories stay on this machine')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Upgrade' })).toBeNull()
+  })
+
   it('los demás motivos siguen como antes, sin Upgrade', () => {
     render(<MemoriesStatusRow state={{ ...state, blocked: [{ reason: 'quota_exceeded', count: 3, oldestAt: 1, reversible: true }], blockedTotal: 3 }} />)
     expect(screen.getByText(/quota_exceeded · waiting, will retry/)).toBeInTheDocument()

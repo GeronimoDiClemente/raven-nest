@@ -5,6 +5,8 @@
 // enterarse (§2.2); `blocked` antes que `conflicts` porque es lo que no esta llegando a la
 // nube; `disconnected` al final porque en un plan Free es lo normal, no una falla.
 
+import { tieneTope } from './proyectos-en-la-nube'
+
 export type MemoriesDot = 'green' | 'amber' | 'red' | 'grey'
 
 export interface MemoriesStatusInput {
@@ -85,7 +87,9 @@ export function bloqueadasPorFalla(groups: ReadonlyArray<{ reason: string; count
 /** El badge de la fila de estado para lo retenido por el tope (spec 2b-1 §4.7). */
 export function textoDeTopeDePlan(n: number, max: number | null): string {
   const queda = `${n} ${n === 1 ? 'memory stays' : 'memories stay'} on this machine`
-  // D6: sin tope informado no se inventa cuántos proyectos sincroniza el plan.
-  if (max === null) return queda
+  // D6: sin tope informado no se inventa cuántos proyectos sincroniza el plan. D4: un plan
+  // sin tope (Cloud) tampoco: decirle «your plan syncs 100 projects» a quien ya paga es
+  // ofrecerle un límite que no tiene.
+  if (!tieneTope(max)) return queda
   return `${queda} — your plan syncs ${max === 1 ? 'one project' : `${max} projects`}`
 }
