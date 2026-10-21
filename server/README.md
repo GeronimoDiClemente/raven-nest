@@ -12,6 +12,7 @@ estado propio — todo vive en Postgres — que habla el contrato de wire §5: `
 | `POST /v1/sync/push` | `/functions/v1/memory-sync/push` | §5.1 — aplica mutaciones, una transacción por mutación, idempotente por `(device_id, seq)`. |
 | `POST /v1/sync/pull` | `/functions/v1/memory-sync/pull` | §5.2 — filas nuevas por cursor de proyecto. |
 | `GET /v1/sync/status` | — | §5.3 — identidad del device, plan, cuota, `next_poll_ms` y el tope de proyectos del plan (`limits.max_projects`, spec 2b-1). |
+| `POST /internal/plan` | — | Spec 2b-2 §4.5 — el aviso de plan del webhook de Stripe. Firmado con `X-Nest-Signature: t=<seg>,v1=HMAC-SHA256(PLAN_SYNC_SECRET, "<t>.<cuerpo crudo>")`, ventana de 300 s. Escribe `users.plan` y, si es pago, la allowlist (bajar a `free` no saca de la allowlist). Sin `PLAN_SYNC_SECRET` responde 404. |
 | `POST /v1/sync/delete-data` | `/functions/v1/memory-sync/delete-cloud-data` | §5.5 — el derecho al borrado (§6.6/§7.5 del doc de arquitectura). Borra las observaciones, los proyectos y los push receipts del usuario autenticado en **una** transacción y devuelve los conteos. **No** borra el usuario ni sus devices: es "borrá mi copia de nube", no "borrá mi cuenta", así que el token con el que llamó sigue sirviendo. El alias existe porque `electron/main.ts` todavía postea a la ruta vieja y sólo mira `res.ok` — un 404 ahí rompe el borrado **en silencio**. |
 | `GET /health` | — | Sin token. |
 
@@ -155,6 +156,7 @@ en producción hay que fijar al menos `DATABASE_URL`.
 | `PG_BIN_DATABASE_URL` | el valor de `DATABASE_URL` | La URL que ven los **binarios** de Postgres, que no siempre es la que ve el driver `pg`. En producción son la misma y esto no hace falta. En desarrollo sí: el driver corre en Windows y llega por `127.0.0.1:55432`, mientras que `pg_dump` corre adentro del contenedor por `docker exec` y desde ahí la base es `127.0.0.1:5432`. |
 | `SUPABASE_URL` | ninguno | Base de la API REST de Supabase (`https://<ref>.supabase.co`), usada para sincronizar `team_memberships` en cada `POST /v1/devices` (Team Memory Layer 1, Parte 2). **Sin ella, el registro de device funciona exactamente igual que hoy** — la sincronización de membresía es best-effort y simplemente no escribe nada. |
 | `SUPABASE_ANON_KEY` | ninguno | La anon key pública del mismo proyecto de Supabase. Va como header `apikey`; la identidad real la aporta el JWT del propio login del usuario como `Authorization: Bearer`, así que la consulta a `team_members` respeta la RLS de Supabase — nunca se usa una `service_role` key acá. Sin `SUPABASE_URL` **y** `SUPABASE_ANON_KEY` juntas, la sincronización no corre. |
+| `PLAN_SYNC_SECRET` | ninguno | Secreto compartido con el webhook de Stripe (`stripe-webhook`, secret `PLAN_SYNC_SECRET` en Supabase) para firmar `POST /internal/plan`. **Sin él la ruta responde 404** y los pagos no llegan solos al plan del servidor. Al menos 32 caracteres, desde 1Password. |
 
 `NEXT_POLL_MS` existió como env var pero ya no se lee en ningún lado del código: el
 intervalo que ve el cliente sale siempre de `next_poll_ms` en la tabla de límites por plan

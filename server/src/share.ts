@@ -1,5 +1,6 @@
 import type { Pool } from 'pg'
 import { limitsFor } from './limits'
+import { UUID_RE } from './uuid'
 
 export interface ShareProjectBody {
   project_key?: unknown
@@ -9,8 +10,6 @@ export interface ShareProjectBody {
 export type ShareProjectResult =
   | { ok: true }
   | { ok: false; status: 400 | 403 | 404 | 409; error: string }
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 /**
  * `POST /v1/projects/share` (Team Memory Layer 1, Parte 3) — la ÚNICA forma de que un

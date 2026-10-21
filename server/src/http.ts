@@ -14,6 +14,8 @@ import { enrollDeviceKey, getKeyState, publishWraps } from './keys'
 import { getTeamKeyState, activateTeamKey, authorizeTeamDevice } from './team-keys'
 import { recryptTeamObservations, listRecryptPending } from './team-keys-recrypt'
 import { handleBeta } from './betas'
+import { aplicarPlan, leerAvisoDePlan, verificarFirmaDePlan } from './plan-sync'
+import { UUID_RE } from './uuid'
 
 // El emisor del JWKS se arma UNA vez por URL y se guarda: cada instancia tiene su propio
 // caché, así que una por request no cachearía nada y saldría a Supabase en cada login.
@@ -80,10 +82,6 @@ const keysLimiter = createRateLimiter({ limit: 12, windowMs: 60_000 })
  * migrar unas 6.000 filas por minuto, y un cliente que lo toque espera el `Retry-After`.
  */
 const teamRecryptLimiter = createRateLimiter({ limit: 60, windowMs: 60_000 })
-/** `team_memberships.team_id` y `team_keys.team_id` son uuid: algo que no lo es llegaba a
- * Postgres como 22P02 y salía como un 500 `internal_error` (minor de la review final). */
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-
 function send(
   res: ServerResponse,
   status: number,
@@ -105,57 +103,64 @@ function send(
 }
 
 /**
- * Reads the request body as ONE utf8 decode over the concatenated bytes.
+ * The request body EXACTLY as it arrived, as ONE utf8 decode over the concatenated bytes.
  *
- * The previous version did `data += chunk` with `data` a string, which decodes every
- * chunk INDEPENDENTLY. Node hands `data` events out in ~64 KB Buffers, so any multibyte
- * character that straddles a chunk boundary is split across two decodes and each half
- * becomes U+FFFD. Reproduced end to end: a 680 KB body of Spanish markdown came back with
- * 9 replacement characters, and the push still answered `applied` — so the client marked
- * it pushed and the corruption was permanent. 680 KB is the TYPICAL batch (200 mutations
- * at the spec's measured 3407 B average), so this was the default case, not an edge one.
+ * One decode, not `data += chunk`: decoding every chunk independently splits any multibyte
+ * character that straddles a chunk boundary into two U+FFFD. Node hands `data` events out in
+ * ~64 KB Buffers, so a 680 KB body of Spanish markdown (the TYPICAL push batch: 200 mutations
+ * at the spec's measured 3407 B average) came back with 9 replacement characters and the push
+ * still answered `applied` — permanent corruption.
  *
- * The size cap sums `chunk.length`, which is BYTES. `data.length` on the old string was
- * UTF-16 code units, which undercounts every non-ASCII body.
+ * The size cap sums `chunk.length`, which is BYTES (a string's `.length` is UTF-16 code units
+ * and undercounts every non-ASCII body). Over the cap rejects with `{ status: 413 }`.
+ *
+ * `/internal/plan` uses it directly because its signature is over the raw bytes: parsing and
+ * re-serializing would change what was signed. Everything else goes through `readBody`.
  */
-function readBody(req: IncomingMessage): Promise<unknown> {
+function readRawBody(req: IncomingMessage, maxBytes: number): Promise<string> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = []
     let bytes = 0
     let done = false
-
-    const fail = (message: string, status: number) => {
-      done = true
-      chunks.length = 0
-      reject(Object.assign(new Error(message), { status }))
-    }
-
     req.on('data', (chunk: Buffer) => {
       if (done) return
       bytes += chunk.length
-      if (bytes > MAX_BODY_BYTES) return fail('too large', 413)
+      if (bytes > maxBytes) {
+        done = true
+        chunks.length = 0
+        reject(Object.assign(new Error('too large'), { status: 413 }))
+        return
+      }
       chunks.push(chunk)
     })
-    req.on('end', () => {
-      if (done) return
-      if (chunks.length === 0) return resolve({})
-      let parsed: unknown
-      try {
-        parsed = JSON.parse(Buffer.concat(chunks).toString('utf8'))
-      } catch {
-        return fail('bad json', 400)
-      }
-      // Valid JSON that is not an object (`null`, `42`, `"x"`, `[]`) used to sail through
-      // and blow up downstream — `body.mutations` on a null body throws a TypeError inside
-      // the caller's try and got reported as a 500. It is bad client input, so it is a 400
-      // here, and the 500 channel stays clean for actual server faults.
-      if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
-        return fail('bad json', 400)
-      }
-      resolve(parsed)
-    })
+    req.on('end', () => { if (!done) resolve(Buffer.concat(chunks).toString('utf8')) })
     req.on('error', reject)
   })
+}
+
+/** Tope del cuerpo de `/internal/plan`: un aviso son dos campos, 64 KiB sobra. */
+const MAX_PLAN_BODY_BYTES = 64 * 1024
+
+/**
+ * `readRawBody` + `JSON.parse`, capped at `MAX_BODY_BYTES`. An empty body is `{}`; JSON that
+ * does not parse is a 400 `bad json`.
+ */
+async function readBody(req: IncomingMessage): Promise<unknown> {
+  const raw = await readRawBody(req, MAX_BODY_BYTES)
+  if (raw.length === 0) return {}
+  const badJson = () => Object.assign(new Error('bad json'), { status: 400 })
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    throw badJson()
+  }
+  // Valid JSON that is not an object (`null`, `42`, `"x"`, `[]`) used to sail through
+  // and blow up downstream — `body.mutations` on a null body throws a TypeError inside
+  // the caller's try and got reported as a 500. It is bad client input, so it is a 400
+  // here, and the 500 channel stays clean for actual server faults.
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) throw badJson()
+  return parsed
 }
 
 /**
@@ -183,6 +188,10 @@ async function handleRequest(pool: Pool, req: IncomingMessage, res: ServerRespon
       return send(res, 500, { error: 'internal' })
     }
   }
+
+  // Spec 2b-2 §4.5: el aviso de plan del webhook de Stripe. Fuera de `authenticate`: la
+  // credencial es la firma HMAC, no un token de device.
+  if (path === '/internal/plan') return handleInternalPlan(pool, req, res)
 
   // §9.2 — la emisión del token. Va ANTES de `authenticate` y fuera de su try/catch porque
   // es el único camino que NO lleva un token `nmk_`: la credencial es el JWT del login que
@@ -508,6 +517,34 @@ async function handleRevokeDevice(pool: Pool, req: IncomingMessage, res: ServerR
   } catch (err) {
     const status = (err as { status?: number }).status ?? 500
     if (status === 500) console.error('[http] /v1/devices/revoke', err)
+    return send(res, status, { error: status === 500 ? 'internal_error' : (err as Error).message })
+  }
+}
+
+/**
+ * `POST /internal/plan` (spec 2b-2 §4.5). Sin `PLAN_SYNC_SECRET` la ruta no existe (404): un
+ * secreto vacío verificaría contra HMAC(''), que cualquiera calcula.
+ */
+async function handleInternalPlan(pool: Pool, req: IncomingMessage, res: ServerResponse): Promise<void> {
+  const secreto = process.env.PLAN_SYNC_SECRET ?? ''
+  if (!secreto) return send(res, 404, { error: 'not_found' })
+  if (req.method !== 'POST') return send(res, 405, { error: 'method_not_allowed' })
+  try {
+    const cuerpo = await readRawBody(req, MAX_PLAN_BODY_BYTES)
+    const firma = req.headers['x-nest-signature']
+    const cabecera = Array.isArray(firma) ? firma[0] : firma
+    if (!verificarFirmaDePlan(cabecera, cuerpo, secreto, Math.floor(Date.now() / 1000))) {
+      return send(res, 401, { error: 'unauthorized' })
+    }
+    const leido = leerAvisoDePlan(cuerpo)
+    if (!leido.ok) return send(res, 400, { error: leido.error })
+    await aplicarPlan(pool, leido.aviso)
+    // Sólo user_id y plan: el cuerpo entero no se loguea.
+    console.log('[plan-sync] plan aplicado', { user_id: leido.aviso.userId, plan: leido.aviso.plan })
+    return send(res, 200, { ok: true })
+  } catch (err) {
+    const status = (err as { status?: number }).status ?? 500
+    if (status === 500) console.error('[http] /internal/plan', err)
     return send(res, status, { error: status === 500 ? 'internal_error' : (err as Error).message })
   }
 }

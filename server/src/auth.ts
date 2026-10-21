@@ -23,7 +23,7 @@ export function hashToken(token: string): string {
 // 'cloud' is here for the same reason 'pro' is: it's the plan's actual current name (the
 // pro -> cloud rename landed in limits.ts's BY_PLAN table), and a paying Cloud-tier user
 // with that literal plan value could not authenticate at all without it.
-const CLOUD_PLANS = new Set(['free', 'cloud', 'pro', 'team', 'enterprise'])
+export const CLOUD_PLANS = new Set(['free', 'cloud', 'pro', 'team', 'enterprise'])
 
 export async function authenticate(pool: Pool, header: string | undefined): Promise<AuthResult> {
   const token = (header ?? '').replace(/^Bearer\s+/i, '').trim()
