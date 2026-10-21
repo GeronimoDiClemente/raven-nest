@@ -65,31 +65,6 @@ async function abrirDialogoDeTurnOff() {
   return within(dialog)
 }
 
-describe('CloudMemoryCard — memory token input stays reachable in the error state (C7 fix round 1)', () => {
-  beforeEach(() => {
-    supabaseMock.auth.getUser.mockResolvedValue({ data: { user: null } })
-    // useProfile() also bails out on a null user and keeps its initial
-    // `plan: 'free'` — PLAN_LIMITS.free.memoryCloud is false, which is exactly
-    // the plan/state combination Finding 1 describes (downgraded-to-free user
-    // whose daemon is in `error`).
-    mockLocalPaths()
-  })
-
-  afterEach(() => {
-    delete (window as unknown as { memory?: unknown }).memory
-  })
-
-  it('renders the sync-token input in the error state even without the memoryCloud entitlement', async () => {
-    mockMemoryBridge({ connected: true, deviceId: 'dev-1', itemCount: 0, pendingCount: 0, daemonStatus: 'error' })
-    render(<CloudMemoryCard />)
-
-    await waitFor(() => expect(screen.getByText(/Couldn't sync/)).toBeInTheDocument())
-    expect(screen.getByPlaceholderText('Paste a sync token (optional)')).toBeInTheDocument()
-    // Ya NO está deshabilitado sin token: desde §9.2, Retry sin nada pegado le pide uno al
-    // servicio con el JWT del login. Este test sigue siendo sobre que el input exista.
-  })
-})
-
 // smoke/memory-bridge task: a 403 plan_required is not an auth failure — the card must
 // show an Upgrade path, not "Couldn't sync" / a Retry-a-token flow, and that Upgrade
 // button must be the SAME affordance the free-plan disconnected branch already has
@@ -222,7 +197,7 @@ describe('CloudMemoryCard — neighbouring memory-card states are unaffected by 
     })
     render(<CloudMemoryCard />)
 
-    await waitFor(() => expect(screen.getByText(/another instance/i)).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText(/another nest is syncing/i)).toBeInTheDocument())
     expect(screen.queryByText(/offline/i)).not.toBeInTheDocument()
   })
 
@@ -231,7 +206,7 @@ describe('CloudMemoryCard — neighbouring memory-card states are unaffected by 
     render(<CloudMemoryCard />)
 
     await waitFor(() => expect(screen.getByText(/offline/i)).toBeInTheDocument())
-    expect(screen.queryByText(/another instance/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/another nest is syncing/i)).not.toBeInTheDocument()
   })
 
   it('disconnected on a free plan still shows only Upgrade, no Turn off', async () => {
@@ -353,18 +328,6 @@ describe('CloudMemoryCard — Connect pide el token al servicio (§9.2)', () => 
 
     await waitFor(() => expect(memoria.registerDevice).toHaveBeenCalledWith('jwt-de-login'))
   })
-
-  it('con un token pegado usa ese y no molesta al servicio', async () => {
-    const memoria = mockMemoryBridge({ connected: true, deviceId: 'dev-1', itemCount: 0, pendingCount: 0, daemonStatus: 'error' })
-    render(<CloudMemoryCard />)
-
-    await waitFor(() => expect(screen.getByPlaceholderText(/Paste a sync token/i)).toBeInTheDocument())
-    fireEvent.change(screen.getByPlaceholderText(/Paste a sync token/i), { target: { value: 'nmk_a_mano' } })
-    fireEvent.click(screen.getByText('Retry'))
-
-    await waitFor(() => expect(memoria.connect).toHaveBeenCalledWith('nmk_a_mano', expect.anything()))
-    expect(memoria.registerDevice).not.toHaveBeenCalled()
-  })
 })
 
 // El rename `pro` -> `cloud` (Task 1 del corte comercial) dejó esta linea desactualizada:
@@ -389,49 +352,58 @@ describe('CloudMemoryCard — el plan pago se llama Cloud, no Pro', () => {
   })
 })
 
-describe('CloudMemoryCard — reabrir el hub de memoria', () => {
+describe('CloudMemoryCard — filas del spec 2026-10-21', () => {
   beforeEach(() => {
     supabaseMock.auth.getUser.mockResolvedValue({ data: { user: null } })
     mockLocalPaths()
   })
+  afterEach(() => { delete (window as unknown as { memory?: unknown }).memory })
 
-  afterEach(() => {
-    delete (window as unknown as { memory?: unknown }).memory
-  })
-
-  it('el link "Learn more" de la card de Nest Memory reabre el hub', async () => {
+  it('la fila dice qué es, sin repetir lo del cifrado ni ofrecer Learn more', async () => {
     mockMemoryBridge({ connected: false, deviceId: null, itemCount: 0, pendingCount: 0, daemonStatus: 'idle' })
     render(<CloudMemoryCard />)
-
-    await waitFor(() => expect(screen.getByText('Learn more')).toBeInTheDocument())
-    fireEvent.click(screen.getByText('Learn more'))
-
-    await waitFor(() => expect(screen.getByText('Skip')).toBeInTheDocument())
-  })
-})
-
-// Review final de rama, CRITICAL #2: el cifrado es opt-in (MemoryEncryptionCard tiene un
-// boton "Enable encryption" que nadie toco todavia por default) — la bajada vieja
-// ("It is encrypted here before it leaves") le mentia a cualquiera que todavia no lo haya
-// activado. El texto nuevo describe lo que pasa por default (viaja en claro) y señala el
-// boton que lo cambia, en vez de asumir un estado que la mayoria de las cuentas no tiene.
-describe('CloudMemoryCard — la bajada de Cloud sync no promete cifrado que todavia no esta prendido', () => {
-  beforeEach(() => {
-    supabaseMock.auth.getUser.mockResolvedValue({ data: { user: null } })
-    mockLocalPaths()
+    expect(await screen.findByText('Keeps a copy in the cloud so what your agents learn here is there on your other machines.')).toBeInTheDocument()
+    expect(screen.queryByText(/encrypt/i)).toBeNull()
+    expect(screen.queryByText('Learn more')).toBeNull()
+    expect(screen.queryByPlaceholderText(/sync token/i)).toBeNull()
   })
 
-  afterEach(() => {
-    delete (window as unknown as { memory?: unknown }).memory
+  it('conectado y al día dice «Up to date · N memories»', async () => {
+    mockMemoryBridge({ connected: true, deviceId: 'd', itemCount: 1, pendingCount: 0, daemonStatus: 'idle' })
+    render(<CloudMemoryCard />)
+    expect(await screen.findByText('Up to date · 1 memory')).toBeInTheDocument()
   })
 
-  it('no dice que ya esta cifrado, y en cambio invita a prender Encryption', async () => {
+  it('offline dice cuántos cambios esperan', async () => {
+    mockMemoryBridge({ connected: true, deviceId: 'd', itemCount: 3, pendingCount: 2, daemonStatus: 'paused' })
+    render(<CloudMemoryCard />)
+    expect(await screen.findByText('Offline — 2 changes waiting')).toBeInTheDocument()
+  })
+
+  it('sin repos vinculados, el aviso corto', async () => {
     mockMemoryBridge({ connected: false, deviceId: null, itemCount: 0, pendingCount: 0, daemonStatus: 'idle' })
     render(<CloudMemoryCard />)
+    expect(await screen.findByText('Link your repos before connecting — memory imported without them goes to Global and stays there.')).toBeInTheDocument()
+  })
 
-    await waitFor(() => expect(screen.getByText(/Keeps a copy of your memory/)).toBeInTheDocument())
-    expect(screen.queryByText(/is encrypted here before it leaves/i)).not.toBeInTheDocument()
-    expect(screen.getByText(/Turn on Encryption so the server can't read it/)).toBeInTheDocument()
+  it('la cuota es una fila «Cloud space» con «X of Y»', async () => {
+    mockMemoryBridge({ connected: true, deviceId: 'd', itemCount: 12, pendingCount: 0, daemonStatus: 'idle', quota: { used_bytes: 1024 ** 2, max_bytes: 1024 ** 3 } })
+    render(<CloudMemoryCard />)
+    expect(await screen.findByText('1 MB of 1 GB')).toBeInTheDocument()
+    expect(screen.getByText('Cloud space', { selector: 'p' })).toBeInTheDocument()
+  })
+
+  it('«Machine without a browser» sólo con la nube conectada', async () => {
+    const memoria = mockMemoryBridge({ connected: false, deviceId: null, itemCount: 0, pendingCount: 0, daemonStatus: 'idle' })
+    ;(memoria as unknown as { linkApprove: unknown }).linkApprove = vi.fn()
+    const { unmount } = render(<CloudMemoryCard />)
+    await screen.findByText(/Keeps a copy in the cloud/)
+    expect(screen.queryByText('Machine without a browser')).toBeNull()
+    unmount()
+    const conectada = mockMemoryBridge({ connected: true, deviceId: 'd', itemCount: 0, pendingCount: 0, daemonStatus: 'idle' })
+    ;(conectada as unknown as { linkApprove: unknown }).linkApprove = vi.fn()
+    render(<CloudMemoryCard />)
+    expect(await screen.findByText('Machine without a browser')).toBeInTheDocument()
   })
 })
 

@@ -16,6 +16,7 @@ import { Input } from '@/components/ui/input'
 import { supabase } from '../lib/supabase'
 import { normalizarCodigo, copyDeErrorDeVinculacion } from '../lib/codigo-de-vinculacion'
 import { comando } from '../lib/nombre-del-paquete'
+import SettingRow from './memories/settings/SettingRow'
 
 type PuenteDeVinculacion = {
   linkApprove?: (jwt: string, userCode: string) => Promise<{ ok: true } | { ok: false; error: string }>
@@ -34,10 +35,6 @@ export default function LinkDeviceCard() {
 
   const api = puente()
   const normalizado = useMemo(() => normalizarCodigo(tipeado), [tipeado])
-
-  // El marco de MemoryEncryptionCard y ShareProjectCard, para que el pie de Memories
-  // comparta la escala del resto de la pantalla.
-  const marco = 'flex shrink-0 flex-col gap-2 rounded-md border border-border p-3'
 
   if (!api) return null
 
@@ -77,41 +74,35 @@ export default function LinkDeviceCard() {
     : null
 
   return (
-    <div className={marco}>
-      <h4 className="m-0 text-fs font-medium text-foreground">Add a machine that has no browser</h4>
-      <p className="text-fs-sm text-muted-foreground">
-        For a server, a VM or an SSH box where you can't sign in with a browser. That machine
-        shows you a code; you approve it here, from a machine that is already signed in.
-      </p>
-      <ol className="flex flex-col gap-2 text-fs-sm text-muted-foreground list-decimal pl-5">
-        <li>On that machine, run <code className="font-mono">{comando('login')}</code></li>
-        <li>It prints an 8-character code. Type it below within 10 minutes.</li>
-      </ol>
-
-      <div className="flex flex-wrap items-center gap-2">
-        <label htmlFor="link-code" className="sr-only">Code</label>
-        <Input
-          id="link-code"
-          value={tipeado}
-          onChange={(e) => { setTipeado(e.target.value); setAprobado(false); setError(null) }}
-          placeholder="WXYZ-1234"
-          autoComplete="off"
-          spellCheck={false}
-          className="w-40 font-mono uppercase"
-          disabled={ocupado}
-        />
-        <Button size="sm" onClick={() => void aprobar()} disabled={!normalizado.ok || ocupado}>
-          {ocupado ? 'Approving…' : 'Approve machine'}
-        </Button>
-      </div>
-
-      {avisoDeTipeo && <p className="text-fs-sm text-muted-foreground">{avisoDeTipeo}</p>}
-      {error && <p className="text-fs-sm text-destructive">{error}</p>}
+    <SettingRow
+      nombre="Machine without a browser"
+      descripcion={<>A server, VM or SSH box. Run <code className="font-mono">{comando('login')}</code> there and approve the code it shows.</>}
+      control={
+        <>
+          <label htmlFor="link-code" className="sr-only">Code</label>
+          <Input
+            id="link-code"
+            value={tipeado}
+            onChange={(e) => { setTipeado(e.target.value); setAprobado(false); setError(null) }}
+            placeholder="WXYZ-1234"
+            autoComplete="off"
+            spellCheck={false}
+            className="w-32 font-mono uppercase"
+            disabled={ocupado}
+          />
+          <Button size="sm" onClick={() => void aprobar()} disabled={!normalizado.ok || ocupado}>
+            {ocupado ? 'Approving…' : 'Approve'}
+          </Button>
+        </>
+      }
+    >
+      {avisoDeTipeo && <p className="m-0 text-fs-sm text-muted-foreground">{avisoDeTipeo}</p>}
+      {error && <p className="m-0 text-fs-sm text-destructive">{error}</p>}
       {aprobado && (
-        <p className="text-fs-sm text-ok">
+        <p className="m-0 text-fs-sm text-ok">
           Approved. The other machine picks it up within a few seconds — go back to that terminal.
         </p>
       )}
-    </div>
+    </SettingRow>
   )
 }

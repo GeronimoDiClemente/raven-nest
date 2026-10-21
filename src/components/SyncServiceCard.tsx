@@ -12,7 +12,7 @@
 import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Badge } from '@/components/ui/badge'
+import SettingRow from './memories/settings/SettingRow'
 
 type EstadoDelServicio = { url: string; elegida: string | null; porDefecto: string }
 
@@ -45,10 +45,6 @@ export default function SyncServiceCard() {
     return () => { vivo = false }
   }, [api])
 
-  // El marco de MemoryEncryptionCard y LinkDeviceCard, para que el pie de Memories comparta
-  // la escala del resto de la pantalla.
-  const marco = 'flex shrink-0 flex-col gap-2 rounded-md border border-border p-3'
-
   if (!api || !estado) return null
 
   const guardar = async () => {
@@ -73,64 +69,42 @@ export default function SyncServiceCard() {
   }
 
   return (
-    <div className={marco}>
-      <div className="flex items-center gap-2">
-        <h4 className="m-0 text-fs font-medium text-foreground">Where your memory syncs to</h4>
-        <Badge variant="outline">Advanced</Badge>
-      </div>
-
-      <p className="break-all font-mono text-fs-sm text-foreground">{estado.url}</p>
-      {estado.elegida === null && (
-        <p className="text-fs-sm text-muted-foreground">This is the address that comes with Nest.</p>
+    <SettingRow
+      nombre="Sync server"
+      descripcion={<span className="break-all font-mono text-foreground">{estado.url}</span>}
+      control={!abierto && (
+        <Button size="sm" variant="secondary" onClick={() => { setAbierto(true); setTipeado(estado.elegida ?? ''); setError(null) }}>
+          Change
+        </Button>
       )}
-
-      {!abierto && (
-        <div>
-          <Button
-            size="sm"
-            variant="secondary"
-            onClick={() => { setAbierto(true); setTipeado(estado.elegida ?? ''); setError(null) }}
-          >
-            Change
-          </Button>
+    >
+      {estado.elegida === null && !abierto && (
+        <p className="m-0 text-fs-sm text-muted-foreground">This is the address that comes with Nest.</p>
+      )}
+      {abierto && (
+        <div className="flex flex-wrap items-center gap-2">
+          <label htmlFor="sync-service-url" className="sr-only">Service address</label>
+          <Input
+            id="sync-service-url"
+            value={tipeado}
+            onChange={(e) => { setTipeado(e.target.value); setError(null) }}
+            placeholder={estado.porDefecto}
+            autoComplete="off"
+            spellCheck={false}
+            className="min-w-0 flex-1 font-mono"
+            disabled={ocupado}
+          />
+          <Button size="sm" onClick={() => void guardar()} disabled={ocupado}>{ocupado ? 'Saving…' : 'Save'}</Button>
+          <Button size="sm" variant="ghost" onClick={() => { setAbierto(false); setError(null) }} disabled={ocupado}>Cancel</Button>
         </div>
       )}
-
-      {abierto && (
-        <>
-          <p className="text-fs-sm text-muted-foreground">
-            The server your memory travels through. Leave it as it is — change it only if your
-            company runs its own Nest server.
-          </p>
-          <div className="flex flex-wrap items-center gap-2">
-            <label htmlFor="sync-service-url" className="sr-only">Service address</label>
-            <Input
-              id="sync-service-url"
-              value={tipeado}
-              onChange={(e) => { setTipeado(e.target.value); setError(null) }}
-              placeholder={estado.porDefecto}
-              autoComplete="off"
-              spellCheck={false}
-              className="min-w-0 flex-1 font-mono"
-              disabled={ocupado}
-            />
-            <Button size="sm" onClick={() => void guardar()} disabled={ocupado}>
-              {ocupado ? 'Saving…' : 'Save'}
-            </Button>
-            <Button size="sm" variant="ghost" onClick={() => { setAbierto(false); setError(null) }} disabled={ocupado}>
-              Cancel
-            </Button>
-          </div>
-        </>
-      )}
-
-      {error && <p className="text-fs-sm text-destructive">{error}</p>}
+      {error && <p className="m-0 text-fs-sm text-destructive">{error}</p>}
       {reconectar && (
-        <p className="text-fs-sm text-warn">
+        <p className="m-0 text-fs-sm text-warn">
           Saved. This machine’s access was issued by the previous service — if the new one does not
           know it, you will have to connect this machine again.
         </p>
       )}
-    </div>
+    </SettingRow>
   )
 }

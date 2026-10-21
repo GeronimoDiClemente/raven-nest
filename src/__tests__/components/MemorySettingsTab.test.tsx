@@ -5,6 +5,7 @@ import { DEFAULT_MEMORY_PREFS } from '../../lib/memory-prefs'
 
 vi.mock('../../components/CloudMemoryCard', () => ({ default: () => <div>cloud-card</div> }))
 vi.mock('../../components/LinkDeviceCard', () => ({ default: () => <div>link-card</div> }))
+vi.mock('../../components/SyncTokenRow', () => ({ default: () => <div>token-row</div> }))
 vi.mock('../../components/SyncServiceCard', () => ({ default: () => <div>service-card</div> }))
 vi.mock('../../components/MemoryEncryptionCard', () => ({ default: () => <div>enc-card</div> }))
 vi.mock('../../components/TeamEncryptionCard', () => ({ default: () => <div>team-enc-card</div> }))
@@ -32,6 +33,7 @@ describe('MemorySettingsTab', () => {
     expect(screen.getByRole('heading', { name: 'Sync' })).toBeInTheDocument()
     expect(screen.getByText('Your memory on every machine you sign in to.')).toBeInTheDocument()
     expect(screen.getByText('cloud-card')).toBeInTheDocument()
+    expect(screen.queryByText('link-card')).toBeNull()
   })
 
   it('Encryption: la de equipo sólo con un equipo activo', () => {
@@ -87,5 +89,6 @@ describe('MemorySettingsTab', () => {
     montar({ seccion: 'advanced' })
     expect(screen.getByText('Only if your company runs its own Nest server.')).toBeInTheDocument()
     expect(screen.getByText('service-card')).toBeInTheDocument()
+    expect(screen.getByText('token-row')).toBeInTheDocument()
   })
 })

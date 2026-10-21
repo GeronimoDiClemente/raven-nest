@@ -2,8 +2,8 @@
 // FUERA de components/memories/ porque monta las tarjetas que hablan con window.memory; las
 // piezas puras (fila, sección, Editor & graph) sí están allá y entran por props.
 import CloudMemoryCard from './CloudMemoryCard'
-import LinkDeviceCard from './LinkDeviceCard'
 import SyncServiceCard from './SyncServiceCard'
+import SyncTokenRow from './SyncTokenRow'
 import MemoryEncryptionCard from './MemoryEncryptionCard'
 import TeamEncryptionCard from './TeamEncryptionCard'
 import ShareProjectCard from './ShareProjectCard'
@@ -43,7 +43,6 @@ export default function MemorySettingsTab(p: MemorySettingsTabProps) {
       return (
         <SettingsSection titulo="Sync" bajada="Your memory on every machine you sign in to.">
           <CloudMemoryCard />
-          <LinkDeviceCard />
         </SettingsSection>
       )
     case 'encryption':
@@ -83,6 +82,7 @@ export default function MemorySettingsTab(p: MemorySettingsTabProps) {
       return (
         <SettingsSection titulo="Advanced" bajada="Only if your company runs its own Nest server.">
           <SyncServiceCard />
+          <SyncTokenRow />
         </SettingsSection>
       )
   }
