@@ -2348,6 +2348,62 @@ export class MemoryStore {
   }
 
   /**
+   * El nombre de un proyecto como lo reconoce la persona (spec 2b-1 §4.3, decisión D1): el
+   * `display_name` local; si es el marcador (la propia `project_key`, lo que deja el roster
+   * cifrado en una máquina que no clonó el repo) o falta, el nombre de la carpeta del repo; si
+   * tampoco hay, los 8 primeros caracteres de la key. Nunca el `nmc1:` del roster.
+   */
+  private nombreParaMostrar(projectKey: string, fila: { display_name: string | null; root_path: string | null } | undefined): string {
+    const nombre = fila?.display_name
+    if (nombre && nombre !== projectKey) return nombre
+    const carpeta = fila?.root_path?.split(/[\\/]/).filter(Boolean).pop()
+    return carpeta || projectKey.slice(0, 8)
+  }
+
+  private filasDeProyectos(keys: readonly string[]): Map<string, { display_name: string | null; root_path: string | null }> {
+    const filas = new Map<string, { display_name: string | null; root_path: string | null }>()
+    if (keys.length === 0) return filas
+    const placeholders = keys.map(() => '?').join(',')
+    const rows = this.db
+      .prepare(`SELECT project_key, display_name, root_path FROM projects WHERE project_key IN (${placeholders})`)
+      .all(...keys) as Array<{ project_key: string; display_name: string | null; root_path: string | null }>
+    for (const r of rows) filas.set(r.project_key, r)
+    return filas
+  }
+
+  /** Los nombres para mostrar de estas keys, en el mismo orden (el roster de la nube, D1). */
+  nombresDeProyectos(keys: readonly string[]): Array<{ projectKey: string; name: string }> {
+    const filas = this.filasDeProyectos(keys)
+    return keys.map((projectKey) => ({ projectKey, name: this.nombreParaMostrar(projectKey, filas.get(projectKey)) }))
+  }
+
+  /**
+   * Spec 2b-1 §4.3: las mutaciones retenidas por `reason` (hoy `project_limit_reached`, que el
+   * store no importa del daemon — mismo criterio que `heldTeamMutationCount`), agrupadas por
+   * proyecto. `__global__` nunca aparece: no ocupa lugar en la nube (server/src/push.ts). Un
+   * payload ilegible se saltea. Más retenidas primero.
+   */
+  proyectosRetenidosPor(reason: string): Array<{ projectKey: string; name: string; count: number }> {
+    const filas = this.db
+      .prepare('SELECT payload FROM mutation_log WHERE pushed_at IS NULL AND blocked_reason = ?')
+      .all(reason) as Array<{ payload: string }>
+    const porProyecto = new Map<string, number>()
+    for (const { payload } of filas) {
+      let p: unknown
+      try { p = JSON.parse(payload) } catch { continue }
+      if (typeof p !== 'object' || p === null) continue
+      const pk = (p as Record<string, unknown>).project_key
+      const key = typeof pk === 'string' && pk !== '' ? pk : GLOBAL_PROJECT_KEY
+      if (key === GLOBAL_PROJECT_KEY) continue
+      porProyecto.set(key, (porProyecto.get(key) ?? 0) + 1)
+    }
+    const nombres = this.filasDeProyectos([...porProyecto.keys()])
+    return [...porProyecto]
+      .map(([projectKey, count]) => ({ projectKey, name: this.nombreParaMostrar(projectKey, nombres.get(projectKey)), count }))
+      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
+  }
+
+  /**
    * Re-admits blocked mutations whose reason no longer applies back into
    * pendingMutations(). Scoped by reason, not "unblock everything": a project-limit
    * block lifting says nothing about a quota block also lifting.
