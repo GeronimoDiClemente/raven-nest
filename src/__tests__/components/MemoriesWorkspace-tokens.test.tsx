@@ -20,6 +20,11 @@ const files: Record<string, string> = {
       .filter((f) => f.endsWith('.tsx') || f.endsWith('.ts'))
       .map((f) => [`memories/${f}`, readFileSync(resolve(dirMemories, f), 'utf8')]),
   ),
+  ...Object.fromEntries(
+    readdirSync(resolve(dirMemories, 'settings'))
+      .filter((f) => f.endsWith('.tsx') || f.endsWith('.ts'))
+      .map((f) => [`memories/settings/${f}`, readFileSync(resolve(dirMemories, 'settings', f), 'utf8')]),
+  ),
 }
 
 it('lee todos los componentes de memories/', () => {
