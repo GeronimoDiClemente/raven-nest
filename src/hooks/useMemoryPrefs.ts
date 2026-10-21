@@ -2,6 +2,7 @@
 // reparte por props: nada de components/memories/ importa este hook (requisito del plugin).
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { DEFAULT_MEMORY_PREFS, normalizarMemoryPrefs, type MemoryPrefs } from '../lib/memory-prefs'
+import { encolarEscrituraDeSettings, __reiniciarColaDeSettings } from '../lib/cola-de-settings'
 
 type PuenteDeSettings = { get: () => Promise<unknown>; set: (data: unknown) => Promise<unknown> }
 
@@ -11,10 +12,10 @@ function puente(): PuenteDeSettings | null {
 }
 
 // Caché de sesión, como las pestañas: reabrir el overlay no espera al preload ni dibuja un
-// cuadro con los defaults antes de lo guardado.
+// cuadro con los defaults antes de lo guardado. Sólo se llena con una lectura que salió bien:
+// mientras es null, nada se escribe (final review M4), porque se guardarían los defaults más el
+// cambio encima de lo que hay en disco.
 let cache: MemoryPrefs | null = null
-// Las escrituras van en fila: dos cambios seguidos no se pisan con lecturas cruzadas.
-let cola: Promise<void> = Promise.resolve()
 
 async function persistir(next: MemoryPrefs): Promise<void> {
   const api = puente()
@@ -37,11 +38,18 @@ export function useMemoryPrefs() {
     if (cache) return
     let vivo = true
     void (async () => {
-      let leidas = DEFAULT_MEMORY_PREFS
+      let leidas: MemoryPrefs
       try {
+        // Sin window.settings (tests, renderer fuera de Electron) no hay nada que leer ni
+        // pisar: cuenta como cargada con los defaults.
         const s = (await puente()?.get()) as { memoryPrefs?: unknown } | null | undefined
         leidas = normalizarMemoryPrefs(s?.memoryPrefs)
-      } catch { /* sin settings: defaults */ }
+      } catch (err) {
+        // Queda sin cargar (controles deshabilitados, sin escrituras) y la próxima apertura
+        // vuelve a intentar.
+        console.error('[useMemoryPrefs] load failed:', err)
+        return
+      }
       cache = leidas
       if (!vivo) return
       prefsRef.current = leidas
@@ -55,13 +63,15 @@ export function useMemoryPrefs() {
   const actualizar = useCallback((cambio: (p: MemoryPrefs) => MemoryPrefs) => {
     const next = normalizarMemoryPrefs(cambio(prefsRef.current))
     prefsRef.current = next
-    cache = next
     setPrefs(next)
-    cola = cola.then(() => persistir(next))
+    // Sin una lectura buena todavía (pendiente o fallida) el cambio vale sólo en pantalla.
+    if (cache === null) return
+    cache = next
+    void encolarEscrituraDeSettings(() => persistir(next))
   }, [])
 
   return { prefs, cargadas, actualizar }
 }
 
 /** Sólo para tests: vacía la caché de sesión. */
-export function __reiniciarMemoryPrefs(): void { cache = null; cola = Promise.resolve() }
+export function __reiniciarMemoryPrefs(): void { cache = null; __reiniciarColaDeSettings() }

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, waitFor, act } from '@testing-library/react'
 import { useMemoryPrefs, __reiniciarMemoryPrefs } from '../../hooks/useMemoryPrefs'
+import { useSettings } from '../../hooks/useSettings'
 import { DEFAULT_MEMORY_PREFS } from '../../lib/memory-prefs'
 
 let store: Record<string, unknown>
@@ -47,5 +48,64 @@ describe('useMemoryPrefs', () => {
     expect(result.current.prefs).toEqual(DEFAULT_MEMORY_PREFS)
     act(() => { result.current.actualizar((p) => ({ ...p, editor: { ...p.editor, fontSize: 18 } })) })
     expect(result.current.prefs.editor.fontSize).toBe(18)
+  })
+
+  // Final review M4: con la lectura pendiente o fallida, una escritura guardaba los defaults
+  // más el cambio encima de lo que había en disco.
+  it('no escribe antes de que termine la carga', async () => {
+    let soltar!: () => void
+    const espera = new Promise<void>((r) => { soltar = r })
+    ;(window as unknown as { settings: unknown }).settings = {
+      get: vi.fn(async () => { await espera; return store }),
+      set,
+    }
+    const { result } = renderHook(() => useMemoryPrefs())
+    expect(result.current.cargadas).toBe(false)
+    act(() => { result.current.actualizar((p) => ({ ...p, editor: { ...p.editor, spellcheck: true } })) })
+    await new Promise((r) => setTimeout(r, 10))
+    expect(set).not.toHaveBeenCalled()
+    soltar()
+    await waitFor(() => expect(result.current.cargadas).toBe(true))
+    // Gana lo guardado: el cambio hecho a ciegas no se mezcla con lo que había en disco.
+    expect(result.current.prefs.editor.fontSize).toBe(15)
+    expect(set).not.toHaveBeenCalled()
+  })
+
+  it('si la lectura falla no queda cargada y no escribe nunca', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    ;(window as unknown as { settings: unknown }).settings = {
+      get: vi.fn(async () => { throw new Error('ipc caido') }),
+      set,
+    }
+    const { result } = renderHook(() => useMemoryPrefs())
+    await waitFor(() => expect(error).toHaveBeenCalled())
+    expect(result.current.cargadas).toBe(false)
+    expect(result.current.prefs).toEqual(DEFAULT_MEMORY_PREFS)
+    act(() => { result.current.actualizar((p) => ({ ...p, editor: { ...p.editor, fontSize: 18 } })) })
+    // Se ve en la sesión, pero no pisa lo que hay en disco.
+    expect(result.current.prefs.editor.fontSize).toBe(18)
+    await new Promise((r) => setTimeout(r, 10))
+    expect(set).not.toHaveBeenCalled()
+    error.mockRestore()
+  })
+
+  // Final review M5: cada hook tenía su fila (o ninguna) y get/get/set/set se cruzaban.
+  it('una escritura de useSettings y otra de useMemoryPrefs seguidas conservan las dos', async () => {
+    store = { voiceLanguage: 'en', keybindings: {}, hasSeenMemoriesWelcome: false }
+    // get devuelve una foto y tarda: sin una fila compartida, las dos lecturas ven lo mismo
+    // y el segundo set borra lo del primero.
+    ;(window as unknown as { settings: unknown }).settings = {
+      get: vi.fn(async () => { const foto = { ...store }; await new Promise((r) => setTimeout(r, 5)); return foto }),
+      set,
+    }
+    const prefs = renderHook(() => useMemoryPrefs())
+    const ajustes = renderHook(() => useSettings())
+    await waitFor(() => expect(prefs.result.current.cargadas).toBe(true))
+    await act(async () => {
+      void ajustes.result.current.markMemoriesWelcomeSeen()
+      prefs.result.current.actualizar((p) => ({ ...p, editor: { ...p.editor, fontSize: 17 } }))
+      await new Promise((r) => setTimeout(r, 40))
+    })
+    expect(store).toMatchObject({ hasSeenMemoriesWelcome: true, memoryPrefs: { editor: { fontSize: 17 } } })
   })
 })

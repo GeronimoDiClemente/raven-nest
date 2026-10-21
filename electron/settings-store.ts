@@ -25,6 +25,12 @@ export interface AppSettings {
   voiceLanguage: string
   hasSeenMemoryHub: boolean
   hasSeenMemoriesWelcome: boolean
+  /**
+   * Preferencias de Memories (editor y grafo). Main no las interpreta: las guarda y las
+   * devuelve tal cual, y el renderer las normaliza con `normalizarMemoryPrefs`
+   * (src/lib/memory-prefs.ts), la única fuente de verdad de su forma y sus defaults.
+   */
+  memoryPrefs?: unknown
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -54,7 +60,10 @@ function load(): AppSettings {
       voiceLanguage: data.voiceLanguage ?? DEFAULT_SETTINGS.voiceLanguage,
       hasSeenMemoryHub: data.hasSeenMemoryHub ?? DEFAULT_SETTINGS.hasSeenMemoryHub,
       hasSeenMemoriesWelcome: data.hasSeenMemoriesWelcome ?? DEFAULT_SETTINGS.hasSeenMemoriesWelcome,
-      keybindings: { ...DEFAULT_SETTINGS.keybindings, ...(data.keybindings ?? {}) }
+      keybindings: { ...DEFAULT_SETTINGS.keybindings, ...(data.keybindings ?? {}) },
+      // Sin esta línea, memoryPrefs no sobrevivía al reinicio y el próximo set de otro campo
+      // (read-modify-write sobre este get) las reseteaba a los defaults.
+      ...(data.memoryPrefs !== undefined ? { memoryPrefs: data.memoryPrefs } : {}),
     }
   } catch {
     return DEFAULT_SETTINGS

@@ -1,20 +1,24 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { AppSettings, DEFAULT_SETTINGS, Keybindings } from '../lib/keybindings'
 import { normalizarMemoryPrefs } from '../lib/memory-prefs'
+import { encolarEscrituraDeSettings } from '../lib/cola-de-settings'
 
 /**
  * Escribe SÓLO lo que cambió, sobre lo que está guardado AHORA (decisión D15). App y
  * SettingsPanel tienen cada uno su instancia de este hook, y useMemoryPrefs escribe
  * `memoryPrefs` por su lado: con el objeto entero del estado local, el próximo `set` de una
- * instancia montada desde el arranque pisaba lo que otra había guardado después.
+ * instancia montada desde el arranque pisaba lo que otra había guardado después. Va por la
+ * misma fila que useMemoryPrefs, así el get de uno no se cruza con el set del otro.
  */
-async function guardar(patch: Partial<AppSettings>): Promise<void> {
-  try {
-    const actual = ((await window.settings.get()) ?? {}) as Partial<AppSettings>
-    await window.settings.set({ ...DEFAULT_SETTINGS, ...actual, ...patch })
-  } catch (err) {
-    console.error('[useSettings] save failed:', err)
-  }
+function guardar(patch: Partial<AppSettings>): Promise<void> {
+  return encolarEscrituraDeSettings(async () => {
+    try {
+      const actual = ((await window.settings.get()) ?? {}) as Partial<AppSettings>
+      await window.settings.set({ ...DEFAULT_SETTINGS, ...actual, ...patch })
+    } catch (err) {
+      console.error('[useSettings] save failed:', err)
+    }
+  })
 }
 
 export function useSettings() {
