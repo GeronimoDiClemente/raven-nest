@@ -1,10 +1,10 @@
-/** Los 4 tiers de Nest. `enterprise` no es self-serve: se asigna a mano. */
-export const PLANES_VALIDOS = ['free', 'pro', 'team', 'enterprise'] as const
+/** Los tiers de Nest. `cloud` es el único self-serve (spec 2b-2); `enterprise` se asigna a mano. */
+export const PLANES_VALIDOS = ['free', 'cloud', 'pro', 'team', 'enterprise'] as const
 
 export const TRIAL_DIAS = 15
 
 const ETIQUETAS: Record<string, string> = {
-  free: 'Free', pro: 'Pro', team: 'Team', enterprise: 'Enterprise',
+  free: 'Free', cloud: 'Cloud', pro: 'Pro', team: 'Team', enterprise: 'Enterprise',
 }
 
 /** Lo que necesitamos de una suscripción de Stripe, sin depender del SDK. */

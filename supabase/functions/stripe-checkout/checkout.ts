@@ -14,13 +14,6 @@ export const PLANES_PAGOS: readonly string[] = ['cloud', 'pro', 'team', 'enterpr
 export const URL_EXITO = 'https://nestmux.com/checkout/success'
 export const URL_CANCELADO = 'https://nestmux.com/checkout/cancelled'
 
-/** El token de `Authorization: Bearer <jwt>`, o null. */
-export function jwtDelHeader(header: string | null): string | null {
-  const m = /^Bearer\s+(.+)$/i.exec(header ?? '')
-  const token = m?.[1]?.trim()
-  return token ? token : null
-}
-
 export interface PerfilDeCobro {
   plan: string | null
   stripe_customer_id: string | null

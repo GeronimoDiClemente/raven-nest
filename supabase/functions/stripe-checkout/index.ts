@@ -7,7 +7,8 @@
 
 import Stripe from 'https://esm.sh/stripe@14?target=deno'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2?target=deno'
-import { decidirCheckout, jwtDelHeader } from './checkout.ts'
+import { jwtDelHeader } from '../_shared/jwt.ts'
+import { decidirCheckout } from './checkout.ts'
 
 const stripe = new Stripe(Deno.env.get('STRIPE_SECRET_KEY')!, {
   apiVersion: '2024-11-20.acacia',

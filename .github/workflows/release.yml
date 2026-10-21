@@ -400,9 +400,12 @@ jobs:
       # explicito para no depender de que la version del CLI lea el config.
       # Faltaban `stripe-webhook` (sin el flag -> 401 a todo webhook de Stripe,
       # ningun checkout activaba el plan), `admin-api` y `gitlab-oauth`.
+      # `stripe-portal` (spec 2b-2) va SIN el flag: se llama con el JWT del usuario y el
+      # gateway lo verifica antes del codigo.
       - name: Deploy edge functions
         run: |
           supabase functions deploy stripe-checkout --no-verify-jwt --project-ref qkqlsytxtshgjxwmafpw
+          supabase functions deploy stripe-portal --project-ref qkqlsytxtshgjxwmafpw
           supabase functions deploy stripe-webhook --no-verify-jwt --project-ref qkqlsytxtshgjxwmafpw
           supabase functions deploy on-signup --no-verify-jwt --project-ref qkqlsytxtshgjxwmafpw
           supabase functions deploy github-oauth --no-verify-jwt --project-ref qkqlsytxtshgjxwmafpw

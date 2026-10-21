@@ -18,6 +18,11 @@ describe('montoMensualCents', () => {
     expect(montoMensualCents(null)).toBe(0)
   })
 
+  it('Cloud anual de $96 son $8 por mes', () => {
+    expect(montoMensualCents(sub({ unit_amount: 9600, interval: 'year', quantity: 1 }))).toBe(800)
+    expect(montoMensualCents(sub({ unit_amount: 1000, interval: 'month', quantity: 1 }))).toBe(1000)
+  })
+
   it('mensual de 1 seat es el precio', () => {
     expect(montoMensualCents(sub())).toBe(3500)
   })
@@ -136,6 +141,11 @@ describe('planLabel', () => {
     expect(planLabel('enterprise', null)).toBe('Enterprise')
   })
 
+  it('cloud tiene su etiqueta, con el ciclo', () => {
+    expect(planLabel('cloud', sub({ interval: 'year' }))).toBe('Cloud (anual)')
+    expect(planLabel('cloud', null)).toBe('Cloud')
+  })
+
   it('un plan desconocido se muestra tal cual en vez de romper', () => {
     expect(planLabel('legacy_beta', null)).toBe('legacy_beta')
   })
@@ -155,8 +165,8 @@ describe('trialEndsAt', () => {
   })
 })
 
-it('los 4 tiers son los validos', () => {
-  expect([...PLANES_VALIDOS]).toEqual(['free', 'pro', 'team', 'enterprise'])
+it('los tiers validos incluyen cloud (spec 2b-2 §4.9)', () => {
+  expect([...PLANES_VALIDOS]).toEqual(['free', 'cloud', 'pro', 'team', 'enterprise'])
   expect(TRIAL_DIAS).toBe(15)
 })
 
