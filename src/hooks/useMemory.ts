@@ -83,6 +83,9 @@ export function useMemory() {
   // aunque termine después de que el connect falló (connectingRef ya en false): sin esto
   // pisaba el 'error' del connect con el 'connected' que había leído antes. Con el doctor
   // en paralelo el status tarda un tick más y la carrera dejó de ser teórica.
+  // También sube cuando el connect TERMINA (éxito o falla): un refresh que arrancó DURANTE el
+  // connect —main emite `memory:status` mientras conecta— captura la generación ya subida, y
+  // si resuelve después de la falla pisaba el 'error' (p. ej. `not_in_beta`).
   const connectGenRef = useRef(0)
 
   const refresh = useCallback(async () => {
@@ -128,8 +131,10 @@ export function useMemory() {
       // Se conserva la ultima conocida si esta respuesta no la trae: un status sin
       // cuota significa "no vino", no "el usuario se quedo sin nube".
       quota: status.quota ?? s.quota,
-      // Como la cuota: un status sin `limits` es "no vino", no "sin tope".
-      limits: status.limits ?? s.limits,
+      // A diferencia de la cuota, NO se conserva: el daemon ya guarda el último tope conocido
+      // de la cuenta y lo vacía al cambiar de cuenta (D10). Conservarlo acá arrastraba el tope
+      // de la cuenta anterior, y el tope decide si se ofrece Upgrade.
+      limits: status.limits ?? null,
       // El roster NO se conserva: main lo manda siempre que el daemon lo tiene, y tras un cambio
       // de cuenta vuelve a undefined a propósito (D10).
       cloudProjects: status.cloudProjects ?? null,
@@ -229,9 +234,11 @@ export function useMemory() {
       const result = await api.connect(token.trim(), deviceId)
       if (!result.ok) throw new Error(result.error ?? 'Connect failed')
       connectingRef.current = false
+      connectGenRef.current++
       await refresh()
     } catch (err) {
       connectingRef.current = false
+      connectGenRef.current++
       setState((s) => ({ ...s, state: 'error', error: err instanceof Error ? err.message : String(err) }))
     }
   }, [refresh])
@@ -266,9 +273,11 @@ export function useMemory() {
       const result = await api.connect(emitido.token, emitido.deviceId)
       if (!result.ok) throw new Error(result.error ?? 'Connect failed')
       connectingRef.current = false
+      connectGenRef.current++
       await refresh()
     } catch (err) {
       connectingRef.current = false
+      connectGenRef.current++
       setState((s) => ({ ...s, state: 'error', error: err instanceof Error ? err.message : String(err) }))
     }
   }, [refresh])

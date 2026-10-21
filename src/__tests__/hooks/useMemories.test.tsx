@@ -2,7 +2,7 @@
 // contrato que useMemory.ts ya respeta con setUser?/checkPendingAdoption? (ver el comentario
 // de memoryApi() en src/hooks/useMemory.ts: montar sin la API tiraba el arbol entero abajo).
 import { describe, it, expect, afterEach, vi } from 'vitest'
-import { renderHook, waitFor } from '@testing-library/react'
+import { renderHook, waitFor, act } from '@testing-library/react'
 import { useMemories } from '../../hooks/useMemories'
 
 const setMemoryApi = (api: unknown): void => {
@@ -127,6 +127,20 @@ describe('useMemories', () => {
     const { result } = renderHook(() => useMemories(0))
 
     await waitFor(() => expect(result.current.status).toEqual({ dot: 'amber', text: '3 blocked' }))
+    expect(result.current.maxProjects).toBeNull()
+  })
+
+  // Final review #5: el daemon conserva el último tope de la cuenta y lo vacía al cambiar de
+  // cuenta; el hook refleja lo que viene, sin arrastrar el anterior (que decide el Upgrade).
+  it('2b-1: un status sin limits deja maxProjects en null', async () => {
+    const status = vi.fn()
+      .mockResolvedValueOnce({ connected: true, deviceId: 'd1', itemCount: 1, pendingCount: 0, daemonStatus: 'idle', limits: { max_projects: 1 } })
+      .mockResolvedValue({ connected: true, deviceId: 'd1', itemCount: 1, pendingCount: 0, daemonStatus: 'idle' })
+    setMemoryApi({ status })
+
+    const { result } = renderHook(() => useMemories(0))
+    await waitFor(() => expect(result.current.maxProjects).toBe(1))
+    await act(async () => { await result.current.refresh() })
     expect(result.current.maxProjects).toBeNull()
   })
 })

@@ -97,9 +97,10 @@ export function useMemories(pollMs: number = DEFAULT_POLL_MS): MemoriesState {
       setItemCount(status.itemCount)
       setPendingCount(status.pendingCount)
       setConnected(status.connected)
-      // Como la cuota: un status sin `limits` es "no vino", no "sin tope".
+      // No se conserva el anterior: el daemon ya guarda el último tope de la cuenta y lo vacía
+      // al cambiar de cuenta (D10). Arrastrarlo acá mostraba el tope —y el Upgrade— de otra.
       const max = status.limits?.max_projects
-      if (typeof max === 'number') setMaxProjects(max)
+      setMaxProjects(typeof max === 'number' ? max : null)
     }
     setSessions(sess?.ok ? sess.sessions : [])
     setBlocked(doc?.ok ? doc.groups : [])

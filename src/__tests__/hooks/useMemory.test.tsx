@@ -429,3 +429,57 @@ describe('useMemory — tope de proyectos (2b-1)', () => {
     expect(result.current.limits).toBeNull()
   })
 })
+
+describe('useMemory — final review #4/#5', () => {
+  beforeEach(() => { vi.clearAllMocks() })
+
+  // #4: main emite `memory:status` mientras el connect corre. Ese refresh arranca con la
+  // generación ya subida por el connect; si resuelve DESPUÉS de que el connect falló, no
+  // puede pisar el 'error' (el caso que importa: un Free fuera de la beta lee not_in_beta).
+  it('un refresh que arranca durante el connect y resuelve después de que falló no pisa el error', async () => {
+    ;(globalThis as unknown as { window: Window }).window.memory = memoryMock as never
+    const desconectado = { connected: false, deviceId: null, itemCount: 0, pendingCount: 0, daemonStatus: 'idle' }
+    memoryMock.status.mockResolvedValueOnce(desconectado)
+    memoryMock.ensureDeviceId.mockResolvedValue('dev-1')
+    let terminarConnect!: (v: unknown) => void
+    memoryMock.connect.mockReturnValue(new Promise((r) => { terminarConnect = r }))
+    let terminarStatus!: (v: unknown) => void
+    memoryMock.status.mockReturnValueOnce(new Promise((r) => { terminarStatus = r }))
+
+    const { result } = renderHook(() => useMemory())
+    await waitFor(() => expect(memoryMock.onStatus).toHaveBeenCalled())
+    await waitFor(() => expect(result.current.state).toBe('disconnected'))
+    const alCambiarEstado = memoryMock.onStatus.mock.calls[0][0] as () => void
+
+    let conectando!: Promise<void>
+    act(() => { conectando = result.current.connectWithToken('nmk_x') })
+    await waitFor(() => expect(memoryMock.connect).toHaveBeenCalled())
+    act(() => { alCambiarEstado() }) // el status que main emite en medio del connect
+    await waitFor(() => expect(memoryMock.status).toHaveBeenCalledTimes(2))
+
+    await act(async () => {
+      terminarConnect({ ok: false, error: 'not_in_beta' })
+      await conectando
+    })
+    expect(result.current.state).toBe('error')
+
+    await act(async () => { terminarStatus(desconectado) })
+    expect(result.current.state).toBe('error')
+    expect(result.current.error).toBe('not_in_beta')
+  })
+
+  // #5: el daemon ya conserva el último tope por cuenta y lo vacía al cambiar de cuenta; el
+  // renderer refleja lo que manda, sin arrastrar el de la cuenta anterior.
+  it('un status sin limits deja el tope en null', async () => {
+    ;(globalThis as unknown as { window: Window }).window.memory = memoryMock as never
+    memoryMock.status
+      .mockResolvedValueOnce({ connected: true, deviceId: 'd', itemCount: 0, pendingCount: 0, daemonStatus: 'idle', limits: { max_projects: 1 } })
+      .mockResolvedValue({ connected: true, deviceId: 'd', itemCount: 0, pendingCount: 0, daemonStatus: 'idle' })
+
+    const { result } = renderHook(() => useMemory())
+    await waitFor(() => expect(result.current.limits).toEqual({ max_projects: 1 }))
+    const alCambiarEstado = memoryMock.onStatus.mock.calls[0][0] as () => void
+    await act(async () => { alCambiarEstado() })
+    await waitFor(() => expect(result.current.limits).toBeNull())
+  })
+})
