@@ -175,7 +175,7 @@ test('el overlay se dibuja: fila de estado arriba y un cuerpo, nunca un hueco', 
     await expect(overlay.locator('.memories-status-row')).toBeVisible({ timeout: 10_000 })
 
     // 2026-10-19: lo que vincula un repo (o dibuja la tarjeta de compartir, con uno ya
-    // vinculado) se mudó de la vista principal a Memory settings → "This project & team"
+    // vinculado) se mudó de la vista principal a Memory settings → This project
     // (Task 5). Sin repo esa sección ofrece vincular uno (la card del estado vacio, por rol
     // y nombre accesible — la clase vieja `.memories-empty` desaparecio con la migracion);
     // con repo dibuja la tarjeta de compartir y el toggle del hilo. Los dos son estados
@@ -187,17 +187,15 @@ test('el overlay se dibuja: fila de estado arriba y un cuerpo, nunca un hueco', 
     // esto el assert no prueba que el boton esta ADENTRO de `.memories-workspace`, solo
     // que existe en algun lado de la pagina.
     await overlay.getByRole('button', { name: 'Memory settings' }).click()
-    await overlay.getByRole('button', { name: /This project & team/ }).click()
-    const conRepo = await overlay.getByText(/Share this project's memory with a team/).count()
+    await overlay.getByRole('navigation', { name: 'Settings sections' }).getByRole('button', { name: 'This project', exact: true }).click()
+    // Con repo: la fila de compartir (con o sin plan, se llama igual). Sin repo: vincular uno.
+    const conRepo = await overlay.getByText('Share with a team', { exact: true }).count()
     const sinRepo = await overlay.getByRole('button', { name: /link a repo/i }).count()
     expect(conRepo + sinRepo).toBeGreaterThan(0)
 
     await page.screenshot({ path: join(SHOTS, '05-overlay-cuerpo.png') })
 
-    // Y cierra: un overlay que no se puede cerrar es una trampa, no una pantalla. Desde
-    // settings el Back dice "Memories" primero (vuelve a la vista principal); recién desde
-    // ahí cierra el overlay entero.
-    await overlay.getByRole('button', { name: 'Memories', exact: true }).click()
+    // Y cierra: Back cierra el overlay entero, también con la pestaña Settings activa.
     await overlay.locator('.tw-back-btn').click()
     await expect(page.locator('.memories-workspace')).toHaveCount(0)
   } finally {
@@ -214,7 +212,7 @@ test('Settings ya no tiene las tarjetas de memoria — solo la puerta', async ()
     // Orca). La seccion esta montada desde que se abre el panel, asi que no hay nada que
     // clickear para llegar.
     // La puerta se llama ahora "Memory settings" (era "Open Memories") y abre Memories
-    // directo en la vista de settings, no en la principal.
+    // con la pestaña Settings activa.
     const puerta = page.getByRole('button', { name: 'Memory settings' })
     await expect(puerta).toBeVisible({ timeout: 10_000 })
 
@@ -225,7 +223,7 @@ test('Settings ya no tiene las tarjetas de memoria — solo la puerta', async ()
 
     await puerta.click()
     await expect(page.locator('.memories-workspace')).toBeVisible({ timeout: 10_000 })
-    await expect(page.locator('.tw-header-title')).toHaveText('Memory settings')
+    await expect(page.locator('.memories-workspace').getByRole('tab', { name: /Settings/, selected: true })).toBeVisible()
 
     await page.screenshot({ path: join(SHOTS, '06-settings-solo-la-puerta.png') })
   } finally {
@@ -259,20 +257,17 @@ test('con un repo vinculado se dibuja el panel de ramas, y prenderlo escribe el 
 
     // 2. El panel de ramas vive en la vista PRINCIPAL, pero sólo cuando el hilo está
     //    prendido (spec §7) — y arranca apagado (`loadTeamThreadSettings`), así que acá
-    //    todavía no se dibuja. Prenderlo se mudó a Memory settings → "This project & team".
+    //    todavía no se dibuja. Prenderlo se mudó a Memory settings → This project.
     await expect(overlay.locator('.team-thread-panel')).toHaveCount(0)
 
-    // 3. La puerta a settings vive en el header de la vista principal.
+    // 3. La puerta a settings vive en el header: abre la pestaña Settings.
     await overlay.getByRole('button', { name: 'Memory settings' }).click()
-    await expect(overlay.locator('.tw-header-title')).toHaveText('Memory settings')
+    await expect(overlay.getByRole('tab', { name: /Settings/, selected: true })).toBeVisible()
+    await overlay.getByRole('navigation', { name: 'Settings sections' }).getByRole('button', { name: 'This project', exact: true }).click()
 
-    await overlay.getByRole('button', { name: /This project & team/ }).click()
-
-    // 4. La tarjeta de compartir vive ahora en "This project & team" — antes nunca se
-    //    había dibujado contra la app real (sin repo devuelve null y sale del árbol). Que
-    //    se vea ya prueba que los IPC encadenados de TeamThreadPanel contestaron ok contra
-    //    el main de verdad (projectKeyForWorktree → getSettings → read).
-    await expect(overlay.getByText(/Share this project's memory with a team/)).toBeVisible()
+    // 4. La fila de compartir: que se vea prueba que status y projectKeyForWorktree contestaron
+    //    contra el main de verdad.
+    await expect(overlay.getByText('Share with a team', { exact: true })).toBeVisible()
 
     // El repo de e2e no tiene remote, así que el projectKey sale del PATH
     // (resolveProjectKey: remote → path → global). Es el camino que una carpeta local
@@ -282,7 +277,7 @@ test('con un repo vinculado se dibuja el panel de ramas, y prenderlo escribe el 
 
     // 5. El hilo arranca APAGADO, que es el default de `loadTeamThreadSettings`. Ahora es
     //    un switch (role="switch"), no un botón que cambia de texto.
-    const hilo = overlay.getByRole('switch', { name: /Branch notes in the repo/ })
+    const hilo = overlay.getByRole('switch', { name: 'Branch notes' })
     await expect(hilo).toHaveAttribute('aria-checked', 'false')
 
     // 6. Prenderlo no es sólo un toggle de UI: corre `runTeamThreadForRepo` en main, que
@@ -298,13 +293,8 @@ test('con un repo vinculado se dibuja el panel de ramas, y prenderlo escribe el 
     // el disco y en ningún otro lado.
     expect(existsSync(join(h.repoDir, '.nest', 'team', '_index.md'))).toBe(true)
 
-    // 7. Volver a la vista principal con el Back de settings (ahí su nombre es
-    //    "Memories", no "Back"): con el hilo prendido el panel de ramas ahora sí se
-    //    dibuja. Un repo recién creado no tiene memorias, así que el grafo tiene sólo el
-    //    índice y el panel lo dice en vez de dibujar un punto solo en el medio.
-    await overlay.getByRole('button', { name: 'Memories', exact: true }).click()
-    // Desde el 2026-10-20 (Memories estilo Obsidian) el hilo es una PESTAÑA fija del centro,
-    // que aparece cuando el repo lo tiene prendido: hay que entrar a ella.
+    // 7. El toggle vive en una pestaña del mismo workspace: la pestaña Team thread aparece en
+    //    el acto, sin volver a ningún lado.
     await overlay.getByRole('tab', { name: /Team thread/ }).click()
     await expect(overlay.locator('.team-thread-panel')).toBeVisible({ timeout: 15_000 })
     await expect(overlay.locator('.team-thread-error')).toHaveCount(0)
@@ -437,13 +427,11 @@ test('el workspace de equipo queda encima de Personal, que sigue montado debajo'
   }
 })
 
-// Review final de rama, CRITICAL #1: UpgradeModal y MemoryHub portan a `document.body` con
-// `.modal-backdrop` (z-index --z-overlay-modal), pero se abren desde ADENTRO de
-// `.memories-workspace` (--z-overlay-top). Antes del fix los dos compartian el mismo numero
-// que `.memories-workspace` tenia pisado encima (1000 vs 1200): "Learn more" y "Upgrade"
-// quedaban invisibles, clickeables solo por accidente de coordenadas. jsdom no ve z-index —
-// esto solo se prueba contra el navegador real.
-test('Learn more en Memory settings › Sync abre el hub ENCIMA del overlay', async () => {
+// Review final de rama, CRITICAL #1 (19-10): lo que se abre desde ADENTRO de
+// `.memories-workspace` y porta a `document.body` (`.modal-backdrop`) tiene que quedar encima.
+// Antes lo medía el hub de "Learn more", que salió (spec 2026-10-21 §5); el UpgradeModal usa
+// el mismo backdrop y la misma escala de z-index.
+test('Upgrade desde la pestaña Settings abre el modal ENCIMA del overlay', async () => {
   const h = await launchHarness({ withRepo: false })
   const { page } = h
   try {
@@ -453,24 +441,46 @@ test('Learn more en Memory settings › Sync abre el hub ENCIMA del overlay', as
     await puerta.click()
 
     const overlay = page.locator('.memories-workspace')
-    await expect(overlay).toBeVisible({ timeout: 10_000 })
-    // "Sync" es la seccion inicial del rail — sin click adicional.
-    await overlay.getByRole('button', { name: 'Learn more' }).click()
+    await expect(overlay.getByRole('heading', { name: 'Sync' })).toBeVisible({ timeout: 10_000 })
+    await page.waitForTimeout(500)
+    const upgrade = overlay.getByRole('button', { name: 'Upgrade', exact: true })
+    test.skip((await upgrade.count()) === 0, 'build con la nube habilitada (beta): Cloud sync no ofrece Upgrade')
+    await upgrade.first().click()
 
-    const hub = page.locator('.memory-hub')
-    await expect(hub).toBeVisible({ timeout: 10_000 })
-
-    // El chequeo que un z-index mas alto en CSS no prueba por si solo: lo que el navegador
-    // entrega en el centro de la pantalla tiene que estar ADENTRO del hub, no del overlay de
-    // Memory settings que lo abrio.
+    const modal = page.locator('.upgrade-modal')
+    await expect(modal).toBeVisible({ timeout: 10_000 })
     const arriba = await page.evaluate(() =>
-      Boolean(document.elementFromPoint(window.innerWidth / 2, window.innerHeight / 2)?.closest('.memory-hub')))
+      Boolean(document.elementFromPoint(window.innerWidth / 2, window.innerHeight / 2)?.closest('.modal-backdrop')))
     expect(arriba).toBe(true)
-
-    expect(await hub.evaluate((el) => Number(getComputedStyle(el.parentElement!).zIndex)))
+    expect(await modal.evaluate((el) => Number(getComputedStyle(el.parentElement!).zIndex)))
       .toBeGreaterThan(await overlay.evaluate((el) => Number(getComputedStyle(el).zIndex)))
 
-    await page.screenshot({ path: join(SHOTS, '12-hub-sobre-settings.png') })
+    await page.screenshot({ path: join(SHOTS, '12-upgrade-sobre-settings.png') })
+  } finally {
+    await teardown(h)
+  }
+})
+
+test('la pestaña Settings: una captura por sección', async () => {
+  // Seis capturas con el overlay montado: en headless cada `screenshot` tarda 8-10 s
+  // (medido en el trace), y con el arranque no entran en los 60 s del default.
+  test.setTimeout(120_000)
+  const h = await launchHarness()
+  const { page } = h
+  try {
+    await page.evaluate((dir) => {
+      ;(window as unknown as { __e2e_linkRepo?: (p: string) => void }).__e2e_linkRepo?.(dir)
+    }, h.repoDir)
+    await page.getByTitle(/^Memories/).first().click()
+    const overlay = page.locator('.memories-workspace')
+    await overlay.getByRole('button', { name: 'Memory settings' }).click()
+    const nav = overlay.getByRole('navigation', { name: 'Settings sections' })
+    for (const [i, s] of ['Sync', 'Encryption', 'Editor & graph', 'This project', 'Notes on disk', 'Advanced'].entries()) {
+      await nav.getByRole('button', { name: s, exact: true }).click()
+      await expect(overlay.getByRole('heading', { name: s })).toBeVisible()
+      await page.waitForTimeout(600)
+      await page.screenshot({ path: join(SHOTS, `20-settings-${i + 1}-${s.toLowerCase().replace(/[^a-z]+/g, '-')}.png`) })
+    }
   } finally {
     await teardown(h)
   }

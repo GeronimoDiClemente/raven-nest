@@ -146,38 +146,25 @@ test('ningún texto de la app queda por debajo de 3:1 de contraste', async () =>
       }],
       // Fix round 1 (review de rama): el repo rule es "todo cambio de UI pasa
       // e2e/04-contraste" y este plan sumó pantallas enteras (Memory settings, la
-      // bienvenida) que este archivo nunca medía. Memory settings se mide sección por
-      // sección (Task 5/6 de este plan): cada rail dibuja cards propias, no una sola
-      // pantalla.
+      // bienvenida) que este archivo nunca medía.
+      // Spec 2026-10-21: Memory settings es una pestaña con seis secciones; se mide cada una.
       ['memory-settings-sync', async () => {
-        // "Sync" es la sección por default (`seccionInicial = 'sync'` en
-        // MemorySettingsView): abrir Memory settings ya la deja montada, sin click extra.
+        // Sync es la sección con que abre la pestaña.
         await page.locator('.memories-workspace').getByRole('button', { name: 'Memory settings' }).click()
         await page.waitForTimeout(600)
       }],
-      ['memory-settings-encryption', async () => {
-        await page.locator('.memories-workspace').getByRole('button', { name: /Encryption/ }).click()
-        await page.waitForTimeout(600)
-      }],
-      ['memory-settings-project', async () => {
-        // Con repo (`withRepo: true` de este test) dibuja ShareProjectCard + el switch del
-        // hilo — tres IPC encadenados (projectKeyForWorktree → getSettings → read), de ahí
-        // el margen más largo.
-        await page.locator('.memories-workspace').getByRole('button', { name: /This project & team/ }).click()
-        await page.waitForTimeout(800)
-      }],
-      ['memory-settings-disk', async () => {
-        await page.locator('.memories-workspace').getByRole('button', { name: /Notes on disk/ }).click()
-        await page.waitForTimeout(600)
-      }],
+      ...(['Encryption', 'Editor & graph', 'This project', 'Notes on disk', 'Advanced'] as const).map((s): [string, () => Promise<void>] => [
+        `memory-settings-${s}`,
+        async () => {
+          await page.locator('.memories-workspace').getByRole('navigation', { name: 'Settings sections' })
+            .getByRole('button', { name: s, exact: true }).click()
+          // This project encadena tres IPC (projectKeyForWorktree → getSettings → status).
+          await page.waitForTimeout(800)
+        },
+      ]),
       ['memories-welcome', async () => {
-        // "How it works" sólo vive en la vista principal (Memory settings tiene su propio
-        // tour, distinto) — volver primero con el Back de settings, que ahí se llama
-        // "Memories", no "Back" (misma nota en 03-memories-in-app.spec.ts). Bajo
-        // `RAVEN_E2E=1` la bienvenida nunca se auto-muestra (`shouldShowMemoriesWelcome`
-        // con e2eBypass); "How it works" la fuerza igual, que es como la ve cualquiera que
-        // la pida a mano.
-        await page.locator('.memories-workspace').getByRole('button', { name: 'Memories', exact: true }).click()
+        // "How it works" está siempre en el header. Bajo RAVEN_E2E=1 la bienvenida no se
+        // auto-muestra; el botón la fuerza.
         await page.getByRole('button', { name: 'How it works' }).click()
         await page.waitForTimeout(800)
       }],
@@ -223,10 +210,10 @@ test('el estado vacio de Memories (sin repo) tambien pasa el guard de 3:1', asyn
   const { page } = h
   try {
     // 2026-10-19: el estado vacio ("vincular un repo") se mudó de la vista principal a
-    // Memory settings → "This project & team" (Task 5).
+    // Memory settings → This project (Task 5).
     await page.getByTitle(/^Memories/).first().click()
     await page.getByRole('button', { name: 'Memory settings' }).click()
-    await page.getByRole('button', { name: /This project & team/ }).click()
+    await page.getByRole('navigation', { name: 'Settings sections' }).getByRole('button', { name: 'This project', exact: true }).click()
     await page.getByRole('button', { name: /link a repo/i }).waitFor({ timeout: 10_000 })
 
     const malos = await medirContraste(page)
