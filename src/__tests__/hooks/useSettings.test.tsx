@@ -53,3 +53,43 @@ describe('useSettings — hasSeenMemoriesWelcome', () => {
     expect(window.settings.set).toHaveBeenCalledWith(expect.objectContaining({ hasSeenMemoriesWelcome: true }))
   })
 })
+
+describe('useSettings — memoryPrefs', () => {
+  it('carga memoryPrefs con merge contra los defaults', async () => {
+    ;(window as unknown as { settings: unknown }).settings = {
+      get: vi.fn().mockResolvedValue({ voiceLanguage: 'en', keybindings: {}, memoryPrefs: { editor: { fontSize: 16 } } }),
+      set: vi.fn().mockResolvedValue(undefined),
+    }
+    const { result } = renderHook(() => useSettings())
+    await waitFor(() => expect(result.current.settings.memoryPrefs.editor.fontSize).toBe(16))
+    expect(result.current.settings.memoryPrefs.editor.livePreview).toBe(true)
+  })
+
+  it('cambiar el idioma no pisa las memoryPrefs guardadas', async () => {
+    const guardadas = { editor: { livePreview: false }, graph: { remember: false } }
+    const set = vi.fn().mockResolvedValue(undefined)
+    ;(window as unknown as { settings: unknown }).settings = {
+      get: vi.fn().mockResolvedValue({ voiceLanguage: 'en', keybindings: {}, memoryPrefs: guardadas }),
+      set,
+    }
+    const { result } = renderHook(() => useSettings())
+    await waitFor(() => expect(result.current.settings.voiceLanguage).toBe('en'))
+    await act(async () => { await result.current.updateVoiceLanguage('es') })
+    expect(set).toHaveBeenLastCalledWith(expect.objectContaining({ voiceLanguage: 'es', memoryPrefs: guardadas }))
+  })
+
+  it('una instancia montada desde antes no pisa lo que otra guardó después', async () => {
+    let store: Record<string, unknown> = { voiceLanguage: 'en', keybindings: {}, hasSeenMemoriesWelcome: false }
+    const get = vi.fn(async () => store)
+    ;(window as unknown as { settings: unknown }).settings = {
+      get,
+      set: vi.fn(async (d: Record<string, unknown>) => { store = d }),
+    }
+    const { result } = renderHook(() => useSettings())
+    await waitFor(() => expect(get).toHaveBeenCalled())
+    // useMemoryPrefs escribió mientras tanto (por ejemplo, desde Memories).
+    store = { ...store, memoryPrefs: { editor: { fontSize: 16 } } }
+    await act(async () => { await result.current.markMemoriesWelcomeSeen() })
+    expect(store).toMatchObject({ hasSeenMemoriesWelcome: true, memoryPrefs: { editor: { fontSize: 16 } } })
+  })
+})

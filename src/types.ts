@@ -1503,6 +1503,7 @@ declare global {
         voiceLanguage?: string
         hasSeenMemoryHub?: boolean
         hasSeenMemoriesWelcome?: boolean
+        memoryPrefs?: unknown
         keybindings: {
           voiceInput: string
           newPane: string

@@ -1,18 +1,38 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { AppSettings, DEFAULT_SETTINGS, Keybindings } from '../lib/keybindings'
+import { normalizarMemoryPrefs } from '../lib/memory-prefs'
+
+/**
+ * Escribe SÓLO lo que cambió, sobre lo que está guardado AHORA (decisión D15). App y
+ * SettingsPanel tienen cada uno su instancia de este hook, y useMemoryPrefs escribe
+ * `memoryPrefs` por su lado: con el objeto entero del estado local, el próximo `set` de una
+ * instancia montada desde el arranque pisaba lo que otra había guardado después.
+ */
+async function guardar(patch: Partial<AppSettings>): Promise<void> {
+  try {
+    const actual = ((await window.settings.get()) ?? {}) as Partial<AppSettings>
+    await window.settings.set({ ...DEFAULT_SETTINGS, ...actual, ...patch })
+  } catch (err) {
+    console.error('[useSettings] save failed:', err)
+  }
+}
 
 export function useSettings() {
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS)
+  const actual = useRef(settings)
+  actual.current = settings
 
   useEffect(() => {
     (async () => {
       try {
-        const s = await window.settings.get()
+        const s = ((await window.settings.get()) ?? {}) as Partial<AppSettings>
         setSettings({
-          voiceLanguage: (s as AppSettings).voiceLanguage ?? DEFAULT_SETTINGS.voiceLanguage,
-          hasSeenMemoryHub: (s as AppSettings).hasSeenMemoryHub ?? DEFAULT_SETTINGS.hasSeenMemoryHub,
-          hasSeenMemoriesWelcome: (s as AppSettings).hasSeenMemoriesWelcome ?? DEFAULT_SETTINGS.hasSeenMemoriesWelcome,
-          keybindings: { ...DEFAULT_SETTINGS.keybindings, ...s.keybindings }
+          voiceLanguage: s.voiceLanguage ?? DEFAULT_SETTINGS.voiceLanguage,
+          hasSeenMemoryHub: s.hasSeenMemoryHub ?? DEFAULT_SETTINGS.hasSeenMemoryHub,
+          hasSeenMemoriesWelcome: s.hasSeenMemoriesWelcome ?? DEFAULT_SETTINGS.hasSeenMemoriesWelcome,
+          keybindings: { ...DEFAULT_SETTINGS.keybindings, ...s.keybindings },
+          // Spec §6: sin leerlo acá, el estado arrancaba con los defaults y el próximo set lo pisaba.
+          memoryPrefs: normalizarMemoryPrefs(s.memoryPrefs),
         })
       } catch (err) {
         console.error('[useSettings] load failed:', err)
@@ -21,41 +41,19 @@ export function useSettings() {
     })()
   }, [])
 
-  const updateKeybinding = useCallback(async (action: keyof Keybindings, key: string) => {
-    setSettings(prev => {
-      const next: AppSettings = {
-        ...DEFAULT_SETTINGS,
-        ...prev,
-        keybindings: { ...DEFAULT_SETTINGS.keybindings, ...prev.keybindings, [action]: key },
-      }
-      window.settings.set(next)
-      return next
-    })
+  const cambiar = useCallback((patch: Partial<AppSettings>): Promise<void> => {
+    actual.current = { ...actual.current, ...patch }
+    setSettings((prev) => ({ ...prev, ...patch }))
+    return guardar(patch)
   }, [])
 
-  const updateVoiceLanguage = useCallback((lang: string) => {
-    setSettings(prev => {
-      const next: AppSettings = { ...DEFAULT_SETTINGS, ...prev, voiceLanguage: lang }
-      window.settings.set(next)
-      return next
-    })
-  }, [])
+  const updateKeybinding = useCallback((action: keyof Keybindings, key: string) => {
+    return cambiar({ keybindings: { ...DEFAULT_SETTINGS.keybindings, ...actual.current.keybindings, [action]: key } })
+  }, [cambiar])
 
-  const markMemoryHubSeen = useCallback(() => {
-    setSettings(prev => {
-      const next: AppSettings = { ...DEFAULT_SETTINGS, ...prev, hasSeenMemoryHub: true }
-      window.settings.set(next)
-      return next
-    })
-  }, [])
-
-  const markMemoriesWelcomeSeen = useCallback(() => {
-    setSettings(prev => {
-      const next: AppSettings = { ...DEFAULT_SETTINGS, ...prev, hasSeenMemoriesWelcome: true }
-      window.settings.set(next)
-      return next
-    })
-  }, [])
+  const updateVoiceLanguage = useCallback((lang: string) => cambiar({ voiceLanguage: lang }), [cambiar])
+  const markMemoryHubSeen = useCallback(() => cambiar({ hasSeenMemoryHub: true }), [cambiar])
+  const markMemoriesWelcomeSeen = useCallback(() => cambiar({ hasSeenMemoriesWelcome: true }), [cambiar])
 
   return { settings, updateKeybinding, updateVoiceLanguage, markMemoryHubSeen, markMemoriesWelcomeSeen }
 }
