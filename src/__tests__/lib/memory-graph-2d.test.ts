@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { vecinos, subgrafoLocal, opacidadDeNodo, esInferida } from '../../lib/memory-graph-2d'
+import { vecinos, subgrafoLocal, opacidadDeNodo, esInferida, conPosicionesDe, claveDeDibujo, encuadreLocal } from '../../lib/memory-graph-2d'
 import type { GraphData } from '../../lib/memory-graph-visuals'
 
 const nodo = (id: string) => ({ id, label: id, color: '#fff', val: 1, degree: 1, superseded: false, type: 'decision', projectKey: 'p', projectLabel: 'p', tags: [], gitBranch: null, pending: false })
@@ -31,5 +31,54 @@ describe('memory-graph-2d', () => {
     expect(opacidadDeNodo('d', 'b', v, null)).toBeLessThan(0.3)
     expect(opacidadDeNodo('d', null, new Set(), new Set(['a']))).toBeLessThan(0.3)
     expect(opacidadDeNodo('a', null, new Set(), new Set(['a']))).toBe(1)
+  })
+  it('el subgrafo local trae COPIAS: fijar un nodo ahi no lo fija en el global (F6)', () => {
+    const local = subgrafoLocal(data, 'a', 1)
+    const a = local.nodes.find((n) => n.id === 'a') as { fx?: number }
+    a.fx = 10
+    expect((data.nodes[0] as { fx?: number }).fx).toBeUndefined()
+    expect(local.nodes[0]).not.toBe(data.nodes[0])
+    expect(local.links[0]).not.toBe(data.links[0])
+    // Aunque la libreria ya haya cambiado source/target por objetos, la copia lleva ids.
+    const mutado: GraphData = { ...data, links: [{ source: data.nodes[0] as never, target: data.nodes[1] as never, kind: 'wikilink' }] }
+    expect(subgrafoLocal(mutado, 'a', 1).links[0]).toMatchObject({ source: 'a', target: 'b' })
+  })
+  it('datos nuevos conservan las posiciones de los anteriores por id, en copias (F6)', () => {
+    const viejo: GraphData = { ...data, nodes: data.nodes.map((n, i) => ({ ...n, x: i, y: i * 2, vx: 0, vy: 0, ...(n.id === 'b' ? { fx: 5, fy: 6 } : {}) })) }
+    const nuevo: GraphData = { ...data, nodes: ['a', 'b', 'c', 'd', 'e'].map(nodo) }
+    const r = conPosicionesDe(viejo, nuevo)
+    expect(r.nodes.find((n) => n.id === 'c')).toMatchObject({ x: 2, y: 4 })
+    expect(r.nodes.find((n) => n.id === 'b')).toMatchObject({ fx: 5, fy: 6 })
+    expect((r.nodes.find((n) => n.id === 'e') as { x?: number }).x).toBeUndefined()
+    expect(r.nodes[0]).not.toBe(nuevo.nodes[0])
+    expect((nuevo.nodes[0] as { x?: number }).x).toBeUndefined()
+  })
+  it('la clave de dibujo cambia con lo que se ve, no con las posiciones', () => {
+    const conPos: GraphData = { ...data, nodes: data.nodes.map((n) => ({ ...n, x: 99 })) }
+    expect(claveDeDibujo(conPos)).toBe(claveDeDibujo(data))
+    expect(claveDeDibujo({ ...data, nodes: data.nodes.map((n) => (n.id === 'a' ? { ...n, label: 'otro' } : n)) })).not.toBe(claveDeDibujo(data))
+  })
+})
+
+describe('encuadreLocal (V3)', () => {
+  const margen = { x: 60, arriba: 10, abajo: 30 }
+  it('deja margen para las etiquetas: los puntos caen dentro del area util', () => {
+    const nodos = [{ x: -100, y: -50 }, { x: 100, y: 50 }, { x: 0, y: 0 }]
+    const e = encuadreLocal(nodos, 280, 180, margen, 3)!
+    const pantalla = (n: { x: number; y: number }) => ({ x: (n.x - e.x) * e.k + 140, y: (n.y - e.y) * e.k + 90 })
+    for (const n of nodos) {
+      const p = pantalla(n)
+      expect(p.x).toBeGreaterThanOrEqual(60 - 1e-9)
+      expect(p.x).toBeLessThanOrEqual(220 + 1e-9)
+      expect(p.y).toBeGreaterThanOrEqual(10 - 1e-9)
+      expect(p.y).toBeLessThanOrEqual(150 + 1e-9)
+    }
+    expect(e.k).toBeCloseTo(0.8)
+  })
+  it('un solo nodo no queda gigante: zoom con tope', () => {
+    expect(encuadreLocal([{ x: 5, y: 5 }], 280, 180, margen, 3)!.k).toBe(3)
+  })
+  it('sin posiciones todavia: null', () => {
+    expect(encuadreLocal([{}], 280, 180, margen, 3)).toBeNull()
   })
 })

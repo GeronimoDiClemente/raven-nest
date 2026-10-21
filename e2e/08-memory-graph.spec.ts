@@ -118,6 +118,8 @@ test('con memorias: el grafo ocupa el centro, una nota se abre en su pestana y s
     await abrirDesdeElExplorer(page, AUTH)
     await expect(panelDerecho(page).getByText('Mentioned in', { exact: true })).toBeVisible()
     await expect(panelDerecho(page).getByText('Links to', { exact: true })).toBeVisible()
+    // El grafo local se encuadra cuando su simulación se detiene (~1 s).
+    await page.waitForTimeout(1500)
     await page.screenshot({ path: join(SHOTS, '03-nota-abierta.png') })
 
     // 4. Editar al final del cuerpo: se guarda solo (debounce de 1,5 s), y al cerrar y
@@ -172,6 +174,7 @@ test('un [[link]] lleva a la otra memoria, y el hueco ofrece escribirla', async 
     await page.locator('[data-wikilink="el checklist de QA"]').click()
     const crear = page.getByRole('button', { name: 'Create this memory' })
     await expect(crear).toBeVisible()
+    await page.waitForTimeout(1500)
     await page.screenshot({ path: join(SHOTS, '04-links.png') })
     await crear.click()
     await expect(pestana(page, 'New memory')).toHaveAttribute('aria-selected', 'true')
