@@ -1,5 +1,5 @@
 // Task 2 (mirar vs. configurar): el toggle del hilo de equipo, aparte del grafo — va
-// montado en la vista de settings (Task 5), no dentro de TeamThreadGraph.
+// montado en la pestaña Settings (sección This project), no dentro de TeamThreadGraph.
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { it, expect, vi } from 'vitest'
 import TeamThreadToggle from '../../components/TeamThreadToggle'

@@ -297,7 +297,7 @@ export default function App() {
   // e2eBypass runs every test against a fresh RAVEN_HOME (no settings.json yet), which
   // would otherwise pop this over every e2e spec — see the one existing check below.
   const showMemoryHub = !settings.hasSeenMemoryHub && !window.appFlags?.e2eBypass
-  // Task 7: "How Memories works" (el botón del header) fuerza la bienvenida de nuevo,
+  // Task 7: «How it works» (el botón del header) fuerza la bienvenida de nuevo,
   // incluso ya vista o bajo e2eBypass — ver shouldShowMemoriesWelcome.
   const [memoriesWelcome, setMemoriesWelcome] = useState(false)
   const showMemoriesWelcome = shouldShowMemoriesWelcome({

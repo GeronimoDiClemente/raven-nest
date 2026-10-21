@@ -911,9 +911,9 @@ export default function Sidebar({
           cuenta. */}
       {/* `MemoriesItem.onOpen` es `() => void` pero por dentro hace `<Button onClick={onOpen}>`
           — pasar `onMemoriesOpen` DIRECTO le entregaria el SyntheticEvent del click como si
-          fuera `vista` (ver fix round 1, Task 6: eso dejaba `memoriesVista` en un objeto
-          Event y la vista principal nunca mostraba "How it works"/"Settings"). Envolver en
-          una arrow sin argumentos es lo que corta esa cadena. */}
+          fuera `vista`. App sólo abre Settings con el literal 'settings', así que hoy un Event
+          cae al grafo; envolver en una arrow sin argumentos corta esa cadena desde el origen
+          (fix round 1, Task 6 del 19-10). */}
       {onMemoriesOpen && <MemoriesItem expanded={expanded} onOpen={() => onMemoriesOpen?.()} />}
 
       {/* User menu — hidden while loading to avoid flash */}

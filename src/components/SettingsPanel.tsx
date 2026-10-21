@@ -532,10 +532,9 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                   <p className="sp-email">{userEmail || '—'}</p>
 
 
-                  {/* Spec 2026-09-09 §4 / Task 3 (vista y settings): la memoria dejo de
-                      vivir en Settings. La nube (CloudMemoryCard) se mudó a su propia
-                      vista de "Memory settings" — esto abre esa vista, no el overlay de
-                      Memories (que es "memorias"). */}
+                  {/* La memoria no vive en Settings: su configuración es la pestaña
+                      Settings del workspace de Memories (spec 2026-10-21). Esto abre
+                      Memories con esa pestaña activa. */}
                   {onOpenMemories && (
                     <Button variant="outline" size="sm" onClick={() => onOpenMemories('settings')}>
                       Memory settings

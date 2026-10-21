@@ -13,7 +13,7 @@
 //   la que se está probando.
 //
 // Task 2 (mirar vs. configurar): el toggle de prender/apagar el hilo (antes "Turn on"/"Turn
-// off" acá adentro) se fue a `TeamThreadToggle`, en la vista de settings — este componente ya
+// off" acá adentro) se fue a `TeamThreadToggle`, hoy en la pestaña Settings — este componente ya
 // no recibe `enabled`/`onToggle` y asume que el hilo está prendido (lo decide TeamThreadPanel,
 // que devuelve `null` si no lo está).
 import { describe, it, expect, vi } from 'vitest'

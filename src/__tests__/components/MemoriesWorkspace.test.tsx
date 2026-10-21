@@ -108,9 +108,9 @@ describe('MemoriesWorkspace', () => {
   })
 
   // Task 6 (2026-10-19): la linea "Link a repo to also see its branches" vivia en el estado
-  // vacio de esta vista — se mudo entera a la seccion "This project & team" de Memory
-  // settings (Task 5), asi que las 4 pruebas que la ejercitaban aca se borraron. El
-  // contrato sigue existiendo, solo que en otro componente (hoy, la pestaña Settings: MemorySettingsTab).
+  // vacio de esta vista — se mudo a la configuración de Memories, hoy la sección "This project"
+  // de la pestaña Settings (MemorySettingsTab), asi que las 4 pruebas que la ejercitaban aca
+  // se borraron.
 
   it('la vista principal no tiene configuración', () => {
     renderWorkspace({ activeRepoPath: '/r' })

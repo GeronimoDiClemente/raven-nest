@@ -18,7 +18,7 @@ describe('shouldShowMemoriesWelcome', () => {
     expect(shouldShowMemoriesWelcome({ ...base, e2eBypass: true })).toBe(false)
   })
 
-  it('"How Memories works" (forced) shows even under e2eBypass', () => {
+  it('"How it works" (forced) shows even under e2eBypass', () => {
     expect(shouldShowMemoriesWelcome({ ...base, e2eBypass: true, forced: true })).toBe(true)
   })
 
@@ -26,7 +26,7 @@ describe('shouldShowMemoriesWelcome', () => {
     expect(shouldShowMemoriesWelcome({ ...base, hasSeenMemoriesWelcome: true })).toBe(false)
   })
 
-  it('"How Memories works" (forced) shows again even after it was seen', () => {
+  it('"How it works" (forced) shows again even after it was seen', () => {
     expect(shouldShowMemoriesWelcome({ ...base, hasSeenMemoriesWelcome: true, forced: true })).toBe(true)
   })
 

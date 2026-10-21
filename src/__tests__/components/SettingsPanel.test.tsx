@@ -313,7 +313,7 @@ describe('SettingsPanel — el match exacto le gana al heurístico', () => {
 // Task 3 (plan "memorias vista y settings"): la nube de memoria (conectar/desconectar,
 // cuota, upgrade) salió de Settings hacia su propio componente, CloudMemoryCard — sus
 // tests viven en CloudMemoryCard.test.tsx. Lo único que le queda a SettingsPanel es la
-// puerta: un botón en Account que abre la vista de Memories ya posicionada en 'settings'.
+// puerta: un botón en Account que abre Memories con la pestaña Settings activa.
 describe('SettingsPanel — la nube se mudó a su propia vista (Task 3)', () => {
   beforeEach(() => {
     supabaseMock.auth.getUser.mockResolvedValue({ data: { user: null } })

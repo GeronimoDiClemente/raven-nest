@@ -6,7 +6,7 @@
 // bajo `e2eBypass` — si lo hiciera, taparía cualquier e2e que abra Memories,
 // que es exactamente lo mismo que ya le pasó a `showMemoryHub` (ver el check
 // de `window.appFlags?.e2eBypass` junto a esa bandera en App.tsx). `forced`
-// es la única vía para saltarse ese freno: es el botón "How Memories works",
+// es la única vía para saltarse ese freno: es el botón «How it works» del header,
 // un pedido explícito del usuario, no el disparo automático de la primera vez.
 export function shouldShowMemoriesWelcome(opts: {
   memoriesOpen: boolean

@@ -39,7 +39,7 @@ const conHilo = () => {
     teamThreadProjectKeyForWorktree: vi.fn().mockResolvedValue({ ok: true, projectKey: 'proj1111aaaaaaaa' }),
     teamThreadGetSettings: vi.fn().mockResolvedValue({ ok: true, settings: { enabled: true, includedTypes: [], writeAgentsPointer: false } }),
     teamThreadRead: vi.fn().mockResolvedValue({ ok: true, branches: [] }),
-    // Lo minimo para que Memory settings monte.
+    // Lo minimo para que la pestaña Settings monte.
     onStatus: () => {},
     removeStatusListener: () => {},
     encryptionStatus: vi.fn().mockResolvedValue({ available: false, active: false, keyEpoch: 0, pendingDevices: [], undecryptable: 0 }),
