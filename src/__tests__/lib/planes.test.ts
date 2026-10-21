@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { PLAN_LIMITS, type Plan } from '../../lib/stripe'
+import { PLAN_LIMITS, planIncluyeNube, type Plan } from '../../lib/stripe'
 
 describe('el plan Cloud', () => {
   it('existe en PLAN_LIMITS', () => {
@@ -43,5 +43,18 @@ describe('lo local es gratis', () => {
     for (const gate of gatesLocales) {
       expect(Object.keys(PLAN_LIMITS.free)).not.toContain(gate)
     }
+  })
+})
+
+// Spec 2b-1 §4.1: Free conecta la nube con UN proyecto. El tope lo aplica el servidor
+// (server/src/limits.ts); `memoryCloud` sólo dice si el plan ofrece Connect.
+describe('el plan Free (2b-1)', () => {
+  it('ofrece conectar la nube', () => {
+    expect(PLAN_LIMITS.free.memoryCloud).toBe(true)
+  })
+
+  it('planIncluyeNube: todo plan conocido sí, uno que esta versión no conoce no', () => {
+    for (const p of ['free', 'cloud', 'pro', 'team', 'enterprise']) expect(planIncluyeNube(p)).toBe(true)
+    expect(planIncluyeNube('legacy')).toBe(false)
   })
 })

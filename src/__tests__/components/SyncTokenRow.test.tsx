@@ -96,4 +96,11 @@ describe('SyncTokenRow (Advanced)', () => {
     const { container } = render(<SyncTokenRow />)
     await waitFor(() => expect(container).toBeEmptyDOMElement())
   })
+
+  // Spec 2b-1 §4.1: Free conecta, así que también puede conectar con un token.
+  it('Free desconectado ve el campo', async () => {
+    mockMemoryBridge({ connected: false, deviceId: null, itemCount: 0, pendingCount: 0, daemonStatus: 'idle' })
+    render(<SyncTokenRow />)
+    expect(await screen.findByPlaceholderText('Paste a sync token')).toBeInTheDocument()
+  })
 })

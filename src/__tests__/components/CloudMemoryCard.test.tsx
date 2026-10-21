@@ -209,13 +209,15 @@ describe('CloudMemoryCard — neighbouring memory-card states are unaffected by 
     expect(screen.queryByText(/another nest is syncing/i)).not.toBeInTheDocument()
   })
 
-  it('disconnected on a free plan still shows only Upgrade, no Turn off', async () => {
+  // Spec 2b-1 §4.1: Free ve «Connect» como Cloud. La beta (not_in_beta) la sigue decidiendo el servidor.
+  it('disconnected on a free plan shows Connect, no Upgrade, no Turn off', async () => {
     mockMemoryBridge({ connected: false, deviceId: null, itemCount: 0, pendingCount: 0, daemonStatus: 'idle' })
     render(<CloudMemoryCard />)
 
-    await waitFor(() => expect(screen.getByText('Upgrade')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Connect' })).toBeInTheDocument())
+    expect(screen.queryByText('Upgrade')).not.toBeInTheDocument()
     expect(screen.queryByText('Turn off')).not.toBeInTheDocument()
-    expect(screen.queryByText('Retry')).not.toBeInTheDocument()
+    expect(screen.queryByText(/cloud sync is a Cloud feature/)).not.toBeInTheDocument()
   })
 
   it('unavailable (no memory bridge) still shows a disabled Unavailable button, no Turn off', async () => {
@@ -327,28 +329,6 @@ describe('CloudMemoryCard — Connect pide el token al servicio (§9.2)', () => 
     fireEvent.click(retry)
 
     await waitFor(() => expect(memoria.registerDevice).toHaveBeenCalledWith('jwt-de-login'))
-  })
-})
-
-// El rename `pro` -> `cloud` (Task 1 del corte comercial) dejó esta linea desactualizada:
-// seguia hablando de un plan que ya no existe.
-describe('CloudMemoryCard — el plan pago se llama Cloud, no Pro', () => {
-  beforeEach(() => {
-    supabaseMock.auth.getUser.mockResolvedValue({ data: { user: null } })
-    mockLocalPaths()
-  })
-
-  afterEach(() => {
-    delete (window as unknown as { memory?: unknown }).memory
-  })
-
-  it('la memoria local sin nube dice "Cloud feature", no "Pro feature"', async () => {
-    mockMemoryBridge({ connected: false, deviceId: null, itemCount: 0, pendingCount: 0, daemonStatus: 'idle' })
-    render(<CloudMemoryCard />)
-
-    await waitFor(() => expect(screen.getByText(/cloud sync is a/)).toBeInTheDocument())
-    expect(screen.getByText(/cloud sync is a Cloud feature/)).toBeInTheDocument()
-    expect(screen.queryByText(/cloud sync is a Pro feature/)).not.toBeInTheDocument()
   })
 })
 

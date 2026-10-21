@@ -54,10 +54,21 @@ export interface PlanLimits {
 }
 
 export const PLAN_LIMITS: Record<Plan, PlanLimits> = {
-  free:       { memoryLocal: true, memoryCloud: false, memoryTeamShare: false, isEnterprise: false },
+  // Spec 2b-1 §4.1: Free conecta la nube con UN proyecto. El tope lo aplica el servidor
+  // (server/src/limits.ts, `project_limit_reached`); acá sólo se dice si se ofrece Connect.
+  free:       { memoryLocal: true, memoryCloud: true,  memoryTeamShare: false, isEnterprise: false },
   cloud:      { memoryLocal: true, memoryCloud: true,  memoryTeamShare: false, isEnterprise: false },
   // Alias heredado de cloud hasta que la Task 6 migre los perfiles.
   pro:        { memoryLocal: true, memoryCloud: true,  memoryTeamShare: false, isEnterprise: false },
   team:       { memoryLocal: true, memoryCloud: true,  memoryTeamShare: true,  isEnterprise: false },
   enterprise: { memoryLocal: true, memoryCloud: true,  memoryTeamShare: true,  isEnterprise: true },
+}
+
+/**
+ * Si el plan ofrece conectar la nube. Un plan que esta versión no conoce, no: es el único caso
+ * que queda para «cloud sync is a Cloud feature» (spec 2b-1 §4.1, D8). Sin esto,
+ * `PLAN_LIMITS[plan].memoryCloud` con un plan desconocido rompía el render.
+ */
+export function planIncluyeNube(plan: string): boolean {
+  return (PLAN_LIMITS as Record<string, PlanLimits | undefined>)[plan]?.memoryCloud === true
 }

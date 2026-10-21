@@ -4,7 +4,7 @@
 import { useEffect, useState } from 'react'
 import { useMemory } from '../hooks/useMemory'
 import { useProfile } from '../hooks/useProfile'
-import { PLAN_LIMITS } from '../lib/stripe'
+import { planIncluyeNube } from '../lib/stripe'
 import { nubeDeMemoriaDisponible } from '../lib/beta-de-memoria'
 import SettingRow from './memories/settings/SettingRow'
 import { Button } from '@/components/ui/button'
@@ -13,7 +13,7 @@ import { Input } from '@/components/ui/input'
 export default function SyncTokenRow() {
   const memory = useMemory()
   const { plan } = useProfile()
-  const nubeDisponible = nubeDeMemoriaDisponible(PLAN_LIMITS[plan].memoryCloud)
+  const nubeDisponible = nubeDeMemoriaDisponible(planIncluyeNube(plan))
   const [token, setToken] = useState('')
   // Cumplió su trabajo: main lo guarda en el almacén de credenciales, así que tenerlo en el
   // estado de React sólo lo deja en cada heap snapshot.

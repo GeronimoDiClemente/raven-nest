@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { useMemory } from '../hooks/useMemory'
 import { useProfile } from '../hooks/useProfile'
 import { useUserRepos } from '../hooks/useUserRepos'
-import { PLAN_LIMITS } from '../lib/stripe'
+import { planIncluyeNube } from '../lib/stripe'
 import { nubeDeMemoriaDisponible, textoDeErrorDeMemoria } from '../lib/beta-de-memoria'
 import UpgradeModal from './UpgradeModal'
 import LinkDeviceCard from './LinkDeviceCard'
@@ -35,7 +35,7 @@ export default function CloudMemoryCard() {
   const { repos: userRepos } = useUserRepos()
   const { plan } = useProfile()
   // En un build beta la nube no depende del plan: la habilita el allowlist del servicio.
-  const nubeDisponible = nubeDeMemoriaDisponible(PLAN_LIMITS[plan].memoryCloud)
+  const nubeDisponible = nubeDeMemoriaDisponible(planIncluyeNube(plan))
   const [memoryUpgradeOpen, setMemoryUpgradeOpen] = useState(false)
   // M10 / §6.6 "Right to delete": disconnect never touches local data regardless of this — it
   // only controls whether main also calls memory-sync's delete-cloud-data action.
