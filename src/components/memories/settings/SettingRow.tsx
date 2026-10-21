@@ -19,7 +19,7 @@ export default function SettingRow({ id, nombre, descripcion, control, children 
       <div className="flex items-start gap-4">
         <div className="min-w-0 flex-1">
           <p id={id} className="m-0 text-fs font-medium text-foreground">{nombre}</p>
-          {descripcion && <p className="m-0 mt-0.5 line-clamp-2 text-fs-sm text-muted-foreground">{descripcion}</p>}
+          {descripcion && <p className="m-0 mt-0.5 text-fs-sm text-muted-foreground">{descripcion}</p>}
         </div>
         {control && <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">{control}</div>}
       </div>

@@ -29,6 +29,15 @@ describe('SettingRow', () => {
     const fila = document.querySelector('[data-slot="setting-row"]')!
     expect(fila.children).toHaveLength(1)
   })
+
+  // Final review I1 (Ruling 3): con la columna angosta, line-clamp cortaba con "…" justo lo
+  // que importa (el comando de login, "You will not see it again."). El "máx. 2 líneas" del
+  // spec es un límite para el copy, no un recorte.
+  it('la descripción no se recorta', () => {
+    render(<SettingRow nombre="Machine without a browser" descripcion="A server, VM or SSH box. Run npx @nestmux/memory login there and approve the code it shows." />)
+    const desc = screen.getByText(/approve the code it shows/)
+    expect(desc.className).not.toMatch(/line-clamp|truncate/)
+  })
 })
 
 describe('Switch', () => {
