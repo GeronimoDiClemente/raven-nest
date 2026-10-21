@@ -95,6 +95,9 @@ describe('ShareProjectCard', () => {
 
     expect(await screen.findByText(/not in a team yet/i)).toBeInTheDocument()
     expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
+    // Ruling 5: las dos cajas explican una acción que sin equipo no se puede hacer.
+    expect(screen.queryByText('The team will see')).not.toBeInTheDocument()
+    expect(screen.queryByText('Stays only yours')).not.toBeInTheDocument()
   })
 
   // Review final de rama, IMPORTANT #7b: compartir el proyecto NO mueve ninguna fila por si

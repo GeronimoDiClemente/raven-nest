@@ -1,16 +1,14 @@
-// Compartir la memoria de un proyecto con otras personas.
+// Compartir la memoria de un proyecto con un equipo.
 //
-// **Desde el 2026-09-13 esto NO es una acción de autoservicio**, y el motivo no es de
-// precios: lo compartido no se cifra de punta a punta. Cada usuario tiene su propia clave
-// maestra y no existe una que dos personas compartan, así que ofrecer "conectá tu memoria con
-// tu equipo" adentro del plan cuyo argumento de venta es el cifrado sería venderlo con un
-// asterisco. Compartir necesita su propio despliegue, donde el dueño del servidor es el
-// equipo. El día que haya cifrado de a pares, esto se reabre.
+// Lo que decide si se puede es el PLAN: compartir con un equipo es del plan Teams (`teamScope`
+// en server/src/limits.ts), y main lo informa como `puedeCompartirMemoria` en el status.
+// (Entre el 2026-09-13 y el 2026-10-15 tampoco se ofrecía porque lo compartido no se cifraba;
+// desde el 15-10 el scope `team` se cifra con una clave por equipo, ver TeamEncryptionCard.)
 //
 // La card tiene tres caras y el servidor decide cuál:
 //   · no se sabe   -> nada (spec 2026-10-21 §5, D10).
 //   · sin permiso  -> una fila que dice qué plan falta, con See plans. Sin select ni botón que den 403.
-//   · con permiso  -> el control real (despliegues propios, plan `team`/`enterprise`).
+//   · con permiso  -> el control real; sin equipo, sólo la línea que dice que falta uno.
 //
 // ⚠️ Lee `teams` de useTeam() y NUNCA llama a switchTeam. Elegir un equipo acá es elegir un
 // destino para compartir, no cambiar el equipo activo de la app (decisión 3 de la spec; el
@@ -121,7 +119,8 @@ export default function ShareProjectCard({ activeRepoPath, onSeePlans }: Props) 
         </>
       )}
     >
-      <div className="grid grid-cols-2 gap-2 text-fs-sm">
+      {/* Ruling 5: sin equipo, las cajas explicarían una acción que no se puede hacer. */}
+      {teams.length > 0 && <div className="grid grid-cols-2 gap-2 text-fs-sm">
         <div className="rounded-md border border-border p-2 text-foreground">
           <p className="m-0 font-medium">The team will see</p>
           {/* IMPORTANT #7b: compartir el proyecto no mueve ninguna fila por sí solo; sólo
@@ -132,7 +131,7 @@ export default function ShareProjectCard({ activeRepoPath, onSeePlans }: Props) 
           <p className="m-0 font-medium">Stays only yours</p>
           <p className="m-0 mt-1 text-muted-foreground">Everything already saved here, anything nobody promotes, your other projects and your code.</p>
         </div>
-      </div>
+      </div>}
       {result && <p className={`m-0 text-fs-sm ${result.ok ? 'text-ok' : 'text-warn'}`}>{result.text}</p>}
     </SettingRow>
   )

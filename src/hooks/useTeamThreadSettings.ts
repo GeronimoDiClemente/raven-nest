@@ -17,12 +17,7 @@ export interface UseTeamThreadSettings {
   setEnabled: (next: boolean) => Promise<void>
 }
 
-/**
- * @param nonce Cambiarlo vuelve a leer los settings del mismo repo. Memories ya no lo usa (el
- * workspace levanta un solo estado y se lo pasa a la pestaña Settings); queda para un caller
- * que necesite releer.
- */
-export function useTeamThreadSettings(activeRepoPath: string | null, nonce = 0): UseTeamThreadSettings {
+export function useTeamThreadSettings(activeRepoPath: string | null): UseTeamThreadSettings {
   const [projectKey, setProjectKey] = useState<string | null>(null)
   const [enabled, setEnabledState] = useState(false)
   const [ready, setReady] = useState(false)
@@ -65,7 +60,7 @@ export function useTeamThreadSettings(activeRepoPath: string | null, nonce = 0):
     })()
 
     return () => { alive = false }
-  }, [activeRepoPath, nonce])
+  }, [activeRepoPath])
 
   const setEnabled = useCallback(async (next: boolean) => {
     if (!activeRepoPath || !projectKey) return

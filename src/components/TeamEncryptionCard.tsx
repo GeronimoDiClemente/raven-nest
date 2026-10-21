@@ -178,13 +178,8 @@ export default function TeamEncryptionCard() {
   }
 
   if (!estado.activated && !esLeader) {
-    return (
-      <SettingRow nombre={nombre} descripcion={soloElLeader}>
-        <p className="m-0 text-fs-sm text-muted-foreground">
-          Ask your team leader to turn on encryption for this team — only they can activate it.
-        </p>
-      </SettingRow>
-    )
+    // Final review M2: la bajada ya lo dice; una línea abajo con lo mismo era repetir.
+    return <SettingRow nombre={nombre} descripcion={soloElLeader} />
   }
 
   if (!estado.activated && esLeader) {

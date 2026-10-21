@@ -58,7 +58,9 @@ describe('TeamEncryptionCard — un member (no leader)', () => {
     }))
     const { default: TeamEncryptionCardReimportado } = await import('../../components/TeamEncryptionCard')
     render(<TeamEncryptionCardReimportado />)
-    expect(await screen.findByText(/ask your team leader to turn on encryption/i)).toBeInTheDocument()
+    // Final review M2: lo dice una vez, en la bajada de la fila; no repite abajo lo mismo.
+    expect(await screen.findAllByText('Only the team leader can turn it on.')).toHaveLength(1)
+    expect(screen.queryByText(/ask your team leader to turn on encryption/i)).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /turn on team encryption/i })).not.toBeInTheDocument()
   })
 })
