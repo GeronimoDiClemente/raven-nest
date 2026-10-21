@@ -33,7 +33,7 @@ export interface MemorySettingsTabProps {
 
 /** D19: el nombre de la carpeta del repo, que es como lo reconoce la persona. */
 function nombreDelRepo(path: string): string {
-  return path.split(/[\/]/).filter(Boolean).pop() ?? path
+  return path.split(/[\\/]/).filter(Boolean).pop() ?? path
 }
 
 export default function MemorySettingsTab(p: MemorySettingsTabProps) {

@@ -64,6 +64,12 @@ describe('MemorySettingsTab', () => {
     expect(screen.getByText('thread-toggle true')).toBeInTheDocument()
   })
 
+  it('This project con un path de Windows muestra sólo el nombre de la carpeta', () => {
+    montar({ seccion: 'project', activeRepoPath: 'C:\\repos\\raven-nest' })
+    expect(screen.getByText('raven-nest').className).toMatch(/font-mono/)
+    expect(screen.queryByText(/C:/)).toBeNull()
+  })
+
   it('This project sin repo: sólo ofrece vincular uno', () => {
     const p = montar({ seccion: 'project', activeRepoPath: null })
     expect(screen.getByText('Open a repo in this tab to see its settings.')).toBeInTheDocument()
@@ -72,7 +78,7 @@ describe('MemorySettingsTab', () => {
     expect(p.onLinkRepo).toHaveBeenCalled()
   })
 
-  it('Notes on disk y Advanced', () => {
+  it('Notes on disk', () => {
     montar({ seccion: 'disk' })
     expect(screen.getByText('vault-card')).toBeInTheDocument()
   })
