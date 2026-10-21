@@ -3,7 +3,8 @@ import { createPortal } from 'react-dom'
 import { useMemory } from '../hooks/useMemory'
 import { useProfile } from '../hooks/useProfile'
 import { useUserRepos } from '../hooks/useUserRepos'
-import { planIncluyeNube } from '../lib/stripe'
+import { planIncluyeNube, tieneSuscripcionPropia } from '../lib/stripe'
+import { abrirPortal } from '../lib/checkout'
 import { nubeDeMemoriaDisponible, textoDeErrorDeMemoria } from '../lib/beta-de-memoria'
 import UpgradeModal from './UpgradeModal'
 import LinkDeviceCard from './LinkDeviceCard'
@@ -42,6 +43,19 @@ export default function CloudMemoryCard() {
   // only controls whether main also calls memory-sync's delete-cloud-data action.
   const [deleteCloudOnDisconnect, setDeleteCloudOnDisconnect] = useState(false)
   const [turnOffOpen, setTurnOffOpen] = useState(false)
+  // Spec 2b-2 §4.8 (D10): quien paga Cloud gestiona la suscripción desde acá hasta 2b-3.
+  const [errorDeCobro, setErrorDeCobro] = useState<string | null>(null)
+  const [abriendoPortal, setAbriendoPortal] = useState(false)
+  const gestionar = async () => {
+    setAbriendoPortal(true)
+    setErrorDeCobro(null)
+    const r = await abrirPortal()
+    setAbriendoPortal(false)
+    if (!r.ok) setErrorDeCobro(r.error)
+  }
+  const manage = tieneSuscripcionPropia(plan) && (
+    <Button variant="outline" size="sm" disabled={abriendoPortal} onClick={() => void gestionar()}>Manage subscription</Button>
+  )
 
   const confirmarTurnOff = () => {
     setTurnOffOpen(false)
@@ -105,9 +119,10 @@ export default function CloudMemoryCard() {
       <SettingRow
         nombre="Cloud sync"
         descripcion="Keeps a copy in the cloud so what your agents learn here is there on your other machines."
-        control={control}
+        control={<>{manage}{control}</>}
       >
         {estado}
+        {errorDeCobro && linea(errorDeCobro, 'destructive')}
         {memory.state === 'disconnected' && userRepos.length === 0 && (
           <p className="m-0 rounded-md border border-warn/40 px-3 py-2 text-fs-sm text-warn">
             Link your repos before connecting — memory imported without them goes to Global and stays there.
@@ -122,6 +137,9 @@ export default function CloudMemoryCard() {
           maxProyectos={memory.limits?.max_projects ?? null}
           fuera={memory.localOnlyProjects}
           onUpgrade={() => setMemoryUpgradeOpen(true)}
+          overLimit={memory.overLimit}
+          keptProjectKey={memory.keptProjectKey}
+          onKeep={(projectKey) => memory.keepProject(projectKey)}
         />
       )}
 

@@ -9,6 +9,14 @@ interface Profile {
   loading: boolean
   isTrialActive: boolean
   trialDaysLeft: number
+  /**
+   * El plan tal cual está en `profiles`, sin el trial encima. Spec 2b-2 §4.8 (Ruling P3): el
+   * aviso de Cloud activo compara éste, porque durante el trial el efectivo es `team` y el
+   * paso de free a cloud no se vería.
+   */
+  rawPlan: string
+  /** El usuario de la última lectura; null = sin sesión (Ruling P4: otra cuenta, otra base). */
+  userId: string | null
 }
 
 function computeEffectivePlan(rawPlan: string, trialStartedAt: string | null): {
@@ -40,6 +48,8 @@ export function useProfile(): Profile {
     loading: true,
     isTrialActive: false,
     trialDaysLeft: 0,
+    rawPlan: 'free',
+    userId: null,
   })
 
   useEffect(() => {
@@ -55,7 +65,7 @@ export function useProfile(): Profile {
       // probar features gateadas por plan sin un perfil Supabase.
       const e2ePlan = window.appFlags?.e2eBypass ? window.appFlags.e2ePlan : null
       if (e2ePlan === 'free' || e2ePlan === 'cloud' || e2ePlan === 'pro' || e2ePlan === 'team' || e2ePlan === 'enterprise') {
-        setProfile({ plan: e2ePlan, loading: false, isTrialActive: false, trialDaysLeft: 0 })
+        setProfile({ plan: e2ePlan, loading: false, isTrialActive: false, trialDaysLeft: 0, rawPlan: e2ePlan, userId: null })
         return
       }
       if (enVuelo) return
@@ -69,7 +79,7 @@ export function useProfile(): Profile {
 
     const leerPerfil = async () => {
       const { data: { user } } = await supabase.auth.getUser()
-      if (!user) { setProfile(p => ({ ...p, loading: false })); return }
+      if (!user) { setProfile(p => ({ ...p, loading: false, userId: null })); return }
 
       // READ ONLY — never write to profiles from the client.
       // Profile creation is handled by the DB trigger (handle_new_user)
@@ -81,11 +91,9 @@ export function useProfile(): Profile {
         .maybeSingle()
 
       if (alive) {
-        const computed = computeEffectivePlan(
-          data?.plan ?? 'free',
-          data?.trial_started_at ?? null
-        )
-        setProfile({ ...computed, loading: false })
+        const rawPlan: string = data?.plan ?? 'free'
+        const computed = computeEffectivePlan(rawPlan, data?.trial_started_at ?? null)
+        setProfile({ ...computed, loading: false, rawPlan, userId: user.id })
       }
     }
 

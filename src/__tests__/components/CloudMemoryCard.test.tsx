@@ -14,6 +14,7 @@ const supabaseMock = vi.hoisted(() => {
     order: vi.fn(() => Promise.resolve({ data: [], error: null })),
   }
   return {
+    functions: { invoke: vi.fn() },
     auth: { getUser: vi.fn(), signOut: vi.fn(), getSession: vi.fn() },
     from: vi.fn(() => query),
   }
@@ -41,6 +42,9 @@ function mockMemoryBridge(status: {
   // Spec 2b-1 §4.4: el tope del plan y el roster de la nube.
   limits?: { max_projects: number }
   cloudProjects?: Array<{ projectKey: string; name: string }>
+  // Spec 2b-2 §4.7: el proyecto elegido y si la nube pasa el tope.
+  keptProjectKey?: string | null
+  overLimit?: boolean
 },
 doctor: { ok: boolean; blockedTotal: number; groups: unknown[]; localOnlyProjects?: Array<{ projectKey: string; name: string; count: number }> } =
   { ok: true, blockedTotal: 0, groups: [], localOnlyProjects: [] }) {
@@ -54,6 +58,7 @@ doctor: { ok: boolean; blockedTotal: number; groups: unknown[]; localOnlyProject
     onStatus: vi.fn(),
     removeStatusListener: vi.fn(),
     doctor: vi.fn().mockResolvedValue(doctor),
+    keepProject: vi.fn().mockResolvedValue({ ok: true }),
   }
   ;(window as unknown as { memory: typeof memory }).memory = memory
   return memory
@@ -537,5 +542,67 @@ describe('CloudMemoryCard — Projects in the cloud (spec 2b-1 §4.4)', () => {
     render(<CloudMemoryCard />)
     await screen.findByText('Up to date · 3 memories')
     expect(screen.queryByText('Projects in the cloud')).toBeNull()
+  })
+})
+
+describe('CloudMemoryCard — 2b-2', () => {
+  const flagsAntes = window.appFlags
+  beforeEach(() => {
+    vi.clearAllMocks()
+    supabaseMock.auth.getUser.mockResolvedValue({ data: { user: null } })
+  })
+  afterEach(() => {
+    (window as { appFlags?: unknown }).appFlags = flagsAntes
+    delete (window as unknown as { memory?: unknown }).memory
+  })
+
+  const conectadaSobreElTope = {
+    connected: true, deviceId: 'dev-1', itemCount: 3, pendingCount: 0, daemonStatus: 'idle' as const,
+    limits: { max_projects: 1 },
+    cloudProjects: [{ projectKey: 'k-a', name: 'api' }, { projectKey: 'k-b', name: 'web' }],
+    keptProjectKey: null, overLimit: true,
+  }
+
+  it('por encima del tope: Keep syncing y elegir llama al daemon', async () => {
+    mockLocalPaths()
+    const memory = mockMemoryBridge(conectadaSobreElTope)
+    render(<CloudMemoryCard />)
+    expect(await screen.findByText('Your plan syncs 1 of 2 projects.')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('combobox', { name: 'Keep syncing' }))
+    fireEvent.click(await screen.findByRole('option', { name: 'web' }))
+    await waitFor(() => expect(memory.keepProject).toHaveBeenCalledWith('k-b'))
+  })
+
+  // Ruling P8: el error del daemon llega a la fila.
+  it('si el daemon no puede elegir, la fila muestra el error', async () => {
+    mockLocalPaths()
+    const memory = mockMemoryBridge(conectadaSobreElTope)
+    memory.keepProject.mockResolvedValue({ ok: false, error: 'network' })
+    render(<CloudMemoryCard />)
+    await screen.findByText('Your plan syncs 1 of 2 projects.')
+    fireEvent.click(screen.getByRole('combobox', { name: 'Keep syncing' }))
+    fireEvent.click(await screen.findByRole('option', { name: 'web' }))
+    expect(await screen.findByText("Couldn't change the synced project. Try again.")).toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: 'Keep syncing' })).toHaveTextContent('api')
+  })
+
+  it('con plan cloud, Manage subscription abre el portal (D10)', async () => {
+    ;(window as unknown as { appFlags: unknown }).appFlags = { e2eBypass: true, e2ePlan: 'cloud' }
+    supabaseMock.functions.invoke.mockResolvedValue({ data: { url: 'https://billing.stripe.test/p' }, error: null })
+    const openExternal = vi.fn()
+    ;(window as unknown as { electronShell: unknown }).electronShell = { openExternal }
+    mockLocalPaths()
+    mockMemoryBridge({ ...conectadaSobreElTope, overLimit: false })
+    render(<CloudMemoryCard />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Manage subscription' }))
+    await waitFor(() => expect(openExternal).toHaveBeenCalledWith('https://billing.stripe.test/p'))
+  })
+
+  it('con plan free no hay Manage subscription', async () => {
+    mockLocalPaths()
+    mockMemoryBridge({ ...conectadaSobreElTope, overLimit: false })
+    render(<CloudMemoryCard />)
+    await screen.findByText('Cloud sync')
+    expect(screen.queryByRole('button', { name: 'Manage subscription' })).toBeNull()
   })
 })

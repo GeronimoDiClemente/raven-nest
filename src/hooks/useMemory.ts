@@ -40,6 +40,10 @@ interface MemoryHookState {
   cloudProjects: Array<{ projectKey: string; name: string }> | null
   /** Spec 2b-1 §4.3: los repos que quedaron sólo en esta máquina por el tope (del doctor). */
   localOnlyProjects: Array<{ projectKey: string; name: string; count: number }>
+  /** Spec 2b-2 §4.7: el proyecto elegido para seguir sincronizando, o null. */
+  keptProjectKey: string | null
+  /** Spec 2b-2 §4.7: más proyectos en la nube que los que el plan sincroniza. */
+  overLimit: boolean
 }
 
 /** Task 2 (adopción con aviso): lo que MemoryAdoptionDialog necesita para preguntar. */
@@ -75,6 +79,8 @@ export function useMemory() {
     limits: null,
     cloudProjects: null,
     localOnlyProjects: [],
+    keptProjectKey: null,
+    overLimit: false,
   })
   // Guards refresh() from clobbering an in-flight connect()'s 'migrating' state with a
   // stale 'disconnected' read that a background status poll could otherwise race in.
@@ -139,6 +145,9 @@ export function useMemory() {
       // de cuenta vuelve a undefined a propósito (D10).
       cloudProjects: status.cloudProjects ?? null,
       localOnlyProjects: doc?.ok ? doc.localOnlyProjects ?? [] : [],
+      // Como el roster: no se conservan, el daemon los vacía al cambiar de cuenta.
+      keptProjectKey: status.keptProjectKey ?? null,
+      overLimit: status.overLimit === true,
     }))
   }, [])
 
@@ -314,5 +323,23 @@ export function useMemory() {
     }
   }, [refresh])
 
-  return { ...state, connectWithToken, connectWithLogin, disconnect, refresh, pendingAdoption, resolveAdoption }
+  /**
+   * Spec 2b-2 §4.8: elegir el proyecto que sigue sincronizando. Refresca pase lo que pase, y un
+   * IPC que rechaza vuelve como `{ ok: false }`: la fila muestra el error (Ruling P8).
+   */
+  const keepProject = useCallback(async (projectKey: string): Promise<{ ok: boolean; error?: string }> => {
+    const api = memoryApi()
+    if (!api?.keepProject) return { ok: false, error: 'This build cannot choose a project' }
+    let r: { ok: boolean; error?: string }
+    try {
+      r = await api.keepProject(projectKey)
+    } catch (err) {
+      r = { ok: false, error: err instanceof Error ? err.message : String(err) }
+    }
+    // Un status que falla no cambia lo que contestó el daemon.
+    await refresh().catch(() => {})
+    return r
+  }, [refresh])
+
+  return { ...state, connectWithToken, connectWithLogin, disconnect, refresh, pendingAdoption, resolveAdoption, keepProject }
 }

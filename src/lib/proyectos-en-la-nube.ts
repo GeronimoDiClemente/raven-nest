@@ -31,3 +31,17 @@ export function soloLocales(fuera: readonly ProyectoEnLaNube[], enLaNube: readon
 export function lineaSoloLocales(nombres: readonly string[]): string {
   return `Local only: ${nombres.join(', ')} — Cloud syncs all your projects.`
 }
+
+/** Spec 2b-2 §4.8: la descripción de la fila cuando hay más proyectos en la nube que el tope. */
+export function descripcionSobreElTope(max: number, n: number): string {
+  return `Your plan syncs ${max} of ${n} projects.`
+}
+
+/**
+ * El valor del select `Keep syncing`: el elegido si sigue en el roster; si no, el primero, que
+ * es el más viejo porque `status` ordena el roster por antigüedad (D2/D3 del plan 2b-2).
+ */
+export function proyectoQueSigue(enLaNube: readonly ProyectoEnLaNube[], kept: string | null): string | null {
+  if (kept !== null && enLaNube.some((p) => p.projectKey === kept)) return kept
+  return enLaNube[0]?.projectKey ?? null
+}

@@ -46,6 +46,7 @@ import { useHubActivity } from './hub-activity'
 import { focusTerminal } from './terminal-registry'
 import logoUrl from './assets/logo.png'
 import { useProfile } from './hooks/useProfile'
+import { useAvisoDeCambioDePlan } from './hooks/useAvisoDeCambioDePlan'
 import { PLAN_LIMITS } from './lib/stripe'
 import { broadcastTargets, isAgentPane } from './lib/broadcast'
 import { moveTabAcrossWorkspaces, openFileInPane, splitEditorTabFromHub, removeEditorTab } from './lib/editor-tab-move'
@@ -53,6 +54,7 @@ import { openFileFromHub } from './lib/hub-open-file'
 import { pruneHubPanes } from './lib/hub-panes'
 import { dropTabBuffer } from './lib/editor-buffer-handoff'
 import UpgradeModal from './components/UpgradeModal'
+import CloudActivadoToast from './components/CloudActivadoToast'
 import MemoryHub from './components/MemoryHub'
 import TeamsWorkspace from './components/TeamsWorkspace'
 import PersonalWorkspace, { type Section as PersonalWorkspaceSection } from './components/PersonalWorkspace'
@@ -239,7 +241,10 @@ export default function App() {
   // pestaña Energía de macOS. Al volver a verse se refresca en el acto.
   useIntervaloVisible(() => { void pollDePuertos() }, 5000)
 
-  const { plan, isTrialActive, trialDaysLeft, loading: profileLoading } = useProfile()
+  const { plan, isTrialActive, trialDaysLeft, loading: profileLoading, rawPlan, userId } = useProfile()
+  // Spec 2b-2 §4.8 (D11): el aviso de Cloud activo vive acá, la instancia de useProfile que
+  // está siempre montada. Compara el plan crudo y por usuario (Rulings P3 y P4).
+  const avisoDeCloud = useAvisoDeCambioDePlan(rawPlan, profileLoading, userId)
   const planLimits = PLAN_LIMITS[plan]
   const [showUpgrade, setShowUpgrade] = useState(false)
   const [teamsOpen, setTeamsOpen] = useState(false)
@@ -2163,6 +2168,8 @@ export default function App() {
       {showJoinViewer && (
         <SharedTerminalViewer onClose={() => setShowJoinViewer(false)} />
       )}
+
+      {avisoDeCloud.avisoVisible && <CloudActivadoToast onClose={avisoDeCloud.cerrarAviso} />}
 
       {showUpgrade && (
         <UpgradeModal currentPlan={plan} onClose={() => setShowUpgrade(false)} />
