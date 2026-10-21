@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { vecinos, subgrafoLocal, opacidadDeNodo, esInferida, conPosicionesDe, claveDeDibujo, encuadreLocal } from '../../lib/memory-graph-2d'
 import type { GraphData } from '../../lib/memory-graph-visuals'
+import { muestraEtiqueta, ticksDelMotor, ZOOM_RELATIVO_DE_ETIQUETAS } from '../../lib/memory-graph-2d'
 
 const nodo = (id: string) => ({ id, label: id, color: '#fff', val: 1, degree: 1, superseded: false, type: 'decision', projectKey: 'p', projectLabel: 'p', tags: [], gitBranch: null, pending: false })
 const data: GraphData = {
@@ -80,5 +81,34 @@ describe('encuadreLocal (V3)', () => {
   })
   it('sin posiciones todavia: null', () => {
     expect(encuadreLocal([{}], 280, 180, margen, 3)).toBeNull()
+  })
+})
+
+describe('muestraEtiqueta', () => {
+  const base = { modo: 'global' as const, etiquetas: 'zoom' as const, escala: 1, zoomDeEncuadre: 1, destacado: false }
+  it('When zoomed in: aparece pasando el umbral relativo al encuadre', () => {
+    expect(muestraEtiqueta(base)).toBe(false)
+    expect(muestraEtiqueta({ ...base, escala: ZOOM_RELATIVO_DE_ETIQUETAS })).toBe(true)
+    expect(muestraEtiqueta({ ...base, zoomDeEncuadre: null, escala: 10 })).toBe(false)
+  })
+  it('Always siempre; On hover sólo el destacado', () => {
+    expect(muestraEtiqueta({ ...base, etiquetas: 'always' })).toBe(true)
+    expect(muestraEtiqueta({ ...base, etiquetas: 'hover', escala: 10 })).toBe(false)
+    expect(muestraEtiqueta({ ...base, etiquetas: 'hover', destacado: true })).toBe(true)
+  })
+  it('el local siempre tiene etiquetas (D13)', () => {
+    expect(muestraEtiqueta({ ...base, modo: 'local', etiquetas: 'hover' })).toBe(true)
+  })
+})
+
+describe('ticksDelMotor', () => {
+  it('animado: los ticks de siempre', () => {
+    expect(ticksDelMotor({ modo: 'global', sinAcomodo: true, animar: true })).toEqual({ warmupTicks: 80, cooldownTicks: 150 })
+    expect(ticksDelMotor({ modo: 'global', sinAcomodo: false, animar: true })).toEqual({ warmupTicks: 0, cooldownTicks: 150 })
+    expect(ticksDelMotor({ modo: 'local', sinAcomodo: true, animar: false })).toEqual({ warmupTicks: 40, cooldownTicks: 60 })
+  })
+  it('sin animación el global se acomoda sin dibujar y aparece quieto', () => {
+    expect(ticksDelMotor({ modo: 'global', sinAcomodo: true, animar: false })).toEqual({ warmupTicks: 300, cooldownTicks: 0 })
+    expect(ticksDelMotor({ modo: 'global', sinAcomodo: false, animar: false })).toEqual({ warmupTicks: 120, cooldownTicks: 0 })
   })
 })

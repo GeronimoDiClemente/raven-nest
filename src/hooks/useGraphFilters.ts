@@ -3,7 +3,7 @@
 import { useCallback, useMemo, useState } from 'react'
 import { toGraphData, type ColorBy, type Foco, type GraphData } from '../lib/memory-graph-visuals'
 import { esInferida } from '../lib/memory-graph-2d'
-import { FILTROS_POR_DEFECTO } from '../lib/memory-prefs'
+import { FILTROS_POR_DEFECTO, type FiltrosGuardados } from '../lib/memory-prefs'
 import type { MemoryGraph } from '../types'
 
 export interface GraphFilters {
@@ -22,13 +22,17 @@ const VACIO: GraphData = { nodes: [], links: [], orphansHidden: 0 }
  * topic y similar—, no sólo `similar`: el tour dice "las punteadas son suposiciones" y el
  * botón las apaga a todas. `similar` además deja de pedirse a main (lo decide el workspace).
  */
-export function useGraphFilters(graph: MemoryGraph | null, ansi?: readonly string[], conInferidas = true) {
-  const [colorBy, setColorBy] = useState<ColorBy>(FILTROS_POR_DEFECTO.colorBy)
+export function useGraphFilters(
+  graph: MemoryGraph | null, ansi?: readonly string[], conInferidas = true, inicial?: FiltrosGuardados | null,
+) {
+  // `inicial` (lo recordado, D14) se lee sólo al montar.
+  const ini = inicial ?? FILTROS_POR_DEFECTO
+  const [colorBy, setColorBy] = useState<ColorBy>(ini.colorBy)
   const [foco, setFoco] = useState<Foco>(null)
-  const [hideOrphans, setHideOrphans] = useState(FILTROS_POR_DEFECTO.hideOrphans)
-  const [tiposOcultos, setTiposOcultos] = useState<ReadonlySet<string>>(() => new Set())
-  const [escalaDeNodo, setEscalaDeNodo] = useState(FILTROS_POR_DEFECTO.escalaDeNodo)
-  const [distanciaDeLinks, setDistanciaDeLinks] = useState(FILTROS_POR_DEFECTO.distanciaDeLinks)
+  const [hideOrphans, setHideOrphans] = useState(ini.hideOrphans)
+  const [tiposOcultos, setTiposOcultos] = useState<ReadonlySet<string>>(() => new Set(ini.tiposOcultos))
+  const [escalaDeNodo, setEscalaDeNodo] = useState(ini.escalaDeNodo)
+  const [distanciaDeLinks, setDistanciaDeLinks] = useState(ini.distanciaDeLinks)
 
   const toggleTipo = useCallback((tipo: string) => {
     setTiposOcultos((prev) => {
@@ -101,8 +105,18 @@ export function useGraphFilters(graph: MemoryGraph | null, ansi?: readonly strin
     setDistanciaDeLinks(FILTROS_POR_DEFECTO.distanciaDeLinks)
   }, [])
 
+  /** Lo recordado, cuando las prefs llegan después del primer render (primera apertura). Las
+   *  inferidas no: ese interruptor es del workspace, que también decide qué pide a main. */
+  const aplicar = useCallback((f: FiltrosGuardados) => {
+    setColorBy(f.colorBy)
+    setHideOrphans(f.hideOrphans)
+    setTiposOcultos(new Set(f.tiposOcultos))
+    setEscalaDeNodo(f.escalaDeNodo)
+    setDistanciaDeLinks(f.distanciaDeLinks)
+  }, [])
+
   return {
     filtros, setColorBy, setFoco, setHideOrphans, toggleTipo, setEscalaDeNodo, setDistanciaDeLinks,
-    data, dataCompleta, conteoPorTipo, restablecer,
+    data, dataCompleta, conteoPorTipo, restablecer, aplicar,
   }
 }

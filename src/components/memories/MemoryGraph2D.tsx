@@ -5,7 +5,8 @@
 // Presentación pura: no conoce `window.memory`.
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { GraphData, GraphLinkDatum, GraphNodeDatum } from '../../lib/memory-graph-visuals'
-import { claveDeDibujo, conPosicionesDe, encuadreLocal, esInferida, idDe, opacidadDeNodo, vecinos } from '../../lib/memory-graph-2d'
+import { claveDeDibujo, conPosicionesDe, encuadreLocal, esInferida, idDe, muestraEtiqueta, opacidadDeNodo, ticksDelMotor, vecinos } from '../../lib/memory-graph-2d'
+import type { EtiquetasDelGrafo } from '../../lib/memory-prefs'
 
 const ForceGraph2D = lazy(() => import('react-force-graph-2d'))
 
@@ -19,6 +20,10 @@ export interface MemoryGraph2DProps {
   modo: 'global' | 'local'
   escalaDeNodo?: number
   distanciaDeLinks?: number
+  /** «Labels» (sólo global). */
+  etiquetas?: EtiquetasDelGrafo
+  /** «Animate graph» (sólo global). */
+  animar?: boolean
   onOpen: (syncId: string, opts: { background: boolean }) => void
 }
 
@@ -74,8 +79,6 @@ type InstanciaDelGrafo = {
   centerAt?: (x?: number, y?: number, ms?: number) => unknown
 }
 
-/** Las etiquetas del global aparecen al acercarse esto respecto del encuadre (spec §4). */
-const ZOOM_RELATIVO_DE_ETIQUETAS = 1.5
 /** Encuadrar un grafo de uno o dos nodos daría un zoom enorme: tope. */
 const TOPE_DE_ZOOM_AL_ENCUADRAR = { global: 4, local: 3 }
 const MAX_LETRAS = { global: 40, local: 24 }
@@ -83,7 +86,7 @@ const MAX_LETRAS = { global: 40, local: 24 }
  *  arriba, punto + etiqueta abajo. */
 const MARGEN_LOCAL = { x: 64, arriba: 12, abajo: 28 }
 
-export default function MemoryGraph2D({ data, foco = null, resaltados = null, modo, escalaDeNodo = 1, distanciaDeLinks = 50, onOpen }: MemoryGraph2DProps) {
+export default function MemoryGraph2D({ data, foco = null, resaltados = null, modo, escalaDeNodo = 1, distanciaDeLinks = 50, etiquetas = 'zoom', animar = true, onOpen }: MemoryGraph2DProps) {
   const caja = useRef<HTMLDivElement>(null)
   const [tam, setTam] = useState({ w: 0, h: 0 })
   const [hover, setHover] = useState<string | null>(null)
@@ -122,6 +125,7 @@ export default function MemoryGraph2D({ data, foco = null, resaltados = null, mo
     const conPos = datos.nodes.filter((n) => typeof (n as Nodo).x === 'number').length
     return conPos < datos.nodes.length / 2
   }, [datos])
+  const ticks = ticksDelMotor({ modo, sinAcomodo, animar })
 
   const instancia = useRef<InstanciaDelGrafo | null>(null)
   // Ref callback: el grafo es lazy y espera el tamaño, así que la instancia llega después del
@@ -225,8 +229,8 @@ export default function MemoryGraph2D({ data, foco = null, resaltados = null, mo
             height={tam.h}
             graphData={datos}
             backgroundColor="transparent"
-            warmupTicks={sinAcomodo ? (modo === 'local' ? 40 : 80) : 0}
-            cooldownTicks={modo === 'local' ? 60 : 150}
+            warmupTicks={ticks.warmupTicks}
+            cooldownTicks={ticks.cooldownTicks}
             d3VelocityDecay={modo === 'local' ? 0.6 : 0.35}
             enableZoomInteraction={modo === 'global'}
             enablePanInteraction={modo === 'global'}
@@ -257,9 +261,9 @@ export default function MemoryGraph2D({ data, foco = null, resaltados = null, mo
               if (n.id === foco || n.id === hover) {
                 ctx.strokeStyle = colores.textoFuerte; ctx.lineWidth = 1.5 / escala; ctx.stroke()
               }
-              const encuadre = zoomDeEncuadre.current
-              const porZoom = encuadre !== null && escala >= encuadre * ZOOM_RELATIVO_DE_ETIQUETAS
-              const conEtiqueta = modo === 'local' || porZoom || n.id === hover || n.id === foco
+              const conEtiqueta = muestraEtiqueta({
+                modo, etiquetas, escala, zoomDeEncuadre: zoomDeEncuadre.current, destacado: n.id === hover || n.id === foco,
+              })
               if (conEtiqueta) {
                 const fs = 11 / escala
                 const max = MAX_LETRAS[modo]

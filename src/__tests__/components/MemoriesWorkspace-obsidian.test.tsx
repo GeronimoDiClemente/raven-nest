@@ -26,6 +26,8 @@ vi.mock('react-force-graph-2d', () => ({
 
 import MemoriesWorkspace from '../../components/MemoriesWorkspace'
 import { __reiniciarPestanas } from '../../hooks/useMemoryTabs'
+import { __reiniciarMemoryPrefs } from '../../hooks/useMemoryPrefs'
+import { FILTROS_POR_DEFECTO } from '../../lib/memory-prefs'
 
 const setMemoryApi = (api: unknown): void => {
   ;(window as unknown as { memory?: unknown }).memory = api
@@ -95,11 +97,13 @@ async function empezarAConectar() {
 
 beforeEach(() => {
   __reiniciarPestanas()
+  __reiniciarMemoryPrefs()
   localStorage.clear()
 })
 afterEach(() => {
   setMemoryApi(undefined)
   delete (window as unknown as { git?: unknown }).git
+  delete (window as unknown as { settings?: unknown }).settings
   vi.restoreAllMocks()
 })
 
@@ -685,6 +689,84 @@ describe('MemoriesWorkspace estilo Obsidian', () => {
       expect(await panelDerecho().findByTestId('fg2d')).toBeInTheDocument()
       expect(panelDerecho().getByRole('button', { name: 'node Auth pasa a cookies' })).toBeInTheDocument()
       expect(panelDerecho().queryByText(/Not in the/)).toBeNull()
+    })
+  })
+
+  describe('Remember graph filters', () => {
+    const conGrafo = () => api({
+      graph: vi.fn().mockResolvedValue(grafoAB()),
+      crossProject: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
+    })
+    // `primeraLectura`: la carga de las prefs al montar tarda lo que diga la prueba; las lecturas
+    // siguientes (el read-modify-write de cada guardado, D15) contestan en el acto.
+    const conSettings = (memoryPrefs: unknown, opts: { primeraLectura?: Promise<unknown> } = {}) => {
+      let store: Record<string, unknown> = { voiceLanguage: 'en', memoryPrefs }
+      const set = vi.fn(async (d: Record<string, unknown>) => { store = d })
+      let primera = opts.primeraLectura
+      const get = async () => {
+        if (primera) { const p = primera; primera = undefined; return p }
+        return store
+      }
+      ;(window as unknown as { settings: unknown }).settings = { get, set }
+      return { set, leer: () => store }
+    }
+
+    it('con Remember on, los filtros guardados vuelven al abrir', async () => {
+      conSettings({ graph: { remember: true, filtros: { ...FILTROS_POR_DEFECTO, hideOrphans: false, inferidas: false } } })
+      setMemoryApi(conGrafo())
+      render(<MemoriesWorkspace {...props()} />)
+      expect(await screen.findByRole('button', { name: /Showing unconnected/ })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /Guessed links/ })).toHaveAttribute('aria-pressed', 'false')
+    })
+
+    it('un cambio se guarda a los 300 ms, y nada se guarda antes de que lleguen las prefs (Review Focus 2)', async () => {
+      let soltar: (v: unknown) => void = () => {}
+      const guardadas = { graph: { remember: true, filtros: { ...FILTROS_POR_DEFECTO, hideOrphans: false } } }
+      const s = conSettings(guardadas, { primeraLectura: new Promise((r) => { soltar = r }) })
+      setMemoryApi(conGrafo())
+      render(<MemoriesWorkspace {...props()} />)
+      await screen.findByRole('button', { name: /Guessed links/ })
+      await new Promise((r) => setTimeout(r, 400))
+      expect(s.set).not.toHaveBeenCalled()
+      soltar({ voiceLanguage: 'en', memoryPrefs: guardadas })
+      expect(await screen.findByRole('button', { name: /Showing unconnected/ })).toBeInTheDocument()
+      // Lo restaurado no se pisa con defaults.
+      for (const [d] of s.set.mock.calls) expect((d.memoryPrefs as { graph: { filtros: { hideOrphans: boolean } } }).graph.filtros.hideOrphans).toBe(false)
+      fireEvent.click(screen.getByRole('button', { name: /Guessed links/ }))
+      await waitFor(() => expect(s.set).toHaveBeenCalledWith(expect.objectContaining({
+        memoryPrefs: expect.objectContaining({ graph: expect.objectContaining({ filtros: expect.objectContaining({ inferidas: false, hideOrphans: false }) }) }),
+      })))
+    })
+
+    it('cerrar el overlay dentro de los 300 ms guarda igual el último cambio', async () => {
+      const s = conSettings({ graph: { remember: true } })
+      setMemoryApi(conGrafo())
+      const { unmount } = render(<MemoriesWorkspace {...props()} />)
+      fireEvent.click(await screen.findByRole('button', { name: /Guessed links/ }))
+      unmount()
+      await waitFor(() => expect((s.leer().memoryPrefs as { graph: { filtros?: { inferidas: boolean } } }).graph.filtros?.inferidas).toBe(false))
+    })
+
+    it('con Remember off no se guarda nada', async () => {
+      const s = conSettings({ graph: { remember: false } })
+      setMemoryApi(conGrafo())
+      render(<MemoriesWorkspace {...props()} />)
+      fireEvent.click(await screen.findByRole('button', { name: /Guessed links/ }))
+      await new Promise((r) => setTimeout(r, 400))
+      expect(s.set).not.toHaveBeenCalled()
+    })
+
+    it('Reset graph to defaults vuelve filtros y fuerzas al arranque', async () => {
+      conSettings({ graph: { remember: true, filtros: { ...FILTROS_POR_DEFECTO, hideOrphans: false, inferidas: false } } })
+      setMemoryApi(conGrafo())
+      render(<MemoriesWorkspace {...props()} />)
+      await screen.findByRole('button', { name: /Showing unconnected/ })
+      fireEvent.click(screen.getByRole('button', { name: 'Memory settings' }))
+      fireEvent.click(within(screen.getByRole('navigation', { name: 'Settings sections' })).getByRole('button', { name: 'Editor & graph' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Reset' }))
+      fireEvent.click(screen.getByRole('tab', { name: /Graph/ }))
+      expect(await screen.findByRole('button', { name: /unconnected hidden/ })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /Guessed links/ })).toHaveAttribute('aria-pressed', 'true')
     })
   })
 })

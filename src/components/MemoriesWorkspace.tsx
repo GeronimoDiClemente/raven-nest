@@ -29,6 +29,7 @@ import { useGraphFilters } from '../hooks/useGraphFilters'
 import { useMemoryTabs } from '../hooks/useMemoryTabs'
 import { useTeamThreadSettings } from '../hooks/useTeamThreadSettings'
 import { useMemoryPrefs } from '../hooks/useMemoryPrefs'
+import { conFiltros, FILTROS_POR_DEFECTO, type FiltrosGuardados } from '../lib/memory-prefs'
 import { armarArbol } from '../lib/memories-tree'
 import { pestanaDelHilo } from '../lib/pestana-del-hilo'
 import { SECCIONES_DE_SETTINGS, tabId, type MemoryTab } from '../lib/memory-tabs'
@@ -145,11 +146,54 @@ export default function MemoriesWorkspace({
     })
   }, [])
 
-  const [includeSimilar, setIncludeSimilar] = useState(true)
+  const prefsMem = useMemoryPrefs()
+  // Lo recordado (D14). Con las prefs ya en la caché de sesión arranca de ahí; en la primera
+  // apertura llegan después y se aplican abajo, una vez.
+  const recordadosAlMontar = useRef<FiltrosGuardados | null>(
+    prefsMem.cargadas && prefsMem.prefs.graph.remember ? prefsMem.prefs.graph.filtros ?? null : null,
+  )
+  const [includeSimilar, setIncludeSimilar] = useState(recordadosAlMontar.current?.inferidas ?? FILTROS_POR_DEFECTO.inferidas)
   const grafo = useMemoryGraph(includeSimilar)
   // El mismo interruptor decide qué se le pide a main (similar) y qué se dibuja (todas las
   // inferidas): ver useGraphFilters.
-  const filtros = useGraphFilters(grafo.graph, ansi, includeSimilar)
+  const filtros = useGraphFilters(grafo.graph, ansi, includeSimilar, recordadosAlMontar.current)
+
+  /** true cuando lo guardado ya se aplicó: antes, guardar pisaría lo recordado con defaults
+   *  (Review Focus 2). */
+  const restaurado = useRef(prefsMem.cargadas)
+  const aplicarFiltros = filtros.aplicar
+  useEffect(() => {
+    if (restaurado.current || !prefsMem.cargadas) return
+    restaurado.current = true
+    const g = prefsMem.prefs.graph
+    if (g.remember && g.filtros) { aplicarFiltros(g.filtros); setIncludeSimilar(g.filtros.inferidas) }
+  }, [prefsMem.cargadas, prefsMem.prefs.graph, aplicarFiltros])
+
+  const guardables = useMemo<FiltrosGuardados>(() => ({
+    colorBy: filtros.filtros.colorBy,
+    hideOrphans: filtros.filtros.hideOrphans,
+    tiposOcultos: [...filtros.filtros.tiposOcultos].sort(),
+    escalaDeNodo: filtros.filtros.escalaDeNodo,
+    distanciaDeLinks: filtros.filtros.distanciaDeLinks,
+    inferidas: includeSimilar,
+  }), [filtros.filtros, includeSimilar])
+  const recordar = prefsMem.prefs.graph.remember
+  const actualizarPrefs = prefsMem.actualizar
+  /** Lo que falta guardar, para el flush al desmontar (cerrar el overlay dentro de los 300 ms). */
+  const pendienteDeGuardar = useRef<FiltrosGuardados | null>(null)
+  useEffect(() => {
+    if (!restaurado.current || !recordar) { pendienteDeGuardar.current = null; return }
+    pendienteDeGuardar.current = guardables
+    const t = setTimeout(() => {
+      pendienteDeGuardar.current = null
+      actualizarPrefs((p) => conFiltros(p, guardables))
+    }, 300)
+    return () => clearTimeout(t)
+  }, [guardables, recordar, actualizarPrefs])
+  useEffect(() => () => {
+    const f = pendienteDeGuardar.current
+    if (f) actualizarPrefs((p) => conFiltros(p, f))
+  }, [actualizarPrefs])
   const restablecerFiltros = filtros.restablecer
   const restablecerGrafo = useCallback(() => { restablecerFiltros(); setIncludeSimilar(true) }, [restablecerFiltros])
 
@@ -169,7 +213,6 @@ export default function MemoriesWorkspace({
   const tabs = useMemoryTabs(conHilo, pedidoDeSettings)
   const activa: MemoryTab = tabs.tabs.find((t) => tabId(t) === tabs.activeId) ?? tabs.tabs[0]
   const settingsActiva = activa.kind === 'settings'
-  const prefsMem = useMemoryPrefs()
 
   /**
    * Los ids a resaltar. `null` sin búsqueda = grafo a color pleno y explorer completo.
@@ -444,6 +487,8 @@ export default function MemoriesWorkspace({
         resaltados={resaltados}
         escalaDeNodo={filtros.filtros.escalaDeNodo}
         distanciaDeLinks={filtros.filtros.distanciaDeLinks}
+        etiquetas={prefsMem.prefs.graph.labels}
+        animar={prefsMem.prefs.graph.animate}
         onOpen={alAbrirDesdeElGrafo}
       />
     )

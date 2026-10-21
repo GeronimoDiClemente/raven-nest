@@ -1,6 +1,7 @@
 // Lo puro del grafo 2D: qué arista es inferida, vecinos, el subgrafo local y el atenuado.
 import type { MemoryEdgeKind } from '../types'
 import type { GraphData, GraphLinkDatum } from './memory-graph-visuals'
+import type { EtiquetasDelGrafo } from './memory-prefs'
 
 export const ARISTAS_AFIRMADAS: ReadonlySet<MemoryEdgeKind> = new Set<MemoryEdgeKind>(['manual', 'wikilink', 'revision'])
 
@@ -116,4 +117,24 @@ export function encuadreLocal(
   // punto que va al centro del canvas para que la caja de los nodos caiga en el área útil.
   const corrimientoY = (margen.arriba + utilY / 2 - alto / 2) / k
   return { x: (x0 + x1) / 2, y: (y0 + y1) / 2 - corrimientoY, k }
+}
+
+/** Las etiquetas del global aparecen al acercarse esto respecto del encuadre (spec §4 del 20-10). */
+export const ZOOM_RELATIVO_DE_ETIQUETAS = 1.5
+
+/** ¿Se dibuja el nombre de este nodo? (preferencia «Labels», spec 2026-10-21 §5). El local
+ *  siempre lleva nombres (D13); el nodo bajo el mouse o enfocado también. */
+export function muestraEtiqueta(o: {
+  modo: 'global' | 'local'; etiquetas: EtiquetasDelGrafo; escala: number; zoomDeEncuadre: number | null; destacado: boolean
+}): boolean {
+  if (o.modo === 'local' || o.destacado) return true
+  if (o.etiquetas === 'always') return true
+  if (o.etiquetas === 'hover') return false
+  return o.zoomDeEncuadre !== null && o.escala >= o.zoomDeEncuadre * ZOOM_RELATIVO_DE_ETIQUETAS
+}
+
+/** «Animate graph» (D13): apagado, el global corre la simulación sin dibujar y aparece quieto. */
+export function ticksDelMotor(o: { modo: 'global' | 'local'; sinAcomodo: boolean; animar: boolean }): { warmupTicks: number; cooldownTicks: number } {
+  if (o.modo === 'global' && !o.animar) return { warmupTicks: o.sinAcomodo ? 300 : 120, cooldownTicks: 0 }
+  return { warmupTicks: o.sinAcomodo ? (o.modo === 'local' ? 40 : 80) : 0, cooldownTicks: o.modo === 'local' ? 60 : 150 }
 }
