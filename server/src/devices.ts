@@ -1,6 +1,7 @@
 import { createHmac, createPublicKey, randomBytes, randomUUID, timingSafeEqual, verify, type JsonWebKey } from 'node:crypto'
 import type { Pool } from 'pg'
 import { hashToken } from './auth'
+import { PLANES_PAGOS } from './plan-sync'
 
 /**
  * §9.2 — la emisión del token, el único camino nuevo del servicio y el único aditivo:
@@ -194,10 +195,10 @@ export type RegisterResult =
  * Crea (o reusa) el usuario, verifica el allowlist y abre una fila en `devices`. Devuelve
  * el token UNA sola vez: el servicio guarda el hash y nada más (§9.1).
  *
- * Sobre el plan: el JWT de Supabase no lo trae, así que un usuario nuevo entra como `free`
- * y un `users.plan` ya existente NO se pisa. `free` es un plan de nube válido a propósito
- * (ver `CLOUD_PLANS` en auth.ts): le corresponde 1 proyecto. Mantener el plan sincronizado
- * con Supabase es otro camino — hoy no existe y está anotado como pendiente.
+ * Sobre el plan: el JWT de Supabase no lo trae, así que un usuario nuevo entra como `free`.
+ * Desde 2b-2 el plan llega por `POST /internal/plan` (webhook de Stripe) y, como red de
+ * seguridad, acá se relee `profiles.plan` con el JWT: si es pago y el actual no lo es, se
+ * escribe junto con la allowlist, ANTES del chequeo de allowlist. Nunca baja un plan.
  *
  * El tope de máquinas por plan NO se aplica acá: lo aplica `authenticate` en cada request,
  * que es donde ya está testeado y donde el cliente sabe leer `device_limit_reached`.
@@ -216,6 +217,10 @@ export async function registerDevice(
   device: { name: string; platform?: string | null },
   supabaseJwt?: string
 ): Promise<RegisterResult> {
+  // Spec 2b-2 §4.6: fuera de la transacción, por lo mismo que `syncTeamMemberships`: colgar el
+  // registro de la red de Supabase convertiría su timeout en el del registro.
+  const planPago = await planPagoDeSupabase(identity.userId, supabaseJwt)
+
   const client = await pool.connect()
   let result: RegisterResult
   try {
@@ -228,6 +233,18 @@ export async function registerDevice(
        on conflict (id) do update set email = coalesce(excluded.email, users.email)`,
       [identity.userId, identity.email]
     )
+
+    if (planPago) {
+      // Sólo sube (D4): se escribe si el plan actual NO es pago. Un `enterprise` o `team`
+      // puesto a mano no lo pisa un `cloud` leído de Supabase.
+      await client.query(
+        `update users set plan = $2 where id = $1 and plan <> all($3::text[])`,
+        [identity.userId, planPago, [...PLANES_PAGOS]]
+      )
+      // Pagar te mete en la beta (decisión 5) ANTES del chequeo: alguien que pagó y perdió el
+      // aviso del webhook no recibe `not_in_beta`.
+      await client.query('insert into allowlist (user_id) values ($1) on conflict do nothing', [identity.userId])
+    }
 
     const { rows: permitido } = await client.query(
       'select 1 from allowlist where user_id = $1',
@@ -334,6 +351,51 @@ export async function fetchActiveTeamMemberships(
       role: typeof r.role === 'string' ? r.role : null,
     }
   })
+}
+
+/**
+ * `profiles.plan` del propio usuario, leído con SU JWT (spec 2b-2 §4.6): la RLS lo deja leer y
+ * `protect_profile_billing_columns` impide que el cliente lo escriba, así que es la verdad de
+ * Stripe. `null` si no hay fila o el plan no es un string. Lanza en un no-2xx o error de red.
+ */
+export async function fetchPlanDeSupabase(
+  supabaseUrl: string,
+  anonKey: string,
+  userId: string,
+  jwt: string
+): Promise<string | null> {
+  const url = `${supabaseUrl.replace(/\/+$/, '')}/rest/v1/profiles?id=eq.${encodeURIComponent(userId)}&select=plan`
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), SUPABASE_MEMBERSHIPS_TIMEOUT_MS)
+  let res: Response
+  try {
+    res = await fetch(url, { headers: { Authorization: `Bearer ${jwt}`, apikey: anonKey }, signal: controller.signal })
+  } finally {
+    clearTimeout(timer)
+  }
+  if (!res.ok) throw new Error(`supabase profiles respondió ${res.status}`)
+  const body = (await res.json()) as unknown
+  if (!Array.isArray(body)) return null
+  const plan = (body[0] as { plan?: unknown } | undefined)?.plan
+  return typeof plan === 'string' ? plan : null
+}
+
+/**
+ * Best effort, como `syncTeamMemberships`: sin config, sin JWT o con cualquier falla devuelve
+ * `null` y el registro sigue exactamente como antes. Sólo devuelve planes PAGOS: un `free`
+ * leído no se usa nunca (la red de seguridad sólo sube; bajar es trabajo del webhook).
+ */
+async function planPagoDeSupabase(userId: string, supabaseJwt: string | undefined): Promise<string | null> {
+  const supabaseUrl = process.env.SUPABASE_URL
+  const anonKey = process.env.SUPABASE_ANON_KEY
+  if (!supabaseUrl || !anonKey || !supabaseJwt) return null
+  try {
+    const plan = await fetchPlanDeSupabase(supabaseUrl, anonKey, userId, supabaseJwt)
+    return plan && PLANES_PAGOS.has(plan) ? plan : null
+  } catch (err) {
+    console.warn('[devices] no se pudo leer el plan de Supabase', err)
+    return null
+  }
 }
 
 /**

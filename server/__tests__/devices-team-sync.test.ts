@@ -77,8 +77,10 @@ describe('registerDevice — sincronización de team_memberships', () => {
 
     // El request usa el JWT del login como bearer — nunca una service-role key — y trae la
     // apikey. Es el contrato central del diseño: la consulta respeta la RLS del usuario.
-    expect(fetchImpl).toHaveBeenCalledTimes(1)
-    const [url, init] = fetchImpl.mock.calls[0]
+    // 2b-2: además de team_members se lee profiles (la red de seguridad del plan).
+    const llamadaDeEquipos = fetchImpl.mock.calls.filter(([u]) => String(u).includes('/rest/v1/team_members'))
+    expect(llamadaDeEquipos).toHaveLength(1)
+    const [url, init] = llamadaDeEquipos[0]
     expect(url).toContain('https://qkqlsytxtshgjxwmafpw.supabase.co/rest/v1/team_members')
     expect(url).toContain(`user_id=eq.${userId}`)
     expect(url).toContain('status=eq.active')
