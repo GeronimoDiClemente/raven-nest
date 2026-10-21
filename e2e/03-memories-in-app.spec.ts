@@ -303,6 +303,9 @@ test('con un repo vinculado se dibuja el panel de ramas, y prenderlo escribe el 
     //    dibuja. Un repo recién creado no tiene memorias, así que el grafo tiene sólo el
     //    índice y el panel lo dice en vez de dibujar un punto solo en el medio.
     await overlay.getByRole('button', { name: 'Memories', exact: true }).click()
+    // Desde el 2026-10-20 (Memories estilo Obsidian) el hilo es una PESTAÑA fija del centro,
+    // que aparece cuando el repo lo tiene prendido: hay que entrar a ella.
+    await overlay.getByRole('tab', { name: /Team thread/ }).click()
     await expect(overlay.locator('.team-thread-panel')).toBeVisible({ timeout: 15_000 })
     await expect(overlay.locator('.team-thread-error')).toHaveCount(0)
     await expect(overlay.getByText(/No branch notes yet/)).toBeVisible()

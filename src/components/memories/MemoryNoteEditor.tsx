@@ -16,7 +16,7 @@ import { relativeTime } from '../../lib/memories-status'
 import { nombreDeProyecto } from '../../lib/nombre-de-proyecto'
 import { useAutosave, type ResultadoDeGuardado } from '../../hooks/useAutosave'
 import { AILogo } from '../AILogos'
-import { Button } from '../ui/button'
+import { Button, buttonVariants } from '../ui/button'
 import { Popover, PopoverAnchor, PopoverContent } from '../ui/popover'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '../ui/dropdown-menu'
 import {
@@ -316,10 +316,11 @@ function EditorDeNota({
           <span className={avisoDeTitulo ? 'ml-auto text-destructive' : 'ml-auto'} aria-live="polite">{textoDeEstado}</span>
           {!soloLectura && (
             <DropdownMenu modal={false}>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon-sm" aria-label="More actions">
-                  <MoreHorizontal />
-                </Button>
+              {/* El disparador ES el botón (con las clases de Button), no un `<Button>` hijo con
+                  `asChild`: Button es un componente función de React 18 sin forwardRef, así que
+                  Radix no recibía el ancla y el menú quedaba sin posicionar, fuera de la pantalla. */}
+              <DropdownMenuTrigger className={buttonVariants({ variant: 'ghost', size: 'icon-sm' })} aria-label="More actions">
+                <MoreHorizontal />
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 <DropdownMenuItem onSelect={() => onConnect()}>Connect to another memory…</DropdownMenuItem>

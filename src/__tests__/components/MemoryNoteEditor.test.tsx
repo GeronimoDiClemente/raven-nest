@@ -215,6 +215,18 @@ describe('MemoryNoteEditor: titulo vacio, borrado fallido, irALinea', () => {
     expect(screen.queryByText('Unsaved')).toBeNull()
   })
 
+  // Task 11, en la app real: con `<Button>` (componente funcion de React 18, sin forwardRef)
+  // como hijo `asChild` del disparador, Radix no recibia el elemento ancla y el menu quedaba
+  // sin posicionar, en `translate(0, -200%)`, fuera de la pantalla. jsdom no tiene layout,
+  // pero si deja ver si floating-ui llego a posicionarlo.
+  it('el menu "More actions" se posiciona contra su boton (no queda fuera de la pantalla)', async () => {
+    render(<MemoryNoteEditor detail={det()} {...props()} />)
+    fireEvent.keyDown(screen.getByRole('button', { name: 'More actions' }), { key: 'Enter' })
+    await screen.findByRole('menuitem', { name: 'Delete' })
+    const envoltorio = document.querySelector('[data-radix-popper-content-wrapper]') as HTMLElement
+    await vi.waitFor(() => expect(envoltorio.style.transform).not.toContain('-200%'))
+  })
+
   it('si borrar falla, avisa y la nota sigue', async () => {
     const p = props()
     p.onDelete.mockRejectedValue(new Error('disk'))

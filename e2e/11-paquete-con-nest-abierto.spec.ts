@@ -65,7 +65,8 @@ test('con Nest abierto, el MCP del paquete le delega y lo guardado aparece en la
   const h = await launchHarness({ withRepo: false })
   try {
     await abrirMemories(h.page)
-    await expect(h.page.getByText('No memories yet')).toBeVisible({ timeout: 15_000 })
+    // Sale dos veces (el centro y el explorer): se mira la del explorer.
+    await expect(h.page.locator('[data-tour-id="memories-explorer"]').getByText('No memories yet')).toBeVisible({ timeout: 15_000 })
 
     const mcp = mcpDelPaquete(h.homeDir)
     try {
@@ -82,7 +83,9 @@ test('con Nest abierto, el MCP del paquete le delega y lo guardado aparece en la
 
     // La prueba de que delegó: la escribió el DAEMON de la app, que avisa a la pantalla al
     // instante. Si el paquete hubiera abierto la base por al lado, la app no se enteraría.
-    await expect(h.page.getByText('Guardada desde un editor externo').first()).toBeVisible({ timeout: 15_000 })
+    await expect(
+      h.page.locator('[data-tour-id="memories-explorer"]').getByRole('button', { name: 'Guardada desde un editor externo', exact: true }),
+    ).toBeVisible({ timeout: 15_000 })
     // Y no creó una base propia: la memoria vive en la de Nest, no en `~/.nest-memory`.
     expect(existsSync(join(h.homeDir, '.nest-memory', 'memory.db'))).toBe(false)
   } finally {

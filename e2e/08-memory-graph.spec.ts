@@ -1,29 +1,29 @@
-// El grafo de MEMORIAS en la app real: acotado, 3D, y una vista de la lista.
+// Memories en la app real, estilo Obsidian (spec 2026-10-20): explorer a la izquierda,
+// pestañas en el centro (Graph fija, una por nota, New memory) y a la derecha los filtros del
+// grafo o el panel de la nota.
 //
-// Spec 2026-09-11 §3. Verifica en pantalla las tres cosas que la spec pide y que un test de
-// jsdom no puede ver, porque dependen de layout y de WebGL:
+// Verifica lo que un test de jsdom no puede ver porque depende de layout, de canvas o del
+// proceso main de verdad:
 //
-// 1. El cuadro NO se come la pantalla: es un cuadrado de lado fijo.
-// 2. Con cero memorias no se monta ningún cuadro vacío.
-// 3. Seleccionar en la lista y seleccionar en el grafo son la misma selección.
+// 1. Con cero memorias no se monta ningún canvas.
+// 2. El grafo 2D ocupa el centro, no un cuadradito.
+// 3. Abrir, editar y guardar una nota pasa por el IPC y el store reales.
+// 4. Los `[[links]]` del live preview navegan, y el hueco ofrece crear la memoria.
+// 5. Conectar a mano escribe la relación y el grafo la dibuja con su propio nombre.
+// 6. Ctrl/Cmd+W cierra la pestaña y NO la ventana (Review Focus 1): el menú por defecto de
+//    Electron tiene `close` en CmdOrCtrl+W, y sólo la app real dice quién gana.
 //
-// Y deja las capturas, que es la única forma de revisar que un grafo 3D se ve bien.
-import { test, expect } from '@playwright/test'
-import { launchHarness, teardown } from './helpers/harness'
-import { seedMemories, MEMORIAS_DE_MUESTRA } from './helpers/seed-memories'
+// Y deja las capturas en .superpowers/sdd/shots/memory-graph/ (no se commitean).
+import { test, expect, type Page, type Locator } from '@playwright/test'
+import { launchHarness, teardown, type Harness } from './helpers/harness'
+import { seedMemories, MEMORIAS_DE_MUESTRA, type SeedMemory } from './helpers/seed-memories'
 import { mkdirSync } from 'fs'
 import { join } from 'path'
 
 const SHOTS = join(__dirname, '..', '.superpowers', 'sdd', 'shots', 'memory-graph')
 mkdirSync(SHOTS, { recursive: true })
 
-/** El alto del cuadro declarado en MemoryGraphPanel.tsx: `clamp(420px, 55vh, 720px)`. Lo
- *  que la spec pide es que NO se coma la pantalla; acotar el alto alcanza, y el ancho se lo
- *  lleva el grafo (pedido del usuario el 2026-09-11: "que ocupe un poco mas de espacio
- *  horizontal"; y el 2026-10-01: "que ocupe mas espacio del panel"). */
-const altoEsperado = (altoDeVentana: number) => Math.min(720, Math.max(420, altoDeVentana * 0.55))
-
-async function abrirMemories(page: import('@playwright/test').Page) {
+async function abrirMemories(page: Page) {
   const toggle = page.getByRole('button', { name: /Collapse sidebar|Expand sidebar/ })
   await expect(toggle).toBeVisible({ timeout: 15_000 })
   if ((await toggle.getAttribute('aria-expanded')) !== 'true') {
@@ -34,272 +34,112 @@ async function abrirMemories(page: import('@playwright/test').Page) {
   await expect(page.locator('.memories-workspace')).toBeVisible({ timeout: 15_000 })
 }
 
-test('sin memorias no se monta ningun cuadro de grafo vacio', async () => {
+const explorer = (page: Page) => page.locator('[data-tour-id="memories-explorer"]')
+const panelDerecho = (page: Page) => page.getByRole('complementary', { name: 'Side panel' })
+const pestana = (page: Page, nombre: string | RegExp) => page.getByRole('tab', { name: nombre })
+/** El cuerpo (el `.cm-content` de CodeMirror, que lleva role textbox y este nombre) de la
+ *  pestaña activa: las notas no activas quedan montadas pero `hidden`. */
+const notaActiva = (page: Page) =>
+  page.locator('.memories-workspace').getByRole('textbox', { name: 'Memory content' }).filter({ visible: true })
+
+/**
+ * La app arranca y crea el store con su esquema; recién ahí se siembra (los triggers de FTS5
+ * tienen que estar puestos), y se recarga el renderer para que el grafo lea lo sembrado.
+ */
+async function conMemorias(h: Harness, memorias: SeedMemory[]) {
+  await abrirMemories(h.page)
+  await expect(explorer(h.page).getByText('No memories yet')).toBeVisible({ timeout: 15_000 })
+  seedMemories(h.homeDir, memorias)
+  await h.page.reload()
+  await expect(h.page.locator('.app')).toBeVisible({ timeout: 15_000 })
+  await abrirMemories(h.page)
+}
+
+/** Abre una memoria desde el explorer por su título exacto. */
+async function abrirDesdeElExplorer(page: Page, titulo: string) {
+  const fila = explorer(page).getByRole('button', { name: titulo, exact: true })
+  await expect(fila).toBeVisible({ timeout: 15_000 })
+  await fila.click()
+  await expect(pestana(page, titulo)).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByRole('textbox', { name: 'Memory title' }).filter({ visible: true })).toHaveValue(titulo, { timeout: 10_000 })
+}
+
+/** Medir después de que el zoomIn de la cáscara asiente: durante la animación boundingBox
+ *  devuelve el tamaño ya escalado (misma trampa que en 07-repo-row-escala). */
+async function cajaEstable(page: Page, loc: Locator) {
+  let previo = -1
+  for (let i = 0; i < 40; i++) {
+    const b = (await loc.boundingBox())!
+    if (b.width === previo) return b
+    previo = b.width
+    await page.waitForTimeout(50)
+  }
+  return (await loc.boundingBox())!
+}
+
+const AUTH = 'Auth pasa a cookies de sesión, no tokens en localStorage'
+
+test('sin memorias no se monta ningun canvas', async () => {
   const h = await launchHarness({ withRepo: false })
   try {
     await abrirMemories(h.page)
-    // El estado vacío de la lista sí aparece; el grafo no.
-    await expect(h.page.getByText('No memories yet')).toBeVisible({ timeout: 15_000 })
-    await expect(h.page.getByText('How these memories connect')).toHaveCount(0)
+    const ws = h.page.locator('.memories-workspace')
+    // "No memories yet" sale dos veces (centro y explorer): se mira en cada lugar.
+    await expect(explorer(h.page).getByText('No memories yet')).toBeVisible({ timeout: 15_000 })
+    await expect(ws.locator('[data-tour-id="memories-graph"]').getByText('No memories yet')).toBeVisible()
+    await expect(ws.locator('canvas')).toHaveCount(0)
     await h.page.screenshot({ path: join(SHOTS, '01-sin-memorias.png') })
   } finally {
     await teardown(h)
   }
 })
 
-test('con memorias: el cuadro es acotado, y la seleccion es una sola entre lista y grafo', async () => {
-  // Recorre siete pasos con una espera fija de 5 s para que la simulación se aquiete, y
-  // medido el 2026-10-09 tarda 1,0 min con o sin los cambios de ese día: justo el límite de
-  // 60 s por defecto. Con la máquina cargada lo cruzaba y fallaba por tiempo, no por nada
-  // que viera. El margen es para eso; si algún día tarda el doble, algo se trabó.
+test('con memorias: el grafo ocupa el centro, una nota se abre en su pestana y se guarda sola', async () => {
   test.setTimeout(120_000)
   const h = await launchHarness({ withRepo: false })
   const { page } = h
   try {
-    // Primer pase: la app arranca y crea el store con su esquema.
-    await abrirMemories(page)
-    await expect(page.getByText('No memories yet')).toBeVisible({ timeout: 15_000 })
+    await conMemorias(h, MEMORIAS_DE_MUESTRA)
 
-    seedMemories(h.homeDir, MEMORIAS_DE_MUESTRA)
-
-    // Recargar el renderer y volver a entrar: la lista y el grafo leen al montarse, asi
-    // que esto es lo que garantiza que vean lo recien sembrado. (Cerrar y reabrir el
-    // overlay tambien deberia alcanzar, pero deja la verificacion atada a que el
-    // desmontaje diferido de la animacion de salida haya terminado.)
-    await page.reload()
-    await expect(page.locator('.app')).toBeVisible({ timeout: 15_000 })
-    await abrirMemories(page)
-
-    const fila = page.getByText('Auth pasa a cookies de sesión, no tokens en localStorage')
-    await expect(fila).toBeVisible({ timeout: 15_000 })
-
-    // 1. El cuadro existe y es ACOTADO. Esto es lo que el usuario pidió: "un cuadrado
-    //    tamaño normal que no expanda todo".
-    await expect(page.getByText('How these memories connect')).toBeVisible({ timeout: 15_000 })
-    const canvas = page.locator('.memories-workspace canvas').first()
+    // 2. La pestaña Graph es la activa y el canvas se lleva el centro.
+    await expect(pestana(page, /Graph/)).toHaveAttribute('aria-selected', 'true')
+    const canvas = page.locator('.memories-workspace [data-tour-id="memories-graph"] canvas').first()
     await expect(canvas).toBeVisible({ timeout: 20_000 })
-
-    // Medir DESPUES de que el zoomIn de la cáscara asiente: durante la animación el
-    // overlay está escalado y boundingBox devuelve el tamaño ya transformado, no el de
-    // layout (acá daba 319 en vez de 320). Misma trampa que en 07-repo-row-escala.
-    const cajaEstable = async (loc: import('@playwright/test').Locator) => {
-      let previo = -1
-      for (let i = 0; i < 40; i++) {
-        const b = (await loc.boundingBox())!
-        if (b.width === previo) return b
-        previo = b.width
-        await page.waitForTimeout(50)
-      }
-      return (await loc.boundingBox())!
-    }
-
-    // La simulación tarda en aquietarse (cooldownTime en MemoryGraph3D) y recién ahí la
-    // cámara encuadra. Sin esperarla, la captura muestra el grafo a medio acomodar y sin
-    // encuadrar — que es justo lo que hay que poder revisar acá.
-    await page.waitForTimeout(5000)
-
-    const caja = await cajaEstable(canvas)
-    // El ALTO es lo acotado: es lo que impide que el grafo se coma la pantalla. Crece con la
-    // ventana, pero entre un piso y un techo.
-    const altoDeVentana = await page.evaluate(() => window.innerHeight)
-    expect(Math.abs(caja.height - altoEsperado(altoDeVentana))).toBeLessThanOrEqual(1)
-    expect(caja.height).toBeLessThanOrEqual(720)
-    // Y el ancho es de verdad ancho: el grafo se lleva lo que sobra despues del panel del
-    // documento, no un cuadradito.
-    expect(caja.width).toBeGreaterThan(caja.height)
-
+    const caja = await cajaEstable(page, canvas)
+    const anchoDeVentana = await page.evaluate(() => window.innerWidth)
+    expect(caja.width).toBeGreaterThan(anchoDeVentana * 0.5)
+    // La simulación tarda en aquietarse y recién ahí encuadra: sin esperarla la captura
+    // muestra el grafo a medio acomodar.
+    await page.waitForTimeout(3000)
     await page.screenshot({ path: join(SHOTS, '02-grafo-con-memorias.png') })
 
-    // 2. La leyenda nombra las relaciones que ESTE grafo tiene, y los proyectos son grupos
-    //    con su color (el modelo de Obsidian).
-    await expect(page.getByText('Revision', { exact: true })).toBeVisible()
-    await expect(page.getByText('Same branch', { exact: true })).toBeVisible()
-    // La arista que cruza repos: el mismo topic en dos proyectos. Es lo unico que un grafo
-    // de varios proyectos puede mostrar y uno de un solo proyecto no.
-    await expect(page.getByText('Same topic, other repo', { exact: true })).toBeVisible()
-    await expect(page.getByRole('button', { name: /^raven-nest/ })).toBeVisible()
+    // 3. Abrir desde el explorer: pestaña nueva seleccionada, título en el input, y el panel
+    //    derecho pasa a ser el de la nota.
+    await abrirDesdeElExplorer(page, AUTH)
+    await expect(panelDerecho(page).getByText('Mentioned in', { exact: true })).toBeVisible()
+    await expect(panelDerecho(page).getByText('Links to', { exact: true })).toBeVisible()
+    await page.screenshot({ path: join(SHOTS, '03-nota-abierta.png') })
 
-    // El color lo elige el usuario, como los Groups de Obsidian (que son color por
-    // consulta). Arranca en Type (Task 1 del plan de vista/settings cambió el default a
-    // 'type' — el color sale de la paleta ANSI del tema). Sólo cae a Project cuando casi
-    // todas las memorias son del MISMO tipo (medido con datos reales: 120 de 120 eran
-    // `pattern`, así que colorear por tipo pintaba todo igual) — las memorias sembradas acá
-    // tienen 5 tipos distintos a propósito (para los chips de la leyenda, paso 7 más abajo),
-    // así que ese fallback no aplica y el default de verdad es Type.
-    const porProyecto = page.getByRole('button', { name: 'Project', exact: true })
-    const porTipo = page.getByRole('button', { name: 'Type', exact: true })
-    await expect(porTipo).toHaveAttribute('aria-pressed', 'true')
-    await porProyecto.click()
-    await expect(porTipo).toHaveAttribute('aria-pressed', 'false')
-    await porTipo.click()
-    await expect(porTipo).toHaveAttribute('aria-pressed', 'true')
-
-    // 2b. El filtro de huerfanas (el "Orphans" de Obsidian) arranca PRENDIDO y dice cuantas
-    //     esconde. Con las memorias sembradas todas tienen alguna relacion, asi que esconde
-    //     cero — pero el boton igual esta y lo dice.
-    const filtroHuerfanas = page.getByRole('button', { name: /unconnected/ })
-    await expect(filtroHuerfanas).toBeVisible()
-    await expect(filtroHuerfanas).toHaveAttribute('aria-pressed', 'true')
-
-    // 3. Seleccionar en la lista resalta en el grafo Y trae el documento al panel: es la
-    //    MISMA seleccion. Se verifica por el estado accesible de la fila, que es lo que el
-    //    grafo tambien lee.
-    const filaSeleccionable = page.getByRole('button', {
-      name: /Auth pasa a cookies de sesión/,
-    }).first()
-    await expect(filaSeleccionable).toHaveAttribute('aria-pressed', 'false')
-    await filaSeleccionable.click()
-    await expect(filaSeleccionable).toHaveAttribute('aria-pressed', 'true')
-
-    // Y el documento aparece al costado: el contenido entero, no solo el titulo. Es lo que
-    // convierte al grafo en algo que se usa en vez de mirarse.
-    await expect(page.getByText(/Contenido de Auth pasa a cookies/)).toBeVisible({ timeout: 10_000 })
-    await page.screenshot({ path: join(SHOTS, '03-seleccion-desde-la-lista.png') })
-
-    // Volver a hacer click deselecciona — si no, no hay forma de ver el grafo entero otra vez.
-    await filaSeleccionable.click()
-    await expect(filaSeleccionable).toHaveAttribute('aria-pressed', 'false')
-
-    // 4. Las aristas por similitud son inferencia. Arrancan PRENDIDAS desde 089d2bf: con
-    //    sólo las relaciones explícitas el grafo era un dibujo del linaje y no un mapa, y
-    //    detrás de un botón casi nadie las veía. Se pueden apagar y volver a prender.
-    const ocultarSimilares = page.getByRole('button', { name: 'Hide guessed links' })
-    await expect(ocultarSimilares).toBeVisible()
-    await expect(ocultarSimilares).toHaveAttribute('aria-pressed', 'true')
-    await ocultarSimilares.click()
-    const mostrarSimilares = page.getByRole('button', { name: 'Show guessed links' })
-    await expect(mostrarSimilares).toHaveAttribute('aria-pressed', 'false')
-    await mostrarSimilares.click()
-    await expect(page.getByRole('button', { name: 'Hide guessed links' })).toHaveAttribute('aria-pressed', 'true')
-    await page.screenshot({ path: join(SHOTS, '04-con-aristas-inferidas.png') })
-
-    // 5. Los tags son la tercera dimension, y la mas fiel al Group de Obsidian: alla un
-    //    grupo es una consulta, no un campo.
-    await expect(page.getByRole('button', { name: 'Tag', exact: true })).toBeEnabled()
-    await expect(page.getByRole('button', { name: /^#auth/ })).toBeVisible()
-
-    // 6. Entrar a UN proyecto deja solo sus memorias, y se puede volver. Es el "y despues
-    //    si abro UN proyecto tengo todas las de dentro" del pedido.
-    await page.getByRole('button', { name: /^otro-proyecto/ }).click()
-    const volver = page.getByRole('button', { name: 'Everything' })
-    await expect(volver).toBeVisible()
-    await page.screenshot({ path: join(SHOTS, '05-dentro-de-un-proyecto.png') })
-    await volver.click()
-
-    // 7. Y entrar a un TAG cruza proyectos, al reves que entrar a un proyecto — que es
-    //    justamente para lo que sirve tenerlo como agrupador aparte.
-    await page.getByRole('button', { name: /^#auth/ }).click()
-    await expect(page.getByRole('button', { name: 'Everything' })).toBeVisible()
-    await expect(page.getByText('#auth', { exact: true })).toBeVisible()
-    await page.screenshot({ path: join(SHOTS, '06-dentro-de-un-tag.png') })
-    await page.getByRole('button', { name: 'Everything' }).click()
-    await expect(page.getByRole('button', { name: /^raven-nest/ })).toBeVisible()
-
-    // Y el control del color vuelve a estar: adentro de UN proyecto no se ofrece, porque
-    // ahí el color pasa a ser el tipo sin preguntar (ver `colorEfectivo` en
-    // MemoryGraphPanel). Afuera, el estado es el que dejó la secuencia de arriba — el
-    // último click fue en Type, así que eso es lo que sigue pulsado, no lo que estaba antes
-    // de entrar al proyecto.
-    await expect(porProyecto).toBeVisible()
-    await expect(porTipo).toHaveAttribute('aria-pressed', 'true')
-    await expect(porProyecto).toHaveAttribute('aria-pressed', 'false')
+    // 4. Editar al final del cuerpo: se guarda solo (debounce de 1,5 s), y al cerrar y
+    //    reabrir la pestaña lo escrito sigue ahí — o sea que llegó al store.
+    await notaActiva(page).click()
+    await page.keyboard.press('Control+End')
+    await page.keyboard.type(' editado')
+    await expect(page.locator('.memories-workspace').getByText('Saved', { exact: true })).toBeVisible({ timeout: 5_000 })
+    await pestana(page, AUTH).getByRole('button', { name: 'Close tab' }).click()
+    await expect(pestana(page, AUTH)).toHaveCount(0)
+    await abrirDesdeElExplorer(page, AUTH)
+    await expect(notaActiva(page)).toContainText(' editado')
   } finally {
     await teardown(h)
   }
 })
 
-// Escribir una memoria a mano. Hasta el 2026-09-11 esta pantalla era de SOLO LECTURA:
-// unicamente los agentes escribian, y algo que el usuario queria dejar asentado no tenia
-// puerta. Se verifica de punta a punta --formulario, IPC, store-- porque el valor esta en que
-// lo escrito APAREZCA, no en que el formulario se dibuje.
-test('se puede escribir una memoria y aparece en la lista', async () => {
+test('un [[link]] lleva a la otra memoria, y el hueco ofrece escribirla', async () => {
   const h = await launchHarness({ withRepo: false })
   const { page } = h
   try {
-    await abrirMemories(page)
-    await expect(page.getByText('No memories yet')).toBeVisible({ timeout: 15_000 })
-
-    await page.getByRole('button', { name: 'New memory' }).click()
-
-    const titulo = page.getByLabel('Memory title')
-    await expect(titulo).toBeVisible()
-    await titulo.fill('El deploy de los viernes se hace a la mañana')
-    await page.getByLabel('Memory content').fill('Un rollback a las 19h no lo mira nadie.')
-    await page.getByLabel('Memory tags').fill('deploy, proceso')
-
-    // El tipo se elige con su color, el mismo punto que despues se ve en la lista.
-    await page.getByRole('button', { name: /^Preference/ }).click()
-    await page.getByRole('button', { name: 'Save memory' }).click()
-
-    // Lo que importa: aparece en la lista, sin recargar nada.
-    await expect(page.getByText('El deploy de los viernes se hace a la mañana')).toBeVisible({ timeout: 10_000 })
-    // Y el formulario se cierra solo — dejarlo abierto invita a guardar lo mismo dos veces.
-    await expect(page.getByLabel('Memory title')).toHaveCount(0)
-
-    // El contador de arriba tiene su propio ciclo de lectura: sin refrescarlo decia
-    // "0 items" al lado de la memoria recien escrita, que es el tipo de numero que hace
-    // desconfiar de toda la pantalla.
-    await expect(page.getByText(/^0 items/)).toHaveCount(0)
-    await page.screenshot({ path: join(SHOTS, '07-escrita-a-mano.png') })
-  } finally {
-    await teardown(h)
-  }
-})
-
-test('sin titulo no se puede guardar: una memoria sin titulo no se encuentra despues', async () => {
-  const h = await launchHarness({ withRepo: false })
-  const { page } = h
-  try {
-    await abrirMemories(page)
-    await page.getByRole('button', { name: 'New memory' }).click()
-    await expect(page.getByRole('button', { name: 'Save memory' })).toBeDisabled()
-    await page.getByLabel('Memory title').fill('ya tiene titulo')
-    await expect(page.getByRole('button', { name: 'Save memory' })).toBeEnabled()
-  } finally {
-    await teardown(h)
-  }
-})
-
-// Conectar dos memorias a mano. Es la unica relacion que una PERSONA afirma — las otras seis
-// las infiere el sistema de algun campo compartido. Se prueba de punta a punta porque el
-// valor esta en que la linea APAREZCA, no en que el boton se dibuje.
-test('se pueden conectar dos memorias a mano', async () => {
-  const h = await launchHarness({ withRepo: false })
-  const { page } = h
-  try {
-    await abrirMemories(page)
-    await expect(page.getByText('No memories yet')).toBeVisible({ timeout: 15_000 })
-    seedMemories(h.homeDir, MEMORIAS_DE_MUESTRA)
-    await page.reload()
-    await expect(page.locator('.app')).toBeVisible({ timeout: 15_000 })
-    await abrirMemories(page)
-
-    // Dos que NO comparten nada: distinto proyecto, distinto tema, distinta rama.
-    const una = page.getByRole('button', { name: /SQLite en WAL/ }).first()
-    await expect(una).toBeVisible({ timeout: 15_000 })
-    await una.click()
-
-    await page.getByRole('button', { name: 'Connect to another memory' }).click()
-    await expect(page.getByText(/Pick the memory this one goes with/)).toBeVisible()
-
-    await page.getByRole('button', { name: /Un 429 devuelve Retry-After/ }).first().click()
-
-    // La relacion aparece en la leyenda, y con su propio nombre: no se confunde con las
-    // que el sistema infiere.
-    await expect(page.getByText('Connected by hand', { exact: true })).toBeVisible({ timeout: 10_000 })
-    await page.screenshot({ path: join(SHOTS, '08-conectadas-a-mano.png') })
-  } finally {
-    await teardown(h)
-  }
-})
-
-test('un [[link]] del documento lleva a la otra memoria, y ésa dice quién la menciona', async () => {
-  const h = await launchHarness({ withRepo: false })
-  const { page } = h
-  try {
-    await abrirMemories(page)
-    await expect(page.getByText('No memories yet')).toBeVisible({ timeout: 15_000 })
-    seedMemories(h.homeDir, [
+    await conMemorias(h, [
       {
         syncId: 'm-release',
         projectKey: 'raven-nest',
@@ -315,29 +155,155 @@ test('un [[link]] del documento lleva a la otra memoria, y ésa dice quién la m
         topicKey: 'claude-memory/release-yml',
       },
     ])
-    await page.reload()
-    await expect(page.locator('.app')).toBeVisible({ timeout: 15_000 })
+
+    await abrirDesdeElExplorer(page, 'Cómo se hace una release')
+    // El cursor en otra línea (el título): con la línea del link activa, el click edita en
+    // vez de navegar, como en Obsidian.
+    await page.getByRole('textbox', { name: 'Memory title' }).filter({ visible: true }).click()
+    await page.locator('[data-wikilink="release-yml"]').click()
+
+    // Se resuelve por el último tramo del topic, y ésa sabe quién la menciona.
+    await expect(pestana(page, 'release.yml hace todo solo')).toHaveAttribute('aria-selected', 'true', { timeout: 10_000 })
+    await expect(panelDerecho(page).getByRole('button', { name: 'Cómo se hace una release' })).toBeVisible({ timeout: 10_000 })
+
+    // El hueco: un link a algo que no existe ofrece crearlo.
+    await pestana(page, 'Cómo se hace una release').click()
+    await page.getByRole('textbox', { name: 'Memory title' }).filter({ visible: true }).click()
+    await page.locator('[data-wikilink="el checklist de QA"]').click()
+    const crear = page.getByRole('button', { name: 'Create this memory' })
+    await expect(crear).toBeVisible()
+    await page.screenshot({ path: join(SHOTS, '04-links.png') })
+    await crear.click()
+    await expect(pestana(page, 'New memory')).toHaveAttribute('aria-selected', 'true')
+    await expect(page.getByRole('textbox', { name: 'Memory title' }).filter({ visible: true })).toHaveValue('el checklist de QA')
+  } finally {
+    await teardown(h)
+  }
+})
+
+// La única relación que una PERSONA afirma — las otras las infiere el sistema de algún campo
+// compartido. El valor está en que la línea APAREZCA, así que se mira la leyenda del grafo.
+test('se pueden conectar dos memorias a mano', async () => {
+  const h = await launchHarness({ withRepo: false })
+  const { page } = h
+  try {
+    await conMemorias(h, MEMORIAS_DE_MUESTRA)
+    // Antes no hay ninguna conexión a mano.
+    await expect(panelDerecho(page).getByText('Same branch', { exact: true })).toBeVisible({ timeout: 15_000 })
+    await expect(panelDerecho(page).getByText('Connected by hand', { exact: true })).toHaveCount(0)
+
+    // Dos que NO comparten nada: distinto proyecto, distinto tema, distinta rama.
+    await abrirDesdeElExplorer(page, 'SQLite en WAL: los -wal y -shm se mueven ANTES que el .db')
+    await page.getByRole('button', { name: 'More actions' }).filter({ visible: true }).click()
+    await page.getByRole('menuitem', { name: 'Connect to another memory…' }).click()
+    await expect(page.getByText(/^Pick the memory this one goes with/)).toBeVisible()
+
+    await explorer(page).getByRole('button', { name: 'Un 429 devuelve Retry-After en segundos', exact: true }).click()
+    await expect(page.getByText(/^Pick the memory this one goes with/)).toHaveCount(0)
+
+    // La relación aparece en la leyenda del grafo con su propio nombre.
+    await pestana(page, /Graph/).click()
+    await expect(panelDerecho(page).getByText('Connected by hand', { exact: true })).toBeVisible({ timeout: 10_000 })
+    await page.screenshot({ path: join(SHOTS, '05-conectadas-a-mano.png') })
+  } finally {
+    await teardown(h)
+  }
+})
+
+// Escribir una memoria a mano: formulario, IPC, store. Lo que importa es que lo escrito
+// APAREZCA y que la pestaña pase a ser la de la memoria nueva.
+test('New memory: se escribe y la pestana pasa a ser la memoria nueva', async () => {
+  const h = await launchHarness({ withRepo: false })
+  const { page } = h
+  try {
     await abrirMemories(page)
+    await expect(explorer(page).getByText('No memories yet')).toBeVisible({ timeout: 15_000 })
 
-    await page.getByRole('button', { name: /Cómo se hace una release/ }).first().click()
+    await explorer(page).getByRole('button', { name: 'New memory' }).click()
+    await expect(pestana(page, 'New memory')).toHaveAttribute('aria-selected', 'true')
 
-    // El Markdown se lee como Markdown: el encabezado sin `##`, el código como código.
-    await expect(page.getByRole('heading', { name: 'Pasos' })).toBeVisible({ timeout: 10_000 })
-    // El hueco se ve, pero no es un botón.
-    await expect(page.getByText('el checklist de QA', { exact: true })).toBeVisible()
-    await expect(page.getByRole('button', { name: 'el checklist de QA' })).toHaveCount(0)
-    await page.screenshot({ path: join(SHOTS, '09-documento-con-links.png') })
+    // Sin título no se puede guardar: una memoria sin título no se encuentra después.
+    const guardar = page.getByRole('button', { name: 'Save memory' })
+    await expect(guardar).toBeDisabled()
 
-    // Tocar el link abre la otra memoria — resuelta por el último tramo del topic.
-    await page.getByRole('button', { name: 'release-yml', exact: true }).click()
-    const destino = page.getByRole('button', { name: /release\.yml hace todo solo/ }).first()
-    await expect(destino).toHaveAttribute('aria-pressed', 'true', { timeout: 10_000 })
+    const titulo = 'El deploy de los viernes se hace a la mañana'
+    await page.getByRole('textbox', { name: 'Memory title' }).fill(titulo)
+    await page.getByRole('textbox', { name: 'Memory content' }).fill('Un rollback a las 19h no lo mira nadie.')
+    await page.getByRole('button', { name: /^Preference/ }).click()
+    await expect(guardar).toBeEnabled()
+    await guardar.click()
 
-    // Y ésa sabe quién la menciona.
-    await expect(page.getByText('Mentioned in', { exact: true })).toBeVisible()
-    await page.screenshot({ path: join(SHOTS, '10-mentioned-in.png') })
-    await page.getByRole('button', { name: 'Cómo se hace una release', exact: true }).click()
-    await expect(page.getByRole('heading', { name: 'Pasos' })).toBeVisible({ timeout: 10_000 })
+    await expect(pestana(page, 'New memory')).toHaveCount(0, { timeout: 10_000 })
+    await expect(pestana(page, titulo)).toHaveAttribute('aria-selected', 'true')
+    await expect(page.getByRole('textbox', { name: 'Memory title' }).filter({ visible: true })).toHaveValue(titulo)
+    await expect(explorer(page).getByRole('button', { name: titulo, exact: true })).toBeVisible({ timeout: 10_000 })
+    await page.screenshot({ path: join(SHOTS, '06-escrita-a-mano.png') })
+  } finally {
+    await teardown(h)
+  }
+})
+
+// Review Focus 1. `electron/main.ts` no define menú, así que rige el de Electron por defecto,
+// que trae `close` (CmdOrCtrl+W) en Window; y `win.on('close')` esconde la ventana a la
+// bandeja. Se escucha el evento `close` de la ventana en main: es lo único que dice si el
+// acelerador ganó.
+//
+// Medido el 2026-10-20 (Windows): el acelerador del menú sólo corre con la ventana VISIBLE y
+// CON FOCO, y sólo para teclas que entran por `webContents.sendInputEvent` — el
+// `keyboard.press` de Playwright (CDP) nunca llega al menú, ni con foco. Por eso este test
+// muestra la ventana (le roba el foco a quien use la máquina unos segundos) y teclea por
+// `sendInputEvent`. El control del final prueba que con este método el acelerador SÍ llega:
+// sin él, el `false` del medio no probaría nada.
+test('Ctrl+W cierra la pestana activa y no la ventana', async () => {
+  const h = await launchHarness({ withRepo: false })
+  const { page, app } = h
+  try {
+    await conMemorias(h, MEMORIAS_DE_MUESTRA)
+    await app.evaluate(({ BrowserWindow }) => {
+      const g = globalThis as unknown as { __cerroLaVentana?: boolean }
+      g.__cerroLaVentana = false
+      const w = BrowserWindow.getAllWindows()[0]
+      w.on('close', () => { g.__cerroLaVentana = true })
+      w.show()
+      w.focus()
+    })
+    const cerroLaVentana = () => app.evaluate(() => (globalThis as unknown as { __cerroLaVentana?: boolean }).__cerroLaVentana)
+    // macOS usa Cmd; el resto, Ctrl. Es la misma tecla que el `CmdOrCtrl` del menú.
+    const modificador = process.platform === 'darwin' ? 'meta' : 'control'
+    const ctrlW = () => app.evaluate(({ BrowserWindow }, mod) => {
+      const wc = BrowserWindow.getAllWindows()[0].webContents
+      wc.sendInputEvent({ type: 'keyDown', keyCode: 'W', modifiers: [mod] })
+      wc.sendInputEvent({ type: 'keyUp', keyCode: 'W', modifiers: [mod] })
+    }, modificador as 'meta' | 'control')
+    await expect.poll(() => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isFocused())).toBe(true)
+
+    // Con el foco en el título y en el cuerpo de la nota: cierra la pestaña, nunca la ventana.
+    await abrirDesdeElExplorer(page, AUTH)
+    await page.getByRole('textbox', { name: 'Memory title' }).filter({ visible: true }).click()
+    await ctrlW()
+    await expect(pestana(page, AUTH)).toHaveCount(0)
+    await expect(pestana(page, /Graph/)).toHaveAttribute('aria-selected', 'true')
+
+    await abrirDesdeElExplorer(page, AUTH)
+    await notaActiva(page).click()
+    await ctrlW()
+    await expect(pestana(page, AUTH)).toHaveCount(0)
+
+    // Con Graph (fija) activa, el atajo se consume igual: no cierra nada.
+    await pestana(page, /Graph/).click()
+    await ctrlW()
+    await expect(page.locator('.memories-workspace')).toBeVisible()
+    // Margen para que un acelerador del menú (corre en main, después del renderer) llegue.
+    await page.waitForTimeout(800)
+    expect(await cerroLaVentana()).toBe(false)
+
+    // Control: el mismo atajo con el foco FUERA del overlay sí llega al menú.
+    await page.evaluate(() => { (document.activeElement as HTMLElement | null)?.blur() })
+    await ctrlW()
+    await expect.poll(cerroLaVentana, {
+      timeout: 5_000,
+      message: 'el control no cerró la ventana: las teclas no llegan al acelerador y el test no prueba nada',
+    }).toBe(true)
   } finally {
     await teardown(h)
   }
