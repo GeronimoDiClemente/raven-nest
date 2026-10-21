@@ -1,8 +1,12 @@
 import { describe, it, expect } from 'vitest'
-import { decidir } from '../eventos.ts'
+import { decidir, armarPrecioAPlan, PRECIOS_LEGACY } from '../eventos.ts'
 
 const PRO_MENSUAL = 'price_1TJmwsJarRYFmNbKh7G6JXnF'
 const TEAM_MENSUAL = 'price_1TJmyRJarRYFmNbKeiOLrXss'
+const CLOUD_MENSUAL = 'price_cloud_mensual_test'
+const CLOUD_ANUAL = 'price_cloud_anual_test'
+// El mapa que arma el shell en producción: los precios viejos más los dos de Cloud.
+const MAPA = armarPrecioAPlan({ STRIPE_PRICE_CLOUD_MONTHLY: CLOUD_MENSUAL, STRIPE_PRICE_CLOUD_ANNUAL: CLOUD_ANUAL })
 
 function invoicePagada(over: Record<string, unknown> = {}) {
   return {
@@ -23,7 +27,7 @@ describe('decidir', () => {
   // El cobro real del dia 14 llega como `invoice.paid`. Sin este caso, alguien
   // que paga y cuyo `checkout.session.completed` se perdio no se recupera nunca.
   it('invoice.paid activa el plan del precio cobrado', () => {
-    expect(decidir(invoicePagada())).toEqual({
+    expect(decidir(invoicePagada(), MAPA)).toEqual({
       tipo: 'activar',
       userId: 'u-1',
       plan: 'pro',
@@ -34,7 +38,7 @@ describe('decidir', () => {
 
   it('invoice.paid sin user_id se ignora en vez de reventar', () => {
     const e = invoicePagada({ subscription_details: { metadata: {} } })
-    expect(decidir(e).tipo).toBe('ignorar')
+    expect(decidir(e, MAPA).tipo).toBe('ignorar')
   })
 
   // Un precio que no esta en el mapa es un deploy a medias: se agrego en
@@ -43,7 +47,7 @@ describe('decidir', () => {
   // invisible. Sin plan, en cambio, sale `sin_configurar` y se ve.
   it('invoice.paid con un precio desconocido no adivina el plan', () => {
     const e = invoicePagada({ lines: { data: [{ price: { id: 'price_nuevo' } }] } })
-    const d = decidir(e)
+    const d = decidir(e, MAPA)
     expect(d.tipo).toBe('ignorar')
     expect(d.tipo === 'ignorar' && d.motivo).toContain('price_nuevo')
   })
@@ -53,11 +57,11 @@ describe('decidir', () => {
       type: 'customer.subscription.deleted',
       data: { object: { id: 'sub_1', customer: 'cus_1', metadata: { user_id: 'u-1' } } },
     }
-    expect(decidir(e)).toEqual({ tipo: 'bajar_a_free', subscriptionId: 'sub_1' })
+    expect(decidir(e, MAPA)).toEqual({ tipo: 'bajar_a_free', subscriptionId: 'sub_1' })
   })
 
   it('un evento que no manejamos se ignora nombrandolo', () => {
-    const d = decidir({ type: 'payment_intent.succeeded', data: { object: {} } })
+    const d = decidir({ type: 'payment_intent.succeeded', data: { object: {} } }, MAPA)
     expect(d.tipo).toBe('ignorar')
     expect(d.tipo === 'ignorar' && d.motivo).toContain('payment_intent.succeeded')
   })
@@ -79,7 +83,7 @@ describe('decidir', () => {
     })
 
     it('activa el plan con el precio que resolvio el shell', () => {
-      expect(decidir(sesion(), PRO_MENSUAL)).toEqual({
+      expect(decidir(sesion(), MAPA, PRO_MENSUAL)).toEqual({
         tipo: 'activar', userId: 'u-1', plan: 'pro',
         customerId: 'cus_1', subscriptionId: 'sub_1',
       })
@@ -87,11 +91,11 @@ describe('decidir', () => {
 
     // Antes caia a `?? 'pro'`: si no se pudo resolver el precio, daba Pro igual.
     it('sin precio resuelto no adivina el plan', () => {
-      expect(decidir(sesion()).tipo).toBe('ignorar')
+      expect(decidir(sesion(), MAPA).tipo).toBe('ignorar')
     })
 
     it('sin user_id en la metadata se ignora', () => {
-      expect(decidir(sesion({ metadata: {} }), PRO_MENSUAL).tipo).toBe('ignorar')
+      expect(decidir(sesion({ metadata: {} }), MAPA, PRO_MENSUAL).tipo).toBe('ignorar')
     })
   })
 
@@ -112,27 +116,64 @@ describe('decidir', () => {
     })
 
     it('una suscripcion active sincroniza el plan', () => {
-      expect(decidir(sub('active'))).toEqual({
+      expect(decidir(sub('active'), MAPA)).toEqual({
         tipo: 'activar', userId: 'u-1', plan: 'team',
         customerId: 'cus_1', subscriptionId: 'sub_1',
       })
     })
 
     it('trialing tambien cuenta como viva', () => {
-      expect(decidir(sub('trialing')).tipo).toBe('activar')
+      expect(decidir(sub('trialing'), MAPA).tipo).toBe('activar')
     })
 
     // No se baja el plan aca: `past_due` es Stripe reintentando el cobro, y
     // revocar el acceso al primer rebote castiga una tarjeta que se renueva
     // sola dos dias despues. El unico que baja a free es `deleted`.
     it('past_due no toca el plan', () => {
-      expect(decidir(sub('past_due')).tipo).toBe('ignorar')
+      expect(decidir(sub('past_due'), MAPA).tipo).toBe('ignorar')
     })
 
     it('un cambio de precio mueve el plan al nuevo tier', () => {
       const e = sub('active', { items: { data: [{ price: { id: PRO_MENSUAL } }] } })
-      const d = decidir(e)
+      const d = decidir(e, MAPA)
       expect(d.tipo === 'activar' && d.plan).toBe('pro')
     })
+  })
+})
+
+// Spec 2b-2 §4.4: los precios de Cloud viven en secrets, no en el código.
+describe('precios de Cloud (2b-2)', () => {
+  it('los dos precios de Cloud activan el plan cloud', () => {
+    for (const precio of [CLOUD_MENSUAL, CLOUD_ANUAL]) {
+      const d = decidir(invoicePagada({ lines: { data: [{ price: { id: precio } }] } }), MAPA)
+      expect(d).toEqual({ tipo: 'activar', userId: 'u-1', plan: 'cloud', customerId: 'cus_1', subscriptionId: 'sub_1' })
+    }
+  })
+
+  it('checkout.session.completed con el anual de Cloud resuelto por el shell', () => {
+    const e = { type: 'checkout.session.completed', data: { object: { customer: 'cus_1', subscription: 'sub_1', metadata: { user_id: 'u-1' } } } }
+    const d = decidir(e, MAPA, CLOUD_ANUAL)
+    expect(d.tipo === 'activar' && d.plan).toBe('cloud')
+  })
+
+  it('un precio desconocido sigue ignorado aunque haya precios de Cloud', () => {
+    const d = decidir(invoicePagada({ lines: { data: [{ price: { id: 'price_otro' } }] } }), MAPA)
+    expect(d.tipo).toBe('ignorar')
+  })
+
+  it('los precios legacy siguen intactos', () => {
+    expect(MAPA[PRO_MENSUAL]).toBe('pro')
+    expect(MAPA[TEAM_MENSUAL]).toBe('team')
+    for (const [precio, plan] of Object.entries(PRECIOS_LEGACY)) expect(MAPA[precio]).toBe(plan)
+  })
+
+  it('sin secrets (o vacíos) no se mapea ningún precio de Cloud', () => {
+    expect(armarPrecioAPlan({})).toEqual({ ...PRECIOS_LEGACY })
+    expect(armarPrecioAPlan({ STRIPE_PRICE_CLOUD_MONTHLY: '', STRIPE_PRICE_CLOUD_ANNUAL: '  ' })).toEqual({ ...PRECIOS_LEGACY })
+  })
+
+  it('un secret no puede pisar un precio legacy', () => {
+    const mapa = armarPrecioAPlan({ STRIPE_PRICE_CLOUD_MONTHLY: PRO_MENSUAL })
+    expect(mapa[PRO_MENSUAL]).toBe('pro')
   })
 })

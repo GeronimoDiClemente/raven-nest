@@ -5,14 +5,38 @@
  * ejecuta la decision.
  */
 
-/** Price ID de Stripe -> plan de Nest. */
-export const PRECIO_A_PLAN: Record<string, string> = {
+/**
+ * Los precios viejos de Pro/Team, fijos en el código como siempre. Los de Cloud NO van acá:
+ * viven en los secrets de la función (spec 2b-2 §4.1) y se suman con `armarPrecioAPlan`.
+ */
+export const PRECIOS_LEGACY: Readonly<Record<string, string>> = {
   price_1TJmwsJarRYFmNbKh7G6JXnF: 'pro',   // pro mensual $20
   price_1TJmy8JarRYFmNbKeScj4mwX: 'pro',   // pro anual $204 (legacy 15% off)
   price_1TbX45JarRYFmNbKXYSBT3Yn: 'pro',   // pro anual $180 (actual 25% off)
   price_1TJmyRJarRYFmNbKeiOLrXss: 'team',  // team mensual $35
   price_1TJmyyJarRYFmNbKq9mRgrdz: 'team',  // team anual $348 (legacy 15% off)
   price_1TbX66JarRYFmNbKqTA1AoEA: 'team',  // team anual $312 (actual 25% off)
+}
+
+export interface PreciosDeCloudEnv {
+  STRIPE_PRICE_CLOUD_MONTHLY?: string
+  STRIPE_PRICE_CLOUD_ANNUAL?: string
+}
+
+/**
+ * Price ID de Stripe -> plan de Nest: los legacy más los dos de Cloud (spec 2b-2 §4.4).
+ *
+ * Un secret vacío no mapea nada: `''` como clave haría "activar" un evento sin precio. Y un
+ * secret no pisa un precio legacy: un copy-paste equivocado en el dashboard le daría Cloud a
+ * quien compró Team.
+ */
+export function armarPrecioAPlan(env: PreciosDeCloudEnv): Record<string, string> {
+  const mapa: Record<string, string> = { ...PRECIOS_LEGACY }
+  for (const precio of [env.STRIPE_PRICE_CLOUD_MONTHLY, env.STRIPE_PRICE_CLOUD_ANNUAL]) {
+    const id = precio?.trim()
+    if (id && !(id in mapa)) mapa[id] = 'cloud'
+  }
+  return mapa
 }
 
 export type Decision =
@@ -44,16 +68,16 @@ interface DatosActivacion {
 /**
  * Arma la decision de activar, o explica por que no se puede.
  *
- * **No adivina el plan.** Un precio que no esta en `PRECIO_A_PLAN` es un
+ * **No adivina el plan.** Un precio que no esta en el mapa es un
  * deploy a medias —se agrego en Stripe y no en el codigo—, y el `?? 'pro'`
  * que habia antes le daba Pro a alguien que compro Team, dejando la cuenta
  * como `ok` en el back-office: un cobro mal provisionado e invisible. Sin
  * plan, la cuenta sale `sin_configurar` y alguien la ve.
  */
-function activar(d: DatosActivacion): Decision {
+function activar(d: DatosActivacion, precioAPlan: Readonly<Record<string, string>>): Decision {
   if (!d.userId) return ignorar('sin user_id en la metadata')
   if (!d.customerId || !d.subscriptionId) return ignorar('sin customer o subscription')
-  const plan = d.priceId ? PRECIO_A_PLAN[d.priceId] : undefined
+  const plan = d.priceId ? precioAPlan[d.priceId] : undefined
   if (!plan) return ignorar(`precio desconocido: ${d.priceId ?? 'ninguno'}`)
   return {
     tipo: 'activar',
@@ -78,7 +102,11 @@ const VIVAS = ['active', 'trialing']
  * que no trae el precio adentro: el shell resuelve la suscripcion contra Stripe
  * y lo pasa por aca, de modo que esta funcion sigue sin hacer red.
  */
-export function decidir(evento: EventoStripe, priceIdDeRespaldo: string | null = null): Decision {
+export function decidir(
+  evento: EventoStripe,
+  precioAPlan: Readonly<Record<string, string>>,
+  priceIdDeRespaldo: string | null = null,
+): Decision {
   const o = evento.data.object as Record<string, any>
 
   // El cobro real (el del dia 14, y cada renovacion). Tambien es la red de
@@ -89,7 +117,7 @@ export function decidir(evento: EventoStripe, priceIdDeRespaldo: string | null =
       priceId: o.lines?.data?.[0]?.price?.id,
       customerId: o.customer,
       subscriptionId: o.subscription,
-    })
+    }, precioAPlan)
   }
 
   if (evento.type === 'checkout.session.completed') {
@@ -98,7 +126,7 @@ export function decidir(evento: EventoStripe, priceIdDeRespaldo: string | null =
       priceId: priceIdDeRespaldo ?? undefined,
       customerId: o.customer,
       subscriptionId: o.subscription,
-    })
+    }, precioAPlan)
   }
 
   // Cambios de tier (upgrade/downgrade) y transiciones de estado.
@@ -114,7 +142,7 @@ export function decidir(evento: EventoStripe, priceIdDeRespaldo: string | null =
       priceId: o.items?.data?.[0]?.price?.id,
       customerId: o.customer,
       subscriptionId: o.id,
-    })
+    }, precioAPlan)
   }
 
   if (evento.type === 'customer.subscription.deleted') {

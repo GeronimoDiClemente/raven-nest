@@ -3,10 +3,11 @@
 // Set secrets:
 //   supabase secrets set STRIPE_SECRET_KEY=sk_live_...
 //   supabase secrets set STRIPE_WEBHOOK_SECRET=whsec_...
+//   supabase secrets set STRIPE_PRICE_CLOUD_MONTHLY=price_... STRIPE_PRICE_CLOUD_ANNUAL=price_...
 
 import Stripe from 'https://esm.sh/stripe@14?target=deno'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2?target=deno'
-import { decidir, type EventoStripe } from './eventos.ts'
+import { armarPrecioAPlan, decidir, type EventoStripe } from './eventos.ts'
 
 const stripe = new Stripe(Deno.env.get('STRIPE_SECRET_KEY')!, {
   apiVersion: '2024-11-20.acacia',
@@ -53,7 +54,12 @@ Deno.serve(async (req) => {
     }
   }
 
-  const decision = decidir(event as unknown as EventoStripe, priceIdDeRespaldo)
+  // El mapa se arma por request: un secret seteado después del deploy aplica sin redeploy.
+  const precioAPlan = armarPrecioAPlan({
+    STRIPE_PRICE_CLOUD_MONTHLY: Deno.env.get('STRIPE_PRICE_CLOUD_MONTHLY'),
+    STRIPE_PRICE_CLOUD_ANNUAL: Deno.env.get('STRIPE_PRICE_CLOUD_ANNUAL'),
+  })
+  const decision = decidir(event as unknown as EventoStripe, precioAPlan, priceIdDeRespaldo)
 
   if (decision.tipo === 'activar') {
     const { error } = await supabase.from('profiles').upsert({
