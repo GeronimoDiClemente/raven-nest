@@ -1,5 +1,6 @@
 import type { Pool } from 'pg'
 import { limitsFor, maxBytesFor, statusLimitsFor } from './limits'
+import { GLOBAL_PROJECT_KEY } from './push'
 
 export interface StatusRosterProject {
   project_key: string
@@ -22,6 +23,13 @@ export interface StatusResponse {
    * por qué un repo quedó sólo en la máquina. Aditivo: un cliente viejo lo ignora.
    */
   limits: { max_projects: number }
+  /**
+   * Spec 2b-2 §4.7: el proyecto que el usuario eligió para seguir sincronizando cuando quedó
+   * por encima del tope, o null (no eligió, o el elegido ya no es suyo: D3). Aditivo.
+   */
+  kept_project_key: string | null
+  /** Spec 2b-2 §4.7: proyectos propios (sin `__global__`) > tope del plan. Aditivo. */
+  over_limit: boolean
   // §5.3.1: the roster — keys and display names only, NEVER rows. `handlePull` only ever
   // returns rows for cursors the device already sent (the M25 hot-loop guarantee), so a
   // project a device has never seen locally can never surface through pull no matter how
@@ -74,8 +82,9 @@ export async function handleStatus(
 
   // `where user_id = $1` is load-bearing here too, same as the quota query above: without
   // it every user's project roster leaks into every other user's status response.
+  // Spec 2b-2 (D2): por antigüedad, así la app sabe cuál es "el más viejo" sin otro campo.
   const { rows: projectRows } = await pool.query(
-    `select project_key, display_name, team_id from projects where user_id = $1 order by project_key`,
+    `select project_key, display_name, team_id from projects where user_id = $1 order by id`,
     [auth.userId]
   )
 
@@ -83,7 +92,7 @@ export async function handleStatus(
   // se entere en el primer `status` de cualquier arranque, sin pagar un round-trip extra ni
   // depender de haber bajado una fila que no puede abrir.
   const { rows: epochRows } = await pool.query(
-    'select key_epoch from users where id = $1',
+    'select key_epoch, kept_project_key from users where id = $1',
     [auth.userId]
   )
 
@@ -102,6 +111,8 @@ export async function handleStatus(
   )
 
   const limits = limitsFor(auth.plan)
+  const propios = projectRows.map((r) => r.project_key as string).filter((k) => k !== GLOBAL_PROJECT_KEY)
+  const guardado = (epochRows[0]?.kept_project_key as string | null | undefined) ?? null
 
   return {
     device_id: auth.deviceId,
@@ -114,6 +125,8 @@ export async function handleStatus(
     // que se le va a aplicar — override de instancia dedicada incluido.
     quota: { used_bytes: Number(rows[0].used), max_bytes: maxBytesFor(auth.plan) },
     limits: statusLimitsFor(auth.plan),
+    kept_project_key: guardado !== null && propios.includes(guardado) ? guardado : null,
+    over_limit: propios.length > limits.maxProjects,
     projects: projectRows.map((r) => ({
       project_key: r.project_key,
       display_name: r.display_name,

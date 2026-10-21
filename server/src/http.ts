@@ -10,6 +10,7 @@ import { registerDevice, revokeDevices, verificarJwtDeSupabase, type ClavesDeFir
 import { clavesDeSupabase } from './jwks'
 import { iniciarVinculacion, aprobarVinculacion, reclamarVinculacion } from './link'
 import { handleShareProject } from './share'
+import { handleKeepProject } from './keep'
 import { enrollDeviceKey, getKeyState, publishWraps } from './keys'
 import { getTeamKeyState, activateTeamKey, authorizeTeamDevice } from './team-keys'
 import { recryptTeamObservations, listRecryptPending } from './team-keys-recrypt'
@@ -239,6 +240,8 @@ async function handleRequest(pool: Pool, req: IncomingMessage, res: ServerRespon
     path === '/v1/sync/delete-data' || path === '/functions/v1/memory-sync/delete-cloud-data'
   // Team Memory Layer 1, Parte 3: la única vía por la que `projects.team_id` se escribe.
   const isShare = path === '/v1/projects/share'
+  // Spec 2b-2 §4.7: qué proyecto sigue sincronizando quien bajó de plan.
+  const isKeep = path === '/v1/projects/keep'
   // Cifrado (spec 2026-09-09 §5.3, camino B): el servicio guarda claves públicas y blobs
   // sellados. No aprende nada que pueda abrir.
   const isKeysEnroll = path === '/v1/keys/enroll'
@@ -255,7 +258,7 @@ async function handleRequest(pool: Pool, req: IncomingMessage, res: ServerRespon
   if (!isPush && !isPull && !isStatus && !isDelete && !isShare
       && !isKeysEnroll && !isKeysGet && !isKeysPublish
       && !isTeamKeyGet && !isTeamKeyActivate && !isTeamKeyAuthorize && !isTeamKeyRecrypt
-      && !isTeamKeyRecryptPending) {
+      && !isTeamKeyRecryptPending && !isKeep) {
     return send(res, 404, { error: 'not_found' })
   }
 
@@ -287,6 +290,13 @@ async function handleRequest(pool: Pool, req: IncomingMessage, res: ServerRespon
     if (isShare) {
       const body = (await readBody(req)) as Record<string, unknown>
       const result = await handleShareProject(pool, auth, body as never)
+      if (!result.ok) return send(res, result.status, { error: result.error })
+      return send(res, 200, { ok: true })
+    }
+    if (isKeep) {
+      if (req.method !== 'POST') return send(res, 405, { error: 'method_not_allowed' })
+      const body = (await readBody(req)) as Record<string, unknown>
+      const result = await handleKeepProject(pool, auth, body)
       if (!result.ok) return send(res, result.status, { error: result.error })
       return send(res, 200, { ok: true })
     }

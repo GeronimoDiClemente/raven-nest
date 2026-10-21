@@ -49,6 +49,12 @@ describe('http', () => {
     expect(res.status).toBe(401)
   })
 
+  it('rutea POST /v1/projects/keep (spec 2b-2): un proyecto que no es mío es 400', async () => {
+    const res = await post('/v1/projects/keep', { project_key: `${RUN}-no-es-mio` })
+    expect(res.status).toBe(400)
+    expect(await res.json()).toEqual({ error: 'unknown_project' })
+  })
+
   it('accepts a push with a good token', async () => {
     const res = await post('/v1/sync/push', { mutations: [] })
     expect(res.status).toBe(200)

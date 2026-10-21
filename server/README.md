@@ -11,7 +11,8 @@ estado propio — todo vive en Postgres — que habla el contrato de wire §5: `
 |---|---|---|
 | `POST /v1/sync/push` | `/functions/v1/memory-sync/push` | §5.1 — aplica mutaciones, una transacción por mutación, idempotente por `(device_id, seq)`. |
 | `POST /v1/sync/pull` | `/functions/v1/memory-sync/pull` | §5.2 — filas nuevas por cursor de proyecto. |
-| `GET /v1/sync/status` | — | §5.3 — identidad del device, plan, cuota, `next_poll_ms` y el tope de proyectos del plan (`limits.max_projects`, spec 2b-1). |
+| `GET /v1/sync/status` | — | §5.3 — identidad del device, plan, cuota, `next_poll_ms` y el tope de proyectos del plan (`limits.max_projects`, spec 2b-1), `kept_project_key` y `over_limit` (spec 2b-2). |
+| `POST /v1/projects/keep` | — | Spec 2b-2 §4.7 — `{ project_key }`: con más proyectos que el tope, cuál sigue sincronizando. Sólo proyectos propios y nunca `__global__` (400 `unknown_project`); sin estar por encima del tope, 409 `not_over_limit`. |
 | `POST /internal/plan` | — | Spec 2b-2 §4.5 — el aviso de plan del webhook de Stripe. Firmado con `X-Nest-Signature: t=<seg>,v1=HMAC-SHA256(PLAN_SYNC_SECRET, "<t>.<cuerpo crudo>")`, ventana de 300 s. Escribe `users.plan` y, si es pago, la allowlist (bajar a `free` no saca de la allowlist). Sin `PLAN_SYNC_SECRET` responde 404. |
 | `POST /v1/sync/delete-data` | `/functions/v1/memory-sync/delete-cloud-data` | §5.5 — el derecho al borrado (§6.6/§7.5 del doc de arquitectura). Borra las observaciones, los proyectos y los push receipts del usuario autenticado en **una** transacción y devuelve los conteos. **No** borra el usuario ni sus devices: es "borrá mi copia de nube", no "borrá mi cuenta", así que el token con el que llamó sigue sirviendo. El alias existe porque `electron/main.ts` todavía postea a la ruta vieja y sólo mira `res.ok` — un 404 ahí rompe el borrado **en silencio**. |
 | `GET /health` | — | Sin token. |
@@ -88,7 +89,7 @@ aplicaron en el mismo batch.
 |---|---|
 | `missing_sync_id` | La mutación no trae `sync_id` ni `payload.sync_id`. |
 | `team_scope_not_allowed` | `payload.scope: 'team'` en un plan sin memoria compartida (todo menos `team`/`enterprise`). |
-| `project_limit_reached` | El `project_key` es nuevo para esa cuenta y ya no quedan lugares (tope de proyectos del plan). Un `project_key` que la cuenta ya tenía sigue aceptando pushes aunque esté en el tope. |
+| `project_limit_reached` | El `project_key` es nuevo para esa cuenta y ya no quedan lugares (tope de proyectos del plan), **o** la cuenta tiene más proyectos que el tope (bajó de plan) y éste no es uno de los permitidos: el elegido con `POST /v1/projects/keep` o, sin elección, los más viejos (spec 2b-2). |
 | `observation_too_large` | `payload.content` supera 1 MB medido en bytes utf-8 (no en `.length`). |
 | `quota_exceeded` | La suma de bytes de contenido del usuario ya llegó al tope de su plan. Sólo frena mutaciones nuevas — un `op: 'delete'` siempre pasa, porque es la única forma de liberar espacio. |
 

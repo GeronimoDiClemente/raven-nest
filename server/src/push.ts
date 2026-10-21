@@ -2,6 +2,7 @@ import type { Pool, PoolClient } from 'pg'
 import { allocateSeqRange } from './seq'
 import { resolveTopicCollision } from './lww'
 import { limitsFor, maxBytesFor } from './limits'
+import { proyectosPermitidos } from './proyectos-permitidos'
 
 export interface Mutation {
   seq: number
@@ -154,7 +155,7 @@ const MAX_OBSERVATION_BYTES = 1024 * 1024
  * Mismo valor que `GLOBAL_PROJECT_KEY` en `electron/memory-project-key.ts` — es el
  * contrato de wire entre cliente y servicio, no una constante local.
  */
-const GLOBAL_PROJECT_KEY = '__global__'
+export const GLOBAL_PROJECT_KEY = '__global__'
 
 /** Mismo prefijo que `CIPHER_PREFIX` de electron/memory-crypto.ts — el servidor no importa
  * código del cliente, y el prefijo es parte del wire (spec §7), no un detalle interno. */
@@ -429,11 +430,22 @@ export async function handlePush(
       ])
 
       const { rows: existing } = await client.query(
-        'select project_key from projects where user_id = $1',
+        'select project_key, id from projects where user_id = $1 order by id',
         [auth.userId]
       )
       const known = new Set(existing.map((r) => r.project_key as string))
       const maxProjects = limitsFor(auth.plan).maxProjects
+      // Spec 2b-2 §4.7: quien bajó de plan con más proyectos que el tope sólo sigue escribiendo
+      // en los permitidos (el elegido, o los más viejos). Se lee DENTRO del lock: un keep
+      // concurrente toma el mismo lock (keep.ts), así que la elección y el push no se cruzan.
+      const { rows: keptRows } = await client.query('select kept_project_key from users where id = $1', [auth.userId])
+      const permitidos = proyectosPermitidos(
+        existing
+          .filter((r) => r.project_key !== GLOBAL_PROJECT_KEY)
+          .map((r) => ({ projectKey: r.project_key as string, id: Number(r.id) })),
+        (keptRows[0]?.kept_project_key as string | null | undefined) ?? null,
+        maxProjects
+      )
       // `__global__` se descuenta de lo YA existente por la misma razón por la que abajo no
       // pide lugar (ver GLOBAL_PROJECT_KEY): es una partición interna, no un repo. Sin este
       // descuento el usuario que ya tiene su `__global__` en la nube — o sea, todos, porque
@@ -442,6 +454,11 @@ export async function handlePush(
       let slotsLeft = Math.max(0, maxProjects - ownedProjects)
 
       for (const [key, displayName] of displayNames) {
+        // Ya está en la nube pero quedó fuera de lo permitido: mismo rechazo reversible.
+        if (key !== GLOBAL_PROJECT_KEY && known.has(key) && !permitidos.has(key)) {
+          overLimit.add(key)
+          continue
+        }
         if (key !== GLOBAL_PROJECT_KEY && !known.has(key)) {
           if (slotsLeft <= 0) {
             overLimit.add(key)
