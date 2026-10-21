@@ -4,10 +4,12 @@
 //   supabase secrets set STRIPE_SECRET_KEY=sk_live_...
 //   supabase secrets set STRIPE_WEBHOOK_SECRET=whsec_...
 //   supabase secrets set STRIPE_PRICE_CLOUD_MONTHLY=price_... STRIPE_PRICE_CLOUD_ANNUAL=price_...
+//   supabase secrets set PLAN_SYNC_URL=https://<servicio de sync> PLAN_SYNC_SECRET=<mismo que Railway>
 
 import Stripe from 'https://esm.sh/stripe@14?target=deno'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2?target=deno'
 import { armarPrecioAPlan, decidir, type EventoStripe } from './eventos.ts'
+import { avisarPlan, clasificarAviso, configDeAviso, type Desenlace } from './aviso-de-plan.ts'
 
 const stripe = new Stripe(Deno.env.get('STRIPE_SECRET_KEY')!, {
   apiVersion: '2024-11-20.acacia',
@@ -18,6 +20,43 @@ const supabase = createClient(
   Deno.env.get('SUPABASE_URL')!,
   Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
 )
+
+/**
+ * Relee el plan que quedó en `profiles` y se lo avisa al servidor de sync (spec 2b-2 §4.4).
+ * `reintentar` = el aviso no llegó: el llamador devuelve 500 y Stripe reintenta. Un pago que no
+ * llega a la nube no se puede tragar en silencio. `descartar` = el servidor contestó 400 (dato
+ * inválido que ningún reintento arregla, ruling P9): queda en el log y el evento sigue.
+ */
+async function avisarPlanDe(userId: string): Promise<Desenlace> {
+  const config = configDeAviso({
+    PLAN_SYNC_URL: Deno.env.get('PLAN_SYNC_URL'),
+    PLAN_SYNC_SECRET: Deno.env.get('PLAN_SYNC_SECRET'),
+  })
+  if (!config) {
+    console.error('[stripe-webhook] faltan PLAN_SYNC_URL/PLAN_SYNC_SECRET: el plan no llega al servidor de sync', { userId })
+    return clasificarAviso(null)
+  }
+  const { data, error } = await supabase.from('profiles').select('plan').eq('id', userId).maybeSingle()
+  if (error || !data) {
+    console.error('[stripe-webhook] no se pudo releer el plan para avisar', { userId, error: error?.message ?? 'sin perfil' })
+    return 'reintentar'
+  }
+  const r = await avisarPlan(fetch, config, userId, data.plan, Math.floor(Date.now() / 1000))
+  const desenlace = clasificarAviso(r)
+  if (!r.ok) {
+    const status = 'status' in r ? r.status : undefined
+    if (desenlace === 'descartar') {
+      console.error('[stripe-webhook] el servidor de sync rechazó el aviso por dato inválido; no se reintenta', {
+        user_id: userId, plan: data.plan, status,
+      })
+    } else {
+      console.error('[stripe-webhook] el servidor de sync no tomó el plan', {
+        user_id: userId, plan: data.plan, status, motivo: r.motivo,
+      })
+    }
+  }
+  return desenlace
+}
 
 Deno.serve(async (req) => {
   const signature = req.headers.get('stripe-signature')
@@ -80,18 +119,31 @@ Deno.serve(async (req) => {
     console.log('[stripe-webhook] plan activado', {
       evento: event.type, userId: decision.userId, plan: decision.plan,
     })
+    if ((await avisarPlanDe(decision.userId)) === 'reintentar') {
+      return new Response('Could not notify sync service', { status: 500 })
+    }
   }
 
   if (decision.tipo === 'bajar_a_free') {
-    const { error } = await supabase
+    // `.select('id')`: los usuarios que efectivamente bajaron, para avisar por cada uno.
+    const { data: bajados, error } = await supabase
       .from('profiles')
       .update({ plan: 'free', stripe_subscription_id: null, updated_at: new Date().toISOString() })
       .eq('stripe_subscription_id', decision.subscriptionId)
+      .select('id')
     if (error) {
       console.error('[stripe-webhook] fallo al bajar el plan a free', {
         subscription: decision.subscriptionId, error: error.message,
       })
       return new Response('Could not downgrade plan', { status: 500 })
+    }
+    // Ninguna fila afectada (la suscripción ya no estaba en ningún perfil) no avisa nada: 200.
+    // Límite conocido: si el aviso falla, el reintento de Stripe ya no matchea ninguna fila
+    // (`stripe_subscription_id` quedó en null) y no vuelve a avisar.
+    for (const fila of bajados ?? []) {
+      if ((await avisarPlanDe(fila.id as string)) === 'reintentar') {
+        return new Response('Could not notify sync service', { status: 500 })
+      }
     }
   }
 
