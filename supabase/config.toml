@@ -419,6 +419,11 @@ verify_jwt = false
 [functions.stripe-checkout]
 verify_jwt = false
 
+# Abre el portal de Stripe desde la app; valida al usuario adentro (auth.getUser).
+# El CI la deploya con `--no-verify-jwt`.
+[functions.stripe-portal]
+verify_jwt = false
+
 # Hook de auth: lo llama GoTrue al crear el usuario, no hay JWT que mandar.
 # El CI ya la deploya con `--no-verify-jwt`.
 [functions.on-signup]

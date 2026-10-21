@@ -393,19 +393,18 @@ jobs:
         with:
           version: latest
 
-      # Las 7 functions del repo, todas con `--no-verify-jwt`: cada una autentica
+      # Las 8 functions del repo, todas con `--no-verify-jwt`: cada una autentica
       # por su cuenta (firma de Stripe, `code` de OAuth, token del back-office) y
       # con el default `verify_jwt = true` el gateway las corta con 401 antes de
       # llegar al codigo. `supabase/config.toml` declara lo mismo; el flag esta
       # explicito para no depender de que la version del CLI lea el config.
       # Faltaban `stripe-webhook` (sin el flag -> 401 a todo webhook de Stripe,
       # ningun checkout activaba el plan), `admin-api` y `gitlab-oauth`.
-      # `stripe-portal` (spec 2b-2) va SIN el flag: se llama con el JWT del usuario y el
-      # gateway lo verifica antes del codigo.
+      # `stripe-portal` (spec 2b-2) tambien autentica en codigo: auth.getUser con el JWT del usuario.
       - name: Deploy edge functions
         run: |
           supabase functions deploy stripe-checkout --no-verify-jwt --project-ref qkqlsytxtshgjxwmafpw
-          supabase functions deploy stripe-portal --project-ref qkqlsytxtshgjxwmafpw
+          supabase functions deploy stripe-portal --no-verify-jwt --project-ref qkqlsytxtshgjxwmafpw
           supabase functions deploy stripe-webhook --no-verify-jwt --project-ref qkqlsytxtshgjxwmafpw
           supabase functions deploy on-signup --no-verify-jwt --project-ref qkqlsytxtshgjxwmafpw
           supabase functions deploy github-oauth --no-verify-jwt --project-ref qkqlsytxtshgjxwmafpw
