@@ -8,7 +8,7 @@
 
 import Stripe from 'https://esm.sh/stripe@14?target=deno'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2?target=deno'
-import { armarPrecioAPlan, decidir, type EventoStripe } from './eventos.ts'
+import { armarPrecioAPlan, decidir, suscripcionSigueViva, type EventoStripe } from './eventos.ts'
 import { avisarPlan, clasificarAviso, configDeAviso, resolverBaja, type Desenlace } from './aviso-de-plan.ts'
 
 const stripe = new Stripe(Deno.env.get('STRIPE_SECRET_KEY')!, {
@@ -77,11 +77,14 @@ Deno.serve(async (req) => {
   // Stripe no expande line_items salvo que se lo pidas. Se resuelve aca, en el
   // shell, para que `decidir` no haga red y siga testeable sin Deno.
   let priceIdDeRespaldo: string | null = null
+  // La suscripción ya leída acá se reusa abajo para chequear que siga viva sin pedirla dos veces.
+  let suscripcionLeida: Stripe.Subscription | null = null
   if (event.type === 'checkout.session.completed') {
     const session = event.data.object as Stripe.Checkout.Session
     if (session.subscription) {
       try {
         const sub = await stripe.subscriptions.retrieve(session.subscription as string)
+        suscripcionLeida = sub
         priceIdDeRespaldo = sub.items.data[0]?.price.id ?? null
       } catch (e) {
         // Sin precio no se adivina el plan: `invoice.paid` va a llegar despues
@@ -101,6 +104,28 @@ Deno.serve(async (req) => {
   const decision = decidir(event as unknown as EventoStripe, precioAPlan, priceIdDeRespaldo)
 
   if (decision.tipo === 'activar') {
+    // El evento puede ser un reintento viejo (Stripe reintenta días y sin orden cuando el aviso
+    // al servidor de sync falla): si la suscripción ya se canceló, activarla la resucitaría en
+    // `profiles` y en el servidor, y nada lo corrige después. Se mira su estado de AHORA.
+    let estadoActual: string
+    try {
+      const sub = suscripcionLeida?.id === decision.subscriptionId
+        ? suscripcionLeida
+        : await stripe.subscriptions.retrieve(decision.subscriptionId)
+      estadoActual = sub.status
+    } catch (e) {
+      // Sin saber si vive no se activa ni se descarta: 500 y Stripe reintenta.
+      console.error('[stripe-webhook] no se pudo releer la suscripción antes de activar', {
+        evento: event.type, subscription: decision.subscriptionId, error: e instanceof Error ? e.message : String(e),
+      })
+      return new Response('Could not verify subscription', { status: 500 })
+    }
+    if (!suscripcionSigueViva(estadoActual)) {
+      console.log('[stripe-webhook] activación descartada: la suscripción ya no está viva', {
+        evento: event.type, userId: decision.userId, subscription: decision.subscriptionId, status: estadoActual,
+      })
+      return new Response('ok', { status: 200 })
+    }
     const { error } = await supabase.from('profiles').upsert({
       id: decision.userId,
       plan: decision.plan,

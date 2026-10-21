@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { decidir, armarPrecioAPlan, PRECIOS_LEGACY } from '../eventos.ts'
+import { decidir, armarPrecioAPlan, PRECIOS_LEGACY, suscripcionSigueViva } from '../eventos.ts'
 
 const PRO_MENSUAL = 'price_1TJmwsJarRYFmNbKh7G6JXnF'
 const TEAM_MENSUAL = 'price_1TJmyRJarRYFmNbKeiOLrXss'
@@ -176,4 +176,18 @@ describe('precios de Cloud (2b-2)', () => {
     const mapa = armarPrecioAPlan({ STRIPE_PRICE_CLOUD_MONTHLY: PRO_MENSUAL })
     expect(mapa[PRO_MENSUAL]).toBe('pro')
   })
+})
+
+describe('suscripcionSigueViva', () => {
+  // Un `invoice.paid` o `subscription.updated` viejo que Stripe reintenta (días, sin orden) no
+  // puede resucitar una suscripción que ya se canceló: el shell la relee y sólo activa si vive.
+  it.each(['active', 'trialing', 'past_due'])('%s sigue viva', (status) => {
+    expect(suscripcionSigueViva(status)).toBe(true)
+  })
+
+  it.each(['canceled', 'incomplete_expired', 'unpaid', 'incomplete', 'paused', '', undefined, null])(
+    '%s no sigue viva', (status) => {
+      expect(suscripcionSigueViva(status as string | null | undefined)).toBe(false)
+    },
+  )
 })

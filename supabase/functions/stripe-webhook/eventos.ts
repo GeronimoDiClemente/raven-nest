@@ -152,3 +152,21 @@ export function decidir(
 
   return ignorar(`evento no manejado: ${evento.type}`)
 }
+
+/**
+ * Antes de activar, el shell relee la suscripción contra Stripe y le pasa el `status` actual.
+ *
+ * Por qué: un aviso al servidor de sync que falla devuelve 500, y Stripe reintenta durante días
+ * y sin orden. Si en el medio llegó `customer.subscription.deleted`, un `invoice.paid` o un
+ * `subscription.updated` viejo reintentado reescribiría `plan` y la suscripción vieja en
+ * `profiles` y en el servidor, y nada lo corregiría nunca. El evento trae el estado de cuando
+ * se emitió; esto mira el de ahora.
+ *
+ * `past_due` cuenta como viva (a diferencia de `VIVAS`): es Stripe reintentando el cobro y el
+ * plan no se baja por eso. `canceled`, `unpaid`, `incomplete` e `incomplete_expired` no activan.
+ */
+const SIGUEN_VIVAS = ['active', 'trialing', 'past_due']
+
+export function suscripcionSigueViva(status: string | null | undefined): boolean {
+  return typeof status === 'string' && SIGUEN_VIVAS.includes(status)
+}
