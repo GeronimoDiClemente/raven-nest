@@ -94,4 +94,39 @@ describe('useMemories', () => {
     expect(result.current.status.dot).toBe('green')
     expect(result.current.silentSessions).toEqual([])
   })
+
+  it('2b-1: el tope del plan no prende el ámbar y trae max_projects', async () => {
+    setMemoryApi({
+      status: vi.fn().mockResolvedValue({
+        connected: true, deviceId: 'd1', itemCount: 9, pendingCount: 0, daemonStatus: 'idle', limits: { max_projects: 1 },
+      }),
+      doctor: vi.fn().mockResolvedValue({
+        ok: true, blockedTotal: 7, groups: [{ reason: 'project_limit_reached', count: 7, oldestAt: 1, reversible: true }],
+      }),
+    })
+
+    const { result } = renderHook(() => useMemories(0))
+
+    await waitFor(() => expect(result.current.maxProjects).toBe(1))
+    expect(result.current.status).toEqual({ dot: 'green', text: '9 items · synced' })
+    expect(result.current.blocked).toHaveLength(1)
+  })
+
+  it('2b-1: con otro motivo al lado, «N blocked» cuenta sólo ese', async () => {
+    setMemoryApi({
+      status: vi.fn().mockResolvedValue({ connected: true, deviceId: 'd1', itemCount: 9, pendingCount: 0, daemonStatus: 'idle' }),
+      doctor: vi.fn().mockResolvedValue({
+        ok: true, blockedTotal: 10,
+        groups: [
+          { reason: 'project_limit_reached', count: 7, oldestAt: 1, reversible: true },
+          { reason: 'quota_exceeded', count: 3, oldestAt: 1, reversible: true },
+        ],
+      }),
+    })
+
+    const { result } = renderHook(() => useMemories(0))
+
+    await waitFor(() => expect(result.current.status).toEqual({ dot: 'amber', text: '3 blocked' }))
+    expect(result.current.maxProjects).toBeNull()
+  })
 })

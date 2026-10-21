@@ -5,17 +5,21 @@
 // 2026-10-19 (Task 6): el icono de ajustes del vault y su popover se van — `MemoryVaultCard`
 // ya vive en la seccion "Notes on disk" de Memory settings (spec §7), asi que esta fila
 // queda SOLO de estado: nada que configurar, nada detras de un icono.
+import { useState } from 'react'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import type { MemoriesState } from '../hooks/useMemories'
-import { paneDisplayLabel, relativeTime } from '../lib/memories-status'
+import { MOTIVO_TOPE_DE_PLAN, paneDisplayLabel, relativeTime, textoDeTopeDePlan } from '../lib/memories-status'
+import PlanesModal from './PlanesModal'
 
 interface Props {
   state: MemoriesState
 }
 
 export default function MemoriesStatusRow({ state }: Props) {
-  const { status, vault, blocked, blockedTotal, silentSessions } = state
+  const { status, vault, blocked, maxProjects, silentSessions } = state
+  const [planes, setPlanes] = useState(false)
 
   return (
     <div
@@ -56,11 +60,19 @@ export default function MemoriesStatusRow({ state }: Props) {
       )}
 
       {/* Spec §7.1 — "if sync is blocked, fail loudly and visibly. No silent drops."
-          El total ya lo dice el semaforo de la izquierda, asi que aca va SOLO el desglose:
-          repetir "816 blocked" al lado de "816 blocked" no agrega nada y se lee mal. */}
-      {blockedTotal > 0 && (
+          El total ya lo dice el semaforo de la izquierda, asi que aca va SOLO el desglose.
+          Spec 2b-1 §4.5: lo retenido por el tope del plan NO es una falla — va en gris, dicho
+          en palabras y con el camino a Cloud; los demas motivos, como siempre. */}
+      {blocked.length > 0 && (
         <div className="memories-status-cell">
-          {blocked.map((g) => (
+          {blocked.map((g) => g.reason === MOTIVO_TOPE_DE_PLAN ? (
+            <span key={g.reason} className="flex items-center gap-1.5">
+              <Badge variant="outline" className="gap-1.5 text-muted-foreground">
+                {textoDeTopeDePlan(g.count, maxProjects)}
+              </Badge>
+              <Button size="xs" variant="outline" onClick={() => setPlanes(true)}>Upgrade</Button>
+            </span>
+          ) : (
             <Badge key={g.reason} variant="outline" className="gap-1.5 text-warn">
               <span className="font-mono tabular-nums">{g.count}</span>
               {g.reason} · {g.reversible ? 'waiting, will retry' : 'terminal'}
@@ -92,6 +104,7 @@ export default function MemoriesStatusRow({ state }: Props) {
         </div>
       )}
 
+      {planes && <PlanesModal onClose={() => setPlanes(false)} />}
     </div>
   )
 }

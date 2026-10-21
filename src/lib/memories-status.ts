@@ -68,3 +68,24 @@ export function paneDisplayLabel(paneId: string): string {
   const m = /^pane-(\d+)-\d+$/.exec(paneId)
   return m ? `pane ${m[1]}` : paneId
 }
+
+/**
+ * Spec 2b-1 §4.5: el motivo con el que el servidor retiene lo que pasa el tope de proyectos del
+ * plan. Mismo literal que `MOTIVO_TOPE_DE_PROYECTOS` de electron/memory-daemon.ts (el renderer
+ * no importa de electron/, D13).
+ */
+export const MOTIVO_TOPE_DE_PLAN = 'project_limit_reached'
+
+/** Las bloqueadas que son una FALLA: todas menos las del tope del plan (D7). Es lo que va al
+ *  punto ámbar y al «N blocked» de `summarizeMemories`. */
+export function bloqueadasPorFalla(groups: ReadonlyArray<{ reason: string; count: number }>): number {
+  return groups.reduce((total, g) => (g.reason === MOTIVO_TOPE_DE_PLAN ? total : total + g.count), 0)
+}
+
+/** El badge de la fila de estado para lo retenido por el tope (spec 2b-1 §4.7). */
+export function textoDeTopeDePlan(n: number, max: number | null): string {
+  const queda = `${n} ${n === 1 ? 'memory stays' : 'memories stay'} on this machine`
+  // D6: sin tope informado no se inventa cuántos proyectos sincroniza el plan.
+  if (max === null) return queda
+  return `${queda} — your plan syncs ${max === 1 ? 'one project' : `${max} projects`}`
+}

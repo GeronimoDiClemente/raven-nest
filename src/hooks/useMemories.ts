@@ -6,7 +6,7 @@
 // montando igual, solo que sin esos datos. Y cada uno se pide con su propio catch: que el
 // doctor falle no puede dejar la fila sin el conteo.
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { summarizeMemories, type MemoriesStatus } from '../lib/memories-status'
+import { bloqueadasPorFalla, summarizeMemories, type MemoriesStatus } from '../lib/memories-status'
 
 export interface SessionVerdictLite {
   paneId: string
@@ -41,6 +41,8 @@ export interface MemoriesState {
   silentSessions: SessionVerdictLite[]
   blocked: BlockedGroupLite[]
   blockedTotal: number
+  /** Spec 2b-1 §4.5: `limits.max_projects` del servidor; null = todavía no lo informó. */
+  maxProjects: number | null
   vault: VaultLite
   refresh: () => Promise<void>
 }
@@ -64,6 +66,7 @@ export function useMemories(pollMs: number = DEFAULT_POLL_MS): MemoriesState {
   const [sessions, setSessions] = useState<SessionVerdictLite[]>([])
   const [blocked, setBlocked] = useState<BlockedGroupLite[]>([])
   const [blockedTotal, setBlockedTotal] = useState(0)
+  const [maxProjects, setMaxProjects] = useState<number | null>(null)
   const [vault, setVault] = useState<VaultLite>(EMPTY_VAULT)
 
   // Evita setState despues de desmontar: el overlay se cierra mientras las 4 promesas
@@ -94,6 +97,9 @@ export function useMemories(pollMs: number = DEFAULT_POLL_MS): MemoriesState {
       setItemCount(status.itemCount)
       setPendingCount(status.pendingCount)
       setConnected(status.connected)
+      // Como la cuota: un status sin `limits` es "no vino", no "sin tope".
+      const max = status.limits?.max_projects
+      if (typeof max === 'number') setMaxProjects(max)
     }
     setSessions(sess?.ok ? sess.sessions : [])
     setBlocked(doc?.ok ? doc.groups : [])
@@ -123,13 +129,14 @@ export function useMemories(pollMs: number = DEFAULT_POLL_MS): MemoriesState {
     connected,
     itemCount,
     pendingCount,
-    blockedTotal,
+    // D7: lo retenido por el tope del plan no es una falla — no prende el ámbar ni el «N blocked».
+    blockedTotal: bloqueadasPorFalla(blocked),
     vaultConflicts: vault.conflictCount,
     silentSessions: silentSessions.length,
   })
 
   return {
     status, itemCount, pendingCount, connected,
-    sessions, silentSessions, blocked, blockedTotal, vault, refresh,
+    sessions, silentSessions, blocked, blockedTotal, maxProjects, vault, refresh,
   }
 }

@@ -2,7 +2,7 @@
 // el fallo mudo (§2.2) gana sobre TODO lo demas, porque es el unico estado donde el usuario
 // esta perdiendo trabajo sin saberlo.
 import { describe, it, expect } from 'vitest'
-import { paneDisplayLabel, summarizeMemories, type MemoriesStatusInput } from '../lib/memories-status'
+import { bloqueadasPorFalla, paneDisplayLabel, summarizeMemories, textoDeTopeDePlan, type MemoriesStatusInput } from '../lib/memories-status'
 
 const base: MemoriesStatusInput = {
   available: true, connected: true, itemCount: 142,
@@ -78,5 +78,29 @@ describe('paneDisplayLabel', () => {
   it('un paneId que no matchea el formato se muestra tal cual (mejor un id crudo que undefined)', () => {
     expect(paneDisplayLabel('pane-7')).toBe('pane-7')
     expect(paneDisplayLabel('some-other-id')).toBe('some-other-id')
+  })
+})
+
+// Spec 2b-1 §4.5: lo retenido por el tope de proyectos es el plan funcionando, no una falla.
+describe('bloqueadasPorFalla', () => {
+  it('no cuenta project_limit_reached; los demás motivos sí', () => {
+    expect(bloqueadasPorFalla([{ reason: 'project_limit_reached', count: 7 }])).toBe(0)
+    expect(bloqueadasPorFalla([
+      { reason: 'project_limit_reached', count: 7 },
+      { reason: 'quota_exceeded', count: 3 },
+      { reason: 'undecryptable', count: 1 },
+    ])).toBe(4)
+  })
+})
+
+describe('textoDeTopeDePlan (spec 2b-1 §4.7)', () => {
+  it('el copy del spec, con «one project» para Free', () => {
+    expect(textoDeTopeDePlan(7, 1)).toBe('7 memories stay on this machine — your plan syncs one project')
+  })
+  it('singular, y el número del plan si no es uno', () => {
+    expect(textoDeTopeDePlan(1, 3)).toBe('1 memory stays on this machine — your plan syncs 3 projects')
+  })
+  it('sin tope informado (servicio viejo) no inventa cuántos (D6)', () => {
+    expect(textoDeTopeDePlan(2, null)).toBe('2 memories stay on this machine')
   })
 })

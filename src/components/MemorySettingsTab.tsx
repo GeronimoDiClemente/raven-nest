@@ -2,10 +2,8 @@
 // FUERA de components/memories/ porque monta las tarjetas que hablan con window.memory; las
 // piezas puras (fila, sección, Editor & graph) sí están allá y entran por props.
 import { useState } from 'react'
-import { createPortal } from 'react-dom'
 import CloudMemoryCard from './CloudMemoryCard'
-import UpgradeModal from './UpgradeModal'
-import { useProfile } from '../hooks/useProfile'
+import PlanesModal from './PlanesModal'
 import SyncServiceCard from './SyncServiceCard'
 import SyncTokenRow from './SyncTokenRow'
 import MemoryEncryptionCard from './MemoryEncryptionCard'
@@ -38,13 +36,6 @@ export interface MemorySettingsTabProps {
 /** D19: el nombre de la carpeta del repo, que es como lo reconoce la persona. */
 function nombreDelRepo(path: string): string {
   return path.split(/[\\/]/).filter(Boolean).pop() ?? path
-}
-
-/** El UpgradeModal de siempre (spec §5: no se toca, es 2b). Se monta sólo abierto, así la
- *  lectura del perfil no corre en cada vuelta a This project. */
-function PlanesModal({ onClose }: { onClose: () => void }) {
-  const { plan } = useProfile()
-  return createPortal(<UpgradeModal currentPlan={plan} onClose={onClose} />, document.body)
 }
 
 export default function MemorySettingsTab(p: MemorySettingsTabProps) {
