@@ -24,7 +24,7 @@
 // vinculado y el CRITICAL de `feat/sidebar-tabs` quedaban afuera. Los tres ultimos tests
 // del archivo los cubren.)
 import { test, expect } from '@playwright/test'
-import { launchHarness, teardown } from './helpers/harness'
+import { launchHarness, teardown, type Harness } from './helpers/harness'
 import { existsSync, mkdirSync } from 'fs'
 import { basename, join } from 'path'
 
@@ -427,14 +427,35 @@ test('el workspace de equipo queda encima de Personal, que sigue montado debajo'
   }
 })
 
+// Spec 2b-1 (D14): Free ya no ve «Upgrade» en Cloud sync —ve Connect—, así que el Upgrade que
+// se mide es el de «Projects in the cloud». Sin servicio de sync en el e2e, main contesta un
+// estado FINGIDO: se reemplazan los handlers de `memory:status` y `memory:doctor` desde el
+// proceso main. Lo demás de la app corre de verdad.
+async function fingirFreeConUnProyecto(h: Harness): Promise<void> {
+  await h.app.evaluate(({ ipcMain }) => {
+    ipcMain.removeHandler('memory:status')
+    ipcMain.handle('memory:status', () => ({
+      connected: true, deviceId: 'e2e-device', itemCount: 12, pendingCount: 0, daemonStatus: 'idle',
+      quota: { used_bytes: 1024 * 1024, max_bytes: 100 * 1024 * 1024 },
+      limits: { max_projects: 1 },
+      cloudProjects: [{ projectKey: 'k-nest', name: 'raven-nest' }],
+    }))
+    ipcMain.removeHandler('memory:doctor')
+    ipcMain.handle('memory:doctor', () => ({
+      ok: true, blockedTotal: 7,
+      groups: [{ reason: 'project_limit_reached', count: 7, oldestAt: 1, reversible: true }],
+      localOnlyProjects: [{ projectKey: 'k-api', name: 'api', count: 5 }, { projectKey: 'k-web', name: 'web', count: 2 }],
+    }))
+  })
+}
+
 // Review final de rama, CRITICAL #1 (19-10): lo que se abre desde ADENTRO de
 // `.memories-workspace` y porta a `document.body` (`.modal-backdrop`) tiene que quedar encima.
-// Antes lo medía el hub de "Learn more", que salió (spec 2026-10-21 §5); el UpgradeModal usa
-// el mismo backdrop y la misma escala de z-index.
-test('Upgrade desde la pestaña Settings abre el modal ENCIMA del overlay', async () => {
+test('Free con un proyecto: «Projects in the cloud» y su Upgrade abren el modal ENCIMA del overlay', async () => {
   const h = await launchHarness({ withRepo: false })
   const { page } = h
   try {
+    await fingirFreeConUnProyecto(h)
     await page.locator('.sidebar-item-settings').first().click()
     const puerta = page.getByRole('button', { name: 'Memory settings' })
     await expect(puerta).toBeVisible({ timeout: 10_000 })
@@ -442,11 +463,15 @@ test('Upgrade desde la pestaña Settings abre el modal ENCIMA del overlay', asyn
 
     const overlay = page.locator('.memories-workspace')
     await expect(overlay.getByRole('heading', { name: 'Sync' })).toBeVisible({ timeout: 10_000 })
-    await page.waitForTimeout(500)
-    const upgrade = overlay.getByRole('button', { name: 'Upgrade', exact: true })
-    test.skip((await upgrade.count()) === 0, 'build con la nube habilitada (beta): Cloud sync no ofrece Upgrade')
-    await upgrade.first().click()
+    const fila = overlay.locator('[data-slot="setting-row"]', { hasText: 'Projects in the cloud' })
+    await expect(fila.getByText('1 of 1 · raven-nest')).toBeVisible({ timeout: 10_000 })
+    await expect(fila.getByText('Local only: api, web — Cloud syncs all your projects.')).toBeVisible()
 
+    // La fila de estado: el tope en palabras, y el semáforo sin «7 blocked».
+    await expect(overlay.getByText('7 memories stay on this machine — your plan syncs one project')).toBeVisible({ timeout: 10_000 })
+    await expect(overlay.getByText('7 blocked')).toHaveCount(0)
+
+    await fila.getByRole('button', { name: 'Upgrade', exact: true }).click()
     const modal = page.locator('.upgrade-modal')
     await expect(modal).toBeVisible({ timeout: 10_000 })
     const arriba = await page.evaluate(() =>
