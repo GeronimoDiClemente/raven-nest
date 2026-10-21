@@ -29,6 +29,16 @@ describe('MemoriesExplorer', () => {
     render(<MemoriesExplorer {...base()} />)
     expect(screen.queryByRole('button', { name: 'Auth pasa a cookies' })).toBeNull()
   })
+  it('con una busqueda activa, click en una carpeta la elige pero no guarda un cerrado', () => {
+    const p = { ...base(), query: 'auth' }
+    const { unmount } = render(<MemoriesExplorer {...p} />)
+    fireEvent.click(screen.getByRole('button', { name: /raven-nest 1/ }))
+    expect(p.onSeleccionarCarpeta).toHaveBeenCalledWith('project:p1')
+    expect(screen.getByRole('button', { name: 'Auth pasa a cookies' })).toBeInTheDocument()
+    unmount()
+    render(<MemoriesExplorer {...base()} />)
+    expect(screen.getByRole('button', { name: /raven-nest 1/ })).toHaveAttribute('aria-expanded', 'true')
+  })
   it('avisa cuantas quedaron afuera del grafo (Review Focus 4)', () => {
     render(<MemoriesExplorer {...base()} truncadas={12} />)
     expect(screen.getByText('12 more not shown')).toBeInTheDocument()

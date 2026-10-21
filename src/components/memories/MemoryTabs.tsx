@@ -59,7 +59,8 @@ export default function MemoryTabs({ tabs, activeId, etiqueta, ansi, onActivate,
                 type="button"
                 aria-label="Close tab"
                 onClick={(e) => { e.stopPropagation(); onClose(id) }}
-                className="ml-1 inline-flex size-4 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+                // `border-0 p-0`: sin preflight el <button> trae borde y padding del navegador.
+                className="ml-1 inline-flex size-4 shrink-0 cursor-pointer items-center justify-center rounded border-0 p-0 text-muted-foreground hover:bg-accent hover:text-foreground"
               >
                 <X className="size-3" aria-hidden="true" />
               </button>

@@ -130,3 +130,34 @@ describe('clases de linea por bloque', () => {
     expect(() => decorar(s, resolver)).not.toThrow()
   })
 })
+
+describe('listas, citas y separadores (spec §5)', () => {
+  it('la marca de una lista queda a la vista pero atenuada, tambien fuera de la linea activa', () => {
+    const doc = '- uno\n* dos\n1. tres\n\nfin'
+    const s = estado(doc, doc.length)
+    const marcas = marcasDeLivePreview(s, resolver).filter((m) => m.clase === 'cm-lp-listmark').map((m) => s.sliceDoc(m.from, m.to))
+    expect(marcas).toEqual(['-', '*', '1.'])
+    expect(ocultas(s)).not.toEqual(expect.arrayContaining(['-']))
+  })
+  it('el > de una cita se oculta fuera de la linea activa y se ve en ella', () => {
+    const doc = '> uno\n> dos\n\nfin'
+    const fuera = estado(doc, doc.length)
+    expect(ocultas(fuera).filter((x) => x === '> ')).toHaveLength(2)
+    const dentro = estado(doc, 2)
+    expect(ocultas(dentro).filter((x) => x === '> ')).toHaveLength(1)
+  })
+  it('un separador fuera de la linea activa es una regla fina; en ella, los guiones', () => {
+    const doc = 'arriba\n\n---\n\nabajo'
+    const fuera = estado(doc, doc.length)
+    const hr = marcasDeLivePreview(fuera, resolver).filter((m) => m.clase === 'cm-lp-hr' && m.from === m.to)
+    expect(hr.map((m) => fuera.doc.lineAt(m.from).number)).toEqual([3])
+    expect(ocultas(fuera)).toContain('---')
+    const dentro = estado(doc, doc.indexOf('---') + 1)
+    expect(marcasDeLivePreview(dentro, resolver).some((m) => m.clase === 'cm-lp-hr')).toBe(false)
+    expect(ocultas(dentro)).not.toContain('---')
+  })
+  it('decorar no rompe con listas, citas anidadas y separadores juntos', () => {
+    const s = estado('- > cita en lista\n> - lista en cita\n\n***\n\n1. a\n   - b', 0)
+    expect(() => decorar(s, resolver)).not.toThrow()
+  })
+})

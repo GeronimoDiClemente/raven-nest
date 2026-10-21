@@ -67,6 +67,21 @@ export function marcasDeLivePreview(state: EditorState, resolver: Resolver, enfo
       }
       if (n.name === 'FencedCode') lineas(n.from, n.to, 'cm-lp-codeblock')
       if (n.name === 'Blockquote') lineas(n.from, n.to, 'cm-lp-quote')
+      // Listas (spec §5): la marca (`-`, `*`, `1.`) queda a la vista pero atenuada, como en
+      // Obsidian — es lo que dice que es una lista, y editarla no pide entrar a la línea.
+      if (n.name === 'ListMark') marcas.push({ from: n.from, to: n.to, ocultar: false, clase: 'cm-lp-listmark' })
+      // Citas: el `>` se oculta fuera de la línea activa; el borde izquierdo ya dice que es
+      // una cita.
+      if (n.name === 'QuoteMark' && !enActiva(n.from)) {
+        const fin = state.sliceDoc(n.to, n.to + 1) === ' ' ? n.to + 1 : n.to
+        marcas.push({ from: n.from, to: fin, ocultar: true })
+      }
+      // Separador: fuera de la línea activa, la línea se dibuja como una regla fina y los
+      // `---` se ocultan. En la línea activa se ven para editarlos.
+      if (n.name === 'HorizontalRule' && !enActiva(n.from)) {
+        lineas(n.from, n.from, 'cm-lp-hr')
+        marcas.push({ from: n.from, to: n.to, ocultar: true })
+      }
       if (CLASE_INLINE[n.name]) marcas.push({ from: n.from, to: n.to, ocultar: false, clase: CLASE_INLINE[n.name] })
       if (n.name === 'HeaderMark' && !enActiva(n.from)) {
         // El `#` y el espacio que lo sigue.
@@ -147,10 +162,49 @@ export function livePreview(opts: { resolver: () => Resolver; onWikilink: (nombr
 
   // La app no tiene token de link (el acento es acromático): el wikilink se distingue por el
   // subrayado, y el pendiente por el trazo discontinuo y el color atenuado.
+  //
+  // `dark: true`: sin eso CodeMirror aplica sus reglas `&light` (tooltip casi blanco con el texto
+  // claro de la app encima, fila elegida en azul). La app no tiene tema claro todavía; los
+  // colores de abajo son todos tokens, así que el día que lo tenga esto sigue valiendo.
   const tema = EditorView.theme({
     '&': { color: 'var(--foreground)', backgroundColor: 'transparent', fontSize: 'var(--fs)' },
-    '.cm-content': { fontFamily: 'inherit', lineHeight: '1.7', caretColor: 'var(--foreground)' },
+    // El cuerpo en la fuente de la UI: el tema base de CM pone `monospace` en el scroller.
+    '.cm-scroller': { fontFamily: 'var(--font-ui)', lineHeight: '1.7' },
+    '.cm-content': { fontFamily: 'inherit', lineHeight: '1.7', caretColor: 'var(--foreground)', padding: '0', minHeight: '12rem' },
+    // Sin el padding de 2px/6px de CM: el cuerpo queda alineado con el título.
+    '.cm-line': { padding: '0' },
     '&.cm-focused': { outline: 'none' },
+    '&.cm-focused .cm-cursor': { borderLeftColor: 'var(--foreground)' },
+    '.cm-content ::selection, .cm-line::selection': { backgroundColor: 'color-mix(in srgb, var(--foreground) 22%, transparent)' },
+    '.cm-selectionBackground, &.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground': {
+      backgroundColor: 'color-mix(in srgb, var(--foreground) 22%, transparent)',
+    },
+    '.cm-tooltip': {
+      backgroundColor: 'var(--popover)',
+      color: 'var(--popover-foreground)',
+      border: '1px solid var(--border)',
+      borderRadius: 'var(--radius)',
+      fontFamily: 'var(--font-ui)',
+      fontSize: 'var(--fs-sm)',
+      overflow: 'hidden',
+    },
+    // Con `.cm-tooltip` delante: el tema base de autocomplete pone `monospace` con ese mismo
+    // selector, y con menos especificidad el nuestro perdía.
+    '.cm-tooltip.cm-tooltip-autocomplete > ul': { fontFamily: 'var(--font-ui)', maxHeight: '16em' },
+    '.cm-tooltip-autocomplete > ul > li': { padding: '3px 8px', color: 'var(--popover-foreground)' },
+    '.cm-tooltip-autocomplete > ul > li[aria-selected]': {
+      backgroundColor: 'var(--accent)',
+      color: 'var(--accent-foreground)',
+    },
+    '.cm-completionDetail': { color: 'var(--muted-foreground)', fontStyle: 'normal', marginLeft: '8px' },
+    '.cm-completionMatchedText': { textDecoration: 'none', fontWeight: '600' },
+    '.cm-lp-listmark': { color: 'var(--muted-foreground)' },
+    '.cm-lp-hr': {
+      backgroundImage: 'linear-gradient(var(--input), var(--input))',
+      backgroundSize: '100% 1px',
+      backgroundPosition: 'center',
+      backgroundRepeat: 'no-repeat',
+    },
     '.cm-lp-h1': { fontSize: '1.6em', fontWeight: '600' },
     '.cm-lp-h2': { fontSize: '1.3em', fontWeight: '600' },
     '.cm-lp-h3': { fontSize: '1.15em', fontWeight: '600' },
@@ -164,7 +218,7 @@ export function livePreview(opts: { resolver: () => Resolver; onWikilink: (nombr
     '.cm-lp-quote': { borderLeft: '2px solid var(--border)', paddingLeft: '10px', color: 'var(--muted-foreground)' },
     '.cm-lp-wikilink': { color: 'var(--foreground)', textDecoration: 'underline', textUnderlineOffset: '3px', cursor: 'pointer' },
     '.cm-lp-wikilink-pendiente': { color: 'var(--muted-foreground)', textDecorationStyle: 'dashed' },
-  })
+  }, { dark: true })
 
   return [plugin, click, tema]
 }

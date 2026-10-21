@@ -38,6 +38,9 @@ export default function MemoriesExplorer(p: MemoriesExplorerProps) {
   const buscando = p.query.trim() !== ''
 
   const alternar = (id: string) => {
+    // Con una búsqueda activa todas las carpetas con resultados se ven abiertas: un click no
+    // puede guardar un "cerrada" que la persona no ve (final review, minor de Task 9).
+    if (buscando) { p.onSeleccionarCarpeta(id); return }
     const sig = new Set(cerradas)
     if (!sig.delete(id)) sig.add(id)
     setCerradas(sig)
@@ -78,12 +81,13 @@ export default function MemoriesExplorer(p: MemoriesExplorerProps) {
                   aria-expanded={abierta}
                   onClick={() => alternar(c.id)}
                   className={cn(
-                    'flex w-full items-center gap-1 rounded-md px-1.5 py-1 text-left text-fs-sm font-medium text-foreground hover:bg-accent/50',
+                    // `border-0`: sin preflight, un <button> trae el borde del navegador (final review V1).
+                    'flex w-full cursor-pointer items-center gap-1 rounded-md border-0 px-1.5 py-1 text-left text-fs-sm font-medium text-foreground hover:bg-accent/50',
                     p.carpetaSeleccionada === c.id && 'bg-accent',
                   )}
                 >
                   <Chevron className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
-                  <span className="truncate">{c.nombre}</span>
+                  <span className="min-w-0 truncate">{c.nombre}</span>
                   {" "}
                   <span className="ml-auto pl-2 text-muted-foreground">{c.items.length}</span>
                 </button>
@@ -98,7 +102,7 @@ export default function MemoriesExplorer(p: MemoriesExplorerProps) {
                       aria-current={activo ? 'page' : undefined}
                       onClick={(e) => p.onOpen(n.syncId, { background: e.ctrlKey || e.metaKey })}
                       className={cn(
-                        'flex w-full items-center gap-2 rounded-md py-1 pl-6 pr-2 text-left text-fs-sm text-muted-foreground hover:bg-accent/50 hover:text-foreground',
+                        'flex w-full cursor-pointer items-center gap-2 rounded-md border-0 py-1 pl-6 pr-2 text-left text-fs-sm text-muted-foreground hover:bg-accent/50 hover:text-foreground',
                         activo && 'bg-accent text-foreground',
                       )}
                     >
@@ -107,7 +111,7 @@ export default function MemoriesExplorer(p: MemoriesExplorerProps) {
                         className={cn('size-2 shrink-0 rounded-full', !sw && 'bg-muted-foreground')}
                         style={sw ? { backgroundColor: sw.color } : undefined}
                       />
-                      <span className="truncate">{n.title}</span>
+                      <span className="min-w-0 truncate">{n.title}</span>
                     </button>
                   )
                 })}
