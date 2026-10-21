@@ -1,7 +1,11 @@
 // La pestaña Settings de Memories (spec 2026-10-21 §3-§5): una sección por vez (D1). Vive
 // FUERA de components/memories/ porque monta las tarjetas que hablan con window.memory; las
 // piezas puras (fila, sección, Editor & graph) sí están allá y entran por props.
+import { useState } from 'react'
+import { createPortal } from 'react-dom'
 import CloudMemoryCard from './CloudMemoryCard'
+import UpgradeModal from './UpgradeModal'
+import { useProfile } from '../hooks/useProfile'
 import SyncServiceCard from './SyncServiceCard'
 import SyncTokenRow from './SyncTokenRow'
 import MemoryEncryptionCard from './MemoryEncryptionCard'
@@ -36,8 +40,16 @@ function nombreDelRepo(path: string): string {
   return path.split(/[\\/]/).filter(Boolean).pop() ?? path
 }
 
+/** El UpgradeModal de siempre (spec §5: no se toca, es 2b). Se monta sólo abierto, así la
+ *  lectura del perfil no corre en cada vuelta a This project. */
+function PlanesModal({ onClose }: { onClose: () => void }) {
+  const { plan } = useProfile()
+  return createPortal(<UpgradeModal currentPlan={plan} onClose={onClose} />, document.body)
+}
+
 export default function MemorySettingsTab(p: MemorySettingsTabProps) {
   const { activeTeam } = useTeam()
+  const [planes, setPlanes] = useState(false)
   switch (p.seccion) {
     case 'sync':
       return (
@@ -61,8 +73,9 @@ export default function MemorySettingsTab(p: MemorySettingsTabProps) {
     case 'project':
       return p.activeRepoPath ? (
         <SettingsSection titulo="This project" bajada={<>Settings for <span className="font-mono">{nombreDelRepo(p.activeRepoPath)}</span>.</>}>
-          <ShareProjectCard activeRepoPath={p.activeRepoPath} />
+          <ShareProjectCard activeRepoPath={p.activeRepoPath} onSeePlans={() => setPlanes(true)} />
           <TeamThreadToggle hilo={p.hilo} />
+          {planes && <PlanesModal onClose={() => setPlanes(false)} />}
         </SettingsSection>
       ) : (
         <SettingsSection titulo="This project">

@@ -34,13 +34,11 @@ describe('la card de compartir', () => {
 
   beforeEach(() => { vi.restoreAllMocks() })
 
-  it('sin permiso explica el motivo y no ofrece compartir', async () => {
+  it('sin permiso dice qué plan hace falta y no ofrece compartir', async () => {
     conStatus(false)
     render(<ShareProjectCard activeRepoPath="/repos/x" />)
-
-    await waitFor(() => expect(screen.getByText(/isn't part of a self-serve plan/i)).toBeInTheDocument())
-    expect(screen.queryByText(/not end-to-end encrypted yet/i)).toBeNull()
-    expect(screen.queryByRole('button', { name: /^Share$/ })).toBeNull()
+    await waitFor(() => expect(screen.getByText('Sharing with a team needs a Teams plan.')).toBeInTheDocument())
+    expect(screen.queryByRole('button', { name: /^Share with/ })).toBeNull()
     expect(screen.queryByLabelText('Team')).toBeNull()
   })
 
@@ -49,20 +47,16 @@ describe('la card de compartir', () => {
     render(<ShareProjectCard activeRepoPath="/repos/x" />)
 
     await waitFor(() => expect(screen.getByRole('button', { name: /^Share with/ })).toBeInTheDocument())
-    expect(screen.queryByText(/isn't part of a self-serve plan/i)).toBeNull()
+    expect(screen.queryByText('Sharing with a team needs a Teams plan.')).toBeNull()
   })
 
-  /**
-   * `undefined` = todavía no llegó una respuesta de status. No saber NO es lo mismo que saber
-   * que no: negarle la acción a alguien porque la app arrancó hace tres segundos sería peor
-   * que dejar que el servidor la rechace.
-   */
-  it('mientras no se sabe, no muestra el cartel de "no podés"', async () => {
+  /** Spec 2026-10-21 §5 (D10): mientras no se sabe, la fila no se muestra — ni el control ni
+   *  el cartel. Antes se mostraba el control. */
+  it('mientras no se sabe, no muestra nada', async () => {
     conStatus(undefined)
-    render(<ShareProjectCard activeRepoPath="/repos/x" />)
-
-    await waitFor(() => expect(screen.getByRole('button', { name: /^Share with/ })).toBeInTheDocument())
-    expect(screen.queryByText(/isn't part of a self-serve plan/i)).toBeNull()
+    const { container } = render(<ShareProjectCard activeRepoPath="/repos/x" />)
+    await new Promise((r) => setTimeout(r, 20))
+    expect(container).toBeEmptyDOMElement()
   })
 
   it('sin repo abierto no se dibuja nada', () => {

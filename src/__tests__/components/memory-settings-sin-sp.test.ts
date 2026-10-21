@@ -12,6 +12,9 @@ const PERMITIDOS: Record<string, number> = {
   'SyncTokenRow.tsx': 0,
   'MemoryEncryptionCard.tsx': 0,
   'TeamEncryptionCard.tsx': 0,
+  'ShareProjectCard.tsx': 0,
+  'TeamThreadToggle.tsx': 0,
+  'MemoryVaultCard.tsx': 0,
 }
 
 describe.each(Object.entries(PERMITIDOS))('%s', (archivo, estilos) => {

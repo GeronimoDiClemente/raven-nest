@@ -17,7 +17,7 @@ it('el switch prende las notas por rama', async () => {
     teamThreadSetSettings: vi.fn().mockResolvedValue({ ok: true }),
   }
   render(<ConHilo />)
-  const sw = await screen.findByRole('switch', { name: /Branch notes in the repo/ })
+  const sw = await screen.findByRole('switch', { name: 'Branch notes' })
   fireEvent.click(sw)
   await waitFor(() => expect(sw).toHaveAttribute('aria-checked', 'true'))
 })
@@ -30,7 +30,21 @@ it('el label usa una clase de la escala tipografica real (no text-fs-md, que no 
     teamThreadProjectKeyForWorktree: vi.fn().mockResolvedValue({ ok: false }),
   }
   render(<ConHilo />)
-  const label = screen.getByText('Branch notes in the repo')
+  const label = screen.getByText('Branch notes')
   expect(label.className).not.toMatch(/text-fs-md/)
   expect(label.className).toMatch(/\btext-fs\b/)
+})
+
+it('la fila dice qué hace y un rechazo se ve', async () => {
+  ;(window as any).memory = {
+    teamThreadProjectKeyForWorktree: vi.fn().mockResolvedValue({ ok: true, projectKey: 'pk' }),
+    teamThreadGetSettings: vi.fn().mockResolvedValue({ ok: true, settings: { enabled: false } }),
+    teamThreadSetSettings: vi.fn().mockResolvedValue({ ok: false, message: 'Your plan does not include it' }),
+  }
+  render(<ConHilo />)
+  expect(screen.getByText(/It travels with git, so it's readable without Nest/)).toBeInTheDocument()
+  const sw = await screen.findByRole('switch', { name: 'Branch notes' })
+  await waitFor(() => expect(sw).not.toBeDisabled())
+  fireEvent.click(sw)
+  expect(await screen.findByText('Your plan does not include it')).toBeInTheDocument()
 })

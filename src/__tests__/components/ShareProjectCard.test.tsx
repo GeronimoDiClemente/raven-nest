@@ -23,6 +23,7 @@ const setMemoryApi = (api: unknown): void => {
 }
 
 const api = (over: Record<string, unknown> = {}) => ({
+  status: vi.fn().mockResolvedValue({ puedeCompartirMemoria: true }),
   teamThreadProjectKeyForWorktree: vi.fn().mockResolvedValue({ ok: true, projectKey: 'abc123' }),
   shareProjectWithTeam: vi.fn().mockResolvedValue({ ok: true }),
   ...over,
@@ -111,17 +112,14 @@ describe('ShareProjectCard', () => {
     expect(screen.getByText(/Everything already saved here/)).toBeInTheDocument()
   })
 
-  // Review final de rama, IMPORTANT #7a: el plan "no se puede compartir" decia que la
-  // memoria de equipo "no esta cifrada de punta a punta todavia" — falso desde el
-  // 2026-10-15 (TeamEncryptionCard). El gate real es de plan (`teamScope` en
-  // server/src/limits.ts), no de capacidad tecnica.
-  it('sin permiso de compartir, explica el gate de plan y no habla de falta de cifrado', async () => {
+  it('sin permiso: una fila sin control que dice qué falta, y See plans', async () => {
+    const onSeePlans = vi.fn()
     setMemoryApi(api({ status: vi.fn().mockResolvedValue({ puedeCompartirMemoria: false }) }))
-    render(<ShareProjectCard activeRepoPath="/repo" />)
-
-    await waitFor(() => expect(screen.getByText(/isn't part of a self-serve plan/)).toBeInTheDocument())
-    expect(screen.queryByText(/not end-to-end encrypted yet/i)).not.toBeInTheDocument()
-    expect(screen.queryByText(/there is no key two people share/i)).not.toBeInTheDocument()
-    expect(screen.getByText(/Memory settings → Encryption/)).toBeInTheDocument()
+    render(<ShareProjectCard activeRepoPath="/repo" onSeePlans={onSeePlans} />)
+    expect(await screen.findByText('Sharing with a team needs a Teams plan.')).toBeInTheDocument()
+    expect(screen.queryByRole('combobox')).toBeNull()
+    expect(screen.queryByText(/Get in touch/)).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'See plans' }))
+    expect(onSeePlans).toHaveBeenCalled()
   })
 })

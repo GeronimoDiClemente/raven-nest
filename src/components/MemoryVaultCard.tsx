@@ -1,5 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { Button } from '@/components/ui/button'
+import { Switch } from '@/components/ui/switch'
+import SettingRow from './memories/settings/SettingRow'
 
 type VaultSettings = { version: number; enabled: boolean; root: string | null; includeSuperseded: boolean; includeTeamScope: boolean }
 type VaultResult = { written: number; moved: number; deleted: number; conflicts: number; warnings: unknown[] }
@@ -82,78 +84,43 @@ export default function MemoryVaultCard() {
   }
 
   return (
-    <div className="sp-card">
-      <div className="sp-card-row">
-        <div className="sp-card-left">
-          <span className="sp-card-label">Notes on disk</span>
-          <span style={{ fontSize: 11, opacity: 0.65, marginLeft: 6 }}>
-            {settings.enabled
-              ? 'Mirroring your memory to Markdown — open it in Obsidian for graph view, or just grep it'
-              : 'Mirror your memory to a folder of Markdown files, one per observation'}
-          </span>
-        </div>
-        {/* Era un <button> con `.sp-btn-danger` / `.sp-btn-purple`, dos clases hechas a mano
-            que viven en global.css para el panel de Settings.
-
-            `sp-btn-purple` NO es morado, pese al nombre: una pasada anterior ya lo dejo
-            acromatico (`background: transparent; color: var(--text-primary)`) y solo quedo
-            el nombre viejo. El problema no era el color sino tener DOS sistemas de botones
-            en la misma pantalla, cada uno con su altura, su radio y su padding.
-
-            Y apagar el vault no es destructivo: se puede volver a prender y las notas
-            siguen ahi. `outline` dice "accion secundaria", que es lo que es. */}
-        <Button
-          variant={settings.enabled ? 'outline' : 'default'}
-          size="sm"
-          onClick={() => void toggle()}
-          disabled={busy}
-        >
+    <SettingRow
+      nombre="Mirror to Markdown"
+      descripcion="One file per memory in a folder you can open in Obsidian or grep."
+      control={
+        // Apagar el vault no es destructivo (las notas siguen ahí): `outline`.
+        <Button variant={settings.enabled ? 'outline' : 'default'} size="sm" onClick={() => void toggle()} disabled={busy}>
           {busy ? '…' : settings.enabled ? 'Disable' : 'Enable'}
         </Button>
-      </div>
-
+      }
+    >
       {settings.enabled && (
         <>
-          {rootDir && (
-            <div style={{ fontSize: 11, opacity: 0.65, marginTop: 8, wordBreak: 'break-all' }}>{rootDir}</div>
-          )}
-          <div className="mt-2 flex gap-2">
-            <Button variant="outline" size="sm" onClick={() => void regenerate()} disabled={busy}>
-              {busy ? 'Working…' : 'Regenerate now'}
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => void reveal()} disabled={busy}>
-              Open folder
-            </Button>
+          {rootDir && <p className="m-0 break-all font-mono text-fs-xs text-muted-foreground">{rootDir}</p>}
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" size="sm" onClick={() => void reveal()} disabled={busy}>Open folder</Button>
+            <Button variant="outline" size="sm" onClick={() => void regenerate()} disabled={busy}>{busy ? 'Working…' : 'Regenerate now'}</Button>
           </div>
           {lastResult && (
-            <div style={{ fontSize: 11, opacity: 0.65, marginTop: 6 }}>
+            <p className="m-0 text-fs-xs text-muted-foreground">
               {lastResult.written} written · {lastResult.moved} moved · {lastResult.deleted} deleted
               {lastResult.conflicts > 0 && `, ${lastResult.conflicts} of your edits preserved in _conflicts/`}
               {lastResult.warnings.length > 0 && ` · ${lastResult.warnings.length} warning${lastResult.warnings.length === 1 ? '' : 's'}`}
-            </div>
+            </p>
           )}
-          <label className="sp-checkbox-row">
-            <input
-              type="checkbox"
-              checked={settings.includeSuperseded}
-              disabled={busy}
-              onChange={(e) => void setConfigFlag({ includeSuperseded: e.target.checked })}
-            />
-            Include superseded (historical) versions
-          </label>
-          <label className="sp-checkbox-row">
-            <input
-              type="checkbox"
-              checked={settings.includeTeamScope}
-              disabled={busy}
-              onChange={(e) => void setConfigFlag({ includeTeamScope: e.target.checked })}
-            />
-            Include memories shared by teammates
-          </label>
+          <div className="flex items-center gap-2">
+            <Switch id="vault-old-versions" checked={settings.includeSuperseded} disabled={busy}
+              onCheckedChange={(v) => void setConfigFlag({ includeSuperseded: v })} />
+            <label htmlFor="vault-old-versions" className="text-fs-sm text-foreground">Include old versions</label>
+          </div>
+          <div className="flex items-center gap-2">
+            <Switch id="vault-teammates" checked={settings.includeTeamScope} disabled={busy}
+              onCheckedChange={(v) => void setConfigFlag({ includeTeamScope: v })} />
+            <label htmlFor="vault-teammates" className="text-fs-sm text-foreground">Include teammates&apos; memories</label>
+          </div>
         </>
       )}
-
-      {error && <div style={{ fontSize: 11, color: '#ef4444', marginTop: 8 }}>{error}</div>}
-    </div>
+      {error && <p className="m-0 text-fs-sm text-destructive">{error}</p>}
+    </SettingRow>
   )
 }

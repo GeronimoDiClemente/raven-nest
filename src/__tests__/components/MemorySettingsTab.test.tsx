@@ -9,7 +9,9 @@ vi.mock('../../components/SyncTokenRow', () => ({ default: () => <div>token-row<
 vi.mock('../../components/SyncServiceCard', () => ({ default: () => <div>service-card</div> }))
 vi.mock('../../components/MemoryEncryptionCard', () => ({ default: (p: { onSetUpSync?: () => void }) => <button type="button" onClick={p.onSetUpSync}>enc-card</button> }))
 vi.mock('../../components/TeamEncryptionCard', () => ({ default: () => <div>team-enc-card</div> }))
-vi.mock('../../components/ShareProjectCard', () => ({ default: () => <div>share-card</div> }))
+vi.mock('../../components/ShareProjectCard', () => ({ default: (p: { onSeePlans?: () => void }) => <button type="button" onClick={p.onSeePlans}>share-card</button> }))
+vi.mock('../../components/UpgradeModal', () => ({ default: () => <div>upgrade-modal</div> }))
+vi.mock('../../hooks/useProfile', () => ({ useProfile: () => ({ plan: 'free' }) }))
 vi.mock('../../components/TeamThreadToggle', () => ({ default: (p: { hilo: { enabled: boolean } }) => <div>thread-toggle {String(p.hilo.enabled)}</div> }))
 vi.mock('../../components/MemoryVaultCard', () => ({ default: () => <div>vault-card</div> }))
 const team = vi.hoisted(() => ({ activeTeam: null as null | { id: string; name: string } }))
@@ -70,6 +72,12 @@ describe('MemorySettingsTab', () => {
     expect(screen.getByText('raven-nest').className).toMatch(/font-mono/)
     expect(screen.getByText('share-card')).toBeInTheDocument()
     expect(screen.getByText('thread-toggle true')).toBeInTheDocument()
+  })
+
+  it('See plans abre el UpgradeModal existente', () => {
+    montar({ seccion: 'project' })
+    fireEvent.click(screen.getByRole('button', { name: 'share-card' }))
+    expect(screen.getByText('upgrade-modal')).toBeInTheDocument()
   })
 
   it('This project con un path de Windows muestra sólo el nombre de la carpeta', () => {

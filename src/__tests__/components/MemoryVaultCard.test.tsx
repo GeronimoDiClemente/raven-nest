@@ -49,7 +49,7 @@ describe('MemoryVaultCard', () => {
     expect(screen.getByText(/memory-vault\/user-1/)).toBeInTheDocument()
     expect(screen.getByText('Regenerate now')).toBeInTheDocument()
     expect(screen.getByText('Open folder')).toBeInTheDocument()
-    expect(screen.getByLabelText(/superseded/i)).toBeChecked()
+    expect(screen.getByLabelText(/old versions/i)).toBeChecked()
     expect(screen.getByLabelText(/teammates/i)).not.toBeChecked()
   })
 
@@ -105,5 +105,14 @@ describe('MemoryVaultCard', () => {
     await waitFor(() => expect(screen.getByLabelText(/teammates/i)).toBeInTheDocument())
     fireEvent.click(screen.getByLabelText(/teammates/i))
     await waitFor(() => expect(setSettings).toHaveBeenCalledWith({ includeTeamScope: true }))
+  })
+
+  it('la fila dice qué es y los dos flags son switches', async () => {
+    mockVaultApi({ settings: { version: 1, enabled: true, root: null, includeSuperseded: true, includeTeamScope: false } })
+    render(<MemoryVaultCard />)
+    expect(await screen.findByText('Mirror to Markdown')).toBeInTheDocument()
+    expect(screen.getByText('One file per memory in a folder you can open in Obsidian or grep.')).toBeInTheDocument()
+    expect(screen.getByRole('switch', { name: 'Include old versions' })).toBeInTheDocument()
+    expect(screen.getByRole('switch', { name: "Include teammates' memories" })).toBeInTheDocument()
   })
 })
