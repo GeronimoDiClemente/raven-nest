@@ -9,7 +9,7 @@
 import Stripe from 'https://esm.sh/stripe@14?target=deno'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2?target=deno'
 import { armarPrecioAPlan, decidir, type EventoStripe } from './eventos.ts'
-import { avisarPlan, clasificarAviso, configDeAviso, type Desenlace } from './aviso-de-plan.ts'
+import { avisarPlan, clasificarAviso, configDeAviso, resolverBaja, type Desenlace } from './aviso-de-plan.ts'
 
 const stripe = new Stripe(Deno.env.get('STRIPE_SECRET_KEY')!, {
   apiVersion: '2024-11-20.acacia',
@@ -125,10 +125,12 @@ Deno.serve(async (req) => {
   }
 
   if (decision.tipo === 'bajar_a_free') {
-    // `.select('id')`: los usuarios que efectivamente bajaron, para avisar por cada uno.
+    // Ruling T5a: se baja el plan CONSERVANDO `stripe_subscription_id`, así un reintento de
+    // Stripe vuelve a encontrar las filas y vuelve a avisar. `.select('id')`: los usuarios que
+    // efectivamente bajaron, para avisar por cada uno.
     const { data: bajados, error } = await supabase
       .from('profiles')
-      .update({ plan: 'free', stripe_subscription_id: null, updated_at: new Date().toISOString() })
+      .update({ plan: 'free', updated_at: new Date().toISOString() })
       .eq('stripe_subscription_id', decision.subscriptionId)
       .select('id')
     if (error) {
@@ -137,12 +139,27 @@ Deno.serve(async (req) => {
       })
       return new Response('Could not downgrade plan', { status: 500 })
     }
-    // Ninguna fila afectada (la suscripción ya no estaba en ningún perfil) no avisa nada: 200.
-    // Límite conocido: si el aviso falla, el reintento de Stripe ya no matchea ninguna fila
-    // (`stripe_subscription_id` quedó en null) y no vuelve a avisar.
-    for (const fila of bajados ?? []) {
-      if ((await avisarPlanDe(fila.id as string)) === 'reintentar') {
-        return new Response('Could not notify sync service', { status: 500 })
+    const ids = (bajados ?? []).map((fila) => fila.id as string)
+    // Se avisa a todos (no se corta en el primer fallo): los que llegan, llegan ya.
+    const desenlaces: Desenlace[] = []
+    for (const id of ids) desenlaces.push(await avisarPlanDe(id))
+    const { limpiar, status } = resolverBaja(desenlaces)
+    if (status === 500) {
+      return new Response('Could not notify sync service', { status: 500 })
+    }
+    if (limpiar) {
+      // El `.eq` de la suscripción evita pisar una suscripción NUEVA que el usuario haya
+      // sacado entre el update y este paso.
+      const { error: errorAlLimpiar } = await supabase
+        .from('profiles')
+        .update({ stripe_subscription_id: null, updated_at: new Date().toISOString() })
+        .in('id', ids)
+        .eq('stripe_subscription_id', decision.subscriptionId)
+      if (errorAlLimpiar) {
+        console.error('[stripe-webhook] fallo al limpiar la suscripción después de bajar a free', {
+          subscription: decision.subscriptionId, error: errorAlLimpiar.message,
+        })
+        return new Response('Could not downgrade plan', { status: 500 })
       }
     }
   }

@@ -1,6 +1,6 @@
 // Spec 2b-2 §4.4: después de escribir `profiles`, el webhook le avisa al servidor de sync.
 import { describe, it, expect, vi } from 'vitest'
-import { avisarPlan, clasificarAviso, configDeAviso, firmarAviso } from '../aviso-de-plan.ts'
+import { avisarPlan, clasificarAviso, configDeAviso, firmarAviso, resolverBaja } from '../aviso-de-plan.ts'
 
 const CUERPO = '{"user_id":"00000000-0000-4000-8000-000000000001","plan":"cloud"}'
 // D13: el MISMO vector que verifica el servidor (server/__tests__/plan-sync.test.ts).
@@ -71,6 +71,11 @@ describe('clasificarAviso', () => {
     expect(clasificarAviso({ ok: false, motivo: `HTTP ${status}`, status })).toBe('reintentar')
   })
 
+  // Ruling T5b: un status que P9 no nombra cae del lado seguro.
+  it.each([405, 413, 422])('un %i (no listado) se reintenta', (status) => {
+    expect(clasificarAviso({ ok: false, motivo: `HTTP ${status}`, status })).toBe('reintentar')
+  })
+
   it('un error de red o timeout (sin status) se reintenta', () => {
     expect(clasificarAviso({ ok: false, motivo: 'ECONNREFUSED' })).toBe('reintentar')
     expect(clasificarAviso({ ok: false, motivo: 'The operation was aborted due to timeout' })).toBe('reintentar')
@@ -78,5 +83,24 @@ describe('clasificarAviso', () => {
 
   it('sin config (falta PLAN_SYNC_URL/PLAN_SYNC_SECRET) se reintenta', () => {
     expect(clasificarAviso(null)).toBe('reintentar')
+  })
+})
+
+// Ruling T5a: la baja limpia la suscripción sólo cuando ningún aviso pide reintento.
+describe('resolverBaja', () => {
+  it('todos ok: limpia y 200', () => {
+    expect(resolverBaja(['ok', 'ok'])).toEqual({ limpiar: true, status: 200 })
+  })
+
+  it('uno pide reintento: no limpia y 500', () => {
+    expect(resolverBaja(['ok', 'reintentar', 'descartar'])).toEqual({ limpiar: false, status: 500 })
+  })
+
+  it('sólo descartados: limpia y 200', () => {
+    expect(resolverBaja(['descartar'])).toEqual({ limpiar: true, status: 200 })
+  })
+
+  it('sin filas afectadas: nada que limpiar, 200', () => {
+    expect(resolverBaja([])).toEqual({ limpiar: false, status: 200 })
   })
 })

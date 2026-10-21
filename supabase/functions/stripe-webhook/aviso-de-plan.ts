@@ -70,3 +70,16 @@ export function clasificarAviso(r: ResultadoDeAviso | null): Desenlace {
   if (r.ok) return 'ok'
   return r.status === 400 ? 'descartar' : 'reintentar'
 }
+
+/**
+ * Ruling T5a: la baja a free se hace en dos pasos para que el reintento de Stripe vuelva a
+ * encontrar las filas. Primero se baja `plan` CONSERVANDO `stripe_subscription_id`, se avisa a
+ * cada usuario y sólo si ningún aviso pide reintento se limpia la suscripción. Si alguno pide
+ * reintento: 500 sin limpiar, y la próxima entrega repite todo (los pasos son idempotentes).
+ * Sin filas afectadas no hay nada que avisar ni limpiar: 200.
+ */
+export function resolverBaja(desenlaces: Desenlace[]): { limpiar: boolean; status: 200 | 500 } {
+  if (desenlaces.length === 0) return { limpiar: false, status: 200 }
+  if (desenlaces.includes('reintentar')) return { limpiar: false, status: 500 }
+  return { limpiar: true, status: 200 }
+}
