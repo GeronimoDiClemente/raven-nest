@@ -12,7 +12,13 @@ nombres.
 > (Supabase prod) `STRIPE_PRICE_CLOUD_MONTHLY`, `STRIPE_PRICE_CLOUD_ANNUAL`, `PLAN_SYNC_URL` y
 > `PLAN_SYNC_SECRET`, **y en Railway prod** `PLAN_SYNC_SECRET` (el mismo valor). **Si falta
 > alguno, cada activación de suscripción devuelve 500** y Stripe la reintenta sin que el plan
-> llegue nunca. No mergear hasta tildar los cinco.
+> llegue nunca.
+>
+> **Y Railway prod tiene que estar corriendo el servidor NUEVO** (la ruta `/internal/plan` y la
+> migración `011_kept_project.sql`). Con el servidor viejo `/internal/plan` contesta **404**, y
+> el webhook devuelve **500 a TODA activación, incluidas las renovaciones de Pro/Team legacy**.
+> Verificación: un `POST <PLAN_SYNC_URL>/internal/plan` **sin firma** contra prod tiene que
+> devolver **401**, no 404. No mergear hasta tildar los seis.
 
 ## 1. Stripe en modo TEST
 
@@ -68,6 +74,11 @@ servidor (corre la migración `011_kept_project.sql` sola al arrancar). Verifica
 1. Cuenta Free conectada a la nube con 2+ repos (uno en la nube, los otros `Local only`).
 2. Upgrade → Cloud → Monthly → pagar. Volver a Nest: aparece `Cloud is active — syncing all
    your projects.`; Settings › Sync muestra `N projects` y lo retenido sube solo.
+   Ojo: el toast sale apenas cambia `profiles.plan`, **aunque el aviso al servidor de sync haya
+   fallado**. En ese caso la sincronización se destraba sola con el reintento de Stripe o con el
+   próximo poll de status (hasta 15 min en Free): converge, pero no es instantáneo. Un toast sin
+   proyectos subiendo no es un pago perdido; mirar los logs de `stripe-webhook` antes de tocar
+   nada.
 3. En el servidor: `users.plan = 'cloud'` y la fila en `allowlist`.
 4. Manage subscription → cancelar en el portal. Con "al fin del período", Stripe manda
    `customer.subscription.deleted` recién al vencer: para probarlo ya, cancelar inmediatamente
@@ -105,6 +116,11 @@ Lo que devuelve a Stripe según la respuesta:
 
 Un 400 es el único caso que queda **sólo en el log** (`stripe-webhook`): revisarlo si alguien
 paga y su plan no aparece.
+
+Antes de activar, el webhook **relee la suscripción en Stripe**: si ya no está `active`,
+`trialing` ni `past_due` (un `invoice.paid` o `subscription.updated` viejo que Stripe reintentó
+después de la cancelación), no toca `profiles` ni avisa, y devuelve 200 con
+`activación descartada` en el log. Si esa lectura falla, devuelve 500 y Stripe reintenta.
 
 ## Recuperación
 

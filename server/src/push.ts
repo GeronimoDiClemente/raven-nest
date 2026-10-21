@@ -524,8 +524,9 @@ export async function handlePush(
       const now = Date.now()
 
       // El proyecto de más no se rechaza para siempre ni se borra: sigue vivo y completo en
-      // la máquina del usuario. Esto sólo dice "en la nube, no". Terminal porque el mismo
-      // payload con el mismo plan no puede funcionar nunca.
+      // la máquina del usuario. Esto sólo dice "en la nube, no", y es reversible: el cliente lo
+      // retiene (no lo descarta) y vuelve a la cola si el usuario elige este proyecto con
+      // `Keep syncing` o si vuelve a pagar un plan que lo incluye.
       if (overLimit.has(projectKey)) {
         results.push({
           sync_id: syncId,
