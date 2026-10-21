@@ -1,5 +1,5 @@
 // Barra de pestañas del centro de Memories. Presentación pura: el estado vive en el hook.
-import { GitBranch, Network, X } from 'lucide-react'
+import { GitBranch, Network, Settings, X } from 'lucide-react'
 import { cn } from 'cn'
 import { esFija, tabId, type MemoryTab } from '../../lib/memory-tabs'
 import { memoryTypeSwatch } from '../../lib/memory-type-legend'
@@ -16,6 +16,7 @@ export interface MemoryTabsProps {
 function Marca({ tab, tipo, ansi }: { tab: MemoryTab; tipo?: string; ansi?: readonly string[] }) {
   if (tab.kind === 'graph') return <Network className="size-3.5 shrink-0" aria-hidden="true" />
   if (tab.kind === 'thread') return <GitBranch className="size-3.5 shrink-0" aria-hidden="true" />
+  if (tab.kind === 'settings') return <Settings className="size-3.5 shrink-0" aria-hidden="true" />
   const sw = tipo ? memoryTypeSwatch(tipo, ansi) : null
   return (
     <span

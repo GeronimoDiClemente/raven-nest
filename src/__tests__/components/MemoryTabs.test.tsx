@@ -24,4 +24,12 @@ describe('MemoryTabs', () => {
     expect(onClose).toHaveBeenCalledWith('note:a')
     expect(onActivate).not.toHaveBeenCalled()
   })
+  it('Settings se puede cerrar como una pestaña común', () => {
+    const onClose = vi.fn()
+    render(<MemoryTabs tabs={[{ kind: 'graph' }, { kind: 'settings', section: 'sync' }]} activeId="settings"
+      etiqueta={(t) => ({ texto: t.kind === 'graph' ? 'Graph' : 'Settings' })} onActivate={vi.fn()} onClose={onClose} />)
+    expect(screen.getByRole('tab', { name: /Settings/, selected: true })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Close tab' }))
+    expect(onClose).toHaveBeenCalledWith('settings')
+  })
 })

@@ -236,6 +236,7 @@ export default function MemoriesWorkspace({
       case 'graph': return { texto: 'Graph' }
       case 'thread': return { texto: 'Team thread' }
       case 'new': return { texto: 'New memory' }
+      case 'settings': return { texto: 'Settings' }
       case 'note': {
         const x = titulosDeTabs.get(t.syncId) ?? titulosPorId.get(t.syncId)
         return { texto: x?.title || 'Untitled', tipo: x?.type }
