@@ -1,13 +1,17 @@
-import { useEffect, useState } from 'react'
-import { supabase } from '../lib/supabase'
+import { useState } from 'react'
 import logoUrl from '../assets/logo.svg'
 import {
-  STRIPE_PRICES,
   CLOUD_MONTHLY_PRICE,
+  CLOUD_ANNUAL_MONTHLY_PRICE,
+  CLOUD_ANNUAL_PRICE,
   BOOK_DEMO_URL,
   TEAM_MIN_SEATS,
+  tieneSuscripcionPropia,
+  type BillingInterval,
   type Plan,
 } from '../lib/stripe'
+import { abrirCheckout, abrirPortal } from '../lib/checkout'
+import { Button } from '@/components/ui/button'
 
 interface Props {
   currentPlan: Plan
@@ -66,39 +70,24 @@ const PLAN_LIST: PlanInfo[] = [
 ]
 
 export default function UpgradeModal({ currentPlan, onClose }: Props) {
-  const [userId, setUserId] = useState<string | null>(null)
-  const [userEmail, setUserEmail] = useState<string | null>(null)
-  const [loading, setLoading] = useState<string | null>(null)
+  // `setIntervalo` y no `setInterval`: no tapar el global del navegador.
+  const [interval, setIntervalo] = useState<BillingInterval>('monthly')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => {
-      setUserId(data.user?.id ?? null)
-      setUserEmail(data.user?.email ?? null)
-    })
-  }, [])
-
-  // Cloud es el unico plan self-serve. Sin price ID (Task 5 del corte comercial todavia
-  // no lo creo) el boton esta deshabilitado: abrir el checkout con el price de `pro`
-  // cobraria $20 por una card que dice $10.
-  const checkoutReady = STRIPE_PRICES.cloud_monthly !== ''
-
-  const handleUpgrade = async () => {
-    if (!userId || !checkoutReady) return
-    setLoading('cloud')
-    try {
-      const priceId = STRIPE_PRICES.cloud_monthly
-      const { data, error } = await supabase.functions.invoke('stripe-checkout', {
-        body: { priceId, userId, email: userEmail ?? undefined },
-      })
-      if (error || !data?.url) throw new Error(error?.message ?? 'No checkout URL')
-      window.electronShell.openExternal(data.url)
-      onClose()
-    } catch (err) {
-      console.error('Stripe checkout error:', err)
-    } finally {
-      setLoading(null)
-    }
+  // Spec 2b-2 §4.8: la identidad sale del JWT de la sesión (supabase-js lo manda solo) y el
+  // precio lo elige la función según el intervalo. Los errores se ven en el modal.
+  const cobrar = async (accion: () => ReturnType<typeof abrirCheckout>) => {
+    if (loading) return
+    setLoading(true)
+    setError(null)
+    const r = await accion()
+    setLoading(false)
+    if (r.ok) onClose()
+    else setError(r.error)
   }
+  const handleUpgrade = () => cobrar(() => abrirCheckout(interval))
+  const handleManage = () => cobrar(abrirPortal)
 
   const handleBookDemo = () => {
     window.electronShell.openExternal(BOOK_DEMO_URL)
@@ -124,6 +113,7 @@ export default function UpgradeModal({ currentPlan, onClose }: Props) {
             // `pro` es el alias heredado de `cloud` hasta que la Task 6 migre los
             // perfiles: un usuario en `pro` tiene que ver su card marcada como actual.
             const isCurrent = currentPlan === plan.id || (plan.id === 'cloud' && currentPlan === 'pro')
+            const gestiona = plan.id === 'cloud' && tieneSuscripcionPropia(currentPlan)
             return (
               <div
                 key={plan.id}
@@ -144,8 +134,23 @@ export default function UpgradeModal({ currentPlan, onClose }: Props) {
                     <span className="upgrade-plan-price">Custom</span>
                   ) : (
                     <>
-                      <span className="upgrade-plan-price">{plan.id === 'cloud' ? `$${CLOUD_MONTHLY_PRICE}` : '$0'}</span>
+                      {plan.id === 'cloud' && (
+                        <div role="group" aria-label="Billing" className="mb-2 inline-flex gap-1 rounded-lg border border-border p-0.5">
+                          {(['monthly', 'annual'] as const).map((i) => (
+                            <Button key={i} type="button" size="xs" variant={interval === i ? 'secondary' : 'ghost'}
+                              aria-pressed={interval === i} onClick={() => setIntervalo(i)}>
+                              {i === 'monthly' ? 'Monthly' : 'Annual'}
+                            </Button>
+                          ))}
+                        </div>
+                      )}
+                      <span className="upgrade-plan-price">
+                        {plan.id === 'cloud' ? `$${interval === 'annual' ? CLOUD_ANNUAL_MONTHLY_PRICE : CLOUD_MONTHLY_PRICE}` : '$0'}
+                      </span>
                       {plan.id === 'cloud' && <span className="upgrade-plan-period">/mo</span>}
+                      {plan.id === 'cloud' && interval === 'annual' && (
+                        <span className="block w-full text-fs-sm text-muted-foreground">billed ${CLOUD_ANNUAL_PRICE} yearly</span>
+                      )}
                     </>
                   )}
                 </div>
@@ -166,7 +171,11 @@ export default function UpgradeModal({ currentPlan, onClose }: Props) {
                 </div>
 
                 <div className="upgrade-plan-cta">
-                  {isCurrent ? (
+                  {gestiona ? (
+                    <button className="upgrade-plan-btn" onClick={handleManage} disabled={loading}>
+                      {loading ? '…' : 'Manage subscription'}
+                    </button>
+                  ) : isCurrent ? (
                     <span className="upgrade-plan-badge">Current plan</span>
                   ) : plan.id === 'free' ? (
                     <button className="upgrade-plan-btn ghost" disabled>Free forever</button>
@@ -176,10 +185,9 @@ export default function UpgradeModal({ currentPlan, onClose }: Props) {
                     <button
                       className={`upgrade-plan-btn${plan.popular ? ' primary' : ''}`}
                       onClick={handleUpgrade}
-                      disabled={!userId || !checkoutReady || loading === 'cloud'}
-                      title={checkoutReady ? undefined : 'Checkout opens once the $10 price is live in Stripe'}
+                      disabled={loading}
                     >
-                      {loading === 'cloud' ? '…' : `Upgrade to ${plan.name}`}
+                      {loading ? '…' : `Upgrade to ${plan.name}`}
                     </button>
                   )}
                 </div>
@@ -187,7 +195,7 @@ export default function UpgradeModal({ currentPlan, onClose }: Props) {
             )
           })}
         </div>
-
+        {error && <p role="alert" className="m-0 mt-3 text-center text-fs-sm text-destructive">{error}</p>}
       </div>
     </div>
   )

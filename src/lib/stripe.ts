@@ -1,28 +1,25 @@
 export const STRIPE_PUBLISHABLE_KEY = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY
 
-// Price IDs from Stripe dashboard → Products → [product] → Prices.
-// Cloud is the only self-serve tier: Teams and Enterprise are sales-led (Book a demo).
-//
-// EMPTY ON PURPOSE hasta la Task 5 del corte comercial, que crea el precio de $10 en
-// Stripe y pega el ID acá. Vacío hace que el checkout se niegue a abrir; poner mientras
-// tanto el ID de `pro` cobraría $20 por una card que dice $10.
-export const STRIPE_PRICES = {
-  cloud_monthly: '',
-}
-
 // `pro` sigue en el tipo mientras haya perfiles con ese valor guardado en Supabase. Se
 // borra en la Task 7 del corte comercial, después de migrarlos.
 export type Plan = 'free' | 'cloud' | 'pro' | 'team' | 'enterprise'
 
 /**
- * El precio del único plan self-serve, y la fuente de verdad del número que se muestra.
- * Tiene que coincidir con el price de Stripe al que apunta `STRIPE_PRICES.cloud_monthly`.
- *
- * No hay precio anual: el corte comercial del 2026-09-02 lo dejó sin definir a propósito,
- * así que el modal no tiene toggle de facturación. Con Free en $0, Cloud mensual y Teams
- * sin precio, no quedaba nada que togglear.
+ * Los precios de Cloud, la fuente de verdad de los números que se muestran (spec 2b-2 §4.1).
+ * Los IDs de precio de Stripe NO viven en la app: los elige `stripe-checkout` desde sus
+ * secrets según el intervalo, así un cliente no puede pedir un precio arbitrario.
  */
 export const CLOUD_MONTHLY_PRICE = 10
+/** Anual: US$ 96 por año, que se muestra como US$ 8 por mes. */
+export const CLOUD_ANNUAL_MONTHLY_PRICE = 8
+export const CLOUD_ANNUAL_PRICE = 96
+
+export type BillingInterval = 'monthly' | 'annual'
+
+/** Si el plan tiene una suscripción de Stripe propia que gestionar desde el portal. */
+export function tieneSuscripcionPropia(plan: string): boolean {
+  return plan === 'cloud' || plan === 'pro'
+}
 export const ENTERPRISE_MIN_SEATS = 4
 export const ENTERPRISE_FLOOR_PER_SEAT = 60  // $/seat/mo, annual billing
 export const TEAM_MIN_SEATS = 2
