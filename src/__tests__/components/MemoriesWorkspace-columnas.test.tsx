@@ -48,7 +48,7 @@ const conHilo = () => {
 }
 
 const montar = () => render(
-  <MemoriesWorkspace onClose={() => {}} activeRepoPath="/r" onOpenFile={() => {}} onHowItWorks={() => {}} onMemorySettingsTour={() => {}} />,
+  <MemoriesWorkspace onClose={() => {}} activeRepoPath="/r" onOpenFile={() => {}} onHowItWorks={() => {}} />,
 )
 
 const tamDerecho = () => Number(document.getElementById('derecho')!.getAttribute('data-panel-size'))
@@ -89,7 +89,8 @@ describe('columnas de Memories', () => {
     const abierto = tamDerecho()
 
     fireEvent.click(screen.getByRole('button', { name: 'Memory settings' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Memories' }))
+    await waitFor(() => expect(tamDerecho()).toBe(0))
+    fireEvent.click(screen.getByRole('tab', { name: /Graph/ }))
     await screen.findByRole('tab', { name: /Graph/ })
     expect(tamDerecho()).toBe(abierto)
     expect(guardado()?.[2]).toBeCloseTo(abierto, 0)
@@ -105,6 +106,29 @@ describe('columnas de Memories', () => {
     await waitFor(() => expect(tamDerecho()).toBe(0))
     expect(guardado()?.[2]).toBe(22)
 
+    fireEvent.click(screen.getByRole('tab', { name: /Graph/ }))
+    await waitFor(() => expect(tamDerecho()).toBe(22))
+  })
+
+  it('con Settings activa el panel derecho se oculta y vuelve al salir, sin guardarlo', async () => {
+    ancho(1400)
+    montar()
+    await screen.findByRole('tab', { name: /Graph/ })
+    expect(tamDerecho()).toBe(22)
+    fireEvent.click(screen.getByRole('button', { name: 'Memory settings' }))
+    await waitFor(() => expect(tamDerecho()).toBe(0))
+    expect(guardado()?.[2]).toBe(22)
+    fireEvent.click(screen.getByRole('tab', { name: /Graph/ }))
+    await waitFor(() => expect(tamDerecho()).toBe(22))
+  })
+
+  it('de Team thread directo a Settings el panel sigue cerrado (un solo motivo, D6)', async () => {
+    ancho(1400)
+    montar()
+    fireEvent.click(await screen.findByRole('tab', { name: /Team thread/ }))
+    await waitFor(() => expect(tamDerecho()).toBe(0))
+    fireEvent.click(screen.getByRole('button', { name: 'Memory settings' }))
+    await waitFor(() => expect(tamDerecho()).toBe(0))
     fireEvent.click(screen.getByRole('tab', { name: /Graph/ }))
     await waitFor(() => expect(tamDerecho()).toBe(22))
   })

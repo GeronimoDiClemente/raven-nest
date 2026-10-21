@@ -8,11 +8,9 @@
 // PersonalWorkspace.tsx:306, donde elegir un equipo llama a switchTeam y cambia chat,
 // presencia y stats de TODA la app.
 //
-// 2026-10-19: la vista principal YA NO tiene configuracion. Las tarjetas de sync, cifrado,
-// vinculo de equipo y notas en disco se mudaron a `MemorySettingsView` (§7 de la spec), que
-// esta pantalla abre como una SEGUNDA vista detras del boton "Settings" del header — no una
-// pantalla aparte, para no duplicar el shell de overlay. `vista` decide cual de las dos se
-// dibuja; las dos comparten el mismo header con Back/titulo.
+// 2026-10-21 (spec Memory settings como pestaña): la configuración es una PESTAÑA más
+// (Settings, cerrable). Con ella activa el explorer muestra las secciones y el panel derecho
+// se colapsa solo; ya no hay una segunda vista ni un Back que vuelva a los nodos.
 //
 // 2026-10-20 (spec "Memories estilo Obsidian" §3): la vista principal pasa a tres columnas —
 // explorer por carpetas a la izquierda, pestañas en el centro (Graph fija, Team thread fija
@@ -29,18 +27,21 @@ import { useCrossProjectMemories } from '../hooks/useCrossProjectMemories'
 import { useMemoryGraph } from '../hooks/useMemoryGraph'
 import { useGraphFilters } from '../hooks/useGraphFilters'
 import { useMemoryTabs } from '../hooks/useMemoryTabs'
-import { useTeamThreadEnabled } from '../hooks/useTeamThreadEnabled'
+import { useTeamThreadSettings } from '../hooks/useTeamThreadSettings'
+import { useMemoryPrefs } from '../hooks/useMemoryPrefs'
 import { armarArbol } from '../lib/memories-tree'
-import { tabId, type MemoryTab } from '../lib/memory-tabs'
+import { pestanaDelHilo } from '../lib/pestana-del-hilo'
+import { SECCIONES_DE_SETTINGS, tabId, type MemoryTab } from '../lib/memory-tabs'
 import { leer, escribir } from '../lib/almacen-seguro'
 import type { CandidatoDeLink } from '../lib/cm-wikilink-autocomplete'
 import { ICON_SIZE } from '../lib/icons'
 import NewMemoryForm from './NewMemoryForm'
 import MemoriesStatusRow from './MemoriesStatusRow'
-import MemorySettingsView from './MemorySettingsView'
+import MemorySettingsTab from './MemorySettingsTab'
 import TeamThreadPanel from './TeamThreadPanel'
 import MemoriesNoteTab from './MemoriesNoteTab'
 import MemoriesExplorer from './memories/MemoriesExplorer'
+import SettingsSectionList from './memories/settings/SettingsSectionList'
 import MemoryTabs from './memories/MemoryTabs'
 import MemoryGraph2D from './memories/MemoryGraph2D'
 import GraphFiltersPanel from './memories/GraphFiltersPanel'
@@ -70,29 +71,14 @@ interface Props {
   onLinkRepo?: () => void
   /** workspace-shell-design §1: true while App.tsx holds this mounted after onClose so the zoomOut exit animation can play. See TeamsWorkspaceProps.closing (same shared shell, same mechanism). */
   closing?: boolean
-  /** Con que vista abre. `App.tsx` la pasa cuando "Account" en Settings pide ir directo a
-   *  Memory settings en vez de a los nodos (Task 3/6). */
-  vistaInicial?: 'memorias' | 'settings'
   /** La paleta ANSI del tema de terminal activo (spec §5), para colorear el grafo, el
    *  explorer y las pestañas por tipo — mismo color en todos. */
   ansi?: readonly string[]
   /** El tour "How it works" de la vista principal (Task 7). */
   onHowItWorks: () => void
-  /** El tour de Memory settings (Task 7) — distinto del de arriba: navega el rail de
-   *  secciones en vez de los nodos. */
-  onMemorySettingsTour: () => void
-  /**
-   * Avisa cuando `vista` cambia — INCLUIDO el valor inicial, al montar. Review final de
-   * rama, IMPORTANT #5: `App.tsx` decidía si mostrar la bienvenida de Memories mirando
-   * `vistaInicial` (la prop, que solo se lee una vez), no la vista que esta pantalla
-   * dibuja AHORA. Repro: Account → Memory settings → Back a "Memories" (navegación
-   * INTERNA, `setVista`, que `App.tsx` nunca se entera) → "How it works" → `forced` queda
-   * en `true` pero el predicado seguía leyendo `vistaInicial === 'settings'` y no
-   * mostraba nada — así que `forced` tampoco se resetea (eso lo hace `onSkip`/`onTour` de
-   * `MemoriesWelcome`, que nunca llega a montarse) y la bienvenida se auto-abre la
-   * PRÓXIMA vez que se abre Memories, sin que nadie la haya pedido.
-   */
-  onVistaChange?: (vista: 'memorias' | 'settings') => void
+  /** Sube cada vez que algo de afuera (Account → "Memory settings") pide abrir la pestaña
+   *  Settings; useMemoryTabs atiende cada pedido una vez por sesión (D5). */
+  pedidoDeSettings?: number
 }
 
 /** Ventana angosta (spec §3): el panel derecho arranca colapsado. */
@@ -120,19 +106,10 @@ function leerColumnas(): [number, number, number] {
 }
 
 export default function MemoriesWorkspace({
-  onClose, activeRepoPath, onOpenFile, onLinkRepo, closing = false, vistaInicial, ansi,
-  onHowItWorks, onMemorySettingsTour, onVistaChange,
+  onClose, activeRepoPath, onOpenFile, onLinkRepo, closing = false, ansi, onHowItWorks,
+  pedidoDeSettings = 0,
 }: Props) {
   const state = useMemories()
-
-  /** Cual de las dos vistas se dibuja — spec §7. Memory settings vive DETRAS del boton
-   *  "Settings" del header, no en una pantalla propia: comparten header y shell. */
-  const [vista, setVista] = useState<'memorias' | 'settings'>(vistaInicial ?? 'memorias')
-
-  // Incluye el valor inicial a proposito (sin arreglo de dependencias que lo salte): el
-  // caller necesita saber la vista real desde el primer render, no solo las navegaciones
-  // que vengan despues.
-  useEffect(() => { onVistaChange?.(vista) }, [vista, onVistaChange])
 
   /**
    * La búsqueda vive acá y no adentro del explorer, porque no es sólo del explorer: el grafo
@@ -173,6 +150,8 @@ export default function MemoriesWorkspace({
   // El mismo interruptor decide qué se le pide a main (similar) y qué se dibuja (todas las
   // inferidas): ver useGraphFilters.
   const filtros = useGraphFilters(grafo.graph, ansi, includeSimilar)
+  const restablecerFiltros = filtros.restablecer
+  const restablecerGrafo = useCallback(() => { restablecerFiltros(); setIncludeSimilar(true) }, [restablecerFiltros])
 
   const refrescarBusqueda = useRef(busqueda.refresh)
   refrescarBusqueda.current = busqueda.refresh
@@ -183,12 +162,14 @@ export default function MemoriesWorkspace({
     refrescarGrafo()
   }, [version, refrescarGrafo])
 
-  // Sube al volver de Memory settings: el toggle del hilo vive alla con su propia lectura, y
-  // sin releer aca la pestana Team thread quedaba como estaba al entrar.
-  const [releerHilo, setReleerHilo] = useState(0)
-  const conHilo = useTeamThreadEnabled(activeRepoPath, releerHilo)
-  const tabs = useMemoryTabs(conHilo)
+  // El estado del hilo, UNO solo para la pestaña Team thread y el toggle de Branch notes de la
+  // pestaña Settings (D3): prender o apagar se ve en el acto.
+  const hilo = useTeamThreadSettings(activeRepoPath)
+  const conHilo = pestanaDelHilo(activeRepoPath, hilo)
+  const tabs = useMemoryTabs(conHilo, pedidoDeSettings)
   const activa: MemoryTab = tabs.tabs.find((t) => tabId(t) === tabs.activeId) ?? tabs.tabs[0]
+  const settingsActiva = activa.kind === 'settings'
+  const prefsMem = useMemoryPrefs()
 
   /**
    * Los ids a resaltar. `null` sin búsqueda = grafo a color pleno y explorer completo.
@@ -282,7 +263,7 @@ export default function MemoriesWorkspace({
     setVersion((v) => v + 1)
   }, [])
 
-  const { open: abrirPestana, close: cerrarPestana, replace: reemplazarPestana } = tabs
+  const { open: abrirPestana, close: cerrarPestana, replace: reemplazarPestana, openSettings: abrirSettings } = tabs
 
   /** Un click en una memoria (explorer, nodo, `[[link]]`, backlink) la abre — salvo que
    *  estés conectando: ahí ese click CIERRA la relación. */
@@ -362,7 +343,6 @@ export default function MemoriesWorkspace({
   // cerrar la pestaña y morir acá — nunca llegar al menú de Electron ni a otro handler que
   // cierre la ventana.
   const alTeclear = (e: KeyboardEvent<HTMLDivElement>) => {
-    if (vista !== 'memorias') return
     if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'w') {
       e.preventDefault()
       e.stopPropagation()
@@ -385,7 +365,7 @@ export default function MemoriesWorkspace({
    *  colapsado por nosotros (abierto, o cerrado a mano por la persona). */
   const anchoAntesDelAuto = useRef<number | null>(null)
   /** Por que sigue colapsado solo. Se reabre cuando no queda ningun motivo. */
-  const motivosDelAuto = useRef({ angosto: false, hilo: false })
+  const motivosDelAuto = useRef({ angosto: false, pestana: false })
   /** true mientras el layout lo cambia un colapso/reapertura automatico: no se guarda. */
   const cambioAutomatico = useRef(false)
 
@@ -394,7 +374,7 @@ export default function MemoriesWorkspace({
   // defecto), que no corre layout effects y donde `collapse()` tira "Panel size not found".
   const hayLayout = () => (grupoRef.current?.getLayout().length ?? 0) === 3
 
-  const colapsarSolo = useCallback((motivo: 'angosto' | 'hilo') => {
+  const colapsarSolo = useCallback((motivo: 'angosto' | 'pestana') => {
     motivosDelAuto.current[motivo] = true
     const panel = panelDerechoRef.current
     if (!panel || !hayLayout() || anchoAntesDelAuto.current !== null || panel.isCollapsed()) return
@@ -403,9 +383,9 @@ export default function MemoriesWorkspace({
     try { panel.collapse() } finally { cambioAutomatico.current = false }
   }, [])
 
-  const liberarAuto = useCallback((motivo: 'angosto' | 'hilo') => {
+  const liberarAuto = useCallback((motivo: 'angosto' | 'pestana') => {
     motivosDelAuto.current[motivo] = false
-    if (motivosDelAuto.current.angosto || motivosDelAuto.current.hilo) return
+    if (motivosDelAuto.current.angosto || motivosDelAuto.current.pestana) return
     const panel = panelDerechoRef.current
     if (!panel || !hayLayout() || anchoAntesDelAuto.current === null) return
     anchoAntesDelAuto.current = null
@@ -418,7 +398,7 @@ export default function MemoriesWorkspace({
     // La persona lo abrio (arrastrando): el colapso automatico termino.
     if (anchoAntesDelAuto.current !== null && layout[2] > 0.1) {
       anchoAntesDelAuto.current = null
-      motivosDelAuto.current = { angosto: false, hilo: false }
+      motivosDelAuto.current = { angosto: false, pestana: false }
     }
     // Colapsado solo: se guarda como si estuviera abierto con el ancho de antes.
     const antes = anchoAntesDelAuto.current
@@ -426,18 +406,18 @@ export default function MemoriesWorkspace({
     escribir(CLAVE_COLUMNAS, JSON.stringify(guardar))
   }, [])
 
-  // Ventana angosta: SOLO al montar el grupo (que vive mientras el overlay esta abierto,
-  // tambien detras de Memory settings), no en cada vuelta de settings.
+  // Ventana angosta: SOLO al montar el grupo, que vive mientras el overlay está abierto.
   useEffect(() => {
     if (window.innerWidth < ANCHO_ANGOSTO) colapsarSolo('angosto')
   }, [colapsarSolo])
 
-  // Spec §3: con Team thread activa el panel derecho se oculta; al salir vuelve como estaba.
-  const hiloActivo = activa.kind === 'thread'
+  // Spec §3: con Team thread o Settings activa el panel derecho se oculta; al salir vuelve
+  // como estaba, sin guardar ese colapso (Ruling 11).
+  const pestanaSinPanel = activa.kind === 'thread' || activa.kind === 'settings'
   useEffect(() => {
-    if (hiloActivo) colapsarSolo('hilo')
-    else liberarAuto('hilo')
-  }, [hiloActivo, colapsarSolo, liberarAuto])
+    if (pestanaSinPanel) colapsarSolo('pestana')
+    else liberarAuto('pestana')
+  }, [pestanaSinPanel, colapsarSolo, liberarAuto])
 
   const memoriasReales = grafo.graph ? grafo.graph.nodes.filter((n) => !n.pending).length : 0
   const sinMemorias = !grafo.loading && !grafo.error && memoriasReales === 0
@@ -486,79 +466,63 @@ export default function MemoriesWorkspace({
       }}
     >
       <div className="teams-workspace-header">
-        <button
-          className="tw-back-btn"
-          onClick={() => {
-            if (vista !== 'settings') { onClose(); return }
-            setVista('memorias')
-            setReleerHilo((n) => n + 1)
-          }}
-        >
+        <button className="tw-back-btn" onClick={onClose}>
           <svg width="13" height="13" viewBox="0 0 13 13" fill="none" style={{ display: 'inline-block', verticalAlign: 'middle', marginRight: 5 }}>
             <path d="M8 2L4 6.5L8 11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>
-          {vista === 'settings' ? 'Memories' : 'Back'}
+          Back
         </button>
 
         <div className="tw-header-center">
           {/* Sólo el título, como Teams y Personal. El glifo del grafo que había acá era el
               único ícono en el header de una pantalla grande, dibujado a mano y pintado con
               `--raven-blue`: un color de marca donde el resto de la app usa texto. */}
-          <span className="tw-header-title">{vista === 'settings' ? 'Memory settings' : 'Memories'}</span>
+          <span className="tw-header-title">Memories</span>
         </div>
 
-        {vista === 'memorias' && (
-          <div className="tw-header-right">
-            <Button variant="ghost" size="sm" onClick={onHowItWorks} data-tour-id="memories-how">
-              How it works
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              aria-label="Memory settings"
-              onClick={() => setVista('settings')}
-              data-tour-id="memories-settings"
-            >
-              <Settings size={ICON_SIZE.sm} aria-hidden />
-              Settings
-            </Button>
-          </div>
-        )}
+        <div className="tw-header-right">
+          <Button variant="ghost" size="sm" onClick={onHowItWorks} data-tour-id="memories-how">
+            How it works
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            aria-label="Memory settings"
+            onClick={() => abrirSettings()}
+            data-tour-id="memories-settings"
+          >
+            <Settings size={ICON_SIZE.sm} aria-hidden />
+            Settings
+          </Button>
+        </div>
       </div>
 
-      {vista === 'settings' && (
-        <MemorySettingsView
-          activeRepoPath={activeRepoPath}
-          onLinkRepo={onLinkRepo}
-          onHowItWorks={onMemorySettingsTour}
-        />
-      )}
-
-      {/* La vista principal queda MONTADA (oculta) mientras se ve Memory settings: las notas
-          abiertas no pierden su editor, y las columnas no se vuelven a armar (ni a colapsar
-          solas) en cada vuelta. */}
-      <div
-        hidden={vista !== 'memorias'}
-        className={cn('min-h-0 flex-1 flex-col', vista === 'memorias' ? 'flex' : 'hidden')}
-      >
+      <div className="flex min-h-0 flex-1 flex-col">
           <MemoriesStatusRow state={state} />
 
           <div className="teams-workspace-body min-h-0">
             <PanelGroup ref={grupoRef} direction="horizontal" onLayout={alCambiarColumnas} className="min-h-0 flex-1">
               <Panel defaultSize={columnas[0]} minSize={12} collapsible id="explorer" order={1}>
-                <MemoriesExplorer
-                  carpetas={carpetas}
-                  query={busqueda.query}
-                  onQuery={busqueda.setQuery}
-                  activoId={activa.kind === 'note' ? activa.syncId : null}
-                  carpetaSeleccionada={carpeta}
-                  onSeleccionarCarpeta={setCarpeta}
-                  onOpen={alAbrir}
-                  onNew={() => abrirNueva('')}
-                  truncadas={grafo.truncated}
-                  ansi={ansi}
-                  cargando={grafo.loading && !grafo.graph}
-                />
+                {/* Con Settings activa, la lista de secciones. El explorer queda MONTADO (oculto):
+                    carpetas abiertas/cerradas, scroll y búsqueda siguen al volver (spec §3). */}
+                <div hidden={settingsActiva} className={cn('h-full', settingsActiva && 'hidden')}>
+                  <MemoriesExplorer
+                    carpetas={carpetas}
+                    query={busqueda.query}
+                    onQuery={busqueda.setQuery}
+                    activoId={activa.kind === 'note' ? activa.syncId : null}
+                    carpetaSeleccionada={carpeta}
+                    onSeleccionarCarpeta={setCarpeta}
+                    onOpen={alAbrir}
+                    onNew={() => abrirNueva('')}
+                    truncadas={grafo.truncated}
+                    ansi={ansi}
+                    cargando={grafo.loading && !grafo.graph}
+                  />
+                </div>
+                {activa.kind === 'settings' && (
+                  <SettingsSectionList secciones={SECCIONES_DE_SETTINGS} activa={activa.section} onElegir={abrirSettings} />
+                )}
               </Panel>
               <PanelResizeHandle className="w-px bg-border" />
               <Panel defaultSize={columnas[1]} minSize={30} id="centro" order={2} className="flex min-h-0 flex-col">
@@ -595,6 +559,24 @@ export default function MemoriesWorkspace({
                   {activa.kind === 'thread' && activeRepoPath && (
                     <div className="min-h-0 flex-1 overflow-y-auto p-3 [&_.team-thread-panel]:max-h-none">
                       <TeamThreadPanel activeRepoPath={activeRepoPath} onOpenFile={onOpenFile} />
+                    </div>
+                  )}
+
+                  {/* Settings: se monta sólo mientras está activa, así cada vuelta relee el estado
+                      de sync/cifrado/compartir (D3). Las notas siguen montadas detrás. */}
+                  {activa.kind === 'settings' && (
+                    <div className="min-h-0 flex-1 overflow-y-auto">
+                      <MemorySettingsTab
+                        seccion={activa.section}
+                        onSeccion={abrirSettings}
+                        activeRepoPath={activeRepoPath}
+                        onLinkRepo={onLinkRepo}
+                        hilo={hilo}
+                        prefs={prefsMem.prefs}
+                        prefsCargadas={prefsMem.cargadas}
+                        onPrefs={prefsMem.actualizar}
+                        onResetGraph={restablecerGrafo}
+                      />
                     </div>
                   )}
 
@@ -662,7 +644,7 @@ export default function MemoriesWorkspace({
               <PanelResizeHandle className="w-px bg-border" />
               <Panel ref={panelDerechoRef} defaultSize={columnas[2]} minSize={15} collapsible id="derecho" order={3}>
                 {/* Con Graph activa: filtros y leyenda. Con una nota: su panel, que la
-                    pestaña dibuja por portal acá. Con Team thread o New memory: vacío. */}
+                    pestaña dibuja por portal acá. Con Team thread, Settings o New memory: vacío. */}
                 <aside ref={setPanelDerechoEl} aria-label="Side panel" className="h-full overflow-y-auto">
                   {activa.kind === 'graph' && (
                     <GraphFiltersPanel

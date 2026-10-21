@@ -3,6 +3,7 @@
 import { useCallback, useMemo, useState } from 'react'
 import { toGraphData, type ColorBy, type Foco, type GraphData } from '../lib/memory-graph-visuals'
 import { esInferida } from '../lib/memory-graph-2d'
+import { FILTROS_POR_DEFECTO } from '../lib/memory-prefs'
 import type { MemoryGraph } from '../types'
 
 export interface GraphFilters {
@@ -22,12 +23,12 @@ const VACIO: GraphData = { nodes: [], links: [], orphansHidden: 0 }
  * botón las apaga a todas. `similar` además deja de pedirse a main (lo decide el workspace).
  */
 export function useGraphFilters(graph: MemoryGraph | null, ansi?: readonly string[], conInferidas = true) {
-  const [colorBy, setColorBy] = useState<ColorBy>('type')
+  const [colorBy, setColorBy] = useState<ColorBy>(FILTROS_POR_DEFECTO.colorBy)
   const [foco, setFoco] = useState<Foco>(null)
-  const [hideOrphans, setHideOrphans] = useState(true)
+  const [hideOrphans, setHideOrphans] = useState(FILTROS_POR_DEFECTO.hideOrphans)
   const [tiposOcultos, setTiposOcultos] = useState<ReadonlySet<string>>(() => new Set())
-  const [escalaDeNodo, setEscalaDeNodo] = useState(1)
-  const [distanciaDeLinks, setDistanciaDeLinks] = useState(50)
+  const [escalaDeNodo, setEscalaDeNodo] = useState(FILTROS_POR_DEFECTO.escalaDeNodo)
+  const [distanciaDeLinks, setDistanciaDeLinks] = useState(FILTROS_POR_DEFECTO.distanciaDeLinks)
 
   const toggleTipo = useCallback((tipo: string) => {
     setTiposOcultos((prev) => {
@@ -90,8 +91,18 @@ export function useGraphFilters(graph: MemoryGraph | null, ansi?: readonly strin
     [colorBy, foco, hideOrphans, tiposOcultos, escalaDeNodo, distanciaDeLinks],
   )
 
+  /** «Reset graph to defaults» (spec §5): filtros y fuerzas al arranque, y sin foco. */
+  const restablecer = useCallback(() => {
+    setColorBy(FILTROS_POR_DEFECTO.colorBy)
+    setFoco(null)
+    setHideOrphans(FILTROS_POR_DEFECTO.hideOrphans)
+    setTiposOcultos(new Set())
+    setEscalaDeNodo(FILTROS_POR_DEFECTO.escalaDeNodo)
+    setDistanciaDeLinks(FILTROS_POR_DEFECTO.distanciaDeLinks)
+  }, [])
+
   return {
     filtros, setColorBy, setFoco, setHideOrphans, toggleTipo, setEscalaDeNodo, setDistanciaDeLinks,
-    data, dataCompleta, conteoPorTipo,
+    data, dataCompleta, conteoPorTipo, restablecer,
   }
 }

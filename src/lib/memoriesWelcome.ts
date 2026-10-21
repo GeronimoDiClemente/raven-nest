@@ -10,12 +10,16 @@
 // un pedido explícito del usuario, no el disparo automático de la primera vez.
 export function shouldShowMemoriesWelcome(opts: {
   memoriesOpen: boolean
-  vista: 'memorias' | 'settings'
+  /** Memories se abrió desde Account → "Memory settings" (D5): no se tapa Settings con la
+   *  bienvenida de la primera vez. */
+  abiertaEnSettings: boolean
   forced: boolean
   hasSeenMemoriesWelcome: boolean
   e2eBypass: boolean
 }): boolean {
-  const { memoriesOpen, vista, forced, hasSeenMemoriesWelcome, e2eBypass } = opts
-  if (!memoriesOpen || vista !== 'memorias') return false
-  return forced || (!hasSeenMemoriesWelcome && !e2eBypass)
+  const { memoriesOpen, abiertaEnSettings, forced, hasSeenMemoriesWelcome, e2eBypass } = opts
+  if (!memoriesOpen) return false
+  // "How it works" vive siempre en el header: un pedido explícito se muestra siempre.
+  if (forced) return true
+  return !abiertaEnSettings && !hasSeenMemoriesWelcome && !e2eBypass
 }

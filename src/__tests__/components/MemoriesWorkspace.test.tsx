@@ -1,7 +1,7 @@
 // Spec §5.2: fila de estado arriba, grafo al centro, sin chips de scope. Las tres columnas
 // estilo Obsidian (explorer, pestañas, panel) se prueban en MemoriesWorkspace-obsidian.test.tsx.
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import MemoriesWorkspace from '../../components/MemoriesWorkspace'
 import { __reiniciarPestanas } from '../../hooks/useMemoryTabs'
 
@@ -35,9 +35,8 @@ const renderWorkspace = (props: {
   onClose?: () => void
   activeRepoPath?: string | null
   onLinkRepo?: () => void
-  vistaInicial?: 'memorias' | 'settings'
   onHowItWorks?: () => void
-  onVistaChange?: (vista: 'memorias' | 'settings') => void
+  pedidoDeSettings?: number
 } = {}) =>
   render(
     <MemoriesWorkspace
@@ -45,10 +44,8 @@ const renderWorkspace = (props: {
       activeRepoPath={props.activeRepoPath ?? null}
       onOpenFile={() => {}}
       onLinkRepo={props.onLinkRepo}
-      vistaInicial={props.vistaInicial}
       onHowItWorks={props.onHowItWorks ?? (() => {})}
-      onMemorySettingsTour={() => {}}
-      onVistaChange={props.onVistaChange}
+      pedidoDeSettings={props.pedidoDeSettings}
     />
   )
 
@@ -110,7 +107,7 @@ describe('MemoriesWorkspace', () => {
   // Task 6 (2026-10-19): la linea "Link a repo to also see its branches" vivia en el estado
   // vacio de esta vista — se mudo entera a la seccion "This project & team" de Memory
   // settings (Task 5), asi que las 4 pruebas que la ejercitaban aca se borraron. El
-  // contrato sigue existiendo, solo que en otro componente (MemorySettingsView.test.tsx).
+  // contrato sigue existiendo, solo que en otro componente (hoy, la pestaña Settings: MemorySettingsTab).
 
   it('la vista principal no tiene configuración', () => {
     renderWorkspace({ activeRepoPath: '/r' })
@@ -119,21 +116,32 @@ describe('MemoriesWorkspace', () => {
     expect(screen.queryByRole('button', { name: 'Turn on' })).toBeNull()
   })
 
-  it('Settings abre la vista de settings y Back vuelve a los nodos', () => {
+  it('el engranaje abre la pestaña Settings: secciones a la izquierda, Sync en el centro', async () => {
+    setMemoryApi(api({ onStatus: () => {}, removeStatusListener: () => {} }))
     renderWorkspace({ activeRepoPath: '/r' })
     fireEvent.click(screen.getByRole('button', { name: 'Memory settings' }))
-    expect(screen.getByText('Memory settings', { selector: '.tw-header-title' })).toBeInTheDocument()
-    // Nombre EXACTO, no /Memories/: esa regex tambien matchea el boton "How Memories
-    // works" del rail de Memory settings, y getByRole explota por ambiguo.
-    fireEvent.click(screen.getByRole('button', { name: 'Memories' }))
+    expect(screen.getByRole('tab', { name: /Settings/, selected: true })).toBeInTheDocument()
+    const nav = screen.getByRole('navigation', { name: 'Settings sections' })
+    expect(within(nav).getByRole('button', { name: 'Sync' })).toHaveAttribute('aria-current', 'page')
+    expect(screen.getByRole('heading', { name: 'Sync' })).toBeInTheDocument()
+    // El header no cambia: no hay "vista" de settings, sólo una pestaña más.
     expect(screen.getByText('Memories', { selector: '.tw-header-title' })).toBeInTheDocument()
   })
 
-  it('vistaInicial=settings abre directo en settings', () => {
-    renderWorkspace({ activeRepoPath: null, vistaInicial: 'settings' })
-    expect(screen.getByText('Memory settings', { selector: '.tw-header-title' })).toBeInTheDocument()
+  it('pedidoDeSettings (Account → Memory settings) abre directo en la pestaña Settings', () => {
+    setMemoryApi(api({ onStatus: () => {}, removeStatusListener: () => {} }))
+    renderWorkspace({ activeRepoPath: null, pedidoDeSettings: 1 })
+    expect(screen.getByRole('tab', { name: /Settings/, selected: true })).toBeInTheDocument()
   })
 
+  it('con Settings activa, Back cierra el overlay entero', () => {
+    setMemoryApi(api({ onStatus: () => {}, removeStatusListener: () => {} }))
+    const onClose = vi.fn()
+    renderWorkspace({ onClose })
+    fireEvent.click(screen.getByRole('button', { name: 'Memory settings' }))
+    fireEvent.click(screen.getByRole('button', { name: /back/i }))
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
   it('How it works llama al callback', () => {
     const onHowItWorks = vi.fn()
     renderWorkspace({ activeRepoPath: null, onHowItWorks })
@@ -144,32 +152,6 @@ describe('MemoriesWorkspace', () => {
   // El caso "un chip de tipo lo apaga en el grafo y esconde su fila en la lista" se fue con
   // la lista (20-10, Memories estilo Obsidian): los filtros por tipo son del grafo y el
   // explorer no se filtra por tipo. Lo cubre MemoriesWorkspace-obsidian.test.tsx.
-
-  // Review final de rama, IMPORTANT #5: antes, el unico dato que `App.tsx` tenia de la
-  // vista era `vistaInicial` (leida una sola vez, al montar) — navegar el rail puertas
-  // adentro (Settings → Back) no se lo avisaba a nadie. `onVistaChange` es el cable que
-  // faltaba: tiene que avisar el valor inicial AL MONTAR (no solo los cambios de ahi en
-  // mas), y despues cada navegacion interna.
-  it('onVistaChange avisa la vista inicial al montar y cada navegacion interna', () => {
-    const onVistaChange = vi.fn()
-    renderWorkspace({ activeRepoPath: '/r', onVistaChange })
-
-    expect(onVistaChange).toHaveBeenCalledWith('memorias')
-    onVistaChange.mockClear()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Memory settings' }))
-    expect(onVistaChange).toHaveBeenCalledWith('settings')
-    onVistaChange.mockClear()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Memories' }))
-    expect(onVistaChange).toHaveBeenCalledWith('memorias')
-  })
-
-  it('onVistaChange con vistaInicial=settings avisa "settings" desde el montaje', () => {
-    const onVistaChange = vi.fn()
-    renderWorkspace({ activeRepoPath: null, vistaInicial: 'settings', onVistaChange })
-    expect(onVistaChange).toHaveBeenCalledWith('settings')
-  })
 
   it('el boton de volver cierra', async () => {
     setMemoryApi(api())

@@ -4,7 +4,6 @@ import { worktreesTour } from './tours/worktrees'
 import { myReposTour } from './tours/my-repos'
 import { teamsTour } from './tours/teams'
 import { memoriesTour } from './tours/memories'
-import { memorySettingsTour } from './tours/memory-settings'
 
 /** All registered tours. */
 const tours: Record<string, TourDef> = {
@@ -12,7 +11,6 @@ const tours: Record<string, TourDef> = {
   [myReposTour.id]: myReposTour,
   [teamsTour.id]: teamsTour,
   [memoriesTour.id]: memoriesTour,
-  [memorySettingsTour.id]: memorySettingsTour,
 }
 
 export function getTour(id: TourId): TourDef | undefined {

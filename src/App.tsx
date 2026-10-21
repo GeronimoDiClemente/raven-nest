@@ -58,7 +58,6 @@ import TeamsWorkspace from './components/TeamsWorkspace'
 import PersonalWorkspace, { type Section as PersonalWorkspaceSection } from './components/PersonalWorkspace'
 import MemoriesWorkspace from './components/MemoriesWorkspace'
 import MemoriesWelcome from './components/MemoriesWelcome'
-import { EVENTO_SECCION } from './components/MemorySettingsView'
 import { shouldShowMemoriesWelcome } from './lib/memoriesWelcome'
 import { IntegrationsHub } from './components/IntegrationsHub'
 import { GraphBoard } from './components/GraphBoard'
@@ -248,21 +247,18 @@ export default function App() {
   const [personalOpen, setPersonalOpen] = useState(false)
   // Spec 2026-09-09 §4.1: Memories es hermana de Personal, con su propio overlay.
   const [memoriesOpen, setMemoriesOpen] = useState(false)
-  // Task 6 (2026-10-19): con que vista abre — los nodos (default) o Memory settings
-  // directo, que es lo que pide el boton "Account" de SettingsPanel.
-  const [memoriesVista, setMemoriesVista] = useState<'memorias' | 'settings'>('memorias')
-  // Review final de rama, IMPORTANT #5: la vista REAL que MemoriesWorkspace está
-  // dibujando ahora — `memoriesVista` es sólo la inicial (la prop `vistaInicial`, que la
-  // pantalla lee una vez al montar); navegar el rail puertas adentro no la toca. Ver el
-  // comentario de `onVistaChange` en MemoriesWorkspace.tsx.
-  const [memoriesVistaActual, setMemoriesVistaActual] = useState<'memorias' | 'settings'>('memorias')
+  // 2026-10-21 (spec Memory settings como pestaña §3, D5): Account → "Memory settings" abre
+  // Memories con la pestaña Settings activa. `pedidoDeSettings` cuenta los pedidos (el
+  // workspace atiende cada uno una vez); `memoriesEnSettings` sólo evita que la bienvenida de
+  // la primera vez tape Settings.
+  const [pedidoDeSettings, setPedidoDeSettings] = useState(0)
+  const [memoriesEnSettings, setMemoriesEnSettings] = useState(false)
   const abrirMemories = (vista?: 'memorias' | 'settings') => {
-    // Defensa en profundidad (fix round 1, Task 6): SOLO el literal 'settings' abre en
-    // settings. Un caller viejo o mal tipado que le pase el SyntheticEvent de un click (o
-    // cualquier otra cosa que no sea exactamente 'settings') cae a 'memorias' en vez de
-    // dejar `memoriesVista` con basura — el bug real estaba en Sidebar.tsx (MemoriesItem
-    // le pasaba el evento), pero esto evita que vuelva a pasar desde otro caller.
-    setMemoriesVista(vista === 'settings' ? 'settings' : 'memorias')
+    // Defensa en profundidad (fix round 1, Task 6 del 19-10): SOLO el literal 'settings' abre
+    // Settings. Un caller que pase el SyntheticEvent de un click cae al grafo.
+    const enSettings = vista === 'settings'
+    setMemoriesEnSettings(enSettings)
+    if (enSettings) setPedidoDeSettings((n) => n + 1)
     setMemoriesOpen(true)
   }
   // workspace-shell-design §1: la salida (zoomOut, 0.2s) necesita que el overlay
@@ -303,7 +299,7 @@ export default function App() {
   const [memoriesWelcome, setMemoriesWelcome] = useState(false)
   const showMemoriesWelcome = shouldShowMemoriesWelcome({
     memoriesOpen,
-    vista: memoriesVistaActual,
+    abiertaEnSettings: memoriesEnSettings,
     forced: memoriesWelcome,
     hasSeenMemoriesWelcome: settings.hasSeenMemoriesWelcome,
     e2eBypass: !!window.appFlags?.e2eBypass,
@@ -603,21 +599,6 @@ export default function App() {
   // section header or from Settings → Tutorial. No blind auto-launch — the tour
   // spotlights the live app, so it only makes sense once you're on that view.
   const [tutorialTour, setTutorialTour] = useState<import('./tutorial/types').TourId | null>(null)
-  // Review final de rama, MINOR: `onStepChange` del tour de Memory settings era una arrow
-  // inline — una funcion NUEVA en cada render de App, que es un render MUY frecuente (hay
-  // estado de pollings de puertos, terminales, etc. arriba). Si OnboardingTour la usa como
-  // dependencia de un efecto (o la pasa a algo que la compara por referencia), cada render
-  // de App volvia a disparar EVENTO_SECCION con el paso actual, pisando la seccion que el
-  // usuario ya habia navegado a mano durante el tour. `useCallback` + sólo dispatchear
-  // cuando el id de paso CAMBIA de verdad.
-  const ultimoPasoDelTourRef = useRef<string | null>(null)
-  useEffect(() => { ultimoPasoDelTourRef.current = null }, [tutorialTour])
-  const handleTourStepChange = useCallback((id: string) => {
-    if (tutorialTour !== 'memory-settings') return
-    if (ultimoPasoDelTourRef.current === id) return
-    ultimoPasoDelTourRef.current = id
-    window.dispatchEvent(new CustomEvent(EVENTO_SECCION, { detail: id }))
-  }, [tutorialTour])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -2226,10 +2207,6 @@ export default function App() {
       {/* Memories — el tercer overlay (spec §5.4), encima de Personal y del team workspace. */}
       {memoriesExit.visible && (
         <MemoriesWorkspace
-          // `key` por vista: forzar un remount cuando `memoriesVista` cambia es lo que hace
-          // que `vistaInicial` (solo se lee una vez, al montar) surta efecto cada vez que
-          // "Account" pide abrir directo en Memory settings.
-          key={memoriesVista}
           closing={memoriesExit.closing}
           onClose={() => setMemoriesOpen(false)}
           activeRepoPath={activeCellRepoPath ?? null}
@@ -2238,17 +2215,13 @@ export default function App() {
           // sin conflicto de z-index con el overlay — y setea repoPath en la pestaña activa,
           // que es de donde sale activeCellRepoPath. El grafo aparece sin salir de la pantalla.
           onLinkRepo={handleRepoLink}
-          vistaInicial={memoriesVista}
           ansi={temaPorId(
             userPrefs.prefs.ui_settings.terminalTheme,
             userPrefs.prefs.ui_settings.terminalThemesImportados ?? [],
           ).ansi}
-          // Task 7: el botón "How it works" del header reabre la bienvenida a pedido
-          // (forced, ver shouldShowMemoriesWelcome); "How Memories works" adentro de
-          // Memory settings arranca el tour del rail en vez de la bienvenida.
+          // Task 7: el botón "How it works" del header reabre la bienvenida a pedido (forced).
           onHowItWorks={() => setMemoriesWelcome(true)}
-          onMemorySettingsTour={() => setTutorialTour('memory-settings')}
-          onVistaChange={setMemoriesVistaActual}
+          pedidoDeSettings={pedidoDeSettings}
         />
       )}
 
@@ -2354,10 +2327,6 @@ export default function App() {
           <OnboardingTour
             steps={tour.steps}
             onClose={() => setTutorialTour(null)}
-            // El tour de Memory settings navega el rail (Task 5) disparando
-            // EVENTO_SECCION en vez de simular clicks sobre data-tour-id. Memoizada arriba
-            // (handleTourStepChange) — ver el comentario junto a su declaracion.
-            onStepChange={handleTourStepChange}
           />
         ) : null
       })()}

@@ -66,7 +66,7 @@ describe('la pantalla se entera de lo que escriben los agentes', () => {
   afterEach(() => { vi.restoreAllMocks() })
 
   it('se suscribe al montar y pide de nuevo cuando llega el aviso', async () => {
-    render(<MemoriesWorkspace onClose={() => {}} activeRepoPath={null} onOpenFile={() => {}} onHowItWorks={() => {}} onMemorySettingsTour={() => {}} />)
+    render(<MemoriesWorkspace onClose={() => {}} activeRepoPath={null} onOpenFile={() => {}} onHowItWorks={() => {}} />)
     await waitFor(() => expect(avisar).not.toBeNull())
     await waitFor(() => expect(vecesQuePidioElGrafo).toBeGreaterThan(0))
     const antes = vecesQuePidioElGrafo
@@ -79,7 +79,7 @@ describe('la pantalla se entera de lo que escriben los agentes', () => {
 
   // Contar pedidos no alcanza: lo que importa es que se VEA.
   it('la memoria que llega con el aviso aparece en el explorer', async () => {
-    render(<MemoriesWorkspace onClose={() => {}} activeRepoPath={null} onOpenFile={() => {}} onHowItWorks={() => {}} onMemorySettingsTour={() => {}} />)
+    render(<MemoriesWorkspace onClose={() => {}} activeRepoPath={null} onOpenFile={() => {}} onHowItWorks={() => {}} />)
     await waitFor(() => expect(screen.getAllByText('No memories yet').length).toBeGreaterThan(0))
 
     enLaBase = [{
@@ -101,7 +101,7 @@ describe('la pantalla se entera de lo que escriben los agentes', () => {
       gitBranch: null, originAi: null, authorDisplay: null, updatedAt: 1, tags: [],
       superseded: false,
     }]
-    render(<MemoriesWorkspace onClose={() => {}} activeRepoPath={null} onOpenFile={() => {}} onHowItWorks={() => {}} onMemorySettingsTour={() => {}} />)
+    render(<MemoriesWorkspace onClose={() => {}} activeRepoPath={null} onOpenFile={() => {}} onHowItWorks={() => {}} />)
     const explorer = within(document.querySelector('[data-tour-id="memories-explorer"]') as HTMLElement)
     fireEvent.click(await explorer.findByRole('button', { name: 'Abierta' }))
     await waitFor(() => expect(vecesQuePidioLaMemoria).toBe(1))
@@ -112,7 +112,7 @@ describe('la pantalla se entera de lo que escriben los agentes', () => {
   })
 
   it('da de baja la suscripción al desmontar', async () => {
-    const { unmount } = render(<MemoriesWorkspace onClose={() => {}} activeRepoPath={null} onOpenFile={() => {}} onHowItWorks={() => {}} onMemorySettingsTour={() => {}} />)
+    const { unmount } = render(<MemoriesWorkspace onClose={() => {}} activeRepoPath={null} onOpenFile={() => {}} onHowItWorks={() => {}} />)
     await waitFor(() => expect(avisar).not.toBeNull())
     unmount()
     expect(bajas).toBe(1)
@@ -123,7 +123,7 @@ describe('la pantalla se entera de lo que escriben los agentes', () => {
   it('sin `onChanged` en el preload, la pantalla monta igual', async () => {
     const api = (window as unknown as { memory: Record<string, unknown> }).memory
     delete api.onChanged
-    expect(() => render(<MemoriesWorkspace onClose={() => {}} activeRepoPath={null} onOpenFile={() => {}} onHowItWorks={() => {}} onMemorySettingsTour={() => {}} />)).not.toThrow()
+    expect(() => render(<MemoriesWorkspace onClose={() => {}} activeRepoPath={null} onOpenFile={() => {}} onHowItWorks={() => {}} />)).not.toThrow()
     await waitFor(() => expect(screen.getByText('Memories')).toBeInTheDocument())
   })
 })

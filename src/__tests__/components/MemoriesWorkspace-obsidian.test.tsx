@@ -44,6 +44,9 @@ const api = (over: Record<string, unknown> = {}) => ({
   vaultGetSettings: vi.fn().mockResolvedValue({ ok: false, error: 'memory_unavailable' }),
   teamThreadProjectKeyForWorktree: vi.fn().mockResolvedValue({ ok: false }),
   hubStats: vi.fn().mockResolvedValue({ itemCount: 0, projectCount: 0 }),
+  onStatus: () => {},
+  removeStatusListener: () => {},
+  encryptionStatus: vi.fn().mockResolvedValue({ available: false, active: false, keyEpoch: 0, pendingDevices: [], undecryptable: 0 }),
   ...over,
 })
 
@@ -72,7 +75,6 @@ const props = (over: Partial<{ activeRepoPath: string | null }> = {}) => ({
   activeRepoPath: over.activeRepoPath ?? null,
   onOpenFile: () => {},
   onHowItWorks: () => {},
-  onMemorySettingsTour: () => {},
 })
 
 const explorer = () => within(document.querySelector('[data-tour-id="memories-explorer"]') as HTMLElement)
@@ -409,54 +411,65 @@ describe('MemoriesWorkspace estilo Obsidian', () => {
     await waitFor(() => expect(updateFromUi).toHaveBeenCalledWith(expect.objectContaining({ syncId: 'a', title: 'Antes de cerrar' })))
   })
 
-  // Fix round 1: el hilo se prende/apaga en Memory settings (otra instancia del hook); al
-  // volver, la vista principal tiene que releerlo.
-  describe('Team thread y Memory settings', () => {
+  // El toggle de Branch notes vive en una pestaña del MISMO workspace: comparte el estado del
+  // hilo, así que la pestaña Team thread se entera en el acto (arreglo de Task 10 del 20-10).
+  describe('Team thread y la pestaña Settings', () => {
     let prendido = false
-    const apiDelHilo = (getSettings?: () => Promise<unknown>) => api({
+    const apiDelHilo = (over: Record<string, unknown> = {}) => api({
       graph: vi.fn().mockResolvedValue(grafoAB()),
       crossProject: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
       teamThreadProjectKeyForWorktree: vi.fn().mockResolvedValue({ ok: true, projectKey: 'proj1111aaaaaaaa' }),
-      teamThreadGetSettings: vi.fn().mockImplementation(getSettings ?? (async () => ({ ok: true, settings: { enabled: prendido, includedTypes: [], writeAgentsPointer: false } }))),
+      teamThreadGetSettings: vi.fn().mockImplementation(async () => ({ ok: true, settings: { enabled: prendido, includedTypes: [], writeAgentsPointer: false } })),
+      teamThreadSetSettings: vi.fn().mockResolvedValue({ ok: true }),
       teamThreadRead: vi.fn().mockResolvedValue({ ok: true, branches: [] }),
-      onStatus: () => {},
-      removeStatusListener: () => {},
-      encryptionStatus: vi.fn().mockResolvedValue({ available: false, active: false, keyEpoch: 0, pendingDevices: [], undecryptable: 0 }),
+      ...over,
     })
     beforeEach(() => {
       ;(window as unknown as { git: unknown }).git = { info: vi.fn().mockResolvedValue({ branch: 'main', remoteUrl: null, githubUrl: null, isDirty: false }) }
     })
-    const irYVolverDeSettings = async () => {
+    const abrirBranchNotes = async () => {
       fireEvent.click(screen.getByRole('button', { name: 'Memory settings' }))
-      fireEvent.click(screen.getByRole('button', { name: 'Memories' }))
+      fireEvent.click(within(screen.getByRole('navigation', { name: 'Settings sections' })).getByRole('button', { name: 'This project' }))
+      const sw = await screen.findByRole('switch', { name: /Branch notes/ })
+      await waitFor(() => expect(sw).not.toBeDisabled())
+      return sw
     }
 
-    it('prenderlo en Settings y volver: aparece la pestana', async () => {
+    it('prenderlo en Settings hace aparecer la pestaña Team thread, sin volver a ningún lado', async () => {
       prendido = false
-      setMemoryApi(apiDelHilo())
+      const teamThreadSetSettings = vi.fn().mockResolvedValue({ ok: true })
+      setMemoryApi(apiDelHilo({ teamThreadSetSettings }))
       render(<MemoriesWorkspace {...props({ activeRepoPath: '/r' })} />)
       await screen.findByRole('button', { name: 'node Otra' })
       expect(screen.queryByRole('tab', { name: /Team thread/ })).toBeNull()
-
-      prendido = true
-      await irYVolverDeSettings()
+      fireEvent.click(await abrirBranchNotes())
       expect(await screen.findByRole('tab', { name: /Team thread/ })).toBeInTheDocument()
+      expect(teamThreadSetSettings).toHaveBeenCalledWith('proj1111aaaaaaaa', '/r', { enabled: true })
+      expect(screen.getByRole('tab', { name: /Settings/, selected: true })).toBeInTheDocument()
     })
 
-    it('apagarlo en Settings con la pestana activa: desaparece y la activa vuelve a Graph', async () => {
+    it('apagarlo saca la pestaña; cerrar Settings vuelve a Graph', async () => {
       prendido = true
       setMemoryApi(apiDelHilo())
       render(<MemoriesWorkspace {...props({ activeRepoPath: '/r' })} />)
       fireEvent.click(await screen.findByRole('tab', { name: /Team thread/ }))
-      expect(screen.getByRole('tab', { name: /Team thread/, selected: true })).toBeInTheDocument()
-
-      prendido = false
-      await irYVolverDeSettings()
+      fireEvent.click(await abrirBranchNotes())
       await waitFor(() => expect(screen.queryByRole('tab', { name: /Team thread/ })).toBeNull())
+      fireEvent.click(within(screen.getByRole('tab', { name: /Settings/ })).getByRole('button', { name: 'Close tab' }))
       expect(screen.getByRole('tab', { name: /Graph/, selected: true })).toBeInTheDocument()
     })
 
-    it('al reabrir el overlay, la pestana del hilo no se cae mientras se vuelve a leer', async () => {
+    it('un rechazo al cambiarlo muestra el motivo y no saca la pestaña (Review Focus 3)', async () => {
+      prendido = true
+      setMemoryApi(apiDelHilo({ teamThreadSetSettings: vi.fn().mockResolvedValue({ ok: false, message: 'Your plan does not include team sharing.' }) }))
+      render(<MemoriesWorkspace {...props({ activeRepoPath: '/r' })} />)
+      expect(await screen.findByRole('tab', { name: /Team thread/ })).toBeInTheDocument()
+      fireEvent.click(await abrirBranchNotes())
+      expect(await screen.findByText('Your plan does not include team sharing.')).toBeInTheDocument()
+      expect(screen.getByRole('tab', { name: /Team thread/ })).toBeInTheDocument()
+    })
+
+    it('al reabrir el overlay, la pestaña del hilo no se cae mientras se vuelve a leer', async () => {
       prendido = true
       setMemoryApi(apiDelHilo())
       const { unmount } = render(<MemoriesWorkspace {...props({ activeRepoPath: '/r' })} />)
@@ -464,14 +477,68 @@ describe('MemoriesWorkspace estilo Obsidian', () => {
       unmount()
 
       let responder: ((v: unknown) => void) | null = null
-      setMemoryApi(apiDelHilo(() => new Promise((r) => { responder = r })))
+      setMemoryApi(apiDelHilo({ teamThreadGetSettings: vi.fn().mockImplementation(() => new Promise((r) => { responder = r })) }))
       render(<MemoriesWorkspace {...props({ activeRepoPath: '/r' })} />)
       await waitFor(() => expect(responder).not.toBeNull())
-      // Leyendo: la pestana de la sesion sigue, y sigue activa.
       expect(screen.getByRole('tab', { name: /Team thread/, selected: true })).toBeInTheDocument()
-
       responder!({ ok: true, settings: { enabled: true, includedTypes: [], writeAgentsPointer: false } })
       await waitFor(() => expect(screen.getByRole('tab', { name: /Team thread/, selected: true })).toBeInTheDocument())
+    })
+  })
+
+  describe('la pestaña Settings', () => {
+    const conGrafo = (over: Record<string, unknown> = {}) => api({
+      graph: vi.fn().mockResolvedValue(grafoAB()),
+      crossProject: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
+      observation: vi.fn().mockImplementation(async (id: string) => detalle(id)),
+      ...over,
+    })
+
+    it('el explorer muestra las secciones; al volver, las carpetas y la búsqueda siguen', async () => {
+      setMemoryApi(conGrafo())
+      render(<MemoriesWorkspace {...props()} />)
+      fireEvent.change(await screen.findByRole('textbox', { name: 'Search memories' }), { target: { value: 'auth' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Memory settings' }))
+      const nav = screen.getByRole('navigation', { name: 'Settings sections' })
+      expect(within(nav).getAllByRole('button').map((b) => b.textContent))
+        .toEqual(['Sync', 'Encryption', 'Editor & graph', 'This project', 'Notes on disk', 'Advanced'])
+      expect(screen.queryByRole('textbox', { name: 'Search memories' })).toBeNull()
+      fireEvent.click(within(nav).getByRole('button', { name: 'Advanced' }))
+      expect(within(nav).getByRole('button', { name: 'Advanced' })).toHaveAttribute('aria-current', 'page')
+      expect(screen.getByRole('heading', { name: 'Advanced' })).toBeInTheDocument()
+      fireEvent.click(screen.getByRole('tab', { name: /Graph/ }))
+      expect(screen.queryByRole('navigation', { name: 'Settings sections' })).toBeNull()
+      expect(screen.getByRole('textbox', { name: 'Search memories' })).toHaveValue('auth')
+    })
+
+    it('Ctrl+W con Settings activa cierra la pestaña y no llega a la ventana (Review Focus 4)', async () => {
+      setMemoryApi(conGrafo())
+      render(<MemoriesWorkspace {...props()} />)
+      fireEvent.click(screen.getByRole('button', { name: 'Memory settings' }))
+      const enWindow = vi.fn()
+      window.addEventListener('keydown', enWindow)
+      try {
+        const ev = new KeyboardEvent('keydown', { key: 'w', ctrlKey: true, bubbles: true, cancelable: true })
+        fireEvent(raiz(), ev)
+        await waitFor(() => expect(screen.queryByRole('tab', { name: /Settings/ })).toBeNull())
+        expect(ev.defaultPrevented).toBe(true)
+        expect(enWindow).not.toHaveBeenCalled()
+        expect(screen.getByRole('tab', { name: /Graph/, selected: true })).toBeInTheDocument()
+      } finally {
+        window.removeEventListener('keydown', enWindow)
+      }
+    })
+
+    it('una nota sin guardar sigue montada detrás de Settings y se guarda (Review Focus 5)', async () => {
+      const updateFromUi = vi.fn().mockResolvedValue({ ok: true, saved: { title: 'Escrito antes', content: 'Cuerpo' } })
+      setMemoryApi(conGrafo({ updateFromUi }))
+      render(<MemoriesWorkspace {...props()} />)
+      await abrirA()
+      fireEvent.change(screen.getByRole('textbox', { name: 'Memory title' }), { target: { value: 'Escrito antes' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Memory settings' }))
+      await waitFor(() => expect(updateFromUi).toHaveBeenCalledWith(expect.objectContaining({ syncId: 'a', title: 'Escrito antes' })), { timeout: 3000 })
+      fireEvent.click(screen.getByRole('tab', { name: /Escrito antes|Auth pasa a cookies/ }))
+      expect(screen.getByRole('textbox', { name: 'Memory title' })).toHaveValue('Escrito antes')
     })
   })
 

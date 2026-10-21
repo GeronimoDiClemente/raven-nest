@@ -3,7 +3,7 @@ import { shouldShowMemoriesWelcome } from '../../lib/memoriesWelcome'
 
 const base = {
   memoriesOpen: true,
-  vista: 'memorias' as const,
+  abiertaEnSettings: false,
   forced: false,
   hasSeenMemoriesWelcome: false,
   e2eBypass: false,
@@ -34,7 +34,8 @@ describe('shouldShowMemoriesWelcome', () => {
     expect(shouldShowMemoriesWelcome({ ...base, memoriesOpen: false, forced: true })).toBe(false)
   })
 
-  it('never shows on the Memory settings view', () => {
-    expect(shouldShowMemoriesWelcome({ ...base, vista: 'settings', forced: true })).toBe(false)
+  it('no se auto-muestra si Memories abrió desde Account → Memory settings, pero How it works sí', () => {
+    expect(shouldShowMemoriesWelcome({ ...base, abiertaEnSettings: true })).toBe(false)
+    expect(shouldShowMemoriesWelcome({ ...base, abiertaEnSettings: true, forced: true })).toBe(true)
   })
 })
