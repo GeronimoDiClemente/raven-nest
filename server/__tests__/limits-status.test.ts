@@ -37,3 +37,17 @@ describe('status — la cuota y el intervalo salen del plan', () => {
     expect(res.quota.max_bytes).toBe(5 * 1024 ** 3)
   })
 })
+
+describe('status — informa el tope de proyectos del plan (spec 2b-1 §4.2)', () => {
+  // team/enterprise = el de Teams, que hoy hereda el de Cloud (TEAM = { ...CLOUD } en limits.ts).
+  it.each([
+    ['free', 1],
+    ['cloud', 100],
+    ['pro', 100],
+    ['team', 100],
+    ['enterprise', 100],
+  ])('%s → max_projects %i', async (plan, max) => {
+    const res = await handleStatus(pool, await seed(plan))
+    expect(res.limits).toEqual({ max_projects: max })
+  })
+})

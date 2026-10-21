@@ -11,7 +11,7 @@ estado propio — todo vive en Postgres — que habla el contrato de wire §5: `
 |---|---|---|
 | `POST /v1/sync/push` | `/functions/v1/memory-sync/push` | §5.1 — aplica mutaciones, una transacción por mutación, idempotente por `(device_id, seq)`. |
 | `POST /v1/sync/pull` | `/functions/v1/memory-sync/pull` | §5.2 — filas nuevas por cursor de proyecto. |
-| `GET /v1/sync/status` | — | §5.3 — identidad del device, plan, cuota y `next_poll_ms`. |
+| `GET /v1/sync/status` | — | §5.3 — identidad del device, plan, cuota, `next_poll_ms` y el tope de proyectos del plan (`limits.max_projects`, spec 2b-1). |
 | `POST /v1/sync/delete-data` | `/functions/v1/memory-sync/delete-cloud-data` | §5.5 — el derecho al borrado (§6.6/§7.5 del doc de arquitectura). Borra las observaciones, los proyectos y los push receipts del usuario autenticado en **una** transacción y devuelve los conteos. **No** borra el usuario ni sus devices: es "borrá mi copia de nube", no "borrá mi cuenta", así que el token con el que llamó sigue sirviendo. El alias existe porque `electron/main.ts` todavía postea a la ruta vieja y sólo mira `res.ok` — un 404 ahí rompe el borrado **en silencio**. |
 | `GET /health` | — | Sin token. |
 

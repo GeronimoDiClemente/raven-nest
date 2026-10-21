@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest'
-import { limitsFor, maxBytesFor, resolveMaxBytes } from '../src/limits'
+import { limitsFor, maxBytesFor, resolveMaxBytes, statusLimitsFor } from '../src/limits'
 
 const GIB = 1024 ** 3
 const FREE_BYTES = 100 * 1024 * 1024
@@ -96,5 +96,27 @@ describe('maxBytesFor — el override de instancia dedicada', () => {
   it('un valor invalido no afloja el techo de Free', () => {
     process.env.MAX_BYTES_PER_USER = 'abc'
     expect(maxBytesFor('free')).toBe(FREE_BYTES)
+  })
+})
+
+// Spec 2b-1 §4.2: lo que `status` le informa al cliente del tope de proyectos. Puro, para que
+// el contrato se pruebe sin Postgres.
+describe('statusLimitsFor — el tope que status le informa a la app', () => {
+  it('Free: un proyecto', () => {
+    expect(statusLimitsFor('free')).toEqual({ max_projects: 1 })
+  })
+
+  it('Cloud y pro: 100', () => {
+    expect(statusLimitsFor('cloud')).toEqual({ max_projects: 100 })
+    expect(statusLimitsFor('pro')).toEqual({ max_projects: 100 })
+  })
+
+  it('team y enterprise: el de Teams', () => {
+    expect(statusLimitsFor('team')).toEqual({ max_projects: limitsFor('team').maxProjects })
+    expect(statusLimitsFor('enterprise')).toEqual({ max_projects: limitsFor('team').maxProjects })
+  })
+
+  it('un plan desconocido cae a Free: fallar cerrado', () => {
+    expect(statusLimitsFor('legacy')).toEqual({ max_projects: 1 })
   })
 })

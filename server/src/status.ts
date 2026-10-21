@@ -1,5 +1,5 @@
 import type { Pool } from 'pg'
-import { limitsFor, maxBytesFor } from './limits'
+import { limitsFor, maxBytesFor, statusLimitsFor } from './limits'
 
 export interface StatusRosterProject {
   project_key: string
@@ -17,6 +17,11 @@ export interface StatusResponse {
   next_poll_ms: number
   server_time: string
   quota: { used_bytes: number; max_bytes: number }
+  /**
+   * Spec 2b-1 §4.2: el tope de proyectos del plan, para que la app muestre "1 of 1" y explique
+   * por qué un repo quedó sólo en la máquina. Aditivo: un cliente viejo lo ignora.
+   */
+  limits: { max_projects: number }
   // §5.3.1: the roster — keys and display names only, NEVER rows. `handlePull` only ever
   // returns rows for cursors the device already sent (the M25 hot-loop guarantee), so a
   // project a device has never seen locally can never surface through pull no matter how
@@ -108,6 +113,7 @@ export async function handleStatus(
     // `quota_exceeded`, así que lo que el cliente ve informado acá es exactamente el techo
     // que se le va a aplicar — override de instancia dedicada incluido.
     quota: { used_bytes: Number(rows[0].used), max_bytes: maxBytesFor(auth.plan) },
+    limits: statusLimitsFor(auth.plan),
     projects: projectRows.map((r) => ({
       project_key: r.project_key,
       display_name: r.display_name,

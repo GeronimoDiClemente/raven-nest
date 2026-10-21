@@ -104,3 +104,13 @@ export function resolveMaxBytes(raw: string | undefined, planMaxBytes: number): 
 export function maxBytesFor(plan: string): number {
   return resolveMaxBytes(process.env.MAX_BYTES_PER_USER, limitsFor(plan).maxBytes)
 }
+
+/**
+ * Lo que `GET /v1/sync/status` le informa a la app de los topes del plan (spec 2b-1 §4.2).
+ * Sólo el de proyectos: es el único que la app necesita para decir "1 of 1" y por qué un repo
+ * quedó sólo en la máquina. Sale de `limitsFor`, la misma fuente que aplica el rechazo
+ * `project_limit_reached` en `push.ts`: lo informado y lo aplicado no pueden divergir.
+ */
+export function statusLimitsFor(plan: string): { max_projects: number } {
+  return { max_projects: limitsFor(plan).maxProjects }
+}
