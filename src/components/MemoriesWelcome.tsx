@@ -2,7 +2,8 @@
 // Task 7 (2026-10-19, spec §4/§5): lo primero que ve quien abre Memories por primera
 // vez (y lo que "How Memories works" vuelve a mostrar a pedido). Una escena concreta
 // de dos agentes dejando y leyendo una memoria, los cuatro alcances en los que importa,
-// y la salida a la acción: el tour de 5 pasos o seguir solo.
+// y la salida a la acción: el tour (tantos pasos como tenga) o seguir solo. Es el único
+// «How it works» de Memories (spec 2026-10-21 §7).
 import {
   Dialog,
   DialogContent,
@@ -11,6 +12,7 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { NOMBRE_DEL_PAQUETE } from '@/lib/nombre-del-paquete'
+import { memoriesTour } from '@/tutorial/tours/memories'
 
 interface Props {
   onTour: () => void
@@ -55,7 +57,7 @@ export default function MemoriesWelcome({ onTour, onSkip }: Props) {
           <Button variant="ghost" onClick={onSkip}>
             Skip — I&apos;ll look on my own
           </Button>
-          <Button onClick={onTour}>Show me around · 5 steps</Button>
+          <Button onClick={onTour}>Show me around · {memoriesTour.steps.length} steps</Button>
         </div>
       </DialogContent>
     </Dialog>

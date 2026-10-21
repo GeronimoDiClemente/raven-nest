@@ -78,4 +78,11 @@ describe('section tours (my-repos, teams, memories)', () => {
       })
     })
   }
+
+  it('el último paso de memories apunta al engranaje y dice qué hay en Settings', () => {
+    const ultimo = getTour('memories')!.steps.at(-1)!
+    expect(ultimo.anchor).toBe('[data-tour-id="memories-settings"]')
+    expect(ultimo.body.en).toMatch(/editor/i)
+    expect(ultimo.body.en).not.toMatch(/How Memories works/)
+  })
 })

@@ -44,7 +44,7 @@ export const memoriesTour: TourDef = {
       id: 'settings',
       anchor: '[data-tour-id="memories-settings"]',
       title: en('Everything else lives here'),
-      body: en('Sync between machines, encryption, sharing with your team. "How Memories works" in there walks you through it.'),
+      body: en('Settings opens as a tab: sync between your machines, encryption, editor and graph options, and the settings of the project you have open.'),
       placement: 'left',
     },
   ],
