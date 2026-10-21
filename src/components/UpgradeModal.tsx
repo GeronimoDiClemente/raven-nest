@@ -132,26 +132,27 @@ export default function UpgradeModal({ currentPlan, onClose }: Props) {
                   {plan.id === 'team' ? (
                     // Teams es venta asistida: sin precio de lista, el CTA es la demo.
                     <span className="upgrade-plan-price">Custom</span>
+                  ) : plan.id === 'cloud' ? (
+                    // Un solo ítem del flex de .upgrade-plan-pricing: toggle arriba, precio, nota anual.
+                    <div className="flex w-full flex-col items-start gap-1">
+                      <div role="group" aria-label="Billing" className="inline-flex gap-1 rounded-lg border border-border p-0.5">
+                        {(['monthly', 'annual'] as const).map((i) => (
+                          <Button key={i} type="button" size="xs" variant={interval === i ? 'secondary' : 'ghost'}
+                            aria-pressed={interval === i} onClick={() => setIntervalo(i)}>
+                            {i === 'monthly' ? 'Monthly' : 'Annual'}
+                          </Button>
+                        ))}
+                      </div>
+                      <div className="flex items-baseline gap-1">
+                        <span className="upgrade-plan-price">{`$${interval === 'annual' ? CLOUD_ANNUAL_MONTHLY_PRICE : CLOUD_MONTHLY_PRICE}`}</span>
+                        <span className="upgrade-plan-period">/mo</span>
+                      </div>
+                      {interval === 'annual' && (
+                        <span className="text-fs-sm text-muted-foreground">billed ${CLOUD_ANNUAL_PRICE} yearly</span>
+                      )}
+                    </div>
                   ) : (
-                    <>
-                      {plan.id === 'cloud' && (
-                        <div role="group" aria-label="Billing" className="mb-2 inline-flex gap-1 rounded-lg border border-border p-0.5">
-                          {(['monthly', 'annual'] as const).map((i) => (
-                            <Button key={i} type="button" size="xs" variant={interval === i ? 'secondary' : 'ghost'}
-                              aria-pressed={interval === i} onClick={() => setIntervalo(i)}>
-                              {i === 'monthly' ? 'Monthly' : 'Annual'}
-                            </Button>
-                          ))}
-                        </div>
-                      )}
-                      <span className="upgrade-plan-price">
-                        {plan.id === 'cloud' ? `$${interval === 'annual' ? CLOUD_ANNUAL_MONTHLY_PRICE : CLOUD_MONTHLY_PRICE}` : '$0'}
-                      </span>
-                      {plan.id === 'cloud' && <span className="upgrade-plan-period">/mo</span>}
-                      {plan.id === 'cloud' && interval === 'annual' && (
-                        <span className="block w-full text-fs-sm text-muted-foreground">billed ${CLOUD_ANNUAL_PRICE} yearly</span>
-                      )}
-                    </>
+                    <span className="upgrade-plan-price">$0</span>
                   )}
                 </div>
 
