@@ -140,7 +140,7 @@ import { usarAbridorPorDefecto, usarAbridorDeLecturaPorDefecto } from './sqlite-
 import { resolveGitInfoForCwd } from './git-info'
 import { abrirConBetterSqlite3, abrirSoloLecturaConBetterSqlite3 } from './sqlite-better'
 import { MemoryIpcServer } from './memory-ipc-server'
-import { MemoryDaemon, TEAM_KEY_HOLD_REASONS } from './memory-daemon'
+import { MemoryDaemon, TEAM_KEY_HOLD_REASONS, MOTIVO_TOPE_DE_PROYECTOS } from './memory-daemon'
 import { reconcileSessions } from './memory-sessions'
 import { buildDoctorReport } from './memory-doctor'
 import { actualizarDesdeUi, type PedidoDeActualizacion } from './memory-update-from-ui'
@@ -3766,6 +3766,8 @@ ipcMain.handle('memory:teamEncryption:recrypt', async (_e, teamId: string) => mi
 
 ipcMain.handle('memory:status', () => {
   if (!memory) return { connected: false, deviceId: null, itemCount: 0, pendingCount: 0, daemonStatus: 'error' as const, unavailable: true }
+  // Spec 2b-1 §4.4: el roster con nombres LOCALES — el del servidor viaja cifrado (D1).
+  const clavesEnLaNube = memory.daemon.getCloudProjectKeys()
   return {
     connected: memoryConnectionState.connected,
     deviceId: memoryConnectionState.deviceId,
@@ -3783,6 +3785,11 @@ ipcMain.handle('memory:status', () => {
      */
     daemonStatusDetail: memory.daemon.getStatusDetail(),
     quota: memory.daemon.getQuota() ?? undefined,
+    /** Spec 2b-1 §4.2: el tope de proyectos del plan, tal como lo informó el servidor. */
+    limits: memory.daemon.getLimits() ?? undefined,
+    /** Spec 2b-1 §4.4: lo que ocupa lugar en la nube (sin __global__). Undefined hasta el
+     *  primer status: "sin roster todavía", y la fila no se muestra. */
+    cloudProjects: clavesEnLaNube ? memory.store.nombresDeProyectos(clavesEnLaNube) : undefined,
     /**
      * Si esta cuenta puede compartir memoria con otras personas.
      *
@@ -4018,12 +4025,14 @@ ipcMain.handle('memory:sessions', () => {
 
 // Spec §7.1: "if sync is blocked, fail loudly and visibly."
 ipcMain.handle('memory:doctor', () => {
-  if (!memory) return { ok: false, blockedTotal: 0, groups: [] }
+  if (!memory) return { ok: false, blockedTotal: 0, groups: [], localOnlyProjects: [] }
   return {
     ok: true,
     ...buildDoctorReport(memory.store.blockedMutations(), {
       undecryptable: memory.store.undecryptableCount(),
     }),
+    // Spec 2b-1 §4.3: qué repos quedaron sólo en esta máquina por el tope del plan, y cuánto.
+    localOnlyProjects: memory.store.proyectosRetenidosPor(MOTIVO_TOPE_DE_PROYECTOS),
   }
 })
 

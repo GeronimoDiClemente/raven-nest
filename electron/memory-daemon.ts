@@ -68,6 +68,9 @@ export type DaemonStatus = 'idle' | 'syncing' | 'paused' | 'error' | 'plan_requi
 // payload, sellado con la clave de equipo, aplica en cuanto este device la adopte.
 export const REVERSIBLE_REJECTIONS = new Set(['project_limit_reached', 'quota_exceeded', 'project_not_shared_with_team', 'team_encryption_required'])
 
+/** Spec 2b-1: el motivo con el que el servidor rechaza un proyecto por encima del tope del plan. */
+export const MOTIVO_TOPE_DE_PROYECTOS = 'project_limit_reached'
+
 /** Task 14: lo que libera `onTeamKeysChanged()`: la retención local (`team_key_missing`, el
  * gate de `doPush`) y el rechazo equivalente del servidor. */
 export const TEAM_KEY_HOLD_REASONS = ['team_key_missing', 'team_encryption_required'] as const
@@ -99,6 +102,8 @@ export interface StatusResponseBody {
   next_poll_ms?: number
   server_time?: string
   quota?: { used_bytes: number; max_bytes: number }
+  /** Spec 2b-1 §4.2: el tope de proyectos del plan. Ausente en un servicio viejo: "no sé". */
+  limits?: { max_projects?: unknown }
   /**
    * Absent entirely on an older service or the pre-roster stub — that means "no discovery
    * available", not an error, so `status()` must treat a missing field as a no-op rather
@@ -353,6 +358,10 @@ export class MemoryDaemon {
   // Se retiene entre respuestas porque un `status` sin el campo significa "no vino este
   // tick", no "el usuario ya no tiene cuota".
   private lastQuota: { used_bytes: number; max_bytes: number } | null = null
+  // Spec 2b-1 §4.2: el tope de proyectos que informó el servidor y las keys del roster (sin
+  // __global__). Los dos son de la cuenta del store actual: `setStore` los vacía (D10).
+  private lastLimits: { max_projects: number } | null = null
+  private lastCloudProjectKeys: string[] | null = null
   // M19: concurrent triggers (e.g. a debounced push firing at the same moment as the
   // 5-minute interval's drain) used to fire independent overlapping requests — double
   // POSTs of the same batch, or a later pull's cursor write racing an earlier one's.
@@ -489,6 +498,10 @@ export class MemoryDaemon {
     // La cuenta nueva tiene su propia época, y todavía no la preguntamos. Dejarlo en true
     // haría que el primer push de la cuenta nueva salga sin saber si cifra.
     this.primerStatusOk = false
+    // El tope y el roster son de la cuenta anterior: mostrarlos con la nueva sería mostrarle
+    // repos ajenos hasta el próximo status.
+    this.lastLimits = null
+    this.lastCloudProjectKeys = null
   }
 
   private setStatus(status: DaemonStatus, detail?: string): void {
@@ -568,6 +581,16 @@ export class MemoryDaemon {
   /** La ultima cuota reportada por el servidor, o null si todavia no reporto ninguna. */
   getQuota(): { used_bytes: number; max_bytes: number } | null {
     return this.lastQuota
+  }
+
+  /** El último tope de proyectos que informó el servidor, o null si todavía no informó ninguno. */
+  getLimits(): { max_projects: number } | null {
+    return this.lastLimits
+  }
+
+  /** Las keys del último roster de la nube, sin `__global__`; null si todavía no llegó ninguno. */
+  getCloudProjectKeys(): string[] | null {
+    return this.lastCloudProjectKeys
   }
 
   /**
@@ -1242,10 +1265,20 @@ export class MemoryDaemon {
           store.unblockMutations(['quota_exceeded'])
         }
       }
+      // Spec 2b-1 §4.2. Un campo ausente o roto es "no vino": se conserva el último conocido.
+      const maxProjects = body.limits?.max_projects
+      if (typeof maxProjects === 'number' && Number.isFinite(maxProjects) && maxProjects >= 0) {
+        this.lastLimits = { max_projects: maxProjects }
+      }
 
       // A missing `projects` field means "no discovery available" — an older service, or
       // the pre-roster stub — not an error. Nothing to register, not a failure.
       if (Array.isArray(body.projects)) {
+        // Spec 2b-1 §4.4: qué proyectos ocupan lugar en la nube. `__global__` no cuenta contra el
+        // tope (server/src/push.ts), así que tampoco se muestra.
+        this.lastCloudProjectKeys = body.projects
+          .map((p) => p?.project_key)
+          .filter((k): k is string => typeof k === 'string' && k !== '' && k !== GLOBAL_PROJECT_KEY)
         const known = new Set(store.listProjects().map((p) => p.projectKey))
         let aprendioUnShare = false
         for (const project of body.projects) {

@@ -1059,6 +1059,10 @@ declare global {
          * limites de nube los hace cumplir el servicio y el cliente los muestra.
          */
         quota?: { used_bytes: number; max_bytes: number }
+        /** Spec 2b-1 §4.2: el tope de proyectos del plan. Ausente hasta el primer status. */
+        limits?: { max_projects: number }
+        /** Spec 2b-1 §4.4: los proyectos que ocupan lugar en la nube, con nombre local. */
+        cloudProjects?: Array<{ projectKey: string; name: string }>
         /**
          * True when main's memory subsystem never initialized. The preload exposes
          * `window.memory` unconditionally, so its mere presence proves nothing — this
@@ -1214,6 +1218,8 @@ declare global {
         ok: boolean
         blockedTotal: number
         groups: Array<{ reason: string; count: number; oldestAt: number; reversible: boolean }>
+        /** Spec 2b-1 §4.3: los repos que quedaron sólo en esta máquina por el tope del plan. */
+        localOnlyProjects?: Array<{ projectKey: string; name: string; count: number }>
       }>
       /** Spec §11 riesgo 2 — cuan atrasado esta el vault respecto de la base. */
       vaultHealth?: () => Promise<{

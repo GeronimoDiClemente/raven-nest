@@ -70,6 +70,34 @@ describe('proyectosRetenidosPor', () => {
     ).run()
     expect(store.proyectosRetenidosPor('project_limit_reached')).toEqual([{ projectKey: 'k-api', name: 'api', count: 1 }])
   })
+
+  it('cuenta memorias distintas, no filas del log: editar una retenida no la duplica', () => {
+    store.ensureProject({ projectKey: 'k-api', displayName: 'api' })
+    const { syncId } = store.save({ projectKey: 'k-api', type: 'decision', title: 'una', content: 'first version of the memory', source: 'mcp' })
+    store.update({ syncId, content: 'second version of the memory' })
+    store.update({ syncId, content: 'third version of the memory' })
+    const propias = store.pendingMutations(10_000)
+    expect(propias.length).toBeGreaterThan(1)
+    store.blockMutations(propias.map((m) => ({ seq: m.seq, reason: 'project_limit_reached' })))
+    expect(store.proyectosRetenidosPor('project_limit_reached')).toEqual([{ projectKey: 'k-api', name: 'api', count: 1 }])
+  })
+
+  it('sólo cuenta lo de la cuenta actual: lo retenido de otra cuenta no aparece tras el cambio', () => {
+    store.setCurrentUser('user-a')
+    store.ensureProject({ projectKey: 'k-api', displayName: 'api' })
+    guardarYRetener('k-api', 2)
+    expect(store.proyectosRetenidosPor('project_limit_reached')).toEqual([{ projectKey: 'k-api', name: 'api', count: 2 }])
+
+    store.setCurrentUser('user-b')
+    expect(store.proyectosRetenidosPor('project_limit_reached')).toEqual([])
+
+    store.ensureProject({ projectKey: 'k-web', displayName: 'web' })
+    guardarYRetener('k-web', 1)
+    expect(store.proyectosRetenidosPor('project_limit_reached')).toEqual([{ projectKey: 'k-web', name: 'web', count: 1 }])
+
+    store.setCurrentUser('user-a')
+    expect(store.proyectosRetenidosPor('project_limit_reached')).toEqual([{ projectKey: 'k-api', name: 'api', count: 2 }])
+  })
 })
 
 describe('nombresDeProyectos (Review Focus 4)', () => {

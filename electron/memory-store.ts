@@ -2382,24 +2382,31 @@ export class MemoryStore {
    * store no importa del daemon — mismo criterio que `heldTeamMutationCount`), agrupadas por
    * proyecto. `__global__` nunca aparece: no ocupa lugar en la nube (server/src/push.ts). Un
    * payload ilegible se saltea. Más retenidas primero.
+   *
+   * Sólo lo de la cuenta actual, con el mismo filtro que `pendingMutations` (`author_user_id
+   * IS ?`): sin eso, tras cambiar de cuenta la nueva veía como «Local only» los repos de la
+   * anterior. Y cuenta memorias (`sync_id` distintos), no filas del log: editar tres veces una
+   * memoria retenida deja tres upserts, pero sigue siendo UNA memoria en esta máquina.
    */
   proyectosRetenidosPor(reason: string): Array<{ projectKey: string; name: string; count: number }> {
     const filas = this.db
-      .prepare('SELECT payload FROM mutation_log WHERE pushed_at IS NULL AND blocked_reason = ?')
-      .all(reason) as Array<{ payload: string }>
-    const porProyecto = new Map<string, number>()
-    for (const { payload } of filas) {
+      .prepare('SELECT sync_id, payload FROM mutation_log WHERE pushed_at IS NULL AND blocked_reason = ? AND author_user_id IS ?')
+      .all(reason, this.currentUserId) as Array<{ sync_id: string; payload: string }>
+    const porProyecto = new Map<string, Set<string>>()
+    for (const { sync_id, payload } of filas) {
       let p: unknown
       try { p = JSON.parse(payload) } catch { continue }
       if (typeof p !== 'object' || p === null) continue
       const pk = (p as Record<string, unknown>).project_key
       const key = typeof pk === 'string' && pk !== '' ? pk : GLOBAL_PROJECT_KEY
       if (key === GLOBAL_PROJECT_KEY) continue
-      porProyecto.set(key, (porProyecto.get(key) ?? 0) + 1)
+      let memorias = porProyecto.get(key)
+      if (!memorias) porProyecto.set(key, (memorias = new Set()))
+      memorias.add(sync_id)
     }
     const nombres = this.filasDeProyectos([...porProyecto.keys()])
     return [...porProyecto]
-      .map(([projectKey, count]) => ({ projectKey, name: this.nombreParaMostrar(projectKey, nombres.get(projectKey)), count }))
+      .map(([projectKey, memorias]) => ({ projectKey, name: this.nombreParaMostrar(projectKey, nombres.get(projectKey)), count: memorias.size }))
       .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
   }
 
