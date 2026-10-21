@@ -10,7 +10,7 @@ import {
   type BillingInterval,
   type Plan,
 } from '../lib/stripe'
-import { abrirCheckout, abrirPortal } from '../lib/checkout'
+import { abrirCheckout, abrirPortal, COPY_CHECKOUT_SIN_RED } from '../lib/checkout'
 import { Button } from '@/components/ui/button'
 
 interface Props {
@@ -81,10 +81,16 @@ export default function UpgradeModal({ currentPlan, onClose }: Props) {
     if (loading) return
     setLoading(true)
     setError(null)
-    const r = await accion()
-    setLoading(false)
-    if (r.ok) onClose()
-    else setError(r.error)
+    // try/finally: si `openExternal` lanza, el botón no puede quedar deshabilitado para siempre.
+    try {
+      const r = await accion()
+      if (r.ok) onClose()
+      else setError(r.error)
+    } catch {
+      setError(COPY_CHECKOUT_SIN_RED)
+    } finally {
+      setLoading(false)
+    }
   }
   const handleUpgrade = () => cobrar(() => abrirCheckout(interval))
   const handleManage = () => cobrar(abrirPortal)

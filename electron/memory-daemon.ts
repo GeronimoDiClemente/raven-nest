@@ -1241,6 +1241,13 @@ export class MemoryDaemon {
 
     if (generacionAlSalir !== this.generacionDeStore) return { ok: false, error: 'account_changed' }
     this.deps.store.unblockMutations([MOTIVO_TOPE_DE_PROYECTOS])
+    // Un status que ya volaba salió ANTES de la elección y trae el elegido viejo: colgarse de
+    // ese (el dedupe de `status()`) dejaba la UI con el proyecto anterior pegado hasta el
+    // próximo poll. Se lo espera y se pide uno nuevo, que ya ve lo que el servidor guardó.
+    if (this.statusInFlight) await this.statusInFlight.catch(() => null)
+    // Esperar abre otra ventana para un cambio de cuenta: la elección ya quedó guardada en el
+    // servidor, pero el status y el push serían del store nuevo.
+    if (generacionAlSalir !== this.generacionDeStore) return { ok: true }
     await this.status()
     this.scheduleMutationPush()
     return { ok: true }

@@ -4,7 +4,7 @@ import { useMemory } from '../hooks/useMemory'
 import { useProfile } from '../hooks/useProfile'
 import { useUserRepos } from '../hooks/useUserRepos'
 import { planIncluyeNube, tieneSuscripcionPropia } from '../lib/stripe'
-import { abrirPortal } from '../lib/checkout'
+import { abrirPortal, COPY_CHECKOUT_SIN_RED } from '../lib/checkout'
 import { nubeDeMemoriaDisponible, textoDeErrorDeMemoria } from '../lib/beta-de-memoria'
 import UpgradeModal from './UpgradeModal'
 import LinkDeviceCard from './LinkDeviceCard'
@@ -49,9 +49,15 @@ export default function CloudMemoryCard() {
   const gestionar = async () => {
     setAbriendoPortal(true)
     setErrorDeCobro(null)
-    const r = await abrirPortal()
-    setAbriendoPortal(false)
-    if (!r.ok) setErrorDeCobro(r.error)
+    // try/finally: si `openExternal` lanza, el botón no puede quedar deshabilitado para siempre.
+    try {
+      const r = await abrirPortal()
+      if (!r.ok) setErrorDeCobro(r.error)
+    } catch {
+      setErrorDeCobro(COPY_CHECKOUT_SIN_RED)
+    } finally {
+      setAbriendoPortal(false)
+    }
   }
   const manage = tieneSuscripcionPropia(plan) && (
     <Button variant="outline" size="sm" disabled={abriendoPortal} onClick={() => void gestionar()}>Manage subscription</Button>

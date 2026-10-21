@@ -66,6 +66,17 @@ describe('UpgradeModal', () => {
     expect(openExternal).toHaveBeenCalledWith('https://checkout.stripe.test/s')
   })
 
+  it('si openExternal lanza, el botón vuelve a habilitarse y se ve el error genérico', async () => {
+    supabaseMock.functions.invoke.mockResolvedValue({ data: { url: 'https://checkout.stripe.test/s' }, error: null })
+    openExternal.mockImplementation(() => { throw new Error('shell caído') })
+    const onClose = vi.fn()
+    render(<UpgradeModal onClose={onClose} currentPlan="free" />)
+    fireEvent.click(screen.getByRole('button', { name: 'Upgrade to Cloud' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent("Couldn't reach checkout. Check your connection and try again.")
+    expect(screen.getByRole('button', { name: 'Upgrade to Cloud' })).toBeEnabled()
+    expect(onClose).not.toHaveBeenCalled()
+  })
+
   it('con plan cloud (o pro) el CTA es Manage subscription y abre el portal', async () => {
     supabaseMock.functions.invoke.mockResolvedValue({ data: { url: 'https://billing.stripe.test/p' }, error: null })
     for (const plan of ['cloud', 'pro'] as const) {

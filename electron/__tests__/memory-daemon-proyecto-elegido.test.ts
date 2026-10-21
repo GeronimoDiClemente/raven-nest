@@ -88,6 +88,30 @@ describe('MemoryDaemon — proyecto elegido (2b-2 §4.7)', () => {
     expect(push).toHaveBeenCalled()
   })
 
+  it('keepProject con un status en vuelo lo espera y pide uno NUEVO después del POST', async () => {
+    // El status que ya volaba salió antes de la elección: trae el elegido viejo. Si keepProject
+    // se colgara de ese, la UI quedaría con 'k1' pegado hasta el próximo poll.
+    let responderStatusViejo: (v: unknown) => void = () => {}
+    const fetchImpl = vi.fn()
+      .mockImplementationOnce(() => new Promise((r) => { responderStatusViejo = r }))
+      .mockResolvedValueOnce(ok({ ok: true }))
+      .mockResolvedValueOnce(ok({ plan: 'free', kept_project_key: 'k2', over_limit: true }))
+    const daemon = daemonCon(fakeStore(), fetchImpl)
+    vi.spyOn(daemon, 'scheduleMutationPush').mockImplementation(() => {})
+
+    const statusViejo = daemon.status()
+    const eleccion = daemon.keepProject('k2')
+    await vi.waitFor(() => expect(fetchImpl).toHaveBeenCalledTimes(2))
+    responderStatusViejo(ok({ plan: 'free', kept_project_key: 'k1', over_limit: true }))
+    await statusViejo
+
+    expect(await eleccion).toEqual({ ok: true })
+    expect(fetchImpl).toHaveBeenCalledTimes(3)
+    expect(fetchImpl.mock.calls[1][0]).toBe('https://example.test/v1/projects/keep')
+    expect(fetchImpl.mock.calls[2][0]).toBe('https://example.test/v1/sync/status')
+    expect(daemon.getKeptProjectKey()).toBe('k2')
+  })
+
   it('keepProject con un rechazo devuelve el código y no toca la cola', async () => {
     const store = fakeStore()
     const daemon = daemonCon(store, vi.fn().mockResolvedValue(falla(409, { error: 'not_over_limit' })))
