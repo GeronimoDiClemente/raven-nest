@@ -10,6 +10,7 @@ import { useMemoryDetail } from '../hooks/useMemoryDetail'
 import type { ResultadoDeGuardado } from '../hooks/useAutosave'
 import type { CandidatoDeLink } from '../lib/cm-wikilink-autocomplete'
 import type { GraphData } from '../lib/memory-graph-visuals'
+import type { PrefsDelEditor } from '../lib/memory-prefs'
 import type { MemoryObservationDetail } from '../types'
 
 export interface MemoriesNoteTabProps {
@@ -32,6 +33,8 @@ export interface MemoriesNoteTabProps {
   onDeleted: (syncId: string) => void
   /** Para la etiqueta de la pestaña. */
   onTitulo: (syncId: string, titulo: string, tipo: string) => void
+  /** Spec §5, Editor & graph. */
+  prefsDelEditor?: PrefsDelEditor
 }
 
 /** Lo que identifica una versión del store: si no cambió, un `onChanged` (que avisa de
@@ -41,7 +44,7 @@ const versionDe = (d: MemoryObservationDetail) => `${d.updatedAt}|${d.superseded
 
 export default function MemoriesNoteTab({
   syncId, version, graphData, pedirFoco = 0, ansi, candidatos, titulosPorId, panelDerecho,
-  onOpen, onCreate, onConnect, onDeleted, onTitulo,
+  onOpen, onCreate, onConnect, onDeleted, onTitulo, prefsDelEditor,
 }: MemoriesNoteTabProps) {
   // `recarga` se suma a `version` para el nonce: los dos sólo suben, así que la suma cambia
   // cuando cambia cualquiera de los dos.
@@ -133,6 +136,7 @@ export default function MemoriesNoteTab({
         // Ya cargada una vez y ahora la relectura no la encuentra: la borró un agente u otra
         // máquina. Sólo lectura ya, no recién cuando un guardado vuelva con 'deleted'.
         borrada={missing}
+        prefs={prefsDelEditor}
       />
       {panelDerecho && createPortal(
         <MemoryNoteSidePanel

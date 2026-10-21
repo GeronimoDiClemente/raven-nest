@@ -604,6 +604,7 @@ export default function MemoriesWorkspace({
                             candidatos={candidatos}
                             titulosPorId={titulosPorId}
                             panelDerecho={esActiva ? panelDerechoEl : null}
+                            prefsDelEditor={prefsMem.prefs.editor}
                             onOpen={alAbrir}
                             onCreate={abrirNueva}
                             onConnect={alConectar}

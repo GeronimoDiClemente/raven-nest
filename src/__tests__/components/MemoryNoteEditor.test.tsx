@@ -3,6 +3,7 @@ import { render, screen, fireEvent, act } from '@testing-library/react'
 import { EditorView } from '@codemirror/view'
 import MemoryNoteEditor from '../../components/memories/MemoryNoteEditor'
 import type { MemoryObservationDetail } from '../../types'
+import { DEFAULT_MEMORY_PREFS } from '../../lib/memory-prefs'
 
 const det = (o: Partial<MemoryObservationDetail> = {}): MemoryObservationDetail => ({
   syncId: 's1', projectKey: 'p1', scope: 'personal', type: 'decision', title: 'Auth', content: 'ver [[Otra]] y [[Falta]]',
@@ -334,5 +335,52 @@ describe('MemoryNoteEditor: final review', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+})
+
+describe('preferencias del editor', () => {
+  const ed = DEFAULT_MEMORY_PREFS.editor
+  it('live preview prendido (default) oculta las marcas', () => {
+    render(<MemoryNoteEditor detail={det({ content: '**hola**', links: [] })} {...props()} />)
+    expect(document.querySelector('.cm-content')?.textContent).toBe('hola')
+    expect(document.querySelector('.cm-lp-strong')).not.toBeNull()
+  })
+
+  it('live preview apagado muestra el Markdown crudo, sin decoraciones ni links clickeables', () => {
+    render(<MemoryNoteEditor detail={det({ content: '**hola** [[Otra]]' })} {...props()} prefs={{ ...ed, livePreview: false }} />)
+    expect(document.querySelector('.cm-content')?.textContent).toBe('**hola** [[Otra]]')
+    expect(document.querySelector('.cm-lp-strong')).toBeNull()
+    expect(document.querySelector('[data-wikilink]')).toBeNull()
+  })
+
+  it('cambiarlo con la nota abierta reconfigura sin perder lo escrito', () => {
+    const p = props()
+    const { rerender } = render(<MemoryNoteEditor detail={det({ content: '**hola**', links: [] })} {...p} />)
+    fireEvent.change(screen.getByRole('textbox', { name: 'Memory title' }), { target: { value: 'Titulo nuevo' } })
+    rerender(<MemoryNoteEditor detail={det({ content: '**hola**', links: [] })} {...p} prefs={{ ...ed, livePreview: false }} />)
+    expect(document.querySelector('.cm-content')?.textContent).toBe('**hola**')
+    expect(screen.getByRole('textbox', { name: 'Memory title' })).toHaveValue('Titulo nuevo')
+  })
+
+  it('spellcheck sigue la preferencia', () => {
+    const p = props()
+    const { rerender } = render(<MemoryNoteEditor detail={det()} {...p} />)
+    expect(document.querySelector('.cm-content')?.getAttribute('spellcheck')).toBe('false')
+    rerender(<MemoryNoteEditor detail={det()} {...p} prefs={{ ...ed, spellcheck: true }} />)
+    expect(document.querySelector('.cm-content')?.getAttribute('spellcheck')).toBe('true')
+  })
+
+  it('el tamaño de letra va al editor', () => {
+    render(<MemoryNoteEditor detail={det()} {...props()} prefs={{ ...ed, fontSize: 16 }} />)
+    expect(document.querySelector('.cm-editor')?.getAttribute('style')).toContain('font-size: 16px')
+  })
+
+  it('readable width limita el ancho; apagado lo libera', () => {
+    const p = props()
+    const { rerender } = render(<MemoryNoteEditor detail={det()} {...p} />)
+    const caja = () => screen.getByRole('textbox', { name: 'Memory title' }).parentElement!
+    expect(caja().className).toMatch(/max-w-\[720px\]/)
+    rerender(<MemoryNoteEditor detail={det()} {...p} prefs={{ ...ed, readableWidth: false }} />)
+    expect(caja().className).toMatch(/max-w-none/)
   })
 })

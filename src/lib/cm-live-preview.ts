@@ -135,6 +135,8 @@ export function decorar(state: EditorState, resolver: Resolver, enfocado = true)
   return b.finish()
 }
 
+/** Decoraciones + clic en los links. El tema va aparte (`temaDelEditor`): con Live preview
+ *  apagado el editor lo sigue usando (D11). */
 export function livePreview(opts: { resolver: () => Resolver; onWikilink: (nombre: string, background: boolean) => void }): Extension {
   const plugin = ViewPlugin.fromClass(class {
     decorations: DecorationSet
@@ -160,65 +162,65 @@ export function livePreview(opts: { resolver: () => Resolver; onWikilink: (nombr
     },
   })
 
-  // La app no tiene token de link (el acento es acromático): el wikilink se distingue por el
-  // subrayado, y el pendiente por el trazo discontinuo y el color atenuado.
-  //
-  // `dark: true`: sin eso CodeMirror aplica sus reglas `&light` (tooltip casi blanco con el texto
-  // claro de la app encima, fila elegida en azul). La app no tiene tema claro todavía; los
-  // colores de abajo son todos tokens, así que el día que lo tenga esto sigue valiendo.
-  const tema = EditorView.theme({
-    '&': { color: 'var(--foreground)', backgroundColor: 'transparent', fontSize: 'var(--fs)' },
-    // El cuerpo en la fuente de la UI: el tema base de CM pone `monospace` en el scroller.
-    '.cm-scroller': { fontFamily: 'var(--font-ui)', lineHeight: '1.7' },
-    '.cm-content': { fontFamily: 'inherit', lineHeight: '1.7', caretColor: 'var(--foreground)', padding: '0', minHeight: '12rem' },
-    // Sin el padding de 2px/6px de CM: el cuerpo queda alineado con el título.
-    '.cm-line': { padding: '0' },
-    '&.cm-focused': { outline: 'none' },
-    '&.cm-focused .cm-cursor': { borderLeftColor: 'var(--foreground)' },
-    '.cm-content ::selection, .cm-line::selection': { backgroundColor: 'color-mix(in srgb, var(--foreground) 22%, transparent)' },
-    '.cm-selectionBackground, &.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground': {
-      backgroundColor: 'color-mix(in srgb, var(--foreground) 22%, transparent)',
-    },
-    '.cm-tooltip': {
-      backgroundColor: 'var(--popover)',
-      color: 'var(--popover-foreground)',
-      border: '1px solid var(--border)',
-      borderRadius: 'var(--radius)',
-      fontFamily: 'var(--font-ui)',
-      fontSize: 'var(--fs-sm)',
-      overflow: 'hidden',
-    },
-    // Con `.cm-tooltip` delante: el tema base de autocomplete pone `monospace` con ese mismo
-    // selector, y con menos especificidad el nuestro perdía.
-    '.cm-tooltip.cm-tooltip-autocomplete > ul': { fontFamily: 'var(--font-ui)', maxHeight: '16em' },
-    '.cm-tooltip-autocomplete > ul > li': { padding: '3px 8px', color: 'var(--popover-foreground)' },
-    '.cm-tooltip-autocomplete > ul > li[aria-selected]': {
-      backgroundColor: 'var(--accent)',
-      color: 'var(--accent-foreground)',
-    },
-    '.cm-completionDetail': { color: 'var(--muted-foreground)', fontStyle: 'normal', marginLeft: '8px' },
-    '.cm-completionMatchedText': { textDecoration: 'none', fontWeight: '600' },
-    '.cm-lp-listmark': { color: 'var(--muted-foreground)' },
-    '.cm-lp-hr': {
-      backgroundImage: 'linear-gradient(var(--input), var(--input))',
-      backgroundSize: '100% 1px',
-      backgroundPosition: 'center',
-      backgroundRepeat: 'no-repeat',
-    },
-    '.cm-lp-h1': { fontSize: '1.6em', fontWeight: '600' },
-    '.cm-lp-h2': { fontSize: '1.3em', fontWeight: '600' },
-    '.cm-lp-h3': { fontSize: '1.15em', fontWeight: '600' },
-    '.cm-lp-h4': { fontSize: '1.05em', fontWeight: '600' },
-    '.cm-lp-h5': { fontWeight: '600' },
-    '.cm-lp-h6': { fontWeight: '600' },
-    '.cm-lp-strong': { fontWeight: '600' },
-    '.cm-lp-em': { fontStyle: 'italic' },
-    '.cm-lp-code': { fontFamily: 'var(--font-mono, monospace)', backgroundColor: 'var(--muted)', borderRadius: '4px', padding: '0 4px' },
-    '.cm-lp-codeblock': { fontFamily: 'var(--font-mono, monospace)', backgroundColor: 'var(--muted)' },
-    '.cm-lp-quote': { borderLeft: '2px solid var(--border)', paddingLeft: '10px', color: 'var(--muted-foreground)' },
-    '.cm-lp-wikilink': { color: 'var(--foreground)', textDecoration: 'underline', textUnderlineOffset: '3px', cursor: 'pointer' },
-    '.cm-lp-wikilink-pendiente': { color: 'var(--muted-foreground)', textDecorationStyle: 'dashed' },
-  }, { dark: true })
-
-  return [plugin, click, tema]
+  return [plugin, click]
 }
+
+// La app no tiene token de link (el acento es acromático): el wikilink se distingue por el
+// subrayado, y el pendiente por el trazo discontinuo y el color atenuado.
+//
+// `dark: true`: sin eso CodeMirror aplica sus reglas `&light` (tooltip casi blanco con el texto
+// claro de la app encima, fila elegida en azul). La app no tiene tema claro todavía; los
+// colores de abajo son todos tokens, así que el día que lo tenga esto sigue valiendo.
+export const temaDelEditor: Extension = EditorView.theme({
+  '&': { color: 'var(--foreground)', backgroundColor: 'transparent' },
+  // El cuerpo en la fuente de la UI: el tema base de CM pone `monospace` en el scroller.
+  '.cm-scroller': { fontFamily: 'var(--font-ui)', lineHeight: '1.7' },
+  '.cm-content': { fontFamily: 'inherit', lineHeight: '1.7', caretColor: 'var(--foreground)', padding: '0', minHeight: '12rem' },
+  // Sin el padding de 2px/6px de CM: el cuerpo queda alineado con el título.
+  '.cm-line': { padding: '0' },
+  '&.cm-focused': { outline: 'none' },
+  '&.cm-focused .cm-cursor': { borderLeftColor: 'var(--foreground)' },
+  '.cm-content ::selection, .cm-line::selection': { backgroundColor: 'color-mix(in srgb, var(--foreground) 22%, transparent)' },
+  '.cm-selectionBackground, &.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground': {
+    backgroundColor: 'color-mix(in srgb, var(--foreground) 22%, transparent)',
+  },
+  '.cm-tooltip': {
+    backgroundColor: 'var(--popover)',
+    color: 'var(--popover-foreground)',
+    border: '1px solid var(--border)',
+    borderRadius: 'var(--radius)',
+    fontFamily: 'var(--font-ui)',
+    fontSize: 'var(--fs-sm)',
+    overflow: 'hidden',
+  },
+  // Con `.cm-tooltip` delante: el tema base de autocomplete pone `monospace` con ese mismo
+  // selector, y con menos especificidad el nuestro perdía.
+  '.cm-tooltip.cm-tooltip-autocomplete > ul': { fontFamily: 'var(--font-ui)', maxHeight: '16em' },
+  '.cm-tooltip-autocomplete > ul > li': { padding: '3px 8px', color: 'var(--popover-foreground)' },
+  '.cm-tooltip-autocomplete > ul > li[aria-selected]': {
+    backgroundColor: 'var(--accent)',
+    color: 'var(--accent-foreground)',
+  },
+  '.cm-completionDetail': { color: 'var(--muted-foreground)', fontStyle: 'normal', marginLeft: '8px' },
+  '.cm-completionMatchedText': { textDecoration: 'none', fontWeight: '600' },
+  '.cm-lp-listmark': { color: 'var(--muted-foreground)' },
+  '.cm-lp-hr': {
+    backgroundImage: 'linear-gradient(var(--input), var(--input))',
+    backgroundSize: '100% 1px',
+    backgroundPosition: 'center',
+    backgroundRepeat: 'no-repeat',
+  },
+  '.cm-lp-h1': { fontSize: '1.6em', fontWeight: '600' },
+  '.cm-lp-h2': { fontSize: '1.3em', fontWeight: '600' },
+  '.cm-lp-h3': { fontSize: '1.15em', fontWeight: '600' },
+  '.cm-lp-h4': { fontSize: '1.05em', fontWeight: '600' },
+  '.cm-lp-h5': { fontWeight: '600' },
+  '.cm-lp-h6': { fontWeight: '600' },
+  '.cm-lp-strong': { fontWeight: '600' },
+  '.cm-lp-em': { fontStyle: 'italic' },
+  '.cm-lp-code': { fontFamily: 'var(--font-mono, monospace)', backgroundColor: 'var(--muted)', borderRadius: '4px', padding: '0 4px' },
+  '.cm-lp-codeblock': { fontFamily: 'var(--font-mono, monospace)', backgroundColor: 'var(--muted)' },
+  '.cm-lp-quote': { borderLeft: '2px solid var(--border)', paddingLeft: '10px', color: 'var(--muted-foreground)' },
+  '.cm-lp-wikilink': { color: 'var(--foreground)', textDecoration: 'underline', textUnderlineOffset: '3px', cursor: 'pointer' },
+  '.cm-lp-wikilink-pendiente': { color: 'var(--muted-foreground)', textDecorationStyle: 'dashed' },
+}, { dark: true })

@@ -4,13 +4,15 @@
 // datos y las acciones llegan por props — el adaptador (MemoriesNoteTab) es el que habla
 // con `window.memory`.
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState, type ForwardedRef } from 'react'
+import { cn } from 'cn'
 import { Compartment, EditorState, Transaction } from '@codemirror/state'
 import { EditorView, keymap } from '@codemirror/view'
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands'
 import { markdown } from '@codemirror/lang-markdown'
 import { MoreHorizontal } from 'lucide-react'
 import type { AIType, MemoryObservationDetail } from '../../types'
-import { livePreview, refrescarLivePreview, type Resolver } from '../../lib/cm-live-preview'
+import { livePreview, refrescarLivePreview, temaDelEditor, type Resolver } from '../../lib/cm-live-preview'
+import { DEFAULT_MEMORY_PREFS, type PrefsDelEditor } from '../../lib/memory-prefs'
 import { autocompletadoDeWikilinks, type CandidatoDeLink } from '../../lib/cm-wikilink-autocomplete'
 import { memoryTypeSwatch } from '../../lib/memory-type-legend'
 import { relativeTime } from '../../lib/memories-status'
@@ -54,6 +56,8 @@ export interface MemoryNoteEditorProps {
   /** La memoria ya no está en el store (la borró un agente u otra máquina): sólo lectura con
    *  la banda de borrada, sin esperar a que un guardado lo descubra. */
   borrada?: boolean
+  /** Live preview, ancho, ortografía y letra (spec §5, Editor & graph). */
+  prefs?: PrefsDelEditor
 }
 
 type Valor = { title: string; content: string }
@@ -85,7 +89,7 @@ const MemoryNoteEditor = forwardRef<MemoryNoteEditorHandle, MemoryNoteEditorProp
 export default MemoryNoteEditor
 
 function EditorDeNota({
-  detail, links: linksDeProp, pedirFoco = 0, ansi, candidatos, externo, onSave, onOpen, onCreate, onOpenNewer, onConnect, onDelete, borrada = false, handleRef,
+  detail, links: linksDeProp, pedirFoco = 0, ansi, candidatos, externo, onSave, onOpen, onCreate, onOpenNewer, onConnect, onDelete, borrada = false, prefs = DEFAULT_MEMORY_PREFS.editor, handleRef,
 }: MemoryNoteEditorProps & { handleRef: ForwardedRef<MemoryNoteEditorHandle> }) {
   const [titulo, setTitulo] = useState(detail.title)
   const [contenido, setContenido] = useState(detail.content ?? '')
@@ -154,6 +158,18 @@ function EditorDeNota({
   const ultimoLinkRef = useRef<HTMLElement | null>(null)
   const soloLecturaComp = useRef(new Compartment()).current
   const historiaComp = useRef(new Compartment()).current
+  const vistaComp = useRef(new Compartment()).current
+  const ortografiaComp = useRef(new Compartment()).current
+  const letraComp = useRef(new Compartment()).current
+  const prefsRef = useRef(prefs)
+  prefsRef.current = prefs
+  // Una sola instancia por editor (reconfigurar con otra instancia reinicia el plugin). Los
+  // refs se leen recién al decorar/clickear, así que declararlos más abajo no importa.
+  const extLivePreview = useMemo(() => livePreview({ resolver: () => resolverRef.current, onWikilink: (n, bg) => onWikilinkRef.current(n, bg) }), []) // eslint-disable-line react-hooks/exhaustive-deps
+  const ortografia = (on: boolean) => EditorView.contentAttributes.of({ spellcheck: on ? 'true' : 'false' })
+  // Con `editorAttributes` (atributo style) y no con otro theme: dos themes que ponen
+  // font-size en '&' empatan en especificidad y gana el orden de montaje, que no controlamos.
+  const letra = (px: number) => EditorView.editorAttributes.of({ style: `font-size: ${px}px` })
   const tituloRef = useRef(titulo)
   const contenidoRef = useRef(contenido)
   const sucioRef = useRef(auto.sucio)
@@ -214,7 +230,11 @@ function EditorDeNota({
           historiaComp.of(history()),
           keymap.of([...defaultKeymap, ...historyKeymap]),
           EditorView.lineWrapping,
-          livePreview({ resolver: () => resolverRef.current, onWikilink: (n, bg) => onWikilinkRef.current(n, bg) }),
+          temaDelEditor,
+          // D11: apagado = Markdown crudo, sin decoraciones ni clic sobre el link.
+          vistaComp.of(prefsRef.current.livePreview ? extLivePreview : []),
+          ortografiaComp.of(ortografia(prefsRef.current.spellcheck)),
+          letraComp.of(letra(prefsRef.current.fontSize)),
           autocompletadoDeWikilinks(() => candidatosRef.current),
           EditorView.updateListener.of((u) => { if (u.docChanged) setContenido(u.state.doc.toString()) }),
           soloLecturaComp.of(EditorState.readOnly.of(soloLecturaRef.current)),
@@ -224,11 +244,21 @@ function EditorDeNota({
     })
     viewRef.current = view
     return () => { view.destroy(); viewRef.current = null }
-  }, [soloLecturaComp, historiaComp])
+  }, [soloLecturaComp, historiaComp, vistaComp, ortografiaComp, letraComp, extLivePreview]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     viewRef.current?.dispatch({ effects: soloLecturaComp.reconfigure(EditorState.readOnly.of(soloLectura)) })
   }, [soloLectura, soloLecturaComp])
+
+  useEffect(() => {
+    viewRef.current?.dispatch({ effects: vistaComp.reconfigure(prefs.livePreview ? extLivePreview : []) })
+  }, [prefs.livePreview, vistaComp, extLivePreview])
+  useEffect(() => {
+    viewRef.current?.dispatch({ effects: ortografiaComp.reconfigure(ortografia(prefs.spellcheck)) })
+  }, [prefs.spellcheck, ortografiaComp]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    viewRef.current?.dispatch({ effects: letraComp.reconfigure(letra(prefs.fontSize)) })
+  }, [prefs.fontSize, letraComp]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     viewRef.current?.dispatch({ effects: refrescarLivePreview.of(null) })
@@ -331,7 +361,7 @@ function EditorDeNota({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-      <div className="mx-auto w-full max-w-[720px] px-10 py-9">
+      <div className={cn('mx-auto w-full px-10 py-9', prefs.readableWidth ? 'max-w-[720px]' : 'max-w-none')}>
         <div className="mb-4 flex items-center gap-2 text-fs-xs text-muted-foreground">
           <span aria-hidden className="size-2 shrink-0 rounded-full" style={{ background: swatch ? swatch.color : 'var(--muted-foreground)' }} />
           <span>{swatch ? swatch.label : fuente.type}</span>
