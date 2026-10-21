@@ -1,6 +1,7 @@
 // Spec §5.2: fila de estado arriba, grafo al centro, sin chips de scope. Las tres columnas
 // estilo Obsidian (explorer, pestañas, panel) se prueban en MemoriesWorkspace-obsidian.test.tsx.
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest'
+import { useEffect } from 'react'
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import MemoriesWorkspace from '../../components/MemoriesWorkspace'
 import { __reiniciarPestanas } from '../../hooks/useMemoryTabs'
@@ -37,6 +38,7 @@ const renderWorkspace = (props: {
   onLinkRepo?: () => void
   onHowItWorks?: () => void
   pedidoDeSettings?: number
+  pedidoDelGrafo?: number
 } = {}) =>
   render(
     <MemoriesWorkspace
@@ -46,6 +48,7 @@ const renderWorkspace = (props: {
       onLinkRepo={props.onLinkRepo}
       onHowItWorks={props.onHowItWorks ?? (() => {})}
       pedidoDeSettings={props.pedidoDeSettings}
+      pedidoDelGrafo={props.pedidoDelGrafo}
     />
   )
 
@@ -132,6 +135,26 @@ describe('MemoriesWorkspace', () => {
     setMemoryApi(api({ onStatus: () => {}, removeStatusListener: () => {} }))
     renderWorkspace({ activeRepoPath: null, pedidoDeSettings: 1 })
     expect(screen.getByRole('tab', { name: /Settings/, selected: true })).toBeInTheDocument()
+  })
+
+  // Final review I2: el tour mide sus anclas en un efecto. Graph tiene que estar activa ANTES
+  // de ese efecto, o el explorer oculto da una caja de 0×0 y el tooltip va a la esquina.
+  it('pedidoDelGrafo (arranca el tour) activa Graph antes de que el tour mida el explorer', () => {
+    setMemoryApi(api({ onStatus: () => {}, removeStatusListener: () => {} }))
+    let explorerOculto: boolean | null = null
+    function Tour() {
+      useEffect(() => {
+        const el = document.querySelector('[data-tour-id="memories-explorer"]')
+        explorerOculto = el ? el.closest('[hidden]') !== null : null
+      }, [])
+      return null
+    }
+    const props = { onClose: () => {}, activeRepoPath: null, onOpenFile: () => {}, onHowItWorks: () => {} }
+    const { rerender } = render(<><MemoriesWorkspace {...props} pedidoDeSettings={1} /></>)
+    expect(screen.getByRole('tab', { name: /Settings/, selected: true })).toBeInTheDocument()
+    rerender(<><MemoriesWorkspace {...props} pedidoDeSettings={1} pedidoDelGrafo={1} /><Tour /></>)
+    expect(explorerOculto).toBe(false)
+    expect(screen.getByRole('tab', { name: /Graph/, selected: true })).toBeInTheDocument()
   })
 
   it('con Settings activa, Back cierra el overlay entero', () => {

@@ -253,6 +253,9 @@ export default function App() {
   // la primera vez tape Settings.
   const [pedidoDeSettings, setPedidoDeSettings] = useState(0)
   const [memoriesEnSettings, setMemoriesEnSettings] = useState(false)
+  // Final review I2: el tour de Memories apunta al explorer y al grafo; si arranca con la
+  // pestaña Settings activa, este pedido pone Graph adelante antes de que mida sus anclas.
+  const [pedidoDelGrafo, setPedidoDelGrafo] = useState(0)
   const abrirMemories = (vista?: 'memorias' | 'settings') => {
     // Defensa en profundidad (fix round 1, Task 6 del 19-10): SOLO el literal 'settings' abre
     // Settings. Un caller que pase el SyntheticEvent de un click cae al grafo.
@@ -2222,6 +2225,7 @@ export default function App() {
           // Task 7: el botón "How it works" del header reabre la bienvenida a pedido (forced).
           onHowItWorks={() => setMemoriesWelcome(true)}
           pedidoDeSettings={pedidoDeSettings}
+          pedidoDelGrafo={pedidoDelGrafo}
         />
       )}
 
@@ -2230,6 +2234,7 @@ export default function App() {
           onTour={() => {
             markMemoriesWelcomeSeen()
             setMemoriesWelcome(false)
+            setPedidoDelGrafo((n) => n + 1)
             setTutorialTour('memories')
           }}
           onSkip={() => {

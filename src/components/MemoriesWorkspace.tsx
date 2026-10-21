@@ -80,6 +80,9 @@ interface Props {
   /** Sube cada vez que algo de afuera (Account → "Memory settings") pide abrir la pestaña
    *  Settings; useMemoryTabs atiende cada pedido una vez por sesión (D5). */
   pedidoDeSettings?: number
+  /** Sube cada vez que arranca el tour de Memories: activa Graph para que sus anclas se vean
+   *  (final review I2). Mismo mecanismo que `pedidoDeSettings`. */
+  pedidoDelGrafo?: number
 }
 
 /** Ventana angosta (spec §3): el panel derecho arranca colapsado. */
@@ -108,7 +111,7 @@ function leerColumnas(): [number, number, number] {
 
 export default function MemoriesWorkspace({
   onClose, activeRepoPath, onOpenFile, onLinkRepo, closing = false, ansi, onHowItWorks,
-  pedidoDeSettings = 0,
+  pedidoDeSettings = 0, pedidoDelGrafo = 0,
 }: Props) {
   const state = useMemories()
 
@@ -210,7 +213,7 @@ export default function MemoriesWorkspace({
   // pestaña Settings (D3): prender o apagar se ve en el acto.
   const hilo = useTeamThreadSettings(activeRepoPath)
   const conHilo = pestanaDelHilo(activeRepoPath, hilo)
-  const tabs = useMemoryTabs(conHilo, pedidoDeSettings)
+  const tabs = useMemoryTabs(conHilo, pedidoDeSettings, pedidoDelGrafo)
   const activa: MemoryTab = tabs.tabs.find((t) => tabId(t) === tabs.activeId) ?? tabs.tabs[0]
   const settingsActiva = activa.kind === 'settings'
 

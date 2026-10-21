@@ -32,3 +32,24 @@ describe('useMemoryTabs — pedido de Settings (Account → Memory settings)', (
     expect(result.current.tabs.find((t) => t.kind === 'settings')).toEqual({ kind: 'settings', section: 'encryption' })
   })
 })
+
+// Final review I2 (Ruling 4): el tour de Memories apunta al explorer y al grafo, que con
+// Settings activa están montados pero ocultos.
+describe('useMemoryTabs — pedido del grafo (arranca el tour de Memories)', () => {
+  it('con Settings activa, un pedido nuevo activa Graph y deja Settings abierta', () => {
+    const { result, rerender } = renderHook(({ g }) => useMemoryTabs(false, 1, g), { initialProps: { g: 0 } })
+    expect(result.current.activeId).toBe('settings')
+    rerender({ g: 1 })
+    expect(result.current.activeId).toBe('graph')
+    expect(result.current.tabs.some((t) => t.kind === 'settings')).toBe(true)
+  })
+
+  it('el mismo pedido no se atiende dos veces: reabrir no saca de Settings', () => {
+    const a = renderHook(() => useMemoryTabs(false, 0, 1))
+    expect(a.result.current.activeId).toBe('graph')
+    act(() => { a.result.current.openSettings() })
+    a.unmount()
+    const b = renderHook(() => useMemoryTabs(false, 0, 1))
+    expect(b.result.current.activeId).toBe('settings')
+  })
+})
