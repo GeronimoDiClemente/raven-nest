@@ -4,7 +4,7 @@
 // datos y las acciones llegan por props — el adaptador (MemoriesNoteTab) es el que habla
 // con `window.memory`.
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState, type ForwardedRef } from 'react'
-import { Compartment, EditorState } from '@codemirror/state'
+import { Compartment, EditorState, Transaction } from '@codemirror/state'
 import { EditorView, keymap } from '@codemirror/view'
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands'
 import { markdown } from '@codemirror/lang-markdown'
@@ -153,6 +153,7 @@ function EditorDeNota({
   const anclaRef = useRef<Medible | null>(null)
   const ultimoLinkRef = useRef<HTMLElement | null>(null)
   const soloLecturaComp = useRef(new Compartment()).current
+  const historiaComp = useRef(new Compartment()).current
   const tituloRef = useRef(titulo)
   const contenidoRef = useRef(contenido)
   const sucioRef = useRef(auto.sucio)
@@ -210,7 +211,7 @@ function EditorDeNota({
           markdown(),
           // Deshacer (final review F2): sin historial, un borrado sin querer no tenía vuelta
           // y el autoguardado lo persistía en 1,5 s.
-          history(),
+          historiaComp.of(history()),
           keymap.of([...defaultKeymap, ...historyKeymap]),
           EditorView.lineWrapping,
           livePreview({ resolver: () => resolverRef.current, onWikilink: (n, bg) => onWikilinkRef.current(n, bg) }),
@@ -223,7 +224,7 @@ function EditorDeNota({
     })
     viewRef.current = view
     return () => { view.destroy(); viewRef.current = null }
-  }, [soloLecturaComp])
+  }, [soloLecturaComp, historiaComp])
 
   useEffect(() => {
     viewRef.current?.dispatch({ effects: soloLecturaComp.reconfigure(EditorState.readOnly.of(soloLectura)) })
@@ -264,7 +265,15 @@ function EditorDeNota({
     setBase(nuevo)
     setTitulo(nuevo.title)
     const view = viewRef.current
-    if (view) view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: nuevo.content } })
+    // La recarga externa NO se puede deshacer: si no, Ctrl+Z la revierte, el documento deja de
+    // coincidir con la base y el autoguardado reescribe el texto viejo encima del cambio del otro.
+    // addToHistory:false no alcanza (CM mapea eventos anteriores y reaparece texto previo a la
+    // recarga), asi que ademas se descarta el historial: quitar y volver a poner la extension.
+    if (view) {
+      view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: nuevo.content }, annotations: Transaction.addToHistory.of(false) })
+      view.dispatch({ effects: historiaComp.reconfigure([]) })
+      view.dispatch({ effects: historiaComp.reconfigure(history()) })
+    }
     else setContenido(nuevo.content)
   }
 

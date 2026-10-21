@@ -277,6 +277,41 @@ describe('MemoryNoteEditor: final review', () => {
     expect(document.querySelector('.cm-content')?.textContent).toBe('hola')
   })
 
+  describe('Ctrl+Z despues de una recarga externa (residual F2)', () => {
+    // Sin rAF falso: CM mide el layout en un frame y jsdom no tiene getClientRects.
+    beforeEach(() => { vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] }) })
+    afterEach(() => { vi.useRealTimers() })
+    const ctrlZ = (view: EditorView) => act(() => { fireEvent.keyDown(view.contentDOM, { key: 'z', code: 'KeyZ', keyCode: 90, ctrlKey: true }) })
+
+    it('sin escritura previa: deshacer no revierte lo del agente ni guarda el contenido viejo', async () => {
+      const p = props()
+      const { rerender } = render(<MemoryNoteEditor detail={det({ content: 'viejo' })} {...p} />)
+      const view = EditorView.findFromDOM(document.querySelector('.cm-editor') as HTMLElement)!
+      rerender(<MemoryNoteEditor detail={det({ content: 'viejo' })} {...p} externo={det({ content: 'del agente', updatedAt: 2 })} />)
+      expect(view.state.doc.toString()).toBe('del agente')
+      ctrlZ(view)
+      await act(async () => { vi.advanceTimersByTime(3000) })
+      expect(view.state.doc.toString()).toBe('del agente')
+      expect(p.onSave).not.toHaveBeenCalled()
+    })
+
+    it('con escritura propia ya guardada antes: deshacer tampoco reintroduce texto anterior a la recarga', async () => {
+      const p = props()
+      p.onSave.mockResolvedValue({ ok: true, saved: { title: 'Auth', content: 'mio' } })
+      const { rerender } = render(<MemoryNoteEditor detail={det({ content: 'viejo' })} {...p} />)
+      const view = EditorView.findFromDOM(document.querySelector('.cm-editor') as HTMLElement)!
+      act(() => { view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: 'mio' }, userEvent: 'input.type' }) })
+      await act(async () => { vi.advanceTimersByTime(1500) })
+      expect(p.onSave).toHaveBeenCalledTimes(1)
+      rerender(<MemoryNoteEditor detail={det({ content: 'viejo' })} {...p} externo={det({ content: 'del agente', updatedAt: 3 })} />)
+      expect(view.state.doc.toString()).toBe('del agente')
+      ctrlZ(view)
+      await act(async () => { vi.advanceTimersByTime(3000) })
+      expect(view.state.doc.toString()).toBe('del agente')
+      expect(p.onSave).toHaveBeenCalledTimes(1)
+    })
+  })
+
   it('un cambio externo diferido que vuelve despues de cerrar la pestana no copia nada (minor Task 7)', async () => {
     const responder: Array<(v: { ok: true }) => void> = []
     const p = { ...props(), onSave: vi.fn().mockImplementation(() => new Promise((r) => { responder.push(r) })) }
