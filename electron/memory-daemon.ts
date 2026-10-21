@@ -502,6 +502,9 @@ export class MemoryDaemon {
     // repos ajenos hasta el próximo status.
     this.lastLimits = null
     this.lastCloudProjectKeys = null
+    // El plan visto también es de la cuenta anterior: compararlo con el de la nueva haría
+    // pasar por "cambio de plan" lo que es sólo un cambio de cuenta.
+    this.lastSeenPlan = undefined
   }
 
   private setStatus(status: DaemonStatus, detail?: string): void {
@@ -1043,16 +1046,29 @@ export class MemoryDaemon {
       const resultBySyncId = new Map(results.map((r) => [r.sync_id, r]))
       const toMark: Array<number | { seq: number; error?: string | null }> = []
       const toBlock: Array<{ seq: number; reason: string }> = []
+      // Final review #3: ¿este push cambió el roster? Ver `rosterQuedoViejo` más abajo.
+      const rosterConocido = this.lastCloudProjectKeys === null ? null : new Set(this.lastCloudProjectKeys)
+      let aceptoUnProyectoNuevo = false
+      let recibioElTope = false
       for (const m of aSubir) {
         let payloadSyncId: string | undefined
-        try { payloadSyncId = JSON.parse(m.payload).sync_id } catch { /* leave undefined */ }
+        let payloadProjectKey: string = GLOBAL_PROJECT_KEY
+        try {
+          const p = JSON.parse(m.payload) as { sync_id?: string; project_key?: string }
+          payloadSyncId = p.sync_id
+          payloadProjectKey = p.project_key ?? GLOBAL_PROJECT_KEY
+        } catch { /* leave undefined */ }
         const result = payloadSyncId ? resultBySyncId.get(payloadSyncId) : undefined
         if (!result) continue // not acknowledged by the server — retry next cycle
         if (result.outcome !== 'rejected') {
+          if (rosterConocido && payloadProjectKey !== GLOBAL_PROJECT_KEY && !rosterConocido.has(payloadProjectKey)) {
+            aceptoUnProyectoNuevo = true
+          }
           toMark.push(m.seq)
           continue
         }
         const reason = result.error ?? 'rejected'
+        if (reason === MOTIVO_TOPE_DE_PROYECTOS) recibioElTope = true
         if (reason === 'team_encryption_required') {
           // M1 (review de Tasks 13–14): el servidor acaba de decir que el equipo de este proyecto
           // cifra. Se aprende como CONFIRMADO (viene del servidor, no de una inferencia) y la
@@ -1077,6 +1093,24 @@ export class MemoryDaemon {
 
       store.setSyncState('__account__', { lastSuccessAt: Date.now(), lastError: null })
       this.setStatus('idle')
+
+      /**
+       * Final review #3 (Ruling 6): en el drain del connect el status corre ANTES del push, así
+       * que un Free que conecta con 2+ repos tenía el roster vacío hasta el próximo poll (15 min
+       * en Free): «0 of 1 · Local only: api, web» con `raven-nest` ya en la nube. Se pide un
+       * status sólo cuando el push CAMBIÓ el roster: aceptó un proyecto que el roster no tenía,
+       * o recibió `project_limit_reached` con un roster que todavía no llega al tope (o sea,
+       * viejo). Un rechazo con el roster ya en el tope no enseña nada: no se pide nada.
+       */
+      const tope = this.lastLimits?.max_projects
+      const rosterQuedoViejo = aceptoUnProyectoNuevo ||
+        (recibioElTope && tope !== undefined && (rosterConocido === null || rosterConocido.size < tope))
+      if (rosterQuedoViejo && !this.swapping) {
+        await this.status()
+        // Esperar al status abre una ventana para un swap de cuenta: el encadenado de abajo
+        // leería `pendingMutationCount()` del store viejo, ya cerrado.
+        if (generacionAlSalir !== this.generacionDeStore) return
+      }
 
       // M22 fix: a full PUSH_BATCH_SIZE batch used to just sit idle after a successful
       // push until the NEXT external trigger (5-min interval, a fresh mutation debounce,
@@ -1324,6 +1358,24 @@ export class MemoryDaemon {
         // aplica. Y `team_encryption_required` también vuelve a la cola: con el `team_id`
         // local al día, el gate de `doPush` la sella o la retiene como `team_key_missing`.
         if (aprendioUnShare) store.unblockMutations(['project_not_shared_with_team', 'team_encryption_required'])
+      }
+
+      /**
+       * Final review #1: el destrabe por cambio de plan (más arriba) sólo ve un cambio que
+       * ocurre DENTRO de este proceso. Un Free que paga Cloud y reinicia Nest, o que cambia a
+       * una cuenta que ya es Cloud, arranca con `lastSeenPlan` undefined: el primer status no
+       * cuenta como cambio y lo retenido por el tope quedaba retenido para siempre.
+       *
+       * Con el tope que informa el servidor no hace falta adivinar: si el roster (sin
+       * `__global__`, que no ocupa lugar) tiene menos proyectos que el tope, hay lugar y lo
+       * retenido vuelve a la cola. Converge solo: el push siguiente ocupa el lugar, el status
+       * que le sigue ve el roster en el tope y deja de destrabar. Sin tope conocido (servicio
+       * viejo) queda sólo el camino del cambio de plan.
+       */
+      const tope = this.lastLimits?.max_projects
+      const roster = this.lastCloudProjectKeys
+      if (tope !== undefined && roster !== null && roster.length < tope) {
+        store.unblockMutations([MOTIVO_TOPE_DE_PROYECTOS])
       }
 
       // Task 14 (spec §9.4): qué equipos cifran, sin depender de que se abra la UI.

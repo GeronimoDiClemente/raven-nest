@@ -122,3 +122,136 @@ describe('MemoryDaemon — al pasar a Cloud, lo retenido por el tope vuelve a la
     }
   })
 })
+
+/**
+ * Final review #1 (Ruling 5): el destrabe no puede depender de VER el cambio de plan en el
+ * mismo proceso. Con el tope que informa el servidor, "hay lugar" alcanza: converge solo
+ * después de un reinicio (daemon nuevo) o de un cambio de cuenta.
+ */
+describe('MemoryDaemon — lo retenido por el tope vuelve a la cola cuando hay lugar', () => {
+  function conRetenida(fn: (store: MemoryStore, seq: number) => Promise<void>) {
+    return async () => {
+      const dir = makeTmpDir('md-tope-lugar-')
+      const store = new MemoryStore(join(dir, 'memory.db'))
+      try {
+        store.save({ projectKey: 'k-web', type: 'decision', title: 'web', content: 'retained by the project cap', source: 'mcp' })
+        const [m] = store.pendingMutations()
+        store.blockMutations([{ seq: m.seq, reason: 'project_limit_reached' }])
+        expect(store.pendingMutations()).toHaveLength(0)
+        await fn(store, m.seq)
+      } finally {
+        store.close()
+        cleanupTmp(dir)
+      }
+    }
+  }
+
+  it('Free→Cloud visto sólo después de un reinicio: el primer status ya es cloud y la libera', conRetenida(async (store, seq) => {
+    const daemon = daemonCon(store, vi.fn().mockResolvedValue(ok({
+      plan: 'cloud', limits: { max_projects: 100 }, projects: [{ project_key: 'k-nest' }],
+    })))
+    await daemon.status()
+    expect(store.pendingMutations().map((x) => x.seq)).toEqual([seq])
+  }))
+
+  it('con el roster en el tope, sigue retenida', conRetenida(async (store) => {
+    const daemon = daemonCon(store, vi.fn().mockResolvedValue(ok({
+      plan: 'free', limits: { max_projects: 1 }, projects: [{ project_key: 'k-nest' }, { project_key: '__global__' }],
+    })))
+    await daemon.status()
+    expect(store.pendingMutations()).toHaveLength(0)
+  }))
+
+  it('sin tope conocido (servicio viejo) no destraba por lugar', conRetenida(async (store) => {
+    const daemon = daemonCon(store, vi.fn().mockResolvedValue(ok({ plan: 'free', projects: [] })))
+    await daemon.status()
+    expect(store.pendingMutations()).toHaveLength(0)
+  }))
+
+  it('cambio de cuenta a una que ya es Cloud: el primer status de la cuenta nueva la libera', conRetenida(async (store, seq) => {
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce(ok({ plan: 'free', limits: { max_projects: 1 }, projects: [{ project_key: 'k-otro' }] }))
+      .mockResolvedValueOnce(ok({ plan: 'cloud', limits: { max_projects: 100 }, projects: [] }))
+    const otra = fakeStore()
+    const daemon = daemonCon(otra, fetchImpl)
+    await daemon.status() // cuenta A, Free en el tope
+    daemon.setStore(store) // cuenta B
+    expect(daemon.getPlan()).toBeUndefined()
+    await daemon.status()
+    expect(store.pendingMutations().map((x) => x.seq)).toEqual([seq])
+  }))
+})
+
+/**
+ * Final review #3 (Ruling 6): en el drain del connect el status corre ANTES del push, así que
+ * el roster llega vacío. Un push que cambia el roster (acepta un proyecto nuevo o recibe
+ * `project_limit_reached`) pide un status enseguida — y sólo ese push, no todos.
+ */
+describe('MemoryDaemon — el push que cambia el roster pide un status', () => {
+  function servidor() {
+    const roster: string[] = []
+    const fetchImpl = vi.fn(async (url: string, init?: { body?: string }) => {
+      if (url.endsWith('/v1/sync/status')) {
+        return ok({ plan: 'free', limits: { max_projects: 1 }, projects: roster.map((k) => ({ project_key: k })) })
+      }
+      const body = JSON.parse(init?.body ?? '{}') as { mutations: Array<{ sync_id: string; payload: { project_key?: string } }> }
+      const results = body.mutations.map((m) => {
+        const k = m.payload.project_key ?? '__global__'
+        if (k === '__global__' || roster.includes(k)) return { sync_id: m.sync_id, outcome: 'applied' }
+        if (roster.length < 1) { roster.push(k); return { sync_id: m.sync_id, outcome: 'applied' } }
+        return { sync_id: m.sync_id, outcome: 'rejected', error: 'project_limit_reached' }
+      })
+      return ok({ results })
+    })
+    const llamadasDeStatus = () => fetchImpl.mock.calls.filter(([u]) => String(u).endsWith('/v1/sync/status')).length
+    return { fetchImpl, llamadasDeStatus }
+  }
+
+  it('Free con 2 repos: después del push el roster ya tiene el proyecto aceptado', async () => {
+    const dir = makeTmpDir('md-tope-push-')
+    const store = new MemoryStore(join(dir, 'memory.db'))
+    try {
+      store.save({ projectKey: 'k-nest', type: 'decision', title: 'nest', content: 'goes to the cloud', source: 'mcp' })
+      store.save({ projectKey: 'k-api', type: 'decision', title: 'api', content: 'stays local', source: 'mcp' })
+      const { fetchImpl, llamadasDeStatus } = servidor()
+      const daemon = daemonCon(store, fetchImpl)
+      await daemon.status() // el del drain del connect: roster vacío
+      expect(daemon.getCloudProjectKeys()).toEqual([])
+      await daemon.push()
+      await vi.waitFor(() => expect(daemon.getCloudProjectKeys()).toEqual(['k-nest']))
+      expect(llamadasDeStatus()).toBe(2)
+      expect(store.proyectosRetenidosPor('project_limit_reached').map((p) => p.projectKey)).toEqual(['k-api'])
+
+      // Un push más de un proyecto que ya está en el roster no pide otro status.
+      store.save({ projectKey: 'k-nest', type: 'decision', title: 'nest 2', content: 'same project', source: 'mcp' })
+      await daemon.push()
+      await new Promise((r) => setImmediate(r))
+      expect(llamadasDeStatus()).toBe(2)
+    } finally {
+      store.close()
+      cleanupTmp(dir)
+    }
+  })
+
+  it('un rechazo con el roster ya en el tope no pide status', async () => {
+    const dir = makeTmpDir('md-tope-push2-')
+    const store = new MemoryStore(join(dir, 'memory.db'))
+    try {
+      store.save({ projectKey: 'k-nest', type: 'decision', title: 'nest', content: 'goes to the cloud', source: 'mcp' })
+      const { fetchImpl, llamadasDeStatus } = servidor()
+      const daemon = daemonCon(store, fetchImpl)
+      await daemon.status()
+      await daemon.push()
+      await vi.waitFor(() => expect(daemon.getCloudProjectKeys()).toEqual(['k-nest']))
+      const antes = llamadasDeStatus()
+      store.save({ projectKey: 'k-api', type: 'decision', title: 'api', content: 'stays local', source: 'mcp' })
+      await daemon.push()
+      await new Promise((r) => setImmediate(r))
+      expect(llamadasDeStatus()).toBe(antes)
+      expect(store.proyectosRetenidosPor('project_limit_reached').map((p) => p.projectKey)).toEqual(['k-api'])
+    } finally {
+      store.close()
+      cleanupTmp(dir)
+    }
+  })
+})
