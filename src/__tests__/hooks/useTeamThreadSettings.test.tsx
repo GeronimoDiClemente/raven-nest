@@ -35,6 +35,21 @@ describe('useTeamThreadSettings', () => {
     expect(result.current.enabled).toBe(false)
     expect(result.current.error).toBe('Your plan does not include it')
   })
+  it('cargaFallida distingue la lectura rota del rechazo al cambiar (D4)', async () => {
+    ;(window as any).memory.teamThreadSetSettings.mockResolvedValue({ ok: false, message: 'Your plan does not include it' })
+    const { result } = renderHook(() => useTeamThreadSettings('/repo'))
+    await waitFor(() => expect(result.current.ready).toBe(true))
+    expect(result.current.cargaFallida).toBe(false)
+    await act(() => result.current.setEnabled(true))
+    expect(result.current.error).toBe('Your plan does not include it')
+    expect(result.current.cargaFallida).toBe(false)
+  })
+  it('una lectura que falla marca cargaFallida', async () => {
+    ;(window as any).memory.teamThreadGetSettings.mockResolvedValue({ ok: false })
+    const { result } = renderHook(() => useTeamThreadSettings('/repo'))
+    await waitFor(() => expect(result.current.ready).toBe(true))
+    expect(result.current.cargaFallida).toBe(true)
+  })
   it('sin repo no consulta nada', async () => {
     const { result } = renderHook(() => useTeamThreadSettings(null))
     await waitFor(() => expect(result.current.ready).toBe(true))

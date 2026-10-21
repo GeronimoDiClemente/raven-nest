@@ -3,6 +3,12 @@
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { it, expect, vi } from 'vitest'
 import TeamThreadToggle from '../../components/TeamThreadToggle'
+import { useTeamThreadSettings } from '../../hooks/useTeamThreadSettings'
+
+function ConHilo() {
+  const hilo = useTeamThreadSettings('/repo')
+  return <TeamThreadToggle hilo={hilo} />
+}
 
 it('el switch prende las notas por rama', async () => {
   ;(window as any).memory = {
@@ -10,7 +16,7 @@ it('el switch prende las notas por rama', async () => {
     teamThreadGetSettings: vi.fn().mockResolvedValue({ ok: true, settings: { enabled: false } }),
     teamThreadSetSettings: vi.fn().mockResolvedValue({ ok: true }),
   }
-  render(<TeamThreadToggle activeRepoPath="/repo" />)
+  render(<ConHilo />)
   const sw = await screen.findByRole('switch', { name: /Branch notes in the repo/ })
   fireEvent.click(sw)
   await waitFor(() => expect(sw).toHaveAttribute('aria-checked', 'true'))
@@ -23,7 +29,7 @@ it('el label usa una clase de la escala tipografica real (no text-fs-md, que no 
   ;(window as any).memory = {
     teamThreadProjectKeyForWorktree: vi.fn().mockResolvedValue({ ok: false }),
   }
-  render(<TeamThreadToggle activeRepoPath="/repo" />)
+  render(<ConHilo />)
   const label = screen.getByText('Branch notes in the repo')
   expect(label.className).not.toMatch(/text-fs-md/)
   expect(label.className).toMatch(/\btext-fs\b/)

@@ -13,6 +13,7 @@ import ShareProjectCard from './ShareProjectCard'
 import TeamThreadToggle from './TeamThreadToggle'
 import MemoryVaultCard from './MemoryVaultCard'
 import { useTeam } from '../hooks/useTeam'
+import { useTeamThreadSettings } from '../hooks/useTeamThreadSettings'
 import { Button } from '@/components/ui/button'
 import { ICON_SIZE } from '../lib/icons'
 
@@ -46,6 +47,7 @@ interface Props {
 export default function MemorySettingsView({ activeRepoPath, onLinkRepo, seccionInicial = 'sync', onHowItWorks }: Props) {
   const [seccion, setSeccion] = useState<SeccionDeMemoria>(seccionInicial)
   const { activeTeam } = useTeam()
+  const hilo = useTeamThreadSettings(activeRepoPath)
 
   // El tour (Task 7) navega el rail disparando este evento en vez de simular clicks.
   useEffect(() => {
@@ -86,7 +88,7 @@ export default function MemorySettingsView({ activeRepoPath, onLinkRepo, seccion
         {seccion === 'sync' && (<><CloudMemoryCard /><LinkDeviceCard /><SyncServiceCard /></>)}
         {seccion === 'encryption' && (<><MemoryEncryptionCard />{activeTeam && <TeamEncryptionCard />}</>)}
         {seccion === 'project' && (activeRepoPath ? (
-          <><ShareProjectCard activeRepoPath={activeRepoPath} /><TeamThreadToggle activeRepoPath={activeRepoPath} /></>
+          <><ShareProjectCard activeRepoPath={activeRepoPath} /><TeamThreadToggle hilo={hilo} /></>
         ) : (
           <div className="flex items-center gap-3 rounded-md border border-border p-4">
             <span className="flex-1 text-fs-sm text-muted-foreground">Open a repo in this tab to share it or keep branch notes.</span>

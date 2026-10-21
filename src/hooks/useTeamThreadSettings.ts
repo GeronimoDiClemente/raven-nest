@@ -7,29 +7,33 @@ import { useCallback, useEffect, useState } from 'react'
 const LOAD_ERROR = "Couldn't load the team thread. Try again in a moment."
 const TOGGLE_ERROR = "Couldn't update the team thread setting. Try again in a moment."
 
-interface UseTeamThreadSettings {
+export interface UseTeamThreadSettings {
   ready: boolean
   projectKey: string | null
   enabled: boolean
   error: string | null
+  /** La LECTURA falló. Un rechazo al cambiar no la marca: el hilo sigue como estaba. */
+  cargaFallida: boolean
   setEnabled: (next: boolean) => Promise<void>
 }
 
 /**
- * @param nonce Cambiarlo vuelve a leer los settings del mismo repo: lo usa Memories al volver
- * de Memory settings, donde el toggle tiene su PROPIA instancia de este hook y prender o
- * apagar el hilo ahí no le llega a la vista principal.
+ * @param nonce Cambiarlo vuelve a leer los settings del mismo repo. Memories ya no lo usa (el
+ * workspace levanta un solo estado y se lo pasa a la pestaña Settings); queda para un caller
+ * que necesite releer.
  */
 export function useTeamThreadSettings(activeRepoPath: string | null, nonce = 0): UseTeamThreadSettings {
   const [projectKey, setProjectKey] = useState<string | null>(null)
   const [enabled, setEnabledState] = useState(false)
   const [ready, setReady] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [cargaFallida, setCargaFallida] = useState(false)
 
   useEffect(() => {
     let alive = true
     setReady(false)
     setError(null)
+    setCargaFallida(false)
 
     if (!activeRepoPath) {
       setProjectKey(null)
@@ -42,19 +46,20 @@ export function useTeamThreadSettings(activeRepoPath: string | null, nonce = 0):
       try {
         const keyRes = await window.memory?.teamThreadProjectKeyForWorktree?.(activeRepoPath)
         if (!alive) return
-        if (!keyRes?.ok || !keyRes.projectKey) { setError(LOAD_ERROR); setReady(true); return }
+        if (!keyRes?.ok || !keyRes.projectKey) { setError(LOAD_ERROR); setCargaFallida(true); setReady(true); return }
         const key = keyRes.projectKey
         setProjectKey(key)
 
         const settingsRes = await window.memory?.teamThreadGetSettings?.(key)
         if (!alive) return
-        if (!settingsRes?.ok) { setError(LOAD_ERROR); setReady(true); return }
+        if (!settingsRes?.ok) { setError(LOAD_ERROR); setCargaFallida(true); setReady(true); return }
         setEnabledState(settingsRes.settings?.enabled ?? false)
         setError(null)
         setReady(true)
       } catch {
         if (!alive) return
         setError(LOAD_ERROR)
+        setCargaFallida(true)
         setReady(true)
       }
     })()
@@ -77,5 +82,5 @@ export function useTeamThreadSettings(activeRepoPath: string | null, nonce = 0):
     }
   }, [activeRepoPath, projectKey])
 
-  return { ready, projectKey, enabled, error, setEnabled }
+  return { ready, projectKey, enabled, error, cargaFallida, setEnabled }
 }

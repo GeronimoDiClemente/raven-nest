@@ -1,14 +1,14 @@
 // Task 2 (mirar vs. configurar): el toggle del hilo de equipo, separado del grafo (antes
 // vivia adentro de TeamThreadGraph como el boton "Turn on"/"Turn off"). Se monta en la
-// vista de settings (Task 5), no en el panel que mira el grafo.
-import { useTeamThreadSettings } from '../hooks/useTeamThreadSettings'
+// vista de settings (Task 5), no en el panel que mira el grafo. El estado lo levanta
+// MemoriesWorkspace (lo comparte con la pestaña Team thread).
+import type { UseTeamThreadSettings } from '../hooks/useTeamThreadSettings'
 
 interface Props {
-  activeRepoPath: string
+  hilo: UseTeamThreadSettings
 }
 
-export default function TeamThreadToggle({ activeRepoPath }: Props) {
-  const t = useTeamThreadSettings(activeRepoPath)
+export default function TeamThreadToggle({ hilo: t }: Props) {
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center gap-3">
