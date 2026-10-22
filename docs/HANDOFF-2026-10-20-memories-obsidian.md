@@ -58,3 +58,48 @@ Memory settings → idioma de Nest (ojo: test `la-app-es-en-ingles`) → tema cl
 - Páginas `/checkout/success|cancelled|portal-return` van en `pagina-nest` (deploy de Gero).
 - Pendiente anotado: el back-office puede poner `cloud` a mano sin avisar al sync (2b-3); customer de Stripe borrado → 502 en checkout (2b-3); e2e/04 no renderiza el toast ni `Keep syncing`.
 - Siguiente: ejecutar el runbook en modo test (con OK) → 2b-3 UI de cuenta → 2b-4 Teams autoservicio.
+
+---
+
+# Addendum 2026-10-22 — runbook 2b-2 en modo test, TODO LOCAL (a medio camino)
+
+Decisiones de Gero: **no hay Supabase de staging** → se prueba con Supabase local + Stripe test +
+servidor de sync local (nada de Railway). Gero **no entrega su `sk_test`** por chat ni archivo.
+
+**Hecho:**
+- Stripe CLI 1.55.0 instalado con winget. Quedó en el perfil de la sesión, no en el PATH de `!`:
+  `~/AppData/Local/Microsoft/WinGet/Packages/Stripe*/stripe.exe`. Login OK contra **Nest · sandbox**
+  (`acct_1TJkZ8JarRYFmNbK`, el "Modo de prueba"; nunca elegir "Nest" = live). El login por dispositivo
+  vence en minutos: correr `login` y enseguida `login --complete-device` en background y abrirle el link.
+  La sesión del CLI vence a la hora (re-login de un clic).
+- En el sandbox: producto **Nest Cloud** `prod_VUM5ZyvtzfQL9U`, precios `price_1UTNMtJarRYFmNbKg0hY6xse`
+  ($10/mes, lookup `cloud_monthly`) y `price_1UTNMuJarRYFmNbKabIiPPVH` ($96/año, `cloud_annual`).
+  Los `price_` no son secretos.
+- Supabase local de raven-nest **en otros puertos** para convivir con el de `sti-booking-desk`: copia de
+  `supabase/` en un dir temporal, `sed -E 's/^(\s*#?\s*[a-z_]*port\s*=\s*)54([0-9]{3})/\155\2/'` sobre
+  su `config.toml`, y `npx supabase start --workdir <dir> -x vector,logflare` → API 55321, DB 55322,
+  migraciones al día. (Reiniciar Docker dejó abajo el stack de `sti-booking-desk`: se levanta con
+  `supabase start` en ese proyecto.)
+- Servidor de sync local: `docker start nest-memory-pg` y `server/` con `PORT=8787`,
+  `SUPABASE_URL=http://127.0.0.1:55321`, anon key y `SUPABASE_JWT_SECRET` locales, `PLAN_SYNC_SECRET`
+  generado al momento (no guardado en ningún lado: regenerar). `POST /internal/plan` sin firma → **401** ✓.
+- `stripe listen --print-secret` da el `whsec_` para el webhook local (no hace falta endpoint en el
+  dashboard).
+
+**Bloqueado / pendiente:**
+1. **Clave para las functions.** El login del CLI NO da API key: guarda un token OAuth del usuario
+   (Super Admin) en el llavero de Windows (`StripeCLI:uat`, `oauth_refresh_token`) — **no usarlo** como
+   `STRIPE_SECRET_KEY`. Propuesta pendiente de Gero: **restricted key** `nest-local-smoke` en el sandbox
+   (Checkout Sessions W, Customers W, Customer portal W, Subscriptions R, resto None) que él pega con
+   notepad en un archivo local; se revoca al terminar.
+2. **Portal de clientes**: `stripe-portal` no pasa `configuration`, usa la **default**, y ésa sólo se
+   guarda desde el dashboard (no hay ninguna en el sandbox). Gero tiene que guardarla: cancelar al fin
+   del período, actualizar pago, facturas, cambiar de plan sólo entre los dos precios de Cloud.
+3. Después: `supabase functions serve` con env file (`STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`,
+   `STRIPE_PRICE_CLOUD_*`, `PLAN_SYNC_URL=http://host.docker.internal:8787` —las functions corren en
+   Docker—, `PLAN_SYNC_SECRET`), `stripe listen --forward-to http://127.0.0.1:55321/functions/v1/stripe-webhook`,
+   Nest dev apuntado a ese Supabase y a `http://127.0.0.1:8787`, y la §3 del runbook (tarjeta 4242).
+4. La PC se quedó **sin memoria** con todo arriba (Claude Code mató el server de sync). Antes de seguir,
+   cerrar cosas; Docker Desktop es lo más pesado.
+5. Al cerrar la prueba: revocar la restricted key, borrar los archivos de secretos temporales,
+   `npx supabase stop --workdir <dir>`, `docker stop nest-memory-pg`.
