@@ -189,10 +189,22 @@ contextBridge.exposeInMainWorld('memory', {
   sessions: () => ipcRenderer.invoke('memory:sessions'),
   doctor: () => ipcRenderer.invoke('memory:doctor'),
   vaultHealth: () => ipcRenderer.invoke('memory:vault:health'),
+  /**
+   * Igual que `onChanged`: NO hace `removeAllListeners` primero. Hay varios `useMemory`
+   * montados a la vez (Settings, la card de Memories, la fila de estado) y limpiar todo
+   * al suscribirse hacía que el último en montar sordeara a los demás; abrir y cerrar
+   * Memory settings dejaba Settings › Account sin actualizarse hasta reiniciar. Devuelve
+   * su propia baja, que saca sólo este handler.
+   */
   onStatus: (cb: (status: 'idle' | 'syncing' | 'paused' | 'error' | 'plan_required') => void) => {
-    ipcRenderer.removeAllListeners('memory:status')
-    ipcRenderer.on('memory:status', (_event, status) => cb(status))
+    const handler = (_e: IpcRendererEvent, status: 'idle' | 'syncing' | 'paused' | 'error' | 'plan_required') => cb(status)
+    ipcRenderer.on('memory:status', handler)
+    return () => { ipcRenderer.removeListener('memory:status', handler) }
   },
+  /**
+   * @deprecated Borra TODOS los oyentes de `memory:status`, también los de otras
+   * instancias. Queda por compatibilidad; usá la baja que devuelve `onStatus`.
+   */
   removeStatusListener: () => {
     ipcRenderer.removeAllListeners('memory:status')
   },

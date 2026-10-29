@@ -25,7 +25,7 @@
 // del archivo los cubren.)
 import { test, expect } from '@playwright/test'
 import { launchHarness, teardown, type Harness } from './helpers/harness'
-import { fingirCloudSobreElTope, fingirMaquinas } from './helpers/fingir-cuenta'
+import { avisarStatus, fingirCloudSobreElTope, fingirMaquinas, revocacionesFingidas } from './helpers/fingir-cuenta'
 import { existsSync, mkdirSync } from 'fs'
 import { basename, join } from 'path'
 
@@ -549,6 +549,7 @@ test('Account muestra Cloud, el uso y las máquinas', async () => {
     await page.getByRole('button', { name: 'Cancel', exact: true }).click()
     await expect(page.getByText('Disconnect MacBook?', { exact: true })).toHaveCount(0)
     await expect(page.getByText('3 connected', { exact: true })).toBeVisible()
+    expect(await revocacionesFingidas(h)).toBe(0)
 
     // 1 local only del doctor (api) + 1 que pasa del tope (web) = 2.
     await page.getByRole('button', { name: '2 local only — Keep syncing in Memory settings ›', exact: true }).click()
@@ -559,6 +560,28 @@ test('Account muestra Cloud, el uso y las máquinas', async () => {
     // La animación de entrada del overlay: sin esperar, la captura sale con Settings atravesado.
     await page.waitForTimeout(600)
     await page.screenshot({ path: join(SHOTS, '30-account-keep-syncing.png') })
+
+    // Task 10b: abrir y cerrar Memory settings monta y desmonta otro `useMemory`. Con el
+    // preload viejo su baja hacía removeAllListeners('memory:status') y Account quedaba
+    // sorda hasta reiniciar. Un proyecto más en la nube tiene que llegarle igual.
+    await overlay.locator('.tw-back-btn').click()
+    await expect(overlay).toHaveCount(0, { timeout: 10_000 })
+    await h.app.evaluate(({ ipcMain }) => {
+      ipcMain.removeHandler('memory:status')
+      ipcMain.handle('memory:status', () => ({
+        connected: true, deviceId: 'e2e-device', itemCount: 12, pendingCount: 0, daemonStatus: 'idle',
+        quota: { used_bytes: 1024 * 1024, max_bytes: 100 * 1024 * 1024 },
+        limits: { max_projects: 1 },
+        cloudProjects: [
+          { projectKey: 'k-nest', name: 'raven-nest' }, { projectKey: 'k-web', name: 'web' }, { projectKey: 'k-docs', name: 'docs' },
+        ],
+        keptProjectKey: 'k-nest',
+        overLimit: true,
+      }))
+    })
+    await avisarStatus(h)
+    // 1 local only (api) + 2 que pasan del tope (web, docs) = 3.
+    await expect(page.getByRole('button', { name: '3 local only — Keep syncing in Memory settings ›', exact: true })).toBeVisible({ timeout: 10_000 })
   } finally {
     await teardown(h)
   }

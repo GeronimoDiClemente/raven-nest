@@ -36,13 +36,16 @@ export async function fingirCloudSobreElTope(h: Harness): Promise<void> {
  * El `useMemory` de SettingsPanel monta con la app, no al abrir Settings: ya leyó el status
  * real. El evento `memory:status` (el mismo que manda `memory:refreshStatus`) lo hace releer.
  */
-async function avisarStatus(h: Harness): Promise<void> {
+export async function avisarStatus(h: Harness): Promise<void> {
   await h.app.evaluate(({ BrowserWindow }) => {
     BrowserWindow.getAllWindows()[0]?.webContents.send('memory:status', 'idle')
   })
 }
 
-/** Tres máquinas de la cuenta, la primera es ésta. `revokeDevice` contesta ok sin red. */
+/**
+ * Tres máquinas de la cuenta, la primera es ésta. `revokeDevice` contesta ok sin red y
+ * cuenta sus llamadas en `globalThis.__revocacionesE2E` de main (ver `revocacionesFingidas`).
+ */
 export async function fingirMaquinas(h: Harness): Promise<void> {
   const ahora = Date.now()
   const maquinas = [
@@ -53,7 +56,17 @@ export async function fingirMaquinas(h: Harness): Promise<void> {
   await h.app.evaluate(({ ipcMain }, lista) => {
     ipcMain.removeHandler('memory:devices')
     ipcMain.handle('memory:devices', () => ({ ok: true, devices: lista }))
+    const g = globalThis as unknown as { __revocacionesE2E: number }
+    g.__revocacionesE2E = 0
     ipcMain.removeHandler('memory:revokeDevice')
-    ipcMain.handle('memory:revokeDevice', () => ({ ok: true }))
+    ipcMain.handle('memory:revokeDevice', () => {
+      g.__revocacionesE2E++
+      return { ok: true }
+    })
   }, maquinas)
+}
+
+/** Cuántas veces el renderer llamó al `memory:revokeDevice` fingido. */
+export async function revocacionesFingidas(h: Harness): Promise<number> {
+  return h.app.evaluate(() => (globalThis as unknown as { __revocacionesE2E?: number }).__revocacionesE2E ?? 0)
 }

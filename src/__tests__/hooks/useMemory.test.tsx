@@ -483,3 +483,45 @@ describe('useMemory — final review #4/#5', () => {
     await waitFor(() => expect(result.current.limits).toBeNull())
   })
 })
+
+describe('useMemory — memory:status con varios oyentes (Task 10b)', () => {
+  beforeEach(() => { vi.clearAllMocks() })
+
+  // El preload viejo hacía removeAllListeners al suscribirse y al darse de baja: con dos
+  // useMemory montados (Settings y la card de Memories), desmontar uno sordeaba al otro.
+  it('desmontar una instancia no sordea a la otra: cada una saca sólo su handler', async () => {
+    const oyentes: Array<() => void> = []
+    const onStatus = vi.fn((cb: () => void) => {
+      oyentes.push(cb)
+      return () => { oyentes.splice(oyentes.indexOf(cb), 1) }
+    })
+    ;(globalThis as unknown as { window: Window }).window.memory = { ...memoryMock, onStatus } as never
+    memoryMock.status.mockResolvedValue({ connected: true, deviceId: 'd', itemCount: 0, pendingCount: 0, daemonStatus: 'idle' })
+
+    const primero = renderHook(() => useMemory())
+    const segundo = renderHook(() => useMemory())
+    await waitFor(() => expect(oyentes).toHaveLength(2))
+    await waitFor(() => expect(segundo.result.current.state).toBe('connected'))
+
+    primero.unmount()
+    expect(oyentes).toHaveLength(1)
+    expect(memoryMock.removeStatusListener).not.toHaveBeenCalled()
+
+    const antes = memoryMock.status.mock.calls.length
+    await act(async () => { oyentes.forEach((cb) => cb()) })
+    await waitFor(() => expect(memoryMock.status.mock.calls.length).toBeGreaterThan(antes))
+    segundo.unmount()
+    expect(oyentes).toHaveLength(0)
+  })
+
+  it('con un preload viejo (onStatus devuelve undefined) el desmontaje cae a removeStatusListener', async () => {
+    ;(globalThis as unknown as { window: Window }).window.memory = memoryMock as never
+    memoryMock.onStatus.mockReturnValue(undefined)
+    memoryMock.status.mockResolvedValue({ connected: true, deviceId: 'd', itemCount: 0, pendingCount: 0, daemonStatus: 'idle' })
+
+    const { unmount } = renderHook(() => useMemory())
+    await waitFor(() => expect(memoryMock.onStatus).toHaveBeenCalled())
+    unmount()
+    expect(memoryMock.removeStatusListener).toHaveBeenCalledTimes(1)
+  })
+})

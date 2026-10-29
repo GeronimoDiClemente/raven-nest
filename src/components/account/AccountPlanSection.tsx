@@ -28,9 +28,9 @@ function Enlace({ children, onClick }: { children: ReactNode; onClick: () => voi
 export type MemoriaDeCuenta = Pick<ReturnType<typeof useMemory>, 'state' | 'error' | 'cloudProjects' | 'limits' | 'localOnlyProjects' | 'overLimit'>
 
 /**
- * `memory` viene de SettingsPanel y NO de un `useMemory()` propio: el `onStatus` del preload
- * hace `removeAllListeners('memory:status')` antes de suscribir, así que una tercera instancia
- * le robaba el canal a la del panel (la de MemoryAdoptionDialog) y una de las dos quedaba sorda.
+ * `memory` viene de SettingsPanel y NO de un `useMemory()` propio. Nació porque el `onStatus`
+ * del preload hacía `removeAllListeners('memory:status')` y una tercera instancia dejaba sorda
+ * a otra; eso ya no pasa (Task 10b), pero una sola lectura del status por panel sigue alcanzando.
  */
 export default function AccountPlanSection({ memory, onOpenMemorySync }: { memory: MemoriaDeCuenta; onOpenMemorySync: () => void }) {
   const profile = useProfile()

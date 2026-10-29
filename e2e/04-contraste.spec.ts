@@ -230,11 +230,10 @@ test('el estado vacio de Memories (sin repo) tambien pasa el guard de 3:1', asyn
   }
 })
 
-// Spec 2b-3: Account con Cloud, el toast y la sección Sync sobre el tope. Test aparte y no
-// pantallas del de arriba: ese abre Memories antes que Settings, y al desmontarse el
-// `useMemory` de CloudMemoryCard su `removeStatusListener` saca TODOS los listeners de
-// `memory:status` —también el de SettingsPanel—, así que el status fingido nunca le llegaba
-// a Account. Acá Settings se abre sin haber pasado por Memories.
+// Spec 2b-3: Account con Cloud, el toast y la sección Sync sobre el tope. Quedó como test
+// aparte porque, hasta la Task 10b, al desmontarse el `useMemory` de CloudMemoryCard su
+// `removeStatusListener` sacaba TODOS los listeners de `memory:status` —también el de
+// SettingsPanel— y el status fingido nunca le llegaba a Account si antes se abría Memories.
 test('Account, el toast de Cloud y Keep syncing también pasan el guard de 3:1', async () => {
   // Arranca en Free para producir el paso free -> cloud con el evento; la facturación sólo
   // se dibuja con un plan pago, o sea desde ahí.

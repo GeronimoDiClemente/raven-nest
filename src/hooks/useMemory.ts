@@ -220,8 +220,13 @@ export function useMemory() {
       return
     }
     refresh()
-    api.onStatus(() => { void refresh() })
-    return () => api.removeStatusListener()
+    // Cada instancia saca sólo su oyente: removeStatusListener sordearía a las demás
+    // (Settings y Memories montan useMemory a la vez). Queda para un preload viejo.
+    const baja = api.onStatus(() => { void refresh() })
+    return () => {
+      if (typeof baja === 'function') baja()
+      else api.removeStatusListener()
+    }
   }, [refresh])
 
   /**

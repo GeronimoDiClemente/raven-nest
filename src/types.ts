@@ -1083,7 +1083,9 @@ declare global {
          */
         unavailable?: boolean
       }>
-      onStatus: (cb: (status: 'idle' | 'syncing' | 'paused' | 'error' | 'plan_required') => void) => void
+      /** Devuelve la baja de ESTE oyente; un preload viejo devuelve void. */
+      onStatus: (cb: (status: 'idle' | 'syncing' | 'paused' | 'error' | 'plan_required') => void) => (() => void) | void
+      /** @deprecated Borra los oyentes de todas las instancias: usá la baja de `onStatus`. */
       removeStatusListener: () => void
       /** Un agente escribió una memoria. Devuelve la baja de la suscripción. */
       onChanged?: (cb: () => void) => () => void
