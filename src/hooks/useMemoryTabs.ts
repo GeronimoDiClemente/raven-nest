@@ -13,17 +13,20 @@ let grafoAtendido = 0
 /**
  * @param conHilo `null` = todavía no se sabe: no se toca la pestaña Team thread.
  * @param pedidoDeSettings sube cada vez que algo de afuera pide abrir Memory settings.
+ * @param seccionPedida la sección que trae el pedido; sin ella Settings conserva la que tenía.
  * @param pedidoDelGrafo sube cada vez que arranca el tour de Memories: sus anclas (explorer,
  *   grafo, New) están ocultas con Settings activa, y el tour las mediría como una caja 0×0.
  */
-export function useMemoryTabs(conHilo: boolean | null, pedidoDeSettings = 0, pedidoDelGrafo = 0) {
+export function useMemoryTabs(conHilo: boolean | null, pedidoDeSettings = 0, pedidoDelGrafo = 0, seccionPedida?: SeccionDeSettings) {
   const [state, dispatch] = useReducer(tabsReducer, ultimo)
   useEffect(() => { ultimo = state }, [state])
   useEffect(() => { if (conHilo !== null) dispatch({ type: 'setThread', on: conHilo }) }, [conHilo])
   useEffect(() => {
     if (pedidoDeSettings <= pedidoAtendido) return
     pedidoAtendido = pedidoDeSettings
-    dispatch({ type: 'openSettings' })
+    dispatch({ type: 'openSettings', section: seccionPedida })
+    // seccionPedida se lee sólo cuando el pedido sube: no es dependencia a propósito.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pedidoDeSettings])
   // Durante el render y no en un efecto: el tour se monta en el MISMO commit que sube el pedido
   // y mide su ancla en un efecto pasivo. Con un efecto acá (aun de layout, porque React vacía

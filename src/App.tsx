@@ -82,6 +82,7 @@ import { nextStep, composeStepInput, upsertWorkerSpec } from './lib/worker-run'
 import type { WorkerRun } from './lib/worker-run'
 import { OnboardingTour } from './tutorial/OnboardingTour'
 import { getTour } from './tutorial/registry'
+import type { SeccionDeSettings } from './lib/memory-tabs'
 
 
 let paneCounter = 0
@@ -258,17 +259,21 @@ export default function App() {
   // la primera vez tape Settings.
   const [pedidoDeSettings, setPedidoDeSettings] = useState(0)
   const [memoriesEnSettings, setMemoriesEnSettings] = useState(false)
+  // 2b-3: la sección que trae el pedido (Keep syncing → 'sync') y el pedido de abrir Account.
+  const [seccionDeSettings, setSeccionDeSettings] = useState<SeccionDeSettings | undefined>(undefined)
+  const [pedidoDeCuenta, setPedidoDeCuenta] = useState(0)
   // Final review I2: el tour de Memories apunta al explorer y al grafo; si arranca con la
   // pestaña Settings activa, este pedido pone Graph adelante antes de que mida sus anclas.
   const [pedidoDelGrafo, setPedidoDelGrafo] = useState(0)
-  const abrirMemories = (vista?: 'memorias' | 'settings') => {
+  const abrirMemories = (vista?: 'memorias' | 'settings', seccion?: SeccionDeSettings) => {
     // Defensa en profundidad (fix round 1, Task 6 del 19-10): SOLO el literal 'settings' abre
     // Settings. Un caller que pase el SyntheticEvent de un click cae al grafo.
     const enSettings = vista === 'settings'
     setMemoriesEnSettings(enSettings)
-    if (enSettings) setPedidoDeSettings((n) => n + 1)
+    if (enSettings) { setSeccionDeSettings(seccion); setPedidoDeSettings((n) => n + 1) }
     setMemoriesOpen(true)
   }
+  const abrirPlanYFacturacion = () => { setMemoriesOpen(false); setPedidoDeCuenta((n) => n + 1) }
   // workspace-shell-design §1: la salida (zoomOut, 0.2s) necesita que el overlay
   // siga montado mientras anima — si no, se desmonta en el mismo tick que
   // `xOpen` pasa a false y la animacion de salida nunca llega a pintar un frame.
@@ -1908,7 +1913,8 @@ export default function App() {
         }}
         // La memoria local es de todos los planes (§8.1), asi que esta fila NO pasa por el
         // gate de plan que si tiene Personal.
-        onMemoriesOpen={(vista) => abrirMemories(vista)}
+        onMemoriesOpen={(vista, seccion) => abrirMemories(vista, seccion)}
+        pedidoDeCuenta={pedidoDeCuenta}
         pendingInvitesCount={pendingInvitesCount}
         // TODO: gate behind plan tier if needed
         onIntegrationsOpen={() => setIntegrationsHubOpen(true)}
@@ -2232,6 +2238,8 @@ export default function App() {
           // Task 7: el botón "How it works" del header reabre la bienvenida a pedido (forced).
           onHowItWorks={() => setMemoriesWelcome(true)}
           pedidoDeSettings={pedidoDeSettings}
+          seccionDeSettings={seccionDeSettings}
+          onPlanYFacturacion={abrirPlanYFacturacion}
           pedidoDelGrafo={pedidoDelGrafo}
         />
       )}

@@ -38,6 +38,7 @@ import {
   Plus, Settings,
 } from 'lucide-react'
 import { ICON_SIZE } from '../lib/icons'
+import type { SeccionDeSettings } from '../lib/memory-tabs'
 
 interface Props {
   expanded: boolean
@@ -63,7 +64,9 @@ interface Props {
   onPersonalOpen?: () => void
   /** Spec 2026-09-09 §4.1: Memories es hermana de Personal, no una seccion adentro ni una 4a pestana.
    *  Task 6: toma una vista opcional — SettingsPanel la usa para abrir directo en Memory settings. */
-  onMemoriesOpen?: (vista?: 'memorias' | 'settings') => void
+  onMemoriesOpen?: (vista?: 'memorias' | 'settings', seccion?: SeccionDeSettings) => void
+  /** Sube cuando algo de afuera pide abrir Settings › Account (Plan & billing). */
+  pedidoDeCuenta?: number
   pendingInvitesCount?: number
   onIntegrationsOpen?: () => void
   onGraphBoardOpen?: () => void
@@ -115,7 +118,7 @@ export default function Sidebar({
   isListening, isTranscribing, isModelLoading, onMicToggle,
   onNewPane, onHistoryOpen,
   onSnippetSend, onSnippetBroadcast, onCommandRun, onWorkspaceSave, onWorkspaceLoad, isWin,
-  isTrialActive, trialDaysLeft, profileLoading, onUpgrade, onPersonalOpen, onMemoriesOpen, onIntegrationsOpen, onGraphBoardOpen, pendingInvitesCount = 0, plan, repoPath, onRepoLink, onRepoUnlink, onJoinTerminal,
+  isTrialActive, trialDaysLeft, profileLoading, onUpgrade, onPersonalOpen, onMemoriesOpen, pedidoDeCuenta, onIntegrationsOpen, onGraphBoardOpen, pendingInvitesCount = 0, plan, repoPath, onRepoLink, onRepoUnlink, onJoinTerminal,
   activeCellRepoPath, onWorktreeSelect, onNewWorktree, onFixCi, worktreeRefreshKey,
   layoutId, paneCount, onLayoutChange, onOpenTutorial, onFileOpen, userPrefs,
   paneFilterPanes, paneFilter, onPaneFilterChange, paneAITypesByPath,
@@ -941,7 +944,8 @@ export default function Sidebar({
           onOpenTutorial={onOpenTutorial}
           userPrefs={userPrefs}
           onFileOpen={onFileOpen}
-          onOpenMemories={(v) => onMemoriesOpen?.(v)}
+          onOpenMemories={(v, s) => onMemoriesOpen?.(v, s)}
+          pedidoDeCuenta={pedidoDeCuenta}
         />
       </div>
 

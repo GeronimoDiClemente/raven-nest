@@ -25,6 +25,7 @@ import { ICON_SIZE } from '../lib/icons'
 import WorkspaceNavButton from './WorkspaceNavButton'
 import { TEMAS, TEMA_NEST, temaPorId, ajustarContraste, peorContraste, CONTRASTE_MINIMO, type TemaDeTerminal } from '../lib/terminal-themes'
 import { importarTema } from '../lib/terminal-theme-import'
+import type { SeccionDeSettings } from '../lib/memory-tabs'
 
 
 interface KeybindRowProps {
@@ -111,7 +112,9 @@ interface Props {
    * no la de `'memorias'` (el default). El argumento es opcional para no romper otro
    * llamador que sólo quiera abrir la vista por default.
    */
-  onOpenMemories?: (vista?: 'memorias' | 'settings') => void
+  onOpenMemories?: (vista?: 'memorias' | 'settings', seccion?: SeccionDeSettings) => void
+  /** Sube cada vez que algo de afuera pide abrir Account (Plan & billing); cada subida, una vez. */
+  pedidoDeCuenta?: number
 }
 
 /**
@@ -271,7 +274,7 @@ function Seccion({
   )
 }
 
-export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, activeRepoPath, onOpenTutorial, userPrefs, onFileOpen, onOpenMemories }: Props) {
+export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, activeRepoPath, onOpenTutorial, userPrefs, onFileOpen, onOpenMemories, pedidoDeCuenta = 0 }: Props) {
   const [open, setOpen] = useState(false)
   const [busqueda, setBusqueda] = useState('')
   /**
@@ -289,6 +292,15 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
    * lo necesitas.
    */
   const [seccionActiva, setSeccionActiva] = useState<string>(SECCIONES[0].id)
+  // Sólo un valor MÁS ALTO que el último visto abre: el inicial (aunque no sea 0) no cuenta.
+  const cuentaVista = useRef(pedidoDeCuenta)
+  useEffect(() => {
+    if (pedidoDeCuenta <= cuentaVista.current) return
+    cuentaVista.current = pedidoDeCuenta
+    setOpen(true)
+    setSeccionActiva('account')
+    setBusqueda('')
+  }, [pedidoDeCuenta])
   const [errorDeTema, setErrorDeTema] = useState<string | null>(null)
 
   const importados = userPrefs.prefs.ui_settings.terminalThemesImportados ?? []
@@ -533,7 +545,7 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                   <p className="sp-email">{userEmail || '—'}</p>
 
                   {/* Spec 2b-3 §3: Plan, Usage y Machines. */}
-                  <AccountPlanSection memory={memory} onOpenMemorySync={() => onOpenMemories?.('settings')} />
+                  <AccountPlanSection memory={memory} onOpenMemorySync={() => onOpenMemories?.('settings', 'sync')} />
 
 
                   {/* La memoria no vive en Settings: su configuración es la pestaña

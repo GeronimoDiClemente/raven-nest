@@ -4,7 +4,6 @@ import { useMemory } from '../hooks/useMemory'
 import { useProfile } from '../hooks/useProfile'
 import { useUserRepos } from '../hooks/useUserRepos'
 import { planIncluyeNube, tieneSuscripcionPropia } from '../lib/stripe'
-import { abrirPortal, COPY_CHECKOUT_SIN_RED } from '../lib/checkout'
 import { nubeDeMemoriaDisponible, textoDeErrorDeMemoria } from '../lib/beta-de-memoria'
 import UpgradeModal from './UpgradeModal'
 import LinkDeviceCard from './LinkDeviceCard'
@@ -32,7 +31,7 @@ function formatBytes(bytes: number): string {
  * estados de `useMemory`, el mismo diálogo de Turn off con el borrado de la nube adentro.
  * El campo de token se mudó a Advanced (SyncTokenRow, D7) y "Learn more" salió (D16).
  */
-export default function CloudMemoryCard() {
+export default function CloudMemoryCard({ onPlanYFacturacion }: { onPlanYFacturacion?: () => void } = {}) {
   const memory = useMemory()
   const { repos: userRepos } = useUserRepos()
   const { plan } = useProfile()
@@ -43,24 +42,9 @@ export default function CloudMemoryCard() {
   // only controls whether main also calls memory-sync's delete-cloud-data action.
   const [deleteCloudOnDisconnect, setDeleteCloudOnDisconnect] = useState(false)
   const [turnOffOpen, setTurnOffOpen] = useState(false)
-  // Spec 2b-2 §4.8 (D10): quien paga Cloud gestiona la suscripción desde acá hasta 2b-3.
-  const [errorDeCobro, setErrorDeCobro] = useState<string | null>(null)
-  const [abriendoPortal, setAbriendoPortal] = useState(false)
-  const gestionar = async () => {
-    setAbriendoPortal(true)
-    setErrorDeCobro(null)
-    // try/finally: si `openExternal` lanza, el botón no puede quedar deshabilitado para siempre.
-    try {
-      const r = await abrirPortal()
-      if (!r.ok) setErrorDeCobro(r.error)
-    } catch {
-      setErrorDeCobro(COPY_CHECKOUT_SIN_RED)
-    } finally {
-      setAbriendoPortal(false)
-    }
-  }
-  const manage = tieneSuscripcionPropia(plan) && (
-    <Button variant="outline" size="sm" disabled={abriendoPortal} onClick={() => void gestionar()}>Manage subscription</Button>
+  // Spec 2b-3: gestionar la suscripción vive en Settings › Account; acá sólo el atajo.
+  const planYFacturacion = onPlanYFacturacion && (tieneSuscripcionPropia(plan) || plan === 'free') && (
+    <Button variant="link" size="sm" onClick={onPlanYFacturacion}>Plan &amp; billing ›</Button>
   )
 
   const confirmarTurnOff = () => {
@@ -125,10 +109,9 @@ export default function CloudMemoryCard() {
       <SettingRow
         nombre="Cloud sync"
         descripcion="Keeps a copy in the cloud so what your agents learn here is there on your other machines."
-        control={<>{manage}{control}</>}
+        control={<>{planYFacturacion}{control}</>}
       >
         {estado}
-        {errorDeCobro && linea(errorDeCobro, 'destructive')}
         {memory.state === 'disconnected' && userRepos.length === 0 && (
           <p className="m-0 rounded-md border border-warn/40 px-3 py-2 text-fs-sm text-warn">
             Link your repos before connecting — memory imported without them goes to Global and stays there.

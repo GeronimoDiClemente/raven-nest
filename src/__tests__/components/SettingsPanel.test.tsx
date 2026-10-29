@@ -345,4 +345,12 @@ describe('SettingsPanel — la nube se mudó a su propia vista (Task 3)', () => 
     fireEvent.click(screen.getByRole('button', { name: 'Memory settings' }))
     expect(onOpenMemories).toHaveBeenCalledWith('settings')
   })
+
+  it('subir pedidoDeCuenta abre el panel con Account activa; el valor inicial y el repetido no', () => {
+    const props = { updateState: 'idle' as const, onCheckUpdates: vi.fn(), userEmail: 'test@example.com', userPrefs: makeUserPrefs(vi.fn()) }
+    const { rerender } = render(<SettingsPanel {...props} pedidoDeCuenta={0} />)
+    expect(screen.queryByRole('button', { name: 'Sign out' })).not.toBeInTheDocument()
+    rerender(<SettingsPanel {...props} pedidoDeCuenta={1} />)
+    expect(screen.getByRole('button', { name: 'Sign out' })).toBeInTheDocument()
+  })
 })

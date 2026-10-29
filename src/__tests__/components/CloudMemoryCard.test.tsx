@@ -586,23 +586,30 @@ describe('CloudMemoryCard — 2b-2', () => {
     expect(screen.getByRole('combobox', { name: 'Keep syncing' })).toHaveTextContent('api')
   })
 
-  it('con plan cloud, Manage subscription abre el portal (D10)', async () => {
+  it('con plan cloud no hay Manage subscription: hay Plan & billing que llama onPlanYFacturacion', async () => {
     ;(window as unknown as { appFlags: unknown }).appFlags = { e2eBypass: true, e2ePlan: 'cloud' }
-    supabaseMock.functions.invoke.mockResolvedValue({ data: { url: 'https://billing.stripe.test/p' }, error: null })
-    const openExternal = vi.fn()
-    ;(window as unknown as { electronShell: unknown }).electronShell = { openExternal }
     mockLocalPaths()
     mockMemoryBridge({ ...conectadaSobreElTope, overLimit: false })
-    render(<CloudMemoryCard />)
-    fireEvent.click(await screen.findByRole('button', { name: 'Manage subscription' }))
-    await waitFor(() => expect(openExternal).toHaveBeenCalledWith('https://billing.stripe.test/p'))
+    const onPlanYFacturacion = vi.fn()
+    render(<CloudMemoryCard onPlanYFacturacion={onPlanYFacturacion} />)
+    fireEvent.click(await screen.findByRole('button', { name: /Plan & billing/ }))
+    expect(onPlanYFacturacion).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('button', { name: 'Manage subscription' })).toBeNull()
   })
 
-  it('con plan free no hay Manage subscription', async () => {
+  it('con plan free también hay Plan & billing (el camino a ver su plan)', async () => {
+    mockLocalPaths()
+    mockMemoryBridge({ ...conectadaSobreElTope, overLimit: false })
+    render(<CloudMemoryCard onPlanYFacturacion={vi.fn()} />)
+    expect(await screen.findByRole('button', { name: /Plan & billing/ })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Manage subscription' })).toBeNull()
+  })
+
+  it('sin la prop onPlanYFacturacion no se muestra Plan & billing', async () => {
     mockLocalPaths()
     mockMemoryBridge({ ...conectadaSobreElTope, overLimit: false })
     render(<CloudMemoryCard />)
     await screen.findByText('Cloud sync')
-    expect(screen.queryByRole('button', { name: 'Manage subscription' })).toBeNull()
+    expect(screen.queryByRole('button', { name: /Plan & billing/ })).toBeNull()
   })
 })

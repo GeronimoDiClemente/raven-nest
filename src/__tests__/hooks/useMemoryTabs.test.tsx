@@ -33,6 +33,25 @@ describe('useMemoryTabs — pedido de Settings (Account → Memory settings)', (
   })
 })
 
+describe('useMemoryTabs — el pedido trae sección (Keep syncing → Sync)', () => {
+  it('un pedido nuevo con seccionPedida cambia la sección de la pestaña Settings abierta', () => {
+    const { result, rerender } = renderHook(
+      ({ n, s }) => useMemoryTabs(false, n, 0, s),
+      { initialProps: { n: 0, s: undefined as 'sync' | undefined } },
+    )
+    act(() => { result.current.openSettings('encryption') })
+    rerender({ n: 1, s: 'sync' })
+    expect(result.current.tabs.find((t) => t.kind === 'settings')).toEqual({ kind: 'settings', section: 'sync' })
+  })
+
+  it('un pedido sin sección conserva la que tenía', () => {
+    const { result, rerender } = renderHook(({ n }) => useMemoryTabs(false, n), { initialProps: { n: 0 } })
+    act(() => { result.current.openSettings('encryption') })
+    rerender({ n: 1 })
+    expect(result.current.tabs.find((t) => t.kind === 'settings')).toEqual({ kind: 'settings', section: 'encryption' })
+  })
+})
+
 // Final review I2 (Ruling 4): el tour de Memories apunta al explorer y al grafo, que con
 // Settings activa están montados pero ocultos.
 describe('useMemoryTabs — pedido del grafo (arranca el tour de Memories)', () => {

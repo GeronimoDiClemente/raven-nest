@@ -31,6 +31,8 @@ export interface MemorySettingsTabProps {
   prefsCargadas: boolean
   onPrefs: (cambio: (p: MemoryPrefs) => MemoryPrefs) => void
   onResetGraph: () => void
+  /** Spec 2b-3: el link de Cloud sync a Settings › Account. */
+  onPlanYFacturacion?: () => void
 }
 
 /** D19: el nombre de la carpeta del repo, que es como lo reconoce la persona. */
@@ -45,7 +47,7 @@ export default function MemorySettingsTab(p: MemorySettingsTabProps) {
     case 'sync':
       return (
         <SettingsSection titulo="Sync" bajada="Your memory on every machine you sign in to.">
-          <CloudMemoryCard />
+          <CloudMemoryCard onPlanYFacturacion={p.onPlanYFacturacion} />
         </SettingsSection>
       )
     case 'encryption':

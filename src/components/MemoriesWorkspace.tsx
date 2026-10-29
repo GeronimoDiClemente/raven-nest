@@ -32,7 +32,7 @@ import { useMemoryPrefs } from '../hooks/useMemoryPrefs'
 import { conFiltros, FILTROS_POR_DEFECTO, type FiltrosGuardados } from '../lib/memory-prefs'
 import { armarArbol } from '../lib/memories-tree'
 import { pestanaDelHilo } from '../lib/pestana-del-hilo'
-import { SECCIONES_DE_SETTINGS, tabId, type MemoryTab } from '../lib/memory-tabs'
+import { SECCIONES_DE_SETTINGS, tabId, type MemoryTab, type SeccionDeSettings } from '../lib/memory-tabs'
 import { leer, escribir } from '../lib/almacen-seguro'
 import type { CandidatoDeLink } from '../lib/cm-wikilink-autocomplete'
 import { ICON_SIZE } from '../lib/icons'
@@ -80,6 +80,10 @@ interface Props {
   /** Sube cada vez que algo de afuera (Account → "Memory settings") pide abrir la pestaña
    *  Settings; useMemoryTabs atiende cada pedido una vez por sesión (D5). */
   pedidoDeSettings?: number
+  /** La sección que trae el pedido (Keep syncing → 'sync'); sin ella conserva la actual. */
+  seccionDeSettings?: SeccionDeSettings
+  /** Plan & billing: cierra Memories y abre Settings › Account. */
+  onPlanYFacturacion?: () => void
   /** Sube cada vez que arranca el tour de Memories: activa Graph para que sus anclas se vean
    *  (final review I2). Mismo mecanismo que `pedidoDeSettings`. */
   pedidoDelGrafo?: number
@@ -111,7 +115,7 @@ function leerColumnas(): [number, number, number] {
 
 export default function MemoriesWorkspace({
   onClose, activeRepoPath, onOpenFile, onLinkRepo, closing = false, ansi, onHowItWorks,
-  pedidoDeSettings = 0, pedidoDelGrafo = 0,
+  pedidoDeSettings = 0, pedidoDelGrafo = 0, seccionDeSettings, onPlanYFacturacion,
 }: Props) {
   const state = useMemories()
 
@@ -213,7 +217,7 @@ export default function MemoriesWorkspace({
   // pestaña Settings (D3): prender o apagar se ve en el acto.
   const hilo = useTeamThreadSettings(activeRepoPath)
   const conHilo = pestanaDelHilo(activeRepoPath, hilo)
-  const tabs = useMemoryTabs(conHilo, pedidoDeSettings, pedidoDelGrafo)
+  const tabs = useMemoryTabs(conHilo, pedidoDeSettings, pedidoDelGrafo, seccionDeSettings)
   const activa: MemoryTab = tabs.tabs.find((t) => tabId(t) === tabs.activeId) ?? tabs.tabs[0]
   const settingsActiva = activa.kind === 'settings'
 
@@ -624,6 +628,7 @@ export default function MemoriesWorkspace({
                         prefsCargadas={prefsMem.cargadas}
                         onPrefs={prefsMem.actualizar}
                         onResetGraph={restablecerGrafo}
+                        onPlanYFacturacion={onPlanYFacturacion}
                       />
                     </div>
                   )}
