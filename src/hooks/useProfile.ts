@@ -90,13 +90,16 @@ export function useProfile(): Profile {
     // Evita apilar lecturas: tres `focus` seguidos (alt-tab nervioso) dispararian
     // tres consultas identicas, y la ultima en resolver decide el estado.
     let enVuelo = false
+    let overridePlan: string | null = null
 
     const load = async () => {
       // Override E2E/demo (RAVEN_E2E_PLAN): gateado DOBLE al bypass — en una
       // sesión real appFlags.e2eBypass es false y esto nunca corre. Permite
       // probar features gateadas por plan sin un perfil Supabase.
-      const e2ePlan = window.appFlags?.e2eBypass ? window.appFlags.e2ePlan : null
-      if (e2ePlan === 'free' || e2ePlan === 'cloud' || e2ePlan === 'pro' || e2ePlan === 'team' || e2ePlan === 'enterprise') {
+      // Un plan puesto por el evento 'nest:e2e-plan' gana sobre RAVEN_E2E_PLAN: sin esto el
+      // próximo `focus` lo pisaba (y en Playwright el foco llega solo).
+      const e2ePlan = window.appFlags?.e2eBypass ? (overridePlan ?? window.appFlags.e2ePlan) : null
+      if (e2ePlan && PLANES_CONOCIDOS.includes(e2ePlan)) {
         setProfile({ plan: e2ePlan, loading: false, isTrialActive: false, trialDaysLeft: 0, rawPlan: e2ePlan, userId: null, ...leerE2eBilling(), recargar })
         return
       }
@@ -146,7 +149,8 @@ export function useProfile(): Profile {
     const alCambiarPlanE2e = (e: Event) => {
       const plan = (e as CustomEvent<{ plan: string }>).detail?.plan
       if (!PLANES_CONOCIDOS.includes(plan)) return
-      setProfile(p => ({ ...p, plan: plan as Plan, rawPlan: plan, loading: false }))
+      overridePlan = plan
+      setProfile(p => ({ ...p, plan: plan as Plan, rawPlan: plan, loading: false, isTrialActive: false, trialDaysLeft: 0 }))
     }
     const e2e = !!window.appFlags?.e2eBypass
     if (e2e) window.addEventListener('nest:e2e-plan', alCambiarPlanE2e)

@@ -212,6 +212,10 @@ describe('useProfile — período de facturación', () => {
     expect(a.result.current.rawPlan).toBe('cloud')
     await act(async () => { window.dispatchEvent(new CustomEvent('nest:e2e-plan', { detail: { plan: 'diamante' } })) })
     expect(a.result.current.plan).toBe('cloud')
+    // el foco (Playwright lo manda solo) no pisa el plan puesto por el evento
+    await act(async () => { window.dispatchEvent(new Event('focus')) })
+    expect(a.result.current.plan).toBe('cloud')
+    expect(a.result.current.rawPlan).toBe('cloud')
     a.unmount()
 
     ;(window as unknown as { appFlags: unknown }).appFlags = { e2eBypass: false }
