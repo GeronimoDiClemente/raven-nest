@@ -13,6 +13,10 @@ describe('estadoDeUso', () => {
     expect(estadoDeUso({ ...base, state: 'disconnected' })).toEqual({ tipo: 'apagado' })
   })
 
+  it.each(['connecting', 'migrating'])('%s es cargando, no apagado', (state) => {
+    expect(estadoDeUso({ ...base, state })).toEqual({ tipo: 'cargando' })
+  })
+
   it('paused cuenta como conectado', () => {
     expect(estadoDeUso({ ...base, state: 'paused' }).tipo).toBe('conectado')
   })

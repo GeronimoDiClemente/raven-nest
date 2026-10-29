@@ -14,8 +14,9 @@ vi.mock('../../lib/supabase', () => ({ supabase: supabaseMock }))
 const perfil = vi.hoisted(() => ({ actual: {} as Record<string, unknown> }))
 vi.mock('../../hooks/useProfile', () => ({ useProfile: () => perfil.actual }))
 
+// La memoria llega por prop desde SettingsPanel (una instancia propia de useMemory le robaba
+// el canal memory:status a la del panel).
 const memoria = vi.hoisted(() => ({ actual: {} as Record<string, unknown> }))
-vi.mock('../../hooks/useMemory', () => ({ useMemory: () => memoria.actual }))
 
 const portal = vi.hoisted(() => ({ abrirPortal: vi.fn() }))
 vi.mock('../../lib/checkout', async (orig) => ({
@@ -74,7 +75,7 @@ afterEach(() => {
 describe('AccountPlanSection — Plan', () => {
   it('Free: el detalle y Upgrade abre el UpgradeModal', () => {
     fingirPuente()
-    render(<AccountPlanSection onOpenMemorySync={() => {}} />)
+    render(<AccountPlanSection memory={memoria.actual as never} onOpenMemorySync={() => {}} />)
     expect(screen.getByText('Free')).toBeTruthy()
     expect(screen.getByText('1 project in the cloud. Cloud syncs all of them.')).toBeTruthy()
     expect(screen.queryByTestId('upgrade-modal')).toBeNull()
@@ -86,7 +87,7 @@ describe('AccountPlanSection — Plan', () => {
     fingirPuente()
     fingirPerfil({ plan: 'cloud', rawPlan: 'cloud', billingInterval: 'monthly', currentPeriodEnd: '2099-11-29T12:00:00Z' })
     portal.abrirPortal.mockResolvedValue({ ok: true })
-    render(<AccountPlanSection onOpenMemorySync={() => {}} />)
+    render(<AccountPlanSection memory={memoria.actual as never} onOpenMemorySync={() => {}} />)
     expect(screen.getByText('Cloud · Monthly')).toBeTruthy()
     expect(screen.getByText('Renews on Nov 29, 2099')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Manage subscription' }))
@@ -96,7 +97,7 @@ describe('AccountPlanSection — Plan', () => {
   it('Cloud cancelando', () => {
     fingirPuente()
     fingirPerfil({ plan: 'cloud', rawPlan: 'cloud', billingInterval: 'annual', currentPeriodEnd: '2099-11-29T12:00:00Z', cancelAtPeriodEnd: true })
-    render(<AccountPlanSection onOpenMemorySync={() => {}} />)
+    render(<AccountPlanSection memory={memoria.actual as never} onOpenMemorySync={() => {}} />)
     expect(screen.getByText('Cloud · Annual')).toBeTruthy()
     expect(screen.getByText('Cancels on Nov 29, 2099 — you keep Cloud until then.')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Manage subscription' })).toBeTruthy()
@@ -105,7 +106,7 @@ describe('AccountPlanSection — Plan', () => {
   it('Cloud sin fecha: no inventa una línea', () => {
     fingirPuente()
     fingirPerfil({ plan: 'cloud', rawPlan: 'cloud' })
-    render(<AccountPlanSection onOpenMemorySync={() => {}} />)
+    render(<AccountPlanSection memory={memoria.actual as never} onOpenMemorySync={() => {}} />)
     expect(screen.getByText('Cloud')).toBeTruthy()
     expect(screen.queryByText(/Renews on|Cancels on/)).toBeNull()
     expect(screen.getByRole('button', { name: 'Manage subscription' })).toBeTruthy()
@@ -115,9 +116,10 @@ describe('AccountPlanSection — Plan', () => {
     fingirPuente()
     fingirPerfil({ plan: 'cloud', rawPlan: 'cloud', currentPeriodEnd: enFuturo(10) })
     portal.abrirPortal.mockResolvedValue({ ok: false, error: 'Portal roto.', code: null })
-    render(<AccountPlanSection onOpenMemorySync={() => {}} />)
+    render(<AccountPlanSection memory={memoria.actual as never} onOpenMemorySync={() => {}} />)
     fireEvent.click(screen.getByRole('button', { name: 'Manage subscription' }))
-    const err = await screen.findByText('Portal roto.')
+    const err = await screen.findByRole('alert')
+    expect(err.textContent).toBe('Portal roto.')
     expect(err.className).toContain('text-destructive')
     expect(recargar).not.toHaveBeenCalled()
   })
@@ -126,7 +128,7 @@ describe('AccountPlanSection — Plan', () => {
     fingirPuente()
     fingirPerfil({ plan: 'cloud', rawPlan: 'cloud' })
     portal.abrirPortal.mockResolvedValue({ ok: false, error: 'Sin suscripción.', code: 'no_subscription' })
-    render(<AccountPlanSection onOpenMemorySync={() => {}} />)
+    render(<AccountPlanSection memory={memoria.actual as never} onOpenMemorySync={() => {}} />)
     fireEvent.click(screen.getByRole('button', { name: 'Manage subscription' }))
     await screen.findByText('Sin suscripción.')
     expect(recargar).toHaveBeenCalledTimes(1)
@@ -135,7 +137,7 @@ describe('AccountPlanSection — Plan', () => {
   it('cargando: esqueleto, nunca Free', () => {
     fingirPuente()
     fingirPerfil({ loading: true })
-    render(<AccountPlanSection onOpenMemorySync={() => {}} />)
+    render(<AccountPlanSection memory={memoria.actual as never} onOpenMemorySync={() => {}} />)
     expect(screen.getByTestId('plan-cargando')).toBeTruthy()
     expect(screen.queryByText('Free')).toBeNull()
     expect(screen.queryByRole('button', { name: 'Upgrade' })).toBeNull()
@@ -149,7 +151,7 @@ describe('AccountPlanSection — Usage', () => {
       localOnlyProjects: [{ projectKey: 'k-a', name: 'a', count: 1 }, { projectKey: 'k-b', name: 'b', count: 2 }],
     })
     const onOpen = vi.fn()
-    render(<AccountPlanSection onOpenMemorySync={onOpen} />)
+    render(<AccountPlanSection memory={memoria.actual as never} onOpenMemorySync={onOpen} />)
     expect(screen.getByText('Projects in the cloud')).toBeTruthy()
     expect(screen.getByText('1 of 1 · raven-nest')).toBeTruthy()
     fireEvent.click(screen.getByText('2 local only — Keep syncing in Memory settings ›'))
@@ -159,7 +161,7 @@ describe('AccountPlanSection — Usage', () => {
 
   it('sin solo locales no hay segunda línea', async () => {
     fingirPuente()
-    render(<AccountPlanSection onOpenMemorySync={() => {}} />)
+    render(<AccountPlanSection memory={memoria.actual as never} onOpenMemorySync={() => {}} />)
     await screen.findByText('3 connected')
     expect(screen.queryByText(/local only/)).toBeNull()
   })
@@ -168,7 +170,7 @@ describe('AccountPlanSection — Usage', () => {
     const puente = fingirPuente()
     fingirMemoria({ state: 'disconnected', cloudProjects: null })
     const onOpen = vi.fn()
-    render(<AccountPlanSection onOpenMemorySync={onOpen} />)
+    render(<AccountPlanSection memory={memoria.actual as never} onOpenMemorySync={onOpen} />)
     expect(screen.getByText('Cloud sync is off.')).toBeTruthy()
     fireEvent.click(screen.getByText('Turn on in Memory settings ›'))
     expect(onOpen).toHaveBeenCalledTimes(1)
@@ -176,10 +178,19 @@ describe('AccountPlanSection — Usage', () => {
     expect(screen.queryByText('Projects in the cloud')).toBeNull()
   })
 
+  it.each(['connecting', 'migrating'])('%s: esqueleto, no "Cloud sync is off."', (state) => {
+    const puente = fingirPuente()
+    fingirMemoria({ state, cloudProjects: null })
+    render(<AccountPlanSection memory={memoria.actual as never} onOpenMemorySync={() => {}} />)
+    expect(screen.getByTestId('uso-cargando')).toBeTruthy()
+    expect(screen.queryByText('Cloud sync is off.')).toBeNull()
+    expect(puente.devices).not.toHaveBeenCalled()
+  })
+
   it('beta: invite-only', () => {
     const puente = fingirPuente()
     fingirMemoria({ state: 'error', error: 'not_in_beta', cloudProjects: null })
-    render(<AccountPlanSection onOpenMemorySync={() => {}} />)
+    render(<AccountPlanSection memory={memoria.actual as never} onOpenMemorySync={() => {}} />)
     expect(screen.getByText('Cloud sync is invite-only during the beta.')).toBeTruthy()
     expect(puente.devices).not.toHaveBeenCalled()
   })
@@ -187,10 +198,10 @@ describe('AccountPlanSection — Usage', () => {
   it('pide las máquinas cuando el sync pasa a conectado', async () => {
     const puente = fingirPuente()
     fingirMemoria({ state: 'connecting', cloudProjects: null })
-    const { rerender } = render(<AccountPlanSection onOpenMemorySync={() => {}} />)
+    const { rerender } = render(<AccountPlanSection memory={memoria.actual as never} onOpenMemorySync={() => {}} />)
     expect(puente.devices).not.toHaveBeenCalled()
     fingirMemoria()
-    rerender(<AccountPlanSection onOpenMemorySync={() => {}} />)
+    rerender(<AccountPlanSection memory={memoria.actual as never} onOpenMemorySync={() => {}} />)
     await waitFor(() => expect(puente.devices).toHaveBeenCalledTimes(1))
   })
 })
@@ -200,12 +211,12 @@ describe('AccountPlanSection — Machines', () => {
 
   it('las filas, la actual sin Disconnect, y el pie', async () => {
     fingirPuente()
-    render(<AccountPlanSection onOpenMemorySync={() => {}} />)
+    render(<AccountPlanSection memory={memoria.actual as never} onOpenMemorySync={() => {}} />)
     await screen.findByText('Gero-PC')
     expect(within(fila('Gero-PC')).getByText('Windows · This machine')).toBeTruthy()
     expect(within(fila('Gero-PC')).queryByRole('button')).toBeNull()
     expect(within(fila('MacBook')).getByText('macOS · last seen 3d ago')).toBeTruthy()
-    expect(within(fila('MacBook')).getByRole('button', { name: 'Disconnect' })).toBeTruthy()
+    expect(within(fila('MacBook')).getByRole('button', { name: 'Disconnect MacBook' })).toBeTruthy()
     expect(within(fila('build-vm')).getByText('Linux · last seen never')).toBeTruthy()
     expect(screen.getByText('Disconnecting stops syncing on that machine. Memory it already downloaded stays there.')).toBeTruthy()
   })
@@ -215,7 +226,7 @@ describe('AccountPlanSection — Machines', () => {
       { id: 'x', name: 'Raro', platform: null, lastSeenAt: null, current: false },
       { id: 'y', name: 'Bsd', platform: 'freebsd', lastSeenAt: null, current: false },
     ])
-    render(<AccountPlanSection onOpenMemorySync={() => {}} />)
+    render(<AccountPlanSection memory={memoria.actual as never} onOpenMemorySync={() => {}} />)
     await screen.findByText('Raro')
     expect(within(fila('Raro')).getByText('last seen never')).toBeTruthy()
     expect(within(fila('Bsd')).getByText('freebsd · last seen never')).toBeTruthy()
@@ -223,17 +234,18 @@ describe('AccountPlanSection — Machines', () => {
 
   it('la actual nunca muestra Disconnect, aunque sea la única', async () => {
     fingirPuente([MAQUINAS[0]])
-    render(<AccountPlanSection onOpenMemorySync={() => {}} />)
+    render(<AccountPlanSection memory={memoria.actual as never} onOpenMemorySync={() => {}} />)
     await screen.findByText('Gero-PC')
-    expect(screen.queryByRole('button', { name: 'Disconnect' })).toBeNull()
+    expect(screen.queryByRole('button', { name: /Disconnect/ })).toBeNull()
   })
 
   it('confirmación en línea: Cancel vuelve sin llamar', async () => {
     const puente = fingirPuente()
-    render(<AccountPlanSection onOpenMemorySync={() => {}} />)
+    render(<AccountPlanSection memory={memoria.actual as never} onOpenMemorySync={() => {}} />)
     await screen.findByText('MacBook')
-    fireEvent.click(within(fila('MacBook')).getByRole('button', { name: 'Disconnect' }))
+    fireEvent.click(within(fila('MacBook')).getByRole('button', { name: 'Disconnect MacBook' }))
     expect(screen.getByText('Disconnect MacBook?')).toBeTruthy()
+    expect(document.activeElement).toBe(within(fila('MacBook')).getByRole('button', { name: 'Cancel' }))
     fireEvent.click(within(fila('MacBook')).getByRole('button', { name: 'Cancel' }))
     expect(screen.queryByText('Disconnect MacBook?')).toBeNull()
     expect(puente.revokeDevice).not.toHaveBeenCalled()
@@ -243,9 +255,9 @@ describe('AccountPlanSection — Machines', () => {
     const puente = fingirPuente()
     let soltar: (v: { ok: true }) => void = () => {}
     puente.revokeDevice.mockReturnValue(new Promise((r) => { soltar = r }))
-    render(<AccountPlanSection onOpenMemorySync={() => {}} />)
+    render(<AccountPlanSection memory={memoria.actual as never} onOpenMemorySync={() => {}} />)
     await screen.findByText('MacBook')
-    fireEvent.click(within(fila('MacBook')).getByRole('button', { name: 'Disconnect' }))
+    fireEvent.click(within(fila('MacBook')).getByRole('button', { name: 'Disconnect MacBook' }))
     const confirmar = within(fila('MacBook')).getByRole('button', { name: 'Disconnect' })
     fireEvent.click(confirmar)
     fireEvent.click(confirmar)
@@ -260,22 +272,22 @@ describe('AccountPlanSection — Machines', () => {
   it('error al desconectar: mensaje y la fila sigue', async () => {
     const puente = fingirPuente()
     puente.revokeDevice.mockResolvedValue({ ok: false, error: 'offline' })
-    render(<AccountPlanSection onOpenMemorySync={() => {}} />)
+    render(<AccountPlanSection memory={memoria.actual as never} onOpenMemorySync={() => {}} />)
     await screen.findByText('MacBook')
+    fireEvent.click(within(fila('MacBook')).getByRole('button', { name: 'Disconnect MacBook' }))
     fireEvent.click(within(fila('MacBook')).getByRole('button', { name: 'Disconnect' }))
-    fireEvent.click(within(fila('MacBook')).getByRole('button', { name: 'Disconnect' }))
-    expect(await screen.findByText("Couldn't disconnect MacBook. Try again.")).toBeTruthy()
+    expect((await screen.findByRole('alert')).textContent).toBe("Couldn't disconnect MacBook. Try again.")
     expect(screen.getByText('MacBook')).toBeTruthy()
   })
 
   it.each(['not_found', 'account_changed'])('%s vuelve a pedir la lista', async (codigo) => {
     const puente = fingirPuente()
     puente.revokeDevice.mockResolvedValue({ ok: false, error: codigo })
-    render(<AccountPlanSection onOpenMemorySync={() => {}} />)
+    render(<AccountPlanSection memory={memoria.actual as never} onOpenMemorySync={() => {}} />)
     await screen.findByText('MacBook')
     expect(puente.devices).toHaveBeenCalledTimes(1)
     puente.devices.mockResolvedValue({ ok: true, devices: [MAQUINAS[0]] })
-    fireEvent.click(within(fila('MacBook')).getByRole('button', { name: 'Disconnect' }))
+    fireEvent.click(within(fila('MacBook')).getByRole('button', { name: 'Disconnect MacBook' }))
     fireEvent.click(within(fila('MacBook')).getByRole('button', { name: 'Disconnect' }))
     await waitFor(() => expect(puente.devices).toHaveBeenCalledTimes(2))
     await waitFor(() => expect(screen.queryByText('MacBook')).toBeNull())
@@ -284,12 +296,47 @@ describe('AccountPlanSection — Machines', () => {
   it('error al cargar: Retry vuelve a pedir y Usage sigue', async () => {
     const puente = fingirPuente()
     puente.devices.mockResolvedValueOnce({ ok: false, error: 'offline' })
-    render(<AccountPlanSection onOpenMemorySync={() => {}} />)
-    expect(await screen.findByText("Couldn't load your machines.")).toBeTruthy()
+    render(<AccountPlanSection memory={memoria.actual as never} onOpenMemorySync={() => {}} />)
+    expect((await screen.findByRole('alert')).textContent).toBe("Couldn't load your machines.")
     expect(screen.getByText('1 of 1 · raven-nest')).toBeTruthy()
     expect(screen.queryByText(/connected$/)).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
     expect(await screen.findByText('Gero-PC')).toBeTruthy()
     expect(puente.devices).toHaveBeenCalledTimes(2)
+  })
+
+  it('una lectura vieja que llega después del revoke no resucita la máquina', async () => {
+    const puente = fingirPuente()
+    const ui = () => <AccountPlanSection memory={memoria.actual as never} onOpenMemorySync={() => {}} />
+    const { rerender } = render(ui())
+    await screen.findByText('MacBook')
+    // Reconectar dispara otra lectura; queda colgada y después llega con la lista VIEJA.
+    let soltarLista: (v: unknown) => void = () => {}
+    puente.devices.mockReturnValueOnce(new Promise((r) => { soltarLista = r }))
+    fingirMemoria({ state: 'disconnected', cloudProjects: null })
+    rerender(ui())
+    fingirMemoria()
+    rerender(ui())
+    await waitFor(() => expect(puente.devices).toHaveBeenCalledTimes(2))
+    fireEvent.click(within(fila('MacBook')).getByRole('button', { name: 'Disconnect MacBook' }))
+    fireEvent.click(within(fila('MacBook')).getByRole('button', { name: 'Disconnect' }))
+    await waitFor(() => expect(screen.queryByText('MacBook')).toBeNull())
+    await act(async () => { soltarLista({ ok: true, devices: MAQUINAS }) })
+    expect(screen.queryByText('MacBook')).toBeNull()
+    expect(screen.getByText('2 connected')).toBeTruthy()
+  })
+
+  it('con un revoke en vuelo, el Disconnect de otra fila también queda deshabilitado', async () => {
+    const puente = fingirPuente()
+    puente.revokeDevice.mockReturnValue(new Promise(() => {}))
+    render(<AccountPlanSection memory={memoria.actual as never} onOpenMemorySync={() => {}} />)
+    await screen.findByText('MacBook')
+    fireEvent.click(within(fila('MacBook')).getByRole('button', { name: 'Disconnect MacBook' }))
+    fireEvent.click(within(fila('MacBook')).getByRole('button', { name: 'Disconnect' }))
+    fireEvent.click(within(fila('build-vm')).getByRole('button', { name: 'Disconnect build-vm' }))
+    const otro = within(fila('build-vm')).getByRole('button', { name: 'Disconnect' }) as HTMLButtonElement
+    expect(otro.disabled).toBe(true)
+    fireEvent.click(otro)
+    expect(puente.revokeDevice).toHaveBeenCalledTimes(1)
   })
 })

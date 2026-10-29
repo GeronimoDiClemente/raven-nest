@@ -3,6 +3,7 @@ import { descripcionDeProyectosEnLaNube, soloLocales, tieneTope, type ProyectoEn
 
 export type EstadoDeUso =
   | { tipo: 'apagado' }                // 'Cloud sync is off.' + 'Turn on in Memory settings ›'
+  | { tipo: 'cargando' }               // conectando o importando: ni "off" ni números todavía
   | { tipo: 'beta' }                   // 'Cloud sync is invite-only during the beta.'
   | { tipo: 'conectado'; proyectos: string | null; soloLocales: number }
 
@@ -15,6 +16,10 @@ export function estadoDeUso(m: {
   overLimit: boolean
 }): EstadoDeUso {
   if (m.state === 'error' && m.error === 'not_in_beta') return { tipo: 'beta' }
+  // Mientras conecta no se dice "Cloud sync is off.": parpadearía justo antes de conectar.
+  // (El 'disconnected' inicial de useMemory, antes del primer status, no se distingue de uno
+  // real: el hook no expone una señal de "ya leí".)
+  if (m.state === 'connecting' || m.state === 'migrating') return { tipo: 'cargando' }
   // `paused` (sin red, candado tomado) sigue siendo una cuenta conectada: el uso vale igual.
   if (m.state !== 'connected' && m.state !== 'paused') return { tipo: 'apagado' }
   const enLaNube = m.cloudProjects ?? []

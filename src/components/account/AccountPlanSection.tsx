@@ -2,7 +2,7 @@
 import { useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useProfile } from '../../hooks/useProfile'
-import { useMemory } from '../../hooks/useMemory'
+import type { useMemory } from '../../hooks/useMemory'
 import { lineaDePlan } from '../../lib/plan-de-cuenta'
 import { abrirPortal, COPY_CHECKOUT_SIN_RED } from '../../lib/checkout'
 import { estadoDeUso } from '../../lib/uso-de-cuenta'
@@ -24,9 +24,16 @@ function Enlace({ children, onClick }: { children: ReactNode; onClick: () => voi
   )
 }
 
-export default function AccountPlanSection({ onOpenMemorySync }: { onOpenMemorySync: () => void }) {
+/** Lo que la sección lee de `useMemory`. */
+export type MemoriaDeCuenta = Pick<ReturnType<typeof useMemory>, 'state' | 'error' | 'cloudProjects' | 'limits' | 'localOnlyProjects' | 'overLimit'>
+
+/**
+ * `memory` viene de SettingsPanel y NO de un `useMemory()` propio: el `onStatus` del preload
+ * hace `removeAllListeners('memory:status')` antes de suscribir, así que una tercera instancia
+ * le robaba el canal a la del panel (la de MemoryAdoptionDialog) y una de las dos quedaba sorda.
+ */
+export default function AccountPlanSection({ memory, onOpenMemorySync }: { memory: MemoriaDeCuenta; onOpenMemorySync: () => void }) {
   const profile = useProfile()
-  const memory = useMemory()
   const [upgradeOpen, setUpgradeOpen] = useState(false)
   const [errorDePortal, setErrorDePortal] = useState<string | null>(null)
   const [abriendoPortal, setAbriendoPortal] = useState(false)
@@ -77,12 +84,14 @@ export default function AccountPlanSection({ onOpenMemorySync }: { onOpenMemoryS
         <div data-testid="plan-cargando" aria-busy className="my-3 h-4 w-40 animate-pulse rounded bg-muted" />
       ) : (
         <SettingRow nombre={linea.titulo} descripcion={linea.detalle} control={accion}>
-          {errorDePortal && <p className="m-0 text-fs-sm text-destructive">{errorDePortal}</p>}
+          {errorDePortal && <p role="alert" className="m-0 text-fs-sm text-destructive">{errorDePortal}</p>}
         </SettingRow>
       )}
 
       <Titulo>Usage</Titulo>
-      {uso.tipo === 'beta' ? (
+      {uso.tipo === 'cargando' ? (
+        <div data-testid="uso-cargando" aria-busy className="my-3 h-4 w-40 animate-pulse rounded bg-muted" />
+      ) : uso.tipo === 'beta' ? (
         <p className="m-0 py-3 text-fs-sm text-muted-foreground">Cloud sync is invite-only during the beta.</p>
       ) : uso.tipo === 'apagado' ? (
         <SettingRow nombre="Cloud sync is off.">

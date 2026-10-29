@@ -37,6 +37,8 @@ export function useMaquinas(activo: boolean) {
     try { r = await window.memory?.revokeDevice?.(id) } catch { return false }
     if (!r) return false
     if (r.ok) {
+      // Invalida una lectura en vuelo: llegaría con la máquina revocada y la resucitaría.
+      pedido.current++
       setEstado((e) => (e.tipo === 'ok' ? { tipo: 'ok', lista: e.lista.filter((m) => m.id !== id) } : e))
       return true
     }
@@ -93,7 +95,7 @@ export default function MachinesBlock({ estado, onRetry, onRevocar }: {
   if (estado.tipo === 'error') {
     return (
       <SettingRow
-        nombre={<span className="text-destructive">Couldn&apos;t load your machines.</span>}
+        nombre={<span role="alert" className="text-destructive">Couldn&apos;t load your machines.</span>}
         control={<Button variant="outline" size="sm" onClick={onRetry}>Retry</Button>}
       />
     )
@@ -108,11 +110,12 @@ export default function MachinesBlock({ estado, onRetry, onRevocar }: {
           : confirmando === m.id ? (
             <>
               <span className="text-fs-sm text-foreground">{`Disconnect ${m.name}?`}</span>
-              <Button variant="ghost" size="sm" disabled={revocando === m.id} onClick={() => setConfirmando(null)}>Cancel</Button>
-              <Button variant="destructive" size="sm" disabled={revocando === m.id} onClick={() => void confirmar(m.id)}>Disconnect</Button>
+              <Button variant="ghost" size="sm" autoFocus disabled={revocando === m.id} onClick={() => setConfirmando(null)}>Cancel</Button>
+              {/* Un solo revoke a la vez en todo el bloque: el guard `enVuelo` es uno. */}
+              <Button variant="destructive" size="sm" disabled={revocando !== null} onClick={() => void confirmar(m.id)}>Disconnect</Button>
             </>
           )
-          : <Button variant="outline" size="sm" onClick={() => { setConError(null); setConfirmando(m.id) }}>Disconnect</Button>
+          : <Button variant="outline" size="sm" aria-label={`Disconnect ${m.name}`} onClick={() => { setConError(null); setConfirmando(m.id) }}>Disconnect</Button>
         return (
           <SettingRow
             key={m.id}
@@ -121,7 +124,7 @@ export default function MachinesBlock({ estado, onRetry, onRevocar }: {
             control={control}
           >
             {conError === m.id && (
-              <p className="m-0 text-fs-sm text-destructive">{`Couldn't disconnect ${m.name}. Try again.`}</p>
+              <p role="alert" className="m-0 text-fs-sm text-destructive">{`Couldn't disconnect ${m.name}. Try again.`}</p>
             )}
           </SettingRow>
         )

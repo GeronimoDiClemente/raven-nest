@@ -533,7 +533,7 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                   <p className="sp-email">{userEmail || '—'}</p>
 
                   {/* Spec 2b-3 §3: Plan, Usage y Machines. */}
-                  <AccountPlanSection onOpenMemorySync={() => onOpenMemories?.('settings')} />
+                  <AccountPlanSection memory={memory} onOpenMemorySync={() => onOpenMemories?.('settings')} />
 
 
                   {/* La memoria no vive en Settings: su configuración es la pestaña
